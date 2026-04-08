@@ -780,7 +780,7 @@ describe('ContractManager Acceptance Flow', () => {
       // 核心字段
       expect(content).toContain('type: acceptance_result');
       expect(content).toContain('priority: normal');
-      expect(content).toContain('source: contract_system');
+      expect(content).toContain('source: "contract_system"');
       expect(content).toContain('to: "test-claw"');
       expect(content).toContain(`contract_id: "${contractId}"`);
       expect(content).toContain('subtask_id: "task-1"');
@@ -821,7 +821,7 @@ describe('ContractManager Acceptance Flow', () => {
       // 核心字段
       expect(content).toContain('type: acceptance_rejection');
       expect(content).toContain('priority: high');
-      expect(content).toContain('source: contract_system');
+      expect(content).toContain('source: "contract_system"');
       expect(content).toContain('to: "test-claw"');
       expect(content).toContain(`contract_id: "${contractId}"`);
       expect(content).toContain('subtask_id: "task-1"');

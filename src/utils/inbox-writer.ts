@@ -56,7 +56,7 @@ export function writeInboxMessage(opts: InboxMessageOptions): void {
   let yaml = `---
 id: ${idPrefix}-${now.getTime()}
 type: ${opts.type}
-source: ${opts.source}`;
+source: ${yamlQuote(opts.source)}`;
 
   if (opts.to) {
     yaml += `\nto: ${yamlQuote(opts.to)}`;
