@@ -161,12 +161,14 @@ export class LLMRateLimitError extends LLMError {
 
 export class LLMTimeoutError extends LLMError {
   readonly code: ErrorCode = 'LLM_TIMEOUT';
-  
+  readonly timeoutMs: number;
+
   constructor(provider: string, timeoutMs: number) {
     super(
       `LLM call to "${provider}" timed out after ${timeoutMs}ms`,
       { provider, timeoutMs }
     );
+    this.timeoutMs = timeoutMs;
   }
 }
 

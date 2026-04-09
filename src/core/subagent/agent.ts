@@ -23,7 +23,7 @@ import type { Message } from '../../types/message.js';
 import type { AuditWriter } from '../../foundation/audit/writer.js';
 import type { StreamSink } from '../../foundation/recording/context.js';
 import type { CallerType } from '../tools/caller-type.js';
-import { isDispatchCaller } from '../tools/caller-type.js';
+import { callerTypeToProfile } from '../tools/caller-type.js';
 
 export interface SubAgentOptions {
   agentId: string;
@@ -151,9 +151,8 @@ export class SubAgent {
     this.auditWriter?.write('turn_start');
 
     try {
-      // spawnProfile 防止递归：dispatcher 可 spawn，subagent 不行
       const callerType = this.callerType ?? 'subagent';
-      const spawnProfile = isDispatchCaller(callerType) ? 'full' : 'subagent';
+      const executorProfile = callerTypeToProfile(callerType);
       const executor = new ToolExecutor({
         registry: this.registry,
         clawDir: this.clawDir,
@@ -165,7 +164,7 @@ export class SubAgent {
         contractManager: this.contractManager,
         skillRegistry: this.skillRegistry,
         subagentMaxSteps: this.subagentMaxSteps ?? this.maxSteps,
-        profile: spawnProfile,
+        profile: executorProfile,
       });
 
       // Setup messages（若传入 messages 则直接使用，否则从 prompt 构建）
@@ -247,7 +246,7 @@ export class SubAgent {
           systemPrompt,
           llm: this.llm,
           executor,
-          ctx: executor.getExecContext(spawnProfile, {
+          ctx: executor.getExecContext(executorProfile, {
             clawId: this.agentId,
             signal: timeoutController.signal,
             callerType,

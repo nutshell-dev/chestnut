@@ -12,6 +12,7 @@ import type { LLMResponse } from '../../types/message.js';
 import {
   LLMError,
   LLMAllProvidersFailedError,
+  LLMTimeoutError,
 } from '../../types/errors.js';
 import { appendFileSync, mkdirSync, writeFileSync } from 'fs';
 import * as path from 'path';
@@ -299,8 +300,14 @@ export class LLMService implements ILLMService {
           lastError = err;
           // Don't retry on user abort
           if (err.name === 'AbortError') throw err;
-          // Don't retry after chunks have been yielded — caller already has partial state
-          if (hasYielded) throw err;
+          // Mid-stream timeout: signal caller to discard partial state, then failover to next provider
+          if (hasYielded) {
+            if (err instanceof LLMTimeoutError) {
+              yield { type: 'reset', provider: adapter.name, timeoutMs: err.timeoutMs };
+              break; // exit retry loop → outer loop continues to next provider
+            }
+            throw err;
+          }
 
           // Don't wait after the last attempt
           if (attempt < this.config.maxAttempts - 1) {

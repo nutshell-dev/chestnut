@@ -565,7 +565,12 @@ export class ClawRuntime {
         onThinkingDelta: (d) => { resetIdle?.(); emitProviderInfoOnce(); callbacks?.onThinkingDelta?.(d); },
         onToolCall: (n, id) => { resetIdle?.(); callbacks?.onToolCall?.(n, id); },
         onToolResult: auditOnToolResult,
-        onBeforeLLMCall: callbacks?.onBeforeLLMCall,
+        onBeforeLLMCall: () => { resetIdle?.(); callbacks?.onBeforeLLMCall?.(); },
+        onReset: (provider, timeoutMs) => {
+          resetIdle?.();
+          providerInfoEmitted = false;
+          callbacks?.onProviderFailover?.({ from: provider, timeoutMs });
+        },
       });
     } finally {
       clearTimeout(idleTimerId);

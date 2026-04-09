@@ -86,6 +86,9 @@ export interface ReactOptions {
   
   /** Callback for streaming thinking deltas (for extended thinking display) */
   onThinkingDelta?: (delta: string) => void;
+
+  /** Callback when mid-stream failover occurs (provider timed out, switching) */
+  onReset?: (provider: string, timeoutMs: number) => void;
 }
 
 /**
@@ -149,7 +152,7 @@ export async function runReact(options: ReactOptions): Promise<ReactResult> {
       tools: options.tools,
       maxTokens: REACT_DEFAULT_MAX_TOKENS,
       signal: ctx.signal,
-    }, options.onTextDelta, options.onThinkingDelta, options.onTextEnd);
+    }, options.onTextDelta, options.onThinkingDelta, options.onTextEnd, options.onReset);
 
     // Handle tool_use stop reason
     if (response.stop_reason === 'tool_use') {
@@ -453,6 +456,7 @@ async function collectStreamResponse(
   onTextDelta?: (delta: string) => void,
   onThinkingDelta?: (delta: string) => void,
   onTextEnd?: () => void,
+  onReset?: (provider: string, timeoutMs: number) => void,
 ): Promise<LLMResponse> {
   const contentBlocks: ContentBlock[] = [];
   let currentText = '';
@@ -529,6 +533,19 @@ async function collectStreamResponse(
           if (currentToolUse && chunk.toolUse?.partialInput) {
             currentToolUse.input += chunk.toolUse.partialInput;
           }
+          break;
+
+        case 'reset':
+          // Mid-stream provider failover: discard partial state, new provider will start fresh
+          console.warn(`[llm] mid-stream failover: ${chunk.provider} timed out after ${chunk.timeoutMs}ms`);
+          contentBlocks.length = 0;
+          currentText = '';
+          currentThinking = '';
+          currentSignature = '';
+          currentToolUse = null;
+          stopReason = 'end_turn';
+          usage = undefined;
+          onReset?.(chunk.provider ?? 'unknown', chunk.timeoutMs ?? 0);
           break;
 
         case 'done':

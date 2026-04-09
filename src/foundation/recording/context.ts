@@ -24,6 +24,8 @@ export interface StreamCallbacks {
   onTurnError?: (error: string) => void;
   onTurnInterrupted?: (cause: string, message?: string) => void;
   onProviderInfo?: (info: { name: string; model: string; isFallback: boolean }) => void;
+  /** Provider timed out mid-stream, failover starting */
+  onProviderFailover?: (info: { from: string; timeoutMs: number }) => void;
 }
 
 /**
