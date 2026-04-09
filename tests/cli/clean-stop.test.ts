@@ -6,7 +6,7 @@
  * 验证点：
  * 1. watchdog-state.json 不再持久化 clawPreviouslyAlive
  * 2. stop.ts 写入 clean-stop 标记
- * 3. daemon-loop.ts 仅对 motion daemon（options.heartbeat 存在时）检查 clean-stop
+ * 3. daemon-loop.ts 仅对 motion daemon（options.isMotion 为 true 时）检查 clean-stop
  */
 
 import { describe, it, expect } from 'vitest';
@@ -94,27 +94,27 @@ describe('Phase 86: clean stop 生命周期修复', () => {
   // Step 3 + 4: daemon-loop.ts 仅对 motion 检查 clean-stop
   // ==========================================================================
   describe('Step 3+4: daemon-loop clean-stop 检测', () => {
-    it('应检查 options.heartbeat 来区分 motion 和 claw daemon', () => {
-      expect(daemonLoopSource).toContain('options.heartbeat');
-      // heartbeat 判断应在 clean-stop 检测逻辑中
-      const cleanStopIdx = daemonLoopSource.indexOf('clean-stop');
-      expect(cleanStopIdx).toBeGreaterThan(-1);
+    it('应检查 options.isMotion 来区分 motion 和 claw daemon', () => {
+      expect(daemonLoopSource).toContain('options.isMotion');
+      // isMotion 判断应在 clean-stop 检测逻辑中（找 cleanStopFile 变量定义处）
+      const cleanStopFileIdx = daemonLoopSource.indexOf('cleanStopFile');
+      expect(cleanStopFileIdx).toBeGreaterThan(-1);
 
       const surroundingCode = daemonLoopSource.slice(
-        cleanStopIdx - 200,
-        cleanStopIdx + 400
+        cleanStopFileIdx - 300,
+        cleanStopFileIdx + 200
       );
-      expect(surroundingCode).toContain('options.heartbeat');
+      expect(surroundingCode).toContain('options.isMotion');
     });
 
-    it('claw daemon（heartbeat 不存在）应直接返回 false，不消费标记', () => {
+    it('claw daemon（isMotion 为 false）应直接返回 false，不消费标记', () => {
       const isCleanStopMatch = daemonLoopSource.match(
         /const isCleanStop = \(\(\) => \{[\s\S]{0,400}?\}\)\(\)/
       );
       expect(isCleanStopMatch).toBeTruthy();
       const block = isCleanStopMatch![0];
-      // 应先检查 heartbeat，不存在就 return false
-      expect(block).toContain('options.heartbeat');
+      // 应先检查 isMotion，为 false 就 return false
+      expect(block).toContain('options.isMotion');
       expect(block).toContain('return false');
     });
 
@@ -127,12 +127,13 @@ describe('Phase 86: clean stop 生命周期修复', () => {
     });
 
     it('标记文件应被一次性消费（unlinkSync）', () => {
-      const cleanStopIdx = daemonLoopSource.indexOf('clean-stop');
-      expect(cleanStopIdx).toBeGreaterThan(-1);
-      // unlinkSync 应在 clean-stop 附近（±600字符内）
+      // 找到 cleanStopFile 定义（而非注释中的 clean-stop）
+      const cleanStopFileIdx = daemonLoopSource.indexOf('cleanStopFile');
+      expect(cleanStopFileIdx).toBeGreaterThan(-1);
+      // unlinkSync 应在 cleanStopFile 附近（±300字符内）
       const surroundingCode = daemonLoopSource.slice(
-        cleanStopIdx - 50,
-        cleanStopIdx + 600
+        cleanStopFileIdx - 50,
+        cleanStopFileIdx + 300
       );
       expect(surroundingCode).toContain('unlinkSync');
     });

@@ -418,6 +418,7 @@ export async function daemonCommand(name: string): Promise<void> {
     inboxPendingDir,
     label: isMotion ? '[motion daemon]' : '[daemon]',
     streamWriter,
+    isMotion,
     heartbeat: heartbeat ?? undefined,  // 传入心跳实例
     notifyMotionDir: isMotion ? undefined : getMotionDir(),
     onInboxMessages,   // 新增

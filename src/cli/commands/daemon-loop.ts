@@ -31,6 +31,7 @@ export interface DaemonLoopOptions {
   onBatchComplete?: () => Promise<void>; // callback invoked after a chain reaction finishes
   fallbackTimeoutMs?: number;            // fs.watch fallback timeout (default 30000ms)
   streamWriter?: StreamWriter;           // streaming event writer
+  isMotion?: boolean;                    // true = motion daemon（扫描 claw outbox、检查 clean-stop）
   heartbeat?: Heartbeat;                 // heartbeat instance (motion only)
   notifyMotionDir?: string;             // if set (claw only), notify motion on LLM max-retry failure
   onInboxMessages?: (infos: InboxMessageInfo[]) => Promise<void>;  // for review_request handling (motion only)
@@ -101,9 +102,8 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
   };
 
   // 检查 clean-stop 标记（仅 motion daemon）：intentional stop → 清零退避状态
-  // options.heartbeat 只有 motion 传入，用于区分 motion 和 claw daemon
   const isCleanStop = (() => {
-    if (!options.heartbeat) return false;   // claw daemon，不检查
+    if (!options.isMotion) return false;   // claw daemon，不检查
     const cleanStopFile = path.join(path.dirname(agentDir), 'clean-stop');
     try {
       fsNative.accessSync(cleanStopFile);
@@ -177,7 +177,7 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
       }
 
       // motion: scan claw outboxes for unread messages
-      if (options.heartbeat) {
+      if (options.isMotion) {
         const outboxInfos = await scanClawOutboxes(path.join(agentDir, '..'));
         if (outboxInfos !== null) {
           if (Date.now() - lastOutboxNotifyTs >= OUTBOX_NOTIFY_COOLDOWN_MS) {

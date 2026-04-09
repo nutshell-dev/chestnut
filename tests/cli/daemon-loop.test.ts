@@ -277,3 +277,109 @@ describe('startDaemonLoop - LLM retry', () => {
     errSpy.mockRestore();
   });
 });
+
+// ==========================================================================
+// startDaemonLoop - Motion outbox scanning
+// ==========================================================================
+
+vi.mock('../../src/core/outbox-scanner.js', () => ({
+  scanClawOutboxes: vi.fn(),
+}));
+
+import { scanClawOutboxes } from '../../src/core/outbox-scanner.js';
+
+describe('startDaemonLoop - Motion outbox scanning', () => {
+  beforeEach(() => {
+    vi.mocked(scanClawOutboxes).mockReset();
+  });
+
+  it('isMotion=true: sends claw_outbox notification when claws have unread messages', async () => {
+    vi.useFakeTimers();
+    vi.mocked(scanClawOutboxes).mockResolvedValue([
+      { clawId: 'claw-a', count: 3 },
+      { clawId: 'claw-b', count: 1 },
+    ]);
+
+    const processBatch = vi.fn().mockResolvedValue(0);
+    const mockRuntime = { processBatch, abort: vi.fn(), retryLastTurn: vi.fn() } as unknown as ClawRuntime;
+
+    const { stop } = startDaemonLoop({
+      runtime: mockRuntime,
+      agentDir: '/tmp/test-motion-outbox',
+      clawId: 'motion',
+      inboxPendingDir: '/tmp/test-motion-outbox/inbox/pending',
+      label: '[motion daemon]',
+      fallbackTimeoutMs: 1_000,
+      isMotion: true,
+    });
+
+    await flushMicrotasks(10);
+
+    expect(vi.mocked(writeInboxMessage)).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'claw_outbox' }),
+    );
+
+    stop();
+    vi.advanceTimersByTime(1_001);
+    await flushMicrotasks();
+    vi.useRealTimers();
+  });
+
+  it('isMotion=false: does not scan claw outboxes', async () => {
+    vi.useFakeTimers();
+    vi.mocked(scanClawOutboxes).mockResolvedValue([{ clawId: 'claw-a', count: 5 }]);
+
+    const processBatch = vi.fn().mockResolvedValue(0);
+    const mockRuntime = { processBatch, abort: vi.fn(), retryLastTurn: vi.fn() } as unknown as ClawRuntime;
+
+    const { stop } = startDaemonLoop({
+      runtime: mockRuntime,
+      agentDir: '/tmp/test-claw-outbox',
+      clawId: 'some-claw',
+      inboxPendingDir: '/tmp/test-claw-outbox/inbox/pending',
+      label: '[daemon]',
+      fallbackTimeoutMs: 1_000,
+      // isMotion not passed, defaults to undefined
+    });
+
+    await flushMicrotasks(10);
+
+    expect(vi.mocked(scanClawOutboxes)).not.toHaveBeenCalled();
+
+    stop();
+    vi.advanceTimersByTime(1_001);
+    await flushMicrotasks();
+    vi.useRealTimers();
+  });
+
+  it('isMotion=true: no notification when no unread outbox (scanClawOutboxes returns null)', async () => {
+    vi.useFakeTimers();
+    vi.mocked(scanClawOutboxes).mockResolvedValue(null);
+    vi.mocked(writeInboxMessage).mockReset();
+
+    const processBatch = vi.fn().mockResolvedValue(0);
+    const mockRuntime = { processBatch, abort: vi.fn(), retryLastTurn: vi.fn() } as unknown as ClawRuntime;
+
+    const { stop } = startDaemonLoop({
+      runtime: mockRuntime,
+      agentDir: '/tmp/test-motion-no-outbox',
+      clawId: 'motion',
+      inboxPendingDir: '/tmp/test-motion-no-outbox/inbox/pending',
+      label: '[motion daemon]',
+      fallbackTimeoutMs: 1_000,
+      isMotion: true,
+    });
+
+    await flushMicrotasks(10);
+
+    const claw_outbox_calls = vi.mocked(writeInboxMessage).mock.calls.filter(
+      ([opts]) => opts.type === 'claw_outbox'
+    );
+    expect(claw_outbox_calls).toHaveLength(0);
+
+    stop();
+    vi.advanceTimersByTime(1_001);
+    await flushMicrotasks();
+    vi.useRealTimers();
+  });
+});
