@@ -591,12 +591,12 @@ Test message
       }));
       await runtime.initialize();
 
-      // Create a message with 'from' field
+      // Create a message with 'source' field
       const pendingDir = path.join(clawDir, 'inbox', 'pending');
       const content = `---
 id: test-msg
 type: message
-from: motion
+source: motion
 contract_id: test-contract
 priority: normal
 timestamp: ${new Date().toISOString()}
