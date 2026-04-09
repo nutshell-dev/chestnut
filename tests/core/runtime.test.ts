@@ -644,7 +644,7 @@ Test message`;
             injected: [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'hi' }] }],
             sources: [],
             count: 1,
-            infos: [{ meta: { from: 'motion', contract_id: 'test-contract' }, body: 'hi' }],
+            infos: [{ meta: { source: 'motion', contract_id: 'test-contract' }, body: 'hi' }],
           };
         }
         protected override async _runReact(_messages: Message[]) {
@@ -830,7 +830,7 @@ Test message`;
         injected: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }],
         sources: [],
         count: 1,
-        infos: [{ meta: { from: 'sender-claw', contract_id: 'c-1' }, body: 'hello' }],
+        infos: [{ meta: { source: 'sender-claw', contract_id: 'c-1' }, body: 'hello' }],
       };
       runtime.reactError = new MaxStepsExceededError(10);
 
@@ -860,7 +860,7 @@ Test message`;
         injected: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }],
         sources: [],
         count: 1,
-        infos: [{ meta: { from: 'sender-claw' }, body: 'hello' }],
+        infos: [{ meta: { source: 'sender-claw' }, body: 'hello' }],
       };
       const originalError = new Error('LLM exploded');
       runtime.reactError = originalError;
@@ -990,7 +990,7 @@ Test message`;
         injected: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
         sources: [],
         count: 1,
-        infos: [{ meta: { from: 'sender-claw' } }],
+        infos: [{ meta: { source: 'sender-claw' } }],
       };
       return r;
     }
