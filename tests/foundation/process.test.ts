@@ -253,7 +253,12 @@ describe('ProcessManager', () => {
 
       // spawn 应该抛出 already running 错误
       await expect(
-        processManager.spawn('existing-claw', tempDir)
+        processManager.spawn('existing-claw', {
+          command: 'node',
+          args: ['/fake/daemon-entry.js', 'existing-claw'],
+          logFile: path.join(tempDir, 'claws', 'existing-claw', 'logs', 'daemon.log'),
+          env: { ...process.env },
+        })
       ).rejects.toThrow(/already running/);
     });
 
@@ -264,7 +269,12 @@ describe('ProcessManager', () => {
       fs.writeFileSync(path.join(statusDir, 'pid'), String(process.pid));
 
       try {
-        await processManager.spawn('busy-claw', tempDir);
+        await processManager.spawn('busy-claw', {
+          command: 'node',
+          args: ['/fake/daemon-entry.js', 'busy-claw'],
+          logFile: path.join(tempDir, 'claws', 'busy-claw', 'logs', 'daemon.log'),
+          env: { ...process.env },
+        });
         expect.fail('should have thrown');
       } catch (err: any) {
         expect(err.message).toContain('busy-claw');

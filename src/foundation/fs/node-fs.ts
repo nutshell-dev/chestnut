@@ -323,6 +323,19 @@ export class NodeFileSystem implements IFileSystem {
     }
   }
 
+  writeExclusiveSync(relativePath: string, content: string): void {
+    const absolute = this.resolveAndCheck(relativePath, 'write');
+    // 'wx' = write + exclusive, throws EEXIST if file exists
+    const fd = fsSync.openSync(absolute, 'wx');
+    try {
+      if (content) {
+        fsSync.writeFileSync(fd, content, { encoding: 'utf-8' });
+      }
+    } finally {
+      fsSync.closeSync(fd);
+    }
+  }
+
   readSync(relativePath: string): string {
     const absolute = this.resolveAndCheck(relativePath, 'read');
     try {

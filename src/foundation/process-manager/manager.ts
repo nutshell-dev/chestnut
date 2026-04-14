@@ -8,8 +8,7 @@
 
 import { spawn, spawnSync } from 'child_process';
 import * as path from 'path';
-import * as fs from 'fs/promises';
-import { openSync, mkdirSync, closeSync } from 'fs';
+import { openSync, closeSync } from 'fs';  // openSync/closeSync 仅用于日志 fd（spawn stdio 需要 OS 文件描述符）
 
 import type { IFileSystem } from '../fs/types.js';
 import {
@@ -219,8 +218,7 @@ export class ProcessManager {
     
     try {
       // 'wx' = write + exclusive, throws EEXIST if the file already exists
-      const handle = await fs.open(pidFile, 'wx');
-      await handle.close(); // Close the handle; actual PID will be written with writeFile later
+      this.fs.writeExclusiveSync(pidFile, '');
     } catch (err: any) {
       if (err.code === 'EEXIST') {
         // Check whether the process is genuinely running or this is a stale PID file
@@ -236,15 +234,16 @@ export class ProcessManager {
         }
         // 清理陈旧文件并重建
         await this.removePid(clawId).catch(() => {});
-        const handle = await fs.open(pidFile, 'wx');
-        await handle.close();
+        this.fs.writeExclusiveSync(pidFile, '');
       } else {
         throw err;
       }
     }
 
     // Ensure log directory exists and open log file
-    mkdirSync(path.dirname(options.logFile), { recursive: true });
+    this.fs.ensureDirSync(path.dirname(options.logFile));
+    // openSync/closeSync 保留：child_process.spawn 的 stdio 选项需要 OS 文件描述符，
+    // IFileSystem 不暴露 fd，这是唯一无法走 IFileSystem 的文件操作。
     const logFd = openSync(options.logFile, 'a');
 
     try {
@@ -352,6 +351,8 @@ export class ProcessManager {
    * Find processes matching a pattern (pgrep -f pattern)
    * Encapsulates platform-specific process finding
    */
+  // TODO(Windows): spawnSync('pgrep') 只在 Unix 可用。Windows 下需改用 tasklist /FI 解析。
+  // 当前 Windows 下 catch 返回 []，孤儿清理失效但不影响主流程。
   findProcesses(pattern: string): number[] {
     try {
       const result = spawnSync('pgrep', ['-f', pattern], { encoding: 'utf-8' });
@@ -366,23 +367,27 @@ export class ProcessManager {
 
   /**
    * List all running Claws
+   * @param ids - optional explicit claw IDs to check (default: scan claws/ directory)
    * @returns list of running claw IDs
    */
-  async listRunning(): Promise<string[]> {
+  async listRunning(ids?: string[]): Promise<string[]> {
     try {
-      const clawsDir = path.join(this.baseDir, 'claws');
-      const entries = await this.fs.list(clawsDir, { includeDirs: true });
-      const running: string[] = [];
-
-      for (const entry of entries) {
-        if (entry.isDirectory) {
-          const clawId = entry.name;
-          if (this.isAlive(clawId)) {
-            running.push(clawId);
-          }
-        }
+      let checkIds: string[];
+      if (ids) {
+        checkIds = ids;
+      } else {
+        // Backward compat: scan claws/ directory
+        const clawsDir = path.join(this.baseDir, 'claws');
+        const entries = await this.fs.list(clawsDir, { includeDirs: true });
+        checkIds = entries.filter(e => e.isDirectory).map(e => e.name);
       }
 
+      const running: string[] = [];
+      for (const clawId of checkIds) {
+        if (this.isAlive(clawId)) {
+          running.push(clawId);
+        }
+      }
       return running;
     } catch (err) {
       console.warn('[process] listRunning failed:', err);

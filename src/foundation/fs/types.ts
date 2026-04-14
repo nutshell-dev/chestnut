@@ -133,6 +133,16 @@ export interface IFileSystem {
   writeAtomicSync(path: string, content: string): void;
 
   /**
+   * Create file exclusively and write content. Throws EEXIST if file already exists.
+   * For lock-file semantics (PID file exclusive create).
+   * Caller must ensure parent directory exists.
+   * @param path - Relative path within claw space
+   * @param content - Content to write
+   * @throws Error with code EEXIST if file already exists
+   */
+  writeExclusiveSync(path: string, content: string): void;
+
+  /**
    * Read file content synchronously.
    * @param path - Relative path within claw space
    * @throws FileNotFoundError if file doesn't exist
