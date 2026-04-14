@@ -12,10 +12,10 @@ import { promises as fs } from 'fs';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 
-import { SessionManager } from '../../src/core/dialog/session.js';
+import { SessionManager } from '../../src/foundation/session-store/index.js';
 import { ContextInjector } from '../../src/core/dialog/injector.js';
 import type { Message } from '../../src/types/message.js';
-import type { SessionData } from '../../src/core/dialog/types.js';
+import type { SessionData } from '../../src/foundation/session-store/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
 
 async function createTempDir(): Promise<string> {

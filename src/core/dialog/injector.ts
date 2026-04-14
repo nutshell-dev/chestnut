@@ -12,7 +12,7 @@
 import type { IFileSystem } from '../../foundation/fs/types.js';
 import type { Message } from '../../types/message.js';
 import type { Contract } from '../../types/contract.js';
-import type { SessionData } from './types.js';
+import type { SessionData } from '../../foundation/session-store/index.js';
 import type { SkillRegistry } from '../skill/registry.js';
 import type { ContractManager } from '../contract/manager.js';
 

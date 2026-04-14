@@ -12,7 +12,7 @@ import * as path from 'path';
 import * as os from 'os';
 // Note: SessionManager 从具体实现导入
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
-import { SessionManager } from '../../src/core/dialog/session.js';
+import { SessionManager } from '../../src/foundation/session-store/index.js';
 import type { Message } from '../../src/types/message.js';
 
 describe('Session Persistence', () => {
