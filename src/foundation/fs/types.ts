@@ -119,6 +119,66 @@ export interface IFileSystem {
     isFile: boolean;
     isDirectory: boolean;
   }>;
+
+  // ========================================================================
+  // Synchronous Operations
+  // ========================================================================
+
+  /**
+   * Append content to file synchronously (creates if not exists)
+   * @param path - Relative path within claw space
+   * @param content - Content to append
+   */
+  appendSync(path: string, content: string): void;
+
+  /**
+   * Move/rename a file atomically synchronously
+   * @param fromPath - Source path (relative within claw space)
+   * @param toPath - Destination path (relative within claw space)
+   */
+  moveSync(fromPath: string, toPath: string): void;
+
+  /**
+   * Check if path exists synchronously.
+   * @param path - Relative path within claw space
+   */
+  existsSync(path: string): boolean;
+
+  /**
+   * Ensure directory exists synchronously (creates recursively if needed).
+   * @param path - Relative path within claw space
+   */
+  ensureDirSync(path: string): void;
+
+  /**
+   * List directory contents synchronously.
+   * @param path - Relative path within claw space
+   * @param options - Listing options
+   */
+  listSync(path: string, options?: {
+    recursive?: boolean;
+    includeDirs?: boolean;
+    pattern?: string;
+  }): FileEntry[];
+
+  /**
+   * Get file stats synchronously
+   * @param path - Relative path within claw space
+   */
+  statSync(path: string): {
+    size: number;
+    mtime: Date;
+    ctime: Date;
+    isFile: boolean;
+    isDirectory: boolean;
+  };
+
+  /**
+   * Delete a file synchronously.
+   * @param path - Relative path within claw space
+   * @throws FileNotFoundError if file doesn't exist
+   */
+  deleteSync(path: string): void;
 }
 
 /**

@@ -1,8 +1,7 @@
 /**
  * StreamWriter - 追加写 stream.jsonl
  */
-import * as fsNative from 'fs';
-import * as path from 'path';
+import type { IFileSystem } from '../fs/types.js';
 import type { StreamCallbacks } from './types.js';
 import { oneLine } from '../utils/string.js';
 
@@ -17,143 +16,112 @@ interface StreamRetentionOptions {
   maxDays?: number | null;
 }
 
-export class StreamWriter {
-  private fd: number | null = null;
-  private filePath: string;
-  private retention: StreamRetentionOptions;
+/** stream.jsonl 相对路径 */
+const STREAM_FILE = 'stream.jsonl';
+/** 归档目录相对路径 */
+const ARCHIVE_DIR = 'logs/stream';
 
-  constructor(agentDir: string, retention: StreamRetentionOptions = {}) {
-    this.filePath = path.join(agentDir, 'stream.jsonl');
+export class StreamWriter {
+  private fs: IFileSystem;
+  private retention: StreamRetentionOptions;
+  private isOpen = false;
+
+  constructor(fs: IFileSystem, retention: StreamRetentionOptions = {}) {
+    this.fs = fs;
     this.retention = retention;
   }
 
-  /** daemon 启动时调用：归档旧文件并打开 fd */
+  /** daemon 启动时调用：归档旧文件 */
   open(): void {
-    if (this.fd !== null) {         // 防止重复 open 导致 fd 泄漏
-      try { fsNative.closeSync(this.fd); } catch { /* ignore */ }
-      this.fd = null;
-    }
-    const dir = path.dirname(this.filePath);
-    fsNative.mkdirSync(dir, { recursive: true });
-    // 归档旧文件（保留审计历史）
-    if (fsNative.existsSync(this.filePath)) {
-      const agentDir = path.dirname(this.filePath);
-      const archiveDir = path.join(agentDir, 'logs', 'stream');
-      fsNative.mkdirSync(archiveDir, { recursive: true });
-      const archived = path.join(archiveDir, `stream.${Date.now()}.jsonl`);
+    if (this.isOpen) return;  // 防止重复 open
+
+    // 归档旧 stream.jsonl
+    if (this.fs.existsSync(STREAM_FILE)) {
       try {
-        fsNative.renameSync(this.filePath, archived);
+        this.fs.ensureDirSync(ARCHIVE_DIR);
+        this.fs.moveSync(STREAM_FILE, `${ARCHIVE_DIR}/stream.${Date.now()}.jsonl`);
       } catch (err) {
-        console.error('[StreamWriter] Failed to archive stream.jsonl, will overwrite:', err instanceof Error ? err.message : String(err));
+        console.error('[StreamWriter] Failed to archive stream.jsonl, will overwrite:',
+          err instanceof Error ? err.message : String(err));
       }
     }
     this.pruneArchives();
-    this.fd = fsNative.openSync(this.filePath, 'a');
+    this.isOpen = true;
+  }
+
+  /** 写一行事件 */
+  write(event: StreamEvent): void {
+    if (!this.isOpen) return;
+    const line = JSON.stringify(event) + '\n';
+    try {
+      this.fs.appendSync(STREAM_FILE, line);
+    } catch (err) {
+      console.error('[StreamWriter] write failed:',
+        err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  /** daemon 关闭时调用 */
+  close(): void {
+    this.isOpen = false;
   }
 
   private pruneArchives(): void {
     const { maxFiles, maxDays } = this.retention;
     if (!maxFiles && !maxDays) return;
     try {
-      const archiveDir = path.join(path.dirname(this.filePath), 'logs', 'stream');
-      if (!fsNative.existsSync(archiveDir)) return;
+      if (!this.fs.existsSync(ARCHIVE_DIR)) return;
 
-      // 只处理符合命名规范的归档文件，按时间戳降序（最新在前）
-      const files = fsNative.readdirSync(archiveDir)
-        .filter(f => /^stream\.\d+\.jsonl$/.test(f))
+      const files = this.fs.listSync(ARCHIVE_DIR, { pattern: '^stream\\.\\d+\\.jsonl$' })
         .map(f => ({
-          fullPath: path.join(archiveDir, f),
-          ts: parseInt(f.split('.')[1], 10),
+          path: f.path,
+          ts: parseInt(f.name.split('.')[1], 10),
         }))
         .sort((a, b) => b.ts - a.ts);
 
       const toDelete = new Set<string>();
 
       if (maxFiles != null) {
-        files.slice(maxFiles).forEach(f => toDelete.add(f.fullPath));
+        files.slice(maxFiles).forEach(f => toDelete.add(f.path));
       }
       if (maxDays != null) {
         const cutoff = Date.now() - maxDays * 24 * 60 * 60 * 1000;
-        files.filter(f => f.ts < cutoff).forEach(f => toDelete.add(f.fullPath));
+        files.filter(f => f.ts < cutoff).forEach(f => toDelete.add(f.path));
       }
 
       for (const p of toDelete) {
-        try { fsNative.unlinkSync(p); } catch { /* ignore */ }
+        try { this.fs.deleteSync(p); } catch { /* ignore */ }
       }
     } catch (err) {
-      console.warn('[StreamWriter] pruneArchives failed:', err instanceof Error ? err.message : String(err));
+      console.warn('[StreamWriter] pruneArchives failed:',
+        err instanceof Error ? err.message : String(err));
     }
   }
 
-  /** 写一行事件 */
-  write(event: StreamEvent): void {
-    if (this.fd === null) return;
-    const line = JSON.stringify(event) + '\n';
-    try {
-      fsNative.writeSync(this.fd, line);
-    } catch (err) {
-      console.error('[StreamWriter] write failed:', err instanceof Error ? err.message : String(err));
-    }
-  }
-
-  /** daemon 关闭时调用 */
-  close(): void {
-    if (this.fd !== null) {
-      fsNative.closeSync(this.fd);
-      this.fd = null;
-    }
-  }
-
-  /** 生成一轮 ReAct 使用的 StreamCallbacks */
   createCallbacks(): StreamCallbacks {
     return {
-      onBeforeLLMCall: () => {
-        this.write({ ts: Date.now(), type: 'llm_start' });
-      },
-      onThinkingDelta: (delta: string) => {
-        this.write({ ts: Date.now(), type: 'thinking_delta', delta });
-      },
-      onTextDelta: (delta: string) => {
-        this.write({ ts: Date.now(), type: 'text_delta', delta });
-      },
-      onTextEnd: () => {
-        this.write({ ts: Date.now(), type: 'text_end' });
-      },
-      onToolCall: (name: string, toolUseId: string) => {
-        this.write({ ts: Date.now(), type: 'tool_call', name, tool_use_id: toolUseId });
-      },
-      onToolResult: (name: string, toolUseId: string, result: { success: boolean; content: string }, step: number, maxSteps: number) => {
-        const summary = oneLine(result.content);
+      onBeforeLLMCall: () => { this.write({ ts: Date.now(), type: 'llm_start' }); },
+      onThinkingDelta: (delta) => { this.write({ ts: Date.now(), type: 'thinking_delta', delta }); },
+      onTextDelta: (delta) => { this.write({ ts: Date.now(), type: 'text_delta', delta }); },
+      onTextEnd: () => { this.write({ ts: Date.now(), type: 'text_end' }); },
+      onToolCall: (name, toolUseId) => { this.write({ ts: Date.now(), type: 'tool_call', name, tool_use_id: toolUseId }); },
+      onToolResult: (name, toolUseId, result, step, maxSteps) => {
         this.write({
-          ts: Date.now(),
-          type: 'tool_result',
-          name,
-          tool_use_id: toolUseId,
-          success: result.success,
-          summary,
-          step: step + 1,
-          maxSteps,
+          ts: Date.now(), type: 'tool_result', name, tool_use_id: toolUseId,
+          success: result.success, summary: oneLine(result.content),
+          step: step + 1, maxSteps,
         });
       },
-      onTurnStart: (sources: Array<{ text: string; type: string }>) => {
-        this.write({
-          ts: Date.now(),
-          type: 'turn_start',
-          sources: sources.length > 0 ? sources : undefined,
-        });
+      onTurnStart: (sources) => {
+        this.write({ ts: Date.now(), type: 'turn_start', sources: sources.length > 0 ? sources : undefined });
       },
-      onTurnEnd: () => {
-        this.write({ ts: Date.now(), type: 'turn_end' });
-      },
-      onTurnError: (error: string) => {
-        this.write({ ts: Date.now(), type: 'turn_error', error });
-      },
-      onTurnInterrupted: (cause: string, message?: string) => {
+      onTurnEnd: () => { this.write({ ts: Date.now(), type: 'turn_end' }); },
+      onTurnError: (error) => { this.write({ ts: Date.now(), type: 'turn_error', error }); },
+      onTurnInterrupted: (cause, message) => {
         this.write({ ts: Date.now(), type: 'turn_interrupted', cause, ...(message ? { message } : {}) });
       },
-      onProviderInfo: (info: { name: string; model: string; isFallback: boolean }) => {
-        this.write({ ts: Date.now(), type: 'provider_info', ...info });
-      },
+      onProviderInfo: (info) => { this.write({ ts: Date.now(), type: 'provider_info', ...info }); },
+      onProviderFailover: (info) => { this.write({ ts: Date.now(), type: 'provider_failover', ...info }); },
     };
   }
 }

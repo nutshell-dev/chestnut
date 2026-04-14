@@ -1,13 +1,14 @@
 /**
- * StreamWriter tests — fix 5: writeSync exception guard
+ * StreamWriter tests — via IFileSystem
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import * as fsNative from 'fs';
 import * as fsp from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import { StreamWriter } from '../../src/foundation/stream/writer.js';
+import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
+import type { IFileSystem } from '../../src/foundation/fs/types.js';
 
 describe('StreamWriter', () => {
   let tmpDir: string;
@@ -21,22 +22,21 @@ describe('StreamWriter', () => {
     await fsp.rm(tmpDir, { recursive: true, force: true });
   });
 
-  it('write() when fd is null is a no-op and does not throw', () => {
-    const sw = new StreamWriter(tmpDir);
-    // fd is null before open()
+  it('write() before open is a no-op and does not throw', () => {
+    const fs = new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false });
+    const sw = new StreamWriter(fs);
     expect(() => sw.write({ ts: 1, type: 'test' })).not.toThrow();
   });
 
-  it('write() when writeSync throws logs to stderr and does not propagate', () => {
-    const sw = new StreamWriter(tmpDir);
+  it('write() when appendSync throws logs to stderr and does not propagate', () => {
+    const fs = new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false });
+    const sw = new StreamWriter(fs);
     sw.open();
 
-    // Close the raw fd externally so writeSync will throw EBADF,
-    // while StreamWriter still thinks fd is open.
-    const rawFd = (sw as unknown as { fd: number }).fd;
-    fsNative.closeSync(rawFd);
-
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(NodeFileSystem.prototype, 'appendSync').mockImplementation(() => {
+      throw new Error('boom');
+    });
 
     expect(() => sw.write({ ts: 1, type: 'test' })).not.toThrow();
     expect(errSpy).toHaveBeenCalledWith(
@@ -44,11 +44,12 @@ describe('StreamWriter', () => {
       expect.anything(),
     );
 
-    // Do NOT call sw.close() here — fd is already closed; skip to avoid double-close noise.
+    vi.restoreAllMocks();
   });
 
   it('open + write × 2 + close produces valid JSON lines', async () => {
-    const sw = new StreamWriter(tmpDir);
+    const fs = new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false });
+    const sw = new StreamWriter(fs);
     sw.open();
     sw.write({ ts: 1000, type: 'turn_start' });
     sw.write({ ts: 2000, type: 'turn_end' });

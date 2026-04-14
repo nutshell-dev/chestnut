@@ -143,7 +143,8 @@ export async function daemonCommand(name: string): Promise<void> {
   }
 
   // 共用核心循环
-  const streamWriter = new StreamWriter(dir, {
+  const streamFs = new NodeFileSystem({ baseDir: dir, enforcePermissions: false });
+  const streamWriter = new StreamWriter(streamFs, {
     maxFiles: globalConfig.stream?.retention?.max_files ?? null,
     maxDays: globalConfig.stream?.retention?.max_days ?? null,
   });
