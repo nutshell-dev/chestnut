@@ -5,17 +5,11 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { existsSync } from 'fs';
-import { spawnSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { loadGlobalConfig, getMotionDir } from '../config.js';
-import { ProcessManager } from '../../foundation/process/manager.js';
+import { ProcessManager } from '../../foundation/process-manager/index.js';
 import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
 import { getWatchdogPid, isWatchdogAlive, getWatchdogEntryPath } from './watchdog.js';
-
-function parsePgrep(result: ReturnType<typeof spawnSync>): number[] {
-  const output = (result.status === 0 || result.status === 1) ? String(result.stdout ?? '') : '';
-  return output.trim().split('\n').map(s => parseInt(s, 10)).filter(p => !isNaN(p));
-}
 
 export async function statusCommand(): Promise<void> {
   loadGlobalConfig();
@@ -55,8 +49,7 @@ export async function statusCommand(): Promise<void> {
 
   // Watchdog orphans
   const wdPath = getWatchdogEntryPath();
-  const wdResult = spawnSync('pgrep', ['-f', wdPath], { encoding: 'utf-8' });
-  const wdPids = parsePgrep(wdResult).filter(p => p !== watchdogPid && p !== process.pid);
+  const wdPids = pm.findProcesses(wdPath).filter(p => p !== watchdogPid && p !== process.pid);
   if (wdPids.length > 0) {
     console.log(`  ⚠ orphan watchdog(s): PIDs ${wdPids.join(', ')}`);
   }
@@ -66,10 +59,9 @@ export async function statusCommand(): Promise<void> {
   const daemonEntryPath = existsSync(bundleEntry)
     ? bundleEntry
     : path.resolve(thisDir, '..', '..', 'daemon-entry.js');
-  const dmResult = spawnSync('pgrep', ['-f', daemonEntryPath], { encoding: 'utf-8' });
   const motionPid = motionStatus.pid;
   const trackedPids = [motionPid, ...clawStatuses.map(s => s.status.pid)].filter((p): p is number => p !== undefined);
-  const orphanDaemons = parsePgrep(dmResult).filter(p => !trackedPids.includes(p) && p !== process.pid);
+  const orphanDaemons = pm.findProcesses(daemonEntryPath).filter(p => !trackedPids.includes(p) && p !== process.pid);
   if (orphanDaemons.length > 0) {
     console.log(`  ⚠ orphan daemon(s): PIDs ${orphanDaemons.join(', ')}`);
   }

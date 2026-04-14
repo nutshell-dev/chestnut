@@ -8,8 +8,7 @@ import { loadGlobalConfig, getGlobalConfigPath } from '../config.js';
 import { stopCommand as watchdogStop } from './watchdog.js';
 import { stopCommand as motionStop } from './motion.js';
 import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
-import { ProcessManager } from '../../foundation/process/manager.js';
-import { spawnSync } from 'child_process';
+import { ProcessManager } from '../../foundation/process-manager/index.js';
 import { fileURLToPath } from 'url';
 
 export async function stopAllCommand(): Promise<void> {
@@ -55,11 +54,7 @@ export async function stopAllCommand(): Promise<void> {
     const thisDir = path.dirname(fileURLToPath(import.meta.url));
     // dist/cli/commands/ → up 2 levels → dist/
     const daemonEntryPath = path.resolve(thisDir, '..', '..', 'daemon-entry.js');
-    const result = spawnSync('pgrep', ['-f', daemonEntryPath], { encoding: 'utf-8' });
-    const output = (result.status === 0 || result.status === 1) ? (result.stdout ?? '') : '';
-    const pids = output.trim().split('\n')
-      .map(s => parseInt(s, 10))
-      .filter(p => !isNaN(p) && p !== process.pid);
+    const pids = pm.findProcesses(daemonEntryPath);
     if (pids.length > 0) {
       console.log(`Cleaning up ${pids.length} orphan daemon process(es)...`);
       for (const p of pids) {

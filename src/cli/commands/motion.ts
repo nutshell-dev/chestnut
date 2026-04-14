@@ -13,7 +13,7 @@ import * as fs from 'fs/promises';
 import { fileURLToPath } from 'url';
 import { loadGlobalConfig, getMotionDir, getGlobalConfigPath } from '../config.js';
 import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
-import { ProcessManager } from '../../foundation/process/manager.js';
+import { ProcessManager } from '../../foundation/process-manager/index.js';
 import { PROCESS_SPAWN_CONFIRM_MS } from '../../constants.js';
 
 import { runChatViewport } from './chat-viewport.js';

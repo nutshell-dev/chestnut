@@ -9,7 +9,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
-import { ProcessManager } from '../../src/foundation/process/manager.js';
+import { ProcessManager } from '../../src/foundation/process-manager/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 
 async function createTempDir(): Promise<string> {

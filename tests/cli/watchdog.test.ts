@@ -9,7 +9,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { randomUUID } from 'crypto';
-import type { ProcessManager } from '../../src/foundation/process/manager.js';
+import type { ProcessManager } from '../../src/foundation/process-manager/index.js';
 
 // Mock config so getClawforumDir() and getGlobalConfig() return controllable values
 vi.mock('../../src/cli/config.js', async (importOriginal) => {

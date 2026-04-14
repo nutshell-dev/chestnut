@@ -31,7 +31,7 @@ vi.mock('child_process', async (importOriginal) => {
   };
 });
 
-import { ProcessManager } from '../../src/foundation/process/manager.js';
+import { ProcessManager } from '../../src/foundation/process-manager/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 
 let tempDir: string;
