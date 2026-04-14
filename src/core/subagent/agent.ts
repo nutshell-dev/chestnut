@@ -255,6 +255,14 @@ export class SubAgent {
           maxSteps: this.maxSteps,
           registry: this.registry,  // Enable parallel execution for readonly tools
           tools,                    // Enable native tool_use
+          onLLMResult: (info) => {
+            if (!this.auditWriter) return;
+            if (info.error) {
+              this.auditWriter.write('llm_error', info.model, `err=${info.error}`, `ms=${info.latencyMs}`);
+            } else {
+              this.auditWriter.write('llm_call', info.model, `in=${info.inputTokens}`, `out=${info.outputTokens}`, `ms=${info.latencyMs}`);
+            }
+          },
           onBeforeLLMCall: streamCallbacks.onBeforeLLMCall,
           onTextDelta: (delta: string) => { resetIdle?.(); streamCallbacks.onTextDelta?.(delta); },
           onThinkingDelta: (delta: string) => { resetIdle?.(); streamCallbacks.onThinkingDelta?.(delta); },

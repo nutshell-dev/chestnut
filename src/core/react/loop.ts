@@ -14,7 +14,7 @@ import type { Message, ContentBlock, ToolUseBlock, ToolResultBlock, LLMResponse,
 import type { ILLMService, LLMCallOptions } from '../../foundation/llm/index.js';
 import type { StreamChunk } from '../../foundation/llm/types.js';
 import type { IToolExecutor, ExecContext, ToolResult, IToolRegistry } from '../tools/executor.js';
-import { MaxStepsExceededError } from '../../types/errors.js';
+import { MaxStepsExceededError, LLMAllProvidersFailedError } from '../../types/errors.js';
 import { REACT_DEFAULT_MAX_TOKENS, MAX_CONSECUTIVE_PARSE_ERRORS, MAX_CONSECUTIVE_MAX_TOKENS_TOOL_USE } from '../../constants.js';
 import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../../types/signals.js';
 
@@ -89,6 +89,15 @@ export interface ReactOptions {
 
   /** Callback when mid-stream failover occurs (provider timed out, switching) */
   onReset?: (provider: string, timeoutMs: number) => void;
+
+  /** Callback after each LLM call for observability (audit, metrics) */
+  onLLMResult?: (info: {
+    model: string;
+    inputTokens: number;
+    outputTokens: number;
+    latencyMs: number;
+    error?: string;
+  }) => void;
 }
 
 /**
@@ -146,13 +155,34 @@ export async function runReact(options: ReactOptions): Promise<ReactResult> {
     safeCallback('onBeforeLLMCall', () => onBeforeLLMCall?.());
 
     // 流式调用 LLM，收集完整 response
-    const response = await collectStreamResponse(llm, {
-      messages,
-      system: systemPrompt,
-      tools: options.tools,
-      maxTokens: REACT_DEFAULT_MAX_TOKENS,
-      signal: ctx.signal,
-    }, options.onTextDelta, options.onThinkingDelta, options.onTextEnd, options.onReset);
+    const llmStartTime = Date.now();
+    let response: LLMResponse;
+    try {
+      response = await collectStreamResponse(llm, {
+        messages,
+        system: systemPrompt,
+        tools: options.tools,
+        maxTokens: REACT_DEFAULT_MAX_TOKENS,
+        signal: ctx.signal,
+      }, options.onTextDelta, options.onThinkingDelta, options.onTextEnd, options.onReset);
+    } catch (err) {
+      if (err instanceof LLMAllProvidersFailedError) {
+        options.onLLMResult?.({
+          model: llm.getProviderInfo().model,
+          inputTokens: 0,
+          outputTokens: 0,
+          latencyMs: Date.now() - llmStartTime,
+          error: err.message,
+        });
+      }
+      throw err;
+    }
+    options.onLLMResult?.({
+      model: llm.getProviderInfo().model,
+      inputTokens: response.usage?.input_tokens ?? 0,
+      outputTokens: response.usage?.output_tokens ?? 0,
+      latencyMs: Date.now() - llmStartTime,
+    });
 
     // Handle tool_use stop reason
     if (response.stop_reason === 'tool_use') {

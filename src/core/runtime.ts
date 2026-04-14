@@ -566,6 +566,13 @@ export class ClawRuntime {
         tools,
         registry: this.toolRegistry,  // Enable parallel execution for readonly tools
         maxSteps: this.options.maxSteps,
+        onLLMResult: (info) => {
+          if (info.error) {
+            this.auditWriter.write('llm_error', info.model, `err=${info.error}`, `ms=${info.latencyMs}`);
+          } else {
+            this.auditWriter.write('llm_call', info.model, `in=${info.inputTokens}`, `out=${info.outputTokens}`, `ms=${info.latencyMs}`);
+          }
+        },
         onStepComplete: async () => {
           await this.sessionManager.save(messages);
           // 步间检查：高优先级消息到达时提前结束本轮
@@ -830,6 +837,13 @@ export class ClawRuntime {
         tools,
         registry: this.toolRegistry,  // Enable parallel execution for readonly tools
         maxSteps: this.options.maxSteps,
+        onLLMResult: (info) => {
+          if (info.error) {
+            this.auditWriter.write('llm_error', info.model, `err=${info.error}`, `ms=${info.latencyMs}`);
+          } else {
+            this.auditWriter.write('llm_call', info.model, `in=${info.inputTokens}`, `out=${info.outputTokens}`, `ms=${info.latencyMs}`);
+          }
+        },
         onToolCall: options?.onToolCall,
         onBeforeLLMCall: options?.onBeforeLLMCall,
         onToolResult: options?.onToolResult,
