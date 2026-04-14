@@ -92,8 +92,8 @@ export function writeInboxMessage(opts: InboxMessageOptions): void {
 }
 
 /**
- * 读取 inbox 文件的 frontmatter 元数据。
- * 失败（文件不存在、格式错误等）时返回 null。
+ * Read frontmatter metadata from an inbox file.
+ * Returns null on failure (missing file, parse error, etc.).
  */
 export function readInboxFileMeta(filePath: string): Record<string, string> | null {
   try {

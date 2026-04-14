@@ -38,7 +38,7 @@ import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../typ
 import type { ToolResult } from './tools/executor.js';
 import type { StreamSink } from '../foundation/stream/types.js';
 import { AuditWriter } from '../foundation/audit/writer.js';
-import { InboxWatcher } from './communication/inbox.js';
+import { InboxWatcher } from './communication/index.js';
 import { OutboxWriter } from './communication/index.js';
 import { TaskSystem } from './task/system.js';
 import { SkillRegistry } from './skill/registry.js';

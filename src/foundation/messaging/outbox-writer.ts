@@ -7,7 +7,7 @@
 import * as path from 'path';
 import { randomUUID } from 'crypto';
 import type { IFileSystem } from '../fs/types.js';
-import type { OutboxMessage, Priority } from '../../types/contract.js';
+import type { OutboxMessage } from '../../types/contract.js';
 import { encodeOutbox } from '../message-codec/index.js';
 
 /**

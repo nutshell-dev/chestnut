@@ -1,6 +1,6 @@
 /**
- * Outbox Scanner - 扫描所有 Claw 的 outbox/pending，
- * 返回结构化列表供调用方决策，不直接写 inbox。
+ * Outbox Scanner - scan all Claw outbox/pending,
+ * return structured list for caller decisions, no direct inbox writes.
  */
 
 import * as path from 'path';
@@ -12,7 +12,7 @@ export interface ClawOutboxInfo {
 }
 
 /**
- * 扫描所有 claw outbox/pending，有未读则返回结构化列表，否则返回 null。
+ * Scan all claw outbox/pending, return structured list if any pending, null otherwise.
  * 调用方负责决定何时写 inbox 通知。
  */
 export async function scanClawOutboxes(baseDir: string): Promise<ClawOutboxInfo[] | null> {
@@ -37,7 +37,7 @@ export async function scanClawOutboxes(baseDir: string): Promise<ClawOutboxInfo[
         }
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
-        // ENOENT：outbox/pending 目录未创建，正常跳过
+        // ENOENT: outbox/pending dir not created, skip silently
       }
     }
 

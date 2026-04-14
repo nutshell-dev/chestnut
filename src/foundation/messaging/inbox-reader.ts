@@ -12,7 +12,7 @@
 import * as path from 'path';
 import { realpathSync } from 'fs';
 import { randomUUID } from 'crypto';
-import type { IFileSystem, FileEntry } from '../fs/types.js';
+import type { IFileSystem } from '../fs/types.js';
 import type { InboxMessage, Priority } from '../../types/contract.js';
 import { PRIORITY_VALUES } from '../../types/contract.js';
 import { createWatcher } from '../file-watcher/watcher.js';
@@ -43,8 +43,8 @@ export class InboxWatcher {
   private processing = false;
   private stopped = false;
   private onMessage: ((msg: InboxMessage) => Promise<void>) | null = null;
-  // 进程内去重：防止 watcher 重复触发同一文件
-  // 注意：内存结构，daemon 重启后消息最多被处理一次额外（at-least-once）
+  // In-process dedup: prevent watcher from re-triggering the same file
+  // Note: in-memory, daemon restart may process once more (at-least-once)
   private processedFiles = new Set<string>();
 
   constructor(
@@ -251,11 +251,11 @@ export class InboxWatcher {
       const uuid8 = randomUUID().slice(0, 8);
       const targetPath = path.join(this.doneDir, `${Date.now()}_${uuid8}_${fileName}`);
       await this.fs.move(filePath, targetPath);
-      this.processedFiles.delete(filePath); // 仅成功时移除，防止 watcher 重复触发
+      this.processedFiles.delete(filePath); // Remove from set only on success; prevent watcher re-trigger
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[inbox] Failed to move ${filePath} to done:`, msg);
-      // 清理 Set 条目，允许 daemon 重启后重试（at-least-once，与 watcher 注释一致）
+      // Clean up set entry to allow retry on daemon restart (at-least-once)
       this.processedFiles.delete(filePath);
     }
   }
@@ -269,11 +269,11 @@ export class InboxWatcher {
       const uuid8 = randomUUID().slice(0, 8);
       const targetPath = path.join(this.failedDir, `${Date.now()}_${uuid8}_${fileName}`);
       await this.fs.move(filePath, targetPath);
-      this.processedFiles.delete(filePath); // 仅成功时移除
+      this.processedFiles.delete(filePath); // Remove from set only on success
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[inbox] Failed to move ${filePath} to failed:`, msg);
-      this.processedFiles.delete(filePath);  // 允许重试，优先于内存泄漏
+      this.processedFiles.delete(filePath);  // Allow retry, prefer over memory leak
     }
   }
 }

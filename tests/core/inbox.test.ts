@@ -14,7 +14,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
 import { tmpdir } from 'os';
-import { InboxWatcher } from '../../src/core/communication/inbox.js';
+import { InboxWatcher } from '../../src/core/communication/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import type { InboxMessage } from '../../src/types/contract.js';
 import { INBOX_MAX_QUEUE_SIZE } from '../../src/constants.js';
