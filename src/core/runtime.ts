@@ -13,7 +13,7 @@ import type { ToolProfile } from '../types/config.js';
 import type { Message } from '../types/message.js';
 import type { InboxMessage, Priority } from '../types/contract.js';
 import type { OutboxWriteOptions } from './communication/outbox.js';
-import type { SessionData } from './dialog/types.js';
+import type { SessionData } from '../foundation/session-store/index.js';
 import { parseFrontmatter } from '../foundation/message-codec/index.js';
 import { readInboxFileMeta } from '../utils/inbox-writer.js';
 
@@ -22,7 +22,7 @@ import { LLMService } from '../foundation/llm/service.js';
 import { JsonlLogger } from '../foundation/monitor/monitor.js';
 
 
-import { SessionManager } from './dialog/session.js';
+import { SessionManager } from '../foundation/session-store/index.js';
 import { ContextInjector } from './dialog/injector.js';
 import { ToolRegistry } from './tools/registry.js';
 import { ToolExecutorImpl } from './tools/executor.js';
