@@ -18,6 +18,8 @@ tasks/results/
 *.tmp
 `;
 
+let consecutiveCommitFailures = 0;
+
 async function git(dir: string, args: string[]): Promise<string> {
   // 所有参数用单引号包裹，防止 shell 注入
   const cmd = args.map(a => `'${a.replace(/'/g, "'\\''")}'`).join(' ');
@@ -39,7 +41,13 @@ export async function init(dir: string, fs: IFileSystem): Promise<void> {
     await git(dir, ['add', '.']);
     await git(dir, ['commit', '--allow-empty', '-m', 'init']);
   } catch (err) {
-    console.warn('[snapshot] init failed:', err instanceof Error ? err.message : String(err));
+    console.error('[snapshot] init failed, cleaning up .git:', err instanceof Error ? err.message : String(err));
+    // 清理部分初始化的 .git，下次 init 可以重试
+    try {
+      await fs.removeDir('.git');
+    } catch {
+      // 清理也失败则无法恢复，但至少不锁定
+    }
   }
 }
 
@@ -49,10 +57,20 @@ export async function init(dir: string, fs: IFileSystem): Promise<void> {
 export async function commit(dir: string, message: string): Promise<void> {
   try {
     const status = await git(dir, ['status', '--porcelain']);
-    if (!status) return;
+    if (!status) {
+      consecutiveCommitFailures = 0;  // 成功的 status 调用重置计数
+      return;
+    }
     await git(dir, ['add', '.']);
     await git(dir, ['commit', '-m', message]);
+    consecutiveCommitFailures = 0;
   } catch (err) {
-    console.warn('[snapshot] commit failed:', err instanceof Error ? err.message : String(err));
+    consecutiveCommitFailures++;
+    const msg = err instanceof Error ? err.message : String(err);
+    if (consecutiveCommitFailures >= 3) {
+      console.error(`[snapshot] commit failed (${consecutiveCommitFailures} consecutive):`, msg);
+    } else {
+      console.warn('[snapshot] commit failed:', msg);
+    }
   }
 }
