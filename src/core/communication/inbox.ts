@@ -18,7 +18,7 @@ import { createWatcher } from '../../foundation/file-watcher/watcher.js';
 import type { Watcher } from '../../foundation/file-watcher/types.js';
 import { parseFrontmatter } from '../../utils/frontmatter.js';
 import { INBOX_MAX_QUEUE_SIZE } from '../../constants.js';
-import { validatePriority, validateType } from '../../foundation/transport/validation.js';
+import { validatePriority, validateType } from './validation.js';
 
 /**
  * Queued message with metadata

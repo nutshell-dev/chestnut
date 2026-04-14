@@ -20,7 +20,7 @@ import { readInboxFileMeta } from '../utils/inbox-writer.js';
 import { NodeFileSystem } from '../foundation/fs/node-fs.js';
 import { LLMService } from '../foundation/llm/service.js';
 import { JsonlLogger } from '../foundation/monitor/monitor.js';
-import { LocalTransport } from '../foundation/transport/local.js';
+
 
 import { SessionManager } from './dialog/session.js';
 import { ContextInjector } from './dialog/injector.js';
@@ -97,7 +97,7 @@ export class ClawRuntime {
   private clawFs!: NodeFileSystem;    // used by tools (with permission check)
   private monitor!: JsonlLogger;
   protected llm!: LLMService;
-  private transport!: LocalTransport;
+
 
   // Core
   protected sessionManager!: SessionManager;
@@ -160,14 +160,10 @@ export class ClawRuntime {
     // 4. Create LLMService
     this.llm = new LLMService(llmConfig);
 
-    // 5. Create LocalTransport (workspaceDir depends on claw type)
-    // claw:   clawDir = .clawforum/claws/{name} → up 2 levels → .clawforum
-    // motion: clawDir = .clawforum/motion       → up 1 level  → .clawforum
+    // 5. Compute workspaceDir for ContractManager motion inbox path
     const workspaceDir = clawId === MOTION_CLAW_ID
       ? path.resolve(clawDir, '..')
       : path.resolve(clawDir, '..', '..');
-    this.transport = new LocalTransport({ workspaceDir });
-    await this.transport.initialize();
 
     // 6. Create SessionManager (uses systemFs; system components need to write to dialog/)
     this.sessionManager = new SessionManager(this.systemFs, 'dialog', clawId, this.monitor);

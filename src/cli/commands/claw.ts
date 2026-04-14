@@ -57,7 +57,7 @@ function getLastActiveMs(clawDir: string): number | undefined {
 
 import { ProcessManager } from '../../foundation/process/manager.js';
 import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
-import { LocalTransport } from '../../foundation/transport/local.js';
+import { sendInboxMessage } from '../../core/communication/inbox-send.js';
 import { randomUUID } from 'crypto';
 import { PROCESS_SPAWN_CONFIRM_MS, DEFAULT_MAX_STEPS } from '../../constants.js';
 
@@ -393,26 +393,18 @@ export async function sendCommand(
 
   const globalConfigPath = getGlobalConfigPath();
   const baseDir = path.dirname(globalConfigPath);
-  
-  // Create transport (workspaceDir = baseDir, i.e. ~/.clawforum)
-  const transport = new LocalTransport({ workspaceDir: baseDir });
-  await transport.initialize();
 
-  try {
-    await transport.sendInboxMessage(name, {
-      id: randomUUID(),
-      type: 'user_inbox_message',
-      from: 'user',
-      to: name,
-      content: message,
-      priority: options?.priority ?? 'normal',
-      timestamp: new Date().toISOString(),
-    });
+  await sendInboxMessage(baseDir, name, {
+    id: randomUUID(),
+    type: 'user_inbox_message',
+    from: 'user',
+    to: name,
+    content: message,
+    priority: options?.priority ?? 'normal',
+    timestamp: new Date().toISOString(),
+  });
 
-    console.log(`Message sent to "${name}"`);
-  } finally {
-    await transport.close();
-  }
+  console.log(`Message sent to "${name}"`);
 }
 
 // ============================================================================
