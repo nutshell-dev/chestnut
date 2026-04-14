@@ -15,8 +15,8 @@ import type { Logger } from '../../foundation/monitor/types.js';
 import type { ILLMService } from '../../foundation/llm/index.js';
 import type { Contract, SubTask, ContractStatus, SubtaskStatus } from '../../types/contract.js';
 import { ToolError, ToolTimeoutError } from '../../types/errors.js';
-import { execFile } from 'child_process';
-import { promisify } from 'util';
+import { exec } from '../../foundation/process-exec/index.js';
+import { ProcessExecError } from '../../foundation/process-exec/index.js';
 import { LOCK_MAX_RETRIES, LOCK_RETRY_DELAY_MS, LOCK_STALE_TIMEOUT_MS, CONTRACT_SCRIPT_TIMEOUT_MS, DEFAULT_LLM_IDLE_TIMEOUT_MS, DEFAULT_MAX_STEPS } from '../../constants.js';
 import { CONTRACT_VERIFIER_SYSTEM_PROMPT } from '../../prompts/subagent.js';
 import { writeInboxMessage } from '../../utils/inbox-writer.js';
@@ -25,7 +25,7 @@ import { ToolRegistry } from '../tools/registry.js';
 import { ReportResultTool } from '../tools/report-result.js';
 import { AuditWriter } from '../../foundation/audit/writer.js';
 
-const execFileAsync = promisify(execFile);
+
 
 // Contract default value constants
 const CONTRACT_DEFAULTS = {
@@ -1127,26 +1127,29 @@ export class ContractManager {
     scriptFile: string,
     contractAbsDir: string,
   ): Promise<AcceptanceResult> {
-    // 路径安全：script_file 必须在契约目录内
+    // 路径安全：script_file 必须在契约目录内（ContractSystem 业务语义）
     const resolved = path.resolve(contractAbsDir, scriptFile);
     if (!resolved.startsWith(contractAbsDir + path.sep)) {
       return { passed: false, feedback: `路径安全拒绝: script_file 必须在契约目录内` };
     }
 
     console.log(`[contract] Running acceptance script: ${scriptFile} (cwd: ${this.clawDir})`);
-    
+
     try {
-      await execFileAsync('sh', [resolved], {
-        cwd: this.clawDir,   // 从 claw 根目录执行，脚本可用 clawspace/ 相对路径
+      await exec(resolved, {
+        cwd: this.clawDir,
         timeout: CONTRACT_SCRIPT_TIMEOUT_MS,
-        encoding: 'utf-8',
       });
       return { passed: true, feedback: 'Script acceptance passed' };
-    } catch (err: any) {
-      const stderr = err?.stderr || err?.stdout || err?.message || String(err);
-      const isTimeout = err?.killed === true;
-      const prefix = isTimeout ? '验收脚本超时' : '验收失败';
-      return { passed: false, feedback: `${prefix}: ${stderr.split('\n').find((l: string) => l.trim()) ?? stderr.trim()}` };
+    } catch (err) {
+      if (!(err instanceof ProcessExecError)) {
+        return { passed: false, feedback: `验收失败: ${err instanceof Error ? err.message : String(err)}` };
+      }
+
+      const prefix = err.killed ? '验收脚本超时' : '验收失败';
+      const detail = err.stderr || err.stdout || err.message;
+      const firstLine = detail.split('\n').find(l => l.trim()) ?? detail.trim();
+      return { passed: false, feedback: `${prefix}: ${firstLine}` };
     }
   }
 
