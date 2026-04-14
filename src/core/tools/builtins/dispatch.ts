@@ -253,13 +253,6 @@ export class DispatchTool implements ITool {
 
     const taskId = dispatcherTaskId;
 
-    ctx.parentStreamWriter?.write({
-      ts: Date.now(),
-      type: 'task_started',
-      taskId,
-      callerType,
-    });
-
     return {
       success: true,
       content: `Dispatch subagent started (${mode} mode). Task ID: ${taskId}. Result will arrive in inbox when complete.`,

@@ -7,7 +7,7 @@
 
 import type { ITool, ToolResult, ExecContext } from '../executor.js';
 import type { TaskSystem } from '../../task/system.js';
-import type { StreamSink } from '../../../foundation/stream/types.js';
+
 import { SPAWN_DEFAULT_TIMEOUT_S, DEFAULT_LLM_IDLE_TIMEOUT_MS, DEFAULT_MAX_STEPS } from '../../../constants.js';
 import type { Message } from '../../../types/message.js';
 import { TOOL_PROFILES } from '../profiles.js';
@@ -18,7 +18,6 @@ import { TOOL_PROFILES } from '../profiles.js';
  */
 export async function scheduleSubAgentWithTracking(
   taskSystem: TaskSystem,
-  streamWriter: StreamSink,
   args: {
     prompt: string;
     messages?: Message[];
@@ -43,14 +42,6 @@ export async function scheduleSubAgentWithTracking(
     parentClawId: args.parentClawId,
     originClawId: args.originClawId,
     systemPrompt: args.systemPrompt,
-  });
-
-  streamWriter.write({
-    ts: Date.now(),
-    type: 'task_started',
-    taskId,
-    callerType: 'subagent',
-    silent: args.silent ?? false,
   });
 
   return taskId;
@@ -151,7 +142,6 @@ export const spawnTool: ITool = {
     try {
       const taskId = await scheduleSubAgentWithTracking(
         taskSystem,
-        ctx.parentStreamWriter ?? { write: () => {} },
         {
           prompt,
           messages,

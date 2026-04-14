@@ -19,7 +19,6 @@ import type { SkillRegistry } from '../skill/registry.js';
 import type { ContractManager } from '../contract/manager.js';
 import type { OutboxWriter } from '../communication/index.js';
 import type { Message } from '../../types/message.js';
-import type { StreamSink } from '../../foundation/stream/types.js';
 import type { AuditWriter } from '../../foundation/audit/writer.js';
 import type { CallerType } from './caller-type.js';
 
@@ -69,9 +68,6 @@ export interface ExecContextImplOptions {
   /** Outbox writer for send tool */
   outboxWriter?: OutboxWriter;
   
-  /** Parent stream writer for event forwarding */
-  parentStreamWriter?: StreamSink;
-  
   /** 当前对话 messages（供 dispatch 工具读取） */
   dialogMessages?: Message[];
   /** 创建链路的源头 clawId，由 dispatch/spawn 传播 */
@@ -93,7 +89,6 @@ export class ExecContextImpl implements ExecContext {
   llm?: ILLMService;
   stepNumber: number;
   maxSteps: number;
-  parentStreamWriter?: StreamSink;
   signal?: AbortSignal;
   taskSystem?: TaskSystem;
   skillRegistry?: SkillRegistry;
@@ -121,7 +116,6 @@ export class ExecContextImpl implements ExecContext {
     this.contractManager = options.contractManager;
     this.subagentMaxSteps = options.subagentMaxSteps ?? options.maxSteps ?? DEFAULT_MAX_STEPS;
     this.outboxWriter = options.outboxWriter;
-    this.parentStreamWriter = options.parentStreamWriter;
     this.dialogMessages = options.dialogMessages;
     this.originClawId = options.originClawId;
     this.auditWriter = options.auditWriter;

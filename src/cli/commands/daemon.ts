@@ -149,7 +149,7 @@ export async function daemonCommand(name: string): Promise<void> {
     maxDays: globalConfig.stream?.retention?.max_days ?? null,
   });
   streamWriter.open();
-  runtime.setParentStreamWriter(streamWriter);
+  runtime.setParentStreamSink(streamWriter);
 
   // motion 专属：cron 调度器
   let cronRunner: CronRunner | null = null;
@@ -195,7 +195,6 @@ export async function daemonCommand(name: string): Promise<void> {
             clawforumDir,
             motionDir: dir,
             taskSystem: runtime.getTaskSystem(),
-            streamWriter,
           });
         },
       },
@@ -370,7 +369,6 @@ export async function daemonCommand(name: string): Promise<void> {
           try {
             await scheduleSubAgentWithTracking(
               taskSystem,
-              streamWriter,
               {
                 prompt: '',
                 messages: retroMessages,

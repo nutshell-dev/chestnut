@@ -45,7 +45,6 @@ function makeOpts(clawforumDir: string, motionDir: string): RandomDreamOptions {
     clawforumDir,
     motionDir,
     taskSystem: {} as TaskSystem,
-    streamWriter: { write: vi.fn() },
   };
 }
 
@@ -216,7 +215,7 @@ Prompt: ...
 
     // 捕获传给 sub-agent 的 prompt
     let capturedPrompt = '';
-    mockScheduleSubAgent.mockImplementation(async (_ts: unknown, _sw: unknown, opts: { prompt: string }) => {
+    mockScheduleSubAgent.mockImplementation(async (_ts: unknown, opts: { prompt: string }) => {
       capturedPrompt = opts.prompt;
       return taskId;
     });
@@ -261,7 +260,7 @@ Prompt: ...
     );
 
     let capturedPrompt = '';
-    mockScheduleSubAgent.mockImplementation(async (_ts: unknown, _sw: unknown, opts: { prompt: string }) => {
+    mockScheduleSubAgent.mockImplementation(async (_ts: unknown, opts: { prompt: string }) => {
       capturedPrompt = opts.prompt;
       return taskId;
     });
@@ -303,7 +302,7 @@ Prompt: ...
     }), 'utf-8');
 
     let capturedPrompt = '';
-    mockScheduleSubAgent.mockImplementation(async (_ts: unknown, _sw: unknown, opts: { prompt: string }) => {
+    mockScheduleSubAgent.mockImplementation(async (_ts: unknown, opts: { prompt: string }) => {
       capturedPrompt = opts.prompt;
       return taskId;
     });
@@ -334,7 +333,7 @@ Prompt: ...
     await fs.mkdir(normalDir, { recursive: true });
 
     let capturedPrompt = '';
-    mockScheduleSubAgent.mockImplementation(async (_ts: unknown, _sw: unknown, opts: { prompt: string }) => {
+    mockScheduleSubAgent.mockImplementation(async (_ts: unknown, opts: { prompt: string }) => {
       capturedPrompt = opts.prompt;
       return taskId;
     });

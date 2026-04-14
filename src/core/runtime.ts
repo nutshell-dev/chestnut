@@ -36,7 +36,6 @@ import { execTool } from './tools/builtins/exec.js';
 import { runReact } from './react/loop.js';
 import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../types/signals.js';
 import type { ToolResult } from './tools/executor.js';
-import type { StreamSink } from '../foundation/stream/types.js';
 import { AuditWriter } from '../foundation/audit/writer.js';
 import { InboxReader } from '../foundation/messaging/index.js';
 import { createWatcher } from '../foundation/file-watcher/watcher.js';
@@ -1068,8 +1067,8 @@ export class ClawRuntime {
     this.contractManager?.setOnNotify(cb);
   }
 
-  setParentStreamWriter(writer: StreamSink): void {
-    this.execContext.parentStreamWriter = writer;
+  setParentStreamSink(sink: import('../foundation/stream/types.js').StreamSink): void {
+    this.taskSystem?.setParentStreamSink(sink);
   }
 
   getAuditWriter(): AuditWriter {

@@ -8,15 +8,12 @@ import {
   RANDOM_DREAM_SYSTEM_PROMPT,
   buildRandomDreamPrompt,
 } from '../../../prompts/random-dream.js';
-import type { StreamSink } from '../../../foundation/stream/types.js';
-
 // ─── 类型定义 ────────────────────────────────────────────────
 
 export interface RandomDreamOptions {
   clawforumDir: string;
   motionDir: string;
   taskSystem: TaskSystem;
-  streamWriter: StreamSink;
 }
 
 interface WeightedContract {
@@ -232,7 +229,7 @@ export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
   console.log(`[cron:random-dream] scheduling sub-agent for ${weightedContracts.length} contracts`);
 
   // 调度 sub-agent
-  const taskId = await scheduleSubAgentWithTracking(opts.taskSystem, opts.streamWriter, {
+  const taskId = await scheduleSubAgentWithTracking(opts.taskSystem, {
     prompt: buildRandomDreamPrompt(weightedContracts),
     tools: TOOL_PROFILES['dream'],
     parentClawId: 'motion',
