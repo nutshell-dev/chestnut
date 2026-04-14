@@ -1,71 +1,78 @@
 /**
- * Transport module (F4)
- * Phase 0: LocalTransport implementation
- * 
- * Exports: ITransport interface, LocalTransport implementation
+ * Transport module (L1)
+ *
+ * Real-time bidirectional communication primitives.
+ * Manages connections to external clients (TUI, IM bot).
+ * Protocol (socket/pipe/WebSocket) is internal implementation detail.
+ *
+ * Resources: none
+ * Dependencies: none
+ * Coupling: none
+ * Consumer: Gateway
  */
 
-// Implementation
-export { LocalTransport } from './local.js';
-export type { LocalTransportOptions } from './local.js';
-
-// Types - defined in this file to avoid re-export conflicts
-import type { Priority } from '../../types/index.js';
-export type { Priority };
+import type { Connection } from './types.js';
+export type { Connection } from './types.js';
 
 /**
- * Inbox status for a Claw
+ * Options for starting a transport listener.
  */
-export interface InboxStatus {
-  total: number;
-  unread: number;
-  highPriority: number;
-  oldestMessage?: string;
+export interface TransportOptions {
+  /** Path for local IPC (Unix socket / named pipe). */
+  socketPath?: string;
 }
 
 /**
- * Claw health status
+ * Transport interface — real-time bidirectional communication.
+ *
+ * Lifecycle:
+ *   listen() → [client connects → communicates → disconnects]* → close()
+ *
+ * Messages are opaque strings. Transport does not interpret event semantics
+ * (that is Gateway's responsibility).
  */
-export interface ClawHealth {
-  alive: boolean;
-  lastHeartbeat?: string;
-  currentContract?: string;
-  status: 'idle' | 'working' | 'error' | 'unknown';
-  memoryUsage?: number;
-  pid?: number;
-}
-
-/**
- * Transport interface - Communication abstraction
- */
-
-import type { InboxMessage } from '../../types/index.js';
-export type { InboxMessage };
-
 export interface ITransport {
-  // ========================================================================
-  // Lifecycle
-  // ========================================================================
-  initialize(): Promise<void>;
+  /**
+   * Start listening for client connections.
+   * Resolves when the listener is ready.
+   */
+  listen(options?: TransportOptions): Promise<void>;
+
+  /**
+   * Stop listening and close all active connections.
+   * Resolves when fully shut down.
+   */
   close(): Promise<void>;
 
-  // ========================================================================
-  // Inbox Operations
-  // ========================================================================
-  sendInboxMessage(clawId: string, msg: InboxMessage): Promise<void>;
-  readInbox(clawId: string, options?: {
-    limit?: number;
-    since?: Date;
-    unreadOnly?: boolean;
-  }): Promise<InboxMessage[]>;
-  markAsRead(clawId: string, messageId: string): Promise<void>;
-  getInboxStatus(clawId: string): Promise<InboxStatus>;
-  watchInbox(clawId: string, callback: (message: InboxMessage) => void): Promise<() => Promise<void>>;
+  /**
+   * Send a message to a specific connected client.
+   */
+  send(connectionId: string, data: string): void;
 
-  // ========================================================================
-  // Health Monitoring
-  // ========================================================================
-  sendHeartbeat(entry: { claw_id: string; timestamp: string; status: 'idle' | 'working' | 'error'; message_count: number; }): Promise<void>;
-  isClawAlive(clawId: string): Promise<boolean>;
-  getActiveClaws(): Promise<string[]>;
+  /**
+   * Send a message to all connected clients.
+   */
+  broadcast(data: string): void;
+
+  /**
+   * List currently active connections.
+   */
+  getConnections(): Connection[];
+
+  /**
+   * Register callback for new client connections.
+   */
+  onConnect(cb: (conn: Connection) => void): void;
+
+  /**
+   * Register callback for client disconnections.
+   */
+  onDisconnect(cb: (conn: Connection) => void): void;
+
+  /**
+   * Register callback for incoming client messages.
+   */
+  onMessage(cb: (conn: Connection, data: string) => void): void;
 }
+
+// TODO: UnixDomainSocketTransport implementation — future phase

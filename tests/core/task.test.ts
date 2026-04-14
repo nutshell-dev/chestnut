@@ -16,7 +16,6 @@ import { registerBuiltinTools } from '../../src/core/tools/builtins/index.js';
 import type { LLMResponse } from '../../src/types/message.js';
 import type { ILLMService } from '../../src/foundation/llm/index.js';
 import type { StreamChunk } from '../../src/foundation/llm/types.js';
-import { LocalTransport } from '../../src/foundation/transport/local.js';
 
 /**
  * Convert LLMResponse to stream chunks for mock
