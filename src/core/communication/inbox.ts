@@ -10,6 +10,7 @@
  */
 
 import * as path from 'path';
+import { realpathSync } from 'fs';
 import { randomUUID } from 'crypto';
 import type { IFileSystem, FileEntry } from '../../foundation/fs/types.js';
 import type { InboxMessage, Priority } from '../../types/contract.js';
@@ -71,6 +72,10 @@ export class InboxWatcher {
     await this.fs.ensureDir(this.pendingDir);
     await this.fs.ensureDir(this.doneDir);
     await this.fs.ensureDir(this.failedDir);
+
+    // Normalize clawDir to real path — chokidar resolves symlinks in event.path,
+    // so path.relative must operate in the same realpath space
+    this.clawDir = realpathSync(this.clawDir);
 
     // Load existing pending messages (cold-start recovery)
     await this.loadExistingMessages();
@@ -145,7 +150,9 @@ export class InboxWatcher {
   private async handleNewFile(filePath: string): Promise<void> {
     // Normalize absolute paths to relative (defensive for test direct calls)
     if (path.isAbsolute(filePath)) {
-      filePath = path.relative(this.clawDir, filePath);
+      const realClawDir = realpathSync(this.clawDir);
+      const realFilePath = realpathSync(filePath);
+      filePath = path.relative(realClawDir, realFilePath);
     }
 
     // Deduplication: skip if already processed
