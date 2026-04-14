@@ -16,7 +16,7 @@ import { buildLLMConfig, loadGlobalConfig, loadClawConfig, getClawDir, getMotion
 import type { ClawRuntimeOptions } from '../../core/runtime.js';
 import type { InboxMessageInfo } from '../../core/runtime.js';
 import { startDaemonLoop } from './daemon-loop.js';
-import { StreamWriter } from '../../foundation/recording/stream-writer.js';
+import { StreamWriter } from '../../foundation/stream/writer.js';
 import { Heartbeat } from '../../core/heartbeat.js';
 import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
 import { SkillRegistry } from '../../core/skill/registry.js';

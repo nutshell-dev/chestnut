@@ -8,7 +8,7 @@ import {
   RANDOM_DREAM_SYSTEM_PROMPT,
   buildRandomDreamPrompt,
 } from '../../../prompts/random-dream.js';
-import type { StreamSink } from '../../../foundation/recording/context.js';
+import type { StreamSink } from '../../../foundation/stream/types.js';
 
 // ─── 类型定义 ────────────────────────────────────────────────
 

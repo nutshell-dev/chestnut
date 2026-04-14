@@ -16,12 +16,12 @@ import { SUBAGENT_TIMEOUT_MS, DEFAULT_MAX_STEPS } from '../../constants.js';
 import { oneLine } from '../../foundation/utils/string.js';
 import { DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../../prompts/index.js';
 import type { TaskSystem } from '../task/system.js';
-import type { OutboxWriter } from '../communication/outbox.js';
+import type { OutboxWriter } from '../communication/index.js';
 import type { ContractManager } from '../contract/manager.js';
 import type { SkillRegistry } from '../skill/registry.js';
 import type { Message } from '../../types/message.js';
 import type { AuditWriter } from '../../foundation/audit/writer.js';
-import type { StreamSink } from '../../foundation/recording/context.js';
+import type { StreamSink } from '../../foundation/stream/types.js';
 import type { CallerType } from '../tools/caller-type.js';
 import { callerTypeToProfile } from '../tools/caller-type.js';
 
