@@ -50,10 +50,10 @@ export class InboxWatcher {
     private clawDir: string,
     private fs: IFileSystem
   ) {
-    this.inboxDir = path.join(clawDir, 'inbox');
-    this.pendingDir = path.join(this.inboxDir, 'pending');
-    this.doneDir = path.join(this.inboxDir, 'done');
-    this.failedDir = path.join(this.inboxDir, 'failed');
+    this.inboxDir = 'inbox';
+    this.pendingDir = 'inbox/pending';
+    this.doneDir = 'inbox/done';
+    this.failedDir = 'inbox/failed';
   }
 
   /**
@@ -81,7 +81,8 @@ export class InboxWatcher {
       'inbox/pending',
       (event) => {
         if (event.type === 'add' && event.path.endsWith('.md')) {
-          this.handleNewFile(event.path).catch(err => {
+          const relativePath = path.relative(this.clawDir, event.path);
+          this.handleNewFile(relativePath).catch(err => {
             console.error('[InboxWatcher] Failed to handle new file:', err);
           });
         }
@@ -128,7 +129,7 @@ export class InboxWatcher {
       
       for (const entry of entries) {
         if (entry.name.endsWith('.md')) {
-          await this.handleNewFile(path.join(this.pendingDir, entry.name));
+          await this.handleNewFile(this.pendingDir + '/' + entry.name);
         }
       }
     } catch (err: any) {
@@ -142,6 +143,11 @@ export class InboxWatcher {
    * Handle a new file in pending directory
    */
   private async handleNewFile(filePath: string): Promise<void> {
+    // Normalize absolute paths to relative (defensive for test direct calls)
+    if (path.isAbsolute(filePath)) {
+      filePath = path.relative(this.clawDir, filePath);
+    }
+
     // Deduplication: skip if already processed
     if (this.processedFiles.has(filePath)) {
       return;
