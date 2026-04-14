@@ -51,6 +51,12 @@ export class SessionManager {
         // Cold start: missing file is expected
       } else {
         console.error('[session] current.json corrupted:', err);
+        // Rename corrupted file so subsequent loads don't retry parsing it
+        try {
+          await this.fs.move(this.currentPath, this.currentPath + '.corrupted');
+        } catch {
+          // Best-effort; if rename fails we just log and continue
+        }
       }
     }
 
@@ -79,7 +85,8 @@ export class SessionManager {
     const last = messages[messages.length - 1];
     if (!last || last.role !== 'assistant') return { repaired: messages, toolCount: 0 };
 
-    const content = Array.isArray(last.content) ? last.content : [];
+    const content = Array.isArray(last.content) ? last.content : null;
+    if (!content) return { repaired: messages, toolCount: 0 };
     const toolUseBlocks = content.filter(
       (b): b is ToolUseBlock => b.type === 'tool_use'
     );
@@ -173,16 +180,19 @@ export class SessionManager {
         return null;
       }
 
-      // Load latest
-      const latestPath = path.join(this.archiveDir, archives[0].name);
-      const content = await this.fs.read(latestPath);
-      try {
-        const data = JSON.parse(content) as SessionData;
-        return this.validateSession(data);
-      } catch (parseErr) {
-        console.error(`[session] Archive corrupted: ${archives[0].name}`, parseErr);
-        return null;
+      // Load latest, falling back to older archives if corrupted
+      for (const entry of archives) {
+        const entryPath = path.join(this.archiveDir, entry.name);
+        try {
+          const content = await this.fs.read(entryPath);
+          const data = JSON.parse(content) as SessionData;
+          return this.validateSession(data);
+        } catch (parseErr) {
+          console.error(`[session] Archive corrupted: ${entry.name}`, parseErr);
+          // Continue to next archive
+        }
       }
+      return null;
     } catch (err) {
       console.error('[session] Failed to load archive:', err);
       return null;
