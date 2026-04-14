@@ -4,7 +4,7 @@ import {
   VALID_TYPES,
   validatePriority,
   validateType,
-} from '../../src/foundation/transport/validation.js';
+} from '../../src/foundation/message-codec/index.js';
 
 afterEach(() => {
   vi.restoreAllMocks();

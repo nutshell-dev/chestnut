@@ -26,7 +26,7 @@ import { writeAtomic } from '../fs/atomic.js';
 import { createWatcher } from '../file-watcher/watcher.js';
 import type { Watcher } from '../file-watcher/types.js';
 import { parseFrontmatter } from '../../utils/frontmatter.js';
-import { validatePriority, validateType } from './validation.js';
+import { validatePriority, validateType } from '../message-codec/index.js';
 import { encodeInbox } from '../message-codec/index.js';
 
 /**
