@@ -77,7 +77,8 @@ export class InboxWatcher {
 
     // Start watching for new messages
     this.watcher = createWatcher(
-      this.pendingDir,
+      this.fs,
+      'inbox/pending',
       (event) => {
         if (event.type === 'add' && event.path.endsWith('.md')) {
           this.handleNewFile(event.path).catch(err => {

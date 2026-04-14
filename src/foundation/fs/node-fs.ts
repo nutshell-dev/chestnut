@@ -297,6 +297,10 @@ export class NodeFileSystem implements IFileSystem {
     await moveFile(fromAbsolute, toAbsolute);
   }
 
+  resolve(relativePath: string): string {
+    return this.resolveAndCheck(relativePath, 'read');
+  }
+
   // ========================================================================
   // Cleanup
   // =======================================================================

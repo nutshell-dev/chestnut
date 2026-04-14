@@ -119,6 +119,19 @@ export interface IFileSystem {
     isFile: boolean;
     isDirectory: boolean;
   }>;
+
+  // ========================================================================
+  // Path Resolution
+  // ========================================================================
+
+  /**
+   * Resolve a relative path to absolute path within this FileSystem's baseDir.
+   * Validates path is within allowed bounds (traversal protection, symlink check).
+   * @param relativePath - Relative path within baseDir
+   * @returns Absolute path
+   * @throws PermissionError if path escapes base directory
+   */
+  resolve(relativePath: string): string;
 }
 
 /**

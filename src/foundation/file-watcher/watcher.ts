@@ -6,6 +6,7 @@
 
 import { watch as chokidarWatch, type FSWatcher } from 'chokidar';
 import type { Watcher, WatchEvent, WatchEventType } from './types.js';
+import type { IFileSystem } from '../fs/types.js';
 
 /**
  * Chokidar-based watcher implementation
@@ -58,13 +59,15 @@ function mapEventType(chokidarEvent: string): WatchEventType | null {
 
 /**
  * Create a file watcher
- * @param watchPath - Path to watch (file or directory)
+ * @param fs - FileSystem instance for path resolution
+ * @param relativePath - Relative path to watch (file or directory)
  * @param callback - Called on each change event
  * @param options - Watch options
  * @returns Watcher handle
  */
 export function createWatcher(
-  watchPath: string,
+  fs: IFileSystem,
+  relativePath: string,
   callback: (event: WatchEvent) => void,
   options?: {
     /** Watch recursively (for directories) */
@@ -77,6 +80,7 @@ export function createWatcher(
     onError?: (error: Error) => void;
   }
 ): Watcher {
+  const watchPath = fs.resolve(relativePath);
   const watcher = chokidarWatch(watchPath, {
     persistent: true,
     ignoreInitial: true,
