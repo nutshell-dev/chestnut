@@ -8,7 +8,7 @@ import { promises as fs } from 'fs';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 
-import { InboxWatcher } from '../../src/core/communication/index.js';
+import { InboxReader } from '../../src/foundation/messaging/index.js';
 import { OutboxWriter } from '../../src/core/communication/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
 import type { InboxMessage } from '../../src/types/contract.js';
@@ -46,10 +46,10 @@ ${msg.content}
 }
 
 describe('Communication', () => {
-  describe('InboxWatcher', () => {
+  describe('InboxReader', () => {
     let tempDir: string;
     let mockFs: NodeFileSystem;
-    let watcher: InboxWatcher;
+    let reader: InboxReader;
 
     beforeEach(async () => {
       tempDir = await createTempDir();
@@ -57,15 +57,15 @@ describe('Communication', () => {
       await mockFs.ensureDir('inbox/pending');
       await mockFs.ensureDir('inbox/done');
       await mockFs.ensureDir('inbox/failed');
-      watcher = new InboxWatcher(tempDir, mockFs);
+      reader = new InboxReader('inbox/pending', 'inbox/done', 'inbox/failed', mockFs);
+      await reader.init();
     });
 
     afterEach(async () => {
-      await watcher.stop();
       await cleanupTempDir(tempDir);
     });
 
-    it('should process pending message on start', async () => {
+    it('should process pending messages on drainInbox', async () => {
       const msg: InboxMessage = {
         id: 'msg-1',
         type: 'message',
@@ -77,16 +77,10 @@ describe('Communication', () => {
       };
       await mockFs.writeAtomic('inbox/pending/test.md', buildMdMessage(msg));
 
-      const messages: InboxMessage[] = [];
-      await watcher.start(async (m) => {
-        messages.push(m);
-      });
+      const entries = await reader.drainInbox();
 
-      // Wait for processing
-      await new Promise(r => setTimeout(r, 200));
-
-      expect(messages).toHaveLength(1);
-      expect(messages[0].content).toBe('Test message');
+      expect(entries).toHaveLength(1);
+      expect(entries[0].message.content).toBe('Test message');
     });
 
     it('should move processed message to done', async () => {
@@ -101,56 +95,35 @@ describe('Communication', () => {
       };
       await mockFs.writeAtomic('inbox/pending/test.md', buildMdMessage(msg));
 
-      await watcher.start(async () => {});
-      await new Promise(r => setTimeout(r, 200));
+      const entries = await reader.drainInbox();
+      await reader.markDone(entries[0].filePath);
 
       // Check file moved to done
       const doneFiles = await fs.readdir(path.join(tempDir, 'inbox', 'done'));
       expect(doneFiles.length).toBe(1);
     });
 
-    it('should move failed message to failed and continue', async () => {
-      const msg1: InboxMessage = {
+    it('should move failed message to failed', async () => {
+      const msg: InboxMessage = {
         id: 'msg-1',
         type: 'message',
         from: 'motion-1',
         to: 'claw-1',
-        content: 'Will fail',
+        content: 'Test',
         priority: 'normal',
         timestamp: new Date().toISOString(),
       };
-      const msg2: InboxMessage = {
-        id: 'msg-2',
-        type: 'message',
-        from: 'motion-1',
-        to: 'claw-1',
-        content: 'Will succeed',
-        priority: 'normal',
-        timestamp: new Date().toISOString(),
-      };
-      await mockFs.writeAtomic('inbox/pending/1.md', buildMdMessage(msg1));
-      await mockFs.writeAtomic('inbox/pending/2.md', buildMdMessage(msg2));
+      await mockFs.writeAtomic('inbox/pending/test.md', buildMdMessage(msg));
 
-      const processed: string[] = [];
-      await watcher.start(async (m) => {
-        processed.push(m.content);
-        if (m.content === 'Will fail') {
-          throw new Error('Processing failed');
-        }
-      });
-
-      await new Promise(r => setTimeout(r, 300));
-
-      // Both should be processed despite first failing
-      expect(processed).toContain('Will fail');
-      expect(processed).toContain('Will succeed');
+      const entries = await reader.drainInbox();
+      await reader.markFailed(entries[0].filePath);
 
       // Failed message should be in failed/
       const failedFiles = await fs.readdir(path.join(tempDir, 'inbox', 'failed'));
       expect(failedFiles.length).toBe(1);
     });
 
-    it('should process messages by priority', async () => {
+    it('should return messages by priority', async () => {
       const normalMsg: InboxMessage = {
         id: 'normal',
         type: 'message',
@@ -174,20 +147,14 @@ describe('Communication', () => {
       await mockFs.writeAtomic('inbox/pending/normal.md', buildMdMessage(normalMsg));
       await mockFs.writeAtomic('inbox/pending/critical.md', buildMdMessage(criticalMsg));
 
-      const order: string[] = [];
-      await watcher.start(async (m) => {
-        order.push(m.content);
-      });
+      const entries = await reader.drainInbox();
 
-      await new Promise(r => setTimeout(r, 200));
-
-      // Critical should be processed first despite being written second
-      expect(order[0]).toBe('Critical');
-      expect(order[1]).toBe('Normal');
+      // Critical should be first despite being written second
+      expect(entries[0].message.content).toBe('Critical');
+      expect(entries[1].message.content).toBe('Normal');
     });
 
-    it('should return queue length', async () => {
-      // Don't start processing yet
+    it('should include UUID in done/failed filenames', async () => {
       const msg: InboxMessage = {
         id: 'msg-1',
         type: 'message',
@@ -199,44 +166,33 @@ describe('Communication', () => {
       };
       await mockFs.writeAtomic('inbox/pending/test.md', buildMdMessage(msg));
 
-      // Queue length should be 1 before starting
-      expect(await watcher.queueLength()).toBe(1);
+      const entries = await reader.drainInbox();
+      await reader.markDone(entries[0].filePath);
 
-      await watcher.start(async () => {});
-      await new Promise(r => setTimeout(r, 200));
-
-      // After processing, queue should be empty
-      expect(await watcher.queueLength()).toBe(0);
+      // Verify done filename contains UUID (format: {timestamp}_{uuid8}_{filename})
+      const doneFiles = await fs.readdir(path.join(tempDir, 'inbox', 'done'));
+      expect(doneFiles).toHaveLength(1);
+      const parts = doneFiles[0].split('_');
+      expect(parts.length).toBeGreaterThanOrEqual(2);
+      expect(parts[1].length).toBe(8); // UUID8
     });
 
-    // Phase 2 质量审查补充：move 失败测试
-    it('should not cause duplicate processing when move fails', async () => {
-      const msg: InboxMessage = {
-        id: 'msg-1',
-        type: 'message',
-        from: 'motion-1',
-        to: 'claw-1',
-        content: 'Test move failure',
-        priority: 'normal',
-        timestamp: new Date().toISOString(),
-      };
-      await mockFs.writeAtomic('inbox/pending/test.md', buildMdMessage(msg));
+    it('should move malformed message to failed on parse error', async () => {
+      // Malformed: has opening --- but no closing ---
+      await mockFs.writeAtomic(
+        'inbox/pending/malformed.md',
+        '---\ntype: normal\nid: bad-msg\n(no closing fence)',
+      );
 
-      let processCount = 0;
-      const processedIds: string[] = [];
+      const entries = await reader.drainInbox();
 
-      await watcher.start(async (m) => {
-        processCount++;
-        processedIds.push(m.id);
-      });
+      // No valid entries returned
+      expect(entries).toHaveLength(0);
 
-      // Wait for processing
-      await new Promise(r => setTimeout(r, 200));
-
-      // Message should be processed exactly once
-      // (even if move fails, the message shouldn't be re-processed)
-      expect(processCount).toBe(1);
-      expect(processedIds).toEqual(['msg-1']);
+      // failed/ should contain the moved file
+      const failedFiles = await fs.readdir(path.join(tempDir, 'inbox', 'failed'));
+      expect(failedFiles.length).toBe(1);
+      expect(failedFiles[0]).toContain('malformed.md');
     });
   });
 

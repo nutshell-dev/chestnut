@@ -38,7 +38,9 @@ import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../typ
 import type { ToolResult } from './tools/executor.js';
 import type { StreamSink } from '../foundation/stream/types.js';
 import { AuditWriter } from '../foundation/audit/writer.js';
-import { InboxWatcher } from './communication/index.js';
+import { InboxReader } from '../foundation/messaging/index.js';
+import { createWatcher } from '../foundation/file-watcher/watcher.js';
+import type { Watcher } from '../foundation/file-watcher/types.js';
 import { OutboxWriter } from './communication/index.js';
 import { TaskSystem } from './task/system.js';
 import { SkillRegistry } from './skill/registry.js';
@@ -132,7 +134,8 @@ export class ClawRuntime {
   private contractManager!: ContractManager;
   protected execContext!: ExecContextImpl;
   protected toolExecutor!: ToolExecutorImpl;
-  private inboxWatcher!: InboxWatcher;
+  private inboxReader!: InboxReader;
+  private watcher: Watcher | null = null;
   private outboxWriter!: OutboxWriter;
 
   constructor(options: ClawRuntimeOptions) {
@@ -279,8 +282,8 @@ export class ClawRuntime {
     // 14. Create ToolExecutorImpl
     this.toolExecutor = new ToolExecutorImpl(this.toolRegistry, this.options.toolTimeoutMs);
 
-    // 15. Create InboxWatcher
-    this.inboxWatcher = new InboxWatcher(clawDir, this.systemFs);
+    // 15. Create InboxReader
+    this.inboxReader = new InboxReader('inbox/pending', 'inbox/done', 'inbox/failed', this.systemFs);
 
     this.initialized = true;
   }
@@ -294,8 +297,23 @@ export class ClawRuntime {
       await this.initialize();
     }
 
-    // Start InboxWatcher
-    await this.inboxWatcher.start(this.handleMessage.bind(this));
+    // Init InboxReader and process cold-start messages
+    await this.inboxReader.init();
+    await this.processInboxMessages();
+
+    // Start watching for new inbox messages
+    this.watcher = createWatcher(
+      this.systemFs,
+      'inbox/pending',
+      (event) => {
+        if (event.type === 'add' && event.path.endsWith('.md')) {
+          this.processInboxMessages().catch(err => {
+            console.error('[runtime] Failed to process inbox:', err);
+          });
+        }
+      },
+      { recursive: false },
+    );
 
     // Resume execution if there is a paused contract
     const paused = await this.contractManager.loadPaused();
@@ -312,8 +330,11 @@ export class ClawRuntime {
   async stop(): Promise<void> {
     if (!this.running) return;
 
-    // Stop InboxWatcher
-    await this.inboxWatcher.stop();
+    // Stop watcher
+    if (this.watcher) {
+      await this.watcher.close();
+      this.watcher = null;
+    }
 
     // Shut down TaskSystem
     await this.taskSystem.shutdown(30_000);
@@ -935,6 +956,23 @@ export class ClawRuntime {
       if (meta?.priority === 'high' || meta?.priority === 'critical') return true;
     }
     return false;
+  }
+
+  /**
+   * Process all pending inbox messages.
+   * Called on startup and whenever the file watcher detects a new file.
+   */
+  private async processInboxMessages(): Promise<void> {
+    const entries = await this.inboxReader.drainInbox();
+    for (const entry of entries) {
+      try {
+        await this.handleMessage(entry.message);
+        await this.inboxReader.markDone(entry.filePath);
+      } catch (err) {
+        console.error(`[inbox] Process failed for ${entry.filePath}:`, err);
+        await this.inboxReader.markFailed(entry.filePath);
+      }
+    }
   }
 
   /**

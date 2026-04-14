@@ -1,284 +1,104 @@
 /**
- * InboxWatcher - Event-driven inbox message processor
- * 
- * Features:
- * - Watches inbox/pending/ for new messages
- * - Processes messages serially (one at a time)
- * - Priority-based ordering (critical > high > normal > low)
- * - Moves processed messages to done/, failed ones to failed/
- * - Cold-start recovery: processes existing pending files on start
+ * InboxReader - Inbox message processor (Messaging L2)
+ *
+ * Pure message pull and file management. No file-watching.
+ * - drainInbox(): read pending, sort by priority, return entries
+ * - markDone/markFailed: move files to done/ or failed/
+ *
+ * File-watching orchestration lives in Runtime (assembly layer).
  */
 
 import * as path from 'path';
-import { realpathSync } from 'fs';
 import { randomUUID } from 'crypto';
 import type { IFileSystem } from '../fs/types.js';
-import type { InboxMessage, Priority } from '../../types/contract.js';
+import type { InboxMessage } from '../../types/contract.js';
 import { PRIORITY_VALUES } from '../../types/contract.js';
-import { createWatcher } from '../file-watcher/watcher.js';
-import type { Watcher } from '../file-watcher/types.js';
-import { INBOX_MAX_QUEUE_SIZE } from '../../constants.js';
 import { decodeInbox } from '../message-codec/index.js';
 
-/**
- * Queued message with metadata
- */
-interface QueuedMessage {
+export interface InboxEntry {
   message: InboxMessage;
   filePath: string;
-  priority: number;
-  timestamp: number;
 }
 
-/**
- * Inbox watcher and processor
- */
-export class InboxWatcher {
-  private inboxDir: string;
-  private pendingDir: string;
-  private doneDir: string;
-  private failedDir: string;
-  private watcher: Watcher | null = null;
-  private queue: QueuedMessage[] = [];
-  private processing = false;
-  private stopped = false;
-  private onMessage: ((msg: InboxMessage) => Promise<void>) | null = null;
-  // In-process dedup: prevent watcher from re-triggering the same file
-  // Note: in-memory, daemon restart may process once more (at-least-once)
-  private processedFiles = new Set<string>();
-
+export class InboxReader {
   constructor(
-    private clawDir: string,
-    private fs: IFileSystem
-  ) {
-    this.inboxDir = 'inbox';
-    this.pendingDir = 'inbox/pending';
-    this.doneDir = 'inbox/done';
-    this.failedDir = 'inbox/failed';
-  }
+    private readonly pendingDir: string,
+    private readonly doneDir: string,
+    private readonly failedDir: string,
+    private readonly fs: IFileSystem,
+  ) {}
 
-  /**
-   * Start watching and processing messages
-   */
-  async start(onMessage: (msg: InboxMessage) => Promise<void>): Promise<void> {
-    if (this.watcher) {
-      throw new Error('InboxWatcher already started');
-    }
-
-    this.onMessage = onMessage;
-    this.stopped = false;
-
-    // Ensure directories exist
+  /** Ensure inbox directories exist */
+  async init(): Promise<void> {
     await this.fs.ensureDir(this.pendingDir);
     await this.fs.ensureDir(this.doneDir);
     await this.fs.ensureDir(this.failedDir);
-
-    // Normalize clawDir to real path — chokidar resolves symlinks in event.path,
-    // so path.relative must operate in the same realpath space
-    this.clawDir = realpathSync(this.clawDir);
-
-    // Load existing pending messages (cold-start recovery)
-    await this.loadExistingMessages();
-
-    // Start watching for new messages
-    this.watcher = createWatcher(
-      this.fs,
-      'inbox/pending',
-      (event) => {
-        if (event.type === 'add' && event.path.endsWith('.md')) {
-          const relativePath = path.relative(this.clawDir, event.path);
-          this.handleNewFile(relativePath).catch(err => {
-            console.error('[InboxWatcher] Failed to handle new file:', err);
-          });
-        }
-      },
-      { recursive: false }
-    );
   }
 
   /**
-   * Stop watching
+   * Read all pending messages, sorted by priority (desc) then timestamp (asc).
+   * Returns messages with their file paths for subsequent markDone/markFailed calls.
    */
-  async stop(): Promise<void> {
-    this.stopped = true;
-    if (this.watcher) {
-      await this.watcher.close();
-      this.watcher = null;
-    }
-    this.queue = [];
-  }
-
-  /**
-   * Get current queue length (includes pending files not yet loaded)
-   */
-  async queueLength(): Promise<number> {
-    // Count files in pending directory
+  async drainInbox(): Promise<InboxEntry[]> {
+    let entries: { name: string }[] = [];
     try {
-      const entries = await this.fs.list(this.pendingDir, { includeDirs: false });
-      const fileCount = entries.filter(e => e.name.endsWith('.md')).length;
-      return Math.max(fileCount, this.queue.length);
-    } catch (err: any) {
-      if (err?.code !== 'ENOENT') {
-        console.warn(`[inbox] Failed to list pending dir: ${err?.message}`);
-      }
-      return this.queue.length;
-    }
-  }
-
-  /**
-   * Load existing pending messages on startup
-   */
-  private async loadExistingMessages(): Promise<void> {
-    try {
-      const entries = await this.fs.list(this.pendingDir, { includeDirs: false });
-      
-      for (const entry of entries) {
-        if (entry.name.endsWith('.md')) {
-          await this.handleNewFile(this.pendingDir + '/' + entry.name);
-        }
-      }
+      entries = await this.fs.list(this.pendingDir, { includeDirs: false });
     } catch (err: any) {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-        console.error('[InboxWatcher] Failed to load existing messages:', err);
+        console.error('[InboxReader] Failed to list pending messages:', err);
       }
+      return [];
     }
-  }
 
-  /**
-   * Handle a new file in pending directory
-   */
-  private async handleNewFile(filePath: string): Promise<void> {
-    // Normalize absolute paths to relative (defensive for test direct calls)
-    if (path.isAbsolute(filePath)) {
+    const results: InboxEntry[] = [];
+    for (const entry of entries) {
+      if (!entry.name.endsWith('.md')) continue;
+      const filePath = this.pendingDir + '/' + entry.name;
       try {
-        const realClawDir = realpathSync(this.clawDir);
-        const realFilePath = realpathSync(filePath);
-        filePath = path.relative(realClawDir, realFilePath);
-      } catch {
-        // File deleted between watcher event and processing — normal race
-        return;
-      }
-    }
-
-    // Deduplication: skip if already processed
-    if (this.processedFiles.has(filePath)) {
-      return;
-    }
-    this.processedFiles.add(filePath);
-    
-    // Queue size limit: drop lowest priority if exceeded
-    if (this.queue.length >= INBOX_MAX_QUEUE_SIZE) {
-      this.sortQueue();
-      const dropped = this.queue.pop();  // Remove lowest priority
-      if (dropped) {
-        console.warn(`[inbox] Queue full, dropping: ${dropped.message.id}`);
-        this.moveToFailed(dropped.filePath).catch(err =>
-          console.error('[inbox] Failed to move dropped message to failed:', err)
-        );
-      }
-    }
-    
-    try {
-      const content = await this.fs.read(filePath);
-      const message = decodeInbox(content);
-      
-      const queued: QueuedMessage = {
-        message,
-        filePath,
-        priority: PRIORITY_VALUES[message.priority] ?? PRIORITY_VALUES.normal,
-        timestamp: new Date(message.timestamp).getTime() || Date.now(),
-      };
-
-      // Add to queue (sorting deferred to processQueue for batch efficiency)
-      this.queue.push(queued);
-
-      // Trigger processing
-      this.processQueue().catch(err => {
-        console.error('[InboxWatcher] Failed to process queue:', err);
-      });
-    } catch (err) {
-      console.warn(`[inbox] Malformed message, moving to failed/ ${filePath}:`, err);
-      await this.moveToFailed(filePath);
-    }
-  }
-
-  /**
-   * Sort queue by priority (desc), then by timestamp (asc)
-   */
-  private sortQueue(): void {
-    this.queue.sort((a, b) => {
-      if (a.priority !== b.priority) {
-        return b.priority - a.priority; // Higher priority first
-      }
-      return a.timestamp - b.timestamp; // Older first (FIFO)
-    });
-  }
-
-  /**
-   * Process queue serially
-   */
-  private async processQueue(): Promise<void> {
-    if (this.processing || this.stopped || !this.onMessage) {
-      return;
-    }
-
-    // Sort once before processing all current items (batch optimization)
-    if (this.queue.length > 0) {
-      this.sortQueue();
-    }
-
-    this.processing = true;
-
-    while (this.queue.length > 0 && !this.stopped) {
-      const item = this.queue.shift();
-      if (!item) continue;
-
-      try {
-        await this.onMessage(item.message);
-        // Success: move to done
-        await this.moveToDone(item.filePath);
+        const content = await this.fs.read(filePath);
+        const message = decodeInbox(content);
+        results.push({ message, filePath });
       } catch (err) {
-        // Failure: move to failed
-        console.error(`[inbox] Process failed for ${item.filePath}:`, err);
-        await this.moveToFailed(item.filePath);
+        console.warn(`[InboxReader] Malformed message, moving to failed/ ${filePath}:`, err);
+        await this.markFailed(filePath);
       }
     }
 
-    this.processing = false;
+    results.sort((a, b) => {
+      const pa = PRIORITY_VALUES[a.message.priority] ?? PRIORITY_VALUES.normal;
+      const pb = PRIORITY_VALUES[b.message.priority] ?? PRIORITY_VALUES.normal;
+      if (pa !== pb) return pb - pa; // Higher priority first
+      const ta = new Date(a.message.timestamp).getTime() || 0;
+      const tb = new Date(b.message.timestamp).getTime() || 0;
+      return ta - tb; // Older first (FIFO)
+    });
+
+    return results;
   }
 
-  /**
-   * Move processed file to done/
-   */
-  private async moveToDone(filePath: string): Promise<void> {
+  /** Move processed file to done/ */
+  async markDone(filePath: string): Promise<void> {
     try {
       const fileName = path.basename(filePath);
       const uuid8 = randomUUID().slice(0, 8);
       const targetPath = path.join(this.doneDir, `${Date.now()}_${uuid8}_${fileName}`);
       await this.fs.move(filePath, targetPath);
-      this.processedFiles.delete(filePath); // Remove from set only on success; prevent watcher re-trigger
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error(`[inbox] Failed to move ${filePath} to done:`, msg);
-      // Clean up set entry to allow retry on daemon restart (at-least-once)
-      this.processedFiles.delete(filePath);
+      console.error(`[InboxReader] Failed to move ${filePath} to done:`, msg);
     }
   }
 
-  /**
-   * Move failed file to failed/
-   */
-  private async moveToFailed(filePath: string): Promise<void> {
+  /** Move failed file to failed/ */
+  async markFailed(filePath: string): Promise<void> {
     try {
       const fileName = path.basename(filePath);
       const uuid8 = randomUUID().slice(0, 8);
       const targetPath = path.join(this.failedDir, `${Date.now()}_${uuid8}_${fileName}`);
       await this.fs.move(filePath, targetPath);
-      this.processedFiles.delete(filePath); // Remove from set only on success
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error(`[inbox] Failed to move ${filePath} to failed:`, msg);
-      this.processedFiles.delete(filePath);  // Allow retry, prefer over memory leak
+      console.error(`[InboxReader] Failed to move ${filePath} to failed:`, msg);
     }
   }
 }
