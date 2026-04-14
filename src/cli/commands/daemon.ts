@@ -123,10 +123,11 @@ export async function daemonCommand(name: string): Promise<void> {
       } as ClawRuntimeOptions);
 
   // git init（claw 首次启动时无 .git，motion init 已处理 motion 的情况）
-  await initAgentGit(dir);
+  const agentFs = new NodeFileSystem({ baseDir: dir, enforcePermissions: false });
+  await initAgentGit(dir, agentFs);
 
   // recovery-snapshot：将上次中断遗留的 working tree 变更固化（在 session repair 之前）
-  await commitAgentDir(dir, 'recovery-snapshot');
+  await commitAgentDir(dir, 'recovery-snapshot', agentFs);
 
   await runtime.initialize();
   await runtime.resumeContractIfPaused();
@@ -258,7 +259,7 @@ export async function daemonCommand(name: string): Promise<void> {
   auditWriter.write('daemon_start', `sha256:${promptHash}`);
 
   // daemon-start commit（fire-and-forget，不阻塞启动）
-  commitAgentDir(dir, `daemon-start ${new Date().toISOString()}`).catch(() => {});
+  commitAgentDir(dir, `daemon-start ${new Date().toISOString()}`, agentFs).catch(() => {});
 
   runtime.setContractNotifyCallback((type, data) => {
     streamWriter.write({ ts: Date.now(), type: 'user_notify', subtype: type, ...data });

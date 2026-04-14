@@ -8,10 +8,8 @@
  * All git operations are best-effort; failures are logged but don't block business logic.
  */
 
-import * as path from 'path';
 import { exec } from '../process-exec/index.js';
-import { writeFile } from 'fs/promises';
-import { existsSync } from 'fs';
+import type { IFileSystem } from '../fs/types.js';
 
 const GITIGNORE_CONTENT = `stream.jsonl
 audit.tsv
@@ -31,10 +29,10 @@ async function git(dir: string, args: string[]): Promise<string> {
  * Idempotent: skip if .git already exists.
  * Write .gitignore → git init → set local user config → empty commit to ensure HEAD exists.
  */
-export async function initAgentGit(dir: string): Promise<void> {
-  if (existsSync(path.join(dir, '.git'))) return;
+export async function initAgentGit(dir: string, fs: IFileSystem): Promise<void> {
+  if (await fs.exists('.git')) return;
   try {
-    await writeFile(path.join(dir, '.gitignore'), GITIGNORE_CONTENT, 'utf-8');
+    await fs.writeAtomic('.gitignore', GITIGNORE_CONTENT);
     await git(dir, ['init']);
     await git(dir, ['config', 'user.name', 'clawforum']);
     await git(dir, ['config', 'user.email', 'clawforum@local']);
@@ -48,7 +46,7 @@ export async function initAgentGit(dir: string): Promise<void> {
 /**
  * If there are uncommitted changes, execute git add . && git commit. No-op when no changes.
  */
-export async function commitAgentDir(dir: string, message: string): Promise<void> {
+export async function commitAgentDir(dir: string, message: string, fs: IFileSystem): Promise<void> {
   try {
     const status = await git(dir, ['status', '--porcelain']);
     if (!status) return;
