@@ -1,1 +1,1 @@
-export { init, commit } from './snapshot.js';
+export { Snapshot } from './snapshot.js';
