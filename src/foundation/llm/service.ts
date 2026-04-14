@@ -14,10 +14,7 @@ import {
   LLMAllProvidersFailedError,
   LLMTimeoutError,
 } from '../../types/errors.js';
-import { appendFileSync, mkdirSync, writeFileSync } from 'fs';
-import * as path from 'path';
-import { randomUUID } from 'crypto';
-import { AuditWriter } from '../audit/writer.js';
+
 import type {
   ProviderConfig,
   LLMServiceConfig,
@@ -100,29 +97,16 @@ export class LLMService implements ILLMService {
   private primary: IProviderAdapter;
   private fallbacks: IProviderAdapter[];
   private config: LLMServiceConfig;
-  private clawId?: string;
-  
   // Track current provider: -1 = primary, 0..N = fallbacks[i]
   private currentProviderIndex = -1;
-  
+
   // Circuit breakers for each provider (primary + fallbacks)
   private breakers: CircuitBreaker[];
-  
-  private auditWriter?: AuditWriter;
-  private errorLogDir?: string;
 
-  constructor(
-    config: LLMServiceConfig,
-    clawId?: string,
-    auditWriter?: AuditWriter,
-    errorLogDir?: string,
-  ) {
+  constructor(config: LLMServiceConfig) {
     this.config = config;
     this.primary = createProvider(config.primary);
     this.fallbacks = (config.fallbacks ?? []).map(createProvider);
-    this.clawId = clawId;
-    this.auditWriter = auditWriter;
-    this.errorLogDir = errorLogDir;
     
     // Initialize circuit breakers if configured
     const cb = config.circuitBreaker;
@@ -131,23 +115,7 @@ export class LLMService implements ILLMService {
       : [];
   }
 
-  private writeErrorLog(ref: string, failures: Array<{ provider: string; error: Error }>): void {
-    if (!this.errorLogDir) return;
-    try {
-      mkdirSync(this.errorLogDir, { recursive: true });
-      const body = JSON.stringify(
-        failures.map(f => ({
-          provider: f.provider,
-          message: f.error.message,
-          stack: f.error.stack,
-          code: (f.error as any).code,
-        })),
-        null, 2
-      );
-      writeFileSync(path.join(this.errorLogDir, `${ref}.json`), body);
-    } catch { /* 日志写失败不能影响业务 */ }
-  }
-  
+
   /**
    * Make an LLM call with retry and failover
    */
@@ -175,10 +143,6 @@ export class LLMService implements ILLMService {
           
           // Reset to primary
           this.currentProviderIndex = -1;
-          this.auditWriter?.write('llm_call', this.primary.model,
-            `in=${response.usage?.input_tokens ?? 0}`,
-            `out=${response.usage?.output_tokens ?? 0}`,
-            `ms=${Date.now() - callStart}`);
           return response;
           
         } catch (error) {
@@ -226,10 +190,6 @@ export class LLMService implements ILLMService {
         this.breakers[i + 1]?.onSuccess();
         
         this.currentProviderIndex = i;
-        this.auditWriter?.write('llm_call', fb.model,
-          `in=${response.usage?.input_tokens ?? 0}`,
-          `out=${response.usage?.output_tokens ?? 0}`,
-          `ms=${Date.now() - callStart}`);
         return response;
         
       } catch (fallbackError) {
@@ -241,12 +201,6 @@ export class LLMService implements ILLMService {
     }
     
     // All providers failed
-    const ref = randomUUID().slice(0, 8);
-    this.writeErrorLog(ref, failures);
-    this.auditWriter?.write('llm_error', this.primary.model,
-      `err=${failures.map(f => f.error.message).join('; ')}`,
-      `ms=${Date.now() - startTime}`,
-      `ref=${ref}`);
     throw new LLMAllProvidersFailedError(failures);
   }
   
@@ -325,10 +279,6 @@ export class LLMService implements ILLMService {
         breaker?.onSuccess();
         // Update current provider index (-1 = primary, 0..N = fallbacks)
         this.currentProviderIndex = pi === 0 ? -1 : pi - 1;
-        this.auditWriter?.write('llm_call', adapter.model,
-          `in=${doneChunk?.usage?.inputTokens ?? 0}`,
-          `out=${doneChunk?.usage?.outputTokens ?? 0}`,
-          `ms=${Date.now() - callStart}`);
         return; // Success, exit generator
       } else {
         // Circuit breaker: record failure
@@ -342,12 +292,6 @@ export class LLMService implements ILLMService {
     }
 
     // All providers failed
-    const ref = randomUUID().slice(0, 8);
-    this.writeErrorLog(ref, failures);
-    this.auditWriter?.write('llm_error', this.primary.model,
-      `err=${failures.map(f => f.error.message).join('; ')}`,
-      `ms=${Date.now() - startTime}`,
-      `ref=${ref}`);
     throw new LLMAllProvidersFailedError(failures);
   }
   

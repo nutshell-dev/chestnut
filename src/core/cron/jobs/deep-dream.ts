@@ -258,7 +258,7 @@ export async function runDeepDream(opts: DeepDreamOptions): Promise<void> {
 
   if (clawIds.length === 0) return;
 
-  const llm = new LLMService(opts.llmConfig, 'dream');
+  const llm = new LLMService(opts.llmConfig);
 
   try {
     // 串行处理每个 claw

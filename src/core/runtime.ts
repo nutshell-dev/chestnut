@@ -158,12 +158,7 @@ export class ClawRuntime {
     this.monitor = new JsonlLogger({ logsDir });
 
     // 4. Create LLMService
-    this.llm = new LLMService(
-      llmConfig,
-      clawId,
-      this.auditWriter,
-      path.join(this.options.clawDir, 'logs', 'llm-errors'),
-    );
+    this.llm = new LLMService(llmConfig);
 
     // 5. Create LocalTransport (workspaceDir depends on claw type)
     // claw:   clawDir = .clawforum/claws/{name} → up 2 levels → .clawforum
