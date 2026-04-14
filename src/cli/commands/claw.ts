@@ -57,7 +57,7 @@ function getLastActiveMs(clawDir: string): number | undefined {
 
 import { ProcessManager } from '../../foundation/process/manager.js';
 import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
-import { sendInboxMessage } from '../../core/communication/inbox-send.js';
+import { writeInbox } from '../../foundation/messaging/index.js';
 import { randomUUID } from 'crypto';
 import { PROCESS_SPAWN_CONFIRM_MS, DEFAULT_MAX_STEPS } from '../../constants.js';
 
@@ -393,8 +393,11 @@ export async function sendCommand(
 
   const globalConfigPath = getGlobalConfigPath();
   const baseDir = path.dirname(globalConfigPath);
+  const clawDir = path.join(baseDir, 'claws', name);
+  const inboxPending = path.join(clawDir, 'inbox', 'pending');
+  const fs = new NodeFileSystem({ baseDir: '/', enforcePermissions: false });
 
-  await sendInboxMessage(baseDir, name, {
+  await writeInbox(fs, inboxPending, {
     id: randomUUID(),
     type: 'user_inbox_message',
     from: 'user',

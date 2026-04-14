@@ -10,7 +10,7 @@ import type { StreamWriter, StreamSink } from '../../foundation/stream/index.js'
 import { oneLine } from '../../foundation/utils/string.js';
 
 import type { Heartbeat } from '../../core/heartbeat.js';
-import { scanClawOutboxes } from '../../core/outbox-scanner.js';
+import { scanClawOutboxes } from '../../foundation/messaging/index.js';
 import {
   DAEMON_FALLBACK_TIMEOUT_MS,
   INTERRUPT_RECOVERY_DELAY_MS,

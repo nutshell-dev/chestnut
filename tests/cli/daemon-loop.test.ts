@@ -282,11 +282,11 @@ describe('startDaemonLoop - LLM retry', () => {
 // startDaemonLoop - Motion outbox scanning
 // ==========================================================================
 
-vi.mock('../../src/core/outbox-scanner.js', () => ({
+vi.mock('../../src/foundation/messaging/index.js', () => ({
   scanClawOutboxes: vi.fn(),
 }));
 
-import { scanClawOutboxes } from '../../src/core/outbox-scanner.js';
+import { scanClawOutboxes } from '../../src/foundation/messaging/index.js';
 
 describe('startDaemonLoop - Motion outbox scanning', () => {
   beforeEach(() => {

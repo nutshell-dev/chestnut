@@ -5,7 +5,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as path from 'path';
 import * as fs from 'fs';
-import { scanClawOutboxes } from '../../src/core/outbox-scanner.js';
+import { scanClawOutboxes } from '../../src/foundation/messaging/index.js';
 
 function createTempDir(): string {
   const tempDir = fs.mkdtempSync('/tmp/clawforum-outbox-test-');

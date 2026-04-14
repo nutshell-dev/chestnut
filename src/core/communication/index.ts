@@ -1,7 +1,7 @@
 /**
- * Communication module - Inbox/outbox handling
+ * Communication module
+ * Outbox writing and inbox watching re-exported from Messaging (L2).
  */
 
-export { InboxWatcher } from './inbox.js';
-export { OutboxWriter } from './outbox.js';
-export type { OutboxWriteOptions } from './outbox.js';
+export { OutboxWriter, InboxWatcher } from '../../foundation/messaging/index.js';
+export type { OutboxWriteOptions } from '../../foundation/messaging/index.js';
