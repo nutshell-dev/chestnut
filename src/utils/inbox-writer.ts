@@ -1,21 +1,22 @@
 /**
- * Inbox message writer - Unified inbox message creation
- * 
- * Centralizes inbox message format to ensure consistency across all writers.
- * Eliminates duplicate timestamp/UUID/YAML generation code.
+ * Inbox message writer
+ *
+ * I/O layer: generates filenames, creates directories, writes to disk.
+ * Message formatting delegated to MessageCodec.encodeInbox().
  */
 
 import * as fsNative from 'fs';
 import * as path from 'path';
 import { randomUUID } from 'node:crypto';
-import { parseFrontmatter } from './frontmatter.js';
+import { encodeInbox, parseFrontmatter } from '../foundation/message-codec/index.js';
+import type { InboxMessage } from '../types/contract.js';
 
 export interface InboxMessageOptions {
   /** inbox/pending directory path */
   inboxDir: string;
   /** Message type */
   type: string;
-  /** Message source */
+  /** Message source (mapped to InboxMessage.from) */
   source: string;
   /** Priority level */
   priority: 'critical' | 'high' | 'normal' | 'low';
@@ -32,17 +33,6 @@ export interface InboxMessageOptions {
 }
 
 /**
- * Quote a value for safe YAML insertion.
- * Numbers and booleans pass through; strings are double-quoted with escapes.
- */
-function yamlQuote(v: string): string {
-  // 如果是纯数字或 true/false，直接输出
-  if (/^-?\d+(\.\d+)?$/.test(v) || v === 'true' || v === 'false') return v;
-  // 否则双引号包裹，转义 \ " 和换行
-  return '"' + v.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r') + '"';
-}
-
-/**
  * Write an inbox message with standardized YAML frontmatter format.
  * Creates the inbox directory if it doesn't exist.
  */
@@ -53,31 +43,24 @@ export function writeInboxMessage(opts: InboxMessageOptions): void {
   const idPrefix = opts.idPrefix ?? opts.type;
   const tag = opts.filenameTag ?? opts.type;
 
-  let yaml = `---
-id: ${idPrefix}-${now.getTime()}
-type: ${opts.type}
-source: ${yamlQuote(opts.source)}`;
+  // Construct InboxMessage for encoding
+  const message: InboxMessage = {
+    id: `${idPrefix}-${now.getTime()}`,
+    type: opts.type,
+    from: opts.source,
+    to: opts.to ?? '',
+    content: opts.body,
+    priority: opts.priority,
+    timestamp: now.toISOString(),
+  };
 
-  if (opts.to) {
-    yaml += `\nto: ${yamlQuote(opts.to)}`;
-  }
+  const content = encodeInbox(message, opts.extraFields);
 
-  yaml += `\npriority: ${opts.priority}
-timestamp: ${now.toISOString()}`;
-
-  if (opts.extraFields) {
-    for (const [k, v] of Object.entries(opts.extraFields)) {
-      yaml += `\n${k}: ${yamlQuote(v)}`;
-    }
-  }
-
-  yaml += `\n---\n\n${opts.body}\n`;
-
+  // Write to disk (atomic: write temp + rename)
   fsNative.mkdirSync(opts.inboxDir, { recursive: true });
   const finalPath = path.join(opts.inboxDir, `${ts}_${tag}_${uuid8}.md`);
-  // 以 . 开头让所有 inbox 扫描器的 !startsWith('.') 过滤器自动忽略临时文件
   const tmpPath = path.join(opts.inboxDir, `.${ts}_${tag}_${uuid8}.tmp`);
-  fsNative.writeFileSync(tmpPath, yaml);
+  fsNative.writeFileSync(tmpPath, content);
   fsNative.renameSync(tmpPath, finalPath);
 }
 

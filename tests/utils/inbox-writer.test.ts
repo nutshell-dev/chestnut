@@ -162,7 +162,7 @@ describe('writeInboxMessage atomic write', () => {
     });
     const content = readWrittenFile();
     expect(content).toContain('type: ping');
-    expect(content).toContain('source: "motion"');
+    expect(content).toContain('from: "motion"');
     expect(content).toContain('priority: high');
     expect(content).toContain('test body content');
     expect(content).toMatch(/^---\n/);

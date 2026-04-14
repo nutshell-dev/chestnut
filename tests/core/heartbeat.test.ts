@@ -86,7 +86,7 @@ describe('Heartbeat', () => {
 
       const content = fs.readFileSync(path.join(inboxDir, files[0]), 'utf-8');
       expect(content).toContain('type: heartbeat');
-      expect(content).toContain('source: "system"');
+      expect(content).toContain('from: "system"');
       expect(content).toContain('priority: low');
       expect(content).toContain('心跳触发，请巡查。');
     });

@@ -15,7 +15,10 @@ function yamlQuote(v: string): string {
  * Encode InboxMessage to YAML frontmatter + body string.
  * Pure function: no I/O, no side effects.
  */
-export function encodeInbox(msg: InboxMessage): string {
+export function encodeInbox(
+  msg: InboxMessage,
+  extraFields?: Record<string, string>,
+): string {
   const lines = [
     '---',
     `id: ${msg.id}`,
@@ -28,6 +31,13 @@ export function encodeInbox(msg: InboxMessage): string {
 
   if (msg.contract_id) {
     lines.push(`contract_id: ${yamlQuote(msg.contract_id)}`);
+  }
+
+  // Append extra fields
+  if (extraFields) {
+    for (const [k, v] of Object.entries(extraFields)) {
+      lines.push(`${k}: ${yamlQuote(v)}`);
+    }
   }
 
   lines.push('---', '', msg.content, '');
