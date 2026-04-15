@@ -125,9 +125,8 @@ export class LLMService implements ILLMService {
     };
     
     // Try primary provider with retries
+    let lastError: Error | undefined;
     if (!isBreakerOpen(0)) {
-      let lastError: Error | undefined;
-      
       for (let attempt = 0; attempt < this.config.maxAttempts; attempt++) {
         try {
           const response = await this.primary.call(options);
@@ -163,9 +162,13 @@ export class LLMService implements ILLMService {
     }
     
     // Primary failed or breaker open, try fallbacks in order
-    const failures: Array<{ provider: string; error: Error }> = [
-      { provider: this.primary.name, error: new Error(isBreakerOpen(0) ? 'Circuit breaker open' : 'All retries failed') }
-    ];
+    const failures: Array<{ provider: string; error: Error }> = [];
+    if (isBreakerOpen(0)) {
+      failures.push({ provider: this.primary.name, error: new Error('Circuit breaker open') });
+    } else if (lastError) {
+      console.warn(`[llm] provider "${this.primary.name}" failed: ${lastError.message}`);
+      failures.push({ provider: this.primary.name, error: lastError });
+    }
     
     for (let i = 0; i < this.fallbacks.length; i++) {
       // Skip if breaker is open
@@ -185,10 +188,10 @@ export class LLMService implements ILLMService {
         return response;
         
       } catch (fallbackError) {
-        // Circuit breaker: record failure
+        const err = fallbackError as Error;
+        console.warn(`[llm] provider "${fb.name}" failed: ${err.message}`);
         this.breakers[i + 1]?.onFailure();
-        
-        failures.push({ provider: fb.name, error: fallbackError as Error });
+        failures.push({ provider: fb.name, error: err });
       }
     }
     
@@ -220,8 +223,9 @@ export class LLMService implements ILLMService {
       // Check circuit breaker
       const breaker = this.breakers[breakerIndex];
       if (breaker?.isOpen()) {
+        console.warn(`[llm] provider "${adapter.name}" skipped: circuit breaker open`);
         failures.push({ provider: adapter.name, error: new Error('Circuit breaker open') });
-        continue; // Skip if breaker open
+        continue;
       }
 
       // Retry loop (aligns with call())
@@ -272,10 +276,9 @@ export class LLMService implements ILLMService {
       } else {
         // Circuit breaker: record failure
         breaker?.onFailure();
-        failures.push({
-          provider: adapter.name,
-          error: lastError ?? new Error('Unknown stream error'),
-        });
+        const err = lastError ?? new Error('Unknown stream error');
+        console.warn(`[llm] provider "${adapter.name}" failed: ${err.message}`);
+        failures.push({ provider: adapter.name, error: err });
         // Continue to next provider
       }
     }

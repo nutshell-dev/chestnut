@@ -177,8 +177,11 @@ export class LLMAllProvidersFailedError extends LLMError {
   readonly failures: Array<{ provider: string; error: Error }>;
   
   constructor(failures: Array<{ provider: string; error: Error }>) {
+    const summary = failures
+      .map(f => `${f.provider} (${f.error.message.slice(0, 80)})`)
+      .join(', ');
     super(
-      `All LLM providers failed: ${failures.map(f => f.provider).join(', ')}`,
+      `All LLM providers failed: ${summary}`,
       { failures: failures.map(f => ({ provider: f.provider, error: f.error.message })) }
     );
     this.failures = failures;
