@@ -98,9 +98,9 @@ describe('OutboxScanner', () => {
     expect(result).toEqual([{ clawId: 'claw1', count: 2 }]); // Only .md files counted
   });
 
-  it('should return null when outbox/pending is a file (ENOTDIR error)', async () => {
-    // claw1: outbox/pending is a FILE → readdir throws ENOTDIR
-    // Non-ENOENT errors are now rethrown and caught by outer catch → return null
+  it('should skip claw when outbox/pending is a file (FS_NOT_FOUND)', async () => {
+    // claw1: outbox/pending is a FILE → NodeFileSystem.list throws FS_NOT_FOUND
+    // FS_NOT_FOUND is treated as "dir not created, skip silently"
     const claw1Dir = path.join(tempDir, 'claws', 'claw1');
     fs.mkdirSync(path.join(claw1Dir, 'outbox'), { recursive: true });
     fs.writeFileSync(path.join(claw1Dir, 'outbox', 'pending'), 'i am a file not a dir');
@@ -110,11 +110,8 @@ describe('OutboxScanner', () => {
     fs.mkdirSync(path.join(claw2Dir, 'outbox', 'pending'), { recursive: true });
     fs.writeFileSync(path.join(claw2Dir, 'outbox', 'pending', 'msg.md'), 'test');
 
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const result = await scanClawOutboxes(mockFs, tempDir);
-    expect(result).toBeNull(); // ENOTDIR is rethrown, outer catch returns null
-    expect(warnSpy).toHaveBeenCalled();
-    warnSpy.mockRestore();
+    expect(result).toEqual([{ clawId: 'claw2', count: 1 }]);
   });
 
   it('should return null and write to stderr when claws dir scan throws', async () => {
