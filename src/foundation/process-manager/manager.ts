@@ -34,6 +34,7 @@ export class ProcessManager {
   private fs: IFileSystem;
   private baseDir: string;
   private resolveDir: (id: string) => string;
+  private findProcessesWarned = false;
 
   constructor(fs: IFileSystem, baseDir: string, dirResolver?: (id: string) => string) {
     this.fs = fs;
@@ -156,23 +157,21 @@ export class ProcessManager {
     // Kill all orphaned daemon processes with the same name (pgrep scan)
     // Use args as pattern to only match current installation
     const pattern = options.args.join(' ');
-    try {
-      const pids = this.findProcesses(pattern);
-      let sentAny = false;
-      for (const pid of pids) {
-        try {
-          process.kill(pid, 'SIGTERM');
-          sentAny = true;
-        } catch (err: any) {
-          if (err?.code !== 'ESRCH') {
-            console.warn(`[process] Failed to SIGTERM PID ${pid}: ${err?.message}`);
-          }
+    const pids = this.findProcesses(pattern);
+    let sentAny = false;
+    for (const pid of pids) {
+      try {
+        process.kill(pid, 'SIGTERM');
+        sentAny = true;
+      } catch (err: any) {
+        if (err?.code !== 'ESRCH') {
+          console.warn(`[ProcessManager] Failed to SIGTERM PID ${pid}: ${err?.message}`);
         }
       }
-      if (sentAny) {
-        await new Promise(resolve => setTimeout(resolve, SIGTERM_GRACE_MS));
-      }
-    } catch { /* pgrep returns exit code 1 when no match found */ }
+    }
+    if (sentAny) {
+      await new Promise(resolve => setTimeout(resolve, SIGTERM_GRACE_MS));
+    }
 
     // Check and clean up the old daemon's lockfile
     const lockFile = path.join(this.getStatusDir(clawId), 'daemon.lock');
@@ -360,7 +359,11 @@ export class ProcessManager {
       return output.trim().split('\n')
         .map(s => parseInt(s, 10))
         .filter(p => !isNaN(p) && p !== process.pid);
-    } catch {
+    } catch (err) {
+      if (!this.findProcessesWarned) {
+        console.warn('[ProcessManager] findProcesses unavailable:', err instanceof Error ? err.message : String(err));
+        this.findProcessesWarned = true;
+      }
       return [];
     }
   }
