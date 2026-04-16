@@ -206,7 +206,7 @@ export class ClawRuntime {
         if (toolCount > 0) {
           await this.sessionManager.save(repaired);
           this.auditWriter.write('session_repaired', `tools=${toolCount}`);
-          this.snapshot.commit(`session-repair tools=${toolCount}`).catch(() => {});
+          void this.snapshot.commit(`session-repair tools=${toolCount}`);
         }
       }
     }
@@ -531,8 +531,7 @@ export class ClawRuntime {
 
     // turn auto-commit（fire-and-forget）
     this.turnCount++;
-    this.snapshot.commit(`turn-${this.turnCount} ${new Date().toISOString()}`)
-      .catch(() => {});
+    void this.snapshot.commit(`turn-${this.turnCount} ${new Date().toISOString()}`);
   }
 
   /**

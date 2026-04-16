@@ -275,9 +275,7 @@ export async function daemonCommand(name: string): Promise<void> {
   auditWriter.write('daemon_start', `sha256:${promptHash}`);
 
   // daemon-start commit（fire-and-forget，不阻塞启动）
-  snapshot.commit(`daemon-start ${new Date().toISOString()}`).catch(err => {
-    console.warn('[daemon] Failed to commit daemon-start snapshot:', err instanceof Error ? err.message : String(err));
-  });
+  void snapshot.commit(`daemon-start ${new Date().toISOString()}`);
 
   runtime.setContractNotifyCallback((type, data) => {
     streamWriter.write({ ts: Date.now(), type: 'user_notify', subtype: type, ...data });
