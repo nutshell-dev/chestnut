@@ -70,7 +70,7 @@ describe('ProcessManager.spawn() - Phase 19 daemon-entry.js', () => {
 
     expect(vi.mocked(spawnSync)).toHaveBeenCalledWith(
       'pgrep',
-      expect.arrayContaining(['-f', `/fake/daemon-entry.js ${clawId}`]),
+      expect.arrayContaining(['-f', `/fake/daemon-entry\\.js ${clawId}`]),
       expect.any(Object),
     );
   });

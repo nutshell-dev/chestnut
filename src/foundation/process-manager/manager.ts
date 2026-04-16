@@ -354,7 +354,12 @@ export class ProcessManager {
   // 当前 Windows 下 catch 返回 []，孤儿清理失效但不影响主流程。
   findProcesses(pattern: string): number[] {
     try {
-      const result = spawnSync('pgrep', ['-f', pattern], { encoding: 'utf-8' });
+      // Escape POSIX ERE metacharacters — callers pass file paths which may
+      // contain `(`, `)`, `[`, `]`, `+`, `?`, `.` etc. Without escaping,
+      // pgrep treats them as regex, fails with exit 2 on invalid ERE, and
+      // we silently return [] (orphan cleanup becomes a no-op).
+      const escaped = pattern.replace(/[\\.^$*+?()[\]{}|]/g, '\\$&');
+      const result = spawnSync('pgrep', ['-f', escaped], { encoding: 'utf-8' });
       const output = (result.status === 0 || result.status === 1) ? (result.stdout ?? '') : '';
       return output.trim().split('\n')
         .map(s => parseInt(s, 10))
