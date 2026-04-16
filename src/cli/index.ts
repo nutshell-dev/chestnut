@@ -12,6 +12,7 @@ import { handleCliError, CliError } from './errors.js';
 import { initCommand } from './commands/init.js';
 import { startCommand } from './commands/start.js';
 import * as path from 'path';
+import { existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { 
   createCommand, 
@@ -230,7 +231,8 @@ clawCmd
         return;
       }
       const thisDir = path.dirname(fileURLToPath(import.meta.url));
-      const daemonEntryPath = path.resolve(thisDir, '..', 'daemon-entry.js');
+      const bundleEntry = path.join(thisDir, 'daemon-entry.js');
+      const daemonEntryPath = existsSync(bundleEntry) ? bundleEntry : path.resolve(thisDir, '..', 'daemon-entry.js');
       const pid = await pm.spawn(name, {
         command: 'node',
         args: [daemonEntryPath, name],
@@ -316,7 +318,8 @@ motionCmd
         return;
       }
       const thisDir = path.dirname(fileURLToPath(import.meta.url));
-      const daemonEntryPath = path.resolve(thisDir, '..', 'daemon-entry.js');
+      const bundleEntry = path.join(thisDir, 'daemon-entry.js');
+      const daemonEntryPath = existsSync(bundleEntry) ? bundleEntry : path.resolve(thisDir, '..', 'daemon-entry.js');
       const pid = await pm.spawn('motion', {
         command: 'node',
         args: [daemonEntryPath, 'motion'],

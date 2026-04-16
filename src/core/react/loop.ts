@@ -182,6 +182,11 @@ export async function runReact(options: ReactOptions): Promise<ReactResult> {
       latencyMs: Date.now() - llmStartTime,
     });
 
+    // Warn on empty LLM response (provider returned no content blocks)
+    if (response.content.length === 0) {
+      console.warn(`[loop] LLM returned empty response (0 content blocks, stop_reason=${response.stop_reason}, latency=${Date.now() - llmStartTime}ms)`);
+    }
+
     // Handle tool_use stop reason
     if (response.stop_reason === 'tool_use') {
       // Extract tool calls from response
@@ -303,7 +308,16 @@ export async function runReact(options: ReactOptions): Promise<ReactResult> {
       }
     }
 
-    // Unknown stop reason, treat as end_turn
+    // Context window exceeded — input too large for the model
+    if (response.stop_reason === 'model_context_window_exceeded' || response.stop_reason === 'context_length_exceeded') {
+      throw new Error(
+        `LLM context window exceeded (stop_reason=${response.stop_reason}). ` +
+        `Reduce system prompt, tool definitions, or conversation history.`
+      );
+    }
+
+    // Unknown stop reason — treat as end_turn but warn
+    console.warn(`[loop] Unknown stop_reason: "${response.stop_reason}", treating as end_turn`);
     const text = extractText(response.content);
     appendAssistantMessage(messages, response.content);
     return {

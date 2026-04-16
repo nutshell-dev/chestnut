@@ -345,7 +345,8 @@ async function _start(): Promise<void> {
   const motionDir = getMotionDir();
   const notifyFs = new NodeFileSystem({ baseDir: motionDir, enforcePermissions: false });
   const thisDir = path.dirname(fileURLToPath(import.meta.url));
-  const daemonEntryPath = path.resolve(thisDir, '..', '..', 'daemon-entry.js');
+  const bundleEntry = path.join(thisDir, 'daemon-entry.js');
+  const daemonEntryPath = fs.existsSync(bundleEntry) ? bundleEntry : path.resolve(thisDir, '..', '..', 'daemon-entry.js');
   const motionSpawnOptions = {
     command: 'node' as const,
     args: [daemonEntryPath, 'motion'],

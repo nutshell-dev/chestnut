@@ -108,6 +108,15 @@ export const PRESETS: Record<string, ProviderPreset> = {
     defaultModel: 'anthropic/claude-sonnet-4-5',
     envVar: 'OPENROUTER_API_KEY',
   },
+  'zai': {
+    id: 'zai',
+    displayName: 'Z.AI (Anthropic format)',
+    apiFormat: 'anthropic',
+    authMethod: 'api_key',
+    defaultBaseUrl: 'https://api.z.ai/api/anthropic',
+    defaultModel: 'glm-4.6',
+    envVar: 'ZAI_API_KEY',
+  },
   'qwen-coder': {
     id: 'qwen-coder',
     displayName: 'Qwen Coder (Alibaba)',

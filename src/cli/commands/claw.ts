@@ -119,7 +119,8 @@ export async function chatCommand(name: string): Promise<void> {
       if (!pm.isAlive(name)) {
         console.log(`Starting Claw "${name}" daemon...`);
         const thisDir = path.dirname(fileURLToPath(import.meta.url));
-        const daemonEntryPath = path.resolve(thisDir, '..', '..', 'daemon-entry.js');
+        const bundleEntry = path.join(thisDir, 'daemon-entry.js');
+        const daemonEntryPath = fs.existsSync(bundleEntry) ? bundleEntry : path.resolve(thisDir, '..', '..', 'daemon-entry.js');
         const pid = await pm.spawn(name, {
           command: 'node',
           args: [daemonEntryPath, name],

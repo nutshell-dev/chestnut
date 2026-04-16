@@ -272,6 +272,9 @@ export class LLMService implements ILLMService {
         breaker?.onSuccess();
         // Update current provider index (-1 = primary, 0..N = fallbacks)
         this.currentProviderIndex = pi === 0 ? -1 : pi - 1;
+        if (!hasYielded) {
+          console.warn(`[llm] provider "${adapter.name}" stream completed but yielded 0 chunks`);
+        }
         return; // Success, exit generator
       } else {
         // Circuit breaker: record failure

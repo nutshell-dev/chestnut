@@ -3,6 +3,7 @@
  */
 
 import * as fs from 'fs';
+import { existsSync } from 'fs';
 import * as path from 'path';
 import { loadGlobalConfig, getGlobalConfigPath } from '../config.js';
 import { stopCommand as watchdogStop } from './watchdog.js';
@@ -52,8 +53,9 @@ export async function stopAllCommand(): Promise<void> {
   // Use full path as pattern to only match current installation
   try {
     const thisDir = path.dirname(fileURLToPath(import.meta.url));
-    // dist/cli/commands/ → up 2 levels → dist/
-    const daemonEntryPath = path.resolve(thisDir, '..', '..', 'daemon-entry.js');
+    // bundled: thisDir=dist/, daemon-entry.js is sibling; unbundled: thisDir=dist/cli/commands/, go up 2
+    const bundleEntry = path.join(thisDir, 'daemon-entry.js');
+    const daemonEntryPath = existsSync(bundleEntry) ? bundleEntry : path.resolve(thisDir, '..', '..', 'daemon-entry.js');
     const pids = pm.findProcesses(daemonEntryPath);
     if (pids.length > 0) {
       console.log(`Cleaning up ${pids.length} orphan daemon process(es)...`);

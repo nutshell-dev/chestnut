@@ -251,8 +251,20 @@ export class GeminiAdapter implements IProviderAdapter {
           const data = line.slice(6).trim();
           if (!data || data === '[DONE]') continue;
 
-          let event: GeminiResponse;
+          let event: GeminiResponse & { error?: { code?: number; message?: string; status?: string } };
           try { event = JSON.parse(data); } catch { continue; }
+
+          // SSE-level error (no candidates, top-level error object)
+          if (event.error && !event.candidates) {
+            const { code, message, status } = event.error;
+            if (code === 429) {
+              throw new LLMRateLimitError(this.name);
+            }
+            throw new LLMError(
+              `${status ?? 'error'}: ${message ?? JSON.stringify(event.error)}`,
+              { provider: this.name }
+            );
+          }
 
           const candidate = event.candidates?.[0];
           if (!candidate) continue;

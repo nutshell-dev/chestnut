@@ -10,6 +10,7 @@
 
 import * as path from 'path';
 import * as fs from 'fs/promises';
+import { existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { loadGlobalConfig, getMotionDir, getGlobalConfigPath } from '../config.js';
 import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
@@ -205,7 +206,8 @@ export async function chatCommand(): Promise<void> {
       if (!pm.isAlive('motion')) {
         console.log('Starting Motion daemon...');
         const thisDir = path.dirname(fileURLToPath(import.meta.url));
-        const daemonEntryPath = path.resolve(thisDir, '..', '..', 'daemon-entry.js');
+        const bundleEntry = path.join(thisDir, 'daemon-entry.js');
+        const daemonEntryPath = existsSync(bundleEntry) ? bundleEntry : path.resolve(thisDir, '..', '..', 'daemon-entry.js');
         const pid = await pm.spawn('motion', {
           command: 'node',
           args: [daemonEntryPath, 'motion'],

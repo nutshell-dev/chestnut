@@ -381,7 +381,8 @@ export async function daemonCommand(): Promise<void> {
           log(`[watchdog] Failed to clean up motion before restart: ${e instanceof Error ? e.message : String(e)}`);
         });
         const thisDir = path.dirname(fileURLToPath(import.meta.url));
-        const daemonEntryPath = path.resolve(thisDir, '..', '..', 'daemon-entry.js');
+        const bundleEntry = path.join(thisDir, 'daemon-entry.js');
+        const daemonEntryPath = fs.existsSync(bundleEntry) ? bundleEntry : path.resolve(thisDir, '..', '..', 'daemon-entry.js');
         const clawforumDir = getClawforumDir();
         const pid = await pm.spawn('motion', {
           command: 'node',

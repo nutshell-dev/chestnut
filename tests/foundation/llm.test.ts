@@ -17,6 +17,7 @@ import type {
 
 import type { StreamChunk } from '../../src/foundation/llm/types.js';
 import { AnthropicAdapter } from '../../src/foundation/llm/anthropic.js';
+import { CustomAnthropicAdapter } from '../../src/foundation/llm/custom-anthropic.js';
 import { OpenAIAdapter } from '../../src/foundation/llm/openai.js';
 import { LLMService } from '../../src/foundation/llm/service.js';
 import {
@@ -718,6 +719,67 @@ describe('AnthropicAdapter.stream', () => {
   });
 });
 
+// ============================================================================
+// CustomAnthropicAdapter SSE error event handling
+// ============================================================================
+
+describe('CustomAnthropicAdapter.stream SSE error events', () => {
+  const config = {
+    name: 'zai',
+    apiKey: 'test-key',
+    baseUrl: 'https://api.z.ai/api/anthropic',
+    model: 'glm-4.6',
+    maxTokens: 4096,
+    temperature: 0.7,
+    timeoutMs: 30000,
+    apiFormat: 'anthropic' as const,
+  };
+
+  beforeEach(() => vi.stubGlobal('fetch', vi.fn()));
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('stream: SSE error event → throws LLMError (not silent empty response)', async () => {
+    const events = [
+      JSON.stringify({ type: 'error', error: { type: 'authentication_error', message: 'Invalid API key' } }),
+    ];
+    vi.mocked(fetch).mockResolvedValue(createSSEStreamResponse(events));
+
+    const adapter = new CustomAnthropicAdapter(config);
+    await expect(async () => {
+      for await (const _ of adapter.stream({ messages: [{ role: 'user', content: 'hi' }] })) { /* drain */ }
+    }).rejects.toThrow('authentication_error: Invalid API key');
+  });
+
+  it('stream: SSE overloaded_error → throws LLMRateLimitError', async () => {
+    const events = [
+      JSON.stringify({ type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } }),
+    ];
+    vi.mocked(fetch).mockResolvedValue(createSSEStreamResponse(events));
+
+    const adapter = new CustomAnthropicAdapter(config);
+    await expect(async () => {
+      for await (const _ of adapter.stream({ messages: [{ role: 'user', content: 'hi' }] })) { /* drain */ }
+    }).rejects.toThrow(LLMRateLimitError);
+  });
+
+  it('stream: normal response still works after error handling added', async () => {
+    const events = [
+      JSON.stringify({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Hello' } }),
+      JSON.stringify({ type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { input_tokens: 10, output_tokens: 5 } }),
+    ];
+    vi.mocked(fetch).mockResolvedValue(createSSEStreamResponse(events));
+
+    const adapter = new CustomAnthropicAdapter(config);
+    const chunks: StreamChunk[] = [];
+    for await (const chunk of adapter.stream({ messages: [{ role: 'user', content: 'hi' }] })) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks.filter(c => c.type === 'text_delta')).toHaveLength(1);
+    expect(chunks.find(c => c.type === 'done')).toBeDefined();
+  });
+});
+
 describe('OpenAIAdapter.stream', () => {
   const config = {
     name: 'openai',
@@ -824,6 +886,32 @@ describe('OpenAIAdapter.stream', () => {
     }
 
     expect(chunks.some(c => c.type === 'done')).toBe(true);
+  });
+
+  it('stream: SSE error event → throws LLMError (not silent skip)', async () => {
+    const events = [
+      JSON.stringify({ error: { message: 'Model not found', type: 'invalid_request_error', code: 'model_not_found' } }),
+    ];
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(createSSEStreamResponse(events)));
+
+    const adapter = new OpenAIAdapter(config);
+    await expect(async () => {
+      for await (const _ of adapter.stream({ messages: [{ role: 'user', content: 'hi' }] })) { /* drain */ }
+    }).rejects.toThrow('invalid_request_error: Model not found');
+  });
+
+  it('stream: SSE rate limit error → throws LLMRateLimitError', async () => {
+    const events = [
+      JSON.stringify({ error: { message: 'Rate limit exceeded', type: 'rate_limit_error', code: '429' } }),
+    ];
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(createSSEStreamResponse(events)));
+
+    const adapter = new OpenAIAdapter(config);
+    await expect(async () => {
+      for await (const _ of adapter.stream({ messages: [{ role: 'user', content: 'hi' }] })) { /* drain */ }
+    }).rejects.toThrow(LLMRateLimitError);
   });
 });
 
@@ -1238,5 +1326,45 @@ describe('GeminiAdapter — Phase 98 fixes', () => {
       messages: [{ role: 'user', content: 'hi' }],
     });
     expect(res.stop_reason).toBe('content_filter');
+  });
+
+  it('stream: SSE error event → throws LLMError (not silent skip)', async () => {
+    const events = [
+      JSON.stringify({ error: { code: 400, message: 'Model not found', status: 'INVALID_ARGUMENT' } }),
+    ];
+    vi.mocked(fetch).mockResolvedValue(createSSEStreamResponse(events));
+
+    const cfg = {
+      name: 'gemini', apiKey: 'k',
+      baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+      model: 'gemini-2.5-pro', maxTokens: 4096, temperature: 0.7, timeoutMs: 30000,
+      apiFormat: 'gemini' as const,
+    };
+
+    await expect(async () => {
+      for await (const _ of new (await import('../../src/foundation/llm/gemini.js')).GeminiAdapter(cfg).stream({
+        messages: [{ role: 'user', content: 'hi' }],
+      })) { /* drain */ }
+    }).rejects.toThrow('INVALID_ARGUMENT: Model not found');
+  });
+
+  it('stream: SSE 429 error → throws LLMRateLimitError', async () => {
+    const events = [
+      JSON.stringify({ error: { code: 429, message: 'Quota exceeded', status: 'RESOURCE_EXHAUSTED' } }),
+    ];
+    vi.mocked(fetch).mockResolvedValue(createSSEStreamResponse(events));
+
+    const cfg = {
+      name: 'gemini', apiKey: 'k',
+      baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+      model: 'gemini-2.5-pro', maxTokens: 4096, temperature: 0.7, timeoutMs: 30000,
+      apiFormat: 'gemini' as const,
+    };
+
+    await expect(async () => {
+      for await (const _ of new (await import('../../src/foundation/llm/gemini.js')).GeminiAdapter(cfg).stream({
+        messages: [{ role: 'user', content: 'hi' }],
+      })) { /* drain */ }
+    }).rejects.toThrow(LLMRateLimitError);
   });
 });

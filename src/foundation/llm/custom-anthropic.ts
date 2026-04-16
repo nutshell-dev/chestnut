@@ -275,6 +275,17 @@ export class CustomAnthropicAdapter extends BaseAnthropicAdapter {
               } : undefined,
               stopReason: delta?.stop_reason as string | undefined,
             };
+          } else if (event.type === 'error') {
+            const errorObj = event.error as Record<string, unknown> | undefined;
+            const errorType = errorObj?.type as string ?? 'unknown_error';
+            const errorMsg = errorObj?.message as string ?? JSON.stringify(event);
+            if (errorType === 'overloaded_error') {
+              throw new LLMRateLimitError(this.name);
+            }
+            throw new LLMError(
+              `${errorType}: ${errorMsg}`,
+              { provider: this.name }
+            );
           }
         }
       }

@@ -322,11 +322,26 @@ export class OpenAIAdapter implements IProviderAdapter {
             continue;
           }
 
+          // SSE-level error event (no choices, top-level error object)
+          const sseError = event.error as Record<string, unknown> | undefined;
+          if (sseError && !event.choices) {
+            const errorType = sseError.type as string ?? 'unknown_error';
+            const errorMsg = sseError.message as string ?? JSON.stringify(event);
+            const errorCode = sseError.code as string | undefined;
+            if (errorCode === '429' || errorType === 'rate_limit_error') {
+              throw new LLMRateLimitError(this.name);
+            }
+            throw new LLMError(
+              `${errorType}: ${errorMsg}`,
+              { provider: this.name }
+            );
+          }
+
           // Track finish_reason and usage from event
           const choice = (event.choices as Array<Record<string, unknown>>)?.[0];
           const finishReason = choice?.finish_reason as string | undefined;
           if (finishReason) lastFinishReason = finishReason;
-          
+
           const usage = event.usage as { prompt_tokens?: number; completion_tokens?: number } | undefined;
           if (usage?.prompt_tokens !== undefined) lastUsage = usage;
 
