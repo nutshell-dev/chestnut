@@ -11,7 +11,8 @@ import type { StreamWriter, StreamSink } from '../../foundation/stream/index.js'
 import { oneLine } from '../../foundation/utils/string.js';
 
 import type { Heartbeat } from '../../core/heartbeat.js';
-import { scanClawOutboxes } from '../../foundation/messaging/index.js';
+import { scanClawOutboxes, type ClawOutboxInfo } from '../../foundation/messaging/index.js';
+import { ProcessManager } from '../../foundation/process-manager/index.js';
 import {
   DAEMON_FALLBACK_TIMEOUT_MS,
   INTERRUPT_RECOVERY_DELAY_MS,
@@ -84,6 +85,32 @@ function createStreamCallbacks(sink: StreamSink): StreamCallbacks {
       sink.write({ ts: Date.now(), type: 'provider_failed', ...info });
     },
   };
+}
+
+/**
+ * Compose the outbox notification sent to motion's inbox.
+ * Embeds daemon/contract status per claw so motion can decide action
+ * (drain vs restart vs escalate) without a separate probe call.
+ */
+function formatOutboxNotification(infos: ClawOutboxInfo[]): string {
+  const lines = infos.map((info) => {
+    const { clawId, count, daemon, contract } = info;
+    const drain = `\`clawforum claw outbox ${clawId} --limit ${count}\``;
+    if (daemon === 'running') {
+      // 正常情况：daemon 在，读一批就好
+      return `- "${clawId}" 有 ${count} 条未读（daemon=running, contract=${contract}）。查看：${drain}`;
+    }
+    if (daemon === 'stopped' && contract === 'none') {
+      // daemon 不在、无契约：claw 可能已废弃，drain 即可消除通知；如确认弃用需用户授权清理目录
+      return `- "${clawId}" 有 ${count} 条积压（daemon=stopped, contract=none，claw 可能已废弃）。一次清空：${drain}`;
+    }
+    if (daemon === 'stopped') {
+      // daemon 不在但有契约：claw 崩溃了，先决策重启还是 drain
+      return `- "${clawId}" 有 ${count} 条积压（daemon=stopped, contract=${contract}，claw 异常退出）。重启：\`clawforum claw daemon ${clawId}\`；或 drain：${drain}`;
+    }
+    return `- "${clawId}" 有 ${count} 条未读（daemon=unknown, contract=${contract}）。查看：${drain}`;
+  });
+  return `有 ${infos.length} 个 claw 有未读消息：\n${lines.join('\n')}`;
 }
 
 export interface DaemonLoopOptions {
@@ -243,15 +270,12 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
 
       // motion: scan claw outboxes for unread messages
       if (options.isMotion) {
-        const outboxInfos = await scanClawOutboxes(loopFs, path.join(agentDir, '..'));
+        const baseDir = path.join(agentDir, '..');
+        const outboxInfos = await scanClawOutboxes(loopFs, baseDir, new ProcessManager(loopFs, baseDir));
         if (outboxInfos !== null) {
           if (Date.now() - lastOutboxNotifyTs >= OUTBOX_NOTIFY_COOLDOWN_MS) {
             lastOutboxNotifyTs = Date.now();
-            const lines = outboxInfos.map(
-              ({ clawId: id, count }) =>
-                `- "${id}" 有 ${count} 条未读消息，可执行 \`clawforum claw outbox ${id}\` 查看`
-            );
-            const body = `有 ${outboxInfos.length} 个 claw 有未读消息：\n${lines.join('\n')}`;
+            const body = formatOutboxNotification(outboxInfos);
             notifyInbox(loopFs, {
               inboxDir: inboxPendingDir,
               type: 'claw_outbox',

@@ -56,7 +56,7 @@ describe('OutboxScanner', () => {
     fs.writeFileSync(path.join(outboxDir, 'msg1.md'), 'test message');
 
     const result = await scanClawOutboxes(mockFs, tempDir);
-    expect(result).toEqual([{ clawId: 'claw1', count: 1 }]);
+    expect(result).toEqual([{ clawId: 'claw1', count: 1, daemon: 'unknown', contract: 'none' }]);
   });
 
   it('should summarize multiple claws with unread messages', async () => {
@@ -95,7 +95,7 @@ describe('OutboxScanner', () => {
     fs.writeFileSync(path.join(outboxDir, 'readme.txt'), 'test');
 
     const result = await scanClawOutboxes(mockFs, tempDir);
-    expect(result).toEqual([{ clawId: 'claw1', count: 2 }]); // Only .md files counted
+    expect(result).toEqual([{ clawId: 'claw1', count: 2, daemon: 'unknown', contract: 'none' }]); // Only .md files counted
   });
 
   it('should skip claw when outbox/pending is a file (list fails)', async () => {
@@ -111,7 +111,47 @@ describe('OutboxScanner', () => {
     fs.writeFileSync(path.join(claw2Dir, 'outbox', 'pending', 'msg.md'), 'test');
 
     const result = await scanClawOutboxes(mockFs, tempDir);
-    expect(result).toEqual([{ clawId: 'claw2', count: 1 }]);
+    expect(result).toEqual([{ clawId: 'claw2', count: 1, daemon: 'unknown', contract: 'none' }]);
+  });
+
+  it('should report daemon status from injected probe', async () => {
+    const claw1Dir = path.join(tempDir, 'claws', 'claw1');
+    const claw2Dir = path.join(tempDir, 'claws', 'claw2');
+    fs.mkdirSync(path.join(claw1Dir, 'outbox', 'pending'), { recursive: true });
+    fs.mkdirSync(path.join(claw2Dir, 'outbox', 'pending'), { recursive: true });
+    fs.writeFileSync(path.join(claw1Dir, 'outbox', 'pending', 'a.md'), 'x');
+    fs.writeFileSync(path.join(claw2Dir, 'outbox', 'pending', 'b.md'), 'x');
+
+    const probe = { isAlive: (id: string) => id === 'claw1' };
+    const result = await scanClawOutboxes(mockFs, tempDir, probe);
+    expect(result!.find(i => i.clawId === 'claw1')?.daemon).toBe('running');
+    expect(result!.find(i => i.clawId === 'claw2')?.daemon).toBe('stopped');
+  });
+
+  it('should detect active/paused contract from directory presence', async () => {
+    const clawDirs = ['claw-active', 'claw-paused', 'claw-none'];
+    for (const id of clawDirs) {
+      const outbox = path.join(tempDir, 'claws', id, 'outbox', 'pending');
+      fs.mkdirSync(outbox, { recursive: true });
+      fs.writeFileSync(path.join(outbox, 'msg.md'), 'x');
+    }
+    fs.mkdirSync(path.join(tempDir, 'claws', 'claw-active', 'contract', 'active', 'c1'), { recursive: true });
+    fs.mkdirSync(path.join(tempDir, 'claws', 'claw-paused', 'contract', 'paused', 'c2'), { recursive: true });
+
+    const result = await scanClawOutboxes(mockFs, tempDir);
+    expect(result!.find(i => i.clawId === 'claw-active')?.contract).toBe('active');
+    expect(result!.find(i => i.clawId === 'claw-paused')?.contract).toBe('paused');
+    expect(result!.find(i => i.clawId === 'claw-none')?.contract).toBe('none');
+  });
+
+  it('should swallow probe errors and mark daemon unknown', async () => {
+    const clawDir = path.join(tempDir, 'claws', 'claw1');
+    fs.mkdirSync(path.join(clawDir, 'outbox', 'pending'), { recursive: true });
+    fs.writeFileSync(path.join(clawDir, 'outbox', 'pending', 'msg.md'), 'x');
+
+    const probe = { isAlive: () => { throw new Error('probe failure'); } };
+    const result = await scanClawOutboxes(mockFs, tempDir, probe);
+    expect(result![0].daemon).toBe('unknown');
   });
 
   it('should return null and write to stderr when claws dir scan throws', async () => {

@@ -898,6 +898,17 @@ describe('Builtin Tools', () => {
       expect(result.content).toMatch(/abort|cancel|operation/i);
     });
 
+    it('失败时在内容中附带 [cwd] 提示，帮助 LLM 定位路径上下文', async () => {
+      const result = await execTool.execute(
+        { command: "sh -c 'exit 1'" },
+        ctx,
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.content).toContain('[cwd]:');
+      expect(result.content).toContain(ctx.clawDir);
+    });
+
     it('clawDir 不存在时返回 ENOENT 错误（success:false）', async () => {
       const missingDirCtx = new ExecContextImpl({
         clawId: 'test-claw',

@@ -69,10 +69,13 @@ export const execTool: ITool = {
         content: fullOutput,
       };
     } catch (error) {
+      // 失败时总是附上 cwd，防止 LLM 对路径上下文产生幻觉（例如误以为在根目录）
+      const cwdHint = `\n[cwd]: ${ctx.clawDir}`;
+
       if (!(error instanceof ProcessExecError)) {
         return {
           success: false,
-          content: `Error: ${error instanceof Error ? error.message : String(error)}`,
+          content: `Error: ${error instanceof Error ? error.message : String(error)}${cwdHint}`,
         };
       }
 
@@ -83,7 +86,7 @@ export const execTool: ITool = {
           : '';
         return {
           success: false,
-          content: `Error: command output exceeded 1 MB limit. Use head/tail to truncate, or redirect to a file.${partial}`,
+          content: `Error: command output exceeded 1 MB limit. Use head/tail to truncate, or redirect to a file.${partial}${cwdHint}`,
         };
       }
 
@@ -93,7 +96,7 @@ export const execTool: ITool = {
 
       return {
         success: false,
-        content: `Error: ${error.message}${stderr}${stdout}`,
+        content: `Error: ${error.message}${stderr}${stdout}${cwdHint}`,
       };
     }
   },

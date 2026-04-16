@@ -104,10 +104,13 @@ describe('LLMService - stream failover', () => {
       chunks.push(chunk);
     }
 
-    expect(chunks).toHaveLength(3);
-    expect(chunks[0]).toEqual({ type: 'text_delta', delta: 'Fallback chunk 1' });
-    expect(chunks[1]).toEqual({ type: 'text_delta', delta: 'Fallback chunk 2' });
-    expect(chunks[2]).toEqual({ type: 'done' });
+    // primary 失败会发一个 provider_failed 通知 chunk，随后 fallback 输出真实流
+    expect(chunks).toHaveLength(4);
+    expect(chunks[0].type).toBe('provider_failed');
+    expect((chunks[0] as { provider?: string }).provider).toBe('primary');
+    expect(chunks[1]).toEqual({ type: 'text_delta', delta: 'Fallback chunk 1' });
+    expect(chunks[2]).toEqual({ type: 'text_delta', delta: 'Fallback chunk 2' });
+    expect(chunks[3]).toEqual({ type: 'done' });
 
     // currentProviderIndex !== -1 means using fallback
     expect((service as any).currentProviderIndex).not.toBe(-1);
@@ -139,9 +142,11 @@ describe('LLMService - stream failover', () => {
       caughtError = err as Error;
     }
 
-    // Should receive no chunks since primary failed before yielding
-    expect(chunks).toHaveLength(0);
-    
+    // 单独 provider 失败时会 yield 一条 provider_failed 通知，再抛出汇总错误
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0].type).toBe('provider_failed');
+    expect((chunks[0] as { provider?: string }).provider).toBe('primary');
+
     // Should throw with an error indicating all providers failed
     expect(caughtError).toBeDefined();
     expect(caughtError!.message).toContain('All LLM providers failed');

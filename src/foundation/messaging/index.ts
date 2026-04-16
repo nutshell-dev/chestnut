@@ -15,4 +15,4 @@ export { InboxReader } from './inbox-reader.js';
 export type { InboxEntry } from './inbox-reader.js';
 
 export { scanClawOutboxes } from './outbox-scanner.js';
-export type { ClawOutboxInfo } from './outbox-scanner.js';
+export type { ClawOutboxInfo, ClawStatusProbe } from './outbox-scanner.js';

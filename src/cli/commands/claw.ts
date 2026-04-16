@@ -432,11 +432,18 @@ export async function outboxCommand(
 ): Promise<void> {
   loadGlobalConfig();
 
-  if (!clawExists(name)) {
-    throw new CliError(`Claw "${name}" does not exist`);
+  // Outbox drain is a pure filesystem operation — we don't require config.yaml.
+  // Motion's outbox scanner reports any claw dir containing pending/*.md, so the
+  // CLI must be able to drain the same set, including orphan claws that have
+  // outbox files but no config (e.g. abandoned or half-created claws).
+  const clawDir = getClawDir(name);
+  if (!fs.existsSync(clawDir)) {
+    throw new CliError(
+      `Claw directory not found: ${clawDir}. ` +
+      `Expected at {CLAWFORUM_ROOT}/.clawforum/claws/<name>/.`
+    );
   }
 
-  const clawDir = getClawDir(name);
   const pendingDir = path.join(clawDir, 'outbox', 'pending');
   const doneDir = path.join(clawDir, 'outbox', 'done');
 
