@@ -270,11 +270,11 @@ describe('FileSystem', () => {
   });
   
   describe('FileSystem integration', () => {
-    it('should be assignable to IFileSystem interface', async () => {
+    it('should be assignable to FileSystem interface', async () => {
       const tempDir = await createTempDir();
       
       try {
-        // This tests structural typing - NodeFileSystem should satisfy IFileSystem
+        // This tests structural typing - NodeFileSystem should satisfy FileSystem
         const fs: NodeFileSystem = new NodeFileSystem({
           baseDir: tempDir,
         });

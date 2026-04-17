@@ -8,7 +8,7 @@
 // Types and interfaces
 export type {
   FileEntry,
-  IFileSystem,
+  FileSystem,
   FileSystemOptions,
 } from './types.js';
 

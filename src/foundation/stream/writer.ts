@@ -1,7 +1,7 @@
 /**
  * StreamWriter - 追加写 stream.jsonl
  */
-import type { IFileSystem } from '../fs/types.js';
+import type { FileSystem } from '../fs/types.js';
 
 interface StreamEvent {
   ts: number;
@@ -20,11 +20,11 @@ const STREAM_FILE = 'stream.jsonl';
 const ARCHIVE_DIR = 'logs/stream';
 
 export class StreamWriter {
-  private fs: IFileSystem;
+  private fs: FileSystem;
   private retention: StreamRetentionOptions;
   private isOpen = false;
 
-  constructor(fs: IFileSystem, retention: StreamRetentionOptions = {}) {
+  constructor(fs: FileSystem, retention: StreamRetentionOptions = {}) {
     this.fs = fs;
     this.retention = retention;
   }

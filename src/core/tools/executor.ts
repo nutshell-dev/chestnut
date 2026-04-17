@@ -9,7 +9,7 @@
 
 import type { JSONSchema7 } from '../../types/message.js';
 import type { ToolProfile } from '../../types/config.js';
-import type { IFileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/types.js';
 import type { Logger } from '../../foundation/monitor/types.js';
 import type { ILLMService } from '../../foundation/llm/index.js';
 import type { TaskSystem } from '../task/system.js';
@@ -61,7 +61,7 @@ export interface ExecContext {
   contractId?: string;
   /** Caller type for spawn recursion prevention */
   callerType: CallerType;
-  fs: IFileSystem;
+  fs: FileSystem;
   llm?: ILLMService;
   monitor?: Logger;
   profile: ToolProfile;
@@ -326,7 +326,7 @@ export class ToolExecutorImpl implements IToolExecutor {
 export interface ToolExecutorOptions {
   registry: IToolRegistry;
   clawDir: string;
-  fs: IFileSystem;
+  fs: FileSystem;
   monitor?: Logger;
   llm?: ILLMService;
   taskSystem?: TaskSystem;
@@ -343,7 +343,7 @@ export interface ToolExecutorOptions {
  */
 export class ToolExecutor extends ToolExecutorImpl {
   private clawDir: string;
-  private fs: IFileSystem;
+  private fs: FileSystem;
   private monitor?: Logger;
   private llm?: ILLMService;
   private taskSystem?: TaskSystem;

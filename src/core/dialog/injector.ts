@@ -9,7 +9,7 @@
  * 5. Tool definitions (via ToolRegistry - Phase 1)
  */
 
-import type { IFileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/types.js';
 import type { Message } from '../../types/message.js';
 import type { Contract } from '../../types/contract.js';
 import type { SessionData } from '../../foundation/session-store/index.js';
@@ -21,7 +21,7 @@ import type { ContractManager } from '../contract/manager.js';
  */
 export interface ContextInjectorOptions {
   /** File system instance */
-  fs: IFileSystem;
+  fs: FileSystem;
   /** Skill registry for skill metadata injection */
   skillRegistry?: SkillRegistry;
   /** Contract manager for active contract injection */
@@ -53,7 +53,7 @@ function formatContractForPrompt(contract: Contract): string {
  * Injects context into sessions
  */
 export class ContextInjector {
-  private fs: IFileSystem;
+  private fs: FileSystem;
   private skillRegistry?: SkillRegistry;
   private contractManager?: ContractManager;
 

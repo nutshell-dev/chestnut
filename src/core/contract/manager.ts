@@ -10,7 +10,7 @@ import * as yaml from 'js-yaml';
 import { randomUUID } from 'crypto';
 import * as path from 'path';
 import * as fsNative from 'fs';
-import type { IFileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/types.js';
 import type { Logger } from '../../foundation/monitor/types.js';
 import type { ILLMService } from '../../foundation/llm/index.js';
 import type { Contract, SubTask, ContractStatus, SubtaskStatus } from '../../types/contract.js';
@@ -79,7 +79,7 @@ export interface AcceptanceResult {
 }
 
 export class ContractManager {
-  private fs: IFileSystem;
+  private fs: FileSystem;
   private clawDir: string;
   private readonly clawId: string;
   private monitor?: Logger;
@@ -95,7 +95,7 @@ export class ContractManager {
   constructor(
     clawDir: string,
     clawId: string,
-    fs: IFileSystem,
+    fs: FileSystem,
     monitor?: Logger,
     llm?: ILLMService,
     verifierRegistry?: ToolRegistry,

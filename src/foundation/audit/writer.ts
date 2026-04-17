@@ -1,12 +1,12 @@
 import { FileNotFoundError } from '../../types/errors.js';
-import type { IFileSystem } from '../fs/types.js';
+import type { FileSystem } from '../fs/types.js';
 import type { Audit } from './index.js';
 
 export class AuditWriter implements Audit {
   private maxBytes: number | null;
 
   constructor(
-    private fs: IFileSystem,
+    private fs: FileSystem,
     private filePath: string,
     maxSizeMb?: number | null,
   ) {

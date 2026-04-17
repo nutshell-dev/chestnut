@@ -1,5 +1,5 @@
 /**
- * StreamWriter tests — via IFileSystem
+ * StreamWriter tests — via FileSystem
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -8,7 +8,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { StreamWriter } from '../../src/foundation/stream/writer.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
-import type { IFileSystem } from '../../src/foundation/fs/types.js';
+import type { FileSystem } from '../../src/foundation/fs/types.js';
 
 describe('StreamWriter', () => {
   let tmpDir: string;

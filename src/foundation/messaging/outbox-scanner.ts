@@ -7,7 +7,7 @@
  */
 
 import * as path from 'path';
-import type { IFileSystem } from '../fs/types.js';
+import type { FileSystem } from '../fs/types.js';
 
 /** Check if a claw's daemon process is alive. Injected to avoid cross-layer coupling. */
 export interface ClawStatusProbe {
@@ -24,7 +24,7 @@ export interface ClawOutboxInfo {
 }
 
 async function detectContractStatus(
-  fs: IFileSystem,
+  fs: FileSystem,
   clawDir: string,
 ): Promise<'active' | 'paused' | 'none'> {
   for (const state of ['active', 'paused'] as const) {
@@ -45,7 +45,7 @@ async function detectContractStatus(
  * Caller decides when to write inbox notifications.
  */
 export async function scanClawOutboxes(
-  fs: IFileSystem,
+  fs: FileSystem,
   baseDir: string,
   probe?: ClawStatusProbe,
 ): Promise<ClawOutboxInfo[] | null> {

@@ -10,7 +10,7 @@
 
 import * as path from 'path';
 import { randomUUID } from 'crypto';
-import type { IFileSystem } from '../fs/types.js';
+import type { FileSystem } from '../fs/types.js';
 import type { InboxMessage } from '../../types/contract.js';
 import { PRIORITY_VALUES } from '../../types/contract.js';
 import { decodeInbox } from '../message-codec/index.js';
@@ -26,7 +26,7 @@ export class InboxReader {
     private readonly pendingDir: string,
     private readonly doneDir: string,
     private readonly failedDir: string,
-    private readonly fs: IFileSystem,
+    private readonly fs: FileSystem,
     private readonly audit?: Audit,
   ) {}
 

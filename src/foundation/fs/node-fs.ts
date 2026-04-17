@@ -1,5 +1,5 @@
 /**
- * NodeFileSystem - IFileSystem implementation using Node.js fs/promises
+ * NodeFileSystem - FileSystem implementation using Node.js fs/promises
  *
  * Atomic operations + path guarding + permission domains
  */
@@ -9,7 +9,7 @@ import { randomUUID } from 'crypto';
 import { promises as fs, realpathSync } from 'fs';
 import * as fsSync from 'fs';
 import type {
-  IFileSystem,
+  FileSystem,
   FileSystemOptions,
   FileEntry,
 } from './index.js';
@@ -39,7 +39,7 @@ import {
 /**
  * Node.js FileSystem implementation
  */
-export class NodeFileSystem implements IFileSystem {
+export class NodeFileSystem implements FileSystem {
   private readonly permissionChecker: PermissionChecker;
   private readonly enforcePermissions: boolean;
   

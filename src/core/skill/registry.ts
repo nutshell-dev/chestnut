@@ -6,7 +6,7 @@
  * - 调用 skill 工具时才加载完整内容
  */
 
-import type { IFileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/types.js';
 import { ToolError } from '../../types/errors.js';
 import { parseFrontmatter } from '../../foundation/message-codec/index.js';
 
@@ -18,11 +18,11 @@ export interface SkillMeta {
 }
 
 export class SkillRegistry {
-  private fs: IFileSystem;
+  private fs: FileSystem;
   private skillsDir: string;
   private metaMap: Map<string, SkillMeta> = new Map();
 
-  constructor(fs: IFileSystem, skillsDir: string = 'skills') {
+  constructor(fs: FileSystem, skillsDir: string = 'skills') {
     this.fs = fs;
     this.skillsDir = skillsDir;
   }

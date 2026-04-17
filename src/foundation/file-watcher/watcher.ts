@@ -6,7 +6,7 @@
 
 import { watch as chokidarWatch, type FSWatcher } from 'chokidar';
 import type { Watcher, WatchEvent, WatchEventType } from './types.js';
-import type { IFileSystem } from '../fs/types.js';
+import type { FileSystem } from '../fs/types.js';
 
 /**
  * Chokidar-based watcher implementation
@@ -66,7 +66,7 @@ function mapEventType(chokidarEvent: string): WatchEventType | null {
  * @returns Watcher handle
  */
 export function createWatcher(
-  fs: IFileSystem,
+  fs: FileSystem,
   relativePath: string,
   callback: (event: WatchEvent) => void,
   options?: {

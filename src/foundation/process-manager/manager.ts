@@ -10,7 +10,7 @@ import { spawn, spawnSync } from 'child_process';
 import * as path from 'path';
 import { openSync, closeSync } from 'fs';  // openSync/closeSync 仅用于日志 fd（spawn stdio 需要 OS 文件描述符）
 
-import type { IFileSystem } from '../fs/types.js';
+import type { FileSystem } from '../fs/types.js';
 import {
   PROCESS_SPAWN_CONFIRM_MS,
   SIGTERM_GRACE_MS,
@@ -31,12 +31,12 @@ export interface SpawnOptions {
 }
 
 export class ProcessManager {
-  private fs: IFileSystem;
+  private fs: FileSystem;
   private baseDir: string;
   private resolveDir: (id: string) => string;
   private findProcessesWarned = false;
 
-  constructor(fs: IFileSystem, baseDir: string, dirResolver?: (id: string) => string) {
+  constructor(fs: FileSystem, baseDir: string, dirResolver?: (id: string) => string) {
     this.fs = fs;
     this.baseDir = baseDir;
     this.resolveDir = dirResolver ?? ((id: string) => path.join(baseDir, 'claws', id));
@@ -242,7 +242,7 @@ export class ProcessManager {
     // Ensure log directory exists and open log file
     this.fs.ensureDirSync(path.dirname(options.logFile));
     // openSync/closeSync 保留：child_process.spawn 的 stdio 选项需要 OS 文件描述符，
-    // IFileSystem 不暴露 fd，这是唯一无法走 IFileSystem 的文件操作。
+    // FileSystem 不暴露 fd，这是唯一无法走 FileSystem 的文件操作。
     const logFd = openSync(options.logFile, 'a');
 
     try {

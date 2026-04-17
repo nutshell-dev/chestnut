@@ -7,8 +7,8 @@
  * 模块归属：业务层（src/core）—— 文本解读包含 daemon_stop / daemon_crash /
  * daemon_unclean_exit 等业务事件语义，不归 L2 audit foundation。
  *
- * 设计：直接走 node fs sync API（绕过 IFileSystem 抽象）—— 启动时一次性
- * 操作，且"读尾部 N 字节"语义不在 IFileSystem 接口范围内。与 daemon.ts
+ * 设计：直接走 node fs sync API（绕过 FileSystem 抽象）—— 启动时一次性
+ * 操作，且"读尾部 N 字节"语义不在 FileSystem 接口范围内。与 daemon.ts
  * detectUncleanExit 同型设计。
  */
 

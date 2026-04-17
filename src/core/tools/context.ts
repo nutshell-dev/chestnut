@@ -8,7 +8,7 @@
  * - Execution tracking (stepNumber, elapsed time)
  */
 
-import type { IFileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/types.js';
 import type { Logger } from '../../foundation/monitor/types.js';
 import type { ILLMService } from '../../foundation/llm/index.js';
 import type { ToolProfile } from '../../types/config.js';
@@ -39,7 +39,7 @@ export interface ExecContextImplOptions {
   callerType?: CallerType;
   
   /** File system instance */
-  fs: IFileSystem;
+  fs: FileSystem;
   
   /** Optional monitor for logging */
   monitor?: Logger;
@@ -84,7 +84,7 @@ export class ExecContextImpl implements ExecContext {
   clawDir: string;
   profile: ToolProfile;
   callerType: CallerType;
-  fs: IFileSystem;
+  fs: FileSystem;
   monitor?: Logger;
   llm?: ILLMService;
   stepNumber: number;

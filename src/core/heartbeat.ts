@@ -5,7 +5,7 @@
  */
 
 import * as path from 'path';
-import type { IFileSystem } from '../foundation/fs/types.js';
+import type { FileSystem } from '../foundation/fs/types.js';
 import { NodeFileSystem } from '../foundation/fs/node-fs.js';
 import { writeInboxMessage } from '../utils/inbox-writer.js';
 import type { Logger } from '../foundation/monitor/types.js';
@@ -14,7 +14,7 @@ interface HeartbeatOptions {
   /** 心跳间隔（秒），默认 300（5分钟） */
   interval?: number;
   monitor?: Logger;
-  fs?: IFileSystem;
+  fs?: FileSystem;
 }
 
 /**
@@ -25,7 +25,7 @@ export class Heartbeat {
   private interval: number;
   private lastRun: number;
   private monitor?: Logger;
-  private fs?: IFileSystem;
+  private fs?: FileSystem;
 
   constructor(baseDir: string, options: HeartbeatOptions = {}) {
     this.baseDir = baseDir;

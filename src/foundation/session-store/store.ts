@@ -8,7 +8,7 @@
  */
 
 import * as path from 'path';
-import type { IFileSystem } from '../fs/types.js';
+import type { FileSystem } from '../fs/types.js';
 
 import type { Message, ToolUseBlock, ToolResultBlock } from '../../types/message.js';
 import type { SessionData, LoadResult } from './types.js';
@@ -24,7 +24,7 @@ export class SessionManager {
   private createdAt: string | null = null;
   
   constructor(
-    private readonly fs: IFileSystem,
+    private readonly fs: FileSystem,
     dialogDir: string,
     private readonly clawId: string = randomUUID(),
     private readonly audit?: IAuditSink,

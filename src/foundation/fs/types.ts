@@ -22,7 +22,7 @@ export interface FileEntry {
  * - Paths are validated to be within claw space (implementation responsibility)
  * - Atomic writes ensure no partial files on crash
  */
-export interface IFileSystem {
+export interface FileSystem {
   // ========================================================================
   // Basic File Operations
   // ========================================================================

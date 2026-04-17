@@ -6,7 +6,7 @@
 
 import * as path from 'path';
 import { randomUUID } from 'crypto';
-import type { IFileSystem } from '../fs/types.js';
+import type { FileSystem } from '../fs/types.js';
 import type { OutboxMessage } from '../../types/contract.js';
 import { encodeOutbox } from '../message-codec/index.js';
 
@@ -30,7 +30,7 @@ export class OutboxWriter {
   constructor(
     private clawId: string,
     private clawDir: string,
-    private fs: IFileSystem
+    private fs: FileSystem
   ) {
     this.outboxDir = path.join(clawDir, 'outbox', 'pending');
   }

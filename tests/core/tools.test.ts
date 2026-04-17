@@ -13,7 +13,7 @@ import { ToolExecutorImpl } from '../../src/core/tools/executor.js';
 import { ExecContextImpl } from '../../src/core/tools/context.js';
 import { TOOL_PROFILES } from '../../src/core/tools/profiles.js';
 import type { ITool, ToolResult } from '../../src/core/tools/executor.js';
-import type { IFileSystem } from '../../src/foundation/fs/types.js';
+import type { FileSystem } from '../../src/foundation/fs/types.js';
 import {
   ToolNotFoundError,
   ToolTimeoutError,
@@ -211,7 +211,7 @@ describe('Tools', () => {
   });
 
   describe('ExecContext', () => {
-    const mockFs = {} as IFileSystem;
+    const mockFs = {} as FileSystem;
 
     it('should track elapsed time', async () => {
       const ctx = new ExecContextImpl({
@@ -233,12 +233,12 @@ describe('Tools', () => {
   describe('ToolExecutor', () => {
     let registry: ToolRegistry;
     let executor: ToolExecutorImpl;
-    let mockFs: IFileSystem;
+    let mockFs: FileSystem;
 
     beforeEach(() => {
       registry = new ToolRegistry();
       executor = new ToolExecutorImpl(registry);
-      mockFs = {} as IFileSystem;
+      mockFs = {} as FileSystem;
     });
 
     it('should throw ToolNotFoundError for unknown tool', async () => {

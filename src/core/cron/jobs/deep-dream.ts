@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import type { IFileSystem } from '../../../foundation/fs/types.js';
+import type { FileSystem } from '../../../foundation/fs/types.js';
 import { LLMService } from '../../../foundation/llm/service.js';
 import type { LLMServiceConfig } from '../../../foundation/llm/types.js';
 import type { Message, ContentBlock, TextBlock, LLMResponse } from '../../../types/message.js';
@@ -23,7 +23,7 @@ export interface DeepDreamOptions {
   clawforumDir: string;                  // .clawforum/ 根目录
   llmConfig: LLMServiceConfig;
   maxCompressionTokens?: number;         // 压缩上限（token 估算），默认 4000
-  fs: IFileSystem;
+  fs: FileSystem;
 }
 
 // ─── 工具函数 ────────────────────────────────────────────────
@@ -143,7 +143,7 @@ async function runDeepDreamForClaw(
   clawDir: string,
   llm: LLMService,
   maxCompressionTokens: number,
-  fileSystem: IFileSystem,
+  fileSystem: FileSystem,
 ): Promise<void> {
   const today = new Date().toLocaleDateString('sv');   // ← 统一在此计算
   const state = loadDreamState(clawDir);

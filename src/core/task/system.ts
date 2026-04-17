@@ -8,7 +8,7 @@
 import { randomUUID } from 'crypto';
 import * as path from 'path';
 import * as fsSync from 'fs';
-import type { IFileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/types.js';
 
 import { JsonlLogger } from '../../foundation/monitor/index.js';
 import { SubAgent } from '../subagent/agent.js';
@@ -102,7 +102,7 @@ export class TaskSystem {
 
   constructor(
     private clawDir: string,
-    private fs: IFileSystem,
+    private fs: FileSystem,
     options: { maxConcurrent?: number; auditWriter?: AuditWriter; retryBaseDelayMs?: number; parentStreamSink?: StreamSink } = {}
   ) {
     this.maxConcurrent = options.maxConcurrent ?? DEFAULT_MAX_CONCURRENT_TASKS;

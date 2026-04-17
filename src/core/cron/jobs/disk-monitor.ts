@@ -1,9 +1,9 @@
 import * as path from 'path';
-import type { IFileSystem } from '../../../foundation/fs/types.js';
+import type { FileSystem } from '../../../foundation/fs/types.js';
 import { writeInboxMessage } from '../../../utils/inbox-writer.js';
 
 /** 递归计算目录大小（bytes） */
-function getDirSize(dir: string, fs: IFileSystem): number {
+function getDirSize(dir: string, fs: FileSystem): number {
   let size = 0;
   for (const entry of fs.listSync(dir, { includeDirs: true })) {
     if (entry.isDirectory) {
@@ -19,7 +19,7 @@ export interface DiskMonitorOptions {
   clawforumDir: string;   // .clawforum/ 根目录
   motionInboxDir: string; // motion/inbox/pending/
   limitMB: number;        // 告警阈值
-  fs: IFileSystem;
+  fs: FileSystem;
 }
 
 export async function runDiskMonitor(opts: DiskMonitorOptions): Promise<void> {

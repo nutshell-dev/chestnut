@@ -2,12 +2,12 @@
  * Inbox writer - write messages to inbox/pending/
  *
  * Core write operation for the Messaging module.
- * Uses IFileSystem for async, atomic writes.
+ * Uses FileSystem for async, atomic writes.
  */
 
 import * as path from 'path';
 import { randomUUID } from 'crypto';
-import type { IFileSystem } from '../fs/types.js';
+import type { FileSystem } from '../fs/types.js';
 import type { InboxMessage } from '../../types/contract.js';
 import { encodeInbox, parseFrontmatter } from '../message-codec/index.js';
 
@@ -20,7 +20,7 @@ import { encodeInbox, parseFrontmatter } from '../message-codec/index.js';
  * @param extraFields - Optional extra YAML frontmatter fields
  */
 export async function writeInbox(
-  fs: IFileSystem,
+  fs: FileSystem,
   inboxDir: string,
   msg: InboxMessage,
   extraFields?: Record<string, string>,
@@ -64,7 +64,7 @@ export interface InboxMessageOptions {
  * Write an inbox message with standardized YAML frontmatter format.
  * Creates the inbox directory if it doesn't exist.
  */
-export function writeInboxMessage(fs: IFileSystem, opts: InboxMessageOptions): void {
+export function writeInboxMessage(fs: FileSystem, opts: InboxMessageOptions): void {
   const now = new Date();
   const ts = now.toISOString().replace(/[-:]/g, '').slice(0, 15);
   const uuid8 = randomUUID().slice(0, 8);
@@ -109,7 +109,7 @@ export function writeInboxMessage(fs: IFileSystem, opts: InboxMessageOptions): v
  * Read frontmatter metadata from an inbox file.
  * Returns null on failure (missing file, parse error, etc.).
  */
-export function readInboxFileMeta(fs: IFileSystem, filePath: string): Record<string, string> | null {
+export function readInboxFileMeta(fs: FileSystem, filePath: string): Record<string, string> | null {
   try {
     const content = fs.readSync(filePath);
     return parseFrontmatter(content).meta;

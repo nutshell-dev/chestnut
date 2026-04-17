@@ -11,7 +11,7 @@ export * from './types/index.js';
 export * from './core/index.js';
 
 // Foundation modules (selective exports)
-export type { IFileSystem, FileEntry, FileSystemOptions } from './foundation/fs/types.js';
+export type { FileSystem, FileEntry, FileSystemOptions } from './foundation/fs/types.js';
 export { NodeFileSystem } from './foundation/fs/node-fs.js';
 
 export type { Logger, LogEvent } from './foundation/monitor/types.js';
