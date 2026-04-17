@@ -13,7 +13,7 @@ export class AuditWriter implements Audit {
     this.maxBytes = maxSizeMb ? maxSizeMb * 1024 * 1024 : null;
   }
 
-  getFs(): IFileSystem {
+  getFs(): FileSystem {
     return this.fs;
   }
 
