@@ -148,4 +148,25 @@ describe('shutdownWatchdog — fix 005: save state on signal', () => {
 
     exitSpy.mockRestore();
   });
+
+  it('writes save_failed to audit and exits with code 1 when saveWatchdogState fails', () => {
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
+
+    // 预先创建只读的 state 文件，让 saveWatchdogState 写入失败
+    const stateFile = path.join(tmpDir, '.clawforum', 'watchdog-state.json');
+    fs.writeFileSync(stateFile, '{}');
+    fs.chmodSync(stateFile, 0o444);
+
+    expect(() => shutdownWatchdog(auditWriter, 'SIGTERM')).toThrow('exit');
+
+    const auditPath = path.join(tmpDir, '.clawforum', 'audit.tsv');
+    const auditLines = fs.readFileSync(auditPath, 'utf-8');
+    expect(auditLines).toContain('watchdog_stop');
+    expect(auditLines).toContain('save_failed=');
+
+    expect(exitSpy).toHaveBeenCalledWith(1);
+
+    exitSpy.mockRestore();
+    fs.chmodSync(stateFile, 0o644);
+  });
 });

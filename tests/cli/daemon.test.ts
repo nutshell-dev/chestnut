@@ -64,4 +64,20 @@ describe('acquireDaemonLock — fix 004: TOCTOU race protection', () => {
       '[daemon] Another test-claw daemon acquired the lock during retry, exiting',
     );
   });
+
+  it('throws CliError when lock file contains non-numeric pid', () => {
+    (fsNative.openSync as any).mockImplementationOnce((p: any, flags: any) => {
+      if (flags === 'wx') {
+        const err: any = new Error('EEXIST');
+        err.code = 'EEXIST';
+        throw err;
+      }
+      return fsNative.openSync(p, flags);
+    });
+    (fsNative.readFileSync as any).mockReturnValue('not-a-number\n');
+
+    expect(() => acquireDaemonLock(statusDir, 'test-claw')).toThrow(
+      '[daemon] Lock file corrupted',
+    );
+  });
 });

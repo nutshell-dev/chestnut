@@ -70,10 +70,20 @@ export function shutdownWatchdog(
   signal: string,
 ): void {
   log(`[watchdog] Received ${signal}, shutting down...`);
-  saveWatchdogState();
+  let saveFailed: string | undefined;
+  try {
+    saveWatchdogState();
+  } catch (err) {
+    saveFailed = err instanceof Error ? err.message : String(err);
+    log(`[watchdog] Failed to save state: ${saveFailed}`);
+  }
   removeWatchdogPid();
-  auditWriter.write('watchdog_stop');
-  process.exit(0);
+  if (saveFailed) {
+    auditWriter.write('watchdog_stop', `signal=${signal}`, `save_failed=${saveFailed.slice(0, 200)}`);
+  } else {
+    auditWriter.write('watchdog_stop', `signal=${signal}`);
+  }
+  process.exit(saveFailed ? 1 : 0);
 }
 
 export function getWatchdogPid(): number | null {
@@ -170,11 +180,7 @@ function saveWatchdogState(): void {
     lastInactivityNotified: Object.fromEntries(lastInactivityNotified),
     inactivityNotifyCount: Object.fromEntries(inactivityNotifyCount),
   };
-  try {
-    fs.writeFileSync(getWatchdogStateFile(), JSON.stringify(state, null, 2));
-  } catch (err) {
-    log(`[watchdog] Failed to save state: ${err instanceof Error ? err.message : String(err)}`);
-  }
+  fs.writeFileSync(getWatchdogStateFile(), JSON.stringify(state, null, 2));
 }
 
 // Global config (loaded lazily on first access)

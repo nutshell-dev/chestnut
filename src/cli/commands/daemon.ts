@@ -50,6 +50,9 @@ export function acquireDaemonLock(statusDir: string, name: string): void {
     if (err.code === 'EEXIST') {
       try {
         const lockPid = parseInt(fsNative.readFileSync(lockFile, 'utf-8').trim(), 10);
+        if (Number.isNaN(lockPid)) {
+          throw new CliError(`[daemon] Lock file corrupted, cannot determine owner: ${lockFile}`);
+        }
         process.kill(lockPid, 0);
         throw new CliError(`[daemon] Another ${name} daemon is running (PID: ${lockPid}), exiting`);
       } catch (killErr: any) {
