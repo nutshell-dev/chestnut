@@ -8,7 +8,7 @@ import * as path from 'path';
 import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
 import type { ClawRuntime, StreamCallbacks } from '../../core/runtime.js';
 import type { InboxMessage } from '../../types/contract.js';
-import type { StreamWriter, StreamSink } from '../../foundation/stream/index.js';
+import type { StreamWriter, StreamLog } from '../../foundation/stream/index.js';
 import { oneLine } from '../../foundation/utils/string.js';
 
 import type { Heartbeat } from '../../core/heartbeat.js';
@@ -27,10 +27,10 @@ import { notifyInbox, notifyStream } from '../../utils/notify.js';
 import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../../types/signals.js';
 
 /**
- * 创建 StreamCallbacks 实现，将业务事件转为 StreamEvent 写入 StreamSink。
+ * 创建 StreamCallbacks 实现，将业务事件转为 StreamEvent 写入 StreamLog。
  * 这是装配层逻辑：将 ReAct 循环的业务事件名映射为 stream.jsonl 的事件记录。
  */
-function createStreamCallbacks(sink: StreamSink): StreamCallbacks {
+function createStreamCallbacks(sink: StreamLog): StreamCallbacks {
   return {
     onBeforeLLMCall: () => {
       sink.write({ ts: Date.now(), type: 'llm_start' });

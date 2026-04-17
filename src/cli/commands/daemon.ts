@@ -158,7 +158,7 @@ export async function daemonCommand(name: string): Promise<void> {
     clawId: name,
     pid: process.pid,
   });
-  runtime.setParentStreamSink(streamWriter);
+  runtime.setParentStreamLog(streamWriter);
 
   // motion 专属：cron 调度器
   let cronRunner: CronRunner | null = null;

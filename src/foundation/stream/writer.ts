@@ -2,6 +2,7 @@
  * StreamWriter - 追加写 stream.jsonl
  */
 import type { FileSystem } from '../fs/types.js';
+import type { StreamLog } from './types.js';
 
 interface StreamEvent {
   ts: number;
@@ -19,7 +20,7 @@ const STREAM_FILE = 'stream.jsonl';
 /** 归档目录相对路径 */
 const ARCHIVE_DIR = 'logs/stream';
 
-export class StreamWriter {
+export class StreamWriter implements StreamLog {
   private fs: FileSystem;
   private retention: StreamRetentionOptions;
   private isOpen = false;

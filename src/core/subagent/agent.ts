@@ -21,7 +21,7 @@ import type { ContractManager } from '../contract/manager.js';
 import type { SkillRegistry } from '../skill/registry.js';
 import type { Message } from '../../types/message.js';
 import type { AuditWriter } from '../../foundation/audit/writer.js';
-import type { StreamSink } from '../../foundation/stream/types.js';
+import type { StreamLog } from '../../foundation/stream/types.js';
 import type { CallerType } from '../tools/caller-type.js';
 import { callerTypeToProfile } from '../tools/caller-type.js';
 
@@ -48,7 +48,7 @@ export interface SubAgentOptions {
   subagentMaxSteps?: number;                 // 传给子 SubAgent
   messages?: Message[];                      // 若提供，直接用；否则从 prompt 构建
   originClawId?: string;                     // 创建链路源头，传给子 SubAgent
-  taskStreamWriter?: StreamSink;
+  taskStreamWriter?: StreamLog;
   auditWriter?: AuditWriter;   // tasks/results/{id}/audit.tsv，step 11+ 写事件
 }
 
@@ -76,7 +76,7 @@ export class SubAgent {
   private subagentMaxSteps?: number;
   private messages?: Message[];
   private originClawId?: string;
-  private taskStreamWriter?: StreamSink;
+  private taskStreamWriter?: StreamLog;
   private auditWriter?: AuditWriter;
 
   constructor(options: SubAgentOptions) {
