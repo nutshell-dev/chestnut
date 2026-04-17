@@ -12,6 +12,10 @@ export class AuditWriter {
     this.maxBytes = maxSizeMb ? maxSizeMb * 1024 * 1024 : null;
   }
 
+  getFs(): IFileSystem {
+    return this.fs;
+  }
+
   write(type: string, ...cols: (string | number)[]): void {
     const ts = new Date().toISOString();
     const parts = [ts, type, ...cols.map(c => esc(String(c)))];

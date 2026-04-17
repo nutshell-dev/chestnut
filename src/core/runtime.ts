@@ -63,6 +63,7 @@ export interface ClawRuntimeOptions {
   maxConcurrentTasks?: number;
   idleTimeoutMs?: number;  // 覆盖 DEFAULT_LLM_IDLE_TIMEOUT_MS（0 = 禁用）
   auditMaxSizeMb?: number | null;   // 审计日志大小限制（MB），null = 不限
+  auditWriter?: AuditWriter;
 }
 
 /**
@@ -138,6 +139,9 @@ export class ClawRuntime {
       maxConcurrentTasks: DEFAULT_MAX_CONCURRENT_TASKS,
       ...options,
     };
+    if (options.auditWriter) {
+      this.auditWriter = options.auditWriter;
+    }
   }
 
   /**
@@ -153,14 +157,18 @@ export class ClawRuntime {
 
     // 2. Create two NodeFileSystem instances
     // systemFs: used by system components (dialog/, contract/, etc.), no permission enforcement
-    this.systemFs = new NodeFileSystem({ baseDir: clawDir, enforcePermissions: false });
-
-    // 2.1 创建 AuditWriter（后续所有 audit 事件共用此实例）
-    this.auditWriter = new AuditWriter(
-      this.systemFs,
-      'audit.tsv',
-      this.options.auditMaxSizeMb ?? null,
-    );
+    if (this.auditWriter) {
+      // 外部已注入 auditWriter，复用其 fs 作为 systemFs
+      this.systemFs = this.auditWriter.getFs() as NodeFileSystem;
+    } else {
+      this.systemFs = new NodeFileSystem({ baseDir: clawDir, enforcePermissions: false });
+      // 2.1 创建 AuditWriter（后续所有 audit 事件共用此实例）
+      this.auditWriter = new AuditWriter(
+        this.systemFs,
+        'audit.tsv',
+        this.options.auditMaxSizeMb ?? null,
+      );
+    }
     // clawFs: used by tools, enforces permission checks
     this.clawFs = new NodeFileSystem({ baseDir: clawDir, enforcePermissions: true });
 

@@ -95,6 +95,10 @@ export async function daemonCommand(name: string): Promise<void> {
   // 审计日志配置
   const auditMaxSizeMb = globalConfig.audit?.retention?.max_size_mb ?? null;
 
+  // 提前创建 systemFs + AuditWriter，供 Snapshot 和 Runtime 共享
+  const systemFs = new NodeFileSystem({ baseDir: dir, enforcePermissions: false });
+  const sharedAuditWriter = new AuditWriter(systemFs, 'audit.tsv', auditMaxSizeMb);
+
   // Runtime
   const runtime = isMotion
     ? new MotionRuntime({
@@ -108,6 +112,7 @@ export async function daemonCommand(name: string): Promise<void> {
         maxConcurrentTasks: globalConfig.motion?.max_concurrent_tasks ?? DEFAULT_MAX_CONCURRENT_TASKS,
         idleTimeoutMs: globalConfig.motion?.llm_idle_timeout_ms,
         auditMaxSizeMb,
+        auditWriter: sharedAuditWriter,
       })
     : new ClawRuntime({
         clawId: name,
@@ -120,17 +125,11 @@ export async function daemonCommand(name: string): Promise<void> {
         maxConcurrentTasks: clawConfig!.max_concurrent_tasks,
         idleTimeoutMs: globalConfig.motion?.llm_idle_timeout_ms,
         auditMaxSizeMb,
+        auditWriter: sharedAuditWriter,
       } as ClawRuntimeOptions);
 
-  // 提前创建 AuditWriter 供 Snapshot 注入（runtime.initialize() 内部也会创建，两者 appendSync 独立写同一文件是安全的）
-  const snapshotAuditWriter = new AuditWriter(
-    new NodeFileSystem({ baseDir: dir, enforcePermissions: false }),
-    'audit.tsv',
-    auditMaxSizeMb,
-  );
-
   // git init（claw 首次启动时无 .git，motion init 已处理 motion 的情况）
-  const snapshot = new Snapshot(dir, snapshotAuditWriter);
+  const snapshot = new Snapshot(dir, sharedAuditWriter);
   await snapshot.init();
 
   // recovery-snapshot：将上次中断遗留的 working tree 变更固化（在 session repair 之前）
