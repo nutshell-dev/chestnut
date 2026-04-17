@@ -18,7 +18,7 @@ import type {
   ProviderConfig,
   LLMServiceConfig,
   LLMCallOptions,
-  IProviderAdapter,
+  ProviderAdapter,
   StreamChunk,
 } from './types.js';
 import type { LLMService } from './index.js';
@@ -30,7 +30,7 @@ import { GeminiAdapter } from './gemini.js';
 /**
  * Provider factory - creates appropriate adapter for config
  */
-function createProvider(config: ProviderConfig): IProviderAdapter {
+function createProvider(config: ProviderConfig): ProviderAdapter {
   if (config.apiFormat === 'openai') return new OpenAIAdapter(config);
   if (config.apiFormat === 'gemini') return new GeminiAdapter(config);
   // anthropic format: Claude models use SDK (native API), others use raw fetch
@@ -93,8 +93,8 @@ class CircuitBreaker {
  * LLM Service implementation
  */
 export class LLMServiceImpl implements LLMService {
-  private primary: IProviderAdapter;
-  private fallbacks: IProviderAdapter[];
+  private primary: ProviderAdapter;
+  private fallbacks: ProviderAdapter[];
   private config: LLMServiceConfig;
   // Track current provider: -1 = primary, 0..N = fallbacks[i]
   private currentProviderIndex = -1;
@@ -208,7 +208,7 @@ export class LLMServiceImpl implements LLMService {
    *         mid-stream errors will fail over without retry
    */
   async* stream(options: LLMCallOptions): AsyncIterableIterator<StreamChunk> {
-    const providers: Array<{ adapter: IProviderAdapter; breakerIndex: number }> = [
+    const providers: Array<{ adapter: ProviderAdapter; breakerIndex: number }> = [
       { adapter: this.primary, breakerIndex: 0 },
       ...this.fallbacks.map((fb, i) => ({ adapter: fb, breakerIndex: i + 1 })),
     ];

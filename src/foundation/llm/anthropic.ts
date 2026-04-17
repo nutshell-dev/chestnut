@@ -1,7 +1,7 @@
 /**
  * Anthropic API Adapter
  * 
- * Implements IProviderAdapter for Anthropic's Claude API using the official SDK.
+ * Implements ProviderAdapter for Anthropic's Claude API using the official SDK.
  */
 
 import Anthropic from '@anthropic-ai/sdk';

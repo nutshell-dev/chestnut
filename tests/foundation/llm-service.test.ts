@@ -3,11 +3,11 @@
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { LLMServiceImpl } from '../../src/foundation/llm/service.js';
-import type { IProviderAdapter, StreamChunk } from '../../src/foundation/llm/types.js';
+import type { ProviderAdapter, StreamChunk } from '../../src/foundation/llm/types.js';
 import { LLMError, LLMAllProvidersFailedError, LLMTimeoutError } from '../../src/types/errors.js';
 
 // Mock provider factory
-function createMockProvider(name: string, streamImpl?: () => AsyncGenerator<StreamChunk>): IProviderAdapter {
+function createMockProvider(name: string, streamImpl?: () => AsyncGenerator<StreamChunk>): ProviderAdapter {
   return {
     name,
     model: 'mock-model',
@@ -397,7 +397,7 @@ describe('LLMServiceImpl - circuit breaker', () => {
   it('should skip primary after threshold failures (circuit opens)', async () => {
     // threshold=2: primary fails twice → breaker opens → 3rd call skips primary entirely
     let primaryCallCount = 0;
-    const failingPrimary: IProviderAdapter = {
+    const failingPrimary: ProviderAdapter = {
       name: 'primary',
       model: 'x',
       async call() { primaryCallCount++; throw new Error('primary down'); },
@@ -429,7 +429,7 @@ describe('LLMServiceImpl - circuit breaker', () => {
   it('should allow probe in half-open state after resetTimeoutMs', async () => {
     let primaryFailCount = 0;
     let primaryShouldFail = true;
-    const probePrimary: IProviderAdapter = {
+    const probePrimary: ProviderAdapter = {
       name: 'primary',
       model: 'x',
       async call() {
@@ -473,12 +473,12 @@ describe('LLMServiceImpl - circuit breaker', () => {
   }, 2000);
 
   it('should throw LLMAllProvidersFailedError when all providers fail', async () => {
-    const badPrimary: IProviderAdapter = {
+    const badPrimary: ProviderAdapter = {
       name: 'p1', model: 'x',
       async call() { throw new Error('p1 down'); },
       async *stream() { throw new Error('p1 down'); },
     };
-    const badFallback: IProviderAdapter = {
+    const badFallback: ProviderAdapter = {
       name: 'p2', model: 'x',
       async call() { throw new Error('p2 down'); },
       async *stream() { throw new Error('p2 down'); },

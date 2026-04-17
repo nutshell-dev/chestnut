@@ -153,7 +153,7 @@ export interface LLMCallOptions {
  * LLM Provider adapter interface
  * Each provider (Anthropic, OpenAI, etc.) implements this
  */
-export interface IProviderAdapter {
+export interface ProviderAdapter {
   /** Provider name */
   readonly name: string;
   

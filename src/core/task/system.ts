@@ -24,7 +24,7 @@ import type { OutboxWriter } from '../communication/index.js';
 import type { ContractManager } from '../contract/manager.js';
 import type { SkillRegistry } from '../skill/registry.js';
 import { AuditWriter } from '../../foundation/audit/writer.js';
-import type { StreamSink } from '../../foundation/stream/types.js';
+import type { StreamLog } from '../../foundation/stream/types.js';
 
 export interface SubAgentTask {
   kind: 'subagent';
@@ -72,7 +72,7 @@ export class TaskSystem {
   private contractManager?: ContractManager;
   private outboxWriter?: OutboxWriter;
   private auditWriter?: AuditWriter;
-  private parentStreamSink?: StreamSink;
+  private parentStreamLog?: StreamLog;
 
   // Task result handlers (array for concurrent dispatch support)
   private _taskResultHandlers: Array<
@@ -103,11 +103,11 @@ export class TaskSystem {
   constructor(
     private clawDir: string,
     private fs: FileSystem,
-    options: { maxConcurrent?: number; auditWriter?: AuditWriter; retryBaseDelayMs?: number; parentStreamSink?: StreamSink } = {}
+    options: { maxConcurrent?: number; auditWriter?: AuditWriter; retryBaseDelayMs?: number; parentStreamLog?: StreamLog } = {}
   ) {
     this.maxConcurrent = options.maxConcurrent ?? DEFAULT_MAX_CONCURRENT_TASKS;
     this.auditWriter = options.auditWriter;
-    this.parentStreamSink = options.parentStreamSink;
+    this.parentStreamLog = options.parentStreamLog;
     this.retryBaseDelayMs = options.retryBaseDelayMs ?? 500;
     this.monitor = new JsonlLogger({ logsDir: path.join(clawDir, 'logs') });
     // Create tool registry for subagents
@@ -299,8 +299,8 @@ export class TaskSystem {
     this.llm = llm;
   }
 
-  setParentStreamSink(sink: StreamSink): void {
-    this.parentStreamSink = sink;
+  setParentStreamLog(sink: StreamLog): void {
+    this.parentStreamLog = sink;
   }
 
   setSkillRegistry(registry: SkillRegistry): void {
@@ -342,7 +342,7 @@ export class TaskSystem {
     this.pendingQueue.push(task);
 
     // Write task_started event to stream
-    this.parentStreamSink?.write({
+    this.parentStreamLog?.write({
       ts: Date.now(),
       type: 'task_started',
       taskId,

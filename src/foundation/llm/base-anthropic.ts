@@ -5,7 +5,7 @@
  * Shared logic for message formatting and request body building.
  */
 
-import type { ProviderConfig, LLMCallOptions, IProviderAdapter, StreamChunk } from './types.js';
+import type { ProviderConfig, LLMCallOptions, ProviderAdapter, StreamChunk } from './types.js';
 import type { LLMResponse } from '../../types/message.js';
 
 export interface AnthropicRequestBody {
@@ -18,7 +18,7 @@ export interface AnthropicRequestBody {
   thinking?: { type: 'enabled'; budget_tokens: number } | { type: 'adaptive'; effort: 'low' | 'medium' | 'high' };
 }
 
-export abstract class BaseAnthropicAdapter implements IProviderAdapter {
+export abstract class BaseAnthropicAdapter implements ProviderAdapter {
   abstract readonly name: string;
   abstract readonly model: string;
   protected abstract readonly config: ProviderConfig;

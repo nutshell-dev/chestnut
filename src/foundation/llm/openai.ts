@@ -1,7 +1,7 @@
 /**
  * OpenAI API Adapter
  * 
- * Implements IProviderAdapter for OpenAI-compatible APIs
+ * Implements ProviderAdapter for OpenAI-compatible APIs
  * Supports: OpenAI, DeepSeek, Moonshot, and other OpenAI-format providers
  */
 
@@ -19,7 +19,7 @@ import {
 import type {
   ProviderConfig,
   LLMCallOptions,
-  IProviderAdapter,
+  ProviderAdapter,
   StreamChunk,
 } from './types.js';
 import { STREAM_MAX_DURATION_MS } from '../../constants.js';
@@ -90,7 +90,7 @@ interface OpenAIResponse {
 /**
  * OpenAI adapter implementation
  */
-export class OpenAIAdapter implements IProviderAdapter {
+export class OpenAIAdapter implements ProviderAdapter {
   readonly name: string;
   readonly model: string;
   

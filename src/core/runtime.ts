@@ -903,8 +903,8 @@ export class ClawRuntime {
     this.contractManager?.setOnNotify(cb);
   }
 
-  setParentStreamSink(sink: import('../foundation/stream/types.js').StreamSink): void {
-    this.taskSystem?.setParentStreamSink(sink);
+  setParentStreamLog(sink: import('../foundation/stream/types.js').StreamLog): void {
+    this.taskSystem?.setParentStreamLog(sink);
   }
 
   getAuditWriter(): AuditWriter {

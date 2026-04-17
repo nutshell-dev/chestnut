@@ -31,7 +31,7 @@ export interface TransportOptions {
  * Messages are opaque strings. Transport does not interpret event semantics
  * (that is Gateway's responsibility).
  */
-export interface ITransport {
+export interface Transport {
   /**
    * Start listening for client connections.
    * Resolves when the listener is ready.

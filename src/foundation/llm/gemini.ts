@@ -1,7 +1,7 @@
 /**
  * Google Gemini API Adapter
  * 
- * Implements IProviderAdapter for Google's Gemini API
+ * Implements ProviderAdapter for Google's Gemini API
  * Reference: https://ai.google.dev/api/rest
  */
 
@@ -17,7 +17,7 @@ import {
 import type {
   ProviderConfig,
   LLMCallOptions,
-  IProviderAdapter,
+  ProviderAdapter,
   StreamChunk,
 } from './types.js';
 import { STREAM_MAX_DURATION_MS } from '../../constants.js';
@@ -61,7 +61,7 @@ interface GeminiResponse {
   usageMetadata?: { promptTokenCount: number; candidatesTokenCount: number };
 }
 
-export class GeminiAdapter implements IProviderAdapter {
+export class GeminiAdapter implements ProviderAdapter {
   readonly name: string;
   readonly model: string;
   private readonly config: ProviderConfig;

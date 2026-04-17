@@ -11,7 +11,7 @@ export type {
   LLMServiceConfig,
   LLMCallOptions,
   StreamChunk,
-  IProviderAdapter,
+  ProviderAdapter,
 } from './types.js';
 
 // Import for interface definition
