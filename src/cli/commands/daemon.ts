@@ -147,7 +147,7 @@ export async function daemonCommand(name: string): Promise<void> {
       } as ClawRuntimeOptions);
 
   // git init（claw 首次启动时无 .git，motion init 已处理 motion 的情况）
-  const snapshot = new Snapshot(dir, sharedAuditWriter);
+  const snapshot = new Snapshot(dir, new NodeFileSystem({ baseDir: dir, enforcePermissions: false }), sharedAuditWriter);
   await snapshot.init();
 
   // recovery-snapshot：将上次中断遗留的 working tree 变更固化（在 session repair 之前）

@@ -12,7 +12,7 @@ import type { FileSystem } from '../fs/types.js';
 
 import type { Message, ToolUseBlock, ToolResultBlock } from '../../types/message.js';
 import type { SessionData, LoadResult } from './types.js';
-import type { IAuditSink } from '../audit/index.js';
+import type { Audit } from '../audit/index.js';
 import { randomUUID } from 'crypto';
 
 /**
@@ -27,7 +27,7 @@ export class SessionManager {
     private readonly fs: FileSystem,
     dialogDir: string,
     private readonly clawId: string = randomUUID(),
-    private readonly audit?: IAuditSink,
+    private readonly audit?: Audit,
   ) {
     this.currentPath = path.join(dialogDir, 'current.json');
     this.archiveDir = path.join(dialogDir, 'archive');

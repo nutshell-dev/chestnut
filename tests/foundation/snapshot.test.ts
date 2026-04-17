@@ -9,6 +9,7 @@ import { execSync } from 'child_process';
 import * as path from 'path';
 import * as os from 'os';
 import { Snapshot } from '../../src/foundation/snapshot/index.js';
+import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 
 // git 必须可用才能跑这些测试
 let gitAvailable = false;
@@ -31,7 +32,7 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
   // ========================================================================
 
   it('init creates .git with .gitignore and initial commit', async () => {
-    await new Snapshot(tmpDir).init();
+    await new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false })).init();
 
     // .git 目录存在
     expect(fsSync.existsSync(path.join(tmpDir, '.git'))).toBe(true);
@@ -48,11 +49,11 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
   });
 
   it('init is idempotent — second call is no-op', async () => {
-    await new Snapshot(tmpDir).init();
+    await new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false })).init();
     // 手动写一个文件作为标记
     await fsp.writeFile(path.join(tmpDir, 'marker.txt'), 'test');
 
-    await new Snapshot(tmpDir).init();
+    await new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false })).init();
 
     // marker.txt 应该还在（没有被 init 覆盖或重建）
     const content = await fsp.readFile(path.join(tmpDir, 'marker.txt'), 'utf-8');
@@ -80,7 +81,7 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
 
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-    await new Snapshot(tmpDir).init();
+    await new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false })).init();
 
     // .git 应被清理
     expect(fsSync.existsSync(path.join(tmpDir, '.git'))).toBe(false);
@@ -108,7 +109,7 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
 
     const audit = { write: vi.fn() };
-    const snapshot = new Snapshot(tmpDir, audit);
+    const snapshot = new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false }), audit);
     await snapshot.init();
 
     expect(audit.write).toHaveBeenCalledWith(
@@ -122,37 +123,37 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
   // ========================================================================
 
   it('commit is no-op when no changes', async () => {
-    await new Snapshot(tmpDir).init();
+    await new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false })).init();
 
     const logBefore = execSync('git log --oneline', { cwd: tmpDir, encoding: 'utf-8' }).trim();
 
-    await new Snapshot(tmpDir).commit('should-not-appear');
+    await new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false })).commit('should-not-appear');
 
     const logAfter = execSync('git log --oneline', { cwd: tmpDir, encoding: 'utf-8' }).trim();
     expect(logAfter).toBe(logBefore);
   });
 
   it('commit creates snapshot when there are changes', async () => {
-    await new Snapshot(tmpDir).init();
+    await new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false })).init();
 
     // 创建一个文件
     await fsp.writeFile(path.join(tmpDir, 'data.txt'), 'hello');
 
-    await new Snapshot(tmpDir).commit('add data');
+    await new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false })).commit('add data');
 
     const log = execSync('git log --oneline', { cwd: tmpDir, encoding: 'utf-8' }).trim();
     expect(log).toContain('add data');
   });
 
   it('commit logs warning on failure', async () => {
-    await new Snapshot(tmpDir).init();
+    await new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false })).init();
     await fsp.writeFile(path.join(tmpDir, 'data.txt'), 'hello');
 
     // 破坏 git 操作（删除 .git/HEAD 让 git status 失败）
     await fsp.rm(path.join(tmpDir, '.git', 'HEAD'));
 
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    await new Snapshot(tmpDir).commit('will-fail');
+    await new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false })).commit('will-fail');
 
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('commit failed'),
@@ -161,7 +162,7 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
   });
 
   it('commit upgrades to error after 3 consecutive failures', async () => {
-    await new Snapshot(tmpDir).init();
+    await new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false })).init();
     await fsp.writeFile(path.join(tmpDir, 'data.txt'), 'hello');
 
     // 破坏 git
@@ -171,7 +172,7 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-    const snapshot = new Snapshot(tmpDir);
+    const snapshot = new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false }));
     await snapshot.commit('fail-1');
     await snapshot.commit('fail-2');
     await snapshot.commit('fail-3');
@@ -183,15 +184,15 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
   });
 
   it('consecutive failures are isolated per instance', async () => {
-    await new Snapshot(tmpDir).init();
+    await new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false })).init();
     await fsp.writeFile(path.join(tmpDir, 'data.txt'), 'hello');
     await fsp.rm(path.join(tmpDir, '.git', 'HEAD'));
 
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-    const snapshot1 = new Snapshot(tmpDir);
-    const snapshot2 = new Snapshot(tmpDir);
+    const snapshot1 = new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false }));
+    const snapshot2 = new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false }));
 
     await snapshot1.commit('fail-1');
     await snapshot1.commit('fail-2');
@@ -207,7 +208,7 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
 
   it('commit writes snapshot_degraded audit at exactly 3 consecutive failures', async () => {
     const audit = { write: vi.fn() };
-    const snapshot = new Snapshot(tmpDir, audit);
+    const snapshot = new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false }), audit);
     await snapshot.init();
     await fsp.writeFile(path.join(tmpDir, 'data.txt'), 'hello');
 
@@ -232,7 +233,7 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
 
   it('commit does not write snapshot_degraded on 4th+ failure', async () => {
     const audit = { write: vi.fn() };
-    const snapshot = new Snapshot(tmpDir, audit);
+    const snapshot = new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false }), audit);
     await snapshot.init();
     await fsp.writeFile(path.join(tmpDir, 'data.txt'), 'hello');
     await fsp.rm(path.join(tmpDir, '.git', 'HEAD'));
@@ -254,12 +255,12 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
   // ========================================================================
 
   it('commit message with special characters works correctly', async () => {
-    await new Snapshot(tmpDir).init();
+    await new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false })).init();
     await fsp.writeFile(path.join(tmpDir, 'data.txt'), 'hello');
 
     // 消息含空格和引号
     const message = "fix: user's \"data\" file";
-    await new Snapshot(tmpDir).commit(message);
+    await new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false })).commit(message);
 
     const log = execSync('git log --oneline -1', { cwd: tmpDir, encoding: 'utf-8' }).trim();
     expect(log).toContain("fix:");

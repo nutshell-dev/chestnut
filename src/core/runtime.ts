@@ -199,7 +199,7 @@ export class ClawRuntime {
     });
 
     // 2.x 初始化 Snapshot
-    this.snapshot = new Snapshot(this.options.clawDir, this.auditWriter);
+    this.snapshot = new Snapshot(this.options.clawDir, this.systemFs, this.auditWriter);
 
     // Session repair：检测未完成的 tool_use，注入合成 tool_result
     {

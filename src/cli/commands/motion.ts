@@ -173,7 +173,7 @@ export async function initCommand(silent = false): Promise<void> {
   await installBuiltinSkills(motionDir);
 
   // Init git for motion directory
-  await new Snapshot(motionDir).init().catch(err =>
+  await new Snapshot(motionDir, new NodeFileSystem({ baseDir: motionDir, enforcePermissions: false })).init().catch(err =>
     console.warn('[snapshot] motion init failed:', err instanceof Error ? err.message : String(err))
   );
 

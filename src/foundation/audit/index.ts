@@ -16,7 +16,4 @@ export interface Audit {
   write(type: string, ...cols: (string | number)[]): void;
 }
 
-/** @deprecated Use Audit instead */
-export type IAuditSink = Audit;
-
 export { AuditWriter } from './writer.js';

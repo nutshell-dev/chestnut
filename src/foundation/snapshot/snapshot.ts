@@ -9,8 +9,8 @@
  */
 
 import { exec } from '../process-exec/index.js';
-import { NodeFileSystem } from '../fs/node-fs.js';
-import type { IAuditSink } from '../audit/index.js';
+import type { FileSystem } from '../fs/types.js';
+import type { Audit } from '../audit/index.js';
 
 const GITIGNORE_CONTENT = `stream.jsonl
 audit.tsv
@@ -21,13 +21,13 @@ tasks/results/
 
 export class Snapshot {
   private dir: string;
-  private fs: NodeFileSystem;
+  private fs: FileSystem;
   private consecutiveFailures = 0;
-  private audit?: IAuditSink;
+  private audit?: Audit;
 
-  constructor(dir: string, audit?: IAuditSink) {
+  constructor(dir: string, fs: FileSystem, audit?: Audit) {
     this.dir = dir;
-    this.fs = new NodeFileSystem({ baseDir: dir, enforcePermissions: false });
+    this.fs = fs;
     this.audit = audit;
   }
 
