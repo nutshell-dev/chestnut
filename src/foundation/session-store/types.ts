@@ -13,3 +13,8 @@ export interface SessionData {
   updatedAt: string;
   messages: Message[];
 }
+
+export interface LoadResult {
+  session: SessionData;
+  source: 'current' | 'archive' | 'empty';
+}

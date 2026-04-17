@@ -12,4 +12,8 @@
  * 容错：写失败不抛异常（不中断业务），但通过 console.warn 暴露失败信息。
  */
 
+export interface IAuditSink {
+  write(type: string, ...cols: (string | number)[]): void;
+}
+
 export { AuditWriter } from './writer.js';

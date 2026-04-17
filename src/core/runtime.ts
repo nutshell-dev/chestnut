@@ -182,7 +182,7 @@ export class ClawRuntime {
       : path.resolve(clawDir, '..', '..');
 
     // 6. Create SessionManager (uses systemFs; system components need to write to dialog/)
-    this.sessionManager = new SessionManager(this.systemFs, 'dialog', clawId);
+    this.sessionManager = new SessionManager(this.systemFs, 'dialog', clawId, this.auditWriter);
     // Archive previous session on startup (best-effort; first start has no current.json)
     await this.sessionManager.archive().catch((err: any) => {
       if (err?.code !== 'ENOENT' && err?.code !== 'FS_NOT_FOUND') {
@@ -195,8 +195,10 @@ export class ClawRuntime {
 
     // Session repair：检测未完成的 tool_use，注入合成 tool_result
     {
-      const session = await this.sessionManager.load().catch(() => null);
-      if (session) {
+      const loadResult = await this.sessionManager.load().catch(() => null);
+      if (loadResult) {
+        const { session, source } = loadResult;
+        this.auditWriter.write('session_loaded', `source=${source}`);
         const auditAbsPath = this.systemFs.resolve('audit.tsv');
         const interruptionMessage = summarizeLastExit(auditAbsPath);
         const { repaired, toolCount } = SessionManager.repair(
@@ -555,7 +557,7 @@ export class ClawRuntime {
       }
     }
 
-    const session = await this.sessionManager.load();
+    const { session } = await this.sessionManager.load();
     const messages = [...session.messages, ...injected];
 
     // Save injected messages immediately so interrupt doesn't lose them
@@ -640,7 +642,7 @@ export class ClawRuntime {
     if (!this.initialized) {
       await this.initialize();
     }
-    const session = await this.sessionManager.load();
+    const { session } = await this.sessionManager.load();
     const messages = [...session.messages, msg];
     await this.sessionManager.save(messages);
     callbacks?.onTurnStart?.([]);
@@ -670,7 +672,7 @@ export class ClawRuntime {
     if (!this.initialized) {
       await this.initialize();
     }
-    const session = await this.sessionManager.load();
+    const { session } = await this.sessionManager.load();
     if (session.messages.length === 0) return;
 
     // Find the last user message boundary for safe retry.
@@ -729,7 +731,7 @@ export class ClawRuntime {
     }
 
     // 1. Load the current session
-    const session = await this.sessionManager.load();
+    const { session } = await this.sessionManager.load();
     const messages = [...session.messages];
 
     // 2. Build systemPrompt (already includes AGENTS.md + MEMORY.md + skills + contract)

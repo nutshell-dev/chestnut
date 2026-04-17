@@ -50,7 +50,7 @@ describe('Dialog', () => {
     });
 
     it('should return empty session when current.json does not exist', async () => {
-      const session = await sessionManager.load();
+      const { session: session } = await sessionManager.load();
       
       expect(session.messages).toEqual([]);
       expect(session.clawId).toBeDefined();
@@ -63,7 +63,7 @@ describe('Dialog', () => {
       ];
 
       await sessionManager.save(messages);
-      const loaded = await sessionManager.load();
+      const { session: loaded } = await sessionManager.load();
 
       expect(loaded.messages).toHaveLength(2);
       expect(loaded.messages[0].role).toBe('user');
@@ -101,7 +101,7 @@ describe('Dialog', () => {
       expect(await nodeFs.exists('dialog/current.json')).toBe(false);
 
       // Load should recover from archive
-      const recovered = await sessionManager.load();
+      const { session: recovered } = await sessionManager.load();
       expect(recovered.messages).toHaveLength(1);
       expect(recovered.messages[0].content).toBe('Archived message');
     });
@@ -111,7 +111,7 @@ describe('Dialog', () => {
       
       await sessionManager.save([msg]);
       
-      const loaded = await sessionManager.load();
+      const { session: loaded } = await sessionManager.load();
       expect(loaded.messages).toHaveLength(1);
       expect(loaded.messages[0].content).toBe('New message');
     });
@@ -120,7 +120,7 @@ describe('Dialog', () => {
       const messages: Message[] = [{ role: 'user', content: 'Test' }];
       await sessionManager.save(messages);
 
-      const loaded = await sessionManager.load();
+      const { session: loaded } = await sessionManager.load();
       
       expect(loaded.version).toBe(1);
       expect(loaded.clawId).toBeDefined();
@@ -145,7 +145,7 @@ describe('Dialog', () => {
         );
 
         // Load without current.json
-        const loaded = await sessionManager.load();
+        const { session: loaded } = await sessionManager.load();
 
         expect(loaded.messages).toHaveLength(1);
         expect(loaded.messages[0].content).toBe('Archived message');
@@ -169,7 +169,7 @@ describe('Dialog', () => {
           JSON.stringify(archivedSession)
         );
 
-        const loaded = await sessionManager.load();
+        const { session: loaded } = await sessionManager.load();
 
         expect(loaded.messages).toHaveLength(1);
         expect(loaded.messages[0].content).toBe('Recovered from archive');
@@ -181,7 +181,7 @@ describe('Dialog', () => {
 
       it('should return empty session when nothing exists', async () => {
         // No current.json, no archive - fresh start
-        const loaded = await sessionManager.load();
+        const { session: loaded } = await sessionManager.load();
 
         expect(loaded.messages).toHaveLength(0);
         expect(loaded.version).toBe(1);
@@ -193,7 +193,7 @@ describe('Dialog', () => {
         // Create empty archive directory
         await nodeFs.ensureDir('dialog/archive');
 
-        const loaded = await sessionManager.load();
+        const { session: loaded } = await sessionManager.load();
 
         expect(loaded.messages).toHaveLength(0);
       });
@@ -222,7 +222,7 @@ describe('Dialog', () => {
         );
 
         // No current.json
-        const loaded = await sessionManager.load();
+        const { session: loaded } = await sessionManager.load();
 
         // Should recover from the older valid archive, not return empty
         expect(loaded.messages).toHaveLength(1);

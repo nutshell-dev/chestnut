@@ -6,4 +6,4 @@
  */
 
 export { SessionManager } from './store.js';
-export type { SessionData } from './types.js';
+export type { SessionData, LoadResult } from './types.js';

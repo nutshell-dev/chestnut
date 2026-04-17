@@ -294,7 +294,7 @@ describe('SessionManager unit tests', () => {
   it('archive: resets createdAt so next save() gets a fresh timestamp', async () => {
     // First session
     await sm.save([{ role: 'user', content: 'old' }]);
-    const first = await sm.load();
+    const { session: first } = await sm.load();
     const oldCreatedAt = first.createdAt;
 
     await sm.archive();
@@ -304,7 +304,7 @@ describe('SessionManager unit tests', () => {
 
     // New session after archive
     await sm.save([{ role: 'user', content: 'new' }]);
-    const second = await sm.load();
+    const { session: second } = await sm.load();
 
     // createdAt must be later than the archived session's createdAt
     expect(second.createdAt).not.toBe(oldCreatedAt);
@@ -320,7 +320,7 @@ describe('SessionManager unit tests', () => {
 
     // Fresh SessionManager (simulate restart)
     const sm2 = new SessionManager(nodeFs, 'dialog', 'test-claw');
-    const session = await sm2.load();
+    const { session: session } = await sm2.load();
 
     expect(session.messages).toHaveLength(1);
     expect((session.messages[0].content as string)).toBe('remembered');
