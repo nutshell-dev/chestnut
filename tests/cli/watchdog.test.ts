@@ -108,6 +108,8 @@ describe('shutdownWatchdog — fix 005: save state on signal', () => {
     tmpDir = path.join(os.tmpdir(), `wd-fix5-${randomUUID()}`);
     const clawforumDir = path.join(tmpDir, '.clawforum');
     fs.mkdirSync(path.join(clawforumDir, 'motion'), { recursive: true });
+    // 预创建 watchdog.pid，用于验证 shutdown 时会被删除
+    fs.writeFileSync(path.join(clawforumDir, 'watchdog.pid'), JSON.stringify({ pid: 12345 }));
     vi.mocked(getMotionDir).mockReturnValue(path.join(clawforumDir, 'motion'));
     vi.mocked(loadGlobalConfig).mockReturnValue({ watchdog: { claw_inactivity_timeout_ms: 300_000 } } as any);
 
@@ -140,6 +142,9 @@ describe('shutdownWatchdog — fix 005: save state on signal', () => {
     // 断言 audit.tsv 中有 watchdog_stop 记录
     const auditLines = fs.readFileSync(path.join(tmpDir, '.clawforum', 'audit.tsv'), 'utf-8');
     expect(auditLines).toContain('watchdog_stop');
+
+    // 断言 watchdog.pid 已被 removeWatchdogPid 删除
+    expect(fs.existsSync(path.join(tmpDir, '.clawforum', 'watchdog.pid'))).toBe(false);
 
     exitSpy.mockRestore();
   });

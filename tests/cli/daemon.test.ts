@@ -26,6 +26,8 @@ describe('acquireDaemonLock — fix 004: TOCTOU race protection', () => {
   });
 
   afterEach(() => {
+    vi.mocked(fsNative.openSync).mockRestore();
+    vi.mocked(fsNative.readFileSync).mockRestore();
     vi.restoreAllMocks();
     fsNative.rmSync(tmpDir, { recursive: true, force: true });
   });
