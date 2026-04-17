@@ -28,7 +28,7 @@ import {
 } from '../../types/errors.js';
 import { ExecContextImpl } from './context.js';
 import { DEFAULT_MAX_STEPS } from '../../constants.js';
-// Note: ToolRegistry type imported via IToolRegistry interface
+// Note: ToolRegistry type imported via ToolRegistry interface
 
 function escapeForLog(s: string): string {
   return s.replace(/\n/g, '\\n').slice(0, 120);
@@ -102,7 +102,7 @@ export interface Tool {
 /**
  * Tool registry interface
  */
-export interface IToolRegistry {
+export interface ToolRegistry {
   register(tool: Tool): void;
   unregister(name: string): void;
   get(name: string): Tool | undefined;
@@ -149,7 +149,7 @@ export interface IToolExecutor {
  */
 export class ToolExecutorImpl implements IToolExecutor {
   constructor(
-    private registry: IToolRegistry,
+    private registry: ToolRegistry,
     private defaultTimeoutMs = 60000
   ) {}
 
@@ -324,7 +324,7 @@ export class ToolExecutorImpl implements IToolExecutor {
 // ============================================================================
 
 export interface ToolExecutorOptions {
-  registry: IToolRegistry;
+  registry: ToolRegistry;
   clawDir: string;
   fs: FileSystem;
   monitor?: Logger;

@@ -49,7 +49,7 @@ vi.mock('child_process', async (importOriginal) => {
 
 // Mock SubAgent
 const mockSubAgentRun = vi.fn();
-let capturedSubAgentRegistry: import('../../src/core/tools/registry.js').ToolRegistry | null = null;
+let capturedSubAgentRegistry: import('../../src/core/tools/registry.js').ToolRegistryImpl | null = null;
 let capturedOnIdleTimeout: (() => void) | null = null;
 vi.mock('../../src/core/subagent/agent.js', () => ({
   SubAgent: vi.fn().mockImplementation((opts: any) => {
@@ -64,7 +64,7 @@ import { ContractManager } from '../../src/core/contract/manager.js';
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
 import { JsonlLogger } from '../../src/foundation/monitor/index.js';
 import type { ILLMService } from '../../src/foundation/llm/index.js';
-import { ToolRegistry } from '../../src/core/tools/registry.js';
+import { ToolRegistryImpl } from '../../src/core/tools/registry.js';
 
 async function createTempDir(): Promise<string> {
   const tempDir = path.join(tmpdir(), `clawforum-contract-test-${randomUUID()}`);
@@ -167,7 +167,7 @@ describe('ContractManager Acceptance Flow', () => {
   let manager: ContractManager;
   let mockMonitor: JsonlLogger;
   let mockLLM: ILLMService;
-  let mockRegistry: ToolRegistry;
+  let mockRegistry: ToolRegistryImpl;
 
   beforeEach(async () => {
     vi.clearAllMocks();
@@ -197,7 +197,7 @@ describe('ContractManager Acceptance Flow', () => {
       stream: vi.fn(),
     } as unknown as ILLMService;
 
-    mockRegistry = new ToolRegistry();
+    mockRegistry = new ToolRegistryImpl();
     manager = new ContractManager(clawDir, 'test-claw', nodeFs, mockMonitor, mockLLM, mockRegistry);
   });
 

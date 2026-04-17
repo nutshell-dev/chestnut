@@ -13,7 +13,7 @@ import type { FileSystem } from '../../foundation/fs/types.js';
 import { JsonlLogger } from '../../foundation/monitor/index.js';
 import { SubAgent } from '../subagent/agent.js';
 import { DEFAULT_LLM_IDLE_TIMEOUT_MS, DEFAULT_MAX_CONCURRENT_TASKS } from '../../constants.js';
-import { ToolRegistry } from '../tools/registry.js';
+import { ToolRegistryImpl } from '../tools/registry.js';
 import { registerBuiltinTools } from '../tools/builtins/index.js';
 import type { ILLMService } from '../../foundation/llm/index.js';
 import type { CallerType } from '../tools/caller-type.js';
@@ -66,7 +66,7 @@ export class TaskSystem {
   private runningTasks: Map<string, TaskState> = new Map();
   private maxConcurrent: number;
   private monitor: JsonlLogger;
-  private registry: ToolRegistry;
+  private registry: ToolRegistryImpl;
   private llm?: ILLMService;
   private skillRegistry?: SkillRegistry;
   private contractManager?: ContractManager;
@@ -111,7 +111,7 @@ export class TaskSystem {
     this.retryBaseDelayMs = options.retryBaseDelayMs ?? 500;
     this.monitor = new JsonlLogger({ logsDir: path.join(clawDir, 'logs') });
     // Create tool registry for subagents
-    this.registry = new ToolRegistry();
+    this.registry = new ToolRegistryImpl();
     registerBuiltinTools(this.registry);
   }
 
@@ -563,7 +563,7 @@ export class TaskSystem {
       // Build per-task registry filtered by caller profile + extraTools
       const subagentProfile = callerTypeToProfile(task.callerType ?? 'subagent');
       const effectiveRegistry = (() => {
-        const r = new ToolRegistry();
+        const r = new ToolRegistryImpl();
         for (const t of this.registry.getForProfile(subagentProfile)) r.register(t);
         for (const t of task.extraTools ?? []) r.register(t);
         return r;

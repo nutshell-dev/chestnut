@@ -7,7 +7,7 @@ import { SubAgent } from '../../src/core/subagent/agent.js';
 import type { FileSystem } from '../../src/foundation/fs/types.js';
 import type { Logger } from '../../src/foundation/monitor/types.js';
 import type { ILLMService } from '../../src/foundation/llm/index.js';
-import type { ToolRegistry } from '../../src/core/tools/registry.js';
+import type { ToolRegistryImpl } from '../../src/core/tools/registry.js';
 
 // Mock the entire react loop module so runReact is fully controllable
 vi.mock('../../src/core/react/loop.js', () => ({
@@ -63,7 +63,7 @@ function makeSubAgent(
   const mockRegistry = {
     getAll: vi.fn().mockReturnValue([]),
     formatForLLM: vi.fn().mockReturnValue([]),
-  } as unknown as ToolRegistry;
+  } as unknown as ToolRegistryImpl;
 
   const mockLLM = {
     call: vi.fn(),

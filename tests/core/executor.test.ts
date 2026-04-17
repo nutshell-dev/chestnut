@@ -11,7 +11,7 @@ import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 
 import { ToolExecutorImpl } from '../../src/core/tools/executor.js';
-import { ToolRegistry } from '../../src/core/tools/registry.js';
+import { ToolRegistryImpl } from '../../src/core/tools/registry.js';
 import { ExecContextImpl } from '../../src/core/tools/context.js';
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
 import { AuditWriter } from '../../src/foundation/audit/writer.js';
@@ -34,7 +34,7 @@ describe('ToolExecutor', () => {
   let tempDir: string;
   let mockFs: NodeFileSystem;
   let ctx: ExecContextImpl;
-  let registry: ToolRegistry;
+  let registry: ToolRegistryImpl;
   let executor: ToolExecutorImpl;
   let auditWriter: AuditWriter;
 
@@ -49,7 +49,7 @@ describe('ToolExecutor', () => {
       fs: mockFs,
       auditWriter,
     });
-    registry = new ToolRegistry();
+    registry = new ToolRegistryImpl();
     executor = new ToolExecutorImpl(registry);
   });
 

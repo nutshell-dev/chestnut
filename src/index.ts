@@ -22,7 +22,8 @@ export { LLMService } from './foundation/llm/service.js';
 export type { LLMServiceConfig, ProviderConfig, LLMCallOptions } from './foundation/llm/types.js';
 
 // Re-export commonly used types
-export type { ToolResult, ExecContext, Tool, IToolRegistry, IToolExecutor } from './core/tools/executor.js';
+export type { ToolResult, ExecContext, Tool, ToolRegistry, IToolExecutor } from './core/tools/executor.js';
+export { ToolRegistryImpl } from './core/tools/registry.js';
 export type { SkillMeta } from './core/skill/registry.js';
 export type { SubAgentTask } from './core/task/system.js';
 export type { ProgressData, AcceptanceResult } from './core/contract/manager.js';

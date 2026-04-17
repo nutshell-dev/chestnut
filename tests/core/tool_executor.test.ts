@@ -10,7 +10,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import * as path from 'path';
 import { ToolExecutorImpl } from '../../src/core/tools/executor.js';
-import { ToolRegistry } from '../../src/core/tools/registry.js';
+import { ToolRegistryImpl } from '../../src/core/tools/registry.js';
 import type { Tool, ToolPermission } from '../../src/types/tool.js';
 
 describe('Tool Path Validation', () => {
@@ -61,7 +61,7 @@ describe('Tool Path Validation', () => {
 });
 
 describe('ToolExecutor validateArgs', () => {
-  const registry = new ToolRegistry();
+  const registry = new ToolRegistryImpl();
   const executor = new ToolExecutorImpl(registry);
 
   // 注册测试工具
@@ -176,9 +176,9 @@ describe('ToolExecutor validateArgs', () => {
   });
 });
 
-describe('ToolRegistry getForProfile', () => {
+describe('ToolRegistryImpl getForProfile', () => {
   it('should filter tools based on profile allowlist', () => {
-    const registry = new ToolRegistry();
+    const registry = new ToolRegistryImpl();
     
     // 注册 TOOL_PROFILES 中定义的工具
     registry.register({
@@ -227,7 +227,7 @@ describe('ToolRegistry getForProfile', () => {
   });
 
   it('should return empty array for non-existent tools', () => {
-    const registry = new ToolRegistry();
+    const registry = new ToolRegistryImpl();
     
     // 注册不在 TOOL_PROFILES 中的工具
     registry.register({

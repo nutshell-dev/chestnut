@@ -10,7 +10,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { TaskSystem, SubAgentTask, ToolTask } from '../../src/core/task/system.js';
 import { ToolExecutorImpl, ExecuteOptions } from '../../src/core/tools/executor.js';
-import { ToolRegistry } from '../../src/core/tools/registry.js';
+import { ToolRegistryImpl } from '../../src/core/tools/registry.js';
 import { Tool, ToolResult, ExecContext } from '../../src/core/tools/executor.js';
 import type { JSONSchema7 } from '../../src/types/message.js';
 import * as fs from 'fs/promises';
@@ -1111,13 +1111,13 @@ describe('TaskSystem Tool Tasks', () => {
 });
 
 describe('ToolExecutor async routing', () => {
-  let registry: ToolRegistry;
+  let registry: ToolRegistryImpl;
   let executor: ToolExecutorImpl;
   let mockTaskSystem: { scheduleTool: ReturnType<typeof vi.fn> };
   let mockCtx: ExecContext;
 
   beforeEach(() => {
-    registry = new ToolRegistry();
+    registry = new ToolRegistryImpl();
     executor = new ToolExecutorImpl(registry);
     
     mockTaskSystem = {

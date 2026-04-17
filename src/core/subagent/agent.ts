@@ -6,7 +6,7 @@
 
 import { runReact } from '../react/loop.js';
 import { ToolExecutor } from '../tools/executor.js';
-import { ToolRegistry } from '../tools/registry.js';
+import { ToolRegistryImpl } from '../tools/registry.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { Logger } from '../../foundation/monitor/types.js';
 import type { ILLMService } from '../../foundation/llm/index.js';
@@ -30,7 +30,7 @@ export interface SubAgentOptions {
   prompt: string;
   clawDir: string;
   llm: ILLMService;
-  registry: ToolRegistry;
+  registry: ToolRegistryImpl;
   fs: FileSystem;
   monitor?: Logger;
   maxSteps?: number;
@@ -57,7 +57,7 @@ export class SubAgent {
   private prompt: string;
   private clawDir: string;
   private llm: ILLMService;
-  private registry: ToolRegistry;
+  private registry: ToolRegistryImpl;
   private fs: FileSystem;
   private monitor?: Logger;
   private maxSteps: number;

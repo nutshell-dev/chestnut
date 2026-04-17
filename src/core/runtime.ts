@@ -23,7 +23,7 @@ import { JsonlLogger } from '../foundation/monitor/monitor.js';
 
 import { SessionManager } from '../foundation/session-store/index.js';
 import { ContextInjector } from './dialog/injector.js';
-import { ToolRegistry } from './tools/registry.js';
+import { ToolRegistryImpl } from './tools/registry.js';
 import { ToolExecutorImpl } from './tools/executor.js';
 import { ExecContextImpl } from './tools/context.js';
 import { registerBuiltinTools } from './tools/builtins/index.js';
@@ -120,7 +120,7 @@ export class ClawRuntime {
    * Note: subclasses should treat this as read-only and must not modify injector state
    */
   protected contextInjector!: ContextInjector;
-  protected toolRegistry!: ToolRegistry;
+  protected toolRegistry!: ToolRegistryImpl;
   private taskSystem!: TaskSystem;
   private skillRegistry!: SkillRegistry;
   private contractManager!: ContractManager;
@@ -213,8 +213,8 @@ export class ClawRuntime {
       }
     }
 
-    // 7. Create ToolRegistry and register built-in tools
-    this.toolRegistry = new ToolRegistry();
+    // 7. Create ToolRegistryImpl and register built-in tools
+    this.toolRegistry = new ToolRegistryImpl();
     registerBuiltinTools(this.toolRegistry);
     // dispatch 需要构造参数，单独注册
     this.toolRegistry.register(new DispatchTool(
@@ -238,7 +238,7 @@ export class ClawRuntime {
     await this.skillRegistry.loadAll();
 
     // 10. Create ContractManager (with LLM and verifier registry for acceptance)
-    const verifierRegistry = new ToolRegistry();
+    const verifierRegistry = new ToolRegistryImpl();
     for (const tool of this.toolRegistry.getForProfile('verifier')) {
       verifierRegistry.register(tool);
     }

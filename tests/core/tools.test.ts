@@ -2,13 +2,13 @@
  * Tools module tests
  * 
  * Tests:
- * - ToolRegistry: register, get, profile filtering
+ * - ToolRegistryImpl: register, get, profile filtering
  * - ToolExecutor: execute with permissions, timeout, errors
  * - ExecContext: permissions, elapsed time
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { ToolRegistry } from '../../src/core/tools/registry.js';
+import { ToolRegistryImpl } from '../../src/core/tools/registry.js';
 import { ToolExecutorImpl } from '../../src/core/tools/executor.js';
 import { ExecContextImpl } from '../../src/core/tools/context.js';
 import { TOOL_PROFILES } from '../../src/core/tools/profiles.js';
@@ -46,11 +46,11 @@ describe('Tools', () => {
     });
   });
 
-  describe('ToolRegistry', () => {
-    let registry: ToolRegistry;
+  describe('ToolRegistryImpl', () => {
+    let registry: ToolRegistryImpl;
 
     beforeEach(() => {
-      registry = new ToolRegistry();
+      registry = new ToolRegistryImpl();
     });
 
     it('should register and retrieve tool', () => {
@@ -231,12 +231,12 @@ describe('Tools', () => {
   });
 
   describe('ToolExecutor', () => {
-    let registry: ToolRegistry;
+    let registry: ToolRegistryImpl;
     let executor: ToolExecutorImpl;
     let mockFs: FileSystem;
 
     beforeEach(() => {
-      registry = new ToolRegistry();
+      registry = new ToolRegistryImpl();
       executor = new ToolExecutorImpl(registry);
       mockFs = {} as FileSystem;
     });

@@ -11,7 +11,7 @@ import { randomUUID } from 'crypto';
 import { TaskSystem } from '../../src/core/task/system.js';
 import { SubAgent } from '../../src/core/subagent/agent.js';
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
-import { ToolRegistry } from '../../src/core/tools/registry.js';
+import { ToolRegistryImpl } from '../../src/core/tools/registry.js';
 import { registerBuiltinTools } from '../../src/core/tools/builtins/index.js';
 import type { LLMResponse } from '../../src/types/message.js';
 import type { ILLMService } from '../../src/foundation/llm/index.js';
@@ -132,7 +132,7 @@ describe('Task System + SubAgent', () => {
   let tempDir: string;
   let mockFs: NodeFileSystem;
   let taskSystem: TaskSystem;
-  let registry: ToolRegistry;
+  let registry: ToolRegistryImpl;
 
   beforeEach(async () => {
     tempDir = await createTempDir();
@@ -142,7 +142,7 @@ describe('Task System + SubAgent', () => {
     taskSystem = new TaskSystem(tempDir, mockFs);
     await taskSystem.initialize();
 
-    registry = new ToolRegistry();
+    registry = new ToolRegistryImpl();
     registerBuiltinTools(registry);
   });
 

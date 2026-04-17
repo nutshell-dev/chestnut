@@ -1,17 +1,17 @@
 /**
  * ToolRegistry - Manages tool registration and lookup
  * 
- * Implements IToolRegistry interface
+ * Implements ToolRegistry interface
  */
 
-import type { Tool } from './executor.js';
+import type { Tool, ToolRegistry } from './executor.js';
 import type { ToolProfile } from '../../types/config.js';
 import { TOOL_PROFILES } from './profiles.js';
 
 /**
  * Tool registry implementation
  */
-export class ToolRegistry {
+export class ToolRegistryImpl implements ToolRegistry {
   private tools: Map<string, Tool> = new Map();
 
   /**

@@ -21,7 +21,7 @@ import { LOCK_MAX_RETRIES, LOCK_RETRY_DELAY_MS, LOCK_STALE_TIMEOUT_MS, CONTRACT_
 import { CONTRACT_VERIFIER_SYSTEM_PROMPT } from '../../prompts/subagent.js';
 import { writeInboxMessage } from '../../utils/inbox-writer.js';
 import { SubAgent } from '../subagent/agent.js';
-import { ToolRegistry } from '../tools/registry.js';
+import { ToolRegistryImpl } from '../tools/registry.js';
 import { ReportResultTool } from '../tools/report-result.js';
 import { AuditWriter } from '../../foundation/audit/writer.js';
 
@@ -84,7 +84,7 @@ export class ContractManager {
   private readonly clawId: string;
   private monitor?: Logger;
   private llm?: ILLMService;
-  private verifierRegistry?: ToolRegistry;
+  private verifierRegistry?: ToolRegistryImpl;
   private activeDir = 'contract/active';
   private pausedDir = 'contract/paused';
   private archiveDir = 'contract/archive';
@@ -98,7 +98,7 @@ export class ContractManager {
     fs: FileSystem,
     monitor?: Logger,
     llm?: ILLMService,
-    verifierRegistry?: ToolRegistry,
+    verifierRegistry?: ToolRegistryImpl,
     motionInboxDir?: string,
     auditWriter?: AuditWriter,
   ) {
@@ -1191,8 +1191,8 @@ export class ContractManager {
 
       // Build verifier registry: existing tools + report_result tool
       const reportTool = new ReportResultTool();
-      const registry = new ToolRegistry();
-      for (const t of (this.verifierRegistry ?? new ToolRegistry()).getAll()) {
+      const registry = new ToolRegistryImpl();
+      for (const t of (this.verifierRegistry ?? new ToolRegistryImpl()).getAll()) {
         registry.register(t);
       }
       registry.register(reportTool);

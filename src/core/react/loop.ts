@@ -13,7 +13,7 @@
 import type { Message, ContentBlock, ToolUseBlock, ToolResultBlock, LLMResponse, ToolDefinition } from '../../types/message.js';
 import type { ILLMService, LLMCallOptions } from '../../foundation/llm/index.js';
 import type { StreamChunk } from '../../foundation/llm/types.js';
-import type { IToolExecutor, ExecContext, ToolResult, IToolRegistry } from '../tools/executor.js';
+import type { IToolExecutor, ExecContext, ToolResult, ToolRegistry } from '../tools/executor.js';
 import { MaxStepsExceededError } from '../../types/errors.js';
 import { REACT_DEFAULT_MAX_TOKENS, MAX_CONSECUTIVE_PARSE_ERRORS, MAX_CONSECUTIVE_MAX_TOKENS_TOOL_USE } from '../../constants.js';
 import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../../types/signals.js';
@@ -76,7 +76,7 @@ export interface ReactOptions {
   tools?: ToolDefinition[];
   
   /** Tool registry for checking readonly property (optional, enables parallel execution) */
-  registry?: IToolRegistry;
+  registry?: ToolRegistry;
   
   /** Callback for streaming text deltas (for real-time display) */
   onTextDelta?: (delta: string) => void;
@@ -345,7 +345,7 @@ async function executeToolCalls(
   toolCalls: ToolUseBlock[],
   executor: IToolExecutor,
   ctx: ExecContext,
-  registry: IToolRegistry | undefined,
+  registry: ToolRegistry | undefined,
   onToolCall?: (toolName: string, toolUseId: string) => void | Promise<void>,
   onToolResult?: (toolName: string, toolUseId: string, result: ToolResult, step: number, maxSteps: number) => void,
   stepCount: number = 0,
