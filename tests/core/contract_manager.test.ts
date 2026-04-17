@@ -21,6 +21,15 @@ vi.mock('child_process', async (importOriginal) => {
   return { ...actual };
 });
 
+vi.mock('../../src/constants.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/constants.js')>();
+  return {
+    ...actual,
+    LOCK_MAX_RETRIES: 3,        // 从 20 降到 3
+    LOCK_RETRY_DELAY_MS: 10,    // 从 500ms 降到 10ms
+  };
+});
+
 const testDir = '.test-contract-manager';
 const clawDir = path.join(testDir, 'claws', 'test-claw');
 
@@ -405,8 +414,7 @@ describe('ContractManager', () => {
   }, 2000);
 
   it('should throw ToolError when lock is never released and retries exhausted', async () => {
-    // M2: LOCK_MAX_RETRIES=20, LOCK_RETRY_DELAY_MS=500 = ~10s total wait
-    // Use longer timeout instead of fake timers to avoid complexity
+    // LOCK_MAX_RETRIES=3, LOCK_RETRY_DELAY_MS=10ms (mocked in constants)
     const contractId = await manager.create({
       schema_version: 1 as const,
       title: 'Lock Exhaust Test',
@@ -423,7 +431,7 @@ describe('ContractManager', () => {
 
     await expect(manager.pause(contractId, 'checkpoint'))
       .rejects.toThrow(/Failed to acquire lock after/);
-  }, 12000);
+  }, 2000);
 
   // Note: runScriptAcceptance tests removed - implementation now uses execFile (async)
   // New tests for async script acceptance should be added in future phases
