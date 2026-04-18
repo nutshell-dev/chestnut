@@ -11,6 +11,7 @@ import { tmpdir } from 'os';
 import { InboxReader } from '../../src/foundation/messaging/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import type { InboxMessage } from '../../src/types/contract.js';
+import { makeAudit } from '../helpers/audit.js';
 
 describe('InboxReader', () => {
   let testDir: string;
@@ -22,7 +23,7 @@ describe('InboxReader', () => {
     await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
     await fs.mkdir(testDir, { recursive: true });
     nfs = new NodeFileSystem({ baseDir: testDir, enforcePermissions: false });
-    reader = new InboxReader('inbox/pending', 'inbox/done', 'inbox/failed', nfs);
+    reader = new InboxReader('inbox/pending', 'inbox/done', 'inbox/failed', nfs, makeAudit().audit);
     await reader.init();
   });
 

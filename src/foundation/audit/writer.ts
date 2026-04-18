@@ -21,7 +21,8 @@ export class AuditWriter implements Audit {
       if (this.maxBytes) this.rotateIfNeeded();
       this.fs.appendSync(this.filePath, line);
     } catch (err) {
-      console.warn('[audit] write failed:', err instanceof Error ? err.message : String(err));
+      const reason = err instanceof Error ? err.message : String(err);
+      console.error(`[AUDIT CRITICAL] write failed: type=${type} reason=${reason}`);
     }
   }
 
@@ -34,7 +35,8 @@ export class AuditWriter implements Audit {
     } catch (err) {
       // FileNotFoundError（首次写入文件不存在）静默跳过；其他错误 warn
       if (!(err instanceof FileNotFoundError)) {
-        console.warn('[audit] rotation check failed:', err instanceof Error ? err.message : String(err));
+        const reason = err instanceof Error ? err.message : String(err);
+        console.error(`[AUDIT CRITICAL] rotation check failed: path=${this.filePath} reason=${reason}`);
       }
     }
   }

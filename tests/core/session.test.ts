@@ -14,6 +14,7 @@ import * as os from 'os';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { SessionManager } from '../../src/foundation/session-store/index.js';
 import type { Message } from '../../src/types/message.js';
+import { AUDIT_EVENTS } from '../../src/foundation/audit/events.js';
 
 describe('Session Persistence', () => {
   const testDir = '.test-session';
@@ -253,11 +254,13 @@ describe('SessionManager unit tests', () => {
   let tmpDir: string;
   let nodeFs: NodeFileSystem;
   let sm: SessionManager;
+  let auditMock: { write: ReturnType<typeof vi.fn> };
 
   beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'sm-test-'));
     nodeFs = new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false });
-    sm = new SessionManager(nodeFs, 'dialog', 'test-claw');
+    auditMock = { write: vi.fn() };
+    sm = new SessionManager(nodeFs, 'dialog', auditMock, 'test-claw');
   });
 
   afterEach(async () => {
@@ -319,7 +322,7 @@ describe('SessionManager unit tests', () => {
     await sm.archive(); // moves current.json → archive/
 
     // Fresh SessionManager (simulate restart)
-    const sm2 = new SessionManager(nodeFs, 'dialog', 'test-claw');
+    const sm2 = new SessionManager(nodeFs, 'dialog', auditMock, 'test-claw');
     const { session: session } = await sm2.load();
 
     expect(session.messages).toHaveLength(1);
@@ -330,7 +333,7 @@ describe('SessionManager unit tests', () => {
 
   it('load() returns source current when current.json exists', async () => {
     const audit = { write: vi.fn() };
-    const smAudit = new SessionManager(nodeFs, 'dialog', 'test-claw', audit);
+    const smAudit = new SessionManager(nodeFs, 'dialog', audit, 'test-claw');
     await smAudit.save([{ role: 'user', content: 'hi' }]);
     const result = await smAudit.load();
     expect(result.source).toBe('current');
@@ -338,7 +341,7 @@ describe('SessionManager unit tests', () => {
 
   it('load() returns source archive when recovering from archive', async () => {
     const audit = { write: vi.fn() };
-    const smAudit = new SessionManager(nodeFs, 'dialog', 'test-claw', audit);
+    const smAudit = new SessionManager(nodeFs, 'dialog', audit, 'test-claw');
     await smAudit.save([{ role: 'user', content: 'hi' }]);
     await smAudit.archive();
     const result = await smAudit.load();
@@ -347,14 +350,14 @@ describe('SessionManager unit tests', () => {
 
   it('load() returns source empty when nothing exists', async () => {
     const audit = { write: vi.fn() };
-    const smAudit = new SessionManager(nodeFs, 'dialog', 'test-claw', audit);
+    const smAudit = new SessionManager(nodeFs, 'dialog', audit, 'test-claw');
     const result = await smAudit.load();
     expect(result.source).toBe('empty');
   });
 
   it('load() writes session_corrupted audit when current.json is corrupted', async () => {
     const audit = { write: vi.fn() };
-    const smAudit = new SessionManager(nodeFs, 'dialog', 'test-claw', audit);
+    const smAudit = new SessionManager(nodeFs, 'dialog', audit, 'test-claw');
     const dialogDir = path.join(tmpDir, 'dialog');
     await fs.mkdir(dialogDir, { recursive: true });
     const currentPath = path.join(dialogDir, 'current.json');
@@ -369,7 +372,7 @@ describe('SessionManager unit tests', () => {
 
   it('load() writes session_recovered audit when recovering from archive', async () => {
     const audit = { write: vi.fn() };
-    const smAudit = new SessionManager(nodeFs, 'dialog', 'test-claw', audit);
+    const smAudit = new SessionManager(nodeFs, 'dialog', audit, 'test-claw');
     await smAudit.save([{ role: 'user', content: 'hi' }]);
     await smAudit.archive();
     audit.write.mockClear();
@@ -383,7 +386,7 @@ describe('SessionManager unit tests', () => {
 
   it('load() writes session_corrupted for corrupted archive and falls back', async () => {
     const audit = { write: vi.fn() };
-    const smAudit = new SessionManager(nodeFs, 'dialog', 'test-claw', audit);
+    const smAudit = new SessionManager(nodeFs, 'dialog', audit, 'test-claw');
     const archiveDir = path.join(tmpDir, 'dialog', 'archive');
     await fs.mkdir(archiveDir, { recursive: true });
 
@@ -403,24 +406,78 @@ describe('SessionManager unit tests', () => {
     const result = await smAudit.load();
     expect(result.source).toBe('archive');
     expect(audit.write).toHaveBeenCalledWith(
-      'session_corrupted',
+      AUDIT_EVENTS.SESSION_CORRUPTED,
       'file=3000_corrupted.json',
       expect.stringContaining('reason='),
     );
     expect(audit.write).toHaveBeenCalledWith(
-      'session_recovered',
+      AUDIT_EVENTS.SESSION_RECOVERED,
       'from=2000_valid.json',
     );
   });
 
-  it('load() works without audit sink (backward compatible)', async () => {
-    const smNoAudit = new SessionManager(nodeFs, 'dialog', 'test-claw');
-    await smNoAudit.save([{ role: 'user', content: 'hi' }]);
-    const r1 = await smNoAudit.load();
-    expect(r1.source).toBe('current');
-    await smNoAudit.archive();
-    const r2 = await smNoAudit.load();
-    expect(r2.source).toBe('archive');
+  it('save: writes session_save_failed and still throws on writeAtomic failure', async () => {
+    const failingFs = {
+      ...nodeFs,
+      writeAtomic: vi.fn(() => Promise.reject(new Error('disk full'))),
+    } as unknown as NodeFileSystem;
+    const audit = { write: vi.fn() };
+    const smFail = new SessionManager(failingFs, 'dialog', audit, 'test-claw');
+    await expect(smFail.save([{ role: 'user', content: 'hi' }])).rejects.toThrow('disk full');
+    expect(audit.write).toHaveBeenCalledWith(
+      AUDIT_EVENTS.SESSION_SAVE_FAILED,
+      expect.stringContaining('path='),
+      expect.stringContaining('reason=disk full'),
+    );
+  });
+
+  it('archive: writes session_archive_failed and still throws on move failure', async () => {
+    const audit = { write: vi.fn() };
+    const smArc = new SessionManager(nodeFs, 'dialog', audit, 'test-claw');
+    // no current.json exists → move will throw ENOENT
+    await expect(smArc.archive()).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(audit.write).toHaveBeenCalledWith(
+      AUDIT_EVENTS.SESSION_ARCHIVE_FAILED,
+      expect.stringContaining('path='),
+      expect.stringContaining('reason='),
+    );
+  });
+
+  it('load: writes session_archive_read_failed when archive list throws', async () => {
+    const failingFs = {
+      ...nodeFs,
+      list: vi.fn(() => Promise.reject(new Error('permission denied'))),
+    } as unknown as NodeFileSystem;
+    const audit = { write: vi.fn() };
+    const smFail = new SessionManager(failingFs, 'dialog', audit, 'test-claw');
+    const result = await smFail.load();
+    expect(result.source).toBe('empty');
+    expect(audit.write).toHaveBeenCalledWith(
+      AUDIT_EVENTS.SESSION_ARCHIVE_READ_FAILED,
+      expect.stringContaining('dir='),
+      expect.stringContaining('reason=permission denied'),
+    );
+  });
+
+  it('load: writes session_corrupted_isolate_failed when rename after corruption fails', async () => {
+    const failingFs = {
+      ...nodeFs,
+      read: vi.fn(() => Promise.resolve('{ invalid json')),
+      move: vi.fn(() => Promise.reject(new Error('rename failed'))),
+    } as unknown as NodeFileSystem;
+    const audit = { write: vi.fn() };
+    const smFail = new SessionManager(failingFs, 'dialog', audit, 'test-claw');
+    await smFail.load();
+    expect(audit.write).toHaveBeenCalledWith(
+      AUDIT_EVENTS.SESSION_CORRUPTED,
+      'file=current.json',
+      expect.stringContaining('reason='),
+    );
+    expect(audit.write).toHaveBeenCalledWith(
+      AUDIT_EVENTS.SESSION_CORRUPTED_ISOLATE_FAILED,
+      expect.stringContaining('path='),
+      expect.stringContaining('reason=rename failed'),
+    );
   });
 });
 

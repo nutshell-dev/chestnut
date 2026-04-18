@@ -10,6 +10,7 @@ import { stopCommand as watchdogStop } from './watchdog.js';
 import { stopCommand as motionStop } from './motion.js';
 import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
 import { ProcessManager } from '../../foundation/process-manager/index.js';
+import { createSystemAudit } from '../../foundation/audit/index.js';
 import { fileURLToPath } from 'url';
 
 export async function stopAllCommand(): Promise<void> {
@@ -25,7 +26,8 @@ export async function stopAllCommand(): Promise<void> {
   const baseDir = path.dirname(getGlobalConfigPath());
   const clawsDir = path.join(baseDir, 'claws');
   const nodeFs = new NodeFileSystem({ baseDir, enforcePermissions: false });
-  const pm = new ProcessManager(nodeFs, baseDir);
+  const systemAudit = createSystemAudit(nodeFs, baseDir);
+  const pm = new ProcessManager(nodeFs, baseDir, systemAudit);
 
   let clawNames: string[] = [];
   try {

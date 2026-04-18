@@ -11,6 +11,7 @@ import { randomUUID } from 'crypto';
 import { InboxReader } from '../../src/foundation/messaging/index.js';
 import { OutboxWriter } from '../../src/core/communication/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
+import { makeAudit } from '../helpers/audit.js';
 import type { InboxMessage } from '../../src/types/contract.js';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 
@@ -44,7 +45,7 @@ describe('Communication', () => {
       await mockFs.ensureDir('inbox/pending');
       await mockFs.ensureDir('inbox/done');
       await mockFs.ensureDir('inbox/failed');
-      reader = new InboxReader('inbox/pending', 'inbox/done', 'inbox/failed', mockFs);
+      reader = new InboxReader('inbox/pending', 'inbox/done', 'inbox/failed', mockFs, makeAudit().audit);
       await reader.init();
     });
 
@@ -191,7 +192,7 @@ describe('Communication', () => {
     beforeEach(async () => {
       tempDir = await createTempDir();
       mockFs = new NodeFileSystem({ baseDir: tempDir, enforcePermissions: false });
-      writer = new OutboxWriter('test-claw', tempDir, mockFs);
+      writer = new OutboxWriter('test-claw', tempDir, mockFs, makeAudit().audit);
     });
 
     afterEach(async () => {

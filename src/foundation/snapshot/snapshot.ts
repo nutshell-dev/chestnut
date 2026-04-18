@@ -11,6 +11,7 @@
 import { exec } from '../process-exec/index.js';
 import type { FileSystem } from '../fs/types.js';
 import type { Audit } from '../audit/index.js';
+import { AUDIT_EVENTS } from '../audit/events.js';
 
 const GITIGNORE_CONTENT = `stream.jsonl
 audit.tsv
@@ -23,9 +24,9 @@ export class Snapshot {
   private dir: string;
   private fs: FileSystem;
   private consecutiveFailures = 0;
-  private audit?: Audit;
+  private readonly audit: Audit;
 
-  constructor(dir: string, fs: FileSystem, audit?: Audit) {
+  constructor(dir: string, fs: FileSystem, audit: Audit) {
     this.dir = dir;
     this.fs = fs;
     this.audit = audit;
@@ -49,9 +50,13 @@ export class Snapshot {
       await Snapshot.git(this.dir, ['commit', '--allow-empty', '-m', 'init']);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error('[snapshot] init failed, cleaning up .git:', msg);
-      this.audit?.write('snapshot_init_failed', `reason=${msg.slice(0, 200)}`);
-      try { await this.fs.removeDir('.git'); } catch { /* ignore */ }
+      this.audit.write(AUDIT_EVENTS.SNAPSHOT_INIT_FAILED, `reason=${msg.slice(0, 200)}`);
+      try {
+        await this.fs.removeDir('.git');
+      } catch (cleanupErr) {
+        const reason = cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr);
+        this.audit.write(AUDIT_EVENTS.SNAPSHOT_INIT_CLEANUP_FAILED, `dir=${this.dir}`, `reason=${reason}`);
+      }
     }
   }
 
@@ -65,16 +70,21 @@ export class Snapshot {
       await Snapshot.git(this.dir, ['add', '.']);
       await Snapshot.git(this.dir, ['commit', '-m', message]);
       this.consecutiveFailures = 0;
+      this.audit.write(AUDIT_EVENTS.SNAPSHOT_COMMITTED, `message=${message.slice(0, 200)}`);
     } catch (err) {
       this.consecutiveFailures++;
-      const msg = err instanceof Error ? err.message : String(err);
-      if (this.consecutiveFailures >= 3) {
-        console.error(`[snapshot] commit failed (${this.consecutiveFailures} consecutive):`, msg);
-      } else {
-        console.warn('[snapshot] commit failed:', msg);
-      }
+      const reason = err instanceof Error ? err.message : String(err);
+      this.audit.write(
+        AUDIT_EVENTS.SNAPSHOT_COMMIT_FAILED,
+        `consecutive=${this.consecutiveFailures}`,
+        `reason=${reason.slice(0, 200)}`,
+      );
       if (this.consecutiveFailures === 3) {
-        this.audit?.write('snapshot_degraded', `consecutive=${this.consecutiveFailures}`, `reason=${msg.slice(0, 200)}`);
+        this.audit.write(
+          AUDIT_EVENTS.SNAPSHOT_DEGRADED,
+          `consecutive=${this.consecutiveFailures}`,
+          `reason=${reason.slice(0, 200)}`,
+        );
       }
     }
   }

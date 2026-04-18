@@ -13,6 +13,7 @@ import type { FileSystem } from '../fs/types.js';
 import type { Message, ToolUseBlock, ToolResultBlock } from '../../types/message.js';
 import type { SessionData, LoadResult } from './types.js';
 import type { Audit } from '../audit/index.js';
+import { AUDIT_EVENTS } from '../audit/events.js';
 import { randomUUID } from 'crypto';
 
 /**
@@ -26,8 +27,8 @@ export class SessionManager {
   constructor(
     private readonly fs: FileSystem,
     dialogDir: string,
+    private readonly audit: Audit,
     private readonly clawId: string = randomUUID(),
-    private readonly audit?: Audit,
   ) {
     this.currentPath = path.join(dialogDir, 'current.json');
     this.archiveDir = path.join(dialogDir, 'archive');
@@ -52,12 +53,16 @@ export class SessionManager {
       if (code === 'ENOENT' || code === 'FS_NOT_FOUND') {
         // Cold start: missing file is expected
       } else {
-        this.audit?.write('session_corrupted', 'file=current.json', `reason=${err instanceof Error ? err.message : String(err)}`);
+        this.audit.write(AUDIT_EVENTS.SESSION_CORRUPTED, 'file=current.json', `reason=${err instanceof Error ? err.message : String(err)}`);
         // Rename corrupted file so subsequent loads don't retry parsing it
         try {
           await this.fs.move(this.currentPath, this.currentPath + '.corrupted');
         } catch (renameErr) {
-          console.warn('[session] failed to rename corrupted file:', renameErr instanceof Error ? renameErr.message : String(renameErr));
+          this.audit.write(
+            AUDIT_EVENTS.SESSION_CORRUPTED_ISOLATE_FAILED,
+            `path=${this.currentPath}`,
+            `reason=${renameErr instanceof Error ? renameErr.message : String(renameErr)}`,
+          );
         }
       }
     }
@@ -65,7 +70,7 @@ export class SessionManager {
     // Try to recover from archive (cold start recovery)
     const archived = await this.loadLatestArchive();
     if (archived) {
-      this.audit?.write('session_recovered', `from=${archived.name}`);
+      this.audit.write(AUDIT_EVENTS.SESSION_RECOVERED, `from=${archived.name}`);
       return { session: archived.session, source: 'archive' };
     }
 
@@ -146,23 +151,41 @@ export class SessionManager {
       messages,
     };
 
-    await this.fs.writeAtomic(this.currentPath, JSON.stringify(data, null, 2));
+    try {
+      await this.fs.writeAtomic(this.currentPath, JSON.stringify(data, null, 2));
+    } catch (err) {
+      this.audit.write(
+        AUDIT_EVENTS.SESSION_SAVE_FAILED,
+        `path=${this.currentPath}`,
+        `reason=${err instanceof Error ? err.message : String(err)}`,
+      );
+      throw err;
+    }
   }
 
   /**
    * Archive current session (move to archive dir)
    */
   async archive(): Promise<void> {
-    // Ensure archive directory exists
-    await this.fs.ensureDir(this.archiveDir);
+    try {
+      // Ensure archive directory exists
+      await this.fs.ensureDir(this.archiveDir);
 
-    // Generate archive filename with timestamp and UUID suffix to avoid collisions
-    const timestamp = Date.now();
-    const archivePath = path.join(this.archiveDir, `${timestamp}_${randomUUID().slice(0, 8)}.json`);
+      // Generate archive filename with timestamp and UUID suffix to avoid collisions
+      const timestamp = Date.now();
+      const archivePath = path.join(this.archiveDir, `${timestamp}_${randomUUID().slice(0, 8)}.json`);
 
-    // Move current.json to archive
-    await this.fs.move(this.currentPath, archivePath);
-    this.createdAt = null;  // Reset so next save() starts a fresh session
+      // Move current.json to archive
+      await this.fs.move(this.currentPath, archivePath);
+      this.createdAt = null;  // Reset so next save() starts a fresh session
+    } catch (err) {
+      this.audit.write(
+        AUDIT_EVENTS.SESSION_ARCHIVE_FAILED,
+        `path=${this.currentPath}`,
+        `reason=${err instanceof Error ? err.message : String(err)}`,
+      );
+      throw err;
+    }
   }
 
   /**
@@ -193,14 +216,21 @@ export class SessionManager {
           const data = JSON.parse(content) as SessionData;
           return { session: this.validateSession(data), name: entry.name };
         } catch (parseErr) {
-          this.audit?.write('session_corrupted', `file=${entry.name}`, `reason=${parseErr instanceof Error ? parseErr.message : String(parseErr)}`);
-          console.error(`[session] Archive corrupted: ${entry.name}`, parseErr);
+          this.audit.write(
+            AUDIT_EVENTS.SESSION_CORRUPTED,
+            `file=${entry.name}`,
+            `reason=${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,
+          );
           // Continue to next archive
         }
       }
       return null;
     } catch (err) {
-      console.error('[session] Failed to load archive:', err);
+      this.audit.write(
+        AUDIT_EVENTS.SESSION_ARCHIVE_READ_FAILED,
+        `dir=${this.archiveDir}`,
+        `reason=${err instanceof Error ? err.message : String(err)}`,
+      );
       return null;
     }
   }

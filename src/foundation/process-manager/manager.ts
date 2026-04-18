@@ -13,6 +13,8 @@ import {
   PROCESS_SPAWN_CONFIRM_MS,
   SIGTERM_GRACE_MS,
 } from '../../constants.js';
+import type { Audit } from '../audit/index.js';
+import { AUDIT_EVENTS } from '../audit/events.js';
 
 export interface SpawnOptions {
   /** 可执行文件路径（如 'node'） */
@@ -32,10 +34,12 @@ export class ProcessManager {
   private baseDir: string;
   private resolveDir: (id: string) => string;
   private findProcessesWarned = false;
+  private readonly audit: Audit;
 
-  constructor(fs: FileSystem, baseDir: string, dirResolver?: (id: string) => string) {
+  constructor(fs: FileSystem, baseDir: string, audit: Audit, dirResolver?: (id: string) => string) {
     this.fs = fs;
     this.baseDir = baseDir;
+    this.audit = audit;
     this.resolveDir = dirResolver ?? ((id: string) => path.join(baseDir, 'claws', id));
   }
 
@@ -73,7 +77,11 @@ export class ProcessManager {
     } catch (err: any) {
       // ENOENT/FS_NOT_FOUND is expected (process not running); other errors should be logged
       if (err?.code !== 'ENOENT' && err?.code !== 'FS_NOT_FOUND') {
-        console.warn(`[ProcessManager] Failed to read PID for ${clawId}:`, err?.message || err);
+        this.audit.write(
+          AUDIT_EVENTS.PID_READ_FAILED,
+          `claw=${clawId}`,
+          `reason=${err?.message || String(err)}`,
+        );
       }
       return null;
     }
@@ -89,7 +97,11 @@ export class ProcessManager {
     } catch (err: any) {
       // Ignore file-not-found (ENOENT or NodeFileSystem's FS_NOT_FOUND)
       if (err.code !== 'ENOENT' && err.code !== 'FS_NOT_FOUND') {
-        console.warn(`[ProcessManager] Failed to remove PID file for ${clawId}:`, err);
+        this.audit.write(
+          AUDIT_EVENTS.PID_REMOVE_FAILED,
+          `claw=${clawId}`,
+          `reason=${err instanceof Error ? err.message : String(err)}`,
+        );
       }
     }
   }
@@ -162,7 +174,12 @@ export class ProcessManager {
         sentAny = true;
       } catch (err: any) {
         if (err?.code !== 'ESRCH') {
-          console.warn(`[ProcessManager] Failed to SIGTERM PID ${pid}: ${err?.message}`);
+          this.audit.write(
+            AUDIT_EVENTS.ORPHAN_SIGTERM_FAILED,
+            `claw=${clawId}`,
+            `pid=${pid}`,
+            `reason=${err?.message || String(err)}`,
+          );
         }
       }
     }
@@ -191,7 +208,13 @@ export class ProcessManager {
             await new Promise(resolve => setTimeout(resolve, SIGTERM_GRACE_MS));
           } catch (err: any) {
             if (err?.code !== 'ESRCH') {
-              console.warn(`[process] Failed to SIGTERM lock PID ${lockPid}: ${err?.message}`);
+              this.audit.write(
+                AUDIT_EVENTS.LOCKFILE_CLEANUP_FAILED,
+                `claw=${clawId}`,
+                `op=sigterm`,
+                `pid=${lockPid}`,
+                `reason=${err?.message || String(err)}`,
+              );
             }
           }
         }
@@ -199,12 +222,22 @@ export class ProcessManager {
       // Clean up stale lockfile (not-found is normal on first run)
       try { await this.fs.delete(lockFile); } catch (err: any) {
         if (err?.code !== 'ENOENT' && err?.code !== 'FS_NOT_FOUND') {
-          console.warn(`[process] Failed to delete lockfile ${lockFile}: ${err instanceof Error ? err.message : String(err)}`);
+          this.audit.write(
+            AUDIT_EVENTS.LOCKFILE_CLEANUP_FAILED,
+            `claw=${clawId}`,
+            `op=delete`,
+            `path=${lockFile}`,
+            `reason=${err instanceof Error ? err.message : String(err)}`,
+          );
         }
       }
     } catch (err: any) {
       if (err?.code !== 'ENOENT' && err?.code !== 'FS_NOT_FOUND') {
-        console.warn(`[ProcessManager] lockfile read failed for "${clawId}": ${err?.code || err?.message || err}`);
+        this.audit.write(
+          AUDIT_EVENTS.LOCKFILE_READ_FAILED,
+          `claw=${clawId}`,
+          `reason=${err?.code || err?.message || String(err)}`,
+        );
       }
     }
     
@@ -226,7 +259,10 @@ export class ProcessManager {
         try { existingContent = this.fs.readSync(pidFile).trim(); } catch {}
         if (existingContent === '') {
           // 空文件：可能有并发 spawn，记录警告后继续（接受极小概率重复启动）
-          console.warn(`[ProcessManager] Empty PID file for "${clawId}", possible concurrent spawn`);
+          this.audit.write(
+            AUDIT_EVENTS.PID_EMPTY,
+            `claw=${clawId}`,
+          );
         }
         // 清理陈旧文件并重建
         await this.removePid(clawId).catch(() => {});
@@ -273,10 +309,24 @@ export class ProcessManager {
         throw new Error(`Process "${clawId}" failed to start. Check logs at: ${options.logFile}`);
       }
 
+      this.audit.write(
+        AUDIT_EVENTS.PROCESS_SPAWNED,
+        `claw=${clawId}`,
+        `pid=${pid}`,
+        `command=${options.command}`,
+        `args=${options.args.join(' ').slice(0, 200)}`,
+      );
+
       return pid;
     } catch (err) {
       // Startup failed — clean up the PID file
       await this.removePid(clawId).catch(() => {});
+      this.audit.write(
+        AUDIT_EVENTS.PROCESS_SPAWN_FAILED,
+        `claw=${clawId}`,
+        `command=${options.command}`,
+        `reason=${err instanceof Error ? err.message : String(err)}`,
+      );
       throw err;
     } finally {
       // Design doc: ensure logFd is closed in all paths
@@ -298,6 +348,11 @@ export class ProcessManager {
     // Check whether the process is still running
     if (!this.isAlive(clawId)) {
       await this.removePid(clawId);
+      this.audit.write(
+        AUDIT_EVENTS.PROCESS_STOP_STALE,
+        `claw=${clawId}`,
+        `pid=${pid}`,
+      );
       return true;
     }
 
@@ -314,17 +369,40 @@ export class ProcessManager {
         // Force kill
         process.kill(pid, 'SIGKILL');
         via = 'sigkill';
+        this.audit.write(
+          AUDIT_EVENTS.PROCESS_KILL_ESCALATED,
+          `claw=${clawId}`,
+          `pid=${pid}`,
+        );
       }
 
       await this.removePid(clawId);
+      this.audit.write(
+        AUDIT_EVENTS.PROCESS_STOPPED,
+        `claw=${clawId}`,
+        `pid=${pid}`,
+        `via=${via}`,
+      );
       return true;
     } catch (err: any) {
       // Process no longer exists
       if (err.code === 'ESRCH') {
         await this.removePid(clawId);
+        this.audit.write(
+          AUDIT_EVENTS.PROCESS_STOP_STALE,
+          `claw=${clawId}`,
+          `pid=${pid}`,
+          `via=esrch`,
+        );
         return true;
       }
-      console.warn(`[ProcessManager] stop("${clawId}") failed: ${err.code || err.message}`);
+      this.audit.write(
+        AUDIT_EVENTS.PROCESS_STOP_FAILED,
+        `claw=${clawId}`,
+        `pid=${pid}`,
+        `via=${via}`,
+        `reason=${err.code || err.message}`,
+      );
       return false;
     }
   }
@@ -347,7 +425,10 @@ export class ProcessManager {
         .filter(p => !isNaN(p) && p !== process.pid);
     } catch (err) {
       if (!this.findProcessesWarned) {
-        console.warn('[ProcessManager] findProcesses unavailable:', err instanceof Error ? err.message : String(err));
+        this.audit.write(
+          AUDIT_EVENTS.FIND_PROCESSES_UNAVAILABLE,
+          `reason=${err instanceof Error ? err.message : String(err)}`,
+        );
         this.findProcessesWarned = true;
       }
       return [];

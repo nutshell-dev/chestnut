@@ -9,11 +9,22 @@
  * Coupling: none
  * Consumers: Daemon, Runtime, ContractSystem, SubagentSystem
  *
- * 容错：写失败不抛异常（不中断业务），但通过 console.warn 暴露失败信息。
+ * 递归边界：AuditWriter 自身 write/rotation 失败是"审计的审计"死角，
+ * 无法进入结构化事件流（会无限递归），唯一兜底是 console.error
+ * 以 [AUDIT CRITICAL] 前缀输出。这是 L2 层唯一允许保留的 console 出口
+ * （Phase 148 审定；依赖 AuditLog 的其他 L2 模块不得效仿）。
  */
+
+import { AuditWriter } from './writer.js';
+import * as path from 'path';
+import type { FileSystem } from '../fs/types.js';
 
 export interface Audit {
   write(type: string, ...cols: (string | number)[]): void;
 }
 
 export { AuditWriter } from './writer.js';
+
+export function createSystemAudit(fs: FileSystem, baseDir: string): Audit {
+  return new AuditWriter(fs, path.join(baseDir, 'audit.tsv'));
+}

@@ -3,6 +3,8 @@
  */
 import type { FileSystem } from '../fs/types.js';
 import type { StreamEvent, StreamLog } from './types.js';
+import type { Audit } from '../audit/index.js';
+import { AUDIT_EVENTS } from '../audit/events.js';
 
 interface StreamRetentionOptions {
   maxFiles?: number | null;
@@ -16,11 +18,13 @@ const ARCHIVE_DIR = 'logs/stream';
 
 export class StreamWriter implements StreamLog {
   private fs: FileSystem;
+  private audit: Audit;
   private retention: StreamRetentionOptions;
   private isOpen = false;
 
-  constructor(fs: FileSystem, retention: StreamRetentionOptions = {}) {
+  constructor(fs: FileSystem, audit: Audit, retention: StreamRetentionOptions = {}) {
     this.fs = fs;
+    this.audit = audit;
     this.retention = retention;
   }
 
@@ -35,8 +39,10 @@ export class StreamWriter implements StreamLog {
         this.fs.moveSync(STREAM_FILE, `${ARCHIVE_DIR}/stream.${Date.now()}.jsonl`);
       } catch (err) {
         archiveFailed = true;
-        console.error('[StreamWriter] Failed to archive stream.jsonl, events will append to existing file:',
-          err instanceof Error ? err.message : String(err));
+        this.audit.write(
+          AUDIT_EVENTS.STREAM_ARCHIVE_FAILED,
+          `reason=${err instanceof Error ? err.message : String(err)}`,
+        );
       }
     }
     this.pruneArchives();
@@ -49,15 +55,20 @@ export class StreamWriter implements StreamLog {
   /** 写一行事件 */
   write(event: StreamEvent): void {
     if (!this.isOpen) {
-      console.warn('[StreamWriter] write() called before open(), event dropped');
+      this.audit.write(
+        AUDIT_EVENTS.STREAM_WRITE_DROPPED,
+        `type=${event.type}`,
+      );
       return;
     }
     const line = JSON.stringify(event) + '\n';
     try {
       this.fs.appendSync(STREAM_FILE, line);
     } catch (err) {
-      console.error('[StreamWriter] write failed:',
-        err instanceof Error ? err.message : String(err));
+      this.audit.write(
+        AUDIT_EVENTS.STREAM_APPEND_FAILED,
+        `reason=${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 
@@ -93,13 +104,18 @@ export class StreamWriter implements StreamLog {
         try {
           this.fs.deleteSync(p);
         } catch (err) {
-          console.warn('[StreamWriter] failed to delete archive:', p,
-            err instanceof Error ? err.message : String(err));
+          this.audit.write(
+            AUDIT_EVENTS.STREAM_ARCHIVE_PRUNE_FAILED,
+            `path=${p}`,
+            `reason=${err instanceof Error ? err.message : String(err)}`,
+          );
         }
       }
     } catch (err) {
-      console.warn('[StreamWriter] pruneArchives failed:',
-        err instanceof Error ? err.message : String(err));
+      this.audit.write(
+        AUDIT_EVENTS.STREAM_ARCHIVE_PRUNE_FAILED,
+        `reason=${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 }

@@ -9,17 +9,23 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 import { ProcessManager } from '../../src/foundation/process-manager/index.js';
+import { createSystemAudit } from '../../src/foundation/audit/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
+import { AUDIT_EVENTS } from '../../src/foundation/audit/events.js';
 
 describe('ProcessManager', () => {
   let tempDir: string;
   let fsInstance: NodeFileSystem;
   let processManager: ProcessManager;
+  let audit: { write: (...args: any[]) => void };
+  let auditEvents: Array<[string, ...any[]]>;
 
   beforeEach(async () => {
     tempDir = await createTempDir();
     fsInstance = new NodeFileSystem({ baseDir: tempDir, enforcePermissions: false });
-    processManager = new ProcessManager(fsInstance, tempDir);
+    auditEvents = [];
+    audit = { write: (...args: any[]) => auditEvents.push(args as [string, ...any[]]) };
+    processManager = new ProcessManager(fsInstance, tempDir, audit);
   });
 
   afterEach(async () => {
@@ -121,7 +127,7 @@ describe('ProcessManager', () => {
 
     it('should use custom resolver for motion path', () => {
       // 创建带自定义 resolver 的 PM
-      const motionPM = new ProcessManager(fsInstance, tempDir, (id) => {
+      const motionPM = new ProcessManager(fsInstance, tempDir, audit, (id) => {
         if (id === 'motion') return path.join(tempDir, 'motion');
         return path.join(tempDir, 'claws', id);
       });
@@ -138,7 +144,7 @@ describe('ProcessManager', () => {
 
     it('should use custom resolver for regular claw when using motion resolver', () => {
       // 创建带自定义 resolver 的 PM（motion 风格）
-      const motionPM = new ProcessManager(fsInstance, tempDir, (id) => {
+      const motionPM = new ProcessManager(fsInstance, tempDir, audit, (id) => {
         if (id === 'motion') return path.join(tempDir, 'motion');
         return path.join(tempDir, 'claws', id);
       });

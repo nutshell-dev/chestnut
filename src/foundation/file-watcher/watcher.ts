@@ -7,6 +7,8 @@
 import { watch as chokidarWatch, type FSWatcher } from 'chokidar';
 import type { Watcher, WatchEvent, WatchEventType } from './types.js';
 import type { FileSystem } from '../fs/types.js';
+import type { Audit } from '../audit/index.js';
+import { AUDIT_EVENTS } from '../audit/events.js';
 
 /**
  * Chokidar-based watcher implementation
@@ -62,6 +64,7 @@ function mapEventType(chokidarEvent: string): WatchEventType | null {
  * @param fs - FileSystem instance for path resolution
  * @param relativePath - Relative path to watch (file or directory)
  * @param callback - Called on each change event
+ * @param audit - Audit sink (必传)
  * @param options - Watch options
  * @returns Watcher handle
  */
@@ -69,6 +72,7 @@ export function createWatcher(
   fs: FileSystem,
   relativePath: string,
   callback: (event: WatchEvent) => void,
+  audit: Audit,
   options?: {
     /** Watch recursively (for directories) */
     recursive?: boolean;
@@ -116,18 +120,49 @@ export function createWatcher(
       };
     }
 
-    callback(watchEvent);
+    try {
+      callback(watchEvent);
+    } catch (err) {
+      audit.write(
+        AUDIT_EVENTS.WATCHER_CALLBACK_FAILED,
+        `path=${filePath}`,
+        `event=${type}`,
+        `reason=${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   });
 
   // Ready event
   watcher.on('ready', () => {
-    options?.onReady?.();
+    try {
+      options?.onReady?.();
+    } catch (err) {
+      audit.write(
+        AUDIT_EVENTS.WATCHER_READY_FAILED,
+        `path=${watchPath}`,
+        `reason=${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   });
 
   // Error handling
-  watcher.on('error', (error) => {
-    console.error('Watcher error:', error);
-    options?.onError?.(error instanceof Error ? error : new Error(String(error)));
+  watcher.on('error', (rawError) => {
+    const normalizedError = rawError instanceof Error ? rawError : new Error(String(rawError));
+    audit.write(
+      AUDIT_EVENTS.WATCHER_ERROR,
+      `path=${watchPath}`,
+      `reason=${normalizedError.message}`,
+    );
+    try {
+      options?.onError?.(normalizedError);
+    } catch (cbErr) {
+      audit.write(
+        AUDIT_EVENTS.WATCHER_ERROR,
+        `path=${watchPath}`,
+        `context=onError_handler`,
+        `reason=${cbErr instanceof Error ? cbErr.message : String(cbErr)}`,
+      );
+    }
   });
 
   return new ChokidarWatcher(watcher, watchPath);

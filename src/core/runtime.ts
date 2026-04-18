@@ -190,7 +190,7 @@ export class ClawRuntime {
       : path.resolve(clawDir, '..', '..');
 
     // 6. Create SessionManager (uses systemFs; system components need to write to dialog/)
-    this.sessionManager = new SessionManager(this.systemFs, 'dialog', clawId, this.auditWriter);
+    this.sessionManager = new SessionManager(this.systemFs, 'dialog', this.auditWriter, clawId);
     // Archive previous session on startup (best-effort; first start has no current.json)
     await this.sessionManager.archive().catch((err: any) => {
       if (err?.code !== 'ENOENT' && err?.code !== 'FS_NOT_FOUND') {
@@ -263,7 +263,7 @@ export class ClawRuntime {
     });
 
     // 12. Create OutboxWriter first (needed by ExecContextImpl)
-    this.outboxWriter = new OutboxWriter(clawId, clawDir, this.systemFs);
+    this.outboxWriter = new OutboxWriter(clawId, clawDir, this.systemFs, this.auditWriter);
 
     // Inject late-created dependencies into TaskSystem (created before SkillRegistry/ContractManager/OutboxWriter)
     this.taskSystem.setSkillRegistry(this.skillRegistry);

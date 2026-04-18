@@ -16,7 +16,9 @@
 
 import type { FileSystem } from '../fs/types.js';
 import type { StreamEvent } from './types.js';
+import type { Audit } from '../audit/index.js';
 import { createWatcher, type Watcher } from '../file-watcher/index.js';
+import { AUDIT_EVENTS } from '../audit/events.js';
 
 const STREAM_FILE = 'stream.jsonl';
 
@@ -32,6 +34,7 @@ export interface StreamReader {
 export function createStreamReader(
   fs: FileSystem,
   onEvent: (event: StreamEvent) => void,
+  audit: Audit,
 ): StreamReader {
   let watcher: Watcher | null = null;
   let offset = 0;
@@ -63,16 +66,26 @@ export function createStreamReader(
             try {
               onEvent(ev);
             } catch (cbErr) {
-              console.error('[StreamReader] onEvent callback error:', cbErr);
+              audit.write(
+                AUDIT_EVENTS.STREAM_READER_CALLBACK_FAILED,
+                `reason=${cbErr instanceof Error ? cbErr.message : String(cbErr)}`,
+              );
             }
           } catch (err) {
-            console.error('[StreamReader] JSON parse error:', line.slice(0, 200), err);
+            audit.write(
+              AUDIT_EVENTS.STREAM_READER_PARSE_FAILED,
+              `line_prefix=${line.slice(0, 80)}`,
+              `reason=${err instanceof Error ? err.message : String(err)}`,
+            );
           }
         }
         nl = pending.indexOf('\n');
       }
     } catch (err) {
-      console.error('[StreamReader] readIncrement failed:', err);
+      audit.write(
+        AUDIT_EVENTS.STREAM_READER_READ_FAILED,
+        `reason=${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   };
 
@@ -93,15 +106,22 @@ export function createStreamReader(
           if (ev.type === 'add' || ev.type === 'change') {
             readIncrement();
           } else if (ev.type === 'unlink') {
-            console.error('[StreamReader] stream.jsonl unlinked');
+            audit.write(
+              AUDIT_EVENTS.STREAM_READER_UNLINKED,
+              `path=${STREAM_FILE}`,
+            );
             offset = 0;
             pending = '';
           }
         },
+        audit,
         {
           stability: 'immediate',
           onError: (err) => {
-            console.error('[StreamReader] watcher error:', err);
+            audit.write(
+              AUDIT_EVENTS.STREAM_READER_WATCHER_FAILED,
+              `reason=${err instanceof Error ? err.message : String(err)}`,
+            );
             active = false;
           },
         },

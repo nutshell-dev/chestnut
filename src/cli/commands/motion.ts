@@ -15,6 +15,7 @@ import { fileURLToPath } from 'url';
 import { loadGlobalConfig, getMotionDir, getGlobalConfigPath } from '../config.js';
 import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
 import { ProcessManager } from '../../foundation/process-manager/index.js';
+import { AuditWriter, createSystemAudit } from '../../foundation/audit/index.js';
 import { PROCESS_SPAWN_CONFIRM_MS } from '../../constants.js';
 
 import { runChatViewport } from './chat-viewport.js';
@@ -27,7 +28,8 @@ import { Snapshot } from '../../foundation/snapshot/index.js';
 export function createMotionPM(): ProcessManager {
   const baseDir = path.dirname(getMotionDir()); // .clawforum
   const nodeFs = new NodeFileSystem({ baseDir, enforcePermissions: false });
-  return new ProcessManager(nodeFs, baseDir, (id) => {
+  const systemAudit = createSystemAudit(nodeFs, baseDir);
+  return new ProcessManager(nodeFs, baseDir, systemAudit, (id) => {
     if (id === 'motion') return path.join(baseDir, 'motion');
     return path.join(baseDir, 'claws', id);
   });
@@ -173,9 +175,9 @@ export async function initCommand(silent = false): Promise<void> {
   await installBuiltinSkills(motionDir);
 
   // Init git for motion directory
-  await new Snapshot(motionDir, new NodeFileSystem({ baseDir: motionDir, enforcePermissions: false })).init().catch(err =>
-    console.warn('[snapshot] motion init failed:', err instanceof Error ? err.message : String(err))
-  );
+  const motionFs = new NodeFileSystem({ baseDir: motionDir, enforcePermissions: false });
+  const motionAudit = new AuditWriter(motionFs, 'audit.tsv');
+  await new Snapshot(motionDir, motionFs, motionAudit).init();
 
   // Output results
   console.log('\n✓ Motion initialized successfully');

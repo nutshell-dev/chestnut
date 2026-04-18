@@ -12,6 +12,7 @@ import { readTool, writeTool, lsTool, searchTool, statusTool, sendTool, memorySe
 import { ExecContextImpl } from '../../src/core/tools/context.js';
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
 import { OutboxWriter } from '../../src/core/communication/index.js';
+import { makeAudit } from '../helpers/audit.js';
 import { ContractManager } from '../../src/core/contract/manager.js';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 
@@ -24,7 +25,7 @@ describe('Builtin Tools', () => {
   beforeEach(async () => {
     tempDir = await createTempDir();
     mockFs = new NodeFileSystem({ baseDir: tempDir, enforcePermissions: false });
-    outboxWriter = new OutboxWriter('test-claw', tempDir, mockFs);
+    outboxWriter = new OutboxWriter('test-claw', tempDir, mockFs, makeAudit().audit);
     ctx = new ExecContextImpl({
       clawId: 'test-claw',
       clawDir: tempDir,
@@ -351,7 +352,7 @@ describe('Builtin Tools', () => {
       
       // Create Motion context with motion's clawDir
       const motionFs = new NodeFileSystem({ baseDir: motionDir, enforcePermissions: false });
-      const motionOutboxWriter = new OutboxWriter('motion', motionDir, motionFs);
+      const motionOutboxWriter = new OutboxWriter('motion', motionDir, motionFs, makeAudit().audit);
       const motionCtx = new ExecContextImpl({
         clawId: 'motion',
         clawDir: motionDir,
@@ -417,7 +418,7 @@ describe('Builtin Tools', () => {
       
       // Create Motion context with motion's clawDir
       const motionFs = new NodeFileSystem({ baseDir: motionDir, enforcePermissions: false });
-      const motionOutboxWriter = new OutboxWriter('motion', motionDir, motionFs);
+      const motionOutboxWriter = new OutboxWriter('motion', motionDir, motionFs, makeAudit().audit);
       const motionCtx = new ExecContextImpl({
         clawId: 'motion',
         clawDir: motionDir,
@@ -452,7 +453,7 @@ describe('Builtin Tools', () => {
       await fs.mkdir(motionDir, { recursive: true });
 
       const motionFs = new NodeFileSystem({ baseDir: motionDir, enforcePermissions: false });
-      const motionOutboxWriter = new OutboxWriter('motion', motionDir, motionFs);
+      const motionOutboxWriter = new OutboxWriter('motion', motionDir, motionFs, makeAudit().audit);
       const motionCtx = new ExecContextImpl({
         clawId: 'motion',
         clawDir: motionDir,

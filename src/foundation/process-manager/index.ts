@@ -4,5 +4,6 @@
  * 进程生命周期管理。spawn、stop、存活检查、PID 文件管理。
  * 依赖：FileSystem
  */
+
 export { ProcessManager } from './manager.js';
 export type { SpawnOptions } from './manager.js';

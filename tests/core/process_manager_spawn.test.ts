@@ -33,6 +33,7 @@ vi.mock('child_process', async (importOriginal) => {
 
 import { ProcessManager } from '../../src/foundation/process-manager/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
+import { makeAudit } from '../helpers/audit.js';
 
 let tempDir: string;
 let nodeFs: NodeFileSystem;
@@ -55,7 +56,8 @@ afterEach(async () => {
 describe('ProcessManager.spawn() - Phase 19 daemon-entry.js', () => {
   it('should call spawnSync pgrep with options.args pattern', async () => {
     const { spawnSync } = await import('child_process');
-    const pm = new ProcessManager(nodeFs, tempDir);
+    const { audit } = makeAudit();
+    const pm = new ProcessManager(nodeFs, tempDir, audit);
     const clawId = 'p19-claw';
     const clawDir = path.join(tempDir, 'claws', clawId);
     const logFile = path.join(clawDir, 'logs', 'daemon.log');
@@ -85,7 +87,8 @@ describe('ProcessManager.spawn() - Phase 19 daemon-entry.js', () => {
 
     const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
 
-    const pm = new ProcessManager(nodeFs, tempDir);
+    const { audit } = makeAudit();
+    const pm = new ProcessManager(nodeFs, tempDir, audit);
     const clawId = 'orphan-claw';
     const clawDir = path.join(tempDir, 'claws', clawId);
     const logFile = path.join(clawDir, 'logs', 'daemon.log');
@@ -113,9 +116,8 @@ describe('ProcessManager.spawn() - Phase 19 daemon-entry.js', () => {
     // Pre-create empty PID file (simulates concurrent spawn leaving an empty file)
     await fs.writeFile(path.join(statusDir, 'pid'), '', 'utf-8');
 
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-
-    const pm = new ProcessManager(nodeFs, tempDir);
+    const { audit, events } = makeAudit();
+    const pm = new ProcessManager(nodeFs, tempDir, audit);
     const clawDir = path.join(tempDir, 'claws', clawId);
     const logFile = path.join(clawDir, 'logs', 'daemon.log');
 
@@ -125,8 +127,6 @@ describe('ProcessManager.spawn() - Phase 19 daemon-entry.js', () => {
       logFile,
       env: { ...process.env },
     })).resolves.toBeDefined();
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Empty PID file'));
-
-    warnSpy.mockRestore();
+    expect(events.some(e => e[0] === 'pid_empty' && e.some((c: string | number | boolean) => typeof c === 'string' && c.includes('claw=stale-empty-claw')))).toBe(true);
   });
 });

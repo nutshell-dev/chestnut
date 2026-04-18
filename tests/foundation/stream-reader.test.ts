@@ -4,6 +4,8 @@ import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
 import { StreamWriter, createStreamReader, type StreamReader, type StreamEvent } from '../../src/foundation/stream/index.js';
+import { makeAudit } from '../helpers/audit.js';
+import { AUDIT_EVENTS } from '../../src/foundation/audit/events.js';
 
 const TIMEOUT_MS = 10000;
 
@@ -39,7 +41,7 @@ describe('StreamReader', () => {
   beforeEach(async () => {
     tempDir = await createTempDir();
     fs = new NodeFileSystem({ baseDir: tempDir });
-    writer = new StreamWriter(fs);
+    writer = new StreamWriter(fs, makeAudit().audit);
     events.length = 0;
   });
 
@@ -55,7 +57,7 @@ describe('StreamReader', () => {
 
   it('should receive new events after start', async () => {
     writer.open();
-    reader = createStreamReader(fs, (ev) => events.push(ev));
+    reader = createStreamReader(fs, (ev) => events.push(ev), makeAudit().audit);
     reader.start();
 
     // give chokidar watcher time to initialize before writing
@@ -77,7 +79,7 @@ describe('StreamReader', () => {
     // wait a tick so file is fully written and watcher settled
     await new Promise(r => setTimeout(r, 150));
 
-    reader = createStreamReader(fs, (ev) => events.push(ev));
+    reader = createStreamReader(fs, (ev) => events.push(ev), makeAudit().audit);
     reader.start();
 
     // give watcher time to initialize
@@ -91,7 +93,7 @@ describe('StreamReader', () => {
 
   it('should receive multiple batched events in order', async () => {
     writer.open();
-    reader = createStreamReader(fs, (ev) => events.push(ev));
+    reader = createStreamReader(fs, (ev) => events.push(ev), makeAudit().audit);
     reader.start();
 
     // give chokidar watcher time to initialize before writing
@@ -106,14 +108,13 @@ describe('StreamReader', () => {
   });
 
   it('should isolate JSON parse errors and keep processing', async () => {
+    const { audit, events: auditEvents } = makeAudit();
     writer.open();
-    reader = createStreamReader(fs, (ev) => events.push(ev));
+    reader = createStreamReader(fs, (ev) => events.push(ev), audit);
     reader.start();
 
     // give chokidar watcher time to initialize before writing
     await new Promise(r => setTimeout(r, 300));
-
-    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     // write a valid event first
     writer.write({ ts: 1, type: 'before' });
@@ -125,18 +126,33 @@ describe('StreamReader', () => {
 
     await waitFor(() => events.length === 2);
     expect(events[1].type).toBe('after');
-    expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining('[StreamReader] JSON parse error:'),
-      expect.anything(),
-      expect.anything(),
-    );
+    expect(auditEvents.some(e => e[0] === AUDIT_EVENTS.STREAM_READER_PARSE_FAILED)).toBe(true);
+  });
 
-    consoleSpy.mockRestore();
+  it('onEvent callback error triggers stream_reader_callback_failed', async () => {
+    const { audit, events: auditEvents } = makeAudit();
+    writer.open();
+    let callCount = 0;
+    reader = createStreamReader(fs, (ev) => {
+      callCount++;
+      if (callCount === 1) throw new Error('cb boom');
+      events.push(ev);
+    }, audit);
+    reader.start();
+
+    await new Promise(r => setTimeout(r, 300));
+
+    writer.write({ ts: 1, type: 'first' });
+    writer.write({ ts: 2, type: 'second' });
+
+    await waitFor(() => events.length === 1);
+    expect(events[0].type).toBe('second');
+    expect(auditEvents.some(e => e[0] === AUDIT_EVENTS.STREAM_READER_CALLBACK_FAILED)).toBe(true);
   });
 
   it('emits appended events with < 50ms latency (immediate stability mode)', async () => {
     writer.open();
-    reader = createStreamReader(fs, (ev) => events.push({ ...ev, _receivedAt: Date.now() } as any));
+    reader = createStreamReader(fs, (ev) => events.push({ ...ev, _receivedAt: Date.now() } as any), makeAudit().audit);
     reader.start();
 
     // watcher 启动需要时间，但属于一次性成本
@@ -152,7 +168,7 @@ describe('StreamReader', () => {
   });
 
   it('should enforce start/stop lifecycle', async () => {
-    reader = createStreamReader(fs, (ev) => events.push(ev));
+    reader = createStreamReader(fs, (ev) => events.push(ev), makeAudit().audit);
 
     expect(reader.isActive()).toBe(false);
 

@@ -7,6 +7,7 @@ import * as path from 'path';
 import { createTempDir, cleanupTempDirSync } from '../utils/temp.js';
 import { ProcessManager } from '../../src/foundation/process-manager/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
+import { makeAudit } from '../helpers/audit.js';
 
 // Mock child_process
 vi.mock('child_process', () => ({
@@ -46,7 +47,8 @@ describe('ProcessManager - spawn defaults', () => {
 
   describe('spawn with SpawnOptions', () => {
     it('should use provided args for regular claw', async () => {
-      const pm = new ProcessManager(nodeFs, tempDir);
+      const { audit } = makeAudit();
+      const pm = new ProcessManager(nodeFs, tempDir, audit);
       const clawDir = path.join(tempDir, 'claws', 'test-claw');
       const logFile = path.join(clawDir, 'logs', 'daemon.log');
       const customArgs = ['/path/to/daemon-entry.js', 'test-claw'];
@@ -69,7 +71,8 @@ describe('ProcessManager - spawn defaults', () => {
     });
 
     it('should use provided args for motion', async () => {
-      const pm = new ProcessManager(nodeFs, tempDir);
+      const { audit } = makeAudit();
+      const pm = new ProcessManager(nodeFs, tempDir, audit);
       const motionDir = path.join(tempDir, 'motion');
       const logFile = path.join(motionDir, 'logs', 'daemon.log');
       const customArgs = ['/path/to/daemon-entry.js', 'motion'];
@@ -92,7 +95,8 @@ describe('ProcessManager - spawn defaults', () => {
     });
 
     it('should pass custom args when provided', async () => {
-      const pm = new ProcessManager(nodeFs, tempDir);
+      const { audit } = makeAudit();
+      const pm = new ProcessManager(nodeFs, tempDir, audit);
       const clawDir = path.join(tempDir, 'claws', 'custom-claw');
       const logFile = path.join(clawDir, 'logs', 'daemon.log');
       const customArgs = ['/custom/cli.js', 'custom', 'command'];
@@ -116,7 +120,8 @@ describe('ProcessManager - spawn defaults', () => {
 
   describe('spawn environment', () => {
     it('should pass env from SpawnOptions', async () => {
-      const pm = new ProcessManager(nodeFs, tempDir);
+      const { audit } = makeAudit();
+      const pm = new ProcessManager(nodeFs, tempDir, audit);
       const clawDir = path.join(tempDir, 'claws', 'env-claw');
       const logFile = path.join(clawDir, 'logs', 'daemon.log');
 
@@ -139,7 +144,8 @@ describe('ProcessManager - spawn defaults', () => {
     });
 
     it('should inherit parent environment variables when env not provided', async () => {
-      const pm = new ProcessManager(nodeFs, tempDir);
+      const { audit } = makeAudit();
+      const pm = new ProcessManager(nodeFs, tempDir, audit);
       const clawDir = path.join(tempDir, 'claws', 'inherit-claw');
       const logFile = path.join(clawDir, 'logs', 'daemon.log');
 

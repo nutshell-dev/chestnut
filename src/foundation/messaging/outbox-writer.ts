@@ -8,7 +8,9 @@ import * as path from 'path';
 import { randomUUID } from 'crypto';
 import type { FileSystem } from '../fs/types.js';
 import type { OutboxMessage } from '../../types/contract.js';
+import type { Audit } from '../audit/index.js';
 import { encodeOutbox } from '../message-codec/index.js';
+import { AUDIT_EVENTS } from '../audit/events.js';
 
 /**
  * Outbox writer options
@@ -30,7 +32,8 @@ export class OutboxWriter {
   constructor(
     private clawId: string,
     private clawDir: string,
-    private fs: FileSystem
+    private fs: FileSystem,
+    private audit: Audit,
   ) {
     this.outboxDir = path.join(clawDir, 'outbox', 'pending');
   }
@@ -40,9 +43,6 @@ export class OutboxWriter {
    * @returns Path to the written file
    */
   async write(options: OutboxWriteOptions): Promise<string> {
-    // Ensure directory exists
-    await this.fs.ensureDir(this.outboxDir);
-
     // Generate message
     const message: OutboxMessage = {
       id: randomUUID(),
@@ -64,9 +64,30 @@ export class OutboxWriter {
     // Format content as markdown
     const content = encodeOutbox(message);
 
-    // Write file
-    await this.fs.writeAtomic(filePath, content);
-
-    return filePath;
+    try {
+      // Ensure directory exists
+      await this.fs.ensureDir(this.outboxDir);
+      // Write file
+      await this.fs.writeAtomic(filePath, content);
+      this.audit.write(
+        AUDIT_EVENTS.OUTBOX_SENT,
+        `from=${this.clawId}`,
+        `to=${options.to}`,
+        `type=${options.type}`,
+        `id=${message.id}`,
+        ...(options.contract_id ? [`contract_id=${options.contract_id}`] : []),
+      );
+      return filePath;
+    } catch (err) {
+      this.audit.write(
+        AUDIT_EVENTS.OUTBOX_SEND_FAILED,
+        `from=${this.clawId}`,
+        `to=${options.to}`,
+        `type=${options.type}`,
+        `id=${message.id}`,
+        `reason=${err instanceof Error ? err.message : String(err)}`,
+      );
+      throw err;
+    }
   }
 }

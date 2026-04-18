@@ -15,6 +15,7 @@ import type { InboxMessage } from '../../types/contract.js';
 import { PRIORITY_VALUES } from '../../types/contract.js';
 import { decodeInbox } from '../message-codec/index.js';
 import type { Audit } from '../audit/index.js';
+import { AUDIT_EVENTS } from '../audit/events.js';
 
 export interface InboxEntry {
   message: InboxMessage;
@@ -27,7 +28,7 @@ export class InboxReader {
     private readonly doneDir: string,
     private readonly failedDir: string,
     private readonly fs: FileSystem,
-    private readonly audit?: Audit,
+    private readonly audit: Audit,
   ) {}
 
   /** Ensure inbox directories exist */
@@ -49,7 +50,11 @@ export class InboxReader {
     } catch (err: any) {
       const code = err?.code;
       if (code !== 'FS_NOT_FOUND' && code !== 'ENOENT') {
-        console.error('[InboxReader] Failed to list pending messages:', err);
+        this.audit.write(
+          AUDIT_EVENTS.INBOX_LIST_FAILED,
+          `dir=${this.pendingDir}`,
+          `reason=${err instanceof Error ? err.message : String(err)}`,
+        );
       }
       return [];
     }
@@ -63,8 +68,11 @@ export class InboxReader {
         const message = decodeInbox(content);
         results.push({ message, filePath });
       } catch (err) {
-        console.warn(`[InboxReader] Malformed message, moving to failed/ ${filePath}:`, err);
-        this.audit?.write('inbox_failed', `file=${entry.name}`, 'reason=parse_error');
+        this.audit.write(
+          AUDIT_EVENTS.INBOX_FAILED,
+          `file=${entry.name}`,
+          `reason=${err instanceof Error ? err.message : String(err)}`,
+        );
         await this.markFailed(filePath);
       }
     }
@@ -88,11 +96,15 @@ export class InboxReader {
       const uuid8 = randomUUID().slice(0, 8);
       const targetPath = path.join(this.doneDir, `${Date.now()}_${uuid8}_${fileName}`);
       await this.fs.move(filePath, targetPath);
-      this.audit?.write('inbox_done', `file=${fileName}`);
+      this.audit.write(AUDIT_EVENTS.INBOX_DONE, `file=${fileName}`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error(`[InboxReader] Failed to move ${filePath} to done:`, msg);
-      this.audit?.write('inbox_move_error', `file=${path.basename(filePath)}`, `op=done`, `reason=${msg}`);
+      this.audit.write(
+        AUDIT_EVENTS.INBOX_MOVE_FAILED,
+        `file=${path.basename(filePath)}`,
+        `op=done`,
+        `reason=${msg}`,
+      );
     }
   }
 
@@ -105,8 +117,12 @@ export class InboxReader {
       await this.fs.move(filePath, targetPath);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error(`[InboxReader] Failed to move ${filePath} to failed:`, msg);
-      this.audit?.write('inbox_move_error', `file=${path.basename(filePath)}`, `op=failed`, `reason=${msg}`);
+      this.audit.write(
+        AUDIT_EVENTS.INBOX_MOVE_FAILED,
+        `file=${path.basename(filePath)}`,
+        `op=failed`,
+        `reason=${msg}`,
+      );
     }
   }
 }
