@@ -4,8 +4,6 @@
  * Manages daemon process startup, shutdown, and status checks
  */
 
-// TODO(phase3): zombie process detection - MVP uses `ps` command to detect zombies, TS only uses kill(0), macOS/Linux behavior differs
-
 import { spawn, spawnSync } from 'child_process';
 import * as path from 'path';
 import { openSync, closeSync } from 'fs';  // openSync/closeSync 仅用于日志 fd（spawn stdio 需要 OS 文件描述符）
@@ -14,7 +12,6 @@ import type { FileSystem } from '../fs/types.js';
 import {
   PROCESS_SPAWN_CONFIRM_MS,
   SIGTERM_GRACE_MS,
-  RESTART_DELAY_MS,
 } from '../../constants.js';
 
 export interface SpawnOptions {
@@ -333,25 +330,9 @@ export class ProcessManager {
   }
 
   /**
-   * Restart a process (stop + spawn)
-   * @param clawId - process identifier
-   * @param options - spawn configuration
-   * @returns new process PID
-   */
-  async restart(clawId: string, options: SpawnOptions): Promise<number> {
-    await this.stop(clawId);
-    // Brief wait to ensure resources such as ports are released
-    await new Promise(resolve => setTimeout(resolve, RESTART_DELAY_MS));
-    const pid = await this.spawn(clawId, options);
-    return pid;
-  }
-
-  /**
    * Find processes matching a pattern (pgrep -f pattern)
    * Encapsulates platform-specific process finding
    */
-  // TODO(Windows): spawnSync('pgrep') 只在 Unix 可用。Windows 下需改用 tasklist /FI 解析。
-  // 当前 Windows 下 catch 返回 []，孤儿清理失效但不影响主流程。
   findProcesses(pattern: string): number[] {
     try {
       // Escape POSIX ERE metacharacters — callers pass file paths which may
@@ -373,33 +354,4 @@ export class ProcessManager {
     }
   }
 
-  /**
-   * List all running Claws
-   * @param ids - optional explicit claw IDs to check (default: scan claws/ directory)
-   * @returns list of running claw IDs
-   */
-  async listRunning(ids?: string[]): Promise<string[]> {
-    try {
-      let checkIds: string[];
-      if (ids) {
-        checkIds = ids;
-      } else {
-        // Backward compat: scan claws/ directory
-        const clawsDir = path.join(this.baseDir, 'claws');
-        const entries = await this.fs.list(clawsDir, { includeDirs: true });
-        checkIds = entries.filter(e => e.isDirectory).map(e => e.name);
-      }
-
-      const running: string[] = [];
-      for (const clawId of checkIds) {
-        if (this.isAlive(clawId)) {
-          running.push(clawId);
-        }
-      }
-      return running;
-    } catch (err) {
-      console.warn('[process] listRunning failed:', err);
-      return [];
-    }
-  }
 }

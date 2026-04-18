@@ -207,29 +207,4 @@ describe('ProcessManager', () => {
     });
   });
 
-  describe('listRunning', () => {
-    it('should return empty array when no claws running', async () => {
-      const pm = new ProcessManager(nodeFs, tempDir);
-      const result = await pm.listRunning();
-      expect(result).toEqual([]);
-    });
-
-    it('should return running claw IDs', async () => {
-      const pm = new ProcessManager(nodeFs, tempDir);
-
-      // 创建两个 claw 目录，一个运行中，一个未运行
-      const runningPidFile = path.join(tempDir, 'claws', 'running-claw', 'status', 'pid');
-      const stoppedPidFile = path.join(tempDir, 'claws', 'stopped-claw', 'status', 'pid');
-
-      await fs.mkdir(path.dirname(runningPidFile), { recursive: true });
-      await fs.writeFile(runningPidFile, process.pid.toString(), 'utf-8');
-
-      await fs.mkdir(path.dirname(stoppedPidFile), { recursive: true });
-      await fs.writeFile(stoppedPidFile, '999997', 'utf-8'); // 死进程
-
-      const result = await pm.listRunning();
-      expect(result).toContain('running-claw');
-      expect(result).not.toContain('stopped-claw');
-    });
-  });
 });

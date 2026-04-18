@@ -121,41 +121,6 @@ describe('ProcessManager', () => {
     });
   });
 
-  describe('listRunning', () => {
-    it('should return empty array when claws directory does not exist', async () => {
-      const result = await processManager.listRunning();
-      expect(result).toEqual([]);
-    });
-
-    it('should return empty array when claws directory is empty', async () => {
-      const clawsDir = path.join(tempDir, 'claws');
-      fs.mkdirSync(clawsDir, { recursive: true });
-
-      const result = await processManager.listRunning();
-      expect(result).toEqual([]);
-    });
-
-    it('should return empty array when no claws are running', async () => {
-      // 创建一些 claw 目录但不创建 pid 文件
-      const clawsDir = path.join(tempDir, 'claws');
-      fs.mkdirSync(path.join(clawsDir, 'claw-1', 'status'), { recursive: true });
-      fs.mkdirSync(path.join(clawsDir, 'claw-2', 'status'), { recursive: true });
-
-      const result = await processManager.listRunning();
-      expect(result).toEqual([]);
-    });
-
-    it('should ignore files in claws directory', async () => {
-      // 在 claws 目录下创建一个文件（不是目录）
-      const clawsDir = path.join(tempDir, 'claws');
-      fs.mkdirSync(clawsDir, { recursive: true });
-      fs.writeFileSync(path.join(clawsDir, 'not-a-directory.txt'), 'test');
-
-      const result = await processManager.listRunning();
-      expect(result).toEqual([]);
-    });
-  });
-
   describe('dirResolver', () => {
     it('should use default path (claws/{id}) when no resolver provided', () => {
       // 使用默认构造函数（已在 beforeEach 中创建）
