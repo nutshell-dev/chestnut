@@ -117,6 +117,9 @@ function createHangingMockLLM(): LLMService {
 
 /**
  * Create a mock LLM that aborts when signal is triggered - for timeout testing
+ *
+ * Difference from createHangingMockLLM: call() deliberately ignores signal, so
+ * the executor-driven timeout is the only path that can break the hang.
  */
 function createAbortableHangingMockLLM(): LLMService {
   async function* hangingStream(signal?: AbortSignal): AsyncIterableIterator<StreamChunk> {

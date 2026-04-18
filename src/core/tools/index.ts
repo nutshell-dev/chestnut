@@ -30,8 +30,5 @@ export type {
 
 export type { ExecContextImplOptions } from './context.js';
 
-// SubAgent
-export { SubAgent, type SubAgentOptions } from '../subagent/agent.js';
-
 // Builtin tools
 export { registerBuiltinTools } from './builtins/index.js';

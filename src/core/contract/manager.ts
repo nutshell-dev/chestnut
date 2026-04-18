@@ -4,8 +4,6 @@
  * Manages contract loading, progress tracking, acceptance, and status transitions.
  */
 
-// TODO(phase3): Implement contract dependency checks - MVP has check_dependencies() method (contract B starts only after contract A completes)
-
 import * as yaml from 'js-yaml';
 import { randomUUID } from 'crypto';
 import * as path from 'path';
