@@ -1,9 +1,9 @@
 /**
  * JSONL file operations
- * 
+ *
  * - appendJsonl: Append JSON record as a line (newline-delimited)
- * - readJsonl: Read and parse JSONL file, skip invalid lines
- * 
+ * - readJsonl: Read and parse JSONL file (diagnostic only; see jsdoc)
+ *
  * Note: Appends are safe for concurrent writes (OS-level atomicity for small writes)
  */
 
@@ -25,6 +25,10 @@ export async function appendJsonl(
 
 /**
  * Read all records from a JSONL file
+ *
+ * @remarks Diagnostic utility — currently no production hot-path consumer.
+ * Kept for ad-hoc inspection of archived JSONL logs and `appendJsonl` tests.
+ *
  * @param filePath - Path to JSONL file
  * @returns Array of parsed records (skips empty lines and invalid JSON)
  */
@@ -61,64 +65,4 @@ export async function readJsonl<T = Record<string, unknown>>(
   }
 }
 
-/**
- * Stream read JSONL file (for large files)
- * @param filePath - Path to JSONL file
- * @yields Parsed records
- */
-export async function* streamJsonl<T = Record<string, unknown>>(
-  filePath: string
-): AsyncGenerator<T, void, unknown> {
-  let file: fs.FileHandle;
-  try {
-    file = await fs.open(filePath, 'r');
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-      return;
-    }
-    throw err;
-  }
-  
-  try {
-    const bufferSize = 64 * 1024; // 64KB chunks
-    let buffer = '';
-    
-    while (true) {
-      const chunk = Buffer.alloc(bufferSize);
-      const { bytesRead } = await file.read(chunk, 0, bufferSize, null);
-      
-      if (bytesRead === 0) {
-        break;
-      }
-      
-      buffer += chunk.toString('utf-8', 0, bytesRead);
-      
-      // Process complete lines
-      const lines = buffer.split('\n');
-      buffer = lines.pop() ?? ''; // Keep incomplete line in buffer
-      
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        
-        try {
-          yield JSON.parse(trimmed) as T;
-        } catch {
-          console.warn(`[monitor] Skipping invalid JSONL line: ${trimmed.slice(0, 80)}`);
-        }
-      }
-    }
-    
-    // Process final line
-    const trimmed = buffer.trim();
-    if (trimmed) {
-      try {
-        yield JSON.parse(trimmed) as T;
-      } catch {
-        console.warn(`[monitor] Skipping invalid JSONL line: ${trimmed.slice(0, 80)}`);
-      }
-    }
-  } finally {
-    await file.close();
-  }
-}
+

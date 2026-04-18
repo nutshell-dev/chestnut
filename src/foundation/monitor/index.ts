@@ -20,4 +20,4 @@ export { JsonlLogger } from './monitor.js';
 export type { JsonlLoggerOptions } from './monitor.js';
 
 // JSONL utilities
-export { appendJsonl, readJsonl, streamJsonl } from './jsonl.js';
+export { appendJsonl, readJsonl } from './jsonl.js';

@@ -16,7 +16,7 @@ import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 
 import { JsonlLogger } from '../../src/foundation/monitor/monitor.js';
-import { appendJsonl, readJsonl, streamJsonl } from '../../src/foundation/monitor/jsonl.js';
+import { appendJsonl, readJsonl } from '../../src/foundation/monitor/jsonl.js';
 
 /**
  * Create a temporary directory for tests
@@ -118,53 +118,6 @@ describe('Monitor', () => {
       expect(records[0]).toEqual(record);
     });
     
-    it('streamJsonl should read records from JSONL file', async () => {
-      const filePath = path.join(tempDir, 'test.jsonl');
-      
-      await fs.writeFile(
-        filePath,
-        '{"id":"1"}\n{"id":"2"}\n{"id":"3"}\n',
-        'utf-8'
-      );
-      
-      const records: { id: string }[] = [];
-      for await (const record of streamJsonl<{ id: string }>(filePath)) {
-        records.push(record);
-      }
-      
-      expect(records).toHaveLength(3);
-      expect(records[0]).toEqual({ id: '1' });
-      expect(records[2]).toEqual({ id: '3' });
-    });
-    
-    it('streamJsonl should return empty for non-existent file (ENOENT)', async () => {
-      const filePath = path.join(tempDir, 'non-existent.jsonl');
-      
-      const records: unknown[] = [];
-      for await (const record of streamJsonl(filePath)) {
-        records.push(record);
-      }
-      
-      expect(records).toEqual([]);
-    });
-    
-    it('streamJsonl should skip invalid JSON lines', async () => {
-      const filePath = path.join(tempDir, 'test.jsonl');
-      
-      await fs.writeFile(
-        filePath,
-        '{"id":"1"}\n\ninvalid json\n{"id":"2"}\nbad{data}\n{"id":"3"}\n',
-        'utf-8'
-      );
-      
-      const records: { id: string }[] = [];
-      for await (const record of streamJsonl<{ id: string }>(filePath)) {
-        records.push(record);
-      }
-      
-      expect(records).toHaveLength(3);
-      expect(records.map(r => r.id)).toEqual(['1', '2', '3']);
-    });
   });
   
   describe('JsonlLogger', () => {
