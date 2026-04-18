@@ -19,6 +19,7 @@ import { startDaemonLoop } from './daemon-loop.js';
 import { StreamWriter } from '../../foundation/stream/writer.js';
 import { Heartbeat } from '../../core/heartbeat.js';
 import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
+import { ProcessManager } from '../../foundation/process-manager/index.js';
 import { SkillRegistry } from '../../core/skill/registry.js';
 import { ContractManager } from '../../core/contract/manager.js';
 import { DEFAULT_MAX_STEPS, DEFAULT_MAX_CONCURRENT_TASKS } from '../../constants.js';
@@ -35,53 +36,6 @@ import { CliError } from '../errors.js';
 import { Snapshot } from '../../foundation/snapshot/index.js';
 
 
-
-export function acquireDaemonLock(statusDir: string, name: string): void {
-  fsNative.mkdirSync(statusDir, { recursive: true });
-  const lockFile = path.join(statusDir, 'daemon.lock');
-
-  try {
-    const fd = fsNative.openSync(lockFile, 'wx');
-    try {
-      fsNative.writeFileSync(fd, String(process.pid));
-    } finally {
-      fsNative.closeSync(fd);
-    }
-  } catch (err: any) {
-    if (err.code === 'EEXIST') {
-      try {
-        const lockPid = parseInt(fsNative.readFileSync(lockFile, 'utf-8').trim(), 10);
-        if (Number.isNaN(lockPid)) {
-          throw new CliError(`[daemon] Lock file corrupted, cannot determine owner: ${lockFile}`);
-        }
-        process.kill(lockPid, 0);
-        throw new CliError(`[daemon] Another ${name} daemon is running (PID: ${lockPid}), exiting`);
-      } catch (killErr: any) {
-        if (killErr instanceof CliError) throw killErr;
-        try {
-          fsNative.unlinkSync(lockFile);
-        } catch (e: any) {
-          if (e.code !== 'ENOENT') throw e;
-        }
-        try {
-          const fd = fsNative.openSync(lockFile, 'wx');
-          try {
-            fsNative.writeFileSync(fd, String(process.pid));
-          } finally {
-            fsNative.closeSync(fd);
-          }
-        } catch (retryErr: any) {
-          if (retryErr.code === 'EEXIST') {
-            throw new CliError(`[daemon] Another ${name} daemon acquired the lock during retry, exiting`);
-          }
-          throw retryErr;
-        }
-      }
-    } else {
-      throw err;
-    }
-  }
-}
 
 // 检测上次是否非正常退出（SIGKILL / OOM 等无法写 daemon_crash 的情况）
 function detectUncleanExit(auditDir: string, auditWriter: AuditWriter): void {
@@ -126,11 +80,9 @@ export async function daemonCommand(name: string): Promise<void> {
   // 配置
   const dir = isMotion ? getMotionDir() : getClawDir(name);
   
-  // lockfile 单实例保护
+  // lockfile 单实例保护（先写 PID 文件，后续用 ProcessManager 接管）
   const statusDir = path.join(dir, 'status');
-  acquireDaemonLock(statusDir, name);
   const pidFile = path.join(statusDir, 'pid');
-  const lockFile = path.join(statusDir, 'daemon.lock');
   
   // 写 PID 文件（兜底：无论启动方式都确保 PID 可查）
   fsNative.writeFileSync(pidFile, String(process.pid));
@@ -149,6 +101,16 @@ export async function daemonCommand(name: string): Promise<void> {
     'audit.tsv',
     auditMaxSizeMb,
   );
+
+  // ProcessManager 装配（用于 lockfile 归位）
+  const baseDir = path.join(dir, isMotion ? '..' : '../..');
+  const pm = new ProcessManager(
+    new NodeFileSystem({ baseDir, enforcePermissions: false }),
+    baseDir,
+    sharedAuditWriter,
+    (id) => (id === 'motion' ? path.join(baseDir, 'motion') : path.join(baseDir, 'claws', id)),
+  );
+  pm.acquireLock(name);
 
   // Runtime
   const runtime = isMotion
@@ -490,12 +452,7 @@ export async function daemonCommand(name: string): Promise<void> {
     } catch (e: any) {
       console.warn(`[daemon] Failed to clean up pid file: ${e?.message}`);
     }
-    try {
-      const storedLockPid = fsNative.readFileSync(lockFile, 'utf-8').trim();
-      if (storedLockPid === String(process.pid)) fsNative.unlinkSync(lockFile);
-    } catch (e: any) {
-      console.warn(`[daemon] Failed to clean up lock file: ${e?.message}`);
-    }
+    pm.releaseLock(name);
     process.exit(0);
   };
   process.on('SIGTERM', () => shutdown('SIGTERM'));

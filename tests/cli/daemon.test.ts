@@ -1,83 +1,66 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import * as fsNative from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import * as fsNative from 'fs';
 import { randomUUID } from 'crypto';
-import { acquireDaemonLock } from '../../src/cli/commands/daemon.js';
-import { CliError } from '../../src/cli/errors.js';
+import { ProcessManager } from '../../src/foundation/process-manager/index.js';
+import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
+import { AuditWriter } from '../../src/foundation/audit/writer.js';
 
-vi.mock('fs', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('fs')>();
-  return {
-    ...actual,
-    openSync: vi.fn((...args: any[]) => actual.openSync(...args)),
-    readFileSync: vi.fn((...args: any[]) => actual.readFileSync(...args)),
-  };
-});
-
-describe('acquireDaemonLock — fix 004: TOCTOU race protection', () => {
+describe('ProcessManager.acquireLock — fix 004: TOCTOU race protection', () => {
   let tmpDir: string;
-  let statusDir: string;
+  let pm: ProcessManager;
 
   beforeEach(() => {
     tmpDir = path.join(os.tmpdir(), `daemon-fix4-${randomUUID()}`);
-    statusDir = path.join(tmpDir, 'status');
-    fsNative.mkdirSync(statusDir, { recursive: true });
+    fsNative.mkdirSync(tmpDir, { recursive: true });
+    const fs = new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false });
+    const audit = new AuditWriter(fs, 'audit.tsv');
+    pm = new ProcessManager(fs, tmpDir, audit);
   });
 
   afterEach(() => {
-    vi.mocked(fsNative.openSync).mockRestore();
-    vi.mocked(fsNative.readFileSync).mockRestore();
     vi.restoreAllMocks();
-    fsNative.rmSync(tmpDir, { recursive: true, force: true });
+    try {
+      fsNative.rmSync(tmpDir, { recursive: true, force: true });
+    } catch { /* ignore cleanup failure */ }
   });
 
-  it('throws CliError when another daemon acquires the lock during retry', () => {
-    // 第一次 openSync 抛 EEXIST（锁已存在）
-    (fsNative.openSync as any)
-      .mockImplementationOnce((p: any, flags: any) => {
-        if (flags === 'wx') {
-          const err: any = new Error('EEXIST');
-          err.code = 'EEXIST';
-          throw err;
-        }
-        return fsNative.openSync(p, flags);
-      })
-      // 第二次 openSync（重试时）也抛 EEXIST（模拟竞态抢占）
-      .mockImplementationOnce((p: any, flags: any) => {
-        if (flags === 'wx') {
-          const err: any = new Error('EEXIST');
-          err.code = 'EEXIST';
-          throw err;
-        }
-        return fsNative.openSync(p, flags);
-      });
-
-    // 读取 PID 返回一个存在的 PID
-    (fsNative.readFileSync as any).mockReturnValue('12345\n');
-    // process.kill 抛异常（模拟原持有者已死）
+  it('throws when another daemon acquires the lock during retry', () => {
+    // 模拟 readLockPid 返回一个已死进程的 PID
+    vi.spyOn(pm as any, 'readLockPid').mockReturnValue(12345);
     vi.spyOn(process, 'kill').mockImplementation(() => {
-      throw new Error('ESRCH');
+      const err: any = new Error('ESRCH');
+      err.code = 'ESRCH';
+      throw err;
     });
-
-    expect(() => acquireDaemonLock(statusDir, 'test-claw')).toThrow(
-      '[daemon] Another test-claw daemon acquired the lock during retry, exiting',
-    );
-  });
-
-  it('throws CliError when lock file contains non-numeric pid', () => {
-    (fsNative.openSync as any).mockImplementationOnce((p: any, flags: any) => {
-      if (flags === 'wx') {
+    // 模拟重试时又被抢占：deleteSync 成功，writeExclusiveSync 抛 EEXIST
+    const fs = (pm as any).fs;
+    const origWriteExclusive = fs.writeExclusiveSync.bind(fs);
+    let callCount = 0;
+    vi.spyOn(fs, 'writeExclusiveSync').mockImplementation((p: string, c: string) => {
+      callCount++;
+      if (callCount === 1 || callCount === 2) {
         const err: any = new Error('EEXIST');
         err.code = 'EEXIST';
         throw err;
       }
-      return fsNative.openSync(p, flags);
+      return origWriteExclusive(p, c);
     });
-    (fsNative.readFileSync as any).mockReturnValue('not-a-number\n');
 
-    expect(() => acquireDaemonLock(statusDir, 'test-claw')).toThrow(
-      '[daemon] Lock file corrupted',
+    expect(() => pm.acquireLock('test-claw')).toThrow(
+      'Another "test-claw" daemon acquired the lock during retry',
     );
+  });
+
+  it('cleans stale lock with non-numeric content and acquires successfully', () => {
+    const statusDir = path.join(tmpDir, 'claws', 'test-claw', 'status');
+    fsNative.mkdirSync(statusDir, { recursive: true });
+    fsNative.writeFileSync(path.join(statusDir, 'daemon.lock'), 'not-a-number');
+
+    // 非数字 PID 被视为 stale lock，清理后成功获取
+    pm.acquireLock('test-claw');
+    const content = fsNative.readFileSync(path.join(statusDir, 'daemon.lock'), 'utf-8');
+    expect(content).toBe(String(process.pid));
   });
 });

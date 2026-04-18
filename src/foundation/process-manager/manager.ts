@@ -58,6 +58,13 @@ export class ProcessManager {
   }
 
   /**
+   * Get the lock file path
+   */
+  private getLockFile(clawId: string): string {
+    return path.join(this.getStatusDir(clawId), 'daemon.lock');
+  }
+
+  /**
    * Ensure the status directory exists
    */
   private async ensureStatusDir(clawId: string): Promise<void> {
@@ -152,6 +159,100 @@ export class ProcessManager {
   }
 
   /**
+   * Read the lock file PID. Returns null if file missing or unreadable.
+   */
+  readLockPid(clawId: string): number | null {
+    try {
+      const lockFile = this.getLockFile(clawId);
+      const content = this.fs.readSync(lockFile).trim();
+      const pid = parseInt(content, 10);
+      return isNaN(pid) ? null : pid;
+    } catch (err: any) {
+      if (err?.code !== 'ENOENT' && err?.code !== 'FS_NOT_FOUND') {
+        this.audit.write(
+          AUDIT_EVENTS.LOCKFILE_READ_FAILED,
+          `claw=${clawId}`,
+          `reason=${err?.message || String(err)}`,
+        );
+      }
+      return null;
+    }
+  }
+
+  /**
+   * Acquire exclusive daemon lock for the given clawId.
+   * Called from within the daemon process itself (foreground entry).
+   * Throws if another live daemon holds the lock.
+   */
+  acquireLock(clawId: string): void {
+    const lockFile = this.getLockFile(clawId);
+    this.fs.ensureDirSync(path.dirname(lockFile));
+    try {
+      this.fs.writeExclusiveSync(lockFile, String(process.pid));
+      return;
+    } catch (err: any) {
+      if (err?.code !== 'EEXIST') throw err;
+    }
+
+    // EEXIST: probe holder
+    const holderPid = this.readLockPid(clawId);
+    if (holderPid !== null) {
+      try {
+        process.kill(holderPid, 0);
+        throw new Error(
+          `Another "${clawId}" daemon is running (PID: ${holderPid})`,
+        );
+      } catch (killErr: any) {
+        if (killErr?.code !== 'ESRCH' && !(killErr instanceof Error && killErr.message.startsWith('Another'))) {
+          // ESRCH = stale, fall through to cleanup
+          // non-ESRCH kill 失败 = holder 存在但无权限，视为活
+          if (killErr?.code === 'EPERM') {
+            throw new Error(`Another "${clawId}" daemon is running (PID: ${holderPid}, no permission to signal)`);
+          }
+        }
+        if (killErr instanceof Error && killErr.message.startsWith('Another')) throw killErr;
+      }
+    }
+
+    // stale: remove and retry once
+    try { this.fs.deleteSync(lockFile); } catch (e: any) {
+      if (e?.code !== 'ENOENT' && e?.code !== 'FS_NOT_FOUND') {
+        this.audit.write(AUDIT_EVENTS.LOCKFILE_CLEANUP_FAILED, `claw=${clawId}`, `op=acquire_retry`, `reason=${e?.message || String(e)}`);
+      }
+    }
+    try {
+      this.fs.writeExclusiveSync(lockFile, String(process.pid));
+    } catch (retryErr: any) {
+      if (retryErr?.code === 'EEXIST') {
+        throw new Error(`Another "${clawId}" daemon acquired the lock during retry`);
+      }
+      throw retryErr;
+    }
+  }
+
+  /**
+   * Release the daemon lock if held by the current process.
+   * Deletes the lock file; failures are audit-logged, not thrown.
+   */
+  releaseLock(clawId: string): void {
+    const holderPid = this.readLockPid(clawId);
+    if (holderPid !== process.pid) return; // 不是本进程持有，不动
+    const lockFile = this.getLockFile(clawId);
+    try {
+      this.fs.deleteSync(lockFile);
+    } catch (err: any) {
+      if (err?.code !== 'ENOENT' && err?.code !== 'FS_NOT_FOUND') {
+        this.audit.write(
+          AUDIT_EVENTS.LOCKFILE_CLEANUP_FAILED,
+          `claw=${clawId}`,
+          `op=release`,
+          `reason=${err?.message || String(err)}`,
+        );
+      }
+    }
+  }
+
+  /**
    * Spawn a detached process
    * @param clawId - process identifier (used for PID file management)
    * @param options - spawn configuration (command, args, logFile, env, cwd)
@@ -188,11 +289,10 @@ export class ProcessManager {
     }
 
     // Check and clean up the old daemon's lockfile
-    const lockFile = path.join(this.getStatusDir(clawId), 'daemon.lock');
+    const lockFile = this.getLockFile(clawId);
     try {
-      const lockContent = this.fs.readSync(lockFile);
-      const lockPid = parseInt(lockContent.trim(), 10);
-      if (!isNaN(lockPid)) {
+      const lockPid = this.readLockPid(clawId);
+      if (lockPid !== null) {
         // Pre-check: only SIGTERM if the lock holder is still alive
         let lockAlive = false;
         try {
