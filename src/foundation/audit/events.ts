@@ -30,7 +30,7 @@ export const AUDIT_EVENTS = {
   // --- FileWatcher ---
   WATCHER_CALLBACK_FAILED: 'watcher_callback_failed',
   WATCHER_READY_FAILED: 'watcher_ready_failed',
-  WATCHER_ERROR: 'watcher_error',
+  WATCHER_FAILED: 'watcher_failed',
 
   // --- Stream ---
   STREAM_WRITE_DROPPED: 'stream_write_dropped',
@@ -64,7 +64,7 @@ export const AUDIT_EVENTS = {
   ORPHAN_SIGTERM_FAILED: 'orphan_sigterm_failed',
   LOCKFILE_READ_FAILED: 'lockfile_read_failed',
   LOCKFILE_CLEANUP_FAILED: 'lockfile_cleanup_failed',
-  FIND_PROCESSES_UNAVAILABLE: 'find_processes_unavailable',
+  PROCESS_LIST_FAILED: 'process_list_failed',
 } as const;
 
 export type AuditEventName = typeof AUDIT_EVENTS[keyof typeof AUDIT_EVENTS];

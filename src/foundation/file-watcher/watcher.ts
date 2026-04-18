@@ -149,7 +149,7 @@ export function createWatcher(
   watcher.on('error', (rawError) => {
     const normalizedError = rawError instanceof Error ? rawError : new Error(String(rawError));
     audit.write(
-      AUDIT_EVENTS.WATCHER_ERROR,
+      AUDIT_EVENTS.WATCHER_FAILED,
       `path=${watchPath}`,
       `reason=${normalizedError.message}`,
     );
@@ -157,7 +157,7 @@ export function createWatcher(
       options?.onError?.(normalizedError);
     } catch (cbErr) {
       audit.write(
-        AUDIT_EVENTS.WATCHER_ERROR,
+        AUDIT_EVENTS.WATCHER_FAILED,
         `path=${watchPath}`,
         `context=onError_handler`,
         `reason=${cbErr instanceof Error ? cbErr.message : String(cbErr)}`,

@@ -426,7 +426,7 @@ export class ProcessManager {
     } catch (err) {
       if (!this.findProcessesWarned) {
         this.audit.write(
-          AUDIT_EVENTS.FIND_PROCESSES_UNAVAILABLE,
+          AUDIT_EVENTS.PROCESS_LIST_FAILED,
           `reason=${err instanceof Error ? err.message : String(err)}`,
         );
         this.findProcessesWarned = true;

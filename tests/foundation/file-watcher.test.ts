@@ -94,7 +94,7 @@ describe('FileWatcher', () => {
     expect(auditEvents.some(e => e[0] === AUDIT_EVENTS.WATCHER_READY_FAILED)).toBe(true);
   });
 
-  it('chokidar error triggers watcher_error audit', async () => {
+  it('chokidar error triggers watcher_failed audit', async () => {
     const { audit, events: auditEvents } = makeAudit();
     // watch a non-existent path deep inside non-existent dirs to trigger chokidar error
     const watcher = createWatcher(
@@ -110,14 +110,14 @@ describe('FileWatcher', () => {
 
     // chokidar may or may not emit error depending on timing;
     // if it does, audit should capture it
-    const errorEvents = auditEvents.filter(e => e[0] === AUDIT_EVENTS.WATCHER_ERROR);
+    const errorEvents = auditEvents.filter(e => e[0] === AUDIT_EVENTS.WATCHER_FAILED);
     // 不强求一定触发（取决于 chokidar 行为），但如果触发则必须走 audit
     if (errorEvents.length > 0) {
       expect(errorEvents[0]).toContain(expect.stringContaining('path='));
     }
   });
 
-  it('onError callback error triggers secondary watcher_error', async () => {
+  it('onError callback error triggers secondary watcher_failed', async () => {
     const { audit, events: auditEvents } = makeAudit();
     // 用一个会触发 error 的路径 + onError 抛错
     const watcher = createWatcher(
@@ -134,7 +134,7 @@ describe('FileWatcher', () => {
     await new Promise(r => setTimeout(r, 500));
     await watcher.close();
 
-    const errorEvents = auditEvents.filter(e => e[0] === AUDIT_EVENTS.WATCHER_ERROR);
+    const errorEvents = auditEvents.filter(e => e[0] === AUDIT_EVENTS.WATCHER_FAILED);
     if (errorEvents.length > 0) {
       // 至少有一次是二级失败（带 context=onError_handler）
       const secondary = errorEvents.find(e =>
