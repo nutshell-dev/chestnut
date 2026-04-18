@@ -317,7 +317,11 @@ export async function daemonCommand(name: string): Promise<void> {
   sharedAuditWriter.write('daemon_start', `sha256:${promptHash}`);
 
   // daemon-start commit（不阻塞启动）
-  snapshot.commit(`daemon-start ${new Date().toISOString()}`).catch((err: unknown) => {
+  snapshot.commit(`daemon-start ${new Date().toISOString()}`).then((result) => {
+    if (!result.ok && result.error.kind === 'uncategorized') {
+      sharedAuditWriter.write('snapshot_commit_uncategorized', `context=daemon-start`, `exitCode=${result.error.exitCode}`);
+    }
+  }).catch((err: unknown) => {
     // 不可预期失败：audit 已在 snapshot 内写
     sharedAuditWriter.write('snapshot_commit_failed', `context=daemon-start`, `reason=${err instanceof Error ? err.message : String(err)}`);
   });

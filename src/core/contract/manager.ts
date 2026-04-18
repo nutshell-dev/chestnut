@@ -838,10 +838,11 @@ export class ContractManager {
       body = feedback || 'No feedback provided';
     }
 
+    const audit = this.auditWriter ?? new AuditWriter(this.fs, path.join(this.clawDir, 'audit.tsv'));
     new InboxWriter(
       this.fs,
       path.join(this.clawDir, 'inbox', 'pending'),
-      this.auditWriter,
+      audit,
     ).writeSync({
       type: verdict === 'passed' ? 'acceptance_result' : 'acceptance_rejection',
       source: 'contract_system',
@@ -860,10 +861,11 @@ export class ContractManager {
     const errorMsg = error instanceof Error ? error.message : String(error);
 
     try {
+      const audit = this.auditWriter ?? new AuditWriter(this.fs, path.join(this.clawDir, 'audit.tsv'));
       new InboxWriter(
         this.fs,
         path.join(this.clawDir, 'inbox', 'pending'),
-        this.auditWriter,
+        audit,
       ).writeSync({
         type: 'acceptance_error',
         source: 'contract_system',

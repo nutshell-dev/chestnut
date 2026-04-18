@@ -59,6 +59,7 @@ import { ProcessManager } from '../../foundation/process-manager/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
 import { writeInbox } from '../../foundation/messaging/index.js';
+import { AuditWriter } from '../../foundation/audit/index.js';
 import { randomUUID } from 'crypto';
 import { fileURLToPath } from 'url';
 import { PROCESS_SPAWN_CONFIRM_MS, DEFAULT_MAX_STEPS } from '../../constants.js';
@@ -410,6 +411,7 @@ export async function sendCommand(
   const clawDir = path.join(baseDir, 'claws', name);
   const inboxPending = path.join(clawDir, 'inbox', 'pending');
   const fs = new NodeFileSystem({ baseDir: '/', enforcePermissions: false });
+  const audit = new AuditWriter(fs, path.join(clawDir, 'audit.tsv'));
 
   await writeInbox(fs, inboxPending, {
     id: randomUUID(),
@@ -419,7 +421,7 @@ export async function sendCommand(
     content: message,
     priority: options?.priority ?? 'normal',
     timestamp: new Date().toISOString(),
-  });
+  }, audit);
 
   console.log(`Message sent to "${name}"`);
 }

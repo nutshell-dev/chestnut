@@ -9,6 +9,7 @@ import type { FileSystem } from '../foundation/fs/types.js';
 import { NodeFileSystem } from '../foundation/fs/node-fs.js';
 import { InboxWriter } from '../foundation/messaging/index.js';
 import type { Logger } from '../foundation/monitor/types.js';
+import { AuditWriter } from '../foundation/audit/writer.js';
 import type { Audit } from '../foundation/audit/index.js';
 
 interface HeartbeatOptions {
@@ -63,7 +64,8 @@ export class Heartbeat {
         return;
       }
 
-      new InboxWriter(fs, inboxDir, this.audit).writeSync({
+      const audit = this.audit ?? new AuditWriter(fs, path.join(this.baseDir, 'audit.tsv'));
+      new InboxWriter(fs, inboxDir, audit).writeSync({
         type: 'heartbeat',
         source: 'system',
         priority: 'low',

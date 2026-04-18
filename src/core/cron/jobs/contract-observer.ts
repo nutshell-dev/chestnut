@@ -3,6 +3,7 @@ import * as fsNative from 'fs';
 import { execFile } from '../../../foundation/process-exec/index.js';
 import { notifyInbox } from '../../../utils/notify.js';
 import { NodeFileSystem } from '../../../foundation/fs/node-fs.js';
+import { AuditWriter } from '../../../foundation/audit/index.js';
 
 export interface ContractObserverOptions {
   clawforumDir: string;       // .clawforum/ 目录
@@ -52,6 +53,7 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
 
   // 有事件时写 motion inbox
   if (events.length > 0) {
+    const motionAudit = new AuditWriter(fs, path.join(clawforumDir, 'motion', 'audit.tsv'));
     notifyInbox(fs, {
       inboxDir: motionInboxDir,
       type: 'contract_events',
@@ -59,7 +61,7 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
       priority: 'high',
       body: events.join('\n\n'),
       filenameTag: 'contract_events',
-    });
+    }, motionAudit);
   }
 
   // 更新时间戳

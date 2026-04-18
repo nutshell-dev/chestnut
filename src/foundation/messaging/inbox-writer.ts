@@ -29,7 +29,7 @@ export class InboxWriter {
   constructor(
     private readonly fs: FileSystem,
     private readonly inboxDir: string,
-    private readonly audit?: Audit,
+    private readonly audit: Audit,
   ) {}
 
   /** async 写，atomic */
@@ -43,10 +43,10 @@ export class InboxWriter {
       await this.fs.writeAtomic(filePath, encodeInbox(msg, extraFields));
     } catch (e) {
       const reason = e instanceof Error ? e.message : String(e);
-      this.audit?.write('inbox_write_failed', `file=${filename}`, `to=${msg.to ?? 'broadcast'}`, `reason=${reason}`);
+      this.audit.write('inbox_write_failed', `file=${filename}`, `to=${msg.to ?? 'broadcast'}`, `reason=${reason}`);
       throw e;
     }
-    this.audit?.write('inbox_written', `file=${filename}`, `to=${msg.to ?? 'broadcast'}`);
+    this.audit.write('inbox_written', `file=${filename}`, `to=${msg.to ?? 'broadcast'}`);
   }
 
   /** sync 写，供 task/system 同步路径使用 */
@@ -74,17 +74,20 @@ export class InboxWriter {
       this.fs.writeAtomicSync(path.join(this.inboxDir, filename), content);
     } catch (e) {
       const reason = e instanceof Error ? e.message : String(e);
-      this.audit?.write('inbox_write_failed', `file=${filename}`, `to=${opts.to ?? 'broadcast'}`, `reason=${reason}`);
+      this.audit.write('inbox_write_failed', `file=${filename}`, `to=${opts.to ?? 'broadcast'}`, `reason=${reason}`);
       throw e;
     }
-    this.audit?.write('inbox_written', `file=${filename}`, `to=${opts.to ?? 'broadcast'}`);
+    this.audit.write('inbox_written', `file=${filename}`, `to=${opts.to ?? 'broadcast'}`);
   }
 
-  /** 读 frontmatter meta；Step 3 Result 形态 */
-  readMeta(filePath: string): Result<Record<string, string>, InboxMetaError> {
+  /** 读 frontmatter meta；纯读，静态方法不依赖 audit */
+  static readMeta(
+    fs: FileSystem,
+    filePath: string,
+  ): Result<Record<string, string>, InboxMetaError> {
     let content: string;
     try {
-      content = this.fs.readSync(filePath);
+      content = fs.readSync(filePath);
     } catch (e: any) {
       if (e?.code === 'FS_NOT_FOUND' || e?.code === 'ENOENT') {
         return errResult({ kind: 'not_found', cause: e });
@@ -103,6 +106,7 @@ export class InboxWriter {
 
 export interface InboxMessageOptions extends InboxMessageOptionsBase {
   inboxDir: string;
+  audit: Audit;
 }
 
 /** @deprecated Phase 150 Step 5 过渡：改用 InboxWriter.write */
@@ -110,15 +114,16 @@ export async function writeInbox(
   fs: FileSystem,
   inboxDir: string,
   msg: InboxMessage,
+  audit: Audit,
   extraFields?: Record<string, string>,
 ): Promise<void> {
-  return new InboxWriter(fs, inboxDir).write(msg, extraFields);
+  return new InboxWriter(fs, inboxDir, audit).write(msg, extraFields);
 }
 
 /** @deprecated Phase 150 Step 5 过渡：改用 InboxWriter.writeSync */
 export function writeInboxMessage(fs: FileSystem, opts: InboxMessageOptions): void {
-  const { inboxDir, ...rest } = opts;
-  return new InboxWriter(fs, inboxDir).writeSync(rest);
+  const { inboxDir, audit, ...rest } = opts;
+  return new InboxWriter(fs, inboxDir, audit).writeSync(rest);
 }
 
 /** @deprecated Phase 150 Step 5 过渡：改用 InboxWriter.readMeta */
@@ -126,19 +131,5 @@ export function readInboxFileMeta(
   fs: FileSystem,
   filePath: string,
 ): Result<Record<string, string>, InboxMetaError> {
-  // readMeta 不依赖 inboxDir / audit（纯读），thin wrapper 直接 inline 逻辑
-  let content: string;
-  try {
-    content = fs.readSync(filePath);
-  } catch (e: any) {
-    if (e?.code === 'FS_NOT_FOUND' || e?.code === 'ENOENT') {
-      return errResult({ kind: 'not_found', cause: e });
-    }
-    return errResult({ kind: 'read_failed', cause: e });
-  }
-  try {
-    return ok(parseFrontmatter(content).meta);
-  } catch (e) {
-    return errResult({ kind: 'parse_failed', cause: e });
-  }
+  return InboxWriter.readMeta(fs, filePath);
 }

@@ -136,6 +136,7 @@ function writeWatchdogInboxMessage(type: string, content: Record<string, unknown
   const motionDir = getMotionDir();
   const inboxDir = path.join(motionDir, 'inbox', 'pending');
   const fs = new NodeFileSystem({ baseDir: motionDir, enforcePermissions: false });
+  const audit = new AuditWriter(fs, path.join(motionDir, 'audit.tsv'));
   const body = (content.message as string) ?? JSON.stringify(content);
   writeInboxMessage(fs, {
     inboxDir,
@@ -145,6 +146,7 @@ function writeWatchdogInboxMessage(type: string, content: Record<string, unknown
     body,
     idPrefix: `${Date.now()}_${type}`,
     filenameTag: `watchdog_${type}`,
+    audit,
   });
 }
 
@@ -314,6 +316,7 @@ function maybeCronClawCrash(pm: ProcessManager): void {
       const body = `contract: ${snapshot.contract}, outbox_pending: ${snapshot.outboxPending}`;
 
       const motionFs = new NodeFileSystem({ baseDir: getMotionDir(), enforcePermissions: false });
+      const motionAudit = new AuditWriter(motionFs, path.join(getMotionDir(), 'audit.tsv'));
       writeInboxMessage(motionFs, {
         inboxDir: path.join(getMotionDir(), 'inbox', 'pending'),
         type: 'crash_notification',
@@ -321,6 +324,7 @@ function maybeCronClawCrash(pm: ProcessManager): void {
         priority: 'high',
         body,
         filenameTag: 'claw_crash',
+        audit: motionAudit,
       });
     }
 

@@ -114,7 +114,7 @@ describe('InboxWriter', () => {
     await writer.write(msg);
 
     const files = await fs.readdir(path.join(testDir, 'inbox', 'pending'));
-    const result = writer.readMeta(path.join(testDir, 'inbox', 'pending', files[0]));
+    const result = InboxWriter.readMeta(nfs, path.join(testDir, 'inbox', 'pending', files[0]));
 
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -124,7 +124,7 @@ describe('InboxWriter', () => {
   });
 
   it('readMeta returns err(not_found) for missing file', () => {
-    const result = writer.readMeta(path.join(testDir, 'inbox', 'pending', 'missing.md'));
+    const result = InboxWriter.readMeta(nfs, path.join(testDir, 'inbox', 'pending', 'missing.md'));
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.kind).toBe('not_found');
@@ -134,7 +134,7 @@ describe('InboxWriter', () => {
   it('readMeta returns err(parse_failed) for malformed frontmatter', async () => {
     const badFile = path.join(testDir, 'bad.md');
     await fs.writeFile(badFile, '---\nno closing', 'utf-8');
-    const result = writer.readMeta(badFile);
+    const result = InboxWriter.readMeta(nfs, badFile);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.kind).toBe('parse_failed');

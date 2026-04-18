@@ -23,6 +23,7 @@ import {
 import { ContractManager } from '../../core/contract/manager.js';
 import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
 import { InboxWriter } from '../../foundation/messaging/index.js';
+import { AuditWriter } from '../../foundation/audit/index.js';
 import { PROCESS_SPAWN_CONFIRM_MS, MOTION_CLAW_ID } from '../../constants.js';
 import { CliError } from '../errors.js';
 import { startCommand as watchdogStartCommand, isWatchdogAlive } from './watchdog.js';
@@ -398,7 +399,8 @@ async function _start(): Promise<void> {
       acceptance: [],
     });
 
-    new InboxWriter(notifyFs, inboxDir).writeSync({
+    const notifyAudit = new AuditWriter(notifyFs, path.join(motionDir, 'audit.tsv'));
+    new InboxWriter(notifyFs, inboxDir, notifyAudit).writeSync({
       type: 'message',
       source: 'system',
       priority: 'high',
@@ -416,6 +418,7 @@ async function _start(): Promise<void> {
     }
     if (!isWatchdogAlive()) await watchdogStartCommand();
 
+    const notifyAudit = new AuditWriter(notifyFs, path.join(motionDir, 'audit.tsv'));
     if (onboarding.state === 'not_found') {
       const motionFs = new NodeFileSystem({ baseDir: motionDir, enforcePermissions: false });
       const manager = new ContractManager(motionDir, MOTION_CLAW_ID, motionFs);
@@ -425,14 +428,14 @@ async function _start(): Promise<void> {
         subtasks: buildOnboardingSubtasks('auto'),
         acceptance: [],
       });
-      new InboxWriter(notifyFs, inboxDir).writeSync({
+      new InboxWriter(notifyFs, inboxDir, notifyAudit).writeSync({
         type: 'message', source: 'system', priority: 'high',
         body: `New contract created (${contractId}): Onboarding. Please begin execution.`,
         idPrefix: 'start', filenameTag: 'start',
       });
     } else {
       const pendingList = onboarding.pending.join(', ');
-      new InboxWriter(notifyFs, inboxDir).writeSync({
+      new InboxWriter(notifyFs, inboxDir, notifyAudit).writeSync({
         type: 'message', source: 'system', priority: 'high',
         body: `Resuming Onboarding contract (${onboarding.contractId}). Pending subtasks: ${pendingList}. Please continue.`,
         idPrefix: 'start', filenameTag: 'start',

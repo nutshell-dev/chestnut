@@ -11,6 +11,7 @@ import { ContractManager, type ContractYaml, type ProgressData } from '../../cor
 import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
 import { getClawDir } from '../config.js';
 import { notifySystem, notifyStream } from '../../utils/notify.js';
+import { AuditWriter } from '../../foundation/audit/index.js';
 
 
 function parseAndValidateContractYaml(yamlContent: string): ContractYaml {
@@ -49,10 +50,12 @@ function notifyContractCreated(clawDir: string, clawId: string, contractId: stri
   lines.push(`执行完每个子任务后，调用 done 提交验收：`);
   lines.push(`done: { "subtask": "<subtask-id>", "evidence": "<产出物路径或完成摘要>" }`);
   const body = lines.join('\n');
+  const contractAudit = new AuditWriter(fs, path.join(clawDir, 'audit.tsv'));
   notifySystem(
     fs,
     path.join(clawDir, 'inbox', 'pending'),
     body,
+    contractAudit,
     { type: 'message', priority: 'high', idPrefix: 'contract-new' },
     'contract'
   );

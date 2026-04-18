@@ -5,6 +5,7 @@ import type { TaskSystem } from '../../task/system.js';
 import { scheduleSubAgentWithTracking } from '../../tools/builtins/spawn.js';
 import { TOOL_PROFILES } from '../../tools/profiles.js';
 import { writeInboxMessage } from '../../../utils/inbox-writer.js';
+import { AuditWriter } from '../../../foundation/audit/index.js';
 import {
   RANDOM_DREAM_SYSTEM_PROMPT,
   buildRandomDreamPrompt,
@@ -269,6 +270,7 @@ export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
   saveRandomDreamState(opts.clawforumDir, updatedState);
 
   // 投递到 motion inbox
+  const motionAudit = new AuditWriter(opts.fs, path.join(opts.motionDir, 'audit.tsv'));
   writeInboxMessage(opts.fs, {
     inboxDir: path.join(opts.motionDir, 'inbox', 'pending'),
     type: 'random_dream',
@@ -278,5 +280,6 @@ export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
     idPrefix: `${Date.now()}_random_dream`,
     filenameTag: 'random_dream',
     extraFields: { dream_count: String(outputs.length) },
+    audit: motionAudit,
   });
 }

@@ -4,4 +4,4 @@
  */
 
 export { writeInboxMessage, readInboxFileMeta } from '../foundation/messaging/inbox-writer.js';
-export type { InboxMessageOptions } from '../foundation/messaging/inbox-writer.js';
+export type { InboxMessageOptions, InboxMessageOptionsBase } from '../foundation/messaging/inbox-writer.js';

@@ -219,10 +219,14 @@ export class ClawRuntime {
         if (toolCount > 0) {
           await this.sessionManager.save(repaired);
           this.auditWriter.write('session_repaired', `tools=${toolCount}`);
-          this.snapshot.commit(`session-repair tools=${toolCount}`).catch((err: unknown) => {
+          const result = await this.snapshot.commit(`session-repair tools=${toolCount}`).catch((err: unknown): null => {
             // 不可预期失败：audit 已在 snapshot 内写；此处仅暴露给诊断
             this.auditWriter.write('snapshot_commit_failed', `context=session-repair`, `reason=${err instanceof Error ? err.message : String(err)}`);
+            return null;
           });
+          if (result && !result.ok && result.error.kind === 'uncategorized') {
+            this.auditWriter.write('snapshot_commit_uncategorized', `context=session-repair`, `exitCode=${result.error.exitCode}`);
+          }
         }
       }
     }
@@ -565,10 +569,14 @@ export class ClawRuntime {
 
     // turn auto-commit
     this.turnCount++;
-    this.snapshot.commit(`turn-${this.turnCount} ${new Date().toISOString()}`).catch((err: unknown) => {
+    const commitResult = await this.snapshot.commit(`turn-${this.turnCount} ${new Date().toISOString()}`).catch((err: unknown): null => {
       // 不可预期失败：audit 已在 snapshot 内写；此处仅暴露给诊断
       this.auditWriter.write('snapshot_commit_failed', `context=turn-${this.turnCount}`, `reason=${err instanceof Error ? err.message : String(err)}`);
+      return null;
     });
+    if (commitResult && !commitResult.ok && commitResult.error.kind === 'uncategorized') {
+      this.auditWriter.write('snapshot_commit_uncategorized', `context=turn-${this.turnCount}`, `exitCode=${commitResult.error.exitCode}`);
+    }
   }
 
   /**
