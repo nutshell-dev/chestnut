@@ -647,11 +647,8 @@ describe('ContractManager', () => {
       // Spy on moveToArchive to make it fail
       const moveSpy = vi.spyOn(testManager as any, 'moveToArchive').mockRejectedValue(new Error('disk full'));
 
-      // Complete the subtask (no acceptance = allCompleted = true)
+      // Complete the subtask (no acceptance = allCompleted = true, sync path)
       await testManager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'done' });
-
-      // Wait for async operations
-      await new Promise(r => setTimeout(r, 50));
 
       expect(moveSpy).toHaveBeenCalledWith(contractId);
       // updateContractStatus already writes contract_completed; the additional
@@ -687,8 +684,6 @@ describe('ContractManager', () => {
       const moveSpy = vi.spyOn(testManager as any, 'moveToArchive').mockResolvedValue(undefined);
 
       await testManager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'done' });
-
-      await new Promise(r => setTimeout(r, 50));
 
       expect(moveSpy).toHaveBeenCalledWith(contractId);
       expect(mockAudit.write).toHaveBeenCalledWith('contract_completed', contractId, 'title=Test', expect.stringContaining('claw='));
@@ -734,8 +729,13 @@ describe('ContractManager', () => {
       // Should indicate async processing
       expect(result.async).toBe(true);
 
-      // Wait for background processing (with .catch() handler)
-      await new Promise(r => setTimeout(r, 150));
+      // Wait for background processing to complete
+      const deadline = Date.now() + 5000;
+      while (Date.now() < deadline) {
+        const p = await testManager.getProgress(contractId);
+        if (p.subtasks['t1'].status !== 'in_progress') break;
+        await new Promise(r => setTimeout(r, 10));
+      }
 
       runLLMSpy.mockRestore();
 
@@ -750,6 +750,109 @@ describe('ContractManager', () => {
       // Verify the verifier uses the default max steps (unified with other subagents)
       const { DEFAULT_MAX_STEPS } = await import('../../src/constants.js');
       expect(DEFAULT_MAX_STEPS).toBe(100);
+    });
+  });
+
+  // === Phase 137: escalated_at written when retry_count reaches maxRetries ===
+
+  describe('escalation writes escalated_at', () => {
+    it('should set escalated_at after reaching max retries', async () => {
+      const mockMonitor = { log: vi.fn() };
+      const testManager = new ContractManager(clawDir, 'test-claw', nodeFs, mockMonitor as any);
+
+      const contractId = await testManager.create({
+        schema_version: 1,
+        title: 'Escalation Test',
+        goal: 'Test escalated_at',
+        subtasks: [{ id: 't1', description: 'T1' }],
+        acceptance: [
+          { subtask_id: 't1', type: 'script' as const, script_file: 'acceptance/t1.sh' },
+        ],
+        auth_level: 'auto',
+      });
+
+      // Create script file so acceptance config resolves
+      const contractDir = path.join(clawDir, 'contract/active', contractId);
+      await fs.mkdir(path.join(contractDir, 'acceptance'), { recursive: true });
+      await fs.writeFile(path.join(contractDir, 'acceptance', 't1.sh'), '#!/bin/sh\nexit 1');
+      await fs.chmod(path.join(contractDir, 'acceptance', 't1.sh'), 0o755);
+
+      // Mock runScriptAcceptance to always reject
+      const scriptSpy = vi.spyOn(testManager as any, 'runScriptAcceptance').mockResolvedValue({
+        passed: false,
+        feedback: 'acceptance failed',
+        structured: { passed: false, reason: 'test', issues: [] },
+      });
+
+      // Default maxRetries = 3, need 3 failures to trigger escalation
+      for (let i = 0; i < 3; i++) {
+        await testManager.completeSubtask({ contractId, subtaskId: 't1', evidence: `attempt ${i + 1}` });
+        // Wait for background acceptance to complete (subtask leaves in_progress)
+        const dl = Date.now() + 5000;
+        while (Date.now() < dl) {
+          const p = await testManager.getProgress(contractId);
+          if (p.subtasks['t1'].status !== 'in_progress') break;
+          await new Promise(r => setTimeout(r, 10));
+        }
+      }
+
+      // Escalation saveProgress runs after inbox write; poll for escalated_at
+      const dl2 = Date.now() + 5000;
+      while (Date.now() < dl2) {
+        const p = await testManager.getProgress(contractId);
+        if (p.subtasks['t1'].escalated_at) break;
+        await new Promise(r => setTimeout(r, 10));
+      }
+
+      scriptSpy.mockRestore();
+
+      const progress = await testManager.getProgress(contractId);
+      expect(progress.subtasks['t1'].retry_count).toBe(3);
+      expect(progress.subtasks['t1'].escalated_at).toBeDefined();
+      expect(new Date(progress.subtasks['t1'].escalated_at!).getTime()).toBeGreaterThan(0);
+    });
+
+    it('should not set escalated_at before reaching max retries', async () => {
+      const mockMonitor = { log: vi.fn() };
+      const testManager = new ContractManager(clawDir, 'test-claw', nodeFs, mockMonitor as any);
+
+      const contractId = await testManager.create({
+        schema_version: 1,
+        title: 'No Escalation Test',
+        goal: 'Test no escalated_at',
+        subtasks: [{ id: 't1', description: 'T1' }],
+        acceptance: [
+          { subtask_id: 't1', type: 'script' as const, script_file: 'acceptance/t1.sh' },
+        ],
+        auth_level: 'auto',
+      });
+
+      const contractDir = path.join(clawDir, 'contract/active', contractId);
+      await fs.mkdir(path.join(contractDir, 'acceptance'), { recursive: true });
+      await fs.writeFile(path.join(contractDir, 'acceptance', 't1.sh'), '#!/bin/sh\nexit 1');
+      await fs.chmod(path.join(contractDir, 'acceptance', 't1.sh'), 0o755);
+
+      const scriptSpy = vi.spyOn(testManager as any, 'runScriptAcceptance').mockResolvedValue({
+        passed: false,
+        feedback: 'acceptance failed',
+      });
+
+      // Only 2 failures — below maxRetries (3)
+      for (let i = 0; i < 2; i++) {
+        await testManager.completeSubtask({ contractId, subtaskId: 't1', evidence: `attempt ${i + 1}` });
+        const dl = Date.now() + 5000;
+        while (Date.now() < dl) {
+          const p = await testManager.getProgress(contractId);
+          if (p.subtasks['t1'].status !== 'in_progress') break;
+          await new Promise(r => setTimeout(r, 10));
+        }
+      }
+
+      scriptSpy.mockRestore();
+
+      const progress = await testManager.getProgress(contractId);
+      expect(progress.subtasks['t1'].retry_count).toBe(2);
+      expect(progress.subtasks['t1'].escalated_at).toBeUndefined();
     });
   });
 

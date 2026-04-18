@@ -170,14 +170,14 @@ describe('TaskSystem Tool Tasks', () => {
       };
       
       const taskId = await taskSystem.scheduleTool('testTool', slowCallback, 'parent-claw');
-      
-      await waitFor(() => taskSystem.listRunning().includes(taskId));
-      
+
+      const runningPath = path.join(testClawDir, 'tasks', 'running', `${taskId}.json`);
+      await waitFor(async () => {
+        try { await fs.access(runningPath); return true; } catch { return false; }
+      });
+
       // Task should be in running directory after dispatch
-      const taskFile = await fs.readFile(
-        path.join(testClawDir, 'tasks', 'running', `${taskId}.json`),
-        'utf-8'
-      );
+      const taskFile = await fs.readFile(runningPath, 'utf-8');
       const taskData = JSON.parse(taskFile);
       expect(taskData.kind).toBe('tool');
       expect(taskData.toolName).toBe('testTool');
@@ -195,8 +195,8 @@ describe('TaskSystem Tool Tasks', () => {
       const taskId = await taskSystem.scheduleTool('testTool', executeCallback, 'parent-claw');
       
       await waitFor(async () => {
-        const files = await fs.readdir(path.join(testClawDir, 'inbox', 'pending')).catch(() => []);
-        return files.length > 0;
+        const files = await fs.readdir(path.join(testClawDir, 'inbox', 'pending')).catch(() => [] as string[]);
+        return (files as string[]).some(f => f.endsWith('.md'));
       });
       
       expect(executeCallback).toHaveBeenCalled();
@@ -273,8 +273,8 @@ describe('TaskSystem Tool Tasks', () => {
       const taskId = await taskSystem.scheduleTool('testTool', executeCallback, 'parent-claw');
       
       await waitFor(async () => {
-        const files = await fs.readdir(path.join(testClawDir, 'inbox', 'pending')).catch(() => []);
-        return files.length > 0;
+        const files = await fs.readdir(path.join(testClawDir, 'inbox', 'pending')).catch(() => [] as string[]);
+        return (files as string[]).some(f => f.endsWith('.md'));
       });
       
       // Check inbox/pending/ for the error result message
@@ -726,8 +726,8 @@ describe('TaskSystem Tool Tasks', () => {
 
       const taskId = await taskSystem.scheduleTool('testTool', executeCallback, 'parent-claw');
       await waitFor(async () => {
-        const files = await fs.readdir(path.join(testClawDir, 'inbox', 'pending')).catch(() => []);
-        return files.length > 0;
+        const files = await fs.readdir(path.join(testClawDir, 'inbox', 'pending')).catch(() => [] as string[]);
+        return (files as string[]).some(f => f.endsWith('.md'));
       });
 
       // Check inbox/pending/ for the result message
@@ -755,8 +755,8 @@ describe('TaskSystem Tool Tasks', () => {
 
       await taskSystem.scheduleTool('testTool', executeCallback, 'parent-claw');
       await waitFor(async () => {
-        const files = await fs.readdir(path.join(testClawDir, 'inbox', 'pending')).catch(() => []);
-        return files.length > 0;
+        const files = await fs.readdir(path.join(testClawDir, 'inbox', 'pending')).catch(() => [] as string[]);
+        return (files as string[]).some(f => f.endsWith('.md'));
       });
 
       // Inbox file must be .md (not .json or other)
@@ -797,12 +797,12 @@ describe('TaskSystem Tool Tasks', () => {
       const executeCallback = vi.fn().mockResolvedValue({ success: true, content: 'fallback content' });
       await taskSystem2.scheduleTool('testTool', executeCallback, 'parent-claw');
       await waitFor(async () => {
-        const files = await fs.readdir(path.join(testClawDir, 'inbox', 'pending')).catch(() => []);
-        return files.length > 0;
+        const files = await fs.readdir(path.join(testClawDir, 'inbox', 'pending')).catch(() => [] as string[]);
+        return (files as string[]).some(f => f.endsWith('.md'));
       });
 
       // Check inbox/pending/ for the result message
-      const inboxFiles = await fs.readdir(path.join(testClawDir, 'inbox', 'pending'));
+      const inboxFiles = (await fs.readdir(path.join(testClawDir, 'inbox', 'pending'))).filter(f => f.endsWith('.md'));
       expect(inboxFiles.length).toBeGreaterThan(0);
       
       const inboxFile = await fs.readFile(
@@ -871,13 +871,15 @@ describe('TaskSystem Tool Tasks', () => {
         maxRetries: 2,
       });
 
-      await waitFor(() => flakyCallback.mock.calls.length >= 2);
+      await waitFor(async () => {
+        const files = await fs.readdir(path.join(testClawDir, 'inbox', 'pending')).catch(() => [] as string[]);
+        return (files as string[]).some(f => f.endsWith('.md'));
+      });
 
       expect(flakyCallback).toHaveBeenCalledTimes(2);
 
       // Check inbox/pending/ for the result message
       const inboxFiles = await fs.readdir(path.join(testClawDir, 'inbox', 'pending'));
-      expect(inboxFiles.length).toBeGreaterThan(0);
       
       const inboxFile = await fs.readFile(
         path.join(testClawDir, 'inbox', 'pending', inboxFiles[0]),
@@ -900,8 +902,8 @@ describe('TaskSystem Tool Tasks', () => {
       });
 
       await waitFor(async () => {
-        const files = await fs.readdir(path.join(testClawDir, 'inbox', 'pending')).catch(() => []);
-        return files.length > 0;
+        const files = await fs.readdir(path.join(testClawDir, 'inbox', 'pending')).catch(() => [] as string[]);
+        return (files as string[]).some(f => f.endsWith('.md'));
       });
 
       // Should have been called 3 times (1 initial + 2 retries)
@@ -938,14 +940,16 @@ describe('TaskSystem Tool Tasks', () => {
         isIdempotent: false,
       });
 
-      await waitFor(() => failCallback.mock.calls.length >= 1);
+      await waitFor(async () => {
+        const files = await fs.readdir(path.join(testClawDir, 'inbox', 'pending')).catch(() => [] as string[]);
+        return (files as string[]).some(f => f.endsWith('.md'));
+      });
 
       // Called exactly once, no retry
       expect(failCallback).toHaveBeenCalledTimes(1);
 
       // Check inbox/pending/ for the error message
       const inboxFiles = await fs.readdir(path.join(testClawDir, 'inbox', 'pending'));
-      expect(inboxFiles.length).toBeGreaterThan(0);
       
       const inboxFile = await fs.readFile(
         path.join(testClawDir, 'inbox', 'pending', inboxFiles[0]),

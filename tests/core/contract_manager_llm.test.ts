@@ -153,12 +153,24 @@ async function readMotionInbox(tempDir: string): Promise<Array<{ filename: strin
 }
 
 /**
- * Flush microtasks and wait for async operations
+ * Wait for background acceptance to complete by polling inbox for new files.
+ * All acceptance paths (pass/reject/error) write an inbox message as their final step.
  */
-async function flushAsync(ms = 50): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
-  await new Promise(r => setTimeout(r, ms));
+async function waitForAcceptance(
+  tempDir: string,
+  expectedCount = 1,
+  timeoutMs = 5000,
+): Promise<void> {
+  const inboxDir = path.join(tempDir, 'inbox', 'pending');
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const files = await fs.readdir(inboxDir);
+      if (files.filter(f => f.endsWith('.md')).length >= expectedCount) return;
+    } catch {}
+    await new Promise(r => setTimeout(r, 10));
+  }
+  throw new Error(`waitForAcceptance timed out after ${timeoutMs}ms`);
 }
 
 describe('ContractManager Acceptance Flow', () => {
@@ -226,7 +238,7 @@ describe('ContractManager Acceptance Flow', () => {
       });
 
       expect(result.async).toBe(true);
-      await flushAsync();
+      await waitForAcceptance(tempDir);
 
       const inbox = await readClawInbox(tempDir);
       const rejections = inbox.filter(m => m.content.includes('acceptance_rejection'));
@@ -258,17 +270,22 @@ describe('ContractManager Acceptance Flow', () => {
         evidence: 'test evidence',
       });
 
-      await flushAsync(100);
-
-      // When all subtasks complete, contract moves to archive
+      // Wait for archive (moveToArchive is the last step after inbox write)
       const archiveProgressPath = path.join(tempDir, 'contract', 'archive', contractId, 'progress.json');
       const activeProgressPath = path.join(tempDir, 'contract', 'active', contractId, 'progress.json');
-      
-      let progress;
-      try {
-        progress = JSON.parse(await fs.readFile(archiveProgressPath, 'utf-8'));
-      } catch {
-        progress = JSON.parse(await fs.readFile(activeProgressPath, 'utf-8'));
+      const dl = Date.now() + 5000;
+      let progress: any;
+      while (Date.now() < dl) {
+        try {
+          progress = JSON.parse(await fs.readFile(archiveProgressPath, 'utf-8'));
+          break;
+        } catch {
+          try {
+            const p = JSON.parse(await fs.readFile(activeProgressPath, 'utf-8'));
+            if (p.subtasks['task-1'].status === 'completed') { progress = p; break; }
+          } catch {}
+        }
+        await new Promise(r => setTimeout(r, 10));
       }
       expect(progress.subtasks['task-1'].status).toBe('completed');
 
@@ -302,7 +319,7 @@ describe('ContractManager Acceptance Flow', () => {
         evidence: 'test evidence',
       });
 
-      await flushAsync(100);
+      await waitForAcceptance(tempDir);
 
       const progressPath = path.join(tempDir, 'contract', 'active', contractId, 'progress.json');
       const progress = JSON.parse(await fs.readFile(progressPath, 'utf-8'));
@@ -332,7 +349,7 @@ describe('ContractManager Acceptance Flow', () => {
         evidence: 'test evidence',
       });
       expect(result.async).toBe(true);
-      await flushAsync();
+      await waitForAcceptance(tempDir);
 
       const inbox = await readClawInbox(tempDir);
       const rejections = inbox.filter(m => m.content.includes('acceptance_rejection'));
@@ -350,7 +367,7 @@ describe('ContractManager Acceptance Flow', () => {
       });
 
       await manager.completeSubtask({ contractId, subtaskId: 'task-1', evidence: 'e' });
-      await flushAsync();
+      await waitForAcceptance(tempDir);
 
       expect(logSpy).toHaveBeenCalledWith('error', expect.objectContaining({
         context: 'ContractManager._runAcceptanceInBackground',
@@ -381,17 +398,22 @@ describe('ContractManager Acceptance Flow', () => {
         evidence: 'test evidence',
       });
 
-      await flushAsync(100);
-
-      // When all subtasks complete, contract moves to archive
+      // Wait for archive (moveToArchive is the last step after inbox write)
       const archiveProgressPath = path.join(tempDir, 'contract', 'archive', contractId, 'progress.json');
       const activeProgressPath = path.join(tempDir, 'contract', 'active', contractId, 'progress.json');
-      
-      let progress;
-      try {
-        progress = JSON.parse(await fs.readFile(archiveProgressPath, 'utf-8'));
-      } catch {
-        progress = JSON.parse(await fs.readFile(activeProgressPath, 'utf-8'));
+      const deadline = Date.now() + 5000;
+      let progress: any;
+      while (Date.now() < deadline) {
+        try {
+          progress = JSON.parse(await fs.readFile(archiveProgressPath, 'utf-8'));
+          break;
+        } catch {
+          try {
+            const p = JSON.parse(await fs.readFile(activeProgressPath, 'utf-8'));
+            if (p.subtasks['task-1'].status === 'completed') { progress = p; break; }
+          } catch {}
+        }
+        await new Promise(r => setTimeout(r, 10));
       }
       expect(progress.subtasks['task-1'].status).toBe('completed');
 
@@ -425,7 +447,7 @@ describe('ContractManager Acceptance Flow', () => {
         evidence: 'test evidence',
       });
 
-      await flushAsync(100);
+      await waitForAcceptance(tempDir);
 
       const progressPath = path.join(tempDir, 'contract', 'active', contractId, 'progress.json');
       const progress = JSON.parse(await fs.readFile(progressPath, 'utf-8'));
@@ -453,7 +475,7 @@ describe('ContractManager Acceptance Flow', () => {
         evidence: 'test evidence',
       });
 
-      await flushAsync();
+      await waitForAcceptance(tempDir);
 
       const inbox = await readClawInbox(tempDir);
       const rejections = inbox.filter(m => m.content.includes('acceptance_rejection'));
@@ -478,7 +500,7 @@ describe('ContractManager Acceptance Flow', () => {
         evidence: 'test evidence',
       });
       expect(result.async).toBe(true);
-      await flushAsync();
+      await waitForAcceptance(tempDir);
 
       const inbox = await readClawInbox(tempDir);
       const rejections = inbox.filter(m => m.content.includes('acceptance_rejection'));
@@ -506,7 +528,7 @@ describe('ContractManager Acceptance Flow', () => {
         evidence: 'test evidence',
       });
       expect(result.async).toBe(true);
-      await flushAsync();
+      await waitForAcceptance(tempDir);
 
       const inbox = await readClawInbox(tempDir);
       const rejections = inbox.filter(m => m.content.includes('acceptance_rejection'));
@@ -524,7 +546,7 @@ describe('ContractManager Acceptance Flow', () => {
       });
 
       await manager.completeSubtask({ contractId, subtaskId: 'task-1', evidence: 'e' });
-      await flushAsync();
+      await waitForAcceptance(tempDir);
 
       expect(logSpy).toHaveBeenCalledWith('error', expect.objectContaining({
         context: 'ContractManager._runAcceptanceInBackground',
@@ -564,16 +586,23 @@ describe('ContractManager Acceptance Flow', () => {
       });
 
       await manager.completeSubtask({ contractId, subtaskId: 'task-1', evidence: 'done' });
-      await flushAsync(100);
 
-      // 即使返回的文本不是 JSON，主路径应通过（capturedResult.passed = true）
+      // Wait for archive (moveToArchive is the last step after inbox write)
       const archiveProgressPath = path.join(tempDir, 'contract', 'archive', contractId, 'progress.json');
       const activeProgressPath = path.join(tempDir, 'contract', 'active', contractId, 'progress.json');
-      let progress;
-      try {
-        progress = JSON.parse(await fs.readFile(archiveProgressPath, 'utf-8'));
-      } catch {
-        progress = JSON.parse(await fs.readFile(activeProgressPath, 'utf-8'));
+      const dl = Date.now() + 5000;
+      let progress: any;
+      while (Date.now() < dl) {
+        try {
+          progress = JSON.parse(await fs.readFile(archiveProgressPath, 'utf-8'));
+          break;
+        } catch {
+          try {
+            const p = JSON.parse(await fs.readFile(activeProgressPath, 'utf-8'));
+            if (p.subtasks['task-1'].status === 'completed') { progress = p; break; }
+          } catch {}
+        }
+        await new Promise(r => setTimeout(r, 10));
       }
       expect(progress.subtasks['task-1'].status).toBe('completed');
 
@@ -603,7 +632,7 @@ describe('ContractManager Acceptance Flow', () => {
       mockSubAgentRun.mockResolvedValue('I reviewed the evidence but cannot determine a verdict.');
 
       await manager.completeSubtask({ contractId, subtaskId: 'task-1', evidence: 'done' });
-      await flushAsync(100);
+      await waitForAcceptance(tempDir);
 
       // 应以 rejected 写入 inbox，内容含 "无法解析 JSON"
       const inbox = await readClawInbox(tempDir);
@@ -642,7 +671,7 @@ describe('ContractManager Acceptance Flow', () => {
       });
 
       await manager.completeSubtask({ contractId, subtaskId: 'task-1', evidence: 'done' });
-      await flushAsync(100);
+      await waitForAcceptance(tempDir);
 
       // auditWriter 应收到 acceptance_timeout 日志
       const auditWriter = (manager as any).auditWriter;
@@ -681,17 +710,23 @@ describe('ContractManager Acceptance Flow', () => {
       execFileMockStderr = 'test failure';
 
       // This failure should push retry_count to 2, triggering escalation audit
+      const auditWriter = (manager as any).auditWriter;
       await manager.completeSubtask({
         contractId,
         subtaskId: 'task-1',
         evidence: 'attempt 2',
       });
-      await flushAsync(100);
+
+      // Escalation audit is written after inbox, so wait for the audit call
+      const deadline = Date.now() + 5000;
+      while (Date.now() < deadline) {
+        if (auditWriter.write.mock.calls.some((c: any[]) => c[0] === 'contract_escalation')) break;
+        await new Promise(r => setTimeout(r, 10));
+      }
 
       const progress = JSON.parse(await fs.readFile(progressPath, 'utf-8'));
       expect(progress.subtasks['task-1'].retry_count).toBe(2);
 
-      const auditWriter = (manager as any).auditWriter;
       const escalationCalls = auditWriter.write.mock.calls.filter((c: any[]) => c[0] === 'contract_escalation');
       expect(escalationCalls.length).toBeGreaterThan(0);
       expect(escalationCalls[0][1]).toContain('task-1');
@@ -716,7 +751,7 @@ describe('ContractManager Acceptance Flow', () => {
       execFileMockBehavior = 'success';
 
       await manager.completeSubtask({ contractId, subtaskId: 'task-1', evidence: 'done' });
-      await flushAsync(100);
+      await waitForAcceptance(tempDir);
 
       const inbox = await readClawInbox(tempDir);
       expect(inbox).toHaveLength(1);
@@ -757,7 +792,7 @@ describe('ContractManager Acceptance Flow', () => {
       execFileMockStderr = 'file not found';
 
       await manager.completeSubtask({ contractId, subtaskId: 'task-1', evidence: 'done' });
-      await flushAsync(100);
+      await waitForAcceptance(tempDir);
 
       const inbox = await readClawInbox(tempDir);
       expect(inbox).toHaveLength(1);

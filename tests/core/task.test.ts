@@ -45,6 +45,18 @@ async function createTempDir(): Promise<string> {
   return tempDir;
 }
 
+async function waitFor(
+  condition: () => boolean | Promise<boolean>,
+  timeoutMs = 5000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await condition()) return;
+    await new Promise(r => setTimeout(r, 10));
+  }
+  throw new Error(`waitFor timed out after ${timeoutMs}ms`);
+}
+
 async function cleanupTempDir(tempDir: string): Promise<void> {
   try {
     await fs.rm(tempDir, { recursive: true, force: true });
@@ -169,12 +181,11 @@ describe('Task System + SubAgent', () => {
       expect(taskId).toBeDefined();
       expect(typeof taskId).toBe('string');
 
-      // Wait for dispatch to move from pending to running
-      await new Promise(r => setTimeout(r, 100));
+      // Wait for dispatch to move from pending to running (file on disk)
+      await waitFor(() => mockFs.exists(`tasks/running/${taskId}.json`));
 
-      // Check task file exists in running directory
-      const runningExists = await mockFs.exists(`tasks/running/${taskId}.json`);
-      expect(runningExists).toBe(true);
+      // Check task is tracked in running list
+      expect(taskSystem.listRunning()).toContain(taskId);
     });
 
     it('should move task to done when completed', async () => {
@@ -195,7 +206,7 @@ describe('Task System + SubAgent', () => {
       });
 
       // Wait for task to complete
-      await new Promise(r => setTimeout(r, 500));
+      await waitFor(() => mockFs.exists(`tasks/done/${taskId}.json`));
 
       // Task should be moved to done
       const doneExists = await mockFs.exists(`tasks/done/${taskId}.json`);
@@ -222,10 +233,13 @@ describe('Task System + SubAgent', () => {
         parentClawId: 'motion',
       });
 
-      await new Promise(r => setTimeout(r, 500));
+      const inboxDir = path.join(tempDir, 'inbox', 'pending');
+      await waitFor(async () => {
+        const files = await fs.readdir(inboxDir).catch(() => [] as string[]);
+        return (files as string[]).some(f => f.endsWith('.md'));
+      });
 
       // Result must be in inbox/pending/ (relative to clawDir=tempDir), NOT in claws/motion/inbox
-      const inboxDir = path.join(tempDir, 'inbox', 'pending');
       const inboxFiles = await fs.readdir(inboxDir).catch(() => [] as string[]);
       expect(inboxFiles.length).toBeGreaterThan(0);
       expect(inboxFiles.every((f: string) => f.endsWith('.md'))).toBe(true);
@@ -274,7 +288,7 @@ describe('Task System + SubAgent', () => {
       });
 
       // Wait for task to be dispatched to running
-      await new Promise(r => setTimeout(r, 50));
+      await waitFor(() => taskSystem.listRunning().includes(taskId));
 
       // Verify task is in running state
       expect(taskSystem.listRunning()).toContain(taskId);
@@ -304,7 +318,10 @@ describe('Task System + SubAgent', () => {
       });
 
       // 等待任务完成 + monitor 异步写入
-      await new Promise(r => setTimeout(r, 500));
+      await waitFor(async () => {
+        const content = await fs.readFile(path.join(tempDir, 'logs', 'monitor.jsonl'), 'utf-8').catch(() => '');
+        return content.includes('subagent_completed');
+      });
 
       // subagent_completed → logs/monitor.jsonl
       const logPath = path.join(tempDir, 'logs', 'monitor.jsonl');
@@ -326,8 +343,11 @@ describe('Task System + SubAgent', () => {
         parentClawId: 'test-claw',
       });
 
-      // 等待超时触发 + 任务完成 + monitor 异步写入
-      await new Promise(r => setTimeout(r, 1500));
+      // 等待超时触发 + 任务完成 + inbox 写入
+      await waitFor(async () => {
+        const files = await fs.readdir(path.join(tempDir, 'inbox', 'pending')).catch(() => []);
+        return (files as string[]).filter(f => f.endsWith('.md')).length > 0;
+      });
 
       // inbox 中有 is_error: true 的消息（验证 executeTask catch 被执行）
       const inboxDir = path.join(tempDir, 'inbox', 'pending');
@@ -371,7 +391,10 @@ describe('Task System + SubAgent', () => {
         parentClawId: 'test-claw',
       });
 
-      await new Promise(r => setTimeout(r, 800));
+      await waitFor(async () => {
+        const files = await fs.readdir(path.join(tempDir, 'inbox', 'pending')).catch(() => []);
+        return (files as string[]).filter(f => f.endsWith('.md')).length > 0;
+      });
       await failSystem.shutdown(1000);
 
       // fallback 消息应该存在于 inbox
@@ -412,7 +435,10 @@ describe('Task System + SubAgent', () => {
         parentClawId: 'test-claw',
       });
 
-      await new Promise(r => setTimeout(r, 500));
+      await waitFor(async () => {
+        const files = await fs.readdir(path.join(tempDir, 'inbox', 'pending')).catch(() => []);
+        return (files as string[]).filter(f => f.endsWith('.md')).length > 0;
+      });
       await failSystem.shutdown(1000);
 
       // _startTask catch 应该发了 fallback 通知
