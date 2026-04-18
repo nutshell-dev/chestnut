@@ -2,7 +2,7 @@
  * StreamWriter - 追加写 stream.jsonl
  */
 import type { FileSystem } from '../fs/types.js';
-import type { StreamEvent, StreamLog } from './types.js';
+import { STREAM_FILE, type StreamEvent, type StreamLog } from './types.js';
 import type { Audit } from '../audit/index.js';
 import { AUDIT_EVENTS } from '../audit/events.js';
 
@@ -10,9 +10,6 @@ interface StreamRetentionOptions {
   maxFiles?: number | null;
   maxDays?: number | null;
 }
-
-/** stream.jsonl 相对路径 */
-const STREAM_FILE = 'stream.jsonl';
 /** 归档目录相对路径 */
 const ARCHIVE_DIR = 'logs/stream';
 

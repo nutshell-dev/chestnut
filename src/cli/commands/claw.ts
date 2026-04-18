@@ -20,6 +20,9 @@ import { CliError, handleCliError } from '../../utils/error.js';
 
 import { runChatViewport } from './chat-viewport.js';
 import { buildAgentsMdTemplate } from '../../prompts/index.js';
+import { readAll } from '../../foundation/stream/index.js';
+import type { FileSystem } from '../../foundation/fs/types.js';
+import type { Audit } from '../../foundation/audit/index.js';
 
 /**
  * Format relative time (milliseconds to a human-readable string)
@@ -38,18 +41,14 @@ const LLM_OUTPUT_EVENTS = new Set(['thinking_delta', 'text_delta', 'tool_call'])
 /**
  * 从 stream.jsonl 读取最后活跃时间（统一与 watchdog 指标）
  */
-function getLastActiveMs(clawDir: string): number | undefined {
-  const streamFile = path.join(clawDir, 'dialog', 'stream.jsonl');
+async function getLastActiveMs(clawFs: FileSystem, audit: Audit): Promise<number | undefined> {
   try {
-    const lines = fs.readFileSync(streamFile, 'utf-8').trim().split('\n').filter(Boolean);
+    const events = await readAll(clawFs, audit);
     let last: number | undefined;
-    for (const line of lines) {
-      try {
-        const ev = JSON.parse(line);
-        if (LLM_OUTPUT_EVENTS.has(ev.type) && typeof ev.ts === 'number') {
-          last = ev.ts;
-        }
-      } catch { /* skip */ }
+    for (const ev of events) {
+      if (LLM_OUTPUT_EVENTS.has(ev.type) && typeof ev.ts === 'number') {
+        last = ev.ts;
+      }
     }
     return last;
   } catch { return undefined; }
@@ -213,8 +212,9 @@ export async function listCommand(): Promise<void> {
   }
 
   // Helper: format relative last-active time
-  function formatLastActive(clawPath: string): string {
-    const ms = getLastActiveMs(clawPath);
+  async function formatLastActive(clawPath: string): Promise<string> {
+    const clawFs = new NodeFileSystem({ baseDir: clawPath, enforcePermissions: false });
+    const ms = await getLastActiveMs(clawFs, systemAudit);
     if (ms === undefined) return '-';
     const age = Date.now() - ms;
     const mins = Math.floor(age / 60000);
@@ -295,7 +295,7 @@ export async function listCommand(): Promise<void> {
           pid,
           contract: getContractStatus(clawPath),
           outbox: getOutboxCount(clawPath),
-          lastActive: formatLastActive(clawPath),
+          lastActive: await formatLastActive(clawPath),
           lastContract: getLatestContractTitle(clawPath),
         });
       }
@@ -374,7 +374,8 @@ export async function healthCommand(name: string): Promise<void> {
 
   // Last active time（统一使用 stream.jsonl 指标）
   let lastActive = '-';
-  const lastMs = getLastActiveMs(clawDir);
+  const clawFs = new NodeFileSystem({ baseDir: clawDir, enforcePermissions: false });
+  const lastMs = await getLastActiveMs(clawFs, systemAudit);
   if (lastMs !== undefined) {
     lastActive = formatRelativeTime(Date.now() - lastMs);
   }

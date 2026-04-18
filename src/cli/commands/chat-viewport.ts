@@ -17,6 +17,8 @@ import type { CallerType } from '../../core/tools/caller-type.js';
 import { createWatcher } from '../../foundation/file-watcher/index.js';
 import type { Watcher } from '../../foundation/file-watcher/types.js';
 import type { Audit } from '../../foundation/audit/index.js';
+import { createStreamReader, STREAM_FILE } from '../../foundation/stream/index.js';
+import type { StreamReader, StreamEvent } from '../../foundation/stream/index.js';
 
 export interface ChatViewportOptions {
   agentDir: string;   // motion dir 或 claw dir
@@ -70,7 +72,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     selectCancel: 'escape',  // 只绑 ESC
   }));
 
-  const streamPath = path.join(options.agentDir, 'stream.jsonl');
+  const streamPath = path.join(options.agentDir, STREAM_FILE);
   const terminal = new ProcessTerminal();
   const tui = new TUI(terminal);
 
@@ -448,27 +450,23 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
       case 'task_started': {
         const taskId = event.taskId as string;
         const callerType = (event.callerType as string) ?? 'subagent';
-        const streamPath = path.join(options.agentDir, 'tasks', 'results', taskId, 'stream.jsonl');
+        const taskFs = new NodeFileSystem({ baseDir: path.join(options.agentDir, 'tasks', 'results', taskId), enforcePermissions: false });
+        const taskReader = createStreamReader(taskFs, (ev) => handleTaskEvent(taskId, callerType, ev), options.audit);
+        taskReader.start();
         const tw: TaskWatch = {
           callerType: callerType as any,
           silent: (event.silent as boolean) ?? false,
-          fileSize: 0, leftover: '', watcher: null,
+          fileSize: 0, leftover: '', streamReader: taskReader,
         };
         taskWatchMap.set(taskId, tw);
-        try {
-          tw.watcher = createWatcher(fs, path.relative(options.baseDir, streamPath), () => pollTaskStream(taskId), options.audit, {
-            stability: 'immediate',
-            onError: () => { void tw.watcher?.close(); tw.watcher = null; },
-          });
-        } catch { /* fallback to poll */ }
         break;
       }
     }
   };
 
   // tail stream.jsonl
-  let fileSize = 0;
-  let leftover = '';
+  const streamReader = createStreamReader(fs, (ev) => handleEvent(ev), options.audit);
+  streamReader.start();
 
   // Motion viewport：各 claw 步数追踪
   const isMotion = options.label === 'motion';
@@ -514,83 +512,18 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     silent: boolean;
     fileSize: number;
     leftover: string;
-    watcher: Watcher | null;
+    streamReader: StreamReader | null;
   }
   const taskWatchMap = new Map<string, TaskWatch>();
 
   // Interrupt source tracking (for turn_interrupted display)
   let pendingInterruptSource: 'esc' | null = null;
 
-  const stopTaskWatch = (taskId: string) => {
+  const stopTaskWatch = async (taskId: string) => {
     const tw = taskWatchMap.get(taskId);
     if (!tw) return;
-    tw.watcher?.close();
+    await tw.streamReader?.stop();
     taskWatchMap.delete(taskId);
-  };
-
-  try {
-    const stat = fsNative.statSync(streamPath);
-    fileSize = stat.size;  // 从当前末尾开始（不 replay 历史）
-  } catch (err: any) {
-    if (err?.code !== 'ENOENT') {
-      console.warn(`[chat] Failed to stat stream file: ${err?.message}`);
-    }
-    // ENOENT: 文件不存在，从 0 开始
-  }
-
-  let lastEnoentWarnTs = 0;
-
-  const pollStream = () => {
-    try {
-      const stat = fsNative.statSync(streamPath);
-      if (stat.size < fileSize) {  // daemon 重启截断了文件，重置读取位置到头部
-        fileSize = 0;
-        leftover = '';
-      }
-      if (stat.size <= fileSize) return;
-
-      const toRead = stat.size - fileSize;
-      const buf = Buffer.alloc(toRead);
-      const fd = fsNative.openSync(streamPath, 'r');
-      let bytesRead = 0;
-      try {
-        while (bytesRead < toRead) {
-          const n = fsNative.readSync(fd, buf, bytesRead, toRead - bytesRead, fileSize + bytesRead);
-          if (n === 0) break;  // EOF（文件被截断）
-          bytesRead += n;
-        }
-      } finally {
-        fsNative.closeSync(fd);
-      }
-      fileSize += bytesRead;
-
-      const chunk = leftover + buf.toString('utf-8');
-      const lines = chunk.split('\n');
-      leftover = lines.pop() ?? '';  // 最后一段可能不完整，留待下次
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        try {
-          const event = JSON.parse(line);
-          handleEvent(event);
-        } catch {
-          if (line.trim().length > 2) {
-            console.warn(`[chat] Failed to parse stream event: ${line.slice(0, 80)}`);
-          }
-        }
-      }
-    } catch (err: any) {
-      if (err?.code === 'ENOENT') {
-        if (Date.now() - lastEnoentWarnTs >= 60000) {
-          console.warn('[chat] pollStream ENOENT (daemon may not be running):', err.message);
-          lastEnoentWarnTs = Date.now();
-        }
-        return;
-      }
-      // 文件可能被截断（daemon 重启），重置
-      console.warn('[chat] pollStream error, resetting position:', err instanceof Error ? err.message : String(err));
-      fileSize = 0;
-      leftover = '';
-    }
   };
 
   const refreshClawStatus = (clawId: string) => {
@@ -598,7 +531,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     const track = clawTrackMap.get(clawId);
     if (!track) return;
 
-    const streamFile = path.join(clawsDir, clawId, 'stream.jsonl');
+    const streamFile = path.join(clawsDir, clawId, STREAM_FILE);
 
     try {
       const stat = fsNative.statSync(streamFile);
@@ -724,7 +657,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     }
 
     for (const clawId of clawIds) {
-      const streamFile = path.join(clawsDir, clawId, 'stream.jsonl');
+      const streamFile = path.join(clawsDir, clawId, STREAM_FILE);
       if (!clawTrackMap.has(clawId)) {
         const clawDir = path.join(clawsDir, clawId);
         const contractMs = getContractCreatedMs(clawDir);
@@ -768,40 +701,6 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     }
   };
 
-  // Poll task stream for subagent progress (dispatch/spawn)
-  const pollTaskStream = (taskId: string) => {
-    const tw = taskWatchMap.get(taskId);
-    if (!tw) return;
-    const streamPath = path.join(options.agentDir, 'tasks', 'results', taskId, 'stream.jsonl');
-    try {
-      const stat = fsNative.statSync(streamPath);
-      if (stat.size <= tw.fileSize) return;
-      const toRead = stat.size - tw.fileSize;
-      const buf = Buffer.alloc(toRead);
-      const fd = fsNative.openSync(streamPath, 'r');
-      let bytesRead = 0;
-      try {
-        while (bytesRead < toRead) {
-          const n = fsNative.readSync(fd, buf, bytesRead, toRead - bytesRead, tw.fileSize + bytesRead);
-          if (n === 0) break;
-          bytesRead += n;
-        }
-      } finally { fsNative.closeSync(fd); }
-      tw.fileSize += bytesRead;
-
-      const chunk = tw.leftover + buf.toString('utf-8');
-      const lines = chunk.split('\n');
-      tw.leftover = lines.pop() ?? '';
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        try {
-          const ev = JSON.parse(line);
-          handleTaskEvent(taskId, tw.callerType, ev);
-        } catch { }
-      }
-    } catch { }
-  };
-
   const handleTaskEvent = (
     taskId: string,
     callerType: string,
@@ -835,10 +734,8 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     }
   };
 
-  // fs.watch + fallback 轮询
-  let watcher: Watcher | null = null;
+  // fallback 轮询（claw 刷新 + task poll）
   const pollInterval = setInterval(() => {
-    pollStream();
     if (isMotion) {
       const now = Date.now();
       if (now - lastClawRefreshTs >= 2000) {
@@ -846,24 +743,13 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
         refreshAllClawStatus();
       }
     }
-    // Poll task streams for dispatch/spawn progress
-    for (const taskId of taskWatchMap.keys()) {
-      pollTaskStream(taskId);
-    }
+    // Task streams are handled by createStreamReader (started in task_started)
     // Attach 不活跃计时：每 5 次 poll (≈1s) 刷新一次
     if (clawTrackMap.size > 0) {
       updateClawPanel();
       tui.requestRender();
     }
   }, 200);  // fallback 200ms
-
-  try {
-    watcher = createWatcher(fs, path.relative(options.baseDir, streamPath), () => pollStream(), options.audit, {
-      stability: 'immediate',
-    });
-  } catch (err) {
-    console.warn('[chat] createWatcher failed, falling back to polling:', err instanceof Error ? err.message : String(err));
-  }
 
   // Daemon 存活检测（每 3 秒一次）
   let daemonDead = false;
@@ -937,7 +823,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
         t.referenceMs = Date.now();
         clawTrackMap.set(clawId, t);
         try {
-          const w = createWatcher(fs, path.relative(options.baseDir, path.join(clawDir, 'stream.jsonl')), () => refreshClawStatus(clawId), options.audit, {
+          const w = createWatcher(fs, path.relative(options.baseDir, path.join(clawDir, STREAM_FILE)), () => refreshClawStatus(clawId), options.audit, {
             stability: 'immediate',
             onError: () => { void w.close(); clawWatchers.delete(clawId); },
           });
@@ -1196,7 +1082,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
             clawTrackMap.set(clawId, t);
             // 开 watcher
             try {
-              const w = createWatcher(fs, path.relative(options.baseDir, path.join(clawDir, 'stream.jsonl')), () => refreshClawStatus(clawId), options.audit, {
+              const w = createWatcher(fs, path.relative(options.baseDir, path.join(clawDir, STREAM_FILE)), () => refreshClawStatus(clawId), options.audit, {
                 stability: 'immediate',
                 onError: () => { void w.close(); clawWatchers.delete(clawId); },
               });
@@ -1228,11 +1114,11 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   stopSpinner();
   clearInterval(pollInterval);
   clearInterval(daemonCheckInterval);
-  watcher?.close();
+  await streamReader.stop();
   for (const w of clawWatchers.values()) w.close();
   clawWatchers.clear();
   clawsDirWatcher?.close();
-  for (const tw of taskWatchMap.values()) tw.watcher?.close();
+  for (const tw of taskWatchMap.values()) await tw.streamReader?.stop();
   taskWatchMap.clear();
   tui.stop();
   await terminal.drainInput();

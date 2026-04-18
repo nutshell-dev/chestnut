@@ -195,7 +195,7 @@ function getGlobalConfig() {
 }
 
 // Check for claws with an active contract but no progress for a long time, and send a reminder
-export function maybeCronClawInactivity(pm: ProcessManager): void {
+export async function maybeCronClawInactivity(pm: ProcessManager, audit: AuditWriter): Promise<void> {
   const timeoutMs = getGlobalConfig().watchdog?.claw_inactivity_timeout_ms ?? 300000;
   const clawsDir = path.join(getClawforumDir(), 'claws');
   if (!fs.existsSync(clawsDir)) return;
@@ -224,7 +224,8 @@ export function maybeCronClawInactivity(pm: ProcessManager): void {
       if (!clawHasContract(clawDir)) continue;
 
       // Parse stream.jsonl to get real progress
-      const { lastEventMs, lastError } = getClawActivityInfo(clawDir);
+      const clawFs = new NodeFileSystem({ baseDir: clawDir, enforcePermissions: false });
+      const { lastEventMs, lastError } = await getClawActivityInfo(clawFs, audit);
 
       // Merge with contract creation time to handle contract recreation scenario
       const contractCreatedMs = getContractCreatedMs(clawDir);
@@ -422,7 +423,7 @@ export async function daemonCommand(): Promise<void> {
     }
     
     // 2. Cron checks (disk_check moved to CronRunner in daemon.ts)
-    maybeCronClawInactivity(pm);
+    await maybeCronClawInactivity(pm, auditWriter);
     maybeCronClawCrash(pm);
     saveWatchdogState();   // 持久化通知状态（每 tick 一次）
     

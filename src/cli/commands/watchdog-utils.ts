@@ -4,6 +4,9 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import type { FileSystem } from '../../foundation/fs/types.js';
+import type { Audit } from '../../foundation/audit/index.js';
+import { readAll } from '../../foundation/stream/index.js';
 
 // Parse stream.jsonl, return the timestamp of the last event and the last error message
 export interface ClawActivityInfo {
@@ -15,59 +18,34 @@ export interface ClawActivityInfo {
 // Only count direct LLM output events (excludes infrastructure events like llm_start/tool_result)
 export const LLM_OUTPUT_EVENTS = new Set(['thinking_delta', 'text_delta', 'tool_call']);
 
-const TAIL_BYTES = 200 * 1024;  // 200 KB，足够覆盖数十个完整 turn
-
-export function getClawActivityInfo(clawDir: string): ClawActivityInfo {
-  const streamFile = path.join(clawDir, 'stream.jsonl');
+export async function getClawActivityInfo(
+  clawFs: FileSystem,
+  audit: Audit,
+): Promise<ClawActivityInfo> {
   try {
-    const stat = fs.statSync(streamFile);
-    const fileSize = stat.size;
-
-    let content: string;
-    if (fileSize <= TAIL_BYTES) {
-      // 文件较小，全量读取
-      content = fs.readFileSync(streamFile, 'utf-8');
-    } else {
-      // 只读末尾 TAIL_BYTES 字节
-      const buf = Buffer.alloc(TAIL_BYTES);
-      const fd = fs.openSync(streamFile, 'r');
-      try {
-        fs.readSync(fd, buf, 0, TAIL_BYTES, fileSize - TAIL_BYTES);
-      } finally {
-        fs.closeSync(fd);
-      }
-      content = buf.toString('utf-8');
-      // 跳过第一行（可能被截断）
-      const newline = content.indexOf('\n');
-      content = newline >= 0 ? content.slice(newline + 1) : '';
-    }
-
-    const lines = content.trim().split('\n').filter(Boolean);
+    const events = await readAll(clawFs, audit);
 
     let lastEventMs: number | null = null;
     let lastError: string | null = null;
 
-    for (const line of lines) {
-      try {
-        const event = JSON.parse(line) as { type: string; ts?: number; error?: string };
-        const ts = typeof event.ts === 'number' ? event.ts : null;
-        if (!ts) continue;
+    for (const event of events) {
+      const ts = typeof event.ts === 'number' ? event.ts : null;
+      if (!ts) continue;
 
-        // Direct LLM output counts as activity; turn_interrupted also counts
-        // (claw was running but got interrupted — still an active state, not idle)
-        if ((LLM_OUTPUT_EVENTS.has(event.type) || event.type === 'turn_interrupted') &&
-            (lastEventMs === null || ts > lastEventMs)) {
-          lastEventMs = ts;
-        }
+      // Direct LLM output counts as activity; turn_interrupted also counts
+      // (claw was running but got interrupted — still an active state, not idle)
+      if ((LLM_OUTPUT_EVENTS.has(event.type) || event.type === 'turn_interrupted') &&
+          (lastEventMs === null || ts > lastEventMs)) {
+        lastEventMs = ts;
+      }
 
-        // Only track terminal events to determine error state
-        if (event.type === 'turn_end') {
-          lastError = null;         // turn properly completed, clear error
-        } else if (event.type === 'turn_error') {
-          lastError = event.error ?? 'unknown error';
-        }
-        // turn_interrupted: neither clear nor set error
-      } catch { /* skip */ }
+      // Only track terminal events to determine error state
+      if (event.type === 'turn_end') {
+        lastError = null;         // turn properly completed, clear error
+      } else if (event.type === 'turn_error') {
+        lastError = (event.error as string) ?? 'unknown error';
+      }
+      // turn_interrupted: neither clear nor set error
     }
 
     return { lastEventMs, lastError };

@@ -3,6 +3,11 @@
  */
 
 /**
+ * stream.jsonl 相对路径常量
+ */
+export const STREAM_FILE = 'stream.jsonl';
+
+/**
  * stream.jsonl 中的单行事件
  */
 export interface StreamEvent {

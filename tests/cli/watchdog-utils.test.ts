@@ -6,6 +6,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
+import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
+import { AuditWriter } from '../../src/foundation/audit/writer.js';
 import {
   clawHasContract,
   getClawActivityInfo,
@@ -48,23 +50,31 @@ describe('clawHasContract', () => {
 });
 
 describe('getClawActivityInfo', () => {
-  it('returns {null, null} when stream.jsonl is missing', () => {
-    const result = getClawActivityInfo(testDir);
+  function makeFsAudit(dir: string) {
+    const clawFs = new NodeFileSystem({ baseDir: dir, enforcePermissions: false });
+    const audit = new AuditWriter(clawFs, 'audit.tsv');
+    return { clawFs, audit };
+  }
+
+  it('returns {null, null} when stream.jsonl is missing', async () => {
+    const { clawFs, audit } = makeFsAudit(testDir);
+    const result = await getClawActivityInfo(clawFs, audit);
     expect(result.lastEventMs).toBeNull();
     expect(result.lastError).toBeNull();
   });
 
-  it('updates lastEventMs for text_delta events', () => {
+  it('updates lastEventMs for text_delta events', async () => {
     const ts = 1700000000000;
     fs.writeFileSync(
       path.join(testDir, 'stream.jsonl'),
       JSON.stringify({ type: 'text_delta', ts }) + '\n',
     );
-    const result = getClawActivityInfo(testDir);
+    const { clawFs, audit } = makeFsAudit(testDir);
+    const result = await getClawActivityInfo(clawFs, audit);
     expect(result.lastEventMs).toBe(ts);
   });
 
-  it('updates lastEventMs for thinking_delta and tool_call, picks latest', () => {
+  it('updates lastEventMs for thinking_delta and tool_call, picks latest', async () => {
     const ts1 = 1000;
     const ts2 = 2000;
     const lines = [
@@ -72,77 +82,85 @@ describe('getClawActivityInfo', () => {
       JSON.stringify({ type: 'tool_call', ts: ts2 }),
     ].join('\n');
     fs.writeFileSync(path.join(testDir, 'stream.jsonl'), lines);
-    const result = getClawActivityInfo(testDir);
+    const { clawFs, audit } = makeFsAudit(testDir);
+    const result = await getClawActivityInfo(clawFs, audit);
     expect(result.lastEventMs).toBe(ts2);
   });
 
-  it('ignores llm_start events (not in LLM_OUTPUT_EVENTS) for lastEventMs', () => {
+  it('ignores llm_start events (not in LLM_OUTPUT_EVENTS) for lastEventMs', async () => {
     const ts = 1700000000000;
     fs.writeFileSync(
       path.join(testDir, 'stream.jsonl'),
       JSON.stringify({ type: 'llm_start', ts }) + '\n',
     );
-    const result = getClawActivityInfo(testDir);
+    const { clawFs, audit } = makeFsAudit(testDir);
+    const result = await getClawActivityInfo(clawFs, audit);
     expect(result.lastEventMs).toBeNull();
   });
 
-  it('sets lastError on turn_error, clears on subsequent turn_end', () => {
+  it('sets lastError on turn_error, clears on subsequent turn_end', async () => {
     const lines = [
       JSON.stringify({ type: 'text_delta', ts: 1000 }),
       JSON.stringify({ type: 'turn_error', ts: 2000, error: 'timeout' }),
       JSON.stringify({ type: 'turn_end', ts: 3000 }),
     ].join('\n');
     fs.writeFileSync(path.join(testDir, 'stream.jsonl'), lines);
-    const result = getClawActivityInfo(testDir);
+    const { clawFs, audit } = makeFsAudit(testDir);
+    const result = await getClawActivityInfo(clawFs, audit);
     expect(result.lastError).toBeNull(); // turn_end cleared it
   });
 
-  it('retains lastError when turn_error is the last terminal event', () => {
+  it('retains lastError when turn_error is the last terminal event', async () => {
     const lines = [
       JSON.stringify({ type: 'text_delta', ts: 1000 }),
       JSON.stringify({ type: 'turn_error', ts: 2000, error: 'crash' }),
     ].join('\n');
     fs.writeFileSync(path.join(testDir, 'stream.jsonl'), lines);
-    const result = getClawActivityInfo(testDir);
+    const { clawFs, audit } = makeFsAudit(testDir);
+    const result = await getClawActivityInfo(clawFs, audit);
     expect(result.lastError).toBe('crash');
   });
 
-  it('turn_interrupted does not change lastError', () => {
+  it('turn_interrupted does not change lastError', async () => {
     const lines = [
       JSON.stringify({ type: 'turn_error', ts: 1000, error: 'some error' }),
       JSON.stringify({ type: 'turn_interrupted', ts: 2000 }),
     ].join('\n');
     fs.writeFileSync(path.join(testDir, 'stream.jsonl'), lines);
-    const result = getClawActivityInfo(testDir);
+    const { clawFs, audit } = makeFsAudit(testDir);
+    const result = await getClawActivityInfo(clawFs, audit);
     // turn_interrupted neither sets nor clears — lastError stays from turn_error
     expect(result.lastError).toBe('some error');
   });
 
   // M1 fix: turn_interrupted updates lastEventMs (claw was active, just interrupted)
-  it('turn_interrupted updates lastEventMs (counts as activity)', () => {
+  it('turn_interrupted updates lastEventMs (counts as activity)', async () => {
     const lines = [
       JSON.stringify({ type: 'text_delta', ts: 1000 }),
       JSON.stringify({ type: 'turn_interrupted', ts: 2000 }),
     ].join('\n');
     fs.writeFileSync(path.join(testDir, 'stream.jsonl'), lines);
-    const result = getClawActivityInfo(testDir);
+    const { clawFs, audit } = makeFsAudit(testDir);
+    const result = await getClawActivityInfo(clawFs, audit);
     // turn_interrupted should update lastEventMs — claw was running before interrupt
     expect(result.lastEventMs).toBe(2000);
   });
 
   // M1 fix: only turn_interrupted (no LLM output) still counts as activity
-  it('turn_interrupted alone updates lastEventMs', () => {
+  it('turn_interrupted alone updates lastEventMs', async () => {
     const lines = [
       JSON.stringify({ type: 'turn_interrupted', ts: 1500 }),
     ].join('\n');
     fs.writeFileSync(path.join(testDir, 'stream.jsonl'), lines);
-    const result = getClawActivityInfo(testDir);
+    const { clawFs, audit } = makeFsAudit(testDir);
+    const result = await getClawActivityInfo(clawFs, audit);
     expect(result.lastEventMs).toBe(1500);
   });
 
-  it('returns {null, null} for empty stream.jsonl', () => {
+  it('returns {null, null} for empty stream.jsonl', async () => {
     fs.writeFileSync(path.join(testDir, 'stream.jsonl'), '');
-    const result = getClawActivityInfo(testDir);
+    const { clawFs, audit } = makeFsAudit(testDir);
+    const result = await getClawActivityInfo(clawFs, audit);
     expect(result.lastEventMs).toBeNull();
     expect(result.lastError).toBeNull();
   });

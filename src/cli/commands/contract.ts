@@ -10,7 +10,8 @@ import * as yaml from 'js-yaml';
 import { ContractManager, type ContractYaml, type ProgressData } from '../../core/contract/manager.js';
 import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
 import { getClawDir } from '../config.js';
-import { notifySystem, notifyStream } from '../../utils/notify.js';
+import { notifySystem } from '../../utils/notify.js';
+import { STREAM_FILE } from '../../foundation/stream/index.js';
 
 
 function parseAndValidateContractYaml(yamlContent: string): ContractYaml {
@@ -35,7 +36,7 @@ function notifyContractCreated(clawDir: string, clawId: string, contractId: stri
     contractId, clawId, title: contract.title, subtaskCount: contract.subtasks.length,
   }) + '\n';
 
-  notifyStream(path.join(clawDir, 'stream.jsonl'), streamLine, 'contract');
+  fs.appendSync(STREAM_FILE, streamLine);
 
 
   // 写 inbox 通知，触发 claw daemon 开始执行（best-effort）

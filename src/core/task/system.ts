@@ -25,6 +25,7 @@ import type { ContractManager } from '../contract/manager.js';
 import type { SkillRegistry } from '../skill/registry.js';
 import { AuditWriter } from '../../foundation/audit/writer.js';
 import type { StreamLog } from '../../foundation/stream/types.js';
+import { STREAM_FILE } from '../../foundation/stream/types.js';
 import { writeInbox } from '../../foundation/messaging/index.js';
 import type { InboxMessage } from '../../types/contract.js';
 
@@ -511,7 +512,7 @@ export class TaskSystem {
     const taskDir = path.join(this.clawDir, 'tasks', 'results', task.id);
     fsSync.mkdirSync(taskDir, { recursive: true });
     const taskAuditWriter = new AuditWriter(this.fs, `tasks/results/${task.id}/audit.tsv`);
-    const taskStreamPath = path.join(taskDir, 'stream.jsonl');
+    const taskStreamPath = path.join(taskDir, STREAM_FILE);
     let taskStreamFd: number | null = null;
     try {
       taskStreamFd = fsSync.openSync(taskStreamPath, 'a');

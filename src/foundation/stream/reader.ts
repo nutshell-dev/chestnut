@@ -15,12 +15,12 @@
  */
 
 import type { FileSystem } from '../fs/types.js';
-import type { StreamEvent } from './types.js';
+import { STREAM_FILE, type StreamEvent } from './types.js';
 import type { Audit } from '../audit/index.js';
 import { createWatcher, type Watcher } from '../file-watcher/index.js';
 import { AUDIT_EVENTS } from '../audit/events.js';
 
-const STREAM_FILE = 'stream.jsonl';
+export { STREAM_FILE } from './types.js';
 
 export interface StreamReader {
   /** Start watching and emit new events. Throws if already started. */
@@ -29,6 +29,43 @@ export interface StreamReader {
   stop(): Promise<void>;
   /** Whether the reader is currently watching. */
   isActive(): boolean;
+}
+
+/**
+ * Read all historical events from STREAM_FILE.
+ * Returns empty array if file does not exist.
+ * Parse failures are audit-logged and skipped.
+ * Read failures are audit-logged and thrown.
+ */
+export async function readAll(
+  fs: FileSystem,
+  audit: Audit,
+): Promise<StreamEvent[]> {
+  if (!fs.existsSync(STREAM_FILE)) return [];
+  let content: string;
+  try {
+    content = fs.readSync(STREAM_FILE);
+  } catch (err) {
+    audit.write(
+      AUDIT_EVENTS.STREAM_READER_READ_FAILED,
+      `reason=${err instanceof Error ? err.message : String(err)}`,
+    );
+    throw err;
+  }
+  const events: StreamEvent[] = [];
+  for (const line of content.split('\n')) {
+    if (!line) continue;
+    try {
+      events.push(JSON.parse(line) as StreamEvent);
+    } catch (err) {
+      audit.write(
+        AUDIT_EVENTS.STREAM_READER_PARSE_FAILED,
+        `line_prefix=${line.slice(0, 80)}`,
+        `reason=${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+  return events;
 }
 
 export function createStreamReader(
