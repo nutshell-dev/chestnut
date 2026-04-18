@@ -185,9 +185,14 @@ export async function executeStep(input: StepInput): Promise<StepResult> {
 
   // ── context window exceeded ──
   if (response.stop_reason === 'model_context_window_exceeded' || response.stop_reason === 'context_length_exceeded') {
-    // 保留已流式产出的 thinking/text（不能丢失运行中产生的信息）
-    if (response.content.length > 0) {
-      appendAssistantMessage(messages, response.content);
+    // 保留 thinking/text（运行中对用户可见的产出），丢弃 tool_use（孤儿意图——
+    // 此分支不会执行工具，保留会产生无 tool_result 配对的 assistant 消息，
+    // 下次 resume 时会被 provider API 拒绝）。
+    const preserved = response.content.filter(
+      (b) => b.type === 'thinking' || b.type === 'text'
+    );
+    if (preserved.length > 0) {
+      appendAssistantMessage(messages, preserved);
     }
     return { kind: 'context_window_exceeded' };
   }

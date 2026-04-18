@@ -256,4 +256,42 @@ describe('StepExecutor', () => {
     expect(texts.length).toBeGreaterThan(0);
     expect(texts[0].text).toBe('partial thought before limit');
   });
+
+  it('context_window_exceeded tool_use filter：混合 content 时 tool_use 被过滤，text 保留', async () => {
+    const llm = makeMockLLM([{
+      content: [
+        { type: 'text', text: 'thinking about search' },
+        { type: 'tool_use', id: 'tu1', name: 'search', input: { q: 'x' } },
+      ],
+      stop_reason: 'model_context_window_exceeded',
+    }]);
+    const messages: Message[] = [];
+    const result = await executeStep({
+      messages, systemPrompt: '', llm, tools: [],
+      executor: makeExecutor({}), registry: makeRegistry({}), ctx: makeCtx(),
+    });
+    expect(result.kind).toBe('context_window_exceeded');
+    // text 保留
+    expect(messages).toHaveLength(1);
+    const content = messages[0].content as Array<{ type: string }>;
+    expect(content.some(b => b.type === 'text')).toBe(true);
+    // tool_use 被过滤（否则 resume 会得到孤儿）
+    expect(content.some(b => b.type === 'tool_use')).toBe(false);
+  });
+
+  it('context_window_exceeded tool_use filter：纯 tool_use content 不 append（避免空 assistant 消息）', async () => {
+    const llm = makeMockLLM([{
+      content: [
+        { type: 'tool_use', id: 'tu1', name: 'search', input: { q: 'x' } },
+      ],
+      stop_reason: 'context_length_exceeded',
+    }]);
+    const messages: Message[] = [];
+    const result = await executeStep({
+      messages, systemPrompt: '', llm, tools: [],
+      executor: makeExecutor({}), registry: makeRegistry({}), ctx: makeCtx(),
+    });
+    expect(result.kind).toBe('context_window_exceeded');
+    expect(messages).toHaveLength(0);
+  });
 });
