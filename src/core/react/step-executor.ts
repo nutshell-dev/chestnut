@@ -426,29 +426,46 @@ async function executeToolCalls(
 
   // Execute readonly sync tools in parallel
   if (readonlySyncCalls.length > 0) {
-    // Notify UI for all readonly calls (before parallel execution)
-    for (const { call } of readonlySyncCalls) {
+    // Split: __parseError calls must NOT reach executeParallel (would leak
+    // __parseError/__raw into tool args, and parseError flag would be lost).
+    const parseErrorCalls = readonlySyncCalls.filter(
+      ({ call }) => (call.input as Record<string, unknown>)?.__parseError === true
+    );
+    const cleanCalls = readonlySyncCalls.filter(
+      ({ call }) => (call.input as Record<string, unknown>)?.__parseError !== true
+    );
+
+    // Handle parseError calls via executeSingleTool (symmetric with sequential branch)
+    for (const { call, index } of parseErrorCalls) {
+      if (ctx.signal?.aborted) throwAbortError(ctx.signal);
       await safeCallbackAsync('onToolCall', async () => await callbacks?.onToolCall?.(call.name, call.id));
-    }
-
-    // Prepare batch for parallel execution
-    const batch = readonlySyncCalls.map(({ call }) => {
-      const { async: _asyncMode, ...toolArgs } = call.input as Record<string, unknown>;
-      return {
-        toolName: call.name,
-        args: toolArgs,
-      };
-    });
-
-    // Execute parallel batch
-    const parallelResults = await executor.executeParallel(batch, ctx);
-
-    // Notify UI and store results in original order
-    for (let i = 0; i < readonlySyncCalls.length; i++) {
-      const { call, index } = readonlySyncCalls[i];
-      const result = parallelResults[i];
+      const result = await executeSingleTool(call, executor, ctx);
       safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, call.id, result));
       results.set(index, toToolResultBlock(call.id, result));
+    }
+
+    // Clean calls go through parallel path
+    if (cleanCalls.length > 0) {
+      for (const { call } of cleanCalls) {
+        await safeCallbackAsync('onToolCall', async () => await callbacks?.onToolCall?.(call.name, call.id));
+      }
+
+      const batch = cleanCalls.map(({ call }) => {
+        const { async: _asyncMode, ...toolArgs } = call.input as Record<string, unknown>;
+        return {
+          toolName: call.name,
+          args: toolArgs,
+        };
+      });
+
+      const parallelResults = await executor.executeParallel(batch, ctx);
+
+      for (let i = 0; i < cleanCalls.length; i++) {
+        const { call, index } = cleanCalls[i];
+        const result = parallelResults[i];
+        safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, call.id, result));
+        results.set(index, toToolResultBlock(call.id, result));
+      }
     }
   }
 

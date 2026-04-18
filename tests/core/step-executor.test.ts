@@ -173,4 +173,22 @@ describe('StepExecutor', () => {
       expect(result.meta.allParseErrors).toBe(true);
     }
   });
+
+  it('parallel 分支的 parseError：readonly 工具走 parallel 时 parse 失败仍熔断计数', async () => {
+    const llm = makeMalformedToolInputLLM('tu1', 'readFile', '{not json');
+    const exec = makeExecutor({});
+    // 关键：readonly=true 才会进入 parallel 分支
+    const registry = makeRegistry({ readFile: { readonly: true } });
+    const result = await executeStep({
+      messages: [], systemPrompt: '', llm, tools: [],
+      executor: exec, registry, ctx: makeCtx(),
+    });
+    expect(result.kind).toBe('continue');
+    if (result.kind === 'continue') {
+      expect(result.meta.parseErrorCount).toBe(1);
+      expect(result.meta.allParseErrors).toBe(true);
+    }
+    // executeParallel 不应被调用（parseError 调用被 executeSingleTool 截获）
+    expect(exec.executeParallel).not.toHaveBeenCalled();
+  });
 });
