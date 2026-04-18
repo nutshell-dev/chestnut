@@ -141,24 +141,30 @@ function createStreamReader(
 
 **此违规属模块边界不完整而非实现偏差**：按 Module Logic "模块设计中出现依赖问题就要停止当前任务先讨论模块重构"原则，修复应进独立模块重构 phase，不混在契约补齐 phase 中。当前契约只负责**把此缺陷登记为已发现**，为未来重构 phase 提供起点。
 
-**A.2 `write` 前未 `open()` 事件静默丢弃**
+**A.2 `write` 前未 `open()` 事件静默丢弃** → **Phase 148 已修复**
 
-违反原则：
+修复详情（Step 6）：
+- `write` 未 open → audit `stream_write_dropped(type=...)`；事件不写入文件
+- commit 锚点：`185da37..fcee4a6`
+
+违反原则（修复前）：
 - "运行中产生的任何信息未经显式设计决策不得丢弃或静默忽略"——事件进 `console.warn` 后丢弃
 - "持久化一切信息到磁盘"——未落盘
 - "事后可审计"——事件本身消失，无从重建
 
-修复候选：
-- **候选 α**：`write` 在未 open 时抛错（预期失败调用方处理）——daemon 启动期序错乱是调用方 bug，应暴露而非吞没
-- **候选 β**：未 open 时缓入内存 ring buffer，`open()` 时 flush 到文件头部；兼容"早于 open 的事件"合理场景
+剩余 open 项：
+- 未 open 时是否抛错（候选 α）或 ring buffer（候选 β）——Phase 148 保留 audit 化但不改抛出语义，留 Phase 150 决策
 
-**A.3 `appendSync` 写失败事件丢失**
+**A.3 `appendSync` 写失败事件丢失** → **Phase 148 已修复**
 
-违反原则：同 A.2。事件已生成但未落盘，`console.error` 后返回——事件信息彻底丢失。
+修复详情（Step 6）：
+- `appendSync` 失败 → audit `stream_append_failed(reason=...)`；事件丢失但后续 write 继续尝试
+- commit 锚点：`185da37..fcee4a6`
 
-与 LLMService A.1 / AuditLog A.1 / Transport A.1 的"引入结构化事件通道"同构——但 Stream 自己就是事件通道，其自身的失败无处记录（递归边界，类似 AuditLog）。修复候选：
-- **候选 α**：失败事件进一个旁路 emergency log（stderr 结构化行 / 另写 `stream.errors.jsonl`）
-- **候选 β**：`write` 返回 boolean / Result，让调用方知道是否落盘（破坏界面简洁性，代价较大）
+违反原则（修复前）：同 A.2。事件已生成但未落盘，`console.error` 后返回——事件信息彻底丢失。
+
+剩余 open 项：
+- 与 AuditLog A.1 同构（递归边界），Phase 148 保留 audit 化；旁路 emergency log（候选 α）或 `write` 返回 boolean（候选 β）留 Phase 150 决策
 
 ### B. 偏差登记（当前合理或代价过高）
 

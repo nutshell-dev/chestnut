@@ -9,6 +9,7 @@ import * as path from 'path';
 import { StreamWriter } from '../../src/foundation/stream/writer.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import type { FileSystem } from '../../src/foundation/fs/types.js';
+import { makeAudit } from '../helpers/audit.js';
 
 describe('StreamWriter', () => {
   let tmpDir: string;
@@ -24,32 +25,31 @@ describe('StreamWriter', () => {
 
   it('write() before open is a no-op and does not throw', () => {
     const fs = new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false });
-    const sw = new StreamWriter(fs);
+    const { audit, events } = makeAudit();
+    const sw = new StreamWriter(fs, audit);
     expect(() => sw.write({ ts: 1, type: 'test' })).not.toThrow();
+    expect(events.some(e => e[0] === 'stream_write_dropped')).toBe(true);
   });
 
-  it('write() when appendSync throws logs to stderr and does not propagate', () => {
+  it('write() when appendSync throws audits and does not propagate', () => {
     const fs = new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false });
-    const sw = new StreamWriter(fs);
+    const { audit, events } = makeAudit();
+    const sw = new StreamWriter(fs, audit);
     sw.open();
 
-    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.spyOn(NodeFileSystem.prototype, 'appendSync').mockImplementation(() => {
       throw new Error('boom');
     });
 
     expect(() => sw.write({ ts: 1, type: 'test' })).not.toThrow();
-    expect(errSpy).toHaveBeenCalledWith(
-      expect.stringContaining('[StreamWriter]'),
-      expect.anything(),
-    );
+    expect(events.some(e => e[0] === 'stream_append_failed')).toBe(true);
 
     vi.restoreAllMocks();
   });
 
   it('open + write × 2 + close produces valid JSON lines', async () => {
     const fs = new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false });
-    const sw = new StreamWriter(fs);
+    const sw = new StreamWriter(fs, makeAudit().audit);
     sw.open();
     sw.write({ ts: 1000, type: 'turn_start' });
     sw.write({ ts: 2000, type: 'turn_end' });

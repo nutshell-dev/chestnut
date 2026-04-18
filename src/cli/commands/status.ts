@@ -7,7 +7,7 @@ import * as path from 'path';
 import { existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { loadGlobalConfig, getMotionDir } from '../config.js';
-import { ProcessManager } from '../../foundation/process-manager/index.js';
+import { ProcessManager, createSystemAudit } from '../../foundation/process-manager/index.js';
 import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
 import { getWatchdogPid, isWatchdogAlive, getWatchdogEntryPath } from './watchdog.js';
 
@@ -22,7 +22,8 @@ export async function statusCommand(): Promise<void> {
   // 2. Motion
   const baseDir = path.dirname(getMotionDir());
   const nodeFs = new NodeFileSystem({ baseDir, enforcePermissions: false });
-  const pm = new ProcessManager(nodeFs, baseDir, (id) => {
+  const systemAudit = createSystemAudit(nodeFs, baseDir);
+  const pm = new ProcessManager(nodeFs, baseDir, systemAudit, (id) => {
     if (id === 'motion') return path.join(baseDir, 'motion');
     return path.join(baseDir, 'claws', id);
   });

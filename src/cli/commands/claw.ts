@@ -55,7 +55,7 @@ function getLastActiveMs(clawDir: string): number | undefined {
   } catch { return undefined; }
 }
 
-import { ProcessManager } from '../../foundation/process-manager/index.js';
+import { ProcessManager, createSystemAudit } from '../../foundation/process-manager/index.js';
 import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
 import { writeInbox } from '../../foundation/messaging/index.js';
 import { randomUUID } from 'crypto';
@@ -115,7 +115,8 @@ export async function chatCommand(name: string): Promise<void> {
     label: name,
     ensureDaemon: async () => {
       const nodeFs = new NodeFileSystem({ baseDir, enforcePermissions: false });
-      const pm = new ProcessManager(nodeFs, baseDir);
+      const systemAudit = createSystemAudit(nodeFs, baseDir);
+      const pm = new ProcessManager(nodeFs, baseDir, systemAudit);
       if (!pm.isAlive(name)) {
         console.log(`Starting Claw "${name}" daemon...`);
         const thisDir = path.dirname(fileURLToPath(import.meta.url));
@@ -157,7 +158,8 @@ export async function stopCommand(name: string): Promise<void> {
   const baseDir = path.dirname(globalConfigPath);
   
   const nodeFs = new NodeFileSystem({ baseDir, enforcePermissions: false });
-  const processManager = new ProcessManager(nodeFs, baseDir);
+  const systemAudit = createSystemAudit(nodeFs, baseDir);
+  const processManager = new ProcessManager(nodeFs, baseDir, systemAudit);
 
   // Check if running
   if (!processManager.isAlive(name)) {
@@ -186,7 +188,8 @@ export async function listCommand(): Promise<void> {
   const clawsDir = path.join(baseDir, 'claws');
 
   const nodeFs = new NodeFileSystem({ baseDir, enforcePermissions: false });
-  const processManager = new ProcessManager(nodeFs, baseDir);
+  const systemAudit = createSystemAudit(nodeFs, baseDir);
+  const processManager = new ProcessManager(nodeFs, baseDir, systemAudit);
 
   // Helper: check contract status
   function getContractStatus(clawPath: string): string {
@@ -335,7 +338,8 @@ export async function healthCommand(name: string): Promise<void> {
   const baseDir = path.dirname(globalConfigPath);
 
   const nodeFs = new NodeFileSystem({ baseDir, enforcePermissions: false });
-  const processManager = new ProcessManager(nodeFs, baseDir);
+  const systemAudit = createSystemAudit(nodeFs, baseDir);
+  const processManager = new ProcessManager(nodeFs, baseDir, systemAudit);
 
   const isRunning = processManager.isAlive(name);
 

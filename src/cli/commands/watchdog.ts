@@ -11,7 +11,7 @@ import { fileURLToPath } from 'url';
 import type { SpawnOptions } from '../../foundation/process-manager/index.js';
 import { setTimeout } from 'timers/promises';
 import { getMotionDir, loadGlobalConfig } from '../config.js';
-import { ProcessManager } from '../../foundation/process-manager/index.js';
+import { ProcessManager, createSystemAudit } from '../../foundation/process-manager/index.js';
 import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
 import { AuditWriter } from '../../foundation/audit/writer.js';
 import { writeInboxMessage } from '../../utils/inbox-writer.js';
@@ -45,7 +45,8 @@ function getWatchdogPidFile(): string {
 function createMotionPM(): ProcessManager {
   const baseDir = path.dirname(getMotionDir());
   const nfs = new NodeFileSystem({ baseDir, enforcePermissions: false });
-  return new ProcessManager(nfs, baseDir, (id) => {
+  const systemAudit = createSystemAudit(nfs, baseDir);
+  return new ProcessManager(nfs, baseDir, systemAudit, (id) => {
     if (id === 'motion') return path.join(baseDir, 'motion');
     return path.join(baseDir, 'claws', id);
   });

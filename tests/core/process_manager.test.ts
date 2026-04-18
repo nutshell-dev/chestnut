@@ -11,6 +11,7 @@ import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { ProcessManager } from '../../src/foundation/process-manager/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
+import { makeAudit } from '../helpers/audit.js';
 
 async function createTempDir(): Promise<string> {
   const tempDir = path.join(tmpdir(), `pm-test-${randomUUID()}`);
@@ -41,7 +42,8 @@ describe('ProcessManager', () => {
 
   describe('dirResolver - 默认路径', () => {
     it('should use claws/{id}/status/pid as default path', async () => {
-      const pm = new ProcessManager(nodeFs, tempDir);
+      const { audit } = makeAudit();
+      const pm = new ProcessManager(nodeFs, tempDir, audit);
       const pidFile = path.join(tempDir, 'claws', 'test-claw', 'status', 'pid');
 
       // 写入 PID 文件
@@ -52,14 +54,16 @@ describe('ProcessManager', () => {
     });
 
     it('should return false when PID file does not exist', () => {
-      const pm = new ProcessManager(nodeFs, tempDir);
+      const { audit } = makeAudit();
+      const pm = new ProcessManager(nodeFs, tempDir, audit);
       expect(pm.isAlive('nonexistent')).toBe(false);
     });
   });
 
   describe('dirResolver - 自定义路径', () => {
     it('should use custom resolver for motion path', async () => {
-      const pm = new ProcessManager(nodeFs, tempDir, (id) => {
+      const { audit } = makeAudit();
+      const pm = new ProcessManager(nodeFs, tempDir, audit, (id) => {
         if (id === 'motion') return path.join(tempDir, 'motion');
         return path.join(tempDir, 'claws', id);
       });
@@ -81,7 +85,8 @@ describe('ProcessManager', () => {
 
   describe('isAlive - 进程检测', () => {
     it('should return true for current process PID', async () => {
-      const pm = new ProcessManager(nodeFs, tempDir);
+      const { audit } = makeAudit();
+      const pm = new ProcessManager(nodeFs, tempDir, audit);
       const pidFile = path.join(tempDir, 'claws', 'live-claw', 'status', 'pid');
       await fs.mkdir(path.dirname(pidFile), { recursive: true });
       await fs.writeFile(pidFile, process.pid.toString(), 'utf-8');
@@ -90,7 +95,8 @@ describe('ProcessManager', () => {
     });
 
     it('should return false and clean stale PID for dead process', async () => {
-      const pm = new ProcessManager(nodeFs, tempDir);
+      const { audit } = makeAudit();
+      const pm = new ProcessManager(nodeFs, tempDir, audit);
       const pidFile = path.join(tempDir, 'claws', 'dead-claw', 'status', 'pid');
       await fs.mkdir(path.dirname(pidFile), { recursive: true });
       await fs.writeFile(pidFile, '999999', 'utf-8'); // 不存在的进程
@@ -105,7 +111,8 @@ describe('ProcessManager', () => {
     });
 
     it('should return false for invalid PID content', async () => {
-      const pm = new ProcessManager(nodeFs, tempDir);
+      const { audit } = makeAudit();
+      const pm = new ProcessManager(nodeFs, tempDir, audit);
       const pidFile = path.join(tempDir, 'claws', 'invalid-claw', 'status', 'pid');
       await fs.mkdir(path.dirname(pidFile), { recursive: true });
       await fs.writeFile(pidFile, 'not-a-number', 'utf-8');
@@ -116,13 +123,15 @@ describe('ProcessManager', () => {
 
   describe('stop - 停止进程', () => {
     it('should return false when PID file does not exist', async () => {
-      const pm = new ProcessManager(nodeFs, tempDir);
+      const { audit } = makeAudit();
+      const pm = new ProcessManager(nodeFs, tempDir, audit);
       const result = await pm.stop('nonexistent');
       expect(result).toBe(false);
     });
 
     it('should return true and clean stale PID for dead process', async () => {
-      const pm = new ProcessManager(nodeFs, tempDir);
+      const { audit } = makeAudit();
+      const pm = new ProcessManager(nodeFs, tempDir, audit);
       const pidFile = path.join(tempDir, 'claws', 'stale-claw', 'status', 'pid');
       await fs.mkdir(path.dirname(pidFile), { recursive: true });
       await fs.writeFile(pidFile, '999998', 'utf-8');
@@ -137,7 +146,8 @@ describe('ProcessManager', () => {
 
   describe('spawn - wx 排他锁', () => {
     it('should throw error when PID file already exists and process is alive', async () => {
-      const pm = new ProcessManager(nodeFs, tempDir);
+      const { audit } = makeAudit();
+      const pm = new ProcessManager(nodeFs, tempDir, audit);
       const clawDir = path.join(tempDir, 'claws', 'existing-claw');
       const pidFile = path.join(clawDir, 'status', 'pid');
       const logFile = path.join(clawDir, 'logs', 'daemon.log');
@@ -156,7 +166,8 @@ describe('ProcessManager', () => {
     });
 
     it('should throw error with claw name in message', async () => {
-      const pm = new ProcessManager(nodeFs, tempDir);
+      const { audit } = makeAudit();
+      const pm = new ProcessManager(nodeFs, tempDir, audit);
       const clawDir = path.join(tempDir, 'claws', 'busy-claw');
       const pidFile = path.join(clawDir, 'status', 'pid');
       const logFile = path.join(clawDir, 'logs', 'daemon.log');
@@ -179,8 +190,9 @@ describe('ProcessManager', () => {
       }
     });
 
-    it('empty PID file triggers console.warn about possible concurrent spawn', async () => {
-      const pm = new ProcessManager(nodeFs, tempDir);
+    it('empty PID file triggers audit about possible concurrent spawn', async () => {
+      const { audit, events } = makeAudit();
+      const pm = new ProcessManager(nodeFs, tempDir, audit);
       const clawDir = path.join(tempDir, 'claws', 'empty-pid-claw');
       const pidFile = path.join(clawDir, 'status', 'pid');
       const logFile = path.join(clawDir, 'logs', 'daemon.log');
@@ -189,10 +201,6 @@ describe('ProcessManager', () => {
       await fs.mkdir(path.dirname(pidFile), { recursive: true });
       await fs.writeFile(pidFile, '', 'utf-8');
 
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-
-      // Use 'node --version' as a harmless stand-in; the important thing is the warn happens
-      // before the actual spawn, so even if spawn fails afterward that's fine.
       await pm.spawn('empty-pid-claw', {
         command: 'node',
         args: ['--version'],
@@ -200,10 +208,7 @@ describe('ProcessManager', () => {
         env: { ...process.env },
       }).catch(() => {});
 
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Empty PID file'),
-      );
-      warnSpy.mockRestore();
+      expect(events.some(e => e[0] === 'pid_empty' && e.some((c: string | number | boolean) => typeof c === 'string' && c.includes('claw=empty-pid-claw')))).toBe(true);
     });
   });
 

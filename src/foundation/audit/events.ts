@@ -51,11 +51,20 @@ export const AUDIT_EVENTS = {
   OUTBOX_SENT: 'outbox_sent',
   OUTBOX_SEND_FAILED: 'outbox_send_failed',
 
-  // --- ProcessManager ---（Step 8 追加）
-  // --- FileWatcher ---（Step 5 追加）
-  // --- Stream ---（Step 6 追加）
-  // --- Messaging ---（Step 7 追加）
-  // --- ProcessManager ---（Step 8 追加）
+  // --- ProcessManager ---
+  PROCESS_SPAWNED: 'process_spawned',
+  PROCESS_SPAWN_FAILED: 'process_spawn_failed',
+  PROCESS_STOPPED: 'process_stopped',
+  PROCESS_STOP_FAILED: 'process_stop_failed',
+  PROCESS_KILL_ESCALATED: 'process_kill_escalated',
+  PROCESS_STOP_STALE: 'process_stop_stale',
+  PID_READ_FAILED: 'pid_read_failed',
+  PID_REMOVE_FAILED: 'pid_remove_failed',
+  PID_EMPTY: 'pid_empty',
+  ORPHAN_SIGTERM_FAILED: 'orphan_sigterm_failed',
+  LOCKFILE_READ_FAILED: 'lockfile_read_failed',
+  LOCKFILE_CLEANUP_FAILED: 'lockfile_cleanup_failed',
+  FIND_PROCESSES_UNAVAILABLE: 'find_processes_unavailable',
 } as const;
 
 export type AuditEventName = typeof AUDIT_EVENTS[keyof typeof AUDIT_EVENTS];

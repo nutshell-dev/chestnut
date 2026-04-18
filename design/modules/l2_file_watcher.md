@@ -143,7 +143,7 @@ function createWatcher(
 - `callback` 抛错 → audit `watcher_callback_failed(path=..., event=..., reason=...)`；try/catch 隔离，后续事件继续触发
 - `onReady` 抛错 → audit `watcher_ready_failed(path=..., reason=...)`；try/catch 隔离
 - `onError` 抛错 → audit `watcher_error(path=..., context=onError_handler, reason=...)`；二级 try/catch 隔离
-- commit 锚点：`<step4-sha>..<step5-sha>`
+- commit 锚点：`85ce00d..11fe6de`
 
 违反原则（已修复）：
 - "不可预期失败暴露而非吞没"——回调抛错从"穿透 chokidar 静默降级"变为"结构化 audit 事件 + 隔离继续" ✓

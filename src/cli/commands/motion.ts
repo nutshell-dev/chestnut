@@ -14,7 +14,7 @@ import { existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { loadGlobalConfig, getMotionDir, getGlobalConfigPath } from '../config.js';
 import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
-import { ProcessManager } from '../../foundation/process-manager/index.js';
+import { ProcessManager, createSystemAudit } from '../../foundation/process-manager/index.js';
 import { PROCESS_SPAWN_CONFIRM_MS } from '../../constants.js';
 
 import { runChatViewport } from './chat-viewport.js';
@@ -27,7 +27,8 @@ import { Snapshot } from '../../foundation/snapshot/index.js';
 export function createMotionPM(): ProcessManager {
   const baseDir = path.dirname(getMotionDir()); // .clawforum
   const nodeFs = new NodeFileSystem({ baseDir, enforcePermissions: false });
-  return new ProcessManager(nodeFs, baseDir, (id) => {
+  const systemAudit = createSystemAudit(nodeFs, baseDir);
+  return new ProcessManager(nodeFs, baseDir, systemAudit, (id) => {
     if (id === 'motion') return path.join(baseDir, 'motion');
     return path.join(baseDir, 'claws', id);
   });
