@@ -15,7 +15,7 @@ import type { Message } from '../types/message.js';
 import type { InboxMessage, Priority } from '../types/contract.js';
 import type { OutboxWriteOptions } from './communication/index.js';
 import type { SessionData } from '../foundation/session-store/index.js';
-import { readInboxFileMeta } from '../foundation/messaging/index.js';
+import { readInboxFileMeta, InboxListFailed } from '../foundation/messaging/index.js';
 
 import { NodeFileSystem } from '../foundation/fs/node-fs.js';
 import { LLMServiceImpl } from '../foundation/llm/service.js';
@@ -378,7 +378,16 @@ export class ClawRuntime {
     count: number;
     infos: InboxMessage[];
   }> {
-    const entries = await this.inboxReader.drainInbox();
+    let entries: import('../foundation/messaging/inbox-reader.js').InboxEntry[];
+    try {
+      entries = await this.inboxReader.drainInbox();
+    } catch (err) {
+      if (err instanceof InboxListFailed) {
+        // audit 已在 drainInbox 内写；此处只需保守退出本轮
+        return { injected: [], sources: [], count: 0, infos: [] };
+      }
+      throw err; // 非预期错误继续冒泡
+    }
     if (entries.length === 0) {
       return { injected: [], sources: [], count: 0, infos: [] };
     }

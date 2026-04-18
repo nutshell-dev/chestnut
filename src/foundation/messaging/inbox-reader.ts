@@ -16,6 +16,7 @@ import { PRIORITY_VALUES } from '../../types/contract.js';
 import { decodeInbox } from '../message-codec/index.js';
 import type { Audit } from '../audit/index.js';
 import { AUDIT_EVENTS } from '../audit/events.js';
+import { InboxListFailed } from './errors.js';
 
 export interface InboxEntry {
   message: InboxMessage;
@@ -49,14 +50,16 @@ export class InboxReader {
       entries = await this.fs.list(this.pendingDir, { includeDirs: false });
     } catch (err: any) {
       const code = err?.code;
-      if (code !== 'FS_NOT_FOUND' && code !== 'ENOENT') {
-        this.audit.write(
-          AUDIT_EVENTS.INBOX_LIST_FAILED,
-          `dir=${this.pendingDir}`,
-          `reason=${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-      return [];
+      // pendingDir 尚未创建属正常首次运行：视为集合空，不抛
+      if (code === 'FS_NOT_FOUND' || code === 'ENOENT') return [];
+      // 其余 list 失败均为不可预期 I/O / 权限错误，必须冒泡
+      const reason = err instanceof Error ? err.message : String(err);
+      this.audit.write(
+        AUDIT_EVENTS.INBOX_LIST_FAILED,
+        `dir=${this.pendingDir}`,
+        `reason=${reason}`,
+      );
+      throw new InboxListFailed(this.pendingDir, err);
     }
 
     const results: InboxEntry[] = [];

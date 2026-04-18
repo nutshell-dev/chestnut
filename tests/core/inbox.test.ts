@@ -8,7 +8,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
 import { tmpdir } from 'os';
-import { InboxReader } from '../../src/foundation/messaging/index.js';
+import { InboxReader, InboxListFailed } from '../../src/foundation/messaging/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import type { InboxMessage } from '../../src/types/contract.js';
 import { makeAudit } from '../helpers/audit.js';
@@ -223,6 +223,50 @@ Test message content`;
     const failedFiles = await fs.readdir(path.join(testDir, 'inbox', 'failed'));
     expect(failedFiles).toHaveLength(1);
     expect(failedFiles[0]).toContain('malformed.md');
+  });
+
+  it('should throw InboxListFailed on non-ENOENT list errors', async () => {
+    const auditCalls: string[] = [];
+    const auditReader = new InboxReader(
+      'inbox/pending',
+      'inbox/done',
+      'inbox/failed',
+      nfs,
+      {
+        write(type: string, ...cols: (string | number)[]) {
+          auditCalls.push(`${type}:${cols.join(',')}`);
+        },
+      },
+    );
+
+    // Override list to simulate permission error
+    const originalList = nfs.list.bind(nfs);
+    nfs.list = async (dir: string, opts?: any) => {
+      if (dir.includes('pending')) {
+        const err = new Error('EACCES: permission denied') as any;
+        err.code = 'EACCES';
+        throw err;
+      }
+      return originalList(dir, opts);
+    };
+
+    await expect(auditReader.drainInbox()).rejects.toThrow(InboxListFailed);
+    expect(auditCalls.some(c => c.startsWith('inbox_list_failed:'))).toBe(true);
+
+    // Restore
+    nfs.list = originalList;
+  });
+
+  it('should return empty array when pending dir does not exist (ENOENT)', async () => {
+    const noentReader = new InboxReader(
+      'nonexistent/pending',
+      'nonexistent/done',
+      'nonexistent/failed',
+      nfs,
+    );
+
+    const entries = await noentReader.drainInbox();
+    expect(entries).toHaveLength(0);
   });
 });
 

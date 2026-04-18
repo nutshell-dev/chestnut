@@ -7,7 +7,7 @@ import * as path from 'path';
 import { existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { loadGlobalConfig, getMotionDir } from '../config.js';
-import { ProcessManager } from '../../foundation/process-manager/index.js';
+import { ProcessManager, ProcessListUnavailable } from '../../foundation/process-manager/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
 import { getWatchdogPid, isWatchdogAlive, getWatchdogEntryPath } from './watchdog.js';
@@ -51,7 +51,16 @@ export async function statusCommand(): Promise<void> {
 
   // Watchdog orphans
   const wdPath = getWatchdogEntryPath();
-  const wdPids = pm.findProcesses(wdPath).filter(p => p !== watchdogPid && p !== process.pid);
+  let wdPids: number[] = [];
+  try {
+    wdPids = pm.findProcesses(wdPath).filter(p => p !== watchdogPid && p !== process.pid);
+  } catch (err) {
+    if (err instanceof ProcessListUnavailable) {
+      // audit 已由 findProcesses 写；降级：跳过孤儿扫描
+    } else {
+      throw err;
+    }
+  }
   if (wdPids.length > 0) {
     console.log(`  ⚠ orphan watchdog(s): PIDs ${wdPids.join(', ')}`);
   }
@@ -63,7 +72,16 @@ export async function statusCommand(): Promise<void> {
     : path.resolve(thisDir, '..', '..', 'daemon-entry.js');
   const motionPid = motionStatus.pid;
   const trackedPids = [motionPid, ...clawStatuses.map(s => s.status.pid)].filter((p): p is number => p !== undefined);
-  const orphanDaemons = pm.findProcesses(daemonEntryPath).filter(p => !trackedPids.includes(p) && p !== process.pid);
+  let orphanDaemons: number[] = [];
+  try {
+    orphanDaemons = pm.findProcesses(daemonEntryPath).filter(p => !trackedPids.includes(p) && p !== process.pid);
+  } catch (err) {
+    if (err instanceof ProcessListUnavailable) {
+      // audit 已由 findProcesses 写；降级：跳过孤儿扫描
+    } else {
+      throw err;
+    }
+  }
   if (orphanDaemons.length > 0) {
     console.log(`  ⚠ orphan daemon(s): PIDs ${orphanDaemons.join(', ')}`);
   }

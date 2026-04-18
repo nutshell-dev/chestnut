@@ -9,6 +9,8 @@ import * as path from 'path';
 import { openSync, closeSync } from 'fs';  // openSync/closeSync 仅用于日志 fd（spawn stdio 需要 OS 文件描述符）
 
 import type { FileSystem } from '../fs/types.js';
+import type { Audit } from '../audit/index.js';
+import { ProcessListUnavailable } from './errors.js';
 import {
   PROCESS_SPAWN_CONFIRM_MS,
   SIGTERM_GRACE_MS,
@@ -33,7 +35,6 @@ export class ProcessManager {
   private fs: FileSystem;
   private baseDir: string;
   private resolveDir: (id: string) => string;
-  private findProcessesWarned = false;
   private readonly audit: Audit;
 
   constructor(fs: FileSystem, baseDir: string, audit: Audit, dirResolver?: (id: string) => string) {
@@ -166,7 +167,17 @@ export class ProcessManager {
     // Kill all orphaned daemon processes with the same name (pgrep scan)
     // Use args as pattern to only match current installation
     const pattern = options.args.join(' ');
-    const pids = this.findProcesses(pattern);
+    let pids: number[] = [];
+    try {
+      pids = this.findProcesses(pattern);
+    } catch (err) {
+      if (err instanceof ProcessListUnavailable) {
+        // 降级：孤儿清理跳过；spawn 继续尝试
+        // audit 已由 findProcesses 写
+      } else {
+        throw err;
+      }
+    }
     let sentAny = false;
     for (const pid of pids) {
       try {
@@ -412,27 +423,40 @@ export class ProcessManager {
    * Encapsulates platform-specific process finding
    */
   findProcesses(pattern: string): number[] {
+    // Escape POSIX ERE metacharacters — callers pass file paths which may
+    // contain `(`, `)`, `[`, `]`, `+`, `?`, `.` etc. Without escaping,
+    // pgrep treats them as regex, fails with exit 2 on invalid ERE, and
+    // we silently return [] (orphan cleanup becomes a no-op).
+    const escaped = pattern.replace(/[\\.^$*+?()[\]{}|]/g, '\\$&');
+    let result;
     try {
-      // Escape POSIX ERE metacharacters — callers pass file paths which may
-      // contain `(`, `)`, `[`, `]`, `+`, `?`, `.` etc. Without escaping,
-      // pgrep treats them as regex, fails with exit 2 on invalid ERE, and
-      // we silently return [] (orphan cleanup becomes a no-op).
-      const escaped = pattern.replace(/[\\.^$*+?()[\]{}|]/g, '\\$&');
-      const result = spawnSync('pgrep', ['-f', escaped], { encoding: 'utf-8' });
-      const output = (result.status === 0 || result.status === 1) ? (result.stdout ?? '') : '';
+      result = spawnSync('pgrep', ['-f', escaped], { encoding: 'utf-8' });
+    } catch (err) {
+      // spawnSync 本身抛（ENOENT: pgrep 不存在 / ENOMEM 等）
+      const reason = err instanceof Error ? err.message : String(err);
+      this.audit?.write('process_list_unavailable', `pattern=${pattern}`, `reason=${reason}`);
+      throw new ProcessListUnavailable(pattern, err);
+    }
+    // exit 0: 匹配有结果；exit 1: 无匹配（合法空集合）
+    if (result.status === 0 || result.status === 1) {
+      const output = result.stdout ?? '';
       return output.trim().split('\n')
         .map(s => parseInt(s, 10))
         .filter(p => !isNaN(p) && p !== process.pid);
     } catch (err) {
-      if (!this.findProcessesWarned) {
-        this.audit.write(
-          AUDIT_EVENTS.PROCESS_LIST_FAILED,
-          `reason=${err instanceof Error ? err.message : String(err)}`,
-        );
-        this.findProcessesWarned = true;
-      }
-      return [];
+      const reason = err instanceof Error ? err.message : String(err);
+      this.audit.write(
+        AUDIT_EVENTS.PROCESS_LIST_FAILED,
+        `pattern=${pattern}`,
+        `reason=${reason}`,
+      );
+      throw new ProcessListUnavailable(pattern, err);
     }
+    // exit 2: pgrep 参数错误（正则无效等）；exit >=128: 信号；其他非 0 非 1 → 不可预期
+    const stderr = result.stderr ?? '';
+    const err = new Error(`pgrep exited with status=${result.status}, stderr=${stderr}`);
+    this.audit?.write('process_list_unavailable', `pattern=${pattern}`, `status=${result.status}`);
+    throw new ProcessListUnavailable(pattern, err);
   }
 
 }

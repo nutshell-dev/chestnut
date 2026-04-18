@@ -9,7 +9,21 @@ import * as fsSync from 'fs';
 import * as path from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
-import { ProcessManager } from '../../src/foundation/process-manager/index.js';
+
+// Mock child_process so findProcesses tests can control pgrep behavior
+vi.mock('child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('child_process')>();
+  return {
+    ...actual,
+    spawnSync: vi.fn().mockImplementation(() => {
+      // Default: pgrep finds nothing (exit code 1 = no match)
+      return { status: 1, stdout: '', stderr: '' };
+    }),
+    spawn: vi.fn().mockReturnValue({ pid: process.pid, unref: vi.fn() }),
+  };
+});
+
+import { ProcessManager, ProcessListUnavailable } from '../../src/foundation/process-manager/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 import { makeAudit } from '../helpers/audit.js';
@@ -196,6 +210,47 @@ describe('ProcessManager', () => {
       }).catch(() => {});
 
       expect(events.some(e => e[0] === 'pid_empty' && e.some((c: string | number | boolean) => typeof c === 'string' && c.includes('claw=empty-pid-claw')))).toBe(true);
+    });
+  });
+
+  describe('findProcesses', () => {
+    it('should throw ProcessListUnavailable when spawnSync throws (e.g. ENOENT)', async () => {
+      const pm = new ProcessManager(nodeFs, tempDir);
+      const { spawnSync } = await import('child_process');
+      vi.mocked(spawnSync).mockImplementation(() => {
+        const err = new Error('ENOENT: pgrep not found') as any;
+        err.code = 'ENOENT';
+        throw err;
+      });
+
+      expect(() => pm.findProcesses('test-pattern')).toThrow(ProcessListUnavailable);
+      vi.mocked(spawnSync).mockRestore();
+    });
+
+    it('should throw ProcessListUnavailable when pgrep exits with non-0/non-1 status', async () => {
+      const pm = new ProcessManager(nodeFs, tempDir);
+      const { spawnSync } = await import('child_process');
+      vi.mocked(spawnSync).mockImplementation(() => ({
+        status: 2,
+        stdout: '',
+        stderr: 'invalid regex',
+      } as any));
+
+      expect(() => pm.findProcesses('test-pattern')).toThrow(ProcessListUnavailable);
+      vi.mocked(spawnSync).mockRestore();
+    });
+
+    it('should return empty array when pgrep exits 1 (no match)', async () => {
+      const pm = new ProcessManager(nodeFs, tempDir);
+      const { spawnSync } = await import('child_process');
+      vi.mocked(spawnSync).mockImplementation(() => ({
+        status: 1,
+        stdout: '',
+        stderr: '',
+      } as any));
+
+      expect(pm.findProcesses('test-pattern')).toEqual([]);
+      vi.mocked(spawnSync).mockRestore();
     });
   });
 

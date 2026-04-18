@@ -9,7 +9,7 @@ import { loadGlobalConfig, getGlobalConfigPath } from '../config.js';
 import { stopCommand as watchdogStop } from './watchdog.js';
 import { stopCommand as motionStop } from './motion.js';
 import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
-import { ProcessManager } from '../../foundation/process-manager/index.js';
+import { ProcessManager, ProcessListUnavailable } from '../../foundation/process-manager/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { fileURLToPath } from 'url';
 
@@ -58,7 +58,16 @@ export async function stopAllCommand(): Promise<void> {
     // bundled: thisDir=dist/, daemon-entry.js is sibling; unbundled: thisDir=dist/cli/commands/, go up 2
     const bundleEntry = path.join(thisDir, 'daemon-entry.js');
     const daemonEntryPath = existsSync(bundleEntry) ? bundleEntry : path.resolve(thisDir, '..', '..', 'daemon-entry.js');
-    const pids = pm.findProcesses(daemonEntryPath);
+    let pids: number[] = [];
+    try {
+      pids = pm.findProcesses(daemonEntryPath);
+    } catch (err) {
+      if (err instanceof ProcessListUnavailable) {
+        // audit 已由 findProcesses 写；降级：跳过孤儿清理
+      } else {
+        throw err;
+      }
+    }
     if (pids.length > 0) {
       console.log(`Cleaning up ${pids.length} orphan daemon process(es)...`);
       for (const p of pids) {

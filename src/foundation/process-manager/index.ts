@@ -7,3 +7,4 @@
 
 export { ProcessManager } from './manager.js';
 export type { SpawnOptions } from './manager.js';
+export { ProcessListUnavailable } from './errors.js';
