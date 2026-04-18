@@ -5,3 +5,22 @@ export class InboxListFailed extends Error {
     this.name = 'InboxListFailed';
   }
 }
+
+export type InboxMoveOp = 'done' | 'failed';
+
+export class InboxMoveFailed extends Error {
+  readonly code = 'INBOX_MOVE_FAILED' as const;
+  constructor(
+    public readonly filePath: string,
+    public readonly op: InboxMoveOp,
+    public readonly cause: unknown,
+  ) {
+    super(`Failed to move inbox file ${filePath} to ${op}/`);
+    this.name = 'InboxMoveFailed';
+  }
+}
+
+export type InboxMetaError =
+  | { kind: 'not_found'; cause: unknown }
+  | { kind: 'read_failed'; cause: unknown }
+  | { kind: 'parse_failed'; cause: unknown };

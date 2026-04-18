@@ -15,7 +15,7 @@ import type { Message } from '../types/message.js';
 import type { InboxMessage, Priority } from '../types/contract.js';
 import type { OutboxWriteOptions } from './communication/index.js';
 import type { SessionData } from '../foundation/session-store/index.js';
-import { readInboxFileMeta, InboxListFailed } from '../foundation/messaging/index.js';
+import { readInboxFileMeta, InboxListFailed, InboxMoveFailed } from '../foundation/messaging/index.js';
 
 import { NodeFileSystem } from '../foundation/fs/node-fs.js';
 import { LLMServiceImpl } from '../foundation/llm/service.js';
@@ -382,8 +382,8 @@ export class ClawRuntime {
     try {
       entries = await this.inboxReader.drainInbox();
     } catch (err) {
-      if (err instanceof InboxListFailed) {
-        // audit 已在 drainInbox 内写；此处只需保守退出本轮
+      if (err instanceof InboxListFailed || err instanceof InboxMoveFailed) {
+        // audit 已在 drainInbox / markDone / markFailed 内写；此处只需保守退出本轮
         return { injected: [], sources: [], count: 0, infos: [] };
       }
       throw err; // 非预期错误继续冒泡
@@ -424,7 +424,16 @@ export class ClawRuntime {
     }
 
     for (const { filePath } of [...addressed, ...unaddressed]) {
-      await this.inboxReader.markDone(filePath);
+      try {
+        await this.inboxReader.markDone(filePath);
+      } catch (err) {
+        if (err instanceof InboxMoveFailed) {
+          // markDone 失败：该消息本轮结束、保留在 pending；下次 drainInbox 会再拉到
+          // audit 已在 markDone 内写
+          break;
+        }
+        throw err;
+      }
     }
 
     const systemParts: string[] = [];
@@ -857,8 +866,13 @@ export class ClawRuntime {
       return false;
     }
     for (const file of files) {
-      const meta = readInboxFileMeta(this.systemFs, path.join(pendingDir, file));
-      if (meta?.priority === 'high' || meta?.priority === 'critical') return true;
+      const result = readInboxFileMeta(this.systemFs, path.join(pendingDir, file));
+      if (!result.ok) {
+        this.auditWriter.write('inbox_meta_failed', `file=${file}`, `kind=${result.error.kind}`);
+        continue;
+      }
+      const meta = result.value;
+      if (meta.priority === 'high' || meta.priority === 'critical') return true;
     }
     return false;
   }

@@ -13,6 +13,7 @@ export type { InboxMessageOptions } from './inbox-writer.js';
 
 export { InboxReader } from './inbox-reader.js';
 export type { InboxEntry } from './inbox-reader.js';
-export { InboxListFailed } from './errors.js';
+export { InboxListFailed, InboxMoveFailed } from './errors.js';
+export type { InboxMoveOp, InboxMetaError } from './errors.js';
 
 

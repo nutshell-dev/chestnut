@@ -215,7 +215,8 @@ describe('ProcessManager', () => {
 
   describe('findProcesses', () => {
     it('should throw ProcessListUnavailable when spawnSync throws (e.g. ENOENT)', async () => {
-      const pm = new ProcessManager(nodeFs, tempDir);
+      const { audit } = makeAudit();
+      const pm = new ProcessManager(nodeFs, tempDir, audit);
       const { spawnSync } = await import('child_process');
       vi.mocked(spawnSync).mockImplementation(() => {
         const err = new Error('ENOENT: pgrep not found') as any;
@@ -228,7 +229,8 @@ describe('ProcessManager', () => {
     });
 
     it('should throw ProcessListUnavailable when pgrep exits with non-0/non-1 status', async () => {
-      const pm = new ProcessManager(nodeFs, tempDir);
+      const { audit } = makeAudit();
+      const pm = new ProcessManager(nodeFs, tempDir, audit);
       const { spawnSync } = await import('child_process');
       vi.mocked(spawnSync).mockImplementation(() => ({
         status: 2,
@@ -241,7 +243,8 @@ describe('ProcessManager', () => {
     });
 
     it('should return empty array when pgrep exits 1 (no match)', async () => {
-      const pm = new ProcessManager(nodeFs, tempDir);
+      const { audit } = makeAudit();
+      const pm = new ProcessManager(nodeFs, tempDir, audit);
       const { spawnSync } = await import('child_process');
       vi.mocked(spawnSync).mockImplementation(() => ({
         status: 1,

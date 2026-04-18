@@ -16,7 +16,7 @@ import { PRIORITY_VALUES } from '../../types/contract.js';
 import { decodeInbox } from '../message-codec/index.js';
 import type { Audit } from '../audit/index.js';
 import { AUDIT_EVENTS } from '../audit/events.js';
-import { InboxListFailed } from './errors.js';
+import { InboxListFailed, InboxMoveFailed } from './errors.js';
 
 export interface InboxEntry {
   message: InboxMessage;
@@ -71,12 +71,19 @@ export class InboxReader {
         const message = decodeInbox(content);
         results.push({ message, filePath });
       } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
         this.audit.write(
           AUDIT_EVENTS.INBOX_FAILED,
           `file=${entry.name}`,
-          `reason=${err instanceof Error ? err.message : String(err)}`,
+          `reason=parse_error`,
+          `detail=${reason}`,
         );
-        await this.markFailed(filePath);
+        try {
+          await this.markFailed(filePath);
+        } catch (moveErr) {
+          // markFailed 抛：消息仍停在 pending；本轮跳过、冒泡让上层决策
+          throw moveErr;
+        }
       }
     }
 
@@ -94,38 +101,41 @@ export class InboxReader {
 
   /** Move processed file to done/ */
   async markDone(filePath: string): Promise<void> {
+    const fileName = path.basename(filePath);
+    const uuid8 = randomUUID().slice(0, 8);
+    const targetPath = path.join(this.doneDir, `${Date.now()}_${uuid8}_${fileName}`);
     try {
-      const fileName = path.basename(filePath);
-      const uuid8 = randomUUID().slice(0, 8);
-      const targetPath = path.join(this.doneDir, `${Date.now()}_${uuid8}_${fileName}`);
       await this.fs.move(filePath, targetPath);
-      this.audit.write(AUDIT_EVENTS.INBOX_DONE, `file=${fileName}`);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const reason = err instanceof Error ? err.message : String(err);
       this.audit.write(
         AUDIT_EVENTS.INBOX_MOVE_FAILED,
-        `file=${path.basename(filePath)}`,
+        `file=${fileName}`,
         `op=done`,
-        `reason=${msg}`,
+        `reason=${reason}`,
       );
+      throw new InboxMoveFailed(filePath, 'done', err);
     }
+    this.audit?.write('inbox_done', `file=${fileName}`);
   }
 
   /** Move failed file to failed/ */
   async markFailed(filePath: string): Promise<void> {
+    const fileName = path.basename(filePath);
+    const uuid8 = randomUUID().slice(0, 8);
+    const targetPath = path.join(this.failedDir, `${Date.now()}_${uuid8}_${fileName}`);
     try {
-      const fileName = path.basename(filePath);
-      const uuid8 = randomUUID().slice(0, 8);
-      const targetPath = path.join(this.failedDir, `${Date.now()}_${uuid8}_${fileName}`);
       await this.fs.move(filePath, targetPath);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const reason = err instanceof Error ? err.message : String(err);
       this.audit.write(
         AUDIT_EVENTS.INBOX_MOVE_FAILED,
-        `file=${path.basename(filePath)}`,
+        `file=${fileName}`,
         `op=failed`,
-        `reason=${msg}`,
+        `reason=${reason}`,
       );
+      throw new InboxMoveFailed(filePath, 'failed', err);
     }
+    // markFailed 成功不 audit（归档本身是降级路径，audit 已在解析/处理失败时记）
   }
 }

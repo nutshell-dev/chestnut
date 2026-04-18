@@ -12,6 +12,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { randomUUID } from 'crypto';
 import { writeInboxMessage } from '../../src/utils/inbox-writer.js';
+import { readInboxFileMeta } from '../../src/foundation/messaging/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 
 let tmpDir: string;
@@ -170,5 +171,46 @@ describe('writeInboxMessage atomic write', () => {
     expect(content).toContain('test body content');
     expect(content).toMatch(/^---\n/);
     expect(content).toContain('\n---\n');
+  });
+});
+
+// ─── readInboxFileMeta ───────────────────────────────────────────────────────
+
+describe('readInboxFileMeta', () => {
+  it('should return ok with meta for valid inbox file', () => {
+    writeInboxMessage(mockFs, {
+      inboxDir: tmpDir,
+      type: 'ping',
+      source: 'motion',
+      priority: 'high',
+      body: 'test body content',
+    });
+    const files = fs.readdirSync(tmpDir).filter(f => f.endsWith('.md'));
+    expect(files).toHaveLength(1);
+
+    const result = readInboxFileMeta(mockFs, path.join(tmpDir, files[0]));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.type).toBe('ping');
+      expect(result.value.priority).toBe('high');
+    }
+  });
+
+  it('should return err(not_found) for missing file', () => {
+    const result = readInboxFileMeta(mockFs, path.join(tmpDir, 'nonexistent.md'));
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.kind).toBe('not_found');
+    }
+  });
+
+  it('should return err(parse_failed) for malformed frontmatter', () => {
+    const badFile = path.join(tmpDir, 'bad.md');
+    fs.writeFileSync(badFile, '---\nno closing fence', 'utf-8');
+    const result = readInboxFileMeta(mockFs, badFile);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.kind).toBe('parse_failed');
+    }
   });
 });

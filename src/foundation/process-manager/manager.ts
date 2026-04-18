@@ -15,7 +15,6 @@ import {
   PROCESS_SPAWN_CONFIRM_MS,
   SIGTERM_GRACE_MS,
 } from '../../constants.js';
-import type { Audit } from '../audit/index.js';
 import { AUDIT_EVENTS } from '../audit/events.js';
 
 export interface SpawnOptions {
@@ -434,7 +433,11 @@ export class ProcessManager {
     } catch (err) {
       // spawnSync 本身抛（ENOENT: pgrep 不存在 / ENOMEM 等）
       const reason = err instanceof Error ? err.message : String(err);
-      this.audit?.write('process_list_unavailable', `pattern=${pattern}`, `reason=${reason}`);
+      this.audit.write(
+        AUDIT_EVENTS.PROCESS_LIST_FAILED,
+        `pattern=${pattern}`,
+        `reason=${reason}`,
+      );
       throw new ProcessListUnavailable(pattern, err);
     }
     // exit 0: 匹配有结果；exit 1: 无匹配（合法空集合）
@@ -443,19 +446,15 @@ export class ProcessManager {
       return output.trim().split('\n')
         .map(s => parseInt(s, 10))
         .filter(p => !isNaN(p) && p !== process.pid);
-    } catch (err) {
-      const reason = err instanceof Error ? err.message : String(err);
-      this.audit.write(
-        AUDIT_EVENTS.PROCESS_LIST_FAILED,
-        `pattern=${pattern}`,
-        `reason=${reason}`,
-      );
-      throw new ProcessListUnavailable(pattern, err);
     }
     // exit 2: pgrep 参数错误（正则无效等）；exit >=128: 信号；其他非 0 非 1 → 不可预期
     const stderr = result.stderr ?? '';
     const err = new Error(`pgrep exited with status=${result.status}, stderr=${stderr}`);
-    this.audit?.write('process_list_unavailable', `pattern=${pattern}`, `status=${result.status}`);
+    this.audit.write(
+      AUDIT_EVENTS.PROCESS_LIST_FAILED,
+      `pattern=${pattern}`,
+      `status=${result.status}`,
+    );
     throw new ProcessListUnavailable(pattern, err);
   }
 

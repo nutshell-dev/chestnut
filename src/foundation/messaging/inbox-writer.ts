@@ -10,6 +10,8 @@ import { randomUUID } from 'crypto';
 import type { FileSystem } from '../fs/types.js';
 import type { InboxMessage } from '../../types/contract.js';
 import { encodeInbox, parseFrontmatter } from '../message-codec/index.js';
+import { ok, err as errResult, type Result } from '../common/result.js';
+import type { InboxMetaError } from './errors.js';
 
 /**
  * Write a message to an inbox/pending/ directory.
@@ -90,13 +92,24 @@ export function writeInboxMessage(fs: FileSystem, opts: InboxMessageOptions): vo
 
 /**
  * Read frontmatter metadata from an inbox file.
- * Returns null on failure (missing file, parse error, etc.).
+ * Returns Result with detailed error on failure.
  */
-export function readInboxFileMeta(fs: FileSystem, filePath: string): Record<string, string> | null {
+export function readInboxFileMeta(
+  fs: FileSystem,
+  filePath: string,
+): Result<Record<string, string>, InboxMetaError> {
+  let content: string;
   try {
-    const content = fs.readSync(filePath);
-    return parseFrontmatter(content).meta;
-  } catch {
-    return null;
+    content = fs.readSync(filePath);
+  } catch (err: any) {
+    if (err?.code === 'FS_NOT_FOUND' || err?.code === 'ENOENT') {
+      return errResult({ kind: 'not_found', cause: err });
+    }
+    return errResult({ kind: 'read_failed', cause: err });
+  }
+  try {
+    return ok(parseFrontmatter(content).meta);
+  } catch (e) {
+    return errResult({ kind: 'parse_failed', cause: e });
   }
 }

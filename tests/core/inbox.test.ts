@@ -8,7 +8,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
 import { tmpdir } from 'os';
-import { InboxReader, InboxListFailed } from '../../src/foundation/messaging/index.js';
+import { InboxReader, InboxListFailed, InboxMoveFailed } from '../../src/foundation/messaging/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import type { InboxMessage } from '../../src/types/contract.js';
 import { makeAudit } from '../helpers/audit.js';
@@ -267,6 +267,52 @@ Test message content`;
 
     const entries = await noentReader.drainInbox();
     expect(entries).toHaveLength(0);
+  });
+
+  it('should throw InboxMoveFailed when markDone move fails', async () => {
+    const msgFile = path.join(testDir, 'inbox', 'pending', 'move-fail.md');
+    await fs.writeFile(msgFile, '---\ntype: normal\n---\nTest', 'utf-8');
+
+    // Make done directory read-only to force move failure
+    const doneDir = path.join(testDir, 'inbox', 'done');
+    await fs.chmod(doneDir, 0o555);
+
+    try {
+      await expect(reader.markDone('inbox/pending/move-fail.md')).rejects.toThrow(InboxMoveFailed);
+    } finally {
+      await fs.chmod(doneDir, 0o755);
+    }
+  });
+
+  it('should throw InboxMoveFailed when markFailed move fails', async () => {
+    const msgFile = path.join(testDir, 'inbox', 'pending', 'markfail-fail.md');
+    await fs.writeFile(msgFile, '---\ntype: normal\n---\nTest', 'utf-8');
+
+    const failedDir = path.join(testDir, 'inbox', 'failed');
+    await fs.chmod(failedDir, 0o555);
+
+    try {
+      await expect(reader.markFailed('inbox/pending/markfail-fail.md')).rejects.toThrow(InboxMoveFailed);
+    } finally {
+      await fs.chmod(failedDir, 0o755);
+    }
+  });
+
+  it('drainInbox should bubble InboxMoveFailed when markFailed fails', async () => {
+    await nfs.writeAtomic(
+      'inbox/pending/malformed.md',
+      '---\ntype: normal\nid: bad-msg\n(no closing fence)',
+    );
+
+    // Make failed directory read-only to force markFailed failure
+    const failedDir = path.join(testDir, 'inbox', 'failed');
+    await fs.chmod(failedDir, 0o555);
+
+    try {
+      await expect(reader.drainInbox()).rejects.toThrow(InboxMoveFailed);
+    } finally {
+      await fs.chmod(failedDir, 0o755);
+    }
   });
 });
 
