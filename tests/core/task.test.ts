@@ -235,8 +235,8 @@ describe('Task System + SubAgent', () => {
       // Parse the message and verify frontmatter
       const { promises: nodeFs } = await import('fs');
       const content = await nodeFs.readFile(path.join(inboxDir, inboxFiles[0]), 'utf-8');
-      expect(content).toContain('from: subagent');
-      expect(content).toContain('to: motion');
+      expect(content).toContain('from: "subagent"');
+      expect(content).toContain('to: "motion"');
       expect(content).toContain(`"resultRef":"tasks/results/${taskId}/result.txt"`);
     });
 

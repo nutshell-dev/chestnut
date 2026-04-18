@@ -213,8 +213,8 @@ describe('TaskSystem Tool Tasks', () => {
       // Parse frontmatter + content
       const match = inboxFile.match(/---\n([\s\S]*?)\n---\n\n([\s\S]*)/);
       expect(match).toBeTruthy();
-      expect(match![1]).toContain('from: task_system');
-      expect(match![1]).toContain('to: parent-claw');
+      expect(match![1]).toContain('from: "task_system"');
+      expect(match![1]).toContain('to: "parent-claw"');
       expect(match![1]).toContain('priority: normal');
       
       const content = JSON.parse(match![2]);
