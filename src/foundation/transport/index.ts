@@ -18,7 +18,12 @@ export type { Connection } from './types.js';
  * Options for starting a transport listener.
  */
 export interface TransportOptions {
-  /** Path for local IPC (Unix socket / named pipe). */
+  /**
+   * Path for local IPC (Unix socket / named pipe).
+   * Caller should place this within a claw-owned directory
+   * (e.g., `~/.clawforum/<clawId>/transport.sock`); Transport serves
+   * same-claw local processes only.
+   */
   socketPath?: string;
 }
 
@@ -73,8 +78,13 @@ export interface Transport {
 
   /**
    * Register callback for incoming client messages.
+   *
+   * Each callback invocation receives exactly one logical message as framed
+   * by the transport. Partial chunks are buffered internally; empty messages
+   * (e.g., consecutive delimiters) are still delivered — caller decides
+   * whether to ignore them.
    */
   onMessage(cb: (conn: Connection, data: string) => void): void;
 }
 
-// TODO: UnixDomainSocketTransport implementation — future phase
+export { UnixDomainSocketTransport } from './unix-socket.js';
