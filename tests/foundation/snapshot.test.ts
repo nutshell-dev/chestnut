@@ -12,6 +12,9 @@ import { Snapshot } from '../../src/foundation/snapshot/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { AUDIT_EVENTS } from '../../src/foundation/audit/events.js';
 import { makeAudit } from '../helpers/audit.js';
+import { STREAM_FILE } from '../../src/foundation/stream/index.js';
+import { AUDIT_FILE } from '../../src/foundation/audit/index.js';
+import { TASKS_RESULTS_DIR } from '../../src/types/paths.js';
 
 // git 必须可用才能跑这些测试
 let gitAvailable = false;
@@ -34,7 +37,7 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
   // ========================================================================
 
   it('init creates .git with .gitignore and initial commit', async () => {
-    await new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false }), makeAudit().audit).init();
+    await new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false }), makeAudit().audit, [STREAM_FILE, AUDIT_FILE, `${TASKS_RESULTS_DIR}/`]).init();
 
     // .git 目录存在
     expect(fsSync.existsSync(path.join(tmpDir, '.git'))).toBe(true);
@@ -51,11 +54,11 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
   });
 
   it('init is idempotent — second call is no-op', async () => {
-    await new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false }), makeAudit().audit).init();
+    await new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false }), makeAudit().audit, [STREAM_FILE, AUDIT_FILE, `${TASKS_RESULTS_DIR}/`]).init();
     // 手动写一个文件作为标记
     await fsp.writeFile(path.join(tmpDir, 'marker.txt'), 'test');
 
-    await new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false }), makeAudit().audit).init();
+    await new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false }), makeAudit().audit, [STREAM_FILE, AUDIT_FILE, `${TASKS_RESULTS_DIR}/`]).init();
 
     // marker.txt 应该还在（没有被 init 覆盖或重建）
     const content = await fsp.readFile(path.join(tmpDir, 'marker.txt'), 'utf-8');
@@ -83,7 +86,7 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
 
     const audit = { write: vi.fn() };
 
-    await new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false }), audit).init();
+    await new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false }), audit, [STREAM_FILE, AUDIT_FILE, `${TASKS_RESULTS_DIR}/`]).init();
 
     // .git 应被清理
     expect(fsSync.existsSync(path.join(tmpDir, '.git'))).toBe(false);
@@ -111,7 +114,7 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
 
     const audit = { write: vi.fn() };
-    const snapshot = new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false }), audit);
+    const snapshot = new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false }), audit, [STREAM_FILE, AUDIT_FILE, `${TASKS_RESULTS_DIR}/`]);
     await snapshot.init();
 
     expect(audit.write).toHaveBeenCalledWith(
@@ -125,23 +128,23 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
   // ========================================================================
 
   it('commit is no-op when no changes', async () => {
-    await new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false }), makeAudit().audit).init();
+    await new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false }), makeAudit().audit, [STREAM_FILE, AUDIT_FILE, `${TASKS_RESULTS_DIR}/`]).init();
 
     const logBefore = execSync('git log --oneline', { cwd: tmpDir, encoding: 'utf-8' }).trim();
 
-    await new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false }), makeAudit().audit).commit('should-not-appear');
+    await new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false }), makeAudit().audit, [STREAM_FILE, AUDIT_FILE, `${TASKS_RESULTS_DIR}/`]).commit('should-not-appear');
 
     const logAfter = execSync('git log --oneline', { cwd: tmpDir, encoding: 'utf-8' }).trim();
     expect(logAfter).toBe(logBefore);
   });
 
   it('commit creates snapshot when there are changes', async () => {
-    await new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false }), makeAudit().audit).init();
+    await new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false }), makeAudit().audit, [STREAM_FILE, AUDIT_FILE, `${TASKS_RESULTS_DIR}/`]).init();
 
     // 创建一个文件
     await fsp.writeFile(path.join(tmpDir, 'data.txt'), 'hello');
 
-    await new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false }), makeAudit().audit).commit('add data');
+    await new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false }), makeAudit().audit, [STREAM_FILE, AUDIT_FILE, `${TASKS_RESULTS_DIR}/`]).commit('add data');
 
     const log = execSync('git log --oneline', { cwd: tmpDir, encoding: 'utf-8' }).trim();
     expect(log).toContain('add data');
@@ -152,14 +155,14 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
 
 
   it('consecutive failures are isolated per instance', async () => {
-    await new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false }), makeAudit().audit).init();
+    await new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false }), makeAudit().audit, [STREAM_FILE, AUDIT_FILE, `${TASKS_RESULTS_DIR}/`]).init();
     await fsp.writeFile(path.join(tmpDir, 'data.txt'), 'hello');
     await fsp.rm(path.join(tmpDir, '.git', 'HEAD'));
 
     const audit1 = { write: vi.fn() };
     const audit2 = { write: vi.fn() };
-    const snapshot1 = new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false }), audit1);
-    const snapshot2 = new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false }), audit2);
+    const snapshot1 = new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false }), audit1, [STREAM_FILE, AUDIT_FILE, `${TASKS_RESULTS_DIR}/`]);
+    const snapshot2 = new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false }), audit2, [STREAM_FILE, AUDIT_FILE, `${TASKS_RESULTS_DIR}/`]);
 
     await snapshot1.commit('fail-1');
     await snapshot1.commit('fail-2');
@@ -184,7 +187,7 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
 
   it('commit writes snapshot_commit_failed on every failure including <3', async () => {
     const audit = { write: vi.fn() };
-    const snapshot = new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false }), audit);
+    const snapshot = new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false }), audit, [STREAM_FILE, AUDIT_FILE, `${TASKS_RESULTS_DIR}/`]);
     await snapshot.init();
     await fsp.writeFile(path.join(tmpDir, 'data.txt'), 'hello');
 
@@ -208,7 +211,7 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
 
   it('commit continues writing snapshot_commit_failed on 4th+ failure', async () => {
     const audit = { write: vi.fn() };
-    const snapshot = new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false }), audit);
+    const snapshot = new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false }), audit, [STREAM_FILE, AUDIT_FILE, `${TASKS_RESULTS_DIR}/`]);
     await snapshot.init();
     await fsp.writeFile(path.join(tmpDir, 'data.txt'), 'hello');
     await fsp.rm(path.join(tmpDir, '.git', 'HEAD'));
@@ -235,12 +238,12 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
   // ========================================================================
 
   it('commit message with special characters works correctly', async () => {
-    await new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false }), makeAudit().audit).init();
+    await new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false }), makeAudit().audit, [STREAM_FILE, AUDIT_FILE, `${TASKS_RESULTS_DIR}/`]).init();
     await fsp.writeFile(path.join(tmpDir, 'data.txt'), 'hello');
 
     // 消息含空格和引号
     const message = "fix: user's \"data\" file";
-    await new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false }), makeAudit().audit).commit(message);
+    await new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false }), makeAudit().audit, [STREAM_FILE, AUDIT_FILE, `${TASKS_RESULTS_DIR}/`]).commit(message);
 
     const log = execSync('git log --oneline -1', { cwd: tmpDir, encoding: 'utf-8' }).trim();
     expect(log).toContain("fix:");
@@ -248,7 +251,7 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
 
   it('commit writes snapshot_committed on success', async () => {
     const audit = { write: vi.fn() };
-    const snapshot = new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false }), audit);
+    const snapshot = new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir, enforcePermissions: false }), audit, [STREAM_FILE, AUDIT_FILE, `${TASKS_RESULTS_DIR}/`]);
     await snapshot.init();
     await fsp.writeFile(path.join(tmpDir, 'data.txt'), 'hello');
     await snapshot.commit('add data');
@@ -282,7 +285,7 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
     });
 
     const audit = { write: vi.fn() };
-    await new Snapshot(tmpDir, fsMock, audit).init();
+    await new Snapshot(tmpDir, fsMock, audit, [STREAM_FILE, AUDIT_FILE, `${TASKS_RESULTS_DIR}/`]).init();
 
     expect(audit.write).toHaveBeenCalledWith(
       AUDIT_EVENTS.SNAPSHOT_INIT_CLEANUP_FAILED,

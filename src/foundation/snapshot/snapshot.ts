@@ -13,23 +13,24 @@ import type { FileSystem } from '../fs/types.js';
 import type { Audit } from '../audit/index.js';
 import { AUDIT_EVENTS } from '../audit/events.js';
 
-const GITIGNORE_CONTENT = `stream.jsonl
-audit.tsv
-logs/
-tasks/results/
-*.tmp
-`;
+const DEFAULT_IGNORES = ['logs/', '*.tmp'];
 
 export class Snapshot {
   private dir: string;
   private fs: FileSystem;
   private consecutiveFailures = 0;
   private readonly audit: Audit;
+  private readonly ignorePatterns: string[];
 
-  constructor(dir: string, fs: FileSystem, audit: Audit) {
+  constructor(dir: string, fs: FileSystem, audit: Audit, ignorePatterns: string[]) {
     this.dir = dir;
     this.fs = fs;
     this.audit = audit;
+    this.ignorePatterns = ignorePatterns;
+  }
+
+  private buildGitignore(): string {
+    return [...this.ignorePatterns, ...DEFAULT_IGNORES].join('\n') + '\n';
   }
 
   private static async git(dir: string, args: string[]): Promise<string> {
@@ -42,7 +43,7 @@ export class Snapshot {
   async init(): Promise<void> {
     if (await this.fs.exists('.git')) return;
     try {
-      await this.fs.writeAtomic('.gitignore', GITIGNORE_CONTENT);
+      await this.fs.writeAtomic('.gitignore', this.buildGitignore());
       await Snapshot.git(this.dir, ['init']);
       await Snapshot.git(this.dir, ['config', 'user.name', 'clawforum']);
       await Snapshot.git(this.dir, ['config', 'user.email', 'clawforum@local']);

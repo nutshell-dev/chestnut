@@ -46,6 +46,9 @@ import { ContractManager } from './contract/manager.js';
 import { CLAW_SUBDIRS } from '../types/paths.js';
 import { oneLine } from '../foundation/utils/string.js';
 import { Snapshot } from '../foundation/snapshot/index.js';
+import { STREAM_FILE } from '../foundation/stream/index.js';
+import { AUDIT_FILE } from '../foundation/audit/index.js';
+import { TASKS_RESULTS_DIR } from '../types/paths.js';
 import { MaxStepsExceededError } from '../types/errors.js';
 import { MOTION_CLAW_ID, DEFAULT_LLM_IDLE_TIMEOUT_MS, DEFAULT_MAX_STEPS, DEFAULT_MAX_CONCURRENT_TASKS } from '../constants.js';
 
@@ -199,7 +202,7 @@ export class ClawRuntime {
     });
 
     // 2.x 初始化 Snapshot
-    this.snapshot = new Snapshot(this.options.clawDir, this.systemFs, this.auditWriter);
+    this.snapshot = new Snapshot(this.options.clawDir, this.systemFs, this.auditWriter, [STREAM_FILE, AUDIT_FILE, `${TASKS_RESULTS_DIR}/`]);
 
     // Session repair：检测未完成的 tool_use，注入合成 tool_result
     {
