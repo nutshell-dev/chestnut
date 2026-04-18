@@ -211,9 +211,10 @@ export class ToolExecutorImpl implements IToolExecutor {
     const timeoutController = new AbortController();
     const timeoutId = setTimeout(() => timeoutController.abort(), timeoutMs);
 
-    const mergedSignal = options.signal
-      ? AbortSignal.any([options.signal, timeoutController.signal])
-      : timeoutController.signal;
+    const upstreamSignals = [ctx.signal, options.signal].filter(Boolean) as AbortSignal[];
+    const mergedSignal = upstreamSignals.length === 0
+      ? timeoutController.signal
+      : AbortSignal.any([...upstreamSignals, timeoutController.signal]);
 
     const timeoutPromise = new Promise<never>((_, reject) => {
       timeoutController.signal.addEventListener(

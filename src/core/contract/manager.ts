@@ -165,15 +165,15 @@ export class ContractManager {
             lastReason = `holder PID ${pid} is dead (stale lock)`;
             if (await this.unlinkStaleLock(absoluteLockPath, `stale_pid_${pid}`)) continue;
             lastReason = `unlink failed on stale lock (PID ${pid})`;
-          }
-          // 持有者存活但持锁超时：强制清理（防止 bug 导致永久死锁）
-          if (Date.now() - time > LOCK_STALE_TIMEOUT_MS) {
+          } else if (Date.now() - time > LOCK_STALE_TIMEOUT_MS) {
+            // 持有者存活但持锁超时：强制清理（防止 bug 导致永久死锁）
             lastReason = `holder PID ${pid} exceeded timeout (${LOCK_STALE_TIMEOUT_MS}ms)`;
             console.warn(`[contract] Lock held too long (> ${LOCK_STALE_TIMEOUT_MS}ms) by PID ${pid}, force clearing`);
             if (await this.unlinkStaleLock(absoluteLockPath, `timeout_pid_${pid}`)) continue;
             lastReason = `unlink failed on timeout lock (PID ${pid})`;
+          } else {
+            lastReason = `held by PID ${pid} (${Math.round((Date.now() - time) / 1000)}s)`;
           }
-          lastReason = `held by PID ${pid} (${Math.round((Date.now() - time) / 1000)}s)`;
         } catch {
           // 读取或解析失败：lock 文件损坏，清理后重试
           lastReason = 'lock file corrupt or unreadable';
