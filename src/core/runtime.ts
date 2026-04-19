@@ -94,7 +94,7 @@ export interface ClawRuntimeOptions {
   subagentMaxSteps?: number;
   maxConcurrentTasks?: number;
   idleTimeoutMs?: number;  // 覆盖 DEFAULT_LLM_IDLE_TIMEOUT_MS（0 = 禁用）
-  dependencies?: RuntimeDependencies;  // Step 1 过渡态：可选；Step 3 末尾改必传
+  dependencies: RuntimeDependencies;
 }
 
 /**

@@ -4,6 +4,11 @@ import * as fsNative from 'fs';
 import { AuditWriter } from '../foundation/audit/writer.js';
 import { SNAPSHOT_IGNORE_PATTERNS, createSnapshot } from '../foundation/snapshot/index.js';
 import type { Snapshot } from '../foundation/snapshot/index.js';
+import { createSessionManager } from '../foundation/session-store/index.js';
+import { createInboxReader, createOutboxWriter } from '../foundation/messaging/index.js';
+import type { SessionManager } from '../foundation/session-store/index.js';
+import type { InboxReader } from '../foundation/messaging/index.js';
+import type { OutboxWriter } from '../core/communication/index.js';
 import { createStreamWriter } from '../foundation/stream/index.js';
 import type { StreamWriter } from '../foundation/stream/writer.js';
 import type { ProcessManager } from '../foundation/process-manager/manager.js';
@@ -62,14 +67,17 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
   const isMotion = identity === 'motion';
   const auditMaxSizeMb = globalConfig.audit?.retention?.max_size_mb ?? null;
 
-  // phase155A: 预制 fs 句柄，合并函数体内多处零散的 FileSystem 构造
-  const clawFs = new NodeFileSystem({ baseDir: clawDir, enforcePermissions: false });
+  // phase155B: 预制 L1 fs 句柄
+  // systemFs: used by system components (no permission enforcement)
+  const systemFs = new NodeFileSystem({ baseDir: clawDir, enforcePermissions: false });
+  // clawFs: used by tools (with permission enforcement)
+  const clawFs = new NodeFileSystem({ baseDir: clawDir, enforcePermissions: true });
   const parentFs = new NodeFileSystem({ baseDir: path.join(clawDir, '..'), enforcePermissions: false });
 
   // --- 1. AuditWriter (daemon.ts L100-104) ---
   let auditWriter: AuditWriter;
   try {
-    auditWriter = new AuditWriter(clawFs, 'audit.tsv', auditMaxSizeMb);
+    auditWriter = new AuditWriter(systemFs, 'audit.tsv', auditMaxSizeMb);
   } catch (e) {
     throw new Error(`Assembly: AuditWriter construct failed: ${errMsg(e)}`, { cause: e });
   }
@@ -90,7 +98,56 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
     throw new LockConflictError(clawId, errMsg(e));
   }
 
-  // --- 3. Runtime (daemon.ts L111-137) ---
+  // --- 3. L2 assembly (phase155B: Snapshot + SessionManager + InboxReader + OutboxWriter) ---
+
+  // 3a. Snapshot construct + init + recovery
+  let snapshot: Snapshot;
+  try {
+    snapshot = createSnapshot(clawDir, systemFs, auditWriter, SNAPSHOT_IGNORE_PATTERNS);
+  } catch (e) {
+    auditWriter.write('assemble_failed', `module=snapshot`, `phase=construct`, `reason=${errMsg(e)}`);
+    throw new Error(`Assembly: Snapshot construct failed: ${errMsg(e)}`, { cause: e });
+  }
+
+  const initResult = await snapshot.init();
+  if (!initResult.ok) {
+    auditWriter.write('assemble_failed', `module=snapshot`, `phase=init`, `reason=${initResult.error.kind}`);
+    throw new Error(`Assembly: Snapshot.init failed: ${initResult.error.kind}`);
+  }
+
+  const recoveryResult = await snapshot.commit('recovery-snapshot');
+  if (!recoveryResult.ok) {
+    auditWriter.write('assemble_failed', `module=snapshot`, `phase=recovery-commit`, `reason=${recoveryResult.error.kind}`);
+  }
+
+  // 3b. SessionManager
+  let sessionManager: SessionManager;
+  try {
+    sessionManager = createSessionManager(systemFs, 'dialog', auditWriter, clawId);
+  } catch (e) {
+    auditWriter.write('assemble_failed', `module=session_manager`, `phase=construct`, `reason=${errMsg(e)}`);
+    throw new Error(`Assembly: SessionManager construct failed: ${errMsg(e)}`, { cause: e });
+  }
+
+  // 3c. InboxReader
+  let inboxReader: InboxReader;
+  try {
+    inboxReader = createInboxReader(systemFs, auditWriter, 'inbox');
+  } catch (e) {
+    auditWriter.write('assemble_failed', `module=inbox_reader`, `phase=construct`, `reason=${errMsg(e)}`);
+    throw new Error(`Assembly: InboxReader construct failed: ${errMsg(e)}`, { cause: e });
+  }
+
+  // 3d. OutboxWriter
+  let outboxWriter: OutboxWriter;
+  try {
+    outboxWriter = createOutboxWriter(clawId, clawDir, systemFs, auditWriter);
+  } catch (e) {
+    auditWriter.write('assemble_failed', `module=outbox_writer`, `phase=construct`, `reason=${errMsg(e)}`);
+    throw new Error(`Assembly: OutboxWriter construct failed: ${errMsg(e)}`, { cause: e });
+  }
+
+  // --- 4. Runtime (daemon.ts L111-137) ---
   let llmConfig: ReturnType<typeof buildLLMConfig>;
   try {
     llmConfig = isMotion
@@ -114,6 +171,15 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
           subagentMaxSteps: globalConfig.motion?.subagent_max_steps,
           maxConcurrentTasks: globalConfig.motion?.max_concurrent_tasks ?? DEFAULT_MAX_CONCURRENT_TASKS,
           idleTimeoutMs: globalConfig.motion?.llm_idle_timeout_ms,
+          dependencies: {
+            systemFs,
+            clawFs,
+            auditWriter,
+            snapshot,
+            sessionManager,
+            inboxReader,
+            outboxWriter,
+          },
         })
       : new ClawRuntime({
           clawId,
@@ -125,32 +191,19 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
           subagentMaxSteps: clawConfig!.subagent_max_steps,
           maxConcurrentTasks: clawConfig!.max_concurrent_tasks,
           idleTimeoutMs: globalConfig.motion?.llm_idle_timeout_ms,
+          dependencies: {
+            systemFs,
+            clawFs,
+            auditWriter,
+            snapshot,
+            sessionManager,
+            inboxReader,
+            outboxWriter,
+          },
         } as ClawRuntimeOptions);
   } catch (e) {
     auditWriter.write('assemble_failed', `module=runtime`, `phase=construct`, `reason=${errMsg(e)}`);
     throw new Error(`Assembly: Runtime construct failed: ${errMsg(e)}`, { cause: e });
-  }
-
-  // --- 4. Snapshot construct + init + recovery (daemon.ts L140-150) ---
-  let snapshot: Snapshot;
-  try {
-    snapshot = createSnapshot(clawDir, clawFs, auditWriter, SNAPSHOT_IGNORE_PATTERNS);
-  } catch (e) {
-    auditWriter.write('assemble_failed', `module=snapshot`, `phase=construct`, `reason=${errMsg(e)}`);
-    throw new Error(`Assembly: Snapshot construct failed: ${errMsg(e)}`, { cause: e });
-  }
-
-  const initResult = await snapshot.init();
-  if (!initResult.ok) {
-    // 契约 §4 drift 修正：init 失败抛 assemble_failed（原 daemon 代码静默继续）
-    auditWriter.write('assemble_failed', `module=snapshot`, `phase=init`, `reason=${initResult.error.kind}`);
-    throw new Error(`Assembly: Snapshot.init failed: ${initResult.error.kind}`);
-  }
-
-  const recoveryResult = await snapshot.commit('recovery-snapshot');
-  if (!recoveryResult.ok) {
-    // 契约 §4 软失败决策：recovery 失败不抛，audit 留痕（与当前代码一致）
-    auditWriter.write('assemble_failed', `module=snapshot`, `phase=recovery-commit`, `reason=${recoveryResult.error.kind}`);
   }
 
   // --- 5. detectUncleanExit (daemon.ts L152) ---
@@ -177,7 +230,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
   // --- 7. StreamWriter + open + stream event + setParentStreamLog (daemon.ts L172-184) ---
   let streamWriter: StreamWriter;
   try {
-    streamWriter = createStreamWriter(clawFs, auditWriter, {
+    streamWriter = createStreamWriter(systemFs, auditWriter, {
       maxFiles: globalConfig.stream?.retention?.max_files ?? null,
       maxDays: globalConfig.stream?.retention?.max_days ?? null,
     });

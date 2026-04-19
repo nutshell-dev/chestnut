@@ -65,8 +65,16 @@ export async function daemonCommand(name: string): Promise<void> {
 
   const { runtime, streamWriter, snapshot, auditWriter, heartbeat } = instances;
 
-  await runtime.initialize();
-  await runtime.resumeContractIfPaused();
+  try {
+    await runtime.initialize();
+    await runtime.resumeContractIfPaused();
+  } catch (e) {
+    // 兜底：Runtime 侧若已精确 audit（如 inboxReader.init / sessionManager.save）此行幂等重复；
+    // Runtime 侧漏网的失败由此行唯一覆盖，postmortem 信号"需补精确 audit"
+    auditWriter.write('assemble_failed', `module=runtime`, `phase=post_assemble_init`, `reason=${errMsg(e)}`);
+    console.error('[daemon] runtime init failed:', errMsg(e));
+    process.exit(1);
+  }
 
   // 清理残留心跳（上次 daemon 的遗留，重启后无需立即巡查）
   try {
@@ -281,4 +289,8 @@ export async function daemonCommand(name: string): Promise<void> {
   const label = isMotion ? '[motion daemon]' : '[daemon]';
   console.log(`${label} Started`);
   await promise;
+}
+
+function errMsg(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
 }
