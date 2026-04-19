@@ -12,6 +12,7 @@ import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
 import { getClawDir } from '../config.js';
 import { notifySystem } from '../../utils/notify.js';
 import { AuditWriter } from '../../foundation/audit/index.js';
+import { AUDIT_EVENTS } from '../../foundation/audit/events.js';
 import { STREAM_FILE } from '../../foundation/stream/index.js';
 
 
@@ -31,14 +32,22 @@ function parseAndValidateContractYaml(yamlContent: string): ContractYaml {
 
 function notifyContractCreated(clawDir: string, clawId: string, contractId: string, contract: ContractYaml): void {
   const fs = new NodeFileSystem({ baseDir: clawDir, enforcePermissions: false });
-  // best-effort：通知 viewport via stream.jsonl
+  const contractAudit = new AuditWriter(fs, path.join(clawDir, 'audit.tsv'));
+
+  // best-effort：通知 viewport via stream.jsonl（失败不中断 contract 创建）
   const streamLine = JSON.stringify({
     ts: Date.now(), type: 'user_notify', subtype: 'contract_created',
     contractId, clawId, title: contract.title, subtaskCount: contract.subtasks.length,
   }) + '\n';
-
-  fs.appendSync(STREAM_FILE, streamLine);
-
+  try {
+    fs.appendSync(STREAM_FILE, streamLine);
+  } catch (err) {
+    contractAudit.write(
+      AUDIT_EVENTS.STREAM_APPEND_FAILED,
+      `context=contract_notify`,
+      `reason=${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
 
   // 写 inbox 通知，触发 claw daemon 开始执行（best-effort）
   const subtaskLines = contract.subtasks.map(s => `- ${s.id}: ${s.description}`).join('\n');
@@ -51,7 +60,6 @@ function notifyContractCreated(clawDir: string, clawId: string, contractId: stri
   lines.push(`执行完每个子任务后，调用 done 提交验收：`);
   lines.push(`done: { "subtask": "<subtask-id>", "evidence": "<产出物路径或完成摘要>" }`);
   const body = lines.join('\n');
-  const contractAudit = new AuditWriter(fs, path.join(clawDir, 'audit.tsv'));
   notifySystem(
     fs,
     path.join(clawDir, 'inbox', 'pending'),
