@@ -11,6 +11,7 @@ import { stopCommand as motionStop } from './motion.js';
 import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
 import { ProcessManager, ProcessListUnavailable } from '../../foundation/process-manager/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
+import { createAgentProcessManager } from './process-manager-factory.js';
 import { fileURLToPath } from 'url';
 
 export async function stopAllCommand(): Promise<void> {
@@ -27,7 +28,7 @@ export async function stopAllCommand(): Promise<void> {
   const clawsDir = path.join(baseDir, 'claws');
   const nodeFs = new NodeFileSystem({ baseDir, enforcePermissions: false });
   const systemAudit = createSystemAudit(nodeFs, baseDir);
-  const pm = new ProcessManager(nodeFs, baseDir, systemAudit);
+  const pm = createAgentProcessManager(systemAudit);
 
   let clawNames: string[] = [];
   try {

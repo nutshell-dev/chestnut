@@ -142,6 +142,14 @@ export function getMotionDir(): string {
   return path.join(getWorkspaceRoot(), '.clawforum', 'motion');
 }
 
+export function getClawforumRoot(): string {
+  return path.join(getWorkspaceRoot(), '.clawforum');
+}
+
+export function resolveAgentDir(id: string): string {
+  return id === 'motion' ? getMotionDir() : getClawDir(id);
+}
+
 export function getClawConfigPath(name: string): string {
   return path.join(getClawDir(name), 'config.yaml');
 }

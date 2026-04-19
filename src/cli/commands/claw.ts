@@ -55,6 +55,7 @@ async function getLastActiveMs(clawFs: FileSystem, audit: Audit): Promise<number
 }
 
 import { ProcessManager } from '../../foundation/process-manager/index.js';
+import { createAgentProcessManager } from './process-manager-factory.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
 import { writeInbox } from '../../foundation/messaging/index.js';
@@ -119,7 +120,7 @@ export async function chatCommand(name: string): Promise<void> {
     baseDir,
     audit: systemAudit,
     ensureDaemon: async () => {
-      const pm = new ProcessManager(nodeFs, baseDir, systemAudit);
+      const pm = createAgentProcessManager(systemAudit);
       if (!pm.isAlive(name)) {
         console.log(`Starting Claw "${name}" daemon...`);
         const thisDir = path.dirname(fileURLToPath(import.meta.url));
@@ -162,7 +163,7 @@ export async function stopCommand(name: string): Promise<void> {
   
   const nodeFs = new NodeFileSystem({ baseDir, enforcePermissions: false });
   const systemAudit = createSystemAudit(nodeFs, baseDir);
-  const processManager = new ProcessManager(nodeFs, baseDir, systemAudit);
+  const processManager = createAgentProcessManager(systemAudit);
 
   // Check if running
   if (!processManager.isAlive(name)) {
@@ -192,7 +193,7 @@ export async function listCommand(): Promise<void> {
 
   const nodeFs = new NodeFileSystem({ baseDir, enforcePermissions: false });
   const systemAudit = createSystemAudit(nodeFs, baseDir);
-  const processManager = new ProcessManager(nodeFs, baseDir, systemAudit);
+  const processManager = createAgentProcessManager(systemAudit);
 
   // Helper: check contract status
   function getContractStatus(clawPath: string): string {
@@ -343,7 +344,7 @@ export async function healthCommand(name: string): Promise<void> {
 
   const nodeFs = new NodeFileSystem({ baseDir, enforcePermissions: false });
   const systemAudit = createSystemAudit(nodeFs, baseDir);
-  const processManager = new ProcessManager(nodeFs, baseDir, systemAudit);
+  const processManager = createAgentProcessManager(systemAudit);
 
   const isRunning = processManager.isAlive(name);
 

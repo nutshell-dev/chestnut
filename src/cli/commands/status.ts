@@ -10,6 +10,7 @@ import { loadGlobalConfig, getMotionDir } from '../config.js';
 import { ProcessManager, ProcessListUnavailable } from '../../foundation/process-manager/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
+import { createAgentProcessManager } from './process-manager-factory.js';
 import { getWatchdogPid, isWatchdogAlive, getWatchdogEntryPath } from './watchdog.js';
 
 export async function statusCommand(): Promise<void> {
@@ -24,10 +25,7 @@ export async function statusCommand(): Promise<void> {
   const baseDir = path.dirname(getMotionDir());
   const nodeFs = new NodeFileSystem({ baseDir, enforcePermissions: false });
   const systemAudit = createSystemAudit(nodeFs, baseDir);
-  const pm = new ProcessManager(nodeFs, baseDir, systemAudit, (id) => {
-    if (id === 'motion') return path.join(baseDir, 'motion');
-    return path.join(baseDir, 'claws', id);
-  });
+  const pm = createAgentProcessManager(systemAudit);
   const motionStatus = pm.getAliveStatus('motion');
   console.log(`motion:   ${motionStatus.alive ? `running (${motionStatus.reason})` : `stopped (${motionStatus.reason})`}`);
 

@@ -12,7 +12,8 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import { existsSync } from 'fs';
 import { fileURLToPath } from 'url';
-import { loadGlobalConfig, getMotionDir, getGlobalConfigPath } from '../config.js';
+import { loadGlobalConfig, getMotionDir, getGlobalConfigPath, getClawforumRoot } from '../config.js';
+import { createAgentProcessManager } from './process-manager-factory.js';
 import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
 import { ProcessManager } from '../../foundation/process-manager/index.js';
 import { AuditWriter, createSystemAudit } from '../../foundation/audit/index.js';
@@ -27,15 +28,13 @@ import { TASKS_RESULTS_DIR } from '../../types/paths.js';
 
 /**
  * Create a ProcessManager dedicated to Motion
+ * @deprecated Use createAgentProcessManager(audit) directly
  */
 export function createMotionPM(): ProcessManager {
-  const baseDir = path.dirname(getMotionDir()); // .clawforum
+  const baseDir = getClawforumRoot();
   const nodeFs = new NodeFileSystem({ baseDir, enforcePermissions: false });
   const systemAudit = createSystemAudit(nodeFs, baseDir);
-  return new ProcessManager(nodeFs, baseDir, systemAudit, (id) => {
-    if (id === 'motion') return path.join(baseDir, 'motion');
-    return path.join(baseDir, 'claws', id);
-  });
+  return createAgentProcessManager(systemAudit);
 }
 
 // Get current file directory (ESM compatible)

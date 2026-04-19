@@ -19,7 +19,7 @@ import { startDaemonLoop } from './daemon-loop.js';
 import { StreamWriter } from '../../foundation/stream/writer.js';
 import { Heartbeat } from '../../core/heartbeat.js';
 import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
-import { ProcessManager } from '../../foundation/process-manager/index.js';
+import { createAgentProcessManager } from './process-manager-factory.js';
 import { SkillRegistry } from '../../core/skill/registry.js';
 import { ContractManager } from '../../core/contract/manager.js';
 import { DEFAULT_MAX_STEPS, DEFAULT_MAX_CONCURRENT_TASKS } from '../../constants.js';
@@ -106,13 +106,7 @@ export async function daemonCommand(name: string): Promise<void> {
   );
 
   // ProcessManager 装配（用于 lockfile 归位）
-  const baseDir = path.join(dir, isMotion ? '..' : '../..');
-  const pm = new ProcessManager(
-    new NodeFileSystem({ baseDir, enforcePermissions: false }),
-    baseDir,
-    sharedAuditWriter,
-    (id) => (id === 'motion' ? path.join(baseDir, 'motion') : path.join(baseDir, 'claws', id)),
-  );
+  const pm = createAgentProcessManager(sharedAuditWriter);
   pm.acquireLock(name);
 
   // Runtime
