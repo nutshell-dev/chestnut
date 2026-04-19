@@ -62,7 +62,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
   const isMotion = identity === 'motion';
   const auditMaxSizeMb = globalConfig.audit?.retention?.max_size_mb ?? null;
 
-  // phase155A: 预制 fs 句柄，替换函数体内 4 处零散 new NodeFileSystem
+  // phase155A: 预制 fs 句柄，合并函数体内多处零散的 FileSystem 构造
   const clawFs = new NodeFileSystem({ baseDir: clawDir, enforcePermissions: false });
   const parentFs = new NodeFileSystem({ baseDir: path.join(clawDir, '..'), enforcePermissions: false });
 
