@@ -23,6 +23,7 @@ import type {
   StreamChunk,
 } from './types.js';
 import { STREAM_MAX_DURATION_MS } from '../../constants.js';
+import { withCombinedAbortSignal, type CombinedAbortHandle, classifyFetchAbortError } from './abort-helper.js';
 
 /**
  * Decode HTML entities in tool call arguments (xAI/grok sometimes HTML-encodes JSON)
@@ -131,16 +132,8 @@ export class OpenAIAdapter implements ProviderAdapter {
       body.tools = this.formatTools(tools);
     }
     
-    // Setup timeout
     const timeout = timeoutMs ?? this.config.timeoutMs;
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeout);
-    
-    // Combine with external signal if provided
-    const onAbort = signal ? () => controller.abort() : undefined;
-    if (signal && onAbort) {
-      signal.addEventListener('abort', onAbort);
-    }
+    const [abortHandle, cleanup] = withCombinedAbortSignal(signal, timeout);
     
     try {
       const response = await fetch(`${this.baseUrl}/chat/completions`, {
@@ -151,7 +144,7 @@ export class OpenAIAdapter implements ProviderAdapter {
           ...this.config.extraHeaders,
         },
         body: JSON.stringify(body),
-        signal: controller.signal,
+        signal: abortHandle.signal,
       });
       
       if (!response.ok) {
@@ -162,17 +155,8 @@ export class OpenAIAdapter implements ProviderAdapter {
       return this.parseResponse(data);
       
     } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') {
-        // 区分用户主动中断（Ctrl+C）和内部超时
-        if (signal?.aborted) {
-          // 用户主动中断
-          const err = new Error('Execution aborted');
-          err.name = 'AbortError';
-          throw err;
-        }
-        // 内部超时
-        throw new LLMTimeoutError(this.name, timeout);
-      }
+      const classified = classifyFetchAbortError(error, signal, timeout, this.name);
+      if (classified) throw classified;
       
       if (error instanceof LLMError) {
         throw error;
@@ -183,10 +167,7 @@ export class OpenAIAdapter implements ProviderAdapter {
         { provider: this.name }
       );
     } finally {
-      clearTimeout(timeoutId);
-      if (signal && onAbort) {
-        signal.removeEventListener('abort', onAbort);
-      }
+      cleanup();
     }
   }
   
@@ -212,12 +193,8 @@ export class OpenAIAdapter implements ProviderAdapter {
       body.tools = this.formatTools(tools);
     }
 
-    // fetch 阶段保留初始 timeout（等待服务器首次响应）
     const timeout = timeoutMs ?? this.config.timeoutMs;
-    const controller = new AbortController();
-    let timeoutId = setTimeout(() => controller.abort(), timeout);
-    const onAbort = signal ? () => controller.abort() : undefined;
-    if (signal && onAbort) signal.addEventListener('abort', onAbort);
+    const [abortHandle, cleanup] = withCombinedAbortSignal(signal, timeout);
 
     try {
       const response = await fetch(`${this.baseUrl}/chat/completions`, {
@@ -228,36 +205,21 @@ export class OpenAIAdapter implements ProviderAdapter {
           ...this.config.extraHeaders,
         },
         body: JSON.stringify(body),
-        signal: controller.signal,
+        signal: abortHandle.signal,
       });
 
       if (!response.ok) await this.handleErrorResponse(response);
 
-      // fetch 成功，清除初始 timeout，由 parseSSEStream 管理 idle timeout
-      clearTimeout(timeoutId);
-
-      // 总超时兜底：无论 idle timer 是否生效，N 分钟后强制 abort
-      const maxTimer = setTimeout(() => controller.abort(), STREAM_MAX_DURATION_MS);
-      try {
-        yield* this.parseSSEStream(response, controller, timeout);
-      } finally {
-        clearTimeout(maxTimer);
-      }
+      // 进入 stream 阶段：切换 timer 为总时长保护
+      abortHandle.enterStreamPhase(STREAM_MAX_DURATION_MS);
+      yield* this.parseSSEStream(response, abortHandle, timeout);
     } catch (error) {
-      // 与 call() 相同的错误处理
-      if (error instanceof DOMException && error.name === 'AbortError') {
-        if (signal?.aborted) {
-          const err = new Error('Execution aborted');
-          err.name = 'AbortError';
-          throw err;
-        }
-        throw new LLMTimeoutError(this.name, timeout);
-      }
+      const classified = classifyFetchAbortError(error, signal, timeout, this.name);
+      if (classified) throw classified;
       if (error instanceof LLMError) throw error;
       throw new LLMError(`LLM stream failed: ${(error as Error).message}`, { provider: this.name });
     } finally {
-      clearTimeout(timeoutId);
-      if (signal && onAbort) signal.removeEventListener('abort', onAbort);
+      cleanup();
     }
   }
 
@@ -266,13 +228,13 @@ export class OpenAIAdapter implements ProviderAdapter {
    */
   private async* parseSSEStream(
     response: Response,
-    controller: AbortController,
+    handle: CombinedAbortHandle,
     idleTimeoutMs: number,
   ): AsyncIterableIterator<StreamChunk> {
     const reader = response.body!.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
-    let idleTimer = setTimeout(() => controller.abort(), idleTimeoutMs);
+    let idleTimer = setTimeout(() => handle.abort(), idleTimeoutMs);
     
     // Track tool calls across chunks (index -> partial data)
     const toolCallBuffers = new Map<number, { id: string; name: string; arguments: string; started: boolean }>();
@@ -286,7 +248,7 @@ export class OpenAIAdapter implements ProviderAdapter {
         const { done, value } = await reader.read();
         clearTimeout(idleTimer);
         if (done) break;
-        idleTimer = setTimeout(() => controller.abort(), idleTimeoutMs);
+        idleTimer = setTimeout(() => handle.abort(), idleTimeoutMs);
 
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');

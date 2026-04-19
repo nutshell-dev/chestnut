@@ -26,6 +26,7 @@ import { AnthropicAdapter } from './anthropic.js';
 import { CustomAnthropicAdapter } from './custom-anthropic.js';
 import { OpenAIAdapter } from './openai.js';
 import { GeminiAdapter } from './gemini.js';
+import { makeExternalAbortError } from './abort-helper.js';
 
 /**
  * Provider factory - creates appropriate adapter for config
@@ -43,10 +44,32 @@ function createProvider(config: ProviderConfig): ProviderAdapter {
 }
 
 /**
- * Delay helper for retry backoff
+ * Sleep for `ms` milliseconds; abortable via `signal`.
+ *
+ * - `signal.aborted === true` at call time → rejects immediately with AbortError
+ * - `signal` fires during wait → clearTimeout + rejects with AbortError
+ * - Timer elapses normally → removes listener + resolves
+ *
+ * Used by call()/stream() retry backoff to respect external abort promptly
+ * (without this, abort during backoff would wait up to 30s before responding).
  */
-function delay(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
+function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(makeExternalAbortError());
+      return;
+    }
+    let timer: ReturnType<typeof setTimeout>;
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(makeExternalAbortError());
+    };
+    timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
 }
 
 /**
@@ -132,6 +155,7 @@ export class LLMServiceImpl implements LLMService {
     let lastError: Error | undefined;
     if (!isBreakerOpen(0)) {
       for (let attempt = 0; attempt < this.config.maxAttempts; attempt++) {
+        if (options.signal?.aborted) throw makeExternalAbortError();
         try {
           const response = await this.primary.call(options);
           
@@ -154,7 +178,7 @@ export class LLMServiceImpl implements LLMService {
               this.config.retryDelayMs * Math.pow(2, attempt),
               30_000  // Max 30 seconds
             );
-            await delay(backoffMs);
+            await delay(backoffMs, options.signal);
           }
         }
       }
@@ -175,6 +199,7 @@ export class LLMServiceImpl implements LLMService {
     }
     
     for (let i = 0; i < this.fallbacks.length; i++) {
+      if (options.signal?.aborted) throw makeExternalAbortError();
       // Skip if breaker is open
       if (isBreakerOpen(i + 1)) {
         failures.push({ provider: this.fallbacks[i].name, error: new Error('Circuit breaker open') });
@@ -220,6 +245,7 @@ export class LLMServiceImpl implements LLMService {
     const failures: Array<{ provider: string; error: Error }> = [];
 
     for (let pi = 0; pi < providers.length; pi++) {
+      if (options.signal?.aborted) throw makeExternalAbortError();
       const { adapter, breakerIndex } = providers[pi];
 
       if (!adapter.stream) continue;
@@ -274,7 +300,7 @@ export class LLMServiceImpl implements LLMService {
               this.config.retryDelayMs * Math.pow(2, attempt),
               30000,
             );
-            await delay(backoffMs);
+            await delay(backoffMs, options.signal);
           }
         }
       }

@@ -494,3 +494,113 @@ describe('LLMServiceImpl - circuit breaker', () => {
       .rejects.toBeInstanceOf(LLMAllProvidersFailedError);
   });
 });
+
+
+describe('LLMServiceImpl - external abort signal', () => {
+  it('throws AbortError without trying next provider when signal is already aborted', async () => {
+    const primary = createMockProvider('primary');
+    const fallback = createMockProvider('fallback');
+
+    const service = new LLMServiceImpl({
+      primary: { name: 'primary', apiKey: 'test', model: 'test' },
+      fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test' }],
+      maxAttempts: 1,
+      retryDelayMs: 0,
+    });
+    (service as any).primary = primary;
+    (service as any).fallbacks = [fallback];
+
+    const ac = new AbortController();
+    ac.abort();
+
+    await expect(async () => {
+      for await (const _ of service.stream({ messages: [], signal: ac.signal })) {}
+    }).rejects.toThrow(/aborted/i);
+  });
+
+  it('throws AbortError from mid-stream without yielding reset/provider_failed', async () => {
+    const primary = createMockProvider('primary', async function* () {
+      yield { type: 'text_delta', delta: 'hi' } as StreamChunk;
+      const err = new Error('Execution aborted');
+      err.name = 'AbortError';
+      throw err;
+    });
+    const fallbackStream = vi.fn(async function* () {
+      yield { type: 'done' } as StreamChunk;
+    });
+    const fallback = createMockProvider('fallback', fallbackStream);
+
+    const service = new LLMServiceImpl({
+      primary: { name: 'primary', apiKey: 'test', model: 'test' },
+      fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test' }],
+      maxAttempts: 1,
+      retryDelayMs: 0,
+    });
+    (service as any).primary = primary;
+    (service as any).fallbacks = [fallback];
+
+    const iter = service.stream({ messages: [] });
+    const first = await iter.next();
+    expect(first.value).toEqual({ type: 'text_delta', delta: 'hi' });
+
+    await expect(iter.next()).rejects.toThrow(/aborted/i);
+    expect(fallbackStream).not.toHaveBeenCalled();
+  });
+});
+
+
+  it('aborts immediately during call() backoff delay without waiting', async () => {
+    const primary: ProviderAdapter = {
+      name: 'primary',
+      model: 'test',
+      async call() { throw new Error('transient'); },
+      async *stream() { throw new Error('n/a'); },
+    };
+
+    const service = new LLMServiceImpl({
+      primary: { name: 'primary', apiKey: 'test', model: 'test' },
+      maxAttempts: 3,
+      retryDelayMs: 10_000,
+    });
+    (service as any).primary = primary;
+
+    const ac = new AbortController();
+    const start = Date.now();
+
+    setTimeout(() => ac.abort(), 50);
+
+    await expect(service.call({ messages: [], signal: ac.signal }))
+      .rejects.toThrow(/aborted/i);
+
+    const elapsed = Date.now() - start;
+    expect(elapsed).toBeLessThan(1_000);
+  });
+
+  it('aborts immediately during stream() backoff delay without waiting', async () => {
+    const primary: ProviderAdapter = {
+      name: 'primary',
+      model: 'test',
+      async call() { return { content: [], stop_reason: 'end_turn' }; },
+      async *stream() {
+        throw new Error('transient');
+      },
+    };
+
+    const service = new LLMServiceImpl({
+      primary: { name: 'primary', apiKey: 'test', model: 'test' },
+      maxAttempts: 3,
+      retryDelayMs: 10_000,
+    });
+    (service as any).primary = primary;
+
+    const ac = new AbortController();
+    const start = Date.now();
+    setTimeout(() => ac.abort(), 50);
+
+    await expect(async () => {
+      for await (const _ of service.stream({ messages: [], signal: ac.signal })) {}
+    }).rejects.toThrow(/aborted/i);
+
+    const elapsed = Date.now() - start;
+    expect(elapsed).toBeLessThan(1_000);
+  });

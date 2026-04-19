@@ -196,10 +196,11 @@ export class SubAgent {
         ?? this.registry.formatForLLM(this.registry.getAll());
 
       // Run ReAct loop，用 Promise.race 强制超时退出
-      // Tool 层超时通过 timeoutController.signal 传到 ctx.signal 并触发 AbortError，
-      // 但 LLM stream (collectStreamResponse) 目前不响应 signal——race 胜出后 LLM
-      // 请求可能继续占用 token/socket 直到自然结束。修复需 LLM provider 级 abort
-      // 支持，属独立议题，不在 phase147 范围。
+      // Tool 层超时通过 timeoutController.signal 传到 ctx.signal；LLM stream
+      // (collectStreamResponse) 也消费 ctx.signal，fetch/SDK 会实际取消请求
+      // (见 src/foundation/llm/abort-helper.ts)。race 保留为最外层保险：若某
+      // provider 未正确响应 signal，timeoutController 胜出时本 Promise 立即抛
+      // ToolTimeoutError，不等 LLM 自然结束。
       const timeoutPromise = new Promise<never>((_, reject) => {
         timeoutController.signal.addEventListener('abort', () => {
           reject(new ToolTimeoutError('subagent_run', this.timeoutMs));
