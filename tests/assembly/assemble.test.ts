@@ -1,4 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { assemble } from '../../src/assembly/assemble.js';
 import { LockConflictError } from '../../src/assembly/index.js';
 
@@ -461,5 +464,91 @@ describe('assemble', () => {
     expect(runDeepDream).toHaveBeenCalled();
     expect(runRandomDream).toHaveBeenCalled();
     expect(runContractObserver).toHaveBeenCalled();
+  });
+
+  // ==========================================================================
+  // detectUncleanExit (assemble.ts L20-56)
+  // ==========================================================================
+  describe('detectUncleanExit', () => {
+    let tmpDir: string;
+    let configWithTmp: typeof baseConfig;
+
+    beforeEach(() => {
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'assemble-unclean-'));
+      configWithTmp = { ...baseConfig, clawDir: tmpDir };
+    });
+
+    afterEach(() => {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it('上次正常关停（末条 daemon_stop）→ 不写 daemon_unclean_exit', async () => {
+      fs.writeFileSync(
+        path.join(tmpDir, 'audit.tsv'),
+        '2026-04-19T10:00:00.000Z\tdaemon_started\tclawId=motion\n' +
+        '2026-04-19T11:00:00.000Z\tdaemon_stop\tsignal=sigterm\n',
+      );
+
+      await assemble(configWithTmp);
+
+      expect(mockAuditWrite).not.toHaveBeenCalledWith(
+        'daemon_unclean_exit',
+        expect.any(String),
+      );
+    });
+
+    it('上次崩溃（末条 daemon_crash）→ 不重复写 daemon_unclean_exit', async () => {
+      fs.writeFileSync(
+        path.join(tmpDir, 'audit.tsv'),
+        '2026-04-19T10:00:00.000Z\tdaemon_started\tclawId=motion\n' +
+        '2026-04-19T11:00:00.000Z\tdaemon_crash\terr=boom\n',
+      );
+
+      await assemble(configWithTmp);
+
+      expect(mockAuditWrite).not.toHaveBeenCalledWith(
+        'daemon_unclean_exit',
+        expect.any(String),
+      );
+    });
+
+    it('上次已记录 unclean_exit（末条 daemon_unclean_exit）→ 不重复写', async () => {
+      fs.writeFileSync(
+        path.join(tmpDir, 'audit.tsv'),
+        '2026-04-19T10:00:00.000Z\tdaemon_started\tclawId=motion\n' +
+        '2026-04-19T11:00:00.000Z\tdaemon_unclean_exit\tlast_ts=2026-04-19T10:00:00.000Z\n',
+      );
+
+      await assemble(configWithTmp);
+
+      expect(mockAuditWrite).not.toHaveBeenCalledWith(
+        'daemon_unclean_exit',
+        expect.any(String),
+      );
+    });
+
+    it('上次未正常关停（末条非 stop/crash/unclean）→ 写 daemon_unclean_exit 含 last_ts', async () => {
+      fs.writeFileSync(
+        path.join(tmpDir, 'audit.tsv'),
+        '2026-04-19T10:00:00.000Z\tdaemon_started\tclawId=motion\n' +
+        '2026-04-19T11:00:00.000Z\tcontract_notify\ttype=review_request\n',
+      );
+
+      await assemble(configWithTmp);
+
+      expect(mockAuditWrite).toHaveBeenCalledWith(
+        'daemon_unclean_exit',
+        'last_ts=2026-04-19T11:00:00.000Z',
+      );
+    });
+
+    it('audit.tsv 不存在 → 静默跳过', async () => {
+      await assemble(configWithTmp);
+
+      expect(mockAuditWrite).not.toHaveBeenCalledWith(
+        'daemon_unclean_exit',
+        expect.any(String),
+      );
+    });
   });
 });
