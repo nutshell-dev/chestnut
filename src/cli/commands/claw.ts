@@ -107,11 +107,8 @@ export async function chatCommand(name: string): Promise<void> {
   }
 
   const clawDir = getClawDir(name);
-  const globalConfigPath = getGlobalConfigPath();
-  const baseDir = path.dirname(globalConfigPath);
-
   const globalConfig = loadGlobalConfig();
-  const { audit: systemAudit } = createDirContext(baseDir);
+  const { audit: systemAudit } = createDirContext(clawDir);
   await runChatViewport({
     agentDir: clawDir,
     label: name,

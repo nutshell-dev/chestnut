@@ -341,4 +341,55 @@ describe('FileSystem', () => {
     });
   });
 
+  describe('NodeFileSystem readBytesSync (phase165)', () => {
+    let fs: NodeFileSystem;
+    let clawDir: string;
+
+    beforeEach(async () => {
+      clawDir = await createTempDir();
+      fs = new NodeFileSystem({ baseDir: clawDir, enforcePermissions: false });
+    });
+
+    afterEach(async () => {
+      await cleanupTempDir(clawDir);
+    });
+
+    it('读取 ASCII 文件的全字节范围与 readSync 结果一致', () => {
+      fs.writeAtomicSync('ascii.txt', 'hello world');
+      const size = fs.statSync('ascii.txt').size;
+      const buf = fs.readBytesSync('ascii.txt', 0, size);
+      expect(buf.toString('utf-8')).toBe('hello world');
+      expect(buf.length).toBe(11);
+    });
+
+    it('读取字节范围 [start, end) 半开区间正确', () => {
+      fs.writeAtomicSync('range.txt', 'abcdefgh');
+      const buf = fs.readBytesSync('range.txt', 2, 5);
+      expect(buf.toString('utf-8')).toBe('cde');
+      expect(buf.length).toBe(3);
+    });
+
+    it('多字节 UTF-8 字符按字节边界切割时返回原始字节（不解码）', () => {
+      // '中' 的 UTF-8 编码是 3 字节 E4 B8 AD
+      fs.writeAtomicSync('utf8.txt', '中国');
+      const size = fs.statSync('utf8.txt').size;
+      expect(size).toBe(6);
+      // 切到 '中' 的中间（读前 2 字节）——Buffer 必须是 E4 B8，不做任何解码替换
+      const partial = fs.readBytesSync('utf8.txt', 0, 2);
+      expect(partial.length).toBe(2);
+      expect(partial[0]).toBe(0xe4);
+      expect(partial[1]).toBe(0xb8);
+    });
+
+    it('文件不存在抛 FileNotFoundError', () => {
+      expect(() => fs.readBytesSync('nonexistent.txt', 0, 10)).toThrow(FileNotFoundError);
+    });
+
+    it('end ≤ start 时返回空 Buffer 不抛错', () => {
+      fs.writeAtomicSync('empty-range.txt', 'hello');
+      expect(fs.readBytesSync('empty-range.txt', 3, 3).length).toBe(0);
+      expect(fs.readBytesSync('empty-range.txt', 5, 2).length).toBe(0);
+    });
+  });
+
 });

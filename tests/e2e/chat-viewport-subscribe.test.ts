@@ -53,6 +53,9 @@ function dispatchMainEvent(ev: StreamEvent, mainUI: MainTurnUIController) {
   }
 }
 
+// phase161 subscribe 回归：it 1（事件触达 handleEvent）已迁入 tests/e2e/chat-viewport-regression.test.ts
+// （Step 9 骨架 + Step 10-15 基线集合提供等价覆盖；phase165 Step 16 删除）
+// 本 describe 保留 it 2（STREAM_READER_FILE_MISSING 防线）
 describe('chat-viewport 订阅 motion stream（phase161 回归）', () => {
   const cleanups: Array<() => Promise<void>> = [];
 
@@ -60,39 +63,6 @@ describe('chat-viewport 订阅 motion stream（phase161 回归）', () => {
     while (cleanups.length) {
       try { await cleanups.pop()!(); } catch {}
     }
-  });
-
-  it('agent dir 下的 stream.jsonl 事件能触达 handleEvent', async () => {
-    const agentDir = await createTempDir('phase161-agent-');
-    cleanups.push(() => cleanupTempDir(agentDir));
-
-    // 预创建空 stream.jsonl
-    const streamPath = path.join(agentDir, STREAM_FILE);
-    await nativeFs.writeFile(streamPath, '');
-
-    const received: StreamEvent[] = [];
-    // 模拟 chat-viewport L64 + L471 修复后的订阅形态
-    const { fs } = createDirContext(agentDir);
-    const reader: StreamReader = createStreamReader(
-      fs,
-      STREAM_FILE,
-      (ev) => received.push(ev),
-      makeAudit().audit,
-    );
-    cleanups.push(() => reader.stop());
-    reader.start();
-
-    // chokidar 启动期
-    await new Promise(r => setTimeout(r, 300));
-
-    // 模拟 agent 写事件
-    await nativeFs.appendFile(
-      streamPath,
-      JSON.stringify({ ts: Date.now(), type: 'text_delta', delta: 'hi' }) + '\n',
-    );
-
-    await waitFor(() => received.length >= 1);
-    expect(received[0].type).toBe('text_delta');
   });
 
   it('baseDir 指向不含 stream.jsonl 的目录时，audit 写入 stream_reader_file_missing', async () => {

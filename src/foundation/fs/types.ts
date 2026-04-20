@@ -150,6 +150,18 @@ export interface FileSystem {
   readSync(path: string): string;
 
   /**
+   * Read a byte range from a file synchronously (returns raw Buffer).
+   * Used by incremental-read consumers (e.g. stream reader) that need
+   * byte-safe offsets free of UTF-8/UTF-16 index mismatch.
+   * @param path - Relative path within claw space
+   * @param start - Byte offset (inclusive)
+   * @param end - Byte offset (exclusive); if file shorter, returns available bytes
+   * @returns Buffer containing bytes in [start, end); length ≤ end - start
+   * @throws FileNotFoundError if file doesn't exist
+   */
+  readBytesSync(path: string, start: number, end: number): Buffer;
+
+  /**
    * Append content to file synchronously.
    * For high-frequency writes where async overhead matters (audit log, stream).
    * @param path - Relative path within claw space

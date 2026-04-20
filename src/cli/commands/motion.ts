@@ -182,8 +182,7 @@ export async function initCommand(silent = false): Promise<void> {
 export async function chatCommand(): Promise<void> {
   const globalConfig = loadGlobalConfig();
   const motionDir = getMotionDir();
-  const baseDir = path.dirname(motionDir);
-  const { audit: systemAudit } = createDirContext(baseDir);
+  const { audit: systemAudit } = createDirContext(motionDir);
 
   // Check whether Motion has been initialized
   try {

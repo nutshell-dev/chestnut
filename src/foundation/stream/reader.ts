@@ -19,6 +19,16 @@ import type { StreamEvent } from './types.js';
 import type { Audit } from '../audit/index.js';
 import { createWatcher, type Watcher } from '../file-watcher/index.js';
 import { AUDIT_EVENTS } from '../audit/events.js';
+import { StringDecoder } from 'node:string_decoder';
+
+/** 连续 parse_failed 达到此值触发 STREAM_READER_CORRUPT（trigger=consecutive_fail）。 */
+const CONSECUTIVE_PARSE_FAIL_LIMIT = 5;
+
+/** recentOutcomes 环形窗口大小；窗口满后按占比判定 ratio_high。 */
+const RECENT_WINDOW = 10;
+
+/** 近 RECENT_WINDOW 次 parse 的失败占比阈值（> 则触发 trigger=ratio_high）。 */
+const RECENT_FAIL_RATIO_THRESHOLD = 0.5;
 
 export interface StreamReader {
   /** Start watching and emit new events. Throws if already started. */
@@ -78,10 +88,51 @@ export function createStreamReader(
   let watcher: Watcher | null = null;
   let offset = 0;
   let pending = '';
+  let decoder = new StringDecoder('utf-8');
   let started = false;
   let active = false;
+  let consecutiveParseFails = 0;
+  const recentOutcomes: boolean[] = [];
+
+  const recordOutcome = (ok: boolean): void => {
+    recentOutcomes.push(ok);
+    if (recentOutcomes.length > RECENT_WINDOW) {
+      recentOutcomes.shift();
+    }
+  };
+
+  const triggerCorrupt = (trigger: 'consecutive_fail' | 'ratio_high'): void => {
+    const recentFail = recentOutcomes.filter((ok) => !ok).length;
+    audit.write(
+      AUDIT_EVENTS.STREAM_READER_CORRUPT,
+      `path=${streamPath}`,
+      `consecutive=${consecutiveParseFails}`,
+      `trigger=${trigger}`,
+      `recent_total=${recentOutcomes.length}`,
+      `recent_fail=${recentFail}`,
+    );
+    active = false;
+    void watcher?.close();
+    watcher = null;
+  };
+
+  const checkEscalation = (): boolean => {
+    if (consecutiveParseFails >= CONSECUTIVE_PARSE_FAIL_LIMIT) {
+      triggerCorrupt('consecutive_fail');
+      return true;
+    }
+    if (recentOutcomes.length >= RECENT_WINDOW) {
+      const failCount = recentOutcomes.filter((ok) => !ok).length;
+      if (failCount / recentOutcomes.length > RECENT_FAIL_RATIO_THRESHOLD) {
+        triggerCorrupt('ratio_high');
+        return true;
+      }
+    }
+    return false;
+  };
 
   const readIncrement = (): void => {
+    if (!active) return;
     try {
       if (!fs.existsSync(streamPath)) return;
       const size = fs.statSync(streamPath).size;
@@ -89,12 +140,15 @@ export function createStreamReader(
         // File truncated / replaced — reset
         offset = 0;
         pending = '';
+        decoder = new StringDecoder('utf-8');
       }
       if (size === offset) return;
-      const all = fs.readSync(streamPath);
-      const chunk = all.slice(offset, size);
-      offset = size;
-      pending += chunk;
+
+      // 字节安全范围读 + StringDecoder 缓冲跨 chunk 的多字节字符边界
+      const buf = fs.readBytesSync(streamPath, offset, size);
+      offset += buf.length;
+      pending += decoder.write(buf);
+
       let nl = pending.indexOf('\n');
       while (nl >= 0) {
         const line = pending.slice(0, nl);
@@ -102,6 +156,8 @@ export function createStreamReader(
         if (line) {
           try {
             const ev = JSON.parse(line) as StreamEvent;
+            consecutiveParseFails = 0;
+            recordOutcome(true);
             try {
               onEvent(ev);
             } catch (cbErr) {
@@ -111,11 +167,16 @@ export function createStreamReader(
               );
             }
           } catch (err) {
+            consecutiveParseFails++;
+            recordOutcome(false);
             audit.write(
               AUDIT_EVENTS.STREAM_READER_PARSE_FAILED,
               `line_prefix=${line.slice(0, 80)}`,
               `reason=${err instanceof Error ? err.message : String(err)}`,
             );
+            if (checkEscalation()) {
+              return;
+            }
           }
         }
         nl = pending.indexOf('\n');

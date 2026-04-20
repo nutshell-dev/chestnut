@@ -347,6 +347,28 @@ export class NodeFileSystem implements FileSystem {
     }
   }
 
+  readBytesSync(relativePath: string, start: number, end: number): Buffer {
+    const absolute = this.resolveAndCheck(relativePath, 'read');
+    let fd: number;
+    try {
+      fd = fsSync.openSync(absolute, 'r');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        throw new FileNotFoundError(relativePath);
+      }
+      throw error;
+    }
+    try {
+      const length = end - start;
+      if (length <= 0) return Buffer.alloc(0);
+      const buf = Buffer.alloc(length);
+      const bytesRead = fsSync.readSync(fd, buf, 0, length, start);
+      return bytesRead === length ? buf : buf.subarray(0, bytesRead);
+    } finally {
+      fsSync.closeSync(fd);
+    }
+  }
+
   appendSync(relativePath: string, content: string): void {
     const absolute = this.resolveAndCheck(relativePath, 'write');
     const dir = path.dirname(absolute);

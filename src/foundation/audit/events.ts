@@ -44,6 +44,16 @@ export const AUDIT_EVENTS = {
   STREAM_READER_UNLINKED: 'stream_reader_unlinked',
   STREAM_READER_WATCHER_FAILED: 'stream_reader_watcher_failed',
 
+  /**
+   * StreamReader 连续 parse_failed 越阈值升级为 corrupt（Design「不静默」硬化）。
+   * 触发：
+   *   - consecutive_fail：连续 ≥ CONSECUTIVE_PARSE_FAIL_LIMIT（5）次 parse_failed，或
+   *   - ratio_high：近 RECENT_WINDOW（10）次读取里 parse_failed 占比 > 50%
+   * 触发后 reader 写本事件 + active=false + 停 watcher（不再输出错乱事件）。
+   * 载荷：path / consecutive / trigger(consecutive_fail|ratio_high) / recent_total / recent_fail
+   */
+  STREAM_READER_CORRUPT: 'stream_reader_corrupt',
+
   // --- Messaging ---
   INBOX_DONE: 'inbox_done',
   INBOX_FAILED: 'inbox_failed',
