@@ -386,22 +386,19 @@ describe('ContractManager Acceptance Flow', () => {
         evidence: 'test evidence',
       });
 
-      // Wait for archive (moveToArchive is the last step after inbox write)
+      // Wait for inbox message (last sync step; 其他 it 统一用 waitForAcceptance)
+      // 不要 poll progress.json —— saveProgress resolve 与 _writeAcceptanceInbox 之间
+      // 有 microtask yield 窗口，在并发跑负载下会 flake（测试侧先看到 completed 后再读 inbox 时 inbox 仍空）
+      await waitForAcceptance(tempDir);
+
+      // inbox 写完后 progress 必已落地（同步或已 resolve）；读哪条路径都行
       const archiveProgressPath = path.join(tempDir, 'contract', 'archive', contractId, 'progress.json');
       const activeProgressPath = path.join(tempDir, 'contract', 'active', contractId, 'progress.json');
-      const deadline = Date.now() + 5000;
       let progress: any;
-      while (Date.now() < deadline) {
-        try {
-          progress = JSON.parse(await fs.readFile(archiveProgressPath, 'utf-8'));
-          break;
-        } catch {
-          try {
-            const p = JSON.parse(await fs.readFile(activeProgressPath, 'utf-8'));
-            if (p.subtasks['task-1'].status === 'completed') { progress = p; break; }
-          } catch {}
-        }
-        await new Promise(r => setTimeout(r, 10));
+      try {
+        progress = JSON.parse(await fs.readFile(archiveProgressPath, 'utf-8'));
+      } catch {
+        progress = JSON.parse(await fs.readFile(activeProgressPath, 'utf-8'));
       }
       expect(progress.subtasks['task-1'].status).toBe('completed');
 
