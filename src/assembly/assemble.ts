@@ -16,7 +16,7 @@ import { LLMServiceImpl } from '../foundation/llm/service.js';
 import { JsonlLogger } from '../foundation/monitor/monitor.js';
 import { ToolRegistryImpl } from '../core/tools/registry.js';
 import { ToolExecutorImpl } from '../core/tools/executor.js';
-import { SkillRegistry } from '../core/skill/registry.js';
+import { createSkillRegistry, SkillRegistry } from '../core/skill/index.js';
 import { ContractManager, createContractManager } from '../core/contract/index.js';
 import { createTaskSystem } from '../core/task/index.js';
 import type { TaskSystem } from '../core/task/system.js';
@@ -171,7 +171,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
   // --- L3-L5: skillRegistry + loadAll ---
   let skillRegistry: SkillRegistry;
   try {
-    skillRegistry = new SkillRegistry(systemFs, 'skills');
+    skillRegistry = createSkillRegistry(systemFs, 'skills');
   } catch (e) {
     auditWriter.write('assemble_failed', `module=skill_registry`, `phase=construct`, `reason=${errMsg(e)}`);
     throw new Error(`Assembly: SkillRegistry construct failed: ${errMsg(e)}`, { cause: e });
