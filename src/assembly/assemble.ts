@@ -16,7 +16,7 @@ import { JsonlLogger } from '../foundation/monitor/monitor.js';
 import { ToolRegistryImpl } from '../core/tools/registry.js';
 import { ToolExecutorImpl } from '../core/tools/executor.js';
 import { SkillRegistry } from '../core/skill/registry.js';
-import { ContractManager } from '../core/contract/manager.js';
+import { ContractManager, createContractManager } from '../core/contract/index.js';
 import { createTaskSystem } from '../core/task/index.js';
 import type { TaskSystem } from '../core/task/system.js';
 import { ContextInjector } from '../core/dialog/injector.js';
@@ -189,7 +189,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
     for (const tool of toolRegistry.getForProfile('verifier')) {
       verifierRegistry.register(tool);
     }
-    contractManager = new ContractManager(
+    contractManager = createContractManager(
       clawDir, clawId, systemFs, monitor, llm, verifierRegistry, auditWriter,
     );
   } catch (e) {
