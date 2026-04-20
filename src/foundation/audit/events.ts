@@ -68,6 +68,9 @@ export const AUDIT_EVENTS = {
   LOCK_ACQUIRED: 'lock_acquired',
   LOCK_RELEASED: 'lock_released',
   PROCESS_LIST_FAILED: 'process_list_failed',
+
+  // --- Viewport UI ---
+  VIEWPORT_UI_CROSS_POLLUTION: 'viewport_ui_cross_pollution',
 } as const;
 
 export type AuditEventName = typeof AUDIT_EVENTS[keyof typeof AUDIT_EVENTS];

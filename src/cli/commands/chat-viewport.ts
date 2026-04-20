@@ -18,6 +18,7 @@ import type { CallerType } from '../../core/tools/caller-type.js';
 import { createWatcher } from '../../foundation/file-watcher/index.js';
 import type { Watcher } from '../../foundation/file-watcher/types.js';
 import type { AuditWriter } from '../../foundation/audit/writer.js';
+import { AUDIT_EVENTS } from '../../foundation/audit/events.js';
 import { createStreamReader, STREAM_FILE } from '../../foundation/stream/index.js';
 import type { StreamReader, StreamEvent } from '../../foundation/stream/index.js';
 
@@ -53,6 +54,176 @@ function fmtDuration(ms: number): string {
   return `${m}m`;
 }
 
+
+// Braille spinner 动画
+const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+
+export interface MainTurnUIDeps {
+  appendOutput: (color: string, text: string, wrap?: boolean, hangIndent?: string) => void;
+  updateDisplay: () => void;
+  trimOutputNewlines: boolean;
+  getThinkingMode: () => 'compact' | 'full' | 'off';
+  audit: { write: (type: string, ...cols: (string | number)[]) => void };
+}
+
+export interface MainTurnUIController {
+  setSuffix(text: string): void;
+  clearSuffix(): void;
+  getSuffix(): string;
+  startSpinner(text?: string): void;
+  stopSpinner(): void;
+  appendToBuffer(delta: string): string;
+  flushStreaming(): void;
+  appendToThinking(delta: string): string;
+  flushThinking(): void;
+  withScope<T>(scope: 'main' | 'task' | 'system', fn: () => T): T;
+}
+
+export function createMainTurnUI(deps: MainTurnUIDeps): MainTurnUIController {
+  let suffix = '';
+  let streamingBuffer = '';
+  let thinkingBuffer = '';
+  let spinnerTimer: ReturnType<typeof setInterval> | null = null;
+  let currentScope: 'main' | 'task' | 'system' | null = null;
+
+  const guardWrite = (method: string) => {
+    if (currentScope === 'task') {
+      try {
+        deps.audit.write(AUDIT_EVENTS.VIEWPORT_UI_CROSS_POLLUTION, method, 'task');
+      } catch { /* audit self-failure is tolerated */ }
+    }
+  };
+
+  const withScope = <T>(scope: 'main' | 'task' | 'system', fn: () => T): T => {
+    const prev = currentScope;
+    currentScope = scope;
+    try { return fn(); }
+    finally { currentScope = prev; }
+  };
+
+  const setSuffix = (text: string) => {
+    guardWrite('setSuffix');
+    suffix = text ?? '';
+    deps.updateDisplay();
+  };
+  const clearSuffix = () => {
+    guardWrite('clearSuffix');
+    suffix = '';
+    deps.updateDisplay();
+  };
+  const getSuffix = () => suffix;
+
+  const stopSpinner = () => {
+    guardWrite('stopSpinner');
+    if (spinnerTimer) {
+      clearInterval(spinnerTimer);
+      spinnerTimer = null;
+    }
+  };
+  const startSpinner = (text = 'Thinking...') => {
+    guardWrite('startSpinner');
+    stopSpinner();
+    let frame = 0;
+    spinnerTimer = setInterval(() => {
+      suffix = `${SPINNER_FRAMES[frame % SPINNER_FRAMES.length]} ${text}`;
+      deps.updateDisplay();
+      frame++;
+    }, 80);
+    spinnerTimer.unref();
+    // 立即显示第一帧
+    setSuffix(`${SPINNER_FRAMES[0]} ${text}`);
+  };
+
+  const appendToBuffer = (delta: string) => {
+    guardWrite('appendToBuffer');
+    streamingBuffer += delta ?? '';
+    return streamingBuffer;
+  };
+  const flushStreaming = () => {
+    guardWrite('flushStreaming');
+    if (!streamingBuffer) return;
+    const dotPrefix = '\x1b[38;5;232m⏺\x1b[0m ';
+    const indent = '  ';
+    const content = deps.trimOutputNewlines ? streamingBuffer.trim() : streamingBuffer;
+    const formatted = content
+      .split('\n')
+      .map((line, i) => (i === 0 ? dotPrefix : indent) + line)
+      .join('\n');
+    streamingBuffer = '';
+    suffix = '';
+    deps.appendOutput('', formatted, true, indent);
+    deps.updateDisplay();
+  };
+
+  const appendToThinking = (delta: string) => {
+    guardWrite('appendToThinking');
+    thinkingBuffer += delta ?? '';
+    return thinkingBuffer;
+  };
+  const flushThinking = () => {
+    guardWrite('flushThinking');
+    if (!thinkingBuffer) return;
+    const prefix = '⏺ ';
+    const indent = ' '.repeat(stringWidth(prefix));
+    const content = deps.trimOutputNewlines ? thinkingBuffer.trim() : thinkingBuffer;
+    const formatted = content
+      .split('\n')
+      .map((line, i) => (i === 0 ? prefix : indent) + line)
+      .join('\n');
+    deps.appendOutput('\x1b[2m', formatted, true, indent);
+    thinkingBuffer = '';
+  };
+
+  return {
+    setSuffix, clearSuffix, getSuffix,
+    startSpinner, stopSpinner,
+    appendToBuffer, flushStreaming,
+    appendToThinking, flushThinking,
+    withScope,
+  };
+}
+
+
+export interface TaskEventHandlerDeps {
+  getTaskWatch: (taskId: string) => { silent: boolean } | undefined;
+  showRecapStream: () => boolean;
+  appendOutput: (color: string, text: string, wrap?: boolean, hangIndent?: string) => void;
+  stopTaskWatch: (taskId: string) => void;
+}
+
+export type TaskEvent = {
+  type: string;
+  name?: unknown;
+  success?: unknown;
+  step?: unknown;
+  maxSteps?: unknown;
+  summary?: unknown;
+  [key: string]: unknown;
+};
+
+export function createTaskEventHandler(deps: TaskEventHandlerDeps) {
+  return (taskId: string, callerType: string, event: TaskEvent) => {
+    const tw = deps.getTaskWatch(taskId);
+    const prefix = callerType;
+    switch (event.type) {
+      case 'tool_call':
+        if (tw?.silent && !deps.showRecapStream()) break;
+        deps.appendOutput('\x1b[36m', `⚙ ${prefix}:${event.name}`);
+        break;
+      case 'tool_result': {
+        if (tw?.silent && !deps.showRecapStream()) break;
+        const icon = event.success ? '✓' : '✗';
+        deps.appendOutput('\x1b[2m', `  ${icon} [${event.step}/${event.maxSteps}] ${event.summary as string}`);
+        break;
+      }
+      case 'turn_end':
+      case 'turn_error':
+      case 'turn_interrupted':
+        deps.stopTaskWatch(taskId);
+        break;
+    }
+  };
+}
 
 export async function runChatViewport(options: ChatViewportOptions): Promise<void> {
   // 确保 daemon 运行
@@ -95,10 +266,6 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   const outputLines: OutputLine[] = [
     { color: '', text: `[${options.label}] Watching daemon activity...` },
   ];
-  let streamingSuffix = '';  // 当前流式内容（spinner / thinking / text）
-
-  let streamingBuffer = '';
-  let thinkingBuffer = '';
   let inTurn = false;  // daemon 是否正在处理 turn（用于 ESC 中断判断）
   let escTimeoutId: ReturnType<typeof setTimeout> | null = null;  // ESC 5秒超时定时器
 
@@ -117,9 +284,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   const commandRegistry = new Map<string, ViewportCommand>();
   const registerCmd = (cmd: ViewportCommand) => commandRegistry.set(cmd.name, cmd);
 
-  // Braille spinner 动画
-  const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-  let spinnerTimer: ReturnType<typeof setInterval> | null = null;
+
 
   const updateDisplay = () => {
     const cols = process.stdout.columns ?? 80;
@@ -132,8 +297,9 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
       })
       .join('\n');
 
-    const suffixBody = streamingSuffix
-      ? streamingSuffix.split('\n')
+    const currentSuffix = mainUI?.getSuffix() ?? '';
+    const suffixBody = currentSuffix
+      ? currentSuffix.split('\n')
           .flatMap(line => wrapLine(line, cols))
           .join('\n')
       : '';
@@ -144,11 +310,6 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   };
 
   const attachedClawBar = new Text('', 0, 0);
-
-  const setStreamingSuffix = (text: string) => {
-    streamingSuffix = text;
-    updateDisplay();
-  };
 
   const buildClawLine = (id: string, t: ClawTrack, cols: number): string => {
     // Fix 2：daemon 崩溃检测（放在最前，无论 active 状态）
@@ -219,26 +380,6 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     attachedClawBar.setText(lines.join('\n'));
   };
 
-  const startSpinner = (text = 'Thinking...') => {
-    stopSpinner();
-    let frame = 0;
-    spinnerTimer = setInterval(() => {
-      streamingSuffix = `${SPINNER_FRAMES[frame % SPINNER_FRAMES.length]} ${text}`;
-      updateDisplay();
-      frame++;
-    }, 80);
-    spinnerTimer.unref();
-    // 立即显示第一帧
-    setStreamingSuffix(`${SPINNER_FRAMES[0]} ${text}`);
-  };
-
-  const stopSpinner = () => {
-    if (spinnerTimer) {
-      clearInterval(spinnerTimer);
-      spinnerTimer = null;
-    }
-  };
-
   // 输入组件
   const editor = new Editor(tui, editorTheme);
 
@@ -250,42 +391,21 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     updateDisplay();
   };
 
-  const flushStreaming = () => {
-    if (streamingBuffer) {
-      const dotPrefix = '\x1b[38;5;232m⏺\x1b[0m ';
-      const indent = '  ';
-      const content = trimOutputNewlines ? streamingBuffer.trim() : streamingBuffer;
-      const formatted = content
-        .split('\n')
-        .map((line, i) => (i === 0 ? dotPrefix : indent) + line)
-        .join('\n');
-      streamingBuffer = '';
-      streamingSuffix = '';
-      appendOutput('', formatted, true, indent);
-    }
-  };
-
-  const flushThinking = () => {
-    if (thinkingBuffer) {
-      const prefix = '⏺ ';
-      const indent = ' '.repeat(stringWidth(prefix));
-      const content = trimOutputNewlines ? thinkingBuffer.trim() : thinkingBuffer;
-      const formatted = content
-        .split('\n')
-        .map((line, i) => (i === 0 ? prefix : indent) + line)
-        .join('\n');
-      appendOutput('\x1b[2m', formatted, true, indent);
-      thinkingBuffer = '';
-    }
-  };
+  const mainUI = createMainTurnUI({
+    appendOutput,
+    updateDisplay,
+    trimOutputNewlines,
+    getThinkingMode: () => thinkingMode,
+    audit: options.audit,
+  });
 
   // 处理一个 stream event
   const handleEvent = (event: { type: string; [key: string]: unknown }) => {
     switch (event.type) {
       case 'turn_start': {
         inTurn = true;
-        flushThinking();
-        flushStreaming();
+        mainUI.flushThinking();
+        mainUI.flushStreaming();
         const srcs = event.sources as Array<{ text: string; type: string }> | undefined;
         if (showSystemMessages && srcs && srcs.length > 0) {
           // 显示所有非 user_chat 的来源（系统消息、inbox 消息等）
@@ -299,84 +419,82 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
 
       case 'llm_start':
         inTurn = true;
-        flushThinking();
-        flushStreaming();
-        startSpinner();
+        mainUI.flushThinking();
+        mainUI.flushStreaming();
+        mainUI.startSpinner();
         break;
 
-      case 'thinking_delta':
-        stopSpinner();
-        thinkingBuffer += event.delta as string;
+      case 'thinking_delta': {
+        mainUI.stopSpinner();
+        const thinkingBuf = mainUI.appendToThinking(event.delta as string);
         if (thinkingMode === 'full') {
           const prefix = '⏺ ';
           const indent = ' '.repeat(stringWidth(prefix));
-          const preview = thinkingBuffer
+          const preview = thinkingBuf
             .split('\n')
-            .map((line, i) => (i === 0 ? prefix : indent) + line)
+            .map((line: string, i: number) => (i === 0 ? prefix : indent) + line)
             .join('\n');
-          setStreamingSuffix('\x1b[2m' + preview + '\x1b[0m');
+          mainUI.setSuffix('\x1b[2m' + preview + '\x1b[0m');
         } else if (thinkingMode === 'compact') {
-          const snippet = thinkingBuffer.replace(/\s+/g, ' ').trim().slice(-60);
-          setStreamingSuffix('\x1b[2m(' + snippet + ')\x1b[0m');
+          const snippet = thinkingBuf.replace(/\s+/g, ' ').trim().slice(-60);
+          mainUI.setSuffix('\x1b[2m(' + snippet + ')\x1b[0m');
         }
         // 'off': 不更新 suffix
         break;
+      }
 
-      case 'text_delta':
-        stopSpinner();
-        flushThinking();
-        streamingBuffer += event.delta as string;
-        {
-          const dotPrefix = '\x1b[38;5;232m⏺\x1b[0m ';
-          const indent = '  ';
-          const preview = (streamingBuffer + '▋')
-            .split('\n')
-            .map((line, i) => (i === 0 ? dotPrefix : indent) + line)
-            .join('\n');
-          setStreamingSuffix(preview);
-        }
+      case 'text_delta': {
+        mainUI.stopSpinner();
+        mainUI.flushThinking();
+        const streamBuf = mainUI.appendToBuffer(event.delta as string);
+        const dotPrefix = '\x1b[38;5;232m⏺\x1b[0m ';
+        const indent = '  ';
+        const preview = (streamBuf + '▋')
+          .split('\n')
+          .map((line: string, i: number) => (i === 0 ? dotPrefix : indent) + line)
+          .join('\n');
+        mainUI.setSuffix(preview);
         break;
+      }
 
       case 'text_end':
         // no-op: keep cursor (▋) visible until tool_call/turn_end flushes
         break;
 
       case 'tool_call':
-        stopSpinner();
-        flushThinking();
-        flushStreaming();
+        mainUI.stopSpinner();
+        mainUI.flushThinking();
+        mainUI.flushStreaming();
         appendOutput('\x1b[36m', `⚙ ${event.name}`);
-        startSpinner(`${event.name}...`);
+        mainUI.startSpinner(`${event.name}...`);
         break;
 
       case 'tool_result': {
-        stopSpinner();
+        mainUI.stopSpinner();
         const icon = event.success ? '✓' : '✗';
         const step = event.step ?? '?';
         const maxSteps = event.maxSteps ?? '?';
-        streamingSuffix = '';
+        mainUI.clearSuffix();
         appendOutput('\x1b[2m', `  ${icon} [${step}/${maxSteps}] ${event.summary as string}`);
         break;
       }
 
       case 'turn_end':
         inTurn = false;
-        stopSpinner();
-        flushThinking();
-        flushStreaming();
-        streamingSuffix = '';
-        updateDisplay();
+        mainUI.stopSpinner();
+        mainUI.flushThinking();
+        mainUI.flushStreaming();
+        mainUI.clearSuffix();
         pendingInterruptSource = null;
         // Cursor disappearance signals completion; no extra separator needed
         break;
 
       case 'turn_interrupted': {
         inTurn = false;
-        stopSpinner();
-        flushThinking();
-        flushStreaming();
-        streamingSuffix = '';
-        updateDisplay();
+        mainUI.stopSpinner();
+        mainUI.flushThinking();
+        mainUI.flushStreaming();
+        mainUI.clearSuffix();
         const msg = (event as Record<string, unknown>).message;
         const display = typeof msg === 'string' ? msg
           : pendingInterruptSource === 'esc' ? 'Interrupted (Esc)' : 'Interrupted';
@@ -387,11 +505,10 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
 
       case 'turn_error':
         inTurn = false;
-        stopSpinner();
-        flushThinking();
-        flushStreaming();
-        streamingSuffix = '';
-        updateDisplay();
+        mainUI.stopSpinner();
+        mainUI.flushThinking();
+        mainUI.flushStreaming();
+        mainUI.clearSuffix();
         pendingInterruptSource = null;
         appendOutput('\x1b[31m', `✗ Error: ${event.error as string}`);
         break;
@@ -416,9 +533,8 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
       }
 
       case 'user_notify': {
-        stopSpinner();   // 防止 spinner 在通知输出时继续转
-        streamingSuffix = '';   // 清除游标/spinner 残留
-        updateDisplay();
+        mainUI.stopSpinner();   // 防止 spinner 在通知输出时继续转
+        mainUI.clearSuffix();   // 清除游标/spinner 残留
         const sub = event.subtype as string;
         const subtaskId = event.subtaskId as string;
         if (sub === 'contract_created') {
@@ -453,7 +569,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
         const taskId = event.taskId as string;
         const callerType = (event.callerType as string) ?? 'subagent';
         const taskFs = new NodeFileSystem({ baseDir: path.join(options.agentDir, 'tasks', 'results', taskId), enforcePermissions: false });
-        const taskReader = createStreamReader(taskFs, STREAM_FILE, (ev) => handleTaskEvent(taskId, callerType, ev), options.audit, { persistent: false });
+        const taskReader = createStreamReader(taskFs, STREAM_FILE, (ev) => mainUI.withScope('task', () => handleTaskEvent(taskId, callerType, ev)), options.audit, { persistent: false });
         taskReader.start();
         const tw: TaskWatch = {
           callerType: callerType as any,
@@ -467,7 +583,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   };
 
   // tail stream.jsonl
-  const streamReader = createStreamReader(fs, STREAM_FILE, (ev) => handleEvent(ev), options.audit, { persistent: false });
+  const streamReader = createStreamReader(fs, STREAM_FILE, (ev) => mainUI.withScope('main', () => handleEvent(ev)), options.audit, { persistent: false });
   streamReader.start();
 
   // Motion viewport：各 claw 步数追踪
@@ -527,6 +643,13 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     await tw.streamReader?.stop();
     taskWatchMap.delete(taskId);
   };
+
+  const handleTaskEvent = createTaskEventHandler({
+    getTaskWatch: (id) => taskWatchMap.get(id),
+    showRecapStream: () => showRecapStream,
+    appendOutput,
+    stopTaskWatch,
+  });
 
   const refreshClawStatus = (clawId: string) => {
     if (!isMotion) return;
@@ -705,38 +828,6 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     }
   };
 
-  const handleTaskEvent = (
-    taskId: string,
-    callerType: string,
-    event: { type: string; [key: string]: unknown },
-  ) => {
-    const tw = taskWatchMap.get(taskId);
-    const prefix = callerType;
-    switch (event.type) {
-      case 'tool_call':
-        if (tw?.silent && !showRecapStream) break;
-        stopSpinner();
-        appendOutput('\x1b[36m', `⚙ ${prefix}:${event.name}`);
-        startSpinner(`${prefix}:${event.name}...`);
-        break;
-      case 'tool_result': {
-        if (tw?.silent && !showRecapStream) break;
-        stopSpinner();
-        const icon = event.success ? '✓' : '✗';
-        streamingSuffix = '';
-        appendOutput('\x1b[2m', `  ${icon} [${event.step}/${event.maxSteps}] ${event.summary as string}`);
-        break;
-      }
-      case 'turn_end':
-      case 'turn_error':
-      case 'turn_interrupted':
-        stopSpinner();
-        streamingSuffix = '';
-        updateDisplay();
-        stopTaskWatch(taskId);
-        break;
-    }
-  };
 
   // fallback 轮询（claw 刷新 + task poll）
   const pollInterval = setInterval(() => {
@@ -770,11 +861,10 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
         // 进程不存在
         daemonDead = true;
         inTurn = false;
-        stopSpinner();
-        flushStreaming();
-        flushThinking();
-        streamingSuffix = '';
-        updateDisplay();
+        mainUI.stopSpinner();
+        mainUI.flushStreaming();
+        mainUI.flushThinking();
+        mainUI.clearSuffix();
         appendOutput('\x1b[31m', '✗ Daemon 已停止');
       }
     } catch {
@@ -875,8 +965,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     description: '清空输出区域',
     execute: () => {
       outputLines.length = 0;
-      streamingSuffix = '';
-      updateDisplay();
+      mainUI.clearSuffix();
     },
   });
 
@@ -948,8 +1037,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     // Ctrl+L → 清屏
     if (data.includes('\x0c')) {
       outputLines.length = 0;
-      streamingSuffix = '';
-      updateDisplay();
+      mainUI.clearSuffix();
       return { consume: true };
     }
     // ESC → 中断 daemon react（只在活跃 turn 时有效）
@@ -958,9 +1046,8 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     if (data.includes('\x1b') && !data.includes('\x1b[') && !data.includes('\r') && !data.includes('\n')) {
       if (!inTurn) {
         // 防御性清理：如果 spinner 还在转，强制停止
-        stopSpinner();
-        streamingSuffix = '';
-        updateDisplay();
+        mainUI.stopSpinner();
+        mainUI.clearSuffix();
         return { consume: true };
       }
       const interruptFile = path.join(options.agentDir, 'interrupt');
@@ -968,7 +1055,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
       try {
         fsNative.writeFileSync(interruptFile, '');
       } catch { /* best-effort */ }
-      startSpinner('Interrupting...');
+      mainUI.startSpinner('Interrupting...');
       // 5 秒超时保护：如果 daemon 没响应，强制清理
       if (escTimeoutId) clearTimeout(escTimeoutId);
       escTimeoutId = setTimeout(() => {
@@ -976,11 +1063,10 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
         if (inTurn) {
           inTurn = false;
           pendingInterruptSource = null;
-          stopSpinner();
-          flushStreaming();
-          flushThinking();
-          streamingSuffix = '';
-          updateDisplay();
+          mainUI.stopSpinner();
+          mainUI.flushStreaming();
+          mainUI.flushThinking();
+          mainUI.clearSuffix();
         }
       }, 5000);
       return { consume: true };
@@ -1118,7 +1204,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   process.removeListener('SIGINT', sigintHandler);
   process.removeListener('uncaughtException', uncaughtHandler);
   process.removeListener('unhandledRejection', uncaughtHandler);
-  stopSpinner();
+  mainUI.stopSpinner();
   clearInterval(pollInterval);
   clearInterval(daemonCheckInterval);
   await streamReader.stop();

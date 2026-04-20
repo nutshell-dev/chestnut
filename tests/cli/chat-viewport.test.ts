@@ -59,12 +59,12 @@ describe('chat-viewport Phase 72', () => {
         sourceCode.indexOf("appendOutput('\\x1b[31m', '✗ Daemon 已停止')")
       );
       
-      expect(daemonDeadSection).toContain('flushStreaming()');
-      expect(daemonDeadSection).toContain('flushThinking()');
-      
-      // flush 应在清空 streamingSuffix 之前
-      const flushIndex = daemonDeadSection.indexOf('flushStreaming()');
-      const suffixIndex = daemonDeadSection.indexOf("streamingSuffix = ''");
+      expect(daemonDeadSection).toContain('mainUI.flushStreaming()');
+      expect(daemonDeadSection).toContain('mainUI.flushThinking()');
+
+      // flush 应在清空 suffix 之前
+      const flushIndex = daemonDeadSection.indexOf('mainUI.flushStreaming()');
+      const suffixIndex = daemonDeadSection.indexOf('mainUI.clearSuffix()');
       expect(flushIndex).toBeGreaterThan(-1);
       expect(suffixIndex).toBeGreaterThan(-1);
       expect(flushIndex).toBeLessThan(suffixIndex);
@@ -84,8 +84,8 @@ describe('chat-viewport Phase 72', () => {
       
       const escTimeoutBlock = escTimeoutMatch![0];
       
-      expect(escTimeoutBlock).toContain('flushStreaming()');
-      expect(escTimeoutBlock).toContain('flushThinking()');
+      expect(escTimeoutBlock).toContain('mainUI.flushStreaming()');
+      expect(escTimeoutBlock).toContain('mainUI.flushThinking()');
     });
   });
 
