@@ -9,8 +9,9 @@ import type { StreamWriter } from '../foundation/stream/writer.js';
 import type { ProcessManager } from '../foundation/process-manager/manager.js';
 import { NodeFileSystem } from '../foundation/fs/node-fs.js';
 import { createAgentProcessManager } from '../cli/commands/process-manager-factory.js';
-import { ClawRuntime, type ClawRuntimeOptions, type RuntimeDependencies } from '../core/runtime.js';
-import { MotionRuntime } from '../core/motion/runtime.js';
+import { type ClawRuntime, type RuntimeDependencies } from '../core/runtime.js';
+import { type MotionRuntime } from '../core/motion/runtime.js';
+import { createRuntime } from '../core/create-runtime.js';
 import { LLMServiceImpl } from '../foundation/llm/service.js';
 import { JsonlLogger } from '../foundation/monitor/monitor.js';
 import { ToolRegistryImpl } from '../core/tools/registry.js';
@@ -333,31 +334,19 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
   // --- Runtime 构造（deps 注入） ---
   let runtime: MotionRuntime | ClawRuntime;
   try {
-    runtime = isMotion
-      ? new MotionRuntime({
-          clawId: 'motion',
-          clawDir,
-          llmConfig,
-          maxSteps,
-          toolProfile,
-          toolTimeoutMs,
-          subagentMaxSteps,
-          maxConcurrentTasks: maxConcurrent,
-          idleTimeoutMs,
-          dependencies,
-        })
-      : new ClawRuntime({
-          clawId,
-          clawDir,
-          llmConfig,
-          maxSteps,
-          toolProfile,
-          toolTimeoutMs,
-          subagentMaxSteps,
-          maxConcurrentTasks: maxConcurrent,
-          idleTimeoutMs,
-          dependencies,
-        } as ClawRuntimeOptions);
+    runtime = createRuntime({
+      identity: isMotion ? 'motion' : 'claw',
+      clawId: isMotion ? 'motion' : clawId,
+      clawDir,
+      llmConfig,
+      maxSteps,
+      toolProfile,
+      toolTimeoutMs,
+      subagentMaxSteps,
+      maxConcurrentTasks: maxConcurrent,
+      idleTimeoutMs,
+      dependencies,
+    });
   } catch (e) {
     auditWriter.write('assemble_failed', `module=runtime`, `phase=construct`, `reason=${errMsg(e)}`);
     throw new Error(`Assembly: Runtime construct failed: ${errMsg(e)}`, { cause: e });
