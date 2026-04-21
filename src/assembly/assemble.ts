@@ -425,7 +425,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
         {
           name: 'disk-monitor',
           enabled: globalConfig.cron?.jobs?.disk_monitor?.enabled ?? true,
-          schedule: parseSchedule(diskScheduleStr),
+          schedule: parseSchedule(diskScheduleStr, auditWriter),
           handler: () => runDiskMonitor({
             clawforumDir,
             motionInboxDir: path.join(clawDir, 'inbox', 'pending'),
@@ -436,7 +436,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
         {
           name: 'llm-stats',
           enabled: globalConfig.cron?.jobs?.llm_stats?.enabled ?? true,
-          schedule: parseSchedule(globalConfig.cron?.jobs?.llm_stats?.schedule ?? 'daily:06:00'),
+          schedule: parseSchedule(globalConfig.cron?.jobs?.llm_stats?.schedule ?? 'daily:06:00', auditWriter),
           handler: () => runLlmStats({
             clawforumDir,
             motionDir: clawDir,
@@ -445,7 +445,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
         {
           name: 'dream-trigger',
           enabled: globalConfig.cron?.jobs?.dream_trigger?.enabled ?? false,
-          schedule: parseSchedule(globalConfig.cron?.jobs?.dream_trigger?.schedule ?? 'daily:04:00'),
+          schedule: parseSchedule(globalConfig.cron?.jobs?.dream_trigger?.schedule ?? 'daily:04:00', auditWriter),
           handler: async () => {
             await runDeepDream({
               clawforumDir,
@@ -464,13 +464,13 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
         {
           name: 'contract-observer',
           enabled: true,
-          schedule: parseSchedule(globalConfig.cron?.jobs?.contract_observer?.schedule ?? 'interval:1m'),
+          schedule: parseSchedule(globalConfig.cron?.jobs?.contract_observer?.schedule ?? 'interval:1m', auditWriter),
           handler: () => runContractObserver({
             clawforumDir,
             motionInboxDir: path.join(clawDir, 'inbox', 'pending'),
           }),
         },
-      ]);
+      ], auditWriter);
     } catch (e) {
       auditWriter.write('assemble_failed', `module=cron_runner`, `phase=construct`, `reason=${errMsg(e)}`);
       throw new Error(`Assembly: CronRunner construct failed: ${errMsg(e)}`, { cause: e });
