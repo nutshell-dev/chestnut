@@ -14,12 +14,7 @@ import type { InboxMessage } from '../../types/contract.js';
 import { startDaemonLoop } from './daemon-loop.js';
 import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
 import { AuditWriter } from '../../foundation/audit/writer.js';
-import { createSkillRegistry } from '../../core/skill/index.js';
 import { ContractManager, type MotionReviewContext } from '../../core/contract/manager.js';
-import { DEFAULT_MAX_STEPS, DEFAULT_MAX_CONCURRENT_TASKS, DEFAULT_LLM_IDLE_TIMEOUT_MS } from '../../constants.js';
-import { writePendingSubagentTaskFile } from '../../core/tools/builtins/_pending-task-writer.js';
-import type { Message } from '../../types/message.js';
-import { buildRetroPrompt } from '../../prompts/index.js';
 import { CliError } from '../errors.js';
 import { assemble, disassemble, LockConflictError } from '../../assembly/index.js';
 import type { Instances } from '../../assembly/index.js';
@@ -112,8 +107,7 @@ export async function daemonCommand(name: string): Promise<void> {
 
   const inboxPendingDir = path.join(dir, 'inbox', 'pending');
 
-  // phase184 已切换调用方；旧实现保留供 phase18x B-3 清理前对比/回滚
-  // B.p172-3 升档链路第 3 步：Daemon onInboxMessages → ContractManager.handleReviewRequest
+  // review_request → ContractManager.handleReviewRequest（B.p172-3 迁移完成 phase188）
   const motionFs = isMotion ? new NodeFileSystem({ baseDir: dir, enforcePermissions: false }) : undefined;
   const contractManager = isMotion && motionFs ? new ContractManager(dir, 'motion', motionFs) : undefined;
   const clawsBaseDir = isMotion ? path.resolve(dir, '..', 'claws') : undefined;
@@ -136,124 +130,6 @@ export async function daemonCommand(name: string): Promise<void> {
             continue;
           }
 
-          // === 旧实现起点（phase184 已切换，以下代码 dead，供 B-3 清理前对比） ===
-          // 查 by-contract 反向索引（Step 5 写入的新格式）
-          const byContractPath = path.join(
-            dir, 'clawspace', 'pending-retrospective', 'by-contract', `${contractId}.json`,
-          );
-          let targetClaw: string | null = null;
-          let mode: string | undefined;
-          let miningTaskId: string | undefined;
-          try {
-            const fileContent = await fsAsync.readFile(byContractPath, 'utf-8');
-            let raw: unknown;
-            try {
-              raw = JSON.parse(fileContent);
-            } catch {
-              console.warn('[daemon] by-contract index is not valid JSON, skipping retrospective:', contractId);
-              continue;
-            }
-            if (typeof raw !== 'object' || raw === null) {
-              console.warn('[daemon] by-contract index has unexpected format, skipping retrospective:', contractId);
-              continue;
-            }
-            const r = raw as Record<string, unknown>;
-            const rawTarget = typeof r.targetClaw === 'string' ? r.targetClaw : null;
-            if (!rawTarget || !/^[a-z0-9-]+$/.test(rawTarget)) {
-              console.warn('[daemon] by-contract index has invalid targetClaw, skipping retrospective:', contractId, rawTarget);
-              continue;
-            }
-            targetClaw = rawTarget;
-            mode = typeof r.mode === 'string' ? r.mode : undefined;
-            miningTaskId = typeof r.miningTaskId === 'string' ? r.miningTaskId : undefined;
-          } catch (e) {
-            const code = (e as NodeJS.ErrnoException).code;
-            if (code !== 'ENOENT') {
-              console.warn('[daemon] Failed to read by-contract index, skipping retrospective:', contractId, e instanceof Error ? e.message : String(e));
-            }
-            continue;
-          }
-
-          // 加载契约 YAML 原始字符串
-          if (!targetClaw) continue;  // 防御性检查，前面已验证
-          const legacyClawsBaseDir = path.resolve(dir, '..', 'claws');
-          const clawDir = path.join(legacyClawsBaseDir, targetClaw);
-          const clawFs = new NodeFileSystem({ baseDir: clawDir, enforcePermissions: false });
-          const legacyContractManager = new ContractManager(clawDir, targetClaw, clawFs);
-
-          let contractYaml: string;
-          try {
-            contractYaml = await legacyContractManager.readContractYamlRaw(contractId);
-          } catch (e) {
-            console.warn('[daemon] Failed to load contract YAML for retrospective:', contractId, e instanceof Error ? e.message : String(e));
-            continue;
-          }
-
-          // 加载当前 dispatch-skills 列表（best-effort）
-          let skillsSummary = '';
-          try {
-            const legacyMotionFs = new NodeFileSystem({ baseDir: dir, enforcePermissions: false });
-            const reg = createSkillRegistry(legacyMotionFs, 'clawspace/dispatch-skills');
-            await reg.loadAll();
-            const formatted = reg.formatForContext();
-            if (!formatted.includes('No skills loaded')) {
-              skillsSummary = formatted;
-            }
-          } catch (e) {
-            console.warn('[daemon] Failed to load dispatch-skills for retro prompt:', e instanceof Error ? e.message : String(e));
-          }
-
-          // 构建复盘 prompt
-          const retroPrompt = buildRetroPrompt(targetClaw, contractId, contractYaml, skillsSummary);
-
-          // 构建复盘对话上下文（mining 模式继承挖掘对话，describing 模式用空上下文）
-          let baseMessages: Message[] = [];
-          if (mode === 'mining' && miningTaskId) {
-            try {
-              const messagesPath = path.join(dir, 'tasks', 'results', miningTaskId, 'messages.json');
-              const raw = await fsAsync.readFile(messagesPath, 'utf-8');
-              const parsed = JSON.parse(raw);
-              if (Array.isArray(parsed)) {
-                baseMessages = parsed;
-              }
-            } catch (e) {
-              const code = (e as NodeJS.ErrnoException).code;
-              if (code === 'ENOENT') {
-                // mining 模式下 messages.json 应由 miner 写入，ENOENT 说明 miner 未正常完成持久化
-                console.warn('[daemon] Mining task messages not found, retro will run without mining context:', miningTaskId);
-              } else {
-                console.warn('[daemon] Failed to load mining task messages:', e instanceof Error ? e.message : String(e));
-              }
-              // best-effort：加载失败退化为空上下文，retro 照常运行
-            }
-          }
-          const retroMessages: Message[] = [...baseMessages, { role: 'user', content: retroPrompt }];
-
-          // 调度复盘子代理（文件驱动，watcher 异步拾起）
-          const legacyMotionFs2 = new NodeFileSystem({ baseDir: dir, enforcePermissions: false });
-          const motionAudit = new AuditWriter(legacyMotionFs2, path.join(dir, 'audit.tsv'));
-          try {
-            await writePendingSubagentTaskFile(legacyMotionFs2, motionAudit, {
-              kind: 'subagent',
-              prompt: '',
-              messages: retroMessages,
-              tools: ['read', 'write', 'skill', 'exec'],
-              timeout: 600,
-              maxSteps: DEFAULT_MAX_STEPS,
-              idleTimeoutMs: DEFAULT_LLM_IDLE_TIMEOUT_MS,
-              parentClawId: 'motion',
-              originClawId: 'motion',
-            });
-          } catch (e) {
-            console.warn('[daemon] retrospective schedule failed, keeping pending files for retry:', e);
-            continue;  // 不删文件，留待下次 daemon 重启时重试
-          }
-
-          // 调度成功后才清理 by-contract 索引（best-effort）
-          await fsAsync.unlink(byContractPath).catch(e =>
-            console.warn('[daemon] Failed to clean by-contract file:', e instanceof Error ? e.message : String(e))
-          );
-          // === 旧实现终点 ===
         }
       }
     : undefined;
