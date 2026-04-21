@@ -15,7 +15,7 @@ import { startDaemonLoop } from './daemon-loop.js';
 import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
 import { AuditWriter } from '../../foundation/audit/writer.js';
 import { createSkillRegistry } from '../../core/skill/index.js';
-import { ContractManager } from '../../core/contract/manager.js';
+import { ContractManager, type MotionReviewContext } from '../../core/contract/manager.js';
 import { DEFAULT_MAX_STEPS, DEFAULT_MAX_CONCURRENT_TASKS, DEFAULT_LLM_IDLE_TIMEOUT_MS } from '../../constants.js';
 import { writePendingSubagentTaskFile } from '../../core/tools/builtins/_pending-task-writer.js';
 import type { Message } from '../../types/message.js';
@@ -112,6 +112,16 @@ export async function daemonCommand(name: string): Promise<void> {
 
   const inboxPendingDir = path.join(dir, 'inbox', 'pending');
 
+  // phase184 已切换调用方；旧实现保留供 phase18x B-3 清理前对比/回滚
+  // B.p172-3 升档链路第 3 步：Daemon onInboxMessages → ContractManager.handleReviewRequest
+  const motionFs = isMotion ? new NodeFileSystem({ baseDir: dir, enforcePermissions: false }) : undefined;
+  const contractManager = isMotion && motionFs ? new ContractManager(dir, 'motion', motionFs) : undefined;
+  const clawsBaseDir = isMotion ? path.resolve(dir, '..', 'claws') : undefined;
+
+  const reviewCtx: MotionReviewContext | undefined = isMotion && motionFs && clawsBaseDir
+    ? { motionFs, motionBaseDir: dir, motionAudit: auditWriter, clawsBaseDir }
+    : undefined;
+
   // 注册 review_request 处理器（仅 motion）
   const onInboxMessages = isMotion
     ? async (messages: InboxMessage[]) => {
@@ -120,6 +130,13 @@ export async function daemonCommand(name: string): Promise<void> {
           const contractId = message.contract_id;
           if (!contractId) continue;
 
+          // phase184 新路径：委托 ContractManager.handleReviewRequest
+          if (contractManager && reviewCtx) {
+            await contractManager.handleReviewRequest(contractId, reviewCtx);
+            continue;
+          }
+
+          // === 旧实现起点（phase184 已切换，以下代码 dead，供 B-3 清理前对比） ===
           // 查 by-contract 反向索引（Step 5 写入的新格式）
           const byContractPath = path.join(
             dir, 'clawspace', 'pending-retrospective', 'by-contract', `${contractId}.json`,
@@ -159,14 +176,14 @@ export async function daemonCommand(name: string): Promise<void> {
 
           // 加载契约 YAML 原始字符串
           if (!targetClaw) continue;  // 防御性检查，前面已验证
-          const clawsBaseDir = path.resolve(dir, '..', 'claws');
-          const clawDir = path.join(clawsBaseDir, targetClaw);
+          const legacyClawsBaseDir = path.resolve(dir, '..', 'claws');
+          const clawDir = path.join(legacyClawsBaseDir, targetClaw);
           const clawFs = new NodeFileSystem({ baseDir: clawDir, enforcePermissions: false });
-          const contractManager = new ContractManager(clawDir, targetClaw, clawFs);
+          const legacyContractManager = new ContractManager(clawDir, targetClaw, clawFs);
 
           let contractYaml: string;
           try {
-            contractYaml = await contractManager.readContractYamlRaw(contractId);
+            contractYaml = await legacyContractManager.readContractYamlRaw(contractId);
           } catch (e) {
             console.warn('[daemon] Failed to load contract YAML for retrospective:', contractId, e instanceof Error ? e.message : String(e));
             continue;
@@ -175,8 +192,8 @@ export async function daemonCommand(name: string): Promise<void> {
           // 加载当前 dispatch-skills 列表（best-effort）
           let skillsSummary = '';
           try {
-            const motionFs = new NodeFileSystem({ baseDir: dir, enforcePermissions: false });
-            const reg = createSkillRegistry(motionFs, 'clawspace/dispatch-skills', auditWriter);
+            const legacyMotionFs = new NodeFileSystem({ baseDir: dir, enforcePermissions: false });
+            const reg = createSkillRegistry(legacyMotionFs, 'clawspace/dispatch-skills');
             await reg.loadAll();
             const formatted = reg.formatForContext();
             if (!formatted.includes('No skills loaded')) {
@@ -213,10 +230,10 @@ export async function daemonCommand(name: string): Promise<void> {
           const retroMessages: Message[] = [...baseMessages, { role: 'user', content: retroPrompt }];
 
           // 调度复盘子代理（文件驱动，watcher 异步拾起）
-          const motionFs = new NodeFileSystem({ baseDir: dir, enforcePermissions: false });
-          const motionAudit = new AuditWriter(motionFs, path.join(dir, 'audit.tsv'));
+          const legacyMotionFs2 = new NodeFileSystem({ baseDir: dir, enforcePermissions: false });
+          const motionAudit = new AuditWriter(legacyMotionFs2, path.join(dir, 'audit.tsv'));
           try {
-            await writePendingSubagentTaskFile(motionFs, motionAudit, {
+            await writePendingSubagentTaskFile(legacyMotionFs2, motionAudit, {
               kind: 'subagent',
               prompt: '',
               messages: retroMessages,
@@ -236,6 +253,7 @@ export async function daemonCommand(name: string): Promise<void> {
           await fsAsync.unlink(byContractPath).catch(e =>
             console.warn('[daemon] Failed to clean by-contract file:', e instanceof Error ? e.message : String(e))
           );
+          // === 旧实现终点 ===
         }
       }
     : undefined;

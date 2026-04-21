@@ -41,6 +41,10 @@ const mockState = vi.hoisted(() => {
   };
 });
 
+const mockContractManagerState = vi.hoisted(() => ({
+  handleReviewRequest: vi.fn().mockResolvedValue(undefined),
+}));
+
 // ============================================================================
 // Module mocks（Step 1 D3 6 层映射）
 // ============================================================================
@@ -57,6 +61,12 @@ vi.mock('../../src/assembly/index.js', () => ({
 
 vi.mock('../../src/cli/commands/daemon-loop.js', () => ({
   startDaemonLoop: mockState.mockStartDaemonLoop,
+}));
+
+vi.mock('../../src/core/contract/manager.js', () => ({
+  ContractManager: vi.fn().mockImplementation(() => ({
+    handleReviewRequest: mockContractManagerState.handleReviewRequest,
+  })),
 }));
 
 vi.mock('../../src/cli/config.js', () => ({
@@ -371,6 +381,91 @@ describe('daemonCommand - A4d crash handler', () => {
       'daemon_crash',
       'err=reject reason string',
     );
+
+    if (mockState.stopFn) mockState.stopFn();
+    await cmdPromise.catch(() => {});
+  });
+});
+
+
+describe('daemonCommand - review_request dispatch (phase184)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    Object.keys(mockState.processHandlers).forEach(k => delete mockState.processHandlers[k]);
+    mockState.mockSnapshotCommit.mockResolvedValue({ ok: true });
+    mockState.mockRuntime.initialize.mockResolvedValue(undefined);
+    mockState.mockRuntime.resumeContractIfPaused.mockResolvedValue(undefined);
+    mockState.mockAssemble.mockResolvedValue(makeMockInstances({ clawId: 'motion' }));
+  });
+
+  afterEach(() => {
+    if (mockState.stopFn) mockState.stopFn();
+    mockState.stopFn = null;
+  });
+
+  it('review_request 消息触发 handleReviewRequest 一次 (happy path)', async () => {
+    const cmdPromise = daemonCommand('motion');
+    await flushMicrotasks();
+
+    const options = mockState.mockStartDaemonLoop.mock.calls[0][0];
+    expect(options.onInboxMessages).toBeDefined();
+
+    await options.onInboxMessages([{ type: 'review_request', contract_id: 'abc-123' }]);
+
+    expect(mockContractManagerState.handleReviewRequest).toHaveBeenCalledTimes(1);
+    expect(mockContractManagerState.handleReviewRequest).toHaveBeenCalledWith(
+      'abc-123',
+      expect.objectContaining({
+        motionFs: expect.any(Object),
+        motionBaseDir: expect.any(String),
+        motionAudit: expect.any(Object),
+        clawsBaseDir: expect.any(String),
+      }),
+    );
+
+    if (mockState.stopFn) mockState.stopFn();
+    await cmdPromise.catch(() => {});
+  });
+
+  it('非 review_request 消息不触发 handleReviewRequest', async () => {
+    const cmdPromise = daemonCommand('motion');
+    await flushMicrotasks();
+
+    const options = mockState.mockStartDaemonLoop.mock.calls[0][0];
+    await options.onInboxMessages([{ type: 'user_chat', contract_id: 'xyz' }]);
+
+    expect(mockContractManagerState.handleReviewRequest).not.toHaveBeenCalled();
+
+    if (mockState.stopFn) mockState.stopFn();
+    await cmdPromise.catch(() => {});
+  });
+
+  it('多条 review_request 各触发一次', async () => {
+    const cmdPromise = daemonCommand('motion');
+    await flushMicrotasks();
+
+    const options = mockState.mockStartDaemonLoop.mock.calls[0][0];
+    await options.onInboxMessages([
+      { type: 'review_request', contract_id: 'a' },
+      { type: 'review_request', contract_id: 'b' },
+    ]);
+
+    expect(mockContractManagerState.handleReviewRequest).toHaveBeenCalledTimes(2);
+    expect(mockContractManagerState.handleReviewRequest).toHaveBeenNthCalledWith(1, 'a', expect.any(Object));
+    expect(mockContractManagerState.handleReviewRequest).toHaveBeenNthCalledWith(2, 'b', expect.any(Object));
+
+    if (mockState.stopFn) mockState.stopFn();
+    await cmdPromise.catch(() => {});
+  });
+
+  it('claw 模式下 onInboxMessages 未注册（undefined）', async () => {
+    mockState.mockAssemble.mockResolvedValue(makeMockInstances({ clawId: 'test-claw' }));
+
+    const cmdPromise = daemonCommand('test-claw');
+    await flushMicrotasks();
+
+    const options = mockState.mockStartDaemonLoop.mock.calls[0][0];
+    expect(options.onInboxMessages).toBeUndefined();
 
     if (mockState.stopFn) mockState.stopFn();
     await cmdPromise.catch(() => {});
