@@ -8,6 +8,7 @@ import * as yaml from 'js-yaml';
 import { randomUUID } from 'crypto';
 import * as path from 'path';
 import * as fsNative from 'fs';
+import * as fsAsync from 'fs/promises';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { Logger } from '../../foundation/monitor/types.js';
 import type { LLMService } from '../../foundation/llm/index.js';
@@ -20,8 +21,29 @@ import { CONTRACT_VERIFIER_SYSTEM_PROMPT } from '../../prompts/subagent.js';
 import { InboxWriter } from '../../foundation/messaging/index.js';
 import { SubAgent } from '../subagent/agent.js';
 import { ToolRegistryImpl } from '../tools/registry.js';
+import { buildRetroPrompt } from '../../prompts/retrospective.js';
+import { writePendingSubagentTaskFile } from '../tools/builtins/_pending-task-writer.js';
 import { ReportResultTool } from '../tools/report-result.js';
 import { AuditWriter } from '../../foundation/audit/writer.js';
+import type { Message } from '../../types/message.js';
+import { SkillRegistry } from '../skill/registry.js';
+import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
+
+
+/**
+ * Motion 侧资源上下文（review_request 整合专用）。
+ * 由 Daemon 调用 handleReviewRequest 时注入；ContractManager 不管 motion 上下文生命周期。
+ */
+export interface MotionReviewContext {
+  /** Motion agent 根目录的 FileSystem（clawspace/pending-retrospective/by-contract/ 等资源的访问 fs） */
+  motionFs: FileSystem;
+  /** Motion agent 根目录绝对路径（NodeFileSystem.options.baseDir 同义，供 path.join 使用） */
+  motionBaseDir: string;
+  /** Motion audit sink（writePendingSubagentTaskFile 调用需要）*/
+  motionAudit: AuditWriter;
+  /** Claws 基础目录（解析目标 claw 路径：`path.resolve(clawsBaseDir, targetClaw)`）*/
+  clawsBaseDir: string;
+}
 
 
 // Contract default value constants
@@ -1228,6 +1250,146 @@ export class ContractManager {
       const msg = err instanceof Error ? err.message : String(err);
       return { passed: false, feedback: `LLM 验收失败: ${msg}` };
     }
+  }
+
+  /**
+   * 处理单条 review_request（contract 完成后的 retro 整合动作，motion 独有）。
+   *
+   * 应然语义（Step 3-5 填充）：
+   *   1. 读 motion fs 的 by-contract/<id>.json 索引（best-effort skip 4 分支）
+   *   2. 加载 target claw 的 contract YAML（best-effort skip 1 分支）
+   *   3. 扫 motion fs 的 dispatch-skills（best-effort 退化 1 分支）
+   *   4. 加载 mining task messages（若 mining 模式，best-effort 退化 2 分支）
+   *   5. 构造 retro prompt + 派发 retro subagent（writePending 失败 continue 不清 by-contract）
+   *   6. cleanup by-contract 索引（best-effort 1 分支）
+   *
+   * 完整行为契约见 `design/modules/l4_contract_system.md` §2.b.1。
+   *
+   * 空壳（phase175 Step 2）：不执行任何动作，仅占位使调用方可 import。
+   * 完整实现：phase175 Step 3-5。
+   */
+  async handleReviewRequest(
+    contractId: string,
+    ctx: MotionReviewContext,
+  ): Promise<void> {
+    // Part 1: by-contract 索引解析（daemon.ts:124-158 等价迁移）
+    const byContractPath = path.join(
+      ctx.motionBaseDir,
+      'clawspace', 'pending-retrospective', 'by-contract',
+      `${contractId}.json`,
+    );
+
+    let targetClaw: string | null = null;
+    let mode: string | undefined;
+    let miningTaskId: string | undefined;
+    try {
+      const fileContent = await fsAsync.readFile(byContractPath, 'utf-8');
+      let raw: unknown;
+      try {
+        raw = JSON.parse(fileContent);
+      } catch {
+        console.warn('[contract] by-contract index is not valid JSON, skipping retrospective:', contractId);
+        return;
+      }
+      if (typeof raw !== 'object' || raw === null) {
+        console.warn('[contract] by-contract index has unexpected format, skipping retrospective:', contractId);
+        return;
+      }
+      const r = raw as Record<string, unknown>;
+      const rawTarget = typeof r.targetClaw === 'string' ? r.targetClaw : null;
+      if (!rawTarget || !/^[a-z0-9-]+$/.test(rawTarget)) {
+        console.warn('[contract] by-contract index has invalid targetClaw, skipping retrospective:', contractId, rawTarget);
+        return;
+      }
+      targetClaw = rawTarget;
+      // Part 1 回填：mode / miningTaskId（Step 3 预留，Step 4 回填）
+      mode = typeof r.mode === 'string' ? r.mode : undefined;
+      miningTaskId = typeof r.miningTaskId === 'string' ? r.miningTaskId : undefined;
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code;
+      if (code !== 'ENOENT') {
+        console.warn('[contract] Failed to read by-contract index, skipping retrospective:', contractId, e instanceof Error ? e.message : String(e));
+      }
+      return;
+    }
+
+    // Part 2: contract YAML + skills + mining messages（daemon.ts:160-213 等价）
+
+    // 2.1 加载契约 YAML（临时 new ContractManager for target claw，B.p175-2 登记）
+    const clawDir = path.join(ctx.clawsBaseDir, targetClaw);
+    const clawFs = new NodeFileSystem({ baseDir: clawDir, enforcePermissions: false });
+    const clawContractManager = new ContractManager(clawDir, targetClaw, clawFs);
+
+    let contractYaml: string;
+    try {
+      contractYaml = await clawContractManager.readContractYamlRaw(contractId);
+    } catch (e) {
+      console.warn('[contract] Failed to load contract YAML for retrospective:', contractId, e instanceof Error ? e.message : String(e));
+      return;
+    }
+
+    // 2.2 加载 dispatch-skills（best-effort 退化）
+    let skillsSummary = '';
+    try {
+      const reg = new SkillRegistry(ctx.motionFs, 'clawspace/dispatch-skills');
+      await reg.loadAll();
+      const formatted = reg.formatForContext();
+      if (!formatted.includes('No skills loaded')) {
+        skillsSummary = formatted;
+      }
+    } catch (e) {
+      console.warn('[contract] Failed to load dispatch-skills for retro prompt:', e instanceof Error ? e.message : String(e));
+    }
+
+    // 2.3 加载 mining task messages（若 mining 模式，2 best-effort 退化）
+    let baseMessages: Message[] = [];
+    if (mode === 'mining' && miningTaskId) {
+      const messagesPath = path.join(ctx.motionBaseDir, 'tasks', 'results', miningTaskId, 'messages.json');
+      try {
+        const rawMining = await fsAsync.readFile(messagesPath, 'utf-8');
+        const parsed = JSON.parse(rawMining);
+        if (Array.isArray(parsed)) {
+          baseMessages = parsed;
+        }
+      } catch (e) {
+        const code = (e as NodeJS.ErrnoException).code;
+        if (code === 'ENOENT') {
+          console.warn('[contract] Mining task messages not found, retro will run without mining context:', miningTaskId);
+        } else {
+          console.warn('[contract] Failed to load mining task messages:', e instanceof Error ? e.message : String(e));
+        }
+        // best-effort：加载失败退化为空上下文
+      }
+    }
+
+    // Part 3: buildRetroPrompt + writePending + cleanup（daemon.ts:215-238 等价）
+
+    // 3.1 构建复盘 prompt + retroMessages
+    const retroPrompt = buildRetroPrompt(targetClaw, contractId, contractYaml, skillsSummary);
+    const retroMessages: Message[] = [...baseMessages, { role: 'user', content: retroPrompt }];
+
+    // 3.2 调度复盘子代理（writePending 失败不清 by-contract 留重试）
+    try {
+      await writePendingSubagentTaskFile(ctx.motionFs, ctx.motionAudit, {
+        kind: 'subagent',
+        prompt: '',
+        messages: retroMessages,
+        tools: ['read', 'write', 'skill', 'exec'],
+        timeout: 600,
+        maxSteps: DEFAULT_MAX_STEPS,
+        idleTimeoutMs: DEFAULT_LLM_IDLE_TIMEOUT_MS,
+        parentClawId: 'motion',
+        originClawId: 'motion',
+      });
+    } catch (e) {
+      console.warn('[contract] retrospective schedule failed, keeping pending files for retry:', e instanceof Error ? e.message : String(e));
+      return;  // 不清 by-contract，留待下次 daemon 重启重试
+    }
+
+    // 3.3 调度成功后 cleanup by-contract 索引（best-effort）
+    await fsAsync.unlink(byContractPath).catch(e =>
+      console.warn('[contract] Failed to clean by-contract file:', e instanceof Error ? e.message : String(e))
+    );
   }
 
 }
