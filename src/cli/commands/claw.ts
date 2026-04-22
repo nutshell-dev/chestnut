@@ -16,7 +16,7 @@ import {
   getGlobalConfigPath,
   CLAW_SUBDIRS,
 } from '../config.js';
-import { CliError, handleCliError } from '../../utils/error.js';
+import { CliError, handleCliError } from '../errors.js';
 
 import { runChatViewport } from './chat-viewport.js';
 import { buildAgentsMdTemplate } from '../../prompts/index.js';
