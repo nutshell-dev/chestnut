@@ -11,7 +11,7 @@ import * as fsSync from 'fs';
 import type { FileSystem } from '../../foundation/fs/types.js';
 
 import { JsonlLogger } from '../../foundation/monitor/index.js';
-import { SubAgent } from '../subagent/agent.js';
+import { createSubAgent } from '../subagent/index.js';
 import { DEFAULT_LLM_IDLE_TIMEOUT_MS, DEFAULT_MAX_CONCURRENT_TASKS } from '../../constants.js';
 import { ToolRegistryImpl } from '../tools/registry.js';
 import { registerBuiltinTools } from '../tools/builtins/index.js';
@@ -625,7 +625,7 @@ export class TaskSystem {
         return r;
       })();
 
-      const subAgent = new SubAgent({
+      const subAgent = createSubAgent({
         agentId: task.id,
         prompt: task.prompt,
         clawDir: this.clawDir,
