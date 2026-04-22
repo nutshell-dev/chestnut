@@ -133,6 +133,15 @@ export const AUDIT_EVENTS = {
   CONTRACT_RETRO_MINING_FAILED: 'contract_retro_mining_failed',
   CONTRACT_RETRO_SCHEDULE_FAILED: 'contract_retro_schedule_failed',
   CONTRACT_RETRO_CLEANUP_FAILED: 'contract_retro_cleanup_failed',
+
+  // --- Cron Jobs (Phase 227) ---
+  CRON_DEEP_DREAM_JOB: 'cron_deep_dream_job',
+  CRON_DEEP_DREAM_ERROR: 'cron_deep_dream_error',
+  CRON_DISK_MONITOR_CHECK: 'cron_disk_monitor_check',
+  CRON_DISK_MONITOR_THRESHOLD_EXCEEDED: 'cron_disk_monitor_threshold_exceeded',
+  CRON_LLM_STATS: 'cron_llm_stats',
+  CRON_RANDOM_DREAM_JOB: 'cron_random_dream_job',
+  CRON_RANDOM_DREAM_WARNING: 'cron_random_dream_warning',
 } as const;
 
 export type AuditEventName = typeof AUDIT_EVENTS[keyof typeof AUDIT_EVENTS];

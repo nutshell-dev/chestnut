@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import type { FileSystem } from '../../../foundation/fs/types.js';
+import type { Audit } from '../../../foundation/audit/index.js';
 import { LLMServiceImpl } from '../../../foundation/llm/service.js';
 import type { LLMServiceConfig } from '../../../foundation/llm/types.js';
 import type { Message, ContentBlock, TextBlock, LLMResponse } from '../../../types/message.js';
@@ -25,6 +26,7 @@ export interface DeepDreamOptions {
   llmConfig: LLMServiceConfig;
   maxCompressionTokens?: number;         // 压缩上限（token 估算），默认 4000
   fs: FileSystem;
+  audit: Audit;
 }
 
 // ─── 工具函数 ────────────────────────────────────────────────
@@ -145,16 +147,19 @@ async function runDeepDreamForClaw(
   llm: LLMServiceImpl,
   maxCompressionTokens: number,
   fileSystem: FileSystem,
+  audit: Audit,
 ): Promise<void> {
   const today = new Date().toLocaleDateString('sv');   // ← 统一在此计算
   const state = loadDreamState(clawDir);
   const sessionFiles = discoverUnprocessed(clawDir, state, today);  // ← 传入 today
 
   if (sessionFiles.length === 0) {
+    audit.write('cron_deep_dream_job', `step=skip_empty`, `clawId=${clawId}`);
     console.log(`[cron:deep-dream] ${clawId}: nothing to process`);
     return;
   }
 
+  audit.write('cron_deep_dream_job', `step=started`, `clawId=${clawId}`, `session_count=${sessionFiles.length}`);
   console.log(`[cron:deep-dream] ${clawId}: processing ${sessionFiles.length} session(s)`);
 
   let compressions: string[] = [];
@@ -190,6 +195,7 @@ async function runDeepDreamForClaw(
       });
       dreamOutput = responseText(res);
     } catch (err) {
+      audit.write('cron_deep_dream_error', `step=call_1`, `clawId=${clawId}`, `file=${sf.filename}`, `reason=${err instanceof Error ? err.message : String(err)}`);
       console.error(`[cron:deep-dream] ${clawId}: Call 1 failed for ${sf.filename}:`, err);
       continue;
     }
@@ -208,6 +214,7 @@ async function runDeepDreamForClaw(
       });
       compression = responseText(res);
     } catch (err) {
+      audit.write('cron_deep_dream_error', `step=call_2`, `clawId=${clawId}`, `file=${sf.filename}`, `reason=${err instanceof Error ? err.message : String(err)}`);
       console.error(`[cron:deep-dream] ${clawId}: Call 2 failed for ${sf.filename}:`, err);
       // 压缩失败不阻断流程，截取前 4000 chars 防 meta-compression 超上下文
       compression = dreamOutput.slice(0, 4000);
@@ -246,6 +253,7 @@ async function runDeepDreamForClaw(
     extraFields: { session_count: String(dreamOutputs.length) },
   });
 
+  audit.write('cron_deep_dream_job', `step=finished`, `clawId=${clawId}`, `dream_count=${dreamOutputs.length}`);
   console.log(`[cron:deep-dream] ${clawId}: done, ${dreamOutputs.length} dream(s) sent`);
 }
 
@@ -269,8 +277,9 @@ export async function runDeepDream(opts: DeepDreamOptions): Promise<void> {
     for (const clawId of clawIds) {
       const clawDir = path.join(clawsDir, clawId);
       try {
-        await runDeepDreamForClaw(clawId, clawDir, llm, maxCompressionTokens, opts.fs);
+        await runDeepDreamForClaw(clawId, clawDir, llm, maxCompressionTokens, opts.fs, opts.audit);
       } catch (err) {
+        opts.audit.write('cron_deep_dream_error', `step=unexpected`, `clawId=${clawId}`, `reason=${err instanceof Error ? err.message : String(err)}`);
         console.error(`[cron:deep-dream] ${clawId}: unexpected error:`, err);
         // 单 claw 失败不阻断其他 claw
       }

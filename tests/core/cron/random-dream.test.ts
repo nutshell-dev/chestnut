@@ -32,12 +32,15 @@ vi.mock('../../../src/core/tools/builtins/_pending-task-writer.js', () => ({
 
 // ─── 工具函数 ─────────────────────────────────────────────────
 
+const mockAudit = { write: vi.fn() };
+
 function makeOpts(clawforumDir: string, motionDir: string): RandomDreamOptions {
   return {
     clawforumDir,
     motionDir,
     taskSystem: {} as TaskSystem,
     fs: new NodeFileSystem({ baseDir: clawforumDir, enforcePermissions: false }),
+    audit: mockAudit as any,
   };
 }
 

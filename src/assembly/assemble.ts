@@ -437,6 +437,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
             motionInboxDir: path.join(clawDir, 'inbox', 'pending'),
             limitMB: diskLimitMB,
             fs: clawforumFs,
+            audit: auditWriter,
           }),
         },
         {
@@ -446,6 +447,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
           handler: () => runLlmStats({
             clawforumDir,
             motionDir: clawDir,
+            audit: auditWriter,
           }),
         },
         {
@@ -458,12 +460,14 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
               llmConfig,
               maxCompressionTokens: globalConfig.cron?.jobs?.dream_trigger?.max_compression_tokens,
               fs: clawforumFs,
+              audit: auditWriter,
             });
             await runRandomDream({
               clawforumDir,
               motionDir: clawDir,
               taskSystem: runtime.getTaskSystem(),
               fs: clawforumFs,
+              audit: auditWriter,
             });
           },
         },

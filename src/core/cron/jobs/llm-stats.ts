@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import type { Audit } from '../../../foundation/audit/index.js';
 
 interface ParsedLlmRow {
   ts: string;        // ISO timestamp（audit.tsv col 0）
@@ -40,6 +41,7 @@ export interface LlmStatsSummary {
 export interface LlmStatsOptions {
   clawforumDir: string;
   motionDir: string;
+  audit: Audit;
 }
 
 export async function runLlmStats(opts: LlmStatsOptions): Promise<void> {
@@ -50,6 +52,7 @@ export async function runLlmStats(opts: LlmStatsOptions): Promise<void> {
 
   const entries = collectEntries(opts, targetDate);
   if (entries.length === 0) {
+    opts.audit.write('cron_llm_stats', `step=empty_result`, `date=${targetDate}`);
     console.log(`[cron:llm-stats] No LLM calls found for ${targetDate}`);
     return;
   }
@@ -62,6 +65,7 @@ export async function runLlmStats(opts: LlmStatsOptions): Promise<void> {
   const statsFile = path.join(logsDir, 'llm-stats.jsonl');
   fs.appendFileSync(statsFile, JSON.stringify(summary) + '\n', 'utf-8');
 
+  opts.audit.write('cron_llm_stats', `step=report`, `date=${targetDate}`, `totalCalls=${summary.totalCalls}`, `successCalls=${summary.successCalls}`, `failedCalls=${summary.failedCalls}`, `totalInputTokens=${summary.totalInputTokens}`, `totalOutputTokens=${summary.totalOutputTokens}`, `avgLatencyMs=${summary.avgLatencyMs}`);
   console.log(
     `[cron:llm-stats] ${targetDate}: ${summary.totalCalls} calls, ` +
     `${summary.totalInputTokens}/${summary.totalOutputTokens} tokens in/out, ` +

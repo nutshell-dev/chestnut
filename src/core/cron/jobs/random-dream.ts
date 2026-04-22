@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import type { FileSystem } from '../../../foundation/fs/types.js';
+import type { Audit } from '../../../foundation/audit/index.js';
 import type { TaskSystem } from '../../task/system.js';
 import { writePendingSubagentTaskFile } from '../../tools/builtins/_pending-task-writer.js';
 import { TOOL_PROFILES } from '../../tools/profiles.js';
@@ -18,6 +19,7 @@ export interface RandomDreamOptions {
   motionDir: string;
   taskSystem: TaskSystem;
   fs: FileSystem;
+  audit: Audit;
 }
 
 interface WeightedContract {
@@ -172,6 +174,7 @@ async function waitForTaskResult(
   motionDir: string,
   taskId: string,
   timeoutMs: number,
+  audit: Audit,
   pollIntervalMs = 30_000,
 ): Promise<string | null> {
   // .txt 由 TaskSystem.sendResult 在 subAgent.run() 完成后写入，是可靠的完成信号
@@ -226,10 +229,12 @@ export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
   const weightedContracts = discoverWeightedContracts(opts.clawforumDir, state);
 
   if (weightedContracts.length === 0) {
+    opts.audit.write('cron_random_dream_job', `step=skip_empty`);
     console.log('[cron:random-dream] no archived contracts found, skipping');
     return;
   }
 
+  opts.audit.write('cron_random_dream_job', `step=scheduled`, `count=${weightedContracts.length}`);
   console.log(`[cron:random-dream] scheduling sub-agent for ${weightedContracts.length} contracts`);
 
   // 调度 sub-agent（文件驱动，watcher 异步拾起）
@@ -246,11 +251,13 @@ export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
     systemPrompt: RANDOM_DREAM_SYSTEM_PROMPT,
   });
 
+  opts.audit.write('cron_random_dream_job', `step=subagent_started`, `taskId=${taskId}`);
   console.log(`[cron:random-dream] sub-agent started, taskId=${taskId}, waiting (up to 1h)...`);
 
   // 等待完成（最长 1h，每 30s 轮询）
-  const log = await waitForTaskResult(opts.motionDir, taskId, 3_600_000);
+  const log = await waitForTaskResult(opts.motionDir, taskId, 3_600_000, opts.audit);
   if (!log) {
+    opts.audit.write('cron_random_dream_warning', `reason=subagent_timeout`);
     console.warn('[cron:random-dream] sub-agent did not complete within timeout');
     return;
   }
@@ -258,10 +265,12 @@ export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
   // 解析梦境输出
   const { outputs, contractIds } = extractDreamOutputs(log);
   if (outputs.length === 0) {
+    opts.audit.write('cron_random_dream_warning', `reason=no_output`);
     console.warn('[cron:random-dream] no [DREAM_OUTPUT] blocks found in log');
     return;
   }
 
+  opts.audit.write('cron_random_dream_job', `step=finished`, `output_count=${outputs.length}`);
   console.log(`[cron:random-dream] extracted ${outputs.length} dream output(s)`);
 
   // 更新 state
