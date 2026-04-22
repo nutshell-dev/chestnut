@@ -65,3 +65,6 @@ export {
 
 // Result ADT (phase202 搬自 foundation/common/result.ts)
 export { ok, err, type Result } from './result.js';
+
+// oneLine helper (phase203 搬自 foundation/utils/string.ts)
+export { oneLine } from './utils.js';

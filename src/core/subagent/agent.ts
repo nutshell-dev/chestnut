@@ -13,7 +13,7 @@ import type { LLMService } from '../../foundation/llm/index.js';
 import type { ToolDefinition } from '../../types/message.js';
 import { ToolTimeoutError } from '../../types/errors.js';
 import { SUBAGENT_TIMEOUT_MS, DEFAULT_MAX_STEPS } from '../../constants.js';
-import { oneLine } from '../../foundation/utils/string.js';
+import { oneLine } from '../../types/utils.js';
 import { DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../../prompts/index.js';
 import type { TaskSystem } from '../task/system.js';
 import type { OutboxWriter } from '../communication/index.js';

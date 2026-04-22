@@ -1,4 +1,4 @@
-import { SUMMARY_MAX_CHARS } from '../../constants.js';
+import { SUMMARY_MAX_CHARS } from '../constants.js';
 
 export function oneLine(s: string): string {
   const content = (s ?? '').trimStart();

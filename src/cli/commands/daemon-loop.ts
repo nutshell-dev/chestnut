@@ -13,7 +13,7 @@ import type { StreamWriter, StreamLog } from '../../foundation/stream/index.js';
 import { createWatcher } from '../../foundation/file-watcher/index.js';
 import type { Watcher } from '../../foundation/file-watcher/types.js';
 import type { Audit } from '../../foundation/audit/index.js';
-import { oneLine } from '../../foundation/utils/string.js';
+import { oneLine } from '../../types/utils.js';
 
 import type { Heartbeat } from '../../core/heartbeat.js';
 

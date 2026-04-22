@@ -1,7 +1,6 @@
 import stringWidth from 'string-width';
-import { SUMMARY_MAX_CHARS } from '../../constants.js';
 
-export { oneLine } from '../../foundation/utils/string.js';
+export { oneLine } from '../../types/utils.js';
 
 /**
  * 按视觉列宽从头截取字符串（正确处理 emoji / CJK 等宽字符）

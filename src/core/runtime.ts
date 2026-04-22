@@ -45,7 +45,7 @@ import { TaskSystem } from './task/system.js';
 import { SkillRegistry } from './skill/registry.js';
 import { ContractManager } from './contract/manager.js';
 import { CLAW_SUBDIRS } from '../types/paths.js';
-import { oneLine } from '../foundation/utils/string.js';
+import { oneLine } from '../types/utils.js';
 import { Snapshot } from '../foundation/snapshot/index.js';
 import { SNAPSHOT_IGNORE_PATTERNS } from '../foundation/snapshot/index.js';
 import { MaxStepsExceededError } from '../types/errors.js';
