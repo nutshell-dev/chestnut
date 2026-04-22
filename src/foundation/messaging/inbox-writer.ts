@@ -11,6 +11,7 @@ import type { FileSystem } from '../fs/types.js';
 import type { InboxMessage } from '../../types/contract.js';
 import { encodeInbox, parseFrontmatter } from '../message-codec/index.js';
 import type { Audit } from '../audit/index.js';
+import { AUDIT_EVENTS } from '../audit/events.js';
 import { ok, err as errResult, type Result } from '../../types/result.js';
 import type { InboxMetaError } from './errors.js';
 
@@ -46,7 +47,7 @@ export class InboxWriter {
       this.audit.write('inbox_write_failed', `file=${filename}`, `to=${msg.to ?? 'broadcast'}`, `reason=${reason}`);
       throw e;
     }
-    this.audit.write('inbox_written', `file=${filename}`, `to=${msg.to ?? 'broadcast'}`);
+    this.audit.write(AUDIT_EVENTS.INBOX_WRITTEN, `file=${filename}`, `to=${msg.to ?? 'broadcast'}`);
   }
 
   /** sync 写，供 task/system 同步路径使用 */
@@ -77,7 +78,7 @@ export class InboxWriter {
       this.audit.write('inbox_write_failed', `file=${filename}`, `to=${opts.to ?? 'broadcast'}`, `reason=${reason}`);
       throw e;
     }
-    this.audit.write('inbox_written', `file=${filename}`, `to=${opts.to ?? 'broadcast'}`);
+    this.audit.write(AUDIT_EVENTS.INBOX_WRITTEN, `file=${filename}`, `to=${opts.to ?? 'broadcast'}`);
   }
 
   /** 读 frontmatter meta；纯读，静态方法不依赖 audit */

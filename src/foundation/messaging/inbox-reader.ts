@@ -115,7 +115,7 @@ export class InboxReader {
       );
       throw new InboxMoveFailed(filePath, 'done', err);
     }
-    this.audit?.write('inbox_done', `file=${fileName}`);
+    this.audit?.write(AUDIT_EVENTS.INBOX_DONE, `file=${fileName}`);
   }
 
   /** Move failed file to failed/ */
