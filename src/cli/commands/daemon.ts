@@ -15,6 +15,7 @@ import { startDaemonLoop } from './daemon-loop.js';
 import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
 import { AuditWriter } from '../../foundation/audit/writer.js';
 import { createSystemAudit, type Audit } from '../../foundation/audit/index.js';
+import { createAgentProcessManager } from './process-manager-factory.js';
 import { ContractManager, type MotionReviewContext } from '../../core/contract/manager.js';
 import { CliError } from '../errors.js';
 import { assemble, disassemble, LockConflictError } from '../../assembly/index.js';
@@ -36,12 +37,11 @@ export async function daemonCommand(name: string): Promise<void> {
   const preAssembleFs = new NodeFileSystem({ baseDir: dir, enforcePermissions: false });
   const preAssembleAudit: Audit = createSystemAudit(preAssembleFs, dir);
 
-  // lockfile 单实例保护（先写 PID 文件，后续用 ProcessManager 接管）
-  const statusDir = path.join(dir, 'status');
-  const pidFile = path.join(statusDir, 'pid');
+  // ProcessManager 接管 PID 文件
+  const processManager = createAgentProcessManager(preAssembleAudit);
   
   // 写 PID 文件（兜底：无论启动方式都确保 PID 可查）
-  fsNative.writeFileSync(pidFile, String(process.pid));
+  await processManager.selfWritePid(name);
   
   const clawConfig = isMotion ? null : loadClawConfig(name);
 
@@ -179,8 +179,7 @@ export async function daemonCommand(name: string): Promise<void> {
 
     // pid 文件清理（业务）
     try {
-      const storedPid = fsNative.readFileSync(pidFile, 'utf-8').trim();
-      if (storedPid === String(process.pid)) fsNative.unlinkSync(pidFile);
+      await processManager.selfRemovePid(name);
     } catch (e: any) {
       console.warn(`[daemon] Failed to clean up pid file: ${e?.message}`);
     }

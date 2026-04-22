@@ -87,21 +87,27 @@ export class ProcessManager {
   /**
    * Read the pid file
    */
-  private async readPid(clawId: string): Promise<number | null> {
+  async readPid(clawId: string): Promise<number | null> {
     try {
       const pidFile = this.getPidFile(clawId);
       const content = await this.fs.read(pidFile);
       const pid = parseInt(content.trim(), 10);
-      return isNaN(pid) ? null : pid;
+      if (!Number.isFinite(pid)) {
+        this.audit.write(AUDIT_EVENTS.PID_READ_FAILED, `claw=${clawId}`, `reason=invalid_pid`);
+        return null;
+      }
+      this.audit.write(AUDIT_EVENTS.PID_READ_OK, `claw=${clawId}`, `pid=${pid}`);
+      return pid;
     } catch (err: any) {
       // ENOENT/FS_NOT_FOUND is expected (process not running); other errors should be logged
-      if (err?.code !== 'ENOENT' && err?.code !== 'FS_NOT_FOUND') {
-        this.audit.write(
-          AUDIT_EVENTS.PID_READ_FAILED,
-          `claw=${clawId}`,
-          `reason=${err?.message || String(err)}`,
-        );
+      if (err?.code === 'ENOENT' || err?.code === 'FS_NOT_FOUND') {
+        return null;
       }
+      this.audit.write(
+        AUDIT_EVENTS.PID_READ_FAILED,
+        `claw=${clawId}`,
+        `reason=${err?.message || String(err)}`,
+      );
       return null;
     }
   }
@@ -109,19 +115,21 @@ export class ProcessManager {
   /**
    * Delete the pid file
    */
-  private async removePid(clawId: string): Promise<void> {
+  async removePid(clawId: string): Promise<void> {
     try {
       const pidFile = this.getPidFile(clawId);
       await this.fs.delete(pidFile);
+      this.audit.write(AUDIT_EVENTS.PID_REMOVE_OK, `claw=${clawId}`);
     } catch (err: any) {
       // Ignore file-not-found (ENOENT or NodeFileSystem's FS_NOT_FOUND)
-      if (err.code !== 'ENOENT' && err.code !== 'FS_NOT_FOUND') {
-        this.audit.write(
-          AUDIT_EVENTS.PID_REMOVE_FAILED,
-          `claw=${clawId}`,
-          `reason=${err instanceof Error ? err.message : String(err)}`,
-        );
+      if (err.code === 'ENOENT' || err.code === 'FS_NOT_FOUND') {
+        return;
       }
+      this.audit.write(
+        AUDIT_EVENTS.PID_REMOVE_FAILED,
+        `claw=${clawId}`,
+        `reason=${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 
@@ -552,6 +560,31 @@ export class ProcessManager {
    * Find processes matching a pattern (pgrep -f pattern)
    * Encapsulates platform-specific process finding
    */
+  /**
+   * Write current process PID to the pid file
+   */
+  async selfWritePid(clawId: string): Promise<void> {
+    try {
+      await this.ensureStatusDir(clawId);
+      const pidFile = this.getPidFile(clawId);
+      await this.fs.writeAtomic(pidFile, String(process.pid));
+      this.audit.write(AUDIT_EVENTS.PID_WRITE_OK, `claw=${clawId}`, `pid=${process.pid}`);
+    } catch (e: any) {
+      this.audit.write(AUDIT_EVENTS.PID_WRITE_FAILED, `claw=${clawId}`, `reason=${e?.message ?? String(e)}`);
+      throw e;
+    }
+  }
+
+  /**
+   * Remove the pid file only if it contains the current process PID
+   */
+  async selfRemovePid(clawId: string): Promise<void> {
+    const storedPid = await this.readPid(clawId);
+    if (storedPid === process.pid) {
+      await this.removePid(clawId);
+    }
+  }
+
   findProcesses(pattern: string): number[] {
     // Escape POSIX ERE metacharacters — callers pass file paths which may
     // contain `(`, `)`, `[`, `]`, `+`, `?`, `.` etc. Without escaping,

@@ -8,7 +8,7 @@ import * as path from 'path';
 import chokidar from 'chokidar';
 
 import { InboxWriter } from '../../foundation/messaging/index.js';
-import { createDirContext } from '../cli-factories.js';
+import { createDirContext, createProcessManagerForCLI } from '../cli-factories.js';
 import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
 import { getContractCreatedMs, LLM_OUTPUT_EVENTS } from './watchdog-utils.js';
 import stringWidth from 'string-width';
@@ -236,6 +236,7 @@ export function createTaskEventHandler(deps: TaskEventHandlerDeps) {
 }
 
 export async function runChatViewport(options: ChatViewportOptions): Promise<void> {
+  const pm = createProcessManagerForCLI();
   // 确保 daemon 运行
   if (options.ensureDaemon) {
     await options.ensureDaemon();
@@ -791,7 +792,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     } catch { /* ENOENT 等，跳过 */ }
   };
 
-  const refreshAllClawStatus = () => {
+  const refreshAllClawStatus = async () => {
     if (!isMotion) return;
     let clawIds: string[] = [];
     try { clawIds = fsNative.readdirSync(clawsDir, { withFileTypes: true })
@@ -834,10 +835,9 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
       // referenceMs 初始化后不再修改，除非契约重新创建
 
       // Process alive check
-      const clawPidFile = path.join(clawsDir, clawId, 'status', 'pid');
       try {
-        const pid = parseInt(fsNative.readFileSync(clawPidFile, 'utf-8').trim(), 10);
-        if (Number.isFinite(pid)) {
+        const pid = await pm.readPid(clawId);
+        if (pid !== null) {
           try {
             process.kill(pid, 0);
             track.isAlive = true;
@@ -874,12 +874,11 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
 
   // Daemon 存活检测（每 3 秒一次）
   let daemonDead = false;
-  const pidFile = path.join(options.agentDir, 'status', 'pid');
-  const checkDaemonAlive = () => {
+  const checkDaemonAlive = async () => {
     if (daemonDead) return;
     try {
-      const pid = parseInt(fsNative.readFileSync(pidFile, 'utf-8').trim(), 10);
-      if (!Number.isFinite(pid)) return;
+      const pid = await pm.readPid(options.label);
+      if (pid === null) return;
       try {
         process.kill(pid, 0); // 检测存活
       } catch {
@@ -1166,8 +1165,8 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   // Fix 1：若 inTurn=true 但 daemon 实际不存活，重置以防误触 ESC 中断
   if (inTurn) {
     try {
-      const pid = parseInt(fsNative.readFileSync(pidFile, 'utf-8').trim(), 10);
-      if (!Number.isFinite(pid)) {
+      const pid = await pm.readPid(options.label);
+      if (pid === null) {
         inTurn = false;
       } else {
         try { process.kill(pid, 0); }

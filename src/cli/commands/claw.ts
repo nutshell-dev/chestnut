@@ -278,8 +278,8 @@ export async function listCommand(): Promise<void> {
 
         if (isRunning) {
           try {
-            const pidFile = path.join(clawPath, 'status', 'pid');
-            pid = fs.readFileSync(pidFile, 'utf-8').trim();
+            const pidNum = await processManager.readPid(entry);
+            pid = pidNum !== null ? String(pidNum) : '';
           } catch { /* ignore read errors */ }
         }
 

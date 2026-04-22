@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Audit } from '../../src/foundation/audit/index.js';
+import { ProcessManager } from '../../src/foundation/process-manager/index.js';
 
 // ============================================================================
 // Hoisted mock state（供 vi.mock factory 引用，必须 hoisted）
@@ -80,6 +81,8 @@ vi.mock('../../src/cli/config.js', () => ({
   loadClawConfig: vi.fn(() => ({})),
   getClawDir: vi.fn((name: string) => `/tmp/test-${name}`),
   getMotionDir: vi.fn(() => '/tmp/test-motion'),
+  getClawforumRoot: vi.fn(() => '/tmp/test-root'),
+  resolveAgentDir: vi.fn((id: string) => id === 'motion' ? '/tmp/test-motion' : `/tmp/test-${id}`),
 }));
 
 // node 内置 mock
@@ -135,6 +138,8 @@ function makeMockInstances(overrides?: Partial<any>) {
 
 async function flushMicrotasks(n = 10) {
   for (let i = 0; i < n; i++) await Promise.resolve();
+  // 让真实 I/O（如 ProcessManager.writeAtomic）的 libuv callback 有机会执行
+  await new Promise(resolve => setTimeout(resolve, 50));
 }
 
 // ============================================================================
@@ -309,8 +314,8 @@ describe('daemonCommand - A4d shutdown signal', () => {
     mockState.mockDisassemble.mockResolvedValue(undefined);
   });
 
-  it('it #8: SIGTERM → shutdown → disassemble + pid unlink + exit 0', async () => {
-    const fsModule = await import('fs');
+  it('it #8: SIGTERM → shutdown → disassemble + selfRemovePid + exit 0', async () => {
+    const selfRemovePidSpy = vi.spyOn(ProcessManager.prototype, 'selfRemovePid').mockResolvedValue(undefined);
 
     const cmdPromise = daemonCommand('test-claw');
     await flushMicrotasks();
@@ -327,7 +332,8 @@ describe('daemonCommand - A4d shutdown signal', () => {
       expect.objectContaining({ runtime: mockState.mockRuntime }),
       'SIGTERM',
     );
-    expect(fsModule.unlinkSync).toHaveBeenCalledWith(expect.stringContaining('pid'));
+    expect(selfRemovePidSpy).toHaveBeenCalledWith('test-claw');
+    selfRemovePidSpy.mockRestore();
 
     await cmdPromise.catch(() => {});
   });
