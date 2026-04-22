@@ -16,7 +16,7 @@ import type { Message } from '../types/message.js';
 import type { InboxMessage, Priority } from '../types/contract.js';
 import type { OutboxWriteOptions } from '../foundation/messaging/index.js';
 import type { SessionData } from '../foundation/session-store/index.js';
-import { readInboxFileMeta, InboxListFailed, InboxMoveFailed } from '../foundation/messaging/index.js';
+import { InboxWriter, InboxListFailed, InboxMoveFailed } from '../foundation/messaging/index.js';
 
 
 import { LLMServiceImpl } from '../foundation/llm/service.js';
@@ -871,7 +871,7 @@ export class ClawRuntime {
       return false;
     }
     for (const file of files) {
-      const result = readInboxFileMeta(this.systemFs, path.join(pendingDir, file));
+      const result = InboxWriter.readMeta(this.systemFs, path.join(pendingDir, file));
       if (!result.ok) {
         this.auditWriter.write('inbox_meta_failed', `file=${file}`, `kind=${result.error.kind}`);
         continue;

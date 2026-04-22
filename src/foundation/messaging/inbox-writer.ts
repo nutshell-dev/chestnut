@@ -103,34 +103,4 @@ export class InboxWriter {
   }
 }
 
-// === Thin wrappers (backward compatible) ===
 
-export interface InboxMessageOptions extends InboxMessageOptionsBase {
-  inboxDir: string;
-  audit: Audit;
-}
-
-/** @deprecated Phase 150 Step 5 过渡：改用 InboxWriter.write */
-export async function writeInbox(
-  fs: FileSystem,
-  inboxDir: string,
-  msg: InboxMessage,
-  audit: Audit,
-  extraFields?: Record<string, string>,
-): Promise<void> {
-  return new InboxWriter(fs, inboxDir, audit).write(msg, extraFields);
-}
-
-/** @deprecated Phase 150 Step 5 过渡：改用 InboxWriter.writeSync */
-export function writeInboxMessage(fs: FileSystem, opts: InboxMessageOptions): void {
-  const { inboxDir, audit, ...rest } = opts;
-  return new InboxWriter(fs, inboxDir, audit).writeSync(rest);
-}
-
-/** @deprecated Phase 150 Step 5 过渡：改用 InboxWriter.readMeta */
-export function readInboxFileMeta(
-  fs: FileSystem,
-  filePath: string,
-): Result<Record<string, string>, InboxMetaError> {
-  return InboxWriter.readMeta(fs, filePath);
-}

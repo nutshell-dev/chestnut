@@ -7,7 +7,7 @@ import * as fsNative from 'fs';
 import * as path from 'path';
 import chokidar from 'chokidar';
 
-import { writeInboxMessage } from '../../utils/inbox-writer.js';
+import { InboxWriter } from '../../foundation/messaging/index.js';
 import { createDirContext } from '../cli-factories.js';
 import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
 import { getContractCreatedMs, LLM_OUTPUT_EVENTS } from './watchdog-utils.js';
@@ -37,14 +37,12 @@ export interface ChatViewportOptions {
 function writeUserChat(agentDir: string, message: string): void {
   const inboxDir = path.join(agentDir, 'inbox', 'pending');
   const { fs, audit } = createDirContext(agentDir);
-  writeInboxMessage(fs, {
-    inboxDir,
+  new InboxWriter(fs, inboxDir, audit).writeSync({
     type: 'user_chat',
     source: 'user',
     priority: 'high',
     body: message,
     idPrefix: 'chat',
-    audit,
   });
 }
 

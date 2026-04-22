@@ -164,13 +164,21 @@ vi.mock('../../src/core/tools/builtins/index.js', () => ({
   registerBuiltinTools: vi.fn(),
 }));
 
-vi.mock('../../src/foundation/messaging/index.js', () => ({
-  InboxReader: vi.fn(() => ({ init: vi.fn().mockResolvedValue(undefined), drainInbox: vi.fn(() => []), markDone: vi.fn(), markFailed: vi.fn() })),
-  OutboxWriter: vi.fn(() => ({ write: vi.fn().mockResolvedValue(undefined) })),
-  createInboxReader: vi.fn(() => ({ init: vi.fn().mockResolvedValue(undefined), drainInbox: vi.fn(() => []), markDone: vi.fn(), markFailed: vi.fn() })),
-  createOutboxWriter: vi.fn(() => ({ write: vi.fn().mockResolvedValue(undefined) })),
-  readInboxFileMeta: vi.fn(),
-}));
+vi.mock('../../src/foundation/messaging/index.js', () => {
+  const MockInboxWriter = vi.fn().mockImplementation(() => ({
+    write: vi.fn().mockResolvedValue(undefined),
+    writeSync: vi.fn(),
+  }));
+  (MockInboxWriter as any).readMeta = vi.fn();
+  return {
+    InboxReader: vi.fn(() => ({ init: vi.fn().mockResolvedValue(undefined), drainInbox: vi.fn(() => []), markDone: vi.fn(), markFailed: vi.fn() })),
+    OutboxWriter: vi.fn(() => ({ write: vi.fn().mockResolvedValue(undefined) })),
+    InboxWriter: MockInboxWriter,
+    createInboxReader: vi.fn(() => ({ init: vi.fn().mockResolvedValue(undefined), drainInbox: vi.fn(() => []), markDone: vi.fn(), markFailed: vi.fn() })),
+    createOutboxWriter: vi.fn(() => ({ write: vi.fn().mockResolvedValue(undefined) })),
+    readInboxFileMeta: vi.fn(),
+  };
+});
 
 vi.mock('../../src/foundation/session-store/index.js', () => ({
   SessionManager: vi.fn(() => ({ load: vi.fn(), save: vi.fn(), archive: vi.fn() })),

@@ -4,7 +4,7 @@ import type { FileSystem } from '../../../foundation/fs/types.js';
 import { LLMServiceImpl } from '../../../foundation/llm/service.js';
 import type { LLMServiceConfig } from '../../../foundation/llm/types.js';
 import type { Message, ContentBlock, TextBlock, LLMResponse } from '../../../types/message.js';
-import { writeInboxMessage } from '../../../utils/inbox-writer.js';
+import { InboxWriter } from '../../../foundation/messaging/index.js';
 import { AuditWriter } from '../../../foundation/audit/index.js';
 import {
   DEEP_DREAM_SYSTEM_PROMPT,
@@ -236,8 +236,7 @@ async function runDeepDreamForClaw(
 
   // 投递到 claw inbox
   const clawAudit = new AuditWriter(fileSystem, path.join(clawDir, 'audit.tsv'));
-  writeInboxMessage(fileSystem, {
-    inboxDir: path.join(clawDir, 'inbox', 'pending'),
+  new InboxWriter(fileSystem, path.join(clawDir, 'inbox', 'pending'), clawAudit).writeSync({
     type: 'deep_dream',
     source: 'cron:dream',
     priority: 'low',
@@ -245,7 +244,6 @@ async function runDeepDreamForClaw(
     idPrefix: `${Date.now()}_deep_dream`,
     filenameTag: 'deep_dream',
     extraFields: { session_count: String(dreamOutputs.length) },
-    audit: clawAudit,
   });
 
   console.log(`[cron:deep-dream] ${clawId}: done, ${dreamOutputs.length} dream(s) sent`);

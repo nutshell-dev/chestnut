@@ -13,7 +13,6 @@ import type { Audit } from '../../src/foundation/audit/index.js';
 import type { Watcher } from '../../src/foundation/file-watcher/types.js';
 import type { FileSystem } from '../../src/foundation/fs/types.js';
 import { createWatcher } from '../../src/foundation/file-watcher/index.js';
-import { writeInboxMessage } from '../../src/utils/inbox-writer.js';
 import { IdleTimeoutSignal, UserInterrupt, PriorityInboxInterrupt } from '../../src/types/signals.js';
 
 // Module-level mock so ESM named exports are replaceable
@@ -21,10 +20,6 @@ vi.mock('fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('fs')>();
   return { ...actual, unlinkSync: vi.fn(actual.unlinkSync) };
 });
-
-vi.mock('../../src/utils/inbox-writer.js', () => ({
-  writeInboxMessage: vi.fn(),
-}));
 
 vi.mock('../../src/foundation/file-watcher/index.js', () => ({
   createWatcher: vi.fn(),
@@ -116,7 +111,7 @@ async function flushMicrotasks(n = 6) {
 describe('startDaemonLoop - LLM retry', () => {
   afterEach(() => {
     vi.useRealTimers();
-    vi.mocked(writeInboxMessage).mockReset();
+    vi.clearAllMocks();
   });
 
   it('LLM error triggers retryLastTurn after exponential delay', async () => {
@@ -287,7 +282,7 @@ describe('startDaemonLoop - LLM retry', () => {
 describe('startDaemonLoop - interrupt audit', () => {
   afterEach(() => {
     vi.useRealTimers();
-    vi.mocked(writeInboxMessage).mockReset();
+    vi.clearAllMocks();
   });
 
   it('IdleTimeoutSignal triggers daemon_loop_interrupt cause=idle_timeout', async () => {

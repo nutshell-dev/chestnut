@@ -4,7 +4,7 @@ import type { FileSystem } from '../../../foundation/fs/types.js';
 import type { TaskSystem } from '../../task/system.js';
 import { writePendingSubagentTaskFile } from '../../tools/builtins/_pending-task-writer.js';
 import { TOOL_PROFILES } from '../../tools/profiles.js';
-import { writeInboxMessage } from '../../../utils/inbox-writer.js';
+import { InboxWriter } from '../../../foundation/messaging/index.js';
 import { AuditWriter } from '../../../foundation/audit/index.js';
 import { DEFAULT_LLM_IDLE_TIMEOUT_MS } from '../../../constants.js';
 import {
@@ -273,8 +273,7 @@ export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
   saveRandomDreamState(opts.clawforumDir, updatedState);
 
   // 投递到 motion inbox（motionAudit 已在调度前实例化，直接复用）
-  writeInboxMessage(opts.fs, {
-    inboxDir: path.join(opts.motionDir, 'inbox', 'pending'),
+  new InboxWriter(opts.fs, path.join(opts.motionDir, 'inbox', 'pending'), motionAudit).writeSync({
     type: 'random_dream',
     source: 'cron:dream',
     priority: 'low',
@@ -282,6 +281,5 @@ export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
     idPrefix: `${Date.now()}_random_dream`,
     filenameTag: 'random_dream',
     extraFields: { dream_count: String(outputs.length) },
-    audit: motionAudit,
   });
 }

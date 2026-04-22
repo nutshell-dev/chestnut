@@ -16,7 +16,7 @@ import type { FileSystem } from '../../foundation/fs/types.js';
 import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
 import { AuditWriter } from '../../foundation/audit/writer.js';
 import { createDirContext, createProcessManagerForCLI } from '../cli-factories.js';
-import { writeInboxMessage } from '../../utils/inbox-writer.js';
+import { InboxWriter } from '../../foundation/messaging/index.js';
 import { type ClawActivityInfo, LLM_OUTPUT_EVENTS, getClawActivityInfo, clawHasContract, getContractCreatedMs, type ClawSnapshot, type ProcessLiveness, gatherClawSnapshot, getEffectiveInterval, shouldResetNotifyCount } from './watchdog-utils.js';
 
 // Get the .clawforum/ directory (CLAWFORUM_ROOT takes priority)
@@ -141,15 +141,13 @@ function writeWatchdogInboxMessage(type: string, content: Record<string, unknown
   const inboxDir = path.join(motionDir, 'inbox', 'pending');
   const { fs, audit } = getMotionContext();
   const body = (content.message as string) ?? JSON.stringify(content);
-  writeInboxMessage(fs, {
-    inboxDir,
+  new InboxWriter(fs, inboxDir, audit).writeSync({
     type: `watchdog_${type}`,
     source: 'watchdog',
     priority: 'high',
     body,
     idPrefix: `${Date.now()}_${type}`,
     filenameTag: `watchdog_${type}`,
-    audit,
   });
 }
 
@@ -320,14 +318,12 @@ function maybeCronClawCrash(pm: ProcessManager): void {
       const body = `contract: ${snapshot.contract}, outbox_pending: ${snapshot.outboxPending}`;
 
       const { fs: motionFs, audit: motionAudit } = getMotionContext();
-      writeInboxMessage(motionFs, {
-        inboxDir: path.join(getMotionDir(), 'inbox', 'pending'),
+      new InboxWriter(motionFs, path.join(getMotionDir(), 'inbox', 'pending'), motionAudit).writeSync({
         type: 'crash_notification',
         source: clawId,
         priority: 'high',
         body,
         filenameTag: 'claw_crash',
-        audit: motionAudit,
       });
     }
 

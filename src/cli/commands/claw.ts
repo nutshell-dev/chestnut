@@ -57,7 +57,7 @@ async function getLastActiveMs(clawFs: FileSystem, audit: Audit): Promise<number
 import { ProcessManager } from '../../foundation/process-manager/index.js';
 import { createDirContext, createProcessManagerForCLI } from '../cli-factories.js';
 import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
-import { writeInbox } from '../../foundation/messaging/index.js';
+import { InboxWriter } from '../../foundation/messaging/index.js';
 import { AuditWriter } from '../../foundation/audit/index.js';
 import { randomUUID } from 'crypto';
 import { fileURLToPath } from 'url';
@@ -408,7 +408,7 @@ export async function sendCommand(
   const fs = new NodeFileSystem({ baseDir: '/', enforcePermissions: false });
   const audit = new AuditWriter(fs, path.join(clawDir, 'audit.tsv'));
 
-  await writeInbox(fs, inboxPending, {
+  await new InboxWriter(fs, inboxPending, audit).write({
     id: randomUUID(),
     type: 'user_inbox_message',
     from: 'user',
@@ -416,7 +416,7 @@ export async function sendCommand(
     content: message,
     priority: options?.priority ?? 'normal',
     timestamp: new Date().toISOString(),
-  }, audit);
+  });
 
   console.log(`Message sent to "${name}"`);
 }

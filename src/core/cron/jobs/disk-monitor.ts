@@ -1,6 +1,6 @@
 import * as path from 'path';
 import type { FileSystem } from '../../../foundation/fs/types.js';
-import { writeInboxMessage } from '../../../utils/inbox-writer.js';
+import { InboxWriter } from '../../../foundation/messaging/index.js';
 import { AuditWriter } from '../../../foundation/audit/index.js';
 
 /** 递归计算目录大小（bytes） */
@@ -41,15 +41,13 @@ export async function runDiskMonitor(opts: DiskMonitorOptions): Promise<void> {
   if (totalMB > opts.limitMB) {
     console.warn(`[cron:disk-monitor] WARNING: usage ${totalMB}MB > limit ${opts.limitMB}MB`);
     const motionAudit = new AuditWriter(opts.fs, path.join(opts.motionInboxDir, '..', '..', 'audit.tsv'));
-    writeInboxMessage(opts.fs, {
-      inboxDir: opts.motionInboxDir,
+    new InboxWriter(opts.fs, opts.motionInboxDir, motionAudit).writeSync({
       type: 'cron_disk_warning',
       source: 'cron',
       priority: 'high',
       body: `Disk usage ${totalMB}MB, limit ${opts.limitMB}MB`,
       idPrefix: `${Date.now()}_disk_warning`,
       filenameTag: 'disk_warning',
-      audit: motionAudit,
     });
   }
 }

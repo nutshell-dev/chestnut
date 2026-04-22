@@ -11,8 +11,7 @@ import * as fsp from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 import { randomUUID } from 'crypto';
-import { writeInboxMessage } from '../../src/utils/inbox-writer.js';
-import { readInboxFileMeta } from '../../src/foundation/messaging/index.js';
+import { InboxWriter } from '../../src/foundation/messaging/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import type { Audit } from '../../src/foundation/audit/index.js';
 
@@ -40,9 +39,7 @@ function readWrittenFile(): string {
 
 describe('yamlQuote — numeric extraFields', () => {
   it('integer values are written unquoted', () => {
-    writeInboxMessage(mockFs, {
-      audit: mockAudit,
-      inboxDir: tmpDir,
+    new InboxWriter(mockFs, tmpDir, mockAudit).writeSync({
       type: 'test',
       source: 'test',
       priority: 'normal',
@@ -55,9 +52,7 @@ describe('yamlQuote — numeric extraFields', () => {
   });
 
   it('float values are written unquoted', () => {
-    writeInboxMessage(mockFs, {
-      audit: mockAudit,
-      inboxDir: tmpDir,
+    new InboxWriter(mockFs, tmpDir, mockAudit).writeSync({
       type: 'test',
       source: 'test',
       priority: 'normal',
@@ -74,9 +69,7 @@ describe('yamlQuote — numeric extraFields', () => {
 
 describe('yamlQuote — boolean extraFields', () => {
   it('true/false are written unquoted', () => {
-    writeInboxMessage(mockFs, {
-      audit: mockAudit,
-      inboxDir: tmpDir,
+    new InboxWriter(mockFs, tmpDir, mockAudit).writeSync({
       type: 'test',
       source: 'test',
       priority: 'normal',
@@ -93,9 +86,7 @@ describe('yamlQuote — boolean extraFields', () => {
 
 describe('yamlQuote — string escaping', () => {
   it('backslash is escaped to \\\\', () => {
-    writeInboxMessage(mockFs, {
-      audit: mockAudit,
-      inboxDir: tmpDir,
+    new InboxWriter(mockFs, tmpDir, mockAudit).writeSync({
       type: 'test',
       source: 'test',
       priority: 'normal',
@@ -108,9 +99,7 @@ describe('yamlQuote — string escaping', () => {
   });
 
   it('double-quote is escaped to \\"', () => {
-    writeInboxMessage(mockFs, {
-      audit: mockAudit,
-      inboxDir: tmpDir,
+    new InboxWriter(mockFs, tmpDir, mockAudit).writeSync({
       type: 'test',
       source: 'test',
       priority: 'normal',
@@ -122,9 +111,7 @@ describe('yamlQuote — string escaping', () => {
   });
 
   it('newline in value is escaped to \\n', () => {
-    writeInboxMessage(mockFs, {
-      audit: mockAudit,
-      inboxDir: tmpDir,
+    new InboxWriter(mockFs, tmpDir, mockAudit).writeSync({
       type: 'test',
       source: 'test',
       priority: 'normal',
@@ -136,9 +123,7 @@ describe('yamlQuote — string escaping', () => {
   });
 
   it('carriage return in value is escaped to \\r', () => {
-    writeInboxMessage(mockFs, {
-      audit: mockAudit,
-      inboxDir: tmpDir,
+    new InboxWriter(mockFs, tmpDir, mockAudit).writeSync({
       type: 'test',
       source: 'test',
       priority: 'normal',
@@ -154,9 +139,7 @@ describe('yamlQuote — string escaping', () => {
 
 describe('writeInboxMessage atomic write', () => {
   it('leaves no .tmp file after write', () => {
-    writeInboxMessage(mockFs, {
-      audit: mockAudit,
-      inboxDir: tmpDir,
+    new InboxWriter(mockFs, tmpDir, mockAudit).writeSync({
       type: 'test',
       source: 'test',
       priority: 'normal',
@@ -167,9 +150,7 @@ describe('writeInboxMessage atomic write', () => {
   });
 
   it('final file has complete YAML frontmatter and body', () => {
-    writeInboxMessage(mockFs, {
-      audit: mockAudit,
-      inboxDir: tmpDir,
+    new InboxWriter(mockFs, tmpDir, mockAudit).writeSync({
       type: 'ping',
       source: 'motion',
       priority: 'high',
@@ -189,9 +170,7 @@ describe('writeInboxMessage atomic write', () => {
 
 describe('readInboxFileMeta', () => {
   it('should return ok with meta for valid inbox file', () => {
-    writeInboxMessage(mockFs, {
-      audit: mockAudit,
-      inboxDir: tmpDir,
+    new InboxWriter(mockFs, tmpDir, mockAudit).writeSync({
       type: 'ping',
       source: 'motion',
       priority: 'high',
@@ -200,7 +179,7 @@ describe('readInboxFileMeta', () => {
     const files = fs.readdirSync(tmpDir).filter(f => f.endsWith('.md'));
     expect(files).toHaveLength(1);
 
-    const result = readInboxFileMeta(mockFs, path.join(tmpDir, files[0]));
+    const result = InboxWriter.readMeta(mockFs, path.join(tmpDir, files[0]));
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value.type).toBe('ping');
@@ -209,7 +188,7 @@ describe('readInboxFileMeta', () => {
   });
 
   it('should return err(not_found) for missing file', () => {
-    const result = readInboxFileMeta(mockFs, path.join(tmpDir, 'nonexistent.md'));
+    const result = InboxWriter.readMeta(mockFs, path.join(tmpDir, 'nonexistent.md'));
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.kind).toBe('not_found');
@@ -219,7 +198,7 @@ describe('readInboxFileMeta', () => {
   it('should return err(parse_failed) for malformed frontmatter', () => {
     const badFile = path.join(tmpDir, 'bad.md');
     fs.writeFileSync(badFile, '---\nno closing fence', 'utf-8');
-    const result = readInboxFileMeta(mockFs, badFile);
+    const result = InboxWriter.readMeta(mockFs, badFile);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.kind).toBe('parse_failed');

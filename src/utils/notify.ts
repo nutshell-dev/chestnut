@@ -4,7 +4,8 @@
  * Standardizes error handling and formatting for inbox notifications.
  */
 
-import { writeInboxMessage, type InboxMessageOptionsBase } from './inbox-writer.js';
+import { InboxWriter } from '../foundation/messaging/index.js';
+import type { InboxMessageOptionsBase } from '../foundation/messaging/inbox-writer.js';
 import type { FileSystem } from '../foundation/fs/types.js';
 import type { Audit } from '../foundation/audit/index.js';
 import * as fsNative from 'fs';
@@ -20,7 +21,8 @@ export function notifyInbox(
   context?: string,
 ): void {
   try {
-    writeInboxMessage(fs, { ...opts, audit });
+    const { inboxDir, ...rest } = opts;
+    new InboxWriter(fs, inboxDir, audit).writeSync(rest);
   } catch (e) {
     const prefix = context ? `[${context}] ` : '';
     console.warn(`${prefix}Failed to send inbox notification:`, e instanceof Error ? e.message : String(e));

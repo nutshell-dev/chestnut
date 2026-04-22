@@ -42,7 +42,7 @@ export interface TaskSystemOptions {
   contractManager: ContractManager;
   outboxWriter: OutboxWriter;
 }
-import { writeInbox } from '../../foundation/messaging/index.js';
+import { InboxWriter } from '../../foundation/messaging/index.js';
 import type { InboxMessage } from '../../types/contract.js';
 
 export interface SubAgentTask {
@@ -916,7 +916,7 @@ export class TaskSystem {
     };
 
     try {
-      await writeInbox(this.fs, 'inbox/pending', baseMsg, this.auditWriter);
+      await new InboxWriter(this.fs, 'inbox/pending', this.auditWriter).write(baseMsg);
     } catch (err) {
       if (resultRef) {
         // inbox 写失败：删除孤立的 results 文件，降级为 inline 内容重试
@@ -929,7 +929,7 @@ export class TaskSystem {
           });
         });
         try {
-          await writeInbox(this.fs, 'inbox/pending', { ...baseMsg, content: inlineContent }, this.auditWriter);
+          await new InboxWriter(this.fs, 'inbox/pending', this.auditWriter).write({ ...baseMsg, content: inlineContent });
           return;
         } catch {
           // 降级也失败，继续抛出原始错误
@@ -999,7 +999,7 @@ export class TaskSystem {
     };
 
     try {
-      await writeInbox(this.fs, 'inbox/pending', baseMsg, this.auditWriter);
+      await new InboxWriter(this.fs, 'inbox/pending', this.auditWriter).write(baseMsg);
     } catch (err) {
       if (resultRef) {
         // inbox 写失败：删除孤立的 results 文件，降级为 inline 内容重试
@@ -1012,7 +1012,7 @@ export class TaskSystem {
           });
         });
         try {
-          await writeInbox(this.fs, 'inbox/pending', { ...baseMsg, content: inlineContent }, this.auditWriter);
+          await new InboxWriter(this.fs, 'inbox/pending', this.auditWriter).write({ ...baseMsg, content: inlineContent });
           return;
         } catch {
           // 降级也失败，继续抛出原始错误
@@ -1044,7 +1044,7 @@ export class TaskSystem {
       priority: 'high',
       timestamp: new Date().toISOString(),
     };
-    await writeInbox(this.fs, 'inbox/pending', msg, this.auditWriter);
+    await new InboxWriter(this.fs, 'inbox/pending', this.auditWriter).write(msg);
   }
 
   /**
