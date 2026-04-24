@@ -45,3 +45,5 @@ export function createOutboxWriter(
 ): OutboxWriter {
   return new OutboxWriter(clawId, clawDir, fs, audit);
 }
+
+export { notifyInbox, notifySystem } from './notify.js';

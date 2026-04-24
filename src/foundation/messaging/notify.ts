@@ -8,7 +8,6 @@ import { InboxWriter } from '../foundation/messaging/index.js';
 import type { InboxMessageOptionsBase } from '../foundation/messaging/inbox-writer.js';
 import type { FileSystem } from '../foundation/fs/types.js';
 import type { Audit } from '../foundation/audit/index.js';
-import * as fsNative from 'fs';
 
 /**
  * Send an inbox notification with standardized error handling.

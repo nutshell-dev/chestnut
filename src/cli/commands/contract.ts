@@ -11,7 +11,7 @@ import { ContractManager, type ContractYaml, type ProgressData } from '../../cor
 import { createDirContext } from '../cli-factories.js';
 import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
 import { getClawDir } from '../config.js';
-import { notifySystem } from '../../utils/notify.js';
+import { notifySystem } from '../../foundation/messaging/index.js';
 import { AUDIT_EVENTS } from '../../foundation/audit/events.js';
 import { AuditWriter } from '../../foundation/audit/writer.js';
 import { STREAM_FILE } from '../../foundation/stream/index.js';

@@ -1,7 +1,7 @@
 import * as path from 'path';
 import * as fsNative from 'fs';
 import { execFile } from '../../../foundation/process-exec/index.js';
-import { notifyInbox } from '../../../utils/notify.js';
+import { notifyInbox } from '../../../foundation/messaging/index.js';
 import { NodeFileSystem } from '../../../foundation/fs/node-fs.js';
 import { AuditWriter } from '../../../foundation/audit/index.js';
 

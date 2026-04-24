@@ -26,7 +26,7 @@ import {
   LLM_RETRY_INITIAL_DELAY_MS,
   LLM_RETRY_MAX_DELAY_MS,
 } from '../../constants.js';
-import { notifyInbox } from '../../utils/notify.js';
+import { notifyInbox } from '../../foundation/messaging/index.js';
 import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../../types/signals.js';
 
 /**
