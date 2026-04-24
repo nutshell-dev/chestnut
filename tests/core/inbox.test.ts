@@ -188,7 +188,7 @@ Test message content`;
     expect(entries[0].message.id).toBe('p-fallback');
   });
 
-  it('unknown type frontmatter passes through unchanged', async () => {
+  it('unknown type falls back to message, original preserved in extraMeta', async () => {
     await nfs.writeAtomic(
       'inbox/pending/unknown.md',
       '---\ntype: unknown_event\npriority: normal\nid: t-fallback\nfrom: s\nto: c\ntimestamp: 2026-01-01T00:00:00Z\n---\nBody',
@@ -196,11 +196,12 @@ Test message content`;
 
     const entries = await reader.drainInbox();
     expect(entries).toHaveLength(1);
-    expect(entries[0].message.type).toBe('unknown_event');
+    expect(entries[0].message.type).toBe('message');
+    expect(entries[0].message.extraMeta?.__original_type).toBe('unknown_event');
     expect(entries[0].message.id).toBe('t-fallback');
   });
 
-  it('watchdog_ prefix type passes through unchanged', async () => {
+  it('watchdog_ prefix type falls back to message, original preserved in extraMeta', async () => {
     await nfs.writeAtomic(
       'inbox/pending/watchdog.md',
       '---\ntype: watchdog_ping\npriority: normal\nid: wd-passthrough\nfrom: s\nto: c\ntimestamp: 2026-01-01T00:00:00Z\n---\nBody',
@@ -208,7 +209,8 @@ Test message content`;
 
     const entries = await reader.drainInbox();
     expect(entries).toHaveLength(1);
-    expect(entries[0].message.type).toBe('watchdog_ping');
+    expect(entries[0].message.type).toBe('message');
+    expect(entries[0].message.extraMeta?.__original_type).toBe('watchdog_ping');
   });
 
   it('should move malformed message to failed on parse error', async () => {
