@@ -3,10 +3,20 @@
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { LLMServiceImpl } from '../../src/foundation/llm/service.js';
-import type { ProviderAdapter, StreamChunk } from '../../src/foundation/llm/types.js';
+import type { ProviderAdapter, StreamChunk, LLMEventSink, LLMEvent } from '../../src/foundation/llm/types.js';
 import { LLMError, LLMAllProvidersFailedError, LLMTimeoutError } from '../../src/types/errors.js';
 
 // Mock provider factory
+
+const noopSink: LLMEventSink = { emit: () => {} };
+
+function createMockSink() {
+  const emitted: LLMEvent[] = [];
+  const sink: LLMEventSink = {
+    emit(event: LLMEvent) { emitted.push(event); }
+  };
+  return { sink, emitted };
+}
 function createMockProvider(name: string, streamImpl?: () => AsyncGenerator<StreamChunk>): ProviderAdapter {
   return {
     name,
@@ -61,6 +71,7 @@ describe('LLMServiceImpl - stream failover', () => {
       primary: { name: 'primary', apiKey: 'test', model: 'test' },
       maxAttempts: 1,
       retryDelayMs: 0,
+      events: noopSink,
     });
     
     // Replace internal provider with mock
@@ -93,6 +104,7 @@ describe('LLMServiceImpl - stream failover', () => {
       fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test' }],
       maxAttempts: 1,
       retryDelayMs: 0,
+      events: noopSink,
     });
 
     // Replace internal providers with mocks
@@ -125,6 +137,7 @@ describe('LLMServiceImpl - stream failover', () => {
       primary: { name: 'primary', apiKey: 'test', model: 'test' },
       maxAttempts: 1,
       retryDelayMs: 0,
+      events: noopSink,
     });
     
     // Replace internal provider with mock (no fallback)
@@ -168,6 +181,7 @@ describe('LLMServiceImpl - stream failover', () => {
       fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test' }],
       maxAttempts: 2,   // 即使有重试机会也不应重试 mid-stream
       retryDelayMs: 0,
+      events: noopSink,
     });
     (service as any).primary = primary;
     (service as any).fallbacks = [fallback];
@@ -199,6 +213,7 @@ describe('LLMServiceImpl - stream failover', () => {
       primary: { name: 'primary', apiKey: 'test', model: 'test' },
       maxAttempts: 2,
       retryDelayMs: 0,
+      events: noopSink,
     });
     (service as any).primary = primary;
     (service as any).fallbacks = [];
@@ -218,6 +233,7 @@ describe('LLMServiceImpl - stream failover', () => {
       primary: { name: 'primary', apiKey: 'test', model: 'test-model' },
       maxAttempts: 1,
       retryDelayMs: 0,
+      events: noopSink,
     });
     (service as any).primary = createMockProvider('primary');
     (service as any).fallbacks = [];
@@ -240,6 +256,7 @@ describe('LLMServiceImpl - stream failover', () => {
       fallbacks: [{ name: 'fb', apiKey: 'test', model: 'test' }],
       maxAttempts: 1,
       retryDelayMs: 0,
+      events: noopSink,
     });
     (service as any).primary = badPrimary;
     (service as any).fallbacks = [goodFallback];
@@ -265,6 +282,7 @@ describe('LLMServiceImpl - stream failover', () => {
       primary: { name: 'primary', apiKey: 'test', model: 'test' },
       maxAttempts: 1,
       retryDelayMs: 0,
+      events: noopSink,
     });
     
     (service as any).primary = primary;
@@ -298,6 +316,7 @@ describe('LLMServiceImpl - stream failover', () => {
       fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test' }],
       maxAttempts: 1,
       retryDelayMs: 0,
+      events: noopSink,
     });
     (service as any).primary = primary;
     (service as any).fallbacks = [fallback];
@@ -331,6 +350,7 @@ describe('LLMServiceImpl - stream failover', () => {
       fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test' }],
       maxAttempts: 1,
       retryDelayMs: 0,
+      events: noopSink,
     });
     (service as any).primary = primary;
     (service as any).fallbacks = [fallback];
@@ -372,6 +392,7 @@ describe('LLMServiceImpl - stream failover', () => {
       fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test' }],
       maxAttempts: 1,
       retryDelayMs: 0,
+      events: noopSink,
     });
     (service as any).primary = primary;
     (service as any).fallbacks = [fallback];
@@ -409,6 +430,7 @@ describe('LLMServiceImpl - circuit breaker', () => {
       maxAttempts: 1,
       retryDelayMs: 0,
       circuitBreaker: { failureThreshold: 2, resetTimeoutMs: 60000 },
+      events: noopSink,
     });
     (service as any).primary = failingPrimary;
     (service as any).fallbacks = [goodFallback];
@@ -447,6 +469,7 @@ describe('LLMServiceImpl - circuit breaker', () => {
       maxAttempts: 1,
       retryDelayMs: 0,
       circuitBreaker: { failureThreshold: 2, resetTimeoutMs: 50 },
+      events: noopSink,
     });
     (service as any).primary = probePrimary;
     (service as any).fallbacks = [goodFallback];
@@ -486,6 +509,7 @@ describe('LLMServiceImpl - circuit breaker', () => {
       fallbacks: [{ name: 'p2', apiKey: 'x', model: 'x' }],
       maxAttempts: 1,
       retryDelayMs: 0,
+      events: noopSink,
     });
     (service as any).primary = badPrimary;
     (service as any).fallbacks = [badFallback];
@@ -506,6 +530,7 @@ describe('LLMServiceImpl - external abort signal', () => {
       fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test' }],
       maxAttempts: 1,
       retryDelayMs: 0,
+      events: noopSink,
     });
     (service as any).primary = primary;
     (service as any).fallbacks = [fallback];
@@ -535,6 +560,7 @@ describe('LLMServiceImpl - external abort signal', () => {
       fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test' }],
       maxAttempts: 1,
       retryDelayMs: 0,
+      events: noopSink,
     });
     (service as any).primary = primary;
     (service as any).fallbacks = [fallback];
@@ -560,6 +586,7 @@ describe('LLMServiceImpl - external abort signal', () => {
       primary: { name: 'primary', apiKey: 'test', model: 'test' },
       maxAttempts: 3,
       retryDelayMs: 10_000,
+      events: noopSink,
     });
     (service as any).primary = primary;
 
@@ -589,6 +616,7 @@ describe('LLMServiceImpl - external abort signal', () => {
       primary: { name: 'primary', apiKey: 'test', model: 'test' },
       maxAttempts: 3,
       retryDelayMs: 10_000,
+      events: noopSink,
     });
     (service as any).primary = primary;
 
@@ -602,5 +630,111 @@ describe('LLMServiceImpl - external abort signal', () => {
 
     const elapsed = Date.now() - start;
     expect(elapsed).toBeLessThan(1_000);
+  });
+});
+
+describe('LLMServiceImpl - events (Phase 254)', () => {
+  it('emits provider_attempt_failed when primary throws', async () => {
+    const { sink, emitted } = createMockSink();
+    const failingAdapter = createMockProvider('p1');
+    (failingAdapter as any).call = async () => { throw new Error('timeout'); };
+    const svc = new LLMServiceImpl({
+      primary: { name: 'p1', apiKey: 'test', model: 'test' },
+      fallbacks: [],
+      maxAttempts: 1,
+      retryDelayMs: 0,
+      events: sink,
+    });
+    (svc as any).primary = failingAdapter;
+
+    await expect(svc.call({ messages: [] })).rejects.toThrow();
+    expect(emitted.some(e => e.type === 'provider_attempt_failed' || e.type === 'provider_exhausted')).toBe(true);
+  });
+
+  it('emits retry_scheduled with correct backoffMs', async () => {
+    const { sink, emitted } = createMockSink();
+    let calls = 0;
+    const adapter = createMockProvider('p1');
+    (adapter as any).call = async () => {
+      if (calls++ < 1) throw new Error('transient');
+      return { content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' };
+    };
+    const svc = new LLMServiceImpl({
+      primary: { name: 'p1', apiKey: 'test', model: 'test' },
+      fallbacks: [],
+      maxAttempts: 2,
+      retryDelayMs: 100,
+      events: sink,
+    });
+    (svc as any).primary = adapter;
+
+    await svc.call({ messages: [] });
+    const retryEvent = emitted.find(e => e.type === 'retry_scheduled');
+    expect(retryEvent).toBeDefined();
+    expect((retryEvent as any).backoffMs).toBe(100);
+  });
+
+  it('emits provider_exhausted + fallback_switched when primary exhausted', async () => {
+    const { sink, emitted } = createMockSink();
+    const primary = createMockProvider('p1');
+    (primary as any).call = async () => { throw new Error('fail'); };
+    const fallback = createMockProvider('fb1');
+    const svc = new LLMServiceImpl({
+      primary: { name: 'p1', apiKey: 'test', model: 'test' },
+      fallbacks: [{ name: 'fb1', apiKey: 'test', model: 'test' }],
+      maxAttempts: 1,
+      retryDelayMs: 0,
+      events: sink,
+    });
+    (svc as any).primary = primary;
+    (svc as any).fallbacks = [fallback];
+
+    await svc.call({ messages: [] });
+    expect(emitted.some(e => e.type === 'provider_exhausted')).toBe(true);
+    expect(emitted.some(e => e.type === 'fallback_switched')).toBe(true);
+  });
+
+  it('emits healthcheck_failed on healthCheck error', async () => {
+    const { sink, emitted } = createMockSink();
+    const primary = createMockProvider('p1');
+    (primary as any).call = async () => { throw new Error('health-fail'); };
+    const svc = new LLMServiceImpl({
+      primary: { name: 'p1', apiKey: 'test', model: 'test' },
+      fallbacks: [],
+      maxAttempts: 1,
+      retryDelayMs: 0,
+      events: sink,
+    });
+    (svc as any).primary = primary;
+
+    const result = await svc.healthCheck();
+    expect(result).toBe(false);
+    expect(emitted.some(e => e.type === 'healthcheck_failed')).toBe(true);
+  });
+
+  it('emits stream_reset on mid-stream error', async () => {
+    const { sink, emitted } = createMockSink();
+    const primary = createMockProvider('p1', async function* () {
+      yield { type: 'text_delta', delta: 'hi' };
+      throw new Error('mid-stream-fail');
+    });
+    const svc = new LLMServiceImpl({
+      primary: { name: 'p1', apiKey: 'test', model: 'test' },
+      fallbacks: [],
+      maxAttempts: 1,
+      retryDelayMs: 0,
+      events: sink,
+    });
+    (svc as any).primary = primary;
+
+    const chunks: any[] = [];
+    try {
+      for await (const chunk of svc.stream({ messages: [] })) {
+        chunks.push(chunk);
+      }
+    } catch {
+      // expected: no fallback available
+    }
+    expect(emitted.some(e => e.type === 'stream_reset')).toBe(true);
   });
 });

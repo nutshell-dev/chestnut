@@ -307,6 +307,7 @@ export class LLMServiceImpl implements LLMService {
           if (err.name === 'AbortError') throw err;
           // Mid-stream error: signal caller to discard partial state, then failover to next provider
           if (hasYielded) {
+            this.events.emit({ type: 'stream_reset', provider: adapter.name, error: err.message });
             yield {
               type: 'reset',
               provider: adapter.name,
