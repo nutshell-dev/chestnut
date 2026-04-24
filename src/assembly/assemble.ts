@@ -10,7 +10,6 @@ import type { ProcessManager } from '../foundation/process-manager/manager.js';
 import { NodeFileSystem } from '../foundation/fs/node-fs.js';
 import { createAgentProcessManager } from '../cli/commands/process-manager-factory.js';
 import { type ClawRuntime, type RuntimeDependencies } from '../core/runtime.js';
-import { type MotionRuntime } from '../core/motion/runtime.js';
 import { createRuntime } from '../core/create-runtime.js';
 import { createLLMService, type LLMServiceImpl } from '../foundation/llm/index.js';
 import { createLLMAuditSink } from './llm-audit-sink.js';
@@ -355,7 +354,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
   });
 
   // --- Runtime 构造（deps 注入） ---
-  let runtime: MotionRuntime | ClawRuntime;
+  let runtime: ClawRuntime;
   try {
     runtime = createRuntime({
       identity: isMotion ? 'motion' : 'claw',

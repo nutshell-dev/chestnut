@@ -3,7 +3,6 @@ import type { Snapshot } from '../foundation/snapshot/index.js';
 import type { StreamWriter } from '../foundation/stream/writer.js';
 import type { ProcessManager } from '../foundation/process-manager/manager.js';
 import type { ClawRuntime } from '../core/runtime.js';
-import type { MotionRuntime } from '../core/motion/runtime.js';
 import type { Heartbeat } from '../core/heartbeat.js';
 import type { CronRunner } from '../core/cron/index.js';
 import type { ClawGlobalConfig, ClawConfig } from '../cli/config.js';
@@ -21,7 +20,7 @@ export interface AssembleConfig {
 
 export interface Instances {
   readonly clawId: string;
-  readonly runtime: MotionRuntime | ClawRuntime;
+  readonly runtime: ClawRuntime;
   readonly streamWriter: StreamWriter;
   readonly snapshot: Snapshot;
   readonly processManager: ProcessManager;

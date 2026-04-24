@@ -77,12 +77,6 @@ vi.mock('../../src/core/runtime.js', () => ({
   ClawRuntime: vi.fn(() => mockRuntime),
 }));
 
-vi.mock('../../src/core/motion/runtime.js', () => ({
-  MotionRuntime: vi.fn(function () {
-    return mockRuntime;
-  }),
-}));
-
 vi.mock('../../src/core/heartbeat.js', () => {
   const Ctor = vi.fn(() => mockHeartbeat);
   return {
@@ -482,8 +476,8 @@ describe('assemble', () => {
   });
 
   it('Runtime 构造失败 → assemble_failed + 抛 Error', async () => {
-    const { MotionRuntime } = await import('../../src/core/motion/runtime.js');
-    (MotionRuntime as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
+    const { ClawRuntime } = await import('../../src/core/runtime.js');
+    (ClawRuntime as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
       throw new Error('runtime fail');
     });
 

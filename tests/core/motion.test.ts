@@ -1,17 +1,20 @@
 /**
  * MotionRuntime 单元测试
- * 
+ *
  * 覆盖场景:
  * - buildSystemPrompt() 注入顺序正确
  * - buildSystemPrompt() 包含 SOUL.md/REVIEW.md 内容
  * - 缺少模板文件时的降级行为
+ *
+ * phase266 重构：MotionRuntime subclass 消除，改为 ClawRuntime + motion options 构造
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
-import { MotionRuntime } from '../../src/core/motion/runtime.js';
+import { ClawRuntime } from '../../src/core/runtime.js';
+import { buildMotionSystemPrompt } from '../../src/core/create-runtime.js';
 import type { LLMServiceConfig } from '../../src/foundation/llm/types.js';
 import { makeRuntimeDeps } from '../helpers/runtime-deps.js';
 
@@ -45,12 +48,17 @@ async function cleanupDir(clawDir: string): Promise<void> {
 
 async function createMotionRuntime(options: { clawId: string; clawDir: string; llmConfig: LLMServiceConfig }) {
   const deps = await makeRuntimeDeps({ clawDir: options.clawDir, clawId: options.clawId, llmConfig: options.llmConfig });
-  return new MotionRuntime({ ...options, dependencies: deps });
+  return new ClawRuntime({
+    ...options,
+    dependencies: deps,
+    systemPromptBuilder: buildMotionSystemPrompt,
+    identityToolFilter: (registry) => registry.unregister('send'),
+  });
 }
 
 describe('MotionRuntime', () => {
   let tempDir: string;
-  let runtime: MotionRuntime;
+  let runtime: ClawRuntime;
 
   beforeEach(async () => {
     tempDir = await createTempDir();
@@ -226,7 +234,7 @@ describe('MotionRuntime', () => {
 
       // Act & Assert
       await runtime.initialize();
-      expect(runtime).toBeInstanceOf(MotionRuntime);
+      expect(runtime).toBeInstanceOf(ClawRuntime);
 
       // 验证继承的方法可用
       const status = runtime.getStatus();

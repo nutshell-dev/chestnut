@@ -96,6 +96,13 @@ export interface ClawRuntimeOptions {
   idleTimeoutMs?: number;  // 覆盖 DEFAULT_LLM_IDLE_TIMEOUT_MS（0 = 禁用）
 
   dependencies: RuntimeDependencies;  // 必传（phase155B 起，字段随 phase155C 扩展）
+
+  // Motion/claw 身份差异由 Assembly 按 identity 分支注入（phase266 消除 MotionRuntime subclass）
+  systemPromptBuilder?: (params: {
+    contextInjector: ContextInjector;
+    systemFs: FileSystem;
+  }) => Promise<string>;
+  identityToolFilter?: (registry: ToolRegistryImpl) => void;
 }
 
 /**
@@ -253,6 +260,10 @@ export class ClawRuntime {
         this.toolRegistry.getForProfile(profile as import('../types/config.js').ToolProfile),
       ),
     ));
+
+    if (this.options.identityToolFilter) {
+      this.options.identityToolFilter(this.toolRegistry);
+    }
 
     this.initialized = true;
   }
@@ -897,6 +908,12 @@ export class ClawRuntime {
    * Default behavior: AGENTS.md + MEMORY.md + skills + contract
    */
   protected async buildSystemPrompt(): Promise<string> {
+    if (this.options.systemPromptBuilder) {
+      return this.options.systemPromptBuilder({
+        contextInjector: this.contextInjector,
+        systemFs: this.systemFs,
+      });
+    }
     return this.contextInjector.buildSystemPrompt();
   }
 
