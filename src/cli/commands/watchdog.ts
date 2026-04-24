@@ -234,6 +234,7 @@ export async function maybeCronClawInactivity(pm: ProcessManager, audit: AuditWr
       return false;
     }
   }));
+  audit.write(AUDIT_EVENTS.WATCHDOG_CLAW_SCAN, `ctx=inactivity present=${[...existingClawIds].join(',')}`);
   for (const id of lastInactivityNotified.keys()) {
     if (!existingClawIds.has(id)) {
       lastInactivityNotified.delete(id);
@@ -316,6 +317,7 @@ export function maybeCronClawCrash(pm: ProcessManager, audit: AuditWriter): void
       return false;
     }
   }));
+  audit.write(AUDIT_EVENTS.WATCHDOG_CLAW_SCAN, `ctx=crash present=${[...existingClawIds].join(',')}`);
   for (const id of clawPreviouslyAlive.keys()) {
     if (!existingClawIds.has(id)) {
       clawPreviouslyAlive.delete(id);
@@ -401,20 +403,22 @@ export async function runWatchdogLoop(): Promise<void> {
     
     // watchdog_check: 枚举所有存活进程
     const aliveIds: string[] = [];
+    const presentClawIds: string[] = [];
     if (status.alive) aliveIds.push('motion');
     const clawsBaseDir = path.join(getClawforumDir(), 'claws');
     if (existsSync(clawsBaseDir)) {
       for (const id of fs.readdirSync(clawsBaseDir)) {
         try {
-          if (fs.statSync(path.join(clawsBaseDir, id)).isDirectory() && pm.isAlive(id)) {
-            aliveIds.push(id);
+          if (fs.statSync(path.join(clawsBaseDir, id)).isDirectory()) {
+            presentClawIds.push(id);
+            if (pm.isAlive(id)) aliveIds.push(id);
           }
         } catch {
           // ignore
         }
       }
     }
-    auditWriter.write('watchdog_check', `alive=${aliveIds.join(',')}`);
+    auditWriter.write('watchdog_check', `alive=${aliveIds.join(',')} present=${presentClawIds.join(',')}`);
     
     if (!status.alive) {
       log(`[watchdog] motion down (${status.reason}), restarting...`);
