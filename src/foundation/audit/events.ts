@@ -172,6 +172,19 @@ export const AUDIT_EVENTS = {
   SUBAGENT_PERSIST_FAILED: 'subagent_persist_failed',
   SUBAGENT_LOG_APPEND_FAILED: 'subagent_log_append_failed',
 
+  // --- Dispatch ---
+  DISPATCH_LOAD_SKILLS_FAILED: 'dispatch_load_skills_failed',
+  DISPATCH_CONTRACT_DONE_NOT_FOUND: 'dispatch_contract_done_not_found',
+  DISPATCH_CONTRACT_DONE_PARSE_FAILED: 'dispatch_contract_done_parse_failed',
+  DISPATCH_CONTRACT_DONE_MISSING_FIELDS: 'dispatch_contract_done_missing_fields',
+  DISPATCH_WRITE_BY_CONTRACT_FAILED: 'dispatch_write_by_contract_failed',
+  DISPATCH_NO_DIALOG_CONTEXT: 'dispatch_no_dialog_context',
+
+  // --- Status ---
+  STATUS_CONTRACT_ERROR: 'status_contract_error',
+  STATUS_TASK_PENDING_ERROR: 'status_task_pending_error',
+  STATUS_TASK_RUNNING_ERROR: 'status_task_running_error',
+
   // --- Runtime ---
   RUNTIME_PROCESS_BATCH_FAILED: 'runtime_process_batch_failed',
 } as const;

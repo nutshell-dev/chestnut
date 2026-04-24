@@ -356,6 +356,7 @@ export interface ToolExecutorOptions {
   contractManager?: ContractManager;
   skillRegistry?: SkillRegistry;
   subagentMaxSteps?: number;
+  auditWriter?: AuditWriter;
 }
 
 /**
@@ -374,6 +375,7 @@ export class ToolExecutor extends ToolExecutorImpl {
   private contractManager?: ContractManager;
   private skillRegistry?: SkillRegistry;
   private subagentMaxSteps?: number;
+  private auditWriter?: AuditWriter;
 
   constructor(options: ToolExecutorOptions) {
     super(options.registry);
@@ -387,6 +389,7 @@ export class ToolExecutor extends ToolExecutorImpl {
     this.contractManager = options.contractManager;
     this.skillRegistry = options.skillRegistry;
     this.subagentMaxSteps = options.subagentMaxSteps;
+    this.auditWriter = options.auditWriter;
   }
 
   /**
@@ -412,6 +415,7 @@ export class ToolExecutor extends ToolExecutorImpl {
       skillRegistry: this.skillRegistry,
       subagentMaxSteps: this.subagentMaxSteps,
       originClawId: options.originClawId,
+      auditWriter: this.auditWriter,
     });
   }
 }

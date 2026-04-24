@@ -170,6 +170,7 @@ export class SubAgent {
         skillRegistry: this.skillRegistry,
         subagentMaxSteps: this.subagentMaxSteps ?? this.maxSteps,
         profile: executorProfile,
+        auditWriter: this.auditWriter,
       });
 
       // Setup messages（若传入 messages 则直接使用，否则从 prompt 构建）

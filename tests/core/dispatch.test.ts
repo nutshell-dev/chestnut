@@ -184,7 +184,7 @@ Content.
   });
 
   describe('CONTRACT_DONE handler', () => {
-    function makeCtxWithMonitor(monitorLog: ReturnType<typeof vi.fn>) {
+    function makeCtxWithAuditWriter(options?: { dialogMessages?: Message[] }) {
       mockWriteFile.mockResolvedValue('task-handler-test');
       let capturedHandler: ((taskId: string, callerType: string, result: string, isError: boolean) => Promise<string>) | null = null;
       const taskSystem = {
@@ -193,6 +193,7 @@ Content.
           return () => {};
         }),
       };
+      const auditWriter = { write: vi.fn() };
       const ctx = new ExecContextImpl({
         clawId: 'test-claw',
         clawDir: tempDir,
@@ -201,14 +202,14 @@ Content.
         fs: mockFs,
         llm: {} as any,
         taskSystem: taskSystem as any,
-        monitor: { log: monitorLog } as any,
+        auditWriter: auditWriter as any,
+        dialogMessages: options?.dialogMessages ?? [{ role: 'user' as const, content: 'test' }],
       });
-      return { ctx, taskSystem, getHandler: () => capturedHandler };
+      return { ctx, taskSystem, auditWriter, getHandler: () => capturedHandler };
     }
 
-    it('should warn when dispatcher finishes without [CONTRACT_DONE] block', async () => {
-      const monitorLog = vi.fn();
-      const { ctx, getHandler } = makeCtxWithMonitor(monitorLog);
+    it('should audit when dispatcher finishes without [CONTRACT_DONE] block', async () => {
+      const { ctx, auditWriter, getHandler } = makeCtxWithAuditWriter();
 
       await tool.execute({ goal: 'test task' }, ctx);
 
@@ -217,14 +218,14 @@ Content.
 
       await handler!('task-handler-test', 'dispatcher', 'Dispatcher finished with no marker.', false);
 
-      expect(monitorLog).toHaveBeenCalledWith('warn', expect.objectContaining({
-        context: 'dispatch.contractDoneNotFound',
-      }));
+      expect(auditWriter.write).toHaveBeenCalledWith(
+        'dispatch_contract_done_not_found',
+        'taskId=task-handler-test',
+      );
     });
 
-    it('should warn when [CONTRACT_DONE] parsed but fields missing', async () => {
-      const monitorLog = vi.fn();
-      const { ctx, getHandler } = makeCtxWithMonitor(monitorLog);
+    it('should audit when [CONTRACT_DONE] parsed but fields missing', async () => {
+      const { ctx, auditWriter, getHandler } = makeCtxWithAuditWriter();
 
       await tool.execute({ goal: 'test task' }, ctx);
 
@@ -236,14 +237,16 @@ Content.
         false,
       );
 
-      expect(monitorLog).toHaveBeenCalledWith('warn', expect.objectContaining({
-        context: 'dispatch.contractDoneMissingFields',
-      }));
+      expect(auditWriter.write).toHaveBeenCalledWith(
+        'dispatch_contract_done_missing_fields',
+        'taskId=task-handler-test',
+        'contractId=missing',
+        'targetClaw=my-claw',
+      );
     });
 
     it('should write by-contract file and return summary on valid [CONTRACT_DONE]', async () => {
-      const monitorLog = vi.fn();
-      const { ctx, getHandler } = makeCtxWithMonitor(monitorLog);
+      const { ctx, auditWriter, getHandler } = makeCtxWithAuditWriter({ dialogMessages: [{ role: 'user' as const, content: 'test' }] });
 
       await tool.execute({ goal: 'test task' }, ctx);
 
@@ -265,8 +268,111 @@ Content.
       expect(summary).not.toContain('[CONTRACT_DONE]');
       expect(summary).toContain('Work done.');
 
-      // 无 warn 日志
-      expect(monitorLog).not.toHaveBeenCalledWith('warn', expect.anything());
+      // 无 dispatch audit 事件（全是正常路径）
+      const dispatchCalls = auditWriter.write.mock.calls.filter(
+        (c: any) => c[0]?.startsWith('dispatch_'),
+      );
+      expect(dispatchCalls).toHaveLength(0);
+    });
+
+    it('should audit when [CONTRACT_DONE] JSON parse fails', async () => {
+      const { ctx, auditWriter, getHandler } = makeCtxWithAuditWriter({ dialogMessages: [{ role: 'user' as const, content: 'test' }] });
+
+      await tool.execute({ goal: 'test task' }, ctx);
+
+      const handler = getHandler();
+      await handler!(
+        'task-handler-test',
+        'dispatcher',
+        'Done.\n[CONTRACT_DONE]{invalid json}[/CONTRACT_DONE]',
+        false,
+      );
+
+      expect(auditWriter.write).toHaveBeenCalledWith(
+        'dispatch_contract_done_parse_failed',
+        expect.stringContaining('raw='),
+      );
+    });
+
+    it('should audit when writeByContract fails', async () => {
+      const { ctx, auditWriter, getHandler } = makeCtxWithAuditWriter();
+
+      // Mock fs.writeAtomic to throw
+      const writeSpy = vi.spyOn(mockFs, 'writeAtomic').mockRejectedValue(new Error('disk full'));
+
+      await tool.execute({ goal: 'test task' }, ctx);
+
+      const handler = getHandler();
+      await handler!(
+        'task-handler-test',
+        'dispatcher',
+        '[CONTRACT_DONE]{"contractId":"c-002","targetClaw":"my-claw"}[/CONTRACT_DONE]',
+        false,
+      );
+
+      expect(auditWriter.write).toHaveBeenCalledWith(
+        'dispatch_write_by_contract_failed',
+        'contractId=c-002',
+        'error=disk full',
+      );
+
+      writeSpy.mockRestore();
+    });
+
+    it('should audit when loadSkills fails with non-ENOENT error', async () => {
+      const auditWriter = { write: vi.fn() };
+      const taskSystem = {
+        addTaskResultHandler: vi.fn().mockReturnValue(() => {}),
+      };
+      const existsSpy = vi.spyOn(mockFs, 'exists').mockRejectedValue(
+        Object.assign(new Error('permission denied'), { code: 'EACCES' }),
+      );
+      const ctx = new ExecContextImpl({
+        clawId: 'test-claw',
+        clawDir: tempDir,
+        profile: 'full',
+        callerType: 'claw',
+        fs: mockFs,
+        llm: {} as any,
+        taskSystem: taskSystem as any,
+        auditWriter: auditWriter as any,
+        dialogMessages: [{ role: 'user' as const, content: 'test' }],
+      });
+      mockWriteFile.mockResolvedValue('task-skill-fail');
+
+      await tool.execute({ goal: 'test task' }, ctx);
+
+      expect(auditWriter.write).toHaveBeenCalledWith(
+        'dispatch_load_skills_failed',
+        'error=Error: permission denied',
+      );
+
+      existsSpy.mockRestore();
+    });
+
+    it('should audit when dialogMessages is empty', async () => {
+      const auditWriter = { write: vi.fn() };
+      const taskSystem = {
+        addTaskResultHandler: vi.fn().mockReturnValue(() => {}),
+      };
+      const ctx = new ExecContextImpl({
+        clawId: 'test-claw',
+        clawDir: tempDir,
+        profile: 'full',
+        callerType: 'claw',
+        fs: mockFs,
+        llm: {} as any,
+        taskSystem: taskSystem as any,
+        auditWriter: auditWriter as any,
+        dialogMessages: [],
+      });
+      mockWriteFile.mockResolvedValue('task-empty-dialog');
+
+      await tool.execute({ goal: 'test task' }, ctx);
+
+      expect(auditWriter.write).toHaveBeenCalledWith(
+        'dispatch_no_dialog_context',
+      );
     });
   });
 });

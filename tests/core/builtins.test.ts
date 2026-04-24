@@ -695,6 +695,82 @@ describe('Builtin Tools', () => {
       delete (ctx as any).taskSystem;
     });
 
+    // Audit event tests for status tool error paths
+    it('should audit STATUS_CONTRACT_ERROR when loadActive throws', async () => {
+      const auditWriter = { write: vi.fn() };
+      const ctxWithAudit = new ExecContextImpl({
+        clawId: 'test-claw',
+        clawDir: tempDir,
+        profile: 'full',
+        fs: mockFs,
+        auditWriter: auditWriter as any,
+        contractManager: {
+          loadActive: vi.fn().mockRejectedValue(new Error('yaml parse error')),
+        } as any,
+      });
+
+      await statusTool.execute({}, ctxWithAudit);
+
+      expect(auditWriter.write).toHaveBeenCalledWith(
+        'status_contract_error',
+        'error=yaml parse error',
+      );
+    });
+
+    it('should audit STATUS_TASK_PENDING_ERROR when pending list fails non-ENOENT', async () => {
+      const auditWriter = { write: vi.fn() };
+      const listSpy = vi.spyOn(mockFs, 'list').mockRejectedValue(
+        Object.assign(new Error('permission denied'), { code: 'EACCES' }),
+      );
+      const ctxWithAudit = new ExecContextImpl({
+        clawId: 'test-claw',
+        clawDir: tempDir,
+        profile: 'full',
+        fs: mockFs,
+        auditWriter: auditWriter as any,
+        taskSystem: {} as any,
+      });
+
+      await statusTool.execute({}, ctxWithAudit);
+
+      expect(auditWriter.write).toHaveBeenCalledWith(
+        'status_task_pending_error',
+        'error=permission denied',
+      );
+
+      listSpy.mockRestore();
+    });
+
+    it('should audit STATUS_TASK_RUNNING_ERROR when running list fails non-ENOENT', async () => {
+      const auditWriter = { write: vi.fn() };
+      // First call (pending) succeeds, second call (running) fails
+      let callCount = 0;
+      const listSpy = vi.spyOn(mockFs, 'list').mockImplementation(async (...args: any[]) => {
+        callCount++;
+        if (callCount === 1) {
+          return []; // pending succeeds
+        }
+        throw Object.assign(new Error('disk error'), { code: 'EIO' });
+      });
+      const ctxWithAudit = new ExecContextImpl({
+        clawId: 'test-claw',
+        clawDir: tempDir,
+        profile: 'full',
+        fs: mockFs,
+        auditWriter: auditWriter as any,
+        taskSystem: {} as any,
+      });
+
+      await statusTool.execute({}, ctxWithAudit);
+
+      expect(auditWriter.write).toHaveBeenCalledWith(
+        'status_task_running_error',
+        'error=disk error',
+      );
+
+      listSpy.mockRestore();
+    });
+
     // Batch 4 新增测试：subtask failed 状态显示 ✗
     it('should show ✗ icon for failed subtask', async () => {
       const mockAudit = { write: vi.fn() };

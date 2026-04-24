@@ -8,6 +8,7 @@ import { buildDescribingUserMessage, buildMinerSystemPrompt, buildMiningUserMess
 import { AskMotionTool } from './ask-motion.js';
 import { isDispatchCaller } from '../caller-type.js';
 import { writePendingSubagentTaskFile } from './_pending-task-writer.js';
+import { AUDIT_EVENTS } from '../../../foundation/audit/events.js';
 
 export class DispatchTool implements Tool {
   readonly name = 'dispatch';
@@ -71,7 +72,7 @@ export class DispatchTool implements Tool {
     } catch (e) {
       const code = (e as NodeJS.ErrnoException).code;
       if (code !== 'ENOENT' && code !== 'ENOTDIR') {
-        ctx.monitor?.log?.('error', { context: 'dispatch.loadSkills', error: String(e) });
+        ctx.auditWriter?.write(AUDIT_EVENTS.DISPATCH_LOAD_SKILLS_FAILED, `error=${String(e)}`);
       }
     }
 
@@ -103,11 +104,7 @@ export class DispatchTool implements Tool {
 
         const blockMatch = result.match(/\[CONTRACT_DONE\]\s*(\{[\s\S]*?\})\s*\[\/CONTRACT_DONE\]/);
         if (!blockMatch) {
-          ctx.monitor?.log('warn', {
-            context: 'dispatch.contractDoneNotFound',
-            taskId,
-            hint: 'Dispatch subagent finished without [CONTRACT_DONE] block — no retrospective will be scheduled',
-          });
+          ctx.auditWriter?.write(AUDIT_EVENTS.DISPATCH_CONTRACT_DONE_NOT_FOUND, `taskId=${taskId}`);
           return result;
         }
 
@@ -115,18 +112,18 @@ export class DispatchTool implements Tool {
         try {
           parsed = JSON.parse(blockMatch[1]);
         } catch {
-          ctx.monitor?.log('warn', { context: 'dispatch.parseContractDone', raw: blockMatch[1].slice(0, 200) });
+          ctx.auditWriter?.write(AUDIT_EVENTS.DISPATCH_CONTRACT_DONE_PARSE_FAILED, `raw=${blockMatch[1].slice(0, 200)}`);
           return result;
         }
 
         const { contractId, targetClaw } = parsed;
         if (!contractId || !targetClaw) {
-          ctx.monitor?.log('warn', {
-            context: 'dispatch.contractDoneMissingFields',
-            taskId,
-            parsed,
-            hint: '[CONTRACT_DONE] block parsed but contractId or targetClaw missing — no retrospective will be scheduled',
-          });
+          ctx.auditWriter?.write(
+            AUDIT_EVENTS.DISPATCH_CONTRACT_DONE_MISSING_FIELDS,
+            `taskId=${taskId}`,
+            `contractId=${parsed.contractId ?? 'missing'}`,
+            `targetClaw=${parsed.targetClaw ?? 'missing'}`,
+          );
           return result;
         }
 
@@ -145,11 +142,11 @@ export class DispatchTool implements Tool {
             }),
           );
         } catch (e) {
-          ctx.monitor?.log('error', {
-            context: 'dispatch.writeByContract',
-            contractId,
-            error: e instanceof Error ? e.message : String(e),
-          });
+          ctx.auditWriter?.write(
+            AUDIT_EVENTS.DISPATCH_WRITE_BY_CONTRACT_FAILED,
+            `contractId=${contractId}`,
+            `error=${e instanceof Error ? e.message : String(e)}`,
+          );
         }
 
         const summary = result.replace(/\[CONTRACT_DONE\][\s\S]*?\[\/CONTRACT_DONE\]/g, '').trim();
@@ -170,7 +167,7 @@ export class DispatchTool implements Tool {
     // 构造包含完整对话上下文的 messages 数组
     const dialogMessages = ctx.dialogMessages ?? [];
     if (dialogMessages.length === 0) {
-      console.warn('[dispatch] dialogMessages not provided or empty — dispatcher will run without conversation context');
+      ctx.auditWriter?.write(AUDIT_EVENTS.DISPATCH_NO_DIALOG_CONTEXT);
     }
 
     // messages 截止至当前 dispatch tool_use（loop 在执行工具前已追加），tool_result 尚未产生。
