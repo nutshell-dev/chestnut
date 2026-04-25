@@ -14,7 +14,7 @@ import { sendTool } from '../../../src/core/tools/builtins/send.js';
 import type { ExecContext } from '../../../src/core/tools/executor.js';
 import type { OutboxWriter } from '../../../src/foundation/messaging/index.js';
 
-function createMockCtx(outboxWriter?: Partial<OutboxWriter>): ExecContext {
+function createMockCtx(): ExecContext {
   return {
     clawId: 'test-claw',
     clawDir: '/tmp/test-claw',
@@ -26,7 +26,6 @@ function createMockCtx(outboxWriter?: Partial<OutboxWriter>): ExecContext {
     isMotionChain: false,
     getElapsedMs: () => 0,
     incrementStep: () => {},
-    outboxWriter: outboxWriter as OutboxWriter | undefined,
   } as unknown as ExecContext;
 }
 
@@ -36,7 +35,12 @@ describe('sendTool', () => {
 
   beforeEach(() => {
     writeMock = vi.fn().mockResolvedValue('/tmp/test-claw/outbox/pending/msg.md');
-    ctx = createMockCtx({ write: writeMock });
+    ctx = createMockCtx();
+    sendTool.outboxWriter = { write: writeMock } as unknown as OutboxWriter;
+  });
+
+  afterEach(() => {
+    sendTool.outboxWriter = undefined;
   });
 
   it('rejects invalid type with ToolResult success=false', async () => {
@@ -59,11 +63,11 @@ describe('sendTool', () => {
     expect(writeMock).not.toHaveBeenCalled();
   });
 
-  it('returns failure when ctx.outboxWriter is undefined', async () => {
-    const ctxNoWriter = createMockCtx(undefined);
+  it('returns failure when sendTool.outboxWriter is undefined', async () => {
+    sendTool.outboxWriter = undefined;
     const result = await sendTool.execute(
       { type: 'report', priority: 'normal', content: 'test' },
-      ctxNoWriter,
+      ctx,
     );
     expect(result.success).toBe(false);
     expect(result.content).toContain('Outbox writer not available');

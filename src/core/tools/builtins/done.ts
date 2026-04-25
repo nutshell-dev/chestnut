@@ -41,7 +41,7 @@ export const doneTool: Tool & { contractManager?: ContractManager } = {
   idempotent: false,
 
   async execute(args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
-    const contractManager = (ctx as { contractManager?: ContractManager }).contractManager;
+    const contractManager = doneTool.contractManager;
     
     if (!contractManager) {
       return {

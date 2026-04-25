@@ -52,6 +52,7 @@ describe('DispatchTool', () => {
     const taskSystem = {
       addTaskResultHandler: vi.fn().mockReturnValue(() => {}),
     };
+    tool.taskSystem = taskSystem as any;
     return new ExecContextImpl({
       clawId: options?.clawId ?? 'test-claw',
       clawDir: tempDir,
@@ -59,7 +60,6 @@ describe('DispatchTool', () => {
       callerType,
       fs: mockFs,
       llm: {} as any,
-      taskSystem: taskSystem as any,
       originClawId: options?.originClawId,
       dialogMessages: options?.dialogMessages,
     });
@@ -193,6 +193,7 @@ Content.
           return () => {};
         }),
       };
+      tool.taskSystem = taskSystem as any;
       const auditWriter = { write: vi.fn() };
       const ctx = new ExecContextImpl({
         clawId: 'test-claw',
@@ -201,7 +202,6 @@ Content.
         callerType: 'claw',
         fs: mockFs,
         llm: {} as any,
-        taskSystem: taskSystem as any,
         auditWriter: auditWriter as any,
         dialogMessages: options?.dialogMessages ?? [{ role: 'user' as const, content: 'test' }],
       });
@@ -324,6 +324,7 @@ Content.
       const taskSystem = {
         addTaskResultHandler: vi.fn().mockReturnValue(() => {}),
       };
+      tool.taskSystem = taskSystem as any;
       const existsSpy = vi.spyOn(mockFs, 'exists').mockRejectedValue(
         Object.assign(new Error('permission denied'), { code: 'EACCES' }),
       );
@@ -334,7 +335,6 @@ Content.
         callerType: 'claw',
         fs: mockFs,
         llm: {} as any,
-        taskSystem: taskSystem as any,
         auditWriter: auditWriter as any,
         dialogMessages: [{ role: 'user' as const, content: 'test' }],
       });
@@ -355,6 +355,7 @@ Content.
       const taskSystem = {
         addTaskResultHandler: vi.fn().mockReturnValue(() => {}),
       };
+      tool.taskSystem = taskSystem as any;
       const ctx = new ExecContextImpl({
         clawId: 'test-claw',
         clawDir: tempDir,
@@ -362,7 +363,6 @@ Content.
         callerType: 'claw',
         fs: mockFs,
         llm: {} as any,
-        taskSystem: taskSystem as any,
         auditWriter: auditWriter as any,
         dialogMessages: [],
       });

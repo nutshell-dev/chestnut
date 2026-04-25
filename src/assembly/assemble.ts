@@ -25,6 +25,10 @@ import { ExecContextImpl } from '../core/tools/context.js';
 import { registerBuiltinTools } from '../core/tools/builtins/index.js';
 import { spawnTool } from '../core/task/tools/spawn.js';
 import { createInboxReader, createOutboxWriter } from '../foundation/messaging/index.js';
+import { doneTool } from '../core/tools/builtins/done.js';
+import { statusTool } from '../core/tools/builtins/status.js';
+import { skillTool } from '../core/tools/builtins/skill.js';
+import { sendTool } from '../core/tools/builtins/send.js';
 import { createSessionManager } from '../foundation/session-store/index.js';
 import type { InboxReader } from '../foundation/messaging/index.js';
 import type { OutboxWriter } from '../foundation/messaging/index.js';
@@ -250,17 +254,19 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
       monitor,
       llm,
       maxSteps,
-      taskSystem,
-      skillRegistry,
-      contractManager,
       subagentMaxSteps,
-      outboxWriter,
       auditWriter,
     });
   } catch (e) {
     auditWriter.write('assemble_failed', `module=exec_context`, `phase=construct`, `reason=${errMsg(e)}`);
     throw new Error(`Assembly: ExecContextImpl construct failed: ${errMsg(e)}`, { cause: e });
   }
+
+  // 注入工具属性（避免通过 ExecContext 传业务依赖）
+  doneTool.contractManager = contractManager;
+  statusTool.contractManager = contractManager;
+  skillTool.skillRegistry = skillRegistry;
+  sendTool.outboxWriter = outboxWriter;
 
   // --- L3-L5: toolExecutor ---
   let toolExecutor: ToolExecutorImpl;

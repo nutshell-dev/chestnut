@@ -249,13 +249,15 @@ export class ClawRuntime {
     // NOTE: DispatchTool 闭包依赖 this.buildSystemPrompt / this.toolRegistry.formatForLLM
     //       因 Assembly 构造期 Runtime 尚未 new，此 register 必须留在 Runtime 内
     //       登记为 B 类偏差：design/modules/l6_assembly.md §7
-    this.toolRegistry.register(new DispatchTool(
+    const dispatchTool = new DispatchTool(
       () => this.buildSystemPrompt(),
       () => this.toolRegistry.formatForLLM(this.toolRegistry.getAll()),
       (profile) => this.toolRegistry.formatForLLM(
         this.toolRegistry.getForProfile(profile as import('../types/config.js').ToolProfile),
       ),
-    ));
+    );
+    dispatchTool.taskSystem = this.taskSystem;
+    this.toolRegistry.register(dispatchTool);
 
     if (this.options.identityToolFilter) {
       this.options.identityToolFilter(this.toolRegistry);

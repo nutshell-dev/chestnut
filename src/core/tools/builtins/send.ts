@@ -3,8 +3,10 @@
  */
 
 import type { Tool, ToolResult, ExecContext } from '../executor.js';
+import type { OutboxWriter } from '../../../foundation/messaging/index.js';
 
-export const sendTool: Tool = {
+export const sendTool: Tool & { outboxWriter?: OutboxWriter } = {
+  outboxWriter: undefined,
   name: 'send',
   description: 'Send a message to the outbox for the parent or other claws. Priority: critical|high|normal|low (default: normal).',
   schema: {
@@ -55,14 +57,14 @@ export const sendTool: Tool = {
     }
 
     try {
-      if (!ctx.outboxWriter) {
+      if (!sendTool.outboxWriter) {
         return {
           success: false,
           content: 'Outbox writer not available',
         };
       }
 
-      await ctx.outboxWriter.write({
+      await sendTool.outboxWriter.write({
         type: type as 'report' | 'question' | 'result' | 'error',
         to: 'motion',
         content,

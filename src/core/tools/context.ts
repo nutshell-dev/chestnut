@@ -14,10 +14,8 @@ import type { LLMService } from '../../foundation/llm/index.js';
 import type { ToolProfile } from '../../types/config.js';
 import type { ExecContext } from './executor.js';
 import { MOTION_CLAW_ID, DEFAULT_MAX_STEPS } from '../../constants.js';
-import type { TaskSystem } from '../task/system.js';
-import type { SkillRegistry } from '../skill/registry.js';
-import type { ContractManager } from '../contract/manager.js';
-import type { OutboxWriter } from '../../foundation/messaging/index.js';
+
+
 import type { Message } from '../../types/message.js';
 import type { Audit } from '../../foundation/audit/index.js';
 import type { CallerType } from './caller-type.js';
@@ -53,26 +51,11 @@ export interface ExecContextImplOptions {
   /** Optional abort signal */
   signal?: AbortSignal;
   
-  /**
-   * TaskSystem 实例引用。phase163 后用途收窄：
-   *   - dispatch tool: addTaskResultHandler（B 类，handler 文件化推后）
-   *   - status tool: queueLength 只读展示
-   *   - executor.ts scheduleTool: async tool 路径（独立 phase 清理候选）
-   * 不再用于 subagent 调度（spawn / dispatch 创建均经 _pending-task-writer 直接写文件）。
-   */
-  taskSystem?: TaskSystem;
   
-  /** Optional skill registry for skill tool */
-  skillRegistry?: SkillRegistry;
-  
-  /** Optional contract manager for done tool */
-  contractManager?: ContractManager;
   
   /** Max steps for subagents created via spawn tool */
   subagentMaxSteps?: number;
   
-  /** Outbox writer for send tool */
-  outboxWriter?: OutboxWriter;
   
   /** 当前对话 messages（供 dispatch 工具读取） */
   dialogMessages?: Message[];
@@ -96,12 +79,7 @@ export class ExecContextImpl implements ExecContext {
   stepNumber: number;
   maxSteps: number;
   signal?: AbortSignal;
-  /** @see ExecContextImplOptions.taskSystem — 透传至 ExecContext */
-  taskSystem?: TaskSystem;
-  skillRegistry?: SkillRegistry;
-  contractManager?: ContractManager;
   subagentMaxSteps: number;
-  outboxWriter?: OutboxWriter;
   dialogMessages?: Message[];
   originClawId?: string;
   auditWriter?: Audit;
@@ -118,11 +96,7 @@ export class ExecContextImpl implements ExecContext {
     this.llm = options.llm;
     this.maxSteps = options.maxSteps ?? DEFAULT_MAX_STEPS;
     this.signal = options.signal;
-    this.taskSystem = options.taskSystem;
-    this.skillRegistry = options.skillRegistry;
-    this.contractManager = options.contractManager;
     this.subagentMaxSteps = options.subagentMaxSteps ?? options.maxSteps ?? DEFAULT_MAX_STEPS;
-    this.outboxWriter = options.outboxWriter;
     this.dialogMessages = options.dialogMessages;
     this.originClawId = options.originClawId;
     this.auditWriter = options.auditWriter;

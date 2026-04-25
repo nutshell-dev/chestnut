@@ -14,7 +14,7 @@ import { TASKS_PENDING_DIR } from '../../../types/paths.js';
 import { AUDIT_EVENTS } from '../../../foundation/audit/events.js';
 
 async function getContractStatus(ctx: ExecContext): Promise<string> {
-  const contractManager = (ctx as { contractManager?: ContractManager }).contractManager;
+  const contractManager = statusTool.contractManager;
   if (!contractManager) return 'Contract: N/A';
   
   try {
@@ -108,7 +108,8 @@ async function getStorageStatus(ctx: ExecContext): Promise<string[]> {
   return lines;
 }
 
-export const statusTool: Tool = {
+export const statusTool: Tool & { contractManager?: ContractManager } = {
+  contractManager: undefined,
   name: 'status',
   description: 'Get comprehensive status: Claw ID, profile, step count, active contract with full subtask list (id/description/status), tasks, storage (MEMORY.md, clawspace). Call at turn start to re-orient after restart.',
   schema: {

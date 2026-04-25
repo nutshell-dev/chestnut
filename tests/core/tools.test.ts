@@ -501,13 +501,13 @@ describe('Tools', () => {
       const mockTaskSystem = {
         scheduleTool: vi.fn().mockResolvedValue('task-id-123'),
       } as unknown as import('../../src/core/task/system.js').TaskSystem;
+      (executor as any).taskSystem = mockTaskSystem;
 
       const ctx = new ExecContextImpl({
         clawId: 'test',
         clawDir: '/test',
         profile: 'full',
         fs: mockFs,
-        taskSystem: mockTaskSystem,
       });
 
       const result = await executor.execute({
@@ -536,13 +536,13 @@ describe('Tools', () => {
       const mockTaskSystem = {
         scheduleTool: vi.fn().mockResolvedValue('task-abc-123'),
       } as unknown as import('../../src/core/task/system.js').TaskSystem;
+      (executor as any).taskSystem = mockTaskSystem;
 
       const ctx = new ExecContextImpl({
         clawId: 'test',
         clawDir: '/test',
         profile: 'full',
         fs: mockFs,
-        taskSystem: mockTaskSystem,
       });
 
       const result = await executor.execute({

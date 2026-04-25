@@ -11,6 +11,8 @@ import { writePendingSubagentTaskFile } from './_pending-task-writer.js';
 import { AUDIT_EVENTS } from '../../../foundation/audit/events.js';
 
 export class DispatchTool implements Tool {
+  taskSystem?: TaskSystem;
+
   readonly name = 'dispatch';
   readonly description = `派发任务，创建契约。支持两种模式：
 
@@ -85,7 +87,7 @@ export class DispatchTool implements Tool {
     const userMessage = isMining
       ? buildMiningUserMessage(args.goal as string, skillsSummary, args.targetClaw as string | undefined)
       : buildDescribingUserMessage(args.goal as string, skillsSummary, args.targetClaw as string | undefined);
-    const taskHandlerHost = ctx.taskSystem;
+    const taskHandlerHost = this.taskSystem;
     if (!taskHandlerHost) {
       return { success: false, content: 'dispatch tool requires TaskSystem for handler registration.' };
     }

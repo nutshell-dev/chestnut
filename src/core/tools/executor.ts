@@ -71,16 +71,6 @@ export interface ExecContext {
   signal?: AbortSignal;
   /** Max steps for subagents created via spawn tool */
   subagentMaxSteps?: number;
-  /** Outbox writer for send tool */
-  outboxWriter?: OutboxWriter;
-  /**
-   * TaskSystem 实例。phase163 后限定用途：
-   *   - async tool 调度（scheduleTool 路径，独立 phase 清理候选）
-   *   - dispatch tool addTaskResultHandler（B 类）
-   *   - status tool queueLength 只读
-   * 透传到 ExecContext，本身不应被工具用于 subagent 调度。
-   */
-  taskSystem?: TaskSystem;
   /** 当前对话 messages（由 runtime._runReact 注入，供 dispatch 工具读取） */
   dialogMessages?: Message[];
   /** 创建链路的源头 clawId，由 dispatch/spawn 传播。Motion 直接创建时为 'motion' */
@@ -155,6 +145,8 @@ export interface IToolExecutor {
  * Tool execution implementation
  */
 export class ToolExecutorImpl implements IToolExecutor {
+  protected taskSystem?: TaskSystem;
+
   constructor(
     private registry: ToolRegistry,
     private defaultTimeoutMs = 60000
@@ -185,7 +177,7 @@ export class ToolExecutorImpl implements IToolExecutor {
       if (ctx.callerType !== 'claw') {
         return { success: false, content: 'Async mode is not available for subagents.' };
       }
-      const taskSystem = ctx.taskSystem;
+      const taskSystem = this.taskSystem;
       if (!taskSystem) {
         return { success: false, content: 'Async mode requires TaskSystem (not available).' };
       }
@@ -349,12 +341,8 @@ export interface ToolExecutorOptions {
   fs: FileSystem;
   monitor?: Logger;
   llm?: LLMService;
-  /** @see ToolExecutorOptions.taskSystem — 透传至 ExecContext */
   taskSystem?: TaskSystem;
   profile?: ToolProfile;
-  outboxWriter?: OutboxWriter;
-  contractManager?: ContractManager;
-  skillRegistry?: SkillRegistry;
   subagentMaxSteps?: number;
   auditWriter?: Audit;
 }
@@ -368,12 +356,7 @@ export class ToolExecutor extends ToolExecutorImpl {
   private fs: FileSystem;
   private monitor?: Logger;
   private llm?: LLMService;
-  /** @see ToolExecutorOptions.taskSystem */
-  private taskSystem?: TaskSystem;
   private profile: ToolProfile;
-  private outboxWriter?: OutboxWriter;
-  private contractManager?: ContractManager;
-  private skillRegistry?: SkillRegistry;
   private subagentMaxSteps?: number;
   private auditWriter?: Audit;
 
@@ -385,9 +368,6 @@ export class ToolExecutor extends ToolExecutorImpl {
     this.llm = options.llm;
     this.taskSystem = options.taskSystem;
     this.profile = options.profile ?? 'full';
-    this.outboxWriter = options.outboxWriter;
-    this.contractManager = options.contractManager;
-    this.skillRegistry = options.skillRegistry;
     this.subagentMaxSteps = options.subagentMaxSteps;
     this.auditWriter = options.auditWriter;
   }
@@ -409,10 +389,6 @@ export class ToolExecutor extends ToolExecutorImpl {
       llm: this.llm,
       maxSteps: options.maxSteps ?? DEFAULT_MAX_STEPS,
       signal: options.signal,
-      taskSystem: this.taskSystem,
-      outboxWriter: this.outboxWriter,
-      contractManager: this.contractManager,
-      skillRegistry: this.skillRegistry,
       subagentMaxSteps: this.subagentMaxSteps,
       originClawId: options.originClawId,
       auditWriter: this.auditWriter,

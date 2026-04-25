@@ -53,7 +53,7 @@ export const skillTool: Tool & { skillRegistry?: SkillRegistry } = {
       }
     }
 
-    const skillRegistry = (ctx as { skillRegistry?: SkillRegistry }).skillRegistry;
+    const skillRegistry = skillTool.skillRegistry;
     
     if (!skillRegistry) {
       return {

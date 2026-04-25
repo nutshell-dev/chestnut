@@ -40,7 +40,6 @@ describe('Builtin Tools', () => {
       clawDir: tempDir,
       profile: 'full',
       fs: mockFs,
-      outboxWriter,
     });
   });
 
@@ -523,7 +522,7 @@ describe('Builtin Tools', () => {
     it('should show "No active contract" when contractManager has no active contract', async () => {
       const mockAudit = { write: vi.fn() };
       const manager = new ContractManager(tempDir, 'test-claw', mockFs, mockAudit as any);
-      (ctx as any).contractManager = manager;
+      statusTool.contractManager = manager;
 
       const result = await statusTool.execute({}, ctx);
 
@@ -546,7 +545,7 @@ describe('Builtin Tools', () => {
         acceptance: [],
         auth_level: 'auto' as const,
       });
-      (ctx as any).contractManager = manager;
+      statusTool.contractManager = manager;
 
       const result = await statusTool.execute({}, ctx);
 
@@ -575,7 +574,7 @@ describe('Builtin Tools', () => {
       });
       // 完成第一个子任务（无 acceptance 脚本，直接通过）
       await manager.completeSubtask({ contractId, subtaskId: 'done-task', evidence: 'done' });
-      (ctx as any).contractManager = manager;
+      statusTool.contractManager = manager;
 
       const result = await statusTool.execute({}, ctx);
 
@@ -625,12 +624,12 @@ describe('Builtin Tools', () => {
 
     // contractManager.loadActive 抛异常
     it('should show Contract Error loading when loadActive throws', async () => {
-      (ctx as any).contractManager = {
+      statusTool.contractManager = {
         loadActive: vi.fn().mockRejectedValue(new Error('corrupted yaml')),
-      };
+      } as any;
       const result = await statusTool.execute({}, ctx);
       expect(result.content).toContain('Contract: Error loading');
-      delete (ctx as any).contractManager;
+      statusTool.contractManager = undefined;
     });
 
     // subtask failed 状态显示 ✗
@@ -654,11 +653,11 @@ describe('Builtin Tools', () => {
       progress.subtasks['fail-task'].status = 'failed';
       await fs.writeFile(progressPath, JSON.stringify(progress));
 
-      (ctx as any).contractManager = manager;
+      statusTool.contractManager = manager;
       const result = await statusTool.execute({}, ctx);
       expect(result.content).toContain('✗ fail-task');
       expect(result.content).toContain('○ ok-task');
-      delete (ctx as any).contractManager;
+      statusTool.contractManager = undefined;
     });
 
     // task running + pending
@@ -705,12 +704,13 @@ describe('Builtin Tools', () => {
         profile: 'full',
         fs: mockFs,
         auditWriter: auditWriter as any,
-        contractManager: {
-          loadActive: vi.fn().mockRejectedValue(new Error('yaml parse error')),
-        } as any,
       });
+      statusTool.contractManager = {
+        loadActive: vi.fn().mockRejectedValue(new Error('yaml parse error')),
+      } as any;
 
       await statusTool.execute({}, ctxWithAudit);
+      statusTool.contractManager = undefined;
 
       expect(auditWriter.write).toHaveBeenCalledWith(
         'status_contract_error',
@@ -729,8 +729,9 @@ describe('Builtin Tools', () => {
         profile: 'full',
         fs: mockFs,
         auditWriter: auditWriter as any,
-        taskSystem: {} as any,
       });
+      // Inject a dummy taskSystem so getTaskStatus enters file-reading path
+      (ctxWithAudit as any).taskSystem = {};
 
       await statusTool.execute({}, ctxWithAudit);
 
@@ -759,8 +760,9 @@ describe('Builtin Tools', () => {
         profile: 'full',
         fs: mockFs,
         auditWriter: auditWriter as any,
-        taskSystem: {} as any,
       });
+      // Inject a dummy taskSystem so getTaskStatus enters file-reading path
+      (ctxWithAudit as any).taskSystem = {};
 
       await statusTool.execute({}, ctxWithAudit);
 
@@ -793,16 +795,23 @@ describe('Builtin Tools', () => {
       progress.subtasks['fail-task'].status = 'failed';
       await fs.writeFile(progressPath, JSON.stringify(progress));
 
-      (ctx as any).contractManager = manager;
+      statusTool.contractManager = manager;
       const result = await statusTool.execute({}, ctx);
       expect(result.content).toContain('✗ fail-task');
       expect(result.content).toContain('○ ok-task');
-      delete (ctx as any).contractManager;
+      statusTool.contractManager = undefined;
     });
   });
 
 
   describe('send tool', () => {
+    beforeEach(() => {
+      sendTool.outboxWriter = outboxWriter;
+    });
+    afterEach(() => {
+      sendTool.outboxWriter = undefined;
+    });
+
     it('should create message in outbox', async () => {
       const result = await sendTool.execute({
         content: 'Test message',

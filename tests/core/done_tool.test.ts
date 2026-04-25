@@ -16,12 +16,11 @@ import * as os from 'os';
 let testDir: string;
 let clawDir: string;
 
-/** 最小 ExecContext，只注入 contractManager */
-function makeCtx(contractManager: ContractManager) {
+/** 最小 ExecContext */
+function makeCtx() {
   return {
     clawId: 'test-claw',
     clawDir: clawDir,
-    contractManager,
   } as any;
 }
 
@@ -40,6 +39,11 @@ describe('doneTool', () => {
     nodeFs = new NodeFileSystem({ baseDir: clawDir, enforcePermissions: false });
     const mockAudit = { write: vi.fn() };
     manager = new ContractManager(clawDir, 'test-claw', nodeFs, mockAudit as any);
+    doneTool.contractManager = manager;
+  });
+
+  afterEach(() => {
+    doneTool.contractManager = undefined;
   });
 
   afterEach(async () => {
@@ -58,7 +62,7 @@ describe('doneTool', () => {
       auth_level: 'auto' as const,
     });
 
-    const ctx = makeCtx(manager);
+    const ctx = makeCtx();
     const result = await doneTool.execute({ subtask: 't1', evidence: 'done' }, ctx);
 
     expect(result.success).toBe(true);
@@ -79,7 +83,7 @@ describe('doneTool', () => {
       auth_level: 'auto' as const,
     });
 
-    const ctx = makeCtx(manager);
+    const ctx = makeCtx();
     const result = await doneTool.execute({ subtask: 't1', evidence: 'done' }, ctx);
 
     expect(result.success).toBe(true);
@@ -89,7 +93,8 @@ describe('doneTool', () => {
     expect(result.content).toContain('Task Two');
   });
 
-  it('should return error when no contractManager in ctx', async () => {
+  it('should return error when doneTool.contractManager not injected', async () => {
+    doneTool.contractManager = undefined;
     const result = await doneTool.execute({ subtask: 't1', evidence: 'done' }, {} as any);
     expect(result.success).toBe(false);
     expect(result.content).toContain('No contract manager');
@@ -97,7 +102,7 @@ describe('doneTool', () => {
 
   it('should return error when no active contract', async () => {
     // ContractManager exists but no contract created
-    const ctx = makeCtx(manager);
+    const ctx = makeCtx();
     const result = await doneTool.execute({ subtask: 't1', evidence: 'done' }, ctx);
     expect(result.success).toBe(false);
     expect(result.content).toContain('No active contract');
@@ -114,7 +119,7 @@ describe('doneTool', () => {
       auth_level: 'auto' as const,
     });
 
-    const ctx = makeCtx(manager);
+    const ctx = makeCtx();
     const result = await doneTool.execute({ subtask: 'nonexistent', evidence: 'done' }, ctx);
 
     expect(result.success).toBe(false);

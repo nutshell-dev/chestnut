@@ -1181,6 +1181,7 @@ describe('ToolExecutor async routing', () => {
     mockTaskSystem = {
       scheduleTool: vi.fn().mockResolvedValue('mock-task-id-123'),
     };
+    (executor as any).taskSystem = mockTaskSystem;
     
     mockCtx = {
       clawId: 'test-claw',
@@ -1192,7 +1193,6 @@ describe('ToolExecutor async routing', () => {
       maxSteps: 20,
       getElapsedMs: () => 1000,
       incrementStep: () => {},
-      taskSystem: mockTaskSystem as any,
     };
   });
 
@@ -1270,13 +1270,13 @@ describe('ToolExecutor async routing', () => {
     };
     registry.register(asyncTool);
 
-    // ctx without taskSystem
-    const ctxWithoutTaskSystem = { ...mockCtx, taskSystem: undefined };
+    // executor without taskSystem
+    (executor as any).taskSystem = undefined;
 
     const result = await executor.execute({
       toolName: 'asyncTool',
       args: {},
-      ctx: ctxWithoutTaskSystem,
+      ctx: mockCtx,
       async: true,
     });
 
