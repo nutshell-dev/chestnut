@@ -8,7 +8,8 @@ export { runReact } from './loop.js';
 export type { ReactOptions, ReactResult } from './loop.js';
 
 // StepExecutor（新契约）
-export { executeStep, throwAbortError } from './step-executor.js';
+export { executeStep } from './step-executor.js';
+export { throwAbortError } from './abort-helpers.js';
 export type {
   StepInput, StepResult, StepCallbacks, StepMeta, LLMCallInfo,
 } from './step-executor.js';

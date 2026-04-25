@@ -15,6 +15,7 @@ import type { StreamChunk } from '../../foundation/llm/types.js';
 import type { IToolExecutor, ExecContext, ToolResult, ToolRegistry } from '../tools/executor.js';
 import { REACT_DEFAULT_MAX_TOKENS } from '../../constants.js';
 import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../../types/signals.js';
+import { throwAbortError } from './abort-helpers.js';
 
 export interface LLMCallInfo {
   model: string;
@@ -225,14 +226,6 @@ export async function executeStep(input: StepInput): Promise<StepResult> {
 // ─────────────────────────────────────────────────────────────────────────────
 // Internal helpers (moved from loop.ts, kept identical)
 // ─────────────────────────────────────────────────────────────────────────────
-
-export function throwAbortError(signal: AbortSignal): never {
-  const r = signal.reason as { type?: string; ms?: number } | undefined;
-  if (r?.type === 'idle_timeout') throw new IdleTimeoutSignal(r.ms ?? 0);
-  if (r?.type === 'step_yield')   throw new PriorityInboxInterrupt();
-  if (r?.type === 'user')         throw new UserInterrupt();
-  throw new Error(`Execution aborted (unexpected reason: ${JSON.stringify(r)})`);
-}
 
 function safeCallback(label: string, fn: () => void): void {
   try { fn(); }

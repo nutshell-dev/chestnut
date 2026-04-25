@@ -10,7 +10,8 @@ import type { Message, ToolDefinition } from '../../types/message.js';
 import type { LLMService } from '../../foundation/llm/index.js';
 import type { IToolExecutor, ExecContext, ToolRegistry } from '../tools/executor.js';
 import type { SessionManager } from '../../foundation/session-store/index.js';
-import { executeStep, type StepCallbacks, type StepMeta, throwAbortError } from './step-executor.js';
+import { executeStep, type StepCallbacks, type StepMeta } from './step-executor.js';
+import { throwAbortError } from './abort-helpers.js';
 import { MaxStepsExceededError, ConsecutiveParseErrorsExceededError, ConsecutiveMaxTokensToolUseError } from '../../types/errors.js';
 import { MAX_CONSECUTIVE_PARSE_ERRORS, MAX_CONSECUTIVE_MAX_TOKENS_TOOL_USE } from '../../constants.js';
 
