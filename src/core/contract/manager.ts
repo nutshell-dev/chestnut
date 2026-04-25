@@ -25,7 +25,7 @@ import { writePendingSubagentTaskFile } from '../task/tools/_pending-task-writer
 import { ReportResultTool } from '../tools/report-result.js';
 import { AuditWriter } from '../../foundation/audit/writer.js';
 import type { Message } from '../../types/message.js';
-import { SkillRegistry } from '../skill/registry.js';
+import { createSkillRegistry } from '../skill/index.js';
 import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
 import { AUDIT_EVENTS } from '../../foundation/audit/events.js';
 
@@ -1342,7 +1342,7 @@ export class ContractManager {
     // 2.2 加载 dispatch-skills（best-effort 退化）
     let skillsSummary = '';
     try {
-      const reg = new SkillRegistry(ctx.motionFs, 'clawspace/dispatch-skills');
+      const reg = createSkillRegistry(ctx.motionFs, 'clawspace/dispatch-skills');
       await reg.loadAll();
       const formatted = reg.formatForContext();
       if (!formatted.includes('No skills loaded')) {

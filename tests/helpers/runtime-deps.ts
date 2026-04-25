@@ -8,7 +8,7 @@ import { JsonlLogger } from '../../src/foundation/monitor/monitor.js';
 import { LLMServiceImpl } from '../../src/foundation/llm/service.js';
 import { ToolRegistryImpl } from '../../src/core/tools/registry.js';
 import { ToolExecutorImpl } from '../../src/core/tools/executor.js';
-import { SkillRegistry } from '../../src/core/skill/registry.js';
+import { createSkillRegistry } from '../../src/core/skill/index.js';
 import { ContractManager } from '../../src/core/contract/manager.js';
 import { TaskSystem } from '../../src/core/task/system.js';
 import { ContextInjector } from '../../src/core/dialog/injector.js';
@@ -45,7 +45,7 @@ export async function makeRuntimeDeps(input: MakeRuntimeDepsInput): Promise<Runt
   });
   const toolRegistry = new ToolRegistryImpl();
   registerBuiltinTools(toolRegistry);
-  const skillRegistry = new SkillRegistry(systemFs, 'skills');
+  const skillRegistry = createSkillRegistry(systemFs, 'skills');
   await skillRegistry.loadAll();
   const verifierRegistry = new ToolRegistryImpl();
   const contractManager = new ContractManager(
