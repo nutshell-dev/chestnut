@@ -37,8 +37,8 @@ import { createHeartbeat, type Heartbeat } from '../core/runtime/index.js';
 import { createCronRunner, parseSchedule, CronRunner } from '../core/cron/index.js';
 import { runDiskMonitor } from '../core/cron/jobs/disk-monitor.js';
 import { runLlmStats } from '../core/cron/jobs/llm-stats.js';
-import { runDeepDream } from '../core/cron/jobs/deep-dream.js';
-import { runRandomDream } from '../core/cron/jobs/random-dream.js';
+import { createMemorySystem } from '../core/memory/index.js';
+import type { MemorySystem } from '../core/memory/index.js';
 import { runContractObserver } from '../core/cron/jobs/contract-observer.js';
 import { buildLLMConfig } from '../cli/config.js';
 import { DEFAULT_MAX_STEPS, DEFAULT_MAX_CONCURRENT_TASKS } from '../constants.js';
@@ -426,6 +426,26 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
       throw new Error(`Assembly: clawforumFs construct failed: ${errMsg(e)}`, { cause: e });
     }
 
+    // --- MemorySystem (L5, motion only) ---
+    let memorySystem: MemorySystem | undefined;
+    if (isMotion) {
+      try {
+        memorySystem = createMemorySystem({
+          clawforumDir,
+          motionDir: clawDir,
+          fs: clawforumFs,
+          audit: auditWriter,
+          taskSystem: runtime.getTaskSystem(),
+          llmService: llm,
+          llmConfig,
+          maxCompressionTokens: globalConfig.cron?.jobs?.dream_trigger?.max_compression_tokens,
+        });
+      } catch (e) {
+        auditWriter.write('assemble_failed', `module=memory_system`, `phase=construct`, `reason=${errMsg(e)}`);
+        throw new Error(`Assembly: MemorySystem construct failed: ${errMsg(e)}`, { cause: e });
+      }
+    }
+
     try {
       cronRunner = createCronRunner([
         {
@@ -455,20 +475,8 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
           enabled: globalConfig.cron?.jobs?.dream_trigger?.enabled ?? false,
           schedule: parseSchedule(globalConfig.cron?.jobs?.dream_trigger?.schedule ?? 'daily:04:00', auditWriter),
           handler: async () => {
-            await runDeepDream({
-              clawforumDir,
-              llmConfig,
-              maxCompressionTokens: globalConfig.cron?.jobs?.dream_trigger?.max_compression_tokens,
-              fs: clawforumFs,
-              audit: auditWriter,
-            });
-            await runRandomDream({
-              clawforumDir,
-              motionDir: clawDir,
-              taskSystem: runtime.getTaskSystem(),
-              fs: clawforumFs,
-              audit: auditWriter,
-            });
+            await memorySystem!.runDeepDream();
+            await memorySystem!.runRandomDream();
           },
         },
         {

@@ -96,12 +96,13 @@ vi.mock('../../src/core/cron/jobs/llm-stats.js', () => ({
   runLlmStats: vi.fn(),
 }));
 
-vi.mock('../../src/core/cron/jobs/deep-dream.js', () => ({
+const mockMemorySystem = {
   runDeepDream: vi.fn(),
-}));
-
-vi.mock('../../src/core/cron/jobs/random-dream.js', () => ({
   runRandomDream: vi.fn(),
+};
+
+vi.mock('../../src/core/memory/index.js', () => ({
+  createMemorySystem: vi.fn(() => mockMemorySystem),
 }));
 
 vi.mock('../../src/core/cron/jobs/contract-observer.js', () => ({
@@ -520,14 +521,14 @@ describe('assemble', () => {
 
     const { runDiskMonitor } = await import('../../src/core/cron/jobs/disk-monitor.js');
     const { runLlmStats } = await import('../../src/core/cron/jobs/llm-stats.js');
-    const { runDeepDream } = await import('../../src/core/cron/jobs/deep-dream.js');
-    const { runRandomDream } = await import('../../src/core/cron/jobs/random-dream.js');
+    const { createMemorySystem } = await import('../../src/core/memory/index.js');
     const { runContractObserver } = await import('../../src/core/cron/jobs/contract-observer.js');
 
     expect(runDiskMonitor).toHaveBeenCalled();
     expect(runLlmStats).toHaveBeenCalled();
-    expect(runDeepDream).toHaveBeenCalled();
-    expect(runRandomDream).toHaveBeenCalled();
+    expect(createMemorySystem).toHaveBeenCalled();
+    expect(mockMemorySystem.runDeepDream).toHaveBeenCalled();
+    expect(mockMemorySystem.runRandomDream).toHaveBeenCalled();
     expect(runContractObserver).toHaveBeenCalled();
   });
 

@@ -1,19 +1,18 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import type { FileSystem } from '../../../foundation/fs/types.js';
-import type { Audit } from '../../../foundation/audit/index.js';
-import { LLMServiceImpl } from '../../../foundation/llm/service.js';
-import type { LLMServiceConfig } from '../../../foundation/llm/types.js';
-import { createLLMAuditSink } from '../../../foundation/llm/index.js';
-import type { Message, ContentBlock, TextBlock, LLMResponse } from '../../../types/message.js';
-import { InboxWriter } from '../../../foundation/messaging/index.js';
-import { AuditWriter } from '../../../foundation/audit/index.js';
+import type { FileSystem } from '../../foundation/fs/types.js';
+import type { Audit } from '../../foundation/audit/index.js';
+import type { LLMService } from '../../foundation/llm/index.js';
+import type { LLMServiceConfig } from '../../foundation/llm/types.js';
+import type { Message, ContentBlock, TextBlock, LLMResponse } from '../../types/message.js';
+import { InboxWriter } from '../../foundation/messaging/index.js';
+import { AuditWriter } from '../../foundation/audit/index.js';
 import {
   DEEP_DREAM_SYSTEM_PROMPT,
   buildDreamInput,
   COMPRESSION_PROMPT,
   META_COMPRESSION_PROMPT,
-} from '../../../prompts/deep-dream.js';
+} from './prompts/deep-dream.js';
 
 // ─── 类型定义 ───────────────────────────────────────────────
 
@@ -25,6 +24,7 @@ interface DreamStateData {
 export interface DeepDreamOptions {
   clawforumDir: string;                  // .clawforum/ 根目录
   llmConfig: LLMServiceConfig;
+  llmService: LLMService;                // ← 注入的 LLM 实例（修 N1）
   maxCompressionTokens?: number;         // 压缩上限（token 估算），默认 4000
   fs: FileSystem;
   audit: Audit;
@@ -125,7 +125,7 @@ function discoverUnprocessed(clawDir: string, state: DreamStateData, today: stri
 async function maybeMergeCompressions(
   compressions: string[],
   maxTokens: number,
-  llm: LLMServiceImpl,
+  llm: LLMService,
 ): Promise<string[]> {
   const total = estimateTokens(compressions.join(''));
   if (total <= maxTokens) return compressions;
@@ -145,7 +145,7 @@ async function maybeMergeCompressions(
 async function runDeepDreamForClaw(
   clawId: string,
   clawDir: string,
-  llm: LLMServiceImpl,
+  llm: LLMService,
   maxCompressionTokens: number,
   fileSystem: FileSystem,
   audit: Audit,
@@ -268,21 +268,18 @@ export async function runDeepDream(opts: DeepDreamOptions): Promise<void> {
 
   if (clawIds.length === 0) return;
 
-  const llm = new LLMServiceImpl({ ...opts.llmConfig, events: createLLMAuditSink(opts.audit) });
+  const llm = opts.llmService;   // ← 使用注入的 LLM（修 N1）
 
-  try {
-    // 串行处理每个 claw
-    for (const clawId of clawIds) {
-      const clawDir = path.join(clawsDir, clawId);
-      try {
-        await runDeepDreamForClaw(clawId, clawDir, llm, maxCompressionTokens, opts.fs, opts.audit);
-      } catch (err) {
-        opts.audit.write('cron_deep_dream_error', `step=unexpected`, `clawId=${clawId}`, `reason=${err instanceof Error ? err.message : String(err)}`);
-        console.error(`[cron:deep-dream] ${clawId}: unexpected error:`, err);
-        // 单 claw 失败不阻断其他 claw
-      }
+  // 串行处理每个 claw
+  for (const clawId of clawIds) {
+    const clawDir = path.join(clawsDir, clawId);
+    try {
+      await runDeepDreamForClaw(clawId, clawDir, llm, maxCompressionTokens, opts.fs, opts.audit);
+    } catch (err) {
+      opts.audit.write('cron_deep_dream_error', `step=unexpected`, `clawId=${clawId}`, `reason=${err instanceof Error ? err.message : String(err)}`);
+      console.error(`[cron:deep-dream] ${clawId}: unexpected error:`, err);
+      // 单 claw 失败不阻断其他 claw
     }
-  } finally {
-    await llm.close();
   }
+  // 注意：不再调 llm.close() —— LLM 生命周期由 Assembly 管理
 }

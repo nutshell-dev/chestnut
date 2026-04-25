@@ -1,17 +1,17 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import type { FileSystem } from '../../../foundation/fs/types.js';
-import type { Audit } from '../../../foundation/audit/index.js';
-import type { TaskSystem } from '../../task/system.js';
-import { writePendingSubagentTaskFile } from '../../task/tools/_pending-task-writer.js';
-import { TOOL_PROFILES } from '../../tools/profiles.js';
-import { InboxWriter } from '../../../foundation/messaging/index.js';
-import { AuditWriter } from '../../../foundation/audit/index.js';
-import { DEFAULT_LLM_IDLE_TIMEOUT_MS } from '../../../constants.js';
+import type { FileSystem } from '../../foundation/fs/types.js';
+import type { Audit } from '../../foundation/audit/index.js';
+import type { TaskSystem } from '../task/system.js';
+import { writePendingSubagentTaskFile } from '../task/tools/_pending-task-writer.js';
+import { TOOL_PROFILES } from '../tools/profiles.js';
+import { InboxWriter } from '../../foundation/messaging/index.js';
+import { AuditWriter } from '../../foundation/audit/index.js';
+import { DEFAULT_LLM_IDLE_TIMEOUT_MS } from '../../constants.js';
 import {
   RANDOM_DREAM_SYSTEM_PROMPT,
   buildRandomDreamPrompt,
-} from '../../../prompts/random-dream.js';
+} from './prompts/random-dream.js';
 // ─── 类型定义 ────────────────────────────────────────────────
 
 export interface RandomDreamOptions {
