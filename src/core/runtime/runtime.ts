@@ -24,7 +24,7 @@ import { runReact } from '../react/loop.js';
 import { summarizeLastExit } from './last-exit-summary.js';
 import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../../types/signals.js';
 import type { ToolResult } from '../tools/executor.js';
-import { AUDIT_EVENTS } from '../../foundation/audit/events.js';
+import { RUNTIME_AUDIT_EVENTS } from './runtime-audit-events.js';
 import { CLAW_SUBDIRS } from '../../types/paths.js';
 import { oneLine } from '../../types/utils.js';
 import { MaxStepsExceededError } from '../../types/errors.js';
@@ -527,10 +527,10 @@ export class ClawRuntime {
           callbacks?.onProviderFailed?.({ provider, model, error });
         },
         onEmptyResponse: (stopReason) => {
-          this.auditWriter.write(AUDIT_EVENTS.LLM_EMPTY_RESPONSE, `stop_reason=${stopReason}`);
+          this.auditWriter.write(RUNTIME_AUDIT_EVENTS.LLM_EMPTY_RESPONSE, `stop_reason=${stopReason}`);
         },
         onUnknownStopReason: (stopReason) => {
-          this.auditWriter.write(AUDIT_EVENTS.LLM_UNKNOWN_STOP_REASON, `stop_reason=${stopReason}`);
+          this.auditWriter.write(RUNTIME_AUDIT_EVENTS.LLM_UNKNOWN_STOP_REASON, `stop_reason=${stopReason}`);
         },
       });
     await this.sessionManager.save(messages);
@@ -620,7 +620,7 @@ export class ClawRuntime {
       ) {
         const errorMsg = err instanceof Error ? err.message : String(err);
         this.auditWriter.write(
-          AUDIT_EVENTS.RUNTIME_PROCESS_BATCH_FAILED,
+          RUNTIME_AUDIT_EVENTS.PROCESS_BATCH_FAILED,
           'context=Runtime.processBatch',
           `error=${errorMsg}`,
         );

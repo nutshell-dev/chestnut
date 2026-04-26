@@ -11,7 +11,6 @@ import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 import { ProcessManager } from '../../src/foundation/process-manager/index.js';
 import { createSystemAudit } from '../../src/foundation/audit/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
-import { AUDIT_EVENTS } from '../../src/foundation/audit/events.js';
 
 describe('ProcessManager', () => {
   let tempDir: string;

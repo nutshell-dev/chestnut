@@ -83,7 +83,7 @@ import { setTimeout as setTimeoutP } from 'timers/promises';
 import { createProcessManagerForCLI } from '../../src/cli/cli-factories.js';
 import { AuditWriter } from '../../src/foundation/audit/writer.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
-import { AUDIT_EVENTS } from '../../src/foundation/audit/events.js';
+import { WATCHDOG_AUDIT_EVENTS } from '../../src/watchdog/audit-events.js';
 
 // ─── Step 1: fix-4 existing tests (N1 audit parameter fix) ───────────────────
 
@@ -148,7 +148,7 @@ describe('maybeCronClawInactivity — fix 4: per-claw error isolation', () => {
 
     await maybeCronClawInactivity(mockPm, mockAudit);
 
-    const scanCall = calls.find(([type]) => type === AUDIT_EVENTS.WATCHDOG_CLAW_SCAN);
+    const scanCall = calls.find(([type]) => type === WATCHDOG_AUDIT_EVENTS.CLAW_SCAN);
     expect(scanCall).toBeDefined();
     expect(scanCall![1]).toContain('ctx=inactivity');
     expect(scanCall![1]).toContain('claw-a');
@@ -187,7 +187,7 @@ describe('logWithAudit — A1 clearance', () => {
     setAuditWriter(auditWriter);
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-    logWithAudit('test message', AUDIT_EVENTS.WATCHDOG_CLEANUP_FAILED, 'test payload');
+    logWithAudit('test message', WATCHDOG_AUDIT_EVENTS.CLEANUP_FAILED, 'test payload');
 
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('test message'));
 
@@ -218,7 +218,7 @@ describe('logWithAudit — A1 clearance', () => {
     setAuditWriter(null);
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-    expect(() => logWithAudit('null audit message', AUDIT_EVENTS.WATCHDOG_CLEANUP_FAILED)).not.toThrow();
+    expect(() => logWithAudit('null audit message', WATCHDOG_AUDIT_EVENTS.CLEANUP_FAILED)).not.toThrow();
 
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('null audit message'));
 
@@ -652,7 +652,7 @@ describe('maybeCronClawCrash — crash audit', () => {
     maybeCronClawCrash(mockPm, mockAudit as any);
 
     expect(mockAudit.write).toHaveBeenCalledWith(
-      AUDIT_EVENTS.CLAW_CRASH_DETECTED,
+      WATCHDOG_AUDIT_EVENTS.CLAW_CRASH_DETECTED,
       expect.stringContaining(clawId),
     );
   });
@@ -674,7 +674,7 @@ describe('maybeCronClawCrash — crash audit', () => {
     maybeCronClawCrash(mockPm, mockAudit as any);
 
     expect(mockAudit.write).toHaveBeenCalledWith(
-      AUDIT_EVENTS.CLAW_CRASH_NOTIFY_DROPPED,
+      WATCHDOG_AUDIT_EVENTS.CLAW_CRASH_NOTIFY_DROPPED,
       expect.stringContaining(clawId),
       expect.stringContaining('disk full'),
     );
@@ -692,7 +692,7 @@ describe('maybeCronClawCrash — crash audit', () => {
     maybeCronClawCrash(mockPm, mockAudit as any);
 
     const calls = vi.mocked(mockAudit.write).mock.calls;
-    const scanCall = calls.find(([type]) => type === AUDIT_EVENTS.WATCHDOG_CLAW_SCAN);
+    const scanCall = calls.find(([type]) => type === WATCHDOG_AUDIT_EVENTS.CLAW_SCAN);
     expect(scanCall).toBeDefined();
     expect(scanCall![1]).toContain('ctx=crash');
     expect(scanCall![1]).toContain(clawId);
@@ -707,7 +707,7 @@ describe('writeWatchdogCrash', () => {
     writeWatchdogCrash(new Error('test crash'));
 
     expect(mockAudit.write).toHaveBeenCalledWith(
-      AUDIT_EVENTS.WATCHDOG_CRASH,
+      WATCHDOG_AUDIT_EVENTS.CRASH,
       expect.stringContaining('test crash'),
     );
 
@@ -752,7 +752,7 @@ describe('loadWatchdogState / saveWatchdogState — A2+A3+A4', () => {
 
     expect(() => loadWatchdogState()).not.toThrow();
     expect(mockAudit.write).not.toHaveBeenCalledWith(
-      AUDIT_EVENTS.WATCHDOG_STATE_LOAD_FAILED,
+      WATCHDOG_AUDIT_EVENTS.STATE_LOAD_FAILED,
       expect.any(String),
     );
   });
@@ -767,7 +767,7 @@ describe('loadWatchdogState / saveWatchdogState — A2+A3+A4', () => {
     loadWatchdogState();
 
     expect(mockAudit.write).toHaveBeenCalledWith(
-      AUDIT_EVENTS.WATCHDOG_STATE_LOAD_FAILED,
+      WATCHDOG_AUDIT_EVENTS.STATE_LOAD_FAILED,
       expect.stringContaining('backup='),
     );
     expect(fs.existsSync(stateFile)).toBe(false);

@@ -23,7 +23,7 @@ import { AuditWriter } from '../foundation/audit/writer.js';
 import { createDirContext, createProcessManagerForCLI } from '../cli/cli-factories.js';
 import { InboxWriter } from '../foundation/messaging/index.js';
 import { type ClawActivityInfo, LLM_OUTPUT_EVENTS, getClawActivityInfo, clawHasContract, getContractCreatedMs, type ClawSnapshot, type ProcessLiveness, gatherClawSnapshot, getEffectiveInterval, shouldResetNotifyCount } from './watchdog-utils.js';
-import { AUDIT_EVENTS } from '../foundation/audit/events.js';
+import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 
 // Get the .clawforum/ directory (CLAWFORUM_ROOT takes priority)
 function getClawforumDir(): string {
@@ -207,7 +207,7 @@ export function loadWatchdogState(): void {
       // rename 失败不重试
     }
     _auditWriter?.write(
-      AUDIT_EVENTS.WATCHDOG_STATE_LOAD_FAILED,
+      WATCHDOG_AUDIT_EVENTS.STATE_LOAD_FAILED,
       `backup=${backupPath} err=${(err as Error).message?.slice(0, 200) ?? String(err)}`,
     );
   }
@@ -242,7 +242,7 @@ export function setAuditWriter(auditWriter: AuditWriter | null): void {
 
 export function writeWatchdogCrash(err: Error): void {
   try {
-    _auditWriter?.write(AUDIT_EVENTS.WATCHDOG_CRASH, `err=${err.message?.slice(0, 200) ?? String(err)}`);
+    _auditWriter?.write(WATCHDOG_AUDIT_EVENTS.CRASH, `err=${err.message?.slice(0, 200) ?? String(err)}`);
   } catch { /* ignore: crash handler 不抛 */ }
 }
 
@@ -260,7 +260,7 @@ export async function maybeCronClawInactivity(pm: ProcessManager, audit: AuditWr
       return false;
     }
   }));
-  audit.write(AUDIT_EVENTS.WATCHDOG_CLAW_SCAN, `ctx=inactivity present=${[...existingClawIds].join(',')}`);
+  audit.write(WATCHDOG_AUDIT_EVENTS.CLAW_SCAN, `ctx=inactivity present=${[...existingClawIds].join(',')}`);
   for (const id of lastInactivityNotified.keys()) {
     if (!existingClawIds.has(id)) {
       lastInactivityNotified.delete(id);
@@ -343,7 +343,7 @@ export function maybeCronClawCrash(pm: ProcessManager, audit: AuditWriter): void
       return false;
     }
   }));
-  audit.write(AUDIT_EVENTS.WATCHDOG_CLAW_SCAN, `ctx=crash present=${[...existingClawIds].join(',')}`);
+  audit.write(WATCHDOG_AUDIT_EVENTS.CLAW_SCAN, `ctx=crash present=${[...existingClawIds].join(',')}`);
   for (const id of clawPreviouslyAlive.keys()) {
     if (!existingClawIds.has(id)) {
       clawPreviouslyAlive.delete(id);
@@ -363,7 +363,7 @@ export function maybeCronClawCrash(pm: ProcessManager, audit: AuditWriter): void
         continue;
       }
       log(`[watchdog] Claw ${clawId} crashed (was alive, now stopped)`);
-      audit.write(AUDIT_EVENTS.CLAW_CRASH_DETECTED, `claw=${clawId}`);
+      audit.write(WATCHDOG_AUDIT_EVENTS.CLAW_CRASH_DETECTED, `claw=${clawId}`);
 
       // Collect snapshot info
       const snapshot = gatherClawSnapshot(clawDir, pm, clawId);
@@ -379,7 +379,7 @@ export function maybeCronClawCrash(pm: ProcessManager, audit: AuditWriter): void
           filenameTag: 'claw_crash',
         });
       } catch (err) {
-        audit.write(AUDIT_EVENTS.CLAW_CRASH_NOTIFY_DROPPED, `claw=${clawId}`, `err=${err instanceof Error ? err.message : String(err)}`);
+        audit.write(WATCHDOG_AUDIT_EVENTS.CLAW_CRASH_NOTIFY_DROPPED, `claw=${clawId}`, `err=${err instanceof Error ? err.message : String(err)}`);
       }
     }
 
@@ -456,7 +456,7 @@ export async function runWatchdogLoop(): Promise<void> {
         // First clean up any stale PID file that may exist
         await pm.stop('motion').catch((e) => {
           const msg = `[watchdog] Failed to clean up motion before restart: ${e instanceof Error ? e.message : String(e)}`;
-          logWithAudit(msg, AUDIT_EVENTS.WATCHDOG_CLEANUP_FAILED, msg.slice(0, 200));
+          logWithAudit(msg, WATCHDOG_AUDIT_EVENTS.CLEANUP_FAILED, msg.slice(0, 200));
         });
         const thisDir = path.dirname(fileURLToPath(import.meta.url));
         const bundleEntry = path.join(thisDir, 'daemon-entry.js');

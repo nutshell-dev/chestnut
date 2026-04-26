@@ -14,7 +14,6 @@ import * as os from 'os';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { SessionManager } from '../../src/foundation/session-store/index.js';
 import type { Message } from '../../src/types/message.js';
-import { AUDIT_EVENTS } from '../../src/foundation/audit/events.js';
 import { SESSION_AUDIT_EVENTS } from '../../src/foundation/session-store/audit-events.js';
 
 describe('Session Persistence', () => {

@@ -6,7 +6,6 @@ import * as os from 'os';
 
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { StreamWriter } from '../../src/foundation/stream/index.js';
-import { AUDIT_EVENTS } from '../../src/foundation/audit/events.js';
 import { STREAM_AUDIT_EVENTS } from '../../src/foundation/stream/audit-events.js';
 import { makeAudit } from '../helpers/audit.js';
 

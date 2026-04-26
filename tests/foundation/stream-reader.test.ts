@@ -6,7 +6,6 @@ import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
 import { StreamWriter, createStreamReader, STREAM_FILE, type StreamReader, type StreamEvent } from '../../src/foundation/stream/index.js';
 import { makeAudit } from '../helpers/audit.js';
-import { AUDIT_EVENTS } from '../../src/foundation/audit/events.js';
 import { STREAM_AUDIT_EVENTS } from '../../src/foundation/stream/audit-events.js';
 
 const TIMEOUT_MS = 10000;

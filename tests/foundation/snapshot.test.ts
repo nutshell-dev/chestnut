@@ -10,7 +10,6 @@ import * as path from 'path';
 import * as os from 'os';
 import { Snapshot } from '../../src/foundation/snapshot/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
-import { AUDIT_EVENTS } from '../../src/foundation/audit/events.js';
 import { SNAPSHOT_AUDIT_EVENTS } from '../../src/foundation/snapshot/audit-events.js';
 
 // git 必须可用才能跑这些测试

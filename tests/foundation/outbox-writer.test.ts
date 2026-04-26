@@ -6,7 +6,6 @@ import { randomUUID } from 'crypto';
 
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { OutboxWriter } from '../../src/foundation/messaging/index.js';
-import { AUDIT_EVENTS } from '../../src/foundation/audit/events.js';
 import { MESSAGING_AUDIT_EVENTS } from '../../src/foundation/messaging/audit-events.js';
 import { makeAudit } from '../helpers/audit.js';
 
