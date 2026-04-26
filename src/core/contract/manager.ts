@@ -18,11 +18,11 @@ import { ProcessExecError } from '../../foundation/process-exec/index.js';
 import { LOCK_MAX_RETRIES, LOCK_RETRY_DELAY_MS, LOCK_STALE_TIMEOUT_MS, CONTRACT_SCRIPT_TIMEOUT_MS, DEFAULT_LLM_IDLE_TIMEOUT_MS, DEFAULT_MAX_STEPS } from '../../constants.js';
 import { CONTRACT_VERIFIER_SYSTEM_PROMPT } from '../../prompts/subagent.js';
 import { InboxWriter } from '../../foundation/messaging/index.js';
-import { createSubAgent, NoopStreamWriter, NoopAuditWriter } from '../subagent/index.js';
 import { ToolRegistryImpl } from '../tools/registry.js';
 import { buildRetroPrompt } from '../../prompts/retrospective.js';
 import { writePendingSubagentTaskFile } from '../task/tools/_pending-task-writer.js';
-import { ReportResultTool } from '../tools/report-result.js';
+import type { ContractVerifierScheduler } from './verifier-scheduler.js';
+import { createSubAgentVerifierScheduler } from './verifier-scheduler.js';
 import { AuditWriter } from '../../foundation/audit/writer.js';
 import type { Message } from '../../types/message.js';
 import { createSkillRegistry } from '../skill/index.js';
@@ -106,6 +106,7 @@ export class ContractManager {
   private readonly audit: AuditWriter;
   private llm?: LLMService;
   private verifierRegistry?: ToolRegistryImpl;
+  private verifierScheduler: ContractVerifierScheduler;
   private activeDir = 'contract/active';
   private pausedDir = 'contract/paused';
   private archiveDir = 'contract/archive';
@@ -120,6 +121,7 @@ export class ContractManager {
     llm?: LLMService,
     verifierRegistry?: ToolRegistryImpl,
     auditWriter?: AuditWriter,
+    verifierScheduler?: ContractVerifierScheduler,
   ) {
     this.auditWriter = auditWriter;
     this.clawDir = clawDir;
@@ -128,6 +130,7 @@ export class ContractManager {
     this.audit = audit;
     this.llm = llm;
     this.verifierRegistry = verifierRegistry;
+    this.verifierScheduler = verifierScheduler ?? createSubAgentVerifierScheduler();
   }
 
   setOnNotify(cb: (type: string, data: Record<string, unknown>) => void): void {
@@ -1173,22 +1176,15 @@ export class ContractManager {
         .replace(/\{\{artifacts\}\}/g, artifacts.join(', '))
         .replace(/\{\{subtask_description\}\}/g, subtaskDesc);
 
-      // Build verifier registry: existing tools + report_result tool
-      const reportTool = new ReportResultTool();
-      const registry = new ToolRegistryImpl();
-      for (const t of (this.verifierRegistry ?? new ToolRegistryImpl()).getAll()) {
-        registry.register(t);
-      }
-      registry.register(reportTool);
-
-      // Create SubAgent for verification
-      const agent = createSubAgent({
+      // Delegate to ContractVerifierScheduler port
+      const result = await this.verifierScheduler.schedule({
         agentId: `verifier-${contractId}-${subtaskId}`,
         prompt: filledPrompt,
+        systemPrompt: CONTRACT_VERIFIER_SYSTEM_PROMPT,
         clawDir: this.clawDir,
-        llm: this.llm,
-        registry,
-        fs: this.fs as any,
+        llm: this.llm!,
+        registry: this.verifierRegistry ?? new ToolRegistryImpl(),
+        fs: this.fs,
         maxSteps: DEFAULT_MAX_STEPS,
         idleTimeoutMs: DEFAULT_LLM_IDLE_TIMEOUT_MS,
         onIdleTimeout: () => {
@@ -1198,37 +1194,8 @@ export class ContractManager {
             `claw=${this.clawId}`,
           );
         },
-        systemPrompt: CONTRACT_VERIFIER_SYSTEM_PROMPT,
-        taskStreamWriter: new NoopStreamWriter(),
-        auditWriter: new NoopAuditWriter(),
       });
-
-      // Run verification
-      const text = await agent.run();
-
-      // Prefer structured tool call result (guaranteed valid JSON via native tool calling)
-      if (reportTool.capturedResult) {
-        return {
-          passed: reportTool.capturedResult.passed,
-          feedback: JSON.stringify(reportTool.capturedResult),
-          structured: reportTool.capturedResult,
-        };
-      }
-
-      // Fallback: text-based JSON parsing (backward compat with old prompt files)
-      const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```/) || text.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        return { passed: false, feedback: `LLM 返回格式错误: 无法解析 JSON — ${text}` };
-      }
-
-      const jsonStr = jsonMatch[1] || jsonMatch[0];
-      const result = JSON.parse(jsonStr) as { passed: boolean; reason: string; issues?: string[] };
-
-      return {
-        passed: result.passed,
-        feedback: jsonStr,
-        structured: result,
-      };
+      return result;
     } catch (err) {
       if (err instanceof ToolTimeoutError) {
         return { passed: false, feedback: '验收子代理超时' };

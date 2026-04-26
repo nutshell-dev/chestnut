@@ -17,6 +17,7 @@ import { createToolRegistry, type ToolRegistryImpl } from '../core/tools/index.j
 import { createToolExecutor, type ToolExecutorImpl } from '../core/tools/index.js';
 import { createSkillRegistry, SkillRegistry } from '../core/skill/index.js';
 import { ContractManager, createContractManager } from '../core/contract/index.js';
+import { createSubAgentVerifierScheduler } from '../core/contract/verifier-scheduler.js';
 import { createTaskSystem } from '../core/task/index.js';
 import type { TaskSystem } from '../core/task/system.js';
 import { createContextInjector, type ContextInjector } from '../core/dialog/index.js';
@@ -189,6 +190,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
     }
     contractManager = createContractManager(
       clawDir, clawId, systemFs, auditWriter, llm, verifierRegistry, auditWriter,
+      createSubAgentVerifierScheduler(),
     );
   } catch (e) {
     auditWriter.write('assemble_failed', `module=contract_manager`, `phase=construct`, `reason=${errMsg(e)}`);
