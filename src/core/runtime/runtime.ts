@@ -18,33 +18,31 @@ import type { OutboxWriteOptions } from '../../foundation/messaging/index.js';
 import type { SessionData } from '../../foundation/session-store/index.js';
 import { InboxWriter, InboxListFailed, InboxMoveFailed } from '../../foundation/messaging/index.js';
 
-
-import { LLMServiceImpl } from '../../foundation/llm/service.js';
-
 import { SessionManager } from '../../foundation/session-store/index.js';
-import { ContextInjector } from '../dialog/injector.js';
-import { ToolRegistryImpl } from '../tools/registry.js';
-import { ToolExecutorImpl } from '../tools/executor.js';
-import { ExecContextImpl } from '../tools/context.js';
-import { registerBuiltinTools } from '../tools/builtins/index.js';
-import { DispatchTool } from '../task/tools/dispatch.js';
+import { DispatchTool } from './dispatch.js';
 import { runReact } from '../react/loop.js';
 import { summarizeLastExit } from './last-exit-summary.js';
 import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../../types/signals.js';
 import type { ToolResult } from '../tools/executor.js';
-import { AuditWriter } from '../../foundation/audit/writer.js';
 import { AUDIT_EVENTS } from '../../foundation/audit/events.js';
-import { InboxReader } from '../../foundation/messaging/index.js';
-import { OutboxWriter } from '../../foundation/messaging/index.js';
-import { TaskSystem } from '../task/system.js';
-import { SkillRegistry } from '../skill/registry.js';
-import { ContractManager } from '../contract/manager.js';
 import { CLAW_SUBDIRS } from '../../types/paths.js';
 import { oneLine } from '../../types/utils.js';
-import { Snapshot } from '../../foundation/snapshot/index.js';
-import { SNAPSHOT_IGNORE_PATTERNS } from '../../foundation/snapshot/index.js';
 import { MaxStepsExceededError } from '../../types/errors.js';
 import { MOTION_CLAW_ID, DEFAULT_LLM_IDLE_TIMEOUT_MS, DEFAULT_MAX_STEPS, DEFAULT_MAX_CONCURRENT_TASKS } from '../../constants.js';
+import type {
+  AuditPort,
+  SnapshotPort,
+  SessionStorePort,
+  InboxPort,
+  OutboxPort,
+  ToolRegistryPort,
+  ToolExecutorPort,
+  ContextInjectorPort,
+  ExecContextPort,
+  ContractManagerPort,
+  TaskLifecyclePort,
+  SkillRegistryPort,
+} from './runtime-ports.js';
 
 /**
  * ClawRuntime constructor options
@@ -55,21 +53,21 @@ export interface RuntimeDependencies {
   readonly clawFs: FileSystem;
 
   // === L2 ===
-  readonly auditWriter: AuditWriter;
-  readonly snapshot: Snapshot;
-  readonly sessionManager: SessionManager;
-  readonly inboxReader: InboxReader;
-  readonly outboxWriter: OutboxWriter;
+  readonly auditWriter: AuditPort;
+  readonly snapshot: SnapshotPort;
+  readonly sessionManager: SessionStorePort;
+  readonly inboxReader: InboxPort;
+  readonly outboxWriter: OutboxPort;
 
   // === L3-L5 ===
   readonly llm: LLMService;
-  readonly toolRegistry: ToolRegistryImpl;
-  readonly toolExecutor: ToolExecutorImpl;
-  readonly skillRegistry: SkillRegistry;
-  readonly contractManager: ContractManager;
-  readonly taskSystem: TaskSystem;
-  readonly contextInjector: ContextInjector;
-  readonly execContext: ExecContextImpl;
+  readonly toolRegistry: ToolRegistryPort;
+  readonly toolExecutor: ToolExecutorPort;
+  readonly skillRegistry: SkillRegistryPort;
+  readonly contractManager: ContractManagerPort;
+  readonly taskSystem: TaskLifecyclePort;
+  readonly contextInjector: ContextInjectorPort;
+  readonly execContext: ExecContextPort;
 
   // 构造期注入（phase182 B.p166-5 升档：setter 双阶段消除）
   readonly parentStreamLog?: import('../../foundation/stream/types.js').StreamLog;
@@ -91,10 +89,10 @@ export interface ClawRuntimeOptions {
 
   // Motion/claw 身份差异由 Assembly 按 identity 分支注入（phase266 消除 MotionRuntime subclass）
   systemPromptBuilder?: (params: {
-    contextInjector: ContextInjector;
+    contextInjector: ContextInjectorPort;
     systemFs: FileSystem;
   }) => Promise<string>;
-  identityToolFilter?: (registry: ToolRegistryImpl) => void;
+  identityToolFilter?: (registry: ToolRegistryPort) => void;
 }
 
 /**
@@ -132,7 +130,7 @@ export class ClawRuntime {
   protected initialized = false;
   private currentAbortController: AbortController | null = null;
   private turnCount = 0;
-  protected auditWriter!: AuditWriter;
+  protected auditWriter!: AuditPort;
 
   // Foundation
   /**
@@ -144,21 +142,21 @@ export class ClawRuntime {
   protected llm!: LLMService;
 
   // Core
-  protected sessionManager!: SessionManager;
+  protected sessionManager!: SessionStorePort;
   /**
    * @protected allows subclasses such as MotionRuntime to call buildParts() to customize prompt injection order
    * Note: subclasses should treat this as read-only and must not modify injector state
    */
-  protected contextInjector!: ContextInjector;
-  protected toolRegistry!: ToolRegistryImpl;
-  private taskSystem!: TaskSystem;
-  private skillRegistry!: SkillRegistry;
-  private contractManager!: ContractManager;
-  protected execContext!: ExecContextImpl;
-  protected toolExecutor!: ToolExecutorImpl;
-  private inboxReader!: InboxReader;
-  private outboxWriter!: OutboxWriter;
-  private snapshot!: Snapshot;
+  protected contextInjector!: ContextInjectorPort;
+  protected toolRegistry!: ToolRegistryPort;
+  private taskSystem!: TaskLifecyclePort;
+  private skillRegistry!: SkillRegistryPort;
+  private contractManager!: ContractManagerPort;
+  protected execContext!: ExecContextPort;
+  protected toolExecutor!: ToolExecutorPort;
+  private inboxReader!: InboxPort;
+  private outboxWriter!: OutboxPort;
+  private snapshot!: SnapshotPort;
 
   constructor(options: ClawRuntimeOptions) {
     this.options = {
@@ -892,7 +890,7 @@ export class ClawRuntime {
   /**
    * Get TaskSystem instance (for retrospective scheduling)
    */
-  getTaskSystem(): TaskSystem {
+  getTaskSystem(): TaskLifecyclePort {
     return this.taskSystem;
   }
 
@@ -927,7 +925,7 @@ export class ClawRuntime {
     }
   }
 
-  getAuditWriter(): AuditWriter {
+  getAuditWriter(): AuditPort {
     return this.auditWriter;
   }
 

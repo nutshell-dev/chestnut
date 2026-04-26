@@ -1,6 +1,6 @@
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { Audit } from '../../foundation/audit/index.js';
-import type { TaskSystem } from '../task/system.js';
+import type { TaskLifecyclePort } from '../runtime/runtime-ports.js';
 import type { LLMService } from '../../foundation/llm/index.js';
 import type { LLMServiceConfig } from '../../foundation/llm/types.js';
 import { runDeepDream } from './deep-dream.js';
@@ -11,7 +11,7 @@ export interface MemorySystemOptions {
   motionDir: string;
   fs: FileSystem;
   audit: Audit;
-  taskSystem: TaskSystem;
+  taskSystem: TaskLifecyclePort;
   llmService: LLMService;        // ← 注入 LLM（修 N1）
   llmConfig: LLMServiceConfig;   // deep-dream 内部仍需 config（state file 路径等）
   maxCompressionTokens?: number;

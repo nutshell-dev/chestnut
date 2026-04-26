@@ -13,7 +13,7 @@
  */
 
 import { ClawRuntime, type ClawRuntimeOptions } from './runtime.js';
-import type { ContextInjector } from '../dialog/injector.js';
+import type { ContextInjectorPort } from './runtime-ports.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 
 export type CreateRuntimeOptions = ClawRuntimeOptions & {
@@ -25,7 +25,7 @@ async function buildMotionSystemPrompt({
   contextInjector,
   systemFs,
 }: {
-  contextInjector: ContextInjector;
+  contextInjector: ContextInjectorPort;
   systemFs: FileSystem;
 }): Promise<string> {
   const parts = await contextInjector.buildParts();

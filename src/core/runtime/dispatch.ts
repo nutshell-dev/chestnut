@@ -1,17 +1,17 @@
-import type { Tool, ToolResult, ExecContext } from '../../tools/executor.js';
-import type { TaskSystem } from '../system.js';
-import type { Message, ToolDefinition } from '../../../types/message.js';
-import { createSkillRegistry } from '../../skill/index.js';
-import { ToolRegistryImpl } from '../../tools/registry.js';
-import { DEFAULT_LLM_IDLE_TIMEOUT_MS, DEFAULT_MAX_STEPS } from '../../../constants.js';
-import { buildDescribingUserMessage, buildMinerSystemPrompt, buildMiningUserMessage } from '../../../prompts/index.js';
-import { AskMotionTool } from './ask-motion.js';
-import { isDispatchCaller } from '../../tools/caller-type.js';
-import { writePendingSubagentTaskFile } from './_pending-task-writer.js';
-import { AUDIT_EVENTS } from '../../../foundation/audit/events.js';
+import type { Tool, ToolResult, ExecContext } from '../tools/executor.js';
+import type { TaskLifecyclePort } from './runtime-ports.js';
+import type { Message, ToolDefinition } from '../../types/message.js';
+import { createSkillRegistry } from '../skill/index.js';
+import { ToolRegistryImpl } from '../tools/registry.js';
+import { DEFAULT_LLM_IDLE_TIMEOUT_MS, DEFAULT_MAX_STEPS } from '../../constants.js';
+import { buildDescribingUserMessage, buildMinerSystemPrompt, buildMiningUserMessage } from '../../prompts/index.js';
+import { AskMotionTool } from '../task/tools/ask-motion.js';
+import { isDispatchCaller } from '../tools/caller-type.js';
+import { writePendingSubagentTaskFile } from '../task/tools/_pending-task-writer.js';
+import { AUDIT_EVENTS } from '../../foundation/audit/events.js';
 
 export class DispatchTool implements Tool {
-  taskSystem?: TaskSystem;
+  taskSystem?: TaskLifecyclePort;
 
   readonly name = 'dispatch';
   readonly description = `派发任务，创建契约。支持两种模式：

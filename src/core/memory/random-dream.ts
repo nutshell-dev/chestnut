@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { Audit } from '../../foundation/audit/index.js';
-import type { TaskSystem } from '../task/system.js';
+import type { TaskLifecyclePort } from '../runtime/runtime-ports.js';
 import { writePendingSubagentTaskFile } from '../task/tools/_pending-task-writer.js';
 import { TOOL_PROFILES } from '../tools/profiles.js';
 import { InboxWriter } from '../../foundation/messaging/index.js';
@@ -17,7 +17,7 @@ import {
 export interface RandomDreamOptions {
   clawforumDir: string;
   motionDir: string;
-  taskSystem: TaskSystem;
+  taskSystem: TaskLifecyclePort;
   fs: FileSystem;
   audit: Audit;
 }
