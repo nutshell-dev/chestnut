@@ -570,8 +570,6 @@ export class TaskSystem {
         messages: task.messages,
         originClawId: task.originClawId,
         taskSystem: this,   // dispatcher 的 spawn 工具需要
-        contractManager: this.contractManager,
-        outboxWriter: this.outboxWriter,
         taskStreamWriter: { write: writeTaskEvent },
         auditWriter: taskAuditWriter,
       });

@@ -14,9 +14,7 @@ import { ToolTimeoutError } from '../../types/errors.js';
 import { SUBAGENT_TIMEOUT_MS, DEFAULT_MAX_STEPS } from '../../constants.js';
 import { oneLine } from '../../types/utils.js';
 import { DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../../prompts/index.js';
-import type { TaskSystem } from '../task/system.js';
-import type { OutboxWriter } from '../../foundation/messaging/index.js';
-import type { ContractManager } from '../contract/manager.js';
+import type { TaskScheduler } from '../tools/task-scheduler.js';
 import type { Message } from '../../types/message.js';
 import type { Audit } from '../../foundation/audit/index.js';
 import type { AuditWriter } from '../../foundation/audit/writer.js';
@@ -41,9 +39,7 @@ export interface SubAgentOptions {
   onIdleTimeout?: () => void;
   systemPrompt?: string;                    // 替换 run() 里硬编码的默认 system prompt
   callerType?: CallerType;  // 默认 'subagent'
-  taskSystem?: TaskSystem;                  // dispatch tool addTaskResultHandler 路径需要；透传至 ToolExecutor / ExecContext。phase163 起不再供调度用途。
-  outboxWriter?: OutboxWriter;              // send 工具需要
-  contractManager?: ContractManager;        // contract create / done 工具需要
+  taskSystem?: TaskScheduler;               // dispatch tool addTaskResultHandler 路径需要；透传至 ToolExecutor / ExecContext。phase163 起不再供调度用途。
   subagentMaxSteps?: number;                 // 传给子 SubAgent
   messages?: Message[];                      // 若提供，直接用；否则从 prompt 构建
   originClawId?: string;                     // 创建链路源头，传给子 SubAgent
@@ -69,9 +65,7 @@ export class SubAgent {
   private systemPrompt?: string;
   private callerType?: CallerType;
   /** @see SubAgentOptions.taskSystem */
-  private taskSystem?: TaskSystem;
-  private outboxWriter?: OutboxWriter;
-  private contractManager?: ContractManager;
+  private taskSystem?: TaskScheduler;
   private subagentMaxSteps?: number;
   private messages?: Message[];
   private originClawId?: string;
@@ -96,8 +90,6 @@ export class SubAgent {
     this.systemPrompt = options.systemPrompt;
     this.callerType = options.callerType;
     this.taskSystem = options.taskSystem;
-    this.outboxWriter = options.outboxWriter;
-    this.contractManager = options.contractManager;
     this.subagentMaxSteps = options.subagentMaxSteps;
     this.messages = options.messages;
     this.originClawId = options.originClawId;

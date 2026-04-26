@@ -11,7 +11,7 @@ import type { JSONSchema7 } from '../../types/message.js';
 import type { ToolProfile } from '../../types/config.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { LLMService } from '../../foundation/llm/index.js';
-import type { TaskSystem } from '../task/system.js';
+import type { TaskScheduler } from './task-scheduler.js';
 import type { OutboxWriter } from '../../foundation/messaging/index.js';
 import type { Message } from '../../types/message.js';
 import type { CallerType } from './caller-type.js';
@@ -141,7 +141,7 @@ export interface IToolExecutor {
  * Tool execution implementation
  */
 export class ToolExecutorImpl implements IToolExecutor {
-  protected taskSystem?: TaskSystem;
+  protected taskSystem?: TaskScheduler;
 
   constructor(
     private registry: ToolRegistry,
@@ -336,7 +336,7 @@ export interface ToolExecutorOptions {
   clawDir: string;
   fs: FileSystem;
   llm?: LLMService;
-  taskSystem?: TaskSystem;
+  taskSystem?: TaskScheduler;
   profile?: ToolProfile;
   subagentMaxSteps?: number;
   auditWriter?: Audit;
