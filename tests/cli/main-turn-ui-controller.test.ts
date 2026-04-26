@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createMainTurnUI } from '../../src/cli/commands/chat-viewport.js';
-import { AUDIT_EVENTS } from '../../src/foundation/audit/events.js';
+import { VIEWPORT_AUDIT_EVENTS } from '../../src/cli/commands/viewport-audit-events.js';
 
 describe('MainTurnUIController', () => {
   const makeDeps = () => ({
@@ -35,7 +35,7 @@ describe('MainTurnUIController', () => {
 
     expect(deps.audit.write).toHaveBeenCalledTimes(1);
     expect(deps.audit.write).toHaveBeenCalledWith(
-      AUDIT_EVENTS.VIEWPORT_UI_CROSS_POLLUTION,
+      VIEWPORT_AUDIT_EVENTS.UI_CROSS_POLLUTION,
       'method=setSuffix',
       'source=task',
     );

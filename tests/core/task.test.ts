@@ -20,7 +20,8 @@ import type { StreamChunk } from '../../src/foundation/llm/types.js';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 import { makeAudit } from '../helpers/audit.js';
 import { createTestTaskSystem } from '../helpers/task-system.js';
-import { AUDIT_EVENTS } from '../../src/foundation/audit/events.js';
+import { TASK_AUDIT_EVENTS } from '../../src/core/task/audit-events.js';
+import { SUBAGENT_AUDIT_EVENTS } from '../../src/core/subagent/audit-events.js';
 
 /**
  * Convert LLMResponse to stream chunks for mock
@@ -530,7 +531,7 @@ describe('Task System + SubAgent', () => {
 
       expect(events).toEqual(
         expect.arrayContaining([
-          expect.arrayContaining([AUDIT_EVENTS.TASK_SHUTDOWN_TIMEOUT]),
+          expect.arrayContaining([TASK_AUDIT_EVENTS.SHUTDOWN_TIMEOUT]),
         ])
       );
     });
@@ -758,7 +759,7 @@ describe('Task System + SubAgent', () => {
       await agent.run();
 
       expect(mockAudit.write).toHaveBeenCalledWith(
-        AUDIT_EVENTS.SUBAGENT_LOG_APPEND_FAILED,
+        SUBAGENT_AUDIT_EVENTS.LOG_APPEND_FAILED,
         expect.stringContaining('agentId='),
         expect.stringContaining('error='),
       );

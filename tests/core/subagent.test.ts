@@ -8,7 +8,7 @@ import { NoopStreamWriter, NoopAuditWriter } from '../../src/core/subagent/noop-
 import type { FileSystem } from '../../src/foundation/fs/types.js';
 import type { LLMService } from '../../src/foundation/llm/index.js';
 import type { ToolRegistryImpl } from '../../src/core/tools/registry.js';
-import { AUDIT_EVENTS } from '../../src/foundation/audit/events.js';
+import { SUBAGENT_AUDIT_EVENTS } from '../../src/core/subagent/audit-events.js';
 
 // Mock the entire react loop module so runReact is fully controllable
 vi.mock('../../src/core/react/loop.js', () => ({
@@ -117,7 +117,7 @@ describe('SubAgent', () => {
 
       expect(result).toBe('result');
       expect(mockAudit.write).toHaveBeenCalledWith(
-        AUDIT_EVENTS.SUBAGENT_STEP_COMPLETE_FAILED,
+        SUBAGENT_AUDIT_EVENTS.STEP_COMPLETE_FAILED,
         expect.stringContaining('agentId='),
         expect.stringContaining('error='),
       );

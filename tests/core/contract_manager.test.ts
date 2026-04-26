@@ -15,7 +15,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { ContractManager } from '../../src/core/contract/manager.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
-import { AUDIT_EVENTS } from '../../src/foundation/audit/events.js';
+import { CONTRACT_AUDIT_EVENTS } from '../../src/core/contract/audit-events.js';
 
 vi.mock('child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('child_process')>();
@@ -604,7 +604,7 @@ describe('ContractManager', () => {
       const result = await monitorManager.loadActive();
       expect(result).toBeNull(); // 损坏的契约被跳过，返回 null
       expect(mockAudit.write).toHaveBeenCalledWith(
-        AUDIT_EVENTS.CONTRACT_PROGRESS_CORRUPTED,
+        CONTRACT_AUDIT_EVENTS.PROGRESS_CORRUPTED,
         expect.stringContaining('context=ContractManager.loadActive'),
         expect.stringContaining('contract=corrupt-contract'),
         expect.anything(),
@@ -623,7 +623,7 @@ describe('ContractManager', () => {
       const result = await monitorManager.loadPaused();
       expect(result).toBeNull();
       expect(mockAudit.write).toHaveBeenCalledWith(
-        AUDIT_EVENTS.CONTRACT_PROGRESS_CORRUPTED,
+        CONTRACT_AUDIT_EVENTS.PROGRESS_CORRUPTED,
         expect.stringContaining('context=ContractManager.loadPaused'),
         expect.stringContaining('contract=corrupt-paused-contract'),
         expect.anything(),
@@ -653,7 +653,7 @@ describe('ContractManager', () => {
       expect(result.passed).toBe(false);
       expect(result.feedback).toContain('nonexistent-task');
       expect(mockAudit.write).toHaveBeenCalledWith(
-        AUDIT_EVENTS.CONTRACT_PROGRESS_CORRUPTED,
+        CONTRACT_AUDIT_EVENTS.PROGRESS_CORRUPTED,
         expect.stringContaining('context=ContractManager._completeSubtaskSync'),
         expect.anything(),
         expect.stringContaining('subtaskId=nonexistent-task'),
@@ -771,7 +771,7 @@ describe('ContractManager', () => {
       });
 
       expect(mockAudit.write).toHaveBeenCalledWith(
-        AUDIT_EVENTS.CONTRACT_ARCHIVE_STARTED,
+        CONTRACT_AUDIT_EVENTS.ARCHIVE_STARTED,
         `old=${contract1}`,
         `new=${contract2}`,
       );
@@ -800,7 +800,7 @@ describe('ContractManager', () => {
       })).rejects.toThrow('disk full');
 
       expect(mockAudit.write).toHaveBeenCalledWith(
-        AUDIT_EVENTS.CONTRACT_ROLLBACK_FAILED,
+        CONTRACT_AUDIT_EVENTS.ROLLBACK_FAILED,
         expect.stringContaining('contractId='),
         expect.stringContaining('err='),
       );
@@ -827,7 +827,7 @@ describe('ContractManager', () => {
       });
 
       expect(mockAudit.write).toHaveBeenCalledWith(
-        AUDIT_EVENTS.CONTRACT_NOTIFY_FAILED,
+        CONTRACT_AUDIT_EVENTS.NOTIFY_FAILED,
         expect.stringContaining('notify crash'),
       );
     });
@@ -852,7 +852,7 @@ describe('ContractManager', () => {
       await testManager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'done' });
 
       expect(mockAudit.write).toHaveBeenCalledWith(
-        AUDIT_EVENTS.CONTRACT_MOVE_ARCHIVE_FAILED,
+        CONTRACT_AUDIT_EVENTS.MOVE_ARCHIVE_FAILED,
         expect.stringContaining('disk full'),
       );
       moveSpy.mockRestore();
@@ -889,7 +889,7 @@ describe('ContractManager', () => {
       );
       expect(titleAuditCalls).toHaveLength(0);
       expect(mockAudit.write).toHaveBeenCalledWith(
-        AUDIT_EVENTS.CONTRACT_MOVE_ARCHIVE_FAILED,
+        CONTRACT_AUDIT_EVENTS.MOVE_ARCHIVE_FAILED,
         expect.stringContaining('context=ContractManager._completeSubtaskSync'),
         expect.anything(),
         expect.anything(),
@@ -1182,7 +1182,7 @@ describe('ContractManager', () => {
       });
 
       expect(mockAudit.write).toHaveBeenCalledWith(
-        AUDIT_EVENTS.CONTRACT_CREATED,
+        CONTRACT_AUDIT_EVENTS.CREATED,
         expect.stringContaining(`contractId=${contractId}`),
       );
     });
@@ -1213,7 +1213,7 @@ describe('ContractManager', () => {
       expect(result.async).toBe(true);
 
       expect(mockAudit.write).toHaveBeenCalledWith(
-        AUDIT_EVENTS.CONTRACT_ACCEPTANCE_STARTED,
+        CONTRACT_AUDIT_EVENTS.ACCEPTANCE_STARTED,
         expect.stringContaining(`contractId=${contractId}`),
         expect.stringContaining('subtaskId=t1'),
       );
@@ -1236,7 +1236,7 @@ describe('ContractManager', () => {
       await testManager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'done' });
 
       expect(mockAudit.write).toHaveBeenCalledWith(
-        AUDIT_EVENTS.CONTRACT_UPDATED,
+        CONTRACT_AUDIT_EVENTS.UPDATED,
         expect.stringContaining(`contractId=${contractId}`),
         expect.stringContaining('subtaskId=t1'),
         expect.stringContaining('status=completed'),

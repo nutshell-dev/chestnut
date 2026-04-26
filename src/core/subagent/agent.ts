@@ -18,7 +18,7 @@ import type { TaskScheduler } from '../tools/task-scheduler.js';
 import type { Message } from '../../types/message.js';
 import type { Audit } from '../../foundation/audit/index.js';
 import type { AuditWriter } from '../../foundation/audit/writer.js';
-import { AUDIT_EVENTS } from '../../foundation/audit/events.js';
+import { SUBAGENT_AUDIT_EVENTS } from './audit-events.js';
 import type { StreamLog } from '../../foundation/stream/types.js';
 import type { CallerType } from '../tools/caller-type.js';
 import { callerTypeToProfile } from '../tools/caller-type.js';
@@ -277,7 +277,7 @@ export class SubAgent {
               await this.fs.append(stepsLogPath, entry + '\n');
             } catch (err) {
               this.audit?.write(
-                AUDIT_EVENTS.SUBAGENT_STEP_COMPLETE_FAILED,
+                SUBAGENT_AUDIT_EVENTS.STEP_COMPLETE_FAILED,
                 `agentId=${this.agentId}`,
                 `error=${err instanceof Error ? err.message : String(err)}`,
               );
@@ -309,7 +309,7 @@ export class SubAgent {
         );
       } catch (e) {
         this.audit?.write(
-          AUDIT_EVENTS.SUBAGENT_PERSIST_FAILED,
+          SUBAGENT_AUDIT_EVENTS.PERSIST_FAILED,
           `agentId=${this.agentId}`,
           `error=${e instanceof Error ? e.message : String(e)}`,
         );
@@ -358,7 +358,7 @@ export class SubAgent {
     } catch (e) {
       // Log failures are non-fatal
       this.audit?.write(
-        AUDIT_EVENTS.SUBAGENT_LOG_APPEND_FAILED,
+        SUBAGENT_AUDIT_EVENTS.LOG_APPEND_FAILED,
         `agentId=${this.agentId}`,
         `error=${e instanceof Error ? e.message : String(e)}`,
       );

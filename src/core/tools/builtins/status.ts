@@ -11,7 +11,7 @@ import type { Tool, ToolResult, ExecContext } from '../executor.js';
 import type { ContractManager } from '../../contract/manager.js';
 import type { TaskSystem } from '../../task/system.js';
 import { TASKS_PENDING_DIR } from '../../../types/paths.js';
-import { AUDIT_EVENTS } from '../../../foundation/audit/events.js';
+import { STATUS_AUDIT_EVENTS } from './status-audit-events.js';
 
 async function getContractStatus(ctx: ExecContext): Promise<string> {
   const contractManager = statusTool.contractManager;
@@ -30,7 +30,7 @@ async function getContractStatus(ctx: ExecContext): Promise<string> {
     }
     return lines.join('\n');
   } catch (err) {
-    ctx.auditWriter?.write(AUDIT_EVENTS.STATUS_CONTRACT_ERROR, `error=${err instanceof Error ? err.message : String(err)}`);
+    ctx.auditWriter?.write(STATUS_AUDIT_EVENTS.CONTRACT_ERROR, `error=${err instanceof Error ? err.message : String(err)}`);
     return 'Contract: Error loading';
   }
 }
@@ -53,7 +53,7 @@ async function getTaskStatus(ctx: ExecContext): Promise<string> {
       pendingCount = pending.length;
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-        ctx.auditWriter?.write(AUDIT_EVENTS.STATUS_TASK_PENDING_ERROR, `error=${err instanceof Error ? err.message : String(err)}`);
+        ctx.auditWriter?.write(STATUS_AUDIT_EVENTS.TASK_PENDING_ERROR, `error=${err instanceof Error ? err.message : String(err)}`);
       }
     }
     
@@ -62,7 +62,7 @@ async function getTaskStatus(ctx: ExecContext): Promise<string> {
       runningCount = running.length;
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-        ctx.auditWriter?.write(AUDIT_EVENTS.STATUS_TASK_RUNNING_ERROR, `error=${err instanceof Error ? err.message : String(err)}`);
+        ctx.auditWriter?.write(STATUS_AUDIT_EVENTS.TASK_RUNNING_ERROR, `error=${err instanceof Error ? err.message : String(err)}`);
       }
     }
     

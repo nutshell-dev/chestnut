@@ -9,7 +9,7 @@ import {
   type StreamReader,
   type StreamEvent,
 } from '../../src/foundation/stream/index.js';
-import { AUDIT_EVENTS } from '../../src/foundation/audit/events.js';
+import { VIEWPORT_AUDIT_EVENTS } from '../../src/cli/commands/viewport-audit-events.js';
 import { STREAM_AUDIT_EVENTS } from '../../src/foundation/stream/audit-events.js';
 import { AUDIT_FILE } from '../../src/foundation/audit/index.js';
 import {
@@ -287,7 +287,7 @@ describe('chat-viewport regression baseline', () => {
 
     fx.observability.recordShutdown('stream_end');
 
-    const spinnerEvents = fx.audit.filter(AUDIT_EVENTS.VIEWPORT_SPINNER_LIFECYCLE);
+    const spinnerEvents = fx.audit.filter(VIEWPORT_AUDIT_EVENTS.SPINNER_LIFECYCLE);
     expect(spinnerEvents.length).toBeGreaterThanOrEqual(4);
 
     const hasStartThinking = spinnerEvents.some(row => {
@@ -318,7 +318,7 @@ describe('chat-viewport regression baseline', () => {
     });
     expect(hasStopExec).toBe(true);
 
-    const ingestEvents = fx.audit.filter(AUDIT_EVENTS.VIEWPORT_EVENT_INGEST);
+    const ingestEvents = fx.audit.filter(VIEWPORT_AUDIT_EVENTS.EVENT_INGEST);
     expect(ingestEvents.length).toBeGreaterThanOrEqual(1);
 
     const allTypesCovered = new Set<string>();
@@ -373,7 +373,7 @@ describe('chat-viewport regression baseline', () => {
 
     fx.observability.recordShutdown('stream_end');
 
-    const ingestEvents = fx.audit.filter(AUDIT_EVENTS.VIEWPORT_EVENT_INGEST);
+    const ingestEvents = fx.audit.filter(VIEWPORT_AUDIT_EVENTS.EVENT_INGEST);
     expect(ingestEvents.length).toBeGreaterThanOrEqual(1);
 
     let totalToolResult = 0;
@@ -504,7 +504,7 @@ describe('chat-viewport regression baseline', () => {
     await appendStreamEvent(fx, { type: 'turn_end' });
     await waitForEvents(fx, 6);
 
-    const spinnerEvents = fx.audit.filter(AUDIT_EVENTS.VIEWPORT_SPINNER_LIFECYCLE);
+    const spinnerEvents = fx.audit.filter(VIEWPORT_AUDIT_EVENTS.SPINNER_LIFECYCLE);
 
     const startRows = spinnerEvents.filter(row => (row.slice(1) as string[]).includes('action=start'));
     const stopRows = spinnerEvents.filter(row => (row.slice(1) as string[]).includes('action=stop'));

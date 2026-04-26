@@ -10,7 +10,7 @@ import { randomUUID } from 'crypto';
 import { ContractManager } from '../../src/core/contract/manager.js';
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
-import { AUDIT_EVENTS } from '../../src/foundation/audit/events.js';
+import { CONTRACT_AUDIT_EVENTS } from '../../src/core/contract/audit-events.js';
 
 async function createContract(
   tempDir: string,
@@ -325,7 +325,7 @@ auth_level: auto
       expect(result).toBeNull();
 
       expect(mockAudit.write).toHaveBeenCalledWith(
-        AUDIT_EVENTS.CONTRACT_PROGRESS_CORRUPTED,
+        CONTRACT_AUDIT_EVENTS.PROGRESS_CORRUPTED,
         expect.stringContaining('file='),
         expect.stringContaining('err='),
       );

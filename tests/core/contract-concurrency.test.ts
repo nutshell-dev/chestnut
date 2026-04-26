@@ -16,7 +16,7 @@ import * as os from 'os';
 import { randomUUID } from 'crypto';
 import { ContractManager } from '../../src/core/contract/manager.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
-import { AUDIT_EVENTS } from '../../src/foundation/audit/events.js';
+import { CONTRACT_AUDIT_EVENTS } from '../../src/core/contract/audit-events.js';
 
 // 无验收配置（completeSubtask 同步完成，锁定时间极短，适合并发测试）
 const BASE_YAML = {
@@ -203,7 +203,7 @@ describe('ContractManager — 并发幂等与锁', () => {
 
     expect(result.passed).toBe(true);
     expect(mockAudit.write).toHaveBeenCalledWith(
-      AUDIT_EVENTS.CONTRACT_LOCK_CLEARED,
+      CONTRACT_AUDIT_EVENTS.LOCK_CLEARED,
       `pid=${process.pid}`,
       expect.stringContaining('timeout='),
       'reason=stale',

@@ -3,7 +3,7 @@ import {
   createViewportObservability,
   VIEWPORT_OBS_CONFIG,
 } from '../../src/cli/commands/chat-viewport-observability.js';
-import { AUDIT_EVENTS } from '../../src/foundation/audit/events.js';
+import { VIEWPORT_AUDIT_EVENTS } from '../../src/cli/commands/viewport-audit-events.js';
 
 describe('chat-viewport-observability', () => {
   function makeDeps() {
@@ -31,7 +31,7 @@ describe('chat-viewport-observability', () => {
     }
 
     expect(log).toHaveLength(1);
-    expect(log[0][0]).toBe(AUDIT_EVENTS.VIEWPORT_EVENT_INGEST);
+    expect(log[0][0]).toBe(VIEWPORT_AUDIT_EVENTS.EVENT_INGEST);
     expect(log[0][1]).toBe(`batch_size=${VIEWPORT_OBS_CONFIG.INGEST_BATCH_SIZE}`);
     expect(log[0][2]).toBe('types={"turn_start":25,"text_delta":25}');
   });
@@ -52,7 +52,7 @@ describe('chat-viewport-observability', () => {
     obs.recordEvent('turn_end');
     // 首条到本条 span_ms = 1001 >= INGEST_FLUSH_MS，触发 flush
     expect(log).toHaveLength(1);
-    expect(log[0][0]).toBe(AUDIT_EVENTS.VIEWPORT_EVENT_INGEST);
+    expect(log[0][0]).toBe(VIEWPORT_AUDIT_EVENTS.EVENT_INGEST);
     expect(log[0][1]).toBe('batch_size=4');
     const spanCol = log[0][3] as string;
     expect(spanCol).toMatch(/^span_ms=\d+$/);
@@ -71,12 +71,12 @@ describe('chat-viewport-observability', () => {
 
     expect(log).toHaveLength(2);
     expect(log[0]).toEqual([
-      AUDIT_EVENTS.VIEWPORT_SPINNER_LIFECYCLE,
+      VIEWPORT_AUDIT_EVENTS.SPINNER_LIFECYCLE,
       'action=start',
       'text=Thinking...',
     ]);
     expect(log[1]).toEqual([
-      AUDIT_EVENTS.VIEWPORT_SPINNER_LIFECYCLE,
+      VIEWPORT_AUDIT_EVENTS.SPINNER_LIFECYCLE,
       'action=stop',
       'text=Thinking...',
       'elapsed_ms=500',
@@ -86,7 +86,7 @@ describe('chat-viewport-observability', () => {
     obs.recordSpinner('stop', 'Done');
     expect(log).toHaveLength(3);
     expect(log[2]).toEqual([
-      AUDIT_EVENTS.VIEWPORT_SPINNER_LIFECYCLE,
+      VIEWPORT_AUDIT_EVENTS.SPINNER_LIFECYCLE,
       'action=stop',
       'text=Done',
       'elapsed_ms=0',
@@ -101,18 +101,18 @@ describe('chat-viewport-observability', () => {
 
     expect(log).toHaveLength(3);
     expect(log[0]).toEqual([
-      AUDIT_EVENTS.VIEWPORT_SPINNER_LIFECYCLE,
+      VIEWPORT_AUDIT_EVENTS.SPINNER_LIFECYCLE,
       'action=start',
       'text=A',
     ]);
     expect(log[1]).toEqual([
-      AUDIT_EVENTS.VIEWPORT_SPINNER_LIFECYCLE,
+      VIEWPORT_AUDIT_EVENTS.SPINNER_LIFECYCLE,
       'action=stop',
       'text=B',
       'elapsed_ms=100',
     ]);
     expect(log[2]).toEqual([
-      AUDIT_EVENTS.VIEWPORT_SPINNER_LIFECYCLE,
+      VIEWPORT_AUDIT_EVENTS.SPINNER_LIFECYCLE,
       'action=start',
       'text=B',
     ]);
@@ -128,8 +128,8 @@ describe('chat-viewport-observability', () => {
 
     obs.recordShutdown('user_quit');
     expect(log).toHaveLength(2);
-    expect(log[0][0]).toBe(AUDIT_EVENTS.VIEWPORT_EVENT_INGEST);
-    expect(log[1][0]).toBe(AUDIT_EVENTS.VIEWPORT_SHUTDOWN);
+    expect(log[0][0]).toBe(VIEWPORT_AUDIT_EVENTS.EVENT_INGEST);
+    expect(log[1][0]).toBe(VIEWPORT_AUDIT_EVENTS.SHUTDOWN);
     expect(log[1][1]).toBe('reason=user_quit');
   });
 
@@ -142,8 +142,8 @@ describe('chat-viewport-observability', () => {
     observability.recordSpinner('stop', 'Thinking...');
 
     const types = log.map(([t]) => t);
-    const shutdownIdx = types.indexOf(AUDIT_EVENTS.VIEWPORT_SHUTDOWN);
-    const lastSpinnerIdx = types.lastIndexOf(AUDIT_EVENTS.VIEWPORT_SPINNER_LIFECYCLE);
+    const shutdownIdx = types.indexOf(VIEWPORT_AUDIT_EVENTS.SHUTDOWN);
+    const lastSpinnerIdx = types.lastIndexOf(VIEWPORT_AUDIT_EVENTS.SPINNER_LIFECYCLE);
     // 该断言记录当前行为（spinner 在 shutdown 之后）——
     // 真正的时序保证在 chat-viewport.ts 层，不在工厂层。
     // 本测试只防退化：chat-viewport 之外若有消费者需此不变量，应自行保证调用序。
@@ -158,13 +158,13 @@ describe('chat-viewport-observability', () => {
     observability.recordShutdown('user_quit');
 
     const seq = log.map(([t]) => t).filter(
-      (t) => t === AUDIT_EVENTS.VIEWPORT_EVENT_INGEST || t === AUDIT_EVENTS.VIEWPORT_SHUTDOWN,
+      (t) => t === VIEWPORT_AUDIT_EVENTS.EVENT_INGEST || t === VIEWPORT_AUDIT_EVENTS.SHUTDOWN,
     );
     expect(seq).toEqual([
-      AUDIT_EVENTS.VIEWPORT_EVENT_INGEST,
-      AUDIT_EVENTS.VIEWPORT_SHUTDOWN,
+      VIEWPORT_AUDIT_EVENTS.EVENT_INGEST,
+      VIEWPORT_AUDIT_EVENTS.SHUTDOWN,
     ]);
-    const shutdown = log.find(([t]) => t === AUDIT_EVENTS.VIEWPORT_SHUTDOWN)!;
+    const shutdown = log.find(([t]) => t === VIEWPORT_AUDIT_EVENTS.SHUTDOWN)!;
     expect(shutdown).toContain('reason=user_quit');
   });
 

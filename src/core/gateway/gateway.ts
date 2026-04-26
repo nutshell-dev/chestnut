@@ -20,7 +20,7 @@ import type { Connection } from '../../foundation/transport/index.js';
 import type { StreamReader, StreamEvent } from '../../foundation/stream/index.js';
 import type { ToolResult, ExecContext } from '../tools/index.js';
 import type { AuditWriter } from '../../foundation/audit/index.js';
-import { AUDIT_EVENTS } from '../../foundation/audit/events.js';
+import { GATEWAY_AUDIT_EVENTS } from './audit-events.js';
 import {
   GATEWAY_INTERRUPT_DEBOUNCE_MS,
   GATEWAY_ASK_USER_TIMEOUT_MS,
@@ -65,7 +65,7 @@ export function createGateway(input: GatewayInput): Gateway {
   const dropConnection = (connId: string, reason: string): void => {
     if (!connections.has(connId)) return;
     connections.delete(connId);
-    audit.write(AUDIT_EVENTS.GATEWAY_CONNECTION_DROPPED, `connId=${connId}`, `reason=${reason}`);
+    audit.write(GATEWAY_AUDIT_EVENTS.CONNECTION_DROPPED, `connId=${connId}`, `reason=${reason}`);
     broadcast({ type: 'connection_dropped', connectionId: connId, reason });
   };
 
@@ -88,7 +88,7 @@ export function createGateway(input: GatewayInput): Gateway {
         ? `用户未回复（超时 ${timeoutMs}ms）`
         : 'ask_user 被中断取消';
     entry.resolve(failureResult(message));
-    audit.write(AUDIT_EVENTS.GATEWAY_ASK_USER_CANCELLED, `id=${id}`, `reason=${reason}`);
+    audit.write(GATEWAY_AUDIT_EVENTS.ASK_USER_CANCELLED, `id=${id}`, `reason=${reason}`);
     broadcast({ type: 'ask_user_cancelled', id, reason });
   };
 
@@ -106,24 +106,24 @@ export function createGateway(input: GatewayInput): Gateway {
       case 'interrupt': {
         const now = Date.now();
         if (now - lastInterruptTs < GATEWAY_INTERRUPT_DEBOUNCE_MS) {
-          audit.write(AUDIT_EVENTS.GATEWAY_INTERRUPT_DEBOUNCED, `connId=${conn.id}`);
+          audit.write(GATEWAY_AUDIT_EVENTS.INTERRUPT_DEBOUNCED, `connId=${conn.id}`);
           return;
         }
         lastInterruptTs = now;
         interrupt('user');
-        audit.write(AUDIT_EVENTS.GATEWAY_INTERRUPT_TRIGGERED, `connId=${conn.id}`);
+        audit.write(GATEWAY_AUDIT_EVENTS.INTERRUPT_TRIGGERED, `connId=${conn.id}`);
         return;
       }
       case 'ask_user_reply': {
         const entry = pending.get(msg.id);
         if (!entry) {
           // 重复 / 过期 reply：drop 消息，不 drop 连接
-          audit.write(AUDIT_EVENTS.GATEWAY_ASK_USER_REPLY_DROPPED, `id=${msg.id}`, `connId=${conn.id}`);
+          audit.write(GATEWAY_AUDIT_EVENTS.ASK_USER_REPLY_DROPPED, `id=${msg.id}`, `connId=${conn.id}`);
           return;
         }
         cleanup(msg.id);
         entry.resolve(successResult(msg.answer));
-        audit.write(AUDIT_EVENTS.GATEWAY_ASK_USER_RESOLVED, `id=${msg.id}`, `by=${conn.id}`);
+        audit.write(GATEWAY_AUDIT_EVENTS.ASK_USER_RESOLVED, `id=${msg.id}`, `by=${conn.id}`);
         broadcast({ type: 'ask_user_resolved', id: msg.id, by: conn.id });
         return;
       }
@@ -153,7 +153,7 @@ export function createGateway(input: GatewayInput): Gateway {
       });
       transport!.onTransportError((evt) => {
         audit.write(
-          AUDIT_EVENTS.GATEWAY_TRANSPORT_ERROR,
+          GATEWAY_AUDIT_EVENTS.TRANSPORT_ERROR,
           `kind=${evt.kind}`,
           `error=${String(evt.error)}`,
           evt.kind === 'callback_error' ? `callbackName=${evt.callbackName}` : '',
@@ -164,7 +164,7 @@ export function createGateway(input: GatewayInput): Gateway {
         broadcast({ type: 'stream', event: ev });
       });
       streamReader.start();
-      audit.write(AUDIT_EVENTS.GATEWAY_STARTED, `isOnline=${isOnlineMode}`);
+      audit.write(GATEWAY_AUDIT_EVENTS.STARTED, `isOnline=${isOnlineMode}`);
     },
 
     async stop() {
@@ -191,7 +191,7 @@ export function createGateway(input: GatewayInput): Gateway {
 
       // 4. 关闭 transport
       await transport!.close();
-      audit.write(AUDIT_EVENTS.GATEWAY_STOPPED);
+      audit.write(GATEWAY_AUDIT_EVENTS.STOPPED);
     },
 
     async askUser(question: string, ctx: ExecContext): Promise<ToolResult> {
@@ -222,7 +222,7 @@ export function createGateway(input: GatewayInput): Gateway {
 
         pending.set(id, { id, resolve, timer, abortListener, signal: ctx.signal ?? null });
 
-        audit.write(AUDIT_EVENTS.GATEWAY_ASK_USER_PENDING, `id=${id}`);
+        audit.write(GATEWAY_AUDIT_EVENTS.ASK_USER_PENDING, `id=${id}`);
         broadcast({ type: 'ask_user_pending', id, question });
       });
     },

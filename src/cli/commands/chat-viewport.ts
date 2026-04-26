@@ -19,7 +19,7 @@ import type { CallerType } from '../../core/tools/caller-type.js';
 import { createWatcher } from '../../foundation/file-watcher/index.js';
 import type { Watcher } from '../../foundation/file-watcher/types.js';
 import type { AuditWriter } from '../../foundation/audit/writer.js';
-import { AUDIT_EVENTS } from '../../foundation/audit/events.js';
+import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
 import { createStreamReader, STREAM_FILE } from '../../foundation/stream/index.js';
 import { createViewportObservability } from './chat-viewport-observability.js';
 import type { StreamReader, StreamEvent } from '../../foundation/stream/index.js';
@@ -53,8 +53,8 @@ function createChatViewportWatcher(
       persistent,
       onError: (err, context) => {
         const eventType = context === 'callback'
-          ? AUDIT_EVENTS.CHAT_VIEWPORT_WATCHER_CALLBACK_FAILED
-          : AUDIT_EVENTS.CHAT_VIEWPORT_WATCHER_FAILED;
+          ? VIEWPORT_AUDIT_EVENTS.WATCHER_CALLBACK_FAILED
+          : VIEWPORT_AUDIT_EVENTS.WATCHER_FAILED;
         audit.write(
           eventType,
           `claw=${clawId}`,
@@ -130,7 +130,7 @@ export function createMainTurnUI(deps: MainTurnUIDeps): MainTurnUIController {
     if (currentScope === 'task') {
       try {
         deps.audit.write(
-          AUDIT_EVENTS.VIEWPORT_UI_CROSS_POLLUTION,
+          VIEWPORT_AUDIT_EVENTS.UI_CROSS_POLLUTION,
           `method=${method}`,
           'source=task',
         );

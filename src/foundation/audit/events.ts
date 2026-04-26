@@ -6,84 +6,13 @@
  * （单一事实源，代码注释不维护重复清单）
  *
  * Phase 334 (r37 B): L1+L2 batch (SessionStore/Snapshot/Stream/Messaging/ProcessManager + AuditLog 占位)
- * 已迁出到各模块 audit-events.ts。phase335/336 续 L3+/L5+。
+ * 已迁出到各模块 audit-events.ts。
+ *
+ * Phase 338 (r38 B): L3+L4 batch (Viewport UI/TaskSystem/Contract/SubAgent/Dispatch/Status/Heartbeat/Gateway)
+ * 已迁出。phase336 续 L5+L6 (Cron/Watchdog/LLM Response/LLM Service/Runtime)。
  */
 
 export const AUDIT_EVENTS = {
-  // --- Viewport UI ---
-  VIEWPORT_UI_CROSS_POLLUTION: 'viewport_ui_cross_pollution',
-
-  /**
-   * chat-viewport handleEvent 收到的 stream 事件批次聚合。
-   * 触发：每 INGEST_BATCH_SIZE 事件或 INGEST_FLUSH_MS 毫秒（先到者）。
-   * 载荷：batch_size / types（JSON histogram）/ span_ms（本批第一条到最后一条耗时）
-   */
-  VIEWPORT_EVENT_INGEST: 'viewport_event_ingest',
-
-  /**
-   * chat-viewport updateDisplay 渲染调用批次聚合。
-   * 触发：每 RENDER_BATCH_SIZE 次或 RENDER_FLUSH_MS 毫秒。
-   * 载荷：calls / total_ms / output_lines（最后一次的 outputLines 长度）/ suffix_lines
-   */
-  VIEWPORT_RENDER_BATCH: 'viewport_render_batch',
-
-  /**
-   * Spinner 启停（不聚合，每次写）。
-   * 载荷：action(start|stop) / text / elapsed_ms（仅 stop 时）/ orphan=1（孤 stop：无前置 start）
-   */
-  VIEWPORT_SPINNER_LIFECYCLE: 'viewport_spinner_lifecycle',
-
-  /**
-   * chat-viewport 退出。cleanup / daemon dead 检测 / ESC 中断 / stream 结束统一走此事件。
-   * 载荷：reason(daemon_dead|user_quit|stream_end)
-   */
-  VIEWPORT_SHUTDOWN: 'viewport_shutdown',
-  CHAT_VIEWPORT_WATCHER_FAILED: 'chat_viewport_watcher_failed',
-  CHAT_VIEWPORT_WATCHER_CALLBACK_FAILED: 'chat_viewport_watcher_callback_failed',
-
-  // --- TaskSystem ---
-  PENDING_INGEST_FAILED: 'pending_ingest_failed',
-  TASK_PENDING_WATCHER_FAILED: 'task_pending_watcher_failed',
-  TASK_PENDING_WATCHER_CALLBACK_FAILED: 'task_pending_watcher_callback_failed',
-
-  // --- TaskSystem （phase248 B.2 sub-phase 2 补齐）---
-  TASK_DISCARDED: 'task_discarded',
-  TASK_RECOVERED: 'task_recovered',
-  TASK_RECOVERY_COMPLETE: 'task_recovery_complete',
-  TASK_RECOVERY_FAILED: 'task_recovery_failed',
-  TASK_START_FAILED: 'task_start_failed',
-  TASK_STREAM_FAILED: 'task_stream_failed',
-  TASK_HANDLER_FAILED: 'task_handler_failed',
-  TASK_RESULT_WRITE_FAILED: 'task_result_write_failed',
-  TASK_INBOX_WRITE_FAILED: 'task_inbox_write_failed',
-  TASK_SHUTDOWN_TIMEOUT: 'task_shutdown_timeout',
-  TASK_MOVE_FAILED: 'task_move_failed',
-  TASK_CANCELLED: 'task_cancelled',
-  TOOL_TASK_RETRY: 'tool_task_retry',
-
-  // --- Contract ---
-  CONTRACT_LOCK_CLEARED: 'contract_lock_cleared',
-  CONTRACT_LOCK_UNLINK_FAILED: 'contract_lock_unlink_failed',
-  CONTRACT_PROGRESS_CORRUPTED: 'contract_progress_corrupted',
-  CONTRACT_ARCHIVE_STARTED: 'contract_archive_started',
-  CONTRACT_ROLLBACK_FAILED: 'contract_rollback_failed',
-  CONTRACT_CREATED: 'contract_created',
-  CONTRACT_ACCEPTANCE_STARTED: 'contract_acceptance_started',
-  CONTRACT_UPDATED: 'contract_updated',
-  CONTRACT_NOTIFY_FAILED: 'contract_notify_failed',
-  CONTRACT_MOVE_ARCHIVE_FAILED: 'contract_move_archive_failed',
-  CONTRACT_ACCEPTANCE_INBOX_FAILED: 'contract_acceptance_inbox_failed',
-  CONTRACT_ACCEPTANCE_RESET_FAILED: 'contract_acceptance_reset_failed',
-  CONTRACT_ACCEPTANCE_SCRIPT_STARTED: 'contract_acceptance_script_started',
-  CONTRACT_SUBTASK_DUPLICATE_DONE: 'contract_subtask_duplicate_done',
-  CONTRACT_SUBTASK_ALREADY_COMPLETED: 'contract_subtask_already_completed',
-  CONTRACT_RETRO_INDEX_FAILED: 'contract_retro_index_failed',
-  CONTRACT_RETRO_YAML_FAILED: 'contract_retro_yaml_failed',
-  CONTRACT_RETRO_SKILL_FAILED: 'contract_retro_skill_failed',
-  CONTRACT_RETRO_MINING_FAILED: 'contract_retro_mining_failed',
-  CONTRACT_RETRO_SCHEDULE_FAILED: 'contract_retro_schedule_failed',
-  CONTRACT_RETRO_CLEANUP_FAILED: 'contract_retro_cleanup_failed',
-
   // --- Cron Jobs (Phase 227) ---
   CRON_DEEP_DREAM_JOB: 'cron_deep_dream_job',
   CRON_DEEP_DREAM_ERROR: 'cron_deep_dream_error',
@@ -105,27 +34,6 @@ export const AUDIT_EVENTS = {
   CLAW_CRASH_NOTIFY_DROPPED: 'claw_crash_notify_dropped',
   WATCHDOG_STATE_LOAD_FAILED: 'watchdog_state_load_failed',
 
-  // --- Heartbeat ---
-  HEARTBEAT_FIRE_FAILED: 'heartbeat_fire_failed',
-
-  // --- SubAgent ---
-  SUBAGENT_STEP_COMPLETE_FAILED: 'subagent_step_complete_failed',
-  SUBAGENT_PERSIST_FAILED: 'subagent_persist_failed',
-  SUBAGENT_LOG_APPEND_FAILED: 'subagent_log_append_failed',
-
-  // --- Dispatch ---
-  DISPATCH_LOAD_SKILLS_FAILED: 'dispatch_load_skills_failed',
-  DISPATCH_CONTRACT_DONE_NOT_FOUND: 'dispatch_contract_done_not_found',
-  DISPATCH_CONTRACT_DONE_PARSE_FAILED: 'dispatch_contract_done_parse_failed',
-  DISPATCH_CONTRACT_DONE_MISSING_FIELDS: 'dispatch_contract_done_missing_fields',
-  DISPATCH_WRITE_BY_CONTRACT_FAILED: 'dispatch_write_by_contract_failed',
-  DISPATCH_NO_DIALOG_CONTEXT: 'dispatch_no_dialog_context',
-
-  // --- Status ---
-  STATUS_CONTRACT_ERROR: 'status_contract_error',
-  STATUS_TASK_PENDING_ERROR: 'status_task_pending_error',
-  STATUS_TASK_RUNNING_ERROR: 'status_task_running_error',
-
   // --- Runtime ---
   RUNTIME_PROCESS_BATCH_FAILED: 'runtime_process_batch_failed',
 
@@ -145,18 +53,6 @@ export const AUDIT_EVENTS = {
   LLM_STREAM_RESET: 'llm_stream_reset',
   LLM_STREAM_PARSE_ERROR: 'llm_stream_parse_error',
   LLM_IDLE_FAILOVER_TRIGGERED: 'llm_idle_failover_triggered',
-
-  // --- Gateway (Phase 256) ---
-  GATEWAY_STARTED: 'gateway_started',
-  GATEWAY_STOPPED: 'gateway_stopped',
-  GATEWAY_ASK_USER_PENDING: 'gateway_ask_user_pending',
-  GATEWAY_ASK_USER_RESOLVED: 'gateway_ask_user_resolved',
-  GATEWAY_ASK_USER_CANCELLED: 'gateway_ask_user_cancelled',
-  GATEWAY_ASK_USER_REPLY_DROPPED: 'gateway_ask_user_reply_dropped',
-  GATEWAY_CONNECTION_DROPPED: 'gateway_connection_dropped',
-  GATEWAY_INTERRUPT_TRIGGERED: 'gateway_interrupt_triggered',
-  GATEWAY_INTERRUPT_DEBOUNCED: 'gateway_interrupt_debounced',
-  GATEWAY_TRANSPORT_ERROR: 'gateway_transport_error',
 } as const;
 
 export type AuditEventName = typeof AUDIT_EVENTS[keyof typeof AUDIT_EVENTS];

@@ -1,4 +1,4 @@
-import { AUDIT_EVENTS } from '../../foundation/audit/events.js';
+import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
 
 /**
  * 聚合阈值（B 类偏差）：启发式默认，smoke 后可调。
@@ -45,7 +45,7 @@ export function createViewportObservability(deps: Deps) {
   const flushIngest = () => {
     if (!ingest) return;
     deps.audit.write(
-      AUDIT_EVENTS.VIEWPORT_EVENT_INGEST,
+      VIEWPORT_AUDIT_EVENTS.EVENT_INGEST,
       `batch_size=${ingest.size}`,
       `types=${JSON.stringify(ingest.types)}`,
       `span_ms=${now() - ingest.firstTs}`,
@@ -56,7 +56,7 @@ export function createViewportObservability(deps: Deps) {
   const flushRender = () => {
     if (!render) return;
     deps.audit.write(
-      AUDIT_EVENTS.VIEWPORT_RENDER_BATCH,
+      VIEWPORT_AUDIT_EVENTS.RENDER_BATCH,
       `calls=${render.calls}`,
       `total_ms=${render.totalMs}`,
       `output_lines=${render.lastOutputLines}`,
@@ -109,7 +109,7 @@ export function createViewportObservability(deps: Deps) {
       if (spinnerStartTs != null) {
         // 自动补 stop（连续 start 无中间 stop）
         deps.audit.write(
-          AUDIT_EVENTS.VIEWPORT_SPINNER_LIFECYCLE,
+          VIEWPORT_AUDIT_EVENTS.SPINNER_LIFECYCLE,
           `action=stop`,
           `text=${text}`,
           `elapsed_ms=${now() - spinnerStartTs}`,
@@ -117,7 +117,7 @@ export function createViewportObservability(deps: Deps) {
       }
       spinnerStartTs = now();
       deps.audit.write(
-        AUDIT_EVENTS.VIEWPORT_SPINNER_LIFECYCLE,
+        VIEWPORT_AUDIT_EVENTS.SPINNER_LIFECYCLE,
         `action=start`,
         `text=${text}`,
       );
@@ -131,7 +131,7 @@ export function createViewportObservability(deps: Deps) {
         `elapsed_ms=${elapsed}`,
       ];
       if (orphan) cols.push('orphan=1');
-      deps.audit.write(AUDIT_EVENTS.VIEWPORT_SPINNER_LIFECYCLE, ...cols);
+      deps.audit.write(VIEWPORT_AUDIT_EVENTS.SPINNER_LIFECYCLE, ...cols);
     }
   };
 
@@ -140,7 +140,7 @@ export function createViewportObservability(deps: Deps) {
   ) => {
     flushIngest();
     flushRender();
-    deps.audit.write(AUDIT_EVENTS.VIEWPORT_SHUTDOWN, `reason=${reason}`);
+    deps.audit.write(VIEWPORT_AUDIT_EVENTS.SHUTDOWN, `reason=${reason}`);
   };
 
   const dispose = () => {

@@ -8,7 +8,7 @@ import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
 import { InboxWriter } from '../../foundation/messaging/index.js';
-import { AUDIT_EVENTS } from '../../foundation/audit/events.js';
+import { HEARTBEAT_AUDIT_EVENTS } from './heartbeat-audit-events.js';
 import { AuditWriter } from '../../foundation/audit/writer.js';
 import type { Audit } from '../../foundation/audit/index.js';
 
@@ -73,7 +73,7 @@ export class Heartbeat {
     } catch (error) {
       // lastRun 未更新 → 下次 isDue() 立即可重试
       this.audit?.write(
-        AUDIT_EVENTS.HEARTBEAT_FIRE_FAILED,
+        HEARTBEAT_AUDIT_EVENTS.FIRE_FAILED,
         'context=Heartbeat.fire',
         `error=${String(error)}`,
       );

@@ -66,7 +66,7 @@ import { JsonlLogger } from '../../src/foundation/monitor/index.js';
 import type { LLMService } from '../../src/foundation/llm/index.js';
 import { ToolRegistryImpl } from '../../src/core/tools/registry.js';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
-import { AUDIT_EVENTS } from '../../src/foundation/audit/events.js';
+import { CONTRACT_AUDIT_EVENTS } from '../../src/core/contract/audit-events.js';
 import { InboxWriter } from '../../src/foundation/messaging/index.js';
 
 /**
@@ -359,7 +359,7 @@ describe('ContractManager Acceptance Flow', () => {
       await waitForAcceptance(tempDir);
 
       expect(logSpy).toHaveBeenCalledWith(
-        AUDIT_EVENTS.CONTRACT_ACCEPTANCE_RESET_FAILED,
+        CONTRACT_AUDIT_EVENTS.ACCEPTANCE_RESET_FAILED,
         expect.stringContaining('context=ContractManager._runAcceptanceInBackground'),
         expect.anything(),
       );
@@ -537,7 +537,7 @@ describe('ContractManager Acceptance Flow', () => {
       await waitForAcceptance(tempDir);
 
       expect(logSpy).toHaveBeenCalledWith(
-        AUDIT_EVENTS.CONTRACT_ACCEPTANCE_RESET_FAILED,
+        CONTRACT_AUDIT_EVENTS.ACCEPTANCE_RESET_FAILED,
         expect.stringContaining('context=ContractManager._runAcceptanceInBackground'),
         expect.anything(),
       );
@@ -745,7 +745,7 @@ describe('ContractManager Acceptance Flow', () => {
 
       const auditWriter = (manager as any).auditWriter;
       expect(auditWriter.write).toHaveBeenCalledWith(
-        AUDIT_EVENTS.CONTRACT_ACCEPTANCE_SCRIPT_STARTED,
+        CONTRACT_AUDIT_EVENTS.ACCEPTANCE_SCRIPT_STARTED,
         expect.stringContaining('script='),
         expect.stringContaining('cwd='),
       );
@@ -762,7 +762,7 @@ describe('ContractManager Acceptance Flow', () => {
 
         const auditWriter = (manager as any).auditWriter;
         expect(auditWriter.write).toHaveBeenCalledWith(
-          AUDIT_EVENTS.CONTRACT_ACCEPTANCE_INBOX_FAILED,
+          CONTRACT_AUDIT_EVENTS.ACCEPTANCE_INBOX_FAILED,
           expect.stringContaining('inbox full'),
         );
       } finally {
@@ -779,7 +779,7 @@ describe('ContractManager Acceptance Flow', () => {
 
         const auditWriter = (manager as any).auditWriter;
         expect(auditWriter.write).toHaveBeenCalledWith(
-          AUDIT_EVENTS.CONTRACT_ACCEPTANCE_RESET_FAILED,
+          CONTRACT_AUDIT_EVENTS.ACCEPTANCE_RESET_FAILED,
           expect.stringContaining('lock busy'),
         );
       } finally {

@@ -8,7 +8,7 @@ import { buildDescribingUserMessage, buildMinerSystemPrompt, buildMiningUserMess
 import { AskMotionTool } from '../task/tools/ask-motion.js';
 import { isDispatchCaller } from '../tools/caller-type.js';
 import { writePendingSubagentTaskFile } from '../task/tools/_pending-task-writer.js';
-import { AUDIT_EVENTS } from '../../foundation/audit/events.js';
+import { DISPATCH_AUDIT_EVENTS } from './dispatch-audit-events.js';
 
 export class DispatchTool implements Tool {
   taskSystem?: TaskLifecyclePort;
@@ -74,7 +74,7 @@ export class DispatchTool implements Tool {
     } catch (e) {
       const code = (e as NodeJS.ErrnoException).code;
       if (code !== 'ENOENT' && code !== 'ENOTDIR') {
-        ctx.auditWriter?.write(AUDIT_EVENTS.DISPATCH_LOAD_SKILLS_FAILED, `error=${String(e)}`);
+        ctx.auditWriter?.write(DISPATCH_AUDIT_EVENTS.LOAD_SKILLS_FAILED, `error=${String(e)}`);
       }
     }
 
@@ -106,7 +106,7 @@ export class DispatchTool implements Tool {
 
         const blockMatch = result.match(/\[CONTRACT_DONE\]\s*(\{[\s\S]*?\})\s*\[\/CONTRACT_DONE\]/);
         if (!blockMatch) {
-          ctx.auditWriter?.write(AUDIT_EVENTS.DISPATCH_CONTRACT_DONE_NOT_FOUND, `taskId=${taskId}`);
+          ctx.auditWriter?.write(DISPATCH_AUDIT_EVENTS.CONTRACT_DONE_NOT_FOUND, `taskId=${taskId}`);
           return result;
         }
 
@@ -114,14 +114,14 @@ export class DispatchTool implements Tool {
         try {
           parsed = JSON.parse(blockMatch[1]);
         } catch {
-          ctx.auditWriter?.write(AUDIT_EVENTS.DISPATCH_CONTRACT_DONE_PARSE_FAILED, `raw=${blockMatch[1].slice(0, 200)}`);
+          ctx.auditWriter?.write(DISPATCH_AUDIT_EVENTS.CONTRACT_DONE_PARSE_FAILED, `raw=${blockMatch[1].slice(0, 200)}`);
           return result;
         }
 
         const { contractId, targetClaw } = parsed;
         if (!contractId || !targetClaw) {
           ctx.auditWriter?.write(
-            AUDIT_EVENTS.DISPATCH_CONTRACT_DONE_MISSING_FIELDS,
+            DISPATCH_AUDIT_EVENTS.CONTRACT_DONE_MISSING_FIELDS,
             `taskId=${taskId}`,
             `contractId=${parsed.contractId ?? 'missing'}`,
             `targetClaw=${parsed.targetClaw ?? 'missing'}`,
@@ -145,7 +145,7 @@ export class DispatchTool implements Tool {
           );
         } catch (e) {
           ctx.auditWriter?.write(
-            AUDIT_EVENTS.DISPATCH_WRITE_BY_CONTRACT_FAILED,
+            DISPATCH_AUDIT_EVENTS.WRITE_BY_CONTRACT_FAILED,
             `contractId=${contractId}`,
             `error=${e instanceof Error ? e.message : String(e)}`,
           );
@@ -169,7 +169,7 @@ export class DispatchTool implements Tool {
     // 构造包含完整对话上下文的 messages 数组
     const dialogMessages = ctx.dialogMessages ?? [];
     if (dialogMessages.length === 0) {
-      ctx.auditWriter?.write(AUDIT_EVENTS.DISPATCH_NO_DIALOG_CONTEXT);
+      ctx.auditWriter?.write(DISPATCH_AUDIT_EVENTS.NO_DIALOG_CONTEXT);
     }
 
     // messages 截止至当前 dispatch tool_use（loop 在执行工具前已追加），tool_result 尚未产生。

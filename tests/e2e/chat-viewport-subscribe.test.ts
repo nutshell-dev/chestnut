@@ -5,7 +5,7 @@ import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 import { createDirContext } from '../../src/cli/cli-factories.js';
 import { createStreamReader, STREAM_FILE, type StreamEvent, type StreamReader } from '../../src/foundation/stream/index.js';
 import { makeAudit } from '../helpers/audit.js';
-import { AUDIT_EVENTS } from '../../src/foundation/audit/events.js';
+import { VIEWPORT_AUDIT_EVENTS } from '../../src/cli/commands/viewport-audit-events.js';
 import { STREAM_AUDIT_EVENTS } from '../../src/foundation/stream/audit-events.js';
 import { createMainTurnUI, createTaskEventHandler, type MainTurnUIController } from '../../src/cli/commands/chat-viewport.js';
 
@@ -193,7 +193,7 @@ describe('chat-viewport 主 UI 隔离（phase162）', () => {
     await appendJsonl(mainStreamPath, { type: 'turn_end' });
     await new Promise(r => setTimeout(r, 300));
 
-    const crossPollution = events.filter(e => e[0] === AUDIT_EVENTS.VIEWPORT_UI_CROSS_POLLUTION);
+    const crossPollution = events.filter(e => e[0] === VIEWPORT_AUDIT_EVENTS.UI_CROSS_POLLUTION);
     expect(crossPollution).toHaveLength(0);
   });
 
@@ -208,7 +208,7 @@ describe('chat-viewport 主 UI 隔离（phase162）', () => {
     });
 
     mainUI.withScope('task', () => mainUI.setSuffix('leaked'));
-    const crossPollution = events.filter(e => e[0] === AUDIT_EVENTS.VIEWPORT_UI_CROSS_POLLUTION);
+    const crossPollution = events.filter(e => e[0] === VIEWPORT_AUDIT_EVENTS.UI_CROSS_POLLUTION);
     expect(crossPollution).toHaveLength(1);
     expect(crossPollution[0][1]).toBe('method=setSuffix');
     expect(crossPollution[0][2]).toBe('source=task');
@@ -324,7 +324,7 @@ describe('chat-viewport 主 UI 并发隔离（phase162 streamReader）', () => {
     expect(mainUI.getSuffix()).toContain('hello');
 
     // 正常路径不触发 cross_pollution audit
-    const crossPollution = events.filter(e => e[0] === AUDIT_EVENTS.VIEWPORT_UI_CROSS_POLLUTION);
+    const crossPollution = events.filter(e => e[0] === VIEWPORT_AUDIT_EVENTS.UI_CROSS_POLLUTION);
     expect(crossPollution).toHaveLength(0);
   });
 });
