@@ -1,6 +1,6 @@
-import { AUDIT_EVENTS } from '../audit/events.js';
-import type { LLMEventSink, LLMEvent } from './index.js';
-import type { Audit } from '../audit/index.js';
+import { AUDIT_EVENTS } from '../foundation/audit/events.js';
+import type { LLMEventSink, LLMEvent } from '../foundation/llm/index.js';
+import type { Audit } from '../foundation/audit/index.js';
 
 export function createLLMAuditSink(audit: Audit): LLMEventSink {
   return {

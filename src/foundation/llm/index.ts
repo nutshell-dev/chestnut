@@ -29,9 +29,6 @@ export { CustomAnthropicAdapter } from './custom-anthropic.js';
 // Abort helper
 export { withCombinedAbortSignal, type CombinedAbortHandle } from './abort-helper.js';
 
-// Audit sink
-export { createLLMAuditSink } from './audit-sink.js';
-
 import { LLMServiceImpl } from './service.js';
 import type { LLMServiceConfig } from './types.js';
 

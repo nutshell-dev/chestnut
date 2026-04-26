@@ -12,7 +12,7 @@ import { createAgentProcessManager } from '../cli/commands/process-manager-facto
 import { type ClawRuntime, type RuntimeDependencies } from '../core/runtime/index.js';
 import { createRuntime } from '../core/runtime/index.js';
 import { createLLMService, type LLMServiceImpl } from '../foundation/llm/index.js';
-import { createLLMAuditSink } from '../foundation/llm/index.js';
+import { createLLMAuditSink } from './llm-audit-sink.js';
 import { createToolRegistry, type ToolRegistryImpl } from '../core/tools/index.js';
 import { createToolExecutor, type ToolExecutorImpl } from '../core/tools/index.js';
 import { createSkillRegistry, SkillRegistry } from '../core/skill/index.js';
