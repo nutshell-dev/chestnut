@@ -1,19 +1,22 @@
-import type { Tool, ToolResult, ExecContext } from '../tools/executor.js';
-import type { TaskLifecyclePort } from './runtime-ports.js';
-import type { Message, ToolDefinition } from '../../types/message.js';
-import { createSkillRegistry } from '../skill/index.js';
-import { ToolRegistryImpl } from '../tools/registry.js';
-import { DEFAULT_LLM_IDLE_TIMEOUT_MS, DEFAULT_MAX_STEPS } from '../../constants.js';
-import { buildDescribingUserMessage, buildMinerSystemPrompt, buildMiningUserMessage } from '../../prompts/index.js';
-import { AskMotionTool } from '../task/tools/ask-motion.js';
-import { isDispatchCaller } from '../tools/caller-type.js';
-import { writePendingSubagentTaskFile } from '../task/tools/_pending-task-writer.js';
+import type { Tool, ToolResult, ExecContext } from '../../tools/executor.js';
+import type { TaskLifecyclePort } from '../../runtime/runtime-ports.js';
+import type { Message, ToolDefinition } from '../../../types/message.js';
+import { createSkillRegistry } from '../../skill/index.js';
+import { ToolRegistryImpl } from '../../tools/registry.js';
+import { DEFAULT_LLM_IDLE_TIMEOUT_MS, DEFAULT_MAX_STEPS } from '../../../constants.js';
+import { buildDescribingUserMessage, buildMinerSystemPrompt, buildMiningUserMessage } from '../../../prompts/index.js';
+import { AskMotionTool } from './ask-motion.js';
+import { isDispatchCaller } from '../../tools/caller-type.js';
+import { writePendingSubagentTaskFile } from './_pending-task-writer.js';
 import { DISPATCH_AUDIT_EVENTS } from './dispatch-audit-events.js';
+
+import { DISPATCH_TOOL_NAME } from '../../tools/tool-names.js';
+export { DISPATCH_TOOL_NAME };
 
 export class DispatchTool implements Tool {
   taskSystem?: TaskLifecyclePort;
 
-  readonly name = 'dispatch';
+  readonly name = DISPATCH_TOOL_NAME;
   readonly description = `派发任务，创建契约。支持两种模式：
 
 **mining（默认）**：创建意图挖掘子代理，通过与 Motion 分身多轮问答澄清用户意图，再由子代理完成契约创建。适合意图模糊或需确认优先级、目标 claw 的场景。
@@ -195,7 +198,7 @@ export class DispatchTool implements Tool {
     let dispatchToolUseId: string | undefined;
     if (lastMsg?.role === 'assistant' && Array.isArray(lastMsg.content)) {
       const lastBlock = lastMsg.content[lastMsg.content.length - 1];
-      if (lastBlock?.type === 'tool_use' && lastBlock.name === 'dispatch') {
+      if (lastBlock?.type === 'tool_use' && lastBlock.name === DISPATCH_TOOL_NAME) {
         dispatchToolUseId = (lastBlock as { type: string; id: string; name: string }).id;
       }
     }

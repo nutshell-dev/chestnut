@@ -20,7 +20,7 @@ import type { SessionData } from '../../foundation/session-store/index.js';
 import { InboxWriter, InboxListFailed, InboxMoveFailed } from '../../foundation/messaging/index.js';
 
 import { SessionManager } from '../../foundation/session-store/index.js';
-import { DispatchTool } from './dispatch.js';
+import { DispatchTool } from '../task/tools/dispatch.js';
 import { runReact } from '../react/loop.js';
 import { summarizeLastExit } from './last-exit-summary.js';
 import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../../types/signals.js';

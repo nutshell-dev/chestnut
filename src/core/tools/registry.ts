@@ -56,7 +56,7 @@ export class ToolRegistryImpl implements ToolRegistry {
    */
   getForProfile(profile: ToolProfile): Tool[] {
     const allowedNames = TOOL_PROFILES[profile];
-    return this.getAll().filter(tool => allowedNames.includes(tool.name));
+    return this.getAll().filter(tool => (allowedNames as readonly string[]).includes(tool.name));
   }
 
   /**

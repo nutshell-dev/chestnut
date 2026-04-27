@@ -6,8 +6,11 @@ import type { Tool, ToolResult, ExecContext } from '../executor.js';
 import type { FileEntry } from '../../../foundation/fs/types.js';
 import { parseFrontmatter } from '../../../foundation/message-codec/index.js';
 
+import { MEMORY_SEARCH_TOOL_NAME } from '../tool-names.js';
+export { MEMORY_SEARCH_TOOL_NAME };
+
 export const memorySearchTool: Tool = {
-  name: 'memory_search',
+  name: MEMORY_SEARCH_TOOL_NAME,
   description: 'Full-text search across memory/ files. Supports keyword search, filename regex filtering, and frontmatter metadata filtering. At least one of query or filter is required.',
   schema: {
     type: 'object',

@@ -68,8 +68,11 @@ async function backupVersion(fs: ExecContext['fs'], filePath: string): Promise<s
   return null;
 }
 
+import { WRITE_TOOL_NAME } from '../tool-names.js';
+export { WRITE_TOOL_NAME };
+
 export const writeTool: Tool = {
-  name: 'write',
+  name: WRITE_TOOL_NAME,
   description: 'Write content to a file. Use append=true to append instead of overwrite. Auto-backups to .versions/ (keep 10). Size limits: MEMORY.md 50/200KB, memory/ 100/500KB, clawspace/ 5MB/20MB. WARNING: single LLM output is limited to ~4096 tokens (~3000 chars). For long files, split into multiple write calls: first call without append, subsequent calls with append=true.',
   schema: {
     type: 'object',

@@ -62,8 +62,11 @@ async function walkNative(
   return rem;
 }
 
+import { SEARCH_TOOL_NAME } from '../tool-names.js';
+export { SEARCH_TOOL_NAME };
+
 export const searchTool: Tool = {
-  name: 'search',
+  name: SEARCH_TOOL_NAME,
   description: 'Search for text in LOCAL files only (not web/network). Returns file:line: content matches, case-insensitive, default max 5 results. Allowed paths: clawspace/, skills/, prompts/. Motion can search another claw via `claw: "<id>"`, or all claws via `claw: "*"`.',
   schema: {
     type: 'object',

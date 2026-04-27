@@ -18,8 +18,11 @@ import { writePendingSubagentTaskFile } from './_pending-task-writer.js';
  * phase163: 直接写 tasks/pending/ 文件，由 watcher 异步调度。
  * 不再依赖 TaskSystem 实例。
  */
+import { SPAWN_TOOL_NAME } from '../../tools/tool-names.js';
+export { SPAWN_TOOL_NAME };
+
 export const spawnTool: Tool = {
-  name: 'spawn',
+  name: SPAWN_TOOL_NAME,
   description: 'Create a subagent to handle a delegated task. The subagent will execute independently and return results via inbox when complete.',
   schema: {
     type: 'object',

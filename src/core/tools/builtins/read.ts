@@ -24,8 +24,11 @@ function isPathAllowed(filePath: string): boolean {
   );
 }
 
+import { READ_TOOL_NAME } from '../tool-names.js';
+export { READ_TOOL_NAME };
+
 export const readTool: Tool = {
-  name: 'read',
+  name: READ_TOOL_NAME,
   description: 'Read the contents of a file. Blocked: logs/. Motion can read other claws via `claw` parameter.',
   schema: {
     type: 'object',

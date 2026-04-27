@@ -13,8 +13,11 @@ import type { ContractManager } from '../../contract/manager.js';
  * 
  * Requires contractManager to be injected before use.
  */
+import { DONE_TOOL_NAME } from '../tool-names.js';
+export { DONE_TOOL_NAME };
+
 export const doneTool: Tool & { contractManager?: ContractManager } = {
-  name: 'done',
+  name: DONE_TOOL_NAME,
   description: 'Mark a subtask as complete and submit it for acceptance verification. ' +
     'Acceptance runs asynchronously — the result (pass or reject) will be ' +
     'delivered to your inbox. Check inbox for feedback before proceeding.',

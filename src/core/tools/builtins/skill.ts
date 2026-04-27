@@ -13,8 +13,11 @@ import { createSkillRegistry, type SkillRegistry } from '../../skill/index.js';
  * 
  * Requires skillRegistry to be injected before use.
  */
+import { SKILL_TOOL_NAME } from '../tool-names.js';
+export { SKILL_TOOL_NAME };
+
 export const skillTool: Tool & { skillRegistry?: SkillRegistry } = {
-  name: 'skill',
+  name: SKILL_TOOL_NAME,
   description: 'Load a skill by name. Skills provide domain-specific knowledge and guidelines from SKILL.md files.',
   schema: {
     type: 'object',

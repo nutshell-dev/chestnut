@@ -19,8 +19,11 @@ function truncate(str: string, maxLen: number): string {
   return str.slice(0, maxLen) + '\n[truncated]';
 }
 
+import { EXEC_TOOL_NAME } from '../tool-names.js';
+export { EXEC_TOOL_NAME };
+
 export const execTool: Tool = {
-  name: 'exec',
+  name: EXEC_TOOL_NAME,
   description: 'Execute a shell command in the claw root directory. Runs via `sh -c`, so shell features (pipes, redirects, quotes) work normally.',
   schema: {
     type: 'object',

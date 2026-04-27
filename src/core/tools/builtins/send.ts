@@ -5,9 +5,12 @@
 import type { Tool, ToolResult, ExecContext } from '../executor.js';
 import type { OutboxWriter } from '../../../foundation/messaging/index.js';
 
+import { SEND_TOOL_NAME } from '../tool-names.js';
+export { SEND_TOOL_NAME };
+
 export const sendTool: Tool & { outboxWriter?: OutboxWriter } = {
   outboxWriter: undefined,
-  name: 'send',
+  name: SEND_TOOL_NAME,
   description: 'Send a message to the outbox for the parent or other claws. Priority: critical|high|normal|low (default: normal).',
   schema: {
     type: 'object',

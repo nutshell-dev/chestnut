@@ -9,8 +9,11 @@ import * as fsNative from 'fs';
 import type { Tool, ToolResult, ExecContext } from '../executor.js';
 import { LS_MAX_ENTRIES } from '../../../constants.js';
 
+import { LS_TOOL_NAME } from '../tool-names.js';
+export { LS_TOOL_NAME };
+
 export const lsTool: Tool = {
-  name: 'ls',
+  name: LS_TOOL_NAME,
   description: 'List files and directories in the specified path. Motion can list other claws via `claw` parameter.',
   schema: {
     type: 'object',
