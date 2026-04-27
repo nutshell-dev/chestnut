@@ -118,7 +118,6 @@ export class ContractManager {
   private activeDir = 'contract/active';
   private pausedDir = 'contract/paused';
   private archiveDir = 'contract/archive';
-  private auditWriter?: AuditWriter;
   onNotify?: (type: string, data: Record<string, unknown>) => void;
 
   constructor(
@@ -128,10 +127,8 @@ export class ContractManager {
     audit: AuditWriter,
     llm?: LLMService,
     verifierRegistry?: ToolRegistryImpl,
-    auditWriter?: AuditWriter,
     verifierScheduler?: ContractVerifierScheduler,
   ) {
-    this.auditWriter = auditWriter;
     this.clawDir = clawDir;
     this.clawId = clawId;
     this.fs = fs;
@@ -201,7 +198,7 @@ export class ContractManager {
           } else if (Date.now() - time > LOCK_STALE_TIMEOUT_MS) {
             // 持有者存活但持锁超时：强制清理（防止 bug 导致永久死锁）
             lastReason = `holder PID ${pid} exceeded timeout (${LOCK_STALE_TIMEOUT_MS}ms)`;
-            this.auditWriter?.write(
+            this.audit.write(
               CONTRACT_AUDIT_EVENTS.LOCK_CLEARED,
               `pid=${pid}`,
               `timeout=${LOCK_STALE_TIMEOUT_MS}`,
@@ -239,13 +236,13 @@ export class ContractManager {
     } catch (err: any) {
       if (err?.code === 'ENOENT') return true; // 已被其他路径清理，等同成功
       // 真故障（权限/IO）：记 audit（phase230 清零后 / L232 已 audit 化 / 循环外层通过 audit.tsv 审计）
-      this.auditWriter?.write(
+      this.audit.write(
         'contract_lock_cleanup_failed',
         reason,
         err?.code ?? 'unknown',
         err?.message ?? String(err),
       );
-      this.auditWriter?.write(
+      this.audit.write(
         CONTRACT_AUDIT_EVENTS.LOCK_UNLINK_FAILED,
         `reason=${reason}`,
         `err=${err?.message ?? String(err)}`,
@@ -310,7 +307,7 @@ export class ContractManager {
         // Distinguish file-not-found (ENOENT, skip normally) from other errors (JSON parse failure, corruption, etc.)
         const code = (error as NodeJS.ErrnoException).code;
         if (code !== 'ENOENT') {
-          this.auditWriter?.write(
+          this.audit.write(
             CONTRACT_AUDIT_EVENTS.PROGRESS_CORRUPTED,
             `file=${entry.name}`,
             `err=${error instanceof Error ? error.message : String(error)}`,
@@ -352,7 +349,7 @@ export class ContractManager {
       } catch (error) {
         const code = (error as NodeJS.ErrnoException).code;
         if (code !== 'ENOENT') {
-          this.auditWriter?.write(
+          this.audit.write(
             CONTRACT_AUDIT_EVENTS.PROGRESS_CORRUPTED,
             `file=${entry.name}`,
             `err=${error instanceof Error ? error.message : String(error)}`,
@@ -408,7 +405,7 @@ export class ContractManager {
     // Archive any existing active contract (prevents conflicts with multiple running contracts)
     const existing = await this.loadActive();
     if (existing && existing.id !== contractId) {
-      this.auditWriter?.write(
+      this.audit.write(
         CONTRACT_AUDIT_EVENTS.ARCHIVE_STARTED,
         `old=${existing.id}`,
         `new=${contractId}`,
@@ -450,7 +447,7 @@ export class ContractManager {
     } catch (err) {
       // 清理整个合约目录，避免残留空目录或孤立文件在 active/
       await this.fs.removeDir(`${this.activeDir}/${contractId}`).catch((deleteErr) => {
-        this.auditWriter?.write(
+        this.audit.write(
           CONTRACT_AUDIT_EVENTS.ROLLBACK_FAILED,
           `contractId=${contractId}`,
           `err=${deleteErr instanceof Error ? deleteErr.message : String(deleteErr)}`,
@@ -462,12 +459,12 @@ export class ContractManager {
     try {
       this.onNotify?.('contract_created', { contractId, title: contractYaml.title, subtaskCount: contractYaml.subtasks.length });
     } catch (err) {
-      this.auditWriter?.write(
+      this.audit.write(
         CONTRACT_AUDIT_EVENTS.NOTIFY_FAILED,
         `err=${err instanceof Error ? err.message : String(err)}`,
       );
     }
-    this.auditWriter?.write(CONTRACT_AUDIT_EVENTS.CREATED, contractId, `subtasks=${contractYaml.subtasks.length}`, `title=${contractYaml.title}`);
+    this.audit.write(CONTRACT_AUDIT_EVENTS.CREATED, contractId, `subtasks=${contractYaml.subtasks.length}`, `title=${contractYaml.title}`);
     this.audit.write(CONTRACT_AUDIT_EVENTS.CREATED, `contractId=${contractId}`);
     return contractId;
   }
@@ -592,7 +589,7 @@ export class ContractManager {
       const currentStatus = progress.subtasks[subtaskId].status;
       if (currentStatus === 'in_progress') {
         result = { passed: false, feedback: `Subtask "${subtaskId}" acceptance is already in progress — duplicate done() call ignored.` };
-        this.auditWriter?.write(
+        this.audit.write(
           CONTRACT_AUDIT_EVENTS.SUBTASK_DUPLICATE_DONE,
           `contractId=${contractId}`,
           `subtaskId=${subtaskId}`,
@@ -601,7 +598,7 @@ export class ContractManager {
       }
       if (currentStatus === 'completed') {
         result = { passed: false, feedback: `Subtask "${subtaskId}" is already completed.` };
-        this.auditWriter?.write(
+        this.audit.write(
           CONTRACT_AUDIT_EVENTS.SUBTASK_ALREADY_COMPLETED,
           `contractId=${contractId}`,
           `subtaskId=${subtaskId}`,
@@ -619,7 +616,7 @@ export class ContractManager {
       try {
         this.onNotify?.('subtask_completed', { contractId, subtaskId });
       } catch (err) {
-        this.auditWriter?.write(
+        this.audit.write(
           CONTRACT_AUDIT_EVENTS.NOTIFY_FAILED,
           `err=${err instanceof Error ? err.message : String(err)}`,
         );
@@ -627,7 +624,7 @@ export class ContractManager {
       const subtaskTotal = contractYaml.subtasks.length;
       const completedCount = Object.values(progress.subtasks).filter(s => s.status === 'completed').length;
       // Audit: subtask_completed
-      this.auditWriter?.write(
+      this.audit.write(
         'subtask_completed',
         `${contractId}/${subtaskId}`,
         `progress=${completedCount}/${subtaskTotal}`,
@@ -651,14 +648,14 @@ export class ContractManager {
       const title = contractYaml.title;
       try {
         await this.moveToArchive(contractId);
-        this.auditWriter?.write(
+        this.audit.write(
           'contract_completed',
           contractId,
           `title=${title}`,
           `claw=${this.clawId}`,
         );
       } catch (err) {
-        this.auditWriter?.write(
+        this.audit.write(
           CONTRACT_AUDIT_EVENTS.MOVE_ARCHIVE_FAILED,
           `err=${err instanceof Error ? err.message : String(err)}`,
         );
@@ -730,7 +727,7 @@ export class ContractManager {
         try {
           this.onNotify?.('subtask_completed', { contractId, subtaskId });
         } catch (err) {
-          this.auditWriter?.write(
+          this.audit.write(
             CONTRACT_AUDIT_EVENTS.NOTIFY_FAILED,
             `err=${err instanceof Error ? err.message : String(err)}`,
           );
@@ -738,7 +735,7 @@ export class ContractManager {
         const subtaskTotal = contractYaml.subtasks.length;
         const completedCount = Object.values(progress.subtasks).filter(s => s.status === 'completed').length;
         // Audit: subtask_completed
-        this.auditWriter?.write(
+        this.audit.write(
           'subtask_completed',
           `${contractId}/${subtaskId}`,
           `progress=${completedCount}/${subtaskTotal}`,
@@ -746,7 +743,7 @@ export class ContractManager {
         );
 
         // Audit: acceptance_passed
-        this.auditWriter?.write(CONTRACT_AUDIT_EVENTS.PASSED, `${contractId}/${subtaskId}`);
+        this.audit.write(CONTRACT_AUDIT_EVENTS.PASSED, `${contractId}/${subtaskId}`);
 
         // Check all completed
         const allCompleted = await this.checkAllCompleted(contractId, progress);
@@ -764,14 +761,14 @@ export class ContractManager {
         if (allCompleted) {
           try {
             await this.moveToArchive(contractId);
-            this.auditWriter?.write(
+            this.audit.write(
               'contract_completed',
               contractId,
               `title=${contractYaml.title}`,
               `claw=${this.clawId}`,
             );
           } catch (err) {
-            this.auditWriter?.write(
+            this.audit.write(
               CONTRACT_AUDIT_EVENTS.MOVE_ARCHIVE_FAILED,
               `err=${err instanceof Error ? err.message : String(err)}`,
             );
@@ -789,14 +786,14 @@ export class ContractManager {
         try {
           this.onNotify?.('acceptance_failed', { contractId, subtaskId, feedback: result.feedback });
         } catch (err) {
-          this.auditWriter?.write(
+          this.audit.write(
             CONTRACT_AUDIT_EVENTS.NOTIFY_FAILED,
             `err=${err instanceof Error ? err.message : String(err)}`,
           );
         }
 
         // Audit: acceptance_failed
-        this.auditWriter?.write(
+        this.audit.write(
           'acceptance_failed',
           `${contractId}/${subtaskId}`,
           `feedback=${result.feedback}`,
@@ -829,7 +826,7 @@ export class ContractManager {
         if (subtask.retry_count >= maxRetries) {
           subtask.escalated_at = new Date().toISOString();
           await this.saveProgress(contractId, progress);
-          this.auditWriter?.write(
+          this.audit.write(
             'contract_escalation',
             `${contractId}/${subtaskId}`,
             `retry_count=${subtask.retry_count}`,
@@ -867,7 +864,7 @@ export class ContractManager {
       body = feedback || 'No feedback provided';
     }
 
-    const audit = this.auditWriter ?? createSystemAudit(this.fs, this.clawDir);
+    const audit = this.audit;
     new InboxWriter(
       this.fs,
       path.join(this.clawDir, 'inbox', 'pending'),
@@ -890,7 +887,7 @@ export class ContractManager {
     const errorMsg = error instanceof Error ? error.message : String(error);
 
     try {
-      const audit = this.auditWriter ?? createSystemAudit(this.fs, this.clawDir);
+      const audit = this.audit;
       new InboxWriter(
         this.fs,
         path.join(this.clawDir, 'inbox', 'pending'),
@@ -910,7 +907,7 @@ export class ContractManager {
       });
     } catch (e) {
       // Best-effort: log but don't throw
-      this.auditWriter?.write(
+      this.audit.write(
         CONTRACT_AUDIT_EVENTS.ACCEPTANCE_INBOX_FAILED,
         `err=${e instanceof Error ? e.message : String(e)}`,
       );
@@ -930,7 +927,7 @@ export class ContractManager {
         }
       });
     } catch (e) {
-      this.auditWriter?.write(
+      this.audit.write(
         CONTRACT_AUDIT_EVENTS.ACCEPTANCE_RESET_FAILED,
         `err=${e instanceof Error ? e.message : String(e)}`,
       );
@@ -993,7 +990,7 @@ export class ContractManager {
       progress.checkpoint = checkpointNote;
       await this.saveProgress(contractId, progress);
     });
-    this.auditWriter?.write(CONTRACT_AUDIT_EVENTS.PAUSED, contractId, `checkpoint=${checkpointNote}`);
+    this.audit.write(CONTRACT_AUDIT_EVENTS.PAUSED, contractId, `checkpoint=${checkpointNote}`);
   }
 
   /**
@@ -1016,7 +1013,7 @@ export class ContractManager {
       progress.checkpoint = null;
       await this.saveProgress(contractId, progress);
     });
-    this.auditWriter?.write(CONTRACT_AUDIT_EVENTS.RESUMED, contractId);
+    this.audit.write(CONTRACT_AUDIT_EVENTS.RESUMED, contractId);
     return this.loadContract(contractId);
   }
 
@@ -1038,7 +1035,7 @@ export class ContractManager {
       progress.checkpoint = `cancelled: ${reason}`;
       await this.saveProgress(contractId, progress);
     });
-    this.auditWriter?.write(CONTRACT_AUDIT_EVENTS.CANCELLED, contractId, `reason=${reason}`);
+    this.audit.write(CONTRACT_AUDIT_EVENTS.CANCELLED, contractId, `reason=${reason}`);
   }
 
   /**
@@ -1114,7 +1111,7 @@ export class ContractManager {
     // In Phase 1, the contract YAML is read-only; status changes are recorded in progress.json
     // In a real project, you may need to update the status field in the contract file itself
     if (status === 'completed') {
-      this.auditWriter?.write(CONTRACT_AUDIT_EVENTS.COMPLETED, contractId);
+      this.audit.write(CONTRACT_AUDIT_EVENTS.COMPLETED, contractId);
     }
   }
 
@@ -1135,7 +1132,7 @@ export class ContractManager {
       return { passed: false, feedback: `路径安全拒绝: script_file 必须在契约目录内` };
     }
 
-    this.auditWriter?.write(
+    this.audit.write(
       CONTRACT_AUDIT_EVENTS.ACCEPTANCE_SCRIPT_STARTED,
       `script=${scriptFile}`,
       `cwd=${this.clawDir}`,
@@ -1208,7 +1205,7 @@ export class ContractManager {
         maxSteps: DEFAULT_MAX_STEPS,
         idleTimeoutMs: DEFAULT_LLM_IDLE_TIMEOUT_MS,
         onIdleTimeout: () => {
-          this.auditWriter?.write(
+          this.audit.write(
             'acceptance_timeout',
             `${contractId}/${subtaskId}`,
             `claw=${this.clawId}`,
@@ -1261,7 +1258,7 @@ export class ContractManager {
       try {
         raw = JSON.parse(fileContent);
       } catch {
-        this.auditWriter?.write(
+        this.audit.write(
           CONTRACT_AUDIT_EVENTS.RETRO_INDEX_FAILED,
           `contractId=${contractId}`,
           'reason=invalid_json',
@@ -1269,7 +1266,7 @@ export class ContractManager {
         return;
       }
       if (typeof raw !== 'object' || raw === null) {
-        this.auditWriter?.write(
+        this.audit.write(
           CONTRACT_AUDIT_EVENTS.RETRO_INDEX_FAILED,
           `contractId=${contractId}`,
           'reason=unexpected_format',
@@ -1279,7 +1276,7 @@ export class ContractManager {
       const r = raw as Record<string, unknown>;
       const rawTarget = typeof r.targetClaw === 'string' ? r.targetClaw : null;
       if (!rawTarget || !/^[a-z0-9-]+$/.test(rawTarget)) {
-        this.auditWriter?.write(
+        this.audit.write(
           CONTRACT_AUDIT_EVENTS.RETRO_INDEX_FAILED,
           `contractId=${contractId}`,
           `reason=invalid_targetClaw`,
@@ -1294,7 +1291,7 @@ export class ContractManager {
     } catch (e) {
       const code = (e as NodeJS.ErrnoException).code;
       if (code !== 'ENOENT') {
-        this.auditWriter?.write(
+        this.audit.write(
           CONTRACT_AUDIT_EVENTS.RETRO_INDEX_FAILED,
           `contractId=${contractId}`,
           `err=${e instanceof Error ? e.message : String(e)}`,
@@ -1314,7 +1311,7 @@ export class ContractManager {
     try {
       contractYaml = await clawContractManager.readContractYamlRaw(contractId);
     } catch (e) {
-      this.auditWriter?.write(
+      this.audit.write(
         CONTRACT_AUDIT_EVENTS.RETRO_YAML_FAILED,
         `contractId=${contractId}`,
         `err=${e instanceof Error ? e.message : String(e)}`,
@@ -1332,7 +1329,7 @@ export class ContractManager {
         skillsSummary = formatted;
       }
     } catch (e) {
-      this.auditWriter?.write(
+      this.audit.write(
         CONTRACT_AUDIT_EVENTS.RETRO_SKILL_FAILED,
         `err=${e instanceof Error ? e.message : String(e)}`,
       );
@@ -1351,13 +1348,13 @@ export class ContractManager {
       } catch (e) {
         const code = (e as NodeJS.ErrnoException).code;
         if (code === 'ENOENT') {
-          this.auditWriter?.write(
+          this.audit.write(
             CONTRACT_AUDIT_EVENTS.RETRO_MINING_FAILED,
             `taskId=${miningTaskId}`,
             'reason=ENOENT',
           );
         } else {
-          this.auditWriter?.write(
+          this.audit.write(
             CONTRACT_AUDIT_EVENTS.RETRO_MINING_FAILED,
             `taskId=${miningTaskId}`,
             `err=${e instanceof Error ? e.message : String(e)}`,
@@ -1387,7 +1384,7 @@ export class ContractManager {
         originClawId: 'motion',
       });
     } catch (e) {
-      this.auditWriter?.write(
+      this.audit.write(
         CONTRACT_AUDIT_EVENTS.RETRO_SCHEDULE_FAILED,
         `err=${e instanceof Error ? e.message : String(e)}`,
       );
@@ -1396,7 +1393,7 @@ export class ContractManager {
 
     // 3.3 调度成功后 cleanup by-contract 索引（best-effort）
     await fsAsync.unlink(byContractPath).catch(e =>
-      this.auditWriter?.write(
+      this.audit.write(
         CONTRACT_AUDIT_EVENTS.RETRO_CLEANUP_FAILED,
         `err=${e instanceof Error ? e.message : String(e)}`,
       )

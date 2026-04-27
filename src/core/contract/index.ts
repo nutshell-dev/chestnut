@@ -33,8 +33,7 @@ export function createContractManager(
   audit: AuditWriter,
   llm?: LLMService,
   verifierRegistry?: ToolRegistryImpl,
-  auditWriter?: AuditWriter,
   verifierScheduler?: ContractVerifierScheduler,
 ): ContractManager {
-  return new ContractManager(clawDir, clawId, fs, audit, llm, verifierRegistry, auditWriter, verifierScheduler);
+  return new ContractManager(clawDir, clawId, fs, audit, llm, verifierRegistry, verifierScheduler);
 }

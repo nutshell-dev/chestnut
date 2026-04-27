@@ -189,7 +189,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
       verifierRegistry.register(tool);
     }
     contractManager = createContractManager(
-      clawDir, clawId, systemFs, auditWriter, llm, verifierRegistry, auditWriter,
+      clawDir, clawId, systemFs, auditWriter, llm, verifierRegistry,
       createSubAgentVerifierScheduler(),
     );
   } catch (e) {

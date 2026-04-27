@@ -202,8 +202,7 @@ describe('ContractManager Acceptance Flow', () => {
     } as unknown as LLMService;
 
     mockRegistry = new ToolRegistryImpl();
-    const auditWriter = { write: vi.fn() };
-    manager = new ContractManager(clawDir, 'test-claw', nodeFs, mockAudit as any, mockLLM, mockRegistry, auditWriter as any);
+    manager = new ContractManager(clawDir, 'test-claw', nodeFs, mockAudit as any, mockLLM, mockRegistry);
   });
 
   afterEach(async () => {
@@ -667,7 +666,7 @@ describe('ContractManager Acceptance Flow', () => {
       await waitForAcceptance(tempDir);
 
       // auditWriter 应收到 acceptance_timeout 日志
-      const auditWriter = (manager as any).auditWriter;
+      const auditWriter = (manager as any).audit;
       const timeoutCalls = auditWriter.write.mock.calls.filter((c: any[]) => c[0] === 'acceptance_timeout');
       expect(timeoutCalls).toHaveLength(1);
       expect(timeoutCalls[0][1]).toContain('task-1');
@@ -703,7 +702,7 @@ describe('ContractManager Acceptance Flow', () => {
       execFileMockStderr = 'test failure';
 
       // This failure should push retry_count to 2, triggering escalation audit
-      const auditWriter = (manager as any).auditWriter;
+      const auditWriter = (manager as any).audit;
       await manager.completeSubtask({
         contractId,
         subtaskId: 'task-1',
@@ -746,7 +745,7 @@ describe('ContractManager Acceptance Flow', () => {
       await manager.completeSubtask({ contractId, subtaskId: 'task-1', evidence: 'done' });
       await waitForAcceptance(tempDir);
 
-      const auditWriter = (manager as any).auditWriter;
+      const auditWriter = (manager as any).audit;
       expect(auditWriter.write).toHaveBeenCalledWith(
         CONTRACT_AUDIT_EVENTS.ACCEPTANCE_SCRIPT_STARTED,
         expect.stringContaining('script='),
@@ -763,7 +762,7 @@ describe('ContractManager Acceptance Flow', () => {
         // @ts-expect-error - private method
         await manager._writeAcceptanceError('contract-1', 'task-1', new Error('acceptance crashed'));
 
-        const auditWriter = (manager as any).auditWriter;
+        const auditWriter = (manager as any).audit;
         expect(auditWriter.write).toHaveBeenCalledWith(
           CONTRACT_AUDIT_EVENTS.ACCEPTANCE_INBOX_FAILED,
           expect.stringContaining('inbox full'),
@@ -780,7 +779,7 @@ describe('ContractManager Acceptance Flow', () => {
         // @ts-expect-error - private method
         await manager._writeAcceptanceError('contract-1', 'task-1', new Error('acceptance crashed'));
 
-        const auditWriter = (manager as any).auditWriter;
+        const auditWriter = (manager as any).audit;
         expect(auditWriter.write).toHaveBeenCalledWith(
           CONTRACT_AUDIT_EVENTS.ACCEPTANCE_RESET_FAILED,
           expect.stringContaining('lock busy'),
@@ -892,10 +891,8 @@ describe('ContractManager — verifier scheduler port', () => {
       stream: vi.fn(),
     } as unknown as LLMService;
     const mockRegistry = new ToolRegistryImpl();
-    const auditWriter = { write: vi.fn() };
-
     const manager = new ContractManager(
-      clawDir, 'test-claw', nodeFs, mockAudit as any, mockLLM, mockRegistry, auditWriter as any,
+      clawDir, 'test-claw', nodeFs, mockAudit as any, mockLLM, mockRegistry,
       mockScheduler,
     );
 
