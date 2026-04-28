@@ -37,7 +37,7 @@ describe('parseSchedule', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const audit = makeMockAudit();
     parseSchedule('bogus', audit as unknown as Audit);
-    expect(audit.write).toHaveBeenCalledWith('cron_parse_fallback', 'input=bogus', 'fallback=hourly');
+    expect(audit.write).toHaveBeenCalledWith(CRON_AUDIT_EVENTS.PARSE_FALLBACK, 'input=bogus', 'fallback=hourly');
     warnSpy.mockRestore();
   });
 
@@ -157,7 +157,7 @@ describe('CronRunner', () => {
     runner.tick();
     await vi.runAllTicks();
     expect(audit.write).toHaveBeenCalledWith(
-      'cron_job_error',
+      CRON_AUDIT_EVENTS.JOB_ERROR,
       'job=failing',
       expect.stringContaining('run_key='),
       'err=boom',

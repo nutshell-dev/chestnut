@@ -21,7 +21,7 @@ export function parseSchedule(s: string, audit?: Audit): CronSchedule {
     const minutes = parseInt(s.slice(9), 10);
     return { type: 'interval', minutes };
   }
-  audit?.write('cron_parse_fallback', `input=${s}`, 'fallback=hourly');
+  audit?.write(CRON_AUDIT_EVENTS.PARSE_FALLBACK, `input=${s}`, 'fallback=hourly');
   console.warn(`[cron] Unknown schedule format "${s}", falling back to hourly`);
   return { type: 'hourly' };
 }
@@ -70,7 +70,7 @@ export class CronRunner {
       this.running.add(job.name);
       job.handler()
         .catch(err => {
-          this.audit.write('cron_job_error',
+          this.audit.write(CRON_AUDIT_EVENTS.JOB_ERROR,
             `job=${job.name}`,
             `run_key=${key}`,
             `err=${err instanceof Error ? err.message : String(err)}`,
