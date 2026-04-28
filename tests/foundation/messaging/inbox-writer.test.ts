@@ -11,6 +11,7 @@ import { randomUUID } from 'crypto';
 import { InboxWriter } from '../../../src/foundation/messaging/index.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import type { InboxMessage } from '../../../src/types/messaging.js';
+import { INBOX_PENDING_DIR } from '../../../src/types/paths.js';
 
 describe('InboxWriter', () => {
   let testDir: string;
@@ -29,7 +30,7 @@ describe('InboxWriter', () => {
         auditCalls.push(`${type}:${cols.join(',')}`);
       },
     };
-    writer = new InboxWriter(nfs, 'inbox/pending', audit);
+    writer = new InboxWriter(nfs, INBOX_PENDING_DIR, audit);
   });
 
   afterEach(async () => {

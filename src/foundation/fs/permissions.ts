@@ -13,6 +13,7 @@ import {
   PathNotInClawSpaceError,
   WriteOperationForbiddenError,
 } from '../../types/errors.js';
+import { TASKS_RUNNING_DIR, TASKS_DONE_DIR } from '../../types/paths.js';
 
 /**
  * System directories/files that are read-only for claws
@@ -40,8 +41,8 @@ const WRITABLE_PATHS = [
   'inbox',
   'outbox',
   'tasks/pending',
-  'tasks/running',
-  'tasks/done',
+  TASKS_RUNNING_DIR,
+  TASKS_DONE_DIR,
   'tasks/failed',
   'logs',
 ];

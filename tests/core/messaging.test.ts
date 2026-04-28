@@ -13,6 +13,7 @@ import { OutboxWriter } from '../../src/foundation/messaging/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
 import { makeAudit } from '../helpers/audit.js';
 import type { InboxMessage } from '../../src/types/messaging.js';
+import { INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR, OUTBOX_PENDING_DIR } from '../../src/types/paths.js';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 
 /**
@@ -42,10 +43,10 @@ describe('Messaging', () => {
     beforeEach(async () => {
       tempDir = await createTempDir();
       mockFs = new NodeFileSystem({ baseDir: tempDir, enforcePermissions: false });
-      await mockFs.ensureDir('inbox/pending');
-      await mockFs.ensureDir('inbox/done');
-      await mockFs.ensureDir('inbox/failed');
-      reader = new InboxReader('inbox/pending', 'inbox/done', 'inbox/failed', mockFs, makeAudit().audit);
+      await mockFs.ensureDir(INBOX_PENDING_DIR);
+      await mockFs.ensureDir(INBOX_DONE_DIR);
+      await mockFs.ensureDir(INBOX_FAILED_DIR);
+      reader = new InboxReader(INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR, mockFs, makeAudit().audit);
       await reader.init();
     });
 
@@ -206,7 +207,7 @@ describe('Messaging', () => {
         content: 'Hello!',
       });
 
-      expect(filePath).toContain('outbox/pending');
+      expect(filePath).toContain(OUTBOX_PENDING_DIR);
 
       // Verify file exists and content
       // filePath is relative to fs baseDir, so read via mockFs

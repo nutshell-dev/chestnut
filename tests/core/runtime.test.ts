@@ -8,6 +8,7 @@ import { promises as fs } from 'fs';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { ClawRuntime } from '../../src/core/runtime/index.js';
+import { DIALOG_ARCHIVE_DIR, INBOX_PENDING_DIR, OUTBOX_PENDING_DIR } from '../../src/types/paths.js';
 import { makeRuntimeDeps } from '../helpers/runtime-deps.js';
 import { writeSessionWithIncompleteToolUse } from '../helpers/session-fixtures.js';
 import type { LLMServiceConfig } from '../../src/foundation/llm/types.js';
@@ -122,9 +123,9 @@ describe('ClawRuntime', () => {
       // Check directories exist
       const dirs = [
         'dialog',
-        'dialog/archive',
-        'inbox/pending',
-        'outbox/pending',
+        DIALOG_ARCHIVE_DIR,
+        INBOX_PENDING_DIR,
+        OUTBOX_PENDING_DIR,
         'tasks',
         'memory',
         'contract',

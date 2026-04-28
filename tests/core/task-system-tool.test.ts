@@ -8,6 +8,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { INBOX_PENDING_DIR, TASKS_RUNNING_DIR, TASKS_DONE_DIR } from '../../src/types/paths.js';
 import { TaskSystem, SubAgentTask, ToolTask } from '../../src/core/task/system.js';
 import { ToolExecutorImpl, ExecuteOptions } from '../../src/core/tools/executor.js';
 import { ToolRegistryImpl } from '../../src/core/tools/registry.js';
@@ -985,7 +986,7 @@ describe('TaskSystem Tool Tasks', () => {
         read: (p: string) => fs.readFile(path.join(testClawDir, p), 'utf-8'),
         write: (p: string, c: string) => fs.writeFile(path.join(testClawDir, p), c),
         writeAtomic: async (p: string, c: string) => {
-          if (p.includes('inbox/pending')) throw new Error('Disk error');
+          if (p.includes(INBOX_PENDING_DIR)) throw new Error('Disk error');
           return fs.writeFile(path.join(testClawDir, p), c);
         },
         append: (p: string, c: string) => fs.appendFile(path.join(testClawDir, p), c),
@@ -1053,7 +1054,7 @@ describe('TaskSystem Tool Tasks', () => {
       const realMove = (taskSystem as any).fs.move.bind((taskSystem as any).fs);
       vi.spyOn((taskSystem as any).fs, 'move').mockImplementation(
         async (from: string, to: string) => {
-          if (from.includes('tasks/running') && to.includes('tasks/done')) {
+          if (from.includes(TASKS_RUNNING_DIR) && to.includes(TASKS_DONE_DIR)) {
             throw new Error('Disk full');
           }
           return realMove(from, to);

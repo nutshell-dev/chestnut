@@ -1,7 +1,7 @@
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { AuditWriter } from '../../foundation/audit/writer.js';
 import type { SubAgentTask, ToolTask } from './system.js';
-import { TASKS_PENDING_DIR } from '../../types/paths.js';
+import { TASKS_PENDING_DIR, TASKS_RUNNING_DIR } from '../../types/paths.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
 import { sendFallbackError, sendResult } from './result-delivery.js';
 
@@ -22,7 +22,7 @@ export async function recoverTasks(deps: RecoveryDeps): Promise<void> {
   try {
     let recoveredFromRunning = 0;
     // First, move any running tasks back to pending (they were interrupted)
-    const runningEntries = await fs.list('tasks/running');
+    const runningEntries = await fs.list(TASKS_RUNNING_DIR);
     for (const entry of runningEntries) {
       if (entry.name.endsWith('.json')) {
         try {

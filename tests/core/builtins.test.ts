@@ -16,6 +16,7 @@ import { OutboxWriter } from '../../src/foundation/messaging/index.js';
 import { makeAudit } from '../helpers/audit.js';
 import { ContractManager } from '../../src/core/contract/manager.js';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
+import { TASKS_RUNNING_DIR } from '../../src/types/paths.js';
 import { ToolExecutor } from '../../src/core/tools/executor.js';
 import { ToolRegistryImpl } from '../../src/core/tools/registry.js';
 
@@ -642,6 +643,8 @@ describe('Builtin Tools', () => {
       statusTool.contractManager = undefined;
     });
 
+    // 先找文件顶部的 import 部分来加
+
     // subtask failed 状态显示 ✗
     it('should show ✗ icon for failed subtask', async () => {
       const mockAudit = { write: vi.fn() };
@@ -673,7 +676,7 @@ describe('Builtin Tools', () => {
     // task running + pending
     it('should show running and pending task counts', async () => {
       await mockFs.ensureDir('tasks/pending');
-      await mockFs.ensureDir('tasks/running');
+      await mockFs.ensureDir(TASKS_RUNNING_DIR);
       await mockFs.writeAtomic('tasks/pending/t1.json', '{}');
       await mockFs.writeAtomic('tasks/running/t2.json', '{}');
 

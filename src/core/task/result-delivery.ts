@@ -4,6 +4,7 @@ import type { AuditWriter } from '../../foundation/audit/writer.js';
 import type { InboxMessage } from '../../types/messaging.js';
 import { InboxWriter } from '../../foundation/messaging/index.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
+import { INBOX_PENDING_DIR } from '../../types/paths.js';
 import type { SubAgentTask, ToolTask } from './system.js';
 import type { ToolResult } from '../tools/executor.js';
 
@@ -67,7 +68,7 @@ export async function sendToolResult(
   };
 
   try {
-    await new InboxWriter(fs, 'inbox/pending', auditWriter).write(baseMsg);
+    await new InboxWriter(fs, INBOX_PENDING_DIR, auditWriter).write(baseMsg);
   } catch (err) {
     if (resultRef) {
       // inbox 写失败：删除孤立的 results 文件，降级为 inline 内容重试
@@ -75,7 +76,7 @@ export async function sendToolResult(
         auditWriter?.write(TASK_AUDIT_EVENTS.RESULT_WRITE_FAILED, task.id, 'context=orphan_delete', `error=${delErr instanceof Error ? delErr.message : JSON.stringify(delErr)}`);
       });
       try {
-        await new InboxWriter(fs, 'inbox/pending', auditWriter).write({ ...baseMsg, content: inlineContent });
+        await new InboxWriter(fs, INBOX_PENDING_DIR, auditWriter).write({ ...baseMsg, content: inlineContent });
         return;
       } catch {
         // 降级也失败，继续抛出原始错误
@@ -143,7 +144,7 @@ export async function sendResult(
   };
 
   try {
-    await new InboxWriter(fs, 'inbox/pending', auditWriter).write(baseMsg);
+    await new InboxWriter(fs, INBOX_PENDING_DIR, auditWriter).write(baseMsg);
   } catch (err) {
     if (resultRef) {
       // inbox 写失败：删除孤立的 results 文件，降级为 inline 内容重试
@@ -151,7 +152,7 @@ export async function sendResult(
         auditWriter?.write(TASK_AUDIT_EVENTS.RESULT_WRITE_FAILED, task.id, 'context=orphan_delete_send', `error=${delErr instanceof Error ? delErr.message : JSON.stringify(delErr)}`);
       });
       try {
-        await new InboxWriter(fs, 'inbox/pending', auditWriter).write({ ...baseMsg, content: inlineContent });
+        await new InboxWriter(fs, INBOX_PENDING_DIR, auditWriter).write({ ...baseMsg, content: inlineContent });
         return;
       } catch {
         // 降级也失败，继续抛出原始错误
@@ -184,5 +185,5 @@ export async function sendFallbackError(
     priority: 'high',
     timestamp: new Date().toISOString(),
   };
-  await new InboxWriter(fs, 'inbox/pending', auditWriter).write(msg);
+  await new InboxWriter(fs, INBOX_PENDING_DIR, auditWriter).write(msg);
 }

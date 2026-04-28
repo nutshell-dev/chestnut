@@ -11,6 +11,7 @@ import { tmpdir } from 'os';
 import { InboxReader, InboxListFailed, InboxMoveFailed } from '../../src/foundation/messaging/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import type { InboxMessage } from '../../src/types/messaging.js';
+import { INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR } from '../../src/types/paths.js';
 import { makeAudit } from '../helpers/audit.js';
 
 describe('InboxReader', () => {
@@ -23,7 +24,7 @@ describe('InboxReader', () => {
     await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
     await fs.mkdir(testDir, { recursive: true });
     nfs = new NodeFileSystem({ baseDir: testDir, enforcePermissions: false });
-    reader = new InboxReader('inbox/pending', 'inbox/done', 'inbox/failed', nfs, makeAudit().audit);
+    reader = new InboxReader(INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR, nfs, makeAudit().audit);
     await reader.init();
   });
 
@@ -230,9 +231,9 @@ Test message content`;
   it('should throw InboxListFailed on non-ENOENT list errors', async () => {
     const auditCalls: string[] = [];
     const auditReader = new InboxReader(
-      'inbox/pending',
-      'inbox/done',
-      'inbox/failed',
+      INBOX_PENDING_DIR,
+      INBOX_DONE_DIR,
+      INBOX_FAILED_DIR,
       nfs,
       {
         write(type: string, ...cols: (string | number)[]) {

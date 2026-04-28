@@ -24,6 +24,7 @@ import { Snapshot } from '../../src/foundation/snapshot/index.js';
 import { SNAPSHOT_IGNORE_PATTERNS } from '../../src/foundation/snapshot/index.js';
 import { InboxReader } from '../../src/foundation/messaging/index.js';
 import { OutboxWriter } from '../../src/foundation/messaging/index.js';
+import { INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR } from '../../src/types/paths.js';
 
 describe('Runtime.initialize() failure audits', () => {
   async function makeDeps(clawDir: string, overrides: { sessionManager?: SessionManager; inboxReader?: InboxReader } = {}) {
@@ -36,7 +37,7 @@ describe('Runtime.initialize() failure audits', () => {
     vi.spyOn(snapshot, 'commit').mockResolvedValue({ ok: true } as any);
 
     const sessionManager = overrides.sessionManager ?? new SessionManager(systemFs, 'dialog', auditWriter, 'test-claw');
-    const inboxReader = overrides.inboxReader ?? new InboxReader('inbox/pending', 'inbox/done', 'inbox/failed', systemFs, auditWriter);
+    const inboxReader = overrides.inboxReader ?? new InboxReader(INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR, systemFs, auditWriter);
     const outboxWriter = new OutboxWriter('test-claw', clawDir, systemFs, auditWriter);
 
     return {

@@ -8,6 +8,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as path from 'path';
+import { DIALOG_ARCHIVE_DIR } from '../../src/types/paths.js';
 import { promises as fs } from 'fs';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
@@ -71,7 +72,7 @@ describe('Dialog', () => {
       expect(await nodeFs.exists('dialog/current.json')).toBe(false);
       
       // Archive directory should have the file
-      const entries = await nodeFs.list('dialog/archive');
+      const entries = await nodeFs.list(DIALOG_ARCHIVE_DIR);
       expect(entries.length).toBeGreaterThan(0);
       expect(entries[0].name).toMatch(/\.json$/);
     });
@@ -118,7 +119,7 @@ describe('Dialog', () => {
     describe('crash recovery', () => {
       it('should recover from archive when current.json is missing', async () => {
         // Create archive directory and an archived session
-        await nodeFs.ensureDir('dialog/archive');
+        await nodeFs.ensureDir(DIALOG_ARCHIVE_DIR);
         const archivedSession: SessionData = {
           version: 1,
           clawId: 'test-claw',
@@ -127,7 +128,7 @@ describe('Dialog', () => {
           messages: [{ role: 'user', content: 'Archived message' }],
         };
         await nodeFs.writeAtomic(
-          'dialog/archive/20240101_120000.json',
+          `${DIALOG_ARCHIVE_DIR}/20240101_120000.json`,
           JSON.stringify(archivedSession)
         );
 
@@ -143,7 +144,7 @@ describe('Dialog', () => {
         await nodeFs.writeAtomic('dialog/current.json', 'invalid json {');
 
         // Create archive
-        await nodeFs.ensureDir('dialog/archive');
+        await nodeFs.ensureDir(DIALOG_ARCHIVE_DIR);
         const archivedSession: SessionData = {
           version: 1,
           clawId: 'test-claw',
@@ -152,7 +153,7 @@ describe('Dialog', () => {
           messages: [{ role: 'user', content: 'Recovered from archive' }],
         };
         await nodeFs.writeAtomic(
-          'dialog/archive/20240101_120000.json',
+          `${DIALOG_ARCHIVE_DIR}/20240101_120000.json`,
           JSON.stringify(archivedSession)
         );
 
@@ -178,7 +179,7 @@ describe('Dialog', () => {
 
       it('should return empty session when archive directory is empty', async () => {
         // Create empty archive directory
-        await nodeFs.ensureDir('dialog/archive');
+        await nodeFs.ensureDir(DIALOG_ARCHIVE_DIR);
 
         const { session: loaded } = await sessionManager.load();
 
@@ -187,7 +188,7 @@ describe('Dialog', () => {
 
       // SF-01: latest archive corrupted → fall back to older valid archive
       it('should fall back to older archive when latest is corrupted', async () => {
-        await nodeFs.ensureDir('dialog/archive');
+        await nodeFs.ensureDir(DIALOG_ARCHIVE_DIR);
 
         // Old valid archive
         const oldSession: SessionData = {

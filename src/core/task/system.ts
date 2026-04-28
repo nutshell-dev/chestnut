@@ -21,6 +21,7 @@ import type { Message, ToolDefinition } from '../../types/message.js';
 import type { OutboxWriter } from '../../foundation/messaging/index.js';
 import type { ContractManager } from '../contract/manager.js';
 import { AuditWriter } from '../../foundation/audit/writer.js';
+import { TASKS_RUNNING_DIR, TASKS_DONE_DIR } from '../../types/paths.js';
 import type { StreamLog } from '../../foundation/stream/types.js';
 
 import { TASKS_PENDING_DIR } from '../../types/paths.js';
@@ -139,8 +140,8 @@ export class TaskSystem {
   async initialize(): Promise<void> {
     // Ensure task directories exist
     await this.fs.ensureDir(TASKS_PENDING_DIR);
-    await this.fs.ensureDir('tasks/running');
-    await this.fs.ensureDir('tasks/done');
+    await this.fs.ensureDir(TASKS_RUNNING_DIR);
+    await this.fs.ensureDir(TASKS_DONE_DIR);
     await this.fs.ensureDir('tasks/failed');
     await this.fs.ensureDir('tasks/results');
 

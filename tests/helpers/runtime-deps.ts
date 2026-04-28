@@ -15,6 +15,7 @@ import { ExecContextImpl } from '../../src/core/tools/context.js';
 import { registerBuiltinTools } from '../../src/core/tools/builtins/index.js';
 import type { RuntimeDependencies } from '../../src/core/runtime/index.js';
 import type { LLMServiceConfig } from '../../src/foundation/llm/types.js';
+import { INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR } from '../../src/types/paths.js';
 
 export const TEST_CLAW_ID = 'test-claw';
 
@@ -32,7 +33,7 @@ export async function makeRuntimeDeps(input: MakeRuntimeDepsInput): Promise<Runt
   const snapshot = new Snapshot(clawDir, systemFs, auditWriter, SNAPSHOT_IGNORE_PATTERNS);
   await snapshot.init();
   const sessionManager = new SessionManager(systemFs, 'dialog', auditWriter, clawId);
-  const inboxReader = new InboxReader('inbox/pending', 'inbox/done', 'inbox/failed', systemFs, auditWriter);
+  const inboxReader = new InboxReader(INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR, systemFs, auditWriter);
   await inboxReader.init();
   const outboxWriter = new OutboxWriter(clawId, clawDir, systemFs, auditWriter);
   const llm = new LLMServiceImpl(input.llmConfig ?? {
