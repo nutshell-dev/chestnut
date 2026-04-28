@@ -14,8 +14,6 @@ export * from './core/index.js';
 export type { FileSystem, FileEntry, FileSystemOptions } from './foundation/fs/types.js';
 export { NodeFileSystem } from './foundation/fs/node-fs.js';
 
-export type { Logger, LogEvent } from './foundation/monitor/types.js';
-export { JsonlLogger } from './foundation/monitor/index.js';
 export { Heartbeat, createHeartbeat } from './core/runtime/index.js';
 
 export type { LLMService } from './foundation/llm/index.js';

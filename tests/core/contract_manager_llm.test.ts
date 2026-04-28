@@ -62,7 +62,6 @@ vi.mock('../../src/core/subagent/agent.js', () => ({
 // Now import the modules under test
 import { ContractManager } from '../../src/core/contract/manager.js';
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
-import { JsonlLogger } from '../../src/foundation/monitor/index.js';
 import type { LLMService } from '../../src/foundation/llm/index.js';
 import { ToolRegistryImpl } from '../../src/core/tools/registry.js';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
