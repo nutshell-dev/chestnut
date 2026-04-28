@@ -17,6 +17,7 @@ import type { FileSystem } from '../../foundation/fs/types.js';
 import type { Audit } from '../../foundation/audit/index.js';
 import type { Message } from '../../types/message.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
+import { RETRO_AUDIT_EVENTS } from './retro-audit-events.js';
 
 export interface RetroConfig {
   targetClaw: string;
@@ -46,7 +47,7 @@ export function createDefaultRetroScheduler(): ContractRetroScheduler {
           skillsSummary = formatted;
         }
       } catch (e) {
-        config.audit.write(CONTRACT_AUDIT_EVENTS.RETRO_SKILL_FAILED,
+        config.audit.write(RETRO_AUDIT_EVENTS.SKILL_FAILED,
           `err=${e instanceof Error ? e.message : String(e)}`);
       }
 

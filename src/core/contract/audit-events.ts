@@ -3,6 +3,8 @@
  *
  * Module-owned event namespace per H1 design (phase338 / r36 α 决策).
  * 字符串值与起步态 events.ts CONTRACT_ 系列等价 / 0 漂移。
+ *
+ * RETRO_* 子域 events 已迁出至 ./retro-audit-events.ts（phase383 / r52 H 裁决 1+5）。
  */
 export const CONTRACT_AUDIT_EVENTS = {
   LOCK_CLEARED: 'contract_lock_cleared',
@@ -20,12 +22,6 @@ export const CONTRACT_AUDIT_EVENTS = {
   ACCEPTANCE_SCRIPT_STARTED: 'contract_acceptance_script_started',
   SUBTASK_DUPLICATE_DONE: 'contract_subtask_duplicate_done',
   SUBTASK_ALREADY_COMPLETED: 'contract_subtask_already_completed',
-  RETRO_INDEX_FAILED: 'contract_retro_index_failed',
-  RETRO_YAML_FAILED: 'contract_retro_yaml_failed',
-  RETRO_SKILL_FAILED: 'contract_retro_skill_failed',
-  RETRO_MINING_FAILED: 'contract_retro_mining_failed',
-  RETRO_SCHEDULE_FAILED: 'contract_retro_schedule_failed',
-  RETRO_CLEANUP_FAILED: 'contract_retro_cleanup_failed',
   UNEXPECTED_ASYNC_THROW: 'contract_unexpected_async_throw',
   // phase345: caller 风格统一并轨（B.p344-1 / contract lifecycle events）
   PASSED: 'acceptance_passed',

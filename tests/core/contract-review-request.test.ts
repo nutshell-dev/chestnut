@@ -9,6 +9,7 @@ import type { MotionReviewContext } from '../../src/core/contract/manager.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { AuditWriter } from '../../src/foundation/audit/writer.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../src/core/contract/audit-events.js';
+import { RETRO_AUDIT_EVENTS } from '../../src/core/contract/retro-audit-events.js';
 
 // ============================================================================
 // Mock: SkillRegistry（D4 C 方案：窄 mock 避免建真 skills/ 目录）
@@ -164,7 +165,7 @@ describe('ContractManager.handleReviewRequest - best-effort branches', () => {
     await fs.writeFile(byContractPath, 'not-json{{{');
     await manager.handleReviewRequest(contractId, ctx);
     expect(auditSpy).toHaveBeenCalledWith(
-      CONTRACT_AUDIT_EVENTS.RETRO_INDEX_FAILED,
+      RETRO_AUDIT_EVENTS.INDEX_FAILED,
       expect.stringContaining('contractId='),
       'reason=invalid_json',
     );
@@ -176,7 +177,7 @@ describe('ContractManager.handleReviewRequest - best-effort branches', () => {
     await fs.writeFile(byContractPath, '"just a string"');
     await manager.handleReviewRequest(contractId, ctx);
     expect(auditSpy).toHaveBeenCalledWith(
-      CONTRACT_AUDIT_EVENTS.RETRO_INDEX_FAILED,
+      RETRO_AUDIT_EVENTS.INDEX_FAILED,
       expect.stringContaining('contractId='),
       'reason=unexpected_format',
     );
@@ -187,7 +188,7 @@ describe('ContractManager.handleReviewRequest - best-effort branches', () => {
     await fs.writeFile(byContractPath, JSON.stringify({ targetClaw: 'INVALID_UPPERCASE' }));
     await manager.handleReviewRequest(contractId, ctx);
     expect(auditSpy).toHaveBeenCalledWith(
-      CONTRACT_AUDIT_EVENTS.RETRO_INDEX_FAILED,
+      RETRO_AUDIT_EVENTS.INDEX_FAILED,
       expect.stringContaining('contractId='),
       'reason=invalid_targetClaw',
       expect.stringContaining('rawTarget='),
@@ -210,7 +211,7 @@ describe('ContractManager.handleReviewRequest - best-effort branches', () => {
     await manager.handleReviewRequest(contractId, ctx);
 
     expect(auditSpy).toHaveBeenCalledWith(
-      CONTRACT_AUDIT_EVENTS.RETRO_INDEX_FAILED,
+      RETRO_AUDIT_EVENTS.INDEX_FAILED,
       expect.stringContaining('contractId='),
       expect.stringContaining('err='),
     );
@@ -229,7 +230,7 @@ describe('ContractManager.handleReviewRequest - best-effort branches', () => {
     await manager.handleReviewRequest(contractId, ctx);
 
     expect(auditSpy).toHaveBeenCalledWith(
-      CONTRACT_AUDIT_EVENTS.RETRO_YAML_FAILED,
+      RETRO_AUDIT_EVENTS.YAML_FAILED,
       expect.stringContaining('contractId='),
       expect.stringContaining('err='),
     );
@@ -248,7 +249,7 @@ describe('ContractManager.handleReviewRequest - best-effort branches', () => {
     await manager.handleReviewRequest(contractId, ctx);
 
     expect(auditSpy).toHaveBeenCalledWith(
-      CONTRACT_AUDIT_EVENTS.RETRO_SKILL_FAILED,
+      RETRO_AUDIT_EVENTS.SKILL_FAILED,
       expect.stringContaining('err='),
     );
     // writePending 仍被调（退化继续，不 skip）
@@ -276,7 +277,7 @@ describe('ContractManager.handleReviewRequest - best-effort branches', () => {
     // sub-case A: ENOENT
     await manager.handleReviewRequest(contractId, ctx);
     expect(auditSpy).toHaveBeenCalledWith(
-      CONTRACT_AUDIT_EVENTS.RETRO_MINING_FAILED,
+      RETRO_AUDIT_EVENTS.MINING_FAILED,
       expect.stringContaining('taskId='),
       'reason=ENOENT',
     );
@@ -296,7 +297,7 @@ describe('ContractManager.handleReviewRequest - best-effort branches', () => {
 
     await manager.handleReviewRequest(contractId, ctx);
     expect(auditSpy).toHaveBeenCalledWith(
-      CONTRACT_AUDIT_EVENTS.RETRO_MINING_FAILED,
+      RETRO_AUDIT_EVENTS.MINING_FAILED,
       expect.stringContaining('taskId='),
       expect.stringContaining('err='),
     );
@@ -316,7 +317,7 @@ describe('ContractManager.handleReviewRequest - best-effort branches', () => {
     await manager.handleReviewRequest(contractId, ctx);
 
     expect(auditSpy).toHaveBeenCalledWith(
-      CONTRACT_AUDIT_EVENTS.RETRO_SCHEDULE_FAILED,
+      RETRO_AUDIT_EVENTS.SCHEDULE_FAILED,
       expect.stringContaining('err='),
     );
     // by-contract 未删
@@ -338,7 +339,7 @@ describe('ContractManager.handleReviewRequest - best-effort branches', () => {
     await expect(manager.handleReviewRequest(contractId, ctx)).resolves.toBeUndefined();
 
     expect(auditSpy).toHaveBeenCalledWith(
-      CONTRACT_AUDIT_EVENTS.RETRO_CLEANUP_FAILED,
+      RETRO_AUDIT_EVENTS.CLEANUP_FAILED,
       expect.stringContaining('err='),
     );
   });

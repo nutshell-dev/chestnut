@@ -25,6 +25,7 @@ import { AuditWriter, createSystemAudit } from '../../foundation/audit/index.js'
 import type { Message } from '../../types/message.js';
 import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
+import { RETRO_AUDIT_EVENTS } from './retro-audit-events.js';
 
 
 /**
@@ -1265,7 +1266,7 @@ export class ContractManager {
         raw = JSON.parse(fileContent);
       } catch {
         this.audit.write(
-          CONTRACT_AUDIT_EVENTS.RETRO_INDEX_FAILED,
+          RETRO_AUDIT_EVENTS.INDEX_FAILED,
           `contractId=${contractId}`,
           'reason=invalid_json',
         );
@@ -1273,7 +1274,7 @@ export class ContractManager {
       }
       if (typeof raw !== 'object' || raw === null) {
         this.audit.write(
-          CONTRACT_AUDIT_EVENTS.RETRO_INDEX_FAILED,
+          RETRO_AUDIT_EVENTS.INDEX_FAILED,
           `contractId=${contractId}`,
           'reason=unexpected_format',
         );
@@ -1283,7 +1284,7 @@ export class ContractManager {
       const rawTarget = typeof r.targetClaw === 'string' ? r.targetClaw : null;
       if (!rawTarget || !/^[a-z0-9-]+$/.test(rawTarget)) {
         this.audit.write(
-          CONTRACT_AUDIT_EVENTS.RETRO_INDEX_FAILED,
+          RETRO_AUDIT_EVENTS.INDEX_FAILED,
           `contractId=${contractId}`,
           `reason=invalid_targetClaw`,
           `rawTarget=${rawTarget ?? 'null'}`,
@@ -1298,7 +1299,7 @@ export class ContractManager {
       const code = (e as NodeJS.ErrnoException).code;
       if (code !== 'ENOENT') {
         this.audit.write(
-          CONTRACT_AUDIT_EVENTS.RETRO_INDEX_FAILED,
+          RETRO_AUDIT_EVENTS.INDEX_FAILED,
           `contractId=${contractId}`,
           `err=${e instanceof Error ? e.message : String(e)}`,
         );
@@ -1318,7 +1319,7 @@ export class ContractManager {
       contractYaml = await clawContractManager.readContractYamlRaw(contractId);
     } catch (e) {
       this.audit.write(
-        CONTRACT_AUDIT_EVENTS.RETRO_YAML_FAILED,
+        RETRO_AUDIT_EVENTS.YAML_FAILED,
         `contractId=${contractId}`,
         `err=${e instanceof Error ? e.message : String(e)}`,
       );
@@ -1339,13 +1340,13 @@ export class ContractManager {
         const code = (e as NodeJS.ErrnoException).code;
         if (code === 'ENOENT') {
           this.audit.write(
-            CONTRACT_AUDIT_EVENTS.RETRO_MINING_FAILED,
+            RETRO_AUDIT_EVENTS.MINING_FAILED,
             `taskId=${miningTaskId}`,
             'reason=ENOENT',
           );
         } else {
           this.audit.write(
-            CONTRACT_AUDIT_EVENTS.RETRO_MINING_FAILED,
+            RETRO_AUDIT_EVENTS.MINING_FAILED,
             `taskId=${miningTaskId}`,
             `err=${e instanceof Error ? e.message : String(e)}`,
           );
@@ -1368,7 +1369,7 @@ export class ContractManager {
       });
     } catch (e) {
       this.audit.write(
-        CONTRACT_AUDIT_EVENTS.RETRO_SCHEDULE_FAILED,
+        RETRO_AUDIT_EVENTS.SCHEDULE_FAILED,
         `err=${e instanceof Error ? e.message : String(e)}`,
       );
       return;  // 不清 by-contract，留待下次 daemon 重启重试
@@ -1387,7 +1388,7 @@ export class ContractManager {
         );
       }
       this.audit.write(
-        CONTRACT_AUDIT_EVENTS.RETRO_CLEANUP_FAILED,
+        RETRO_AUDIT_EVENTS.CLEANUP_FAILED,
         `err=${e instanceof Error ? e.message : String(e)}`,
       );
     });
