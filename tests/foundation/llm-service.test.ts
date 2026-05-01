@@ -927,3 +927,83 @@ describe('LLMServiceImpl - idle failover', () => {
     expect(emitted.filter(e => e.type === 'idle_failover_triggered').length).toBe(0);
   });
 });
+
+
+describe('LLMServiceImpl - context_exceeded failover (Phase 408)', () => {
+  it('should failover when first provider returns context_window_exceeded done chunk', async () => {
+    const mockProvider1 = createMockProvider('mock1', function* () {
+      yield { type: 'done', stopReason: 'model_context_window_exceeded' };
+    });
+    const mockProvider2 = createMockProvider('mock2', function* () {
+      yield { type: 'text_delta', delta: 'success' };
+      yield { type: 'done', stopReason: 'end_turn' };
+    });
+    const service = new LLMServiceImpl({
+      primary: { name: 'mock1', apiKey: 'k', model: 'm' },
+      fallbacks: [{ name: 'mock2', apiKey: 'k', model: 'm' }],
+      maxAttempts: 1,
+      retryDelayMs: 0,
+      events: noopSink,
+    });
+    (service as any).primary = mockProvider1;
+    (service as any).fallbacks = [mockProvider2];
+
+    const chunks: StreamChunk[] = [];
+    for await (const chunk of service.stream({ messages: [] })) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toContainEqual({ type: 'reset', provider: 'mock1' });
+    expect(chunks.find(c => c.type === 'done' && c.stopReason === 'end_turn')).toBeDefined();
+  });
+
+  it('should throw when all providers return context_window_exceeded', async () => {
+    const mockProvider1 = createMockProvider('mock1', function* () {
+      yield { type: 'done', stopReason: 'model_context_window_exceeded' };
+    });
+    const mockProvider2 = createMockProvider('mock2', function* () {
+      yield { type: 'done', stopReason: 'context_length_exceeded' };
+    });
+    const service = new LLMServiceImpl({
+      primary: { name: 'mock1', apiKey: 'k', model: 'm' },
+      fallbacks: [{ name: 'mock2', apiKey: 'k', model: 'm' }],
+      maxAttempts: 1,
+      retryDelayMs: 0,
+      events: noopSink,
+    });
+    (service as any).primary = mockProvider1;
+    (service as any).fallbacks = [mockProvider2];
+
+    await expect(async () => {
+      for await (const _ of service.stream({ messages: [] })) {}
+    }).rejects.toThrow(/context_window_exceeded.*Reduce/);
+  });
+
+  it('should emit context_exceeded_failover event', async () => {
+    const { sink, emitted } = createMockSink();
+    const mockProvider1 = createMockProvider('mock1', function* () {
+      yield { type: 'done', stopReason: 'model_context_window_exceeded' };
+    });
+    const mockProvider2 = createMockProvider('mock2', function* () {
+      yield { type: 'text_delta', delta: 'success' };
+      yield { type: 'done', stopReason: 'end_turn' };
+    });
+    const service = new LLMServiceImpl({
+      primary: { name: 'mock1', apiKey: 'k', model: 'm' },
+      fallbacks: [{ name: 'mock2', apiKey: 'k', model: 'm' }],
+      maxAttempts: 1,
+      retryDelayMs: 0,
+      events: sink,
+    });
+    (service as any).primary = mockProvider1;
+    (service as any).fallbacks = [mockProvider2];
+
+    for await (const _ of service.stream({ messages: [] })) {}
+
+    expect(emitted).toContainEqual({
+      type: 'context_exceeded_failover',
+      provider: 'mock1',
+      stopReason: 'model_context_window_exceeded',
+    });
+  });
+});

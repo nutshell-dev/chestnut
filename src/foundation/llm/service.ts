@@ -31,6 +31,11 @@ import { makeExternalAbortError, type AbortReason } from './abort-helper.js';
 
 const MAX_BACKOFF_MS = 30_000;
 
+const CONTEXT_EXCEEDED_STOP_REASONS = new Set<string>([
+  'model_context_window_exceeded',  // anthropic
+  'context_length_exceeded',         // openai variant
+]);
+
 /**
  * Provider factory - creates appropriate adapter for config
  */
@@ -304,6 +309,8 @@ export class LLMServiceImpl implements LLMService {
 
     const failures: Array<{ provider: string; error: Error }> = [];
 
+    let contextExceededCount = 0;
+
     for (let pi = 0; pi < providers.length; pi++) {
       if (options.signal?.aborted) throw makeExternalAbortError(options.signal.reason as AbortReason | undefined);
       const { adapter, breakerIndex } = providers[pi];
@@ -328,6 +335,7 @@ export class LLMServiceImpl implements LLMService {
       let midStreamReset = false;
       let lastError: Error | null = null;
       let doneChunk: StreamChunk | undefined;
+      let contextExceeded = false;
       let idleTimer: ReturnType<typeof setTimeout> | undefined;
       let idleCtrl: AbortController | null = null;
       for (let attempt = 0; attempt < this.config.maxAttempts; attempt++) {
@@ -348,10 +356,28 @@ export class LLMServiceImpl implements LLMService {
           for await (const chunk of adapter.stream(providerOptions)) {
             resetIdleTimer();
             hasYielded = true;
-            if (chunk.type === 'done') doneChunk = chunk;
+            if (chunk.type === 'done') {
+              doneChunk = chunk;
+              if (chunk.stopReason && CONTEXT_EXCEEDED_STOP_REASONS.has(chunk.stopReason)) {
+                contextExceeded = true;
+                this.events.emit({ type: 'context_exceeded_failover', provider: adapter.name, stopReason: chunk.stopReason });
+                yield {
+                  type: 'reset',
+                  provider: adapter.name,
+                };
+                break; // exit inner stream loop early
+              }
+            }
             yield chunk;
           }
           clearTimeout(idleTimer);
+
+          if (contextExceeded) {
+            contextExceededCount++;
+            midStreamReset = true;
+            break; // exit retry loop → outer loop continues to next provider
+          }
+
           success = true;
           break; // Success, exit retry loop
         } catch (error) {
@@ -436,6 +462,14 @@ export class LLMServiceImpl implements LLMService {
     }
 
     // All providers failed
+    const totalProviders = providers.length;
+    if (contextExceededCount > 0 && contextExceededCount === totalProviders) {
+      throw new Error(
+        `All ${totalProviders} providers exhausted with context_window_exceeded. ` +
+        `Reduce system prompt, tool definitions, or conversation history.`
+      );
+    }
+
     throw new LLMAllProvidersFailedError(failures);
   }
   

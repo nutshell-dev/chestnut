@@ -194,7 +194,8 @@ export type LLMEvent =
   | { type: 'healthcheck_failed'; provider: string; error: string }
   | { type: 'stream_reset'; provider: string; error: string }
   | { type: 'stream_parse_error'; provider: string; raw: string; error: string }
-  | { type: 'idle_failover_triggered'; provider: string; ms: number };
+  | { type: 'idle_failover_triggered'; provider: string; ms: number }
+  | { type: 'context_exceeded_failover'; provider: string; stopReason: string };
 
 /**
  * LLM event sink protocol — defined here (L1), implemented by assembly layer (L6+)

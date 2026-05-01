@@ -72,12 +72,6 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
       };
     }
 
-    if (result.kind === 'context_window_exceeded') {
-      throw new Error(
-        `LLM context window exceeded. Reduce system prompt, tool definitions, or conversation history.`
-      );
-    }
-
     if (result.kind === 'continue') {
       // 1. 落盘
       if (sessionStore) {

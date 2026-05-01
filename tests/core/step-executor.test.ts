@@ -211,17 +211,6 @@ describe('StepExecutor', () => {
     expect(String(JSON.stringify(lastMsg))).toContain('[TRUNCATED]');
   });
 
-  it('kind=context_window_exceeded：stop_reason 匹配两种变体', async () => {
-    for (const sr of ['model_context_window_exceeded', 'context_length_exceeded'] as const) {
-      const llm = makeMockLLM([{ content: [{ type: 'text', text: '' }], stop_reason: sr }]);
-      const result = await executeStep({
-        messages: [], systemPrompt: '', llm, tools: [],
-        executor: makeExecutor({}), registry: makeRegistry({}), ctx: makeCtx(),
-      });
-      expect(result.kind).toBe('context_window_exceeded');
-    }
-  });
-
   it('meta.allParseErrors：输入 JSON 解析失败时元数据正确', async () => {
     // 构造一个 stream 使 tool_use_delta 的 partialInput 不是合法 JSON
     // → collectStreamResponse 内 JSON.parse 失败 → input = { __parseError: true }
@@ -278,65 +267,6 @@ describe('StepExecutor', () => {
     expect(exec.execute).toHaveBeenCalledWith(expect.objectContaining({ toolName: 'bar' }));
     // 4. 第一个工具未真实调用（被 __parseError 早返回）
     expect(exec.execute).not.toHaveBeenCalledWith(expect.objectContaining({ toolName: 'foo' }));
-  });
-
-  it('context_window_exceeded：append 已产出的 assistant 消息（信息不丢失）', async () => {
-    const llm = makeMockLLM([{
-      content: [{ type: 'text', text: 'partial thought before limit' }],
-      stop_reason: 'model_context_window_exceeded',
-    }]);
-    const messages: Message[] = [];
-    const result = await executeStep({
-      messages, systemPrompt: '', llm, tools: [],
-      executor: makeExecutor({}), registry: makeRegistry({}), ctx: makeCtx(),
-    });
-    expect(result.kind).toBe('context_window_exceeded');
-    // 关键断言：流式产出的 text 被持久化到 messages
-    expect(messages).toHaveLength(1);
-    expect(messages[0].role).toBe('assistant');
-    const content = messages[0].content;
-    expect(Array.isArray(content)).toBe(true);
-    const texts = (content as Array<{ type: string; text?: string }>).filter(b => b.type === 'text');
-    expect(texts.length).toBeGreaterThan(0);
-    expect(texts[0].text).toBe('partial thought before limit');
-  });
-
-  it('context_window_exceeded tool_use filter：混合 content 时 tool_use 被过滤，text 保留', async () => {
-    const llm = makeMockLLM([{
-      content: [
-        { type: 'text', text: 'thinking about search' },
-        { type: 'tool_use', id: 'tu1', name: 'search', input: { q: 'x' } },
-      ],
-      stop_reason: 'model_context_window_exceeded',
-    }]);
-    const messages: Message[] = [];
-    const result = await executeStep({
-      messages, systemPrompt: '', llm, tools: [],
-      executor: makeExecutor({}), registry: makeRegistry({}), ctx: makeCtx(),
-    });
-    expect(result.kind).toBe('context_window_exceeded');
-    // text 保留
-    expect(messages).toHaveLength(1);
-    const content = messages[0].content as Array<{ type: string }>;
-    expect(content.some(b => b.type === 'text')).toBe(true);
-    // tool_use 被过滤（否则 resume 会得到孤儿）
-    expect(content.some(b => b.type === 'tool_use')).toBe(false);
-  });
-
-  it('context_window_exceeded tool_use filter：纯 tool_use content 不 append（避免空 assistant 消息）', async () => {
-    const llm = makeMockLLM([{
-      content: [
-        { type: 'tool_use', id: 'tu1', name: 'search', input: { q: 'x' } },
-      ],
-      stop_reason: 'context_length_exceeded',
-    }]);
-    const messages: Message[] = [];
-    const result = await executeStep({
-      messages, systemPrompt: '', llm, tools: [],
-      executor: makeExecutor({}), registry: makeRegistry({}), ctx: makeCtx(),
-    });
-    expect(result.kind).toBe('context_window_exceeded');
-    expect(messages).toHaveLength(0);
   });
 
   it('onLLMResult.error contains JSON fields when LLM throws a non-Error object', async () => {
@@ -464,36 +394,6 @@ describe('StepExecutor', () => {
       expect(result.stopReason).toBe('max_tokens_text');
       expect(result.finalText).toContain('[Response truncated due to length limit]');
     }
-  });
-
-  it('context_window_exceeded preserves thinking and text blocks', async () => {
-    const llm = makeStreamLLM([
-      { type: 'thinking_delta', delta: 'deep thought' },
-      { type: 'text_delta', delta: 'conclusion' },
-      { type: 'done', stopReason: 'model_context_window_exceeded' },
-    ]);
-    const messages: Message[] = [];
-    const result = await executeStep({
-      messages, systemPrompt: '', llm, tools: [],
-      executor: makeExecutor({}), registry: makeRegistry({}), ctx: makeCtx(),
-    });
-    expect(result.kind).toBe('context_window_exceeded');
-    expect(messages).toHaveLength(1);
-    const blocks = messages[0].content as Array<{ type: string }>;
-    expect(blocks.some(b => b.type === 'thinking')).toBe(true);
-    expect(blocks.some(b => b.type === 'text')).toBe(true);
-  });
-
-  it('context_length_exceeded alias behaves identically', async () => {
-    const llm = makeStreamLLM([
-      { type: 'text_delta', delta: 'hi' },
-      { type: 'done', stopReason: 'context_length_exceeded' },
-    ]);
-    const result = await executeStep({
-      messages: [], systemPrompt: '', llm, tools: [],
-      executor: makeExecutor({}), registry: makeRegistry({}), ctx: makeCtx(),
-    });
-    expect(result.kind).toBe('context_window_exceeded');
   });
 
   it('unknown stop_reason triggers onUnknownStopReason callback', async () => {

@@ -1068,30 +1068,4 @@ describe('ReAct Loop', () => {
     });
   });
 
-  describe('context window exceeded', () => {
-    it('should throw on model_context_window_exceeded instead of returning empty response', async () => {
-      // Simulate provider returning 0 content blocks with context window exceeded stop_reason
-      (mockLLM.stream as ReturnType<typeof vi.fn>)
-        .mockReturnValueOnce((async function* () {
-          yield { type: 'done' as const, stopReason: 'model_context_window_exceeded' };
-        })());
-
-      const messages: Message[] = [{ role: 'user', content: 'hello' }];
-      await expect(
-        runReact({ messages, systemPrompt: '', llm: mockLLM, executor: mockExecutor, ctx: mockCtx })
-      ).rejects.toThrow('context window exceeded');
-    });
-
-    it('should throw on context_length_exceeded (OpenAI variant)', async () => {
-      (mockLLM.stream as ReturnType<typeof vi.fn>)
-        .mockReturnValueOnce((async function* () {
-          yield { type: 'done' as const, stopReason: 'context_length_exceeded' };
-        })());
-
-      const messages: Message[] = [{ role: 'user', content: 'hello' }];
-      await expect(
-        runReact({ messages, systemPrompt: '', llm: mockLLM, executor: mockExecutor, ctx: mockCtx })
-      ).rejects.toThrow('context window exceeded');
-    });
-  });
 });

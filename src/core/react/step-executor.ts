@@ -64,8 +64,7 @@ export interface StepMeta {
 export type StepResult =
   | { kind: 'final'; stopReason: 'end_turn' | 'max_tokens_text' | 'no_tool' | 'unknown'; finalText: string }
   | { kind: 'continue'; meta: StepMeta }
-  | { kind: 'max_tokens_tool_use'; meta: StepMeta }
-  | { kind: 'context_window_exceeded' };
+  | { kind: 'max_tokens_tool_use'; meta: StepMeta };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Main entry
@@ -99,12 +98,6 @@ export async function executeStep(input: StepInput): Promise<StepResult> {
   }
 
   if (response.stop_reason === 'max_tokens') return handleMaxTokensStop(response, input, llmInfo, maxTokens);
-
-  if (response.stop_reason === 'model_context_window_exceeded' || response.stop_reason === 'context_length_exceeded') {
-    const preserved = response.content.filter((b) => b.type === 'thinking' || b.type === 'text');
-    if (preserved.length > 0) appendAssistantMessage(messages, preserved);
-    return { kind: 'context_window_exceeded' };
-  }
 
   if (callbacks?.onUnknownStopReason) callbacks.onUnknownStopReason(response.stop_reason);
   else console.warn(`[step-executor] Unknown stop_reason: "${response.stop_reason}", treating as end_turn`);
