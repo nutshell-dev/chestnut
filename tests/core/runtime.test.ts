@@ -1351,33 +1351,45 @@ Test message`;
     it('IdleTimeoutSignal → onTurnInterrupted("idle_timeout", message with seconds)', () => {
       const onTurnInterrupted = vi.fn();
       const onTurnError = vi.fn();
+      const auditSpy = vi.spyOn((runtime as any).auditWriter, 'write');
       (runtime as any)._handleTurnInterrupt(new IdleTimeoutSignal(30000), { onTurnInterrupted, onTurnError });
       expect(onTurnInterrupted).toHaveBeenCalledWith('idle_timeout', expect.stringContaining('30s'));
       expect(onTurnError).not.toHaveBeenCalled();
+      expect(auditSpy).toHaveBeenCalledWith('turn_interrupted', 'cause=idle_timeout', 'ms=30000');
+      auditSpy.mockRestore();
     });
 
     it('PriorityInboxInterrupt → onTurnInterrupted("priority_inbox")', () => {
       const onTurnInterrupted = vi.fn();
       const onTurnError = vi.fn();
+      const auditSpy = vi.spyOn((runtime as any).auditWriter, 'write');
       (runtime as any)._handleTurnInterrupt(new PriorityInboxInterrupt(), { onTurnInterrupted, onTurnError });
       expect(onTurnInterrupted).toHaveBeenCalledWith('priority_inbox', expect.any(String));
       expect(onTurnError).not.toHaveBeenCalled();
+      expect(auditSpy).toHaveBeenCalledWith('turn_interrupted', 'cause=priority_inbox');
+      auditSpy.mockRestore();
     });
 
     it('UserInterrupt → onTurnInterrupted("user_interrupt")', () => {
       const onTurnInterrupted = vi.fn();
       const onTurnError = vi.fn();
+      const auditSpy = vi.spyOn((runtime as any).auditWriter, 'write');
       (runtime as any)._handleTurnInterrupt(new UserInterrupt(), { onTurnInterrupted, onTurnError });
       expect(onTurnInterrupted).toHaveBeenCalledWith('user_interrupt');  // 无 message，让 viewport 自行决定显示
       expect(onTurnError).not.toHaveBeenCalled();
+      expect(auditSpy).toHaveBeenCalledWith('turn_interrupted', 'cause=user_interrupt');
+      auditSpy.mockRestore();
     });
 
     it('Error → onTurnError with message', () => {
       const onTurnInterrupted = vi.fn();
       const onTurnError = vi.fn();
+      const auditSpy = vi.spyOn((runtime as any).auditWriter, 'write');
       (runtime as any)._handleTurnInterrupt(new Error('LLM failure'), { onTurnInterrupted, onTurnError });
       expect(onTurnError).toHaveBeenCalledWith('LLM failure');
       expect(onTurnInterrupted).not.toHaveBeenCalled();
+      expect(auditSpy).toHaveBeenCalledWith('turn_error', 'err=LLM failure');
+      auditSpy.mockRestore();
     });
 
     it('non-Error value → onTurnError with string', () => {
@@ -1707,6 +1719,183 @@ Test message`;
       )).toBe(true);
 
       await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+    });
+  });
+
+  // ─── Runtime audit events direct assertion (phase405) ────────────────────────
+
+  describe('Runtime audit events - turn lifecycle direct assertion', () => {
+    it('processBatch emits turn_start + turn_end on success', async () => {
+      const runtime = trackRuntime(await createTestRuntime({
+        clawId: 'test-claw',
+        clawDir,
+        llmConfig: createMockLLMConfig(),
+      }));
+      await runtime.initialize();
+
+      const pendingDir = path.join(clawDir, 'inbox', 'pending');
+      const content = `---
+id: test-msg
+type: message
+from: motion
+priority: normal
+timestamp: ${new Date().toISOString()}
+---
+
+Test message
+`;
+      await fs.writeFile(path.join(pendingDir, 'test.md'), content);
+
+      const mockLLM = createMockLLM([{
+        content: [{ type: 'text', text: 'Processed' }],
+        stop_reason: 'end_turn',
+      }]);
+      (runtime as any).llm = mockLLM;
+
+      const auditSpy = vi.spyOn((runtime as any).auditWriter, 'write');
+      await runtime.processBatch();
+      const calls = auditSpy.mock.calls.map((c: any[]) => c[0]);
+      expect(calls).toContain('turn_start');
+      expect(calls).toContain('turn_end');
+      auditSpy.mockRestore();
+    });
+
+    it('processWithMessage emits turn_start + turn_end on success', async () => {
+      const runtime = trackRuntime(await createTestRuntime({
+        clawId: 'test-claw',
+        clawDir,
+        llmConfig: createMockLLMConfig(),
+      }));
+      await runtime.initialize();
+
+      const mockLLM = createMockLLM([{
+        content: [{ type: 'text', text: 'Reply' }],
+        stop_reason: 'end_turn',
+      }]);
+      (runtime as any).llm = mockLLM;
+
+      const auditSpy = vi.spyOn((runtime as any).auditWriter, 'write');
+      await runtime.processWithMessage({ role: 'user', content: 'hello' });
+      const calls = auditSpy.mock.calls.map((c: any[]) => c[0]);
+      expect(calls).toContain('turn_start');
+      expect(calls).toContain('turn_end');
+      auditSpy.mockRestore();
+    });
+
+    it('retryLastTurn emits turn_start + turn_end on success', async () => {
+      const runtime = trackRuntime(await createTestRuntime({
+        clawId: 'test-claw',
+        clawDir,
+        llmConfig: createMockLLMConfig(),
+      }));
+      await runtime.initialize();
+
+      const mockLLM = createMockLLM([
+        { content: [{ type: 'text', text: 'First' }], stop_reason: 'end_turn' },
+        { content: [{ type: 'text', text: 'Retry' }], stop_reason: 'end_turn' },
+      ]);
+      (runtime as any).llm = mockLLM;
+      await runtime.chat('setup');
+
+      const auditSpy = vi.spyOn((runtime as any).auditWriter, 'write');
+      await runtime.retryLastTurn();
+      const calls = auditSpy.mock.calls.map((c: any[]) => c[0]);
+      expect(calls).toContain('turn_start');
+      expect(calls).toContain('turn_end');
+      auditSpy.mockRestore();
+    });
+  });
+
+  describe('Runtime audit events - llm_call / llm_error', () => {
+    it('LLM success emits llm_call with model/tokens/ms', async () => {
+      const runtime = trackRuntime(await createTestRuntime({
+        clawId: 'test-claw',
+        clawDir,
+        llmConfig: createMockLLMConfig(),
+      }));
+      await runtime.initialize();
+
+      const pendingDir = path.join(clawDir, 'inbox', 'pending');
+      const content = `---
+id: test-msg
+type: message
+from: motion
+priority: normal
+timestamp: ${new Date().toISOString()}
+---
+
+Test message
+`;
+      await fs.writeFile(path.join(pendingDir, 'test.md'), content);
+
+      const mockLLM = createMockLLM([{
+        content: [{ type: 'text', text: 'Processed' }],
+        stop_reason: 'end_turn',
+      }]);
+      mockLLM.getProviderInfo.mockReturnValue({ name: 'mock', model: 'test-model', isFallback: false });
+      (runtime as any).llm = mockLLM;
+
+      const auditSpy = vi.spyOn((runtime as any).auditWriter, 'write');
+      await runtime.processBatch();
+      expect(auditSpy).toHaveBeenCalledWith('llm_call', 'test-model', expect.stringContaining('in='), expect.stringContaining('out='), expect.stringContaining('ms='));
+      auditSpy.mockRestore();
+    });
+
+    it('LLM failure emits llm_error with model/err/ms', async () => {
+      const runtime = trackRuntime(await createTestRuntime({
+        clawId: 'test-claw',
+        clawDir,
+        llmConfig: createMockLLMConfig(),
+      }));
+      await runtime.initialize();
+
+      const pendingDir = path.join(clawDir, 'inbox', 'pending');
+      const content = `---
+id: test-msg
+type: message
+from: motion
+priority: normal
+timestamp: ${new Date().toISOString()}
+---
+
+Test message
+`;
+      await fs.writeFile(path.join(pendingDir, 'test.md'), content);
+
+      const failingLLM = {
+        call: vi.fn().mockRejectedValue(new Error('LLM network error')),
+        stream: vi.fn().mockImplementation(async function* () { throw new Error('LLM network error'); }),
+        close: vi.fn(),
+        healthCheck: vi.fn().mockResolvedValue(true),
+        getProviderInfo: vi.fn().mockReturnValue({ name: 'mock', model: 'failing-model', isFallback: false }),
+      };
+      (runtime as any).llm = failingLLM;
+
+      const auditSpy = vi.spyOn((runtime as any).auditWriter, 'write');
+      await expect(runtime.processBatch()).rejects.toThrow('LLM network error');
+      expect(auditSpy).toHaveBeenCalledWith('llm_error', 'failing-model', expect.stringContaining('err='), expect.stringContaining('ms='));
+      auditSpy.mockRestore();
+    });
+  });
+
+  describe('Runtime audit events - inbox_meta_failed (zero-coverage)', () => {
+    it('_hasHighPriorityInbox emits inbox_meta_failed when readMeta fails', async () => {
+      const runtime = trackRuntime(await createTestRuntime({
+        clawId: 'test-claw',
+        clawDir,
+        llmConfig: createMockLLMConfig(),
+      }));
+      await runtime.initialize();
+
+      // Write a malformed .md file to pending inbox so InboxWriter.readMeta returns parse_failed
+      const pendingDir = path.join(clawDir, 'inbox', 'pending');
+      await fs.writeFile(path.join(pendingDir, 'bad.md'), '---\nthis is not valid frontmatter');
+
+      const auditSpy = vi.spyOn((runtime as any).auditWriter, 'write');
+      const result = await (runtime as any)._hasHighPriorityInbox();
+      expect(result).toBe(false);
+      expect(auditSpy).toHaveBeenCalledWith('inbox_meta_failed', expect.stringContaining('file='), expect.stringContaining('kind='));
+      auditSpy.mockRestore();
     });
   });
 });

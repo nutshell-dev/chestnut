@@ -1,4 +1,3 @@
-import { SKILLS_DIR_DEFAULT } from '../core/skill/skill-paths.js';
 
 /**
  * Shared path constants
@@ -59,7 +58,7 @@ export const CLAW_SUBDIRS = [
   TASKS_RESULTS_DIR,
   'memory',                    // 不抽 const / 字面量保留 / B.p380-1 信号登记
   CONTRACT_DIR,                // 旧 'contract'
-  SKILLS_DIR_DEFAULT,          // phase370 已立 / 非 NEW
+  'skills',                    // phase370 已立 / 非 NEW（SKILLS_DIR_DEFAULT 字面量 / 避免循环依赖 skill-paths.ts → paths.ts）
   CLAWSPACE_DIR,               // 旧 'clawspace'
   LOGS_DIR,                    // 旧 'logs'
   STATUS_SUBDIR,               // 旧 'status'
