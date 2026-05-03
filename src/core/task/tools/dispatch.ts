@@ -1,5 +1,5 @@
 import type { Tool, ToolResult, ExecContext } from '../../tools/executor.js';
-import type { TaskLifecyclePort } from '../../runtime/runtime-ports.js';
+import type { TaskSystem } from '../system.js';
 import type { Message, ToolDefinition } from '../../../types/message.js';
 import { createSkillSystem } from '../../../foundation/skill-system/index.js';
 import { DISPATCH_SKILLS_PATH as DISPATCH_SKILLS_DIR } from '../../evolution-system/dispatch-skills-paths.js';
@@ -15,7 +15,7 @@ import { DISPATCH_TOOL_NAME } from '../../tools/tool-names.js';
 export { DISPATCH_TOOL_NAME };
 
 export class DispatchTool implements Tool {
-  taskSystem?: TaskLifecyclePort;
+  taskSystem?: TaskSystem;
 
   readonly name = DISPATCH_TOOL_NAME;
   readonly description = `派发任务，创建契约。支持两种模式：

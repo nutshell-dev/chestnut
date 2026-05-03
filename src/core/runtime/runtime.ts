@@ -42,9 +42,9 @@ import type {
   ContextInjectorPort,
   ExecContextPort,
   ContractManagerPort,
-  TaskLifecyclePort,
   SkillRegistryPort,
 } from './runtime-ports.js';
+import type { TaskSystem } from '../task/system.js';
 
 /**
  * Runtime constructor options
@@ -67,7 +67,7 @@ export interface RuntimeDependencies {
   readonly toolExecutor: ToolExecutorPort;
   readonly skillRegistry: SkillRegistryPort;
   readonly contractManager: ContractManagerPort;
-  readonly taskSystem: TaskLifecyclePort;
+  readonly taskSystem: TaskSystem;
   readonly contextInjector: ContextInjectorPort;
   readonly execContext: ExecContextPort;
 
@@ -154,7 +154,7 @@ export class Runtime {
    */
   protected contextInjector!: ContextInjectorPort;
   protected toolRegistry!: ToolRegistryPort;
-  private taskSystem!: TaskLifecyclePort;
+  private taskSystem!: TaskSystem;
   private skillRegistry!: SkillRegistryPort;
   private contractManager!: ContractManagerPort;
   protected execContext!: ExecContextPort;
@@ -887,7 +887,7 @@ export class Runtime {
   /**
    * Get TaskSystem instance (for retrospective scheduling)
    */
-  getTaskSystem(): TaskLifecyclePort {
+  getTaskSystem(): TaskSystem {
     return this.taskSystem;
   }
 

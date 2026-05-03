@@ -17,22 +17,17 @@ import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { runRandomDream, type RandomDreamOptions } from '../../../src/core/memory/random-dream.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
-import type { TaskLifecyclePort } from '../../../src/core/runtime/runtime-ports.js';
+import type { TaskSystem } from '../../../src/core/task/system.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 
-// ─── TaskLifecyclePort mock ──────────────────────────────────
+// ─── TaskSystem mock ──────────────────────────────────────────
 
 const mockWritePendingSubAgentTask = vi.fn();
 
-function makeMockTaskSystem(): TaskLifecyclePort {
+function makeMockTaskSystem(): TaskSystem {
   return {
-    initialize: vi.fn(),
-    startDispatch: vi.fn(),
-    shutdown: vi.fn(),
-    setParentStreamLog: vi.fn(),
-    addTaskResultHandler: vi.fn(),
     writePendingSubAgentTask: mockWritePendingSubAgentTask,
-  };
+  } as unknown as TaskSystem;
 }
 
 // ─── 工具函数 ─────────────────────────────────────────────────

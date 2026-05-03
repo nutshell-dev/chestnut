@@ -21,6 +21,5 @@ export type {
   ContextInjectorPort,
   ExecContextPort,
   ContractManagerPort,
-  TaskLifecyclePort,
   SkillRegistryPort,
 } from './runtime-ports.js';

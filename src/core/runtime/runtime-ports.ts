@@ -79,19 +79,6 @@ export interface ContractManagerPort {
   setOnNotify(callback: (type: string, data: Record<string, unknown>) => void): void;
 }
 
-/** Task lifecycle port */
-export interface TaskLifecyclePort {
-  initialize(): Promise<void>;
-  startDispatch(): void;
-  shutdown(timeoutMs: number): Promise<void>;
-  setParentStreamLog(streamLog: unknown): void;
-  addTaskResultHandler(
-    handler: (taskId: string, callerType: string | undefined, result: string, isError: boolean) => Promise<string>,
-  ): () => void;
-  /** 写 pending subagent task file（fs-driven schedule / 不入 in-memory queue）/ 返 taskId / phase412 port 化 cross-layer */
-  writePendingSubAgentTask(motionAudit: AuditLog, taskInfo: SubAgentTaskInfo): Promise<string>;
-}
-
 // === L2(旧L5) port ===
 
 /** Skill registry port */
