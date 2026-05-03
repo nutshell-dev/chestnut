@@ -7,11 +7,11 @@
 import * as yaml from 'js-yaml';
 import { randomUUID } from 'crypto';
 import * as path from 'path';
-import * as fsNative from 'fs';
+
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { Contract, SubTask, ContractStatus, SubtaskStatus } from '../../types/contract.js';
-import { ToolError, ToolTimeoutError } from '../../types/errors.js';
+import { ToolError, ToolTimeoutError, FileNotFoundError } from '../../types/errors.js';
 import { exec, execFile } from '../../foundation/process-exec/index.js';
 import { ProcessExecError } from '../../foundation/process-exec/index.js';
 import { LOCK_MAX_RETRIES, LOCK_RETRY_DELAY_MS, LOCK_STALE_TIMEOUT_MS, CONTRACT_SCRIPT_TIMEOUT_MS, DEFAULT_LLM_IDLE_TIMEOUT_MS, DEFAULT_MAX_STEPS } from '../../constants.js';
@@ -160,22 +160,17 @@ export class ContractSystem {
    * Uses writeAtomic + exists check to simulate exclusive creation
    */
   private async acquireLock(lockPath: string): Promise<void> {
-    const absoluteLockPath = path.join(this.clawDir, lockPath);
-    // 路径安全：确保解析后的路径仍在 clawDir 内
-    if (!absoluteLockPath.startsWith(this.clawDir + path.sep) && absoluteLockPath !== this.clawDir) {
-      throw new ToolError(`Lock path escapes clawDir: ${lockPath}`);
-    }
-    await fsNative.promises.mkdir(path.dirname(absoluteLockPath), { recursive: true });
+    // base-dir traversal 守护由 FileSystem L1 自治（无条件 resolve()）
+    await this.fs.ensureDir(path.dirname(lockPath));
 
     let lastReason = 'unknown';
 
     for (let i = 0; i < LOCK_MAX_RETRIES; i++) {
       try {
         // wx flag = O_EXCL: 文件存在时原子性失败，无 TOCTOU
-        await fsNative.promises.writeFile(
-          absoluteLockPath,
+        this.fs.writeExclusiveSync(
+          lockPath,
           JSON.stringify({ pid: process.pid, time: Date.now() }),
-          { flag: 'wx' }
         );
         return; // 成功获取锁
       } catch (err: any) {
@@ -183,14 +178,14 @@ export class ContractSystem {
 
         // EEXIST：尝试检测 stale lock（持有者进程已死或持锁超时）
         try {
-          const raw = await fsNative.promises.readFile(absoluteLockPath, 'utf-8');
+          const raw = await this.fs.read(lockPath);
           const { pid, time } = JSON.parse(raw) as { pid: number; time: number };
           let isAlive = true;
           try { process.kill(pid, 0); } catch { isAlive = false; }
           if (!isAlive) {
             // 持有者已死，清理 stale lock 后立即重试（不计入重试次数）
             lastReason = `holder PID ${pid} is dead (stale lock)`;
-            if (await this.unlinkStaleLock(absoluteLockPath, `stale_pid_${pid}`)) continue;
+            if (await this.unlinkStaleLock(lockPath, `stale_pid_${pid}`)) continue;
             lastReason = `unlink failed on stale lock (PID ${pid})`;
           } else if (Date.now() - time > LOCK_STALE_TIMEOUT_MS) {
             // 持有者存活但持锁超时：强制清理（防止 bug 导致永久死锁）
@@ -201,7 +196,7 @@ export class ContractSystem {
               `timeout=${LOCK_STALE_TIMEOUT_MS}`,
               'reason=stale',
             );
-            if (await this.unlinkStaleLock(absoluteLockPath, `timeout_pid_${pid}`)) continue;
+            if (await this.unlinkStaleLock(lockPath, `timeout_pid_${pid}`)) continue;
             lastReason = `unlink failed on timeout lock (PID ${pid})`;
           } else {
             lastReason = `held by PID ${pid} (${Math.round((Date.now() - time) / 1000)}s)`;
@@ -209,7 +204,7 @@ export class ContractSystem {
         } catch {
           // 读取或解析失败：lock 文件损坏，清理后重试
           lastReason = 'lock file corrupt or unreadable';
-          if (await this.unlinkStaleLock(absoluteLockPath, 'corrupt_lock_file')) continue;
+          if (await this.unlinkStaleLock(lockPath, 'corrupt_lock_file')) continue;
           lastReason = 'unlink failed on corrupt lock file';
         }
 
@@ -226,12 +221,12 @@ export class ContractSystem {
    * 清理 stale lock 文件；区分 ENOENT（预期/已被其他路径清理）与真故障（权限/IO）。
    * @returns true 表示 lock 文件已不存在或成功删除；false 表示删除失败需外层重试
    */
-  private async unlinkStaleLock(absoluteLockPath: string, reason: string): Promise<boolean> {
+  private async unlinkStaleLock(lockPath: string, reason: string): Promise<boolean> {
     try {
-      await fsNative.promises.unlink(absoluteLockPath);
+      await this.fs.delete(lockPath);
       return true;
     } catch (err: any) {
-      if (err?.code === 'ENOENT') return true; // 已被其他路径清理，等同成功
+      if (err instanceof FileNotFoundError) return true; // 已被其他路径清理，等同成功
       // 真故障（权限/IO）：记 audit（phase230 清零后 / L232 已 audit 化 / 循环外层通过 audit.tsv 审计）
       this.audit.write(
         'contract_lock_cleanup_failed',

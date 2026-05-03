@@ -284,7 +284,7 @@ export async function maybeCronClawInactivity(pm: ProcessManager, audit: AuditWr
       const { lastEventMs, lastError } = await getClawActivityInfo(clawFs, audit);
 
       // Merge with contract creation time to handle contract recreation scenario
-      const contractCreatedMs = getContractCreatedMs(clawDir);
+      const contractCreatedMs = getContractCreatedMs(clawFs, clawDir);
       const referenceMs = Math.max(lastEventMs ?? 0, contractCreatedMs ?? 0) || null;
       if (referenceMs === null) continue;
 

@@ -855,7 +855,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
       const streamFile = path.join(clawsDir, clawId, STREAM_FILE);
       if (!clawTrackMap.has(clawId)) {
         const clawDir = path.join(clawsDir, clawId);
-        const contractMs = getContractCreatedMs(clawDir);
+        const contractMs = getContractCreatedMs(fs, clawDir);
         if (contractMs === null) continue;
         const track = makeClawTrack();
         track.hasContract = true;
@@ -892,7 +892,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
         } else { track.isAlive = false; }
       } catch { track.isAlive = false; }
       // Fix 2：刷新 hasContract（契约可能完成或新创建）
-      track.hasContract = getContractCreatedMs(path.join(clawsDir, clawId)) !== null;
+      track.hasContract = getContractCreatedMs(fs, path.join(clawsDir, clawId)) !== null;
       // 兜底：轮询时顺带读一次流（watcher 失效时的保障，Bug 3 修复）
       refreshClawStatus(clawId);
     }
@@ -1241,7 +1241,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
           const clawId = e.name;
           if (clawTrackMap.has(clawId)) continue;
           const clawDir = path.join(clawsDir, clawId);
-          const contractMs = getContractCreatedMs(clawDir);
+          const contractMs = getContractCreatedMs(fs, clawDir);
           if (contractMs !== null) {
             const t = makeClawTrack();
             t.hasContract = true;
