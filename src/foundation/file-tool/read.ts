@@ -12,17 +12,7 @@ import * as nodePath from 'path';
 import * as fsNative from 'fs';
 import type { Tool, ToolResult, ExecContext } from '../tool-protocol/index.js';
 import { READ_MAX_LINES, READ_MAX_CHARS } from '../../constants.js';
-import { createClawPermissionChecker } from '../../core/permissions/claw-permissions.js';
-import type { PermissionChecker } from '../../core/permissions/claw-permissions.js';
-
-const checkerCache = new Map<string, PermissionChecker>();
-
-function getChecker(clawDir: string): PermissionChecker {
-  if (!checkerCache.has(clawDir)) {
-    checkerCache.set(clawDir, createClawPermissionChecker({ clawDir, strict: true }));
-  }
-  return checkerCache.get(clawDir)!;
-}
+import { getChecker } from './permission-context.js';
 
 // Blocked paths (MVP aligned) - blacklist only
 const READ_BLOCKLIST = [

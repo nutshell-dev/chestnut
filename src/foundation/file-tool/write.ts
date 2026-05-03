@@ -11,17 +11,7 @@
 import * as path from 'path';
 import type { Tool, ToolResult, ExecContext } from '../tool-protocol/index.js';
 import { WRITE_SIZE_LIMITS, WRITE_VERSION_RETENTION } from '../../constants.js';
-import { createClawPermissionChecker } from '../../core/permissions/claw-permissions.js';
-import type { PermissionChecker } from '../../core/permissions/claw-permissions.js';
-
-const checkerCache = new Map<string, PermissionChecker>();
-
-function getChecker(clawDir: string): PermissionChecker {
-  if (!checkerCache.has(clawDir)) {
-    checkerCache.set(clawDir, createClawPermissionChecker({ clawDir, strict: true }));
-  }
-  return checkerCache.get(clawDir)!;
-}
+import { getChecker } from './permission-context.js';
 
 function getSizeLimits(filePath: string): [number, number] {
   for (const [prefix, limits] of Object.entries(WRITE_SIZE_LIMITS)) {

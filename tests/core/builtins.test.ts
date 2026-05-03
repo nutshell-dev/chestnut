@@ -11,6 +11,8 @@ import { randomUUID } from 'crypto';
 import { statusTool } from '../../src/foundation/tools/builtins/index.js';
 import { sendTool } from '../../src/foundation/messaging/tools/send.js';
 import { readTool, writeTool, lsTool, searchTool } from '../../src/foundation/file-tool/index.js';
+import { setPermissionCheckerFactory } from '../../src/foundation/file-tool/permission-context.js';
+import { createClawPermissionChecker } from '../../src/core/permissions/claw-permissions.js';
 import { memorySearchTool } from '../../src/core/memory/tools/memory_search.js';
 import { execTool } from '../../src/foundation/command-tool/index.js';
 import { spawnTool } from '../../src/core/task/tools/spawn.js';
@@ -53,6 +55,8 @@ describe('Builtin Tools', () => {
     const registry = new ToolRegistryImpl();
     registry.register(statusTool);
     executor = new ToolExecutor({ registry, clawDir: tempDir, fs: mockFs });
+    // phase445: inject PermissionChecker factory for direct tool.execute tests
+    setPermissionCheckerFactory((clawDir) => createClawPermissionChecker({ clawDir, strict: true }));
   });
 
   afterEach(async () => {

@@ -20,15 +20,8 @@ import {
   WriteOperationForbiddenError,
 } from '../../types/errors.js';
 import { TASKS_RUNNING_DIR, TASKS_DONE_DIR } from '../../types/paths.js';
-/**
- * Permission checker interface (L4-owned / was in L1 foundation/fs/permissions.ts phase377)
- * Phase430: NodeFileSystem (L1) 0 dep — L4 caller 自治调。
- */
-export interface PermissionChecker {
-  checkRead(targetPath: string): void;
-  checkWrite(targetPath: string): void;
-  resolveAndCheck(relativePath: string, operation: 'read' | 'write'): string;
-}
+import type { PermissionChecker } from '../../types/permission.js';
+export type { PermissionChecker } from '../../types/permission.js';
 
 
 /**

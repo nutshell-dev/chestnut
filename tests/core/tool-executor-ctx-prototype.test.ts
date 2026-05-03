@@ -10,6 +10,8 @@ import { ToolExecutor } from '../../src/foundation/tools/executor.js';
 import { ExecContextImpl } from '../../src/foundation/tools/context.js';
 import { statusTool } from '../../src/foundation/tools/builtins/index.js';
 import { readTool, lsTool, searchTool } from '../../src/foundation/file-tool/index.js';
+import { setPermissionCheckerFactory } from '../../src/foundation/file-tool/permission-context.js';
+import { createClawPermissionChecker } from '../../src/core/permissions/claw-permissions.js';
 import { ToolRegistryImpl } from '../../src/foundation/tools/registry.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { makeAudit } from '../helpers/audit.js';
@@ -33,6 +35,8 @@ describe('ToolExecutor: ctx prototype preservation across spread', () => {
     registry.register(lsTool);
     registry.register(searchTool);
     executor = new ToolExecutor({ registry, clawDir: tmpDir, fs });
+    // phase445: inject PermissionChecker factory for direct tool.execute tests
+    setPermissionCheckerFactory((clawDir) => createClawPermissionChecker({ clawDir, strict: true }));
   });
 
   afterEach(async () => {

@@ -9,17 +9,7 @@ import * as nodePath from 'path';
 import * as fsNative from 'fs';
 import type { Tool, ToolResult, ExecContext } from '../tool-protocol/index.js';
 import { LS_MAX_ENTRIES } from '../../constants.js';
-import { createClawPermissionChecker } from '../../core/permissions/claw-permissions.js';
-import type { PermissionChecker } from '../../core/permissions/claw-permissions.js';
-
-const checkerCache = new Map<string, PermissionChecker>();
-
-function getChecker(clawDir: string): PermissionChecker {
-  if (!checkerCache.has(clawDir)) {
-    checkerCache.set(clawDir, createClawPermissionChecker({ clawDir, strict: true }));
-  }
-  return checkerCache.get(clawDir)!;
-}
+import { getChecker } from './permission-context.js';
 
 import { LS_TOOL_NAME } from '../tools/tool-names.js';
 export { LS_TOOL_NAME };

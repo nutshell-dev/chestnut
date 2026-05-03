@@ -31,6 +31,7 @@ import { ExecContextImpl } from '../foundation/tools/context.js';
 import { registerBuiltinTools } from '../foundation/tools/builtins/index.js';
 import { createFileTools } from '../foundation/file-tool/index.js';
 import { createCommandTools } from '../foundation/command-tool/index.js';
+import { createClawPermissionChecker } from '../core/permissions/claw-permissions.js';
 import { spawnTool } from '../core/task/tools/spawn.js';
 import { cleanupOrphanedTemp } from './cleanup.js';
 import { createInboxReader, createOutboxWriter, notifyInbox } from '../foundation/messaging/index.js';
@@ -173,7 +174,10 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
     toolRegistry = createToolRegistry();
 
     // phase428 FileTool 抽出 → foundation/file-tool/ / Assembly 显式注册
-    for (const tool of createFileTools({})) {
+    // phase445: PermissionChecker factory inject (消除 L2→L4 反向 dep)
+    for (const tool of createFileTools({
+      permissionCheckerFactory: (clawDir) => createClawPermissionChecker({ clawDir, strict: true }),
+    })) {
       toolRegistry.register(tool);
     }
 
