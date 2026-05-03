@@ -12,10 +12,9 @@ import { statusTool } from './status.js';
 import { sendTool } from './send.js';
 
 import { skillTool } from './skill.js';
-import { memorySearchTool } from './memory_search.js';
 
 // Re-export all tools
-export { readTool, writeTool, lsTool, searchTool, statusTool, sendTool, skillTool, memorySearchTool };
+export { readTool, writeTool, lsTool, searchTool, statusTool, sendTool, skillTool };
 
 /**
  * Register all builtin tools to a registry
@@ -30,5 +29,4 @@ export function registerBuiltinTools(registry: ToolRegistry): void {
   registry.register(sendTool);
 
   registry.register(skillTool);
-  registry.register(memorySearchTool);
 }

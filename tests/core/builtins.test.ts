@@ -8,7 +8,8 @@ import { promises as fs } from 'fs';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 
-import { readTool, writeTool, lsTool, searchTool, statusTool, sendTool, memorySearchTool } from '../../src/core/tools/builtins/index.js';
+import { readTool, writeTool, lsTool, searchTool, statusTool, sendTool } from '../../src/core/tools/builtins/index.js';
+import { memorySearchTool } from '../../src/core/memory/tools/memory_search.js';
 import { execTool } from '../../src/core/shell-tool/index.js';
 import { spawnTool } from '../../src/core/task/tools/spawn.js';
 import { ExecContextImpl } from '../../src/core/tools/context.js';

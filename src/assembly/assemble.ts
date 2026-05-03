@@ -46,7 +46,7 @@ import { createHeartbeat, type Heartbeat } from '../core/runtime/index.js';
 import { createCronRunner, parseSchedule, CronRunner } from '../core/cron/index.js';
 import { runDiskMonitor } from '../core/cron/jobs/disk-monitor.js';
 import { runLlmStats } from '../core/cron/jobs/llm-stats.js';
-import { createMemorySystem } from '../core/memory/index.js';
+import { createMemorySystem, memorySearchTool } from '../core/memory/index.js';
 import type { MemorySystem } from '../core/memory/index.js';
 import { runContractObserver } from '../core/contract/jobs/contract-observer.js';
 import { buildLLMConfig } from '../foundation/config/index.js';
@@ -499,6 +499,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
         auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=memory_system`, `phase=construct`, `reason=${errMsg(e)}`);
         throw new Error(`Assembly: MemorySystem construct failed: ${errMsg(e)}`, { cause: e });
       }
+      toolRegistry.register(memorySearchTool);
     }
 
     try {

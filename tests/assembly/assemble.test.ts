@@ -107,6 +107,7 @@ const mockMemorySystem = {
 
 vi.mock('../../src/core/memory/index.js', () => ({
   createMemorySystem: vi.fn(() => mockMemorySystem),
+  memorySearchTool: { name: 'memory_search' },
 }));
 
 vi.mock('../../src/core/contract/jobs/contract-observer.js', () => ({
