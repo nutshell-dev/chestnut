@@ -548,6 +548,8 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
           handler: () => runLlmStats({
             clawforumDir,
             motionDir: clawDir,
+            clawforumFs,
+            motionFs: systemFs,
             audit: auditWriter,
           }),
         },

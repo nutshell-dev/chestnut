@@ -1,5 +1,5 @@
-import * as fs from 'fs';
 import * as path from 'path';
+import type { FileSystem } from '../../../foundation/fs/types.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
 import { CRON_AUDIT_EVENTS } from '../audit-events.js';
 import { LOGS_DIR } from '../../../types/paths.js';
@@ -43,6 +43,8 @@ export interface LlmStatsSummary {
 export interface LlmStatsOptions {
   clawforumDir: string;
   motionDir: string;
+  clawforumFs: FileSystem;   // baseDir = clawforumDir
+  motionFs: FileSystem;       // baseDir = motionDir
   audit: AuditLog;
 }
 
@@ -62,10 +64,9 @@ export async function runLlmStats(opts: LlmStatsOptions): Promise<void> {
   const summary = aggregate(entries, targetDate);
 
   // 追加到 .clawforum/logs/llm-stats.jsonl
-  const logsDir = path.join(opts.clawforumDir, LOGS_DIR);
-  fs.mkdirSync(logsDir, { recursive: true });
-  const statsFile = path.join(logsDir, 'llm-stats.jsonl');
-  fs.appendFileSync(statsFile, JSON.stringify(summary) + '\n', 'utf-8');
+  opts.clawforumFs.ensureDirSync(LOGS_DIR);
+  const statsFile = path.join(LOGS_DIR, 'llm-stats.jsonl');
+  opts.clawforumFs.appendSync(statsFile, JSON.stringify(summary) + '\n');
 
   opts.audit.write(CRON_AUDIT_EVENTS.LLM_STATS, `step=report`, `date=${targetDate}`, `totalCalls=${summary.totalCalls}`, `successCalls=${summary.successCalls}`, `failedCalls=${summary.failedCalls}`, `totalInputTokens=${summary.totalInputTokens}`, `totalOutputTokens=${summary.totalOutputTokens}`, `avgLatencyMs=${summary.avgLatencyMs}`);
   console.log(
@@ -78,21 +79,21 @@ export async function runLlmStats(opts: LlmStatsOptions): Promise<void> {
 function collectEntries(opts: LlmStatsOptions, targetDate: string): ParsedLlmRow[] {
   const results: ParsedLlmRow[] = [];
 
-  const candidates: Array<{ file: string; clawId: string }> = [
-    { file: path.join(opts.motionDir, 'audit.tsv'), clawId: 'motion' },
+  const candidates: Array<{ fs: FileSystem; file: string; clawId: string }> = [
+    { fs: opts.motionFs, file: 'audit.tsv', clawId: 'motion' },
     ...(() => {
-      const clawsDir = path.join(opts.clawforumDir, 'claws');
-      if (!fs.existsSync(clawsDir)) return [];
-      return fs.readdirSync(clawsDir).map(id => ({
-        file: path.join(clawsDir, id, 'audit.tsv'),
-        clawId: id,
+      if (!opts.clawforumFs.existsSync('claws')) return [];
+      return opts.clawforumFs.listSync('claws', { includeDirs: true }).map(e => ({
+        fs: opts.clawforumFs,
+        file: path.join('claws', e.name, 'audit.tsv'),
+        clawId: e.name,
       }));
     })(),
   ];
 
-  for (const { file, clawId } of candidates) {
+  for (const { fs, file, clawId } of candidates) {
     if (!fs.existsSync(file)) continue;
-    const lines = fs.readFileSync(file, 'utf-8').split('\n');
+    const lines = fs.readSync(file).split('\n');
     for (const line of lines) {
       if (!line.trim()) continue;
       const cols = line.split('\t');
