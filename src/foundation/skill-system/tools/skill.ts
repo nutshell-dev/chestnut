@@ -1,19 +1,20 @@
 /**
+ * @module L2.SkillSystem
  * skill tool - Load and use skills from SKILL.md files
- * 
+ *
  * Skills provide domain-specific knowledge and guidelines to Claws.
  * Loaded on-demand when this tool is called.
  */
 
 import type { Tool, ToolResult, ExecContext } from '../../tool-protocol/index.js';
-import { createSkillSystem, type SkillSystem } from '../../skill-system/index.js';
+import { createSkillSystem, type SkillSystem } from '../index.js';
 
 /**
  * Skill tool implementation
- * 
+ *
  * Requires skillRegistry to be injected before use.
  */
-import { SKILL_TOOL_NAME } from '../tool-names.js';
+import { SKILL_TOOL_NAME } from '../../tools/tool-names.js';
 export { SKILL_TOOL_NAME };
 
 export const skillTool: Tool & { skillRegistry?: SkillSystem } = {
@@ -45,7 +46,7 @@ export const skillTool: Tool & { skillRegistry?: SkillSystem } = {
         const tempRegistry = createSkillSystem(ctx.fs, String(args.skillsDir));
         await tempRegistry.loadAll();
         const content = await tempRegistry.loadFull(name);
-        return { success: true, content, metadata: { skillName: name } };
+        return { success: true, content, metadata: { name: name } };
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
         return {
@@ -71,7 +72,7 @@ export const skillTool: Tool & { skillRegistry?: SkillSystem } = {
       return {
         success: true,
         content,
-        metadata: { skillName: name },
+        metadata: { name: name },
       };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
