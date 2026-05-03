@@ -13,7 +13,6 @@
  */
 
 import * as fs from 'fs';
-import { ASSEMBLY_AUDIT_EVENTS } from '../../assembly/audit-events.js';
 
 const TAIL_BYTES = 4096;
 
@@ -74,9 +73,11 @@ export function readLastExitEvent(auditPath: string): RawEvent | null {
 }
 
 /**
- * 把 audit.tsv 最后一行翻译为给 LLM 看的中断说明文本。
+ * 跨进程 audit.tsv 消费场景：Runtime 启动期解读上次 daemon 退出 audit / 给 LLM 中断说明。
  *
- * @returns 解读文本，或 null 表示无信息可反查
+ * 设计：直用字符串字面量匹配（不 import ASSEMBLY_AUDIT_EVENTS const）/ 避免 L5 → L6 反向 dep 违 M#5。
+ * audit.tsv 的 event 字符串值是跨进程契约（同 phase 393 测试字符串值断言模式）。
+ * Assembly side event 字符串值改时 / 本处需同步 / 测试覆盖（last-exit-summary.test.ts）会 fail 暴露。
  */
 export function summarizeLastExit(auditPath: string): string | null {
   const ev = readLastExitEvent(auditPath);
@@ -85,11 +86,11 @@ export function summarizeLastExit(auditPath: string): string | null {
   const colsText = ev.cols.length > 0 ? ` (${ev.cols.join(', ')})` : '';
 
   switch (ev.type) {
-    case ASSEMBLY_AUDIT_EVENTS.DAEMON_STOP:
+    case 'daemon_stop':                              // phase 454: 跨进程 audit.tsv 字符串契约 / 不 import const
       return `Last process stopped normally at ${ev.ts}${colsText}.`;
-    case ASSEMBLY_AUDIT_EVENTS.DAEMON_CRASH:
+    case 'daemon_crash':
       return `Last process crashed at ${ev.ts}${colsText}.`;
-    case ASSEMBLY_AUDIT_EVENTS.DAEMON_UNCLEAN_EXIT:
+    case 'daemon_unclean_exit':
       return `Last process exited uncleanly at ${ev.ts} (likely SIGKILL / OOM / power loss; no graceful shutdown).${
         ev.cols.length > 0 ? ` Last activity timestamp: ${ev.cols.join(', ')}.` : ''
       }`;

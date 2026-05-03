@@ -32,6 +32,9 @@ export const RUNTIME_AUDIT_EVENTS = {
   // TOOL / OUTBOX
   TOOL_RESULT: 'tool_result',
   OUTBOX_WRITE_FAILED: 'outbox_write_failed',
+  // INITIALIZE phase failures (phase 454: 替代 Runtime 借 ASSEMBLE_FAILED)
+  INBOX_INIT_FAILED: 'runtime_inbox_init_failed',
+  SESSION_REPAIR_FAILED: 'runtime_session_repair_failed',
 } as const;
 
 /**

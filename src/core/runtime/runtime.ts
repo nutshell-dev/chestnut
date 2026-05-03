@@ -26,7 +26,6 @@ import { summarizeLastExit } from './last-exit-summary.js';
 import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../../types/signals.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import { RUNTIME_AUDIT_EVENTS, REACT_LOOP_AUDIT_EVENTS } from './runtime-audit-events.js';
-import { ASSEMBLY_AUDIT_EVENTS } from '../../assembly/audit-events.js';
 import { CLAW_SUBDIRS } from '../../types/paths.js';
 import { oneLine } from '../../types/utils.js';
 import { MaxStepsExceededError } from '../../types/errors.js';
@@ -201,7 +200,7 @@ export class Runtime {
     try {
       await this.inboxReader.init();
     } catch (e) {
-      this.auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=inbox_reader`, `phase=init`, `reason=${e instanceof Error ? e.message : String(e)}`);
+      this.auditWriter.write(RUNTIME_AUDIT_EVENTS.INBOX_INIT_FAILED, `reason=${e instanceof Error ? e.message : String(e)}`);
       throw e;
     }
     this.outboxWriter = deps.outboxWriter;
@@ -273,7 +272,7 @@ export class Runtime {
       try {
         await this.sessionManager.save(repaired);
       } catch (e) {
-        this.auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=session_manager`, `phase=session_repair_save`, `reason=${e instanceof Error ? e.message : String(e)}`);
+        this.auditWriter.write(RUNTIME_AUDIT_EVENTS.SESSION_REPAIR_FAILED, `reason=${e instanceof Error ? e.message : String(e)}`);
         throw e;
       }
       this.auditWriter.write(RUNTIME_AUDIT_EVENTS.SESSION_REPAIRED, `tools=${toolCount}`);

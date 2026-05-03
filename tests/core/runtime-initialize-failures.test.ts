@@ -101,11 +101,9 @@ describe('Runtime.initialize() failure audits', () => {
 
     await expect(runtime.initialize()).rejects.toThrow('ENOSPC: no space left on device');
 
-    const assembleFailedCall = auditSpy.mock.calls.find(c => c[0] === 'assemble_failed');
-    expect(assembleFailedCall).toBeDefined();
-    expect(assembleFailedCall![1]).toContain('module=session_manager');
-    expect(assembleFailedCall![2]).toContain('phase=session_repair_save');
-    expect(assembleFailedCall![3]).toContain('ENOSPC');
+    const sessionRepairFailedCall = auditSpy.mock.calls.find(c => c[0] === 'runtime_session_repair_failed');
+    expect(sessionRepairFailedCall).toBeDefined();
+    expect(sessionRepairFailedCall![1]).toContain('ENOSPC');
 
     // Cleanup
     await fs.rm(path.dirname(path.dirname(clawDir)), { recursive: true, force: true }).catch(() => {});
@@ -132,11 +130,9 @@ describe('Runtime.initialize() failure audits', () => {
 
     await expect(runtime.initialize()).rejects.toThrow('ensureDir EACCES');
 
-    const assembleFailedCall = auditSpy.mock.calls.find(c => c[0] === 'assemble_failed');
-    expect(assembleFailedCall).toBeDefined();
-    expect(assembleFailedCall![1]).toContain('module=inbox_reader');
-    expect(assembleFailedCall![2]).toContain('phase=init');
-    expect(assembleFailedCall![3]).toContain('EACCES');
+    const inboxInitFailedCall = auditSpy.mock.calls.find(c => c[0] === 'runtime_inbox_init_failed');
+    expect(inboxInitFailedCall).toBeDefined();
+    expect(inboxInitFailedCall![1]).toContain('EACCES');
 
     // Cleanup
     await fs.rm(path.dirname(path.dirname(clawDir)), { recursive: true, force: true }).catch(() => {});
