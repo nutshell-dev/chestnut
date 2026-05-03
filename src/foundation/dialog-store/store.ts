@@ -28,10 +28,12 @@ export class DialogStore {
     private readonly fs: FileSystem,
     dialogDir: string,
     private readonly audit: AuditLog,
-    private readonly clawId: string,
+    filename: string,                                 // phase 450: 必填 / caller 注入
+    private readonly clawId?: string,                 // phase 450: 可选 / subagent ephemeral 用例 0 clawId
+    archiveDir?: string,                              // phase 450: 可选 / 默认 'archive' subdir 保兼容
   ) {
-    this.currentPath = path.join(dialogDir, 'current.json');
-    this.archiveDir = path.join(dialogDir, 'archive');
+    this.currentPath = path.join(dialogDir, filename);
+    this.archiveDir = path.join(dialogDir, archiveDir ?? 'archive');
   }
 
   /**
@@ -78,7 +80,7 @@ export class DialogStore {
     const now = new Date().toISOString();
     const emptySession: SessionData = {
       version: 1,
-      clawId: this.clawId,
+      ...(this.clawId !== undefined && { clawId: this.clawId }),  // phase 450: 0 clawId 时 schema 不含此字段
       createdAt: now,
       updatedAt: now,
       messages: [],
@@ -145,7 +147,7 @@ export class DialogStore {
 
     const data: SessionData = {
       version: 1,
-      clawId: this.clawId,
+      ...(this.clawId !== undefined && { clawId: this.clawId }),  // phase 450: 0 clawId 时 schema 不含此字段
       createdAt: this.createdAt,
       updatedAt: now,
       messages,

@@ -8,7 +8,7 @@ import type { Message } from '../../types/message.js';
 
 export interface SessionData {
   version: number;
-  clawId: string;
+  clawId?: string;          // phase 450: 可选 / subagent ephemeral 用例 0 clawId
   createdAt: string;
   updatedAt: string;
   messages: Message[];

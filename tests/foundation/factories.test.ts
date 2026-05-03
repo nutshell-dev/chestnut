@@ -32,7 +32,7 @@ describe('L2 factories — 行为契约', () => {
     const { dir, fs, audit } = mkEnv();
     expect(createStreamWriter(fs, audit)).not.toBe(createStreamWriter(fs, audit));
     expect(createSnapshot(dir, fs, audit, [])).not.toBe(createSnapshot(dir, fs, audit, []));
-    expect(createDialogStore(fs, 'dialog', audit, 'c1')).not.toBe(createDialogStore(fs, 'dialog', audit, 'c1'));
+    expect(createDialogStore(fs, 'dialog', audit, 'current.json', 'c1')).not.toBe(createDialogStore(fs, 'dialog', audit, 'current.json', 'c1'));
     expect(createInboxReader(fs, audit, 'inbox')).not.toBe(createInboxReader(fs, audit, 'inbox'));
     expect(createOutboxWriter('c1', dir, fs, audit)).not.toBe(createOutboxWriter('c1', dir, fs, audit));
   });
@@ -80,7 +80,7 @@ describe('L2 factories — 行为契约', () => {
 
   it('createDialogStore：clawId 透传且无 UUID 默认兜底（签名要求显式传）', () => {
     const { fs, audit } = mkEnv();
-    const sm = createDialogStore(fs, 'dialog', audit, 'explicit-claw-id');
+    const sm = createDialogStore(fs, 'dialog', audit, 'current.json', 'explicit-claw-id');
     expect(sm).toBeInstanceOf(DialogStore);
     // 编译期保障：省略 clawId 应 TS 报错——由 tsc 全量检查覆盖，不在此 it 断言
   });
@@ -94,7 +94,7 @@ describe('L2 factories — 行为契约', () => {
     //   - current.json 会落在 'c1/current.json' 而非 'my_dialog/current.json' → readFile ENOENT
     //   - 或 saved.clawId 会变成 'my_dialog' 而非 'c1' → toBe 断言失败
     const { dir, fs, audit } = mkEnv();
-    const sm = createDialogStore(fs, 'my_dialog', audit, 'c1');
+    const sm = createDialogStore(fs, 'my_dialog', audit, 'current.json', 'c1');
     await sm.save([{ role: 'user', content: 'hi' }]);
     const saved = JSON.parse(
       await readFile(path.join(dir, 'my_dialog', 'current.json'), 'utf-8'),

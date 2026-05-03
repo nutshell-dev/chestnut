@@ -33,7 +33,7 @@ export async function makeRuntimeDeps(input: MakeRuntimeDepsInput): Promise<Runt
   const auditWriter = new AuditWriter(systemFs, 'audit.tsv', null);
   const snapshot = new Snapshot(clawDir, systemFs, auditWriter, SNAPSHOT_IGNORE_PATTERNS);
   await snapshot.init();
-  const sessionManager = new DialogStore(systemFs, 'dialog', auditWriter, clawId);
+  const sessionManager = new DialogStore(systemFs, 'dialog', auditWriter, 'current.json', clawId);
   const inboxReader = new InboxReader(INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR, systemFs, auditWriter);
   await inboxReader.init();
   const outboxWriter = new OutboxWriter(clawId, clawDir, systemFs, auditWriter);

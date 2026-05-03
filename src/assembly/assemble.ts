@@ -338,7 +338,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
   // --- L2: sessionManager + inboxReader + outboxWriter ---
   let sessionManager: DialogStore;
   try {
-    sessionManager = createDialogStore(systemFs, DIALOG_DIR, auditWriter, clawId);
+    sessionManager = createDialogStore(systemFs, DIALOG_DIR, auditWriter, 'current.json', clawId);
   } catch (e) {
     auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=session_manager`, `phase=construct`, `reason=${errMsg(e)}`);
     throw new Error(`Assembly: DialogStore construct failed: ${errMsg(e)}`, { cause: e });

@@ -37,7 +37,7 @@ describe('Runtime.initialize() failure audits', () => {
     vi.spyOn(snapshot, 'init').mockResolvedValue({ ok: true } as any);
     vi.spyOn(snapshot, 'commit').mockResolvedValue({ ok: true } as any);
 
-    const sessionManager = overrides.sessionManager ?? new DialogStore(systemFs, 'dialog', auditWriter, 'test-claw');
+    const sessionManager = overrides.sessionManager ?? new DialogStore(systemFs, 'dialog', auditWriter, 'current.json', 'test-claw');
     const inboxReader = overrides.inboxReader ?? new InboxReader(INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR, systemFs, auditWriter);
     const outboxWriter = new OutboxWriter('test-claw', clawDir, systemFs, auditWriter);
 
