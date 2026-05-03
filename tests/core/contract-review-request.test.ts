@@ -9,7 +9,7 @@ import type { MotionReviewContext } from '../../src/core/contract/manager.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { AuditWriter } from '../../src/foundation/audit/writer.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../src/core/contract/audit-events.js';
-import { RETRO_AUDIT_EVENTS } from '../../src/core/contract/retro-audit-events.js';
+import { RETRO_AUDIT_EVENTS } from '../../src/core/evolution-system/retro-audit-events.js';
 
 // ============================================================================
 // Mock: SkillRegistry（D4 C 方案：窄 mock 避免建真 skills/ 目录）

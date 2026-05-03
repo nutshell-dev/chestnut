@@ -19,14 +19,14 @@ import { LOCK_MAX_RETRIES, LOCK_RETRY_DELAY_MS, LOCK_STALE_TIMEOUT_MS, CONTRACT_
 import { InboxWriter } from '../../foundation/messaging/index.js';
 import type { ContractVerifierScheduler } from './verifier-scheduler.js';
 import { createSubAgentVerifierScheduler } from './verifier-scheduler.js';
-import type { ContractRetroScheduler } from './retro-scheduler.js';
-import { createDefaultRetroScheduler } from './retro-scheduler.js';
+import type { RetroScheduler } from '../evolution-system/retro-scheduler.js';
+import { createDefaultRetroScheduler } from '../evolution-system/retro-scheduler.js';
 import { AuditWriter, createSystemAudit } from '../../foundation/audit/index.js';
 import type { Message } from '../../types/message.js';
 import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
-import { RETRO_AUDIT_EVENTS } from './retro-audit-events.js';
-import { CLAWSPACE_DIR } from '../../types/paths.js';)
+import { RETRO_AUDIT_EVENTS } from '../evolution-system/retro-audit-events.js';
+import { CLAWSPACE_DIR } from '../../types/paths.js';
 
 
 /**
@@ -113,7 +113,7 @@ export class ContractManager {
   private readonly audit: AuditWriter;
   private llm?: LLMService;
   private verifierScheduler: ContractVerifierScheduler;
-  private retroScheduler: ContractRetroScheduler;
+  private retroScheduler: RetroScheduler;
   private activeDir = 'contract/active';
   private pausedDir = 'contract/paused';
   private archiveDir = 'contract/archive';
@@ -126,7 +126,7 @@ export class ContractManager {
     audit: AuditWriter,
     llm?: LLMService,
     verifierScheduler?: ContractVerifierScheduler,
-    retroScheduler?: ContractRetroScheduler,
+    retroScheduler?: RetroScheduler,
   ) {
     this.clawDir = clawDir;
     this.clawId = clawId;

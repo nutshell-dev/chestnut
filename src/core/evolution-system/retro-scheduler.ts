@@ -1,6 +1,6 @@
 /**
- * @module L4.ContractSystem
- * ContractRetroScheduler port — retro 调度抽象。
+ * @module L4.EvolutionSystem
+ * RetroScheduler port — retro 调度抽象（phase411 物理迁自 contract/）。
  *
  * 内化 A.3+A.4+A.5（phase364）：
  * - buildRetroPrompt（A.3 / from prompts/retrospective）
@@ -16,7 +16,6 @@ import { DEFAULT_MAX_STEPS, DEFAULT_LLM_IDLE_TIMEOUT_MS } from '../../constants.
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { Audit } from '../../foundation/audit/index.js';
 import type { Message } from '../../types/message.js';
-import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 import { RETRO_AUDIT_EVENTS } from './retro-audit-events.js';
 
 export interface RetroConfig {
@@ -30,11 +29,11 @@ export interface RetroConfig {
   audit: Audit;  // claw audit (for skill failure log)
 }
 
-export interface ContractRetroScheduler {
+export interface RetroScheduler {
   schedule(config: RetroConfig): Promise<void>;
 }
 
-export function createDefaultRetroScheduler(): ContractRetroScheduler {
+export function createDefaultRetroScheduler(): RetroScheduler {
   return {
     async schedule(config: RetroConfig): Promise<void> {
       // 加载 dispatch-skills（A.5 / best-effort）
