@@ -14,18 +14,16 @@
 
 - **CRUD + 状态追踪**：创建 / loadActive / loadPaused / pause / resume / cancel / archive 全路径 / contract.yaml + progress.json 持久化
 - **subtask 状态机**：active ↔ paused ↔ archive 三态迁移 + lock 防并发（writeAtomic + LOCK_MAX_RETRIES + LOCK_STALE_TIMEOUT_MS / 自动清 stale lock）
-- **验收判定（双轨）**：脚本路径走 ProcessExec / LLM 路径透过 TaskSystem 调度 verifier 子代理（同层单向 / ⚠ phase340 引入的 ContractVerifierScheduler port 是 design work-around / 真合规直 dep TaskSystem / 详 §A STALE + feedback_governance_workaround_smell）
-- **acceptance fire-and-forget**：`_runAcceptanceInBackground` 不 await / 结果走 inbox 异步通知 / D6 满足 / `isProgrammingBug` 检（phase342）
+- **验收判定（双轨）**：脚本路径走 ProcessExec / LLM 路径直 dep TaskSystem 调度 verifier 子代理（同层单向）
+- **acceptance fire-and-forget**：`_runAcceptanceInBackground` 不 await / 结果走 inbox 异步通知 / D6 满足 / `isProgrammingBug` 检
 - **重试 + escalation**：重试是 system 自治（机械重试 / 配置定义次数）/ escalation 通知（达阈值后投 inbox 通知 agent，决策权归 agent / 不替代 agent 决策）
 - **暂停 + 恢复 + 取消 + 归档**：状态迁移 / archive 终态不再回入
 
-> 具体 API 形态归 [interfaces/l4.md](../interfaces/l4.md) ContractSystem 节。具体实现细节（VerifierConfig / VerifierResult / createSubAgentVerifierScheduler / collectContractEvents / getContractCreatedMs / handleReviewRequest 等）的存在依据是「契约生命周期 + acceptance fire-and-forget」原语 — 实然采纳的 method 集合差异等登记 §7.B。
->
-> ⚠ STALE：原 docblock + §1.做 + §1.不做 提的 ContractVerifierScheduler port + RetroScheduler port「port 解耦」叙事 是 design work-around / 推 r61+ 反向 design phase 撤销 port + 用真合规设计（直 dep TaskSystem 同层单向 + emit contract_completed event 让 EvolutionSystem 订阅 / 单向）替换 / 详 feedback_governance_workaround_smell。
+> 具体 API 形态归 [interfaces/l4.md](../interfaces/l4.md) ContractSystem 节。具体实现细节（VerifierConfig / VerifierResult / collectContractEvents / getContractCreatedMs / handleReviewRequest 等）的存在依据是「契约生命周期 + acceptance fire-and-forget」原语 — 实然采纳的 method 集合差异等登记 §7.B。
 
 ### 不做
 
-- **不直接 `new SubAgent`**（应然 verifier 子代理实例化由 TaskSystem own / ⚠ phase340 引入的 verifier-scheduler port 是 design work-around / 真合规 = ContractSystem 直 dep TaskSystem.schedule + 同层单向）— derive 自 M#1 + M#5
+- **不直接 `new SubAgent`**（应然 verifier 子代理实例化由 TaskSystem own / ContractSystem 直 dep TaskSystem.schedule 同层单向）— derive 自 M#1 + M#5
 - **不解析 LLM 响应内容**（verifier 返 `VerifierResult.passed` / contract 只看判定结果）— derive 自 M#1
 - **不管 verifier subagent 内部生命周期**（TaskSystem own）— derive 自 M#1
 - **不 own 单步 LLM 调用加 agent 循环**（LLM 验收透过 TaskSystem 派 verifier 子代理）— derive 自 M#1
@@ -55,7 +53,6 @@
 | `contract/archive/<id>/*` | 归档（独占 / 终态）| ✓ |
 | `contract/active/<id>/.lock` | 防并发文件锁 | ✓ stale 自动清 |
 | `acceptance.sh` / acceptance prompts | 用户提供 | ✓ |
-| `verifierScheduler` 字段 | port 注入 / 默认 fallback | 派生 |
 
 ## 4. 持久化（M#4）
 
@@ -91,9 +88,9 @@ contract/
 
 ## 5. 审计事件清单
 
-事件常量**应然**集中定义于 `src/core/contract/audit-events.ts` `CONTRACT_AUDIT_EVENTS`（模块自治 / phase338 H1 拆分）。
+事件常量**应然**集中定义于 `src/core/contract/audit-events.ts` `CONTRACT_AUDIT_EVENTS`（模块自治）。
 
-17 个 CONTRACT_* 事件（phase342 + UNEXPECTED_ASYNC_THROW / phase350 + OBSERVER_EVENT_FAILED / phase383 evolution_system_* 6 events 物理迁 RETRO_AUDIT_EVENTS）：
+17 个 CONTRACT_* 事件：
 
 | 事件 type | 触发时机 | 关键载荷 |
 |---|---|---|
@@ -117,7 +114,7 @@ contract/
 
 ## 6. 层级声明
 
-L4 agent 业务流程层（与 TaskSystem / EvolutionSystem / MemorySystem 同层 / 业务语义独立可变）。下游 Runtime（L5）+ CLI（L6）+ Assembly（L6）通过 `createContractSystem` 工厂消费 + 注入 verifier scheduler。上游 L1/L2 + L3 port / 不上引 L5+。详见 [architecture.md](../architecture.md) 加 [interfaces/l4.md](../interfaces/l4.md)。
+L4 agent 业务流程层（与 TaskSystem / EvolutionSystem / MemorySystem 同层 / 业务语义独立可变）。下游 Runtime（L5）+ CLI（L6）+ Assembly（L6）通过 `createContractSystem` 工厂消费。本模块下引 L1/L2（fs / audit / Messaging）+ L4 同层（直 dep TaskSystem）/ 不上引 L5+。详见 [architecture.md](../architecture.md) 加 [interfaces/l4.md](../interfaces/l4.md)。
 
 ## 7. 应然 vs 实然差距登记（M#10 / M#11）
 

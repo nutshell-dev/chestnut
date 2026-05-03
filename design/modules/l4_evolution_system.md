@@ -3,8 +3,6 @@
 > 本文档限本模块**内部**应然 — 8 节结构 derive 自 Module Logic Principles：§1-§4 = M#1-#4 各占一节，§5 审计 = M#3 命名空间细则，§6 层级，§7 drift = M#10/#11，§8 测试。
 > 跨模块对外承诺（接口签名、生产/消费方、归本模块加不归本模块、不可消除耦合理由）见 [interfaces/l4.md](../interfaces/l4.md) EvolutionSystem 节。
 > 模块本质加层归属见 [architecture.md](../architecture.md)。
->
-> **整体状态**（2026-05-03 / phase411 实施前 Path #1 实测）：**实然部分准备**（phase364 H6+H11 立 `src/core/contract/retro-scheduler.ts` 77 行 + `retro-audit-events.ts` 17 行）/ 业务主体仍嵌 `ContractManager.handleReviewRequest()` 170+ 行 (manager.ts:1234-1404 / 6 步业务) / **phase411 落地**整模块拆出 src/core/evolution-system/ + ContractSystem decoupling 经 contract_completed callback + Assembly 装配 + dispatch-skills 资源归属移交。下文 §7.B 候选 4 row 加 phase411 落地标记。
 
 ## 1. 职责（M#1 独立可变职责）
 
@@ -20,7 +18,7 @@
 - **SkillSystem.reload 协调**：retro 子代理用 write 工具写到 L2 SkillSystem 管理的 system dir / 本模块只调 SkillSystem.reload 触发 rescan
 - **错误隔离**：单契约 retro 失败不影响后续契约（try/catch + audit）
 
-> 具体 API 形态归 [interfaces/l4.md](../interfaces/l4.md) EvolutionSystem 节。具体实现细节（subscribeToContractCompleted / runRetroForContract / dedupeByContractId / triggerSkillSystemReload / EvolutionSystemOptions 等）的存在依据是「事件驱动 + retro 子代理派发 + 去重 + SkillSystem.reload 协调」原语 — 实然采纳的细节差异（应然先于实然 / 实然 0 落地 / 整模块嵌在 ContractManager.handleReviewRequest）等登记 §7.B。
+> 具体 API 形态归 [interfaces/l4.md](../interfaces/l4.md) EvolutionSystem 节。具体实现细节（subscribeToContractCompleted / runRetroForContract / dedupeByContractId / triggerSkillSystemReload / EvolutionSystemOptions 等）的存在依据是「事件驱动 + retro 子代理派发 + 去重 + SkillSystem.reload 协调」原语 — 实然采纳的细节差异等登记 §7.B。
 
 ### 不做
 
@@ -51,7 +49,6 @@
 | 资源 | 类别 | 持久化 |
 |---|---|---|
 | `<stateDir>/.evolution-system-state.json` 已 retro 过 contractId 列表（去重用） | 持久化（独占） | ✓ |
-| 无长驻内存状态 | 派生态 | ✗ |
 
 ## 4. 持久化（M#4）
 
@@ -77,7 +74,7 @@
 
 ## 5. 审计事件清单
 
-事件常量**应然**集中定义于 `src/core/evolution-system/audit-events.ts` `RETRO_AUDIT_EVENTS`（模块自治 / 应然 / 代码 phase 落地时建）。
+事件常量**应然**集中定义于 `src/core/evolution-system/audit-events.ts` `RETRO_AUDIT_EVENTS`（模块自治）。
 
 12 个 RETRO_* 事件：
 
