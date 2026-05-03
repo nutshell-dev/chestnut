@@ -1,6 +1,7 @@
 /**
+ * @module L2.FileTool
  * write tool - Write or append to file
- * 
+ *
  * Features (MVP aligned):
  * - Automatic version backup to .versions/ (keep last 10)
  * - Size limits: MEMORY.md 50/200KB, memory/ 100/500KB, clawspace/ 5MB/20MB
@@ -8,8 +9,8 @@
  */
 
 import * as path from 'path';
-import type { Tool, ToolResult, ExecContext } from '../executor.js';
-import { WRITE_SIZE_LIMITS, WRITE_VERSION_RETENTION } from '../../../constants.js';
+import type { Tool, ToolResult, ExecContext } from '../../core/tools/executor.js';
+import { WRITE_SIZE_LIMITS, WRITE_VERSION_RETENTION } from '../../constants.js';
 
 function getSizeLimits(filePath: string): [number, number] {
   for (const [prefix, limits] of Object.entries(WRITE_SIZE_LIMITS)) {
@@ -68,7 +69,7 @@ async function backupVersion(fs: ExecContext['fs'], filePath: string): Promise<s
   return null;
 }
 
-import { WRITE_TOOL_NAME } from '../tool-names.js';
+import { WRITE_TOOL_NAME } from '../../core/tools/tool-names.js';
 export { WRITE_TOOL_NAME };
 
 export const writeTool: Tool = {

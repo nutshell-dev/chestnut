@@ -1,6 +1,7 @@
 /**
+ * @module L2.FileTool
  * read tool - Read file contents
- * 
+ *
  * Path restrictions (MVP aligned):
  * - Blacklist: logs/ (system logs)
  * 
@@ -9,8 +10,8 @@
 
 import * as nodePath from 'path';
 import * as fsNative from 'fs';
-import type { Tool, ToolResult, ExecContext } from '../executor.js';
-import { READ_MAX_LINES, READ_MAX_CHARS } from '../../../constants.js';
+import type { Tool, ToolResult, ExecContext } from '../../core/tools/executor.js';
+import { READ_MAX_LINES, READ_MAX_CHARS } from '../../constants.js';
 
 // Blocked paths (MVP aligned) - blacklist only
 const READ_BLOCKLIST = [
@@ -24,7 +25,7 @@ function isPathAllowed(filePath: string): boolean {
   );
 }
 
-import { READ_TOOL_NAME } from '../tool-names.js';
+import { READ_TOOL_NAME } from '../../core/tools/tool-names.js';
 export { READ_TOOL_NAME };
 
 export const readTool: Tool = {

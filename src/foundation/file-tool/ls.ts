@@ -1,15 +1,16 @@
 /**
+ * @module L2.FileTool
  * ls tool - List directory contents
- * 
+ *
  * Motion-only: can list other claws' directories via `claw` parameter
  */
 
 import * as nodePath from 'path';
 import * as fsNative from 'fs';
-import type { Tool, ToolResult, ExecContext } from '../executor.js';
-import { LS_MAX_ENTRIES } from '../../../constants.js';
+import type { Tool, ToolResult, ExecContext } from '../../core/tools/executor.js';
+import { LS_MAX_ENTRIES } from '../../constants.js';
 
-import { LS_TOOL_NAME } from '../tool-names.js';
+import { LS_TOOL_NAME } from '../../core/tools/tool-names.js';
 export { LS_TOOL_NAME };
 
 export const lsTool: Tool = {

@@ -1,6 +1,7 @@
 /**
+ * @module L2.FileTool
  * search tool - Search for text in files
- * 
+ *
  * Path restrictions (MVP aligned):
  * - Whitelist: clawspace/, skills/, prompts/
  * 
@@ -9,7 +10,7 @@
 
 import * as nodePath from 'path';
 import * as fsNative from 'fs';
-import type { Tool, ToolResult, ExecContext } from '../executor.js';
+import type { Tool, ToolResult, ExecContext } from '../../core/tools/executor.js';
 
 // Allowed paths/prefixes for search tool (MVP aligned)
 const SEARCH_ALLOWLIST = [
@@ -62,7 +63,7 @@ async function walkNative(
   return rem;
 }
 
-import { SEARCH_TOOL_NAME } from '../tool-names.js';
+import { SEARCH_TOOL_NAME } from '../../core/tools/tool-names.js';
 export { SEARCH_TOOL_NAME };
 
 export const searchTool: Tool = {

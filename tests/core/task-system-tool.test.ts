@@ -20,9 +20,9 @@ import * as fsSync from 'fs';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
 import { tmpdir } from 'os';
-import { readTool } from '../../src/core/tools/builtins/read.js';
-import { lsTool } from '../../src/core/tools/builtins/ls.js';
-import { searchTool } from '../../src/core/tools/builtins/search.js';
+import { readTool } from '../../src/foundation/file-tool/read.js';
+import { lsTool } from '../../src/foundation/file-tool/ls.js';
+import { searchTool } from '../../src/foundation/file-tool/search.js';
 import { makeAudit } from '../helpers/audit.js';
 import { makeTaskSystemDeps } from '../helpers/task-system.js';
 

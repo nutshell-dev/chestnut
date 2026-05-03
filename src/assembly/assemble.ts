@@ -28,6 +28,7 @@ import type { TaskSystem } from '../core/task/system.js';
 import { createContextInjector, type ContextInjector } from '../core/dialog/index.js';
 import { ExecContextImpl } from '../core/tools/context.js';
 import { registerBuiltinTools } from '../core/tools/builtins/index.js';
+import { createFileTools } from '../foundation/file-tool/index.js';
 import { createCommandTools } from '../core/command-tool/index.js';
 import { spawnTool } from '../core/task/tools/spawn.js';
 import { cleanupOrphanedTemp } from './cleanup.js';
@@ -170,6 +171,12 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
   let toolRegistry: ToolRegistryImpl;
   try {
     toolRegistry = createToolRegistry();
+
+    // phase428 FileTool 抽出 → foundation/file-tool/ / Assembly 显式注册
+    for (const tool of createFileTools({})) {
+      toolRegistry.register(tool);
+    }
+
     registerBuiltinTools(toolRegistry);
     toolRegistry.register(spawnTool);
 

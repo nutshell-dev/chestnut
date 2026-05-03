@@ -8,7 +8,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { ToolExecutor } from '../../src/core/tools/executor.js';
 import { ExecContextImpl } from '../../src/core/tools/context.js';
-import { statusTool, readTool, lsTool, searchTool } from '../../src/core/tools/builtins/index.js';
+import { statusTool } from '../../src/core/tools/builtins/index.js';
+import { readTool, lsTool, searchTool } from '../../src/foundation/file-tool/index.js';
 import { ToolRegistryImpl } from '../../src/core/tools/registry.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { makeAudit } from '../helpers/audit.js';
