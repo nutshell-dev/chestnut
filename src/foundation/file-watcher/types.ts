@@ -1,5 +1,5 @@
 /**
- * FileWatcher types (L2)
+ * FileWatcher types (L1)
  *
  * 文件系统变化通知的类型定义。
  * 不懂业务目录语义，不读文件内容。

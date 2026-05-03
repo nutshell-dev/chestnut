@@ -13,6 +13,11 @@ export type {
   FileSystemOptions,
 } from './types.js';
 
+// Error class — re-exported for caller convenience (canonical owner: src/types/errors.ts)
+// 应然 = FileSystem 模块 own FileNotFoundError export（interfaces/l1.md FileSystem 节）/
+// 实然 class 物理位 src/types/errors.ts cross-cutting types / 此处 re-export 让 caller 可经 fs 模块统一 import
+export { FileNotFoundError } from '../../types/errors.js';
+
 // Implementation classes
 export { NodeFileSystem } from './node-fs.js';
 
