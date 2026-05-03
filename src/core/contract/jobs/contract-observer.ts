@@ -1,5 +1,4 @@
 import * as path from 'path';
-import * as fsNative from 'fs';
 import { notifyInbox } from '../../../foundation/messaging/index.js';
 import { NodeFileSystem } from '../../../foundation/fs/node-fs.js';
 import { createSystemAudit } from '../../../foundation/audit/index.js';
@@ -22,7 +21,7 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
   const stateFile = path.join(clawforumDir, 'motion', STATE_FILE);
   let lastCheckTs = 0;
   try {
-    const raw = fsNative.readFileSync(stateFile, 'utf-8');
+    const raw = fs.readSync(stateFile);
     lastCheckTs = JSON.parse(raw).lastCheckTs ?? 0;
   } catch { /* 首次运行 */ }
 
@@ -30,8 +29,8 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
   const clawsDir = path.join(clawforumDir, 'claws');
   let clawIds: string[];
   try {
-    clawIds = fsNative.readdirSync(clawsDir, { withFileTypes: true })
-      .filter(e => e.isDirectory())
+    clawIds = fs.listSync(clawsDir, { includeDirs: true })
+      .filter(e => e.isDirectory)
       .map(e => e.name);
   } catch { return; /* claws/ 不存在 */ }
 
@@ -41,7 +40,7 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
   for (const clawId of clawIds) {
     try {
       const clawDir = path.join(clawforumDir, 'claws', clawId);
-      const clawEvents = collectContractEvents(clawDir, clawId, lastCheckTs);
+      const clawEvents = collectContractEvents(fs, clawDir, clawId, lastCheckTs);
       if (clawEvents.length > 0) {
         events.push(clawEvents.join('\n'));
       }
@@ -68,6 +67,6 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
 
   // 更新时间戳
   const now = Date.now();
-  fsNative.mkdirSync(path.dirname(stateFile), { recursive: true });
-  fsNative.writeFileSync(stateFile, JSON.stringify({ lastCheckTs: now }));
+  fs.ensureDirSync(path.dirname(stateFile));
+  fs.writeAtomicSync(stateFile, JSON.stringify({ lastCheckTs: now }));
 }

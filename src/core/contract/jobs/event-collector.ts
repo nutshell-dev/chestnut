@@ -1,9 +1,10 @@
-import * as fsNative from 'fs';
 import * as path from 'path';
+import type { FileSystem } from '../../../foundation/fs/types.js';
 import type { ProgressData } from '../manager.js';
 import { CONTRACT_DIR } from '../../../types/paths.js';
 
 export function collectContractEvents(
+  fs: FileSystem,
   clawDir: string,
   clawId: string,
   sinceTs: number,
@@ -13,12 +14,12 @@ export function collectContractEvents(
   // 1. archive 中新完成
   const archiveDir = path.join(clawDir, CONTRACT_DIR, 'archive');
   try {
-    const dirs = fsNative.readdirSync(archiveDir, { withFileTypes: true })
-      .filter(e => e.isDirectory());
+    const dirs = fs.listSync(archiveDir, { includeDirs: true })
+      .filter(e => e.isDirectory);
     for (const d of dirs) {
       const progressPath = path.join(archiveDir, d.name, 'progress.json');
       try {
-        const raw = fsNative.readFileSync(progressPath, 'utf-8');
+        const raw = fs.readSync(progressPath);
         const progress = JSON.parse(raw) as ProgressData;
         const completedAfter = Object.values(progress.subtasks)
           .some(s => s.completed_at && new Date(s.completed_at).getTime() > sinceTs);
@@ -32,12 +33,12 @@ export function collectContractEvents(
   // 2. active 中升级事件
   const activeDir = path.join(clawDir, CONTRACT_DIR, 'active');
   try {
-    const dirs = fsNative.readdirSync(activeDir, { withFileTypes: true })
-      .filter(e => e.isDirectory());
+    const dirs = fs.listSync(activeDir, { includeDirs: true })
+      .filter(e => e.isDirectory);
     for (const d of dirs) {
       const progressPath = path.join(activeDir, d.name, 'progress.json');
       try {
-        const raw = fsNative.readFileSync(progressPath, 'utf-8');
+        const raw = fs.readSync(progressPath);
         const progress = JSON.parse(raw) as ProgressData;
         for (const [stId, st] of Object.entries(progress.subtasks)) {
           if (st.escalated_at && new Date(st.escalated_at).getTime() > sinceTs) {
