@@ -2,49 +2,48 @@
  * @module L1.LLMService
  * LLM Service module (F2)
  * Phase 0: Anthropic adapter + failover service
- * 
- * Exports: LLMService interface, LLMServiceImpl implementation, AnthropicAdapter
+ *
+ * NOTE: L1 LLMProvider + L2 LLMOrchestrator physical split (phase413).
+ * Old path retained as re-export shim for backward compatibility.
+ * Callers should migrate to:
+ *   - L1: import from '../llm-provider/index.js'
+ *   - L2: import from '../llm-orchestrator/index.js'
  */
 
-// Internal types
-export type {
-  ProviderConfig,
-  LLMServiceConfig,
-  LLMCallOptions,
-  StreamChunk,
-  ProviderAdapter,
-  LLMEventSink,
-  LLMEvent,
-} from './types.js';
+// Re-export from new L1 module
+export {
+  AnthropicAdapter,
+  CustomAnthropicAdapter,
+  OpenAIAdapter,
+  GeminiAdapter,
+  createLLMProvider,
+  type LLMProvider,
+  type ProviderAdapter,
+  type ProviderConfig,
+  type LLMCallOptions,
+  type StreamChunk,
+  LLMProviderError,
+  withCombinedAbortSignal,
+  type CombinedAbortHandle,
+  type ApiFormat,
+  type ProviderPreset,
+  PRESETS,
+  resolvePreset,
+} from '../llm-provider/index.js';
 
-// Import for interface definition
-import type { LLMResponse } from '../../types/message.js';
-import type { LLMCallOptions, StreamChunk } from './types.js';
+// Re-export from new L2 module
+export {
+  LLMOrchestratorImpl,
+  createLLMOrchestrator,
+  LLMOrchestratorError,
+  type LLMOrchestrator,
+  type LLMOrchestratorConfig,
+  type LLMEventSink,
+  type LLMEvent,
+} from '../llm-orchestrator/index.js';
 
-// Implementation
-export { LLMServiceImpl } from './service.js';
-export { AnthropicAdapter } from './anthropic.js';
-export { CustomAnthropicAdapter } from './custom-anthropic.js';
-
-// Abort helper
-export { withCombinedAbortSignal, type CombinedAbortHandle } from './abort-helper.js';
-
-import { LLMServiceImpl } from './service.js';
-import type { LLMServiceConfig } from './types.js';
-
-export function createLLMService(config: LLMServiceConfig): LLMServiceImpl {
-  return new LLMServiceImpl(config);
-}
-
-/**
- * LLMService interface
- * 
- * Implemented by LLMServiceImpl class.
- */
-export interface LLMService {
-  call(options: LLMCallOptions): Promise<LLMResponse>;
-  stream(options: LLMCallOptions): AsyncIterableIterator<StreamChunk>;
-  healthCheck(): Promise<boolean>;
-  getProviderInfo(): { name: string; model: string; isFallback: boolean };
-  close(): Promise<void>;
-}
+// Legacy alias exports (backward compatibility — will be removed after all callers migrate)
+export type { LLMOrchestrator as LLMService } from '../llm-orchestrator/index.js';
+export type { LLMOrchestratorConfig as LLMServiceConfig } from '../llm-orchestrator/index.js';
+export { LLMOrchestratorImpl as LLMServiceImpl } from '../llm-orchestrator/index.js';
+export { createLLMOrchestrator as createLLMService } from '../llm-orchestrator/index.js';

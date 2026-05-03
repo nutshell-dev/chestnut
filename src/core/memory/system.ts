@@ -1,8 +1,8 @@
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { Audit } from '../../foundation/audit/index.js';
 import type { TaskLifecyclePort } from '../runtime/runtime-ports.js';
-import type { LLMService } from '../../foundation/llm/index.js';
-import type { LLMServiceConfig } from '../../foundation/llm/types.js';
+import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
+import type { LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/index.js';
 import { runDeepDream } from './deep-dream.js';
 import { runRandomDream } from './random-dream.js';
 
@@ -12,8 +12,8 @@ export interface MemorySystemOptions {
   fs: FileSystem;
   audit: Audit;
   taskSystem: TaskLifecyclePort;
-  llmService: LLMService;        // ← 注入 LLM（修 N1）
-  llmConfig: LLMServiceConfig;   // deep-dream 内部仍需 config（state file 路径等）
+  llmService: LLMOrchestrator;        // ← 注入 LLM（修 N1）
+  llmConfig: LLMOrchestratorConfig;   // deep-dream 内部仍需 config（state file 路径等）
   maxCompressionTokens?: number;
 }
 

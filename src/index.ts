@@ -16,9 +16,9 @@ export { NodeFileSystem } from './foundation/fs/node-fs.js';
 
 export { Heartbeat, createHeartbeat } from './core/runtime/index.js';
 
-export type { LLMService } from './foundation/llm/index.js';
-export { LLMServiceImpl } from './foundation/llm/service.js';
-export type { LLMServiceConfig, ProviderConfig, LLMCallOptions } from './foundation/llm/types.js';
+export type { LLMOrchestrator } from './foundation/llm-orchestrator/index.js';
+export { LLMOrchestratorImpl } from './foundation/llm-orchestrator/index.js';
+export type { LLMOrchestratorConfig, ProviderConfig, LLMCallOptions } from './foundation/llm-orchestrator/index.js';
 
 // Re-export commonly used types
 export type { ToolResult, ExecContext, Tool, ToolRegistry, IToolExecutor } from './core/tools/executor.js';

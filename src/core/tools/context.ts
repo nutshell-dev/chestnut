@@ -9,7 +9,7 @@
  */
 
 import type { FileSystem } from '../../foundation/fs/types.js';
-import type { LLMService } from '../../foundation/llm/index.js';
+import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { ToolProfile } from '../../types/config.js';
 import type { ExecContext } from './executor.js';
 import { MOTION_CLAW_ID, DEFAULT_MAX_STEPS } from '../../constants.js';
@@ -39,7 +39,7 @@ export interface ExecContextImplOptions {
   fs: FileSystem;
   
   /** Optional LLM service */
-  llm?: LLMService;
+  llm?: LLMOrchestrator;
   
   /** Maximum allowed steps (ReAct loop limit) */
   maxSteps?: number;
@@ -90,7 +90,7 @@ export class ExecContextImpl implements ExecContext {
   profile: ToolProfile;
   callerType: CallerType;
   fs: FileSystem;
-  llm?: LLMService;
+  llm?: LLMOrchestrator;
   stepNumber: number;
   maxSteps: number;
   signal?: AbortSignal;

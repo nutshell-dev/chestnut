@@ -113,8 +113,8 @@ vi.mock('../../src/core/contract/jobs/contract-observer.js', () => ({
   runContractObserver: vi.fn(),
 }));
 
-vi.mock('../../src/foundation/llm/service.js', () => ({
-  LLMServiceImpl: trackCtor('LLMServiceImpl', () => ({ close: vi.fn(), healthCheck: vi.fn(), getProviderInfo: vi.fn() })),
+vi.mock('../../src/foundation/llm-orchestrator/orchestrator.js', () => ({
+  LLMOrchestratorImpl: trackCtor('LLMOrchestratorImpl', () => ({ close: vi.fn(), healthCheck: vi.fn(), getProviderInfo: vi.fn() })),
 }));
 
 vi.mock('../../src/foundation/monitor/monitor.js', () => ({
@@ -630,7 +630,7 @@ describe('assemble', () => {
       await assemble(baseConfig);
 
       const required = [
-        'LLMServiceImpl', 'ToolRegistryImpl',
+        'LLMOrchestratorImpl', 'ToolRegistryImpl',
         'SkillRegistry', 'ContractManager',
         'TaskSystem', 'ContextInjector', 'ExecContextImpl', 'ToolExecutorImpl',
       ];
@@ -639,7 +639,7 @@ describe('assemble', () => {
       }
 
       const idx = (name: string) => callOrder.indexOf(name);
-      expect(idx('LLMServiceImpl')).toBeLessThan(idx('TaskSystem'));
+      expect(idx('LLMOrchestratorImpl')).toBeLessThan(idx('TaskSystem'));
       expect(idx('SkillRegistry')).toBeLessThan(idx('TaskSystem'));
       expect(idx('ContractManager')).toBeLessThan(idx('TaskSystem'));
       expect(idx('ToolRegistryImpl')).toBeLessThan(idx('ToolExecutorImpl'));
@@ -705,10 +705,10 @@ describe('assemble', () => {
 
     it('llm construct failure → audit module=llm phase=construct + throw', async () => {
       const { events, thrown } = await expectAssembleFailure(
-        '../../src/foundation/llm/service.js', 'LLMServiceImpl', 'ctor',
+        '../../src/foundation/llm-orchestrator/orchestrator.js', 'LLMOrchestratorImpl', 'ctor',
       );
       expect(events.some(e => /^assemble_failed\tmodule=llm\tphase=construct\treason=injected/.test(e))).toBe(true);
-      expect(thrown.message).toMatch(/LLMService construct failed/);
+      expect(thrown.message).toMatch(/LLMOrchestrator construct failed/);
     });
 
     it('tool_registry construct failure → audit module=tool_registry phase=construct + throw', async () => {

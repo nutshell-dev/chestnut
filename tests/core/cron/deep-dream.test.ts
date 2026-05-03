@@ -18,10 +18,10 @@ import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { runDeepDream } from '../../../src/core/memory/deep-dream.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
-import type { LLMServiceConfig } from '../../../src/foundation/llm/types.js';
+import type { LLMOrchestratorConfig } from '../../../src/foundation/llm-orchestrator/types.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 
-// ─── LLMService mock ──────────────────────────────────────────
+// ─── LLMOrchestrator mock ──────────────────────────────────────────
 
 const mockLlmCall = vi.fn();
 
@@ -43,8 +43,8 @@ function makeSessionJson(messages: Array<{ role: string; content: string }>) {
   return JSON.stringify({ messages });
 }
 
-// LLMService 是 mock，config 字段无实际意义
-const fakeLlmConfig: LLMServiceConfig = {
+// LLMOrchestrator 是 mock，config 字段无实际意义
+const fakeLlmConfig: LLMOrchestratorConfig = {
   primary: { name: 'test', apiKey: 'sk-test', model: 'claude-test' } as any,
 };
 

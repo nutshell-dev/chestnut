@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { AskMotionTool } from '../../../src/core/task/tools/ask-motion.js';
-import type { LLMService } from '../../../src/foundation/llm/index.js';
+import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/index.js';
 import type { Message } from '../../../src/types/message.js';
 
 describe('AskMotionTool', () => {
   it('should not be readonly to prevent concurrent cloneHistory mutation', () => {
     const tool = new AskMotionTool(
-      {} as LLMService,
+      {} as LLMOrchestrator,
       async () => 'system prompt',
       () => [],
       [],
@@ -24,7 +24,7 @@ describe('AskMotionTool', () => {
           stop_reason: 'end_turn',
         };
       },
-    } as LLMService;
+    } as LLMOrchestrator;
 
     const tool = new AskMotionTool(
       llm,

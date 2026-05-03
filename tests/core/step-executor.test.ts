@@ -8,8 +8,8 @@ import { describe, it, expect, vi } from 'vitest';
 import { executeStep } from '../../src/core/react/step-executor.js';
 import { IdleTimeoutSignal } from '../../src/types/signals.js';
 import type { LLMCallInfo } from '../../src/core/react/step-executor.js';
-import type { LLMService } from '../../src/foundation/llm/index.js';
-import type { StreamChunk } from '../../src/foundation/llm/types.js';
+import type { LLMOrchestrator } from '../../src/foundation/llm-orchestrator/index.js';
+import type { StreamChunk } from '../../src/foundation/llm-orchestrator/types.js';
 import type { LLMResponse, Message } from '../../src/types/message.js';
 import type { IToolExecutor, ExecContext, ToolRegistry, ToolResult, Tool } from '../../src/core/tools/executor.js';
 import { ExecContextImpl } from '../../src/core/tools/context.js';
@@ -22,7 +22,7 @@ import * as fs from 'fs/promises';
 
 // ── Mock factories ──────────────────────────────────────────────────────────
 
-function makeMockLLM(responses: LLMResponse[]): LLMService {
+function makeMockLLM(responses: LLMResponse[]): LLMOrchestrator {
   let i = 0;
   async function* streamOne(r: LLMResponse): AsyncIterableIterator<StreamChunk> {
     for (const block of r.content) {
@@ -46,7 +46,7 @@ function makeMockLLM(responses: LLMResponse[]): LLMService {
     healthCheck: vi.fn(async () => true),
     getProviderInfo: vi.fn(() => ({ name: 'mock', model: 'mock-model', isFallback: false })),
     close: vi.fn(),
-  } as unknown as LLMService;
+  } as unknown as LLMOrchestrator;
 }
 
 function makeExecutor(results: Record<string, ToolResult>): IToolExecutor {
@@ -77,7 +77,7 @@ function makeCtx(): ExecContext {
 }
 
 /** Yield two tool_use blocks; first has malformed JSON, second is valid */
-function makeMidStreamMalformedLLM(): LLMService {
+function makeMidStreamMalformedLLM(): LLMOrchestrator {
   async function* stream(): AsyncIterableIterator<StreamChunk> {
     // First tool_use: malformed JSON
     yield { type: 'tool_use_start', toolUse: { id: 'tu1', name: 'foo', partialInput: '' } };
@@ -93,11 +93,11 @@ function makeMidStreamMalformedLLM(): LLMService {
     healthCheck: vi.fn(async () => true),
     getProviderInfo: vi.fn(() => ({ name: 'mock', model: 'mock-model', isFallback: false })),
     close: vi.fn(),
-  } as unknown as LLMService;
+  } as unknown as LLMOrchestrator;
 }
 
 /** Yield tool_use_start + tool_use_delta with malformed JSON input */
-function makeMalformedToolInputLLM(toolUseId: string, toolName: string, rawInput: string): LLMService {
+function makeMalformedToolInputLLM(toolUseId: string, toolName: string, rawInput: string): LLMOrchestrator {
   async function* stream(): AsyncIterableIterator<StreamChunk> {
     yield {
       type: 'tool_use_start',
@@ -115,7 +115,7 @@ function makeMalformedToolInputLLM(toolUseId: string, toolName: string, rawInput
     healthCheck: vi.fn(async () => true),
     getProviderInfo: vi.fn(() => ({ name: 'mock', model: 'mock-model', isFallback: false })),
     close: vi.fn(),
-  } as unknown as LLMService;
+  } as unknown as LLMOrchestrator;
 }
 
 // ── Real fixture factories (fidelity) ───────────────────────────────────────
@@ -132,14 +132,14 @@ async function makeRealCtx(opts: { signal?: AbortSignal } = {}): Promise<ExecCon
   });
 }
 
-function makeStreamLLM(chunks: StreamChunk[]): LLMService {
+function makeStreamLLM(chunks: StreamChunk[]): LLMOrchestrator {
   return {
     call: vi.fn(),
     stream: vi.fn(() => (async function* () { for (const c of chunks) yield c; })()),
     healthCheck: vi.fn(async () => true),
     getProviderInfo: vi.fn(() => ({ name: 'mock', model: 'mock-model', isFallback: false })),
     close: vi.fn(),
-  } as unknown as LLMService;
+  } as unknown as LLMOrchestrator;
 }
 
 function makeTool(name: string, fn: (args: Record<string, unknown>, ctx: ExecContext) => Promise<ToolResult>, readonly = false): Tool {
@@ -310,7 +310,7 @@ describe('StepExecutor', () => {
       healthCheck: vi.fn(async () => true),
       getProviderInfo: vi.fn(() => ({ name: 'mock', model: 'mock-model', isFallback: false })),
       close: vi.fn(),
-    } as unknown as LLMService;
+    } as unknown as LLMOrchestrator;
 
     const exec = {
       execute: vi.fn(async () => {

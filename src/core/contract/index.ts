@@ -5,7 +5,7 @@
 
 import { ContractManager } from './manager.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
-import type { LLMService } from '../../foundation/llm/index.js';
+import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { AuditWriter } from '../../foundation/audit/writer.js';
 import type { ContractVerifierScheduler } from './verifier-scheduler.js';
 import type { RetroScheduler } from '../evolution-system/retro-scheduler.js';
@@ -31,7 +31,7 @@ export function createContractManager(
   clawId: string,
   fs: FileSystem,
   audit: AuditWriter,
-  llm?: LLMService,
+  llm?: LLMOrchestrator,
   verifierScheduler?: ContractVerifierScheduler,
   retroScheduler?: RetroScheduler,
 ): ContractManager {

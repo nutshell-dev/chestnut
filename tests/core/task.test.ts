@@ -15,8 +15,8 @@ import { NodeFileSystem } from '../../src/foundation/fs/index.js';
 import { ToolRegistryImpl } from '../../src/core/tools/registry.js';
 import { registerBuiltinTools } from '../../src/core/tools/builtins/index.js';
 import type { LLMResponse } from '../../src/types/message.js';
-import type { LLMService } from '../../src/foundation/llm/index.js';
-import type { StreamChunk } from '../../src/foundation/llm/types.js';
+import type { LLMOrchestrator } from '../../src/foundation/llm-orchestrator/index.js';
+import type { StreamChunk } from '../../src/foundation/llm-orchestrator/types.js';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 import { makeAudit } from '../helpers/audit.js';
 import { createTestTaskSystem } from '../helpers/task-system.js';
@@ -57,7 +57,7 @@ async function waitFor(
   throw new Error(`waitFor timed out after ${timeoutMs}ms`);
 }
 
-function createMockLLM(responses: LLMResponse[]): LLMService {
+function createMockLLM(responses: LLMResponse[]): LLMOrchestrator {
   let index = 0;
   const callMock = vi.fn(async () => {
     const response = responses[index++] || responses[responses.length - 1];
@@ -79,13 +79,13 @@ function createMockLLM(responses: LLMResponse[]): LLMService {
     close: vi.fn(),
     healthCheck: vi.fn().mockResolvedValue(true),
     getProviderInfo: vi.fn().mockReturnValue({ name: 'mock', model: 'test', isFallback: false }),
-  } as unknown as LLMService;
+  } as unknown as LLMOrchestrator;
 }
 
 /**
  * Create a mock LLM that never resolves - useful for keeping tasks in running state
  */
-function createHangingMockLLM(): LLMService {
+function createHangingMockLLM(): LLMOrchestrator {
   async function* hangingStream(signal?: AbortSignal): AsyncIterableIterator<StreamChunk> {
     await new Promise<void>((_, reject) => {
       if (signal?.aborted) return reject(new Error('Aborted'));
@@ -103,7 +103,7 @@ function createHangingMockLLM(): LLMService {
     close: vi.fn(),
     healthCheck: vi.fn().mockResolvedValue(true),
     getProviderInfo: vi.fn().mockReturnValue({ name: 'mock', model: 'test', isFallback: false }),
-  } as unknown as LLMService;
+  } as unknown as LLMOrchestrator;
 }
 
 /**
@@ -112,7 +112,7 @@ function createHangingMockLLM(): LLMService {
  * Difference from createHangingMockLLM: call() deliberately ignores signal, so
  * the executor-driven timeout is the only path that can break the hang.
  */
-function createAbortableHangingMockLLM(): LLMService {
+function createAbortableHangingMockLLM(): LLMOrchestrator {
   async function* hangingStream(signal?: AbortSignal): AsyncIterableIterator<StreamChunk> {
     await new Promise<void>((_, reject) => {
       if (signal?.aborted) {
@@ -130,7 +130,7 @@ function createAbortableHangingMockLLM(): LLMService {
     close: vi.fn(),
     healthCheck: vi.fn().mockResolvedValue(true),
     getProviderInfo: vi.fn().mockReturnValue({ name: 'mock', model: 'test', isFallback: false }),
-  } as unknown as LLMService;
+  } as unknown as LLMOrchestrator;
 }
 
 describe('Task System + SubAgent', () => {
@@ -310,7 +310,7 @@ describe('Task System + SubAgent', () => {
         close: vi.fn(),
         healthCheck: vi.fn().mockResolvedValue(true),
         getProviderInfo: vi.fn().mockReturnValue({ name: 'mock', model: 'test', isFallback: false }),
-      } as unknown as LLMService);
+      } as unknown as LLMOrchestrator);
       await taskSystem.initialize();
       taskSystem.startDispatch();
       
@@ -707,7 +707,7 @@ describe('Task System + SubAgent', () => {
           return new Promise(() => {}); // never resolves
         }),
         stream: vi.fn(),
-      } as unknown as LLMService;
+      } as unknown as LLMOrchestrator;
 
       const agent = new SubAgent({
         agentId: 'test-idle',

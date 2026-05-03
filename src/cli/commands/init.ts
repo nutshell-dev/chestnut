@@ -7,7 +7,7 @@ import * as path from 'path';
 import * as readline from 'readline';
 import { saveGlobalConfig, isInitialized, FORMAT_MAP, getWorkspaceRoot } from '../../foundation/config/index.js';
 import { CliError } from '../errors.js';
-import { PRESETS } from '../../foundation/llm/presets.js';
+import { PRESETS } from '../../foundation/llm-provider/presets.js';
 import { DEFAULT_MAX_STEPS } from '../../constants.js';
 import { LOGS_DIR } from '../../types/paths.js';
 

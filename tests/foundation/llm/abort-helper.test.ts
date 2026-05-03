@@ -3,7 +3,7 @@ import {
   withCombinedAbortSignal,
   classifyFetchAbortError,
   makeExternalAbortError,
-} from '../../../src/foundation/llm/abort-helper.js';
+} from '../../../src/foundation/llm-provider/abort-helper.js';
 import { LLMTimeoutError } from '../../../src/types/errors.js';
 
 describe('withCombinedAbortSignal', () => {

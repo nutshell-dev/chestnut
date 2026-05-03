@@ -4,7 +4,7 @@
  */
 
 import type { Message, ToolDefinition, LLMResponse } from '../../types/message.js';
-import type { ApiFormat } from './presets.js';
+import type { ApiFormat } from '../llm-provider/presets.js';
 
 /**
  * Single provider configuration
@@ -59,7 +59,7 @@ export interface ProviderConfig {
 /**
  * LLM service configuration with failover
  */
-export interface LLMServiceConfig {
+export interface LLMOrchestratorConfig {
   /** Primary provider */
   primary: ProviderConfig;
   

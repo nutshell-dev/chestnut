@@ -7,8 +7,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { runReact } from '../../src/core/react/loop.js';
 import type { Message, ContentBlock, LLMResponse, ToolDefinition } from '../../src/types/message.js';
-import type { LLMService } from '../../src/foundation/llm/index.js';
-import type { StreamChunk } from '../../src/foundation/llm/types.js';
+import type { LLMOrchestrator } from '../../src/foundation/llm-orchestrator/index.js';
+import type { StreamChunk } from '../../src/foundation/llm-orchestrator/types.js';
 import type { IToolExecutor, ExecContext } from '../../src/core/tools/executor.js';
 import { MaxStepsExceededError } from '../../src/types/errors.js';
 
@@ -35,7 +35,7 @@ async function* responseToStreamChunks(response: LLMResponse): AsyncIterableIter
 }
 
 describe('ReAct Loop', () => {
-  let mockLLM: LLMService;
+  let mockLLM: LLMOrchestrator;
   let mockExecutor: IToolExecutor;
   let mockCtx: ExecContext;
   let llmCallCount: number;
@@ -60,7 +60,7 @@ describe('ReAct Loop', () => {
       close: vi.fn(),
       healthCheck: vi.fn(),
       getProviderInfo: vi.fn().mockReturnValue({ name: 'mock', model: 'test', isFallback: false }),
-    } as unknown as LLMService;
+    } as unknown as LLMOrchestrator;
 
     mockExecutor = {
       execute: vi.fn(),

@@ -2,7 +2,7 @@ import * as path from 'path';
 import * as fsSync from 'fs';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { AuditWriter, createAuditWriter } from '../../foundation/audit/index.js';
-import type { LLMService } from '../../foundation/llm/index.js';
+import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { StreamLog } from '../../foundation/stream/types.js';
 import { STREAM_FILE } from '../../foundation/stream/types.js';
 import type { CallerType } from '../tools/caller-type.js';
@@ -21,7 +21,7 @@ import type { TaskSystem } from './system.js';
 export interface SubAgentExecutionDeps {
   fs: FileSystem;
   auditWriter: AuditWriter;
-  llm: LLMService;
+  llm: LLMOrchestrator;
   registry: ToolRegistryImpl;
   clawDir: string;
   parentStreamLog?: StreamLog;

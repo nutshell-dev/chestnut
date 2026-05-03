@@ -5,7 +5,7 @@ import { Snapshot, SNAPSHOT_IGNORE_PATTERNS } from '../../src/foundation/snapsho
 import { createClawPermissionChecker } from '../../src/core/permissions/claw-permissions.js';
 import { SessionManager } from '../../src/foundation/session-store/index.js';
 import { InboxReader, OutboxWriter } from '../../src/foundation/messaging/index.js';
-import { LLMServiceImpl } from '../../src/foundation/llm/service.js';
+import { LLMOrchestratorImpl } from '../../src/foundation/llm-orchestrator/orchestrator.js';
 import { ToolRegistryImpl } from '../../src/core/tools/registry.js';
 import { ToolExecutorImpl } from '../../src/core/tools/executor.js';
 import { createSkillRegistry } from '../../src/core/skill/index.js';
@@ -15,7 +15,7 @@ import { ContextInjector } from '../../src/core/dialog/injector.js';
 import { ExecContextImpl } from '../../src/core/tools/context.js';
 import { registerBuiltinTools } from '../../src/core/tools/builtins/index.js';
 import type { RuntimeDependencies } from '../../src/core/runtime/index.js';
-import type { LLMServiceConfig } from '../../src/foundation/llm/types.js';
+import type { LLMOrchestratorConfig } from '../../src/foundation/llm-orchestrator/types.js';
 import { INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR } from '../../src/types/paths.js';
 
 export const TEST_CLAW_ID = 'test-claw';
@@ -23,7 +23,7 @@ export const TEST_CLAW_ID = 'test-claw';
 export interface MakeRuntimeDepsInput {
   clawId?: string;
   clawDir: string;
-  llmConfig?: LLMServiceConfig;
+  llmConfig?: LLMOrchestratorConfig;
 }
 
 export async function makeRuntimeDeps(input: MakeRuntimeDepsInput): Promise<RuntimeDependencies> {
@@ -40,7 +40,7 @@ export async function makeRuntimeDeps(input: MakeRuntimeDepsInput): Promise<Runt
   const inboxReader = new InboxReader(INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR, systemFs, auditWriter);
   await inboxReader.init();
   const outboxWriter = new OutboxWriter(clawId, clawDir, systemFs, auditWriter);
-  const llm = new LLMServiceImpl(input.llmConfig ?? {
+  const llm = new LLMOrchestratorImpl(input.llmConfig ?? {
     primary: { name: 'mock', apiKey: 'test', model: 'test', maxTokens: 1024, temperature: 0.7, timeoutMs: 30000, apiFormat: 'anthropic' },
     maxAttempts: 1,
     retryDelayMs: 100,

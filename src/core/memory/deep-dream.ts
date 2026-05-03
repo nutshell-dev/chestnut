@@ -3,8 +3,8 @@ import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { MEMORY_AUDIT_EVENTS } from './audit-events.js';
 import type { Audit } from '../../foundation/audit/index.js';
-import type { LLMService } from '../../foundation/llm/index.js';
-import type { LLMServiceConfig } from '../../foundation/llm/types.js';
+import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
+import type { LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/index.js';
 import type { Message, ContentBlock, TextBlock, LLMResponse } from '../../types/message.js';
 import { InboxWriter } from '../../foundation/messaging/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
@@ -25,8 +25,8 @@ interface DreamStateData {
 
 export interface DeepDreamOptions {
   clawforumDir: string;                  // .clawforum/ 根目录
-  llmConfig: LLMServiceConfig;
-  llmService: LLMService;                // ← 注入的 LLM 实例（修 N1）
+  llmConfig: LLMOrchestratorConfig;
+  llmService: LLMOrchestrator;                // ← 注入的 LLM 实例（修 N1）
   maxCompressionTokens?: number;         // 压缩上限（token 估算），默认 4000
   fs: FileSystem;
   audit: Audit;
@@ -127,7 +127,7 @@ function discoverUnprocessed(clawDir: string, state: DreamStateData, today: stri
 async function maybeMergeCompressions(
   compressions: string[],
   maxTokens: number,
-  llm: LLMService,
+  llm: LLMOrchestrator,
 ): Promise<string[]> {
   const total = estimateTokens(compressions.join(''));
   if (total <= maxTokens) return compressions;
@@ -147,7 +147,7 @@ async function maybeMergeCompressions(
 async function runDeepDreamForClaw(
   clawId: string,
   clawDir: string,
-  llm: LLMService,
+  llm: LLMOrchestrator,
   maxCompressionTokens: number,
   fileSystem: FileSystem,
   audit: Audit,

@@ -16,18 +16,15 @@ import {
 
 import type {
   ProviderConfig,
-  LLMServiceConfig,
+  LLMOrchestratorConfig,
   LLMCallOptions,
   ProviderAdapter,
   StreamChunk,
   LLMEventSink,
 } from './types.js';
-import type { LLMService } from './index.js';
-import { AnthropicAdapter } from './anthropic.js';
-import { CustomAnthropicAdapter } from './custom-anthropic.js';
-import { OpenAIAdapter } from './openai.js';
-import { GeminiAdapter } from './gemini.js';
-import { makeExternalAbortError, type AbortReason } from './abort-helper.js';
+import type { LLMOrchestrator } from './index.js';
+import { createLLMProvider, type LLMProvider } from '../llm-provider/index.js';
+import { makeExternalAbortError, type AbortReason } from '../llm-provider/abort-helper.js';
 
 const MAX_BACKOFF_MS = 30_000;
 
@@ -39,17 +36,7 @@ const CONTEXT_EXCEEDED_STOP_REASONS = new Set<string>([
 /**
  * Provider factory - creates appropriate adapter for config
  */
-function createProvider(config: ProviderConfig): ProviderAdapter {
-  // Allow passing a pre-built adapter directly (used in tests)
-  if ('stream' in config && typeof (config as any).stream === 'function') {
-    return config as unknown as ProviderAdapter;
-  }
-  if (config.apiFormat === 'openai') return new OpenAIAdapter(config);
-  if (config.apiFormat === 'gemini') return new GeminiAdapter(config);
-  // anthropic format: Claude models use SDK (native API), others use raw fetch
-  const isClaude = config.model.toLowerCase().includes('claude');
-  return isClaude ? new AnthropicAdapter(config) : new CustomAnthropicAdapter(config);
-}
+
 
 /**
  * Sleep for `ms` milliseconds; abortable via `signal`.
@@ -136,10 +123,10 @@ class CircuitBreaker {
 /**
  * LLM Service implementation
  */
-export class LLMServiceImpl implements LLMService {
-  private primary: ProviderAdapter;
-  private fallbacks: ProviderAdapter[];
-  private config: LLMServiceConfig;
+export class LLMOrchestratorImpl implements LLMOrchestrator {
+  private primary: LLMProvider;
+  private fallbacks: LLMProvider[];
+  private config: LLMOrchestratorConfig;
   // Track current provider: -1 = primary, 0..N = fallbacks[i]
   private currentProviderIndex = -1;
 
@@ -148,11 +135,11 @@ export class LLMServiceImpl implements LLMService {
 
   private events: LLMEventSink;
 
-  constructor(config: LLMServiceConfig) {
+  constructor(config: LLMOrchestratorConfig) {
     this.config = config;
     this.events = config.events;
-    this.primary = createProvider(config.primary);
-    this.fallbacks = (config.fallbacks ?? []).map(createProvider);
+    this.primary = createLLMProvider(config.primary);
+    this.fallbacks = (config.fallbacks ?? []).map(createLLMProvider);
     
     // Initialize circuit breakers if configured
     const cb = config.circuitBreaker;
@@ -302,7 +289,7 @@ export class LLMServiceImpl implements LLMService {
    *         mid-stream errors will fail over without retry
    */
   async* stream(options: LLMCallOptions): AsyncIterableIterator<StreamChunk> {
-    const providers: Array<{ adapter: ProviderAdapter; breakerIndex: number }> = [
+    const providers: Array<{ adapter: LLMProvider; breakerIndex: number }> = [
       { adapter: this.primary, breakerIndex: 0 },
       ...this.fallbacks.map((fb, i) => ({ adapter: fb, breakerIndex: i + 1 })),
     ];

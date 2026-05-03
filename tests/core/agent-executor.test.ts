@@ -9,14 +9,14 @@ import { runAgent } from '../../src/core/react/agent-executor.js';
 import type { StepMeta } from '../../src/core/react/step-executor.js';
 import { MaxStepsExceededError, ConsecutiveParseErrorsExceededError, ConsecutiveMaxTokensToolUseError } from '../../src/types/errors.js';
 import { MAX_CONSECUTIVE_PARSE_ERRORS, MAX_CONSECUTIVE_MAX_TOKENS_TOOL_USE } from '../../src/constants.js';
-import type { LLMService } from '../../src/foundation/llm/index.js';
-import type { StreamChunk } from '../../src/foundation/llm/types.js';
+import type { LLMOrchestrator } from '../../src/foundation/llm-orchestrator/index.js';
+import type { StreamChunk } from '../../src/foundation/llm-orchestrator/types.js';
 import type { LLMResponse, Message } from '../../src/types/message.js';
 import type { IToolExecutor, ExecContext, ToolRegistry, ToolResult } from '../../src/core/tools/executor.js';
 
 // ── Mock factories ──────────────────────────────────────────────────────────
 
-function makeMockLLM(responses: LLMResponse[]): LLMService {
+function makeMockLLM(responses: LLMResponse[]): LLMOrchestrator {
   let i = 0;
   async function* streamOne(r: LLMResponse): AsyncIterableIterator<StreamChunk> {
     for (const block of r.content) {
@@ -40,7 +40,7 @@ function makeMockLLM(responses: LLMResponse[]): LLMService {
     healthCheck: vi.fn(async () => true),
     getProviderInfo: vi.fn(() => ({ name: 'mock', model: 'mock-model', isFallback: false })),
     close: vi.fn(),
-  } as unknown as LLMService;
+  } as unknown as LLMOrchestrator;
 }
 
 function makeExecutor(results: Record<string, ToolResult>): IToolExecutor {
@@ -71,7 +71,7 @@ function makeCtx(): ExecContext {
 }
 
 /** LLM that yields malformed JSON for every tool_use in a sequence of responses */
-function makeMalformedSequenceLLM(responses: LLMResponse[]): LLMService {
+function makeMalformedSequenceLLM(responses: LLMResponse[]): LLMOrchestrator {
   let i = 0;
   async function* streamOne(r: LLMResponse): AsyncIterableIterator<StreamChunk> {
     for (const block of r.content) {
@@ -92,7 +92,7 @@ function makeMalformedSequenceLLM(responses: LLMResponse[]): LLMService {
     healthCheck: vi.fn(async () => true),
     getProviderInfo: vi.fn(() => ({ name: 'mock', model: 'mock-model', isFallback: false })),
     close: vi.fn(),
-  } as unknown as LLMService;
+  } as unknown as LLMOrchestrator;
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────────

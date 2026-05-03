@@ -11,9 +11,9 @@ import { ClawRuntime } from '../../src/core/runtime/index.js';
 import { DIALOG_ARCHIVE_DIR, INBOX_PENDING_DIR, OUTBOX_PENDING_DIR } from '../../src/types/paths.js';
 import { makeRuntimeDeps } from '../helpers/runtime-deps.js';
 import { writeSessionWithIncompleteToolUse } from '../helpers/session-fixtures.js';
-import type { LLMServiceConfig } from '../../src/foundation/llm/types.js';
+import type { LLMOrchestratorConfig } from '../../src/foundation/llm-orchestrator/types.js';
 import type { LLMResponse } from '../../src/types/message.js';
-import type { StreamChunk } from '../../src/foundation/llm/types.js';
+import type { StreamChunk } from '../../src/foundation/llm-orchestrator/types.js';
 import { MaxStepsExceededError } from '../../src/types/errors.js';
 import type { Message } from '../../src/types/message.js';
 import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../../src/types/signals.js';
@@ -42,12 +42,12 @@ async function* responseToStreamChunks(response: LLMResponse): AsyncIterableIter
   yield { type: 'done' };
 }
 
-async function createTestRuntime(options: { clawId: string; clawDir: string; llmConfig: LLMServiceConfig; maxSteps?: number; toolProfile?: string; toolTimeoutMs?: number; maxConcurrentTasks?: number }) {
+async function createTestRuntime(options: { clawId: string; clawDir: string; llmConfig: LLMOrchestratorConfig; maxSteps?: number; toolProfile?: string; toolTimeoutMs?: number; maxConcurrentTasks?: number }) {
   const deps = await makeRuntimeDeps({ clawDir: options.clawDir, clawId: options.clawId, llmConfig: options.llmConfig });
   return new ClawRuntime({ ...options, dependencies: deps });
 }
 
-function createMockLLMConfig(): LLMServiceConfig {
+function createMockLLMConfig(): LLMOrchestratorConfig {
   return {
     primary: {
       name: 'mock',

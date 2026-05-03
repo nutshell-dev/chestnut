@@ -10,7 +10,7 @@
 import type { JSONSchema7 } from '../../types/message.js';
 import type { ToolProfile } from '../../types/config.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
-import type { LLMService } from '../../foundation/llm/index.js';
+import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { TaskScheduler } from './task-scheduler.js';
 import type { OutboxWriter } from '../../foundation/messaging/index.js';
 import type { Message } from '../../types/message.js';
@@ -60,7 +60,7 @@ export interface ExecContext {
   /** Caller type for spawn recursion prevention */
   callerType: CallerType;
   fs: FileSystem;
-  llm?: LLMService;
+  llm?: LLMOrchestrator;
   profile: ToolProfile;
   stepNumber: number;
   maxSteps: number;
@@ -335,7 +335,7 @@ export interface ToolExecutorOptions {
   registry: ToolRegistry;
   clawDir: string;
   fs: FileSystem;
-  llm?: LLMService;
+  llm?: LLMOrchestrator;
   taskSystem?: TaskScheduler;
   profile?: ToolProfile;
   subagentMaxSteps?: number;
@@ -349,7 +349,7 @@ export interface ToolExecutorOptions {
 export class ToolExecutor extends ToolExecutorImpl {
   private clawDir: string;
   private fs: FileSystem;
-  private llm?: LLMService;
+  private llm?: LLMOrchestrator;
   private profile: ToolProfile;
   private subagentMaxSteps?: number;
   private auditWriter?: Audit;

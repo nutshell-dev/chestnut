@@ -2,14 +2,14 @@
  * ClawRuntime - assembles all modules into a runnable Claw instance
  *
  * This is the final assembly layer for Phase 1, integrating the following modules into a unified runtime:
- * - Foundation: NodeFileSystem, LLMService
+ * - Foundation: NodeFileSystem, LLMOrchestrator
  * - Core: Dialog, Tools, ReAct, Communication, Task, Skill, Contract
  */
 
 import * as path from 'path';
 
-import type { LLMServiceConfig } from '../../foundation/llm/types.js';
-import type { LLMService } from '../../foundation/llm/index.js';
+import type { LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/index.js';
+import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { ToolProfile } from '../../types/config.js';
 import type { Message } from '../../types/message.js';
@@ -62,7 +62,7 @@ export interface RuntimeDependencies {
   readonly outboxWriter: OutboxPort;
 
   // === L3-L5 ===
-  readonly llm: LLMService;
+  readonly llm: LLMOrchestrator;
   readonly toolRegistry: ToolRegistryPort;
   readonly toolExecutor: ToolExecutorPort;
   readonly skillRegistry: SkillRegistryPort;
@@ -79,7 +79,7 @@ export interface RuntimeDependencies {
 export interface ClawRuntimeOptions {
   clawId: string;
   clawDir: string;
-  llmConfig: LLMServiceConfig;
+  llmConfig: LLMOrchestratorConfig;
   maxSteps?: number;
   toolProfile?: ToolProfile;
   toolTimeoutMs?: number;
@@ -143,7 +143,7 @@ export class ClawRuntime {
    */
   protected systemFs!: FileSystem;  // used by system components (no permission check)
   private clawFs!: FileSystem;    // used by tools (with permission check)
-  protected llm!: LLMService;
+  protected llm!: LLMOrchestrator;
 
   // Core
   protected sessionManager!: SessionStorePort;

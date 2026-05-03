@@ -13,7 +13,7 @@ import type { FileSystem } from '../../foundation/fs/types.js';
 import { DEFAULT_MAX_CONCURRENT_TASKS } from '../../constants.js';
 import { ToolRegistryImpl } from '../tools/registry.js';
 import { registerBuiltinTools } from '../tools/builtins/index.js';
-import type { LLMService } from '../../foundation/llm/index.js';
+import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { CallerType } from '../tools/caller-type.js';
 
 import type { ToolResult, Tool } from '../tools/executor.js';
@@ -41,7 +41,7 @@ export interface TaskSystemOptions {
   parentStreamLog?: StreamLog;
 
   // phase155C 新增（4 个原 setter 合入 ctor）
-  llm: LLMService;
+  llm: LLMOrchestrator;
   contractManager: ContractManager;
   outboxWriter: OutboxWriter;
 }
@@ -87,7 +87,7 @@ export class TaskSystem {
   private runningTasks: Map<string, TaskState> = new Map();
   private maxConcurrent: number;
   private registry: ToolRegistryImpl;
-  private readonly llm: LLMService;
+  private readonly llm: LLMOrchestrator;
   private readonly contractManager: ContractManager;
   private readonly outboxWriter: OutboxWriter;
   private auditWriter: AuditWriter;

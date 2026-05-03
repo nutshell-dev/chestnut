@@ -9,7 +9,7 @@ import { randomUUID } from 'crypto';
 import * as path from 'path';
 import * as fsNative from 'fs';
 import type { FileSystem } from '../../foundation/fs/types.js';
-import type { LLMService } from '../../foundation/llm/index.js';
+import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { Contract, SubTask, ContractStatus, SubtaskStatus } from '../../types/contract.js';
 import { ToolError, ToolTimeoutError } from '../../types/errors.js';
 import { exec, execFile } from '../../foundation/process-exec/index.js';
@@ -92,7 +92,7 @@ export class ContractManager {
   private clawDir: string;
   private readonly clawId: string;
   private readonly audit: AuditWriter;
-  private llm?: LLMService;
+  private llm?: LLMOrchestrator;
   private verifierScheduler: ContractVerifierScheduler;
   private retroScheduler: RetroScheduler;
   private activeDir = 'contract/active';
@@ -105,7 +105,7 @@ export class ContractManager {
     clawId: string,
     fs: FileSystem,
     audit: AuditWriter,
-    llm?: LLMService,
+    llm?: LLMOrchestrator,
     verifierScheduler?: ContractVerifierScheduler,
     retroScheduler?: RetroScheduler,
   ) {

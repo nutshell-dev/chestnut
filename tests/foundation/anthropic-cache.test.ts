@@ -9,7 +9,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { ToolDefinition } from '../../src/types/message.js';
-import { AnthropicAdapter } from '../../src/foundation/llm/anthropic.js';
+import { AnthropicAdapter } from '../../src/foundation/llm-provider/anthropic.js';
 
 // Mock Anthropic SDK
 const mockMessagesCreate = vi.fn();

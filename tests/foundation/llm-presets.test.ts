@@ -2,7 +2,7 @@
  * resolvePreset() tests — Phase 20 preset system
  */
 import { describe, it, expect } from 'vitest';
-import { resolvePreset } from '../../src/foundation/llm/presets.js';
+import { resolvePreset } from '../../src/foundation/llm-provider/presets.js';
 
 describe('resolvePreset', () => {
   it('should return anthropic preset with apiFormat=anthropic and defaultBaseUrl', () => {
@@ -45,7 +45,7 @@ describe('resolvePreset', () => {
 });
 
 // Phase 81: envVar 字段
-import { PRESETS } from '../../src/foundation/llm/presets.js';
+import { PRESETS } from '../../src/foundation/llm-provider/presets.js';
 
 describe('PRESETS envVar — Phase 81 env var 自动识别', () => {
   it('anthropic 有 envVar=ANTHROPIC_API_KEY', () => {

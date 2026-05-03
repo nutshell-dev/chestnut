@@ -14,7 +14,7 @@
  * design-gap 登记：design/modules/l4_contract_system.md §7.B B.p340-1。
  */
 
-import type { LLMService } from '../../foundation/llm/index.js';
+import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { createSubAgent, NoopStreamWriter, NoopAuditWriter } from '../subagent/index.js';
 import { ReportResultTool } from '../tools/report-result.js';
@@ -26,7 +26,7 @@ export interface VerifierConfig {
   agentId: string;
   prompt: string;
   clawDir: string;
-  llm: LLMService;
+  llm: LLMOrchestrator;
   fs: FileSystem;
   maxSteps: number;
   idleTimeoutMs: number;

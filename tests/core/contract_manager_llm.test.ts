@@ -62,7 +62,7 @@ vi.mock('../../src/core/subagent/agent.js', () => ({
 // Now import the modules under test
 import { ContractManager } from '../../src/core/contract/manager.js';
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
-import type { LLMService } from '../../src/foundation/llm/index.js';
+import type { LLMOrchestrator } from '../../src/foundation/llm-orchestrator/index.js';
 import { ToolRegistryImpl } from '../../src/core/tools/registry.js';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../src/core/contract/audit-events.js';
@@ -168,7 +168,7 @@ describe('ContractManager Acceptance Flow', () => {
   let clawDir: string;
   let manager: ContractManager;
   let mockAudit: { write: ReturnType<typeof vi.fn> };
-  let mockLLM: LLMService;
+  let mockLLM: LLMOrchestrator;
   // mockRegistry removed — ToolRegistryImpl internalized in VerifierScheduler (phase364)
 
   beforeEach(async () => {
@@ -197,7 +197,7 @@ describe('ContractManager Acceptance Flow', () => {
     mockLLM = {
       call: vi.fn(),
       stream: vi.fn(),
-    } as unknown as LLMService;
+    } as unknown as LLMOrchestrator;
 
     manager = new ContractManager(clawDir, 'test-claw', nodeFs, mockAudit as any, mockLLM);
   });
@@ -886,7 +886,7 @@ describe('ContractManager — verifier scheduler port', () => {
     const mockLLM = {
       call: vi.fn(),
       stream: vi.fn(),
-    } as unknown as LLMService;
+    } as unknown as LLMOrchestrator;
     const manager = new ContractManager(
       clawDir, 'test-claw', nodeFs, mockAudit as any, mockLLM,
       mockScheduler,
@@ -935,7 +935,7 @@ describe('ContractManager — verifier scheduler port', () => {
     const mockLLM = {
       call: vi.fn(),
       stream: vi.fn(),
-    } as unknown as LLMService;
+    } as unknown as LLMOrchestrator;
     const manager = new ContractManager(
       clawDir, 'test-claw', nodeFs, captureAudit as any, mockLLM,
     );
@@ -992,7 +992,7 @@ describe('ContractManager — verifier scheduler port', () => {
     const mockLLM = {
       call: vi.fn(),
       stream: vi.fn(),
-    } as unknown as LLMService;
+    } as unknown as LLMOrchestrator;
     const manager = new ContractManager(
       clawDir, 'test-claw', nodeFs, captureAudit as any, mockLLM,
     );

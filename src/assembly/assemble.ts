@@ -12,7 +12,7 @@ import { createClawPermissionChecker } from '../core/permissions/claw-permission
 import { createAgentProcessManager } from '../cli/commands/process-manager-factory.js';
 import { type ClawRuntime, type RuntimeDependencies } from '../core/runtime/index.js';
 import { createRuntime } from '../core/runtime/index.js';
-import { createLLMService, type LLMServiceImpl } from '../foundation/llm/index.js';
+import { createLLMOrchestrator, type LLMOrchestratorImpl } from '../foundation/llm-orchestrator/index.js';
 import { createLLMAuditSink } from './llm-audit-sink.js';
 import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
 import { createToolRegistry, type ToolRegistryImpl } from '../core/tools/index.js';
@@ -158,12 +158,12 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
   const idleTimeoutMs = globalConfig.motion?.llm_idle_timeout_ms;
 
   // --- L3-L5: llm ---
-  let llm: LLMServiceImpl;
+  let llm: LLMOrchestratorImpl;
   try {
-    llm = createLLMService({ ...llmConfig, events: createLLMAuditSink(auditWriter) });
+    llm = createLLMOrchestrator({ ...llmConfig, events: createLLMAuditSink(auditWriter) });
   } catch (e) {
     auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=llm`, `phase=construct`, `reason=${errMsg(e)}`);
-    throw new Error(`Assembly: LLMService construct failed: ${errMsg(e)}`, { cause: e });
+    throw new Error(`Assembly: LLMOrchestrator construct failed: ${errMsg(e)}`, { cause: e });
   }
 
   // --- L3-L5: toolRegistry（空；DispatchTool 留给 Runtime） ---

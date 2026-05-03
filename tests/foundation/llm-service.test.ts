@@ -1,9 +1,9 @@
 /**
- * LLMService stream failover 测试
+ * LLMOrchestrator stream failover 测试
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { LLMServiceImpl } from '../../src/foundation/llm/service.js';
-import type { ProviderAdapter, StreamChunk, LLMEventSink, LLMEvent } from '../../src/foundation/llm/types.js';
+import { LLMOrchestratorImpl } from '../../src/foundation/llm-orchestrator/orchestrator.js';
+import type { ProviderAdapter, StreamChunk, LLMEventSink, LLMEvent } from '../../src/foundation/llm-orchestrator/types.js';
 import { LLMError, LLMAllProvidersFailedError, LLMTimeoutError } from '../../src/types/errors.js';
 
 // Mock provider factory
@@ -37,7 +37,7 @@ function createMockProvider(name: string, streamImpl?: () => AsyncGenerator<Stre
 }
 
 // Mock createProvider to inject our mocks
-vi.mock('../../src/foundation/llm/anthropic.js', () => ({
+vi.mock('../../src/foundation/llm-provider/anthropic.js', () => ({
   AnthropicAdapter: class MockAnthropicAdapter {
     name = 'mock-anthropic';
     model = 'mock-model';
@@ -55,7 +55,7 @@ vi.mock('../../src/foundation/llm/anthropic.js', () => ({
   },
 }));
 
-describe('LLMServiceImpl - stream failover', () => {
+describe('LLMOrchestratorImpl - stream failover', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -67,7 +67,7 @@ describe('LLMServiceImpl - stream failover', () => {
       yield { type: 'done' };
     });
 
-    const service = new LLMServiceImpl({
+    const service = new LLMOrchestratorImpl({
       primary: { name: 'primary', apiKey: 'test', model: 'test' },
       maxAttempts: 1,
       retryDelayMs: 0,
@@ -99,7 +99,7 @@ describe('LLMServiceImpl - stream failover', () => {
       yield { type: 'done' };
     });
 
-    const service = new LLMServiceImpl({
+    const service = new LLMOrchestratorImpl({
       primary: { name: 'primary', apiKey: 'test', model: 'test' },
       fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test' }],
       maxAttempts: 1,
@@ -133,7 +133,7 @@ describe('LLMServiceImpl - stream failover', () => {
       throw new Error('Primary connection failed');  // 无 yield，直接抛
     });
 
-    const service = new LLMServiceImpl({
+    const service = new LLMOrchestratorImpl({
       primary: { name: 'primary', apiKey: 'test', model: 'test' },
       maxAttempts: 1,
       retryDelayMs: 0,
@@ -176,7 +176,7 @@ describe('LLMServiceImpl - stream failover', () => {
       yield { type: 'done' } as StreamChunk;
     });
 
-    const service = new LLMServiceImpl({
+    const service = new LLMOrchestratorImpl({
       primary: { name: 'primary', apiKey: 'test', model: 'test' },
       fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test' }],
       maxAttempts: 2,   // 即使有重试机会也不应重试 mid-stream
@@ -209,7 +209,7 @@ describe('LLMServiceImpl - stream failover', () => {
       yield { type: 'done' } as StreamChunk;
     });
 
-    const service = new LLMServiceImpl({
+    const service = new LLMOrchestratorImpl({
       primary: { name: 'primary', apiKey: 'test', model: 'test' },
       maxAttempts: 2,
       retryDelayMs: 0,
@@ -229,7 +229,7 @@ describe('LLMServiceImpl - stream failover', () => {
 
   // Phase 20: getProviderInfo()
   it('should getProviderInfo() return isFallback=false when primary succeeds', async () => {
-    const service = new LLMServiceImpl({
+    const service = new LLMOrchestratorImpl({
       primary: { name: 'primary', apiKey: 'test', model: 'test-model' },
       maxAttempts: 1,
       retryDelayMs: 0,
@@ -251,7 +251,7 @@ describe('LLMServiceImpl - stream failover', () => {
 
     const goodFallback = createMockProvider('fb');
 
-    const service = new LLMServiceImpl({
+    const service = new LLMOrchestratorImpl({
       primary: { name: 'p', apiKey: 'test', model: 'test' },
       fallbacks: [{ name: 'fb', apiKey: 'test', model: 'test' }],
       maxAttempts: 1,
@@ -278,7 +278,7 @@ describe('LLMServiceImpl - stream failover', () => {
       // No stream method
     } as any;
 
-    const service = new LLMServiceImpl({
+    const service = new LLMOrchestratorImpl({
       primary: { name: 'primary', apiKey: 'test', model: 'test' },
       maxAttempts: 1,
       retryDelayMs: 0,
@@ -311,7 +311,7 @@ describe('LLMServiceImpl - stream failover', () => {
       yield { type: 'done' } as StreamChunk;
     });
 
-    const service = new LLMServiceImpl({
+    const service = new LLMOrchestratorImpl({
       primary: { name: 'primary', apiKey: 'test', model: 'test' },
       fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test' }],
       maxAttempts: 1,
@@ -345,7 +345,7 @@ describe('LLMServiceImpl - stream failover', () => {
       throw new LLMTimeoutError('fallback', 60000);
     });
 
-    const service = new LLMServiceImpl({
+    const service = new LLMOrchestratorImpl({
       primary: { name: 'primary', apiKey: 'test', model: 'test' },
       fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test' }],
       maxAttempts: 1,
@@ -387,7 +387,7 @@ describe('LLMServiceImpl - stream failover', () => {
       yield { type: 'done' } as StreamChunk;
     });
 
-    const service = new LLMServiceImpl({
+    const service = new LLMOrchestratorImpl({
       primary: { name: 'primary', apiKey: 'test', model: 'test' },
       fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test' }],
       maxAttempts: 1,
@@ -411,7 +411,7 @@ describe('LLMServiceImpl - stream failover', () => {
 });
 
 // Phase 20: Circuit Breaker
-describe('LLMServiceImpl - circuit breaker', () => {
+describe('LLMOrchestratorImpl - circuit breaker', () => {
   it('should skip primary after threshold failures (circuit opens)', async () => {
     // threshold=2: primary fails twice → breaker opens → 3rd call skips primary entirely
     let primaryCallCount = 0;
@@ -424,7 +424,7 @@ describe('LLMServiceImpl - circuit breaker', () => {
 
     const goodFallback = createMockProvider('fallback');
 
-    const service = new LLMServiceImpl({
+    const service = new LLMOrchestratorImpl({
       primary: { name: 'p', apiKey: 'x', model: 'x' },
       fallbacks: [{ name: 'fb', apiKey: 'x', model: 'x' }],
       maxAttempts: 1,
@@ -463,7 +463,7 @@ describe('LLMServiceImpl - circuit breaker', () => {
 
     const goodFallback = createMockProvider('fb');
 
-    const service = new LLMServiceImpl({
+    const service = new LLMOrchestratorImpl({
       primary: { name: 'p', apiKey: 'x', model: 'x' },
       fallbacks: [{ name: 'fb', apiKey: 'x', model: 'x' }],
       maxAttempts: 1,
@@ -505,7 +505,7 @@ describe('LLMServiceImpl - circuit breaker', () => {
     };
     const goodFallback = createMockProvider('fb');
 
-    const service = new LLMServiceImpl({
+    const service = new LLMOrchestratorImpl({
       primary: { name: 'p', apiKey: 'x', model: 'x' },
       fallbacks: [{ name: 'fb', apiKey: 'x', model: 'x' }],
       maxAttempts: 1,
@@ -547,7 +547,7 @@ describe('LLMServiceImpl - circuit breaker', () => {
     };
     const goodFallback = createMockProvider('fb');
 
-    const service = new LLMServiceImpl({
+    const service = new LLMOrchestratorImpl({
       primary: { name: 'p', apiKey: 'x', model: 'x' },
       fallbacks: [{ name: 'fb', apiKey: 'x', model: 'x' }],
       maxAttempts: 1,
@@ -586,7 +586,7 @@ describe('LLMServiceImpl - circuit breaker', () => {
       async *stream() { throw new Error('p2 down'); },
     };
 
-    const service = new LLMServiceImpl({
+    const service = new LLMOrchestratorImpl({
       primary: { name: 'p1', apiKey: 'x', model: 'x' },
       fallbacks: [{ name: 'p2', apiKey: 'x', model: 'x' }],
       maxAttempts: 1,
@@ -602,12 +602,12 @@ describe('LLMServiceImpl - circuit breaker', () => {
 });
 
 
-describe('LLMServiceImpl - external abort signal', () => {
+describe('LLMOrchestratorImpl - external abort signal', () => {
   it('throws AbortError without trying next provider when signal is already aborted', async () => {
     const primary = createMockProvider('primary');
     const fallback = createMockProvider('fallback');
 
-    const service = new LLMServiceImpl({
+    const service = new LLMOrchestratorImpl({
       primary: { name: 'primary', apiKey: 'test', model: 'test' },
       fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test' }],
       maxAttempts: 1,
@@ -637,7 +637,7 @@ describe('LLMServiceImpl - external abort signal', () => {
     });
     const fallback = createMockProvider('fallback', fallbackStream);
 
-    const service = new LLMServiceImpl({
+    const service = new LLMOrchestratorImpl({
       primary: { name: 'primary', apiKey: 'test', model: 'test' },
       fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test' }],
       maxAttempts: 1,
@@ -664,7 +664,7 @@ describe('LLMServiceImpl - external abort signal', () => {
       async *stream() { throw new Error('n/a'); },
     };
 
-    const service = new LLMServiceImpl({
+    const service = new LLMOrchestratorImpl({
       primary: { name: 'primary', apiKey: 'test', model: 'test' },
       maxAttempts: 3,
       retryDelayMs: 10_000,
@@ -694,7 +694,7 @@ describe('LLMServiceImpl - external abort signal', () => {
       },
     };
 
-    const service = new LLMServiceImpl({
+    const service = new LLMOrchestratorImpl({
       primary: { name: 'primary', apiKey: 'test', model: 'test' },
       maxAttempts: 3,
       retryDelayMs: 10_000,
@@ -715,12 +715,12 @@ describe('LLMServiceImpl - external abort signal', () => {
   });
 });
 
-describe('LLMServiceImpl - events (Phase 254)', () => {
+describe('LLMOrchestratorImpl - events (Phase 254)', () => {
   it('emits provider_attempt_failed when primary throws', async () => {
     const { sink, emitted } = createMockSink();
     const failingAdapter = createMockProvider('p1');
     (failingAdapter as any).call = async () => { throw new Error('timeout'); };
-    const svc = new LLMServiceImpl({
+    const svc = new LLMOrchestratorImpl({
       primary: { name: 'p1', apiKey: 'test', model: 'test' },
       fallbacks: [],
       maxAttempts: 1,
@@ -741,7 +741,7 @@ describe('LLMServiceImpl - events (Phase 254)', () => {
       if (calls++ < 1) throw new Error('transient');
       return { content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' };
     };
-    const svc = new LLMServiceImpl({
+    const svc = new LLMOrchestratorImpl({
       primary: { name: 'p1', apiKey: 'test', model: 'test' },
       fallbacks: [],
       maxAttempts: 2,
@@ -761,7 +761,7 @@ describe('LLMServiceImpl - events (Phase 254)', () => {
     const primary = createMockProvider('p1');
     (primary as any).call = async () => { throw new Error('fail'); };
     const fallback = createMockProvider('fb1');
-    const svc = new LLMServiceImpl({
+    const svc = new LLMOrchestratorImpl({
       primary: { name: 'p1', apiKey: 'test', model: 'test' },
       fallbacks: [{ name: 'fb1', apiKey: 'test', model: 'test' }],
       maxAttempts: 1,
@@ -780,7 +780,7 @@ describe('LLMServiceImpl - events (Phase 254)', () => {
     const { sink, emitted } = createMockSink();
     const primary = createMockProvider('p1');
     (primary as any).call = async () => { throw new Error('health-fail'); };
-    const svc = new LLMServiceImpl({
+    const svc = new LLMOrchestratorImpl({
       primary: { name: 'p1', apiKey: 'test', model: 'test' },
       fallbacks: [],
       maxAttempts: 1,
@@ -800,7 +800,7 @@ describe('LLMServiceImpl - events (Phase 254)', () => {
       yield { type: 'text_delta', delta: 'hi' };
       throw new Error('mid-stream-fail');
     });
-    const svc = new LLMServiceImpl({
+    const svc = new LLMOrchestratorImpl({
       primary: { name: 'p1', apiKey: 'test', model: 'test' },
       fallbacks: [],
       maxAttempts: 1,
@@ -842,7 +842,7 @@ function makeSlowAdapter(name: string): ProviderAdapter {
   };
 }
 
-describe('LLMServiceImpl - idle failover', () => {
+describe('LLMOrchestratorImpl - idle failover', () => {
   it('idle timeout on P1 → failover to P2 → success', async () => {
     const { sink, emitted } = createMockSink();
     const p1 = makeSlowAdapter('p1');
@@ -851,7 +851,7 @@ describe('LLMServiceImpl - idle failover', () => {
       yield { type: 'done' };
     });
 
-    const svc = new LLMServiceImpl({
+    const svc = new LLMOrchestratorImpl({
       primary: { name: 'p1', apiKey: 'k', model: 'm' },
       fallbacks: [{ name: 'p2', apiKey: 'k', model: 'm' }],
       maxAttempts: 1,
@@ -878,7 +878,7 @@ describe('LLMServiceImpl - idle failover', () => {
     const p1 = makeSlowAdapter('p1');
     const p2 = makeSlowAdapter('p2');
 
-    const svc = new LLMServiceImpl({
+    const svc = new LLMOrchestratorImpl({
       primary: { name: 'p1', apiKey: 'k', model: 'm' },
       fallbacks: [{ name: 'p2', apiKey: 'k', model: 'm' }],
       maxAttempts: 1,
@@ -906,7 +906,7 @@ describe('LLMServiceImpl - idle failover', () => {
       async *stream() { p2Called = true; yield { type: 'done' }; },
     };
 
-    const svc = new LLMServiceImpl({
+    const svc = new LLMOrchestratorImpl({
       primary: { name: 'p1', apiKey: 'k', model: 'm' },
       fallbacks: [{ name: 'p2', apiKey: 'k', model: 'm' }],
       maxAttempts: 1,
@@ -929,7 +929,7 @@ describe('LLMServiceImpl - idle failover', () => {
 });
 
 
-describe('LLMServiceImpl - context_exceeded failover (Phase 408)', () => {
+describe('LLMOrchestratorImpl - context_exceeded failover (Phase 408)', () => {
   it('should failover when first provider returns context_window_exceeded done chunk', async () => {
     const mockProvider1 = createMockProvider('mock1', function* () {
       yield { type: 'done', stopReason: 'model_context_window_exceeded' };
@@ -938,7 +938,7 @@ describe('LLMServiceImpl - context_exceeded failover (Phase 408)', () => {
       yield { type: 'text_delta', delta: 'success' };
       yield { type: 'done', stopReason: 'end_turn' };
     });
-    const service = new LLMServiceImpl({
+    const service = new LLMOrchestratorImpl({
       primary: { name: 'mock1', apiKey: 'k', model: 'm' },
       fallbacks: [{ name: 'mock2', apiKey: 'k', model: 'm' }],
       maxAttempts: 1,
@@ -964,7 +964,7 @@ describe('LLMServiceImpl - context_exceeded failover (Phase 408)', () => {
     const mockProvider2 = createMockProvider('mock2', function* () {
       yield { type: 'done', stopReason: 'context_length_exceeded' };
     });
-    const service = new LLMServiceImpl({
+    const service = new LLMOrchestratorImpl({
       primary: { name: 'mock1', apiKey: 'k', model: 'm' },
       fallbacks: [{ name: 'mock2', apiKey: 'k', model: 'm' }],
       maxAttempts: 1,
@@ -988,7 +988,7 @@ describe('LLMServiceImpl - context_exceeded failover (Phase 408)', () => {
       yield { type: 'text_delta', delta: 'success' };
       yield { type: 'done', stopReason: 'end_turn' };
     });
-    const service = new LLMServiceImpl({
+    const service = new LLMOrchestratorImpl({
       primary: { name: 'mock1', apiKey: 'k', model: 'm' },
       fallbacks: [{ name: 'mock2', apiKey: 'k', model: 'm' }],
       maxAttempts: 1,

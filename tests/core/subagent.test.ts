@@ -6,7 +6,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SubAgent } from '../../src/core/subagent/agent.js';
 import { NoopStreamWriter, NoopAuditWriter } from '../../src/core/subagent/noop-writers.js';
 import type { FileSystem } from '../../src/foundation/fs/types.js';
-import type { LLMService } from '../../src/foundation/llm/index.js';
+import type { LLMOrchestrator } from '../../src/foundation/llm-orchestrator/index.js';
 import type { ToolRegistryImpl } from '../../src/core/tools/registry.js';
 import { SUBAGENT_AUDIT_EVENTS } from '../../src/core/subagent/audit-events.js';
 
@@ -65,7 +65,7 @@ function makeSubAgent(
     close: vi.fn(),
     healthCheck: vi.fn(),
     getProviderInfo: vi.fn().mockReturnValue({ name: 'mock', model: 'test', isFallback: false }),
-  } as unknown as LLMService;
+  } as unknown as LLMOrchestrator;
 
   return {
     agent: new SubAgent({

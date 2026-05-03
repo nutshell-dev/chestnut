@@ -10,8 +10,8 @@
  */
 
 import type { Message, ContentBlock, ToolUseBlock, ToolResultBlock, LLMResponse, ToolDefinition } from '../../types/message.js';
-import type { LLMService, LLMCallOptions } from '../../foundation/llm/index.js';
-import type { StreamChunk } from '../../foundation/llm/types.js';
+import type { LLMOrchestrator, LLMCallOptions } from '../../foundation/llm-orchestrator/index.js';
+import type { StreamChunk } from '../../foundation/llm-orchestrator/index.js';
 import type { IToolExecutor, ExecContext, ToolResult, ToolRegistry } from '../tools/executor.js';
 import { REACT_DEFAULT_MAX_TOKENS } from '../../constants.js';
 import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../../types/signals.js';
@@ -44,7 +44,7 @@ export interface StepCallbacks {
 export interface StepInput {
   messages: Message[];
   systemPrompt: string;
-  llm: LLMService;
+  llm: LLMOrchestrator;
   tools: ToolDefinition[];
   executor: IToolExecutor;
   registry?: ToolRegistry;
@@ -111,7 +111,7 @@ export async function executeStep(input: StepInput): Promise<StepResult> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function runLLMCall(
-  llm: LLMService,
+  llm: LLMOrchestrator,
   callOptions: LLMCallOptions,
   llmStartTime: number,
   callbacks?: StepCallbacks,
@@ -333,7 +333,7 @@ function finalizeContent(state: StreamState, callbacks?: StepCallbacks): void {
 }
 
 async function collectStreamResponse(
-  llm: LLMService,
+  llm: LLMOrchestrator,
   callOptions: LLMCallOptions,
   callbacks?: StepCallbacks,
 ): Promise<LLMResponse> {

@@ -3,7 +3,7 @@
  * 
  * Tests:
  * - AnthropicAdapter: normal response, tool_use, error handling
- * - LLMService: failover, retry, monitor integration
+ * - LLMOrchestrator: failover, retry, monitor integration
  * 
  * All tests use mock fetch - no real API calls
  */
@@ -15,11 +15,11 @@ import type {
   ToolDefinition
 } from '../../src/types/message.js';
 
-import type { StreamChunk } from '../../src/foundation/llm/types.js';
-import { AnthropicAdapter } from '../../src/foundation/llm/anthropic.js';
-import { CustomAnthropicAdapter } from '../../src/foundation/llm/custom-anthropic.js';
-import { OpenAIAdapter } from '../../src/foundation/llm/openai.js';
-import { LLMServiceImpl } from '../../src/foundation/llm/service.js';
+import type { StreamChunk } from '../../src/foundation/llm-orchestrator/types.js';
+import { AnthropicAdapter } from '../../src/foundation/llm-provider/anthropic.js';
+import { CustomAnthropicAdapter } from '../../src/foundation/llm-provider/custom-anthropic.js';
+import { OpenAIAdapter } from '../../src/foundation/llm-provider/openai.js';
+import { LLMOrchestratorImpl } from '../../src/foundation/llm-orchestrator/orchestrator.js';
 import {
   LLMRateLimitError,
   LLMTimeoutError,
@@ -349,7 +349,7 @@ describe('LLM Service', () => {
     });
   });
 
-  describe('LLMServiceImpl', () => {
+  describe('LLMOrchestratorImpl', () => {
     const primaryConfig = {
       name: 'primary',
       apiKey: 'primary-key',
@@ -392,7 +392,7 @@ describe('LLM Service', () => {
         usage: { input_tokens: 10, output_tokens: 5 },
       });
 
-      const service = new LLMServiceImpl({
+      const service = new LLMOrchestratorImpl({
         primary: primaryConfig,
         maxAttempts: 3,
         retryDelayMs: 100,
@@ -421,7 +421,7 @@ describe('LLM Service', () => {
           usage: { input_tokens: 10, output_tokens: 5 },
         });
 
-      const service = new LLMServiceImpl({
+      const service = new LLMOrchestratorImpl({
         primary: primaryConfig,
         fallbacks: [fallbackConfig],
         maxAttempts: 1,
@@ -440,7 +440,7 @@ describe('LLM Service', () => {
     it('should throw LLMAllProvidersFailedError when both fail', async () => {
       mockMessagesCreate.mockRejectedValue(new Error('Both failed'));
 
-      const service = new LLMServiceImpl({
+      const service = new LLMOrchestratorImpl({
         primary: primaryConfig,
         fallbacks: [fallbackConfig],
         maxAttempts: 1,
@@ -468,7 +468,7 @@ describe('LLM Service', () => {
           usage: { input_tokens: 10, output_tokens: 5 },
         });
 
-      const service = new LLMServiceImpl({
+      const service = new LLMOrchestratorImpl({
         primary: primaryConfig,
         fallbacks: [fallbackConfig],
         maxAttempts: 3,
@@ -508,7 +508,7 @@ describe('LLM Service', () => {
           usage: { input_tokens: 10, output_tokens: 5 },
         });
 
-      const service = new LLMServiceImpl({
+      const service = new LLMOrchestratorImpl({
         primary: primaryConfig,
         fallbacks: [fallbackConfig],
         maxAttempts: 1,
@@ -547,7 +547,7 @@ describe('LLM Service', () => {
           usage: { input_tokens: 10, output_tokens: 5 },
         });
 
-      const service = new LLMServiceImpl({
+      const service = new LLMOrchestratorImpl({
         primary: primaryConfig,
         maxAttempts: 5,  // Max 5 attempts total
         // Base delay: 50ms
@@ -576,7 +576,7 @@ describe('LLM Service', () => {
       );
       vi.stubGlobal('fetch', mockFetch);
 
-      const service = new LLMServiceImpl({
+      const service = new LLMOrchestratorImpl({
         primary: primaryConfig,
         fallback: fallbackConfig,
         maxAttempts: 1,
@@ -601,7 +601,7 @@ describe('LLM Service', () => {
         usage: { input_tokens: 10, output_tokens: 5 },
       });
 
-      const service = new LLMServiceImpl({
+      const service = new LLMOrchestratorImpl({
         primary: primaryConfig,
         maxAttempts: 1,
         retryDelayMs: 100,
@@ -647,7 +647,7 @@ describe('LLM Service', () => {
         getProviderInfo: () => ({ name: 'fallback', model: 'fallback-model' }),
       };
 
-      const service = new LLMServiceImpl({
+      const service = new LLMOrchestratorImpl({
         primary: primaryAdapter as any,
         fallbacks: [fallbackAdapter as any],
         maxAttempts: 1,
@@ -703,7 +703,7 @@ describe('LLM Service', () => {
         getProviderInfo: () => ({ name: 'fallback', model: 'fallback-model' }),
       };
 
-      const service = new LLMServiceImpl({
+      const service = new LLMOrchestratorImpl({
         primary: primaryAdapter as any,
         fallbacks: [fallbackAdapter as any],
         maxAttempts: 1,
@@ -734,7 +734,7 @@ describe('LLM Service', () => {
         getProviderInfo: () => ({ name: 'primary', model: 'test-model' }),
       };
 
-      const service = new LLMServiceImpl({
+      const service = new LLMOrchestratorImpl({
         primary: emptyAdapter as any,
         fallbacks: [],
         maxAttempts: 1,
@@ -1412,7 +1412,7 @@ describe('GeminiAdapter — Phase 98 fixes', () => {
     };
 
     const chunks: StreamChunk[] = [];
-    for await (const c of new (await import('../../src/foundation/llm/gemini.js')).GeminiAdapter(cfg).stream({ messages: [{ role: 'user', content: 'hi' }] })) {
+    for await (const c of new (await import('../../src/foundation/llm-provider/gemini.js')).GeminiAdapter(cfg).stream({ messages: [{ role: 'user', content: 'hi' }] })) {
       chunks.push(c);
     }
 
@@ -1435,7 +1435,7 @@ describe('GeminiAdapter — Phase 98 fixes', () => {
     };
 
     const chunks: StreamChunk[] = [];
-    for await (const c of new (await import('../../src/foundation/llm/gemini.js')).GeminiAdapter(cfg).stream({ messages: [{ role: 'user', content: 'hi' }] })) {
+    for await (const c of new (await import('../../src/foundation/llm-provider/gemini.js')).GeminiAdapter(cfg).stream({ messages: [{ role: 'user', content: 'hi' }] })) {
       chunks.push(c);
     }
 
@@ -1460,7 +1460,7 @@ describe('GeminiAdapter — Phase 98 fixes', () => {
       apiFormat: 'gemini' as const,
     };
 
-    const res = await new (await import('../../src/foundation/llm/gemini.js')).GeminiAdapter(cfg).call({
+    const res = await new (await import('../../src/foundation/llm-provider/gemini.js')).GeminiAdapter(cfg).call({
       messages: [{ role: 'user', content: 'hi' }],
     });
     expect(res.stop_reason).toBe('content_filter');
@@ -1480,7 +1480,7 @@ describe('GeminiAdapter — Phase 98 fixes', () => {
     };
 
     await expect(async () => {
-      for await (const _ of new (await import('../../src/foundation/llm/gemini.js')).GeminiAdapter(cfg).stream({
+      for await (const _ of new (await import('../../src/foundation/llm-provider/gemini.js')).GeminiAdapter(cfg).stream({
         messages: [{ role: 'user', content: 'hi' }],
       })) { /* drain */ }
     }).rejects.toThrow('INVALID_ARGUMENT: Model not found');
@@ -1500,7 +1500,7 @@ describe('GeminiAdapter — Phase 98 fixes', () => {
     };
 
     await expect(async () => {
-      for await (const _ of new (await import('../../src/foundation/llm/gemini.js')).GeminiAdapter(cfg).stream({
+      for await (const _ of new (await import('../../src/foundation/llm-provider/gemini.js')).GeminiAdapter(cfg).stream({
         messages: [{ role: 'user', content: 'hi' }],
       })) { /* drain */ }
     }).rejects.toThrow(LLMRateLimitError);

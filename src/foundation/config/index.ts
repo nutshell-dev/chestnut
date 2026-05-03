@@ -6,8 +6,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
 import { z } from 'zod';
-import type { LLMServiceConfig, ProviderConfig } from '../llm/types.js';
-import { resolvePreset } from '../llm/presets.js';
+import type { LLMOrchestratorConfig } from '../llm/index.js';
+import type { ProviderConfig } from '../llm-provider/types.js';
+import { resolvePreset } from '../llm-provider/presets.js';
 
 // Re-export shared constants
 export { CLAW_SUBDIRS } from '../../types/paths.js';
@@ -298,11 +299,11 @@ export function toProviderConfig(p: z.infer<typeof LLMProviderSchema>): Provider
   };
 }
 
-// Build LLMServiceConfig from global + claw config
+// Build LLMOrchestratorConfig from global + claw config
 export function buildLLMConfig(
   globalConfig: ClawGlobalConfig,
   clawConfig?: ClawConfig
-): LLMServiceConfig {
+): LLMOrchestratorConfig {
   // Use claw's primary if provided, otherwise use global's primary
   const primaryProvider = clawConfig?.llm?.primary 
     ? toProviderConfig(clawConfig.llm.primary)

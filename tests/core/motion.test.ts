@@ -14,11 +14,11 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 import { ClawRuntime, buildMotionSystemPrompt } from '../../src/core/runtime/index.js';
-import type { LLMServiceConfig } from '../../src/foundation/llm/types.js';
+import type { LLMOrchestratorConfig } from '../../src/foundation/llm-orchestrator/types.js';
 import { makeRuntimeDeps } from '../helpers/runtime-deps.js';
 
 // 测试用的 LLM 配置
-const mockLLMConfig: LLMServiceConfig = {
+const mockLLMConfig: LLMOrchestratorConfig = {
   primary: {
     name: 'test',
     apiKey: 'test-key',
@@ -45,7 +45,7 @@ async function cleanupDir(clawDir: string): Promise<void> {
   await fs.rm(base, { recursive: true, force: true });
 }
 
-async function createMotionRuntime(options: { clawId: string; clawDir: string; llmConfig: LLMServiceConfig }) {
+async function createMotionRuntime(options: { clawId: string; clawDir: string; llmConfig: LLMOrchestratorConfig }) {
   const deps = await makeRuntimeDeps({ clawDir: options.clawDir, clawId: options.clawId, llmConfig: options.llmConfig });
   return new ClawRuntime({
     ...options,

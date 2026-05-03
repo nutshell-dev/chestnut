@@ -8,7 +8,7 @@
  */
 
 import type { Message, ToolDefinition } from '../../types/message.js';
-import type { LLMService } from '../../foundation/llm/index.js';
+import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { IToolExecutor, ExecContext, ToolResult, ToolRegistry } from '../tools/executor.js';
 import { runAgent } from './agent-executor.js';
 import type { StepCallbacks, LLMCallInfo } from './step-executor.js';
@@ -16,7 +16,7 @@ import type { StepCallbacks, LLMCallInfo } from './step-executor.js';
 export interface ReactOptions {
   messages: Message[];
   systemPrompt: string;
-  llm: LLMService;
+  llm: LLMOrchestrator;
   executor: IToolExecutor;
   ctx: ExecContext;
   maxSteps?: number;
