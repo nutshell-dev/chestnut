@@ -2,7 +2,7 @@
  * Dialog module tests
  * 
  * Tests:
- * - SessionManager: load, save, archive, crash recovery
+ * - DialogStore: load, save, archive, crash recovery
  * - ContextInjector: system prompt building
  */
 
@@ -13,24 +13,24 @@ import { promises as fs } from 'fs';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 
-import { SessionManager } from '../../src/foundation/session-store/index.js';
+import { DialogStore } from '../../src/foundation/dialog-store/index.js';
 import { ContextInjector } from '../../src/core/dialog/injector.js';
 import type { Message } from '../../src/types/message.js';
-import type { SessionData } from '../../src/foundation/session-store/index.js';
+import type { SessionData } from '../../src/foundation/dialog-store/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 
 describe('Dialog', () => {
-  describe('SessionManager', () => {
+  describe('DialogStore', () => {
     let tempDir: string;
     let nodeFs: NodeFileSystem;
-    let sessionManager: SessionManager;
+    let sessionManager: DialogStore;
 
     beforeEach(async () => {
       tempDir = await createTempDir();
       nodeFs = new NodeFileSystem({ baseDir: tempDir });
       await nodeFs.ensureDir('dialog');
-      sessionManager = new SessionManager(nodeFs, 'dialog', { write: () => {} }, 'test-claw');
+      sessionManager = new DialogStore(nodeFs, 'dialog', { write: () => {} }, 'test-claw');
     });
 
     afterEach(async () => {

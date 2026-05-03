@@ -16,10 +16,10 @@ import type { Message } from '../../types/message.js';
 import type { InboxMessage } from '../../types/messaging.js';
 import type { Priority } from '../../types/priority.js';
 import type { OutboxWriteOptions } from '../../foundation/messaging/index.js';
-import type { SessionData } from '../../foundation/session-store/index.js';
+import type { SessionData } from '../../foundation/dialog-store/index.js';
 import { InboxListFailed, InboxMoveFailed } from '../../foundation/messaging/index.js';
 
-import { SessionManager } from '../../foundation/session-store/index.js';
+import { DialogStore } from '../../foundation/dialog-store/index.js';
 import { DispatchTool } from '../task/tools/dispatch.js';
 import { runReact } from '../react/loop.js';
 import { summarizeLastExit } from './last-exit-summary.js';
@@ -270,7 +270,7 @@ export class Runtime {
     const auditAbsPath = this.systemFs.resolve('audit.tsv');
     const interruptionMessage = summarizeLastExit(auditAbsPath);
     this.auditWriter.write(RUNTIME_AUDIT_EVENTS.SESSION_LOADED, `source=${source}`);
-    const { repaired, toolCount } = SessionManager.repair(
+    const { repaired, toolCount } = DialogStore.repair(
       session.messages,
       interruptionMessage ? { interruptionMessage } : undefined,
     );

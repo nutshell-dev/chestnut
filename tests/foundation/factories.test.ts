@@ -11,8 +11,8 @@ import {
   createSnapshot, Snapshot,
 } from '../../src/foundation/snapshot/index.js';
 import {
-  createSessionManager, SessionManager,
-} from '../../src/foundation/session-store/index.js';
+  createDialogStore, DialogStore,
+} from '../../src/foundation/dialog-store/index.js';
 import {
   createInboxReader, createOutboxWriter,
   InboxReader, OutboxWriter,
@@ -32,7 +32,7 @@ describe('L2 factories — 行为契约', () => {
     const { dir, fs, audit } = mkEnv();
     expect(createStreamWriter(fs, audit)).not.toBe(createStreamWriter(fs, audit));
     expect(createSnapshot(dir, fs, audit, [])).not.toBe(createSnapshot(dir, fs, audit, []));
-    expect(createSessionManager(fs, 'dialog', audit, 'c1')).not.toBe(createSessionManager(fs, 'dialog', audit, 'c1'));
+    expect(createDialogStore(fs, 'dialog', audit, 'c1')).not.toBe(createDialogStore(fs, 'dialog', audit, 'c1'));
     expect(createInboxReader(fs, audit, 'inbox')).not.toBe(createInboxReader(fs, audit, 'inbox'));
     expect(createOutboxWriter('c1', dir, fs, audit)).not.toBe(createOutboxWriter('c1', dir, fs, audit));
   });
@@ -78,23 +78,23 @@ describe('L2 factories — 行为契约', () => {
     expect(contents).toContain('**From:** c1');
   });
 
-  it('createSessionManager：clawId 透传且无 UUID 默认兜底（签名要求显式传）', () => {
+  it('createDialogStore：clawId 透传且无 UUID 默认兜底（签名要求显式传）', () => {
     const { fs, audit } = mkEnv();
-    const sm = createSessionManager(fs, 'dialog', audit, 'explicit-claw-id');
-    expect(sm).toBeInstanceOf(SessionManager);
+    const sm = createDialogStore(fs, 'dialog', audit, 'explicit-claw-id');
+    expect(sm).toBeInstanceOf(DialogStore);
     // 编译期保障：省略 clawId 应 TS 报错——由 tsc 全量检查覆盖，不在此 it 断言
   });
 
-  it('createSessionManager：dialogDir / clawId 透传（同类型 string 对调兜底）', async () => {
+  it('createDialogStore：dialogDir / clawId 透传（同类型 string 对调兜底）', async () => {
     // dialogDir 与 clawId 均为 string 相邻，TS 对调无法捕获——靠行为断言兜底。
-    // 可观察锚点（src/foundation/session-store/store.ts）：
+    // 可观察锚点（src/foundation/dialog-store/store.ts）：
     //   - L33: currentPath = path.join(dialogDir, 'current.json')
     //   - L148: saved SessionData.clawId = this.clawId
-    // 工厂若对调为 new SessionManager(fs, clawId, audit, dialogDir)：
+    // 工厂若对调为 new DialogStore(fs, clawId, audit, dialogDir)：
     //   - current.json 会落在 'c1/current.json' 而非 'my_dialog/current.json' → readFile ENOENT
     //   - 或 saved.clawId 会变成 'my_dialog' 而非 'c1' → toBe 断言失败
     const { dir, fs, audit } = mkEnv();
-    const sm = createSessionManager(fs, 'my_dialog', audit, 'c1');
+    const sm = createDialogStore(fs, 'my_dialog', audit, 'c1');
     await sm.save([{ role: 'user', content: 'hi' }]);
     const saved = JSON.parse(
       await readFile(path.join(dir, 'my_dialog', 'current.json'), 'utf-8'),

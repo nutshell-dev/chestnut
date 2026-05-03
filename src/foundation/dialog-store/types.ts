@@ -1,5 +1,5 @@
 /**
- * SessionStore types (L2)
+ * DialogStore types (L2)
  *
  * Session data structure for current.json persistence.
  */

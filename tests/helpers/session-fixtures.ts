@@ -2,7 +2,7 @@ import * as path from 'path';
 import { promises as fs } from 'fs';
 
 /**
- * Write a dialog/current.json that triggers SessionManager.repair
+ * Write a dialog/current.json that triggers DialogStore.repair
  * (assistant message with tool_use block, no following tool_result).
  */
 export async function writeSessionWithIncompleteToolUse(clawDir: string, clawId: string): Promise<void> {

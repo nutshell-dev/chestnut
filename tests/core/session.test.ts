@@ -10,11 +10,11 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
-// Note: SessionManager 从具体实现导入
+// Note: DialogStore 从具体实现导入
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
-import { SessionManager } from '../../src/foundation/session-store/index.js';
+import { DialogStore } from '../../src/foundation/dialog-store/index.js';
 import type { Message } from '../../src/types/message.js';
-import { SESSION_AUDIT_EVENTS } from '../../src/foundation/session-store/audit-events.js';
+import { DIALOG_AUDIT_EVENTS } from '../../src/foundation/dialog-store/audit-events.js';
 
 describe('Session Persistence', () => {
   let testDir: string;
@@ -158,7 +158,7 @@ describe('Session Persistence', () => {
     expect(result).toBeNull();
   });
 
-  // === 新增：SessionManager 集成测试 ===
+  // === 新增：DialogStore 集成测试 ===
 
   it('should return null when session file does not exist (ENOENT)', async () => {
     const currentFile = path.join(testDir, 'dialog', 'nonexistent-session.json');
@@ -253,17 +253,17 @@ describe('Session Persistence', () => {
   });
 });
 
-describe('SessionManager unit tests', () => {
+describe('DialogStore unit tests', () => {
   let tmpDir: string;
   let nodeFs: NodeFileSystem;
-  let sm: SessionManager;
+  let sm: DialogStore;
   let auditMock: { write: ReturnType<typeof vi.fn> };
 
   beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'sm-test-'));
     nodeFs = new NodeFileSystem({ baseDir: tmpDir });
     auditMock = { write: vi.fn() };
-    sm = new SessionManager(nodeFs, 'dialog', auditMock, 'test-claw');
+    sm = new DialogStore(nodeFs, 'dialog', auditMock, 'test-claw');
   });
 
   afterEach(async () => {
@@ -324,8 +324,8 @@ describe('SessionManager unit tests', () => {
     await sm.save([msg]);
     await sm.archive(); // moves current.json → archive/
 
-    // Fresh SessionManager (simulate restart)
-    const sm2 = new SessionManager(nodeFs, 'dialog', auditMock, 'test-claw');
+    // Fresh DialogStore (simulate restart)
+    const sm2 = new DialogStore(nodeFs, 'dialog', auditMock, 'test-claw');
     const { session: session } = await sm2.load();
 
     expect(session.messages).toHaveLength(1);
@@ -336,7 +336,7 @@ describe('SessionManager unit tests', () => {
 
   it('load() returns source current when current.json exists', async () => {
     const audit = { write: vi.fn() };
-    const smAudit = new SessionManager(nodeFs, 'dialog', audit, 'test-claw');
+    const smAudit = new DialogStore(nodeFs, 'dialog', audit, 'test-claw');
     await smAudit.save([{ role: 'user', content: 'hi' }]);
     const result = await smAudit.load();
     expect(result.source).toBe('current');
@@ -344,7 +344,7 @@ describe('SessionManager unit tests', () => {
 
   it('load() returns source archive when recovering from archive', async () => {
     const audit = { write: vi.fn() };
-    const smAudit = new SessionManager(nodeFs, 'dialog', audit, 'test-claw');
+    const smAudit = new DialogStore(nodeFs, 'dialog', audit, 'test-claw');
     await smAudit.save([{ role: 'user', content: 'hi' }]);
     await smAudit.archive();
     const result = await smAudit.load();
@@ -353,14 +353,14 @@ describe('SessionManager unit tests', () => {
 
   it('load() returns source empty when nothing exists', async () => {
     const audit = { write: vi.fn() };
-    const smAudit = new SessionManager(nodeFs, 'dialog', audit, 'test-claw');
+    const smAudit = new DialogStore(nodeFs, 'dialog', audit, 'test-claw');
     const result = await smAudit.load();
     expect(result.source).toBe('empty');
   });
 
   it('load() writes session_corrupted audit when current.json is corrupted', async () => {
     const audit = { write: vi.fn() };
-    const smAudit = new SessionManager(nodeFs, 'dialog', audit, 'test-claw');
+    const smAudit = new DialogStore(nodeFs, 'dialog', audit, 'test-claw');
     const dialogDir = path.join(tmpDir, 'dialog');
     await fs.mkdir(dialogDir, { recursive: true });
     const currentPath = path.join(dialogDir, 'current.json');
@@ -375,7 +375,7 @@ describe('SessionManager unit tests', () => {
 
   it('load() writes session_recovered audit when recovering from archive', async () => {
     const audit = { write: vi.fn() };
-    const smAudit = new SessionManager(nodeFs, 'dialog', audit, 'test-claw');
+    const smAudit = new DialogStore(nodeFs, 'dialog', audit, 'test-claw');
     await smAudit.save([{ role: 'user', content: 'hi' }]);
     await smAudit.archive();
     audit.write.mockClear();
@@ -389,7 +389,7 @@ describe('SessionManager unit tests', () => {
 
   it('load() writes session_corrupted for corrupted archive and falls back', async () => {
     const audit = { write: vi.fn() };
-    const smAudit = new SessionManager(nodeFs, 'dialog', audit, 'test-claw');
+    const smAudit = new DialogStore(nodeFs, 'dialog', audit, 'test-claw');
     const archiveDir = path.join(tmpDir, 'dialog', 'archive');
     await fs.mkdir(archiveDir, { recursive: true });
 
@@ -409,12 +409,12 @@ describe('SessionManager unit tests', () => {
     const result = await smAudit.load();
     expect(result.source).toBe('archive');
     expect(audit.write).toHaveBeenCalledWith(
-      SESSION_AUDIT_EVENTS.CORRUPTED,
+      DIALOG_AUDIT_EVENTS.CORRUPTED,
       'file=3000_corrupted.json',
       expect.stringContaining('reason='),
     );
     expect(audit.write).toHaveBeenCalledWith(
-      SESSION_AUDIT_EVENTS.RECOVERED,
+      DIALOG_AUDIT_EVENTS.RECOVERED,
       'from=2000_valid.json',
     );
   });
@@ -425,10 +425,10 @@ describe('SessionManager unit tests', () => {
       writeAtomic: vi.fn(() => Promise.reject(new Error('disk full'))),
     } as unknown as NodeFileSystem;
     const audit = { write: vi.fn() };
-    const smFail = new SessionManager(failingFs, 'dialog', audit, 'test-claw');
+    const smFail = new DialogStore(failingFs, 'dialog', audit, 'test-claw');
     await expect(smFail.save([{ role: 'user', content: 'hi' }])).rejects.toThrow('disk full');
     expect(audit.write).toHaveBeenCalledWith(
-      SESSION_AUDIT_EVENTS.SAVE_FAILED,
+      DIALOG_AUDIT_EVENTS.SAVE_FAILED,
       expect.stringContaining('path='),
       expect.stringContaining('reason=disk full'),
     );
@@ -436,11 +436,11 @@ describe('SessionManager unit tests', () => {
 
   it('archive: writes session_archive_failed and still throws on move failure', async () => {
     const audit = { write: vi.fn() };
-    const smArc = new SessionManager(nodeFs, 'dialog', audit, 'test-claw');
+    const smArc = new DialogStore(nodeFs, 'dialog', audit, 'test-claw');
     // no current.json exists → move will throw ENOENT
     await expect(smArc.archive()).rejects.toMatchObject({ code: 'ENOENT' });
     expect(audit.write).toHaveBeenCalledWith(
-      SESSION_AUDIT_EVENTS.ARCHIVE_FAILED,
+      DIALOG_AUDIT_EVENTS.ARCHIVE_FAILED,
       expect.stringContaining('path='),
       expect.stringContaining('reason='),
     );
@@ -452,11 +452,11 @@ describe('SessionManager unit tests', () => {
       list: vi.fn(() => Promise.reject(new Error('permission denied'))),
     } as unknown as NodeFileSystem;
     const audit = { write: vi.fn() };
-    const smFail = new SessionManager(failingFs, 'dialog', audit, 'test-claw');
+    const smFail = new DialogStore(failingFs, 'dialog', audit, 'test-claw');
     const result = await smFail.load();
     expect(result.source).toBe('empty');
     expect(audit.write).toHaveBeenCalledWith(
-      SESSION_AUDIT_EVENTS.ARCHIVE_READ_FAILED,
+      DIALOG_AUDIT_EVENTS.ARCHIVE_READ_FAILED,
       expect.stringContaining('dir='),
       expect.stringContaining('reason=permission denied'),
     );
@@ -469,31 +469,31 @@ describe('SessionManager unit tests', () => {
       move: vi.fn(() => Promise.reject(new Error('rename failed'))),
     } as unknown as NodeFileSystem;
     const audit = { write: vi.fn() };
-    const smFail = new SessionManager(failingFs, 'dialog', audit, 'test-claw');
+    const smFail = new DialogStore(failingFs, 'dialog', audit, 'test-claw');
     await smFail.load();
     expect(audit.write).toHaveBeenCalledWith(
-      SESSION_AUDIT_EVENTS.CORRUPTED,
+      DIALOG_AUDIT_EVENTS.CORRUPTED,
       'file=current.json',
       expect.stringContaining('reason='),
     );
     expect(audit.write).toHaveBeenCalledWith(
-      SESSION_AUDIT_EVENTS.CORRUPTED_ISOLATE_FAILED,
+      DIALOG_AUDIT_EVENTS.CORRUPTED_ISOLATE_FAILED,
       expect.stringContaining('path='),
       expect.stringContaining('reason=rename failed'),
     );
   });
 });
 
-describe('SessionManager.repair', () => {
+describe('DialogStore.repair', () => {
   it('returns no repair for empty messages', () => {
-    const { repaired, toolCount } = SessionManager.repair([]);
+    const { repaired, toolCount } = DialogStore.repair([]);
     expect(repaired).toEqual([]);
     expect(toolCount).toBe(0);
   });
 
   it('returns no repair when last message is user', () => {
     const msgs: Message[] = [{ role: 'user', content: 'hello' }];
-    const { repaired, toolCount } = SessionManager.repair(msgs);
+    const { repaired, toolCount } = DialogStore.repair(msgs);
     expect(repaired).toHaveLength(1);
     expect(toolCount).toBe(0);
   });
@@ -504,7 +504,7 @@ describe('SessionManager.repair', () => {
       { role: 'user', content: 'hi' },
       { role: 'assistant', content: 'I will help you with that.' },
     ];
-    const { repaired, toolCount } = SessionManager.repair(msgs);
+    const { repaired, toolCount } = DialogStore.repair(msgs);
     expect(repaired).toHaveLength(2);
     expect(toolCount).toBe(0);
   });
@@ -520,7 +520,7 @@ describe('SessionManager.repair', () => {
         ],
       },
     ];
-    const { repaired, toolCount } = SessionManager.repair(msgs);
+    const { repaired, toolCount } = DialogStore.repair(msgs);
     expect(toolCount).toBe(1);
     expect(repaired).toHaveLength(3);
     expect(repaired[2].role).toBe('user');
@@ -543,7 +543,7 @@ describe('SessionManager.repair', () => {
         ],
       },
     ];
-    const { repaired, toolCount } = SessionManager.repair(msgs, { interruptionMessage: 'Process killed by watchdog' });
+    const { repaired, toolCount } = DialogStore.repair(msgs, { interruptionMessage: 'Process killed by watchdog' });
     expect(toolCount).toBe(1);
     const blocks = repaired[2].content as any[];
     expect(blocks[0].content).toContain('was interrupted.');
@@ -561,7 +561,7 @@ describe('SessionManager.repair', () => {
         ],
       },
     ];
-    const { repaired, toolCount } = SessionManager.repair(msgs, { interruptionMessage: '' });
+    const { repaired, toolCount } = DialogStore.repair(msgs, { interruptionMessage: '' });
     expect(toolCount).toBe(1);
     const blocks = repaired[2].content as any[];
     expect(blocks[0].content).toContain('Cause unknown (no context provided to repair).');
@@ -578,7 +578,7 @@ describe('SessionManager.repair', () => {
       },
     ];
     const message = 'Line 1\nLine 2\tTabbed "quoted"';
-    const { repaired, toolCount } = SessionManager.repair(msgs, { interruptionMessage: message });
+    const { repaired, toolCount } = DialogStore.repair(msgs, { interruptionMessage: message });
     expect(toolCount).toBe(1);
     const blocks = repaired[2].content as any[];
     expect(blocks[0].content).toContain(message);
@@ -595,7 +595,7 @@ describe('SessionManager.repair', () => {
         ],
       },
     ];
-    const { repaired, toolCount } = SessionManager.repair(msgs, { interruptionMessage: 'SIGTERM received' });
+    const { repaired, toolCount } = DialogStore.repair(msgs, { interruptionMessage: 'SIGTERM received' });
     expect(toolCount).toBe(2);
     const blocks = repaired[2].content as any[];
     expect(blocks[0].content).toContain('SIGTERM received');
@@ -609,7 +609,7 @@ describe('SessionManager.repair', () => {
       { role: 'user', content: 'hi' },
       { role: 'assistant', content: 'Hello there' },
     ];
-    const { repaired, toolCount } = SessionManager.repair(msgs, { interruptionMessage: 'should be ignored' });
+    const { repaired, toolCount } = DialogStore.repair(msgs, { interruptionMessage: 'should be ignored' });
     expect(toolCount).toBe(0);
     expect(repaired).toHaveLength(2);
   });
@@ -626,7 +626,7 @@ describe('SessionManager.repair', () => {
         content: [{ type: 'tool_result', tool_use_id: 'tu_1', content: 'ok' }],
       },
     ];
-    const { repaired, toolCount } = SessionManager.repair(msgs);
+    const { repaired, toolCount } = DialogStore.repair(msgs);
     expect(toolCount).toBe(0);
     expect(repaired).toHaveLength(3);
   });

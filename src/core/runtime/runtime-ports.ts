@@ -10,7 +10,7 @@
 import type { Message } from '../../types/message.js';
 import type { InboxEntry } from '../../foundation/messaging/inbox-reader.js';
 import type { OutboxWriteOptions } from '../../foundation/messaging/outbox-writer.js';
-import type { SessionData } from '../../foundation/session-store/types.js';
+import type { SessionData } from '../../foundation/dialog-store/types.js';
 import type { ToolResult } from '../tools/executor.js';
 import type { ToolRegistry, IToolExecutor, ExecContext } from '../tools/executor.js';
 import type { AuditLog } from '../../foundation/audit/index.js';

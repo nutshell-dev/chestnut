@@ -6,8 +6,8 @@
  */
 
 // Re-export from new location (backward compat)
-export { SessionManager } from '../../foundation/session-store/index.js';
-export type { SessionData } from '../../foundation/session-store/index.js';
+export { DialogStore } from '../../foundation/dialog-store/index.js';
+export type { SessionData } from '../../foundation/dialog-store/index.js';
 
 // Context injection stays here
 export { ContextInjector, createContextInjector } from './injector.js';

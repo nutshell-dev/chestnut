@@ -19,7 +19,7 @@ import { promises as fs } from 'fs';
 import { Runtime } from '../../src/core/runtime/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { AuditWriter } from '../../src/foundation/audit/writer.js';
-import { SessionManager } from '../../src/foundation/session-store/index.js';
+import { DialogStore } from '../../src/foundation/dialog-store/index.js';
 import { Snapshot } from '../../src/foundation/snapshot/index.js';
 import { SNAPSHOT_IGNORE_PATTERNS } from '../../src/foundation/snapshot/index.js';
 import { InboxReader } from '../../src/foundation/messaging/index.js';
@@ -28,7 +28,7 @@ import { OutboxWriter } from '../../src/foundation/messaging/index.js';
 import { INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR } from '../../src/types/paths.js';
 
 describe('Runtime.initialize() failure audits', () => {
-  async function makeDeps(clawDir: string, overrides: { sessionManager?: SessionManager; inboxReader?: InboxReader } = {}) {
+  async function makeDeps(clawDir: string, overrides: { sessionManager?: DialogStore; inboxReader?: InboxReader } = {}) {
     const systemFs = new NodeFileSystem({ baseDir: clawDir });
     const clawFs = new NodeFileSystem(
       { baseDir: clawDir },
@@ -40,7 +40,7 @@ describe('Runtime.initialize() failure audits', () => {
     vi.spyOn(snapshot, 'init').mockResolvedValue({ ok: true } as any);
     vi.spyOn(snapshot, 'commit').mockResolvedValue({ ok: true } as any);
 
-    const sessionManager = overrides.sessionManager ?? new SessionManager(systemFs, 'dialog', auditWriter, 'test-claw');
+    const sessionManager = overrides.sessionManager ?? new DialogStore(systemFs, 'dialog', auditWriter, 'test-claw');
     const inboxReader = overrides.inboxReader ?? new InboxReader(INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR, systemFs, auditWriter);
     const outboxWriter = new OutboxWriter('test-claw', clawDir, systemFs, auditWriter);
 
@@ -87,8 +87,8 @@ describe('Runtime.initialize() failure audits', () => {
       source: 'current',
     } as any);
 
-    // Mock SessionManager.repair to return toolCount > 0 so save() is triggered
-    vi.spyOn(SessionManager, 'repair').mockReturnValue({ repaired: [], toolCount: 1 } as any);
+    // Mock DialogStore.repair to return toolCount > 0 so save() is triggered
+    vi.spyOn(DialogStore, 'repair').mockReturnValue({ repaired: [], toolCount: 1 } as any);
 
     // Mock sessionManager.save to throw
     const saveError = new Error('ENOSPC: no space left on device');
@@ -162,8 +162,8 @@ describe('Runtime.initialize() failure audits', () => {
       source: 'current',
     } as any);
 
-    // Mock SessionManager.repair to return toolCount > 0 so save() and commit() are triggered
-    vi.spyOn(SessionManager, 'repair').mockReturnValue({ repaired: [], toolCount: 1 } as any);
+    // Mock DialogStore.repair to return toolCount > 0 so save() and commit() are triggered
+    vi.spyOn(DialogStore, 'repair').mockReturnValue({ repaired: [], toolCount: 1 } as any);
 
     // Mock snapshot.commit to throw (unhandled failure path)
     const commitError = new Error('git write-tree failed');

@@ -37,10 +37,10 @@ import { createContractStatusPort } from '../core/contract/status-port-impl.js';
 import { statusTool } from '../core/tools/builtins/status.js';
 import { skillTool } from '../core/tools/builtins/skill.js';
 import { sendTool } from '../core/tools/builtins/send.js';
-import { createSessionManager } from '../foundation/session-store/index.js';
+import { createDialogStore } from '../foundation/dialog-store/index.js';
 import type { InboxReader } from '../foundation/messaging/index.js';
 import type { OutboxWriter } from '../foundation/messaging/index.js';
-import type { SessionManager } from '../foundation/session-store/index.js';
+import type { DialogStore } from '../foundation/dialog-store/index.js';
 
 import { createHeartbeat, type Heartbeat } from '../core/runtime/index.js';
 import { createCronRunner, parseSchedule, CronRunner } from '../core/cron/index.js';
@@ -98,7 +98,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
   const auditMaxSizeMb = globalConfig.audit?.retention?.max_size_mb ?? null;
 
   // phase155A + B + C 联合约定：system 组件无权限校验；工具层强制权限校验
-  // systemFs: used by AuditWriter / Snapshot / SessionManager / Skill/Contract/Outbox/Inbox/Task/Context/Stream
+  // systemFs: used by AuditWriter / Snapshot / DialogStore / Skill/Contract/Outbox/Inbox/Task/Context/Stream
   const systemFs = new NodeFileSystem({ baseDir: clawDir });
   // clawFs: used by tools via ExecContextImpl.fs
   const clawFs = new NodeFileSystem(
@@ -311,12 +311,12 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
   // 语义正确（变量作用域覆盖全函数，依赖链仍 DAG），但与 phase155B 原拓扑"L2 先于 L3-L5"不一致。
   // 如要对齐拓扑走独立 phase 处理，见 coding plan/phase155/phase155C/fixup/合并计划.md §C5
   // --- L2: sessionManager + inboxReader + outboxWriter ---
-  let sessionManager: SessionManager;
+  let sessionManager: DialogStore;
   try {
-    sessionManager = createSessionManager(systemFs, DIALOG_DIR, auditWriter, clawId);
+    sessionManager = createDialogStore(systemFs, DIALOG_DIR, auditWriter, clawId);
   } catch (e) {
     auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=session_manager`, `phase=construct`, `reason=${errMsg(e)}`);
-    throw new Error(`Assembly: SessionManager construct failed: ${errMsg(e)}`, { cause: e });
+    throw new Error(`Assembly: DialogStore construct failed: ${errMsg(e)}`, { cause: e });
   }
 
   let inboxReader: InboxReader;

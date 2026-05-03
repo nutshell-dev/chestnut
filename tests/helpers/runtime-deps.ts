@@ -3,7 +3,7 @@ import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { AuditWriter } from '../../src/foundation/audit/writer.js';
 import { Snapshot, SNAPSHOT_IGNORE_PATTERNS } from '../../src/foundation/snapshot/index.js';
 import { createClawPermissionChecker } from '../../src/core/permissions/claw-permissions.js';
-import { SessionManager } from '../../src/foundation/session-store/index.js';
+import { DialogStore } from '../../src/foundation/dialog-store/index.js';
 import { InboxReader, OutboxWriter } from '../../src/foundation/messaging/index.js';
 import { LLMOrchestratorImpl } from '../../src/foundation/llm-orchestrator/orchestrator.js';
 import { ToolRegistryImpl } from '../../src/core/tools/registry.js';
@@ -36,7 +36,7 @@ export async function makeRuntimeDeps(input: MakeRuntimeDepsInput): Promise<Runt
   const auditWriter = new AuditWriter(systemFs, 'audit.tsv', null);
   const snapshot = new Snapshot(clawDir, systemFs, auditWriter, SNAPSHOT_IGNORE_PATTERNS);
   await snapshot.init();
-  const sessionManager = new SessionManager(systemFs, 'dialog', auditWriter, clawId);
+  const sessionManager = new DialogStore(systemFs, 'dialog', auditWriter, clawId);
   const inboxReader = new InboxReader(INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR, systemFs, auditWriter);
   await inboxReader.init();
   const outboxWriter = new OutboxWriter(clawId, clawDir, systemFs, auditWriter);
