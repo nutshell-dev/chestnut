@@ -1,8 +1,8 @@
 /**
- * @module L6a.WatchdogUtils
- * @layer L6a 应用层（Watchdog 工具函数）
+ * @module L6.WatchdogUtils
+ * @layer L6 进程边界（Watchdog 工具函数）
  * @depends L1.FileSystem, L2.AuditLog, L2.Stream
- * @consumers L6a.Watchdog
+ * @consumers L6.Watchdog
  * @contract design/modules/l6_watchdog.md
  *
  * Watchdog 工具函数 — 提取以便测试。

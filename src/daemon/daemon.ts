@@ -1,8 +1,8 @@
 /**
- * @module L6a.Daemon
- * @layer L6a 应用层（Daemon 后台进程入口）
- * @depends L1.FileSystem, L2.AuditLog, L4.Contract, L6b.CLI, L6c.Assembly
- * @consumers L6b.CLI（spawn）
+ * @module L6.Daemon
+ * @layer L6 进程边界（Daemon 后台进程入口）
+ * @depends L1.FileSystem, L2.AuditLog, L4.Contract, L6.CLI, L6.Assembly
+ * @consumers L6.CLI（spawn）
  * @contract design/modules/l6_daemon.md
  *
  * Daemon 主入口 — 启动 Runtime 并保持运行至 SIGTERM。

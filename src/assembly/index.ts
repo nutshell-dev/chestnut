@@ -1,5 +1,5 @@
 /**
- * @module L6c.Assembly
+ * @module L6.Assembly
  * Assembly — 运行时依赖组装与注入。
  */
 

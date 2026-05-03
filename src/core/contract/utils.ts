@@ -2,7 +2,7 @@
  * @module L4.ContractUtils
  * @layer L4 业务层（Contract 工具函数）
  * @depends L1.FileSystem
- * @consumers L6a.Watchdog, L6b.ChatViewport
+ * @consumers L6.Watchdog, L6.ChatViewport
  * @contract design/modules/l4_contract_system.md
  *
  * Contract directory inspection utilities (read-only).
