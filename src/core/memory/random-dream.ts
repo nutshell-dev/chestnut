@@ -4,7 +4,6 @@ import type { FileSystem } from '../../foundation/fs/types.js';
 import { MEMORY_AUDIT_EVENTS } from './audit-events.js';
 import type { Audit } from '../../foundation/audit/index.js';
 import type { TaskLifecyclePort } from '../runtime/runtime-ports.js';
-import { writePendingSubagentTaskFile } from '../task/tools/_pending-task-writer.js';
 import { TOOL_PROFILES } from '../tools/profiles.js';
 import { InboxWriter } from '../../foundation/messaging/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
@@ -239,7 +238,7 @@ export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
 
   // 调度 sub-agent（文件驱动，watcher 异步拾起）
   const motionAudit = createSystemAudit(opts.fs, opts.motionDir);
-  const taskId = await writePendingSubagentTaskFile(opts.fs, motionAudit, {
+  const taskId = await opts.taskSystem.writePendingSubAgentTask(motionAudit, {
     kind: 'subagent',
     prompt: buildRandomDreamPrompt(weightedContracts),
     tools: TOOL_PROFILES['dream'],

@@ -21,6 +21,7 @@ import type { Message, ToolDefinition } from '../../types/message.js';
 import type { OutboxWriter } from '../../foundation/messaging/index.js';
 import type { ContractManager } from '../contract/manager.js';
 import { AuditWriter } from '../../foundation/audit/writer.js';
+import type { Audit } from '../../foundation/audit/index.js';
 import { TASKS_RUNNING_DIR, TASKS_DONE_DIR } from '../../types/paths.js';
 import type { StreamLog } from '../../foundation/stream/types.js';
 
@@ -31,6 +32,7 @@ import { executeSubAgentTask } from './subagent-executor.js';
 import { executeToolTask } from './tool-executor.js';
 import { createWatcher, type Watcher } from '../../foundation/file-watcher/index.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
+import { writePendingSubagentTaskFile } from './tools/_pending-task-writer.js';
 
 export interface TaskSystemOptions {
   maxConcurrent?: number;
@@ -515,6 +517,13 @@ export class TaskSystem {
   /**
    * Shutdown - wait for all tasks to complete or timeout
    */
+  async writePendingSubAgentTask(
+    motionAudit: Audit,
+    taskInfo: Omit<SubAgentTask, 'id' | 'createdAt'>,
+  ): Promise<string> {
+    return writePendingSubagentTaskFile(this.fs, motionAudit, taskInfo);
+  }
+
   async shutdown(timeoutMs: number = 30000): Promise<void> {
     // 顺序：先关 watcher（避免 shutdown 期间新事件进队）→ 旧 shutdown 流程
     await this.pendingWatcher?.close();
