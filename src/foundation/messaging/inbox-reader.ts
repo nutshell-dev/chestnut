@@ -16,6 +16,7 @@ import { PRIORITY_VALUES } from '../../types/priority.js';
 import { decodeInbox } from './codec-inbox.js';
 import type { Audit } from '../audit/index.js';
 import { MESSAGING_AUDIT_EVENTS } from './audit-events.js';
+import { InboxWriter, type InboxMessageMeta } from './inbox-writer.js';
 import { InboxListFailed, InboxMoveFailed } from './errors.js';
 
 export interface InboxEntry {
@@ -116,6 +117,47 @@ export class InboxReader {
       throw new InboxMoveFailed(filePath, 'done', err);
     }
     this.audit.write(MESSAGING_AUDIT_EVENTS.INBOX_DONE, `file=${fileName}`);
+  }
+
+  /**
+   * Non-consuming peek of inbox meta entries (no file move, no delete).
+   * Used by Runtime to decide step yield without consuming messages.
+   *
+   * @param filter Optional filter (e.g. by priority)
+   * @returns Array of meta entries matching filter (or all if no filter)
+   */
+  async peekMetas(filter?: { priority?: ('critical' | 'high' | 'normal' | 'low')[] }): Promise<InboxMessageMeta[]> {
+    let entries: { name: string }[] = [];
+    try {
+      entries = await this.fs.list(this.pendingDir, { includeDirs: false });
+    } catch (err: any) {
+      const code = err?.code;
+      if (code === 'FS_NOT_FOUND' || code === 'ENOENT') return [];
+      // 其他 list 失败 audit + 返回空（peek 不冒泡 / 与 drainInbox 不同行为）
+      const reason = err instanceof Error ? err.message : String(err);
+      this.audit.write(
+        MESSAGING_AUDIT_EVENTS.INBOX_LIST_FAILED,
+        `dir=${this.pendingDir}`,
+        `op=peek`,
+        `reason=${reason}`,
+      );
+      return [];
+    }
+
+    const results: InboxMessageMeta[] = [];
+    for (const entry of entries) {
+      if (!entry.name.endsWith('.md')) continue;
+      const filePath = this.pendingDir + '/' + entry.name;
+      const result = InboxWriter.readMeta(this.fs, filePath);
+      if (!result.ok) {
+        this.audit.write(MESSAGING_AUDIT_EVENTS.INBOX_META_FAILED, `file=${entry.name}`, `kind=${result.error.kind}`);
+        continue;
+      }
+      const meta = result.value;
+      if (filter?.priority && !filter.priority.includes(meta.priority as any)) continue;
+      results.push(meta);
+    }
+    return results;
   }
 
   /** Move failed file to failed/ */

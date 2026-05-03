@@ -7,7 +7,7 @@
  */
 
 import * as path from 'path';
-import { promises as fs } from 'fs';
+
 import type { LLMServiceConfig } from '../../foundation/llm/types.js';
 import type { LLMService } from '../../foundation/llm/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
@@ -17,7 +17,7 @@ import type { InboxMessage } from '../../types/messaging.js';
 import type { Priority } from '../../types/priority.js';
 import type { OutboxWriteOptions } from '../../foundation/messaging/index.js';
 import type { SessionData } from '../../foundation/session-store/index.js';
-import { InboxWriter, InboxListFailed, InboxMoveFailed } from '../../foundation/messaging/index.js';
+import { InboxListFailed, InboxMoveFailed } from '../../foundation/messaging/index.js';
 
 import { SessionManager } from '../../foundation/session-store/index.js';
 import { DispatchTool } from '../task/tools/dispatch.js';
@@ -866,23 +866,8 @@ export class ClawRuntime {
    * Check if inbox has high/critical priority messages
    */
   private async _hasHighPriorityInbox(): Promise<boolean> {
-    const pendingDir = path.join(this.options.clawDir, 'inbox', 'pending');
-    let files: string[];
-    try {
-      files = (await fs.readdir(pendingDir)).filter(f => f.endsWith('.md'));
-    } catch {
-      return false;
-    }
-    for (const file of files) {
-      const result = InboxWriter.readMeta(this.systemFs, path.join(pendingDir, file));
-      if (!result.ok) {
-        this.auditWriter.write(RUNTIME_AUDIT_EVENTS.INBOX_META_FAILED, `file=${file}`, `kind=${result.error.kind}`);
-        continue;
-      }
-      const meta = result.value;
-      if (meta.priority === 'high' || meta.priority === 'critical') return true;
-    }
-    return false;
+    const metas = await this.inboxReader.peekMetas({ priority: ['high', 'critical'] });
+    return metas.length > 0;
   }
 
   /**

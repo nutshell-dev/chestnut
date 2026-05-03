@@ -308,7 +308,7 @@ describe('assemble', () => {
   // --------------------------------------------------------------------------
   it('acquireLock 冲突 → LockConflictError + assemble_lock_conflict audit', async () => {
     mockProcessManager.acquireLock.mockImplementation(() => {
-      throw new Error('already locked');
+      throw new LockConflictError('motion', 'already locked');
     });
 
     await expect(assemble(baseConfig)).rejects.toBeInstanceOf(LockConflictError);

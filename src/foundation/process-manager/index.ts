@@ -6,7 +6,7 @@
  * 依赖：FileSystem
  */
 
-export { ProcessManager } from './manager.js';
+export { ProcessManager, LockConflictError } from './manager.js';
 export type { SpawnOptions } from './manager.js';
 export { ProcessListUnavailable } from './errors.js';
 export { PROCESS_SPAWN_CONFIRM_MS, SIGTERM_GRACE_MS } from './manager.js';

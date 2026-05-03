@@ -22,11 +22,12 @@ const SPAWN_POLL_INTERVAL_MS = 50;
  * Thrown when a lock is already held by another live process.
  * Used to distinguish "holder alive" from "stale lock" in acquireLock.
  */
-class LockHeldError extends Error {
-  readonly kind = 'lock_held';
-  constructor(message: string) {
-    super(message);
-    this.name = 'LockHeldError';
+export class LockConflictError extends Error {
+  readonly clawId: string;
+  constructor(clawId: string, message?: string) {
+    super(message ?? `Lock conflict: another daemon is running for ${clawId}`);
+    this.name = 'LockConflictError';
+    this.clawId = clawId;
   }
 }
 
@@ -222,14 +223,16 @@ export class ProcessManager {
       try {
         process.kill(holderPid, 0);
         // kill succeeded → holder is alive
-        throw new LockHeldError(
+        throw new LockConflictError(
+          clawId,
           `Another "${clawId}" daemon is running (PID: ${holderPid})`,
         );
       } catch (killErr: any) {
-        if (killErr instanceof LockHeldError) throw killErr; // holder alive
+        if (killErr instanceof LockConflictError) throw killErr; // holder alive
         if (killErr?.code === 'EPERM') {
           // alive but no permission to signal
-          throw new LockHeldError(
+          throw new LockConflictError(
+            clawId,
             `Another "${clawId}" daemon is running (PID: ${holderPid}, no permission to signal)`,
           );
         }
@@ -237,7 +240,8 @@ export class ProcessManager {
           // stale, fall through to cleanup
         } else {
           // unknown errno: conservative — treat as alive, do not steal
-          throw new LockHeldError(
+          throw new LockConflictError(
+            clawId,
             `kill probe failed (errno=${killErr?.code}): ${killErr instanceof Error ? killErr.message : String(killErr)}`,
           );
         }
@@ -255,7 +259,8 @@ export class ProcessManager {
       this.audit.write(PROCESS_MANAGER_AUDIT_EVENTS.LOCK_ACQUIRED, `claw=${clawId}`, `pid=${process.pid}`, `context=stale_retry`);
     } catch (retryErr: any) {
       if (retryErr?.code === 'EEXIST') {
-        throw new LockHeldError(
+        throw new LockConflictError(
+          clawId,
           `Another "${clawId}" daemon acquired the lock during retry`,
         );
       }

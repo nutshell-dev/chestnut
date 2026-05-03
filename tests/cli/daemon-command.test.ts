@@ -213,7 +213,7 @@ describe('daemonCommand - A4a startup failure', () => {
   });
 
   it('it #3: assemble LockConflictError → audit module=lockfile + console + exit 1', async () => {
-    const { LockConflictError } = await import('../../src/assembly/index.js');
+    const { LockConflictError } = await import('../../src/foundation/process-manager/index.js');
     const lockErr = new LockConflictError('test-claw');
     mockState.mockAssemble.mockRejectedValue(lockErr);
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});

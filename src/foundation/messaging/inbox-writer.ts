@@ -16,6 +16,8 @@ import { MESSAGING_AUDIT_EVENTS } from './audit-events.js';
 import { ok, err as errResult, type Result } from '../../types/result.js';
 import type { InboxMetaError } from './errors.js';
 
+export type InboxMessageMeta = Record<string, string>;
+
 export interface InboxMessageOptionsBase {
   type: string;
   source: string;

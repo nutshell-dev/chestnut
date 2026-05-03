@@ -34,14 +34,7 @@ export interface Instances {
   readonly gateway?: Gateway;          // motion only, offline mode（phase157）
 }
 
-export class LockConflictError extends Error {
-  readonly clawId: string;
-  constructor(clawId: string, message?: string) {
-    super(message ?? `Lock conflict: another daemon is running for ${clawId}`);
-    this.name = 'LockConflictError';
-    this.clawId = clawId;
-  }
-}
+export { LockConflictError } from '../foundation/process-manager/index.js';
 
 export { assemble } from './assemble.js';
 export { disassemble } from './disassemble.js';

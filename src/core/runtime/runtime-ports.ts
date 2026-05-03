@@ -38,6 +38,7 @@ export interface InboxPort {
   init(): Promise<void>;
   drainInbox(): Promise<InboxEntry[]>;
   markDone(filePath: string): Promise<void>;
+  peekMetas(filter?: { priority?: ('critical' | 'high' | 'normal' | 'low')[] }): Promise<Record<string, string>[]>;
 }
 
 /** Outbox writer port */

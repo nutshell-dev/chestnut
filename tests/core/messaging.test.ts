@@ -39,6 +39,7 @@ describe('Messaging', () => {
     let tempDir: string;
     let mockFs: NodeFileSystem;
     let reader: InboxReader;
+    let auditEvents: Array<[string, ...(string | number)[]]>;
 
     beforeEach(async () => {
       tempDir = await createTempDir();
@@ -46,7 +47,9 @@ describe('Messaging', () => {
       await mockFs.ensureDir(INBOX_PENDING_DIR);
       await mockFs.ensureDir(INBOX_DONE_DIR);
       await mockFs.ensureDir(INBOX_FAILED_DIR);
-      reader = new InboxReader(INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR, mockFs, makeAudit().audit);
+      const { audit, events } = makeAudit();
+      auditEvents = events;
+      reader = new InboxReader(INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR, mockFs, audit);
       await reader.init();
     });
 
@@ -182,6 +185,75 @@ describe('Messaging', () => {
       const failedFiles = await fs.readdir(path.join(tempDir, 'inbox', 'failed'));
       expect(failedFiles.length).toBe(1);
       expect(failedFiles[0]).toContain('malformed.md');
+    });
+
+    describe('peekMetas', () => {
+      it('returns all meta entries when no filter', async () => {
+        const msg1: InboxMessage = { id: 'msg-1', type: 'message', from: 'a', to: 'b', content: 'Low', priority: 'low', timestamp: new Date().toISOString() };
+        const msg2: InboxMessage = { id: 'msg-2', type: 'message', from: 'a', to: 'b', content: 'High', priority: 'high', timestamp: new Date().toISOString() };
+        await mockFs.writeAtomic('inbox/pending/low.md', buildMdMessage(msg1));
+        await mockFs.writeAtomic('inbox/pending/high.md', buildMdMessage(msg2));
+
+        const metas = await reader.peekMetas();
+        expect(metas).toHaveLength(2);
+      });
+
+      it('filters by priority', async () => {
+        const msg1: InboxMessage = { id: 'msg-1', type: 'message', from: 'a', to: 'b', content: 'Low', priority: 'low', timestamp: new Date().toISOString() };
+        const msg2: InboxMessage = { id: 'msg-2', type: 'message', from: 'a', to: 'b', content: 'High', priority: 'high', timestamp: new Date().toISOString() };
+        await mockFs.writeAtomic('inbox/pending/low.md', buildMdMessage(msg1));
+        await mockFs.writeAtomic('inbox/pending/high.md', buildMdMessage(msg2));
+
+        const metas = await reader.peekMetas({ priority: ['high', 'critical'] });
+        expect(metas).toHaveLength(1);
+        expect(metas[0].priority).toBe('high');
+      });
+
+      it('returns empty array when no matching priority', async () => {
+        const msg1: InboxMessage = { id: 'msg-1', type: 'message', from: 'a', to: 'b', content: 'Low', priority: 'low', timestamp: new Date().toISOString() };
+        await mockFs.writeAtomic('inbox/pending/low.md', buildMdMessage(msg1));
+
+        const metas = await reader.peekMetas({ priority: ['critical'] });
+        expect(metas).toHaveLength(0);
+      });
+
+      it('returns empty array when pendingDir does not exist', async () => {
+        const nonExistentPending = path.join(tempDir, 'nonexistent', 'pending');
+        const freshReader = new InboxReader(nonExistentPending, INBOX_DONE_DIR, INBOX_FAILED_DIR, mockFs, makeAudit().audit);
+        const metas = await freshReader.peekMetas();
+        expect(metas).toEqual([]);
+      });
+
+      it('does not consume files (non-destructive)', async () => {
+        const msg: InboxMessage = { id: 'msg-1', type: 'message', from: 'a', to: 'b', content: 'Test', priority: 'normal', timestamp: new Date().toISOString() };
+        await mockFs.writeAtomic('inbox/pending/test.md', buildMdMessage(msg));
+
+        const beforeFiles = await fs.readdir(path.join(tempDir, 'inbox', 'pending'));
+        await reader.peekMetas();
+        const afterFiles = await fs.readdir(path.join(tempDir, 'inbox', 'pending'));
+        expect(afterFiles).toEqual(beforeFiles);
+      });
+
+      it('skips malformed files + audit INBOX_META_FAILED', async () => {
+        await mockFs.writeAtomic('inbox/pending/bad.md', '---\nthis is not valid frontmatter');
+
+        const metas = await reader.peekMetas();
+        expect(metas).toHaveLength(0);
+        expect(auditEvents.some(e => e[0] === 'inbox_meta_failed')).toBe(true);
+      });
+
+      it('audit on list failure (non-ENOENT) + returns empty', async () => {
+        const throwingFs = {
+          ...mockFs,
+          list: vi.fn().mockRejectedValue({ code: 'EACCES', message: 'Permission denied' }),
+        } as unknown as NodeFileSystem;
+        const { audit, events } = makeAudit();
+        const throwingReader = new InboxReader(INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR, throwingFs, audit);
+
+        const metas = await throwingReader.peekMetas();
+        expect(metas).toEqual([]);
+        expect(events.some(e => e[0] === 'inbox_list_failed' && e.includes('op=peek'))).toBe(true);
+      });
     });
   });
 

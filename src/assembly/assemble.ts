@@ -51,7 +51,6 @@ import { buildLLMConfig } from '../foundation/config/index.js';
 import { DEFAULT_MAX_STEPS, DEFAULT_MAX_CONCURRENT_TASKS } from '../constants.js';
 
 import type { AssembleConfig, Instances } from './index.js';
-import { LockConflictError } from './index.js';
 import { createGateway } from '../core/gateway/gateway.js';
 import type { Gateway } from '../core/gateway/types.js';
 import { createAskUserTool } from '../core/gateway/ask-user-tool.js';
@@ -127,7 +126,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
     processManager.acquireLock(clawId);
   } catch (e) {
     auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_LOCK_CONFLICT, `clawId=${clawId}`);
-    throw new LockConflictError(clawId, errMsg(e));
+    throw e;
   }
 
   // --- 3. Runtime (daemon.ts L111-137) ---

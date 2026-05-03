@@ -10,7 +10,7 @@ export { OutboxWriter } from './outbox-writer.js';
 export type { OutboxWriteOptions } from './outbox-writer.js';
 
 export { InboxWriter } from './inbox-writer.js';
-export type { InboxMessageOptionsBase } from './inbox-writer.js';
+export type { InboxMessageOptionsBase, InboxMessageMeta } from './inbox-writer.js';
 
 export { InboxReader } from './inbox-reader.js';
 export type { InboxEntry } from './inbox-reader.js';
