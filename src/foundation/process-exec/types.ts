@@ -29,6 +29,12 @@ export interface ExecResult {
  * Error thrown when process execution fails.
  * Carries raw output for consumer diagnostics.
  */
+export interface SpawnDetachedOptions {
+  cwd?: string;
+  env?: Record<string, string | undefined>;
+  logFile?: string;       // 内部 open/close fd 包装
+}
+
 export class ProcessExecError extends Error {
   readonly stdout: string;
   readonly stderr: string;

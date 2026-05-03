@@ -10,8 +10,10 @@
 
 export { exec } from './exec.js';
 export { execFile } from './exec.js';
-export type { ExecOptions, ExecResult } from './types.js';
+export { spawnDetached, pgrepSync } from './spawn-detached.js';
+export type { ExecOptions, ExecResult, SpawnDetachedOptions } from './types.js';
 export { ProcessExecError } from './types.js';
+export { ProcessListUnavailable } from './errors.js';
 export {
   PROCESS_EXEC_TIMEOUT_MIN_MS,
   PROCESS_EXEC_TIMEOUT_MAX_MS,

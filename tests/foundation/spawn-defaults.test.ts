@@ -10,10 +10,14 @@ import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { makeAudit } from '../helpers/audit.js';
 
 // Mock child_process
-vi.mock('child_process', () => ({
-  spawn: vi.fn(),
-  spawnSync: vi.fn().mockReturnValue({ stdout: '', stderr: '', status: 0 }),
-}));
+vi.mock('child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('child_process')>();
+  return {
+    ...actual,
+    spawn: vi.fn(),
+    spawnSync: vi.fn().mockReturnValue({ stdout: '', stderr: '', status: 0 }),
+  };
+});
 
 import { spawn } from 'child_process';
 

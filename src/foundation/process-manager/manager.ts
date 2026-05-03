@@ -4,13 +4,12 @@
  * Manages daemon process startup, shutdown, and status checks
  */
 
-import { spawn, spawnSync } from 'child_process';
 import * as path from 'path';
-import { openSync, closeSync } from 'fs';  // openSync/closeSync 仅用于日志 fd（spawn stdio 需要 OS 文件描述符）
 
 import type { FileSystem } from '../fs/types.js';
 import type { AuditLog } from '../audit/index.js';
 import { ProcessListUnavailable } from './errors.js';
+import { spawnDetached, pgrepSync } from '../process-exec/index.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
 import { STATUS_SUBDIR } from '../../types/paths.js';
 
@@ -427,27 +426,15 @@ export class ProcessManager {
       }
     }
 
-    // Ensure log directory exists and open log file
+    // Ensure log directory exists
     this.fs.ensureDirSync(path.dirname(options.logFile));
-    // openSync/closeSync 保留：child_process.spawn 的 stdio 选项需要 OS 文件描述符，
-    // FileSystem 不暴露 fd，这是唯一无法走 FileSystem 的文件操作。
-    const logFd = openSync(options.logFile, 'a');
 
     try {
-      const proc = spawn(options.command, options.args, {
-        detached: true,
-        stdio: ['ignore', logFd, logFd],  // stdout + stderr → daemon.log
-        env: options.env ?? process.env as Record<string, string | undefined>,
-        ...(options.cwd ? { cwd: options.cwd } : {}),
+      const { pid } = spawnDetached(options.command, options.args, {
+        cwd: options.cwd,
+        env: options.env,
+        logFile: options.logFile,
       });
-      
-      // Let the child process run independently, without blocking the parent from exiting
-      proc.unref();
-
-      const pid = proc.pid;
-      if (!pid) {
-        throw new Error('Failed to spawn daemon process');
-      }
 
       // Write the pid file
       await this.fs.writeAtomic(pidFile, String(pid));
@@ -483,9 +470,6 @@ export class ProcessManager {
         `reason=${err instanceof Error ? err.message : String(err)}`,
       );
       throw err;
-    } finally {
-      // Design doc: ensure logFd is closed in all paths
-      closeSync(logFd);
     }
   }
 
@@ -597,35 +581,20 @@ export class ProcessManager {
     // pgrep treats them as regex, fails with exit 2 on invalid ERE, and
     // we silently return [] (orphan cleanup becomes a no-op).
     const escaped = pattern.replace(/[\\.^$*+?()[\]{}|]/g, '\\$&');
-    let result;
+    let pids: number[];
     try {
-      result = spawnSync('pgrep', ['-f', escaped], { encoding: 'utf-8' });
+      pids = pgrepSync(escaped);
     } catch (err) {
-      // spawnSync 本身抛（ENOENT: pgrep 不存在 / ENOMEM 等）
-      const reason = err instanceof Error ? err.message : String(err);
-      this.audit.write(
-        PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_LIST_FAILED,
-        `pattern=${pattern}`,
-        `reason=${reason}`,
-      );
-      throw new ProcessListUnavailable(pattern, err);
+      if (err instanceof ProcessListUnavailable) {
+        this.audit.write(
+          PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_LIST_FAILED,
+          `pattern=${pattern}`,
+          `reason=${err.message}`,
+        );
+      }
+      throw err;
     }
-    // exit 0: 匹配有结果；exit 1: 无匹配（合法空集合）
-    if (result.status === 0 || result.status === 1) {
-      const output = result.stdout ?? '';
-      return output.trim().split('\n')
-        .map(s => parseInt(s, 10))
-        .filter(p => !isNaN(p) && p !== process.pid);
-    }
-    // exit 2: pgrep 参数错误（正则无效等）；exit >=128: 信号；其他非 0 非 1 → 不可预期
-    const stderr = result.stderr ?? '';
-    const err = new Error(`pgrep exited with status=${result.status}, stderr=${stderr}`);
-    this.audit.write(
-      PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_LIST_FAILED,
-      `pattern=${pattern}`,
-      `status=${result.status}`,
-    );
-    throw new ProcessListUnavailable(pattern, err);
+    return pids.filter(p => p !== process.pid);
   }
 
 }
