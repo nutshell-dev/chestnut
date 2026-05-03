@@ -73,7 +73,7 @@ vi.mock('../../src/assembly/cleanup.js', () => ({
   cleanupOrphanedTemp: vi.fn().mockResolvedValue([]),
 }));
 
-vi.mock('../../src/cli/commands/process-manager-factory.js', () => ({
+vi.mock('../../src/foundation/process-manager/agent-factory.js', () => ({
   createAgentProcessManager: vi.fn(() => mockProcessManager),
 }));
 
@@ -446,7 +446,7 @@ describe('assemble', () => {
   });
 
   it('ProcessManager 构造失败 → assemble_failed + 抛 Error', async () => {
-    const { createAgentProcessManager } = await import('../../src/cli/commands/process-manager-factory.js');
+    const { createAgentProcessManager } = await import('../../src/foundation/process-manager/agent-factory.js');
     (createAgentProcessManager as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
       throw new Error('pm fail');
     });

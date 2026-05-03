@@ -217,7 +217,7 @@ clawCmd
       const { loadGlobalConfig, clawExists, getClawDir, getGlobalConfigPath } = await import('../foundation/config/index.js');
       const { NodeFileSystem } = await import('../foundation/fs/node-fs.js');
       const { createSystemAudit } = await import('../foundation/audit/index.js');
-      const { createAgentProcessManager } = await import('./commands/process-manager-factory.js');
+      const { createAgentProcessManager } = await import('../foundation/process-manager/agent-factory.js');
       loadGlobalConfig();
       if (!clawExists(name)) {
         throw new CliError(`Claw "${name}" does not exist`);
@@ -306,7 +306,7 @@ motionCmd
       const { loadGlobalConfig, getMotionDir } = await import('../foundation/config/index.js');
       const { NodeFileSystem } = await import('../foundation/fs/node-fs.js');
       const { createSystemAudit } = await import('../foundation/audit/index.js');
-      const { createAgentProcessManager } = await import('./commands/process-manager-factory.js');
+      const { createAgentProcessManager } = await import('../foundation/process-manager/agent-factory.js');
       loadGlobalConfig();
       const motionDir = getMotionDir();
       const baseDir = path.dirname(motionDir);

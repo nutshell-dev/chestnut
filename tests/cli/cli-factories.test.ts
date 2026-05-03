@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { AuditWriter, createSystemAudit, AUDIT_FILE } from '../../src/foundation/audit/index.js';
-import { createAgentProcessManager } from '../../src/cli/commands/process-manager-factory.js';
+import { createAgentProcessManager } from '../../src/foundation/process-manager/agent-factory.js';
 import { createProcessManagerForCLI, createDirContext } from '../../src/foundation/config/factories.js';
 
 function freshDir(): string {

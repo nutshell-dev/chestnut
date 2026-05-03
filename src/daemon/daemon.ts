@@ -18,7 +18,7 @@ import { startDaemonLoop } from './daemon-loop.js';
 import { NodeFileSystem } from '../foundation/fs/node-fs.js';
 import { AuditWriter } from '../foundation/audit/writer.js';
 import { createSystemAudit, type AuditLog } from '../foundation/audit/index.js';
-import { createAgentProcessManager } from '../cli/commands/process-manager-factory.js';
+import { createAgentProcessManager } from '../foundation/process-manager/agent-factory.js';
 
 import { CliError } from '../cli/errors.js';
 import { assemble, disassemble } from '../assembly/index.js';

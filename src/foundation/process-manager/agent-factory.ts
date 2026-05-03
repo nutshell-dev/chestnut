@@ -5,10 +5,10 @@
  * across daemon / motion / watchdog / start / status / claw / stop / index.
  */
 
-import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
-import { ProcessManager } from '../../foundation/process-manager/index.js';
-import { getClawforumRoot, resolveAgentDir } from '../../foundation/config/index.js';
-import type { AuditLog } from '../../foundation/audit/index.js';
+import { NodeFileSystem } from '../fs/node-fs.js';
+import { ProcessManager } from './index.js';
+import { getClawforumRoot, resolveAgentDir } from '../config/index.js';
+import type { AuditLog } from '../audit/index.js';
 
 export function createAgentProcessManager(audit: AuditLog): ProcessManager {
   const baseDir = getClawforumRoot();

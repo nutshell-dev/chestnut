@@ -9,7 +9,7 @@ import type { StreamWriter } from '../foundation/stream/writer.js';
 import type { ProcessManager } from '../foundation/process-manager/manager.js';
 import { NodeFileSystem } from '../foundation/fs/node-fs.js';
 import { createClawPermissionChecker } from '../core/permissions/claw-permissions.js';
-import { createAgentProcessManager } from '../cli/commands/process-manager-factory.js';
+import { createAgentProcessManager } from '../foundation/process-manager/agent-factory.js';
 import { type Runtime, type RuntimeDependencies } from '../core/runtime/index.js';
 import { createRuntime } from '../core/runtime/index.js';
 import { createLLMOrchestrator, type LLMOrchestratorImpl } from '../foundation/llm-orchestrator/index.js';

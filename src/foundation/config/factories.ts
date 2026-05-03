@@ -26,7 +26,7 @@ import { NodeFileSystem } from '../fs/node-fs.js';
 import { AuditWriter, createSystemAudit, AUDIT_FILE } from '../audit/index.js';
 import type { FileSystem } from '../fs/types.js';
 import type { ProcessManager } from '../process-manager/manager.js';
-import { createAgentProcessManager } from '../../cli/commands/process-manager-factory.js';
+import { createAgentProcessManager } from '../../foundation/process-manager/agent-factory.js';
 import { getClawforumRoot } from './index.js';
 
 /**
