@@ -514,6 +514,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
           clawforumDir,
           motionDir: clawDir,
           fs: clawforumFs,
+          motionFs: systemFs,
           audit: auditWriter,
           taskSystem: runtime.getTaskSystem(),
           llmService: llm,

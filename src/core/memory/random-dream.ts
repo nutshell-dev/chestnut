@@ -1,4 +1,3 @@
-import * as fs from 'fs';
 import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { MEMORY_AUDIT_EVENTS } from './audit-events.js';
@@ -19,7 +18,8 @@ export interface RandomDreamOptions {
   clawforumDir: string;
   motionDir: string;
   taskSystem: TaskSystem;
-  fs: FileSystem;
+  fs: FileSystem;             // baseDir = clawforumDir
+  motionFs: FileSystem;       // baseDir = motionDir / NEW
   audit: AuditLog;
 }
 
@@ -37,25 +37,22 @@ interface RandomDreamState {
 
 // ─── Random Dream State I/O ──────────────────────────────────
 
-function randomDreamStatePath(clawforumDir: string): string {
-  return path.join(clawforumDir, '.random-dream-state.json');
-}
+const RANDOM_DREAM_STATE_FILE = '.random-dream-state.json';
 
-function loadRandomDreamState(clawforumDir: string): RandomDreamState {
+function loadRandomDreamState(fs: FileSystem): RandomDreamState {
   try {
     return JSON.parse(
-      fs.readFileSync(randomDreamStatePath(clawforumDir), 'utf-8')
+      fs.readSync(RANDOM_DREAM_STATE_FILE)
     ) as RandomDreamState;
   } catch {
     return { processedContractIds: [] };
   }
 }
 
-function saveRandomDreamState(clawforumDir: string, state: RandomDreamState): void {
-  fs.writeFileSync(
-    randomDreamStatePath(clawforumDir),
-    JSON.stringify(state, null, 2),
-    'utf-8'
+function saveRandomDreamState(fs: FileSystem, state: RandomDreamState): void {
+  fs.writeAtomicSync(
+    RANDOM_DREAM_STATE_FILE,
+    JSON.stringify(state, null, 2)
   );
 }
 
@@ -72,6 +69,7 @@ interface ProgressData {
 
 /** 计算契约权重（越高越优先） */
 function computeWeight(
+  fs: FileSystem,
   contractId: string,
   contractDir: string,
   clawId: string,
@@ -96,7 +94,7 @@ function computeWeight(
   // 近期完成：读 progress.json 中各 subtask 的 completed_at
   const progressPath = path.join(contractDir, 'progress.json');
   try {
-    const progress = JSON.parse(fs.readFileSync(progressPath, 'utf-8')) as ProgressData;
+    const progress = JSON.parse(fs.readSync(progressPath)) as ProgressData;
     const subtasks = Object.values(progress.subtasks ?? {});
 
     // 近期完成加权（7 天内权重最高）
@@ -127,25 +125,26 @@ function computeWeight(
 }
 
 function discoverWeightedContracts(
-  clawforumDir: string,
+  fs: FileSystem,
   state: RandomDreamState,
 ): WeightedContract[] {
-  const clawsDir = path.join(clawforumDir, 'claws');
-  if (!fs.existsSync(clawsDir)) return [];
+  if (!fs.existsSync('claws')) return [];
 
   const processedIds = new Set(state.processedContractIds);
   const clawsSeen = new Set<string>();
   const contracts: WeightedContract[] = [];
 
-  for (const clawId of fs.readdirSync(clawsDir)) {
-    const archiveDir = path.join(clawsDir, clawId, CONTRACT_DIR, 'archive');
+  for (const e of fs.listSync('claws', { includeDirs: true })) {
+    const clawId = e.name;
+    const archiveDir = path.join('claws', clawId, CONTRACT_DIR, 'archive');
     if (!fs.existsSync(archiveDir)) continue;
 
-    for (const contractId of fs.readdirSync(archiveDir)) {
+    for (const ce of fs.listSync(archiveDir, { includeDirs: true })) {
+      const contractId = ce.name;
       const contractDir = path.join(archiveDir, contractId);
-      if (!fs.statSync(contractDir).isDirectory()) continue;
+      if (!fs.statSync(contractDir).isDirectory) continue;
 
-      const { weight, hint } = computeWeight(contractId, contractDir, clawId, processedIds, clawsSeen);
+      const { weight, hint } = computeWeight(fs, contractId, contractDir, clawId, processedIds, clawsSeen);
       contracts.push({ clawId, contractId, contractDir, weight, hint });
     }
     // 注意：clawsSeen 在排序后才有意义，这里先收集全部，排序时更新
@@ -172,26 +171,26 @@ function discoverWeightedContracts(
 // ─── 等待任务结果 ────────────────────────────────────────────
 
 async function waitForTaskResult(
-  motionDir: string,
+  motionFs: FileSystem,
   taskId: string,
   timeoutMs: number,
   audit: AuditLog,
   pollIntervalMs = 30_000,
 ): Promise<string | null> {
   // .txt 由 TaskSystem.sendResult 在 subAgent.run() 完成后写入，是可靠的完成信号
-  const donePath = path.join(motionDir, 'tasks', 'results', taskId, 'result.txt');
+  const donePath = path.join('tasks', 'results', taskId, 'result.txt');
   // [DREAM_OUTPUT] 块由 appendToLog 写入 .log
-  const logPath  = path.join(motionDir, 'tasks', 'results', taskId, 'daemon.log');
+  const logPath  = path.join('tasks', 'results', taskId, 'daemon.log');
   const deadline = Date.now() + timeoutMs;
 
   while (Date.now() < deadline) {
-    if (fs.existsSync(donePath)) {
+    if (motionFs.existsSync(donePath)) {
       // 完成信号出现，读取日志内容
-      if (fs.existsSync(logPath)) {
-        return fs.readFileSync(logPath, 'utf-8');
+      if (motionFs.existsSync(logPath)) {
+        return motionFs.readSync(logPath);
       }
       // .log 不存在（极端情况），降级读 .txt
-      return fs.readFileSync(donePath, 'utf-8');
+      return motionFs.readSync(donePath);
     }
     await new Promise(r => setTimeout(r, pollIntervalMs));
   }
@@ -226,8 +225,8 @@ function extractDreamOutputs(log: string): DreamExtractionResult {
 // ─── 主函数 ──────────────────────────────────────────────────
 
 export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
-  const state = loadRandomDreamState(opts.clawforumDir);
-  const weightedContracts = discoverWeightedContracts(opts.clawforumDir, state);
+  const state = loadRandomDreamState(opts.fs);
+  const weightedContracts = discoverWeightedContracts(opts.fs, state);
 
   if (weightedContracts.length === 0) {
     opts.audit.write(MEMORY_AUDIT_EVENTS.RANDOM_DREAM_JOB, `step=skip_empty`);
@@ -253,7 +252,7 @@ export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
   opts.audit.write(MEMORY_AUDIT_EVENTS.RANDOM_DREAM_JOB, `step=subagent_started`, `taskId=${taskId}`);
 
   // 等待完成（最长 1h，每 30s 轮询）
-  const log = await waitForTaskResult(opts.motionDir, taskId, 3_600_000, opts.audit);
+  const log = await waitForTaskResult(opts.motionFs, taskId, 3_600_000, opts.audit);
   if (!log) {
     opts.audit.write(MEMORY_AUDIT_EVENTS.RANDOM_DREAM_WARNING, `reason=subagent_timeout`);
     console.warn('[cron:random-dream] sub-agent did not complete within timeout');
@@ -276,7 +275,7 @@ export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
       ...new Set([...state.processedContractIds, ...contractIds]),
     ],
   };
-  saveRandomDreamState(opts.clawforumDir, updatedState);
+  saveRandomDreamState(opts.fs, updatedState);
 
   // 投递到 motion inbox（motionAudit 已在调度前实例化，直接复用）
   new InboxWriter(opts.fs, path.join(opts.motionDir, 'inbox', 'pending'), motionAudit).writeSync({

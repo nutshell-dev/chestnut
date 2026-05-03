@@ -10,6 +10,7 @@ export interface MemorySystemOptions {
   clawforumDir: string;
   motionDir: string;
   fs: FileSystem;
+  motionFs: FileSystem;               // baseDir = motionDir / NEW
   audit: AuditLog;
   taskSystem: TaskSystem;
   llmService: LLMOrchestrator;        // ← 注入 LLM（修 N1）
@@ -37,6 +38,7 @@ export class MemorySystem {
       motionDir: this.opts.motionDir,
       taskSystem: this.opts.taskSystem,
       fs: this.opts.fs,
+      motionFs: this.opts.motionFs,
       audit: this.opts.audit,
     });
   }
