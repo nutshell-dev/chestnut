@@ -4,8 +4,7 @@ import type { FileSystem } from '../../foundation/fs/types.js';
 import type { TaskSystem } from '../task/index.js';
 import { ContractSystem } from '../contract/manager.js';
 import type { SkillSystem } from '../../foundation/skill-system/index.js';
-import type { RetroScheduler } from './retro-scheduler.js';
-import { createDefaultRetroScheduler } from './retro-scheduler.js';
+import { scheduleRetro } from './retro-scheduler.js';
 import { RETRO_AUDIT_EVENTS } from './retro-audit-events.js';
 import * as path from 'path';
 import * as fsAsync from 'fs/promises';
@@ -21,7 +20,7 @@ export interface EvolutionSystemDeps {
   taskSystem: TaskSystem;
   contractManager: ContractSystem;
   skillRegistry?: SkillSystem;   // for SkillSystem.reload coordination
-  retroScheduler?: RetroScheduler;  // optional override / default = createDefaultRetroScheduler
+
 }
 
 export interface RetroResult {
@@ -57,10 +56,7 @@ function isProgrammingBug(err: unknown): boolean {
 }
 
 export class EvolutionSystem {
-  private readonly retroScheduler: RetroScheduler;
-
   constructor(private readonly deps: EvolutionSystemDeps) {
-    this.retroScheduler = deps.retroScheduler ?? createDefaultRetroScheduler();
   }
 
   async start(): Promise<void> {
@@ -183,9 +179,9 @@ export class EvolutionSystem {
       }
     }
 
-    // Part 3: retro scheduling via RetroScheduler port（A.3+A.4+A.5 / phase364）
+    // Part 3: retro scheduling via scheduleRetro standalone function（phase426 推翻 port 抽象）
     try {
-      await this.retroScheduler.schedule({
+      await scheduleRetro({
         targetClaw,
         contractId,
         contractYaml,

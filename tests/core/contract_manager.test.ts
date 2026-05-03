@@ -1,7 +1,7 @@
 /**
  * ContractSystem 测试 - 状态转换
  * 
- * 构造函数: new ContractSystem(clawDir, clawId, fs, audit, llm?, verifierScheduler?, retroScheduler?)
+ * 构造函数: new ContractSystem(clawDir, clawId, fs, audit, llm?, verifierScheduler?)
  * 
  * 新增测试：
  * - loadActive() 按 started_at 排序

@@ -1,6 +1,6 @@
 /**
  * @module L4.EvolutionSystem
- * RetroScheduler port — retro 调度抽象（phase411 物理迁自 contract/）。
+ * scheduleRetro — retro 调度 standalone function（phase426 port 抽象推翻 / phase411 物理迁自 contract/）。
  *
  * 内化 A.3+A.4+A.5（phase364）：
  * - buildRetroPrompt（A.3 / from prompts/retrospective）
@@ -29,48 +29,47 @@ export interface RetroConfig {
   audit: AuditLog;  // claw audit (for skill failure log)
 }
 
-export interface RetroScheduler {
-  schedule(config: RetroConfig): Promise<void>;
-}
-
-export function createDefaultRetroScheduler(): RetroScheduler {
-  return {
-    async schedule(config: RetroConfig): Promise<void> {
-      // 加载 dispatch-skills（A.5 / best-effort）
-      let skillsSummary = '';
-      try {
-        const reg = createSkillSystem(config.motionFs, DISPATCH_SKILLS_DIR);
-        await reg.loadAll();
-        const formatted = reg.formatForContext();
-        if (!formatted.includes('No skills loaded')) {
-          skillsSummary = formatted;
-        }
-      } catch (e) {
-        config.audit.write(RETRO_AUDIT_EVENTS.SKILL_FAILED,
-          `err=${e instanceof Error ? e.message : String(e)}`);
-      }
-
-      // 构建 retroPrompt（A.3）
-      const retroPrompt = buildRetroPrompt(
-        config.targetClaw, config.contractId, config.contractYaml, skillsSummary
-      );
-      const retroMessages: Message[] = [
-        ...config.baseMessages,
-        { role: 'user', content: retroPrompt },
-      ];
-
-      // 调度 retro subagent（A.4）
-      await writePendingSubagentTaskFile(config.motionFs, config.motionAudit, {
-        kind: 'subagent',
-        prompt: '',
-        messages: retroMessages,
-        tools: ['read', 'write', 'skill', 'exec'],
-        timeout: 600,
-        maxSteps: DEFAULT_MAX_STEPS,
-        idleTimeoutMs: DEFAULT_LLM_IDLE_TIMEOUT_MS,
-        parentClawId: 'motion',
-        originClawId: 'motion',
-      });
+/**
+ * scheduleRetro
+ *
+ * 输入：RetroConfig（targetClaw / contractId / contractYaml / motionFs / motionAudit / motionBaseDir / baseMessages / audit）
+ * 输出：Promise<void>
+ * 边界：1:1 保留原 schedule body / 仅删 port abstraction wrapper
+ */
+export async function scheduleRetro(config: RetroConfig): Promise<void> {
+  // 加载 dispatch-skills（A.5 / best-effort）
+  let skillsSummary = '';
+  try {
+    const reg = createSkillSystem(config.motionFs, DISPATCH_SKILLS_DIR);
+    await reg.loadAll();
+    const formatted = reg.formatForContext();
+    if (!formatted.includes('No skills loaded')) {
+      skillsSummary = formatted;
     }
-  };
+  } catch (e) {
+    config.audit.write(RETRO_AUDIT_EVENTS.SKILL_FAILED,
+      `err=${e instanceof Error ? e.message : String(e)}`);
+  }
+
+  // 构建 retroPrompt（A.3）
+  const retroPrompt = buildRetroPrompt(
+    config.targetClaw, config.contractId, config.contractYaml, skillsSummary
+  );
+  const retroMessages: Message[] = [
+    ...config.baseMessages,
+    { role: 'user', content: retroPrompt },
+  ];
+
+  // 调度 retro subagent（A.4）
+  await writePendingSubagentTaskFile(config.motionFs, config.motionAudit, {
+    kind: 'subagent',
+    prompt: '',
+    messages: retroMessages,
+    tools: ['read', 'write', 'skill', 'exec'],
+    timeout: 600,
+    maxSteps: DEFAULT_MAX_STEPS,
+    idleTimeoutMs: DEFAULT_LLM_IDLE_TIMEOUT_MS,
+    parentClawId: 'motion',
+    originClawId: 'motion',
+  });
 }

@@ -18,8 +18,7 @@ import { LOCK_MAX_RETRIES, LOCK_RETRY_DELAY_MS, LOCK_STALE_TIMEOUT_MS, CONTRACT_
 import { InboxWriter } from '../../foundation/messaging/index.js';
 import type { ContractVerifierScheduler } from './verifier-scheduler.js';
 import { createSubAgentVerifierScheduler } from './verifier-scheduler.js';
-import type { RetroScheduler } from '../evolution-system/retro-scheduler.js';
-import { createDefaultRetroScheduler } from '../evolution-system/retro-scheduler.js';
+
 import { AuditWriter } from '../../foundation/audit/index.js';
 import type { Message } from '../../types/message.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
@@ -94,7 +93,7 @@ export class ContractSystem {
   private readonly audit: AuditWriter;
   private llm?: LLMOrchestrator;
   private verifierScheduler: ContractVerifierScheduler;
-  private retroScheduler: RetroScheduler;
+
   private activeDir = 'contract/active';
   private pausedDir = 'contract/paused';
   private archiveDir = 'contract/archive';
@@ -107,7 +106,6 @@ export class ContractSystem {
     audit: AuditWriter,
     llm?: LLMOrchestrator,
     verifierScheduler?: ContractVerifierScheduler,
-    retroScheduler?: RetroScheduler,
   ) {
     this.clawDir = clawDir;
     this.clawId = clawId;
@@ -115,7 +113,7 @@ export class ContractSystem {
     this.audit = audit;
     this.llm = llm;
     this.verifierScheduler = verifierScheduler ?? createSubAgentVerifierScheduler();
-    this.retroScheduler = retroScheduler ?? createDefaultRetroScheduler();
+
   }
 
   setOnNotify(cb: (type: string, data: Record<string, unknown>) => void): void {
