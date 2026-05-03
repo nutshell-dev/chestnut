@@ -23,11 +23,13 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import { SUBAGENT_AUDIT_EVENTS, REACT_LOOP_AUDIT_EVENTS } from './audit-events.js';
 import type { StreamLog } from '../../foundation/stream/types.js';
 import type { CallerType } from '../../foundation/tool-protocol/caller-type.js';
+import type { DialogStore } from '../../foundation/dialog-store/index.js';
 import { callerTypeToProfile } from '../../foundation/tool-protocol/caller-type.js';
 
 export interface SubAgentOptions {
   agentId: string;
   resultDir: string;        // phase443: caller 注入完整 path（如 `tasks/results/${task.id}`）/ SubAgent 0 知字符串约定
+  messageStore: DialogStore;             // phase453: caller 装配期注入 ephemeral DialogStore（filename='messages.json' / 0 clawId / 0 archive 触发）
   prompt: string;
   clawDir: string;
   llm: LLMOrchestrator;
@@ -53,6 +55,7 @@ export interface SubAgentOptions {
 export class SubAgent {
   private agentId: string;
   private resultDir: string;
+  private messageStore: DialogStore;
   private prompt: string;
   private clawDir: string;
   private llm: LLMOrchestrator;
@@ -78,6 +81,7 @@ export class SubAgent {
   constructor(options: SubAgentOptions) {
     this.agentId = options.agentId;
     this.resultDir = options.resultDir;
+    this.messageStore = options.messageStore;
     this.prompt = options.prompt;
     this.clawDir = options.clawDir;
     this.llm = options.llm;
@@ -319,10 +323,7 @@ export class SubAgent {
 
       // 持久化 messages 供复盘子代理继承（best-effort，不影响主流程）
       try {
-        await this.fs.writeAtomic(
-          `${this.resultDir}/messages.json`,         // phase443: path 迁 caller 注入 / fs.writeAtomic 调用保留 / A.r60+1 涉 L2 推后
-          JSON.stringify(messages),
-        );
+        await this.messageStore.save(messages);     // phase453: A.r60+1 落地 / 经 L2 DialogStore / SubAgent 0 知 fs / 0 知 SessionData wrapper schema
       } catch (e) {
         this.auditWriter.write(
           SUBAGENT_AUDIT_EVENTS.PERSIST_FAILED,

@@ -5,6 +5,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SubAgent } from '../../src/core/subagent/agent.js';
 import { NoopStreamWriter, NoopAuditWriter } from '../../src/core/subagent/noop-writers.js';
+import { createDialogStore } from '../../src/foundation/dialog-store/index.js';
 import type { FileSystem } from '../../src/foundation/fs/types.js';
 import type { LLMOrchestrator } from '../../src/foundation/llm-orchestrator/index.js';
 import type { ToolRegistryImpl } from '../../src/foundation/tools/registry.js';
@@ -71,6 +72,12 @@ function makeSubAgent(
     agent: new SubAgent({
       agentId: 'test-agent',
       resultDir: 'tasks/results/test-agent',
+      messageStore: createDialogStore(
+        mockFs,
+        'tasks/results/test-agent',
+        mockAuditWriter,
+        'messages.json',
+      ),
       prompt: 'do something',
       clawDir: '/tmp/test',
       llm: mockLLM,

@@ -17,6 +17,7 @@ import { ProcessExecError } from '../../foundation/process-exec/index.js';
 import { LOCK_MAX_RETRIES, LOCK_RETRY_DELAY_MS, LOCK_STALE_TIMEOUT_MS, CONTRACT_SCRIPT_TIMEOUT_MS, DEFAULT_LLM_IDLE_TIMEOUT_MS, DEFAULT_MAX_STEPS } from '../../constants.js';
 import { InboxWriter } from '../../foundation/messaging/index.js';
 import { createSubAgent, NoopStreamWriter, NoopAuditWriter } from '../subagent/index.js';
+import { createDialogStore } from '../../foundation/dialog-store/index.js';
 import { ReportResultTool } from '../../foundation/tools/report-result.js';
 import { ToolRegistryImpl } from '../../foundation/tools/registry.js';
 import { CONTRACT_VERIFIER_SYSTEM_PROMPT } from '../../prompts/subagent.js';
@@ -1246,6 +1247,12 @@ export class ContractSystem {
       const agent = createSubAgent({
         agentId: config.agentId,
         resultDir: `tasks/results/${config.agentId}`,             // phase443: 保现行为（Noop writers 不消费 / 0 行为差）
+        messageStore: createDialogStore(           // phase453: verifier ephemeral DialogStore 装配
+          config.fs as any,
+          `tasks/results/${config.agentId}`,
+          new NoopAuditWriter(),                   // verifier 用 Noop（保现行为）
+          'messages.json',
+        ),
         prompt: config.prompt,
         clawDir: config.clawDir,
         llm: config.llm,

@@ -9,6 +9,7 @@ import type { CallerType } from '../../foundation/tool-protocol/caller-type.js';
 import { callerTypeToProfile } from '../../foundation/tool-protocol/caller-type.js';
 import { ToolRegistryImpl } from '../../foundation/tools/registry.js';
 import { createSubAgent } from '../subagent/index.js';
+import { createDialogStore } from '../../foundation/dialog-store/index.js';
 import { DEFAULT_LLM_IDLE_TIMEOUT_MS } from '../../constants.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
 import { sendResult, sendFallbackError } from './result-delivery.js';
@@ -99,6 +100,12 @@ export async function executeSubAgentTask(
     const subAgent = createSubAgent({
       agentId: task.id,
       resultDir: `tasks/results/${task.id}`,                      // phase443: TaskSystem own 字符串约定
+      messageStore: createDialogStore(           // phase453: ephemeral DialogStore 装配 / 0 clawId / 0 archive 触发
+        fs,
+        `tasks/results/${task.id}`,             // baseDir = resultDir
+        taskAuditWriter,                         // per-task audit writer
+        'messages.json',                         // filename 必填
+      ),
       prompt: task.prompt,
       clawDir,
       llm,

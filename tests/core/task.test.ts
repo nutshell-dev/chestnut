@@ -11,6 +11,7 @@ import { randomUUID } from 'crypto';
 import { TaskSystem } from '../../src/core/task/system.js';
 import { SubAgent } from '../../src/core/subagent/agent.js';
 import { NoopStreamWriter, NoopAuditWriter } from '../../src/core/subagent/noop-writers.js';
+import { createDialogStore } from '../../src/foundation/dialog-store/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
 import { ToolRegistryImpl } from '../../src/foundation/tools/registry.js';
 import { registerBuiltinTools } from '../../src/foundation/tools/builtins/index.js';
@@ -685,6 +686,12 @@ describe('Task System + SubAgent', () => {
       const agent = new SubAgent({
         agentId: 'test-agent-1',
         resultDir: 'tasks/results/test-agent-1',
+        messageStore: createDialogStore(
+          mockFs,
+          'tasks/results/test-agent-1',
+          new NoopAuditWriter(),
+          'messages.json',
+        ),
         prompt: 'Do something',
         clawDir: tempDir,
         llm: mockLLM,
@@ -722,6 +729,12 @@ describe('Task System + SubAgent', () => {
       const agent = new SubAgent({
         agentId: 'test-agent-2',
         resultDir: 'tasks/results/test-agent-2',
+        messageStore: createDialogStore(
+          mockFs,
+          'tasks/results/test-agent-2',
+          new NoopAuditWriter(),
+          'messages.json',
+        ),
         prompt: 'Read test.txt',
         clawDir: tempDir,
         llm: mockLLM,
@@ -757,6 +770,12 @@ describe('Task System + SubAgent', () => {
       const agent = new SubAgent({
         agentId: 'test-agent-exec',
         resultDir: 'tasks/results/test-agent-exec',
+        messageStore: createDialogStore(
+          mockFs,
+          'tasks/results/test-agent-exec',
+          new NoopAuditWriter(),
+          'messages.json',
+        ),
         prompt: 'Run echo command',
         clawDir: tempDir,
         llm: mockLLM,
@@ -802,6 +821,12 @@ describe('Task System + SubAgent', () => {
       const agent = new SubAgent({
         agentId: 'test-agent-3',
         resultDir: 'tasks/results/test-agent-3',
+        messageStore: createDialogStore(
+          mockFs,
+          'tasks/results/test-agent-3',
+          new NoopAuditWriter(),
+          'messages.json',
+        ),
         prompt: 'Slow task',
         clawDir: tempDir,
         llm: mockLLM,
@@ -832,6 +857,12 @@ describe('Task System + SubAgent', () => {
       const agent = new SubAgent({
         agentId: 'test-idle',
         resultDir: 'tasks/results/test-idle',
+        messageStore: createDialogStore(
+          mockFs,
+          'tasks/results/test-idle',
+          new NoopAuditWriter(),
+          'messages.json',
+        ),
         prompt: 'Test idle',
         clawDir: tempDir,
         llm: hangingLLM,
@@ -864,6 +895,12 @@ describe('Task System + SubAgent', () => {
       const agent = new SubAgent({
         agentId: 'test-append-fail',
         resultDir: 'tasks/results/test-append-fail',
+        messageStore: createDialogStore(
+          throwingFs,
+          'tasks/results/test-append-fail',
+          mockAuditWriter as any,
+          'messages.json',
+        ),
         prompt: 'Test',
         clawDir: tempDir,
         llm: createMockLLM([{
