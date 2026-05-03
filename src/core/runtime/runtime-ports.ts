@@ -13,12 +13,12 @@ import type { OutboxWriteOptions } from '../../foundation/messaging/outbox-write
 import type { SessionData } from '../../foundation/session-store/types.js';
 import type { ToolResult } from '../tools/executor.js';
 import type { ToolRegistry, IToolExecutor, ExecContext } from '../tools/executor.js';
-import type { Audit } from '../../foundation/audit/index.js';
+import type { AuditLog } from '../../foundation/audit/index.js';
 import type { SubAgentTaskInfo } from '../task/index.js';
 
 // === L2 Foundation ports ===
 
-/** Audit writer port */
+/** AuditLog writer port */
 export interface AuditPort {
   write(event: string, ...keyVals: (string | number)[]): void;
 }
@@ -89,7 +89,7 @@ export interface TaskLifecyclePort {
     handler: (taskId: string, callerType: string | undefined, result: string, isError: boolean) => Promise<string>,
   ): () => void;
   /** 写 pending subagent task file（fs-driven schedule / 不入 in-memory queue）/ 返 taskId / phase412 port 化 cross-layer */
-  writePendingSubAgentTask(motionAudit: Audit, taskInfo: SubAgentTaskInfo): Promise<string>;
+  writePendingSubAgentTask(motionAudit: AuditLog, taskInfo: SubAgentTaskInfo): Promise<string>;
 }
 
 // === L2(旧L5) port ===

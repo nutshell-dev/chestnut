@@ -17,7 +17,7 @@ import { loadGlobalConfig, loadClawConfig, getClawDir, getMotionDir } from '../f
 import { startDaemonLoop } from './daemon-loop.js';
 import { NodeFileSystem } from '../foundation/fs/node-fs.js';
 import { AuditWriter } from '../foundation/audit/writer.js';
-import { createSystemAudit, type Audit } from '../foundation/audit/index.js';
+import { createSystemAudit, type AuditLog } from '../foundation/audit/index.js';
 import { createAgentProcessManager } from '../cli/commands/process-manager-factory.js';
 
 import { CliError } from '../cli/errors.js';
@@ -41,7 +41,7 @@ export async function daemonCommand(name: string): Promise<void> {
 
   // pre-assemble audit sink（phase189 §7.A3 清零；assemble 前的失败也需 audit）
   const preAssembleFs = new NodeFileSystem({ baseDir: dir });
-  const preAssembleAudit: Audit = createSystemAudit(preAssembleFs, dir);
+  const preAssembleAudit: AuditLog = createSystemAudit(preAssembleFs, dir);
 
   // ProcessManager 接管 PID 文件
   const processManager = createAgentProcessManager(preAssembleAudit);

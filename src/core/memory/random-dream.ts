@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { MEMORY_AUDIT_EVENTS } from './audit-events.js';
-import type { Audit } from '../../foundation/audit/index.js';
+import type { AuditLog } from '../../foundation/audit/index.js';
 import type { TaskLifecyclePort } from '../runtime/runtime-ports.js';
 import { TOOL_PROFILES } from '../tools/profiles.js';
 import { InboxWriter } from '../../foundation/messaging/index.js';
@@ -20,7 +20,7 @@ export interface RandomDreamOptions {
   motionDir: string;
   taskSystem: TaskLifecyclePort;
   fs: FileSystem;
-  audit: Audit;
+  audit: AuditLog;
 }
 
 interface WeightedContract {
@@ -175,7 +175,7 @@ async function waitForTaskResult(
   motionDir: string,
   taskId: string,
   timeoutMs: number,
-  audit: Audit,
+  audit: AuditLog,
   pollIntervalMs = 30_000,
 ): Promise<string | null> {
   // .txt 由 TaskSystem.sendResult 在 subAgent.run() 完成后写入，是可靠的完成信号

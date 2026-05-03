@@ -16,7 +16,7 @@ import { MOTION_CLAW_ID, DEFAULT_MAX_STEPS } from '../../constants.js';
 
 
 import type { Message } from '../../types/message.js';
-import type { Audit } from '../../foundation/audit/index.js';
+import type { AuditLog } from '../../foundation/audit/index.js';
 import type { CallerType } from './caller-type.js';
 
 /**
@@ -57,8 +57,8 @@ export interface ExecContextImplOptions {
   dialogMessages?: Message[];
   /** 创建链路的源头 clawId，由 dispatch/spawn 传播 */
   originClawId?: string;
-  /** Audit writer for tool events */
-  auditWriter?: Audit;
+  /** AuditLog writer for tool events */
+  auditWriter?: AuditLog;
 }
 
 /**
@@ -97,7 +97,7 @@ export class ExecContextImpl implements ExecContext {
   subagentMaxSteps: number;
   dialogMessages?: Message[];
   originClawId?: string;
-  auditWriter?: Audit;
+  auditWriter?: AuditLog;
   
   private startTime: number;
 

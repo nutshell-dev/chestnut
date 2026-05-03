@@ -7,7 +7,7 @@
 import { InboxWriter } from './inbox-writer.js';
 import type { InboxMessageOptionsBase } from './inbox-writer.js';
 import type { FileSystem } from '../fs/types.js';
-import type { Audit } from '../audit/index.js';
+import type { AuditLog } from '../audit/index.js';
 
 /**
  * Send an inbox notification with standardized error handling.
@@ -16,7 +16,7 @@ import type { Audit } from '../audit/index.js';
 export function notifyInbox(
   fs: FileSystem,
   opts: InboxMessageOptionsBase & { inboxDir: string },
-  audit: Audit,
+  audit: AuditLog,
   context?: string,
 ): void {
   try {
@@ -36,7 +36,7 @@ export function notifySystem(
   fs: FileSystem,
   inboxDir: string,
   body: string,
-  audit: Audit,
+  audit: AuditLog,
   options?: {
     type?: string;
     priority?: 'critical' | 'high' | 'normal' | 'low';

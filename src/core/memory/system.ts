@@ -1,5 +1,5 @@
 import type { FileSystem } from '../../foundation/fs/types.js';
-import type { Audit } from '../../foundation/audit/index.js';
+import type { AuditLog } from '../../foundation/audit/index.js';
 import type { TaskLifecyclePort } from '../runtime/runtime-ports.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/index.js';
@@ -10,7 +10,7 @@ export interface MemorySystemOptions {
   clawforumDir: string;
   motionDir: string;
   fs: FileSystem;
-  audit: Audit;
+  audit: AuditLog;
   taskSystem: TaskLifecyclePort;
   llmService: LLMOrchestrator;        // ← 注入 LLM（修 N1）
   llmConfig: LLMOrchestratorConfig;   // deep-dream 内部仍需 config（state file 路径等）

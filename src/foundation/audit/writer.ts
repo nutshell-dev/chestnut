@@ -1,13 +1,13 @@
 import { FileNotFoundError } from '../../types/errors.js';
 import type { FileSystem } from '../fs/types.js';
-import type { Audit } from './index.js';
+import type { AuditLog } from './index.js';
 
 /** audit.tsv 相对路径 */
 // AUDIT_FILE 是文件名（相对路径），不含目录。
 // 调用方负责通过 fs.baseDir 或 createSystemAudit helper 拼接完整路径。
 export const AUDIT_FILE = 'audit.tsv';
 
-export class AuditWriter implements Audit {
+export class AuditWriter implements AuditLog {
   private maxBytes: number | null;
 
   constructor(

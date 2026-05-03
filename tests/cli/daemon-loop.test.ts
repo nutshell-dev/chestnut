@@ -9,7 +9,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fsNative from 'fs';
 import { waitForInbox, startDaemonLoop } from '../../src/daemon/daemon-loop.js';
 import type { ClawRuntime } from '../../src/core/runtime/index.js';
-import type { Audit } from '../../src/foundation/audit/index.js';
+import type { AuditLog } from '../../src/foundation/audit/index.js';
 import type { Watcher } from '../../src/foundation/file-watcher/types.js';
 import type { FileSystem } from '../../src/foundation/fs/types.js';
 import { createWatcher } from '../../src/foundation/file-watcher/index.js';
@@ -65,7 +65,7 @@ describe('startDaemonLoop interrupt poller circuit breaker', () => {
       agentDir: '/tmp/test-agent-fix9',
       clawId: 'test-agent-fix9',
       label: '[test-fix9]',
-      audit: mockAudit as unknown as Audit,
+      audit: mockAudit as unknown as AuditLog,
       inbox: { pendingDir: '/tmp/test-inbox-fix9', fallbackTimeoutMs: 60_000 },
     });
 
@@ -82,7 +82,7 @@ describe('startDaemonLoop interrupt poller circuit breaker', () => {
       expect.stringContaining('disabling'),
     );
 
-    // Audit: iteration wait + poller disabled
+    // AuditLog: iteration wait + poller disabled
     expect(mockAudit.write).toHaveBeenCalledWith(
       'daemon_loop_iteration',
       'type=wait',
@@ -130,7 +130,7 @@ describe('startDaemonLoop - LLM retry', () => {
       agentDir: '/tmp/daemon-llm-retry-test',
       clawId: 'daemon-llm-retry-test',
       label: '[retry-test]',
-      audit: mockAudit as unknown as Audit,
+      audit: mockAudit as unknown as AuditLog,
       inbox: { pendingDir: '/tmp/daemon-llm-retry-test/inbox/pending', fallbackTimeoutMs: 1_000 },
     });
 
@@ -145,7 +145,7 @@ describe('startDaemonLoop - LLM retry', () => {
     expect(retryLastTurn).toHaveBeenCalledTimes(1);
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('retrying'));
 
-    // Audit: llm_retry attempt=1
+    // AuditLog: llm_retry attempt=1
     expect(mockAudit.write).toHaveBeenCalledWith(
       'daemon_loop_llm_retry',
       'attempt=1',
@@ -176,7 +176,7 @@ describe('startDaemonLoop - LLM retry', () => {
       agentDir: '/tmp/agent-max-retry',
       clawId: 'agent-max-retry',
       label: '[max-retry-test]',
-      audit: mockAudit as unknown as Audit,
+      audit: mockAudit as unknown as AuditLog,
       inbox: { pendingDir: '/tmp/agent-max-retry/inbox/pending', fallbackTimeoutMs: 100 },
     });
 
@@ -198,7 +198,7 @@ describe('startDaemonLoop - LLM retry', () => {
       expect.stringContaining('LLM max retries'),
     );
 
-    // Audit: llm_retry × 3 + fatal
+    // AuditLog: llm_retry × 3 + fatal
     expect(mockAudit.write).toHaveBeenCalledWith(
       'daemon_loop_llm_retry',
       'attempt=1',
@@ -249,7 +249,7 @@ describe('startDaemonLoop - LLM retry', () => {
       agentDir: '/tmp/non-llm-error-test',
       clawId: 'non-llm-error-test',
       label: '[non-llm-test]',
-      audit: mockAudit as unknown as Audit,
+      audit: mockAudit as unknown as AuditLog,
       inbox: { pendingDir: '/tmp/non-llm-error-test/inbox/pending', fallbackTimeoutMs: 500 },
     });
 
@@ -263,7 +263,7 @@ describe('startDaemonLoop - LLM retry', () => {
       expect.any(Error),
     );
 
-    // Audit: fatal non_llm_error
+    // AuditLog: fatal non_llm_error
     expect(mockAudit.write).toHaveBeenCalledWith(
       'daemon_loop_fatal',
       'reason=non_llm_error',
@@ -297,7 +297,7 @@ describe('startDaemonLoop - interrupt audit', () => {
       agentDir: '/tmp/idle-test',
       clawId: 'idle-test',
       label: '[idle-test]',
-      audit: mockAudit as unknown as Audit,
+      audit: mockAudit as unknown as AuditLog,
       inbox: { pendingDir: '/tmp/idle-test/inbox/pending', fallbackTimeoutMs: 1_000 },
     });
 
@@ -328,7 +328,7 @@ describe('startDaemonLoop - interrupt audit', () => {
       agentDir: '/tmp/user-test',
       clawId: 'user-test',
       label: '[user-test]',
-      audit: mockAudit as unknown as Audit,
+      audit: mockAudit as unknown as AuditLog,
       inbox: { pendingDir: '/tmp/user-test/inbox/pending', fallbackTimeoutMs: 1_000 },
     });
 
@@ -359,7 +359,7 @@ describe('startDaemonLoop - interrupt audit', () => {
       agentDir: '/tmp/priority-test',
       clawId: 'priority-test',
       label: '[priority-test]',
-      audit: mockAudit as unknown as Audit,
+      audit: mockAudit as unknown as AuditLog,
       inbox: { pendingDir: '/tmp/priority-test/inbox/pending', fallbackTimeoutMs: 1_000 },
     });
 
@@ -396,7 +396,7 @@ describe('startDaemonLoop - iteration audit', () => {
       agentDir: '/tmp/chain-test',
       clawId: 'chain-test',
       label: '[chain-test]',
-      audit: mockAudit as unknown as Audit,
+      audit: mockAudit as unknown as AuditLog,
       inbox: { pendingDir: '/tmp/chain-test/inbox/pending', fallbackTimeoutMs: 1_000 },
     });
 
@@ -438,7 +438,7 @@ describe('waitForInbox', () => {
       ensureDirSync: vi.fn(),
       resolve: vi.fn((p: string) => p),
     } as unknown as FileSystem;
-    const mockAudit = { write: vi.fn() } as unknown as Audit;
+    const mockAudit = { write: vi.fn() } as unknown as AuditLog;
 
     const promise = waitForInbox(mockFs, mockAudit, '/tmp/inbox', 60_000);
 
@@ -459,7 +459,7 @@ describe('waitForInbox', () => {
     vi.mocked(createWatcher).mockReturnValue(mockWatcher as unknown as Watcher);
 
     const mockFs = { ensureDirSync: vi.fn(), resolve: vi.fn((p: string) => p) } as unknown as FileSystem;
-    const mockAudit = { write: vi.fn() } as unknown as Audit;
+    const mockAudit = { write: vi.fn() } as unknown as AuditLog;
 
     const promise = waitForInbox(mockFs, mockAudit, '/tmp/inbox', 1_000);
 
@@ -476,7 +476,7 @@ describe('waitForInbox', () => {
       ensureDirSync: vi.fn(() => { throw new Error('EACCES'); }),
       resolve: vi.fn((p: string) => p),
     } as unknown as FileSystem;
-    const mockAudit = { write: vi.fn() } as unknown as Audit;
+    const mockAudit = { write: vi.fn() } as unknown as AuditLog;
 
     const promise = waitForInbox(mockFs, mockAudit, '/tmp/inbox', 60_000);
 
@@ -496,7 +496,7 @@ describe('waitForInbox', () => {
     });
 
     const mockFs = { ensureDirSync: vi.fn(), resolve: vi.fn((p: string) => p) } as unknown as FileSystem;
-    const mockAudit = { write: vi.fn() } as unknown as Audit;
+    const mockAudit = { write: vi.fn() } as unknown as AuditLog;
 
     const promise = waitForInbox(mockFs, mockAudit, '/tmp/inbox', 1_000);
     await Promise.resolve();

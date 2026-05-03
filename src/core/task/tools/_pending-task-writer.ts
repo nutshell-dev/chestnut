@@ -8,7 +8,7 @@
 import { randomUUID } from 'crypto';
 import { TASKS_PENDING_DIR } from '../../../types/paths.js';
 import type { FileSystem } from '../../../foundation/fs/types.js';
-import type { Audit } from '../../../foundation/audit/index.js';
+import type { AuditLog } from '../../../foundation/audit/index.js';
 import type { SubAgentTask } from '../system.js';
 
 /**
@@ -17,7 +17,7 @@ import type { SubAgentTask } from '../system.js';
  */
 export async function writePendingSubagentTaskFile(
   fs: FileSystem,
-  audit: Audit | undefined,
+  audit: AuditLog | undefined,
   args: Omit<SubAgentTask, 'id' | 'createdAt'>,
 ): Promise<string> {
   const taskId = randomUUID();

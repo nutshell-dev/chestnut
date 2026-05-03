@@ -22,7 +22,7 @@ import { runChatViewport } from './chat-viewport.js';
 import { buildAgentsMdTemplate } from '../../prompts/index.js';
 import { readAll, STREAM_FILE } from '../../foundation/stream/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
-import type { Audit } from '../../foundation/audit/index.js';
+import type { AuditLog } from '../../foundation/audit/index.js';
 
 /**
  * Format relative time (milliseconds to a human-readable string)
@@ -41,7 +41,7 @@ const LLM_OUTPUT_EVENTS = new Set(['thinking_delta', 'text_delta', 'tool_call'])
 /**
  * 从 stream.jsonl 读取最后活跃时间（统一与 watchdog 指标）
  */
-async function getLastActiveMs(clawFs: FileSystem, audit: Audit): Promise<number | undefined> {
+async function getLastActiveMs(clawFs: FileSystem, audit: AuditLog): Promise<number | undefined> {
   try {
     const events = await readAll(clawFs, STREAM_FILE, audit);
     let last: number | undefined;

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { Audit } from '../../../src/foundation/audit/index.js';
+import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import { CRON_AUDIT_EVENTS } from '../../../src/core/cron/audit-events.js';
 import {
   CronRunner,
@@ -36,7 +36,7 @@ describe('parseSchedule', () => {
   it('unknown format + audit → cron_parse_fallback audit written', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const audit = makeMockAudit();
-    parseSchedule('bogus', audit as unknown as Audit);
+    parseSchedule('bogus', audit as unknown as AuditLog);
     expect(audit.write).toHaveBeenCalledWith(CRON_AUDIT_EVENTS.PARSE_FALLBACK, 'input=bogus', 'fallback=hourly');
     warnSpy.mockRestore();
   });
@@ -72,7 +72,7 @@ describe('CronRunner', () => {
   it('start is idempotent（重复调 timer 唯一）', () => {
     const setIntervalSpy = vi.spyOn(global, 'setInterval');
     const job: CronJob = { name: 'test', enabled: true, schedule: { type: 'hourly' }, handler: vi.fn() };
-    const runner = new CronRunner([job], audit as unknown as Audit);
+    const runner = new CronRunner([job], audit as unknown as AuditLog);
     runner.start();
     expect(setIntervalSpy).toHaveBeenCalledTimes(1);
     runner.start();
@@ -82,7 +82,7 @@ describe('CronRunner', () => {
 
   it('start() writes cron_runner_started audit', () => {
     const job: CronJob = { name: 'test', enabled: true, schedule: { type: 'hourly' }, handler: vi.fn() };
-    const runner = new CronRunner([job], audit as unknown as Audit);
+    const runner = new CronRunner([job], audit as unknown as AuditLog);
     runner.start();
     expect(audit.write).toHaveBeenCalledWith(CRON_AUDIT_EVENTS.RUNNER_STARTED, 'jobs=1');
     runner.stop();
@@ -90,7 +90,7 @@ describe('CronRunner', () => {
 
   it('stop() writes cron_runner_stopped audit', () => {
     const job: CronJob = { name: 'test', enabled: true, schedule: { type: 'hourly' }, handler: vi.fn() };
-    const runner = new CronRunner([job], audit as unknown as Audit);
+    const runner = new CronRunner([job], audit as unknown as AuditLog);
     runner.start();
     audit.write.mockClear();
     runner.stop();
@@ -100,7 +100,7 @@ describe('CronRunner', () => {
   it('stop clears timer; subsequent tick no-op', () => {
     const handler = vi.fn().mockResolvedValue(undefined);
     const job: CronJob = { name: 'test', enabled: true, schedule: { type: 'hourly' }, handler };
-    const runner = new CronRunner([job], audit as unknown as Audit);
+    const runner = new CronRunner([job], audit as unknown as AuditLog);
     runner.start();
     runner.stop();
     vi.advanceTimersByTime(5000);
@@ -110,7 +110,7 @@ describe('CronRunner', () => {
   it('tick triggers enabled job', async () => {
     const handler = vi.fn().mockResolvedValue(undefined);
     const job: CronJob = { name: 'test', enabled: true, schedule: { type: 'hourly' }, handler };
-    const runner = new CronRunner([job], audit as unknown as Audit);
+    const runner = new CronRunner([job], audit as unknown as AuditLog);
     runner.tick();
     expect(handler).toHaveBeenCalledTimes(1);
     await Promise.resolve();
@@ -120,7 +120,7 @@ describe('CronRunner', () => {
   it('tick skips disabled job', () => {
     const handler = vi.fn();
     const job: CronJob = { name: 'test', enabled: false, schedule: { type: 'hourly' }, handler };
-    const runner = new CronRunner([job], audit as unknown as Audit);
+    const runner = new CronRunner([job], audit as unknown as AuditLog);
     runner.tick();
     expect(handler).not.toHaveBeenCalled();
   });
@@ -128,7 +128,7 @@ describe('CronRunner', () => {
   it('tick dedupes within same run key', () => {
     const handler = vi.fn().mockResolvedValue(undefined);
     const job: CronJob = { name: 'test', enabled: true, schedule: { type: 'hourly' }, handler };
-    const runner = new CronRunner([job], audit as unknown as Audit);
+    const runner = new CronRunner([job], audit as unknown as AuditLog);
     runner.tick();
     runner.tick();
     expect(handler).toHaveBeenCalledTimes(1);
@@ -138,7 +138,7 @@ describe('CronRunner', () => {
     let resolveFn: () => void;
     const handler = vi.fn(() => new Promise<void>((r) => { resolveFn = r; }));
     const job: CronJob = { name: 'test', enabled: true, schedule: { type: 'hourly' }, handler };
-    const runner = new CronRunner([job], audit as unknown as Audit);
+    const runner = new CronRunner([job], audit as unknown as AuditLog);
     runner.tick();
     // handler 未 resolve，running.has('test') = true
     // 强制跨 key（advance 到下小时）
@@ -153,7 +153,7 @@ describe('CronRunner', () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const handler = vi.fn().mockRejectedValue(new Error('boom'));
     const job: CronJob = { name: 'failing', enabled: true, schedule: { type: 'hourly' }, handler };
-    const runner = new CronRunner([job], audit as unknown as Audit);
+    const runner = new CronRunner([job], audit as unknown as AuditLog);
     runner.tick();
     await vi.runAllTicks();
     expect(audit.write).toHaveBeenCalledWith(
@@ -168,7 +168,7 @@ describe('CronRunner', () => {
   it('computeRunKey: hourly format', async () => {
     const handler = vi.fn().mockResolvedValue(undefined);
     const job: CronJob = { name: 'test', enabled: true, schedule: { type: 'hourly' }, handler };
-    const runner = new CronRunner([job], audit as unknown as Audit);
+    const runner = new CronRunner([job], audit as unknown as AuditLog);
     runner.tick();
     expect(handler).toHaveBeenCalledTimes(1);
     await Promise.resolve();
@@ -181,7 +181,7 @@ describe('CronRunner', () => {
   it('computeRunKey: daily pending 态（未到目标时刻）', async () => {
     const handler = vi.fn().mockResolvedValue(undefined);
     const job: CronJob = { name: 'test', enabled: true, schedule: { type: 'daily', time: '06:00' }, handler };
-    const runner = new CronRunner([job], audit as unknown as Audit);
+    const runner = new CronRunner([job], audit as unknown as AuditLog);
     // 当前 10:30 >= 06:00 → 今日 key 立即触发
     runner.tick();
     expect(handler).toHaveBeenCalledTimes(1);
@@ -197,7 +197,7 @@ describe('CronRunner', () => {
   it('computeRunKey: interval block', async () => {
     const handler = vi.fn().mockResolvedValue(undefined);
     const job: CronJob = { name: 'test', enabled: true, schedule: { type: 'interval', minutes: 30 }, handler };
-    const runner = new CronRunner([job], audit as unknown as Audit);
+    const runner = new CronRunner([job], audit as unknown as AuditLog);
     runner.tick();
     expect(handler).toHaveBeenCalledTimes(1);
     await Promise.resolve();

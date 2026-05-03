@@ -19,7 +19,7 @@ import { oneLine } from '../../types/utils.js';
 import { DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../../prompts/index.js';
 import type { TaskScheduler } from '../tools/task-scheduler.js';
 import type { Message } from '../../types/message.js';
-import type { Audit } from '../../foundation/audit/index.js';
+import type { AuditLog } from '../../foundation/audit/index.js';
 import { SUBAGENT_AUDIT_EVENTS, REACT_LOOP_AUDIT_EVENTS } from './audit-events.js';
 import type { StreamLog } from '../../foundation/stream/types.js';
 import type { CallerType } from '../tools/caller-type.js';
@@ -47,7 +47,7 @@ export interface SubAgentOptions {
   messages?: Message[];                      // 若提供，直接用；否则从 prompt 构建
   originClawId?: string;                     // 创建链路源头，传给子 SubAgent
   taskStreamWriter: StreamLog;
-  auditWriter: Audit;          // tasks/results/{id}/audit.tsv，step 11+ 写事件
+  auditWriter: AuditLog;          // tasks/results/{id}/audit.tsv，step 11+ 写事件
 }
 
 export class SubAgent {
@@ -74,7 +74,7 @@ export class SubAgent {
   private messages?: Message[];
   private originClawId?: string;
   private taskStreamWriter: StreamLog;
-  private auditWriter: Audit;
+  private auditWriter: AuditLog;
 
   constructor(options: SubAgentOptions) {
     this.agentId = options.agentId;

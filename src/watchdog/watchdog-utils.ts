@@ -15,7 +15,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import type { FileSystem } from '../foundation/fs/types.js';
-import type { Audit } from '../foundation/audit/index.js';
+import type { AuditLog } from '../foundation/audit/index.js';
 import { readAll, STREAM_FILE } from '../foundation/stream/index.js';
 import { LLM_OUTPUT_EVENTS } from '../foundation/stream/types.js';
 import { CONTRACT_DIR } from '../types/paths.js';
@@ -29,7 +29,7 @@ export interface ClawActivityInfo {
 
 export async function getClawActivityInfo(
   clawFs: FileSystem,
-  audit: Audit,
+  audit: AuditLog,
 ): Promise<ClawActivityInfo> {
   try {
     const events = await readAll(clawFs, STREAM_FILE, audit);

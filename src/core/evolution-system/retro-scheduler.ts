@@ -14,7 +14,7 @@ import { createSkillRegistry } from '../skill/index.js';
 import { DISPATCH_SKILLS_PATH as DISPATCH_SKILLS_DIR } from './dispatch-skills-paths.js';
 import { DEFAULT_MAX_STEPS, DEFAULT_LLM_IDLE_TIMEOUT_MS } from '../../constants.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
-import type { Audit } from '../../foundation/audit/index.js';
+import type { AuditLog } from '../../foundation/audit/index.js';
 import type { Message } from '../../types/message.js';
 import { RETRO_AUDIT_EVENTS } from './retro-audit-events.js';
 
@@ -23,10 +23,10 @@ export interface RetroConfig {
   contractId: string;
   contractYaml: string;
   motionFs: FileSystem;
-  motionAudit: Audit;
+  motionAudit: AuditLog;
   motionBaseDir: string;
   baseMessages: Message[];
-  audit: Audit;  // claw audit (for skill failure log)
+  audit: AuditLog;  // claw audit (for skill failure log)
 }
 
 export interface RetroScheduler {

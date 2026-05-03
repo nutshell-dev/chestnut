@@ -3,7 +3,7 @@
  */
 import type { FileSystem } from '../fs/types.js';
 import { STREAM_FILE, type StreamEvent, type StreamLog } from './types.js';
-import type { Audit } from '../audit/index.js';
+import type { AuditLog } from '../audit/index.js';
 import { STREAM_AUDIT_EVENTS } from './audit-events.js';
 
 export interface StreamRetentionOptions {
@@ -16,11 +16,11 @@ const ARCHIVE_DIR = 'logs/stream';
 
 export class StreamWriter implements StreamLog {
   private fs: FileSystem;
-  private audit: Audit;
+  private audit: AuditLog;
   private retention: StreamRetentionOptions;
   private isOpen = false;
 
-  constructor(fs: FileSystem, audit: Audit, retention: StreamRetentionOptions = {}) {
+  constructor(fs: FileSystem, audit: AuditLog, retention: StreamRetentionOptions = {}) {
     this.fs = fs;
     this.audit = audit;
     this.retention = retention;

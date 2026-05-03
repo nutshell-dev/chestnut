@@ -733,7 +733,7 @@ Test message
       expect(doneFiles.some(f => f.endsWith('for-me.md'))).toBe(true);
       expect(doneFiles.some(f => f.endsWith('for-subagent.md'))).toBe(true);
 
-      // Audit log should show inbox_unaddressed for the subagent message
+      // AuditLog log should show inbox_unaddressed for the subagent message
       const auditLog = await fs.readFile(path.join(clawDir, 'audit.tsv'), 'utf-8');
       const entries = auditLog.trim().split('\n').map(line => line.split('\t'));
       const unaddressedEntry = entries.find((e: string[]) => e[1] === 'inbox_unaddressed');

@@ -614,7 +614,7 @@ export class ContractManager {
       }
       const subtaskTotal = contractYaml.subtasks.length;
       const completedCount = Object.values(progress.subtasks).filter(s => s.status === 'completed').length;
-      // Audit: subtask_completed
+      // AuditLog: subtask_completed
       this.audit.write(
         'subtask_completed',
         `${contractId}/${subtaskId}`,
@@ -726,7 +726,7 @@ export class ContractManager {
         }
         const subtaskTotal = contractYaml.subtasks.length;
         const completedCount = Object.values(progress.subtasks).filter(s => s.status === 'completed').length;
-        // Audit: subtask_completed
+        // AuditLog: subtask_completed
         this.audit.write(
           'subtask_completed',
           `${contractId}/${subtaskId}`,
@@ -734,7 +734,7 @@ export class ContractManager {
           `claw=${this.clawId}`,
         );
 
-        // Audit: acceptance_passed
+        // AuditLog: acceptance_passed
         this.audit.write(CONTRACT_AUDIT_EVENTS.PASSED, `${contractId}/${subtaskId}`);
 
         // Check all completed
@@ -749,7 +749,7 @@ export class ContractManager {
         // Write inbox notification to claw
         this._writeAcceptanceInbox(contractId, subtaskId, 'passed', allCompleted);
         
-        // Audit log if all completed
+        // AuditLog log if all completed
         if (allCompleted) {
           try {
             await this.moveToArchive(contractId);
@@ -785,7 +785,7 @@ export class ContractManager {
           );
         }
 
-        // Audit: acceptance_failed
+        // AuditLog: acceptance_failed
         this.audit.write(
           'acceptance_failed',
           `${contractId}/${subtaskId}`,

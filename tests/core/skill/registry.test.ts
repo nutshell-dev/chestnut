@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { SkillRegistry } from '../../../src/core/skill/registry.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
-import type { Audit } from '../../../src/foundation/audit/index.js';
+import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import { ToolError } from '../../../src/types/errors.js';
 import { SKILLS_DIR_DEFAULT } from '../../../src/core/skill/skill-paths.js';
 
@@ -14,8 +14,8 @@ function createMockFs(partial: Partial<FileSystem> = {}): FileSystem {
   } as unknown as FileSystem;
 }
 
-function createMockAudit(): Audit & { write: ReturnType<typeof vi.fn> } {
-  return { write: vi.fn() } as unknown as Audit & { write: ReturnType<typeof vi.fn> };
+function createMockAudit(): AuditLog & { write: ReturnType<typeof vi.fn> } {
+  return { write: vi.fn() } as unknown as AuditLog & { write: ReturnType<typeof vi.fn> };
 }
 
 function makeSkillMd(frontmatter: Record<string, string>): string {
@@ -29,7 +29,7 @@ function makeSkillMd(frontmatter: Record<string, string>): string {
 
 describe('SkillRegistry', () => {
   let mockFs: FileSystem;
-  let mockAudit: Audit & { write: ReturnType<typeof vi.fn> };
+  let mockAudit: AuditLog & { write: ReturnType<typeof vi.fn> };
 
   beforeEach(() => {
     mockFs = createMockFs();

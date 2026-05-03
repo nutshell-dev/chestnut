@@ -4,7 +4,7 @@
  */
 
 import type { FileSystem } from '../../foundation/fs/types.js';
-import type { Audit } from '../../foundation/audit/index.js';
+import type { AuditLog } from '../../foundation/audit/index.js';
 import { SkillRegistry } from './registry.js';
 import { SKILLS_DIR_DEFAULT } from './skill-paths.js';
 
@@ -17,7 +17,7 @@ export { SkillRegistry, type SkillMeta } from './registry.js';
 export function createSkillRegistry(
   fs: FileSystem,
   skillsDir: string = SKILLS_DIR_DEFAULT,
-  audit?: Audit,
+  audit?: AuditLog,
 ): SkillRegistry {
   return new SkillRegistry(fs, skillsDir, audit);
 }

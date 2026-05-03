@@ -706,7 +706,7 @@ describe('Builtin Tools', () => {
       // ENOENT is now silently ignored (expected for fresh setup)
     });
 
-    // Audit event tests for status tool error paths
+    // AuditLog event tests for status tool error paths
     it('should audit STATUS_CONTRACT_ERROR when loadActive throws', async () => {
       const auditWriter = { write: vi.fn() };
       const ctxWithAudit = new ExecContextImpl({

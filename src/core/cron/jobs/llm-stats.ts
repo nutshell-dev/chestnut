@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import type { Audit } from '../../../foundation/audit/index.js';
+import type { AuditLog } from '../../../foundation/audit/index.js';
 import { CRON_AUDIT_EVENTS } from '../audit-events.js';
 import { LOGS_DIR } from '../../../types/paths.js';
 
@@ -43,7 +43,7 @@ export interface LlmStatsSummary {
 export interface LlmStatsOptions {
   clawforumDir: string;
   motionDir: string;
-  audit: Audit;
+  audit: AuditLog;
 }
 
 export async function runLlmStats(opts: LlmStatsOptions): Promise<void> {

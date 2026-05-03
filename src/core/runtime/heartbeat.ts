@@ -10,13 +10,13 @@ import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
 import { InboxWriter } from '../../foundation/messaging/index.js';
 import { HEARTBEAT_AUDIT_EVENTS } from './heartbeat-audit-events.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
-import type { Audit } from '../../foundation/audit/index.js';
+import type { AuditLog } from '../../foundation/audit/index.js';
 
 export interface HeartbeatOptions {
   /** 心跳间隔（秒），默认 300（5分钟） */
   interval?: number;
   fs?: FileSystem;
-  audit?: Audit;
+  audit?: AuditLog;
 }
 
 /**
@@ -27,7 +27,7 @@ export class Heartbeat {
   private interval: number;
   private lastRun: number;
   private fs?: FileSystem;
-  private audit?: Audit;
+  private audit?: AuditLog;
 
   constructor(baseDir: string, options: HeartbeatOptions = {}) {
     this.baseDir = baseDir;

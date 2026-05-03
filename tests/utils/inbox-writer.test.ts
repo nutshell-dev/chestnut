@@ -13,11 +13,11 @@ import * as os from 'os';
 import { randomUUID } from 'crypto';
 import { InboxWriter } from '../../src/foundation/messaging/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
-import type { Audit } from '../../src/foundation/audit/index.js';
+import type { AuditLog } from '../../src/foundation/audit/index.js';
 
 let tmpDir: string;
 let mockFs: NodeFileSystem;
-const mockAudit: Audit = { write: () => {} };
+const mockAudit: AuditLog = { write: () => {} };
 
 beforeEach(() => {
   tmpDir = path.join(os.tmpdir(), `inbox-writer-test-${randomUUID()}`);

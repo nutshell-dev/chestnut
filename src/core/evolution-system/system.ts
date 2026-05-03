@@ -1,5 +1,5 @@
 // src/core/evolution-system/system.ts
-import type { Audit, AuditWriter } from '../../foundation/audit/index.js';
+import type { AuditLog, AuditWriter } from '../../foundation/audit/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { TaskSystem } from '../task/index.js';
 import { ContractManager } from '../contract/manager.js';
@@ -17,7 +17,7 @@ import type { Message } from '../../types/message.js';
 
 export interface EvolutionSystemDeps {
   fs: FileSystem;
-  audit: Audit;
+  audit: AuditLog;
   taskSystem: TaskSystem;
   contractManager: ContractManager;
   skillRegistry?: SkillRegistry;   // for SkillSystem.reload coordination

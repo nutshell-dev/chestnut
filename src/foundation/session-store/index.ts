@@ -10,13 +10,13 @@ export { SessionManager } from './store.js';
 export type { SessionData, LoadResult } from './types.js';
 
 import type { FileSystem } from '../fs/types.js';
-import type { Audit } from '../audit/index.js';
+import type { AuditLog } from '../audit/index.js';
 import { SessionManager } from './store.js';
 
 export function createSessionManager(
   fs: FileSystem,
   dialogDir: string,
-  audit: Audit,
+  audit: AuditLog,
   clawId: string,
 ): SessionManager {
   return new SessionManager(fs, dialogDir, audit, clawId);

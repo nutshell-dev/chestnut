@@ -449,7 +449,7 @@ describe('ContractManager', () => {
 
     const contractId = await testManager.create({
       schema_version: 1 as const,
-      title: 'Lock Cleanup Audit',
+      title: 'Lock Cleanup AuditLog',
       goal: 'Test',
       deliverables: [],
       subtasks: [{ id: 't1', description: 'T1' }],
@@ -1173,7 +1173,7 @@ describe('ContractManager', () => {
 
       const contractId = await testManager.create({
         schema_version: 1 as const,
-        title: 'Audit Lifecycle Test',
+        title: 'AuditLog Lifecycle Test',
         goal: 'Test',
         deliverables: [],
         subtasks: [{ id: 't1', description: 'T1' }],

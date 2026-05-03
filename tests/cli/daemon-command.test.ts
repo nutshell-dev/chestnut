@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { Audit } from '../../src/foundation/audit/index.js';
+import type { AuditLog } from '../../src/foundation/audit/index.js';
 import { ProcessManager } from '../../src/foundation/process-manager/index.js';
 
 // ============================================================================

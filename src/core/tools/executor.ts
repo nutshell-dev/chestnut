@@ -15,7 +15,7 @@ import type { TaskScheduler } from './task-scheduler.js';
 import type { OutboxWriter } from '../../foundation/messaging/index.js';
 import type { Message } from '../../types/message.js';
 import type { CallerType } from './caller-type.js';
-import type { Audit } from '../../foundation/audit/index.js';
+import type { AuditLog } from '../../foundation/audit/index.js';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import {
@@ -75,8 +75,8 @@ export interface ExecContext {
   readonly isMotionChain: boolean;
   getElapsedMs(): number;
   incrementStep(): void;
-  /** Audit writer for tool events */
-  auditWriter?: Audit;
+  /** AuditLog writer for tool events */
+  auditWriter?: AuditLog;
 }
 
 /**
@@ -239,7 +239,7 @@ export class ToolExecutorImpl implements IToolExecutor {
       // Clean up timeout timer
       clearTimeout(timeoutId);
       
-      // Audit logging via auditWriter (TSV format)
+      // AuditLog logging via auditWriter (TSV format)
       const duration = Date.now() - startTime;
       const auditResult = result ?? { success: false, content: 'unknown' };
       ctx.auditWriter?.write(
@@ -339,7 +339,7 @@ export interface ToolExecutorOptions {
   taskSystem?: TaskScheduler;
   profile?: ToolProfile;
   subagentMaxSteps?: number;
-  auditWriter?: Audit;
+  auditWriter?: AuditLog;
 }
 
 /**
@@ -352,7 +352,7 @@ export class ToolExecutor extends ToolExecutorImpl {
   private llm?: LLMOrchestrator;
   private profile: ToolProfile;
   private subagentMaxSteps?: number;
-  private auditWriter?: Audit;
+  private auditWriter?: AuditLog;
 
   constructor(options: ToolExecutorOptions) {
     super(options.registry);

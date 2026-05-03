@@ -22,7 +22,7 @@ import type { InboxMessage } from '../types/messaging.js';
 import type { StreamWriter, StreamLog } from '../foundation/stream/index.js';
 import { createWatcher } from '../foundation/file-watcher/index.js';
 import type { Watcher } from '../foundation/file-watcher/types.js';
-import type { Audit } from '../foundation/audit/index.js';
+import type { AuditLog } from '../foundation/audit/index.js';
 import { MESSAGING_AUDIT_EVENTS } from '../foundation/messaging/audit-events.js';
 import { DAEMON_AUDIT_EVENTS, LOOP_ITERATION_TYPES, LOOP_INTERRUPT_CAUSES } from './audit-events.js';
 import { oneLine } from '../types/utils.js';
@@ -122,7 +122,7 @@ export interface DaemonLoopOptions {
   agentDir: string;          // agent root directory (listens for interrupt signals)
   clawId: string;            // agent identifier (kebab-case)
   label: string;             // log prefix, e.g. '[motion daemon]' or '[daemon]'
-  audit: Audit;              // audit sink for createWatcher
+  audit: AuditLog;              // audit sink for createWatcher
 
   // inbox 配置（必填子组）
   inbox: DaemonInboxConfig;
@@ -140,7 +140,7 @@ export interface DaemonLoopOptions {
  */
 export function waitForInbox(
   fs: FileSystem,
-  audit: Audit,
+  audit: AuditLog,
   inboxPendingDir: string,
   timeoutMs: number,
 ): Promise<void> {
@@ -355,7 +355,7 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
                 chainTotal += more;
               }
 
-              // Audit: chain reaction 完成
+              // AuditLog: chain reaction 完成
               options.audit.write(DAEMON_AUDIT_EVENTS.LOOP_ITERATION, `type=${LOOP_ITERATION_TYPES.CHAIN}`, `injected=${injected}`, `chain_total=${chainTotal}`);
 
               // Turn finished (not interrupted) — reset LLM retry state
@@ -364,7 +364,7 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
               saveLlmRetryState();
               await onBatchComplete?.();
             } else {
-              // Audit: empty processBatch → 走 waitForInbox
+              // AuditLog: empty processBatch → 走 waitForInbox
               options.audit.write(DAEMON_AUDIT_EVENTS.LOOP_ITERATION, `type=${LOOP_ITERATION_TYPES.WAIT}`, `injected=0`);
 
               await waitForInbox(loopFs, options.audit, inboxPendingDir, fallbackTimeout);

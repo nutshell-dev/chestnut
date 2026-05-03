@@ -1,10 +1,10 @@
 import { NodeFileSystem } from './foundation/fs/node-fs.js';
-import { createSystemAudit, type Audit } from './foundation/audit/index.js';
+import { createSystemAudit, type AuditLog } from './foundation/audit/index.js';
 import { getClawDir, getMotionDir } from './foundation/config/index.js';
 
 // shim pre-assemble audit sink（phase189 §7.A7 清零）
 // 独立于 daemon.ts 的 preAssembleAudit：shim 在 daemon.ts 未入时兜底
-let shimAudit: Audit | null = null;
+let shimAudit: AuditLog | null = null;
 try {
   const name = process.argv[2];
   const dir = name === 'motion' ? getMotionDir() : getClawDir(name);

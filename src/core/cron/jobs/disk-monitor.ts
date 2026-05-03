@@ -1,6 +1,6 @@
 import * as path from 'path';
 import type { FileSystem } from '../../../foundation/fs/types.js';
-import type { Audit } from '../../../foundation/audit/index.js';
+import type { AuditLog } from '../../../foundation/audit/index.js';
 import { CRON_AUDIT_EVENTS } from '../audit-events.js';
 import { InboxWriter } from '../../../foundation/messaging/index.js';
 import { createAuditWriter } from '../../../foundation/audit/index.js';
@@ -24,7 +24,7 @@ export interface DiskMonitorOptions {
   motionInboxDir: string; // motion/inbox/pending/
   limitMB: number;        // 告警阈值
   fs: FileSystem;
-  audit: Audit;
+  audit: AuditLog;
 }
 
 export async function runDiskMonitor(opts: DiskMonitorOptions): Promise<void> {

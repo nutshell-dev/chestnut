@@ -11,7 +11,7 @@ import type { FileSystem } from '../fs/types.js';
 import type { InboxMessage } from '../../types/messaging.js';
 import { encodeInbox } from './codec-inbox.js';
 import { parseFrontmatter } from '../frontmatter/index.js';
-import type { Audit } from '../audit/index.js';
+import type { AuditLog } from '../audit/index.js';
 import { MESSAGING_AUDIT_EVENTS } from './audit-events.js';
 import { ok, err as errResult, type Result } from '../../types/result.js';
 import type { InboxMetaError } from './errors.js';
@@ -33,7 +33,7 @@ export class InboxWriter {
   constructor(
     private readonly fs: FileSystem,
     private readonly inboxDir: string,
-    private readonly audit: Audit,
+    private readonly audit: AuditLog,
   ) {}
 
   /** async 写，atomic */

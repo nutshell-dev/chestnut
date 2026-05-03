@@ -14,7 +14,7 @@ import type { FileSystem } from '../fs/types.js';
 import type { InboxMessage } from '../../types/messaging.js';
 import { PRIORITY_VALUES } from '../../types/priority.js';
 import { decodeInbox } from './codec-inbox.js';
-import type { Audit } from '../audit/index.js';
+import type { AuditLog } from '../audit/index.js';
 import { MESSAGING_AUDIT_EVENTS } from './audit-events.js';
 import { InboxWriter, type InboxMessageMeta } from './inbox-writer.js';
 import { InboxListFailed, InboxMoveFailed } from './errors.js';
@@ -30,7 +30,7 @@ export class InboxReader {
     private readonly doneDir: string,
     private readonly failedDir: string,
     private readonly fs: FileSystem,
-    private readonly audit: Audit,
+    private readonly audit: AuditLog,
   ) {}
 
   /** Ensure inbox directories exist */

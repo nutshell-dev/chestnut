@@ -21,7 +21,7 @@ import type { Message, ToolDefinition } from '../../types/message.js';
 import type { OutboxWriter } from '../../foundation/messaging/index.js';
 import type { ContractManager } from '../contract/manager.js';
 import { AuditWriter } from '../../foundation/audit/writer.js';
-import type { Audit } from '../../foundation/audit/index.js';
+import type { AuditLog } from '../../foundation/audit/index.js';
 import { TASKS_RUNNING_DIR, TASKS_DONE_DIR } from '../../types/paths.js';
 import type { StreamLog } from '../../foundation/stream/types.js';
 
@@ -518,7 +518,7 @@ export class TaskSystem {
    * Shutdown - wait for all tasks to complete or timeout
    */
   async writePendingSubAgentTask(
-    motionAudit: Audit,
+    motionAudit: AuditLog,
     taskInfo: Omit<SubAgentTask, 'id' | 'createdAt'>,
   ): Promise<string> {
     return writePendingSubagentTaskFile(this.fs, motionAudit, taskInfo);

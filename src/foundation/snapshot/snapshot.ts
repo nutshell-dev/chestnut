@@ -13,7 +13,7 @@
 import * as path from 'path';
 import { exec } from '../process-exec/index.js';
 import type { FileSystem } from '../fs/types.js';
-import type { Audit } from '../audit/index.js';
+import type { AuditLog } from '../audit/index.js';
 import { SNAPSHOT_AUDIT_EVENTS } from './audit-events.js';
 import { ok, err as errResult, type Result } from '../../types/result.js';
 import { classifyGitError, type ExpectedGitFailure } from './git-errors.js';
@@ -37,10 +37,10 @@ export class Snapshot {
   private dir: string;
   private fs: FileSystem;
   private consecutiveFailures = 0;
-  private readonly audit: Audit;
+  private readonly audit: AuditLog;
   private readonly ignorePatterns: readonly string[];
 
-  constructor(dir: string, fs: FileSystem, audit: Audit, ignorePatterns: readonly string[]) {
+  constructor(dir: string, fs: FileSystem, audit: AuditLog, ignorePatterns: readonly string[]) {
     this.dir = dir;
     this.fs = fs;
     this.audit = audit;

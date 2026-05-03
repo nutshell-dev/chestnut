@@ -9,7 +9,7 @@ import * as path from 'path';
 import { openSync, closeSync } from 'fs';  // openSync/closeSync 仅用于日志 fd（spawn stdio 需要 OS 文件描述符）
 
 import type { FileSystem } from '../fs/types.js';
-import type { Audit } from '../audit/index.js';
+import type { AuditLog } from '../audit/index.js';
 import { ProcessListUnavailable } from './errors.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
 import { STATUS_SUBDIR } from '../../types/paths.js';
@@ -48,9 +48,9 @@ export class ProcessManager {
   private fs: FileSystem;
   private baseDir: string;
   private resolveDir: (id: string) => string;
-  private readonly audit: Audit;
+  private readonly audit: AuditLog;
 
-  constructor(fs: FileSystem, baseDir: string, audit: Audit, dirResolver?: (id: string) => string) {
+  constructor(fs: FileSystem, baseDir: string, audit: AuditLog, dirResolver?: (id: string) => string) {
     this.fs = fs;
     this.baseDir = baseDir;
     this.audit = audit;

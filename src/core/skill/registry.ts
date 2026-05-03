@@ -7,7 +7,7 @@
  */
 
 import type { FileSystem } from '../../foundation/fs/types.js';
-import type { Audit } from '../../foundation/audit/index.js';
+import type { AuditLog } from '../../foundation/audit/index.js';
 import { ToolError } from '../../types/errors.js';
 import { parseFrontmatter } from '../../foundation/frontmatter/index.js';
 import { SKILL_AUDIT_EVENTS } from './audit-events.js';
@@ -23,9 +23,9 @@ export class SkillRegistry {
   private fs: FileSystem;
   private skillsDir: string;
   private metaMap: Map<string, SkillMeta> = new Map();
-  private audit?: Audit;
+  private audit?: AuditLog;
 
-  constructor(fs: FileSystem, skillsDir: string, audit?: Audit) {
+  constructor(fs: FileSystem, skillsDir: string, audit?: AuditLog) {
     this.fs = fs;
     this.skillsDir = skillsDir;
     this.audit = audit;

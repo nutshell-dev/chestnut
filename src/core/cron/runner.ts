@@ -3,7 +3,7 @@
  * 独立 setInterval，与 daemon-loop 主循环解耦，支持秒级精度
  */
 
-import type { Audit } from '../../foundation/audit/index.js';
+import type { AuditLog } from '../../foundation/audit/index.js';
 import { CRON_AUDIT_EVENTS } from './audit-events.js';
 
 export type CronSchedule =
@@ -14,7 +14,7 @@ export type CronSchedule =
 /** 将配置字符串解析为 CronSchedule
  * 格式：'hourly' | 'daily:HH:MM' | 'interval:Nm'
  */
-export function parseSchedule(s: string, audit?: Audit): CronSchedule {
+export function parseSchedule(s: string, audit?: AuditLog): CronSchedule {
   if (s === 'hourly') return { type: 'hourly' };
   if (s.startsWith('daily:')) return { type: 'daily', time: s.slice(6) };
   if (s.startsWith('interval:')) {
@@ -40,7 +40,7 @@ export class CronRunner {
 
   constructor(
     private readonly jobs: CronJob[],
-    private readonly audit: Audit,
+    private readonly audit: AuditLog,
   ) {}
 
   /** 启动调度器，tickIntervalMs 决定检查粒度（默认 1 秒） */

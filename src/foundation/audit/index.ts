@@ -20,7 +20,7 @@ import { AuditWriter, AUDIT_FILE } from './writer.js';
 import * as path from 'path';
 import type { FileSystem } from '../fs/types.js';
 
-export interface Audit {
+export interface AuditLog {
   write(type: string, ...cols: (string | number)[]): void;
 }
 

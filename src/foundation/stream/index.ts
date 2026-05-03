@@ -14,13 +14,13 @@ export type { StreamReader } from './reader.js';
 export { createStreamReader, readAll } from './reader.js';
 
 import type { FileSystem } from '../fs/types.js';
-import type { Audit } from '../audit/index.js';
+import type { AuditLog } from '../audit/index.js';
 import { StreamWriter } from './writer.js';
 import type { StreamRetentionOptions } from './writer.js';
 
 export function createStreamWriter(
   fs: FileSystem,
-  audit: Audit,
+  audit: AuditLog,
   retention?: StreamRetentionOptions,
 ): StreamWriter {
   return new StreamWriter(fs, audit, retention);

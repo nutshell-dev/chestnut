@@ -16,7 +16,7 @@
 
 import type { FileSystem } from '../fs/types.js';
 import type { StreamEvent } from './types.js';
-import type { Audit } from '../audit/index.js';
+import type { AuditLog } from '../audit/index.js';
 import { createWatcher, type Watcher } from '../file-watcher/index.js';
 import { STREAM_AUDIT_EVENTS } from './audit-events.js';
 import { StringDecoder } from 'node:string_decoder';
@@ -52,7 +52,7 @@ export interface StreamReader {
 export async function readAll(
   fs: FileSystem,
   streamPath: string,
-  audit: Audit,
+  audit: AuditLog,
 ): Promise<StreamEvent[]> {
   if (!fs.existsSync(streamPath)) return [];
   let content: string;
@@ -85,7 +85,7 @@ export function createStreamReader(
   fs: FileSystem,
   streamPath: string,
   onEvent: (event: StreamEvent) => void,
-  audit: Audit,
+  audit: AuditLog,
   options?: { persistent?: boolean },
 ): StreamReader {
   let watcher: Watcher | null = null;
