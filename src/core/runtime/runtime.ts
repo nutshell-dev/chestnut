@@ -31,19 +31,14 @@ import { CLAW_SUBDIRS } from '../../types/paths.js';
 import { oneLine } from '../../types/utils.js';
 import { MaxStepsExceededError } from '../../types/errors.js';
 import { MOTION_CLAW_ID, DEFAULT_LLM_IDLE_TIMEOUT_MS, DEFAULT_MAX_STEPS, DEFAULT_MAX_CONCURRENT_TASKS } from '../../constants.js';
-import type {
-  AuditPort,
-  SnapshotPort,
-  SessionStorePort,
-  InboxPort,
-  OutboxPort,
-  ToolRegistryPort,
-  ToolExecutorPort,
-  ContextInjectorPort,
-  ExecContextPort,
-  ContractManagerPort,
-  SkillRegistryPort,
-} from './runtime-ports.js';
+import type { AuditLog } from '../../foundation/audit/index.js';
+import type { Snapshot } from '../../foundation/snapshot/index.js';
+import type { InboxReader } from '../../foundation/messaging/inbox-reader.js';
+import type { OutboxWriter } from '../../foundation/messaging/outbox-writer.js';
+import type { ToolRegistry, IToolExecutor, ExecContext } from '../tools/executor.js';
+import type { ContextInjector } from '../dialog/injector.js';
+import type { ContractSystem } from '../contract/manager.js';
+import type { SkillSystem } from '../../foundation/skill-system/index.js';
 import type { TaskSystem } from '../task/system.js';
 
 /**
@@ -55,21 +50,21 @@ export interface RuntimeDependencies {
   readonly clawFs: FileSystem;
 
   // === L2 ===
-  readonly auditWriter: AuditPort;
-  readonly snapshot: SnapshotPort;
-  readonly sessionManager: SessionStorePort;
-  readonly inboxReader: InboxPort;
-  readonly outboxWriter: OutboxPort;
+  readonly auditWriter: AuditLog;
+  readonly snapshot: Snapshot;
+  readonly sessionManager: DialogStore;
+  readonly inboxReader: InboxReader;
+  readonly outboxWriter: OutboxWriter;
 
   // === L3-L5 ===
   readonly llm: LLMOrchestrator;
-  readonly toolRegistry: ToolRegistryPort;
-  readonly toolExecutor: ToolExecutorPort;
-  readonly skillRegistry: SkillRegistryPort;
-  readonly contractManager: ContractManagerPort;
+  readonly toolRegistry: ToolRegistry;
+  readonly toolExecutor: IToolExecutor;
+  readonly skillRegistry: SkillSystem;
+  readonly contractManager: ContractSystem;
   readonly taskSystem: TaskSystem;
-  readonly contextInjector: ContextInjectorPort;
-  readonly execContext: ExecContextPort;
+  readonly contextInjector: ContextInjector;
+  readonly execContext: ExecContext;
 
   // 构造期注入（phase182 B.p166-5 升档：setter 双阶段消除）
   readonly parentStreamLog?: import('../../foundation/stream/types.js').StreamLog;
@@ -93,10 +88,10 @@ export interface RuntimeOptions {
 
   // Motion/claw 身份差异由 Assembly 按 identity 分支注入（phase266 消除 MotionRuntime subclass）
   systemPromptBuilder?: (params: {
-    contextInjector: ContextInjectorPort;
+    contextInjector: ContextInjector;
     systemFs: FileSystem;
   }) => Promise<string>;
-  identityToolFilter?: (registry: ToolRegistryPort) => void;
+  identityToolFilter?: (registry: ToolRegistry) => void;
 }
 
 
@@ -135,7 +130,7 @@ export class Runtime {
   protected initialized = false;
   private currentAbortController: AbortController | null = null;
   private turnCount = 0;
-  protected auditWriter!: AuditPort;
+  protected auditWriter!: AuditLog;
 
   // Foundation
   /**
@@ -147,21 +142,21 @@ export class Runtime {
   protected llm!: LLMOrchestrator;
 
   // Core
-  protected sessionManager!: SessionStorePort;
+  protected sessionManager!: DialogStore;
   /**
    * @protected allows subclasses such as MotionRuntime to call buildParts() to customize prompt injection order
    * Note: subclasses should treat this as read-only and must not modify injector state
    */
-  protected contextInjector!: ContextInjectorPort;
-  protected toolRegistry!: ToolRegistryPort;
+  protected contextInjector!: ContextInjector;
+  protected toolRegistry!: ToolRegistry;
   private taskSystem!: TaskSystem;
-  private skillRegistry!: SkillRegistryPort;
-  private contractManager!: ContractManagerPort;
-  protected execContext!: ExecContextPort;
-  protected toolExecutor!: ToolExecutorPort;
-  private inboxReader!: InboxPort;
-  private outboxWriter!: OutboxPort;
-  private snapshot!: SnapshotPort;
+  private skillRegistry!: SkillSystem;
+  private contractManager!: ContractSystem;
+  protected execContext!: ExecContext;
+  protected toolExecutor!: IToolExecutor;
+  private inboxReader!: InboxReader;
+  private outboxWriter!: OutboxWriter;
+  private snapshot!: Snapshot;
 
   constructor(options: RuntimeOptions) {
     this.options = {
@@ -922,7 +917,7 @@ export class Runtime {
     }
   }
 
-  getAuditWriter(): AuditPort {
+  getAuditWriter(): AuditLog {
     return this.auditWriter;
   }
 

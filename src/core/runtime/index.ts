@@ -10,16 +10,4 @@ export type { CreateRuntimeOptions } from './create-runtime.js';
 export { Heartbeat, createHeartbeat } from './heartbeat.js';
 export type { HeartbeatOptions } from './heartbeat.js';
 export { summarizeLastExit, readLastExitEvent } from './last-exit-summary.js';
-export type {
-  AuditPort,
-  SnapshotPort,
-  SessionStorePort,
-  InboxPort,
-  OutboxPort,
-  ToolRegistryPort,
-  ToolExecutorPort,
-  ContextInjectorPort,
-  ExecContextPort,
-  ContractManagerPort,
-  SkillRegistryPort,
-} from './runtime-ports.js';
+

@@ -13,7 +13,7 @@
  */
 
 import { Runtime, type RuntimeOptions } from './runtime.js';
-import type { ContextInjectorPort } from './runtime-ports.js';
+import type { ContextInjector } from '../dialog/injector.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 
 export type CreateRuntimeOptions = RuntimeOptions & {
@@ -25,7 +25,7 @@ async function buildMotionSystemPrompt({
   contextInjector,
   systemFs,
 }: {
-  contextInjector: ContextInjectorPort;
+  contextInjector: ContextInjector;
   systemFs: FileSystem;
 }): Promise<string> {
   const parts = await contextInjector.buildParts();
