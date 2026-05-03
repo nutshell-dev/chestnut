@@ -4,13 +4,10 @@
 
 import type { ToolRegistry } from '../executor.js';
 import { statusTool } from './status.js';
-
-import { sendTool } from './send.js';
-
 import { skillTool } from './skill.js';
 
 // Re-export all tools
-export { statusTool, sendTool, skillTool };
+export { statusTool, skillTool };
 
 /**
  * Register all non-FileTool builtin tools to a registry
@@ -18,8 +15,5 @@ export { statusTool, sendTool, skillTool };
  */
 export function registerBuiltinTools(registry: ToolRegistry): void {
   registry.register(statusTool);
-
-  registry.register(sendTool);
-
   registry.register(skillTool);
 }

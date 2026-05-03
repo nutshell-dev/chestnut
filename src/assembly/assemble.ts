@@ -38,7 +38,7 @@ import { doneTool } from '../core/contract/index.js';
 import { createContractStatusPort } from '../core/contract/status-port-impl.js';
 import { statusTool } from '../foundation/tools/builtins/status.js';
 import { skillTool } from '../foundation/tools/builtins/skill.js';
-import { sendTool } from '../foundation/tools/builtins/send.js';
+import { sendTool } from '../foundation/messaging/tools/send.js';
 import { createDialogStore } from '../foundation/dialog-store/index.js';
 import type { InboxReader } from '../foundation/messaging/index.js';
 import type { OutboxWriter } from '../foundation/messaging/index.js';
@@ -305,6 +305,9 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
   doneTool.contractManager = contractManager;
   statusTool.contractStatus = createContractStatusPort(contractManager);
   skillTool.skillRegistry = skillRegistry;
+
+  // send 注册：phase440 后 send 业务归 Messaging / 不再经 registerBuiltinTools / Assembly 显式注册
+  toolRegistry.register(sendTool);
   sendTool.outboxWriter = outboxWriter;
 
   // --- L3-L5: toolExecutor ---
