@@ -9,7 +9,7 @@
  */
 
 import * as nodePath from 'path';
-import * as fsNative from 'fs';
+import { NodeFileSystem } from '../fs/node-fs.js';
 import type { Tool, ToolResult, ExecContext } from '../tool-protocol/index.js';
 import { READ_MAX_LINES, READ_MAX_CHARS } from '../../constants.js';
 import { getChecker } from './permission-context.js';
@@ -108,9 +108,10 @@ export const readTool: Tool = {
           content: `Error: Path escapes target claw directory: "${filePath}"`,
         };
       }
-      // Read directly using native fs (skip ctx.fs permissions)
+      // Cross-claw read: per-target NodeFileSystem
       try {
-        content = await fsNative.promises.readFile(targetPath, 'utf-8');
+        const targetFs = new NodeFileSystem({ baseDir: nodePath.join(clawsDir, clawParam) });
+        content = await targetFs.read(normalized);
       } catch (error) {
         return {
           success: false,

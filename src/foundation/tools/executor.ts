@@ -15,7 +15,6 @@ import type { OutboxWriter } from '../messaging/index.js';
 import type { AuditLog } from '../audit/index.js';
 import type { Tool, ToolResult, ExecContext, CallerType } from '../tool-protocol/index.js';
 import * as path from 'path';
-import * as fs from 'fs/promises';
 import type { ScheduleAsyncTool } from './async-dispatch.js';
 import {
   ToolNotFoundError,

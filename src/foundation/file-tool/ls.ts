@@ -6,7 +6,7 @@
  */
 
 import * as nodePath from 'path';
-import * as fsNative from 'fs';
+import { NodeFileSystem } from '../fs/node-fs.js';
 import type { Tool, ToolResult, ExecContext } from '../tool-protocol/index.js';
 import { LS_MAX_ENTRIES } from '../../constants.js';
 import { getChecker } from './permission-context.js';
@@ -78,20 +78,10 @@ export const lsTool: Tool = {
           content: `Error: Path escapes target claw directory: "${path}"`,
         };
       }
-      // Read directly using native fs (skip ctx.fs permissions)
+      // Cross-claw read: per-target NodeFileSystem (无 PermissionChecker = 等价 skip permissions)
       try {
-        const dirents = await fsNative.promises.readdir(targetPath, { withFileTypes: true });
-        entries = await Promise.all(dirents.map(async d => {
-          const stat = d.isFile() 
-            ? await fsNative.promises.stat(nodePath.join(targetPath, d.name))
-            : undefined;
-          return {
-            path: d.name,
-            isDirectory: d.isDirectory(),
-            isFile: d.isFile(),
-            size: stat?.size,
-          };
-        }));
+        const targetFs = new NodeFileSystem({ baseDir: targetPath });
+        entries = await targetFs.list('', { includeDirs: true });
       } catch (error) {
         return {
           success: false,

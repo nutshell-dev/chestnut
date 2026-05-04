@@ -9,7 +9,8 @@
  */
 
 import * as nodePath from 'path';
-import * as fsNative from 'fs';
+import { NodeFileSystem } from '../fs/node-fs.js';
+import type { FileSystem } from '../fs/types.js';
 import type { Tool, ToolResult, ExecContext } from '../tool-protocol/index.js';
 import { getChecker } from './permission-context.js';
 
@@ -33,6 +34,7 @@ function isSearchPathAllowed(searchPath: string): boolean {
  * Calls onMatch for each match found, onSkip for files that can't be read.
  */
 async function walkNative(
+  fs: FileSystem,
   baseDir: string,
   query: string,
   remaining: number,
@@ -41,15 +43,15 @@ async function walkNative(
   prefix = ''
 ): Promise<number> {
   let rem = remaining;
-  const dirents = await fsNative.promises.readdir(baseDir, { withFileTypes: true });
+  const dirents = await fs.list(baseDir, { includeDirs: true });
   for (const d of dirents) {
     if (rem <= 0) return rem;
     const relPath = prefix ? `${prefix}/${d.name}` : d.name;
-    if (d.isDirectory()) {
-      rem = await walkNative(nodePath.join(baseDir, d.name), query, rem, onMatch, onSkip, relPath);
+    if (d.isDirectory) {
+      rem = await walkNative(fs, nodePath.join(baseDir, d.name), query, rem, onMatch, onSkip, relPath);
     } else {
       try {
-        const lines = (await fsNative.promises.readFile(nodePath.join(baseDir, relPath), 'utf-8')).split('\n');
+        const lines = (await fs.read(nodePath.join(baseDir, relPath))).split('\n');
         for (let i = 0; i < lines.length && rem > 0; i++) {
           if (lines[i].toLowerCase().includes(query)) {
             onMatch(relPath, i + 1, lines[i].trim());
@@ -126,11 +128,12 @@ export const searchTool: Tool = {
       // claw: "*" - search all claws
       if (clawParam === '*') {
         const clawsDir = nodePath.resolve(ctx.clawDir, '..', 'claws');
+        const clawforumFs = new NodeFileSystem({ baseDir: clawsDir });
         let clawIds: string[];
         try {
-          clawIds = fsNative.readdirSync(clawsDir).filter(name =>
-            fsNative.statSync(nodePath.join(clawsDir, name)).isDirectory() && !name.startsWith('.')
-          );
+          clawIds = clawforumFs.listSync('', { includeDirs: true })
+            .filter(e => e.isDirectory && !e.name.startsWith('.'))
+            .map(e => e.name);
           clawIds.sort(); // 保证稳定顺序
         } catch {
           return { success: true, content: `未找到包含 "${args.query}" 的内容（无 claw 目录）` };
@@ -142,11 +145,13 @@ export const searchTool: Tool = {
         for (const clawId of clawIds) {
           if (allResults.length >= maxResults) break;
           const clawBaseDir = nodePath.join(clawsDir, clawId, searchPath);
-          if (!fsNative.existsSync(clawBaseDir)) continue;
+          const clawFs = new NodeFileSystem({ baseDir: nodePath.join(clawsDir, clawId) });
+          if (!clawFs.existsSync(searchPath)) continue;
 
           try {
             await walkNative(
-              clawBaseDir,
+              clawFs,
+              searchPath,
               query,
               maxResults - allResults.length,
               (relPath, lineNo, line) => {
@@ -205,8 +210,10 @@ export const searchTool: Tool = {
       
       if (useNativeFs) {
         // Use walkNative for single claw search
+        const targetFs = new NodeFileSystem({ baseDir: nodePath.resolve(ctx.clawDir, '..', 'claws', clawParam!) });
         await walkNative(
-          baseDir,
+          targetFs,
+          searchPath,
           query,
           maxResults,
           (relPath, lineNo, line) => {
