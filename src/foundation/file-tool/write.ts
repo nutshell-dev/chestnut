@@ -8,27 +8,9 @@
  */
 
 import * as path from 'path';
-import { randomUUID } from 'crypto';
 import type { Tool, ToolResult, ExecContext } from '../tool-protocol/index.js';
 import { getChecker } from './permission-context.js';
-
-async function backupToSync(
-  ctx: ExecContext,
-  filePath: string,
-): Promise<string | null> {
-  try {
-    const exists = await ctx.fs.exists(filePath);
-    if (!exists) return null;
-    const content = await ctx.fs.read(filePath);
-    const id = randomUUID().slice(0, 8);
-    const fullPath = `${ctx.syncDir}/${id}.md`;
-    const frontmatter = `---\nsource: file_backup\noriginal_path: ${filePath}\ncontent_length: ${content.length}\ncreated_at: ${new Date().toISOString()}\n---\n`;
-    await ctx.fs.writeAtomic(fullPath, frontmatter + content);
-    return path.relative(ctx.clawDir, fullPath);
-  } catch {
-    return null;
-  }
-}
+import { backupToSync } from './sync-backup.js';
 
 import { WRITE_TOOL_NAME } from '../tools/tool-names.js';
 export { WRITE_TOOL_NAME };
@@ -80,7 +62,7 @@ export const writeTool: Tool = {
     try {
       let backupPath: string | null = null;
       if (!append) {
-        backupPath = await backupToSync(ctx, filePath);
+        backupPath = await backupToSync(ctx, filePath, 'file_backup');
       }
 
       if (append) {

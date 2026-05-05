@@ -19,3 +19,5 @@ export const SPAWN_TOOL_NAME = 'spawn' as const;
 export const ASK_MOTION_TOOL_NAME = 'ask_motion' as const;
 export const ASK_CALLER_TOOL_NAME = 'ask_caller' as const;
 export const DISPATCH_TOOL_NAME = 'dispatch' as const;
+export const EDIT_TOOL_NAME = 'edit' as const;
+export const MULTI_EDIT_TOOL_NAME = 'multi_edit' as const;

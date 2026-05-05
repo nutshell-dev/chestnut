@@ -12,10 +12,12 @@ import { readTool } from './read.js';
 import { writeTool } from './write.js';
 import { searchTool } from './search.js';
 import { lsTool } from './ls.js';
+import { editTool } from './edit.js';
+import { multiEditTool } from './multi_edit.js';
 import { setPermissionCheckerFactory } from './permission-context.js';
 
 // Re-export tool objects（让 caller 可单独 import 任一）
-export { readTool, writeTool, searchTool, lsTool };
+export { readTool, writeTool, searchTool, lsTool, editTool, multiEditTool };
 export { READ_TOOL_NAME } from './read.js';
 
 /**
@@ -34,5 +36,5 @@ export interface FileToolOptions {
  */
 export function createFileTools(options: FileToolOptions): Tool[] {
   setPermissionCheckerFactory(options.permissionCheckerFactory);
-  return [readTool, writeTool, searchTool, lsTool];
+  return [readTool, writeTool, searchTool, lsTool, editTool, multiEditTool];
 }

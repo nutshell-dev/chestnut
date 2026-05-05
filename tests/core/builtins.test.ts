@@ -10,7 +10,7 @@ import { randomUUID } from 'crypto';
 
 import { statusTool } from '../../src/core/status-service/index.js';
 import { sendTool } from '../../src/foundation/messaging/tools/send.js';
-import { readTool, writeTool, lsTool, searchTool } from '../../src/foundation/file-tool/index.js';
+import { readTool, writeTool, lsTool, searchTool, editTool, multiEditTool } from '../../src/foundation/file-tool/index.js';
 import { setPermissionCheckerFactory } from '../../src/foundation/file-tool/permission-context.js';
 import { createClawPermissionChecker } from '../../src/core/permissions/claw-permissions.js';
 import { memorySearchTool } from '../../src/core/memory/tools/memory_search.js';
@@ -318,6 +318,96 @@ describe('Builtin Tools', () => {
       expect(result.success).toBe(true);
       expect(result.content).toContain(`${content.length}`);
       expect(result.content).toContain('chars');
+    });
+  });
+
+  describe('edit tool', () => {
+    it('should replace unique match', async () => {
+      await mockFs.ensureDir('clawspace');
+      await mockFs.writeAtomic('clawspace/edit.txt', 'hello world');
+
+      const result = await editTool.execute({ path: 'clawspace/edit.txt', old_string: 'hello', new_string: 'hi' }, ctx);
+
+      expect(result.success).toBe(true);
+      expect(result.content).toContain('Edited:');
+      expect(result.metadata).toEqual({ replaced: 1 });
+      const content = await mockFs.read('clawspace/edit.txt');
+      expect(content).toBe('hi world');
+    });
+
+    it('should fail loud on 0 match', async () => {
+      await mockFs.ensureDir('clawspace');
+      await mockFs.writeAtomic('clawspace/edit.txt', 'hello world');
+
+      const result = await editTool.execute({ path: 'clawspace/edit.txt', old_string: 'notfound', new_string: 'x' }, ctx);
+
+      expect(result.success).toBe(false);
+      expect(result.content).toContain('0 matches');
+    });
+
+    it('should fail loud on multiple matches without replace_all', async () => {
+      await mockFs.ensureDir('clawspace');
+      await mockFs.writeAtomic('clawspace/edit.txt', 'foo bar foo');
+
+      const result = await editTool.execute({ path: 'clawspace/edit.txt', old_string: 'foo', new_string: 'qux' }, ctx);
+
+      expect(result.success).toBe(false);
+      expect(result.content).toContain('2 matches');
+    });
+
+    it('should reject when file does not exist', async () => {
+      const result = await editTool.execute({ path: 'clawspace/nonexistent.txt', old_string: 'a', new_string: 'b' }, ctx);
+      expect(result.success).toBe(false);
+      expect(result.content).toContain('does not exist');
+    });
+  });
+
+  describe('multi_edit tool', () => {
+    it('should apply edits sequentially', async () => {
+      await mockFs.ensureDir('clawspace');
+      await mockFs.writeAtomic('clawspace/multi.txt', 'a b c d');
+
+      const result = await multiEditTool.execute({
+        path: 'clawspace/multi.txt',
+        edits: [
+          { old_string: 'a', new_string: 'x' },
+          { old_string: 'c', new_string: 'y' },
+        ],
+      }, ctx);
+
+      expect(result.success).toBe(true);
+      expect(result.content).toContain('2 edits applied');
+      const content = await mockFs.read('clawspace/multi.txt');
+      expect(content).toBe('x b y d');
+    });
+
+    it('should abort and rollback on mid-way failure', async () => {
+      await mockFs.ensureDir('clawspace');
+      await mockFs.writeAtomic('clawspace/multi.txt', 'hello world');
+
+      const result = await multiEditTool.execute({
+        path: 'clawspace/multi.txt',
+        edits: [
+          { old_string: 'hello', new_string: 'hi' },
+          { old_string: 'notfound', new_string: 'x' },
+        ],
+      }, ctx);
+
+      expect(result.success).toBe(false);
+      expect(result.content).toContain('edit[1]');
+      expect(result.metadata).toEqual({ failed_index: 1, results: [{ index: 0, replaced: 1 }] });
+      const content = await mockFs.read('clawspace/multi.txt');
+      expect(content).toBe('hello world');
+    });
+
+    it('should reject empty edits array', async () => {
+      await mockFs.ensureDir('clawspace');
+      await mockFs.writeAtomic('clawspace/multi.txt', 'hello');
+
+      const result = await multiEditTool.execute({ path: 'clawspace/multi.txt', edits: [] }, ctx);
+
+      expect(result.success).toBe(false);
+      expect(result.content).toContain('at least 1 edit');
     });
   });
 
