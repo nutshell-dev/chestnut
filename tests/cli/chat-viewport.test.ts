@@ -15,9 +15,15 @@ import { createMainTurnUI } from '../../src/cli/commands/chat-viewport.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const viewportPath = path.join(__dirname, '../../src/cli/commands/chat-viewport.ts');
+const mainTurnUIPath = path.join(__dirname, '../../src/cli/commands/main-turn-ui.ts');
+const clawLinePath = path.join(__dirname, '../../src/cli/commands/chat-viewport-claw-line.ts');
+const taskEventsPath = path.join(__dirname, '../../src/cli/commands/chat-viewport-task-events.ts');
 
 describe('chat-viewport Phase 72', () => {
-  const sourceCode = fs.readFileSync(viewportPath, 'utf-8');
+  const sourceCode = fs.readFileSync(viewportPath, 'utf-8')
+    + fs.readFileSync(mainTurnUIPath, 'utf-8')
+    + fs.readFileSync(clawLinePath, 'utf-8')
+    + fs.readFileSync(taskEventsPath, 'utf-8');
 
   // ==========================================================================
   // Step 5: bufferType 赋值
@@ -148,7 +154,7 @@ describe('chat-viewport Phase 72', () => {
   describe('Step 3: buildClawLine 活跃路径', () => {
     it('活跃路径应使用 fitLine 而非手动 sliceFromStart', () => {
       // 找到 buildClawLine 函数
-      const buildClawLineStart = sourceCode.indexOf('const buildClawLine = (id: string, t: ClawTrack, cols: number): string => {');
+      const buildClawLineStart = sourceCode.indexOf('buildClawLine(id: string, t: ClawTrack, cols: number): string {');
       expect(buildClawLineStart).toBeGreaterThan(-1);
       
       // 取函数体前 2000 字符（足够覆盖活跃路径）

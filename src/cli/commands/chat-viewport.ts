@@ -7,24 +7,26 @@ import * as fsNative from 'fs';
 import * as path from 'path';
 import chokidar from 'chokidar';
 
-import { InboxWriter } from '../../foundation/messaging/index.js';
 import { createDirContext, createProcessManagerForCLI } from '../../foundation/config/factories.js';
-import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
-import type { FileSystem } from '../../foundation/fs/types.js';
 import { getContractCreatedMs } from '../../core/contract/index.js';
 import { LLM_OUTPUT_EVENTS } from '../../foundation/stream/types.js';
 import stringWidth from 'string-width';
-import { sliceFromStart, fitLine, wrapLine } from '../utils/string.js';
+import { wrapLine, fitLine } from '../utils/string.js';
 import { OUTPUT_LINES_CAP } from '../../constants.js';
 import type { CallerType } from '../../foundation/tool-protocol/caller-type.js';
-import { createWatcher } from '../../foundation/file-watcher/index.js';
 import type { Watcher } from '../../foundation/file-watcher/types.js';
 import type { AuditWriter } from '../../foundation/audit/writer.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
 import { createStreamReader, STREAM_FILE } from '../../foundation/stream/index.js';
 import { createViewportObservability } from './chat-viewport-observability.js';
-import type { StreamReader, StreamEvent } from '../../foundation/stream/index.js';
+import type { StreamReader } from '../../foundation/stream/index.js';
 import { LOGS_DIR } from '../../types/paths.js';
+
+import { writeUserChat, fmtDuration } from './chat-viewport-utils.js';
+import { createChatViewportWatcher } from './chat-viewport-watcher.js';
+import { type ClawTrack, makeClawTrack, buildClawLine } from './chat-viewport-claw-line.js';
+import { createMainTurnUI, type MainTurnUIDeps, type MainTurnUIController } from './main-turn-ui.js';
+import { createTaskEventHandler, type TaskEventHandlerDeps, type TaskEvent } from './chat-viewport-task-events.js';
 
 export interface ChatViewportOptions {
   agentDir: string;   // motion dir 或 claw dir
@@ -37,244 +39,13 @@ export interface ChatViewportOptions {
   audit: AuditWriter; // audit sink for createWatcher
 }
 
-function createChatViewportWatcher(
-  fs: FileSystem,
-  clawId: string,
-  streamPath: string,
-  refresh: () => void,
-  audit: AuditWriter,
-  onClose: () => void,
-  persistent?: boolean,
-): Watcher {
-  let self: Watcher | null = null;
-  const w = createWatcher(
-    fs.resolve(streamPath),
-    refresh,
-    {
-      stability: 'immediate',
-      persistent,
-      onError: (err, context) => {
-        const eventType = context === 'callback'
-          ? VIEWPORT_AUDIT_EVENTS.WATCHER_CALLBACK_FAILED
-          : VIEWPORT_AUDIT_EVENTS.WATCHER_FAILED;
-        audit.write(
-          eventType,
-          `claw=${clawId}`,
-          `path=${streamPath}`,
-          `context=${context}`,
-          `reason=${err.message}`,
-        );
-        if (context === 'watch') {
-          void self?.close();
-          onClose();
-        }
-      },
-    },
-  );
-  self = w;
-  return w;
-}
-
-function writeUserChat(agentDir: string, message: string): void {
-  const inboxDir = path.join(agentDir, 'inbox', 'pending');
-  const { fs, audit } = createDirContext(agentDir);
-  new InboxWriter(fs, inboxDir, audit).writeSync({
-    type: 'user_chat',
-    source: 'user',
-    priority: 'high',
-    body: message,
-    idPrefix: 'chat',
-  });
-}
-
-function fmtDuration(ms: number): string {
-  const m = Math.floor(ms / 60000);
-  const h = Math.floor(m / 60);
-  if (h > 0) return `${h}h ${m % 60}m`;
-  return `${m}m`;
-}
 
 
-// Braille spinner 动画
-const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-
-export interface MainTurnUIDeps {
-  appendOutput: (color: string, text: string, wrap?: boolean, hangIndent?: string) => void;
-  updateDisplay: () => void;
-  trimOutputNewlines: boolean;
-  getThinkingMode: () => 'compact' | 'full' | 'off';
-  audit: { write: (type: string, ...cols: (string | number)[]) => void };
-  observability?: { recordSpinner: (action: 'start' | 'stop', text: string) => void };
-}
-
-export interface MainTurnUIController {
-  setSuffix(text: string): void;
-  clearSuffix(): void;
-  getSuffix(): string;
-  startSpinner(text?: string): void;
-  stopSpinner(): void;
-  appendToBuffer(delta: string): string;
-  flushStreaming(): void;
-  appendToThinking(delta: string): string;
-  flushThinking(): void;
-  withScope<T>(scope: 'main' | 'task' | 'system', fn: () => T): T;
-}
-
-export function createMainTurnUI(deps: MainTurnUIDeps): MainTurnUIController {
-  let suffix = '';
-  let streamingBuffer = '';
-  let thinkingBuffer = '';
-  let spinnerTimer: ReturnType<typeof setInterval> | null = null;
-  let currentScope: 'main' | 'task' | 'system' | null = null;
-  let currentSpinnerText = 'Thinking...';
-
-  const guardWrite = (method: string) => {
-    if (currentScope === 'task') {
-      try {
-        deps.audit.write(
-          VIEWPORT_AUDIT_EVENTS.UI_CROSS_POLLUTION,
-          `method=${method}`,
-          'source=task',
-        );
-      } catch { /* audit self-failure is tolerated */ }
-    }
-  };
-
-  const withScope = <T>(scope: 'main' | 'task' | 'system', fn: () => T): T => {
-    const prev = currentScope;
-    currentScope = scope;
-    try { return fn(); }
-    finally { currentScope = prev; }
-  };
-
-  const setSuffix = (text: string) => {
-    guardWrite('setSuffix');
-    suffix = text ?? '';
-    deps.updateDisplay();
-  };
-  const clearSuffix = () => {
-    guardWrite('clearSuffix');
-    suffix = '';
-    deps.updateDisplay();
-  };
-  const getSuffix = () => suffix;
-
-  const stopSpinner = () => {
-    guardWrite('stopSpinner');
-    if (spinnerTimer == null) return;
-    
-    if (spinnerTimer) {
-      clearInterval(spinnerTimer);
-      spinnerTimer = null;
-    }
-    deps.observability?.recordSpinner('stop', currentSpinnerText);
-  };
-  const startSpinner = (text = 'Thinking...') => {
-    guardWrite('startSpinner');
-    stopSpinner();
-    currentSpinnerText = text;
-    deps.observability?.recordSpinner('start', text);
-    let frame = 0;
-    spinnerTimer = setInterval(() => {
-      suffix = `${SPINNER_FRAMES[frame % SPINNER_FRAMES.length]} ${text}`;
-      deps.updateDisplay();
-      frame++;
-    }, 80);
-    spinnerTimer.unref();
-    // 立即显示第一帧
-    setSuffix(`${SPINNER_FRAMES[0]} ${text}`);
-  };
-
-  const appendToBuffer = (delta: string) => {
-    guardWrite('appendToBuffer');
-    streamingBuffer += delta ?? '';
-    return streamingBuffer;
-  };
-  const flushStreaming = () => {
-    guardWrite('flushStreaming');
-    if (!streamingBuffer) return;
-    const dotPrefix = '\x1b[38;5;232m⏺\x1b[0m ';
-    const indent = '  ';
-    const content = deps.trimOutputNewlines ? streamingBuffer.trim() : streamingBuffer;
-    const formatted = content
-      .split('\n')
-      .map((line, i) => (i === 0 ? dotPrefix : indent) + line)
-      .join('\n');
-    streamingBuffer = '';
-    suffix = '';
-    deps.appendOutput('', formatted, true, indent);
-    deps.updateDisplay();
-  };
-
-  const appendToThinking = (delta: string) => {
-    guardWrite('appendToThinking');
-    thinkingBuffer += delta ?? '';
-    return thinkingBuffer;
-  };
-  const flushThinking = () => {
-    guardWrite('flushThinking');
-    if (!thinkingBuffer) return;
-    const prefix = '⏺ ';
-    const indent = ' '.repeat(stringWidth(prefix));
-    const content = deps.trimOutputNewlines ? thinkingBuffer.trim() : thinkingBuffer;
-    const formatted = content
-      .split('\n')
-      .map((line, i) => (i === 0 ? prefix : indent) + line)
-      .join('\n');
-    deps.appendOutput('\x1b[2m', formatted, true, indent);
-    thinkingBuffer = '';
-  };
-
-  return {
-    setSuffix, clearSuffix, getSuffix,
-    startSpinner, stopSpinner,
-    appendToBuffer, flushStreaming,
-    appendToThinking, flushThinking,
-    withScope,
-  };
-}
 
 
-export interface TaskEventHandlerDeps {
-  getTaskWatch: (taskId: string) => { silent: boolean } | undefined;
-  showRecapStream: () => boolean;
-  appendOutput: (color: string, text: string, wrap?: boolean, hangIndent?: string) => void;
-  stopTaskWatch: (taskId: string) => void;
-}
 
-export type TaskEvent = {
-  type: string;
-  name?: unknown;
-  success?: unknown;
-  step?: unknown;
-  maxSteps?: unknown;
-  summary?: unknown;
-  [key: string]: unknown;
-};
 
-export function createTaskEventHandler(deps: TaskEventHandlerDeps) {
-  return (taskId: string, callerType: string, event: TaskEvent) => {
-    const tw = deps.getTaskWatch(taskId);
-    const prefix = callerType;
-    switch (event.type) {
-      case 'tool_call':
-        if (tw?.silent && !deps.showRecapStream()) break;
-        deps.appendOutput('\x1b[36m', `⚙ ${prefix}:${event.name}`);
-        break;
-      case 'tool_result': {
-        if (tw?.silent && !deps.showRecapStream()) break;
-        const icon = event.success ? '✓' : '✗';
-        deps.appendOutput('\x1b[2m', `  ${icon} [${event.step}/${event.maxSteps}] ${event.summary as string}`);
-        break;
-      }
-      case 'turn_end':
-      case 'turn_error':
-      case 'turn_interrupted':
-        deps.stopTaskWatch(taskId);
-        break;
-    }
-  };
-}
+
 
 export async function runChatViewport(options: ChatViewportOptions): Promise<void> {
   const pm = createProcessManagerForCLI();
@@ -376,61 +147,6 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
 
   const attachedClawBar = new Text('', 0, 0);
 
-  const buildClawLine = (id: string, t: ClawTrack, cols: number): string => {
-    // Fix 2：daemon 崩溃检测（放在最前，无论 active 状态）
-    if (!t.isAlive) {
-      return `\x1b[38;5;240m[${id}] ✗ daemon stopped\x1b[0m`;
-    }
-
-    if (t.active) {
-      const icon = t.toolSuccess === true ? '✓' : t.toolSuccess === false ? '✗' : '⚙';
-      if (t.currentTool) {
-        if (t.textBuffer) {
-          const isThinking = t.bufferType === 'thinking';
-          const open = isThinking ? '(' : '"';
-          const close = isThinking ? ')' : '"';
-          const line = `[${id}] ${icon} ${t.currentTool} · ${open}${t.textBuffer.trimStart().replace(/\n/g, ' ')}${close}`;
-          return `\x1b[38;5;147m${fitLine(line, cols)}\x1b[0m`;
-        }
-        return `\x1b[38;5;147m[${id}] ${icon} ${t.currentTool}\x1b[0m`;
-      }
-      const inner = t.textBuffer
-        ? t.textBuffer.trimStart().replace(/\n/g, ' ')
-        : '';
-      return `\x1b[38;5;147m${fitLine(`[${id}] ⊙ (${inner})`, cols)}\x1b[0m`;
-    }
-
-    // 不活跃
-    let leftText: string;
-    let leftColor: string;
-    if (!t.hasContract) {
-      leftText = `[${id}] ○ no contract`;
-      leftColor = '\x1b[38;5;245m';
-    } else if (t.lastError) {
-      const dur = t.referenceMs ? ` · inactive ${fmtDuration(Date.now() - t.referenceMs)}` : '';
-      leftText = `[${id}] ✗ ${t.lastError}${dur}`;
-      leftColor = '\x1b[38;5;214m';
-    } else if (t.lastInterrupted) {
-      const dur = t.referenceMs ? ` · inactive ${fmtDuration(Date.now() - t.referenceMs)}` : '';
-      leftText = `[${id}] ✗ interrupted${dur}`;
-      leftColor = '\x1b[38;5;214m';
-    } else {
-      const dur = t.referenceMs ? `inactive ${fmtDuration(Date.now() - t.referenceMs)}` : '';
-      leftText = dur ? `[${id}] ○ ${dur}` : `[${id}] ○`;
-      leftColor = '\x1b[38;5;245m';
-    }
-
-    // 净化并截断 leftText，确保 attach bar 单行显示
-    leftText = fitLine(leftText, cols);
-
-    if (t.lastOutput) {
-      const prefix = `${leftText} · "`;
-      const available = cols - stringWidth(prefix) - 1;
-      const snippet = sliceFromStart(t.lastOutput.trimStart().replace(/\n/g, ' '), available);
-      return `${leftColor}${prefix}${snippet}"\x1b[0m`;
-    }
-    return `${leftColor}${leftText}\x1b[0m`;
-  };
 
   const updateClawPanel = () => {
     if (clawTrackMap.size === 0) {
@@ -656,37 +372,6 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   // Motion viewport：各 claw 步数追踪
   const isMotion = options.label === 'motion';
   const clawsDir = isMotion ? path.join(options.agentDir, '..', 'claws') : '';
-  interface ClawTrack {
-    // 轻量字段
-    fileSize: number;
-    leftover: string;
-    turnCount: number;
-    step: number;
-    maxSteps: number;
-    active: boolean;
-    lastError: string | null;
-    hasContract: boolean;
-    isAlive: boolean;
-
-    // 新增（rich，详细行用）
-    currentTool: string | null;
-    toolSuccess: boolean | null;
-    textBuffer: string;
-    bufferType: 'thinking' | 'text' | null;
-    lastOutput: string;
-    lastInterrupted: boolean;
-    referenceMs: number | null;
-    clearOnNextDelta: boolean;
-  }
-
-  function makeClawTrack(): ClawTrack {
-    return {
-      fileSize: 0, leftover: '', turnCount: 0, step: 0, maxSteps: 100,
-      active: false, lastError: null, hasContract: false, isAlive: false,
-      currentTool: null, toolSuccess: null, textBuffer: '', bufferType: null,
-      lastOutput: '', lastInterrupted: false, referenceMs: null, clearOnNextDelta: false,
-    };
-  }
   const clawTrackMap = new Map<string, ClawTrack>();
   const clawWatchers = new Map<string, Watcher>();
   let lastClawRefreshTs = 0;
@@ -1294,3 +979,17 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   await terminal.drainInput();
   process.stdin.pause();
 }
+
+// Re-exports for backward compatibility (tests import from chat-viewport.js)
+export {
+  createMainTurnUI,
+  type MainTurnUIDeps,
+  type MainTurnUIController,
+} from './main-turn-ui.js';
+
+export {
+  createTaskEventHandler,
+  type TaskEventHandlerDeps,
+  type TaskEvent,
+} from './chat-viewport-task-events.js';
+
