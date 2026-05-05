@@ -131,14 +131,22 @@ export const readTool: Tool = {
       const totalChars = content.length;
       const lines = content.split('\n');
       
+      let isTruncated = false;
       if (lines.length > READ_MAX_LINES) {
         content = lines.slice(0, READ_MAX_LINES).join('\n') +
           `\n[Showing lines 1-${READ_MAX_LINES} of ${totalLines}. Use offset=${READ_MAX_LINES+1} to read more]`;
+        isTruncated = true;
       }
       if (content.length > READ_MAX_CHARS) {
         const shownChars = content.slice(0, READ_MAX_CHARS).length;
         content = content.slice(0, READ_MAX_CHARS) +
           `\n[Showing first ${shownChars} of ${totalChars} chars. Use offset/limit to read more]`;
+        isTruncated = true;
+      }
+
+      // fully-read 集合 add（未截断 / phase 487 G6 (a)）
+      if (!isTruncated) {
+        ctx.fullyReadPaths.add(normalized);
       }
 
       return {

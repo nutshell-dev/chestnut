@@ -494,6 +494,7 @@ export class TaskSystem {
       auditWriter: this.auditWriter,
       getElapsedMs: () => 0,
       incrementStep: () => { /* no-op */ },
+      fullyReadPaths: new Set(),
     };
   }
 

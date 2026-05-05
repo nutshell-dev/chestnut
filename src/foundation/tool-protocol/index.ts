@@ -67,6 +67,8 @@ export interface ExecContext {
   mainContextSnapshot?: { clawId: string; toolUseId: string };
   /** Current tool_use block id (set by ToolExecutor before tool.execute) */
   currentToolUseId?: string;
+  /** Session-scoped fully-read paths（read 未截断时 add / overwrite gate / phase 487 G6） */
+  fullyReadPaths: Set<string>;
 }
 
 /**

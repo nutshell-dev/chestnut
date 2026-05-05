@@ -25,17 +25,6 @@ export const READ_MAX_CHARS = 8000;
 /** Maximum entries to list in ls tool */
 export const LS_MAX_ENTRIES = 100;
 
-/** Size limits for write tool by location: [soft_limit, hard_limit] in bytes */
-export const WRITE_SIZE_LIMITS: Record<string, [number, number]> = {
-  'MEMORY.md': [50 * 1024, 200 * 1024],
-  'memory/': [100 * 1024, 500 * 1024],
-  'clawspace/': [5 * 1024 * 1024, 20 * 1024 * 1024],
-  'default': [1 * 1024 * 1024, 5 * 1024 * 1024],
-};
-
-/** Number of versions to retain in .versions/ directory */
-export const WRITE_VERSION_RETENTION = 10;
-
 // ----------------------------------------------------------------------------
 // Execution Tools
 // ----------------------------------------------------------------------------

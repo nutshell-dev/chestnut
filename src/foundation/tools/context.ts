@@ -69,6 +69,8 @@ export interface ExecContextImplOptions {
   mainContextSnapshot?: { clawId: string; toolUseId: string };
   /** Current tool_use block id (set by ToolExecutor before tool.execute) */
   currentToolUseId?: string;
+  /** Session-scoped fully-read paths（read 未截断时 add / overwrite gate / phase 487 G6） */
+  fullyReadPaths?: Set<string>;
 }
 
 /**
@@ -112,6 +114,7 @@ export class ExecContextImpl implements ExecContext {
   mainDialogStore?: DialogStore;
   mainContextSnapshot?: { clawId: string; toolUseId: string };
   currentToolUseId?: string;
+  fullyReadPaths: Set<string>;
   
   private startTime: number;
 
@@ -132,6 +135,7 @@ export class ExecContextImpl implements ExecContext {
     this.mainDialogStore = options.mainDialogStore;
     this.mainContextSnapshot = options.mainContextSnapshot;
     this.currentToolUseId = options.currentToolUseId;
+    this.fullyReadPaths = options.fullyReadPaths ?? new Set();
     this.stepNumber = 0;
     this.startTime = Date.now();
   }

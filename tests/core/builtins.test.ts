@@ -49,6 +49,7 @@ describe('Builtin Tools', () => {
     ctx = new ExecContextImpl({
       clawId: 'test-claw',
       clawDir: tempDir,
+      syncDir: path.join(tempDir, 'tasks', 'sync'),
       profile: 'full',
       fs: mockFs,
     });
@@ -76,6 +77,15 @@ describe('Builtin Tools', () => {
 
       expect(result.success).toBe(true);
       expect(result.content).toBe('Hello, World!');
+    });
+
+    it('should add path to fullyReadPaths after non-truncated read', async () => {
+      await mockFs.ensureDir('clawspace');
+      await mockFs.writeAtomic('clawspace/small.txt', 'small content');
+
+      await readTool.execute({ path: 'clawspace/small.txt' }, ctx);
+
+      expect(ctx.fullyReadPaths.has('clawspace/small.txt')).toBe(true);
     });
 
     it('should return error for non-existent file', async () => {
@@ -113,6 +123,7 @@ describe('Builtin Tools', () => {
       expect(result.success).toBe(true);
       expect(result.content).toContain('Showing lines 1-200 of 300');
       expect(result.content).toContain('offset=201');
+      expect(ctx.fullyReadPaths.has('clawspace/large.txt')).toBe(false);
     });
 
     it('should include byte count when truncating by char limit', async () => {
@@ -125,6 +136,7 @@ describe('Builtin Tools', () => {
 
       expect(result.success).toBe(true);
       expect(result.content).toContain('Showing first');
+      expect(ctx.fullyReadPaths.has('clawspace/huge.txt')).toBe(false);
     });
 
     // Negative offset tests
@@ -199,36 +211,108 @@ describe('Builtin Tools', () => {
       expect(content).toBe('First line\nSecond line');
     });
 
-    // Phase 2 质量审查补充：版本清理测试
-    it('should keep only last 10 versions when writing', async () => {
+    // Phase 490: syncDir backup 测试
+    it('should backup to syncDir with frontmatter on overwrite', async () => {
       await mockFs.ensureDir('clawspace');
-      
-      // Write same file 15 times (creates 14 backups, first write has no backup)
-      // After cleanup, should keep exactly 10 most recent
-      for (let i = 0; i < 15; i++) {
-        const result = await writeTool.execute({ 
-          path: 'clawspace/versioned.txt', 
-          content: `Content version ${i}` 
-        }, ctx);
-        expect(result.success).toBe(true);
-      }
+      await mockFs.writeAtomic('clawspace/versioned.txt', 'original content');
+      // 先 read 使其进入 fullyReadPaths
+      await readTool.execute({ path: 'clawspace/versioned.txt' }, ctx);
 
-      // Check versions directory
-      const versionsDir = path.join(tempDir, 'clawspace', '.versions');
-      const versionFiles = await fs.readdir(versionsDir).catch(() => []);
-      const relevantVersions = versionFiles.filter(f => f.startsWith('versioned.txt.'));
-      
-      // Should be exactly 10 after cleanup (15 writes - 1 = 14 backups, keep last 10)
-      expect(relevantVersions.length).toBe(10);
+      const result = await writeTool.execute({
+        path: 'clawspace/versioned.txt',
+        content: 'new content',
+      }, ctx);
+
+      expect(result.success).toBe(true);
+      expect(result.content).toContain('backup:');
+
+      // 验证 syncDir 中有 backup 文件
+      const syncDir = path.join(tempDir, 'tasks', 'sync');
+      const syncFiles = await fs.readdir(syncDir).catch(() => []);
+      expect(syncFiles.length).toBeGreaterThan(0);
+      const backupFile = syncFiles[0];
+      const backupContent = await fs.readFile(path.join(syncDir, backupFile), 'utf-8');
+      expect(backupContent).toContain('source: file_backup');
+      expect(backupContent).toContain('original_path: clawspace/versioned.txt');
+      expect(backupContent).toContain('original content');
+    });
+
+    // Phase 490: fully-read gate 测试
+    it('should reject overwrite when file was not fully read', async () => {
+      await mockFs.ensureDir('clawspace');
+      await mockFs.writeAtomic('clawspace/gated.txt', 'existing content');
+
+      const result = await writeTool.execute({
+        path: 'clawspace/gated.txt',
+        content: 'new content',
+      }, ctx);
+
+      expect(result.success).toBe(false);
+      expect(result.content).toContain('fully-read');
+    });
+
+    it('should allow overwrite after fully read', async () => {
+      await mockFs.ensureDir('clawspace');
+      await mockFs.writeAtomic('clawspace/gated2.txt', 'existing content');
+
+      // 先 read
+      const readResult = await readTool.execute({ path: 'clawspace/gated2.txt' }, ctx);
+      expect(readResult.success).toBe(true);
+
+      // 再 overwrite 应该成功
+      const writeResult = await writeTool.execute({
+        path: 'clawspace/gated2.txt',
+        content: 'new content',
+      }, ctx);
+
+      expect(writeResult.success).toBe(true);
+    });
+
+    it('should allow overwrite of same file again after first overwrite', async () => {
+      await mockFs.ensureDir('clawspace');
+      await mockFs.writeAtomic('clawspace/gated3.txt', 'v1');
+
+      // 先 read
+      await readTool.execute({ path: 'clawspace/gated3.txt' }, ctx);
+      // 第一次 overwrite
+      const w1 = await writeTool.execute({ path: 'clawspace/gated3.txt', content: 'v2' }, ctx);
+      expect(w1.success).toBe(true);
+      // 第二次 overwrite（写成功后已加入 fullyReadPaths）
+      const w2 = await writeTool.execute({ path: 'clawspace/gated3.txt', content: 'v3' }, ctx);
+      expect(w2.success).toBe(true);
+    });
+
+    it('should allow append without fully-read gate', async () => {
+      await mockFs.ensureDir('clawspace');
+      await mockFs.writeAtomic('clawspace/append-gate.txt', 'existing');
+
+      const result = await writeTool.execute({
+        path: 'clawspace/append-gate.txt',
+        content: ' appended',
+        append: true,
+      }, ctx);
+
+      expect(result.success).toBe(true);
+    });
+
+    it('should allow overwrite of non-existent file without gate', async () => {
+      await mockFs.ensureDir('clawspace');
+
+      const result = await writeTool.execute({
+        path: 'clawspace/new-file.txt',
+        content: 'new content',
+      }, ctx);
+
+      expect(result.success).toBe(true);
     });
 
     it('should include byte count in success message', async () => {
       await mockFs.ensureDir('clawspace');
       const content = 'Hello, this is test content';
-      
-      const result = await writeTool.execute({ 
-        path: 'clawspace/bytecount.txt', 
-        content 
+
+      const result = await writeTool.execute({
+        path: 'clawspace/bytecount.txt',
+        content,
       }, ctx);
 
       expect(result.success).toBe(true);
