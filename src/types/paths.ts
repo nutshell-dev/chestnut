@@ -39,6 +39,9 @@ export const TASKS_SYNC_WRITE_DIR = 'tasks/sync/write';
 /** tasks/sync/spawn — sync subagent lifecycle（sync caller own subdir / phase 511 加）*/
 export const TASKS_SYNC_SPAWN_DIR = 'tasks/sync/spawn';
 
+/** tasks/subagents — 子代理临时工作区集合（per-subagent dir / phase 512 加）*/
+export const TASKS_SUBAGENTS_DIR = 'tasks/subagents';
+
 /** inbox/pending 目录相对路径 */
 export const INBOX_PENDING_DIR = 'inbox/pending';
 /** inbox/done 目录相对路径 */
@@ -69,6 +72,7 @@ export const CLAW_SUBDIRS = [
   TASKS_SYNC_EXEC_DIR,
   TASKS_SYNC_WRITE_DIR,
   TASKS_SYNC_SPAWN_DIR,
+  TASKS_SUBAGENTS_DIR,
   'memory',                    // 不抽 const / 字面量保留 / B.p380-1 信号登记
   CONTRACT_DIR,                // 旧 'contract'
   'skills',                    // phase370 已立 / 非 NEW（SKILLS_DIR_DEFAULT 字面量 / 避免循环依赖 skill-paths.ts → paths.ts）

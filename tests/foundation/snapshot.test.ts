@@ -8,7 +8,7 @@ import * as fsSync from 'fs';
 import { execSync } from 'child_process';
 import * as path from 'path';
 import * as os from 'os';
-import { Snapshot } from '../../src/foundation/snapshot/index.js';
+import { Snapshot, SNAPSHOT_IGNORE_PATTERNS } from '../../src/foundation/snapshot/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { SNAPSHOT_AUDIT_EVENTS } from '../../src/foundation/snapshot/audit-events.js';
 
@@ -135,6 +135,14 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
 
     const gitignore = await fsp.readFile(path.join(tmpDir, '.gitignore'), 'utf-8');
     expect(gitignore).toBe('injected1\ninjected2\nlogs/\n*.tmp\n');
+  });
+
+  it('init writes tasks/subagents/ into .gitignore (phase 512)', async () => {
+    const s = new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir }), { write: () => {} }, SNAPSHOT_IGNORE_PATTERNS);
+    await s.init();
+
+    const gitignore = await fsp.readFile(path.join(tmpDir, '.gitignore'), 'utf-8');
+    expect(gitignore).toContain('tasks/subagents/');
   });
 
   // ========================================================================

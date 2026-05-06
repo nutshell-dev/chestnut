@@ -3,6 +3,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import * as path from 'path';
 import { SubAgent } from '../../src/core/subagent/agent.js';
 import { NoopStreamWriter, NoopAuditWriter } from '../../src/core/subagent/noop-writers.js';
 import { createDialogStore } from '../../src/foundation/dialog-store/index.js';
@@ -22,6 +23,7 @@ vi.mock('../../src/foundation/tools/executor.js', () => ({
     getExecContext: vi.fn().mockReturnValue({
       clawId: 'test-agent',
       clawDir: '/tmp/test',
+      workspaceDir: path.join('/tmp/test', 'clawspace'),
       profile: 'subagent',
       fs: {},
       stepNumber: 0,
@@ -81,6 +83,7 @@ function makeSubAgent(
       ),
       prompt: 'do something',
       clawDir: '/tmp/test',
+      workspaceDir: path.join('/tmp/test', 'clawspace'),
       llm: mockLLM,
       registry: mockRegistry,
       fs: mockFs,

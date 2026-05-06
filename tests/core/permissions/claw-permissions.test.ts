@@ -105,6 +105,11 @@ describe('createClawPermissionChecker', () => {
       expect(() => checker.checkWrite(`${CLAW_DIR}/logs/app.log`)).not.toThrow();
     });
 
+    it('tasks/subagents/<id>/ 写入允许（α 简化 / 所有 callerType）', () => {
+      const checker = createClawPermissionChecker({ clawDir: CLAW_DIR });
+      expect(() => checker.checkWrite(`${CLAW_DIR}/tasks/subagents/abc/file.txt`)).not.toThrow();
+    });
+
     it('strict: false 时写系统路径也允许', () => {
       const checker = createClawPermissionChecker({ clawDir: CLAW_DIR, strict: false });
       expect(() => checker.checkWrite(`${CLAW_DIR}/dialog/session.json`)).not.toThrow();

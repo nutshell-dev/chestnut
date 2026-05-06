@@ -53,7 +53,7 @@ export { EXEC_TOOL_NAME };
 
 export const execTool: Tool = {
   name: EXEC_TOOL_NAME,
-  description: 'Execute a shell command in the clawspace/ directory. Runs via `sh -c`, so shell features (pipes, redirects, quotes) work normally.',
+  description: 'Execute a shell command in the agent workspace directory (clawspace/ for main agent, tasks/subagents/<task-id>/ for subagent). Runs via `sh -c`, so shell features (pipes, redirects, quotes) work normally.',
   schema: {
     type: 'object',
     properties: {
@@ -63,7 +63,7 @@ export const execTool: Tool = {
       },
       cwd: {
         type: 'string',
-        description: 'Working directory (relative path resolved against claw root, or absolute). Default: clawspace/.',
+        description: 'Working directory (relative path resolved against claw root, or absolute). Default: agent workspace dir (clawspace/ or tasks/subagents/<task-id>/).',
       },
       timeoutMs: {
         type: 'number',
@@ -81,7 +81,7 @@ export const execTool: Tool = {
     const cwdArg = args.cwd as string | undefined;
     const cwd = cwdArg
       ? path.resolve(ctx.clawDir, cwdArg)
-      : path.join(ctx.clawDir, 'clawspace');
+      : ctx.workspaceDir;            // phase 512 / per-callerType: 主代理=clawspace / 子代理=tasks/subagents/<id>
     const timeoutMs = (args.timeoutMs as number) ?? undefined;
 
     try {

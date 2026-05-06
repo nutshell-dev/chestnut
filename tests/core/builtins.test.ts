@@ -1203,7 +1203,7 @@ describe('Builtin Tools', () => {
       expect(result.content).toContain('/tmp');
     });
 
-    it('execTool 默认 cwd = clawDir/clawspace（不是 clawDir）', async () => {
+    it('execTool 默认 cwd = ctx.workspaceDir（主 claw = clawspace）', async () => {
       // ensure clawspace subdir exists in tempDir (some tests may not have it)
       const fsNative = await import('fs');
       fsNative.mkdirSync(path.join(tempDir, 'clawspace'), { recursive: true });
@@ -1211,7 +1211,25 @@ describe('Builtin Tools', () => {
       const result = await execTool.execute({ command: 'pwd' }, ctx);
 
       expect(result.success).toBe(true);
-      expect(result.content).toContain(path.join(tempDir, 'clawspace'));
+      expect(result.content).toContain(ctx.workspaceDir);  // phase 512
+    });
+
+    it('execTool subagent 默认 cwd = workspaceDir (tasks/subagents/<id>/)', async () => {
+      const subagentWorkspaceDir = path.join(tempDir, 'tasks/subagents/test-task-1');
+      const fsNative = await import('fs');
+      fsNative.mkdirSync(subagentWorkspaceDir, { recursive: true });
+      const subagentCtx = new ExecContextImpl({
+        clawId: 'test',
+        clawDir: tempDir,
+        workspaceDir: subagentWorkspaceDir,
+        syncDir: path.join(tempDir, 'tasks/sync'),
+        profile: 'subagent',
+        callerType: 'subagent',
+        fs: mockFs,
+      });
+      const result = await execTool.execute({ command: 'pwd' }, subagentCtx);
+      expect(result.success).toBe(true);
+      expect(result.content).toContain('tasks/subagents/test-task-1');
     });
 
     it('execTool args.cwd 相对路径以 clawDir 为基准 resolve（非 clawspace）', async () => {

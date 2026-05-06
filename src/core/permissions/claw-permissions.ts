@@ -6,7 +6,7 @@
  * - System space (read-only): AGENTS.md, dialog/, config.yaml, .clawforum/, system/
  * - Claw writable space: MEMORY.md, memory/, USER.md, IDENTITY.md, SOUL.md,
  *   clawspace/, prompts/, skills/, inbox/, outbox/, tasks/queues/{pending,running,done,failed}, logs/
- * - Claw readable space: + contract/, tasks/queues/results/, tasks/sync/spawn/
+ * - Claw readable space: + contract/, tasks/queues/results/, tasks/sync/spawn/, tasks/subagents/
  * - Outside clawDir: denied (PathNotInClawSpaceError)
  *
  * Phase430: PermissionChecker interface + createClawPermissionChecker 完全归 L4。
@@ -26,6 +26,7 @@ import {
   TASKS_QUEUES_FAILED_DIR,
   TASKS_QUEUES_RESULTS_DIR,
   TASKS_SYNC_SPAWN_DIR,
+  TASKS_SUBAGENTS_DIR,
 } from '../../types/paths.js';
 import type { PermissionChecker } from '../../types/permission.js';
 export type { PermissionChecker } from '../../types/permission.js';
@@ -61,6 +62,7 @@ const WRITABLE_PATHS = [
   TASKS_QUEUES_DONE_DIR,
   TASKS_QUEUES_FAILED_DIR,
   TASKS_QUEUES_RESULTS_DIR,
+  TASKS_SUBAGENTS_DIR,            // phase 512 / 子代理 workspace（α 简化 / 所有 callerType 等价 / 升 β 推 r+1+）
   'logs',
 ];
 

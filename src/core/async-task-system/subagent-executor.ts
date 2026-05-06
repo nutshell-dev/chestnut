@@ -12,7 +12,8 @@ import { createSubAgent } from '../subagent/index.js';
 import { createDialogStore } from '../../foundation/dialog-store/index.js';
 import { DEFAULT_LLM_IDLE_TIMEOUT_MS } from '../../constants.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
-import { TASKS_QUEUES_RESULTS_DIR } from '../../types/paths.js';
+import { TASKS_QUEUES_RESULTS_DIR, TASKS_SUBAGENTS_DIR } from '../../types/paths.js';
+import { buildSubagentWorkspaceContext, DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../../prompts/subagent.js';
 import { sendResult, sendFallbackError } from './result-delivery.js';
 
 import type { PostProcessor } from './post-processors/types.js';
@@ -77,6 +78,16 @@ export async function executeSubAgentTask(
 
     const toolsForLLM = registry.formatForLLM(effectiveRegistry.getAll());
 
+    // phase 512: per-subagent workspace dir
+    const subagentWorkspaceDir = path.join(clawDir, TASKS_SUBAGENTS_DIR, task.id);
+    await fs.ensureDir(subagentWorkspaceDir);
+    const ownWorkspaceRel = path.relative(clawDir, subagentWorkspaceDir);  // 'tasks/subagents/<id>'
+    const workspaceContext = buildSubagentWorkspaceContext({
+      ownWorkspaceRel,
+      callerClawspaceRel: 'clawspace',
+    });
+    const finalSystemPrompt = `${workspaceContext}\n\n${DEFAULT_SUBAGENT_SYSTEM_PROMPT}`;
+
     const subAgent = createSubAgent({
       agentId: task.id,
       resultDir: `${TASKS_QUEUES_RESULTS_DIR}/${task.id}`,                      // phase443: AsyncTaskSystem own 字符串约定
@@ -101,7 +112,8 @@ export async function executeSubAgentTask(
       originClawId: task.originClawId,
       mainDialogStore,
       mainContextSnapshot: task.mainContextSnapshot,
-
+      workspaceDir: subagentWorkspaceDir,    // phase 512
+      systemPrompt: finalSystemPrompt,       // phase 512
       taskStreamWriter: { write: writeTaskEvent },
       auditWriter: taskAuditWriter,
     });
