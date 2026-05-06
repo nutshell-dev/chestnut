@@ -16,7 +16,7 @@ export { READ_TOOL_NAME };
 
 export const readTool: Tool = {
   name: READ_TOOL_NAME,
-  description: 'Read the contents of a file. Blocked: logs/. Motion can read other claws via `claw` parameter.',
+  description: 'Read the contents of a file. Blocked: logs/. Use `claw: "<id>"` to read another claw\'s file. Specific target access is available to all agents.',
   schema: {
     type: 'object',
     properties: {
@@ -66,16 +66,9 @@ export const readTool: Tool = {
     const checker = getChecker(ctx.clawDir);
     checker.resolveAndCheck(normalized, 'read');
 
-    // Motion-only: read from another claw's directory
+    // Cross-claw read: specific target / 任意 callerType OK（D11 inter-claw 互访 align）
     let content: string;
     if (clawParam !== undefined) {
-      // Only Motion can use this feature
-      if (!ctx.isMotionChain) {
-        return {
-          success: false,
-          content: 'Error: Only Motion and its subagents can read files from other claws',
-        };
-      }
       // Validate clawParam (no path traversal)
       if (clawParam.includes('/') || clawParam.includes('..') || clawParam === '' || clawParam === '.' || clawParam.startsWith('.')) {
         return {

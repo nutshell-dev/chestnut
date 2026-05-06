@@ -12,7 +12,7 @@ import { ReportResultTool } from '../../foundation/tools/report-result.js';
 import { createToolRegistry } from '../../foundation/tools/index.js';
 import { ToolTimeoutError } from '../../types/errors.js';
 import { TASKS_SYNC_SPAWN_DIR, TASKS_SUBAGENTS_DIR } from '../../types/paths.js';
-import { buildSubagentWorkspaceContext, CONTRACT_VERIFIER_SYSTEM_PROMPT } from '../../prompts/subagent.js';
+import { buildSubagentSystemPromptPrefix, CONTRACT_VERIFIER_SYSTEM_PROMPT } from '../../prompts/subagent.js';
 import type { VerifierConfig, VerifierResult } from './types.js';
 
 export async function runContractVerifier(config: VerifierConfig): Promise<VerifierResult> {
@@ -24,10 +24,9 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
     // phase 512: per-subagent workspace dir
     const verifierWorkspaceDir = path.join(config.clawDir, TASKS_SUBAGENTS_DIR, config.agentId);
     await config.fs.ensureDir(verifierWorkspaceDir);
-    const ownWorkspaceRel = path.relative(config.clawDir, verifierWorkspaceDir);
-    const workspaceContext = buildSubagentWorkspaceContext({
-      ownWorkspaceRel,
-      callerClawspaceRel: 'clawspace',
+    const promptPrefix = buildSubagentSystemPromptPrefix({
+      taskId: config.agentId,
+      callerClawId: config.clawId,
     });
 
     const agent = createSubAgent({
@@ -49,8 +48,9 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
       maxSteps: config.maxSteps,
       idleTimeoutMs: config.idleTimeoutMs,
       onIdleTimeout: config.onIdleTimeout,
-      systemPrompt: `${workspaceContext}\n\n${CONTRACT_VERIFIER_SYSTEM_PROMPT}`,  // phase 512
+      systemPrompt: `${promptPrefix}\n\n${CONTRACT_VERIFIER_SYSTEM_PROMPT}`,  // phase 512
       workspaceDir: verifierWorkspaceDir,    // phase 512
+      callerClawId: config.clawId,           // phase 514
       taskStreamWriter: new NoopStreamWriter(),
       auditWriter: new NoopAuditWriter(),
     });

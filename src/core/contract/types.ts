@@ -61,6 +61,7 @@ export interface VerifierConfig {
   agentId: string;
   prompt: string;
   clawDir: string;
+  clawId: string;               // phase 514 / caller's clawId for subagent context
   llm: LLMOrchestrator;
   fs: FileSystem;
   maxSteps: number;

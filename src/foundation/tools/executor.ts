@@ -221,6 +221,7 @@ export class ToolExecutor extends ToolExecutorImpl {
   private clawDir: string;
   private syncDir: string;
   private workspaceDir: string;
+  private callerClawId?: string;
   private fs: FileSystem;
   private llm?: LLMOrchestrator;
   private profile: ToolProfile;
@@ -234,6 +235,7 @@ export class ToolExecutor extends ToolExecutorImpl {
     this.clawDir = options.clawDir;
     this.syncDir = options.syncDir;
     this.workspaceDir = options.workspaceDir ?? path.join(options.clawDir, 'clawspace');
+    this.callerClawId = options.callerClawId;
     this.fs = options.fs;
     this.llm = options.llm;
     this.profile = options.profile ?? 'full';
@@ -254,6 +256,7 @@ export class ToolExecutor extends ToolExecutorImpl {
       clawId: options.clawId,
       clawDir: this.clawDir,
       workspaceDir: this.workspaceDir,
+      callerClawId: this.callerClawId,
       syncDir: this.syncDir,
       profile,
       callerType: options.callerType ?? 'claw',

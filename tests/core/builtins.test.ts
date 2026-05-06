@@ -520,12 +520,32 @@ describe('Builtin Tools', () => {
       expect(lines.length).toBe(3);
     });
 
-    it('should reject claw param for non-Motion', async () => {
-      // ctx.clawId is 'test-claw', not 'motion'
-      const result = await searchTool.execute({ query: 'test', path: 'clawspace', claw: 'other-claw' }, ctx);
+    it('should reject claw="*" for non-Motion (broadcast still Motion-only)', async () => {
+      const result = await searchTool.execute({ query: 'test', path: 'clawspace', claw: '*' }, ctx);
 
       expect(result.success).toBe(false);
-      expect(result.content).toContain('Only Motion and its subagents can search files from other claws');
+      expect(result.content).toContain('Motion-only');
+    });
+
+    it('should allow specific claw target for non-Motion (D11 align)', async () => {
+      const mainClawDir = path.join(tempDir, 'main-claw');
+      await fs.mkdir(mainClawDir, { recursive: true });
+      const otherClawDir = path.join(tempDir, 'claws', 'other-claw', 'clawspace');
+      await fs.mkdir(otherClawDir, { recursive: true });
+      await fs.writeFile(path.join(otherClawDir, 'note.txt'), 'cross-claw content');
+
+      const mainCtx = new ExecContextImpl({
+        clawId: 'main-claw',
+        clawDir: mainClawDir,
+        syncDir: path.join(mainClawDir, 'tasks/sync'),
+        profile: 'full',
+        fs: mockFs,
+      });
+      const result = await searchTool.execute({ query: 'cross-claw', path: 'clawspace', claw: 'other-claw' }, mainCtx);
+
+      expect(result.success).toBe(true);
+      expect(result.content).toContain('note.txt');
+      expect(result.content).toContain('cross-claw content');
     });
 
     it('should search all claws with claw: "*" (Motion only)', async () => {
@@ -1318,11 +1338,24 @@ describe('Builtin Tools', () => {
       expect(result.content).toBe('Note from claw1');
     });
 
-    it('should reject non-Motion from using claw parameter', async () => {
-      const result = await readTool.execute({ path: 'clawspace/test.txt', claw: 'other-claw' }, ctx);
+    it('should allow specific claw target for non-Motion (D11 align)', async () => {
+      const mainClawDir = path.join(tempDir, 'main-claw');
+      await fs.mkdir(mainClawDir, { recursive: true });
+      const claw1Dir = path.join(tempDir, 'claws', 'claw1', 'clawspace');
+      await fs.mkdir(claw1Dir, { recursive: true });
+      await fs.writeFile(path.join(claw1Dir, 'note.txt'), 'Note from claw1');
 
-      expect(result.success).toBe(false);
-      expect(result.content).toContain('Only Motion and its subagents');
+      const mainCtx = new ExecContextImpl({
+        clawId: 'main-claw',
+        clawDir: mainClawDir,
+        syncDir: path.join(mainClawDir, 'tasks/sync'),
+        profile: 'full',
+        fs: mockFs,
+      });
+      const result = await readTool.execute({ path: 'clawspace/note.txt', claw: 'claw1' }, mainCtx);
+
+      expect(result.success).toBe(true);
+      expect(result.content).toBe('Note from claw1');
     });
 
     it('should reject invalid claw ID (path traversal)', async () => {
@@ -1405,11 +1438,24 @@ describe('Builtin Tools', () => {
       expect(result.success).toBe(true);
     });
 
-    it('should reject non-Motion from using claw parameter', async () => {
-      const result = await lsTool.execute({ path: 'clawspace', claw: 'other-claw' }, ctx);
+    it('should allow specific claw target for non-Motion (D11 align)', async () => {
+      const mainClawDir = path.join(tempDir, 'main-claw');
+      await fs.mkdir(mainClawDir, { recursive: true });
+      const claw1Dir = path.join(tempDir, 'claws', 'claw1', 'clawspace');
+      await fs.mkdir(claw1Dir, { recursive: true });
+      await fs.writeFile(path.join(claw1Dir, 'file.txt'), 'content');
 
-      expect(result.success).toBe(false);
-      expect(result.content).toContain('Only Motion and its subagents');
+      const mainCtx = new ExecContextImpl({
+        clawId: 'main-claw',
+        clawDir: mainClawDir,
+        syncDir: path.join(mainClawDir, 'tasks/sync'),
+        profile: 'full',
+        fs: mockFs,
+      });
+      const result = await lsTool.execute({ path: 'clawspace', claw: 'claw1' }, mainCtx);
+
+      expect(result.success).toBe(true);
+      expect(result.content).toContain('file.txt');
     });
   });
 

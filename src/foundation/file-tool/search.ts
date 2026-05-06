@@ -53,7 +53,7 @@ export { SEARCH_TOOL_NAME };
 
 export const searchTool: Tool = {
   name: SEARCH_TOOL_NAME,
-  description: 'Search for text in LOCAL files only (not web/network). Returns file:line: content matches, case-insensitive, default max 5 results. Default search path: agent workspace dir (clawspace/ or tasks/subagents/<task-id>/). Allowed paths additionally include skills/, prompts/. Motion can search another claw via `claw: "<id>"`, or all claws via `claw: "*"`.',
+  description: 'Search for text in LOCAL files only (not web/network). Returns file:line: content matches, case-insensitive, default max 5 results. Default search path: agent workspace dir. Use `claw: "<id>"` to search another claw\'s resources (read-only). `claw: "*"` (broadcast across all claws) is Motion-only.',
   schema: {
     type: 'object',
     properties: {
@@ -99,16 +99,15 @@ export const searchTool: Tool = {
     let useNativeFs = false;
 
     if (clawParam !== undefined) {
-      // Only Motion can use this feature
-      if (!ctx.isMotionChain) {
-        return {
-          success: false,
-          content: 'Error: Only Motion and its subagents can search files from other claws',
-        };
-      }
-
       // claw: "*" - search all claws
       if (clawParam === '*') {
+        // claw: '*' broadcast 限 Motion / specific target 任意（D11 互访 align）
+        if (!ctx.isMotionChain) {
+          return {
+            success: false,
+            content: 'Error: claw: "*" broadcast is Motion-only. Use claw: "<id>" for specific claw access.',
+          };
+        }
         const clawsDir = nodePath.resolve(ctx.clawDir, '..', 'claws');
         const clawforumFs = new NodeFileSystem({ baseDir: clawsDir });
         let clawIds: string[];

@@ -40,6 +40,8 @@ export interface ExecContext {
   clawDir: string;
   /** phase 509 NEW / 装配期 per-callerType resolve / 主代理=clawDir/clawspace / 子代理=clawDir/tasks/subagents/<task-id> (phase 512 落地) */
   workspaceDir: string;
+  /** phase 514 / subagent caller's clawId / undefined for main claw / 装配方 per-callerType resolve */
+  callerClawId?: string;
   /** 装配-level 共享 sync dir（兜底落盘 + FileTool write_backups 共用 / 应然 §A.7）/ Assembly 装配期注入 */
   syncDir: string;
   contractId?: string;

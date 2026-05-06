@@ -37,3 +37,27 @@ Tool defaults:
 - 临时文件留你自己的 workspace / 别在 caller 的 clawspace 随地造
 `;
 }
+
+import { TASKS_SUBAGENTS_DIR } from '../types/paths.js';
+
+/**
+ * 构造 subagent 系统 prompt 的 workspace + caller context prefix
+ * 装配方（subagent-executor / verifier-job）调用 / prepend 到 default/verifier prompt
+ * phase 514 加
+ */
+export function buildSubagentSystemPromptPrefix(args: {
+  taskId: string;              // subagent task id
+  callerClawId: string;        // caller's clawId
+}): string {
+  return `## Workspace Context
+
+Your workspace: \`${TASKS_SUBAGENTS_DIR}/${args.taskId}/\` (default cwd / scratch dir / 任意创建临时文件)
+Your caller: claw "${args.callerClawId}" (workspace at \`clawspace/\`)
+
+Tool defaults:
+- exec / read / write / search / ls 默认在 your workspace
+- 访问 caller 的资源用 \`claw: "${args.callerClawId}"\` 参数（read tools 支持 ls/read/search）
+- 写 caller 资源不支持（write tools 无 claw 参数 / 但显式 path 'clawspace/foo' 仍允许 via PermissionChecker）
+- 临时文件留你自己的 workspace / 别污染 caller 的 clawspace
+`;
+}

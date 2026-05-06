@@ -45,6 +45,7 @@ export interface SubAgentOptions {
   maxConsecutiveMaxTokensToolUse?: number;
   systemPrompt?: string;                    // 替换 run() 里硬编码的默认 system prompt
   workspaceDir: string;            // phase 512 / 子代理 cwd / 装配方注入 tasks/subagents/<task-id>/
+  callerClawId?: string;       // phase 514 / 装配方注入 / SubAgent 透传给 ExecContext
   callerType?: CallerType;  // 默认 'subagent'
   subagentMaxSteps?: number;                 // 传给子 SubAgent
   messages?: Message[];                      // 若提供，直接用；否则从 prompt 构建
@@ -76,6 +77,7 @@ export class SubAgent {
   private onIdleTimeout?: () => void;
   private systemPrompt?: string;
   private workspaceDir: string;
+  private callerClawId?: string;
   private callerType?: CallerType;
   private subagentMaxSteps?: number;
   private messages?: Message[];
@@ -106,6 +108,7 @@ export class SubAgent {
     this.onIdleTimeout = options.onIdleTimeout;
     this.systemPrompt = options.systemPrompt;
     this.workspaceDir = options.workspaceDir;
+    this.callerClawId = options.callerClawId;
     this.callerType = options.callerType;
     this.subagentMaxSteps = options.subagentMaxSteps;
     this.messages = options.messages;
@@ -167,6 +170,7 @@ export class SubAgent {
         clawDir: this.clawDir,
         syncDir: this.syncDir,
         workspaceDir: this.workspaceDir,   // phase 512
+        callerClawId: this.callerClawId,     // phase 514
         fs: this.fs,
         llm: this.llm,
         subagentMaxSteps: this.subagentMaxSteps ?? this.maxSteps,

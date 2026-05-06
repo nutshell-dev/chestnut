@@ -33,6 +33,9 @@ export interface ExecContextImplOptions {
   
   /** phase 509 / 可选 / 默认 fallback = path.join(clawDir, 'clawspace') */
   workspaceDir?: string;
+
+  /** phase 514 / subagent caller's clawId / 装配方注入 */
+  callerClawId?: string;
   
   /** 装配-level 共享 sync dir（兜底落盘 + FileTool write_backups 共用 / 应然 §A.7） */
   syncDir: string;
@@ -104,6 +107,7 @@ export class ExecContextImpl implements ExecContext {
   clawId: string;
   clawDir: string;
   workspaceDir: string;
+  callerClawId?: string;
   syncDir: string;
   profile: ToolProfile;
   callerType: CallerType;
@@ -127,6 +131,7 @@ export class ExecContextImpl implements ExecContext {
     this.clawId = options.clawId;
     this.clawDir = options.clawDir;
     this.workspaceDir = options.workspaceDir ?? path.join(options.clawDir, 'clawspace');
+    this.callerClawId = options.callerClawId;
     this.syncDir = options.syncDir;
     this.profile = options.profile;
     this.callerType = options.callerType ?? 'claw';

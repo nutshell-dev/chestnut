@@ -66,6 +66,7 @@ export interface ToolExecutorOptions {
   clawDir: string;
   syncDir: string;
   workspaceDir?: string;
+  callerClawId?: string;        // phase 514 / subagent caller's clawId
   fs: FileSystem;
   llm?: LLMOrchestrator;
   profile?: ToolProfile;

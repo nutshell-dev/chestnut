@@ -16,7 +16,7 @@ export { LS_TOOL_NAME };
 
 export const lsTool: Tool = {
   name: LS_TOOL_NAME,
-  description: 'List files and directories in the specified path. Motion can list other claws via `claw` parameter.',
+  description: 'List files and directories in the specified path. Use `claw: "<id>"` to list another claw\'s directory. `claw` parameter with specific target is available to all agents; broadcast across all claws is Motion-only.',
   schema: {
     type: 'object',
     properties: {
@@ -53,13 +53,7 @@ export const lsTool: Tool = {
     checker.resolveAndCheck(path, 'read');
 
     if (clawParam !== undefined) {
-      // Only Motion can use this feature
-      if (!ctx.isMotionChain) {
-        return {
-          success: false,
-          content: 'Error: Only Motion and its subagents can list directories from other claws',
-        };
-      }
+      // specific target / 任意 callerType OK（D11 inter-claw 互访 align）
       // Validate clawParam (no path traversal)
       if (clawParam.includes('/') || clawParam.includes('..') || clawParam === '' || clawParam === '.' || clawParam.startsWith('.')) {
         return {

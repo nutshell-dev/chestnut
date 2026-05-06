@@ -105,10 +105,10 @@ describe('ToolExecutor: ctx prototype preservation across spread', () => {
     expect(result.success).toBe(true);
   });
 
-  it('non-motion claw: read cross-claw correctly rejected (regression guard)', async () => {
+  it('non-motion claw: read cross-claw correctly permitted (D11 align)', async () => {
     const otherClawDir = path.join(tmpDir, '..', 'claws', 'other-claw', 'clawspace');
     await fsp.mkdir(otherClawDir, { recursive: true });
-    await fsp.writeFile(path.join(otherClawDir, 'note.md'), 'x');
+    await fsp.writeFile(path.join(otherClawDir, 'note.md'), 'cross-claw note');
 
     const ctx = new ExecContextImpl({
       clawId: 'normal-claw',
@@ -122,7 +122,7 @@ describe('ToolExecutor: ctx prototype preservation across spread', () => {
       args: { path: 'clawspace/note.md', claw: 'other-claw' },
       ctx,
     });
-    expect(result.success).toBe(false);
-    expect(result.content).toMatch(/motion|cross.?claw/i);
+    expect(result.success).toBe(true);
+    expect(result.content).toBe('cross-claw note');
   });
 });

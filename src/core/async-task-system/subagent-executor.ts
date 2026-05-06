@@ -13,7 +13,7 @@ import { createDialogStore } from '../../foundation/dialog-store/index.js';
 import { DEFAULT_LLM_IDLE_TIMEOUT_MS } from '../../constants.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
 import { TASKS_QUEUES_RESULTS_DIR, TASKS_SUBAGENTS_DIR } from '../../types/paths.js';
-import { buildSubagentWorkspaceContext, DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../../prompts/subagent.js';
+import { buildSubagentSystemPromptPrefix, DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../../prompts/subagent.js';
 import { sendResult, sendFallbackError } from './result-delivery.js';
 
 import type { PostProcessor } from './post-processors/types.js';
@@ -81,12 +81,11 @@ export async function executeSubAgentTask(
     // phase 512: per-subagent workspace dir
     const subagentWorkspaceDir = path.join(clawDir, TASKS_SUBAGENTS_DIR, task.id);
     await fs.ensureDir(subagentWorkspaceDir);
-    const ownWorkspaceRel = path.relative(clawDir, subagentWorkspaceDir);  // 'tasks/subagents/<id>'
-    const workspaceContext = buildSubagentWorkspaceContext({
-      ownWorkspaceRel,
-      callerClawspaceRel: 'clawspace',
+    const promptPrefix = buildSubagentSystemPromptPrefix({
+      taskId: task.id,
+      callerClawId: task.parentClawId,
     });
-    const finalSystemPrompt = `${workspaceContext}\n\n${DEFAULT_SUBAGENT_SYSTEM_PROMPT}`;
+    const finalSystemPrompt = `${promptPrefix}\n\n${DEFAULT_SUBAGENT_SYSTEM_PROMPT}`;
 
     const subAgent = createSubAgent({
       agentId: task.id,
@@ -114,6 +113,7 @@ export async function executeSubAgentTask(
       mainContextSnapshot: task.mainContextSnapshot,
       workspaceDir: subagentWorkspaceDir,    // phase 512
       systemPrompt: finalSystemPrompt,       // phase 512
+      callerClawId: task.parentClawId,       // phase 514
       taskStreamWriter: { write: writeTaskEvent },
       auditWriter: taskAuditWriter,
     });

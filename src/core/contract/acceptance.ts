@@ -421,6 +421,7 @@ export async function runLLMAcceptance(
       agentId: `verifier-${contractId}-${subtaskId}`,
       prompt: filledPrompt,
       clawDir: ctx.clawDir,
+      clawId: ctx.clawId,        // phase 514
       llm: ctx.llm,
       fs: ctx.fs,
       maxSteps: DEFAULT_MAX_STEPS,
