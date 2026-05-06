@@ -52,7 +52,7 @@ export { EXEC_TOOL_NAME };
 
 export const execTool: Tool = {
   name: EXEC_TOOL_NAME,
-  description: 'Execute a shell command in the claw root directory. Runs via `sh -c`, so shell features (pipes, redirects, quotes) work normally.',
+  description: 'Execute a shell command in the clawspace/ directory. Runs via `sh -c`, so shell features (pipes, redirects, quotes) work normally.',
   schema: {
     type: 'object',
     properties: {
@@ -62,7 +62,7 @@ export const execTool: Tool = {
       },
       cwd: {
         type: 'string',
-        description: 'Working directory (relative to claw root). Default: claw root.',
+        description: 'Working directory (relative path resolved against claw root, or absolute). Default: clawspace/.',
       },
       timeoutMs: {
         type: 'number',
@@ -77,7 +77,10 @@ export const execTool: Tool = {
 
   async execute(args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
     const command = args.command as string;
-    const cwd = (args.cwd as string) ?? ctx.clawDir;
+    const cwdArg = args.cwd as string | undefined;
+    const cwd = cwdArg
+      ? path.resolve(ctx.clawDir, cwdArg)
+      : path.join(ctx.clawDir, 'clawspace');
     const timeoutMs = (args.timeoutMs as number) ?? undefined;
 
     try {
@@ -97,7 +100,7 @@ export const execTool: Tool = {
       return { success: true, content: result.output || '(no output)' };
     } catch (error) {
       // 失败时总是附上 cwd，防止 LLM 对路径上下文产生幻觉（例如误以为在根目录）
-      const cwdHint = `\n[cwd]: ${ctx.clawDir}`;
+      const cwdHint = `\n[cwd]: ${cwd}`;
 
       if (!(error instanceof ProcessExecError)) {
         return {

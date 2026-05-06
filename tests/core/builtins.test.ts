@@ -44,6 +44,8 @@ describe('Builtin Tools', () => {
 
   beforeEach(async () => {
     tempDir = await createTempDir();
+    // exec tool default cwd = clawspace; ensure it exists for subprocess tests
+    await fs.mkdir(path.join(tempDir, 'clawspace'), { recursive: true });
     mockFs = new NodeFileSystem({ baseDir: tempDir });
     outboxWriter = new OutboxWriter('test-claw', tempDir, mockFs, makeAudit().audit);
     ctx = new ExecContextImpl({
@@ -455,7 +457,7 @@ describe('Builtin Tools', () => {
       expect(result.success).toBe(true);
       // Should show pagination indicator
       expect(result.content).toContain('entries total');
-      expect(result.content).toContain('120');
+      expect(result.content).toContain('121');
     });
 
     it('should limit output to 100 entries', async () => {
@@ -1199,6 +1201,27 @@ describe('Builtin Tools', () => {
     it('execTool args.cwd 优先于 ctx.clawDir', async () => {
       const result = await execTool.execute({ command: 'pwd', cwd: '/tmp' }, ctx);
       expect(result.content).toContain('/tmp');
+    });
+
+    it('execTool 默认 cwd = clawDir/clawspace（不是 clawDir）', async () => {
+      // ensure clawspace subdir exists in tempDir (some tests may not have it)
+      const fsNative = await import('fs');
+      fsNative.mkdirSync(path.join(tempDir, 'clawspace'), { recursive: true });
+
+      const result = await execTool.execute({ command: 'pwd' }, ctx);
+
+      expect(result.success).toBe(true);
+      expect(result.content).toContain(path.join(tempDir, 'clawspace'));
+    });
+
+    it('execTool args.cwd 相对路径以 clawDir 为基准 resolve（非 clawspace）', async () => {
+      const fsNative = await import('fs');
+      fsNative.mkdirSync(path.join(tempDir, 'logs'), { recursive: true });
+
+      const result = await execTool.execute({ command: 'pwd', cwd: 'logs' }, ctx);
+
+      expect(result.success).toBe(true);
+      expect(result.content).toContain(path.join(tempDir, 'logs'));
     });
   });
 
