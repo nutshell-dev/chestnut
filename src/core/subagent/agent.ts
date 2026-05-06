@@ -50,7 +50,7 @@ export interface SubAgentOptions {
   messages?: Message[];                      // 若提供，直接用；否则从 prompt 构建
   originClawId?: string;                     // 创建链路源头，传给子 SubAgent
   taskStreamWriter: StreamLog;
-  auditWriter: AuditLog;          // tasks/results/{id}/audit.tsv，step 11+ 写事件
+  auditWriter: AuditLog;          // tasks/queues/results/{id}/audit.tsv，step 11+ 写事件
   mainDialogStore?: DialogStore;                                // NEW: subagent profile only / ask_caller 用 read-only ref
   mainContextSnapshot?: { clawId: string; toolUseId: string };   // NEW: passthrough from SubAgentTask
 }

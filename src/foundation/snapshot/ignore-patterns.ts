@@ -9,7 +9,7 @@ import { TASKS_QUEUES_RESULTS_DIR, TASKS_SUBAGENTS_DIR } from '../../types/paths
 export const SNAPSHOT_IGNORE_PATTERNS: readonly string[] = [
   STREAM_FILE,
   AUDIT_FILE,
-  `${TASKS_QUEUES_RESULTS_DIR}/`,
+  'tasks/queues/',                  // phase 513 / 全 queues 子树（含 pending/running/done/failed/results）/ queue state ephemeral / 不进 commit
   'tasks/sync/',
   `${TASKS_SUBAGENTS_DIR}/`,        // phase 512 / subagent workspace ephemeral / 不进 commit
 ];
