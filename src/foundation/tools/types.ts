@@ -65,6 +65,7 @@ export interface ToolExecutorOptions {
   registry: ToolRegistry;
   clawDir: string;
   syncDir: string;
+  workspaceDir?: string;
   fs: FileSystem;
   llm?: LLMOrchestrator;
   profile?: ToolProfile;

@@ -56,7 +56,7 @@ export async function makeRuntimeDeps(input: MakeRuntimeDepsInput): Promise<Runt
   taskSystem.startDispatch();
   const contextInjector = new ContextInjector({ fs: systemFs, skillRegistry, contractManager });
   const execContext = new ExecContextImpl({
-    clawId, clawDir, profile: 'full', callerType: 'claw', fs: clawFs,
+    clawId, clawDir, workspaceDir: path.join(clawDir, 'clawspace'), profile: 'full', callerType: 'claw', fs: clawFs,
     llm, maxSteps: 30, taskSystem, contractManager,
     outboxWriter, auditWriter,
   });

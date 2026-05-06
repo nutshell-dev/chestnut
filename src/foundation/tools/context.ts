@@ -12,6 +12,7 @@ import type { FileSystem } from '../fs/types.js';
 import type { LLMOrchestrator } from '../llm-orchestrator/index.js';
 import type { ToolProfile } from '../../types/config.js';
 import type { ExecContext } from '../tool-protocol/index.js';
+import path from 'path';
 import { MOTION_CLAW_ID, DEFAULT_MAX_STEPS } from '../../constants.js';
 
 
@@ -29,6 +30,9 @@ export interface ExecContextImplOptions {
   
   /** Claw workspace directory */
   clawDir: string;
+  
+  /** phase 509 / 可选 / 默认 fallback = path.join(clawDir, 'clawspace') */
+  workspaceDir?: string;
   
   /** 装配-level 共享 sync dir（兜底落盘 + FileTool write_backups 共用 / 应然 §A.7） */
   syncDir: string;
@@ -99,6 +103,7 @@ export function cloneExecContext(
 export class ExecContextImpl implements ExecContext {
   clawId: string;
   clawDir: string;
+  workspaceDir: string;
   syncDir: string;
   profile: ToolProfile;
   callerType: CallerType;
@@ -121,6 +126,7 @@ export class ExecContextImpl implements ExecContext {
   constructor(options: ExecContextImplOptions) {
     this.clawId = options.clawId;
     this.clawDir = options.clawDir;
+    this.workspaceDir = options.workspaceDir ?? path.join(options.clawDir, 'clawspace');
     this.syncDir = options.syncDir;
     this.profile = options.profile;
     this.callerType = options.callerType ?? 'claw';

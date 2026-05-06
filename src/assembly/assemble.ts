@@ -295,6 +295,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
     execContext = new ExecContextImpl({
       clawId,
       clawDir,
+      workspaceDir: path.join(clawDir, 'clawspace'),
       syncDir,
       profile: toolProfile,
       callerType: 'claw',

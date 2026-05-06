@@ -482,6 +482,7 @@ export class AsyncTaskSystem {
     return {
       clawId: task.parentClawId,
       clawDir: task.parentClawDir,
+      workspaceDir: path.join(task.parentClawDir, 'clawspace'),
       syncDir: path.join(task.parentClawDir, 'tasks', 'sync'),
       callerType: task.callerType ?? 'claw',
       fs: this.fs,
