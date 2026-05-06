@@ -46,6 +46,7 @@ export async function executeSubAgentTask(
   const { fs, auditWriter, llm, registry, clawDir, parentStreamLog, postProcessors, mainDialogStore, moveTaskToDone, moveTaskToFailed } = deps;
   const taskStartTime = Date.now();
   let taskFailed = false;
+  let subagentWorkspaceDir: string | undefined;  // phase 515 / function scope for finally cleanup
 
   // Per-task stream writer setup（fd-less / appendSync 模式）
   const taskResultDir = `${TASKS_QUEUES_RESULTS_DIR}/${task.id}`;   // 相对 clawDir / fs baseDir
@@ -79,7 +80,7 @@ export async function executeSubAgentTask(
     const toolsForLLM = registry.formatForLLM(effectiveRegistry.getAll());
 
     // phase 512: per-subagent workspace dir
-    const subagentWorkspaceDir = path.join(clawDir, TASKS_SUBAGENTS_DIR, task.id);
+    subagentWorkspaceDir = path.join(clawDir, TASKS_SUBAGENTS_DIR, task.id);
     await fs.ensureDir(subagentWorkspaceDir);
     const promptPrefix = buildSubagentSystemPromptPrefix({
       taskId: task.id,
@@ -172,6 +173,18 @@ export async function executeSubAgentTask(
       await moveTaskToFailed(task.id);
     } else {
       await moveTaskToDone(task.id);
+    }
+
+    // phase 515 / cleanup subagent workspace dir（best-effort 软降级 / 失败 audit 不抛）
+    if (subagentWorkspaceDir) {
+      await fs.removeDir(subagentWorkspaceDir).catch((cleanupErr) => {
+        auditWriter?.write(
+          TASK_AUDIT_EVENTS.SUBAGENT_WORKSPACE_CLEANUP_FAILED,
+          task.id,
+          `dir=${subagentWorkspaceDir}`,
+          `error=${cleanupErr instanceof Error ? cleanupErr.message : JSON.stringify(cleanupErr)}`,
+        );
+      });
     }
   }
 }

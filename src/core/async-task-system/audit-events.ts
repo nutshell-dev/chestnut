@@ -21,4 +21,5 @@ export const TASK_AUDIT_EVENTS = {
   MOVE_FAILED: 'task_move_failed',
   CANCELLED: 'task_cancelled',
   TOOL_RETRY: 'tool_task_retry',
+  SUBAGENT_WORKSPACE_CLEANUP_FAILED: 'subagent_workspace_cleanup_failed',
 } as const;

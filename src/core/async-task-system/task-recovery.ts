@@ -7,6 +7,7 @@ import {
   TASKS_QUEUES_DONE_DIR,
   TASKS_QUEUES_FAILED_DIR,
   TASKS_QUEUES_RESULTS_DIR,
+  TASKS_SUBAGENTS_DIR,
 } from '../../types/paths.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
 import { sendFallbackError, sendResult } from './result-delivery.js';
@@ -116,5 +117,30 @@ export async function recoverTasks(deps: RecoveryDeps): Promise<void> {
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     auditWriter?.write(TASK_AUDIT_EVENTS.RECOVERY_FAILED, 'system', 'context=recovery_top', `error=${errMsg}`);
+  }
+
+  // phase 515 / startup orphan subagent workspace cleanup
+  // daemon 启动期无 in-flight subagent / tasks/subagents/ 内全 orphan / 全清安全
+  try {
+    const subagentDirs = await fs.list(TASKS_SUBAGENTS_DIR, { includeDirs: true }).catch(() => []);
+    for (const entry of subagentDirs) {
+      if (entry.isDirectory) {
+        await fs.removeDir(`${TASKS_SUBAGENTS_DIR}/${entry.name}`).catch((err) => {
+          auditWriter?.write(
+            TASK_AUDIT_EVENTS.SUBAGENT_WORKSPACE_CLEANUP_FAILED,
+            'recovery',
+            `dir=${TASKS_SUBAGENTS_DIR}/${entry.name}`,
+            `error=${err instanceof Error ? err.message : JSON.stringify(err)}`,
+          );
+        });
+      }
+    }
+  } catch (sweepErr) {
+    // best-effort / 整体 sweep 失败也不阻 recovery
+    auditWriter?.write(
+      TASK_AUDIT_EVENTS.SUBAGENT_WORKSPACE_CLEANUP_FAILED,
+      'recovery_sweep',
+      `error=${sweepErr instanceof Error ? sweepErr.message : JSON.stringify(sweepErr)}`,
+    );
   }
 }

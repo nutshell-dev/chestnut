@@ -16,13 +16,14 @@ import { buildSubagentSystemPromptPrefix, CONTRACT_VERIFIER_SYSTEM_PROMPT } from
 import type { VerifierConfig, VerifierResult } from './types.js';
 
 export async function runContractVerifier(config: VerifierConfig): Promise<VerifierResult> {
+  let verifierWorkspaceDir: string | null = null;
   try {
     const reportTool = new ReportResultTool();
     const registry = createToolRegistry();
     registry.register(reportTool);
 
     // phase 512: per-subagent workspace dir
-    const verifierWorkspaceDir = path.join(config.clawDir, TASKS_SUBAGENTS_DIR, config.agentId);
+    verifierWorkspaceDir = path.join(config.clawDir, TASKS_SUBAGENTS_DIR, config.agentId);
     await config.fs.ensureDir(verifierWorkspaceDir);
     const promptPrefix = buildSubagentSystemPromptPrefix({
       taskId: config.agentId,
@@ -78,5 +79,13 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
     }
     const msg = err instanceof Error ? err.message : String(err);
     return { passed: false, feedback: `LLM 验收失败: ${msg}` };
+  } finally {
+    // phase 515 / cleanup verifier workspace dir（best-effort 软降级 / sync caller 无 audit / silent fail）
+    if (verifierWorkspaceDir) {
+      await config.fs.removeDir(verifierWorkspaceDir).catch(() => {
+        // sync caller 无 auditWriter inject / silent fail acceptable
+        // 升档：升 r+1+ 加 config.audit?.write(...)
+      });
+    }
   }
 }

@@ -240,6 +240,10 @@ describe('Task System + SubAgent', () => {
       // Running file should not exist
       const runningExists = await mockFs.exists(`tasks/queues/running/${taskId}.json`);
       expect(runningExists).toBe(false);
+
+      // phase 515: subagent workspace dir should be cleaned up
+      const workspaceExists = await mockFs.exists(`tasks/subagents/${taskId}`);
+      expect(workspaceExists).toBe(false);
     });
 
     it('should deliver subagent result to inbox/pending/*.md (bypass transport)', async () => {
@@ -402,6 +406,10 @@ describe('Task System + SubAgent', () => {
           ]),
         ])
       );
+
+      // phase 515: subagent workspace dir should be cleaned up even on failure
+      const workspaceExists = await mockFs.exists(`tasks/subagents/${taskId}`);
+      expect(workspaceExists).toBe(false);
     });
 
     it('should write fallback inbox message when main sendResult fails', async () => {
@@ -651,6 +659,65 @@ describe('Task System + SubAgent', () => {
           ]),
         );
       });
+    });
+
+    it('should sweep orphan subagent dirs on startup recovery (phase 515)', async () => {
+      await taskSystem.shutdown(100);
+      // Create orphan dirs before initialize
+      await mockFs.ensureDir('tasks/subagents/orphan-task-1');
+      await mockFs.ensureDir('tasks/subagents/orphan-task-2');
+      await mockFs.writeAtomic('tasks/subagents/orphan-task-1/file.txt', 'data');
+
+      taskSystem = createTestTaskSystem(tempDir, mockFs, makeAudit().audit, createMockLLM([{
+        content: [{ type: 'text', text: 'done' }],
+        stop_reason: 'end_turn',
+      }]));
+      await taskSystem.initialize(); // triggers recoverTasks
+
+      expect(await mockFs.exists('tasks/subagents/orphan-task-1')).toBe(false);
+      expect(await mockFs.exists('tasks/subagents/orphan-task-2')).toBe(false);
+    });
+
+    it('should audit workspace cleanup failure but not throw (phase 515)', async () => {
+      await taskSystem.shutdown(100);
+      const { audit, events } = makeAudit();
+      const patchedFs = new NodeFileSystem({ baseDir: tempDir });
+      const originalRemoveDir = patchedFs.removeDir.bind(patchedFs);
+      patchedFs.removeDir = vi.fn(async (targetPath: string) => {
+        if (targetPath.includes('tasks/subagents')) {
+          throw new Error('cleanup failed');
+        }
+        return originalRemoveDir(targetPath);
+      });
+
+      taskSystem = createTestTaskSystem(tempDir, patchedFs, audit, createMockLLM([{
+        content: [{ type: 'text', text: 'Task result' }],
+        stop_reason: 'end_turn',
+      }]));
+      await taskSystem.initialize();
+      taskSystem.startDispatch();
+
+      const taskId = await taskSystem.scheduleSubAgent({
+        kind: 'subagent',
+        intent: 'Cleanup fail test',
+        timeoutMs: 60000,
+        maxSteps: 5,
+        parentClawId: 'parent-claw',
+      });
+
+      await waitFor(() => patchedFs.exists(`tasks/queues/done/${taskId}.json`));
+
+      // Should contain cleanup failure audit
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.arrayContaining([
+            TASK_AUDIT_EVENTS.SUBAGENT_WORKSPACE_CLEANUP_FAILED,
+            taskId,
+            expect.stringContaining('tasks/subagents'),
+            expect.stringContaining('cleanup failed'),
+          ]),
+        ])
+      );
     });
   });
 
