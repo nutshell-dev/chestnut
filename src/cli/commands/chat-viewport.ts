@@ -160,7 +160,11 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   const attachedClawBar = new Text('', 0, 0);
 
 
-  const updateClawPanel = () => {
+  // attachedClawBar 渲染：motion viewport 监听 N 个 claw stream / 高频 delta 同 sync block 多次 trigger updateClawPanel /
+  // 每次遍历 clawTrackMap × buildClawLine 重复浪费。
+  // debounce nextTick：同 tick 内多次调只在 tick 末执行 1 次 / 减少 buildClawLine 重复（pi-tui requestRender 也是 nextTick / 同步到 render）
+  let updateClawPanelScheduled = false;
+  const _renderClawPanel = () => {
     if (clawTrackMap.size === 0) {
       attachedClawBar.setText('');
       return;
@@ -171,6 +175,14 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
       lines.push(buildClawLine(id, t, cols));
     }
     attachedClawBar.setText(lines.join('\n'));
+  };
+  const updateClawPanel = () => {
+    if (updateClawPanelScheduled) return;
+    updateClawPanelScheduled = true;
+    process.nextTick(() => {
+      updateClawPanelScheduled = false;
+      _renderClawPanel();
+    });
   };
 
   // 输入组件
