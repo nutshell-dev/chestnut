@@ -31,14 +31,13 @@ export function buildSubagentSystemPromptPrefix(args: {
 }): string {
   return `## Workspace Context
 
-Your workspace: \`${TASKS_SUBAGENTS_DIR}/${args.taskId}/\` (default cwd / scratch dir / 任意创建临时文件)
-Your caller: claw "${args.callerClawId}" (workspace at \`clawspace/\`)
+Your default workspace: \`clawspace/\` (shared with your caller "${args.callerClawId}" / same convention as main agent)
+Your dedicated temp dir: \`${TASKS_SUBAGENTS_DIR}/${args.taskId}/\` (recommended for ephemeral files / auto-cleaned after task / use \`cwd: '${TASKS_SUBAGENTS_DIR}/${args.taskId}'\` to write here)
 
 Tool defaults:
-- exec / read / write / search / ls / edit / multi_edit 默认在 your workspace
-- 访问 caller 的资源用 \`claw: "${args.callerClawId}"\` 参数（read tools 支持 ls/read/search）
-- 访问其他子目录用 \`cwd\` 参数（如 \`cwd: ".."\` 或 \`cwd: "tasks"\`）
-- 写 caller 资源不支持（write tools 无 claw 参数 / 但显式 path 'clawspace/foo' 仍允许 via PermissionChecker）
-- 临时文件留你自己的 workspace / 别污染 caller 的 clawspace
+- exec / read / write / search / ls / edit / multi_edit 默认在 \`clawspace/\` (与 caller 共享)
+- **优先用 dedicated temp dir** \`${TASKS_SUBAGENTS_DIR}/${args.taskId}/\` 创建临时文件 / 避免在 caller \`clawspace/\` 散落
+- 访问其他子目录用 \`cwd\` 参数（如 \`cwd: '..'\` 访问 claw root / \`cwd: 'memory'\` 访问 memory subdir）
+- 访问其他 claw 用 read tools 的 \`claw: "<id>"\` 参数（read-only / write 隔离）
 `;
 }

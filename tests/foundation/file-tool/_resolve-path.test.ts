@@ -19,9 +19,14 @@ describe('resolveWorkspacePath', () => {
     expect(resolveWorkspacePath(ctx, 'MEMORY.md', '..')).toBe('MEMORY.md');
   });
 
-  it('cwd: "memory" resolves to memory subdir', () => {
+  it('cwd: "memory" resolves to memory subdir (relative to clawDir / phase 518 align)', () => {
     const ctx = mockCtx({ clawDir: '/c', workspaceDir: '/c/clawspace' });
-    expect(resolveWorkspacePath(ctx, 'x.md', 'memory')).toBe('clawspace/memory/x.md');
+    expect(resolveWorkspacePath(ctx, 'x.md', 'memory')).toBe('memory/x.md');
+  });
+
+  it('subagent cwd: "tasks/subagents/abc" resolves to temp dir (phase 518)', () => {
+    const ctx = mockCtx({ clawDir: '/c', workspaceDir: '/c/clawspace' });
+    expect(resolveWorkspacePath(ctx, 'temp.txt', 'tasks/subagents/abc')).toBe('tasks/subagents/abc/temp.txt');
   });
 
   it('subagent default base = subagents/<id>', () => {

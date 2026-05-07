@@ -980,7 +980,7 @@ describe('Task System + SubAgent', () => {
       );
     });
 
-    it('subagent workspaceDir defaults to tasks/subagents/<id>/ (phase 512)', async () => {
+    it('subagent workspaceDir defaults to clawspace (shared with caller / phase 518)', async () => {
       const mockLLM = createMockLLM([
         {
           content: [{ type: 'text', text: 'Done' }],
@@ -1000,7 +1000,7 @@ describe('Task System + SubAgent', () => {
         ),
         prompt: 'Test workspaceDir',
         clawDir: tempDir,
-        workspaceDir: path.join(tempDir, 'tasks/subagents/workspace-test-agent'),
+        workspaceDir: path.join(tempDir, 'clawspace'),
         llm: mockLLM,
         registry,
         fs: mockFs,

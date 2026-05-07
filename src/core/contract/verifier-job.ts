@@ -50,7 +50,7 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
       idleTimeoutMs: config.idleTimeoutMs,
       onIdleTimeout: config.onIdleTimeout,
       systemPrompt: `${promptPrefix}\n\n${CONTRACT_VERIFIER_SYSTEM_PROMPT}`,  // phase 512
-      workspaceDir: verifierWorkspaceDir,    // phase 512
+      workspaceDir: path.join(config.clawDir, 'clawspace'),   // phase 518
       callerClawId: config.clawId,           // phase 514
       taskStreamWriter: new NoopStreamWriter(),
       auditWriter: new NoopAuditWriter(),

@@ -1236,14 +1236,13 @@ describe('Builtin Tools', () => {
       expect(result.content).toContain(ctx.workspaceDir);  // phase 512
     });
 
-    it('execTool subagent 默认 cwd = workspaceDir (tasks/subagents/<id>/)', async () => {
-      const subagentWorkspaceDir = path.join(tempDir, 'tasks/subagents/test-task-1');
+    it('execTool subagent 默认 cwd = clawspace (shared with caller / phase 518)', async () => {
       const fsNative = await import('fs');
-      fsNative.mkdirSync(subagentWorkspaceDir, { recursive: true });
+      fsNative.mkdirSync(path.join(tempDir, 'clawspace'), { recursive: true });
       const subagentCtx = new ExecContextImpl({
         clawId: 'test',
         clawDir: tempDir,
-        workspaceDir: subagentWorkspaceDir,
+        workspaceDir: path.join(tempDir, 'clawspace'),
         syncDir: path.join(tempDir, 'tasks/sync'),
         profile: 'subagent',
         callerType: 'subagent',
@@ -1251,7 +1250,53 @@ describe('Builtin Tools', () => {
       });
       const result = await execTool.execute({ command: 'pwd' }, subagentCtx);
       expect(result.success).toBe(true);
-      expect(result.content).toContain('tasks/subagents/test-task-1');
+      expect(result.content).toContain('clawspace');
+    });
+
+    it('subagent 显式用 cwd 写 dedicated temp dir', async () => {
+      const fsNative = await import('fs');
+      const subagentTempDir = path.join(tempDir, 'tasks/subagents/phase518-test');
+      fsNative.mkdirSync(subagentTempDir, { recursive: true });
+      fsNative.mkdirSync(path.join(tempDir, 'clawspace'), { recursive: true });
+      const subagentCtx = new ExecContextImpl({
+        clawId: 'test',
+        clawDir: tempDir,
+        workspaceDir: path.join(tempDir, 'clawspace'),
+        syncDir: path.join(tempDir, 'tasks/sync'),
+        profile: 'subagent',
+        callerType: 'subagent',
+        fs: mockFs,
+      });
+
+      const result = await writeTool.execute(
+        { path: 'temp.txt', cwd: 'tasks/subagents/phase518-test', content: 'data' },
+        subagentCtx,
+      );
+
+      expect(result.success).toBe(true);
+      expect(fsNative.existsSync(path.join(subagentTempDir, 'temp.txt'))).toBe(true);
+    });
+
+    it('subagent default write 落 clawspace (与 caller 共享)', async () => {
+      const fsNative = await import('fs');
+      fsNative.mkdirSync(path.join(tempDir, 'clawspace'), { recursive: true });
+      const subagentCtx = new ExecContextImpl({
+        clawId: 'test',
+        clawDir: tempDir,
+        workspaceDir: path.join(tempDir, 'clawspace'),
+        syncDir: path.join(tempDir, 'tasks/sync'),
+        profile: 'subagent',
+        callerType: 'subagent',
+        fs: mockFs,
+      });
+
+      const result = await writeTool.execute(
+        { path: 'shared-by-subagent.txt', content: 'data' },
+        subagentCtx,
+      );
+
+      expect(result.success).toBe(true);
+      expect(fsNative.existsSync(path.join(tempDir, 'clawspace/shared-by-subagent.txt'))).toBe(true);
     });
 
     it('execTool args.cwd 相对路径以 clawDir 为基准 resolve（非 clawspace）', async () => {

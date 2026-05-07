@@ -18,7 +18,17 @@ export function resolveWorkspacePath(
   cwdArg?: string,
 ): string {
   const baseDir = cwdArg
-    ? path.resolve(ctx.workspaceDir, cwdArg)
+    ? (() => {
+        const resolved = path.resolve(ctx.clawDir, cwdArg);
+        // phase 518: cwd relative to clawDir / 截断到 clawDir 边界（防止 '..' 逃出 claw root）
+        if (!path.isAbsolute(cwdArg)) {
+          const relToClaw = path.relative(ctx.clawDir, resolved);
+          if (relToClaw.startsWith('..')) {
+            return ctx.clawDir;
+          }
+        }
+        return resolved;
+      })()
     : ctx.workspaceDir;
   const absolute = path.isAbsolute(relPath)
     ? relPath

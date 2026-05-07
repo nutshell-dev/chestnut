@@ -112,7 +112,7 @@ export async function executeSubAgentTask(
       originClawId: task.originClawId,
       mainDialogStore,
       mainContextSnapshot: task.mainContextSnapshot,
-      workspaceDir: subagentWorkspaceDir,    // phase 512
+      workspaceDir: path.join(clawDir, 'clawspace'),   // phase 518: 共享 caller workspace（subagents/<id>/ 改建议性临时区 / 仍 ensureDir + cleanup）
       systemPrompt: finalSystemPrompt,       // phase 512
       callerClawId: task.parentClawId,       // phase 514
       taskStreamWriter: { write: writeTaskEvent },
