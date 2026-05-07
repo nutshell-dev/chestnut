@@ -442,7 +442,28 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   const clawsDir = isMotion ? path.join(options.agentDir, '..', 'claws') : '';
   const clawTrackMap = new Map<string, ClawTrack>();
   const clawWatchers = new Map<string, Watcher>();
+  const clawWatcherVersions = new Map<string, number>();
   let lastClawRefreshTs = 0;
+
+  const attachClawWatcher = (clawId: string, streamFile: string) => {
+    const ver = (clawWatcherVersions.get(clawId) ?? 0) + 1;
+    clawWatcherVersions.set(clawId, ver);
+    try {
+      const w = createChatViewportWatcher(
+        fs, clawId, streamFile,
+        () => {
+          if (clawWatcherVersions.get(clawId) !== ver) return;   // 旧 watcher callback / 早 return
+          refreshClawStatus(clawId);
+        },
+        options.audit,
+        () => {
+          if (clawWatcherVersions.get(clawId) === ver) clawWatchers.delete(clawId);
+        },
+        false,
+      );
+      clawWatchers.set(clawId, w);
+    } catch { /* polling fallback */ }
+  };
 
   const refreshClawStatus = (clawId: string) => {
     if (!isMotion) return;
@@ -457,16 +478,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
         // 旧 watcher 追踪归档 inode，需要替换（Bug 2 修复）
         const stale = clawWatchers.get(clawId);
         if (stale) { void stale.close(); clawWatchers.delete(clawId); }
-        try {
-          const w = createChatViewportWatcher(
-            fs, clawId, streamFile,
-            () => refreshClawStatus(clawId),
-            options.audit,
-            () => clawWatchers.delete(clawId),
-            false,
-          );
-          clawWatchers.set(clawId, w);
-        } catch { /* polling fallback */ }
+        attachClawWatcher(clawId, streamFile);
         // reset state
         track.fileSize = 0; track.leftover = '';
         track.turnCount = 0; track.step = 0; track.active = false; track.lastError = null;
@@ -562,7 +574,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     // 清理已删除的 claw
     for (const [id] of clawTrackMap) {
       if (!clawIds.includes(id)) {
-        clawWatchers.get(id)?.close();
+        await clawWatchers.get(id)?.close();
         clawWatchers.delete(id);
         clawTrackMap.delete(id);
       }
@@ -580,16 +592,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
         clawTrackMap.set(clawId, track);
       }
       if (!clawWatchers.has(clawId)) {
-        try {
-          const w = createChatViewportWatcher(
-            fs, clawId, streamFile,
-            () => refreshClawStatus(clawId),
-            options.audit,
-            () => clawWatchers.delete(clawId),
-            false,
-          );
-          clawWatchers.set(clawId, w);
-        } catch { /* fallback to polling */ }
+        attachClawWatcher(clawId, streamFile);
       }
       const track = clawTrackMap.get(clawId)!;
 
@@ -698,16 +701,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
         const t = makeClawTrack();
         t.referenceMs = Date.now();
         clawTrackMap.set(clawId, t);
-        try {
-          const w = createChatViewportWatcher(
-            fs, clawId, path.join(clawDir, STREAM_FILE),
-            () => refreshClawStatus(clawId),
-            options.audit,
-            () => clawWatchers.delete(clawId),
-            false,
-          );
-          clawWatchers.set(clawId, w);
-        } catch { /* polling fallback */ }
+        attachClawWatcher(clawId, path.join(clawDir, STREAM_FILE));
         updateClawPanel();
         appendOutput('\x1b[2m', `[attach] ${clawId} 已加入面板`);
       }
@@ -718,7 +712,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     name: 'detach',
     description: '从监视面板移除 claw（仅 motion）',
     usage: '/detach <clawId>  或  /detach --all',
-    execute: (args) => {
+    execute: async (args) => {
       const arg = args[0];
       if (!arg) {
         appendOutput('', '用法：/detach <claw-id>  或  /detach --all');
@@ -726,14 +720,14 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
       }
       if (arg === '--all') {
         for (const [id] of clawTrackMap) {
-          clawWatchers.get(id)?.close();
+          await clawWatchers.get(id)?.close();
           clawWatchers.delete(id);
         }
         clawTrackMap.clear();
         updateClawPanel();
         appendOutput('\x1b[2m', '[detach] 已清空所有 claw');
       } else {
-        clawWatchers.get(arg)?.close();
+        await clawWatchers.get(arg)?.close();
         clawWatchers.delete(arg);
         clawTrackMap.delete(arg);
         updateClawPanel();
@@ -959,21 +953,18 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
             t.referenceMs = contractMs;
             clawTrackMap.set(clawId, t);
             // 开 watcher
-            try {
-              const w = createChatViewportWatcher(
-                fs, clawId, path.join(clawDir, STREAM_FILE),
-                () => refreshClawStatus(clawId),
-                options.audit,
-                () => clawWatchers.delete(clawId),
-              );
-              clawWatchers.set(clawId, w);
-            } catch { /* polling fallback */ }
+            attachClawWatcher(clawId, path.join(clawDir, STREAM_FILE));
           }
         }
         if (clawTrackMap.size > 0) {
           updateClawPanel();
         }
-      } catch { /* ignore */ }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        try {
+          options.audit.write(VIEWPORT_AUDIT_EVENTS.CLAWSDIR_SCAN_FAILED, `reason=${msg}`);
+        } catch { /* audit self-failure tolerated */ }
+      }
     });
     // 立即触发一次扫描
     refreshAllClawStatus();
@@ -996,9 +987,9 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   clearInterval(pollInterval);
   clearInterval(daemonCheckInterval);
   await streamReader.stop();
-  for (const w of clawWatchers.values()) w.close();
+  await Promise.all(Array.from(clawWatchers.values()).map(w => w.close()));
   clawWatchers.clear();
-  clawsDirWatcher?.close();
+  await clawsDirWatcher?.close();
   for (const tw of taskWatchMap.values()) await tw.streamReader?.stop();
   taskWatchMap.clear();
   tui.stop();

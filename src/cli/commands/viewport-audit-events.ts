@@ -14,4 +14,5 @@ export const VIEWPORT_AUDIT_EVENTS = {
   WATCHER_CALLBACK_FAILED: 'chat_viewport_watcher_callback_failed',
   UNKNOWN_EVENT: 'viewport_unknown_event',
   COMMAND_ERROR: 'viewport_command_error',
+  CLAWSDIR_SCAN_FAILED: 'viewport_clawsdir_scan_failed',
 } as const;
