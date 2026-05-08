@@ -86,7 +86,7 @@ export async function executeSubAgentTask(
       taskId: task.id,
       callerClawId: task.parentClawId,
     });
-    const finalSystemPrompt = `${promptPrefix}\n\n${DEFAULT_SUBAGENT_SYSTEM_PROMPT}`;
+    const finalSystemPrompt = `${promptPrefix}\n\n${task.systemPrompt ?? DEFAULT_SUBAGENT_SYSTEM_PROMPT}`;
 
     const subAgent = createSubAgent({
       agentId: task.id,

@@ -184,6 +184,7 @@ export class DispatchTool implements Tool {
         extraTools: askMotionInstance ? [askMotionInstance] : undefined,
         postProcessor: 'dispatch-contract-extract',  // phase438: 声明式 post-processor
         mainContextSnapshot,
+        systemPrompt,                            // phase 546: 透传 caller-side specialized prompt（mining: buildMinerSystemPrompt / describing: this.getSystemPrompt()）
       });
 
       return {

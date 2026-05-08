@@ -1,0 +1,118 @@
+/**
+ * SubAgent executor tests — Phase 546 systemPrompt injection
+ */
+
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import * as path from 'path';
+import { tmpdir } from 'os';
+import { randomUUID } from 'crypto';
+import { executeSubAgentTask } from '../../src/core/async-task-system/subagent-executor.js';
+import { DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../../src/prompts/subagent.js';
+import type { SubAgentTask } from '../../src/core/async-task-system/system.js';
+
+const { mockCreateSubAgent } = vi.hoisted(() => ({
+  mockCreateSubAgent: vi.fn(),
+}));
+
+vi.mock('../../src/core/subagent/index.js', () => ({
+  createSubAgent: mockCreateSubAgent,
+}));
+
+function makeTask(overrides: Partial<SubAgentTask> = {}): SubAgentTask {
+  return {
+    kind: 'subagent',
+    id: `task-${randomUUID()}`,
+    intent: 'test intent',
+    timeoutMs: 60000,
+    maxSteps: 10,
+    parentClawId: 'parent-claw',
+    createdAt: new Date().toISOString(),
+    ...overrides,
+  };
+}
+
+function makeDeps() {
+  return {
+    fs: {
+      ensureDir: vi.fn().mockResolvedValue(undefined),
+      ensureDirSync: vi.fn(),
+      write: vi.fn().mockResolvedValue(undefined),
+      writeAtomic: vi.fn().mockResolvedValue(undefined),
+      append: vi.fn().mockResolvedValue(undefined),
+      appendSync: vi.fn(),
+      read: vi.fn().mockResolvedValue(''),
+      exists: vi.fn().mockResolvedValue(false),
+      list: vi.fn().mockResolvedValue([]),
+      delete: vi.fn().mockResolvedValue(undefined),
+      removeDir: vi.fn().mockResolvedValue(undefined),
+      move: vi.fn().mockResolvedValue(undefined),
+      copy: vi.fn().mockResolvedValue(undefined),
+      stat: vi.fn().mockResolvedValue({ size: 0, mtime: new Date() }),
+      watch: vi.fn(),
+    } as unknown as import('../../src/foundation/fs/types.js').FileSystem,
+    auditWriter: { write: vi.fn() } as unknown as import('../../src/foundation/audit/index.js').AuditLog,
+    llm: {
+      call: vi.fn(),
+      stream: vi.fn(),
+      close: vi.fn(),
+      healthCheck: vi.fn().mockResolvedValue(true),
+      getProviderInfo: vi.fn().mockReturnValue({ name: 'mock', model: 'test', isFallback: false }),
+    } as unknown as import('../../src/foundation/llm-orchestrator/index.js').LLMOrchestrator,
+    registry: {
+      getAll: vi.fn().mockReturnValue([]),
+      formatForLLM: vi.fn().mockReturnValue([]),
+      getForProfile: vi.fn().mockReturnValue([]),
+    } as unknown as import('../../src/foundation/tools/index.js').ToolRegistry,
+    clawDir: path.join(tmpdir(), `subagent-exec-test-${randomUUID()}`),
+    postProcessors: new Map(),
+    moveTaskToDone: vi.fn().mockResolvedValue(undefined),
+    moveTaskToFailed: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
+describe('Phase 546 — subagent-executor systemPrompt 注入', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockCreateSubAgent.mockReturnValue({
+      run: vi.fn().mockResolvedValue('result'),
+    });
+  });
+
+  it('uses task.systemPrompt when provided', async () => {
+    const task = makeTask({ systemPrompt: 'CUSTOM_PROMPT_X' });
+    const deps = makeDeps();
+    const controller = new AbortController();
+
+    await executeSubAgentTask(task, controller.signal, deps);
+
+    expect(mockCreateSubAgent).toHaveBeenCalled();
+    const captured = mockCreateSubAgent.mock.calls[0][0];
+    expect(captured.systemPrompt).toContain('CUSTOM_PROMPT_X');
+    expect(captured.systemPrompt).not.toContain(DEFAULT_SUBAGENT_SYSTEM_PROMPT);
+  });
+
+  it('falls back to DEFAULT_SUBAGENT_SYSTEM_PROMPT when task.systemPrompt is undefined', async () => {
+    const task = makeTask();
+    // systemPrompt is undefined by default
+    const deps = makeDeps();
+    const controller = new AbortController();
+
+    await executeSubAgentTask(task, controller.signal, deps);
+
+    expect(mockCreateSubAgent).toHaveBeenCalled();
+    const captured = mockCreateSubAgent.mock.calls[0][0];
+    expect(captured.systemPrompt).toContain(DEFAULT_SUBAGENT_SYSTEM_PROMPT);
+  });
+
+  it('always includes promptPrefix regardless of task.systemPrompt', async () => {
+    const task = makeTask({ systemPrompt: 'X' });
+    const deps = makeDeps();
+    const controller = new AbortController();
+
+    await executeSubAgentTask(task, controller.signal, deps);
+
+    const captured = mockCreateSubAgent.mock.calls[0][0];
+    // promptPrefix 含 taskId / callerClawId 信息
+    expect(captured.systemPrompt).toMatch(/Task ID|callerClawId|workspace/);
+  });
+});

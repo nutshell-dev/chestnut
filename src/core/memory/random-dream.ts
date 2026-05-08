@@ -244,6 +244,7 @@ export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
     maxSteps: 200,
     parentClawId: 'motion',
     originClawId: 'motion',
+    systemPrompt: RANDOM_DREAM_SYSTEM_PROMPT,    // phase 546: dead import 活化（同 deep-dream 直 LLMService.call 模板 align）
   });
 
   opts.audit.write(MEMORY_AUDIT_EVENTS.RANDOM_DREAM_JOB, `step=subagent_started`, `taskId=${taskId}`);
