@@ -86,7 +86,7 @@ export class Runtime {
 
   // phase 521: regime switch coordination
   private dialogStoreFactory!: (systemPrompt: string) => DialogStore;
-  private lastSystemPrompt?: string;
+  private lastIdentityHash?: string;
 
   constructor(options: RuntimeOptions) {
     this.options = {
@@ -379,7 +379,17 @@ export class Runtime {
     const tools = this.toolRegistry.formatForLLM(
       this.toolRegistry.getForProfile(this.options.toolProfile ?? 'full')
     );
-    const systemPrompt = await this.buildSystemPrompt();
+    let systemPrompt: string;
+    let identityHash: string;
+    if (this.options.systemPromptBuilder) {
+      // U3 (a): 自定义 builder fallback 走整段当 identity（兼容 phase 521 行为）
+      systemPrompt = await this.buildSystemPrompt();
+      identityHash = systemPrompt;
+    } else {
+      const r = await this.contextInjector.buildSystemPromptForRegime();
+      systemPrompt = r.full;
+      identityHash = r.identityHash;
+    }
 
     // 首个 LLM 输出 delta 时上报当前生效的 provider（确认 API 可用后才显示）
     let providerInfoEmitted = false;
@@ -467,7 +477,7 @@ export class Runtime {
     }
 
     // phase 521: turn 末 regime change 检测（per L5.G3 (a) 自动检测）
-    await this._checkRegimeSwitch(systemPrompt);
+    await this._checkRegimeSwitch(systemPrompt, identityHash);
   }
 
   /**
@@ -656,7 +666,16 @@ export class Runtime {
     const messages = [...session.messages];
 
     // 2. Build systemPrompt (already includes AGENTS.md + MEMORY.md + skills + contract)
-    const systemPrompt = await this.buildSystemPrompt();
+    let systemPrompt: string;
+    let identityHash: string;
+    if (this.options.systemPromptBuilder) {
+      systemPrompt = await this.buildSystemPrompt();
+      identityHash = systemPrompt;
+    } else {
+      const r = await this.contextInjector.buildSystemPromptForRegime();
+      systemPrompt = r.full;
+      identityHash = r.identityHash;
+    }
 
     // 3. Append the user message
     messages.push({ role: 'user', content: userMessage });
@@ -713,7 +732,7 @@ export class Runtime {
       await this.sessionManager.save(messages);
 
       // phase 521: turn 末 regime change 检测（chat() 也走 _runReact 等效路径）
-      await this._checkRegimeSwitch(systemPrompt);
+      await this._checkRegimeSwitch(systemPrompt, identityHash);
 
       // Return the final text
       return result.finalText;
@@ -846,11 +865,21 @@ export class Runtime {
   // phase 521: regime switch coordination
   // ============================================================================
 
-  private async _checkRegimeSwitch(systemPrompt: string): Promise<void> {
-    if (this.lastSystemPrompt !== undefined && this.lastSystemPrompt !== systemPrompt) {
-      await this._performRegimeSwitch(systemPrompt);
+  private async _checkRegimeSwitch(newSystemPrompt: string, identityHash: string): Promise<void> {
+    if (this.lastIdentityHash !== undefined && this.lastIdentityHash !== identityHash) {
+      try {
+        await this._performRegimeSwitch(newSystemPrompt);
+        this.lastIdentityHash = identityHash;
+      } catch (err) {
+        this.auditWriter.write(
+          RUNTIME_AUDIT_EVENTS.REGIME_SWITCH_FAILED,
+          `reason=${err instanceof Error ? err.message : String(err)}`,
+        );
+        // lastIdentityHash 不更新 → 下 turn 重试自愈（D7）
+      }
+    } else {
+      this.lastIdentityHash = identityHash;
     }
-    this.lastSystemPrompt = systemPrompt;
   }
 
   private async _performRegimeSwitch(newSystemPrompt: string): Promise<void> {
