@@ -7,6 +7,7 @@ import { promises as fs } from 'fs';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { DispatchTool } from '../../src/core/async-task-system/tools/dispatch.js';
+import { buildMinerSystemPrompt } from '../../src/prompts/mining.js';
 import { dispatchContractExtractPostProcessor } from '../../src/core/async-task-system/post-processors/dispatch-contract-extract.js';
 import { ExecContextImpl } from '../../src/foundation/tools/context.js';
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
@@ -197,6 +198,32 @@ Content.
       expect(mockWriteFile).toHaveBeenCalled();
       const call = mockWriteFile.mock.calls[0][2];
       expect(call.intent).toContain('standalone task');
+    });
+  });
+
+  describe('Phase 546 — dispatch systemPrompt 透传', () => {
+    it('mining mode passes buildMinerSystemPrompt output to writePending', async () => {
+      mockWriteFile.mockResolvedValue('task-mining');
+      const ctx = makeCtx('claw');
+      await tool.execute({ goal: 'mine intent', mode: 'mining' }, ctx);
+
+      const call = mockWriteFile.mock.calls[0][2];
+      expect(call.systemPrompt).toContain('意图挖掘');
+    });
+
+    it('describing mode passes Motion getSystemPrompt output', async () => {
+      const mockMotionPrompt = 'MOTION_SYSTEM_PROMPT_FIXTURE';
+      const customTool = new DispatchTool(
+        async () => mockMotionPrompt,
+        () => [{ name: 'mock_tool', description: 'Mock tool', input_schema: { type: 'object' } }],
+        () => [{ name: 'mock_tool', description: 'Mock tool', input_schema: { type: 'object' } }],
+      );
+      mockWriteFile.mockResolvedValue('task-describing');
+      const ctx = makeCtx('claw');
+      await customTool.execute({ goal: 'describe intent', mode: 'describing' }, ctx);
+
+      const call = mockWriteFile.mock.calls[0][2];
+      expect(call.systemPrompt).toBe(mockMotionPrompt);
     });
   });
 

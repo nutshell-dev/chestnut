@@ -70,6 +70,7 @@ export interface SubAgentTask {
   extraTools?: Tool[];                    // per-task 额外工具，不污染全局 registry
   postProcessor?: string;            // phase438: 声明式 post-processor 名称（registry lookup）
   mainContextSnapshot?: { clawId: string; toolUseId: string };  // NEW marker mode
+  systemPrompt?: string;                 // phase 546 internal field：caller-side specialized system prompt（agent 不可见 / 与 phase 470 砍 agent-facing spawn schema 不冲突 / fall-back DEFAULT_SUBAGENT_SYSTEM_PROMPT）
 }
 
 export interface ToolTask {

@@ -16,6 +16,7 @@ import { promises as fs } from 'fs';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { runRandomDream, type RandomDreamOptions } from '../../../src/core/memory/random-dream.js';
+import { RANDOM_DREAM_SYSTEM_PROMPT } from '../../../src/core/memory/prompts/random-dream.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import type { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
@@ -154,7 +155,26 @@ Prompt: ...
       expect(inboxFiles.filter(f => f.includes('random_dream'))).toHaveLength(0);
     });
 
-    // ── Fix 5 回归：轮询 .txt 而非 .log ─────────────────────────
+    describe('Phase 546 — random-dream systemPrompt 透传', () => {
+    it('passes RANDOM_DREAM_SYSTEM_PROMPT to writePendingSubAgentTask', async () => {
+      await fs.mkdir(
+        path.join(clawforumDir, 'claws', 'claw-1', 'contract', 'archive', 'contract-001'),
+        { recursive: true }
+      );
+      await writeTaskCompletion(motionDir, taskId, '=== started ===');
+
+      await runRandomDream(makeOpts(clawforumDir, motionDir));
+
+      expect(mockWritePendingSubAgentTask).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          systemPrompt: RANDOM_DREAM_SYSTEM_PROMPT,
+        })
+      );
+    });
+  });
+
+  // ── Fix 5 回归：轮询 .txt 而非 .log ─────────────────────────
 
     it('Fix 5 回归：仅 .log 存在时不提前返回', async () => {
       vi.useFakeTimers();
