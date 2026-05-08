@@ -14,6 +14,8 @@ export interface ExecOptions {
   timeout?: number;
   /** Abort signal for cancellation */
   signal?: AbortSignal;
+  /** Environment variables for child process. If provided, only these + PATH are passed (no process.env inheritance). If omitted, inherits all of process.env. */
+  env?: Record<string, string>;
 }
 
 export interface ExecResult {

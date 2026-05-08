@@ -17,6 +17,7 @@ import {
 } from './types.js';
 
 const PROCESS_EXEC_MAX_BUFFER = 1024 * 1024; // 1MB; internal
+const GRACE_PERIOD_MS = 1000; // SIGTERM→SIGKILL grace period
 import type { ExecOptions, ExecResult } from './types.js';
 import { ProcessExecError } from './types.js';
 
@@ -38,7 +39,10 @@ async function runProcess(
 
   // PATH augmentation: ensure Node bin directory is included
   const nodeBinDir = path.dirname(process.execPath);
-  const pathEnv = process.env.PATH ?? '';
+
+  // Build child env: caller-provided or inherit process.env
+  const baseEnv = options.env ?? { ...process.env };
+  const pathEnv = baseEnv.PATH ?? process.env.PATH ?? '';
   const augmentedPath = pathEnv.includes(nodeBinDir)
     ? pathEnv
     : `${nodeBinDir}:${pathEnv}`;
@@ -48,7 +52,7 @@ async function runProcess(
       cwd: options.cwd,
       signal: options.signal,
       env: {
-        ...process.env,
+        ...baseEnv,
         PATH: augmentedPath,
       },
     });
@@ -58,11 +62,19 @@ async function runProcess(
     let timedOut = false;
     let maxBufferExceeded = false;
     let settled = false;
+    let killTimerId: ReturnType<typeof setTimeout> | undefined;
 
     function settle() {
       if (settled) return;
       settled = true;
       clearTimeout(timeoutId);
+      if (killTimerId !== undefined) clearTimeout(killTimerId);
+    }
+
+    function escalateToKill() {
+      if (!settled) {
+        proc.kill('SIGKILL');
+      }
     }
 
     function pushChunk(chunk: Buffer) {
@@ -70,7 +82,8 @@ async function runProcess(
       totalSize += chunk.length;
       if (totalSize > PROCESS_EXEC_MAX_BUFFER && !maxBufferExceeded) {
         maxBufferExceeded = true;
-        proc.kill();
+        proc.kill(); // SIGTERM
+        killTimerId = setTimeout(escalateToKill, GRACE_PERIOD_MS);
       }
     }
 
@@ -79,10 +92,12 @@ async function runProcess(
 
     const timeoutId = setTimeout(() => {
       timedOut = true;
-      proc.kill();
+      proc.kill(); // SIGTERM (default)
+      killTimerId = setTimeout(escalateToKill, GRACE_PERIOD_MS);
     }, timeout);
 
     proc.on('error', (err) => {
+      if (settled) return; // guard: close may arrive first
       settle();
       reject(new ProcessExecError({
         message: err.message,

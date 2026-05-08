@@ -154,6 +154,66 @@ describe('ProcessExec exec', () => {
     const nodeBinDir = path.dirname(process.execPath);
     expect(result.output).toContain(nodeBinDir);
   });
+
+  // ── SIGKILL escalation ──────────────────────────────────────────────────
+
+  it('should escalate to SIGKILL when process traps SIGTERM', async () => {
+    // Node script that ignores SIGTERM, only SIGKILL can stop it
+    const script = `process.on('SIGTERM', () => {}); setTimeout(() => {}, 60000);`;
+
+    const start = Date.now();
+    try {
+      await exec('node', ['-e', script], {
+        cwd: workDir,
+        timeout: 1000, // clamped to MIN 1000ms
+      });
+      expect.fail('should have thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(ProcessExecError);
+      expect((err as ProcessExecError).killed).toBe(true);
+      // Should settle within grace period after timeout
+      const elapsed = Date.now() - start;
+      // timeout 1000ms + grace 1000ms + overhead ≈ 2000-2500ms
+      expect(elapsed).toBeLessThan(5000);
+    }
+  });
+
+  // ── env control ─────────────────────────────────────────────────────────
+
+  describe('env control', () => {
+    it('should use caller-provided env (not inherit process.env)', async () => {
+      const result = await exec('node', ['-e', 'console.log(JSON.stringify(Object.keys(process.env)))'], {
+        cwd: workDir,
+        env: { MY_VAR: 'hello' },
+      });
+      const keys = JSON.parse(result.output.trim());
+      expect(keys).toContain('MY_VAR');
+      expect(keys).toContain('PATH'); // always augmented
+      // process.env secrets should NOT appear
+      expect(keys).not.toContain('HOME');
+    });
+
+    it('should inherit process.env when env not provided', async () => {
+      const result = await exec('node', ['-e', 'console.log(!!process.env.HOME)'], {
+        cwd: workDir,
+      });
+      expect(result.output.trim()).toBe('true');
+    });
+  });
+
+  // ── settled guard ───────────────────────────────────────────────────────
+
+  it('should reject exactly once on spawn error', async () => {
+    // Non-existent command triggers error event
+    // With settled guard, only one rejection should occur
+    let rejectCount = 0;
+    try {
+      await exec('nonexistent_command_xyz_12345', [], { cwd: workDir });
+    } catch {
+      rejectCount++;
+    }
+    expect(rejectCount).toBe(1);
+  });
 });
 
 describe('kill', () => {
