@@ -161,11 +161,11 @@ export async function collectStreamResponse(
     }
   } catch (err) {
     if (callOptions.signal?.aborted) {
-      if (state.stopReason !== 'tool_use') throwAbortError(callOptions.signal);
-      // stopReason === 'tool_use'：不 throw，fall through
-    } else {
-      throw err;
+      // 一致语义：abort 期所有 stopReason 立即抛 / partial tool_use input 丢弃
+      // D1c 中断可恢复 = 下 turn LLM 重新生成完整 tool_use
+      throwAbortError(callOptions.signal);
     }
+    throw err;
   }
 
   finalizeContent(state, callbacks);

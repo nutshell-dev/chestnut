@@ -9,7 +9,7 @@ import type { StepInput, StepResult, LLMCallInfo } from './types.js';
 import { extractText, extractToolCalls, appendAssistantMessage, appendToolResults } from './utils.js';
 import { executeToolCalls } from './tool-execution.js';
 import { throwAbortError } from './abort-helpers.js';
-import { cloneExecContext } from '../../foundation/tools/context.js';
+// import { cloneExecContext } from '../../foundation/tools/context.js';
 
 export async function handleToolUseStop(
   response: LLMResponse,
@@ -35,10 +35,8 @@ export async function handleToolUseStop(
       callbacks?.onToolResult?.(name, id, result);
     },
   };
-  const toolCtx = ctx.signal?.aborted
-    ? cloneExecContext(ctx, { signal: undefined })
-    : ctx;
-  const toolResults = await executeToolCalls(toolCalls, executor, toolCtx, registry, trackingCallbacks);
+  // abort 期不剥 signal / 工具自治响应 / 已 abort-aware 工具 throw / 不 aware 工具忽略
+  const toolResults = await executeToolCalls(toolCalls, executor, ctx, registry, trackingCallbacks);
 
   if (ctx.signal?.aborted) throwAbortError(ctx.signal);
   appendToolResults(messages, toolResults);

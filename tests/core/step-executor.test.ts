@@ -294,9 +294,8 @@ describe('StepExecutor', () => {
     expect(results[0].error).toContain('ECONNRESET');
   });
 
-  it('executes tool before throwing abort when abort fires during tool_use stream', async () => {
+  it('abort during tool_use stream throws immediately without executing tool', async () => {
     const abortController = new AbortController();
-    let toolExecuted = false;
 
     async function* stream(): AsyncIterableIterator<StreamChunk> {
       yield { type: 'tool_use_start', toolUse: { id: 'tu1', name: 'testTool', partialInput: '' } };
@@ -314,10 +313,7 @@ describe('StepExecutor', () => {
     } as unknown as LLMOrchestrator;
 
     const exec = {
-      execute: vi.fn(async () => {
-        toolExecuted = true;
-        return { success: true, content: 'done' };
-      }),
+      execute: vi.fn(async () => ({ success: true, content: 'done' })),
       executeParallel: vi.fn(),
       validateArgs: vi.fn(),
     } as unknown as IToolExecutor;
@@ -329,7 +325,8 @@ describe('StepExecutor', () => {
       executor: exec, registry: makeRegistry({ testTool: { readonly: false } }), ctx,
     })).rejects.toThrow(IdleTimeoutSignal);
 
-    expect(toolExecuted).toBe(true);
+    // Phase 538: abort 期 stream 一致 throwAbortError / partial tool_use 丢弃 / 工具不执行
+    expect(exec.execute).not.toHaveBeenCalled();
   });
 
   // ═════════════════════════════════════════════════════════════════════════════
