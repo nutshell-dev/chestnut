@@ -130,7 +130,7 @@ describe('ToolExecutor', () => {
       registry.register({
         name: 'test-tool',
         description: 'Test tool',
-        schema: { type: 'object', properties: {}, required: [] },
+        schema: { type: 'object', properties: { test: { type: 'string' } }, required: [] },
 
         readonly: true,
         async execute() {

@@ -1371,7 +1371,7 @@ describe('ToolExecutor async routing', () => {
     const asyncTool: Tool = {
       name: 'asyncTool',
       description: 'Tool with async support',
-      schema: { type: 'object', properties: {} },
+      schema: { type: 'object', properties: { arg1: { type: 'string' } } },
 
       readonly: false,
       idempotent: false,

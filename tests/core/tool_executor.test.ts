@@ -244,3 +244,62 @@ describe('ToolRegistryImpl getForProfile', () => {
     expect(readonlyTools.some(t => t.name === 'customTool')).toBe(false);
   });
 });
+
+describe('validateArgs strict additionalProperties (phase 531)', () => {
+  const mockTool = {
+    name: 'mock',
+    description: 'mock',
+    schema: {
+      type: 'object' as const,
+      properties: {
+        path: { type: 'string', description: 'path' },
+        cwd: { type: 'string', description: 'cwd' },
+      },
+      required: ['path'],
+    },
+    readonly: true,
+    idempotent: true,
+    supportsAsync: false,
+    execute: async () => ({ success: true, content: '' }),
+  };
+
+  it('rejects unknown field with allowed list', () => {
+    const registry = new ToolRegistryImpl();
+    registry.register(mockTool);
+    const executor = new ToolExecutorImpl(registry);
+    const result = executor.validateArgs('mock', { path: '/x', claw: 'other' });
+    expect(result.valid).toBe(false);
+    expect(result.errors?.[0]).toMatch(/Unknown field "claw" for tool "mock"/);
+    expect(result.errors?.[0]).toMatch(/Allowed fields: cwd, path/);
+  });
+
+  it('rejects multiple unknown fields', () => {
+    const registry = new ToolRegistryImpl();
+    registry.register(mockTool);
+    const executor = new ToolExecutorImpl(registry);
+    const result = executor.validateArgs('mock', { path: '/x', foo: 1, bar: 2 });
+    expect(result.valid).toBe(false);
+    expect(result.errors?.length).toBeGreaterThanOrEqual(2);
+    expect(result.errors?.join('\n')).toMatch(/foo/);
+    expect(result.errors?.join('\n')).toMatch(/bar/);
+  });
+
+  it('passes valid args (regression)', () => {
+    const registry = new ToolRegistryImpl();
+    registry.register(mockTool);
+    const executor = new ToolExecutorImpl(registry);
+    const result = executor.validateArgs('mock', { path: '/x', cwd: '/y' });
+    expect(result.valid).toBe(true);
+    expect(result.errors).toBeUndefined();
+  });
+
+  it('rejects args for 0-arg tool', () => {
+    const zeroArgTool = { ...mockTool, name: 'zero', schema: { type: 'object' as const } };
+    const registry = new ToolRegistryImpl();
+    registry.register(zeroArgTool);
+    const exec = new ToolExecutorImpl(registry);
+    const result = exec.validateArgs('zero', { foo: 1 });
+    expect(result.valid).toBe(false);
+    expect(result.errors?.[0]).toMatch(/accepts no arguments/);
+  });
+});

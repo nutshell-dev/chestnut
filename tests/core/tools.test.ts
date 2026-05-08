@@ -263,7 +263,7 @@ describe('Tools', () => {
       registry.register({
         name: 'test',
         description: 'Test tool',
-        schema: { type: 'object' },
+        schema: { type: 'object', properties: { key: { type: 'string' } } },
 
         readonly: true,
         execute: mockExecute,
@@ -530,7 +530,7 @@ describe('Tools', () => {
       registry.register({
         name: 'long-task',
         description: 'Long running task',
-        schema: { type: 'object' },
+        schema: { type: 'object', properties: { key: { type: 'string' } } },
 
         readonly: false,
         idempotent: true,

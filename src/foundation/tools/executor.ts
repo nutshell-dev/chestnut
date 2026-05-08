@@ -195,6 +195,13 @@ export class ToolExecutorImpl implements IToolExecutor {
     }
 
     if (schema.properties && typeof schema.properties === 'object') {
+      const allowedKeys = new Set(Object.keys(schema.properties));
+      for (const key of Object.keys(args)) {
+        if (!allowedKeys.has(key)) {
+          const allowed = Array.from(allowedKeys).sort().join(', ');
+          errors.push(`Unknown field "${key}" for tool "${toolName}". Allowed fields: ${allowed}`);
+        }
+      }
       for (const [key, prop] of Object.entries(schema.properties)) {
         if (key in args && prop && typeof prop === 'object' && 'type' in prop) {
           const actualType = typeof args[key];
@@ -207,6 +214,11 @@ export class ToolExecutorImpl implements IToolExecutor {
             errors.push(`Field "${key}" should be boolean, got ${actualType}`);
           }
         }
+      }
+    } else {
+      // 0 参数工具 / args 必须为空
+      if (Object.keys(args).length > 0) {
+        errors.push(`Tool "${toolName}" accepts no arguments, got: ${Object.keys(args).join(', ')}`);
       }
     }
 
