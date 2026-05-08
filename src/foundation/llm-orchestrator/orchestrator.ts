@@ -175,14 +175,16 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
       for (let attempt = 0; attempt < this.config.maxAttempts; attempt++) {
         if (options.signal?.aborted) throw makeExternalAbortError(options.signal.reason as AbortReason | undefined);
 
-        const idleCtrl = options.idleTimeoutMs ? new AbortController() : null;
-        const idleTimer = idleCtrl ? setTimeout(() => idleCtrl!.abort(), options.idleTimeoutMs!) : undefined;
-        const providerSignal = mergeSignals(options.signal, idleCtrl?.signal);
-        const providerOptions: LLMCallOptions = { ...options, signal: providerSignal, idleTimeoutMs: undefined };
+        const hardTimeoutMs = options.hardTimeoutMs ?? options.idleTimeoutMs;
+        const hardCtrl = hardTimeoutMs ? new AbortController() : null;
+        const hardTimer = hardCtrl ? setTimeout(() => hardCtrl!.abort(), hardTimeoutMs) : undefined;
+        const { signal: providerSignal, cleanup: cleanupSignal } = mergeSignals(options.signal, hardCtrl?.signal);
+        const providerOptions: LLMCallOptions = { ...options, signal: providerSignal, hardTimeoutMs: undefined, streamIdleTimeoutMs: undefined, idleTimeoutMs: undefined };
 
         try {
           const response = await this.primary.call(providerOptions);
-          clearTimeout(idleTimer);
+          clearTimeout(hardTimer);
+          cleanupSignal();
 
           // Circuit breaker: record success
           this.breakers[0]?.onSuccess();
@@ -192,13 +194,14 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
           return response;
 
         } catch (error) {
-          clearTimeout(idleTimer);
+          clearTimeout(hardTimer);
+          cleanupSignal();
           lastError = error as Error;
 
           // Don't retry on user abort (would add multi-second delay)
           if (options.signal?.aborted) throw lastError;
-          // Provider self-thrown AbortError when idle signal did not fire
-          if (lastError.name === 'AbortError' && !idleCtrl?.signal.aborted) throw lastError;
+          // Provider self-thrown AbortError when hard signal did not fire
+          if (lastError.name === 'AbortError' && !hardCtrl?.signal.aborted) throw lastError;
 
           // Wait before retry (exponential backoff with 30s max)
           if (attempt < this.config.maxAttempts - 1) {
@@ -245,14 +248,16 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
 
       const fb = this.fallbacks[i];
 
-      const idleCtrl = options.idleTimeoutMs ? new AbortController() : null;
-      const idleTimer = idleCtrl ? setTimeout(() => idleCtrl!.abort(), options.idleTimeoutMs!) : undefined;
-      const providerSignal = mergeSignals(options.signal, idleCtrl?.signal);
-      const providerOptions: LLMCallOptions = { ...options, signal: providerSignal, idleTimeoutMs: undefined };
+      const hardTimeoutMs = options.hardTimeoutMs ?? options.idleTimeoutMs;
+      const hardCtrl = hardTimeoutMs ? new AbortController() : null;
+      const hardTimer = hardCtrl ? setTimeout(() => hardCtrl!.abort(), hardTimeoutMs) : undefined;
+      const { signal: providerSignal, cleanup: cleanupSignal } = mergeSignals(options.signal, hardCtrl?.signal);
+      const providerOptions: LLMCallOptions = { ...options, signal: providerSignal, hardTimeoutMs: undefined, streamIdleTimeoutMs: undefined, idleTimeoutMs: undefined };
 
       try {
         const response = await fb.call(providerOptions);
-        clearTimeout(idleTimer);
+        clearTimeout(hardTimer);
+        cleanupSignal();
 
         // Circuit breaker: record success
         this.breakers[i + 1]?.onSuccess();
@@ -261,11 +266,12 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
         return response;
 
       } catch (fallbackError) {
-        clearTimeout(idleTimer);
+        clearTimeout(hardTimer);
+        cleanupSignal();
         const err = fallbackError as Error;
         if (options.signal?.aborted) throw err;
-        // Provider self-thrown AbortError when idle signal did not fire
-        if (err.name === 'AbortError' && !idleCtrl?.signal.aborted) throw err;
+        // Provider self-thrown AbortError when hard signal did not fire
+        if (err.name === 'AbortError' && !hardCtrl?.signal.aborted) throw err;
         this.events.emit({ type: 'provider_exhausted', provider: fb.name, error: err.message });
         const wasOpen = this.breakers[i + 1]?.isOpen();
         this.breakers[i + 1]?.onFailure();
@@ -325,19 +331,23 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
       let contextExceeded = false;
       let idleTimer: ReturnType<typeof setTimeout> | undefined;
       let idleCtrl: AbortController | null = null;
+      let cleanupSignal: (() => void) | undefined;
       for (let attempt = 0; attempt < this.config.maxAttempts; attempt++) {
         idleTimer = undefined;
         idleCtrl = null;
+        cleanupSignal = undefined;
         try {
-          idleCtrl = options.idleTimeoutMs ? new AbortController() : null;
+          const idleMs = options.streamIdleTimeoutMs ?? options.idleTimeoutMs;
+          idleCtrl = idleMs ? new AbortController() : null;
           const resetIdleTimer = () => {
-            if (!idleCtrl || !options.idleTimeoutMs) return;
+            if (!idleCtrl || !idleMs) return;
             clearTimeout(idleTimer);
-            idleTimer = setTimeout(() => idleCtrl!.abort(), options.idleTimeoutMs);
+            idleTimer = setTimeout(() => idleCtrl!.abort(), idleMs);
           };
 
-          const providerSignal = mergeSignals(options.signal, idleCtrl?.signal);
-          const providerOptions: LLMCallOptions = { ...options, signal: providerSignal, idleTimeoutMs: undefined };
+          const merged = mergeSignals(options.signal, idleCtrl?.signal);
+          cleanupSignal = merged.cleanup;
+          const providerOptions: LLMCallOptions = { ...options, signal: merged.signal, hardTimeoutMs: undefined, streamIdleTimeoutMs: undefined, idleTimeoutMs: undefined };
 
           resetIdleTimer();
           for await (const chunk of adapter.stream(providerOptions)) {
@@ -358,6 +368,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
             yield chunk;
           }
           clearTimeout(idleTimer);
+          cleanupSignal?.();
 
           if (contextExceeded) {
             contextExceededCount++;
@@ -369,6 +380,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
           break; // Success, exit retry loop
         } catch (error) {
           clearTimeout(idleTimer);
+          cleanupSignal?.();
           const err = error as Error;
           lastError = err;
           const isUserAbort = options.signal?.aborted;
@@ -507,14 +519,23 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
 function mergeSignals(
   a: AbortSignal | undefined,
   b: AbortSignal | undefined,
-): AbortSignal | undefined {
-  if (!a && !b) return undefined;
-  if (!a) return b;
-  if (!b) return a;
+): { signal: AbortSignal | undefined; cleanup: () => void } {
+  if (!a && !b) return { signal: undefined, cleanup: () => {} };
+  if (!a) return { signal: b, cleanup: () => {} };
+  if (!b) return { signal: a, cleanup: () => {} };
   const ctrl = new AbortController();
+  if (a.aborted || b.aborted) {
+    ctrl.abort();
+    return { signal: ctrl.signal, cleanup: () => {} };
+  }
   const abort = () => ctrl.abort();
-  if (a.aborted || b.aborted) { ctrl.abort(); return ctrl.signal; }
   a.addEventListener('abort', abort, { once: true });
   b.addEventListener('abort', abort, { once: true });
-  return ctrl.signal;
+  return {
+    signal: ctrl.signal,
+    cleanup: () => {
+      a.removeEventListener('abort', abort);
+      b.removeEventListener('abort', abort);
+    },
+  };
 }

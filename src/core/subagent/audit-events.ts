@@ -8,6 +8,7 @@ export const SUBAGENT_AUDIT_EVENTS = {
   STEP_COMPLETE_FAILED: 'subagent_step_complete_failed',
   PERSIST_FAILED: 'subagent_persist_failed',
   LOG_APPEND_FAILED: 'subagent_log_append_failed',
+  GHOST_CALLBACK_AFTER_TURN_END: 'ghost_callback_after_turn_end',
 } as const;
 
 /**

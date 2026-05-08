@@ -150,8 +150,16 @@ export interface LLMCallOptions {
   
   /** Signal for cancellation (user abort + step_yield only; idle timeout is service-internal) */
   signal?: AbortSignal;
-  /** Per-attempt idle timeout (ms); service.ts creates internal AbortController per provider attempt.
-   *  0 / undefined = disabled. */
+
+  /** Hard timeout for non-streaming call() — wall-clock ceiling */
+  hardTimeoutMs?: number;
+
+  /** Idle timeout for stream() — reset on each chunk / 仅 stream 路径 */
+  streamIdleTimeoutMs?: number;
+
+  /** @deprecated phase 538 / use hardTimeoutMs (call) or streamIdleTimeoutMs (stream)
+   *  call() 路径解析为 hardTimeoutMs / stream() 路径解析为 streamIdleTimeoutMs
+   *  兼容期 1 r / 推 r66+ 删 */
   idleTimeoutMs?: number;
 }
 
