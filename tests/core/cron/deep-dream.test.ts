@@ -221,7 +221,8 @@ describe('runDeepDream', () => {
       // inbox 消息已写入
       const inboxDir = path.join(clawDir, 'inbox', 'pending');
       const files = fsSync.readdirSync(inboxDir);
-      expect(files.some(f => f.includes('deep_dream'))).toBe(true);
+      const hasDeepDream = files.some(f => fsSync.readFileSync(path.join(inboxDir, f), 'utf8').includes('type: deep_dream'));
+      expect(hasDeepDream).toBe(true);
     });
 
     // ── Fix 1 回归：Call 2 不传 system prompt ──────────────────
@@ -268,7 +269,8 @@ describe('runDeepDream', () => {
       // 无 inbox 消息
       const inboxDir = path.join(clawDir, 'inbox', 'pending');
       const files = fsSync.readdirSync(inboxDir);
-      expect(files.filter(f => f.includes('deep_dream'))).toHaveLength(0);
+      const deepDreamFiles = files.filter(f => fsSync.readFileSync(path.join(inboxDir, f), 'utf8').includes('type: deep_dream'));
+      expect(deepDreamFiles).toHaveLength(0);
     });
 
     it('仅含 thinking/tool_use 块的会话视为空会话', async () => {
@@ -337,7 +339,8 @@ describe('runDeepDream', () => {
 
       const inboxDir = path.join(clawDir, 'inbox', 'pending');
       const files = fsSync.readdirSync(inboxDir);
-      expect(files.some(f => f.includes('deep_dream'))).toBe(true);
+      const hasDeepDream = files.some(f => fsSync.readFileSync(path.join(inboxDir, f), 'utf8').includes('type: deep_dream'));
+      expect(hasDeepDream).toBe(true);
     });
 
     // ── current.json 处理 ───────────────────────────────────────
@@ -415,7 +418,8 @@ describe('runDeepDream', () => {
 
     // claw-ok 的 inbox 应有消息
     const inboxFiles = fsSync.readdirSync(path.join(clawDir2, 'inbox', 'pending'));
-    expect(inboxFiles.some(f => f.includes('deep_dream'))).toBe(true);
+    const hasDeepDream = inboxFiles.some(f => fsSync.readFileSync(path.join(clawDir2, 'inbox', 'pending', f), 'utf8').includes('type: deep_dream'));
+    expect(hasDeepDream).toBe(true);
   });
 
   // ── 元压缩触发 ──────────────────────────────────────────────
