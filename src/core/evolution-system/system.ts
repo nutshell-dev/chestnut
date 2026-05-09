@@ -61,6 +61,7 @@ interface EvolutionState {
 export class EvolutionSystem {
   private processedContractIds: Set<string> = new Set();
   private stateFileLoaded = false;
+  private stateLoadPromise: Promise<void> | null = null;
 
   constructor(private readonly deps: EvolutionSystemDeps) {
   }
@@ -114,9 +115,10 @@ export class EvolutionSystem {
     contractId: string,
     ctx: MotionReviewContext,
   ): Promise<RetroResult> {
-    // Step 0: lazy load state (first call only)
+    // Step 0: lazy load state (first call only / atomic via Promise cache)
     if (!this.stateFileLoaded) {
-      await this._loadState();
+      this.stateLoadPromise ??= this._loadState();
+      await this.stateLoadPromise;
       this.stateFileLoaded = true;
     }
 
