@@ -117,7 +117,8 @@ Prompt: ...
 
       // inbox 消息写入
       const inboxFiles = fsSync.readdirSync(path.join(motionDir, 'inbox', 'pending'));
-      expect(inboxFiles.some(f => f.includes('random_dream'))).toBe(true);
+      const hasRandomDream = inboxFiles.some(f => fsSync.readFileSync(path.join(motionDir, 'inbox', 'pending', f), 'utf8').includes('type: random_dream'));
+      expect(hasRandomDream).toBe(true);
     });
 
     it('多个 [DREAM_OUTPUT] 块全部提取', async () => {
@@ -152,7 +153,8 @@ Prompt: ...
       await runRandomDream(makeOpts(clawforumDir, motionDir));
 
       const inboxFiles = fsSync.readdirSync(path.join(motionDir, 'inbox', 'pending'));
-      expect(inboxFiles.filter(f => f.includes('random_dream'))).toHaveLength(0);
+      const randomDreamFiles = inboxFiles.filter(f => fsSync.readFileSync(path.join(motionDir, 'inbox', 'pending', f), 'utf8').includes('type: random_dream'));
+      expect(randomDreamFiles).toHaveLength(0);
     });
 
     describe('Phase 546 — random-dream systemPrompt 透传', () => {
@@ -195,7 +197,8 @@ Prompt: ...
 
         // 此时 inbox 应仍为空（未完成）
         const inboxFiles = fsSync.readdirSync(path.join(motionDir, 'inbox', 'pending'));
-        expect(inboxFiles.filter(f => f.includes('random_dream'))).toHaveLength(0);
+        const randomDreamFiles = inboxFiles.filter(f => fsSync.readFileSync(path.join(motionDir, 'inbox', 'pending', f), 'utf8').includes('type: random_dream'));
+      expect(randomDreamFiles).toHaveLength(0);
 
         // 写入 result.txt + 更新 daemon.log（模拟 sub-agent 完成）
         fsSync.writeFileSync(path.join(taskResultDir, 'result.txt'), 'done');
@@ -210,7 +213,8 @@ Prompt: ...
 
         // 现在 inbox 应有消息
         const inboxFilesAfter = fsSync.readdirSync(path.join(motionDir, 'inbox', 'pending'));
-        expect(inboxFilesAfter.some(f => f.includes('random_dream'))).toBe(true);
+        const hasRandomDreamAfter = inboxFilesAfter.some(f => fsSync.readFileSync(path.join(motionDir, 'inbox', 'pending', f), 'utf8').includes('type: random_dream'));
+        expect(hasRandomDreamAfter).toBe(true);
       } finally {
         vi.useRealTimers();
       }
@@ -391,7 +395,8 @@ Prompt: ...
 
       // 不应写 inbox
       const inboxFiles = fsSync.readdirSync(path.join(motionDir, 'inbox', 'pending'));
-      expect(inboxFiles.filter(f => f.includes('random_dream'))).toHaveLength(0);
+      const randomDreamFiles = inboxFiles.filter(f => fsSync.readFileSync(path.join(motionDir, 'inbox', 'pending', f), 'utf8').includes('type: random_dream'));
+      expect(randomDreamFiles).toHaveLength(0);
     } finally {
       vi.useRealTimers();
     }

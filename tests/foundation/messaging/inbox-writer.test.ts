@@ -97,7 +97,7 @@ describe('InboxWriter', () => {
 
     const files = fsSync.readdirSync(path.join(testDir, 'inbox', 'pending'));
     expect(files).toHaveLength(1);
-    expect(files[0]).toMatch(/^\d{8}T\d{6}_ping_[a-f0-9]+\.md$/);
+    expect(files[0]).toMatch(/^\d{15}_high_[a-f0-9]+\.md$/);
   });
 
   it('writeSync audits INBOX_WRITTEN on success', () => {

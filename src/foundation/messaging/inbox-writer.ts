@@ -21,10 +21,11 @@ export type InboxMessageMeta = Record<string, string>;
 export interface InboxMessageOptionsBase {
   type: string;
   source: string;
-  priority: 'critical' | 'high' | 'normal' | 'low';
+  priority?: 'critical' | 'high' | 'normal' | 'low';
   body: string;
   to?: string;
   idPrefix?: string;
+  /** @deprecated since phase 577 / filename 中段统一 priority / 字段保接口稳 */
   filenameTag?: string;
   extraFields?: Record<string, string>;
 }
@@ -39,7 +40,7 @@ export class InboxWriter {
   /** async 写，atomic */
   async write(msg: InboxMessage, extraFields?: Record<string, string>): Promise<void> {
     await this.fs.ensureDir(this.inboxDir);
-    const timestamp = Date.now();
+    const timestamp = String(Date.now()).padStart(15, '0');
     const priority = msg.priority ?? 'normal';
     const filename = `${timestamp}_${priority}_${randomUUID().slice(0, 8)}.md`;
     const filePath = path.join(this.inboxDir, filename);
@@ -56,10 +57,10 @@ export class InboxWriter {
   /** sync 写，供 task/system 同步路径使用 */
   writeSync(opts: InboxMessageOptionsBase): void {
     const now = new Date();
-    const ts = now.toISOString().replace(/[-:]/g, '').slice(0, 15);
+    const priority = opts.priority ?? 'normal';
+    const timestamp = String(now.getTime()).padStart(15, '0');
     const uuid8 = randomUUID().slice(0, 8);
     const idPrefix = opts.idPrefix ?? opts.type;
-    const tag = opts.filenameTag ?? opts.type;
 
     const message: InboxMessage = {
       id: `${idPrefix}-${now.getTime()}`,
@@ -67,13 +68,13 @@ export class InboxWriter {
       from: opts.source,
       to: opts.to ?? '',
       content: opts.body,
-      priority: opts.priority,
+      priority,
       timestamp: now.toISOString(),
     };
 
     const content = encodeInbox(message, opts.extraFields);
     this.fs.ensureDirSync(this.inboxDir);
-    const filename = `${ts}_${tag}_${uuid8}.md`;
+    const filename = `${timestamp}_${priority}_${uuid8}.md`;
     try {
       this.fs.writeAtomicSync(path.join(this.inboxDir, filename), content);
     } catch (e) {

@@ -56,9 +56,13 @@ export class Heartbeat {
 
       // 去重：已有未处理心跳则跳过
       const existing = fs.listSync(inboxDir);
-      if (existing.some(f => f.name.includes('_heartbeat_'))) {
-        this.lastRun = Date.now();  // 去重也重置计时器，避免重复检查
-        return;
+      for (const f of existing) {
+        if (!f.name.endsWith('.md')) continue;
+        const meta = InboxWriter.readMeta(fs, path.join(inboxDir, f.name));
+        if (meta.ok && meta.value.type === 'heartbeat') {
+          this.lastRun = Date.now();  // 去重也重置计时器，避免重复检查
+          return;
+        }
       }
 
       const audit = this.audit ?? createSystemAudit(fs, this.baseDir);

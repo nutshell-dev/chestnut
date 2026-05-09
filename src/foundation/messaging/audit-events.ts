@@ -17,6 +17,7 @@ export const MESSAGING_AUDIT_EVENTS = {
   INBOX_LIST_FAILED: 'inbox_list_failed',
   INBOX_MOVE_FAILED: 'inbox_move_failed',
   INBOX_META_FAILED: 'inbox_meta_failed',
+  INBOX_PRIORITY_UNKNOWN: 'inbox_priority_unknown',
   OUTBOX_SENT: 'outbox_sent',
   OUTBOX_SEND_FAILED: 'outbox_send_failed',
 } as const;

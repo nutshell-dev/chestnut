@@ -70,6 +70,16 @@ export class InboxReader {
       try {
         const content = await this.fs.read(filePath);
         const message = decodeInbox(content);
+        // M4 phase 577：unknown priority audit warn / observability 加固
+        // codec-inbox 是 pure fn / decoder 调用方负责 audit
+        if (message.extraMeta?.__original_priority !== undefined) {
+          this.audit.write(
+            MESSAGING_AUDIT_EVENTS.INBOX_PRIORITY_UNKNOWN,
+            `file=${entry.name}`,
+            `original=${message.extraMeta.__original_priority}`,
+            `fallback=${message.priority}`,
+          );
+        }
         results.push({ message, filePath });
       } catch (err) {
         const reason = err instanceof Error ? err.message : String(err);
