@@ -4,6 +4,7 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import type { InboxMessage } from '../../types/messaging.js';
 import { InboxWriter } from '../../foundation/messaging/index.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
+import { formatErr, auditError } from './_helpers.js';
 import { INBOX_PENDING_DIR, TASKS_QUEUES_RESULTS_DIR } from '../../types/paths.js';
 import type { SubAgentTask, ToolTask } from './system.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
@@ -31,8 +32,8 @@ export async function sendToolResult(
     resultRef = resultPath;
   } catch (writeErr) {
     // Degrade gracefully: resultRef remains undefined, send full content in inbox
-    const errMsg = writeErr instanceof Error ? writeErr.message : String(writeErr);
-    auditWriter?.write(TASK_AUDIT_EVENTS.RESULT_WRITE_FAILED, task.id, 'context=write_result', `error=${errMsg}`);
+    const errMsg = formatErr(writeErr);
+    auditWriter.write(TASK_AUDIT_EVENTS.RESULT_WRITE_FAILED, task.id, 'context=write_result', `error=${errMsg}`);
   }
 
   // Build summary (preview if resultRef exists, full content otherwise)
@@ -73,24 +74,23 @@ export async function sendToolResult(
     if (resultRef) {
       // inbox 写失败：删除孤立的 results 文件，降级为 inline 内容重试
       await fs.delete(resultRef).catch((delErr) => {
-        auditWriter?.write(TASK_AUDIT_EVENTS.RESULT_WRITE_FAILED, task.id, 'context=orphan_delete', `error=${delErr instanceof Error ? delErr.message : JSON.stringify(delErr)}`);
+        auditWriter.write(TASK_AUDIT_EVENTS.RESULT_WRITE_FAILED, task.id, 'context=orphan_delete', `error=${formatErr(delErr)}`);
       });
       try {
         await new InboxWriter(fs, INBOX_PENDING_DIR, auditWriter).write({ ...baseMsg, content: inlineContent });
         return;
       } catch (inlineErr) {
-        auditWriter?.write(
+        auditWriter.write(
           TASK_AUDIT_EVENTS.INBOX_WRITE_FAILED,
           task.id,
           'context=inline_fallback_failed',
-          `error=${inlineErr instanceof Error ? inlineErr.message : JSON.stringify(inlineErr)}`,
+          `error=${formatErr(inlineErr)}`,
         );
         // 降级也失败，继续抛出原始错误（保 caller fallback 链 / 既有 throw err 路径不动）
       }
     }
-    const errMsg = err instanceof Error ? err.message : String(err);
-    console.error(`[task] Failed to write inbox message for tool task ${task.id}:`, err);
-    auditWriter?.write(TASK_AUDIT_EVENTS.INBOX_WRITE_FAILED, task.id, `error=${errMsg}`);
+    const errMsg = formatErr(err);
+    auditWriter.write(TASK_AUDIT_EVENTS.INBOX_WRITE_FAILED, task.id, `error=${errMsg}`);
     throw err;  // Re-throw to allow caller fallback
   }
 }
@@ -115,8 +115,8 @@ export async function sendResult(
     resultRef = resultPath;
   } catch (writeErr) {
     // Degrade gracefully: resultRef remains undefined, send full content in inbox
-    const errMsg = writeErr instanceof Error ? writeErr.message : String(writeErr);
-    auditWriter?.write(TASK_AUDIT_EVENTS.RESULT_WRITE_FAILED, task.id, 'context=send_result_write', `error=${errMsg}`);
+    const errMsg = formatErr(writeErr);
+    auditWriter.write(TASK_AUDIT_EVENTS.RESULT_WRITE_FAILED, task.id, 'context=send_result_write', `error=${errMsg}`);
   }
 
   // Build summary (preview if resultRef exists, full content otherwise)
@@ -155,24 +155,23 @@ export async function sendResult(
     if (resultRef) {
       // inbox 写失败：删除孤立的 results 文件，降级为 inline 内容重试
       await fs.delete(resultRef).catch((delErr) => {
-        auditWriter?.write(TASK_AUDIT_EVENTS.RESULT_WRITE_FAILED, task.id, 'context=orphan_delete_send', `error=${delErr instanceof Error ? delErr.message : JSON.stringify(delErr)}`);
+        auditWriter.write(TASK_AUDIT_EVENTS.RESULT_WRITE_FAILED, task.id, 'context=orphan_delete_send', `error=${formatErr(delErr)}`);
       });
       try {
         await new InboxWriter(fs, INBOX_PENDING_DIR, auditWriter).write({ ...baseMsg, content: inlineContent });
         return;
       } catch (inlineErr) {
-        auditWriter?.write(
+        auditWriter.write(
           TASK_AUDIT_EVENTS.INBOX_WRITE_FAILED,
           task.id,
           'context=inline_fallback_failed',
-          `error=${inlineErr instanceof Error ? inlineErr.message : JSON.stringify(inlineErr)}`,
+          `error=${formatErr(inlineErr)}`,
         );
         // 降级也失败，继续抛出原始错误（保 caller fallback 链 / 既有 throw err 路径不动）
       }
     }
-    const errMsg = err instanceof Error ? err.message : String(err);
-    console.error(`[task] Failed to write inbox message for task ${task.id}:`, err);
-    auditWriter?.write(TASK_AUDIT_EVENTS.INBOX_WRITE_FAILED, task.id, `error=${errMsg}`);
+    const errMsg = formatErr(err);
+    auditWriter.write(TASK_AUDIT_EVENTS.INBOX_WRITE_FAILED, task.id, `error=${errMsg}`);
     throw err;  // Re-throw to allow caller fallback
   }
 }

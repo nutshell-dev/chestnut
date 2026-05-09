@@ -1,5 +1,6 @@
 import type { PostProcessor } from './types.js';
 import { DISPATCH_AUDIT_EVENTS } from '../tools/dispatch-audit-events.js';
+import { formatErr } from '../_helpers.js';
 
 /**
  * dispatch-contract-extract PostProcessor
@@ -65,7 +66,7 @@ export const dispatchContractExtractPostProcessor: PostProcessor = async (
     audit.write(
       DISPATCH_AUDIT_EVENTS.WRITE_BY_CONTRACT_FAILED,
       `contractId=${contractId}`,
-      `error=${e instanceof Error ? e.message : String(e)}`,
+      `error=${formatErr(e)}`,
     );
   }
 

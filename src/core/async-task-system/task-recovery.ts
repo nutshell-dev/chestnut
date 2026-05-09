@@ -10,6 +10,7 @@ import {
   TASKS_SUBAGENTS_DIR,
 } from '../../types/paths.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
+import { formatErr, auditError } from './_helpers.js';
 import { sendFallbackError, sendResult } from './result-delivery.js';
 
 const RETRY_COUNT_PATH = (taskId: string) =>
@@ -44,7 +45,7 @@ export async function recoverTasks(deps: RecoveryDeps): Promise<void> {
             const pendingPath = `${TASKS_QUEUES_PENDING_DIR}/${task.id}.json`;
             await fs.move(entry.path, pendingPath);
             recoveredFromRunning++;
-            auditWriter?.write(TASK_AUDIT_EVENTS.RECOVERED, task.id, `kind=${task.kind}`, 'from=running', 'to=pending');
+            auditWriter.write(TASK_AUDIT_EVENTS.RECOVERED, task.id, `kind=${task.kind}`, 'from=running', 'to=pending');
           } else {
             // subagent 任务：检测是否已写出结果
             const resultPath  = `${TASKS_QUEUES_RESULTS_DIR}/${task.id}/result.txt`;
@@ -56,23 +57,23 @@ export async function recoverTasks(deps: RecoveryDeps): Promise<void> {
             if (alreadySent) {
               // 上次恢复已投递，仅清理 running/ 残留
               await fs.move(entry.path, `${TASKS_QUEUES_DONE_DIR}/${task.id}.json`).catch(async (moveErr) => {
-                auditWriter?.write(
+                auditWriter.write(
                   TASK_AUDIT_EVENTS.RECOVERY_FAILED,
                   task.id,
                   'context=alreadysent_move_failed',
-                  `error=${moveErr instanceof Error ? moveErr.message : JSON.stringify(moveErr)}`,
+                  `error=${formatErr(moveErr)}`,
                 );
                 // 降级：直接 delete 残留 / delete 也失败再 audit
                 await fs.delete(entry.path).catch((delErr) => {
-                  auditWriter?.write(
+                  auditWriter.write(
                     TASK_AUDIT_EVENTS.RECOVERY_FAILED,
                     task.id,
                     'context=alreadysent_delete_failed',
-                    `error=${delErr instanceof Error ? delErr.message : JSON.stringify(delErr)}`,
+                    `error=${formatErr(delErr)}`,
                   );
                 });
               });
-              auditWriter?.write(TASK_AUDIT_EVENTS.RECOVERED, task.id, 'reason=already_sent');
+              auditWriter.write(TASK_AUDIT_EVENTS.RECOVERED, task.id, 'reason=already_sent');
             } else if (resultExists) {
               // 读取 retry count
               let retryCount = 0;
@@ -86,7 +87,7 @@ export async function recoverTasks(deps: RecoveryDeps): Promise<void> {
               const resultSent = await sendResult(fs, auditWriter, task, resultContent, false)
                 .then(() => true)
                 .catch((e) => {
-                  auditWriter?.write(TASK_AUDIT_EVENTS.RECOVERY_FAILED, task.id, 'context=resend_result_failed', `error=${e instanceof Error ? e.message : JSON.stringify(e)}`);
+                  auditWriter.write(TASK_AUDIT_EVENTS.RECOVERY_FAILED, task.id, 'context=resend_result_failed', `error=${formatErr(e)}`);
                   // resend 失败降级：发 fallbackError，parent 知道任务状态
                   sendFallbackError(fs, auditWriter, task, 'Result resend failed after recovery').catch(() => {});
                   return false;
@@ -101,31 +102,31 @@ export async function recoverTasks(deps: RecoveryDeps): Promise<void> {
                 await fs.writeAtomic(retryPath, String(retryCount)).catch(() => {});
                 if (retryCount >= MAX_RECOVERY_RETRIES) {
                   // dead-letter: 转 failed
-                  auditWriter?.write(TASK_AUDIT_EVENTS.RECOVERY_DEAD_LETTER, task.id,
+                  auditWriter.write(TASK_AUDIT_EVENTS.RECOVERY_DEAD_LETTER, task.id,
                     `retries=${retryCount}`, 'action=move_to_failed');
                   await fs.move(entry.path, `${TASKS_QUEUES_FAILED_DIR}/${task.id}.json`).catch(async (moveErr) => {
-                    auditWriter?.write(
+                    auditWriter.write(
                       TASK_AUDIT_EVENTS.RECOVERY_FAILED,
                       task.id,
                       'context=dead_letter_move_failed',
-                      `error=${moveErr instanceof Error ? moveErr.message : JSON.stringify(moveErr)}`,
+                      `error=${formatErr(moveErr)}`,
                     );
                     await fs.delete(entry.path).catch((delErr) => {
-                      auditWriter?.write(
+                      auditWriter.write(
                         TASK_AUDIT_EVENTS.RECOVERY_FAILED,
                         task.id,
                         'context=dead_letter_delete_failed',
-                        `error=${delErr instanceof Error ? delErr.message : JSON.stringify(delErr)}`,
+                        `error=${formatErr(delErr)}`,
                       );
                     });
                   });
                   // C2.a: cleanup retry counter file (best-effort with audit)
                   await fs.delete(retryPath).catch((cleanupErr) => {
-                    auditWriter?.write(
+                    auditWriter.write(
                       TASK_AUDIT_EVENTS.RECOVERY_FAILED,
                       task.id,
                       'context=dead_letter_retrypath_cleanup_failed',
-                      `error=${cleanupErr instanceof Error ? cleanupErr.message : JSON.stringify(cleanupErr)}`,
+                      `error=${formatErr(cleanupErr)}`,
                     );
                   });
                   return; // 不走后续 move to done
@@ -134,33 +135,33 @@ export async function recoverTasks(deps: RecoveryDeps): Promise<void> {
 
               // 正常路径: move running → done
               await fs.move(entry.path, `${TASKS_QUEUES_DONE_DIR}/${task.id}.json`).catch(async (moveErr) => {
-                auditWriter?.write(
+                auditWriter.write(
                   TASK_AUDIT_EVENTS.RECOVERY_FAILED,
                   task.id,
                   'context=done_move_failed',
-                  `error=${moveErr instanceof Error ? moveErr.message : JSON.stringify(moveErr)}`,
+                  `error=${formatErr(moveErr)}`,
                 );
                 await fs.delete(entry.path).catch((delErr) => {
-                  auditWriter?.write(
+                  auditWriter.write(
                     TASK_AUDIT_EVENTS.RECOVERY_FAILED,
                     task.id,
                     'context=done_delete_failed',
-                    `error=${delErr instanceof Error ? delErr.message : JSON.stringify(delErr)}`,
+                    `error=${formatErr(delErr)}`,
                   );
                 });
               });
-              auditWriter?.write(TASK_AUDIT_EVENTS.RECOVERED, task.id, 'reason=result_file_exists');
+              auditWriter.write(TASK_AUDIT_EVENTS.RECOVERED, task.id, 'reason=result_file_exists');
             } else {
               // 结果未写出：移回 pending 重新执行（原有逻辑）
               const pendingPath = `${TASKS_QUEUES_PENDING_DIR}/${task.id}.json`;
               await fs.move(entry.path, pendingPath);
               recoveredFromRunning++;
-              auditWriter?.write(TASK_AUDIT_EVENTS.RECOVERED, task.id, `kind=${task.kind}`, 'from=running', 'to=pending');
+              auditWriter.write(TASK_AUDIT_EVENTS.RECOVERED, task.id, `kind=${task.kind}`, 'from=running', 'to=pending');
             }
           }
         } catch (err) {
-          const errMsg = err instanceof Error ? err.message : String(err);
-          auditWriter?.write(TASK_AUDIT_EVENTS.RECOVERY_FAILED, entry.path, 'context=recover_running', `error=${errMsg}`);
+          const errMsg = formatErr(err);
+          auditWriter.write(TASK_AUDIT_EVENTS.RECOVERY_FAILED, entry.path, 'context=recover_running', `error=${errMsg}`);
         }
       }
     }
@@ -178,8 +179,8 @@ export async function recoverTasks(deps: RecoveryDeps): Promise<void> {
             // subagent 文件保留在 pending/，由 _initialScanPending 统一入队
           }
         } catch (err) {
-          const errMsg = err instanceof Error ? err.message : String(err);
-          auditWriter?.write(TASK_AUDIT_EVENTS.RECOVERY_FAILED, entry.path, 'context=load_pending', `error=${errMsg}`);
+          const errMsg = formatErr(err);
+          auditWriter.write(TASK_AUDIT_EVENTS.RECOVERY_FAILED, entry.path, 'context=load_pending', `error=${errMsg}`);
         }
       }
     }
@@ -188,12 +189,12 @@ export async function recoverTasks(deps: RecoveryDeps): Promise<void> {
     const failedEntries = await fs.list(TASKS_QUEUES_FAILED_DIR).catch(() => []);
     const failedCount = failedEntries.filter(e => e.name.endsWith('.json')).length;
 
-    auditWriter?.write(TASK_AUDIT_EVENTS.RECOVERY_COMPLETE, 'system', `pending=${pendingQueue.length}`, `recovered_running=${recoveredFromRunning}`, `failed=${failedCount}`);
+    auditWriter.write(TASK_AUDIT_EVENTS.RECOVERY_COMPLETE, 'system', `pending=${pendingQueue.length}`, `recovered_running=${recoveredFromRunning}`, `failed=${failedCount}`);
 
     // _initialScanPending 已迁至 startDispatch（避免在 initialize 期间触发 _dispatch）
   } catch (err) {
-    const errMsg = err instanceof Error ? err.message : String(err);
-    auditWriter?.write(TASK_AUDIT_EVENTS.RECOVERY_FAILED, 'system', 'context=recovery_top', `error=${errMsg}`);
+    const errMsg = formatErr(err);
+    auditWriter.write(TASK_AUDIT_EVENTS.RECOVERY_FAILED, 'system', 'context=recovery_top', `error=${errMsg}`);
   }
 
   // phase 515 / startup orphan subagent workspace cleanup
@@ -203,21 +204,21 @@ export async function recoverTasks(deps: RecoveryDeps): Promise<void> {
     for (const entry of subagentDirs) {
       if (entry.isDirectory) {
         await fs.removeDir(`${TASKS_SUBAGENTS_DIR}/${entry.name}`).catch((err) => {
-          auditWriter?.write(
+          auditWriter.write(
             TASK_AUDIT_EVENTS.SUBAGENT_WORKSPACE_CLEANUP_FAILED,
             'recovery',
             `dir=${TASKS_SUBAGENTS_DIR}/${entry.name}`,
-            `error=${err instanceof Error ? err.message : JSON.stringify(err)}`,
+            `error=${formatErr(err)}`,
           );
         });
       }
     }
   } catch (sweepErr) {
     // best-effort / 整体 sweep 失败也不阻 recovery
-    auditWriter?.write(
+    auditWriter.write(
       TASK_AUDIT_EVENTS.SUBAGENT_WORKSPACE_CLEANUP_FAILED,
       'recovery_sweep',
-      `error=${sweepErr instanceof Error ? sweepErr.message : JSON.stringify(sweepErr)}`,
+      `error=${formatErr(sweepErr)}`,
     );
   }
 }

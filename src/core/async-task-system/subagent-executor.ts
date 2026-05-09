@@ -12,6 +12,7 @@ import { createSubAgent } from '../subagent/index.js';
 import { createDialogStore } from '../../foundation/dialog-store/index.js';
 import { DEFAULT_LLM_IDLE_TIMEOUT_MS } from '../../constants.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
+import { formatErr, auditError } from './_helpers.js';
 import { TASKS_QUEUES_RESULTS_DIR, TASKS_SUBAGENTS_DIR, TASKS_SYNC_DIR } from '../../types/paths.js';
 import { buildSubagentSystemPromptPrefix, DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../../prompts/subagent.js';
 import { sendResult, sendFallbackError } from './result-delivery.js';
@@ -58,7 +59,7 @@ export async function executeSubAgentTask(
     try {
       fs.appendSync(taskStreamRelPath, JSON.stringify({ ts: Date.now(), ...event }) + '\n');
     } catch (err) {
-      auditWriter?.write(TASK_AUDIT_EVENTS.STREAM_FAILED, task.id, 'context=writeStream', `error=${err instanceof Error ? err.message : JSON.stringify(err)}`);
+      auditWriter.write(TASK_AUDIT_EVENTS.STREAM_FAILED, task.id, 'context=writeStream', `error=${formatErr(err)}`);
     }
   };
 
@@ -129,18 +130,18 @@ export async function executeSubAgentTask(
         try {
           inboxResult = await handler(inboxResult, task, false, fs, auditWriter);
         } catch (handlerErr) {
-          auditWriter?.write(TASK_AUDIT_EVENTS.HANDLER_FAILED, task.id, 'context=postProcessor_threw', `error=${handlerErr instanceof Error ? handlerErr.message : JSON.stringify(handlerErr)}`);
+          auditWriter.write(TASK_AUDIT_EVENTS.HANDLER_FAILED, task.id, 'context=postProcessor_threw', `error=${formatErr(handlerErr)}`);
         }
       } else {
-        auditWriter?.write(TASK_AUDIT_EVENTS.HANDLER_FAILED, task.id, 'context=postProcessor_not_found', `name=${task.postProcessor}`);
+        auditWriter.write(TASK_AUDIT_EVENTS.HANDLER_FAILED, task.id, 'context=postProcessor_not_found', `name=${task.postProcessor}`);
       }
     }
     await sendResult(fs, auditWriter, task, inboxResult, false);
 
-    auditWriter?.write('task_completed', task.id, 'ok', `ms=${Date.now() - taskStartTime}`, `len=${result.length}`);
+    auditWriter.write('task_completed', task.id, 'ok', `ms=${Date.now() - taskStartTime}`, `len=${result.length}`);
   } catch (error) {
     taskFailed = true;
-    const errorMsg = error instanceof Error ? error.message : String(error);
+    const errorMsg = formatErr(error);
 
     // Phase438: error path 同型替换
     let inboxResult = errorMsg;
@@ -150,7 +151,7 @@ export async function executeSubAgentTask(
         try {
           inboxResult = await handler(errorMsg, task, true, fs, auditWriter);
         } catch (handlerErr) {
-          auditWriter?.write(TASK_AUDIT_EVENTS.HANDLER_FAILED, task.id, 'context=postProcessor_threw_error_path', `error=${handlerErr instanceof Error ? handlerErr.message : JSON.stringify(handlerErr)}`);
+          auditWriter.write(TASK_AUDIT_EVENTS.HANDLER_FAILED, task.id, 'context=postProcessor_threw_error_path', `error=${formatErr(handlerErr)}`);
         }
       }
     }
@@ -161,12 +162,12 @@ export async function executeSubAgentTask(
     } catch (sendErr) {
       // sendResult 本身失败：降级写最小通知，确保 parent 不被永远挂起
       await sendFallbackError(fs, auditWriter, task, errorMsg).catch((e) => {
-        auditWriter?.write(TASK_AUDIT_EVENTS.HANDLER_FAILED, task.id, 'context=sendFallbackError', `error=${e instanceof Error ? e.message : JSON.stringify(e)}`);
+        auditWriter.write(TASK_AUDIT_EVENTS.HANDLER_FAILED, task.id, 'context=sendFallbackError', `error=${formatErr(e)}`);
       });
     }
 
-    auditWriter?.write(TASK_AUDIT_EVENTS.HANDLER_FAILED, task.id, `parent=${task.parentClawId}`, `error=${errorMsg}`);
-    auditWriter?.write('task_completed', task.id, 'err', `ms=${Date.now() - taskStartTime}`);
+    auditWriter.write(TASK_AUDIT_EVENTS.HANDLER_FAILED, task.id, `parent=${task.parentClawId}`, `error=${errorMsg}`);
+    auditWriter.write('task_completed', task.id, 'err', `ms=${Date.now() - taskStartTime}`);
   } finally {
     // Move from running to done/failed based on success
     if (taskFailed) {
@@ -178,11 +179,11 @@ export async function executeSubAgentTask(
     // phase 515 / cleanup subagent workspace dir（best-effort 软降级 / 失败 audit 不抛）
     if (subagentWorkspaceDir) {
       await fs.removeDir(subagentWorkspaceDir).catch((cleanupErr) => {
-        auditWriter?.write(
+        auditWriter.write(
           TASK_AUDIT_EVENTS.SUBAGENT_WORKSPACE_CLEANUP_FAILED,
           task.id,
           `dir=${subagentWorkspaceDir}`,
-          `error=${cleanupErr instanceof Error ? cleanupErr.message : JSON.stringify(cleanupErr)}`,
+          `error=${formatErr(cleanupErr)}`,
         );
       });
     }

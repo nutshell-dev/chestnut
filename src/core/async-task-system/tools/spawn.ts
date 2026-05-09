@@ -17,6 +17,7 @@ import { writePendingSubagentTaskFile } from './_pending-task-writer.js';
  * 不再依赖 AsyncTaskSystem 实例。
  */
 import { SPAWN_TOOL_NAME } from '../../../foundation/tools/tool-names.js';
+import { formatErr } from '../_helpers.js';
 export { SPAWN_TOOL_NAME };
 
 export const spawnTool: Tool = {
@@ -73,7 +74,7 @@ export const spawnTool: Tool = {
         metadata: { taskId },
       };
     } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : String(error);
+      const errorMsg = formatErr(error);
       return {
         success: false,
         content: `Failed to create subagent: ${errorMsg}`,

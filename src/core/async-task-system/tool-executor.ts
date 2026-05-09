@@ -4,6 +4,7 @@ import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { ToolTask } from './system.js';
 import { sendToolResult, sendFallbackError } from './result-delivery.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
+import { formatErr, auditError } from './_helpers.js';
 import { TASKS_QUEUES_RUNNING_DIR } from '../../types/paths.js';
 
 export interface ToolExecutionDeps {
@@ -45,18 +46,18 @@ export async function executeToolTask(
       } catch (sendErr) {
         // sendToolResult 本身失败：降级写最小通知，不进入重试（执行已成功）
         await sendFallbackError(fs, auditWriter, task, 'Failed to send result').catch((e) => {
-          auditWriter?.write(TASK_AUDIT_EVENTS.HANDLER_FAILED, task.id, 'context=sendFallbackError_error_path', `error=${e instanceof Error ? e.message : JSON.stringify(e)}`);
+          auditWriter.write(TASK_AUDIT_EVENTS.HANDLER_FAILED, task.id, 'context=sendFallbackError_error_path', `error=${formatErr(e)}`);
         });
       }
       success = true;
-      auditWriter?.write('task_completed', task.id, 'ok', `ms=${Date.now() - taskStartTime}`, `retries=${attempt}`);
+      auditWriter.write('task_completed', task.id, 'ok', `ms=${Date.now() - taskStartTime}`, `retries=${attempt}`);
       // tool_async_result：仅当 toolUseId 已记录时写入
       if (task.toolUseId) {
-        auditWriter?.write('tool_async_result', task.toolName, task.toolUseId, `task=${task.id}`);
+        auditWriter.write('tool_async_result', task.toolName, task.toolUseId, `task=${task.id}`);
       }
       break; // Exit retry loop on success
     } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : String(error);
+      const errorMsg = formatErr(error);
       lastError = errorMsg;
 
       // Check if we should retry
@@ -70,10 +71,10 @@ export async function executeToolTask(
           );
         } catch (writeErr) {
           // Non-critical: just log
-          auditWriter?.write(TASK_AUDIT_EVENTS.HANDLER_FAILED, task.id, 'context=retry_count_update', `error=${writeErr instanceof Error ? writeErr.message : JSON.stringify(writeErr)}`);
+          auditWriter.write(TASK_AUDIT_EVENTS.HANDLER_FAILED, task.id, 'context=retry_count_update', `error=${formatErr(writeErr)}`);
         }
 
-        auditWriter?.write(TASK_AUDIT_EVENTS.TOOL_RETRY, task.id, `tool=${task.toolName}`, `attempt=${attempt + 1}`, `max=${task.maxRetries}`, `error=${errorMsg}`);
+        auditWriter.write(TASK_AUDIT_EVENTS.TOOL_RETRY, task.id, `tool=${task.toolName}`, `attempt=${attempt + 1}`, `max=${task.maxRetries}`, `error=${errorMsg}`);
 
         // Exponential backoff: retryBaseDelayMs, retryBaseDelayMs*2, etc.
         const backoffMs = retryBaseDelayMs * (attempt + 1);
@@ -105,12 +106,12 @@ export async function executeToolTask(
     } catch (sendErr) {
       // sendToolResult 失败：降级写最小通知
       await sendFallbackError(fs, auditWriter, task, finalError).catch((e) => {
-        auditWriter?.write(TASK_AUDIT_EVENTS.HANDLER_FAILED, task.id, 'context=sendFallbackError_retry', `error=${e instanceof Error ? e.message : JSON.stringify(e)}`);
+        auditWriter.write(TASK_AUDIT_EVENTS.HANDLER_FAILED, task.id, 'context=sendFallbackError_retry', `error=${formatErr(e)}`);
       });
     }
 
-    auditWriter?.write(TASK_AUDIT_EVENTS.HANDLER_FAILED, task.id, `tool=${task.toolName}`, 'context=retries_exhausted', `error=${finalError}`);
-    auditWriter?.write('task_completed', task.id, 'err', `ms=${Date.now() - taskStartTime}`);
+    auditWriter.write(TASK_AUDIT_EVENTS.HANDLER_FAILED, task.id, `tool=${task.toolName}`, 'context=retries_exhausted', `error=${finalError}`);
+    auditWriter.write('task_completed', task.id, 'err', `ms=${Date.now() - taskStartTime}`);
   }
 
   // Move from running to done/failed based on success

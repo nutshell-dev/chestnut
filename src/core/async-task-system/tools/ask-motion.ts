@@ -4,6 +4,7 @@ import type { Message, ToolDefinition } from '../../../types/message.js';
 import { buildAskMotionCloneFirstMessage } from '../../../prompts/index.js';
 
 import { ASK_MOTION_TOOL_NAME } from '../../../foundation/tools/tool-names.js';
+import { formatErr } from '../_helpers.js';
 export { ASK_MOTION_TOOL_NAME };
 
 export class AskMotionTool implements Tool {
@@ -71,7 +72,7 @@ export class AskMotionTool implements Tool {
       this.cloneHistory.pop();
       return {
         success: false,
-        content: `Motion 分身调用失败：${err instanceof Error ? err.message : String(err)}`,
+        content: `Motion 分身调用失败：${formatErr(err)}`,
       };
     }
 

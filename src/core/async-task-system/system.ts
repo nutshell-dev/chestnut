@@ -37,6 +37,7 @@ import { executeSubAgentTask } from './subagent-executor.js';
 import { executeToolTask } from './tool-executor.js';
 import { createWatcher, type Watcher } from '../../foundation/file-watcher/index.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
+import { formatErr, auditError } from './_helpers.js';
 import { writePendingSubagentTaskFile } from './tools/_pending-task-writer.js';
 import { writePendingToolTaskFile } from './tools/_pending-tool-task-writer.js';
 import type { PostProcessor } from './post-processors/types.js';
@@ -175,11 +176,12 @@ export class AsyncTaskSystem {
           if (event.type !== 'add') return;
           if (!event.path.endsWith('.json')) return;
           this._ingestPendingFile(event.path).catch((err) => {
-            this.auditWriter?.write(
+            auditError(
+              this.auditWriter,
               TASK_AUDIT_EVENTS.PENDING_INGEST_FAILED,
+              err,
               'context=watcher_async',
               `path=${event.path}`,
-              `error=${err instanceof Error ? err.message : JSON.stringify(err)}`,
             );
           });
         },
@@ -228,7 +230,7 @@ export class AsyncTaskSystem {
     const taskPath = `${TASKS_QUEUES_PENDING_DIR}/${taskId}.json`;
     await this.fs.writeAtomic(taskPath, JSON.stringify(task, null, 2));
 
-    this.auditWriter?.write('task_scheduled', taskId, 'kind=subagent', `parent=${task.parentClawId}`, `maxSteps=${task.maxSteps}`);
+    this.auditWriter.write('task_scheduled', taskId, 'kind=subagent', `parent=${task.parentClawId}`, `maxSteps=${task.maxSteps}`);
 
     // No push, no dispatch; watcher ingests asynchronously
     return taskId;
@@ -283,11 +285,11 @@ export class AsyncTaskSystem {
       this.pendingQueue.push(task);
       this._dispatch();
     } catch (err) {
-      this.auditWriter?.write(
+      this.auditWriter.write(
         TASK_AUDIT_EVENTS.PENDING_INGEST_FAILED,
         taskId ?? '<unknown>',
         `path=${filePath}`,
-        `reason=${err instanceof Error ? err.message : String(err)}`,
+        `reason=${formatErr(err)}`,
       );
     }
   }
@@ -356,11 +358,11 @@ export class AsyncTaskSystem {
         });
       }
     } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      this.auditWriter?.write(TASK_AUDIT_EVENTS.START_FAILED, task.id, `error=${errorMsg}`);
+      const errorMsg = formatErr(error);
+      auditError(this.auditWriter, TASK_AUDIT_EVENTS.START_FAILED, error, task.id);
       // 通知 parent，避免永久挂起
       await sendFallbackError(this.fs, this.auditWriter, task, `Task failed to start: ${errorMsg}`).catch((e) => {
-        this.auditWriter?.write(TASK_AUDIT_EVENTS.START_FAILED, task.id, 'context=sendFallbackError', `error=${e instanceof Error ? e.message : JSON.stringify(e)}`);
+        auditError(this.auditWriter, TASK_AUDIT_EVENTS.START_FAILED, e, task.id, 'context=sendFallbackError');
       });
       
 
@@ -379,7 +381,7 @@ export class AsyncTaskSystem {
       `${TASKS_QUEUES_PENDING_DIR}/${taskId}.json`,
       `${TASKS_QUEUES_RUNNING_DIR}/${taskId}.json`
     );
-    this.auditWriter?.write('task_started', taskId);
+    this.auditWriter.write('task_started', taskId);
   }
 
   /**
@@ -392,11 +394,10 @@ export class AsyncTaskSystem {
         `${TASKS_QUEUES_DONE_DIR}/${taskId}.json`
       );
     } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      this.auditWriter?.write(TASK_AUDIT_EVENTS.MOVE_FAILED, taskId, 'context=move_to_done', `error=${errMsg}`);
+      auditError(this.auditWriter, TASK_AUDIT_EVENTS.MOVE_FAILED, err, taskId, 'context=move_to_done');
       // 删除 running 文件防止重启后重复执行，丢失记录好过重复副作用
       await this.fs.delete(`${TASKS_QUEUES_RUNNING_DIR}/${taskId}.json`).catch((e) => {
-        this.auditWriter?.write(TASK_AUDIT_EVENTS.MOVE_FAILED, taskId, 'context=move_done_delete', `error=${e instanceof Error ? e.message : JSON.stringify(e)}`);
+        auditError(this.auditWriter, TASK_AUDIT_EVENTS.MOVE_FAILED, e, taskId, 'context=move_done_delete');
       });
     }
   }
@@ -408,10 +409,9 @@ export class AsyncTaskSystem {
         `${TASKS_QUEUES_FAILED_DIR}/${taskId}.json`
       );
     } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      this.auditWriter?.write(TASK_AUDIT_EVENTS.MOVE_FAILED, taskId, 'context=move_to_failed', `error=${errMsg}`);
+      auditError(this.auditWriter, TASK_AUDIT_EVENTS.MOVE_FAILED, err, taskId, 'context=move_to_failed');
       await this.fs.delete(`${TASKS_QUEUES_RUNNING_DIR}/${taskId}.json`).catch((e) => {
-        this.auditWriter?.write(TASK_AUDIT_EVENTS.MOVE_FAILED, taskId, 'context=move_failed_delete', `error=${e instanceof Error ? e.message : JSON.stringify(e)}`);
+        auditError(this.auditWriter, TASK_AUDIT_EVENTS.MOVE_FAILED, e, taskId, 'context=move_failed_delete');
       });
     }
   }
@@ -443,7 +443,7 @@ export class AsyncTaskSystem {
     if (state) {
       state.abortController.abort();
       try { await state.promise; } catch {}
-      this.auditWriter?.write(TASK_AUDIT_EVENTS.CANCELLED, taskId, 'from=running');
+      this.auditWriter.write(TASK_AUDIT_EVENTS.CANCELLED, taskId, 'from=running');
       return;
     }
 
@@ -476,18 +476,18 @@ export class AsyncTaskSystem {
           `${TASKS_QUEUES_PENDING_DIR}/${taskId}.json`,
           `${TASKS_QUEUES_FAILED_DIR}/${taskId}.json`
         ).catch((e) => {
-          this.auditWriter?.write(TASK_AUDIT_EVENTS.MOVE_FAILED, taskId, 'context=cancel_pending_move', `error=${e instanceof Error ? e.message : JSON.stringify(e)}`);
+          auditError(this.auditWriter, TASK_AUDIT_EVENTS.MOVE_FAILED, e, taskId, 'context=cancel_pending_move');
         });
       }
 
       // tool 任务：通知 parent
       if (task?.kind === 'tool') {
         await sendFallbackError(this.fs, this.auditWriter, task, 'Task cancelled before execution').catch((e) => {
-          this.auditWriter?.write(TASK_AUDIT_EVENTS.MOVE_FAILED, taskId, 'context=cancel_sendFallbackError', `error=${e instanceof Error ? e.message : JSON.stringify(e)}`);
+          auditError(this.auditWriter, TASK_AUDIT_EVENTS.MOVE_FAILED, e, taskId, 'context=cancel_sendFallbackError');
         });
       }
 
-      this.auditWriter?.write(TASK_AUDIT_EVENTS.CANCELLED, taskId, 'from=pending');
+      this.auditWriter.write(TASK_AUDIT_EVENTS.CANCELLED, taskId, 'from=pending');
     } finally {
       this.cancellingIds.delete(taskId);
     }
@@ -541,8 +541,7 @@ export class AsyncTaskSystem {
         new Promise((_, reject) => setTimeout(() => reject(new Error('Shutdown timeout')), timeoutMs)),
       ]).catch(() => {
         // Timeout is acceptable
-        this.auditWriter?.write(TASK_AUDIT_EVENTS.SHUTDOWN_TIMEOUT);
-        console.warn('[task] Shutdown timeout, some tasks may not have stopped');
+        this.auditWriter.write(TASK_AUDIT_EVENTS.SHUTDOWN_TIMEOUT);
       });
     }
 

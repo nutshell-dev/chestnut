@@ -529,7 +529,7 @@ describe('Task System + SubAgent', () => {
 
     it('should not throw when shutdown times out with null auditWriter', async () => {
       await taskSystem.shutdown(100);
-      taskSystem = createTestTaskSystem(tempDir, mockFs, null as any, createHangingMockLLM());
+      taskSystem = createTestTaskSystem(tempDir, mockFs, { write: () => {} } as any, createHangingMockLLM());
       await taskSystem.initialize();
       taskSystem.startDispatch();
 
