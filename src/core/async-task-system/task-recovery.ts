@@ -125,8 +125,20 @@ async function _recoverWithResult(
       await _moveToDeadLetter(deps, filePath, task, retryCount, retryPath);
       return 0;
     }
+    // P1.8 fix (phase 612): retryCount<MAX 时不 move DONE / 保 running/ /
+    // 下次启动 recovery 再 trigger _recoverWithResult / counter 持久化 / 累至 MAX → dead-letter
+    // 之前 fall-through 到 line 130 move DONE 是 silent drop bug（resultSent=false 但移 DONE / parent 永不收 / 下次启动 0 retry）
+    auditWriter.write(
+      TASK_AUDIT_EVENTS.RECOVERY_FAILED,
+      task.id,
+      'context=retry_pending',
+      `retryCount=${retryCount}`,
+      `maxRetries=${MAX_RECOVERY_RETRIES}`,
+    );
+    return 0;
   }
 
+  // 仅 success path 走这里 (resultSent=true)
   await fs.move(filePath, `${TASKS_QUEUES_DONE_DIR}/${task.id}.json`).catch(async (moveErr) => {
     auditWriter.write(
       TASK_AUDIT_EVENTS.RECOVERY_FAILED,
