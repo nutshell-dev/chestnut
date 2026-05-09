@@ -28,7 +28,7 @@ import { RUNTIME_AUDIT_EVENTS, REACT_LOOP_AUDIT_EVENTS } from './runtime-audit-e
 import { CLAW_SUBDIRS } from '../../types/paths.js';
 import { oneLine } from '../../types/utils.js';
 import { MaxStepsExceededError } from '../../types/errors.js';
-import { MOTION_CLAW_ID, DEFAULT_LLM_IDLE_TIMEOUT_MS, DEFAULT_MAX_STEPS, DEFAULT_MAX_CONCURRENT_TASKS } from '../../constants.js';
+import { DEFAULT_LLM_IDLE_TIMEOUT_MS, DEFAULT_MAX_STEPS, DEFAULT_MAX_CONCURRENT_TASKS } from '../../constants.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { Snapshot } from '../../foundation/snapshot/index.js';
 import type { InboxReader, InboxEntry } from '../../foundation/messaging/inbox-reader.js';
@@ -209,7 +209,14 @@ export class Runtime {
   }
 
   private async repairSessionIfNeeded(): Promise<void> {
-    const loadResult = await this.sessionManager.load().catch(() => null);
+    const loadResult = await this.sessionManager.load().catch((err) => {
+      this.auditWriter.write(
+        RUNTIME_AUDIT_EVENTS.SESSION_REPAIR_FAILED,
+        `context=load_skipped`,
+        `reason=${formatErr(err)}`,
+      );
+      return null;
+    });
     if (!loadResult) return;
     const { session, source } = loadResult;
     const auditAbsPath = this.systemFs.resolve('audit.tsv');

@@ -26,7 +26,6 @@ export const RUNTIME_AUDIT_EVENTS = {
   SNAPSHOT_COMMIT_UNCATEGORIZED: 'snapshot_commit_uncategorized',
   // INBOX_*
   INBOX_HANDLER_FAILED: 'inbox_handler_failed',
-  INBOX_META_FAILED: 'inbox_meta_failed',
   INBOX_INJECT: 'inbox_inject',
   INBOX_UNADDRESSED: 'inbox_unaddressed',
   // TOOL / OUTBOX
