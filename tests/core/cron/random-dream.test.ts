@@ -405,6 +405,81 @@ Prompt: ...
 
   // ── waitForTaskResult 超时路径 ──────────────────────────────
 
+  // ── Phase 597 — random-dream state I/O 错误处理（mirror phase 561）────────
+
+  describe('Phase 597 — random-dream state I/O 错误处理', () => {
+    beforeEach(async () => {
+      // 创建一个契约目录
+      await fs.mkdir(
+        path.join(clawforumDir, 'claws', 'claw-1', 'contract', 'archive', 'contract-001'),
+        { recursive: true }
+      );
+    });
+
+    it('loadRandomDreamState parse 错时 audit RANDOM_DREAM_ERROR step=load_state 并返空（A.dream-state-io-silent random-dream 扩散 phase 597）', async () => {
+      // setup: 写入损坏 .random-dream-state.json
+      await fs.writeFile(path.join(clawforumDir, '.random-dream-state.json'), 'corrupted{', 'utf-8');
+
+      const dreamLog = `=== SubAgent ${taskId} started ===
+[DREAM_OUTPUT contract_id="contract-001"]
+跨 claw 共性洞见
+[/DREAM_OUTPUT]`;
+      await writeTaskCompletion(motionDir, taskId, dreamLog);
+
+      await runRandomDream(makeOpts(clawforumDir, motionDir));
+
+      expect(mockAudit.write).toHaveBeenCalledWith(
+        'cron_random_dream_error',
+        'step=load_state',
+        expect.stringMatching(/^reason=/),
+      );
+    });
+
+    it('loadRandomDreamState FileNotFoundError 时 silent 返空（首启良性）', async () => {
+      // setup: 不写 .random-dream-state.json
+      const dreamLog = `=== SubAgent ${taskId} started ===
+[DREAM_OUTPUT contract_id="contract-001"]
+跨 claw 共性洞见
+[/DREAM_OUTPUT]`;
+      await writeTaskCompletion(motionDir, taskId, dreamLog);
+
+      await runRandomDream(makeOpts(clawforumDir, motionDir));
+
+      const loadStateCalls = mockAudit.write.mock.calls.filter((c: any[]) =>
+        c.some((arg: any) => typeof arg === 'string' && arg.includes('step=load_state'))
+      );
+      expect(loadStateCalls).toHaveLength(0);
+    });
+
+    it('saveRandomDreamState writeAtomicSync 失败时 audit step=save_state 并 re-throw', async () => {
+      const clawforumNodeFs = new NodeFileSystem({ baseDir: clawforumDir });
+      const writeSpy = vi.spyOn(clawforumNodeFs, 'writeAtomicSync').mockImplementation(function (this: NodeFileSystem, p: string, content: string) {
+        if (p === '.random-dream-state.json') {
+          throw Object.assign(new Error('EIO: i/o error'), { code: 'EIO' });
+        }
+        return NodeFileSystem.prototype.writeAtomicSync.call(this as any, p, content);
+      });
+
+      const dreamLog = `=== SubAgent ${taskId} started ===
+[DREAM_OUTPUT contract_id="contract-001"]
+跨 claw 共性洞见
+[/DREAM_OUTPUT]`;
+      await writeTaskCompletion(motionDir, taskId, dreamLog);
+
+      await expect(runRandomDream({ ...makeOpts(clawforumDir, motionDir), fs: clawforumNodeFs, audit: mockAudit })).rejects.toThrow();
+
+      expect(mockAudit.write).toHaveBeenCalledWith(
+        'cron_random_dream_error',
+        'step=save_state',
+        expect.stringMatching(/^reason=.*EIO/),
+      );
+
+      writeSpy.mockRestore();
+    });
+  });
+
+  // ── waitForTaskResult 超时路径 ──────────────────────────────
+
   it('sub-agent 超时：.txt 始终不出现，不写 inbox', async () => {
     vi.useFakeTimers();
     try {
