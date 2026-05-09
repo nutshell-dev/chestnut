@@ -1,6 +1,5 @@
 import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/types.js';
-import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
 import { MEMORY_AUDIT_EVENTS } from './audit-events.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
@@ -30,6 +29,8 @@ export interface DeepDreamOptions {
   maxCompressionTokens?: number;         // 压缩上限（token 估算），默认 4000
   fs: FileSystem;
   audit: AuditLog;
+  /** 临时构建 per-claw FileSystem 的 factory（memory/system.ts 注入 / 业务 0 触 L1 impl）*/
+  clawFsFactory: (clawDir: string) => FileSystem;
 }
 
 // ─── 工具函数 ────────────────────────────────────────────────
@@ -300,8 +301,8 @@ export async function runDeepDream(opts: DeepDreamOptions): Promise<void> {
   // 串行处理每个 claw
   for (const clawId of clawIds) {
     const clawDir = path.join(opts.clawforumDir, CLAWS_DIR, clawId);
-    const clawFs = new NodeFileSystem({ baseDir: clawDir });
     try {
+      const clawFs = opts.clawFsFactory(clawDir);
       await runDeepDreamForClaw(clawId, clawDir, clawFs, llm, maxCompressionTokens, opts.audit);
     } catch (err) {
       opts.audit.write(MEMORY_AUDIT_EVENTS.DEEP_DREAM_ERROR, `step=unexpected`, `clawId=${clawId}`, `reason=${err instanceof Error ? err.message : String(err)}`);

@@ -282,6 +282,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
         motionBaseDir: clawDir,
         motionAudit: auditWriter,
         clawsBaseDir: path.resolve(clawDir, '..', CLAWS_DIR),
+        clawFsFactory: (clawDir: string) => new NodeFileSystem({ baseDir: clawDir }),
       };
       contractManager.onContractCompleted(async (contractId) => {
         await evolutionSystem!.runRetroForContract(contractId, motionReviewContext);
@@ -547,6 +548,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
             llmService: llm,
             llmConfig,
             maxCompressionTokens: globalConfig.cron?.jobs?.dream_trigger?.max_compression_tokens,
+            clawFsFactory: (clawDir: string) => new NodeFileSystem({ baseDir: clawDir }),
           });
         } catch (e) {
           auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=memory_system`, `phase=construct`, `reason=${errMsg(e)}`);

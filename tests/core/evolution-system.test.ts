@@ -82,6 +82,7 @@ async function setupFixtures(): Promise<TestFixtures> {
     motionBaseDir: motionDir,
     motionAudit,
     clawsBaseDir,
+    clawFsFactory: (clawDir) => new NodeFileSystem({ baseDir: clawDir }),
   };
 
   return { motionDir, clawsBaseDir, targetClawDir, contractId, ctx, evolutionSystem, mockAudit };

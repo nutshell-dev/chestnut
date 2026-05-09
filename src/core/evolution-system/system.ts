@@ -6,7 +6,6 @@ import { ContractSystem } from '../contract/manager.js';
 import { scheduleRetro } from './retro-scheduler.js';
 import { RETRO_AUDIT_EVENTS } from './retro-audit-events.js';
 import * as path from 'path';
-import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { CLAWSPACE_DIR } from '../../types/paths.js';
 import { CONTRACT_AUDIT_EVENTS } from '../contract/audit-events.js';
@@ -42,6 +41,8 @@ export interface MotionReviewContext {
   motionAudit: AuditLog;
   /** Claws 基础目录（解析目标 claw 路径：`path.resolve(clawsBaseDir, targetClaw)`）*/
   clawsBaseDir: string;
+  /** 临时构建 target claw FileSystem 的 factory（assembly 注入 / 业务 0 触 L1 impl）*/
+  clawFsFactory: (clawDir: string) => FileSystem;
 }
 
 const STATE_FILE_PATH = '.evolution-system-state.json';   // motion root
@@ -189,7 +190,7 @@ export class EvolutionSystem {
 
     // 2.1 加载契约 YAML（临时 new ContractSystem for target claw，B.p175-2 登记）
     const clawDir = path.join(ctx.clawsBaseDir, targetClaw);
-    const clawFs = new NodeFileSystem({ baseDir: clawDir });
+    const clawFs = ctx.clawFsFactory(clawDir);
     const clawContractManager = new ContractSystem(clawDir, targetClaw, clawFs, createSystemAudit(clawFs, clawDir));
 
     let contractYaml: string;

@@ -98,6 +98,7 @@ async function setupFixtures(overrides?: {
     motionBaseDir: motionDir,
     motionAudit,
     clawsBaseDir,
+    clawFsFactory: (clawDir) => new NodeFileSystem({ baseDir: clawDir }),
   };
 
   return { motionDir, clawsBaseDir, targetClawDir, contractId, ctx, evolutionSystem, mockAudit };
