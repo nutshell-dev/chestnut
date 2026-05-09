@@ -308,6 +308,8 @@ export class NodeFileSystem implements FileSystem {
       if (content) {
         fsSync.writeFileSync(fd, content, { encoding: 'utf-8' });
       }
+      // fsync for durability (lock file crash-safe / align with writeAtomicSync line 295 / phase 610)
+      fsSync.fsyncSync(fd);
     } finally {
       fsSync.closeSync(fd);
     }
@@ -381,27 +383,53 @@ export class NodeFileSystem implements FileSystem {
     if (!stat.isDirectory()) {
       throw new FileNotFoundError(relativePath);
     }
-    const entries = fsSync.readdirSync(absolute, { withFileTypes: true });
-    const results = entries
-      .filter(e => options?.includeDirs ? true : e.isFile())
-      .filter(e => {
+
+    const entries: FileEntry[] = [];
+    const fsBaseDir = this.options.baseDir;
+
+    function scan(dir: string): void {
+      const dirents = fsSync.readdirSync(dir, { withFileTypes: true });
+      const items = dirents.filter(item => {
         if (!options?.pattern) return true;
-        const regex = new RegExp(options.pattern);
-        return regex.test(e.name);
-      })
-      .map(e => {
-        const fullPath = path.join(absolute, e.name);
-        const stat = fsSync.statSync(fullPath);
-        return {
-          name: e.name,
-          path: path.join(relativePath, e.name),
-          isDirectory: e.isDirectory(),
-          isFile: e.isFile(),
-          size: stat.size,
-          mtime: stat.mtime,
-        };
+        return new RegExp(options.pattern).test(item.name);
       });
-    return results;
+
+      for (const item of items) {
+        const fullPath = path.join(dir, item.name);
+        // path relative to fs root (align with list async line 193 / phase 610 P1.1)
+        const relativeToFsRoot = path.relative(fsBaseDir, fullPath);
+
+        if (item.isDirectory()) {
+          if (options?.includeDirs) {
+            const stats = fsSync.statSync(fullPath);
+            entries.push({
+              name: item.name,
+              path: relativeToFsRoot,
+              isDirectory: true,
+              isFile: false,
+              size: 0,
+              mtime: stats.mtime,
+            });
+          }
+          if (options?.recursive) {
+            scan(fullPath);
+          }
+        } else if (item.isFile()) {
+          const stats = fsSync.statSync(fullPath);
+          entries.push({
+            name: item.name,
+            path: relativeToFsRoot,
+            isDirectory: false,
+            isFile: true,
+            size: stats.size,
+            mtime: stats.mtime,
+          });
+        }
+      }
+    }
+
+    scan(absolute);
+    return entries;
   }
 
   statSync(relativePath: string): {

@@ -7,10 +7,19 @@
  * - watcher: file change events
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import * as fsSync from 'fs';
 import * as path from 'path';
 import { promises as fs, promises as nativeFs } from 'fs';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
+
+vi.mock('fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('fs')>();
+  return {
+    ...actual,
+    fsyncSync: vi.fn((...args: any[]) => actual.fsyncSync(...args)),
+  };
+});
 
 import {
   NodeFileSystem,
@@ -308,6 +317,76 @@ describe('FileSystem', () => {
       fs.writeAtomicSync('empty-range.txt', 'hello');
       expect(fs.readBytesSync('empty-range.txt', 3, 3).length).toBe(0);
       expect(fs.readBytesSync('empty-range.txt', 5, 2).length).toBe(0);
+    });
+  });
+
+  describe('listSync (phase 610 / A.list-async-vs-sync)', () => {
+    let fs: NodeFileSystem;
+    let clawDir: string;
+
+    beforeEach(async () => {
+      clawDir = await createTempDir();
+      fs = new NodeFileSystem({ baseDir: clawDir });
+    });
+
+    afterEach(async () => {
+      await cleanupTempDir(clawDir);
+    });
+
+    it('path 字段相对 fs root（align list async）', () => {
+      fs.ensureDirSync('a/b');
+      fs.writeAtomicSync('a/b/c.txt', 'x');
+      const entries = fs.listSync('a/b', { includeDirs: false });
+      expect(entries).toHaveLength(1);
+      expect(entries[0].path).toBe('a/b/c.txt');
+    });
+
+    it('recursive option 真生效', () => {
+      fs.ensureDirSync('a/b');
+      fs.writeAtomicSync('a/b/c.txt', 'deep');
+      fs.writeAtomicSync('a/d.txt', 'shallow');
+      const entries = fs.listSync('a', { recursive: true, includeDirs: false });
+      const paths = entries.map(e => e.path);
+      expect(paths).toContain('a/b/c.txt');
+      expect(paths).toContain('a/d.txt');
+    });
+
+    it('recursive false 时只返回一层', () => {
+      fs.ensureDirSync('a/b');
+      fs.writeAtomicSync('a/b/c.txt', 'deep');
+      fs.writeAtomicSync('a/d.txt', 'shallow');
+      const entries = fs.listSync('a', { recursive: false, includeDirs: false });
+      expect(entries.map(e => e.path)).toContain('a/d.txt');
+      expect(entries.map(e => e.path)).not.toContain('a/b/c.txt');
+    });
+
+    it('recursive + includeDirs 同时生效', () => {
+      fs.ensureDirSync('a/b');
+      fs.writeAtomicSync('a/d.txt', 'shallow');
+      const entries = fs.listSync('a', { recursive: true, includeDirs: true });
+      const paths = entries.map(e => e.path);
+      expect(paths).toContain('a/b');
+      expect(paths).toContain('a/d.txt');
+    });
+  });
+
+  describe('writeExclusiveSync fsync (phase 610 / A.writeExclusiveSync-fsync)', () => {
+    let fs: NodeFileSystem;
+    let clawDir: string;
+
+    beforeEach(async () => {
+      clawDir = await createTempDir();
+      fs = new NodeFileSystem({ baseDir: clawDir });
+      vi.mocked(fsSync.fsyncSync).mockClear();
+    });
+
+    afterEach(async () => {
+      await cleanupTempDir(clawDir);
+    });
+
+    it('closeSync 前调用 fsyncSync', () => {
+      fs.writeExclusiveSync('lock-test', 'pid=123');
+      expect(vi.mocked(fsSync.fsyncSync)).toHaveBeenCalled();
     });
   });
 
