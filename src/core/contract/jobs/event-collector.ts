@@ -1,6 +1,8 @@
 import * as path from 'path';
 import type { FileSystem } from '../../../foundation/fs/types.js';
+import type { AuditLog } from '../../../foundation/audit/index.js';
 import type { ProgressData } from '../manager.js';
+import { CONTRACT_AUDIT_EVENTS } from '../audit-events.js';
 import { CONTRACT_DIR } from '../../../types/paths.js';
 
 export function collectContractEvents(
@@ -8,6 +10,7 @@ export function collectContractEvents(
   clawDir: string,
   clawId: string,
   sinceTs: number,
+  audit?: AuditLog,
 ): string[] {
   const events: string[] = [];
 
@@ -20,13 +23,36 @@ export function collectContractEvents(
       const progressPath = path.join(archiveDir, d.name, 'progress.json');
       try {
         const raw = fs.readSync(progressPath);
-        const progress = JSON.parse(raw) as ProgressData;
+        const parsed = JSON.parse(raw) as { contract_id?: unknown; status?: unknown; subtasks?: unknown };
+        if (
+          typeof parsed.contract_id !== 'string' ||
+          typeof parsed.status !== 'string' ||
+          typeof parsed.subtasks !== 'object' || parsed.subtasks === null
+        ) {
+          audit?.write(
+            CONTRACT_AUDIT_EVENTS.PROGRESS_SCHEMA_INVALID,
+            `clawId=${clawId}`,
+            `contract=${d.name}`,
+            `context=event_collector_archive`,
+          );
+          continue;
+        }
+        const progress = parsed as ProgressData;
         const completedAfter = Object.values(progress.subtasks)
           .some(s => s.completed_at && new Date(s.completed_at).getTime() > sinceTs);
         if (completedAfter && progress.status === 'completed') {
           events.push(`[contract_completed] claw=${clawId} contract=${d.name}`);
         }
-      } catch { /* 跳过单 contract */ }
+      } catch (err) {
+        audit?.write(
+          CONTRACT_AUDIT_EVENTS.PROGRESS_CORRUPTED,
+          `clawId=${clawId}`,
+          `contract=${d.name}`,
+          `context=event_collector_archive`,
+          `error=${err instanceof Error ? err.message : String(err)}`,
+        );
+        continue;
+      }
     }
   } catch { /* archive 不存在 */ }
 
@@ -39,13 +65,36 @@ export function collectContractEvents(
       const progressPath = path.join(activeDir, d.name, 'progress.json');
       try {
         const raw = fs.readSync(progressPath);
-        const progress = JSON.parse(raw) as ProgressData;
+        const parsed = JSON.parse(raw) as { contract_id?: unknown; status?: unknown; subtasks?: unknown };
+        if (
+          typeof parsed.contract_id !== 'string' ||
+          typeof parsed.status !== 'string' ||
+          typeof parsed.subtasks !== 'object' || parsed.subtasks === null
+        ) {
+          audit?.write(
+            CONTRACT_AUDIT_EVENTS.PROGRESS_SCHEMA_INVALID,
+            `clawId=${clawId}`,
+            `contract=${d.name}`,
+            `context=event_collector_active`,
+          );
+          continue;
+        }
+        const progress = parsed as ProgressData;
         for (const [stId, st] of Object.entries(progress.subtasks)) {
           if (st.escalated_at && new Date(st.escalated_at).getTime() > sinceTs) {
             events.push(`[contract_escalation] claw=${clawId} contract=${d.name} subtask=${stId} retry_count=${st.retry_count}`);
           }
         }
-      } catch { /* 跳过 */ }
+      } catch (err) {
+        audit?.write(
+          CONTRACT_AUDIT_EVENTS.PROGRESS_CORRUPTED,
+          `clawId=${clawId}`,
+          `contract=${d.name}`,
+          `context=event_collector_active`,
+          `error=${err instanceof Error ? err.message : String(err)}`,
+        );
+        continue;
+      }
     }
   } catch { /* active 不存在 */ }
 

@@ -29,7 +29,21 @@ export async function loadContractYaml(
   const dir = await ctx.contractDir(contractId);
   const contractPath = `${dir}/${contractId}/contract.yaml`;
   const content = await ctx.fs.read(contractPath);
-  return yaml.load(content) as ContractYaml;
+  const parsed = yaml.load(content) as { title?: unknown; goal?: unknown; subtasks?: unknown };
+  if (
+    typeof parsed?.title !== 'string' ||
+    typeof parsed?.goal !== 'string' ||
+    !Array.isArray(parsed?.subtasks)
+  ) {
+    ctx.audit.write(
+      CONTRACT_AUDIT_EVENTS.CONTRACT_YAML_SCHEMA_INVALID,
+      `contractId=${contractId}`,
+      `path=${contractPath}`,
+      `raw=${content.slice(0, 100)}`,
+    );
+    throw new Error(`contract.yaml schema invalid for contract ${contractId}`);
+  }
+  return parsed as ContractYaml;
 }
 
 export async function readContractYamlRaw(

@@ -359,7 +359,21 @@ export class ContractSystem {
     const dir = await this.contractDir(contractId);
     const progressPath = `${dir}/${contractId}/progress.json`;
     const content = await this.fs.read(progressPath);
-    return JSON.parse(content) as ProgressData;
+    const parsed = JSON.parse(content) as { contract_id?: unknown; status?: unknown; subtasks?: unknown };
+    if (
+      typeof parsed.contract_id !== 'string' ||
+      typeof parsed.status !== 'string' ||
+      typeof parsed.subtasks !== 'object' || parsed.subtasks === null
+    ) {
+      this.audit.write(
+        CONTRACT_AUDIT_EVENTS.PROGRESS_SCHEMA_INVALID,
+        `contractId=${contractId}`,
+        `path=${progressPath}`,
+        `raw=${content.slice(0, 100)}`,
+      );
+      throw new Error(`progress.json schema invalid for contract ${contractId}`);
+    }
+    return parsed as ProgressData;
   }
 
   // ============================================================================

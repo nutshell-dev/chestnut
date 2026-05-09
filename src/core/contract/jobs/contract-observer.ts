@@ -43,7 +43,7 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
   for (const clawId of clawIds) {
     try {
       const clawDir = path.join(clawforumDir, CLAWS_DIR, clawId);
-      const clawEvents = collectContractEvents(fs, clawDir, clawId, lastCheckTs);
+      const clawEvents = collectContractEvents(fs, clawDir, clawId, lastCheckTs, motionAudit);
       if (clawEvents.length > 0) {
         events.push(clawEvents.join('\n'));
       }

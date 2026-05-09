@@ -10,6 +10,7 @@ function makeFsMock(scenario: 'empty' | 'completed' | 'escalated'): FileSystem {
 
   if (scenario === 'completed') {
     files.set('/tmp/test/claws/claw1/contract/archive/contract-a/progress.json', JSON.stringify({
+      contract_id: 'contract-a',
       status: 'completed',
       subtasks: {
         st1: { completed_at: new Date(now).toISOString() },
@@ -17,6 +18,7 @@ function makeFsMock(scenario: 'empty' | 'completed' | 'escalated'): FileSystem {
     }));
   } else if (scenario === 'escalated') {
     files.set('/tmp/test/claws/claw1/contract/active/contract-b/progress.json', JSON.stringify({
+      contract_id: 'contract-b',
       status: 'active',
       subtasks: {
         st1: { escalated_at: new Date(now).toISOString(), retry_count: 2 },

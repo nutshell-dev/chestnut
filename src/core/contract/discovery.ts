@@ -35,7 +35,22 @@ async function findLatestContract(
     if (!hasProgress) continue;
 
     try {
-      const data = JSON.parse(await ctx.fs.read(progressPath)) as ProgressData;
+      const raw = await ctx.fs.read(progressPath);
+      const parsed = JSON.parse(raw) as { contract_id?: unknown; status?: unknown; subtasks?: unknown; started_at?: unknown };
+      if (
+        typeof parsed.contract_id !== 'string' ||
+        typeof parsed.status !== 'string' ||
+        typeof parsed.subtasks !== 'object' || parsed.subtasks === null
+      ) {
+        ctx.audit.write(
+          CONTRACT_AUDIT_EVENTS.PROGRESS_SCHEMA_INVALID,
+          `context=${auditContext}`,
+          `contract=${entry.name}`,
+          `path=${progressPath}`,
+        );
+        continue;
+      }
+      const data = parsed as ProgressData;
       const startedAt = data.started_at ?? '';
       if (!latest || startedAt > latest.startedAt) {
         latest = { name: entry.name, startedAt };
