@@ -27,13 +27,13 @@ export interface OutboxWriteOptions {
  * Outbox message writer
  */
 export class OutboxWriter {
-  private outboxDir: string;
+  private readonly outboxDir: string;
 
   constructor(
-    private clawId: string,
-    private clawDir: string,
-    private fs: FileSystem,
-    private audit: AuditLog,
+    private readonly clawId: string,
+    private readonly clawDir: string,
+    private readonly fs: FileSystem,
+    private readonly audit: AuditLog,
   ) {
     this.outboxDir = path.join(clawDir, 'outbox', 'pending');
   }

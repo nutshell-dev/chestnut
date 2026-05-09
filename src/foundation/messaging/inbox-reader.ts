@@ -49,8 +49,8 @@ export class InboxReader {
     let entries: { name: string }[] = [];
     try {
       entries = await this.fs.list(this.pendingDir, { includeDirs: false });
-    } catch (err: any) {
-      const code = err?.code;
+    } catch (err) {
+      const code = (err as { code?: string })?.code;
       // pendingDir 尚未创建属正常首次运行：视为集合空，不抛
       if (code === 'FS_NOT_FOUND' || code === 'ENOENT') return [];
       // 其余 list 失败均为不可预期 I/O / 权限错误，必须冒泡
@@ -140,8 +140,8 @@ export class InboxReader {
     let entries: { name: string }[] = [];
     try {
       entries = await this.fs.list(this.pendingDir, { includeDirs: false });
-    } catch (err: any) {
-      const code = err?.code;
+    } catch (err) {
+      const code = (err as { code?: string })?.code;
       if (code === 'FS_NOT_FOUND' || code === 'ENOENT') return [];
       // 其他 list 失败 audit + 返回空（peek 不冒泡 / 与 drainInbox 不同行为）
       const reason = err instanceof Error ? err.message : String(err);
