@@ -65,7 +65,7 @@ import { createStreamReader, STREAM_FILE, findRecentTurnStartOffset } from '../f
 import { DIALOG_DIR, TASKS_SYNC_DIR } from '../types/paths.js';
 
 // 内部 helper（从 daemon.ts L42-75 搬入）
-function detectUncleanExit(auditDir: string, auditWriter: AuditLog): void {
+export function detectUncleanExit(auditDir: string, auditWriter: AuditLog): void {
   const auditPath = path.join(auditDir, 'audit.tsv');
   if (!fsNative.existsSync(auditPath)) return;
   try {
@@ -92,7 +92,12 @@ function detectUncleanExit(auditDir: string, auditWriter: AuditLog): void {
     }
   } catch (err: any) {
     if (err?.code !== 'ENOENT') {
-      console.warn('[assembly] detectUncleanExit failed:', err?.code || err?.message || err);
+      auditWriter.write(
+        ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED,
+        `module=detect_unclean_exit`,
+        `phase=detect`,
+        `reason=${err?.code || err?.message || String(err)}`,
+      );
     }
   }
 }
@@ -346,9 +351,12 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
     audit: auditWriter,
   });
 
+  const makeDialogStore = (systemPrompt: string): DialogStore =>
+    createDialogStore(systemFs, DIALOG_DIR, auditWriter, 'current.json', systemPrompt, clawId);
+
   let sessionManager: DialogStore;
   try {
-    sessionManager = createDialogStore(systemFs, DIALOG_DIR, auditWriter, 'current.json', initialSystemPrompt, clawId);
+    sessionManager = makeDialogStore(initialSystemPrompt);
   } catch (e) {
     auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=session_manager`, `phase=construct`, `reason=${errMsg(e)}`);
     throw new Error(`Assembly: DialogStore construct failed: ${errMsg(e)}`, { cause: e });
@@ -435,9 +443,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
     parentStreamLog: streamWriter,
     contractNotifyCallback,
     // phase 521: regime switch coordination / Assembly own factory / closure capture 5 const
-    dialogStoreFactory: (systemPrompt: string) => createDialogStore(
-      systemFs, DIALOG_DIR, auditWriter, 'current.json', systemPrompt, clawId
-    ),
+    dialogStoreFactory: makeDialogStore,
   };
 
   // 孤儿临时文件清理（从 Runtime.initialize 搬来；Assembly 负责一次性的启动清理）

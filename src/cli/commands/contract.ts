@@ -33,7 +33,7 @@ function parseAndValidateContractYaml(yamlContent: string): ContractYaml {
   return contract;
 }
 
-function notifyContractCreated(clawDir: string, clawId: string, contractId: string, contract: ContractYaml): void {
+export function notifyContractCreated(clawDir: string, clawId: string, contractId: string, contract: ContractYaml): void {
   const { fs, audit: contractAudit } = createDirContext(clawDir);
 
   // best-effort：通知 viewport via stream.jsonl（失败不中断 contract 创建）
@@ -47,6 +47,7 @@ function notifyContractCreated(clawDir: string, clawId: string, contractId: stri
     contractAudit.write(
       STREAM_AUDIT_EVENTS.APPEND_FAILED,
       `context=contract_notify`,
+      `contractId=${contractId}`,
       `reason=${err instanceof Error ? err.message : String(err)}`,
     );
   }

@@ -3,7 +3,10 @@
  * Claw command barrel re-export — 8 command
  *
  * 各 command 实现见 claw-{name}.ts:
+ * helper（非 command / 不 barrel-export）：
  * - claw-shared.ts        formatRelativeTime + LLM_OUTPUT_EVENTS + getLastActiveMs
+ *
+ * command（8 个 / 下方 export）：
  * - claw-create.ts        createCommand
  * - claw-chat.ts          chatCommand
  * - claw-stop.ts          stopCommand
