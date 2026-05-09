@@ -1,8 +1,6 @@
 /**
  * @module L4.ContractSystem.Acceptance
  * Acceptance pipeline — sync + async + script + LLM + inbox 通知 + error 处理
- *
- * Migrated from manager.ts:492-1015 + 1168-1273 (phase 480 内拆)
  */
 
 import * as path from 'path';
@@ -28,6 +26,10 @@ type AcceptanceConfig =
 
 function formatErr(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+function formatValidIds(progress: ProgressData): string {
+  return Object.keys(progress.subtasks).join(', ');
 }
 
 function auditError(
@@ -269,8 +271,7 @@ export async function completeSubtaskSync(
   await ctx.withProgressLock(contractId, async () => {
     const progress = await ctx.getProgress(contractId);
     if (!progress.subtasks[subtaskId]) {
-      const validIds = Object.keys(progress.subtasks).join(', ');
-      result = { passed: false, feedback: `Unknown subtask "${subtaskId}". Valid subtask IDs: ${validIds}` };
+      result = { passed: false, feedback: `Unknown subtask "${subtaskId}". Valid subtask IDs: ${formatValidIds(progress)}` };
       ctx.audit.write(CONTRACT_AUDIT_EVENTS.PROGRESS_CORRUPTED, `context=ContractSystem._completeSubtaskSync`, `contractId=${contractId}`, `subtaskId=${subtaskId}`, `message=Unknown subtaskId`);
       return;
     }
@@ -344,8 +345,7 @@ export async function runAcceptancePipeline(
   await ctx.withProgressLock(contractId, async () => {
     const progress = await ctx.getProgress(contractId);
     if (!progress.subtasks[subtaskId]) {
-      const validIds = Object.keys(progress.subtasks).join(', ');
-      throw new ToolError(`Unknown subtask "${subtaskId}". Valid subtask IDs: ${validIds}`);
+      throw new ToolError(`Unknown subtask "${subtaskId}". Valid subtask IDs: ${formatValidIds(progress)}`);
     }
     const currentStatus = progress.subtasks[subtaskId].status;
     if (currentStatus === 'in_progress') {
@@ -489,7 +489,12 @@ export async function runLLMAcceptance(
     if (relativePath.startsWith('..')) {
       return { passed: false, feedback: '路径安全拒绝: prompt_file 解析后逃出 claw 目录' };
     }
-    const promptTemplate = await ctx.fs.read(relativePath);
+    let promptTemplate: string;
+    try {
+      promptTemplate = await ctx.fs.read(relativePath);
+    } catch (readErr) {
+      return { passed: false, feedback: `prompt_file 读失败 (${relativePath}): ${formatErr(readErr)}` };
+    }
     const filledPrompt = promptTemplate
       .replace(/\{\{evidence\}\}/g, evidence)
       .replace(/\{\{artifacts\}\}/g, artifacts.join(', '))
