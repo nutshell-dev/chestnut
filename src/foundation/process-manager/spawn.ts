@@ -2,6 +2,7 @@ import * as path from 'path';
 import { spawnDetached, kill } from '../process-exec/index.js';
 import { PROCESS_SPAWN_CONFIRM_MS, DAEMON_SHUTDOWN_GRACE_MS, SPAWN_POLL_INTERVAL_MS } from './constants.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
+import { FileNotFoundError } from '../../types/errors.js';
 import { ProcessListUnavailable } from './errors.js';
 import { ensureStatusDir, getLockFile, getPidFile } from './paths.js';
 import { isAliveByPidFile as checkAlive } from './alive.js';
@@ -101,8 +102,29 @@ export async function spawnProcess(
         throw new Error(`Claw "${clawId}" is already running (PID file exists)`);
       }
       let existingContent = '';
-      try { existingContent = ctx.fs.readSync(pidFile).trim(); } catch {}
-      if (existingContent === '') {
+      let readSucceeded = false;
+      try {
+        existingContent = ctx.fs.readSync(pidFile).trim();
+        readSucceeded = true;
+      } catch (readErr: any) {
+        if (readErr?.code === 'ENOENT' || readErr instanceof FileNotFoundError) {
+          // race: concurrent removePid deleted pidFile / benign
+          ctx.audit.write(
+            PROCESS_MANAGER_AUDIT_EVENTS.PID_READ_FAILED,
+            `claw=${clawId}`,
+            `context=race_check`,
+          );
+        } else {
+          ctx.audit.write(
+            PROCESS_MANAGER_AUDIT_EVENTS.PID_READ_FAILED,
+            `claw=${clawId}`,
+            `context=eexist_check`,
+            `reason=${readErr?.message ?? String(readErr)}`,
+          );
+        }
+      }
+      if (readSucceeded && existingContent === '') {
+        // true empty PID file (concurrent spawn symptom / not race)
         ctx.audit.write(
           PROCESS_MANAGER_AUDIT_EVENTS.PID_EMPTY,
           `claw=${clawId}`,
