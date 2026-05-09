@@ -9,7 +9,6 @@ import { createWatcher } from '../../foundation/file-watcher/index.js';
 import { createDirContext, createProcessManagerForCLI } from '../utils/factories.js';
 import { isAlive } from '../../foundation/process-exec/index.js';
 import { getContractCreatedMs } from '../../core/contract/index.js';
-import { LLM_OUTPUT_EVENTS } from '../../foundation/stream/types.js';
 import stringWidth from 'string-width';
 import { wrapLine, fitLine } from '../utils/string.js';
 import { OUTPUT_LINES_CAP } from '../../constants.js';
@@ -23,10 +22,12 @@ import type { StreamReader } from '../../foundation/stream/index.js';
 import { LOGS_DIR, TASKS_QUEUES_RESULTS_DIR, CLAWS_DIR } from '../../types/paths.js';
 
 import { writeUserChat, findRecentTurnStartOffset } from './chat-viewport-utils.js';
-import { createChatViewportWatcher } from './chat-viewport-watcher.js';
 import { type ClawTrack, makeClawTrack, buildClawLine } from './chat-viewport-claw-line.js';
 import { createMainTurnUI, type MainTurnUIDeps, type MainTurnUIController } from './main-turn-ui.js';
 import { createTaskEventHandler, type TaskEventHandlerDeps, type TaskEvent } from './chat-viewport-task-events.js';
+import { createClawManager, type ClawManager } from './chat-viewport-claw-manager.js';
+import { createViewportCommands, type ViewportCommand, type ThinkingMode } from './chat-viewport-commands.js';
+import { createTuiInputHandler, type ShutdownReason } from './chat-viewport-input.js';
 
 export interface ChatViewportOptions {
   agentDir: string;   // motion dir 或 claw dir
@@ -37,6 +38,18 @@ export interface ChatViewportOptions {
   showContractEvents?: boolean;   // contract 子任务完成信息，默认 true
   trimOutputNewlines?: boolean;   // LLM 输出首尾换行清理，默认 true
   audit: AuditLog; // audit sink for createWatcher
+}
+
+export interface TurnTracker {
+  begin(): void;
+  end(): void;
+  abort(): void;
+  interrupted(): void;
+  requestInterrupt(source: 'esc'): void;
+  forceReset(): void;
+  isActive(): boolean;
+  getInterruptSource(): 'esc' | null;
+  destroy(): void;
 }
 
 export async function runChatViewport(options: ChatViewportOptions): Promise<void> {
@@ -83,32 +96,14 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   ];
   // Turn lifecycle tracker（封装 inTurn + pendingInterruptSource + escTimeoutId）
   type TurnPhase = 'idle' | 'active' | 'interrupting';
-  interface TurnTracker {
-    begin(): void;
-    end(): void;
-    abort(): void;
-    interrupted(): void;
-    requestInterrupt(source: 'esc'): void;
-    forceReset(): void;
-    isActive(): boolean;
-    getInterruptSource(): 'esc' | null;
-    destroy(): void;
-  }
   let turnTracker: TurnTracker;
 
 
   // 状态栏追踪
 
-  type ThinkingMode = 'compact' | 'full' | 'off';
   let thinkingMode: ThinkingMode = 'full';
 
   // --- 命令注册表 ---
-  interface ViewportCommand {
-    name: string;
-    description: string;
-    usage?: string;
-    execute: (args: string[]) => void;
-  }
   const commandRegistry = new Map<string, ViewportCommand>();
   const registerCmd = (cmd: ViewportCommand) => commandRegistry.set(cmd.name, cmd);
 
@@ -516,190 +511,16 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   const isMotion = options.label === 'motion';
   const clawsDir = isMotion ? path.join(options.agentDir, '..', CLAWS_DIR) : '';
   const clawTrackMap = new Map<string, ClawTrack>();
-  const clawWatchers = new Map<string, Watcher>();
-  const clawWatcherVersions = new Map<string, number>();
-
-  const TEXT_BUFFER_CAP = 64 * 1024;
-  const TEXT_BUFFER_KEEP = 32 * 1024;
-  const appendCappedBuffer = (track: ClawTrack, delta: string) => {
-    track.textBuffer += delta;
-    if (track.textBuffer.length > TEXT_BUFFER_CAP) {
-      track.textBuffer = track.textBuffer.slice(-TEXT_BUFFER_KEEP);
-    }
-  };
-
-  const attachClawWatcher = (clawId: string, streamFile: string) => {
-    const ver = (clawWatcherVersions.get(clawId) ?? 0) + 1;
-    clawWatcherVersions.set(clawId, ver);
-    try {
-      const w = createChatViewportWatcher(
-        fs, clawId, streamFile,
-        () => {
-          if (clawWatcherVersions.get(clawId) !== ver) return;   // 旧 watcher callback / 早 return
-          refreshClawStatus(clawId);
-        },
-        options.audit,
-        () => {
-          if (clawWatcherVersions.get(clawId) === ver) clawWatchers.delete(clawId);
-        },
-        false,
-      );
-      clawWatchers.set(clawId, w);
-    } catch { /* polling fallback */ }
-  };
-
-  const refreshClawStatus = (clawId: string) => {
-    if (!isMotion) return;
-    const track = clawTrackMap.get(clawId);
-    if (!track) return;
-
-    const streamFile = path.join(clawsDir, clawId, STREAM_FILE);
-
-    try {
-      const stat = fs.statSync(streamFile);
-      if (stat.size < track.fileSize) {
-        // 文件 truncate（归档/rotate）/ 旧 watcher 监听 stale inode / 起新 watcher
-        const stale = clawWatchers.get(clawId);
-        if (stale) { void stale.close(); clawWatchers.delete(clawId); }
-        attachClawWatcher(clawId, streamFile);
-        // reset state
-        track.fileSize = 0; track.leftover = '';
-        track.turnCount = 0; track.step = 0; track.active = false; track.lastError = null;
-        track.currentTool = null; track.toolSuccess = null; track.textBuffer = '';
-        track.bufferType = null; track.lastOutput = ''; track.lastInterrupted = false;
-        track.clearOnNextDelta = false;
-      }
-      if (stat.size > track.fileSize) {
-        const toRead = stat.size - track.fileSize;
-        const buf = fs.readBytesSync(streamFile, track.fileSize, stat.size);
-        track.fileSize += buf.length;
-
-        const chunk = track.leftover + buf.toString('utf-8');
-        const lines = chunk.split('\n');
-        track.leftover = lines.pop() ?? '';
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          try {
-            const ev = JSON.parse(line);
-            // 轻量字段
-            if (ev.type === 'turn_start') { track.turnCount++; track.step = 0; track.active = true; }
-            else if (ev.type === 'tool_result') { track.step = ev.step ?? track.step; track.maxSteps = ev.maxSteps ?? track.maxSteps; }
-            else if (ev.type === 'turn_error') { track.active = false; track.lastError = (ev.error as string) ?? 'error'; }
-            else if (ev.type === 'turn_end' || ev.type === 'turn_interrupted') { track.active = false; track.lastError = null; }
-
-            // rich 字段（详细行用）- 对每条 track 都执行
-            //
-            // textBuffer 积累"最后一段连续文本"，供 turn_end 时写入 lastOutput（clawbar 摘要）。
-            // clearOnNextDelta 由 tool_call 触发置 true，下一个 delta 到来时清空 buffer，
-            // 确保 lastOutput 只反映最后一段 LLM 输出，而非跨工具调用的拼接。
-            if (LLM_OUTPUT_EVENTS.has(ev.type)) {
-              if (track.active === false) track.lastOutput = '';
-              track.active = true;
-              if (ev.type === 'thinking_delta') {
-                if (track.clearOnNextDelta) {
-                  track.textBuffer = '';
-                  track.bufferType = null;
-                  track.clearOnNextDelta = false;
-                }
-                appendCappedBuffer(track, (ev.delta as string) ?? '');
-                track.bufferType = 'thinking';
-              } else if (ev.type === 'tool_call') {
-                track.currentTool = (ev.name as string) ?? null;
-                track.toolSuccess = null;
-                track.clearOnNextDelta = true;
-              } else if (ev.type === 'text_delta') {
-                if (track.bufferType !== 'text' || track.clearOnNextDelta) {
-                  track.textBuffer = '';
-                  track.bufferType = 'text';
-                  track.clearOnNextDelta = false;
-                }
-                appendCappedBuffer(track, (ev.delta as string) ?? '');
-              }
-            } else if (ev.type === 'tool_result') {
-              track.toolSuccess = (ev.success as boolean) ?? null;
-            } else if (ev.type === 'turn_start') {
-              track.lastOutput = '';
-              track.lastInterrupted = false;
-            } else if (ev.type === 'turn_end') {
-              track.active = false; track.lastInterrupted = false;
-              if (track.textBuffer) track.lastOutput = track.textBuffer;
-              track.currentTool = null; track.textBuffer = '';
-              track.toolSuccess = null; track.bufferType = null; track.clearOnNextDelta = false;
-              track.referenceMs = Date.now();
-            } else if (ev.type === 'turn_error') {
-              track.active = false; track.lastInterrupted = false;
-              track.currentTool = null; track.textBuffer = '';
-              track.toolSuccess = null; track.bufferType = null; track.lastOutput = ''; track.clearOnNextDelta = false;
-              track.lastError = (ev.error as string) ?? 'error';
-              track.referenceMs = Date.now();
-            } else if (ev.type === 'turn_interrupted') {
-              track.active = false; track.lastInterrupted = true;
-              track.currentTool = null; track.textBuffer = '';
-              track.toolSuccess = null; track.bufferType = null; track.lastOutput = ''; track.clearOnNextDelta = false;
-              track.referenceMs = Date.now();
-            }
-
-          } catch { /* skip */ }
-        }
-        updateClawPanel();
-        tui.requestRender();
-      }
-    } catch { /* ENOENT 等，跳过 */ }
-  };
-
-  const refreshAllClawStatus = async () => {
-    if (!isMotion) return;
-    let clawIds: string[] = [];
-    try { clawIds = fs.listSync(clawsDir, { includeDirs: true })
-      .filter(e => e.isDirectory)
-      .map(e => e.name); } catch { return; }
-
-    // 清理已删除的 claw
-    for (const [id] of clawTrackMap) {
-      if (!clawIds.includes(id)) {
-        await clawWatchers.get(id)?.close();
-        clawWatchers.delete(id);
-        clawTrackMap.delete(id);
-      }
-    }
-
-    for (const clawId of clawIds) {
-      const streamFile = path.join(clawsDir, clawId, STREAM_FILE);
-      if (!clawTrackMap.has(clawId)) {
-        const clawDir = path.join(clawsDir, clawId);
-        const contractMs = getContractCreatedMs(fs, clawDir);
-        if (contractMs === null) continue;
-        const track = makeClawTrack();
-        track.hasContract = true;
-        track.referenceMs = contractMs;
-        clawTrackMap.set(clawId, track);
-      }
-      if (!clawWatchers.has(clawId)) {
-        attachClawWatcher(clawId, streamFile);
-      }
-      const track = clawTrackMap.get(clawId)!;
-
-      // Contract check (hasContract 已在初始化时设置，此处可省略或保留作为刷新)
-      // referenceMs 初始化后不再修改，除非契约重新创建
-
-      // Process alive check
-      try {
-        const pid = await pm.readPid(clawId);
-        if (pid !== null) {
-          track.isAlive = isAlive(pid);
-        } else { track.isAlive = false; }
-      } catch { track.isAlive = false; }
-      // 刷新 hasContract（契约可能完成或新创建）
-      track.hasContract = getContractCreatedMs(fs, path.join(clawsDir, clawId)) !== null;
-      // 兜底：轮询时顺带读一次流（watcher 失效时的保障）
-      refreshClawStatus(clawId);
-    }
-  };
+  const clawManager = createClawManager({
+    fs, pm, audit: options.audit, isMotion, clawsDir, clawTrackMap,
+    updateClawPanel,
+    requestRender: () => tui.requestRender(),
+  });
 
 
   // fallback 轮询（claw 刷新 + panel tick 拆独立 interval）
   const clawRefreshInterval = setInterval(() => {
-    if (isMotion) refreshAllClawStatus();
+    if (isMotion) clawManager.refreshAllClawStatus();
   }, 2000);
   clawRefreshInterval.unref();
 
@@ -753,106 +574,17 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   taskSweepInterval.unref();
 
   // --- 注册 slash 命令 ---
-
-  registerCmd({
-    name: 'think',
-    description: '切换思考内容显示模式',
-    usage: '/think [off|compact|full]',
-    execute: (args) => {
-      const arg = args[0] as ThinkingMode | undefined;
-      if (!arg) {
-        // 无参：在 full 和 off 之间切换
-        thinkingMode = thinkingMode === 'off' ? 'full' : 'off';
-      } else if (arg === 'off' || arg === 'compact' || arg === 'full') {
-        thinkingMode = arg;
-      } else {
-        appendOutput('\x1b[31m', `[think] 无效模式 "${arg}"，可选：off / compact / full`);
-        return;
-      }
-      appendOutput('\x1b[2m', `[thinking: ${thinkingMode}]`);
-    },
-  });
-
-  registerCmd({
-    name: 'attach',
-    description: '将 claw 加入监视面板（仅 motion）',
-    usage: '/attach <clawId>',
-    execute: (args) => {
-      if (!isMotion) {
-        appendOutput('\x1b[31m', '[attach] 仅 motion chat 支持 /attach');
-        return;
-      }
-      const clawId = args[0];
-      if (!clawId) {
-        appendOutput('\x1b[31m', '[attach] 用法：/attach <clawId>');
-        return;
-      }
-      const clawDir = path.join(clawsDir, clawId);
-      if (!fs.existsSync(clawDir)) {
-        appendOutput('\x1b[31m', `[attach] claw "${clawId}" 不存在`);
-      } else if (clawTrackMap.has(clawId)) {
-        appendOutput('\x1b[2m', `[attach] ${clawId} 已在面板中`);
-      } else {
-        const t = makeClawTrack();
-        t.referenceMs = Date.now();
-        clawTrackMap.set(clawId, t);
-        attachClawWatcher(clawId, path.join(clawDir, STREAM_FILE));
-        updateClawPanel();
-        appendOutput('\x1b[2m', `[attach] ${clawId} 已加入面板`);
-      }
-    },
-  });
-
-  registerCmd({
-    name: 'detach',
-    description: '从监视面板移除 claw（仅 motion）',
-    usage: '/detach <clawId>  或  /detach --all',
-    execute: async (args) => {
-      const arg = args[0];
-      if (!arg) {
-        appendOutput('', '用法：/detach <claw-id>  或  /detach --all');
-        return;
-      }
-      if (arg === '--all') {
-        for (const [id] of clawTrackMap) {
-          await clawWatchers.get(id)?.close();
-          clawWatchers.delete(id);
-        }
-        clawTrackMap.clear();
-        updateClawPanel();
-        appendOutput('\x1b[2m', '[detach] 已清空所有 claw');
-      } else {
-        await clawWatchers.get(arg)?.close();
-        clawWatchers.delete(arg);
-        clawTrackMap.delete(arg);
-        updateClawPanel();
-        appendOutput('\x1b[2m', `[detach] ${arg} 已从面板移除`);
-      }
-    },
-  });
-
-  registerCmd({
-    name: 'clear',
-    description: '清空输出区域',
-    execute: () => {
-      outputLines.length = 0;
-      invalidateBodyCache();
-      mainUI.clearSuffix();
-    },
-  });
-
-  registerCmd({
-    name: 'help',
-    description: '显示可用命令列表',
-    execute: () => {
-      const lines = ['可用命令：'];
-      for (const cmd of commandRegistry.values()) {
-        lines.push(`  ${cmd.usage ?? '/' + cmd.name}  — ${cmd.description}`);
-      }
-      lines.push('快捷键：ESC 中断当前 turn  /  Ctrl+C 或 Ctrl+D 退出  /  Ctrl+L 清屏');
-      appendOutput('\x1b[2m', lines.join('\n'), true);
-    },
-  });
+  for (const cmd of createViewportCommands({
+    isMotion, clawsDir, clawTrackMap, fs,
+    appendOutput, invalidateBodyCache,
+    clearOutputLines: () => { outputLines.length = 0; },
+    mainUI, clawManager, updateClawPanel,
+    getThinkingMode: () => thinkingMode,
+    setThinkingMode: (m) => { thinkingMode = m; },
+    getRegistry: () => commandRegistry,
+  })) {
+    registerCmd(cmd);
+  }
 
   // 输入提交处理
   editor.onSubmit = (text: string) => {
@@ -911,42 +643,15 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   // Ctrl+C / Ctrl+D 退出
   let resolveExit: () => void;
   const exitPromise = new Promise<void>(r => { resolveExit = r; });
-  let shutdownReason: 'daemon_dead' | 'user_quit' | 'stream_end' = 'user_quit';
+  let shutdownReason: ShutdownReason = 'user_quit';
 
-  tui.addInputListener((data: string) => {
-    // Ctrl+C / Ctrl+D → 退出 viewport（优先检查，避免被 ESC 逻辑抢先）
-    // 使用 includes 匹配批量输入（如 \x03\x03\x1b\x1b）
-    if (data.includes('\x03') || data.includes('\x04')) {
-      shutdownReason = 'user_quit';
-      resolveExit();
-      return { consume: true };
-    }
-    // Ctrl+L → 清屏
-    if (data.includes('\x0c')) {
-      outputLines.length = 0;
-      invalidateBodyCache();
-      mainUI.clearSuffix();
-      return { consume: true };
-    }
-    // ESC → 中断 daemon react（只在活跃 turn 时有效）
-    // 快速连按时 data 可能是多个 \x1b，需检查是否包含 ESC 字节
-    // 排除 CSI 序列（\x1b[ 开头的是方向键等）
-    if (data.includes('\x1b') && !data.includes('\x1b[') && !data.includes('\r') && !data.includes('\n')) {
-      if (!turnTracker.isActive()) {
-        // 防御性清理：如果 spinner 还在转，强制停止
-        mainUI.stopSpinner();
-        mainUI.clearSuffix();
-        return { consume: true };
-      }
-      const interruptFile = path.join(options.agentDir, 'interrupt');
-      try {
-        fs.writeAtomicSync(interruptFile, '');
-      } catch { /* best-effort */ }
-      turnTracker.requestInterrupt('esc');
-      return { consume: true };
-    }
-    return undefined;
-  });
+  tui.addInputListener(createTuiInputHandler({
+    fs, agentDir: options.agentDir, turnTracker, mainUI,
+    clearOutputLines: () => { outputLines.length = 0; },
+    invalidateBodyCache,
+    resolveExit: () => resolveExit(),
+    setShutdownReason: (r) => { shutdownReason = r; },
+  }));
 
   // RESIZE 监听：终端尺寸变化时重渲染
   const onResize = () => {
@@ -1034,7 +739,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
             t.referenceMs = contractMs;
             clawTrackMap.set(clawId, t);
             // 开 watcher
-            attachClawWatcher(clawId, path.join(clawDir, STREAM_FILE));
+            clawManager.attachClawWatcher(clawId, path.join(clawDir, STREAM_FILE));
           }
         }
         if (clawTrackMap.size > 0) {
@@ -1048,7 +753,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
       }
     });
     // 立即触发一次扫描
-    refreshAllClawStatus();
+    clawManager.refreshAllClawStatus();
   }
 
   // 兜底：SIGINT 退出（终端未进 raw mode 时 Ctrl+C 转为 SIGINT）
@@ -1070,8 +775,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   clearInterval(daemonCheckInterval);
   clearInterval(taskSweepInterval);
   await streamReader.stop();
-  await Promise.all(Array.from(clawWatchers.values()).map(w => w.close()));
-  clawWatchers.clear();
+  await clawManager.closeAll();
   await clawsDirWatcher?.close();
   for (const tw of taskWatchMap.values()) await tw.streamReader?.stop();
   taskWatchMap.clear();

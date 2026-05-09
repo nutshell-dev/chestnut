@@ -18,12 +18,16 @@ const viewportPath = path.join(__dirname, '../../src/cli/commands/chat-viewport.
 const mainTurnUIPath = path.join(__dirname, '../../src/cli/commands/main-turn-ui.ts');
 const clawLinePath = path.join(__dirname, '../../src/cli/commands/chat-viewport-claw-line.ts');
 const taskEventsPath = path.join(__dirname, '../../src/cli/commands/chat-viewport-task-events.ts');
+const clawManagerPath = path.join(__dirname, '../../src/cli/commands/chat-viewport-claw-manager.ts');
+const commandsPath = path.join(__dirname, '../../src/cli/commands/chat-viewport-commands.ts');
 
 describe('chat-viewport Phase 72', () => {
   const sourceCode = fs.readFileSync(viewportPath, 'utf-8')
     + fs.readFileSync(mainTurnUIPath, 'utf-8')
     + fs.readFileSync(clawLinePath, 'utf-8')
-    + fs.readFileSync(taskEventsPath, 'utf-8');
+    + fs.readFileSync(taskEventsPath, 'utf-8')
+    + fs.readFileSync(clawManagerPath, 'utf-8')
+    + fs.readFileSync(commandsPath, 'utf-8');
 
   // ==========================================================================
   // Step 5: bufferType 赋值
