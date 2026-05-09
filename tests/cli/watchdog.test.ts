@@ -67,6 +67,7 @@ vi.mock('../../src/cli/utils/factories.js', async (importOriginal) => {
 import {
   maybeCronClawInactivity,
   shutdownWatchdog,
+  _resetShutdownGuard,
   logWithAudit,
   setAuditWriter,
   maybeCronClawCrash,
@@ -238,6 +239,7 @@ describe('shutdownWatchdog — fix 005: save state on signal', () => {
   let auditWriter: AuditWriter;
 
   beforeEach(() => {
+    _resetShutdownGuard();
     tmpDir = path.join(os.tmpdir(), `wd-fix5-${randomUUID()}`);
     const clawforumDir = path.join(tmpDir, '.clawforum');
     fs.mkdirSync(path.join(clawforumDir, 'motion'), { recursive: true });
@@ -296,6 +298,23 @@ describe('shutdownWatchdog — fix 005: save state on signal', () => {
     expect(auditLines).toContain('save_failed=');
 
     expect(exitSpy).toHaveBeenCalledWith(1);
+
+    exitSpy.mockRestore();
+  });
+
+  it('双调 shutdownWatchdog 仅第一次真执行 (reentrant guard)', () => {
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
+
+    // first call throws due to process.exit mock
+    expect(() => shutdownWatchdog(auditWriter, 'SIGTERM')).toThrow('exit');
+    // second call early returns, no throw
+    expect(() => shutdownWatchdog(auditWriter, 'SIGINT')).not.toThrow();
+
+    // audit 只写了第一次的 SIGTERM
+    const auditPath = path.join(tmpDir, '.clawforum', 'audit.tsv');
+    const auditLines = fs.readFileSync(auditPath, 'utf-8');
+    expect(auditLines).toContain('watchdog_stop');
+    expect(auditLines).toContain('signal=SIGTERM');
 
     exitSpy.mockRestore();
   });

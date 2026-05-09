@@ -47,11 +47,21 @@ import {
 
 // === Shutdown (21 行) ===
 
+/** Module-level guard: prevent reentrant shutdown when SIGTERM + SIGINT both fire */
+let shuttingDown = false;
+
+/** Test-only: reset shutdown guard between tests */
+export function _resetShutdownGuard(): void {
+  shuttingDown = false;
+}
+
 /** 1:1 保 watchdog.ts:100-120 */
 export function shutdownWatchdog(
   auditWriter: AuditLog,
   signal: string,
 ): void {
+  if (shuttingDown) return;
+  shuttingDown = true;
   log(`[watchdog] Received ${signal}, shutting down...`);
   let saveFailed: string | undefined;
   try {
