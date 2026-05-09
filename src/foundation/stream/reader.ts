@@ -226,6 +226,7 @@ export function createStreamReader(
               STREAM_AUDIT_EVENTS.READER_UNLINKED,
               `path=${streamPath}`,
             );
+            if (!active) return;   // §B.7 α / stop() 期间不 mutate offset/pending（已死状态）/ audit 仍记录
             offset = 0;
             pending = '';
           }

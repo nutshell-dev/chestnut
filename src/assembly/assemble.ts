@@ -61,7 +61,7 @@ import type { AssembleConfig, Instances } from './index.js';
 import { createGateway } from '../core/gateway/gateway.js';
 import type { Gateway } from '../core/gateway/types.js';
 import { createAskUserTool } from '../core/gateway/ask-user-tool.js';
-import { createStreamReader, STREAM_FILE } from '../foundation/stream/index.js';
+import { createStreamReader, STREAM_FILE, findRecentTurnStartOffset } from '../foundation/stream/index.js';
 import { DIALOG_DIR, TASKS_SYNC_DIR } from '../types/paths.js';
 
 // 内部 helper（从 daemon.ts L42-75 搬入）
@@ -471,6 +471,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
     try {
       gateway = createGateway({
         streamFactory: (onEvent) => createStreamReader(systemFs, STREAM_FILE, onEvent, auditWriter),
+        getInitialOffset: () => findRecentTurnStartOffset(systemFs, STREAM_FILE),
         transport: undefined,                      // offline mode
         interrupt: () => runtime.abort(),          // offline 不会触发，留接口
         audit: auditWriter,

@@ -139,31 +139,40 @@ export function createGateway(input: GatewayInput): Gateway {
       started = true;
       if (!isOnlineMode) return;
 
-      transport!.onConnect((c) => {
-        connections.set(c.id, c);
-      });
-      transport!.onDisconnect((c, _reason) => {
-        connections.delete(c.id);
-        // _reason 留给 Gateway A.3 audit phase 使用
-      });
-      transport!.onMessage((c, data) => {
-        handleClientMessage(c, data);
-        // 抛错由 Transport safeFire 捕获 → fireTransportError({ kind: 'callback_error', callbackName: 'onMessage', error })
-        // → Gateway 的 onTransportError 处理器接收（见下方）
-      });
-      transport!.onTransportError((evt) => {
-        audit.write(
-          GATEWAY_AUDIT_EVENTS.TRANSPORT_ERROR,
-          `kind=${evt.kind}`,
-          `error=${String(evt.error)}`,
-          evt.kind === 'callback_error' ? `callbackName=${evt.callbackName}` : '',
-        );
-      });
+      try {
+        transport!.onConnect((c) => {
+          connections.set(c.id, c);
+        });
+        transport!.onDisconnect((c, _reason) => {
+          connections.delete(c.id);
+          // _reason 留给 Gateway A.3 audit phase 使用
+        });
+        transport!.onMessage((c, data) => {
+          handleClientMessage(c, data);
+          // 抛错由 Transport safeFire 捕获 → fireTransportError({ kind: 'callback_error', callbackName: 'onMessage', error })
+          // → Gateway 的 onTransportError 处理器接收（见下方）
+        });
+        transport!.onTransportError((evt) => {
+          audit.write(
+            GATEWAY_AUDIT_EVENTS.TRANSPORT_ERROR,
+            `kind=${evt.kind}`,
+            `error=${String(evt.error)}`,
+            evt.kind === 'callback_error' ? `callbackName=${evt.callbackName}` : '',
+          );
+        });
 
-      streamReader = streamFactory((ev: StreamEvent) => {
-        broadcast({ type: 'stream', event: ev });
-      });
-      streamReader.start();
+        streamReader = streamFactory((ev: StreamEvent) => {
+          broadcast({ type: 'stream', event: ev });
+        });
+        const initialOffset = input.getInitialOffset?.();
+        if (initialOffset !== undefined) streamReader.start(initialOffset);
+        else streamReader.start();
+      } catch (err) {
+        started = false;
+        streamReader = null;
+        audit.write(GATEWAY_AUDIT_EVENTS.STARTUP_FAILED, `error=${String(err)}`);
+        throw err;
+      }
       audit.write(GATEWAY_AUDIT_EVENTS.STARTED, `isOnline=${isOnlineMode}`);
     },
 
@@ -218,12 +227,26 @@ export function createGateway(input: GatewayInput): Gateway {
             cancel(id, 'abort');
           };
           ctx.signal.addEventListener('abort', abortListener, { once: true });
+          // G4 robust：addEventListener 后立即 check / spec 不 retroactively fire
+          if (ctx.signal.aborted) {
+            ctx.signal.removeEventListener('abort', abortListener);
+            clearTimeout(timer);
+            resolve(failureResult('ask_user 被中断取消'));
+            return;
+          }
         }
 
         pending.set(id, { id, resolve, timer, abortListener, signal: ctx.signal ?? null });
 
         audit.write(GATEWAY_AUDIT_EVENTS.ASK_USER_PENDING, `id=${id}`);
-        broadcast({ type: 'ask_user_pending', id, question });
+        try {
+          broadcast({ type: 'ask_user_pending', id, question });
+        } catch (err) {
+          cleanup(id);
+          audit.write(GATEWAY_AUDIT_EVENTS.ASK_USER_BROADCAST_FAILED, `id=${id}`, `error=${String(err)}`);
+          resolve(failureResult(`ask_user broadcast 失败：${String(err)}`));
+          return;
+        }
       });
     },
 

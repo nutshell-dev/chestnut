@@ -34,6 +34,8 @@ export interface GatewayInput {
   askUserTimeoutMs?: number;
   /** audit 写入器；Gateway 用于写 10 类结构化事件 */
   audit: AuditLog;
+  /** 启动期 reader initialOffset 计算（assembly 闭包绑 fs+streamPath / chat-viewport spinner bug 同型 fix）/ undefined = 默认 tail mode */
+  getInitialOffset?: () => number;
 }
 
 /**

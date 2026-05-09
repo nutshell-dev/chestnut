@@ -21,7 +21,8 @@ import { createViewportObservability } from './chat-viewport-observability.js';
 import type { StreamReader } from '../../foundation/stream/index.js';
 import { LOGS_DIR, TASKS_QUEUES_RESULTS_DIR, CLAWS_DIR } from '../../types/paths.js';
 
-import { writeUserChat, findRecentTurnStartOffset } from './chat-viewport-utils.js';
+import { writeUserChat } from './chat-viewport-utils.js';
+import { findRecentTurnStartOffset } from '../../foundation/stream/index.js';
 import { type ClawTrack, makeClawTrack, buildClawLine } from './chat-viewport-claw-line.js';
 import { createMainTurnUI, type MainTurnUIDeps, type MainTurnUIController } from './main-turn-ui.js';
 import { createTaskEventHandler, type TaskEventHandlerDeps, type TaskEvent } from './chat-viewport-task-events.js';

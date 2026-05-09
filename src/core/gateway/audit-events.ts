@@ -7,10 +7,12 @@
 export const GATEWAY_AUDIT_EVENTS = {
   STARTED: 'gateway_started',
   STOPPED: 'gateway_stopped',
+  STARTUP_FAILED: 'gateway_startup_failed',
   ASK_USER_PENDING: 'gateway_ask_user_pending',
   ASK_USER_RESOLVED: 'gateway_ask_user_resolved',
   ASK_USER_CANCELLED: 'gateway_ask_user_cancelled',
   ASK_USER_REPLY_DROPPED: 'gateway_ask_user_reply_dropped',
+  ASK_USER_BROADCAST_FAILED: 'gateway_ask_user_broadcast_failed',
   CONNECTION_DROPPED: 'gateway_connection_dropped',
   INTERRUPT_TRIGGERED: 'gateway_interrupt_triggered',
   INTERRUPT_DEBOUNCED: 'gateway_interrupt_debounced',

@@ -12,6 +12,7 @@ export { StreamWriter } from './writer.js';
 export type { StreamRetentionOptions } from './writer.js';
 export type { StreamReader } from './reader.js';
 export { createStreamReader, readAll } from './reader.js';
+export { findRecentTurnStartOffset } from './turn-start-offset.js';
 
 import type { FileSystem } from '../fs/types.js';
 import type { AuditLog } from '../audit/index.js';

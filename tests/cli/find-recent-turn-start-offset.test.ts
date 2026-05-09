@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { findRecentTurnStartOffset } from '../../src/cli/commands/chat-viewport-utils.js';
+import { findRecentTurnStartOffset } from '../../src/foundation/stream/turn-start-offset.js';
 import { createDirContext } from '../../src/cli/utils/factories.js';
 import * as fsNative from 'fs';
 import * as path from 'path';
