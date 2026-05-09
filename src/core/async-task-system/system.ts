@@ -229,7 +229,7 @@ export class AsyncTaskSystem {
     const taskPath = `${TASKS_QUEUES_PENDING_DIR}/${taskId}.json`;
     await this.fs.writeAtomic(taskPath, JSON.stringify(task, null, 2));
 
-    this.auditWriter.write('task_scheduled', taskId, 'kind=subagent', `parent=${task.parentClawId}`, `maxSteps=${task.maxSteps}`);
+    this.auditWriter.write(TASK_AUDIT_EVENTS.TASK_SCHEDULED, taskId, 'kind=subagent', `parent=${task.parentClawId}`, `maxSteps=${task.maxSteps}`);
 
     // No push, no dispatch; watcher ingests asynchronously
     return taskId;
@@ -418,7 +418,7 @@ export class AsyncTaskSystem {
       `${TASKS_QUEUES_PENDING_DIR}/${taskId}.json`,
       `${TASKS_QUEUES_RUNNING_DIR}/${taskId}.json`
     );
-    this.auditWriter.write('task_started', taskId);
+    this.auditWriter.write(TASK_AUDIT_EVENTS.TASK_STARTED, taskId);
   }
 
   /**

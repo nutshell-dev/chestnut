@@ -138,7 +138,7 @@ export async function executeSubAgentTask(
     }
     await sendResult(fs, auditWriter, task, inboxResult, false);
 
-    auditWriter.write('task_completed', task.id, 'ok', `ms=${Date.now() - taskStartTime}`, `len=${result.length}`);
+    auditWriter.write(TASK_AUDIT_EVENTS.TASK_COMPLETED, task.id, 'ok', `ms=${Date.now() - taskStartTime}`, `len=${result.length}`);
   } catch (error) {
     taskFailed = true;
     const errorMsg = formatErr(error);
@@ -167,7 +167,7 @@ export async function executeSubAgentTask(
     }
 
     auditWriter.write(TASK_AUDIT_EVENTS.HANDLER_FAILED, task.id, `parent=${task.parentClawId}`, `error=${errorMsg}`);
-    auditWriter.write('task_completed', task.id, 'err', `ms=${Date.now() - taskStartTime}`);
+    auditWriter.write(TASK_AUDIT_EVENTS.TASK_COMPLETED, task.id, 'err', `ms=${Date.now() - taskStartTime}`);
   } finally {
     // Move from running to done/failed based on success
     if (taskFailed) {

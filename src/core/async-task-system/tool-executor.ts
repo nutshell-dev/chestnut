@@ -50,7 +50,7 @@ export async function executeToolTask(
         });
       }
       success = true;
-      auditWriter.write('task_completed', task.id, 'ok', `ms=${Date.now() - taskStartTime}`, `retries=${attempt}`);
+      auditWriter.write(TASK_AUDIT_EVENTS.TASK_COMPLETED, task.id, 'ok', `ms=${Date.now() - taskStartTime}`, `retries=${attempt}`);
       // tool_async_result：仅当 toolUseId 已记录时写入
       if (task.toolUseId) {
         auditWriter.write('tool_async_result', task.toolName, task.toolUseId, `task=${task.id}`);
@@ -111,7 +111,7 @@ export async function executeToolTask(
     }
 
     auditWriter.write(TASK_AUDIT_EVENTS.HANDLER_FAILED, task.id, `tool=${task.toolName}`, 'context=retries_exhausted', `error=${finalError}`);
-    auditWriter.write('task_completed', task.id, 'err', `ms=${Date.now() - taskStartTime}`);
+    auditWriter.write(TASK_AUDIT_EVENTS.TASK_COMPLETED, task.id, 'err', `ms=${Date.now() - taskStartTime}`);
   }
 
   // Move from running to done/failed based on success

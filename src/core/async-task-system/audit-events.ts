@@ -2,9 +2,12 @@
  * AsyncTaskSystem audit event names.
  *
  * Module-owned event namespace per H1 design.
- * 字符串值与起步态 events.ts TASK_ + PENDING_ + TOOL_TASK_ 系列等价 / 0 漂移。
+ * 字符串值 + 模块自治 const 集合 / 与起步态 events.ts TASK_ + PENDING_ + TOOL_TASK_ 系列等价 / 0 漂移。
  */
 export const TASK_AUDIT_EVENTS = {
+  TASK_SCHEDULED: 'task_scheduled',
+  TASK_STARTED: 'task_started',
+  TASK_COMPLETED: 'task_completed',
   PENDING_INGEST_FAILED: 'pending_ingest_failed',
   PENDING_QUEUE_OVERFLOW: 'task_pending_queue_overflow',
   PENDING_WATCHER_FAILED: 'task_pending_watcher_failed',
