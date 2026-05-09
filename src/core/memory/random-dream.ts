@@ -39,21 +39,38 @@ interface RandomDreamState {
 
 const RANDOM_DREAM_STATE_FILE = '.random-dream-state.json';
 
-function loadRandomDreamState(fs: FileSystem): RandomDreamState {
+function loadRandomDreamState(fs: FileSystem, audit: AuditLog): RandomDreamState {
   try {
     return JSON.parse(
       fs.readSync(RANDOM_DREAM_STATE_FILE)
     ) as RandomDreamState;
-  } catch {
+  } catch (err) {
+    // FileNotFoundError 首启良性 / silent
+    if (err instanceof Error && err.name === 'FileNotFoundError') {
+      return { processedContractIds: [] };
+    }
+    // 其他 IO 错（parse 损坏 / 权限 / 等）必 audit + 返空 resilient
+    audit.write(MEMORY_AUDIT_EVENTS.RANDOM_DREAM_ERROR,
+      `step=load_state`,
+      `reason=${err instanceof Error ? err.message : String(err)}`,
+    );
     return { processedContractIds: [] };
   }
 }
 
-function saveRandomDreamState(fs: FileSystem, state: RandomDreamState): void {
-  fs.writeAtomicSync(
-    RANDOM_DREAM_STATE_FILE,
-    JSON.stringify(state, null, 2)
-  );
+function saveRandomDreamState(fs: FileSystem, state: RandomDreamState, audit: AuditLog): void {
+  try {
+    fs.writeAtomicSync(
+      RANDOM_DREAM_STATE_FILE,
+      JSON.stringify(state, null, 2)
+    );
+  } catch (err) {
+    audit.write(MEMORY_AUDIT_EVENTS.RANDOM_DREAM_ERROR,
+      `step=save_state`,
+      `reason=${err instanceof Error ? err.message : String(err)}`,
+    );
+    throw err;   // re-throw 保 caller flow（cron runner phase 552 late_error 路径捕获）
+  }
 }
 
 // ─── 契约发现与权重计算 ──────────────────────────────────────
@@ -226,7 +243,7 @@ function extractDreamOutputs(log: string): DreamExtractionResult {
 // ─── 主函数 ──────────────────────────────────────────────────
 
 export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
-  const state = loadRandomDreamState(opts.fs);
+  const state = loadRandomDreamState(opts.fs, opts.audit);
   const weightedContracts = discoverWeightedContracts(opts.fs, state);
 
   if (weightedContracts.length === 0) {
@@ -274,7 +291,7 @@ export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
       ...new Set([...state.processedContractIds, ...contractIds]),
     ],
   };
-  saveRandomDreamState(opts.fs, updatedState);
+  saveRandomDreamState(opts.fs, updatedState, opts.audit);
 
   // 投递到 motion inbox（motionAudit 已在调度前实例化，直接复用）
   new InboxWriter(opts.fs, path.join(opts.motionDir, 'inbox', 'pending'), motionAudit).writeSync({

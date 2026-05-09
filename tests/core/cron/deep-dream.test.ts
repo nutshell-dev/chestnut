@@ -190,6 +190,57 @@ describe('runDeepDream', () => {
       });
     });
 
+    // ── sessionFile retry-storm 防御（phase 597）────────────────
+
+    describe('sessionFile retry-storm 防御（phase 597）', () => {
+      it('sessionFile JSON.parse 失败 → audit step=read_session + 强制 push processedArchives 防 retry-storm（A.dream-session-retry-storm phase 597）', async () => {
+        // setup: 写 1 个损坏 archive 文件
+        const filename = `1000000000003_corrupt.json`;
+        await fs.writeFile(path.join(archiveDir, filename), 'invalid{', 'utf-8');
+
+        await runDeepDream({ clawforumDir, llmConfig: fakeLlmConfig, llmService: mockLlmService as any, fs: new NodeFileSystem({ baseDir: clawforumDir }), audit: mockAudit });
+
+        // audit 记录 step=read_session
+        expect(mockAudit.write).toHaveBeenCalledWith(
+          'cron_deep_dream_error',
+          'step=read_session',
+          expect.stringMatching(/^clawId=/),
+          expect.stringMatching(`^file=${filename}$`),
+          expect.stringMatching(/^reason=/),
+        );
+
+        // state 含损坏 archive（永标记跳过 / 防 retry-storm）
+        const statePath = path.join(clawDir, '.deep-dream-state.json');
+        const state = JSON.parse(fsSync.readFileSync(statePath, 'utf-8'));
+        expect(state.processedArchives).toContain(filename);
+      });
+
+      it('current.json 损坏不 push processedArchives（保留当日重试可能）', async () => {
+        // setup: current.json 损坏 / 0 archive
+        const currentPath = path.join(clawDir, 'dialog', 'current.json');
+        await fs.mkdir(path.dirname(currentPath), { recursive: true });
+        await fs.writeFile(currentPath, 'invalid{', 'utf-8');
+
+        await runDeepDream({ clawforumDir, llmConfig: fakeLlmConfig, llmService: mockLlmService as any, fs: new NodeFileSystem({ baseDir: clawforumDir }), audit: mockAudit });
+
+        // audit 记录 step=read_session for current.json
+        expect(mockAudit.write).toHaveBeenCalledWith(
+          'cron_deep_dream_error',
+          'step=read_session',
+          expect.anything(),
+          'file=current.json',
+          expect.anything(),
+        );
+
+        // state 不应含 'current.json' in processedArchives（current.json 不入永标记列表）
+        const statePath = path.join(clawDir, '.deep-dream-state.json');
+        if (fsSync.existsSync(statePath)) {
+          const state = JSON.parse(fsSync.readFileSync(statePath, 'utf-8'));
+          expect(state.processedArchives ?? []).not.toContain('current.json');
+        }
+      });
+    });
+
     it('无 session 文件时不调用 LLM', async () => {
       await runDeepDream({ clawforumDir, llmConfig: fakeLlmConfig, llmService: mockLlmService as any, fs: new NodeFileSystem({ baseDir: clawforumDir }), audit: mockAudit });
       expect(mockLlmCall).not.toHaveBeenCalled();

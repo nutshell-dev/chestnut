@@ -11,4 +11,5 @@ export const MEMORY_AUDIT_EVENTS = {
   DEEP_DREAM_ERROR: 'cron_deep_dream_error',
   RANDOM_DREAM_JOB: 'cron_random_dream_job',
   RANDOM_DREAM_WARNING: 'cron_random_dream_warning',
+  RANDOM_DREAM_ERROR: 'cron_random_dream_error',   // ← NEW (phase 597)
 } as const;

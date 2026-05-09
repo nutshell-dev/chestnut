@@ -190,8 +190,16 @@ async function runDeepDreamForClaw(
     let sessionData: { messages: Message[] };
     try {
       sessionData = JSON.parse(clawFs.readSync(sf.filePath));
-    } catch {
-      console.warn(`[cron:deep-dream] ${clawId}: failed to read ${sf.filename}, skipping`);
+    } catch (err) {
+      audit.write(MEMORY_AUDIT_EVENTS.DEEP_DREAM_ERROR,
+        `step=read_session`,
+        `clawId=${clawId}`,
+        `file=${sf.filename}`,
+        `reason=${err instanceof Error ? err.message : String(err)}`,
+      );
+      // 损坏 archive 永标记跳过（防 retry-storm / mirror line 198-201 空 session 模式）
+      // current.json 损坏当日仍 retry 是 known limitation（极少 corrupt / r+1 评估）
+      if (sf.filename !== 'current.json') processedArchives.push(sf.filename);
       continue;
     }
     const sessionText = serializeSession(sessionData.messages ?? []);
