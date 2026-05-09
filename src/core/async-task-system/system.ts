@@ -317,10 +317,13 @@ export class AsyncTaskSystem {
       const task = await this._loadPendingTask(filePath);
       if (!task) return;
 
-      // β race fix (phase 556): cancel() may have raced ahead during fs.read
-      // await window. Re-check cancellingIds before push to prevent ghost
-      // dispatch. Sync gate from _isDuplicate only catches pre-await races.
-      if (this.cancellingIds.has(taskId)) return;
+      // β race fix (phase 556 + phase 612): concurrent ingest 同 taskId 可
+      // 在 _loadPendingTask await 间隙双通过 sync gate / cancel 也可 race ahead.
+      // 升级三 set 全 re-check (runningTasks + cancellingIds + pendingQueue) 防：
+      // (a) cancel 期间 ghost dispatch (phase 556 β)
+      // (b) concurrent ingest 双 push 同 taskId (phase 612 P1.7)
+      // (c) 上次 ingest 已 push 但本次 await 慢于其
+      if (this._isDuplicate(taskId)) return;
 
       await this._enqueueAndDispatch(task);
     } catch (err) {
