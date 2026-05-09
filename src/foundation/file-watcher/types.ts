@@ -27,4 +27,4 @@ export interface Watcher {
   getPath(): string;
 }
 
-export type WatcherErrorContext = 'watch' | 'callback' | 'ready';
+export type WatcherErrorContext = 'watch' | 'callback' | 'ready' | 'fallback_disabled';

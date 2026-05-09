@@ -10,6 +10,13 @@ import type { Watcher, WatchEvent, WatchEventType, WatcherErrorContext } from '.
 /**
  * Chokidar-based watcher implementation
  */
+/**
+ * Fallback poller consecutive failure limit. Mirror reader.ts CONSECUTIVE_PARSE_FAIL_LIMIT
+ * pattern. After N consecutive callback throws, the fallback poller is disabled and the
+ * watcher notifies caller via onError(err, 'fallback_disabled'). Caller decides recovery.
+ */
+const FALLBACK_CONSECUTIVE_FAIL_LIMIT = 5;
+
 const DEFAULT_FALLBACK_POLL_MS = 500;
 
 class ChokidarWatcher implements Watcher {
@@ -166,12 +173,27 @@ export function createWatcher(
     options?.stability === 'immediate';
   if (enableFallback) {
     const intervalMs = options?.fallbackPollMs ?? DEFAULT_FALLBACK_POLL_MS;
+    let consecutiveCallbackFails = 0;
     fallbackTimer = setInterval(() => {
       try {
         callback({ type: 'change', path: absolutePath });
+        consecutiveCallbackFails = 0;
       } catch (err) {
         const e = err instanceof Error ? err : new Error(String(err));
-        try { options?.onError?.(e, 'callback'); } catch { /* swallow */ }
+        consecutiveCallbackFails++;
+        try { options?.onError?.(e, 'callback'); } catch { /* swallow secondary */ }
+        if (consecutiveCallbackFails >= FALLBACK_CONSECUTIVE_FAIL_LIMIT) {
+          // Disable poller: clearInterval + null + notify via onError 'fallback_disabled'.
+          // Caller already covers this via binary discrimination else-branch (FAILED tier).
+          if (fallbackTimer) {
+            clearInterval(fallbackTimer);
+            fallbackTimer = null;
+          }
+          const disableErr = new Error(
+            `fallback poller disabled after ${consecutiveCallbackFails} consecutive callback failures: ${e.message}`,
+          );
+          try { options?.onError?.(disableErr, 'fallback_disabled'); } catch { /* swallow secondary */ }
+        }
       }
     }, intervalMs);
   }
