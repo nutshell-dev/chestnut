@@ -367,7 +367,7 @@ describe('ContractSystem Acceptance Flow', () => {
 
       expect(logSpy).toHaveBeenCalledWith(
         CONTRACT_AUDIT_EVENTS.ACCEPTANCE_RESET_FAILED,
-        expect.stringContaining('context=ContractSystem._runAcceptanceInBackground'),
+        expect.stringContaining('context=ContractSystem.runAcceptanceByType'),
         expect.anything(),
       );
     });
@@ -545,7 +545,7 @@ describe('ContractSystem Acceptance Flow', () => {
 
       expect(logSpy).toHaveBeenCalledWith(
         CONTRACT_AUDIT_EVENTS.ACCEPTANCE_RESET_FAILED,
-        expect.stringContaining('context=ContractSystem._runAcceptanceInBackground'),
+        expect.stringContaining('context=ContractSystem.runAcceptanceByType'),
         expect.anything(),
       );
     });
