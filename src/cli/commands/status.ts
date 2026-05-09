@@ -16,6 +16,23 @@ import {
   getWatchdogEntryPath,
 } from '../../watchdog/watchdog.js';
 
+export function findOrphanProcesses(
+  pm: ProcessManager,
+  entryPath: string,
+  excludePids: (number | null | undefined)[],
+): number[] {
+  const validExcludes = excludePids.filter((p): p is number => typeof p === 'number');
+  try {
+    return pm.findProcesses(entryPath).filter(p => !validExcludes.includes(p) && p !== process.pid);
+  } catch (err) {
+    if (err instanceof ProcessListUnavailable) {
+      // audit 已由 findProcesses 写；降级：跳过孤儿扫描
+      return [];
+    }
+    throw err;
+  }
+}
+
 export async function statusCommand(): Promise<void> {
   loadGlobalConfig();
 
@@ -50,16 +67,7 @@ export async function statusCommand(): Promise<void> {
 
   // Watchdog orphans
   const wdPath = getWatchdogEntryPath();
-  let wdPids: number[] = [];
-  try {
-    wdPids = pm.findProcesses(wdPath).filter(p => p !== watchdogPid && p !== process.pid);
-  } catch (err) {
-    if (err instanceof ProcessListUnavailable) {
-      // audit 已由 findProcesses 写；降级：跳过孤儿扫描
-    } else {
-      throw err;
-    }
-  }
+  const wdPids = findOrphanProcesses(pm, wdPath, [watchdogPid]);
   if (wdPids.length > 0) {
     console.log(`  ⚠ orphan watchdog(s): PIDs ${wdPids.join(', ')}`);
   }
@@ -71,16 +79,7 @@ export async function statusCommand(): Promise<void> {
     : path.resolve(thisDir, '..', '..', 'daemon-entry.js');
   const motionPid = motionStatus.pid;
   const trackedPids = [motionPid, ...clawStatuses.map(s => s.status.pid)].filter((p): p is number => p !== undefined);
-  let orphanDaemons: number[] = [];
-  try {
-    orphanDaemons = pm.findProcesses(daemonEntryPath).filter(p => !trackedPids.includes(p) && p !== process.pid);
-  } catch (err) {
-    if (err instanceof ProcessListUnavailable) {
-      // audit 已由 findProcesses 写；降级：跳过孤儿扫描
-    } else {
-      throw err;
-    }
-  }
+  const orphanDaemons = findOrphanProcesses(pm, daemonEntryPath, trackedPids);
   if (orphanDaemons.length > 0) {
     console.log(`  ⚠ orphan daemon(s): PIDs ${orphanDaemons.join(', ')}`);
   }
