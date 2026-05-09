@@ -14,6 +14,7 @@ import {
   LLMRateLimitError,
   LLMTimeoutError,
 } from '../../types/errors.js';
+import { parseRetryAfter } from './_helpers.js';
 import type {
   ProviderConfig,
   LLMCallOptions,
@@ -94,8 +95,8 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
       return makeExternalAbortError(signal?.reason as AbortReason | undefined);
     }
     if (errName === 'RateLimitError') {
-      const retryAfter = (error as { headers?: Headers })?.headers?.get?.('retry-after');
-      return new LLMRateLimitError(this.name, retryAfter ? parseInt(retryAfter, 10) : undefined);
+      const retryAfter = (error as { headers?: Headers })?.headers?.get?.('retry-after') ?? undefined;
+      return new LLMRateLimitError(this.name, parseRetryAfter(retryAfter));
     }
     if (errName === 'APIConnectionTimeoutError') {
       return new LLMTimeoutError(this.name, timeoutMs);

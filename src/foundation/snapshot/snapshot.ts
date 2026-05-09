@@ -75,18 +75,26 @@ export class Snapshot {
       await Snapshot.git(this.dir, ['commit', '--allow-empty', '-m', 'init']);
       return ok(undefined);
     } catch (rawErr) {
-      const classified = classifyGitError(toGitExecError(rawErr));
-      if (classified.ok) {
-        await this.tryCleanupGit(classified.value);
-        this.audit.write(
-          SNAPSHOT_AUDIT_EVENTS.INIT_FAILED,
-          `dir=${this.dir}`,
-          `kind=${classified.value.kind}`,
-        );
-        return errResult(classified.value);
-      }
-      throw rawErr;
+      const failure = this.classifyOrThrow(rawErr);
+      await this.tryCleanupGit(failure);
+      this.audit.write(
+        SNAPSHOT_AUDIT_EVENTS.INIT_FAILED,
+        `dir=${this.dir}`,
+        `kind=${failure.kind}`,
+      );
+      return errResult(failure);
     }
+  }
+
+  /**
+   * Classify a raw git error. Returns the classified failure value if expected
+   * (Result.ok), else re-throws the original error (unexpected failures bubble
+   * to the startup flow). Shared by init() and commit() catch blocks.
+   */
+  private classifyOrThrow(rawErr: unknown): ExpectedGitFailure {
+    const classified = classifyGitError(toGitExecError(rawErr));
+    if (classified.ok) return classified.value;
+    throw rawErr;
   }
 
   private async tryCleanupGit(failure: ExpectedGitFailure): Promise<void> {
@@ -142,25 +150,22 @@ export class Snapshot {
 
       return ok(undefined);
     } catch (rawErr) {
-      const classified = classifyGitError(toGitExecError(rawErr));
-      if (classified.ok) {
-        this.consecutiveFailures++;
+      const failure = this.classifyOrThrow(rawErr);
+      this.consecutiveFailures++;
+      this.audit.write(
+        SNAPSHOT_AUDIT_EVENTS.COMMIT_FAILED,
+        `dir=${this.dir}`,
+        `kind=${failure.kind}`,
+        `consecutive=${this.consecutiveFailures}`,
+      );
+      if (this.consecutiveFailures === 3) {
         this.audit.write(
-          SNAPSHOT_AUDIT_EVENTS.COMMIT_FAILED,
+          SNAPSHOT_AUDIT_EVENTS.DEGRADED,
           `dir=${this.dir}`,
-          `kind=${classified.value.kind}`,
           `consecutive=${this.consecutiveFailures}`,
         );
-        if (this.consecutiveFailures === 3) {
-          this.audit.write(
-            SNAPSHOT_AUDIT_EVENTS.DEGRADED,
-            `dir=${this.dir}`,
-            `consecutive=${this.consecutiveFailures}`,
-          );
-        }
-        return errResult(classified.value);
       }
-      throw rawErr;
+      return errResult(failure);
     }
   }
 }

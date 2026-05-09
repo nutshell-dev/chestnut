@@ -14,6 +14,7 @@ import {
   LLMRateLimitError,
   LLMTimeoutError,
 } from '../../types/errors.js';
+import { parseRetryAfter } from './_helpers.js';
 import type {
   ProviderConfig,
   LLMCallOptions,
@@ -347,10 +348,7 @@ export class GeminiAdapter implements ProviderAdapter {
 
     if (status === 429) {
       const retryAfter = response.headers.get('retry-after');
-      throw new LLMRateLimitError(
-        this.name,
-        retryAfter ? parseInt(retryAfter, 10) : undefined
-      );
+      throw new LLMRateLimitError(this.name, parseRetryAfter(retryAfter));
     }
     if (status >= 500) {
       throw new LLMError(`Server error (${status}): ${errorText}`, { provider: this.name });
