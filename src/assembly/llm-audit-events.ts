@@ -18,5 +18,6 @@ export const LLM_AUDIT_EVENTS = {
   HEALTHCHECK_FAILED: 'llm_healthcheck_failed',
   STREAM_RESET: 'llm_stream_reset',
   STREAM_PARSE_ERROR: 'llm_stream_parse_error',
+  TOOL_ARG_PARSE_ERROR: 'llm_tool_arg_parse_error',
   IDLE_FAILOVER_TRIGGERED: 'llm_idle_failover_triggered',
 } as const;
