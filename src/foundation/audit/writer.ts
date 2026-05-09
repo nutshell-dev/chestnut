@@ -1,7 +1,47 @@
 import { randomUUID } from 'crypto';
+import * as nodeFs from 'node:fs';
 import { FileNotFoundError } from '../../types/errors.js';
 import type { FileSystem } from '../fs/types.js';
 import type { AuditLog } from './index.js';
+
+const FALLBACK_BUFFER_CAP = 1000;
+const FALLBACK_DIR = '/tmp';
+const pendingFallback: string[] = [];
+let exitHandlerInstalled = false;
+let overflowMetaEmitted = false;
+
+function ensureExitHandler(): void {
+  if (exitHandlerInstalled) return;
+  exitHandlerInstalled = true;
+  process.on('exit', dumpFallback);
+}
+
+function pushFallback(line: string): void {
+  if (pendingFallback.length >= FALLBACK_BUFFER_CAP) {
+    pendingFallback.shift();   // FIFO drop-oldest
+    if (!overflowMetaEmitted) {
+      overflowMetaEmitted = true;
+      console.error(
+        `[AUDIT CRITICAL] fallback buffer overflow (cap=${FALLBACK_BUFFER_CAP}), oldest entries dropped`,
+      );
+    }
+  }
+  pendingFallback.push(line);
+  ensureExitHandler();
+}
+
+function dumpFallback(): void {
+  if (pendingFallback.length === 0) return;
+  try {
+    const fallbackPath = `${FALLBACK_DIR}/clawforum-audit-fallback-${process.pid}-${Date.now()}.tsv`;
+    nodeFs.writeFileSync(fallbackPath, pendingFallback.join(''));
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    console.error(
+      `[AUDIT CRITICAL] fallback dump failed: reason=${reason} pending=${pendingFallback.length}`,
+    );
+  }
+}
 
 /** audit.tsv 相对路径 */
 // AUDIT_FILE 是文件名（相对路径），不含目录。
@@ -29,6 +69,7 @@ export class AuditWriter implements AuditLog {
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       console.error(`[AUDIT CRITICAL] write failed: type=${type} reason=${reason}`);
+      pushFallback(line);
     }
   }
 
@@ -46,6 +87,13 @@ export class AuditWriter implements AuditLog {
       }
     }
   }
+}
+
+/** Test-only: reset module-level fallback state (do not call in production) */
+export function _resetFallbackForTest(): void {
+  pendingFallback.length = 0;
+  exitHandlerInstalled = false;
+  overflowMetaEmitted = false;
 }
 
 function esc(s: string): string {
