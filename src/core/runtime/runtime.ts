@@ -25,7 +25,7 @@ import { summarizeLastExit } from './last-exit-summary.js';
 import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../../types/signals.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import { RUNTIME_AUDIT_EVENTS, REACT_LOOP_AUDIT_EVENTS } from './runtime-audit-events.js';
-import { CLAW_SUBDIRS } from '../../types/paths.js';
+import { CLAW_SUBDIRS, DIALOG_DIR } from '../../types/paths.js';
 import { oneLine } from '../../types/utils.js';
 import { MaxStepsExceededError } from '../../types/errors.js';
 import { DEFAULT_LLM_IDLE_TIMEOUT_MS, DEFAULT_MAX_STEPS, DEFAULT_MAX_CONCURRENT_TASKS } from '../../constants.js';
@@ -951,11 +951,46 @@ export class Runtime {
     }
     // 4. tool_use 悬空 repair（per L5.G4）
     const { repaired } = DialogStore.repair(inherited, { interruptionMessage: 'Regime switch: tools may have changed.' });
-    // 5. dialogStoreFactory 装配 new instance
-    this.sessionManager = this.dialogStoreFactory(newSystemPrompt);
-    // 6. save inherited messages
-    await this.sessionManager.save(repaired);
-    // 7. audit
+    // 5. prepare newSessionManager（0 fs mutate / verified store.ts:29-41）
+    const newSessionManager = this.dialogStoreFactory(newSystemPrompt);
+    // 6. save inherited 到 newSessionManager (atomic critical)
+    try {
+      await newSessionManager.save(repaired);
+    } catch (saveErr) {
+      // catch recovery dump (D1+D5 兜底 / 类 phase 586 audit fallback dump 模板)
+      try {
+        const recoveryPath = path.join(this.options.clawDir, DIALOG_DIR, `regime-switch-recovery-${Date.now()}.json`);
+        const recoveryData = JSON.stringify({
+          systemPrompt: newSystemPrompt,
+          repaired,
+          original: oldMessages,
+          strategy,
+          timestamp: new Date().toISOString(),
+          reason: saveErr instanceof Error ? saveErr.message : String(saveErr),
+        }, null, 2);
+        await this.systemFs.writeAtomic(recoveryPath, recoveryData);
+        this.auditWriter.write(
+          RUNTIME_AUDIT_EVENTS.REGIME_SWITCH_FAILED,
+          `phase=save`,
+          `recovery_path=${recoveryPath}`,
+          `inherited_count=${repaired.length}`,
+          `reason=${saveErr instanceof Error ? saveErr.message : String(saveErr)}`,
+        );
+      } catch (dumpErr) {
+        // dump 失败的 final fallback：纯 audit / inherited 极端场景丢失
+        this.auditWriter.write(
+          RUNTIME_AUDIT_EVENTS.REGIME_SWITCH_FAILED,
+          `phase=save_and_dump`,
+          `save_reason=${saveErr instanceof Error ? saveErr.message : String(saveErr)}`,
+          `dump_reason=${dumpErr instanceof Error ? dumpErr.message : String(dumpErr)}`,
+          `inherited_count=${repaired.length}`,
+        );
+      }
+      throw saveErr;   // 让 outer _checkRegimeSwitch catch 处理 lastIdentityHash 不更新
+    }
+    // 7. commit 替换（仅 save 成功后）
+    this.sessionManager = newSessionManager;
+    // 8. audit 成功
     this.auditWriter.write(
       RUNTIME_AUDIT_EVENTS.REGIME_SWITCH,
       `strategy=${strategy}`,
