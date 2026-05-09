@@ -260,6 +260,39 @@ Prompt: ...
     }
   });
 
+  it('同 claw 多契约：仅首契约获「新claw」bonus（α / phase 585）', async () => {
+    // claw-A 多契约 / claw-B 单契约 / 期望 claw-A 首契约 + claw-B 单契约获 hint「新claw」
+    // claw-A 后续契约不获「新claw」hint（fixture 控）
+    const clawAArchive = path.join(clawforumDir, 'claws', 'claw-A', 'contract', 'archive');
+    const clawBArchive = path.join(clawforumDir, 'claws', 'claw-B', 'contract', 'archive');
+    await fs.mkdir(path.join(clawAArchive, 'contract-A1'), { recursive: true });
+    await fs.mkdir(path.join(clawAArchive, 'contract-A2'), { recursive: true });
+    await fs.mkdir(path.join(clawBArchive, 'contract-B1'), { recursive: true });
+
+    let capturedPrompt = '';
+    mockWritePendingSubAgentTask.mockImplementation(async (_audit: unknown, opts: { intent: string }) => {
+      capturedPrompt = opts.intent;
+      return taskId;
+    });
+    await writeTaskCompletion(motionDir, taskId, '=== started ===');
+
+    await runRandomDream(makeOpts(clawforumDir, motionDir));
+
+    // prompt 各 contract 行的 hint 文案
+    const lines = capturedPrompt.split('\n').filter(l => l.match(/^\d+\./));
+    const lineA1 = lines.find(l => l.includes('contract-A1')) ?? '';
+    const lineA2 = lines.find(l => l.includes('contract-A2')) ?? '';
+    const lineB1 = lines.find(l => l.includes('contract-B1')) ?? '';
+
+    // claw-A 首契约（discovery 顺序 = listSync 顺序 / contract-A1 或 -A2 取决于 fs 排序）
+    // 关键 invariant：claw-A 两 contract 中**仅 1 个**含「新claw」/ 不是两个都含 / 也不是 0 个
+    const aHints = [lineA1, lineA2].filter(l => l.includes('新claw'));
+    expect(aHints.length).toBe(1);  // 反 phase 582 前 bug：两个都含 / 反 β 删 clawsSeen 修：0 个
+
+    // claw-B 单契约必含「新claw」
+    expect(lineB1).toContain('新claw');
+  });
+
   // ── 已处理契约降权 ──────────────────────────────────────────
 
   it('已处理契约排序靠后（权重 -80）', async () => {

@@ -146,8 +146,9 @@ function discoverWeightedContracts(
 
       const { weight, hint } = computeWeight(fs, contractId, contractDir, clawId, processedIds, clawsSeen);
       contracts.push({ clawId, contractId, contractDir, weight, hint });
+      clawsSeen.add(clawId);  // NEW phase 585 / 每 claw 首契约获 +30 bonus / 后续不获
     }
-    // 注意：clawsSeen 在排序后才有意义，这里先收集全部，排序时更新
+    // clawsSeen 内层每契约后 add（首契约获 +30 bonus）/ firstSeenClaws 排序后 hint 文案独立修正
   }
 
   // 按权重降序排序
