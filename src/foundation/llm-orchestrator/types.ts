@@ -186,6 +186,9 @@ export interface ProviderAdapter {
 
   /** Set by LLMOrchestratorImpl; providers call this for SSE parse errors (A.4) */
   onStreamParseError?: (event: { provider: string; raw: string; error: string }) => void;
+
+  /** Set by LLMOrchestratorImpl; providers call this when tool_call.function.arguments fails JSON.parse */
+  onToolArgParseError?: (event: { provider: string; toolName: string; rawArgs: string; error: string }) => void;
 }
 
 /**
@@ -202,6 +205,7 @@ export type LLMEvent =
   | { type: 'healthcheck_failed'; provider: string; error: string }
   | { type: 'stream_reset'; provider: string; error: string }
   | { type: 'stream_parse_error'; provider: string; raw: string; error: string }
+  | { type: 'tool_arg_parse_error'; provider: string; toolName: string; rawArgs: string; error: string }
   | { type: 'idle_failover_triggered'; provider: string; ms: number }
   | { type: 'context_exceeded_failover'; provider: string; stopReason: string };
 

@@ -157,6 +157,12 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
       this.events.emit({ type: 'stream_parse_error', ...e });
     this.primary.onStreamParseError = parseErrHandler;
     this.fallbacks.forEach(fb => { fb.onStreamParseError = parseErrHandler; });
+
+    // Wire onToolArgParseError for tool args JSON.parse failures
+    const toolArgErrHandler = (e: { provider: string; toolName: string; rawArgs: string; error: string }) =>
+      this.events.emit({ type: 'tool_arg_parse_error', ...e });
+    this.primary.onToolArgParseError = toolArgErrHandler;
+    this.fallbacks.forEach(fb => { fb.onToolArgParseError = toolArgErrHandler; });
   }
 
   /**

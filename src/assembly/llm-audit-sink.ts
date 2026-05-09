@@ -45,6 +45,10 @@ export function createLLMAuditSink(audit: AuditLog): LLMEventSink {
             audit.write(LLM_AUDIT_EVENTS.STREAM_PARSE_ERROR,
               `provider=${event.provider}`, `raw=${event.raw}`, `error=${event.error}`);
             break;
+          case 'tool_arg_parse_error':
+            audit.write(LLM_AUDIT_EVENTS.TOOL_ARG_PARSE_ERROR,
+              `provider=${event.provider}`, `tool=${event.toolName}`, `raw=${event.rawArgs}`, `error=${event.error}`);
+            break;
           case 'idle_failover_triggered':
             audit.write(
               LLM_AUDIT_EVENTS.IDLE_FAILOVER_TRIGGERED,

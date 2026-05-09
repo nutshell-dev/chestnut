@@ -100,6 +100,7 @@ export class OpenAIAdapter implements ProviderAdapter {
   private readonly baseUrl: string;
   
   onStreamParseError?: (event: { provider: string; raw: string; error: string }) => void;
+  onToolArgParseError?: (event: { provider: string; toolName: string; rawArgs: string; error: string }) => void;
   
   constructor(config: ProviderConfig) {
     this.config = config;
@@ -511,8 +512,14 @@ export class OpenAIAdapter implements ProviderAdapter {
             name: tc.function.name,
             input,
           });
-        } catch {
-          // Invalid JSON, treat as string
+        } catch (err) {
+          // JSON.parse failed (LLM returned malformed args) → emit audit then fallback to raw string
+          this.onToolArgParseError?.({
+            provider: this.name,
+            toolName: tc.function.name,
+            rawArgs: tc.function.arguments,
+            error: err instanceof Error ? err.message : String(err),
+          });
           content.push({
             type: 'tool_use',
             id: tc.id,
