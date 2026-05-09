@@ -76,7 +76,7 @@ async function runLLMCall(
     response = await collectStreamResponse(llm, callOptions, callbacks);
   } catch (err) {
     const info: LLMCallInfo = {
-      model: llm.getProviderInfo?.().model ?? 'unknown',
+      model: llm.getProviderInfo?.()?.model ?? 'unknown',
       inputTokens: 0,
       outputTokens: 0,
       latencyMs: Date.now() - llmStartTime,
@@ -90,7 +90,7 @@ async function runLLMCall(
     throw err;
   }
   const llmInfo: LLMCallInfo = {
-    model: llm.getProviderInfo?.().model ?? 'unknown',
+    model: llm.getProviderInfo?.()?.model ?? 'unknown',
     inputTokens: response.usage?.input_tokens ?? 0,
     outputTokens: response.usage?.output_tokens ?? 0,
     latencyMs: Date.now() - llmStartTime,

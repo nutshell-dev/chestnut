@@ -130,6 +130,12 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
   // Track current provider: -1 = primary, 0..N = fallbacks[i]
   private currentProviderIndex = -1;
 
+  private lastSuccessProvider: {
+    name: string;
+    model: string;
+    isFallback: boolean;
+  } | null = null;
+
   // Circuit breakers for each provider (primary + fallbacks)
   private breakers: CircuitBreaker[];
 
@@ -197,6 +203,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
 
           // Reset to primary
           this.currentProviderIndex = -1;
+          this.updateLastSuccess(this.primary, false);
           return response;
 
         } catch (error) {
@@ -269,6 +276,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
         this.breakers[i + 1]?.onSuccess();
 
         this.currentProviderIndex = i;
+        this.updateLastSuccess(fb, true);
         return response;
 
       } catch (fallbackError) {
@@ -436,6 +444,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
         breaker?.onSuccess();
         // Update current provider index (-1 = primary, 0..N = fallbacks)
         this.currentProviderIndex = pi === 0 ? -1 : pi - 1;
+        this.updateLastSuccess(adapter, pi !== 0);
         return; // Success, exit generator
       }
 
@@ -478,6 +487,14 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
     throw new LLMAllProvidersFailedError(failures);
   }
   
+  private updateLastSuccess(adapter: LLMProvider, isFallback: boolean): void {
+    this.lastSuccessProvider = {
+      name: adapter.name,
+      model: adapter.model,
+      isFallback,
+    };
+  }
+
   /**
    * Get current provider info
    */
@@ -485,33 +502,32 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
     name: string;
     model: string;
     isFallback: boolean;
-  } {
-    const provider = this.currentProviderIndex === -1
-      ? this.primary
-      : this.fallbacks[this.currentProviderIndex];
-    
-    return {
-      name: provider.name,
-      model: provider.model,
-      isFallback: this.currentProviderIndex !== -1,
-    };
+  } | null {
+    return this.lastSuccessProvider;
   }
   
   /**
    * Health check - quick validation that provider is reachable
    */
   async healthCheck(): Promise<boolean> {
-    try {
-      // Make a minimal request (low token count)
-      await this.primary.call({
-        messages: [{ role: 'user', content: 'Hi' }],
-        maxTokens: 1,
-      });
-      return true;
-    } catch (err) {
-      this.events.emit({ type: 'healthcheck_failed', provider: this.primary.name, error: err instanceof Error ? err.message : String(err) });
-      return false;
+    const adapters = [this.primary, ...this.fallbacks];
+    for (const adapter of adapters) {
+      try {
+        // Make a minimal request (low token count)
+        await adapter.call({
+          messages: [{ role: 'user', content: 'Hi' }],
+          maxTokens: 1,
+        });
+        return true;
+      } catch (err) {
+        this.events.emit({
+          type: 'healthcheck_failed',
+          provider: adapter.name,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
+    return false;
   }
   
   /**

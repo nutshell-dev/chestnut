@@ -36,7 +36,7 @@ export interface LLMOrchestrator {
   call(options: LLMCallOptions): Promise<LLMResponse>;
   stream(options: LLMCallOptions): AsyncIterableIterator<StreamChunk>;
   healthCheck(): Promise<boolean>;
-  getProviderInfo(): { name: string; model: string; isFallback: boolean };
+  getProviderInfo(): { name: string; model: string; isFallback: boolean } | null;
   close(): Promise<void>;
 }
 

@@ -437,8 +437,11 @@ export class Runtime {
     let providerInfoEmitted = false;
     const emitProviderInfoOnce = () => {
       if (!providerInfoEmitted) {
-        providerInfoEmitted = true;
-        callbacks?.onProviderInfo?.(this.llm.getProviderInfo());
+        const info = this.llm.getProviderInfo();
+        if (info) {
+          providerInfoEmitted = true;
+          callbacks?.onProviderInfo?.(info);
+        }
       }
     };
 
@@ -726,8 +729,11 @@ export class Runtime {
     let chatProviderInfoEmitted = false;
     const emitChatProviderInfoOnce = () => {
       if (!chatProviderInfoEmitted) {
-        chatProviderInfoEmitted = true;
-        options?.onProviderInfo?.(this.llm.getProviderInfo());
+        const info = this.llm.getProviderInfo();
+        if (info) {
+          chatProviderInfoEmitted = true;
+          options?.onProviderInfo?.(info);
+        }
       }
     };
 

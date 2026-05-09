@@ -404,7 +404,7 @@ describe('LLM Service', () => {
       });
 
       expect((response.content[0] as { text: string }).text).toBe('Primary response');
-      expect(service.getProviderInfo().name).toBe('primary');
+      expect(service.getProviderInfo()!.name).toBe('primary');
     });
 
     it('should failover to fallback when primary fails', async () => {
@@ -434,7 +434,7 @@ describe('LLM Service', () => {
       });
 
       expect((response.content[0] as { text: string }).text).toBe('Fallback response');
-      expect(service.getProviderInfo().isFallback).toBe(true);
+      expect(service.getProviderInfo()!.isFallback).toBe(true);
     });
 
     it('should throw LLMAllProvidersFailedError when both fail', async () => {
@@ -521,14 +521,14 @@ describe('LLM Service', () => {
         messages: [{ role: 'user', content: 'Hi' }],
       });
       expect((response1.content[0] as { text: string }).text).toBe('Fallback');
-      expect(service.getProviderInfo().isFallback).toBe(true);
+      expect(service.getProviderInfo()!.isFallback).toBe(true);
 
       // Second call - should use primary (fallback reset)
       const response2 = await service.call({
         messages: [{ role: 'user', content: 'Hi' }],
       });
       expect((response2.content[0] as { text: string }).text).toBe('Primary OK');
-      expect(service.getProviderInfo().isFallback).toBe(false);
+      expect(service.getProviderInfo()!.isFallback).toBe(false);
     });
 
     it('should cap backoff at 30 seconds', async () => {
@@ -571,20 +571,26 @@ describe('LLM Service', () => {
     });
 
     it('should report correct provider info', async () => {
-      const mockFetch = vi.fn().mockResolvedValue(
-        createMockResponse(createAnthropicResponse([{ type: 'text', text: 'OK' }]))
-      );
-      vi.stubGlobal('fetch', mockFetch);
+      mockMessagesCreate.mockResolvedValue({
+        id: 'msg-test',
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'text', text: 'OK' }],
+        model: 'claude-3-test',
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 10, output_tokens: 5 },
+      });
 
       const service = new LLMOrchestratorImpl({
         primary: primaryConfig,
-        fallback: fallbackConfig,
+        fallbacks: [fallbackConfig],
         maxAttempts: 1,
         retryDelayMs: 100,
       events: { emit: () => {} },
       });
 
-      const info = service.getProviderInfo();
+      await service.call({ messages: [{ role: 'user', content: 'Hi' }] });
+      const info = service.getProviderInfo()!;
       expect(info.name).toBe('primary');
       expect(info.model).toBe('claude-3-test');
       expect(info.isFallback).toBe(false);

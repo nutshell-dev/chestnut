@@ -240,7 +240,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
 
     await service.call({ messages: [] });
 
-    const info = service.getProviderInfo();
+    const info = service.getProviderInfo()!;
     expect(info.isFallback).toBe(false);
     expect(info.name).toBe('primary');
   });
@@ -263,7 +263,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
 
     await service.call({ messages: [] });
 
-    const info = service.getProviderInfo();
+    const info = service.getProviderInfo()!;
     expect(info.isFallback).toBe(true);
     expect(info.name).toBe('fb');
   });
@@ -408,6 +408,109 @@ describe('LLMOrchestratorImpl - stream failover', () => {
     expect(primaryAttempts).toBe(2);  // old bug: primary was skipped, this would be 1
     expect(chunks2.some(c => 'delta' in c && c.delta === 'primary back')).toBe(true);
   });
+
+  describe('Orchestrator getProviderInfo + healthCheck (phase 616)', () => {
+    it('全失败 throw 后 getProviderInfo 返 null（lastSuccessProvider 不更新）', async () => {
+      const badPrimary = createMockProvider('p');
+      (badPrimary as any).call = async () => { throw new Error('primary failed'); };
+
+      const service = new LLMOrchestratorImpl({
+        primary: { name: 'p', apiKey: 'test', model: 'test' },
+        fallbacks: [],
+        maxAttempts: 1,
+        retryDelayMs: 0,
+        events: noopSink,
+      });
+      (service as any).primary = badPrimary;
+
+      await expect(service.call({ messages: [] })).rejects.toThrow();
+      expect(service.getProviderInfo()).toBeNull();
+    });
+
+    it('成功 call 后 getProviderInfo 返成功 adapter info', async () => {
+      const service = new LLMOrchestratorImpl({
+        primary: { name: 'primary', apiKey: 'test', model: 'foo' },
+        maxAttempts: 1,
+        retryDelayMs: 0,
+        events: noopSink,
+      });
+      (service as any).primary = createMockProvider('primary');
+
+      await service.call({ messages: [] });
+      expect(service.getProviderInfo()).toEqual({ name: 'primary', model: 'mock-model', isFallback: false });
+    });
+
+    it('mid-stream failover 后再失败 / getProviderInfo 仍返之前成功 provider info', async () => {
+      const badPrimary = createMockProvider('p');
+      (badPrimary as any).call = async () => { throw new Error('primary failed'); };
+      const goodFallback = createMockProvider('fb');
+
+      const service = new LLMOrchestratorImpl({
+        primary: { name: 'p', apiKey: 'test', model: 'test' },
+        fallbacks: [{ name: 'fb', apiKey: 'test', model: 'test' }],
+        maxAttempts: 1,
+        retryDelayMs: 0,
+        events: noopSink,
+      });
+      (service as any).primary = badPrimary;
+      (service as any).fallbacks = [goodFallback];
+
+      await service.call({ messages: [] });
+      const beforeFail = service.getProviderInfo();
+      expect(beforeFail).toEqual({ name: 'fb', model: 'mock-model', isFallback: true });
+
+      // Now make fallback fail too
+      (service as any).fallbacks[0].call = async () => { throw new Error('fallback failed'); };
+      await expect(service.call({ messages: [] })).rejects.toThrow();
+      expect(service.getProviderInfo()).toEqual(beforeFail);
+    });
+
+    it('healthCheck primary fail / fallback success → return true + emit healthcheck_failed for primary only', async () => {
+      const badPrimary = createMockProvider('p');
+      (badPrimary as any).call = async () => { throw new Error('primary failed'); };
+      const goodFallback = createMockProvider('fb');
+
+      const { sink, emitted } = createMockSink();
+      const service = new LLMOrchestratorImpl({
+        primary: { name: 'p', apiKey: 'test', model: 'test' },
+        fallbacks: [{ name: 'fb', apiKey: 'test', model: 'test' }],
+        maxAttempts: 1,
+        retryDelayMs: 0,
+        events: sink,
+      });
+      (service as any).primary = badPrimary;
+      (service as any).fallbacks = [goodFallback];
+
+      expect(await service.healthCheck()).toBe(true);
+      const failedEvents = emitted.filter((e: any) => e.type === 'healthcheck_failed');
+      expect(failedEvents).toHaveLength(1);
+      expect(failedEvents[0].provider).toBe('p');
+    });
+
+    it('healthCheck 全失败 → return false + emit healthcheck_failed for each provider', async () => {
+      const badPrimary = createMockProvider('p');
+      (badPrimary as any).call = async () => { throw new Error('primary failed'); };
+      const badFallback1 = createMockProvider('fb1');
+      (badFallback1 as any).call = async () => { throw new Error('fb1 failed'); };
+      const badFallback2 = createMockProvider('fb2');
+      (badFallback2 as any).call = async () => { throw new Error('fb2 failed'); };
+
+      const { sink, emitted } = createMockSink();
+      const service = new LLMOrchestratorImpl({
+        primary: { name: 'p', apiKey: 'test', model: 'test' },
+        fallbacks: [{ name: 'fb1', apiKey: 'test', model: 'test' }, { name: 'fb2', apiKey: 'test', model: 'test' }],
+        maxAttempts: 1,
+        retryDelayMs: 0,
+        events: sink,
+      });
+      (service as any).primary = badPrimary;
+      (service as any).fallbacks = [badFallback1, badFallback2];
+
+      expect(await service.healthCheck()).toBe(false);
+      const failedEvents = emitted.filter((e: any) => e.type === 'healthcheck_failed');
+      expect(failedEvents).toHaveLength(3);
+    });
+  });
 });
 
 // Phase 20: Circuit Breaker
@@ -488,7 +591,7 @@ describe('LLMOrchestratorImpl - circuit breaker', () => {
     expect(primaryFailCount).toBe(2); // no new failures (shouldFail=false)
 
     // Provider should have returned to primary
-    const info = service.getProviderInfo();
+    const info = service.getProviderInfo()!;
     expect(info.isFallback).toBe(false);
   }, 2000);
 
