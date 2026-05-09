@@ -108,7 +108,14 @@ export async function spawnProcess(
           `claw=${clawId}`,
         );
       }
-      await removePid(ctx, clawId).catch(() => {});
+      await removePid(ctx, clawId).catch((err) => {
+        ctx.audit.write(
+          PROCESS_MANAGER_AUDIT_EVENTS.PID_REMOVE_FAILED,
+          `claw=${clawId}`,
+          `context=spawn_retry_overwrite`,
+          `reason=${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
       ctx.fs.writeExclusiveSync(pidFile, '');
     } else {
       throw err;
