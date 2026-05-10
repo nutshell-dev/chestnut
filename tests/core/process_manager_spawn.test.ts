@@ -51,6 +51,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+  vi.restoreAllMocks();
 });
 
 describe('ProcessManager.spawn() - Phase 19 daemon-entry.js', () => {
@@ -102,7 +103,6 @@ describe('ProcessManager.spawn() - Phase 19 daemon-entry.js', () => {
     });
 
     expect(killSpy).toHaveBeenCalledWith(orphanPid, 'SIGTERM');
-    killSpy.mockRestore();
   });
 
   it('should warn and continue when stale empty PID file exists', async () => {

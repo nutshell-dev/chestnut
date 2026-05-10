@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { mkdtempSync } from 'fs';
+import { describe, it, expect, afterEach } from 'vitest';
+import { mkdtempSync, rmSync } from 'fs';
 import { readdir, readFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import path from 'path';
@@ -20,14 +20,23 @@ import {
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { AuditWriter } from '../../src/foundation/audit/writer.js';
 
+let tmpDirs: string[] = [];
+
 function mkEnv() {
   const dir = mkdtempSync(path.join(tmpdir(), 'factories-'));
+  tmpDirs.push(dir);
   const fs = new NodeFileSystem({ baseDir: dir });
   const audit = new AuditWriter(fs, 'audit.tsv', null);
   return { dir, fs, audit };
 }
 
 describe('L2 factories — 行为契约', () => {
+  afterEach(() => {
+    for (const d of tmpDirs) {
+      rmSync(d, { recursive: true, force: true });
+    }
+    tmpDirs = [];
+  });
   it('所有工厂：不缓存（两次调用返回不同实例）', () => {
     const { dir, fs, audit } = mkEnv();
     expect(createStreamWriter(fs, audit)).not.toBe(createStreamWriter(fs, audit));

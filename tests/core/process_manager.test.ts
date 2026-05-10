@@ -35,10 +35,15 @@ describe('ProcessManager', () => {
   beforeEach(async () => {
     tempDir = await createTempDir();
     nodeFs = new NodeFileSystem({ baseDir: tempDir });
+    // 重装 vi.mock factory default（restoreAllMocks 后 chained mockImplementation 失效）
+    const { spawnSync, spawn } = await import('child_process');
+    vi.mocked(spawnSync).mockImplementation(() => ({ status: 1, stdout: '', stderr: '' } as any));
+    vi.mocked(spawn).mockReturnValue({ pid: process.pid, unref: vi.fn() } as any);
   });
 
   afterEach(async () => {
     await cleanupTempDir(tempDir);
+    vi.restoreAllMocks();
   });
 
   describe('dirResolver - 默认路径', () => {
@@ -225,7 +230,6 @@ describe('ProcessManager', () => {
       });
 
       expect(() => pm.findProcesses('test-pattern')).toThrow(ProcessListUnavailable);
-      vi.mocked(spawnSync).mockRestore();
     });
 
     it('should throw ProcessListUnavailable when pgrep exits with non-0/non-1 status', async () => {
@@ -239,7 +243,6 @@ describe('ProcessManager', () => {
       } as any));
 
       expect(() => pm.findProcesses('test-pattern')).toThrow(ProcessListUnavailable);
-      vi.mocked(spawnSync).mockRestore();
     });
 
     it('should return empty array when pgrep exits 1 (no match)', async () => {
@@ -253,7 +256,6 @@ describe('ProcessManager', () => {
       } as any));
 
       expect(pm.findProcesses('test-pattern')).toEqual([]);
-      vi.mocked(spawnSync).mockRestore();
     });
   });
 
