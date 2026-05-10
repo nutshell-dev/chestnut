@@ -15,6 +15,7 @@ import { randomUUID } from 'crypto';
 
 import { DialogStore } from '../../src/foundation/dialog-store/index.js';
 import { ContextInjector } from '../../src/core/dialog/injector.js';
+import { createSkillSystem } from '../../src/foundation/skill-system/index.js';
 import type { Message } from '../../src/types/message.js';
 import type { SessionData } from '../../src/foundation/dialog-store/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
@@ -266,15 +267,26 @@ describe('Dialog', () => {
       expect(prompt).not.toContain('Memory');
     });
 
-    // buildParts: skill 注入
+    // buildParts: skill 注入（真 SkillRegistry + tmp fixture / 不再 mock tautology）
     it('should include skills in buildParts when skillRegistry is provided', async () => {
-      const mockSkillRegistry = {
-        formatForContext: vi.fn().mockReturnValue('## Skills\n- skill1'),
-      } as any;
-      const inj = new ContextInjector({ fs: nodeFs, skillRegistry: mockSkillRegistry });
+      // arrange: 写真 SKILL.md fixture 到 outer tempDir
+      await nodeFs.ensureDir('skills/skill1');
+      await nodeFs.writeAtomic(
+        'skills/skill1/SKILL.md',
+        '---\nname: skill1\ndescription: Test fixture skill\nversion: 0.0.1\n---\n# skill1\n',
+      );
 
+      // act: 真 SkillSystem + loadAll（契约 §2.1）
+      const registry = createSkillSystem(nodeFs, 'skills', { write: () => {} });
+      await registry.loadAll();
+
+      const inj = new ContextInjector({ fs: nodeFs, skillRegistry: registry });
       const parts = await inj.buildParts();
-      expect(parts.skills).toBe('## Skills\n- skill1');
+
+      // assert: 真契约语义（heading + skill name + description）/ 容忍非语义文案变化
+      expect(parts.skills).toContain('## Available Skills');
+      expect(parts.skills).toContain('skill1');
+      expect(parts.skills).toContain('Test fixture skill');
       expect(parts.contract).toBe('');
     });
 
