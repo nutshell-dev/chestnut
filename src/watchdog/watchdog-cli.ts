@@ -12,6 +12,18 @@ import {
   writeWatchdogPid, getWatchdogPid, isWatchdogAlive, removeWatchdogPid,
 } from './watchdog-pid.js';
 
+// Watchdog lifecycle poll：通用 100ms 间隔
+const WATCHDOG_POLL_INTERVAL_MS = 100;
+
+// startCommand: 等 PID 文件写入 / 100ms × 30 = 3s 总 timeout
+const WATCHDOG_START_MAX_ATTEMPTS = 30;
+
+// stopCommand: 等 SIGTERM 后退出 / 100ms × 50 = 5s 总 timeout
+const WATCHDOG_STOP_MAX_ATTEMPTS = 50;
+
+// SIGKILL 后宽限期（让 OS 完成进程清理）
+const WATCHDOG_SIGKILL_GRACE_MS = 500;
+
 /** 1:1 保 watchdog.ts:514-543 / startCommand */
 export async function startCommand(): Promise<void> {
   const watchdogEntryPath = getWatchdogEntryPath();
@@ -30,8 +42,8 @@ export async function startCommand(): Promise<void> {
 
   // 等待 PID 文件写入
   let attempts = 0;
-  while (!isWatchdogAlive() && attempts < 30) {
-    await setTimeout(100);
+  while (!isWatchdogAlive() && attempts < WATCHDOG_START_MAX_ATTEMPTS) {
+    await setTimeout(WATCHDOG_POLL_INTERVAL_MS);
     attempts++;
   }
 
@@ -63,8 +75,8 @@ export async function stopCommand(): Promise<void> {
   
   // Wait up to 5s
   let attempts = 0;
-  while (isWatchdogAlive() && attempts < 50) {
-    await setTimeout(100);
+  while (isWatchdogAlive() && attempts < WATCHDOG_STOP_MAX_ATTEMPTS) {
+    await setTimeout(WATCHDOG_POLL_INTERVAL_MS);
     attempts++;
   }
   
@@ -75,7 +87,7 @@ export async function stopCommand(): Promise<void> {
     } catch (err) {
       console.log('Failed to send SIGKILL:', err);
     }
-    await setTimeout(500);
+    await setTimeout(WATCHDOG_SIGKILL_GRACE_MS);
   }
   
   removeWatchdogPid();
