@@ -24,6 +24,8 @@ export { CustomAnthropicAdapter } from './custom-anthropic.js';
 export { OpenAIAdapter } from './openai.js';
 export { GeminiAdapter } from './gemini.js';
 export { withCombinedAbortSignal, type CombinedAbortHandle } from './abort-helper.js';
+export { classifyFetchAbortError, makeExternalAbortError } from './abort-helper.js';
+export type { AbortReason } from './abort-helper.js';
 export type { ApiFormat, ProviderPreset } from './presets.js';
 export { PRESETS, resolvePreset } from './presets.js';
 

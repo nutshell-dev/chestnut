@@ -12,8 +12,8 @@ import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js
 import type { ToolDefinition } from '../../types/message.js';
 import { ToolTimeoutError } from '../../types/errors.js';
 import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../../types/signals.js';
-import type { AbortReason } from '../../foundation/llm-provider/abort-helper.js';
-import { makeExternalAbortError } from '../../foundation/llm-provider/abort-helper.js';
+import type { AbortReason } from '../../foundation/llm-provider/index.js';
+import { makeExternalAbortError } from '../../foundation/llm-provider/index.js';
 import { SUBAGENT_TIMEOUT_MS, DEFAULT_MAX_STEPS } from '../../constants.js';
 import { oneLine } from '../../types/utils.js';
 import type { Message } from '../../types/message.js';
