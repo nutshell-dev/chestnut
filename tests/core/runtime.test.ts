@@ -2,6 +2,7 @@
  * Runtime integration tests
  */
 
+import type { RuntimeTestInternals } from '../helpers/runtime-test-internals.js';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as path from 'path';
 import { promises as fs } from 'fs';
@@ -557,7 +558,7 @@ Test message
       (runtime as unknown as { llm: typeof mockLLM }).llm = mockLLM;
 
       const audit: string[] = [];
-      vi.spyOn((runtime as any).auditWriter, 'write').mockImplementation((type: string, ...args: string[]) => {
+      vi.spyOn((runtime as unknown as RuntimeTestInternals).auditWriter, 'write').mockImplementation((type: string, ...args: string[]) => {
         audit.push([type, ...args].join('\t'));
       });
 
@@ -943,7 +944,7 @@ Test message`;
       );
 
       const mockLLM = createMockLLM([{ content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' }]);
-      (runtime as any).llm = mockLLM;
+      (runtime as unknown as RuntimeTestInternals).llm = mockLLM;
       await runtime.processBatch();
 
       const userMsg = mockLLM.call.mock.calls[0][0].messages.find((m: any) => m.role === 'user');
@@ -963,7 +964,7 @@ Test message`;
       );
 
       const mockLLM = createMockLLM([{ content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' }]);
-      (runtime as any).llm = mockLLM;
+      (runtime as unknown as RuntimeTestInternals).llm = mockLLM;
       await runtime.processBatch();
 
       const userMsg = mockLLM.call.mock.calls[0][0].messages.find((m: any) => m.role === 'user');
@@ -982,7 +983,7 @@ Test message`;
       );
 
       const mockLLM = createMockLLM([{ content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' }]);
-      (runtime as any).llm = mockLLM;
+      (runtime as unknown as RuntimeTestInternals).llm = mockLLM;
       await runtime.processBatch();
 
       const userMsg = mockLLM.call.mock.calls[0][0].messages.find((m: any) => m.role === 'user');
@@ -1245,7 +1246,7 @@ Test message`;
       runtime.reactError = originalError;
 
       // 注入一个会抛出的 outboxWriter
-      (runtime as any).outboxWriter = {
+      (runtime as unknown as RuntimeTestInternals).outboxWriter = {
         write: async () => { throw new Error('outbox disk full'); },
       };
 
@@ -1278,10 +1279,10 @@ Test message`;
       runtime.reactError = new MaxStepsExceededError(10);
 
       const audit: string[] = [];
-      vi.spyOn((runtime as any).auditWriter, 'write').mockImplementation((type: string, ...args: string[]) => {
+      vi.spyOn((runtime as unknown as RuntimeTestInternals).auditWriter, 'write').mockImplementation((type: string, ...args: string[]) => {
         audit.push([type, ...args].join('\t'));
       });
-      vi.spyOn((runtime as any).outboxWriter, 'write').mockRejectedValue(new Error('outbox disk full'));
+      vi.spyOn((runtime as unknown as RuntimeTestInternals).outboxWriter, 'write').mockRejectedValue(new Error('outbox disk full'));
 
       await expect(runtime.processBatch()).rejects.toThrow(MaxStepsExceededError);
 
@@ -1312,10 +1313,10 @@ Test message`;
       runtime.reactError = originalError;
 
       const audit: string[] = [];
-      vi.spyOn((runtime as any).auditWriter, 'write').mockImplementation((type: string, ...args: string[]) => {
+      vi.spyOn((runtime as unknown as RuntimeTestInternals).auditWriter, 'write').mockImplementation((type: string, ...args: string[]) => {
         audit.push([type, ...args].join('\t'));
       });
-      vi.spyOn((runtime as any).outboxWriter, 'write').mockRejectedValue(new Error('outbox io err'));
+      vi.spyOn((runtime as unknown as RuntimeTestInternals).outboxWriter, 'write').mockRejectedValue(new Error('outbox io err'));
 
       const err = await runtime.processBatch().catch(e => e);
       expect(err).toBe(originalError);
@@ -1351,8 +1352,8 @@ Test message`;
     it('IdleTimeoutSignal → onTurnInterrupted("idle_timeout", message with seconds)', () => {
       const onTurnInterrupted = vi.fn();
       const onTurnError = vi.fn();
-      const auditSpy = vi.spyOn((runtime as any).auditWriter, 'write');
-      (runtime as any)._handleTurnInterrupt(new IdleTimeoutSignal(30000), { onTurnInterrupted, onTurnError });
+      const auditSpy = vi.spyOn((runtime as unknown as RuntimeTestInternals).auditWriter, 'write');
+      (runtime as unknown as RuntimeTestInternals)._handleTurnInterrupt(new IdleTimeoutSignal(30000), { onTurnInterrupted, onTurnError });
       expect(onTurnInterrupted).toHaveBeenCalledWith('idle_timeout', expect.stringContaining('30s'));
       expect(onTurnError).not.toHaveBeenCalled();
       expect(auditSpy).toHaveBeenCalledWith('turn_interrupted', 'cause=idle_timeout', 'ms=30000');
@@ -1362,8 +1363,8 @@ Test message`;
     it('PriorityInboxInterrupt → onTurnInterrupted("priority_inbox")', () => {
       const onTurnInterrupted = vi.fn();
       const onTurnError = vi.fn();
-      const auditSpy = vi.spyOn((runtime as any).auditWriter, 'write');
-      (runtime as any)._handleTurnInterrupt(new PriorityInboxInterrupt(), { onTurnInterrupted, onTurnError });
+      const auditSpy = vi.spyOn((runtime as unknown as RuntimeTestInternals).auditWriter, 'write');
+      (runtime as unknown as RuntimeTestInternals)._handleTurnInterrupt(new PriorityInboxInterrupt(), { onTurnInterrupted, onTurnError });
       expect(onTurnInterrupted).toHaveBeenCalledWith('priority_inbox', expect.any(String));
       expect(onTurnError).not.toHaveBeenCalled();
       expect(auditSpy).toHaveBeenCalledWith('turn_interrupted', 'cause=priority_inbox');
@@ -1373,8 +1374,8 @@ Test message`;
     it('UserInterrupt → onTurnInterrupted("user_interrupt")', () => {
       const onTurnInterrupted = vi.fn();
       const onTurnError = vi.fn();
-      const auditSpy = vi.spyOn((runtime as any).auditWriter, 'write');
-      (runtime as any)._handleTurnInterrupt(new UserInterrupt(), { onTurnInterrupted, onTurnError });
+      const auditSpy = vi.spyOn((runtime as unknown as RuntimeTestInternals).auditWriter, 'write');
+      (runtime as unknown as RuntimeTestInternals)._handleTurnInterrupt(new UserInterrupt(), { onTurnInterrupted, onTurnError });
       expect(onTurnInterrupted).toHaveBeenCalledWith('user_interrupt');  // 无 message，让 viewport 自行决定显示
       expect(onTurnError).not.toHaveBeenCalled();
       expect(auditSpy).toHaveBeenCalledWith('turn_interrupted', 'cause=user_interrupt');
@@ -1384,8 +1385,8 @@ Test message`;
     it('Error → onTurnError with message', () => {
       const onTurnInterrupted = vi.fn();
       const onTurnError = vi.fn();
-      const auditSpy = vi.spyOn((runtime as any).auditWriter, 'write');
-      (runtime as any)._handleTurnInterrupt(new Error('LLM failure'), { onTurnInterrupted, onTurnError });
+      const auditSpy = vi.spyOn((runtime as unknown as RuntimeTestInternals).auditWriter, 'write');
+      (runtime as unknown as RuntimeTestInternals)._handleTurnInterrupt(new Error('LLM failure'), { onTurnInterrupted, onTurnError });
       expect(onTurnError).toHaveBeenCalledWith('LLM failure');
       expect(onTurnInterrupted).not.toHaveBeenCalled();
       expect(auditSpy).toHaveBeenCalledWith('turn_error', 'err=LLM failure');
@@ -1394,7 +1395,7 @@ Test message`;
 
     it('non-Error value → onTurnError with string', () => {
       const onTurnError = vi.fn();
-      (runtime as any)._handleTurnInterrupt('raw string error', { onTurnError });
+      (runtime as unknown as RuntimeTestInternals)._handleTurnInterrupt('raw string error', { onTurnError });
       expect(onTurnError).toHaveBeenCalledWith('raw string error');
     });
   });
@@ -1533,7 +1534,7 @@ Test message`;
       mockLLM.getProviderInfo.mockReturnValue({ name: 'anthropic', model: 'claude-opus-4-6', isFallback: false });
 
       await runtime.initialize();
-      (runtime as any).llm = mockLLM;
+      (runtime as unknown as RuntimeTestInternals).llm = mockLLM;
 
       const onProviderInfo = vi.fn();
       await runtime.chat('Hi', { onProviderInfo });
@@ -1565,7 +1566,7 @@ Test message`;
       };
 
       await runtime.initialize();
-      (runtime as any).llm = multiDeltaLLM;
+      (runtime as unknown as RuntimeTestInternals).llm = multiDeltaLLM;
 
       const onProviderInfo = vi.fn();
       await runtime.chat('Hi', { onProviderInfo });
@@ -1587,7 +1588,7 @@ Test message`;
       mockLLM.getProviderInfo.mockReturnValue({ name: 'openai', model: 'gpt-4o', isFallback: true });
 
       await runtime.initialize();
-      (runtime as any).llm = mockLLM;
+      (runtime as unknown as RuntimeTestInternals).llm = mockLLM;
 
       const onProviderInfo = vi.fn();
       await runtime.chat('Hi', { onProviderInfo });
@@ -1609,7 +1610,7 @@ Test message`;
         { content: [{ type: 'text', text: 'Second' }], stop_reason: 'end_turn' },
       ]);
       await runtime.initialize();
-      (runtime as any).llm = mockLLM;
+      (runtime as unknown as RuntimeTestInternals).llm = mockLLM;
 
       const onProviderInfo = vi.fn();
       await runtime.chat('Turn 1', { onProviderInfo });
@@ -1750,9 +1751,9 @@ Test message
         content: [{ type: 'text', text: 'Processed' }],
         stop_reason: 'end_turn',
       }]);
-      (runtime as any).llm = mockLLM;
+      (runtime as unknown as RuntimeTestInternals).llm = mockLLM;
 
-      const auditSpy = vi.spyOn((runtime as any).auditWriter, 'write');
+      const auditSpy = vi.spyOn((runtime as unknown as RuntimeTestInternals).auditWriter, 'write');
       await runtime.processBatch();
       const calls = auditSpy.mock.calls.map((c: any[]) => c[0]);
       expect(calls).toContain('turn_start');
@@ -1772,9 +1773,9 @@ Test message
         content: [{ type: 'text', text: 'Reply' }],
         stop_reason: 'end_turn',
       }]);
-      (runtime as any).llm = mockLLM;
+      (runtime as unknown as RuntimeTestInternals).llm = mockLLM;
 
-      const auditSpy = vi.spyOn((runtime as any).auditWriter, 'write');
+      const auditSpy = vi.spyOn((runtime as unknown as RuntimeTestInternals).auditWriter, 'write');
       await runtime.processWithMessage({ role: 'user', content: 'hello' });
       const calls = auditSpy.mock.calls.map((c: any[]) => c[0]);
       expect(calls).toContain('turn_start');
@@ -1794,10 +1795,10 @@ Test message
         { content: [{ type: 'text', text: 'First' }], stop_reason: 'end_turn' },
         { content: [{ type: 'text', text: 'Retry' }], stop_reason: 'end_turn' },
       ]);
-      (runtime as any).llm = mockLLM;
+      (runtime as unknown as RuntimeTestInternals).llm = mockLLM;
       await runtime.chat('setup');
 
-      const auditSpy = vi.spyOn((runtime as any).auditWriter, 'write');
+      const auditSpy = vi.spyOn((runtime as unknown as RuntimeTestInternals).auditWriter, 'write');
       await runtime.retryLastTurn();
       const calls = auditSpy.mock.calls.map((c: any[]) => c[0]);
       expect(calls).toContain('turn_start');
@@ -1833,9 +1834,9 @@ Test message
         stop_reason: 'end_turn',
       }]);
       mockLLM.getProviderInfo.mockReturnValue({ name: 'mock', model: 'test-model', isFallback: false });
-      (runtime as any).llm = mockLLM;
+      (runtime as unknown as RuntimeTestInternals).llm = mockLLM;
 
-      const auditSpy = vi.spyOn((runtime as any).auditWriter, 'write');
+      const auditSpy = vi.spyOn((runtime as unknown as RuntimeTestInternals).auditWriter, 'write');
       await runtime.processBatch();
       expect(auditSpy).toHaveBeenCalledWith('llm_call', 'test-model', expect.stringContaining('in='), expect.stringContaining('out='), expect.stringContaining('ms='));
       auditSpy.mockRestore();
@@ -1869,9 +1870,9 @@ Test message
         healthCheck: vi.fn().mockResolvedValue(true),
         getProviderInfo: vi.fn().mockReturnValue({ name: 'mock', model: 'failing-model', isFallback: false }),
       };
-      (runtime as any).llm = failingLLM;
+      (runtime as unknown as RuntimeTestInternals).llm = failingLLM;
 
-      const auditSpy = vi.spyOn((runtime as any).auditWriter, 'write');
+      const auditSpy = vi.spyOn((runtime as unknown as RuntimeTestInternals).auditWriter, 'write');
       await expect(runtime.processBatch()).rejects.toThrow('LLM network error');
       expect(auditSpy).toHaveBeenCalledWith('llm_error', 'failing-model', expect.stringContaining('err='), expect.stringContaining('ms='));
       auditSpy.mockRestore();
@@ -1891,8 +1892,8 @@ Test message
       const pendingDir = path.join(clawDir, 'inbox', 'pending');
       await fs.writeFile(path.join(pendingDir, 'bad.md'), '---\nthis is not valid frontmatter');
 
-      const auditSpy = vi.spyOn((runtime as any).auditWriter, 'write');
-      const result = await (runtime as any)._hasHighPriorityInbox();
+      const auditSpy = vi.spyOn((runtime as unknown as RuntimeTestInternals).auditWriter, 'write');
+      const result = await (runtime as unknown as RuntimeTestInternals)._hasHighPriorityInbox();
       expect(result).toBe(false);
       expect(auditSpy).toHaveBeenCalledWith('inbox_meta_failed', expect.stringContaining('file='), expect.stringContaining('kind='));
       auditSpy.mockRestore();
