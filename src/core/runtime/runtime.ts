@@ -816,6 +816,11 @@ export class Runtime {
 
   /**
    * Write an error response to a sender's outbox, with audit + console fallback.
+   *
+   * Design intent (per phase 622 ratify ⚓2 = α / l5_runtime §B.outbox-error-response-strategy):
+   * outbox 失败 silent + audit OUTBOX_WRITE_FAILED / best-effort error reply
+   * caller 不阻塞（不 throw）/ context=error_response + scenario + reason 子场景区分
+   * 既有 audit_injection_alpha 模板 align / 0 NEW const（β reframe per zero_new_interface_field_reuse N=7）
    */
   private async _writeErrorResponse(
     info: InboxMessage,

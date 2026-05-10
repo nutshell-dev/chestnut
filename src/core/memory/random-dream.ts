@@ -21,6 +21,10 @@ export interface RandomDreamOptions {
   fs: FileSystem;             // baseDir = clawforumDir
   motionFs: FileSystem;       // baseDir = motionDir / NEW
   audit: AuditLog;
+  /** Poll interval (ms) for waitForTaskResult / default 30_000 / phase 633 ⚓11 α */
+  pulseIntervalMs?: number;
+  /** Emit per-pulse audit RANDOM_DREAM_PULSE / default false（防 audit noise）/ phase 633 ⚓11 α */
+  pulseAuditEnabled?: boolean;
 }
 
 interface WeightedContract {
@@ -188,17 +192,20 @@ function discoverWeightedContracts(
 
 // ─── 等待任务结果 ────────────────────────────────────────────
 
-async function waitForTaskResult(
+export async function waitForTaskResult(
   motionFs: FileSystem,
   taskId: string,
   timeoutMs: number,
   pollIntervalMs = 30_000,
+  audit?: AuditLog,
+  auditEnabled = false,
 ): Promise<string | null> {
   // .txt 由 AsyncTaskSystem.sendResult 在 subAgent.run() 完成后写入，是可靠的完成信号
   const donePath = path.join('tasks', 'queues', 'results', taskId, 'result.txt');
   // [DREAM_OUTPUT] 块由 appendToLog 写入 .log
   const logPath  = path.join('tasks', 'queues', 'results', taskId, 'daemon.log');
   const deadline = Date.now() + timeoutMs;
+  let pulseCount = 0;
 
   while (Date.now() < deadline) {
     if (motionFs.existsSync(donePath)) {
@@ -209,6 +216,15 @@ async function waitForTaskResult(
       // .log 不存在（极端情况），降级读 .txt
       return motionFs.readSync(donePath);
     }
+    if (auditEnabled && audit) {
+      audit.write(
+        MEMORY_AUDIT_EVENTS.RANDOM_DREAM_PULSE,
+        `taskId=${taskId}`,
+        `pulse=${pulseCount}`,
+        `interval_ms=${pollIntervalMs}`,
+      );
+    }
+    pulseCount++;
     await new Promise(r => setTimeout(r, pollIntervalMs));
   }
 
@@ -241,6 +257,15 @@ function extractDreamOutputs(log: string): DreamExtractionResult {
 
 // ─── 主函数 ──────────────────────────────────────────────────
 
+/**
+ * Run one random-dream pulse (cron-driven).
+ *
+ * Design intent (per phase 622 ratify ⚓11 = α / l4_memory_system §B.random-dream-pulse-strategy):
+ * - 4 audit per invocation (step=skip_empty / scheduled / subagent_started / finished)
+ * - opts.pulseIntervalMs (default 30_000) controls inner poll interval in waitForTaskResult
+ * - opts.pulseAuditEnabled (default false) opt-in per-pulse audit RANDOM_DREAM_PULSE
+ * - β fs.watch + γ exponential backoff rejected per phase 622 28 原则核（D5+caller-control+YAGNI dominant）
+ */
 export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
   const state = loadRandomDreamState(opts.fs, opts.audit);
   const weightedContracts = discoverWeightedContracts(opts.fs, state);
@@ -267,7 +292,14 @@ export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
   opts.audit.write(MEMORY_AUDIT_EVENTS.RANDOM_DREAM_JOB, `step=subagent_started`, `taskId=${taskId}`);
 
   // 等待完成（最长 1h，每 30s 轮询）
-  const log = await waitForTaskResult(opts.motionFs, taskId, 3_600_000);
+  const log = await waitForTaskResult(
+    opts.motionFs,
+    taskId,
+    3_600_000,
+    opts.pulseIntervalMs ?? 30_000,
+    opts.audit,
+    opts.pulseAuditEnabled ?? false,
+  );
   if (!log) {
     opts.audit.write(MEMORY_AUDIT_EVENTS.RANDOM_DREAM_WARNING, `reason=subagent_timeout`);
     console.warn('[cron:random-dream] sub-agent did not complete within timeout');

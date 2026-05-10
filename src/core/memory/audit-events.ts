@@ -12,4 +12,5 @@ export const MEMORY_AUDIT_EVENTS = {
   RANDOM_DREAM_JOB: 'cron_random_dream_job',
   RANDOM_DREAM_WARNING: 'cron_random_dream_warning',
   RANDOM_DREAM_ERROR: 'cron_random_dream_error',   // ← NEW (phase 597)
+  RANDOM_DREAM_PULSE: 'cron_random_dream_pulse',   // phase 633 ⚓11 / per-pulse audit / opt-in via pulseAuditEnabled
 } as const;
