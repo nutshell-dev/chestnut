@@ -40,19 +40,3 @@ export interface LLMOrchestrator {
   close(): Promise<void>;
 }
 
-/**
- * LLMOrchestratorError — typed error for orchestrator-level failures
- */
-export class LLMOrchestratorError extends Error {
-  readonly code: 'all_providers_failed' | 'context_exceeded' | 'max_tokens' | 'aborted' | 'unknown';
-
-  constructor(
-    message: string,
-    code: 'all_providers_failed' | 'context_exceeded' | 'max_tokens' | 'aborted' | 'unknown',
-    cause?: unknown,
-  ) {
-    super(message, { cause });
-    this.code = code;
-    this.name = 'LLMOrchestratorError';
-  }
-}

@@ -35,26 +35,6 @@ export { PRESETS, resolvePreset } from './presets.js';
 export interface LLMProvider extends ProviderAdapter {}
 
 /**
- * LLMProviderError — typed error for provider-level failures
- */
-export class LLMProviderError extends Error {
-  readonly code: 'network' | 'provider_error' | 'invalid_request' | 'unknown';
-  readonly provider: string;
-
-  constructor(
-    message: string,
-    code: 'network' | 'provider_error' | 'invalid_request' | 'unknown',
-    provider: string,
-    cause?: unknown,
-  ) {
-    super(message, { cause });
-    this.code = code;
-    this.provider = provider;
-    this.name = 'LLMProviderError';
-  }
-}
-
-/**
  * Provider factory — creates appropriate adapter for config
  */
 export function createLLMProvider(config: ProviderConfig): LLMProvider {
