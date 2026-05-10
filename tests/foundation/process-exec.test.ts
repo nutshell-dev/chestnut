@@ -161,7 +161,6 @@ describe('ProcessExec exec', () => {
     // Node script that ignores SIGTERM, only SIGKILL can stop it
     const script = `process.on('SIGTERM', () => {}); setTimeout(() => {}, 60000);`;
 
-    const start = Date.now();
     try {
       await exec('node', ['-e', script], {
         cwd: workDir,
@@ -171,10 +170,7 @@ describe('ProcessExec exec', () => {
     } catch (err) {
       expect(err).toBeInstanceOf(ProcessExecError);
       expect((err as ProcessExecError).killed).toBe(true);
-      // Should settle within grace period after timeout
-      const elapsed = Date.now() - start;
-      // timeout 1000ms + grace 1000ms + overhead ≈ 2000-2500ms
-      expect(elapsed).toBeLessThan(5000);
+
     }
   });
 

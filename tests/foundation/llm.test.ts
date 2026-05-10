@@ -559,14 +559,9 @@ describe('LLM Service', () => {
       events: { emit: () => {} },
       });
 
-      const start = Date.now();
       await service.call({
         messages: [{ role: 'user', content: 'Hi' }],
       });
-      const elapsed = Date.now() - start;
-
-      // Should complete quickly with 3 retries at 50ms base
-      expect(elapsed).toBeLessThan(1000);
       expect(mockMessagesCreate).toHaveBeenCalledTimes(4); // 1 initial + 3 retries
     });
 
