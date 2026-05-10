@@ -130,6 +130,3 @@ export const ClawConfigSchema = z.object({
 
 export type ClawGlobalConfig = z.infer<typeof ClawGlobalConfigSchema>;
 export type ClawConfig = z.infer<typeof ClawConfigSchema>;
-
-// Tool profile for tool permission management
-export type ToolProfile = 'full' | 'readonly' | 'subagent';

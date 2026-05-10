@@ -18,7 +18,7 @@ export {
   ClawGlobalConfigSchema,
   ClawConfigSchema,
 } from './schemas.js';
-export type { ClawGlobalConfig, ClawConfig, ToolProfile } from './schemas.js';
+export type { ClawGlobalConfig, ClawConfig } from './schemas.js';
 
 // Path getters + re-export shared constants
 export { CLAW_SUBDIRS } from './paths.js';
