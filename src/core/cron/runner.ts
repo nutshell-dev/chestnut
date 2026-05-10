@@ -71,9 +71,11 @@ export class CronRunner {
     for (const name of this.cancelling) {
       const ticks = (this.cancellingTicks.get(name) ?? 0) + 1;
       if (ticks >= CANCELLING_STUCK_TICKS) {
+        const job = this.jobs.find(j => j.name === name);
         this.audit.write(CRON_AUDIT_EVENTS.HANDLER_STUCK,
           `job=${name}`,
           `ticks=${ticks}`,
+          `timeoutMs=${job?.timeoutMs ?? 'unknown'}`,
         );
         this.cancelling.delete(name);
         this.cancellingTicks.delete(name);

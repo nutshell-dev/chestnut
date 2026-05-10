@@ -49,9 +49,8 @@ export interface LlmStatsOptions {
 }
 
 export async function runLlmStats(opts: LlmStatsOptions): Promise<void> {
-  // 统计昨天的数据
-  const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
+  // 统计昨天的数据（UTC base，跨 TZ 一致）
+  const yesterday = new Date(Date.now() - 86400000);
   const targetDate = yesterday.toISOString().slice(0, 10); // "YYYY-MM-DD"
 
   const entries = collectEntries(opts, targetDate);

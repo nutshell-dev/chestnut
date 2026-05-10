@@ -84,7 +84,6 @@ export class Runtime {
    * Note: subclasses should not write directly; preserve runtime encapsulation
    */
   protected systemFs!: FileSystem;  // used by system components (no permission check)
-  private clawFs!: FileSystem;    // used by tools (with permission check)
   protected llm!: LLMOrchestrator;
 
   // Core
@@ -96,7 +95,6 @@ export class Runtime {
   protected contextInjector!: ContextInjector;
   protected toolRegistry!: ToolRegistry;
   private taskSystem!: AsyncTaskSystem;
-  private skillRegistry!: SkillSystem;
   private contractManager!: ContractSystem;
   protected execContext!: ExecContext;
   protected toolExecutor!: IToolExecutor;
@@ -142,7 +140,6 @@ export class Runtime {
 
     // 2. 消费 deps（16 字段赋值）
     this.systemFs = deps.systemFs;
-    this.clawFs = deps.clawFs;
     this.auditWriter = deps.auditWriter;
     this.llm = deps.llm;
     this.snapshot = deps.snapshot;
@@ -157,7 +154,6 @@ export class Runtime {
     this.outboxWriter = deps.outboxWriter;
     this.toolRegistry = deps.toolRegistry;
     this.toolExecutor = deps.toolExecutor;
-    this.skillRegistry = deps.skillRegistry;
     this.contractManager = deps.contractManager;
     this.taskSystem = deps.taskSystem;
     this.contextInjector = deps.contextInjector;

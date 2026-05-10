@@ -65,7 +65,10 @@ export class Snapshot {
    */
   async init(): Promise<Result<void, ExpectedGitFailure>> {
     const gitDir = path.join(this.dir, '.git');
-    if (await this.fs.exists(gitDir)) return ok(undefined);
+    if (await this.fs.exists(gitDir)) {
+      this.consecutiveFailures = 0;
+      return ok(undefined);
+    }
     try {
       await this.fs.writeAtomic('.gitignore', this.buildGitignore());
       await Snapshot.git(this.dir, ['init']);
@@ -73,6 +76,7 @@ export class Snapshot {
       await Snapshot.git(this.dir, ['config', 'user.email', 'clawforum@local']);
       await Snapshot.git(this.dir, ['add', '.']);
       await Snapshot.git(this.dir, ['commit', '--allow-empty', '-m', 'init']);
+      this.consecutiveFailures = 0;
       return ok(undefined);
     } catch (rawErr) {
       const failure = this.classifyOrThrow(rawErr);

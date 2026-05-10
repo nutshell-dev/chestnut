@@ -6,21 +6,30 @@ import type { InboxWriter } from '../../../foundation/messaging/index.js';
 import { CLAWSPACE_DIR, CLAWS_DIR } from '../../../types/paths.js';
 
 /** 递归计算目录大小（bytes） */
-function getDirSize(dir: string, fs: FileSystem): number {
-  let size = 0;
-  for (const entry of fs.listSync(dir, { includeDirs: true })) {
-    if (entry.isDirectory) {
-      size += getDirSize(path.join(dir, entry.name), fs);
-    } else {
-      size += entry.size;
+function getDirSize(dir: string, fs: FileSystem, audit?: AuditLog): number {
+  try {
+    let size = 0;
+    for (const entry of fs.listSync(dir, { includeDirs: true })) {
+      if (entry.isDirectory) {
+        size += getDirSize(path.join(dir, entry.name), fs, audit);
+      } else {
+        size += entry.size;
+      }
     }
+    return size;
+  } catch (err) {
+    audit?.write(
+      CRON_AUDIT_EVENTS.DISK_MONITOR_CHECK,
+      `step=scan_failed`,
+      `dir=${dir}`,
+      `reason=${err instanceof Error ? err.message : String(err)}`,
+    );
+    return 0; // partial scan / best-effort
   }
-  return size;
 }
 
 export interface DiskMonitorOptions {
   clawforumDir: string;   // .clawforum/ 根目录
-  motionInboxDir: string; // motion/inbox/pending/
   limitMB: number;        // 告警阈值
   fs: FileSystem;
   audit: AuditLog;
@@ -36,7 +45,7 @@ export async function runDiskMonitor(opts: DiskMonitorOptions): Promise<void> {
   for (const clawId of opts.fs.listSync(clawsDir, { includeDirs: true }).map(e => e.name)) {
     const clawspaceDir = path.join(clawsDir, clawId, CLAWSPACE_DIR);
     if (opts.fs.existsSync(clawspaceDir)) {
-      totalSize += getDirSize(clawspaceDir, opts.fs);
+      totalSize += getDirSize(clawspaceDir, opts.fs, opts.audit);
     }
   }
 

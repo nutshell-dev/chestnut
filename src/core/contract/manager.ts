@@ -290,7 +290,17 @@ export class ContractSystem {
         `old=${existing.id}`,
         `new=${contractId}`,
       );
-      await this.moveToArchive(existing.id);
+      try {
+        await this.moveToArchive(existing.id);
+      } catch (err) {
+        this.audit.write(
+          CONTRACT_AUDIT_EVENTS.MOVE_ARCHIVE_FAILED,
+          `old=${existing.id}`,
+          `new=${contractId}`,
+          `reason=${err instanceof Error ? err.message : String(err)}`,
+        );
+        // 不阻断 create / 旧 contract 残留 / Watchdog 可观察 audit
+      }
     }
 
     await this.fs.ensureDir(`${this.activeDir}/${contractId}`);

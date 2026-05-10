@@ -432,7 +432,6 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
 
     const dependencies: RuntimeDependencies = {
       systemFs,
-      clawFs,
       auditWriter,
       snapshot,
       sessionManager,
@@ -441,7 +440,6 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
       llm,
       toolRegistry,
       toolExecutor,
-      skillRegistry,
       contractManager,
       taskSystem,
       contextInjector,
@@ -575,7 +573,6 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
             schedule: parseSchedule(diskScheduleStr, auditWriter),
             handler: () => runDiskMonitor({
               clawforumDir,
-              motionInboxDir,
               limitMB: diskLimitMB,
               fs: clawforumFs,
               audit: auditWriter,

@@ -24,7 +24,6 @@ import type { ToolProfile } from '../../types/config.js';
 export interface RuntimeDependencies {
   // === L1 ===
   readonly systemFs: FileSystem;
-  readonly clawFs: FileSystem;
 
   // === L2 ===
   readonly auditWriter: AuditLog;
@@ -37,7 +36,6 @@ export interface RuntimeDependencies {
   readonly llm: LLMOrchestrator;
   readonly toolRegistry: ToolRegistry;
   readonly toolExecutor: IToolExecutor;
-  readonly skillRegistry: SkillSystem;
   readonly contractManager: ContractSystem;
   readonly taskSystem: AsyncTaskSystem;
   readonly contextInjector: ContextInjector;
