@@ -42,6 +42,7 @@ interface RegressionFixture {
   mainUI: MainTurnUIController;
   observability: ReturnType<typeof createViewportObservability>;
   receivedEvents: StreamEvent[];
+  deliveryTimestamps: Array<{ type: string; ts: number }>;
   teardown: () => Promise<void>;
 }
 
@@ -85,10 +86,12 @@ async function setupFixture(options?: { agentDirPrefix?: string }): Promise<Regr
   });
 
   const receivedEvents: StreamEvent[] = [];
+  const deliveryTimestamps: Array<{ type: string; ts: number }> = [];
   const reader = createStreamReader(
     fs,
     STREAM_FILE,
     (ev) => {
+      deliveryTimestamps.push({ type: ev.type, ts: Date.now() });
       receivedEvents.push(ev);
       handleEventShim(ev, mainUI, observability);
     },
@@ -108,6 +111,7 @@ async function setupFixture(options?: { agentDirPrefix?: string }): Promise<Regr
     mainUI,
     observability,
     receivedEvents,
+    deliveryTimestamps,
     teardown: async () => {
       try { await reader.stop(); } catch {}
       await cleanupTempDir(agentDir);
@@ -481,22 +485,22 @@ describe('chat-viewport regression baseline', () => {
     await waitForEvents(fx, 1);
     await new Promise(r => setTimeout(r, 100));
 
-    const tLlmStart = Date.now();
+    const tLlmStart = Date.now(); // sanity: 测试线程 wall clock（不再参与断言）
     await appendStreamEvent(fx, { type: 'llm_start' });
     await waitForEvents(fx, 2);
     await new Promise(r => setTimeout(r, 100));
 
-    const tTextDelta = Date.now();
+    const tTextDelta = Date.now(); // sanity
     await appendStreamEvent(fx, { type: 'text_delta', delta: '你好' });
     await waitForEvents(fx, 3);
     await new Promise(r => setTimeout(r, 100));
 
-    const tToolCall = Date.now();
+    const tToolCall = Date.now(); // sanity
     await appendStreamEvent(fx, { type: 'tool_call', name: 'exec' });
     await waitForEvents(fx, 4);
     await new Promise(r => setTimeout(r, 100));
 
-    const tToolResult = Date.now();
+    const tToolResult = Date.now(); // sanity
     await appendStreamEvent(fx, { type: 'tool_result', name: 'exec', success: true });
     await waitForEvents(fx, 5);
     await new Promise(r => setTimeout(r, 100));
@@ -518,7 +522,10 @@ describe('chat-viewport regression baseline', () => {
       expect(cols.includes('orphan=1')).toBe(false);
     }
 
-    const TOLERANCE_MS = 100;
+    // 同时钟域计算：deliveryTimestamps 与 spinner start/stop 同 callback clock
+    const tcLlmStart = fx.deliveryTimestamps.find(d => d.type === 'llm_start')!.ts;
+    const tcTextDelta = fx.deliveryTimestamps.find(d => d.type === 'text_delta')!.ts;
+    const expectedThinking = tcTextDelta - tcLlmStart;
 
     const stopThinking = stopRows.find(row => {
       const cols = row.slice(1) as string[];
@@ -529,8 +536,11 @@ describe('chat-viewport regression baseline', () => {
       (stopThinking!.slice(1) as string[])
         .find(c => c.startsWith('elapsed_ms='))!.split('=')[1]
     );
-    const expectedThinking = tTextDelta - tLlmStart;
-    expect(Math.abs(elapsedThinking - expectedThinking)).toBeLessThanOrEqual(TOLERANCE_MS);
+    expect(Math.abs(elapsedThinking - expectedThinking)).toBeLessThanOrEqual(1);
+
+    const tcToolCall = fx.deliveryTimestamps.find(d => d.type === 'tool_call')!.ts;
+    const tcToolResult = fx.deliveryTimestamps.find(d => d.type === 'tool_result')!.ts;
+    const expectedExec = tcToolResult - tcToolCall;
 
     const stopExec = stopRows.find(row => {
       const cols = row.slice(1) as string[];
@@ -541,8 +551,7 @@ describe('chat-viewport regression baseline', () => {
       (stopExec!.slice(1) as string[])
         .find(c => c.startsWith('elapsed_ms='))!.split('=')[1]
     );
-    const expectedExec = tToolResult - tToolCall;
-    expect(Math.abs(elapsedExec - expectedExec)).toBeLessThanOrEqual(TOLERANCE_MS);
+    expect(Math.abs(elapsedExec - expectedExec)).toBeLessThanOrEqual(1);
 
     expect(fx.audit.filter(STREAM_AUDIT_EVENTS.READER_PARSE_FAILED).length).toBe(0);
     expect(fx.audit.filter(STREAM_AUDIT_EVENTS.READER_CORRUPT).length).toBe(0);
