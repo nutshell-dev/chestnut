@@ -204,7 +204,15 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
   };
 
   const closeAll = async (): Promise<void> => {
-    await Promise.all(Array.from(clawWatchers.values()).map(w => w.close()));
+    const entries = Array.from(clawWatchers.entries());
+    const results = await Promise.allSettled(entries.map(([, w]) => w.close()));
+    results.forEach((r, i) => {
+      if (r.status === 'rejected') {
+        const [id] = entries[i];
+        // best-effort finalizer / log 仅 / 不抛
+        console.warn(`[chat-viewport] failed to close claw watcher ${id}: ${String(r.reason)}`);
+      }
+    });
     clawWatchers.clear();
   };
 

@@ -51,8 +51,15 @@ export async function stopAllCommand(): Promise<void> {
   const running = clawNames.filter(name => pm.isAlive(name));
   if (running.length > 0) {
     console.log(`Stopping ${running.length} claw(s): ${running.join(', ')}...`);
-    await Promise.all(running.map(name => pm.stop(name)));
-    console.log('All claws stopped');
+    const results = await Promise.allSettled(running.map(name => pm.stop(name)));
+    const failed = results
+      .map((r, i) => (r.status === 'rejected' ? running[i] : null))
+      .filter((n): n is string => n !== null);
+    if (failed.length > 0) {
+      console.warn(`Failed to stop ${failed.length} claw(s): ${failed.join(', ')}`);
+    } else {
+      console.log('All claws stopped');
+    }
   }
 
   // 写入 clean-stop 标记，供下次启动时识别

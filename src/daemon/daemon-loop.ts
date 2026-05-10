@@ -184,8 +184,21 @@ export function waitForInbox(
           },
         },
       );
-    } catch {
-      void done();
+    } catch (err) {
+      audit.write(
+        MESSAGING_AUDIT_EVENTS.INBOX_WATCHER_FAILED,
+        `path=${inboxPendingDir}`,
+        'context=init',
+        `reason=${err instanceof Error ? err.message : String(err)}`,
+      );
+      void done().catch((doneErr) => {
+        audit.write(
+          MESSAGING_AUDIT_EVENTS.INBOX_WATCHER_FAILED,
+          `path=${inboxPendingDir}`,
+          'context=init_done_failed',
+          `reason=${doneErr instanceof Error ? doneErr.message : String(doneErr)}`,
+        );
+      });
     }
   });
 }

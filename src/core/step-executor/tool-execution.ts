@@ -226,6 +226,13 @@ export async function executeSingleTool(
   } catch (err) {
     const errorType = err instanceof Error ? err.constructor.name : 'Error';
     const errorMsg = err instanceof Error ? err.message : String(err);
+    ctx.auditWriter?.write(
+      'tool_execution_failed',
+      toolCall.name,
+      toolCall.id,
+      `errorType=${errorType}`,
+      `errorMsg=${escapeForLog(errorMsg)}`,
+    );
     console.error(`[step-executor] Tool ${toolCall.name} execution failed:`, errorMsg);
     return {
       success: false,

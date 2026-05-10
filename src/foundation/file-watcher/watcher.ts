@@ -221,6 +221,7 @@ export function createWatcher(
         }
       }
     }, intervalMs);
+    fallbackTimer.unref?.();
   }
 
   return new ChokidarWatcher(watcher, absolutePath, fallbackTimer);

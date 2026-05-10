@@ -768,28 +768,30 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   const sigintHandler = () => resolveExit();
   process.on('SIGINT', sigintHandler);
 
-  await exitPromise;
-
-  // 清理
-  turnTracker.destroy();
-  process.stdout.off('resize', onResize);
-  process.removeListener('SIGINT', sigintHandler);
-  process.removeListener('uncaughtException', uncaughtHandler);
-  process.removeListener('unhandledRejection', uncaughtHandler);
-  mainUI.stopSpinner();
-  observability.recordShutdown(shutdownReason);
-  clearInterval(clawRefreshInterval);
-  clearInterval(clawPanelTickInterval);
-  clearInterval(daemonCheckInterval);
-  clearInterval(taskSweepInterval);
-  await streamReader.stop();
-  await clawManager.closeAll();
-  await clawsDirWatcher?.close();
-  for (const tw of taskWatchMap.values()) await tw.streamReader?.stop();
-  taskWatchMap.clear();
-  tui.stop();
-  await terminal.drainInput();
-  process.stdin.pause();
+  try {
+    await exitPromise;
+  } finally {
+    // 清理（即使 exitPromise reject 也跑全 cleanup / 防 fd leak）
+    turnTracker.destroy();
+    process.stdout.off('resize', onResize);
+    process.removeListener('SIGINT', sigintHandler);
+    process.removeListener('uncaughtException', uncaughtHandler);
+    process.removeListener('unhandledRejection', uncaughtHandler);
+    mainUI.stopSpinner();
+    observability.recordShutdown(shutdownReason);
+    clearInterval(clawRefreshInterval);
+    clearInterval(clawPanelTickInterval);
+    clearInterval(daemonCheckInterval);
+    clearInterval(taskSweepInterval);
+    await streamReader.stop();
+    await clawManager.closeAll();
+    await clawsDirWatcher?.close();
+    for (const tw of taskWatchMap.values()) await tw.streamReader?.stop();
+    taskWatchMap.clear();
+    tui.stop();
+    await terminal.drainInput();
+    process.stdin.pause();
+  }
 }
 
 // Re-exports for backward compatibility (tests import from chat-viewport.js)
