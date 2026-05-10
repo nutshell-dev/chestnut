@@ -2566,3 +2566,22 @@ r89 fan-out Sub-B 报告 14 candidate Path #1 实测核（起步 SHA 309727ab / 
 - barrel_hygiene_kit §1 M#9 cross-module import normalize：N+1 实证（11 barrel / 30+ site / 0 行为差 / 推 r92+ 升格独立 feedback）
 - dead_field_cleanup_kit §1 RuntimeOptions 死字段清理：N+1 实证
 - dead_field_cleanup_kit §2 ToolExecutor 死字段清理：N+2 实证
+
+## phase 686 — abort-helper.test.ts 时序加固 + 文案断言松绑（r92 B fork / fakeTimer + it.each / 2 sub-fix）
+
+r92 B fork 专项 / `abort-helper.test.ts` 单 file 12 site 改造 / 0 src 改 / 0 行为差。
+
+**3 sub-fix**：
+1. **wallclock → fakeTimer（7 sites）**：file-level `beforeEach/afterEach` 配 `vi.useFakeTimers/useRealTimers` / 7 `await new Promise(r => setTimeout(r, N))` → `await vi.advanceTimersByTimeAsync(N)`
+2. **brittle exact msg → regex + it.each（5 sites）**：`makeExternalAbortError` 5 `toBe('Execution aborted (cause=...)')` → 1 default `toMatch(/^Execution aborted/)` + 1 `it.each` 4 case `toMatch(msgPattern)` + `cause?.type` 保留
+3. **副发现 orphan describe（3 it 块）**：`withCombinedAbortSignal` describe 提前关闭 / 3 it 落 file 顶层 → 迁回 describe 内部 / 同 Step E commit
+
+**关键判据**：
+- fakeTimer 在 file 级（3 describe 共享）/ beforeEach 兼容同步 it
+- regex 锁定语义：`cause=<type>` + ms 数字仍精确 / 文案前缀 `Execution aborted` 锁定 / 中间标点容忍
+- `as const` narrow：it.each 表中 reason type 用 `as const` 让 TS narrow 到 literal type
+
+**与 phase 658+662+666+675+677+680 test 治理 cluster 关系**：
+- phase 675 Tier 2 推后续 wallclock→fakeTimer / brittle msg→it.each 双项落地
+- N=7 实证累（phase 658+662+666+675+677+680+686）/ test_hygiene_multi_file_cluster 持续硬化
+- 新增子形态：brittle exact error message → it.each + regex（首发 N=1 / 推 r93+ N=2 升格寻）
