@@ -307,7 +307,11 @@ export class DialogStore {
       const entries = await this.fs.list(this.archiveDir);
       const sorted = entries
         .filter(e => e.isFile && e.name.endsWith('.json'))
-        .sort((a, b) => b.name.localeCompare(a.name));  // 时间戳倒序
+        .sort((a, b) => {
+          const tsA = parseInt(a.name.split('.')[0], 10);
+          const tsB = parseInt(b.name.split('.')[0], 10);
+          return tsB - tsA; // Newest first / 与 loadLatestArchive 一致
+        });
 
       for (const entry of sorted) {
         try {

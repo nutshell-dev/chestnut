@@ -104,7 +104,20 @@ async function _recoverWithResult(
   const retryPath = RETRY_COUNT_PATH(task.id);
 
   let retryCount = 0;
-  try { retryCount = parseInt(await fs.read(retryPath), 10) || 0; } catch { /* 首次无文件 */ }
+  try {
+    retryCount = parseInt(await fs.read(retryPath), 10) || 0;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    // first-run / file 不存在 silent OK；其他 IO 错 audit（防 silent retry counter reset）
+    if (code !== 'ENOENT' && !(err instanceof Error && err.name === 'FileNotFoundError')) {
+      auditWriter.write(
+        TASK_AUDIT_EVENTS.RECOVERY_FAILED,
+        task.id,
+        'context=retry_counter_read_failed',
+        `error=${formatErr(err)}`,
+      );
+    }
+  }
 
   const resultContent = await fs.read(resultPath);
   const resultSent = await sendResult(fs, auditWriter, task, resultContent, false)
@@ -210,7 +223,22 @@ async function _recoverWithoutResult(
   deps: RecoverTasksDeps, filePath: string, task: SubAgentTask,
 ): Promise<number> {
   const pendingPath = `${TASKS_QUEUES_PENDING_DIR}/${task.id}.json`;
-  await deps.fs.move(filePath, pendingPath);
+  await deps.fs.move(filePath, pendingPath).catch(async (moveErr) => {
+    deps.auditWriter.write(
+      TASK_AUDIT_EVENTS.RECOVERY_FAILED,
+      task.id,
+      'context=without_result_move_failed',
+      `error=${formatErr(moveErr)}`,
+    );
+    await deps.fs.delete(filePath).catch((delErr) => {
+      deps.auditWriter.write(
+        TASK_AUDIT_EVENTS.RECOVERY_FAILED,
+        task.id,
+        'context=without_result_delete_failed',
+        `error=${formatErr(delErr)}`,
+      );
+    });
+  });
   deps.auditWriter.write(TASK_AUDIT_EVENTS.RECOVERED, task.id, `kind=${task.kind}`, 'from=running', 'to=pending');
   return 1;
 }

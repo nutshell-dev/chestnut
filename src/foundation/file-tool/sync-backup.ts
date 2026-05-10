@@ -28,14 +28,11 @@ export async function backupToSync(
     await ctx.fs.writeAtomic(fullPath, frontmatter + content);
     return path.relative(ctx.clawDir, fullPath);
   } catch (err) {
-    const errorType = err instanceof Error ? err.constructor.name : 'Error';
-    const errorMsg = err instanceof Error ? err.message : String(err);
     ctx.auditWriter?.write(
-      FILE_TOOL_AUDIT_EVENTS.SYNC_BACKUP_FAILED,
+      FILE_TOOL_AUDIT_EVENTS.BACKUP_FAILED,
       `source=${source}`,
-      `filePath=${filePath}`,
-      `errorType=${errorType}`,
-      `errorMsg=${errorMsg.slice(0, 200)}`,
+      `path=${filePath}`,
+      `reason=${err instanceof Error ? err.message : String(err)}`,
     );
     return null;
   }
