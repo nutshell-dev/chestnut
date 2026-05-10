@@ -16,7 +16,7 @@ export { SkillSystem, type SkillMeta } from './registry.js';
  */
 export function createSkillSystem(
   fs: FileSystem,
-  skillsDir: string = SKILLS_DIR_DEFAULT,
+  skillsDir: string,
   audit?: AuditLog,
 ): SkillSystem {
   return new SkillSystem(fs, skillsDir, audit);

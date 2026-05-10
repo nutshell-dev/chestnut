@@ -44,7 +44,7 @@ export interface ReactOptions {
 export interface ReactResult {
   finalText: string;
   stepsUsed: number;
-  stopReason: 'end_turn' | 'max_steps' | 'no_tool' | 'max_tokens';
+  stopReason: 'end_turn' | 'no_tool' | 'max_tokens';
 }
 
 export async function runReact(options: ReactOptions): Promise<ReactResult> {
