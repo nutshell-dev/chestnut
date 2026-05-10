@@ -57,11 +57,11 @@ function dumpFallback(): void {
 export const AUDIT_FILE = 'audit.tsv';
 
 export class AuditWriter implements AuditLog {
-  private maxBytes: number | null;
+  private readonly maxBytes: number | null;
 
   constructor(
-    private fs: FileSystem,
-    private filePath: string,
+    private readonly fs: FileSystem,
+    private readonly filePath: string,
     maxSizeMb?: number | null,
   ) {
     this.maxBytes = maxSizeMb ? maxSizeMb * 1024 * 1024 : null;

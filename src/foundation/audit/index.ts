@@ -13,7 +13,7 @@
  * 递归边界：AuditWriter 自身 write/rotation 失败是"审计的审计"死角，
  * 无法进入结构化事件流（会无限递归），唯一兜底是 console.error
  * 以 [AUDIT CRITICAL] 前缀输出。这是 L2 层唯一允许保留的 console 出口
- * （Phase 148 审定；依赖 AuditLog 的其他 L2 模块不得效仿）。
+ * （依赖 AuditLog 的其他 L2 模块不得效仿）。
  */
 
 import { AuditWriter, AUDIT_FILE } from './writer.js';
