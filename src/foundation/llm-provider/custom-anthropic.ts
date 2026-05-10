@@ -7,11 +7,9 @@
 
 import type {
   LLMResponse,
-  ContentBlock,
 } from '../../types/message.js';
 import {
   LLMError,
-  LLMRateLimitError,
   LLMTimeoutError,
 } from '../../types/errors.js';
 import { parseRetryAfter, throwHttpErrorResponse } from './_helpers.js';
@@ -23,22 +21,8 @@ import type {
 import { THINKING_TOKEN_RESERVE, STREAM_MAX_DURATION_MS } from '../../constants.js';
 import { BaseAnthropicAdapter, type AnthropicRequestBody } from './base-anthropic.js';
 import { withCombinedAbortSignal, type CombinedAbortHandle, classifyFetchAbortError } from './abort-helper.js';
-
-/**
- * Anthropic API response
- */
-interface AnthropicResponse {
-  id: string;
-  type: string;
-  role: string;
-  content: Array<{ type: string; [key: string]: unknown }>;
-  model: string;
-  stop_reason: string | null;
-  usage?: {
-    input_tokens: number;
-    output_tokens: number;
-  };
-}
+import { parseAnthropicSSEStream } from './custom-anthropic-sse-parser.js';
+import { parseAnthropicResponse, type AnthropicResponse } from './custom-anthropic-response-parser.js';
 
 /**
  * Custom Anthropic adapter for third-party providers
@@ -109,7 +93,7 @@ export class CustomAnthropicAdapter extends BaseAnthropicAdapter {
       }
 
       const data = await response.json() as AnthropicResponse;
-      return this.parseResponse(data);
+      return parseAnthropicResponse(data);
 
     } catch (error) {
       const classified = classifyFetchAbortError(error, signal, timeout, this.name);
@@ -150,7 +134,7 @@ export class CustomAnthropicAdapter extends BaseAnthropicAdapter {
 
       // 进入 stream 阶段：切换 timer 为总时长保护
       abortHandle.enterStreamPhase(STREAM_MAX_DURATION_MS);
-      yield* this.parseSSEStream(response, abortHandle, timeout);
+      yield* parseAnthropicSSEStream(response, abortHandle, timeout, this.name, this.onStreamParseError);
     } catch (error) {
       const classified = classifyFetchAbortError(error, signal, timeout, this.name);
       if (classified) throw classified;
@@ -160,137 +144,5 @@ export class CustomAnthropicAdapter extends BaseAnthropicAdapter {
       cleanup();
     }
   }
-
-  /**
-   * Parse Anthropic SSE stream
-   */
-  private async* parseSSEStream(
-    response: Response,
-    handle: CombinedAbortHandle,
-    idleTimeoutMs: number,
-  ): AsyncIterableIterator<StreamChunk> {
-    const reader = response.body!.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let idleTimer = setTimeout(() => handle.abort(), idleTimeoutMs);
-    let currentToolId = '';
-    let currentToolName = '';
-
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        clearTimeout(idleTimer);
-        if (done) break;
-        idleTimer = setTimeout(() => handle.abort(), idleTimeoutMs);
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() ?? '';
-
-        for (const line of lines) {
-          if (!line.startsWith('data:')) continue;
-          const data = line.slice(5).trim();
-          if (!data || data === '[DONE]') continue;
-
-          let event: Record<string, unknown>;
-          try {
-            event = JSON.parse(data);
-          } catch (err) {
-            this.onStreamParseError?.({
-              provider: this.name,
-              raw: data.slice(0, 100),
-              error: err instanceof Error ? err.message : String(err),
-            });
-            continue;
-          }
-
-          if (event.type === 'content_block_start') {
-            const block = event.content_block as Record<string, unknown>;
-            if (block.type === 'tool_use') {
-              const id = block.id as string | undefined;
-              const name = block.name as string | undefined;
-              if (!id || !name) {
-                // tool_use 缺 id 或 name = upstream malformed / 不发 malformed yield / 走观测通道
-                this.onStreamParseError?.({
-                  provider: this.name,
-                  raw: JSON.stringify(block).slice(0, 200),
-                  error: 'tool_use missing id or name',
-                });
-                continue;
-              }
-              currentToolId = id;
-              currentToolName = name;
-              yield {
-                type: 'tool_use_start',
-                toolUse: {
-                  id: currentToolId,
-                  name: currentToolName,
-                  partialInput: '',
-                },
-              };
-            }
-          } else if (event.type === 'content_block_delta') {
-            const delta = event.delta as Record<string, unknown>;
-            if (delta.type === 'text_delta') {
-              yield { type: 'text_delta', delta: delta.text as string };
-            } else if (delta.type === 'thinking_delta') {
-              yield { type: 'thinking_delta', delta: delta.thinking as string };
-            } else if (delta.type === 'signature_delta') {
-              yield { type: 'thinking_signature', signature: delta.signature as string };
-            } else if (delta.type === 'input_json_delta') {
-              yield {
-                type: 'tool_use_delta',
-                toolUse: { id: currentToolId, name: currentToolName, partialInput: delta.partial_json as string },
-              };
-            }
-          } else if (event.type === 'message_delta') {
-            const usage = event.usage as Record<string, number> | undefined;
-            const delta = event.delta as Record<string, unknown> | undefined;
-            yield {
-              type: 'done',
-              usage: usage ? {
-                inputTokens: usage.input_tokens ?? 0,
-                outputTokens: usage.output_tokens ?? 0,
-              } : undefined,
-              stopReason: delta?.stop_reason as string | undefined,
-            };
-          } else if (event.type === 'error') {
-            const errorObj = event.error as Record<string, unknown> | undefined;
-            const errorType = errorObj?.type as string ?? 'unknown_error';
-            const errorMsg = errorObj?.message as string ?? JSON.stringify(event);
-            if (errorType === 'overloaded_error') {
-              throw new LLMRateLimitError(this.name);
-            }
-            throw new LLMError(
-              `${errorType}: ${errorMsg}`,
-              { provider: this.name }
-            );
-          }
-        }
-      }
-    } finally {
-      clearTimeout(idleTimer);
-      try {
-        reader.releaseLock();
-      } catch {
-        // Ignore: pending read during timeout/abort; stream will be GC'd
-      }
-    }
-  }
-
-  /**
-   * Parse Anthropic response to our LLMResponse format
-   */
-  private parseResponse(data: AnthropicResponse): LLMResponse {
-    const content = data.content as ContentBlock[];
-
-    return {
-      content,
-      stop_reason: data.stop_reason ?? 'end_turn',
-      usage: data.usage,
-      model: data.model,
-    };
-  }
-
 
 }
