@@ -244,6 +244,7 @@ export class Runtime {
    * Graceful shutdown
    */
   async stop(): Promise<void> {
+    this.abort();
     await this.taskSystem.shutdown(30_000);
     await this.llm.close();
   }
