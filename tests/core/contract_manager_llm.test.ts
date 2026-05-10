@@ -238,7 +238,7 @@ describe('ContractSystem Acceptance Flow', () => {
 
       const inbox = await readClawInbox(tempDir);
       const rejections = inbox.filter(m => m.content.includes('acceptance_rejection'));
-      expect(rejections.length).toBeGreaterThan(0);
+      expect(rejections).toHaveLength(1);
       expect(rejections[0].content).toContain('路径安全');
     });
 
@@ -324,7 +324,7 @@ describe('ContractSystem Acceptance Flow', () => {
 
       const inbox = await readClawInbox(tempDir);
       const rejections = inbox.filter(m => m.content.includes('acceptance_rejection'));
-      expect(rejections.length).toBeGreaterThan(0);
+      expect(rejections).toHaveLength(1);
       expect(rejections[0].content).toContain('test error output');
     });
 
@@ -349,7 +349,7 @@ describe('ContractSystem Acceptance Flow', () => {
 
       const inbox = await readClawInbox(tempDir);
       const rejections = inbox.filter(m => m.content.includes('acceptance_rejection'));
-      expect(rejections.length).toBeGreaterThan(0);
+      expect(rejections).toHaveLength(1);
       expect(rejections[0].content).toContain('缺少 script_file');
     });
 
@@ -450,7 +450,7 @@ describe('ContractSystem Acceptance Flow', () => {
 
       const inbox = await readClawInbox(tempDir);
       const rejections = inbox.filter(m => m.content.includes('acceptance_rejection'));
-      expect(rejections.length).toBeGreaterThan(0);
+      expect(rejections).toHaveLength(1);
       expect(rejections[0].content).toContain('缺少测试');
     });
 
@@ -474,7 +474,7 @@ describe('ContractSystem Acceptance Flow', () => {
 
       const inbox = await readClawInbox(tempDir);
       const rejections = inbox.filter(m => m.content.includes('acceptance_rejection'));
-      expect(rejections.length).toBeGreaterThan(0);
+      expect(rejections).toHaveLength(1);
       expect(rejections[0].content).toContain('路径安全');
     });
 
@@ -499,7 +499,7 @@ describe('ContractSystem Acceptance Flow', () => {
 
       const inbox = await readClawInbox(tempDir);
       const rejections = inbox.filter(m => m.content.includes('acceptance_rejection'));
-      expect(rejections.length).toBeGreaterThan(0);
+      expect(rejections).toHaveLength(1);
       expect(rejections[0].content).toContain('缺少 prompt_file');
     });
 
@@ -527,7 +527,7 @@ describe('ContractSystem Acceptance Flow', () => {
 
       const inbox = await readClawInbox(tempDir);
       const rejections = inbox.filter(m => m.content.includes('acceptance_rejection'));
-      expect(rejections.length).toBeGreaterThan(0);
+      expect(rejections).toHaveLength(1);
       expect(rejections[0].content).toContain('LLM 验收未配置');
     });
 

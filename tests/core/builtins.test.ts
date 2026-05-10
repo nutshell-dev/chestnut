@@ -1075,13 +1075,11 @@ describe('Builtin Tools', () => {
       expect(result.content).toContain('Error');
     });
 
-    it('should have timeout parameter processed', async () => {
-      // Test that timeout parameter is accepted and processed
-      // (actual timeout behavior depends on environment having shell commands)
-      const result = await execTool.execute({ command: 'echo test', timeoutMs: 5000 }, ctx);
-
-      // Should either succeed or fail with some error (not crash)
-      expect(typeof result.success).toBe('boolean');
+    it('should fail with timeout error when timeoutMs exceeded', async () => {
+      // sleep 1s with 100ms timeout → must timeout / verifies timeoutMs is actually enforced
+      const result = await execTool.execute({ command: 'sleep 1', timeoutMs: 100 }, ctx);
+      expect(result.success).toBe(false);
+      expect(result.content).toMatch(/timed out|timeout|超时/i);
     });
 
     // Phase 21 Step 1: PATH augmentation
