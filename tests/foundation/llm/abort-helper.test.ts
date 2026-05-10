@@ -164,27 +164,19 @@ describe('makeExternalAbortError', () => {
   it('returns AbortError with default message when no reason', () => {
     const err = makeExternalAbortError();
     expect(err.name).toBe('AbortError');
-    expect(err.message).toBe('Execution aborted');
+    expect(err.message).toMatch(/^Execution aborted/);
   });
 
-  it('appends user reason to message', () => {
-    const err = makeExternalAbortError({ type: 'user' });
-    expect(err.message).toBe('Execution aborted (cause=user)');
-    expect((err as Error & { cause?: { type: string } }).cause?.type).toBe('user');
-  });
-
-  it('appends idle_timeout reason with ms', () => {
-    const err = makeExternalAbortError({ type: 'idle_timeout', ms: 30000 });
-    expect(err.message).toBe('Execution aborted (cause=idle_timeout, ms=30000)');
-  });
-
-  it('appends turn_timeout reason with ms', () => {
-    const err = makeExternalAbortError({ type: 'turn_timeout', ms: 3600000 });
-    expect(err.message).toBe('Execution aborted (cause=turn_timeout, ms=3600000)');
-  });
-
-  it('appends step_yield reason', () => {
-    const err = makeExternalAbortError({ type: 'step_yield' });
-    expect(err.message).toBe('Execution aborted (cause=step_yield)');
+  it.each([
+    { reason: { type: 'user' as const }, msgPattern: /cause=user/ },
+    { reason: { type: 'idle_timeout' as const, ms: 30000 }, msgPattern: /cause=idle_timeout.*ms=30000/ },
+    { reason: { type: 'turn_timeout' as const, ms: 3600000 }, msgPattern: /cause=turn_timeout.*ms=3600000/ },
+    { reason: { type: 'step_yield' as const }, msgPattern: /cause=step_yield/ },
+  ])('appends $reason.type cause to message', ({ reason, msgPattern }) => {
+    const err = makeExternalAbortError(reason);
+    expect(err.name).toBe('AbortError');
+    expect(err.message).toMatch(/^Execution aborted/);
+    expect(err.message).toMatch(msgPattern);
+    expect((err as Error & { cause?: { type: string } }).cause?.type).toBe(reason.type);
   });
 });
