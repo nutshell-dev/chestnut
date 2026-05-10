@@ -12,6 +12,10 @@ import {
   RANDOM_DREAM_SYSTEM_PROMPT,
   buildRandomDreamPrompt,
 } from './prompts/random-dream.js';
+
+const DEFAULT_RANDOM_DREAM_TIMEOUT_MS = 3600 * 1000;  // 1h
+const DEFAULT_RANDOM_DREAM_MAX_STEPS = 200;
+
 // ─── 类型定义 ────────────────────────────────────────────────
 
 export interface RandomDreamOptions {
@@ -25,6 +29,10 @@ export interface RandomDreamOptions {
   pulseIntervalMs?: number;
   /** Emit per-pulse audit RANDOM_DREAM_PULSE / default false（防 audit noise）/ phase 633 ⚓11 α */
   pulseAuditEnabled?: boolean;
+  /** Subagent task timeout (ms) / default 1h / phase 651 */
+  subagentTimeoutMs?: number;
+  /** Subagent max steps / default 200 / phase 651 */
+  subagentMaxSteps?: number;
 }
 
 interface WeightedContract {
@@ -279,11 +287,14 @@ export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
 
   // 调度 sub-agent（文件驱动，watcher 异步拾起）
   const motionAudit = createSystemAudit(opts.fs, opts.motionDir);
+  const subagentTimeoutMs = opts.subagentTimeoutMs ?? DEFAULT_RANDOM_DREAM_TIMEOUT_MS;
+  const subagentMaxSteps = opts.subagentMaxSteps ?? DEFAULT_RANDOM_DREAM_MAX_STEPS;
+
   const taskId = await opts.taskSystem.writePendingSubAgentTask(motionAudit, {
     kind: 'subagent',
     intent: buildRandomDreamPrompt(weightedContracts),
-    timeoutMs: 3600 * 1000,
-    maxSteps: 200,
+    timeoutMs: subagentTimeoutMs,
+    maxSteps: subagentMaxSteps,
     parentClawId: 'motion',
     originClawId: 'motion',
     systemPrompt: RANDOM_DREAM_SYSTEM_PROMPT,    // phase 546: dead import 活化（同 deep-dream 直 LLMService.call 模板 align）
@@ -295,7 +306,7 @@ export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
   const log = await waitForTaskResult(
     opts.motionFs,
     taskId,
-    3_600_000,
+    subagentTimeoutMs,
     opts.pulseIntervalMs ?? 30_000,
     opts.audit,
     opts.pulseAuditEnabled ?? false,

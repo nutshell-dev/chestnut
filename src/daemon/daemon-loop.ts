@@ -42,6 +42,11 @@ import { notifyInbox } from '../foundation/messaging/index.js';
 import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../types/signals.js';
 import { STATUS_SUBDIR, CONTRACT_DIR } from '../types/paths.js';
 
+// Interrupt poller constants
+const INTERRUPT_POLL_INTERVAL_MS = 200;
+const INTERRUPT_POLL_WARN_EVERY = 5;
+const INTERRUPT_POLL_MAX_ERRORS = 20;
+
 /**
  * 创建 StreamCallbacks 实现，将业务事件转为 StreamEvent 写入 StreamLog。
  * 这是装配层逻辑：将 ReAct 循环的业务事件名映射为 stream.jsonl 的事件记录。
@@ -322,17 +327,17 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
               return;
             }
             interruptErrCount++;
-            if (interruptErrCount % 5 === 1) {
+            if (interruptErrCount % INTERRUPT_POLL_WARN_EVERY === 1) {
               console.warn(`${label} interrupt poll error: ${err instanceof Error ? err.message : String(err)}`);
             }
-            if (interruptErrCount >= 20) {
+            if (interruptErrCount >= INTERRUPT_POLL_MAX_ERRORS) {
               options.audit.write(DAEMON_AUDIT_EVENTS.LOOP_INTERRUPT_POLLER_DISABLED, `err_count=${interruptErrCount}`, `last_err=${err instanceof Error ? err.message : String(err)}`);
               console.error(`${label} interrupt poll failed ${interruptErrCount} times, disabling`);
               clearInterval(interruptPoller!);
               interruptPoller = null;
             }
           }
-        }, 200);
+        }, INTERRUPT_POLL_INTERVAL_MS);
         interruptPoller.unref();
 
         try {

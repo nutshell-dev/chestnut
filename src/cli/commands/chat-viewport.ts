@@ -30,6 +30,12 @@ import { createClawManager, type ClawManager } from './chat-viewport-claw-manage
 import { createViewportCommands, type ViewportCommand, type ThinkingMode } from './chat-viewport-commands.js';
 import { createTuiInputHandler, type ShutdownReason } from './chat-viewport-input.js';
 
+// File-local interval / timeout constants
+const INTERRUPT_CLEANUP_TIMEOUT_MS = 5000;
+const CLAW_REFRESH_INTERVAL_MS = 2000;
+const CLAW_PANEL_TICK_INTERVAL_MS = 1000;
+const DAEMON_LIVENESS_CHECK_INTERVAL_MS = 3000;
+
 export interface ChatViewportOptions {
   agentDir: string;   // motion dir 或 claw dir
   label: string;      // 显示名，如 'motion' 或 'claw-search'
@@ -261,7 +267,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
             interruptSource = null;
             cleanupUI();
           }
-        }, 5000);
+        }, INTERRUPT_CLEANUP_TIMEOUT_MS);
       },
       forceReset() {
         phase = 'idle';
@@ -523,7 +529,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   // fallback 轮询（claw 刷新 + panel tick 拆独立 interval）
   const clawRefreshInterval = setInterval(() => {
     if (isMotion) clawManager.refreshAllClawStatus();
-  }, 2000);
+  }, CLAW_REFRESH_INTERVAL_MS);
   clawRefreshInterval.unref();
 
   const clawPanelTickInterval = setInterval(() => {
@@ -531,7 +537,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
       updateClawPanel();
       tui.requestRender();
     }
-  }, 1000);
+  }, CLAW_PANEL_TICK_INTERVAL_MS);
   clawPanelTickInterval.unref();
 
   // Daemon 存活检测（每 3 秒一次）
@@ -552,7 +558,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
       // PID 文件不存在或读取失败，忽略
     }
   };
-  const daemonCheckInterval = setInterval(checkDaemonAlive, 3000);
+  const daemonCheckInterval = setInterval(checkDaemonAlive, DAEMON_LIVENESS_CHECK_INTERVAL_MS);
   daemonCheckInterval.unref();
 
   // Stale task stream sweep（5min 无 event → cleanup）

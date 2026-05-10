@@ -98,7 +98,7 @@ describe('chat-viewport Phase 72', () => {
     it('ESC 超时回调应调用 cleanupUI', () => {
       // 找到 ESC 超时处理逻辑（5秒超时）
       const escTimeoutMatch = sourceCode.match(
-        /escTimeoutId = setTimeout\(\(\) => \{[\s\S]{0,600}?\}, 5000\)/
+        /escTimeoutId = setTimeout\(\(\) => \{[\s\S]{0,600}?\}, INTERRUPT_CLEANUP_TIMEOUT_MS\)/
       );
       expect(escTimeoutMatch).toBeTruthy();
       
