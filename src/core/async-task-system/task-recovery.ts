@@ -11,6 +11,7 @@ import {
 } from '../../types/paths.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
 import { formatErr } from './_helpers.js';
+import { FileNotFoundError } from '../../types/errors.js';
 import { sendFallbackError, sendResult } from './result-delivery.js';
 
 const RETRY_COUNT_PATH = (taskId: string) =>
@@ -109,7 +110,7 @@ async function _recoverWithResult(
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     // first-run / file 不存在 silent OK；其他 IO 错 audit（防 silent retry counter reset）
-    if (code !== 'ENOENT' && !(err instanceof Error && err.name === 'FileNotFoundError')) {
+    if (code !== 'ENOENT' && !(err instanceof FileNotFoundError)) {
       auditWriter.write(
         TASK_AUDIT_EVENTS.RECOVERY_FAILED,
         task.id,
