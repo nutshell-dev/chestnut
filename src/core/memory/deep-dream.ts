@@ -8,6 +8,7 @@ import type { Message, ContentBlock, TextBlock, LLMResponse } from '../../types/
 import { InboxWriter } from '../../foundation/messaging/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { CLAWS_DIR, DIALOG_DIR } from '../../types/paths.js';
+import { FileNotFoundError } from '../../types/errors.js';
 import {
   DEEP_DREAM_SYSTEM_PROMPT,
   buildDreamInput,
@@ -76,7 +77,7 @@ function loadDreamState(clawFs: FileSystem, audit: AuditLog, clawId: string): Dr
     return JSON.parse(clawFs.readSync(DEEP_DREAM_STATE_FILE)) as DreamStateData;
   } catch (err) {
     // FileNotFoundError 首启良性 / silent
-    if (err instanceof Error && err.name === 'FileNotFoundError') {
+    if (err instanceof FileNotFoundError) {
       return { processedArchives: [], currentSessionDreamedDate: '' };
     }
     // 其他 IO 错（parse 损坏 / 权限 / 等）必 audit + 返空 resilient
