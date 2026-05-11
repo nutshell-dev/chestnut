@@ -14,6 +14,7 @@ import * as os from 'os';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { DialogStore } from '../../src/foundation/dialog-store/index.js';
 import type { Message } from '../../src/types/message.js';
+import { makeSession } from '../helpers/session-fixtures.js';
 import { DIALOG_AUDIT_EVENTS } from '../../src/foundation/dialog-store/audit-events.js';
 
 describe('Session Persistence', () => {
@@ -397,13 +398,10 @@ describe('DialogStore unit tests', () => {
     await fs.writeFile(path.join(archiveDir, '3000_corrupted.json'), '{ bad', 'utf-8');
 
     // Older archive is valid
-    const validSession = {
-      version: 1,
+    const validSession = makeSession({
       clawId: 'test-claw',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
       messages: [{ role: 'user', content: 'ok' }],
-    };
+    });
     await fs.writeFile(path.join(archiveDir, '2000_valid.json'), JSON.stringify(validSession), 'utf-8');
 
     const result = await smAudit.load();

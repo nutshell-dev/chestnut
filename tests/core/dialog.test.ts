@@ -17,6 +17,7 @@ import { DialogStore } from '../../src/foundation/dialog-store/index.js';
 import { ContextInjector } from '../../src/core/dialog/injector.js';
 import { createSkillSystem } from '../../src/foundation/skill-system/index.js';
 import type { Message } from '../../src/types/message.js';
+import { makeSession } from '../helpers/session-fixtures.js';
 import type { SessionData } from '../../src/foundation/dialog-store/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
@@ -121,13 +122,12 @@ describe('Dialog', () => {
       it('should recover from archive when current.json is missing', async () => {
         // Create archive directory and an archived session
         await nodeFs.ensureDir(DIALOG_ARCHIVE_DIR);
-        const archivedSession: SessionData = {
-          version: 1,
+        const archivedSession: SessionData = makeSession({
           clawId: 'test-claw',
           createdAt: '2024-01-01T00:00:00Z',
           updatedAt: '2024-01-01T01:00:00Z',
           messages: [{ role: 'user', content: 'Archived message' }],
-        };
+        });
         await nodeFs.writeAtomic(
           `${DIALOG_ARCHIVE_DIR}/20240101_120000.json`,
           JSON.stringify(archivedSession)
@@ -146,13 +146,12 @@ describe('Dialog', () => {
 
         // Create archive
         await nodeFs.ensureDir(DIALOG_ARCHIVE_DIR);
-        const archivedSession: SessionData = {
-          version: 1,
+        const archivedSession: SessionData = makeSession({
           clawId: 'test-claw',
           createdAt: '2024-01-01T00:00:00Z',
           updatedAt: '2024-01-01T01:00:00Z',
           messages: [{ role: 'user', content: 'Recovered from archive' }],
-        };
+        });
         await nodeFs.writeAtomic(
           `${DIALOG_ARCHIVE_DIR}/20240101_120000.json`,
           JSON.stringify(archivedSession)
@@ -192,13 +191,12 @@ describe('Dialog', () => {
         await nodeFs.ensureDir(DIALOG_ARCHIVE_DIR);
 
         // Old valid archive
-        const oldSession: SessionData = {
-          version: 1,
+        const oldSession: SessionData = makeSession({
           clawId: 'test-claw',
           createdAt: '2024-01-01T00:00:00Z',
           updatedAt: '2024-01-01T00:00:00Z',
           messages: [{ role: 'user', content: 'Old but valid' }],
-        };
+        });
         await nodeFs.writeAtomic(
           'dialog/archive/1000_old.json',
           JSON.stringify(oldSession)

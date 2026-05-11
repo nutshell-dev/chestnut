@@ -77,6 +77,7 @@ import { CONTRACT_AUDIT_EVENTS } from '../../src/core/contract/audit-events.js';
 import { InboxWriter } from '../../src/foundation/messaging/index.js';
 
 import { DEFAULT_MAX_STEPS } from '../../src/constants.js';
+import { makeContractYaml } from '../helpers/contract-yaml.js';
 
 /**
  * Setup contract files for testing
@@ -219,13 +220,10 @@ describe('ContractSystem Acceptance Flow', () => {
   describe('Script Acceptance', () => {
     it('should reject path traversal attack in script_file', async () => {
       const contractId = 'test-contract-1';
-      await setupContract(tempDir, contractId, {
-        schema_version: 1,
-        title: 'Test Contract',
-        goal: 'Test goal',
+      await setupContract(tempDir, contractId, makeContractYaml({
         subtasks: [{ id: 'task-1', description: 'Test task' }],
         acceptance: [{ subtask_id: 'task-1', type: 'script', script_file: '../../../etc/passwd' }],
-      });
+      }));
 
       const result = await manager.completeSubtask({
         contractId,
@@ -244,13 +242,9 @@ describe('ContractSystem Acceptance Flow', () => {
 
     it('should pass when script acceptance succeeds', async () => {
       const contractId = 'test-contract-2';
-      await setupContract(tempDir, contractId, {
-        schema_version: 1,
-        title: 'Test Contract',
-        goal: 'Test goal',
+      await setupContract(tempDir, contractId, makeContractYaml({
         subtasks: [{ id: 'task-1', description: 'Test task' }],
-        acceptance: [{ subtask_id: 'task-1', type: 'script', script_file: 'acceptance/task-1.sh' }],
-      });
+      }));
 
       const acceptanceDir = path.join(tempDir, 'contract', 'active', contractId, 'acceptance');
       await fs.mkdir(acceptanceDir, { recursive: true });
@@ -292,14 +286,10 @@ describe('ContractSystem Acceptance Flow', () => {
 
     it('should fail and increment retry_count when script acceptance fails', async () => {
       const contractId = 'test-contract-3';
-      await setupContract(tempDir, contractId, {
-        schema_version: 1,
-        title: 'Test Contract',
-        goal: 'Test goal',
+      await setupContract(tempDir, contractId, makeContractYaml({
         subtasks: [{ id: 'task-1', description: 'Test task' }],
-        acceptance: [{ subtask_id: 'task-1', type: 'script', script_file: 'acceptance/task-1.sh' }],
         escalation: { max_retries: 3 },
-      });
+      }));
 
       const acceptanceDir = path.join(tempDir, 'contract', 'active', contractId, 'acceptance');
       await fs.mkdir(acceptanceDir, { recursive: true });
@@ -330,14 +320,11 @@ describe('ContractSystem Acceptance Flow', () => {
 
     it('should return rejection when script acceptance config has no script_file', async () => {
       const contractId = 'test-script-no-file';
-      await setupContract(tempDir, contractId, {
-        schema_version: 1,
-        title: 'Test Contract',
-        goal: 'Test goal',
+      await setupContract(tempDir, contractId, makeContractYaml({
         subtasks: [{ id: 'task-1', description: 'Test task' }],
         // type: 'script' 但故意缺 script_file
         acceptance: [{ subtask_id: 'task-1', type: 'script' }],
-      });
+      }));
 
       const result = await manager.completeSubtask({
         contractId,
@@ -356,11 +343,11 @@ describe('ContractSystem Acceptance Flow', () => {
     it('should log warn to monitor when script acceptance config has no script_file', async () => {
       const logSpy = vi.spyOn(mockAudit, 'write');
       const contractId = 'test-script-no-file-monitor';
-      await setupContract(tempDir, contractId, {
-        schema_version: 1, title: 'Test', goal: 'Test goal',
+      await setupContract(tempDir, contractId, makeContractYaml({
+        title: 'Test',
         subtasks: [{ id: 'task-1', description: 'Test task' }],
         acceptance: [{ subtask_id: 'task-1', type: 'script' }], // 故意缺 script_file
-      });
+      }));
 
       await manager.completeSubtask({ contractId, subtaskId: 'task-1', evidence: 'e' });
       await waitForAcceptance(tempDir);
@@ -376,13 +363,10 @@ describe('ContractSystem Acceptance Flow', () => {
   describe('LLM Acceptance', () => {
     it('should pass when LLM acceptance returns passed=true', async () => {
       const contractId = 'test-contract-4';
-      await setupContract(tempDir, contractId, {
-        schema_version: 1,
-        title: 'Test Contract',
-        goal: 'Test goal',
+      await setupContract(tempDir, contractId, makeContractYaml({
         subtasks: [{ id: 'task-1', description: 'Test task' }],
         acceptance: [{ subtask_id: 'task-1', type: 'llm', prompt_file: 'acceptance/task-1.prompt.txt' }],
-      });
+      }));
 
       const acceptanceDir = path.join(tempDir, 'contract', 'active', contractId, 'acceptance');
       await fs.mkdir(acceptanceDir, { recursive: true });
@@ -419,14 +403,11 @@ describe('ContractSystem Acceptance Flow', () => {
 
     it('should fail and format rejection when LLM returns passed=false', async () => {
       const contractId = 'test-contract-5';
-      await setupContract(tempDir, contractId, {
-        schema_version: 1,
-        title: 'Test Contract',
-        goal: 'Test goal',
+      await setupContract(tempDir, contractId, makeContractYaml({
         subtasks: [{ id: 'task-1', description: 'Test task implementation' }],
         acceptance: [{ subtask_id: 'task-1', type: 'llm', prompt_file: 'acceptance/task-1.prompt.txt' }],
         escalation: { max_retries: 3 },
-      });
+      }));
 
       const acceptanceDir = path.join(tempDir, 'contract', 'active', contractId, 'acceptance');
       await fs.mkdir(acceptanceDir, { recursive: true });
@@ -456,13 +437,10 @@ describe('ContractSystem Acceptance Flow', () => {
 
     it('should reject path traversal in prompt_file', async () => {
       const contractId = 'test-contract-6';
-      await setupContract(tempDir, contractId, {
-        schema_version: 1,
-        title: 'Test Contract',
-        goal: 'Test goal',
+      await setupContract(tempDir, contractId, makeContractYaml({
         subtasks: [{ id: 'task-1', description: 'Test task' }],
         acceptance: [{ subtask_id: 'task-1', type: 'llm', prompt_file: '../../../etc/passwd' }],
-      });
+      }));
 
       await manager.completeSubtask({
         contractId,
@@ -480,14 +458,11 @@ describe('ContractSystem Acceptance Flow', () => {
 
     it('should return rejection when llm acceptance config has no prompt_file', async () => {
       const contractId = 'test-llm-no-file';
-      await setupContract(tempDir, contractId, {
-        schema_version: 1,
-        title: 'Test Contract',
-        goal: 'Test goal',
+      await setupContract(tempDir, contractId, makeContractYaml({
         subtasks: [{ id: 'task-1', description: 'Test task' }],
         // type: 'llm' 但故意缺 prompt_file
         acceptance: [{ subtask_id: 'task-1', type: 'llm' }],
-      });
+      }));
 
       const result = await manager.completeSubtask({
         contractId,
@@ -509,13 +484,10 @@ describe('ContractSystem Acceptance Flow', () => {
       const nodeFs = new NodeFileSystem({ baseDir: clawDir });
       const noLLMManager = new ContractSystem(clawDir, 'test-claw', nodeFs, mockAudit as any);
 
-      await setupContract(tempDir, contractId, {
-        schema_version: 1,
-        title: 'Test Contract',
-        goal: 'Test goal',
+      await setupContract(tempDir, contractId, makeContractYaml({
         subtasks: [{ id: 'task-1', description: 'Test task' }],
         acceptance: [{ subtask_id: 'task-1', type: 'llm', prompt_file: 'acceptance/task-1.prompt.txt' }],
-      });
+      }));
 
       const result = await noLLMManager.completeSubtask({
         contractId,
@@ -534,11 +506,11 @@ describe('ContractSystem Acceptance Flow', () => {
     it('should log warn to monitor when llm acceptance config has no prompt_file', async () => {
       const logSpy = vi.spyOn(mockAudit, 'write');
       const contractId = 'test-llm-no-prompt-monitor';
-      await setupContract(tempDir, contractId, {
-        schema_version: 1, title: 'Test', goal: 'Test goal',
+      await setupContract(tempDir, contractId, makeContractYaml({
+        title: 'Test',
         subtasks: [{ id: 'task-1', description: 'Test task' }],
         acceptance: [{ subtask_id: 'task-1', type: 'llm' }], // 故意缺 prompt_file
-      });
+      }));
 
       await manager.completeSubtask({ contractId, subtaskId: 'task-1', evidence: 'e' });
       await waitForAcceptance(tempDir);
@@ -552,13 +524,10 @@ describe('ContractSystem Acceptance Flow', () => {
 
     it('should prefer capturedResult over text when report_result tool is called', async () => {
       const contractId = 'test-llm-captured';
-      await setupContract(tempDir, contractId, {
-        schema_version: 1,
-        title: 'Test Contract',
-        goal: 'Test goal',
+      await setupContract(tempDir, contractId, makeContractYaml({
         subtasks: [{ id: 'task-1', description: 'Test task' }],
         acceptance: [{ subtask_id: 'task-1', type: 'llm', prompt_file: 'acceptance/task-1.prompt.txt' }],
-      });
+      }));
 
       const acceptanceDir = path.join(tempDir, 'contract', 'active', contractId, 'acceptance');
       await fs.mkdir(acceptanceDir, { recursive: true });
@@ -609,14 +578,11 @@ describe('ContractSystem Acceptance Flow', () => {
 
     it('should return rejection with "无法解析 JSON" when LLM text has no JSON', async () => {
       const contractId = 'test-llm-no-json';
-      await setupContract(tempDir, contractId, {
-        schema_version: 1,
-        title: 'Test Contract',
-        goal: 'Test goal',
+      await setupContract(tempDir, contractId, makeContractYaml({
         subtasks: [{ id: 'task-1', description: 'Test task' }],
         acceptance: [{ subtask_id: 'task-1', type: 'llm', prompt_file: 'acceptance/task-1.prompt.txt' }],
         escalation: { max_retries: 3 },
-      });
+      }));
 
       const acceptanceDir = path.join(tempDir, 'contract', 'active', contractId, 'acceptance');
       await fs.mkdir(acceptanceDir, { recursive: true });
@@ -646,13 +612,10 @@ describe('ContractSystem Acceptance Flow', () => {
 
     it('should notify Motion with acceptance_timeout when onIdleTimeout is triggered', async () => {
       const contractId = 'test-llm-timeout';
-      await setupContract(tempDir, contractId, {
-        schema_version: 1,
-        title: 'Test Contract',
-        goal: 'Test goal',
+      await setupContract(tempDir, contractId, makeContractYaml({
         subtasks: [{ id: 'task-1', description: 'Test task' }],
         acceptance: [{ subtask_id: 'task-1', type: 'llm', prompt_file: 'acceptance/task-1.prompt.txt' }],
-      });
+      }));
 
       const acceptanceDir = path.join(tempDir, 'contract', 'active', contractId, 'acceptance');
       await fs.mkdir(acceptanceDir, { recursive: true });
@@ -682,14 +645,10 @@ describe('ContractSystem Acceptance Flow', () => {
     it('should write escalation audit when retry_count reaches max_retries', async () => {
       const contractId = 'test-contract-7';
       // Setup contract with max_retries=2
-      await setupContract(tempDir, contractId, {
-        schema_version: 1,
-        title: 'Test Contract',
-        goal: 'Test goal',
+      await setupContract(tempDir, contractId, makeContractYaml({
         subtasks: [{ id: 'task-1', description: 'Test task' }],
-        acceptance: [{ subtask_id: 'task-1', type: 'script', script_file: 'acceptance/task-1.sh' }],
         escalation: { max_retries: 2 },
-      }, { 'task-1': 'todo' });
+      }), { 'task-1': 'todo' });
 
       const acceptanceDir = path.join(tempDir, 'contract', 'active', contractId, 'acceptance');
       await fs.mkdir(acceptanceDir, { recursive: true });
@@ -733,13 +692,9 @@ describe('ContractSystem Acceptance Flow', () => {
   describe('phase230 audit events', () => {
     it('writes CONTRACT_ACCEPTANCE_SCRIPT_STARTED audit when running script acceptance', async () => {
       const contractId = 'test-script-audit';
-      await setupContract(tempDir, contractId, {
-        schema_version: 1,
-        title: 'Test Contract',
-        goal: 'Test goal',
+      await setupContract(tempDir, contractId, makeContractYaml({
         subtasks: [{ id: 'task-1', description: 'Test task' }],
-        acceptance: [{ subtask_id: 'task-1', type: 'script', script_file: 'acceptance/task-1.sh' }],
-      });
+      }));
 
       const acceptanceDir = path.join(tempDir, 'contract', 'active', contractId, 'acceptance');
       await fs.mkdir(acceptanceDir, { recursive: true });
@@ -800,13 +755,9 @@ describe('ContractSystem Acceptance Flow', () => {
   describe('Acceptance Inbox Message Format', () => {
     it('should write passed message with correct frontmatter and normal priority', async () => {
       const contractId = 'test-inbox-passed';
-      await setupContract(tempDir, contractId, {
-        schema_version: 1,
-        title: 'Test Contract',
-        goal: 'Test goal',
+      await setupContract(tempDir, contractId, makeContractYaml({
         subtasks: [{ id: 'task-1', description: 'Test task' }],
-        acceptance: [{ subtask_id: 'task-1', type: 'script', script_file: 'acceptance/task-1.sh' }],
-      });
+      }));
 
       const acceptanceDir = path.join(tempDir, 'contract', 'active', contractId, 'acceptance');
       await fs.mkdir(acceptanceDir, { recursive: true });
@@ -839,14 +790,10 @@ describe('ContractSystem Acceptance Flow', () => {
 
     it('should write rejected message with correct frontmatter, high priority, and retry_count', async () => {
       const contractId = 'test-inbox-rejected';
-      await setupContract(tempDir, contractId, {
-        schema_version: 1,
-        title: 'Test Contract',
-        goal: 'Test goal',
+      await setupContract(tempDir, contractId, makeContractYaml({
         subtasks: [{ id: 'task-1', description: 'Test task' }],
-        acceptance: [{ subtask_id: 'task-1', type: 'script', script_file: 'acceptance/task-1.sh' }],
         escalation: { max_retries: 3 },
-      });
+      }));
 
       const acceptanceDir = path.join(tempDir, 'contract', 'active', contractId, 'acceptance');
       await fs.mkdir(acceptanceDir, { recursive: true });
@@ -899,13 +846,12 @@ describe('ContractSystem — background acceptance error handling', () => {
 
     const contractId = 'typeerror-test-contract';
     const subtaskId = 'task-1';
-    await setupContract(clawDir, contractId, {
-      schema_version: 1,
+    await setupContract(clawDir, contractId, makeContractYaml({
       title: 'TypeError Test',
       goal: 'Test TypeError catch',
       subtasks: [{ id: subtaskId, description: 'Verify TypeError audit' }],
       acceptance: [{ subtask_id: subtaskId, type: 'llm', prompt_file: `acceptance/${subtaskId}.prompt.txt` }],
-    }, { [subtaskId]: 'todo' });
+    }), { [subtaskId]: 'todo' });
     await fs.mkdir(path.join(clawDir, 'contract', 'active', contractId, 'acceptance'), { recursive: true });
     await fs.writeFile(
       path.join(clawDir, 'contract', 'active', contractId, 'acceptance', `${subtaskId}.prompt.txt`),
@@ -956,13 +902,12 @@ describe('ContractSystem — background acceptance error handling', () => {
 
     const contractId = 'business-error-test-contract';
     const subtaskId = 'task-1';
-    await setupContract(clawDir, contractId, {
-      schema_version: 1,
+    await setupContract(clawDir, contractId, makeContractYaml({
       title: 'Business Error Test',
       goal: 'Test business error catch',
       subtasks: [{ id: subtaskId, description: 'Verify business error audit' }],
       acceptance: [{ subtask_id: subtaskId, type: 'llm', prompt_file: `acceptance/${subtaskId}.prompt.txt` }],
-    }, { [subtaskId]: 'todo' });
+    }), { [subtaskId]: 'todo' });
     await fs.mkdir(path.join(clawDir, 'contract', 'active', contractId, 'acceptance'), { recursive: true });
     await fs.writeFile(
       path.join(clawDir, 'contract', 'active', contractId, 'acceptance', `${subtaskId}.prompt.txt`),

@@ -8,6 +8,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { makeContractYaml } from '../helpers/contract-yaml.js';
 import { createDoneTool } from '../../src/core/contract/index.js';
 import { ContractSystem } from '../../src/core/contract/manager.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
@@ -49,15 +50,13 @@ describe('doneTool', () => {
 
   it('should return "All subtasks complete!" when last subtask accepted', async () => {
     // 单子任务契约，无 acceptance 脚本 → 直接通过
-    await manager.create({
-      schema_version: 1 as const,
+    await manager.create(makeContractYaml({
       title: 'Single Task Contract',
       goal: 'Test',
       deliverables: [],
       subtasks: [{ id: 't1', description: 'Task One' }],
       acceptance: [],
-      auth_level: 'auto' as const,
-    });
+    }));
 
     const ctx = makeCtx();
     const result = await doneTool.execute({ subtask: 't1', evidence: 'done' }, ctx);
@@ -67,8 +66,7 @@ describe('doneTool', () => {
   });
 
   it('should show remaining subtask list (not allCompleted) when subtasks remain', async () => {
-    await manager.create({
-      schema_version: 1 as const,
+    await manager.create(makeContractYaml({
       title: 'Multi Task Contract',
       goal: 'Test',
       deliverables: [],
@@ -77,8 +75,7 @@ describe('doneTool', () => {
         { id: 't2', description: 'Task Two' },
       ],
       acceptance: [],
-      auth_level: 'auto' as const,
-    });
+    }));
 
     const ctx = makeCtx();
     const result = await doneTool.execute({ subtask: 't1', evidence: 'done' }, ctx);
@@ -99,15 +96,13 @@ describe('doneTool', () => {
   });
 
   it('should return failure when subtaskId is unknown', async () => {
-    await manager.create({
-      schema_version: 1 as const,
+    await manager.create(makeContractYaml({
       title: 'Test Contract',
       goal: 'Test',
       deliverables: [],
       subtasks: [{ id: 't1', description: 'Task One' }],
       acceptance: [],
-      auth_level: 'auto' as const,
-    });
+    }));
 
     const ctx = makeCtx();
     const result = await doneTool.execute({ subtask: 'nonexistent', evidence: 'done' }, ctx);

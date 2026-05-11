@@ -8,6 +8,7 @@ import { promises as fs } from 'fs';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 
+import { makeContractYaml } from '../helpers/contract-yaml.js';
 import { createStatusTool } from '../../src/core/status-service/index.js';
 import { createSendTool } from '../../src/foundation/messaging/tools/send.js';
 import { readTool, writeTool, lsTool, searchTool, editTool, multiEditTool } from '../../src/foundation/file-tool/index.js';
@@ -728,8 +729,7 @@ describe('Builtin Tools', () => {
     it('should show subtask list with ○ icons when contract is active', async () => {
       const mockAudit = { write: vi.fn() };
       const manager = new ContractSystem(tempDir, 'test-claw', mockFs, mockAudit as any);
-      await manager.create({
-        schema_version: 1 as const,
+      await manager.create(makeContractYaml({
         title: 'Test Contract',
         goal: 'Test',
         deliverables: [],
@@ -738,8 +738,7 @@ describe('Builtin Tools', () => {
           { id: 'task-2', description: 'Second task' },
         ],
         acceptance: [],
-        auth_level: 'auto' as const,
-      });
+      }));
       const statusTool = createStatusTool(manager);
 
       const result = await statusTool.execute({}, ctx);
@@ -755,8 +754,7 @@ describe('Builtin Tools', () => {
     it('should show ✓ for completed subtask and ○ for todo subtask', async () => {
       const mockAudit = { write: vi.fn() };
       const manager = new ContractSystem(tempDir, 'test-claw', mockFs, mockAudit as any);
-      const contractId = await manager.create({
-        schema_version: 1 as const,
+      const contractId = await manager.create(makeContractYaml({
         title: 'Mixed Status',
         goal: 'Test',
         deliverables: [],
@@ -765,8 +763,7 @@ describe('Builtin Tools', () => {
           { id: 'todo-task', description: 'Still pending' },
         ],
         acceptance: [],
-        auth_level: 'auto' as const,
-      });
+      }));
       // 完成第一个子任务（无 acceptance 脚本，直接通过）
       await manager.completeSubtask({ contractId, subtaskId: 'done-task', evidence: 'done' });
       const statusTool = createStatusTool(manager);

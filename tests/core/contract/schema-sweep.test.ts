@@ -7,6 +7,7 @@
  * - discovery.ts findLatestContract
  * - event-collector.ts collectContractEvents
  */
+import { makeContractYaml } from '../../helpers/contract-yaml.js';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs/promises';
 import * as os from 'os';
@@ -48,14 +49,12 @@ describe('getProgress schema check', () => {
     const mockAudit = { write: vi.fn() };
     const manager = new ContractSystem(clawDir, 'test-claw', nodeFs, mockAudit as any);
 
-    const contractId = await manager.create({
-      schema_version: 1 as const,
+    const contractId = await manager.create(makeContractYaml({
       title: 'Test',
       goal: 'Test',
       subtasks: [{ id: 't1', description: 'T1' }],
       acceptance: [],
-      auth_level: 'auto' as const,
-    });
+    }));
 
     // overwrite with schema-invalid JSON (parsable but missing required fields)
     const progressPath = path.join(clawDir, 'contract', 'active', contractId, 'progress.json');

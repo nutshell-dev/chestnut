@@ -17,6 +17,7 @@ import { ContractSystem } from '../../src/core/contract/manager.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../src/core/contract/audit-events.js';
 import { waitFor } from '../helpers/wait-for.js';
+import { makeContractYaml } from '../helpers/contract-yaml.js';
 
 vi.mock('child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('child_process')>();
@@ -61,19 +62,7 @@ describe('ContractSystem', () => {
 
   it('should create contract with running status and todo subtasks', async () => {
     // Note: create() 创建契约后立即设为 running 状态（manager.ts:141）
-    const contractYaml = {
-      schema_version: 1 as const,
-      title: 'Test Contract',
-      goal: 'Test goal',
-      deliverables: ['clawspace/test.txt'],
-      subtasks: [
-        { id: 'task-1', description: 'Task 1' },
-      ],
-      acceptance: [
-        { subtask_id: 'task-1', type: 'script' as const, script_file: 'acceptance/task-1.sh' },
-      ],
-      auth_level: 'auto' as const,
-    };
+    const contractYaml = makeContractYaml();
 
     const contractId = await manager.create(contractYaml);
     expect(contractId).toBeTruthy();
@@ -86,19 +75,7 @@ describe('ContractSystem', () => {
   });
 
   it('should pause and resume contract', async () => {
-    const contractYaml = {
-      schema_version: 1 as const,
-      title: 'Test Contract',
-      goal: 'Test goal',
-      deliverables: ['clawspace/test.txt'],
-      subtasks: [
-        { id: 'task-1', description: 'Task 1' },
-      ],
-      acceptance: [
-        { subtask_id: 'task-1', type: 'script' as const, script_file: 'acceptance/task-1.sh' },
-      ],
-      auth_level: 'auto' as const,
-    };
+    const contractYaml = makeContractYaml();
 
     const contractId = await manager.create(contractYaml);
     
@@ -114,19 +91,7 @@ describe('ContractSystem', () => {
   });
 
   it('should cancel contract', async () => {
-    const contractYaml = {
-      schema_version: 1 as const,
-      title: 'Test Contract',
-      goal: 'Test goal',
-      deliverables: ['clawspace/test.txt'],
-      subtasks: [
-        { id: 'task-1', description: 'Task 1' },
-      ],
-      acceptance: [
-        { subtask_id: 'task-1', type: 'script' as const, script_file: 'acceptance/task-1.sh' },
-      ],
-      auth_level: 'auto' as const,
-    };
+    const contractYaml = makeContractYaml();
 
     const contractId = await manager.create(contractYaml);
     await manager.cancel(contractId, 'Test cancel');
@@ -138,15 +103,13 @@ describe('ContractSystem', () => {
   // === 新增测试：状态转换验证 ===
   
   it('should throw when pausing non-running contract', async () => {
-    const contractYaml = {
-      schema_version: 1 as const,
+    const contractYaml = makeContractYaml({
       title: 'Test',
       goal: 'Test',
       deliverables: [],
       subtasks: [{ id: 't1', description: 'T1' }],
       acceptance: [],
-      auth_level: 'auto' as const,
-    };
+    });
 
     const contractId = await manager.create(contractYaml);
     await manager.pause(contractId, 'First pause');
@@ -156,15 +119,13 @@ describe('ContractSystem', () => {
   });
 
   it('should throw when resuming non-paused contract', async () => {
-    const contractYaml = {
-      schema_version: 1 as const,
+    const contractYaml = makeContractYaml({
       title: 'Test',
       goal: 'Test',
       deliverables: [],
       subtasks: [{ id: 't1', description: 'T1' }],
       acceptance: [],
-      auth_level: 'auto' as const,
-    };
+    });
 
     const contractId = await manager.create(contractYaml);
     // running 状态不能 resume
@@ -172,15 +133,13 @@ describe('ContractSystem', () => {
   });
 
   it('should throw when cancelling already completed contract', async () => {
-    const contractYaml = {
-      schema_version: 1 as const,
+    const contractYaml = makeContractYaml({
       title: 'Test',
       goal: 'Test',
       deliverables: [],
       subtasks: [{ id: 't1', description: 'T1' }],
       acceptance: [],
-      auth_level: 'auto' as const,
-    };
+    });
 
     const contractId = await manager.create(contractYaml);
     await manager.cancel(contractId, 'Cancel');
@@ -193,15 +152,13 @@ describe('ContractSystem', () => {
   
   it('should loadActive return latest running contract by started_at', async () => {
     // 创建第一个契约
-    const contract1 = await manager.create({
-      schema_version: 1 as const,
+    const contract1 = await manager.create(makeContractYaml({
       title: 'First',
       goal: 'First',
       deliverables: [],
       subtasks: [{ id: 't1', description: 'T1' }],
       acceptance: [],
-      auth_level: 'auto' as const,
-    });
+    }));
     
     // 稍微等待确保时间戳不同
     vi.useFakeTimers();
@@ -209,15 +166,13 @@ describe('ContractSystem', () => {
     vi.useRealTimers();
     
     // 创建第二个契约（会自动归档第一个）
-    const contract2 = await manager.create({
-      schema_version: 1 as const,
+    const contract2 = await manager.create(makeContractYaml({
       title: 'Second',
       goal: 'Second',
       deliverables: [],
       subtasks: [{ id: 't2', description: 'T2' }],
       acceptance: [],
-      auth_level: 'auto' as const,
-    });
+    }));
 
     // loadActive 应该返回最新的（第二个），第一个已被归档
     const active = await manager.loadActive();
@@ -230,26 +185,22 @@ describe('ContractSystem', () => {
   });
 
   it('should create() auto-archive existing running contract', async () => {
-    const contract1 = await manager.create({
-      schema_version: 1 as const,
+    const contract1 = await manager.create(makeContractYaml({
       title: 'First',
       goal: 'First',
       deliverables: [],
       subtasks: [{ id: 't1', description: 'T1' }],
       acceptance: [],
-      auth_level: 'auto' as const,
-    });
+    }));
 
     // 创建第二个，第一个应该被归档（不是暂停）
-    const contract2 = await manager.create({
-      schema_version: 1 as const,
+    const contract2 = await manager.create(makeContractYaml({
       title: 'Second',
       goal: 'Second',
       deliverables: [],
       subtasks: [{ id: 't2', description: 'T2' }],
       acceptance: [],
-      auth_level: 'auto' as const,
-    });
+    }));
 
     // 第一个被归档（status 仍为 running，但不在 active/）
     const progress1 = await manager.getProgress(contract1);
@@ -267,8 +218,7 @@ describe('ContractSystem', () => {
   // === 新增测试：completeSubtask 覆盖 ===
 
   it('should complete subtask and update status', async () => {
-    const contractYaml = {
-      schema_version: 1 as const,
+    const contractYaml = makeContractYaml({
       title: 'Test',
       goal: 'Test',
       deliverables: [],
@@ -277,8 +227,7 @@ describe('ContractSystem', () => {
         { id: 'task-2', description: 'Task 2' },
       ],
       acceptance: [],
-      auth_level: 'auto' as const,
-    };
+    });
     const contractId = await manager.create(contractYaml);
     expect(contractId).toBeTruthy();
 
@@ -290,15 +239,12 @@ describe('ContractSystem', () => {
   });
 
   it('should reject unknown subtaskId in completeSubtask with valid IDs', async () => {
-    const contractYaml = {
-      schema_version: 1 as const,
+    const contractYaml = makeContractYaml({
       title: 'Test',
       goal: 'Test',
       deliverables: [],
-      subtasks: [{ id: 'task-1', description: 'Task 1' }],
       acceptance: [],
-      auth_level: 'auto' as const,
-    };
+    });
     const contractId = await manager.create(contractYaml);
     expect(contractId).toBeTruthy();
 
@@ -320,14 +266,12 @@ describe('ContractSystem', () => {
   });
 
   it('should return error feedback on duplicate done() call for already-completed subtask', async () => {
-    const contractId = await manager.create({
-      schema_version: 1 as const,
+    const contractId = await manager.create(makeContractYaml({
       title: 'Test',
       goal: 'Test',
       subtasks: [{ id: 'task-1', description: 'Task 1' }, { id: 'task-2', description: 'Task 2' }],
-      acceptance: [],  // sync path (no acceptance config)
-      auth_level: 'auto' as const,
-    });
+      acceptance: [],
+    }));
 
     // First call: completes successfully
     const first = await manager.completeSubtask({ contractId, subtaskId: 'task-1', evidence: 'done' });
@@ -340,8 +284,7 @@ describe('ContractSystem', () => {
   });
 
   it('should mark contract completed when all subtasks done', async () => {
-    const contractYaml = {
-      schema_version: 1 as const,
+    const contractYaml = makeContractYaml({
       title: 'Test',
       goal: 'Test',
       deliverables: [],
@@ -350,8 +293,7 @@ describe('ContractSystem', () => {
         { id: 'task-2', description: 'Task 2' },
       ],
       acceptance: [],
-      auth_level: 'auto' as const,
-    };
+    });
     const contractId = await manager.create(contractYaml);
     expect(contractId).toBeTruthy();
 
@@ -364,15 +306,13 @@ describe('ContractSystem', () => {
   });
 
   it('should throw state validation errors with correct message', async () => {
-    const contractId = await manager.create({
-      schema_version: 1 as const,
+    const contractId = await manager.create(makeContractYaml({
       title: 'Test',
       goal: 'Test',
       deliverables: [],
       subtasks: [{ id: 't1', description: 'T1' }],
       acceptance: [],
-      auth_level: 'auto' as const,
-    });
+    }));
 
     // cancel 后不应该能 pause
     await manager.cancel(contractId, 'Cancelled');
@@ -382,15 +322,13 @@ describe('ContractSystem', () => {
   // === 新增测试：损坏 progress.json 抛出 ToolError ===
 
   it('should throw ToolError when progress.json is corrupted', async () => {
-    const contractYaml = {
-      schema_version: 1 as const,
+    const contractYaml = makeContractYaml({
       title: 'Test',
       goal: 'Test',
       deliverables: [],
       subtasks: [{ id: 't1', description: 'T1' }],
       acceptance: [],
-      auth_level: 'auto' as const,
-    };
+    });
     const contractId = await manager.create(contractYaml);
     expect(contractId).toBeTruthy();
 
@@ -405,15 +343,13 @@ describe('ContractSystem', () => {
   // === Phase 22 H1: acquireLock EEXIST retry ===
 
   it('should acquire lock after EEXIST retry when lock is released mid-wait', async () => {
-    const contractId = await manager.create({
-      schema_version: 1 as const,
+    const contractId = await manager.create(makeContractYaml({
       title: 'Lock Retry Test',
       goal: 'Test',
       deliverables: [],
       subtasks: [{ id: 't1', description: 'T1' }],
       acceptance: [],
-      auth_level: 'auto' as const,
-    });
+    }));
 
     // 预先写入锁文件，模拟另一个进程持有锁
     const lockPath = path.join(clawDir, 'contract', 'active', contractId, 'progress.lock');
@@ -430,15 +366,13 @@ describe('ContractSystem', () => {
 
   it('should throw ToolError when lock is never released and retries exhausted', async () => {
     // LOCK_MAX_RETRIES=3, LOCK_RETRY_DELAY_MS=10ms (mocked in constants)
-    const contractId = await manager.create({
-      schema_version: 1 as const,
+    const contractId = await manager.create(makeContractYaml({
       title: 'Lock Exhaust Test',
       goal: 'Test',
       deliverables: [],
       subtasks: [{ id: 't1', description: 'T1' }],
       acceptance: [],
-      auth_level: 'auto' as const,
-    });
+    }));
 
     // 写入锁文件（持有者 = 当前进程，模拟活跃锁），不释放
     const lockPath = path.join(clawDir, 'contract', 'active', contractId, 'progress.lock');
@@ -454,15 +388,13 @@ describe('ContractSystem', () => {
       clawDir, 'test-claw', nodeFs, mockAudit as any, undefined, undefined, mockAudit as any
     );
 
-    const contractId = await testManager.create({
-      schema_version: 1 as const,
+    const contractId = await testManager.create(makeContractYaml({
       title: 'Lock Cleanup AuditLog',
       goal: 'Test',
       deliverables: [],
       subtasks: [{ id: 't1', description: 'T1' }],
       acceptance: [],
-      auth_level: 'auto' as const,
-    });
+    }));
 
     // 写 stale lock：持有者 PID 不存在（process.kill(deadPid, 0) 会 ESRCH）
     const deadPid = 999999;
@@ -505,15 +437,13 @@ describe('ContractSystem', () => {
       clawDir, 'test-claw', nodeFs, mockAudit as any, undefined, undefined, mockAudit as any
     );
 
-    const contractId = await testManager.create({
-      schema_version: 1 as const,
+    const contractId = await testManager.create(makeContractYaml({
       title: 'Lock Cleanup ENOENT',
       goal: 'Test',
       deliverables: [],
       subtasks: [{ id: 't1', description: 'T1' }],
       acceptance: [],
-      auth_level: 'auto' as const,
-    });
+    }));
 
     const deadPid = 999999;
     const lockPath = path.join(clawDir, 'contract', 'active', contractId, 'progress.lock');
@@ -551,15 +481,13 @@ describe('ContractSystem', () => {
   // === Phase 22 C1+C2: completeSubtask allCompleted path ===
 
   it('should return allCompleted=true and archive contract when last subtask completes', async () => {
-    const contractId = await manager.create({
-      schema_version: 1 as const,
+    const contractId = await manager.create(makeContractYaml({
       title: 'AllCompleted Test',
       goal: 'Test',
       deliverables: [],
       subtasks: [{ id: 't1', description: 'T1' }],
-      acceptance: [],  // 无脚本，直接通过
-      auth_level: 'auto' as const,
-    });
+      acceptance: [],
+    }));
 
     const result = await manager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'done' });
 
@@ -574,8 +502,7 @@ describe('ContractSystem', () => {
   });
 
   it('should not set allCompleted when subtasks remain', async () => {
-    const contractId = await manager.create({
-      schema_version: 1 as const,
+    const contractId = await manager.create(makeContractYaml({
       title: 'Partial Test',
       goal: 'Test',
       deliverables: [],
@@ -584,8 +511,7 @@ describe('ContractSystem', () => {
         { id: 't2', description: 'T2' },
       ],
       acceptance: [],
-      auth_level: 'auto' as const,
-    });
+    }));
 
     const result = await manager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'done' });
 
@@ -641,15 +567,12 @@ describe('ContractSystem', () => {
       const mockAudit = { write: vi.fn() };
       const monitorManager = new ContractSystem(clawDir, 'test-claw', nodeFs, mockAudit as any);
 
-      const contractId = await monitorManager.create({
-        schema_version: 1,
+      const contractId = await monitorManager.create(makeContractYaml({
         title: 'Test',
-        goal: 'Test goal',
         deliverables: [],
         subtasks: [{ id: 'real-task', description: 'Real task' }],
         acceptance: [],
-        auth_level: 'auto' as const,
-      });
+      }));
 
       const result = await monitorManager.completeSubtask({
         contractId,
@@ -678,15 +601,12 @@ describe('ContractSystem', () => {
 
       const mockAudit = { write: vi.fn() };
       const failManager = new ContractSystem(clawDir, 'test-claw', nodeFs, mockAudit as any);
-      await expect(failManager.create({
-        schema_version: 1,
+      await expect(failManager.create(makeContractYaml({
         title: 'Test',
-        goal: 'Test goal',
         deliverables: [],
         subtasks: [{ id: 't1', description: 'T1' }],
         acceptance: [],
-        auth_level: 'auto',
-      })).rejects.toThrow('disk full');
+      }))).rejects.toThrow('disk full');
 
       // active/ 下不应存在任何 contract.yaml
       const activeDir = path.join(clawDir, 'contract', 'active');
@@ -700,33 +620,27 @@ describe('ContractSystem', () => {
 
   describe('acceptance validation', () => {
     it('should throw when type is "script" but prompt_file is used', async () => {
-      await expect(manager.create({
-        schema_version: 1,
+      await expect(manager.create(makeContractYaml({
         title: 'Test',
-        goal: 'Test goal',
         deliverables: [],
         subtasks: [{ id: 't1', description: 'T1' }],
         acceptance: [
           // @ts-expect-error - intentionally wrong field for testing
           { subtask_id: 't1', type: 'script', prompt_file: 'acceptance/t1.prompt.txt' },
         ],
-        auth_level: 'auto',
-      })).rejects.toThrow('script_file');
+      }))).rejects.toThrow('script_file');
     });
 
     it('should throw when type is "llm" but script_file is used', async () => {
-      await expect(manager.create({
-        schema_version: 1,
+      await expect(manager.create(makeContractYaml({
         title: 'Test',
-        goal: 'Test goal',
         deliverables: [],
         subtasks: [{ id: 't1', description: 'T1' }],
         acceptance: [
           // @ts-expect-error - intentionally wrong field for testing
           { subtask_id: 't1', type: 'llm', script_file: 'acceptance/t1.sh' },
         ],
-        auth_level: 'auto',
-      })).rejects.toThrow('prompt_file');
+      }))).rejects.toThrow('prompt_file');
     });
   });
 
@@ -757,25 +671,21 @@ describe('ContractSystem', () => {
         clawDir, 'test-claw', nodeFs, mockAudit as any, undefined, undefined, mockAudit as any
       );
 
-      const contract1 = await testManager.create({
-        schema_version: 1 as const,
+      const contract1 = await testManager.create(makeContractYaml({
         title: 'First',
         goal: 'First',
         deliverables: [],
         subtasks: [{ id: 't1', description: 'T1' }],
         acceptance: [],
-        auth_level: 'auto' as const,
-      });
+      }));
 
-      const contract2 = await testManager.create({
-        schema_version: 1 as const,
+      const contract2 = await testManager.create(makeContractYaml({
         title: 'Second',
         goal: 'Second',
         deliverables: [],
         subtasks: [{ id: 't2', description: 'T2' }],
         acceptance: [],
-        auth_level: 'auto' as const,
-      });
+      }));
 
       expect(mockAudit.write).toHaveBeenCalledWith(
         CONTRACT_AUDIT_EVENTS.ARCHIVE_STARTED,
@@ -796,15 +706,12 @@ describe('ContractSystem', () => {
         clawDir, 'test-claw', nodeFs, mockAudit as any, undefined, undefined, mockAudit as any
       );
 
-      await expect(failManager.create({
-        schema_version: 1,
+      await expect(failManager.create(makeContractYaml({
         title: 'Test',
-        goal: 'Test goal',
         deliverables: [],
         subtasks: [{ id: 't1', description: 'T1' }],
         acceptance: [],
-        auth_level: 'auto',
-      })).rejects.toThrow('disk full');
+      }))).rejects.toThrow('disk full');
 
       expect(mockAudit.write).toHaveBeenCalledWith(
         CONTRACT_AUDIT_EVENTS.ROLLBACK_FAILED,
@@ -823,15 +730,13 @@ describe('ContractSystem', () => {
         throw new Error('notify crash');
       });
 
-      await testManager.create({
-        schema_version: 1 as const,
+      await testManager.create(makeContractYaml({
         title: 'Test',
         goal: 'Test',
         deliverables: [],
         subtasks: [{ id: 't1', description: 'T1' }],
         acceptance: [],
-        auth_level: 'auto' as const,
-      });
+      }));
 
       expect(mockAudit.write).toHaveBeenCalledWith(
         CONTRACT_AUDIT_EVENTS.NOTIFY_FAILED,
@@ -845,15 +750,12 @@ describe('ContractSystem', () => {
         clawDir, 'test-claw', nodeFs, mockAudit as any, undefined, undefined, mockAudit as any
       );
 
-      const contractId = await testManager.create({
-        schema_version: 1,
+      const contractId = await testManager.create(makeContractYaml({
         title: 'Test',
-        goal: 'Test goal',
         deliverables: [],
         subtasks: [{ id: 't1', description: 'T1' }],
         acceptance: [],
-        auth_level: 'auto',
-      });
+      }));
 
       const moveSpy = vi.spyOn(testManager as any, 'moveToArchive').mockRejectedValue(new Error('disk full'));
       await testManager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'done' });
@@ -874,15 +776,12 @@ describe('ContractSystem', () => {
       const testManager = new ContractSystem(clawDir, 'test-claw', nodeFs, mockAudit as any, undefined, undefined, mockAudit as any);
 
       // Create contract with no-op acceptance (no script_file/prompt_file = no acceptance)
-      const contractId = await testManager.create({
-        schema_version: 1,
+      const contractId = await testManager.create(makeContractYaml({
         title: 'Test',
-        goal: 'Test goal',
         deliverables: [],
         subtasks: [{ id: 't1', description: 'T1' }],
-        acceptance: [], // No acceptance = auto-completes
-        auth_level: 'auto',
-      });
+        acceptance: [],
+      }));
 
       // Spy on moveToArchive to make it fail
       const moveSpy = vi.spyOn(testManager as any, 'moveToArchive').mockRejectedValue(new Error('disk full'));
@@ -911,15 +810,12 @@ describe('ContractSystem', () => {
       const mockAudit = { write: vi.fn() };
       const testManager = new ContractSystem(clawDir, 'test-claw', nodeFs, mockAudit as any, undefined, undefined, mockAudit as any);
 
-      const contractId = await testManager.create({
-        schema_version: 1,
+      const contractId = await testManager.create(makeContractYaml({
         title: 'Test',
-        goal: 'Test goal',
         deliverables: [],
         subtasks: [{ id: 't1', description: 'T1' }],
-        acceptance: [], // No acceptance = auto-completes
-        auth_level: 'auto',
-      });
+        acceptance: [],
+      }));
 
       // Spy but let it work normally
       const moveSpy = vi.spyOn(testManager as any, 'moveToArchive').mockResolvedValue(undefined);
@@ -939,17 +835,14 @@ describe('ContractSystem', () => {
       const testManager = new ContractSystem(clawDir, 'test-claw', nodeFs, mockAudit as any);
 
       // Create contract with LLM acceptance
-      const contractId = await testManager.create({
-        schema_version: 1,
+      const contractId = await testManager.create(makeContractYaml({
         title: 'Test',
-        goal: 'Test goal',
         deliverables: [],
         subtasks: [{ id: 't1', description: 'T1' }],
         acceptance: [
-          { subtask_id: 't1', type: 'llm' as const, prompt_file: 'acceptance/t1.prompt.txt' },
+          { subtask_id: 't1', type: 'llm', prompt_file: 'acceptance/t1.prompt.txt' },
         ],
-        auth_level: 'auto',
-      });
+      }));
 
       // Create prompt file (use native fs with absolute path)
       const contractDir = path.join(clawDir, 'contract/active', contractId);
@@ -1001,16 +894,14 @@ describe('ContractSystem', () => {
       const mockAudit = { write: vi.fn() };
       const testManager = new ContractSystem(clawDir, 'test-claw', nodeFs, mockAudit as any);
 
-      const contractId = await testManager.create({
-        schema_version: 1,
+      const contractId = await testManager.create(makeContractYaml({
         title: 'Escalation Test',
         goal: 'Test escalated_at',
         subtasks: [{ id: 't1', description: 'T1' }],
         acceptance: [
-          { subtask_id: 't1', type: 'script' as const, script_file: 'acceptance/t1.sh' },
+          { subtask_id: 't1', type: 'script', script_file: 'acceptance/t1.sh' },
         ],
-        auth_level: 'auto',
-      });
+      }));
 
       // Create script file so acceptance config resolves
       const contractDir = path.join(clawDir, 'contract/active', contractId);
@@ -1055,16 +946,14 @@ describe('ContractSystem', () => {
       const mockAudit = { write: vi.fn() };
       const testManager = new ContractSystem(clawDir, 'test-claw', nodeFs, mockAudit as any);
 
-      const contractId = await testManager.create({
-        schema_version: 1,
+      const contractId = await testManager.create(makeContractYaml({
         title: 'No Escalation Test',
         goal: 'Test no escalated_at',
         subtasks: [{ id: 't1', description: 'T1' }],
         acceptance: [
-          { subtask_id: 't1', type: 'script' as const, script_file: 'acceptance/t1.sh' },
+          { subtask_id: 't1', type: 'script', script_file: 'acceptance/t1.sh' },
         ],
-        auth_level: 'auto',
-      });
+      }));
 
       const contractDir = path.join(clawDir, 'contract/active', contractId);
       await fs.mkdir(path.join(contractDir, 'acceptance'), { recursive: true });
@@ -1097,8 +986,7 @@ describe('ContractSystem', () => {
   // === Phase 97 Step 44: Contract / SubTask 删字段验证 ===
 
   describe('Contract shape after field removal (Step 44)', () => {
-    const minimalYaml = {
-      schema_version: 1 as const,
+    const minimalYaml = makeContractYaml({
       title: 'Shape Test',
       goal: 'Verify contract shape',
       subtasks: [
@@ -1106,11 +994,10 @@ describe('ContractSystem', () => {
         { id: 'st-2', description: 'Subtask 2' },
       ],
       acceptance: [
-        { subtask_id: 'st-1', type: 'script' as const, script_file: 'acceptance/st-1.sh' },
-        { subtask_id: 'st-2', type: 'script' as const, script_file: 'acceptance/st-2.sh' },
+        { subtask_id: 'st-1', type: 'script', script_file: 'acceptance/st-1.sh' },
+        { subtask_id: 'st-2', type: 'script', script_file: 'acceptance/st-2.sh' },
       ],
-      auth_level: 'auto' as const,
-    };
+    });
 
     it('loadActive() 返回的 Contract 不含已删字段', async () => {
       await manager.create(minimalYaml);
@@ -1177,15 +1064,13 @@ describe('ContractSystem', () => {
       const mockAudit = { write: vi.fn() };
       const testManager = new ContractSystem(clawDir, 'test-claw', nodeFs, mockAudit as any);
 
-      const contractId = await testManager.create({
-        schema_version: 1 as const,
+      const contractId = await testManager.create(makeContractYaml({
         title: 'AuditLog Lifecycle Test',
         goal: 'Test',
         deliverables: [],
         subtasks: [{ id: 't1', description: 'T1' }],
         acceptance: [],
-        auth_level: 'auto' as const,
-      });
+      }));
 
       expect(mockAudit.write).toHaveBeenCalledWith(
         CONTRACT_AUDIT_EVENTS.CREATED,
@@ -1200,17 +1085,15 @@ describe('ContractSystem', () => {
       const testManager = new ContractSystem(clawDir, 'test-claw', nodeFs, mockAudit as any);
 
       // Create contract with script acceptance (triggers async background acceptance)
-      const contractId = await testManager.create({
-        schema_version: 1 as const,
+      const contractId = await testManager.create(makeContractYaml({
         title: 'Async Acceptance Test',
         goal: 'Test',
         deliverables: [],
         subtasks: [{ id: 't1', description: 'T1' }],
         acceptance: [
-          { subtask_id: 't1', type: 'script' as const, script_file: 'acceptance/t1.sh' },
+          { subtask_id: 't1', type: 'script', script_file: 'acceptance/t1.sh' },
         ],
-        auth_level: 'auto' as const,
-      });
+      }));
 
       // Create the script file so acceptance config resolves
       const contractDir = path.join(clawDir, 'contract/active', contractId);
@@ -1231,15 +1114,13 @@ describe('ContractSystem', () => {
       const mockAudit = { write: vi.fn() };
       const testManager = new ContractSystem(clawDir, 'test-claw', nodeFs, mockAudit as any);
 
-      const contractId = await testManager.create({
-        schema_version: 1 as const,
+      const contractId = await testManager.create(makeContractYaml({
         title: 'Contract Updated Test',
         goal: 'Test',
         deliverables: [],
         subtasks: [{ id: 't1', description: 'T1' }],
-        acceptance: [], // No acceptance = sync completion
-        auth_level: 'auto' as const,
-      });
+        acceptance: [],
+      }));
 
       await testManager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'done' });
 
@@ -1257,17 +1138,14 @@ describe('ContractSystem', () => {
       const mockAudit = { write: vi.fn() };
       const testManager = new ContractSystem(clawDir, 'test-claw', nodeFs, mockAudit as any);
 
-      const contractId = await testManager.create({
-        schema_version: 1,
+      const contractId = await testManager.create(makeContractYaml({
         title: 'Test',
-        goal: 'Test goal',
         deliverables: [],
         subtasks: [{ id: 't1', description: 'T1' }],
         acceptance: [
-          { subtask_id: 't1', type: 'llm' as const, prompt_file: 'acceptance/t1.prompt.txt' },
+          { subtask_id: 't1', type: 'llm', prompt_file: 'acceptance/t1.prompt.txt' },
         ],
-        auth_level: 'auto',
-      });
+      }));
 
       const contractDir = path.join(clawDir, 'contract/active', contractId);
       await fs.mkdir(path.join(contractDir, 'acceptance'), { recursive: true });
@@ -1300,17 +1178,14 @@ describe('ContractSystem', () => {
       const mockAudit = { write: vi.fn() };
       const testManager = new ContractSystem(clawDir, 'test-claw', nodeFs, mockAudit as any);
 
-      const contractId = await testManager.create({
-        schema_version: 1,
+      const contractId = await testManager.create(makeContractYaml({
         title: 'Test',
-        goal: 'Test goal',
         deliverables: [],
         subtasks: [{ id: 't1', description: 'T1' }],
         acceptance: [
-          { subtask_id: 't1', type: 'llm' as const, prompt_file: 'acceptance/t1.prompt.txt' },
+          { subtask_id: 't1', type: 'llm', prompt_file: 'acceptance/t1.prompt.txt' },
         ],
-        auth_level: 'auto',
-      });
+      }));
 
       const contractDir = path.join(clawDir, 'contract/active', contractId);
       await fs.mkdir(path.join(contractDir, 'acceptance'), { recursive: true });
@@ -1345,17 +1220,14 @@ describe('ContractSystem', () => {
       const mockAudit = { write: vi.fn() };
       const testManager = new ContractSystem(clawDir, 'test-claw', nodeFs, mockAudit as any);
 
-      const contractId = await testManager.create({
-        schema_version: 1,
+      const contractId = await testManager.create(makeContractYaml({
         title: 'Test',
-        goal: 'Test goal',
         deliverables: [],
         subtasks: [{ id: 't1', description: 'T1' }],
         acceptance: [
-          { subtask_id: 't1', type: 'llm' as const, prompt_file: 'acceptance/t1.prompt.txt' },
+          { subtask_id: 't1', type: 'llm', prompt_file: 'acceptance/t1.prompt.txt' },
         ],
-        auth_level: 'auto',
-      });
+      }));
 
       const contractDir = path.join(clawDir, 'contract/active', contractId);
       await fs.mkdir(path.join(contractDir, 'acceptance'), { recursive: true });
@@ -1385,17 +1257,14 @@ describe('ContractSystem', () => {
       const onNotifySpy = vi.fn();
       testManager.setOnNotify(onNotifySpy);
 
-      const contractId = await testManager.create({
-        schema_version: 1,
+      const contractId = await testManager.create(makeContractYaml({
         title: 'Test',
-        goal: 'Test goal',
         deliverables: [],
         subtasks: [{ id: 't1', description: 'T1' }],
         acceptance: [
-          { subtask_id: 't1', type: 'llm' as const, prompt_file: 'acceptance/t1.prompt.txt' },
+          { subtask_id: 't1', type: 'llm', prompt_file: 'acceptance/t1.prompt.txt' },
         ],
-        auth_level: 'auto',
-      });
+      }));
 
       const contractDir = path.join(clawDir, 'contract/active', contractId);
       await fs.mkdir(path.join(contractDir, 'acceptance'), { recursive: true });
@@ -1433,18 +1302,15 @@ describe('ContractSystem', () => {
       const mockAudit = { write: vi.fn() };
       const testManager = new ContractSystem(clawDir, 'test-claw', nodeFs, mockAudit as any);
 
-      const contractId = await testManager.create({
-        schema_version: 1,
+      const contractId = await testManager.create(makeContractYaml({
         title: 'Test',
-        goal: 'Test goal',
         deliverables: [],
         subtasks: [{ id: 't1', description: 'T1' }],
         acceptance: [
-          { subtask_id: 't1', type: 'script' as const, script_file: 'acceptance/t1.sh' },
+          { subtask_id: 't1', type: 'script', script_file: 'acceptance/t1.sh' },
         ],
-        auth_level: 'auto',
         escalation: { max_retries: 2 },
-      });
+      }));
 
       const contractDir = path.join(clawDir, 'contract/active', contractId);
       await fs.mkdir(path.join(contractDir, 'acceptance'), { recursive: true });
@@ -1490,17 +1356,14 @@ describe('ContractSystem', () => {
       const mockAudit = { write: vi.fn() };
       const testManager = new ContractSystem(clawDir, 'test-claw', nodeFs, mockAudit as any);
 
-      const contractId = await testManager.create({
-        schema_version: 1,
+      const contractId = await testManager.create(makeContractYaml({
         title: 'Test',
-        goal: 'Test goal',
         deliverables: [],
         subtasks: [{ id: 't1', description: 'T1' }],
         acceptance: [
-          { subtask_id: 't1', type: 'llm' as const, prompt_file: 'acceptance/t1.prompt.txt' },
+          { subtask_id: 't1', type: 'llm', prompt_file: 'acceptance/t1.prompt.txt' },
         ],
-        auth_level: 'auto',
-      });
+      }));
 
       const contractDir = path.join(clawDir, 'contract/active', contractId);
       await fs.mkdir(path.join(contractDir, 'acceptance'), { recursive: true });

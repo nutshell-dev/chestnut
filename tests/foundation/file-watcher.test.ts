@@ -5,6 +5,7 @@ import * as path from 'path';
 import * as os from 'os';
 
 import { createWatcher } from '../../src/foundation/file-watcher/index.js';
+import { waitFor } from '../helpers/wait-for.js';
 
 describe('FileWatcher', () => {
   let tmpDir: string;
@@ -109,9 +110,9 @@ describe('FileWatcher', () => {
 
   it('chokidar error triggers onError(err, "watch")', async () => {
     const errors: { err: Error; context: string }[] = [];
-    // watch a non-existent path deep inside non-existent dirs to trigger chokidar error
+    // use null-byte path to deterministically trigger chokidar error (α.2 / per phase 703 D-1)
     const watcher = createWatcher(
-      path.join(tmpDir, 'deep', 'nested', 'missing.txt'),
+      path.join(tmpDir, 'invalid\0path.txt'),
       () => {},
       {
         stability: 'immediate',
@@ -119,15 +120,11 @@ describe('FileWatcher', () => {
       },
     );
 
-    // chokidar error is async-triggered; no deterministic signal, use physical sleep
-    await new Promise(r => setTimeout(r, 500));
+    // chokidar emits 'error' for invalid path with null byte / waitFor strict（不 silent skip）
+    await waitFor(() => errors.length > 0, 2000);
     await watcher.close();
 
-    // chokidar may or may not emit error depending on timing;
-    // if it does, onError should capture it
-    if (errors.length > 0) {
-      expect(errors.some(e => e.context === 'watch')).toBe(true);
-    }
+    expect(errors.some(e => e.context === 'watch')).toBe(true);
   });
 
   it('onError handler error is swallowed and not propagated', async () => {

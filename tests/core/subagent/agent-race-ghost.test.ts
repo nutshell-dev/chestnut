@@ -110,7 +110,7 @@ describe('SubAgent race ghost callback (Phase 538)', () => {
         onTextDelta?: (delta: string) => void;
         onToolCall?: (name: string, toolUseId: string) => void;
       }) => {
-        await new Promise((resolve) => setTimeout(resolve, 200));
+        await new Promise((resolve) => setTimeout(resolve, 500));
         // timeout 后这些 callback 是 "ghost"
         opts.onTextDelta?.('ghost text');
         opts.onToolCall?.('ghost_tool', 'gt1');
@@ -120,8 +120,8 @@ describe('SubAgent race ghost callback (Phase 538)', () => {
 
     await expect(agent.run()).rejects.toThrow();
 
-    // 等待 runReact 的异步 callback 完成（timeout 后仍有 200ms 延迟）
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    // 等待 runReact 的异步 callback 完成（timeout 50ms / runReact 500ms 后 ghost / 缓 1000ms margin 抗 CI 抖动 / per phase 703 D-5 γ）
+    await new Promise((resolve) => setTimeout(resolve, 1000));
 
     // turn_interrupted 已写入
     const interrupted = sw.events.filter((e) => e.type === 'turn_interrupted');

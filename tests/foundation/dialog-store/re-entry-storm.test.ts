@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { makeSession } from '../../helpers/session-fixtures.js';
 import { DialogStore } from '../../../src/foundation/dialog-store/store.js';
 import { DIALOG_AUDIT_EVENTS } from '../../../src/foundation/dialog-store/audit-events.js';
 import type { FileSystem, FileEntry } from '../../../src/foundation/fs/types.js';
@@ -73,14 +74,13 @@ describe('DialogStore re-entry storm', () => {
       archives: [
         {
           name: '1000_recover.json',
-          content: JSON.stringify({
-            version: 1,
+          content: JSON.stringify(makeSession({
             clawId: 'c1',
             createdAt: '2024-01-01T00:00:00Z',
             updatedAt: '2024-01-01T00:00:00Z',
             systemPrompt: 'sp',
             messages: [{ role: 'user', content: 'hi' }],
-          }),
+          })),
         },
       ],
     });

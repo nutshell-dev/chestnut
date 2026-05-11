@@ -9,6 +9,7 @@
  * - Corrupt lock（JSON 损坏）自动恢复
  */
 
+import { makeContractYaml } from '../helpers/contract-yaml.js';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -19,8 +20,7 @@ import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../src/core/contract/audit-events.js';
 
 // 无验收配置（completeSubtask 同步完成，锁定时间极短，适合并发测试）
-const BASE_YAML = {
-  schema_version: 1 as const,
+const BASE_YAML = makeContractYaml({
   title: 'Concurrency Test',
   goal: 'Test concurrency guard',
   subtasks: [
@@ -28,8 +28,8 @@ const BASE_YAML = {
     { id: 'st-b', description: 'Subtask B' },
   ],
   // 无 acceptance：走 _completeSubtaskSync 路径
-  auth_level: 'auto' as const,
-};
+  acceptance: [],
+});
 
 describe('ContractSystem — 并发幂等与锁', () => {
   let testDir: string;
