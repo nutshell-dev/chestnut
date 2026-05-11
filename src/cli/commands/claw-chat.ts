@@ -13,6 +13,7 @@ import { runChatViewport } from './chat-viewport.js';
 import { createDirContext, createProcessManagerForCLI } from '../utils/factories.js';
 import { LOGS_DIR } from '../../types/paths.js';
 import { PROCESS_SPAWN_CONFIRM_MS } from '../../foundation/process-manager/index.js';
+import { getWorkspaceRoot } from '../../foundation/config/paths.js';
 
 export async function chatCommand(name: string): Promise<void> {
   loadGlobalConfig();
@@ -39,7 +40,7 @@ export async function chatCommand(name: string): Promise<void> {
           command: 'node',
           args: [daemonEntryPath, name],
           logFile: path.join(clawDir, LOGS_DIR, 'daemon.log'),
-          env: { ...process.env, CLAWFORUM_ROOT: process.env.CLAWFORUM_ROOT ?? process.cwd() } as Record<string, string | undefined>,
+          env: { ...process.env, CLAWFORUM_ROOT: getWorkspaceRoot() } as Record<string, string | undefined>,
         });
         console.log(`Started (PID: ${pid})`);
         // Wait for daemon to initialize

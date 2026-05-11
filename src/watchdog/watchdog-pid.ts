@@ -6,6 +6,7 @@
 import { getClawforumDir, getClawforumFs } from './watchdog-context.js';
 import { isAlive } from '../foundation/process-exec/index.js';
 import * as path from 'path';
+import { getWorkspaceRoot } from '../foundation/config/paths.js';
 
 /** 1:1 保 watchdog.ts:50-52 */
 function getWatchdogPidFile(): string {
@@ -14,7 +15,7 @@ function getWatchdogPidFile(): string {
 
 /** 1:1 保 watchdog.ts:85-89 */
 export function writeWatchdogPid(pid: number): void {
-  const root = process.env.CLAWFORUM_ROOT ?? process.cwd();
+  const root = getWorkspaceRoot();
   const fs = getClawforumFs();
   fs.writeAtomicSync('watchdog.pid', JSON.stringify({ pid, root }));
 }
@@ -48,7 +49,7 @@ export function isWatchdogAlive(): boolean {
     const content = fs.readSync('watchdog.pid');
     const { pid, root } = JSON.parse(content);
     if (typeof pid !== 'number') return false;
-    const currentRoot = process.env.CLAWFORUM_ROOT ?? process.cwd();
+    const currentRoot = getWorkspaceRoot();
     if (root !== currentRoot) {
       removeWatchdogPid();
       return false;

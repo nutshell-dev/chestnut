@@ -50,7 +50,8 @@ describe('outboxCommand', () => {
   });
 
   afterEach(() => {
-    process.env.CLAWFORUM_ROOT = prevRoot;
+    if (prevRoot === undefined) delete process.env.CLAWFORUM_ROOT;
+    else process.env.CLAWFORUM_ROOT = prevRoot;
     console.log = origLog;
     fs.rmSync(root, { recursive: true, force: true });
   });

@@ -25,6 +25,7 @@ import { LOGS_DIR, STATUS_SUBDIR, CLAWS_DIR } from '../../types/paths.js';
 import { SKILLS_DIR_DEFAULT, BUNDLED_SKILLS_DIR_NAME } from '../../foundation/skill-system/skill-paths.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
+import { getWorkspaceRoot } from '../../foundation/config/paths.js';
 
 // Get current file directory (ESM compatible)
 const __filename = fileURLToPath(import.meta.url);
@@ -214,7 +215,7 @@ export async function chatCommand(): Promise<void> {
           command: 'node',
           args: [daemonEntryPath, 'motion'],
           logFile: path.join(motionDir, LOGS_DIR, 'daemon.log'),
-          env: { ...process.env, CLAWFORUM_ROOT: process.env.CLAWFORUM_ROOT ?? process.cwd() } as Record<string, string | undefined>,
+          env: { ...process.env, CLAWFORUM_ROOT: getWorkspaceRoot() } as Record<string, string | undefined>,
         });
         console.log(`Started (PID: ${pid})`);
         await new Promise(resolve => setTimeout(resolve, PROCESS_SPAWN_CONFIRM_MS));

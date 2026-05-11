@@ -14,6 +14,7 @@ import { DISPATCH_SKILLS_SUBDIR } from '../../core/evolution-system/index.js';
 import { getClawDir } from '../../foundation/config/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
+import { getWorkspaceRoot } from '../../foundation/config/paths.js';
 
 /**
  * Copy directory recursively
@@ -39,7 +40,7 @@ async function copyDir(src: string, dest: string): Promise<void> {
  */
 export async function skillInstallUserCommand(sourcePath: string, deps?: { audit?: AuditLog }): Promise<void> {
   const audit = deps?.audit;
-  const root = process.env.CLAWFORUM_ROOT ?? process.cwd();
+  const root = getWorkspaceRoot();
   const absSource = path.resolve(sourcePath);
 
   // Skill name = source directory name
@@ -87,7 +88,7 @@ export async function skillInstallClawCommand(clawId: string, skillName: string,
     throw new Error(`Invalid skill name: ${JSON.stringify(skillName)}`);
   }
 
-  const root = process.env.CLAWFORUM_ROOT ?? process.cwd();
+  const root = getWorkspaceRoot();
   const motionDir = path.join(root, '.clawforum', 'motion');
   const source = path.join(motionDir, CLAWSPACE_DIR, DISPATCH_SKILLS_SUBDIR, skillName);
   const clawDir = getClawDir(clawId);

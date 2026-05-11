@@ -28,6 +28,7 @@ import { InboxWriter } from '../../foundation/messaging/index.js';
 import { MOTION_CLAW_ID } from '../../constants.js';
 import { PROCESS_SPAWN_CONFIRM_MS } from '../../foundation/process-manager/index.js';
 import { CliError } from '../errors.js';
+import { getWorkspaceRoot } from '../../foundation/config/paths.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { startCommand as watchdogStart, isWatchdogAlive } from '../../watchdog/watchdog.js';
@@ -372,7 +373,7 @@ async function _start(audit?: AuditLog): Promise<void> {
     command: 'node' as const,
     args: [daemonEntryPath, 'motion'],
     logFile: path.join(motionDir, LOGS_DIR, 'daemon.log'),
-    env: { ...process.env, CLAWFORUM_ROOT: process.env.CLAWFORUM_ROOT ?? process.cwd() } as Record<string, string | undefined>,
+    env: { ...process.env, CLAWFORUM_ROOT: getWorkspaceRoot() } as Record<string, string | undefined>,
   };
   if (!fs.existsSync(path.join(motionDir, 'AGENTS.md'))) {
     await motionInitCommand(true);

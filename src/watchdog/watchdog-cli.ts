@@ -11,6 +11,7 @@ import {
 import {
   writeWatchdogPid, getWatchdogPid, isWatchdogAlive, removeWatchdogPid,
 } from './watchdog-pid.js';
+import { getWorkspaceRoot } from '../foundation/config/paths.js';
 
 // Watchdog lifecycle poll：通用 100ms 间隔
 const WATCHDOG_POLL_INTERVAL_MS = 100;
@@ -35,7 +36,7 @@ export async function startCommand(): Promise<void> {
   }
 
   // spawn watchdog，显式传 CLAWFORUM_ROOT
-  const clawforumRoot = process.env.CLAWFORUM_ROOT ?? process.cwd();
+  const clawforumRoot = getWorkspaceRoot();
   spawnDetached('node', [watchdogEntryPath], {
     env: { ...process.env, CLAWFORUM_ROOT: clawforumRoot },
   });

@@ -15,6 +15,7 @@ describe('FileWatcher', () => {
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks(); // phase 711 P3-P1.1/1.2：防 process.platform getter + globalThis.setInterval spy 跨 worker leak
     await fsp.rm(tmpDir, { recursive: true, force: true });
   });
 

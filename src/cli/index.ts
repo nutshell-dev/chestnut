@@ -38,6 +38,7 @@ import { statusCommand } from './commands/status.js';
 import { LOGS_DIR } from '../types/paths.js';
 import { createDirContext } from './utils/factories.js';
 import { getClawforumRoot, getClawDir, loadGlobalConfig } from '../foundation/config/index.js';
+import { getWorkspaceRoot } from '../foundation/config/paths.js';
 
 
 
@@ -249,7 +250,7 @@ clawCmd
         command: 'node',
         args: [daemonEntryPath, name],
         logFile: path.join(clawDir, LOGS_DIR, 'daemon.log'),
-        env: { ...process.env, CLAWFORUM_ROOT: process.env.CLAWFORUM_ROOT ?? process.cwd() } as Record<string, string | undefined>,
+        env: { ...process.env, CLAWFORUM_ROOT: getWorkspaceRoot() } as Record<string, string | undefined>,
       });
       console.log(`Started Claw "${name}" (PID: ${pid})`);
     } catch (error) {
@@ -337,7 +338,7 @@ motionCmd
         command: 'node',
         args: [daemonEntryPath, 'motion'],
         logFile: path.join(motionDir, LOGS_DIR, 'daemon.log'),
-        env: { ...process.env, CLAWFORUM_ROOT: process.env.CLAWFORUM_ROOT ?? process.cwd() } as Record<string, string | undefined>,
+        env: { ...process.env, CLAWFORUM_ROOT: getWorkspaceRoot() } as Record<string, string | undefined>,
       });
       console.log(`Started Motion daemon (PID: ${pid})`);
     } catch (error) {
