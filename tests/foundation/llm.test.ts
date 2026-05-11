@@ -20,6 +20,7 @@ import { AnthropicAdapter } from '../../src/foundation/llm-provider/anthropic.js
 import { CustomAnthropicAdapter } from '../../src/foundation/llm-provider/custom-anthropic.js';
 import { OpenAIAdapter } from '../../src/foundation/llm-provider/openai.js';
 import { LLMOrchestratorImpl } from '../../src/foundation/llm-orchestrator/orchestrator.js';
+import { createLLMOrchestrator } from '../../src/foundation/llm-orchestrator/index.js';
 import {
   LLMRateLimitError,
   LLMTimeoutError,
@@ -1510,5 +1511,50 @@ describe('GeminiAdapter — Phase 98 fixes', () => {
         messages: [{ role: 'user', content: 'hi' }],
       })) { /* drain */ }
     }).rejects.toThrow(LLMRateLimitError);
+  });
+});
+
+describe('createLLMOrchestrator factory', () => {
+  const mockAdapter = {
+    name: 'mock',
+    model: 'mock-model',
+    call: async () => ({} as any),
+    stream: async function* () {},
+    healthCheck: async () => true,
+    getProviderInfo: () => ({ name: 'mock', model: 'mock-model' }),
+  };
+
+  it('returns LLMOrchestratorImpl instance', () => {
+    const orchestrator = createLLMOrchestrator({
+      primary: mockAdapter as any,
+      maxAttempts: 1,
+      retryDelayMs: 10,
+      events: { emit: () => {} },
+    });
+    expect(orchestrator).toBeInstanceOf(LLMOrchestratorImpl);
+  });
+
+  it('forwards config through to underlying impl', async () => {
+    const orchestrator = createLLMOrchestrator({
+      primary: {
+        ...mockAdapter,
+        name: 'config-test',
+        model: 'test-model',
+        call: async () => ({
+          content: [{ type: 'text', text: 'ok' }],
+          stop_reason: 'end_turn',
+        } as any),
+        getProviderInfo: () => ({ name: 'config-test', model: 'test-model' }),
+      } as any,
+      maxAttempts: 1,
+      retryDelayMs: 10,
+      events: { emit: () => {} },
+    });
+    await orchestrator.call({ messages: [{ role: 'user', content: 'hi' }] });
+    const info = orchestrator.getProviderInfo();
+    expect(info).toEqual(expect.objectContaining({
+      name: 'config-test',
+      model: 'test-model',
+    }));
   });
 });
