@@ -727,11 +727,20 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
 
   tui.start();
 
-  // Watch clawsDir，新契约出现时自动加入
+  // Watch clawsDir，新 claw 创建 / 新 contract 创建时自动重扫
+  // recursive: true 必须 — contract 创建在 <clawsDir>/<clawId>/contract/active/<contractId>/ 深 3 层
+  // 不 recursive 仅 watch 浅层 / claw 内 contract create 不 trigger / clawBar 永不显示新加入 contract 的 claw
+  // callback filter 仅 contract/(active|paused) addDir 或 clawsDir 浅层 addDir 触发 rescan / 减噪声
   let clawsDirWatcher: Watcher | null = null;
   if (clawsDir) {
     clawsDirWatcher = createWatcher(clawsDir, (event) => {
       if (event.type !== 'addDir') return;
+      // Filter: 仅 (1) 新 claw 创建（clawsDir 直接子目录）或 (2) contract dir 创建（<clawId>/contract/<active|paused>/<*>）触发 rescan
+      const relPath = path.relative(clawsDir, event.path);
+      const parts = relPath.split(path.sep);
+      const isNewClaw = parts.length === 1;
+      const isContractDir = parts.length >= 4 && parts[1] === 'contract' && (parts[2] === 'active' || parts[2] === 'paused');
+      if (!isNewClaw && !isContractDir) return;
       // 重新扫描，加入尚未在面板中的有契约 claw
       try {
         const entries = fs.listSync(clawsDir, { includeDirs: true });
@@ -759,6 +768,23 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
           options.audit.write(VIEWPORT_AUDIT_EVENTS.CLAWSDIR_SCAN_FAILED, `reason=${msg}`);
         } catch { /* audit self-failure tolerated */ }
       }
+    }, {
+      recursive: true,
+      // Ignore noisy subdirs 不参与 clawBar trigger 逻辑（性能 + 减少 event 噪声）
+      ignored: [
+        /\/dialog(\/|$)/,
+        /\/inbox(\/|$)/,
+        /\/outbox(\/|$)/,
+        /\/tasks(\/|$)/,
+        /\/memory(\/|$)/,
+        /\/skills(\/|$)/,
+        /\/clawspace(\/|$)/,
+        /\/logs(\/|$)/,
+        /\/status(\/|$)/,
+        /\/\.git(\/|$)/,
+        /\.jsonl$/,
+        /\.log$/,
+      ],
     });
     // 立即触发一次扫描
     clawManager.refreshAllClawStatus();
