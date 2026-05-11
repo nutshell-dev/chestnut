@@ -34,15 +34,21 @@ describe('StreamReader', () => {
     ec.reset();
   });
 
+  async function makeReadyReader(
+    fs: NodeFileSystem,
+    onEvent: (e: StreamEvent) => void,
+    audit: AuditLog,
+  ): Promise<StreamReader> {
+    return new Promise((resolve) => {
+      const r = createStreamReader(fs, STREAM_FILE, onEvent, audit, {
+        onReady: () => resolve(r),
+      });
+      r.start();
+    });
+  }
   it('should receive new events after start', async () => {
     writer.open();
-    reader = createStreamReader(fs, STREAM_FILE, ec.onEvent, makeAudit().audit);
-    reader.start();
-
-    // chokidar ready probe: write sentinel + waitFor arrival + reset (replaces blind 300ms)
-    writer.write({ ts: -1, type: '__sentinel__' });
-    await ec.whenCount(1);
-    ec.reset();
+    reader = await makeReadyReader(fs, ec.onEvent, makeAudit().audit);
 
     const ev: StreamEvent = { ts: Date.now(), type: 'test', value: 42 };
     writer.write(ev);
@@ -57,13 +63,7 @@ describe('StreamReader', () => {
     writer.write({ ts: 2, type: 'old2' });
     writer.write({ ts: 3, type: 'old3' });
 
-    reader = createStreamReader(fs, STREAM_FILE, ec.onEvent, makeAudit().audit);
-    reader.start();
-
-    // chokidar ready probe: write sentinel + waitFor arrival + reset (replaces blind 150ms)
-    writer.write({ ts: 4, type: '__sentinel__' });
-    await ec.whenCount(1);
-    ec.reset();
+    reader = await makeReadyReader(fs, ec.onEvent, makeAudit().audit);
 
     writer.write({ ts: 5, type: 'new' });
 
@@ -73,13 +73,7 @@ describe('StreamReader', () => {
 
   it('should receive multiple batched events in order', async () => {
     writer.open();
-    reader = createStreamReader(fs, STREAM_FILE, ec.onEvent, makeAudit().audit);
-    reader.start();
-
-    // chokidar ready probe: write sentinel + waitFor arrival + reset (replaces blind 300ms)
-    writer.write({ ts: -1, type: '__sentinel__' });
-    await ec.whenCount(1);
-    ec.reset();
+    reader = await makeReadyReader(fs, ec.onEvent, makeAudit().audit);
 
     for (let i = 0; i < 5; i++) {
       writer.write({ ts: i, type: 'batch', idx: i });
@@ -92,13 +86,7 @@ describe('StreamReader', () => {
   it('should isolate JSON parse errors and keep processing', async () => {
     const { audit, events: auditEvents } = makeAudit();
     writer.open();
-    reader = createStreamReader(fs, STREAM_FILE, ec.onEvent, audit);
-    reader.start();
-
-    // chokidar ready probe: write sentinel + waitFor arrival + reset (replaces blind 300ms)
-    writer.write({ ts: -1, type: '__sentinel__' });
-    await ec.whenCount(1);
-    ec.reset();
+    reader = await makeReadyReader(fs, ec.onEvent, audit);
 
     // write a valid event first
     writer.write({ ts: 1, type: 'before' });
@@ -156,13 +144,7 @@ describe('StreamReader', () => {
   it('多行中文事件增量写入时，每行都通过 onEvent 到达', async () => {
     writer.open();
     const auditRec = makeAudit();
-    reader = createStreamReader(fs, STREAM_FILE, ec.onEvent, auditRec.audit);
-    reader.start();
-
-    // chokidar ready probe: write sentinel + waitFor arrival + reset (replaces blind 300ms)
-    writer.write({ ts: -1, type: '__sentinel__' });
-    await ec.whenCount(1);
-    ec.reset();
+    reader = await makeReadyReader(fs, ec.onEvent, auditRec.audit);
 
     writer.write({ ts: 1, type: 'msg', text: '你好世界' });
     writer.write({ ts: 2, type: 'msg', text: '测试中文增量读取' });
@@ -181,13 +163,7 @@ describe('StreamReader', () => {
   it('chunk 边界落在单个 UTF-8 字符字节中间时，StringDecoder 跨 read 复原', async () => {
     writer.open();
     const auditRec = makeAudit();
-    reader = createStreamReader(fs, STREAM_FILE, ec.onEvent, auditRec.audit);
-    reader.start();
-
-    // chokidar ready probe: write sentinel + waitFor arrival + reset (replaces blind 300ms)
-    writer.write({ ts: -1, type: '__sentinel__' });
-    await ec.whenCount(1);
-    ec.reset();
+    reader = await makeReadyReader(fs, ec.onEvent, auditRec.audit);
 
     const prefix = Buffer.from('{"ts":1,"type":"t","text":"', 'utf-8');
     const charFirstByte = Buffer.from([0xe4]);
@@ -216,13 +192,7 @@ describe('StreamReader', () => {
   it('chunk 边界落在 4 字节 emoji 字节中间时，StringDecoder 跨 read 复原', async () => {
     writer.open();
     const auditRec = makeAudit();
-    reader = createStreamReader(fs, STREAM_FILE, ec.onEvent, auditRec.audit);
-    reader.start();
-
-    // chokidar ready probe: write sentinel + waitFor arrival + reset (replaces blind 300ms)
-    writer.write({ ts: -1, type: '__sentinel__' });
-    await ec.whenCount(1);
-    ec.reset();
+    reader = await makeReadyReader(fs, ec.onEvent, auditRec.audit);
 
     const prefix = Buffer.from('{"ts":1,"type":"t","text":"', 'utf-8');
     const emojiHalf1 = Buffer.from([0xf0, 0x9f]);
@@ -254,13 +224,7 @@ describe('StreamReader', () => {
         auditRec.audit.write(type, ...cols);
       },
     };
-    reader = createStreamReader(fs, STREAM_FILE, ec.onEvent, wrappedAudit);
-    reader.start();
-
-    // chokidar ready probe: write sentinel + waitFor arrival + reset (replaces blind 300ms)
-    writer.write({ ts: -1, type: '__sentinel__' });
-    await ec.whenCount(1);
-    ec.reset();
+    reader = await makeReadyReader(fs, ec.onEvent, wrappedAudit);
 
     const streamAbs = nativePath.join(tempDir, STREAM_FILE);
     for (let i = 0; i < 5; i++) {
@@ -303,13 +267,7 @@ describe('StreamReader', () => {
         auditRec.audit.write(type, ...cols);
       },
     };
-    reader = createStreamReader(fs, STREAM_FILE, ec.onEvent, wrappedAudit);
-    reader.start();
-
-    // chokidar ready probe: write sentinel + waitFor arrival + reset (replaces blind 300ms)
-    writer.write({ ts: -1, type: '__sentinel__' });
-    await ec.whenCount(1);
-    ec.reset();
+    reader = await makeReadyReader(fs, ec.onEvent, wrappedAudit);
 
     const streamAbs = nativePath.join(tempDir, STREAM_FILE);
 
