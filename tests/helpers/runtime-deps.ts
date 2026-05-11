@@ -16,6 +16,7 @@ import { ExecContextImpl } from '../../src/foundation/tools/context.js';
 import type { RuntimeDependencies } from '../../src/core/runtime/index.js';
 import type { LLMOrchestratorConfig } from '../../src/foundation/llm-orchestrator/types.js';
 import { INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR } from '../../src/types/paths.js';
+import { createToolRegistry } from '../../src/foundation/tools/index.js';
 
 const TEST_CLAW_ID = 'test-claw';
 

@@ -13,6 +13,7 @@ import { createDoneTool } from '../../src/core/contract/index.js';
 import { ContractSystem } from '../../src/core/contract/manager.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import * as os from 'os';
+import { createToolRegistry } from '../../src/foundation/tools/index.js';
 
 let testDir: string;
 let clawDir: string;
@@ -40,7 +41,7 @@ describe('doneTool', () => {
     await fs.mkdir(clawDir, { recursive: true });
     nodeFs = new NodeFileSystem({ baseDir: clawDir });
     const mockAudit = { write: vi.fn() };
-    manager = new ContractSystem(clawDir, 'test-claw', nodeFs, mockAudit as any);
+    manager = new ContractSystem(clawDir, 'test-claw', nodeFs, mockAudit as any, undefined, createToolRegistry());
     doneTool = createDoneTool(manager);
   });
 

@@ -78,6 +78,7 @@ import { InboxWriter } from '../../src/foundation/messaging/index.js';
 
 import { DEFAULT_MAX_STEPS } from '../../src/constants.js';
 import { makeContractYaml } from '../helpers/contract-yaml.js';
+import { createToolRegistry } from '../../src/foundation/tools/index.js';
 
 /**
  * Setup contract files for testing
@@ -208,7 +209,7 @@ describe('ContractSystem Acceptance Flow', () => {
       stream: vi.fn(),
     } as unknown as LLMOrchestrator;
 
-    manager = new ContractSystem(clawDir, 'test-claw', nodeFs, mockAudit as any, mockLLM);
+    manager = new ContractSystem(clawDir, 'test-claw', nodeFs, mockAudit as any, mockLLM, createToolRegistry());
   });
 
   afterEach(async () => {
@@ -482,7 +483,7 @@ describe('ContractSystem Acceptance Flow', () => {
       const contractId = 'test-llm-not-injected';
       // manager without llm
       const nodeFs = new NodeFileSystem({ baseDir: clawDir });
-      const noLLMManager = new ContractSystem(clawDir, 'test-claw', nodeFs, mockAudit as any);
+      const noLLMManager = new ContractSystem(clawDir, 'test-claw', nodeFs, mockAudit as any, undefined, createToolRegistry());
 
       await setupContract(tempDir, contractId, makeContractYaml({
         subtasks: [{ id: 'task-1', description: 'Test task' }],
@@ -841,7 +842,7 @@ describe('ContractSystem — background acceptance error handling', () => {
       stream: vi.fn(),
     } as unknown as LLMOrchestrator;
     const manager = new ContractSystem(
-      clawDir, 'test-claw', nodeFs, captureAudit as any, mockLLM,
+      clawDir, 'test-claw', nodeFs, captureAudit as any, mockLLM, createToolRegistry(),
     );
 
     const contractId = 'typeerror-test-contract';
@@ -897,7 +898,7 @@ describe('ContractSystem — background acceptance error handling', () => {
       stream: vi.fn(),
     } as unknown as LLMOrchestrator;
     const manager = new ContractSystem(
-      clawDir, 'test-claw', nodeFs, captureAudit as any, mockLLM,
+      clawDir, 'test-claw', nodeFs, captureAudit as any, mockLLM, createToolRegistry(),
     );
 
     const contractId = 'business-error-test-contract';

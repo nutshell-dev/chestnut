@@ -6,6 +6,7 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import { randomUUID } from 'crypto';
+import { createToolRegistry } from '../../../src/foundation/tools/index.js';
 
 // ============================================================================
 // Mock: writePendingSubagentTaskFile
@@ -57,7 +58,7 @@ describe('EvolutionSystem — clawContractManagerFactory injection (phase 619 ca
     const { contractId, motionFs, motionAudit, mockAudit, clawsBaseDir, tmpBase } = fixtures;
 
     const factorySpy = vi.fn().mockImplementation((clawDir: string, targetClaw: string, fs: NodeFileSystem) => {
-      return new ContractSystem(clawDir, targetClaw, fs, { write: vi.fn() } as any);
+      return new ContractSystem(clawDir, targetClaw, fs, { write: vi.fn() } as any, undefined, createToolRegistry());
     });
 
     const ctx: MotionReviewContext = {
@@ -94,7 +95,7 @@ describe('EvolutionSystem — clawContractManagerFactory injection (phase 619 ca
     const { contractId, motionFs, motionAudit, mockAudit, clawsBaseDir, tmpBase } = fixtures;
 
     const factorySpy = vi.fn().mockImplementation((clawDir: string, targetClaw: string, fs: NodeFileSystem) => {
-      return new ContractSystem(clawDir, targetClaw, fs, { write: vi.fn() } as any);
+      return new ContractSystem(clawDir, targetClaw, fs, { write: vi.fn() } as any, undefined, createToolRegistry());
     });
 
     const ctx: MotionReviewContext = {

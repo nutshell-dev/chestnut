@@ -11,6 +11,7 @@ import { ContractSystem } from '../../src/core/contract/manager.js';
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../src/core/contract/audit-events.js';
+import { createToolRegistry } from '../../src/foundation/tools/index.js';
 
 async function createContract(
   tempDir: string,
@@ -78,7 +79,7 @@ describe('Contract System', () => {
     it('should load active contract with running status', async () => {
       await createContract(tempDir, 'contract-001', 'running');
 
-      const manager = new ContractSystem(tempDir, 'test-claw', mockFs, mockAudit as any);
+      const manager = new ContractSystem(tempDir, 'test-claw', mockFs, mockAudit as any, undefined, createToolRegistry());
       const active = await manager.loadActive();
 
       expect(active).toBeDefined();
@@ -88,7 +89,7 @@ describe('Contract System', () => {
 
     it('should return null when no active contract', async () => {
       // No contract created
-      const manager = new ContractSystem(tempDir, 'test-claw', mockFs, mockAudit as any);
+      const manager = new ContractSystem(tempDir, 'test-claw', mockFs, mockAudit as any, undefined, createToolRegistry());
       const active = await manager.loadActive();
 
       expect(active).toBeNull();
@@ -97,7 +98,7 @@ describe('Contract System', () => {
     it('should return null when all contracts are completed', async () => {
       await createContract(tempDir, 'contract-001', 'completed');
 
-      const manager = new ContractSystem(tempDir, 'test-claw', mockFs, mockAudit as any);
+      const manager = new ContractSystem(tempDir, 'test-claw', mockFs, mockAudit as any, undefined, createToolRegistry());
       const active = await manager.loadActive();
 
       expect(active).toBeNull();
@@ -106,7 +107,7 @@ describe('Contract System', () => {
     it('should get contract progress', async () => {
       await createContract(tempDir, 'contract-001', 'running');
 
-      const manager = new ContractSystem(tempDir, 'test-claw', mockFs, mockAudit as any);
+      const manager = new ContractSystem(tempDir, 'test-claw', mockFs, mockAudit as any, undefined, createToolRegistry());
       const progress = await manager.getProgress('contract-001');
 
       expect(progress.contract_id).toBe('contract-001');
@@ -139,7 +140,7 @@ auth_level: auto
       };
       await fs.writeFile(path.join(contractDir, 'progress.json'), JSON.stringify(progress));
 
-      const manager = new ContractSystem(tempDir, 'test-claw', mockFs, mockAudit as any);
+      const manager = new ContractSystem(tempDir, 'test-claw', mockFs, mockAudit as any, undefined, createToolRegistry());
       const result = await manager.completeSubtask({
         contractId: 'contract-002',
         subtaskId: 'st-001',
@@ -181,7 +182,7 @@ auth_level: auto
       };
       await fs.writeFile(path.join(contractDir, 'progress.json'), JSON.stringify(progress));
 
-      const manager = new ContractSystem(tempDir, 'test-claw', mockFs, mockAudit as any);
+      const manager = new ContractSystem(tempDir, 'test-claw', mockFs, mockAudit as any, undefined, createToolRegistry());
       const result = await manager.completeSubtask({
         contractId: 'contract-003',
         subtaskId: 'st-001',
@@ -221,7 +222,7 @@ auth_level: auto
       };
       await fs.writeFile(path.join(contractDir, 'progress.json'), JSON.stringify(progress));
 
-      const manager = new ContractSystem(tempDir, 'test-claw', mockFs, mockAudit as any);
+      const manager = new ContractSystem(tempDir, 'test-claw', mockFs, mockAudit as any, undefined, createToolRegistry());
       const result = await manager.completeSubtask({
         contractId: 'contract-004',
         subtaskId: 'st-001',
@@ -261,7 +262,7 @@ auth_level: auto
       };
       await fs.writeFile(path.join(contractDir, 'progress.json'), JSON.stringify(progress));
 
-      const manager = new ContractSystem(tempDir, 'test-claw', mockFs, mockAudit as any);
+      const manager = new ContractSystem(tempDir, 'test-claw', mockFs, mockAudit as any, undefined, createToolRegistry());
       expect(await manager.isComplete('contract-005')).toBe(false);
 
       // Complete one
@@ -284,7 +285,7 @@ auth_level: auto
     it('should pause contract', async () => {
       await createContract(tempDir, 'contract-006', 'running');
 
-      const manager = new ContractSystem(tempDir, 'test-claw', mockFs, mockAudit as any);
+      const manager = new ContractSystem(tempDir, 'test-claw', mockFs, mockAudit as any, undefined, createToolRegistry());
       await manager.pause('contract-006', 'Checkpoint note');
 
       const progress = await manager.getProgress('contract-006');
@@ -301,7 +302,7 @@ auth_level: auto
       progress.checkpoint = 'Saved state';
       await fs.writeFile(progressPath, JSON.stringify(progress));
 
-      const manager = new ContractSystem(tempDir, 'test-claw', mockFs, mockAudit as any);
+      const manager = new ContractSystem(tempDir, 'test-claw', mockFs, mockAudit as any, undefined, createToolRegistry());
       const resumed = await manager.resume('contract-007');
 
       expect(resumed.status).toBe('running');
@@ -313,7 +314,7 @@ auth_level: auto
     it('writes CONTRACT_PROGRESS_CORRUPTED audit when loadActive finds corrupted progress.json', async () => {
       const mockAudit = { write: vi.fn() };
       const auditManager = new ContractSystem(
-        tempDir, 'test-claw', mockFs, mockAudit as any, undefined, undefined, mockAudit as any
+        tempDir, 'test-claw', mockFs, mockAudit as any, undefined, createToolRegistry()
       );
 
       const contractId = 'corrupt-audit-contract';

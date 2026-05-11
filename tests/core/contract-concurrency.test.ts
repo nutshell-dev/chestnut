@@ -18,6 +18,7 @@ import { randomUUID } from 'crypto';
 import { ContractSystem } from '../../src/core/contract/manager.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../src/core/contract/audit-events.js';
+import { createToolRegistry } from '../../src/foundation/tools/index.js';
 
 // 无验收配置（completeSubtask 同步完成，锁定时间极短，适合并发测试）
 const BASE_YAML = makeContractYaml({
@@ -43,7 +44,7 @@ describe('ContractSystem — 并发幂等与锁', () => {
     await fs.mkdir(clawDir, { recursive: true });
     nodeFs = new NodeFileSystem({ baseDir: clawDir });
     const mockAudit = { write: vi.fn() };
-    manager = new ContractSystem(clawDir, 'test-claw', nodeFs, mockAudit as any);
+    manager = new ContractSystem(clawDir, 'test-claw', nodeFs, mockAudit as any, undefined, createToolRegistry());
   });
 
   afterEach(async () => {
@@ -183,7 +184,7 @@ describe('ContractSystem — 并发幂等与锁', () => {
   it('writes CONTRACT_LOCK_CLEARED audit when force clearing stale timeout lock', async () => {
     const mockAudit = { write: vi.fn() };
     const auditManager = new ContractSystem(
-      clawDir, 'test-claw', nodeFs, mockAudit as any, undefined, undefined, mockAudit as any
+      clawDir, 'test-claw', nodeFs, mockAudit as any, undefined, createToolRegistry()
     );
 
     const contractId = await auditManager.create(BASE_YAML);

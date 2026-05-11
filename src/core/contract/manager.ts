@@ -30,6 +30,7 @@ import type { Contract, ContractStatus, SubtaskStatus, LastFailedFeedback, Accep
 import { ToolError, ToolTimeoutError, isProgrammingBug } from '../../types/errors.js';
 import { InboxWriter } from '../../foundation/messaging/index.js';
 import { type AuditLog } from '../../foundation/audit/index.js';
+import type { ToolRegistry } from '../../foundation/tools/types.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 
 import type {
@@ -80,6 +81,7 @@ export class ContractSystem {
   private readonly clawId: string;
   private readonly audit: AuditLog;
   private llm?: LLMOrchestrator;
+  private toolRegistry: ToolRegistry;
 
   private activeDir = 'contract/active';
   private pausedDir = 'contract/paused';
@@ -94,12 +96,17 @@ export class ContractSystem {
     fs: FileSystem,
     audit: AuditLog,
     llm?: LLMOrchestrator,
+    toolRegistry?: ToolRegistry,
   ) {
     this.clawDir = clawDir;
     this.clawId = clawId;
     this.fs = fs;
     this.audit = audit;
     this.llm = llm;
+    if (!toolRegistry) {
+      throw new Error('ContractSystem: toolRegistry required (phase 704 / verifier subagent toolset injection)');
+    }
+    this.toolRegistry = toolRegistry;
   }
 
   setOnNotify(cb: (type: string, data: Record<string, unknown>) => void): void {
@@ -181,6 +188,7 @@ export class ContractSystem {
       runLLMAcceptance: (promptFile, contractAbsDir, contractId, subtaskId, subtaskDesc, evidence, artifacts) =>
         this.runLLMAcceptance(promptFile, contractAbsDir, contractId, subtaskId, subtaskDesc, evidence, artifacts),
       withProgressLock: (contractId, fn) => this.withProgressLock(contractId, fn),
+      toolRegistry: this.toolRegistry,
     };
   }
 

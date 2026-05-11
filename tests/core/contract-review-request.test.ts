@@ -10,6 +10,7 @@ import type { MotionReviewContext } from '../../src/core/evolution-system/system
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { AuditWriter } from '../../src/foundation/audit/writer.js';
 import { RETRO_AUDIT_EVENTS } from '../../src/core/evolution-system/retro-audit-events.js';
+import { createToolRegistry } from '../../src/foundation/tools/index.js';
 
 // ============================================================================
 // Mock: SkillSystem（D4 C 方案：窄 mock 避免建真 skills/ 目录）
@@ -91,7 +92,7 @@ async function setupFixtures(): Promise<TestFixtures> {
     motionAudit,
     clawsBaseDir,
     clawFsFactory: (clawDir) => new NodeFileSystem({ baseDir: clawDir }),
-    clawContractManagerFactory: (clawDir, targetClaw, fs) => new ContractSystem(clawDir, targetClaw, fs, { write: vi.fn() } as any),
+    clawContractManagerFactory: (clawDir, targetClaw, fs) => new ContractSystem(clawDir, targetClaw, fs, { write: vi.fn() } as any, undefined, createToolRegistry()),
   };
 
   return { motionDir, clawsBaseDir, targetClawDir, contractId, ctx, evolutionSystem, mockAudit };

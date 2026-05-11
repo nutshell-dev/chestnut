@@ -6,6 +6,7 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import { randomUUID } from 'crypto';
+import { createToolRegistry } from '../../../src/foundation/tools/index.js';
 
 // ============================================================================
 // Mock: writePendingSubagentTaskFile
@@ -64,7 +65,7 @@ describe('EvolutionSystem — clawFsFactory 注入路径（caller DIP enforce）
       motionAudit: motionAudit as any,
       clawsBaseDir,
       clawFsFactory: factory,
-      clawContractManagerFactory: (clawDir, targetClaw, fs) => new ContractSystem(clawDir, targetClaw, fs, { write: vi.fn() } as any),
+      clawContractManagerFactory: (clawDir, targetClaw, fs) => new ContractSystem(clawDir, targetClaw, fs, { write: vi.fn() } as any, undefined, createToolRegistry()),
     };
 
     const evolutionSystem = new EvolutionSystem({
@@ -97,7 +98,7 @@ describe('EvolutionSystem — clawFsFactory 注入路径（caller DIP enforce）
       motionAudit: motionAudit as any,
       clawsBaseDir,
       clawFsFactory: factory,
-      clawContractManagerFactory: (clawDir, targetClaw, fs) => new ContractSystem(clawDir, targetClaw, fs, { write: vi.fn() } as any),
+      clawContractManagerFactory: (clawDir, targetClaw, fs) => new ContractSystem(clawDir, targetClaw, fs, { write: vi.fn() } as any, undefined, createToolRegistry()),
     };
 
     const evolutionSystem = new EvolutionSystem({
@@ -137,7 +138,7 @@ describe('EvolutionSystem — clawFsFactory 注入路径（caller DIP enforce）
       motionAudit: motionAudit as any,
       clawsBaseDir,
       clawFsFactory: factory,
-      clawContractManagerFactory: (clawDir, targetClaw, fs) => new ContractSystem(clawDir, targetClaw, fs, { write: vi.fn() } as any),
+      clawContractManagerFactory: (clawDir, targetClaw, fs) => new ContractSystem(clawDir, targetClaw, fs, { write: vi.fn() } as any, undefined, createToolRegistry()),
     };
 
     const evolutionSystem = new EvolutionSystem({

@@ -6,6 +6,7 @@
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
+import type { ToolRegistry } from '../../foundation/tools/types.js';
 import type { ContractStatus, SubtaskStatus, LastFailedFeedback } from '../../types/contract.js';
 
 // YAML contract file structure (exported for CLI use)
@@ -70,6 +71,9 @@ export interface VerifierConfig {
   onIdleTimeout?: () => void;
   /** Optional audit writer / phase 646 ⚓ verifier cleanup audit / per `feedback_audit_injection_alpha_template` */
   audit?: AuditLog;
+
+  /** ContractSystem 装配期注入 / verifier subagent 内部用 getForProfile('readonly') 派生 read+ls+search 工具子集 / + reportTool 注册 / 与 system prompt 指令 align（M#7 / phase 704） */
+  toolRegistry: ToolRegistry;
 }
 
 export interface VerifierResult {

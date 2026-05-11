@@ -21,6 +21,14 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
   try {
     const reportTool = new ReportResultTool();
     const registry = createToolRegistry();
+
+    // phase 704: 注入 readonly profile 工具子集（read+ls+search+status+memory_search）
+    // 与 CONTRACT_VERIFIER_SYSTEM_PROMPT 指令「Use the available tools (read, ls, search) to inspect」align
+    // M#7 耦合界面稳定 / M#5 单向依赖（L4 借用 L2 toolRegistry / 不自建）
+    for (const tool of config.toolRegistry.getForProfile('readonly')) {
+      registry.register(tool);
+    }
+
     registry.register(reportTool);
 
     // phase 512: per-subagent workspace dir

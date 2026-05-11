@@ -9,6 +9,7 @@ import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { Contract, AcceptanceFailedNotification, LastFailedFeedback } from '../../types/contract.js';
 import { ToolError, ToolTimeoutError, isProgrammingBug } from '../../types/errors.js';
+import type { ToolRegistry } from '../../foundation/tools/types.js';
 import { exec } from '../../foundation/process-exec/index.js';
 import { ProcessExecError } from '../../foundation/process-exec/index.js';
 import { CONTRACT_SCRIPT_TIMEOUT_MS, DEFAULT_LLM_IDLE_TIMEOUT_MS, DEFAULT_MAX_STEPS } from '../../constants.js';
@@ -255,6 +256,8 @@ export interface AcceptanceContext extends LockContext {
     artifacts: string[],
   ) => Promise<AcceptanceResult>;
   withProgressLock: <T>(contractId: string, fn: () => Promise<T>) => Promise<T>;
+  /** phase 704: verifier subagent toolset 注入源 */
+  toolRegistry: ToolRegistry;
 }
 
 export async function completeSubtaskSync(
@@ -517,6 +520,7 @@ export async function runLLMAcceptance(
           `claw=${ctx.clawId}`,
         );
       },
+      toolRegistry: ctx.toolRegistry,                          // phase 704
     });
     return result;
   } catch (err) {
