@@ -13,7 +13,6 @@ import stringWidth from 'string-width';
 import { wrapLine, fitLine } from '../utils/string.js';
 import { OUTPUT_LINES_CAP } from '../../constants.js';
 import type { CallerType } from '../../foundation/tool-protocol/caller-type.js';
-import type { Watcher } from '../../foundation/file-watcher/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
 import { createStreamReader, STREAM_FILE } from '../../foundation/stream/index.js';
@@ -727,21 +726,14 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
 
   tui.start();
 
-  // Watch clawsDir，新 claw 创建 / 新 contract 创建时自动重扫
-  // recursive: true 必须 — contract 创建在 <clawsDir>/<clawId>/contract/active/<contractId>/ 深 3 层
-  // 不 recursive 仅 watch 浅层 / claw 内 contract create 不 trigger / clawBar 永不显示新加入 contract 的 claw
-  // callback filter 仅 contract/(active|paused) addDir 或 clawsDir 浅层 addDir 触发 rescan / 减噪声
-  let clawsDirWatcher: Watcher | null = null;
+  // Periodically rescan clawsDir — 检测新 claw 创建 + 已存在 claw 内 contract 创建
+  // 为什么不用 chokidar recursive watcher：
+  //   - macOS FSEvents 对 nested newly-created dirs (如 <clawsDir>/<clawId>/contract/active/<contractId>/ 深 3 层) 不稳定
+  //   - chokidar awaitWriteFinish 对 dir events 行为 inconsistent
+  //   - polling 每 2s 重扫 / 简洁可靠 / 与 viewport TUI 业务节奏 align（user 不会期待 < 2s 响应）
+  let clawScanInterval: NodeJS.Timeout | null = null;
   if (clawsDir) {
-    clawsDirWatcher = createWatcher(clawsDir, (event) => {
-      if (event.type !== 'addDir') return;
-      // Filter: 仅 (1) 新 claw 创建（clawsDir 直接子目录）或 (2) contract dir 创建（<clawId>/contract/<active|paused>/<*>）触发 rescan
-      const relPath = path.relative(clawsDir, event.path);
-      const parts = relPath.split(path.sep);
-      const isNewClaw = parts.length === 1;
-      const isContractDir = parts.length >= 4 && parts[1] === 'contract' && (parts[2] === 'active' || parts[2] === 'paused');
-      if (!isNewClaw && !isContractDir) return;
-      // 重新扫描，加入尚未在面板中的有契约 claw
+    const rescanClawsDir = () => {
       try {
         const entries = fs.listSync(clawsDir, { includeDirs: true });
         for (const e of entries) {
@@ -768,26 +760,12 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
           options.audit.write(VIEWPORT_AUDIT_EVENTS.CLAWSDIR_SCAN_FAILED, `reason=${msg}`);
         } catch { /* audit self-failure tolerated */ }
       }
-    }, {
-      recursive: true,
-      // Ignore noisy subdirs 不参与 clawBar trigger 逻辑（性能 + 减少 event 噪声）
-      ignored: [
-        /\/dialog(\/|$)/,
-        /\/inbox(\/|$)/,
-        /\/outbox(\/|$)/,
-        /\/tasks(\/|$)/,
-        /\/memory(\/|$)/,
-        /\/skills(\/|$)/,
-        /\/clawspace(\/|$)/,
-        /\/logs(\/|$)/,
-        /\/status(\/|$)/,
-        /\/\.git(\/|$)/,
-        /\.jsonl$/,
-        /\.log$/,
-      ],
-    });
+    };
     // 立即触发一次扫描
     clawManager.refreshAllClawStatus();
+    rescanClawsDir();
+    // 周期性 rescan / 每 2s 检测新 claw 与新 contract
+    clawScanInterval = setInterval(rescanClawsDir, 2000);
   }
 
   // 兜底：SIGINT 退出（终端未进 raw mode 时 Ctrl+C 转为 SIGINT）
@@ -811,7 +789,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     clearInterval(taskSweepInterval);
     await streamReader.stop();
     await clawManager.closeAll();
-    await clawsDirWatcher?.close();
+    if (clawScanInterval) clearInterval(clawScanInterval);
     for (const tw of taskWatchMap.values()) await tw.streamReader?.stop();
     taskWatchMap.clear();
     tui.stop();
