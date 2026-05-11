@@ -17,9 +17,9 @@ import type { RuntimeDependencies } from '../../src/core/runtime/index.js';
 import type { LLMOrchestratorConfig } from '../../src/foundation/llm-orchestrator/types.js';
 import { INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR } from '../../src/types/paths.js';
 
-export const TEST_CLAW_ID = 'test-claw';
+const TEST_CLAW_ID = 'test-claw';
 
-export interface MakeRuntimeDepsInput {
+interface MakeRuntimeDepsInput {
   clawId?: string;
   clawDir: string;
   llmConfig?: LLMOrchestratorConfig;

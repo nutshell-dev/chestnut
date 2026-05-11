@@ -99,7 +99,7 @@ describe('Runtime regime switch (phase 521)', () => {
     await cleanupTempDir(tempDir);
   });
 
-  it('test 1: 首 turn lastIdentityHash undefined / 不触发 archive', async () => {
+  it('首 turn lastIdentityHash undefined / 不触发 archive', async () => {
     const deps = await makeRuntimeDeps({ clawDir, clawId: 'test-claw' });
     const runtime = new TestRuntime({
       clawId: 'test-claw',
@@ -127,7 +127,7 @@ describe('Runtime regime switch (phase 521)', () => {
     expect(archiveSpy).toHaveBeenCalledTimes(0);
   });
 
-  it('test 2: turn 2 identityHash 不变 / 不触发 archive', async () => {
+  it('turn 2 identityHash 不变 / 不触发 archive', async () => {
     const deps = await makeRuntimeDeps({ clawDir, clawId: 'test-claw' });
     const runtime = new TestRuntime({
       clawId: 'test-claw',
@@ -155,7 +155,7 @@ describe('Runtime regime switch (phase 521)', () => {
     expect(archiveSpy).toHaveBeenCalledTimes(0);
   });
 
-  it('test 3: turn 2 identityHash 变 / archive + new instance + inherited all', async () => {
+  it('turn 2 identityHash 变 / archive + new instance + inherited all', async () => {
     const deps = await makeRuntimeDeps({ clawDir, clawId: 'test-claw' });
     // factorySpy BEFORE Runtime construction so the closure captures the spy
     const factorySpy = vi.spyOn(deps, 'dialogStoreFactory');
@@ -191,7 +191,7 @@ describe('Runtime regime switch (phase 521)', () => {
     expect(factorySpy).toHaveBeenCalledWith('system-prompt-B');
   });
 
-  it('test 4: strategy "none" / inherited 0 messages', async () => {
+  it('strategy "none" / inherited 0 messages', async () => {
     const deps = await makeRuntimeDeps({ clawDir, clawId: 'test-claw' });
     const factorySpy = vi.spyOn(deps, 'dialogStoreFactory');
 
@@ -225,7 +225,7 @@ describe('Runtime regime switch (phase 521)', () => {
     expect(factorySpy).toHaveBeenCalledWith('system-prompt-B');
   });
 
-  it('test 5: strategy "last-turn" / inherited 最近 user msg 起切片', async () => {
+  it('strategy "last-turn" / inherited 最近 user msg 起切片', async () => {
     const deps = await makeRuntimeDeps({ clawDir, clawId: 'test-claw' });
     const factorySpy = vi.spyOn(deps, 'dialogStoreFactory');
 
@@ -271,7 +271,7 @@ describe('Runtime regime switch (phase 521)', () => {
     expect(factorySpy).toHaveBeenCalledWith('system-prompt-B');
   });
 
-  it('test 6: tool_use 悬空 / DialogStore.repair 被调用', async () => {
+  it('tool_use 悬空 / DialogStore.repair 被调用', async () => {
     const deps = await makeRuntimeDeps({ clawDir, clawId: 'test-claw' });
     const runtime = new TestRuntime({
       clawId: 'test-claw',
@@ -314,7 +314,7 @@ describe('Runtime regime switch (phase 521)', () => {
     expect(repairSpy).toHaveBeenCalled();
   });
 
-  it('test 7: regime_switch audit event 载荷完整', async () => {
+  it('regime_switch audit event 载荷完整', async () => {
     const deps = await makeRuntimeDeps({ clawDir, clawId: 'test-claw' });
     const runtime = new TestRuntime({
       clawId: 'test-claw',
