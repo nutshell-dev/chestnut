@@ -1074,8 +1074,11 @@ describe('Builtin Tools', () => {
     });
 
     it('should fail with timeout error when timeoutMs exceeded', async () => {
-      // sleep 1s with 100ms timeout → must timeout / verifies timeoutMs is actually enforced
-      const result = await execTool.execute({ command: 'sleep 1', timeoutMs: 100 }, ctx);
+      // sleep 5s with timeoutMs:100 → src clamp 把 100ms 拉到 PROCESS_EXEC_TIMEOUT_MIN_MS (1000ms)
+      // 但 clamp 后 1000ms 仍远小于 sleep 5000ms / timeout 必先 fire / 不 race
+      // 旧版用 sleep 1 与 clamp 后 1000ms 同长 / CI 慢机器 sleep 完成早于 timeout / race condition
+      // 真合规 src 改方向：clamp 时 emit audit warning（推 phase 743+）
+      const result = await execTool.execute({ command: 'sleep 5', timeoutMs: 100 }, ctx);
       expect(result.success).toBe(false);
       expect(result.content).toMatch(/timed out|timeout|超时/i);
     });
