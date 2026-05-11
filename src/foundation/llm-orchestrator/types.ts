@@ -207,7 +207,8 @@ export type LLMEvent =
   | { type: 'idle_failover_triggered'; provider: string; ms: number }
   | { type: 'stream_idle_probe_attempted'; provider: string; timeoutMs: number }
   | { type: 'stream_idle_probe_succeeded'; provider: string }
-  | { type: 'context_exceeded_failover'; provider: string; stopReason: string };
+  | { type: 'context_exceeded_failover'; provider: string; stopReason: string }
+  | { type: 'permanent_skip_retry'; provider: string; attempt: number; errorClass: 'permanent' };
 
 /**
  * LLM event sink protocol — defined here (L1), implemented by assembly layer (L6+)

@@ -13,6 +13,9 @@ import {
   LLMAllProvidersFailedError,
   LLMTimeoutError,
   LLMRateLimitError,
+  LLMAuthError,
+  LLMModelNotFoundError,
+  classifyLLMError,
 } from '../../types/errors.js';
 
 import type {
@@ -180,6 +183,19 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
           if (options.signal?.aborted) throw lastError;
           // Provider self-thrown AbortError when hard signal did not fire
           if (lastError.name === 'AbortError' && !hardSignal?.aborted) throw lastError;
+
+          // phase 735 step 4: class-aware retry decision
+          const errClass = classifyLLMError(lastError);
+          if (errClass === 'permanent') {
+            // 401/403/404 → 直接 failover / 0 retry / 不浪费 backoff 时间
+            this.events.emit({
+              type: 'permanent_skip_retry',
+              provider: this.primary.name,
+              attempt,
+              errorClass: errClass,
+            });
+            break;  // 跳出 retry loop / 进入 fallback failover
+          }
 
           // Wait before retry (exponential backoff with 30s max)
           if (attempt < this.config.maxAttempts - 1) {
