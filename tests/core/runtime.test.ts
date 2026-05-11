@@ -1356,7 +1356,7 @@ Test message`;
       (runtime as unknown as RuntimeTestInternals)._handleTurnInterrupt(new IdleTimeoutSignal(30000), { onTurnInterrupted, onTurnError });
       expect(onTurnInterrupted).toHaveBeenCalledWith('idle_timeout', expect.stringContaining('30s'));
       expect(onTurnError).not.toHaveBeenCalled();
-      expect(auditSpy).toHaveBeenCalledWith('turn_interrupted', 'cause=idle_timeout', 'ms=30000');
+      expect(auditSpy).toHaveBeenCalledWith('turn_interrupted', 'cause=idle_timeout', 'idle_timeout_ms=30000');
       auditSpy.mockRestore();
     });
 
@@ -1838,7 +1838,7 @@ Test message
 
       const auditSpy = vi.spyOn((runtime as unknown as RuntimeTestInternals).auditWriter, 'write');
       await runtime.processBatch();
-      expect(auditSpy).toHaveBeenCalledWith('llm_call', 'test-model', expect.stringContaining('in='), expect.stringContaining('out='), expect.stringContaining('ms='));
+      expect(auditSpy).toHaveBeenCalledWith('llm_call', 'test-model', expect.stringContaining('in='), expect.stringContaining('out='), expect.stringContaining('latency_ms='));
       auditSpy.mockRestore();
     });
 
@@ -1874,7 +1874,7 @@ Test message
 
       const auditSpy = vi.spyOn((runtime as unknown as RuntimeTestInternals).auditWriter, 'write');
       await expect(runtime.processBatch()).rejects.toThrow('LLM network error');
-      expect(auditSpy).toHaveBeenCalledWith('llm_error', 'failing-model', expect.stringContaining('error='), expect.stringContaining('ms='));
+      expect(auditSpy).toHaveBeenCalledWith('llm_error', 'failing-model', expect.stringContaining('error='), expect.stringContaining('latency_ms='));
       auditSpy.mockRestore();
     });
   });

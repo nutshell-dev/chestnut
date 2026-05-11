@@ -41,7 +41,7 @@ describe('CronRunner timeout escalation', () => {
       'cron_handler_timeout',
       'job=hang',
       expect.stringContaining('run_key='),
-      'ms=100',
+      'timeout_ms=100',
     );
     expect((runner as unknown as { running: Set<string> }).running.has('hang')).toBe(false);
     expect((runner as unknown as { cancelling: Set<string> }).cancelling.has('hang')).toBe(true);

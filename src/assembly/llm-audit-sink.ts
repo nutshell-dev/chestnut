@@ -53,7 +53,7 @@ export function createLLMAuditSink(audit: AuditLog): LLMEventSink {
             audit.write(
               LLM_AUDIT_EVENTS.IDLE_FAILOVER_TRIGGERED,
               `provider=${event.provider}`,
-              `ms=${event.ms}`,
+              `elapsed_ms=${event.ms}`,
             );
             break;
           case 'stream_idle_probe_attempted':

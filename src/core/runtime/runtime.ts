@@ -468,9 +468,9 @@ export class Runtime {
         idleTimeoutMs: this.options.idleTimeoutMs ?? DEFAULT_LLM_IDLE_TIMEOUT_MS,
         onLLMResult: (info) => {
           if (info.error) {
-            this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.LLM_ERROR, info.model, `error=${info.error}`, `ms=${info.latencyMs}`);
+            this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.LLM_ERROR, info.model, `error=${info.error}`, `latency_ms=${info.latencyMs}`);
           } else {
-            this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.LLM_CALL, info.model, `in=${info.inputTokens}`, `out=${info.outputTokens}`, `ms=${info.latencyMs}`);
+            this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.LLM_CALL, info.model, `in=${info.inputTokens}`, `out=${info.outputTokens}`, `latency_ms=${info.latencyMs}`);
           }
         },
         onStepComplete: async () => {
@@ -746,9 +746,9 @@ export class Runtime {
         maxConsecutiveMaxTokensToolUse: this.options.maxConsecutiveMaxTokensToolUse,
         onLLMResult: (info) => {
           if (info.error) {
-            this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.LLM_ERROR, info.model, `error=${info.error}`, `ms=${info.latencyMs}`);
+            this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.LLM_ERROR, info.model, `error=${info.error}`, `latency_ms=${info.latencyMs}`);
           } else {
-            this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.LLM_CALL, info.model, `in=${info.inputTokens}`, `out=${info.outputTokens}`, `ms=${info.latencyMs}`);
+            this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.LLM_CALL, info.model, `in=${info.inputTokens}`, `out=${info.outputTokens}`, `latency_ms=${info.latencyMs}`);
           }
         },
         onToolCall: options?.onToolCall,
@@ -798,7 +798,7 @@ export class Runtime {
     if (err instanceof IdleTimeoutSignal) {
       const msg = `Interrupted (idle timeout: ${Math.round(err.timeoutMs / 1000)}s)`;
       callbacks?.onTurnInterrupted?.('idle_timeout', msg);
-      this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_INTERRUPTED, 'cause=idle_timeout', `ms=${err.timeoutMs}`);
+      this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_INTERRUPTED, 'cause=idle_timeout', `idle_timeout_ms=${err.timeoutMs}`);
     } else if (err instanceof PriorityInboxInterrupt) {
       callbacks?.onTurnInterrupted?.('priority_inbox', 'Interrupted (priority inbox)');
       this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_INTERRUPTED, 'cause=priority_inbox');

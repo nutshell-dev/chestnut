@@ -160,7 +160,7 @@ export class ToolExecutorImpl implements IToolExecutor {
         'tool_exec',
         toolName,
         auditResult.success ? 'ok' : 'err',
-        `ms=${duration}`,
+        `elapsed_ms=${duration}`,
         `summary=${escapeForLog(auditResult.content ?? '')}`,
       );
     }

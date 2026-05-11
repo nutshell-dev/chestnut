@@ -122,7 +122,7 @@ export class CronRunner {
           this.audit.write(CRON_AUDIT_EVENTS.HANDLER_TIMEOUT,
             `job=${job.name}`,
             `run_key=${key}`,
-            `ms=${job.timeoutMs}`,
+            `timeout_ms=${job.timeoutMs}`,
           );
           // timeout 时强制清 running + 置 cancelling / 让下 tick 自然重试（D1c 中断可恢复 + handler 幂等假设）
           this.running.delete(job.name);

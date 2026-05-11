@@ -296,7 +296,7 @@ describe('ToolExecutor', () => {
       expect(parts[1]).toBe('tool_exec');
       expect(parts[2]).toBe('test-tool');
       expect(parts[3]).toBe('ok');
-      expect(parts[4]).toMatch(/^ms=/);
+      expect(parts[4]).toMatch(/^elapsed_ms=/);
     });
 
     it('should write audit log on failed tool execution', async () => {

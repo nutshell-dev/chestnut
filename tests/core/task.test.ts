@@ -348,7 +348,7 @@ describe('Task System + SubAgent', () => {
             'task_completed',
             taskId,
             'ok',
-            expect.stringMatching(/^ms=\d+$/),
+            expect.stringMatching(/^elapsed_ms=\d+$/),
             expect.stringMatching(/^len=\d+$/),
           ]),
         ])
@@ -391,7 +391,7 @@ describe('Task System + SubAgent', () => {
             'task_completed',
             taskId,
             'err',
-            expect.stringMatching(/^ms=\d+$/),
+            expect.stringMatching(/^elapsed_ms=\d+$/),
           ]),
         ])
       );

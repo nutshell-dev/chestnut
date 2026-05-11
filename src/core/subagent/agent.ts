@@ -303,9 +303,9 @@ export class SubAgent {
           tools,                    // Enable native tool_use
           onLLMResult: (info) => {
             if (info.error) {
-              this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.LLM_ERROR, info.model, `error=${info.error}`, `ms=${info.latencyMs}`);
+              this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.LLM_ERROR, info.model, `error=${info.error}`, `latency_ms=${info.latencyMs}`);
             } else {
-              this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.LLM_CALL, info.model, `in=${info.inputTokens}`, `out=${info.outputTokens}`, `ms=${info.latencyMs}`);
+              this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.LLM_CALL, info.model, `in=${info.inputTokens}`, `out=${info.outputTokens}`, `latency_ms=${info.latencyMs}`);
             }
           },
           onBeforeLLMCall: streamCallbacks.onBeforeLLMCall,
@@ -381,10 +381,10 @@ export class SubAgent {
 
       if (error instanceof ToolTimeoutError) {
         safeSwWrite({ ts: Date.now(), type: 'turn_interrupted', message: `Timeout after ${this.timeoutMs}ms` });
-        this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_INTERRUPTED, 'cause=turn_timeout', `ms=${this.timeoutMs}`);
+        this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_INTERRUPTED, 'cause=turn_timeout', `turn_timeout_ms=${this.timeoutMs}`);
       } else if (error instanceof IdleTimeoutSignal) {
         safeSwWrite({ ts: Date.now(), type: 'turn_interrupted', message: `Idle timeout after ${error.timeoutMs}ms` });
-        this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_INTERRUPTED, 'cause=idle_timeout', `ms=${error.timeoutMs}`);
+        this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_INTERRUPTED, 'cause=idle_timeout', `idle_timeout_ms=${error.timeoutMs}`);
       } else if (error instanceof UserInterrupt) {
         safeSwWrite({ ts: Date.now(), type: 'turn_interrupted', message: 'User interrupt' });
         this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_INTERRUPTED, 'cause=user_interrupt');
