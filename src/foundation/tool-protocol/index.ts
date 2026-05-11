@@ -17,6 +17,7 @@ import type { AuditLog } from '../audit/index.js';
 import type { DialogStore } from '../dialog-store/index.js';
 
 export type { JSONSchema7, ToolProfile, CallerType };
+export { callerTypeToProfile } from './caller-type.js';
 
 /**
  * Tool execution result

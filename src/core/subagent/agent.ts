@@ -20,9 +20,8 @@ import type { Message } from '../../types/message.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { SUBAGENT_AUDIT_EVENTS, REACT_LOOP_AUDIT_EVENTS } from './audit-events.js';
 import type { StreamLog } from '../../foundation/stream/index.js';
-import type { CallerType } from '../../foundation/tool-protocol/caller-type.js';
+import { type CallerType, callerTypeToProfile } from '../../foundation/tool-protocol/index.js';
 import type { DialogStore } from '../../foundation/dialog-store/index.js';
-import { callerTypeToProfile } from '../../foundation/tool-protocol/caller-type.js';
 import { DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../../prompts/index.js';
 
 export interface SubAgentOptions {

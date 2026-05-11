@@ -8,7 +8,7 @@ import { randomUUID } from 'crypto';
 import { TASKS_QUEUES_PENDING_DIR } from '../../../types/paths.js';
 import type { FileSystem } from '../../../foundation/fs/types.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
-import type { AsyncToolTaskArgs } from '../../../foundation/tools/async-dispatch.js';
+import type { AsyncToolTaskArgs } from '../../../foundation/tools/index.js';
 import { TASK_AUDIT_EVENTS } from '../audit-events.js';
 
 /**

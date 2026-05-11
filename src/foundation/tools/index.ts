@@ -34,4 +34,5 @@ export type { ToolRegistry, IToolExecutor, ExecuteOptions } from './executor.js'
 
 export type { ExecContextImplOptions } from './context.js';
 
+export type { AsyncToolTaskArgs, ScheduleAsyncTool } from './async-dispatch.js';
 
