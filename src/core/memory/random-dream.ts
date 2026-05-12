@@ -8,7 +8,8 @@ import { TOOL_PROFILES } from '../../foundation/tools/index.js';
 import { InboxWriter } from '../../foundation/messaging/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { DEFAULT_LLM_IDLE_TIMEOUT_MS } from '../../constants.js';
-import { CLAWS_DIR, CONTRACT_DIR } from '../../types/paths.js';
+import { CONTRACT_DIR } from '../contract/index.js';
+import { CLAWS_DIR } from '../../types/paths.js';
 import {
   RANDOM_DREAM_SYSTEM_PROMPT,
   buildRandomDreamPrompt,

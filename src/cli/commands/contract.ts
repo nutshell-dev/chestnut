@@ -18,7 +18,7 @@ import { createSystemAudit, type AuditLog } from '../../foundation/audit/index.j
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { createToolRegistry } from '../../foundation/tools/index.js';
 import { STREAM_FILE } from '../../foundation/stream/index.js';
-import { CONTRACT_DIR } from '../../types/paths.js';
+import { CONTRACT_DIR } from '../../core/contract/index.js';
 
 
 function parseAndValidateContractYaml(yamlContent: string): ContractYaml {

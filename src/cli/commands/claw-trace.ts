@@ -12,7 +12,7 @@ import {
   loadGlobalConfig, clawExists, getClawDir,
 } from '../../foundation/config/index.js';
 import { CliError } from '../errors.js';
-import { CONTRACT_DIR } from '../../types/paths.js';
+import { CONTRACT_DIR } from '../../core/contract/index.js';
 import { DIALOG_DIR } from '../../types/paths.js';
 
 interface StreamEvent {

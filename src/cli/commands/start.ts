@@ -32,7 +32,8 @@ import { getWorkspaceRoot } from '../../foundation/config/paths.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { startCommand as watchdogStart, isWatchdogAlive } from '../../watchdog/watchdog.js';
-import { LOGS_DIR, CONTRACT_ACTIVE_DIR, CONTRACT_PAUSED_DIR, CONTRACT_ARCHIVE_DIR } from '../../types/paths.js';
+import { CONTRACT_ACTIVE_DIR, CONTRACT_PAUSED_DIR, CONTRACT_ARCHIVE_DIR } from '../../core/contract/index.js';
+import { LOGS_DIR } from '../../types/paths.js';
 
 export function buildOnboardingSubtasks(language: string): Array<{ id: string; description: string }> {
   let langInstruction: string;

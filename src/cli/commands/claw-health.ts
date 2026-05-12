@@ -11,7 +11,7 @@ import {
 import { CliError } from '../errors.js';
 import { createDirContext, createProcessManagerForCLI } from '../utils/factories.js';
 import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
-import { CONTRACT_DIR } from '../../types/paths.js';
+import { CONTRACT_DIR } from '../../core/contract/index.js';
 import { formatRelativeTime, getLastActiveMs } from './claw-shared.js';
 
 /**

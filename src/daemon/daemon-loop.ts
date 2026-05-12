@@ -40,7 +40,8 @@ import {
 } from '../constants.js';
 import { notifyInbox } from '../foundation/messaging/index.js';
 import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../types/signals.js';
-import { STATUS_SUBDIR, CONTRACT_DIR } from '../types/paths.js';
+import { CONTRACT_DIR } from '../core/contract/index.js';
+import { STATUS_SUBDIR } from '../types/paths.js';
 
 // Interrupt poller constants
 const INTERRUPT_POLL_INTERVAL_MS = 200;
