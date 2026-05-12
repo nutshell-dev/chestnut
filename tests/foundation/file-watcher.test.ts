@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { EventEmitter } from 'node:events';
 import * as fsp from 'fs/promises';
 import * as fsSync from 'fs';
 import * as path from 'path';
@@ -6,6 +7,28 @@ import * as os from 'os';
 
 import { createWatcher } from '../../src/foundation/file-watcher/index.js';
 import { waitFor } from '../helpers/wait-for.js';
+
+// Mock chokidar with EventEmitter-based fake
+// phase 743 step C — L40+L62 mock chokidar for CI inotify compat
+// chokidar single-file watch on non-existent path 'add' event is unreliable on CI overlayfs / tmpfs
+// Unit tests should test createWatcher wrapper callback / event forwarding logic, not real chokidar
+class FakeChokidarWatcher extends EventEmitter {
+  close = vi.fn(() => Promise.resolve());
+}
+
+let fakeWatcherInstance: FakeChokidarWatcher;
+
+vi.mock('chokidar', () => ({
+  watch: vi.fn((watchPath: string) => {
+    fakeWatcherInstance = new FakeChokidarWatcher();
+    if (watchPath.includes('\0')) {
+      queueMicrotask(() => fakeWatcherInstance.emit('error', new Error('path contains null byte')));
+    } else {
+      queueMicrotask(() => fakeWatcherInstance.emit('ready'));
+    }
+    return fakeWatcherInstance;
+  }),
+}));
 
 describe('FileWatcher', () => {
   let tmpDir: string;
@@ -38,34 +61,47 @@ describe('FileWatcher', () => {
   }
 
   it('callback receives add/change/unlink events', async () => {
+    // Mock non-macOS to prevent fallback poll from interfering with event assertions
+    const platformSpy = vi.spyOn(process, 'platform', 'get').mockReturnValue('linux');
     const events: { type: string; path: string }[] = [];
     const watcher = await waitForReady((onReady) =>
       createWatcher(
-        path.join(tmpDir, 'watch.txt'),
+        '/fake/path/watch.txt',
         (ev) => events.push({ type: ev.type, path: path.basename(ev.path) }),
         { stability: 'immediate', onReady },
       ),
     );
 
-    fsSync.writeFileSync(path.join(tmpDir, 'watch.txt'), 'hello');
+    // Simulate chokidar 'all' event (real chokidar does not reliably fire 'add' on CI)
+    // createWatcher listens to 'all', not individual 'add'/'change'/'unlink'
+    fakeWatcherInstance.emit('all', 'add', '/fake/path/watch.txt', { size: 5, mtime: new Date() });
     await waitForCount(events, 1);
+    expect(events[0]).toMatchObject({ type: 'add', path: 'watch.txt' });
 
-    fsSync.writeFileSync(path.join(tmpDir, 'watch.txt'), 'world');
+    // Simulate 'change' event
+    fakeWatcherInstance.emit('all', 'change', '/fake/path/watch.txt', { size: 5, mtime: new Date() });
     await waitForCount(events, 2);
+    expect(events[1]).toMatchObject({ type: 'change', path: 'watch.txt' });
+
+    // Simulate 'unlink' event
+    fakeWatcherInstance.emit('all', 'unlink', '/fake/path/watch.txt');
+    await waitForCount(events, 3);
+    expect(events[2]).toMatchObject({ type: 'unlink', path: 'watch.txt' });
 
     await watcher.close();
-
-    expect(events.some(e => e.type === 'add')).toBe(true);
-    expect(events.some(e => e.type === 'change')).toBe(true);
+    expect(fakeWatcherInstance.close).toHaveBeenCalled();
+    platformSpy.mockRestore();
   });
 
   it('callback error triggers onError(err, "callback") and continues', async () => {
+    // Mock non-macOS to prevent fallback poll from interfering with event assertions
+    const platformSpy = vi.spyOn(process, 'platform', 'get').mockReturnValue('linux');
     const errors: { err: Error; context: string }[] = [];
     const callbackTicks: number[] = [];
     let callCount = 0;
     const watcher = await waitForReady((onReady) =>
       createWatcher(
-        path.join(tmpDir, 'watch.txt'),
+        '/fake/path/watch.txt',
         (ev) => {
           callCount++;
           callbackTicks.push(callCount);
@@ -79,16 +115,19 @@ describe('FileWatcher', () => {
       ),
     );
 
-    fsSync.writeFileSync(path.join(tmpDir, 'watch.txt'), 'first');
+    // First emit -> callback throws -> onError 'callback' + continue
+    fakeWatcherInstance.emit('all', 'add', '/fake/path/watch.txt', { size: 5, mtime: new Date() });
     await waitForCount(errors, 1);
 
-    fsSync.writeFileSync(path.join(tmpDir, 'watch.txt'), 'second');
+    // Second emit -> callback normal
+    fakeWatcherInstance.emit('all', 'change', '/fake/path/watch.txt', { size: 5, mtime: new Date() });
     await waitForCount(callbackTicks, 2);
-
-    await watcher.close();
 
     expect(errors.some(e => e.context === 'callback' && e.err.message === 'callback boom')).toBe(true);
     expect(callCount).toBeGreaterThanOrEqual(2);
+
+    await watcher.close();
+    platformSpy.mockRestore();
   });
 
   it('onReady error triggers onError(err, "ready")', async () => {
