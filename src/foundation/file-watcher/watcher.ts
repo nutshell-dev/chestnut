@@ -96,7 +96,21 @@ function mapEventType(chokidarEvent: string): WatchEventType | null {
 }
 
 /**
- * Create a file watcher
+ * Create a file watcher wrapping chokidar.
+ *
+ * **⚠ CI inotify caveat (phase 743)**:
+ * - chokidar single-file watch on a non-existent path: 'ready' fires normally,
+ *   but subsequent 'add' when the file appears is unreliable on CI
+ * - GitHub Actions Linux runner overlayfs / tmpfs inotify fails to detect
+ *   single-file path creation events
+ * - Callers should ensure the file exists before calling createWatcher
+ *   (mirror StreamWriter.open() pattern)
+ * - Watching an existing file for subsequent 'change' events is reliable
+ * - For unit-testing createWatcher wrapper logic, mock chokidar
+ *   (see tests/foundation/file-watcher.test.ts phase 743 step C)
+ *
+ * See design/practices.md §B.chokidar-ci-inotify-limit
+ *
  * @param absolutePath - Absolute path to watch (file or directory)
  * @param callback - Called on each change event
  * @param options - Watch options

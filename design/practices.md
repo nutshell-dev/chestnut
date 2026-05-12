@@ -3217,3 +3217,29 @@ r98 dispatch §B claim 「12+5 ClawError vs 裸 Error / 4 含义 code / 无 Resu
 - 拍板状态：δ minimal（0 改 / 跳过 Step G）
 
 > 关联：phase 689 mock 4 维 audit / phase 706 audit key 决策树 / phase 719 Step A 已 land 7 sites / `feedback_test_oracle_quality` 决策树
+
+
+## B.chokidar-ci-inotify-limit chokidar 单 file watch non-existent path 'add' 在 CI 不可靠
+
+**实然**: GitHub Actions Linux runner（含 ubuntu-latest）overlayfs / tmpfs 内 inotify 对单 file path 监视未存文件 + 文件出现 'add' event 不 fire / 仅 'change' on existing file 可靠。
+
+**影响范围（phase 743 实测）**:
+- stream-reader.test.ts 4 tests timeout（chokidar 监视 STREAM_FILE 未存 path）
+- chat-viewport-regression.test.ts 3 baselines timeout（同）
+- file-watcher.test.ts 2 tests timeout（直接测 chokidar add detection）
+
+**治理（phase 743）**:
+- **stream + viewport 路径**：StreamWriter.open() 加 ensure file exists + audit emit `WRITER_OPEN_CREATED_EMPTY`（Step B / M#3 资源唯一归属 align、writer own STREAM_FILE 创建）
+- **file-watcher 测试路径**：vi.mock('chokidar') unit test 测 wrapper callback / event 转发逻辑（Step C / D7 系统内部走可信路径 align）
+- **createWatcher caller warning**：jsdoc 标 chokidar CI caveat + 指向 ensure file pattern（Step D / ML#9 显式表达不可消除耦合）
+
+**显式声明**:
+- 此限制是 chokidar + CI 容器环境 + inotify 子系统的客观约束 / 非 src bug
+- 不可消除耦合（ML#9）→ 显式 jsdoc warning + design row + 治理路径登记
+- 不通过 skipIf(CI) 静默掩盖（违 D2+D3）/ 通过 ensure file + mock 真合规绕过
+
+**关联**:
+- 修复 PR：phase 743 step B+C+D
+- 反例：α reader.start ensureFile 违 M#1+M#3+D2+D5 reject
+- 反例：skipIf(CI) 违 D2+D3 reject
+- 推 r+1：phase 744+ 视 file-watcher 模块是否立独立 design/modules doc + 是否扩 mock 范围（其他 5 tests）
