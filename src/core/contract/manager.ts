@@ -32,7 +32,7 @@ import { InboxWriter } from '../../foundation/messaging/index.js';
 import { type AuditLog } from '../../foundation/audit/index.js';
 import type { ToolRegistry } from '../../foundation/tools/index.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
-import { CONTRACT_ACTIVE_DIR, CONTRACT_PAUSED_DIR, CONTRACT_ARCHIVE_DIR } from '../../types/paths.js';
+import { CONTRACT_ACTIVE_DIR, CONTRACT_PAUSED_DIR, CONTRACT_ARCHIVE_DIR } from './dirs.js';
 import { UUID_SHORT_LEN } from '../../constants.js';
 
 import type {

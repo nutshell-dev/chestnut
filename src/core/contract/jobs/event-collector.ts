@@ -3,7 +3,7 @@ import type { FileSystem } from '../../../foundation/fs/types.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
 import type { ProgressData } from '../manager.js';
 import { CONTRACT_AUDIT_EVENTS } from '../audit-events.js';
-import { CONTRACT_DIR } from '../../../types/paths.js';
+import { CONTRACT_DIR } from '../dirs.js';
 
 export function collectContractEvents(
   fs: FileSystem,
