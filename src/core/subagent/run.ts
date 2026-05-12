@@ -13,9 +13,9 @@ import { createAuditWriter } from '../../foundation/audit/index.js';
 import { STREAM_FILE } from '../../foundation/stream/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { ToolRegistry } from '../../foundation/tools/index.js';
-import { createToolRegistry } from '../../foundation/tools/index.js';
+// createToolRegistry removed — caller owns registry assembly (M#1 align)
 import type { ToolDefinition } from '../../types/message.js';
-import { callerTypeToProfile, type CallerType } from '../../foundation/tool-protocol/index.js';
+import type { CallerType } from '../../foundation/tool-protocol/index.js';
 import { createDialogStore, type DialogStore } from '../../foundation/dialog-store/index.js';
 import { TASKS_SUBAGENTS_DIR } from '../async-task-system/index.js';
 import { CONTRACT_AUDIT_EVENTS } from '../contract/audit-events.js';
@@ -83,10 +83,8 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
   // dialog store
   const messageStore = createDialogStore(opts.fs, opts.resultDir, auditWriter, 'messages.json');
 
-  // tools filter by profile（caller 可 override via toolsForLLM）
-  const profile = callerTypeToProfile(opts.callerType);
-  const filteredRegistry = filterByProfile(opts.registry, profile);
-  const toolsForLLM = opts.toolsForLLM ?? formatForLLM(filteredRegistry);
+  // tools for LLM — caller 可 override；默认用 registry 全量（caller 已负责 profile filter）
+  const toolsForLLM = opts.toolsForLLM ?? opts.registry.formatForLLM(opts.registry.getAll());
 
   // workspace shared with caller workspace dir 路径决策（mirror async / verifier 既有 phase 518 决策）
   const sharedWorkspaceDir = path.join(opts.clawDir, 'clawspace');
@@ -101,7 +99,7 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
       clawDir: opts.clawDir,
       syncDir: path.join(opts.clawDir, 'tasks/sync'),  // TASKS_SYNC_DIR
       llm: opts.llm,
-      registry: filteredRegistry,
+      registry: opts.registry,
       fs: opts.fs,
       maxSteps: opts.maxSteps,
       idleTimeoutMs: opts.idleTimeoutMs,
@@ -120,7 +118,7 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
     const text = await agent.run();
 
     // 检 report_result tool capturedResult（verifier 等用）
-    const reportTool = filteredRegistry.get('report_result');
+    const reportTool = opts.registry.get('report_result');
     const capturedResult = (reportTool as { capturedResult?: unknown })?.capturedResult;
 
     return { text, capturedResult };
@@ -138,15 +136,5 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
   }
 }
 
-// internal helpers
-function filterByProfile(registry: ToolRegistry, profile: string): ToolRegistry {
-  const filtered = createToolRegistry();
-  for (const t of registry.getForProfile(profile as import('../../types/config.js').ToolProfile)) {
-    filtered.register(t);
-  }
-  return filtered;
-}
-
-function formatForLLM(registry: ToolRegistry): ToolDefinition[] {
-  return registry.formatForLLM(registry.getAll());
-}
+// caller 负责 registry 装配（含 profile filter + 特殊工具如 report_result）
+// runSubagent 只 own audit/stream/workspace/dialog store lifecycle

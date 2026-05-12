@@ -8,7 +8,7 @@
 import type { ToolProfile } from '../../types/config.js';
 
 export type DispatchCallerType = 'describer' | 'miner';
-export type CallerType = 'claw' | 'subagent' | DispatchCallerType;
+export type CallerType = 'claw' | 'subagent' | 'verifier' | DispatchCallerType;
 
 /**
  * Map callerType to the corresponding ToolProfile for registry filtering.

@@ -3,22 +3,18 @@
  * Run contract acceptance verifier subagent — 自由函数 / 0 class state 依赖
  *
  * Migrated from manager.ts:_runVerifierSubagent (phase 427 内联后 / phase 480 抽出)
+ * phase 750: 改调 runSubagent helper、删 NoopWriter + audit/stream/workspace 自治模板
  */
 
-import { createSubAgent, NoopStreamWriter, NoopAuditWriter } from '../subagent/index.js';
-import * as path from 'path';
-import { createDialogStore } from '../../foundation/dialog-store/index.js';
+import { runSubagent } from '../subagent/index.js';
 import { ReportResultTool } from '../../foundation/tools/report-result.js';
 import { createToolRegistry } from '../../foundation/tools/index.js';
 import { ToolTimeoutError } from '../../types/errors.js';
-import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
-import { TASKS_SYNC_SPAWN_DIR, TASKS_SYNC_DIR } from '../../types/paths.js';
-import { TASKS_SUBAGENTS_DIR } from '../../core/async-task-system/index.js';
+import { TASKS_SYNC_SPAWN_DIR } from '../../types/paths.js';
 import { buildSubagentSystemPromptPrefix, CONTRACT_VERIFIER_SYSTEM_PROMPT } from '../../prompts/subagent.js';
 import type { VerifierConfig, VerifierResult } from './types.js';
 
 export async function runContractVerifier(config: VerifierConfig): Promise<VerifierResult> {
-  let verifierWorkspaceDir: string | null = null;
   try {
     const reportTool = new ReportResultTool();
     const registry = createToolRegistry();
@@ -32,46 +28,35 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
 
     registry.register(reportTool);
 
-    // phase 512: per-subagent workspace dir
-    verifierWorkspaceDir = path.join(config.clawDir, TASKS_SUBAGENTS_DIR, config.agentId);
-    await config.fs.ensureDir(verifierWorkspaceDir);
     const promptPrefix = buildSubagentSystemPromptPrefix({
       taskId: config.agentId,
       callerClawId: config.clawId,
     });
 
-    const agent = createSubAgent({
+    // 调 runSubagent helper（替代 createSubAgent + 自治 audit/stream/workspace）
+    const { text, capturedResult } = await runSubagent({
       agentId: config.agentId,
-      resultDir: `${TASKS_SYNC_SPAWN_DIR}/${config.agentId}`,
-      messageStore: createDialogStore(
-        config.fs,
-        `${TASKS_SYNC_SPAWN_DIR}/${config.agentId}`,
-        new NoopAuditWriter(),
-        'messages.json',
-      ),
-      prompt: config.prompt,
+      callerType: 'verifier',
+      callerClawId: config.clawId,
       clawDir: config.clawDir,
-      syncDir: path.join(config.clawDir, TASKS_SYNC_DIR),
+      fs: config.fs,
       llm: config.llm,
       registry,
-      fs: config.fs,
+      prompt: config.prompt,
+      systemPrompt: `${promptPrefix}\n\n${CONTRACT_VERIFIER_SYSTEM_PROMPT}`,
+      resultDir: `${TASKS_SYNC_SPAWN_DIR}/${config.agentId}`,
       maxSteps: config.maxSteps,
       idleTimeoutMs: config.idleTimeoutMs,
       onIdleTimeout: config.onIdleTimeout,
-      systemPrompt: `${promptPrefix}\n\n${CONTRACT_VERIFIER_SYSTEM_PROMPT}`,  // phase 512
-      workspaceDir: path.join(config.clawDir, 'clawspace'),   // phase 518
-      callerClawId: config.clawId,           // phase 514
-      taskStreamWriter: new NoopStreamWriter(),
-      auditWriter: new NoopAuditWriter(),
     });
 
-    const text = await agent.run();
-
-    if (reportTool.capturedResult) {
+    // 结果解析（既有 fallback 逻辑保留）
+    if (capturedResult && typeof capturedResult === 'object') {
+      const r = capturedResult as { passed: boolean; reason: string; issues?: string[] };
       return {
-        passed: reportTool.capturedResult.passed,
-        feedback: JSON.stringify(reportTool.capturedResult),
-        structured: reportTool.capturedResult,
+        passed: r.passed,
+        feedback: JSON.stringify(r),
+        structured: r,
       };
     }
 
@@ -82,22 +67,13 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
     const jsonStr = jsonMatch[1] || jsonMatch[0];
     const result = JSON.parse(jsonStr) as { passed: boolean; reason: string; issues?: string[] };
     return { passed: result.passed, feedback: jsonStr, structured: result };
+
   } catch (err) {
     if (err instanceof ToolTimeoutError) {
       return { passed: false, feedback: '验收子代理超时' };
     }
     const msg = err instanceof Error ? err.message : String(err);
     return { passed: false, feedback: `LLM 验收失败: ${msg}` };
-  } finally {
-    // phase 515 + phase 646 / cleanup verifier workspace dir（best-effort 软降级 + audit）
-    if (verifierWorkspaceDir) {
-      await config.fs.removeDir(verifierWorkspaceDir).catch((err) => {
-        config.audit?.write(
-          CONTRACT_AUDIT_EVENTS.VERIFIER_CLEANUP_FAILED,
-          `agent=${config.agentId}`,
-          `reason=${err instanceof Error ? err.message : String(err)}`,
-        );
-      });
-    }
   }
+  // 不需要 finally cleanup（runSubagent 内部 own workspace cleanup）
 }
