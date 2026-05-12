@@ -16,4 +16,5 @@ export const CRON_AUDIT_EVENTS = {
   JOB_ERROR: 'cron_job_error',
   HANDLER_TIMEOUT: 'cron_handler_timeout',
   HANDLER_STUCK: 'cron_handler_stuck',
+  JOB_LATE_SETTLED: 'cron_job_late_settled',  // NEW phase 758
 } as const;

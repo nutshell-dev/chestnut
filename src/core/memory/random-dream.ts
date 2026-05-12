@@ -315,8 +315,12 @@ export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
     opts.pulseAuditEnabled ?? false,
   );
   if (!log) {
-    opts.audit.write(MEMORY_AUDIT_EVENTS.RANDOM_DREAM_WARNING, `reason=subagent_timeout`);
-    console.warn('[cron:random-dream] sub-agent did not complete within timeout');
+    opts.audit.write(
+      MEMORY_AUDIT_EVENTS.RANDOM_DREAM_WARNING,
+      `reason=subagent_timeout`,
+      `taskId=${taskId}`,  // NEW phase 758 / 让事后 grep result.txt 关联
+    );
+    console.warn(`[cron:random-dream] sub-agent did not complete within timeout (taskId=${taskId})`);
     return;
   }
 

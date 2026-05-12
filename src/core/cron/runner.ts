@@ -115,10 +115,12 @@ export class CronRunner {
 
       // 有 timeout 配置：Promise.race + 强制清 running
       let timedOut = false;
+      let timeoutFiredAt = 0;  // NEW phase 758
       let timer: ReturnType<typeof setTimeout> | undefined;
       const timeoutPromise = new Promise<void>((resolve) => {
         timer = setTimeout(() => {
           timedOut = true;
+          timeoutFiredAt = Date.now();  // NEW phase 758
           this.audit.write(CRON_AUDIT_EVENTS.HANDLER_TIMEOUT,
             `job=${job.name}`,
             `run_key=${key}`,
@@ -136,6 +138,12 @@ export class CronRunner {
       handlerPromise.then(
         () => {
           if (timedOut) {
+            this.audit.write(  // NEW phase 758
+              CRON_AUDIT_EVENTS.JOB_LATE_SETTLED,
+              `job=${job.name}`,
+              `run_key=${key}`,
+              `late_settle_ms=${Date.now() - timeoutFiredAt}`,
+            );
             this.cancelling.delete(job.name);
             this.cancellingTicks.delete(job.name);
           }
