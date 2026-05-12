@@ -1,14 +1,14 @@
 import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/types.js';
-import { type AuditLog, createAuditWriter } from '../../foundation/audit/index.js';
+import type { AuditLog } from '../../foundation/audit/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import { type StreamLog, STREAM_FILE } from '../../foundation/stream/index.js';
 import { type CallerType, callerTypeToProfile } from '../../foundation/tool-protocol/index.js';
 import { createToolRegistry } from '../../foundation/tools/index.js';
 import type { ToolRegistry } from '../../foundation/tools/index.js';
-import { createSubAgent, NoopAuditWriter } from '../subagent/index.js';
+import { runSubagent, NoopAuditWriter } from '../subagent/index.js';
 import { createDialogStore } from '../../foundation/dialog-store/index.js';
-import { DEFAULT_LLM_IDLE_TIMEOUT_MS } from '../../foundation/llm-orchestrator/index.js';
+
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
 import { STREAM_TASK_EVENTS } from './stream-events.js';
 import { formatErr, auditError } from './_helpers.js';
@@ -48,24 +48,20 @@ export async function executeSubAgentTask(
   const { fs, auditWriter, llm, registry, clawDir, parentStreamLog, postProcessors, mainDialogStore, moveTaskToDone, moveTaskToFailed } = deps;
   const taskStartTime = Date.now();
   let taskFailed = false;
-  let subagentWorkspaceDir: string | undefined;  // phase 515 / function scope for finally cleanup
 
-  // Per-task stream writer setup（fd-less / appendSync 模式）
-  const taskResultDir = `${TASKS_QUEUES_RESULTS_DIR}/${task.id}`;   // 相对 clawDir / fs baseDir
+  // Per-task result dir + TASK_ATTEMPT_START stream marker（async 特有 lifecycle）
+  const taskResultDir = `${TASKS_QUEUES_RESULTS_DIR}/${task.id}`;
   fs.ensureDirSync(taskResultDir);
-  const taskAuditWriter = createAuditWriter(fs, `${taskResultDir}/audit.tsv`);
-  const taskStreamRelPath = `${taskResultDir}/${STREAM_FILE}`;
-
-  const writeTaskEvent = (event: Record<string, unknown>) => {
-    try {
-      fs.appendSync(taskStreamRelPath, JSON.stringify({ ts: Date.now(), ...event }) + '\n');
-    } catch (err) {
-      auditWriter.write(TASK_AUDIT_EVENTS.STREAM_FAILED, task.id, 'context=writeStream', `error=${formatErr(err)}`);
-    }
-  };
-
-  // 每次执行开头写分隔标记，方便区分多次尝试
-  writeTaskEvent({ type: STREAM_TASK_EVENTS.TASK_ATTEMPT_START, taskId: task.id });
+  const taskStreamPath = `${taskResultDir}/${STREAM_FILE}`;
+  try {
+    fs.appendSync(taskStreamPath, JSON.stringify({
+      ts: Date.now(),
+      type: STREAM_TASK_EVENTS.TASK_ATTEMPT_START,
+      taskId: task.id,
+    }) + '\n');
+  } catch (err) {
+    auditWriter.write(TASK_AUDIT_EVENTS.STREAM_FAILED, task.id, 'context=writeStream', `error=${formatErr(err)}`);
+  }
 
   try {
     // LLM is guaranteed by constructor (readonly non-null field)
@@ -93,46 +89,39 @@ export async function executeSubAgentTask(
 
     const toolsForLLM = registry.formatForLLM(effectiveRegistry.getAll());
 
-    // phase 512: per-subagent workspace dir
-    subagentWorkspaceDir = path.join(clawDir, TASKS_SUBAGENTS_DIR, task.id);
-    await fs.ensureDir(subagentWorkspaceDir);
     const promptPrefix = buildSubagentSystemPromptPrefix({
       taskId: task.id,
       callerClawId: task.parentClawId,
     });
     const finalSystemPrompt = `${promptPrefix}\n\n${task.systemPrompt ?? DEFAULT_SUBAGENT_SYSTEM_PROMPT}`;
 
-    const subAgent = createSubAgent({
+    const { text: result } = await runSubagent({
       agentId: task.id,
-      resultDir: `${TASKS_QUEUES_RESULTS_DIR}/${task.id}`,
-      messageStore: createDialogStore(           // ephemeral DialogStore / 0 clawId / 0 archive 触发
-        fs,
-        `${TASKS_QUEUES_RESULTS_DIR}/${task.id}`,             // baseDir = resultDir
-        taskAuditWriter,                         // per-task audit writer
-        'messages.json',                         // filename 必填
-      ),
-      prompt: task.intent,
+      callerType: task.callerType,
+      callerClawId: task.parentClawId,
       clawDir,
-      syncDir: path.join(clawDir, TASKS_SYNC_DIR),
+      fs,
       llm,
       registry: effectiveRegistry,
-      fs,
+      prompt: task.intent,
+      systemPrompt: finalSystemPrompt,
+      resultDir: taskResultDir,
       maxSteps: task.maxSteps,
-      timeoutMs: task.timeoutMs,
       signal,
-      toolsForLLM,
-      callerType: task.callerType,
-      originClawId: task.originClawId,
       mainDialogStore,
       mainContextSnapshot: task.mainContextSnapshot,
-      workspaceDir: path.join(clawDir, 'clawspace'),   // phase 518: 共享 caller workspace（subagents/<id>/ 改建议性临时区 / 仍 ensureDir + cleanup）
-      systemPrompt: finalSystemPrompt,       // phase 512
-      callerClawId: task.parentClawId,       // phase 514
-      taskStreamWriter: { write: writeTaskEvent },
-      auditWriter: taskAuditWriter,
+      toolsForLLM,
+      timeoutMs: task.timeoutMs,
+      originClawId: task.originClawId,
+      onCleanupFailed: (err) => {
+        auditWriter.write(
+          TASK_AUDIT_EVENTS.SUBAGENT_WORKSPACE_CLEANUP_FAILED,
+          task.id,
+          `dir=${path.join(clawDir, TASKS_SUBAGENTS_DIR, task.id)}`,
+          `error=${formatErr(err)}`,
+        );
+      },
     });
-
-    const result = await subAgent.run();
 
     // Phase438: 单 postProcessor lookup + execute（替代 pipeline）
     let inboxResult = result;
@@ -186,18 +175,6 @@ export async function executeSubAgentTask(
       await moveTaskToFailed(task.id);
     } else {
       await moveTaskToDone(task.id);
-    }
-
-    // phase 515 / cleanup subagent workspace dir（best-effort 软降级 / 失败 audit 不抛）
-    if (subagentWorkspaceDir) {
-      await fs.removeDir(subagentWorkspaceDir).catch((cleanupErr) => {
-        auditWriter.write(
-          TASK_AUDIT_EVENTS.SUBAGENT_WORKSPACE_CLEANUP_FAILED,
-          task.id,
-          `dir=${subagentWorkspaceDir}`,
-          `error=${formatErr(cleanupErr)}`,
-        );
-      });
     }
   }
 }

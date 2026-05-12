@@ -9,7 +9,7 @@
 
 import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/types.js';
-import { createAuditWriter } from '../../foundation/audit/index.js';
+import { createAuditWriter, type AuditLog } from '../../foundation/audit/index.js';
 import { STREAM_FILE } from '../../foundation/stream/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { ToolRegistry } from '../../foundation/tools/index.js';
@@ -29,7 +29,7 @@ export interface MainContextSnapshot {
 export interface RunSubagentOptions {
   // 标识
   agentId: string;
-  callerType: CallerType;
+  callerType?: CallerType;
   callerClawId: string;
 
   // 基础设施依赖（caller 注入）
@@ -59,6 +59,7 @@ export interface RunSubagentOptions {
   taskStreamCallback?: (event: Record<string, unknown>) => void;
   onIdleTimeout?: () => void;
   workspaceCleanup?: boolean;  // 默 true
+  onCleanupFailed?: (err: unknown, auditWriter: AuditLog) => void;
 }
 
 export interface RunSubagentResult {
@@ -130,11 +131,15 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
     // workspace cleanup（best-effort、cleanup 失败 audit）
     if (opts.workspaceCleanup ?? true) {
       await opts.fs.removeDir(workspaceDir).catch((err) => {
-        auditWriter.write(
-          CONTRACT_AUDIT_EVENTS.VERIFIER_CLEANUP_FAILED,
-          `agent=${opts.agentId}`,
-          `error=${err instanceof Error ? err.message : String(err)}`,
-        );
+        if (opts.onCleanupFailed) {
+          opts.onCleanupFailed(err, auditWriter);
+        } else {
+          auditWriter.write(
+            CONTRACT_AUDIT_EVENTS.VERIFIER_CLEANUP_FAILED,
+            `agent=${opts.agentId}`,
+            `error=${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
       });
     }
   }

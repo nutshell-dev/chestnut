@@ -10,12 +10,12 @@ import { executeSubAgentTask } from '../../src/core/async-task-system/subagent-e
 import { DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../../src/prompts/subagent.js';
 import type { SubAgentTask } from '../../src/core/async-task-system/system.js';
 
-const { mockCreateSubAgent } = vi.hoisted(() => ({
-  mockCreateSubAgent: vi.fn(),
+const { mockRunSubagent } = vi.hoisted(() => ({
+  mockRunSubagent: vi.fn(),
 }));
 
 vi.mock('../../src/core/subagent/index.js', () => ({
-  createSubAgent: mockCreateSubAgent,
+  runSubagent: mockRunSubagent,
 }));
 
 function makeTask(overrides: Partial<SubAgentTask> = {}): SubAgentTask {
@@ -73,9 +73,7 @@ function makeDeps() {
 describe('Phase 546 — subagent-executor systemPrompt 注入', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockCreateSubAgent.mockReturnValue({
-      run: vi.fn().mockResolvedValue('result'),
-    });
+    mockRunSubagent.mockResolvedValue({ text: 'result' });
   });
 
   it('uses task.systemPrompt when provided', async () => {
@@ -85,8 +83,8 @@ describe('Phase 546 — subagent-executor systemPrompt 注入', () => {
 
     await executeSubAgentTask(task, controller.signal, deps);
 
-    expect(mockCreateSubAgent).toHaveBeenCalled();
-    const captured = mockCreateSubAgent.mock.calls[0][0];
+    expect(mockRunSubagent).toHaveBeenCalled();
+    const captured = mockRunSubagent.mock.calls[0][0];
     expect(captured.systemPrompt).toContain('CUSTOM_PROMPT_X');
     expect(captured.systemPrompt).not.toContain(DEFAULT_SUBAGENT_SYSTEM_PROMPT);
   });
@@ -99,8 +97,8 @@ describe('Phase 546 — subagent-executor systemPrompt 注入', () => {
 
     await executeSubAgentTask(task, controller.signal, deps);
 
-    expect(mockCreateSubAgent).toHaveBeenCalled();
-    const captured = mockCreateSubAgent.mock.calls[0][0];
+    expect(mockRunSubagent).toHaveBeenCalled();
+    const captured = mockRunSubagent.mock.calls[0][0];
     expect(captured.systemPrompt).toContain(DEFAULT_SUBAGENT_SYSTEM_PROMPT);
   });
 
@@ -111,7 +109,7 @@ describe('Phase 546 — subagent-executor systemPrompt 注入', () => {
 
     await executeSubAgentTask(task, controller.signal, deps);
 
-    const captured = mockCreateSubAgent.mock.calls[0][0];
+    const captured = mockRunSubagent.mock.calls[0][0];
     // promptPrefix 含 taskId / callerClawId 信息
     expect(captured.systemPrompt).toMatch(/Task ID|callerClawId|workspace/);
   });
