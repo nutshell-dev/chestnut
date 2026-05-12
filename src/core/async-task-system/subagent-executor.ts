@@ -13,7 +13,8 @@ import { TASK_AUDIT_EVENTS } from './audit-events.js';
 import { STREAM_TASK_EVENTS } from './stream-events.js';
 import { formatErr, auditError } from './_helpers.js';
 import { AskMotionTool } from './tools/ask-motion.js';
-import { TASKS_QUEUES_RESULTS_DIR, TASKS_SUBAGENTS_DIR, TASKS_SYNC_DIR } from '../../types/paths.js';
+import { TASKS_SYNC_DIR } from '../../types/paths.js';
+import { TASKS_QUEUES_RESULTS_DIR, TASKS_SUBAGENTS_DIR } from './dirs.js';
 import { buildSubagentSystemPromptPrefix, DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../../prompts/subagent.js';
 import { sendResult, sendFallbackError } from './result-delivery.js';
 

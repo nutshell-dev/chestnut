@@ -5,7 +5,8 @@ import type { InboxMessage } from '../../types/messaging.js';
 import { InboxWriter } from '../../foundation/messaging/index.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
 import { formatErr, auditError } from './_helpers.js';
-import { INBOX_PENDING_DIR, TASKS_QUEUES_RESULTS_DIR } from '../../types/paths.js';
+import { INBOX_PENDING_DIR } from '../../types/paths.js';
+import { TASKS_QUEUES_RESULTS_DIR } from './dirs.js';
 import type { SubAgentTask, ToolTask } from './system.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 
