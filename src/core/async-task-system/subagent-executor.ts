@@ -113,14 +113,7 @@ export async function executeSubAgentTask(
       toolsForLLM,
       timeoutMs: task.timeoutMs,
       originClawId: task.originClawId,
-      onCleanupFailed: (err) => {
-        auditWriter.write(
-          TASK_AUDIT_EVENTS.SUBAGENT_WORKSPACE_CLEANUP_FAILED,
-          task.id,
-          `dir=${path.join(clawDir, TASKS_SUBAGENTS_DIR, task.id)}`,
-          `error=${formatErr(err)}`,
-        );
-      },
+
     });
 
     // Phase438: 单 postProcessor lookup + execute（替代 pipeline）

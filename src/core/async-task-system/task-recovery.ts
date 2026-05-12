@@ -259,29 +259,6 @@ async function _loadPendingTasks(deps: RecoverTasksDeps): Promise<void> {
   }
 }
 
-async function _cleanupOrphanSubagentWorkspaces(deps: RecoverTasksDeps): Promise<void> {
-  const { fs, auditWriter } = deps;
-  try {
-    const subagentDirs = await fs.list(TASKS_SUBAGENTS_DIR, { includeDirs: true }).catch(() => []);
-    for (const entry of subagentDirs) {
-      if (!entry.isDirectory) continue;
-      await fs.removeDir(`${TASKS_SUBAGENTS_DIR}/${entry.name}`).catch((err) => {
-        auditWriter.write(
-          TASK_AUDIT_EVENTS.SUBAGENT_WORKSPACE_CLEANUP_FAILED,
-          'recovery',
-          `dir=${TASKS_SUBAGENTS_DIR}/${entry.name}`,
-          `error=${formatErr(err)}`,
-        );
-      });
-    }
-  } catch (sweepErr) {
-    auditWriter.write(
-      TASK_AUDIT_EVENTS.SUBAGENT_WORKSPACE_CLEANUP_FAILED,
-      'recovery_sweep',
-      `error=${formatErr(sweepErr)}`,
-    );
-  }
-}
 
 /**
  * Recover tasks from filesystem on startup
@@ -303,6 +280,5 @@ export async function recoverTasks(deps: RecoverTasksDeps): Promise<void> {
     auditWriter.write(TASK_AUDIT_EVENTS.RECOVERY_FAILED, 'system', 'context=recovery_top', `error=${errMsg}`);
   }
 
-  // startup orphan subagent workspace cleanup
-  await _cleanupOrphanSubagentWorkspaces(deps);
+
 }

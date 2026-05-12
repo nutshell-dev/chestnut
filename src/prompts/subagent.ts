@@ -32,7 +32,7 @@ export function buildSubagentSystemPromptPrefix(args: {
   return `## Workspace Context
 
 Your default cwd is the clawspace of your caller "${args.callerClawId}".
-Your dedicated temp dir: \`../${TASKS_SUBAGENTS_DIR}/${args.taskId}/\` (recommended for ephemeral files. auto-cleaned after task)
+Your dedicated temp dir: \`../${TASKS_SUBAGENTS_DIR}/${args.taskId}/\` (recommended for working files. persists for post-hoc audit)
 Use \`cwd: '../${TASKS_SUBAGENTS_DIR}/${args.taskId}'\` to write here (cwd is workspace-relative, '..' escapes clawspace to claw root)
 
 Tool defaults:

@@ -9,7 +9,7 @@ describe('buildSubagentSystemPromptPrefix', () => {
     });
     expect(result).toContain('Your default cwd is the clawspace of your caller "main-claw"');
     expect(result).toContain('Your dedicated temp dir: `../tasks/subagents/abc123/`');
-    expect(result).toContain('recommended for ephemeral files');
+    expect(result).toContain('recommended for working files');
   });
 
   it('mentions tool defaults and cross-claw access', () => {

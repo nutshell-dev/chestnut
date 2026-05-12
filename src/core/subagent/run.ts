@@ -18,7 +18,7 @@ import type { ToolDefinition } from '../../types/message.js';
 import type { CallerType } from '../../foundation/tool-protocol/index.js';
 import { createDialogStore, type DialogStore } from '../../foundation/dialog-store/index.js';
 import { TASKS_SUBAGENTS_DIR } from '../async-task-system/index.js';
-import { CONTRACT_AUDIT_EVENTS } from '../contract/audit-events.js';
+
 import { SubAgent } from './agent.js';
 
 export interface MainContextSnapshot {
@@ -58,8 +58,7 @@ export interface RunSubagentOptions {
   toolsForLLM?: ToolDefinition[];
   taskStreamCallback?: (event: Record<string, unknown>) => void;
   onIdleTimeout?: () => void;
-  workspaceCleanup?: boolean;  // 默 true
-  onCleanupFailed?: (err: unknown, auditWriter: AuditLog) => void;
+
 }
 
 export interface RunSubagentResult {
@@ -92,57 +91,40 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
   // workspace shared with caller workspace dir 路径决策（mirror async / verifier 既有 phase 518 决策）
   const sharedWorkspaceDir = path.join(opts.clawDir, 'clawspace');
 
-  try {
-    const agent = new SubAgent({
-      agentId: opts.agentId,
-      resultDir: opts.resultDir,
-      messageStore,
-      prompt: opts.prompt,
-      systemPrompt: opts.systemPrompt,
-      clawDir: opts.clawDir,
-      syncDir: path.join(opts.clawDir, 'tasks/sync'),  // TASKS_SYNC_DIR
-      llm: opts.llm,
-      registry: opts.registry,
-      fs: opts.fs,
-      maxSteps: opts.maxSteps,
-      idleTimeoutMs: opts.idleTimeoutMs,
-      signal: opts.signal,
-      timeoutMs: opts.timeoutMs,
-      toolsForLLM,
-      callerType: opts.callerType,
-      callerClawId: opts.callerClawId,
-      originClawId: opts.originClawId,
-      mainDialogStore: opts.mainDialogStore,
-      mainContextSnapshot: opts.mainContextSnapshot,
-      onIdleTimeout: opts.onIdleTimeout,
-      workspaceDir: sharedWorkspaceDir,
-      taskStreamWriter,
-      auditWriter,
-    });
+  const agent = new SubAgent({
+    agentId: opts.agentId,
+    resultDir: opts.resultDir,
+    messageStore,
+    prompt: opts.prompt,
+    systemPrompt: opts.systemPrompt,
+    clawDir: opts.clawDir,
+    syncDir: path.join(opts.clawDir, 'tasks/sync'),  // TASKS_SYNC_DIR
+    llm: opts.llm,
+    registry: opts.registry,
+    fs: opts.fs,
+    maxSteps: opts.maxSteps,
+    idleTimeoutMs: opts.idleTimeoutMs,
+    signal: opts.signal,
+    timeoutMs: opts.timeoutMs,
+    toolsForLLM,
+    callerType: opts.callerType,
+    callerClawId: opts.callerClawId,
+    originClawId: opts.originClawId,
+    mainDialogStore: opts.mainDialogStore,
+    mainContextSnapshot: opts.mainContextSnapshot,
+    onIdleTimeout: opts.onIdleTimeout,
+    workspaceDir: sharedWorkspaceDir,
+    taskStreamWriter,
+    auditWriter,
+  });
 
-    const text = await agent.run();
+  const text = await agent.run();
 
-    // 检 report_result tool capturedResult（verifier 等用）
-    const reportTool = opts.registry.get('report_result');
-    const capturedResult = (reportTool as { capturedResult?: unknown })?.capturedResult;
+  // 检 report_result tool capturedResult（verifier 等用）
+  const reportTool = opts.registry.get('report_result');
+  const capturedResult = (reportTool as { capturedResult?: unknown })?.capturedResult;
 
-    return { text, capturedResult };
-  } finally {
-    // workspace cleanup（best-effort、cleanup 失败 audit）
-    if (opts.workspaceCleanup ?? true) {
-      await opts.fs.removeDir(workspaceDir).catch((err) => {
-        if (opts.onCleanupFailed) {
-          opts.onCleanupFailed(err, auditWriter);
-        } else {
-          auditWriter.write(
-            CONTRACT_AUDIT_EVENTS.VERIFIER_CLEANUP_FAILED,
-            `agent=${opts.agentId}`,
-            `error=${err instanceof Error ? err.message : String(err)}`,
-          );
-        }
-      });
-    }
-  }
+  return { text, capturedResult };
 }
 
 // caller 负责 registry 装配（含 profile filter + 特殊工具如 report_result）
