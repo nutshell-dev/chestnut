@@ -4,7 +4,7 @@ import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { ToolTask } from './system.js';
 import { sendToolResult, sendFallbackError } from './result-delivery.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
-import { formatErr, auditError } from './_helpers.js';
+import { formatErr, auditError, classifyTaskError } from './_helpers.js';
 import { TASKS_QUEUES_RUNNING_DIR } from '../../types/paths.js';
 
 export interface ExecuteToolTaskDeps {
@@ -50,7 +50,14 @@ export async function executeToolTask(
         });
       }
       success = true;
-      auditWriter.write(TASK_AUDIT_EVENTS.TASK_COMPLETED, task.id, 'ok', `elapsed_ms=${Date.now() - taskStartTime}`, `retries=${attempt}`);
+      auditWriter.write(
+        TASK_AUDIT_EVENTS.TASK_COMPLETED,
+        task.id, 'ok',
+        `kind=tool`,
+        `toolName=${task.toolName}`,
+        `elapsed_ms=${Date.now() - taskStartTime}`,
+        `retries=${attempt}`,
+      );
       // tool_async_result：仅当 toolUseId 已记录时写入
       if (task.toolUseId) {
         auditWriter.write('tool_async_result', task.toolName, task.toolUseId, `task=${task.id}`);
@@ -111,7 +118,14 @@ export async function executeToolTask(
     }
 
     auditWriter.write(TASK_AUDIT_EVENTS.HANDLER_FAILED, task.id, `tool=${task.toolName}`, 'context=retries_exhausted', `error=${finalError}`);
-    auditWriter.write(TASK_AUDIT_EVENTS.TASK_COMPLETED, task.id, 'err', `elapsed_ms=${Date.now() - taskStartTime}`);
+    auditWriter.write(
+      TASK_AUDIT_EVENTS.TASK_COMPLETED,
+      task.id, 'err',
+      `kind=tool`,
+      `toolName=${task.toolName}`,
+      `error_category=${classifyTaskError(lastError)}`,
+      `elapsed_ms=${Date.now() - taskStartTime}`,
+    );
   }
 
   // Move from running to done/failed based on success

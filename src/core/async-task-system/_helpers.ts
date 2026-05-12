@@ -20,3 +20,16 @@ export function auditError(
 ): void {
   audit.write(event, ...extras, `error=${formatErr(err)}`);
 }
+
+export function classifyTaskError(err: unknown): string {
+  if (err instanceof Error) {
+    if (err.name === 'AbortError') return 'abort';
+    if (err.name === 'ToolTimeoutError') return 'tool_timeout';
+    if (err.name === 'LLMTimeoutError') return 'llm_timeout';
+    if (err.name === 'LLMRateLimitError') return 'rate_limit';
+    if (err.name === 'LLMAuthError') return 'auth';
+    if (err.name === 'LLMNetworkError') return 'network';
+    return err.name || 'error';
+  }
+  return 'unknown';
+}

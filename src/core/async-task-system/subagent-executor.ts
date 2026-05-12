@@ -11,7 +11,7 @@ import { createDialogStore } from '../../foundation/dialog-store/index.js';
 
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
 import { STREAM_TASK_EVENTS } from './stream-events.js';
-import { formatErr, auditError } from './_helpers.js';
+import { formatErr, auditError, classifyTaskError } from './_helpers.js';
 import { AskMotionTool } from './tools/ask-motion.js';
 import { TASKS_SYNC_DIR } from '../../types/paths.js';
 import { TASKS_QUEUES_RESULTS_DIR, TASKS_SUBAGENTS_DIR } from './dirs.js';
@@ -132,7 +132,16 @@ export async function executeSubAgentTask(
     }
     await sendResult(fs, auditWriter, task, inboxResult, false);
 
-    auditWriter.write(TASK_AUDIT_EVENTS.TASK_COMPLETED, task.id, 'ok', `elapsed_ms=${Date.now() - taskStartTime}`, `len=${result.length}`);
+    auditWriter.write(
+      TASK_AUDIT_EVENTS.TASK_COMPLETED,
+      task.id, 'ok',
+      `kind=subagent`,
+      `parent=${task.parentClawId}`,
+      `callerType=${task.callerType ?? 'subagent'}`,
+      `intent=${task.intent.slice(0, 60)}`,
+      `elapsed_ms=${Date.now() - taskStartTime}`,
+      `len=${result.length}`,
+    );
   } catch (error) {
     taskFailed = true;
     const errorMsg = formatErr(error);
@@ -161,7 +170,16 @@ export async function executeSubAgentTask(
     }
 
     auditWriter.write(TASK_AUDIT_EVENTS.HANDLER_FAILED, task.id, `parent=${task.parentClawId}`, `error=${errorMsg}`);
-    auditWriter.write(TASK_AUDIT_EVENTS.TASK_COMPLETED, task.id, 'err', `elapsed_ms=${Date.now() - taskStartTime}`);
+    auditWriter.write(
+      TASK_AUDIT_EVENTS.TASK_COMPLETED,
+      task.id, 'err',
+      `kind=subagent`,
+      `parent=${task.parentClawId}`,
+      `callerType=${task.callerType ?? 'subagent'}`,
+      `intent=${task.intent.slice(0, 60)}`,
+      `error_category=${classifyTaskError(error)}`,
+      `elapsed_ms=${Date.now() - taskStartTime}`,
+    );
   } finally {
     // Move from running to done/failed based on success
     if (taskFailed) {
