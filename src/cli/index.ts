@@ -35,6 +35,7 @@ import { runWatchdogLoop, startCommand as watchdogStart, stopCommand as watchdog
 import { configCommand } from './commands/config.js';
 import { stopAllCommand } from './commands/stop.js';
 import { statusCommand } from './commands/status.js';
+import { createSubagentCommand } from './commands/subagent.js';
 import { LOGS_DIR } from '../types/paths.js';
 import { createDirContext } from './utils/factories.js';
 import { getClawforumRoot, getClawDir, loadGlobalConfig } from '../foundation/config/index.js';
@@ -508,5 +509,8 @@ watchdogCmd.on('command:*', (ops) => {
   }
   process.exitCode = 1;
 });
+
+// subagent command group
+program.addCommand(createSubagentCommand());
 
 program.parse();
