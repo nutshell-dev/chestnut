@@ -41,7 +41,13 @@ export interface BroadcastFailure {
  */
 export type TransportErrorEvent =
   | { kind: 'callback_error'; callbackName: 'onConnect' | 'onDisconnect' | 'onMessage' | 'onTransportError'; connectionId?: string; error: Error }
-  | { kind: 'server_error'; error: Error };
+  | { kind: 'server_error'; error: Error }
+  // NEW phase 757 Cluster A:
+  | { kind: 'write_failed'; connectionId: string; error: Error; bytes: number }
+  | { kind: 'backpressure_pending'; connectionId: string; bufferedBytes: number }
+  | { kind: 'drain_completed'; connectionId: string }
+  | { kind: 'partial_message_lost'; connectionId: string; bufferedBytes: number; bufferPreview: string }
+  | { kind: 'send_error'; connectionId: string; error: Error };
 
 /**
  * Transport interface — real-time bidirectional communication.

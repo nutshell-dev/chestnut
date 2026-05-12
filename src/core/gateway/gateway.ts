@@ -161,12 +161,32 @@ export function createGateway(input: GatewayInput): Gateway {
           // → Gateway 的 onTransportError 处理器接收（见下方）
         });
         t.onTransportError((evt) => {
-          audit.write(
-            GATEWAY_AUDIT_EVENTS.TRANSPORT_ERROR,
-            `kind=${evt.kind}`,
-            `error=${String(evt.error)}`,
-            evt.kind === 'callback_error' ? `callbackName=${evt.callbackName}` : '',
-          );
+          const baseFields = [`kind=${evt.kind}`];
+          switch (evt.kind) {
+            case 'callback_error':
+              baseFields.push(`error=${String(evt.error)}`, `callbackName=${evt.callbackName}`);
+              if (evt.connectionId) baseFields.push(`connId=${evt.connectionId}`);
+              break;
+            case 'server_error':
+              baseFields.push(`error=${String(evt.error)}`);
+              break;
+            case 'write_failed':
+              baseFields.push(`connId=${evt.connectionId}`, `error=${String(evt.error)}`, `bytes=${evt.bytes}`);
+              break;
+            case 'backpressure_pending':
+              baseFields.push(`connId=${evt.connectionId}`, `bufferedBytes=${evt.bufferedBytes}`);
+              break;
+            case 'drain_completed':
+              baseFields.push(`connId=${evt.connectionId}`);
+              break;
+            case 'partial_message_lost':
+              baseFields.push(`connId=${evt.connectionId}`, `bufferedBytes=${evt.bufferedBytes}`, `bufferPreview=${evt.bufferPreview}`);
+              break;
+            case 'send_error':
+              baseFields.push(`connId=${evt.connectionId}`, `error=${String(evt.error)}`);
+              break;
+          }
+          audit.write(GATEWAY_AUDIT_EVENTS.TRANSPORT_ERROR, ...baseFields);
         });
 
         streamReader = streamFactory((ev: StreamEvent) => {
