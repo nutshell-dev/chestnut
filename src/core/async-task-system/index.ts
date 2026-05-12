@@ -8,6 +8,8 @@ import { AsyncTaskSystem, type AsyncTaskSystemOptions, type SubAgentTask } from 
 
 export { AsyncTaskSystem, type SubAgentTask, type AsyncTaskSystemOptions } from './system.js';
 
+export { TASKS_QUEUES_RESULTS_DIR, TASKS_SUBAGENTS_DIR } from './dirs.js';
+
 /** SubAgent task scheduling payload (sans id/createdAt, filled by writer) */
 export type SubAgentTaskInfo = Omit<SubAgentTask, 'id' | 'createdAt'>;
 
