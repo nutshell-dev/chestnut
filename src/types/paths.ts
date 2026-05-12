@@ -12,12 +12,6 @@
 // - `_TOOL_NAME` / cli cmd 字面量：不入此节 / 显式不混
 // - `BUNDLED_*`：源码树 bundled 资源目录（非运行期 agent subdir）
 export const LOGS_DIR = 'logs' as const;
-export const CONTRACT_DIR = 'contract' as const;
-
-// NEW (phase 740) / mirror INBOX_PENDING_DIR / TASKS_QUEUES_PENDING_DIR pattern
-export const CONTRACT_ACTIVE_DIR = 'contract/active' as const;
-export const CONTRACT_PAUSED_DIR = 'contract/paused' as const;
-export const CONTRACT_ARCHIVE_DIR = 'contract/archive' as const;
 
 export const DIALOG_DIR = 'dialog' as const;
 /**
@@ -92,7 +86,7 @@ export const CLAW_SUBDIRS = [
   TASKS_SYNC_SPAWN_DIR,
   'tasks/subagents',
   'memory',                    // 不抽 const / 字面量保留 / B.p380-1 信号登记
-  CONTRACT_DIR,                // 旧 'contract'
+  'contract',                  // CONTRACT_DIR phase 746 物理迁 src/core/contract/dirs.ts
   'skills',                    // phase370 已立 / 非 NEW（SKILLS_DIR_DEFAULT 字面量 / 避免循环依赖 skill-paths.ts → paths.ts）
   CLAWSPACE_DIR,               // 旧 'clawspace'
   LOGS_DIR,                    // 旧 'logs'
