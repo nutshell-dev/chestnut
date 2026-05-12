@@ -75,7 +75,7 @@ export interface Transport {
    * Send a message to a specific connected client.
    * Throws if connectionId is not found (caller error, should be caught).
    */
-  send(connectionId: string, data: string): void;
+  send(connectionId: string, data: string): boolean;
 
   /**
    * Send a message to all connected clients.

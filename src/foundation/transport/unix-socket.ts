@@ -106,16 +106,43 @@ export class UnixDomainSocketTransport implements Transport {
       disconnectReason = err;
     });
     sock.on('close', () => {
+      if (entry.buf.length > 0) {
+        this.fireTransportError({
+          kind: 'partial_message_lost',
+          connectionId: id,
+          bufferedBytes: entry.buf.length,
+          bufferPreview: entry.buf.slice(0, 100),
+        });
+      }
       this.connections.delete(id);
       this.safeFire(this.disconnectCbs, 'onDisconnect', meta, disconnectReason);
     });
     this.safeFire(this.connectCbs, 'onConnect', meta);
   }
 
-  send(connectionId: string, data: string): void {
+  send(connectionId: string, data: string): boolean {
     const entry = this.connections.get(connectionId);
     if (!entry) throw new Error(`unknown connection: ${connectionId}`);
-    entry.sock.write(data + '\n');
+    const line = data + '\n';
+    try {
+      const ok = entry.sock.write(line);
+      if (!ok) {
+        this.fireTransportError({
+          kind: 'backpressure_pending',
+          connectionId,
+          bufferedBytes: entry.sock.writableLength,
+        });
+        this.armDrainOnce(connectionId, entry.sock);
+      }
+      return ok;
+    } catch (err) {
+      this.fireTransportError({
+        kind: 'send_error',
+        connectionId,
+        error: err instanceof Error ? err : new Error(String(err)),
+      });
+      return false;
+    }
   }
 
   broadcast(data: string): { failed: BroadcastFailure[] } {
@@ -123,11 +150,26 @@ export class UnixDomainSocketTransport implements Transport {
     const failed: BroadcastFailure[] = [];
     for (const { sock, meta } of this.connections.values()) {
       try {
-        sock.write(line);
+        const ok = sock.write(line);
+        if (!ok) {
+          this.fireTransportError({
+            kind: 'backpressure_pending',
+            connectionId: meta.id,
+            bufferedBytes: sock.writableLength,
+          });
+          this.armDrainOnce(meta.id, sock);
+        }
       } catch (err) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        this.fireTransportError({
+          kind: 'write_failed',
+          connectionId: meta.id,
+          error,
+          bytes: line.length,
+        });
         failed.push({
           connectionId: meta.id,
-          error: err instanceof Error ? err : new Error(String(err)),
+          error,
         });
       }
     }
@@ -152,6 +194,16 @@ export class UnixDomainSocketTransport implements Transport {
 
   onMessage(cb: (conn: Connection, data: string) => void): void {
     this.messageCbs.push(cb);
+  }
+
+  private armDrainOnce(connectionId: string, sock: Socket): void {
+    sock.once('drain', () => {
+      if (!this.connections.has(connectionId)) return;
+      this.fireTransportError({
+        kind: 'drain_completed',
+        connectionId,
+      });
+    });
   }
 
   private fireTransportError(evt: TransportErrorEvent): void {
