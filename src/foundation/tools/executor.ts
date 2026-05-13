@@ -339,7 +339,7 @@ export class ToolExecutor extends ToolExecutorImpl {
    */
   getExecContext(
     profile: ToolProfile,
-    options: { clawId: string; maxSteps: number; signal?: AbortSignal; callerType?: CallerType; originClawId?: string }
+    options: { clawId: string; maxSteps: number; signal?: AbortSignal; callerType?: CallerType; originClawId?: string; isShadow?: boolean }
   ): ExecContextImpl {
     return new ExecContextImpl({
       clawId: options.clawId,
@@ -355,6 +355,7 @@ export class ToolExecutor extends ToolExecutorImpl {
       signal: options.signal,
       subagentMaxSteps: this.subagentMaxSteps,
       originClawId: options.originClawId,
+      isShadow: options.isShadow,
       auditWriter: this.auditWriter,
       mainDialogStore: this.mainDialogStore,
       mainContextSnapshot: this.mainContextSnapshot,

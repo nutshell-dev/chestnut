@@ -274,13 +274,10 @@ export class DialogStore {
   }
 
   /**
-   * Validate and normalize session data
-   */
-  /**
    * Restore message prefix up to and including the marker assistant message.
    * Scans current.json then archive/*.json (newest first).
    */
-  async restorePrefix(marker: DialogMarker): Promise<RestoreResult> {
+  private async _restore(marker: DialogMarker, inclusive: boolean): Promise<RestoreResult> {
     // 1. Scan current.json
     try {
       const content = await this.fs.read(this.currentPath);
@@ -291,7 +288,7 @@ export class DialogStore {
         (parsed as SessionData).version = 2;
       }
       const data = this.validateSession(parsed as SessionData);
-      const sliced = sliceMessagesAtMarker(data.messages, marker.toolUseId);
+      const sliced = sliceMessagesAtMarker(data.messages, marker.toolUseId, inclusive);
       if (sliced !== null) {
         return {
           messages: sliced,
@@ -306,7 +303,7 @@ export class DialogStore {
         this.audit.write(
           DIALOG_AUDIT_EVENTS.CORRUPTED,
           'file=current.json',
-          'context=restore_prefix',
+          `context=restore_${inclusive ? 'prefix' : 'before'}`,
           `reason=${err instanceof Error ? err.message : String(err)}`,
         );
       }
@@ -335,7 +332,7 @@ export class DialogStore {
             (parsed as SessionData).version = 2;
           }
           const data = this.validateSession(parsed as SessionData);
-          const sliced = sliceMessagesAtMarker(data.messages, marker.toolUseId);
+          const sliced = sliceMessagesAtMarker(data.messages, marker.toolUseId, inclusive);
           if (sliced !== null) {
             return {
               messages: sliced,
@@ -366,6 +363,24 @@ export class DialogStore {
   }
 
   /**
+   * Restore message prefix up to and including the marker assistant message.
+   * Scans current.json then archive/*.json (newest first).
+   */
+  async restorePrefix(marker: DialogMarker): Promise<RestoreResult> {
+    return this._restore(marker, true);
+  }
+
+  /**
+   * Restore message prefix BEFORE the marker assistant message (excluding it).
+   * phase 767 NEW for Form B shadow synthesis.
+   * Scans current.json then archive/*.json (newest first).
+   * 与 restorePrefix 差别：restoreBefore 返切片不含 marker assistant message。
+   */
+  async restoreBefore(marker: DialogMarker): Promise<RestoreResult> {
+    return this._restore(marker, false);
+  }
+
+  /**
    * Validate and normalize session data
    */
   private validateSession(data: SessionData): SessionData {
@@ -385,7 +400,7 @@ export class DialogStore {
  * 找含 toolUseId 的 assistant message / 返切片（含该 message）
  * 0 命中返 null
  */
-function sliceMessagesAtMarker(messages: Message[], toolUseId: string): Message[] | null {
+function sliceMessagesAtMarker(messages: Message[], toolUseId: string, inclusive = true): Message[] | null {
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i];
     if (msg.role === 'assistant' && Array.isArray(msg.content)) {
@@ -393,7 +408,7 @@ function sliceMessagesAtMarker(messages: Message[], toolUseId: string): Message[
         block => block.type === 'tool_use' && block.id === toolUseId,
       );
       if (hasMarker) {
-        return messages.slice(0, i + 1);  // 含 marker assistant message
+        return messages.slice(0, inclusive ? i + 1 : i);  // inclusive 含 marker assistant message
       }
     }
   }

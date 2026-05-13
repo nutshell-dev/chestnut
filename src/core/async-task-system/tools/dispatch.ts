@@ -65,6 +65,15 @@ export class DispatchTool implements Tool {
   };
 
   async execute(args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
+    // shadow 防御（phase 767）：dispatch 是 async-only routing，shadow 内调用会导致 orphan
+    if (ctx.isShadow) {
+      return {
+        success: false,
+        content: 'dispatch is not callable from within shadow (async-only routing would orphan after shadow exits).',
+        error: 'shadow_dispatch_rejected',
+      };
+    }
+
     // 扫描 clawspace/dispatch-skills/ 生成简介（结构同普通 skill：子目录 + SKILL.md）
     let skillsSummary = '';
     try {

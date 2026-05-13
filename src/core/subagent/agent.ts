@@ -50,6 +50,7 @@ export interface SubAgentOptions {
   subagentMaxSteps?: number;                 // 传给子 SubAgent
   messages?: Message[];                      // 若提供，直接用；否则从 prompt 构建
   originClawId?: string;                     // 创建链路源头，传给子 SubAgent
+  isShadow?: boolean;                         // phase 767：shadow 分身标记
   taskStreamWriter: StreamLog;
   auditWriter: AuditLog;          // tasks/queues/results/{id}/audit.tsv，step 11+ 写事件
   mainDialogStore?: DialogStore;                                // NEW: subagent profile only / ask_caller 用 read-only ref
@@ -82,6 +83,7 @@ export class SubAgent {
   private subagentMaxSteps?: number;
   private messages?: Message[];
   private originClawId?: string;
+  private isShadow?: boolean;
   private taskStreamWriter: StreamLog;
   private auditWriter: AuditLog;
   private mainDialogStore?: DialogStore;
@@ -113,6 +115,7 @@ export class SubAgent {
     this.subagentMaxSteps = options.subagentMaxSteps;
     this.messages = options.messages;
     this.originClawId = options.originClawId;
+    this.isShadow = options.isShadow;
     this.taskStreamWriter = options.taskStreamWriter;
     this.auditWriter = options.auditWriter;
     this.mainDialogStore = options.mainDialogStore;

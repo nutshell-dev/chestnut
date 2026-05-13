@@ -36,6 +36,7 @@ import { createFileTools } from '../foundation/file-tool/index.js';
 import { createCommandTools } from '../foundation/command-tool/index.js';
 import { createClawPermissionChecker } from '../core/permissions/claw-permissions.js';
 import { spawnTool } from '../core/spawn-system/index.js';
+import { shadowTool } from '../core/shadow-system/index.js';
 import { cleanupOrphanedTemp } from './cleanup.js';
 import { createInboxReader, createOutboxWriter, notifyInbox, InboxWriter } from '../foundation/messaging/index.js';
 import { createSubmitSubtaskTool } from '../core/contract/index.js';
@@ -195,6 +196,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
       }
 
       toolRegistry.register(spawnTool);
+      toolRegistry.register(shadowTool);
 
       // phase378 后 exec 业务归 CommandTool L2 / 不再经 registerBuiltinTools / Assembly 显式注册
       const commandTools = createCommandTools();

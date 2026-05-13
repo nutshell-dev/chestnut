@@ -14,7 +14,7 @@ import { STREAM_FILE } from '../../foundation/stream/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { ToolRegistry } from '../../foundation/tools/index.js';
 // createToolRegistry removed — caller owns registry assembly (M#1 align)
-import type { ToolDefinition } from '../../types/message.js';
+import type { Message, ToolDefinition } from '../../types/message.js';
 import type { CallerType } from '../../foundation/tool-protocol/index.js';
 import { createDialogStore, type DialogStore } from '../../foundation/dialog-store/index.js';
 import { TASKS_SUBAGENTS_DIR } from '../async-task-system/index.js';
@@ -61,6 +61,10 @@ export interface RunSubagentOptions {
 
   // NEW (phase 765)：取 capturedResult 用的 tool name / default 'report_result' 兼容 verifier
   resultTool?: string;
+
+  // NEW (phase 767)：shadow 需要传完整合成 messages
+  messages?: Message[];
+  isShadow?: boolean;
 
 }
 
@@ -119,6 +123,8 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
     workspaceDir: sharedWorkspaceDir,
     taskStreamWriter,
     auditWriter,
+    messages: opts.messages,
+    isShadow: opts.isShadow,
   });
 
   const text = await agent.run();
