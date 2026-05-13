@@ -7,6 +7,7 @@ export { SubAgent, type SubAgentOptions } from './agent.js';
 export { NoopStreamWriter, NoopAuditWriter } from './noop-writers.js';
 export { runSubagent } from './run.js';
 export type { RunSubagentOptions, RunSubagentResult, MainContextSnapshot } from './run.js';
+export { createDoneTool, DONE_TOOL_NAME } from './tools/done.js';
 
 import { SubAgent } from './agent.js';
 import type { SubAgentOptions } from './agent.js';

@@ -48,6 +48,7 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
       maxSteps: config.maxSteps,
       idleTimeoutMs: config.idleTimeoutMs,
       onIdleTimeout: config.onIdleTimeout,
+      resultTool: 'report_result',
     });
 
     // 结果解析（既有 fallback 逻辑保留）

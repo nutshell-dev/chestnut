@@ -59,6 +59,9 @@ export interface RunSubagentOptions {
   taskStreamCallback?: (event: Record<string, unknown>) => void;
   onIdleTimeout?: () => void;
 
+  // NEW (phase 765)：取 capturedResult 用的 tool name / default 'report_result' 兼容 verifier
+  resultTool?: string;
+
 }
 
 export interface RunSubagentResult {
@@ -120,9 +123,10 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
 
   const text = await agent.run();
 
-  // 检 report_result tool capturedResult（verifier 等用）
-  const reportTool = opts.registry.get('report_result');
-  const capturedResult = (reportTool as { capturedResult?: unknown })?.capturedResult;
+  // 检 capturedResult（verifier 等用 / phase 765 扩 resultTool option）
+  const toolName = opts.resultTool ?? 'report_result';
+  const resultToolInstance = opts.registry.get(toolName);
+  const capturedResult = (resultToolInstance as { capturedResult?: unknown })?.capturedResult;
 
   return { text, capturedResult };
 }
