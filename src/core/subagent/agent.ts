@@ -300,6 +300,7 @@ export class SubAgent {
             signal: timeoutController.signal,
             callerType,
             originClawId: this.originClawId,
+            isShadow: this.isShadow,
           }),
           maxSteps: this.maxSteps,
           maxConsecutiveParseErrors: this.maxConsecutiveParseErrors,
