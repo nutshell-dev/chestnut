@@ -22,6 +22,8 @@ import { Snapshot } from '../../foundation/snapshot/index.js';
 import { createDirContext, createProcessManagerForCLI } from '../utils/factories.js';
 import { SNAPSHOT_IGNORE_PATTERNS } from '../../foundation/snapshot/index.js';
 import { LOGS_DIR, STATUS_SUBDIR, CLAWS_DIR } from '../../types/paths.js';
+import { TASKS_SYNC_EXEC_DIR } from '../../foundation/command-tool/index.js';
+import { TASKS_SYNC_WRITE_DIR } from '../../foundation/file-tool/index.js';
 import { SKILLS_DIR_DEFAULT, BUNDLED_SKILLS_DIR_NAME } from '../../foundation/skill-system/skill-paths.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
@@ -171,7 +173,10 @@ export async function initCommand(silent = false, deps?: { audit?: AuditLog }): 
   const { fs: motionFs, audit: motionAudit } = createDirContext(motionDir);
   const motionSyncDir = path.join(motionDir, 'tasks', 'sync');
   await motionFs.ensureDir(motionSyncDir);
-  const motionSnapshot = new Snapshot(motionDir, motionFs, motionAudit, SNAPSHOT_IGNORE_PATTERNS, motionSyncDir);
+  const motionSnapshot = new Snapshot(motionDir, motionFs, motionAudit, SNAPSHOT_IGNORE_PATTERNS, [
+    path.join(motionDir, TASKS_SYNC_EXEC_DIR),
+    path.join(motionDir, TASKS_SYNC_WRITE_DIR),
+  ]);
   const initResult = await motionSnapshot.init();
   if (!initResult.ok) {
     // 预期失败：audit 已写；启动继续（snapshot 是旁路）

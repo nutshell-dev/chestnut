@@ -40,14 +40,14 @@ export class Snapshot {
   private consecutiveFailures = 0;
   private readonly audit: AuditLog;
   private readonly ignorePatterns: readonly string[];
-  private readonly syncDir?: string;
+  private readonly syncCleanupDirs?: readonly string[];
 
-  constructor(dir: string, fs: FileSystem, audit: AuditLog, ignorePatterns: readonly string[], syncDir?: string) {
+  constructor(dir: string, fs: FileSystem, audit: AuditLog, ignorePatterns: readonly string[], syncCleanupDirs?: readonly string[]) {
     this.dir = dir;
     this.fs = fs;
     this.audit = audit;
     this.ignorePatterns = ignorePatterns;
-    this.syncDir = syncDir;
+    this.syncCleanupDirs = syncCleanupDirs;
   }
 
   private buildGitignore(): string {
@@ -139,16 +139,17 @@ export class Snapshot {
         `message=${message.slice(0, AUDIT_MESSAGE_MAX_CHARS)}`,
       );
 
-      // generic clean syncDir on commit success (turn-scoped lifecycle / 应然 §A.7)
-      if (this.syncDir) {
+      // whitelist cleanup of specified sync scratch subdirs on commit success
+      // (turn-scoped lifecycle / 应然 §A.7 / phase772: 从整 syncDir 清改白名单)
+      for (const cleanupDir of (this.syncCleanupDirs ?? [])) {
         try {
-          const relSyncDir = path.relative(this.dir, this.syncDir);
-          await this.fs.removeDir(relSyncDir);
-          await this.fs.ensureDir(relSyncDir);
+          const relDir = path.relative(this.dir, cleanupDir);
+          await this.fs.removeDir(relDir);
+          await this.fs.ensureDir(relDir);
         } catch (e) {
           this.audit.write(
             SNAPSHOT_AUDIT_EVENTS.SYNC_CLEAN_FAILED,
-            `dir=${this.syncDir}`,
+            `dir=${cleanupDir}`,
             `reason=${e instanceof Error ? e.message : String(e)}`,
           );
         }

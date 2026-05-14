@@ -325,4 +325,61 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
     const log = execSync('git log --oneline -1', { cwd: tmpDir, encoding: 'utf-8' }).trim();
     expect(log).toContain("fix:");
   });
+
+  // =======================================================================
+  // syncCleanupDirs whitelist (phase772)
+  // =======================================================================
+
+  it('commit cleans only whitelisted sync scratch dirs, leaving lifecycle dirs intact', async () => {
+    const fs = new NodeFileSystem({ baseDir: tmpDir });
+    const audit = { write: vi.fn() };
+    const scratchDir = path.join(tmpDir, 'tasks', 'sync', 'exec');
+    const lifecycleDir = path.join(tmpDir, 'tasks', 'sync', 'shadow');
+    await fs.ensureDir(scratchDir);
+    await fs.ensureDir(lifecycleDir);
+
+    const snapshot = new Snapshot(tmpDir, fs, audit, [], [scratchDir]);
+    await snapshot.init();
+
+    // pre-populate both dirs
+    await fsp.writeFile(path.join(scratchDir, 'scratch.md'), 'scratch');
+    await fsp.writeFile(path.join(lifecycleDir, 'lifecycle.md'), 'lifecycle');
+
+    await fsp.writeFile(path.join(tmpDir, 'data.txt'), 'hello');
+    const result = await snapshot.commit('test-whitelist');
+    expect(result.ok).toBe(true);
+
+    // scratch dir 被清空重建
+    const scratchFiles = await fsp.readdir(scratchDir).catch(() => [] as string[]);
+    expect(scratchFiles).toHaveLength(0);
+
+    // lifecycle dir 保留
+    const lifecycleFiles = await fsp.readdir(lifecycleDir);
+    expect(lifecycleFiles).toContain('lifecycle.md');
+  });
+
+  it('commit cleans multiple whitelisted dirs independently', async () => {
+    const fs = new NodeFileSystem({ baseDir: tmpDir });
+    const execDir = path.join(tmpDir, 'tasks', 'sync', 'exec');
+    const writeDir = path.join(tmpDir, 'tasks', 'sync', 'write');
+    const spawnDir = path.join(tmpDir, 'tasks', 'sync', 'spawn');
+    await fs.ensureDir(execDir);
+    await fs.ensureDir(writeDir);
+    await fs.ensureDir(spawnDir);
+
+    const snapshot = new Snapshot(tmpDir, fs, { write: () => {} }, [], [execDir, writeDir]);
+    await snapshot.init();
+
+    await fsp.writeFile(path.join(execDir, 'a.md'), 'a');
+    await fsp.writeFile(path.join(writeDir, 'b.md'), 'b');
+    await fsp.writeFile(path.join(spawnDir, 'c.md'), 'c');
+
+    await fsp.writeFile(path.join(tmpDir, 'data.txt'), 'hello');
+    const result = await snapshot.commit('test-multi-whitelist');
+    expect(result.ok).toBe(true);
+
+    expect(await fsp.readdir(execDir)).toHaveLength(0);
+    expect(await fsp.readdir(writeDir)).toHaveLength(0);
+    expect(await fsp.readdir(spawnDir)).toContain('c.md');
+  });
 });

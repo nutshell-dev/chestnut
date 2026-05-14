@@ -44,10 +44,6 @@ export const TASKS_QUEUES_FAILED_DIR = 'tasks/queues/failed';
 // TASKS_QUEUES_RESULTS_DIR / TASKS_SUBAGENTS_DIR 物理迁 async-task-system 自治 own
 // 见 src/core/async-task-system/dirs.ts (phase 745)
 
-/** tasks/sync/exec — exec_overflow scratch（CommandTool own subdir / phase 511 加）*/
-export const TASKS_SYNC_EXEC_DIR = 'tasks/sync/exec';
-/** tasks/sync/write — file_backup scratch（FileTool own subdir / phase 511 加）*/
-export const TASKS_SYNC_WRITE_DIR = 'tasks/sync/write';
 /** tasks/sync/subagent — 通用 sync L4 直调 L3 SubAgent dir（phase 511 立、phase 764 rename）/ verifier-job + 未来 memory sync / agent-facing 工具不入此 dir（spawn/shadow 各自 dir） */
 export const TASKS_SYNC_SUBAGENT_DIR = 'tasks/sync/subagent';
 /** tasks/sync/spawn — spawn 工具自身 sync 路径（phase 766 命名复活，per-tool dir 对称设计落地） */
@@ -85,8 +81,8 @@ export const CLAW_SUBDIRS = [
   TASKS_QUEUES_DONE_DIR,
   TASKS_QUEUES_FAILED_DIR,
   'tasks/queues/results',
-  TASKS_SYNC_EXEC_DIR,
-  TASKS_SYNC_WRITE_DIR,
+  'tasks/sync/exec',    // CommandTool own / 抽 const 归 owner module (phase772)
+  'tasks/sync/write',   // FileTool own / 抽 const 归 owner module (phase772)
   TASKS_SYNC_SUBAGENT_DIR,
   TASKS_SYNC_SPAWN_DIR,
   TASKS_SYNC_SHADOW_DIR,

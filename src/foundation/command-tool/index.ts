@@ -9,6 +9,9 @@
 import type { Tool } from '../tool-protocol/index.js';
 import { execTool } from './exec.js';
 
+/** CommandTool own sync scratch subdir（turn-scoped / Snapshot whitelist 清理）*/
+export const TASKS_SYNC_EXEC_DIR = 'tasks/sync/exec';
+
 export interface CommandToolModule {
   exec: Tool;
   // 后续：allowList / denyList 准入约束（design L40-49 / 推 r52+/r53+ 实装）

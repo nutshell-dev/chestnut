@@ -32,8 +32,8 @@ import { dispatchContractExtractPostProcessor } from '../core/async-task-system/
 import { createContextInjector, type ContextInjector } from '../core/dialog/index.js';
 import { ExecContextImpl } from '../foundation/tools/index.js';
 import type { ExecContext } from '../foundation/tool-protocol/index.js';
-import { createFileTools } from '../foundation/file-tool/index.js';
-import { createCommandTools } from '../foundation/command-tool/index.js';
+import { createFileTools, TASKS_SYNC_WRITE_DIR } from '../foundation/file-tool/index.js';
+import { createCommandTools, TASKS_SYNC_EXEC_DIR } from '../foundation/command-tool/index.js';
 import { createClawPermissionChecker } from '../core/permissions/claw-permissions.js';
 import { spawnTool } from '../core/spawn-system/index.js';
 import { shadowTool } from '../core/shadow-system/index.js';
@@ -392,7 +392,10 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
     // --- Snapshot（phase155B 已搬，但需保证在 Runtime 之前） ---
     let snapshot: Snapshot;
     try {
-      snapshot = createSnapshot(clawDir, systemFs, auditWriter, SNAPSHOT_IGNORE_PATTERNS, syncDir);
+      snapshot = createSnapshot(clawDir, systemFs, auditWriter, SNAPSHOT_IGNORE_PATTERNS, [
+        path.join(clawDir, TASKS_SYNC_EXEC_DIR),
+        path.join(clawDir, TASKS_SYNC_WRITE_DIR),
+      ]);
     } catch (e) {
       auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=snapshot`, `phase=construct`, `reason=${errMsg(e)}`);
       throw new Error(`Assembly: Snapshot construct failed: ${errMsg(e)}`, { cause: e });

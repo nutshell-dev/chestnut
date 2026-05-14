@@ -12,6 +12,7 @@ import {
   EXEC_MAX_OUTPUT,
   UUID_SHORT_LEN,
 } from '../../constants.js';
+import { TASKS_SYNC_EXEC_DIR } from './index.js';
 import { exec } from '../process-exec/index.js';
 import { ProcessExecError } from '../process-exec/index.js';
 import { PROCESS_EXEC_DEFAULT_TIMEOUT_MS } from '../process-exec/index.js';
@@ -39,8 +40,8 @@ async function persistOverflow(
 ): Promise<string | null> {
   try {
     const id = randomUUID().slice(0, UUID_SHORT_LEN);
-    // exec_overflow scratch 写到 tasks/sync/exec/ 子目录（phase 511）
-    const fullPath = `${ctx.syncDir}/exec/${id}.md`;
+    // exec_overflow scratch 写到 tasks/sync/exec/ 子目录（phase 511 / phase772 const 归正）
+    const fullPath = path.join(ctx.syncDir, TASKS_SYNC_EXEC_DIR.split('/').pop()!, `${id}.md`);
     const frontmatter = `---\nsource: exec_overflow\ncontent_length: ${output.length}\ncreated_at: ${new Date().toISOString()}\n---\n`;
     await ctx.fs.writeAtomic(fullPath, frontmatter + output);
     return path.relative(ctx.clawDir, fullPath);

@@ -16,6 +16,9 @@ import { editTool } from './edit.js';
 import { multiEditTool } from './multi_edit.js';
 import { setPermissionCheckerFactory } from './permission-context.js';
 
+/** FileTool own sync scratch subdir（turn-scoped / Snapshot whitelist 清理）*/
+export const TASKS_SYNC_WRITE_DIR = 'tasks/sync/write';
+
 // Re-export tool objects（让 caller 可单独 import 任一）
 export { readTool, writeTool, searchTool, lsTool, editTool, multiEditTool };
 
