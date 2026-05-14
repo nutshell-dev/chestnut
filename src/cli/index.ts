@@ -36,6 +36,8 @@ import { configCommand } from './commands/config.js';
 import { stopAllCommand } from './commands/stop.js';
 import { statusCommand } from './commands/status.js';
 import { createSubagentCommand } from './commands/subagent.js';
+import { clawStepsCommand, clawStepCommand } from './commands/claw-steps.js';
+import { motionStepsCommand, motionStepCommand } from './commands/motion-steps.js';
 import { LOGS_DIR } from '../types/paths.js';
 import { createDirContext } from './utils/factories.js';
 import { getClawforumRoot, getClawDir, loadGlobalConfig } from '../foundation/config/index.js';
@@ -220,6 +222,22 @@ clawCmd
     }
   });
 
+// claw steps
+clawCmd
+  .command('steps <name>')
+  .description('Show main agent turn steps (name = "motion" or claw name)')
+  .action(async (name: string) => {
+    await clawStepsCommand(name);
+  });
+
+// claw step
+clawCmd
+  .command('step <n> <name>')
+  .description('Show full detail of a single turn (n = "N" for whole turn, "N.x" for slot x)')
+  .action(async (n: string, name: string) => {
+    await clawStepCommand(n, name);
+  });
+
 // claw daemon (auto-backgrounds)
 clawCmd
   .command('daemon <name>')
@@ -309,6 +327,22 @@ motionCmd
     } catch (error) {
       process.exitCode = handleCliError(error);
     }
+  });
+
+// motion steps
+motionCmd
+  .command('steps')
+  .description('Show motion turn steps')
+  .action(async () => {
+    await motionStepsCommand();
+  });
+
+// motion step
+motionCmd
+  .command('step <n>')
+  .description('Show full detail of a single motion turn')
+  .action(async (n: string) => {
+    await motionStepCommand(n);
   });
 
 // motion daemon (auto-backgrounds)
