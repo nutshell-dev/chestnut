@@ -13,6 +13,7 @@ function makeCtx() {
   return {
     clawId: 'test-claw',
     clawDir: '/tmp/test',
+    requestStop: () => { /* no-op */ },
   } as any;
 }
 

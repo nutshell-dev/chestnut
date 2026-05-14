@@ -51,12 +51,14 @@ export class ReportResultTool implements Tool {
 
   capturedResult: ReportResultPayload | null = null;
 
-  async execute(args: Record<string, unknown>, _ctx: ExecContext): Promise<ToolResult> {
+  async execute(args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
     this.capturedResult = {
       passed: Boolean(args.passed),
       reason: String(args.reason ?? ''),
       issues: Array.isArray(args.issues) ? (args.issues as string[]) : undefined,
     };
-    return { success: true, content: 'Verdict recorded.' };
+    // phase 777: hard-stop verifier loop (mirror done.ts)
+    ctx.requestStop();
+    return { success: true, content: 'Verdict recorded. Agent will exit.' };
   }
 }

@@ -137,6 +137,7 @@ export class ExecContextImpl implements ExecContext {
   isShadow?: boolean;
   systemPromptForLLM?: string;
   toolsForLLM?: ToolDefinition[];
+  stopRequested: boolean = false;
   
   private startTime: number;
 
@@ -188,6 +189,16 @@ export class ExecContextImpl implements ExecContext {
    */
   incrementStep(): void {
     this.stepNumber++;
+  }
+
+  /**
+   * phase 777: called by result-capture tools (done, report_result) after storing capturedResult.
+   * AgentExecutor reads stopRequested at the top of its loop and exits cleanly, saving the
+   * next LLM round-trip.
+   */
+  requestStop(): void {
+    this.stopRequested = true;
+    this.auditWriter?.write('stop_requested', `clawId=${this.clawId}`, `step=${this.stepNumber}`);
   }
 
 }

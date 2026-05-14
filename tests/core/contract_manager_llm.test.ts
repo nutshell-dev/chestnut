@@ -545,7 +545,7 @@ describe('ContractSystem Acceptance Flow', () => {
           if (reportTool) {
             await reportTool.execute(
               { passed: true, reason: 'all checks passed via tool' },
-              {} as any
+              { requestStop: () => { /* no-op */ } } as any
             );
           }
         }

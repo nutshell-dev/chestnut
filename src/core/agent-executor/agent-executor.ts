@@ -57,6 +57,11 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
   while (stepCount < maxSteps) {
     ctx.stepNumber = stepCount;
     if (ctx.signal?.aborted) throwAbortError(ctx.signal);
+    // phase 777: result-capture tools (done, report_result) request early stop.
+    // capturedResult is read by runSubagent regardless of finalText.
+    if (ctx.stopRequested) {
+      return { finalText: '', stepsUsed: stepCount, stopReason: 'end_turn' };
+    }
 
     const result = await executeStep({
       messages, systemPrompt, llm, tools, executor, registry, ctx,

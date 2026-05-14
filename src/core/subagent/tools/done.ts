@@ -44,9 +44,11 @@ export function createDoneTool(): Tool & { capturedResult?: { result: string } }
       }
       // 存 capturedResult 给 runSubagent 取
       tool.capturedResult = { result };
+      // phase 777: hard-stop agent loop (kimi-k2.6 audit shows ~30 wasted LLM calls without this)
+      ctx.requestStop();
       return {
         success: true,
-        content: `Result captured (${result.length} chars). You may now exit.`,
+        content: `Result captured (${result.length} chars). Agent will exit.`,
       };
     },
   };

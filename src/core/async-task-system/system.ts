@@ -571,6 +571,8 @@ export class AsyncTaskSystem {
       getElapsedMs: () => 0,
       incrementStep: () => { /* no-op */ },
       fullyReadPaths: new Set(),
+      stopRequested: false,
+      requestStop: () => { /* no-op (async tool tasks run a single tool, not a ReAct loop) */ },
     };
   }
 
