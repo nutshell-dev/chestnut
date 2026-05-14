@@ -23,7 +23,8 @@ import { tmpdir } from 'os';
 import { readTool } from '../../src/foundation/file-tool/read.js';
 import { lsTool } from '../../src/foundation/file-tool/ls.js';
 import { searchTool } from '../../src/foundation/file-tool/search.js';
-import { makeAudit } from '../helpers/audit.js';
+import { makeAudit, waitForAuditEvent } from '../helpers/audit.js';
+import { waitForCompleteFile } from '../helpers/wait-for-file.js';
 import { makeTaskSystemDeps } from '../helpers/task-system.js';
 import { waitFor } from '../helpers/wait-for.js';
 import { writePendingToolTaskFile } from '../../src/core/async-task-system/tools/_pending-tool-task-writer.js';
@@ -462,22 +463,52 @@ describe('AsyncTaskSystem Tool Tasks', () => {
         await new Promise(r => setTimeout(r, 50));
         return { success: true, content: `task-${n}` };
       };
-      
+
+      // Use an audit with emitter so we can subscribe to completion events (phase 779 Step C)
+      const { audit, events, emitter } = makeAudit();
+      const ts = new AsyncTaskSystem(
+        testClawDir,
+        (taskSystem as any).fs,
+        { maxConcurrent: 3, retryBaseDelayMs: 10, auditWriter: audit, ...makeTaskSystemDeps() }
+      );
+      await ts.initialize();
+      ts.startDispatch();
+
       // Schedule all 5 tasks quickly
       const taskIds: string[] = [];
       for (let i = 0; i < 5; i++) {
-        const id = await scheduleToolCompat(taskSystem, `tool${i}`, createCallback(i), 'parent-claw');
+        const id = await scheduleToolCompat(ts, `tool${i}`, createCallback(i), 'parent-claw');
         taskIds.push(id);
       }
-      
-      await waitFor(() => taskSystem.listRunning().length <= 3 && taskSystem.listPending().length >= 2);
-      
-      await waitFor(() => executionOrder.length === 5);
-      
+
+      await waitFor(() => ts.listRunning().length <= 3 && ts.listPending().length >= 2);
+
+      // Wait for 5 TASK_COMPLETED events instead of polling executionOrder (phase 779 Step C)
+      let completed = 0;
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          emitter.off('write', handler);
+          reject(new Error('timeout waiting for 5 TASK_COMPLETED events'));
+        }, 5000);
+        const handler = (type: string) => {
+          if (type === 'task_completed') {
+            completed++;
+            if (completed >= 5) {
+              clearTimeout(timer);
+              emitter.off('write', handler);
+              resolve();
+            }
+          }
+        };
+        emitter.on('write', handler);
+      });
+
       // All 5 tasks should have been executed
       expect(executionOrder.length).toBe(5);
       // First 3 should start in order (but completion order may vary due to async)
       expect(executionOrder.slice(0, 3)).toEqual([0, 1, 2]);
+
+      await ts.shutdown(100).catch(() => {});
     });
   });
 
@@ -881,12 +912,11 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       // Check inbox/pending/ for the result message
       const inboxFiles = (await fs.readdir(path.join(testClawDir, 'inbox', 'pending'))).filter(f => f.endsWith('.md'));
       expect(inboxFiles.length).toBeGreaterThan(0);
-      
-      const inboxFile = await fs.readFile(
-        path.join(testClawDir, 'inbox', 'pending', inboxFiles[0]),
-        'utf-8'
-      );
-      
+
+      // Wait for atomic rename to complete before reading frontmatter (phase 779 Step D / B.flaky-8)
+      const inboxPath = path.join(testClawDir, 'inbox', 'pending', inboxFiles[0]);
+      const inboxFile = await waitForCompleteFile(inboxPath, /^---[\s\S]+---\n\n/);
+
       const match = inboxFile.match(/---\n([\s\S]*?)\n---\n\n([\s\S]*)/);
       expect(match).toBeTruthy();
       const content = JSON.parse(match![2]);

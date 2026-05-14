@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { AuditLog } from '../../src/foundation/audit/index.js';
 import { ProcessManager } from '../../src/foundation/process-manager/index.js';
+import { once } from 'events';
+import { EventEmitter } from 'events';
 
 // ============================================================================
 // Hoisted mock state（供 vi.mock factory 引用，必须 hoisted）
@@ -43,6 +45,19 @@ const mockState = vi.hoisted(() => {
 });
 
 
+
+// EventEmitter for deterministic mock call detection (phase 779 Step C/D)
+// Created at module level (after imports) to avoid vi.hoisted TDZ issues.
+const mockStartDaemonLoopCallEvent = new EventEmitter();
+
+// Override the hoisted mock to emit events on each call
+mockState.mockStartDaemonLoop.mockImplementation((options: any) => {
+  let resolve: () => void;
+  const promise = new Promise<void>((r) => { resolve = r; });
+  mockState.stopFn = () => resolve();
+  mockStartDaemonLoopCallEvent.emit('call', options);
+  return { promise, stop: mockState.stopFn };
+});
 
 // ============================================================================
 // Module mocks（Step 1 D3 6 层映射）
@@ -162,7 +177,8 @@ describe('daemonCommand - A4a startup success', () => {
     // 通过 stopFn 释放 promise 让 daemonCommand 返回
     const cmdPromise = daemonCommand('test-claw');
 
-    await flushMicrotasks();
+    // Wait for mockStartDaemonLoop call event instead of fragile flushMicrotasks (phase 779 Step C)
+    await once(mockStartDaemonLoopCallEvent, 'call');
     if (mockState.stopFn) mockState.stopFn();
     await cmdPromise.catch(() => {});  // 忽略 process.exit 抛错（若有）
 
@@ -181,7 +197,8 @@ describe('daemonCommand - A4a startup success', () => {
 
     const cmdPromise = daemonCommand('motion');
 
-    await flushMicrotasks();
+    // Wait for mockStartDaemonLoop call event (phase 779 Step C)
+    await once(mockStartDaemonLoopCallEvent, 'call');
     if (mockState.stopFn) mockState.stopFn();
     await cmdPromise.catch(() => {});
 
@@ -423,7 +440,9 @@ describe('daemonCommand - review_request dispatch (phase184)', () => {
 
   it('phase411: onInboxMessages 始终 undefined（review_request 已由 ContractSystem 事件驱动）', async () => {
     const cmdPromise = daemonCommand('motion');
-    await flushMicrotasks();
+
+    // Guard: ensure mockStartDaemonLoop has been called before reading calls[0] (phase 779 Step D / B.flaky-2)
+    await once(mockStartDaemonLoopCallEvent, 'call');
 
     const options = mockState.mockStartDaemonLoop.mock.calls[0][0];
     expect(options.motion?.onInboxMessages).toBeUndefined();
@@ -436,7 +455,9 @@ describe('daemonCommand - review_request dispatch (phase184)', () => {
     mockState.mockAssemble.mockResolvedValue(makeMockInstances({ clawId: 'test-claw' }));
 
     const cmdPromise = daemonCommand('test-claw');
-    await flushMicrotasks();
+
+    // Guard: ensure mockStartDaemonLoop has been called before reading calls[0] (phase 779 Step D / B.flaky-2)
+    await once(mockStartDaemonLoopCallEvent, 'call');
 
     const options = mockState.mockStartDaemonLoop.mock.calls[0][0];
     expect(options.motion?.onInboxMessages).toBeUndefined();

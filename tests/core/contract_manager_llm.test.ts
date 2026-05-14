@@ -7,7 +7,7 @@ import * as path from 'path';
 import { promises as fs } from 'fs';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
-import { EventEmitter } from 'events';
+import { EventEmitter, once } from 'events';
 
 // State to control spawn mock behavior
 let execFileMockBehavior: 'success' | 'fail' | 'timeout' = 'success';
@@ -173,11 +173,42 @@ async function waitForAcceptance(
   throw new Error(`waitForAcceptance timed out after ${timeoutMs}ms`);
 }
 
+/**
+ * Wait for ACCEPTANCE_BACKGROUND_DONE audit event for a specific contract/subtask.
+ * Replaces fs polling for deterministic background completion detection.
+ */
+async function waitForAcceptanceDone(
+  auditEmitter: EventEmitter,
+  contractId: string,
+  subtaskId: string,
+  timeoutMs = 5000,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      auditEmitter.off('write', handler);
+      reject(new Error(`waitForAcceptanceDone timeout: ${contractId}/${subtaskId}`));
+    }, timeoutMs);
+    const handler = (ev: string, ...args: string[]) => {
+      if (
+        ev === CONTRACT_AUDIT_EVENTS.ACCEPTANCE_BACKGROUND_DONE
+        && args.includes(`contractId=${contractId}`)
+        && args.includes(`subtaskId=${subtaskId}`)
+      ) {
+        clearTimeout(timer);
+        auditEmitter.off('write', handler);
+        resolve();
+      }
+    };
+    auditEmitter.on('write', handler);
+  });
+}
+
 describe('ContractSystem Acceptance Flow', () => {
   let tempDir: string;
   let clawDir: string;
   let manager: ContractSystem;
   let mockAudit: { write: ReturnType<typeof vi.fn> };
+  let auditEmitter: EventEmitter;
   let mockLLM: LLMOrchestrator;
   // mockRegistry removed — ToolRegistryImpl internalized in VerifierScheduler (phase364)
 
@@ -202,7 +233,12 @@ describe('ContractSystem Acceptance Flow', () => {
     const nodeFs = new NodeFileSystem({ baseDir: clawDir });
     const logsDir = path.join(clawDir, 'logs');
     await fs.mkdir(logsDir, { recursive: true });
-    mockAudit = { write: vi.fn() };
+    auditEmitter = new EventEmitter();
+    mockAudit = {
+      write: vi.fn((type: string, ...cols: string[]) => {
+        auditEmitter.emit('write', type, ...cols);
+      }),
+    };
 
     mockLLM = {
       call: vi.fn(),
@@ -261,22 +297,17 @@ describe('ContractSystem Acceptance Flow', () => {
         evidence: 'test evidence',
       });
 
-      // Wait for archive (moveToArchive is the last step after inbox write)
+      // Wait for background acceptance to finish before reading files (phase 779 Step A)
+      await waitForAcceptanceDone(auditEmitter, contractId, 'task-1');
+
+      // inbox 写完后 progress 必已落地；读哪条路径都行
       const archiveProgressPath = path.join(tempDir, 'contract', 'archive', contractId, 'progress.json');
       const activeProgressPath = path.join(tempDir, 'contract', 'active', contractId, 'progress.json');
-      const dl = Date.now() + 5000;
       let progress: any;
-      while (Date.now() < dl) {
-        try {
-          progress = JSON.parse(await fs.readFile(archiveProgressPath, 'utf-8'));
-          break;
-        } catch {
-          try {
-            const p = JSON.parse(await fs.readFile(activeProgressPath, 'utf-8'));
-            if (p.subtasks['task-1'].status === 'completed') { progress = p; break; }
-          } catch {}
-        }
-        await new Promise(r => setTimeout(r, 10));
+      try {
+        progress = JSON.parse(await fs.readFile(archiveProgressPath, 'utf-8'));
+      } catch {
+        progress = JSON.parse(await fs.readFile(activeProgressPath, 'utf-8'));
       }
       expect(progress.subtasks['task-1'].status).toBe('completed');
 
@@ -381,12 +412,10 @@ describe('ContractSystem Acceptance Flow', () => {
         evidence: 'test evidence',
       });
 
-      // Wait for inbox message (last sync step; 其他 it 统一用 waitForAcceptance)
-      // 不要 poll progress.json —— saveProgress resolve 与 _writeAcceptanceInbox 之间
-      // 有 microtask yield 窗口，在并发跑负载下会 flake（测试侧先看到 completed 后再读 inbox 时 inbox 仍空）
-      await waitForAcceptance(tempDir);
+      // Wait for background acceptance to finish (phase 779 Step A)
+      await waitForAcceptanceDone(auditEmitter, contractId, 'task-1');
 
-      // inbox 写完后 progress 必已落地（同步或已 resolve）；读哪条路径都行
+      // inbox 写完后 progress 必已落地；读哪条路径都行
       const archiveProgressPath = path.join(tempDir, 'contract', 'archive', contractId, 'progress.json');
       const activeProgressPath = path.join(tempDir, 'contract', 'active', contractId, 'progress.json');
       let progress: any;
@@ -554,22 +583,16 @@ describe('ContractSystem Acceptance Flow', () => {
 
       await manager.completeSubtask({ contractId, subtaskId: 'task-1', evidence: 'done' });
 
-      // Wait for archive (moveToArchive is the last step after inbox write)
+      // Wait for background acceptance to finish (phase 779 Step A)
+      await waitForAcceptanceDone(auditEmitter, contractId, 'task-1');
+
       const archiveProgressPath = path.join(tempDir, 'contract', 'archive', contractId, 'progress.json');
       const activeProgressPath = path.join(tempDir, 'contract', 'active', contractId, 'progress.json');
-      const dl = Date.now() + 5000;
       let progress: any;
-      while (Date.now() < dl) {
-        try {
-          progress = JSON.parse(await fs.readFile(archiveProgressPath, 'utf-8'));
-          break;
-        } catch {
-          try {
-            const p = JSON.parse(await fs.readFile(activeProgressPath, 'utf-8'));
-            if (p.subtasks['task-1'].status === 'completed') { progress = p; break; }
-          } catch {}
-        }
-        await new Promise(r => setTimeout(r, 10));
+      try {
+        progress = JSON.parse(await fs.readFile(archiveProgressPath, 'utf-8'));
+      } catch {
+        progress = JSON.parse(await fs.readFile(activeProgressPath, 'utf-8'));
       }
       expect(progress.subtasks['task-1'].status).toBe('completed');
 

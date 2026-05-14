@@ -605,6 +605,17 @@ export class AsyncTaskSystem {
       }
     }
 
+    // NEW: drain any remaining task promises (file moves in finally blocks) outside the timeout budget.
+    // Use a 1s grace cap to avoid indefinite hangs on misbehaving tasks (phase 779 Step B).
+    const remainingPromises = Array.from(this.runningTasks.values()).map(s => s.promise);
+    if (remainingPromises.length > 0) {
+      await Promise.race([
+        Promise.allSettled(remainingPromises),
+        new Promise(resolve => setTimeout(resolve, 1000)),
+      ]);
+    }
+    this.auditWriter.write(TASK_AUDIT_EVENTS.SHUTDOWN_PENDING_CLEANUPS_DRAINED);
+
     this.runningTasks.clear();
     this.pendingQueue = [];
   }

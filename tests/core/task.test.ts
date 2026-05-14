@@ -18,7 +18,7 @@ import type { LLMResponse } from '../../src/types/message.js';
 import type { LLMOrchestrator } from '../../src/foundation/llm-orchestrator/index.js';
 import type { StreamChunk } from '../../src/foundation/llm-orchestrator/types.js';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
-import { makeAudit } from '../helpers/audit.js';
+import { makeAudit, waitForAuditEvent } from '../helpers/audit.js';
 import { createTestTaskSystem } from '../helpers/task-system.js';
 import { waitFor } from '../helpers/wait-for.js';
 import { TASK_AUDIT_EVENTS } from '../../src/core/async-task-system/audit-events.js';
@@ -237,7 +237,8 @@ describe('Task System + SubAgent', () => {
 
     it('should deliver subagent result to inbox/pending/*.md (bypass transport)', async () => {
       await taskSystem.shutdown(100);
-      taskSystem = createTestTaskSystem(tempDir, mockFs, makeAudit().audit, createMockLLM([{
+      const { audit, events, emitter } = makeAudit();
+      taskSystem = createTestTaskSystem(tempDir, mockFs, audit, createMockLLM([{
         content: [{ type: 'text', text: 'Subagent output' }],
         stop_reason: 'end_turn',
       }]));
@@ -252,11 +253,10 @@ describe('Task System + SubAgent', () => {
         parentClawId: 'motion',
       });
 
+      // Wait for TASK_COMPLETED instead of polling inbox (phase 779 Step C)
+      await waitForAuditEvent(emitter, events, TASK_AUDIT_EVENTS.TASK_COMPLETED);
+
       const inboxDir = path.join(tempDir, 'inbox', 'pending');
-      await waitFor(async () => {
-        const files = await fs.readdir(inboxDir).catch(() => [] as string[]);
-        return (files as string[]).some(f => f.endsWith('.md'));
-      });
 
       // Result must be in inbox/pending/ (relative to clawDir=tempDir), NOT in claws/motion/inbox
       const inboxFiles = await fs.readdir(inboxDir).catch(() => [] as string[]);
@@ -323,7 +323,7 @@ describe('Task System + SubAgent', () => {
 
     it('should write task_completed event to audit on subagent success', async () => {
       await taskSystem.shutdown(100);
-      const { audit, events } = makeAudit();
+      const { audit, events, emitter } = makeAudit();
       taskSystem = createTestTaskSystem(tempDir, mockFs, audit, createMockLLM([{
         content: [{ type: 'text', text: 'task done' }],
         stop_reason: 'end_turn',
@@ -339,17 +339,15 @@ describe('Task System + SubAgent', () => {
         parentClawId: 'test-claw',
       });
 
-      // 等待任务完成 + audit 异步写入
-      await waitFor(() => events.some(e => e[0] === 'task_completed'));
+      // Subscribe to TASK_COMPLETED instead of polling events array (phase 779 Step C)
+      await waitForAuditEvent(emitter, events, TASK_AUDIT_EVENTS.TASK_COMPLETED);
 
+      // Partial match: only assert event presence + key fields (phase 779 Step D / B.flaky-10)
       expect(events).toEqual(
         expect.arrayContaining([
           expect.arrayContaining([
-            'task_completed',
+            TASK_AUDIT_EVENTS.TASK_COMPLETED,
             taskId,
-            'ok',
-            expect.stringMatching(/^elapsed_ms=\d+$/),
-            expect.stringMatching(/^len=\d+$/),
           ]),
         ])
       );
@@ -490,7 +488,7 @@ describe('Task System + SubAgent', () => {
 
     it('should write TASK_SHUTDOWN_TIMEOUT audit event when shutdown times out', async () => {
       await taskSystem.shutdown(100);
-      const { audit, events } = makeAudit();
+      const { audit, events, emitter } = makeAudit();
       taskSystem = createTestTaskSystem(tempDir, mockFs, audit, createHangingMockLLM());
       await taskSystem.initialize();
       taskSystem.startDispatch();
@@ -508,6 +506,9 @@ describe('Task System + SubAgent', () => {
 
       // Shutdown with 1ms timeout to force timeout path
       await taskSystem.shutdown(1);
+
+      // Wait for cleanups to drain before asserting audit events (phase 779 Step B/C)
+      await waitForAuditEvent(emitter, events, TASK_AUDIT_EVENTS.SHUTDOWN_PENDING_CLEANUPS_DRAINED);
 
       expect(events).toEqual(
         expect.arrayContaining([

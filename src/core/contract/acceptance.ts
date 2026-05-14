@@ -415,30 +415,41 @@ export async function runAcceptanceInBackground(
   const subtaskDesc = subtaskDef?.description || subtaskId;
   const contractAbsDir = path.join(ctx.clawDir, await ctx.contractDir(contractId), contractId);
 
-  const result = await runAcceptanceByType(
-    ctx,
-    acceptanceConfig,
-    contractAbsDir,
-    contractId,
-    subtaskId,
-    subtaskDesc,
-    evidence,
-    artifacts,
-  );
+  let outcomeKind: 'passed' | 'failed' | 'error' = 'error';
+  try {
+    const result = await runAcceptanceByType(
+      ctx,
+      acceptanceConfig,
+      contractAbsDir,
+      contractId,
+      subtaskId,
+      subtaskDesc,
+      evidence,
+      artifacts,
+    );
 
-  const outcome = await applyAcceptanceOutcome(
-    ctx,
-    contractId,
-    subtaskId,
-    subtaskDesc,
-    result,
-    contractYaml,
-    acceptanceConfig,
-  );
+    const outcome = await applyAcceptanceOutcome(
+      ctx,
+      contractId,
+      subtaskId,
+      subtaskDesc,
+      result,
+      contractYaml,
+      acceptanceConfig,
+    );
+    outcomeKind = outcome?.passed ? 'passed' : 'failed';
 
-  // archive 拆出 lock（mirror completeSubtaskSync pattern / 0 lock holding 长 IO）
-  if (outcome?.passed && outcome.allCompleted) {
-    await archiveAndEmit(ctx, contractId, contractYaml.title, 'ContractSystem._runAcceptanceInBackground');
+    // archive 拆出 lock（mirror completeSubtaskSync pattern / 0 lock holding 长 IO）
+    if (outcome?.passed && outcome.allCompleted) {
+      await archiveAndEmit(ctx, contractId, contractYaml.title, 'ContractSystem._runAcceptanceInBackground');
+    }
+  } finally {
+    ctx.audit.write(
+      CONTRACT_AUDIT_EVENTS.ACCEPTANCE_BACKGROUND_DONE,
+      `contractId=${contractId}`,
+      `subtaskId=${subtaskId}`,
+      `result=${outcomeKind}`,
+    );
   }
 }
 

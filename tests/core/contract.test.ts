@@ -3,6 +3,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { EventEmitter } from 'events';
 import * as path from 'path';
 import { promises as fs } from 'fs';
 import { tmpdir } from 'os';
@@ -60,21 +61,53 @@ auth_level: notify
 describe('Contract System', () => {
   let tempDir: string;
   let mockFs: NodeFileSystem;
+  let mockAudit: { write: ReturnType<typeof vi.fn> };
+  let auditEmitter: EventEmitter;
 
   beforeEach(async () => {
     tempDir = await createTempDir();
     mockFs = new NodeFileSystem({ baseDir: tempDir });
+    auditEmitter = new EventEmitter();
+    mockAudit = {
+      write: vi.fn((type: string, ...cols: string[]) => {
+        auditEmitter.emit('write', type, ...cols);
+      }),
+    };
   });
 
   afterEach(async () => {
+    // Drain any pending background acceptance before cleanup (phase 779 Step A / B.flaky-4)
+    const pendingAcceptances = mockAudit.write.mock.calls.filter(
+      (c: any[]) => c[0] === CONTRACT_AUDIT_EVENTS.ACCEPTANCE_STARTED,
+    );
+    const doneCount = mockAudit.write.mock.calls.filter(
+      (c: any[]) => c[0] === CONTRACT_AUDIT_EVENTS.ACCEPTANCE_BACKGROUND_DONE,
+    ).length;
+    if (pendingAcceptances.length > doneCount) {
+      const needed = pendingAcceptances.length - doneCount;
+      let received = 0;
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          auditEmitter.off('write', handler);
+          reject(new Error(`timeout waiting for ${needed} acceptance_done events`));
+        }, 3000);
+        const handler = (ev: string) => {
+          if (ev === CONTRACT_AUDIT_EVENTS.ACCEPTANCE_BACKGROUND_DONE) {
+            received++;
+            if (received >= needed) {
+              clearTimeout(timer);
+              auditEmitter.off('write', handler);
+              resolve();
+            }
+          }
+        };
+        auditEmitter.on('write', handler);
+      });
+    }
     await cleanupTempDir(tempDir);
   });
 
   describe('ContractSystem', () => {
-    let mockAudit: { write: ReturnType<typeof vi.fn> };
-    beforeEach(() => {
-      mockAudit = { write: vi.fn() };
-    });
 
     it('should load active contract with running status', async () => {
       await createContract(tempDir, 'contract-001', 'running');

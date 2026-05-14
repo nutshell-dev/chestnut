@@ -23,6 +23,7 @@ export const CONTRACT_AUDIT_EVENTS = {
   ACCEPTANCE_INBOX_FAILED: 'contract_acceptance_inbox_failed',
   ACCEPTANCE_RESET_FAILED: 'contract_acceptance_reset_failed',
   ACCEPTANCE_BACKGROUND_FAILED: 'contract_acceptance_background_failed',
+  ACCEPTANCE_BACKGROUND_DONE: 'contract_acceptance_background_done',
   ACCEPTANCE_SCRIPT_STARTED: 'contract_acceptance_script_started',
   SUBTASK_DUPLICATE_DONE: 'contract_subtask_duplicate_done',
   SUBTASK_ALREADY_COMPLETED: 'contract_subtask_already_completed',
