@@ -11,7 +11,7 @@ import type { JSONSchema7 } from '../../types/message.js';
 import type { ToolProfile } from '../../types/config.js';
 import type { FileSystem } from '../fs/types.js';
 import type { LLMOrchestrator } from '../llm-orchestrator/index.js';
-import type { Message } from '../../types/message.js';
+import type { Message, ToolDefinition } from '../../types/message.js';
 import type { CallerType } from './caller-type.js';
 import type { AuditLog } from '../audit/index.js';
 import type { DialogStore } from '../dialog-store/index.js';
@@ -79,6 +79,10 @@ export interface ExecContext {
   registry?: ToolRegistry;
   /** Whether this context belongs to a shadow agent (phase 766 prep for 767) */
   isShadow?: boolean;
+  /** Current main agent turn's systemPrompt (in-memory, set by runtime before runReact) — phase 769 */
+  systemPromptForLLM?: string;
+  /** Current main agent turn's tools array (in-memory, set by runtime before runReact) — phase 769 */
+  toolsForLLM?: ToolDefinition[];
 }
 
 /**

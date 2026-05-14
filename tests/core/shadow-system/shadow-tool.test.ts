@@ -110,6 +110,12 @@ describe('shadow tool (phase 767)', () => {
       registry: makeRegistry(),
       mainDialogStore: makeMockDialogStore(),
       currentToolUseId: 'tu-1',
+      dialogMessages: [
+        { role: 'user', content: 'hi' },
+        { role: 'assistant', content: [{ type: 'tool_use', id: 'tu-1', name: 'shadow', input: {} }] },
+      ],
+      systemPromptForLLM: 'sp',
+      toolsForLLM: [],
     });
     mockRunSubagent.mockClear();
   });
@@ -164,8 +170,8 @@ describe('shadow tool (phase 767)', () => {
   });
 
   describe('missing main context', () => {
-    it('rejects when mainDialogStore is missing', async () => {
-      const ctxNoStore = new ExecContextImpl({
+    it('rejects when in-memory dialog state is missing', async () => {
+      const ctxNoState = new ExecContextImpl({
         clawId: 'test-claw',
         clawDir: tempDir,
         syncDir: path.join(tempDir, 'tasks', 'sync'),
@@ -177,7 +183,7 @@ describe('shadow tool (phase 767)', () => {
         currentToolUseId: 'tu-1',
       });
 
-      const result = await shadowTool.execute({ task: 'test', form: 'A' }, ctxNoStore);
+      const result = await shadowTool.execute({ task: 'test', form: 'A' }, ctxNoState);
 
       expect(result.success).toBe(false);
       expect(result.error).toBe('no_main_context');
@@ -195,6 +201,12 @@ describe('shadow tool (phase 767)', () => {
         llm: makeLLM(),
         registry: makeRegistry(),
         mainDialogStore: makeMockDialogStore(),
+        dialogMessages: [
+          { role: 'user', content: 'hi' },
+          { role: 'assistant', content: [{ type: 'tool_use', id: 'tu-1', name: 'shadow', input: {} }] },
+        ],
+        systemPromptForLLM: 'sp',
+        toolsForLLM: [],
       });
 
       const result = await shadowTool.execute({ task: 'test', form: 'A' }, ctxNoToolUseId);

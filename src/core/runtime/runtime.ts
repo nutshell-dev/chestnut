@@ -435,6 +435,9 @@ export class Runtime {
       this.toolRegistry.getForProfile(this.options.toolProfile ?? 'full')
     );
     const { systemPrompt, identityHash } = await this._resolveSystemPromptForRun();
+    // phase 769: inject systemPrompt + tools for shadow sync path to read in-memory main agent state
+    this.execContext.systemPromptForLLM = systemPrompt;
+    this.execContext.toolsForLLM = tools;
 
     // 首个 LLM 输出 delta 时上报当前生效的 provider（确认 API 可用后才显示）
     let providerInfoEmitted = false;

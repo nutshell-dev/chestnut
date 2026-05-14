@@ -16,7 +16,7 @@ import path from 'path';
 import { MOTION_CLAW_ID } from '../../constants.js';
 
 
-import type { Message } from '../../types/message.js';
+import type { Message, ToolDefinition } from '../../types/message.js';
 import type { AuditLog } from '../audit/index.js';
 import type { CallerType } from '../tool-protocol/caller-type.js';
 import type { DialogStore } from '../dialog-store/index.js';
@@ -83,6 +83,10 @@ export interface ExecContextImplOptions {
   registry?: ToolRegistry;
   /** Whether this context belongs to a shadow agent (phase 766 prep for 767) */
   isShadow?: boolean;
+  /** Current main agent turn's systemPrompt (in-memory, set by runtime before runReact) — phase 769 */
+  systemPromptForLLM?: string;
+  /** Current main agent turn's tools array (in-memory, set by runtime before runReact) — phase 769 */
+  toolsForLLM?: ToolDefinition[];
 }
 
 /**
@@ -131,6 +135,8 @@ export class ExecContextImpl implements ExecContext {
   fullyReadPaths: Set<string>;
   registry?: ToolRegistry;
   isShadow?: boolean;
+  systemPromptForLLM?: string;
+  toolsForLLM?: ToolDefinition[];
   
   private startTime: number;
 
@@ -156,6 +162,8 @@ export class ExecContextImpl implements ExecContext {
     this.fullyReadPaths = options.fullyReadPaths ?? new Set();
     this.registry = options.registry;
     this.isShadow = options.isShadow;
+    this.systemPromptForLLM = options.systemPromptForLLM;
+    this.toolsForLLM = options.toolsForLLM;
     this.stepNumber = 0;
     this.startTime = Date.now();
   }

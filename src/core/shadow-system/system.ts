@@ -11,7 +11,6 @@ import type { Message } from '../../types/message.js';
 import { TASKS_SYNC_SHADOW_DIR } from '../../types/paths.js';
 import { UUID_SHORT_LEN } from '../../constants.js';
 import { runSubagent } from '../subagent/index.js';
-import { DialogStore } from '../../foundation/dialog-store/index.js';
 import { DEFAULT_MAX_STEPS } from '../agent-executor/index.js';
 import { SHADOW_AUDIT_EVENTS } from './audit-events.js';
 import { synthesizeFormA, synthesizeFormB, formatErr } from './_helpers.js';
@@ -26,6 +25,18 @@ export interface RunShadowOptions {
   ctx: ExecContext;
 }
 
+function findLastAssistantWithToolUse(messages: Message[], toolUseId: string): number {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg.role !== 'assistant' || !Array.isArray(msg.content)) continue;
+    const hasMarker = msg.content.some(
+      b => (b as { type?: string; id?: string }).type === 'tool_use' && (b as { id?: string }).id === toolUseId,
+    );
+    if (hasMarker) return i;
+  }
+  return -1;
+}
+
 export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
   const shadowId = `shadow-${randomUUID().slice(0, UUID_SHORT_LEN)}`;
   const resultDir = path.join(opts.ctx.clawDir, TASKS_SYNC_SHADOW_DIR, shadowId);
@@ -33,21 +44,29 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
 
   opts.ctx.auditWriter?.write(SHADOW_AUDIT_EVENTS.STARTED, shadowId, `form=${opts.form}`, opts.task.slice(0, 100));
 
-  // 取 main session prefix（依 form 选 API）
-  if (!opts.ctx.mainDialogStore || !opts.ctx.clawId || !opts.ctx.currentToolUseId) {
+  // 取 main session in-memory 状态（phase 769：改读 ctx，不读 DialogStore 磁盘，避 sync 时序 bug）
+  if (
+    !opts.ctx.clawId ||
+    !opts.ctx.currentToolUseId ||
+    !opts.ctx.dialogMessages ||
+    opts.ctx.systemPromptForLLM === undefined ||
+    opts.ctx.toolsForLLM === undefined
+  ) {
     return {
       success: false,
-      content: '[clawforum shadow] missing main context (mainDialogStore, clawId, or currentToolUseId)',
+      content:
+        '[clawforum shadow] missing main agent in-memory state (clawId, currentToolUseId, dialogMessages, systemPromptForLLM, or toolsForLLM)',
       error: 'no_main_context',
     };
   }
 
+  const mainMessages = opts.ctx.dialogMessages;
+  const restoredSystemPrompt = opts.ctx.systemPromptForLLM;
+  const restoredTools = opts.ctx.toolsForLLM;
+
   let synthesizedMessages: Message[];
-  let restoredSystemPrompt: string;
-  let restoredTools: import('../../types/message.js').ToolDefinition[];
 
   try {
-    const marker = { clawId: opts.ctx.clawId, toolUseId: opts.ctx.currentToolUseId };
     const instructionArgs: BuildShadowInstructionArgs = {
       shadowId,
       spawnedAt,
@@ -57,28 +76,31 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
       form: opts.form,
     };
     if (opts.form === 'A') {
-      const restored = await opts.ctx.mainDialogStore.restorePrefix(marker);
       synthesizedMessages = synthesizeFormA({
-        mainMessages: restored.messages,
+        mainMessages,
         toolUseId: opts.ctx.currentToolUseId,
         instructionArgs,
       });
-      restoredSystemPrompt = restored.systemPrompt;
-      restoredTools = restored.toolsForLLM;
     } else {
-      const restored = await opts.ctx.mainDialogStore.restoreBefore(marker);   // NEW API
+      const lastAssistantIdx = findLastAssistantWithToolUse(mainMessages, opts.ctx.currentToolUseId);
+      if (lastAssistantIdx < 0) {
+        return {
+          success: false,
+          content: `[clawforum shadow] marker not found in in-memory messages: toolUseId=${opts.ctx.currentToolUseId}`,
+          error: 'marker_not_found',
+        };
+      }
+      const mainMessagesBeforeMarker = mainMessages.slice(0, lastAssistantIdx);
       synthesizedMessages = synthesizeFormB({
-        mainMessagesBeforeMarker: restored.messages,
+        mainMessagesBeforeMarker,
         instructionArgs,
       });
-      restoredSystemPrompt = restored.systemPrompt;
-      restoredTools = restored.toolsForLLM;
     }
     opts.ctx.auditWriter?.write(SHADOW_AUDIT_EVENTS.PREFIX_RESTORED, shadowId, `form=${opts.form}`);
   } catch (err) {
     const errMsg = formatErr(err);
-    opts.ctx.auditWriter?.write(SHADOW_AUDIT_EVENTS.FAILED, shadowId, `prefix_restore_failed`, errMsg);
-    return { success: false, content: `[clawforum shadow] prefix restore failed: ${errMsg}`, error: 'prefix_restore_failed' };
+    opts.ctx.auditWriter?.write(SHADOW_AUDIT_EVENTS.FAILED, shadowId, 'prefix_restore_failed', errMsg);
+    return { success: false, content: `[clawforum shadow] prefix synthesis failed: ${errMsg}`, error: 'prefix_synthesis_failed' };
   }
 
   // shadow ctx 注入 isShadow=true（透传到所有工具 execute()）
