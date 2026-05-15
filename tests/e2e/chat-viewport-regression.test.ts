@@ -126,7 +126,7 @@ async function setupFixture(options?: { agentDirPrefix?: string }): Promise<Regr
     whenCount: ec.whenCount.bind(ec),
     whenPredicate: ec.whenPredicate.bind(ec),
     teardown: async () => {
-      try { await reader.stop(); } catch {}
+      await reader.stop();
       await cleanupTempDir(agentDir);
     },
   };
@@ -205,7 +205,7 @@ describe('chat-viewport regression baseline', () => {
 
   afterEach(async () => {
     while (fixtures.length) {
-      try { await fixtures.pop()!.teardown(); } catch {}
+      await fixtures.pop()!.teardown();
     }
   });
 
