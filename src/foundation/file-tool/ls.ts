@@ -2,7 +2,7 @@
  * @module L2.FileTool
  * ls tool - List directory contents
  *
- * Motion-only: can list other claws' directories via `claw` parameter
+ * Cross-claw access: `claw: "<id>"` available to all agents; `claw: "*"` (if applicable) Motion-only.
  */
 
 import * as nodePath from 'path';
@@ -32,7 +32,7 @@ export const lsTool: Tool = {
       },
       claw: {
         type: 'string',
-        description: 'Target claw ID (Motion only). e.g. { "path": "contract/archive", "claw": "claw1" }',
+        description: 'Target claw ID (specific target available to all agents; broadcast Motion-only). e.g. { "path": "contract/archive", "claw": "claw1" }',
       },
     },
     required: [],
