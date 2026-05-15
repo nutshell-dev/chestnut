@@ -99,5 +99,6 @@ export interface Tool {
   readonly: boolean;
   idempotent: boolean;        // 多次调用结果相同（只读工具均为 true）
   supportsAsync?: boolean;    // 是否支持异步调用（默认 false）
+  defaultTimeoutMs?: number;  // 工具级默认超时（覆盖 executor 默认值）
   execute(args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult>;
 }

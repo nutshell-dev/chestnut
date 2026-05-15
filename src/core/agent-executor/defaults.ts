@@ -7,4 +7,4 @@
  * DEFAULT_MAX_STEPS = ReAct loop 步数上限默认值
  * 由 config boundary（zod schema + assemble + init）resolve、其他 caller ctor required
  */
-export const DEFAULT_MAX_STEPS = 100;
+export const DEFAULT_MAX_STEPS = 1000;

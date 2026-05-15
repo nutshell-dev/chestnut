@@ -907,10 +907,10 @@ describe('ContractSystem', () => {
       expect(progress.subtasks['t1'].last_failed_feedback?.cause).toBe('programming_bug');
     });
 
-    it('should use DEFAULT_MAX_STEPS=100 for verifier', async () => {
+    it('should use DEFAULT_MAX_STEPS=1000 for verifier', async () => {
       // Verify the verifier uses the default max steps (unified with other subagents)
       const { DEFAULT_MAX_STEPS } = await import('../../src/core/agent-executor/index.js');
-      expect(DEFAULT_MAX_STEPS).toBe(100);
+      expect(DEFAULT_MAX_STEPS).toBe(1000);
     });
   });
 

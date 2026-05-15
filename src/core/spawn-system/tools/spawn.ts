@@ -6,8 +6,6 @@
  */
 
 import type { Tool, ToolResult, ExecContext } from '../../../foundation/tool-protocol/index.js';
-
-import { SPAWN_DEFAULT_TIMEOUT_S } from '../../../constants.js';
 import { writePendingSubagentTaskFile } from '../../async-task-system/index.js';
 import { runSpawnSync } from '../system.js';
 
@@ -50,10 +48,11 @@ export const spawnTool: Tool = {
   },
   readonly: false,
   idempotent: false,
+  defaultTimeoutMs: 60_000,
 
   async execute(args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
     const intent = String(args.intent);
-    const timeoutMs = typeof args.timeoutMs === 'number' ? args.timeoutMs : SPAWN_DEFAULT_TIMEOUT_S * 1000;
+    const timeoutMs = typeof args.timeoutMs === 'number' ? args.timeoutMs : 60_000;
     const maxSteps = typeof args.maxSteps === 'number'
       ? args.maxSteps
       : (ctx.subagentMaxSteps ?? ctx.maxSteps);

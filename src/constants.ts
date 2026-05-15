@@ -39,9 +39,6 @@ export const EXEC_MAX_OUTPUT = 2000;
 /** Default timeout for subagent tasks (ms) - 5 minutes */
 export const SUBAGENT_TIMEOUT_MS = 300000;
 
-/** Default timeout for subagent tasks (seconds) - 5 minutes */
-export const SPAWN_DEFAULT_TIMEOUT_S = 300;
-
 /**
  * DEFAULT_LLM_IDLE_TIMEOUT_MS phase 748 物理迁 src/foundation/llm-orchestrator/defaults.ts
  */

@@ -36,6 +36,7 @@ export const shadowTool: Tool = {
   },
   readonly: false,
   idempotent: false,
+  defaultTimeoutMs: 300_000,
 
   async execute(args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
     // 防递归（D6 A ratify）

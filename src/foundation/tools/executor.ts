@@ -51,7 +51,7 @@ export class ToolExecutorImpl implements IToolExecutor {
    * Execute a single tool
    */
   async execute(options: ExecuteOptions): Promise<ToolResult> {
-    const { toolName, args, ctx, timeoutMs = this.defaultTimeoutMs } = options;
+    const { toolName, args, ctx } = options;
     const startTime = Date.now();
 
     // 1. Find tool
@@ -59,6 +59,8 @@ export class ToolExecutorImpl implements IToolExecutor {
     if (!tool) {
       throw new ToolNotFoundError(toolName);
     }
+
+    const timeoutMs = options.timeoutMs ?? tool.defaultTimeoutMs ?? this.defaultTimeoutMs;
 
     // 2. Schema validation (simple check)
     const validation = this.validateArgs(toolName, args);
