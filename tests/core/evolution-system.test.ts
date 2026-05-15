@@ -109,6 +109,7 @@ describe('EvolutionSystem - lazy load atomicity', () => {
     if (fixtures?.motionDir) {
       await cleanupFixtures(path.dirname(fixtures.motionDir));
     }
+    vi.restoreAllMocks();
   });
 
   it('concurrent runRetroForContract triggers _loadState once', async () => {
