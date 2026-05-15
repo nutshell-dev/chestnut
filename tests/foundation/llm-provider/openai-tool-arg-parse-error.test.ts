@@ -1,7 +1,11 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { OpenAIAdapter } from '../../../src/foundation/llm-provider/openai.js';
 
 describe('OpenAIAdapter — onToolArgParseError', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it('triggers callback when tool_call.function.arguments is not valid JSON', async () => {
     const adapter = new OpenAIAdapter({
       name: 'test-openai',
@@ -25,7 +29,7 @@ describe('OpenAIAdapter — onToolArgParseError', () => {
         },
       }],
     };
-    globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify(mockResponse), { status: 200 }));
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(mockResponse), { status: 200 })));
 
     const resp = await adapter.call({ messages: [], maxTokens: 10 });
 

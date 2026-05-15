@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { OpenAIAdapter } from '../../../src/foundation/llm-provider/openai.js';
 
 function createSSEStreamResponse(lines: string[]): Response {
@@ -22,6 +22,10 @@ function createSSEStreamResponse(lines: string[]): Response {
 }
 
 describe('OpenAIAdapter — tool_use buffer incomplete observability', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it('triggers onStreamParseError when stream ends with buffer missing name', async () => {
     const adapter = new OpenAIAdapter({
       name: 'test-openai',
@@ -40,7 +44,7 @@ describe('OpenAIAdapter — tool_use buffer incomplete observability', () => {
       '',
     ]);
 
-    globalThis.fetch = vi.fn().mockResolvedValue(sse);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(sse));
 
     const yields: any[] = [];
     for await (const chunk of adapter.stream({ messages: [], maxTokens: 10 })) {
@@ -73,7 +77,7 @@ describe('OpenAIAdapter — tool_use buffer incomplete observability', () => {
       '',
     ]);
 
-    globalThis.fetch = vi.fn().mockResolvedValue(sse);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(sse));
 
     const yields: any[] = [];
     for await (const chunk of adapter.stream({ messages: [], maxTokens: 10 })) {
@@ -106,7 +110,7 @@ describe('OpenAIAdapter — tool_use buffer incomplete observability', () => {
       '',
     ]);
 
-    globalThis.fetch = vi.fn().mockResolvedValue(sse);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(sse));
 
     const yields: any[] = [];
     for await (const chunk of adapter.stream({ messages: [], maxTokens: 10 })) {

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { CustomAnthropicAdapter } from '../../../src/foundation/llm-provider/custom-anthropic.js';
 
 function createSSEStreamResponse(lines: string[]): Response {
@@ -22,6 +22,10 @@ function createSSEStreamResponse(lines: string[]): Response {
 }
 
 describe('CustomAnthropicAdapter — tool_use_start id/name observability', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it('triggers onStreamParseError when content_block_start tool_use missing id', async () => {
     const adapter = new CustomAnthropicAdapter({
       name: 'test-cap',
@@ -42,7 +46,7 @@ describe('CustomAnthropicAdapter — tool_use_start id/name observability', () =
       '',
     ]);
 
-    globalThis.fetch = vi.fn().mockResolvedValue(sse);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(sse));
 
     const yields: any[] = [];
     for await (const chunk of adapter.stream({ messages: [], maxTokens: 10 })) {
@@ -77,7 +81,7 @@ describe('CustomAnthropicAdapter — tool_use_start id/name observability', () =
       '',
     ]);
 
-    globalThis.fetch = vi.fn().mockResolvedValue(sse);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(sse));
 
     const yields: any[] = [];
     for await (const chunk of adapter.stream({ messages: [], maxTokens: 10 })) {
@@ -112,7 +116,7 @@ describe('CustomAnthropicAdapter — tool_use_start id/name observability', () =
       '',
     ]);
 
-    globalThis.fetch = vi.fn().mockResolvedValue(sse);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(sse));
 
     const yields: any[] = [];
     for await (const chunk of adapter.stream({ messages: [], maxTokens: 10 })) {
