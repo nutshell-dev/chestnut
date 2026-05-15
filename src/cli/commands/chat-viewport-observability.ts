@@ -37,7 +37,7 @@ interface RenderBatch {
 }
 
 export function createViewportObservability(deps: Deps) {
-  const now = deps.clock ?? Date.now;
+  const now = deps.clock ?? (() => performance.now());
   let ingest: IngestBatch | null = null;
   let render: RenderBatch | null = null;
   let spinnerStartTs: number | null = null;

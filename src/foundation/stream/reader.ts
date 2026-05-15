@@ -106,7 +106,7 @@ export function createStreamReader(
     }
   };
 
-  const triggerCorrupt = (trigger: 'consecutive_fail' | 'ratio_high'): void => {
+  const triggerCorrupt = async (trigger: 'consecutive_fail' | 'ratio_high'): Promise<void> => {
     const recentFail = recentOutcomes.filter((ok) => !ok).length;
     audit.write(
       STREAM_AUDIT_EVENTS.READER_CORRUPT,
@@ -117,26 +117,26 @@ export function createStreamReader(
       `recent_fail=${recentFail}`,
     );
     active = false;
-    void watcher?.close();
+    await watcher?.close();
     watcher = null;
   };
 
-  const checkEscalation = (): boolean => {
+  const checkEscalation = async (): Promise<boolean> => {
     if (consecutiveParseFails >= CONSECUTIVE_PARSE_FAIL_LIMIT) {
-      triggerCorrupt('consecutive_fail');
+      await triggerCorrupt('consecutive_fail');
       return true;
     }
     if (recentOutcomes.length >= RECENT_WINDOW) {
       const failCount = recentOutcomes.filter((ok) => !ok).length;
       if (failCount / recentOutcomes.length > RECENT_FAIL_RATIO_THRESHOLD) {
-        triggerCorrupt('ratio_high');
+        await triggerCorrupt('ratio_high');
         return true;
       }
     }
     return false;
   };
 
-  const readIncrement = (): void => {
+  const readIncrement = async (): Promise<void> => {
     if (!active) return;
     try {
       if (!fs.existsSync(streamPath)) return;
@@ -179,7 +179,7 @@ export function createStreamReader(
               `line_prefix=${line.slice(0, 80)}`,
               `reason=${err instanceof Error ? err.message : String(err)}`,
             );
-            if (checkEscalation()) {
+            if (await checkEscalation()) {
               return;
             }
           }
@@ -214,13 +214,13 @@ export function createStreamReader(
       // If initialOffset given (catch-up mode / not file end) / read [offset, current size) immediately
       // so caller catches up on existing events before tailing new appends.
       if (initialOffset !== undefined && fs.existsSync(streamPath) && fs.statSync(streamPath).size > offset) {
-        readIncrement();
+        void readIncrement();
       }
       watcher = createWatcher(
         fs.resolve(streamPath),
-        (ev) => {
+        async (ev) => {
           if (ev.type === 'add' || ev.type === 'change') {
-            readIncrement();
+            await readIncrement();
           } else if (ev.type === 'unlink') {
             audit.write(
               STREAM_AUDIT_EVENTS.READER_UNLINKED,

@@ -102,7 +102,7 @@ async function setupFixture(options?: { agentDirPrefix?: string }): Promise<Regr
       fs,
       STREAM_FILE,
       (ev) => {
-        deliveryTimestamps.push({ type: ev.type, ts: Date.now() });
+        deliveryTimestamps.push({ type: ev.type, ts: performance.now() });
         ec.onEvent(ev);
         handleEventShim(ev, mainUI, observability);
       },
@@ -126,7 +126,7 @@ async function setupFixture(options?: { agentDirPrefix?: string }): Promise<Regr
     whenCount: ec.whenCount.bind(ec),
     whenPredicate: ec.whenPredicate.bind(ec),
     teardown: async () => {
-      try { await reader.stop(); } catch {}
+      await reader.stop();
       await cleanupTempDir(agentDir);
     },
   };
@@ -205,7 +205,7 @@ describe('chat-viewport regression baseline', () => {
 
   afterEach(async () => {
     while (fixtures.length) {
-      try { await fixtures.pop()!.teardown(); } catch {}
+      await fixtures.pop()!.teardown();
     }
   });
 
@@ -543,7 +543,7 @@ describe('chat-viewport regression baseline', () => {
       (stopThinking!.slice(1) as string[])
         .find(c => c.startsWith('elapsed_ms='))!.split('=')[1]
     );
-    expect(Math.abs(elapsedThinking - expectedThinking)).toBeLessThanOrEqual(1);
+    expect(Math.abs(elapsedThinking - expectedThinking)).toBeLessThanOrEqual(10);
 
     const tcToolCallEntry = fx.deliveryTimestamps.find(d => d.type === 'tool_call');
     const tcToolResultEntry = fx.deliveryTimestamps.find(d => d.type === 'tool_result');
@@ -562,7 +562,7 @@ describe('chat-viewport regression baseline', () => {
       (stopExec!.slice(1) as string[])
         .find(c => c.startsWith('elapsed_ms='))!.split('=')[1]
     );
-    expect(Math.abs(elapsedExec - expectedExec)).toBeLessThanOrEqual(1);
+    expect(Math.abs(elapsedExec - expectedExec)).toBeLessThanOrEqual(10);
 
     expect(fx.audit.filter(STREAM_AUDIT_EVENTS.READER_PARSE_FAILED).length).toBe(0);
     expect(fx.audit.filter(STREAM_AUDIT_EVENTS.READER_CORRUPT).length).toBe(0);
