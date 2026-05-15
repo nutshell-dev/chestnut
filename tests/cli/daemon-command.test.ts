@@ -50,15 +50,6 @@ const mockState = vi.hoisted(() => {
 // Created at module level (after imports) to avoid vi.hoisted TDZ issues.
 const mockStartDaemonLoopCallEvent = new EventEmitter();
 
-// Override the hoisted mock to emit events on each call
-mockState.mockStartDaemonLoop.mockImplementation((options: any) => {
-  let resolve: () => void;
-  const promise = new Promise<void>((r) => { resolve = r; });
-  mockState.stopFn = () => resolve();
-  mockStartDaemonLoopCallEvent.emit('call', options);
-  return { promise, stop: mockState.stopFn };
-});
-
 // ============================================================================
 // Module mocks（Step 1 D3 6 层映射）
 // ============================================================================
@@ -113,21 +104,35 @@ vi.mock('fs', async () => {
   };
 });
 
-// ============================================================================
-// process mock（Step 1 D4 α + β 双策略）
-// ============================================================================
-const mockProcessOn = vi.spyOn(process, 'on').mockImplementation(((event: string, handler: Function) => {
-  if (!mockState.processHandlers[event]) mockState.processHandlers[event] = [];
-  mockState.processHandlers[event].push(handler);
-  return process;
-}) as any);
-
 class ProcessExitError extends Error {
   constructor(public code: number | undefined) { super(`process.exit(${code})`); }
 }
-const mockProcessExit = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
-  throw new ProcessExitError(code);
-}) as any);
+
+// ============================================================================
+// process spy lifecycle helpers（β 治本 / phase 785 Step A）
+//   - spy 归 describe 拥有 / beforeEach 重建 / afterEach restoreAllMocks 清除
+//   - module-level 不持 vi.spyOn 句柄 / 0 跨 file 污染
+// ============================================================================
+function installProcessSpies(): void {
+  vi.spyOn(process, 'on').mockImplementation(((event: string, handler: Function) => {
+    if (!mockState.processHandlers[event]) mockState.processHandlers[event] = [];
+    mockState.processHandlers[event].push(handler);
+    return process;
+  }) as any);
+
+  vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+    throw new ProcessExitError(code);
+  }) as any);
+
+  // 保护 mockStartDaemonLoop 不受 restoreAllMocks 影响（vi.fn mockRestore 会还原为 hoisted 原始实现）
+  mockState.mockStartDaemonLoop.mockImplementation((options: any) => {
+    let resolve: () => void;
+    const promise = new Promise<void>((r) => { resolve = r; });
+    mockState.stopFn = () => resolve();
+    mockStartDaemonLoopCallEvent.emit('call', options);
+    return { promise, stop: mockState.stopFn };
+  });
+}
 
 // ============================================================================
 // Helpers
@@ -162,12 +167,14 @@ describe('daemonCommand - A4a startup success', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     Object.keys(mockState.processHandlers).forEach(k => delete mockState.processHandlers[k]);
+    installProcessSpies();
     mockState.mockSnapshotCommit.mockResolvedValue({ ok: true });
   });
 
   afterEach(() => {
     if (mockState.stopFn) mockState.stopFn();
     mockState.stopFn = null;
+    vi.restoreAllMocks();
   });
 
   it('claw: assemble 成功 → daemon_start audit + snapshot.commit 被调', async () => {
@@ -220,9 +227,14 @@ describe('daemonCommand - A4a startup failure', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     Object.keys(mockState.processHandlers).forEach(k => delete mockState.processHandlers[k]);
+    installProcessSpies();
     mockState.mockSnapshotCommit.mockResolvedValue({ ok: true });
     mockState.mockRuntime.initialize.mockResolvedValue(undefined);
     mockState.mockRuntime.resumeContractIfPaused.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it('it #3: assemble LockConflictError → audit module=lockfile + console + exit 1', async () => {
@@ -320,11 +332,16 @@ describe('daemonCommand - A4d shutdown signal', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     Object.keys(mockState.processHandlers).forEach(k => delete mockState.processHandlers[k]);
+    installProcessSpies();
     mockState.mockSnapshotCommit.mockResolvedValue({ ok: true });
     mockState.mockRuntime.initialize.mockResolvedValue(undefined);
     mockState.mockRuntime.resumeContractIfPaused.mockResolvedValue(undefined);
     mockState.mockAssemble.mockResolvedValue(makeMockInstances({ clawId: 'test-claw' }));
     mockState.mockDisassemble.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it('it #8: SIGTERM → shutdown → disassemble + selfRemovePid + exit 0', async () => {
@@ -376,10 +393,15 @@ describe('daemonCommand - A4d crash handler', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     Object.keys(mockState.processHandlers).forEach(k => delete mockState.processHandlers[k]);
+    installProcessSpies();
     mockState.mockSnapshotCommit.mockResolvedValue({ ok: true });
     mockState.mockRuntime.initialize.mockResolvedValue(undefined);
     mockState.mockRuntime.resumeContractIfPaused.mockResolvedValue(undefined);
     mockState.mockAssemble.mockResolvedValue(makeMockInstances({ clawId: 'test-claw' }));
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it('it #10: uncaughtException → daemon_crash audit + exit 1', async () => {
@@ -427,6 +449,7 @@ describe('daemonCommand - review_request dispatch (phase184)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     Object.keys(mockState.processHandlers).forEach(k => delete mockState.processHandlers[k]);
+    installProcessSpies();
     mockState.mockSnapshotCommit.mockResolvedValue({ ok: true });
     mockState.mockRuntime.initialize.mockResolvedValue(undefined);
     mockState.mockRuntime.resumeContractIfPaused.mockResolvedValue(undefined);
@@ -436,6 +459,7 @@ describe('daemonCommand - review_request dispatch (phase184)', () => {
   afterEach(() => {
     if (mockState.stopFn) mockState.stopFn();
     mockState.stopFn = null;
+    vi.restoreAllMocks();
   });
 
   it('phase411: onInboxMessages 始终 undefined（review_request 已由 ContractSystem 事件驱动）', async () => {
