@@ -7,7 +7,7 @@
  */
 
 import { runSubagent } from '../subagent/index.js';
-import { ReportResultTool } from '../../foundation/tools/report-result.js';
+import { ReportResultTool } from './tools/report-result.js';
 import { createToolRegistry } from '../../foundation/tools/index.js';
 import { ToolTimeoutError } from '../../types/errors.js';
 import { TASKS_SYNC_SUBAGENT_DIR } from '../../types/paths.js';
@@ -76,5 +76,5 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
     const msg = err instanceof Error ? err.message : String(err);
     return { passed: false, feedback: `LLM 验收失败: ${msg}` };
   }
-  // 不需要 finally cleanup（runSubagent 内部 own workspace cleanup）
+  // 不需要 finally cleanup（runSubagent 现 0 创建 subagent workspace dir / phase 805 sub-3 闭环）
 }

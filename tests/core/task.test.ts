@@ -230,9 +230,8 @@ describe('Task System + SubAgent', () => {
       const runningExists = await mockFs.exists(`tasks/queues/running/${taskId}.json`);
       expect(runningExists).toBe(false);
 
-      // phase 752: subagent workspace dir persists (D1 信息不丢失)
-      const workspaceExists = await mockFs.exists(`tasks/subagents/${taskId}`);
-      expect(workspaceExists).toBe(true);
+      // phase 805: runSubagent 不再创建 tasks/subagents/<id>/ orphan empty dir
+      // (sub-3 fix: 该 dir 0 业务用途，line 77 derive 后仅 ensureDir 无 fs 写入)
     });
 
     it('should deliver subagent result to inbox/pending/*.md (bypass transport)', async () => {
@@ -398,9 +397,7 @@ describe('Task System + SubAgent', () => {
         ])
       );
 
-      // phase 752: subagent workspace dir persists even on failure (D1 信息不丢失)
-      const workspaceExists = await mockFs.exists(`tasks/subagents/${taskId}`);
-      expect(workspaceExists).toBe(true);
+      // phase 805: runSubagent 不再创建 tasks/subagents/<id>/ orphan empty dir (sub-3 fix)
     });
 
     it('should write fallback inbox message when main sendResult fails', async () => {

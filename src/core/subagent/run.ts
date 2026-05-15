@@ -17,7 +17,7 @@ import type { ToolRegistry } from '../../foundation/tools/index.js';
 import type { Message, ToolDefinition } from '../../types/message.js';
 import type { CallerType } from '../../foundation/tool-protocol/index.js';
 import { createDialogStore, type DialogStore } from '../../foundation/dialog-store/index.js';
-import { TASKS_SUBAGENTS_DIR } from '../async-task-system/index.js';
+import { CLAWSPACE_DIR } from '../../types/paths.js';
 
 import { SubAgent } from './agent.js';
 
@@ -74,10 +74,7 @@ export interface RunSubagentResult {
 }
 
 export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagentResult> {
-  const subagentWorkspaceDir = path.join(opts.clawDir, TASKS_SUBAGENTS_DIR, opts.agentId);
-
   await opts.fs.ensureDir(opts.resultDir);
-  await opts.fs.ensureDir(subagentWorkspaceDir);
 
   // audit + stream writer 自治创建（M#3 SubAgent 模块 own sync subagent disk schema）
   const auditWriter = createAuditWriter(opts.fs, `${opts.resultDir}/audit.tsv`);
@@ -96,7 +93,7 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
   const toolsForLLM = opts.toolsForLLM ?? opts.registry.formatForLLM(opts.registry.getAll());
 
   // workspace shared with caller workspaceDir 路径决策（mirror async / verifier 既有 phase 518 决策）
-  const sharedWorkspaceDir = path.join(opts.clawDir, 'clawspace');
+  const sharedWorkspaceDir = path.join(opts.clawDir, CLAWSPACE_DIR);
 
   const agent = new SubAgent({
     agentId: opts.agentId,
