@@ -10,6 +10,7 @@ export const WRITE_TOOL_NAME = 'write' as const;
 export const SEARCH_TOOL_NAME = 'search' as const;
 export const LS_TOOL_NAME = 'ls' as const;
 export const SEND_TOOL_NAME = 'send' as const;
+export const NOTIFY_CLAW_TOOL_NAME = 'notify_claw' as const;
 export const DONE_TOOL_NAME = 'done' as const;
 export const SUBMIT_SUBTASK_TOOL_NAME = 'submit_subtask' as const;
 export const SKILL_TOOL_NAME = 'skill' as const;

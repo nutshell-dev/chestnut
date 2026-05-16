@@ -44,6 +44,7 @@ import { createDoneTool } from '../core/subagent/index.js';
 import { createStatusTool } from '../core/status-service/index.js';
 import { createSkillTool } from '../foundation/skill-system/tools/skill.js';
 import { createSendTool } from '../foundation/messaging/tools/send.js';
+import { createNotifyClawTool } from '../foundation/messaging/tools/notify-claw.js';
 import { createDialogStore } from '../foundation/dialog-store/index.js';
 import type { InboxReader } from '../foundation/messaging/index.js';
 import type { OutboxWriter } from '../foundation/messaging/index.js';
@@ -505,6 +506,13 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
       }
       // ask_user 工具：motion 启 / claw 不启（决策 #25：用户 ↔ motion ↔ claw 中介）
       toolRegistry.register(createAskUserTool(gateway));
+      // notify_claw 工具：motion-only（D11 单向访问特权 / phase 477 design / phase 822 实施）
+      // motion → claw inbox push、与 send（claw → 自己 outbox pull）物理不同、§10.3 不对称设计
+      toolRegistry.register(createNotifyClawTool({
+        fs: systemFs,
+        clawforumRoot: path.dirname(path.dirname(clawDir)),  // motion clawDir = <root>/claws/motion → root
+        audit: auditWriter,
+      }));
     }
 
     // --- 5. detectUncleanExit (daemon.ts L152) ---

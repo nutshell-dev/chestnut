@@ -9,6 +9,7 @@ import {
   SEARCH_TOOL_NAME,
   LS_TOOL_NAME,
   SEND_TOOL_NAME,
+  NOTIFY_CLAW_TOOL_NAME,
   DONE_TOOL_NAME,
   SUBMIT_SUBTASK_TOOL_NAME,
   SKILL_TOOL_NAME,
@@ -30,6 +31,7 @@ export type ToolName =
   | typeof SEARCH_TOOL_NAME
   | typeof LS_TOOL_NAME
   | typeof SEND_TOOL_NAME
+  | typeof NOTIFY_CLAW_TOOL_NAME
   | typeof DONE_TOOL_NAME
   | typeof SUBMIT_SUBTASK_TOOL_NAME
   | typeof SKILL_TOOL_NAME
