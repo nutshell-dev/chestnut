@@ -16,7 +16,7 @@ import type {
   ClientMessage,
   ServerMessage,
 } from './types.js';
-import type { Connection } from '../../foundation/transport/index.js';
+import type { Connection, Transport } from '../../foundation/transport/index.js';
 import type { StreamReader, StreamEvent } from '../../foundation/stream/index.js';
 import type { ToolResult, ExecContext } from '../../foundation/tools/index.js';
 import type { AuditWriter } from '../../foundation/audit/index.js';
@@ -43,7 +43,8 @@ function failureResult(content: string): ToolResult {
 }
 
 export function createGateway(input: GatewayInput): Gateway {
-  const { streamFactory, transport, interrupt, askUserTimeoutMs, audit } = input;
+  const { streamFactory, interrupt, askUserTimeoutMs, audit } = input;
+  let transport: Transport | undefined | null = input.transport;   // phase 877: let (was const) 支持 stop() null-out 单 source-of-truth
   const isOnlineMode = transport !== undefined;
   const timeoutMs = askUserTimeoutMs ?? GATEWAY_ASK_USER_TIMEOUT_MS;
 
@@ -53,14 +54,13 @@ export function createGateway(input: GatewayInput): Gateway {
   let lastInterruptTs = 0;
   let debouncedAuditedInWindow = false;
   let started = false;
-  let transportOpen = true;   // phase 793 (P0.21): transport.close 后 set false，防 broadcast 写到 closed transport
   let askCounter = 0;
 
   const broadcast = (msg: ServerMessage): void => {
-    // phase 793 (audit-2026-05-14 P0.21): transport closed → silent return
-    // stop 期间 internal cancel/dropConnection 仍可调（transportOpen 仍 true 直到 transport.close）
-    // transport.close 后任何 stream event 或 late broadcast 静默
-    if (!transport || !transportOpen) return;
+    // phase 877 (audit-2026-05-15 new.P1.3): transport nullness 单 source-of-truth
+    // stop 期间 dropConnection 在 transport.close 前 broadcast connection_dropped 仍 emit
+    // transport.close 完成后 transport=null → 后续 late callback 静默
+    if (!transport) return;
     const { failed } = transport.broadcast(JSON.stringify(msg));
     for (const { connectionId } of failed) {
       dropConnection(connectionId, 'broadcast write failed');
@@ -233,9 +233,10 @@ export function createGateway(input: GatewayInput): Gateway {
         dropConnection(id, 'gateway stopping');
       }
 
-      // 4. 关闭 transport
-      transportOpen = false;       // phase 793: 先 set false，broadcast 静默
-      await transport!.close();
+      // 4. 关闭 transport (phase 877: null-out 先 + close 后、close throw 时 transport 已 null → broadcast 静默)
+      const t = transport!;
+      transport = null;
+      await t.close();
       audit.write(GATEWAY_AUDIT_EVENTS.STOPPED);
     },
 
