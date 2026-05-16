@@ -56,7 +56,7 @@ async function executeSequential(
   for (const call of toolCalls) {
     if (ctx.signal?.aborted) throwAbortError(ctx.signal);
     const result = await executeSingleTool(call, executor, ctx);
-    safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, call.id, result));
+    safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, call.id, result), callbacks);
     results.push(toToolResultBlock(call.id, result));
   }
   return results;
@@ -80,7 +80,7 @@ async function executeReadonlyAsync(
   for (const { call, index } of parseErrorCalls) {
     if (ctx.signal?.aborted) throwAbortError(ctx.signal);
     const result = await executeSingleTool(call, executor, ctx);
-    safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, call.id, result));
+    safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, call.id, result), callbacks);
     results.set(index, toToolResultBlock(call.id, result));
   }
 
@@ -98,11 +98,11 @@ async function executeReadonlyAsync(
     const result = parallelResults[i];
     if (!result) {
       const singleResult = await executeSingleTool(call, executor, ctx);
-      safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, call.id, singleResult));
+      safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, call.id, singleResult), callbacks);
       results.set(index, toToolResultBlock(call.id, singleResult));
       continue;
     }
-    safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, call.id, result));
+    safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, call.id, result), callbacks);
     results.set(index, toToolResultBlock(call.id, result));
   }
 }
@@ -125,7 +125,7 @@ async function executeReadonlySync(
   for (const { call, index } of parseErrorCalls) {
     if (ctx.signal?.aborted) throwAbortError(ctx.signal);
     const result = await executeSingleTool(call, executor, ctx);
-    safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, call.id, result));
+    safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, call.id, result), callbacks);
     results.set(index, toToolResultBlock(call.id, result));
   }
 
@@ -143,11 +143,11 @@ async function executeReadonlySync(
     const result = parallelResults[i];
     if (!result) {
       const singleResult = await executeSingleTool(call, executor, ctx);
-      safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, call.id, singleResult));
+      safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, call.id, singleResult), callbacks);
       results.set(index, toToolResultBlock(call.id, singleResult));
       continue;
     }
-    safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, call.id, result));
+    safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, call.id, result), callbacks);
     results.set(index, toToolResultBlock(call.id, result));
   }
 }
@@ -163,7 +163,7 @@ async function executeWriteCalls(
   for (const { call, index } of group) {
     if (ctx.signal?.aborted) throwAbortError(ctx.signal);
     const result = await executeSingleTool(call, executor, ctx);
-    safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, call.id, result));
+    safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, call.id, result), callbacks);
     results.set(index, toToolResultBlock(call.id, result));
   }
 }

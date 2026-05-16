@@ -512,6 +512,9 @@ export class Runtime {
         onUnparseableToolUse: (stopReason) => {
           this.auditWriter.write(RUNTIME_AUDIT_EVENTS.LLM_UNPARSEABLE_TOOL_USE, `stop_reason=${stopReason}`);
         },
+        onSafeCallbackError: (label, err) => {
+          this.auditWriter.write(RUNTIME_AUDIT_EVENTS.STEP_EXECUTOR_CALLBACK_FAILED, label, `error=${formatErr(err)}`);
+        },
       });
     await this.sessionManager.save({ systemPrompt, messages, toolsForLLM: tools });
 
@@ -793,6 +796,9 @@ export class Runtime {
         },
         onUnparseableToolUse: (stopReason) => {
           this.auditWriter.write(RUNTIME_AUDIT_EVENTS.LLM_UNPARSEABLE_TOOL_USE, `stop_reason=${stopReason}`);
+        },
+        onSafeCallbackError: (label, err) => {
+          this.auditWriter.write(RUNTIME_AUDIT_EVENTS.STEP_EXECUTOR_CALLBACK_FAILED, label, `error=${formatErr(err)}`);
         },
       });
 

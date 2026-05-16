@@ -39,6 +39,7 @@ export interface ReactOptions {
   onEmptyResponse?: (stopReason: string) => void;
   onUnknownStopReason?: (stopReason: string) => void;
   onUnparseableToolUse: (stopReason: string) => void;
+  onSafeCallbackError?: (label: string, err: unknown) => void;
 }
 
 export interface ReactResult {
@@ -62,7 +63,7 @@ export async function runReact(options: ReactOptions): Promise<ReactResult> {
     registry,
     onTextDelta, onTextEnd, onThinkingDelta,
     onReset, onProviderFailed, onLLMResult,
-    onEmptyResponse, onUnknownStopReason, onUnparseableToolUse,
+    onEmptyResponse, onUnknownStopReason, onUnparseableToolUse, onSafeCallbackError,
   } = options;
 
   // 用闭包捕获 stepCount（适配旧 onToolResult 签名的 step/maxSteps 参数）
@@ -83,6 +84,7 @@ export async function runReact(options: ReactOptions): Promise<ReactResult> {
     onEmptyResponse,
     onUnknownStopReason,
     onUnparseableToolUse,
+    onSafeCallbackError,
   };
 
   const result = await runAgent({

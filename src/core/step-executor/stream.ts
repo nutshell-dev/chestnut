@@ -135,7 +135,7 @@ export async function collectStreamResponse(
           // 用 safeCallback 守护：callback throw 不中断 stream loop（保 stream chunk 完整收 / tool_use_delta 等不丢）
           {
             const toolUseStart = chunk.toolUse!;
-            safeCallback('onToolCall', () => callbacks?.onToolCall?.(toolUseStart.name, toolUseStart.id));
+            safeCallback('onToolCall', () => callbacks?.onToolCall?.(toolUseStart.name, toolUseStart.id), callbacks);
           }
           break;
         case 'tool_use_delta':

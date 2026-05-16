@@ -1,0 +1,118 @@
+/**
+ * claw-health command tests (F4.6 / phase 845 Step C)
+ *
+ * Coverage: golden path + error path + edge case.
+ */
+
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import * as fs from 'fs';
+import * as path from 'path';
+import { healthCommand } from '../../../src/cli/commands/claw-health.js';
+import { CliError } from '../../../src/cli/errors.js';
+
+vi.mock('fs');
+
+vi.mock('../../../src/foundation/config/index.js', () => ({
+  loadGlobalConfig: vi.fn(),
+  clawExists: vi.fn(),
+  getClawDir: vi.fn(),
+  getGlobalConfigPath: vi.fn(),
+}));
+
+vi.mock('../../../src/cli/utils/factories.js', () => ({
+  createDirContext: vi.fn(() => ({ audit: { write: vi.fn() } })),
+  createProcessManagerForCLI: vi.fn(() => ({ isAlive: vi.fn() })),
+}));
+
+describe('claw-health', () => {
+  let consoleLogSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(async () => {
+    consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const { loadGlobalConfig, clawExists, getClawDir, getGlobalConfigPath } = await import('../../../src/foundation/config/index.js');
+    vi.mocked(loadGlobalConfig).mockReturnValue({} as any);
+    vi.mocked(clawExists).mockReturnValue(true);
+    vi.mocked(getClawDir).mockImplementation((name: string) => path.join('/tmp/clawforum/claws', name));
+    vi.mocked(getGlobalConfigPath).mockReturnValue('/tmp/clawforum/config.yaml');
+  });
+
+  afterEach(() => {
+    consoleLogSpy.mockRestore();
+    vi.clearAllMocks();
+  });
+
+  it('throws CliError when claw does not exist', async () => {
+    const { clawExists } = await import('../../../src/foundation/config/index.js');
+    vi.mocked(clawExists).mockReturnValue(false);
+    await expect(healthCommand('foo')).rejects.toBeInstanceOf(CliError);
+  });
+
+  it('displays running status with inbox/outbox counts', async () => {
+    const { createProcessManagerForCLI } = await import('../../../src/cli/utils/factories.js');
+    vi.mocked(createProcessManagerForCLI).mockReturnValue({
+      isAlive: vi.fn().mockReturnValue(true),
+    } as any);
+
+    vi.mocked(fs.readdirSync).mockImplementation((p: fs.PathLike) => {
+      const sp = String(p);
+      if (sp.includes('inbox/pending')) return ['a.md', 'b.md', 'c.md'] as any;
+      if (sp.includes('outbox/pending')) return ['x.md', 'y.md'] as any;
+      if (sp.includes('contract/active')) return [] as any;
+      if (sp.includes('contract/paused')) return [] as any;
+      throw new Error(`Unexpected readdirSync: ${sp}`);
+    });
+
+    await healthCommand('test-claw');
+
+    const output = consoleLogSpy.mock.calls.flat().join('\n');
+    expect(output).toMatch(/running/);
+    expect(output).toMatch(/inbox_pending: 3/);
+    expect(output).toMatch(/outbox_pending: 2/);
+  });
+
+  it('reports stopped status and 0 pending when dirs are missing', async () => {
+    const { createProcessManagerForCLI } = await import('../../../src/cli/utils/factories.js');
+    vi.mocked(createProcessManagerForCLI).mockReturnValue({
+      isAlive: vi.fn().mockReturnValue(false),
+    } as any);
+
+    vi.mocked(fs.readdirSync).mockImplementation(() => {
+      const err = new Error('ENOENT') as NodeJS.ErrnoException;
+      err.code = 'ENOENT';
+      throw err;
+    });
+
+    await healthCommand('test-claw');
+
+    const output = consoleLogSpy.mock.calls.flat().join('\n');
+    expect(output).toMatch(/stopped/);
+    expect(output).toMatch(/inbox_pending: 0/);
+    expect(output).toMatch(/outbox_pending: 0/);
+  });
+
+  it('reports active contract status when contract subdir has directories', async () => {
+    const { createProcessManagerForCLI } = await import('../../../src/cli/utils/factories.js');
+    vi.mocked(createProcessManagerForCLI).mockReturnValue({
+      isAlive: vi.fn().mockReturnValue(true),
+    } as any);
+
+    vi.mocked(fs.readdirSync).mockImplementation((p: fs.PathLike, options?: any) => {
+      const sp = String(p);
+      if (sp.includes('inbox/pending')) return [] as any;
+      if (sp.includes('outbox/pending')) return [] as any;
+      if (sp.includes('contract/active')) {
+        if (options && (options as any).withFileTypes) {
+          return [{ isDirectory: () => true, name: 'c1' }] as any;
+        }
+        return ['c1'] as any;
+      }
+      if (sp.includes('contract/paused')) return [] as any;
+      throw new Error(`Unexpected readdirSync: ${sp}`);
+    });
+
+    await healthCommand('test-claw');
+
+    const output = consoleLogSpy.mock.calls.flat().join('\n');
+    expect(output).toMatch(/contract: active/);
+  });
+});

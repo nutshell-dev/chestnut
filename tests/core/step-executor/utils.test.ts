@@ -65,4 +65,30 @@ describe('safeCallback', () => {
       'string-err',
     );
   });
+
+  it('emits onSafeCallbackError when callback throws and callbacks provided', () => {
+    const fn = vi.fn(() => { throw new Error('boom'); });
+    const onSafeCallbackError = vi.fn();
+    expect(() => safeCallback('onStep', fn, { onSafeCallbackError })).not.toThrow();
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      expect.stringMatching(/onStep/),
+      expect.stringMatching(/boom/),
+    );
+    expect(onSafeCallbackError).toHaveBeenCalledOnce();
+    expect(onSafeCallbackError).toHaveBeenCalledWith('onStep', expect.any(Error));
+    expect((onSafeCallbackError.mock.calls[0]![1] as Error).message).toBe('boom');
+  });
+
+  it('does not emit onSafeCallbackError when callbacks omitted', () => {
+    const fn = vi.fn(() => { throw new Error('boom'); });
+    expect(() => safeCallback('onStep', fn)).not.toThrow();
+    expect(consoleWarnSpy).toHaveBeenCalled();
+  });
+
+  it('does not emit onSafeCallbackError when callback succeeds', () => {
+    const fn = vi.fn();
+    const onSafeCallbackError = vi.fn();
+    safeCallback('onStep', fn, { onSafeCallbackError });
+    expect(onSafeCallbackError).not.toHaveBeenCalled();
+  });
 });

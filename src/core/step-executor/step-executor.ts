@@ -34,7 +34,7 @@ export async function executeStep(input: StepInput): Promise<StepResult> {
   const maxTokens = input.maxTokens ?? REACT_DEFAULT_MAX_TOKENS;
 
   if (ctx.signal?.aborted) throwAbortError(ctx.signal);
-  safeCallback('onBeforeLLMCall', () => callbacks?.onBeforeLLMCall?.());
+  safeCallback('onBeforeLLMCall', () => callbacks?.onBeforeLLMCall?.(), callbacks);
 
   const llmStartTime = Date.now();
   const callOptions: LLMCallOptions = {

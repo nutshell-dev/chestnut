@@ -29,6 +29,7 @@ export interface StepCallbacks {
   onEmptyResponse?: (stopReason: string) => void;
   onUnknownStopReason?: (stopReason: string) => void;
   onUnparseableToolUse: (stopReason: string) => void;
+  onSafeCallbackError?: (label: string, err: unknown) => void;
 }
 
 export interface StepInput {

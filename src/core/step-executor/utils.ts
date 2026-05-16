@@ -7,14 +7,28 @@ import type { Message, ContentBlock, ToolUseBlock, ToolResultBlock } from '../..
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { StepCallbacks } from './types.js';
 
-export function safeCallback(label: string, fn: () => void): void {
+export function safeCallback(
+  label: string,
+  fn: () => void,
+  callbacks?: { onSafeCallbackError?: (label: string, err: unknown) => void },
+): void {
   try { fn(); }
-  catch (err) { console.warn(`[step-executor] ${label} error:`, err instanceof Error ? err.message : String(err)); }
+  catch (err) {
+    console.warn(`[step-executor] ${label} error:`, err instanceof Error ? err.message : String(err));
+    callbacks?.onSafeCallbackError?.(label, err);
+  }
 }
 
-export async function safeCallbackAsync(label: string, fn: () => Promise<void>): Promise<void> {
+export async function safeCallbackAsync(
+  label: string,
+  fn: () => Promise<void>,
+  callbacks?: { onSafeCallbackError?: (label: string, err: unknown) => void },
+): Promise<void> {
   try { await fn(); }
-  catch (err) { console.warn(`[step-executor] ${label} error:`, err instanceof Error ? err.message : String(err)); }
+  catch (err) {
+    console.warn(`[step-executor] ${label} error:`, err instanceof Error ? err.message : String(err));
+    callbacks?.onSafeCallbackError?.(label, err);
+  }
 }
 
 export function parseToolInput(raw: string, toolName: string): Record<string, unknown> {
