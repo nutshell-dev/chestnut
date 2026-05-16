@@ -377,9 +377,12 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
     // phase470: inject mainDialogStore after sessionManager is available
     taskSystem.setMainDialogStore(sessionManager);
 
-    // phase 768: inject mainDialogStore into main agent execContext for shadow tool
-    // shadow tool 用 ctx.mainDialogStore.restorePrefix / restoreBefore 切前缀
-    // mirror phase 766 registry lazy 注入 pattern（line 338）
+    // phase 768: inject mainDialogStore into main agent execContext.
+    // phase 833 注释 align：phase 769 后 shadow 改读 ctx.systemPrompt + ctx.tools in-memory、
+    // 不再消费 ctx.mainDialogStore；当前唯一 active consumer = ask-caller.ts
+    // （P1.1 ⚓ accepted-stable as latent advertise per r105 B fork phase 812 user 拍板）。
+    // 保留 inject path 维持 latent advertise retention chain（删 = 让 askCaller 不可激活）。
+    // mirror phase 766 registry lazy 注入 pattern（line 338，ExecContext lazy 注入 cluster 第 2 实证）。
     (execContext as { mainDialogStore?: DialogStore }).mainDialogStore = sessionManager;
 
     let inboxReader: InboxReader;
