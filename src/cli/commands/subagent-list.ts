@@ -60,10 +60,14 @@ export async function subagentListCommand(options: ListOptions): Promise<void> {
       return tb - ta;
     });
 
-    const limit = options.limit ? parseInt(options.limit, 10) : 20;
-    if (!isNaN(limit) && limit > 0) {
-      entries = entries.slice(0, limit);
+    let limit = 20;
+    if (options.limit !== undefined) {
+      limit = parseInt(options.limit, 10);
+      if (Number.isNaN(limit) || limit <= 0) {
+        throw new CliError(`--limit must be a positive integer, got: ${options.limit}`);
+      }
     }
+    entries = entries.slice(0, limit);
 
     if (entries.length === 0) {
       console.log('No subagent entries found.');
