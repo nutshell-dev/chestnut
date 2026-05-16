@@ -10,6 +10,8 @@ export interface AsyncToolTaskArgs {
   retryCount: number;
   callerType?: CallerType;
   toolUseId?: string;
+  /** phase 858：propagate ExecContext.isShadow through async tool dispatch boundary */
+  isShadow?: boolean;
 }
 
 export type ScheduleAsyncTool = (args: AsyncToolTaskArgs) => Promise<string>;

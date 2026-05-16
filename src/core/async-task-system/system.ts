@@ -94,6 +94,8 @@ export interface ToolTask {
   retryCount: number;     // Current retry count (initial 0)
   callerType?: CallerType;  // 决定 inbox 消息 from 字段
   toolUseId?: string;   // 对应 LLM tool_use block id，用于 tool_async_result
+  /** phase 858：sourced from ExecContext.isShadow at schedule time */
+  isShadow?: boolean;
 }
 
 interface TaskState {
@@ -577,6 +579,7 @@ export class AsyncTaskSystem {
       maxSteps: 1,
       signal,
       isMotionChain: task.parentClawId === 'motion',
+      isShadow: task.isShadow,
       auditWriter: this.auditWriter,
       getElapsedMs: () => 0,
       incrementStep: () => { /* no-op */ },

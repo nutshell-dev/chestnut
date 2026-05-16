@@ -110,6 +110,7 @@ export class ToolExecutorImpl implements IToolExecutor {
         retryCount: 0,
         callerType: ctx.callerType === 'claw' ? undefined : ctx.callerType,
         toolUseId: options.toolUseId,
+        isShadow: ctx.isShadow,
       });
       ctx.auditWriter?.write(
         'tool_async_start',
