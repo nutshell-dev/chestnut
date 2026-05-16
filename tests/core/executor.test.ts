@@ -290,8 +290,8 @@ describe('ToolExecutor', () => {
       const auditPath = path.join(tempDir, 'audit.tsv');
       const auditContent = await fs.readFile(auditPath, 'utf-8').catch(() => '');
       
-      expect(auditContent).toBeTruthy();
       // TSV format: timestamp, type, toolName, status, duration, summary
+      expect(auditContent).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\t/);
       const parts = auditContent.trim().split('\t');
       expect(parts[1]).toBe('tool_exec');
       expect(parts[2]).toBe('test-tool');

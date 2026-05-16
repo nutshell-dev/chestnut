@@ -47,7 +47,9 @@ Test message content`;
 
     const content = await fs.readFile(msgPath, 'utf-8');
     const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
-    expect(match).toBeTruthy();
+    expect(match).not.toBeNull();
+    expect(match![1]).toMatch(/from: test-sender/);
+    expect(match![1]).toMatch(/timestamp: 2026-03-15T12:00:00Z/);
 
     const frontmatter = match![1];
     const body = match![2].trim();

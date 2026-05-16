@@ -295,7 +295,7 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       // Summary should be truncated preview (500 chars) when resultRef exists
       expect(content.summary.length).toBeLessThanOrEqual(500);
       expect(content.summary).toContain('x'.repeat(100));
-      expect(content.resultRef).toBeTruthy(); // resultRef should exist
+      expect(content.resultRef).toMatch(/^tasks\/queues\/results\/[^\/]+\/result\.txt$/);
     });
 
     it('should send error result with summary + resultRef', async () => {

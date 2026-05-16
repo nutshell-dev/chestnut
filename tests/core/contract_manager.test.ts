@@ -534,7 +534,7 @@ describe('ContractSystem', () => {
     const result = await manager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'done' });
 
     expect(result.passed).toBe(true);
-    expect(result.allCompleted).toBeFalsy();
+    expect(result.allCompleted).toBe(false);
 
     // 契约仍在 active/
     const activePath = path.join(clawDir, 'contract', 'active', contractId);
