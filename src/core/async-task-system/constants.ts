@@ -1,2 +1,12 @@
 /** Default maximum concurrent tasks */
 export const DEFAULT_MAX_CONCURRENT_TASKS = 3;
+
+/**
+ * Shutdown remaining task promises drain grace cap.
+ * phase 779 Step B: AsyncTaskSystem.shutdown() drains pendingCleanups after task-timeout race
+ * using `Promise.race([allSettled(remainingPromises), setTimeout(grace)])` to avoid indefinite
+ * hangs on misbehaving tasks. 1s grace = 同 `EXEC_SIGKILL_GRACE_MS` (foundation/process-exec/exec.ts)
+ * + POSIX SIGTERM grace period industry default 模板 mirror.
+ * phase 863 const promote (r111 J fork / `feedback_config_defaults_single_source`).
+ */
+export const SHUTDOWN_DRAIN_GRACE_MS = 1000;

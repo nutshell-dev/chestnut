@@ -10,7 +10,7 @@ import * as path from 'path';
 
 import type { FileSystem } from '../../foundation/fs/types.js';
 
-import { DEFAULT_MAX_CONCURRENT_TASKS } from './constants.js';
+import { DEFAULT_MAX_CONCURRENT_TASKS, SHUTDOWN_DRAIN_GRACE_MS } from './constants.js';
 import type { ToolRegistry } from '../../foundation/tools/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { CallerType } from '../../foundation/tool-protocol/caller-type.js';
@@ -616,12 +616,12 @@ export class AsyncTaskSystem {
     }
 
     // NEW: drain any remaining task promises (file moves in finally blocks) outside the timeout budget.
-    // Use a 1s grace cap to avoid indefinite hangs on misbehaving tasks (phase 779 Step B).
+    // Use SHUTDOWN_DRAIN_GRACE_MS grace cap to avoid indefinite hangs on misbehaving tasks (phase 779 Step B / phase 863 const promote).
     const remainingPromises = Array.from(this.runningTasks.values()).map(s => s.promise);
     if (remainingPromises.length > 0) {
       await Promise.race([
         Promise.allSettled(remainingPromises),
-        new Promise(resolve => setTimeout(resolve, 1000)),
+        new Promise(resolve => setTimeout(resolve, SHUTDOWN_DRAIN_GRACE_MS)),
       ]);
     }
     this.auditWriter.write(TASK_AUDIT_EVENTS.SHUTDOWN_PENDING_CLEANUPS_DRAINED);
