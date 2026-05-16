@@ -7,7 +7,7 @@
  */
 
 import { runSubagent } from '../subagent/index.js';
-import { ReportResultTool } from './tools/report-result.js';
+import { ReportResultTool, REPORT_RESULT_TOOL_NAME } from './tools/report-result.js';
 import { createToolRegistry } from '../../foundation/tools/index.js';
 import { ToolTimeoutError } from '../../types/errors.js';
 import { TASKS_SYNC_SUBAGENT_DIR } from '../subagent/constants.js';
@@ -48,7 +48,7 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
       maxSteps: config.maxSteps,
       idleTimeoutMs: config.idleTimeoutMs,
       onIdleTimeout: config.onIdleTimeout,
-      resultTool: 'report_result',
+      resultTool: REPORT_RESULT_TOOL_NAME,
     });
 
     // 结果解析（既有 fallback 逻辑保留）

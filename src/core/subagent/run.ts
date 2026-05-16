@@ -18,6 +18,7 @@ import type { Message, ToolDefinition } from '../../types/message.js';
 import type { CallerType } from '../../foundation/tool-protocol/index.js';
 import { createDialogStore, type DialogStore } from '../../foundation/dialog-store/index.js';
 import { CLAWSPACE_DIR } from '../../types/paths.js';
+import { REPORT_RESULT_TOOL_NAME } from '../contract/tools/report-result.js';
 
 import { SubAgent } from './agent.js';
 
@@ -127,7 +128,7 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
   const text = await agent.run();
 
   // 检 capturedResult（verifier 等用 / phase 765 扩 resultTool option）
-  const toolName = opts.resultTool ?? 'report_result';
+  const toolName = opts.resultTool ?? REPORT_RESULT_TOOL_NAME;
   const resultToolInstance = opts.registry.get(toolName);
   const capturedResult = (resultToolInstance as { capturedResult?: unknown })?.capturedResult;
 

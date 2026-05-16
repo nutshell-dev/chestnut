@@ -16,6 +16,9 @@
 
 import type { Tool, ToolResult, ExecContext } from '../../../foundation/tool-protocol/index.js';
 
+/** Tool name const（M#3 资源唯一归属 / caller 经 import 显式 dep / phase 824 step B1）*/
+export const REPORT_RESULT_TOOL_NAME = 'report_result' as const;
+
 export interface ReportResultPayload {
   passed: boolean;
   reason: string;
@@ -23,7 +26,7 @@ export interface ReportResultPayload {
 }
 
 export class ReportResultTool implements Tool {
-  readonly name = 'report_result';
+  readonly name = REPORT_RESULT_TOOL_NAME;
   readonly description =
     'Submit your verification verdict. Call this tool exactly once when you have finished ' +
     'inspecting the evidence and artifacts. Do NOT return JSON in text — call this tool instead.';
