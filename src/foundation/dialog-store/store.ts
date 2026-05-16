@@ -68,7 +68,7 @@ export class DialogStore {
       this.createdAt = data.createdAt;
       return { session: data, source: 'current' };
     } catch (err) {
-      const code = (err as any).code;
+      const code = (err as NodeJS.ErrnoException).code;
       if (code === 'ENOENT' || code === 'FS_NOT_FOUND') {
         // Cold start: missing file is expected
       } else {

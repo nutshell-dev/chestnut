@@ -38,8 +38,9 @@ export interface LLMProvider extends ProviderAdapter {}
  * Provider factory — creates appropriate adapter for config
  */
 export function createLLMProvider(config: ProviderConfig): LLMProvider {
-  // Allow passing a pre-built adapter directly (used in tests)
-  if ('stream' in config && typeof (config as any).stream === 'function') {
+  // Test escape hatch: caller may pass a pre-built LLMProvider via duck typing.
+  // We narrow with 'stream in config' + function typeof, then cast (one-way) to LLMProvider.
+  if ('stream' in config && typeof (config as { stream?: unknown }).stream === 'function') {
     return config as unknown as LLMProvider;
   }
   if (config.apiFormat === 'openai') return new OpenAIAdapter(config);

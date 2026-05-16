@@ -94,13 +94,15 @@ export function detectUncleanExit(auditDir: string, auditWriter: AuditLog): void
     } finally {
       fsNative.closeSync(fd);
     }
-  } catch (err: any) {
-    if (err?.code !== 'ENOENT') {
+  } catch (err: unknown) {
+    const code = (err as { code?: string })?.code;
+    if (code !== 'ENOENT') {
+      const message = err instanceof Error ? err.message : String(err);
       auditWriter.write(
         ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED,
         `module=detect_unclean_exit`,
         `phase=detect`,
-        `reason=${err?.code || err?.message || String(err)}`,
+        `reason=${code || message}`,
       );
     }
   }

@@ -12,7 +12,7 @@ import * as path from 'path';
 import { randomUUID } from 'crypto';
 import type { FileSystem } from '../fs/types.js';
 import type { InboxMessage } from '../../types/messaging.js';
-import { PRIORITY_VALUES } from '../../types/priority.js';
+import { PRIORITY_VALUES, type Priority } from '../../types/priority.js';
 import { decodeInbox } from './codec-inbox.js';
 import type { AuditLog } from '../audit/index.js';
 import { MESSAGING_AUDIT_EVENTS } from './audit-events.js';
@@ -150,7 +150,7 @@ export class InboxReader {
    * @param filter Optional filter (e.g. by priority)
    * @returns Array of meta entries matching filter (or all if no filter)
    */
-  async peekMetas(filter?: { priority?: ('critical' | 'high' | 'normal' | 'low')[] }): Promise<InboxMessageMeta[]> {
+  async peekMetas(filter?: { priority?: Priority[] }): Promise<InboxMessageMeta[]> {
     let entries: { name: string }[] = [];
     try {
       entries = await this.fs.list(this.pendingDir, { includeDirs: false });
@@ -179,7 +179,7 @@ export class InboxReader {
         continue;
       }
       const meta = result.value;
-      if (filter?.priority && !filter.priority.includes(meta.priority as any)) continue;
+      if (filter?.priority && !filter.priority.includes(meta.priority as Priority)) continue;
       results.push(meta);
     }
     return results;
