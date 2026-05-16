@@ -127,6 +127,7 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
       timeoutMs: opts.timeoutMs ?? 300_000,
       resultTool: 'done',
       isShadow: true,
+      signal: opts.ctx.signal,
     });
 
     const finalResult = (capturedResult as { result?: string } | undefined)?.result ?? text;
