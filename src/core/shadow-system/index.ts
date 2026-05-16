@@ -7,5 +7,3 @@
 
 export { shadowTool, SHADOW_TOOL_NAME } from './tools/shadow.js';
 export { SHADOW_AUDIT_EVENTS } from './audit-events.js';
-export { runShadow } from './system.js';
-export type { RunShadowOptions } from './system.js';

@@ -1,6 +1,3 @@
-/** Interval for heartbeat health checks (ms) */
-export const HEARTBEAT_CHECK_INTERVAL_MS = 5000;
-
 /** Default fallback timeout for daemon operations (ms) */
 export const DAEMON_FALLBACK_TIMEOUT_MS = 30000;
 

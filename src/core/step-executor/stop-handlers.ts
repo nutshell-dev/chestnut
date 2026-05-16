@@ -9,7 +9,6 @@ import type { StepInput, StepResult, LLMCallInfo } from './types.js';
 import { extractText, extractToolCalls, appendAssistantMessage, appendToolResults } from './utils.js';
 import { executeToolCalls } from './tool-execution.js';
 import { throwAbortError } from './abort-helpers.js';
-// import { cloneExecContext } from '../../foundation/tools/context.js';
 
 export async function handleToolUseStop(
   response: LLMResponse,
