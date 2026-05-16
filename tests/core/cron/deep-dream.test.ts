@@ -67,6 +67,7 @@ describe('runDeepDream', () => {
   afterEach(async () => {
     await cleanupTempDir(clawforumDir);
     vi.clearAllMocks();
+    vi.restoreAllMocks(); // phase 880: defense-in-depth, restore prototype-level spies if inline mockRestore skipped due to exception
   });
 
   // ── 无 claws 目录 ───────────────────────────────────────────
