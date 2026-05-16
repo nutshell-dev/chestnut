@@ -83,10 +83,12 @@ describe('Phase 546 — subagent-executor systemPrompt 注入', () => {
 
     await executeSubAgentTask(task, controller.signal, deps);
 
-    expect(mockRunSubagent).toHaveBeenCalled();
-    const captured = mockRunSubagent.mock.calls[0][0];
-    expect(captured.systemPrompt).toContain('CUSTOM_PROMPT_X');
-    expect(captured.systemPrompt).not.toContain(DEFAULT_SUBAGENT_SYSTEM_PROMPT);
+    expect(mockRunSubagent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        systemPrompt: expect.stringContaining('CUSTOM_PROMPT_X'),
+      }),
+    );
+    expect(mockRunSubagent.mock.calls[0][0].systemPrompt).not.toContain(DEFAULT_SUBAGENT_SYSTEM_PROMPT);
   });
 
   it('falls back to DEFAULT_SUBAGENT_SYSTEM_PROMPT when task.systemPrompt is undefined', async () => {
@@ -97,9 +99,11 @@ describe('Phase 546 — subagent-executor systemPrompt 注入', () => {
 
     await executeSubAgentTask(task, controller.signal, deps);
 
-    expect(mockRunSubagent).toHaveBeenCalled();
-    const captured = mockRunSubagent.mock.calls[0][0];
-    expect(captured.systemPrompt).toContain(DEFAULT_SUBAGENT_SYSTEM_PROMPT);
+    expect(mockRunSubagent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        systemPrompt: expect.stringContaining(DEFAULT_SUBAGENT_SYSTEM_PROMPT),
+      }),
+    );
   });
 
   it('always includes promptPrefix regardless of task.systemPrompt', async () => {

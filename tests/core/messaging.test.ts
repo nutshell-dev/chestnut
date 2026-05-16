@@ -92,7 +92,8 @@ describe('Messaging', () => {
 
       // Check file moved to done
       const doneFiles = await fs.readdir(path.join(tempDir, 'inbox', 'done'));
-      expect(doneFiles.length).toBe(1);
+      expect(doneFiles).toHaveLength(1);
+      expect(doneFiles[0]).toMatch(/^\d+_[a-f0-9]{8}_test\.md$/);
     });
 
     it('should move failed message to failed', async () => {
@@ -112,7 +113,8 @@ describe('Messaging', () => {
 
       // Failed message should be in failed/
       const failedFiles = await fs.readdir(path.join(tempDir, 'inbox', 'failed'));
-      expect(failedFiles.length).toBe(1);
+      expect(failedFiles).toHaveLength(1);
+      expect(failedFiles[0]).toMatch(/^\d+_[a-f0-9]{8}_test\.md$/);
     });
 
     it('should return messages by priority', async () => {

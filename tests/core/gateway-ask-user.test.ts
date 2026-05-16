@@ -34,13 +34,27 @@ function createStubTransport(): Transport & {
     _connect: (conn) => {
       connections.set(conn.id, conn);
       for (const cb of connectCbs) {
-        try { cb(conn); } catch (err) { /* Transport safeFire isolates */ }
+        try { cb(conn); }
+        catch (err) {
+          transportErrorCbs.forEach((tcb) => tcb({
+            kind: 'callback_error',
+            callbackName: 'onConnect',
+            error: err instanceof Error ? err : new Error(String(err)),
+          }));
+        }
       }
     },
     _disconnect: (conn) => {
       connections.delete(conn.id);
       for (const cb of disconnectCbs) {
-        try { cb(conn); } catch (err) { /* Transport safeFire isolates */ }
+        try { cb(conn); }
+        catch (err) {
+          transportErrorCbs.forEach((tcb) => tcb({
+            kind: 'callback_error',
+            callbackName: 'onDisconnect',
+            error: err instanceof Error ? err : new Error(String(err)),
+          }));
+        }
       }
     },
     _message: (conn, data) => {

@@ -193,8 +193,8 @@ describe('createClawPermissionChecker', () => {
       }
       expect(err).toBeInstanceOf(WriteOperationForbiddenError);
       const writeErr = err as WriteOperationForbiddenError;
-      expect(writeErr.context?.toolName).toBeTruthy();
-      expect(writeErr.context?.profile).toBeTruthy();
+      expect(writeErr.context?.toolName).toBe('write');
+      expect(writeErr.context?.profile).toBe('system');
     });
   });
 });

@@ -128,7 +128,6 @@ describe('ToolExecutor', () => {
       );
 
       expect(results).toHaveLength(2);
-      expect(results.every(r => r !== null)).toBe(true);
       expect(results[0]!.content).toBe('a');
       expect(results[1]!.content).toBe('b');
     });
