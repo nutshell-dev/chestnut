@@ -188,6 +188,8 @@ describe('EvolutionSystem state file dedupe', () => {
     expect(mockWritePending).toHaveBeenCalled();
     expect(auditSpy).toHaveBeenCalledWith(
       RETRO_AUDIT_EVENTS.STATE_LOAD_FAILED,
+      expect.stringContaining('backup='),
+      expect.stringContaining('move_ok=true'),
       expect.stringContaining('reason='),
     );
   });
