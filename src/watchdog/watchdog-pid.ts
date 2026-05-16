@@ -7,6 +7,9 @@ import { getClawforumDir, getClawforumFs } from './watchdog-context.js';
 import { isAlive } from '../foundation/process-exec/index.js';
 import * as path from 'path';
 import { getWorkspaceRoot } from '../foundation/config/paths.js';
+import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
+import { getAuditWriter } from './watchdog-context.js';
+import { AUDIT_MESSAGE_MAX_CHARS } from '../foundation/audit/index.js';
 
 /** 1:1 保 watchdog.ts:50-52 */
 function getWatchdogPidFile(): string {
@@ -30,14 +33,59 @@ export function removeWatchdogPid(): void {
   }
 }
 
+interface WatchdogPidShape {
+  pid: number;
+  root: string;
+}
+
+function validatePidShape(parsed: unknown): parsed is WatchdogPidShape {
+  return (
+    typeof parsed === 'object' && parsed !== null &&
+    typeof (parsed as any).pid === 'number' &&
+    typeof (parsed as any).root === 'string'
+  );
+}
+
+function backupCorruptPid(content: string, err: unknown): void {
+  const fs = getClawforumFs();
+  const backupPath = `watchdog.pid.corrupt-${Date.now()}`;
+  let moveOk = true;
+  let moveErr: unknown = undefined;
+  try {
+    fs.moveSync('watchdog.pid', backupPath);
+  } catch (mErr) {
+    moveOk = false;
+    moveErr = mErr;
+  }
+  const auditWriter = getAuditWriter();
+  auditWriter?.write(
+    WATCHDOG_AUDIT_EVENTS.PID_CORRUPT,
+    `backup=${backupPath}`,
+    `move_ok=${moveOk}`,
+    ...(moveOk ? [] : [`move_error=${(moveErr instanceof Error ? moveErr.message : String(moveErr)).slice(0, AUDIT_MESSAGE_MAX_CHARS)}`]),
+    `error=${(err instanceof Error ? err.message : String(err)).slice(0, AUDIT_MESSAGE_MAX_CHARS)}`,
+  );
+}
+
 /** 1:1 保 watchdog.ts:121-130 */
 export function getWatchdogPid(): number | null {
   try {
     const fs = getClawforumFs();
     const content = fs.readSync('watchdog.pid');
-    const parsed = JSON.parse(content);
-    return typeof parsed.pid === 'number' ? parsed.pid : null;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(content);
+    } catch (e) {
+      backupCorruptPid(content, e);
+      return null;
+    }
+    if (!validatePidShape(parsed)) {
+      backupCorruptPid(content, new Error('shape_mismatch'));
+      return null;
+    }
+    return parsed.pid;
   } catch {
+    // ENOENT etc — silent (既有合规)
     return null;
   }
 }
@@ -47,14 +95,23 @@ export function isWatchdogAlive(): boolean {
   try {
     const fs = getClawforumFs();
     const content = fs.readSync('watchdog.pid');
-    const { pid, root } = JSON.parse(content);
-    if (typeof pid !== 'number') return false;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(content);
+    } catch (e) {
+      backupCorruptPid(content, e);
+      return false;
+    }
+    if (!validatePidShape(parsed)) {
+      backupCorruptPid(content, new Error('shape_mismatch'));
+      return false;
+    }
     const currentRoot = getWorkspaceRoot();
-    if (root !== currentRoot) {
+    if (parsed.root !== currentRoot) {
       removeWatchdogPid();
       return false;
     }
-    return isAlive(pid);
+    return isAlive(parsed.pid);
   } catch {
     removeWatchdogPid();
     return false;

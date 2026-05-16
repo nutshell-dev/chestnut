@@ -67,8 +67,22 @@ export class EvolutionSystem {
   private async _loadState(): Promise<void> {
     try {
       const content = await this.deps.fs.read(STATE_FILE_PATH);
-      const parsed = JSON.parse(content) as Partial<EvolutionState>;
-      this.processedContractIds = new Set(parsed.processedContractIds ?? []);
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(content);
+      } catch (parseErr) {
+        await this._backupCorruptState(content, parseErr);
+        return;
+      }
+      if (
+        typeof parsed !== 'object' || parsed === null ||
+        !Array.isArray((parsed as any).processedContractIds) ||
+        !(parsed as any).processedContractIds.every((x: unknown) => typeof x === 'string')
+      ) {
+        await this._backupCorruptState(content, new Error('shape_mismatch'));
+        return;
+      }
+      this.processedContractIds = new Set((parsed as { processedContractIds: string[] }).processedContractIds);
     } catch (e) {
       const code = (e as NodeJS.ErrnoException).code;
       if (code === 'ENOENT' || e instanceof FileNotFoundError) {
@@ -81,6 +95,27 @@ export class EvolutionSystem {
       );
       // best-effort: 0 dedupe / 不抛
     }
+  }
+
+  private async _backupCorruptState(content: string, err: unknown): Promise<void> {
+    this.processedContractIds = new Set();
+    const backupPath = `${STATE_FILE_PATH}.corrupt-${Date.now()}`;
+    let moveOk = true;
+    let moveErr: unknown = undefined;
+    try {
+      await this.deps.fs.writeAtomic(backupPath, content);
+      await this.deps.fs.delete(STATE_FILE_PATH);
+    } catch (mErr) {
+      moveOk = false;
+      moveErr = mErr;
+    }
+    this.deps.audit.write(
+      RETRO_AUDIT_EVENTS.STATE_LOAD_FAILED,
+      `backup=${backupPath}`,
+      `move_ok=${moveOk}`,
+      ...(moveOk ? [] : [`move_error=${moveErr instanceof Error ? moveErr.message : String(moveErr)}`]),
+      `reason=${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 
   private async _saveState(): Promise<void> {
