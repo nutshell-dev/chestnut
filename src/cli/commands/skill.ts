@@ -15,6 +15,7 @@ import { getClawDir } from '../../foundation/config/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { getWorkspaceRoot } from '../../foundation/config/paths.js';
+import { CliError } from '../errors.js';
 
 /**
  * Copy directory recursively
@@ -49,7 +50,7 @@ export async function skillInstallUserCommand(sourcePath: string, deps?: { audit
   // Verify SKILL.md exists
   const skillMd = path.join(absSource, 'SKILL.md');
   if (!fsNative.existsSync(skillMd)) {
-    throw new Error(`No SKILL.md found in ${absSource}`);
+    throw new CliError(`No SKILL.md found in ${absSource}`);
   }
 
   // 1. Copy to root level skills/{skillName}/
@@ -79,13 +80,13 @@ export async function skillInstallClawCommand(clawId: string, skillName: string,
     typeof clawId !== 'string' || clawId === '' || clawId === '.' || clawId.startsWith('.') ||
     clawId.includes('/') || clawId.includes('..')
   ) {
-    throw new Error(`Invalid claw id: ${JSON.stringify(clawId)}`);
+    throw new CliError(`Invalid claw id: ${JSON.stringify(clawId)}`);
   }
   if (
     typeof skillName !== 'string' || skillName === '' || skillName === '.' || skillName.startsWith('.') ||
     skillName.includes('/') || skillName.includes('..')
   ) {
-    throw new Error(`Invalid skill name: ${JSON.stringify(skillName)}`);
+    throw new CliError(`Invalid skill name: ${JSON.stringify(skillName)}`);
   }
 
   const root = getWorkspaceRoot();
@@ -95,10 +96,10 @@ export async function skillInstallClawCommand(clawId: string, skillName: string,
   const dest = path.join(clawDir, SKILLS_DIR_DEFAULT, skillName);
 
   if (!fsNative.existsSync(source)) {
-    throw new Error(`dispatch-skill "${skillName}" not found`);
+    throw new CliError(`dispatch-skill "${skillName}" not found`);
   }
   if (!fsNative.existsSync(clawDir)) {
-    throw new Error(`claw "${clawId}" does not exist`);
+    throw new CliError(`claw "${clawId}" does not exist`);
   }
 
   await copyDir(source, dest);

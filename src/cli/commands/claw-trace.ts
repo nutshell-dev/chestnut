@@ -140,7 +140,7 @@ async function readContractTitle(clawDir: string, contractId: string): Promise<s
 async function readStreamEvents(clawDir: string, startedAt: string): Promise<StreamEvent[]> {
   const startedTs = Date.parse(startedAt);
   if (isNaN(startedTs)) {
-    throw new Error(`Invalid contract start time: "${startedAt}"`);
+    throw new CliError(`Invalid contract start time: "${startedAt}"`);
   }
 
   // 扫描所有 stream*.jsonl 文件

@@ -210,7 +210,7 @@ clawCmd
 clawCmd
   .command('trace')
   .description('Show claw execution trace for a contract')
-  .requiredOption('--claw <id>', 'Target claw ID')
+  .requiredOption('-c, --claw <id>', 'Target claw ID')
   .requiredOption('--contract <contractId>', 'Contract ID')
   .option('--step <n>', 'Show full content of step N (no truncation)', parseInt)
   .action(async (opts: { claw: string; contract: string; step?: number }) => {
@@ -399,7 +399,7 @@ const contractCmd = program
 contractCmd
   .command('create')
   .description('Create a contract (--file: import YAML, --dir: directory with contract.yaml + acceptance/)')
-  .requiredOption('--claw <id>', 'Target claw ID')
+  .requiredOption('-c, --claw <id>', 'Target claw ID')
   .option('--file <path>', 'Path to contract YAML file')
   .option('--dir <path>', 'Directory containing contract.yaml and acceptance/ folder')
   .action(async (opts: { claw: string; file?: string; dir?: string }) => {
@@ -423,7 +423,7 @@ contractCmd
 contractCmd
   .command('log')
   .description('Show contract execution log for a claw')
-  .requiredOption('--claw <id>', 'Target claw ID')
+  .requiredOption('-c, --claw <id>', 'Target claw ID')
   .option('--contract <id>', 'Contract ID (default: active contract)')
   .action(async (opts: { claw: string; contract?: string }) => {
     try {
@@ -462,7 +462,7 @@ const skillCmd = program
 skillCmd
   .command('install [source]')
   .description('Install a skill from local path, or install dispatch-skill to a claw (--claw)')
-  .option('--claw <id>', 'Target claw ID (internal mode: install from dispatch-skills to claw)')
+  .option('-c, --claw <id>', 'Target claw ID (internal mode: install from dispatch-skills to claw)')
   .option('--skill <name>', 'Skill name (required with --claw)')
   .action(async (source: string | undefined, opts: { claw?: string; skill?: string }) => {
     try {

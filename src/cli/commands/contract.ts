@@ -19,18 +19,19 @@ import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { createToolRegistry } from '../../foundation/tools/index.js';
 import { STREAM_FILE } from '../../foundation/stream/index.js';
 import { CONTRACT_DIR } from '../../core/contract/index.js';
+import { CliError } from '../errors.js';
 
 
 function parseAndValidateContractYaml(yamlContent: string): ContractYaml {
   const parsed = yaml.load(yamlContent);
   if (typeof parsed !== 'object' || parsed === null) {
-    throw new Error('Contract YAML must be an object');
+    throw new CliError('Contract YAML must be an object');
   }
   const contract = parsed as ContractYaml;
-  if (!contract.title) { throw new Error('Contract YAML missing required field: title'); }
-  if (!contract.goal) { throw new Error('Contract YAML missing required field: goal'); }
+  if (!contract.title) { throw new CliError('Contract YAML missing required field: title'); }
+  if (!contract.goal) { throw new CliError('Contract YAML missing required field: goal'); }
   if (!Array.isArray(contract.subtasks)) {
-    throw new Error(`Contract YAML "subtasks" must be an array (use "- id: ..." list syntax), got: ${typeof contract.subtasks}`);
+    throw new CliError(`Contract YAML "subtasks" must be an array (use "- id: ..." list syntax), got: ${typeof contract.subtasks}`);
   }
   return contract;
 }
@@ -167,7 +168,7 @@ export async function contractLogCommand(clawId: string, contractId?: string): P
     const raw = await manager.readContractYamlRaw(resolvedId);
     contractYaml = yaml.load(raw) as ContractYaml;
   } catch {
-    throw new Error(`Contract "${resolvedId}" not found for claw ${clawId}`);
+    throw new CliError(`Contract "${resolvedId}" not found for claw ${clawId}`);
   }
 
   // 读 progress（active/paused/archive 均可）
