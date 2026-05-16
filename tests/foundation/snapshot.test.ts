@@ -382,4 +382,35 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
     expect(await fsp.readdir(writeDir)).toHaveLength(0);
     expect(await fsp.readdir(spawnDir)).toContain('c.md');
   });
+
+  // ========================================================================
+  // commit() cleanup empty relDir guard (phase 831 audit.P2.snap-2)
+  // ========================================================================
+
+  it('commit skips cleanup + emits audit when caller mis-configures syncCleanupDirs with agent dir itself', async () => {
+    const fs = new NodeFileSystem({ baseDir: tmpDir });
+    const audit = { write: vi.fn() };
+    // mis-config: syncCleanupDirs contains agent dir itself → relDir === ''
+    const snapshot = new Snapshot(tmpDir, fs, audit, [], [tmpDir]);
+    await snapshot.init();
+
+    // marker file to verify dir is not deleted
+    await fsp.writeFile(path.join(tmpDir, 'marker.txt'), 'do-not-delete');
+
+    // trigger commit
+    await fsp.writeFile(path.join(tmpDir, 'data.txt'), 'change');
+    const result = await snapshot.commit('test-misconfig');
+    expect(result.ok).toBe(true);
+
+    // marker should still exist (guard triggered, cleanup skipped)
+    expect(fsSync.existsSync(path.join(tmpDir, 'marker.txt'))).toBe(true);
+
+    // audit should contain empty_or_escaping_relDir context
+    expect(audit.write).toHaveBeenCalledWith(
+      SNAPSHOT_AUDIT_EVENTS.SYNC_CLEAN_FAILED,
+      expect.stringContaining('dir='),
+      expect.stringContaining('empty_or_escaping_relDir'),
+      expect.stringContaining('cleanupDir='),
+    );
+  });
 });

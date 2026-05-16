@@ -142,8 +142,17 @@ export class Snapshot {
       // whitelist cleanup of specified sync scratch subdirs on commit success
       // (turn-scoped lifecycle / 应然 §A.7 / phase772: 从整 syncDir 清改白名单)
       for (const cleanupDir of (this.syncCleanupDirs ?? [])) {
+        const relDir = path.relative(this.dir, cleanupDir);
+        if (relDir === '' || relDir.startsWith('..')) {
+          this.audit.write(
+            SNAPSHOT_AUDIT_EVENTS.SYNC_CLEAN_FAILED,
+            `dir=${this.dir}`,
+            'context=empty_or_escaping_relDir',
+            `cleanupDir=${cleanupDir}`,
+          );
+          continue;
+        }
         try {
-          const relDir = path.relative(this.dir, cleanupDir);
           await this.fs.removeDir(relDir);
           await this.fs.ensureDir(relDir);
         } catch (e) {
@@ -151,7 +160,6 @@ export class Snapshot {
           // / permission / IO）→ dir 被删未重建 / 后续 turn 写 audit/stream ENOENT crash。
           // best-effort 重建 + audit / 失败也只 audit 不抛（mirror init() cleanup 既有 pattern）
           try {
-            const relDir = path.relative(this.dir, cleanupDir);
             await this.fs.ensureDir(relDir);
           } catch { /* audit-only / 真双 fail 推 r+1 emptyDir helper α */ }
           this.audit.write(
