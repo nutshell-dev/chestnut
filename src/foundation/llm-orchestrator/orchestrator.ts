@@ -477,7 +477,9 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
         // (per design/modules/l2_llm_orchestrator.md §B.stream-zero-chunk-breaker-sensitivity / phase 637 兑现)
         // Stream completed normally but produced nothing — treat as failure
         const wasOpen = breaker?.isOpen();
-        breaker?.onFailure();
+        // phase 815 P1.34: 显式 pass 'unknown' / 防 half-open probe 失败时 lastFailureClass 保 stale prior class
+        // （`if (errClass)` 守卫在 CircuitBreaker.onFailure 不 update lastFailureClass when errClass undefined / 修触发点不动 CB）
+        breaker?.onFailure('unknown');
         if (!wasOpen && breaker?.isOpen()) {
           this.events.emit({ type: 'breaker_opened', provider: adapter.name, consecutiveFailures: this.config.circuitBreaker?.failureThreshold ?? 0 });
         }

@@ -147,6 +147,13 @@ export class Snapshot {
           await this.fs.removeDir(relDir);
           await this.fs.ensureDir(relDir);
         } catch (e) {
+          // phase 815 P1.33: removeDir+ensureDir 非原子。removeDir 成功 + ensureDir fail（disk full
+          // / permission / IO）→ dir 被删未重建 / 后续 turn 写 audit/stream ENOENT crash。
+          // best-effort 重建 + audit / 失败也只 audit 不抛（mirror init() cleanup 既有 pattern）
+          try {
+            const relDir = path.relative(this.dir, cleanupDir);
+            await this.fs.ensureDir(relDir);
+          } catch { /* audit-only / 真双 fail 推 r+1 emptyDir helper α */ }
           this.audit.write(
             SNAPSHOT_AUDIT_EVENTS.SYNC_CLEAN_FAILED,
             `dir=${cleanupDir}`,

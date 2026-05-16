@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import path from 'path';
 import { ExecContextImpl, cloneExecContext } from '../../../src/foundation/tools/context.js';
 
@@ -76,6 +76,38 @@ describe('ExecContextImpl', () => {
 
       expect(requestStopSpy).toHaveBeenCalledTimes(1);
       expect(parent.stopRequested).toBe(true);   // mutation reached parent
+    });
+  });
+
+  describe('cloneExecContext.requestStop fixture defense (phase 815 / P1.32)', () => {
+    it('clone.requestStop is noop when fixture lacks requestStop method', () => {
+      // Plain object fixture without requestStop — mirrors `as unknown as ExecContext` test pattern
+      const fixture = {
+        clawId: 'test',
+        clawDir: '/tmp/test',
+        stopRequested: false,
+        // requestStop intentionally undefined
+      } as unknown as ExecContext;
+
+      const clone = cloneExecContext(fixture, { profile: 'subagent' });
+      // Must not throw; requestStop becomes a noop
+      expect(() => clone.requestStop()).not.toThrow();
+      // stopRequested delegation through defineProperty still works (write to clone reflects in fixture)
+      (clone as { stopRequested: boolean }).stopRequested = true;
+      expect(fixture.stopRequested).toBe(true);
+    });
+
+    it('clone.requestStop forwards to parent when fixture defines method', () => {
+      const fixture = {
+        clawId: 'test',
+        clawDir: '/tmp/test',
+        stopRequested: false,
+        requestStop: vi.fn(),
+      } as unknown as ExecContext;
+
+      const clone = cloneExecContext(fixture, { profile: 'subagent' });
+      clone.requestStop();
+      expect((fixture as unknown as { requestStop: ReturnType<typeof vi.fn> }).requestStop).toHaveBeenCalledTimes(1);
     });
   });
 });

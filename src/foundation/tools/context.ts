@@ -114,7 +114,12 @@ export function cloneExecContext(
     set(v) { (ctx as { stopRequested: boolean }).stopRequested = v; },
     configurable: true,
   });
-  clone.requestStop = () => ctx.requestStop();
+  // phase 815 P1.32: fixture defense — function 自身契约支持 plain object mocks（line 99-100 注释明示），
+  // 但 ctx.requestStop 可能 undefined（fixture 漏定义）/ stopRequested 部分已用 defineProperty 守、
+  // requestStop 同型 typeof guard。0 行为变实然 path（真 ctx 永有 method）。
+  clone.requestStop = () => {
+    if (typeof ctx.requestStop === 'function') ctx.requestStop();
+  };
   return clone;
 }
 

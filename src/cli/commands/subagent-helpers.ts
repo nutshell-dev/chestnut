@@ -8,6 +8,8 @@ import * as path from 'path';
 import { getClawDir, getMotionDir } from '../../foundation/config/paths.js';
 import { TASKS_QUEUES_RESULTS_DIR } from '../../core/async-task-system/dirs.js';
 import { TASKS_SYNC_SUBAGENT_DIR } from '../../core/subagent/constants.js';
+import { TASKS_SYNC_SPAWN_DIR } from '../../core/spawn-system/constants.js';
+import { TASKS_SYNC_SHADOW_DIR } from '../../core/shadow-system/constants.js';
 
 export type SubagentKind = 'dispatch' | 'spawn' | 'verifier' | 'random_dream' | 'cron';
 export type SubagentStatus = 'completed' | 'running' | 'failed';
@@ -160,37 +162,46 @@ export function scanSubagentResults(clawDir: string): SubagentEntry[] {
     }
   }
 
-  // Scan sync path: tasks/sync/subagent/<agentId>/
-  const syncDir = path.join(clawDir, TASKS_SYNC_SUBAGENT_DIR);
-  if (fs.existsSync(syncDir)) {
-    const ids = fs.readdirSync(syncDir);
-    for (const id of ids) {
-      const resultDir = path.join(syncDir, id);
-      const stat = fs.statSync(resultDir);
-      if (!stat.isDirectory()) continue;
-      if (!id.startsWith('verifier-')) continue;
-      const kind = inferKind(id, clawDir);
-      const status = inferStatus(resultDir);
-      const startedAt = getStartedAt(resultDir, id, clawDir);
-      let durationMs: number | undefined;
-      if (startedAt) {
-        const auditPath = path.join(resultDir, 'audit.tsv');
-        if (fs.existsSync(auditPath)) {
-          durationMs = fs.statSync(auditPath).mtimeMs - startedAt.getTime();
-        }
-      }
-      // Extract contractId from verifier-<contractId>-<subtaskId>
-      let contractId: string | undefined;
-      if (id.startsWith('verifier-')) {
-        const rest = id.slice('verifier-'.length);
-        const lastDash = rest.lastIndexOf('-');
-        if (lastDash > 0) {
-          contractId = rest.slice(0, lastDash);
-        }
-      }
-      entries.push({ id, kind, status, startedAt, durationMs, contractId });
-    }
-  }
+  // Scan sync paths: tasks/sync/subagent/ + tasks/sync/spawn/ + tasks/sync/shadow/
+  entries.push(...scanSyncDir(clawDir, TASKS_SYNC_SUBAGENT_DIR, 'verifier-'));
+  entries.push(...scanSyncDir(clawDir, TASKS_SYNC_SPAWN_DIR));
+  entries.push(...scanSyncDir(clawDir, TASKS_SYNC_SHADOW_DIR));
 
   return entries;
+}
+
+function scanSyncDir(
+  clawDir: string,
+  syncSubDir: string,
+  filterPrefix?: string,
+): SubagentEntry[] {
+  const dirPath = path.join(clawDir, syncSubDir);
+  if (!fs.existsSync(dirPath)) return [];
+  const results: SubagentEntry[] = [];
+  const ids = fs.readdirSync(dirPath);
+  for (const id of ids) {
+    const resultDir = path.join(dirPath, id);
+    const stat = fs.statSync(resultDir);
+    if (!stat.isDirectory()) continue;
+    if (filterPrefix && !id.startsWith(filterPrefix)) continue;
+    const kind = inferKind(id, clawDir);
+    const status = inferStatus(resultDir);
+    const startedAt = getStartedAt(resultDir, id, clawDir);
+    let durationMs: number | undefined;
+    if (startedAt) {
+      const auditPath = path.join(resultDir, 'audit.tsv');
+      if (fs.existsSync(auditPath)) {
+        durationMs = fs.statSync(auditPath).mtimeMs - startedAt.getTime();
+      }
+    }
+    // contractId only meaningful for verifier-<contractId>-<subtaskId>
+    let contractId: string | undefined;
+    if (id.startsWith('verifier-')) {
+      const rest = id.slice('verifier-'.length);
+      const lastDash = rest.lastIndexOf('-');
+      if (lastDash > 0) contractId = rest.slice(0, lastDash);
+    }
+    results.push({ id, kind, status, startedAt, durationMs, contractId });
+  }
+  return results;
 }
