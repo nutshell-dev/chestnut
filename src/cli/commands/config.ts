@@ -199,6 +199,9 @@ async function providerAdd(): Promise<void> {
       const posDefault = String(currentFallbacks.length + 1);
       const posStr = await question(rl, 'Position', posDefault);
       const position = parseInt(posStr, 10) - 1;
+      if (Number.isNaN(position) || position < 0 || position > currentFallbacks.length) {
+        throw new CliError(`Position must be 1-${currentFallbacks.length + 1}, got: ${posStr}`);
+      }
       
       // Insert at position
       const newFallbacks = [...currentFallbacks];
