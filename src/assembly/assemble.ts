@@ -15,7 +15,7 @@ import { createRuntime, buildMotionSystemPrompt } from '../core/runtime/index.js
 import { createLLMOrchestrator, type LLMOrchestrator, DEFAULT_LLM_IDLE_TIMEOUT_MS } from '../foundation/llm-orchestrator/index.js';
 import { createLLMAuditSink } from './llm-audit-sink.js';
 import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
-import { CLAWS_DIR } from '../types/paths.js';
+import { CLAWS_DIR, CLAWSPACE_DIR } from '../types/paths.js';
 import { createToolRegistry, type ToolRegistry } from '../foundation/tools/index.js';
 import { createToolExecutor } from '../foundation/tools/index.js';
 import type { IToolExecutor } from '../foundation/tools/index.js';
@@ -309,7 +309,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
       execContext = new ExecContextImpl({
         clawId,
         clawDir,
-        workspaceDir: path.join(clawDir, 'clawspace'),
+        workspaceDir: path.join(clawDir, CLAWSPACE_DIR),
         syncDir,
         profile: toolProfile,
         callerType: 'claw',

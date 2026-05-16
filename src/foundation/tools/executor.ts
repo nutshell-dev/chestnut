@@ -13,6 +13,7 @@ import {
   ToolTimeoutError,
   ToolInvalidInputError,
 } from '../../types/errors.js';
+import { CLAWSPACE_DIR } from '../../types/paths.js';
 import type { CallerType, ExecContext } from '../tool-protocol/index.js';
 import type { ToolResult } from '../tool-protocol/index.js';
 import type { ToolProfile } from '../../types/config.js';
@@ -337,7 +338,7 @@ export class ToolExecutor extends ToolExecutorImpl {
     super(options.registry, undefined, options.scheduleAsyncTool);
     this.clawDir = options.clawDir;
     this.syncDir = options.syncDir;
-    this.workspaceDir = options.workspaceDir ?? path.join(options.clawDir, 'clawspace');
+    this.workspaceDir = options.workspaceDir ?? path.join(options.clawDir, CLAWSPACE_DIR);
     this.callerClawId = options.callerClawId;
     this.fs = options.fs;
     this.llm = options.llm;

@@ -31,6 +31,7 @@ import { TASKS_SYNC_SHADOW_DIR } from '../shadow-system/constants.js';
 import { TASKS_SYNC_EXEC_DIR } from '../../foundation/command-tool/index.js';
 import { TASKS_SYNC_WRITE_DIR } from '../../foundation/file-tool/index.js';
 import { TASKS_QUEUES_RESULTS_DIR, TASKS_SUBAGENTS_DIR } from '../../core/async-task-system/index.js';
+import { CLAWSPACE_DIR } from '../../types/paths.js';
 import type { PermissionChecker } from '../../types/permission.js';
 export type { PermissionChecker } from '../../types/permission.js';
 
@@ -55,7 +56,7 @@ const WRITABLE_PATHS = [
   'USER.md',
   'IDENTITY.md',
   'SOUL.md',
-  'clawspace',
+  CLAWSPACE_DIR,
   'prompts',
   'skills',
   'inbox',
