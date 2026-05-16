@@ -14,6 +14,8 @@ export const RUNTIME_AUDIT_EVENTS = {
   LLM_EMPTY_RESPONSE: 'llm_empty_response',
   LLM_UNKNOWN_STOP_REASON: 'llm_unknown_stop_reason',
   LLM_UNPARSEABLE_TOOL_USE: 'llm_unparseable_tool_use',
+  TOOL_INPUT_PARSE_FAILED: 'tool_input_parse_failed',   // ← NEW (phase 850 β refactor / r108 F fork F2.2)
+  TOOL_EXECUTION_FAILED: 'tool_execution_failed',       // ← NEW (phase 850 β refactor / r108 F fork F2.4)
   // SESSION_*
   SESSION_LOADED: 'session_loaded',
   SESSION_REPAIRED: 'session_repaired',

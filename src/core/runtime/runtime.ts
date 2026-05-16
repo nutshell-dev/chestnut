@@ -27,6 +27,7 @@ import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import { RUNTIME_AUDIT_EVENTS, REACT_LOOP_AUDIT_EVENTS } from './runtime-audit-events.js';
 import { CLAW_SUBDIRS, DIALOG_DIR } from '../../types/paths.js';
 import { oneLine, formatErr } from '../../types/utils.js';
+import { escapeForLog } from '../../foundation/tools/index.js';
 import { MaxStepsExceededError } from '../../types/errors.js';
 import { DEFAULT_TOOL_TIMEOUT_MS } from './constants.js';
 import { DEFAULT_MAX_STEPS } from '../agent-executor/index.js';
@@ -512,6 +513,22 @@ export class Runtime {
         onUnparseableToolUse: (stopReason) => {
           this.auditWriter.write(RUNTIME_AUDIT_EVENTS.LLM_UNPARSEABLE_TOOL_USE, `stop_reason=${stopReason}`);
         },
+        onToolInputParseError: (toolName, toolUseId, rawInput) =>
+          this.auditWriter.write(
+            RUNTIME_AUDIT_EVENTS.TOOL_INPUT_PARSE_FAILED,
+            toolName,
+            toolUseId,
+            `reason=parse_error`,
+            `summary=${escapeForLog(rawInput)}`,
+          ),
+        onToolExecutionFailed: (toolName, toolUseId, errorType, errorMsg) =>
+          this.auditWriter.write(
+            RUNTIME_AUDIT_EVENTS.TOOL_EXECUTION_FAILED,
+            toolName,
+            toolUseId,
+            `errorType=${errorType}`,
+            `errorMsg=${escapeForLog(errorMsg)}`,
+          ),
         onSafeCallbackError: (label, err) => {
           this.auditWriter.write(RUNTIME_AUDIT_EVENTS.STEP_EXECUTOR_CALLBACK_FAILED, label, `error=${formatErr(err)}`);
         },

@@ -4,9 +4,9 @@ import { executeSingleTool } from '../../../src/core/step-executor/tool-executio
 describe('step-executor — __parseError audit (P1.11 / α)', () => {
   it('audits tool_input_parse_failed when toolCall.input has __parseError flag', async () => {
     const events: Array<[string, ...(string | number)[]]> = [];
-    const audit = {
-      write: (type: string, ...cols: (string | number)[]) => {
-        events.push([type, ...cols]);
+    const callbacks = {
+      onToolInputParseError: (toolName: string, toolUseId: string, rawInput: string) => {
+        events.push(['tool_input_parse_failed', toolName, toolUseId, `reason=parse_error`, `summary=${rawInput}`]);
       },
     };
 
@@ -25,10 +25,9 @@ describe('step-executor — __parseError audit (P1.11 / α)', () => {
       clawDir: '/tmp',
       profile: 'full',
       fs: {},
-      auditWriter: audit,
     } as any;
 
-    const result = await executeSingleTool(toolCall as any, executor as any, ctx);
+    const result = await executeSingleTool(toolCall as any, executor as any, ctx, callbacks as any);
 
     expect(result.success).toBe(false);
     expect(result.metadata).toEqual({ parseError: true });
@@ -38,6 +37,6 @@ describe('step-executor — __parseError audit (P1.11 / α)', () => {
     expect(events[0][1]).toBe('someTool');
     expect(events[0][2]).toBe('tu1');
     expect(events[0][3]).toBe('reason=parse_error');
-    expect(events[0][4]).toMatch(/^summary=/);
+    expect(events[0][4]).toBe('summary={bad json}');
   });
 });

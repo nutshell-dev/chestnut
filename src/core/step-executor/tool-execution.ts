@@ -15,7 +15,7 @@ import type { IToolExecutor, ToolRegistry } from '../../foundation/tools/index.j
 import type { StepCallbacks } from './types.js';
 import { safeCallback, toToolResultBlock } from './utils.js';
 import { throwAbortError } from './abort-helpers.js';
-import { escapeForLog } from '../../foundation/tools/index.js';
+
 
 interface CategorizedCalls {
   readonlyAsync: { call: ToolUseBlock; index: number }[];
@@ -55,7 +55,7 @@ async function executeSequential(
   const results: ToolResultBlock[] = [];
   for (const call of toolCalls) {
     if (ctx.signal?.aborted) throwAbortError(ctx.signal);
-    const result = await executeSingleTool(call, executor, ctx);
+    const result = await executeSingleTool(call, executor, ctx, callbacks);
     safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, call.id, result), callbacks);
     results.push(toToolResultBlock(call.id, result));
   }
@@ -79,7 +79,7 @@ async function executeReadonlyAsync(
   // 注：onToolCall 已在 stream.ts:tool_use_start 时调
   for (const { call, index } of parseErrorCalls) {
     if (ctx.signal?.aborted) throwAbortError(ctx.signal);
-    const result = await executeSingleTool(call, executor, ctx);
+    const result = await executeSingleTool(call, executor, ctx, callbacks);
     safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, call.id, result), callbacks);
     results.set(index, toToolResultBlock(call.id, result));
   }
@@ -97,7 +97,7 @@ async function executeReadonlyAsync(
     const { call, index } = cleanCalls[i];
     const result = parallelResults[i];
     if (!result) {
-      const singleResult = await executeSingleTool(call, executor, ctx);
+      const singleResult = await executeSingleTool(call, executor, ctx, callbacks);
       safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, call.id, singleResult), callbacks);
       results.set(index, toToolResultBlock(call.id, singleResult));
       continue;
@@ -124,7 +124,7 @@ async function executeReadonlySync(
   // 注：onToolCall 已在 stream.ts:tool_use_start 时调
   for (const { call, index } of parseErrorCalls) {
     if (ctx.signal?.aborted) throwAbortError(ctx.signal);
-    const result = await executeSingleTool(call, executor, ctx);
+    const result = await executeSingleTool(call, executor, ctx, callbacks);
     safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, call.id, result), callbacks);
     results.set(index, toToolResultBlock(call.id, result));
   }
@@ -142,7 +142,7 @@ async function executeReadonlySync(
     const { call, index } = cleanCalls[i];
     const result = parallelResults[i];
     if (!result) {
-      const singleResult = await executeSingleTool(call, executor, ctx);
+      const singleResult = await executeSingleTool(call, executor, ctx, callbacks);
       safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, call.id, singleResult), callbacks);
       results.set(index, toToolResultBlock(call.id, singleResult));
       continue;
@@ -162,7 +162,7 @@ async function executeWriteCalls(
   // 注：onToolCall 已在 stream.ts:tool_use_start 时调
   for (const { call, index } of group) {
     if (ctx.signal?.aborted) throwAbortError(ctx.signal);
-    const result = await executeSingleTool(call, executor, ctx);
+    const result = await executeSingleTool(call, executor, ctx, callbacks);
     safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, call.id, result), callbacks);
     results.set(index, toToolResultBlock(call.id, result));
   }
@@ -195,6 +195,7 @@ export async function executeSingleTool(
   toolCall: ToolUseBlock,
   executor: IToolExecutor,
   ctx: ExecContext,
+  callbacks?: StepCallbacks,
 ): Promise<ToolResult> {
   try {
     // Extract async flag (meta parameter, not passed to tool)
@@ -202,13 +203,7 @@ export async function executeSingleTool(
 
     // Input JSON failed to parse — return error immediately without calling the tool
     if (__parseError) {
-      ctx.auditWriter?.write(
-        'tool_input_parse_failed',
-        toolCall.name,
-        toolCall.id,
-        `reason=parse_error`,
-        `summary=${escapeForLog(String(__raw || ''))}`,
-      );
+      callbacks?.onToolInputParseError?.(toolCall.name, toolCall.id, String(__raw || ''));
       return {
         success: false,
         content: `工具输入 JSON 解析失败，无法调用工具 "${toolCall.name}"。原始输入: ${String(__raw || '')}`,
@@ -226,13 +221,7 @@ export async function executeSingleTool(
   } catch (err) {
     const errorType = err instanceof Error ? err.constructor.name : 'Error';
     const errorMsg = err instanceof Error ? err.message : String(err);
-    ctx.auditWriter?.write(
-      'tool_execution_failed',
-      toolCall.name,
-      toolCall.id,
-      `errorType=${errorType}`,
-      `errorMsg=${escapeForLog(errorMsg)}`,
-    );
+    callbacks?.onToolExecutionFailed?.(toolCall.name, toolCall.id, errorType, errorMsg);
     console.error(`[step-executor] Tool ${toolCall.name} execution failed:`, errorMsg);
     return {
       success: false,
