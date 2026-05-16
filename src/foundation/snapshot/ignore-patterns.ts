@@ -1,6 +1,6 @@
 import { STREAM_FILE } from '../stream/index.js';
 import { AUDIT_FILE } from '../audit/index.js';
-import { TASKS_QUEUES_RESULTS_DIR, TASKS_SUBAGENTS_DIR } from '../../core/async-task-system/index.js';
+import { TASKS_SUBAGENTS_DIR } from '../../core/async-task-system/index.js';
 
 /**
  * Snapshot 需要忽略的跨模块资源清单（消费侧定义）。
