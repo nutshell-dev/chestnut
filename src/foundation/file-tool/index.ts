@@ -31,7 +31,7 @@ export interface FileToolOptions {
 }
 
 /**
- * FileTool 装配工厂：返回 4 tool 数组（read / write / search / ls）
+ * FileTool 装配工厂：返回 6 tool 数组（read / write / search / ls / edit / multi_edit per array 顺序）
  *
  * 同 phase378 createCommandTools 模式 / Assembly 装配期调:
  *   for (const tool of createFileTools({ permissionCheckerFactory: ... })) registry.register(tool);
