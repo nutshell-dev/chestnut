@@ -16,18 +16,23 @@ import type { FileSystem } from '../fs/types.js';
 import type { AuditLog } from '../audit/index.js';
 import { SNAPSHOT_AUDIT_EVENTS } from './audit-events.js';
 import { ok, err as errResult, type Result } from '../../types/result.js';
-import { classifyGitError, type ExpectedGitFailure } from './git-errors.js';
+import { classifyGitError, type ExpectedGitFailure, type GitExecError } from './git-errors.js';
 import { AUDIT_MESSAGE_MAX_CHARS } from '../audit/index.js';
+
+// Node.js child_process / exec 抛错时未声明的 dynamic property
+// 显式 Error & Partial<GitExecError> intersection 替 `(e as any)`、编译期可检 Partial 字段
+type NodeExecError = Error & Partial<GitExecError>;
 
 const DEFAULT_IGNORES = ['logs/', '*.tmp'];
 
-function toGitExecError(e: unknown): { code?: string; exitCode?: number; signal?: string; output?: string; message: string } {
+function toGitExecError(e: unknown): GitExecError {
   if (e instanceof Error) {
+    const ne = e as NodeExecError;
     return {
-      code: (e as any).code,
-      exitCode: (e as any).exitCode,
-      signal: (e as any).signal,
-      output: (e as any).output,
+      code: ne.code,
+      exitCode: ne.exitCode,
+      signal: ne.signal,
+      output: ne.output,
       message: e.message,
     };
   }
