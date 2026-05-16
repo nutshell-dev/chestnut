@@ -7,12 +7,28 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { getClawDir, getMotionDir } from '../../foundation/config/paths.js';
 import { TASKS_QUEUES_RESULTS_DIR } from '../../core/async-task-system/dirs.js';
+import {
+  TASKS_QUEUES_DONE_DIR,
+  TASKS_QUEUES_FAILED_DIR,
+  TASKS_QUEUES_PENDING_DIR,
+  TASKS_QUEUES_RUNNING_DIR,
+} from '../../types/paths.js';
 import { TASKS_SYNC_SUBAGENT_DIR } from '../../core/subagent/constants.js';
 import { TASKS_SYNC_SPAWN_DIR } from '../../core/spawn-system/constants.js';
 import { TASKS_SYNC_SHADOW_DIR } from '../../core/shadow-system/constants.js';
 
 export type SubagentKind = 'dispatch' | 'spawn' | 'shadow' | 'verifier' | 'random_dream' | 'cron';
 export type SubagentStatus = 'completed' | 'running' | 'failed';
+
+// 文件级 const，cli/commands/subagent-helpers.ts inferKind + getStartedAt 两处共用
+// 单源 = src/types/paths.ts 既有 4 const、避免 cross-line + cross-file value drift
+// 顺序与原 inline 一致（done/failed/pending/running）：fs.existsSync 查 dir 早 break、保现行为
+const QUEUE_DIRS = [
+  TASKS_QUEUES_DONE_DIR,
+  TASKS_QUEUES_FAILED_DIR,
+  TASKS_QUEUES_PENDING_DIR,
+  TASKS_QUEUES_RUNNING_DIR,
+];
 
 export function resolveClawDir(clawId: string): string {
   return clawId === 'motion' ? getMotionDir() : getClawDir(clawId);
@@ -22,8 +38,7 @@ export function inferKind(id: string, clawDir: string): SubagentKind {
   if (id.startsWith('verifier-')) return 'verifier';
 
   // Try to find task.json in queue dirs
-  const queueDirs = ['tasks/queues/done', 'tasks/queues/failed', 'tasks/queues/pending', 'tasks/queues/running'];
-  for (const qdir of queueDirs) {
+  for (const qdir of QUEUE_DIRS) {
     const taskPath = path.join(clawDir, qdir, `${id}.json`);
     if (fs.existsSync(taskPath)) {
       try {
@@ -75,8 +90,7 @@ export function inferStatus(resultDir: string): SubagentStatus {
 
 export function getStartedAt(resultDir: string, id: string, clawDir: string): Date | undefined {
   // Try task.json createdAt first
-  const queueDirs = ['tasks/queues/done', 'tasks/queues/failed', 'tasks/queues/pending', 'tasks/queues/running'];
-  for (const qdir of queueDirs) {
+  for (const qdir of QUEUE_DIRS) {
     const taskPath = path.join(clawDir, qdir, `${id}.json`);
     if (fs.existsSync(taskPath)) {
       try {
