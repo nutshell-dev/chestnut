@@ -17,7 +17,7 @@ import {
 } from './types.js';
 
 const PROCESS_EXEC_MAX_BUFFER = 1024 * 1024; // 1MB; internal
-const EXEC_SIGKILL_GRACE_MS = 1000; // SIGTERM→SIGKILL escalation grace
+const EXEC_SIGKILL_GRACE_MS = 1000; // SIGTERM→SIGKILL escalation grace / per POSIX SIGTERM grace period industry default 1s (systemd / kubelet / Docker stack 最小 graceful 单位)
 import type { ExecOptions, ExecResult } from './types.js';
 import { ProcessExecError } from './types.js';
 
