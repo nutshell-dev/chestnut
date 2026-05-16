@@ -6,6 +6,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as readline from 'readline';
 import { saveGlobalConfig, isInitialized, FORMAT_MAP, getWorkspaceRoot } from '../../foundation/config/index.js';
+import { passwordQuestion } from '../utils/password-prompt.js';
 import { CliError } from '../errors.js';
 import { PRESETS } from '../../foundation/llm-provider/index.js';
 import { REACT_DEFAULT_MAX_TOKENS } from '../../core/agent-executor/constants.js';
@@ -64,33 +65,6 @@ export async function initCommand(silent = false, deps?: { audit?: AuditLog }): 
       rl.question(fullPrompt, (answer) => {
         resolve(answer.trim() || defaultValue || '');
       });
-    });
-  };
-
-  // Read a password with echo suppressed; returns '' if cancelled ('b')
-  const passwordQuestion = (prompt: string): Promise<string> => {
-    return new Promise((resolve) => {
-      const fullPrompt = `${prompt} (b = back): `;
-      let muted = false;
-      const original = (rl as any)._writeToOutput?.bind(rl);
-      const restore = () => {
-        try { (rl as any)._writeToOutput = original; } catch { /* private API gone */ }
-      };
-      try {
-        (rl as any)._writeToOutput = (str: string) => {
-          if (!muted) original?.(str);
-        };
-        rl.question(fullPrompt, (answer) => {
-          muted = false;
-          restore();
-          process.stdout.write('\n');
-          resolve(answer.trim());
-        });
-        muted = true;
-      } catch (err) {
-        restore();
-        throw err;
-      }
     });
   };
 
@@ -206,7 +180,7 @@ export async function initCommand(silent = false, deps?: { audit?: AuditLog }): 
             step = 'apiKey';
 
           } else if (step === 'apiKey') {
-            const raw = await passwordQuestion('API Key');
+            const raw = await passwordQuestion(rl, 'API Key (b = back): ');
             if (raw === 'b') { step = 'baseUrl'; continue; }
             if (!raw) { console.log('API Key is required.'); continue; }
             manualApiKey = raw;
@@ -266,7 +240,7 @@ export async function initCommand(silent = false, deps?: { audit?: AuditLog }): 
             const envHint = preset.envVar && process.env[preset.envVar]
               ? ` (or press Enter to use ${preset.envVar})`
               : '';
-            const raw = await passwordQuestion(`API Key${envHint}`);
+            const raw = await passwordQuestion(rl, `API Key${envHint} (b = back): `);
             if (raw === 'b') { step = 'pick'; continue; }
             if (!raw && preset.envVar && process.env[preset.envVar]) {
               pickedApiKey = '${' + preset.envVar + '}';

@@ -20,6 +20,7 @@ import {
   chatCommand as motionChatCommand,
 } from './motion.js';
 import { createProcessManagerForCLI } from '../utils/factories.js';
+import { passwordQuestion } from '../utils/password-prompt.js';
 import { ContractSystem } from '../../core/contract/index.js';
 import { createToolRegistry } from '../../foundation/tools/index.js';
 import { createDirContext } from '../utils/factories.js';
@@ -204,27 +205,8 @@ async function promptReconfigure(rl: readline.Interface, errorType: LLMErrorType
   const question = (prompt: string): Promise<string> =>
     new Promise(resolve => rl.question(`${prompt}: `, ans => resolve(ans.trim())));
 
-  const passwordQuestion = (prompt: string): Promise<string> =>
-    new Promise(resolve => {
-      let muted = false;
-      const original = (rl as any)._writeToOutput?.bind(rl);
-      const restore = () => {
-        try { (rl as any)._writeToOutput = original; } catch { /* private API gone */ }
-      };
-      try {
-        (rl as any)._writeToOutput = (str: string) => { if (!muted) original?.(str); };
-        rl.question(`${prompt}: `, ans => {
-          muted = false;
-          restore();
-          process.stdout.write('\n');
-          resolve(ans.trim());
-        });
-        muted = true;
-      } catch (err) {
-        restore();
-        throw err;
-      }
-    });
+  // password prompt 内联 prompt suffix（caller style 1）
+  const passwordPrompt = (prompt: string) => passwordQuestion(rl, `${prompt}: `);
 
   // 已知 provider 列表：在函数体内计算一次，option 3 子流程复用
   const presetList = Object.values(PRESETS).filter(p => p.defaultBaseUrl);
@@ -243,7 +225,7 @@ async function promptReconfigure(rl: readline.Interface, errorType: LLMErrorType
     if (choice === 'n' || choice === 'N') return false;
 
     if (choice === '1') {
-      const raw = await passwordQuestion('New API key');
+      const raw = await passwordPrompt('New API key');
       if (raw === 'b') continue;
       if (!raw) { console.log('  API key is required.'); continue; }
       patchGlobalConfigPrimary({ api_key: raw });
