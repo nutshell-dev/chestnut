@@ -212,6 +212,7 @@ export type LLMEvent =
   | { type: 'permanent_skip_retry'; provider: string; attempt: number; errorClass: 'permanent' }
   | { type: 'hedge_started'; primary: string; fallbackChain: string[]; triggerErrorClass: LLMErrorClass }
   | { type: 'hedge_primary_recovered'; provider: string }
+  | { type: 'hedge_primary_post_first_chunk_failure'; provider: string; error: Error }
   | { type: 'hedge_fallback_committed'; winnerProvider: string; primaryProvider: string; primaryError: string; primaryErrorClass: LLMErrorClass };
 
 /**

@@ -25,6 +25,7 @@ export interface ReactOptions {
   maxConsecutiveParseErrors?: number;
   maxConsecutiveMaxTokensToolUse?: number;
   idleTimeoutMs?: number;
+  wallTimeDeadlineMs?: number;
   onToolCall?: (toolName: string, toolUseId: string) => void | Promise<void>;
   onBeforeLLMCall?: () => void;
   onToolResult?: (toolName: string, toolUseId: string, result: ToolResult, step: number, maxSteps: number) => void;
@@ -61,6 +62,7 @@ export async function runReact(options: ReactOptions): Promise<ReactResult> {
     maxConsecutiveParseErrors,
     maxConsecutiveMaxTokensToolUse,
     idleTimeoutMs,
+    wallTimeDeadlineMs,
     onToolCall, onBeforeLLMCall, onToolResult, onStepComplete,
     tools = [],
     registry,
@@ -98,6 +100,7 @@ export async function runReact(options: ReactOptions): Promise<ReactResult> {
     maxConsecutiveParseErrors,
     maxConsecutiveMaxTokensToolUse,
     idleTimeoutMs,
+    wallTimeDeadlineMs,
     stepCallbacks,
     onAfterStep: async () => {
       stepCount = ctx.stepNumber;  // incrementStep 已被 AgentExecutor 执行

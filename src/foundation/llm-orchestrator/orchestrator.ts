@@ -711,6 +711,14 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
       yield winner.chunk;
       try {
         for await (const chunk of primaryIter) yield chunk; // drain rest
+      } catch (err) {
+        this.breakers[0]?.onFailure(classifyLLMError(err));
+        this.events.emit({
+          type: 'hedge_primary_post_first_chunk_failure',
+          provider: this.primary.name,
+          error: err as Error,
+        });
+        throw err;
       } finally {
         cleanupSignals();
       }

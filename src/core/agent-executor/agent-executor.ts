@@ -12,7 +12,7 @@ import type { ExecContext } from '../../foundation/tool-protocol/index.js';
 import type { IToolExecutor, ToolRegistry } from '../../foundation/tools/index.js';
 import { executeStep, type StepCallbacks, type StepMeta } from '../step-executor/step-executor.js';
 import { throwAbortError } from '../step-executor/abort-helpers.js';
-import { MaxStepsExceededError, ConsecutiveParseErrorsExceededError, ConsecutiveMaxTokensToolUseError } from '../../types/errors.js';
+import { MaxStepsExceededError, ConsecutiveParseErrorsExceededError, ConsecutiveMaxTokensToolUseError, WallTimeExceededError } from '../../types/errors.js';
 import { DEFAULT_MAX_STEPS } from './defaults.js';
 import { MAX_CONSECUTIVE_PARSE_ERRORS, MAX_CONSECUTIVE_MAX_TOKENS_TOOL_USE } from './constants.js';
 
@@ -30,6 +30,7 @@ export interface AgentInput {
   maxConsecutiveMaxTokensToolUse?: number;        // 默认 constants.ts MAX_CONSECUTIVE_MAX_TOKENS_TOOL_USE (=3)
   maxTokens?: number;                  // 透传给 executeStep
   idleTimeoutMs?: number;              // 透传给 StepInput
+  wallTimeDeadlineMs?: number;         // 总 wall-time 上限（可选）
   stepCallbacks?: StepCallbacks;
   onAfterStep?: (meta: StepMeta) => void | Promise<void>;
 }
@@ -55,7 +56,16 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
   let consecutiveParseErrors = 0;
   let consecutiveMaxTokensToolUse = 0;
 
+  const startMs = Date.now();
+  const deadline = input.wallTimeDeadlineMs;
+
   while (stepCount < maxSteps) {
+    if (deadline !== undefined) {
+      const elapsed = Date.now() - startMs;
+      if (elapsed > deadline) {
+        throw new WallTimeExceededError(deadline, elapsed);
+      }
+    }
     ctx.stepNumber = stepCount;
     if (ctx.signal?.aborted) throwAbortError(ctx.signal);
     // phase 777: result-capture tools (done, report_result) request early stop.

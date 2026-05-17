@@ -229,7 +229,7 @@ export class DialogStore {
       
       // Filter JSON files and sort by timestamp (descending)
       const archives = entries
-        .filter(e => e.isFile && e.name.endsWith('.json'))
+        .filter(e => e.isFile && e.name.endsWith('.json') && !isNaN(parseInt(e.name.split('.')[0], 10)))
         .sort((a, b) => {
           const tsA = parseInt(a.name.split('.')[0], 10);
           const tsB = parseInt(b.name.split('.')[0], 10);
@@ -315,7 +315,7 @@ export class DialogStore {
       await this.fs.ensureDir(this.archiveDir);
       const entries = await this.fs.list(this.archiveDir);
       const sorted = entries
-        .filter(e => e.isFile && e.name.endsWith('.json'))
+        .filter(e => e.isFile && e.name.endsWith('.json') && !isNaN(parseInt(e.name.split('.')[0], 10)))
         .sort((a, b) => {
           const tsA = parseInt(a.name.split('.')[0], 10);
           const tsB = parseInt(b.name.split('.')[0], 10);

@@ -267,6 +267,17 @@ export class ConsecutiveMaxTokensToolUseError extends ClawError {
   }
 }
 
+export class WallTimeExceededError extends ClawError {
+  readonly code: ErrorCode = 'MAX_STEPS_EXCEEDED';
+
+  constructor(public readonly deadlineMs: number, public readonly elapsedMs: number) {
+    super(
+      `Wall-time deadline ${deadlineMs}ms exceeded (elapsed ${elapsedMs}ms)`,
+      { deadlineMs, elapsedMs }
+    );
+  }
+}
+
 // ============================================================================
 // Programming bug detection (per Coding #5 / phase 342 / r40 反向 3 教训)
 // 用于 fail-fast：programming bug 不应被 catch 静默 / 应 surface to top-level
