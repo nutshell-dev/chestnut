@@ -5,7 +5,7 @@
 
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
-import { readAll, STREAM_FILE } from '../../foundation/stream/index.js';
+import { readAll, STREAM_FILE, LLM_OUTPUT_EVENTS } from '../../foundation/stream/index.js';
 
 /**
  * Format relative time (milliseconds to a human-readable string)
@@ -18,8 +18,8 @@ export function formatRelativeTime(ms: number): string {
   return `${hours}h`;
 }
 
-// LLM 输出事件类型（与 watchdog 一致）
-export const LLM_OUTPUT_EVENTS = new Set(['thinking_delta', 'text_delta', 'tool_call']);
+// LLM 输出事件类型（re-export from canonical stream module / single source per phase 1003）
+export { LLM_OUTPUT_EVENTS };
 
 /**
  * 从 stream.jsonl 读取最后活跃时间（统一与 watchdog 指标）
