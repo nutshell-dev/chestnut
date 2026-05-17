@@ -97,7 +97,7 @@ describe('ProcessManager', () => {
       fs.mkdirSync(statusDir, { recursive: true });
       const pidFile = path.join(statusDir, 'pid');
       
-      const fakePid = 999998;
+      const fakePid = DEAD_PID;
       fs.writeFileSync(pidFile, String(fakePid));
 
       // 直接调用 stop（不先调用 isAlive）
