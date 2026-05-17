@@ -27,13 +27,13 @@ describe('Tools', () => {
     });
 
     it('should define correct tools for full profile', () => {
-      expect(TOOL_PROFILES.full).toHaveLength(15);
+      expect(TOOL_PROFILES.full).toHaveLength(14);
       expect(TOOL_PROFILES.full).toContain('read');
       expect(TOOL_PROFILES.full).toContain('write');
       expect(TOOL_PROFILES.full).toContain('spawn');
       expect(TOOL_PROFILES.full).toContain('dispatch');
       expect(TOOL_PROFILES.full).toContain('submit_subtask');
-      expect(TOOL_PROFILES.full).toContain('done');
+      expect(TOOL_PROFILES.full).not.toContain('done');
       expect(TOOL_PROFILES.full).toContain('shadow');
       expect(TOOL_PROFILES.full).toContain('notify_claw');
     });
