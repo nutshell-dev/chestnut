@@ -314,6 +314,8 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
 
     // contextExceededCount race 边界：single-threaded async loop / per-attempt increment / race 极小
     let contextExceededCount = 0;
+    // phase 991 B.4: skipped (breaker-open) provider 不计入 totalAttempted 分母
+    let skippedCount = 0;
 
     for (let pi = 0; pi < providers.length; pi++) {
       if (options.signal?.aborted) throw makeExternalAbortError(options.signal.reason as AbortReason | undefined);
@@ -324,6 +326,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
       // Check circuit breaker
       const breaker = this.breakers[breakerIndex];
       if (breaker?.isOpen()) {
+        skippedCount++;
         failures.push({ provider: adapter.name, error: new Error('Circuit breaker open') });
         yield { type: 'provider_failed' as const, provider: adapter.name, model: adapter.model, error: 'Circuit breaker open' };
         continue;
@@ -519,9 +522,11 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
 
     // All providers failed
     const totalProviders = providers.length;
-    if (contextExceededCount > 0 && contextExceededCount === totalProviders) {
+    // phase 991 B.4: 减 skipped 让 user-actionable context-exceeded message 在 1+ skipped 时仍能触发
+    const totalAttempted = totalProviders - skippedCount;
+    if (contextExceededCount > 0 && contextExceededCount === totalAttempted) {
       throw new Error(
-        `All ${totalProviders} providers exhausted with context_window_exceeded. ` +
+        `All ${totalAttempted} providers exhausted with context_window_exceeded. ` +
         `Reduce system prompt, tool definitions, or conversation history.`
       );
     }
@@ -710,7 +715,11 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
       this.updateLastSuccess(this.primary, false);
       yield winner.chunk;
       try {
-        for await (const chunk of primaryIter) yield chunk; // drain rest
+        // phase 991 B.2: drain loop user-abort early-exit guard
+        for await (const chunk of primaryIter) {
+          if (options.signal?.aborted) break;
+          yield chunk;
+        }
       } catch (err) {
         this.breakers[0]?.onFailure(classifyLLMError(err));
         this.events.emit({
@@ -718,6 +727,14 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
           provider: this.primary.name,
           error: err as Error,
         });
+        // phase 991 B.6: emit stream_reset + yield reset chunk mirror non-hedge line 442-450
+        // caller 收 reset signal 知 discard partial state、与 non-hedge path 对称 invariant
+        this.events.emit({ type: 'stream_reset', provider: this.primary.name, error: (err as Error).message });
+        yield {
+          type: 'reset',
+          provider: this.primary.name,
+          ...(err instanceof LLMTimeoutError ? { timeoutMs: err.timeoutMs } : {}),
+        };
         throw err;
       } finally {
         cleanupSignals();
@@ -786,6 +803,8 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
         return;
       }
       // 双失败
+      // phase 991 B.3: primary breaker accounting mirror line 715 single-fail
+      this.breakers[0]?.onFailure(classifyLLMError(winner.error));
       try { await primaryIter.return?.(); } catch { /* silent: generator already closed, ignore */ }
       cleanupSignals();
       throw new LLMAllProvidersFailedError([
@@ -804,13 +823,19 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
       this.updateLastSuccess(this.primary, false);
       yield aResult.chunk;
       try {
-        for await (const chunk of primaryIter) yield chunk;
+        // phase 991 B.2: drain loop user-abort early-exit guard
+        for await (const chunk of primaryIter) {
+          if (options.signal?.aborted) break;
+          yield chunk;
+        }
       } finally {
         cleanupSignals();
       }
       return;
     }
     // 双失败
+    // phase 991 B.3: primary breaker accounting mirror line 715 single-fail
+    this.breakers[0]?.onFailure(classifyLLMError(aResult.error));
     try { await primaryIter.return?.(); } catch { /* silent: generator already closed, ignore */ }
     cleanupSignals();
     throw new LLMAllProvidersFailedError([

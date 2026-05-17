@@ -150,8 +150,11 @@ describe('LLMOrchestratorImpl hedge drain post-first-chunk failure (phase 903 B2
       caught = e as Error;
     }
 
-    // first chunk yielded before drain throws
-    expect(chunks).toEqual([{ type: 'text_delta', delta: 'hello' }]);
+    // first chunk yielded before drain throws + reset chunk from B.6
+    expect(chunks).toEqual([
+      { type: 'text_delta', delta: 'hello' },
+      { type: 'reset', provider: 'primary' },
+    ]);
 
     // error rethrown
     expect(caught).toBeDefined();
