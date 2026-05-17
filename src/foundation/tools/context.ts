@@ -110,14 +110,17 @@ export function cloneExecContext(
   // phase 778: stopRequested 加 requestStop 委托回 parent ctx。
   // 否则 Object.assign 复制 primitive false 到 clone / mutator 写 clone storage /
   // runAgent 读原 ctx 仍 false / loop 不退。
+  // phase 929 (r116 G fork): getter 加 `?? false` fallback — 与下方 requestStop typeof guard
+  // 对称 / fixture (plain object mock) 缺 stopRequested 字段时返 false 非 undefined。
+  // ExecContextImpl 永 init stopRequested=false / 真生产 0 触发、仅 fixture defense 一致性。
   Object.defineProperty(clone, 'stopRequested', {
-    get() { return ctx.stopRequested; },
+    get() { return ctx.stopRequested ?? false; },
     set(v) { (ctx as { stopRequested: boolean }).stopRequested = v; },
     configurable: true,
   });
   // phase 815 P1.32: fixture defense — function 自身契约支持 plain object mocks（line 99-100 注释明示），
-  // 但 ctx.requestStop 可能 undefined（fixture 漏定义）/ stopRequested 部分已用 defineProperty 守、
-  // requestStop 同型 typeof guard。0 行为变实然 path（真 ctx 永有 method）。
+  // 但 ctx.requestStop 可能 undefined（fixture 漏定义）/ stopRequested getter 同型 fallback (phase 929)、
+  // requestStop typeof guard。0 行为变实然 path（真 ctx 永有 method）。
   clone.requestStop = () => {
     if (typeof ctx.requestStop === 'function') ctx.requestStop();
   };
