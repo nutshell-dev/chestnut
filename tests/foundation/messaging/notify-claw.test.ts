@@ -212,6 +212,85 @@ describe('notify_claw tool', () => {
     });
   });
 
+  describe('phase 898: independent error paths', () => {
+    it('ensureDirSync throws → NOTIFY_CLAW_FAILED with ensureDir reason + success=false', async () => {
+      const failFs = {
+        ...fs,
+        ensureDirSync: vi.fn(() => {
+          throw new Error('EACCES: permission denied');
+        }),
+        writeAtomicSync: vi.fn(() => {}),   // 不 throw（独立于既有 writeAtomicSync-throw 路径）
+        existsSync: vi.fn(() => true),
+      } as unknown as NodeFileSystem;
+
+      const tool = createNotifyClawTool({ fs: failFs, clawforumRoot: tempDir, audit: audit.audit });
+      const result = await tool.execute(
+        { to: targetClaw, body: 'should fail ensureDir' },
+        {} as any,
+      );
+      expect(result.success).toBe(false);
+      expect(result.content).toMatch(/Failed to notify worker-1:/);
+      expect(result.content).toMatch(/EACCES/);
+
+      // NOTIFY_CLAW_FAILED audit emit with reason 含 ensureDir 原因
+      const failedRow = audit.events.find(r => r[0] === MESSAGING_AUDIT_EVENTS.NOTIFY_CLAW_FAILED);
+      expect(failedRow).toBeDefined();
+      expect(failedRow).toContain(`claw=${targetClaw}`);
+      expect(failedRow!.some(f => typeof f === 'string' && f.startsWith('reason=') && f.includes('EACCES'))).toBe(true);
+
+      // 反向：NOTIFY_CLAW_SENT 必 0 emit
+      const sentRows = audit.events.filter(r => r[0] === MESSAGING_AUDIT_EVENTS.NOTIFY_CLAW_SENT);
+      expect(sentRows.length).toBe(0);
+
+      // 反向：writeAtomicSync 必 0 call（ensureDir 抛后短路）
+      expect((failFs.writeAtomicSync as any).mock.calls.length).toBe(0);
+    });
+
+    it('audit.write throws on SENT emit → catch path emits FAILED with audit reason + file already written (orphan state)', async () => {
+      // 副发现 4 cross-ref: catch 内 audit 二次抛 silent propagate / 单点 silent X 候选
+      // NOTIFY_CLAW_SENT 抛 → 进 catch → catch 内 audit.write(FAILED) 不 throw（仅 SENT throw mock）→ return success=false
+      const failAudit = {
+        write: vi.fn((event: string) => {
+          if (event === MESSAGING_AUDIT_EVENTS.NOTIFY_CLAW_SENT) {
+            throw new Error('audit disk full');
+          }
+        }),
+      } as any;
+
+      const tool = createNotifyClawTool({ fs, clawforumRoot: tempDir, audit: failAudit });
+
+      let caught: Error | undefined;
+      try {
+        await tool.execute({ to: targetClaw, body: 'audit will fail on SENT' }, {} as any);
+      } catch (e) {
+        caught = e as Error;
+      }
+
+      // SENT path audit throw → 被 catch 抓住 / execute 返回 success=false（不 bubble 至 caller）
+      expect(caught).toBeUndefined();
+
+      // 实然：write 调 3 次（INBOX_WRITTEN + SENT throw + FAILED 补救 emit）
+      expect((failAudit.write as any).mock.calls.length).toBeGreaterThanOrEqual(3);
+
+      // INBOX_WRITTEN 路径首调（InboxWriter.writeSync 内部）
+      expect((failAudit.write as any).mock.calls[0][0]).toBe(MESSAGING_AUDIT_EVENTS.INBOX_WRITTEN);
+
+      // SENT 路径第二调
+      expect((failAudit.write as any).mock.calls[1][0]).toBe(MESSAGING_AUDIT_EVENTS.NOTIFY_CLAW_SENT);
+
+      // FAILED 路径补救 emit（catch 抓 SENT throw 后调）
+      const failedCalls = (failAudit.write as any).mock.calls.filter(
+        (c: any[]) => c[0] === MESSAGING_AUDIT_EVENTS.NOTIFY_CLAW_FAILED,
+      );
+      expect(failedCalls.length).toBe(1);
+      expect(failedCalls[0]).toContainEqual(expect.stringMatching(/reason=.*audit disk full/));
+
+      // file 实际写入（writeSync 早于 audit.write SENT、ensureDir + writeAtomicSync 已成功）→ orphan file
+      const files = await fs.list(path.join('claws', targetClaw, 'inbox', 'pending'));
+      expect(files.length).toBe(1);   // 副发现 4 同根：SENT audit throw → file 已写 + FAILED audit emit / inconsistent state
+    });
+  });
+
   describe('inverse oracle (防 silent fail)', () => {
     it('mutation：execute 改返 success=true 永真 → 此测试必触发 audit/file 缺断言失败', async () => {
       // 该 test 仅记录意图、实际通过 audit + file 双 oracle 已覆盖
