@@ -40,17 +40,15 @@ export async function healthCommand(name: string, opts?: { json?: boolean }): Pr
     const entries = fs.readdirSync(path.join(clawDir, 'inbox', 'pending'));
     inboxPending = entries.length;
   } catch (err) {
-    if ((err as { code?: string })?.code !== 'ENOENT') {
-      console.error(`Warning: failed to read inbox/pending for ${name}: ${(err as Error).message}`);
-    }
+    // phase 906 r115 O fork (audit-2026-05-16 F14): narrow to ENOENT (dir does not exist 注释意图)
+    if ((err as { code?: string })?.code !== 'ENOENT') throw err;
   }
   try {
     const entries = fs.readdirSync(path.join(clawDir, 'outbox', 'pending'));
     outboxPending = entries.length;
   } catch (err) {
-    if ((err as { code?: string })?.code !== 'ENOENT') {
-      console.error(`Warning: failed to read outbox/pending for ${name}: ${(err as Error).message}`);
-    }
+    // phase 906 r115 O fork (audit-2026-05-16 F14): narrow to ENOENT (dir does not exist 注释意图)
+    if ((err as { code?: string })?.code !== 'ENOENT') throw err;
   }
 
   // Check contract status
@@ -65,9 +63,8 @@ export async function healthCommand(name: string, opts?: { json?: boolean }): Pr
         break;
       }
     } catch (err) {
-      if ((err as { code?: string })?.code !== 'ENOENT') {
-        console.error(`Warning: failed to scan ${CONTRACT_DIR}/${sub} for ${name}: ${(err as Error).message}`);
-      }
+      // phase 906 r115 O fork (audit-2026-05-16 F14): narrow to ENOENT (skip 注释意图)
+      if ((err as { code?: string })?.code !== 'ENOENT') throw err;
     }
   }
 
