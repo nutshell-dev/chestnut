@@ -85,6 +85,7 @@ async function runProcess(
     }
 
     function pushChunk(chunk: Buffer) {
+      if (maxBufferExceeded) return; // phase 948: SIGTERM 后 grace period 内不再累 buffers（防 memory 浪费）
       buffers.push(chunk);
       totalSize += chunk.length;
       if (totalSize > PROCESS_EXEC_MAX_BUFFER && !maxBufferExceeded) {

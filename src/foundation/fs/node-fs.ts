@@ -325,6 +325,8 @@ export class NodeFileSystem implements FileSystem {
 
   writeExclusiveSync(relativePath: string, content: string): void {
     const absolute = this.resolveAndCheck(relativePath, 'write');
+    const dir = path.dirname(absolute);
+    fsSync.mkdirSync(dir, { recursive: true }); // phase 948: mirror writeAtomicSync 对称 invariant（防 latent ENOENT 跨 caller）
     // 'wx' = write + exclusive, throws EEXIST if file exists
     const fd = fsSync.openSync(absolute, 'wx');
     try {

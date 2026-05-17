@@ -370,6 +370,26 @@ describe('FileSystem', () => {
     });
   });
 
+  describe('writeExclusiveSync deep-path mkdir (phase 948 site B)', () => {
+    let fs: NodeFileSystem;
+    let clawDir: string;
+
+    beforeEach(async () => {
+      clawDir = await createTempDir();
+      fs = new NodeFileSystem({ baseDir: clawDir });
+    });
+
+    afterEach(async () => {
+      await cleanupTempDir(clawDir);
+    });
+
+    it('deep path parent dir 不存在时自动 mkdir 不抛 ENOENT', () => {
+      const deepPath = 'a/b/c/d/lock.pid';
+      expect(() => fs.writeExclusiveSync(deepPath, 'content')).not.toThrow();
+      expect(fsSync.existsSync(path.join(clawDir, deepPath))).toBe(true);
+    });
+  });
+
   describe('writeExclusiveSync fsync (phase 610 / A.writeExclusiveSync-fsync)', () => {
     let fs: NodeFileSystem;
     let clawDir: string;
