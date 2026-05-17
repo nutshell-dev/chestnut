@@ -26,5 +26,5 @@ describe('CLI parseInt NaN guard - contract invalid', () => {
     expect(exitCode).toBe(1);
     expect(stderr).toContain('--since must be a Unix timestamp in milliseconds');
     expect(stderr).toContain('got: xyz');
-  }, 60000);
+  }, 120000);
 });

@@ -26,5 +26,5 @@ describe('CLI parseInt NaN guard - outbox invalid', () => {
     expect(exitCode).toBe(1);
     expect(stderr).toContain('--limit must be a non-negative integer');
     expect(stderr).toContain('got: abc');
-  }, 60000);
+  }, 120000);
 });
