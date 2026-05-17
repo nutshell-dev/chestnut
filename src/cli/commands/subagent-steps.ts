@@ -32,7 +32,7 @@ function resolveResultDir(clawDir: string, id: string): string {
   const subagentDir = path.join(clawDir, TASKS_SUBAGENTS_DIR, id);
   if (fs.existsSync(subagentDir)) return subagentDir;
 
-  throw new CliError(`Subagent "${id}" not found in claw directory`);
+  throw new CliError(`Subagent "${id}" not found in claw directory. Try \`clawforum subagent list --claw <name>\` to see subagents.`);
 }
 
 // ─── Commands ────────────────────────────────────────────────
@@ -50,7 +50,7 @@ function turnToJson(turn: Turn): unknown {
 export async function subagentStepsCommand(id: string, clawId: string, opts?: { json?: boolean }): Promise<void> {
   const clawDir = resolveClawDir(clawId);
   if (!fs.existsSync(clawDir)) {
-    throw new CliError(`Claw "${clawId}" does not exist`);
+    throw new CliError(`Claw "${clawId}" does not exist. Try \`clawforum claw list\` to see existing claws.`);
   }
 
   const resultDir = resolveResultDir(clawDir, id);
@@ -89,7 +89,7 @@ function parseStepRef(s: string): { turn: number; slot?: number } {
 export async function subagentStepCommand(n: string, id: string, clawId: string, opts?: { json?: boolean }): Promise<void> {
   const clawDir = resolveClawDir(clawId);
   if (!fs.existsSync(clawDir)) {
-    throw new CliError(`Claw "${clawId}" does not exist`);
+    throw new CliError(`Claw "${clawId}" does not exist. Try \`clawforum claw list\` to see existing claws.`);
   }
 
   const resultDir = resolveResultDir(clawDir, id);

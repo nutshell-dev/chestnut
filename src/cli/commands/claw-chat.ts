@@ -20,7 +20,7 @@ export async function chatCommand(name: string): Promise<void> {
   loadGlobalConfig(CONFIG_DEFAULTS);
 
   if (!clawExists(name)) {
-    throw new CliError(`Claw "${name}" does not exist`);
+    throw new CliError(`Claw "${name}" does not exist. Try \`clawforum claw list\` to see existing claws.`);
   }
 
   const clawDir = getClawDir(name);

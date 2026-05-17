@@ -215,7 +215,7 @@ clawCmd
     const systemAudit = createSystemAudit(nodeFs, baseDir);
     const pm = createAgentProcessManager(systemAudit);
     if (pm.isAlive(name)) {
-      console.log(`Claw "${name}" is already running`);
+      console.warn(`⚠ Claw "${name}" is already running`);
       return;
     }
     const thisDir = path.dirname(fileURLToPath(import.meta.url));
@@ -304,7 +304,7 @@ motionCmd
     const systemAudit = createSystemAudit(nodeFs, baseDir);
     const pm = createAgentProcessManager(systemAudit);
     if (pm.isAlive('motion')) {
-      console.log('Motion is already running');
+      console.warn('⚠ Motion is already running');
       return;
     }
     const thisDir = path.dirname(fileURLToPath(import.meta.url));
