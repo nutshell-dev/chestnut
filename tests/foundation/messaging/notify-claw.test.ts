@@ -291,11 +291,8 @@ describe('notify_claw tool', () => {
     });
   });
 
-  describe('inverse oracle (防 silent fail)', () => {
-    it('mutation：execute 改返 success=true 永真 → 此测试必触发 audit/file 缺断言失败', async () => {
-      // 该 test 仅记录意图、实际通过 audit + file 双 oracle 已覆盖
-      // mutation testing 框架（stryker）会自动验 — 留 docblock 标识
-      expect(true).toBe(true);
-    });
-  });
+  // phase 999 r121 P fork C.B.1: removed placeholder `inverse oracle` describe
+  // (sterile `expect(true).toBe(true)` assertion + stryker mutation testing 未集成)
+  // Existing 11 it (3 schema + 3 happy + 1 fs throw + 4 reverse phase 895 + 2 reverse phase 952)
+  // already cover audit/file dual-oracle. Restore if stryker integration arrives.
 });

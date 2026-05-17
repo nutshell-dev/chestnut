@@ -4,7 +4,7 @@
  * 修 spinner 不显示 bug：chat-viewport 启动晚于 daemon / 跳过 turn_start + llm_start events / spinner 没启动
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { findRecentTurnStartOffset } from '../../src/foundation/stream/turn-start-offset.js';
 import { createDirContext } from '../../src/cli/utils/factories.js';
 import * as fsNative from 'fs';
@@ -16,6 +16,11 @@ describe('findRecentTurnStartOffset', () => {
 
   beforeEach(() => {
     tmpDir = fsNative.mkdtempSync(path.join(os.tmpdir(), 'find-turn-start-'));
+  });
+
+  // phase 999 r121 P fork C.D.1: cleanup tmpDir leak per test run
+  afterEach(() => {
+    if (tmpDir) fsNative.rmSync(tmpDir, { recursive: true, force: true });
   });
 
   it('文件不存在 / 返 0', () => {

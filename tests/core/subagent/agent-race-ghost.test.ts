@@ -120,8 +120,19 @@ describe('SubAgent race ghost callback (Phase 538)', () => {
 
     await expect(agent.run()).rejects.toThrow();
 
-    // 等待 runReact 的异步 callback 完成（timeout 50ms / runReact 500ms 后 ghost / 缓 1000ms margin 抗 CI 抖动 / per phase 703 D-5 γ）
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    // phase 999 r121 P fork C.G.2: 1000ms physical sleep margin → event-driven waitFor
+    // (mirror phase 779 + 884 模板 / `feedback_concurrency_race_cluster_sweep §waitFor` Tier 2 active)
+    await vi.waitFor(
+      () => {
+        const interruptedCount = sw.events.filter((e) => e.type === 'turn_interrupted').length;
+        const ghostAuditCount = mockAuditWriter.write.mock.calls.filter(
+          (call: any[]) => call[0] === SUBAGENT_AUDIT_EVENTS.GHOST_CALLBACK_AFTER_TURN_END,
+        ).length;
+        expect(interruptedCount).toBe(1);
+        expect(ghostAuditCount).toBe(1);
+      },
+      { timeout: 2000, interval: 50 },
+    );
 
     // turn_interrupted 已写入
     const interrupted = sw.events.filter((e) => e.type === 'turn_interrupted');

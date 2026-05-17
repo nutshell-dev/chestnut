@@ -30,7 +30,8 @@ describe('exec maxBuffer SIGTERM 后 pushChunk early return (phase 948 site A)',
     `;
 
     try {
-      await exec('node', ['-e', script], { cwd: workDir, timeout: 30000 });
+      // phase 999 r121 P fork C.G.1: timeout 30000 → 10000 (typical runtime ~2-3s + 3-4x margin)
+      await exec('node', ['-e', script], { cwd: workDir, timeout: 10000 });
       expect.fail('should have thrown');
     } catch (err) {
       expect(err).toBeInstanceOf(ProcessExecError);
@@ -40,5 +41,5 @@ describe('exec maxBuffer SIGTERM 后 pushChunk early return (phase 948 site A)',
       // Without it, the 1000ms grace period could add many MBs.
       expect(error.output.length).toBeLessThanOrEqual(MAX_BUFFER + 65536 * 5);
     }
-  }, 30000);
+  }, 10000);
 });

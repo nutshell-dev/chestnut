@@ -4,7 +4,7 @@
  * Directly tests executeStep without going through runReact shim.
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { executeStep } from '../../src/core/step-executor/step-executor.js';
 import { IdleTimeoutSignal } from '../../src/types/signals.js';
 import type { LLMCallInfo } from '../../src/core/step-executor/step-executor.js';
@@ -113,8 +113,11 @@ function makeMalformedToolInputLLM(toolUseId: string, toolName: string, rawInput
 
 // ── Real fixture factories (fidelity) ───────────────────────────────────────
 
+const tmpDirs: string[] = [];
+
 async function makeRealCtx(opts: { signal?: AbortSignal } = {}): Promise<ExecContext> {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'step-exec-'));
+  tmpDirs.push(tmpDir);
   const nodeFs = new NodeFileSystem({ baseDir: tmpDir });
   return new ExecContextImpl({
     clawId: 'test-claw',
@@ -124,6 +127,14 @@ async function makeRealCtx(opts: { signal?: AbortSignal } = {}): Promise<ExecCon
     signal: opts.signal,
   });
 }
+
+// phase 999 r121 P fork C.D.2: cleanup tmpDir leak per test run (async variant)
+afterEach(async () => {
+  for (const d of tmpDirs) {
+    await fs.rm(d, { recursive: true, force: true }).catch(() => {});
+  }
+  tmpDirs.length = 0;
+});
 
 function makeStreamLLM(chunks: StreamChunk[]): LLMOrchestrator {
   return {
