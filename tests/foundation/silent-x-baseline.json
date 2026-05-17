@@ -11,19 +11,19 @@
     },
     {
       "file": "src/cli/commands/chat-viewport-claw-manager.ts",
-      "line": 145,
+      "line": 146,
       "body_excerpt": "} catch { /* skip */ }",
       "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
     },
     {
       "file": "src/cli/commands/chat-viewport-claw-manager.ts",
-      "line": 150,
+      "line": 151,
       "body_excerpt": "} catch { /* ENOENT 等，跳过 */ }",
       "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
     },
     {
       "file": "src/cli/commands/chat-viewport-claw-manager.ts",
-      "line": 64,
+      "line": 65,
       "body_excerpt": "} catch { /* polling fallback */ }",
       "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
     },
