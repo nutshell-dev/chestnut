@@ -6,6 +6,7 @@ import { STREAM_FILE } from '../../foundation/stream/index.js';
 import type { Watcher } from '../../foundation/file-watcher/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
+import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
 import { createChatViewportWatcher } from './chat-viewport-watcher.js';
 import { type ClawTrack, makeClawTrack } from './chat-viewport-claw-line.js';
 
@@ -157,7 +158,15 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
       clawIds = fs.listSync(clawsDir, { includeDirs: true })
         .filter(e => e.isDirectory)
         .map(e => e.name);
-    } catch { return; }
+    } catch (err) {
+      // phase 979 (r120 C fork / phase 975 B-α2):
+      // ENOENT (clawsDir 首次启动) silent OK / non-ENOENT (FS perm / NFS hang / EACCES) audit emit 防 orphan watcher silent 累
+      const code = (err as { code?: string })?.code;
+      if (code !== 'ENOENT') {
+        audit.write(VIEWPORT_AUDIT_EVENTS.REFRESH_CLAWS_FAILED, `code=${code ?? 'unknown'}`, `error=${err instanceof Error ? err.message : String(err)}`);
+      }
+      return;
+    }
 
     for (const [id] of clawTrackMap) {
       if (!clawIds.includes(id)) {

@@ -18,4 +18,5 @@ export const VIEWPORT_AUDIT_EVENTS = {
   TASK_STREAM_STALE_CLEANUP: 'viewport_task_stream_stale_cleanup',
   INVALID_TASK_ID: 'chat_viewport_invalid_task_id',
   HISTORY_REPLAY_FAILED: 'chat_viewport_history_replay_failed',
+  REFRESH_CLAWS_FAILED: 'chat_viewport_refresh_claws_failed',
 } as const;
