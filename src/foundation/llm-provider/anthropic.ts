@@ -24,6 +24,7 @@ import type {
 import { THINKING_TOKEN_RESERVE, STREAM_MAX_DURATION_MS } from '../llm-orchestrator/constants.js';
 import { BaseAnthropicAdapter, type AnthropicRequestBody } from './base-anthropic.js';
 import { makeExternalAbortError, type AbortReason } from './abort-helper.js';
+import { assertContentBlocks } from './_block-guards.js';
 
 /**
  * Anthropic adapter implementation using official SDK
@@ -233,13 +234,12 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
         return { role, content: m.content as string };
       }
 
-      const blocks = m.content as unknown[];
+      assertContentBlocks(m.content);
+      const blocks = m.content;
       if (addCache && blocks.length > 0) {
-        const copy = [...blocks];
-        copy[copy.length - 1] = {
-          ...(copy[copy.length - 1] as Record<string, unknown>),
-          cache_control: { type: 'ephemeral' },
-        };
+        const copy: ContentBlock[] = [...blocks];
+        const last = copy[copy.length - 1] as Record<string, unknown>;
+        last.cache_control = { type: 'ephemeral' };
         return { role, content: copy };
       }
       return { role, content: blocks };

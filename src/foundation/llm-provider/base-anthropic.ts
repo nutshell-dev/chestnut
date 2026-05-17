@@ -7,6 +7,7 @@
 
 import type { ProviderConfig, LLMCallOptions, ProviderAdapter, StreamChunk } from './types.js';
 import type { LLMResponse } from '../../types/message.js';
+import { assertContentBlocks } from './_block-guards.js';
 
 export interface AnthropicRequestBody {
   model: string;
@@ -112,7 +113,8 @@ export abstract class BaseAnthropicAdapter implements ProviderAdapter {
         return [{ role, content: m.content as string }];
       }
 
-      const blocks = m.content as Array<{type?: string}>;
+      assertContentBlocks(m.content);
+      const blocks = m.content;
 
       // Filter thinking blocks if dropThinkingBlocks is enabled (for MiniMax and other providers)
       const effectiveBlocks = dropThinking
@@ -132,12 +134,12 @@ export abstract class BaseAnthropicAdapter implements ProviderAdapter {
           return [{ role, content: copy }];
         }
         // Keep array format for structured messages
-        return [{ role, content: effectiveBlocks as unknown[] }];
+        return [{ role, content: effectiveBlocks }];
       }
 
       // Text-only or think-only
-      const text = (effectiveBlocks as Array<{type?: string; text?: string}>)
-        .filter(b => b.type === 'text')
+      const text = effectiveBlocks
+        .filter((b): b is { type: 'text'; text?: string } => b.type === 'text')
         .map(b => b.text || '')
         .join('');
 
