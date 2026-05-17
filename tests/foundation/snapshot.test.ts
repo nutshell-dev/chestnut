@@ -392,10 +392,11 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
     const baseFs = new NodeFileSystem({ baseDir: tmpDir });
     let ensureDirCallCount = 0;
     const fs = Object.create(baseFs);
-    fs.removeDir = vi.fn().mockResolvedValue(undefined);
+    // phase 998 H.1: content-only-clear means list() is called first; if dir does not exist,
+    // list() throws FileNotFoundError, triggering catch -> ensureDir restore attempt.
     fs.ensureDir = vi.fn().mockImplementation(async (dir: string) => {
       ensureDirCallCount++;
-      if (ensureDirCallCount <= 2) {
+      if (ensureDirCallCount <= 1) {
         throw new Error(`mock ensureDir failure #${ensureDirCallCount}`);
       }
       return baseFs.ensureDir(dir);
@@ -424,7 +425,7 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
     expect(restoreCall).toEqual([
       'snapshot_sync_restore_failed',
       expect.stringContaining('dir='),
-      expect.stringContaining('restoreReason=mock ensureDir failure #2'),
+      expect.stringContaining('restoreReason=mock ensureDir failure #1'),
     ]);
   });
 

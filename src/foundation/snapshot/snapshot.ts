@@ -158,11 +158,20 @@ export class Snapshot {
           continue;
         }
         try {
-          await this.fs.removeDir(relDir);
-          await this.fs.ensureDir(relDir);
+          // H.1 α-content-only-clear: preserve dir invariant to avoid ENOENT race window
+          // with concurrent task writer (phase 998). Replaces removeDir+ensureDir.
+          const entries = await this.fs.list(relDir, { includeDirs: true });
+          for (const entry of entries) {
+            const entryPath = path.join(relDir, entry.name);
+            if (entry.isDirectory) {
+              await this.fs.removeDir(entryPath);
+            } else {
+              await this.fs.delete(entryPath);
+            }
+          }
         } catch (e) {
-          // phase 815 P1.33: removeDir+ensureDir 非原子。removeDir 成功 + ensureDir fail（disk full
-          // / permission / IO）→ dir 被删未重建 / 后续 turn 写 audit/stream ENOENT crash。
+          // phase 815 P1.33: content clear 非原子。clear 成功部分 + ensureDir fail（disk full
+          // / permission / IO）→ dir 可能未完全清空 / 后续 turn 写 audit/stream 潜在 crash。
           // best-effort 重建 + audit / 失败也只 audit 不抛（mirror init() cleanup 既有 pattern）
           try {
             await this.fs.ensureDir(relDir);
