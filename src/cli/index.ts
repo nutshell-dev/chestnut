@@ -43,8 +43,7 @@ import { LOGS_DIR } from '../types/paths.js';
 import { createDirContext } from './utils/factories.js';
 import { getClawforumRoot, getClawDir, loadGlobalConfig } from '../foundation/config/index.js';
 import { getWorkspaceRoot } from '../foundation/config/paths.js';
-
-
+import { parseIntOption } from './parse-int-option.js';
 
 program
   .name('clawforum')
@@ -162,10 +161,7 @@ clawCmd
   .action(withCliErrorHandling(async (name: string, opts: { limit: string }) => {
     loadGlobalConfig();
     const { audit } = createDirContext(getClawDir(name));
-    const limit = parseInt(opts.limit, 10);
-    if (Number.isNaN(limit)) {
-      throw new CliError(`--limit must be a non-negative integer, got: ${opts.limit}`);
-    }
+    const limit = parseIntOption(opts.limit, '--limit');
     await outboxCommand(name, { limit }, { audit });
   }));
 
@@ -377,10 +373,7 @@ contractCmd
   .description('Show contract events since a timestamp')
   .requiredOption('--since <timestamp>', 'Unix timestamp in milliseconds')
   .action(withCliErrorHandling(async (claw: string, opts: { since: string }) => {
-    const since = parseInt(opts.since, 10);
-    if (Number.isNaN(since)) {
-      throw new CliError(`--since must be a Unix timestamp in milliseconds, got: ${opts.since}`);
-    }
+    const since = parseIntOption(opts.since, '--since');
     await contractEventsCommand(claw, since);
   }));
 
