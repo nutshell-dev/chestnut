@@ -47,10 +47,16 @@ export async function subagentListCommand(options: ListOptions): Promise<void> {
     // Filter by time range
     if (options.from) {
       const fromDate = new Date(options.from);
+      if (Number.isNaN(fromDate.getTime())) {
+        throw new CliError(`--from must be a valid date, got: ${options.from}`);
+      }
       entries = entries.filter(e => e.startedAt && e.startedAt >= fromDate);
     }
     if (options.to) {
       const toDate = new Date(options.to);
+      if (Number.isNaN(toDate.getTime())) {
+        throw new CliError(`--to must be a valid date, got: ${options.to}`);
+      }
       entries = entries.filter(e => e.startedAt && e.startedAt <= toDate);
     }
 

@@ -209,6 +209,7 @@ export function createMainTurnUI(deps: MainTurnUIDeps): MainTurnUIController {
     guardWrite('flushStreaming');
     if (!streamingBuffer) {
       preview = '';
+      deps.updateDisplay();   // NEW: mirror non-empty branch line 224 / 双 branch 对称 invariant
       return;
     }
     const dotPrefix = '\x1b[38;5;232m⏺\x1b[0m ';

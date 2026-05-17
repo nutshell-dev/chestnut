@@ -129,7 +129,7 @@ describe('chat-viewport Phase 72', () => {
 
     it('flushStreaming 应使用 appendOutput', () => {
       const flushStreamingMatch = sourceCode.match(
-        /const flushStreaming = \(\) => \{[\s\S]{0,600}?\};/
+        /const flushStreaming = \(\) => \{[\s\S]{0,800}?\};/
       );
       expect(flushStreamingMatch).toBeTruthy();
       expect(flushStreamingMatch![0]).toContain('appendOutput');
@@ -232,7 +232,7 @@ describe('chat-viewport Phase 72', () => {
 
     it('flushStreaming 传 indent 作为 hangIndent', () => {
       const flushMatch = sourceCode.match(
-        /const flushStreaming[\s\S]{0,500}?appendOutput\([^)]+\)/
+        /const flushStreaming[\s\S]{0,700}?appendOutput\([^)]+\)/
       );
       expect(flushMatch![0]).toMatch(/appendOutput\(.*indent\)/);
     });

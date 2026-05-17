@@ -276,6 +276,16 @@ describe('MainTurnUIController', () => {
     });
   });
 
+  // —— phase 954: flushStreaming empty branch symmetric invariant ——
+  it('flushStreaming with empty buffer calls deps.updateDisplay (反向: empty/non-empty branch symmetric, phase 954)', () => {
+    const updateDisplaySpy = vi.fn();
+    const deps = { ...makeDeps(), updateDisplay: updateDisplaySpy };
+    const ui = createMainTurnUI(deps);
+    updateDisplaySpy.mockClear();
+    ui.flushStreaming();   // streamingBuffer empty
+    expect(updateDisplaySpy).toHaveBeenCalled();
+  });
+
   // —— phase 899: 3-cycle + MIN_DWELL_MS boundary ——
   describe('phase 899: 3-cycle + MIN_DWELL_MS boundary', () => {
     beforeEach(() => { vi.useFakeTimers(); });
