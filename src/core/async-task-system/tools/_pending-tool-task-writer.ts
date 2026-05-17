@@ -31,6 +31,6 @@ export async function writePendingToolTaskFile(
     `${TASKS_QUEUES_PENDING_DIR}/${taskId}.json`,
     JSON.stringify(task, null, 2),
   );
-  audit?.write(TASK_AUDIT_EVENTS.TASK_SCHEDULED, taskId, 'kind=tool', `parent=${args.parentClawId}`, `tool=${args.toolName}`);
+  audit?.write(TASK_AUDIT_EVENTS.TASK_SCHEDULED, taskId, 'kind=tool', `parent=${args.parentClawId}`, `tool=${args.toolName}`, `isShadow=${args.isShadow}`);
   return taskId;
 }

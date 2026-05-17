@@ -229,3 +229,64 @@ describe('async ToolTask isShadow propagation (phase 858)', () => {
     expect(capturedArgs!.isShadow).toBe(true);
   });
 });
+
+describe('writePendingToolTaskFile - audit emit isShadow attr (phase 893)', () => {
+  it('emits isShadow=true when args.isShadow=true', async () => {
+    const fs = makeCapturingMockFs();
+    const { audit, events } = makeMockAudit();
+
+    await writePendingToolTaskFile(fs, audit, {
+      toolName: 'fake_tool',
+      args: {},
+      parentClawDir: '/tmp/claw',
+      parentClawId: 'claw-a',
+      isIdempotent: true,
+      maxRetries: 0,
+      retryCount: 0,
+      isShadow: true,
+    });
+
+    const scheduled = events.find((e) => e[0] === 'task_scheduled');
+    expect(scheduled).toBeDefined();
+    expect(scheduled!.slice(1)).toContain('isShadow=true');
+  });
+
+  it('emits isShadow=false when args.isShadow=false', async () => {
+    const fs = makeCapturingMockFs();
+    const { audit, events } = makeMockAudit();
+
+    await writePendingToolTaskFile(fs, audit, {
+      toolName: 'fake_tool',
+      args: {},
+      parentClawDir: '/tmp/claw',
+      parentClawId: 'claw-a',
+      isIdempotent: true,
+      maxRetries: 0,
+      retryCount: 0,
+      isShadow: false,
+    });
+
+    const scheduled = events.find((e) => e[0] === 'task_scheduled');
+    expect(scheduled).toBeDefined();
+    expect(scheduled!.slice(1)).toContain('isShadow=false');
+  });
+
+  it('emits isShadow=undefined when args.isShadow omitted', async () => {
+    const fs = makeCapturingMockFs();
+    const { audit, events } = makeMockAudit();
+
+    await writePendingToolTaskFile(fs, audit, {
+      toolName: 'fake_tool',
+      args: {},
+      parentClawDir: '/tmp/claw',
+      parentClawId: 'claw-a',
+      isIdempotent: true,
+      maxRetries: 0,
+      retryCount: 0,
+    });
+
+    const scheduled = events.find((e) => e[0] === 'task_scheduled');
+    expect(scheduled).toBeDefined();
+    expect(scheduled!.slice(1)).toContain('isShadow=undefined');
+  });
+});
