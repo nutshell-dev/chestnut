@@ -102,7 +102,9 @@ export function createTaskStatusBar(deps: TaskStatusBarDeps): TaskStatusBarContr
     if (!tr) return;   // 未注册 task 不处理
     switch (event.type) {
       case 'tool_call':
-        tr.currentTool = String(event.name ?? '');
+        // phase 940 r117 B fork (phase 928 design): null-sentinel for absent tool name
+        // 修 silent X: event.name undefined → '' (falsy) → line 47 truthy 检漏 → ⊙ ghost branch
+        tr.currentTool = event.name ? String(event.name) : null;
         tr.toolSuccess = null;
         tr.textBuffer = '';
         tr.bufferType = null;
