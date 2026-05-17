@@ -77,7 +77,6 @@ Motion 会检查该文件并基于记录寻找新方法或调整任务。
   - exec: \`exec: { "command": "ls", "cwd": "../memory" }\`
 - **Stay in workspace subdir** (clawspace 下子目录): use \`cwd: '<subdir>'\`
   - exec: \`exec: { "command": "make", "cwd": "build" }\` (runs at clawspace/build)
-  - exec: \`exec: { "command": "ls", "cwd": "memory" }\`
 
 ## File Operation Guidelines
 

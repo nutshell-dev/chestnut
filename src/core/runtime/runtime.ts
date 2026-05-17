@@ -767,6 +767,8 @@ export class Runtime {
     );
 
     // 5. Run the ReAct loop (with incremental session saves)
+    // align _processBatch turn-start reset, per phase 786 + phase 900 cluster sweep
+    this.execContext.stopRequested = false;
     const abortController = new AbortController();
     this.currentAbortController = abortController;
     this.execContext.signal = abortController.signal;
