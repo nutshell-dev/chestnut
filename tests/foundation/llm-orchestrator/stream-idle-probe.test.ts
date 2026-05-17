@@ -52,7 +52,7 @@ describe('Stream idle probe (⚓4 ε ratified by phase 628)', () => {
           // first stream: idle timeout
           yield { type: 'text_delta', delta: 'first' };
           await new Promise<void>((resolve, reject) => {
-            const timer = setTimeout(resolve, 5000);
+            const timer = setTimeout(resolve, 50);
             opts.signal?.addEventListener('abort', () => {
               clearTimeout(timer);
               reject(new Error('AbortError'));
@@ -100,7 +100,7 @@ describe('Stream idle probe (⚓4 ε ratified by phase 628)', () => {
       async function* (opts: { signal?: AbortSignal }) {
         yield { type: 'text_delta', delta: 'first' };
         await new Promise<void>((resolve, reject) => {
-          const timer = setTimeout(resolve, 5000);
+          const timer = setTimeout(resolve, 50);
           opts.signal?.addEventListener('abort', () => {
             clearTimeout(timer);
             reject(new Error('AbortError'));
@@ -113,7 +113,7 @@ describe('Stream idle probe (⚓4 ε ratified by phase 628)', () => {
         return new Promise((resolve, reject) => {
           const timer = setTimeout(() => {
             reject(new Error('probe timeout'));
-          }, 5000);
+          }, 50);
           opts?.signal?.addEventListener('abort', () => {
             clearTimeout(timer);
             const err = new Error('AbortError');
@@ -163,7 +163,7 @@ describe('Stream idle probe (⚓4 ε ratified by phase 628)', () => {
       async function* (opts: { signal?: AbortSignal }) {
         yield { type: 'text_delta', delta: 'first' };
         await new Promise<void>((resolve, reject) => {
-          const timer = setTimeout(resolve, 5000);
+          const timer = setTimeout(resolve, 50);
           opts.signal?.addEventListener('abort', () => {
             clearTimeout(timer);
             reject(new Error('AbortError'));
