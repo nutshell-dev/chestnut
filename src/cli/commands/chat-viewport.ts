@@ -854,22 +854,6 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   const sigtermHandler = () => resolveExit();
   process.on('SIGTERM', sigtermHandler);
 
-  // viewport pid 文件注册：写到 <clawforumDir>/viewports/<pid>.pid / stop 命令 read + kill + delete
-  // 用 node fsNative 直写 / 因为 viewports/ 在 motion baseDir 之外（NodeFileSystem 拒绝 baseDir 外路径）
-  const clawforumDir = path.resolve(options.agentDir, '..');
-  const viewportPidDir = path.join(clawforumDir, 'viewports');
-  const viewportPidFile = path.join(viewportPidDir, `${process.pid}.pid`);
-  try {
-    const fsNative = await import('fs');
-    fsNative.mkdirSync(viewportPidDir, { recursive: true });
-    fsNative.writeFileSync(
-      viewportPidFile,
-      JSON.stringify({ pid: process.pid, label: options.label, agentDir: options.agentDir, startedAt: new Date().toISOString() }),
-    );
-  } catch {
-    // pid file 写失败 软降级 / 仍允许 viewport 运行 / stop 命令无法 kill 此 viewport（user 仍可手动 Ctrl+C）
-  }
-
   try {
     await exitPromise;
   } finally {
@@ -895,11 +879,6 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
         .filter((p): p is Promise<void> => p !== undefined)
     );
     taskWatchMap.clear();
-    // 删 viewport pid 文件（best-effort / 异常进程退出可能 leak / stop 命令容错）
-    try {
-      const fsNative = await import('fs');
-      fsNative.unlinkSync(viewportPidFile);
-    } catch { /* leak tolerated / stop 容错 stale pid file */ }
     tui.stop();
     await terminal.drainInput();
     process.stdin.pause();

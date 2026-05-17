@@ -29,6 +29,8 @@ function assertSafeClawId(name: string): void {
     name === '.' ||
     name.startsWith('.') ||
     name.includes('/') ||
+    name.includes('\\') ||
+    /[\x00-\x1f]/.test(name) ||
     name.includes('..')
   ) {
     throw new Error(`Invalid claw id: ${JSON.stringify(name)}`);

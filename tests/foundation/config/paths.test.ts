@@ -21,4 +21,16 @@ describe('Phase 537 — getClawDir traversal guard', () => {
     expect(() => getClawDir('foo-bar_baz')).not.toThrow();
     expect(() => getClawDir('AlphaNumeric123')).not.toThrow();
   });
+
+  it('rejects backslash in claw id (Windows path separator)', () => {
+    expect(() => getClawDir('foo\\bar')).toThrow(/Invalid claw id/);
+  });
+
+  it('rejects NUL byte in claw id', () => {
+    expect(() => getClawDir('foo\x00bar')).toThrow(/Invalid claw id/);
+  });
+
+  it('rejects tab in claw id (control char poisoning audit log readability)', () => {
+    expect(() => getClawDir('foo\x09bar')).toThrow(/Invalid claw id/);
+  });
 });
