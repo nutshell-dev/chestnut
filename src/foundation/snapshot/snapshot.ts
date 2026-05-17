@@ -166,7 +166,14 @@ export class Snapshot {
           // best-effort 重建 + audit / 失败也只 audit 不抛（mirror init() cleanup 既有 pattern）
           try {
             await this.fs.ensureDir(relDir);
-          } catch { /* audit-only / 真双 fail 推 r+1 emptyDir helper α */ }
+          } catch (restoreErr) {
+            // phase 892: 双 fail 独立 event 区分 outer SYNC_CLEAN_FAILED / mirror init() INIT_CLEANUP_FAILED 模板
+            this.audit.write(
+              SNAPSHOT_AUDIT_EVENTS.SYNC_RESTORE_FAILED,
+              `dir=${cleanupDir}`,
+              `restoreReason=${restoreErr instanceof Error ? restoreErr.message : String(restoreErr)}`,
+            );
+          }
           this.audit.write(
             SNAPSHOT_AUDIT_EVENTS.SYNC_CLEAN_FAILED,
             `dir=${cleanupDir}`,

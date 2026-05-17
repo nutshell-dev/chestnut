@@ -384,6 +384,50 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
   });
 
   // ========================================================================
+  // commit() syncDir double-fail audit (phase 892 audit.NEW.P1.8)
+  // ========================================================================
+
+  it('commit() syncDir double-fail emits both SYNC_CLEAN_FAILED + SYNC_RESTORE_FAILED', async () => {
+    const baseFs = new NodeFileSystem({ baseDir: tmpDir });
+    let ensureDirCallCount = 0;
+    const fs = Object.create(baseFs);
+    fs.removeDir = vi.fn().mockResolvedValue(undefined);
+    fs.ensureDir = vi.fn().mockImplementation(async (dir: string) => {
+      ensureDirCallCount++;
+      if (ensureDirCallCount <= 2) {
+        throw new Error(`mock ensureDir failure #${ensureDirCallCount}`);
+      }
+      return baseFs.ensureDir(dir);
+    });
+
+    const audit = { write: vi.fn() };
+    const scratchDir = path.join(tmpDir, 'tasks', 'sync', 'exec');
+    const snapshot = new Snapshot(tmpDir, fs, audit, [], [scratchDir]);
+    await snapshot.init();
+
+    // trigger commit with a change
+    await fsp.writeFile(path.join(tmpDir, 'data.txt'), 'hello');
+    const result = await snapshot.commit('test-double-fail');
+    expect(result.ok).toBe(true); // best-effort: commit itself OK
+
+    const events = audit.write.mock.calls.map((c: any[]) => c[0]);
+    expect(events).toContain('snapshot_sync_restore_failed');
+    expect(events).toContain('snapshot_sync_clean_failed');
+
+    // forensics order: RESTORE emitted before CLEAN (inner before outer)
+    expect(events.indexOf('snapshot_sync_restore_failed'))
+      .toBeLessThan(events.indexOf('snapshot_sync_clean_failed'));
+
+    // verify payload schema
+    const restoreCall = audit.write.mock.calls.find((c: any[]) => c[0] === 'snapshot_sync_restore_failed');
+    expect(restoreCall).toEqual([
+      'snapshot_sync_restore_failed',
+      expect.stringContaining('dir='),
+      expect.stringContaining('restoreReason=mock ensureDir failure #2'),
+    ]);
+  });
+
+  // ========================================================================
   // commit() cleanup empty relDir guard (phase 831 audit.P2.snap-2)
   // ========================================================================
 
