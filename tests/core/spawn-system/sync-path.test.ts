@@ -21,6 +21,7 @@ import { makeAudit } from '../../helpers/audit.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { ToolRegistryImpl } from '../../../src/foundation/tools/registry.js';
 import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/index.js';
+import { createDoneTool, DONE_TOOL_NAME } from '../../../src/core/subagent/index.js';
 
 const { mockWriteFile } = vi.hoisted(() => ({
   mockWriteFile: vi.fn(),
@@ -264,6 +265,33 @@ describe('spawn tool sync path (phase 766)', () => {
       expect(result.success).toBe(true);
       expect(result.error).toBeUndefined();
       expect(mockWriteFile).toHaveBeenCalledOnce();
+    });
+  });
+
+  describe('done capturedResult isolation (phase 944)', () => {
+    it('uses fresh done instance, isolated from main registry capturedResult', async () => {
+      // 1. pre-set main registry done with stale capturedResult
+      const mainDone = baseCtx.registry?.get(DONE_TOOL_NAME) as { capturedResult?: { result: string } } | undefined;
+      if (!mainDone) throw new Error('test setup: main registry should have done tool');
+      mainDone.capturedResult = { result: 'STALE_RESULT_FROM_PREVIOUS_SPAWN' };
+
+      // 2. mock runSubagent to return text only (simulates LLM not calling done)
+      mockRunSubagent.mockResolvedValue({ text: 'fresh spawn text result' });
+
+      // 3. run spawn sync; internal subagentRegistry should have fresh done, not main stale
+      const result = await spawnTool.execute({ intent: 'isolation test', async: false }, baseCtx);
+
+      // 4. assert text fallback, not stale result
+      expect(result.success).toBe(true);
+      expect(result.content).toBe('fresh spawn text result');
+      expect(result.content).not.toContain('STALE_RESULT_FROM_PREVIOUS_SPAWN');
+
+      // 5. assert runSubagent received subagentRegistry with done as fresh instance
+      const callArgs = mockRunSubagent.mock.calls[0][0];
+      const spawnDone = callArgs.registry.get(DONE_TOOL_NAME);
+      expect(spawnDone).toBeDefined();
+      expect(spawnDone).not.toBe(mainDone); // fresh instance !== main instance
+      expect((spawnDone as { capturedResult?: unknown }).capturedResult).toBeUndefined(); // fresh, no stale state
     });
   });
 });

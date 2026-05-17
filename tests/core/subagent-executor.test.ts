@@ -14,8 +14,20 @@ const { mockRunSubagent } = vi.hoisted(() => ({
   mockRunSubagent: vi.fn(),
 }));
 
+const { mockCreateDoneTool } = vi.hoisted(() => ({
+  mockCreateDoneTool: vi.fn(() => ({
+    name: 'done',
+    description: 'done',
+    schema: { type: 'object', properties: {} },
+    execute: vi.fn(),
+  })),
+}));
+
 vi.mock('../../src/core/subagent/index.js', () => ({
   runSubagent: mockRunSubagent,
+  NoopAuditWriter: class NoopAuditWriter { write() {} },
+  createDoneTool: mockCreateDoneTool,
+  DONE_TOOL_NAME: 'done',
 }));
 
 function makeTask(overrides: Partial<SubAgentTask> = {}): SubAgentTask {
@@ -116,5 +128,17 @@ describe('Phase 546 — subagent-executor systemPrompt 注入', () => {
     const captured = mockRunSubagent.mock.calls[0][0];
     // promptPrefix 含 taskId / callerClawId 信息
     expect(captured.systemPrompt).toMatch(/Task ID|callerClawId|workspace/);
+  });
+
+  it('creates fresh done instance per subagent task (phase 944)', async () => {
+    const task1 = makeTask();
+    const task2 = makeTask();
+    const deps = makeDeps();
+
+    await executeSubAgentTask(task1, new AbortController().signal, deps);
+    await executeSubAgentTask(task2, new AbortController().signal, deps);
+
+    expect(mockCreateDoneTool).toHaveBeenCalledTimes(2);
+    expect(mockRunSubagent).toHaveBeenCalledTimes(2);
   });
 });

@@ -6,7 +6,7 @@ import { type StreamLog, STREAM_FILE } from '../../foundation/stream/index.js';
 import { type CallerType, callerTypeToProfile } from '../../foundation/tool-protocol/index.js';
 import { createToolRegistry } from '../../foundation/tools/index.js';
 import type { ToolRegistry } from '../../foundation/tools/index.js';
-import { runSubagent, NoopAuditWriter } from '../subagent/index.js';
+import { runSubagent, NoopAuditWriter, createDoneTool, DONE_TOOL_NAME } from '../subagent/index.js';
 import { createDialogStore } from '../../foundation/dialog-store/index.js';
 
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
@@ -70,7 +70,11 @@ export async function executeSubAgentTask(
     const subagentProfile = callerTypeToProfile(task.callerType ?? 'subagent');
     const effectiveRegistry = (() => {
       const r = createToolRegistry();
-      for (const t of registry.getForProfile(subagentProfile)) r.register(t);
+      for (const t of registry.getForProfile(subagentProfile)) {
+        if (t.name === DONE_TOOL_NAME) continue; // phase 944: skip main shared done (mirror phase 780)
+        r.register(t);
+      }
+      r.register(createDoneTool()); // fresh done instance per subagent task (mirror phase 780)
 
       // phase 713: motionClawDir 构造 motionDialogStore + AskMotionTool（全然一致性 reuse）
       if (task.motionClawDir) {
