@@ -5,6 +5,7 @@
 
 import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/types.js';
+import { AUDIT_PREVIEW_LEN } from '../../foundation/audit/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { FileNotFoundError, ToolError } from '../../types/errors.js';
 import { LOCK_MAX_RETRIES, LOCK_RETRY_DELAY_MS, LOCK_STALE_TIMEOUT_MS } from './constants.js';
@@ -42,7 +43,7 @@ export async function acquireLock(ctx: LockContext, lockPath: string): Promise<v
           ctx.audit.write(
             CONTRACT_AUDIT_EVENTS.LOCK_SCHEMA_INVALID,
             `path=${lockPath}`,
-            `raw=${raw.slice(0, 100)}`,
+            `raw=${raw.slice(0, AUDIT_PREVIEW_LEN)}`,
           );
           throw new Error('lock schema invalid');
         }

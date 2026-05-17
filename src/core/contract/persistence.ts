@@ -5,6 +5,7 @@
 
 import * as yaml from 'js-yaml';
 import type { FileSystem } from '../../foundation/fs/types.js';
+import { AUDIT_PREVIEW_LEN } from '../../foundation/audit/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { Contract, ContractStatus } from '../../types/contract.js';
 import type { ContractYaml, ProgressData } from './types.js';
@@ -39,7 +40,7 @@ export async function loadContractYaml(
       CONTRACT_AUDIT_EVENTS.CONTRACT_YAML_SCHEMA_INVALID,
       `contractId=${contractId}`,
       `path=${contractPath}`,
-      `raw=${content.slice(0, 100)}`,
+      `raw=${content.slice(0, AUDIT_PREVIEW_LEN)}`,
     );
     throw new Error(`contract.yaml schema invalid for contract ${contractId}`);
   }

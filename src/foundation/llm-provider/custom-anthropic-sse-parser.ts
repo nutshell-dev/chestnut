@@ -7,7 +7,7 @@
 import type { StreamChunk } from './types.js';
 import type { CombinedAbortHandle } from './abort-helper.js';
 import { LLMError, LLMRateLimitError } from '../../types/errors.js';
-import { AUDIT_MESSAGE_MAX_CHARS } from '../audit/index.js';
+import { AUDIT_MESSAGE_MAX_CHARS, AUDIT_PREVIEW_LEN } from '../audit/index.js';
 
 export type StreamParseErrorCallback = (event: {
   provider: string;
@@ -57,7 +57,7 @@ export async function* parseAnthropicSSEStream(
         } catch (err) {
           onStreamParseError?.({
             provider: providerName,
-            raw: data.slice(0, 100),
+            raw: data.slice(0, AUDIT_PREVIEW_LEN),
             error: err instanceof Error ? err.message : String(err),
           });
           continue;

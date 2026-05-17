@@ -12,6 +12,7 @@ import type { ToolResult, ExecContext } from '../../foundation/tool-protocol/ind
 import { UUID_SHORT_LEN } from '../../constants.js';
 import { TASKS_SYNC_SPAWN_DIR } from './constants.js';
 import { runSubagent, createDoneTool, DONE_TOOL_NAME } from '../subagent/index.js';
+import { AUDIT_PREVIEW_LEN } from '../../foundation/audit/index.js';
 import { DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../../prompts/subagent.js';
 import { SPAWN_AUDIT_EVENTS } from './audit-events.js';
 import { formatErr } from './_helpers.js';
@@ -32,7 +33,7 @@ export async function runSpawnSync(opts: RunSpawnSyncOptions): Promise<ToolResul
   const id = `spawn-${randomUUID().slice(0, UUID_SHORT_LEN)}`;
   const resultDir = path.join(opts.ctx.clawDir, TASKS_SYNC_SPAWN_DIR, id);
 
-  opts.ctx.auditWriter?.write(SPAWN_AUDIT_EVENTS.SYNC_STARTED, id, opts.intent.slice(0, 100));
+  opts.ctx.auditWriter?.write(SPAWN_AUDIT_EVENTS.SYNC_STARTED, id, opts.intent.slice(0, AUDIT_PREVIEW_LEN));
 
   try {
     if (!opts.ctx.registry) {

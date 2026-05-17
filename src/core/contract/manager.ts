@@ -31,6 +31,7 @@ import { ToolError, ToolTimeoutError, isProgrammingBug } from '../../types/error
 import { InboxWriter } from '../../foundation/messaging/index.js';
 import { type AuditLog } from '../../foundation/audit/index.js';
 import type { ToolRegistry } from '../../foundation/tools/index.js';
+import { AUDIT_PREVIEW_LEN } from '../../foundation/audit/index.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 import { CONTRACT_ACTIVE_DIR, CONTRACT_PAUSED_DIR, CONTRACT_ARCHIVE_DIR } from './dirs.js';
 import { UUID_SHORT_LEN } from '../../constants.js';
@@ -388,7 +389,7 @@ export class ContractSystem {
         CONTRACT_AUDIT_EVENTS.PROGRESS_SCHEMA_INVALID,
         `contractId=${contractId}`,
         `path=${progressPath}`,
-        `raw=${content.slice(0, 100)}`,
+        `raw=${content.slice(0, AUDIT_PREVIEW_LEN)}`,
       );
       throw new Error(`progress.json schema invalid for contract ${contractId}`);
     }

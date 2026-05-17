@@ -233,7 +233,7 @@
     },
     {
       "file": "src/foundation/llm-provider/gemini-sse-parser.ts",
-      "line": 120,
+      "line": 121,
       "body_excerpt": "} catch {",
       "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
     },
@@ -245,7 +245,7 @@
     },
     {
       "file": "src/foundation/transport/unix-socket.ts",
-      "line": 247,
+      "line": 248,
       "body_excerpt": "} catch {",
       "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
     },

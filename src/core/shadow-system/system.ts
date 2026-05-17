@@ -12,6 +12,7 @@ import type { Message } from '../../types/message.js';
 import { UUID_SHORT_LEN } from '../../constants.js';
 import { TASKS_SYNC_SHADOW_DIR } from './constants.js';
 import { runSubagent } from '../subagent/index.js';
+import { AUDIT_PREVIEW_LEN } from '../../foundation/audit/index.js';
 import { SHADOW_AUDIT_EVENTS } from './audit-events.js';
 import { synthesizeFormB, formatErr } from './_helpers.js';
 import type { BuildShadowInstructionArgs } from '../../prompts/shadow.js';
@@ -42,7 +43,7 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
   const resultDir = path.join(opts.ctx.clawDir, TASKS_SYNC_SHADOW_DIR, shadowId);
   const spawnedAt = new Date().toISOString();
 
-  opts.ctx.auditWriter?.write(SHADOW_AUDIT_EVENTS.STARTED, shadowId, opts.task.slice(0, 100));
+  opts.ctx.auditWriter?.write(SHADOW_AUDIT_EVENTS.STARTED, shadowId, opts.task.slice(0, AUDIT_PREVIEW_LEN));
 
   // 取 main session in-memory 状态（phase 769：改读 ctx，不读 DialogStore 磁盘，避 sync 时序 bug）
   if (

@@ -1,6 +1,7 @@
 import { createServer, connect, type Server, type Socket } from 'node:net';
 import { promises as fs } from 'node:fs';
 import { randomUUID } from 'node:crypto';
+import { AUDIT_PREVIEW_LEN } from '../audit/index.js';
 import type { Transport, TransportOptions, BroadcastFailure, TransportErrorEvent } from './index.js';
 import type { Connection } from './types.js';
 
@@ -111,7 +112,7 @@ export class UnixDomainSocketTransport implements Transport {
           kind: 'partial_message_lost',
           connectionId: id,
           bufferedBytes: entry.buf.length,
-          bufferPreview: entry.buf.slice(0, 100),
+          bufferPreview: entry.buf.slice(0, AUDIT_PREVIEW_LEN),
         });
       }
       this.connections.delete(id);
