@@ -35,7 +35,6 @@ export async function makeRuntimeDeps(input: MakeRuntimeDepsInput): Promise<Runt
   const snapshot = new Snapshot(clawDir, systemFs, auditWriter, SNAPSHOT_IGNORE_PATTERNS);
   const sessionManager = new DialogStore(systemFs, 'dialog', auditWriter, 'current.json', clawId);
   const inboxReader = new InboxReader(INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR, systemFs, auditWriter);
-  await inboxReader.init();
   const outboxWriter = new OutboxWriter(clawId, clawDir, systemFs, auditWriter);
   const llm = new LLMOrchestratorImpl(input.llmConfig ?? {
     primary: { name: 'mock', apiKey: 'test', model: 'test', maxTokens: 1024, temperature: 0.7, timeoutMs: 30000, apiFormat: 'anthropic' },
@@ -45,7 +44,6 @@ export async function makeRuntimeDeps(input: MakeRuntimeDepsInput): Promise<Runt
   });
   const toolRegistry = new ToolRegistryImpl();
   const skillRegistry = createSkillSystem(systemFs, 'skills');
-  await skillRegistry.loadAll();
   const verifierRegistry = new ToolRegistryImpl();
   const contractManager = new ContractSystem(
     clawDir, clawId, systemFs, auditWriter, llm, verifierRegistry, auditWriter,
@@ -53,8 +51,6 @@ export async function makeRuntimeDeps(input: MakeRuntimeDepsInput): Promise<Runt
   const taskSystem = new AsyncTaskSystem(clawDir, systemFs, {
     auditWriter, llm, contractManager, outboxWriter, registry: toolRegistry,
   });
-  await taskSystem.initialize();
-  taskSystem.startDispatch();
   const contextInjector = new ContextInjector({ fs: systemFs, skillRegistry, contractManager });
   const execContext = new ExecContextImpl({
     clawId, clawDir, workspaceDir: path.join(clawDir, 'clawspace'), profile: 'full', callerType: 'claw', fs: clawFs,
