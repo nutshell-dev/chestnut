@@ -13,6 +13,7 @@
  */
 
 import { fitLine } from '../utils/string.js';
+import { DEFAULT_MAX_STEPS } from '../../core/agent-executor/defaults.js';
 
 export interface TaskTrack {
   taskId: string;
@@ -35,7 +36,7 @@ export function makeTaskTrack(taskId: string, callerType: 'subagent' | 'shadow')
     textBuffer: '',
     bufferType: null,
     step: 0,
-    maxSteps: 1000,
+    maxSteps: DEFAULT_MAX_STEPS,
     lastError: null,
   };
 }

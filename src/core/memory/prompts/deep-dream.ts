@@ -49,13 +49,19 @@ export function buildDreamInput(
   return parts.join('\n\n');
 }
 
+/**
+ * Dream LLM compression 输出字符上限（给 LLM 控制 summary 长度的指示值）。
+ * 嵌入 COMPRESSION_PROMPT 末尾，作为 LLM-visible 字符 budget。
+ */
+const COMPRESSION_TARGET_MAX_CHARS = 500;
+
 /** Call 2：请求压缩当前会话，供下一文件的 buildDreamInput 使用 */
 export const COMPRESSION_PROMPT = `\
 请将上面"当前会话全文"压缩为简洁摘要，供后续会话的梦境处理使用。
 
 保留：任务背景、关键决策节点、工具调用结果摘要、最终结果
 省略：冗余对话、重复步骤、格式化输出内容
-长度：500 字以内`.trim();
+长度：${COMPRESSION_TARGET_MAX_CHARS} 字以内`.trim();
 
 /**
  * 元压缩：当 compressions 累积过长时，将多段合并再压一次

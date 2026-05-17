@@ -17,7 +17,14 @@ import {
 } from './types.js';
 
 const PROCESS_EXEC_MAX_BUFFER = 1024 * 1024; // 1MB; internal
-const EXEC_SIGKILL_GRACE_MS = 1000; // SIGTERM→SIGKILL escalation grace / per POSIX SIGTERM grace period industry default 1s (systemd / kubelet / Docker stack 最小 graceful 单位)
+/**
+ * SIGTERM → SIGKILL escalation grace period (user process)。
+ * 1000ms = POSIX 行业 SIGTERM grace period（systemd / kubelet / Docker stack 最小 graceful 单位）。
+ * 与 `WATCHDOG_SIGKILL_GRACE_MS = 500` (watchdog/watchdog-cli.ts) 故意值不同：
+ *   - EXEC:    1000ms — user process、POSIX 行业
+ *   - WATCHDOG: 500ms — watchdog daemon、更快 cleanup
+ */
+const EXEC_SIGKILL_GRACE_MS = 1000;
 import type { ExecOptions, ExecResult } from './types.js';
 import { ProcessExecError } from './types.js';
 

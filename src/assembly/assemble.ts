@@ -35,6 +35,8 @@ import type { ExecContext } from '../foundation/tool-protocol/index.js';
 import { createFileTools, TASKS_SYNC_WRITE_DIR } from '../foundation/file-tool/index.js';
 import { createCommandTools, TASKS_SYNC_EXEC_DIR } from '../foundation/command-tool/index.js';
 import { createClawPermissionChecker } from '../core/permissions/claw-permissions.js';
+import { CRON_TICK_INTERVAL_MS } from '../core/cron/constants.js';
+import { DEFAULT_DISK_WARNING_MB } from '../watchdog/constants.js';
 import { spawnTool } from '../core/spawn-system/index.js';
 import { shadowTool } from '../core/shadow-system/index.js';
 import { cleanupOrphanedTemp } from './cleanup.js';
@@ -545,8 +547,8 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
     let cronRunner: CronRunner | undefined;
     if (isMotion && (globalConfig.cron?.enabled ?? true)) {
       const clawforumDir = path.join(clawDir, '..');
-      const tickMs = globalConfig.cron?.tick_interval_ms ?? 1000;
-      const diskLimitMB = globalConfig.watchdog?.disk_warning_mb ?? 500;
+      const tickMs = globalConfig.cron?.tick_interval_ms ?? CRON_TICK_INTERVAL_MS;
+      const diskLimitMB = globalConfig.watchdog?.disk_warning_mb ?? DEFAULT_DISK_WARNING_MB;
       const diskScheduleStr = globalConfig.cron?.jobs?.disk_monitor?.schedule ?? 'hourly';
 
       // phase155D：预制 clawforumFs，被 disk-monitor / dream-trigger 闭包共用（冻结 §6）

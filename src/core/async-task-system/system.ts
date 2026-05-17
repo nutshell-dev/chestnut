@@ -10,7 +10,7 @@ import * as path from 'path';
 
 import type { FileSystem } from '../../foundation/fs/types.js';
 
-import { DEFAULT_MAX_CONCURRENT_TASKS, SHUTDOWN_DRAIN_GRACE_MS } from './constants.js';
+import { DEFAULT_MAX_CONCURRENT_TASKS, SHUTDOWN_DRAIN_GRACE_MS, DEFAULT_RETRY_BASE_DELAY_MS } from './constants.js';
 import type { ToolRegistry } from '../../foundation/tools/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { CallerType } from '../../foundation/tool-protocol/caller-type.js';
@@ -150,7 +150,7 @@ export class AsyncTaskSystem {
     this.maxConcurrent = options.maxConcurrent ?? DEFAULT_MAX_CONCURRENT_TASKS;
     this.auditWriter = options.auditWriter;
     this.parentStreamLog = options.parentStreamLog;
-    this.retryBaseDelayMs = options.retryBaseDelayMs ?? 500;
+    this.retryBaseDelayMs = options.retryBaseDelayMs ?? DEFAULT_RETRY_BASE_DELAY_MS;
     this.llm = options.llm;
     this.contractManager = options.contractManager;
     this.outboxWriter = options.outboxWriter;

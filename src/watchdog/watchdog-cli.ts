@@ -22,7 +22,14 @@ const WATCHDOG_START_MAX_ATTEMPTS = 30;
 // stopCommand: 等 SIGTERM 后退出 / 100ms × 50 = 5s 总 timeout
 const WATCHDOG_STOP_MAX_ATTEMPTS = 50;
 
-// SIGKILL 后宽限期（让 OS 完成进程清理）
+/**
+ * SIGKILL 后宽限期（watchdog daemon cleanup 子域）。
+ * 500ms 已够 OS reap watchdog daemon 后清理 PID 文件 + lock。
+ * 与 `EXEC_SIGKILL_GRACE_MS = 1000` (foundation/process-exec/exec.ts) 故意值不同：
+ *   - WATCHDOG: 500ms — watchdog daemon、更快 cleanup
+ *   - EXEC:    1000ms — user process、POSIX SIGTERM 行业惯例（systemd/kubelet/Docker 1s）
+ * cross-ref `feedback_config_defaults_single_source` per-module 自治模板（phase 844 + 863 + 924 N=3 累）。
+ */
 const WATCHDOG_SIGKILL_GRACE_MS = 500;
 
 /** 1:1 保 watchdog.ts:514-543 / startCommand */

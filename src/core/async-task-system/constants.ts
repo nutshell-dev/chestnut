@@ -2,6 +2,13 @@
 export const DEFAULT_MAX_CONCURRENT_TASKS = 3;
 
 /**
+ * AsyncTaskSystem retry exponential backoff base delay (ms).
+ * 失败 task retry 首次延迟、后续 retry 用 `baseDelay * 2^attempt`。
+ * Default = 500ms 行业 retry backoff 经验值（< 1s, 0 starvation 风险）。
+ */
+export const DEFAULT_RETRY_BASE_DELAY_MS = 500;
+
+/**
  * Shutdown remaining task promises drain grace cap.
  * phase 779 Step B: AsyncTaskSystem.shutdown() drains pendingCleanups after task-timeout race
  * using `Promise.race([allSettled(remainingPromises), setTimeout(grace)])` to avoid indefinite

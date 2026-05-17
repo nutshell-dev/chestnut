@@ -1,3 +1,9 @@
+/**
+ * HTTP 5xx server error 起点（RFC 7231 §6.6 status code range start）。
+ * 用于 LLM provider response 错误分类、>= 此值视为 server-side 错误。
+ */
+const HTTP_SERVER_ERROR_STATUS_MIN = 500;
+
 import { LLMError, LLMRateLimitError, LLMAuthError, LLMModelNotFoundError } from '../../types/errors.js';
 
 /**
@@ -45,7 +51,7 @@ export async function throwHttpErrorResponse(
     throw new LLMRateLimitError(provider, parseRetryAfter(retryAfter));
   }
 
-  if (status >= 500) {
+  if (status >= HTTP_SERVER_ERROR_STATUS_MIN) {
     throw new LLMError(
       `Provider ${provider} server error (${status}): ${errorText}`,
       { provider, status },

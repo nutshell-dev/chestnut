@@ -7,6 +7,7 @@ import { TASK_AUDIT_EVENTS } from './audit-events.js';
 import { formatErr, auditError } from './_helpers.js';
 import { INBOX_PENDING_DIR } from '../../types/paths.js';
 import { TASKS_QUEUES_RESULTS_DIR } from './dirs.js';
+import { SUMMARY_MAX_CHARS } from '../../types/constants.js';
 import type { SubAgentTask, ToolTask } from './system.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 
@@ -55,7 +56,7 @@ export async function sendToolResult(
   }
 
   // Build summary (preview if resultRef exists, full content otherwise)
-  const summary = resultRef ? fullContent.slice(0, 500) : fullContent;
+  const summary = resultRef ? fullContent.slice(0, SUMMARY_MAX_CHARS) : fullContent;
 
   // Pre-compute both versions of message content (ref and inline)
   const inlineContent = JSON.stringify({
@@ -138,7 +139,7 @@ export async function sendResult(
   }
 
   // Build summary (preview if resultRef exists, full content otherwise)
-  const summary = resultRef ? result.slice(0, 500) : result;
+  const summary = resultRef ? result.slice(0, SUMMARY_MAX_CHARS) : result;
 
   // Pre-compute both versions of message content (ref and inline)
   const inlineContent = JSON.stringify({
