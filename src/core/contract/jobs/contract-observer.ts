@@ -26,7 +26,7 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
   try {
     const raw = fs.readSync(stateFile);
     lastCheckTs = JSON.parse(raw).lastCheckTs ?? 0;
-  } catch { /* 首次运行 */ }
+  } catch { /* silent: 首次运行无历史数据是合法状态 / 从空状态开始 / TODO narrow if 非 ENOENT */ }
 
   // 扫描 claws/ 目录
   const clawsDir = path.join(clawforumDir, CLAWS_DIR);

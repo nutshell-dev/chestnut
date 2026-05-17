@@ -318,7 +318,7 @@ export class NodeFileSystem implements FileSystem {
       try { fsSync.fsyncSync(fd); } finally { fsSync.closeSync(fd); }
       fsSync.renameSync(tmpFile, absolute);
     } catch (error) {
-      try { fsSync.unlinkSync(tmpFile); } catch { /* ignore */ }
+      try { fsSync.unlinkSync(tmpFile); } catch { /* silent: tmpFile cleanup best-effort post-rename / ENOENT race acceptable / phase TBD convert to canonical */ }
       throw error;
     }
   }

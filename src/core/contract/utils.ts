@@ -28,7 +28,7 @@ export function getContractCreatedMs(fs: FileSystem, clawDir: string): number | 
         // 合理的毫秒时间戳：> 2020-01-01
         if (!isNaN(ts) && ts > EPOCH_2020_01_01_MS) return ts;
       }
-    } catch { /* 目录不存在 */ }
+    } catch { /* silent: 目录不存在是合法 first-run state / ENOENT only acceptable / TODO if 非 ENOENT 漂移 → 升 phase narrow */ }
   }
   return null;
 }

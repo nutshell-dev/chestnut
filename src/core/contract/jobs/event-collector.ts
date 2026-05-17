@@ -54,7 +54,7 @@ export function collectContractEvents(
         continue;
       }
     }
-  } catch { /* archive 不存在 */ }
+  } catch { /* silent: archive 不存在是合法 first-run state / ENOENT acceptable / TODO narrow if 非 ENOENT */ }
 
   // 2. active 中升级事件
   const activeDir = path.join(clawDir, CONTRACT_DIR, 'active');
@@ -96,7 +96,7 @@ export function collectContractEvents(
         continue;
       }
     }
-  } catch { /* active 不存在 */ }
+  } catch { /* silent: active 不存在是合法 first-run state / ENOENT acceptable / TODO narrow if 非 ENOENT */ }
 
   return events;
 }

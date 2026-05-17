@@ -750,9 +750,9 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     try {
       const stack = (err instanceof Error) ? err.stack : String(err);
       fs.appendSync(crashLogPath, `\n[${new Date().toISOString()}] uncaught:\n${stack}\n`);
-    } catch { /* ignore */ }
+    } catch { /* silent: crash log append best-effort / 已 console.error 输出 / 不阻断 exit */ }
     process.stderr.write(`[chat] uncaught error: ${err}\n`);
-    try { tui.stop(); } catch { /* ignore */ }
+    try { tui.stop(); } catch { /* silent: tui.stop best-effort / already in shutdown / 不阻断 exit */ }
     // 刷新 stdout 后再退出，防止 escape sequences 被截断触发 Terminal.app crash
     process.stdout.write('', () => { process.exitCode = 1; });
   };

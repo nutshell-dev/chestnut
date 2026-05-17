@@ -187,7 +187,7 @@ export function createWatcher(
       callback(watchEvent);
     } catch (err) {
       const e = err instanceof Error ? err : new Error(String(err));
-      try { options?.onError?.(e, 'callback'); } catch { /* swallow secondary */ }
+      try { options?.onError?.(e, 'callback'); } catch { /* silent: secondary callback error swallowed / onError 已报 primary / 不重复抛 */ }
     }
   });
 
@@ -197,14 +197,14 @@ export function createWatcher(
       options?.onReady?.();
     } catch (err) {
       const e = err instanceof Error ? err : new Error(String(err));
-      try { options?.onError?.(e, 'ready'); } catch { /* swallow */ }
+      try { options?.onError?.(e, 'ready'); } catch { /* silent: caller onError callback own audit responsibility / fail-soft 防 callback bug 破 watcher init */ }
     }
   });
 
   // Error handling
   watcher.on('error', (raw) => {
     const e = raw instanceof Error ? raw : new Error(String(raw));
-    try { options?.onError?.(e, 'watch'); } catch { /* swallow */ }
+    try { options?.onError?.(e, 'watch'); } catch { /* silent: caller onError callback own audit responsibility / fail-soft 防 callback bug 破 watcher init */ }
   });
 
   // Fallback poll for chokidar native-watcher silent stall (cross-platform, phase 352 / 469 / 760)
@@ -221,7 +221,7 @@ export function createWatcher(
       } catch (err) {
         const e = err instanceof Error ? err : new Error(String(err));
         consecutiveCallbackFails++;
-        try { options?.onError?.(e, 'callback'); } catch { /* swallow secondary */ }
+        try { options?.onError?.(e, 'callback'); } catch { /* silent: secondary callback error swallowed / onError 已报 primary / 不重复抛 */ }
         if (consecutiveCallbackFails >= FALLBACK_CONSECUTIVE_FAIL_LIMIT) {
           // Disable poller: clearInterval + null + notify via onError 'fallback_disabled'.
           // Caller already covers this via binary discrimination else-branch (FAILED tier).
@@ -232,7 +232,7 @@ export function createWatcher(
           const disableErr = new Error(
             `fallback poller disabled after ${consecutiveCallbackFails} consecutive callback failures: ${e.message}`,
           );
-          try { options?.onError?.(disableErr, 'fallback_disabled'); } catch { /* swallow secondary */ }
+          try { options?.onError?.(disableErr, 'fallback_disabled'); } catch { /* silent: secondary callback error swallowed / onError 已报 primary / 不重复抛 */ }
         }
       }
     }, intervalMs);

@@ -30,7 +30,7 @@ process.on('uncaughtException', (err) => {
   const msg = errMsg(err);
   try {
     shimAudit?.write('daemon_uncaught_exception', `error=${msg}`);
-  } catch { /* 同上 */ }
+  } catch { /* silent: audit-down 时 fallback console 保运维可见 / 已是 last-resort fallback / 不可再 audit 自身 */ }
   console.error('[daemon] Uncaught exception:', err);
   process.exit(1);
 });
