@@ -40,6 +40,8 @@ export const CONTRACT_AUDIT_EVENTS = {
   ACCEPTANCE_FAILED: 'acceptance_failed',
   ESCALATED: 'contract_escalation',
   ACCEPTANCE_TIMEOUT: 'acceptance_timeout',
+  // phase 993 D.2 (r121 J fork audit-2026-05-17 NEW.P1 D.2): verifier catch audit emit (timeout/other)
+  VERIFIER_FAILED: 'contract_verifier_failed',
   // phase350: A.8 observer 错误暴露
   OBSERVER_EVENT_FAILED: 'contract_observer_event_failed',
   CONTRACT_COMPLETED_HANDLER_FAILED: 'contract_completed_handler_failed',

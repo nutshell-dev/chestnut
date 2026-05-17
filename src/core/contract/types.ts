@@ -71,6 +71,8 @@ export interface VerifierConfig {
   onIdleTimeout?: () => void;
   /** Optional audit writer / phase 646 ⚓ verifier cleanup audit / per `feedback_audit_injection_alpha_template` */
   audit?: AuditLog;
+  /** AbortSignal for cancel propagation / phase 993 D.1 / contract cancel 提前 abort verifier (vs idleTimeoutMs 等待) */
+  signal?: AbortSignal;
 
   /** ContractSystem 装配期注入 / verifier subagent 内部用 getForProfile('readonly') 派生 read+ls+search 工具子集 / + reportTool 注册 / 与 system prompt 指令 align（M#7 / phase 704） */
   toolRegistry: ToolRegistry;
