@@ -10,3 +10,4 @@
 
 export { spawnTool, SPAWN_TOOL_NAME } from './tools/spawn.js';
 export { SPAWN_AUDIT_EVENTS } from './audit-events.js';
+export { TASKS_SYNC_SPAWN_DIR } from './constants.js';

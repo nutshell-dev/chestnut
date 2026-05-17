@@ -10,7 +10,7 @@ import { runSubagent } from '../subagent/index.js';
 import { ReportResultTool, REPORT_RESULT_TOOL_NAME } from './tools/report-result.js';
 import { createToolRegistry } from '../../foundation/tools/index.js';
 import { ToolTimeoutError } from '../../types/errors.js';
-import { TASKS_SYNC_SUBAGENT_DIR } from '../subagent/constants.js';
+import { TASKS_SYNC_SUBAGENT_DIR } from '../subagent/index.js';
 import { TASKS_SUBAGENTS_DIR } from '../async-task-system/index.js';
 import { buildSubagentSystemPromptPrefix, CONTRACT_VERIFIER_SYSTEM_PROMPT } from '../../prompts/subagent.js';
 import type { VerifierConfig, VerifierResult } from './types.js';

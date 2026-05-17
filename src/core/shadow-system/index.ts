@@ -7,3 +7,4 @@
 
 export { shadowTool, SHADOW_TOOL_NAME } from './tools/shadow.js';
 export { SHADOW_AUDIT_EVENTS } from './audit-events.js';
+export { TASKS_SYNC_SHADOW_DIR } from './constants.js';
