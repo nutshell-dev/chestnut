@@ -79,6 +79,13 @@ export function createLLMAuditSink(audit: AuditLog): LLMEventSink {
               `winner=${event.winnerProvider}`, `primary=${event.primaryProvider}`,
               `primaryErrorClass=${event.primaryErrorClass}`, `primaryError=${event.primaryError}`);
             break;
+          case 'hedge_primary_succeeded_after_race_lost':
+            audit.write(
+              LLM_AUDIT_EVENTS.HEDGE_PRIMARY_SUCCEEDED_AFTER_RACE_LOST,
+              `primaryProvider=${event.primaryProvider}`,
+              `winnerProvider=${event.winnerProvider}`,
+            );
+            break;
           case 'context_exceeded_failover':
             audit.write(LLM_AUDIT_EVENTS.CONTEXT_EXCEEDED_FAILOVER,
               `provider=${event.provider}`, `stopReason=${event.stopReason}`);

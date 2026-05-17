@@ -728,16 +728,38 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
     // B 胜（fallback call success）
     if (winner.winner === 'B') {
       primaryCtrl.abort();
-      const aResult = await trackAPromise.catch(() => null);
-      const primaryErr = aResult?.winner === 'A-error' ? aResult.error : new Error('primary stream cancelled');
-      const primaryErrClass = classifyLLMError(primaryErr);
-      this.events.emit({
-        type: 'hedge_fallback_committed',
-        winnerProvider: winner.provider.name,
-        primaryProvider: this.primary.name,
-        primaryError: primaryErr.message,
-        primaryErrorClass: primaryErrClass,
-      });
+      // phase 978 r120 B fork: trackAPromise IIFE 内 try/catch 永 resolve AResult、never reject
+      //   `.catch(() => null)` 是 dead defensive、删 (feedback_latent_defensive_fix Tier 2)
+      const aResult = await trackAPromise;
+
+      if (aResult.winner === 'A') {
+        // 3 态 race outcome: A 实际 produced content chunk 但 B race 先 settled (rare race window)
+        // NEW event explicit observability、不合成假 'primary stream cancelled' Error
+        this.events.emit({
+          type: 'hedge_primary_succeeded_after_race_lost',
+          primaryProvider: this.primary.name,
+          winnerProvider: winner.provider.name,
+        });
+        this.events.emit({
+          type: 'hedge_fallback_committed',
+          winnerProvider: winner.provider.name,
+          primaryProvider: this.primary.name,
+          primaryError: 'A succeeded but race lost (commit fallback for low latency)',
+          primaryErrorClass: 'unknown', // A succeeded、no real error; 'unknown' enum value 不误导 (LLMErrorClass 无 'none')
+        });
+      } else {
+        // A-error (含 AbortError from primaryCtrl.abort propagated to iterator)
+        const primaryErr = aResult.error;
+        const primaryErrClass = classifyLLMError(primaryErr);
+        this.events.emit({
+          type: 'hedge_fallback_committed',
+          winnerProvider: winner.provider.name,
+          primaryProvider: this.primary.name,
+          primaryError: primaryErr.message,
+          primaryErrorClass: primaryErrClass,
+        });
+      }
+
       this.currentProviderIndex = winner.providerIndex;
       this.updateLastSuccess(winner.provider, true);
       cleanupSignals();
