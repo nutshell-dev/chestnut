@@ -17,7 +17,7 @@ import type { ProcessManagerContext } from '../../../src/foundation/process-mana
 // Mock constants to eliminate sleep delays
 vi.mock('../../../src/foundation/process-manager/constants.js', async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
-  return { ...actual, SIGTERM_GRACE_MS: 0, PROCESS_SPAWN_CONFIRM_MS: 50, SPAWN_POLL_INTERVAL_MS: 0 };
+  return { ...actual, DAEMON_SHUTDOWN_GRACE_MS: 0, PROCESS_SPAWN_CONFIRM_MS: 50, SPAWN_POLL_INTERVAL_MS: 0 };
 });
 
 // Mock removePid to throw on demand
