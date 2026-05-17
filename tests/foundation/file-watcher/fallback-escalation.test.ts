@@ -3,6 +3,7 @@ import { createWatcher } from '../../../src/foundation/file-watcher/index.js';
 import path from 'node:path';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
+import { waitFor } from '../../helpers/wait-for.js';
 
 describe('fallback poller escalation (macOS only)', () => {
   let tmpDir: string;
@@ -38,8 +39,12 @@ describe('fallback poller escalation (macOS only)', () => {
         },
       });
 
-      // Wait for ≥ 6 polls (5 fails + 1 disable trigger; allow buffer)
-      await new Promise(r => setTimeout(r, 100));
+      // Wait for fallback_disabled context (replaces fixed setTimeout(100)).
+      await waitFor(
+        () => errors.some(e => e.context === 'fallback_disabled'),
+        5000,
+        10,
+      );
 
       // Stop watcher (clearInterval again is no-op-safe)
       await watcher.close();
@@ -49,10 +54,12 @@ describe('fallback poller escalation (macOS only)', () => {
       expect(fallbackDisabled, 'expected fallback_disabled context').toBeDefined();
       expect(fallbackDisabled!.err.message).toMatch(/disabled after 5 consecutive callback failures/);
 
-      // Assert poller stopped: callback count plateaus
+      // Plateau check (NEGATIVE assertion: no further callback calls after disable).
+      // Intentional fixed wait — there is no positive state change to poll for.
+      // 200ms = 20× fallbackPollMs; if poller still alive, would accumulate ≥10 extra calls.
       const countAtDisable = callback.mock.calls.length;
-      await new Promise(r => setTimeout(r, 50));
-      expect(callback.mock.calls.length).toBe(countAtDisable); // no further calls
+      await new Promise(r => setTimeout(r, 200));
+      expect(callback.mock.calls.length).toBe(countAtDisable);
     },
   );
 
@@ -76,8 +83,12 @@ describe('fallback poller escalation (macOS only)', () => {
         },
       });
 
-      // Wait > 10 polls (3 fail + many success / counter should reset / no escalation)
-      await new Promise(r => setTimeout(r, 200));
+      // Wait until ≥10 polls have run (3 fails + ≥7 successes — counter must reset).
+      await waitFor(
+        () => callback.mock.calls.length >= 10,
+        5000,
+        10,
+      );
       await watcher.close();
 
       const fallbackDisabled = errors.find(e => e.context === 'fallback_disabled');
