@@ -108,6 +108,13 @@ export interface FileSystem {
   // ========================================================================
   
   /**
+   * Resolve symlinks to canonical absolute path
+   * @param path - Relative path within claw space
+   * @returns Resolved absolute path
+   */
+  realpath(path: string): Promise<string>;
+
+  /**
    * Check if path exists
    * @param path - Relative path within claw space
    */

@@ -264,6 +264,11 @@ export class NodeFileSystem implements FileSystem {
   // Path Queries
   // ========================================================================
   
+  async realpath(relativePath: string): Promise<string> {
+    const absolute = this.resolveAndCheck(relativePath, 'read');
+    return await fs.realpath(absolute);
+  }
+
   async exists(relativePath: string): Promise<boolean> {
     let absolute: string;
     try {

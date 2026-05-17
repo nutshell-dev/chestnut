@@ -161,6 +161,40 @@ export class Snapshot {
           );
           continue;
         }
+
+        // H.3 α-realpath-resolve: verify resolved path is within this.dir (phase 998)
+        let resolved: string;
+        try {
+          resolved = await this.fs.realpath(cleanupDir);
+        } catch (err) {
+          this.audit.write(
+            SNAPSHOT_AUDIT_EVENTS.SYNC_CLEAN_FAILED,
+            `dir=${this.dir}`,
+            'context=realpath_failed',
+            `cleanupDir=${cleanupDir}`,
+            `reason=${err instanceof Error ? err.message : String(err)}`,
+          );
+          continue;
+        }
+        // Resolve this.dir as well to align with resolved (e.g. macOS /var -> /private/var)
+        let resolvedDir: string;
+        try {
+          resolvedDir = await this.fs.realpath(this.dir);
+        } catch {
+          resolvedDir = this.dir;
+        }
+        const relResolved = path.relative(resolvedDir, resolved);
+        if (relResolved === '' || relResolved.startsWith('..') || path.isAbsolute(relResolved)) {
+          this.audit.write(
+            SNAPSHOT_AUDIT_EVENTS.SYNC_CLEAN_FAILED,
+            `dir=${this.dir}`,
+            'context=symlink_traversal',
+            `cleanupDir=${cleanupDir}`,
+            `resolved=${resolved}`,
+          );
+          continue;
+        }
+
         try {
           // H.1 α-content-only-clear: preserve dir invariant to avoid ENOENT race window
           // with concurrent task writer (phase 998). Replaces removeDir+ensureDir.
