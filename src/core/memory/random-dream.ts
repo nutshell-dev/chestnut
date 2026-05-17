@@ -35,6 +35,7 @@ export interface RandomDreamOptions {
   subagentTimeoutMs?: number;
   /** Subagent max steps / default 200 / phase 651 */
   subagentMaxSteps?: number;
+  signal?: AbortSignal;
 }
 
 interface WeightedContract {
@@ -209,6 +210,7 @@ export async function waitForTaskResult(
   pollIntervalMs = 30_000,
   audit?: AuditLog,
   auditEnabled = false,
+  signal?: AbortSignal,
 ): Promise<string | null> {
   // .txt 由 AsyncTaskSystem.sendResult 在 subAgent.run() 完成后写入，是可靠的完成信号
   const donePath = path.join('tasks', 'queues', 'results', taskId, 'result.txt');
@@ -218,6 +220,10 @@ export async function waitForTaskResult(
   let pulseCount = 0;
 
   while (Date.now() < deadline) {
+    if (signal?.aborted) {
+      audit?.write(MEMORY_AUDIT_EVENTS.RANDOM_DREAM_WARNING, `reason=aborted`, `taskId=${taskId}`);
+      return null;
+    }
     if (motionFs.existsSync(donePath)) {
       // 完成信号出现，读取日志内容
       if (motionFs.existsSync(logPath)) {
@@ -313,6 +319,7 @@ export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
     opts.pulseIntervalMs ?? 30_000,
     opts.audit,
     opts.pulseAuditEnabled ?? false,
+    opts.signal,
   );
   if (!log) {
     opts.audit.write(

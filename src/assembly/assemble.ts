@@ -622,10 +622,10 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
             name: 'dream-trigger',
             enabled: globalConfig.cron?.jobs?.dream_trigger?.enabled ?? false,
             schedule: parseSchedule(globalConfig.cron?.jobs?.dream_trigger?.schedule ?? 'daily:04:00', auditWriter),
-            handler: async () => {
+            handler: async (signal) => {
               if (!memorySystem) return;
-              await memorySystem.runDeepDream();
-              await memorySystem.runRandomDream();
+              await memorySystem.runDeepDream(undefined, { signal });
+              await memorySystem.runRandomDream({ signal });
             },
             timeoutMs: 30 * 60_000,
           },

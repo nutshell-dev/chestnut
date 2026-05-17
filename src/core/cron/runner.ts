@@ -31,7 +31,7 @@ export interface CronJob {
   name: string;
   enabled: boolean;
   schedule: CronSchedule;
-  handler: () => Promise<void>;
+  handler: (signal?: AbortSignal) => Promise<void>;
   /** Per-job timeout: handler 超过此值后 audit + 强制清 running 让下 tick 重试 / undefined 不包 race / 兼容旧 jobs */
   timeoutMs?: number;
 }
@@ -49,6 +49,8 @@ export class CronRunner {
   private inflightPromises = new Set<Promise<unknown>>();
   // phase 867 (r111 E fork): runner-level flag — drain timeout 后 set、future extension scope
   private drainTimedOut = false;
+  // phase 946 (audit-2026-05-15 gap.7): AbortController for handler cooperative cancellation
+  private abortController = new AbortController();
 
   constructor(
     private readonly jobs: CronJob[],
@@ -69,6 +71,10 @@ export class CronRunner {
       clearInterval(this.timer);
       this.timer = null;
     }
+
+    // phase 946: signal handler cooperative abort (LLM call → fetch early reject)
+    // 在 drain 之前 abort、让 inflight handler 尽快 settle / drain 实际 < cap timeout
+    this.abortController.abort();
 
     // drain inflight handlers
     if (this.inflightPromises.size > 0) {
@@ -142,7 +148,7 @@ export class CronRunner {
 
       let handlerPromise: Promise<void>;
       try {
-        handlerPromise = job.handler();
+        handlerPromise = job.handler(this.abortController.signal);
       } catch (syncErr) {
         handlerPromise = Promise.reject(syncErr);
       }

@@ -34,6 +34,7 @@ export interface DeepDreamOptions {
   audit: AuditLog;
   /** 临时构建 per-claw FileSystem 的 factory（memory/system.ts 注入 / 业务 0 触 L1 impl）*/
   clawFsFactory: (clawDir: string) => FileSystem;
+  signal?: AbortSignal;
 }
 
 // ─── 工具函数 ────────────────────────────────────────────────
@@ -150,6 +151,7 @@ async function maybeMergeCompressions(
   compressions: string[],
   maxTokens: number,
   llm: LLMOrchestrator,
+  signal?: AbortSignal,
 ): Promise<string[]> {
   const total = estimateTokens(compressions.join(''));
   if (total <= maxTokens) return compressions;
@@ -157,6 +159,7 @@ async function maybeMergeCompressions(
   // 元压缩：将所有段合并压一次
   const merged = compressions.join('\n---\n');
   const res = await llm.call({
+    signal,
     messages: [
       { role: 'user', content: `${META_COMPRESSION_PROMPT}\n\n${merged}` },
     ],
@@ -174,6 +177,7 @@ async function runDeepDreamForClaw(
   llm: LLMOrchestrator,
   maxCompressionTokens: number,
   audit: AuditLog,
+  signal?: AbortSignal,
 ): Promise<void> {
   const today = new Date().toLocaleDateString('sv');   // ← 统一在此计算
   const state = loadDreamState(clawFs, audit, clawId);
@@ -222,6 +226,7 @@ async function runDeepDreamForClaw(
     let dreamOutput: string;
     try {
       const res = await llm.call({
+        signal,
         system: DEEP_DREAM_SYSTEM_PROMPT,
         messages: [userMsg],
       });
@@ -238,6 +243,7 @@ async function runDeepDreamForClaw(
     let compression: string;
     try {
       const res = await llm.call({
+        signal,
         messages: [
           userMsg,
           { role: 'assistant', content: dreamOutput },
@@ -253,7 +259,7 @@ async function runDeepDreamForClaw(
     }
 
     compressions.push(compression);
-    compressions = await maybeMergeCompressions(compressions, maxCompressionTokens, llm);
+    compressions = await maybeMergeCompressions(compressions, maxCompressionTokens, llm, signal);
 
     if (sf.filename !== 'current.json') {
       processedArchives.push(sf.filename);
@@ -323,7 +329,7 @@ export async function runDeepDream(opts: DeepDreamOptions): Promise<void> {
     const clawDir = path.join(opts.clawforumDir, CLAWS_DIR, clawId);
     try {
       const clawFs = opts.clawFsFactory(clawDir);
-      await runDeepDreamForClaw(clawId, clawDir, clawFs, opts.motionFs, llm, maxCompressionTokens, opts.audit);
+      await runDeepDreamForClaw(clawId, clawDir, clawFs, opts.motionFs, llm, maxCompressionTokens, opts.audit, opts.signal);
     } catch (err) {
       opts.audit.write(MEMORY_AUDIT_EVENTS.DEEP_DREAM_ERROR, `step=unexpected`, `clawId=${clawId}`, `reason=${err instanceof Error ? err.message : String(err)}`);
       console.error(`[cron:deep-dream] ${clawId}: unexpected error:`, err);

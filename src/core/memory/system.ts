@@ -23,7 +23,7 @@ export interface MemorySystemOptions {
 export class MemorySystem {
   constructor(private readonly opts: MemorySystemOptions) {}
 
-  async runDeepDream(maxCompressionTokens?: number): Promise<void> {
+  async runDeepDream(maxCompressionTokens?: number, opts?: { signal?: AbortSignal }): Promise<void> {
     return runDeepDream({
       clawforumDir: this.opts.clawforumDir,
       motionDir: this.opts.motionDir,
@@ -34,10 +34,11 @@ export class MemorySystem {
       fs: this.opts.fs,
       audit: this.opts.audit,
       clawFsFactory: this.opts.clawFsFactory,
+      signal: opts?.signal,
     });
   }
 
-  async runRandomDream(): Promise<void> {
+  async runRandomDream(opts?: { signal?: AbortSignal }): Promise<void> {
     return runRandomDream({
       clawforumDir: this.opts.clawforumDir,
       motionDir: this.opts.motionDir,
@@ -45,6 +46,7 @@ export class MemorySystem {
       fs: this.opts.fs,
       motionFs: this.opts.motionFs,
       audit: this.opts.audit,
+      signal: opts?.signal,
     });
   }
 }
