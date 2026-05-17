@@ -277,11 +277,11 @@ describe('Gateway askUser', () => {
     expect(result.success).toBe(false);
     expect(result.content).toContain('中断');
 
+    // phase 956: stop 期间 started=false → broadcast 静默，ask_user_cancelled 不触发 transport.broadcast
     const cancelledPayload = getBroadcastPayloads(transport).find(
       (p: { type: string }) => p.type === 'ask_user_cancelled',
     );
-    expect(cancelledPayload).toBeDefined();
-    expect((cancelledPayload as { reason: string }).reason).toBe('abort');
+    expect(cancelledPayload).toBeUndefined();
   });
 
   it('resource cleanup: timeout then reply does not leak or throw', async () => {

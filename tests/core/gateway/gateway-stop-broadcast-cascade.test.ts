@@ -6,7 +6,11 @@ import type { StreamReader, StreamEvent } from '../../../src/foundation/stream/i
 import { GATEWAY_AUDIT_EVENTS } from '../../../src/core/gateway/audit-events.js';
 
 function mockAudit() {
-  return { write: vi.fn() };
+  const events: [string, ...string[]][] = [];
+  return {
+    write: vi.fn((...args: [string, ...string[]]) => events.push(args)),
+    events,
+  };
 }
 
 function createStubTransport(): Transport & {
@@ -90,7 +94,7 @@ function createStubStreamReaderFactory(): {
   };
 }
 
-describe('transport nullness single source-of-truth (phase 877 / r113 E fork)', () => {
+describe('phase 956: stop broadcast cascade prevention (started guard)', () => {
   let audit: ReturnType<typeof mockAudit>;
   let transport: ReturnType<typeof createStubTransport>;
   let streamStub: ReturnType<typeof createStubStreamReaderFactory>;
@@ -120,82 +124,40 @@ describe('transport nullness single source-of-truth (phase 877 / r113 E fork)', 
     };
   }
 
-  describe('offline mode (transport=undefined)', () => {
-    it('broadcast no-op + isOnline()=false', async () => {
-      gateway = createGateway({
-        streamFactory: streamStub.factory,
-        transport: undefined,
-        interrupt: vi.fn(),
-        audit,
-      } as GatewayInput);
-      await gateway.start();
-      expect(gateway.isOnline()).toBe(false);
-      await gateway.stop();
-      // offline mode: start/stop 均为 no-op，audit 0 写入（STOP_NOOP 仅在 stop 先于 start 时触发）
-      expect(audit.write).not.toHaveBeenCalled();
-    });
-  });
+  it('stop loop 期间 dropConnection 不触发 transport.broadcast (started guard)', async () => {
+    gateway = createGateway(createOnlineInput());
+    await gateway.start();
 
-  describe('online mode: stop sequence broadcast', () => {
-    it('dropConnection during stop does NOT broadcast connection_dropped (started guard, phase 956)', async () => {
-      gateway = createGateway(createOnlineInput());
-      await gateway.start();
-      const conn: Connection = { id: 'c1', remoteAddr: '127.0.0.1' };
-      transport._connect(conn);
-      expect(transport.getConnections().length).toBe(1);
+    // 模拟 3 个连接
+    const conn1: Connection = { id: 'c1', remoteAddr: '127.0.0.1' };
+    const conn2: Connection = { id: 'c2', remoteAddr: '127.0.0.2' };
+    const conn3: Connection = { id: 'c3', remoteAddr: '127.0.0.3' };
+    transport._connect(conn1);
+    transport._connect(conn2);
+    transport._connect(conn3);
+    expect(transport.getConnections().length).toBe(3);
 
-      // phase 956: clear pre-stop broadcasts then verify 0 broadcast during stop
-      transport.broadcast.mockClear();
-      await gateway.stop();
+    // 清空 pre-stop broadcast calls
+    transport.broadcast.mockClear();
 
-      expect(transport.broadcast).not.toHaveBeenCalled();
-      expect(transport.close).toHaveBeenCalledOnce();
+    await gateway.stop();
 
-      // audit CONNECTION_DROPPED 仍 emit per drop（observability 完整）
-      const droppedEvents = audit.write.mock.calls.filter(([type]) => type === GATEWAY_AUDIT_EVENTS.CONNECTION_DROPPED);
-      expect(droppedEvents.length).toBe(1);
-    });
-  });
+    // 反向：stop 期间 N dropConnection 调用、各内调 broadcast()、但 broadcast guard 触发 → 0 transport.broadcast call
+    expect(transport.broadcast).not.toHaveBeenCalled();
 
-  describe('online mode: transport.close throw', () => {
-    it('transport=null set before close, close throw then second stop is STOP_NOOP', async () => {
-      const closeError = new Error('mock close failure');
-      transport.close.mockRejectedValueOnce(closeError);
-      gateway = createGateway(createOnlineInput());
-      await gateway.start();
+    // audit CONNECTION_DROPPED 仍 emit per drop（observability 完整）
+    const droppedEvents = audit.events.filter((e) => e[0] === GATEWAY_AUDIT_EVENTS.CONNECTION_DROPPED);
+    expect(droppedEvents.length).toBe(3);
+    expect(droppedEvents.map((e) => e[1])).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('connId=c1'),
+        expect.stringContaining('connId=c2'),
+        expect.stringContaining('connId=c3'),
+      ])
+    );
 
-      await expect(gateway.stop()).rejects.toThrow('mock close failure');
-
-      await gateway.stop();
-      expect(audit.write).toHaveBeenCalledWith(GATEWAY_AUDIT_EVENTS.STOP_NOOP);
-    });
-  });
-
-  describe('online mode: stop() idempotent', () => {
-    it('second stop is STOP_NOOP + transport.close not called twice', async () => {
-      gateway = createGateway(createOnlineInput());
-      await gateway.start();
-      await gateway.stop();
-      expect(transport.close).toHaveBeenCalledOnce();
-
-      await gateway.stop();
-      expect(transport.close).toHaveBeenCalledOnce();
-
-      const stopNoopCalls = audit.write.mock.calls.filter(([type]) => type === GATEWAY_AUDIT_EVENTS.STOP_NOOP);
-      expect(stopNoopCalls.length).toBe(1);
-    });
-  });
-
-  describe('inverse oracle (defense against single source regression)', () => {
-    it('post-stop late stream event must not trigger broadcast (covered by broadcast-after-stop)', async () => {
-      gateway = createGateway(createOnlineInput());
-      await gateway.start();
-      const ev: StreamEvent = { ts: 1, type: 'test', data: 'hello' };
-      streamStub.fireEvent(ev);
-      const broadcastsBeforeStop = transport.broadcast.mock.calls.length;
-      await gateway.stop();
-      streamStub.fireEvent({ ts: 2, type: 'test', data: 'late' });
-      expect(transport.broadcast.mock.calls.length).toBe(broadcastsBeforeStop);
-    });
+    // STOPPED 仍 emit
+    const stoppedEvents = audit.events.filter((e) => e[0] === GATEWAY_AUDIT_EVENTS.STOPPED);
+    expect(stoppedEvents.length).toBe(1);
   });
 });

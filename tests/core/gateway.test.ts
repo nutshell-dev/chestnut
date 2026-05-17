@@ -289,14 +289,13 @@ describe('Gateway', () => {
     await gateway.stop();
 
     const streamStopIdx = order.indexOf('stream.stop');
-    const connDroppedIdx = order.findIndex((s) => s.startsWith('broadcast:connection_dropped'));
     const transportCloseIdx = order.indexOf('transport.close');
 
     expect(streamStopIdx).not.toBe(-1);
-    expect(connDroppedIdx).not.toBe(-1);
     expect(transportCloseIdx).not.toBe(-1);
-    expect(streamStopIdx).toBeLessThan(connDroppedIdx);
-    expect(connDroppedIdx).toBeLessThan(transportCloseIdx);
+    // phase 956: started guard 使 stop 期间 broadcast 静默，无 connection_dropped broadcast
+    expect(order.findIndex((s) => s.startsWith('broadcast:connection_dropped'))).toBe(-1);
+    expect(streamStopIdx).toBeLessThan(transportCloseIdx);
   });
 
   it('onDisconnect removes connection from active set', async () => {
