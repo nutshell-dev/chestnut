@@ -57,6 +57,8 @@ export function createGateway(input: GatewayInput): Gateway {
   let askCounter = 0;
 
   const broadcast = (msg: ServerMessage): void => {
+    // phase 956 (audit-2026-05-15 new.P2.5): stop 期间 (started=false at line 216) skip broadcast 防 O(n²) transport writes + cascade depth N
+    if (!started) return;
     // phase 877 (audit-2026-05-15 new.P1.3): transport nullness 单 source-of-truth
     // stop 期间 dropConnection 在 transport.close 前 broadcast connection_dropped 仍 emit
     // transport.close 完成后 transport=null → 后续 late callback 静默
