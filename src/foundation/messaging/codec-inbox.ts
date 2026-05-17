@@ -22,12 +22,31 @@ export function parseFrontmatter(raw: string): { meta: Record<string, string>; b
     const ci = line.indexOf(':');
     if (ci <= 0) continue;
     const key = line.slice(0, ci).trim();
-    const value = line.slice(ci + 1).trim().replace(/^["']|["']$/g, '');
+    const value = yamlUnquote(line.slice(ci + 1).trim());
     meta[key] = value;
   }
 
   // Everything after the closing --- is the body
   return { meta, body: afterOpen.slice(closeIdx + 5).trim() };
+}
+
+/**
+ * Reverse of yamlQuote — strip outer quotes + unescape `\\` `"` `\n` `\r`.
+ * Non-quoted value returned verbatim (numeric / boolean literal).
+ *
+ * NUL placeholder 三段 replace 模式：
+ * - `\\\\` → \x00 占位（防后续 replace 误踩 `\\n` 看到 escaped backslash）
+ * - `\\"` / `\\n` / `\\r` 顺序 unescape
+ * - \x00 → `\\` 还原
+ */
+function yamlUnquote(v: string): string {
+  if (!(v.startsWith('"') && v.endsWith('"'))) return v;
+  return v.slice(1, -1)
+    .replace(/\\\\/g, '\x00')
+    .replace(/\\"/g, '"')
+    .replace(/\\n/g, '\n')
+    .replace(/\\r/g, '\r')
+    .replace(/\x00/g, '\\');
 }
 
 /**

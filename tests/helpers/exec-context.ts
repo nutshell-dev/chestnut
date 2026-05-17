@@ -9,7 +9,8 @@ import { vi } from 'vitest';
 import type { ExecContext } from '../../src/foundation/tool-protocol/index.js';
 import type { FileSystem } from '../../src/foundation/fs/types.js';
 
-const noopFs = {} as unknown as FileSystem;
+// frozen: shared mutable fixture immutability guard / 26 caller 共享、防 silent shared corrupt
+const noopFs = Object.freeze({} as unknown as FileSystem);
 
 export function makeExecContext(overrides: Partial<ExecContext> = {}): ExecContext {
   const defaults: ExecContext = {
