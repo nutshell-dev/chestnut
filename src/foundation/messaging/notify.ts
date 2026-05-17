@@ -17,7 +17,6 @@ export function notifyInbox(
   fs: FileSystem,
   opts: InboxMessageOptionsBase & { inboxDir: string },
   audit: AuditLog,
-  context?: string,   // @deprecated since phase 575 / 不再用 / 保接口稳定 / r+1+ 评估删
 ): void {
   try {
     const { inboxDir, ...rest } = opts;
@@ -43,7 +42,6 @@ export function notifySystem(
     idPrefix?: string;
     filenameTag?: string;
   },
-  context?: string,
 ): void {
   notifyInbox(fs, {
     inboxDir,
@@ -53,7 +51,7 @@ export function notifySystem(
     body,
     idPrefix: options?.idPrefix,
     filenameTag: options?.filenameTag,
-  }, audit, context);
+  }, audit);
 }
 
 

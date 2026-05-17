@@ -71,8 +71,7 @@ export function notifyContractCreated(clawDir: string, clawId: string, contractI
     path.join(clawDir, 'inbox', 'pending'),
     body,
     contractAudit,
-    { type: 'message', priority: 'high', idPrefix: 'contract-new' },
-    'contract'
+    { type: 'message', priority: 'high', idPrefix: 'contract-new' }
   );
 }
 
