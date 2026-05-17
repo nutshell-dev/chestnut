@@ -22,6 +22,8 @@ describe('notify_claw tool', () => {
     tempDir = await createTempDir();
     fs = new NodeFileSystem({ baseDir: tempDir });
     audit = makeAudit();
+    // phase 895: pre-create target claw root（existsSync 预检需）
+    await fs.ensureDir(path.join('claws', targetClaw));
   });
 
   afterEach(async () => {
@@ -110,6 +112,7 @@ describe('notify_claw tool', () => {
           throw new Error('disk full');
         }),
         ensureDirSync: vi.fn(() => {}),
+        existsSync: vi.fn(() => true),
       } as unknown as NodeFileSystem;
 
       const tool = createNotifyClawTool({ fs: failFs, clawforumRoot: tempDir, audit: audit.audit });
@@ -128,6 +131,84 @@ describe('notify_claw tool', () => {
       // 反向：NOTIFY_CLAW_SENT 必 0 emit
       const sentRows = audit.events.filter(r => r[0] === MESSAGING_AUDIT_EVENTS.NOTIFY_CLAW_SENT);
       expect(sentRows.length).toBe(0);
+    });
+  });
+
+  describe('phase 895 input validation guard', () => {
+    // happy path 既有 test 已 cover valid `to` → 此处仅反向 reject path
+
+    it('rejects to="../motion" (path traversal) → NOTIFY_CLAW_FAILED + success=false + no file written', async () => {
+      const tool = createNotifyClawTool({ fs, clawforumRoot: tempDir, audit: audit.audit });
+      const result = await tool.execute(
+        { to: '../motion', body: 'attack' },
+        {} as any,
+      );
+      expect(result.success).toBe(false);
+      expect(result.content).toMatch(/invalid claw id/i);
+
+      // 反向：NOTIFY_CLAW_SENT 必 0 emit
+      expect(audit.events.filter(r => r[0] === MESSAGING_AUDIT_EVENTS.NOTIFY_CLAW_SENT).length).toBe(0);
+
+      // 实测 NOTIFY_CLAW_FAILED emit + reason=invalid_claw_id
+      const failedRow = audit.events.find(r => r[0] === MESSAGING_AUDIT_EVENTS.NOTIFY_CLAW_FAILED);
+      expect(failedRow).toBeDefined();
+      expect(failedRow).toContain('claw=../motion');
+      expect(failedRow).toContain('reason=invalid_claw_id');
+
+      // 反向：motion dir 必 0 建（traversal 被 reject 前）
+      const motionDir = path.join(tempDir, 'motion');
+      expect(await fs.exists(motionDir)).toBe(false);
+    });
+
+    it('rejects to="" (empty) → NOTIFY_CLAW_FAILED + success=false', async () => {
+      const tool = createNotifyClawTool({ fs, clawforumRoot: tempDir, audit: audit.audit });
+      const result = await tool.execute(
+        { to: '', body: 'empty' },
+        {} as any,
+      );
+      expect(result.success).toBe(false);
+      expect(result.content).toMatch(/invalid claw id/i);
+
+      const failedRow = audit.events.find(r => r[0] === MESSAGING_AUDIT_EVENTS.NOTIFY_CLAW_FAILED);
+      expect(failedRow).toContain('reason=invalid_claw_id');
+      expect(audit.events.filter(r => r[0] === MESSAGING_AUDIT_EVENTS.NOTIFY_CLAW_SENT).length).toBe(0);
+    });
+
+    it('rejects to="." (dot) → NOTIFY_CLAW_FAILED + success=false', async () => {
+      const tool = createNotifyClawTool({ fs, clawforumRoot: tempDir, audit: audit.audit });
+      const result = await tool.execute(
+        { to: '.', body: 'dot' },
+        {} as any,
+      );
+      expect(result.success).toBe(false);
+      expect(result.content).toMatch(/invalid claw id/i);
+
+      const failedRow = audit.events.find(r => r[0] === MESSAGING_AUDIT_EVENTS.NOTIFY_CLAW_FAILED);
+      expect(failedRow).toContain('reason=invalid_claw_id');
+    });
+
+    it('rejects nonexistent claw → NOTIFY_CLAW_FAILED reason=claw_not_found + no orphan dir created', async () => {
+      // 不预建 claws/ghost-claw — 实测 orphan prevention
+      const tool = createNotifyClawTool({ fs, clawforumRoot: tempDir, audit: audit.audit });
+      const result = await tool.execute(
+        { to: 'ghost-claw', body: 'orphan' },
+        {} as any,
+      );
+      expect(result.success).toBe(false);
+      expect(result.content).toMatch(/claw not found/i);
+
+      // 反向：orphan dir 必 0 建（核心 attack prevention）
+      const orphanRoot = path.join(tempDir, 'claws', 'ghost-claw');
+      expect(await fs.exists(orphanRoot)).toBe(false);
+
+      // 实测 NOTIFY_CLAW_FAILED + reason=claw_not_found
+      const failedRow = audit.events.find(r => r[0] === MESSAGING_AUDIT_EVENTS.NOTIFY_CLAW_FAILED);
+      expect(failedRow).toBeDefined();
+      expect(failedRow).toContain('claw=ghost-claw');
+      expect(failedRow).toContain('reason=claw_not_found');
+
+      // 反向：NOTIFY_CLAW_SENT 必 0 emit
+      expect(audit.events.filter(r => r[0] === MESSAGING_AUDIT_EVENTS.NOTIFY_CLAW_SENT).length).toBe(0);
     });
   });
 

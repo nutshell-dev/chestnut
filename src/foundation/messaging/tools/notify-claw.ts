@@ -60,7 +60,30 @@ export function createNotifyClawTool(deps: NotifyClawDeps): Tool {
       const interrupt = (args.interrupt as boolean) ?? false;
       const priority = interrupt ? 'high' : 'normal';
 
-      const targetInboxDir = path.join(deps.clawforumRoot, 'claws', to, 'inbox', 'pending');
+      // phase 895 / audit-2026-05-16 NEW.P0.2: validation guard (mirror read.ts:75 cross-claw guard)
+      // 防 LLM 通过 `to` 字段绕 claws/ namespace 或建 orphan claw dir
+      if (typeof to !== 'string' || to.includes('/') || to.includes('..') || to === '' || to === '.' || to.startsWith('.')) {
+        deps.audit.write(
+          MESSAGING_AUDIT_EVENTS.NOTIFY_CLAW_FAILED,
+          `claw=${to}`,
+          `reason=invalid_claw_id`,
+        );
+        return { success: false, content: `Failed to notify ${to}: invalid claw id` };
+      }
+
+      // phase 895: orphan prevention — target claw root 必由 claw create 流程预建
+      // InboxWriter.ensureDirSync 否则静默建 orphan dir 违 DP「不丢弃静默」
+      const targetClawRoot = path.join(deps.clawforumRoot, 'claws', to);
+      if (!deps.fs.existsSync(targetClawRoot)) {
+        deps.audit.write(
+          MESSAGING_AUDIT_EVENTS.NOTIFY_CLAW_FAILED,
+          `claw=${to}`,
+          `reason=claw_not_found`,
+        );
+        return { success: false, content: `Failed to notify ${to}: claw not found` };
+      }
+
+      const targetInboxDir = path.join(targetClawRoot, 'inbox', 'pending');
 
       try {
         new InboxWriter(deps.fs, targetInboxDir, deps.audit).writeSync({
