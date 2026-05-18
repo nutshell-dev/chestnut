@@ -117,7 +117,13 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
       ? allProviders.map((p) => new CircuitBreaker(
           cb.failureThreshold,
           cb.resetTimeoutMs,
-          (transition) => this.events.emit({ type: transition, provider: p.name }),
+          (transition, failures) => {
+            if (transition === 'breaker_opened') {
+              this.events.emit({ type: 'breaker_opened', provider: p.name, consecutiveFailures: failures ?? 0 });
+            } else {
+              this.events.emit({ type: transition, provider: p.name });
+            }
+          },
         ))
       : [];
 

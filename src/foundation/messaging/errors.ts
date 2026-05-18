@@ -22,5 +22,7 @@ export class InboxMoveFailed extends Error {
 
 export type InboxMetaError =
   | { kind: 'not_found'; cause: unknown }
-  | { kind: 'read_failed'; cause: unknown }
+  | { kind: 'permission_denied'; cause: unknown }  // ← NEW phase 1013 E.5
+  | { kind: 'io_failed'; cause: unknown }          // ← NEW phase 1013 E.5
+  | { kind: 'read_failed'; cause: unknown }        // backward fallback for unclassified errors
   | { kind: 'parse_failed'; cause: unknown };

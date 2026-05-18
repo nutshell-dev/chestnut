@@ -516,7 +516,11 @@ export class AsyncTaskSystem {
             taskId,
             `error=${formatErr(err)}`,
           );
-        } catch { /* nested try 防 audit 自身异常 nested throw */ }
+        } catch (innerErr) {
+          // L2 audit writer recursion border: align `[AUDIT CRITICAL]` console.error pattern
+          // (foundation/audit/writer.ts:81+99 + foundation/audit/index.ts:14-16 design)
+          console.error(`[AUDIT CRITICAL] task cancel audit nested throw: taskId=${taskId} reason=${innerErr instanceof Error ? innerErr.message : String(innerErr)}`);
+        }
       }
       this.auditWriter.write(TASK_AUDIT_EVENTS.CANCELLED, taskId, 'from=running');
       return;
@@ -542,7 +546,15 @@ export class AsyncTaskSystem {
           task = JSON.parse(
             await this.fs.read(`${TASKS_QUEUES_PENDING_DIR}/${taskId}.json`),
           ) as SubAgentTask | ToolTask;
-        } catch { /* 无 task 仍可移文件 */ }
+        } catch (parseErr) {
+          // 解析失败仍走文件迁移路径（cancel 流程不阻塞）但显式 audit 留痕
+          this.auditWriter.write(
+            TASK_AUDIT_EVENTS.PARSE_FAILED,
+            taskId,
+            'context=cancel_pending_load',
+            `error=${formatErr(parseErr)}`,
+          );
+        }
       }
 
       // 文件：pending → failed

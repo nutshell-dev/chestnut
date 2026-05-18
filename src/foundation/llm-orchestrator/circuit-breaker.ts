@@ -18,12 +18,12 @@ export class CircuitBreaker {
   private failures = 0;
   private openedAt?: number;
   private lastFailureClass: LLMErrorClass | null = null;
-  private onTransition?: (transition: 'breaker_half_open' | 'breaker_closed') => void;
+  private onTransition?: (transition: 'breaker_half_open' | 'breaker_closed' | 'breaker_opened', failures?: number) => void;
 
   constructor(
     private readonly threshold: number,
     private readonly resetTimeoutMs: number,
-    onTransition?: (transition: 'breaker_half_open' | 'breaker_closed') => void,
+    onTransition?: (transition: 'breaker_half_open' | 'breaker_closed' | 'breaker_opened', failures?: number) => void,
   ) {
     this.onTransition = onTransition;
   }
@@ -54,8 +54,12 @@ export class CircuitBreaker {
     this.failures++;
     if (errClass) this.lastFailureClass = errClass;
     if (this.state === 'half-open' || this.failures >= this.threshold) {
+      const was = this.state;
       this.state = 'open';
       this.openedAt = Date.now();
+      if (was !== 'open') {
+        this.onTransition?.('breaker_opened', this.failures);
+      }
     }
   }
 

@@ -98,6 +98,12 @@ export class InboxWriter {
       if (e?.code === 'FS_NOT_FOUND' || e?.code === 'ENOENT') {
         return errResult({ kind: 'not_found', cause: e });
       }
+      if (e?.code === 'EACCES' || e?.code === 'EPERM') {
+        return errResult({ kind: 'permission_denied', cause: e });
+      }
+      if (e?.code === 'EIO' || e?.code === 'EBUSY' || e?.code === 'ENOSPC') {
+        return errResult({ kind: 'io_failed', cause: e });
+      }
       return errResult({ kind: 'read_failed', cause: e });
     }
     try {

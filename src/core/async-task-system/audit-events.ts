@@ -31,4 +31,5 @@ export const TASK_AUDIT_EVENTS = {
   TASK_CORRUPT: 'task_corrupt',                            // ← NEW (phase 852 / r110 F fork)
   CANCEL_PROMISE_REJECTED: 'task_cancel_promise_rejected', // ← NEW (phase 859 / r111 H fork Sa.2)
   RESULT_DELIVERY_ENSURE_DIR_FAILED: 'result_delivery_ensure_dir_failed',  // ← NEW (phase 878 / B-β2)
+  PARSE_FAILED: 'task_parse_failed', // ← NEW (phase 1013 / r123 E fork E.4)
 } as const;
