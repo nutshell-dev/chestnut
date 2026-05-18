@@ -364,7 +364,13 @@ export class ContractSystem {
           `new=${contractId}`,
           `reason=${err instanceof Error ? err.message : String(err)}`,
         );
-        // 不阻断 create / 旧 contract 残留 / Watchdog 可观察 audit
+        // phase 1038 α-7: throw instead of swallow — state machine invariant「1 active contract per claw」
+        // 不可 create new contract while previous archive failed (导致 multi-active state)
+        throw new ToolError(
+          `Cannot create contract "${contractId}": previous active contract "${existing.id}" archive failed. ` +
+          `Manual intervention required: check archive/ dir + retry create. Original error: ${err instanceof Error ? err.message : String(err)}`,
+          { cause: err }
+        );
       }
     }
 

@@ -772,7 +772,7 @@ describe('ContractSystem', () => {
       expect(mockAudit.write).toHaveBeenCalledWith(
         CONTRACT_AUDIT_EVENTS.MOVE_ARCHIVE_FAILED,
         expect.stringContaining('context=ContractSystem._completeSubtaskSync'),
-        expect.stringContaining('message=moveToArchive failed; contract stays in active/'),
+        expect.stringContaining('message=moveToArchive failed; progress.status reverted to running for retry'),
         expect.stringContaining('error=disk full'),
       );
 

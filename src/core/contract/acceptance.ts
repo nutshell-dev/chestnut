@@ -60,7 +60,7 @@ function safeNotify(
   }
 }
 
-async function archiveAndEmit(
+export async function archiveAndEmit(
   ctx: AcceptanceContext,
   contractId: string,
   title: string,
@@ -77,12 +77,32 @@ async function archiveAndEmit(
     await ctx.emitContractCompleted(contractId);
     safeNotify(ctx, 'contract_completed', { contractId, title });
   } catch (err) {
+    // phase 1038 α-1: revert progress.status='completed' → 'running' since archive failed
+    // 防 contract zombie state (status=completed in active/ + 0 contract_completed callback)
+    // best-effort revert / 失败不阻断原 archive throw chain (archiveAndEmit 是 fire-and-forget per phase 791)
+    try {
+      await ctx.withProgressLock(contractId, async () => {
+        const progress = await ctx.getProgress(contractId);
+        if (progress.status === 'completed') {
+          progress.status = 'running';
+          await ctx.saveProgress(contractId, progress);
+        }
+      });
+    } catch (revertErr) {
+      auditError(
+        ctx.audit,
+        CONTRACT_AUDIT_EVENTS.MOVE_ARCHIVE_FAILED,
+        revertErr,
+        `context=${contextLabel}.revertStatus`,
+        `message=revert progress.status to running failed after archive failed`,
+      );
+    }
     auditError(
       ctx.audit,
       CONTRACT_AUDIT_EVENTS.MOVE_ARCHIVE_FAILED,
       err,
       `context=${contextLabel}`,
-      `message=moveToArchive failed; contract stays in active/`,
+      `message=moveToArchive failed; progress.status reverted to running for retry`,
     );
   }
 }
@@ -665,10 +685,26 @@ export async function writeAcceptanceError(
         subtask.status = 'todo';
         subtask.retry_count = (subtask.retry_count || 0) + 1;
         subtask.last_failed_feedback = { feedback: feedbackText, cause };
-        await ctx.saveProgress(contractId, progress);
 
         const contractYaml = await ctx.loadContractYaml(contractId);
         const maxRetries = contractYaml.escalation?.max_retries ?? 3;
+
+        // phase 1038 α-4: mirror line 235-243 escalation check
+        // reset path 累 retry_count 时必 check escalation (mirror normal acceptance failed path)
+        if (subtask.retry_count >= maxRetries) {
+          subtask.escalated_at = new Date().toISOString();
+          await ctx.saveProgress(contractId, progress);
+          ctx.audit.write(
+            CONTRACT_AUDIT_EVENTS.ESCALATED,
+            `${contractId}/${subtaskId}`,
+            `retry_count=${subtask.retry_count}`,
+            `claw=${ctx.clawId}`,
+            `context=writeAcceptanceError.reset`,
+          );
+        } else {
+          await ctx.saveProgress(contractId, progress);
+        }
+
         safeNotify(ctx, 'acceptance_failed', {
           contract_id: contractId,
           subtask_id: subtaskId,
