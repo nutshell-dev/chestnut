@@ -28,5 +28,4 @@ export type { SkillMeta } from './foundation/skill-system/index.js';
 export type { SubAgentTask } from './core/async-task-system/index.js';
 export type { ProgressData, AcceptanceResult } from './core/contract/index.js';
 
-// Version
-export const VERSION = '0.1.0';
+

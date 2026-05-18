@@ -4,7 +4,7 @@
  */
 
 import type { Message } from '../../types/message.js';
-import { buildShadowInstruction, buildShadowAckMessage, type BuildShadowInstructionArgs } from '../../prompts/shadow.js';
+import { buildShadowInstruction, buildShadowAckMessage, type BuildShadowInstructionArgs } from '../../prompts/index.js';
 
 /**
  * Form B：shadow 专用前缀加新 user 消息

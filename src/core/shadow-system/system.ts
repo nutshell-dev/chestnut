@@ -15,7 +15,7 @@ import { runSubagent } from '../subagent/index.js';
 import { AUDIT_PREVIEW_LEN } from '../../foundation/audit/index.js';
 import { SHADOW_AUDIT_EVENTS } from './audit-events.js';
 import { synthesizeFormB, formatErr } from './_helpers.js';
-import type { BuildShadowInstructionArgs } from '../../prompts/shadow.js';
+import type { BuildShadowInstructionArgs } from '../../prompts/index.js';
 import { createToolRegistry } from '../../foundation/tools/index.js';
 import { createDoneTool, DONE_TOOL_NAME } from '../subagent/index.js';
 
