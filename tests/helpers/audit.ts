@@ -1,5 +1,6 @@
 import { EventEmitter } from 'events';
 import type { AuditLog } from '../../src/foundation/audit/index.js';
+import { TEST_LLM_TIMEOUT_MS } from './test-timeouts.js';
 
 /**
  * Test helper: create a mock AuditLog sink that records all written events.
@@ -25,7 +26,7 @@ export async function waitForAuditEvent(
   emitter: EventEmitter,
   events: Array<[string, ...(string | number)[]]>,
   eventType: string,
-  timeoutMs = 30000,
+  timeoutMs = TEST_LLM_TIMEOUT_MS,
 ): Promise<void> {
   if (events.some(e => e[0] === eventType)) return;
 

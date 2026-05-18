@@ -9,6 +9,7 @@ import { randomUUID } from 'crypto';
 import { executeSubAgentTask } from '../../src/core/async-task-system/subagent-executor.js';
 import { DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../../src/prompts/subagent.js';
 import type { SubAgentTask } from '../../src/core/async-task-system/system.js';
+import { SUBAGENT_DEFAULT_TIMEOUT_MS } from '../helpers/test-timeouts.js';
 
 const { mockRunSubagent } = vi.hoisted(() => ({
   mockRunSubagent: vi.fn(),
@@ -35,7 +36,7 @@ function makeTask(overrides: Partial<SubAgentTask> = {}): SubAgentTask {
     kind: 'subagent',
     id: `task-${randomUUID()}`,
     intent: 'test intent',
-    timeoutMs: 60000,
+    timeoutMs: SUBAGENT_DEFAULT_TIMEOUT_MS,
     maxSteps: 10,
     parentClawId: 'parent-claw',
     createdAt: new Date().toISOString(),

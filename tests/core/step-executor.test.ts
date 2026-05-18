@@ -21,6 +21,7 @@ import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import { makeExecContext } from '../helpers/exec-context.js';
+import { TEST_LLM_TIMEOUT_MS } from '../helpers/test-timeouts.js';
 
 // ── Mock factories ──────────────────────────────────────────────────────────
 
@@ -551,7 +552,7 @@ describe('StepExecutor', () => {
   it('mid-stream reset clears contentBlocks and triggers onReset callback', async () => {
     const llm = makeStreamLLM([
       { type: 'text_delta', delta: 'old' },
-      { type: 'reset', provider: 'openai', timeoutMs: 30000 },
+      { type: 'reset', provider: 'openai', timeoutMs: TEST_LLM_TIMEOUT_MS },
       { type: 'text_delta', delta: 'new' },
       { type: 'done', stopReason: 'end_turn' },
     ]);
@@ -591,7 +592,7 @@ describe('StepExecutor', () => {
   it('mid-stream reset without onReset callback falls back to console.warn', async () => {
     const llm = makeStreamLLM([
       { type: 'text_delta', delta: 'old' },
-      { type: 'reset', provider: 'openai', timeoutMs: 30000 },
+      { type: 'reset', provider: 'openai', timeoutMs: TEST_LLM_TIMEOUT_MS },
       { type: 'text_delta', delta: 'new' },
       { type: 'done', stopReason: 'end_turn' },
     ]);

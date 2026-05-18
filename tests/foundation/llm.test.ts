@@ -26,6 +26,7 @@ import {
   LLMTimeoutError,
   LLMAllProvidersFailedError,
 } from '../../src/types/errors.js';
+import { TEST_LLM_TIMEOUT_MS } from '../helpers/test-timeouts.js';
 
 // Mock Anthropic SDK
 const mockMessagesCreate = vi.fn();
@@ -134,7 +135,7 @@ describe('LLM Service', () => {
       model: 'claude-3-sonnet',
       maxTokens: 4096,
       temperature: 0.7,
-      timeoutMs: 30000,
+      timeoutMs: TEST_LLM_TIMEOUT_MS,
     };
 
     beforeEach(() => {
@@ -358,7 +359,7 @@ describe('LLM Service', () => {
       model: 'claude-3-test',
       maxTokens: 4096,
       temperature: 0.7,
-      timeoutMs: 30000,
+      timeoutMs: TEST_LLM_TIMEOUT_MS,
       apiFormat: 'anthropic' as const,
     };
 
@@ -369,7 +370,7 @@ describe('LLM Service', () => {
       model: 'claude-3-fallback',
       maxTokens: 4096,
       temperature: 0.7,
-      timeoutMs: 30000,
+      timeoutMs: TEST_LLM_TIMEOUT_MS,
       apiFormat: 'anthropic' as const,
     };
 
@@ -770,7 +771,7 @@ describe('AnthropicAdapter.stream', () => {
     model: 'claude-3-sonnet',
     maxTokens: 4096,
     temperature: 0.7,
-    timeoutMs: 30000,
+    timeoutMs: TEST_LLM_TIMEOUT_MS,
     apiFormat: 'anthropic' as const,
   };
 
@@ -876,7 +877,7 @@ describe('CustomAnthropicAdapter.stream SSE error events', () => {
     model: 'glm-4.6',
     maxTokens: 4096,
     temperature: 0.7,
-    timeoutMs: 30000,
+    timeoutMs: TEST_LLM_TIMEOUT_MS,
     apiFormat: 'anthropic' as const,
   };
 
@@ -933,7 +934,7 @@ describe('OpenAIAdapter.stream', () => {
     model: 'gpt-4',
     maxTokens: 4096,
     temperature: 0.7,
-    timeoutMs: 30000,
+    timeoutMs: TEST_LLM_TIMEOUT_MS,
     apiFormat: 'openai' as const,
   };
 
@@ -1163,7 +1164,7 @@ describe('OpenAIAdapter.call - formatMessages (M2)', () => {
 describe('OpenAIAdapter — Phase 98 fixes', () => {
   const config = {
     name: 'openai', apiKey: 'k', baseUrl: 'https://api.openai.com/v1',
-    model: 'gpt-4', maxTokens: 4096, temperature: 0.7, timeoutMs: 30000,
+    model: 'gpt-4', maxTokens: 4096, temperature: 0.7, timeoutMs: TEST_LLM_TIMEOUT_MS,
     apiFormat: 'openai' as const,
   };
 
@@ -1331,7 +1332,7 @@ describe('AnthropicAdapter — dropThinkingBlocks', () => {
 
     const cfg = {
       name: 'anthropic', apiKey: 'k', baseUrl: 'https://api.anthropic.com',
-      model: 'claude-3-sonnet', maxTokens: 4096, temperature: 0.7, timeoutMs: 30000,
+      model: 'claude-3-sonnet', maxTokens: 4096, temperature: 0.7, timeoutMs: TEST_LLM_TIMEOUT_MS,
       apiFormat: 'anthropic' as const, dropThinkingBlocks: true, // 这个选项对原生 API 无效
     };
 
@@ -1373,7 +1374,7 @@ describe('AnthropicAdapter — dropThinkingBlocks', () => {
 
     const cfg = {
       name: 'anthropic', apiKey: 'k', baseUrl: 'https://api.anthropic.com',
-      model: 'claude-3-sonnet', maxTokens: 4096, temperature: 0.7, timeoutMs: 30000,
+      model: 'claude-3-sonnet', maxTokens: 4096, temperature: 0.7, timeoutMs: TEST_LLM_TIMEOUT_MS,
       apiFormat: 'anthropic' as const, dropThinkingBlocks: true, // 这个选项对原生 API 无效
     };
 
@@ -1414,7 +1415,7 @@ describe('GeminiAdapter — Phase 98 fixes', () => {
 
     const cfg = {
       name: 'gemini', apiKey: 'k', baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
-      model: 'gemini-2.5-pro', maxTokens: 4096, temperature: 0.7, timeoutMs: 30000,
+      model: 'gemini-2.5-pro', maxTokens: 4096, temperature: 0.7, timeoutMs: TEST_LLM_TIMEOUT_MS,
       apiFormat: 'gemini' as const,
     };
 
@@ -1437,7 +1438,7 @@ describe('GeminiAdapter — Phase 98 fixes', () => {
 
     const cfg = {
       name: 'gemini', apiKey: 'k', baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
-      model: 'gemini-2.5-pro', maxTokens: 4096, temperature: 0.7, timeoutMs: 30000,
+      model: 'gemini-2.5-pro', maxTokens: 4096, temperature: 0.7, timeoutMs: TEST_LLM_TIMEOUT_MS,
       apiFormat: 'gemini' as const,
     };
 
@@ -1463,7 +1464,7 @@ describe('GeminiAdapter — Phase 98 fixes', () => {
     const cfg = {
       name: 'gemini', apiKey: 'k',
       baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
-      model: 'gemini-2.5-pro', maxTokens: 4096, temperature: 0.7, timeoutMs: 30000,
+      model: 'gemini-2.5-pro', maxTokens: 4096, temperature: 0.7, timeoutMs: TEST_LLM_TIMEOUT_MS,
       apiFormat: 'gemini' as const,
     };
 
@@ -1482,7 +1483,7 @@ describe('GeminiAdapter — Phase 98 fixes', () => {
     const cfg = {
       name: 'gemini', apiKey: 'k',
       baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
-      model: 'gemini-2.5-pro', maxTokens: 4096, temperature: 0.7, timeoutMs: 30000,
+      model: 'gemini-2.5-pro', maxTokens: 4096, temperature: 0.7, timeoutMs: TEST_LLM_TIMEOUT_MS,
       apiFormat: 'gemini' as const,
     };
 
@@ -1502,7 +1503,7 @@ describe('GeminiAdapter — Phase 98 fixes', () => {
     const cfg = {
       name: 'gemini', apiKey: 'k',
       baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
-      model: 'gemini-2.5-pro', maxTokens: 4096, temperature: 0.7, timeoutMs: 30000,
+      model: 'gemini-2.5-pro', maxTokens: 4096, temperature: 0.7, timeoutMs: TEST_LLM_TIMEOUT_MS,
       apiFormat: 'gemini' as const,
     };
 

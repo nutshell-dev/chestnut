@@ -3,6 +3,7 @@ import { recoverTasks, type RecoverTasksDeps } from '../../../src/core/async-tas
 import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-events.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
+import { SUBAGENT_SHORT_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
 
 vi.mock('../../../src/core/async-task-system/result-delivery.js', () => ({
   sendResult: vi.fn().mockRejectedValue(new Error('send fail')),
@@ -25,7 +26,7 @@ function makeValidTask(kind: 'subagent' | 'tool' = 'subagent') {
     kind,
     id: 'task-1',
     intent: 'test',
-    timeoutMs: 1000,
+    timeoutMs: SUBAGENT_SHORT_TIMEOUT_MS,
     maxSteps: 1,
     parentClawId: 'parent',
     createdAt: new Date().toISOString(),

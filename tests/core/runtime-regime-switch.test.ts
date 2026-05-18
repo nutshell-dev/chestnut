@@ -22,6 +22,7 @@ import type { LLMResponse } from '../../src/types/message.js';
 import type { StreamChunk } from '../../src/foundation/llm-orchestrator/types.js';
 import type { Message } from '../../src/types/message.js';
 import { DialogStore } from '../../src/foundation/dialog-store/index.js';
+import { TEST_LLM_TIMEOUT_MS } from '../helpers/test-timeouts.js';
 
 async function* responseToStreamChunks(response: LLMResponse): AsyncIterableIterator<StreamChunk> {
   for (const block of response.content) {
@@ -50,7 +51,7 @@ function createMockLLMConfig(): LLMOrchestratorConfig {
       model: 'test-model',
       maxTokens: 1024,
       temperature: 0.7,
-      timeoutMs: 30000,
+      timeoutMs: TEST_LLM_TIMEOUT_MS,
       apiFormat: 'anthropic' as const,
     },
     maxAttempts: 1,

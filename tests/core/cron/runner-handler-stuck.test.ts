@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import { CRON_AUDIT_EVENTS } from '../../../src/core/cron/audit-events.js';
 import { CronRunner, type CronJob } from '../../../src/core/cron/runner.js';
+import { SUBAGENT_SHORT_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
 
 class MockAudit {
   events: Array<{ type: string; cols: string[] }> = [];
@@ -61,7 +62,7 @@ describe('CronRunner — handler stuck watchdog (P1.14)', () => {
       enabled: true,
       schedule: { type: 'interval', minutes: 1 },
       handler: okHandler,
-      timeoutMs: 1000,
+      timeoutMs: SUBAGENT_SHORT_TIMEOUT_MS,
     };
     const runner = new CronRunner([job], audit as unknown as AuditLog);
 

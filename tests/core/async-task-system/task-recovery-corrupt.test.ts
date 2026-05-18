@@ -5,6 +5,7 @@ import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-eve
 import { makeTaskSystemDeps } from '../../helpers/task-system.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
+import { SUBAGENT_SHORT_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -29,7 +30,7 @@ function makeValidTask(kind: 'subagent' | 'tool' = 'subagent') {
     return {
       ...base,
       intent: 'test',
-      timeoutMs: 1000,
+      timeoutMs: SUBAGENT_SHORT_TIMEOUT_MS,
       maxSteps: 1,
     };
   }

@@ -4,6 +4,7 @@ import { makeRuntimeDeps } from '../helpers/runtime-deps.js';
 import type { LLMOrchestratorConfig } from '../../src/foundation/llm-orchestrator/types.js';
 import type { LLMResponse } from '../../src/types/message.js';
 import type { StreamChunk } from '../../src/foundation/llm-orchestrator/types.js';
+import { TEST_LLM_TIMEOUT_MS } from '../helpers/test-timeouts.js';
 
 /**
  * Convert LLMResponse to stream chunks for mock
@@ -52,7 +53,7 @@ export function createMockLLMConfig(): LLMOrchestratorConfig {
       model: 'test-model',
       maxTokens: 1024,
       temperature: 0.7,
-      timeoutMs: 30000,
+      timeoutMs: TEST_LLM_TIMEOUT_MS,
       apiFormat: 'anthropic' as const,
     },
     maxAttempts: 1,

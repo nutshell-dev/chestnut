@@ -10,6 +10,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { ToolDefinition } from '../../src/types/message.js';
 import { AnthropicAdapter } from '../../src/foundation/llm-provider/anthropic.js';
+import { TEST_LLM_TIMEOUT_MS } from '../helpers/test-timeouts.js';
 
 // Mock Anthropic SDK
 const mockMessagesCreate = vi.fn();
@@ -86,7 +87,7 @@ describe('AnthropicAdapter cache_control', () => {
     model: 'claude-3-sonnet',
     maxTokens: 4096,
     temperature: 0.7,
-    timeoutMs: 30000,
+    timeoutMs: TEST_LLM_TIMEOUT_MS,
   };
 
   let fetchMock: ReturnType<typeof vi.fn>;

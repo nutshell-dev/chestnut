@@ -10,6 +10,7 @@ import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-eve
 import { makeTaskSystemDeps } from '../../helpers/task-system.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
+import { SUBAGENT_SHORT_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
 
 vi.mock('../../../src/core/async-task-system/result-delivery.js', () => ({
   sendResult: vi.fn(),
@@ -78,7 +79,7 @@ describe('phase 556: race + dead-letter cluster fix', () => {
             kind: 'subagent',
             id: taskId,
             intent: 'test',
-            timeoutMs: 1000,
+            timeoutMs: SUBAGENT_SHORT_TIMEOUT_MS,
             maxSteps: 1,
             parentClawId: 'parent',
             createdAt: new Date().toISOString(),
@@ -110,7 +111,7 @@ describe('phase 556: race + dead-letter cluster fix', () => {
         kind: 'subagent',
         id: taskId,
         intent: 'test',
-        timeoutMs: 1000,
+        timeoutMs: SUBAGENT_SHORT_TIMEOUT_MS,
         maxSteps: 1,
         parentClawId: 'parent',
         createdAt: new Date().toISOString(),
@@ -134,7 +135,7 @@ describe('phase 556: race + dead-letter cluster fix', () => {
       kind: 'subagent',
       id: 'task-dead',
       intent: 'test',
-      timeoutMs: 1000,
+      timeoutMs: SUBAGENT_SHORT_TIMEOUT_MS,
       maxSteps: 1,
       parentClawId: 'parent',
       createdAt: new Date().toISOString(),
@@ -274,7 +275,7 @@ describe('phase 556: race + dead-letter cluster fix', () => {
         kind: 'subagent' as const,
         id: taskId,
         intent: 'test',
-        timeoutMs: 1000,
+        timeoutMs: SUBAGENT_SHORT_TIMEOUT_MS,
         maxSteps: 1,
         parentClawId: 'parent',
         createdAt: new Date().toISOString(),
@@ -325,7 +326,7 @@ describe('phase 556: race + dead-letter cluster fix', () => {
             kind: 'subagent',
             id: taskId,
             intent: 'test',
-            timeoutMs: 1000,
+            timeoutMs: SUBAGENT_SHORT_TIMEOUT_MS,
             maxSteps: 1,
             parentClawId: 'parent',
             createdAt: new Date().toISOString(),
@@ -355,7 +356,7 @@ describe('phase 556: race + dead-letter cluster fix', () => {
         kind: 'subagent',
         id: taskId,
         intent: 'test',
-        timeoutMs: 1000,
+        timeoutMs: SUBAGENT_SHORT_TIMEOUT_MS,
         maxSteps: 1,
         parentClawId: 'parent',
         createdAt: new Date().toISOString(),
@@ -376,7 +377,7 @@ describe('phase 556: race + dead-letter cluster fix', () => {
       kind: 'subagent',
       id: 'task-retry',
       intent: 'test',
-      timeoutMs: 1000,
+      timeoutMs: SUBAGENT_SHORT_TIMEOUT_MS,
       maxSteps: 1,
       parentClawId: 'parent',
       createdAt: new Date().toISOString(),

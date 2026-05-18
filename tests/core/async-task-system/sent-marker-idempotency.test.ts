@@ -6,6 +6,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { sendResult, sendFallbackError, SENT_MARKER } from '../../../src/core/async-task-system/result-delivery.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
+import { SUBAGENT_SHORT_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
 
 vi.mock('../../../src/foundation/messaging/index.js', () => {
   const MockInboxWriter = vi.fn().mockImplementation(() => ({
@@ -50,7 +51,7 @@ describe('SENT_MARKER idempotency (phase 789 / P0.19 + P0.20)', () => {
       kind: 'subagent' as const,
       parentClawId: 'parent',
       intent: 'test',
-      timeoutMs: 1000,
+      timeoutMs: SUBAGENT_SHORT_TIMEOUT_MS,
       maxSteps: 5,
       createdAt: new Date().toISOString(),
     };
@@ -68,7 +69,7 @@ describe('SENT_MARKER idempotency (phase 789 / P0.19 + P0.20)', () => {
       kind: 'subagent' as const,
       parentClawId: 'parent',
       intent: 'test',
-      timeoutMs: 1000,
+      timeoutMs: SUBAGENT_SHORT_TIMEOUT_MS,
       maxSteps: 5,
       createdAt: new Date().toISOString(),
     };
@@ -123,7 +124,7 @@ describe('SENT_MARKER idempotency (phase 789 / P0.19 + P0.20)', () => {
       kind: 'subagent' as const,
       parentClawId: 'parent',
       intent: 'test',
-      timeoutMs: 1000,
+      timeoutMs: SUBAGENT_SHORT_TIMEOUT_MS,
       maxSteps: 5,
       createdAt: new Date().toISOString(),
     };

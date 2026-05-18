@@ -18,6 +18,7 @@ import type { RuntimeDependencies } from '../../src/core/runtime/index.js';
 import type { LLMOrchestratorConfig } from '../../src/foundation/llm-orchestrator/types.js';
 import { INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR } from '../../src/types/paths.js';
 import { createToolRegistry } from '../../src/foundation/tools/index.js';
+import { TEST_LLM_TIMEOUT_MS } from './test-timeouts.js';
 
 const TEST_CLAW_ID = 'test-claw';
 
@@ -37,7 +38,7 @@ export async function makeRuntimeDeps(input: MakeRuntimeDepsInput): Promise<Runt
   const inboxReader = new InboxReader(INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR, systemFs, auditWriter);
   const outboxWriter = new OutboxWriter(clawId, clawDir, systemFs, auditWriter);
   const llm = new LLMOrchestratorImpl(input.llmConfig ?? {
-    primary: { name: 'mock', apiKey: 'test', model: 'test', maxTokens: 1024, temperature: 0.7, timeoutMs: 30000, apiFormat: 'anthropic' },
+    primary: { name: 'mock', apiKey: 'test', model: 'test', maxTokens: 1024, temperature: 0.7, timeoutMs: TEST_LLM_TIMEOUT_MS, apiFormat: 'anthropic' },
     maxAttempts: 1,
     retryDelayMs: 100,
     events: { emit: () => {} },

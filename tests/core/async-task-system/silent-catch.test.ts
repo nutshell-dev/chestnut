@@ -10,6 +10,7 @@ import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-eve
 import { makeTaskSystemDeps } from '../../helpers/task-system.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
+import { SUBAGENT_SHORT_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
 
 // ─── S1 helpers ───────────────────────────────────────────────────────────────
 
@@ -25,7 +26,7 @@ function makeMockFsForS1(opts: { moveReject?: boolean; deleteReject?: boolean } 
       kind: 'subagent',
       id: 'task-1',
       intent: 'test',
-      timeoutMs: 1000,
+      timeoutMs: SUBAGENT_SHORT_TIMEOUT_MS,
       maxSteps: 1,
       parentClawId: 'parent',
       createdAt: new Date().toISOString(),
