@@ -180,7 +180,7 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
       const streamFile = path.join(clawsDir, clawId, STREAM_FILE);
       if (!clawTrackMap.has(clawId)) {
         const clawDir = path.join(clawsDir, clawId);
-        const contractMs = getContractCreatedMs(fs, clawDir);
+        const contractMs = getContractCreatedMs(fs, clawDir, audit);
         if (contractMs === null) continue;
         const track = makeClawTrack();
         track.hasContract = true;
@@ -195,7 +195,7 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
         const pid = await pm.readPid(clawId);
         track.isAlive = pid !== null && isAlive(pid);
       } catch { track.isAlive = false; }
-      track.hasContract = getContractCreatedMs(fs, path.join(clawsDir, clawId)) !== null;
+      track.hasContract = getContractCreatedMs(fs, path.join(clawsDir, clawId), audit) !== null;
       refreshClawStatus(clawId);
     }
   };

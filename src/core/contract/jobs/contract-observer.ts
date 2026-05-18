@@ -33,7 +33,19 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
       motionAudit.write(CONTRACT_AUDIT_EVENTS.OBSERVER_STATE_PARSE_FAILED,
         `reason=shape_mismatch`, `stateFile=${stateFile}`);
     }
-  } catch { /* silent: 首次运行无历史数据是合法状态 / 从空状态开始 / TODO narrow if 非 ENOENT */ }
+  } catch (err) {
+    // phase 1010 r123 B fork: narrow ENOENT 兑现 first-run state 注释意图、非 ENOENT audit
+    const code = (err as NodeJS.ErrnoException)?.code;
+    if (code !== 'ENOENT') {
+      motionAudit.write(
+        CONTRACT_AUDIT_EVENTS.OBSERVER_STATE_LOAD_FAILED,
+        `file=${stateFile}`,
+        `code=${code ?? 'unknown'}`,
+        `error=${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    // 行为兼容: lastCheckTs 保 0 (first-run-like)、不 throw
+  }
 
   // 扫描 claws/ 目录
   const clawsDir = path.join(clawforumDir, CLAWS_DIR);

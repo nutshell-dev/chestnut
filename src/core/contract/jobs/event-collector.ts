@@ -54,7 +54,18 @@ export function collectContractEvents(
         continue;
       }
     }
-  } catch { /* silent: archive 不存在是合法 first-run state / ENOENT acceptable / TODO narrow if 非 ENOENT */ }
+  } catch (err) {
+    // phase 1010 r123 B fork: narrow ENOENT 兑现 first-run state 注释意图、非 ENOENT audit
+    const code = (err as NodeJS.ErrnoException)?.code;
+    if (code !== 'ENOENT') {
+      audit?.write(
+        CONTRACT_AUDIT_EVENTS.EVENT_COLLECTOR_SCAN_FAILED,
+        `dir=archive`,
+        `code=${code ?? 'unknown'}`,
+        `error=${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
 
   // 2. active 中升级事件
   const activeDir = path.join(clawDir, CONTRACT_DIR, 'active');
@@ -96,7 +107,18 @@ export function collectContractEvents(
         continue;
       }
     }
-  } catch { /* silent: active 不存在是合法 first-run state / ENOENT acceptable / TODO narrow if 非 ENOENT */ }
+  } catch (err) {
+    // phase 1010 r123 B fork: narrow ENOENT 兑现 first-run state 注释意图、非 ENOENT audit
+    const code = (err as NodeJS.ErrnoException)?.code;
+    if (code !== 'ENOENT') {
+      audit?.write(
+        CONTRACT_AUDIT_EVENTS.EVENT_COLLECTOR_SCAN_FAILED,
+        `dir=active`,
+        `code=${code ?? 'unknown'}`,
+        `error=${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
 
   return events;
 }

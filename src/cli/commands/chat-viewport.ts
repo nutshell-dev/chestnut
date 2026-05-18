@@ -820,7 +820,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
           if (clawTrackMap.has(clawId)) continue;
           const clawDir = path.join(clawsDir, clawId);
           // getContractCreatedMs 用 clawsFs (baseDir=clawsDir) / 传相对路径 clawId
-          const contractMs = getContractCreatedMs(clawsFs, clawId);
+          const contractMs = getContractCreatedMs(clawsFs, clawId, options.audit);
           if (contractMs !== null) {
             const t = makeClawTrack();
             t.hasContract = true;
