@@ -284,7 +284,7 @@ export class WallTimeExceededError extends ClawError {
 // 4 类锁定 phase 342 / 改列表需用户拍板（业务语义边界）
 // ============================================================================
 
-export const PROGRAMMING_BUG_TYPES = [TypeError, ReferenceError, SyntaxError, RangeError] as const;
+const PROGRAMMING_BUG_TYPES = [TypeError, ReferenceError, SyntaxError, RangeError] as const;
 
 export type LLMErrorClass = 'permanent' | 'transient' | 'rate_limit' | 'abort' | 'unknown';
 
