@@ -273,6 +273,8 @@ export interface AcceptanceContext extends LockContext {
   toolRegistry: ToolRegistry;
   /** phase 1020 (r124 C fork): wrap runContractVerifier with cancel-propagation controller */
   runVerifierWithCancel: (contractId: string, config: Omit<VerifierConfig, 'signal'>) => Promise<VerifierResult>;
+  /** Tool-level wall-clock timeout inherited from globalConfig.tool_timeout_ms (phase 1029 / F-2) */
+  toolTimeoutMs?: number;
 }
 
 export async function completeSubtaskSync(
@@ -560,6 +562,7 @@ export async function runLLMAcceptance(
         );
       },
       toolRegistry: ctx.toolRegistry,                          // phase 704
+      toolTimeoutMs: ctx.toolTimeoutMs,                        // phase 1029 / F-2
     });
     return result;
   } catch (err) {

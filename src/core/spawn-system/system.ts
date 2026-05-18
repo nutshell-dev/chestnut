@@ -66,6 +66,7 @@ export async function runSpawnSync(opts: RunSpawnSyncOptions): Promise<ToolResul
       timeoutMs: opts.timeoutMs,
       isShadow: opts.ctx.isShadow,
       signal: opts.ctx.signal,
+      toolTimeoutMs: opts.ctx.toolTimeoutMs,
     });
 
     opts.ctx.auditWriter?.write(SPAWN_AUDIT_EVENTS.SYNC_FINISHED, id);

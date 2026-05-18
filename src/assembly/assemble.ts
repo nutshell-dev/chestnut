@@ -231,6 +231,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
       contractManager = createContractSystem(
         clawDir, clawId, systemFs, auditWriter, llm,
         toolRegistry,   // phase 704: toolRegistry 注入 ContractSystem
+        toolTimeoutMs,  // phase 1029 / F-2
       );
     } catch (e) {
       auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=contract_manager`, `phase=construct`, `reason=${errMsg(e)}`);
@@ -256,6 +257,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
         contractManager,
         outboxWriter,
         registry: toolRegistry,     // NEW: 装配好的 registry 注入 AsyncTaskSystem / 子代理共用
+        toolTimeoutMs,              // phase 1029 / F-2
       });
     } catch (e) {
       auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=task_system`, `phase=construct`, `reason=${errMsg(e)}`);
@@ -289,7 +291,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
         motionAudit: auditWriter,
         clawsBaseDir: path.resolve(clawDir, '..', CLAWS_DIR),
         clawFsFactory: (clawDir: string) => new NodeFileSystem({ baseDir: clawDir }),
-        clawContractManagerFactory: (d: string, id: string, fs: import('../foundation/fs/types.js').FileSystem) => createContractSystem(d, id, fs, createSystemAudit(fs, d), undefined, toolRegistry),
+        clawContractManagerFactory: (d: string, id: string, fs: import('../foundation/fs/types.js').FileSystem) => createContractSystem(d, id, fs, createSystemAudit(fs, d), undefined, toolRegistry, toolTimeoutMs),
       };
       contractManager.onContractCompleted(async (contractId) => {
         if (!evolutionSystem) return; // P1.NPE guard (phase 620 / mirror phase 607 dream-trigger)
@@ -321,6 +323,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
         maxSteps,
         auditWriter,
         permissionChecker: createClawPermissionChecker({ clawDir, strict: true }),
+        toolTimeoutMs,
       });
     } catch (e) {
       auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=exec_context`, `phase=construct`, `reason=${errMsg(e)}`);

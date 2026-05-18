@@ -74,4 +74,6 @@ export interface ToolExecutorOptions {
   scheduleAsyncTool?: ScheduleAsyncTool;
   mainDialogStore?: DialogStore;
   mainContextSnapshot?: { clawId: string; toolUseId: string };
+  /** Tool-level default timeout (phase 1029 / F-2 / inherits from caller ExecContext / 0 传维持 ToolExecutor fallback 60s) */
+  defaultTimeoutMs?: number;
 }

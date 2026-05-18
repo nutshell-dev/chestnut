@@ -48,6 +48,7 @@ export function createContractSystem(
   audit: AuditLog,
   llm?: LLMOrchestrator,
   toolRegistry?: ToolRegistry,
+  toolTimeoutMs?: number,
 ): ContractSystem {
-  return new ContractSystem(clawDir, clawId, fs, audit, llm, toolRegistry);
+  return new ContractSystem(clawDir, clawId, fs, audit, llm, toolRegistry, toolTimeoutMs);
 }

@@ -85,6 +85,7 @@ export class ContractSystem {
   private readonly audit: AuditLog;
   private llm?: LLMOrchestrator;
   private toolRegistry: ToolRegistry;
+  private toolTimeoutMs?: number;
 
   private activeDir = CONTRACT_ACTIVE_DIR;
   private pausedDir = CONTRACT_PAUSED_DIR;
@@ -141,6 +142,7 @@ export class ContractSystem {
     audit: AuditLog,
     llm?: LLMOrchestrator,
     toolRegistry?: ToolRegistry,
+    toolTimeoutMs?: number,
   ) {
     this.clawDir = clawDir;
     this.clawId = clawId;
@@ -151,6 +153,7 @@ export class ContractSystem {
       throw new Error('ContractSystem: toolRegistry required (phase 704 / verifier subagent toolset injection)');
     }
     this.toolRegistry = toolRegistry;
+    this.toolTimeoutMs = toolTimeoutMs;
   }
 
   setOnNotify(cb: (type: string, data: Record<string, unknown>) => void): void {
@@ -233,6 +236,7 @@ export class ContractSystem {
         this.runLLMAcceptance(promptFile, contractAbsDir, contractId, subtaskId, subtaskDesc, evidence, artifacts),
       withProgressLock: (contractId, fn) => this.withProgressLock(contractId, fn),
       toolRegistry: this.toolRegistry,
+      toolTimeoutMs: this.toolTimeoutMs,
       runVerifierWithCancel: async (contractId, config) => {
         const controller = new AbortController();
         this._registerVerifierController(contractId, controller);

@@ -66,6 +66,9 @@ export interface RunSubagentOptions {
   messages?: Message[];
   isShadow?: boolean;
 
+  // NEW (phase 1029 / F-2)：tool-level timeout inheritance from caller ExecContext
+  toolTimeoutMs?: number;
+
 }
 
 export interface RunSubagentResult {
@@ -122,6 +125,7 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
     auditWriter,
     messages: opts.messages,
     isShadow: opts.isShadow,
+    toolTimeoutMs: opts.toolTimeoutMs,
   });
 
   const text = await agent.run();

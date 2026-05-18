@@ -56,6 +56,8 @@ export interface AsyncTaskSystemOptions {
   // main dialog store ref for ask_caller
   mainDialogStore?: DialogStore;
   registry: ToolRegistry;     // NEW: caller 注入填充好的 registry / Assembly own 装配
+  /** Tool-level wall-clock timeout inherited from globalConfig.tool_timeout_ms (phase 1029 / F-2) */
+  toolTimeoutMs?: number;
 }
 
 
@@ -117,6 +119,7 @@ export class AsyncTaskSystem {
 
   private postProcessors: Map<string, PostProcessor> = new Map();
   private cancellingIds: Set<string> = new Set();
+  private readonly toolTimeoutMs?: number;
 
   /**
    * 装配期注册 PostProcessor
@@ -156,6 +159,7 @@ export class AsyncTaskSystem {
     this.outboxWriter = options.outboxWriter;
     this.mainDialogStore = options.mainDialogStore;
     this.registry = options.registry;
+    this.toolTimeoutMs = options.toolTimeoutMs;
   }
 
   async initialize(): Promise<void> {
@@ -418,6 +422,7 @@ export class AsyncTaskSystem {
           mainDialogStore: this.mainDialogStore,
           moveTaskToDone: this.moveTaskToDone.bind(this),
           moveTaskToFailed: this.moveTaskToFailed.bind(this),
+          toolTimeoutMs: this.toolTimeoutMs,
         });
       }
     } catch (error) {

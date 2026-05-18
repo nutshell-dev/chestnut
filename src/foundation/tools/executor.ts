@@ -337,7 +337,7 @@ export class ToolExecutor extends ToolExecutorImpl {
   private mainContextSnapshot?: { clawId: string; toolUseId: string };
 
   constructor(options: ToolExecutorOptions) {
-    super(options.registry, undefined, options.scheduleAsyncTool);
+    super(options.registry, options.defaultTimeoutMs, options.scheduleAsyncTool);
     this.clawDir = options.clawDir;
     this.syncDir = options.syncDir;
     this.workspaceDir = options.workspaceDir ?? path.join(options.clawDir, CLAWSPACE_DIR);

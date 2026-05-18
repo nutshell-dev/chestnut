@@ -58,6 +58,8 @@ export interface ExecContext {
   signal?: AbortSignal;
   /** Max steps for subagents created via spawn tool */
   subagentMaxSteps?: number;
+  /** Tool-level wall-clock timeout, inherited from globalConfig.tool_timeout_ms / Assembly 装配期注入 (phase 1029 / F-2) */
+  toolTimeoutMs?: number;
   /** 当前对话 messages（由 runtime._runReact 注入，供 dispatch 工具读取） */
   dialogMessages?: Message[];
   /** 创建链路的源头 clawId，由 dispatch/spawn 传播。Motion 直接创建时为 'motion' */

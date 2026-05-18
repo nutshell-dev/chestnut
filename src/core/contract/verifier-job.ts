@@ -53,6 +53,7 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
       onIdleTimeout: config.onIdleTimeout,
       resultTool: REPORT_RESULT_TOOL_NAME,
       signal: config.signal,   // phase 993 D.1: cancel chain propagation
+      toolTimeoutMs: config.toolTimeoutMs, // phase 1029 / F-2
     });
 
     // 结果解析（既有 fallback 逻辑保留）

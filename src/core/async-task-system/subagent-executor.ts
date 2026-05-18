@@ -35,6 +35,7 @@ export interface ExecuteSubAgentTaskDeps {
   mainDialogStore?: DialogStore;
   moveTaskToDone: (taskId: string) => Promise<void>;
   moveTaskToFailed: (taskId: string) => Promise<void>;
+  toolTimeoutMs?: number;
 }
 
 /**
@@ -118,7 +119,7 @@ export async function executeSubAgentTask(
       toolsForLLM,
       timeoutMs: task.timeoutMs,
       originClawId: task.originClawId,
-
+      toolTimeoutMs: deps.toolTimeoutMs,
     });
 
     // Phase438: 单 postProcessor lookup + execute（替代 pipeline）

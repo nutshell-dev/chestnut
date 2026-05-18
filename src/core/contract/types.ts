@@ -76,6 +76,8 @@ export interface VerifierConfig {
 
   /** ContractSystem 装配期注入 / verifier subagent 内部用 getForProfile('readonly') 派生 read+ls+search 工具子集 / + reportTool 注册 / 与 system prompt 指令 align（M#7 / phase 704） */
   toolRegistry: ToolRegistry;
+  /** Tool-level wall-clock timeout inherited from globalConfig.tool_timeout_ms (phase 1029 / F-2) */
+  toolTimeoutMs?: number;
 }
 
 export interface VerifierResult {

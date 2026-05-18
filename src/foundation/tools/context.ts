@@ -91,6 +91,8 @@ export interface ExecContextImplOptions {
   systemPromptForLLM?: string;
   /** Current main agent turn's tools array (in-memory, set by runtime before runReact) — phase 769 */
   toolsForLLM?: ToolDefinition[];
+  /** Tool-level wall-clock timeout, inherited from globalConfig.tool_timeout_ms / Assembly 装配期注入 (phase 1029 / F-2) */
+  toolTimeoutMs?: number;
 }
 
 /**
@@ -160,6 +162,7 @@ export class ExecContextImpl implements ExecContext {
   systemPromptForLLM?: string;
   toolsForLLM?: ToolDefinition[];
   permissionChecker?: PermissionChecker;
+  toolTimeoutMs?: number;
   stopRequested: boolean = false;
   
   private startTime: number;
@@ -189,6 +192,7 @@ export class ExecContextImpl implements ExecContext {
     this.systemPromptForLLM = options.systemPromptForLLM;
     this.toolsForLLM = options.toolsForLLM;
     this.permissionChecker = options.permissionChecker;
+    this.toolTimeoutMs = options.toolTimeoutMs;
     this.stepNumber = 0;
     this.startTime = Date.now();
   }

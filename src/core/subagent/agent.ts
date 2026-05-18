@@ -51,6 +51,7 @@ export interface SubAgentOptions {
   messages?: Message[];                      // 若提供，直接用；否则从 prompt 构建
   originClawId?: string;                     // 创建链路源头，传给子 SubAgent
   isShadow?: boolean;                         // phase 767：shadow 分身标记
+  toolTimeoutMs?: number;                      // phase 1029 / F-2: tool-level timeout inheritance
   taskStreamWriter: StreamLog;
   auditWriter: AuditLog;          // tasks/queues/results/{id}/audit.tsv，step 11+ 写事件
   mainDialogStore?: DialogStore;                                // NEW: subagent profile only / ask_caller 用 read-only ref
@@ -84,6 +85,7 @@ export class SubAgent {
   private messages?: Message[];
   private originClawId?: string;
   private isShadow?: boolean;
+  private toolTimeoutMs?: number;
   private taskStreamWriter: StreamLog;
   private auditWriter: AuditLog;
   private mainDialogStore?: DialogStore;
@@ -116,6 +118,7 @@ export class SubAgent {
     this.messages = options.messages;
     this.originClawId = options.originClawId;
     this.isShadow = options.isShadow;
+    this.toolTimeoutMs = options.toolTimeoutMs;
     this.taskStreamWriter = options.taskStreamWriter;
     this.auditWriter = options.auditWriter;
     this.mainDialogStore = options.mainDialogStore;
@@ -188,6 +191,7 @@ export class SubAgent {
       const executorProfile = callerTypeToProfile(callerType);
       const executor = new ToolExecutor({
         registry: this.registry,
+        defaultTimeoutMs: this.toolTimeoutMs,   // NEW phase 1029 / F-2
         clawDir: this.clawDir,
         syncDir: this.syncDir,
         workspaceDir: this.workspaceDir,   // phase 512
