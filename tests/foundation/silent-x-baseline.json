@@ -172,14 +172,8 @@
       "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
     },
     {
-      "file": "src/core/async-task-system/system.ts",
-      "line": 545,
-      "body_excerpt": "} catch { /* 无 task 仍可移文件 */ }",
-      "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
-    },
-    {
       "file": "src/core/memory/random-dream.ts",
-      "line": 152,
+      "line": 159,
       "body_excerpt": "} catch { /* 无 progress.json，跳过 */ }",
       "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
     },

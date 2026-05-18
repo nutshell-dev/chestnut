@@ -56,9 +56,16 @@ const RANDOM_DREAM_STATE_FILE = '.random-dream-state.json';
 
 function loadRandomDreamState(fs: FileSystem, audit: AuditLog): RandomDreamState {
   try {
-    return JSON.parse(
-      fs.readSync(RANDOM_DREAM_STATE_FILE)
-    ) as RandomDreamState;
+    const parsed: unknown = JSON.parse(fs.readSync(RANDOM_DREAM_STATE_FILE));
+    if (typeof parsed === 'object' && parsed !== null &&
+        Array.isArray((parsed as { processedContractIds?: unknown }).processedContractIds) &&
+        (parsed as { processedContractIds: unknown[] }).processedContractIds.every(x => typeof x === 'string')) {
+      return parsed as RandomDreamState;
+    }
+    audit.write(MEMORY_AUDIT_EVENTS.RANDOM_DREAM_ERROR,
+      `step=load_state_shape_invalid`,
+      `reason=processedContractIds_not_string_array`);
+    return { processedContractIds: [] };
   } catch (err) {
     // FileNotFoundError 首启良性 / silent
     if (err instanceof FileNotFoundError) {

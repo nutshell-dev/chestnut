@@ -25,7 +25,14 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
   let lastCheckTs = 0;
   try {
     const raw = fs.readSync(stateFile);
-    lastCheckTs = JSON.parse(raw).lastCheckTs ?? 0;
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed === 'object' && parsed !== null &&
+        typeof (parsed as { lastCheckTs?: unknown }).lastCheckTs === 'number') {
+      lastCheckTs = (parsed as { lastCheckTs: number }).lastCheckTs;
+    } else {
+      motionAudit.write(CONTRACT_AUDIT_EVENTS.OBSERVER_STATE_PARSE_FAILED,
+        `reason=shape_mismatch`, `stateFile=${stateFile}`);
+    }
   } catch { /* silent: 首次运行无历史数据是合法状态 / 从空状态开始 / TODO narrow if 非 ENOENT */ }
 
   // 扫描 claws/ 目录

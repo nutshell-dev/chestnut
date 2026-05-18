@@ -538,11 +538,22 @@ export class AsyncTaskSystem {
 
       // 若仅文件存在（未入队或已 shift），尝试从盘读出以决定是否 sendFallbackError
       if (!task && fileExists) {
+        const filePath = `${TASKS_QUEUES_PENDING_DIR}/${taskId}.json`;
+        let content: string | undefined;
         try {
-          task = JSON.parse(
-            await this.fs.read(`${TASKS_QUEUES_PENDING_DIR}/${taskId}.json`),
-          ) as SubAgentTask | ToolTask;
-        } catch { /* 无 task 仍可移文件 */ }
+          content = await this.fs.read(filePath);
+          const parsed: unknown = JSON.parse(content);
+          if (validateTaskShape(parsed)) {
+            task = parsed as SubAgentTask | ToolTask;
+          } else {
+            await backupCorruptTask(this.fs, this.auditWriter, filePath, content, new Error('shape_mismatch'));
+          }
+        } catch (e) {
+          if (content !== undefined) {
+            await backupCorruptTask(this.fs, this.auditWriter, filePath, content, e).catch(() => { /* fs.move 路径仍 cover */ });
+          }
+          // read 失败 → 跳过 / 后续 move 仍尝试
+        }
       }
 
       // 文件：pending → failed

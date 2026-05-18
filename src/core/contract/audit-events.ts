@@ -13,6 +13,7 @@ export const CONTRACT_AUDIT_EVENTS = {
   LOCK_CLEANUP_FAILED: 'contract_lock_cleanup_failed',   // ← NEW (phase 850 / r108 F fork F2.1)
   PROGRESS_SCHEMA_INVALID: 'contract_progress_schema_invalid',  // ← NEW (phase 587)
   CONTRACT_YAML_SCHEMA_INVALID: 'contract_yaml_schema_invalid', // ← NEW (phase 587)
+  OBSERVER_STATE_PARSE_FAILED: 'contract_observer_state_parse_failed',  // ← NEW (phase 1012 / r123 C fork)
   PROGRESS_CORRUPTED: 'contract_progress_corrupted',
   ARCHIVE_STARTED: 'contract_archive_started',
   ROLLBACK_FAILED: 'contract_rollback_failed',
