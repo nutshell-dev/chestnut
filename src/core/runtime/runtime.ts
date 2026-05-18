@@ -25,6 +25,7 @@ import { summarizeLastExit } from './last-exit-summary.js';
 import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../../types/signals.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import { RUNTIME_AUDIT_EVENTS, REACT_LOOP_AUDIT_EVENTS } from './runtime-audit-events.js';
+import { HEARTBEAT_AUDIT_EVENTS } from './heartbeat-audit-events.js';
 import { CLAW_SUBDIRS, DIALOG_DIR } from '../../types/paths.js';
 import { oneLine, formatErr } from '../../types/utils.js';
 import { escapeForLog } from '../../foundation/tools/index.js';
@@ -284,7 +285,15 @@ export class Runtime {
         try {
           const checklist = (await this.systemFs.read('HEARTBEAT.md')).trim();
           return checklist ? `${base}\n\n${checklist}` : base;
-        } catch {
+        } catch (e) {
+          const code = (e as NodeJS.ErrnoException)?.code;
+          if (code !== 'ENOENT') {
+            this.auditWriter.write(
+              HEARTBEAT_AUDIT_EVENTS.CHECKLIST_READ_FAILED,
+              `code=${code ?? 'unknown'}`,
+              `error=${e instanceof Error ? e.message : String(e)}`,
+            );
+          }
           return base;
         }
       }

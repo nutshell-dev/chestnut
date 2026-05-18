@@ -6,4 +6,5 @@
  */
 export const HEARTBEAT_AUDIT_EVENTS = {
   FIRE_FAILED: 'heartbeat_fire_failed',
+  CHECKLIST_READ_FAILED: 'heartbeat_checklist_read_failed',
 } as const;
