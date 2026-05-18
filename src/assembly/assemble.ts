@@ -2,6 +2,7 @@ import path from 'path';
 import * as fsNative from 'fs';
 
 import { createAuditWriter, createSystemAudit, type AuditLog } from '../foundation/audit/index.js';
+import { reconcileFallbackDumps } from '../foundation/audit/writer.js';
 import { createSnapshot } from '../foundation/snapshot/index.js';
 import { SNAPSHOT_IGNORE_PATTERNS } from './snapshot-patterns.js';
 import type { Snapshot } from '../foundation/snapshot/index.js';
@@ -128,6 +129,13 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
   // syncDir = clawDir/tasks/sync (装配-level 共享 dir / 应然 §A.7)
   const syncDir = path.join(clawDir, TASKS_SYNC_DIR);
   await clawFs.ensureDir(syncDir);
+
+  // Reconcile prior crash fallback dumps before creating new audit writer
+  try {
+    await reconcileFallbackDumps(systemFs);
+  } catch {
+    // silent: reconcile 失败不阻塞启动（best-effort、下次启动再试）
+  }
 
   // --- 1. AuditWriter (daemon.ts L100-104) ---
   let auditWriter: AuditLog;

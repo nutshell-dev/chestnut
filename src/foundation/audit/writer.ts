@@ -15,6 +15,7 @@ interface FallbackEntry {
 const pendingFallback: FallbackEntry[] = [];
 let exitHandlerInstalled = false;
 let overflowMetaEmitted = false;
+let flushTimer: ReturnType<typeof setInterval> | null = null;
 
 function ensureExitHandler(): void {
   if (exitHandlerInstalled) return;
@@ -34,22 +35,78 @@ function pushFallback(line: string, origin: string): void {
   }
   pendingFallback.push({ origin, line });
   ensureExitHandler();
+  ensurePeriodicFlush();
+}
+
+function ensurePeriodicFlush(): void {
+  if (flushTimer) return;
+  flushTimer = setInterval(() => {
+    dumpFallback();
+  }, 5000);
+  flushTimer.unref(); // 不阻 event loop 退出
 }
 
 function dumpFallback(): void {
   if (pendingFallback.length === 0) return;
+  const batch = pendingFallback.splice(0); // atomic: clear + capture
   try {
     const fallbackPath = `${getFallbackDir()}/clawforum-audit-fallback-${process.pid}-${Date.now()}.tsv`;
     // origin 作 synthetic col 0 prepend / esc(origin) 防 tab 污染
-    const body = pendingFallback
+    const body = batch
       .map(e => `${esc(e.origin)}\t${e.line}`)
       .join('');
     nodeFs.writeFileSync(fallbackPath, body);
   } catch (err) {
+    // write 失败：恢复 entries 到 buffer（best-effort、顺序非关键）
+    pendingFallback.unshift(...batch);
     const reason = err instanceof Error ? err.message : String(err);
     console.error(
       `[AUDIT CRITICAL] fallback dump failed: reason=${reason} pending=${pendingFallback.length}`,
     );
+  }
+}
+
+/**
+ * Boot-time: scan tmpdir for prior crash fallback dumps and append their
+ * contents to the corresponding live audit.tsv files (keyed by origin col).
+ * Best-effort — individual file parse/append failures are skipped.
+ */
+export async function reconcileFallbackDumps(fs: FileSystem): Promise<void> {
+  const tmp = getFallbackDir();
+  const pattern = /^clawforum-audit-fallback-\d+-\d+\.tsv$/;
+  let entries: { name: string }[];
+  try {
+    entries = await fs.list(tmp, { includeDirs: false });
+  } catch {
+    return; // tmpdir 不可访问 → skip
+  }
+  for (const entry of entries) {
+    if (!pattern.test(entry.name)) continue;
+    const dumpPath = `${tmp}/${entry.name}`;
+    try {
+      const content = await fs.read(dumpPath);
+      const byOrigin = new Map<string, string[]>();
+      for (const line of content.split('\n')) {
+        if (!line) continue;
+        const tabIdx = line.indexOf('\t');
+        if (tabIdx === -1) continue;
+        const origin = line.slice(0, tabIdx);
+        const rest = line.slice(tabIdx + 1);
+        let lines = byOrigin.get(origin);
+        if (!lines) { lines = []; byOrigin.set(origin, lines); }
+        lines.push(rest);
+      }
+      for (const [origin, lines] of byOrigin) {
+        try {
+          await fs.appendSync(origin, lines.join('\n') + '\n');
+        } catch {
+          // silent: 目标文件可能已被删 / 权限变（best-effort per-file、其他 origin 仍继续）
+        }
+      }
+      await fs.delete(dumpPath);
+    } catch {
+      // silent: 损坏文件跳过、下轮 reconcile 重试（best-effort、不阻塞整体启动）
+    }
   }
 }
 
@@ -107,6 +164,10 @@ export function _resetFallbackForTest(): void {
   pendingFallback.length = 0;
   exitHandlerInstalled = false;
   overflowMetaEmitted = false;
+  if (flushTimer) {
+    clearInterval(flushTimer);
+    flushTimer = null;
+  }
 }
 
 function esc(s: string): string {
