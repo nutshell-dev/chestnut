@@ -118,7 +118,12 @@ export async function runWatchdogLoop(): Promise<void> {
   
   // Create Motion ProcessManager (reused across loop iterations)
   const pm = createProcessManagerForCLI();
-  
+
+  // phase 1034: idempotent install / 防 test re-entry 或 production 异常 re-entry 累 listener (Node maxListeners warning)
+  // mirror _resetShutdownGuard removeListener pattern (line 60-66) — install 前 cleanup prior
+  if (sigtermHandler) process.removeListener('SIGTERM', sigtermHandler);
+  if (sigintHandler) process.removeListener('SIGINT', sigintHandler);
+
   sigtermHandler = () => {
     stopped = true;
     shutdownWatchdog(auditWriter, 'SIGTERM');
