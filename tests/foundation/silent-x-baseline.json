@@ -203,7 +203,7 @@
     },
     {
       "file": "src/foundation/file-tool/search.ts",
-      "line": 161,
+      "line": 166,
       "body_excerpt": "} catch { /* claw dir not accessible */ }",
       "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
     },

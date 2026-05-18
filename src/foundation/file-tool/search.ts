@@ -24,17 +24,20 @@ async function walkNative(
   remaining: number,
   onMatch: (relPath: string, lineNo: number, line: string) => void,
   onSkip: () => void,
-  prefix = ''
+  prefix = '',
+  signal?: AbortSignal,
 ): Promise<number> {
   let rem = remaining;
   const dirents = await fs.list(baseDir, { includeDirs: true });
   for (const d of dirents) {
+    if (signal?.aborted) return rem;
     if (rem <= 0) return rem;
     const relPath = prefix ? `${prefix}/${d.name}` : d.name;
     if (d.isDirectory) {
-      rem = await walkNative(fs, nodePath.join(baseDir, d.name), query, rem, onMatch, onSkip, relPath);
+      rem = await walkNative(fs, nodePath.join(baseDir, d.name), query, rem, onMatch, onSkip, relPath, signal);
     } else {
       try {
+        if (signal?.aborted) return rem;
         const lines = (await fs.read(nodePath.join(baseDir, relPath))).split('\n');
         for (let i = 0; i < lines.length && rem > 0; i++) {
           if (lines[i].toLowerCase().includes(query)) {
@@ -156,7 +159,9 @@ export const searchTool: Tool = {
               (relPath, lineNo, line) => {
                 allResults.push(`[${clawId}] ${rawSearchPath}${relPath}:${lineNo}: ${line}`);
               },
-              () => { totalSkipped++; }
+              () => { totalSkipped++; },
+              '',
+              ctx.signal,
             );
           } catch { /* claw dir not accessible */ }
         }
@@ -211,7 +216,9 @@ export const searchTool: Tool = {
           (relPath, lineNo, line) => {
             results.push(`${relPath}:${lineNo}: ${line}`);
           },
-          () => { skippedCount++; }
+          () => { skippedCount++; },
+          '',
+          ctx.signal,
         );
         
         const skippedMsg = skippedCount > 0 ? `（${skippedCount} 个文件被跳过）` : '';
