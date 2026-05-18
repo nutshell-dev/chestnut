@@ -8,6 +8,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { listCommand } from '../../../src/cli/commands/claw-list.js';
+import { FAKE_LIVE_PID } from '../../helpers/test-pids.js';
 
 vi.mock('fs');
 
@@ -56,7 +57,7 @@ describe('claw-list', () => {
     const { createProcessManagerForCLI } = await import('../../../src/cli/utils/factories.js');
     vi.mocked(createProcessManagerForCLI).mockReturnValue({
       isAlive: vi.fn((name: string) => name === 'claw-a'),
-      readPid: vi.fn().mockResolvedValue({ pid: 12345 }),
+      readPid: vi.fn().mockResolvedValue({ pid: FAKE_LIVE_PID }),
     } as any);
 
     vi.mocked(fs.existsSync).mockImplementation((p: fs.PathLike) => {
@@ -160,7 +161,7 @@ describe('claw-list', () => {
     const { createProcessManagerForCLI } = await import('../../../src/cli/utils/factories.js');
     vi.mocked(createProcessManagerForCLI).mockReturnValue({
       isAlive: vi.fn((name: string) => name === 'claw-a'),
-      readPid: vi.fn().mockResolvedValue({ pid: 12345 }),
+      readPid: vi.fn().mockResolvedValue({ pid: FAKE_LIVE_PID }),
     } as any);
 
     vi.mocked(fs.existsSync).mockImplementation((p: fs.PathLike) => {
