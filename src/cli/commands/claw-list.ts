@@ -126,8 +126,8 @@ export async function listCommand(opts?: { json?: boolean }): Promise<void> {
 
         if (isRunning) {
           try {
-            const pidNum = await processManager.readPid(entry);
-            if (pidNum !== null) pid = pidNum;
+            const stored = await processManager.readPid(entry);
+            if (stored !== null) pid = stored.pid;
           } catch { /* ignore read errors */ }
         }
 

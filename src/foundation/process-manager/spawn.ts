@@ -7,8 +7,9 @@ import { ProcessListUnavailable } from './errors.js';
 import { ensureStatusDir, getLockFile, getPidFile } from './paths.js';
 import { isAliveByPidFile as checkAlive } from './alive.js';
 import { readLockPid } from './lock.js';
-import { removePid } from './pid.js';
+import { readPid, removePid } from './pid.js';
 import { findProcesses } from './find.js';
+import { getProcessStartTime } from '../process-exec/process-starttime.js';
 import { AUDIT_MESSAGE_MAX_CHARS } from '../audit/index.js';
 import { isAlive as l1IsAlive } from '../process-exec/index.js';
 import type { ProcessManagerContext, SpawnOptions } from './types.js';
@@ -71,7 +72,9 @@ export async function spawnProcess(
         }
       }
     }
-    try { await ctx.fs.delete(lockFile); } catch (err: any) {
+    try {
+      await ctx.fs.delete(lockFile);
+    } catch (err: any) {
       if (err?.code !== 'ENOENT' && err?.code !== 'FS_NOT_FOUND') {
         ctx.audit.write(
           PROCESS_MANAGER_AUDIT_EVENTS.LOCKFILE_CLEANUP_FAILED,
@@ -99,9 +102,17 @@ export async function spawnProcess(
     ctx.fs.writeExclusiveSync(pidFile, '');
   } catch (err: any) {
     if (err.code === 'EEXIST') {
-      if (isAliveByPidFile(clawId)) {
-        throw new Error(`Claw "${clawId}" is already running (PID file exists)`);
+      // PID-recycling defense: verify startTime before declaring conflict
+      const stored = await readPid(ctx, clawId);
+      if (stored !== null) {
+        const startTimeForVerify = stored.startTime ?? getProcessStartTime(stored.pid);
+        if (l1IsAlive(stored.pid, startTimeForVerify)) {
+          throw new Error(`Claw "${clawId}" is already running (PID file exists)`);
+        }
+        // startTime mismatch or unavailable → fall through to stale cleanup
       }
+      // pidfile disappeared during check → fall through to stale cleanup
+
       let existingContent = '';
       let readSucceeded = false;
       try {

@@ -152,12 +152,13 @@ describe('spawn EEXIST race audit 归类（phase 591 / A.spawn-eexist-race-miscl
 
     mockWriteExclusiveOnceEEXIST();
 
-    // The first two readSync calls come from checkAlive (initial + EEXIST branch).
+    // The first readSync call comes from checkAlive (initial).
+    // The 2nd call is readLockPid (lockFile).
     // The 3rd call is our explicit readSync in the EEXIST branch.
     let readSyncCallCount = 0;
     vi.spyOn(nodeFs, 'readSync').mockImplementation((p: string) => {
       readSyncCallCount++;
-      if (readSyncCallCount === 4) {
+      if (readSyncCallCount === 3) {
         const err = new Error('EACCES permission denied') as NodeJS.ErrnoException;
         err.code = 'EACCES';
         throw err;

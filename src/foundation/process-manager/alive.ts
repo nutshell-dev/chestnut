@@ -13,9 +13,20 @@ export function getAliveStatus(
     if (trimmed === '') {
       return { alive: false, reason: 'empty PID file' };
     }
-    const pid = parseInt(trimmed, 10);
-    if (isNaN(pid)) {
-      return { alive: false, reason: `invalid PID: "${trimmed}"` };
+
+    let pid: number;
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (typeof parsed === 'object' && parsed !== null && typeof parsed.pid === 'number') {
+        pid = parsed.pid;
+      } else {
+        throw new Error('invalid JSON pidfile');
+      }
+    } catch {
+      pid = parseInt(trimmed, 10);
+      if (isNaN(pid)) {
+        return { alive: false, reason: `invalid PID: "${trimmed}"` };
+      }
     }
 
     try {

@@ -12,7 +12,7 @@ import { type ClawTrack, makeClawTrack } from './chat-viewport-claw-line.js';
 
 export interface ClawManagerDeps {
   fs: FileSystem;
-  pm: { readPid: (label: string) => Promise<number | null> };
+  pm: { readPid: (label: string) => Promise<{ pid: number; startTime?: string } | null> };
   audit: AuditLog;
   isMotion: boolean;
   clawsDir: string;
@@ -192,8 +192,8 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
       }
       const track = clawTrackMap.get(clawId)!;
       try {
-        const pid = await pm.readPid(clawId);
-        track.isAlive = pid !== null && isAlive(pid);
+        const stored = await pm.readPid(clawId);
+        track.isAlive = stored !== null && isAlive(stored.pid);
       } catch { track.isAlive = false; }
       track.hasContract = getContractCreatedMs(fs, path.join(clawsDir, clawId), audit) !== null;
       refreshClawStatus(clawId);

@@ -1,7 +1,7 @@
 /**
  * ProcessManager audit event names.
  *
- * Module-owned event namespace per H1 design (phase334 / r36 α 决策).
+ * Module-owned event namespace per H1 design (phase334 / r36 α 决策)。
  * 字符串值与 phase148 起 events.ts 中央注册表的 PROCESS_* / PID_* / LOCK_* / LOCKFILE_* / ORPHAN_* 系列等价 / 0 漂移。
  *
  * 注意：PM 模块含 PROCESS / PID / LOCK / LOCKFILE / ORPHAN 5 子资源 / prefix 全保留。
@@ -20,6 +20,10 @@ export const PROCESS_MANAGER_AUDIT_EVENTS = {
   PID_REMOVE_OK: 'pid_remove_ok',
   PID_REMOVE_FAILED: 'pid_remove_failed',
   PID_EMPTY: 'pid_empty',
+  PID_FILE_LEGACY_FORMAT: 'pid_file_legacy_format', // ← NEW phase 1023
+  PID_FILE_PARSE_FAILED: 'pid_file_parse_failed', // ← NEW phase 1023
+  STARTTIME_VERIFY_SKIPPED_WINDOWS: 'starttime_verify_skipped_windows', // ← NEW phase 1023
+  STARTTIME_MISMATCH: 'starttime_mismatch', // ← NEW phase 1023 (PID-wrap detection)
   ORPHAN_SIGTERM_FAILED: 'orphan_sigterm_failed',
   LOCKFILE_READ_FAILED: 'lockfile_read_failed',
   LOCKFILE_CLEANUP_FAILED: 'lockfile_cleanup_failed',

@@ -5,35 +5,35 @@ import { readPid, removePid } from './pid.js';
 import type { ProcessManagerContext } from './types.js';
 
 export async function stopProcess(ctx: ProcessManagerContext, clawId: string): Promise<boolean> {
-  const pid = await readPid(ctx, clawId);
-  if (!pid) {
+  const stored = await readPid(ctx, clawId);
+  if (!stored) {
     return false;
   }
 
   // phase 879：直接 l1IsAlive(pid) authoritative check（pid 已 line 10 拿、不依赖 pidfile probe）
   // 消除 isAliveByPidFile 经 getAliveStatus.readSync(pidFile) → 并发 caller race window
-  if (!l1IsAlive(pid)) {
+  if (!l1IsAlive(stored.pid)) {
     await removePid(ctx, clawId);
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_STOP_STALE,
       `claw=${clawId}`,
-      `pid=${pid}`,
+      `pid=${stored.pid}`,
     );
     return true;
   }
 
   let via = 'sigterm';
   try {
-    kill(pid, 'TERM');
+    kill(stored.pid, 'TERM');
     await new Promise(resolve => setTimeout(resolve, DAEMON_SHUTDOWN_GRACE_MS));
 
-    if (l1IsAlive(pid)) {
-      kill(pid, 'KILL');
+    if (l1IsAlive(stored.pid)) {
+      kill(stored.pid, 'KILL');
       via = 'sigkill';
       ctx.audit.write(
         PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_KILL_ESCALATED,
         `claw=${clawId}`,
-        `pid=${pid}`,
+        `pid=${stored.pid}`,
       );
     }
 
@@ -41,7 +41,7 @@ export async function stopProcess(ctx: ProcessManagerContext, clawId: string): P
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_STOPPED,
       `claw=${clawId}`,
-      `pid=${pid}`,
+      `pid=${stored.pid}`,
       `via=${via}`,
     );
     return true;
@@ -49,7 +49,7 @@ export async function stopProcess(ctx: ProcessManagerContext, clawId: string): P
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_STOP_FAILED,
       `claw=${clawId}`,
-      `pid=${pid}`,
+      `pid=${stored.pid}`,
       `via=${via}`,
       `reason=${err.code || err.message}`,
     );

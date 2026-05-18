@@ -49,7 +49,9 @@ export class ProcessManager {
   }
 
   // pid CRUD
-  readPid(clawId: string): Promise<number | null> { return pidOps.readPid(this._ctx, clawId); }
+  readPid(clawId: string): Promise<{ pid: number; startTime?: string } | null> {
+    return pidOps.readPid(this._ctx, clawId);
+  }
   removePid(clawId: string): Promise<void> { return pidOps.removePid(this._ctx, clawId); }
   selfWritePid(clawId: string): Promise<void> { return pidOps.selfWritePid(this._ctx, clawId); }
   selfRemovePid(clawId: string): Promise<void> { return pidOps.selfRemovePid(this._ctx, clawId); }

@@ -593,9 +593,9 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   const checkDaemonAlive = async () => {
     if (daemonDead) return;
     try {
-      const pid = await pm.readPid(options.label);
-      if (pid === null) return;
-      if (!isAlive(pid)) {
+      const stored = await pm.readPid(options.label);
+      if (stored === null) return;
+      if (!isAlive(stored.pid)) {
         // 进程不存在
         daemonDead = true;
         turnTracker.abort();
@@ -792,11 +792,11 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   // 重连状态校正：tracker 标 active 但 daemon 实际不存活 / forceReset 防误触 ESC 中断
   if (turnTracker.isActive()) {
     try {
-      const pid = await pm.readPid(options.label);
-      if (pid === null) {
+      const stored = await pm.readPid(options.label);
+      if (stored === null) {
         turnTracker.forceReset();
       } else {
-        if (!isAlive(pid)) { turnTracker.forceReset(); }
+        if (!isAlive(stored.pid)) { turnTracker.forceReset(); }
       }
     } catch { turnTracker.forceReset(); }
   }

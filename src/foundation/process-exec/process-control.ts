@@ -7,6 +7,7 @@
  */
 
 import { ProcessExecError } from './types.js';
+import { getProcessStartTime } from './process-starttime.js';
 
 export type Signal = 'TERM' | 'KILL' | 'INT';
 
@@ -38,15 +39,21 @@ export function kill(pid: number, signal: Signal): void {
 /**
  * Check whether process is alive via POSIX signal 0 probe.
  *
+ * @param expectedStartTime Optional startTime for PID-recycling defense.
+ *        If provided and platform is POSIX, verifies the process startTime matches.
  * @returns true if alive (including EPERM = exists but no permission to signal).
  *          false if ESRCH or invalid pid.
+ *          If startTime mismatch (PID recycled), returns false.
  */
-export function isAlive(pid: number): boolean {
+export function isAlive(pid: number, expectedStartTime?: string): boolean {
   try {
     process.kill(pid, 0);
-    return true;
   } catch (err: any) {
     if (err?.code === 'EPERM') return true;
     return false;
   }
+  if (expectedStartTime === undefined || process.platform === 'win32') return true; // skip verify
+  const actualStartTime = getProcessStartTime(pid);
+  if (actualStartTime === undefined) return true; // ps fail / fall back to kill(0) only
+  return actualStartTime === expectedStartTime;
 }
