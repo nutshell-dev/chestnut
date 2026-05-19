@@ -151,6 +151,7 @@
       "cron_job_error",
       "cron_job_late_settled",
       "cron_llm_stats",
+      "cron_metrics_snapshot",
       "cron_parse_fallback",
       "cron_runner_started",
       "cron_runner_stopped"
@@ -291,6 +292,7 @@
       "file_tool_backup_failed"
     ],
     "foundation_messaging_audit-events": [
+      "inbox_deduped",
       "inbox_done",
       "inbox_failed",
       "inbox_list_failed",

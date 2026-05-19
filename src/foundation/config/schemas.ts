@@ -111,6 +111,10 @@ export function createClawGlobalConfigSchema(defaults: ConfigDefaults) {
           enabled: z.boolean().default(true),
           schedule: z.string().default('interval:1m'),
         }).optional(),
+        metrics_snapshot: z.object({
+          enabled: z.boolean().default(true),
+          schedule: z.string().default('interval:5m'),
+        }).optional(),
       }).optional(),
     }).optional(),
     viewport: z.object({

@@ -58,6 +58,7 @@ import { createHeartbeat, type Heartbeat } from '../core/runtime/index.js';
 import { createCronRunner, parseSchedule, CronRunner } from '../core/cron/index.js';
 import { runDiskMonitor } from '../core/cron/jobs/disk-monitor.js';
 import { runLlmStats } from '../core/cron/jobs/llm-stats.js';
+import { runMetricsSnapshot } from '../core/cron/jobs/metrics-snapshot.js';
 import { createMemorySystem, memorySearchTool } from '../core/memory/index.js';
 import type { MemorySystem } from '../core/memory/index.js';
 import { runContractObserver } from '../core/contract/jobs/contract-observer.js';
@@ -638,6 +639,17 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
               await memorySystem.runRandomDream({ signal });
             },
             timeoutMs: 30 * 60_000,
+          },
+          {
+            name: 'metrics-snapshot',
+            enabled: globalConfig.cron?.jobs?.metrics_snapshot?.enabled ?? true,
+            schedule: parseSchedule(globalConfig.cron?.jobs?.metrics_snapshot?.schedule ?? 'interval:5m', auditWriter),
+            handler: () => runMetricsSnapshot({
+              motionDir: path.join(clawforumDir, 'motion'),
+              fs: clawforumFs,
+              audit: auditWriter,
+            }),
+            timeoutMs: 30_000,
           },
           {
             name: 'contract-observer',

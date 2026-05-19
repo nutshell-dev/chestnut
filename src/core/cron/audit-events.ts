@@ -12,6 +12,7 @@ export const CRON_AUDIT_EVENTS = {
   LLM_STATS: 'cron_llm_stats',
   DISK_MONITOR_CHECK: 'cron_disk_monitor_check',
   DISK_MONITOR_THRESHOLD_EXCEEDED: 'cron_disk_monitor_threshold_exceeded',
+  METRICS_SNAPSHOT: 'cron_metrics_snapshot',
   PARSE_FALLBACK: 'cron_parse_fallback',
   JOB_ERROR: 'cron_job_error',
   HANDLER_TIMEOUT: 'cron_handler_timeout',

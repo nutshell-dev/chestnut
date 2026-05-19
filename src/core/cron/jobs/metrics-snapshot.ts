@@ -1,0 +1,45 @@
+import type { FileSystem } from '../../../foundation/fs/types.js';
+import type { AuditLog } from '../../../foundation/audit/index.js';
+import { CRON_AUDIT_EVENTS } from '../audit-events.js';
+
+export interface MetricsSnapshotOptions {
+  motionDir: string;   // motion 目录完整路径
+  fs: FileSystem;       // baseDir 可访问 motionDir（用于 clawforumFs）
+  audit: AuditLog;
+}
+
+/** 统计目录下文件数，目录不存在返回 0 */
+function countDir(dir: string, fs: FileSystem): number {
+  try {
+    return fs.listSync(dir).length;
+  } catch {
+    return 0; // partial scan / best-effort
+  }
+}
+
+export async function runMetricsSnapshot(opts: MetricsSnapshotOptions): Promise<void> {
+  const { motionDir, fs, audit } = opts;
+
+  const inboxPending  = countDir(`${motionDir}/inbox/pending`, fs);
+  const inboxDone     = countDir(`${motionDir}/inbox/done`, fs);
+  const inboxFailed   = countDir(`${motionDir}/inbox/failed`, fs);
+  const outboxPending = countDir(`${motionDir}/outbox/pending`, fs);
+  const outboxDone    = countDir(`${motionDir}/outbox/done`, fs);
+  const outboxFailed  = countDir(`${motionDir}/outbox/failed`, fs);
+  const tasksPending  = countDir(`${motionDir}/tasks/pending`, fs);
+  const tasksQueuePending = countDir(`${motionDir}/tasks/queues/pending`, fs);
+  const tasksRunning  = countDir(`${motionDir}/tasks/running`, fs);
+
+  audit.write(
+    CRON_AUDIT_EVENTS.METRICS_SNAPSHOT,
+    `inbox_pending=${inboxPending}`,
+    `inbox_done=${inboxDone}`,
+    `inbox_failed=${inboxFailed}`,
+    `outbox_pending=${outboxPending}`,
+    `outbox_done=${outboxDone}`,
+    `outbox_failed=${outboxFailed}`,
+    `tasks_pending=${tasksPending}`,
+    `tasks_queue_pending=${tasksQueuePending}`,
+    `tasks_running=${tasksRunning}`,
+  );
+}
