@@ -7,6 +7,8 @@ import type { LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/in
 import type { Message, ContentBlock, TextBlock, LLMResponse } from '../../types/message.js';
 import { InboxWriter } from '../../foundation/messaging/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
+import { migrateAndValidateSession, validateSessionData } from '../../foundation/dialog-store/store.js';
+import type { SessionData } from '../../foundation/dialog-store/types.js';
 import { CLAWS_DIR, DIALOG_DIR } from '../../types/paths.js';
 import { FileNotFoundError } from '../../types/errors.js';
 import {
@@ -195,10 +197,17 @@ async function runDeepDreamForClaw(
   const processedArchives: string[] = [];
 
   for (const sf of sessionFiles) {
-    // 读取并序列化会话
-    let sessionData: { messages: Message[] };
+    // 读取并序列化会话（走 DialogStore 统一读路径：version migration + validation）
+    let sessionData: SessionData;
     try {
-      sessionData = JSON.parse(clawFs.readSync(sf.filePath));
+      const raw = JSON.parse(clawFs.readSync(sf.filePath));
+      const migrated = migrateAndValidateSession(raw, sf.filename, audit);
+      if (!migrated) {
+        // version unknown → 标记跳过（align DialogStore behavior）
+        if (sf.filename !== 'current.json') processedArchives.push(sf.filename);
+        continue;
+      }
+      sessionData = validateSessionData(migrated, audit, clawId);
     } catch (err) {
       audit.write(MEMORY_AUDIT_EVENTS.DEEP_DREAM_ERROR,
         `step=read_session`,

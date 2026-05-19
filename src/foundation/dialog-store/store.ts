@@ -288,7 +288,7 @@ export class DialogStore {
     );
     if (toolUseBlocks.length === 0) return { repaired: messages, toolCount: 0 };
 
-    const detail = opts?.interruptionMessage && opts.interruptionMessage.length > 0
+    const detail = opts?.interruptionMessage && opts.interruptionMessage.trim().length > 0
       ? opts.interruptionMessage
       : 'Cause unknown (no context provided to repair).';
 
@@ -495,6 +495,68 @@ function sliceMessagesAtMarker(messages: Message[], toolUseId: string, inclusive
     }
   }
   return null;
+}
+
+/**
+ * Standalone version migration + validation helpers.
+ * Exported for CLI tools and deep-dream that read dialog files without a full DialogStore instance.
+ * audit is optional (read-only / CLI scenarios don't need audit side-effects).
+ */
+export function migrateAndValidateSession(
+  raw: unknown,
+  filename: string,
+  audit?: AuditLog,
+): SessionData | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const parsed = raw as Partial<SessionData>;
+
+  // v1 → v2 migration
+  if (!parsed.toolsForLLM) {
+    (parsed as SessionData).toolsForLLM = [];
+    (parsed as SessionData).version = 2;
+    audit?.write?.(DIALOG_AUDIT_EVENTS.VERSION_MIGRATE, `file=${filename}`, `from=1`, `to=2`);
+  }
+  // unknown version reject
+  if (typeof parsed.version === 'number' && parsed.version > SESSION_CURRENT_VERSION) {
+    audit?.write?.(DIALOG_AUDIT_EVENTS.VERSION_UNKNOWN, `file=${filename}`,
+      `actual=${parsed.version}`, `current=${SESSION_CURRENT_VERSION}`);
+    return null;
+  }
+  return parsed as SessionData;
+}
+
+export function validateSessionData(
+  data: SessionData,
+  audit?: AuditLog,
+  clawIdFallback?: string,
+): SessionData {
+  let version: number = data.version ?? 2;
+  if (typeof version !== 'number' || version > 2 || version < 1) {
+    audit?.write?.(DIALOG_AUDIT_EVENTS.INVARIANT_FAILED, `field=version`, `got=${String(data.version)}`, `fallback=2`);
+    version = 2;
+  }
+  if (!Number.isInteger(version)) {
+    audit?.write?.(DIALOG_AUDIT_EVENTS.INVARIANT_FAILED, `field=version`, `got=${String(data.version)}`, `reason=non_integer`);
+    version = 2;
+  }
+  const messages = Array.isArray(data.messages)
+    ? data.messages.filter((m): m is Message => {
+        const valid = m != null && typeof m === 'object' && 'role' in m && 'content' in m;
+        if (!valid) {
+          audit?.write?.(DIALOG_AUDIT_EVENTS.INVARIANT_FAILED, `field=messages.entry`, `got=${typeof m}`, `filter=skipped`);
+        }
+        return valid;
+      })
+    : [];
+  return {
+    version: version as SessionData['version'],
+    clawId: data.clawId ?? clawIdFallback,
+    createdAt: data.createdAt ?? new Date().toISOString(),
+    updatedAt: data.updatedAt ?? new Date().toISOString(),
+    systemPrompt: data.systemPrompt ?? '',
+    messages,
+    toolsForLLM: Array.isArray(data.toolsForLLM) ? data.toolsForLLM : [],
+  };
 }
 
 export class MarkerNotFoundError extends Error {

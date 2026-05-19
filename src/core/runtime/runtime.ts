@@ -621,7 +621,7 @@ export class Runtime {
       // Note: do NOT save messages here - _runReact modifies messages in-place
       // and may leave them in an invalid state (e.g., tool_use without tool_result).
       // Valid states are already covered by:
-      // 1. The save at line 486 (before _runReact) - preserves injected messages
+      // 1. The save at lines 596-600 (before _runReact) - preserves injected messages
       // 2. onStepComplete callback - saves after each complete step
       // Notify each inbox sender so they're not left hanging
       if (err instanceof MaxStepsExceededError) {

@@ -5,8 +5,10 @@
  */
 
 import * as fs from 'fs';
+import * as path from 'path';
 import type { Message, ContentBlock, TextBlock, ToolUseBlock, ToolResultBlock, ThinkingBlock } from '../../types/message.js';
 import { CliError } from '../errors.js';
+import { migrateAndValidateSession, validateSessionData } from '../../foundation/dialog-store/store.js';
 
 // ─── Turn model ──────────────────────────────────────────────
 
@@ -265,5 +267,9 @@ export function loadSessionFromFile(filePath: string): SessionLike {
   if (!fs.existsSync(filePath)) {
     throw new CliError(`dialog session not found: ${filePath}`);
   }
-  return JSON.parse(fs.readFileSync(filePath, 'utf-8')) as SessionLike;
+  const raw = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+  const filename = path.basename(filePath);
+  const session = migrateAndValidateSession(raw, filename);
+  if (!session) throw new CliError(`dialog session version unknown: ${filePath}`);
+  return validateSessionData(session) as SessionLike;
 }

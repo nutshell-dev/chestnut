@@ -77,49 +77,49 @@
     },
     {
       "file": "src/cli/commands/claw-trace.ts",
-      "line": 102,
+      "line": 103,
       "body_excerpt": "} catch { /* skip */ }",
       "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
     },
     {
       "file": "src/cli/commands/claw-trace.ts",
-      "line": 120,
+      "line": 121,
       "body_excerpt": "} catch { /* skip */ }",
       "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
     },
     {
       "file": "src/cli/commands/claw-trace.ts",
-      "line": 132,
+      "line": 133,
       "body_excerpt": "} catch { /* skip */ }",
       "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
     },
     {
       "file": "src/cli/commands/claw-trace.ts",
-      "line": 175,
+      "line": 176,
       "body_excerpt": "} catch { /* skip invalid */ }",
       "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
     },
     {
       "file": "src/cli/commands/claw-trace.ts",
-      "line": 177,
+      "line": 178,
       "body_excerpt": "} catch { /* skip */ }",
       "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
     },
     {
       "file": "src/cli/commands/claw-trace.ts",
-      "line": 315,
+      "line": 316,
       "body_excerpt": "} catch { /* no archive dir */ }",
       "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
     },
     {
       "file": "src/cli/commands/claw-trace.ts",
-      "line": 321,
+      "line": 322,
       "body_excerpt": "} catch { /* no current */ }",
       "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
     },
     {
       "file": "src/cli/commands/claw-trace.ts",
-      "line": 332,
+      "line": 339,
       "body_excerpt": "} catch { /* skip */ }",
       "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
     },

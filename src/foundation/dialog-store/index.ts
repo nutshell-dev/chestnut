@@ -6,7 +6,7 @@
  * Dependency: FileSystem
  */
 
-export { DialogStore, MarkerNotFoundError } from './store.js';
+export { DialogStore, MarkerNotFoundError, migrateAndValidateSession, validateSessionData } from './store.js';
 export type { SessionData, LoadResult, DialogMarker, RestoreResult } from './types.js';
 
 import type { FileSystem } from '../fs/types.js';

@@ -15,6 +15,7 @@ import { CONFIG_DEFAULTS } from '../../assembly/config-defaults.js';
 import { CliError } from '../errors.js';
 import { CONTRACT_DIR } from '../../core/contract/index.js';
 import { DIALOG_DIR } from '../../types/paths.js';
+import { migrateAndValidateSession, validateSessionData } from '../../foundation/dialog-store/store.js';
 
 interface StreamEvent {
   ts: number;
@@ -320,15 +321,21 @@ async function showStepDetail(
     dialogFiles.push({ path: currentPath, mtime: stat.mtimeMs });
   } catch { /* no current */ }
 
-  dialogFiles.sort((a, b) => a.mtime - b.mtime);
+  dialogFiles.sort((a, b) => {
+    const aTs = parseInt(path.basename(a.path).split('_')[0], 10);
+    const bTs = parseInt(path.basename(b.path).split('_')[0], 10);
+    if (isNaN(aTs) || isNaN(bTs)) return 0;
+    return aTs - bTs;
+  });
 
   for (const { path: fp } of dialogFiles) {
     try {
       const content = await fs.promises.readFile(fp, 'utf-8');
-      const data = JSON.parse(content);
-      const msgs: DialogMessage[] = Array.isArray(data) ? data
-        : (Array.isArray(data.messages) ? data.messages : []);
-      if (msgs.length > 0) messages.push(...msgs);
+      const raw = JSON.parse(content);
+      const session = migrateAndValidateSession(raw, path.basename(fp));
+      if (!session) continue; // version unknown → skip
+      const validated = validateSessionData(session);
+      if (validated.messages.length > 0) messages.push(...validated.messages as DialogMessage[]);
     } catch { /* skip */ }
   }
 
