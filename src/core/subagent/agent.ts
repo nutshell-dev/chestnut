@@ -360,7 +360,7 @@ export class SubAgent {
                 toolsForLLM: tools,
               });
             } catch {
-              // best-effort / 不影响 agent 执行
+              // silent: best-effort save failure should not break agent execution
             }
             auditStep++;
             auditStepTools = [];

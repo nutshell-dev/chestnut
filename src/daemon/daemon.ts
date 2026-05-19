@@ -112,8 +112,12 @@ export async function daemonCommand(name: string): Promise<void> {
 
   // daemon-start commit（不阻塞启动）
   snapshot.commit(`daemon-start ${new Date().toISOString()}`).then((result) => {
-    if (!result.ok && result.error.kind === 'uncategorized') {
-      auditWriter.write(DAEMON_AUDIT_EVENTS.SNAPSHOT_COMMIT_UNCATEGORIZED, `context=daemon-start`, `exitCode=${result.error.exitCode}`);
+    if (!result.ok) {
+      if (result.error.kind === 'uncategorized') {
+        auditWriter.write(DAEMON_AUDIT_EVENTS.SNAPSHOT_COMMIT_UNCATEGORIZED, `context=daemon-start`, `exitCode=${result.error.exitCode}`);
+      } else {
+        auditWriter.write(DAEMON_AUDIT_EVENTS.SNAPSHOT_COMMIT_FAILED, `context=daemon-start`, `kind=${result.error.kind}`);
+      }
     }
   }).catch((err: unknown) => {
     // 不可预期失败：audit 已在 snapshot 内写

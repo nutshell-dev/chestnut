@@ -151,7 +151,7 @@ describe('runDeepDream', () => {
         expect(state.processedArchives).toContain(filename);
       });
 
-      it('saveDreamState writeAtomicSync 失败时 audit step=save_state 并 re-throw（A.dream-state-io-silent）', async () => {
+      it('saveDreamState writeAtomicSync 失败时 audit step=save_state 但不 re-throw（F36）', async () => {
         const session = makeSessionJson([
           { role: 'user', content: 'hello' },
           { role: 'assistant', content: 'world' },
@@ -171,21 +171,12 @@ describe('runDeepDream', () => {
           return originalWriteAtomicSync.call(this, p, content);
         });
 
-        // 外层 catch 吞掉错误，runDeepDream resolves
         await expect(runDeepDream({ clawforumDir, llmConfig: fakeLlmConfig, llmService: mockLlmService as any, fs: new NodeFileSystem({ baseDir: clawforumDir }), audit: mockAudit, clawFsFactory })).resolves.toBeUndefined();
 
         // audit 记录了 save_state 错误
         expect(mockAudit.write).toHaveBeenCalledWith(
           'cron_deep_dream_error',
           'step=save_state',
-          expect.stringMatching(/^clawId=/),
-          expect.stringMatching(/^reason=.*EIO/),
-        );
-
-        // outer catch 也记录了 unexpected
-        expect(mockAudit.write).toHaveBeenCalledWith(
-          'cron_deep_dream_error',
-          'step=unexpected',
           expect.stringMatching(/^clawId=/),
           expect.stringMatching(/^reason=.*EIO/),
         );

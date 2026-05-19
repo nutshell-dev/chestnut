@@ -17,6 +17,7 @@ export const DAEMON_AUDIT_EVENTS = {
 
 export const LOOP_ITERATION_TYPES = {
   CHAIN: 'chain',
+  CHAIN_LIMITED: 'chain_limited',
   WAIT: 'wait',
 } as const;
 

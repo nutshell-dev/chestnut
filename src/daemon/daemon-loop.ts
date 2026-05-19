@@ -310,10 +310,18 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
           })();
           // Cooldown: prevent spam from rapid daemon restarts
           const startupCheckTsFile = path.join(agentDir, STATUS_SUBDIR, 'startup_check_ts');
-          const lastStartupCheckTs = (() => {
-            try { return parseInt(fsNative.readFileSync(startupCheckTsFile, 'utf-8').trim(), 10); } catch { /* Ignore: timestamp read failure, use 0 (no cooldown) */ return 0; }
+          const startupCheckCooledDown = (() => {
+            try {
+              const raw = fsNative.readFileSync(startupCheckTsFile, 'utf-8').trim();
+              const ts = parseInt(raw, 10);
+              if (isNaN(ts) || ts < 0) {
+                // corrupt — treat as cooled down (remove file)
+                fsNative.unlinkSync(startupCheckTsFile);
+                return true;
+              }
+              return Date.now() - ts >= STARTUP_CHECK_COOLDOWN_MS;
+            } catch { /* Ignore: timestamp read failure, use 0 (no cooldown) */ return true; }
           })();
-          const startupCheckCooledDown = Date.now() - lastStartupCheckTs >= STARTUP_CHECK_COOLDOWN_MS;
 
           if (!alreadyPending && startupCheckCooledDown) {
             fsNative.mkdirSync(path.join(agentDir, STATUS_SUBDIR), { recursive: true });
@@ -387,15 +395,19 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
             const injected = await runtime.processBatch(wrappedCallbacks);
             if (injected > 0) {
               // chain reaction: keep processing until the backlog is clear
+              const MAX_CHAIN_ITERATIONS = 100;
               let more = injected;
               let chainTotal = injected;
-              while (more > 0 && !stopped) {
+              let chainIters = 0;
+              while (more > 0 && !stopped && chainIters < MAX_CHAIN_ITERATIONS) {
                 more = await runtime.processBatch(wrappedCallbacks);
                 chainTotal += more;
+                chainIters++;
               }
 
               // AuditLog: chain reaction 完成
-              options.audit.write(DAEMON_AUDIT_EVENTS.LOOP_ITERATION, `type=${LOOP_ITERATION_TYPES.CHAIN}`, `injected=${injected}`, `chain_total=${chainTotal}`);
+              const chainType = chainIters >= MAX_CHAIN_ITERATIONS ? LOOP_ITERATION_TYPES.CHAIN_LIMITED : LOOP_ITERATION_TYPES.CHAIN;
+              options.audit.write(DAEMON_AUDIT_EVENTS.LOOP_ITERATION, `type=${chainType}`, `injected=${injected}`, `chain_total=${chainTotal}`);
 
               // Turn finished (not interrupted) — reset LLM retry state
               llmRetryCount = 0;

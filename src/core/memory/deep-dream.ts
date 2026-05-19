@@ -104,7 +104,7 @@ function saveDreamState(clawFs: FileSystem, state: DreamStateData, audit: AuditL
       `clawId=${clawId}`,
       `reason=${err instanceof Error ? err.message : String(err)}`,
     );
-    throw err;   // re-throw 保 caller 既有外层 catch 行为
+    // F36: do not re-throw — preserve progress of successfully processed files
   }
 }
 

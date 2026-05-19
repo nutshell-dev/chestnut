@@ -15,11 +15,24 @@ export type CronSchedule =
 /** 将配置字符串解析为 CronSchedule
  * 格式：'hourly' | 'daily:HH:MM' | 'interval:Nm'
  */
-export function parseSchedule(s: string, audit?: AuditLog): CronSchedule {
+export function parseSchedule(s: string, audit?: AuditLog): CronSchedule | null {
   if (s === 'hourly') return { type: 'hourly' };
-  if (s.startsWith('daily:')) return { type: 'daily', time: s.slice(6) };
+  if (s.startsWith('daily:')) {
+    const [hh, mm] = s.slice(6).split(':').map(Number);
+    if (isNaN(hh) || isNaN(mm) || hh < 0 || hh > 23 || mm < 0 || mm > 59) {
+      audit?.write(CRON_AUDIT_EVENTS.PARSE_INVALID, `input=${s}`, 'reason=invalid_daily_time');
+      console.warn(`[cron] Invalid daily schedule "${s}", skipping registration`);
+      return null;
+    }
+    return { type: 'daily', time: s.slice(6) };
+  }
   if (s.startsWith('interval:')) {
     const minutes = parseInt(s.slice(9), 10);
+    if (isNaN(minutes) || minutes <= 0) {
+      audit?.write(CRON_AUDIT_EVENTS.PARSE_INVALID, `input=${s}`, 'reason=invalid_interval');
+      console.warn(`[cron] Invalid interval schedule "${s}", skipping registration`);
+      return null;
+    }
     return { type: 'interval', minutes };
   }
   audit?.write(CRON_AUDIT_EVENTS.PARSE_FALLBACK, `input=${s}`, 'fallback=hourly');
@@ -30,7 +43,7 @@ export function parseSchedule(s: string, audit?: AuditLog): CronSchedule {
 export interface CronJob {
   name: string;
   enabled: boolean;
-  schedule: CronSchedule;
+  schedule: CronSchedule | null;
   handler: (signal?: AbortSignal) => Promise<void>;
   /** Per-job timeout: handler 超过此值后 audit + 强制清 running 让下 tick 重试 / undefined 不包 race / 兼容旧 jobs */
   timeoutMs?: number;
@@ -51,6 +64,8 @@ export class CronRunner {
   private drainTimedOut = false;
   // phase 946 (audit-2026-05-15 gap.7): AbortController for handler cooperative cancellation
   private abortController = new AbortController();
+  // F5: per-job initial scan guard to prevent daily double-fire on daemon restart
+  private _initialScanDone = new Set<string>();
 
   constructor(
     private readonly jobs: CronJob[],
@@ -140,7 +155,16 @@ export class CronRunner {
     }
     for (const job of this.jobs) {
       if (!job.enabled) continue;
+      if (job.schedule === null) continue; // invalid schedule — skip registration (G3)
       if (this.running.has(job.name) || this.cancelling.has(job.name)) continue; // 上次还没跑完 或 cancelling 中，跳过
+      // F5: daily first-tick guard — skip if daemon started before target time
+      if (job.schedule.type === 'daily' && !this._initialScanDone.has(job.name)) {
+        const [h, m] = job.schedule.time.split(':').map(Number);
+        const targetMin = h * 60 + m;
+        const nowMin = now.getHours() * 60 + now.getMinutes();
+        this._initialScanDone.add(job.name);
+        if (nowMin < targetMin) continue; // skip until target time
+      }
       const key = this.computeRunKey(now, job.schedule);
       if (this.lastRunKey.get(job.name) === key) continue;
       this.lastRunKey.set(job.name, key);

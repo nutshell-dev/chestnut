@@ -14,6 +14,7 @@ export const CRON_AUDIT_EVENTS = {
   DISK_MONITOR_THRESHOLD_EXCEEDED: 'cron_disk_monitor_threshold_exceeded',
   METRICS_SNAPSHOT: 'cron_metrics_snapshot',
   GIT_GC_WEEKLY: 'cron_git_gc_weekly',
+  PARSE_INVALID: 'cron_parse_invalid',
   PARSE_FALLBACK: 'cron_parse_fallback',
   JOB_ERROR: 'cron_job_error',
   HANDLER_TIMEOUT: 'cron_handler_timeout',

@@ -91,13 +91,13 @@ export interface Transport {
   /**
    * Register callback for new client connections.
    */
-  onConnect(cb: (conn: Connection) => void): void;
+  onConnect(cb: (conn: Connection) => void): () => void;
 
   /**
    * Register callback for client disconnections.
    * `reason` is present when the socket emitted an error before closing.
    */
-  onDisconnect(cb: (conn: Connection, reason?: Error) => void): void;
+  onDisconnect(cb: (conn: Connection, reason?: Error) => void): () => void;
 
   /**
    * Register callback for incoming client messages.
@@ -107,14 +107,14 @@ export interface Transport {
    * (e.g., consecutive delimiters) are still delivered — caller decides
    * whether to ignore them.
    */
-  onMessage(cb: (conn: Connection, data: string) => void): void;
+  onMessage(cb: (conn: Connection, data: string) => void): () => void;
 
   /**
    * Register callback for transport-level errors (server errors or
    * exceptions thrown inside other callbacks). Errors are isolated so
    * that one bad callback does not crash the transport.
    */
-  onTransportError(cb: (evt: TransportErrorEvent) => void): void;
+  onTransportError(cb: (evt: TransportErrorEvent) => void): () => void;
 }
 
 export { UnixDomainSocketTransport } from './unix-socket.js';

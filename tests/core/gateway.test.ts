@@ -29,10 +29,10 @@ function createStubTransport(): Transport & {
     send: vi.fn(),
     broadcast: vi.fn().mockReturnValue({ failed: [] }),
     getConnections: () => Array.from(connections.values()),
-    onConnect: (cb) => connectCbs.push(cb),
-    onDisconnect: (cb) => disconnectCbs.push(cb),
-    onMessage: (cb) => messageCbs.push(cb),
-    onTransportError: (cb) => transportErrorCbs.push(cb),
+    onConnect: (cb) => { connectCbs.push(cb); return () => { const idx = connectCbs.indexOf(cb); if (idx !== -1) connectCbs.splice(idx, 1); }; },
+    onDisconnect: (cb) => { disconnectCbs.push(cb); return () => { const idx = disconnectCbs.indexOf(cb); if (idx !== -1) disconnectCbs.splice(idx, 1); }; },
+    onMessage: (cb) => { messageCbs.push(cb); return () => { const idx = messageCbs.indexOf(cb); if (idx !== -1) messageCbs.splice(idx, 1); }; },
+    onTransportError: (cb) => { transportErrorCbs.push(cb); return () => { const idx = transportErrorCbs.indexOf(cb); if (idx !== -1) transportErrorCbs.splice(idx, 1); }; },
     _connect: (conn) => {
       connections.set(conn.id, conn);
       for (const cb of connectCbs) {

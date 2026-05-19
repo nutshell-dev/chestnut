@@ -47,12 +47,12 @@ export async function runRetentionCleanup(opts: RetentionCleanupOptions): Promis
             fs.deleteSync(path.join(dir, entry.name));
             totalDeleted++;
           }
-        } catch {
-          audit.write(CRON_AUDIT_EVENTS.RETENTION_CLEANUP_DELETE_FAILED, `context=per-file`, `dir=${dir}`);
+        } catch (err) {
+          audit.write(CRON_AUDIT_EVENTS.RETENTION_CLEANUP_DELETE_FAILED, `context=per-file`, `dir=${dir}`, `file=${entry.name}`, `reason=${err instanceof Error ? err.message : String(err)}`);
         }
       }
-    } catch {
-      audit.write(CRON_AUDIT_EVENTS.RETENTION_CLEANUP_DELETE_FAILED, `context=per-dir`, `dir=${dir}`);
+    } catch (err) {
+      audit.write(CRON_AUDIT_EVENTS.RETENTION_CLEANUP_DELETE_FAILED, `context=per-dir`, `dir=${dir}`, `reason=${err instanceof Error ? err.message : String(err)}`);
     }
   }
 

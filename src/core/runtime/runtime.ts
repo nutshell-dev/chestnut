@@ -238,8 +238,12 @@ export class Runtime {
         auditError(this.auditWriter, RUNTIME_AUDIT_EVENTS.SNAPSHOT_COMMIT_FAILED, err, `context=session-repair`);
         return null;
       });
-      if (result && !result.ok && result.error.kind === 'uncategorized') {
-        this.auditWriter.write(RUNTIME_AUDIT_EVENTS.SNAPSHOT_COMMIT_UNCATEGORIZED, `context=session-repair`, `exitCode=${result.error.exitCode}`);
+      if (result && !result.ok) {
+        if (result.error.kind === 'uncategorized') {
+          this.auditWriter.write(RUNTIME_AUDIT_EVENTS.SNAPSHOT_COMMIT_UNCATEGORIZED, `context=session-repair`, `exitCode=${result.error.exitCode}`);
+        } else {
+          this.auditWriter.write(RUNTIME_AUDIT_EVENTS.SNAPSHOT_COMMIT_FAILED, `context=session-repair`, `kind=${result.error.kind}`);
+        }
       }
     }
   }
@@ -562,8 +566,12 @@ export class Runtime {
       auditError(this.auditWriter, RUNTIME_AUDIT_EVENTS.SNAPSHOT_COMMIT_FAILED, err, `context=turn-${this.turnCount}`);
       return null;
     });
-    if (commitResult && !commitResult.ok && commitResult.error.kind === 'uncategorized') {
-      this.auditWriter.write(RUNTIME_AUDIT_EVENTS.SNAPSHOT_COMMIT_UNCATEGORIZED, `context=turn-${this.turnCount}`, `exitCode=${commitResult.error.exitCode}`);
+    if (commitResult && !commitResult.ok) {
+      if (commitResult.error.kind === 'uncategorized') {
+        this.auditWriter.write(RUNTIME_AUDIT_EVENTS.SNAPSHOT_COMMIT_UNCATEGORIZED, `context=turn-${this.turnCount}`, `exitCode=${commitResult.error.exitCode}`);
+      } else {
+        this.auditWriter.write(RUNTIME_AUDIT_EVENTS.SNAPSHOT_COMMIT_FAILED, `context=turn-${this.turnCount}`, `kind=${commitResult.error.kind}`);
+      }
     }
 
     // phase 521: turn 末 regime change 检测（per L5.G3 (a) 自动检测）

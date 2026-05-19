@@ -155,6 +155,7 @@
       "cron_llm_stats",
       "cron_metrics_snapshot",
       "cron_parse_fallback",
+      "cron_parse_invalid",
       "cron_retention_cleanup",
       "cron_retention_cleanup_delete_failed",
       "cron_runner_started",
@@ -267,6 +268,7 @@
     ],
     "daemon_audit-events": [
       "chain",
+      "chain_limited",
       "daemon_loop_fatal",
       "daemon_loop_interrupt",
       "daemon_loop_interrupt_poller_disabled",

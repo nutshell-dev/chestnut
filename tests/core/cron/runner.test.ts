@@ -47,12 +47,20 @@ describe('parseSchedule', () => {
     warnSpy.mockRestore();
   });
 
-  it('interval:0m parses minutes=0（边界）', () => {
-    expect(parseSchedule('interval:0m')).toEqual({ type: 'interval', minutes: 0 });
+  it('interval:0m returns null（G3 验证）', () => {
+    const audit = makeMockAudit();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(parseSchedule('interval:0m', audit as unknown as AuditLog)).toBeNull();
+    expect(audit.write).toHaveBeenCalledWith(CRON_AUDIT_EVENTS.PARSE_INVALID, 'input=interval:0m', 'reason=invalid_interval');
+    warnSpy.mockRestore();
   });
 
-  it('daily:25:99 parses 原始字符串 time="25:99"（无格式验证）', () => {
-    expect(parseSchedule('daily:25:99')).toEqual({ type: 'daily', time: '25:99' });
+  it('daily:25:99 returns null（G3 验证）', () => {
+    const audit = makeMockAudit();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(parseSchedule('daily:25:99', audit as unknown as AuditLog)).toBeNull();
+    expect(audit.write).toHaveBeenCalledWith(CRON_AUDIT_EVENTS.PARSE_INVALID, 'input=daily:25:99', 'reason=invalid_daily_time');
+    warnSpy.mockRestore();
   });
 });
 

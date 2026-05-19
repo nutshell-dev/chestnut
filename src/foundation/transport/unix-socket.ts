@@ -181,20 +181,36 @@ export class UnixDomainSocketTransport implements Transport {
     return Array.from(this.connections.values(), (e) => e.meta);
   }
 
-  onConnect(cb: (conn: Connection) => void): void {
+  onConnect(cb: (conn: Connection) => void): () => void {
     this.connectCbs.push(cb);
+    return () => {
+      const idx = this.connectCbs.indexOf(cb);
+      if (idx !== -1) this.connectCbs.splice(idx, 1);
+    };
   }
 
-  onDisconnect(cb: (conn: Connection, reason?: Error) => void): void {
+  onDisconnect(cb: (conn: Connection, reason?: Error) => void): () => void {
     this.disconnectCbs.push(cb);
+    return () => {
+      const idx = this.disconnectCbs.indexOf(cb);
+      if (idx !== -1) this.disconnectCbs.splice(idx, 1);
+    };
   }
 
-  onTransportError(cb: (evt: TransportErrorEvent) => void): void {
+  onTransportError(cb: (evt: TransportErrorEvent) => void): () => void {
     this.transportErrorCbs.push(cb);
+    return () => {
+      const idx = this.transportErrorCbs.indexOf(cb);
+      if (idx !== -1) this.transportErrorCbs.splice(idx, 1);
+    };
   }
 
-  onMessage(cb: (conn: Connection, data: string) => void): void {
+  onMessage(cb: (conn: Connection, data: string) => void): () => void {
     this.messageCbs.push(cb);
+    return () => {
+      const idx = this.messageCbs.indexOf(cb);
+      if (idx !== -1) this.messageCbs.splice(idx, 1);
+    };
   }
 
   private armDrainOnce(connectionId: string, sock: Socket): void {
@@ -246,7 +262,7 @@ export class UnixDomainSocketTransport implements Transport {
       try {
         await fs.unlink(this.socketPath);
       } catch {
-        // already gone
+        // silent: socket file may already be cleaned up by OS or prior close
       }
     }
   }
