@@ -198,7 +198,12 @@ export class ToolExecutorImpl implements IToolExecutor {
     const promises = batch.map(({ toolName, args }) => {
       const tool = this.registry.get(toolName);
       if (tool?.readonly !== true) return Promise.resolve(null);
-      return this.execute({ toolName, args, ctx }).catch(err => ({
+      return this.execute({
+        toolName,
+        args,
+        ctx,
+        timeoutMs: (args as Record<string, unknown>)?.timeoutMs as number | undefined,
+      }).catch(err => ({
         success: false,
         content: err instanceof Error ? err.message : String(err),
       } as ToolResult));

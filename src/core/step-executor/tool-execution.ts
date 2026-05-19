@@ -198,8 +198,10 @@ export async function executeSingleTool(
   callbacks?: StepCallbacks,
 ): Promise<ToolResult> {
   try {
-    // Extract async flag (meta parameter, not passed to tool)
-    const { async: asyncMode, __parseError, __raw, ...toolArgs } = toolCall.input as Record<string, unknown>;
+    // async is NOT a universal meta-parameter — some tools (spawn) use it as
+    // an internal parameter. Only readonly tools with supportsAsync use
+    // executor-level async dispatch, and they go through executeReadonlyAsync.
+    const { __parseError, __raw, ...toolArgs } = toolCall.input as Record<string, unknown>;
 
     // Input JSON failed to parse — return error immediately without calling the tool
     if (__parseError) {
@@ -217,10 +219,10 @@ export async function executeSingleTool(
 
     return await executor.execute({
       toolName: toolCall.name,
-      args: toolArgs,
+      args: toolArgs,  // async stays in args for tools that read it internally
       ctx,
-      async: asyncMode === true,
       toolUseId: toolCall.id,
+      timeoutMs: (toolCall.input as Record<string, unknown>)?.timeoutMs as number | undefined,
     });
   } catch (err) {
     const errorType = err instanceof Error ? err.constructor.name : 'Error';
