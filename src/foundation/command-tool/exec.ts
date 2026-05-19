@@ -14,6 +14,8 @@ import { TASKS_SYNC_EXEC_DIR } from './index.js';
 import { exec } from '../process-exec/index.js';
 import { ProcessExecError } from '../process-exec/index.js';
 import { PROCESS_EXEC_DEFAULT_TIMEOUT_MS } from '../process-exec/index.js';
+import { formatErr, safeNumber } from '../../types/utils.js';
+import type { CommandToolDeps } from './index.js';
 
 function truncate(str: string, maxLen: number): string {
   if (!str || str.length <= maxLen) return str || '';
@@ -43,7 +45,8 @@ async function persistOverflow(
     const frontmatter = `---\nsource: exec_overflow\ncontent_length: ${output.length}\ncreated_at: ${new Date().toISOString()}\n---\n`;
     await ctx.fs.writeAtomic(fullPath, frontmatter + output);
     return path.relative(ctx.clawDir, fullPath);
-  } catch {
+  } catch (err) {
+    ctx.auditWriter?.write('overflow_persist_failed', `reason=${formatErr(err)}`);
     return null;
   }
 }
@@ -51,97 +54,112 @@ async function persistOverflow(
 import { EXEC_TOOL_NAME } from '../tools/tool-names.js';
 export { EXEC_TOOL_NAME };
 
-export const execTool: Tool = {
-  name: EXEC_TOOL_NAME,
-  description: 'Execute a shell command in your agent workspace. Runs via `sh -c`, so shell features (pipes, redirects, quotes) work normally. Relative paths resolve against your workspace root.',
-  schema: {
-    type: 'object',
-    properties: {
-      command: {
-        type: 'string',
-        description: 'Shell command string to execute, e.g. "ls -la" or "grep -r foo . | head -20"',
+export function createExecTool(deps: CommandToolDeps = {}) {
+  return {
+    name: EXEC_TOOL_NAME,
+    description: 'Execute a shell command in your agent workspace. Runs via `sh -c`, so shell features (pipes, redirects, quotes) work normally. Relative paths resolve against your workspace root.',
+    schema: {
+      type: 'object',
+      properties: {
+        command: {
+          type: 'string',
+          description: 'Shell command string to execute, e.g. "ls -la" or "grep -r foo . | head -20"',
+        },
+        cwd: {
+          type: 'string',
+          description: 'Working directory (relative path resolved against workspace root, or absolute, with ".." to escape workspace). Default: workspace root.',
+        },
+        timeoutMs: {
+          type: 'number',
+          description: `Timeout in milliseconds (default ${PROCESS_EXEC_DEFAULT_TIMEOUT_MS})`,
+        },
       },
-      cwd: {
-        type: 'string',
-        description: 'Working directory (relative path resolved against workspace root, or absolute, with ".." to escape workspace). Default: workspace root.',
-      },
-      timeoutMs: {
-        type: 'number',
-        description: `Timeout in milliseconds (default ${PROCESS_EXEC_DEFAULT_TIMEOUT_MS})`,
-      },
+      required: ['command'],
     },
-    required: ['command'],
-  },
-  readonly: false,
-  idempotent: false,
-  supportsAsync: true,
+    readonly: false,
+    idempotent: false,
+    supportsAsync: true,
 
-  async execute(args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
-    const command = args.command as string;
-    const cwdArg = args.cwd as string | undefined;
-    const cwd = cwdArg
-      ? (path.isAbsolute(cwdArg) ? cwdArg : path.resolve(ctx.workspaceDir, cwdArg))   // phase 519: workspace-relative
-      : ctx.workspaceDir;            // phase 512 / per-callerType: 主代理=clawspace / 子代理=tasks/subagents/<id>
-    const timeoutMs = (args.timeoutMs as number) ?? undefined;
+    async execute(args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
+      const command = args.command as string;
+      const cmd = command.trim();
+      const firstWord = cmd.split(/\s+/)[0];
 
-    try {
-      const result = await exec('sh', ['-c', command], {
-        cwd,
-        timeout: timeoutMs,
-        signal: ctx.signal,
-      });
-
-      if (result.output.length > EXEC_MAX_OUTPUT) {
-        const relPath = await persistOverflow(ctx, result.output);
-        const content = relPath
-          ? truncateHeadTail(result.output, relPath)
-          : truncate(result.output, EXEC_MAX_OUTPUT);
-        return { success: true, content };
+      if (deps.denyList?.some(d => d === firstWord)) {
+        return { success: false, content: `command '${firstWord}' is denied` };
       }
-      return { success: true, content: result.output || '(no output)' };
-    } catch (error) {
-      // 失败时总是附上 cwd，防止 LLM 对路径上下文产生幻觉（例如误以为在根目录）
-      const cwdHint = `\n[cwd]: ${cwd}`;
-
-      if (!(error instanceof ProcessExecError)) {
-        return {
-          success: false,
-          content: `Error: ${error instanceof Error ? error.message : String(error)}${cwdHint}`,
-        };
+      if (deps.allowList && !deps.allowList.some(a => a === firstWord)) {
+        return { success: false, content: `command '${firstWord}' is not allowed` };
       }
 
-      // maxBuffer exceeded
-      if (error.maxBufferExceeded) {
+      const cwdArg = args.cwd as string | undefined;
+      const cwd = cwdArg
+        ? (path.isAbsolute(cwdArg) ? cwdArg : path.resolve(ctx.workspaceDir, cwdArg))   // phase 519: workspace-relative
+        : ctx.workspaceDir;            // phase 512 / per-callerType: 主代理=clawspace / 子代理=tasks/subagents/<id>
+      const timeoutMs = safeNumber(args.timeoutMs);
+
+      try {
+        const result = await exec('sh', ['-c', command], {
+          cwd,
+          timeout: timeoutMs,
+          signal: ctx.signal,
+        });
+
+        if (result.output.length > EXEC_MAX_OUTPUT) {
+          const relPath = await persistOverflow(ctx, result.output);
+          const content = relPath
+            ? truncateHeadTail(result.output, relPath)
+            : truncate(result.output, EXEC_MAX_OUTPUT);
+          return { success: true, content };
+        }
+        return { success: true, content: result.output || '(no output)' };
+      } catch (error) {
+        // 失败时总是附上 cwd，防止 LLM 对路径上下文产生幻觉（例如误以为在根目录）
+        const cwdHint = `\n[cwd]: ${cwd}`;
+
+        if (!(error instanceof ProcessExecError)) {
+          return {
+            success: false,
+            content: `Error: ${error instanceof Error ? error.message : String(error)}${cwdHint}`,
+          };
+        }
+
+        // maxBuffer exceeded
+        if (error.maxBufferExceeded) {
+          if (error.output.length > EXEC_MAX_OUTPUT) {
+            const relPath = await persistOverflow(ctx, error.output);
+            const truncated = relPath
+              ? truncateHeadTail(error.output, relPath)
+              : truncate(error.output, EXEC_MAX_OUTPUT);
+            return { success: false, content: `Error: command output exceeded 1 MB limit.${cwdHint}\n[output]: ${truncated}` };
+          }
+          const partial = error.output
+            ? `\n[partial output]: ${truncate(error.output, EXEC_MAX_OUTPUT)}`
+            : '';
+          return {
+            success: false,
+            content: `Error: command output exceeded 1 MB limit. Use head/tail to truncate, or redirect to a file.${partial}${cwdHint}`,
+          };
+        }
+
+        // General error (non-zero exit code, timeout, etc.)
         if (error.output.length > EXEC_MAX_OUTPUT) {
           const relPath = await persistOverflow(ctx, error.output);
           const truncated = relPath
             ? truncateHeadTail(error.output, relPath)
             : truncate(error.output, EXEC_MAX_OUTPUT);
-          return { success: false, content: `Error: command output exceeded 1 MB limit.${cwdHint}\n[output]: ${truncated}` };
+          return { success: false, content: `Error: ${error.message}${cwdHint}\n[output]: ${truncated}` };
         }
-        const partial = error.output
-          ? `\n[partial output]: ${truncate(error.output, EXEC_MAX_OUTPUT)}`
-          : '';
+        const output = error.output ? `\n[output]: ${truncate(error.output, EXEC_MAX_OUTPUT)}` : '';
+
         return {
           success: false,
-          content: `Error: command output exceeded 1 MB limit. Use head/tail to truncate, or redirect to a file.${partial}${cwdHint}`,
+          content: `Error: ${error.message}${output}${cwdHint}`,
         };
       }
+    },
+  };
+}
 
-      // General error (non-zero exit code, timeout, etc.)
-      if (error.output.length > EXEC_MAX_OUTPUT) {
-        const relPath = await persistOverflow(ctx, error.output);
-        const truncated = relPath
-          ? truncateHeadTail(error.output, relPath)
-          : truncate(error.output, EXEC_MAX_OUTPUT);
-        return { success: false, content: `Error: ${error.message}${cwdHint}\n[output]: ${truncated}` };
-      }
-      const output = error.output ? `\n[output]: ${truncate(error.output, EXEC_MAX_OUTPUT)}` : '';
-
-      return {
-        success: false,
-        content: `Error: ${error.message}${output}${cwdHint}`,
-      };
-    }
-  },
-};
+// Backward-compat singleton (no allowList/denyList)
+export const execTool = createExecTool();

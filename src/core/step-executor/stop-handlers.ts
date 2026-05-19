@@ -20,7 +20,7 @@ export async function handleToolUseStop(
   if (toolCalls.length === 0) {
     const text = extractText(response.content);
     appendAssistantMessage(messages, response.content);
-    callbacks!.onUnparseableToolUse(response.stop_reason);
+    callbacks?.onUnparseableToolUse?.(response.stop_reason);
     return { kind: 'final', stopReason: 'no_tool', finalText: text };
   }
   appendAssistantMessage(messages, response.content);

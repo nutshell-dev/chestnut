@@ -124,19 +124,18 @@ export class NodeFileSystem implements FileSystem {
     try {
       realTarget = realpathSync(absolute);
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT' && operation === 'write') {
-        // File doesn't exist yet; check parent directory instead
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        // File doesn't exist yet; still check parent directory for symlink traversal
         try {
           realTarget = realpathSync(path.dirname(absolute));
         } catch (err) {
           if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-            // Parent doesn't exist (will be created by ensureDir) — accept
+            // Parent doesn't exist (write: will be created by ensureDir; read: will fail naturally) — accept
           } else {
             throw err; // EACCES, EIO — propagate
           }
         }
       }
-      // For read ENOENT: leave realTarget null, let caller handle missing file
     }
 
     if (realTarget !== null) {

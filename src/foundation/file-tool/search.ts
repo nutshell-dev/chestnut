@@ -12,6 +12,7 @@ import type { Tool, ToolResult, ExecContext } from '../tool-protocol/index.js';
 
 import { resolveWorkspacePath } from './_resolve-path.js';
 import { CLAWS_DIR } from '../../types/paths.js';
+import { safeNumber, formatErr } from '../../types/utils.js';
 
 /**
  * Walk directory recursively and search for query in files.
@@ -104,7 +105,7 @@ export const searchTool: Tool = {
         content: `Error: Path escapes claw directory: "${pathArg}"${cwdArg ? ` (cwd: ${cwdArg})` : ''}`,
       };
     }
-    const maxResults = (args.max_results as number) ?? 5;
+    const maxResults = safeNumber(args.max_results) ?? 5;
     const clawParam = args.claw as string | undefined;
 
     // Phase430: claw-space boundary check — caller autonomy
@@ -163,7 +164,12 @@ export const searchTool: Tool = {
               '',
               ctx.signal,
             );
-          } catch { /* claw dir not accessible */ }
+          } catch (err) {
+            totalSkipped++;
+            if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+              ctx.auditWriter?.write('broadcast_claw_skipped', `claw=${clawId}`, `reason=${formatErr(err)}`);
+            }
+          }
         }
 
         const skippedMsg = totalSkipped > 0 ? `（${totalSkipped} 个文件被跳过）` : '';

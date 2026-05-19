@@ -7,7 +7,7 @@
  */
 
 import type { Tool } from '../tool-protocol/index.js';
-import { execTool } from './exec.js';
+import { createExecTool } from './exec.js';
 
 /** CommandTool own sync scratch subdir（turn-scoped / Snapshot whitelist 清理）*/
 export const TASKS_SYNC_EXEC_DIR = 'tasks/sync/exec';
@@ -34,9 +34,9 @@ export interface CommandToolDeps {
  * 当前简化版：execTool 单例直 export / processExec 经 module-level import
  * 推 r52+/r53+ port 化（参 phase348 WatchdogObserver port 模板）
  */
-export function createCommandTools(_deps: CommandToolDeps = {}): CommandToolModule {
-  return { exec: execTool };
+export function createCommandTools(deps: CommandToolDeps = {}): CommandToolModule {
+  return { exec: createExecTool(deps) };
 }
 
-export { execTool };
+export { createExecTool, execTool } from './exec.js';
 export { EXEC_TOOL_NAME } from '../tools/tool-names.js';

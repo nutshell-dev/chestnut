@@ -11,6 +11,7 @@ import type { Tool, ToolResult, ExecContext } from '../tool-protocol/index.js';
 import { READ_MAX_LINES, READ_MAX_CHARS } from './constants.js';
 
 import { resolveWorkspacePath } from './_resolve-path.js';
+import { safeNumber } from '../../types/utils.js';
 
 import { READ_TOOL_NAME } from '../tools/tool-names.js';
 import { CLAWS_DIR } from '../../types/paths.js';
@@ -52,8 +53,8 @@ export const readTool: Tool = {
   async execute(args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
     const filePath = args.path as string;
     const cwdArg = args.cwd as string | undefined;
-    const offset = args.offset as number | undefined;
-    const limit = args.limit as number | undefined;
+    const offset = safeNumber(args.offset);
+    const limit = safeNumber(args.limit);
     const clawParam = args.claw as string | undefined;
 
     const resolved = resolveWorkspacePath(ctx, filePath, cwdArg);

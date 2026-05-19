@@ -12,7 +12,11 @@ import type { Tool, ToolResult, ExecContext } from '../tool-protocol/index.js';
 import type { ScheduleAsyncTool } from './async-dispatch.js';
 import type { DialogStore } from '../dialog-store/index.js';
 
-/** Escape multi-line content for audit TSV log (used by ToolExecutorImpl) */
+/**
+ * Escape multi-line content for audit TSV log (used by ToolExecutorImpl).
+ * Truncated to 120 chars to prevent audit log bloat; full content is
+ * preserved in the actual tool result.
+ */
 export function escapeForLog(s: string): string {
   return s.replace(/\n/g, '\\n').slice(0, 120);
 }

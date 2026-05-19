@@ -441,26 +441,29 @@ describe('StepExecutor', () => {
     expect(reasons).toEqual(['tool_use']);
   });
 
-  it('tool_use with zero parseable calls without callback requires onUnparseableToolUse', async () => {
+  it('tool_use with zero parseable calls without callback silently finalizes', async () => {
     const llm = makeStreamLLM([
       { type: 'done', stopReason: 'tool_use' },
     ]);
-    await expect(executeStep({
+    const result = await executeStep({
       messages: [], systemPrompt: '', llm, tools: [],
       executor: makeExecutor({}), registry: makeRegistry({}), ctx: makeCtx(),
-    })).rejects.toThrow(TypeError);
+    });
+    expect(result.kind).toBe('final');
   });
 
-  it('tool_use with zero parseable calls with only onEmptyResponse still requires onUnparseableToolUse', async () => {
+  it('tool_use with zero parseable calls with only onEmptyResponse still finalizes', async () => {
     const llm = makeStreamLLM([
       { type: 'done', stopReason: 'tool_use' },
     ]);
     const emptyReasons: string[] = [];
-    await expect(executeStep({
+    const result = await executeStep({
       messages: [], systemPrompt: '', llm, tools: [],
       executor: makeExecutor({}), registry: makeRegistry({}), ctx: makeCtx(),
       callbacks: { onEmptyResponse: (r) => emptyReasons.push(r) },
-    })).rejects.toThrow(TypeError);
+    });
+    expect(result.kind).toBe('final');
+    expect(emptyReasons).toEqual(['tool_use']);
   });
 
   it('LLM stream error emits onLLMResult with error and rethrows', async () => {

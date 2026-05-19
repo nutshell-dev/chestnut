@@ -15,6 +15,7 @@ import type { IToolExecutor, ToolRegistry } from '../../foundation/tools/index.j
 import type { StepCallbacks } from './types.js';
 import { safeCallback, toToolResultBlock } from './utils.js';
 import { throwAbortError } from './abort-helpers.js';
+import { safeNumber } from '../../types/utils.js';
 
 
 interface CategorizedCalls {
@@ -222,7 +223,7 @@ export async function executeSingleTool(
       args: toolArgs,  // async stays in args for tools that read it internally
       ctx,
       toolUseId: toolCall.id,
-      timeoutMs: toolCall.input?.timeoutMs as number | undefined,
+      timeoutMs: safeNumber(toolCall.input?.timeoutMs),
     });
   } catch (err) {
     const errorType = err instanceof Error ? err.constructor.name : 'Error';

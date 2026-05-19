@@ -9,3 +9,8 @@ export function oneLine(s: string): string {
 export function formatErr(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
+
+export function safeNumber(v: unknown, defaultVal?: number): number | undefined {
+  const n = typeof v === 'number' ? v : parseInt(String(v), 10);
+  return Number.isNaN(n) ? defaultVal : n;
+}

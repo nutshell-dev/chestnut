@@ -30,6 +30,7 @@ import {
   type IToolExecutor,
   type ToolExecutorOptions,
 } from './types.js';
+import { safeNumber } from '../../types/utils.js';
 
 // Re-export types from ./types.js for caller compat (18 caller 0 改)
 export type {
@@ -169,6 +170,7 @@ export class ToolExecutorImpl implements IToolExecutor {
       };
     } finally {
       clearTimeout(timeoutId);
+      timeoutController.abort(); // signal execution to stop / prevent promise leak
 
       const duration = Date.now() - startTime;
       const auditResult = result ?? { success: false, content: 'unknown' };
@@ -202,7 +204,7 @@ export class ToolExecutorImpl implements IToolExecutor {
         toolName,
         args,
         ctx,
-        timeoutMs: (args as Record<string, unknown>)?.timeoutMs as number | undefined,
+        timeoutMs: safeNumber((args as Record<string, unknown>)?.timeoutMs),
       }).catch(err => ({
         success: false,
         content: err instanceof Error ? err.message : String(err),
