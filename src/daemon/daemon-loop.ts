@@ -134,7 +134,7 @@ export interface DaemonInboxConfig {
 }
 
 /** motion 专用扩展（claw daemon 整体省略此组） */
-export interface DaemonMotionExtensions {
+interface DaemonMotionExtensions {
   heartbeat?: Heartbeat;
   onInboxMessages?: (messages: InboxMessage[]) => Promise<void>;  // review_request handling
 }

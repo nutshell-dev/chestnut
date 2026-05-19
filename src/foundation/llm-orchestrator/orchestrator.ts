@@ -756,8 +756,6 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
     // B 胜（fallback call success）
     if (winner.winner === 'B') {
       primaryCtrl.abort();
-      // phase 978 r120 B fork: trackAPromise IIFE 内 try/catch 永 resolve AResult、never reject
-      //   `.catch(() => null)` 是 dead defensive、删 (feedback_latent_defensive_fix Tier 2)
       const aResult = await trackAPromise;
 
       if (aResult.winner === 'A') {
