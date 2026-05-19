@@ -253,7 +253,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
     }
 
     // A.6 motionInboxDir 提前到 taskSystem / callback 定义前（双链路保险 / cron job 注册块同步引用）
-    const permissionChecker = createClawPermissionChecker({ clawDir, strict: true });
+    const permissionChecker = createClawPermissionChecker({ clawDir, strict: true, audit: auditWriter });
     const motionInboxDir = path.join(clawDir, 'inbox', 'pending');
     const motionInbox = new InboxWriter(systemFs, motionInboxDir, auditWriter);
 

@@ -203,6 +203,9 @@
       "cron_random_dream_warning",
       "dream_output_persisted"
     ],
+    "core_permissions_audit-events": [
+      "permission_strict_disabled"
+    ],
     "core_runtime_heartbeat-audit-events": [
       "heartbeat_checklist_read_failed",
       "heartbeat_fire_failed"
@@ -351,6 +354,7 @@
       "starttime_verify_skipped_windows"
     ],
     "foundation_skill-system_audit-events": [
+      "skill_dir_not_found",
       "skill_duplicate_skipped",
       "skill_load_failed",
       "skill_registry_loaded"

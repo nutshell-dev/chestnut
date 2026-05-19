@@ -20,6 +20,8 @@ import {
   PathNotInClawSpaceError,
   WriteOperationForbiddenError,
 } from '../../types/errors.js';
+import type { AuditLog } from '../../foundation/audit/index.js';
+import { PERMISSION_AUDIT_EVENTS } from './audit-events.js';
 import {
   TASKS_QUEUES_PENDING_DIR,
   TASKS_QUEUES_RUNNING_DIR,
@@ -85,6 +87,9 @@ export interface ClawPermissionOptions {
 
   /** Whether to enforce strict mode (default: true) */
   strict?: boolean;
+
+  /** Optional audit log for permission events */
+  audit?: AuditLog;
 }
 
 /**
@@ -138,7 +143,7 @@ function safeRealpath(p: string): string {
           const realDir = realpathSync(dir);
           return path.join(realDir, path.relative(dir, absolute));
         } catch {
-          // continue walking up
+          // silent: walking up to find existing parent directory for realpath fallback
         }
       }
       return absolute; // fallback to lexical (nothing exists)
@@ -166,8 +171,9 @@ function getRelativeToClaw(
     }
 
     return null;
-  } catch {
-    return null;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw err; // EACCES, EIO propagate
   }
 }
 
@@ -179,10 +185,12 @@ function checkReadPermission(
   targetPath: string,
   options: ClawPermissionOptions
 ): void {
-  const { clawDir, strict = true } = options;
+  const { clawDir, strict = true, audit } = options;
 
   // Non-strict mode allows everything
   if (!strict) {
+    audit?.write(PERMISSION_AUDIT_EVENTS.STRICT_DISABLED,
+      'Non-strict mode active — all permission checks bypassed');
     return;
   }
 
@@ -210,11 +218,14 @@ function checkWritePermission(
   const {
     clawDir,
     systemPaths = SYSTEM_PATHS,
-    strict = true
+    strict = true,
+    audit,
   } = options;
 
   // Non-strict mode allows everything
   if (!strict) {
+    audit?.write(PERMISSION_AUDIT_EVENTS.STRICT_DISABLED,
+      'Non-strict mode active — all permission checks bypassed');
     return;
   }
 
@@ -222,18 +233,24 @@ function checkWritePermission(
   const relativePath = getRelativeToClaw(clawDir, targetPath);
 
   if (relativePath !== null) {
+    const isSystemPath = matchesPathPatterns(relativePath, systemPaths);
+    const isWritablePath = matchesPathPatterns(relativePath, WRITABLE_PATHS);
+
     // Check system paths (read-only)
-    if (matchesPathPatterns(relativePath, systemPaths)) {
+    if (isSystemPath) {
       throw new WriteOperationForbiddenError('write', 'system');
     }
 
     // Check writable paths
-    if (matchesPathPatterns(relativePath, WRITABLE_PATHS)) {
+    if (isWritablePath) {
       return;
     }
 
-    // By default, allow writes within clawDir but outside system paths
-    // This includes subdirectories like skills/, memory/, etc.
+    // fallthrough: deny by default (explicit allow list)
+    if (!isSystemPath && !isWritablePath) {
+      throw new WriteOperationForbiddenError('write', 'default');
+    }
+
     return;
   }
 

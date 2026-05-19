@@ -7,4 +7,5 @@ export const SKILL_AUDIT_EVENTS = {
   LOAD_FAILED: 'skill_load_failed',
   REGISTRY_LOADED: 'skill_registry_loaded',
   DUPLICATE_SKIPPED: 'skill_duplicate_skipped',
+  DIR_NOT_FOUND: 'skill_dir_not_found',
 } as const;

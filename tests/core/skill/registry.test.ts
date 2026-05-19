@@ -37,12 +37,13 @@ describe('SkillSystem', () => {
   });
 
   describe('loadAll', () => {
-    it('skillsDir 不存在 → 静默 return 不发 audit', async () => {
+    it('skillsDir 不存在 → 发 skill_dir_not_found audit 后 return', async () => {
       (mockFs.exists as any).mockResolvedValue(false);
       const registry = new SkillSystem(mockFs, SKILLS_DIR_DEFAULT, mockAudit);
       await registry.loadAll();
       expect(registry.listMeta()).toHaveLength(0);
-      expect(mockAudit.write).not.toHaveBeenCalled();
+      expect(mockAudit.write).toHaveBeenCalledTimes(1);
+      expect(mockAudit.write).toHaveBeenCalledWith('skill_dir_not_found', 'dir=skills');
     });
 
     it('skillsDir 存在但空 → 发 skill_registry_loaded count=0', async () => {

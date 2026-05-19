@@ -95,11 +95,13 @@ export class SkillSystem {
     // 检查 skills 目录是否存在
     const exists = await this.fs.exists(this.skillsDir);
     if (!exists) {
+      this.audit?.write(SKILL_AUDIT_EVENTS.DIR_NOT_FOUND, `dir=${this.skillsDir}`);
       return; // 空目录，不报错
     }
 
-    // 列出 skills 目录下的子目录
-    const entries = await this.fs.list(this.skillsDir, { includeDirs: true });
+    // 列出 skills 目录下的子目录（按名称排序确保确定性遍历顺序）
+    const entries = (await this.fs.list(this.skillsDir, { includeDirs: true }))
+      .sort((a, b) => a.name.localeCompare(b.name));
     
     for (const entry of entries) {
       if (!entry.isDirectory) continue;
@@ -178,6 +180,7 @@ export class SkillSystem {
    * 获取元信息
    */
   getMeta(name: string): SkillMeta | undefined {
+    void this._ensureLoaded();
     return this.metaMap.get(name);
   }
 
@@ -185,6 +188,7 @@ export class SkillSystem {
    * 列出所有元信息
    */
   listMeta(): SkillMeta[] {
+    void this._ensureLoaded();
     return Array.from(this.metaMap.values());
   }
 
@@ -206,6 +210,7 @@ export class SkillSystem {
    * 生成注入到上下文的元信息摘要
    */
   formatForContext(): string {
+    void this._ensureLoaded();
     const metas = this.listMeta();
     if (metas.length === 0) {
       return '## Available Skills\nNo skills loaded.\n';

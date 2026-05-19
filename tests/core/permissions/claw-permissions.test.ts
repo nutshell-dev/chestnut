@@ -8,7 +8,7 @@
  * - strict: false 模式
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import * as path from 'path';
 import { createClawPermissionChecker } from '../../../src/core/permissions/claw-permissions.js';
 import {
@@ -48,9 +48,11 @@ describe('createClawPermissionChecker', () => {
     });
 
     it('strict: false 时任意路径均允许', () => {
-      const checker = createClawPermissionChecker({ clawDir: CLAW_DIR, strict: false });
+      const audit = { write: vi.fn() };
+      const checker = createClawPermissionChecker({ clawDir: CLAW_DIR, strict: false, audit: audit as any });
       expect(() => checker.checkRead('/etc/shadow')).not.toThrow();
       expect(() => checker.checkRead('/root/.ssh/id_rsa')).not.toThrow();
+      expect(audit.write).toHaveBeenCalledWith('permission_strict_disabled', 'Non-strict mode active — all permission checks bypassed');
     });
   });
 
@@ -111,9 +113,11 @@ describe('createClawPermissionChecker', () => {
     });
 
     it('strict: false 时写系统路径也允许', () => {
-      const checker = createClawPermissionChecker({ clawDir: CLAW_DIR, strict: false });
+      const audit = { write: vi.fn() };
+      const checker = createClawPermissionChecker({ clawDir: CLAW_DIR, strict: false, audit: audit as any });
       expect(() => checker.checkWrite(`${CLAW_DIR}/dialog/session.json`)).not.toThrow();
       expect(() => checker.checkWrite('/etc/passwd')).not.toThrow();
+      expect(audit.write).toHaveBeenCalledWith('permission_strict_disabled', 'Non-strict mode active — all permission checks bypassed');
     });
 
     it('自定义 systemPaths 覆盖默认值', () => {
@@ -121,8 +125,9 @@ describe('createClawPermissionChecker', () => {
         clawDir: CLAW_DIR,
         systemPaths: ['custom-readonly'],
       });
-      // 默认 AGENTS.md 不再只读（被自定义覆盖）
-      expect(() => checker.checkWrite(`${CLAW_DIR}/AGENTS.md`)).not.toThrow();
+      // AGENTS.md 不在 WRITABLE_PATHS 中，默认拒绝（explicit allow list）
+      expect(() => checker.checkWrite(`${CLAW_DIR}/AGENTS.md`))
+        .toThrow(WriteOperationForbiddenError);
       // 自定义 custom-readonly 只读
       expect(() => checker.checkWrite(`${CLAW_DIR}/custom-readonly/file.txt`))
         .toThrow(WriteOperationForbiddenError);
