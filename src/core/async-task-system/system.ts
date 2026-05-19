@@ -8,6 +8,7 @@
 import { randomUUID } from 'crypto';
 import * as path from 'path';
 
+import type { PermissionChecker } from '../../types/permission.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 
 import { DEFAULT_MAX_CONCURRENT_TASKS, SHUTDOWN_DRAIN_GRACE_MS, DEFAULT_RETRY_BASE_DELAY_MS } from './constants.js';
@@ -61,6 +62,7 @@ export interface AsyncTaskSystemOptions {
   registry: ToolRegistry;     // NEW: caller 注入填充好的 registry / Assembly own 装配
   /** Tool-level wall-clock timeout inherited from globalConfig.tool_timeout_ms (phase 1029 / F-2) */
   toolTimeoutMs?: number;
+  permissionChecker?: PermissionChecker;
 }
 
 
@@ -124,6 +126,7 @@ export class AsyncTaskSystem {
   private postProcessors: Map<string, PostProcessor> = new Map();
   private cancellingIds: Set<string> = new Set();
   private readonly toolTimeoutMs?: number;
+  private permissionChecker?: PermissionChecker;
 
   /**
    * 装配期注册 PostProcessor
@@ -165,6 +168,7 @@ export class AsyncTaskSystem {
     this.mainDialogStore = options.mainDialogStore;
     this.registry = options.registry;
     this.toolTimeoutMs = options.toolTimeoutMs;
+    this.permissionChecker = options.permissionChecker;
   }
 
   async initialize(): Promise<void> {
@@ -451,6 +455,7 @@ export class AsyncTaskSystem {
           moveTaskToDone: this.moveTaskToDone.bind(this),
           moveTaskToFailed: this.moveTaskToFailed.bind(this),
           toolTimeoutMs: this.toolTimeoutMs,
+          permissionChecker: this.permissionChecker,
         });
       }
     } catch (error) {

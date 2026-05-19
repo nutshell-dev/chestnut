@@ -129,6 +129,7 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
       resultTool: 'done',
       isShadow: true,
       signal: opts.ctx.signal,
+      permissionChecker: opts.ctx.permissionChecker,
     });
 
     const finalResult = (capturedResult as { result?: string } | undefined)?.result ?? text;

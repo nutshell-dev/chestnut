@@ -359,8 +359,13 @@ export class SubAgent {
                 messages,
                 toolsForLLM: tools,
               });
-            } catch {
-              // best-effort / 不影响 agent 执行
+            } catch (err) {
+              this.auditWriter.write(
+                SUBAGENT_AUDIT_EVENTS.PERSIST_FAILED,
+                `agentId=${this.agentId}`,
+                `error=${err instanceof Error ? err.message : String(err)}`,
+              );
+              // 不 throw — 持久化失败不终止任务
             }
             auditStep++;
             auditStepTools = [];

@@ -18,6 +18,7 @@ import type { Message, ToolDefinition } from '../../types/message.js';
 import type { CallerType } from '../../foundation/tool-protocol/index.js';
 import { createDialogStore, type DialogStore } from '../../foundation/dialog-store/index.js';
 import { CLAWSPACE_DIR } from '../../types/paths.js';
+import type { PermissionChecker } from '../../types/permission.js';
 
 import { SubAgent } from './agent.js';
 import { DONE_TOOL_NAME } from './tools/done.js';
@@ -69,6 +70,7 @@ export interface RunSubagentOptions {
 
   // NEW (phase 1029 / F-2)：tool-level timeout inheritance from caller ExecContext
   toolTimeoutMs?: number;
+  permissionChecker?: PermissionChecker;
 
 }
 

@@ -253,6 +253,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
     }
 
     // A.6 motionInboxDir 提前到 taskSystem / callback 定义前（双链路保险 / cron job 注册块同步引用）
+    const permissionChecker = createClawPermissionChecker({ clawDir, strict: true });
     const motionInboxDir = path.join(clawDir, 'inbox', 'pending');
     const motionInbox = new InboxWriter(systemFs, motionInboxDir, auditWriter);
 
@@ -267,6 +268,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
         outboxWriter,
         registry: toolRegistry,     // NEW: 装配好的 registry 注入 AsyncTaskSystem / 子代理共用
         toolTimeoutMs,              // phase 1029 / F-2
+        permissionChecker,          // NEW: permission checker for subagent file tools
         motionInbox,
       });
     } catch (e) {
@@ -332,7 +334,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
         llm,
         maxSteps,
         auditWriter,
-        permissionChecker: createClawPermissionChecker({ clawDir, strict: true }),
+        permissionChecker,
         toolTimeoutMs,
       });
     } catch (e) {

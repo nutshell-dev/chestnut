@@ -3,6 +3,7 @@ import type { FileSystem } from '../../foundation/fs/types.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import { type StreamLog, STREAM_FILE } from '../../foundation/stream/index.js';
+import type { PermissionChecker } from '../../types/permission.js';
 import { type CallerType, callerTypeToProfile } from '../../foundation/tool-protocol/index.js';
 import { createToolRegistry } from '../../foundation/tools/index.js';
 import type { ToolRegistry } from '../../foundation/tools/index.js';
@@ -36,6 +37,7 @@ export interface ExecuteSubAgentTaskDeps {
   moveTaskToDone: (taskId: string) => Promise<void>;
   moveTaskToFailed: (taskId: string) => Promise<void>;
   toolTimeoutMs?: number;
+  permissionChecker?: PermissionChecker;
 }
 
 /**
@@ -120,6 +122,7 @@ export async function executeSubAgentTask(
       timeoutMs: task.timeoutMs,
       originClawId: task.originClawId,
       toolTimeoutMs: deps.toolTimeoutMs,
+      permissionChecker: deps.permissionChecker,
     });
 
     // Phase438: 单 postProcessor lookup + execute（替代 pipeline）
