@@ -37,37 +37,65 @@ describe('Phase 86: clean stop 生命周期修复', () => {
   const daemonLoopSource = fs.readFileSync(daemonLoopPath, 'utf-8');
 
   // ==========================================================================
-  // Step 1: clawPreviouslyAlive 不再持久化
+  // Step 1: clawPreviouslyAlive + everSpawned 持久化 (phase 1072)
   // ==========================================================================
-  describe('Step 1: clawPreviouslyAlive 不持久化', () => {
-    it('WatchdogState 接口不应包含 clawPreviouslyAlive 字段', () => {
-      // 找到 WatchdogState 接口
+  describe('Step 1: clawPreviouslyAlive + everSpawned 持久化', () => {
+    it('WatchdogState 接口应包含 clawPreviouslyAlive 字段', () => {
       const interfaceMatch = watchdogSource.match(
-        /interface WatchdogState \{[\s\S]{0,300}?\}/
+        /interface WatchdogState \{[\s\S]{0,400}?\}/
       );
       expect(interfaceMatch).toBeTruthy();
-      expect(interfaceMatch![0]).not.toContain('clawPreviouslyAlive');
+      expect(interfaceMatch![0]).toContain('clawPreviouslyAlive');
     });
 
-    it('saveWatchdogState 不应写入 clawPreviouslyAlive', () => {
+    it('WatchdogState 接口应包含 everSpawned 字段', () => {
+      const interfaceMatch = watchdogSource.match(
+        /interface WatchdogState \{[\s\S]{0,400}?\}/
+      );
+      expect(interfaceMatch).toBeTruthy();
+      expect(interfaceMatch![0]).toContain('everSpawned');
+    });
+
+    it('saveWatchdogState 应写入 clawPreviouslyAlive', () => {
       const saveMatch = watchdogSource.match(
         /function saveWatchdogState\(\)[\s\S]{0,400}?\}/
       );
       expect(saveMatch).toBeTruthy();
-      expect(saveMatch![0]).not.toContain('clawPreviouslyAlive');
+      expect(saveMatch![0]).toContain('clawPreviouslyAlive');
     });
 
-    it('loadWatchdogState 不应读取 clawPreviouslyAlive', () => {
-      const loadMatch = watchdogSource.match(
-        /function loadWatchdogState\(\)[\s\S]{0,400}?\}/
+    it('saveWatchdogState 应写入 everSpawned', () => {
+      const saveMatch = watchdogSource.match(
+        /function saveWatchdogState\(\)[\s\S]{0,400}?\}/
       );
-      expect(loadMatch).toBeTruthy();
-      expect(loadMatch![0]).not.toContain('clawPreviouslyAlive');
+      expect(saveMatch).toBeTruthy();
+      expect(saveMatch![0]).toContain('everSpawned');
     });
 
-    it('clawPreviouslyAlive Map 本身应仍存在（session-local 状态）', () => {
-      // 运行期仍用于 crash 检测，只是不持久化
+    it('loadWatchdogState 应读取 clawPreviouslyAlive', () => {
+      const startIdx = watchdogSource.indexOf('function loadWatchdogState()');
+      expect(startIdx).toBeGreaterThan(-1);
+      const endIdx = watchdogSource.indexOf('export function saveWatchdogState', startIdx);
+      expect(endIdx).toBeGreaterThan(startIdx);
+      const loadBlock = watchdogSource.slice(startIdx, endIdx);
+      expect(loadBlock).toContain('clawPreviouslyAlive');
+    });
+
+    it('loadWatchdogState 应读取 everSpawned', () => {
+      const startIdx = watchdogSource.indexOf('function loadWatchdogState()');
+      expect(startIdx).toBeGreaterThan(-1);
+      const endIdx = watchdogSource.indexOf('export function saveWatchdogState', startIdx);
+      expect(endIdx).toBeGreaterThan(startIdx);
+      const loadBlock = watchdogSource.slice(startIdx, endIdx);
+      expect(loadBlock).toContain('everSpawned');
+    });
+
+    it('clawPreviouslyAlive Map 本身应仍存在（用于 crash 检测）', () => {
       expect(watchdogSource).toContain('clawPreviouslyAlive');
+    });
+
+    it('everSpawned Set 本身应仍存在（用于 first-tick crash 检测）', () => {
+      expect(watchdogSource).toContain('everSpawned');
     });
   });
 

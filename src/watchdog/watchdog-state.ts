@@ -4,7 +4,7 @@
  */
 
 import * as path from 'path';
-import { getClawforumDir, getClawforumFs, getAuditWriter, lastInactivityNotified, inactivityNotifyCount } from './watchdog-context.js';
+import { getClawforumDir, getClawforumFs, getAuditWriter, lastInactivityNotified, inactivityNotifyCount, clawPreviouslyAlive, everSpawned } from './watchdog-context.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 import { AUDIT_MESSAGE_MAX_CHARS } from '../foundation/audit/index.js';
 
@@ -12,6 +12,9 @@ interface WatchdogState {
   version?: number;  // v0 = absent (legacy), v1 = current
   lastInactivityNotified: Record<string, number>;
   inactivityNotifyCount: Record<string, number>;
+  // NEW — phase 1072: crash-detection state persisted for watchdog self-recovery
+  clawPreviouslyAlive: Record<string, boolean>;
+  everSpawned: string[];
 }
 
 /** 1:1 保 watchdog.ts:204-206 */
@@ -32,6 +35,12 @@ export function loadWatchdogState(): void {
     for (const [k, v] of Object.entries(state.inactivityNotifyCount ?? {})) {
       inactivityNotifyCount.set(k, v);
     }
+    for (const [k, v] of Object.entries(state.clawPreviouslyAlive ?? {})) {
+      clawPreviouslyAlive.set(k, v);
+    }
+    for (const id of state.everSpawned ?? []) {
+      everSpawned.add(id);
+    }
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
       // 首次启动 — 从空状态开始
@@ -41,6 +50,8 @@ export function loadWatchdogState(): void {
     // corrupt path: Maps reset to empty (mirror ENOENT) / partial populate from broken state must not leak / per phase 636
     lastInactivityNotified.clear();
     inactivityNotifyCount.clear();
+    clawPreviouslyAlive.clear();
+    everSpawned.clear();
 
     const fs = getClawforumFs();
     const backupPath = `watchdog-state.json.corrupt-${Date.now()}`;
@@ -69,6 +80,9 @@ export function saveWatchdogState(): void {
     version: 1,
     lastInactivityNotified: Object.fromEntries(lastInactivityNotified),
     inactivityNotifyCount: Object.fromEntries(inactivityNotifyCount),
+    // NEW — phase 1072
+    clawPreviouslyAlive: Object.fromEntries(clawPreviouslyAlive),
+    everSpawned: Array.from(everSpawned),
   };
   const fs = getClawforumFs();
   fs.writeAtomicSync('watchdog-state.json', JSON.stringify(state, null, 2));

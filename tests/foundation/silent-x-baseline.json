@@ -256,8 +256,14 @@
       "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
     },
     {
+      "file": "src/core/subagent/agent.ts",
+      "line": 362,
+      "body_excerpt": "} catch {",
+      "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
+    },
+    {
       "file": "src/watchdog/watchdog-state.ts",
-      "line": 82,
+      "line": 96,
       "body_excerpt": "} catch { /* ignore: crash handler 不抛 */ }",
       "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
     },
