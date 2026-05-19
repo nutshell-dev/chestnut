@@ -76,6 +76,7 @@ export class InboxReader {
     }
 
     const results: InboxEntry[] = [];
+    const seenTaskIds = new Set<string>();
     for (const entry of entries) {
       if (!entry.name.endsWith('.md')) continue;
       const filePath = path.join(this.pendingDir, entry.name);
@@ -92,6 +93,38 @@ export class InboxReader {
             `fallback=${message.priority}`,
           );
         }
+
+        // taskId dedupe: extract from content JSON
+        // (all task-result messages carry taskId in content JSON; non-JSON content skips dedupe)
+        let taskId: string | undefined;
+        try {
+          const parsed = JSON.parse(message.content);
+          if (typeof parsed.taskId === 'string') {
+            taskId = parsed.taskId;
+          }
+        } catch {
+          // silent: non-JSON content (user_chat, heartbeat, etc.) — skip dedupe
+        }
+
+        if (taskId && seenTaskIds.has(taskId)) {
+          // duplicate: already have a message for this task in this batch
+          // silently dedupe + move to done/ (content already represented by first message)
+          this.audit.write(
+            MESSAGING_AUDIT_EVENTS.INBOX_DEDUPED,
+            `file=${entry.name}`,
+            `taskId=${taskId}`,
+          );
+          try {
+            await this.markDone(filePath);
+          } catch {
+            // silent: best-effort markDone fail → next drainInbox re-encounters + re-dedupes
+          }
+          continue;
+        }
+        if (taskId) {
+          seenTaskIds.add(taskId);
+        }
+
         results.push({ message, filePath });
       } catch (err) {
         const reason = err instanceof Error ? err.message : String(err);
