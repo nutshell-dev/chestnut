@@ -14,7 +14,6 @@
  */
 import { DEFAULT_MAX_STEPS } from '../core/agent-executor/index.js';
 import { REACT_DEFAULT_MAX_TOKENS } from '../core/agent-executor/constants.js';
-import { DEFAULT_TOOL_TIMEOUT_MS } from '../foundation/tools/index.js';
 import { CRON_TICK_INTERVAL_MS } from '../core/cron/constants.js';
 import { DEFAULT_MAX_CONCURRENT_TASKS } from '../core/async-task-system/constants.js';
 import {
@@ -24,9 +23,12 @@ import {
 } from '../watchdog/constants.js';
 import type { ConfigDefaults } from '../foundation/config/schemas.js';
 
+/** Config-level tool timeout default (60s). Independent of executor safety-net fallback in foundation/tools/constants.ts. */
+const CONFIG_DEFAULT_TOOL_TIMEOUT_MS = 60_000;
+
 export const CONFIG_DEFAULTS: ConfigDefaults = {
   maxSteps: DEFAULT_MAX_STEPS,
-  toolTimeoutMs: DEFAULT_TOOL_TIMEOUT_MS,
+  toolTimeoutMs: CONFIG_DEFAULT_TOOL_TIMEOUT_MS,
   cronTickIntervalMs: CRON_TICK_INTERVAL_MS,
   reactDefaultMaxTokens: REACT_DEFAULT_MAX_TOKENS,
   defaultMaxConcurrentTasks: DEFAULT_MAX_CONCURRENT_TASKS,

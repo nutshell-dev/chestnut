@@ -2,7 +2,8 @@
  * @module L2.Tools
  * Tool execution constants.
  *
- * `DEFAULT_TOOL_TIMEOUT_MS` — L2 唯一 own「tool wall-clock 限」资源（phase 1026 design ratify α / phase 1027 兑现）。
- * caller: ToolExecutor ctor fallback + config-defaults plane anchor + cli init config.yaml default.
+ * `DEFAULT_TOOL_TIMEOUT_MS` — executor 内部兜底安全网，防无限卡死，不替上层做策略判断。
+ * 用户配置默认值见 assembly/config-defaults.ts（独立定义，可与此不同）。
+ * caller: ToolExecutor ctor fallback only.
  */
-export const DEFAULT_TOOL_TIMEOUT_MS = 60_000;
+export const DEFAULT_TOOL_TIMEOUT_MS = 3_600_000;

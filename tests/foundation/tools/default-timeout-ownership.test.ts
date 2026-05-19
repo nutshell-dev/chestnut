@@ -8,7 +8,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 describe('phase 1027: DEFAULT_TOOL_TIMEOUT_MS L2 唯一 ownership', () => {
   it('exported from L2 foundation/tools (反向 1: L2 唯一 source)', () => {
-    expect(DEFAULT_TOOL_TIMEOUT_MS).toBe(60_000);
+    expect(DEFAULT_TOOL_TIMEOUT_MS).toBe(3_600_000);
   });
 
   it('ToolExecutor ctor default uses imported const (反向 2: 同模块单源)', () => {

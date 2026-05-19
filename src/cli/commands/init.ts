@@ -16,7 +16,7 @@ import {
   DEFAULT_RETRY_DELAY_MS,
   INIT_LLM_IDLE_TIMEOUT_MS,
 } from '../../foundation/llm-orchestrator/defaults.js';
-import { DEFAULT_TOOL_TIMEOUT_MS } from '../../foundation/tools/index.js';
+import { CONFIG_DEFAULTS } from '../../assembly/config-defaults.js';
 import {
   WATCHDOG_INTERVAL_MS,
   DEFAULT_DISK_WARNING_MB,
@@ -290,7 +290,7 @@ export async function initCommand(silent = false, deps?: { audit?: AuditLog }): 
         retry_attempts: DEFAULT_LLM_RETRY_ATTEMPTS,
         retry_delay_ms: DEFAULT_RETRY_DELAY_MS,
       },
-      tool_timeout_ms: DEFAULT_TOOL_TIMEOUT_MS,
+      tool_timeout_ms: CONFIG_DEFAULTS.toolTimeoutMs,
       watchdog: {
         interval_ms: WATCHDOG_INTERVAL_MS,
         disk_warning_mb: DEFAULT_DISK_WARNING_MB,
