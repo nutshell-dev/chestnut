@@ -367,17 +367,6 @@ export class SubAgent {
       await this.appendToLog(`Stop reason: ${result.stopReason}\n`);
       await this.appendToLog(`Final text: ${result.finalText}\n`);
 
-      // 持久化 messages 供复盘子代理继承（best-effort，不影响主流程）
-      try {
-        await this.messageStore.save({ systemPrompt, messages, toolsForLLM: tools });     // phase713: 扩 snapshot 参
-      } catch (e) {
-        this.auditWriter.write(
-          SUBAGENT_AUDIT_EVENTS.PERSIST_FAILED,
-          `agentId=${this.agentId}`,
-          `error=${e instanceof Error ? e.message : String(e)}`,
-        );
-      }
-
       safeSwWrite({ ts: Date.now(), type: AGENT_STREAM_EVENTS.TURN_END });
       this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_END);
       turnEnded = true;
@@ -427,8 +416,22 @@ export class SubAgent {
       if (!turnEnded) {
         safeSwWrite({ ts: Date.now(), type: AGENT_STREAM_EVENTS.TURN_END });
         this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_END);
+        closeSw();
       }
-      closeSw();
+      // 持久化 messages — finally 保证超时/中断/正常结束都落盘（best-effort）
+      try {
+        await this.messageStore.save({
+          systemPrompt: this.systemPrompt ?? DEFAULT_SUBAGENT_SYSTEM_PROMPT,
+          messages: this.messages ?? [],
+          toolsForLLM: this.toolsForLLM ?? [],
+        });
+      } catch (e) {
+        this.auditWriter.write(
+          SUBAGENT_AUDIT_EVENTS.PERSIST_FAILED,
+          `agentId=${this.agentId}`,
+          `error=${e instanceof Error ? e.message : String(e)}`,
+        );
+      }
     }
   }
 
