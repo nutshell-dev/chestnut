@@ -81,7 +81,11 @@ export class NodeFileSystem implements FileSystem {
   ): string {
     // Resolve symlinks to prevent traversal via symlinks (OS-level guard)
     const realBase = (() => {
-      try { return realpathSync(this.options.baseDir); } catch { return this.options.baseDir; }
+      try { return realpathSync(this.options.baseDir); }
+      catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') return this.options.baseDir;
+        throw err; // EACCES, EIO, etc. — 不可恢复，应 propagate
+      }
     })();
 
     // P0 hardening (phase 611): absolute path 显式 reject if outside baseDir
@@ -124,8 +128,12 @@ export class NodeFileSystem implements FileSystem {
         // File doesn't exist yet; check parent directory instead
         try {
           realTarget = realpathSync(path.dirname(absolute));
-        } catch {
-          // Parent also doesn't exist (will be created by ensureDir) — accept
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+            // Parent doesn't exist (will be created by ensureDir) — accept
+          } else {
+            throw err; // EACCES, EIO — propagate
+          }
         }
       }
       // For read ENOENT: leave realTarget null, let caller handle missing file
@@ -374,10 +382,12 @@ export class NodeFileSystem implements FileSystem {
   }
 
   moveSync(fromPath: string, toPath: string): void {
-    const fromAbsolute = this.resolveAndCheck(fromPath, 'write');
-    const toAbsolute = this.resolveAndCheck(toPath, 'write');
-    fsSync.mkdirSync(path.dirname(toAbsolute), { recursive: true });
-    fsSync.renameSync(fromAbsolute, toAbsolute);
+    return wrapENOENTSync(fromPath, () => {
+      const fromAbsolute = this.resolveAndCheck(fromPath, 'write');
+      const toAbsolute = this.resolveAndCheck(toPath, 'write');
+      fsSync.mkdirSync(path.dirname(toAbsolute), { recursive: true });
+      fsSync.renameSync(fromAbsolute, toAbsolute);
+    });
   }
 
   existsSync(relativePath: string): boolean {
@@ -396,7 +406,15 @@ export class NodeFileSystem implements FileSystem {
     pattern?: string;
   }): FileEntry[] {
     const absolute = this.resolveAndCheck(relativePath, 'read');
-    const stat = fsSync.statSync(absolute);
+    let stat: fsSync.Stats;
+    try {
+      stat = fsSync.statSync(absolute);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        throw new FileNotFoundError(relativePath);
+      }
+      throw err;
+    }
     if (!stat.isDirectory()) {
       throw new FileNotFoundError(relativePath);
     }
