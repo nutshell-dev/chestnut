@@ -4,12 +4,6 @@
   "established": "2026-05-17 (phase 964 r119 C fork)",
   "entries": [
     {
-      "file": "src/core/subagent/agent.ts",
-      "line": 362,
-      "body_excerpt": "} catch {",
-      "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
-    },
-    {
       "file": "src/assembly/cleanup.ts",
       "line": 27,
       "body_excerpt": "} catch {",
@@ -264,12 +258,6 @@
     {
       "file": "src/watchdog/watchdog-pid.ts",
       "line": 31,
-      "body_excerpt": "} catch {",
-      "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
-    },
-    {
-      "file": "src/core/subagent/agent.ts",
-      "line": 362,
       "body_excerpt": "} catch {",
       "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
     },
