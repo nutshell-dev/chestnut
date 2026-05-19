@@ -39,9 +39,9 @@ export interface ConfigDefaults {
 // Zod Schemas (snake_case for YAML compatibility)
 export function createLLMProviderSchema(defaults: Pick<ConfigDefaults, 'reactDefaultMaxTokens'>) {
   return z.object({
-    preset: z.string().optional(),
+    preset: z.string().min(1).optional(),
     label: z.string().optional(),
-    api_key: z.string(),
+    api_key: z.string().min(1, 'api_key must not be empty'),
     base_url: z.string().optional(),
     model: z.string().optional(),
     max_tokens: z.number().min(1).max(128000).default(defaults.reactDefaultMaxTokens),

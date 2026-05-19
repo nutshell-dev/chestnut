@@ -20,6 +20,32 @@ function makeMockFs(): { fs: FileSystem; writes: string[] } {
   };
 }
 
+function makeMockFsWithAppendFailure(initialFailCount = 1): { fs: FileSystem; writes: string[]; failCount: { value: number } } {
+  const writes: string[] = [];
+  const failCount = { value: initialFailCount };
+  return {
+    fs: {
+      appendSync: vi.fn((_path: string, content: string) => {
+        if (failCount.value > 0) {
+          failCount.value--;
+          throw new Error('disk full');
+        }
+        writes.push(content);
+      }),
+      statSync: vi.fn(() => ({ size: 0, mtimeMs: 0 })),
+      moveSync: vi.fn(),
+      existsSync: vi.fn(() => false),
+      listSync: vi.fn(() => []),
+      readSync: vi.fn(() => ''),
+      writeAtomicSync: vi.fn(),
+      ensureDirSync: vi.fn(),
+      deleteSync: vi.fn(),
+    } as unknown as FileSystem,
+    writes,
+    failCount,
+  };
+}
+
 describe('BatchedAuditWriter', () => {
   let writer: BatchedAuditWriter;
 
@@ -68,5 +94,46 @@ describe('BatchedAuditWriter', () => {
     writer.write('event_z', 'k=v');
     expect(fs.moveSync).toHaveBeenCalled();
     expect(writes.length).toBe(1);
+  });
+
+  it('H1: flush failure preserves buffer for retry', () => {
+    const { fs, writes, failCount } = makeMockFsWithAppendFailure();
+    // batchSize large to avoid auto-flush on write; we manually control flush
+    writer = new BatchedAuditWriter(fs, '/tmp/test.tsv', { batchSize: 100, flushIntervalMs: 60_000 });
+
+    writer.write('event_a', 'k=v');
+    writer.write('event_b', 'k=v');
+    writer.write('event_c', 'k=v');
+    // no auto-flush yet (buffer=3 < 100)
+    expect(writes.length).toBe(0);
+
+    // manual flush — fails, buffer restored
+    writer.flush();
+    expect(writes.length).toBe(0);
+    expect(failCount.value).toBe(0);
+
+    // second manual flush — succeeds (failCount now 0)
+    writer.flush();
+    expect(writes.length).toBe(1);
+    const flushed = writes[0];
+    expect(flushed).toContain('event_a');
+    expect(flushed).toContain('event_b');
+    expect(flushed).toContain('event_c');
+  });
+
+  it('MEDIUM: rotation non-ENOENT error logs to console.error', () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { fs, writes } = makeMockFs();
+    (fs.statSync as any).mockImplementation(() => {
+      const err = new Error('permission denied') as NodeJS.ErrnoException;
+      err.code = 'EACCES';
+      throw err;
+    });
+    writer = new BatchedAuditWriter(fs, '/tmp/test.tsv', { maxSizeMb: 5, batchSize: 1 });
+
+    writer.write('event_z', 'k=v');
+    expect(writes.length).toBe(1);
+    expect(consoleSpy).toHaveBeenCalledWith('Audit rotation failed:', expect.any(Error));
+    consoleSpy.mockRestore();
   });
 });

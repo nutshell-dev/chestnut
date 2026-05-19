@@ -54,11 +54,27 @@ export function loadGlobalConfig(defaults: ConfigDefaults): ClawGlobalConfig {
     );
   }
 
-  const content = fs.readFileSync(configPath, 'utf-8');
-  const parsed = yaml.load(content);
+  let content: string;
+  try {
+    content = fs.readFileSync(configPath, 'utf-8');
+  } catch (err) {
+    throw new Error(`Failed to read config: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = yaml.load(content);
+  } catch (err) {
+    throw new Error(`Invalid YAML in config: ${err instanceof Error ? err.message : String(err)}`);
+  }
 
   // Expand environment variables before validation
-  const expanded = expandEnvVars(parsed);
+  let expanded: unknown;
+  try {
+    expanded = expandEnvVars(parsed);
+  } catch (err) {
+    throw new Error(`Invalid global config (env var): ${err instanceof Error ? err.message : String(err)}`);
+  }
 
   try {
     return createClawGlobalConfigSchema(defaults).parse(expanded);
@@ -89,11 +105,29 @@ export function loadClawConfig(name: string, defaults: ConfigDefaults): ClawConf
     throw new Error(`Claw "${name}" not found.`);
   }
 
-  const content = fs.readFileSync(configPath, 'utf-8');
-  const parsed = yaml.load(content);
+  let content: string;
+  try {
+    content = fs.readFileSync(configPath, 'utf-8');
+  } catch (err) {
+    throw new Error(`Failed to read config: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = yaml.load(content);
+  } catch (err) {
+    throw new Error(`Invalid YAML in config: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  let expanded: unknown;
+  try {
+    expanded = expandEnvVars(parsed);
+  } catch (err) {
+    throw new Error(`Invalid claw config (env var): ${err instanceof Error ? err.message : String(err)}`);
+  }
 
   try {
-    return createClawConfigSchema(defaults).parse(parsed);
+    return createClawConfigSchema(defaults).parse(expanded);
   } catch (error) {
     throw new Error(
       `Invalid claw config: ${error instanceof Error ? error.message : String(error)}`
@@ -105,7 +139,7 @@ export function loadClawConfig(name: string, defaults: ConfigDefaults): ClawConf
 export function patchGlobalConfigPrimary(patch: Record<string, unknown>): void {
   const configPath = getGlobalConfigPath();
   const loaded = yaml.load(fs.readFileSync(configPath, 'utf-8'));
-  if (typeof loaded !== 'object' || loaded === null) {
+  if (typeof loaded !== 'object' || loaded === null || Array.isArray(loaded)) {
     throw new Error(`config parse failed: expected object, got ${typeof loaded}`);
   }
   const cfg = loaded as Record<string, unknown>;

@@ -51,12 +51,15 @@ export class BatchedAuditWriter implements AuditLog {
           if (stats.size >= this.maxBytes) {
             this.fs.moveSync(this.filePath, `${this.filePath}.${randomUUID().slice(0, UUID_SHORT_LEN)}.bak`);
           }
-        } catch {
-          // silent: ENOENT (first write) or moveSync race — skip rotation
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+            console.error('Audit rotation failed:', err);
+          }
         }
       }
       this.fs.appendSync(this.filePath, batch.join(''));
     } catch (err) {
+      this.buffer.unshift(...batch);
       const reason = err instanceof Error ? err.message : String(err);
       console.error(`[AUDIT CRITICAL] batched flush failed: path=${this.filePath} lines=${batch.length} reason=${reason}`);
     }
