@@ -77,6 +77,7 @@
       "task_move_failed",
       "task_parse_failed",
       "task_pending_queue_overflow",
+      "task_pending_queue_overflow_notified",
       "task_pending_watcher_callback_failed",
       "task_pending_watcher_failed",
       "task_recovered",

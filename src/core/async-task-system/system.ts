@@ -18,6 +18,7 @@ import type { CallerType } from '../../foundation/tool-protocol/caller-type.js';
 import type { ToolResult, Tool } from '../../foundation/tool-protocol/index.js';
 import type { Message } from '../../types/message.js';
 import type { OutboxWriter } from '../../foundation/messaging/index.js';
+import type { InboxWriter } from '../../foundation/messaging/index.js';
 import type { ContractSystem } from '../contract/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import {
@@ -53,6 +54,8 @@ export interface AsyncTaskSystemOptions {
   llm: LLMOrchestrator;
   contractManager: ContractSystem;
   outboxWriter: OutboxWriter;
+  /** Motion inbox for overflow notification (optional, backward compat) */
+  motionInbox?: InboxWriter;
   // main dialog store ref for ask_caller
   mainDialogStore?: DialogStore;
   registry: ToolRegistry;     // NEW: caller 注入填充好的 registry / Assembly own 装配
@@ -112,6 +115,7 @@ export class AsyncTaskSystem {
   private readonly llm: LLMOrchestrator;
   private readonly contractManager: ContractSystem;
   private readonly outboxWriter: OutboxWriter;
+  private readonly motionInbox?: InboxWriter;
   private auditWriter: AuditLog;
   private parentStreamLog?: StreamLog;
   private pendingWatcher?: Watcher;
@@ -157,6 +161,7 @@ export class AsyncTaskSystem {
     this.llm = options.llm;
     this.contractManager = options.contractManager;
     this.outboxWriter = options.outboxWriter;
+    this.motionInbox = options.motionInbox;
     this.mainDialogStore = options.mainDialogStore;
     this.registry = options.registry;
     this.toolTimeoutMs = options.toolTimeoutMs;
@@ -318,6 +323,29 @@ export class AsyncTaskSystem {
       await this.fs.move(pendingPath, failedPath).catch((moveErr) => {
         auditError(this.auditWriter, TASK_AUDIT_EVENTS.MOVE_FAILED, moveErr, task.id, 'context=cap_overflow_move');
       });
+
+      // Notify motion of overflow rejection (best-effort)
+      if (this.motionInbox) {
+        try {
+          this.motionInbox.writeSync({
+            type: 'task_queue_overflow',
+            source: 'async-task-system',
+            priority: 'critical',
+            body: `Task ${task.id} (${task.kind}) rejected: queue at cap ${AsyncTaskSystem.PENDING_QUEUE_MAX}`,
+            idPrefix: `${Date.now()}_overflow`,
+            filenameTag: 'task_overflow',
+          });
+          this.auditWriter.write(
+            TASK_AUDIT_EVENTS.PENDING_QUEUE_OVERFLOW_NOTIFIED,
+            task.id,
+            `queueLength=${this.pendingQueue.length}`,
+            `cap=${AsyncTaskSystem.PENDING_QUEUE_MAX}`,
+          );
+        } catch (notifyErr) {
+          auditError(this.auditWriter, TASK_AUDIT_EVENTS.MOVE_FAILED, notifyErr, task.id, 'context=overflow_notify_failed');
+        }
+      }
+
       return;
     }
 

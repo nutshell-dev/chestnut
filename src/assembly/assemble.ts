@@ -256,6 +256,10 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
       throw new Error(`Assembly: OutboxWriter construct failed: ${errMsg(e)}`, { cause: e });
     }
 
+    // A.6 motionInboxDir 提前到 taskSystem / callback 定义前（双链路保险 / cron job 注册块同步引用）
+    const motionInboxDir = path.join(clawDir, 'inbox', 'pending');
+    const motionInbox = new InboxWriter(systemFs, motionInboxDir, auditWriter);
+
     // --- L3-L5: taskSystem（仅构造，不调 initialize / startDispatch；业务动作归 Runtime） ---
     let taskSystem: AsyncTaskSystem;
     try {
@@ -267,6 +271,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
         outboxWriter,
         registry: toolRegistry,     // NEW: 装配好的 registry 注入 AsyncTaskSystem / 子代理共用
         toolTimeoutMs,              // phase 1029 / F-2
+        motionInbox,
       });
     } catch (e) {
       auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=task_system`, `phase=construct`, `reason=${errMsg(e)}`);
@@ -444,9 +449,6 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
       auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=stream_writer`, `phase=construct`, `reason=${errMsg(e)}`);
       throw new Error(`Assembly: StreamWriter construct failed: ${errMsg(e)}`, { cause: e });
     }
-
-    // A.6 motionInboxDir 提前到 callback 定义前（双链路保险 / cron job 注册块同步引用）
-    const motionInboxDir = path.join(clawDir, 'inbox', 'pending');
 
     // contractNotify callback 在 Runtime 构造前形成（注入 deps 而非 setter）
     const contractNotifyCallback = (type: string, data: Record<string, unknown>) => {

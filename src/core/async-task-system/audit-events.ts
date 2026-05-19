@@ -10,6 +10,7 @@ export const TASK_AUDIT_EVENTS = {
   TASK_COMPLETED: 'task_completed',
   PENDING_INGEST_FAILED: 'pending_ingest_failed',
   PENDING_QUEUE_OVERFLOW: 'task_pending_queue_overflow',
+  PENDING_QUEUE_OVERFLOW_NOTIFIED: 'task_pending_queue_overflow_notified',
   PENDING_WATCHER_FAILED: 'task_pending_watcher_failed',
   PENDING_WATCHER_CALLBACK_FAILED: 'task_pending_watcher_callback_failed',
   DISCARDED: 'task_discarded',
