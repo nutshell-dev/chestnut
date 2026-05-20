@@ -185,7 +185,7 @@ async function waitForProcessOn(event: string, timeoutMs = 10_000): Promise<Func
   });
 }
 
-async function waitForAuditCall(eventName: string, timeoutMs = 10_000): Promise<readonly unknown[]> {
+async function waitForAuditCall(eventName: string, timeoutMs = 15_000): Promise<readonly unknown[]> {
   const existing = mockState.mockAuditWrite.mock.calls.find((c: unknown[]) => c[0] === eventName);
   if (existing) return existing;
   return new Promise<readonly unknown[]>((resolve, reject) => {

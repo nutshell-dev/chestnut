@@ -245,6 +245,7 @@ describe('UnixDomainSocketTransport', () => {
     const t = new UnixDomainSocketTransport();
     await t.listen({ socketPath: path });
     await t.close();
+    await new Promise(r => setTimeout(r, 50)); // 等 OS 释放 socket
     await expect(connectClient(path)).rejects.toThrow();
   });
 

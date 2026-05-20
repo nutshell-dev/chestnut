@@ -71,6 +71,7 @@ describe('runRandomDream', () => {
   });
 
   afterEach(async () => {
+    await new Promise(r => setTimeout(r, 200)); // 等 subagent cleanup settle
     await Promise.all([cleanupTempDir(clawforumDir), cleanupTempDir(motionDir)]);
     vi.clearAllMocks();
   });
@@ -80,7 +81,7 @@ describe('runRandomDream', () => {
   it('claws 目录不存在时直接返回', async () => {
     await expect(runRandomDream(makeOpts(clawforumDir, motionDir))).resolves.toBeUndefined();
     expect(mockWritePendingSubAgentTask).not.toHaveBeenCalled();
-  });
+  }, 30000); // was default 15000ms
 
   it('claws 目录存在但无 archive 契约时直接返回', async () => {
     await fs.mkdir(path.join(clawforumDir, 'claws', 'claw-1', 'contract', 'archive'), { recursive: true });

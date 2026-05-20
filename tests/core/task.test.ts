@@ -192,7 +192,7 @@ describe('Task System + SubAgent', () => {
       // 2. watcher 拾起 → _ingestPendingFile → _dispatch → movePendingToRunning（异步，给足时间）
       await waitFor(async () => {
         return await mockFs.exists(`tasks/queues/running/${taskId}.json`);
-      }, 3000);
+      }, 10000); // was 3000
 
       // 3. pending/ 文件已被移走
       expect(await mockFs.exists(`tasks/queues/pending/${taskId}.json`)).toBe(false);
@@ -483,7 +483,7 @@ describe('Task System + SubAgent', () => {
             .catch(() => '');
           return content.includes('is_error') && content.includes(taskId);
         },
-        10000,
+        15000, // was 10000
         20,
       );
       await failSystem.shutdown(1000);

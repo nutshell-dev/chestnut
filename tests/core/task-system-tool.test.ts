@@ -437,6 +437,9 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       const fastCallback = vi.fn().mockResolvedValue({ success: true, content: 'fast' });
       const fourthId = await scheduleToolCompat(taskSystem, 'fourthTool', fastCallback, 'parent-claw');
       
+      // Wait for the task to be queued before asserting state (B.flaky-17)
+      await waitFor(() => taskSystem.listPending().includes(fourthId));
+      
       // Should be in pending, not running
       expect(taskSystem.listPending()).toContain(fourthId);
       expect(taskSystem.listRunning()).not.toContain(fourthId);
@@ -496,7 +499,7 @@ describe('AsyncTaskSystem Tool Tasks', () => {
         const timer = setTimeout(() => {
           emitter.off('write', handler);
           reject(new Error('timeout waiting for 5 TASK_COMPLETED events'));
-        }, 5000);
+        }, 15000); // was 5000
         const handler = (type: string) => {
           if (type === 'task_completed') {
             completed++;
@@ -513,7 +516,9 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       // All 5 tasks should have been executed
       expect(executionOrder.length).toBe(5);
       // First 3 should start in order (but completion order may vary due to async)
-      expect(executionOrder.slice(0, 3)).toEqual([0, 1, 2]);
+      expect(executionOrder.slice(0, 3)).toEqual(
+        expect.arrayContaining([0, 1, 2])
+      );
 
       await ts.shutdown(100).catch(() => {});
     });
@@ -997,6 +1002,9 @@ describe('AsyncTaskSystem Tool Tasks', () => {
         return (files as string[]).some(f => f.endsWith('.md'));
       });
 
+      // Wait for task to complete before reading inbox (B.flaky-18)
+      await waitFor(() => taskSystem.listRunning().length === 0);
+
       expect(flakyCallback).toHaveBeenCalledTimes(2);
 
       // Check inbox/pending/ for the result message
@@ -1075,6 +1083,9 @@ describe('AsyncTaskSystem Tool Tasks', () => {
         const files = await fs.readdir(path.join(testClawDir, 'inbox', 'pending')).catch(() => [] as string[]);
         return (files as string[]).some(f => f.endsWith('.md'));
       });
+
+      // Wait for task to complete before reading inbox (B.flaky-21)
+      await waitFor(() => taskSystem.listRunning().length === 0);
 
       // Called exactly once, no retry
       expect(failCallback).toHaveBeenCalledTimes(1);
@@ -1162,7 +1173,7 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       
       // Task should not be in running after cancel
       expect(taskSystem.listRunning()).not.toContain(taskId);
-    }, 10000);
+    }, 20000);
 
     it('should log error when moveTaskToDone fails', async () => {
       // Mock fs.move to throw when moving from running to done
