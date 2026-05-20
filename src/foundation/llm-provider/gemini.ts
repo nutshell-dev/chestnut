@@ -101,7 +101,8 @@ export class GeminiAdapter implements ProviderAdapter {
         }
       );
       if (!response.ok) await throwHttpErrorResponse(this.name, response);
-      const data = await response.json() as GeminiResponse;
+      const data = await response.json() as GeminiResponse & { error?: { message: string } };
+      if (data.error) throw new LLMError(`Gemini API error: ${data.error.message}`, { provider: this.name });
       return parseGeminiResponse(data);
     } catch (error) {
       const classified = classifyFetchAbortError(error, options.signal, timeout, this.name);

@@ -4,6 +4,7 @@
  */
 
 import type { LLMResponse, ContentBlock } from '../../types/message.js';
+import { LLMEmptyResponseError } from '../../types/errors.js';
 
 export interface GeminiResponse {
   candidates: Array<{
@@ -43,13 +44,14 @@ export function parseGeminiResponse(data: GeminiResponse): LLMResponse {
       content.push({ type: 'text', text: part.text });
     } else if ('functionCall' in part) {
       const { name, args } = part.functionCall;
+      if (!name) throw new Error('Gemini returned functionCall without name');
       content.push({ type: 'tool_use', id: `gemini-${name}-${fcIndex++}`, name, input: args });
     }
   }
 
   // 0-chunk guard
   if (content.length === 0) {
-    throw new Error('LLM returned empty response (0 chunks)');
+    throw new LLMEmptyResponseError('gemini');
   }
 
   const finishReason = candidate.finishReason ?? 'STOP';

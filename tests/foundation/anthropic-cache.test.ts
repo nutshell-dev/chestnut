@@ -50,6 +50,9 @@ vi.mock('@anthropic-ai/sdk', () => ({
   RateLimitError: class RateLimitError extends Error {},
   APIConnectionTimeoutError: class APIConnectionTimeoutError extends Error {},
   APIUserAbortError: class APIUserAbortError extends Error {},
+  AuthenticationError: class AuthenticationError extends Error { status = 401; },
+  PermissionDeniedError: class PermissionDeniedError extends Error { status = 403; },
+  NotFoundError: class NotFoundError extends Error { status = 404; },
 }));
 
 // Helper to create a mock Response
@@ -157,7 +160,7 @@ describe('AnthropicAdapter cache_control', () => {
 
     it('should add cache_control to last tool only', async () => {
       mockMessagesCreate.mockResolvedValue(
-        createMockResponse(createAnthropicResponse([{ type: 'text', text: 'OK' }]))
+        createAnthropicResponse([{ type: 'text', text: 'OK' }])
       );
 
       const adapter = new AnthropicAdapter(config);
@@ -175,7 +178,7 @@ describe('AnthropicAdapter cache_control', () => {
 
     it('should add cache_control to single tool', async () => {
       mockMessagesCreate.mockResolvedValue(
-        createMockResponse(createAnthropicResponse([{ type: 'text', text: 'OK' }]))
+        createAnthropicResponse([{ type: 'text', text: 'OK' }])
       );
 
       const adapter = new AnthropicAdapter(config);
@@ -191,7 +194,7 @@ describe('AnthropicAdapter cache_control', () => {
 
     it('should not set tools when empty', async () => {
       mockMessagesCreate.mockResolvedValue(
-        createMockResponse(createAnthropicResponse([{ type: 'text', text: 'OK' }]))
+        createAnthropicResponse([{ type: 'text', text: 'OK' }])
       );
 
       const adapter = new AnthropicAdapter(config);
@@ -208,7 +211,7 @@ describe('AnthropicAdapter cache_control', () => {
   describe('formatMessages cache_control', () => {
     it('should add cache_control to last user message (string content)', async () => {
       mockMessagesCreate.mockResolvedValue(
-        createMockResponse(createAnthropicResponse([{ type: 'text', text: 'Hi' }]))
+        createAnthropicResponse([{ type: 'text', text: 'Hi' }])
       );
 
       const adapter = new AnthropicAdapter(config);
@@ -225,7 +228,7 @@ describe('AnthropicAdapter cache_control', () => {
 
     it('should add cache_control to last user message (text-only array)', async () => {
       mockMessagesCreate.mockResolvedValue(
-        createMockResponse(createAnthropicResponse([{ type: 'text', text: 'Hi' }]))
+        createAnthropicResponse([{ type: 'text', text: 'Hi' }])
       );
 
       const adapter = new AnthropicAdapter(config);
@@ -241,7 +244,7 @@ describe('AnthropicAdapter cache_control', () => {
 
     it('should add cache_control to last block of structured user message (tool_result)', async () => {
       mockMessagesCreate.mockResolvedValue(
-        createMockResponse(createAnthropicResponse([{ type: 'text', text: 'OK' }]))
+        createAnthropicResponse([{ type: 'text', text: 'OK' }])
       );
 
       const adapter = new AnthropicAdapter(config);
@@ -267,7 +270,7 @@ describe('AnthropicAdapter cache_control', () => {
 
     it('should add cache_control to first user when only user+assistant pair', async () => {
       mockMessagesCreate.mockResolvedValue(
-        createMockResponse(createAnthropicResponse([{ type: 'text', text: 'Reply' }]))
+        createAnthropicResponse([{ type: 'text', text: 'Reply' }])
       );
 
       const adapter = new AnthropicAdapter(config);
@@ -289,7 +292,7 @@ describe('AnthropicAdapter cache_control', () => {
 
     it('should only add cache_control to last user message, not middle ones', async () => {
       mockMessagesCreate.mockResolvedValue(
-        createMockResponse(createAnthropicResponse([{ type: 'text', text: 'Reply' }]))
+        createAnthropicResponse([{ type: 'text', text: 'Reply' }])
       );
 
       const adapter = new AnthropicAdapter(config);
@@ -314,7 +317,7 @@ describe('AnthropicAdapter cache_control', () => {
 
     it('should handle multiple messages with assistant at end', async () => {
       mockMessagesCreate.mockResolvedValue(
-        createMockResponse(createAnthropicResponse([{ type: 'text', text: 'Final' }]))
+        createAnthropicResponse([{ type: 'text', text: 'Final' }])
       );
 
       const adapter = new AnthropicAdapter(config);

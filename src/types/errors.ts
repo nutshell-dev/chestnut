@@ -22,6 +22,7 @@ export type ErrorCode =
   | 'LLM_AUTH_FAILED'
   | 'LLM_NETWORK_FAILED'
   | 'LLM_MODEL_NOT_FOUND'
+  | 'LLM_EMPTY_RESPONSE'
   | 'LLM_ALL_PROVIDERS_FAILED'
   
   // File system errors (5xx)
@@ -198,6 +199,16 @@ export class LLMModelNotFoundError extends LLMError {
     super(
       `LLM model not found: ${provider}/${model} (HTTP 404)`,
       { provider, model },
+    );
+  }
+}
+
+export class LLMEmptyResponseError extends LLMError {
+  readonly code: ErrorCode = 'LLM_EMPTY_RESPONSE';
+  constructor(provider: string) {
+    super(
+      `LLM returned empty response from ${provider}`,
+      { provider },
     );
   }
 }

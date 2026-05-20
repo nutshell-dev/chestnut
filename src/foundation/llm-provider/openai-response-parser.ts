@@ -5,6 +5,7 @@
  */
 
 import type { LLMResponse, ContentBlock } from '../../types/message.js';
+import { LLMEmptyResponseError } from '../../types/errors.js';
 
 interface OpenAIResponse {
   id: string;
@@ -107,7 +108,7 @@ export function parseResponse(
 
   // 0-chunk guard
   if (content.length === 0) {
-    throw new Error('LLM returned empty response (0 chunks)');
+    throw new LLMEmptyResponseError('openai');
   }
 
   // Normalize stop_reason to internal format

@@ -14,7 +14,11 @@ import {
   LLMRateLimitError,
   LLMTimeoutError,
   LLMNetworkError,
+  LLMAuthError,
+  LLMModelNotFoundError,
+  LLMEmptyResponseError,
 } from '../../types/errors.js';
+import { AuthenticationError, PermissionDeniedError, NotFoundError } from '@anthropic-ai/sdk';
 import { parseRetryAfter } from './_helpers.js';
 import type {
   ProviderConfig,
@@ -109,6 +113,12 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
         error instanceof Error ? error : new Error(String(error)),
       );
     }
+    if (error instanceof AuthenticationError || error instanceof PermissionDeniedError) {
+      return new LLMAuthError(this.name, error.status ?? 401, error.message);
+    }
+    if (error instanceof NotFoundError) {
+      return new LLMModelNotFoundError(this.name, this.model);
+    }
     if (errName === 'APIError') {
       const apiErr = error as { status?: number; message: string };
       return new LLMError(
@@ -138,6 +148,10 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
         body as Anthropic.MessageCreateParamsNonStreaming,
         requestOptions,
       );
+      const data = response as Anthropic.Message;
+      if (!data.content || data.content.length === 0) {
+        throw new LLMEmptyResponseError(this.name);
+      }
       return this.parseResponse(response);
     } catch (error) {
       throw this.mapSDKError(error, options.timeoutMs ?? this.config.timeoutMs, options.signal);
@@ -151,7 +165,7 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
     const body = this.buildRequestBody(options);
     const requestOptions: Anthropic.RequestOptions = {
       ...this.buildRequestOptions(),
-      timeout: STREAM_MAX_DURATION_MS,
+      timeout: options.timeoutMs ?? this.config.timeoutMs,
       signal: options.signal,
     };
     try {
@@ -161,7 +175,7 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
       );
       yield* this.parseSDKStream(sdkStream, options.signal);
     } catch (error) {
-      throw this.mapSDKError(error, STREAM_MAX_DURATION_MS, options.signal);
+      throw this.mapSDKError(error, options.timeoutMs ?? this.config.timeoutMs, options.signal);
     }
   }
 
@@ -239,9 +253,9 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
       assertContentBlocks(m.content);
       const blocks = m.content;
       if (addCache && blocks.length > 0) {
-        const copy: ContentBlock[] = [...blocks];
-        const last = copy[copy.length - 1] as Record<string, unknown>;
-        last.cache_control = { type: 'ephemeral' };
+        const copy = blocks.map(b => ({ ...b }));
+        const last = copy[copy.length - 1];
+        if (last) (last as Record<string, unknown>).cache_control = { type: 'ephemeral' };
         return { role, content: copy };
       }
       return { role, content: blocks };

@@ -4,6 +4,7 @@
  */
 
 import type { LLMResponse, ContentBlock } from '../../types/message.js';
+import { LLMEmptyResponseError } from '../../types/errors.js';
 
 export interface AnthropicResponse {
   id: string;
@@ -26,7 +27,7 @@ export function parseAnthropicResponse(data: AnthropicResponse): LLMResponse {
 
   // 0-chunk guard
   if (content.length === 0) {
-    throw new Error('LLM returned empty response (0 chunks)');
+    throw new LLMEmptyResponseError('anthropic');
   }
 
   return {

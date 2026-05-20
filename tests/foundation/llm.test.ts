@@ -72,6 +72,9 @@ vi.mock('@anthropic-ai/sdk', () => ({
   },
   APIConnectionTimeoutError: class APIConnectionTimeoutError extends Error {},
   APIUserAbortError: class APIUserAbortError extends Error {},
+  AuthenticationError: class AuthenticationError extends Error { status = 401; },
+  PermissionDeniedError: class PermissionDeniedError extends Error { status = 403; },
+  NotFoundError: class NotFoundError extends Error { status = 404; },
 }));
 
 /**
