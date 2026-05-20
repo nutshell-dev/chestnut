@@ -77,6 +77,10 @@ export const shadowTool: Tool = {
     const maxSteps = typeof args.maxSteps === 'number' ? args.maxSteps : (ctx.subagentMaxSteps ?? ctx.maxSteps);
     const asyncMode = args.async === undefined ? true : Boolean(args.async);
 
+    // 两路径共同：截掉当前消息末的 shadow tool_use（未配 tool_result）
+    // sync 的 runShadow 用此值 / async 存到 task
+    const mainMessages = stripIncompleteToolUse(ctx.dialogMessages);
+
     if (asyncMode) {
       const taskId = await writePendingSubagentTaskFile(ctx.fs, ctx.auditWriter, {
         kind: 'subagent',
@@ -87,7 +91,7 @@ export const shadowTool: Tool = {
         originClawId: ctx.originClawId ?? ctx.clawId,
         callerType: 'shadow',
         isShadow: true,
-        shadowMessages: stripIncompleteToolUse(ctx.dialogMessages),
+        shadowMessages: mainMessages,
         shadowSystemPrompt: ctx.systemPromptForLLM,
         shadowToolsForLLM: ctx.toolsForLLM,
       });
@@ -98,12 +102,12 @@ export const shadowTool: Tool = {
       };
     }
 
-    // sync 路径不变
     return runShadow({
       task,
       timeoutMs,
       maxSteps,
       ctx,
+      mainMessages,
     });
   },
 };

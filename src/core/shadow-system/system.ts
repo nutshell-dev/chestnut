@@ -25,6 +25,8 @@ export interface RunShadowOptions {
   timeoutMs?: number;
   maxSteps?: number;
   ctx: ExecContext;
+  /** Pre-stripped main agent messages (shadow.ts already removed incomplete tool_use) */
+  mainMessages?: Message[];
 }
 
 function findLastAssistantWithToolUse(messages: Message[], toolUseId: string): number {
@@ -50,19 +52,25 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
   if (
     !opts.ctx.clawId ||
     !opts.ctx.currentToolUseId ||
-    !opts.ctx.dialogMessages ||
     opts.ctx.systemPromptForLLM === undefined ||
     opts.ctx.toolsForLLM === undefined
   ) {
     return {
       success: false,
       content:
-        '[clawforum shadow] missing main agent in-memory state (clawId, currentToolUseId, dialogMessages, systemPromptForLLM, or toolsForLLM)',
+        '[clawforum shadow] missing main agent in-memory state (clawId, currentToolUseId, systemPromptForLLM, or toolsForLLM)',
+      error: 'no_main_context',
+    };
+  }
+  if (!opts.mainMessages && !opts.ctx.dialogMessages) {
+    return {
+      success: false,
+      content: '[clawforum shadow] missing main agent in-memory state (dialogMessages)',
       error: 'no_main_context',
     };
   }
 
-  const mainMessages = opts.ctx.dialogMessages;
+  const mainMessages = opts.mainMessages ?? opts.ctx.dialogMessages!;
   const restoredSystemPrompt = opts.ctx.systemPromptForLLM;
   const restoredTools = opts.ctx.toolsForLLM;
 
@@ -76,15 +84,13 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
       toolUseId: opts.ctx.currentToolUseId,
       task: opts.task,
     };
-    const lastAssistantIdx = findLastAssistantWithToolUse(mainMessages, opts.ctx.currentToolUseId);
-    if (lastAssistantIdx < 0) {
-      return {
-        success: false,
-        content: `[clawforum shadow] marker not found in in-memory messages: toolUseId=${opts.ctx.currentToolUseId}`,
-        error: 'marker_not_found',
-      };
-    }
-    const mainMessagesBeforeMarker = mainMessages.slice(0, lastAssistantIdx);
+    // pre-stripped by shadow.ts → already before the marker. Otherwise find + slice.
+    const mainMessagesBeforeMarker = opts.mainMessages
+      ?? (() => {
+        const idx = findLastAssistantWithToolUse(mainMessages, opts.ctx.currentToolUseId);
+        if (idx < 0) throw new Error(`marker not found: ${opts.ctx.currentToolUseId}`);
+        return mainMessages.slice(0, idx);
+      })();
     synthesizedMessages = synthesizeFormB({
       mainMessagesBeforeMarker,
       instructionArgs,
