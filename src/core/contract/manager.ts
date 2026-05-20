@@ -241,7 +241,7 @@ export class ContractSystem {
         const controller = new AbortController();
         this._registerVerifierController(contractId, controller);
         try {
-          return await runContractVerifier({ ...config, signal: controller.signal });
+          return await runContractVerifier({ ...config, signal: controller.signal, contractId });
         } finally {
           this._unregisterVerifierController(contractId, controller);
         }

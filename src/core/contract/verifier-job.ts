@@ -17,6 +17,34 @@ import { buildSubagentSystemPromptPrefix, CONTRACT_VERIFIER_SYSTEM_PROMPT } from
 import type { VerifierConfig, VerifierResult } from './types.js';
 
 export async function runContractVerifier(config: VerifierConfig): Promise<VerifierResult> {
+  // phase 1080: crash-recovery — skip verifier if contract was cancelled
+  if (config.contractId) {
+    const progressPath = `contract/active/${config.contractId}/progress.json`;
+    try {
+      const raw = await config.fs.read(progressPath);
+      const progress = JSON.parse(raw) as { status?: string };
+      if (progress.status === 'cancelled') {
+        config.audit?.write(
+          CONTRACT_AUDIT_EVENTS.VERIFIER_SKIPPED,
+          `agentId=${config.agentId}`,
+          `reason=contract_cancelled`,
+        );
+        return { passed: false, feedback: 'Contract was cancelled before verifier started' };
+      }
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+        config.audit?.write(
+          CONTRACT_AUDIT_EVENTS.VERIFIER_FAILED,
+          `agentId=${config.agentId}`,
+          `clawId=${config.clawId}`,
+          `kind=progress_read_error`,
+          `reason=${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      // ENOENT or other read error: do not block verifier
+    }
+  }
+
   try {
     const doneTool = createDoneTool();
     const registry = createToolRegistry();
