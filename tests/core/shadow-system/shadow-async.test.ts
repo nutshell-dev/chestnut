@@ -133,12 +133,20 @@ describe('shadow tool async (phase 1087)', () => {
       expect(callArgs.kind).toBe('subagent');
       expect(callArgs.intent).toBe('test task');
       expect(callArgs.isShadow).toBe(true);
-      expect(callArgs.shadowMessages).toEqual(baseCtx.dialogMessages);
+      // synthesized by stripIncompleteToolUse + synthesizeFormB:
+      // main messages stripped of trailing assistant (tool_use) → 1 user msg
+      // + instruction + ack + "Proceed." = 4 messages
+      expect(callArgs.shadowMessages).toHaveLength(4);
+      expect(callArgs.shadowMessages[0]).toEqual({ role: 'user', content: 'hi' });
+      expect(callArgs.shadowMessages[1]).toMatchObject({ role: 'user' });
+      expect((callArgs.shadowMessages[1] as { content: string }).content).toContain('SHADOW INSTRUCTION');
+      expect(callArgs.shadowMessages[2]).toMatchObject({ role: 'assistant' });
+      expect(callArgs.shadowMessages[3]).toEqual({ role: 'user', content: 'Proceed.' });
       expect(callArgs.shadowSystemPrompt).toBe('test-system-prompt');
       expect(callArgs.shadowToolsForLLM).toEqual(baseCtx.toolsForLLM);
       expect(callArgs.parentClawId).toBe('test-claw');
       expect(callArgs.originClawId).toBe('test-claw');
-      expect(callArgs.callerType).toBe('subagent');
+      expect(callArgs.callerType).toBe('shadow');
     });
 
     it('async=true explicit takes async path', async () => {
