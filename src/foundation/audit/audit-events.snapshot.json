@@ -142,6 +142,7 @@
       "contract_unexpected_async_throw",
       "contract_updated",
       "contract_verifier_failed",
+      "contract_verifier_skipped",
       "contract_yaml_schema_invalid",
       "subtask_completed"
     ],
