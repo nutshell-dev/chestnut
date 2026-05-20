@@ -287,10 +287,8 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       const inboxFiles = await fs.readdir(path.join(testClawDir, 'inbox', 'pending'));
       expect(inboxFiles.length).toBeGreaterThan(0);
       
-      const inboxFile = await fs.readFile(
-        path.join(testClawDir, 'inbox', 'pending', inboxFiles[0]),
-        'utf-8'
-      );
+      const inboxPath = path.join(testClawDir, 'inbox', 'pending', inboxFiles[0]);
+      const inboxFile = await waitForCompleteFile(inboxPath, /^---[\s\S]+---\n\n/);
       
       const match = inboxFile.match(/---\n([\s\S]*?)\n---\n\n([\s\S]*)/);
       expect(match).not.toBeNull();
