@@ -29,6 +29,18 @@ vi.mock('../../src/core/subagent/index.js', () => ({
   NoopAuditWriter: class NoopAuditWriter { write() {} },
   createDoneTool: mockCreateDoneTool,
   DONE_TOOL_NAME: 'done',
+  createPerTaskRegistry: (registry: any, profile: any) => {
+    const r = {
+      register: vi.fn(),
+      getAll: vi.fn().mockReturnValue([]),
+    };
+    for (const t of (registry.getForProfile?.(profile) ?? [])) {
+      if (t.name === 'done') continue;
+      r.register(t);
+    }
+    r.register(mockCreateDoneTool());
+    return r;
+  },
 }));
 
 function makeTask(overrides: Partial<SubAgentTask> = {}): SubAgentTask {

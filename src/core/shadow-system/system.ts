@@ -11,14 +11,13 @@ import type { Message } from '../../types/message.js';
 
 import { UUID_SHORT_LEN } from '../../constants.js';
 import { TASKS_SYNC_SHADOW_DIR } from './constants.js';
-import { runSubagent } from '../subagent/index.js';
+import { runSubagent, createPerTaskRegistry } from '../subagent/index.js';
 import { AUDIT_PREVIEW_LEN } from '../../foundation/audit/index.js';
 import { SHADOW_AUDIT_EVENTS } from './audit-events.js';
 import { synthesizeFormB, formatErr } from './_helpers.js';
 import { ToolTimeoutError, LLMTimeoutError } from '../../types/errors.js';
 import type { BuildShadowInstructionArgs } from '../../prompts/index.js';
-import { createToolRegistry } from '../../foundation/tools/index.js';
-import { createDoneTool, DONE_TOOL_NAME } from '../subagent/index.js';
+
 
 export interface RunShadowOptions {
   task: string;
@@ -112,12 +111,7 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
       throw new Error('LLM not available in execution context');
     }
 
-    const shadowRegistry = createToolRegistry();
-    for (const tool of opts.ctx.registry.getForProfile('full')) {
-      if (tool.name === DONE_TOOL_NAME) continue; // skip main shared done instance to avoid capturedResult state leak
-      shadowRegistry.register(tool);
-    }
-    shadowRegistry.register(createDoneTool()); // fresh done instance per shadow run (mirror verifier-job pattern)
+    const shadowRegistry = createPerTaskRegistry(opts.ctx.registry, 'full');
 
     const { text, capturedResult } = await runSubagent({
       agentId: shadowId,

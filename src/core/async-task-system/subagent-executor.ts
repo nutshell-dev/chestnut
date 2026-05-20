@@ -5,9 +5,9 @@ import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js
 import { type StreamLog, STREAM_FILE } from '../../foundation/stream/index.js';
 import type { PermissionChecker } from '../../types/permission.js';
 import { type CallerType, callerTypeToProfile } from '../../foundation/tool-protocol/index.js';
-import { createToolRegistry } from '../../foundation/tools/index.js';
+
 import type { ToolRegistry } from '../../foundation/tools/index.js';
-import { runSubagent, NoopAuditWriter, createDoneTool, DONE_TOOL_NAME } from '../subagent/index.js';
+import { runSubagent, NoopAuditWriter, createPerTaskRegistry, DONE_TOOL_NAME } from '../subagent/index.js';
 import { createDialogStore } from '../../foundation/dialog-store/index.js';
 
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
@@ -81,12 +81,7 @@ export async function executeSubAgentTask(
     const isShadow = task.isShadow === true;
     const subagentProfile = isShadow ? 'full' : callerTypeToProfile(task.callerType ?? 'subagent');
     const effectiveRegistry = (() => {
-      const r = createToolRegistry();
-      for (const t of registry.getForProfile(subagentProfile)) {
-        if (t.name === DONE_TOOL_NAME) continue; // phase 944: skip main shared done (mirror phase 780)
-        r.register(t);
-      }
-      r.register(createDoneTool()); // fresh done instance per subagent task (mirror phase 780)
+      const r = createPerTaskRegistry(registry, subagentProfile);
 
       // phase 713: motionClawDir 构造 motionDialogStore + AskMotionTool（全然一致性 reuse）
       if (task.motionClawDir) {

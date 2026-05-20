@@ -11,12 +11,12 @@ import type { ToolResult, ExecContext } from '../../foundation/tool-protocol/ind
 
 import { UUID_SHORT_LEN } from '../../constants.js';
 import { TASKS_SYNC_SPAWN_DIR } from './constants.js';
-import { runSubagent, createDoneTool, DONE_TOOL_NAME } from '../subagent/index.js';
+import { runSubagent, createPerTaskRegistry } from '../subagent/index.js';
 import { AUDIT_PREVIEW_LEN } from '../../foundation/audit/index.js';
 import { DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../../prompts/subagent.js';
 import { SPAWN_AUDIT_EVENTS } from './audit-events.js';
 import { formatErr } from './_helpers.js';
-import { createToolRegistry } from '../../foundation/tools/index.js';
+
 
 export interface RunSpawnSyncOptions {
   intent: string;
@@ -44,12 +44,7 @@ export async function runSpawnSync(opts: RunSpawnSyncOptions): Promise<ToolResul
     }
 
     // mirror verifier-job 既有调用模板：从 caller registry 取 subagent profile 工具
-    const subagentRegistry = createToolRegistry();
-    for (const tool of opts.ctx.registry.getForProfile('subagent')) {
-      if (tool.name === DONE_TOOL_NAME) continue; // phase 944: skip main shared done (mirror phase 780)
-      subagentRegistry.register(tool);
-    }
-    subagentRegistry.register(createDoneTool()); // fresh done instance per spawn run (mirror phase 780)
+    const subagentRegistry = createPerTaskRegistry(opts.ctx.registry, 'subagent');
 
     const { text, capturedResult } = await runSubagent({
       agentId: id,
