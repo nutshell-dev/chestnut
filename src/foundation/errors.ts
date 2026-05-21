@@ -146,3 +146,27 @@ const PROGRAMMING_BUG_TYPES = [TypeError, ReferenceError, SyntaxError, RangeErro
 export function isProgrammingBug(err: unknown): boolean {
   return PROGRAMMING_BUG_TYPES.some(T => err instanceof T);
 }
+
+// ============================================================================
+// CLI Error — shared by CLI and Daemon (moved from cli/errors.ts in phase1101)
+// ============================================================================
+
+export class CliError extends Error {
+  code: number;
+
+  constructor(message: string, code?: number);
+  constructor(message: string, options?: { cause?: unknown; code?: number });
+  constructor(
+    message: string,
+    optionsOrCode?: number | { cause?: unknown; code?: number },
+  ) {
+    if (typeof optionsOrCode === 'number' || optionsOrCode === undefined) {
+      super(message);
+      this.code = optionsOrCode ?? 1;
+    } else {
+      super(message, optionsOrCode);
+      this.code = optionsOrCode.code ?? 1;
+    }
+    this.name = 'CliError';
+  }
+}

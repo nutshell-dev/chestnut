@@ -1,36 +1,16 @@
 /**
- * CLI Error - Custom error class for CLI commands
- *
- * Allows commands to throw errors with exit codes,
- * which are then handled uniformly at the top level.
+ * CLI Error — re-export from foundation (moved in phase1101)
  */
+export { CliError } from '../foundation/errors.js';
 
-export class CliError extends Error {
-  code: number;
-
-  constructor(message: string, code?: number);
-  constructor(message: string, options?: { cause?: unknown; code?: number });
-  constructor(
-    message: string,
-    optionsOrCode?: number | { cause?: unknown; code?: number },
-  ) {
-    if (typeof optionsOrCode === 'number' || optionsOrCode === undefined) {
-      super(message);
-      this.code = optionsOrCode ?? 1;
-    } else {
-      super(message, optionsOrCode);
-      this.code = optionsOrCode.code ?? 1;
-    }
-    this.name = 'CliError';
-  }
-}
+import { CliError as CliErrorImpl } from '../foundation/errors.js';
 
 /**
  * Handle CLI errors uniformly
  * Returns exit code for process.exitCode assignment
  */
 export function handleCliError(error: unknown): number {
-  if (error instanceof CliError) {
+  if (error instanceof CliErrorImpl) {
     console.error(error.message);
     return error.code;
   }
