@@ -24,18 +24,6 @@ export function safeCallback(
   }
 }
 
-export async function safeCallbackAsync(
-  label: string,
-  fn: () => Promise<void>,
-  callbacks?: { onSafeCallbackError?: (label: string, err: unknown) => void },
-): Promise<void> {
-  try { await fn(); }
-  catch (err) {
-    console.warn(`[step-executor] ${label} error:`, err instanceof Error ? err.message : String(err));
-    callbacks?.onSafeCallbackError?.(label, err);
-  }
-}
-
 export type ParseToolInputResult =
   | { ok: true; data: Record<string, unknown> }
   | { ok: false; raw: string; error: string };

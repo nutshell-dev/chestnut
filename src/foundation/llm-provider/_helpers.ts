@@ -34,6 +34,7 @@ export async function throwHttpErrorResponse(
     errorText = errorData.error?.message ?? JSON.stringify(errorData);
   } catch {
     errorText = await cloned.text();
+    console.error('[llm-provider] failed to parse error JSON response:', errorText);
   }
 
   // phase 735 step 2: 401/403/404 分类（permanent / 0 retry）

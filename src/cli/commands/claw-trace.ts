@@ -156,7 +156,12 @@ async function readStreamEvents(clawDir: string, startedAt: string): Promise<Str
       const stat = await fs.promises.stat(fp);
       files.push({ path: fp, mtime: stat.mtimeMs });
     }
-  } catch { return []; }
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') {
+      process.stderr.write(`[trace] readdir stream dir failed: ${(e as Error).message}\n`);
+    }
+    return [];
+  }
 
   // 按修改时间排序
   files.sort((a, b) => a.mtime - b.mtime);

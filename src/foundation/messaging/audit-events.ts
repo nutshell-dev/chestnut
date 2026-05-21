@@ -20,6 +20,7 @@ export const MESSAGING_AUDIT_EVENTS = {
   INBOX_PEEK_RACE_SKIP: 'inbox_peek_race_skip',
   INBOX_PRIORITY_UNKNOWN: 'inbox_priority_unknown',
   INBOX_DEDUPED: 'inbox_deduped',
+  INBOX_MARK_DONE_FAILED: 'inbox_mark_done_failed',
   OUTBOX_SENT: 'outbox_sent',
   OUTBOX_DELIVERED: 'outbox_delivered',
   OUTBOX_SEND_FAILED: 'outbox_send_failed',

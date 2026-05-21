@@ -315,6 +315,7 @@
       "inbox_done",
       "inbox_failed",
       "inbox_list_failed",
+      "inbox_mark_done_failed",
       "inbox_meta_failed",
       "inbox_move_failed",
       "inbox_peek_race_skip",

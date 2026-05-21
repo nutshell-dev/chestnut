@@ -36,3 +36,5 @@ export type { ExecContextImplOptions } from './context.js';
 
 export type { AsyncToolTaskArgs, ScheduleAsyncTool } from './async-dispatch.js';
 
+export { SPAWN_TOOL_NAME, DONE_TOOL_NAME, DISPATCH_TOOL_NAME, SHADOW_TOOL_NAME } from './tool-names.js';
+

@@ -47,13 +47,13 @@
     },
     {
       "file": "src/cli/commands/chat-viewport.ts",
-      "line": 747,
+      "line": 749,
       "body_excerpt": "} catch { /* fail-soft: shim 自身失败不破坏 crash log + stderr 路径 */ }",
       "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
     },
     {
       "file": "src/cli/commands/chat-viewport.ts",
-      "line": 779,
+      "line": 781,
       "body_excerpt": "} catch { /* skip */ }",
       "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
     },
@@ -101,31 +101,31 @@
     },
     {
       "file": "src/cli/commands/claw-trace.ts",
-      "line": 176,
+      "line": 181,
       "body_excerpt": "} catch { /* skip invalid */ }",
       "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
     },
     {
       "file": "src/cli/commands/claw-trace.ts",
-      "line": 178,
+      "line": 183,
       "body_excerpt": "} catch { /* skip */ }",
       "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
     },
     {
       "file": "src/cli/commands/claw-trace.ts",
-      "line": 316,
+      "line": 321,
       "body_excerpt": "} catch { /* no archive dir */ }",
       "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
     },
     {
       "file": "src/cli/commands/claw-trace.ts",
-      "line": 322,
+      "line": 327,
       "body_excerpt": "} catch { /* no current */ }",
       "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
     },
     {
       "file": "src/cli/commands/claw-trace.ts",
-      "line": 339,
+      "line": 344,
       "body_excerpt": "} catch { /* skip */ }",
       "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
     },
@@ -137,7 +137,7 @@
     },
     {
       "file": "src/cli/commands/stop.ts",
-      "line": 74,
+      "line": 78,
       "body_excerpt": "} catch { /* best-effort */ }",
       "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
     },

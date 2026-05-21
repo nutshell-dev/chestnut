@@ -194,7 +194,12 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
       try {
         const stored = await pm.readPid(clawId);
         track.isAlive = stored !== null && isAlive(stored.pid);
-      } catch { track.isAlive = false; }
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== 'ENOENT') {
+          process.stderr.write(`[viewport] readPid failed: ${(e as Error).message}\n`);
+        }
+        track.isAlive = false;
+      }
       track.hasContract = getContractCreatedMs(fs, path.join(clawsDir, clawId), audit) !== null;
       refreshClawStatus(clawId);
     }

@@ -68,8 +68,11 @@ async function persistState(fs: FileSystem, dir: string, state: SnapshotState, a
 async function tryClearPersist(fs: FileSystem, dir: string): Promise<void> {
   try {
     await fs.delete(stateFilePath(dir));
-  } catch {
-    // silent: ENOENT expected; other errors don't affect function
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') {
+      console.error('[snapshot] tryClearPersist failed:', (e as Error).message);
+    }
+    // ENOENT expected; other errors don't affect function
     // (next init will load + overwrite anyway)
   }
 }
@@ -139,8 +142,8 @@ export class Snapshot {
           );
         }
       }
-    } catch {
-      // silent: corrupted file → start from 0
+    } catch (e) {
+      console.error('[snapshot] loadConsecutiveFailures: corrupted state file, resetting to 0:', (e as Error).message);
     }
     let shouldResetCounter = false;
     if (await this.fs.exists(gitDir)) {
@@ -305,8 +308,8 @@ export class Snapshot {
         let resolvedDir: string;
         try {
           resolvedDir = await this.fs.realpath(this.dir);
-        } catch {
-          // silent: fallback to original dir if realpath fails (best-effort alignment)
+        } catch (e) {
+          console.error('[snapshot] realpath failed, falling back to unresolved path:', (e as Error).message);
           resolvedDir = this.dir;
         }
         const relResolved = path.relative(resolvedDir, resolved);

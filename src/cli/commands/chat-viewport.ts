@@ -602,8 +602,10 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
         appendOutput('\x1b[31m', '✗ Daemon 已停止');
         observability.recordShutdown('daemon_dead');
       }
-    } catch {
-      // PID 文件不存在或读取失败，忽略
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') {
+        process.stderr.write(`[viewport] daemon liveness PID read failed: ${(e as Error).message}\n`);
+      }
     }
   };
   const daemonCheckInterval = setInterval(checkDaemonAlive, DAEMON_LIVENESS_CHECK_INTERVAL_MS);
@@ -798,7 +800,12 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
       } else {
         if (!isAlive(stored.pid)) { turnTracker.forceReset(); }
       }
-    } catch { turnTracker.forceReset(); }
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') {
+        process.stderr.write(`[viewport] turn tracker PID read failed: ${(e as Error).message}\n`);
+      }
+      turnTracker.forceReset();
+    }
   }
 
   tui.start();

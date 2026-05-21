@@ -116,8 +116,14 @@ export class InboxReader {
           );
           try {
             await this.markDone(filePath);
-          } catch {
-            // silent: best-effort markDone fail → next drainInbox re-encounters + re-dedupes
+          } catch (e) {
+            if ((e as NodeJS.ErrnoException).code !== 'ENOENT') {
+              this.audit.write(
+                MESSAGING_AUDIT_EVENTS.INBOX_MARK_DONE_FAILED,
+                `reason=${(e as Error).message}`,
+              );
+            }
+            // ENOENT silent: best-effort markDone fail → next drainInbox re-encounters + re-dedupes
           }
           continue;
         }

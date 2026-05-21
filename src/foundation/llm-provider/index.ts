@@ -27,6 +27,8 @@ export {
 export type { ApiFormat, ProviderPreset } from './presets.js';
 export { PRESETS, resolvePreset } from './presets.js';
 
+export type { Message, LLMResponse, ContentBlock, ToolUseBlock, ToolResultBlock, ToolDefinition } from './types.js';
+
 /**
  * LLMProvider interface — single provider call primitive
  *

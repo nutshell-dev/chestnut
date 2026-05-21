@@ -51,7 +51,11 @@ export async function stopAllCommand(deps?: { audit?: AuditLog }): Promise<void>
     clawNames = fs.readdirSync(clawsDir, { withFileTypes: true })
       .filter(e => e.isDirectory())
       .map(e => e.name);
-  } catch { /* no claws dir */ }
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') {
+      process.stderr.write(`[stop] readdirSync claws dir failed: ${(e as Error).message}\n`);
+    }
+  }
 
   const running = clawNames.filter(name => pm.isAlive(name));
   if (running.length > 0) {

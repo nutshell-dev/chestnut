@@ -46,7 +46,10 @@ export function findByPattern(pattern: string): ProcessInfo[] {
       if (!m) return null;
       return { pid: parseInt(m[1]!, 10), command: m[2]!.trim() };
     }).filter((x): x is ProcessInfo => x !== null);
-  } catch {
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') {
+      console.error('[process-exec] findProcesses: ps invocation failed:', (e as Error).message);
+    }
     return pids.map(pid => ({ pid, command: '' }));
   }
 }

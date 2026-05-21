@@ -37,7 +37,10 @@ export async function outboxCommand(
   try {
     const allFiles = await fs.promises.readdir(pendingDir);
     files = allFiles.filter(f => f.endsWith('.md')).sort();
-  } catch {
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') {
+      process.stderr.write(`[claw-outbox] readdir failed: ${(e as Error).message}\n`);
+    }
     console.log('outbox is empty');
     return;
   }

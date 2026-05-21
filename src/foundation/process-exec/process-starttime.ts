@@ -16,7 +16,10 @@ export function getProcessStartTime(pid: number): string | undefined {
     });
     const trimmed = out.trim();
     return trimmed === '' ? undefined : trimmed;
-  } catch {
-    return undefined; // process gone / ps fail / silent (caller decides skip-verify)
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') {
+      console.error('[process-exec] getProcessStartTime: ps failed:', (e as Error).message);
+    }
+    return undefined; // process gone / ps fail (caller decides skip-verify)
   }
 }
