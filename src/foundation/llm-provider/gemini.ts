@@ -12,7 +12,7 @@ import {
   LLMError,
   LLMTimeoutError,
   LLMNetworkError,
-} from '../llm-orchestrator/errors.js';
+} from './errors.js';
 import { parseRetryAfter, throwHttpErrorResponse } from './_helpers.js';
 import type {
   ProviderConfig,
@@ -20,7 +20,7 @@ import type {
   ProviderAdapter,
   StreamChunk,
 } from './types.js';
-import { STREAM_MAX_DURATION_MS, STREAM_IDLE_MAX_MS } from '../llm-orchestrator/constants.js';
+import { STREAM_MAX_DURATION_MS, STREAM_IDLE_MAX_MS } from './constants.js';
 import { withCombinedAbortSignal, type CombinedAbortHandle, classifyFetchAbortError } from './abort-helper.js';
 import { formatGeminiMessages } from './gemini-message-formatter.js';
 import { parseGeminiSSEStream } from './gemini-sse-parser.js';

@@ -4,7 +4,7 @@
  */
 const HTTP_SERVER_ERROR_STATUS_MIN = 500;
 
-import { LLMError, LLMRateLimitError, LLMAuthError, LLMModelNotFoundError } from '../llm-orchestrator/errors.js';
+import { LLMError, LLMRateLimitError, LLMAuthError, LLMModelNotFoundError } from './errors.js';
 
 /**
  * Parse HTTP error response and throw the appropriate LLMError subclass.

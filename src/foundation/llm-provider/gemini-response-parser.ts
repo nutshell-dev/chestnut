@@ -4,7 +4,7 @@
  */
 
 import type { LLMResponse, ContentBlock } from '../llm-provider/types.js';
-import { LLMEmptyResponseError } from '../llm-orchestrator/errors.js';
+import { LLMEmptyResponseError } from './errors.js';
 
 export interface GeminiResponse {
   candidates: Array<{

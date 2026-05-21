@@ -6,7 +6,7 @@
 
 import type { StreamChunk } from './types.js';
 import type { CombinedAbortHandle } from './abort-helper.js';
-import { LLMError, LLMRateLimitError } from '../llm-orchestrator/errors.js';
+import { LLMError, LLMRateLimitError } from './errors.js';
 import { AUDIT_PREVIEW_LEN } from '../audit/index.js';
 
 interface GeminiResponse {

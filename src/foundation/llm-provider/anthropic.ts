@@ -17,7 +17,7 @@ import {
   LLMAuthError,
   LLMModelNotFoundError,
   LLMEmptyResponseError,
-} from '../llm-orchestrator/errors.js';
+} from './errors.js';
 import { AuthenticationError, PermissionDeniedError, NotFoundError } from '@anthropic-ai/sdk';
 import { parseRetryAfter } from './_helpers.js';
 import type {
@@ -25,7 +25,7 @@ import type {
   LLMCallOptions,
   StreamChunk,
 } from './types.js';
-import { THINKING_TOKEN_RESERVE, STREAM_MAX_DURATION_MS } from '../llm-orchestrator/constants.js';
+import { THINKING_TOKEN_RESERVE, STREAM_MAX_DURATION_MS } from './constants.js';
 import { BaseAnthropicAdapter, type AnthropicRequestBody } from './base-anthropic.js';
 import { makeExternalAbortError, type AbortReason } from './abort-helper.js';
 import { assertContentBlocks } from './_block-guards.js';

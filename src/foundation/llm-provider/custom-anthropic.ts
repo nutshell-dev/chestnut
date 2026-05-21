@@ -12,14 +12,14 @@ import {
   LLMError,
   LLMTimeoutError,
   LLMNetworkError,
-} from '../llm-orchestrator/errors.js';
+} from './errors.js';
 import { parseRetryAfter, throwHttpErrorResponse } from './_helpers.js';
 import type {
   ProviderConfig,
   LLMCallOptions,
   StreamChunk,
 } from './types.js';
-import { THINKING_TOKEN_RESERVE, STREAM_MAX_DURATION_MS, STREAM_IDLE_MAX_MS } from '../llm-orchestrator/constants.js';
+import { THINKING_TOKEN_RESERVE, STREAM_MAX_DURATION_MS, STREAM_IDLE_MAX_MS } from './constants.js';
 import { BaseAnthropicAdapter, type AnthropicRequestBody } from './base-anthropic.js';
 import { withCombinedAbortSignal, type CombinedAbortHandle, classifyFetchAbortError } from './abort-helper.js';
 import { parseAnthropicSSEStream } from './custom-anthropic-sse-parser.js';
