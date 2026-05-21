@@ -79,7 +79,7 @@ export async function executeSubAgentTask(
 
     // Build per-task registry filtered by caller profile + motionClawDir 重建
     const isShadow = task.isShadow === true;
-    const subagentProfile = isShadow ? 'full' : callerTypeToProfile(task.callerType ?? 'subagent');
+    const subagentProfile = callerTypeToProfile(task.callerType ?? 'subagent');
     const effectiveRegistry = (() => {
       const r = createPerTaskRegistry(registry, subagentProfile);
 
