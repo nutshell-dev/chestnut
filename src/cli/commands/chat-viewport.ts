@@ -21,7 +21,7 @@ import { createSystemAudit } from '../../foundation/audit/index.js';
 import { createStreamReader, STREAM_FILE } from '../../foundation/stream/index.js';
 import { createViewportObservability } from './chat-viewport-observability.js';
 import type { StreamReader } from '../../foundation/stream/index.js';
-import { LOGS_DIR, CLAWS_DIR } from '../../foundation/paths.js';
+import { CLAWS_DIR } from '../../foundation/paths.js';
 import { TASKS_QUEUES_RESULTS_DIR } from '../../core/async-task-system/index.js';
 
 import { writeUserChat } from './chat-viewport-utils.js';
@@ -729,7 +729,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   tui.setFocus(editor);
 
   // 防御层：任何未捕获异常先还原终端，防止 terminal emulator 因 raw mode 未还原而闪退
-  const crashLogPath = path.join(options.agentDir, LOGS_DIR, 'chat-crash.log');
+  const crashLogPath = path.join(options.agentDir, 'logs', 'chat-crash.log');
   const uncaughtHandler = (err: unknown) => {
     // sync audit emit via motion-level audit shim（process 即将 exit、必 sync）
     // fail-soft：shim 构造或 write 失败回退 stderr-only、不抛

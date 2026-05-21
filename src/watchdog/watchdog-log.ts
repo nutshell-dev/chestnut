@@ -7,7 +7,7 @@ import * as path from 'path';
 import { getClawforumDir, getClawforumFs, getAuditWriter, getMotionContext } from './watchdog-context.js';
 import { getMotionDir } from '../foundation/config/index.js';
 import { InboxWriter } from '../foundation/messaging/index.js';
-import { LOGS_DIR } from '../foundation/paths.js';
+import { WATCHDOG_LOG } from './constants.js';
 
 /** 1:1 保 watchdog.ts:152-164 */
 export function log(message: string): void {
@@ -17,8 +17,8 @@ export function log(message: string): void {
 
   try {
     const fs = getClawforumFs();
-    fs.ensureDirSync(LOGS_DIR);
-    fs.appendSync(path.join(LOGS_DIR, 'watchdog.log'), logLine);
+    fs.ensureDirSync(path.dirname(WATCHDOG_LOG));
+    fs.appendSync(WATCHDOG_LOG, logLine);
   } catch {
     // Fallback: already output to stdout above
   }

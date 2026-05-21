@@ -2,7 +2,9 @@ import * as path from 'path';
 import type { FileSystem } from '../../../foundation/fs/types.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
 import { CRON_AUDIT_EVENTS } from '../audit-events.js';
-import { LOGS_DIR, CLAWS_DIR } from '../../../foundation/paths.js';
+import { CLAWS_DIR } from '../../../foundation/paths.js';
+
+const LLM_STATS_FILE = 'logs/llm-stats.jsonl';
 
 interface ParsedLlmRow {
   ts: string;        // ISO timestamp（audit.tsv col 0）
@@ -63,8 +65,8 @@ export async function runLlmStats(opts: LlmStatsOptions): Promise<void> {
   const summary = aggregate(entries, targetDate);
 
   // 追加到 .clawforum/logs/llm-stats.jsonl
-  opts.clawforumFs.ensureDirSync(LOGS_DIR);
-  const statsFile = path.join(LOGS_DIR, 'llm-stats.jsonl');
+  opts.clawforumFs.ensureDirSync(path.dirname(LLM_STATS_FILE));
+  const statsFile = LLM_STATS_FILE;
   opts.clawforumFs.appendSync(statsFile, JSON.stringify(summary) + '\n');
 
   opts.audit.write(CRON_AUDIT_EVENTS.LLM_STATS, `step=report`, `date=${targetDate}`, `totalCalls=${summary.totalCalls}`, `successCalls=${summary.successCalls}`, `failedCalls=${summary.failedCalls}`, `totalInputTokens=${summary.totalInputTokens}`, `totalOutputTokens=${summary.totalOutputTokens}`, `avg_latency_ms=${summary.avgLatencyMs}`);

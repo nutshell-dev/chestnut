@@ -27,7 +27,8 @@ import { NodeFileSystem } from '../foundation/fs/node-fs.js';
 import { type AuditLog, createAuditWriter } from '../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../foundation/process-manager/factories.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
-import { LOGS_DIR, CLAWS_DIR } from '../foundation/paths.js';
+import { CLAWS_DIR } from '../foundation/paths.js';
+import { DAEMON_LOG } from '../cli/constants.js';
 import { AUDIT_MESSAGE_MAX_CHARS } from '../foundation/audit/index.js';
 
 import {
@@ -181,7 +182,7 @@ export async function runWatchdogLoop(): Promise<void> {
         const pid = await pm.spawn('motion', {
           command: 'node',
           args: [daemonEntryPath, 'motion'],
-          logFile: path.join(getMotionDir(), LOGS_DIR, 'daemon.log'),
+          logFile: path.join(getMotionDir(), DAEMON_LOG),
           env: { ...process.env, CLAWFORUM_ROOT: path.dirname(clawforumDir) } as Record<string, string | undefined>,
         });
         log(`[watchdog] motion restarted (PID=${pid})`);

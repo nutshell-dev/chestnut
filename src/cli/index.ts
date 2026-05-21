@@ -39,7 +39,8 @@ import { statusCommand } from './commands/status.js';
 import { createSubagentCommand } from './commands/subagent.js';
 import { clawStepsCommand, clawStepCommand } from './commands/claw-steps.js';
 import { motionStepsCommand, motionStepCommand } from './commands/motion-steps.js';
-import { LOGS_DIR, getWorkspaceRoot } from '../foundation/paths.js';
+import { getWorkspaceRoot } from '../foundation/paths.js';
+import { DAEMON_LOG } from './constants.js';
 import { createDirContext } from './utils/factories.js';
 import { getClawforumRoot, getClawDir, loadGlobalConfig } from '../foundation/config/index.js';
 import { CONFIG_DEFAULTS } from '../assembly/config-defaults.js';
@@ -223,7 +224,7 @@ clawCmd
     const pid = await pm.spawn(name, {
       command: 'node',
       args: [daemonEntryPath, name],
-      logFile: path.join(clawDir, LOGS_DIR, 'daemon.log'),
+      logFile: path.join(clawDir, DAEMON_LOG),
       env: { ...process.env, CLAWFORUM_ROOT: getWorkspaceRoot() } as Record<string, string | undefined>,
     });
     console.log(`Started Claw "${name}" (PID: ${pid})`);
@@ -312,7 +313,7 @@ motionCmd
     const pid = await pm.spawn('motion', {
       command: 'node',
       args: [daemonEntryPath, 'motion'],
-      logFile: path.join(motionDir, LOGS_DIR, 'daemon.log'),
+      logFile: path.join(motionDir, DAEMON_LOG),
       env: { ...process.env, CLAWFORUM_ROOT: getWorkspaceRoot() } as Record<string, string | undefined>,
     });
     console.log(`Started Motion daemon (PID: ${pid})`);

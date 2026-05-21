@@ -24,7 +24,6 @@ import {
 } from '../../watchdog/constants.js';
 import { DEFAULT_MAX_CONCURRENT_TASKS } from '../../core/async-task-system/constants.js';
 import { DEFAULT_MAX_STEPS } from '../../core/agent-executor/index.js';
-import { LOGS_DIR } from '../../foundation/paths.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 
@@ -309,7 +308,7 @@ export async function initCommand(silent = false, deps?: { audit?: AuditLog }): 
     saveGlobalConfig(config);
 
     // Create logs directory
-    const logsDir = path.join(getWorkspaceRoot(), '.clawforum', LOGS_DIR);
+    const logsDir = path.join(getWorkspaceRoot(), '.clawforum', 'logs');
     fs.mkdirSync(logsDir, { recursive: true });
 
     audit?.write(CLI_AUDIT_EVENTS.INIT_DONE);

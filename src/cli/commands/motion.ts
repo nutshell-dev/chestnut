@@ -22,7 +22,8 @@ import { CliError } from '../errors.js';
 import { Snapshot } from '../../foundation/snapshot/index.js';
 import { createDirContext, createProcessManagerForCLI } from '../utils/factories.js';
 import { SNAPSHOT_IGNORE_PATTERNS } from '../../assembly/snapshot-patterns.js';
-import { LOGS_DIR, STATUS_SUBDIR, CLAWS_DIR, getWorkspaceRoot } from '../../foundation/paths.js';
+import { STATUS_SUBDIR, CLAWS_DIR, getWorkspaceRoot } from '../../foundation/paths.js';
+import { DAEMON_LOG } from '../constants.js';
 import { TASKS_SYNC_EXEC_DIR } from '../../foundation/command-tool/index.js';
 import { TASKS_SYNC_WRITE_DIR } from '../../foundation/file-tool/index.js';
 import { SKILLS_DIR_DEFAULT, BUNDLED_SKILLS_DIR_NAME } from '../../foundation/skill-system/skill-paths.js';
@@ -135,7 +136,7 @@ export async function initCommand(silent = false, deps?: { audit?: AuditLog }): 
   
   // Create directory structure
   await ensureDir(motionDir);
-  await ensureDir(path.join(motionDir, LOGS_DIR));
+  await ensureDir(path.join(motionDir, path.dirname(DAEMON_LOG)));
   await ensureDir(path.join(motionDir, STATUS_SUBDIR));
   await ensureDir(path.join(motionConfigDir, CLAWS_DIR));
   
@@ -218,7 +219,7 @@ export async function chatCommand(): Promise<void> {
         const pid = await pm.spawn('motion', {
           command: 'node',
           args: [daemonEntryPath, 'motion'],
-          logFile: path.join(motionDir, LOGS_DIR, 'daemon.log'),
+          logFile: path.join(motionDir, DAEMON_LOG),
           env: { ...process.env, CLAWFORUM_ROOT: getWorkspaceRoot() } as Record<string, string | undefined>,
         });
         console.log(`✓ Started (PID: ${pid})`);

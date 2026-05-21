@@ -35,7 +35,8 @@ import { CliError } from '../errors.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { startCommand as watchdogStart, isWatchdogAlive } from '../../watchdog/watchdog.js';
 import { CONTRACT_ACTIVE_DIR, CONTRACT_PAUSED_DIR, CONTRACT_ARCHIVE_DIR } from '../../core/contract/index.js';
-import { LOGS_DIR, getWorkspaceRoot } from '../../foundation/paths.js';
+import { getWorkspaceRoot } from '../../foundation/paths.js';
+import { DAEMON_LOG } from '../constants.js';
 
 export function buildOnboardingSubtasks(language: string): Array<{ id: string; description: string }> {
   let langInstruction: string;
@@ -357,7 +358,7 @@ async function _start(audit?: AuditLog): Promise<void> {
   const motionSpawnOptions = {
     command: 'node' as const,
     args: [daemonEntryPath, 'motion'],
-    logFile: path.join(motionDir, LOGS_DIR, 'daemon.log'),
+    logFile: path.join(motionDir, DAEMON_LOG),
     env: { ...process.env, CLAWFORUM_ROOT: getWorkspaceRoot() } as Record<string, string | undefined>,
   };
   if (!fs.existsSync(path.join(motionDir, 'AGENTS.md'))) {

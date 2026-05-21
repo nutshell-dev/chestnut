@@ -12,7 +12,8 @@ import { CONFIG_DEFAULTS } from '../../assembly/config-defaults.js';
 import { CliError } from '../errors.js';
 import { runChatViewport } from './chat-viewport.js';
 import { createDirContext, createProcessManagerForCLI } from '../utils/factories.js';
-import { LOGS_DIR, getWorkspaceRoot } from '../../foundation/paths.js';
+import { getWorkspaceRoot } from '../../foundation/paths.js';
+import { DAEMON_LOG } from '../constants.js';
 import { PROCESS_SPAWN_CONFIRM_MS } from '../../foundation/process-manager/index.js';
 
 export async function chatCommand(name: string): Promise<void> {
@@ -39,7 +40,7 @@ export async function chatCommand(name: string): Promise<void> {
         const pid = await pm.spawn(name, {
           command: 'node',
           args: [daemonEntryPath, name],
-          logFile: path.join(clawDir, LOGS_DIR, 'daemon.log'),
+          logFile: path.join(clawDir, DAEMON_LOG),
           env: { ...process.env, CLAWFORUM_ROOT: getWorkspaceRoot() } as Record<string, string | undefined>,
         });
         console.log(`Started (PID: ${pid})`);
