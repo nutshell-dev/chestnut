@@ -13,7 +13,7 @@ import { createDirContext } from '../utils/factories.js';
 import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
 import { getClawDir } from '../../foundation/config/index.js';
 import { notifySystem } from '../../foundation/messaging/index.js';
-import { STREAM_AUDIT_EVENTS } from '../../foundation/stream/audit-events.js';
+// STREAM_AUDIT_EVENTS.APPEND_FAILED → inline string to decouple CLI from stream audit constants (phase1101)
 import { createSystemAudit, type AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { createToolRegistry } from '../../foundation/tools/index.js';
@@ -48,7 +48,7 @@ export function notifyContractCreated(clawDir: string, clawId: string, contractI
     fs.appendSync(STREAM_FILE, streamLine);
   } catch (err) {
     contractAudit.write(
-      STREAM_AUDIT_EVENTS.APPEND_FAILED,
+      'stream_append_failed',
       `context=contract_notify`,
       `contractId=${contractId}`,
       `reason=${err instanceof Error ? err.message : String(err)}`,
