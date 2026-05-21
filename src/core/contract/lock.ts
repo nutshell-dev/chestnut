@@ -7,7 +7,7 @@ import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { AUDIT_PREVIEW_LEN } from '../../foundation/audit/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
-import { FileNotFoundError, ToolError } from '../../types/errors.js';
+import { FileNotFoundError, ToolError } from '../../types/index.js';
 import { LOCK_MAX_RETRIES, LOCK_RETRY_DELAY_MS, LOCK_STALE_TIMEOUT_MS } from './constants.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 import { isAlive } from '../../foundation/process-exec/index.js';

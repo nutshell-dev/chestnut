@@ -15,7 +15,7 @@ import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
 import { createSystemAudit, type AuditLog } from '../../foundation/audit/index.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from '../../foundation/process-manager/audit-events.js';
 import { createProcessManagerForCLI } from '../utils/factories.js';
-import { CLAWS_DIR } from '../../types/paths.js';
+import { CLAWS_DIR } from '../../foundation/paths.js';
 import { fileURLToPath } from 'url';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 

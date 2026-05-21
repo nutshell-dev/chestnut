@@ -30,7 +30,7 @@ import {
 import {
   FileNotFoundError,
   PermissionError,
-} from '../../types/errors.js';
+} from '../../types/index.js';
 
 async function wrapENOENT<T>(
   relativePath: string,

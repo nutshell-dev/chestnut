@@ -7,7 +7,7 @@
  */
 
 import type { AuditLog } from '../../foundation/audit/index.js';
-import { formatErr } from '../../types/utils.js';
+import { formatErr } from '../../foundation/utils/format.js';
 export { formatErr };
 
 export function auditError(

@@ -1,13 +1,13 @@
 import { randomUUID } from 'crypto';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
-import type { InboxMessage } from '../../types/messaging.js';
+import type { InboxMessage } from '../../foundation/messaging/types.js';
 import { InboxWriter } from '../../foundation/messaging/index.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
 import { formatErr, auditError } from './_helpers.js';
-import { INBOX_PENDING_DIR } from '../../types/paths.js';
+import { INBOX_PENDING_DIR } from '../../foundation/paths.js';
 import { TASKS_QUEUES_RESULTS_DIR } from './dirs.js';
-import { SUMMARY_MAX_CHARS } from '../../types/constants.js';
+import { SUMMARY_MAX_CHARS } from '../../foundation/utils/format.js';
 import type { SubAgentTask, ToolTask } from './system.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 

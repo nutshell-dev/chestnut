@@ -3,7 +3,7 @@ import type { FileSystem } from '../../foundation/fs/types.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import { type StreamLog, STREAM_FILE } from '../../foundation/stream/index.js';
-import type { PermissionChecker } from '../../types/permission.js';
+import type { PermissionChecker } from '../../foundation/tool-protocol/permission.js';
 import { type CallerType, callerTypeToProfile } from '../../foundation/tool-protocol/index.js';
 
 import type { ToolRegistry } from '../../foundation/tools/index.js';
@@ -14,7 +14,7 @@ import { TASK_AUDIT_EVENTS } from './audit-events.js';
 import { STREAM_TASK_EVENTS } from './stream-events.js';
 import { formatErr, auditError, classifyTaskError } from './_helpers.js';
 import { AskMotionTool } from './tools/ask-motion.js';
-import { TASKS_SYNC_DIR } from '../../types/paths.js';
+import { TASKS_SYNC_DIR } from '../../foundation/paths.js';
 import { TASKS_QUEUES_RESULTS_DIR, TASKS_SUBAGENTS_DIR } from './dirs.js';
 import { buildSubagentSystemPrompt, DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../../prompts/subagent.js';
 import { sendResult, sendFallbackError } from './result-delivery.js';

@@ -5,7 +5,7 @@ import type { ToolTask } from './system.js';
 import { sendToolResult, sendFallbackError } from './result-delivery.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
 import { formatErr, auditError, classifyTaskError } from './_helpers.js';
-import { TASKS_QUEUES_RUNNING_DIR } from '../../types/paths.js';
+import { TASKS_QUEUES_RUNNING_DIR } from '../../foundation/paths.js';
 
 export interface ExecuteToolTaskDeps {
   fs: FileSystem;

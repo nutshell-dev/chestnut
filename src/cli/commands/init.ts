@@ -24,7 +24,7 @@ import {
 } from '../../watchdog/constants.js';
 import { DEFAULT_MAX_CONCURRENT_TASKS } from '../../core/async-task-system/constants.js';
 import { DEFAULT_MAX_STEPS } from '../../core/agent-executor/index.js';
-import { LOGS_DIR } from '../../types/paths.js';
+import { LOGS_DIR } from '../../foundation/paths.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 

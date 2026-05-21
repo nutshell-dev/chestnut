@@ -2,7 +2,7 @@
  * Abort signal helper: combines external signal with internal timeout
  */
 
-import { LLMTimeoutError } from '../../types/errors.js';
+import { LLMTimeoutError } from '../../types/index.js';
 
 export interface CombinedAbortHandle {
   /** Combined signal to pass to fetch / SDK */

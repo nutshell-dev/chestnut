@@ -6,7 +6,7 @@
  * Watcher (AsyncTaskSystem._ingestPendingFile) consumes the file asynchronously.
  */
 import { randomUUID } from 'crypto';
-import { TASKS_QUEUES_PENDING_DIR } from '../../../types/paths.js';
+import { TASKS_QUEUES_PENDING_DIR } from '../../../foundation/paths.js';
 import type { FileSystem } from '../../../foundation/fs/types.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
 import type { SubAgentTask } from '../system.js';

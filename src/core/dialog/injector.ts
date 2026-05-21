@@ -10,12 +10,12 @@
  */
 
 import type { FileSystem } from '../../foundation/fs/types.js';
-import type { Message } from '../../types/message.js';
-import type { Contract } from '../../types/contract.js';
+import type { Message } from '../../foundation/llm-provider/types.js';
+import type { Contract } from '../contract/types.js';
 import type { SessionData } from '../../foundation/dialog-store/index.js';
 import type { SkillSystem } from '../../foundation/skill-system/index.js';
 import type { ContractSystem } from '../contract/index.js';
-import { FileNotFoundError } from '../../types/errors.js';
+import { FileNotFoundError } from '../../types/index.js';
 import { DIALOG_AUDIT_EVENTS } from '../../foundation/dialog-store/audit-events.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 

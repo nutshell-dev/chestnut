@@ -8,7 +8,7 @@
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as fsNative from 'fs';
-import { CLAWSPACE_DIR } from '../../types/paths.js';
+import { CLAWSPACE_DIR } from '../../foundation/paths.js';
 import { SKILLS_DIR_DEFAULT } from '../../foundation/skill-system/skill-paths.js';
 import { DISPATCH_SKILLS_SUBDIR } from '../../core/evolution-system/index.js';
 import { getClawDir } from '../../foundation/config/index.js';

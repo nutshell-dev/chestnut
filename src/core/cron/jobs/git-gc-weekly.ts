@@ -3,7 +3,7 @@ import { exec } from '../../../foundation/process-exec/index.js';
 import type { FileSystem } from '../../../foundation/fs/types.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
 import { CRON_AUDIT_EVENTS } from '../audit-events.js';
-import { CLAWS_DIR } from '../../../types/paths.js';
+import { CLAWS_DIR } from '../../../foundation/paths.js';
 
 export interface GitGcWeeklyOptions {
   clawforumDir: string;

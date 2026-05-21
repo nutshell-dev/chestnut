@@ -3,8 +3,8 @@
  * Stop reason handlers — tool_use + max_tokens
  */
 
-import type { LLMResponse } from '../../types/message.js';
-import type { ToolResultBlock } from '../../types/message.js';
+import type { LLMResponse } from '../../foundation/llm-provider/types.js';
+import type { ToolResultBlock } from '../../foundation/llm-provider/types.js';
 import type { StepInput, StepResult, LLMCallInfo } from './types.js';
 import { extractText, extractToolCalls, appendAssistantMessage, appendToolResults } from './utils.js';
 import { executeToolCalls } from './tool-execution.js';

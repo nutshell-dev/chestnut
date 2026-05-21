@@ -11,7 +11,7 @@
  *   └────────(探测成功)──────────┘
  *             (探测失败) → 回 open
  */
-import type { LLMErrorClass } from '../../types/errors.js';
+import type { LLMErrorClass } from './errors.js';
 
 export class CircuitBreaker {
   private state: 'closed' | 'open' | 'half-open' = 'closed';

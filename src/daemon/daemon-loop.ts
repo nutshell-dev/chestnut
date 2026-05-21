@@ -18,7 +18,7 @@ import * as path from 'path';
 import { NodeFileSystem } from '../foundation/fs/node-fs.js';
 import type { FileSystem } from '../foundation/fs/types.js';
 import type { Runtime, StreamCallbacks } from '../core/runtime/index.js';
-import type { InboxMessage } from '../types/messaging.js';
+import type { InboxMessage } from '../foundation/messaging/types.js';
 import type { StreamWriter, StreamLog } from '../foundation/stream/index.js';
 import { createWatcher } from '../foundation/file-watcher/index.js';
 import type { Watcher } from '../foundation/file-watcher/index.js';
@@ -26,7 +26,7 @@ import type { AuditLog } from '../foundation/audit/index.js';
 import { MESSAGING_AUDIT_EVENTS } from '../foundation/messaging/audit-events.js';
 import { DAEMON_AUDIT_EVENTS, LOOP_ITERATION_TYPES, LOOP_INTERRUPT_CAUSES } from './audit-events.js';
 import { AGENT_STREAM_EVENTS } from '../core/agent-executor/index.js';
-import { oneLine } from '../types/utils.js';
+import { oneLine } from '../foundation/utils/format.js';
 
 import type { Heartbeat } from '../core/runtime/index.js';
 
@@ -39,10 +39,10 @@ import {
   LLM_RETRY_MAX_DELAY_MS,
 } from './constants.js';
 import { notifyInbox } from '../foundation/messaging/index.js';
-import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../types/signals.js';
-import { LLMAllProvidersFailedError } from '../types/errors.js';
+import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../core/signals.js';
+import { LLMAllProvidersFailedError } from '../types/index.js';
 import { CONTRACT_DIR } from '../core/contract/index.js';
-import { STATUS_SUBDIR } from '../types/paths.js';
+import { STATUS_SUBDIR } from '../foundation/paths.js';
 
 // Interrupt poller constants
 const INTERRUPT_POLL_INTERVAL_MS = 200;

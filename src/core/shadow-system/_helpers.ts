@@ -3,7 +3,7 @@
  * Shadow session synthesis helper（phase 770 Form A 实证不可用，删 synthesizeFormA dead code）
  */
 
-import type { Message } from '../../types/message.js';
+import type { Message } from '../../foundation/llm-provider/types.js';
 import { buildShadowInstruction, buildShadowAckMessage, type BuildShadowInstructionArgs } from '../../prompts/index.js';
 
 /**
@@ -28,4 +28,4 @@ export function synthesizeFormB(args: {
   ];
 }
 
-export { formatErr } from '../../types/utils.js';
+export { formatErr } from '../../foundation/utils/format.js';

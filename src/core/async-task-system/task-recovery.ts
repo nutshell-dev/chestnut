@@ -6,12 +6,12 @@ import {
   TASKS_QUEUES_RUNNING_DIR,
   TASKS_QUEUES_DONE_DIR,
   TASKS_QUEUES_FAILED_DIR,
-} from '../../types/paths.js';
+} from '../../foundation/paths.js';
 import { TASKS_QUEUES_RESULTS_DIR, TASKS_SUBAGENTS_DIR } from './dirs.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
 import { formatErr } from './_helpers.js';
 import { validateTaskShape, backupCorruptTask } from './task-corrupt-helpers.js';
-import { FileNotFoundError } from '../../types/errors.js';
+import { FileNotFoundError } from '../../types/index.js';
 import { sendFallbackError, sendResult, SENT_MARKER } from './result-delivery.js';
 
 const RETRY_COUNT_PATH = (taskId: string) =>

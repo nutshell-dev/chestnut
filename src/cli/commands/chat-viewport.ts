@@ -21,7 +21,7 @@ import { createSystemAudit } from '../../foundation/audit/index.js';
 import { createStreamReader, STREAM_FILE } from '../../foundation/stream/index.js';
 import { createViewportObservability } from './chat-viewport-observability.js';
 import type { StreamReader } from '../../foundation/stream/index.js';
-import { LOGS_DIR, CLAWS_DIR } from '../../types/paths.js';
+import { LOGS_DIR, CLAWS_DIR } from '../../foundation/paths.js';
 import { TASKS_QUEUES_RESULTS_DIR } from '../../core/async-task-system/index.js';
 
 import { writeUserChat } from './chat-viewport-utils.js';

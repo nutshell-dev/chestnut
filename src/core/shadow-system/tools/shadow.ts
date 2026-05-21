@@ -5,7 +5,7 @@
 
 import { randomUUID } from 'crypto';
 import type { Tool, ToolResult, ExecContext } from '../../../foundation/tool-protocol/index.js';
-import type { Message } from '../../../types/message.js';
+import type { Message } from '../../../foundation/llm-provider/types.js';
 import { SHADOW_TOOL_NAME } from '../../../foundation/tools/tool-names.js';
 import { runShadow } from '../system.js';
 import { SHADOW_AUDIT_EVENTS } from '../audit-events.js';

@@ -12,7 +12,7 @@ import {
   ToolNotFoundError,
   ToolTimeoutError,
   ToolInvalidInputError,
-} from '../../types/errors.js';
+} from '../../types/index.js';
 import { CLAWSPACE_DIR } from '../paths.js';
 import type { CallerType, ExecContext } from '../tool-protocol/index.js';
 import type { PermissionChecker } from '../tool-protocol/permission.js';

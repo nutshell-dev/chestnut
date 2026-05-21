@@ -1,4 +1,4 @@
-const SUMMARY_MAX_CHARS = 500;
+export const SUMMARY_MAX_CHARS = 500;
 
 export function oneLine(s: string): string {
   const content = (s ?? '').trimStart();

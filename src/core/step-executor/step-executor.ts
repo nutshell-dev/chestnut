@@ -18,7 +18,7 @@
  * This file keeps executeStep entry point + runLLMCall LLM call layer
  */
 
-import type { LLMResponse } from '../../types/message.js';
+import type { LLMResponse } from '../../foundation/llm-provider/types.js';
 import type { LLMOrchestrator, LLMCallOptions } from '../../foundation/llm-orchestrator/index.js';
 import type { StepInput, StepResult, LLMCallInfo } from './types.js';
 export type { LLMCallInfo, StepCallbacks, StepInput, StepMeta, StepResult } from './types.js';

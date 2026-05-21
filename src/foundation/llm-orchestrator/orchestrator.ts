@@ -17,7 +17,7 @@ import {
   LLMModelNotFoundError,
   classifyLLMError,
   getUserActionHint,
-} from '../../types/errors.js';
+} from './errors.js';
 
 import type {
   ProviderConfig,

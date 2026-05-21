@@ -39,7 +39,7 @@ import { statusCommand } from './commands/status.js';
 import { createSubagentCommand } from './commands/subagent.js';
 import { clawStepsCommand, clawStepCommand } from './commands/claw-steps.js';
 import { motionStepsCommand, motionStepCommand } from './commands/motion-steps.js';
-import { LOGS_DIR } from '../types/paths.js';
+import { LOGS_DIR } from '../foundation/paths.js';
 import { createDirContext } from './utils/factories.js';
 import { getClawforumRoot, getClawDir, loadGlobalConfig } from '../foundation/config/index.js';
 import { CONFIG_DEFAULTS } from '../assembly/config-defaults.js';

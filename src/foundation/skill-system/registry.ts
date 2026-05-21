@@ -8,7 +8,7 @@
 
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
-import { ToolError } from '../../types/errors.js';
+import { ToolError } from '../../types/index.js';
 import { SKILL_AUDIT_EVENTS } from './audit-events.js';
 
 /**

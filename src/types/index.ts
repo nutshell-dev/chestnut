@@ -73,6 +73,7 @@ export {
   classifyLLMError,
   getUserActionHint,
 } from '../foundation/llm-orchestrator/errors.js';
+export type { LLMErrorClass, UserActionHint } from '../foundation/llm-orchestrator/errors.js';
 
 // FileSystem errors → L1 FileSystem
 export { FileNotFoundError } from '../foundation/fs/types.js';

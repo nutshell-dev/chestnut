@@ -7,7 +7,7 @@ import * as path from 'path';
 import { getClawforumDir, getClawforumFs, getAuditWriter, getMotionContext } from './watchdog-context.js';
 import { getMotionDir } from '../foundation/config/index.js';
 import { InboxWriter } from '../foundation/messaging/index.js';
-import { LOGS_DIR } from '../types/paths.js';
+import { LOGS_DIR } from '../foundation/paths.js';
 
 /** 1:1 保 watchdog.ts:152-164 */
 export function log(message: string): void {

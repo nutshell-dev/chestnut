@@ -10,7 +10,7 @@ import { loadGlobalConfig, getMotionDir } from '../../foundation/config/index.js
 import { CONFIG_DEFAULTS } from '../../assembly/config-defaults.js';
 import { ProcessManager, ProcessListUnavailable } from '../../foundation/process-manager/index.js';
 import { createProcessManagerForCLI } from '../utils/factories.js';
-import { CLAWS_DIR } from '../../types/paths.js';
+import { CLAWS_DIR } from '../../foundation/paths.js';
 import {
   getWatchdogPid,
   isWatchdogAlive,

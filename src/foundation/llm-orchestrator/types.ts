@@ -5,7 +5,7 @@
 
 import type { Message, ToolDefinition, LLMResponse } from '../llm-provider/types.js';
 import type { ApiFormat } from '../llm-provider/presets.js';
-import type { LLMErrorClass, UserActionHint } from '../../types/errors.js';
+import type { LLMErrorClass, UserActionHint } from './errors.js';
 
 /**
  * Single provider configuration

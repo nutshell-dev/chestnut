@@ -2,7 +2,7 @@
  * Abort signal handling utilities for the React loop.
  */
 
-import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../../types/signals.js';
+import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../signals.js';
 
 export function throwAbortError(signal: AbortSignal): never {
   const r = signal.reason as { type?: string; ms?: number } | undefined;

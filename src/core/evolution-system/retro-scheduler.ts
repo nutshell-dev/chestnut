@@ -16,7 +16,7 @@ import { DEFAULT_LLM_IDLE_TIMEOUT_MS } from '../../foundation/llm-orchestrator/i
 import { DEFAULT_MAX_STEPS } from '../agent-executor/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
-import type { Message } from '../../types/message.js';
+import type { Message } from '../../foundation/llm-provider/types.js';
 import { RETRO_AUDIT_EVENTS } from './retro-audit-events.js';
 
 export interface RetroConfig {

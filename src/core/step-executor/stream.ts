@@ -3,10 +3,10 @@
  * LLM stream collection — StreamState + stream functions
  */
 
-import type { ContentBlock } from '../../types/message.js';
+import type { ContentBlock } from '../../foundation/llm-provider/types.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { LLMCallOptions } from '../../foundation/llm-orchestrator/index.js';
-import type { LLMResponse } from '../../types/message.js';
+import type { LLMResponse } from '../../foundation/llm-provider/types.js';
 import type { StepCallbacks } from './types.js';
 import { safeCallback, parseToolInput } from './utils.js';
 import { throwAbortError } from './abort-helpers.js';

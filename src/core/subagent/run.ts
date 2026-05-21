@@ -14,11 +14,11 @@ import { STREAM_FILE } from '../../foundation/stream/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { ToolRegistry } from '../../foundation/tools/index.js';
 // createToolRegistry removed — caller owns registry assembly (M#1 align)
-import type { Message, ToolDefinition } from '../../types/message.js';
+import type { Message, ToolDefinition } from '../../foundation/llm-provider/types.js';
 import type { CallerType } from '../../foundation/tool-protocol/index.js';
 import { createDialogStore, type DialogStore } from '../../foundation/dialog-store/index.js';
-import { CLAWSPACE_DIR } from '../../types/paths.js';
-import type { PermissionChecker } from '../../types/permission.js';
+import { CLAWSPACE_DIR } from '../../foundation/paths.js';
+import type { PermissionChecker } from '../../foundation/tool-protocol/permission.js';
 
 import { SubAgent } from './agent.js';
 import { DONE_TOOL_NAME } from './tools/done.js';

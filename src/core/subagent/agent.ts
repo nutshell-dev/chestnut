@@ -9,14 +9,14 @@ import { ToolExecutor } from '../../foundation/tools/index.js';
 import type { ToolRegistry } from '../../foundation/tools/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
-import type { ToolDefinition } from '../../types/message.js';
-import { ToolTimeoutError } from '../../types/errors.js';
-import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../../types/signals.js';
+import type { ToolDefinition } from '../../foundation/llm-provider/types.js';
+import { ToolTimeoutError } from '../../types/index.js';
+import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../signals.js';
 import type { AbortReason } from '../../foundation/llm-provider/index.js';
 import { makeExternalAbortError } from '../../foundation/llm-provider/index.js';
 import { SUBAGENT_TIMEOUT_MS } from './constants.js';
-import { oneLine } from '../../types/utils.js';
-import type { Message } from '../../types/message.js';
+import { oneLine } from '../../foundation/utils/format.js';
+import type { Message } from '../../foundation/llm-provider/types.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { SUBAGENT_AUDIT_EVENTS, REACT_LOOP_AUDIT_EVENTS } from './audit-events.js';
 import { AGENT_STREAM_EVENTS } from '../agent-executor/index.js';
@@ -24,7 +24,7 @@ import type { StreamLog } from '../../foundation/stream/index.js';
 import { type CallerType, callerTypeToProfile } from '../../foundation/tool-protocol/index.js';
 import type { DialogStore } from '../../foundation/dialog-store/index.js';
 import { DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../../prompts/index.js';
-import type { PermissionChecker } from '../../types/permission.js';
+import type { PermissionChecker } from '../../foundation/tool-protocol/permission.js';
 
 export interface SubAgentOptions {
   agentId: string;

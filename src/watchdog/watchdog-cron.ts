@@ -18,7 +18,7 @@ import { NodeFileSystem } from '../foundation/fs/node-fs.js';
 import { getMotionDir } from '../foundation/config/index.js';
 import { InboxWriter } from '../foundation/messaging/index.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
-import { CLAWS_DIR } from '../types/paths.js';
+import { CLAWS_DIR } from '../foundation/paths.js';
 
 // Check for claws with an active contract but no progress for a long time, and send a reminder
 /** 1:1 保 watchdog.ts:271-349 / 78 行 / inactivity timeout + backoff */

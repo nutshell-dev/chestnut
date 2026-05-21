@@ -3,7 +3,7 @@
  * Utility helpers — callback safety + content extraction + tool input parse
  */
 
-import type { Message, ContentBlock, ToolUseBlock, ToolResultBlock } from '../../types/message.js';
+import type { Message, ContentBlock, ToolUseBlock, ToolResultBlock } from '../../foundation/llm-provider/types.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { StepCallbacks } from './types.js';
 

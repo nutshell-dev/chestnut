@@ -22,7 +22,7 @@ import { LLM_OUTPUT_EVENTS } from '../foundation/stream/index.js';
 // If new stream event types are added, this set must be evaluated for inclusion
 import { CONTRACT_DIR } from '../core/contract/index.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
-import { formatErr } from '../types/utils.js';
+import { formatErr } from '../foundation/utils/format.js';
 
 // Parse stream.jsonl, return the timestamp of the last event and the last error message
 export interface ClawActivityInfo {

@@ -3,7 +3,7 @@ import type { FileSystem } from '../../../foundation/fs/types.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
 import { CRON_AUDIT_EVENTS } from '../audit-events.js';
 import type { InboxWriter } from '../../../foundation/messaging/index.js';
-import { CLAWSPACE_DIR, CLAWS_DIR } from '../../../types/paths.js';
+import { CLAWSPACE_DIR, CLAWS_DIR } from '../../../foundation/paths.js';
 
 /** 递归计算目录大小（bytes） */
 function getDirSize(dir: string, fs: FileSystem, audit?: AuditLog): number {

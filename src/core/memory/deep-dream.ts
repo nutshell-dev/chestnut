@@ -4,13 +4,13 @@ import { MEMORY_AUDIT_EVENTS } from './audit-events.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/index.js';
-import type { Message, ContentBlock, TextBlock, LLMResponse } from '../../types/message.js';
+import type { Message, ContentBlock, TextBlock, LLMResponse } from '../../foundation/llm-provider/types.js';
 import { InboxWriter } from '../../foundation/messaging/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { migrateAndValidateSession, validateSessionData } from '../../foundation/dialog-store/store.js';
 import type { SessionData } from '../../foundation/dialog-store/types.js';
-import { CLAWS_DIR, DIALOG_DIR } from '../../types/paths.js';
-import { FileNotFoundError } from '../../types/errors.js';
+import { CLAWS_DIR, DIALOG_DIR } from '../../foundation/paths.js';
+import { FileNotFoundError } from '../../types/index.js';
 import {
   DEEP_DREAM_SYSTEM_PROMPT,
   buildDreamInput,

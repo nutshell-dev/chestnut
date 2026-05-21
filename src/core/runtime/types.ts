@@ -17,8 +17,8 @@ import type { ContractSystem } from '../contract/index.js';
 import type { AsyncTaskSystem } from '../async-task-system/index.js';
 import type { SkillSystem } from '../../foundation/skill-system/index.js';
 import type { ExecContext } from '../../foundation/tool-protocol/index.js';
-import type { InboxMessage } from '../../types/messaging.js';
-import type { ToolProfile } from '../../types/config.js';
+import type { InboxMessage } from '../../foundation/messaging/types.js';
+import type { ToolProfile } from '../../foundation/tool-protocol/index.js';
 
 /** 1:1 保 runtime.ts:47-72 body */
 export interface RuntimeDependencies {

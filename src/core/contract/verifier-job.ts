@@ -10,7 +10,7 @@ import { runSubagent } from '../subagent/index.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 import { createDoneTool, DONE_TOOL_NAME } from '../subagent/index.js';
 import { createToolRegistry } from '../../foundation/tools/index.js';
-import { ToolTimeoutError } from '../../types/errors.js';
+import { ToolTimeoutError } from '../../types/index.js';
 import { TASKS_SYNC_SUBAGENT_DIR } from '../subagent/index.js';
 import { TASKS_SUBAGENTS_DIR } from '../async-task-system/index.js';
 import { buildSubagentSystemPrompt, CONTRACT_VERIFIER_SYSTEM_PROMPT } from '../../prompts/subagent.js';

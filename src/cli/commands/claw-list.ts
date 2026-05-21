@@ -13,7 +13,7 @@ import { CONFIG_DEFAULTS } from '../../assembly/config-defaults.js';
 import { createDirContext, createProcessManagerForCLI } from '../utils/factories.js';
 import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
 import { CONTRACT_DIR } from '../../core/contract/index.js';
-import { CLAWS_DIR } from '../../types/paths.js';
+import { CLAWS_DIR } from '../../foundation/paths.js';
 import { formatRelativeTime, getLastActiveMs, LLM_OUTPUT_EVENTS } from './claw-shared.js';
 import { handleCliError } from '../errors.js';
 

@@ -7,7 +7,7 @@
  * 真实实现见 step-executor.ts 和 agent-executor.ts。
  */
 
-import type { Message, ToolDefinition } from '../../types/message.js';
+import type { Message, ToolDefinition } from '../../foundation/llm-provider/types.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { ExecContext, ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { IToolExecutor, ToolRegistry } from '../../foundation/tools/index.js';

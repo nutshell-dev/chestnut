@@ -12,7 +12,7 @@ import {
   LLMError,
   LLMTimeoutError,
   LLMNetworkError,
-} from '../../types/errors.js';
+} from '../../types/index.js';
 import { parseRetryAfter, throwHttpErrorResponse } from './_helpers.js';
 import type {
   ProviderConfig,

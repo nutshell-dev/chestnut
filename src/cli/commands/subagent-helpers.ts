@@ -12,7 +12,7 @@ import {
   TASKS_QUEUES_FAILED_DIR,
   TASKS_QUEUES_PENDING_DIR,
   TASKS_QUEUES_RUNNING_DIR,
-} from '../../types/paths.js';
+} from '../../foundation/paths.js';
 import { TASKS_SYNC_SUBAGENT_DIR } from '../../core/subagent/index.js';
 import { TASKS_SYNC_SPAWN_DIR } from '../../core/spawn-system/index.js';
 import { TASKS_SYNC_SHADOW_DIR } from '../../core/shadow-system/index.js';

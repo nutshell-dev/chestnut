@@ -17,7 +17,7 @@ import { createRuntime, buildMotionSystemPrompt } from '../core/runtime/index.js
 import { createLLMOrchestrator, type LLMOrchestrator, DEFAULT_LLM_IDLE_TIMEOUT_MS } from '../foundation/llm-orchestrator/index.js';
 import { createLLMAuditSink } from './llm-audit-sink.js';
 import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
-import { CLAWS_DIR, CLAWSPACE_DIR } from '../types/paths.js';
+import { CLAWS_DIR, CLAWSPACE_DIR } from '../foundation/paths.js';
 import { createToolRegistry, type ToolRegistry } from '../foundation/tools/index.js';
 import { createToolExecutor } from '../foundation/tools/index.js';
 import type { IToolExecutor } from '../foundation/tools/index.js';
@@ -73,7 +73,7 @@ import { createGateway } from '../core/gateway/index.js';
 import type { Gateway } from '../core/gateway/index.js';
 import { createAskUserTool } from '../core/gateway/index.js';
 import { createStreamReader, STREAM_FILE, findRecentTurnStartOffset } from '../foundation/stream/index.js';
-import { DIALOG_DIR, TASKS_SYNC_DIR } from '../types/paths.js';
+import { DIALOG_DIR, TASKS_SYNC_DIR } from '../foundation/paths.js';
 
 // 内部 helper（从 daemon.ts L42-75 搬入）
 export function detectUncleanExit(auditDir: string, auditWriter: AuditLog): void {

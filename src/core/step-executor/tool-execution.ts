@@ -9,13 +9,13 @@
  * - executeWriteCalls: 写工具串行
  */
 
-import type { ToolUseBlock, ToolResultBlock } from '../../types/message.js';
+import type { ToolUseBlock, ToolResultBlock } from '../../foundation/llm-provider/types.js';
 import type { ExecContext, ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { IToolExecutor, ToolRegistry } from '../../foundation/tools/index.js';
 import type { StepCallbacks } from './types.js';
 import { safeCallback, toToolResultBlock } from './utils.js';
 import { throwAbortError } from './abort-helpers.js';
-import { safeNumber } from '../../types/utils.js';
+import { safeNumber } from '../../foundation/utils/format.js';
 
 
 interface CategorizedCalls {

@@ -4,7 +4,7 @@ import type { AuditLog } from '../../../foundation/audit/index.js';
 import type { InboxMessageOptionsBase } from '../../../foundation/messaging/index.js';
 import { collectContractEvents } from './event-collector.js';
 import { CONTRACT_AUDIT_EVENTS } from '../audit-events.js';
-import { CLAWS_DIR } from '../../../types/paths.js';
+import { CLAWS_DIR } from '../../../foundation/paths.js';
 
 export interface ContractObserverOptions {
   clawforumDir: string;       // .clawforum/ 目录

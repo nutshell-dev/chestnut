@@ -7,7 +7,7 @@ import * as yaml from 'js-yaml';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { AUDIT_PREVIEW_LEN } from '../../foundation/audit/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
-import type { Contract, ContractStatus } from '../../types/contract.js';
+import type { Contract, ContractStatus } from '../contract/types.js';
 import type { ContractYaml, ProgressData } from './types.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 

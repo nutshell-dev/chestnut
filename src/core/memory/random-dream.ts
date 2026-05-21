@@ -1,5 +1,5 @@
 import * as path from 'path';
-import { FileNotFoundError } from '../../types/errors.js';
+import { FileNotFoundError } from '../../types/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { MEMORY_AUDIT_EVENTS } from './audit-events.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
@@ -9,7 +9,7 @@ import { InboxWriter } from '../../foundation/messaging/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { DEFAULT_LLM_IDLE_TIMEOUT_MS } from '../../foundation/llm-orchestrator/index.js';
 import { CONTRACT_DIR } from '../contract/index.js';
-import { CLAWS_DIR } from '../../types/paths.js';
+import { CLAWS_DIR } from '../../foundation/paths.js';
 import {
   RANDOM_DREAM_SYSTEM_PROMPT,
   buildRandomDreamPrompt,

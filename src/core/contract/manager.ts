@@ -26,8 +26,8 @@ import * as path from 'path';
 
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
-import type { Contract, ContractStatus, SubtaskStatus, LastFailedFeedback, AcceptanceFailedNotification } from '../../types/contract.js';
-import { ToolError, ToolTimeoutError, isProgrammingBug } from '../../types/errors.js';
+import type { Contract, ContractStatus, SubtaskStatus, LastFailedFeedback, AcceptanceFailedNotification } from '../contract/types.js';
+import { ToolError, ToolTimeoutError, isProgrammingBug } from '../../types/index.js';
 import { InboxWriter } from '../../foundation/messaging/index.js';
 import { type AuditLog } from '../../foundation/audit/index.js';
 import type { ToolRegistry } from '../../foundation/tools/index.js';

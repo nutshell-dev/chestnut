@@ -2,7 +2,7 @@ import * as path from 'path';
 import type { FileSystem } from '../../../foundation/fs/types.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
 import { CRON_AUDIT_EVENTS } from '../audit-events.js';
-import { LOGS_DIR, CLAWS_DIR } from '../../../types/paths.js';
+import { LOGS_DIR, CLAWS_DIR } from '../../../foundation/paths.js';
 
 interface ParsedLlmRow {
   ts: string;        // ISO timestamp（audit.tsv col 0）

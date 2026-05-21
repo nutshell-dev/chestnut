@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto';
 import * as nodeFs from 'node:fs';
 import { tmpdir } from 'node:os';
 import { UUID_SHORT_LEN } from '../../constants.js';
-import { FileNotFoundError } from '../../types/errors.js';
+import { FileNotFoundError } from '../../types/index.js';
 import type { FileSystem } from '../fs/types.js';
 import type { AuditLog } from './index.js';
 

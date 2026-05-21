@@ -9,7 +9,7 @@
 
 import type { Tool, ToolResult, ExecContext } from '../../foundation/tool-protocol/index.js';
 import type { ContractSystem } from '../contract/index.js';
-import { TASKS_QUEUES_PENDING_DIR, TASKS_QUEUES_RUNNING_DIR } from '../../types/paths.js';
+import { TASKS_QUEUES_PENDING_DIR, TASKS_QUEUES_RUNNING_DIR } from '../../foundation/paths.js';
 import { STATUS_AUDIT_EVENTS } from './audit-events.js';
 
 async function getContractStatus(ctx: ExecContext, contractSystem: ContractSystem): Promise<string> {
@@ -106,7 +106,7 @@ async function getStorageStatus(ctx: ExecContext): Promise<string[]> {
 }
 
 import { STATUS_TOOL_NAME } from '../../foundation/tools/tool-names.js';
-import { CLAWSPACE_DIR } from '../../types/paths.js';
+import { CLAWSPACE_DIR } from '../../foundation/paths.js';
 export { STATUS_TOOL_NAME };
 
 export function createStatusTool(contractSystem: ContractSystem): Tool {

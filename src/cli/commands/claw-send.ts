@@ -13,7 +13,7 @@ import { CliError } from '../errors.js';
 import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
 import { InboxWriter } from '../../foundation/messaging/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
-import { CLAWS_DIR } from '../../types/paths.js';
+import { CLAWS_DIR } from '../../foundation/paths.js';
 
 export async function sendCommand(
   name: string, 

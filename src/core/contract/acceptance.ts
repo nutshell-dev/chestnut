@@ -7,8 +7,8 @@ import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
-import type { Contract, AcceptanceFailedNotification, LastFailedFeedback } from '../../types/contract.js';
-import { ToolError, ToolTimeoutError, isProgrammingBug } from '../../types/errors.js';
+import type { Contract, AcceptanceFailedNotification, LastFailedFeedback } from '../contract/types.js';
+import { ToolError, ToolTimeoutError, isProgrammingBug } from '../../types/index.js';
 import type { ToolRegistry } from '../../foundation/tools/index.js';
 import { exec } from '../../foundation/process-exec/index.js';
 import { ProcessExecError } from '../../foundation/process-exec/index.js';
@@ -20,7 +20,7 @@ import type { ContractYaml, ProgressData, AcceptanceResult, VerifierConfig, Veri
 import { withProgressLock, type LockContext } from './lock.js';
 import { runContractVerifier } from './verifier-job.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
-import { formatErr } from '../../types/utils.js';
+import { formatErr } from '../../foundation/utils/format.js';
 
 // ───── module-level helpers ─────
 

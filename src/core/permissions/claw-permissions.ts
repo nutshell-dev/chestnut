@@ -19,7 +19,7 @@ import { realpathSync } from 'node:fs';
 import {
   PathNotInClawSpaceError,
   WriteOperationForbiddenError,
-} from '../../types/errors.js';
+} from '../../types/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { PERMISSION_AUDIT_EVENTS } from './audit-events.js';
 import {
@@ -27,16 +27,16 @@ import {
   TASKS_QUEUES_RUNNING_DIR,
   TASKS_QUEUES_DONE_DIR,
   TASKS_QUEUES_FAILED_DIR,
-} from '../../types/paths.js';
+} from '../../foundation/paths.js';
 import { TASKS_SYNC_SUBAGENT_DIR } from '../subagent/index.js';
 import { TASKS_SYNC_SPAWN_DIR } from '../spawn-system/index.js';
 import { TASKS_SYNC_SHADOW_DIR } from '../shadow-system/index.js';
 import { TASKS_SYNC_EXEC_DIR } from '../../foundation/command-tool/index.js';
 import { TASKS_SYNC_WRITE_DIR } from '../../foundation/file-tool/index.js';
 import { TASKS_QUEUES_RESULTS_DIR, TASKS_SUBAGENTS_DIR } from '../../core/async-task-system/index.js';
-import { CLAWSPACE_DIR } from '../../types/paths.js';
-import type { PermissionChecker } from '../../types/permission.js';
-export type { PermissionChecker } from '../../types/permission.js';
+import { CLAWSPACE_DIR } from '../../foundation/paths.js';
+import type { PermissionChecker } from '../../foundation/tool-protocol/permission.js';
+export type { PermissionChecker } from '../../foundation/tool-protocol/permission.js';
 
 
 /**

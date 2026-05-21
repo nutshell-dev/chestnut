@@ -7,10 +7,10 @@ import { scheduleRetro } from './retro-scheduler.js';
 import { RETRO_AUDIT_EVENTS } from './retro-audit-events.js';
 import * as path from 'path';
 
-import { CLAWSPACE_DIR } from '../../types/paths.js';
+import { CLAWSPACE_DIR } from '../../foundation/paths.js';
 import { CONTRACT_AUDIT_EVENTS } from '../contract/audit-events.js';
-import type { Message } from '../../types/message.js';
-import { FileNotFoundError, isProgrammingBug } from '../../types/errors.js';
+import type { Message } from '../../foundation/llm-provider/types.js';
+import { FileNotFoundError, isProgrammingBug } from '../../types/index.js';
 
 export interface EvolutionSystemDeps {
   fs: FileSystem;
