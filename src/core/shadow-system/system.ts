@@ -15,7 +15,7 @@ import { runSubagent, createPerTaskRegistry, getDisplayResult } from '../subagen
 import { AUDIT_PREVIEW_LEN } from '../../foundation/audit/index.js';
 import { SHADOW_AUDIT_EVENTS } from './audit-events.js';
 import { synthesizeFormB, formatErr } from './_helpers.js';
-import { ToolTimeoutError, LLMTimeoutError } from '../../types/errors.js';
+import { classifyTaskError } from '../async-task-system/_helpers.js';
 import type { BuildShadowInstructionArgs } from '../../prompts/index.js';
 
 
@@ -146,14 +146,9 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
     return {
       success: false,
       content: `[clawforum shadow] execution failed: ${errMsg}`,
-      error: classifyError(err),
+      error: classifyTaskError(err),
       metadata: { shadowId, shadowAuditPath: `${resultDir}/audit.tsv` },
     };
   }
 }
 
-function classifyError(err: unknown): string {
-  if (err instanceof ToolTimeoutError) return 'timeout';
-  if (err instanceof LLMTimeoutError) return 'llm_idle_timeout';
-  return 'unknown';
-}

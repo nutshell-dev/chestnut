@@ -235,7 +235,7 @@ describe('shadow tool (phase 767)', () => {
       const result = await shadowTool.execute({ task: 'fail test', async: false }, baseCtx);
 
       expect(result.success).toBe(false);
-      expect(result.error).toBe('unknown');
+      expect(result.error).toBe('Error');
       expect(result.content).toContain('execution failed');
       expect(result.metadata?.shadowId).toMatch(/^shadow-/);
       expect(result.metadata?.shadowAuditPath).toContain('audit.tsv');
@@ -251,7 +251,7 @@ describe('shadow tool (phase 767)', () => {
 
       const result = await shadowTool.execute({ task: 'timeout test', async: false }, baseCtx);
 
-      expect(result.error).toBe('timeout');
+      expect(result.error).toBe('tool_timeout');
     });
   });
 
