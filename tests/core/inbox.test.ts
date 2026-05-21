@@ -11,7 +11,7 @@ import { tmpdir } from 'os';
 import { InboxReader, InboxListFailed, InboxMoveFailed } from '../../src/foundation/messaging/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import type { InboxMessage } from '../../src/foundation/messaging/types.js';
-import { INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR } from '../../src/foundation/paths.js';
+import { INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR } from '../../src/foundation/messaging/dirs.js';
 import { makeAudit } from '../helpers/audit.js';
 
 describe('InboxReader', () => {

@@ -10,7 +10,7 @@ import { randomUUID } from 'crypto';
 import { InboxReader, InboxWriter } from '../../../src/foundation/messaging/index.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { MESSAGING_AUDIT_EVENTS } from '../../../src/foundation/messaging/audit-events.js';
-import { INBOX_PENDING_DIR } from '../../../src/foundation/paths.js';
+import { INBOX_PENDING_DIR } from '../../../src/foundation/messaging/dirs.js';
 
 describe('InboxReader taskId dedupe', () => {
   let testDir: string;

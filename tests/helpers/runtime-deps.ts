@@ -16,7 +16,7 @@ import { ContextInjector } from '../../src/core/dialog/injector.js';
 import { ExecContextImpl } from '../../src/foundation/tools/context.js';
 import type { RuntimeDependencies } from '../../src/core/runtime/index.js';
 import type { LLMOrchestratorConfig } from '../../src/foundation/llm-orchestrator/types.js';
-import { INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR } from '../../src/foundation/paths.js';
+import { INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR } from '../../src/foundation/messaging/dirs.js';
 import { createToolRegistry } from '../../src/foundation/tools/index.js';
 import { TEST_LLM_TIMEOUT_MS } from './test-timeouts.js';
 

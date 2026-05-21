@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { INBOX_PENDING_DIR } from '../../src/foundation/paths.js';
+import { INBOX_PENDING_DIR } from '../../src/foundation/messaging/dirs.js';
 import { TASKS_QUEUES_RUNNING_DIR, TASKS_QUEUES_DONE_DIR, TASKS_QUEUES_PENDING_DIR } from '../../src/core/async-task-system/index.js';
 import { AsyncTaskSystem, SubAgentTask, ToolTask } from '../../src/core/async-task-system/system.js';
 import { ToolExecutorImpl, ExecuteOptions } from '../../src/foundation/tools/executor.js';

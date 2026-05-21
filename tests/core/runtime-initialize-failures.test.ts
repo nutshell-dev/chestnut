@@ -25,7 +25,7 @@ import { SNAPSHOT_IGNORE_PATTERNS } from '../../src/assembly/snapshot-patterns.j
 import { InboxReader } from '../../src/foundation/messaging/index.js';
 
 import { OutboxWriter } from '../../src/foundation/messaging/index.js';
-import { INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR } from '../../src/foundation/paths.js';
+import { INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR } from '../../src/foundation/messaging/dirs.js';
 
 afterEach(() => {
   vi.restoreAllMocks();
