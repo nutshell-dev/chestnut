@@ -1,5 +1,5 @@
 /**
- * @module L1.Config
+ * Config → runtime type adapters / phase 500 sub-file extraction
  *
  * Config → runtime type adapters / phase 500 sub-file extraction
  */

@@ -12,9 +12,8 @@ import { CONFIG_DEFAULTS } from '../../assembly/config-defaults.js';
 import { CliError } from '../errors.js';
 import { runChatViewport } from './chat-viewport.js';
 import { createDirContext, createProcessManagerForCLI } from '../utils/factories.js';
-import { LOGS_DIR } from '../../foundation/paths.js';
+import { LOGS_DIR, getWorkspaceRoot } from '../../foundation/paths.js';
 import { PROCESS_SPAWN_CONFIRM_MS } from '../../foundation/process-manager/index.js';
-import { getWorkspaceRoot } from '../../foundation/config/paths.js';
 
 export async function chatCommand(name: string): Promise<void> {
   loadGlobalConfig(CONFIG_DEFAULTS);

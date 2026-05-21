@@ -1,13 +1,12 @@
 /**
- * @module L1.Config (factually L2 cross-cutting per arch §6)
- *
  * Configuration barrel re-export / phase 500 A.3 functional split
  *
- * 4 sub-file:
+ * 3 sub-file:
  * - schemas.ts (zod schemas + types)
- * - paths.ts (path getters)
  * - crud.ts (load/save/exists)
  * - adapters.ts (toProviderConfig + buildLLMConfig)
+ *
+ * Path getters (getWorkspaceRoot, getClawDir, ...) now live in foundation/paths.ts.
  */
 
 // Schemas + types
@@ -25,8 +24,8 @@ export type {
   ClawConfig,
 } from './schemas.js';
 
-// Path getters + re-export shared constants
-export { CLAW_SUBDIRS } from './paths.js';
+// Path getters + shared constants (canonical owner: foundation/paths.ts)
+export { CLAW_SUBDIRS } from '../paths.js';
 export {
   getWorkspaceRoot,
   getGlobalConfigPath,
@@ -35,7 +34,7 @@ export {
   getClawforumRoot,
   resolveAgentDir,
   getClawConfigPath,
-} from './paths.js';
+} from '../paths.js';
 
 // CRUD
 export {

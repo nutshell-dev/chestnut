@@ -2,7 +2,7 @@
  * Path getters tests
  */
 import { describe, it, expect } from 'vitest';
-import { getClawDir } from '../../../src/foundation/config/paths.js';
+import { getClawDir } from '../../../src/foundation/paths.js';
 
 describe('Phase 537 — getClawDir traversal guard', () => {
   it.each([

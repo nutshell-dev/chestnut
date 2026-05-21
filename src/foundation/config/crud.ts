@@ -1,5 +1,5 @@
 /**
- * @module L1.Config
+ * CRUD operations for global + claw configs / phase 500 sub-file extraction
  *
  * CRUD operations for global + claw configs / phase 500 sub-file extraction
  */
@@ -18,7 +18,7 @@ import {
   getGlobalConfigPath,
   getClawConfigPath,
   getClawDir,
-} from './paths.js';
+} from '../paths.js';
 
 // Expand ${ENV_VAR} syntax in config values
 function expandEnvVars(obj: unknown): unknown {

@@ -11,7 +11,7 @@ import {
 import {
   writeWatchdogPid, getWatchdogPid, isWatchdogAlive, removeWatchdogPid,
 } from './watchdog-pid.js';
-import { getWorkspaceRoot } from '../foundation/config/paths.js';
+import { getWorkspaceRoot } from '../foundation/paths.js';
 
 // Watchdog lifecycle poll：通用 100ms 间隔
 const WATCHDOG_POLL_INTERVAL_MS = 100;

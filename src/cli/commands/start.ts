@@ -32,11 +32,10 @@ import { InboxWriter } from '../../foundation/messaging/index.js';
 import { MOTION_CLAW_ID } from '../../constants.js';
 import { PROCESS_SPAWN_CONFIRM_MS } from '../../foundation/process-manager/index.js';
 import { CliError } from '../errors.js';
-import { getWorkspaceRoot } from '../../foundation/config/paths.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { startCommand as watchdogStart, isWatchdogAlive } from '../../watchdog/watchdog.js';
 import { CONTRACT_ACTIVE_DIR, CONTRACT_PAUSED_DIR, CONTRACT_ARCHIVE_DIR } from '../../core/contract/index.js';
-import { LOGS_DIR } from '../../foundation/paths.js';
+import { LOGS_DIR, getWorkspaceRoot } from '../../foundation/paths.js';
 
 export function buildOnboardingSubtasks(language: string): Array<{ id: string; description: string }> {
   let langInstruction: string;

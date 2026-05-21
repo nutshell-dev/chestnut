@@ -5,14 +5,15 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { getClawDir, getMotionDir } from '../../foundation/config/paths.js';
-import { TASKS_QUEUES_RESULTS_DIR } from '../../core/async-task-system/dirs.js';
 import {
+  getClawDir,
+  getMotionDir,
   TASKS_QUEUES_DONE_DIR,
   TASKS_QUEUES_FAILED_DIR,
   TASKS_QUEUES_PENDING_DIR,
   TASKS_QUEUES_RUNNING_DIR,
 } from '../../foundation/paths.js';
+import { TASKS_QUEUES_RESULTS_DIR } from '../../core/async-task-system/dirs.js';
 import { TASKS_SYNC_SUBAGENT_DIR } from '../../core/subagent/index.js';
 import { TASKS_SYNC_SPAWN_DIR } from '../../core/spawn-system/index.js';
 import { TASKS_SYNC_SHADOW_DIR } from '../../core/shadow-system/index.js';

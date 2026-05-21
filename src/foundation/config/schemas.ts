@@ -1,6 +1,4 @@
 /**
- * @module L1.Config (factually L2 cross-cutting per arch §6)
- *
  * Zod schemas for global + claw configs / phase 500 sub-file extraction
  */
 

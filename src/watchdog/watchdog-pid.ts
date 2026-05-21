@@ -6,7 +6,7 @@
 import { getClawforumDir, getClawforumFs } from './watchdog-context.js';
 import { isAlive } from '../foundation/process-exec/index.js';
 import * as path from 'path';
-import { getWorkspaceRoot } from '../foundation/config/paths.js';
+import { getWorkspaceRoot } from '../foundation/paths.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 import { getAuditWriter } from './watchdog-context.js';
 import { AUDIT_MESSAGE_MAX_CHARS } from '../foundation/audit/index.js';

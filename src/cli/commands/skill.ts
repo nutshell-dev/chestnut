@@ -8,13 +8,12 @@
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as fsNative from 'fs';
-import { CLAWSPACE_DIR } from '../../foundation/paths.js';
+import { CLAWSPACE_DIR, getWorkspaceRoot } from '../../foundation/paths.js';
 import { SKILLS_DIR_DEFAULT } from '../../foundation/skill-system/skill-paths.js';
 import { DISPATCH_SKILLS_SUBDIR } from '../../core/evolution-system/index.js';
 import { getClawDir } from '../../foundation/config/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
-import { getWorkspaceRoot } from '../../foundation/config/paths.js';
 import { CliError } from '../errors.js';
 
 /**
