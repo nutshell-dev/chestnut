@@ -54,7 +54,11 @@ export function createNotifyClawTool(deps: NotifyClawDeps): Tool {
     readonly: false,
     idempotent: false,
 
-    async execute(args: Record<string, unknown>, _ctx: ExecContext): Promise<ToolResult> {
+    async execute(args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
+      // Phase 1105: notify_claw is motion-only
+      if ((ctx.callerType as string) !== 'motion') {
+        return { success: false, content: 'notify_claw is motion-only' };
+      }
       const to = args.to as string;
       const body = args.body as string;
       const type = (args.type as string) ?? 'message';

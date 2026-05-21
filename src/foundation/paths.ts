@@ -12,6 +12,19 @@ import * as path from 'path';
 export const CLAWS_DIR = 'claws' as const;
 export const CLAWSPACE_DIR = 'clawspace' as const;
 
+export const CONTRACT_DIR = 'contract' as const;
+export const CONTRACT_ACTIVE_DIR = 'contract/active' as const;
+export const CONTRACT_PAUSED_DIR = 'contract/paused' as const;
+export const CONTRACT_ARCHIVE_DIR = 'contract/archive' as const;
+
+export const TASKS_QUEUES_PENDING_DIR = 'tasks/queues/pending' as const;
+export const TASKS_QUEUES_RUNNING_DIR = 'tasks/queues/running' as const;
+export const TASKS_QUEUES_DONE_DIR = 'tasks/queues/done' as const;
+export const TASKS_QUEUES_FAILED_DIR = 'tasks/queues/failed' as const;
+export const TASKS_QUEUES_RESULTS_DIR = 'tasks/queues/results' as const;
+export const TASKS_SYNC_DIR = 'tasks/sync' as const;
+export const TASKS_SUBAGENTS_DIR = 'tasks/subagents' as const;
+
 export const CLAW_SUBDIRS = [
   'dialog',
   'dialog/archive',

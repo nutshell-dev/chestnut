@@ -54,6 +54,11 @@ function formatContractForPrompt(contract: Contract): string {
   return lines.join('\n');
 }
 
+interface CacheEntry {
+  mtime: number;
+  content: string;
+}
+
 /**
  * Injects context into sessions
  */
@@ -62,12 +67,35 @@ export class ContextInjector {
   private skillRegistry?: SkillSystem;
   private contractManager?: ContractSystem;
   private audit?: AuditLog;
+  private cachedAgentsMd: CacheEntry | null = null;
+  private cachedMemoryMd: CacheEntry | null = null;
 
   constructor(options: ContextInjectorOptions) {
     this.fs = options.fs;
     this.skillRegistry = options.skillRegistry;
     this.contractManager = options.contractManager;
     this.audit = options.audit;
+  }
+
+  private async readWithCache(
+    path: string,
+    cache: CacheEntry | null,
+  ): Promise<{ content: string; cache: CacheEntry | null; err?: unknown }> {
+    try {
+      // Graceful fallback: if fs does not support stat (test mocks), read directly
+      if (typeof this.fs.stat !== 'function') {
+        const content = await this.fs.read(path);
+        return { content, cache: content ? { mtime: 0, content } : cache };
+      }
+      const stat = await this.fs.stat(path);
+      if (cache && cache.mtime === stat.mtime.getTime()) {
+        return { content: cache.content, cache };
+      }
+      const content = await this.fs.read(path);
+      return { content, cache: { mtime: stat.mtime.getTime(), content } };
+    } catch (err) {
+      return { content: '', cache, err };
+    }
   }
 
   /**
@@ -85,30 +113,24 @@ export class ContextInjector {
     let skills = '';
     let contract = '';
 
-    // Try to read AGENTS.md
-    try {
-      const content = await this.fs.read('AGENTS.md');
-      if (content.trim()) {
-        agents = content.trim();
-      }
-    } catch (err) {
-      // FNF silent OK / else audit (phase 646 D2 align)
-      if (!(err instanceof FileNotFoundError)) {
-        this.audit?.write(DIALOG_AUDIT_EVENTS.LOAD_FAILED, 'file=AGENTS.md', `reason=${err instanceof Error ? err.message : String(err)}`);
-      }
+    // Try to read AGENTS.md (with mtime cache)
+    const agentsResult = await this.readWithCache('AGENTS.md', this.cachedAgentsMd);
+    this.cachedAgentsMd = agentsResult.cache;
+    if (agentsResult.content.trim()) {
+      agents = agentsResult.content.trim();
+    }
+    if (agentsResult.err && !(agentsResult.err instanceof FileNotFoundError)) {
+      this.audit?.write(DIALOG_AUDIT_EVENTS.LOAD_FAILED, 'file=AGENTS.md', `reason=${agentsResult.err instanceof Error ? agentsResult.err.message : String(agentsResult.err)}`);
     }
 
-    // Try to read MEMORY.md
-    try {
-      const content = await this.fs.read('MEMORY.md');
-      if (content.trim()) {
-        memory = '## Memory\n' + content.trim();
-      }
-    } catch (err) {
-      // FNF silent OK / else audit (phase 646 D2 align)
-      if (!(err instanceof FileNotFoundError)) {
-        this.audit?.write(DIALOG_AUDIT_EVENTS.LOAD_FAILED, 'file=MEMORY.md', `reason=${err instanceof Error ? err.message : String(err)}`);
-      }
+    // Try to read MEMORY.md (with mtime cache)
+    const memoryResult = await this.readWithCache('MEMORY.md', this.cachedMemoryMd);
+    this.cachedMemoryMd = memoryResult.cache;
+    if (memoryResult.content.trim()) {
+      memory = '## Memory\n' + memoryResult.content.trim();
+    }
+    if (memoryResult.err && !(memoryResult.err instanceof FileNotFoundError)) {
+      this.audit?.write(DIALOG_AUDIT_EVENTS.LOAD_FAILED, 'file=MEMORY.md', `reason=${memoryResult.err instanceof Error ? memoryResult.err.message : String(memoryResult.err)}`);
     }
 
     // Inject skill metadata if available

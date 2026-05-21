@@ -48,7 +48,7 @@ describe('notify_claw production drift regression (phase 1021)', () => {
     // targetClawRoot = workspaceRoot/claws/worker-1 = absolute path、outside motionDir baseDir
     // existsSync → resolveAndCheck throw PermissionError、escape execute()
     await expect(
-      tool.execute({ to: 'worker-1', body: 'hello' }, {} as any)
+      tool.execute({ to: 'worker-1', body: 'hello' }, { callerType: 'motion' } as any)
     ).rejects.toThrow(/absolute, must be relative to baseDir/);
 
     // NOTIFY_CLAW_FAILED audit 0 emit (throw 在 try 之外)
@@ -67,7 +67,7 @@ describe('notify_claw production drift regression (phase 1021)', () => {
     await correctFs.ensureDir('claws/worker-1');
 
     const tool = createNotifyClawTool({ fs: correctFs, clawforumRoot: clawforumDir, audit: audit.audit });
-    const result = await tool.execute({ to: 'worker-1', body: 'hello' }, {} as any);
+    const result = await tool.execute({ to: 'worker-1', body: 'hello' }, { callerType: 'motion' } as any);
 
     expect(result.success).toBe(true);
     const sentRows = audit.events.filter(r => r[0] === MESSAGING_AUDIT_EVENTS.NOTIFY_CLAW_SENT);
@@ -83,7 +83,7 @@ describe('notify_claw production drift regression (phase 1021)', () => {
     await correctFs.ensureDir('claws');  // claws dir exists but no worker-1 subdir
 
     const tool = createNotifyClawTool({ fs: correctFs, clawforumRoot: clawforumDir, audit: audit.audit });
-    const result = await tool.execute({ to: 'worker-1', body: 'hello' }, {} as any);
+    const result = await tool.execute({ to: 'worker-1', body: 'hello' }, { callerType: 'motion' } as any);
 
     expect(result.success).toBe(false);
     expect(result.content).toMatch(/claw not found/);

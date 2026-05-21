@@ -25,6 +25,7 @@ import type { Watcher } from '../foundation/file-watcher/index.js';
 import type { AuditLog } from '../foundation/audit/index.js';
 import { MESSAGING_AUDIT_EVENTS } from '../foundation/messaging/audit-events.js';
 import { DAEMON_AUDIT_EVENTS, LOOP_ITERATION_TYPES, LOOP_INTERRUPT_CAUSES } from './audit-events.js';
+import { STREAM_AUDIT_EVENTS } from '../foundation/stream/audit-events.js';
 import { AGENT_STREAM_EVENTS } from '../core/agent-executor/index.js';
 import { oneLine } from '../foundation/utils/format.js';
 
@@ -53,26 +54,32 @@ const INTERRUPT_POLL_MAX_ERRORS = 20;
  * 创建 StreamCallbacks 实现，将业务事件转为 StreamEvent 写入 StreamLog。
  * 这是装配层逻辑：将 ReAct 循环的业务事件名映射为 stream.jsonl 的事件记录。
  */
-function createStreamCallbacks(sink: StreamLog): StreamCallbacks {
+function createStreamCallbacks(sink: StreamLog, audit: AuditLog): StreamCallbacks {
+  const checkWrite = (event: import('../foundation/stream/types.js').StreamEvent) => {
+    const ok = sink.write(event);
+    if (!ok) {
+      audit.write(STREAM_AUDIT_EVENTS.APPEND_FAILED, `type=${(event as { type?: string }).type ?? 'unknown'}`, 'context=daemon_callback');
+    }
+  };
   return {
     onBeforeLLMCall: () => {
-      sink.write({ ts: Date.now(), type: AGENT_STREAM_EVENTS.LLM_START });
+      checkWrite({ ts: Date.now(), type: AGENT_STREAM_EVENTS.LLM_START });
     },
     onThinkingDelta: (delta: string) => {
-      sink.write({ ts: Date.now(), type: AGENT_STREAM_EVENTS.THINKING_DELTA, delta });
+      checkWrite({ ts: Date.now(), type: AGENT_STREAM_EVENTS.THINKING_DELTA, delta });
     },
     onTextDelta: (delta: string) => {
-      sink.write({ ts: Date.now(), type: AGENT_STREAM_EVENTS.TEXT_DELTA, delta });
+      checkWrite({ ts: Date.now(), type: AGENT_STREAM_EVENTS.TEXT_DELTA, delta });
     },
     onTextEnd: () => {
-      sink.write({ ts: Date.now(), type: AGENT_STREAM_EVENTS.TEXT_END });
+      checkWrite({ ts: Date.now(), type: AGENT_STREAM_EVENTS.TEXT_END });
     },
     onToolCall: (name: string, toolUseId: string) => {
-      sink.write({ ts: Date.now(), type: AGENT_STREAM_EVENTS.TOOL_CALL, name, tool_use_id: toolUseId });
+      checkWrite({ ts: Date.now(), type: AGENT_STREAM_EVENTS.TOOL_CALL, name, tool_use_id: toolUseId });
     },
     onToolResult: (name: string, toolUseId: string, result: { success: boolean; content: string }, step: number, maxSteps: number) => {
       const summary = oneLine(result.content);
-      sink.write({
+      checkWrite({
         ts: Date.now(),
         type: AGENT_STREAM_EVENTS.TOOL_RESULT,
         name,
@@ -84,29 +91,29 @@ function createStreamCallbacks(sink: StreamLog): StreamCallbacks {
       });
     },
     onTurnStart: (sources: Array<{ text: string; type: string }>) => {
-      sink.write({
+      checkWrite({
         ts: Date.now(),
         type: AGENT_STREAM_EVENTS.TURN_START,
         sources: sources.length > 0 ? sources : undefined,
       });
     },
     onTurnEnd: () => {
-      sink.write({ ts: Date.now(), type: AGENT_STREAM_EVENTS.TURN_END });
+      checkWrite({ ts: Date.now(), type: AGENT_STREAM_EVENTS.TURN_END });
     },
     onTurnError: (error: string) => {
-      sink.write({ ts: Date.now(), type: AGENT_STREAM_EVENTS.TURN_ERROR, error });
+      checkWrite({ ts: Date.now(), type: AGENT_STREAM_EVENTS.TURN_ERROR, error });
     },
     onTurnInterrupted: (cause: string, message?: string) => {
-      sink.write({ ts: Date.now(), type: AGENT_STREAM_EVENTS.TURN_INTERRUPTED, cause, ...(message ? { message } : {}) });
+      checkWrite({ ts: Date.now(), type: AGENT_STREAM_EVENTS.TURN_INTERRUPTED, cause, ...(message ? { message } : {}) });
     },
     onProviderInfo: (info: { name: string; model: string; isFallback: boolean }) => {
-      sink.write({ ts: Date.now(), type: 'provider_info', ...info });
+      checkWrite({ ts: Date.now(), type: 'provider_info', ...info });
     },
     onProviderFailover: (info: { from: string; timeoutMs: number }) => {
-      sink.write({ ts: Date.now(), type: 'provider_failover', ...info });
+      checkWrite({ ts: Date.now(), type: 'provider_failover', ...info });
     },
     onProviderFailed: (info: { provider: string; model: string; error: string }) => {
-      sink.write({ ts: Date.now(), type: 'provider_failed', ...info });
+      checkWrite({ ts: Date.now(), type: 'provider_failed', ...info });
       // Phase 737: heuristic permanent error detection for viewport banner
       const errorLower = info.error.toLowerCase();
       const isPermanent = /401|403|404|auth|quota|credit|insufficient|model not found|deprecated/.test(errorLower);
@@ -114,7 +121,7 @@ function createStreamCallbacks(sink: StreamLog): StreamCallbacks {
         const hint = /quota|credit|insufficient/.test(errorLower)
           ? 'check_quota'
           : (/model|404/.test(errorLower) ? 'switch_primary' : 'rotate_api_key');
-        sink.write({
+        checkWrite({
           ts: Date.now(),
           type: 'provider_attempt_failed',
           provider: info.provider,
@@ -259,7 +266,10 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
         llmRetryPending,
       }));
       fsNative.renameSync(tmpFile, llmRetryStateFile);
-    } catch { /* Ignore: state persistence failure should not break the main loop */ }
+    } catch (e) {
+      console.error('[daemon] saveLlmRetryState failed:', (e as Error).message);
+      options.audit.write(DAEMON_AUDIT_EVENTS.LOOP_FATAL, `context=saveLlmRetryState`, `reason=${(e as Error).message}`);
+    }
   };
 
   // 检查 clean-stop 标记（仅 motion daemon）：intentional stop → 清零退避状态
@@ -281,7 +291,7 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
       if (typeof saved.llmRetryCount === 'number') llmRetryCount = saved.llmRetryCount;
       if (typeof saved.llmRetryDelayMs === 'number') llmRetryDelayMs = saved.llmRetryDelayMs;
       if (typeof saved.llmRetryPending === 'boolean') llmRetryPending = saved.llmRetryPending;
-    } catch { /* Ignore: first start or corrupted file, use defaults */ }
+    } catch { /* silent: first start or corrupted file, use defaults */ }
   }
 
   const stop = () => { stopped = true; };
@@ -347,7 +357,7 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
       let interruptPoller: ReturnType<typeof setInterval> | null = null;
 
       // Build wrappedCallbacks outside try so catch block can access it for retryLastTurn
-      const callbacks = streamWriter ? createStreamCallbacks(streamWriter) : undefined;
+      const callbacks = streamWriter ? createStreamCallbacks(streamWriter, options.audit) : undefined;
       const wrappedCallbacks = callbacks
         ? { ...callbacks, onInboxMessages }
         : (onInboxMessages ? { onInboxMessages } : undefined);

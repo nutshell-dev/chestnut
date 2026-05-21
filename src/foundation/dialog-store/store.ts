@@ -217,6 +217,8 @@ export class DialogStore {
       if (this.flushPromise === wrapped) {
         this.flushPromise = Promise.resolve();
       }
+    }).catch((e) => {
+      console.error('[dialog-store] flush chain error:', e instanceof Error ? e.message : String(e));
     });
     return next;
   }

@@ -270,6 +270,8 @@
       "subagent_log_append_failed",
       "subagent_persist_failed",
       "subagent_step_complete_failed",
+      "subagent_stream_append_failed",
+      "subagent_timeout_rejection",
       "turn_end",
       "turn_error",
       "turn_interrupted",

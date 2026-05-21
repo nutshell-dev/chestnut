@@ -534,7 +534,11 @@ export class AsyncTaskSystem {
   listRunning(): string[] {
     return Array.from(this.runningTasks.keys());
   }
-  
+
+  getRunningCount(): number {
+    return this.runningTasks.size;
+  }
+
   /**
    * List pending task IDs.
    *
@@ -544,6 +548,14 @@ export class AsyncTaskSystem {
    */
   listPending(): string[] {
     return this.pendingQueue.map(task => task.id);
+  }
+
+  getPendingCount(): number {
+    return this.pendingQueue.length;
+  }
+
+  getCancellingIds(): string[] {
+    return [...this.cancellingIds];
   }
 
   /**

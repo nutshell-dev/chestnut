@@ -53,12 +53,14 @@ describe('notify_claw tool', () => {
     });
   });
 
+  const motionCtx = { callerType: 'motion' } as any;
+
   describe('happy path cross-claw write', () => {
     it('default interrupt=false → priority=normal metadata + NOTIFY_CLAW_SENT audit', async () => {
       const tool = createNotifyClawTool({ fs, clawforumRoot: tempDir, audit: audit.audit });
       const result = await tool.execute(
         { to: targetClaw, body: 'hello worker' },
-        {} as any,
+        motionCtx,
       );
       expect(result.success).toBe(true);
       expect(result.content).toMatch(/Notified worker-1: message \(interrupt=false\)/);
@@ -84,7 +86,7 @@ describe('notify_claw tool', () => {
       const tool = createNotifyClawTool({ fs, clawforumRoot: tempDir, audit: audit.audit });
       await tool.execute(
         { to: targetClaw, body: 'urgent', type: 'alert', interrupt: true },
-        {} as any,
+        motionCtx,
       );
       const files = await fs.list(path.join('claws', targetClaw, 'inbox', 'pending'));
       const content = await fs.read(path.join('claws', targetClaw, 'inbox', 'pending', files[0].name));
@@ -97,7 +99,7 @@ describe('notify_claw tool', () => {
 
     it('custom type default → "message"', async () => {
       const tool = createNotifyClawTool({ fs, clawforumRoot: tempDir, audit: audit.audit });
-      await tool.execute({ to: targetClaw, body: 'plain' }, {} as any);
+      await tool.execute({ to: targetClaw, body: 'plain' }, motionCtx);
       const files = await fs.list(path.join('claws', targetClaw, 'inbox', 'pending'));
       const content = await fs.read(path.join('claws', targetClaw, 'inbox', 'pending', files[0].name));
       expect(content).toMatch(/type: message/);
@@ -118,7 +120,7 @@ describe('notify_claw tool', () => {
       const tool = createNotifyClawTool({ fs: failFs, clawforumRoot: tempDir, audit: audit.audit });
       const result = await tool.execute(
         { to: targetClaw, body: 'should fail' },
-        {} as any,
+        motionCtx,
       );
       expect(result.success).toBe(false);
       expect(result.content).toMatch(/Failed to notify worker-1:/);
@@ -141,7 +143,7 @@ describe('notify_claw tool', () => {
       const tool = createNotifyClawTool({ fs, clawforumRoot: tempDir, audit: audit.audit });
       const result = await tool.execute(
         { to: '../motion', body: 'attack' },
-        {} as any,
+        motionCtx,
       );
       expect(result.success).toBe(false);
       expect(result.content).toMatch(/invalid claw id/i);
@@ -164,7 +166,7 @@ describe('notify_claw tool', () => {
       const tool = createNotifyClawTool({ fs, clawforumRoot: tempDir, audit: audit.audit });
       const result = await tool.execute(
         { to: '', body: 'empty' },
-        {} as any,
+        motionCtx,
       );
       expect(result.success).toBe(false);
       expect(result.content).toMatch(/invalid claw id/i);
@@ -178,7 +180,7 @@ describe('notify_claw tool', () => {
       const tool = createNotifyClawTool({ fs, clawforumRoot: tempDir, audit: audit.audit });
       const result = await tool.execute(
         { to: '.', body: 'dot' },
-        {} as any,
+        motionCtx,
       );
       expect(result.success).toBe(false);
       expect(result.content).toMatch(/invalid claw id/i);
@@ -192,7 +194,7 @@ describe('notify_claw tool', () => {
       const tool = createNotifyClawTool({ fs, clawforumRoot: tempDir, audit: audit.audit });
       const result = await tool.execute(
         { to: 'ghost-claw', body: 'orphan' },
-        {} as any,
+        motionCtx,
       );
       expect(result.success).toBe(false);
       expect(result.content).toMatch(/claw not found/i);
@@ -226,7 +228,7 @@ describe('notify_claw tool', () => {
       const tool = createNotifyClawTool({ fs: failFs, clawforumRoot: tempDir, audit: audit.audit });
       const result = await tool.execute(
         { to: targetClaw, body: 'should fail ensureDir' },
-        {} as any,
+        motionCtx,
       );
       expect(result.success).toBe(false);
       expect(result.content).toMatch(/Failed to notify worker-1:/);
@@ -261,7 +263,7 @@ describe('notify_claw tool', () => {
 
       let caught: Error | undefined;
       try {
-        await tool.execute({ to: targetClaw, body: 'audit will fail on SENT' }, {} as any);
+        await tool.execute({ to: targetClaw, body: 'audit will fail on SENT' }, motionCtx);
       } catch (e) {
         caught = e as Error;
       }

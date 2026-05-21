@@ -9,6 +9,8 @@ export const SUBAGENT_AUDIT_EVENTS = {
   PERSIST_FAILED: 'subagent_persist_failed',
   LOG_APPEND_FAILED: 'subagent_log_append_failed',
   GHOST_CALLBACK_AFTER_TURN_END: 'ghost_callback_after_turn_end',
+  STREAM_APPEND_FAILED: 'subagent_stream_append_failed',
+  TIMEOUT_REJECTION: 'subagent_timeout_rejection',
 } as const;
 
 /**

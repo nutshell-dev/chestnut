@@ -30,8 +30,8 @@ export async function acquireLock(ctx: LockContext, lockPath: string): Promise<v
         JSON.stringify({ pid: process.pid, time: Date.now() }),
       );
       return;
-    } catch (err: any) {
-      if (err?.code !== 'EEXIST') throw err;
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException)?.code !== 'EEXIST') throw err;
 
       try {
         const raw = await ctx.fs.read(lockPath);
@@ -84,18 +84,18 @@ export async function unlinkStaleLock(ctx: LockContext, lockPath: string, reason
   try {
     await ctx.fs.delete(lockPath);
     return true;
-  } catch (err: any) {
+  } catch (err: unknown) {
     if (err instanceof FileNotFoundError) return true;
     ctx.audit.write(
       CONTRACT_AUDIT_EVENTS.LOCK_CLEANUP_FAILED,
       reason,
-      err?.code ?? 'unknown',
-      err?.message ?? String(err),
+      (err as NodeJS.ErrnoException)?.code ?? 'unknown',
+      (err as Error)?.message ?? String(err),
     );
     ctx.audit.write(
       CONTRACT_AUDIT_EVENTS.LOCK_UNLINK_FAILED,
       `reason=${reason}`,
-      `error=${err?.message ?? String(err)}`,
+      `error=${(err as Error)?.message ?? String(err)}`,
     );
     return false;
   }

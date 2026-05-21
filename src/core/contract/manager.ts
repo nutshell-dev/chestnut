@@ -117,6 +117,19 @@ export class ContractSystem {
     if (s.size === 0) this._activeContractControllers.delete(contractId);
   }
 
+  hasActiveVerifiers(contractId: string): boolean {
+    const set = this._activeContractControllers.get(contractId);
+    return set ? set.size > 0 : false;
+  }
+
+  getActiveVerifierCount(): number {
+    let total = 0;
+    for (const set of this._activeContractControllers.values()) {
+      total += set.size;
+    }
+    return total;
+  }
+
   private _abortContractVerifiers(contractId: string, reason: string): void {
     const s = this._activeContractControllers.get(contractId);
     if (!s) return;

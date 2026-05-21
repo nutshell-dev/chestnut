@@ -177,7 +177,14 @@ private callerType?: CallerType;
         }
         return;
       }
-      sw.write(event);
+      const ok = sw.write(event);
+      if (!ok) {
+        this.auditWriter.write(
+          SUBAGENT_AUDIT_EVENTS.STREAM_APPEND_FAILED,
+          `agentId=${this.agentId}`,
+          `event=${event.type}`,
+        );
+      }
     };
 
     // Turn start: written before any potentially-throwing init so catch always pairs it
@@ -252,7 +259,13 @@ private callerType?: CallerType;
           }
         }, { once: true });
       });
-      timeoutPromise.catch(() => {}); // 防止 race 胜出后的孤立 rejection
+      timeoutPromise.catch((e) => {
+        this.auditWriter.write(
+          SUBAGENT_AUDIT_EVENTS.TIMEOUT_REJECTION,
+          `agentId=${this.agentId}`,
+          `reason=${e instanceof Error ? e.message : String(e)}`,
+        );
+      });
 
       // Stream writer callbacks for per-task stream.jsonl
       const streamCallbacks = {

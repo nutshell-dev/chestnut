@@ -34,6 +34,15 @@ export class StreamWriter implements StreamLog {
     let archiveFailed = false;
     if (this.fs.existsSync(STREAM_FILE)) {
       try {
+        // Phase 1105: truncation recovery before archive — ensure last line is complete
+        const nodeFs = this.fs as unknown as { readSync(path: string): string; writeAtomicSync(path: string, content: string): void };
+        try {
+          const content = nodeFs.readSync(STREAM_FILE);
+          const lastNewline = content.lastIndexOf('\n');
+          if (lastNewline !== -1 && lastNewline < content.length - 1) {
+            nodeFs.writeAtomicSync(STREAM_FILE, content.substring(0, lastNewline + 1));
+          }
+        } catch { /* silent: if repair fails, archive as-is */ }
         this.fs.ensureDirSync(ARCHIVE_DIR);
         this.fs.moveSync(STREAM_FILE, `${ARCHIVE_DIR}/stream.${Date.now()}_${randomUUID().slice(0, 8)}.jsonl`);
       } catch (err) {

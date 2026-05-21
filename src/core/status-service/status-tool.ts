@@ -88,19 +88,20 @@ async function getStorageStatus(ctx: ExecContext): Promise<string[]> {
     } else {
       lines.push('MEMORY.md: Not found');
     }
-  } catch (err: any) {
-    lines.push(`MEMORY.md: Error (${err?.message || 'unknown'})`);
+  } catch (err: unknown) {
+    lines.push(`MEMORY.md: Error (${err instanceof Error ? err.message : 'unknown'})`);
   }
   
   try {
     // clawspace file count (ENOENT/FS_NOT_FOUND = 目录不存在，正常返回空)
-    const entries = await ctx.fs.list(CLAWSPACE_DIR, { recursive: true, includeDirs: false }).catch((err: any) => {
-      if (err?.code === 'ENOENT' || err?.code === 'FS_NOT_FOUND') return [];
+    const entries = await ctx.fs.list(CLAWSPACE_DIR, { recursive: true, includeDirs: false }).catch((err: unknown) => {
+      const code = (err as NodeJS.ErrnoException)?.code;
+      if (code === 'ENOENT' || code === 'FS_NOT_FOUND') return [];
       throw err;
     });
     lines.push(`Clawspace: ${entries.length} files`);
-  } catch (err: any) {
-    lines.push(`Clawspace: Error (${err?.message || 'unknown'})`);
+  } catch (err: unknown) {
+    lines.push(`Clawspace: Error (${err instanceof Error ? err.message : 'unknown'})`);
   }
   
   return lines;

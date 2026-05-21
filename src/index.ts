@@ -38,7 +38,7 @@ export { ok, err, type Result } from './foundation/utils/result.js';
 export type { PermissionChecker } from './foundation/tool-protocol/permission.js';
 
 // Core runtime and modules
-export * from './core/index.js';
+export { Runtime, type RuntimeOptions } from './core/runtime/index.js';
 
 // Foundation modules (selective exports)
 export type { FileSystem, FileEntry, FileSystemOptions } from './foundation/fs/types.js';

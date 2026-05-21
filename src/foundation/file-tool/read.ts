@@ -95,6 +95,8 @@ export const readTool: Tool = {
         };
       }
       // Cross-claw read: per-target NodeFileSystem
+      // Phase 1105: cross-claw permission check is a design decision — current PermissionChecker is caller-scoped,
+      // not target-scoped. Direct claw-to-claw read permission is managed by hub-and-spoke topology (motion routes).
       try {
         const targetFs = new NodeFileSystem({ baseDir: nodePath.join(clawsDir, clawParam) });
         content = await targetFs.read(nodePath.normalize(filePath));

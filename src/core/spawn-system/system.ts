@@ -62,6 +62,7 @@ export async function runSpawnSync(opts: RunSpawnSyncOptions): Promise<ToolResul
       isShadow: opts.ctx.isShadow,
       signal: opts.ctx.signal,
       toolTimeoutMs: opts.ctx.toolTimeoutMs,
+      permissionChecker: opts.ctx.permissionChecker,
     });
 
     const content = getDisplayResult(text, capturedResult);

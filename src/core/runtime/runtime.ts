@@ -649,6 +649,10 @@ export class Runtime {
     const abortController = new AbortController();
     this.currentAbortController = abortController;
     this.execContext.signal = abortController.signal;
+    // Phase 1105: pre-turn snapshot for rollback on error
+    const messagesBefore = JSON.parse(JSON.stringify(messages)) as Message[];
+    const systemPromptBefore = session.systemPrompt;
+    const toolsBefore = injectTools;
     try {
       await this._runReact(messages, callbacks);
 
@@ -660,11 +664,12 @@ export class Runtime {
     } catch (err) {
       // Turn-level error/interrupt event
       this._handleTurnInterrupt(err, callbacks);
-      // Note: do NOT save messages here - _runReact modifies messages in-place
-      // and may leave them in an invalid state (e.g., tool_use without tool_result).
-      // Valid states are already covered by:
-      // 1. The save at lines 596-600 (before _runReact) - preserves injected messages
-      // 2. onStepComplete callback - saves after each complete step
+      // Phase 1105: rollback to pre-turn state to prevent corrupted partial state
+      await this.sessionManager.save({
+        systemPrompt: systemPromptBefore,
+        messages: messagesBefore,
+        toolsForLLM: toolsBefore,
+      });
       // Notify each inbox sender so they're not left hanging
       if (err instanceof MaxStepsExceededError) {
         const errorMsg = err.message;
@@ -975,6 +980,10 @@ export class Runtime {
       initialized: this.initialized,
       clawId: this.options.clawId,
     };
+  }
+
+  getTurnCount(): number {
+    return this.turnCount;
   }
 
   /**
