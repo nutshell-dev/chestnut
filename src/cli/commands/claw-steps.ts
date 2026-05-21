@@ -5,7 +5,8 @@
 
 import * as path from 'path';
 import * as fs from 'fs';
-import { getClawDir, getMotionDir, DIALOG_DIR } from '../../foundation/paths.js';
+import { getClawDir, getMotionDir } from '../../foundation/paths.js';
+import { DIALOG_DIR } from '../../foundation/dialog-store/dirs.js';
 import { MOTION_CLAW_ID } from '../../constants.js';
 import { CliError } from '../errors.js';
 import {

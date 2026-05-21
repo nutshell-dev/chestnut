@@ -26,7 +26,8 @@ import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../sig
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import { RUNTIME_AUDIT_EVENTS, REACT_LOOP_AUDIT_EVENTS } from './runtime-audit-events.js';
 import { HEARTBEAT_AUDIT_EVENTS } from './heartbeat-audit-events.js';
-import { CLAW_SUBDIRS, DIALOG_DIR } from '../../foundation/paths.js';
+import { CLAW_SUBDIRS } from '../../foundation/paths.js';
+import { DIALOG_DIR } from '../../foundation/dialog-store/dirs.js';
 import { oneLine, formatErr } from '../../foundation/utils/format.js';
 import { escapeForLog } from '../../foundation/tools/index.js';
 import { MaxStepsExceededError } from '../agent-executor/errors.js';

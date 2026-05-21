@@ -73,7 +73,8 @@ import { createGateway } from '../core/gateway/index.js';
 import type { Gateway } from '../core/gateway/index.js';
 import { createAskUserTool } from '../core/gateway/index.js';
 import { createStreamReader, STREAM_FILE, findRecentTurnStartOffset } from '../foundation/stream/index.js';
-import { DIALOG_DIR, TASKS_SYNC_DIR } from '../foundation/paths.js';
+import { TASKS_SYNC_DIR } from '../core/async-task-system/index.js';
+import { DIALOG_DIR } from '../foundation/dialog-store/dirs.js';
 
 // 内部 helper（从 daemon.ts L42-75 搬入）
 export function detectUncleanExit(auditDir: string, auditWriter: AuditLog): void {

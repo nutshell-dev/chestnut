@@ -10,15 +10,12 @@ import * as path from 'path';
 // ── Path constants ──
 
 export const LOGS_DIR = 'logs' as const;
-export const DIALOG_DIR = 'dialog' as const;
 export const CLAWS_DIR = 'claws' as const;
 export const CLAWSPACE_DIR = 'clawspace' as const;
 export const STATUS_SUBDIR = 'status' as const;
 
-export const TASKS_SYNC_DIR = 'tasks/sync';
-
 export const CLAW_SUBDIRS = [
-  DIALOG_DIR,
+  'dialog',
   'dialog/archive',
   'inbox/pending',
   'inbox/done',

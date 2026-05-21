@@ -9,6 +9,7 @@ import { AsyncTaskSystem, type AsyncTaskSystemOptions, type SubAgentTask } from 
 export { AsyncTaskSystem, type SubAgentTask, type AsyncTaskSystemOptions } from './system.js';
 
 export {
+  TASKS_SYNC_DIR,
   TASKS_QUEUES_PENDING_DIR,
   TASKS_QUEUES_RUNNING_DIR,
   TASKS_QUEUES_DONE_DIR,

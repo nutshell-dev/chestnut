@@ -14,7 +14,7 @@ import {
 import { CONFIG_DEFAULTS } from '../../assembly/config-defaults.js';
 import { CliError } from '../errors.js';
 import { CONTRACT_DIR } from '../../core/contract/index.js';
-import { DIALOG_DIR } from '../../foundation/paths.js';
+import { DIALOG_DIR } from '../../foundation/dialog-store/dirs.js';
 import { migrateAndValidateSession, validateSessionData } from '../../foundation/dialog-store/store.js';
 
 interface StreamEvent {

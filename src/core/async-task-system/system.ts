@@ -28,8 +28,9 @@ import {
   TASKS_QUEUES_DONE_DIR,
   TASKS_QUEUES_FAILED_DIR,
   TASKS_QUEUES_RESULTS_DIR,
+  TASKS_SYNC_DIR,
 } from './dirs.js';
-import { TASKS_SYNC_DIR, CLAWSPACE_DIR } from '../../foundation/paths.js';
+import { CLAWSPACE_DIR } from '../../foundation/paths.js';
 import type { StreamLog } from '../../foundation/stream/index.js';
 import type { DialogStore } from '../../foundation/dialog-store/index.js';
 import { sendFallbackError } from './result-delivery.js';

@@ -9,7 +9,8 @@ import { InboxWriter } from '../../foundation/messaging/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { migrateAndValidateSession, validateSessionData } from '../../foundation/dialog-store/store.js';
 import type { SessionData } from '../../foundation/dialog-store/types.js';
-import { CLAWS_DIR, DIALOG_DIR } from '../../foundation/paths.js';
+import { CLAWS_DIR } from '../../foundation/paths.js';
+import { DIALOG_DIR } from '../../foundation/dialog-store/dirs.js';
 import { FileNotFoundError } from '../../foundation/fs/types.js';
 import {
   DEEP_DREAM_SYSTEM_PROMPT,
