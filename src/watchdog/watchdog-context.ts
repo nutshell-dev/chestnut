@@ -15,7 +15,7 @@ import { CONFIG_DEFAULTS } from '../assembly/config-defaults.js';
 import type { FileSystem } from '../foundation/fs/types.js';
 import { NodeFileSystem } from '../foundation/fs/node-fs.js';
 import type { AuditLog } from '../foundation/audit/index.js';
-import { createDirContext } from '../cli/utils/factories.js';
+import { createDirContext } from '../foundation/process-manager/factories.js';
 
 // === 共享 Map（cron state）/ ESM const reference 跨 file 同实例 ===
 
