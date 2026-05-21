@@ -30,7 +30,6 @@ export interface RunSubagentOptions {
   // 标识
   agentId: string;
   callerType?: CallerType;
-  callerClawId: string;
 
   // 基础设施依赖（caller 注入）
   clawDir: string;
@@ -53,8 +52,6 @@ export interface RunSubagentOptions {
   signal?: AbortSignal;
   timeoutMs?: number;           // whole-task timeout（async caller 用、verifier 用 idleTimeoutMs only）
   originClawId?: string;        // dispatch chain trace（async caller 用）
-  mainDialogStore?: DialogStore;
-  mainContextSnapshot?: MainContextSnapshot;
   toolsForLLM?: ToolDefinition[];
   taskStreamCallback?: (event: Record<string, unknown>) => void;
   onIdleTimeout?: () => void;
@@ -115,11 +112,8 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
     timeoutMs: opts.timeoutMs,
     toolsForLLM,
     callerType: opts.callerType,
-    callerClawId: opts.callerClawId,
     originClawId: opts.originClawId,
-    mainDialogStore: opts.mainDialogStore,
-    mainContextSnapshot: opts.mainContextSnapshot,
-    onIdleTimeout: opts.onIdleTimeout,
+onIdleTimeout: opts.onIdleTimeout,
     workspaceDir: sharedWorkspaceDir,
     taskStreamWriter,
     auditWriter,

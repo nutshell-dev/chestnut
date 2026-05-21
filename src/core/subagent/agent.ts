@@ -45,7 +45,6 @@ export interface SubAgentOptions {
   maxConsecutiveMaxTokensToolUse?: number;
   systemPrompt?: string;                    // 替换 run() 里硬编码的默认 system prompt
   workspaceDir: string;            // phase 512 / 子代理 cwd / 装配方注入 tasks/subagents/<task-id>/
-  callerClawId?: string;       // phase 514 / 装配方注入 / SubAgent 透传给 ExecContext
   callerType?: CallerType;  // 默认 'subagent'
   subagentMaxSteps?: number;                 // 传给子 SubAgent
   messages?: Message[];                      // 若提供，直接用；否则从 prompt 构建
@@ -54,8 +53,6 @@ export interface SubAgentOptions {
   toolTimeoutMs?: number;                      // phase 1029 / F-2: tool-level timeout inheritance
   taskStreamWriter: StreamLog;
   auditWriter: AuditLog;          // tasks/queues/results/{id}/audit.tsv，step 11+ 写事件
-  mainDialogStore?: DialogStore;                                // NEW: subagent profile only / ask_caller 用 read-only ref
-  mainContextSnapshot?: { clawId: string; toolUseId: string };   // NEW: passthrough from SubAgentTask
 }
 
 export class SubAgent {
@@ -79,8 +76,7 @@ export class SubAgent {
   private onIdleTimeout?: () => void;
   private systemPrompt?: string;
   private workspaceDir: string;
-  private callerClawId?: string;
-  private callerType?: CallerType;
+private callerType?: CallerType;
   private subagentMaxSteps?: number;
   private messages?: Message[];
   private originClawId?: string;
@@ -88,9 +84,6 @@ export class SubAgent {
   private toolTimeoutMs?: number;
   private taskStreamWriter: StreamLog;
   private auditWriter: AuditLog;
-  private mainDialogStore?: DialogStore;
-  private mainContextSnapshot?: { clawId: string; toolUseId: string };
-
   constructor(options: SubAgentOptions) {
     this.agentId = options.agentId;
     this.resultDir = options.resultDir;
@@ -112,7 +105,6 @@ export class SubAgent {
     this.onIdleTimeout = options.onIdleTimeout;
     this.systemPrompt = options.systemPrompt;
     this.workspaceDir = options.workspaceDir;
-    this.callerClawId = options.callerClawId;
     this.callerType = options.callerType;
     this.subagentMaxSteps = options.subagentMaxSteps;
     this.messages = options.messages;
@@ -121,8 +113,6 @@ export class SubAgent {
     this.toolTimeoutMs = options.toolTimeoutMs;
     this.taskStreamWriter = options.taskStreamWriter;
     this.auditWriter = options.auditWriter;
-    this.mainDialogStore = options.mainDialogStore;
-    this.mainContextSnapshot = options.mainContextSnapshot;
   }
 
   /**
@@ -195,13 +185,10 @@ export class SubAgent {
         clawDir: this.clawDir,
         syncDir: this.syncDir,
         workspaceDir: this.workspaceDir,   // phase 512
-        callerClawId: this.callerClawId,     // phase 514
         fs: this.fs,
         llm: this.llm,
         subagentMaxSteps: this.subagentMaxSteps ?? this.maxSteps,
         auditWriter: this.auditWriter,
-        mainDialogStore: this.mainDialogStore,
-        mainContextSnapshot: this.mainContextSnapshot,
       });
 
       // Setup messages（若传入 messages 则直接使用，否则从 prompt 构建）

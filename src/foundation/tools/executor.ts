@@ -21,7 +21,6 @@ import type { FileSystem } from '../fs/types.js';
 import type { LLMOrchestrator } from '../llm-orchestrator/index.js';
 import type { AuditLog } from '../audit/index.js';
 import type { ScheduleAsyncTool } from './async-dispatch.js';
-import type { DialogStore } from '../dialog-store/index.js';
 import { DEFAULT_TOOL_TIMEOUT_MS } from './constants.js';
 import {
   escapeForLog,
@@ -328,26 +327,19 @@ export class ToolExecutor extends ToolExecutorImpl {
   private clawDir: string;
   private syncDir: string;
   private workspaceDir: string;
-  private callerClawId?: string;
   private fs: FileSystem;
   private llm?: LLMOrchestrator;
   private subagentMaxSteps?: number;
   private auditWriter?: AuditLog;
-  private mainDialogStore?: DialogStore;
-  private mainContextSnapshot?: { clawId: string; toolUseId: string };
-
   constructor(options: ToolExecutorOptions) {
     super(options.registry, options.defaultTimeoutMs, options.scheduleAsyncTool);
     this.clawDir = options.clawDir;
     this.syncDir = options.syncDir;
     this.workspaceDir = options.workspaceDir ?? path.join(options.clawDir, CLAWSPACE_DIR);
-    this.callerClawId = options.callerClawId;
     this.fs = options.fs;
     this.llm = options.llm;
     this.subagentMaxSteps = options.subagentMaxSteps;
     this.auditWriter = options.auditWriter;
-    this.mainDialogStore = options.mainDialogStore;
-    this.mainContextSnapshot = options.mainContextSnapshot;
   }
 
   /**
@@ -361,7 +353,6 @@ export class ToolExecutor extends ToolExecutorImpl {
       clawId: options.clawId,
       clawDir: this.clawDir,
       workspaceDir: this.workspaceDir,
-      callerClawId: this.callerClawId,
       syncDir: this.syncDir,
       profile,
       callerType: options.callerType ?? 'claw',
@@ -373,8 +364,6 @@ export class ToolExecutor extends ToolExecutorImpl {
       originClawId: options.originClawId,
       isShadow: options.isShadow,
       auditWriter: this.auditWriter,
-      mainDialogStore: this.mainDialogStore,
-      mainContextSnapshot: this.mainContextSnapshot,
       registry: this.registry,
     });
   }

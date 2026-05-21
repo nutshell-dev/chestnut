@@ -104,7 +104,6 @@ export async function executeSubAgentTask(
     const { text: result } = await runSubagent({
       agentId: task.id,
       callerType: task.callerType,
-      callerClawId: task.parentClawId,
       clawDir,
       fs,
       llm,
@@ -114,8 +113,6 @@ export async function executeSubAgentTask(
       resultDir: taskResultDir,
       maxSteps: task.maxSteps,
       signal,
-      mainDialogStore,
-      mainContextSnapshot: task.mainContextSnapshot,
       toolsForLLM,
       timeoutMs: task.timeoutMs,
       originClawId: task.originClawId,

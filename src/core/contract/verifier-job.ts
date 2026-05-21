@@ -40,7 +40,6 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
     const { text, capturedResult } = await runSubagent({
       agentId: config.agentId,
       callerType: 'verifier',
-      callerClawId: config.clawId,
       clawDir: config.clawDir,
       fs: config.fs,
       llm: config.llm,

@@ -11,7 +11,7 @@
 import type { FileSystem } from '../fs/types.js';
 import type { LLMOrchestrator } from '../llm-orchestrator/index.js';
 import type { ToolProfile } from '../../types/config.js';
-import type { ExecContext } from '../tool-protocol/index.js';
+import type { ExecContext } from './types.js';
 import path from 'path';
 import { MOTION_CLAW_ID } from '../../constants.js';
 import { CLAWSPACE_DIR } from '../../types/paths.js';
@@ -20,7 +20,6 @@ import { CLAWSPACE_DIR } from '../../types/paths.js';
 import type { Message, ToolDefinition } from '../../types/message.js';
 import type { AuditLog } from '../audit/index.js';
 import type { CallerType } from '../tool-protocol/caller-type.js';
-import type { DialogStore } from '../dialog-store/index.js';
 import type { ToolRegistry } from './types.js';
 import type { PermissionChecker } from '../../types/permission.js';
 
@@ -37,9 +36,6 @@ export interface ExecContextImplOptions {
   /** phase 509 / 可选 / 默认 fallback = path.join(clawDir, CLAWSPACE_DIR) */
   workspaceDir?: string;
 
-  /** phase 514 / subagent caller's clawId / 装配方注入 */
-  callerClawId?: string;
-  
   /** 装配-level 共享 sync dir（兜底落盘 + FileTool write_backups 共用 / 应然 §A.7） */
   syncDir: string;
   
@@ -73,10 +69,6 @@ export interface ExecContextImplOptions {
   originClawId?: string;
   /** AuditLog writer for tool events */
   auditWriter?: AuditLog;
-  /** Main dialog store (subagent profile only / ask_caller read-only ref) */
-  mainDialogStore?: DialogStore;
-  /** Marker for restoring main context prefix via DialogStore.restorePrefix */
-  mainContextSnapshot?: { clawId: string; toolUseId: string };
   /** Current tool_use block id (set by ToolExecutor before tool.execute) */
   currentToolUseId?: string;
   /** Session-scoped fully-read paths（read 未截断时 add / overwrite gate / phase 487 G6） */
@@ -140,7 +132,6 @@ export class ExecContextImpl implements ExecContext {
   clawId: string;
   clawDir: string;
   workspaceDir: string;
-  callerClawId?: string;
   syncDir: string;
   profile: ToolProfile;
   callerType: CallerType;
@@ -153,8 +144,6 @@ export class ExecContextImpl implements ExecContext {
   dialogMessages?: Message[];
   originClawId?: string;
   auditWriter?: AuditLog;
-  mainDialogStore?: DialogStore;
-  mainContextSnapshot?: { clawId: string; toolUseId: string };
   currentToolUseId?: string;
   fullyReadPaths: Set<string>;
   registry?: ToolRegistry;
@@ -171,7 +160,6 @@ export class ExecContextImpl implements ExecContext {
     this.clawId = options.clawId;
     this.clawDir = options.clawDir;
     this.workspaceDir = options.workspaceDir ?? path.join(options.clawDir, CLAWSPACE_DIR);
-    this.callerClawId = options.callerClawId;
     this.syncDir = options.syncDir;
     this.profile = options.profile;
     this.callerType = options.callerType ?? 'claw';
@@ -183,8 +171,6 @@ export class ExecContextImpl implements ExecContext {
     this.dialogMessages = options.dialogMessages;
     this.originClawId = options.originClawId;
     this.auditWriter = options.auditWriter;
-    this.mainDialogStore = options.mainDialogStore;
-    this.mainContextSnapshot = options.mainContextSnapshot;
     this.currentToolUseId = options.currentToolUseId;
     this.fullyReadPaths = options.fullyReadPaths ?? new Set();
     this.registry = options.registry;

@@ -8,14 +8,97 @@ import type { ToolProfile } from '../../types/config.js';
 import type { FileSystem } from '../fs/types.js';
 import type { LLMOrchestrator } from '../llm-orchestrator/index.js';
 import type { AuditLog } from '../audit/index.js';
-import type { Tool, ToolResult, ExecContext } from '../tool-protocol/index.js';
+import type { ToolDescriptor, ToolResult } from '../tool-protocol/index.js';
 import type { ScheduleAsyncTool } from './async-dispatch.js';
-import type { DialogStore } from '../dialog-store/index.js';
+import type { Message, ToolDefinition } from '../../types/message.js';
+import type { CallerType } from '../tool-protocol/caller-type.js';
+import type { PermissionChecker } from '../../types/permission.js';
 
 /** Escape multi-line content for audit TSV log (used by ToolExecutorImpl) */
 export function escapeForLog(s: string): string {
   return s.replace(/\n/g, '\\n').slice(0, 120);
 }
+
+// ── Tool & ExecContext ─────────────────────────────────────────────
+// Owned by L2c Tools (execution framework). Moved from L2b ToolProtocol
+// (phase boundary refactoring 2026-05) where they violated M#5 — L2b
+// knowing about L4 business semantics via ExecContext fields.
+//
+// ToolProtocol (L2b) now owns only ToolDescriptor — the pure LLM-facing
+// protocol skeleton (name, description, input_schema).
+
+/**
+ * Execution context — passed to all tool executions.
+ *
+ * Fields are L1/L2 infrastructure handles + execution control state.
+ * L4 business fields (isShadow, systemPromptForLLM, etc.) are scheduled
+ * for eviction to per-module factory injection.
+ */
+export interface ExecContext {
+  clawId: string;
+  clawDir: string;
+  /** phase 509 NEW / 装配期 per-callerType resolve / 主代理=clawDir/clawspace / 子代理=clawDir/tasks/subagents/<task-id> (phase 512 落地) */
+  workspaceDir: string;
+  /** 装配-level 共享 sync dir（兜底落盘 + FileTool write_backups 共用 / 应然 §A.7）/ Assembly 装配期注入 */
+  syncDir: string;
+  /** Caller type for spawn recursion prevention */
+  callerType: CallerType;
+  fs: FileSystem;
+  llm?: LLMOrchestrator;
+  profile: ToolProfile;
+  stepNumber: number;
+  maxSteps: number;
+  signal?: AbortSignal;
+  /** Max steps for subagents created via spawn tool */
+  subagentMaxSteps?: number;
+  /** Tool-level wall-clock timeout, inherited from globalConfig.tool_timeout_ms / Assembly 装配期注入 (phase 1029 / F-2) */
+  toolTimeoutMs?: number;
+  /** 当前对话 messages（由 runtime._runReact 注入，供 dispatch 工具读取） */
+  dialogMessages?: Message[];
+  /** 创建链路的源头 clawId，由 dispatch/spawn 传播。Motion 直接创建时为 'motion' */
+  originClawId?: string;
+  /** 是否为 Motion 创建链路上的 agent（Motion 本体或其 subagent） */
+  readonly isMotionChain: boolean;
+  getElapsedMs(): number;
+  incrementStep(): void;
+  /** AuditLog writer for tool events */
+  auditWriter?: AuditLog;
+  /** Current tool_use block id (set by ToolExecutor before tool.execute) */
+  currentToolUseId?: string;
+  /** Session-scoped fully-read paths（read 未截断时 add / overwrite gate / phase 487 G6） */
+  fullyReadPaths: Set<string>;
+  /** Tool registry reference for sync spawn path (phase 766) */
+  registry?: ToolRegistry;
+  /** Whether this context belongs to a shadow agent (phase 766 prep for 767) */
+  isShadow?: boolean;
+  /** Current main agent turn's systemPrompt (in-memory, set by runtime before runReact) — phase 769 */
+  systemPromptForLLM?: string;
+  /** Current main agent turn's tools array (in-memory, set by runtime before runReact) — phase 769 */
+  toolsForLLM?: ToolDefinition[];
+  /** phase 777: result-capture tools (done) set this to break the agent loop early */
+  stopRequested: boolean;
+  /** phase 777: mutator called by result-capture tools after storing capturedResult */
+  requestStop(): void;
+  /** Assembly-injected per-claw permission checker (replaces module-level factory pattern, phase 1006) */
+  permissionChecker?: PermissionChecker;
+}
+
+/**
+ * Tool interface — all tools implement this.
+ *
+ * Extends the pure LLM-facing ToolDescriptor (L2b) with execution-framework
+ * metadata (readonly, idempotent, timeout) and the execute method.
+ * Owned by L2c Tools.
+ */
+export interface Tool extends ToolDescriptor {
+  readonly: boolean;
+  idempotent: boolean;
+  supportsAsync?: boolean;
+  defaultTimeoutMs?: number;
+  execute(args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult>;
+}
+
+// ── Registry & Executor interfaces ─────────────────────────────────
 
 /**
  * Tool registry interface
@@ -66,14 +149,11 @@ export interface ToolExecutorOptions {
   clawDir: string;
   syncDir: string;
   workspaceDir?: string;
-  callerClawId?: string;        // phase 514 / subagent caller's clawId
   fs: FileSystem;
   llm?: LLMOrchestrator;
   subagentMaxSteps?: number;
   auditWriter?: AuditLog;
   scheduleAsyncTool?: ScheduleAsyncTool;
-  mainDialogStore?: DialogStore;
-  mainContextSnapshot?: { clawId: string; toolUseId: string };
   /** Tool-level default timeout (phase 1029 / F-2 / inherits from caller ExecContext / 0 传维持 ToolExecutor fallback 60s) */
   defaultTimeoutMs?: number;
 }

@@ -28,9 +28,9 @@ export { escapeForLog } from './types.js';
 // Constants
 export * from './constants.js';
 
-// Types (from tool-protocol - Phase 435)
-export type { ToolResult, ExecContext, Tool } from '../tool-protocol/index.js';
-export type { ToolRegistry, IToolExecutor, ExecuteOptions } from './executor.js';
+// Types (Tool, ExecContext now owned by L2c Tools)
+export type { ToolResult, ToolDescriptor } from '../tool-protocol/index.js';
+export type { Tool, ExecContext, ToolRegistry, IToolExecutor, ExecuteOptions } from './types.js';
 
 export type { ExecContextImplOptions } from './context.js';
 

@@ -7,7 +7,7 @@ describe('ExecContext field budget (phase 968 升档条件 mechanical enforcemen
   it('ExecContext interface members count ≤ 35 (phase 808 升档条件 a)', () => {
     const filePath = path.resolve(
       __dirname,
-      '../../../src/foundation/tool-protocol/index.ts'
+      '../../../src/foundation/tools/types.ts'  // phase boundary refactoring: ExecContext moved to L2c Tools
     );
     const sourceText = fs.readFileSync(filePath, 'utf8');
     const sourceFile = ts.createSourceFile(
