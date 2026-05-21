@@ -63,6 +63,7 @@ describe('runRandomDream', () => {
   const taskId = `task-${randomUUID()}`;
 
   beforeEach(async () => {
+    vi.restoreAllMocks();
     clawforumDir = await createTempDir();
     motionDir = path.join(clawforumDir, 'motion');
     await fs.mkdir(path.join(motionDir, 'inbox', 'pending'), { recursive: true });

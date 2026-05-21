@@ -113,6 +113,7 @@ vi.mock('../../../src/foundation/llm-provider/anthropic.js', () => ({
 
 describe('LLMOrchestratorImpl hedge drain post-first-chunk failure (phase 903 B2)', () => {
   beforeEach(() => {
+    vi.restoreAllMocks();
     vi.clearAllMocks();
   });
 

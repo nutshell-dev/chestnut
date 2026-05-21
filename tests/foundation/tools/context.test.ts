@@ -1,8 +1,12 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import path from 'path';
 import { ExecContextImpl, cloneExecContext } from '../../../src/foundation/tools/context.js';
 
 describe('ExecContextImpl', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('ctor 默认 workspaceDir = clawDir/clawspace', () => {
     const ctx = new ExecContextImpl({
       clawId: 'test',

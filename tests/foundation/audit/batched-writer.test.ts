@@ -49,6 +49,10 @@ function makeMockFsWithAppendFailure(initialFailCount = 1): { fs: FileSystem; wr
 describe('BatchedAuditWriter', () => {
   let writer: BatchedAuditWriter;
 
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
   afterEach(() => {
     writer?.dispose();
   });
