@@ -16,7 +16,8 @@ import type { ToolRegistry } from '../../foundation/tools/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { CallerType } from '../../foundation/tool-protocol/caller-type.js';
 
-import type { ToolResult, Tool } from '../../foundation/tool-protocol/index.js';
+import type { Tool } from '../../foundation/tools/index.js';
+import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { Message, ToolDefinition } from '../../foundation/llm-provider/types.js';
 import type { OutboxWriter } from '../../foundation/messaging/index.js';
 import type { InboxWriter } from '../../foundation/messaging/index.js';
@@ -654,7 +655,7 @@ export class AsyncTaskSystem {
     return writePendingSubagentTaskFile(this.fs, motionAudit, taskInfo);
   }
 
-  private buildToolTaskExecContext(task: ToolTask, signal: AbortSignal): import('../../foundation/tool-protocol/index.js').ExecContext {
+  private buildToolTaskExecContext(task: ToolTask, signal: AbortSignal): import('../../foundation/tools/index.js').ExecContext {
     return {
       clawId: task.parentClawId,
       clawDir: task.parentClawDir,

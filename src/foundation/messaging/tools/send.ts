@@ -3,7 +3,8 @@
  * send tool - Send message to outbox
  */
 
-import type { Tool, ToolResult, ExecContext } from '../../tool-protocol/index.js';
+import type { Tool, ExecContext } from '../../tools/index.js';
+import type { ToolResult } from '../../tool-protocol/index.js';
 import type { OutboxWriter } from '../index.js';
 
 import { SEND_TOOL_NAME } from '../../tools/tool-names.js';

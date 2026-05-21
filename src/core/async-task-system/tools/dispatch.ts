@@ -1,4 +1,5 @@
-import type { Tool, ToolResult, ExecContext } from '../../../foundation/tool-protocol/index.js';
+import type { Tool, ExecContext } from '../../../foundation/tools/index.js';
+import type { ToolResult } from '../../../foundation/tool-protocol/index.js';
 
 import type { Message, ToolDefinition } from '../../../foundation/llm-provider/types.js';
 import { createSkillSystem } from '../../../foundation/skill-system/index.js';

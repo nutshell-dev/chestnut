@@ -4,7 +4,7 @@
  * Implements ToolRegistry interface
  */
 
-import type { Tool } from '../tool-protocol/index.js';
+import type { Tool } from '../tools/index.js';
 import type { ToolRegistry } from './executor.js';
 import type { ToolProfile } from '../tool-protocol/index.js';
 import { TOOL_PROFILES } from './profiles.js';

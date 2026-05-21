@@ -5,7 +5,7 @@
 
 import type { Message, ToolDefinition } from '../../foundation/llm-provider/types.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
-import type { ExecContext } from '../../foundation/tool-protocol/index.js';
+import type { ExecContext } from '../../foundation/tools/index.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 
 export interface LLMCallInfo {

@@ -9,7 +9,8 @@
  * - spawn subagent（可选）：subagent 显式 done(result=...) 替代末条 text fallback
  */
 
-import type { Tool, ToolResult, ExecContext } from '../../../foundation/tool-protocol/index.js';
+import type { Tool, ExecContext } from '../../../foundation/tools/index.js';
+import type { ToolResult } from '../../../foundation/tool-protocol/index.js';
 import { DONE_TOOL_NAME } from '../../../foundation/tools/tool-names.js';
 
 export { DONE_TOOL_NAME };

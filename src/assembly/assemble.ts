@@ -33,7 +33,7 @@ import type { AsyncTaskSystem } from '../core/async-task-system/system.js';
 import { dispatchContractExtractPostProcessor } from '../core/async-task-system/post-processors/dispatch-contract-extract.js';
 import { createContextInjector, type ContextInjector } from '../core/dialog/index.js';
 import { ExecContextImpl } from '../foundation/tools/index.js';
-import type { ExecContext } from '../foundation/tool-protocol/index.js';
+import type { ExecContext } from '../foundation/tools/index.js';
 import { createFileTools, TASKS_SYNC_WRITE_DIR } from '../foundation/file-tool/index.js';
 import { createCommandTools, TASKS_SYNC_EXEC_DIR } from '../foundation/command-tool/index.js';
 import { createClawPermissionChecker } from '../core/permissions/claw-permissions.js';

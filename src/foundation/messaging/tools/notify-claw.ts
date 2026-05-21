@@ -8,7 +8,8 @@
  */
 
 import path from 'node:path';
-import type { Tool, ToolResult, ExecContext } from '../../tool-protocol/index.js';
+import type { Tool, ExecContext } from '../../tools/index.js';
+import type { ToolResult } from '../../tool-protocol/index.js';
 import type { FileSystem } from '../../fs/types.js';
 import type { AuditLog } from '../../audit/index.js';
 import { InboxWriter } from '../inbox-writer.js';

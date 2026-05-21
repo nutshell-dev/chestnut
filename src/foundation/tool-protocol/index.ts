@@ -14,13 +14,8 @@ export type ToolProfile = string;
 export type { JSONSchema7, CallerType };
 export { callerTypeToProfile } from './caller-type.js';
 
-import type { Tool, ExecContext, ToolRegistry } from '../tools/types.js';
-
-// ── 过渡期重导出桥 ─────────────────────────────────────────────────
-// Tool、ExecContext、ToolRegistry 物理归属已移至 L2c Tools (tools/types.ts)。
-// 以下重导出保持向后兼容，阶段二完成后移除。
-// 方向 L2b→L2c 违反 M#5，仅作临时过渡。
-export type { Tool, ExecContext, ToolRegistry };
+// Tool、ExecContext、ToolRegistry 已迁至 L2c tools/types.ts。
+// 消费方请直接从 foundation/tools/index.js 导入。
 
 /**
  * Tool descriptor — pure LLM-facing protocol skeleton.

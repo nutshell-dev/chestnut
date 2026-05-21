@@ -7,7 +7,8 @@
 
 import * as path from 'path';
 import { randomUUID } from 'crypto';
-import type { ToolResult, ExecContext } from '../../foundation/tool-protocol/index.js';
+import type { ExecContext } from '../../foundation/tools/index.js';
+import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 
 import { UUID_SHORT_LEN } from '../../constants.js';
 import { TASKS_SYNC_SPAWN_DIR } from './constants.js';

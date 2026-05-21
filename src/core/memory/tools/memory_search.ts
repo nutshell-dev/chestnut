@@ -2,7 +2,8 @@
  * memory_search tool - Search in memory directory with metadata filtering
  */
 
-import type { Tool, ToolResult, ExecContext } from '../../../foundation/tool-protocol/index.js';
+import type { Tool, ExecContext } from '../../../foundation/tools/index.js';
+import type { ToolResult } from '../../../foundation/tool-protocol/index.js';
 import type { FileEntry } from '../../../foundation/fs/types.js';
 import { MEMORY_SEARCH_TOOL_NAME } from '../../../foundation/tools/tool-names.js';
 export { MEMORY_SEARCH_TOOL_NAME };

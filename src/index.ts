@@ -51,7 +51,8 @@ export { LLMOrchestratorImpl } from './foundation/llm-orchestrator/index.js';
 export type { LLMOrchestratorConfig, ProviderConfig, LLMCallOptions } from './foundation/llm-orchestrator/index.js';
 
 // Re-export commonly used types
-export type { ToolResult, ExecContext, Tool } from './foundation/tool-protocol/index.js';
+export type { ToolResult } from './foundation/tool-protocol/index.js';
+export type { ExecContext, Tool } from './foundation/tools/index.js';
 export type { ToolRegistry, IToolExecutor } from './foundation/tools/executor.js';
 export { ToolRegistryImpl } from './foundation/tools/registry.js';
 export type { SkillMeta } from './foundation/skill-system/index.js';

@@ -5,7 +5,8 @@
  * queries a LLM clone for clarification.
  */
 
-import type { Tool, ToolResult, ExecContext } from '../../../foundation/tool-protocol/index.js';
+import type { Tool, ExecContext } from '../../../foundation/tools/index.js';
+import type { ToolResult } from '../../../foundation/tool-protocol/index.js';
 import { MarkerNotFoundError } from '../../../foundation/dialog-store/index.js';
 import type { DialogStore } from '../../../foundation/dialog-store/index.js';
 

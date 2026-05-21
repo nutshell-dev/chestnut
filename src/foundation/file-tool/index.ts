@@ -6,7 +6,7 @@
  * 把 OS 文件 I/O 能力翻译为 agent 友好的 Tool 协议对象。
  */
 
-import type { Tool } from '../tool-protocol/index.js';
+import type { Tool } from '../tools/index.js';
 import { readTool } from './read.js';
 import { writeTool } from './write.js';
 import { searchTool } from './search.js';

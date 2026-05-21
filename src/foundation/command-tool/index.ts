@@ -6,7 +6,7 @@
  * phase378 物理迁实施 / phase421 反向 rename align arch §17 + 表 1。
  */
 
-import type { Tool } from '../tool-protocol/index.js';
+import type { Tool } from '../tools/index.js';
 import { createExecTool } from './exec.js';
 
 /** CommandTool own sync scratch subdir（turn-scoped / Snapshot whitelist 清理）*/

@@ -1,4 +1,5 @@
-import type { Tool, ToolResult } from '../../../foundation/tool-protocol/index.js';
+import type { Tool } from '../../../foundation/tools/index.js';
+import type { ToolResult } from '../../../foundation/tool-protocol/index.js';
 import type { LLMOrchestrator } from '../../../foundation/llm-orchestrator/index.js';
 import type { Message } from '../../../foundation/llm-provider/types.js';
 import { buildAskMotionCloneFirstMessage } from '../../../prompts/index.js';

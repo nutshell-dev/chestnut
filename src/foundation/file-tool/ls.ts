@@ -7,7 +7,8 @@
 
 import * as nodePath from 'path';
 import { NodeFileSystem } from '../fs/node-fs.js';
-import type { Tool, ToolResult, ExecContext } from '../tool-protocol/index.js';
+import type { Tool, ExecContext } from '../tools/index.js';
+import type { ToolResult } from '../tool-protocol/index.js';
 import { LS_MAX_ENTRIES } from './constants.js';
 
 import { resolveWorkspacePath } from './_resolve-path.js';

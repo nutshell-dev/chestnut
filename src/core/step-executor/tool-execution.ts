@@ -10,7 +10,8 @@
  */
 
 import type { ToolUseBlock, ToolResultBlock } from '../../foundation/llm-provider/types.js';
-import type { ExecContext, ToolResult } from '../../foundation/tool-protocol/index.js';
+import type { ExecContext } from '../../foundation/tools/index.js';
+import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { IToolExecutor, ToolRegistry } from '../../foundation/tools/index.js';
 import type { StepCallbacks } from './types.js';
 import { safeCallback, toToolResultBlock } from './utils.js';

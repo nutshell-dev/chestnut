@@ -5,7 +5,8 @@
  * which triggers the acceptance process defined in the contract.
  */
 
-import type { Tool, ToolResult, ExecContext } from '../../../foundation/tool-protocol/index.js';
+import type { Tool, ExecContext } from '../../../foundation/tools/index.js';
+import type { ToolResult } from '../../../foundation/tool-protocol/index.js';
 import type { ContractSystem } from '../manager.js';
 
 /**

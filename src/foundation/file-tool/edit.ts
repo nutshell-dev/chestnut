@@ -10,7 +10,8 @@
  * - File must exist (use write to create)
  */
 
-import type { Tool, ToolResult, ExecContext } from '../tool-protocol/index.js';
+import type { Tool, ExecContext } from '../tools/index.js';
+import type { ToolResult } from '../tool-protocol/index.js';
 
 import { backupToSync } from './sync-backup.js';
 import { resolveWorkspacePath } from './_resolve-path.js';

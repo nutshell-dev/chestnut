@@ -35,7 +35,7 @@ import { DEFAULT_MAX_STEPS } from '../agent-executor/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { Snapshot } from '../../foundation/snapshot/index.js';
 import type { InboxReader, InboxEntry, OutboxWriter } from '../../foundation/messaging/index.js';
-import type { ExecContext } from '../../foundation/tool-protocol/index.js';
+import type { ExecContext } from '../../foundation/tools/index.js';
 import type { ToolRegistry, IToolExecutor } from '../../foundation/tools/index.js';
 import type { ContextInjector } from '../dialog/injector.js';
 import type { ContractSystem } from '../contract/index.js';

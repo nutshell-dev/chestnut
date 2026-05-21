@@ -7,7 +7,7 @@
 
 import { randomUUID } from 'crypto';
 import * as path from 'path';
-import type { ExecContext } from '../tool-protocol/index.js';
+import type { ExecContext } from '../tools/index.js';
 import { FILE_TOOL_AUDIT_EVENTS } from './audit-events.js';
 import { UUID_SHORT_LEN } from '../../constants.js';
 import { TASKS_SYNC_WRITE_DIR } from './index.js';

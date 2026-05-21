@@ -1,5 +1,5 @@
 import * as path from 'path';
-import type { ExecContext } from '../tool-protocol/index.js';
+import type { ExecContext } from '../tools/index.js';
 
 /**
  * Resolve file tool path argument against workspaceDir (default) or explicit cwd.
