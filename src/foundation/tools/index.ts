@@ -36,5 +36,25 @@ export type { ExecContextImplOptions } from './context.js';
 
 export type { AsyncToolTaskArgs, ScheduleAsyncTool } from './async-dispatch.js';
 
-export { SPAWN_TOOL_NAME, DONE_TOOL_NAME, DISPATCH_TOOL_NAME, SHADOW_TOOL_NAME } from './tool-names.js';
+export {
+  SPAWN_TOOL_NAME,
+  DONE_TOOL_NAME,
+  DISPATCH_TOOL_NAME,
+  SHADOW_TOOL_NAME,
+  READ_TOOL_NAME,
+  WRITE_TOOL_NAME,
+  EDIT_TOOL_NAME,
+  MULTI_EDIT_TOOL_NAME,
+  LS_TOOL_NAME,
+  SEARCH_TOOL_NAME,
+  EXEC_TOOL_NAME,
+  SEND_TOOL_NAME,
+  NOTIFY_CLAW_TOOL_NAME,
+  SUBMIT_SUBTASK_TOOL_NAME,
+  SKILL_TOOL_NAME,
+  STATUS_TOOL_NAME,
+  MEMORY_SEARCH_TOOL_NAME,
+  ASK_CALLER_TOOL_NAME,
+  ASK_MOTION_TOOL_NAME,
+} from './tool-names.js';
 
