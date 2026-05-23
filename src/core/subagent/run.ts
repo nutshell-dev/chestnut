@@ -10,7 +10,7 @@
 import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { createAuditWriter, type AuditLog } from '../../foundation/audit/index.js';
-import { STREAM_FILE } from '../../foundation/stream/index.js';
+import { STREAM_FILE, createPerResourceStreamWriter, type StreamEvent } from '../../foundation/stream/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { ToolRegistry } from '../../foundation/tools/index.js';
 // createToolRegistry removed — caller owns registry assembly (M#1 align)
@@ -80,14 +80,16 @@ export interface RunSubagentResult {
 export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagentResult> {
   await opts.fs.ensureDir(opts.resultDir);
 
-  // audit + stream writer 自治创建（M#3 SubAgent 模块 own sync subagent disk schema）
+  // audit 自治创建（caller 不传基础设施 writer、ML#8 接口最小）
+  // stream 走 L2 createPerResourceStreamWriter（ML#3 stream 物理格式归 L2、phase 1116）
   const auditWriter = createAuditWriter(opts.fs, `${opts.resultDir}/audit.tsv`);
   const streamPath = `${opts.resultDir}/${STREAM_FILE}`;
+  const baseStreamWriter = createPerResourceStreamWriter(opts.fs, streamPath, auditWriter);
   const taskStreamWriter = {
-    write: (event: Record<string, unknown>) => {
-      opts.fs.appendSync(streamPath, JSON.stringify({ ts: Date.now(), ...event }) + '\n');
+    write: (event: Record<string, unknown>): boolean => {
+      const ok = baseStreamWriter.write({ ts: Date.now(), ...event } as StreamEvent);
       opts.taskStreamCallback?.(event);
-      return true;
+      return ok;
     },
   };
 

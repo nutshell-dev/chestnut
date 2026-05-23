@@ -19,7 +19,6 @@ export const TASK_AUDIT_EVENTS = {
   RECOVERY_FAILED: 'task_recovery_failed',
   RECOVERY_DEAD_LETTER: 'task_recovery_dead_letter',
   START_FAILED: 'task_start_failed',
-  STREAM_FAILED: 'task_stream_failed',
   HANDLER_FAILED: 'task_handler_failed',
   RESULT_WRITE_FAILED: 'task_result_write_failed',
   INBOX_WRITE_FAILED: 'task_inbox_write_failed',

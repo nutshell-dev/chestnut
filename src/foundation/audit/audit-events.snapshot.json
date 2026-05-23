@@ -91,7 +91,6 @@
       "task_shutdown_timeout",
       "task_start_failed",
       "task_started",
-      "task_stream_failed",
       "tool_async_result",
       "tool_task_retry"
     ],

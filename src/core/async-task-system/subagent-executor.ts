@@ -2,7 +2,7 @@ import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
-import { type StreamLog, STREAM_FILE } from '../../foundation/stream/index.js';
+import { type StreamLog, STREAM_FILE, createPerResourceStreamWriter } from '../../foundation/stream/index.js';
 import type { PermissionChecker } from '../../foundation/tool-protocol/permission.js';
 import { type CallerType, callerTypeToProfile } from '../../foundation/tool-protocol/index.js';
 
@@ -87,15 +87,12 @@ export async function executeSubAgentTask(
     silent: false,
   });
   const taskStreamPath = `${taskResultDir}/${STREAM_FILE}`;
-  try {
-    fs.appendSync(taskStreamPath, JSON.stringify({
-      ts: Date.now(),
-      type: STREAM_TASK_EVENTS.TASK_ATTEMPT_START,
-      taskId: task.id,
-    }) + '\n');
-  } catch (err) {
-    auditWriter.write(TASK_AUDIT_EVENTS.STREAM_FAILED, task.id, 'context=writeStream', `error=${formatErr(err)}`);
-  }
+  const taskStreamWriter = createPerResourceStreamWriter(fs, taskStreamPath, auditWriter);
+  taskStreamWriter.write({
+    ts: Date.now(),
+    type: STREAM_TASK_EVENTS.TASK_ATTEMPT_START,
+    taskId: task.id,
+  });
 
   try {
     // LLM is guaranteed by constructor (readonly non-null field)
