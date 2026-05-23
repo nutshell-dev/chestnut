@@ -25,6 +25,7 @@ export { createSubmitSubtaskTool, SUBMIT_SUBTASK_TOOL_NAME } from './tools/submi
 
 export { getContractCreatedMs } from './utils.js';
 export { collectContractEvents } from './jobs/event-collector.js';
+export * from './audit-emit.js';
 
 export {
   CONTRACT_DIR,

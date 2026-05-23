@@ -165,7 +165,8 @@ describe('phase 1038 C-3 Contract state machine integrity (W3-B α-1+α-4+α-7)'
 
       expect(events).toContainEqual(expect.arrayContaining([
         CONTRACT_AUDIT_EVENTS.ESCALATED,
-        expect.stringContaining('c1/st1'),
+        expect.stringContaining('contractId=c1'),
+        expect.stringContaining('subtaskId=st1'),
         expect.stringContaining('retry_count=3'),
         expect.stringContaining('claw=claw-test'),
         expect.stringContaining('context=writeAcceptanceError.reset'),

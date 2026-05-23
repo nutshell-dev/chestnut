@@ -8,6 +8,13 @@
 
 import { runSubagent } from '../subagent/index.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
+import {
+  emitContractVerifierSkipped,
+  emitContractVerifierFailed,
+  emitContractVerifierStarted,
+  emitContractVerifierPassed,
+  emitContractVerifierResultParseFailed,
+} from './audit-emit.js';
 import { CONTRACT_ACTIVE_DIR } from './dirs.js';
 import * as path from 'path';
 import { createDoneTool, DONE_TOOL_NAME } from '../subagent/index.js';
@@ -30,32 +37,38 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
       const raw = await config.fs.read(progressPath);
       const progress = JSON.parse(raw) as { status?: string };
       if (progress.status === 'cancelled') {
-        config.audit?.write(
-          CONTRACT_AUDIT_EVENTS.VERIFIER_SKIPPED,
-          `agentId=${config.agentId}`,
-          `reason=contract_cancelled`,
-        );
+        if (config.audit) {
+          emitContractVerifierSkipped(
+            config.audit,
+            { agentId: config.agentId, reason: 'contract_cancelled' },
+          );
+        }
         return { passed: false, feedback: 'Contract was cancelled before verifier started' };
       }
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-        config.audit?.write(
-          CONTRACT_AUDIT_EVENTS.VERIFIER_FAILED,
-          `agentId=${config.agentId}`,
-          `clawId=${config.clawId}`,
-          `kind=progress_read_error`,
-          `reason=${err instanceof Error ? err.message : String(err)}`,
-        );
+        if (config.audit) {
+          emitContractVerifierFailed(
+            config.audit,
+            {
+              agentId: config.agentId,
+              clawId: config.clawId,
+              kind: 'progress_read_error',
+              reason: err instanceof Error ? err.message : String(err),
+            },
+          );
+        }
       }
       // ENOENT or other read error: do not block verifier
     }
   }
 
-  config.audit?.write(
-    CONTRACT_AUDIT_EVENTS.VERIFIER_STARTED,
-    `agentId=${config.agentId}`,
-    `clawId=${config.clawId}`,
-  );
+  if (config.audit) {
+    emitContractVerifierStarted(
+      config.audit,
+      { agentId: config.agentId, clawId: config.clawId },
+    );
+  }
 
   try {
     const doneTool = createDoneTool();
@@ -102,7 +115,9 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
       if (doneResult.result) {
         try {
           const r = JSON.parse(doneResult.result) as { passed: boolean; reason: string; issues?: string[] };
-          if (r.passed) config.audit?.write(CONTRACT_AUDIT_EVENTS.VERIFIER_PASSED, `agentId=${config.agentId}`);
+          if (r.passed && config.audit) {
+            emitContractVerifierPassed(config.audit, { agentId: config.agentId });
+          }
           return {
             passed: r.passed,
             feedback: doneResult.result,
@@ -111,20 +126,26 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
         } catch (parseErr) {
           // phase 1133 (r126 C fork C-3): emit audit before fall-through to text JSON parsing below
           // 保留 fall-through intent / 但 parse 失败信息不再 silent（DP「不丢弃静默」）
-          config.audit?.write(
-            CONTRACT_AUDIT_EVENTS.VERIFIER_RESULT_PARSE_FAILED,
-            `agentId=${config.agentId}`,
-            `clawId=${config.clawId}`,
-            `stage=done_result_first_parse`,
-            `reason=${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,
-          );
+          if (config.audit) {
+            emitContractVerifierResultParseFailed(
+              config.audit,
+              {
+                agentId: config.agentId,
+                clawId: config.clawId,
+                stage: 'done_result_first_parse',
+                reason: parseErr instanceof Error ? parseErr.message : String(parseErr),
+              },
+            );
+          }
         }
       }
 
       // 兼容旧格式（direct object）
       const r = capturedResult as { passed: boolean; reason: string; issues?: string[] };
       if ('passed' in r) {
-        if (r.passed) config.audit?.write(CONTRACT_AUDIT_EVENTS.VERIFIER_PASSED, `agentId=${config.agentId}`);
+        if (r.passed && config.audit) {
+          emitContractVerifierPassed(config.audit, { agentId: config.agentId });
+        }
         return {
           passed: r.passed,
           feedback: JSON.stringify(r),
@@ -139,27 +160,33 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
     }
     const jsonStr = jsonMatch[1] || jsonMatch[0];
     const result = JSON.parse(jsonStr) as { passed: boolean; reason: string; issues?: string[] };
-    if (result.passed) config.audit?.write(CONTRACT_AUDIT_EVENTS.VERIFIER_PASSED, `agentId=${config.agentId}`);
+    if (result.passed && config.audit) {
+      emitContractVerifierPassed(config.audit, { agentId: config.agentId });
+    }
     return { passed: result.passed, feedback: jsonStr, structured: result };
 
   } catch (err) {
     // phase 993 D.2: catch audit emit (config.audit phase 646 ⚓ inject、之前 dead field)
     if (err instanceof ToolTimeoutError) {
-      config.audit.write(
-        CONTRACT_AUDIT_EVENTS.VERIFIER_FAILED,
-        `agentId=${config.agentId}`,
-        `clawId=${config.clawId}`,
-        `kind=timeout`,
+      emitContractVerifierFailed(
+        config.audit,
+        {
+          agentId: config.agentId,
+          clawId: config.clawId,
+          kind: 'timeout',
+        },
       );
       return { passed: false, feedback: '验收子代理超时' };
     }
     const msg = err instanceof Error ? err.message : String(err);
-    config.audit.write(
-      CONTRACT_AUDIT_EVENTS.VERIFIER_FAILED,
-      `agentId=${config.agentId}`,
-      `clawId=${config.clawId}`,
-      `kind=other`,
-      `reason=${msg}`,
+    emitContractVerifierFailed(
+      config.audit,
+      {
+        agentId: config.agentId,
+        clawId: config.clawId,
+        kind: 'other',
+        reason: msg,
+      },
     );
     return { passed: false, feedback: `LLM 验收失败: ${msg}` };
   }

@@ -11,6 +11,12 @@ import { FileNotFoundError } from '../../foundation/fs/types.js';
 import { ToolError } from '../../foundation/errors.js';
 import { LOCK_MAX_RETRIES, LOCK_RETRY_DELAY_MS, LOCK_STALE_TIMEOUT_MS } from './constants.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
+import {
+  emitContractLockSchemaInvalid,
+  emitContractLockCleared,
+  emitContractLockCleanupFailed,
+  emitContractLockUnlinkFailed,
+} from './audit-emit.js';
 import { isAlive } from '../../foundation/process-exec/index.js';
 
 export interface LockContext {
@@ -41,10 +47,9 @@ export async function acquireLock(ctx: LockContext, lockPath: string): Promise<v
           typeof parsed.pid !== 'number' || !Number.isFinite(parsed.pid) ||
           typeof parsed.time !== 'number' || !Number.isFinite(parsed.time)
         ) {
-          ctx.audit.write(
-            CONTRACT_AUDIT_EVENTS.LOCK_SCHEMA_INVALID,
-            `path=${lockPath}`,
-            `raw=${raw.slice(0, AUDIT_PREVIEW_LEN)}`,
+          emitContractLockSchemaInvalid(
+            ctx.audit,
+            { path: lockPath, raw: raw.slice(0, AUDIT_PREVIEW_LEN) },
           );
           throw new Error('lock schema invalid');
         }
@@ -55,11 +60,9 @@ export async function acquireLock(ctx: LockContext, lockPath: string): Promise<v
           lastReason = `unlink failed on stale lock (PID ${pid})`;
         } else if (Date.now() - time > LOCK_STALE_TIMEOUT_MS) {
           lastReason = `holder PID ${pid} exceeded timeout (${LOCK_STALE_TIMEOUT_MS}ms)`;
-          ctx.audit.write(
-            CONTRACT_AUDIT_EVENTS.LOCK_CLEARED,
-            `pid=${pid}`,
-            `timeout=${LOCK_STALE_TIMEOUT_MS}`,
-            'reason=stale',
+          emitContractLockCleared(
+            ctx.audit,
+            { pid, timeout: LOCK_STALE_TIMEOUT_MS, reason: 'stale' },
           );
           if (await unlinkStaleLock(ctx, lockPath, `timeout_pid_${pid}`)) continue;
           lastReason = `unlink failed on timeout lock (PID ${pid})`;
@@ -86,16 +89,17 @@ export async function unlinkStaleLock(ctx: LockContext, lockPath: string, reason
     return true;
   } catch (err: unknown) {
     if (err instanceof FileNotFoundError) return true;
-    ctx.audit.write(
-      CONTRACT_AUDIT_EVENTS.LOCK_CLEANUP_FAILED,
-      reason,
-      (err as NodeJS.ErrnoException)?.code ?? 'unknown',
-      (err as Error)?.message ?? String(err),
+    emitContractLockCleanupFailed(
+      ctx.audit,
+      {
+        reason,
+        code: (err as NodeJS.ErrnoException)?.code ?? 'unknown',
+        error: (err as Error)?.message ?? String(err),
+      },
     );
-    ctx.audit.write(
-      CONTRACT_AUDIT_EVENTS.LOCK_UNLINK_FAILED,
-      `reason=${reason}`,
-      `error=${(err as Error)?.message ?? String(err)}`,
+    emitContractLockUnlinkFailed(
+      ctx.audit,
+      { reason, error: (err as Error)?.message ?? String(err) },
     );
     return false;
   }
@@ -114,13 +118,15 @@ export async function releaseLock(ctx: LockContext, lockPath: string): Promise<v
       parsed = undefined;
     }
     if (parsed && typeof parsed.pid === 'number' && parsed.pid !== process.pid) {
-      ctx.audit.write(
-        CONTRACT_AUDIT_EVENTS.LOCK_UNLINK_FAILED,
-        `context=ContractSystem.releaseLock`,
-        `path=${lockPath}`,
-        `reason=ownership_mismatch`,
-        `expected_pid=${process.pid}`,
-        `actual_pid=${parsed.pid}`,
+      emitContractLockUnlinkFailed(
+        ctx.audit,
+        {
+          context: 'ContractSystem.releaseLock',
+          path: lockPath,
+          reason: 'ownership_mismatch',
+          expectedPid: process.pid,
+          actualPid: parsed.pid as number,
+        },
       );
       return;
     }
@@ -130,12 +136,14 @@ export async function releaseLock(ctx: LockContext, lockPath: string): Promise<v
     const code = (e as NodeJS.ErrnoException).code;
     if (code !== 'ENOENT' && code !== 'FS_NOT_FOUND') {
       // Other read errors: audit and proceed with delete attempt (best-effort)
-      ctx.audit.write(
-        CONTRACT_AUDIT_EVENTS.LOCK_UNLINK_FAILED,
-        `context=ContractSystem.releaseLock`,
-        `path=${lockPath}`,
-        `reason=read_error`,
-        `error=${e instanceof Error ? e.message : String(e)}`,
+      emitContractLockUnlinkFailed(
+        ctx.audit,
+        {
+          context: 'ContractSystem.releaseLock',
+          path: lockPath,
+          reason: 'read_error',
+          error: e instanceof Error ? e.message : String(e),
+        },
       );
     }
   }
@@ -143,7 +151,14 @@ export async function releaseLock(ctx: LockContext, lockPath: string): Promise<v
   try {
     await ctx.fs.delete(lockPath);
   } catch (e) {
-    ctx.audit.write(CONTRACT_AUDIT_EVENTS.LOCK_UNLINK_FAILED, `context=ContractSystem.releaseLock`, `path=${lockPath}`, `error=${e instanceof Error ? e.message : String(e)}`);
+    emitContractLockUnlinkFailed(
+      ctx.audit,
+      {
+        context: 'ContractSystem.releaseLock',
+        path: lockPath,
+        error: e instanceof Error ? e.message : String(e),
+      },
+    );
   }
 }
 

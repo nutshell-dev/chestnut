@@ -684,7 +684,11 @@ describe('ContractSystem Acceptance Flow', () => {
       const auditWriter = (manager as any).audit;
       const timeoutCalls = auditWriter.write.mock.calls.filter((c: any[]) => c[0] === CONTRACT_AUDIT_EVENTS.ACCEPTANCE_TIMEOUT);
       expect(timeoutCalls).toHaveLength(1);
-      expect(timeoutCalls[0][1]).toContain('task-1');
+      expect(timeoutCalls[0]).toEqual(expect.arrayContaining([
+        CONTRACT_AUDIT_EVENTS.ACCEPTANCE_TIMEOUT,
+        expect.stringContaining(`contractId=${contractId}`),
+        expect.stringContaining('subtaskId=task-1'),
+      ]));
     });
   });
 
@@ -732,7 +736,11 @@ describe('ContractSystem Acceptance Flow', () => {
 
       const escalationCalls = auditWriter.write.mock.calls.filter((c: any[]) => c[0] === CONTRACT_AUDIT_EVENTS.ESCALATED);
       expect(escalationCalls.length).toBeGreaterThan(0);
-      expect(escalationCalls[0][1]).toContain('task-1');
+      expect(escalationCalls[0]).toEqual(expect.arrayContaining([
+        CONTRACT_AUDIT_EVENTS.ESCALATED,
+        expect.stringContaining(`contractId=${contractId}`),
+        expect.stringContaining('subtaskId=task-1'),
+      ]));
     });
   });
 

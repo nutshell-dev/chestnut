@@ -13,6 +13,7 @@ import type { FileSystem } from '../../foundation/fs/types.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CONTRACT_DIR } from './dirs.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
+import { emitContractContractDirScanFailed } from './audit-emit.js';
 
 const EPOCH_2020_01_01_MS = 1_577_836_800_000;
 
@@ -38,11 +39,13 @@ export function getContractCreatedMs(
       // phase 1010 r123 B fork: narrow ENOENT 兑现 first-run state 注释意图、非 ENOENT audit
       const code = (err as NodeJS.ErrnoException)?.code;
       if (code !== 'ENOENT' && audit) {
-        audit.write(
-          CONTRACT_AUDIT_EVENTS.CONTRACT_DIR_SCAN_FAILED,
-          `dir=${sub}`,
-          `code=${code ?? 'unknown'}`,
-          `error=${err instanceof Error ? err.message : String(err)}`,
+        emitContractContractDirScanFailed(
+          audit,
+          {
+            dir: sub,
+            code: code ?? 'unknown',
+            error: err instanceof Error ? err.message : String(err),
+          },
         );
       }
     }
