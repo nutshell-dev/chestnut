@@ -40,7 +40,7 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
         if (config.audit) {
           emitContractVerifierSkipped(
             config.audit,
-            { agentId: config.agentId, reason: 'contract_cancelled' },
+            { contractId: config.contractId, agentId: config.agentId, reason: 'contract_cancelled' },
           );
         }
         return { passed: false, feedback: 'Contract was cancelled before verifier started' };
@@ -51,6 +51,7 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
           emitContractVerifierFailed(
             config.audit,
             {
+              contractId: config.contractId,
               agentId: config.agentId,
               clawId: config.clawId,
               kind: 'progress_read_error',
@@ -66,7 +67,7 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
   if (config.audit) {
     emitContractVerifierStarted(
       config.audit,
-      { agentId: config.agentId, clawId: config.clawId },
+      { contractId: config.contractId, agentId: config.agentId, clawId: config.clawId },
     );
   }
 
@@ -116,7 +117,7 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
         try {
           const r = JSON.parse(doneResult.result) as { passed: boolean; reason: string; issues?: string[] };
           if (r.passed && config.audit) {
-            emitContractVerifierPassed(config.audit, { agentId: config.agentId });
+            emitContractVerifierPassed(config.audit, { contractId: config.contractId, agentId: config.agentId });
           }
           return {
             passed: r.passed,
@@ -130,6 +131,7 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
             emitContractVerifierResultParseFailed(
               config.audit,
               {
+                contractId: config.contractId,
                 agentId: config.agentId,
                 clawId: config.clawId,
                 stage: 'done_result_first_parse',
@@ -144,7 +146,7 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
       const r = capturedResult as { passed: boolean; reason: string; issues?: string[] };
       if ('passed' in r) {
         if (r.passed && config.audit) {
-          emitContractVerifierPassed(config.audit, { agentId: config.agentId });
+          emitContractVerifierPassed(config.audit, { contractId: config.contractId, agentId: config.agentId });
         }
         return {
           passed: r.passed,
@@ -161,7 +163,7 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
     const jsonStr = jsonMatch[1] || jsonMatch[0];
     const result = JSON.parse(jsonStr) as { passed: boolean; reason: string; issues?: string[] };
     if (result.passed && config.audit) {
-      emitContractVerifierPassed(config.audit, { agentId: config.agentId });
+      emitContractVerifierPassed(config.audit, { contractId: config.contractId, agentId: config.agentId });
     }
     return { passed: result.passed, feedback: jsonStr, structured: result };
 
@@ -171,6 +173,7 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
       emitContractVerifierFailed(
         config.audit,
         {
+          contractId: config.contractId,
           agentId: config.agentId,
           clawId: config.clawId,
           kind: 'timeout',
@@ -182,6 +185,7 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
     emitContractVerifierFailed(
       config.audit,
       {
+        contractId: config.contractId,
         agentId: config.agentId,
         clawId: config.clawId,
         kind: 'other',

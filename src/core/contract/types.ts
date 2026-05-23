@@ -133,8 +133,8 @@ export interface VerifierConfig {
   /** AbortSignal for cancel propagation / phase 993 D.1 / contract cancel 提前 abort verifier (vs idleTimeoutMs 等待) */
   signal?: AbortSignal;
 
-  /** phase 1080: contractId for crash-recovery status check */
-  contractId?: string;
+  /** phase 1080: contractId for crash-recovery status check / phase 1151: made required for audit emit contractId col */
+  contractId: string;
   /** ContractSystem 装配期注入 / verifier subagent 内部用 getForProfile('readonly') 派生 read+ls+search 工具子集 / + reportTool 注册 / 与 system prompt 指令 align（M#7 / phase 704） */
   toolRegistry: ToolRegistry;
   /** Tool-level wall-clock timeout inherited from globalConfig.tool_timeout_ms (phase 1029 / F-2) */

@@ -505,9 +505,9 @@ export function emitContractAcceptanceTimeout(
 // ─── VERIFIER_FAILED ──────────────────────────────────────────────────────────
 export function emitContractVerifierFailed(
   audit: AuditLog,
-  opts: { agentId?: string; clawId?: string; kind?: string; reason?: string },
+  opts: { contractId: string; agentId?: string; clawId?: string; kind?: string; reason?: string },
 ): void {
-  const cols: string[] = [];
+  const cols: string[] = [`contractId=${opts.contractId}`];
   if (opts.agentId !== undefined) cols.push(`agentId=${opts.agentId}`);
   if (opts.clawId !== undefined) cols.push(`clawId=${opts.clawId}`);
   if (opts.kind !== undefined) cols.push(`kind=${opts.kind}`);
@@ -518,10 +518,11 @@ export function emitContractVerifierFailed(
 // ─── VERIFIER_SKIPPED ─────────────────────────────────────────────────────────
 export function emitContractVerifierSkipped(
   audit: AuditLog,
-  opts: { agentId: string; reason: string },
+  opts: { contractId: string; agentId: string; reason: string },
 ): void {
   audit.write(
     CONTRACT_AUDIT_EVENTS.VERIFIER_SKIPPED,
+    `contractId=${opts.contractId}`,
     `agentId=${opts.agentId}`,
     `reason=${opts.reason}`,
   );
@@ -530,10 +531,11 @@ export function emitContractVerifierSkipped(
 // ─── VERIFIER_STARTED ─────────────────────────────────────────────────────────
 export function emitContractVerifierStarted(
   audit: AuditLog,
-  opts: { agentId: string; clawId: string },
+  opts: { contractId: string; agentId: string; clawId: string },
 ): void {
   audit.write(
     CONTRACT_AUDIT_EVENTS.VERIFIER_STARTED,
+    `contractId=${opts.contractId}`,
     `agentId=${opts.agentId}`,
     `clawId=${opts.clawId}`,
   );
@@ -542,18 +544,23 @@ export function emitContractVerifierStarted(
 // ─── VERIFIER_PASSED ──────────────────────────────────────────────────────────
 export function emitContractVerifierPassed(
   audit: AuditLog,
-  opts: { agentId: string },
+  opts: { contractId: string; agentId: string },
 ): void {
-  audit.write(CONTRACT_AUDIT_EVENTS.VERIFIER_PASSED, `agentId=${opts.agentId}`);
+  audit.write(
+    CONTRACT_AUDIT_EVENTS.VERIFIER_PASSED,
+    `contractId=${opts.contractId}`,
+    `agentId=${opts.agentId}`,
+  );
 }
 
 // ─── VERIFIER_RESULT_PARSE_FAILED ─────────────────────────────────────────────
 export function emitContractVerifierResultParseFailed(
   audit: AuditLog,
-  opts: { agentId: string; clawId: string; stage: string; reason: string },
+  opts: { contractId: string; agentId: string; clawId: string; stage: string; reason: string },
 ): void {
   audit.write(
     CONTRACT_AUDIT_EVENTS.VERIFIER_RESULT_PARSE_FAILED,
+    `contractId=${opts.contractId}`,
     `agentId=${opts.agentId}`,
     `clawId=${opts.clawId}`,
     `stage=${opts.stage}`,

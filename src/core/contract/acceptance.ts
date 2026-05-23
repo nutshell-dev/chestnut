@@ -621,6 +621,7 @@ export async function runLLMAcceptance(
     // (prevents verifier from accessing caller's inbox/status/memory)
     const result = await ctx.runVerifierWithCancel(contractId, {
       agentId: `verifier-${contractId}-${subtaskId}`,
+      contractId,                                               // phase 1151: propagate contractId for audit emit col
       prompt: filledPrompt,
       clawDir: contractAbsDir,
       clawId: ctx.clawId,        // phase 514
