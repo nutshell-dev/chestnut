@@ -1,6 +1,6 @@
 # 契约创建完整工作流
 
-本文档供 dispatch subagent 使用。完成以下各阶段后输出 [CONTRACT_DONE] 标记。
+本文档供 summon subagent 使用。完成以下各阶段后输出 [CONTRACT_DONE] 标记。
 
 ---
 

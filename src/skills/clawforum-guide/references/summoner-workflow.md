@@ -1,6 +1,6 @@
-# Dispatcher 契约创建工作流
+# Summoner 契约创建工作流
 
-Dispatcher 完成第一阶段推理后，按此流程执行。
+Summoner 完成第一阶段推理后，按此流程执行。
 
 ## 写契约文件
 

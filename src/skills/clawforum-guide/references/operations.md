@@ -28,7 +28,7 @@ exec: clawforum claw outbox <claw-id> --limit 5
 
 ## dispatch-skills 目录结构
 
-`clawspace/dispatch-skills/` 存放可复用的契约设计模板，Dispatcher 在处理任务时自动扫描并按需加载：
+`clawspace/dispatch-skills/` 存放可复用的契约设计模板，Summoner 在处理任务时自动扫描并按需加载：
 
 ```
 clawspace/dispatch-skills/
@@ -38,4 +38,6 @@ clawspace/dispatch-skills/
     SKILL.md
 ```
 
-格式与普通 skill 完全一致。没有匹配模板时 Dispatcher 自行决策，可将结果保存到该目录供下次复用。
+格式与普通 skill 完全一致。没有匹配模板时 Summoner 自行决策，可将结果保存到该目录供下次复用。
+
+> 注：`dispatch-skills/` 目录路径名是 phase 1119 抽离前的历史命名、业务归 SummonSystem own、路径名保留作 legacy。
