@@ -34,6 +34,18 @@ import { type AuditLog } from '../../foundation/audit/index.js';
 import type { ToolRegistry } from '../../foundation/tools/index.js';
 import { AUDIT_PREVIEW_LEN } from '../../foundation/audit/index.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
+import {
+  emitContractCancelled,
+  emitContractCompletedHandlerFailed,
+  emitContractArchiveStarted,
+  emitContractMoveArchiveFailed,
+  emitContractUnexpectedAsyncThrow,
+  emitContractRollbackFailed,
+  emitContractRollbackIncomplete,
+  emitContractNotifyFailed,
+  emitContractCreated,
+  emitContractProgressSchemaInvalid,
+} from './audit-emit.js';
 import { CONTRACT_ACTIVE_DIR, CONTRACT_PAUSED_DIR, CONTRACT_ARCHIVE_DIR } from './dirs.js';
 import { UUID_SHORT_LEN } from '../../constants.js';
 
@@ -142,10 +154,12 @@ export class ContractSystem {
         c.abort(err);
       } catch (abortErr) {
         // unsafe abort: 容错防破 cancelContract 主流程
-        this.audit.write(
-          CONTRACT_AUDIT_EVENTS.CANCELLED,
-          contractId,
-          `abort_verifier_failed: ${abortErr instanceof Error ? abortErr.message : String(abortErr)}`,
+        emitContractCancelled(
+          this.audit,
+          {
+            contractId,
+            abortVerifierFailed: abortErr instanceof Error ? abortErr.message : String(abortErr),
+          },
         );
       }
     }
@@ -323,10 +337,12 @@ export class ContractSystem {
       try {
         await cb(contractId);
       } catch (e) {
-        this.audit.write(
-          CONTRACT_AUDIT_EVENTS.CONTRACT_COMPLETED_HANDLER_FAILED,
-          `contractId=${contractId}`,
-          `error=${e instanceof Error ? e.message : String(e)}`,
+        emitContractCompletedHandlerFailed(
+          this.audit,
+          {
+            contractId,
+            error: e instanceof Error ? e.message : String(e),
+          },
         );
       }
     }
@@ -376,19 +392,20 @@ export class ContractSystem {
 
     const existing = await this.loadActive();
     if (existing && existing.id !== contractId) {
-      this.audit.write(
-        CONTRACT_AUDIT_EVENTS.ARCHIVE_STARTED,
-        `old=${existing.id}`,
-        `new=${contractId}`,
+      emitContractArchiveStarted(
+        this.audit,
+        { old: existing.id, new: contractId },
       );
       try {
         await this.moveToArchive(existing.id);
       } catch (err) {
-        this.audit.write(
-          CONTRACT_AUDIT_EVENTS.MOVE_ARCHIVE_FAILED,
-          `old=${existing.id}`,
-          `new=${contractId}`,
-          `reason=${err instanceof Error ? err.message : String(err)}`,
+        emitContractMoveArchiveFailed(
+          this.audit,
+          {
+            old: existing.id,
+            new: contractId,
+            reason: err instanceof Error ? err.message : String(err),
+          },
         );
         // phase 1038 α-7: throw instead of swallow — state machine invariant「1 active contract per claw」
         // 不可 create new contract while previous archive failed (导致 multi-active state)
@@ -433,27 +450,33 @@ export class ContractSystem {
     } catch (err) {
       await this.fs.removeDir(`${this.activeDir}/${contractId}`).catch((deleteErr) => {
         if (isProgrammingBug(deleteErr)) {
-          this.audit.write(
-            CONTRACT_AUDIT_EVENTS.UNEXPECTED_ASYNC_THROW,
-            `context=ContractSystem.rollbackCleanup`,
-            `contractId=${contractId}`,
-            `errorType=${deleteErr instanceof Error ? deleteErr.constructor.name : typeof deleteErr}`,
-            `error=${deleteErr instanceof Error ? deleteErr.message : String(deleteErr)}`,
-            `stack=${deleteErr instanceof Error ? deleteErr.stack ?? '' : ''}`,
+          emitContractUnexpectedAsyncThrow(
+            this.audit,
+            {
+              context: 'ContractSystem.rollbackCleanup',
+              contractId,
+              errorType: deleteErr instanceof Error ? deleteErr.constructor.name : typeof deleteErr,
+              error: deleteErr instanceof Error ? deleteErr.message : String(deleteErr),
+              stack: deleteErr instanceof Error ? deleteErr.stack ?? '' : '',
+            },
           );
         }
-        this.audit.write(
-          CONTRACT_AUDIT_EVENTS.ROLLBACK_FAILED,
-          `contractId=${contractId}`,
-          `error=${deleteErr instanceof Error ? deleteErr.message : String(deleteErr)}`,
+        emitContractRollbackFailed(
+          this.audit,
+          {
+            contractId,
+            error: deleteErr instanceof Error ? deleteErr.message : String(deleteErr),
+          },
         );
       });
       // verify rollback succeeded
       if (await this.fs.exists(`${this.activeDir}/${contractId}`)) {
-        this.audit.write(
-          CONTRACT_AUDIT_EVENTS.ROLLBACK_INCOMPLETE,
-          `contractId=${contractId}`,
-          `remaining=${this.activeDir}/${contractId}`,
+        emitContractRollbackIncomplete(
+          this.audit,
+          {
+            contractId,
+            remaining: `${this.activeDir}/${contractId}`,
+          },
         );
       }
       throw err;
@@ -462,12 +485,19 @@ export class ContractSystem {
     try {
       this.onNotify?.('contract_created', { contractId, title: contractYaml.title, subtaskCount: contractYaml.subtasks.length });
     } catch (err) {
-      this.audit.write(
-        CONTRACT_AUDIT_EVENTS.NOTIFY_FAILED,
-        `error=${err instanceof Error ? err.message : String(err)}`,
+      emitContractNotifyFailed(
+        this.audit,
+        { error: err instanceof Error ? err.message : String(err) },
       );
     }
-    this.audit.write(CONTRACT_AUDIT_EVENTS.CREATED, contractId, `subtasks=${contractYaml.subtasks.length}`, `title=${contractYaml.title}`);
+    emitContractCreated(
+      this.audit,
+      {
+        contractId,
+        subtasks: contractYaml.subtasks.length,
+        title: contractYaml.title,
+      },
+    );
     return contractId;
   }
 
@@ -480,13 +510,15 @@ export class ContractSystem {
     // NEW phase 1134 / schema_version invariant (mirror phase 1019 contract.yaml)
     if (parsed.schema_version !== undefined &&
         (typeof parsed.schema_version !== 'number' || parsed.schema_version > PROGRESS_CURRENT_SCHEMA_VERSION)) {
-      this.audit.write(
-        CONTRACT_AUDIT_EVENTS.PROGRESS_SCHEMA_INVALID,
-        `contractId=${contractId}`,
-        `path=${progressPath}`,
-        `reason=unknown_schema_version`,
-        `actual=${String(parsed.schema_version)}`,
-        `current=${PROGRESS_CURRENT_SCHEMA_VERSION}`,
+      emitContractProgressSchemaInvalid(
+        this.audit,
+        {
+          contractId,
+          path: progressPath,
+          reason: 'unknown_schema_version',
+          actual: String(parsed.schema_version),
+          current: PROGRESS_CURRENT_SCHEMA_VERSION,
+        },
       );
       throw new Error(`progress.json unknown schema_version ${String(parsed.schema_version)} for contract ${contractId} (current=${PROGRESS_CURRENT_SCHEMA_VERSION})`);
     }
@@ -496,11 +528,13 @@ export class ContractSystem {
       typeof parsed.status !== 'string' ||
       typeof parsed.subtasks !== 'object' || parsed.subtasks === null
     ) {
-      this.audit.write(
-        CONTRACT_AUDIT_EVENTS.PROGRESS_SCHEMA_INVALID,
-        `contractId=${contractId}`,
-        `path=${progressPath}`,
-        `raw=${content.slice(0, AUDIT_PREVIEW_LEN)}`,
+      emitContractProgressSchemaInvalid(
+        this.audit,
+        {
+          contractId,
+          path: progressPath,
+          raw: content.slice(0, AUDIT_PREVIEW_LEN),
+        },
       );
       throw new Error(`progress.json schema invalid for contract ${contractId}`);
     }

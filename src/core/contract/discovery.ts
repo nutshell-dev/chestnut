@@ -8,6 +8,10 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import type { Contract } from '../contract/types.js';
 import type { ProgressData } from './types.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
+import {
+  emitContractProgressSchemaInvalid,
+  emitContractProgressCorrupted,
+} from './audit-emit.js';
 
 export interface DiscoveryContext {
   fs: FileSystem;
@@ -42,11 +46,9 @@ async function findLatestContract(
         typeof parsed.status !== 'string' ||
         typeof parsed.subtasks !== 'object' || parsed.subtasks === null
       ) {
-        ctx.audit.write(
-          CONTRACT_AUDIT_EVENTS.PROGRESS_SCHEMA_INVALID,
-          `context=${auditContext}`,
-          `contract=${entry.name}`,
-          `path=${progressPath}`,
+        emitContractProgressSchemaInvalid(
+          ctx.audit,
+          { context: auditContext, contract: entry.name, path: progressPath },
         );
         continue;
       }
@@ -58,16 +60,13 @@ async function findLatestContract(
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
       if (code !== 'ENOENT') {
-        ctx.audit.write(
-          CONTRACT_AUDIT_EVENTS.PROGRESS_CORRUPTED,
-          `file=${entry.name}`,
-          `error=${error instanceof Error ? error.message : String(error)}`,
+        emitContractProgressCorrupted(
+          ctx.audit,
+          { file: entry.name, error: error instanceof Error ? error.message : String(error) },
         );
-        ctx.audit.write(
-          CONTRACT_AUDIT_EVENTS.PROGRESS_CORRUPTED,
-          `context=${auditContext}`,
-          `contract=${entry.name}`,
-          `error=${error instanceof Error ? error.message : String(error)}`,
+        emitContractProgressCorrupted(
+          ctx.audit,
+          { context: auditContext, contract: entry.name, error: error instanceof Error ? error.message : String(error) },
         );
       }
       continue;

@@ -566,7 +566,7 @@ describe('ContractSystem', () => {
         CONTRACT_AUDIT_EVENTS.PROGRESS_CORRUPTED,
         expect.stringContaining('context=ContractSystem.loadPaused'),
         expect.stringContaining('contract=corrupt-paused-contract'),
-        expect.anything(),
+        expect.stringContaining('error='),
       );
     });
 
@@ -1365,7 +1365,11 @@ describe('ContractSystem', () => {
         (c: any[]) => c[0] === CONTRACT_AUDIT_EVENTS.ESCALATED
       );
       expect(escalationCalls.length).toBeGreaterThan(0); // at least 1; exact count is retry-dependent
-      expect(escalationCalls[0][1]).toContain(`${contractId}/t1`);
+      expect(escalationCalls[0]).toEqual(expect.arrayContaining([
+        CONTRACT_AUDIT_EVENTS.ESCALATED,
+        expect.stringContaining(`contractId=${contractId}`),
+        expect.stringContaining('subtaskId=t1'),
+      ]));
     });
 
     it('retry_count 跨多次失败递增', async () => {

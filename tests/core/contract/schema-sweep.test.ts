@@ -211,12 +211,16 @@ describe('discovery schema check', () => {
     expect(result!.id).toBe('contract-c');
 
     // contract-a 被 schema_invalid 跳过
-    expect(mockAudit.write).toHaveBeenCalledWith(
+    const schemaInvalidCall = mockAudit.write.mock.calls.find(
+      (c: any[]) => c[0] === 'contract_progress_schema_invalid'
+    );
+    expect(schemaInvalidCall).toBeDefined();
+    expect(schemaInvalidCall!).toEqual(expect.arrayContaining([
       'contract_progress_schema_invalid',
       expect.stringContaining('context=ContractSystem.loadActive'),
       expect.stringContaining('contract=contract-a'),
       expect.stringContaining('path='),
-    );
+    ]));
   });
 
   it('skips null subtasks via schema check', async () => {
@@ -244,7 +248,11 @@ describe('discovery schema check', () => {
       (c: any[]) => c[0] === 'contract_progress_schema_invalid'
     );
     expect(schemaInvalidCalls).toHaveLength(1);
-    expect(schemaInvalidCalls[0][2]).toContain('contract=contract-a');
+    expect(schemaInvalidCalls[0]).toEqual(expect.arrayContaining([
+      'contract_progress_schema_invalid',
+      expect.stringContaining('context=ContractSystem.loadActive'),
+      expect.stringContaining('contract=contract-a'),
+    ]));
   });
 });
 

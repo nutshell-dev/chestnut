@@ -11,6 +11,11 @@ import type { ProgressData } from './types.js';
 import { acquireLock, releaseLock, withProgressLock, type LockContext } from './lock.js';
 import { ToolError } from '../../foundation/errors.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
+import {
+  emitContractPaused,
+  emitContractResumed,
+  emitContractCancelled,
+} from './audit-emit.js';
 
 export interface LifecycleContext extends LockContext {
   activeDir: string;
@@ -63,7 +68,7 @@ export async function pauseContract(
     await releaseLock(ctx, targetLockPath);
   }
 
-  ctx.audit.write(CONTRACT_AUDIT_EVENTS.PAUSED, contractId, `checkpoint=${checkpointNote}`);
+  emitContractPaused(ctx.audit, { contractId, checkpoint: checkpointNote });
 }
 
 export async function resumeContract(
@@ -94,7 +99,7 @@ export async function resumeContract(
     await releaseLock(ctx, targetLockPath);
   }
 
-  ctx.audit.write(CONTRACT_AUDIT_EVENTS.RESUMED, contractId);
+  emitContractResumed(ctx.audit, { contractId });
   return ctx.loadContract(contractId);
 }
 
@@ -138,7 +143,7 @@ export async function cancelContract(
     await releaseLock(ctx, targetLockPath);
   }
 
-  ctx.audit.write(CONTRACT_AUDIT_EVENTS.CANCELLED, contractId, `reason=${reason}`);
+  emitContractCancelled(ctx.audit, { contractId, reason });
 }
 
 export async function isContractComplete(

@@ -10,6 +10,7 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import type { Contract, ContractStatus } from '../contract/types.js';
 import type { ContractYaml, ProgressData } from './types.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
+import { emitContractYamlSchemaInvalid } from './audit-emit.js';
 
 const CONTRACT_DEFAULTS = {
   schema_version: 1,
@@ -38,13 +39,15 @@ export async function loadContractYaml(
   // NEW schema_version invariant（phase 1019 r124 E fork）
   if (parsed?.schema_version !== undefined &&
       (typeof parsed.schema_version !== 'number' || parsed.schema_version > CONTRACT_CURRENT_SCHEMA_VERSION)) {
-    ctx.audit.write(
-      CONTRACT_AUDIT_EVENTS.CONTRACT_YAML_SCHEMA_INVALID,
-      `contractId=${contractId}`,
-      `path=${contractPath}`,
-      `reason=unknown_schema_version`,
-      `actual=${String(parsed.schema_version)}`,
-      `current=${CONTRACT_CURRENT_SCHEMA_VERSION}`,
+    emitContractYamlSchemaInvalid(
+      ctx.audit,
+      {
+        contractId,
+        path: contractPath,
+        reason: 'unknown_schema_version',
+        actual: String(parsed.schema_version),
+        current: CONTRACT_CURRENT_SCHEMA_VERSION,
+      },
     );
     throw new Error(`contract.yaml unknown schema_version ${String(parsed.schema_version)} for contract ${contractId} (current=${CONTRACT_CURRENT_SCHEMA_VERSION})`);
   }
@@ -54,11 +57,9 @@ export async function loadContractYaml(
     typeof parsed?.goal !== 'string' ||
     !Array.isArray(parsed?.subtasks)
   ) {
-    ctx.audit.write(
-      CONTRACT_AUDIT_EVENTS.CONTRACT_YAML_SCHEMA_INVALID,
-      `contractId=${contractId}`,
-      `path=${contractPath}`,
-      `raw=${content.slice(0, AUDIT_PREVIEW_LEN)}`,
+    emitContractYamlSchemaInvalid(
+      ctx.audit,
+      { contractId, path: contractPath, raw: content.slice(0, AUDIT_PREVIEW_LEN) },
     );
     throw new Error(`contract.yaml schema invalid for contract ${contractId}`);
   }
