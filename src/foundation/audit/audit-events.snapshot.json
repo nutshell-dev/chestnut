@@ -393,7 +393,8 @@
       "stream_reader_watcher_callback_failed",
       "stream_reader_watcher_failed",
       "stream_write_dropped",
-      "stream_writer_open_created_empty"
+      "stream_writer_open_created_empty",
+      "stream_writer_open_preserved_raced"
     ],
     "watchdog_audit-events": [
       "claw_crash_detected",

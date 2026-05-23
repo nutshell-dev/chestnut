@@ -6,6 +6,8 @@ import { STREAM_FILE, type StreamEvent, type StreamLog } from './types.js';
 import type { AuditLog } from '../audit/index.js';
 import { STREAM_AUDIT_EVENTS } from './audit-events.js';
 import { randomUUID } from 'node:crypto';
+import * as fsSync from 'fs';
+import * as path from 'path';
 
 export interface StreamRetentionOptions {
   maxFiles?: number | null;
@@ -63,13 +65,40 @@ export class StreamWriter implements StreamLog {
     //     session boundary observability；0 NEW emit 必要。
     //     reader 端 stream_reader_unlinked + stream_reader_file_missing 已 cover unlink case。
     //     ⚓ accepted-stable per `feedback_yagni_helper_threshold` (既有 emit cover)。
-    if (!this.fs.existsSync(STREAM_FILE)) {
-      this.fs.writeAtomicSync(STREAM_FILE, '');
+    // === Race-safe session boundary file initialization (phase 1120 θ fix):
+    //     writeFileSync(STREAM_FILE, '', { flag: 'wx' }) = O_CREAT | O_EXCL（OS 原子）
+    //     替原 check-then-act（existsSync → writeAtomicSync）的 µs 级 race 窗口：
+    //       - 不存在 → 创建空文件 + emit WRITER_OPEN_CREATED_EMPTY
+    //       - 已存在（CLI cross-process append race won）→ EEXIST 抛、catch 保留 raced content
+    //         + emit WRITER_OPEN_PRESERVED_RACED（observability、forensics 可重建 race）
+    //     合规 DP「不丢弃静默」（user Q2 拍板 2026-05-23：不允许条件性接受形态、必本 phase 治）。
+    const nodeFsRace = this.fs as unknown as {
+      readSync(path: string): string;
+    };
+    const fsOptions = this.fs as unknown as { options?: { baseDir?: string } };
+    const absStreamPath = fsOptions.options?.baseDir
+      ? path.join(fsOptions.options.baseDir, STREAM_FILE)
+      : STREAM_FILE;
+    try {
+      fsSync.writeFileSync(absStreamPath, '', { flag: 'wx' });
       this.audit.write(
         STREAM_AUDIT_EVENTS.WRITER_OPEN_CREATED_EMPTY,
         `path=${STREAM_FILE}`,
         'reason=ensure_reader_watcher_compat',
       );
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
+        // CLI cross-process append won the race — preserve raced content as start of new session
+        const racedContent = nodeFsRace.readSync(STREAM_FILE);
+        this.audit.write(
+          STREAM_AUDIT_EVENTS.WRITER_OPEN_PRESERVED_RACED,
+          `path=${STREAM_FILE}`,
+          `bytes=${racedContent.length}`,
+          'reason=cli_cross_process_append_race_won',
+        );
+      } else {
+        throw err;
+      }
     }
 
     this.pruneArchives();
