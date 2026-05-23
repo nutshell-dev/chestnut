@@ -500,7 +500,21 @@ export async function runAcceptanceInBackground(
 
     // archive 拆出 lock（mirror completeSubtaskSync pattern / 0 lock holding 长 IO）
     if (outcome?.passed && outcome.allCompleted) {
-      await archiveAndEmit(ctx, contractId, contractYaml.title, 'ContractSystem._runAcceptanceInBackground');
+      // phase 1133 (r126 C fork C-2): post-lock pre-archive cancel re-check
+      // mirror completeSubtaskSync L381-391 (phase 1067 commit 11a8788a 立法模板)
+      // lock 释放 → archive 之间 cancel race window 收窄
+      const progressAfterLock = await ctx.getProgress(contractId);
+      if (progressAfterLock.status === 'cancelled') {
+        ctx.audit.write(
+          CONTRACT_AUDIT_EVENTS.COMPLETE_ON_CANCELLED,
+          `contractId=${contractId}`,
+          `subtaskId=${subtaskId}`,
+          `context=runAcceptanceInBackground`,
+        );
+        outcomeKind = 'failed';
+      } else {
+        await archiveAndEmit(ctx, contractId, contractYaml.title, 'ContractSystem._runAcceptanceInBackground');
+      }
     }
   } finally {
     ctx.audit.write(
