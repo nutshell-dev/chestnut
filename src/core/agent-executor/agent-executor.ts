@@ -1,9 +1,11 @@
 /**
- * Agent Executor - Multi-step agent loop with persistence and circuit breakers
+ * Agent Executor - Multi-step agent loop with circuit breakers
  *
  * Repeatedly calls StepExecutor (executeStep) until a final result or exception.
  * Maintains cross-step counters (stepCount, consecutiveParseErrors,
- * consecutiveMaxTokensToolUse) and persists session after each successful step.
+ * consecutiveMaxTokensToolUse). Calls onStepComplete callback after each
+ * successful step for caller to persist (see loop.ts shim + design
+ * l3_agent_executor.md §A.invariant-2; SessionStore 落盘 phase409 已迁 caller).
  */
 
 import type { Message, ToolDefinition } from '../../foundation/llm-provider/types.js';
