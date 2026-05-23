@@ -236,7 +236,7 @@ export class AsyncTaskSystem {
           });
         },
         {
-          stability: 'stable',
+          stability: 'immediate',
           recursive: false,
           persistent: true,
           onError: (err, context) => {
