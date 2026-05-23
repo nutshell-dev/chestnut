@@ -292,10 +292,10 @@ describe('ToolExecutor', () => {
       // TSV format: timestamp, type, toolName, status, duration, summary
       expect(auditContent).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\t/);
       const parts = auditContent.trim().split('\t');
-      expect(parts[1]).toBe('tool_exec');
-      expect(parts[2]).toBe('test-tool');
-      expect(parts[3]).toBe('ok');
-      expect(parts[4]).toMatch(/^elapsed_ms=/);
+      expect(parts[2]).toBe('tool_exec');
+      expect(parts[3]).toBe('test-tool');
+      expect(parts[4]).toBe('ok');
+      expect(parts[5]).toMatch(/^elapsed_ms=/);
     });
 
     it('should write audit log on failed tool execution', async () => {
@@ -320,10 +320,10 @@ describe('ToolExecutor', () => {
       const auditContent = await fs.readFile(auditPath, 'utf-8');
       
       const parts = auditContent.trim().split('\t');
-      expect(parts[1]).toBe('tool_exec');
-      expect(parts[2]).toBe('failing-tool');
-      expect(parts[3]).toBe('err');
-      expect(parts[5]).toContain('Something went wrong');
+      expect(parts[2]).toBe('tool_exec');
+      expect(parts[3]).toBe('failing-tool');
+      expect(parts[4]).toBe('err');
+      expect(parts[6]).toContain('Something went wrong');
     });
 
     it('should not block execution when audit log fails', async () => {

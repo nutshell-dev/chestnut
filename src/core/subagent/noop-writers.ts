@@ -8,5 +8,9 @@ export class NoopStreamWriter implements StreamLog {
 }
 
 export class NoopAuditWriter implements AuditLog {
-  write(_type: string, ..._cols: (string | number)[]): void {}
+  private seq = 0; // NEW phase 1125 parity (即使 noop 也 increment 防 caller assert seq)
+
+  write(_type: string, ..._cols: (string | number)[]): void {
+    this.seq++;
+  }
 }

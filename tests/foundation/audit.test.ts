@@ -29,11 +29,12 @@ describe('AuditWriter', () => {
 
     const content = fs.readFileSync(path.join(tmpDir, 'audit.tsv'), 'utf-8');
     const parts = content.trim().split('\t');
-    expect(parts.length).toBe(4);
+    expect(parts.length).toBe(5);
     expect(parts[0]).toMatch(/^\d{4}-\d{2}-\d{2}T/); // ISO timestamp
-    expect(parts[1]).toBe('test_event');
-    expect(parts[2]).toBe('col1');
-    expect(parts[3]).toBe('42');
+    expect(parts[1]).toBe('seq=1');
+    expect(parts[2]).toBe('test_event');
+    expect(parts[3]).toBe('col1');
+    expect(parts[4]).toBe('42');
   });
 
   it('escapes tabs and newlines in cols', () => {
@@ -180,9 +181,9 @@ describe('AuditWriter', () => {
 
     const content = fs.readFileSync(path.join(tmpDir, 'audit.tsv'), 'utf-8');
     const parts = content.trim().split('\t');
-    // ts, escaped-type, col1 = 3 列
-    expect(parts.length).toBe(3);
-    expect(parts[1]).toBe('type\\twith\\ttabs');
+    // ts, seq, escaped-type, col1 = 4 列
+    expect(parts.length).toBe(4);
+    expect(parts[2]).toBe('type\\twith\\ttabs');
   });
 
   it('rotation uses UUID suffix not Date.now', () => {

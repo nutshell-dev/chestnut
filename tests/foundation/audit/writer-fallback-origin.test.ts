@@ -116,9 +116,9 @@ describe('AuditWriter — fallback buffer origin tag (P1.13)', () => {
     // origin 中的真实 tab 已被转义为 \t，所以 firstLine 中不应包含 '/test/foo\tbar.tsv' 的未转义形式
     expect(firstLine).toContain('/test/foo\\tbar.tsv');
     // 且整行中，origin 部分与 line 部分只由一个真实 tab 分隔
-    // 数真实 tab 数量：应该是 3（origin 和 line 之间的分隔 + line 内部的 2 个 tab）
+    // 数真实 tab 数量：应该是 4（origin 和 line 之间的分隔 + line 内部的 3 个 tab：ts, seq, type, col）
     const realTabs = (firstLine.match(/\t/g) || []).length;
-    expect(realTabs).toBe(3);
+    expect(realTabs).toBe(4);
 
     consoleErrSpy.mockRestore();
   });

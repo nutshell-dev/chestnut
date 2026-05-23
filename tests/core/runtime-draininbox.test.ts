@@ -185,9 +185,9 @@ describe('Runtime DrainInbox', () => {
       // AuditLog log should show inbox_unaddressed for the subagent message
       const auditLog = await fs.readFile(path.join(clawDir, 'audit.tsv'), 'utf-8');
       const entries = auditLog.trim().split('\n').map(line => line.split('\t'));
-      const unaddressedEntry = entries.find((e: string[]) => e[1] === 'inbox_unaddressed');
+      const unaddressedEntry = entries.find((e: string[]) => e[2] === 'inbox_unaddressed');
       expect(unaddressedEntry).toBeDefined();
-      expect(unaddressedEntry[5]).toContain('to=some-subagent-uuid');
+      expect(unaddressedEntry[6]).toContain('to=some-subagent-uuid');
     });
 
     it('should return 0 and not call LLM when all inbox messages are addressed to other agents', async () => {
@@ -234,7 +234,7 @@ describe('Runtime DrainInbox', () => {
 
       const auditLog = await fs.readFile(path.join(clawDir, 'audit.tsv'), 'utf-8');
       const entries = auditLog.trim().split('\n').map(line => line.split('\t'));
-      const entry = entries.find((e: string[]) => e[1] === 'inbox_unaddressed');
+      const entry = entries.find((e: string[]) => e[2] === 'inbox_unaddressed');
       expect(entry).toBeDefined();
       expect(entry!.some((col: string) => col.includes('to=other-claw'))).toBe(true);
     });
@@ -256,7 +256,7 @@ describe('Runtime DrainInbox', () => {
 
       const auditLog = await fs.readFile(path.join(clawDir, 'audit.tsv'), 'utf-8');
       const entries = auditLog.trim().split('\n').map(line => line.split('\t'));
-      const doneEntries = entries.filter((e: string[]) => e[1] === 'inbox_done');
+      const doneEntries = entries.filter((e: string[]) => e[2] === 'inbox_done');
       expect(doneEntries.length).toBe(2);
     });
 
@@ -277,7 +277,7 @@ describe('Runtime DrainInbox', () => {
 
       const auditLog = await fs.readFile(path.join(clawDir, 'audit.tsv'), 'utf-8');
       const entries = auditLog.trim().split('\n').map(line => line.split('\t'));
-      const failedEntry = entries.find((e: string[]) => e[1] === 'inbox_failed');
+      const failedEntry = entries.find((e: string[]) => e[2] === 'inbox_failed');
       expect(failedEntry).toBeDefined();
       expect(failedEntry!.some((col: string) => col.includes('reason=Malformed frontmatter: missing closing ---'))).toBe(true);
     });
@@ -468,7 +468,7 @@ Test message`;
 
       const auditLog = await fs.readFile(path.join(clawDir, 'audit.tsv'), 'utf-8');
       const entries = auditLog.trim().split('\n').map(line => line.split('\t'));
-      const injectEntry = entries.find((e: string[]) => e[1] === 'inbox_inject');
+      const injectEntry = entries.find((e: string[]) => e[2] === 'inbox_inject');
       expect(injectEntry).toBeDefined();
       // 原始 type 应在 audit 日志中可见，不应是 'message'
       expect(injectEntry!.some((col: string) => col === 'type=watchdog_claw_inactivity')).toBe(true);

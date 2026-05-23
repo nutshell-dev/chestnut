@@ -117,6 +117,7 @@ export const AUDIT_FILE = 'audit.tsv';
 
 export class AuditWriter implements AuditLog {
   private readonly maxBytes: number | null;
+  private seq = 0; // NEW phase 1125
 
   constructor(
     private readonly fs: FileSystem,
@@ -127,8 +128,9 @@ export class AuditWriter implements AuditLog {
   }
 
   write(type: string, ...cols: (string | number)[]): void {
+    this.seq++;
     const ts = new Date().toISOString();
-    const parts = [esc(ts), esc(type), ...cols.map(c => esc(String(c)))];
+    const parts = [esc(ts), `seq=${this.seq}`, esc(type), ...cols.map(c => esc(String(c)))];
     const line = parts.join('\t') + '\n';
     try {
       if (this.maxBytes) this.rotateIfNeeded();

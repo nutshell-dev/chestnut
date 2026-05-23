@@ -22,6 +22,7 @@ export class BatchedAuditWriter implements AuditLog {
   private readonly maxBytes: number | null;
   private readonly batchSize: number;
   private readonly flushIntervalMs: number;
+  private seq = 0; // NEW phase 1125
 
   constructor(fs: FileSystem, filePath: string, opts: BatchedAuditWriterOptions = {}) {
     this.fs = fs;
@@ -32,8 +33,9 @@ export class BatchedAuditWriter implements AuditLog {
   }
 
   write(type: string, ...cols: (string | number)[]): void {
+    this.seq++;
     const ts = new Date().toISOString();
-    const parts = [esc(ts), esc(type), ...cols.map(c => esc(String(c)))];
+    const parts = [esc(ts), `seq=${this.seq}`, esc(type), ...cols.map(c => esc(String(c)))];
     this.buffer.push(parts.join('\t') + '\n');
     if (this.buffer.length >= this.batchSize) {
       this.flush();

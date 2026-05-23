@@ -99,7 +99,11 @@ function collectEntries(opts: LlmStatsOptions, targetDate: string): ParsedLlmRow
       if (!line.trim()) continue;
       const cols = line.split('\t');
       const ts = cols[0] ?? '';
-      const type = cols[1] ?? '';
+      let typeIdx = 1;
+      if (cols[1]?.startsWith('seq=')) {
+        typeIdx = 2;
+      }
+      const type = cols[typeIdx] ?? '';
       if (type !== 'llm_call' && type !== 'llm_error') continue;
       if (!ts.startsWith(targetDate)) continue;
 
@@ -111,7 +115,7 @@ function collectEntries(opts: LlmStatsOptions, targetDate: string): ParsedLlmRow
       results.push({
         ts,
         success: type === 'llm_call',
-        model: cols[2] ?? 'unknown',
+        model: cols[typeIdx + 1] ?? 'unknown',
         inputTokens: kv('in'),
         outputTokens: kv('out'),
         latencyMs: type === 'llm_call' ? kv('ms') : 0,

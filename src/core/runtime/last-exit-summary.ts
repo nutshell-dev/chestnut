@@ -62,7 +62,12 @@ export function readLastExitEvent(fs: FileSystem, auditPath: string): RawEvent |
   for (let i = lines.length - 1; i >= 0; i--) {
     const parts = lines[i].split('\t');
     if (parts.length >= 2 && parts[0] && parts[1]) {
-      return { ts: parts[0], type: parts[1], cols: parts.slice(2) };
+      // NEW phase 1125: 兼容 seq=N col（ts 后第 1 col）
+      let typeIdx = 1;
+      if (parts[1].startsWith('seq=') && parts.length >= 3) {
+        typeIdx = 2;
+      }
+      return { ts: parts[0], type: parts[typeIdx], cols: parts.slice(typeIdx + 1) };
     }
   }
   return null;
