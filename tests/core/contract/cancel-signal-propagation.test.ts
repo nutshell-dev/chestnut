@@ -91,8 +91,11 @@ describe('phase 1020 / r124 C fork — cancel propagation 装配端真实施', (
         [],
       );
 
-      // 给 controller 注册留出时间
-      await new Promise(r => setTimeout(r, 10));
+      // phase 1144: 等 controller 真注册完成（避 wall-clock race）
+      await vi.waitFor(
+        () => expect(manager.getActiveVerifierCount()).toBeGreaterThanOrEqual(1),
+        { timeout: 5000, interval: 10 },
+      );
 
       await manager.cancel(contractId, 'test reason');
 
@@ -135,8 +138,11 @@ describe('phase 1020 / r124 C fork — cancel propagation 装配端真实施', (
         [],
       );
 
-      // 给 controller 注册留出时间
-      await new Promise(r => setTimeout(r, 10));
+      // phase 1144: 等 controller 真注册完成（避 wall-clock race）
+      await vi.waitFor(
+        () => expect(manager.getActiveVerifierCount()).toBeGreaterThanOrEqual(1),
+        { timeout: 5000, interval: 10 },
+      );
 
       const controllers = (manager as any)._activeContractControllers;
       expect(controllers.get(contractId)).toBeDefined();
@@ -207,7 +213,11 @@ describe('phase 1020 / r124 C fork — cancel propagation 装配端真实施', (
         [],
       );
 
-      await new Promise(r => setTimeout(r, 10));
+      // phase 1144: 等 2 个 controller 都注册完成（避 wall-clock race + N=1 时 cancel race）
+      await vi.waitFor(
+        () => expect(manager.getActiveVerifierCount()).toBeGreaterThanOrEqual(2),
+        { timeout: 5000, interval: 10 },
+      );
 
       await manager.cancel(contractId, 'test');
 
