@@ -50,6 +50,7 @@ import {
   loadContract as loadCt, saveProgress as saveProg,
   checkAllSubtasksCompleted,
   type PersistenceContext,
+  PROGRESS_CURRENT_SCHEMA_VERSION,
 } from './persistence.js';
 import { runContractVerifier } from './verifier-job.js';
 import {
@@ -415,6 +416,7 @@ export class ContractSystem {
     await this.fs.writeAtomic(`${this.activeDir}/${contractId}/contract.yaml`, content);
 
     const progress: ProgressData = {
+      schema_version: PROGRESS_CURRENT_SCHEMA_VERSION,
       contract_id: contractId,
       status: 'running',
       subtasks: Object.fromEntries(
@@ -473,7 +475,22 @@ export class ContractSystem {
     const dir = await this.contractDir(contractId);
     const progressPath = `${dir}/${contractId}/progress.json`;
     const content = await this.fs.read(progressPath);
-    const parsed = JSON.parse(content) as { contract_id?: unknown; status?: unknown; subtasks?: unknown };
+    const parsed = JSON.parse(content) as { schema_version?: unknown; contract_id?: unknown; status?: unknown; subtasks?: unknown };
+
+    // NEW phase 1134 / schema_version invariant (mirror phase 1019 contract.yaml)
+    if (parsed.schema_version !== undefined &&
+        (typeof parsed.schema_version !== 'number' || parsed.schema_version > PROGRESS_CURRENT_SCHEMA_VERSION)) {
+      this.audit.write(
+        CONTRACT_AUDIT_EVENTS.PROGRESS_SCHEMA_INVALID,
+        `contractId=${contractId}`,
+        `path=${progressPath}`,
+        `reason=unknown_schema_version`,
+        `actual=${String(parsed.schema_version)}`,
+        `current=${PROGRESS_CURRENT_SCHEMA_VERSION}`,
+      );
+      throw new Error(`progress.json unknown schema_version ${String(parsed.schema_version)} for contract ${contractId} (current=${PROGRESS_CURRENT_SCHEMA_VERSION})`);
+    }
+
     if (
       typeof parsed.contract_id !== 'string' ||
       typeof parsed.status !== 'string' ||

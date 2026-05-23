@@ -8,13 +8,24 @@ import { getClawforumDir, getClawforumFs, getAuditWriter, lastInactivityNotified
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 import { AUDIT_MESSAGE_MAX_CHARS } from '../foundation/audit/index.js';
 
+const CURRENT_WATCHDOG_SCHEMA_VERSION = 1;
+
 interface WatchdogState {
-  version?: number;  // v0 = absent (legacy), v1 = current
+  schema_version?: number;  // v1 current; legacy read
+  /** @deprecated legacy fallback */
+  version?: number;
   lastInactivityNotified: Record<string, number>;
   inactivityNotifyCount: Record<string, number>;
   // NEW — phase 1072: crash-detection state persisted for watchdog self-recovery
   clawPreviouslyAlive: Record<string, boolean>;
   everSpawned: string[];
+}
+
+class WatchdogSchemaError extends Error {
+  constructor(public actualVersion: unknown, public currentVersion: number) {
+    super(`watchdog-state.json unknown schema_version ${String(actualVersion)} (current=${currentVersion})`);
+    this.name = 'WatchdogSchemaError';
+  }
 }
 
 /** 1:1 保 watchdog.ts:204-206 */
@@ -28,7 +39,11 @@ export function loadWatchdogState(): void {
     const fs = getClawforumFs();
     const raw = fs.readSync('watchdog-state.json');
     const state = JSON.parse(raw) as WatchdogState;
-    // version ?? 0 — 旧文件无 version 字段，视为 v0，兼容加载
+    const stateVersion = state.schema_version ?? state.version;
+    if (stateVersion !== undefined &&
+        (typeof stateVersion !== 'number' || stateVersion > CURRENT_WATCHDOG_SCHEMA_VERSION)) {
+      throw new WatchdogSchemaError(stateVersion, CURRENT_WATCHDOG_SCHEMA_VERSION);
+    }
     for (const [k, v] of Object.entries(state.lastInactivityNotified ?? {})) {
       lastInactivityNotified.set(k, v);
     }
@@ -64,9 +79,12 @@ export function loadWatchdogState(): void {
       moveErr = mErr;
     }
     const auditWriter = getAuditWriter();
+    const isSchemaErr = err instanceof WatchdogSchemaError;
+    const auditEvent = isSchemaErr ? WATCHDOG_AUDIT_EVENTS.STATE_SCHEMA_INVALID : WATCHDOG_AUDIT_EVENTS.STATE_LOAD_FAILED;
     auditWriter?.write(
-      WATCHDOG_AUDIT_EVENTS.STATE_LOAD_FAILED,
+      auditEvent,
       `backup=${backupPath}`,
+      ...(isSchemaErr ? [`reason=unknown_schema_version`, `actual=${String((err as WatchdogSchemaError).actualVersion)}`, `current=${CURRENT_WATCHDOG_SCHEMA_VERSION}`] : []),
       `move_ok=${moveOk}`,
       ...(moveOk ? [] : [`move_error=${(moveErr instanceof Error ? moveErr.message : String(moveErr)).slice(0, AUDIT_MESSAGE_MAX_CHARS)}`]),
       `error=${(err as Error).message?.slice(0, AUDIT_MESSAGE_MAX_CHARS) ?? String(err)}`,
@@ -77,7 +95,7 @@ export function loadWatchdogState(): void {
 /** 1:1 保 watchdog.ts:240-249 / save 2 Map */
 export function saveWatchdogState(): void {
   const state: WatchdogState = {
-    version: 1,
+    schema_version: 1,
     lastInactivityNotified: Object.fromEntries(lastInactivityNotified),
     inactivityNotifyCount: Object.fromEntries(inactivityNotifyCount),
     // NEW — phase 1072

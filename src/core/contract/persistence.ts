@@ -17,6 +17,7 @@ const CONTRACT_DEFAULTS = {
 };
 
 const CONTRACT_CURRENT_SCHEMA_VERSION = 1;
+export const PROGRESS_CURRENT_SCHEMA_VERSION = 1;
 
 export interface PersistenceContext {
   fs: FileSystem;
@@ -110,7 +111,8 @@ export async function saveProgress(
 ): Promise<void> {
   const dir = await ctx.contractDir(contractId);
   const progressPath = `${dir}/${contractId}/progress.json`;
-  await ctx.fs.writeAtomic(progressPath, JSON.stringify(progress, null, 2));
+  const progressToSave = { schema_version: PROGRESS_CURRENT_SCHEMA_VERSION, ...progress };
+  await ctx.fs.writeAtomic(progressPath, JSON.stringify(progressToSave, null, 2));
 }
 
 // phase 791 (P0.17): updateContractStatus deleted.

@@ -91,6 +91,7 @@ export interface ContractYaml {
 
 // Progress data structure
 export interface ProgressData {
+  schema_version?: number;  // NEW phase 1134 / v1 = current
   contract_id: string;
   status: ContractStatus;
   subtasks: Record<string, {

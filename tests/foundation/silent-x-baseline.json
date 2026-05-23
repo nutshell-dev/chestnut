@@ -263,7 +263,7 @@
     },
     {
       "file": "src/watchdog/watchdog-state.ts",
-      "line": 96,
+      "line": 114,
       "body_excerpt": "} catch { /* ignore: crash handler 不抛 */ }",
       "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
     },

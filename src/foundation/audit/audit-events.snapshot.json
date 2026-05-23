@@ -409,6 +409,7 @@
       "watchdog_crash",
       "watchdog_pid_corrupt",
       "watchdog_state_load_failed",
+      "watchdog_state_schema_invalid",
       "watchdog_stop",
       "watchdog_stream_read_failed"
     ]
