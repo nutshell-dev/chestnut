@@ -335,7 +335,10 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
 
           if (!alreadyPending && startupCheckCooledDown) {
             fsNative.mkdirSync(path.join(agentDir, STATUS_SUBDIR), { recursive: true });
-            fsNative.writeFileSync(startupCheckTsFile, String(Date.now()));
+            // r126 F fork: atomic tmp+rename mirror L261-268 phase 1024 G.1 / 防 crash 中 torn-write
+            const tmpFile = `${startupCheckTsFile}.${process.pid}.${Date.now()}.tmp`;
+            fsNative.writeFileSync(tmpFile, String(Date.now()));
+            fsNative.renameSync(tmpFile, startupCheckTsFile);
             notifyInbox(loopFs, {
               inboxDir: inboxPendingDir,
               type: 'startup_check',

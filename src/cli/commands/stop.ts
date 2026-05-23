@@ -71,10 +71,13 @@ export async function stopAllCommand(deps?: { audit?: AuditLog }): Promise<void>
     }
   }
 
-  // 写入 clean-stop 标记，供下次启动时识别
+  // Write marker so next boot can detect intentional stop
   const cleanStopFile = path.join(baseDir, 'clean-stop');
   try {
-    fs.writeFileSync(cleanStopFile, String(Date.now()), 'utf-8');
+    // r126 F fork: atomic tmp+rename mirror phase 1024 G.1 / 防 crash 中 torn-write
+    const tmpFile = `${cleanStopFile}.${process.pid}.${Date.now()}.tmp`;
+    fs.writeFileSync(tmpFile, String(Date.now()), 'utf-8');
+    fs.renameSync(tmpFile, cleanStopFile);
   } catch { /* best-effort */ }
 
   audit?.write(CLI_AUDIT_EVENTS.DAEMON_STOP, `scope=all`);

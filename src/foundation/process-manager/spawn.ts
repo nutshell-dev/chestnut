@@ -187,6 +187,10 @@ export async function spawnProcess(
     const deadline = Date.now() + PROCESS_SPAWN_CONFIRM_MS;
     while (!ready && Date.now() < deadline) {
       await new Promise(resolve => setTimeout(resolve, SPAWN_POLL_INTERVAL_MS));
+      if (!isAliveByPidFile(clawId)) {
+        // child died during boot — fast-fail without waiting for full deadline
+        throw new Error(`Process "${clawId}" died during boot. Check logs at: ${options.logFile}`);
+      }
       ready = isReady(clawId);
     }
     if (!ready) {

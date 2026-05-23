@@ -137,7 +137,7 @@
     },
     {
       "file": "src/cli/commands/stop.ts",
-      "line": 78,
+      "line": 81,
       "body_excerpt": "} catch { /* best-effort */ }",
       "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
     },
