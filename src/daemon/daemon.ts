@@ -120,6 +120,7 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
       promptHash = createHash('sha256').update(agentsContent).digest('hex').slice(0, 6);
     } catch { /* silent: AGENTS.md is optional, missing is expected */ }
     auditWriter.write(deps.auditEvents.daemonStart, `sha256:${promptHash}`);
+    await processManager.markReady(name);
 
     // daemon-start commit（不阻塞启动）
     snapshot.commit(`daemon-start ${new Date().toISOString()}`).then((result) => {

@@ -45,6 +45,8 @@ beforeEach(async () => {
   await fs.mkdir(tempDir, { recursive: true });
   nodeFs = new NodeFileSystem({ baseDir: tempDir });
   vi.clearAllMocks();
+  // Mock isReady so spawn poll passes without a real daemon writing ready marker
+  vi.spyOn(ProcessManager.prototype, 'isReady').mockReturnValue(true);
   // Restore default: pgrep no match
   const { spawnSync, spawn } = await import('child_process');
   vi.mocked(spawnSync).mockReturnValue({ status: 1, stdout: '', stderr: '' } as any);

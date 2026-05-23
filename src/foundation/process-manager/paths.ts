@@ -15,6 +15,10 @@ export function getLockFile(ctx: ProcessManagerContext, clawId: string): string 
   return path.join(getStatusDir(ctx, clawId), 'daemon.lock');
 }
 
+export function getReadyFile(ctx: ProcessManagerContext, clawId: string): string {
+  return path.join(getStatusDir(ctx, clawId), 'ready');
+}
+
 export async function ensureStatusDir(ctx: ProcessManagerContext, clawId: string): Promise<void> {
   await ctx.fs.ensureDir(getStatusDir(ctx, clawId));
 }

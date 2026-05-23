@@ -6,7 +6,7 @@ describe('disassemble', () => {
     clawId: string;
     runtime: { stop: ReturnType<typeof vi.fn> };
     streamWriter: { close: ReturnType<typeof vi.fn> };
-    processManager: { releaseLock: ReturnType<typeof vi.fn> };
+    processManager: { markNotReady: ReturnType<typeof vi.fn>; releaseLock: ReturnType<typeof vi.fn> };
     auditWriter: { write: ReturnType<typeof vi.fn> };
     cronRunner?: { stop: ReturnType<typeof vi.fn> };
     heartbeat?: unknown;
@@ -18,7 +18,7 @@ describe('disassemble', () => {
       clawId: 'test-claw',
       runtime: { stop: vi.fn().mockResolvedValue(undefined) },
       streamWriter: { close: vi.fn() },
-      processManager: { releaseLock: vi.fn() },
+      processManager: { markNotReady: vi.fn().mockResolvedValue(undefined), releaseLock: vi.fn() },
       auditWriter: { write: vi.fn() },
       cronRunner: { stop: vi.fn() },
       heartbeat: undefined,

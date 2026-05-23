@@ -33,6 +33,8 @@ export interface ProcessManagerContext {
   resolveDir: (clawId: string) => string;
   /** Optional alive override (used by tests spying on ProcessManager.prototype.isAlive) */
   isAlive?: (clawId: string) => boolean;
+  /** Optional ready override (used by tests spying on ProcessManager.prototype.isReady) */
+  isReady?: (clawId: string) => boolean;
   /** Optional readLockPid override (used by tests spying on ProcessManager.prototype.readLockPid) */
   readLockPid?: (clawId: string) => { pid: number; startTime?: string } | null;
 }

@@ -15,6 +15,7 @@ import type { AuditLog } from '../audit/index.js';
 import * as pathOps from './paths.js';
 import * as pidOps from './pid.js';
 import * as aliveOps from './alive.js';
+import * as readyOps from './ready.js';
 import * as lockOps from './lock.js';
 import { spawnProcess } from './spawn.js';
 import { stopProcess } from './stop.js';
@@ -44,6 +45,7 @@ export class ProcessManager {
       audit,
       resolveDir: dirResolver ?? ((id: string) => path.join(baseDir, CLAWS_DIR, id)),
       isAlive: (clawId: string) => this.isAlive(clawId),
+      isReady: (clawId: string) => this.isReady(clawId),
       readLockPid: (clawId: string) => this.readLockPid(clawId),
     };
   }
@@ -61,6 +63,9 @@ export class ProcessManager {
     return aliveOps.getAliveStatus(this._ctx, clawId);
   }
   isAlive(clawId: string): boolean { return aliveOps.isAliveByPidFile(this._ctx, clawId); }
+  isReady(clawId: string): boolean { return readyOps.isReady(this._ctx, clawId); }
+  markReady(clawId: string): Promise<void> { return readyOps.markReady(this._ctx, clawId); }
+  markNotReady(clawId: string): Promise<void> { return readyOps.markNotReady(this._ctx, clawId); }
 
   // lock
   readLockPid(clawId: string): { pid: number; startTime?: string } | null { return lockOps.readLockPid(this._ctx, clawId); }

@@ -38,11 +38,12 @@ describe('ProcessManager - spawn defaults', () => {
     };
     vi.mocked(spawn).mockReturnValue(mockProc as any);
 
-    // Mock isAlive to skip 3s spawn confirm wait
+    // Mock isAlive/isReady to skip 3s spawn confirm wait
     vi.spyOn(ProcessManager.prototype, 'isAlive')
       .mockReturnValueOnce(false)   // fast-path check: not running
       .mockReturnValueOnce(false)   // lockfile check
       .mockReturnValue(true);       // spawn confirm: alive
+    vi.spyOn(ProcessManager.prototype, 'isReady').mockReturnValue(true);
   });
 
   afterEach(() => {

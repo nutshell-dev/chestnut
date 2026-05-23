@@ -77,6 +77,7 @@ describe('spawn EEXIST race audit 归类（phase 591 / A.spawn-eexist-race-miscl
       fs: nodeFs,
       audit,
       resolveDir: (id: string) => path.join(tempDir, 'claws', id),
+      isReady: () => true,
     };
 
     mockWriteExclusiveOnceEEXIST();
@@ -117,6 +118,7 @@ describe('spawn EEXIST race audit 归类（phase 591 / A.spawn-eexist-race-miscl
       fs: nodeFs,
       audit,
       resolveDir: (id: string) => path.join(tempDir, 'claws', id),
+      isReady: () => true,
     };
 
     // Pre-create empty PID file so readSync succeeds in the EEXIST branch
@@ -154,6 +156,7 @@ describe('spawn EEXIST race audit 归类（phase 591 / A.spawn-eexist-race-miscl
       fs: nodeFs,
       audit,
       resolveDir: (id: string) => path.join(tempDir, 'claws', id),
+      isReady: () => true,
     };
 
     mockWriteExclusiveOnceEEXIST();

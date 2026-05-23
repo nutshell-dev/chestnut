@@ -11,4 +11,4 @@ export type { SpawnOptions } from './manager.js';
 export { ProcessListUnavailable } from './errors.js';
 export { PROCESS_SPAWN_CONFIRM_MS, DAEMON_SHUTDOWN_GRACE_MS } from './manager.js';
 export { createProcessManagerForCLI, createDirContext } from './factories.js';
-export { STATUS_SUBDIR, getStatusDir, getPidFile, getLockFile, ensureStatusDir } from './paths.js';
+export { STATUS_SUBDIR, getStatusDir, getPidFile, getLockFile, getReadyFile, ensureStatusDir } from './paths.js';

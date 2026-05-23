@@ -31,4 +31,7 @@ export const PROCESS_MANAGER_AUDIT_EVENTS = {
   LOCK_ACQUIRED: 'lock_acquired',
   LOCK_RELEASED: 'lock_released',
   PROCESS_LIST_FAILED: 'process_list_failed',
+  READY_MARK_WROTE: 'process_ready_mark_wrote',
+  READY_MARK_REMOVED: 'process_ready_mark_removed',
+  READY_MARK_STALE: 'process_ready_mark_stale',
 } as const;

@@ -4,6 +4,17 @@ import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
 export async function disassemble(instances: Instances, signal: string): Promise<void> {
   const { gateway, runtime, streamWriter, processManager, auditWriter, cronRunner, clawId } = instances;
 
+  // Step 0: markNotReady (NEW phase 1114; 与 gateway.stop 切断对外推送 语义对称)
+  try {
+    await processManager.markNotReady(clawId);
+  } catch (e) {
+    auditWriter.write(
+      ASSEMBLY_AUDIT_EVENTS.DISASSEMBLE_STEP_FAILED,
+      `step=mark_not_ready`,
+      `reason=${_reason(e)}`,
+    );
+  }
+
   // Step 1: gateway?.stop()（async；motion only；最前位置——切断对外推送 + cancel pending askUser）
   if (gateway) {
     try {

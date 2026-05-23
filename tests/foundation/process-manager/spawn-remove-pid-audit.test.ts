@@ -80,6 +80,7 @@ describe('spawn — removePid silent → audit (P1.1)', () => {
       fs: nodeFs,
       audit,
       resolveDir: (id: string) => path.join(tempDir, 'claws', id),
+      isReady: () => true,
     };
 
     let writeExclusiveCallCount = 0;

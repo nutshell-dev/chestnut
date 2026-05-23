@@ -6,8 +6,10 @@ import { FileNotFoundError } from '../fs/types.js';
 import { ProcessListUnavailable } from './errors.js';
 import { ensureStatusDir, getLockFile, getPidFile } from './paths.js';
 import { isAliveByPidFile as checkAlive } from './alive.js';
+import { isReady as checkReady } from './ready.js';
 import { readLockPid } from './lock.js';
 import { readPid, removePid } from './pid.js';
+import type { PidFileContent } from './pid.js';
 import { findProcesses } from './find.js';
 import { getProcessStartTime } from '../process-exec/process-starttime.js';
 import { AUDIT_MESSAGE_MAX_CHARS } from '../audit/index.js';
@@ -176,16 +178,20 @@ export async function spawnProcess(
       logFile: options.logFile,
     });
 
-    await ctx.fs.writeAtomic(pidFile, String(pid));
+    const childStartTime = getProcessStartTime(pid);
+    const pidPayload: PidFileContent = { pid, ...(childStartTime !== undefined ? { startTime: childStartTime } : {}) };
+    await ctx.fs.writeAtomic(pidFile, JSON.stringify(pidPayload));
 
-    let alive = isAliveByPidFile(clawId);
+    const isReady = ctx.isReady ?? ((id: string) => checkReady(ctx, id));
+    let ready = isReady(clawId);
     const deadline = Date.now() + PROCESS_SPAWN_CONFIRM_MS;
-    while (!alive && Date.now() < deadline) {
+    while (!ready && Date.now() < deadline) {
       await new Promise(resolve => setTimeout(resolve, SPAWN_POLL_INTERVAL_MS));
-      alive = isAliveByPidFile(clawId);
+      ready = isReady(clawId);
     }
-    if (!alive) {
-      throw new Error(`Process "${clawId}" failed to start. Check logs at: ${options.logFile}`);
+    if (!ready) {
+      const alive = isAliveByPidFile(clawId);
+      throw new Error(`Process "${clawId}" failed to become ready (alive=${alive}). Check logs at: ${options.logFile}`);
     }
 
     ctx.audit.write(
