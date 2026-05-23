@@ -20,10 +20,6 @@ export interface BuildShadowInstructionArgs {
   task: string;
 }
 
-export function buildShadowAckMessage(shadowId: string): string {
-  return `Understood. I am shadow-${shadowId}, a one-shot transient worker spawned by Motion. I am NOT Motion — I have inherited Motion's context for reference, but my identity, perspective, and outputs are shadow's. I will execute the task directly and report results in shadow's voice.`;
-}
-
 export function buildShadowInstruction(args: BuildShadowInstructionArgs): string {
   return `${SHADOW_INSTRUCTION_PREFIX}
 

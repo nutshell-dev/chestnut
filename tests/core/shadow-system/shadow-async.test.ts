@@ -135,13 +135,11 @@ describe('shadow tool async (phase 1087)', () => {
       expect(callArgs.isShadow).toBe(true);
       // synthesized by stripIncompleteToolUse + synthesizeFormB:
       // main messages stripped of trailing assistant (tool_use) → 1 user msg
-      // + instruction + ack + "Proceed." = 4 messages
-      expect(callArgs.shadowMessages).toHaveLength(4);
+      // + instruction = 2 messages (phase 1115: 3-turn reverted to 1-turn baseline)
+      expect(callArgs.shadowMessages).toHaveLength(2);
       expect(callArgs.shadowMessages[0]).toEqual({ role: 'user', content: 'hi' });
       expect(callArgs.shadowMessages[1]).toMatchObject({ role: 'user' });
       expect((callArgs.shadowMessages[1] as { content: string }).content).toContain('SHADOW INSTRUCTION');
-      expect(callArgs.shadowMessages[2]).toMatchObject({ role: 'assistant' });
-      expect(callArgs.shadowMessages[3]).toEqual({ role: 'user', content: 'Proceed.' });
       expect(callArgs.shadowSystemPrompt).toBe('test-system-prompt');
       expect(callArgs.shadowToolsForLLM).toEqual(baseCtx.toolsForLLM);
       expect(callArgs.parentClawId).toBe('test-claw');

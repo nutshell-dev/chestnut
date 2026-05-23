@@ -4,7 +4,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { synthesizeFormB } from '../../../src/core/shadow-system/_helpers.js';
-import { SHADOW_INSTRUCTION_PREFIX, buildShadowAckMessage } from '../../../src/prompts/shadow.js';
+import { SHADOW_INSTRUCTION_PREFIX } from '../../../src/prompts/shadow.js';
 import type { Message } from '../../../src/foundation/llm-provider/types.js';
 
 describe('shadow form synthesis', () => {
@@ -28,10 +28,7 @@ describe('shadow form synthesis', () => {
         instructionArgs: { ...baseInstructionArgs },
       });
 
-      expect(result).toHaveLength(mainMessagesBeforeMarker.length + 3);
-      const last = result[result.length - 1];
-      expect(last.role).toBe('user');
-      expect(last.content).toBe('Proceed.');
+      expect(result).toHaveLength(mainMessagesBeforeMarker.length + 1);
       const instructionMsg = result[mainMessagesBeforeMarker.length];
       expect(instructionMsg.role).toBe('user');
       expect(typeof instructionMsg.content).toBe('string');
@@ -51,32 +48,9 @@ describe('shadow form synthesis', () => {
         instructionArgs: { ...baseInstructionArgs },
       });
 
-      expect(result).toHaveLength(5);
+      expect(result).toHaveLength(3);
       expect(result[0]).toEqual(mainMessagesBeforeMarker[0]);
       expect(result[1]).toEqual(mainMessagesBeforeMarker[1]);
-    });
-
-    it('返末三条 role 序列 = user → assistant → user (phase 945 γ 3-turn)', () => {
-      const result = synthesizeFormB({
-        mainMessagesBeforeMarker: [
-          { role: 'user', content: 'main-1' },
-          { role: 'assistant', content: 'main-2' },
-        ],
-        instructionArgs: { ...baseInstructionArgs, shadowId: 'abc12345' },
-      });
-      expect(result.length).toBe(5); // 2 main + 3 synthesized
-      expect(result[2]).toEqual({ role: 'user', content: expect.stringContaining(SHADOW_INSTRUCTION_PREFIX) });
-      expect(result[3].role).toBe('assistant');
-      expect(result[3].content).toContain('shadow-abc12345');
-      expect(result[3].content).toContain('I am NOT Motion');
-      expect(result[4]).toEqual({ role: 'user', content: 'Proceed.' });
-    });
-
-    it('buildShadowAckMessage shadowId 嵌入正确', () => {
-      const ack = buildShadowAckMessage('xyz98765');
-      expect(ack).toContain('shadow-xyz98765');
-      expect(ack).toContain('I am NOT Motion');
-      expect(ack.startsWith('Understood.')).toBe(true);
     });
 
     it('main messages prefix 不变（cache invariant）', () => {
