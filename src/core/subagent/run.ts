@@ -56,7 +56,6 @@ export interface RunSubagentOptions {
   timeoutMs?: number;           // whole-task timeout（async caller 用、verifier 用 idleTimeoutMs only）
   originClawId?: string;        // dispatch chain trace（async caller 用）
   toolsForLLM?: ToolDefinition[];
-  taskStreamCallback?: (event: Record<string, unknown>) => void;
   onIdleTimeout?: () => void;
 
   // NEW (phase 765)：取 capturedResult 用的 tool name / default DONE_TOOL_NAME (phase 1056)
@@ -87,9 +86,7 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
   const baseStreamWriter = createPerResourceStreamWriter(opts.fs, streamPath, auditWriter);
   const taskStreamWriter = {
     write: (event: Record<string, unknown>): boolean => {
-      const ok = baseStreamWriter.write({ ts: Date.now(), ...event } as StreamEvent);
-      opts.taskStreamCallback?.(event);
-      return ok;
+      return baseStreamWriter.write({ ts: Date.now(), ...event } as StreamEvent);
     },
   };
 
