@@ -65,7 +65,6 @@ import { createMemorySystem, memorySearchTool } from '../core/memory/index.js';
 import type { MemorySystem } from '../core/memory/index.js';
 import { runContractObserver } from '../core/contract/jobs/contract-observer.js';
 import { runOutboxDrain } from '../core/cron/jobs/outbox-drain.js';
-import { runGitHygieneMonitor } from '../core/cron/jobs/git-hygiene-monitor.js';
 import { DISK_MONITOR_CRON_TIMEOUT_MS } from '../core/cron/jobs/disk-monitor.js';
 import { LLM_STATS_CRON_TIMEOUT_MS } from '../core/cron/jobs/llm-stats.js';
 import { METRICS_SNAPSHOT_CRON_TIMEOUT_MS } from '../core/cron/jobs/metrics-snapshot.js';
@@ -74,7 +73,6 @@ import { GIT_GC_WEEKLY_CRON_TIMEOUT_MS } from '../core/cron/jobs/git-gc-weekly.j
 import { RETENTION_CLEANUP_CRON_TIMEOUT_MS } from '../core/cron/jobs/retention-cleanup.js';
 import { AUDIT_SIZE_MONITOR_CRON_TIMEOUT_MS } from '../core/cron/jobs/audit-size-monitor.js';
 import { OUTBOX_DRAIN_CRON_TIMEOUT_MS } from '../core/cron/jobs/outbox-drain.js';
-import { GIT_HYGIENE_MONITOR_CRON_TIMEOUT_MS } from '../core/cron/jobs/git-hygiene-monitor.js';
 import { buildLLMConfig } from '../foundation/config/index.js';
 import { DEFAULT_MAX_CONCURRENT_TASKS } from '../core/async-task-system/constants.js';
 import { DEFAULT_MAX_STEPS } from '../core/agent-executor/index.js';
@@ -732,21 +730,6 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
               audit: auditWriter,
             }),
             timeoutMs: OUTBOX_DRAIN_CRON_TIMEOUT_MS,
-          },
-          {
-            name: 'git-hygiene-monitor',
-            enabled: globalConfig.cron?.jobs?.git_hygiene_monitor?.enabled ?? true,
-            schedule: parseSchedule(globalConfig.cron?.jobs?.git_hygiene_monitor?.schedule ?? 'daily:06:00', auditWriter),
-            handler: () => runGitHygieneMonitor({
-              clawforumDir,
-              audit: auditWriter,
-              motionInbox: diskMonitorInbox,
-              worktreeThreshold: globalConfig.cron?.jobs?.git_hygiene_monitor?.worktree_threshold,
-              branchThreshold: globalConfig.cron?.jobs?.git_hygiene_monitor?.branch_threshold,
-              stashThreshold: globalConfig.cron?.jobs?.git_hygiene_monitor?.stash_threshold,
-              claudeWorktreesThreshold: globalConfig.cron?.jobs?.git_hygiene_monitor?.claude_worktrees_threshold,
-            }),
-            timeoutMs: GIT_HYGIENE_MONITOR_CRON_TIMEOUT_MS,
           },
         ], auditWriter);
       } catch (e) {
