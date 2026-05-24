@@ -435,6 +435,8 @@
       "claw_crash_detected",
       "claw_crash_notify_dropped",
       "claw_has_contract_check_failed",
+      "watchdog_claw_crash_notify_deduped",
+      "watchdog_claw_crash_notify_reset",
       "watchdog_claw_scan",
       "watchdog_cleanup_failed",
       "watchdog_crash",

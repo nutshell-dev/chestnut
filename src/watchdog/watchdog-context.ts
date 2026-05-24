@@ -31,6 +31,9 @@ export const inactivityNotifyCount: Map<string, number> = new Map();
 /** Track claws that have ever been alive for first-tick crash detection (phase 1047) */
 export const everSpawned: Set<string> = new Set();
 
+/** Track claws for which crash_notification has already been emitted (phase 1207 dedup) */
+export const clawPreviouslyNotified: Set<string> = new Set();
+
 // === Lazy cache state（封装 / 经 getter） ===
 
 let _motionCtx: { fs: FileSystem; audit: AuditLog } | null = null;
