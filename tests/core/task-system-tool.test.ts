@@ -24,6 +24,7 @@ import { readTool } from '../../src/foundation/file-tool/read.js';
 import { lsTool } from '../../src/foundation/file-tool/ls.js';
 import { searchTool } from '../../src/foundation/file-tool/search.js';
 import { makeAudit, waitForAuditEvent } from '../helpers/audit.js';
+import { TASK_AUDIT_EVENTS } from '../../src/core/async-task-system/audit-events.js';
 import { waitForCompleteFile } from '../helpers/wait-for-file.js';
 import { makeTaskSystemDeps } from '../helpers/task-system.js';
 import { waitFor } from '../helpers/wait-for.js';
@@ -554,10 +555,18 @@ describe('AsyncTaskSystem Tool Tasks', () => {
         parentClawId: 'parent', 
         createdAt: new Date().toISOString() 
       };
-      await fs.writeFile(
-        path.join(testClawDir, 'tasks', 'queues', 'pending', `${taskId}.json`),
-        JSON.stringify(task)
-      );
+      const pendingFilePath = path.join(testClawDir, 'tasks', 'queues', 'pending', `${taskId}.json`);
+      await fs.writeFile(pendingFilePath, JSON.stringify(task));
+
+      // phase 1226 γ instrument: capture all audit events for diagnostic
+      const auditEvents: Array<{ type: string; cols: any[] }> = [];
+      const audit = makeAudit().audit;
+      const instrumentedAudit = {
+        write: (type: string, ...cols: any[]) => {
+          auditEvents.push({ type, cols });
+          audit.write(type, ...cols);
+        },
+      };
 
       // Re-initialize (simulating restart)
       const taskSystem2 = new AsyncTaskSystem(
@@ -582,23 +591,54 @@ describe('AsyncTaskSystem Tool Tasks', () => {
         },
         moveSync: (from: string, to: string) => fsSync.renameSync(path.join(testClawDir, from), path.join(testClawDir, to)),
         } as any,
-        { maxConcurrent: TEST_MAX_CONCURRENT, retryBaseDelayMs: TEST_RETRY_BASE_DELAY_MS, auditWriter: makeAudit().audit, ...makeTaskSystemDeps() }
+        { maxConcurrent: TEST_MAX_CONCURRENT, retryBaseDelayMs: TEST_RETRY_BASE_DELAY_MS, auditWriter: instrumentedAudit, ...makeTaskSystemDeps() }
       );
       await taskSystem2.initialize();
 
       const exists = async () =>
         fs
-          .access(path.join(testClawDir, 'tasks', 'queues', 'pending', `${taskId}.json`))
+          .access(pendingFilePath)
           .then(() => true)
           .catch(() => false);
 
+      // phase 1226 γ: dump diagnostic on fail
+      const fileExistsAfterInit = await exists();
+      if (!fileExistsAfterInit) {
+        const corruptEvents = auditEvents.filter(
+          e => e.type === TASK_AUDIT_EVENTS.TASK_CORRUPT
+        );
+        const recoveryFailedEvents = auditEvents.filter(
+          e => e.type === TASK_AUDIT_EVENTS.RECOVERY_FAILED
+        );
+        const recoveryCompleteEvents = auditEvents.filter(
+          e => e.type === TASK_AUDIT_EVENTS.RECOVERY_COMPLETE
+        );
+        const backupFiles = await fs.readdir(
+          path.join(testClawDir, 'tasks', 'queues', 'pending')
+        ).catch(() => [] as string[]);
+        console.error('[phase1226-γ] FAIL diagnostic:', {
+          fileExistsAfterInit,
+          pendingFilePath,
+          backupFilesInPending: backupFiles,
+          corruptEvents,
+          recoveryFailedEvents,
+          recoveryCompleteEvents,
+          allAuditEventsCount: auditEvents.length,
+          last10AuditEvents: auditEvents.slice(-10),
+        });
+      }
       // 第 1 检：initialize 返回后必须存在（recover 不应搬走 pending）
-      expect(await exists()).toBe(true);
+      expect(fileExistsAfterInit).toBe(true);
 
       // 第 2 检：50ms 后仍存在（确认 startDispatch 之前 0 async 搬移）
       // 注：此处为负向稳定窗口断言，无正向状态可 poll。
       await new Promise(r => setTimeout(r, 50));
-      expect(await exists()).toBe(true);
+      const fileExists50ms = await exists();
+      if (!fileExists50ms && fileExistsAfterInit) {
+        // first check PASS but 50ms check FAIL → async move happened
+        console.error('[phase1226-γ] FAIL 50ms diagnostic: async move detected after initialize');
+      }
+      expect(fileExists50ms).toBe(true);
 
       taskSystem2.startDispatch();
 
