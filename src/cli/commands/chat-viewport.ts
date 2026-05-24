@@ -16,6 +16,7 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
+import { isFileNotFound } from '../../foundation/fs/types.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { createStreamReader, STREAM_FILE } from '../../foundation/stream/index.js';
 import { createViewportObservability } from './chat-viewport-observability.js';
@@ -607,7 +608,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
         observability.recordShutdown('daemon_dead');
       }
     } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') {
+      if (!isFileNotFound(e)) {
         process.stderr.write(`[viewport] daemon liveness PID read failed: ${(e as Error).message}\n`);
       }
     }
@@ -786,8 +787,8 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
       }
     } catch (err) {
       // phase 904 / audit-2026-05-16 P2 site 2: 分流 ENOENT silent vs 其他 audit emit
-      const code = (err as { code?: string })?.code;
-      if (code !== 'ENOENT') {
+      if (!isFileNotFound(err)) {
+        const code = (err as { code?: string })?.code;
         options.audit.write(VIEWPORT_AUDIT_EVENTS.HISTORY_REPLAY_FAILED, `error=${String(err)}`, `code=${code ?? 'unknown'}`);
       }
     }
@@ -805,7 +806,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
         if (!isAlive(stored.pid)) { turnTracker.forceReset(); }
       }
     } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') {
+      if (!isFileNotFound(e)) {
         process.stderr.write(`[viewport] turn tracker PID read failed: ${(e as Error).message}\n`);
       }
       turnTracker.forceReset();

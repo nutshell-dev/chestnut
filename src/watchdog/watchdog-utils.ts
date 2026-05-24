@@ -15,6 +15,7 @@
 import * as path from 'path';
 import { NodeFileSystem } from '../foundation/fs/node-fs.js';
 import type { FileSystem } from '../foundation/fs/types.js';
+import { isFileNotFound } from '../foundation/fs/types.js';
 import type { AuditLog } from '../foundation/audit/index.js';
 import { readAll, STREAM_FILE } from '../foundation/stream/index.js';
 import { LLM_OUTPUT_EVENTS } from '../foundation/stream/index.js';
@@ -80,8 +81,7 @@ export function clawHasContract(clawDir: string, audit?: AuditLog): boolean {
       const entries = fs.listSync(path.join(CONTRACT_DIR, sub), { includeDirs: true });
       if (entries.some(e => e.isDirectory)) return true;
     } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code;
-      if (code === 'ENOENT') continue; // legitimate: contract dir not created yet
+      if (isFileNotFound(err)) continue; // legitimate: contract dir not created yet
       audit?.write(
         WATCHDOG_AUDIT_EVENTS.CLAW_HAS_CONTRACT_CHECK_FAILED,
         `clawDir=${clawDir}`,

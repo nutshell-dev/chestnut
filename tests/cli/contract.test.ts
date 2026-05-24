@@ -129,8 +129,8 @@ describe('phase 906 Step B1: contract.ts cause chain + ENOENT narrow', () => {
     const block = sourceCode.slice(idx, idx + 600);
     // catch (err) 存在
     expect(block).toMatch(/catch\s*\(err\)\s*\{/);
-    // ENOENT narrow 存在
-    expect(block).toContain("code !== 'ENOENT'");
+    // ENOENT / FS_NOT_FOUND narrow 存在（phase 1215: 改用 isFileNotFound 双码 narrow）
+    expect(block).toContain('isFileNotFound(err)');
     // 非 ENOENT 时 throw err
     expect(block).toContain('throw err');
   });

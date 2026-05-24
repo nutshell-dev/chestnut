@@ -17,19 +17,19 @@
     },
     {
       "file": "src/cli/commands/chat-viewport-claw-manager.ts",
-      "line": 149,
+      "line": 150,
       "body_excerpt": "} catch { /* skip */ }",
       "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
     },
     {
       "file": "src/cli/commands/chat-viewport-claw-manager.ts",
-      "line": 154,
+      "line": 155,
       "body_excerpt": "} catch { /* ENOENT 等，跳过 */ }",
       "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
     },
     {
       "file": "src/cli/commands/chat-viewport-claw-manager.ts",
-      "line": 68,
+      "line": 69,
       "body_excerpt": "} catch { /* polling fallback */ }",
       "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
     },
@@ -41,19 +41,19 @@
     },
     {
       "file": "src/cli/commands/chat-viewport.ts",
-      "line": 609,
+      "line": 610,
       "body_excerpt": "} catch (e) {",
       "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
     },
     {
       "file": "src/cli/commands/chat-viewport.ts",
-      "line": 753,
+      "line": 754,
       "body_excerpt": "} catch { /* fail-soft: shim 自身失败不破坏 crash log + stderr 路径 */ }",
       "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
     },
     {
       "file": "src/cli/commands/chat-viewport.ts",
-      "line": 785,
+      "line": 786,
       "body_excerpt": "} catch { /* skip */ }",
       "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
     },
@@ -263,7 +263,7 @@
     },
     {
       "file": "src/watchdog/watchdog-state.ts",
-      "line": 109,
+      "line": 110,
       "body_excerpt": "} catch { /* ignore: crash handler 不抛 */ }",
       "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
     },

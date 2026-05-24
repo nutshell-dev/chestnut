@@ -16,6 +16,7 @@ import { notifySystem } from '../../foundation/messaging/index.js';
 // STREAM_AUDIT_EVENTS.APPEND_FAILED → inline string to decouple CLI from stream audit constants (phase1101)
 import { createSystemAudit, type AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
+import { isFileNotFound } from '../../foundation/fs/types.js';
 import { createToolRegistry } from '../../foundation/tools/index.js';
 import { STREAM_FILE, createPerResourceStreamWriter, type StreamEvent } from '../../foundation/stream/index.js';
 import { CONTRACT_DIR } from '../../core/contract/index.js';
@@ -182,7 +183,7 @@ export async function contractLogCommand(clawId: string, contractId?: string): P
   } catch (err) {
     // phase 906 r115 O fork (audit-2026-05-16 NEW.P2.6): narrow to ENOENT only
     // file missing = expected (注释原意「progress 文件缺失」)，其他错误 = real bug bubble
-    if ((err as { code?: string })?.code !== 'ENOENT') {
+    if (!isFileNotFound(err)) {
       throw err;
     }
   }
