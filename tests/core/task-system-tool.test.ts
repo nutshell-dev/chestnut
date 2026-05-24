@@ -199,7 +199,7 @@ describe('AsyncTaskSystem Tool Tasks', () => {
     it('should move task to tasks/queues/running/ when dispatched', async () => {
       // Use a slow callback so we can check the running state before completion
       const slowCallback = async () => {
-        await new Promise(r => setTimeout(r, 200));
+        await new Promise(r => setTimeout(r, 200)); // sleep: mock slow tool callback
         return { success: true, content: 'slow' };
       };
       

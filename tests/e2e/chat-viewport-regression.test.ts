@@ -366,7 +366,6 @@ describe('chat-viewport regression baseline', () => {
     }
 
     await appendStreamEvent(fx, { type: 'turn_end' });
-    await new Promise(r => setTimeout(r, 200));
 
     await fx.whenCount(1 + N * 2 + 1);
 
@@ -450,7 +449,7 @@ describe('chat-viewport regression baseline', () => {
     const fx = await bootstrapFixture();
 
     fx.mainUI.enterPhase('waiting_llm');
-    await new Promise(r => setTimeout(r, 250)); // 推过 MIN_DWELL_MS 确保 stop 同步触发
+    await new Promise(r => setTimeout(r, 250)); // sleep: exceed MIN_DWELL_MS to ensure stop sync trigger
     fx.mainUI.enterPhase('idle');
 
     fx.mainUI.withScope('task', () => {

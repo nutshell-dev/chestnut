@@ -116,8 +116,7 @@ describe('StreamReader', () => {
     }, audit);
     reader.start();
 
-    // probe-pattern would consume the first-throw / keep blind for this test
-    await new Promise(r => setTimeout(r, 300));
+    await new Promise(r => setTimeout(r, 300)); // sleep: let reader finish probe pattern
 
     writer.write({ ts: 1, type: 'first' });
     writer.write({ ts: 2, type: 'second' });
@@ -178,8 +177,7 @@ describe('StreamReader', () => {
 
     nativeAppend(streamAbs, Buffer.concat([prefix, charFirstByte]));
 
-    // inverse waitFor: assert no event emitted within 200ms (partial UTF-8 boundary)
-    await new Promise(r => setTimeout(r, 200));
+    await new Promise(r => setTimeout(r, 200)); // sleep: inverse waitFor — assert no event emitted within window
     expect(ec.events.length).toBe(0);
     const partial_parseFailed = auditRec.events.filter(([t]) => t === STREAM_AUDIT_EVENTS.READER_PARSE_FAILED);
     expect(partial_parseFailed.length).toBe(0);
@@ -206,8 +204,7 @@ describe('StreamReader', () => {
     const streamAbs = nativePath.join(tempDir, STREAM_FILE);
 
     nativeAppend(streamAbs, Buffer.concat([prefix, emojiHalf1]));
-    // inverse waitFor: assert no event emitted within 200ms (emoji boundary)
-    await new Promise(r => setTimeout(r, 200));
+    await new Promise(r => setTimeout(r, 200)); // sleep: inverse waitFor — assert no event emitted within window
     expect(ec.events.length).toBe(0);
 
     nativeAppend(streamAbs, Buffer.concat([emojiHalf2, suffix]));
@@ -256,8 +253,7 @@ describe('StreamReader', () => {
     expect(reader.isActive()).toBe(false);
 
     writer.write({ ts: 999, type: 'post_corrupt', text: 'should_not_arrive' });
-    // inverse waitFor: assert no event emitted within 200ms (post-corrupt stop)
-    await new Promise(r => setTimeout(r, 200));
+    await new Promise(r => setTimeout(r, 200)); // sleep: inverse waitFor — assert no event emitted within window
     expect(ec.events.find(e => (e as any).type === 'post_corrupt')).toBeUndefined();
   });
 

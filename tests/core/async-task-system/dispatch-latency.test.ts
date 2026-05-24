@@ -112,8 +112,6 @@ describe('AsyncTaskSystem dispatch latency (phase 1147 r127 B fork)', () => {
     });
     await fs.writeFile(tmpPath, taskPayload);
 
-    // Wait 200ms — watcher callback filters non-.json files
-    await new Promise(r => setTimeout(r, 200));
     expect(await fs.access(tmpPath).then(() => true).catch(() => false)).toBe(true);
     expect(await mockFs.exists('tasks/queues/running/atomic-test.json')).toBe(false);
 

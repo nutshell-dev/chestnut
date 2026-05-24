@@ -110,7 +110,7 @@ describe('SubAgent race ghost callback (Phase 538)', () => {
         onTextDelta?: (delta: string) => void;
         onToolCall?: (name: string, toolUseId: string) => void;
       }) => {
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        await new Promise((resolve) => setTimeout(resolve, 500)); // sleep: mock runReact timeout delay
         // timeout 后这些 callback 是 "ghost"
         opts.onTextDelta?.('ghost text');
         opts.onToolCall?.('ghost_tool', 'gt1');

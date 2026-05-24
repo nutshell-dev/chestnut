@@ -72,7 +72,7 @@ describe('runRandomDream', () => {
   });
 
   afterEach(async () => {
-    await new Promise(r => setTimeout(r, 200)); // 等 subagent cleanup settle
+    await new Promise(r => setTimeout(r, 200)); // sleep: subagent cleanup settle
     await Promise.all([cleanupTempDir(clawforumDir), cleanupTempDir(motionDir)]);
     vi.clearAllMocks();
   });

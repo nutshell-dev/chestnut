@@ -12,7 +12,7 @@ describe('phase 946: cron handler AbortSignal propagation', () => {
   it('stop() abort signal → handler signal.aborted = true', async () => {
     const observed: { aborted: boolean | null } = { aborted: null };
     const handlerPromise = new Promise<void>(resolve => {
-      setTimeout(resolve, 5000); // long handler
+      setTimeout(resolve, 5000); // sleep: mock long handler
     });
 
     const job: CronJob = {

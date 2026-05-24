@@ -122,7 +122,7 @@ describe('ContractSystem lifecycle race (phase 791 / P0.16 + P0.18)', () => {
 
     // Mock runLLMAcceptance to delay, simulating slow background acceptance
     vi.spyOn(testManager as any, 'runLLMAcceptance').mockImplementation(async () => {
-      await new Promise(r => setTimeout(r, 150));
+      await new Promise(r => setTimeout(r, 150)); // sleep: mock slow background acceptance
       return { passed: true, feedback: 'mocked' };
     });
 
@@ -132,11 +132,10 @@ describe('ContractSystem lifecycle race (phase 791 / P0.16 + P0.18)', () => {
     // Immediately cancel while background is still running
     await testManager.cancel(contractId, 'user cancelled');
 
-    // Wait for background to finish
-    await new Promise(r => setTimeout(r, 300));
-
-    const progress = await testManager.getProgress(contractId);
-    expect(progress.status).toBe('cancelled');
+    await vi.waitUntil(async () => {
+      const progress = await testManager.getProgress(contractId);
+      return progress.status === 'cancelled';
+    }, { timeout: 5000 });
   });
 
   it('cancelled guard returns null + audit ACCEPTANCE_RESET_FAILED (P0.18)', async () => {

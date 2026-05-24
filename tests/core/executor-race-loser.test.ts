@@ -49,7 +49,7 @@ describe('executor race-loser audit (phase 816 B2)', () => {
       schema: { type: 'object', properties: {}, required: [] },
       readonly: true,
       async execute() {
-        await new Promise(r => setTimeout(r, 200));
+        await new Promise(r => setTimeout(r, 200)); // sleep: mock slow tool execution
         throw new Error('real root cause');
       },
     });
@@ -64,10 +64,9 @@ describe('executor race-loser audit (phase 816 B2)', () => {
     expect(result.success).toBe(false);
     expect(result.content).toMatch(/timed out/);
 
-    // 给 loser catch 足够时间触发（tool 内部 200ms 后才 throw）
-    await new Promise(r => setTimeout(r, 300));
-
     const auditPath = path.join(tempDir, 'audit.tsv');
+    await new Promise(r => setTimeout(r, 300)); // sleep: let race loser audit write
+
     const auditContent = await fs.readFile(auditPath, 'utf-8').catch(() => '');
     const rows = auditContent.trim().split('\n');
 

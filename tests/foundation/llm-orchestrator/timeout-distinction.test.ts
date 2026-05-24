@@ -100,7 +100,7 @@ describe('LLMOrchestratorImpl timeout distinction (Phase 538)', () => {
       // 之后长期不 yield chunk → idle timeout 触发
       // 但 generator 需要响应 signal abort，否则不会停止
       await new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(resolve, 5000);
+        const timer = setTimeout(resolve, 5000); // sleep: mock stream idle timeout
         opts.signal?.addEventListener('abort', () => {
           clearTimeout(timer);
           reject(new Error('AbortError'));

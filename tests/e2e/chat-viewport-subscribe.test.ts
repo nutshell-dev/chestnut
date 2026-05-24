@@ -169,7 +169,7 @@ describe('chat-viewport 主 UI 隔离（phase162）', () => {
     mainReader.start();
     taskReader.start();
 
-    await new Promise(r => setTimeout(r, 300));
+    await new Promise(r => setTimeout(r, 300)); // sleep: let stream reader start and settle
 
     await appendJsonl(mainStreamPath, { type: 'turn_start' });
     await appendJsonl(mainStreamPath, { type: 'llm_start' });
@@ -179,7 +179,7 @@ describe('chat-viewport 主 UI 隔离（phase162）', () => {
     await appendJsonl(taskStreamPath, { type: 'turn_end' });
     await appendJsonl(mainStreamPath, { type: 'text_delta', delta: ' world' });
     await appendJsonl(mainStreamPath, { type: 'turn_end' });
-    await new Promise(r => setTimeout(r, 300));
+    await new Promise(r => setTimeout(r, 300)); // sleep: let events propagate before assertion
 
     const crossPollution = events.filter(e => e[0] === VIEWPORT_AUDIT_EVENTS.UI_CROSS_POLLUTION);
     expect(crossPollution).toHaveLength(0);
@@ -288,7 +288,7 @@ describe('chat-viewport 主 UI 并发隔离（phase162 streamReader）', () => {
     cleanups.push(() => taskReader.stop());
     mainReader.start();
     taskReader.start();
-    await new Promise(r => setTimeout(r, 300));
+    await new Promise(r => setTimeout(r, 300)); // sleep: let stream reader start and settle
 
     // NOTE: chokidar 对快速连续 append 会合并/丢弃 FS 事件——必须在 append 间插入间隔，
     // 让 createStreamReader 的 watcher 能逐条捕获。这是 chokidar 已知行为，不是 reader 的 bug。

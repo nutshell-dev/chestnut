@@ -926,8 +926,7 @@ describe('ContractSystem — background acceptance error handling', () => {
 
     await manager.completeSubtask({ contractId, subtaskId, evidence: 'done' });
 
-    // Wait for background acceptance to settle
-    await new Promise(r => setTimeout(r, 100));
+    await vi.waitUntil(() => auditEvents.some(e => e.type === 'contract_unexpected_async_throw'), { timeout: 5000 });
 
     expect(auditEvents.some(e => e.type === 'contract_unexpected_async_throw')).toBe(true);
     const throwAudit = auditEvents.find(e => e.type === 'contract_unexpected_async_throw');
@@ -984,8 +983,7 @@ describe('ContractSystem — background acceptance error handling', () => {
 
     await manager.completeSubtask({ contractId, subtaskId, evidence: 'done' });
 
-    // Wait for background acceptance to settle
-    await new Promise(r => setTimeout(r, 100));
+    await vi.waitUntil(() => auditEvents.some(e => e.type === 'contract_acceptance_background_failed'), { timeout: 5000 });
 
     expect(auditEvents.some(e => e.type === 'contract_unexpected_async_throw')).toBe(false);
     expect(auditEvents.some(e => e.type === 'contract_acceptance_background_failed')).toBe(true);

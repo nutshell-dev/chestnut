@@ -273,7 +273,7 @@ describe('Tools', () => {
         profiles: ['full'],
         readonly: true,
         execute: async () => {
-          await new Promise(r => setTimeout(r, 500));
+          await new Promise(r => setTimeout(r, 500)); // sleep: mock slow tool execution
           return { success: true, content: '' };
         },
       });

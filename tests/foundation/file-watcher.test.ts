@@ -181,7 +181,7 @@ describe('FileWatcher', () => {
       },
     );
 
-    // async error trigger; physical sleep as no deterministic signal
+    // sleep: async error trigger; no deterministic signal
     await new Promise(r => setTimeout(r, 500));
     await watcher.close();
 

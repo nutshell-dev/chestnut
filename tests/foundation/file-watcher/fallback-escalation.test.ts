@@ -54,7 +54,7 @@ describe('fallback poller escalation (macOS only)', () => {
       // phase 1082: poller is NOT permanently disabled — it resets counter and continues.
       // Verify callbacks keep accumulating after the limit is reached.
       const countAtLimit = callback.mock.calls.length;
-      await new Promise(r => setTimeout(r, 200));
+      await waitFor(() => callback.mock.calls.length > countAtLimit, 5000);
       expect(callback.mock.calls.length).toBeGreaterThan(countAtLimit);
 
       // Stop watcher (clearInterval again is no-op-safe)
