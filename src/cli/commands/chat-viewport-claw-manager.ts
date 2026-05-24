@@ -5,6 +5,7 @@ import { LLM_OUTPUT_EVENTS } from '../../foundation/stream/index.js';
 import { STREAM_FILE } from '../../foundation/stream/index.js';
 import type { Watcher } from '../../foundation/file-watcher/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
+import { isFileNotFound } from '../../foundation/fs/types.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
 import { createChatViewportWatcher } from './chat-viewport-watcher.js';
@@ -164,8 +165,8 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
     } catch (err) {
       // phase 979 (r120 C fork / phase 975 B-α2):
       // ENOENT (clawsDir 首次启动) silent OK / non-ENOENT (FS perm / NFS hang / EACCES) audit emit 防 orphan watcher silent 累
-      const code = (err as { code?: string })?.code;
-      if (code !== 'ENOENT') {
+      if (!isFileNotFound(err)) {
+        const code = (err as { code?: string })?.code;
         audit.write(VIEWPORT_AUDIT_EVENTS.REFRESH_CLAWS_FAILED, `code=${code ?? 'unknown'}`, `error=${err instanceof Error ? err.message : String(err)}`);
       }
       return;
@@ -198,7 +199,7 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
         const stored = await pm.readPid(clawId);
         track.isAlive = stored !== null && isAlive(stored.pid);
       } catch (e) {
-        if ((e as NodeJS.ErrnoException).code !== 'ENOENT') {
+        if (!isFileNotFound(e)) {
           process.stderr.write(`[viewport] readPid failed: ${(e as Error).message}\n`);
         }
         track.isAlive = false;

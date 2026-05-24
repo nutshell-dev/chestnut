@@ -9,6 +9,7 @@ import { createSystemAudit } from '../../foundation/audit/index.js';
 import { NodeFileSystem } from '../../foundation/fs/node-fs.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
+import { isFileNotFound } from '../../foundation/fs/types.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { TurnTracker } from './chat-viewport.js';
@@ -81,8 +82,8 @@ export function initOwnStateFromHistory(deps: InitOwnStateDeps): void {
     }
   } catch (err) {
     // phase 904 / audit-2026-05-16 P2 site 2: 分流 ENOENT silent vs 其他 audit emit
-    const code = (err as { code?: string })?.code;
-    if (code !== 'ENOENT') {
+    if (!isFileNotFound(err)) {
+      const code = (err as { code?: string })?.code;
       deps.audit.write(VIEWPORT_AUDIT_EVENTS.HISTORY_REPLAY_FAILED, `error=${String(err)}`, `code=${code ?? 'unknown'}`);
     }
   }

@@ -6,6 +6,7 @@
 import { getClawforumFs, getAuditWriter, lastInactivityNotified, inactivityNotifyCount, clawPreviouslyAlive, everSpawned } from './watchdog-context.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 import { AUDIT_MESSAGE_MAX_CHARS } from '../foundation/audit/index.js';
+import { isFileNotFound } from '../foundation/fs/types.js';
 
 const CURRENT_WATCHDOG_SCHEMA_VERSION = 1;
 
@@ -52,7 +53,7 @@ export function loadWatchdogState(): void {
       everSpawned.add(id);
     }
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+    if (isFileNotFound(err)) {
       // 首次启动 — 从空状态开始
       return;
     }

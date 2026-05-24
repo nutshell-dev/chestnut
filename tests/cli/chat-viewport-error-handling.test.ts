@@ -107,8 +107,8 @@ describe('chat-viewport error handling (phase 523 + 524)', () => {
       const block = initCode.slice(idx, idx + 1500);
       // 外层 catch (err) 存在
       expect(block).toMatch(/catch\s*\(err\)\s*\{/);
-      // ENOENT 分流
-      expect(block).toContain("code !== 'ENOENT'");
+      // ENOENT / FS_NOT_FOUND 分流（phase 1215: 改用 isFileNotFound 双码 narrow）
+      expect(block).toContain('isFileNotFound(err)');
       // 非 ENOENT 时 audit emit HISTORY_REPLAY_FAILED
       expect(block).toContain('VIEWPORT_AUDIT_EVENTS.HISTORY_REPLAY_FAILED');
     });

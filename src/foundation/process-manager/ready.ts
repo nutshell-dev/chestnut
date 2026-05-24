@@ -4,6 +4,7 @@ import { getProcessStartTime } from '../process-exec/process-starttime.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
 import type { ProcessManagerContext } from './types.js';
 import type { PidFileContent } from './pid.js';
+import { isFileNotFound } from '../fs/types.js';
 
 export async function markReady(ctx: ProcessManagerContext, clawId: string): Promise<void> {
   try {
@@ -95,7 +96,7 @@ export function isReady(ctx: ProcessManagerContext, clawId: string): boolean {
     );
     // r128 C fork C.1: narrow ENOENT only / non-ENOENT audit emit (mirror phase 1032 cleanup.ts)
     ctx.fs.delete(readyFile).catch((e: any) => {
-      if (e?.code !== 'ENOENT') {
+      if (!isFileNotFound(e)) {
         ctx.audit.write(
           PROCESS_MANAGER_AUDIT_EVENTS.READY_STALE_CLEANUP_FAILED,
           `claw=${clawId}`,

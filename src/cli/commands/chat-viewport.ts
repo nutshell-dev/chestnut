@@ -13,6 +13,7 @@ import { isAlive } from '../../foundation/process-exec/index.js';
 import { CLAW_SCAN_INTERVAL_MS } from './constants.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
+import { isFileNotFound } from '../../foundation/fs/types.js';
 import { createStreamReader, STREAM_FILE } from '../../foundation/stream/index.js';
 import { createViewportObservability } from './chat-viewport-observability.js';
 import { CLAWS_DIR } from '../../foundation/paths.js';
@@ -318,7 +319,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
         observability.recordShutdown('daemon_dead');
       }
     } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') {
+      if (!isFileNotFound(e)) {
         process.stderr.write(`[viewport] daemon liveness PID read failed: ${(e as Error).message}\n`);
       }
     }
@@ -456,7 +457,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
         if (!isAlive(stored.pid)) { turnTracker.forceReset(); }
       }
     } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') {
+      if (!isFileNotFound(e)) {
         process.stderr.write(`[viewport] turn tracker PID read failed: ${(e as Error).message}\n`);
       }
       turnTracker.forceReset();
