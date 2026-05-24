@@ -566,7 +566,7 @@ describe('Task System + SubAgent', () => {
 
       it('should call postProcessor on success path', async () => {
         await taskSystem.shutdown(100);
-        const { audit, events } = makeAudit();
+        const { audit, events, emitter } = makeAudit();
         const mockProcessor = vi.fn().mockResolvedValue('transformed-result');
         taskSystem = createTestTaskSystem(tempDir, mockFs, audit, createMockLLM([{
           content: [{ type: 'text', text: 'raw result' }],
@@ -576,7 +576,7 @@ describe('Task System + SubAgent', () => {
         await taskSystem.initialize();
         taskSystem.startDispatch();
 
-        const taskId = await taskSystem.scheduleSubAgent({
+        await taskSystem.scheduleSubAgent({
           kind: 'subagent',
           intent: 'Test postProcessor',
           timeoutMs: SUBAGENT_DEFAULT_TIMEOUT_MS,
@@ -585,12 +585,10 @@ describe('Task System + SubAgent', () => {
           postProcessor: 'test-proc',
         });
 
-        // Wait for inbox file (task completion signal)
+        // TASK_COMPLETED 在 subagent-executor.ts sendResult 之后 emit，
+        // 是 inbox 文件写入的因果后置单调信号（取代 polling inbox 目录）。
+        await waitForAuditEvent(emitter, events, TASK_AUDIT_EVENTS.TASK_COMPLETED);
         const inboxDir = path.join(tempDir, 'inbox', 'pending');
-        await waitFor(async () => {
-          const files = await fs.readdir(inboxDir).catch(() => [] as string[]);
-          return (files as string[]).some(f => f.endsWith('.md'));
-        });
 
         expect(mockProcessor).toHaveBeenCalledTimes(1);
         const callArgs = mockProcessor.mock.calls[0];

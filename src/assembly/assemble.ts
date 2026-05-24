@@ -794,7 +794,9 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
   } catch (e) {
     // Best-effort cleanup of already-constructed resources
     streamWriter?.close?.();
-    llm?.close()?.catch(() => {});
+    llm?.close()?.catch(() => {
+      // silent: assemble throw 兜底 teardown 路径，原 error e 在末尾 throw 不丢失；llm.close 异步失败属次生 error，无 auditWriter 可信通道（catch 内 auditWriter 自身可能未完成构造）
+    });
     if (lockAcquired) {
       try {
         processManager.releaseLock(clawId);
