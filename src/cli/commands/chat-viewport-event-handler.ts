@@ -247,6 +247,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
           try {
             deps.audit.write(VIEWPORT_AUDIT_EVENTS.STREAM_READER_START_FAILED, `taskId=${taskId}`, `reason=${err instanceof Error ? err.message : String(err)}`);
           } catch { /* audit self-failure tolerated */ }
+          break;   // phase 1217 r131 C.3 fix: 不 register stale TaskWatch with failed streamReader
         }
         const tw: TaskWatch = {
           callerType: callerType as CallerType,
