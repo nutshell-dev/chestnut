@@ -49,6 +49,7 @@ function ensurePeriodicFlush(): void {
 function dumpFallback(): void {
   if (pendingFallback.length === 0) return;
   const batch = pendingFallback.splice(0); // atomic: clear + capture
+  let written = false;
   try {
     const fallbackPath = `${getFallbackDir()}/clawforum-audit-fallback-${process.pid}-${Date.now()}.tsv`;
     // origin 作 synthetic col 0 prepend / esc(origin) 防 tab 污染
@@ -56,9 +57,26 @@ function dumpFallback(): void {
       .map(e => `${esc(e.origin)}\t${e.line}`)
       .join('');
     nodeFs.writeFileSync(fallbackPath, body);
+    written = true;
+    try {
+      const fd = nodeFs.openSync(fallbackPath, 'r+');
+      try {
+        nodeFs.fsyncSync(fd);
+      } finally {
+        nodeFs.closeSync(fd);
+      }
+    } catch (syncErr) {
+      // fsync best-effort: data already written, durability warning only
+      const reason = syncErr instanceof Error ? syncErr.message : String(syncErr);
+      console.error(
+        `[AUDIT WARNING] fallback fsync failed: path=${fallbackPath} reason=${reason}`,
+      );
+    }
   } catch (err) {
     // write 失败：恢复 entries 到 buffer（best-effort、顺序非关键）
-    pendingFallback.unshift(...batch);
+    if (!written) {
+      pendingFallback.unshift(...batch);
+    }
     const reason = err instanceof Error ? err.message : String(err);
     console.error(
       `[AUDIT CRITICAL] fallback dump failed: reason=${reason} pending=${pendingFallback.length}`,
@@ -142,6 +160,12 @@ export class AuditWriter implements AuditLog {
     try {
       if (this.maxBytes) this.rotateIfNeeded();
       this.fs.appendSync(this.filePath, line);
+      try {
+        this.fs.syncSync(this.filePath);
+      } catch (syncErr) {
+        const reason = syncErr instanceof Error ? syncErr.message : String(syncErr);
+        console.error(`[AUDIT WARNING] sync failed: type=${type} path=${this.filePath} reason=${reason}`);
+      }
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       console.error(`[AUDIT CRITICAL] write failed: type=${type} path=${this.filePath} reason=${reason}`);

@@ -145,7 +145,7 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
       if (consecutiveMaxTokensToolUse >= maxConsecutiveMaxTokensToolUse) {
         throw new ConsecutiveMaxTokensToolUseError(maxConsecutiveMaxTokensToolUse);
       }
-      ctx.incrementStep?.();
+      ctx.incrementStep();
       stepCount = ctx.stepNumber;
       continue;
     }

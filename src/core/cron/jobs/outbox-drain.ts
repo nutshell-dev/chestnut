@@ -29,6 +29,8 @@ export interface OutboxDrainOptions {
 
 const DEFAULT_LIMIT_PER_CLAW = 50;
 
+let drainCounter = 0;
+
 export async function runOutboxDrain(opts: OutboxDrainOptions): Promise<void> {
   const { clawforumDir, motionInboxDir, fs, audit } = opts;
   const limitPerClaw = opts.limit ?? DEFAULT_LIMIT_PER_CLAW;
@@ -64,7 +66,7 @@ export async function runOutboxDrain(opts: OutboxDrainOptions): Promise<void> {
         .sort();
     } catch (err) {
       if (isFileNotFound(err)) continue;  // claw 无 outbox / first-run
-      audit.write(CRON_AUDIT_EVENTS.OUTBOX_DRAIN_DONE,
+      audit.write(CRON_AUDIT_EVENTS.OUTBOX_DRAIN_FAILED,
         `claw=${clawId}`, `count=0`, `reason=list_failed`);
       continue;
     }
@@ -74,9 +76,10 @@ export async function runOutboxDrain(opts: OutboxDrainOptions): Promise<void> {
     const toRead = files.slice(0, limitPerClaw);
     for (const fileName of toRead) {
       const srcPath = path.join(outboxPending, fileName);
-      const dstName = `${Date.now()}_${fileName}`;
+      const uniq = `${process.pid}_${++drainCounter}_${Math.random().toString(36).slice(2, 8)}`;
+      const dstName = `${Date.now()}_${uniq}_${fileName}`;
       const dstPath = path.join(outboxDone, dstName);
-      const inboxFileName = `outbox-drain-${clawId}-${Date.now()}_${fileName}`;
+      const inboxFileName = `outbox-drain-${clawId}-${Date.now()}_${uniq}_${fileName}`;
       const inboxPath = path.join(motionInboxDir, inboxFileName);
 
       try {
@@ -92,7 +95,7 @@ export async function runOutboxDrain(opts: OutboxDrainOptions): Promise<void> {
 
         totalDrained++;
       } catch (err) {
-        audit.write(CRON_AUDIT_EVENTS.OUTBOX_DRAIN_DONE,
+        audit.write(CRON_AUDIT_EVENTS.OUTBOX_DRAIN_FAILED,
           `claw=${clawId}`, `file=${fileName}`, `reason=deliver_failed`,
           `error=${err instanceof Error ? err.message : String(err)}`);
       }

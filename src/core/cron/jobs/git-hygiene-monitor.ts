@@ -57,18 +57,25 @@ export async function runGitHygieneMonitor(opts: GitHygieneMonitorOptions): Prom
     worktreeCount = wtOutput.output.split('\n').filter(l => l.trim()).length;
     claudeWorktreesCount = wtOutput.output.split('\n').filter(l => l.includes('.claude/worktrees/')).length;
   } catch (err) {
-    // partial scan / best-effort + audit emit ENOENT 分流见 audit-size-monitor pattern
+    const reason = err instanceof Error ? err.message : String(err);
+    audit.write(CRON_AUDIT_EVENTS.GIT_HYGIENE_SAMPLE_FAILED, `scope=worktree`, `reason=${reason}`);
   }
 
   try {
     const brOutput = await exec('git', ['branch', '-a'], { cwd: clawforumDir });
     branchCount = brOutput.output.split('\n').filter(l => l.trim()).length;
-  } catch (err) { /* silent: best-effort partial scan */ }
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    audit.write(CRON_AUDIT_EVENTS.GIT_HYGIENE_SAMPLE_FAILED, `scope=branch`, `reason=${reason}`);
+  }
 
   try {
     const stOutput = await exec('git', ['stash', 'list'], { cwd: clawforumDir });
     stashCount = stOutput.output.split('\n').filter(l => l.trim()).length;
-  } catch (err) { /* silent: best-effort partial scan */ }
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    audit.write(CRON_AUDIT_EVENTS.GIT_HYGIENE_SAMPLE_FAILED, `scope=stash`, `reason=${reason}`);
+  }
 
   // emit base snapshot
   audit.write(

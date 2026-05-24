@@ -151,6 +151,7 @@
       "cron_git_gc_weekly",
       "cron_git_hygiene_branch_threshold",
       "cron_git_hygiene_claude_worktrees",
+      "cron_git_hygiene_sample_failed",
       "cron_git_hygiene_snapshot",
       "cron_git_hygiene_stash_threshold",
       "cron_git_hygiene_worktree_threshold",
@@ -162,13 +163,15 @@
       "cron_llm_stats",
       "cron_metrics_snapshot",
       "cron_outbox_drain_done",
+      "cron_outbox_drain_failed",
       "cron_outbox_drain_start",
       "cron_parse_fallback",
       "cron_parse_invalid",
       "cron_retention_cleanup",
       "cron_retention_cleanup_delete_failed",
       "cron_runner_started",
-      "cron_runner_stopped"
+      "cron_runner_stopped",
+      "cron_state_save_failed"
     ],
     "core_evolution-system_retro-audit-events": [
       "contract_retro_cleanup_failed",

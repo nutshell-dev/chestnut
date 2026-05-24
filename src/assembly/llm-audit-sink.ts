@@ -72,12 +72,16 @@ export function createLLMAuditSink(audit: AuditLog): LLMEventSink {
               `triggerErrorClass=${event.triggerErrorClass}`);
             break;
           case 'hedge_primary_recovered':
-            audit.write(LLM_AUDIT_EVENTS.HEDGE_PRIMARY_RECOVERED, `provider=${event.provider}`);
+            audit.write(LLM_AUDIT_EVENTS.HEDGE_PRIMARY_RECOVERED, `provider=${event.provider}`,
+              `cache_creation_input_tokens=${event.cacheCreationInputTokens ?? 0}`,
+              `cache_read_input_tokens=${event.cacheReadInputTokens ?? 0}`);
             break;
           case 'hedge_fallback_committed':
             audit.write(LLM_AUDIT_EVENTS.HEDGE_FALLBACK_COMMITTED,
               `winner=${event.winnerProvider}`, `primary=${event.primaryProvider}`,
-              `primaryErrorClass=${event.primaryErrorClass}`, `primaryError=${event.primaryError}`);
+              `primaryErrorClass=${event.primaryErrorClass}`, `primaryError=${event.primaryError}`,
+              `cache_creation_input_tokens=${event.cacheCreationInputTokens ?? 0}`,
+              `cache_read_input_tokens=${event.cacheReadInputTokens ?? 0}`);
             break;
           case 'hedge_primary_succeeded_after_race_lost':
             audit.write(

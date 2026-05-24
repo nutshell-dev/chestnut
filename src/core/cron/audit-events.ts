@@ -29,9 +29,12 @@ export const CRON_AUDIT_EVENTS = {
   AUDIT_SIZE_CHECK_FAILED: 'cron_audit_size_check_failed',                 // NEW phase 1154 α-3b
   OUTBOX_DRAIN_START: 'cron_outbox_drain_start',                           // NEW phase 1160 P0-2
   OUTBOX_DRAIN_DONE: 'cron_outbox_drain_done',                             // NEW phase 1160 P0-2
+  OUTBOX_DRAIN_FAILED: 'cron_outbox_drain_failed',                         // NEW phase 1210
   GIT_HYGIENE_SNAPSHOT: 'cron_git_hygiene_snapshot',                       // NEW phase 1204
   GIT_HYGIENE_WORKTREE_THRESHOLD: 'cron_git_hygiene_worktree_threshold',   // NEW phase 1204
   GIT_HYGIENE_BRANCH_THRESHOLD: 'cron_git_hygiene_branch_threshold',       // NEW phase 1204
   GIT_HYGIENE_STASH_THRESHOLD: 'cron_git_hygiene_stash_threshold',         // NEW phase 1204
   GIT_HYGIENE_CLAUDE_WORKTREES: 'cron_git_hygiene_claude_worktrees',       // NEW phase 1204
+  GIT_HYGIENE_SAMPLE_FAILED: 'cron_git_hygiene_sample_failed',             // NEW phase 1210
+  STATE_SAVE_FAILED: 'cron_state_save_failed',                             // NEW phase 1210
 } as const;

@@ -29,6 +29,7 @@ describe('AuditWriter rotateIfNeeded TOCTOU race-loser (B3)', () => {
       moveSync: vi.fn().mockImplementation(() => {
         throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
       }),
+      syncSync: vi.fn(),
     };
     const writer = new AuditWriter(fs as any, 'audit.tsv', 1); // 1MB max → triggers rotate
 
@@ -48,6 +49,7 @@ describe('AuditWriter rotateIfNeeded TOCTOU race-loser (B3)', () => {
       moveSync: vi.fn().mockImplementation(() => {
         throw Object.assign(new Error('EACCES'), { code: 'EACCES' });
       }),
+      syncSync: vi.fn(),
     };
     const writer = new AuditWriter(fs as any, 'audit.tsv', 1);
 

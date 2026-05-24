@@ -70,7 +70,15 @@ export class BatchedAuditWriter implements AuditLog {
         }
       }
       this.fs.appendSync(this.filePath, batch.join(''));
-      this.fs.syncSync(this.filePath);
+      try {
+        this.fs.syncSync(this.filePath);
+      } catch (syncErr) {
+        // fsync failure = best-effort warning; do NOT pushFallback (avoid double-write on next reconcile)
+        const reason = syncErr instanceof Error ? syncErr.message : String(syncErr);
+        console.error(
+          `[AUDIT WARNING] batched fsync failed: path=${this.filePath} lines=${batch.length} reason=${reason}`,
+        );
+      }
       // SUCCESS: reset backoff
       if (this.currentIntervalMs !== this.flushIntervalMs) {
         this.currentIntervalMs = this.flushIntervalMs;

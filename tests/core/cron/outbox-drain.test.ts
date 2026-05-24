@@ -54,7 +54,7 @@ describe('outbox-drain cron job (phase 1160 P0-2)', () => {
     expect(fsNative.readdirSync(outboxPending)).toHaveLength(0);
     const doneFiles = fsNative.readdirSync(outboxDone);
     expect(doneFiles).toHaveLength(1);
-    expect(doneFiles[0]).toMatch(/^\d+_msg1\.md$/);
+    expect(doneFiles[0]).toMatch(/^\d+_.*_msg1\.md$/);
   });
 
   // 反向 3: OUTBOX_DRAIN_START + DONE audit emit + count 字段正确

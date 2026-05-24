@@ -94,7 +94,16 @@ export function isInitialized(): boolean {
 export function saveGlobalConfig(config: ClawGlobalConfig): void {
   const configPath = getGlobalConfigPath();
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
-  fs.writeFileSync(configPath, yaml.dump(config));
+  const content = yaml.dump(config);
+  const tmpPath = `${configPath}.tmp.${Date.now()}`;
+  fs.writeFileSync(tmpPath, content);
+  const fd = fs.openSync(tmpPath, 'r+');
+  try {
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+  fs.renameSync(tmpPath, configPath);
 }
 
 // Load claw config
@@ -147,7 +156,16 @@ export function patchGlobalConfigPrimary(patch: Record<string, unknown>): void {
   const primary = (llm.primary ?? {}) as Record<string, unknown>;
   llm.primary = { ...primary, ...patch };
   cfg.llm = llm;
-  fs.writeFileSync(configPath, yaml.dump(cfg));
+  const content = yaml.dump(cfg);
+  const tmpPath = `${configPath}.tmp.${Date.now()}`;
+  fs.writeFileSync(tmpPath, content);
+  const fd = fs.openSync(tmpPath, 'r+');
+  try {
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+  fs.renameSync(tmpPath, configPath);
 }
 
 // Save claw config
@@ -156,7 +174,16 @@ export function saveClawConfig(name: string, config: ClawConfig): void {
   fs.mkdirSync(clawDir, { recursive: true });
 
   const configPath = getClawConfigPath(name);
-  fs.writeFileSync(configPath, yaml.dump(config));
+  const content = yaml.dump(config);
+  const tmpPath = `${configPath}.tmp.${Date.now()}`;
+  fs.writeFileSync(tmpPath, content);
+  const fd = fs.openSync(tmpPath, 'r+');
+  try {
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+  fs.renameSync(tmpPath, configPath);
 }
 
 // Check if claw exists

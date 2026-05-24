@@ -78,6 +78,7 @@ describe('AuditWriter', () => {
       appendSync: vi.fn(),
       statSync: vi.fn(() => { throw new Error('disk io error'); }),
       moveSync: vi.fn(),
+      syncSync: vi.fn(),
     } as unknown as NodeFileSystem;
 
     const writer = new AuditWriter(mockFs, 'audit.tsv', 1);
@@ -102,6 +103,7 @@ describe('AuditWriter', () => {
       appendSync: vi.fn(() => { throw new Error('disk full'); }),
       statSync: vi.fn(() => { throw new FileNotFoundError('not found'); }),
       moveSync: vi.fn(),
+      syncSync: vi.fn(),
     } as unknown as NodeFileSystem;
 
     const writer = new AuditWriter(mockFs, 'audit.tsv');
@@ -129,6 +131,7 @@ describe('AuditWriter', () => {
       }),
       statSync: vi.fn(() => { throw new FileNotFoundError('not found'); }),
       moveSync: vi.fn(),
+      syncSync: vi.fn(),
     } as unknown as NodeFileSystem;
 
     const writer = new AuditWriter(mockFs, 'audit.tsv');

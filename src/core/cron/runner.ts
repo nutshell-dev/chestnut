@@ -14,7 +14,7 @@ export type CronSchedule =
   | { type: 'interval'; minutes: number }; // 每 N 分钟
 
 /** 将配置字符串解析为 CronSchedule
- * 格式：'hourly' | 'daily:HH:MM' | 'interval:Nm'
+ * 格式：'hourly' | 'daily:HH:MM' | 'interval:N[m|h|s]'
  */
 export function parseSchedule(s: string, audit?: AuditLog): CronSchedule | null {
   if (s === 'hourly') return { type: 'hourly' };
@@ -27,9 +27,28 @@ export function parseSchedule(s: string, audit?: AuditLog): CronSchedule | null 
     return { type: 'daily', time: s.slice(6) };
   }
   if (s.startsWith('interval:')) {
-    const minutes = parseInt(s.slice(9), 10);
-    if (isNaN(minutes) || minutes <= 0) {
+    const rest = s.slice(9);
+    const match = rest.match(/^(\d+)([smh])?$/);
+    if (!match) {
+      audit?.write(CRON_AUDIT_EVENTS.PARSE_INVALID, `input=${s}`, 'reason=invalid_interval_format');
+      return null;
+    }
+    const num = parseInt(match[1], 10);
+    const unit = match[2] ?? 'm';
+    if (isNaN(num) || num <= 0) {
       audit?.write(CRON_AUDIT_EVENTS.PARSE_INVALID, `input=${s}`, 'reason=invalid_interval');
+      return null;
+    }
+    // Convert to minutes
+    let minutes: number;
+    switch (unit) {
+      case 's': minutes = num / 60; break;
+      case 'm': minutes = num; break;
+      case 'h': minutes = num * 60; break;
+      default: minutes = num;
+    }
+    if (minutes <= 0) {
+      audit?.write(CRON_AUDIT_EVENTS.PARSE_INVALID, `input=${s}`, 'reason=interval_too_small');
       return null;
     }
     return { type: 'interval', minutes };
@@ -57,7 +76,8 @@ export class CronRunner {
   private cancellingTicks = new Map<string, number>(); // job → tick 计数（cancelling 期间）
   // phase 793 (audit-2026-05-14 P0.22): inflight Promise tracking 加 stop 时 drain
   // 防 cronRunner.stop 后 dream-trigger 30min handler 撞 runtime.stop 的 llm.close
-  private inflightPromises = new Set<Promise<unknown>>();
+  // phase 1210: Map 替 Set 带 job tag（post-mortem 可分 job）
+  private inflightPromises = new Map<Promise<unknown>, { job: string; runKey: string; startTs: number }>();
   // phase 946 (audit-2026-05-15 gap.7): AbortController for handler cooperative cancellation
   private abortController = new AbortController();
   // F5: per-job initial scan guard to prevent daily double-fire on daemon restart
@@ -118,7 +138,7 @@ export class CronRunner {
 
     // drain inflight handlers
     if (this.inflightPromises.size > 0) {
-      const drainPromise = Promise.allSettled([...this.inflightPromises]);
+      const drainPromise = Promise.allSettled([...this.inflightPromises.keys()]);
       let drainTimer: ReturnType<typeof setTimeout> | undefined;
       const timeoutPromise = new Promise<'timeout'>(resolve =>
         drainTimer = setTimeout(() => resolve('timeout'), drainTimeoutMs)
@@ -134,18 +154,23 @@ export class CronRunner {
         // Attach per-Promise late-settle audit on each remaining inflight
         // (phase 867 r111 E fork: Sc.1 post-drain late-settle observability)
         // Snapshot once — avoid concurrent delete from existing .then(_, _) cleanup
-        const stuckSnapshot = new Set(this.inflightPromises);
-        for (const p of stuckSnapshot) {
+        const stuckSnapshot = new Map(this.inflightPromises);
+        for (const [p, meta] of stuckSnapshot) {
           p.then(
             () => {
               this.audit.write(
                 CRON_AUDIT_EVENTS.RUNNER_DRAIN_LATE_SETTLE,
+                `job=${meta.job}`,
+                `run_key=${meta.runKey}`,
                 `outcome=settled`,
+                `elapsed_ms=${Date.now() - meta.startTs}`,
               );
             },
             err => {
               this.audit.write(
                 CRON_AUDIT_EVENTS.RUNNER_DRAIN_LATE_SETTLE,
+                `job=${meta.job}`,
+                `run_key=${meta.runKey}`,
                 `outcome=err`,
                 `error=${err instanceof Error ? err.message : String(err)}`,
               );
@@ -204,7 +229,7 @@ export class CronRunner {
       }
 
       // phase 793 (P0.22): track inflight for stop drain
-      this.inflightPromises.add(handlerPromise);
+      this.inflightPromises.set(handlerPromise, { job: job.name, runKey: key, startTs: Date.now() });
       handlerPromise.then(
         () => { this.inflightPromises.delete(handlerPromise); },
         () => { this.inflightPromises.delete(handlerPromise); },
@@ -293,7 +318,10 @@ export class CronRunner {
         });
     }
     // Persist cron state after each tick (fire-and-forget, non-blocking)
-    this.saveState().catch(() => { /* silent: non-critical state save, next tick retries */ });
+    this.saveState().catch((err) => {
+      const reason = err instanceof Error ? err.message : String(err);
+      this.audit.write(CRON_AUDIT_EVENTS.STATE_SAVE_FAILED, `reason=${reason}`);
+    });
   }
 
   private computeRunKey(now: Date, schedule: CronSchedule): string {
