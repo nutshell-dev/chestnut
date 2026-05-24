@@ -15,12 +15,8 @@ export default defineConfig({
     poolOptions: {
       threads: { maxThreads },
     },
-    server: {
-      deps: {
-        // phase 1218 γ: inline common deps to reduce cross-worker re-parsing
-        inline: ['chokidar'],
-      },
-    },
+    // phase 1223: server.deps.inline ['chokidar'] reverted - 实测 transform 3x 反优化
+    // chokidar 是 native+JS heavy package / inline 强制每 worker re-bundle / 不复用 cached require
     testTimeout: 15000,     // 覆盖最长等待（2500ms 重试 + IO margin）
     hookTimeout: 10000,     // beforeEach/afterEach 文件系统操作留足时间
     coverage: {
