@@ -39,6 +39,12 @@ vi.mock('../../../src/foundation/process-exec/index.js', async (importOriginal) 
   };
 });
 
+// phase 1156: 取未 mock 的 production deadline、表达「fast-fail < full deadline」不变式
+const { PROCESS_SPAWN_CONFIRM_MS: PROD_SPAWN_CONFIRM_MS } =
+  await vi.importActual<typeof import('../../../src/foundation/process-manager/constants.js')>(
+    '../../../src/foundation/process-manager/constants.js',
+  );
+
 describe('spawn poll child-died fast-fail（phase 1136 / F.1）', () => {
   let tempDir: string;
   let nodeFs: NodeFileSystem;
@@ -87,7 +93,9 @@ describe('spawn poll child-died fast-fail（phase 1136 / F.1）', () => {
       }),
     ).rejects.toThrow(`Process "${clawId}" died during boot`);
     const elapsed = Date.now() - start;
-    expect(elapsed).toBeLessThan(200); // fast-fail, not full 3s
+    // phase 1156: 用 src 真常量替 magic 200ms / 表达「fast-fail < full spawn deadline」不变式
+    // regression 检测：退化到无短路 → 满 deadline (3000ms) 才 throw → 必 fail
+    expect(elapsed).toBeLessThan(PROD_SPAWN_CONFIRM_MS);
   });
 
   it('反向 2：isReady eventually true → happy path + 0 throw', async () => {
