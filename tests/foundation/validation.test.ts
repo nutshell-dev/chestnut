@@ -24,9 +24,9 @@ describe('KNOWN_INBOX_TYPES', () => {
     expect(KNOWN_INBOX_TYPES).toContain('crash_notification');
     expect(KNOWN_INBOX_TYPES).toContain('heartbeat');
     expect(KNOWN_INBOX_TYPES).toContain('claw_outbox');
-    expect(KNOWN_INBOX_TYPES).toContain('acceptance_result');
-    expect(KNOWN_INBOX_TYPES).toContain('acceptance_rejection');
-    expect(KNOWN_INBOX_TYPES).toContain('acceptance_error');
+    expect(KNOWN_INBOX_TYPES).toContain('verification_result');
+    expect(KNOWN_INBOX_TYPES).toContain('verification_rejection');
+    expect(KNOWN_INBOX_TYPES).toContain('verification_error');
     expect(KNOWN_INBOX_TYPES).toContain('cron_disk_warning');
     expect(KNOWN_INBOX_TYPES).toContain('random_dream');
     expect(KNOWN_INBOX_TYPES).toContain('deep_dream');
@@ -64,7 +64,7 @@ describe('validateType', () => {
     expect(validateType('crash_notification')).toBe('crash_notification');
     expect(validateType('heartbeat')).toBe('heartbeat');
     expect(validateType('claw_outbox')).toBe('claw_outbox');
-    expect(validateType('acceptance_result')).toBe('acceptance_result');
+    expect(validateType('verification_result')).toBe('verification_result');
     expect(validateType('watchdog_ping')).toBe('watchdog_ping');
     expect(validateType('unknown_event')).toBe('unknown_event');
     expect(validateType('HEARTBEAT')).toBe('HEARTBEAT');

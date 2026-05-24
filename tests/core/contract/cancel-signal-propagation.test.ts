@@ -61,12 +61,12 @@ describe('phase 1020 / r124 C fork — cancel propagation 装配端真实施', (
         title: 'Test',
         goal: 'Test',
         subtasks: [{ id: 't1', description: 'T1' }],
-        acceptance: [{ subtask_id: 't1', type: 'llm', prompt_file: 'acceptance/t1.prompt.txt' }],
+        verification: [{ subtask_id: 't1', type: 'llm', prompt_file: 'verification/t1.prompt.txt' }],
       }));
 
-      await fs.mkdir(path.join(clawDir, 'contract/active', contractId, 'acceptance'), { recursive: true });
+      await fs.mkdir(path.join(clawDir, 'contract/active', contractId, 'verification'), { recursive: true });
       await fs.writeFile(
-        path.join(clawDir, 'contract/active', contractId, 'acceptance', 't1.prompt.txt'),
+        path.join(clawDir, 'contract/active', contractId, 'verification', 't1.prompt.txt'),
         'Check: {{evidence}}',
       );
 
@@ -81,8 +81,8 @@ describe('phase 1020 / r124 C fork — cancel propagation 装配端真实施', (
         });
       });
 
-      const verifierPromise = (manager as any).runLLMAcceptance(
-        'acceptance/t1.prompt.txt',
+      const verifierPromise = (manager as any).runLLMVerification(
+        'verification/t1.prompt.txt',
         path.join(clawDir, 'contract/active', contractId),
         contractId,
         't1',
@@ -112,12 +112,12 @@ describe('phase 1020 / r124 C fork — cancel propagation 装配端真实施', (
         title: 'Test',
         goal: 'Test',
         subtasks: [{ id: 't1', description: 'T1' }],
-        acceptance: [{ subtask_id: 't1', type: 'llm', prompt_file: 'acceptance/t1.prompt.txt' }],
+        verification: [{ subtask_id: 't1', type: 'llm', prompt_file: 'verification/t1.prompt.txt' }],
       }));
 
-      await fs.mkdir(path.join(clawDir, 'contract/active', contractId, 'acceptance'), { recursive: true });
+      await fs.mkdir(path.join(clawDir, 'contract/active', contractId, 'verification'), { recursive: true });
       await fs.writeFile(
-        path.join(clawDir, 'contract/active', contractId, 'acceptance', 't1.prompt.txt'),
+        path.join(clawDir, 'contract/active', contractId, 'verification', 't1.prompt.txt'),
         'Check: {{evidence}}',
       );
 
@@ -128,8 +128,8 @@ describe('phase 1020 / r124 C fork — cancel propagation 装配端真实施', (
         });
       });
 
-      const promise = (manager as any).runLLMAcceptance(
-        'acceptance/t1.prompt.txt',
+      const promise = (manager as any).runLLMVerification(
+        'verification/t1.prompt.txt',
         path.join(clawDir, 'contract/active', contractId),
         contractId,
         't1',
@@ -167,19 +167,19 @@ describe('phase 1020 / r124 C fork — cancel propagation 装配端真实施', (
           { id: 't1', description: 'T1' },
           { id: 't2', description: 'T2' },
         ],
-        acceptance: [
-          { subtask_id: 't1', type: 'llm', prompt_file: 'acceptance/t1.prompt.txt' },
-          { subtask_id: 't2', type: 'llm', prompt_file: 'acceptance/t2.prompt.txt' },
+        verification: [
+          { subtask_id: 't1', type: 'llm', prompt_file: 'verification/t1.prompt.txt' },
+          { subtask_id: 't2', type: 'llm', prompt_file: 'verification/t2.prompt.txt' },
         ],
       }));
 
-      await fs.mkdir(path.join(clawDir, 'contract/active', contractId, 'acceptance'), { recursive: true });
+      await fs.mkdir(path.join(clawDir, 'contract/active', contractId, 'verification'), { recursive: true });
       await fs.writeFile(
-        path.join(clawDir, 'contract/active', contractId, 'acceptance', 't1.prompt.txt'),
+        path.join(clawDir, 'contract/active', contractId, 'verification', 't1.prompt.txt'),
         'Check: {{evidence}}',
       );
       await fs.writeFile(
-        path.join(clawDir, 'contract/active', contractId, 'acceptance', 't2.prompt.txt'),
+        path.join(clawDir, 'contract/active', contractId, 'verification', 't2.prompt.txt'),
         'Check: {{evidence}}',
       );
 
@@ -194,8 +194,8 @@ describe('phase 1020 / r124 C fork — cancel propagation 装配端真实施', (
         });
       });
 
-      const p1 = (manager as any).runLLMAcceptance(
-        'acceptance/t1.prompt.txt',
+      const p1 = (manager as any).runLLMVerification(
+        'verification/t1.prompt.txt',
         path.join(clawDir, 'contract/active', contractId),
         contractId,
         't1',
@@ -203,8 +203,8 @@ describe('phase 1020 / r124 C fork — cancel propagation 装配端真实施', (
         'evidence',
         [],
       );
-      const p2 = (manager as any).runLLMAcceptance(
-        'acceptance/t2.prompt.txt',
+      const p2 = (manager as any).runLLMVerification(
+        'verification/t2.prompt.txt',
         path.join(clawDir, 'contract/active', contractId),
         contractId,
         't2',

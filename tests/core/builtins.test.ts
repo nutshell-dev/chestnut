@@ -749,7 +749,7 @@ describe('Builtin Tools', () => {
           { id: 'task-1', description: 'First task' },
           { id: 'task-2', description: 'Second task' },
         ],
-        acceptance: [],
+        verification: [],
       }));
       const statusTool = createStatusTool(manager);
 
@@ -774,9 +774,9 @@ describe('Builtin Tools', () => {
           { id: 'done-task', description: 'Already done' },
           { id: 'todo-task', description: 'Still pending' },
         ],
-        acceptance: [],
+        verification: [],
       }));
-      // 完成第一个子任务（无 acceptance 脚本，直接通过）
+      // 完成第一个子任务（无 verification 脚本，直接通过）
       await manager.completeSubtask({ contractId, subtaskId: 'done-task', evidence: 'done' });
       const statusTool = createStatusTool(manager);
 
@@ -851,7 +851,7 @@ describe('Builtin Tools', () => {
           { id: 'fail-task', description: 'This will fail' },
           { id: 'ok-task', description: 'This is ok' },
         ],
-        acceptance: [],
+        verification: [],
         deliverables: [],
       });
       // 直接修改 progress.json 设置 failed 状态

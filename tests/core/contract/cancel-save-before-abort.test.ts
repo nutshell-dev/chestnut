@@ -50,7 +50,7 @@ describe('phase 1152 G.5: cancelContract saveProgress before abort order', () =>
       goal: 'Test',
       deliverables: [],
       subtasks: [{ id: 't1', description: 'T1' }],
-      acceptance: [],
+      verification: [],
     }));
 
     await manager.cancel(contractId, 'user cancelled');
@@ -71,7 +71,7 @@ describe('phase 1152 G.5: cancelContract saveProgress before abort order', () =>
       goal: 'Test',
       deliverables: [],
       subtasks: [{ id: 't1', description: 'T1' }],
-      acceptance: [],
+      verification: [],
     }));
 
     const abortSpy = vi.spyOn(manager as any, '_abortContractVerifiers').mockImplementation(() => {
@@ -99,7 +99,7 @@ describe('phase 1152 G.5: cancelContract saveProgress before abort order', () =>
       goal: 'Test',
       deliverables: [],
       subtasks: [{ id: 't1', description: 'T1' }],
-      acceptance: [],
+      verification: [],
     }));
 
     const sourceLockPath = path.join(clawDir, 'contract', 'active', contractId, 'progress.lock');

@@ -10,7 +10,9 @@ export function buildSummonContractTask(
   goal: string,
   skillsSummary?: string,
   targetClaw?: string,
+  opts: { verify?: boolean } = {},
 ): string {
+  const verify = opts.verify === true;
   let task = `## 本次目标\n${goal}`;
 
   if (skillsSummary) {
@@ -83,7 +85,7 @@ exec: clawforum skill install --claw <id> --skill <name>
 \`\`\`
 clawspace/contract-drafts/<contract-slug>/
   contract.yaml
-  acceptance/
+  verification/
     <subtask-id>.prompt.txt  ← type: llm
     <subtask-id>.sh          ← type: script
 \`\`\`
@@ -104,15 +106,15 @@ expectations: |
 subtasks:
   - id: <subtask-id>
     description: "动词 + 做什么，将结果写入 clawspace/<contract-slug>/<file>；含该子任务特有的细化要求"
-acceptance:
+${verify ? `verification:
   - subtask_id: <subtask-id>
     type: llm
-    prompt_file: acceptance/<subtask-id>.prompt.txt
+    prompt_file: verification/<subtask-id>.prompt.txt
 escalation:
-  max_retries: 3
+  max_retries: 3` : `> 注：本契约 verify=false（默认），子任务 claw 调 submit_subtask 即立即标 completed，不经过 verification 门控。`}
 \`\`\`
 
-**acceptance/.prompt.txt 格式**（type: llm 时）：
+**verification/.prompt.txt 格式**（type: llm 时）：
 \`\`\`
 检查 clawspace/<contract-slug>/<file> 是否存在且包含……
 
@@ -124,9 +126,9 @@ escalation:
 
 **关键规则**：
 - \`subtasks\` 必须是数组（\`- id: ...\` 列表），不能是对象映射（\`<subtask-id>: { description: ... }\` 格式系统拒绝）
-- 验收条件不能写在 subtask 内部，必须写在顶层 \`acceptance\` 数组里
-- \`type: llm\` 必须用 \`prompt_file\`（指向 acceptance/ 目录下的 .prompt.txt），不能用 \`prompt\` 内联文本
-- \`type: script\` 用 \`script_file\`（指向 acceptance/ 目录下的 .sh 文件）
+- 验证条件不能写在 subtask 内部，必须写在顶层 \`verification\` 数组里
+- \`type: llm\` 必须用 \`prompt_file\`（指向 verification/ 目录下的 .prompt.txt），不能用 \`prompt\` 内联文本
+- \`type: script\` 用 \`script_file\`（指向 verification/ 目录下的 .sh 文件）
 - 每个有产出文件的子任务，description 里必须写明路径（Claw 依赖此路径决定文件写到哪里）
 
 ### 4. 提交契约

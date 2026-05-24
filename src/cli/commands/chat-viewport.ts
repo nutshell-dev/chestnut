@@ -493,7 +493,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
           const total = event.subtaskTotal as number | undefined;
           const progress = completed != null && total != null ? `, ${completed} of ${total}` : '';
           if (showContractEvents) appendOutput('\x1b[2m', `  ✓ [contract] ${subtaskId} passed${progress} (${claw})`);
-        } else if (sub === 'acceptance_failed') {
+        } else if (sub === 'verification_failed') {
           const claw = (event.clawId as string) ?? '';
           if (!claw || claw === options.label) break;  // 隐藏自己的契约通知
           const fb = (event.feedback as string) ?? '';

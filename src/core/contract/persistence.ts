@@ -62,7 +62,14 @@ export async function loadContractYaml(
     );
     throw new Error(`contract.yaml schema invalid for contract ${contractId}`);
   }
-  return parsed as ContractYaml;
+  // Backwards-compat: old yaml used `acceptance` field, now renamed to `verification`
+  const data = parsed as Record<string, unknown>;
+  if (Array.isArray(data.acceptance) && !Array.isArray(data.verification)) {
+    data.verification = data.acceptance;
+  }
+  delete data.acceptance;
+
+  return data as unknown as ContractYaml;
 }
 
 export async function readContractYamlRaw(

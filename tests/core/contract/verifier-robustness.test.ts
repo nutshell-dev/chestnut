@@ -9,7 +9,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as path from 'path';
 import { runContractVerifier } from '../../../src/core/contract/verifier-job.js';
-import { runAcceptanceInBackground } from '../../../src/core/contract/acceptance.js';
+import { runVerificationInBackground } from '../../../src/core/contract/verification.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
 import { CONTRACT_ACTIVE_DIR } from '../../../src/core/contract/dirs.js';
 import type { VerifierConfig } from '../../../src/core/contract/types.js';
@@ -120,7 +120,7 @@ describe('phase 1133 C fork — contract verifier robustness', () => {
       checkAllSubtasksCompleted: vi.fn().mockResolvedValue(true),
       moveContractToArchive: moveToArchiveSpy,
       emitContractCompleted: emitContractCompletedSpy,
-      runLLMAcceptance: vi.fn().mockResolvedValue({ passed: true }),
+      runLLMVerification: vi.fn().mockResolvedValue({ passed: true }),
       withProgressLock: vi.fn().mockImplementation((_, fn) => fn()),
       toolRegistry: { getForProfile: vi.fn().mockReturnValue([]) } as any,
     };
@@ -129,14 +129,14 @@ describe('phase 1133 C fork — contract verifier robustness', () => {
       title: 'Test',
       goal: 'Test',
       subtasks: [{ id: 't1', description: 'T1' }],
-      acceptance: [{ subtask_id: 't1', type: 'llm', prompt_file: 'acceptance/t1.prompt.txt' }],
+      verification: [{ subtask_id: 't1', type: 'llm', prompt_file: 'verification/t1.prompt.txt' }],
     };
 
-    await runAcceptanceInBackground(
+    await runVerificationInBackground(
       ctx as any,
       { contractId: 'c1', subtaskId: 't1', evidence: 'evidence' },
       contractYaml,
-      { subtask_id: 't1', type: 'llm', prompt_file: 'acceptance/t1.prompt.txt' },
+      { subtask_id: 't1', type: 'llm', prompt_file: 'verification/t1.prompt.txt' },
     );
 
     expect(moveToArchiveSpy).not.toHaveBeenCalled();
@@ -145,7 +145,7 @@ describe('phase 1133 C fork — contract verifier robustness', () => {
     const cancelAudit = events.find(
       (e) =>
         e[0] === CONTRACT_AUDIT_EVENTS.COMPLETE_ON_CANCELLED &&
-        e.some((col) => col === 'context=runAcceptanceInBackground'),
+        e.some((col) => col === 'context=runVerificationInBackground'),
     );
     expect(cancelAudit).toBeDefined();
     expect(cancelAudit).toContain('contractId=c1');

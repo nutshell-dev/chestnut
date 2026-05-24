@@ -1,6 +1,6 @@
 /**
  * @module L4.ContractSystem.VerifierJob
- * Run contract acceptance verifier subagent — 自由函数 / 0 class state 依赖
+ * Run contract verification verifier subagent — 自由函数 / 0 class state 依赖
  *
  * Migrated from manager.ts:_runVerifierSubagent (phase 427 内联后 / phase 480 抽出)
  * phase 750: 改调 runSubagent helper、删 NoopWriter + audit/stream/workspace 自治模板

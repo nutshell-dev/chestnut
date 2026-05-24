@@ -79,7 +79,8 @@ export interface ContractYaml {
     id: string;
     description: string;
   }>;
-  acceptance?: Array<
+  /** @deprecated backwards-compat: old field name was `acceptance`, now use `verification` */
+  verification?: Array<
     | { subtask_id: string; type: 'script'; script_file?: string }
     | { subtask_id: string; type: 'llm'; prompt_file?: string }
   >;
@@ -107,7 +108,7 @@ export interface ProgressData {
   checkpoint?: string | null;
 }
 
-export interface AcceptanceResult {
+export interface VerificationResult {
   passed: boolean;
   feedback: string;
   allCompleted?: boolean;  // 仅 passed=true 时有意义

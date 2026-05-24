@@ -61,6 +61,10 @@ export class SummonTool implements Tool {
         type: 'string',
         description: '目标 claw id（kebab-case）。仅当用户明确指定了目标 claw 时填写，否则省略——claw 选择由子代理决定。若用户要求新建特定名称的 claw，请先创建再调用 summon。',
       },
+      verify: {
+        type: 'boolean',
+        description: "是否要求契约带验证门控（默认 false）：true = subtask submit 后需走 verification（LLM 或 script）pass 才标 completed；false = subtask submit 即立即 completed（claw 调 submit_subtask 即完成对应子项）",
+      },
       mode: {
         type: 'string',
         enum: ['shadow', 'mining'],
@@ -100,11 +104,12 @@ export class SummonTool implements Tool {
     const mode = (args.mode as 'mining' | 'shadow') ?? 'shadow';
     const isMining = mode === 'mining';
     const callerType: 'shadow' | 'miner' = isMining ? 'miner' : 'shadow';
+    const verify = args.verify === true;
 
     // 根据模式构建用户消息
     const userMessage = isMining
-      ? buildMiningUserMessage(args.goal as string, skillsSummary, args.targetClaw as string | undefined)
-      : buildSummonContractTask(args.goal as string, skillsSummary, args.targetClaw as string | undefined);
+      ? buildMiningUserMessage(args.goal as string, skillsSummary, args.targetClaw as string | undefined, { verify })
+      : buildSummonContractTask(args.goal as string, skillsSummary, args.targetClaw as string | undefined, { verify });
     if (isMining && !ctx.llm) {
       return { success: false, content: 'Mining mode requires LLM service, but none is available.' };
     }

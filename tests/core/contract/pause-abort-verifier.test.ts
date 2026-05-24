@@ -55,7 +55,7 @@ describe('pauseContract abort verifier propagation (phase 1162 DD3)', () => {
       goal: 'Test',
       deliverables: [],
       subtasks: [{ id: 't1', description: 'T1' }],
-      acceptance: [],
+      verification: [],
     }));
 
     const abortSpy = vi.spyOn(manager as any, '_abortContractVerifiers').mockImplementation(() => {});
@@ -74,7 +74,7 @@ describe('pauseContract abort verifier propagation (phase 1162 DD3)', () => {
       goal: 'Test',
       deliverables: [],
       subtasks: [{ id: 't1', description: 'T1' }],
-      acceptance: [],
+      verification: [],
     }));
 
     const abortSpy = vi.spyOn(manager as any, '_abortContractVerifiers').mockImplementation(() => {
@@ -102,7 +102,7 @@ describe('pauseContract abort verifier propagation (phase 1162 DD3)', () => {
       goal: 'Test',
       deliverables: [],
       subtasks: [{ id: 't1', description: 'T1' }],
-      acceptance: [],
+      verification: [],
     }));
 
     const callOrder: string[] = [];

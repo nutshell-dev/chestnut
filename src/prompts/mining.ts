@@ -68,7 +68,7 @@ skill: { "name": "<skill-name>", "skillsDir": "clawspace/dispatch-skills" }
 \`\`\`
 clawspace/contract-drafts/<contract-slug>/
   contract.yaml
-  acceptance/
+  verification/
     <subtask-id>.prompt.txt  ← type: llm
     <subtask-id>.sh          ← type: script
 \`\`\`
@@ -89,17 +89,17 @@ expectations: |
 subtasks:
   - id: <subtask-id>
     description: "动词 + 做什么，将结果写入 clawspace/<contract-slug>/<file>；含该子任务特有的细化要求"
-acceptance:
+verification:
   - subtask_id: <subtask-id>
     type: llm
-    prompt_file: acceptance/<subtask-id>.prompt.txt
+    prompt_file: verification/<subtask-id>.prompt.txt
 escalation:
   max_retries: 3
 \`\`\`
 
 **关键规则**：
 - \`subtasks\` 必须是数组（\`- id: ...\` 列表），不能是对象映射
-- 验收条件写在顶层 \`acceptance\` 数组，不能写在 subtask 内部
+- 验证条件写在顶层 \`verification\` 数组，不能写在 subtask 内部
 - \`type: llm\` 用 \`prompt_file\`；\`type: script\` 用 \`script_file\`；不可混用
 - 每个有产出文件的 subtask，description 里必须写明路径
 
@@ -127,7 +127,10 @@ export function buildMiningUserMessage(
   goal: string,
   skillsSummary?: string,
   targetClaw?: string,
+  opts: { verify?: boolean } = {},
 ): string {
+  const verify = opts.verify === true;
+  void verify; // mining user message does not vary by verify flag (schema lives in system prompt)
   let msg = `## 本次目标\n${goal}`;
 
   if (targetClaw) {

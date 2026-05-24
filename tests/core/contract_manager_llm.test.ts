@@ -1,5 +1,5 @@
 /**
- * ContractSystem LLM/Script acceptance integration tests
+ * ContractSystem LLM/Script verification integration tests
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -155,7 +155,7 @@ async function readMotionInbox(tempDir: string): Promise<Array<{ filename: strin
 }
 
 /**
- * Wait for ACCEPTANCE_BACKGROUND_DONE audit event for a specific contract/subtask.
+ * Wait for VERIFICATION_BACKGROUND_DONE audit event for a specific contract/subtask.
  * Replaces fs polling for deterministic background completion detection.
  */
 async function waitForAcceptanceDone(
@@ -171,7 +171,7 @@ async function waitForAcceptanceDone(
     }, timeoutMs);
     const handler = (ev: string, ...args: string[]) => {
       if (
-        ev === CONTRACT_AUDIT_EVENTS.ACCEPTANCE_BACKGROUND_DONE
+        ev === CONTRACT_AUDIT_EVENTS.VERIFICATION_BACKGROUND_DONE
         && args.includes(`contractId=${contractId}`)
         && args.includes(`subtaskId=${subtaskId}`)
       ) {
@@ -282,7 +282,7 @@ describe('ContractSystem Acceptance Flow', () => {
       const contractId = 'test-contract-1';
       await setupContract(tempDir, contractId, makeContractYaml({
         subtasks: [{ id: 'task-1', description: 'Test task' }],
-        acceptance: [{ subtask_id: 'task-1', type: 'script', script_file: '../../../etc/passwd' }],
+        verification: [{ subtask_id: 'task-1', type: 'script', script_file: '../../../etc/passwd' }],
       }));
 
       const result = await manager.completeSubtask({
@@ -295,20 +295,20 @@ describe('ContractSystem Acceptance Flow', () => {
       await waitForAcceptanceDone(auditEmitter, contractId, 'task-1');
 
       const inbox = await readClawInbox(tempDir);
-      const rejections = inbox.filter(m => m.content.includes('acceptance_rejection'));
+      const rejections = inbox.filter(m => m.content.includes('verification_rejection'));
       expect(rejections).toHaveLength(1);
       expect(rejections[0].content).toContain('路径安全');
     });
 
-    it('should pass when script acceptance succeeds', async () => {
+    it('should pass when script verification succeeds', async () => {
       const contractId = 'test-contract-2';
       await setupContract(tempDir, contractId, makeContractYaml({
         subtasks: [{ id: 'task-1', description: 'Test task' }],
       }));
 
-      const acceptanceDir = path.join(tempDir, 'contract', 'active', contractId, 'acceptance');
-      await fs.mkdir(acceptanceDir, { recursive: true });
-      await fs.writeFile(path.join(acceptanceDir, 'task-1.sh'), '#!/bin/bash\necho "ok"', { mode: 0o755 });
+      const verificationDir = path.join(tempDir, 'contract', 'active', contractId, 'verification');
+      await fs.mkdir(verificationDir, { recursive: true });
+      await fs.writeFile(path.join(verificationDir, 'task-1.sh'), '#!/bin/bash\necho "ok"', { mode: 0o755 });
 
       // Set execFile mock to succeed
       execFileMockBehavior = 'success';
@@ -320,7 +320,7 @@ describe('ContractSystem Acceptance Flow', () => {
         evidence: 'test evidence',
       });
 
-      // Wait for background acceptance to finish before reading files (phase 779 Step A)
+      // Wait for background verification to finish before reading files (phase 779 Step A)
       await waitForAcceptanceDone(auditEmitter, contractId, 'task-1');
 
       // inbox 写完后 progress 必已落地；读哪条路径都行
@@ -335,20 +335,20 @@ describe('ContractSystem Acceptance Flow', () => {
       expect(progress.subtasks['task-1'].status).toBe('completed');
 
       const inbox = await readClawInbox(tempDir);
-      const results = inbox.filter(m => m.content.includes('acceptance_result'));
+      const results = inbox.filter(m => m.content.includes('verification_result'));
       expect(results.length).toBeGreaterThan(0);
     });
 
-    it('should fail and increment retry_count when script acceptance fails', async () => {
+    it('should fail and increment retry_count when script verification fails', async () => {
       const contractId = 'test-contract-3';
       await setupContract(tempDir, contractId, makeContractYaml({
         subtasks: [{ id: 'task-1', description: 'Test task' }],
         escalation: { max_retries: 3 },
       }));
 
-      const acceptanceDir = path.join(tempDir, 'contract', 'active', contractId, 'acceptance');
-      await fs.mkdir(acceptanceDir, { recursive: true });
-      await fs.writeFile(path.join(acceptanceDir, 'task-1.sh'), '#!/bin/bash\necho "fail"\nexit 1', { mode: 0o755 });
+      const verificationDir = path.join(tempDir, 'contract', 'active', contractId, 'verification');
+      await fs.mkdir(verificationDir, { recursive: true });
+      await fs.writeFile(path.join(verificationDir, 'task-1.sh'), '#!/bin/bash\necho "fail"\nexit 1', { mode: 0o755 });
 
       // Set execFile mock to fail
       execFileMockBehavior = 'fail';
@@ -368,17 +368,17 @@ describe('ContractSystem Acceptance Flow', () => {
       expect(progress.subtasks['task-1'].status).toBe('todo');
 
       const inbox = await readClawInbox(tempDir);
-      const rejections = inbox.filter(m => m.content.includes('acceptance_rejection'));
+      const rejections = inbox.filter(m => m.content.includes('verification_rejection'));
       expect(rejections).toHaveLength(1);
       expect(rejections[0].content).toContain('test error output');
     });
 
-    it('should return rejection when script acceptance config has no script_file', async () => {
+    it('should return rejection when script verification config has no script_file', async () => {
       const contractId = 'test-script-no-file';
       await setupContract(tempDir, contractId, makeContractYaml({
         subtasks: [{ id: 'task-1', description: 'Test task' }],
         // type: 'script' 但故意缺 script_file
-        acceptance: [{ subtask_id: 'task-1', type: 'script' }],
+        verification: [{ subtask_id: 'task-1', type: 'script' }],
       }));
 
       const result = await manager.completeSubtask({
@@ -390,42 +390,42 @@ describe('ContractSystem Acceptance Flow', () => {
       await waitForAcceptanceDone(auditEmitter, contractId, 'task-1');
 
       const inbox = await readClawInbox(tempDir);
-      const rejections = inbox.filter(m => m.content.includes('acceptance_rejection'));
+      const rejections = inbox.filter(m => m.content.includes('verification_rejection'));
       expect(rejections).toHaveLength(1);
       expect(rejections[0].content).toContain('缺少 script_file');
     });
 
-    it('should log warn to monitor when script acceptance config has no script_file', async () => {
+    it('should log warn to monitor when script verification config has no script_file', async () => {
       const logSpy = vi.spyOn(mockAudit, 'write');
       const contractId = 'test-script-no-file-monitor';
       await setupContract(tempDir, contractId, makeContractYaml({
         title: 'Test',
         subtasks: [{ id: 'task-1', description: 'Test task' }],
-        acceptance: [{ subtask_id: 'task-1', type: 'script' }], // 故意缺 script_file
+        verification: [{ subtask_id: 'task-1', type: 'script' }], // 故意缺 script_file
       }));
 
       await manager.completeSubtask({ contractId, subtaskId: 'task-1', evidence: 'e' });
       await waitForAcceptanceDone(auditEmitter, contractId, 'task-1');
 
       expect(logSpy).toHaveBeenCalledWith(
-        CONTRACT_AUDIT_EVENTS.ACCEPTANCE_RESET_FAILED,
-        expect.stringContaining('context=ContractSystem.runAcceptanceByType'),
+        CONTRACT_AUDIT_EVENTS.VERIFICATION_RESET_FAILED,
+        expect.stringContaining('context=ContractSystem.runVerificationByType'),
         expect.anything(),
       );
     });
   });
 
   describe('LLM Acceptance', () => {
-    it('should pass when LLM acceptance returns passed=true', async () => {
+    it('should pass when LLM verification returns passed=true', async () => {
       const contractId = 'test-contract-4';
       await setupContract(tempDir, contractId, makeContractYaml({
         subtasks: [{ id: 'task-1', description: 'Test task' }],
-        acceptance: [{ subtask_id: 'task-1', type: 'llm', prompt_file: 'acceptance/task-1.prompt.txt' }],
+        verification: [{ subtask_id: 'task-1', type: 'llm', prompt_file: 'verification/task-1.prompt.txt' }],
       }));
 
-      const acceptanceDir = path.join(tempDir, 'contract', 'active', contractId, 'acceptance');
-      await fs.mkdir(acceptanceDir, { recursive: true });
-      await fs.writeFile(path.join(acceptanceDir, 'task-1.prompt.txt'), 'Check if {{evidence}} is valid');
+      const verificationDir = path.join(tempDir, 'contract', 'active', contractId, 'verification');
+      await fs.mkdir(verificationDir, { recursive: true });
+      await fs.writeFile(path.join(verificationDir, 'task-1.prompt.txt'), 'Check if {{evidence}} is valid');
 
       mockSubAgentRun.mockResolvedValue('{"passed":true,"reason":"looks good","issues":[]}');
 
@@ -435,7 +435,7 @@ describe('ContractSystem Acceptance Flow', () => {
         evidence: 'test evidence',
       });
 
-      // Wait for background acceptance to finish (phase 779 Step A)
+      // Wait for background verification to finish (phase 779 Step A)
       await waitForAcceptanceDone(auditEmitter, contractId, 'task-1');
 
       // inbox 写完后 progress 必已落地；读哪条路径都行
@@ -450,7 +450,7 @@ describe('ContractSystem Acceptance Flow', () => {
       expect(progress.subtasks['task-1'].status).toBe('completed');
 
       const inbox = await readClawInbox(tempDir);
-      const results = inbox.filter(m => m.content.includes('acceptance_result'));
+      const results = inbox.filter(m => m.content.includes('verification_result'));
       expect(results.length).toBeGreaterThan(0);
     });
 
@@ -458,13 +458,13 @@ describe('ContractSystem Acceptance Flow', () => {
       const contractId = 'test-contract-5';
       await setupContract(tempDir, contractId, makeContractYaml({
         subtasks: [{ id: 'task-1', description: 'Test task implementation' }],
-        acceptance: [{ subtask_id: 'task-1', type: 'llm', prompt_file: 'acceptance/task-1.prompt.txt' }],
+        verification: [{ subtask_id: 'task-1', type: 'llm', prompt_file: 'verification/task-1.prompt.txt' }],
         escalation: { max_retries: 3 },
       }));
 
-      const acceptanceDir = path.join(tempDir, 'contract', 'active', contractId, 'acceptance');
-      await fs.mkdir(acceptanceDir, { recursive: true });
-      await fs.writeFile(path.join(acceptanceDir, 'task-1.prompt.txt'), 'Check if {{evidence}} is valid');
+      const verificationDir = path.join(tempDir, 'contract', 'active', contractId, 'verification');
+      await fs.mkdir(verificationDir, { recursive: true });
+      await fs.writeFile(path.join(verificationDir, 'task-1.prompt.txt'), 'Check if {{evidence}} is valid');
 
       mockSubAgentRun.mockResolvedValue(
         '{"passed":false,"reason":"缺少测试","issues":["add unit tests", "add integration tests"]}'
@@ -483,7 +483,7 @@ describe('ContractSystem Acceptance Flow', () => {
       expect(progress.subtasks['task-1'].retry_count).toBe(1);
 
       const inbox = await readClawInbox(tempDir);
-      const rejections = inbox.filter(m => m.content.includes('acceptance_rejection'));
+      const rejections = inbox.filter(m => m.content.includes('verification_rejection'));
       expect(rejections).toHaveLength(1);
       expect(rejections[0].content).toContain('缺少测试');
     });
@@ -492,7 +492,7 @@ describe('ContractSystem Acceptance Flow', () => {
       const contractId = 'test-contract-6';
       await setupContract(tempDir, contractId, makeContractYaml({
         subtasks: [{ id: 'task-1', description: 'Test task' }],
-        acceptance: [{ subtask_id: 'task-1', type: 'llm', prompt_file: '../../../etc/passwd' }],
+        verification: [{ subtask_id: 'task-1', type: 'llm', prompt_file: '../../../etc/passwd' }],
       }));
 
       await manager.completeSubtask({
@@ -504,17 +504,17 @@ describe('ContractSystem Acceptance Flow', () => {
       await waitForAcceptanceDone(auditEmitter, contractId, 'task-1');
 
       const inbox = await readClawInbox(tempDir);
-      const rejections = inbox.filter(m => m.content.includes('acceptance_rejection'));
+      const rejections = inbox.filter(m => m.content.includes('verification_rejection'));
       expect(rejections).toHaveLength(1);
       expect(rejections[0].content).toContain('路径安全');
     });
 
-    it('should return rejection when llm acceptance config has no prompt_file', async () => {
+    it('should return rejection when llm verification config has no prompt_file', async () => {
       const contractId = 'test-llm-no-file';
       await setupContract(tempDir, contractId, makeContractYaml({
         subtasks: [{ id: 'task-1', description: 'Test task' }],
         // type: 'llm' 但故意缺 prompt_file
-        acceptance: [{ subtask_id: 'task-1', type: 'llm' }],
+        verification: [{ subtask_id: 'task-1', type: 'llm' }],
       }));
 
       const result = await manager.completeSubtask({
@@ -526,7 +526,7 @@ describe('ContractSystem Acceptance Flow', () => {
       await waitForAcceptanceDone(auditEmitter, contractId, 'task-1');
 
       const inbox = await readClawInbox(tempDir);
-      const rejections = inbox.filter(m => m.content.includes('acceptance_rejection'));
+      const rejections = inbox.filter(m => m.content.includes('verification_rejection'));
       expect(rejections).toHaveLength(1);
       expect(rejections[0].content).toContain('缺少 prompt_file');
     });
@@ -539,7 +539,7 @@ describe('ContractSystem Acceptance Flow', () => {
 
       await setupContract(tempDir, contractId, makeContractYaml({
         subtasks: [{ id: 'task-1', description: 'Test task' }],
-        acceptance: [{ subtask_id: 'task-1', type: 'llm', prompt_file: 'acceptance/task-1.prompt.txt' }],
+        verification: [{ subtask_id: 'task-1', type: 'llm', prompt_file: 'verification/task-1.prompt.txt' }],
       }));
 
       const result = await noLLMManager.completeSubtask({
@@ -551,26 +551,26 @@ describe('ContractSystem Acceptance Flow', () => {
       await waitForAcceptanceDone(auditEmitter, contractId, 'task-1');
 
       const inbox = await readClawInbox(tempDir);
-      const rejections = inbox.filter(m => m.content.includes('acceptance_rejection'));
+      const rejections = inbox.filter(m => m.content.includes('verification_rejection'));
       expect(rejections).toHaveLength(1);
       expect(rejections[0].content).toContain('LLM 验收未配置');
     });
 
-    it('should log warn to monitor when llm acceptance config has no prompt_file', async () => {
+    it('should log warn to monitor when llm verification config has no prompt_file', async () => {
       const logSpy = vi.spyOn(mockAudit, 'write');
       const contractId = 'test-llm-no-prompt-monitor';
       await setupContract(tempDir, contractId, makeContractYaml({
         title: 'Test',
         subtasks: [{ id: 'task-1', description: 'Test task' }],
-        acceptance: [{ subtask_id: 'task-1', type: 'llm' }], // 故意缺 prompt_file
+        verification: [{ subtask_id: 'task-1', type: 'llm' }], // 故意缺 prompt_file
       }));
 
       await manager.completeSubtask({ contractId, subtaskId: 'task-1', evidence: 'e' });
       await waitForAcceptanceDone(auditEmitter, contractId, 'task-1');
 
       expect(logSpy).toHaveBeenCalledWith(
-        CONTRACT_AUDIT_EVENTS.ACCEPTANCE_RESET_FAILED,
-        expect.stringContaining('context=ContractSystem.runAcceptanceByType'),
+        CONTRACT_AUDIT_EVENTS.VERIFICATION_RESET_FAILED,
+        expect.stringContaining('context=ContractSystem.runVerificationByType'),
         expect.anything(),
       );
     });
@@ -579,13 +579,13 @@ describe('ContractSystem Acceptance Flow', () => {
       const contractId = 'test-llm-captured';
       await setupContract(tempDir, contractId, makeContractYaml({
         subtasks: [{ id: 'task-1', description: 'Test task' }],
-        acceptance: [{ subtask_id: 'task-1', type: 'llm', prompt_file: 'acceptance/task-1.prompt.txt' }],
+        verification: [{ subtask_id: 'task-1', type: 'llm', prompt_file: 'verification/task-1.prompt.txt' }],
       }));
 
-      const acceptanceDir = path.join(tempDir, 'contract', 'active', contractId, 'acceptance');
-      await fs.mkdir(acceptanceDir, { recursive: true });
+      const verificationDir = path.join(tempDir, 'contract', 'active', contractId, 'verification');
+      await fs.mkdir(verificationDir, { recursive: true });
       await fs.writeFile(
-        path.join(acceptanceDir, 'task-1.prompt.txt'),
+        path.join(verificationDir, 'task-1.prompt.txt'),
         'Check if {{evidence}} is valid. {{artifacts}}'
       );
 
@@ -606,7 +606,7 @@ describe('ContractSystem Acceptance Flow', () => {
 
       await manager.completeSubtask({ contractId, subtaskId: 'task-1', evidence: 'done' });
 
-      // Wait for background acceptance to finish (phase 779 Step A)
+      // Wait for background verification to finish (phase 779 Step A)
       await waitForAcceptanceDone(auditEmitter, contractId, 'task-1');
 
       const archiveProgressPath = path.join(tempDir, 'contract', 'archive', contractId, 'progress.json');
@@ -620,21 +620,21 @@ describe('ContractSystem Acceptance Flow', () => {
       expect(progress.subtasks['task-1'].status).toBe('completed');
 
       const inbox = await readClawInbox(tempDir);
-      expect(inbox.filter(m => m.content.includes('acceptance_result'))).toHaveLength(1);
+      expect(inbox.filter(m => m.content.includes('verification_result'))).toHaveLength(1);
     });
 
     it('should return rejection with "无法解析 JSON" when LLM text has no JSON', async () => {
       const contractId = 'test-llm-no-json';
       await setupContract(tempDir, contractId, makeContractYaml({
         subtasks: [{ id: 'task-1', description: 'Test task' }],
-        acceptance: [{ subtask_id: 'task-1', type: 'llm', prompt_file: 'acceptance/task-1.prompt.txt' }],
+        verification: [{ subtask_id: 'task-1', type: 'llm', prompt_file: 'verification/task-1.prompt.txt' }],
         escalation: { max_retries: 3 },
       }));
 
-      const acceptanceDir = path.join(tempDir, 'contract', 'active', contractId, 'acceptance');
-      await fs.mkdir(acceptanceDir, { recursive: true });
+      const verificationDir = path.join(tempDir, 'contract', 'active', contractId, 'verification');
+      await fs.mkdir(verificationDir, { recursive: true });
       await fs.writeFile(
-        path.join(acceptanceDir, 'task-1.prompt.txt'),
+        path.join(verificationDir, 'task-1.prompt.txt'),
         'Check if {{evidence}} is valid. {{artifacts}}'
       );
 
@@ -646,7 +646,7 @@ describe('ContractSystem Acceptance Flow', () => {
 
       // 应以 rejected 写入 inbox，内容含 "无法解析 JSON"
       const inbox = await readClawInbox(tempDir);
-      const rejections = inbox.filter(m => m.content.includes('acceptance_rejection'));
+      const rejections = inbox.filter(m => m.content.includes('verification_rejection'));
       expect(rejections).toHaveLength(1);
       expect(rejections[0].content).toContain('无法解析 JSON');
 
@@ -657,17 +657,17 @@ describe('ContractSystem Acceptance Flow', () => {
       expect(progress.subtasks['task-1'].retry_count).toBe(1);
     });
 
-    it('should notify Motion with acceptance_timeout when onIdleTimeout is triggered', async () => {
+    it('should notify Motion with verification_timeout when onIdleTimeout is triggered', async () => {
       const contractId = 'test-llm-timeout';
       await setupContract(tempDir, contractId, makeContractYaml({
         subtasks: [{ id: 'task-1', description: 'Test task' }],
-        acceptance: [{ subtask_id: 'task-1', type: 'llm', prompt_file: 'acceptance/task-1.prompt.txt' }],
+        verification: [{ subtask_id: 'task-1', type: 'llm', prompt_file: 'verification/task-1.prompt.txt' }],
       }));
 
-      const acceptanceDir = path.join(tempDir, 'contract', 'active', contractId, 'acceptance');
-      await fs.mkdir(acceptanceDir, { recursive: true });
+      const verificationDir = path.join(tempDir, 'contract', 'active', contractId, 'verification');
+      await fs.mkdir(verificationDir, { recursive: true });
       await fs.writeFile(
-        path.join(acceptanceDir, 'task-1.prompt.txt'),
+        path.join(verificationDir, 'task-1.prompt.txt'),
         'Check if {{evidence}} is valid. {{artifacts}}'
       );
 
@@ -680,12 +680,12 @@ describe('ContractSystem Acceptance Flow', () => {
       await manager.completeSubtask({ contractId, subtaskId: 'task-1', evidence: 'done' });
       await waitForAcceptanceDone(auditEmitter, contractId, 'task-1');
 
-      // auditWriter 应收到 acceptance_timeout 日志
+      // auditWriter 应收到 verification_timeout 日志
       const auditWriter = (manager as any).audit;
-      const timeoutCalls = auditWriter.write.mock.calls.filter((c: any[]) => c[0] === CONTRACT_AUDIT_EVENTS.ACCEPTANCE_TIMEOUT);
+      const timeoutCalls = auditWriter.write.mock.calls.filter((c: any[]) => c[0] === CONTRACT_AUDIT_EVENTS.VERIFICATION_TIMEOUT);
       expect(timeoutCalls).toHaveLength(1);
       expect(timeoutCalls[0]).toEqual(expect.arrayContaining([
-        CONTRACT_AUDIT_EVENTS.ACCEPTANCE_TIMEOUT,
+        CONTRACT_AUDIT_EVENTS.VERIFICATION_TIMEOUT,
         expect.stringContaining(`contractId=${contractId}`),
         expect.stringContaining('subtaskId=task-1'),
       ]));
@@ -701,9 +701,9 @@ describe('ContractSystem Acceptance Flow', () => {
         escalation: { max_retries: 2 },
       }), { 'task-1': 'todo' });
 
-      const acceptanceDir = path.join(tempDir, 'contract', 'active', contractId, 'acceptance');
-      await fs.mkdir(acceptanceDir, { recursive: true });
-      await fs.writeFile(path.join(acceptanceDir, 'task-1.sh'), '#!/bin/bash\nexit 1', { mode: 0o755 });
+      const verificationDir = path.join(tempDir, 'contract', 'active', contractId, 'verification');
+      await fs.mkdir(verificationDir, { recursive: true });
+      await fs.writeFile(path.join(verificationDir, 'task-1.sh'), '#!/bin/bash\nexit 1', { mode: 0o755 });
 
       // Pre-set retry_count to 1 (simulating one previous failure)
       // This means this failure will push it to 2, triggering escalation
@@ -745,15 +745,15 @@ describe('ContractSystem Acceptance Flow', () => {
   });
 
   describe('phase230 audit events', () => {
-    it('writes CONTRACT_ACCEPTANCE_SCRIPT_STARTED audit when running script acceptance', async () => {
+    it('writes CONTRACT_VERIFICATION_SCRIPT_STARTED audit when running script verification', async () => {
       const contractId = 'test-script-audit';
       await setupContract(tempDir, contractId, makeContractYaml({
         subtasks: [{ id: 'task-1', description: 'Test task' }],
       }));
 
-      const acceptanceDir = path.join(tempDir, 'contract', 'active', contractId, 'acceptance');
-      await fs.mkdir(acceptanceDir, { recursive: true });
-      await fs.writeFile(path.join(acceptanceDir, 'task-1.sh'), '#!/bin/bash\necho "ok"', { mode: 0o755 });
+      const verificationDir = path.join(tempDir, 'contract', 'active', contractId, 'verification');
+      await fs.mkdir(verificationDir, { recursive: true });
+      await fs.writeFile(path.join(verificationDir, 'task-1.sh'), '#!/bin/bash\necho "ok"', { mode: 0o755 });
 
       execFileMockBehavior = 'success';
 
@@ -762,25 +762,25 @@ describe('ContractSystem Acceptance Flow', () => {
 
       const auditWriter = (manager as any).audit;
       expect(auditWriter.write).toHaveBeenCalledWith(
-        CONTRACT_AUDIT_EVENTS.ACCEPTANCE_SCRIPT_STARTED,
+        CONTRACT_AUDIT_EVENTS.VERIFICATION_SCRIPT_STARTED,
         expect.stringContaining('script='),
         expect.stringContaining('cwd='),
       );
     });
 
-    it('writes CONTRACT_ACCEPTANCE_INBOX_FAILED when inbox write fails', async () => {
+    it('writes CONTRACT_VERIFICATION_INBOX_FAILED when inbox write fails', async () => {
       const writeSyncSpy = vi.spyOn(InboxWriter.prototype, 'writeSync').mockImplementation(() => {
         throw new Error('inbox full');
       });
 
       try {
         // @ts-expect-error - private method
-        await manager._writeAcceptanceError('contract-1', 'task-1', new Error('acceptance crashed'));
+        await manager._writeVerificationError('contract-1', 'task-1', new Error('verification crashed'));
 
         const auditWriter = (manager as any).audit;
         expect(auditWriter.write).toHaveBeenCalledWith(
-          CONTRACT_AUDIT_EVENTS.ACCEPTANCE_INBOX_FAILED,
-          expect.stringContaining('context=ContractSystem._writeAcceptanceError'),
+          CONTRACT_AUDIT_EVENTS.VERIFICATION_INBOX_FAILED,
+          expect.stringContaining('context=ContractSystem._writeVerificationError'),
           expect.stringContaining('inbox full'),
         );
       } finally {
@@ -788,17 +788,17 @@ describe('ContractSystem Acceptance Flow', () => {
       }
     });
 
-    it('writes CONTRACT_ACCEPTANCE_RESET_FAILED when reset status fails', async () => {
+    it('writes CONTRACT_VERIFICATION_RESET_FAILED when reset status fails', async () => {
       const lockSpy = vi.spyOn(manager as any, 'withProgressLock').mockRejectedValue(new Error('lock busy'));
 
       try {
         // @ts-expect-error - private method
-        await manager._writeAcceptanceError('contract-1', 'task-1', new Error('acceptance crashed'));
+        await manager._writeVerificationError('contract-1', 'task-1', new Error('verification crashed'));
 
         const auditWriter = (manager as any).audit;
         expect(auditWriter.write).toHaveBeenCalledWith(
-          CONTRACT_AUDIT_EVENTS.ACCEPTANCE_RESET_FAILED,
-          expect.stringContaining('context=ContractSystem._writeAcceptanceError.resetStatus'),
+          CONTRACT_AUDIT_EVENTS.VERIFICATION_RESET_FAILED,
+          expect.stringContaining('context=ContractSystem._writeVerificationError.resetStatus'),
           expect.stringContaining('lock busy'),
         );
       } finally {
@@ -814,9 +814,9 @@ describe('ContractSystem Acceptance Flow', () => {
         subtasks: [{ id: 'task-1', description: 'Test task' }],
       }));
 
-      const acceptanceDir = path.join(tempDir, 'contract', 'active', contractId, 'acceptance');
-      await fs.mkdir(acceptanceDir, { recursive: true });
-      await fs.writeFile(path.join(acceptanceDir, 'task-1.sh'), '#!/bin/bash\nexit 0', { mode: 0o755 });
+      const verificationDir = path.join(tempDir, 'contract', 'active', contractId, 'verification');
+      await fs.mkdir(verificationDir, { recursive: true });
+      await fs.writeFile(path.join(verificationDir, 'task-1.sh'), '#!/bin/bash\nexit 0', { mode: 0o755 });
 
       execFileMockBehavior = 'success';
 
@@ -831,7 +831,7 @@ describe('ContractSystem Acceptance Flow', () => {
       expect(filename).toContain('_normal_');
 
       // 核心字段
-      expect(content).toContain('type: acceptance_result');
+      expect(content).toContain('type: verification_result');
       expect(content).toContain('priority: normal');
       expect(content).toContain('from: "contract_system"');
       expect(content).toContain('to: "test-claw"');
@@ -850,9 +850,9 @@ describe('ContractSystem Acceptance Flow', () => {
         escalation: { max_retries: 3 },
       }));
 
-      const acceptanceDir = path.join(tempDir, 'contract', 'active', contractId, 'acceptance');
-      await fs.mkdir(acceptanceDir, { recursive: true });
-      await fs.writeFile(path.join(acceptanceDir, 'task-1.sh'), '#!/bin/bash\nexit 1', { mode: 0o755 });
+      const verificationDir = path.join(tempDir, 'contract', 'active', contractId, 'verification');
+      await fs.mkdir(verificationDir, { recursive: true });
+      await fs.writeFile(path.join(verificationDir, 'task-1.sh'), '#!/bin/bash\nexit 1', { mode: 0o755 });
 
       execFileMockBehavior = 'fail';
       execFileMockStderr = 'file not found';
@@ -868,7 +868,7 @@ describe('ContractSystem Acceptance Flow', () => {
       expect(filename).toContain('_high_');
 
       // 核心字段
-      expect(content).toContain('type: acceptance_rejection');
+      expect(content).toContain('type: verification_rejection');
       expect(content).toContain('priority: high');
       expect(content).toContain('from: "contract_system"');
       expect(content).toContain('to: "test-claw"');
@@ -880,8 +880,8 @@ describe('ContractSystem Acceptance Flow', () => {
   });
 });
 
-describe('ContractSystem — background acceptance error handling', () => {
-  it('catches TypeError in fire-and-forget acceptance and emits UNEXPECTED_ASYNC_THROW audit', async () => {
+describe('ContractSystem — background verification error handling', () => {
+  it('catches TypeError in fire-and-forget verification and emits UNEXPECTED_ASYNC_THROW audit', async () => {
     const auditEvents: Array<{ type: string; cols: string[] }> = [];
     const captureAudit = {
       write: (type: string, ...cols: string[]) => { auditEvents.push({ type, cols }); },
@@ -905,22 +905,22 @@ describe('ContractSystem — background acceptance error handling', () => {
       title: 'TypeError Test',
       goal: 'Test TypeError catch',
       subtasks: [{ id: subtaskId, description: 'Verify TypeError audit' }],
-      acceptance: [{ subtask_id: subtaskId, type: 'llm', prompt_file: `acceptance/${subtaskId}.prompt.txt` }],
+      verification: [{ subtask_id: subtaskId, type: 'llm', prompt_file: `verification/${subtaskId}.prompt.txt` }],
     }), { [subtaskId]: 'todo' });
-    await fs.mkdir(path.join(clawDir, 'contract', 'active', contractId, 'acceptance'), { recursive: true });
+    await fs.mkdir(path.join(clawDir, 'contract', 'active', contractId, 'verification'), { recursive: true });
     await fs.writeFile(
-      path.join(clawDir, 'contract', 'active', contractId, 'acceptance', `${subtaskId}.prompt.txt`),
+      path.join(clawDir, 'contract', 'active', contractId, 'verification', `${subtaskId}.prompt.txt`),
       'Evidence: {{evidence}}',
     );
 
     // Mock loadContractYaml to return malformed YAML (subtasks missing) after setup.
-    // This causes TypeError in _runAcceptanceInBackground when it calls contractYaml.subtasks.find,
+    // This causes TypeError in _runVerificationInBackground when it calls contractYaml.subtasks.find,
     // which bubbles to the .catch block on L545.
     vi.spyOn(manager as any, 'loadContractYaml').mockResolvedValue({
       schema_version: 1,
       title: 'TypeError Test',
       goal: 'Test TypeError catch',
-      acceptance: [{ subtask_id: subtaskId, type: 'llm', prompt_file: `acceptance/${subtaskId}.prompt.txt` }],
+      verification: [{ subtask_id: subtaskId, type: 'llm', prompt_file: `verification/${subtaskId}.prompt.txt` }],
       // subtasks intentionally omitted to trigger TypeError
     });
 
@@ -936,7 +936,7 @@ describe('ContractSystem — background acceptance error handling', () => {
     await cleanupTempDir(rootDir);
   });
 
-  it('does NOT emit UNEXPECTED_ASYNC_THROW for business errors in background acceptance', async () => {
+  it('does NOT emit UNEXPECTED_ASYNC_THROW for business errors in background verification', async () => {
     const auditEvents: Array<{ type: string; cols: string[] }> = [];
     const captureAudit = {
       write: (type: string, ...cols: string[]) => { auditEvents.push({ type, cols }); },
@@ -960,22 +960,22 @@ describe('ContractSystem — background acceptance error handling', () => {
       title: 'Business Error Test',
       goal: 'Test business error catch',
       subtasks: [{ id: subtaskId, description: 'Verify business error audit' }],
-      acceptance: [{ subtask_id: subtaskId, type: 'llm', prompt_file: `acceptance/${subtaskId}.prompt.txt` }],
+      verification: [{ subtask_id: subtaskId, type: 'llm', prompt_file: `verification/${subtaskId}.prompt.txt` }],
     }), { [subtaskId]: 'todo' });
-    await fs.mkdir(path.join(clawDir, 'contract', 'active', contractId, 'acceptance'), { recursive: true });
+    await fs.mkdir(path.join(clawDir, 'contract', 'active', contractId, 'verification'), { recursive: true });
     await fs.writeFile(
-      path.join(clawDir, 'contract', 'active', contractId, 'acceptance', `${subtaskId}.prompt.txt`),
+      path.join(clawDir, 'contract', 'active', contractId, 'verification', `${subtaskId}.prompt.txt`),
       'Evidence: {{evidence}}',
     );
 
     // Mock loadContractYaml to return subtasks with a find() that throws plain Error.
-    // This causes a business Error in _runAcceptanceInBackground, which bubbles to .catch
-    // but should NOT trigger UNEXPECTED_ASYNC_THROW (only ACCEPTANCE_RESET_FAILED).
+    // This causes a business Error in _runVerificationInBackground, which bubbles to .catch
+    // but should NOT trigger UNEXPECTED_ASYNC_THROW (only VERIFICATION_RESET_FAILED).
     vi.spyOn(manager as any, 'loadContractYaml').mockResolvedValue({
       schema_version: 1,
       title: 'Business Error Test',
       goal: 'Test business error catch',
-      acceptance: [{ subtask_id: subtaskId, type: 'llm', prompt_file: `acceptance/${subtaskId}.prompt.txt` }],
+      verification: [{ subtask_id: subtaskId, type: 'llm', prompt_file: `verification/${subtaskId}.prompt.txt` }],
       subtasks: {
         find() { throw new Error('LLM rate limit exceeded'); },
       },
@@ -983,10 +983,10 @@ describe('ContractSystem — background acceptance error handling', () => {
 
     await manager.completeSubtask({ contractId, subtaskId, evidence: 'done' });
 
-    await vi.waitUntil(() => auditEvents.some(e => e.type === 'contract_acceptance_background_failed'), { timeout: 5000 });
+    await vi.waitUntil(() => auditEvents.some(e => e.type === 'contract_verification_background_failed'), { timeout: 5000 });
 
     expect(auditEvents.some(e => e.type === 'contract_unexpected_async_throw')).toBe(false);
-    expect(auditEvents.some(e => e.type === 'contract_acceptance_background_failed')).toBe(true);
+    expect(auditEvents.some(e => e.type === 'contract_verification_background_failed')).toBe(true);
 
     await cleanupTempDir(rootDir);
   });

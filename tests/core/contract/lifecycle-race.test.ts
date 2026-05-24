@@ -57,7 +57,7 @@ describe('ContractSystem lifecycle race (phase 791 / P0.16 + P0.18)', () => {
         { id: 't1', description: 'T1' },
         { id: 't2', description: 'T2' },
       ],
-      acceptance: [],
+      verification: [],
     }));
 
     // 先完成一个子任务，确保数据存在
@@ -79,7 +79,7 @@ describe('ContractSystem lifecycle race (phase 791 / P0.16 + P0.18)', () => {
     expect(progress.subtasks['t1'].status).toBe('completed');
   });
 
-  it('cancel race: concurrent acceptance background + cancel no progress overwrite (P0.18)', async () => {
+  it('cancel race: concurrent verification background + cancel no progress overwrite (P0.18)', async () => {
     const contractId = 'cancel-race-contract';
     const subtaskId = 't1';
     const contractDir = path.join(clawDir, 'contract', 'active', contractId);
@@ -92,7 +92,7 @@ describe('ContractSystem lifecycle race (phase 791 / P0.16 + P0.18)', () => {
         title: 'Cancel Race Test',
         goal: 'Test',
         subtasks: [{ id: subtaskId, description: 'T1' }],
-        acceptance: [{ subtask_id: subtaskId, type: 'llm', prompt_file: 'acceptance/t1.prompt.txt' }],
+        verification: [{ subtask_id: subtaskId, type: 'llm', prompt_file: 'verification/t1.prompt.txt' }],
       }))
     );
 
@@ -108,8 +108,8 @@ describe('ContractSystem lifecycle race (phase 791 / P0.16 + P0.18)', () => {
         checkpoint: null,
       }, null, 2)
     );
-    await fs.mkdir(path.join(contractDir, 'acceptance'), { recursive: true });
-    await fs.writeFile(path.join(contractDir, 'acceptance', 't1.prompt.txt'), 'Test');
+    await fs.mkdir(path.join(contractDir, 'verification'), { recursive: true });
+    await fs.writeFile(path.join(contractDir, 'verification', 't1.prompt.txt'), 'Test');
 
     const mockLLM = {
       call: vi.fn(),
@@ -120,13 +120,13 @@ describe('ContractSystem lifecycle race (phase 791 / P0.16 + P0.18)', () => {
       clawDir, 'test-claw', manager['fs'], manager['audit'] as any, mockLLM, createToolRegistry()
     );
 
-    // Mock runLLMAcceptance to delay, simulating slow background acceptance
-    vi.spyOn(testManager as any, 'runLLMAcceptance').mockImplementation(async () => {
-      await new Promise(r => setTimeout(r, 150)); // sleep: mock slow background acceptance
+    // Mock runLLMVerification to delay, simulating slow background verification
+    vi.spyOn(testManager as any, 'runLLMVerification').mockImplementation(async () => {
+      await new Promise(r => setTimeout(r, 150)); // sleep: mock slow background verification
       return { passed: true, feedback: 'mocked' };
     });
 
-    // Trigger background acceptance
+    // Trigger background verification
     await testManager.completeSubtask({ contractId, subtaskId, evidence: 'done' });
 
     // Immediately cancel while background is still running
@@ -138,13 +138,13 @@ describe('ContractSystem lifecycle race (phase 791 / P0.16 + P0.18)', () => {
     }, { timeout: 5000 });
   });
 
-  it('cancelled guard returns null + audit ACCEPTANCE_RESET_FAILED (P0.18)', async () => {
+  it('cancelled guard returns null + audit VERIFICATION_RESET_FAILED (P0.18)', async () => {
     const contractId = await manager.create(makeContractYaml({
       title: 'Cancelled Guard Test',
       goal: 'Test',
       deliverables: [],
       subtasks: [{ id: 't1', description: 'T1' }],
-      acceptance: [],
+      verification: [],
     }));
 
     await manager.cancel(contractId, 'test cancel');
@@ -160,12 +160,12 @@ describe('ContractSystem lifecycle race (phase 791 / P0.16 + P0.18)', () => {
 
     await vi.waitUntil(
       () => auditCalls.slice(beforeAudit).some(
-        c => c.type === CONTRACT_AUDIT_EVENTS.ACCEPTANCE_RESET_FAILED
+        c => c.type === CONTRACT_AUDIT_EVENTS.VERIFICATION_RESET_FAILED
       ),
       { timeout: 2000, interval: 20 },
     );
     const guardAudits = auditCalls.slice(beforeAudit).filter(
-      c => c.type === CONTRACT_AUDIT_EVENTS.ACCEPTANCE_RESET_FAILED
+      c => c.type === CONTRACT_AUDIT_EVENTS.VERIFICATION_RESET_FAILED
     );
     expect(guardAudits.length).toBeGreaterThanOrEqual(1);
     expect(guardAudits[0].args.some(a => a.includes('context=completeSubtaskSync'))).toBe(true);

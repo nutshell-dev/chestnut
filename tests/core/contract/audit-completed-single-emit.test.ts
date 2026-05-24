@@ -53,7 +53,7 @@ describe('CONTRACT_AUDIT_EVENTS.COMPLETED single emit (phase 791 / P0.17)', () =
       goal: 'Test',
       deliverables: [],
       subtasks: [{ id: 't1', description: 'T1' }],
-      acceptance: [],
+      verification: [],
     }));
 
     await manager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'done' });

@@ -93,7 +93,7 @@ export async function contractCreateCommand(clawId: string, filePath: string, de
 }
 
 /**
- * Create a contract from a directory containing contract.yaml + acceptance/
+ * Create a contract from a directory containing contract.yaml + verification/
  */
 export async function contractCreateFromDirCommand(clawId: string, dirPath: string, deps?: { audit?: AuditLog }): Promise<void> {
   const audit = deps?.audit;
@@ -110,17 +110,19 @@ export async function contractCreateFromDirCommand(clawId: string, dirPath: stri
   audit?.write(CLI_AUDIT_EVENTS.CONTRACT_CREATE, `claw=${clawId}`, `contract=${contractId}`, `mode=dir`);
   console.log(`Contract created: ${contractId} for claw ${clawId}`);
 
-  // Copy acceptance/ 目录（若存在）
+  // Copy verification/ 目录（若存在；回退读取旧版 acceptance/）
+  const srcVerification = path.join(absDir, 'verification');
   const srcAcceptance = path.join(absDir, 'acceptance');
-  if (fsNative.existsSync(srcAcceptance)) {
-    const destAcceptance = path.join(clawDir, CONTRACT_DIR, 'active', contractId, 'acceptance');
-    await fs.mkdir(destAcceptance, { recursive: true });
-    const entries = await fs.readdir(srcAcceptance);
+  const srcDir = fsNative.existsSync(srcVerification) ? srcVerification : fsNative.existsSync(srcAcceptance) ? srcAcceptance : undefined;
+  if (srcDir) {
+    const destVerification = path.join(clawDir, CONTRACT_DIR, 'active', contractId, 'verification');
+    await fs.mkdir(destVerification, { recursive: true });
+    const entries = await fs.readdir(srcDir);
     for (const entry of entries) {
-      const src = path.join(srcAcceptance, entry);
+      const src = path.join(srcDir, entry);
       const srcStat = await fs.stat(src);
       if (!srcStat.isFile()) continue;   // 跳过子目录和符号链接
-      const dest = path.join(destAcceptance, entry);
+      const dest = path.join(destVerification, entry);
       await fs.copyFile(src, dest);
       if (entry.endsWith('.sh')) {
         await fs.chmod(dest, 0o755);

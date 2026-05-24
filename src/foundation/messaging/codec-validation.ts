@@ -14,7 +14,7 @@ export const VALID_PRIORITIES: Priority[] = ['critical', 'high', 'normal', 'low'
 export const KNOWN_INBOX_TYPES = [
   'message', 'user_chat', 'user_inbox_message',
   'crash_notification', 'heartbeat', 'claw_outbox',
-  'acceptance_result', 'acceptance_rejection', 'acceptance_error',
+  'verification_result', 'verification_rejection', 'verification_error',
   'cron_disk_warning', 'random_dream', 'deep_dream',
 ];
 

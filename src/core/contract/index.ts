@@ -15,7 +15,7 @@ export {
 
 export {
   type ProgressData,
-  type AcceptanceResult,
+  type VerificationResult,
   type VerifierConfig,
   type VerifierResult,
   type ContractYaml,

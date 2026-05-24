@@ -56,7 +56,7 @@ describe('phase 871 r113 G fork: contract lock orphan-on-fs-move-throw cluster f
       goal: 'Test',
       deliverables: [],
       subtasks: [{ id: 't1', description: 'T1' }],
-      acceptance: [],
+      verification: [],
     }));
 
     const sourceLockPath = path.join(clawDir, 'contract', 'active', contractId, 'progress.lock');
@@ -89,7 +89,7 @@ describe('phase 871 r113 G fork: contract lock orphan-on-fs-move-throw cluster f
       goal: 'Test',
       deliverables: [],
       subtasks: [{ id: 't1', description: 'T1' }],
-      acceptance: [],
+      verification: [],
     }));
 
     const sourceLockPath = path.join(clawDir, 'contract', 'active', contractId, 'progress.lock');
@@ -113,7 +113,7 @@ describe('phase 871 r113 G fork: contract lock orphan-on-fs-move-throw cluster f
       goal: 'Test',
       deliverables: [],
       subtasks: [{ id: 't1', description: 'T1' }],
-      acceptance: [],
+      verification: [],
     }));
 
     const sourceLockPath = path.join(clawDir, 'contract', 'active', contractId, 'progress.lock');
@@ -137,7 +137,7 @@ describe('phase 871 r113 G fork: contract lock orphan-on-fs-move-throw cluster f
       goal: 'Test',
       deliverables: [],
       subtasks: [{ id: 't1', description: 'T1' }],
-      acceptance: [],
+      verification: [],
     }));
 
     const targetLockPath = path.join(clawDir, 'contract', 'paused', contractId, 'progress.lock');

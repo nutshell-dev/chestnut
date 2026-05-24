@@ -62,7 +62,7 @@ Motion 会检查该文件并基于记录寻找新方法或调整任务。
 
 **When submit_subtask returns "All subtasks complete!"**: the system automatically notifies Motion. Do NOT send a manual \`result\` message — it would be a duplicate.
 
-**Warning: do not directly modify progress.json** — writing the file directly bypasses the acceptance and notification mechanism, and Motion will not receive a completion notification.
+**Warning: do not directly modify progress.json** — writing the file directly bypasses the verification and notification mechanism, and Motion will not receive a completion notification.
 
 ### Working Directory
 

@@ -1,12 +1,12 @@
 /**
- * acceptance pure-fn cluster unit tests (phase 990 / r121 F fork)
+ * verification pure-fn cluster unit tests (phase 990 / r121 F fork)
  *
- * Tests formatRejectionFeedback (pure) + runScriptAcceptance path-safety & exec handling.
+ * Tests formatRejectionFeedback (pure) + runScriptVerification path-safety & exec handling.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { formatRejectionFeedback, runScriptAcceptance } from '../../../src/core/contract/acceptance.js';
+import { formatRejectionFeedback, runScriptVerification } from '../../../src/core/contract/verification.js';
 import { ProcessExecError } from '../../../src/foundation/process-exec/index.js';
-import type { AcceptanceContext } from '../../../src/core/contract/acceptance.js';
+import type { VerificationContext } from '../../../src/core/contract/verification.js';
 
 const { mockExec } = vi.hoisted(() => ({
   mockExec: vi.fn(),
@@ -20,13 +20,13 @@ vi.mock('../../../src/foundation/process-exec/index.js', async (importOriginal) 
   };
 });
 
-function makeCtx(overrides: Partial<AcceptanceContext> = {}): AcceptanceContext {
+function makeCtx(overrides: Partial<VerificationContext> = {}): VerificationContext {
   return {
     clawDir: '/tmp/claw',
     clawId: 'claw-test',
-    audit: { write: vi.fn() } as unknown as AcceptanceContext['audit'],
+    audit: { write: vi.fn() } as unknown as VerificationContext['audit'],
     ...overrides,
-  } as AcceptanceContext;
+  } as VerificationContext;
 }
 
 describe('formatRejectionFeedback (phase 990)', () => {
@@ -66,14 +66,14 @@ describe('formatRejectionFeedback (phase 990)', () => {
   });
 });
 
-describe('runScriptAcceptance (phase 990)', () => {
+describe('runScriptVerification (phase 990)', () => {
   beforeEach(() => {
     mockExec.mockReset();
   });
 
   it('rejects path escape attempt', async () => {
     const ctx = makeCtx();
-    const result = await runScriptAcceptance(ctx, '../escape.sh', '/tmp/contract');
+    const result = await runScriptVerification(ctx, '../escape.sh', '/tmp/contract');
     expect(result.passed).toBe(false);
     expect(result.feedback).toContain('路径安全拒绝');
   });
@@ -81,7 +81,7 @@ describe('runScriptAcceptance (phase 990)', () => {
   it('returns passed when script exits 0', async () => {
     mockExec.mockResolvedValue(undefined);
     const ctx = makeCtx();
-    const result = await runScriptAcceptance(ctx, 'check.sh', '/tmp/contract');
+    const result = await runScriptVerification(ctx, 'check.sh', '/tmp/contract');
     expect(result.passed).toBe(true);
     expect(result.feedback).toContain('passed');
   });
@@ -90,7 +90,7 @@ describe('runScriptAcceptance (phase 990)', () => {
     const err = new ProcessExecError({ message: 'sh failed', output: 'first bad line\nsecond line', exitCode: 1 });
     mockExec.mockRejectedValue(err);
     const ctx = makeCtx();
-    const result = await runScriptAcceptance(ctx, 'check.sh', '/tmp/contract');
+    const result = await runScriptVerification(ctx, 'check.sh', '/tmp/contract');
     expect(result.passed).toBe(false);
     expect(result.feedback).toContain('first bad line');
   });
@@ -99,7 +99,7 @@ describe('runScriptAcceptance (phase 990)', () => {
     const err = new ProcessExecError({ message: 'timeout', output: 'took too long', exitCode: null, killed: true });
     mockExec.mockRejectedValue(err);
     const ctx = makeCtx();
-    const result = await runScriptAcceptance(ctx, 'check.sh', '/tmp/contract');
+    const result = await runScriptVerification(ctx, 'check.sh', '/tmp/contract');
     expect(result.passed).toBe(false);
     expect(result.feedback).toContain('超时');
   });

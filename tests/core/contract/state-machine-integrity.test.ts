@@ -7,14 +7,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'path';
 import { promises as fs } from 'fs';
-import { archiveAndEmit, writeAcceptanceError } from '../../../src/core/contract/acceptance.js';
+import { archiveAndEmit, writeVerificationError } from '../../../src/core/contract/verification.js';
 import { ContractSystem } from '../../../src/core/contract/manager.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { makeContractYaml } from '../../helpers/contract-yaml.js';
 import { createToolRegistry } from '../../../src/foundation/tools/index.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
-import type { AcceptanceContext } from '../../../src/core/contract/acceptance.js';
+import type { VerificationContext } from '../../../src/core/contract/verification.js';
 import type { ProgressData } from '../../../src/core/contract/types.js';
 
 function makeAudit() {
@@ -34,13 +34,13 @@ function makeAcceptanceCtx(
     maxRetries?: number;
     progress?: ProgressData;
   } = {},
-): { ctx: AcceptanceContext; events: Array<[string, ...(string | number)[]]>; notifyCalls: Array<{ type: string; data: Record<string, unknown> }> } {
+): { ctx: VerificationContext; events: Array<[string, ...(string | number)[]]>; notifyCalls: Array<{ type: string; data: Record<string, unknown> }> } {
   const { audit, events } = makeAudit();
   const notifyCalls: Array<{ type: string; data: Record<string, unknown> }> = [];
 
   const storedProgress: Record<string, ProgressData> = {};
 
-  const ctx: AcceptanceContext = {
+  const ctx: VerificationContext = {
     clawDir: '/tmp/claw',
     clawId: 'claw-test',
     audit,
@@ -76,8 +76,8 @@ function makeAcceptanceCtx(
     onNotify: (type: string, data: Record<string, unknown>) => {
       notifyCalls.push({ type, data });
     },
-    runScriptAcceptance: vi.fn(async () => ({ passed: true, feedback: '' })),
-    runLLMAcceptance: vi.fn(async () => ({ passed: true, feedback: '' })),
+    runScriptVerification: vi.fn(async () => ({ passed: true, feedback: '' })),
+    runLLMVerification: vi.fn(async () => ({ passed: true, feedback: '' })),
     withProgressLock: vi.fn(async (_id: string, fn: () => Promise<unknown>) => fn()),
     toolRegistry: createToolRegistry(),
     runVerifierWithCancel: vi.fn(async () => ({ passed: true, feedback: '' })),
@@ -87,7 +87,7 @@ function makeAcceptanceCtx(
       writeAtomic: vi.fn(async () => {}),
       removeDir: vi.fn(async () => {}),
       ensureDir: vi.fn(async () => {}),
-    } as unknown as AcceptanceContext['fs'],
+    } as unknown as VerificationContext['fs'],
   };
 
   return { ctx, events, notifyCalls };
@@ -144,7 +144,7 @@ describe('phase 1038 C-3 Contract state machine integrity (W3-B α-1+α-4+α-7)'
     });
   });
 
-  describe('α-4 writeAcceptanceError reset path escalation check', () => {
+  describe('α-4 writeVerificationError reset path escalation check', () => {
     it('reset path retry_count >= maxRetries → escalated_at set + ESCALATED audit', async () => {
       const { ctx, events } = makeAcceptanceCtx({ maxRetries: 3 });
       // setup: subtask with retry_count=2 + in_progress
@@ -156,7 +156,7 @@ describe('phase 1038 C-3 Contract state machine integrity (W3-B α-1+α-4+α-7)'
         },
       });
 
-      await writeAcceptanceError(ctx, 'c1', 'st1', new Error('test'));
+      await writeVerificationError(ctx, 'c1', 'st1', new Error('test'));
 
       const saveCalls = (ctx.saveProgress as ReturnType<typeof vi.fn>).mock.calls;
       expect(saveCalls.length).toBeGreaterThanOrEqual(1);
@@ -169,7 +169,7 @@ describe('phase 1038 C-3 Contract state machine integrity (W3-B α-1+α-4+α-7)'
         expect.stringContaining('subtaskId=st1'),
         expect.stringContaining('retry_count=3'),
         expect.stringContaining('claw=claw-test'),
-        expect.stringContaining('context=writeAcceptanceError.reset'),
+        expect.stringContaining('context=writeVerificationError.reset'),
       ]));
     });
 
@@ -184,7 +184,7 @@ describe('phase 1038 C-3 Contract state machine integrity (W3-B α-1+α-4+α-7)'
         },
       });
 
-      await writeAcceptanceError(ctx, 'c2', 'st1', new Error('test'));
+      await writeVerificationError(ctx, 'c2', 'st1', new Error('test'));
 
       const saveCalls = (ctx.saveProgress as ReturnType<typeof vi.fn>).mock.calls;
       expect(saveCalls.length).toBeGreaterThanOrEqual(1);
@@ -209,7 +209,7 @@ describe('phase 1038 C-3 Contract state machine integrity (W3-B α-1+α-4+α-7)'
         subtasks: [{ id: 'st1', description: 'ST1' }],
       });
 
-      await writeAcceptanceError(ctx, 'c3', 'st1', new Error('test'));
+      await writeVerificationError(ctx, 'c3', 'st1', new Error('test'));
 
       const saveCalls = (ctx.saveProgress as ReturnType<typeof vi.fn>).mock.calls;
       expect(saveCalls.length).toBeGreaterThanOrEqual(1);

@@ -1,7 +1,7 @@
 /**
  * contract-motion-full-chain e2e (phase 1168 α-5)
  *
- * 验证 contract system 全链：create → completeSubtask → verifier → acceptance → archive。
+ * 验证 contract system 全链：create → completeSubtask → verifier → verification → archive。
  * Mirror phase 1020 cancel propagation 装配 + stub runContractVerifier。
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -59,7 +59,7 @@ describe('contract-motion-full-chain (phase 1168 α-5)', () => {
   });
 
   async function setupPromptFile(contractId: string) {
-    const promptDir = path.join(clawDir, 'contract/active', contractId, 'acceptance');
+    const promptDir = path.join(clawDir, 'contract/active', contractId, 'verification');
     await fs.mkdir(promptDir, { recursive: true });
     await fs.writeFile(path.join(promptDir, 'task-1.prompt.txt'), 'Check: {{evidence}}');
   }
@@ -88,7 +88,7 @@ describe('contract-motion-full-chain (phase 1168 α-5)', () => {
   }
 
   // ───── Case 1: happy path ─────
-  it('happy: completeSubtask → verifier PASS → acceptance archive', async () => {
+  it('happy: completeSubtask → verifier PASS → verification archive', async () => {
     mockRunContractVerifier.mockResolvedValue({
       passed: true,
       structured: { passed: true, reason: 'ok' },
@@ -97,7 +97,7 @@ describe('contract-motion-full-chain (phase 1168 α-5)', () => {
     const contractId = await manager.create(makeContractYaml({
       title: 'Happy Contract',
       subtasks: [{ id: 'task-1', description: 'T1' }],
-      acceptance: [{ subtask_id: 'task-1', type: 'llm', prompt_file: 'acceptance/task-1.prompt.txt' }],
+      verification: [{ subtask_id: 'task-1', type: 'llm', prompt_file: 'verification/task-1.prompt.txt' }],
     }));
 
     await setupPromptFile(contractId);
@@ -108,7 +108,7 @@ describe('contract-motion-full-chain (phase 1168 α-5)', () => {
       evidence: 'done',
     });
 
-    await waitForAudit('contract_acceptance_background_done');
+    await waitForAudit('contract_verification_background_done');
     const archived = await waitForArchive(contractId);
     expect(archived).toBe(true);
 
@@ -117,7 +117,7 @@ describe('contract-motion-full-chain (phase 1168 α-5)', () => {
   });
 
   // ───── Case 2: verifier FAIL ─────
-  it('verifier FAIL → acceptance reject + acceptance_failed audit', async () => {
+  it('verifier FAIL → verification reject + verification_failed audit', async () => {
     mockRunContractVerifier.mockResolvedValue({
       passed: false,
       feedback: 'rejected by verifier',
@@ -127,7 +127,7 @@ describe('contract-motion-full-chain (phase 1168 α-5)', () => {
     const contractId = await manager.create(makeContractYaml({
       title: 'Fail Contract',
       subtasks: [{ id: 'task-1', description: 'T1' }],
-      acceptance: [{ subtask_id: 'task-1', type: 'llm', prompt_file: 'acceptance/task-1.prompt.txt' }],
+      verification: [{ subtask_id: 'task-1', type: 'llm', prompt_file: 'verification/task-1.prompt.txt' }],
     }));
 
     await setupPromptFile(contractId);
@@ -138,9 +138,9 @@ describe('contract-motion-full-chain (phase 1168 α-5)', () => {
       evidence: 'done',
     });
 
-    await waitForAudit('contract_acceptance_background_done');
+    await waitForAudit('contract_verification_background_done');
 
-    const failedEvents = auditEvents.filter(e => e[0] === CONTRACT_AUDIT_EVENTS.ACCEPTANCE_FAILED);
+    const failedEvents = auditEvents.filter(e => e[0] === CONTRACT_AUDIT_EVENTS.VERIFICATION_FAILED);
     expect(failedEvents.length).toBeGreaterThanOrEqual(1);
 
     const archiveDir = path.join(clawDir, 'contract/archive', contractId);
@@ -149,7 +149,7 @@ describe('contract-motion-full-chain (phase 1168 α-5)', () => {
   });
 
   // ───── Case 3: cancel mid-flight ─────
-  it('cancel mid-flight → verifier abort + no acceptance_failed to cancelled inbox', async () => {
+  it('cancel mid-flight → verifier abort + no verification_failed to cancelled inbox', async () => {
     let abortHandler: (() => void) | null = null;
 
     mockRunContractVerifier.mockImplementation(async (config: { signal?: AbortSignal }) => {
@@ -167,7 +167,7 @@ describe('contract-motion-full-chain (phase 1168 α-5)', () => {
     const contractId = await manager.create(makeContractYaml({
       title: 'Cancel Contract',
       subtasks: [{ id: 'task-1', description: 'T1' }],
-      acceptance: [{ subtask_id: 'task-1', type: 'llm', prompt_file: 'acceptance/task-1.prompt.txt' }],
+      verification: [{ subtask_id: 'task-1', type: 'llm', prompt_file: 'verification/task-1.prompt.txt' }],
     }));
 
     await setupPromptFile(contractId);
@@ -188,10 +188,10 @@ describe('contract-motion-full-chain (phase 1168 α-5)', () => {
     await manager.cancel(contractId, 'test cancel');
 
     // Wait for background to finish
-    await waitForAudit('contract_acceptance_background_done', 8000);
+    await waitForAudit('contract_verification_background_done', 8000);
 
-    // acceptance_failed should NOT be emitted for cancelled contract
-    const failedEvents = auditEvents.filter(e => e[0] === CONTRACT_AUDIT_EVENTS.ACCEPTANCE_FAILED);
+    // verification_failed should NOT be emitted for cancelled contract
+    const failedEvents = auditEvents.filter(e => e[0] === CONTRACT_AUDIT_EVENTS.VERIFICATION_FAILED);
     expect(failedEvents.length).toBe(0);
 
     abortHandler?.();

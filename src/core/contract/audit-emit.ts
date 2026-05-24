@@ -201,13 +201,13 @@ export function emitContractCreated(
   );
 }
 
-// ─── ACCEPTANCE_STARTED ─────────────────────────────────────────────────────
-export function emitContractAcceptanceStarted(
+// ─── VERIFICATION_STARTED ─────────────────────────────────────────────────────
+export function emitContractVerificationStarted(
   audit: AuditLog,
   opts: { contractId: string; subtaskId: string },
 ): void {
   audit.write(
-    CONTRACT_AUDIT_EVENTS.ACCEPTANCE_STARTED,
+    CONTRACT_AUDIT_EVENTS.VERIFICATION_STARTED,
     `contractId=${opts.contractId}`,
     `subtaskId=${opts.subtaskId}`,
   );
@@ -259,19 +259,19 @@ export function emitContractMoveArchiveFailed(
   audit.write(CONTRACT_AUDIT_EVENTS.MOVE_ARCHIVE_FAILED, ...cols);
 }
 
-// ─── ACCEPTANCE_INBOX_FAILED ────────────────────────────────────────────────
-export function emitContractAcceptanceInboxFailed(
+// ─── VERIFICATION_INBOX_FAILED ────────────────────────────────────────────────
+export function emitContractVerificationInboxFailed(
   audit: AuditLog,
   opts: { context?: string; error: string },
 ): void {
   const cols: string[] = [];
   if (opts.context !== undefined) cols.push(`context=${opts.context}`);
   cols.push(`error=${opts.error}`);
-  audit.write(CONTRACT_AUDIT_EVENTS.ACCEPTANCE_INBOX_FAILED, ...cols);
+  audit.write(CONTRACT_AUDIT_EVENTS.VERIFICATION_INBOX_FAILED, ...cols);
 }
 
-// ─── ACCEPTANCE_RESET_FAILED ────────────────────────────────────────────────
-export function emitContractAcceptanceResetFailed(
+// ─── VERIFICATION_RESET_FAILED ────────────────────────────────────────────────
+export function emitContractVerificationResetFailed(
   audit: AuditLog,
   opts: {
     contractId?: string;
@@ -287,16 +287,16 @@ export function emitContractAcceptanceResetFailed(
   if (opts.context !== undefined) cols.push(`context=${opts.context}`);
   if (opts.message !== undefined) cols.push(`message=${opts.message}`);
   if (opts.error !== undefined) cols.push(`error=${opts.error}`);
-  audit.write(CONTRACT_AUDIT_EVENTS.ACCEPTANCE_RESET_FAILED, ...cols);
+  audit.write(CONTRACT_AUDIT_EVENTS.VERIFICATION_RESET_FAILED, ...cols);
 }
 
-// ─── ACCEPTANCE_BACKGROUND_FAILED ───────────────────────────────────────────
-export function emitContractAcceptanceBackgroundFailed(
+// ─── VERIFICATION_BACKGROUND_FAILED ───────────────────────────────────────────
+export function emitContractVerificationBackgroundFailed(
   audit: AuditLog,
   opts: { contractId: string; subtaskId: string; error: string },
 ): void {
   audit.write(
-    CONTRACT_AUDIT_EVENTS.ACCEPTANCE_BACKGROUND_FAILED,
+    CONTRACT_AUDIT_EVENTS.VERIFICATION_BACKGROUND_FAILED,
     `contractId=${opts.contractId}`,
     `subtaskId=${opts.subtaskId}`,
     `error=${opts.error}`,
@@ -316,26 +316,26 @@ export function emitContractCompleteOnCancelled(
   audit.write(CONTRACT_AUDIT_EVENTS.COMPLETE_ON_CANCELLED, ...cols);
 }
 
-// ─── ACCEPTANCE_BACKGROUND_DONE ─────────────────────────────────────────────
-export function emitContractAcceptanceBackgroundDone(
+// ─── VERIFICATION_BACKGROUND_DONE ─────────────────────────────────────────────
+export function emitContractVerificationBackgroundDone(
   audit: AuditLog,
   opts: { contractId: string; subtaskId: string; result: string },
 ): void {
   audit.write(
-    CONTRACT_AUDIT_EVENTS.ACCEPTANCE_BACKGROUND_DONE,
+    CONTRACT_AUDIT_EVENTS.VERIFICATION_BACKGROUND_DONE,
     `contractId=${opts.contractId}`,
     `subtaskId=${opts.subtaskId}`,
     `result=${opts.result}`,
   );
 }
 
-// ─── ACCEPTANCE_SCRIPT_STARTED ──────────────────────────────────────────────
-export function emitContractAcceptanceScriptStarted(
+// ─── VERIFICATION_SCRIPT_STARTED ──────────────────────────────────────────────
+export function emitContractVerificationScriptStarted(
   audit: AuditLog,
   opts: { script: string; cwd: string },
 ): void {
   audit.write(
-    CONTRACT_AUDIT_EVENTS.ACCEPTANCE_SCRIPT_STARTED,
+    CONTRACT_AUDIT_EVENTS.VERIFICATION_SCRIPT_STARTED,
     `script=${opts.script}`,
     `cwd=${opts.cwd}`,
   );
@@ -455,8 +455,8 @@ export function emitContractSubtaskCompleted(
   );
 }
 
-// ─── ACCEPTANCE_FAILED (key-fix site: split ${contractId}/${subtaskId}) ─────
-export function emitContractAcceptanceFailed(
+// ─── VERIFICATION_FAILED (key-fix site: split ${contractId}/${subtaskId}) ─────
+export function emitContractVerificationFailed(
   audit: AuditLog,
   opts: { contractId: string; subtaskId: string; feedback?: string },
 ): void {
@@ -465,7 +465,7 @@ export function emitContractAcceptanceFailed(
     `subtaskId=${opts.subtaskId}`,
   ];
   if (opts.feedback !== undefined) cols.push(`feedback=${opts.feedback}`);
-  audit.write(CONTRACT_AUDIT_EVENTS.ACCEPTANCE_FAILED, ...cols);
+  audit.write(CONTRACT_AUDIT_EVENTS.VERIFICATION_FAILED, ...cols);
 }
 
 // ─── ESCALATED (key-fix site: split ${contractId}/${subtaskId}) ─────────────
@@ -489,13 +489,13 @@ export function emitContractEscalated(
   audit.write(CONTRACT_AUDIT_EVENTS.ESCALATED, ...cols);
 }
 
-// ─── ACCEPTANCE_TIMEOUT (key-fix site: split ${contractId}/${subtaskId}) ────
-export function emitContractAcceptanceTimeout(
+// ─── VERIFICATION_TIMEOUT (key-fix site: split ${contractId}/${subtaskId}) ────
+export function emitContractVerificationTimeout(
   audit: AuditLog,
   opts: { contractId: string; subtaskId: string; claw: string },
 ): void {
   audit.write(
-    CONTRACT_AUDIT_EVENTS.ACCEPTANCE_TIMEOUT,
+    CONTRACT_AUDIT_EVENTS.VERIFICATION_TIMEOUT,
     `contractId=${opts.contractId}`,
     `subtaskId=${opts.subtaskId}`,
     `claw=${opts.claw}`,

@@ -1,6 +1,6 @@
 /**
- * @module L4.ContractSystem.Acceptance
- * Acceptance pipeline — sync + async + script + LLM + inbox 通知 + error 处理
+ * @module L4.ContractSystem.Verification
+ * Verification pipeline — sync + async + script + LLM + inbox 通知 + error 处理
  */
 
 import * as path from 'path';
@@ -14,14 +14,14 @@ import { CONTRACT_SCRIPT_TIMEOUT_MS } from './constants.js';
 import { DEFAULT_LLM_IDLE_TIMEOUT_MS } from '../../foundation/llm-orchestrator/index.js';
 import { DEFAULT_MAX_STEPS } from '../agent-executor/index.js';
 import { InboxWriter } from '../../foundation/messaging/index.js';
-import type { ContractYaml, ProgressData, AcceptanceResult, VerifierConfig, VerifierResult } from './types.js';
+import type { ContractYaml, ProgressData, VerificationResult, VerifierConfig, VerifierResult } from './types.js';
 import { type LockContext } from './lock.js';
 import {
   emitContractCompleted,
   emitContractMoveArchiveFailed,
   emitContractNotifyFailed,
-  emitContractAcceptanceResetFailed,
-  emitContractAcceptanceFailed,
+  emitContractVerificationResetFailed,
+  emitContractVerificationFailed,
   emitContractSubtaskCompleted,
   emitContractPassed,
   emitContractProgressCorrupted,
@@ -29,20 +29,20 @@ import {
   emitContractSubtaskAlreadyCompleted,
   emitContractUpdated,
   emitContractCompleteOnCancelled,
-  emitContractAcceptanceStarted,
+  emitContractVerificationStarted,
   emitContractUnexpectedAsyncThrow,
-  emitContractAcceptanceBackgroundFailed,
-  emitContractAcceptanceBackgroundDone,
-  emitContractAcceptanceScriptStarted,
-  emitContractAcceptanceTimeout,
-  emitContractAcceptanceInboxFailed,
+  emitContractVerificationBackgroundFailed,
+  emitContractVerificationBackgroundDone,
+  emitContractVerificationScriptStarted,
+  emitContractVerificationTimeout,
+  emitContractVerificationInboxFailed,
   emitContractEscalated,
 } from './audit-emit.js';
 import { formatErr } from '../../foundation/utils/format.js';
 
 // ───── module-level helpers ─────
 
-type AcceptanceConfig =
+type VerificationConfig =
   | { subtask_id: string; type: 'script'; script_file?: string }
   | { subtask_id: string; type: 'llm'; prompt_file?: string };
 
@@ -50,10 +50,10 @@ function formatValidIds(progress: ProgressData): string {
   return Object.keys(progress.subtasks).join(', ');
 }
 
-type NotifyType = 'subtask_completed' | 'acceptance_failed' | 'contract_completed';
+type NotifyType = 'subtask_completed' | 'verification_failed' | 'contract_completed';
 
 function safeNotify(
-  ctx: AcceptanceContext,
+  ctx: VerificationContext,
   type: NotifyType,
   data: Record<string, unknown>,
 ): void {
@@ -68,7 +68,7 @@ function safeNotify(
 }
 
 export async function archiveAndEmit(
-  ctx: AcceptanceContext,
+  ctx: VerificationContext,
   contractId: string,
   title: string,
   contextLabel: string,
@@ -114,43 +114,43 @@ export async function archiveAndEmit(
   }
 }
 
-async function runAcceptanceByType(
-  ctx: AcceptanceContext,
-  acceptanceConfig: AcceptanceConfig,
+async function runVerificationByType(
+  ctx: VerificationContext,
+  acceptanceConfig: VerificationConfig,
   contractAbsDir: string,
   contractId: string,
   subtaskId: string,
   subtaskDesc: string,
   evidence: string,
   artifacts: string[],
-): Promise<AcceptanceResult> {
+): Promise<VerificationResult> {
   if (acceptanceConfig.type === 'script') {
     const scriptFile = acceptanceConfig.script_file;
     if (!scriptFile) {
-      emitContractAcceptanceResetFailed(
+      emitContractVerificationResetFailed(
         ctx.audit,
         {
-          context: 'ContractSystem.runAcceptanceByType',
-          message: 'acceptance config missing script_file',
+          context: 'ContractSystem.runVerificationByType',
+          message: 'verification config missing script_file',
         },
       );
-      return { passed: false, feedback: 'acceptance config script 类型缺少 script_file' };
+      return { passed: false, feedback: 'verification config script 类型缺少 script_file' };
     }
-    return ctx.runScriptAcceptance(scriptFile, contractAbsDir);
+    return ctx.runScriptVerification(scriptFile, contractAbsDir);
   }
 
   const promptFile = acceptanceConfig.prompt_file;
   if (!promptFile) {
-    emitContractAcceptanceResetFailed(
+    emitContractVerificationResetFailed(
       ctx.audit,
       {
-        context: 'ContractSystem.runAcceptanceByType',
-        message: 'acceptance config missing prompt_file',
+        context: 'ContractSystem.runVerificationByType',
+        message: 'verification config missing prompt_file',
       },
     );
-    return { passed: false, feedback: 'acceptance config llm 类型缺少 prompt_file' };
+    return { passed: false, feedback: 'verification config llm 类型缺少 prompt_file' };
   }
-  return ctx.runLLMAcceptance(
+  return ctx.runLLMVerification(
     promptFile,
     contractAbsDir,
     contractId,
@@ -161,14 +161,14 @@ async function runAcceptanceByType(
   );
 }
 
-async function applyAcceptanceOutcome(
-  ctx: AcceptanceContext,
+async function applyVerificationOutcome(
+  ctx: VerificationContext,
   contractId: string,
   subtaskId: string,
   subtaskDesc: string,
-  result: AcceptanceResult,
+  result: VerificationResult,
   contractYaml: ContractYaml,
-  acceptanceConfig: AcceptanceConfig,
+  acceptanceConfig: VerificationConfig,
 ): Promise<{ allCompleted: boolean; passed: boolean } | null> {
   return ctx.withProgressLock(contractId, async () => {
     const progress = await ctx.getProgress(contractId);
@@ -176,13 +176,13 @@ async function applyAcceptanceOutcome(
     // phase 791 (P0.18): cancellation guard
     // cancel 后 async pipeline 完成时不该覆盖 cancelled status
     if (progress.status === 'cancelled') {
-      emitContractAcceptanceResetFailed(
+      emitContractVerificationResetFailed(
         ctx.audit,
         {
           contractId,
           subtaskId,
-          context: 'applyAcceptanceOutcome',
-          message: 'contract already cancelled, skip acceptance outcome write',
+          context: 'applyVerificationOutcome',
+          message: 'contract already cancelled, skip verification outcome write',
         },
       );
       return null;
@@ -193,7 +193,7 @@ async function applyAcceptanceOutcome(
       emitContractProgressCorrupted(
         ctx.audit,
         {
-          context: 'ContractSystem.applyAcceptanceOutcome',
+          context: 'ContractSystem.applyVerificationOutcome',
           contractId,
           subtaskId,
           error: 'subtask missing from progress after in_progress mark',
@@ -225,7 +225,7 @@ async function applyAcceptanceOutcome(
         // phase 791 (P0.17): COMPLETED audit single-source via archiveAndEmit, not here
       }
       await ctx.saveProgress(contractId, progress);
-      writeAcceptanceInbox(ctx, contractId, subtaskId, 'passed', allCompleted);
+      writeVerificationInbox(ctx, contractId, subtaskId, 'passed', allCompleted);
 
       return { allCompleted, passed: true };
     }
@@ -239,7 +239,7 @@ async function applyAcceptanceOutcome(
     };
     subtask.status = 'todo';
     const maxRetries = contractYaml.escalation?.max_retries ?? 3;
-    safeNotify(ctx, 'acceptance_failed', {
+    safeNotify(ctx, 'verification_failed', {
       contract_id: contractId,
       subtask_id: subtaskId,
       cause: failureCause,
@@ -247,13 +247,13 @@ async function applyAcceptanceOutcome(
       retry_count: subtask.retry_count,
       max_retries: maxRetries,
     } satisfies AcceptanceFailedNotification);
-    emitContractAcceptanceFailed(
+    emitContractVerificationFailed(
       ctx.audit,
       { contractId, subtaskId, feedback: result.feedback },
     );
     await ctx.saveProgress(contractId, progress);
 
-    const acceptanceFile = acceptanceConfig.type === 'script'
+    const verificationFile = acceptanceConfig.type === 'script'
       ? acceptanceConfig.script_file ?? 'unknown'
       : acceptanceConfig.prompt_file ?? 'unknown';
     const formattedFeedback = result.structured
@@ -265,10 +265,10 @@ async function applyAcceptanceOutcome(
           subtask.retry_count,
           maxRetries,
           acceptanceConfig.type,
-          acceptanceFile,
+          verificationFile,
         )
       : result.feedback;
-    writeAcceptanceInbox(ctx, contractId, subtaskId, 'rejected', false, formattedFeedback, subtask.retry_count);
+    writeVerificationInbox(ctx, contractId, subtaskId, 'rejected', false, formattedFeedback, subtask.retry_count);
 
     if (subtask.retry_count >= maxRetries) {
       subtask.escalated_at = new Date().toISOString();
@@ -288,7 +288,7 @@ async function applyAcceptanceOutcome(
   });
 }
 
-export interface AcceptanceContext extends LockContext {
+export interface VerificationContext extends LockContext {
   clawDir: string;
   clawId: string;
   llm?: LLMOrchestrator;
@@ -300,8 +300,8 @@ export interface AcceptanceContext extends LockContext {
   moveContractToArchive: (contractId: string) => Promise<void>;
   emitContractCompleted: (contractId: string) => Promise<void>;
   onNotify?: (type: string, data: Record<string, unknown>) => void;
-  runScriptAcceptance: (scriptFile: string, contractAbsDir: string) => Promise<AcceptanceResult>;
-  runLLMAcceptance: (
+  runScriptVerification: (scriptFile: string, contractAbsDir: string) => Promise<VerificationResult>;
+  runLLMVerification: (
     promptFile: string,
     contractAbsDir: string,
     contractId: string,
@@ -309,7 +309,7 @@ export interface AcceptanceContext extends LockContext {
     subtaskDesc: string,
     evidence: string,
     artifacts: string[],
-  ) => Promise<AcceptanceResult>;
+  ) => Promise<VerificationResult>;
   withProgressLock: <T>(contractId: string, fn: () => Promise<T>) => Promise<T>;
   /** phase 704: verifier subagent toolset 注入源 */
   toolRegistry: ToolRegistry;
@@ -320,14 +320,14 @@ export interface AcceptanceContext extends LockContext {
 }
 
 export async function completeSubtaskSync(
-  ctx: AcceptanceContext,
+  ctx: VerificationContext,
   contractId: string,
   subtaskId: string,
   evidence: string,
   artifacts?: string[],
-): Promise<AcceptanceResult> {
+): Promise<VerificationResult> {
   let allCompleted = false;
-  let result: AcceptanceResult = { passed: true, feedback: 'No acceptance criteria configured' };
+  let result: VerificationResult = { passed: true, feedback: 'No verification criteria configured' };
   const contractYaml = await ctx.loadContractYaml(contractId);
 
   await ctx.withProgressLock(contractId, async () => {
@@ -335,7 +335,7 @@ export async function completeSubtaskSync(
 
     // phase 791 (P0.18): cancellation guard
     if (progress.status === 'cancelled') {
-      emitContractAcceptanceResetFailed(
+      emitContractVerificationResetFailed(
         ctx.audit,
         {
           contractId,
@@ -363,7 +363,7 @@ export async function completeSubtaskSync(
 
     const currentStatus = progress.subtasks[subtaskId].status;
     if (currentStatus === 'in_progress') {
-      result = { passed: false, feedback: `Subtask "${subtaskId}" acceptance is already in progress — duplicate done() call ignored.` };
+      result = { passed: false, feedback: `Subtask "${subtaskId}" verification is already in progress — duplicate done() call ignored.` };
       emitContractSubtaskDuplicateDone(ctx.audit, { contractId, subtaskId });
       return;
     }
@@ -423,13 +423,13 @@ export async function completeSubtaskSync(
   return { ...result, allCompleted };
 }
 
-export async function runAcceptancePipeline(
-  ctx: AcceptanceContext,
+export async function runVerificationPipeline(
+  ctx: VerificationContext,
   params: { contractId: string; subtaskId: string; evidence: string; artifacts?: string[] },
-): Promise<AcceptanceResult> {
+): Promise<VerificationResult> {
   const { contractId, subtaskId, evidence, artifacts } = params;
   const contractYaml = await ctx.loadContractYaml(contractId);
-  const acceptanceConfig = contractYaml.acceptance?.find(a => a.subtask_id === subtaskId);
+  const acceptanceConfig = contractYaml.verification?.find(a => a.subtask_id === subtaskId);
 
   if (!acceptanceConfig) {
     return completeSubtaskSync(ctx, contractId, subtaskId, evidence, artifacts);
@@ -442,7 +442,7 @@ export async function runAcceptancePipeline(
     }
     const currentStatus = progress.subtasks[subtaskId].status;
     if (currentStatus === 'in_progress') {
-      throw new ToolError(`Subtask "${subtaskId}" acceptance is already in progress — duplicate done() call ignored.`);
+      throw new ToolError(`Subtask "${subtaskId}" verification is already in progress — duplicate done() call ignored.`);
     }
     if (currentStatus === 'completed') {
       throw new ToolError(`Subtask "${subtaskId}" is already completed.`);
@@ -454,16 +454,16 @@ export async function runAcceptancePipeline(
       artifacts,
     };
     await ctx.saveProgress(contractId, progress);
-    emitContractAcceptanceStarted(ctx.audit, { contractId, subtaskId });
+    emitContractVerificationStarted(ctx.audit, { contractId, subtaskId });
   });
 
-  runAcceptanceInBackground(ctx, params, contractYaml, acceptanceConfig)
+  runVerificationInBackground(ctx, params, contractYaml, acceptanceConfig)
     .catch(err => {
       if (isProgrammingBug(err)) {
         emitContractUnexpectedAsyncThrow(
           ctx.audit,
           {
-            context: 'ContractSystem.backgroundAcceptance',
+            context: 'ContractSystem.backgroundVerification',
             contractId,
             subtaskId,
             errorType: err instanceof Error ? err.constructor.name : typeof err,
@@ -472,16 +472,16 @@ export async function runAcceptancePipeline(
           },
         );
       } else {
-        emitContractAcceptanceBackgroundFailed(
+        emitContractVerificationBackgroundFailed(
           ctx.audit,
           { contractId, subtaskId, error: formatErr(err) },
         );
       }
-      writeAcceptanceError(ctx, contractId, subtaskId, err).catch(inboxErr => {
-        emitContractAcceptanceResetFailed(
+      writeVerificationError(ctx, contractId, subtaskId, err).catch(inboxErr => {
+        emitContractVerificationResetFailed(
           ctx.audit,
           {
-            context: 'ContractSystem.backgroundAcceptance.writeError',
+            context: 'ContractSystem.backgroundVerification.writeError',
             error: formatErr(inboxErr),
           },
         );
@@ -491,11 +491,11 @@ export async function runAcceptancePipeline(
   return { passed: false, feedback: '', async: true };
 }
 
-export async function runAcceptanceInBackground(
-  ctx: AcceptanceContext,
+export async function runVerificationInBackground(
+  ctx: VerificationContext,
   params: { contractId: string; subtaskId: string; evidence: string; artifacts?: string[] },
   contractYaml: ContractYaml,
-  acceptanceConfig: AcceptanceConfig,
+  acceptanceConfig: VerificationConfig,
 ): Promise<void> {
   const { contractId, subtaskId, evidence, artifacts = [] } = params;
   const subtaskDef = contractYaml.subtasks.find(st => st.id === subtaskId);
@@ -504,7 +504,7 @@ export async function runAcceptanceInBackground(
 
   let outcomeKind: 'passed' | 'failed' | 'error' = 'error';
   try {
-    const result = await runAcceptanceByType(
+    const result = await runVerificationByType(
       ctx,
       acceptanceConfig,
       contractAbsDir,
@@ -515,7 +515,7 @@ export async function runAcceptanceInBackground(
       artifacts,
     );
 
-    const outcome = await applyAcceptanceOutcome(
+    const outcome = await applyVerificationOutcome(
       ctx,
       contractId,
       subtaskId,
@@ -535,31 +535,31 @@ export async function runAcceptanceInBackground(
       if (progressAfterLock.status === 'cancelled') {
         emitContractCompleteOnCancelled(
           ctx.audit,
-          { contractId, subtaskId, context: 'runAcceptanceInBackground' },
+          { contractId, subtaskId, context: 'runVerificationInBackground' },
         );
         outcomeKind = 'failed';
       } else {
-        await archiveAndEmit(ctx, contractId, contractYaml.title, 'ContractSystem._runAcceptanceInBackground');
+        await archiveAndEmit(ctx, contractId, contractYaml.title, 'ContractSystem._runVerificationInBackground');
       }
     }
   } finally {
-    emitContractAcceptanceBackgroundDone(
+    emitContractVerificationBackgroundDone(
       ctx.audit,
       { contractId, subtaskId, result: outcomeKind },
     );
   }
 }
 
-export async function runScriptAcceptance(
-  ctx: AcceptanceContext,
+export async function runScriptVerification(
+  ctx: VerificationContext,
   scriptFile: string,
   contractAbsDir: string,
-): Promise<AcceptanceResult> {
+): Promise<VerificationResult> {
   const resolved = path.resolve(contractAbsDir, scriptFile);
   if (!resolved.startsWith(contractAbsDir + path.sep)) {
     return { passed: false, feedback: `路径安全拒绝: script_file 必须在契约目录内` };
   }
-  emitContractAcceptanceScriptStarted(
+  emitContractVerificationScriptStarted(
     ctx.audit,
     { script: scriptFile, cwd: ctx.clawDir },
   );
@@ -568,7 +568,7 @@ export async function runScriptAcceptance(
       cwd: ctx.clawDir,
       timeout: CONTRACT_SCRIPT_TIMEOUT_MS,
     });
-    return { passed: true, feedback: 'Script acceptance passed' };
+    return { passed: true, feedback: 'Script verification passed' };
   } catch (err) {
     if (!(err instanceof ProcessExecError)) {
       return { passed: false, feedback: `验收失败: ${formatErr(err)}` };
@@ -580,8 +580,8 @@ export async function runScriptAcceptance(
   }
 }
 
-export async function runLLMAcceptance(
-  ctx: AcceptanceContext,
+export async function runLLMVerification(
+  ctx: VerificationContext,
   promptFile: string,
   contractAbsDir: string,
   contractId: string,
@@ -589,7 +589,7 @@ export async function runLLMAcceptance(
   subtaskDesc: string,
   evidence: string,
   artifacts: string[],
-): Promise<AcceptanceResult> {
+): Promise<VerificationResult> {
   if (!ctx.llm) {
     return { passed: false, feedback: 'LLM 验收未配置（llm 未注入）' };
   }
@@ -627,7 +627,7 @@ export async function runLLMAcceptance(
       maxSteps: DEFAULT_MAX_STEPS,
       idleTimeoutMs: DEFAULT_LLM_IDLE_TIMEOUT_MS,
       onIdleTimeout: () => {
-        emitContractAcceptanceTimeout(
+        emitContractVerificationTimeout(
           ctx.audit,
           { contractId, subtaskId, claw: ctx.clawId },
         );
@@ -645,8 +645,8 @@ export async function runLLMAcceptance(
   }
 }
 
-export function writeAcceptanceInbox(
-  ctx: AcceptanceContext,
+export function writeVerificationInbox(
+  ctx: VerificationContext,
   contractId: string,
   subtaskId: string,
   verdict: 'passed' | 'rejected',
@@ -676,7 +676,7 @@ export function writeAcceptanceInbox(
     path.join(ctx.clawDir, 'inbox', 'pending'),
     audit,
   ).writeSync({
-    type: verdict === 'passed' ? 'acceptance_result' : 'acceptance_rejection',
+    type: verdict === 'passed' ? 'verification_result' : 'verification_rejection',
     source: 'contract_system',
     to: ctx.clawId,
     priority: verdict === 'rejected' ? 'high' : 'normal',
@@ -685,8 +685,8 @@ export function writeAcceptanceInbox(
   });
 }
 
-export async function writeAcceptanceError(
-  ctx: AcceptanceContext,
+export async function writeVerificationError(
+  ctx: VerificationContext,
   contractId: string,
   subtaskId: string,
   error: unknown,
@@ -706,21 +706,21 @@ export async function writeAcceptanceError(
       path.join(ctx.clawDir, 'inbox', 'pending'),
       audit,
     ).writeSync({
-      type: 'acceptance_error',
+      type: 'verification_error',
       source: 'contract_system',
       to: ctx.clawId,
       priority: 'high',
       body: `Acceptance verification failed with error: ${errorMsg}`,
-      idPrefix: 'acceptance_error',
+      idPrefix: 'verification_error',
       extraFields: {
         contract_id: contractId,
         subtask_id: subtaskId,
       },
     });
   } catch (e) {
-    emitContractAcceptanceInboxFailed(
+    emitContractVerificationInboxFailed(
       ctx.audit,
-      { context: 'ContractSystem._writeAcceptanceError', error: formatErr(e) },
+      { context: 'ContractSystem._writeVerificationError', error: formatErr(e) },
     );
   }
 
@@ -749,14 +749,14 @@ export async function writeAcceptanceError(
               subtaskId,
               retryCount: subtask.retry_count,
               claw: ctx.clawId,
-              context: 'writeAcceptanceError.reset',
+              context: 'writeVerificationError.reset',
             },
           );
         } else {
           await ctx.saveProgress(contractId, progress);
         }
 
-        safeNotify(ctx, 'acceptance_failed', {
+        safeNotify(ctx, 'verification_failed', {
           contract_id: contractId,
           subtask_id: subtaskId,
           cause,
@@ -767,9 +767,9 @@ export async function writeAcceptanceError(
       }
     });
   } catch (e) {
-    emitContractAcceptanceResetFailed(
+    emitContractVerificationResetFailed(
       ctx.audit,
-      { context: 'ContractSystem._writeAcceptanceError.resetStatus', error: formatErr(e) },
+      { context: 'ContractSystem._writeVerificationError.resetStatus', error: formatErr(e) },
     );
   }
 }
@@ -781,8 +781,8 @@ export function formatRejectionFeedback(
   issues: string[],
   retryCount: number,
   maxRetries: number,
-  acceptanceType: string,
-  acceptanceFile: string,
+  verificationType: string,
+  verificationFile: string,
 ): string {
   const issuesList = issues.length > 0
     ? issues.map(i => `- ${i}`).join('\n')
@@ -799,7 +799,7 @@ export function formatRejectionFeedback(
     '**需要修正的问题：**',
     issuesList,
     '',
-    `**验收标准：** ${acceptanceType} (${acceptanceFile})`,
+    `**验收标准：** ${verificationType} (${verificationFile})`,
     '',
     `已失败 ${retryCount}/${maxRetries} 次。`,
   ].join('\n');

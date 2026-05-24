@@ -39,7 +39,7 @@ describe('progress.json schema_version invariant — phase 1134', () => {
       title: 'Test',
       goal: 'Test',
       subtasks: [{ id: 't1', description: 'T1' }],
-      acceptance: [],
+      verification: [],
     }));
 
     // overwrite with schema_version too high
@@ -75,7 +75,7 @@ describe('progress.json schema_version invariant — phase 1134', () => {
       title: 'Test',
       goal: 'Test',
       subtasks: [{ id: 't1', description: 'T1' }],
-      acceptance: [],
+      verification: [],
     }));
 
     // overwrite with legacy format (no schema_version)

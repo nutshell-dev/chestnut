@@ -50,7 +50,7 @@ describe('moveContractToArchive lock acquire (phase 860 / P0-B)', () => {
       subtasks: [
         { id: 't1', description: 'T1' },
       ],
-      acceptance: [],
+      verification: [],
     }));
 
     // Concurrent: archive + cancel on same contract
@@ -78,7 +78,7 @@ describe('moveContractToArchive lock acquire (phase 860 / P0-B)', () => {
       subtasks: [
         { id: 't1', description: 'T1' },
       ],
-      acceptance: [],
+      verification: [],
     }));
 
     await (manager as any).moveToArchive(contractId);
@@ -104,7 +104,7 @@ describe('moveContractToArchive lock acquire (phase 860 / P0-B)', () => {
       subtasks: [
         { id: 't1', description: 'T1' },
       ],
-      acceptance: [],
+      verification: [],
     }));
 
     await manager.moveToArchive(contractId);

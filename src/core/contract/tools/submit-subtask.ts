@@ -1,8 +1,8 @@
 /**
- * submit_subtask tool - Mark subtask as complete and trigger acceptance
+ * submit_subtask tool - Mark subtask as complete and trigger verification
  * 
  * This tool is used by Claws to signal completion of a subtask,
- * which triggers the acceptance process defined in the contract.
+ * which triggers the verification process defined in the contract.
  */
 
 import type { Tool, ExecContext } from '../../../foundation/tools/index.js';
@@ -20,8 +20,8 @@ export function createSubmitSubtaskTool(contractManager: ContractSystem): Tool {
   return {
     name: SUBMIT_SUBTASK_TOOL_NAME,
     profiles: ['full'],
-    description: 'Mark a subtask as complete and submit it for acceptance verification. ' +
-      'Acceptance runs asynchronously — the result (pass or reject) will be ' +
+    description: 'Mark a subtask as complete and submit it for verification. ' +
+      'Verification runs asynchronously — the result (pass or reject) will be ' +
       'delivered to your inbox. Check inbox for feedback before proceeding.',
     schema: {
       type: 'object',
@@ -66,16 +66,16 @@ export function createSubmitSubtaskTool(contractManager: ContractSystem): Tool {
         artifacts,
       });
 
-      // Async acceptance path (has acceptance config)
+      // Async verification path (has verification config)
       if (result.async) {
         return {
           success: true,
-          content: `Subtask ${subtaskId} submitted for acceptance verification.\nResult will arrive via inbox — check inbox before starting the next subtask.`,
+          content: `Subtask ${subtaskId} submitted for verification.\nResult will arrive via inbox — check inbox before starting the next subtask.`,
           metadata: { contractId: active.id, subtaskId, async: true },
         };
       }
 
-      // Sync acceptance path (no acceptance config)
+      // Sync verification path (no verification config)
       if (result.passed) {
         if (result.allCompleted) {
           return {

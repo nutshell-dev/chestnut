@@ -50,13 +50,13 @@ describe('submitSubtaskTool', () => {
   });
 
   it('should return "All subtasks complete!" when last subtask accepted', async () => {
-    // 单子任务契约，无 acceptance 脚本 → 直接通过
+    // 单子任务契约，无 verification 脚本 → 直接通过
     await manager.create(makeContractYaml({
       title: 'Single Task Contract',
       goal: 'Test',
       deliverables: [],
       subtasks: [{ id: 't1', description: 'Task One' }],
-      acceptance: [],
+      verification: [],
     }));
 
     const ctx = makeCtx();
@@ -75,7 +75,7 @@ describe('submitSubtaskTool', () => {
         { id: 't1', description: 'Task One' },
         { id: 't2', description: 'Task Two' },
       ],
-      acceptance: [],
+      verification: [],
     }));
 
     const ctx = makeCtx();
@@ -102,7 +102,7 @@ describe('submitSubtaskTool', () => {
       goal: 'Test',
       deliverables: [],
       subtasks: [{ id: 't1', description: 'Task One' }],
-      acceptance: [],
+      verification: [],
     }));
 
     const ctx = makeCtx();

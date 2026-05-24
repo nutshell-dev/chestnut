@@ -19,8 +19,8 @@ export function makeContractYaml(
     subtasks: [
       { id: 'task-1', description: 'Task 1' },
     ],
-    acceptance: [
-      { subtask_id: 'task-1', type: 'script', script_file: 'acceptance/task-1.sh' },
+    verification: [
+      { subtask_id: 'task-1', type: 'script', script_file: 'verification/task-1.sh' },
     ],
     auth_level: 'auto',
     ...overrides,

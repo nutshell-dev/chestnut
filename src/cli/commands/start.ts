@@ -410,7 +410,7 @@ async function _start(audit?: AuditLog): Promise<void> {
       title: 'Onboarding',
       goal: 'Get to know the user and establish your identity before anything else. No interrogation — just talk.',
       subtasks: buildOnboardingSubtasks(language),
-      acceptance: [],
+      verification: [],
     });
 
     
@@ -438,7 +438,7 @@ async function _start(audit?: AuditLog): Promise<void> {
         title: 'Onboarding',
         goal: 'Get to know the user and establish your identity before anything else.',
         subtasks: buildOnboardingSubtasks('auto'),
-        acceptance: [],
+        verification: [],
       });
       new InboxWriter(notifyFs, inboxDir, notifyAudit).writeSync({
         type: 'message', source: 'system', priority: 'high',

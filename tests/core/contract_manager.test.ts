@@ -108,7 +108,7 @@ describe('ContractSystem', () => {
       goal: 'Test',
       deliverables: [],
       subtasks: [{ id: 't1', description: 'T1' }],
-      acceptance: [],
+      verification: [],
     });
 
     const contractId = await manager.create(contractYaml);
@@ -124,7 +124,7 @@ describe('ContractSystem', () => {
       goal: 'Test',
       deliverables: [],
       subtasks: [{ id: 't1', description: 'T1' }],
-      acceptance: [],
+      verification: [],
     });
 
     const contractId = await manager.create(contractYaml);
@@ -138,7 +138,7 @@ describe('ContractSystem', () => {
       goal: 'Test',
       deliverables: [],
       subtasks: [{ id: 't1', description: 'T1' }],
-      acceptance: [],
+      verification: [],
     });
 
     const contractId = await manager.create(contractYaml);
@@ -157,7 +157,7 @@ describe('ContractSystem', () => {
       goal: 'First',
       deliverables: [],
       subtasks: [{ id: 't1', description: 'T1' }],
-      acceptance: [],
+      verification: [],
     }));
     
     // 稍微等待确保时间戳不同
@@ -171,7 +171,7 @@ describe('ContractSystem', () => {
       goal: 'Second',
       deliverables: [],
       subtasks: [{ id: 't2', description: 'T2' }],
-      acceptance: [],
+      verification: [],
     }));
 
     // loadActive 应该返回最新的（第二个），第一个已被归档
@@ -189,7 +189,7 @@ describe('ContractSystem', () => {
       goal: 'First',
       deliverables: [],
       subtasks: [{ id: 't1', description: 'T1' }],
-      acceptance: [],
+      verification: [],
     }));
 
     // 创建第二个，第一个应该被归档（不是暂停）
@@ -198,7 +198,7 @@ describe('ContractSystem', () => {
       goal: 'Second',
       deliverables: [],
       subtasks: [{ id: 't2', description: 'T2' }],
-      acceptance: [],
+      verification: [],
     }));
 
     // 第一个被归档（status 仍为 running，但不在 active/）
@@ -225,7 +225,7 @@ describe('ContractSystem', () => {
         { id: 'task-1', description: 'Task 1' },
         { id: 'task-2', description: 'Task 2' },
       ],
-      acceptance: [],
+      verification: [],
     });
     const contractId = await manager.create(contractYaml);
     await manager.completeSubtask({ contractId, subtaskId: 'task-1', evidence: 'Task completed' });
@@ -240,7 +240,7 @@ describe('ContractSystem', () => {
       title: 'Test',
       goal: 'Test',
       deliverables: [],
-      acceptance: [],
+      verification: [],
     });
     const contractId = await manager.create(contractYaml);
     // 尝试完成不存在的子任务
@@ -265,7 +265,7 @@ describe('ContractSystem', () => {
       title: 'Test',
       goal: 'Test',
       subtasks: [{ id: 'task-1', description: 'Task 1' }, { id: 'task-2', description: 'Task 2' }],
-      acceptance: [],
+      verification: [],
     }));
 
     // First call: completes successfully
@@ -287,7 +287,7 @@ describe('ContractSystem', () => {
         { id: 'task-1', description: 'Task 1' },
         { id: 'task-2', description: 'Task 2' },
       ],
-      acceptance: [],
+      verification: [],
     });
     const contractId = await manager.create(contractYaml);
     // 完成所有子任务
@@ -304,7 +304,7 @@ describe('ContractSystem', () => {
       goal: 'Test',
       deliverables: [],
       subtasks: [{ id: 't1', description: 'T1' }],
-      acceptance: [],
+      verification: [],
     }));
 
     // cancel 后不应该能 pause
@@ -320,7 +320,7 @@ describe('ContractSystem', () => {
       goal: 'Test',
       deliverables: [],
       subtasks: [{ id: 't1', description: 'T1' }],
-      acceptance: [],
+      verification: [],
     });
     const contractId = await manager.create(contractYaml);
     // 手动损坏 progress.json（create() 创建在 active/ 子目录下）
@@ -339,7 +339,7 @@ describe('ContractSystem', () => {
       goal: 'Test',
       deliverables: [],
       subtasks: [{ id: 't1', description: 'T1' }],
-      acceptance: [],
+      verification: [],
     }));
 
     // 预先写入锁文件，模拟另一个进程持有锁
@@ -362,7 +362,7 @@ describe('ContractSystem', () => {
       goal: 'Test',
       deliverables: [],
       subtasks: [{ id: 't1', description: 'T1' }],
-      acceptance: [],
+      verification: [],
     }));
 
     // 写入锁文件（持有者 = 当前进程，模拟活跃锁），不释放
@@ -384,7 +384,7 @@ describe('ContractSystem', () => {
       goal: 'Test',
       deliverables: [],
       subtasks: [{ id: 't1', description: 'T1' }],
-      acceptance: [],
+      verification: [],
     }));
 
     // 写 stale lock：持有者 PID 不存在（process.kill(deadPid, 0) 会 ESRCH）
@@ -433,7 +433,7 @@ describe('ContractSystem', () => {
       goal: 'Test',
       deliverables: [],
       subtasks: [{ id: 't1', description: 'T1' }],
-      acceptance: [],
+      verification: [],
     }));
 
     const deadPid = DEAD_PID;
@@ -466,8 +466,8 @@ describe('ContractSystem', () => {
     }
   }, 2000);
 
-  // Note: runScriptAcceptance tests removed - implementation now uses execFile (async)
-  // New tests for async script acceptance should be added in future phases
+  // Note: runScriptVerification tests removed - implementation now uses execFile (async)
+  // New tests for async script verification should be added in future phases
 
   // === Phase 22 C1+C2: completeSubtask allCompleted path ===
 
@@ -483,7 +483,7 @@ describe('ContractSystem', () => {
       goal: 'Test',
       deliverables: [],
       subtasks: [{ id: 't1', description: 'T1' }],
-      acceptance: [],
+      verification: [],
     }));
 
     const result = await testManager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'done' });
@@ -517,7 +517,7 @@ describe('ContractSystem', () => {
         { id: 't1', description: 'T1' },
         { id: 't2', description: 'T2' },
       ],
-      acceptance: [],
+      verification: [],
     }));
 
     const result = await manager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'done' });
@@ -578,7 +578,7 @@ describe('ContractSystem', () => {
         title: 'Test',
         deliverables: [],
         subtasks: [{ id: 'real-task', description: 'Real task' }],
-        acceptance: [],
+        verification: [],
       }));
 
       const result = await monitorManager.completeSubtask({
@@ -612,7 +612,7 @@ describe('ContractSystem', () => {
         title: 'Test',
         deliverables: [],
         subtasks: [{ id: 't1', description: 'T1' }],
-        acceptance: [],
+        verification: [],
       }))).rejects.toThrow('disk full');
 
       // active/ 下不应存在任何 contract.yaml
@@ -625,15 +625,15 @@ describe('ContractSystem', () => {
     });
   });
 
-  describe('acceptance validation', () => {
+  describe('verification validation', () => {
     it('should throw when type is "script" but prompt_file is used', async () => {
       await expect(manager.create(makeContractYaml({
         title: 'Test',
         deliverables: [],
         subtasks: [{ id: 't1', description: 'T1' }],
-        acceptance: [
+        verification: [
           // @ts-expect-error - intentionally wrong field for testing
-          { subtask_id: 't1', type: 'script', prompt_file: 'acceptance/t1.prompt.txt' },
+          { subtask_id: 't1', type: 'script', prompt_file: 'verification/t1.prompt.txt' },
         ],
       }))).rejects.toThrow('script_file');
     });
@@ -643,29 +643,29 @@ describe('ContractSystem', () => {
         title: 'Test',
         deliverables: [],
         subtasks: [{ id: 't1', description: 'T1' }],
-        acceptance: [
+        verification: [
           // @ts-expect-error - intentionally wrong field for testing
-          { subtask_id: 't1', type: 'llm', script_file: 'acceptance/t1.sh' },
+          { subtask_id: 't1', type: 'llm', script_file: 'verification/t1.sh' },
         ],
       }))).rejects.toThrow('prompt_file');
     });
   });
 
-  describe('runScriptAcceptance', () => {
-    it('runScriptAcceptance passes for script without shebang', async () => {
+  describe('runScriptVerification', () => {
+    it('runScriptVerification passes for script without shebang', async () => {
       const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'contract-shebang-'));
       const testClawDir = path.join(tempDir, 'claws', 'test-claw');
       await fs.mkdir(testClawDir, { recursive: true });
 
       // 创建无 shebang 的验收脚本
-      const scriptPath = path.join(testClawDir, 'acceptance', 'task-1.sh');
+      const scriptPath = path.join(testClawDir, 'verification', 'task-1.sh');
       await fs.mkdir(path.dirname(scriptPath), { recursive: true });
       await fs.writeFile(scriptPath, 'echo ok\n', { mode: 0o644 });
 
       const mockAudit = { write: vi.fn() };
       const testManager = new ContractSystem(testClawDir, 'test-claw', new NodeFileSystem({ baseDir: testClawDir }), mockAudit as any, undefined, createToolRegistry());
-      // @ts-expect-error - runScriptAcceptance is private
-      const result = await testManager.runScriptAcceptance('task-1.sh', path.join(testClawDir, 'acceptance'));
+      // @ts-expect-error - runScriptVerification is private
+      const result = await testManager.runScriptVerification('task-1.sh', path.join(testClawDir, 'verification'));
 
       expect(result.passed).toBe(true);
     });
@@ -683,7 +683,7 @@ describe('ContractSystem', () => {
         goal: 'First',
         deliverables: [],
         subtasks: [{ id: 't1', description: 'T1' }],
-        acceptance: [],
+        verification: [],
       }));
 
       const contract2 = await testManager.create(makeContractYaml({
@@ -691,7 +691,7 @@ describe('ContractSystem', () => {
         goal: 'Second',
         deliverables: [],
         subtasks: [{ id: 't2', description: 'T2' }],
-        acceptance: [],
+        verification: [],
       }));
 
       expect(mockAudit.write).toHaveBeenCalledWith(
@@ -717,7 +717,7 @@ describe('ContractSystem', () => {
         title: 'Test',
         deliverables: [],
         subtasks: [{ id: 't1', description: 'T1' }],
-        acceptance: [],
+        verification: [],
       }))).rejects.toThrow('disk full');
 
       expect(mockAudit.write).toHaveBeenCalledWith(
@@ -742,7 +742,7 @@ describe('ContractSystem', () => {
         goal: 'Test',
         deliverables: [],
         subtasks: [{ id: 't1', description: 'T1' }],
-        acceptance: [],
+        verification: [],
       }));
 
       expect(mockAudit.write).toHaveBeenCalledWith(
@@ -763,7 +763,7 @@ describe('ContractSystem', () => {
         title: 'Test',
         deliverables: [],
         subtasks: [{ id: 't1', description: 'T1' }],
-        acceptance: [],
+        verification: [],
       }));
 
       const moveSpy = vi.spyOn(testManager as any, 'moveToArchive').mockRejectedValue(new Error('disk full'));
@@ -791,18 +791,18 @@ describe('ContractSystem', () => {
       const mockAudit = { write: vi.fn() };
       const testManager = new ContractSystem(clawDir, 'test-claw', nodeFs, mockAudit as any, undefined, createToolRegistry());
 
-      // Create contract with no-op acceptance (no script_file/prompt_file = no acceptance)
+      // Create contract with no-op verification (no script_file/prompt_file = no verification)
       const contractId = await testManager.create(makeContractYaml({
         title: 'Test',
         deliverables: [],
         subtasks: [{ id: 't1', description: 'T1' }],
-        acceptance: [],
+        verification: [],
       }));
 
       // Spy on moveToArchive to make it fail
       const moveSpy = vi.spyOn(testManager as any, 'moveToArchive').mockRejectedValue(new Error('disk full'));
 
-      // Complete the subtask (no acceptance = allCompleted = true, sync path)
+      // Complete the subtask (no verification = allCompleted = true, sync path)
       await testManager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'done' });
 
       expect(moveSpy).toHaveBeenCalledWith(contractId);
@@ -830,7 +830,7 @@ describe('ContractSystem', () => {
         title: 'Test',
         deliverables: [],
         subtasks: [{ id: 't1', description: 'T1' }],
-        acceptance: [],
+        verification: [],
       }));
 
       // Spy but let it work normally
@@ -845,35 +845,35 @@ describe('ContractSystem', () => {
     });
   });
 
-  describe('LLM acceptance', () => {
+  describe('LLM verification', () => {
     it('should reset subtask to todo when verifier throws exception', async () => {
       const mockAudit = { write: vi.fn() };
       const testManager = new ContractSystem(clawDir, 'test-claw', nodeFs, mockAudit as any, undefined, createToolRegistry());
 
-      // Create contract with LLM acceptance
+      // Create contract with LLM verification
       const contractId = await testManager.create(makeContractYaml({
         title: 'Test',
         deliverables: [],
         subtasks: [{ id: 't1', description: 'T1' }],
-        acceptance: [
-          { subtask_id: 't1', type: 'llm', prompt_file: 'acceptance/t1.prompt.txt' },
+        verification: [
+          { subtask_id: 't1', type: 'llm', prompt_file: 'verification/t1.prompt.txt' },
         ],
       }));
 
       // Create prompt file (use native fs with absolute path)
       const contractDir = path.join(clawDir, 'contract/active', contractId);
-      await fs.mkdir(path.join(contractDir, 'acceptance'), { recursive: true });
+      await fs.mkdir(path.join(contractDir, 'verification'), { recursive: true });
       await fs.writeFile(
-        path.join(contractDir, 'acceptance', 't1.prompt.txt'),
+        path.join(contractDir, 'verification', 't1.prompt.txt'),
         'Check: {{evidence}}, {{artifacts}}'
       );
 
-      // Mock runLLMAcceptance to throw MaxStepsExceeded
-      const runLLMSpy = vi.spyOn(testManager as any, 'runLLMAcceptance').mockRejectedValue(
+      // Mock runLLMVerification to throw MaxStepsExceeded
+      const runLLMSpy = vi.spyOn(testManager as any, 'runLLMVerification').mockRejectedValue(
         new Error('MaxStepsExceeded: step limit 50 exceeded')
       );
 
-      // Complete subtask (triggers background LLM acceptance)
+      // Complete subtask (triggers background LLM verification)
       const result = await testManager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'done' });
 
       // Should indicate async processing
@@ -914,28 +914,28 @@ describe('ContractSystem', () => {
         title: 'Escalation Test',
         goal: 'Test escalated_at',
         subtasks: [{ id: 't1', description: 'T1' }],
-        acceptance: [
-          { subtask_id: 't1', type: 'script', script_file: 'acceptance/t1.sh' },
+        verification: [
+          { subtask_id: 't1', type: 'script', script_file: 'verification/t1.sh' },
         ],
       }));
 
-      // Create script file so acceptance config resolves
+      // Create script file so verification config resolves
       const contractDir = path.join(clawDir, 'contract/active', contractId);
-      await fs.mkdir(path.join(contractDir, 'acceptance'), { recursive: true });
-      await fs.writeFile(path.join(contractDir, 'acceptance', 't1.sh'), '#!/bin/sh\nexit 1');
-      await fs.chmod(path.join(contractDir, 'acceptance', 't1.sh'), 0o755);
+      await fs.mkdir(path.join(contractDir, 'verification'), { recursive: true });
+      await fs.writeFile(path.join(contractDir, 'verification', 't1.sh'), '#!/bin/sh\nexit 1');
+      await fs.chmod(path.join(contractDir, 'verification', 't1.sh'), 0o755);
 
-      // Mock runScriptAcceptance to always reject
-      const scriptSpy = vi.spyOn(testManager as any, 'runScriptAcceptance').mockResolvedValue({
+      // Mock runScriptVerification to always reject
+      const scriptSpy = vi.spyOn(testManager as any, 'runScriptVerification').mockResolvedValue({
         passed: false,
-        feedback: 'acceptance failed',
+        feedback: 'verification failed',
         structured: { passed: false, reason: 'test', issues: [] },
       });
 
       // Default maxRetries = 3, need 3 failures to trigger escalation
       for (let i = 0; i < 3; i++) {
         await testManager.completeSubtask({ contractId, subtaskId: 't1', evidence: `attempt ${i + 1}` });
-        // Wait for background acceptance to complete (subtask leaves in_progress)
+        // Wait for background verification to complete (subtask leaves in_progress)
         await waitFor(
           async () => (await testManager.getProgress(contractId)).subtasks['t1'].status !== 'in_progress',
           5000,
@@ -966,19 +966,19 @@ describe('ContractSystem', () => {
         title: 'No Escalation Test',
         goal: 'Test no escalated_at',
         subtasks: [{ id: 't1', description: 'T1' }],
-        acceptance: [
-          { subtask_id: 't1', type: 'script', script_file: 'acceptance/t1.sh' },
+        verification: [
+          { subtask_id: 't1', type: 'script', script_file: 'verification/t1.sh' },
         ],
       }));
 
       const contractDir = path.join(clawDir, 'contract/active', contractId);
-      await fs.mkdir(path.join(contractDir, 'acceptance'), { recursive: true });
-      await fs.writeFile(path.join(contractDir, 'acceptance', 't1.sh'), '#!/bin/sh\nexit 1');
-      await fs.chmod(path.join(contractDir, 'acceptance', 't1.sh'), 0o755);
+      await fs.mkdir(path.join(contractDir, 'verification'), { recursive: true });
+      await fs.writeFile(path.join(contractDir, 'verification', 't1.sh'), '#!/bin/sh\nexit 1');
+      await fs.chmod(path.join(contractDir, 'verification', 't1.sh'), 0o755);
 
-      const scriptSpy = vi.spyOn(testManager as any, 'runScriptAcceptance').mockResolvedValue({
+      const scriptSpy = vi.spyOn(testManager as any, 'runScriptVerification').mockResolvedValue({
         passed: false,
-        feedback: 'acceptance failed',
+        feedback: 'verification failed',
       });
 
       // Only 2 failures — below maxRetries (3)
@@ -1009,9 +1009,9 @@ describe('ContractSystem', () => {
         { id: 'st-1', description: 'Subtask 1' },
         { id: 'st-2', description: 'Subtask 2' },
       ],
-      acceptance: [
-        { subtask_id: 'st-1', type: 'script', script_file: 'acceptance/st-1.sh' },
-        { subtask_id: 'st-2', type: 'script', script_file: 'acceptance/st-2.sh' },
+      verification: [
+        { subtask_id: 'st-1', type: 'script', script_file: 'verification/st-1.sh' },
+        { subtask_id: 'st-2', type: 'script', script_file: 'verification/st-2.sh' },
       ],
     });
 
@@ -1085,7 +1085,7 @@ describe('ContractSystem', () => {
         goal: 'Test',
         deliverables: [],
         subtasks: [{ id: 't1', description: 'T1' }],
-        acceptance: [],
+        verification: [],
       }));
 
       expect(mockAudit.write).toHaveBeenCalledWith(
@@ -1096,31 +1096,31 @@ describe('ContractSystem', () => {
       );
     });
 
-    it('writes CONTRACT_ACCEPTANCE_STARTED audit when async acceptance begins', async () => {
+    it('writes CONTRACT_VERIFICATION_STARTED audit when async verification begins', async () => {
       const mockAudit = { write: vi.fn() };
       const testManager = new ContractSystem(clawDir, 'test-claw', nodeFs, mockAudit as any, undefined, createToolRegistry());
 
-      // Create contract with script acceptance (triggers async background acceptance)
+      // Create contract with script verification (triggers async background verification)
       const contractId = await testManager.create(makeContractYaml({
         title: 'Async Acceptance Test',
         goal: 'Test',
         deliverables: [],
         subtasks: [{ id: 't1', description: 'T1' }],
-        acceptance: [
-          { subtask_id: 't1', type: 'script', script_file: 'acceptance/t1.sh' },
+        verification: [
+          { subtask_id: 't1', type: 'script', script_file: 'verification/t1.sh' },
         ],
       }));
 
-      // Create the script file so acceptance config resolves
+      // Create the script file so verification config resolves
       const contractDir = path.join(clawDir, 'contract/active', contractId);
-      await fs.mkdir(path.join(contractDir, 'acceptance'), { recursive: true });
-      await fs.writeFile(path.join(contractDir, 'acceptance', 't1.sh'), '#!/bin/sh\nexit 0', { mode: 0o755 });
+      await fs.mkdir(path.join(contractDir, 'verification'), { recursive: true });
+      await fs.writeFile(path.join(contractDir, 'verification', 't1.sh'), '#!/bin/sh\nexit 0', { mode: 0o755 });
 
       const result = await testManager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'done' });
       expect(result.async).toBe(true);
 
       expect(mockAudit.write).toHaveBeenCalledWith(
-        CONTRACT_AUDIT_EVENTS.ACCEPTANCE_STARTED,
+        CONTRACT_AUDIT_EVENTS.VERIFICATION_STARTED,
         expect.stringContaining(`contractId=${contractId}`),
         expect.stringContaining('subtaskId=t1'),
       );
@@ -1135,7 +1135,7 @@ describe('ContractSystem', () => {
         goal: 'Test',
         deliverables: [],
         subtasks: [{ id: 't1', description: 'T1' }],
-        acceptance: [],
+        verification: [],
       }));
 
       await testManager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'done' });
@@ -1158,16 +1158,16 @@ describe('ContractSystem', () => {
         title: 'Test',
         deliverables: [],
         subtasks: [{ id: 't1', description: 'T1' }],
-        acceptance: [
-          { subtask_id: 't1', type: 'llm', prompt_file: 'acceptance/t1.prompt.txt' },
+        verification: [
+          { subtask_id: 't1', type: 'llm', prompt_file: 'verification/t1.prompt.txt' },
         ],
       }));
 
       const contractDir = path.join(clawDir, 'contract/active', contractId);
-      await fs.mkdir(path.join(contractDir, 'acceptance'), { recursive: true });
-      await fs.writeFile(path.join(contractDir, 'acceptance', 't1.prompt.txt'), 'Check: {{evidence}}');
+      await fs.mkdir(path.join(contractDir, 'verification'), { recursive: true });
+      await fs.writeFile(path.join(contractDir, 'verification', 't1.prompt.txt'), 'Check: {{evidence}}');
 
-      vi.spyOn(testManager as any, 'runLLMAcceptance').mockResolvedValue({
+      vi.spyOn(testManager as any, 'runLLMVerification').mockResolvedValue({
         passed: false,
         feedback: 'LLM says no',
       });
@@ -1198,16 +1198,16 @@ describe('ContractSystem', () => {
         title: 'Test',
         deliverables: [],
         subtasks: [{ id: 't1', description: 'T1' }],
-        acceptance: [
-          { subtask_id: 't1', type: 'llm', prompt_file: 'acceptance/t1.prompt.txt' },
+        verification: [
+          { subtask_id: 't1', type: 'llm', prompt_file: 'verification/t1.prompt.txt' },
         ],
       }));
 
       const contractDir = path.join(clawDir, 'contract/active', contractId);
-      await fs.mkdir(path.join(contractDir, 'acceptance'), { recursive: true });
-      await fs.writeFile(path.join(contractDir, 'acceptance', 't1.prompt.txt'), 'Check');
+      await fs.mkdir(path.join(contractDir, 'verification'), { recursive: true });
+      await fs.writeFile(path.join(contractDir, 'verification', 't1.prompt.txt'), 'Check');
 
-      vi.spyOn(testManager as any, 'runLLMAcceptance').mockRejectedValue(
+      vi.spyOn(testManager as any, 'runLLMVerification').mockRejectedValue(
         new TypeError('undefined is not a function')
       );
 
@@ -1240,16 +1240,16 @@ describe('ContractSystem', () => {
         title: 'Test',
         deliverables: [],
         subtasks: [{ id: 't1', description: 'T1' }],
-        acceptance: [
-          { subtask_id: 't1', type: 'llm', prompt_file: 'acceptance/t1.prompt.txt' },
+        verification: [
+          { subtask_id: 't1', type: 'llm', prompt_file: 'verification/t1.prompt.txt' },
         ],
       }));
 
       const contractDir = path.join(clawDir, 'contract/active', contractId);
-      await fs.mkdir(path.join(contractDir, 'acceptance'), { recursive: true });
-      await fs.writeFile(path.join(contractDir, 'acceptance', 't1.prompt.txt'), 'Check');
+      await fs.mkdir(path.join(contractDir, 'verification'), { recursive: true });
+      await fs.writeFile(path.join(contractDir, 'verification', 't1.prompt.txt'), 'Check');
 
-      vi.spyOn(testManager as any, 'runLLMAcceptance').mockRejectedValue(
+      vi.spyOn(testManager as any, 'runLLMVerification').mockRejectedValue(
         new ToolTimeoutError('verifier', 5000)
       );
 
@@ -1267,7 +1267,7 @@ describe('ContractSystem', () => {
       expect(progress.subtasks['t1'].last_failed_feedback?.feedback).toContain('5000');
     });
 
-    it('onNotify acceptance_failed payload schema = AcceptanceFailedNotification', async () => {
+    it('onNotify verification_failed payload schema = AcceptanceFailedNotification', async () => {
       const mockAudit = { write: vi.fn() };
       const testManager = new ContractSystem(clawDir, 'test-claw', nodeFs, mockAudit as any, undefined, createToolRegistry());
       const onNotifySpy = vi.fn();
@@ -1277,16 +1277,16 @@ describe('ContractSystem', () => {
         title: 'Test',
         deliverables: [],
         subtasks: [{ id: 't1', description: 'T1' }],
-        acceptance: [
-          { subtask_id: 't1', type: 'llm', prompt_file: 'acceptance/t1.prompt.txt' },
+        verification: [
+          { subtask_id: 't1', type: 'llm', prompt_file: 'verification/t1.prompt.txt' },
         ],
       }));
 
       const contractDir = path.join(clawDir, 'contract/active', contractId);
-      await fs.mkdir(path.join(contractDir, 'acceptance'), { recursive: true });
-      await fs.writeFile(path.join(contractDir, 'acceptance', 't1.prompt.txt'), 'Check');
+      await fs.mkdir(path.join(contractDir, 'verification'), { recursive: true });
+      await fs.writeFile(path.join(contractDir, 'verification', 't1.prompt.txt'), 'Check');
 
-      vi.spyOn(testManager as any, 'runLLMAcceptance').mockResolvedValue({
+      vi.spyOn(testManager as any, 'runLLMVerification').mockResolvedValue({
         passed: false,
         feedback: 'rejected by LLM',
       });
@@ -1300,7 +1300,7 @@ describe('ContractSystem', () => {
       );
 
       const notifyCall = onNotifySpy.mock.calls.find(
-        (call: any[]) => call[0] === 'acceptance_failed'
+        (call: any[]) => call[0] === 'verification_failed'
       );
       expect(notifyCall).toBeDefined();
       const payload = notifyCall![1];
@@ -1322,20 +1322,20 @@ describe('ContractSystem', () => {
         title: 'Test',
         deliverables: [],
         subtasks: [{ id: 't1', description: 'T1' }],
-        acceptance: [
-          { subtask_id: 't1', type: 'script', script_file: 'acceptance/t1.sh' },
+        verification: [
+          { subtask_id: 't1', type: 'script', script_file: 'verification/t1.sh' },
         ],
         escalation: { max_retries: 2 },
       }));
 
       const contractDir = path.join(clawDir, 'contract/active', contractId);
-      await fs.mkdir(path.join(contractDir, 'acceptance'), { recursive: true });
-      await fs.writeFile(path.join(contractDir, 'acceptance', 't1.sh'), '#!/bin/sh\nexit 1');
-      await fs.chmod(path.join(contractDir, 'acceptance', 't1.sh'), 0o755);
+      await fs.mkdir(path.join(contractDir, 'verification'), { recursive: true });
+      await fs.writeFile(path.join(contractDir, 'verification', 't1.sh'), '#!/bin/sh\nexit 1');
+      await fs.chmod(path.join(contractDir, 'verification', 't1.sh'), 0o755);
 
-      vi.spyOn(testManager as any, 'runScriptAcceptance').mockResolvedValue({
+      vi.spyOn(testManager as any, 'runScriptVerification').mockResolvedValue({
         passed: false,
-        feedback: 'acceptance failed',
+        feedback: 'verification failed',
       });
 
       for (let i = 0; i < 3; i++) {
@@ -1381,16 +1381,16 @@ describe('ContractSystem', () => {
         title: 'Test',
         deliverables: [],
         subtasks: [{ id: 't1', description: 'T1' }],
-        acceptance: [
-          { subtask_id: 't1', type: 'llm', prompt_file: 'acceptance/t1.prompt.txt' },
+        verification: [
+          { subtask_id: 't1', type: 'llm', prompt_file: 'verification/t1.prompt.txt' },
         ],
       }));
 
       const contractDir = path.join(clawDir, 'contract/active', contractId);
-      await fs.mkdir(path.join(contractDir, 'acceptance'), { recursive: true });
-      await fs.writeFile(path.join(contractDir, 'acceptance', 't1.prompt.txt'), 'Check');
+      await fs.mkdir(path.join(contractDir, 'verification'), { recursive: true });
+      await fs.writeFile(path.join(contractDir, 'verification', 't1.prompt.txt'), 'Check');
 
-      let spy = vi.spyOn(testManager as any, 'runLLMAcceptance').mockResolvedValueOnce({
+      let spy = vi.spyOn(testManager as any, 'runLLMVerification').mockResolvedValueOnce({
         passed: false,
         feedback: 'first reject',
       });
@@ -1402,7 +1402,7 @@ describe('ContractSystem', () => {
       );
       spy.mockRestore();
 
-      spy = vi.spyOn(testManager as any, 'runLLMAcceptance').mockRejectedValueOnce(
+      spy = vi.spyOn(testManager as any, 'runLLMVerification').mockRejectedValueOnce(
         new Error('bug')
       );
       await testManager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'done2' });
@@ -1413,7 +1413,7 @@ describe('ContractSystem', () => {
       );
       spy.mockRestore();
 
-      spy = vi.spyOn(testManager as any, 'runLLMAcceptance').mockRejectedValueOnce(
+      spy = vi.spyOn(testManager as any, 'runLLMVerification').mockRejectedValueOnce(
         new ToolTimeoutError('verifier', 3000)
       );
       await testManager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'done3' });

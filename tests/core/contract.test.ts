@@ -36,7 +36,7 @@ subtasks:
     description: "Subtask 1"
   - id: st-002
     description: "Subtask 2"
-acceptance:
+verification:
   - subtask_id: st-001
     type: script
     command: "echo 'test'"
@@ -76,12 +76,12 @@ describe('Contract System', () => {
   });
 
   afterEach(async () => {
-    // Drain any pending background acceptance before cleanup (phase 779 Step A / B.flaky-4)
+    // Drain any pending background verification before cleanup (phase 779 Step A / B.flaky-4)
     const pendingAcceptances = mockAudit.write.mock.calls.filter(
-      (c: any[]) => c[0] === CONTRACT_AUDIT_EVENTS.ACCEPTANCE_STARTED,
+      (c: any[]) => c[0] === CONTRACT_AUDIT_EVENTS.VERIFICATION_STARTED,
     );
     const doneCount = mockAudit.write.mock.calls.filter(
-      (c: any[]) => c[0] === CONTRACT_AUDIT_EVENTS.ACCEPTANCE_BACKGROUND_DONE,
+      (c: any[]) => c[0] === CONTRACT_AUDIT_EVENTS.VERIFICATION_BACKGROUND_DONE,
     ).length;
     if (pendingAcceptances.length > doneCount) {
       const needed = pendingAcceptances.length - doneCount;
@@ -89,10 +89,10 @@ describe('Contract System', () => {
       await new Promise<void>((resolve, reject) => {
         const timer = setTimeout(() => {
           auditEmitter.off('write', handler);
-          reject(new Error(`timeout waiting for ${needed} acceptance_done events`));
+          reject(new Error(`timeout waiting for ${needed} verification_done events`));
         }, 3000);
         const handler = (ev: string) => {
-          if (ev === CONTRACT_AUDIT_EVENTS.ACCEPTANCE_BACKGROUND_DONE) {
+          if (ev === CONTRACT_AUDIT_EVENTS.VERIFICATION_BACKGROUND_DONE) {
             received++;
             if (received >= needed) {
               clearTimeout(timer);
@@ -147,8 +147,8 @@ describe('Contract System', () => {
       expect(progress.subtasks['st-001']).toMatchObject({ status: 'todo' });
     });
 
-    it('should complete subtask without acceptance (auto-pass)', async () => {
-      // Create contract without acceptance config for st-001
+    it('should complete subtask without verification (auto-pass)', async () => {
+      // Create contract without verification config for st-001
       const contractDir = path.join(tempDir, 'contract', 'active', 'contract-002');
       await fs.mkdir(contractDir, { recursive: true });
 
@@ -159,7 +159,7 @@ goal: "Test"
 deliverables: []
 subtasks:
   - id: st-001
-    description: "Subtask without acceptance"
+    description: "Subtask without verification"
 auth_level: auto
 `;
       await fs.writeFile(path.join(contractDir, 'contract.yaml'), yamlContent);
@@ -185,7 +185,7 @@ auth_level: auto
       expect(updatedProgress.subtasks['st-001'].status).toBe('completed');
     });
 
-    it('should complete subtask with script acceptance (success)', async () => {
+    it('should complete subtask with script verification (success)', async () => {
       // Use a command that always succeeds
       const contractDir = path.join(tempDir, 'contract', 'active', 'contract-003');
       await fs.mkdir(contractDir, { recursive: true });
@@ -198,10 +198,10 @@ deliverables: []
 subtasks:
   - id: st-001
     description: "Subtask with script"
-acceptance:
+verification:
   - subtask_id: st-001
     type: script
-    script_file: "acceptance/st-001.sh"
+    script_file: "verification/st-001.sh"
 auth_level: auto
 `;
       await fs.writeFile(path.join(contractDir, 'contract.yaml'), yamlContent);
@@ -221,12 +221,12 @@ auth_level: auto
         evidence: 'Done',
       });
 
-      // Async acceptance: returns { async: true, passed: false } immediately
+      // Async verification: returns { async: true, passed: false } immediately
       expect(result.async).toBe(true);
       // Actual result will arrive via inbox notification
     });
 
-    it('should fail subtask with script acceptance (command fails)', async () => {
+    it('should fail subtask with script verification (command fails)', async () => {
       const contractDir = path.join(tempDir, 'contract', 'active', 'contract-004');
       await fs.mkdir(contractDir, { recursive: true });
 
@@ -238,10 +238,10 @@ deliverables: []
 subtasks:
   - id: st-001
     description: "Subtask with failing script"
-acceptance:
+verification:
   - subtask_id: st-001
     type: script
-    script_file: "acceptance/st-001.sh"
+    script_file: "verification/st-001.sh"
 auth_level: auto
 `;
       await fs.writeFile(path.join(contractDir, 'contract.yaml'), yamlContent);

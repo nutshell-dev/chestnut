@@ -54,7 +54,7 @@ describe('getProgress schema check', () => {
       title: 'Test',
       goal: 'Test',
       subtasks: [{ id: 't1', description: 'T1' }],
-      acceptance: [],
+      verification: [],
     }));
 
     // overwrite with schema-invalid JSON (parsable but missing required fields)
@@ -79,7 +79,7 @@ describe('getProgress schema check', () => {
       title: 'Test',
       goal: 'Test',
       subtasks: [{ id: 't1', description: 'T1' }],
-      acceptance: [],
+      verification: [],
       auth_level: 'auto' as const,
     });
 

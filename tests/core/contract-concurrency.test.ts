@@ -29,8 +29,8 @@ const BASE_YAML = makeContractYaml({
     { id: 'st-a', description: 'Subtask A' },
     { id: 'st-b', description: 'Subtask B' },
   ],
-  // 无 acceptance：走 _completeSubtaskSync 路径
-  acceptance: [],
+  // 无 verification：走 _completeSubtaskSync 路径
+  verification: [],
 });
 
 describe('ContractSystem — 并发幂等与锁', () => {

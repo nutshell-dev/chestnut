@@ -336,10 +336,10 @@ const contractCmd = program
 // contract create
 contractCmd
   .command('create')
-  .description('Create a contract (--file: import YAML, --dir: directory with contract.yaml + acceptance/)')
+  .description('Create a contract (--file: import YAML, --dir: directory with contract.yaml + verification/)')
   .requiredOption('-c, --claw <id>', 'Target claw ID')
   .option('--file <path>', 'Path to contract YAML file')
-  .option('--dir <path>', 'Directory containing contract.yaml and acceptance/ folder')
+  .option('--dir <path>', 'Directory containing contract.yaml and verification/ folder')
   .action(withCliErrorHandling(async (opts: { claw: string; file?: string; dir?: string }) => {
     loadGlobalConfig(CONFIG_DEFAULTS);
     const { audit } = createDirContext(getClawDir(opts.claw));

@@ -9,7 +9,7 @@
  * - persistence.ts  / yaml + progress.json fs helpers
  * - verifier-job.ts / runContractVerifier
  * - lifecycle.ts    / pause/resume/cancel/isComplete/moveToArchive
- * - acceptance.ts   / completeSubtask + acceptance pipeline
+ * - verification.ts / completeSubtask + verification pipeline
  *
  * 本 class own:
  * - 装配（ctx 构造）
@@ -48,7 +48,7 @@ import { CONTRACT_ACTIVE_DIR, CONTRACT_PAUSED_DIR, CONTRACT_ARCHIVE_DIR } from '
 import { UUID_SHORT_LEN } from '../../constants.js';
 
 import type {
-  ContractYaml, ProgressData, AcceptanceResult, VerifierConfig, VerifierResult,
+  ContractYaml, ProgressData, VerificationResult, VerifierConfig, VerifierResult,
 } from './types.js';
 import {
   withProgressLock as wpl,
@@ -69,12 +69,12 @@ import {
   type LifecycleContext,
 } from './lifecycle.js';
 import {
-  runAcceptancePipeline,
-  runScriptAcceptance as runScriptAcceptanceFn,
-  runLLMAcceptance as runLLMAcceptanceFn,
-  writeAcceptanceError,
-  type AcceptanceContext,
-} from './acceptance.js';
+  runVerificationPipeline,
+  runScriptVerification as runScriptVerificationFn,
+  runLLMVerification as runLLMVerificationFn,
+  writeVerificationError,
+  type VerificationContext,
+} from './verification.js';
 
 // Contract default value constants
 const CONTRACT_DEFAULTS = {
@@ -85,7 +85,7 @@ const CONTRACT_DEFAULTS = {
 export {
   type ContractYaml,
   type ProgressData,
-  type AcceptanceResult,
+  type VerificationResult,
   type VerifierConfig,
   type VerifierResult,
 };
@@ -247,7 +247,7 @@ export class ContractSystem {
     };
   }
 
-  private _acceptanceCtx(): AcceptanceContext {
+  private _verificationCtx(): VerificationContext {
     return {
       ...this._lockCtx(),
       clawDir: this.clawDir,
@@ -261,9 +261,9 @@ export class ContractSystem {
       moveContractToArchive: (id) => this.moveToArchive(id),
       emitContractCompleted: (id) => this._emitContractCompleted(id),
       onNotify: this.onNotify,
-      runScriptAcceptance: (scriptFile, contractAbsDir) => this.runScriptAcceptance(scriptFile, contractAbsDir),
-      runLLMAcceptance: (promptFile, contractAbsDir, contractId, subtaskId, subtaskDesc, evidence, artifacts) =>
-        this.runLLMAcceptance(promptFile, contractAbsDir, contractId, subtaskId, subtaskDesc, evidence, artifacts),
+      runScriptVerification: (scriptFile, contractAbsDir) => this.runScriptVerification(scriptFile, contractAbsDir),
+      runLLMVerification: (promptFile, contractAbsDir, contractId, subtaskId, subtaskDesc, evidence, artifacts) =>
+        this.runLLMVerification(promptFile, contractAbsDir, contractId, subtaskId, subtaskDesc, evidence, artifacts),
       withProgressLock: (contractId, fn) => this.withProgressLock(contractId, fn),
       toolRegistry: this.toolRegistry,
       toolTimeoutMs: this.toolTimeoutMs,
@@ -292,14 +292,14 @@ export class ContractSystem {
     return loadPausedContract(this._discoveryCtx(), this.pausedDir);
   }
 
-  // Acceptance
+  // Verification
   async completeSubtask(params: {
     contractId: string;
     subtaskId: string;
     evidence: string;
     artifacts?: string[];
-  }): Promise<AcceptanceResult> {
-    return runAcceptancePipeline(this._acceptanceCtx(), params);
+  }): Promise<VerificationResult> {
+    return runVerificationPipeline(this._verificationCtx(), params);
   }
 
   // Lifecycle
@@ -365,24 +365,24 @@ export class ContractSystem {
       throw new Error('Contract must have at least one subtask');
     }
 
-    for (const a of contractYaml.acceptance ?? []) {
+    for (const a of contractYaml.verification ?? []) {
       if (a.type === 'script' && !('script_file' in a)) {
         throw new Error(
-          `acceptance config for subtask "${a.subtask_id}": type "script" requires "script_file"`
+          `verification config for subtask "${a.subtask_id}": type "script" requires "script_file"`
         );
       }
       if (a.type === 'llm' && !('prompt_file' in a)) {
         throw new Error(
-          `acceptance config for subtask "${a.subtask_id}": type "llm" requires "prompt_file"`
+          `verification config for subtask "${a.subtask_id}": type "llm" requires "prompt_file"`
         );
       }
     }
 
     const seenSubtaskIds = new Set<string>();
-    for (const a of contractYaml.acceptance ?? []) {
+    for (const a of contractYaml.verification ?? []) {
       if (seenSubtaskIds.has(a.subtask_id)) {
         throw new Error(
-          `acceptance config: duplicate subtask_id "${a.subtask_id}" — each subtask can only have one acceptance entry`
+          `verification config: duplicate subtask_id "${a.subtask_id}" — each subtask can only have one verification entry`
         );
       }
       seenSubtaskIds.add(a.subtask_id);
@@ -425,7 +425,7 @@ export class ContractSystem {
       goal: contractYaml.goal,
       expectations: contractYaml.expectations,
       subtasks: contractYaml.subtasks,
-      acceptance: contractYaml.acceptance ?? [],
+      verification: contractYaml.verification ?? [],
       auth_level: contractYaml.auth_level ?? CONTRACT_DEFAULTS.auth_level,
     });
     await this.fs.writeAtomic(`${this.activeDir}/${contractId}/contract.yaml`, content);
@@ -552,8 +552,8 @@ export class ContractSystem {
     return loadYaml(this._persistenceCtx(), contractId);
   }
 
-  async _writeAcceptanceError(contractId: string, subtaskId: string, error: unknown): Promise<void> {
-    return writeAcceptanceError(this._acceptanceCtx(), contractId, subtaskId, error);
+  async _writeVerificationError(contractId: string, subtaskId: string, error: unknown): Promise<void> {
+    return writeVerificationError(this._verificationCtx(), contractId, subtaskId, error);
   }
 
   private async loadContract(contractId: string): Promise<Contract> {
@@ -572,11 +572,11 @@ export class ContractSystem {
     return moveContractToArchive(this._lifecycleCtx(), contractId);
   }
 
-  private async runScriptAcceptance(scriptFile: string, contractAbsDir: string): Promise<AcceptanceResult> {
-    return runScriptAcceptanceFn(this._acceptanceCtx(), scriptFile, contractAbsDir);
+  private async runScriptVerification(scriptFile: string, contractAbsDir: string): Promise<VerificationResult> {
+    return runScriptVerificationFn(this._verificationCtx(), scriptFile, contractAbsDir);
   }
 
-  private async runLLMAcceptance(
+  private async runLLMVerification(
     promptFile: string,
     contractAbsDir: string,
     contractId: string,
@@ -584,7 +584,7 @@ export class ContractSystem {
     subtaskDesc: string,
     evidence: string,
     artifacts: string[],
-  ): Promise<AcceptanceResult> {
-    return runLLMAcceptanceFn(this._acceptanceCtx(), promptFile, contractAbsDir, contractId, subtaskId, subtaskDesc, evidence, artifacts);
+  ): Promise<VerificationResult> {
+    return runLLMVerificationFn(this._verificationCtx(), promptFile, contractAbsDir, contractId, subtaskId, subtaskDesc, evidence, artifacts);
   }
 }
