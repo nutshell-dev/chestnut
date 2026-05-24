@@ -8,6 +8,7 @@
  */
 
 import * as path from 'path';
+import { randomUUID } from 'crypto';
 import { isFileNotFound, type FileSystem } from '../../../foundation/fs/types.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
 import { CRON_AUDIT_EVENTS } from '../audit-events.js';
@@ -57,6 +58,7 @@ export async function runOutboxDrain(opts: OutboxDrainOptions): Promise<void> {
   for (const clawId of clawIds) {
     const outboxPending = path.join(clawsDir, clawId, 'outbox', 'pending');
     const outboxDone = path.join(clawsDir, clawId, 'outbox', 'done');
+    const processingDir = path.join(clawsDir, clawId, 'outbox', 'processing');
 
     let files: string[];
     try {
@@ -73,9 +75,13 @@ export async function runOutboxDrain(opts: OutboxDrainOptions): Promise<void> {
 
     if (files.length === 0) continue;
 
+    await fs.ensureDir(processingDir);
+
     const toRead = files.slice(0, limitPerClaw);
     for (const fileName of toRead) {
       const srcPath = path.join(outboxPending, fileName);
+      const claimToken = `cron_${process.pid}_${Date.now()}_${randomUUID().slice(0, 8)}`;
+      const claimedPath = path.join(processingDir, `${claimToken}_${fileName}`);
       const uniq = `${process.pid}_${++drainCounter}_${Math.random().toString(36).slice(2, 8)}`;
       const dstName = `${Date.now()}_${uniq}_${fileName}`;
       const dstPath = path.join(outboxDone, dstName);
@@ -83,15 +89,31 @@ export async function runOutboxDrain(opts: OutboxDrainOptions): Promise<void> {
       const inboxPath = path.join(motionInboxDir, inboxFileName);
 
       try {
-        const content = fs.readSync(srcPath);
+        // ATOMIC CLAIM: winner-takes-all via OS rename
+        await fs.move(srcPath, claimedPath);
+      } catch (err) {
+        if (isFileNotFound(err)) {
+          // lost race → CLI won / graceful skip
+          audit.write(CRON_AUDIT_EVENTS.OUTBOX_DRAIN_RACE_LOST,
+            `claw=${clawId}`, `file=${fileName}`);
+          continue;
+        }
+        audit.write(CRON_AUDIT_EVENTS.OUTBOX_DRAIN_FAILED,
+          `claw=${clawId}`, `file=${fileName}`, `reason=claim_failed`,
+          `error=${err instanceof Error ? err.message : String(err)}`);
+        continue;
+      }
+
+      try {
+        const content = fs.readSync(claimedPath);
 
         // write to motion inbox (atomic)
         await fs.ensureDir(motionInboxDir);
         await fs.writeAtomic(inboxPath, content);
 
-        // mv pending → done
+        // mv processing → done
         await fs.ensureDir(outboxDone);
-        await fs.move(srcPath, dstPath);
+        await fs.move(claimedPath, dstPath);
 
         totalDrained++;
       } catch (err) {

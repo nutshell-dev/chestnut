@@ -5,6 +5,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { randomUUID } from 'crypto';
 import { getClawDir } from '../../foundation/config/index.js';
 import { CliError } from '../errors.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
@@ -31,6 +32,7 @@ export async function outboxCommand(
 
   const pendingDir = path.join(clawDir, 'outbox', 'pending');
   const doneDir = path.join(clawDir, 'outbox', 'done');
+  const processingDir = path.join(clawDir, 'outbox', 'processing');
 
   // Read pending files
   let files: string[] = [];
@@ -58,18 +60,37 @@ export async function outboxCommand(
 
   audit?.write(CLI_AUDIT_EVENTS.CLAW_OUTBOX_DRAIN_START, `claw=${name}`, `limit=${limit}`);
 
+  await fs.promises.mkdir(processingDir, { recursive: true });
+
   // Read and output
   const results: string[] = [];
   for (const fileName of toRead) {
     const filePath = path.join(pendingDir, fileName);
+    const claimToken = `cli_${process.pid}_${Date.now()}_${randomUUID().slice(0, 8)}`;
+    const claimedPath = path.join(processingDir, `${claimToken}_${fileName}`);
+
     try {
-      const content = await fs.promises.readFile(filePath, 'utf-8');
+      // ATOMIC CLAIM: winner-takes-all via OS rename
+      await fs.promises.rename(filePath, claimedPath);
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT') {
+        audit?.write(CLI_AUDIT_EVENTS.CLAW_OUTBOX_DRAIN_RACE_LOST,
+          `claw=${name}`, `file=${fileName}`);
+        continue;
+      }
+      console.warn(`[outbox] Failed to claim ${fileName}: ${err instanceof Error ? err.message : String(err)}`);
+      continue;
+    }
+
+    try {
+      const content = await fs.promises.readFile(claimedPath, 'utf-8');
       results.push(content);
 
       // Move to done/
       try {
         await fs.promises.mkdir(doneDir, { recursive: true });
-        await fs.promises.rename(filePath, path.join(doneDir, `${Date.now()}_${fileName}`));
+        await fs.promises.rename(claimedPath, path.join(doneDir, `${Date.now()}_${fileName}`));
         audit?.write(
           MESSAGING_AUDIT_EVENTS.OUTBOX_DELIVERED,
           `claw=${name}`,
