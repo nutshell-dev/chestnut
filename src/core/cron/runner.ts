@@ -4,6 +4,7 @@
  */
 
 import type { AuditLog } from '../../foundation/audit/index.js';
+import { isFileNotFound } from '../../foundation/fs/types.js';
 import { CRON_AUDIT_EVENTS } from './audit-events.js';
 import { CRON_TICK_INTERVAL_MS } from './constants.js';
 
@@ -87,7 +88,8 @@ export class CronRunner {
         for (const k of state.initialScanDone) this._initialScanDone.add(k);
       }
     } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+      // phase 1154 r+ derive: 双码 narrow via foundation helper (FileSystem 抽象层抛 FS_NOT_FOUND)
+      if (!isFileNotFound(e)) throw e;
     }
   }
 

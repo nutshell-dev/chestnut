@@ -121,6 +121,10 @@ export function createClawGlobalConfigSchema(defaults: ConfigDefaults) {
           enabled: z.boolean().default(true),
           schedule: z.string().default('daily:04:00'),
         }).optional(),
+        audit_size_monitor: z.object({
+          enabled: z.boolean().default(true),
+          schedule: z.string().default('interval:6h'),
+        }).optional(),
       }).optional(),
     }).optional(),
     viewport: z.object({

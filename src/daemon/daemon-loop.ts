@@ -243,6 +243,17 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
   let stopped = false;
   let startupFired = false;
 
+  // phase 1154 r+ derive: 60s liveness 心跳（B + 心跳混合方案）
+  const LIVENESS_HEARTBEAT_MS = 60_000;
+  const livenessTimer = setInterval(() => {
+    options.audit.write(
+      DAEMON_AUDIT_EVENTS.LIVENESS_HEARTBEAT,
+      `pid=${process.pid}`,
+      `uptime_s=${Math.round(process.uptime())}`,
+    );
+  }, LIVENESS_HEARTBEAT_MS);
+  livenessTimer.unref(); // 不阻 event loop 退出
+
   // LLM failure retry state
   let llmRetryCount = 0;
   let llmRetryDelayMs = LLM_RETRY_INITIAL_DELAY_MS;
@@ -425,9 +436,7 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
               saveLlmRetryState();
               await onBatchComplete?.();
             } else {
-              // AuditLog: empty processBatch → 走 waitForInbox
-              options.audit.write(DAEMON_AUDIT_EVENTS.LOOP_ITERATION, `type=${LOOP_ITERATION_TYPES.WAIT}`, `injected=0`);
-
+              // phase 1154 r+ derive: wait 是 no-op 默认态、不入 audit（显式设计决策 per DP）
               await waitForInbox(loopFs, options.audit, inboxPendingDir, fallbackTimeout);
             }
           }
@@ -443,6 +452,8 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
           clearInterval(interruptPoller);
           interruptPoller = null;
         }
+
+        clearInterval(livenessTimer);
 
         // Distinguish system idle timeout, user interrupts from genuine errors
         if (err instanceof IdleTimeoutSignal) {

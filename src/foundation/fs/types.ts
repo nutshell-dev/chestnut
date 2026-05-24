@@ -250,6 +250,26 @@ export interface FileSystem {
 }
 
 /**
+ * 判 err 是否表示「文件不存在」语义。
+ *
+ * 兼容两路径：
+ * 1. FileSystem 抽象层抛 FileNotFoundError (code='FS_NOT_FOUND')
+ * 2. Node 原生 fs.* 抛 NodeJS.ErrnoException (code='ENOENT')
+ *
+ * phase 1154 derive：phase 1010 narrow 写 'ENOENT' 单码 / FileSystem
+ * 抛 FS_NOT_FOUND / 真 production 100% miss → 4.88M 行垃圾 audit。
+ *
+ * 不归属：ENOTDIR / EACCES / 其他 fs 错误不在此判定范围。
+ */
+export function isFileNotFound(err: unknown): boolean {
+  if (err instanceof FileNotFoundError) return true;
+  if (err && typeof err === 'object' && 'code' in err) {
+    return (err as NodeJS.ErrnoException).code === 'ENOENT';
+  }
+  return false;
+}
+
+/**
  * FileSystem factory options
  */
 export interface FileSystemOptions {

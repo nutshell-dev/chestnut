@@ -9,7 +9,7 @@ import * as path from 'path';
 
 import type { LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
-import type { FileSystem } from '../../foundation/fs/types.js';
+import { isFileNotFound, type FileSystem } from '../../foundation/fs/types.js';
 import type { ToolProfile } from '../../foundation/tool-protocol/index.js';
 import type { Message } from '../../foundation/llm-provider/types.js';
 import type { InboxMessage } from '../../foundation/messaging/types.js';
@@ -312,8 +312,9 @@ export class Runtime {
           const checklist = (await this.systemFs.read('HEARTBEAT.md')).trim();
           return checklist ? `${base}\n\n${checklist}` : base;
         } catch (e) {
-          const code = (e as NodeJS.ErrnoException)?.code;
-          if (code !== 'ENOENT') {
+          // phase 1154 r+ derive: 双码 narrow via foundation helper (FileSystem 抽象层抛 FS_NOT_FOUND)
+          if (!isFileNotFound(e)) {
+            const code = (e as NodeJS.ErrnoException)?.code;
             this.auditWriter.write(
               HEARTBEAT_AUDIT_EVENTS.CHECKLIST_READ_FAILED,
               `code=${code ?? 'unknown'}`,

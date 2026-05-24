@@ -6,7 +6,7 @@
  */
 
 import * as nodePath from 'path';
-import type { FileSystem } from '../fs/types.js';
+import { isFileNotFound, type FileSystem } from '../fs/types.js';
 import type { Tool, ExecContext } from '../tools/index.js';
 import type { ToolResult } from '../tool-protocol/index.js';
 
@@ -172,7 +172,8 @@ export const searchTool: Tool = {
             );
           } catch (err) {
             totalSkipped++;
-            if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+            // phase 1154 r+ derive: 双码 narrow via foundation helper (FileSystem 抽象层抛 FS_NOT_FOUND)
+            if (!isFileNotFound(err)) {
               ctx.auditWriter?.write('broadcast_claw_skipped', `claw=${clawId}`, `reason=${formatErr(err)}`);
             }
           }

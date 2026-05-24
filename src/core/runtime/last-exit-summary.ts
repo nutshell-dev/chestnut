@@ -11,7 +11,7 @@
  * 同 phase455 bypass cluster 治理一致 / phase460 cluster 6/6 全闭里程碑。
  */
 
-import type { FileSystem } from '../../foundation/fs/types.js';
+import { isFileNotFound, type FileSystem } from '../../foundation/fs/types.js';
 
 const TAIL_BYTES = 4096;
 
@@ -49,8 +49,8 @@ export function readLastExitEvent(fs: FileSystem, auditPath: string): RawEvent |
       }
     }
   } catch (err) {
-    const code = (err as { code?: string })?.code;
-    if (code !== 'ENOENT') {
+    // phase 1154 r+ derive: 双码 narrow via foundation helper (FileSystem 抽象层抛 FS_NOT_FOUND)
+    if (!isFileNotFound(err)) {
       // last-exit-summary 是 pure helper / 0 audit writer / 失败 silent 接受
       // 影响仅 = interruptionMessage null / DialogStore.repair 仍 OK / startup-only
       // phase 904 / r115 O fork P2 re-eval: γ accepted-stable confirmed（caller DialogStore.repair audit cover repair attempt、不引 audit dep 保 ML#8）

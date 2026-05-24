@@ -18,7 +18,7 @@ import {
   emitRecoveryDeadLetter,
 } from './audit-emit.js';
 import { validateTaskShape, backupCorruptTask } from './task-corrupt-helpers.js';
-import { FileNotFoundError } from '../../foundation/fs/types.js';
+import { FileNotFoundError, isFileNotFound } from '../../foundation/fs/types.js';
 import { sendFallbackError, sendResult, SENT_MARKER } from './result-delivery.js';
 
 const RETRY_COUNT_PATH = (taskId: string) =>
@@ -146,9 +146,9 @@ async function _recoverWithResult(
       retryCount = parsed;
     }
   } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code;
+    // phase 1154 r+ derive: 统一用 foundation helper (FileSystem 抽象层抛 FS_NOT_FOUND)
     // first-run / file 不存在 silent OK；其他 IO 错 audit（防 silent retry counter reset）
-    if (code !== 'ENOENT' && !(err instanceof FileNotFoundError)) {
+    if (!isFileNotFound(err)) {
       emitRecoveryFailed(auditWriter, {
         taskId: task.id,
         context: 'retry_counter_read_failed',

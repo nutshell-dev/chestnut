@@ -9,6 +9,7 @@ import type { Snapshot } from '../foundation/snapshot/index.js';
 import { createStreamWriter } from '../foundation/stream/index.js';
 import type { StreamWriter } from '../foundation/stream/index.js';
 import type { ProcessManager } from '../foundation/process-manager/index.js';
+import { isFileNotFound } from '../foundation/fs/types.js';
 import { NodeFileSystem } from '../foundation/fs/node-fs.js';
 
 import { createAgentProcessManager } from '../foundation/process-manager/agent-factory.js';
@@ -61,6 +62,7 @@ import { runLlmStats } from '../core/cron/jobs/llm-stats.js';
 import { runMetricsSnapshot } from '../core/cron/jobs/metrics-snapshot.js';
 import { runGitGcWeekly } from '../core/cron/jobs/git-gc-weekly.js';
 import { runRetentionCleanup } from '../core/cron/jobs/retention-cleanup.js';
+import { runAuditSizeMonitor } from '../core/cron/jobs/audit-size-monitor.js';
 import { createMemorySystem, memorySearchTool } from '../core/memory/index.js';
 import type { MemorySystem } from '../core/memory/index.js';
 import { runContractObserver } from '../core/contract/jobs/contract-observer.js';
@@ -103,8 +105,9 @@ export function detectUncleanExit(auditDir: string, auditWriter: AuditLog): void
       fsNative.closeSync(fd);
     }
   } catch (err: unknown) {
-    const code = (err as { code?: string })?.code;
-    if (code !== 'ENOENT') {
+    // phase 1154 r+ derive: 双码 narrow via foundation helper (FileSystem 抽象层抛 FS_NOT_FOUND)
+    if (!isFileNotFound(err)) {
+      const code = (err as { code?: string })?.code;
       const message = err instanceof Error ? err.message : String(err);
       auditWriter.write(
         ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED,
@@ -730,6 +733,20 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
               },
             }),
             timeoutMs: 120_000,
+          },
+          {
+            name: 'audit-size-monitor',
+            enabled: globalConfig.cron?.jobs?.audit_size_monitor?.enabled ?? true,
+            schedule: parseSchedule(globalConfig.cron?.jobs?.audit_size_monitor?.schedule ?? 'interval:6h', auditWriter),
+            handler: () => runAuditSizeMonitor({
+              fs: clawforumFs,
+              audit: auditWriter,
+              clawforumDir,
+              motionAuditPath: path.join(clawforumDir, 'motion', 'audit.tsv'),
+              rootAuditPath: path.join(clawforumDir, 'audit.tsv'),
+              motionInbox: diskMonitorInbox,
+            }),
+            timeoutMs: 30_000,
           },
         ], auditWriter);
       } catch (e) {

@@ -83,12 +83,7 @@ describe('startDaemonLoop interrupt poller circuit breaker', () => {
       expect.stringContaining('disabling'),
     );
 
-    // AuditLog: iteration wait + poller disabled
-    expect(mockAudit.write).toHaveBeenCalledWith(
-      'daemon_loop_iteration',
-      'type=wait',
-      'injected=0',
-    );
+    // phase 1154 α-2: wait emit 已删除 / 仅检查 poller disabled
     expect(mockAudit.write).toHaveBeenCalledWith(
       'daemon_loop_interrupt_poller_disabled',
       expect.stringContaining('error_count='),

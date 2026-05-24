@@ -12,7 +12,7 @@
 
 import * as path from 'path';
 import { exec } from '../process-exec/index.js';
-import type { FileSystem } from '../fs/types.js';
+import { isFileNotFound, type FileSystem } from '../fs/types.js';
 import type { AuditLog } from '../audit/index.js';
 import { SNAPSHOT_AUDIT_EVENTS } from './audit-events.js';
 import {
@@ -78,7 +78,8 @@ async function tryClearPersist(fs: FileSystem, dir: string): Promise<void> {
   try {
     await fs.delete(stateFilePath(dir));
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') {
+    // phase 1154 r+ derive: 双码 narrow via foundation helper (FileSystem 抽象层抛 FS_NOT_FOUND)
+    if (!isFileNotFound(e)) {
       console.error('[snapshot] tryClearPersist failed:', (e as Error).message);
     }
     // ENOENT expected; other errors don't affect function

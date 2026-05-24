@@ -165,6 +165,8 @@
       "cron_parse_invalid",
       "cron_retention_cleanup",
       "cron_retention_cleanup_delete_failed",
+      "cron_audit_size_threshold_exceeded",
+      "cron_audit_size_check_failed",
       "cron_runner_started",
       "cron_runner_stopped"
     ],
@@ -282,6 +284,7 @@
     "daemon_audit-events": [
       "chain",
       "chain_limited",
+      "daemon_liveness_heartbeat",
       "daemon_loop_fatal",
       "daemon_loop_interrupt",
       "daemon_loop_interrupt_poller_disabled",
@@ -414,5 +417,5 @@
       "watchdog_stream_read_failed"
     ]
   },
-  "updated": "2026-05-21T13:44:47.807Z"
+  "updated": "2026-05-23T23:00:00.000Z"
 }

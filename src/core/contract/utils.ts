@@ -9,7 +9,7 @@
  */
 
 import * as path from 'path';
-import type { FileSystem } from '../../foundation/fs/types.js';
+import { isFileNotFound, type FileSystem } from '../../foundation/fs/types.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CONTRACT_DIR } from './dirs.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
@@ -36,9 +36,9 @@ export function getContractCreatedMs(
         if (!isNaN(ts) && ts > EPOCH_2020_01_01_MS) return ts;
       }
     } catch (err) {
-      // phase 1010 r123 B fork: narrow ENOENT 兑现 first-run state 注释意图、非 ENOENT audit
-      const code = (err as NodeJS.ErrnoException)?.code;
-      if (code !== 'ENOENT' && audit) {
+      // phase 1154 r+ derive: 双码 narrow via foundation helper (FileSystem 抽象层抛 FS_NOT_FOUND)
+      if (!isFileNotFound(err) && audit) {
+        const code = (err as NodeJS.ErrnoException)?.code;
         emitContractContractDirScanFailed(
           audit,
           {

@@ -1,5 +1,5 @@
 import * as path from 'path';
-import type { FileSystem } from '../../../foundation/fs/types.js';
+import { isFileNotFound, type FileSystem } from '../../../foundation/fs/types.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
 import type { InboxMessageOptionsBase } from '../../../foundation/messaging/index.js';
 import { collectContractEvents } from './event-collector.js';
@@ -34,9 +34,9 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
         `reason=shape_mismatch`, `stateFile=${stateFile}`);
     }
   } catch (err) {
-    // phase 1010 r123 B fork: narrow ENOENT 兑现 first-run state 注释意图、非 ENOENT audit
-    const code = (err as NodeJS.ErrnoException)?.code;
-    if (code !== 'ENOENT') {
+    // phase 1154 r+ derive: 双码 narrow via foundation helper (FileSystem 抽象层抛 FS_NOT_FOUND)
+    if (!isFileNotFound(err)) {
+      const code = (err as NodeJS.ErrnoException)?.code;
       motionAudit.write(
         CONTRACT_AUDIT_EVENTS.OBSERVER_STATE_LOAD_FAILED,
         `file=${stateFile}`,
@@ -55,7 +55,7 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
       .filter(e => e.isDirectory)
       .map(e => e.name);
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return;
+    if (isFileNotFound(err)) return;
     motionAudit.write(
       CONTRACT_AUDIT_EVENTS.CONTRACT_DIR_SCAN_FAILED,
       `dir=${clawsDir}`,

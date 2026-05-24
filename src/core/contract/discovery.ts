@@ -3,7 +3,7 @@
  * Contract loading from active / paused dir
  */
 
-import type { FileSystem } from '../../foundation/fs/types.js';
+import { isFileNotFound, type FileSystem } from '../../foundation/fs/types.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { Contract } from '../contract/types.js';
 import type { ProgressData } from './types.js';
@@ -58,8 +58,8 @@ async function findLatestContract(
         latest = { name: entry.name, startedAt };
       }
     } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code !== 'ENOENT') {
+      // phase 1154 r+ derive: 双码 narrow via foundation helper (FileSystem 抽象层抛 FS_NOT_FOUND)
+      if (!isFileNotFound(error)) {
         emitContractProgressCorrupted(
           ctx.audit,
           { file: entry.name, error: error instanceof Error ? error.message : String(error) },

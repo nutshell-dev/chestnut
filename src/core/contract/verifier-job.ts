@@ -6,6 +6,7 @@
  * phase 750: 改调 runSubagent helper、删 NoopWriter + audit/stream/workspace 自治模板
  */
 
+import { isFileNotFound } from '../../foundation/fs/types.js';
 import { runSubagent } from '../subagent/index.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 import {
@@ -46,7 +47,8 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
         return { passed: false, feedback: 'Contract was cancelled before verifier started' };
       }
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+      // phase 1154 r+ derive: 双码 narrow via foundation helper (FileSystem 抽象层抛 FS_NOT_FOUND)
+      if (!isFileNotFound(err)) {
         if (config.audit) {
           emitContractVerifierFailed(
             config.audit,
