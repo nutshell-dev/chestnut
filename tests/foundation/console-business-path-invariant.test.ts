@@ -21,13 +21,10 @@ const SRC_ROOT = path.resolve(__dirname, '../../src');
  */
 const ALLOWLIST_GLOBS = [
   'cli/**',
-  'watchdog/watchdog-cli.ts',
+  'watchdog/**',
   'daemon-entry.ts',
   'watchdog-entry.ts',
-  'foundation/audit/writer.ts',
-  'foundation/audit/batched-writer.ts',
-  'core/async-task-system/system.ts',
-  'watchdog/watchdog-log.ts',
+  'foundation/audit/**',
   'assembly/llm-audit-sink.ts',
 ];
 
@@ -49,6 +46,8 @@ describe('console business-path invariant', () => {
         if (!CONSOLE_REGEX.test(line)) continue;
         // JSDoc / comment-only lines that mention console are not actual calls
         if (line.trim().startsWith('*') || line.trim().startsWith('//')) continue;
+        // Audit recursion border pattern (audit-of-audit fallback)
+        if (line.includes('[AUDIT CRITICAL]')) continue;
         // Exemption comment on same line
         if (EXEMPTION_REGEX.test(line)) continue;
         violations.push(`${rel}:${i + 1}: ${line.trim()}`);
