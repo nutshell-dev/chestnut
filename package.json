@@ -22,6 +22,7 @@
     "dev": "tsup --watch",
     "test": "vitest",
     "test:run": "vitest run",
+    "test:fast": "vitest run --exclude 'tests/e2e/**' --exclude 'tests/foundation/process-*' --exclude 'tests/foundation/process-exec/**' --exclude 'tests/cli/daemon-entry.test.ts' --exclude 'tests/cli/already-running-sentinel.test.ts'",
     "typecheck": "tsc --noEmit",
     "typecheck:tests": "tsc --noEmit --project tsconfig.test.json",
     "lint": "tsc --noEmit",
