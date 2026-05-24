@@ -1,5 +1,5 @@
 import { kill, isAlive as l1IsAlive } from '../process-exec/index.js';
-import { DAEMON_SHUTDOWN_GRACE_MS } from './constants.js';
+import { DAEMON_SHUTDOWN_GRACE_MS, PROCESS_STOP_POLL_INTERVAL_MS } from './constants.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
 import { readPid, removePid } from './pid.js';
 import type { ProcessManagerContext } from './types.js';
@@ -32,7 +32,7 @@ export async function stopProcess(ctx: ProcessManagerContext, clawId: string): P
       if (!l1IsAlive(stored.pid, stored.startTime)) {
         break; // early exit
       }
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise(resolve => setTimeout(resolve, PROCESS_STOP_POLL_INTERVAL_MS));
     }
 
     if (l1IsAlive(stored.pid, stored.startTime)) {

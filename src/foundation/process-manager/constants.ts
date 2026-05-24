@@ -24,3 +24,8 @@ export const DAEMON_SHUTDOWN_GRACE_MS = 5000;
  * （< 100ms 人感不可察 / > 200ms 用户察觉等待）.
  */
 export const SPAWN_POLL_INTERVAL_MS = 50;
+/**
+ * SIGTERM 后等进程退出的轮询间隔（ms）.
+ * 在 DAEMON_SHUTDOWN_GRACE_MS deadline 内每隔此周期 isAlive check.
+ */
+export const PROCESS_STOP_POLL_INTERVAL_MS = 100;

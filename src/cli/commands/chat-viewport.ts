@@ -11,7 +11,7 @@ import { isAlive } from '../../foundation/process-exec/index.js';
 import { getContractCreatedMs } from '../../core/contract/index.js';
 import stringWidth from 'string-width';
 import { wrapLine, fitLine } from '../utils/string.js';
-import { OUTPUT_LINES_CAP } from './constants.js';
+import { OUTPUT_LINES_CAP, CLAW_SCAN_INTERVAL_MS } from './constants.js';
 import type { CallerType } from '../../foundation/tool-protocol/caller-type.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
@@ -851,7 +851,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     clawManager.refreshAllClawStatus();
     rescanClawsDir();
     // 周期性 rescan / 每 2s 检测新 claw 与新 contract
-    clawScanInterval = setInterval(rescanClawsDir, 2000);
+    clawScanInterval = setInterval(rescanClawsDir, CLAW_SCAN_INTERVAL_MS);
     clawScanInterval.unref();
   }
 

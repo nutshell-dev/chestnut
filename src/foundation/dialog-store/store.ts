@@ -20,6 +20,12 @@ import { UUID_SHORT_LEN } from '../../constants.js';
 const SESSION_CURRENT_VERSION = 2;
 
 /**
+ * loadStable() retry base delay（ms）.
+ * 检测 mtime+size 不变以确认 read 稳定时、重试退避 base = N × (attempt+1) ms.
+ */
+const LOAD_STABLE_RETRY_BASE_DELAY_MS = 50;
+
+/**
  * Manages a Claw's dialog session
  */
 export class DialogStore {
@@ -154,7 +160,7 @@ export class DialogStore {
       }
 
       if (i < maxRetries) {
-        await new Promise(r => setTimeout(r, 50 * (i + 1)));
+        await new Promise(r => setTimeout(r, LOAD_STABLE_RETRY_BASE_DELAY_MS * (i + 1)));
       }
     }
 
