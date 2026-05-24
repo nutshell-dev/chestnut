@@ -163,6 +163,8 @@
       "cron_job_started",
       "cron_llm_stats",
       "cron_metrics_snapshot",
+      "cron_outbox_drain_done",
+      "cron_outbox_drain_start",
       "cron_parse_fallback",
       "cron_parse_invalid",
       "cron_retention_cleanup",

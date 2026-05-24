@@ -27,4 +27,6 @@ export const CRON_AUDIT_EVENTS = {
   RETENTION_CLEANUP_DELETE_FAILED: 'cron_retention_cleanup_delete_failed', // NEW phase1059
   AUDIT_SIZE_THRESHOLD_EXCEEDED: 'cron_audit_size_threshold_exceeded',     // NEW phase 1154 α-3b
   AUDIT_SIZE_CHECK_FAILED: 'cron_audit_size_check_failed',                 // NEW phase 1154 α-3b
+  OUTBOX_DRAIN_START: 'cron_outbox_drain_start',                           // NEW phase 1160 P0-2
+  OUTBOX_DRAIN_DONE: 'cron_outbox_drain_done',                             // NEW phase 1160 P0-2
 } as const;

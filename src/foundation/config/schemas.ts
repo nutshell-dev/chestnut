@@ -125,6 +125,10 @@ export function createClawGlobalConfigSchema(defaults: ConfigDefaults) {
           enabled: z.boolean().default(true),
           schedule: z.string().default('interval:6h'),
         }).optional(),
+        outbox_drain: z.object({
+          enabled: z.boolean().default(true),
+          schedule: z.string().default('interval:30s'),
+        }).optional(),
       }).optional(),
     }).optional(),
     viewport: z.object({

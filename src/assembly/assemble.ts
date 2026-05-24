@@ -66,6 +66,7 @@ import { runAuditSizeMonitor } from '../core/cron/jobs/audit-size-monitor.js';
 import { createMemorySystem, memorySearchTool } from '../core/memory/index.js';
 import type { MemorySystem } from '../core/memory/index.js';
 import { runContractObserver } from '../core/contract/jobs/contract-observer.js';
+import { runOutboxDrain } from '../core/cron/jobs/outbox-drain.js';
 import { buildLLMConfig } from '../foundation/config/index.js';
 import { DEFAULT_MAX_CONCURRENT_TASKS } from '../core/async-task-system/constants.js';
 import { DEFAULT_MAX_STEPS } from '../core/agent-executor/index.js';
@@ -745,6 +746,18 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
               motionAuditPath: path.join(clawforumDir, 'motion', 'audit.tsv'),
               rootAuditPath: path.join(clawforumDir, 'audit.tsv'),
               motionInbox: diskMonitorInbox,
+            }),
+            timeoutMs: 30_000,
+          },
+          {
+            name: 'outbox-drain',
+            enabled: globalConfig.cron?.jobs?.outbox_drain?.enabled ?? true,
+            schedule: parseSchedule(globalConfig.cron?.jobs?.outbox_drain?.schedule ?? 'interval:30s', auditWriter),
+            handler: () => runOutboxDrain({
+              clawforumDir,
+              motionInboxDir: path.join(clawDir, 'inbox', 'pending'),
+              fs: clawforumFs,
+              audit: auditWriter,
             }),
             timeoutMs: 30_000,
           },
