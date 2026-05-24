@@ -4,6 +4,12 @@ import type { AuditLog } from '../../../foundation/audit/index.js';
 import { CRON_AUDIT_EVENTS } from '../audit-events.js';
 import { CLAWS_DIR } from '../../../foundation/paths.js';
 
+/**
+ * Cron job timeout (ms) / 防 stuck handler 占 cron tick.
+ * 由本 module 业务自决 (per ML#2 模块为自己业务语义负责).
+ */
+export const LLM_STATS_CRON_TIMEOUT_MS = 60_000;
+
 const LLM_STATS_FILE = 'logs/llm-stats.jsonl';
 
 interface ParsedLlmRow {

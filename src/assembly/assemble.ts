@@ -68,6 +68,15 @@ import type { MemorySystem } from '../core/memory/index.js';
 import { runContractObserver } from '../core/contract/jobs/contract-observer.js';
 import { runOutboxDrain } from '../core/cron/jobs/outbox-drain.js';
 import { runGitHygieneMonitor } from '../core/cron/jobs/git-hygiene-monitor.js';
+import { DISK_MONITOR_CRON_TIMEOUT_MS } from '../core/cron/jobs/disk-monitor.js';
+import { LLM_STATS_CRON_TIMEOUT_MS } from '../core/cron/jobs/llm-stats.js';
+import { METRICS_SNAPSHOT_CRON_TIMEOUT_MS } from '../core/cron/jobs/metrics-snapshot.js';
+import { CONTRACT_OBSERVER_CRON_TIMEOUT_MS } from '../core/contract/jobs/contract-observer.js';
+import { GIT_GC_WEEKLY_CRON_TIMEOUT_MS } from '../core/cron/jobs/git-gc-weekly.js';
+import { RETENTION_CLEANUP_CRON_TIMEOUT_MS } from '../core/cron/jobs/retention-cleanup.js';
+import { AUDIT_SIZE_MONITOR_CRON_TIMEOUT_MS } from '../core/cron/jobs/audit-size-monitor.js';
+import { OUTBOX_DRAIN_CRON_TIMEOUT_MS } from '../core/cron/jobs/outbox-drain.js';
+import { GIT_HYGIENE_MONITOR_CRON_TIMEOUT_MS } from '../core/cron/jobs/git-hygiene-monitor.js';
 import { buildLLMConfig } from '../foundation/config/index.js';
 import { DEFAULT_MAX_CONCURRENT_TASKS } from '../core/async-task-system/constants.js';
 import { DEFAULT_MAX_STEPS } from '../core/agent-executor/index.js';
@@ -81,22 +90,11 @@ import { TASKS_SYNC_DIR } from '../core/async-task-system/index.js';
 import { DIALOG_DIR } from '../foundation/dialog-store/dirs.js';
 
 /**
- * Cron job per-handler timeout (ms) / 防 stuck handler 占 cron tick.
- * 各 job timeout 根据 handler 业务时长 calibrate（dream-trigger 30min / git-gc-weekly 2min / etc.）.
- * 改值需同步评估 `cron.jobs.<name>.timeout_ms` config 默认行为（若 future 加 config override）.
+ * dream-trigger 是 assembly 装配 memorySystem capability 的 cron wrapper、
+ * 无 dedicated cron job module (handler 1 行 inline memorySystem 直调).
+ * 故 timeout const inline at assembly natural owner、显式标 ML#2/#3 例外.
  */
-const CRON_JOB_TIMEOUTS_MS = {
-  diskMonitor: 60_000,
-  llmStats: 60_000,
-  dreamTrigger: 30 * 60_000,           // 30 min (deep dream + random dream)
-  metricsSnapshot: 30_000,
-  contractObserver: 5 * 60_000,         // 5 min
-  gitGcWeekly: 120_000,                 // 2 min
-  retentionCleanup: 120_000,            // 2 min
-  auditSizeMonitor: 30_000,
-  outboxDrain: 30_000,
-  gitHygieneMonitor: 60_000,
-} as const;
+const DREAM_TRIGGER_CRON_TIMEOUT_MS = 30 * 60_000;  // 30 min
 
 // 内部 helper（从 daemon.ts L42-75 搬入）
 export function detectUncleanExit(auditDir: string, auditWriter: AuditLog): void {
@@ -674,7 +672,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
               motionAudit: auditWriter,  // phase 724 α：主 auditWriter 单 instance 复用
               motionInbox: diskMonitorInbox,
             }),
-            timeoutMs: CRON_JOB_TIMEOUTS_MS.diskMonitor,
+            timeoutMs: DISK_MONITOR_CRON_TIMEOUT_MS,
           },
           {
             name: 'llm-stats',
@@ -687,7 +685,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
               motionFs: systemFs,
               audit: auditWriter,
             }),
-            timeoutMs: CRON_JOB_TIMEOUTS_MS.llmStats,
+            timeoutMs: LLM_STATS_CRON_TIMEOUT_MS,
           },
           {
             name: 'dream-trigger',
@@ -698,7 +696,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
               await memorySystem.runDeepDream(undefined, { signal });
               await memorySystem.runRandomDream({ signal });
             },
-            timeoutMs: CRON_JOB_TIMEOUTS_MS.dreamTrigger,
+            timeoutMs: DREAM_TRIGGER_CRON_TIMEOUT_MS,
           },
           {
             name: 'metrics-snapshot',
@@ -709,7 +707,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
               fs: clawforumFs,
               audit: auditWriter,
             }),
-            timeoutMs: CRON_JOB_TIMEOUTS_MS.metricsSnapshot,
+            timeoutMs: METRICS_SNAPSHOT_CRON_TIMEOUT_MS,
           },
           {
             name: 'contract-observer',
@@ -722,7 +720,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
               motionAudit: auditWriter,  // phase 724 α：主 auditWriter 单 instance 复用
               notifyInbox: (payload, audit) => notifyInbox(clawforumFs, payload, audit),
             }),
-            timeoutMs: CRON_JOB_TIMEOUTS_MS.contractObserver,
+            timeoutMs: CONTRACT_OBSERVER_CRON_TIMEOUT_MS,
           },
           {
             name: 'git-gc-weekly',
@@ -733,7 +731,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
               fs: clawforumFs,
               audit: auditWriter,
             }),
-            timeoutMs: CRON_JOB_TIMEOUTS_MS.gitGcWeekly,
+            timeoutMs: GIT_GC_WEEKLY_CRON_TIMEOUT_MS,
           },
           {
             name: 'retention-cleanup',
@@ -750,7 +748,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
                 dialog: globalConfig.retention?.dialog_max_days ?? 90,
               },
             }),
-            timeoutMs: CRON_JOB_TIMEOUTS_MS.retentionCleanup,
+            timeoutMs: RETENTION_CLEANUP_CRON_TIMEOUT_MS,
           },
           {
             name: 'audit-size-monitor',
@@ -764,7 +762,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
               rootAuditPath: path.join(clawforumDir, 'audit.tsv'),
               motionInbox: diskMonitorInbox,
             }),
-            timeoutMs: CRON_JOB_TIMEOUTS_MS.auditSizeMonitor,
+            timeoutMs: AUDIT_SIZE_MONITOR_CRON_TIMEOUT_MS,
           },
           {
             name: 'outbox-drain',
@@ -776,7 +774,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
               fs: clawforumFs,
               audit: auditWriter,
             }),
-            timeoutMs: CRON_JOB_TIMEOUTS_MS.outboxDrain,
+            timeoutMs: OUTBOX_DRAIN_CRON_TIMEOUT_MS,
           },
           {
             name: 'git-hygiene-monitor',
@@ -791,7 +789,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
               stashThreshold: globalConfig.cron?.jobs?.git_hygiene_monitor?.stash_threshold,
               claudeWorktreesThreshold: globalConfig.cron?.jobs?.git_hygiene_monitor?.claude_worktrees_threshold,
             }),
-            timeoutMs: CRON_JOB_TIMEOUTS_MS.gitHygieneMonitor,
+            timeoutMs: GIT_HYGIENE_MONITOR_CRON_TIMEOUT_MS,
           },
         ], auditWriter);
       } catch (e) {

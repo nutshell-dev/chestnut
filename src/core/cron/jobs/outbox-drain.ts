@@ -13,6 +13,12 @@ import type { AuditLog } from '../../../foundation/audit/index.js';
 import { CRON_AUDIT_EVENTS } from '../audit-events.js';
 import { CLAWS_DIR } from '../../../foundation/paths.js';
 
+/**
+ * Cron job timeout (ms) / 防 stuck handler 占 cron tick.
+ * 由本 module 业务自决 (per ML#2 模块为自己业务语义负责).
+ */
+export const OUTBOX_DRAIN_CRON_TIMEOUT_MS = 30_000;
+
 export interface OutboxDrainOptions {
   clawforumDir: string;        // .clawforum/ 目录
   motionInboxDir: string;      // motion inbox/pending/ 绝对路径

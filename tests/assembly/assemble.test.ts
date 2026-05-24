@@ -103,10 +103,12 @@ vi.mock('../../src/core/cron/runner.js', () => ({
 
 vi.mock('../../src/core/cron/jobs/disk-monitor.js', () => ({
   runDiskMonitor: vi.fn(),
+  DISK_MONITOR_CRON_TIMEOUT_MS: 60_000,
 }));
 
 vi.mock('../../src/core/cron/jobs/llm-stats.js', () => ({
   runLlmStats: vi.fn(),
+  LLM_STATS_CRON_TIMEOUT_MS: 60_000,
 }));
 
 const mockMemorySystem = {
@@ -121,10 +123,12 @@ vi.mock('../../src/core/memory/index.js', () => ({
 
 vi.mock('../../src/core/contract/jobs/contract-observer.js', () => ({
   runContractObserver: vi.fn(),
+  CONTRACT_OBSERVER_CRON_TIMEOUT_MS: 5 * 60_000,
 }));
 
 vi.mock('../../src/core/cron/jobs/git-gc-weekly.js', () => ({
   runGitGcWeekly: vi.fn(),
+  GIT_GC_WEEKLY_CRON_TIMEOUT_MS: 120_000,
 }));
 
 vi.mock('../../src/foundation/llm-orchestrator/orchestrator.js', () => ({

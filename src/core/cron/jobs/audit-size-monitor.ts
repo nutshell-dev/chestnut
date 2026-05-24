@@ -14,6 +14,12 @@ import type { AuditLog } from '../../../foundation/audit/index.js';
 import type { InboxWriter } from '../../../foundation/messaging/index.js';
 import { CRON_AUDIT_EVENTS } from '../audit-events.js';
 
+/**
+ * Cron job timeout (ms) / 防 stuck handler 占 cron tick.
+ * 由本 module 业务自决 (per ML#2 模块为自己业务语义负责).
+ */
+export const AUDIT_SIZE_MONITOR_CRON_TIMEOUT_MS = 30_000;
+
 const AUDIT_SIZE_WARN_BYTES = 500 * 1024 * 1024;       // 500 MB
 const AUDIT_SIZE_CRITICAL_BYTES = 1024 * 1024 * 1024;  // 1 GB
 

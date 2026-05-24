@@ -3,6 +3,12 @@ import type { FileSystem } from '../../../foundation/fs/types.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
 import { CRON_AUDIT_EVENTS } from '../audit-events.js';
 
+/**
+ * Cron job timeout (ms) / 防 stuck handler 占 cron tick.
+ * 由本 module 业务自决 (per ML#2 模块为自己业务语义负责).
+ */
+export const RETENTION_CLEANUP_CRON_TIMEOUT_MS = 120_000;
+
 export interface RetentionCleanupOptions {
   motionDir: string;
   fs: FileSystem;

@@ -6,6 +6,12 @@ import { collectContractEvents } from './event-collector.js';
 import { CONTRACT_AUDIT_EVENTS } from '../audit-events.js';
 import { CLAWS_DIR } from '../../../foundation/paths.js';
 
+/**
+ * Cron job timeout (ms) / 防 stuck handler 占 cron tick.
+ * 由本 module 业务自决 (per ML#2 模块为自己业务语义负责).
+ */
+export const CONTRACT_OBSERVER_CRON_TIMEOUT_MS = 5 * 60_000;
+
 export interface ContractObserverOptions {
   clawforumDir: string;       // .clawforum/ 目录
   motionInboxDir: string;     // motion inbox/pending/ 路径
