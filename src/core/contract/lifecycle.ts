@@ -40,16 +40,25 @@ export async function pauseContract(
 
   // phase 791 (P0.16): acquire lock at SOURCE, do status update, move, release at TARGET.
   // phase 871 (new.P1.5 r113 G fork): catch fs.move throw + 显式释放 source 防 orphan
+  // phase 1162 (r128 D fork DD3): abort verifier before fs.move 防 mid-flight write race
   // 防 fs.move 跨边界 lock 失效 race（lock + 数据同 dir / dir move 时 lock 跟着移动）。
   const sourceLockPath = `${ctx.activeDir}/${contractId}/progress.lock`;
   const targetLockPath = `${ctx.pausedDir}/${contractId}/progress.lock`;
   await acquireLock(ctx, sourceLockPath);
   try {
-    // status update in SOURCE dir before move
+    // status update in SOURCE dir before move (canonical decision crash-safe)
     const progress = await ctx.getProgress(contractId);
     progress.status = 'paused';
     progress.checkpoint = checkpointNote;
     await ctx.saveProgress(contractId, progress);
+
+    // phase 1162 r128 D fork DD3: abort verifier subagents (best-effort, no-blocking)
+    // verifier 走 phase 993 D.1 signal wire → catch → emit VERIFIER_FAILED reason='paused: <checkpoint>'
+    try {
+      ctx.abortContractVerifiers(contractId, `paused: ${checkpointNote}`);
+    } catch (abortErr) {
+      // 不破 pause 主流程；abortContractVerifiers 内已 try/catch + audit emit (mirror cancelContract)
+    }
 
     // move whole dir (lock + progress.json) → target
     await ctx.fs.move(`${ctx.activeDir}/${contractId}`, `${ctx.pausedDir}/${contractId}`);
