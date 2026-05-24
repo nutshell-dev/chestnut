@@ -20,6 +20,11 @@ const clawLinePath = path.join(__dirname, '../../src/cli/commands/chat-viewport-
 const taskEventsPath = path.join(__dirname, '../../src/cli/commands/chat-viewport-task-events.ts');
 const clawManagerPath = path.join(__dirname, '../../src/cli/commands/chat-viewport-claw-manager.ts');
 const commandsPath = path.join(__dirname, '../../src/cli/commands/chat-viewport-commands.ts');
+const turnTrackerPath = path.join(__dirname, '../../src/cli/commands/chat-viewport-turn-tracker.ts');
+const eventHandlerPath = path.join(__dirname, '../../src/cli/commands/chat-viewport-event-handler.ts');
+const clawPanelPath = path.join(__dirname, '../../src/cli/commands/chat-viewport-claw-panel.ts');
+const displayPath = path.join(__dirname, '../../src/cli/commands/chat-viewport-display.ts');
+const initPath = path.join(__dirname, '../../src/cli/commands/chat-viewport-init.ts');
 
 describe('chat-viewport Phase 72', () => {
   const sourceCode = fs.readFileSync(viewportPath, 'utf-8')
@@ -27,7 +32,12 @@ describe('chat-viewport Phase 72', () => {
     + fs.readFileSync(clawLinePath, 'utf-8')
     + fs.readFileSync(taskEventsPath, 'utf-8')
     + fs.readFileSync(clawManagerPath, 'utf-8')
-    + fs.readFileSync(commandsPath, 'utf-8');
+    + fs.readFileSync(commandsPath, 'utf-8')
+    + fs.readFileSync(turnTrackerPath, 'utf-8')
+    + fs.readFileSync(eventHandlerPath, 'utf-8')
+    + fs.readFileSync(clawPanelPath, 'utf-8')
+    + fs.readFileSync(displayPath, 'utf-8')
+    + fs.readFileSync(initPath, 'utf-8');
 
   // ==========================================================================
   // Step 5: bufferType 赋值
@@ -280,11 +290,12 @@ describe('chat-viewport Phase 72', () => {
 
   describe('Phase 91 step7: thinking_delta indent 用 stringWidth 计算', () => {
     it('thinking_delta 中 indent 应使用 stringWidth(prefix)', () => {
-      const tdStart = sourceCode.indexOf("case 'thinking_delta':");
+      const eventHandlerCode = fs.readFileSync(eventHandlerPath, 'utf-8');
+      const tdStart = eventHandlerCode.indexOf("case 'thinking_delta':");
       expect(tdStart).toBeGreaterThan(-1);
-      const tdEnd = sourceCode.indexOf('break;', tdStart);
+      const tdEnd = eventHandlerCode.indexOf('break;', tdStart);
       expect(tdEnd).toBeGreaterThan(-1);
-      const tdSection = sourceCode.slice(tdStart, tdEnd + 6);
+      const tdSection = eventHandlerCode.slice(tdStart, tdEnd + 6);
       expect(tdSection).toContain('stringWidth(prefix)');
     });
   });

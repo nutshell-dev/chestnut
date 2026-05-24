@@ -5,9 +5,11 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const viewportPath = path.join(__dirname, '../../src/cli/commands/chat-viewport.ts');
+const eventHandlerPath = path.join(__dirname, '../../src/cli/commands/chat-viewport-event-handler.ts');
 
 describe('chat-viewport tool call display (unified, no special prefix)', () => {
-  const sourceCode = fs.readFileSync(viewportPath, 'utf-8');
+  const sourceCode = fs.readFileSync(viewportPath, 'utf-8')
+    + fs.readFileSync(eventHandlerPath, 'utf-8');
 
   it('tool_call case uses unified displayName = toolName', () => {
     const toolCallStart = sourceCode.indexOf("case 'tool_call':");

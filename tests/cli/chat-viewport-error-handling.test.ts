@@ -14,10 +14,14 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const viewportPath = path.join(__dirname, '../../src/cli/commands/chat-viewport.ts');
+const eventHandlerPath = path.join(__dirname, '../../src/cli/commands/chat-viewport-event-handler.ts');
+const initPath = path.join(__dirname, '../../src/cli/commands/chat-viewport-init.ts');
 const auditEventsPath = path.join(__dirname, '../../src/cli/commands/viewport-audit-events.ts');
 
 describe('chat-viewport error handling (phase 523 + 524)', () => {
-  const sourceCode = fs.readFileSync(viewportPath, 'utf-8');
+  const sourceCode = fs.readFileSync(viewportPath, 'utf-8')
+    + fs.readFileSync(eventHandlerPath, 'utf-8')
+    + fs.readFileSync(initPath, 'utf-8');
   const auditEventsCode = fs.readFileSync(auditEventsPath, 'utf-8');
 
   describe('phase 523 Step A: writeUserChat 失败守护', () => {
@@ -97,9 +101,10 @@ describe('chat-viewport error handling (phase 523 + 524)', () => {
 
     it('initOwnStateFromHistory 外层 catch 分流 ENOENT silent vs 非 ENOENT audit emit', () => {
       // 定位 initOwnStateFromHistory 中外层 catch 段
-      const idx = sourceCode.indexOf('initOwnStateFromHistory');
+      const initCode = fs.readFileSync(initPath, 'utf-8');
+      const idx = initCode.indexOf('initOwnStateFromHistory');
       expect(idx).toBeGreaterThan(-1);
-      const block = sourceCode.slice(idx, idx + 1500);
+      const block = initCode.slice(idx, idx + 1500);
       // 外层 catch (err) 存在
       expect(block).toMatch(/catch\s*\(err\)\s*\{/);
       // ENOENT 分流
