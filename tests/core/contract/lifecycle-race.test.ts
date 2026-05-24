@@ -158,6 +158,12 @@ describe('ContractSystem lifecycle race (phase 791 / P0.16 + P0.18)', () => {
     expect(progress.status).toBe('cancelled');
     expect(progress.subtasks['t1'].status).toBe('todo');
 
+    await vi.waitUntil(
+      () => auditCalls.slice(beforeAudit).some(
+        c => c.type === CONTRACT_AUDIT_EVENTS.ACCEPTANCE_RESET_FAILED
+      ),
+      { timeout: 2000, interval: 20 },
+    );
     const guardAudits = auditCalls.slice(beforeAudit).filter(
       c => c.type === CONTRACT_AUDIT_EVENTS.ACCEPTANCE_RESET_FAILED
     );
