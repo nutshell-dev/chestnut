@@ -265,13 +265,20 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
   const saveLlmRetryState = () => {
     try {
       fsNative.mkdirSync(path.join(agentDir, STATUS_SUBDIR), { recursive: true });
-      // phase 1024 G.1: atomic tmp+rename — write tmp 同 dir + renameSync POSIX atomic / 防 crash 中 torn-write
+      // phase 1024 G.1 + phase 1214: atomic tmp+rename + fsync — write tmp 同 dir + fsync + renameSync POSIX atomic / 防 crash 中 torn-write
       const tmpFile = `${llmRetryStateFile}.${process.pid}.${Date.now()}.tmp`;
       fsNative.writeFileSync(tmpFile, JSON.stringify({
         llmRetryCount,
         llmRetryDelayMs,
         llmRetryPending,
       }));
+      // fsync for durability before atomic rename (phase 1214)
+      const fd = fsNative.openSync(tmpFile, 'r+');
+      try {
+        fsNative.fsyncSync(fd);
+      } finally {
+        fsNative.closeSync(fd);
+      }
       fsNative.renameSync(tmpFile, llmRetryStateFile);
     } catch (e) {
       options.audit.write(DAEMON_AUDIT_EVENTS.LOOP_FATAL, `context=saveLlmRetryState`, `reason=${(e as Error).message}`);
@@ -341,9 +348,16 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
 
           if (!alreadyPending && startupCheckCooledDown) {
             fsNative.mkdirSync(path.join(agentDir, STATUS_SUBDIR), { recursive: true });
-            // r126 F fork: atomic tmp+rename mirror L261-268 phase 1024 G.1 / 防 crash 中 torn-write
+            // r126 F fork + phase 1214: atomic tmp+rename + fsync mirror phase 1024 G.1 / 防 crash 中 torn-write
             const tmpFile = `${startupCheckTsFile}.${process.pid}.${Date.now()}.tmp`;
             fsNative.writeFileSync(tmpFile, String(Date.now()));
+            // fsync for durability before atomic rename (phase 1214)
+            const fd = fsNative.openSync(tmpFile, 'r+');
+            try {
+              fsNative.fsyncSync(fd);
+            } finally {
+              fsNative.closeSync(fd);
+            }
             fsNative.renameSync(tmpFile, startupCheckTsFile);
             notifyInbox(loopFs, {
               inboxDir: inboxPendingDir,

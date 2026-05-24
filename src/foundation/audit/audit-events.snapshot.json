@@ -303,6 +303,7 @@
       "chain_limited",
       "daemon_cleanup_heartbeat_failed",
       "daemon_cleanup_pid_failed",
+      "daemon_fsync_failed",
       "daemon_liveness_heartbeat",
       "daemon_loop_fatal",
       "daemon_loop_interrupt",
@@ -450,5 +451,5 @@
       "watchdog_stream_read_failed"
     ]
   },
-  "updated": "2026-05-24T14:24:00.000Z"
+  "updated": "2026-05-24T21:39:00.000Z"
 }
