@@ -57,7 +57,7 @@ describe('contract typed audit emit (phase 1141)', () => {
     const audit = makeAudit();
     // @ts-expect-error 故意 typo 验证 TS 编译期 enforce
     emitContractPassed(audit, { contract: 'x', subtask: 'y' });
-    expect(true).toBe(true);
+    expect(audit.write).toHaveBeenCalledTimes(1);
   });
 
   // 反向 3: 不含 `${contractId}/${subtaskId}` 复合 col

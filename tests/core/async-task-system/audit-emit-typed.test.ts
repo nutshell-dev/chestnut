@@ -170,11 +170,11 @@ describe('async-task-system typed audit emit (phase 1130)', () => {
 
   // ─── 反向 2：schema 反向（TS 编译期 enforce taskId 类型）──────────────────────
 
-  it('反向 2: typed payload key TS enforce (placeholder doc)', () => {
-    // 反向触发: emitTaskRecovered(audit, { id: 'x' });  // 应有 `taskId` 不是 `id`
-    // 期望: tsc 报 'id' 不是 emitTaskRecovered 参数类型字段
-    // 编译期已通过 tsc --noEmit 验证（本 test 为 doc placeholder）
-    expect(true).toBe(true);
+  it('反向 2: typed payload key TS enforce', () => {
+    const audit = makeAudit();
+    // @ts-expect-error: missing required field `taskId`
+    emitRecovered(audit, { id: 'x' });
+    expect(audit.write).toHaveBeenCalledTimes(1);
   });
 
   // ─── 反向 3：边界路径反向（tool-executor.ts:63 cascade 后无 task= ad-hoc）────

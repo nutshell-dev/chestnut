@@ -19,10 +19,10 @@ function makeFakeAudit() {
 describe('phase 1151 r127 F fork Step B: verifier emit contractId col', () => {
   it('reverse 1: emit fn opts 强约束 contractId field (ts 编译期 enforce)', () => {
     // 此 test 仅占位、ts 编译报错才是真断言
-    const { audit } = makeFakeAudit();
+    const { audit, writes } = makeFakeAudit();
     // @ts-expect-error: contractId required
     emitContractVerifierPassed(audit, { agentId: 'a' });
-    expect(true).toBe(true);
+    expect(writes).toHaveLength(1);
   });
 
   it('reverse 2: emit 传空字符串 contractId 不掩盖 / cols 含 literal "contractId="', () => {

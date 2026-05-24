@@ -218,7 +218,7 @@ describe('discovery schema check', () => {
     expect(schemaInvalidCall!).toEqual(expect.arrayContaining([
       'contract_progress_schema_invalid',
       expect.stringContaining('context=ContractSystem.loadActive'),
-      expect.stringContaining('contract=contract-a'),
+      expect.stringContaining('contractId=contract-a'),
       expect.stringContaining('path='),
     ]));
   });
@@ -251,7 +251,7 @@ describe('discovery schema check', () => {
     expect(schemaInvalidCalls[0]).toEqual(expect.arrayContaining([
       'contract_progress_schema_invalid',
       expect.stringContaining('context=ContractSystem.loadActive'),
-      expect.stringContaining('contract=contract-a'),
+      expect.stringContaining('contractId=contract-a'),
     ]));
   });
 });

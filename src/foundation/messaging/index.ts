@@ -47,4 +47,6 @@ export function createOutboxWriter(
   return new OutboxWriter(clawId, clawDir, fs, audit);
 }
 
+export { emitOutboxSent, emitOutboxSendFailed } from './audit-emit.js';
+
 export { notifyInbox, notifySystem } from './notify.js';

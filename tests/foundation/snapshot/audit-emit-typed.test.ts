@@ -157,11 +157,11 @@ describe('snapshot typed audit emit (phase 1127)', () => {
   });
 
   // 反向 2（schema 反向）：payload key 错应 tsc fail
-  it('反向 2: typed payload key TS 编译期 enforce', () => {
-    // 反向 触发: emitSnapshotCommitted(audit, { dir: '/x', msg: 'hello' });  // typo 'msg' (应 'message')
-    // 期望: tsc 报 'msg' 不是 SnapshotCommittedPayload 字段
-    // 此 test 是占位 doc、不能 inline TS error 验证、Step B 实施时手动 tsc verify
-    expect(true).toBe(true);
+  it('反向 2: typed payload key TS enforce', () => {
+    const audit = makeMockAudit();
+    // @ts-expect-error: typo 'msg' (should be 'message')
+    emitSnapshotCommitted(audit, { dir: '/x', msg: 'hello' });
+    expect(audit.write).toHaveBeenCalledTimes(1);
   });
 
   // 反向 3（边界路径反向）：optional field undefined 时不输出 col

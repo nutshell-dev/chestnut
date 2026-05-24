@@ -546,7 +546,7 @@ describe('ContractSystem', () => {
       expect(mockAudit.write).toHaveBeenCalledWith(
         CONTRACT_AUDIT_EVENTS.PROGRESS_CORRUPTED,
         expect.stringContaining('context=ContractSystem.loadActive'),
-        expect.stringContaining('contract=corrupt-contract'),
+        expect.stringContaining('contractId=corrupt-contract'),
         expect.anything(),
       );
     });
@@ -565,7 +565,7 @@ describe('ContractSystem', () => {
       expect(mockAudit.write).toHaveBeenCalledWith(
         CONTRACT_AUDIT_EVENTS.PROGRESS_CORRUPTED,
         expect.stringContaining('context=ContractSystem.loadPaused'),
-        expect.stringContaining('contract=corrupt-paused-contract'),
+        expect.stringContaining('contractId=corrupt-paused-contract'),
         expect.stringContaining('error='),
       );
     });

@@ -48,7 +48,7 @@ async function findLatestContract(
       ) {
         emitContractProgressSchemaInvalid(
           ctx.audit,
-          { context: auditContext, contract: entry.name, path: progressPath },
+          { context: auditContext, contractId: entry.name, path: progressPath },
         );
         continue;
       }
@@ -66,7 +66,7 @@ async function findLatestContract(
         );
         emitContractProgressCorrupted(
           ctx.audit,
-          { context: auditContext, contract: entry.name, error: error instanceof Error ? error.message : String(error) },
+          { context: auditContext, contractId: entry.name, error: error instanceof Error ? error.message : String(error) },
         );
       }
       continue;

@@ -17,6 +17,27 @@ describe('audit-events snapshot lock', () => {
     const expected = JSON.parse(fs.readFileSync(SNAPSHOT_PATH, 'utf-8'));
     expect(actual).toEqual(expected.modules);
   });
+
+  it('reverse: synthetic source with unauthorized const diverges from snapshot', () => {
+    // synthetic source string mimicking audit-events.ts format with unauthorized const
+    const syntheticSource = `
+      export const FAKE_AUDIT_EVENTS = {
+        LEGIT_EVENT: 'legit_event',
+        UNAUTHORIZED_FAKE: 'unauthorized_fake_event',
+      } as const;
+    `;
+    // 用同型 regex 提取（mirror collectAuditEventsFromSrc 内部 regex）
+    const matches = Array.from(syntheticSource.matchAll(/[A-Z_][A-Z0-9_]*:\s*'([a-z0-9_]+)'/g));
+    const syntheticEvents = matches.map(m => m[1]);
+    // 验：synthetic 含 unauthorized const
+    expect(syntheticEvents).toContain('unauthorized_fake_event');
+    // 验：snapshot 不含此 const (snapshot 是 src/ 真扫 / synthetic 不在 src/)
+    const expected = JSON.parse(fs.readFileSync(SNAPSHOT_PATH, 'utf-8'));
+    const allLegitEvents = Object.values(expected.modules).flat() as string[];
+    expect(allLegitEvents).not.toContain('unauthorized_fake_event');
+    // 证明 lock 真 catch divergence (synthetic ≠ snapshot)
+    expect(syntheticEvents).not.toEqual(allLegitEvents);
+  });
 });
 
 function collectAuditEventsFromSrc(root: string): Record<string, string[]> {

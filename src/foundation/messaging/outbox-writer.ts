@@ -11,6 +11,7 @@ import type { OutboxMessage } from '../messaging/types.js';
 import type { AuditLog } from '../audit/index.js';
 import { encodeOutbox } from './codec-outbox.js';
 import { MESSAGING_AUDIT_EVENTS } from './audit-events.js';
+import { emitOutboxSent, emitOutboxSendFailed } from './audit-emit.js';
 import { UUID_SHORT_LEN } from '../../constants.js';
 
 /**
@@ -70,25 +71,22 @@ export class OutboxWriter {
       await this.fs.ensureDir(this.outboxDir);
       // Write file
       await this.fs.writeAtomic(filePath, content);
-      this.audit.write(
-        MESSAGING_AUDIT_EVENTS.OUTBOX_SENT,
-        `from=${this.clawId}`,
-        `to=${options.to}`,
-        `type=${options.type}`,
-        `id=${message.id}`,
-        // phase 706 L2-P1.3：内部 audit key camelCase 解耦 protocol field name
-        ...(options.contract_id ? [`contractId=${options.contract_id}`] : []),
-      );
+      emitOutboxSent(this.audit, {
+        from: this.clawId,
+        to: options.to,
+        type: options.type,
+        id: message.id,
+        contractId: options.contract_id,
+      });
       return filePath;
     } catch (err) {
-      this.audit.write(
-        MESSAGING_AUDIT_EVENTS.OUTBOX_SEND_FAILED,
-        `from=${this.clawId}`,
-        `to=${options.to}`,
-        `type=${options.type}`,
-        `id=${message.id}`,
-        `reason=${err instanceof Error ? err.message : String(err)}`,
-      );
+      emitOutboxSendFailed(this.audit, {
+        from: this.clawId,
+        to: options.to,
+        type: options.type,
+        id: message.id,
+        reason: err instanceof Error ? err.message : String(err),
+      });
       throw err;
     }
   }
