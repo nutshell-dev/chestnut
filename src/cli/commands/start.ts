@@ -96,6 +96,21 @@ type OnboardingStatus =
   | { state: 'not_found' };
 
 /**
+ * Atomic snapshot of initialization + onboarding state.
+ * Merges two disk reads into a single synchronous call to eliminate
+ * TOCTOU window between isInitialized() and getOnboardingStatus().
+ */
+export function getInitializationSnapshot(motionDir: string): {
+  isInitialized: boolean;
+  onboarding: OnboardingStatus;
+} {
+  return {
+    isInitialized: isInitialized(),
+    onboarding: getOnboardingStatus(motionDir),
+  };
+}
+
+/**
  * Find the Onboarding contract and determine its completion state.
  */
 export function getOnboardingStatus(motionDir: string): OnboardingStatus {
@@ -320,7 +335,9 @@ export async function startCommand(deps?: { audit?: AuditLog }): Promise<void> {
 
 async function _start(audit?: AuditLog): Promise<void> {
   // Step 1: workspace init
-  const wasFirstRun = !isInitialized();
+  const motionDir = getMotionDir();
+  const snapshot = getInitializationSnapshot(motionDir);
+  const wasFirstRun = !snapshot.isInitialized;
   if (wasFirstRun) {
     await initCommand(true);
   }
@@ -349,7 +366,6 @@ async function _start(audit?: AuditLog): Promise<void> {
   }
 
   // Step 2: motion init
-  const motionDir = getMotionDir();
   const { fs: notifyFs, audit: notifyAudit } = createDirContext(motionDir);
   const thisDir = path.dirname(fileURLToPath(import.meta.url));
   const bundleEntry = path.join(thisDir, 'daemon-entry.js');
@@ -365,7 +381,7 @@ async function _start(audit?: AuditLog): Promise<void> {
   }
 
   // Step 3: onboarding 状态
-  const onboarding = getOnboardingStatus(motionDir);
+  const onboarding = snapshot.onboarding;
 
   // onboarding 已完成 → 直接进 chat
   if (onboarding.state === 'complete') {
