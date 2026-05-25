@@ -6,6 +6,7 @@ import * as fs from 'fs';
 import { existsSync } from 'fs';
 import * as path from 'path';
 import { loadGlobalConfig, getGlobalConfigPath, getNamedSubrootDir } from '../../foundation/config/index.js';
+import { MOTION_CLAW_ID } from '../../constants.js';
 import { CONFIG_DEFAULTS } from '../../assembly/config-defaults.js';
 import { createAuditWriter } from '../../foundation/audit/index.js';
 import { getClawforumFs, getGlobalConfig, setAuditWriter as setWatchdogAuditWriter } from '../../watchdog/watchdog-context.js';
@@ -28,7 +29,7 @@ export async function stopAllCommand(deps?: { audit?: AuditLog }): Promise<void>
   let audit: AuditLog | null = deps?.audit ?? null;
   if (!audit) {
     try {
-      const motionDir = getNamedSubrootDir('motion');
+      const motionDir = getNamedSubrootDir(MOTION_CLAW_ID);
       const motionFs = new NodeFileSystem({ baseDir: motionDir });
       audit = createSystemAudit(motionFs, motionDir);
     } catch (err) {

@@ -129,7 +129,7 @@ async function writeTemplate(filePath: string, content: string): Promise<boolean
  */
 export async function initCommand(silent = false, deps?: { audit?: AuditLog }): Promise<void> {
   const audit = deps?.audit;
-  const motionDir = getNamedSubrootDir('motion');
+  const motionDir = getNamedSubrootDir(MOTION_CLAW_ID);
   const motionConfigDir = getMotionConfigDir();
   
   console.log(`Initializing Motion at: ${motionDir}`);
@@ -195,7 +195,7 @@ export async function initCommand(silent = false, deps?: { audit?: AuditLog }): 
  */
 export async function chatCommand(): Promise<void> {
   const globalConfig = loadGlobalConfig(CONFIG_DEFAULTS);
-  const motionDir = getNamedSubrootDir('motion');
+  const motionDir = getNamedSubrootDir(MOTION_CLAW_ID);
   const { audit: systemAudit } = createDirContext(motionDir);
 
   // Check whether Motion has been initialized

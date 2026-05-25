@@ -17,7 +17,7 @@ import {
 } from './_message-renderer.js';
 
 function resolveDialogPath(name: string): string {
-  const baseDir = name === MOTION_CLAW_ID ? getNamedSubrootDir('motion') : getClawDir(name);
+  const baseDir = name === MOTION_CLAW_ID ? getNamedSubrootDir(MOTION_CLAW_ID) : getClawDir(name);
   if (!fs.existsSync(baseDir)) {
     throw new CliError(
       name === MOTION_CLAW_ID

@@ -44,7 +44,7 @@ export async function statusCommand(): Promise<void> {
   console.log(`watchdog: ${watchdogAlive ? `running (PID=${watchdogPid})` : 'stopped'}`);
 
   // 2. Motion
-  const baseDir = path.dirname(getNamedSubrootDir('motion'));
+  const baseDir = path.dirname(getNamedSubrootDir(MOTION_CLAW_ID));
   const pm = createProcessManagerForCLI();
   const motionStatus = pm.getAliveStatus(MOTION_CLAW_ID);
   console.log(`motion:   ${motionStatus.alive ? `running (${motionStatus.reason})` : `stopped (${motionStatus.reason})`}`);

@@ -334,7 +334,7 @@ export async function startCommand(deps?: { audit?: AuditLog }): Promise<void> {
 
 async function _start(audit?: AuditLog): Promise<void> {
   // Step 1: workspace init
-  const motionDir = getNamedSubrootDir('motion');
+  const motionDir = getNamedSubrootDir(MOTION_CLAW_ID);
   const snapshot = getInitializationSnapshot(motionDir);
   const wasFirstRun = !snapshot.isInitialized;
   if (wasFirstRun) {
