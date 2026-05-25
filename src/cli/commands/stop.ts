@@ -7,6 +7,8 @@ import { existsSync } from 'fs';
 import * as path from 'path';
 import { loadGlobalConfig, getGlobalConfigPath, getNamedSubrootDir } from '../../foundation/config/index.js';
 import { CONFIG_DEFAULTS } from '../../assembly/config-defaults.js';
+import { createAuditWriter } from '../../foundation/audit/index.js';
+import { getClawforumFs, getGlobalConfig, setAuditWriter as setWatchdogAuditWriter } from '../../watchdog/watchdog-context.js';
 import { stopCommand as watchdogStop } from '../../watchdog/watchdog.js';
 import { stopCommand as motionStop } from './motion.js';
 import { ProcessListUnavailable } from '../../foundation/process-manager/index.js';
@@ -33,6 +35,17 @@ export async function stopAllCommand(deps?: { audit?: AuditLog }): Promise<void>
       console.error('Failed to construct audit for stop command:', err);
       audit = null;  // audit 构造失败 / fallback null / 后续 audit?.write 软降级
     }
+  }
+
+  // NEW: workspace audit 注入 watchdog 模块（与 watchdog daemon 同源）
+  // 防 sub-1/sub-2/sub-4 audit emit 在 CLI 进程 silent no-op
+  try {
+    const auditMaxSizeMb = getGlobalConfig().audit?.retention?.max_size_mb ?? null;
+    const watchdogAudit = createAuditWriter(getClawforumFs(), 'audit.tsv', auditMaxSizeMb);
+    setWatchdogAuditWriter(watchdogAudit);
+  } catch (err) {
+    console.error('Failed to wire watchdog audit:', err);
+    // fail-soft: 既有 silent no-op fallback 保 (audit 不阻 stop 流程)
   }
 
   // 1. Stop watchdog first (prevents it from restarting motion)

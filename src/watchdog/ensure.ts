@@ -5,14 +5,30 @@
  */
 import * as fsNode from 'node:fs';
 import * as path from 'node:path';
-import { getClawforumDir } from './watchdog-context.js';
+import { createAuditWriter } from '../foundation/audit/index.js';
+import { getClawforumDir, getClawforumFs, getGlobalConfig, getAuditWriter, setAuditWriter } from './watchdog-context.js';
 import { isWatchdogAlive } from './watchdog-pid.js';
 import { startCommand as rawStartCommand } from './watchdog-cli.js';
-import { getAuditWriter } from './watchdog-context.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 
 const LOCK_ACQUIRE_TIMEOUT_MS = 3000;
 const LOCK_RETRY_INTERVAL_MS = 50;
+
+/**
+ * Lazy-init workspace audit writer for CLI-side watchdog operations.
+ * No-op if already wired (e.g. daemon process that called setAuditWriter).
+ * Fail-soft: logs to console on error, never throws.
+ */
+export function ensureAuditWired(): void {
+  if (getAuditWriter() !== null) return;
+  try {
+    const auditMaxSizeMb = getGlobalConfig().audit?.retention?.max_size_mb ?? null;
+    const auditWriter = createAuditWriter(getClawforumFs(), 'audit.tsv', auditMaxSizeMb);
+    setAuditWriter(auditWriter);
+  } catch (err) {
+    console.error('Failed to wire watchdog audit in CLI:', err);
+  }
+}
 
 /**
  * 唯一入口、所有 caller 必经此。
@@ -21,6 +37,7 @@ const LOCK_RETRY_INTERVAL_MS = 50;
  * - 未活 → 取 lock + spawn + 释放 lock
  */
 export async function ensureWatchdog(): Promise<void> {
+  ensureAuditWired();
   if (isWatchdogAlive()) return; // throws WatchdogPidForeignWorkspaceError if foreign
 
   const lockPath = path.join(getClawforumDir(), 'watchdog.lock');

@@ -8,6 +8,7 @@ import { createProcessManagerForCLI } from '../cli/utils/factories.js';
 import { getWatchdogEntryPath } from './watchdog-context.js';
 import { getWatchdogPid } from './watchdog-pid.js';
 import { getAuditWriter } from './watchdog-context.js';
+import { ensureAuditWired } from './ensure.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 
 const SWEEP_GRACE_MS = 1000;
@@ -18,6 +19,7 @@ const SWEEP_GRACE_MS = 1000;
  * 本身就 workspace-specific via getWatchdogEntryPath / dist path）
  */
 export async function sweepOrphanWatchdogs(opts: { excludePid?: number | null } = {}): Promise<number[]> {
+  ensureAuditWired();
   const pm = createProcessManagerForCLI();
   const wdPath = getWatchdogEntryPath();
   const keepPid = opts.excludePid ?? getWatchdogPid();  // 默认保 pid file 那个
