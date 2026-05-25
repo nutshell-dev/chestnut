@@ -15,7 +15,8 @@ export type {
 } from './core/contract/types.js';
 export type { InboxMessage, OutboxMessage, HeartbeatEntry, Priority } from './foundation/messaging/types.js';
 export { PRIORITY_VALUES } from './foundation/messaging/types.js';
-export type { ToolProfile, CallerType } from './foundation/tool-protocol/index.js';
+export type { ToolProfile } from './foundation/tool-protocol/index.js';
+export type { CallerType } from './core/caller-types.js';
 export type { ErrorCode, ErrorDetails } from './foundation/errors.js';
 export {
   ClawError, PermissionError, PathNotInClawSpaceError, WriteOperationForbiddenError,

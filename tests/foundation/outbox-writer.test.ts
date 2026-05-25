@@ -51,7 +51,7 @@ describe('OutboxWriter', () => {
       type: 'contract_update',
       to: 'claw-b',
       content: 'Update',
-      contract_id: 'contract-123',
+      metadata: { contract_id: 'contract-123' },
     });
 
     const sent = events.find(e => e[0] === MESSAGING_AUDIT_EVENTS.OUTBOX_SENT)!;

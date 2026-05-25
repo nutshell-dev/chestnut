@@ -75,16 +75,19 @@ export function getClawDir(name: string): string {
   return path.join(getWorkspaceRoot(), '.clawforum', 'claws', name);
 }
 
-export function getMotionDir(): string {
-  return path.join(getWorkspaceRoot(), '.clawforum', 'motion');
-}
-
 export function getClawforumRoot(): string {
   return path.join(getWorkspaceRoot(), '.clawforum');
 }
 
-export function resolveAgentDir(id: string): string {
-  return id === 'motion' ? getMotionDir() : getClawDir(id);
+/**
+ * Generic helper to get a named subroot dir under .clawforum/.
+ * Caller side owns the name (e.g., motion reserved name).
+ *
+ * @param name - subroot name (caller-owned, e.g., motion, claws)
+ * @returns path joined under workspaceRoot/.clawforum/<name>
+ */
+export function getNamedSubrootDir(name: string): string {
+  return path.join(getWorkspaceRoot(), '.clawforum', name);
 }
 
 export function getClawConfigPath(name: string): string {

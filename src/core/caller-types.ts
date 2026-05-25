@@ -5,7 +5,7 @@
  * across the codebase. New summon modes only need to be added here.
  */
 
-import type { ToolProfile } from '../tool-protocol/index.js';
+import type { ToolProfile } from '../foundation/tool-protocol/index.js';
 
 export type DispatchCallerType = 'shadow' | 'miner';
 export type CallerType = 'motion' | 'claw' | 'subagent' | 'verifier' | 'shadow' | 'miner';

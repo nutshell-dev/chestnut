@@ -5,7 +5,7 @@
 
 import * as path from 'path';
 import * as fs from 'fs';
-import { getClawDir, getMotionDir } from '../../foundation/paths.js';
+import { getClawDir, getNamedSubrootDir } from '../../foundation/paths.js';
 import { DIALOG_DIR } from '../../foundation/dialog-store/dirs.js';
 import { MOTION_CLAW_ID } from '../../constants.js';
 import { CliError } from '../errors.js';
@@ -17,7 +17,7 @@ import {
 } from './_message-renderer.js';
 
 function resolveDialogPath(name: string): string {
-  const baseDir = name === MOTION_CLAW_ID ? getMotionDir() : getClawDir(name);
+  const baseDir = name === MOTION_CLAW_ID ? getNamedSubrootDir('motion') : getClawDir(name);
   if (!fs.existsSync(baseDir)) {
     throw new CliError(
       name === MOTION_CLAW_ID

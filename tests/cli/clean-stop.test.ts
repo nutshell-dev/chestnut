@@ -58,7 +58,7 @@ describe('Phase 86: clean stop 生命周期修复', () => {
 
     it('saveWatchdogState 应写入 clawPreviouslyAlive', () => {
       const saveMatch = watchdogSource.match(
-        /function saveWatchdogState\(\)[\s\S]{0,400}?\}/
+        /function saveWatchdogState\(\)[\s\S]{0,800}?\}/
       );
       expect(saveMatch).toBeTruthy();
       expect(saveMatch![0]).toContain('clawPreviouslyAlive');
@@ -66,7 +66,7 @@ describe('Phase 86: clean stop 生命周期修复', () => {
 
     it('saveWatchdogState 应写入 everSpawned', () => {
       const saveMatch = watchdogSource.match(
-        /function saveWatchdogState\(\)[\s\S]{0,400}?\}/
+        /function saveWatchdogState\(\)[\s\S]{0,800}?\}/
       );
       expect(saveMatch).toBeTruthy();
       expect(saveMatch![0]).toContain('everSpawned');

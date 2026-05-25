@@ -14,7 +14,7 @@ import { log, writeWatchdogInboxMessage } from './watchdog-log.js';
 import { clawHasContract, getClawActivityInfo, gatherClawSnapshot, getEffectiveInterval, shouldResetNotifyCount } from './watchdog-utils.js';
 import { getContractCreatedMs } from '../core/contract/index.js';
 import { NodeFileSystem } from '../foundation/fs/node-fs.js';
-import { getMotionDir } from '../foundation/config/index.js';
+import { getNamedSubrootDir } from '../foundation/config/index.js';
 import { InboxWriter } from '../foundation/messaging/index.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 import { CLAWS_DIR } from '../foundation/paths.js';
@@ -159,7 +159,7 @@ export function maybeCronClawCrash(pm: ProcessManager, audit: AuditLog): void {
 
       const { fs: motionFs, audit: motionAudit } = getMotionContext();
       try {
-        new InboxWriter(motionFs, path.join(getMotionDir(), 'inbox', 'pending'), motionAudit).writeSync({
+        new InboxWriter(motionFs, path.join(getNamedSubrootDir('motion'), 'inbox', 'pending'), motionAudit).writeSync({
           type: 'crash_notification',
           source: clawId,
           priority: 'high',
@@ -169,7 +169,7 @@ export function maybeCronClawCrash(pm: ProcessManager, audit: AuditLog): void {
         audit.write(WATCHDOG_AUDIT_EVENTS.CLAW_CRASH_NOTIFY_DROPPED, `claw=${clawId}`, `error=${err instanceof Error ? err.message : String(err)}`);
       }
 
-      clawPreviouslyNotified.add(clawId);
+      clawPreviouslyNotified.set(clawId, Date.now());
     }
 
     // Alive recovery transition: allow next crash to re-notify

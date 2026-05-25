@@ -11,7 +11,7 @@ import { createDirContext } from '../utils/factories.js';
 import { createStreamReader, STREAM_FILE } from '../../foundation/stream/index.js';
 import { TASKS_QUEUES_RESULTS_DIR } from '../../core/async-task-system/index.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
-import type { CallerType } from '../../foundation/tool-protocol/caller-type.js';
+import type { CallerType } from '../../core/caller-types.js';
 import type { StreamReader } from '../../foundation/stream/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { TurnTracker } from './chat-viewport.js';

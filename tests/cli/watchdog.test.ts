@@ -17,7 +17,7 @@ vi.mock('../../src/foundation/config/index.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/foundation/config/index.js')>();
   return {
     ...actual,
-    getMotionDir: vi.fn(),
+    getNamedSubrootDir: vi.fn(),
     loadGlobalConfig: vi.fn(),
   };
 });
@@ -82,7 +82,7 @@ import {
   loadWatchdogState,
   saveWatchdogState,
 } from '../../src/watchdog/watchdog.js';
-import { getMotionDir, loadGlobalConfig } from '../../src/foundation/config/index.js';
+import { getNamedSubrootDir, loadGlobalConfig } from '../../src/foundation/config/index.js';
 import { clawHasContract, gatherClawSnapshot } from '../../src/watchdog/watchdog-utils.js';
 import { lastInactivityNotified, inactivityNotifyCount, getClawforumFs } from '../../src/watchdog/watchdog-context.js';
 import { InboxWriter } from '../../src/foundation/messaging/index.js';
@@ -110,7 +110,7 @@ describe('maybeCronClawInactivity — fix 4: per-claw error isolation', () => {
     fs.mkdirSync(path.join(clawsDir, 'claw-a'), { recursive: true });
     fs.mkdirSync(path.join(clawsDir, 'claw-b'), { recursive: true });
 
-    vi.mocked(getMotionDir).mockReturnValue(path.join(clawforumDir, 'motion'));
+    vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(clawforumDir, 'motion'));
     vi.mocked(loadGlobalConfig).mockReturnValue({ watchdog: { claw_inactivity_timeout_ms: 300_000 } } as any);
 
     mockPm = { isAlive: vi.fn().mockReturnValue(false) } as unknown as ProcessManager;
@@ -175,7 +175,7 @@ describe('logWithAudit — A1 clearance', () => {
     const clawforumDir = path.join(tmpDir, '.clawforum');
     fs.mkdirSync(path.join(clawforumDir, 'motion'), { recursive: true });
     fs.mkdirSync(path.join(clawforumDir, 'logs'), { recursive: true });
-    vi.mocked(getMotionDir).mockReturnValue(path.join(clawforumDir, 'motion'));
+    vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(clawforumDir, 'motion'));
     vi.mocked(loadGlobalConfig).mockReturnValue({ watchdog: { claw_inactivity_timeout_ms: 300_000 } } as any);
 
     auditWriter = new AuditWriter(
@@ -246,7 +246,7 @@ describe('shutdownWatchdog — fix 005: save state on signal', () => {
     const clawforumDir = path.join(tmpDir, '.clawforum');
     fs.mkdirSync(path.join(clawforumDir, 'motion'), { recursive: true });
     fs.writeFileSync(path.join(clawforumDir, 'watchdog.pid'), JSON.stringify({ pid: FAKE_LIVE_PID }));
-    vi.mocked(getMotionDir).mockReturnValue(path.join(clawforumDir, 'motion'));
+    vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(clawforumDir, 'motion'));
     vi.mocked(loadGlobalConfig).mockReturnValue({ watchdog: { claw_inactivity_timeout_ms: 300_000 } } as any);
 
     auditWriter = new AuditWriter(
@@ -331,7 +331,7 @@ describe('getWatchdogPid', () => {
     tmpDir = path.join(os.tmpdir(), `wd-pid-${randomUUID()}`);
     const clawforumDir = path.join(tmpDir, '.clawforum');
     fs.mkdirSync(clawforumDir, { recursive: true });
-    vi.mocked(getMotionDir).mockReturnValue(path.join(clawforumDir, 'motion'));
+    vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(clawforumDir, 'motion'));
   });
 
   afterEach(() => {
@@ -358,7 +358,7 @@ describe('isWatchdogAlive', () => {
     tmpDir = path.join(os.tmpdir(), `wd-alive-${randomUUID()}`);
     const clawforumDir = path.join(tmpDir, '.clawforum');
     fs.mkdirSync(clawforumDir, { recursive: true });
-    vi.mocked(getMotionDir).mockReturnValue(path.join(clawforumDir, 'motion'));
+    vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(clawforumDir, 'motion'));
     process.env.CLAWFORUM_ROOT = '/test/root';
   });
 
@@ -415,7 +415,7 @@ describe('startCommand', () => {
     tmpDir = path.join(os.tmpdir(), `wd-start-${randomUUID()}`);
     const clawforumDir = path.join(tmpDir, '.clawforum');
     fs.mkdirSync(clawforumDir, { recursive: true });
-    vi.mocked(getMotionDir).mockReturnValue(path.join(clawforumDir, 'motion'));
+    vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(clawforumDir, 'motion'));
     vi.mocked(spawnDetached).mockReturnValue({ pid: FAKE_LIVE_PID });
   });
 
@@ -467,7 +467,7 @@ describe('stopCommand', () => {
     tmpDir = path.join(os.tmpdir(), `wd-stop-${randomUUID()}`);
     const clawforumDir = path.join(tmpDir, '.clawforum');
     fs.mkdirSync(clawforumDir, { recursive: true });
-    vi.mocked(getMotionDir).mockReturnValue(path.join(clawforumDir, 'motion'));
+    vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(clawforumDir, 'motion'));
   });
 
   afterEach(() => {
@@ -531,7 +531,7 @@ describe('runWatchdogLoop', () => {
     clawforumDir = path.join(tmpDir, '.clawforum');
     fs.mkdirSync(path.join(clawforumDir, 'motion', 'logs'), { recursive: true });
     fs.mkdirSync(path.join(clawforumDir, 'logs'), { recursive: true });
-    vi.mocked(getMotionDir).mockReturnValue(path.join(clawforumDir, 'motion'));
+    vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(clawforumDir, 'motion'));
     vi.mocked(loadGlobalConfig).mockReturnValue({
       watchdog: { interval_ms: 100, claw_inactivity_timeout_ms: 300_000 },
       audit: { retention: { max_size_mb: null } },
@@ -644,7 +644,7 @@ describe('maybeCronClawCrash — crash audit', () => {
     fs.mkdirSync(clawsDir, { recursive: true });
     fs.mkdirSync(path.join(clawforumDir, 'motion', 'inbox', 'pending'), { recursive: true });
 
-    vi.mocked(getMotionDir).mockReturnValue(path.join(clawforumDir, 'motion'));
+    vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(clawforumDir, 'motion'));
     vi.mocked(loadGlobalConfig).mockReturnValue({} as any);
     vi.mocked(clawHasContract).mockReturnValue(true);
     vi.mocked(gatherClawSnapshot).mockReturnValue({
@@ -755,7 +755,7 @@ describe('loadWatchdogState / saveWatchdogState — A2+A3+A4', () => {
     tmpDir = path.join(os.tmpdir(), `wd-state-${randomUUID()}`);
     clawforumDir = path.join(tmpDir, '.clawforum');
     fs.mkdirSync(clawforumDir, { recursive: true });
-    vi.mocked(getMotionDir).mockReturnValue(path.join(clawforumDir, 'motion'));
+    vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(clawforumDir, 'motion'));
     vi.mocked(loadGlobalConfig).mockReturnValue({ watchdog: { claw_inactivity_timeout_ms: 300_000 } } as any);
   });
 

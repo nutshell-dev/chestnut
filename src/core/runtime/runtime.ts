@@ -966,7 +966,7 @@ export class Runtime {
       type: 'response',
       to: sender,
       content: `Error: ${errorMsg}`,
-      contract_id: info.contract_id,
+      metadata: info.metadata?.contract_id ? { contract_id: info.metadata.contract_id } : undefined,
     }).catch(e => {
       const reason = formatErr(e);
       this.auditWriter.write(

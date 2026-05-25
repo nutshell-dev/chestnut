@@ -15,7 +15,7 @@ import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js
 import type { ToolRegistry } from '../../foundation/tools/index.js';
 // createToolRegistry removed — caller owns registry assembly (M#1 align)
 import type { Message, ToolDefinition } from '../../foundation/llm-provider/types.js';
-import type { CallerType } from '../../foundation/tool-protocol/index.js';
+import type { CallerType } from '../caller-types.js';
 import { createDialogStore } from '../../foundation/dialog-store/index.js';
 import { CLAWSPACE_DIR } from '../../foundation/paths.js';
 import type { PermissionChecker } from '../../foundation/tool-protocol/permission.js';

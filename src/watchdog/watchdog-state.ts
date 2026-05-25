@@ -3,12 +3,12 @@
  * Watchdog state persistence — load/save 2 Map + crash log
  */
 
-import { getClawforumFs, getAuditWriter, lastInactivityNotified, inactivityNotifyCount, clawPreviouslyAlive, everSpawned } from './watchdog-context.js';
+import { getClawforumFs, getAuditWriter, lastInactivityNotified, inactivityNotifyCount, clawPreviouslyAlive, everSpawned, clawPreviouslyNotified } from './watchdog-context.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 import { AUDIT_MESSAGE_MAX_CHARS } from '../foundation/audit/index.js';
 import { isFileNotFound } from '../foundation/fs/types.js';
 
-const CURRENT_WATCHDOG_SCHEMA_VERSION = 1;
+const CURRENT_WATCHDOG_SCHEMA_VERSION = 2;
 
 interface WatchdogState {
   schema_version?: number;  // v1 current; legacy read
@@ -20,6 +20,8 @@ interface WatchdogState {
   // NEW — phase 1072: crash-detection state persisted for watchdog self-recovery
   clawPreviouslyAlive: Record<string, boolean>;
   everSpawned: string[];
+  // NEW v2 — phase 1269: crash notification dedup persisted
+  clawPreviouslyNotified?: Record<string, number>;
 }
 
 class WatchdogSchemaError extends Error {
@@ -52,6 +54,9 @@ export function loadWatchdogState(): void {
     for (const id of state.everSpawned ?? []) {
       everSpawned.add(id);
     }
+    for (const [k, v] of Object.entries(state.clawPreviouslyNotified ?? {})) {
+      clawPreviouslyNotified.set(k, v);
+    }
   } catch (err) {
     if (isFileNotFound(err)) {
       // 首次启动 — 从空状态开始
@@ -63,6 +68,7 @@ export function loadWatchdogState(): void {
     inactivityNotifyCount.clear();
     clawPreviouslyAlive.clear();
     everSpawned.clear();
+    clawPreviouslyNotified.clear();
 
     const fs = getClawforumFs();
     const backupPath = `watchdog-state.json.corrupt-${Date.now()}`;
@@ -91,12 +97,14 @@ export function loadWatchdogState(): void {
 /** 1:1 保 watchdog.ts:240-249 / save 2 Map */
 export function saveWatchdogState(): void {
   const state: WatchdogState = {
-    schema_version: 1,
+    schema_version: 2,
     lastInactivityNotified: Object.fromEntries(lastInactivityNotified),
     inactivityNotifyCount: Object.fromEntries(inactivityNotifyCount),
     // NEW — phase 1072
     clawPreviouslyAlive: Object.fromEntries(clawPreviouslyAlive),
     everSpawned: Array.from(everSpawned),
+    // NEW — phase 1269
+    clawPreviouslyNotified: Object.fromEntries(clawPreviouslyNotified),
   };
   const fs = getClawforumFs();
   fs.writeAtomicSync('watchdog-state.json', JSON.stringify(state, null, 2));

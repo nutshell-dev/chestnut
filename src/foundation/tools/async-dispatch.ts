@@ -1,4 +1,4 @@
-import type { CallerType } from '../tool-protocol/index.js';
+import type { CallerType } from '../../core/caller-types.js';
 
 export interface AsyncToolTaskArgs {
   toolName: string;

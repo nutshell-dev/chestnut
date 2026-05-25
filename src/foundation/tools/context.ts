@@ -18,7 +18,7 @@ import { CLAWSPACE_DIR } from '../paths.js';
 
 
 import type { AuditLog } from '../audit/index.js';
-import type { CallerType } from '../tool-protocol/caller-type.js';
+import type { CallerType } from '../../core/caller-types.js';
 import type { ToolRegistry } from './types.js';
 import type { PermissionChecker } from '../tool-protocol/permission.js';
 

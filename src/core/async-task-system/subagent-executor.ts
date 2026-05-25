@@ -3,7 +3,7 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import { type StreamLog, STREAM_FILE, createPerResourceStreamWriter } from '../../foundation/stream/index.js';
 import type { PermissionChecker } from '../../foundation/tool-protocol/permission.js';
-import { callerTypeToProfile } from '../../foundation/tool-protocol/index.js';
+import { callerTypeToProfile } from '../caller-types.js';
 
 import type { ToolRegistry } from '../../foundation/tools/index.js';
 import { runSubagent, NoopAuditWriter, createPerTaskRegistry, DONE_TOOL_NAME, getDisplayResult } from '../subagent/index.js';

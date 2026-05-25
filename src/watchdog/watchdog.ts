@@ -21,7 +21,7 @@
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { setTimeout } from 'timers/promises';
-import { getMotionDir } from '../foundation/config/index.js';
+import { getNamedSubrootDir } from '../foundation/config/index.js';
 import { NodeFileSystem } from '../foundation/fs/node-fs.js';
 import { type AuditLog, createAuditWriter } from '../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../foundation/process-manager/factories.js';
@@ -181,7 +181,7 @@ export async function runWatchdogLoop(): Promise<void> {
         const pid = await pm.spawn('motion', {
           command: 'node',
           args: [daemonEntryPath, 'motion'],
-          logFile: path.join(getMotionDir(), DAEMON_LOG),
+          logFile: path.join(getNamedSubrootDir('motion'), DAEMON_LOG),
           env: { ...process.env, CLAWFORUM_ROOT: path.dirname(clawforumDir) } as Record<string, string | undefined>,
         });
         log(`[watchdog] motion restarted (PID=${pid})`);

@@ -7,7 +7,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import {
   getClawDir,
-  getMotionDir,
+  getNamedSubrootDir,
 } from '../../foundation/paths.js';
 import {
   TASKS_QUEUES_DONE_DIR,
@@ -35,7 +35,7 @@ const QUEUE_DIRS = [
 ];
 
 export function resolveClawDir(clawId: string): string {
-  return clawId === MOTION_CLAW_ID ? getMotionDir() : getClawDir(clawId);
+  return clawId === MOTION_CLAW_ID ? getNamedSubrootDir(MOTION_CLAW_ID) : getClawDir(clawId);
 }
 
 export function inferKind(id: string, clawDir: string): SubagentKind {

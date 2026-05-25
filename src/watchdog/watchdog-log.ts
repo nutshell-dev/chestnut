@@ -5,7 +5,7 @@
 
 import * as path from 'path';
 import { getClawforumFs, getAuditWriter, getMotionContext } from './watchdog-context.js';
-import { getMotionDir } from '../foundation/config/index.js';
+import { getNamedSubrootDir } from '../foundation/config/index.js';
 import { InboxWriter } from '../foundation/messaging/index.js';
 import { WATCHDOG_LOG } from './constants.js';
 
@@ -40,7 +40,7 @@ export function logWithAudit(
 // Write an inbox message (YAML frontmatter .md format)
 /** 1:1 保 watchdog.ts:178-191 */
 export function writeWatchdogInboxMessage(type: string, content: Record<string, unknown>): void {
-  const motionDir = getMotionDir();
+  const motionDir = getNamedSubrootDir('motion');
   const inboxDir = path.join(motionDir, 'inbox', 'pending');
   const { fs, audit } = getMotionContext();
   const body = typeof content.message === 'string' ? content.message : JSON.stringify(content);

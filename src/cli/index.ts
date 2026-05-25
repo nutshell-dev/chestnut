@@ -292,13 +292,13 @@ motionCmd
   .description('Start Motion daemon (auto-backgrounds)')
   .action(withCliErrorHandling(async () => {
     // 前台入口
-    const { loadGlobalConfig, getMotionDir } = await import('../foundation/config/index.js');
+    const { loadGlobalConfig, getNamedSubrootDir } = await import('../foundation/config/index.js');
     const { CONFIG_DEFAULTS } = await import('../assembly/config-defaults.js');
     const { NodeFileSystem } = await import('../foundation/fs/node-fs.js');
     const { createSystemAudit } = await import('../foundation/audit/index.js');
     const { createAgentProcessManager } = await import('../foundation/process-manager/agent-factory.js');
     loadGlobalConfig(CONFIG_DEFAULTS);
-    const motionDir = getMotionDir();
+    const motionDir = getNamedSubrootDir('motion');
     const baseDir = path.dirname(motionDir);
     const nodeFs = new NodeFileSystem({ baseDir });
     const systemAudit = createSystemAudit(nodeFs, baseDir);

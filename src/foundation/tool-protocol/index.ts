@@ -8,11 +8,8 @@
  */
 
 import type { JSONSchema7 } from '../llm-provider/types.js';
-import type { CallerType } from './caller-type.js';
-
 export type ToolProfile = string;
-export type { JSONSchema7, CallerType };
-export { callerTypeToProfile } from './caller-type.js';
+export type { JSONSchema7 };
 
 // Tool、ExecContext、ToolRegistry 已迁至 L2c tools/types.ts。
 // 消费方请直接从 foundation/tools/index.js 导入。

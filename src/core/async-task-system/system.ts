@@ -14,7 +14,7 @@ import type { FileSystem } from '../../foundation/fs/types.js';
 import { DEFAULT_MAX_CONCURRENT_TASKS, SHUTDOWN_DRAIN_GRACE_MS, DEFAULT_RETRY_BASE_DELAY_MS, PENDING_QUEUE_MAX } from './constants.js';
 import type { ToolRegistry } from '../../foundation/tools/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
-import type { CallerType } from '../../foundation/tool-protocol/caller-type.js';
+import type { CallerType } from '../caller-types.js';
 
 import type { Message, ToolDefinition } from '../../foundation/llm-provider/types.js';
 import type { OutboxWriter } from '../../foundation/messaging/index.js';

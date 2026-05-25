@@ -126,7 +126,7 @@
     },
     {
       "file": "src/cli/commands/stop.ts",
-      "line": 81,
+      "line": 88,
       "body_excerpt": "} catch { /* best-effort */ }",
       "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
     },
@@ -246,14 +246,32 @@
     },
     {
       "file": "src/watchdog/watchdog-pid.ts",
-      "line": 25,
+      "line": 26,
       "body_excerpt": "} catch {",
       "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
     },
     {
       "file": "src/watchdog/watchdog-state.ts",
-      "line": 110,
+      "line": 118,
       "body_excerpt": "} catch { /* ignore: crash handler 不抛 */ }",
+      "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
+    },
+    {
+      "file": "src/watchdog/ensure.ts",
+      "line": 62,
+      "body_excerpt": "} catch { /* race ok */ }",
+      "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
+    },
+    {
+      "file": "src/watchdog/ensure.ts",
+      "line": 85,
+      "body_excerpt": "} catch { /* 已被 stale recover 清 ok */ }",
+      "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
+    },
+    {
+      "file": "src/watchdog/orphan-sweep.ts",
+      "line": 62,
+      "body_excerpt": "} catch { /* dead now */ }",
       "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
     },
     {

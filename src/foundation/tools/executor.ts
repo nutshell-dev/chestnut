@@ -14,7 +14,7 @@ import {
   ToolInvalidInputError,
 } from '../errors.js';
 import { CLAWSPACE_DIR } from '../paths.js';
-import type { CallerType } from '../tool-protocol/index.js';
+import type { CallerType } from '../../core/caller-types.js';
 import type { ExecContext } from '../tools/index.js';
 import type { PermissionChecker } from '../tool-protocol/permission.js';
 import type { ToolResult } from '../tool-protocol/index.js';

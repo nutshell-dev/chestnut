@@ -12,7 +12,7 @@ import * as path from 'path';
 import * as fsNative from 'fs';
 import * as fsAsync from 'fs/promises';
 import { createHash } from 'node:crypto';
-import { loadGlobalConfig, loadClawConfig, getClawDir, getMotionDir } from '../foundation/config/index.js';
+import { loadGlobalConfig, loadClawConfig, getClawDir, getNamedSubrootDir } from '../foundation/config/index.js';
 
 import { startDaemonLoop } from './daemon-loop.js';
 import { NodeFileSystem } from '../foundation/fs/node-fs.js';
@@ -47,7 +47,7 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
     const isMotion = name === 'motion';
 
     // 配置
-    const dir = isMotion ? getMotionDir() : getClawDir(name);
+    const dir = isMotion ? getNamedSubrootDir('motion') : getClawDir(name);
 
     // pre-assemble audit sink（phase189 §7.A3 清零；assemble 前的失败也需 audit）
     const preAssembleFs = new NodeFileSystem({ baseDir: dir });

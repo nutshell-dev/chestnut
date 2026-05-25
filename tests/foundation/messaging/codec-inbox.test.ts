@@ -22,23 +22,23 @@ describe('codec-inbox round-trip symmetric invariant (audit-2026-05-16 §7 / pha
   });
 
   it('round-trip value with `\\n` `\\r` preserves real unicode chars (反向 2: asymmetric fix invariant)', () => {
-    const msg: InboxMessage = { ...base, from: 'foo\nbar', contract_id: 'line1\r\nline2' };
+    const msg: InboxMessage = { ...base, from: 'foo\nbar', metadata: { contract_id: 'line1\r\nline2' } };
     const encoded = encodeInbox(msg);
     const decoded = decodeInbox(encoded);
     expect(decoded.from).toBe('foo\nbar');
-    expect(decoded.contract_id).toBe('line1\r\nline2');
+    expect(decoded.metadata?.contract_id).toBe('line1\r\nline2');
   });
 
   it('round-trip value with `\\\\` + `"` + literal `\\n` text preserves verbatim (反向 3: NUL placeholder collision-safe)', () => {
     const msg: InboxMessage = {
       ...base,
       from: 'path\\to\\file',
-      extraMeta: { note: 'said "hi"', escaped: 'literal \\n stays' },
+      metadata: { note: 'said "hi"', escaped: 'literal \\n stays' },
     };
     const encoded = encodeInbox(msg);
     const decoded = decodeInbox(encoded);
     expect(decoded.from).toBe('path\\to\\file');
-    expect(decoded.extraMeta?.note).toBe('said "hi"');
-    expect(decoded.extraMeta?.escaped).toBe('literal \\n stays');
+    expect(decoded.metadata?.note).toBe('said "hi"');
+    expect(decoded.metadata?.escaped).toBe('literal \\n stays');
   });
 });

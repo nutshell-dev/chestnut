@@ -30,9 +30,8 @@ export {
   getWorkspaceRoot,
   getGlobalConfigPath,
   getClawDir,
-  getMotionDir,
   getClawforumRoot,
-  resolveAgentDir,
+  getNamedSubrootDir,
   getClawConfigPath,
 } from '../paths.js';
 

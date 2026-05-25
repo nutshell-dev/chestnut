@@ -12,7 +12,7 @@ import { fileURLToPath } from 'url';
 import * as fs from 'fs';
 import * as readline from 'readline';
 import type { ProgressData } from '../../core/contract/types.js';
-import { isInitialized, loadGlobalConfig, getMotionDir, buildLLMConfig, patchGlobalConfigPrimary, FORMAT_MAP } from '../../foundation/config/index.js';
+import { isInitialized, loadGlobalConfig, getNamedSubrootDir, buildLLMConfig, patchGlobalConfigPrimary, FORMAT_MAP } from '../../foundation/config/index.js';
 import { CONFIG_DEFAULTS } from '../../assembly/config-defaults.js';
 import { createLLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import { PRESETS } from '../../foundation/config/index.js';
@@ -32,7 +32,6 @@ import { MOTION_CLAW_ID } from '../../constants.js';
 import { PROCESS_SPAWN_CONFIRM_MS } from '../../foundation/process-manager/index.js';
 import { CliError } from '../errors.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
-import { startCommand as watchdogStart, isWatchdogAlive } from '../../watchdog/watchdog.js';
 import { CONTRACT_ACTIVE_DIR, CONTRACT_PAUSED_DIR, CONTRACT_ARCHIVE_DIR } from '../../core/contract/index.js';
 import { getWorkspaceRoot } from '../../foundation/paths.js';
 import { DAEMON_LOG } from '../constants.js';
@@ -335,7 +334,7 @@ export async function startCommand(deps?: { audit?: AuditLog }): Promise<void> {
 
 async function _start(audit?: AuditLog): Promise<void> {
   // Step 1: workspace init
-  const motionDir = getMotionDir();
+  const motionDir = getNamedSubrootDir('motion');
   const snapshot = getInitializationSnapshot(motionDir);
   const wasFirstRun = !snapshot.isInitialized;
   if (wasFirstRun) {
@@ -390,7 +389,8 @@ async function _start(audit?: AuditLog): Promise<void> {
       await pm.spawn(MOTION_CLAW_ID, motionSpawnOptions);
       await new Promise(r => setTimeout(r, PROCESS_SPAWN_CONFIRM_MS));
     }
-    if (!isWatchdogAlive()) await watchdogStart();
+    const { ensureWatchdog } = await import('../../watchdog/ensure.js');
+    await ensureWatchdog();
     await motionChatCommand();
     return;
   }
@@ -419,7 +419,8 @@ async function _start(audit?: AuditLog): Promise<void> {
 
     const language = await pickLanguage();
     await daemonReady;
-    if (!isWatchdogAlive()) await watchdogStart();
+    const { ensureWatchdog } = await import('../../watchdog/ensure.js');
+    await ensureWatchdog();
 
     const manager = new ContractSystem(motionDir, MOTION_CLAW_ID, notifyFs, notifyAudit, undefined, createToolRegistry());
     const contractId = await manager.create({
@@ -445,7 +446,8 @@ async function _start(audit?: AuditLog): Promise<void> {
       await pm.spawn(MOTION_CLAW_ID, motionSpawnOptions);
       await new Promise(r => setTimeout(r, PROCESS_SPAWN_CONFIRM_MS));
     }
-    if (!isWatchdogAlive()) await watchdogStart();
+    const { ensureWatchdog } = await import('../../watchdog/ensure.js');
+    await ensureWatchdog();
 
     
     if (onboarding.state === 'not_found') {

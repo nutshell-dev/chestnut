@@ -9,6 +9,7 @@ import { getWorkspaceRoot } from '../foundation/paths.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 import { getAuditWriter } from './watchdog-context.js';
 import { AUDIT_MESSAGE_MAX_CHARS } from '../foundation/audit/index.js';
+import { isFileNotFound } from '../foundation/fs/types.js';
 
 /** 1:1 保 watchdog.ts:85-89 */
 export function writeWatchdogPid(pid: number): void {
@@ -84,30 +85,64 @@ export function getWatchdogPid(): number | null {
   }
 }
 
+export class WatchdogPidForeignWorkspaceError extends Error {
+  constructor(public foreignPid: number, public foreignRoot: string, public currentRoot: string) {
+    super(`Watchdog PID file owned by foreign workspace: pid=${foreignPid} root=${foreignRoot} current=${currentRoot}`);
+    this.name = 'WatchdogPidForeignWorkspaceError';
+  }
+}
+
 /** 1:1 保 watchdog.ts:132-149 */
 export function isWatchdogAlive(): boolean {
+  const fs = getClawforumFs();
+  let content: string;
   try {
-    const fs = getClawforumFs();
-    const content = fs.readSync('watchdog.pid');
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(content);
-    } catch (e) {
-      backupCorruptPid(content, e);
-      return false;
-    }
-    if (!validatePidShape(parsed)) {
-      backupCorruptPid(content, new Error('shape_mismatch'));
-      return false;
-    }
-    const currentRoot = getWorkspaceRoot();
-    if (parsed.root !== currentRoot) {
+    content = fs.readSync('watchdog.pid');
+  } catch (err) {
+    // ENOENT silent (pid 文件不在 = watchdog 不在跑、合规)
+    if (isFileNotFound(err)) return false;
+    // 非 ENOENT IO 错 = silent 是反模式、必 audit + throw
+    const auditWriter = getAuditWriter();
+    auditWriter?.write(
+      WATCHDOG_AUDIT_EVENTS.PID_READ_FAILED,
+      `error=${(err instanceof Error ? err.message : String(err)).slice(0, AUDIT_MESSAGE_MAX_CHARS)}`,
+    );
+    throw err;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch (e) {
+    backupCorruptPid(content, e);
+    return false;
+  }
+  if (!validatePidShape(parsed)) {
+    backupCorruptPid(content, new Error('shape_mismatch'));
+    return false;
+  }
+  const currentRoot = getWorkspaceRoot();
+  if (parsed.root !== currentRoot) {
+    const stillAlive = isAlive(parsed.pid);
+    const auditWriter = getAuditWriter();
+    // 候选 D: foreign pid 已死 → 自动清 stale (audit + remove + return false 放行 spawn)
+    if (!stillAlive) {
+      auditWriter?.write(
+        WATCHDOG_AUDIT_EVENTS.PID_STALE_AUTO_CLEANED,
+        `foreign_pid=${parsed.pid}`,
+        `foreign_root=${parsed.root}`,
+        `current_root=${currentRoot}`,
+      );
       removeWatchdogPid();
       return false;
     }
-    return isAlive(parsed.pid);
-  } catch {
-    removeWatchdogPid();
-    return false;
+    // foreign 活 → audit + throw（不删 + 不放行 spawn / user 需 cd + clawforum stop）
+    auditWriter?.write(
+      WATCHDOG_AUDIT_EVENTS.PID_FOREIGN_WORKSPACE,
+      `foreign_pid=${parsed.pid}`,
+      `foreign_root=${parsed.root}`,
+      `current_root=${currentRoot}`,
+    );
+    throw new WatchdogPidForeignWorkspaceError(parsed.pid, parsed.root, currentRoot);
   }
+  return isAlive(parsed.pid);
 }

@@ -331,7 +331,7 @@ Test message`;
       );
       expect(responseContent).toContain('# RESPONSE');
       expect(responseContent).toContain('**To:** motion');
-      expect(responseContent).toContain('**Contract:** test-contract');
+      expect(responseContent).toContain('**Contract_id:** test-contract');
       expect(responseContent).toContain('Error: LLM API crashed');
     });
 
@@ -352,7 +352,7 @@ Test message`;
               content: 'hi',
               priority: 'normal',
               timestamp: new Date().toISOString(),
-              contract_id: 'test-contract',
+              metadata: { contract_id: 'test-contract' },
             } as InboxMessage],
           };
         }

@@ -10,7 +10,7 @@
 
 import * as path from 'path';
 import { fileURLToPath } from 'url';
-import { getMotionDir, loadGlobalConfig } from '../foundation/config/index.js';
+import { getNamedSubrootDir, loadGlobalConfig } from '../foundation/config/index.js';
 import { CONFIG_DEFAULTS } from '../assembly/config-defaults.js';
 import type { FileSystem } from '../foundation/fs/types.js';
 import { NodeFileSystem } from '../foundation/fs/node-fs.js';
@@ -31,8 +31,10 @@ export const inactivityNotifyCount: Map<string, number> = new Map();
 /** Track claws that have ever been alive for first-tick crash detection (phase 1047) */
 export const everSpawned: Set<string> = new Set();
 
-/** Track claws for which crash_notification has already been emitted (phase 1207 dedup) */
-export const clawPreviouslyNotified: Set<string> = new Set();
+/** Track claws for which crash_notification has already been emitted (phase 1207 dedup)
+ *  phase 1269: persist to state (Map<string, notified_ts_ms>)
+ */
+export const clawPreviouslyNotified: Map<string, number> = new Map();
 
 // === Lazy cache state（封装 / 经 getter） ===
 
@@ -44,7 +46,7 @@ let _auditWriter: AuditLog | null = null;
 
 /** 1:1 保 watchdog.ts:29-31 */
 export function getClawforumDir(): string {
-  return path.dirname(getMotionDir());
+  return path.dirname(getNamedSubrootDir('motion'));
 }
 
 /**
@@ -70,7 +72,7 @@ export function getWatchdogEntryPath(): string {
 /** 1:1 保 watchdog.ts:58-67 */
 export function getMotionContext(): { fs: FileSystem; audit: AuditLog } {
   if (!_motionCtx) {
-    _motionCtx = createDirContext(getMotionDir());
+    _motionCtx = createDirContext(getNamedSubrootDir('motion'));
     // 失败契约（fail-fast）：createDirContext 抛错 → 直接上抛
     //   - _motionCtx 保持 null，调用方（watchdog 主循环）整个 iteration 失败
     //   - 不做 catch 重建、不降级写 stdout；watchdog 进程应由 SIGTERM 或 uncaughtException 兜底
