@@ -2,7 +2,8 @@
  * Task system + SubAgent tests
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, expect, vi } from 'vitest';
+import { test } from '../helpers/task-test-fixture.js';
 import * as path from 'path';
 import { promises as fs } from 'fs';
 import { tmpdir } from 'os';
@@ -17,14 +18,13 @@ import { ToolRegistryImpl } from '../../src/foundation/tools/registry.js';
 import type { LLMResponse } from '../../src/foundation/llm-provider/types.js';
 import type { LLMOrchestrator } from '../../src/foundation/llm-orchestrator/index.js';
 import type { StreamChunk } from '../../src/foundation/llm-orchestrator/types.js';
-import { createTempDir, cleanupTempDir } from '../utils/temp.js';
-import { makeAudit, waitForAuditEvent } from '../helpers/audit.js';
-import { createTestTaskSystem } from '../helpers/task-system.js';
-import { waitFor } from '../helpers/wait-for.js';
 import { TASK_AUDIT_EVENTS } from '../../src/core/async-task-system/audit-events.js';
 import { SUBAGENT_AUDIT_EVENTS } from '../../src/core/subagent/audit-events.js';
 import { TEST_LLM_TIMEOUT_MS, SUBAGENT_DEFAULT_TIMEOUT_MS, SUBAGENT_WAIT_TIMEOUT_MS, SUBAGENT_LONG_TIMEOUT_MS } from '../helpers/test-timeouts.js';
 import { SUBAGENT_TIMEOUT_MS } from '../../src/core/subagent/constants.js';
+import { makeAudit, waitForAuditEvent } from '../helpers/audit.js';
+import { createTestTaskSystem } from '../helpers/task-system.js';
+import { waitFor } from '../helpers/wait-for.js';
 
 /**
  * Convert LLMResponse to stream chunks for mock
@@ -125,37 +125,16 @@ function createAbortableHangingMockLLM(): LLMOrchestrator {
 }
 
 describe('Task System + SubAgent', () => {
-  let tempDir: string;
-  let mockFs: NodeFileSystem;
-  let taskSystem: AsyncTaskSystem;
-  let registry: ToolRegistryImpl;
-
-  beforeEach(async () => {
-    tempDir = await createTempDir();
-    mockFs = new NodeFileSystem({ baseDir: tempDir });
-    await mockFs.ensureDir('tasks');
-    
-    taskSystem = createTestTaskSystem(tempDir, mockFs, makeAudit().audit);
-    await taskSystem.initialize();
-    taskSystem.startDispatch();
-
-    registry = new ToolRegistryImpl();
-  });
-
-  afterEach(async () => {
-    await taskSystem.shutdown(1000);
-    await cleanupTempDir(tempDir);
-  });
 
   describe('AsyncTaskSystem', () => {
-    it('should schedule subagent and return taskId', async () => {
+    test('should schedule subagent and return taskId', async ({ ctx }) => {
       // Recreate with hanging LLM so task stays in running state for verification
-      await taskSystem.shutdown(100);
-      taskSystem = createTestTaskSystem(tempDir, mockFs, makeAudit().audit, createHangingMockLLM());
-      await taskSystem.initialize();
-      taskSystem.startDispatch();
+      await ctx.taskSystem.shutdown(100);
+      ctx.replaceTaskSystem(createTestTaskSystem(ctx.tempDir, ctx.mockFs, makeAudit().audit, createHangingMockLLM()));
+      await ctx.taskSystem.initialize();
+      ctx.taskSystem.startDispatch();
       
-      const taskId = await taskSystem.scheduleSubAgent({
+      const taskId = await ctx.taskSystem.scheduleSubAgent({
         kind: 'subagent',
         intent: 'Test task',
         timeoutMs: SUBAGENT_DEFAULT_TIMEOUT_MS,
@@ -167,19 +146,19 @@ describe('Task System + SubAgent', () => {
       expect(typeof taskId).toBe('string');
 
       // Wait for dispatch to move from pending to running (file on disk)
-      await waitFor(() => mockFs.exists(`tasks/queues/running/${taskId}.json`));
+      await waitFor(() => ctx.mockFs.exists(`tasks/queues/running/${taskId}.json`));
 
       // Check task is tracked in running list
-      expect(taskSystem.listRunning()).toContain(taskId);
+      expect(ctx.taskSystem.listRunning()).toContain(taskId);
     });
 
-    it('should pass subagent task through watcher → ingest → dispatch chain (phase163)', async () => {
-      await taskSystem.shutdown(100);
-      taskSystem = createTestTaskSystem(tempDir, mockFs, makeAudit().audit, createHangingMockLLM());
-      await taskSystem.initialize();
-      taskSystem.startDispatch();
+    test('should pass subagent task through watcher → ingest → dispatch chain (phase163)', async ({ ctx }) => {
+      await ctx.taskSystem.shutdown(100);
+      ctx.replaceTaskSystem(createTestTaskSystem(ctx.tempDir, ctx.mockFs, makeAudit().audit, createHangingMockLLM()));
+      await ctx.taskSystem.initialize();
+      ctx.taskSystem.startDispatch();
 
-      const taskId = await taskSystem.scheduleSubAgent({
+      const taskId = await ctx.taskSystem.scheduleSubAgent({
         kind: 'subagent',
         intent: 'watcher chain probe',
         timeoutMs: SUBAGENT_DEFAULT_TIMEOUT_MS,
@@ -188,33 +167,33 @@ describe('Task System + SubAgent', () => {
       });
 
       // 1. scheduleSubAgent 写文件后立即可见于 pending/
-      expect(await mockFs.exists(`tasks/queues/pending/${taskId}.json`)).toBe(true);
+      expect(await ctx.mockFs.exists(`tasks/queues/pending/${taskId}.json`)).toBe(true);
 
       // 2. watcher 拾起 → _ingestPendingFile → _dispatch → movePendingToRunning（异步，给足时间）
       await waitFor(async () => {
-        return await mockFs.exists(`tasks/queues/running/${taskId}.json`);
+        return await ctx.mockFs.exists(`tasks/queues/running/${taskId}.json`);
       }, 10000); // was 3000
 
       // 3. pending/ 文件已被移走
-      expect(await mockFs.exists(`tasks/queues/pending/${taskId}.json`)).toBe(false);
-      expect(await mockFs.exists(`tasks/queues/running/${taskId}.json`)).toBe(true);
+      expect(await ctx.mockFs.exists(`tasks/queues/pending/${taskId}.json`)).toBe(false);
+      expect(await ctx.mockFs.exists(`tasks/queues/running/${taskId}.json`)).toBe(true);
 
       // 4. listRunning 反映状态
-      expect(taskSystem.listRunning()).toContain(taskId);
+      expect(ctx.taskSystem.listRunning()).toContain(taskId);
     });
 
-    it('should move task to done when completed', async () => {
+    test('should move task to done when completed', async ({ ctx }) => {
       // Recreate with mock LLM that returns quickly
-      await taskSystem.shutdown(100);
+      await ctx.taskSystem.shutdown(100);
       const { audit, events, emitter } = makeAudit();
-      taskSystem = createTestTaskSystem(tempDir, mockFs, audit, createMockLLM([{
+      ctx.replaceTaskSystem(createTestTaskSystem(ctx.tempDir, ctx.mockFs, audit, createMockLLM([{
         content: [{ type: 'text', text: 'Task result' }],
         stop_reason: 'end_turn',
-      }]));
-      await taskSystem.initialize();
-      taskSystem.startDispatch();
+      }])));
+      await ctx.taskSystem.initialize();
+      ctx.taskSystem.startDispatch();
 
-      const taskId = await taskSystem.scheduleSubAgent({
+      const taskId = await ctx.taskSystem.scheduleSubAgent({
         kind: 'subagent',
         intent: 'Simple task',
         timeoutMs: SUBAGENT_DEFAULT_TIMEOUT_MS,
@@ -226,31 +205,31 @@ describe('Task System + SubAgent', () => {
       await waitForAuditEvent(emitter, events, TASK_AUDIT_EVENTS.TASK_COMPLETED);
 
       // Allow brief fs flush after audit event (R1: emit may slightly precede writeAtomic)
-      await waitFor(() => mockFs.exists(`tasks/queues/done/${taskId}.json`), 1000);
+      await waitFor(() => ctx.mockFs.exists(`tasks/queues/done/${taskId}.json`), 1000);
 
       // Task should be moved to done
-      const doneExists = await mockFs.exists(`tasks/queues/done/${taskId}.json`);
+      const doneExists = await ctx.mockFs.exists(`tasks/queues/done/${taskId}.json`);
       expect(doneExists).toBe(true);
 
       // Running file should not exist
-      const runningExists = await mockFs.exists(`tasks/queues/running/${taskId}.json`);
+      const runningExists = await ctx.mockFs.exists(`tasks/queues/running/${taskId}.json`);
       expect(runningExists).toBe(false);
 
       // phase 805: runSubagent 不再创建 tasks/subagents/<id>/ orphan empty dir
       // (sub-3 fix: 该 dir 0 业务用途，line 77 derive 后仅 ensureDir 无 fs 写入)
     });
 
-    it('should deliver subagent result to inbox/pending/*.md (bypass transport)', async () => {
-      await taskSystem.shutdown(100);
+    test('should deliver subagent result to inbox/pending/*.md (bypass transport)', async ({ ctx }) => {
+      await ctx.taskSystem.shutdown(100);
       const { audit, events, emitter } = makeAudit();
-      taskSystem = createTestTaskSystem(tempDir, mockFs, audit, createMockLLM([{
+      ctx.replaceTaskSystem(createTestTaskSystem(ctx.tempDir, ctx.mockFs, audit, createMockLLM([{
         content: [{ type: 'text', text: 'Subagent output' }],
         stop_reason: 'end_turn',
-      }]));
-      await taskSystem.initialize();
-      taskSystem.startDispatch();
+      }])));
+      await ctx.taskSystem.initialize();
+      ctx.taskSystem.startDispatch();
 
-      const taskId = await taskSystem.scheduleSubAgent({
+      const taskId = await ctx.taskSystem.scheduleSubAgent({
         kind: 'subagent',
         intent: 'Deliver result',
         timeoutMs: SUBAGENT_DEFAULT_TIMEOUT_MS,
@@ -261,9 +240,9 @@ describe('Task System + SubAgent', () => {
       // Wait for TASK_COMPLETED instead of polling inbox (phase 779 Step C)
       await waitForAuditEvent(emitter, events, TASK_AUDIT_EVENTS.TASK_COMPLETED);
 
-      const inboxDir = path.join(tempDir, 'inbox', 'pending');
+      const inboxDir = path.join(ctx.tempDir, 'inbox', 'pending');
 
-      // Result must be in inbox/pending/ (relative to clawDir=tempDir), NOT in claws/motion/inbox
+      // Result must be in inbox/pending/ (relative to clawDir=ctx.tempDir), NOT in claws/motion/inbox
       const inboxFiles = await fs.readdir(inboxDir).catch(() => [] as string[]);
       expect(inboxFiles.length).toBeGreaterThan(0);
       expect(inboxFiles.every((f: string) => f.endsWith('.md'))).toBe(true);
@@ -276,7 +255,7 @@ describe('Task System + SubAgent', () => {
       expect(content).toContain(`"resultRef":"tasks/queues/results/${taskId}/result.txt"`);
     });
 
-    it('should cancel task', async () => {
+    test('should cancel task', async ({ ctx }) => {
       // Use a slow but cancellable mock LLM
       // It yields text slowly so we can cancel mid-execution
       async function* slowStream(): AsyncIterableIterator<StreamChunk> {
@@ -290,8 +269,8 @@ describe('Task System + SubAgent', () => {
         yield { type: 'done' };
       }
       
-      await taskSystem.shutdown(100);
-      taskSystem = createTestTaskSystem(tempDir, mockFs, makeAudit().audit, {
+      await ctx.taskSystem.shutdown(100);
+      ctx.replaceTaskSystem(createTestTaskSystem(ctx.tempDir, ctx.mockFs, makeAudit().audit, {
         call: vi.fn().mockResolvedValue({
           content: [{ type: 'text', text: 'Completed' }],
           stop_reason: 'end_turn',
@@ -300,11 +279,11 @@ describe('Task System + SubAgent', () => {
         close: vi.fn(),
         healthCheck: vi.fn().mockResolvedValue(true),
         getProviderInfo: vi.fn().mockReturnValue({ name: 'mock', model: 'test', isFallback: false }),
-      } as unknown as LLMOrchestrator);
-      await taskSystem.initialize();
-      taskSystem.startDispatch();
+      } as unknown as LLMOrchestrator));
+      await ctx.taskSystem.initialize();
+      ctx.taskSystem.startDispatch();
       
-      const taskId = await taskSystem.scheduleSubAgent({
+      const taskId = await ctx.taskSystem.scheduleSubAgent({
         kind: 'subagent',
         intent: 'Long running task',
         timeoutMs: SUBAGENT_TIMEOUT_MS,  // phase 1159: 用 src 真常量替 magic 300000
@@ -313,30 +292,30 @@ describe('Task System + SubAgent', () => {
       });
 
       // Wait for task to be dispatched to running
-      await waitFor(() => taskSystem.listRunning().includes(taskId));
+      await waitFor(() => ctx.taskSystem.listRunning().includes(taskId));
 
       // Verify task is in running state
-      expect(taskSystem.listRunning()).toContain(taskId);
+      expect(ctx.taskSystem.listRunning()).toContain(taskId);
 
-      await taskSystem.cancel(taskId);
+      await ctx.taskSystem.cancel(taskId);
 
       // Task should be removed from running
-      expect(taskSystem.listRunning()).not.toContain(taskId);
-      const runningExists = await mockFs.exists(`tasks/queues/running/${taskId}.json`);
+      expect(ctx.taskSystem.listRunning()).not.toContain(taskId);
+      const runningExists = await ctx.mockFs.exists(`tasks/queues/running/${taskId}.json`);
       expect(runningExists).toBe(false);
     });
 
-    it('should write task_completed event to audit on subagent success', async () => {
-      await taskSystem.shutdown(100);
+    test('should write task_completed event to audit on subagent success', async ({ ctx }) => {
+      await ctx.taskSystem.shutdown(100);
       const { audit, events, emitter } = makeAudit();
-      taskSystem = createTestTaskSystem(tempDir, mockFs, audit, createMockLLM([{
+      ctx.replaceTaskSystem(createTestTaskSystem(ctx.tempDir, ctx.mockFs, audit, createMockLLM([{
         content: [{ type: 'text', text: 'task done' }],
         stop_reason: 'end_turn',
-      }]));
-      await taskSystem.initialize();
-      taskSystem.startDispatch();
+      }])));
+      await ctx.taskSystem.initialize();
+      ctx.taskSystem.startDispatch();
 
-      const taskId = await taskSystem.scheduleSubAgent({
+      const taskId = await ctx.taskSystem.scheduleSubAgent({
         kind: 'subagent',
         intent: 'Simple task',
         timeoutMs: TEST_LLM_TIMEOUT_MS,
@@ -358,14 +337,14 @@ describe('Task System + SubAgent', () => {
       );
     });
 
-    it('should write task_completed err to audit when subagent times out', async () => {
-      await taskSystem.shutdown(100);
+    test('should write task_completed err to audit when subagent times out', async ({ ctx }) => {
+      await ctx.taskSystem.shutdown(100);
       const { audit, events, emitter } = makeAudit();
-      taskSystem = createTestTaskSystem(tempDir, mockFs, audit, createAbortableHangingMockLLM());
-      await taskSystem.initialize();
-      taskSystem.startDispatch();
+      ctx.replaceTaskSystem(createTestTaskSystem(ctx.tempDir, ctx.mockFs, audit, createAbortableHangingMockLLM()));
+      await ctx.taskSystem.initialize();
+      ctx.taskSystem.startDispatch();
 
-      const taskId = await taskSystem.scheduleSubAgent({
+      const taskId = await ctx.taskSystem.scheduleSubAgent({
         kind: 'subagent',
         intent: 'This will time out',
         timeoutMs: 300,   // 300ms，触发 SubAgent timeout
@@ -375,12 +354,12 @@ describe('Task System + SubAgent', () => {
 
       // 等待超时触发 + 任务完成 + inbox 写入
       await waitFor(async () => {
-        const files = await fs.readdir(path.join(tempDir, 'inbox', 'pending')).catch(() => []);
+        const files = await fs.readdir(path.join(ctx.tempDir, 'inbox', 'pending')).catch(() => []);
         return (files as string[]).filter(f => f.endsWith('.md')).length > 0;
       });
 
       // inbox 中有 is_error: true 的消息（验证 executeTask catch 被执行）
-      const inboxDir = path.join(tempDir, 'inbox', 'pending');
+      const inboxDir = path.join(ctx.tempDir, 'inbox', 'pending');
       const inboxFiles = await fs.readdir(inboxDir).catch(() => [] as string[]);
       const mdFiles = inboxFiles.filter((f: string) => f.endsWith('.md'));
       expect(mdFiles.length).toBeGreaterThan(0);
@@ -406,10 +385,10 @@ describe('Task System + SubAgent', () => {
       // phase 805: runSubagent 不再创建 tasks/subagents/<id>/ orphan empty dir (sub-3 fix)
     });
 
-    it('should write fallback inbox message when main sendResult fails', async () => {
+    test('should write fallback inbox message when main sendResult fails', async ({ ctx }) => {
       // 第一次对 inbox/pending 的写入失败，第二次（fallback）成功
       let inboxWriteAttempts = 0;
-      const patchedFs = new NodeFileSystem({ baseDir: tempDir });
+      const patchedFs = new NodeFileSystem({ baseDir: ctx.tempDir });
       const originalWriteAtomic = patchedFs.writeAtomic.bind(patchedFs);
       patchedFs.writeAtomic = async (filePath: string, content: string) => {
         if (filePath.startsWith('inbox/pending/') && inboxWriteAttempts++ === 0) {
@@ -418,7 +397,7 @@ describe('Task System + SubAgent', () => {
         return originalWriteAtomic(filePath, content);
       };
 
-      const failSystem = createTestTaskSystem(tempDir, patchedFs, makeAudit().audit, createMockLLM([{
+      const failSystem = createTestTaskSystem(ctx.tempDir, patchedFs, makeAudit().audit, createMockLLM([{
         content: [{ type: 'text', text: 'done' }],
         stop_reason: 'end_turn',
       }]));
@@ -434,13 +413,13 @@ describe('Task System + SubAgent', () => {
       });
 
       await waitFor(async () => {
-        const files = await fs.readdir(path.join(tempDir, 'inbox', 'pending')).catch(() => []);
+        const files = await fs.readdir(path.join(ctx.tempDir, 'inbox', 'pending')).catch(() => []);
         return (files as string[]).filter(f => f.endsWith('.md')).length > 0;
       });
       await failSystem.shutdown(1000);
 
       // fallback 消息应该存在于 inbox
-      const inboxDir = path.join(tempDir, 'inbox', 'pending');
+      const inboxDir = path.join(ctx.tempDir, 'inbox', 'pending');
       const files = await fs.readdir(inboxDir).catch(() => [] as string[]);
       const mdFiles = (files as string[]).filter(f => f.endsWith('.md'));
       expect(mdFiles.length).toBeGreaterThan(0);
@@ -451,8 +430,8 @@ describe('Task System + SubAgent', () => {
       expect(content).toContain('is_error');
     });
 
-    it('should write fallback inbox message when movePendingToRunning fails', async () => {
-      const patchedFs = new NodeFileSystem({ baseDir: tempDir });
+    test('should write fallback inbox message when movePendingToRunning fails', async ({ ctx }) => {
+      const patchedFs = new NodeFileSystem({ baseDir: ctx.tempDir });
       const originalMove = patchedFs.move.bind(patchedFs);
       patchedFs.move = async (from: string, to: string) => {
         if (from.startsWith('tasks/queues/pending/') && to.startsWith('tasks/queues/running/')) {
@@ -462,7 +441,7 @@ describe('Task System + SubAgent', () => {
       };
 
       const { audit } = makeAudit();
-      const failSystem = createTestTaskSystem(tempDir, patchedFs, audit, createMockLLM([{
+      const failSystem = createTestTaskSystem(ctx.tempDir, patchedFs, audit, createMockLLM([{
         content: [{ type: 'text', text: 'done' }],
         stop_reason: 'end_turn',
       }]));
@@ -477,7 +456,7 @@ describe('Task System + SubAgent', () => {
         parentClawId: 'test-claw',
       });
 
-      const inboxDir = path.join(tempDir, 'inbox', 'pending');
+      const inboxDir = path.join(ctx.tempDir, 'inbox', 'pending');
       await waitFor(
         async () => {
           const files = await fs.readdir(inboxDir).catch(() => [] as string[]);
@@ -503,14 +482,14 @@ describe('Task System + SubAgent', () => {
       expect(content).toContain('is_error');
     });
 
-    it('should write TASK_SHUTDOWN_TIMEOUT audit event when shutdown times out', async () => {
-      await taskSystem.shutdown(100);
+    test('should write TASK_SHUTDOWN_TIMEOUT audit event when shutdown times out', async ({ ctx }) => {
+      await ctx.taskSystem.shutdown(100);
       const { audit, events, emitter } = makeAudit();
-      taskSystem = createTestTaskSystem(tempDir, mockFs, audit, createHangingMockLLM());
-      await taskSystem.initialize();
-      taskSystem.startDispatch();
+      ctx.replaceTaskSystem(createTestTaskSystem(ctx.tempDir, ctx.mockFs, audit, createHangingMockLLM()));
+      await ctx.taskSystem.initialize();
+      ctx.taskSystem.startDispatch();
 
-      const taskId = await taskSystem.scheduleSubAgent({
+      const taskId = await ctx.taskSystem.scheduleSubAgent({
         kind: 'subagent',
         intent: 'Hanging task',
         timeoutMs: SUBAGENT_DEFAULT_TIMEOUT_MS,
@@ -519,10 +498,10 @@ describe('Task System + SubAgent', () => {
       });
 
       // Wait for task to be dispatched to running
-      await waitFor(() => taskSystem.listRunning().includes(taskId));
+      await waitFor(() => ctx.taskSystem.listRunning().includes(taskId));
 
       // Shutdown with 1ms timeout to force timeout path
-      await taskSystem.shutdown(1);
+      await ctx.taskSystem.shutdown(1);
 
       // Wait for cleanups to drain before asserting audit events (phase 779 Step B/C)
       await waitForAuditEvent(emitter, events, TASK_AUDIT_EVENTS.SHUTDOWN_TIMEOUT);
@@ -534,13 +513,13 @@ describe('Task System + SubAgent', () => {
       );
     });
 
-    it('should not throw when shutdown times out with null auditWriter', async () => {
-      await taskSystem.shutdown(100);
-      taskSystem = createTestTaskSystem(tempDir, mockFs, { write: () => {} } as any, createHangingMockLLM());
-      await taskSystem.initialize();
-      taskSystem.startDispatch();
+    test('should not throw when shutdown times out with null auditWriter', async ({ ctx }) => {
+      await ctx.taskSystem.shutdown(100);
+      ctx.replaceTaskSystem(createTestTaskSystem(ctx.tempDir, ctx.mockFs, { write: () => {} } as any, createHangingMockLLM()));
+      await ctx.taskSystem.initialize();
+      ctx.taskSystem.startDispatch();
 
-      const taskId = await taskSystem.scheduleSubAgent({
+      const taskId = await ctx.taskSystem.scheduleSubAgent({
         kind: 'subagent',
         intent: 'Hanging task',
         timeoutMs: SUBAGENT_DEFAULT_TIMEOUT_MS,
@@ -549,34 +528,34 @@ describe('Task System + SubAgent', () => {
       });
 
       // Wait for task to be dispatched to running
-      await waitFor(() => taskSystem.listRunning().includes(taskId));
+      await waitFor(() => ctx.taskSystem.listRunning().includes(taskId));
 
       // Should not throw even with null auditWriter
-      await expect(taskSystem.shutdown(1)).resolves.not.toThrow();
+      await expect(ctx.taskSystem.shutdown(1)).resolves.not.toThrow();
     });
 
     describe('addPostProcessor / postProcessor field', () => {
-      it('should throw when registering duplicate name', () => {
+      test('should throw when registering duplicate name', ({ ctx }) => {
         const mockProcessor = vi.fn();
-        taskSystem.addPostProcessor('test-proc', mockProcessor as any);
-        expect(() => taskSystem.addPostProcessor('test-proc', mockProcessor as any)).toThrow(
+        ctx.taskSystem.addPostProcessor('test-proc', mockProcessor as any);
+        expect(() => ctx.taskSystem.addPostProcessor('test-proc', mockProcessor as any)).toThrow(
           'PostProcessor "test-proc" already registered',
         );
       });
 
-      it('should call postProcessor on success path', async () => {
-        await taskSystem.shutdown(100);
+      test('should call postProcessor on success path', async ({ ctx }) => {
+        await ctx.taskSystem.shutdown(100);
         const { audit, events, emitter } = makeAudit();
         const mockProcessor = vi.fn().mockResolvedValue('transformed-result');
-        taskSystem = createTestTaskSystem(tempDir, mockFs, audit, createMockLLM([{
+        ctx.replaceTaskSystem(createTestTaskSystem(ctx.tempDir, ctx.mockFs, audit, createMockLLM([{
           content: [{ type: 'text', text: 'raw result' }],
           stop_reason: 'end_turn',
-        }]));
-        taskSystem.addPostProcessor('test-proc', mockProcessor as any);
-        await taskSystem.initialize();
-        taskSystem.startDispatch();
+        }])));
+        ctx.taskSystem.addPostProcessor('test-proc', mockProcessor as any);
+        await ctx.taskSystem.initialize();
+        ctx.taskSystem.startDispatch();
 
-        await taskSystem.scheduleSubAgent({
+        await ctx.taskSystem.scheduleSubAgent({
           kind: 'subagent',
           intent: 'Test postProcessor',
           timeoutMs: SUBAGENT_DEFAULT_TIMEOUT_MS,
@@ -588,13 +567,13 @@ describe('Task System + SubAgent', () => {
         // TASK_COMPLETED 在 subagent-executor.ts sendResult 之后 emit，
         // 是 inbox 文件写入的因果后置单调信号（取代 polling inbox 目录）。
         await waitForAuditEvent(emitter, events, TASK_AUDIT_EVENTS.TASK_COMPLETED);
-        const inboxDir = path.join(tempDir, 'inbox', 'pending');
+        const inboxDir = path.join(ctx.tempDir, 'inbox', 'pending');
 
         expect(mockProcessor).toHaveBeenCalledTimes(1);
         const callArgs = mockProcessor.mock.calls[0];
         expect(callArgs[0]).toBe('raw result');
         expect(callArgs[2]).toBe(false); // isError
-        expect(callArgs[3]).toBe(mockFs); // fs
+        expect(callArgs[3]).toBe(ctx.mockFs); // fs
         expect(callArgs[4]).toBe(audit); // audit
 
         // Inbox should contain transformed result
@@ -604,8 +583,8 @@ describe('Task System + SubAgent', () => {
         expect(content).toContain('transformed-result');
       });
 
-      it('should call postProcessor on error path with isError=true', async () => {
-        await taskSystem.shutdown(100);
+      test('should call postProcessor on error path with isError=true', async ({ ctx }) => {
+        await ctx.taskSystem.shutdown(100);
         const { audit, events } = makeAudit();
         const mockProcessor = vi.fn().mockResolvedValue('error-transformed');
 
@@ -620,12 +599,12 @@ describe('Task System + SubAgent', () => {
         });
 
         // Use empty-object LLM so subagent.run() throws immediately (call is undefined)
-        taskSystem = createTestTaskSystem(tempDir, mockFs, audit);
-        taskSystem.addPostProcessor('test-proc-err', capturingProcessor as any);
-        await taskSystem.initialize();
-        taskSystem.startDispatch();
+        ctx.replaceTaskSystem(createTestTaskSystem(ctx.tempDir, ctx.mockFs, audit));
+        ctx.taskSystem.addPostProcessor('test-proc-err', capturingProcessor as any);
+        await ctx.taskSystem.initialize();
+        ctx.taskSystem.startDispatch();
 
-        const taskId = await taskSystem.scheduleSubAgent({
+        const taskId = await ctx.taskSystem.scheduleSubAgent({
           kind: 'subagent',
           intent: 'Test error path',
           timeoutMs: SUBAGENT_DEFAULT_TIMEOUT_MS,
@@ -643,17 +622,17 @@ describe('Task System + SubAgent', () => {
         expect(callArgs[2]).toBe(true); // isError
       });
 
-      it('should audit when postProcessor name not found in registry', async () => {
-        await taskSystem.shutdown(100);
+      test('should audit when postProcessor name not found in registry', async ({ ctx }) => {
+        await ctx.taskSystem.shutdown(100);
         const { audit, events, emitter } = makeAudit();
-        taskSystem = createTestTaskSystem(tempDir, mockFs, audit, createMockLLM([{
+        ctx.replaceTaskSystem(createTestTaskSystem(ctx.tempDir, ctx.mockFs, audit, createMockLLM([{
           content: [{ type: 'text', text: 'raw result' }],
           stop_reason: 'end_turn',
-        }]));
-        await taskSystem.initialize();
-        taskSystem.startDispatch();
+        }])));
+        await ctx.taskSystem.initialize();
+        ctx.taskSystem.startDispatch();
 
-        const taskId = await taskSystem.scheduleSubAgent({
+        const taskId = await ctx.taskSystem.scheduleSubAgent({
           kind: 'subagent',
           intent: 'Test missing postProcessor',
           timeoutMs: SUBAGENT_DEFAULT_TIMEOUT_MS,
@@ -676,7 +655,7 @@ describe('Task System + SubAgent', () => {
   });
 
   describe('SubAgent', () => {
-    it('should run and return text result', async () => {
+    test('should run and return text result', async ({ ctx }) => {
       const mockLLM = createMockLLM([{
         content: [{ type: 'text', text: 'Task completed successfully' }],
         stop_reason: 'end_turn',
@@ -686,17 +665,17 @@ describe('Task System + SubAgent', () => {
         agentId: 'test-agent-1',
         resultDir: 'tasks/queues/results/test-agent-1',
         messageStore: createDialogStore(
-          mockFs,
+          ctx.mockFs,
           'tasks/queues/results/test-agent-1',
           new NoopAuditWriter(),
           'messages.json',
           ),
         prompt: 'Do something',
-        clawDir: tempDir,
-        workspaceDir: path.join(tempDir, 'clawspace'),
+        clawDir: ctx.tempDir,
+        workspaceDir: path.join(ctx.tempDir, 'clawspace'),
         llm: mockLLM,
-        registry,
-        fs: mockFs,
+        registry: ctx.registry,
+        fs: ctx.mockFs,
         maxSteps: 10,
         timeoutMs: SUBAGENT_WAIT_TIMEOUT_MS,
         taskStreamWriter: new NoopStreamWriter(),
@@ -708,9 +687,9 @@ describe('Task System + SubAgent', () => {
       expect(result).toContain('Task completed');
     });
 
-    it('should execute tools in subagent profile', async () => {
+    test('should execute tools in subagent profile', async ({ ctx }) => {
       // Create a test file
-      await mockFs.writeAtomic('test.txt', 'Hello from test file');
+      await ctx.mockFs.writeAtomic('test.txt', 'Hello from test file');
 
       const mockLLM = createMockLLM([
         {
@@ -730,17 +709,17 @@ describe('Task System + SubAgent', () => {
         agentId: 'test-agent-2',
         resultDir: 'tasks/queues/results/test-agent-2',
         messageStore: createDialogStore(
-          mockFs,
+          ctx.mockFs,
           'tasks/queues/results/test-agent-2',
           new NoopAuditWriter(),
           'messages.json',
           ),
         prompt: 'Read test.txt',
-        clawDir: tempDir,
-        workspaceDir: path.join(tempDir, 'clawspace'),
+        clawDir: ctx.tempDir,
+        workspaceDir: path.join(ctx.tempDir, 'clawspace'),
         llm: mockLLM,
-        registry,
-        fs: mockFs,
+        registry: ctx.registry,
+        fs: ctx.mockFs,
         maxSteps: 10,
         timeoutMs: SUBAGENT_WAIT_TIMEOUT_MS,
         taskStreamWriter: new NoopStreamWriter(),
@@ -753,7 +732,7 @@ describe('Task System + SubAgent', () => {
       expect(result).toContain('File content');
     });
 
-    it('should execute exec tool in subagent profile (previously blocked by execute: false)', async () => {
+    test('should execute exec tool in subagent profile (previously blocked by execute: false)', async ({ ctx }) => {
       const mockLLM = createMockLLM([
         {
           content: [
@@ -772,18 +751,18 @@ describe('Task System + SubAgent', () => {
         agentId: 'test-agent-exec',
         resultDir: 'tasks/queues/results/test-agent-exec',
         messageStore: createDialogStore(
-          mockFs,
+          ctx.mockFs,
           'tasks/queues/results/test-agent-exec',
           new NoopAuditWriter(),
           'messages.json',
           'test-system-prompt',
         ),
         prompt: 'Run echo command',
-        clawDir: tempDir,
-        workspaceDir: path.join(tempDir, 'clawspace'),
+        clawDir: ctx.tempDir,
+        workspaceDir: path.join(ctx.tempDir, 'clawspace'),
         llm: mockLLM,
-        registry,
-        fs: mockFs,
+        registry: ctx.registry,
+        fs: ctx.mockFs,
         maxSteps: 10,
         timeoutMs: SUBAGENT_WAIT_TIMEOUT_MS,
         taskStreamWriter: new NoopStreamWriter(),
@@ -798,7 +777,7 @@ describe('Task System + SubAgent', () => {
       expect(result).toContain('Command output');
     });
 
-    it('should timeout on long running task', async () => {
+    test('should timeout on long running task', async ({ ctx }) => {
       const mockLLM = createMockLLM([
         {
           content: [{ type: 'text', text: 'Thinking...' }],
@@ -825,17 +804,17 @@ describe('Task System + SubAgent', () => {
         agentId: 'test-agent-3',
         resultDir: 'tasks/queues/results/test-agent-3',
         messageStore: createDialogStore(
-          mockFs,
+          ctx.mockFs,
           'tasks/queues/results/test-agent-3',
           new NoopAuditWriter(),
           'messages.json',
           ),
         prompt: 'Slow task',
-        clawDir: tempDir,
-        workspaceDir: path.join(tempDir, 'clawspace'),
+        clawDir: ctx.tempDir,
+        workspaceDir: path.join(ctx.tempDir, 'clawspace'),
         llm: mockLLM,
-        registry,
-        fs: mockFs,
+        registry: ctx.registry,
+        fs: ctx.mockFs,
         maxSteps: 10,
         timeoutMs: 100, // Very short timeout
         taskStreamWriter: new NoopStreamWriter(),
@@ -845,7 +824,7 @@ describe('Task System + SubAgent', () => {
       await expect(agent.run()).rejects.toThrow();
     });
 
-    it('should call onIdleTimeout callback when idle timeout triggers', async () => {
+    test('should call onIdleTimeout callback when idle timeout triggers', async ({ ctx }) => {
       vi.useFakeTimers({ shouldAdvanceTime: true });
 
       const onIdleTimeout = vi.fn();
@@ -862,18 +841,18 @@ describe('Task System + SubAgent', () => {
         agentId: 'test-idle',
         resultDir: 'tasks/queues/results/test-idle',
         messageStore: createDialogStore(
-          mockFs,
+          ctx.mockFs,
           'tasks/queues/results/test-idle',
           new NoopAuditWriter(),
           'messages.json',
           'test-system-prompt',
         ),
         prompt: 'Test idle',
-        clawDir: tempDir,
-        workspaceDir: path.join(tempDir, 'clawspace'),
+        clawDir: ctx.tempDir,
+        workspaceDir: path.join(ctx.tempDir, 'clawspace'),
         llm: hangingLLM,
-        registry,
-        fs: mockFs,
+        registry: ctx.registry,
+        fs: ctx.mockFs,
         timeoutMs: SUBAGENT_LONG_TIMEOUT_MS, // main timeout is long
         idleTimeoutMs: 100, // idle timeout is short
         onIdleTimeout,
@@ -891,11 +870,11 @@ describe('Task System + SubAgent', () => {
       vi.useRealTimers();
     });
 
-    it('should write audit event when appendToLog fs.append throws', async () => {
+    test('should write audit event when appendToLog fs.append throws', async ({ ctx }) => {
       const mockAuditWriter = { write: vi.fn() };
 
       // FS mock：append 始终失败，其余方法正常
-      const throwingFs = Object.create(mockFs);
+      const throwingFs = Object.create(ctx.mockFs);
       throwingFs.append = vi.fn().mockRejectedValue(new Error('Disk full'));
 
       const agent = new SubAgent({
@@ -909,13 +888,13 @@ describe('Task System + SubAgent', () => {
           'test-system-prompt',
         ),
         prompt: 'Test',
-        clawDir: tempDir,
-        workspaceDir: path.join(tempDir, 'clawspace'),
+        clawDir: ctx.tempDir,
+        workspaceDir: path.join(ctx.tempDir, 'clawspace'),
         llm: createMockLLM([{
           content: [{ type: 'text', text: 'Task done' }],
           stop_reason: 'end_turn',
         }]),
-        registry,
+        registry: ctx.registry,
         fs: throwingFs,
         taskStreamWriter: new NoopStreamWriter(),
         auditWriter: mockAuditWriter as any,
@@ -931,7 +910,7 @@ describe('Task System + SubAgent', () => {
       );
     });
 
-    it('subagent workspaceDir defaults to clawspace (shared with caller / phase 518)', async () => {
+    test('subagent workspaceDir defaults to clawspace (shared with caller / phase 518)', async ({ ctx }) => {
       const mockLLM = createMockLLM([
         {
           content: [{ type: 'text', text: 'Done' }],
@@ -943,18 +922,18 @@ describe('Task System + SubAgent', () => {
         agentId: 'workspace-test-agent',
         resultDir: 'tasks/queues/results/workspace-test-agent',
         messageStore: createDialogStore(
-          mockFs,
+          ctx.mockFs,
           'tasks/queues/results/workspace-test-agent',
           new NoopAuditWriter(),
           'messages.json',
           'test-system-prompt',
         ),
         prompt: 'Test workspaceDir',
-        clawDir: tempDir,
-        workspaceDir: path.join(tempDir, 'clawspace'),
+        clawDir: ctx.tempDir,
+        workspaceDir: path.join(ctx.tempDir, 'clawspace'),
         llm: mockLLM,
-        registry,
-        fs: mockFs,
+        registry: ctx.registry,
+        fs: ctx.mockFs,
         taskStreamWriter: new NoopStreamWriter(),
         auditWriter: new NoopAuditWriter(),
       });
