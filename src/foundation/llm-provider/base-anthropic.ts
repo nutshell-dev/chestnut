@@ -8,6 +8,7 @@
 import type { ProviderConfig, LLMCallOptions, ProviderAdapter, StreamChunk } from './types.js';
 import type { LLMResponse } from '../llm-provider/types.js';
 import { assertContentBlocks } from './_block-guards.js';
+import { LLM_PROVIDER_AUDIT_EVENTS } from './audit-events.js';
 
 export interface AnthropicRequestBody {
   model: string;
@@ -28,6 +29,14 @@ export abstract class BaseAnthropicAdapter implements ProviderAdapter {
   abstract stream?(options: LLMCallOptions): AsyncIterableIterator<StreamChunk>;
 
   onStreamParseError?: (event: { provider: string; raw: string; error: string }) => void;
+
+  protected get auditLog() {
+    return this.config.auditLog;
+  }
+
+  protected get providerName(): string {
+    return this.name;
+  }
 
   /**
    * Build base request body without thinking section (subclasses add thinking).
@@ -75,6 +84,7 @@ export abstract class BaseAnthropicAdapter implements ProviderAdapter {
    * - v4 (Step 20): Pass-through all → REGRESSION: pure thinking blocks caused empty responses
    * - v5 (hotfix #5): Restore v3 logic with better comments
    * - v6: Add cache_control for prompt caching (last user message gets array with cache_control)
+   * - v7 (phase 1274): Add orphan guard parity with openai formatter path
    * 
    * Requirements:
    * - Non-last user messages with pure text → string (MiniMax compatibility)
@@ -101,6 +111,9 @@ export abstract class BaseAnthropicAdapter implements ProviderAdapter {
 
     const dropThinking = this.config.dropThinkingBlocks ?? false;
 
+    // NEW (phase 1274): accumulate prior assistant tool_use ids for orphan guard
+    const priorToolCallIds = new Set<string>();
+
     return messages.flatMap((m, idx): Array<{ role: string; content: string | unknown[] }> => {
       const role = m.role === 'assistant' ? 'assistant' : 'user';
       const addCache = idx === lastUserIdx;
@@ -121,24 +134,77 @@ export abstract class BaseAnthropicAdapter implements ProviderAdapter {
         ? blocks.filter(b => b.type !== 'thinking')
         : blocks;
 
+      // NEW (phase 1274): Guard 3 — assistant content empty after filter → skip whole message
+      if (role === 'assistant') {
+        for (const b of effectiveBlocks) {
+          if (b.type === 'tool_use' && typeof (b as { id?: unknown }).id === 'string' && (b as { id: string }).id) {
+            priorToolCallIds.add((b as { id: string }).id);
+          }
+        }
+        if (effectiveBlocks.length === 0) {
+          this.auditLog?.write(
+            LLM_PROVIDER_AUDIT_EVENTS.ASSISTANT_EMPTY_CONTENT_SKIPPED,
+            `provider=${this.providerName}`,
+            `reason=empty_after_filter`,
+          );
+          return [];
+        }
+      }
+
+      // NEW (phase 1274): user path — filter tool_result blocks with empty-id + orphan guards
+      let finalBlocks = effectiveBlocks;
+      if (role === 'user') {
+        const filtered: typeof effectiveBlocks = [];
+        for (const b of effectiveBlocks) {
+          if (b.type === 'tool_result') {
+            const tuid = (b as { tool_use_id?: unknown }).tool_use_id;
+            // Guard 1: empty id
+            if (typeof tuid !== 'string' || !tuid) {
+              this.auditLog?.write(
+                LLM_PROVIDER_AUDIT_EVENTS.TOOL_RESULT_MISSING_ID,
+                `provider=${this.providerName}`,
+                `reason=tool_use_id_empty_or_undefined`,
+              );
+              continue;
+            }
+            // Guard 2: orphan
+            if (!priorToolCallIds.has(tuid)) {
+              this.auditLog?.write(
+                LLM_PROVIDER_AUDIT_EVENTS.TOOL_RESULT_ORPHAN_ID,
+                `provider=${this.providerName}`,
+                `tool_use_id=${tuid}`,
+                `reason=no_matching_assistant_tool_call`,
+              );
+              continue;
+            }
+          }
+          filtered.push(b);
+        }
+        // NEW: skip whole user message if all blocks were filtered out
+        if (filtered.length === 0 && effectiveBlocks.length > 0) {
+          return [];
+        }
+        finalBlocks = filtered;
+      }
+
       // Check if message contains structured blocks (tool_use, tool_result, or thinking)
-      const hasStructuredBlocks = effectiveBlocks.some(
+      const hasStructuredBlocks = finalBlocks.some(
         b => b.type === 'tool_use' || b.type === 'tool_result' || b.type === 'thinking'
       );
 
       if (hasStructuredBlocks) {
         if (addCache) {
           // Copy last block with cache_control
-          const copy: unknown[] = [...effectiveBlocks];
+          const copy: unknown[] = [...finalBlocks];
           copy[copy.length - 1] = { ...(copy[copy.length - 1] as Record<string, unknown>), cache_control: { type: 'ephemeral' } };
           return [{ role, content: copy }];
         }
         // Keep array format for structured messages
-        return [{ role, content: effectiveBlocks }];
+        return [{ role, content: finalBlocks }];
       }
 
       // Text-only or think-only
-      const text = effectiveBlocks
+      const text = finalBlocks
         .filter((b): b is { type: 'text'; text?: string } => b.type === 'text')
         .map(b => b.text || '')
         .join('');

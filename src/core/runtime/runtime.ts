@@ -597,6 +597,19 @@ export class Runtime {
           onSafeCallbackError: (label, err) => {
             this.auditWriter.write(RUNTIME_AUDIT_EVENTS.STEP_EXECUTOR_CALLBACK_FAILED, label, `error=${formatErr(err)}`);
           },
+          onMaxTokensPrebuiltOnlyFinal: (meta) => {
+            this.auditWriter?.write(
+              RUNTIME_AUDIT_EVENTS.MAX_TOKENS_PREBUILT_ONLY_FINAL,
+              `prebuilt_count=${meta.prebuiltCount}`,
+              `model=${meta.llm.model}`,
+            );
+          },
+          onMaxTokensAssistantEmptySkipped: (meta) => {
+            this.auditWriter?.write(
+              RUNTIME_AUDIT_EVENTS.MAX_TOKENS_ASSISTANT_EMPTY_SKIPPED,
+              `model=${meta.llm.model}`,
+            );
+          },
         });
       await this.sessionManager.save({ systemPrompt, messages, toolsForLLM: tools });
 
@@ -896,6 +909,19 @@ export class Runtime {
         },
         onSafeCallbackError: (label, err) => {
           this.auditWriter.write(RUNTIME_AUDIT_EVENTS.STEP_EXECUTOR_CALLBACK_FAILED, label, `error=${formatErr(err)}`);
+        },
+        onMaxTokensPrebuiltOnlyFinal: (meta) => {
+          this.auditWriter?.write(
+            RUNTIME_AUDIT_EVENTS.MAX_TOKENS_PREBUILT_ONLY_FINAL,
+            `prebuilt_count=${meta.prebuiltCount}`,
+            `model=${meta.llm.model}`,
+          );
+        },
+        onMaxTokensAssistantEmptySkipped: (meta) => {
+          this.auditWriter?.write(
+            RUNTIME_AUDIT_EVENTS.MAX_TOKENS_ASSISTANT_EMPTY_SKIPPED,
+            `model=${meta.llm.model}`,
+          );
         },
       });
 

@@ -6,6 +6,7 @@
  */
 
 import type { ApiFormat } from './presets.js';
+import type { AuditLog } from '../audit/index.js';
 
 // ============================================================================
 // LLM Protocol Message Types (L1 canonical)
@@ -129,6 +130,9 @@ export interface ProviderConfig {
 
   /** Reasoning effort for OpenAI o-series models */
   reasoningEffort?: 'low' | 'medium' | 'high';
+
+  /** Optional audit log for formatter guard events */
+  auditLog?: AuditLog;
 }
 
 /**

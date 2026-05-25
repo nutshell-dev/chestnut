@@ -47,6 +47,10 @@ export const RUNTIME_AUDIT_EVENTS = {
   OPTIONAL_SECTION_READ_FAILED: 'runtime_optional_section_read_failed',
   // phase 845: step executor callback failed audit event
   STEP_EXECUTOR_CALLBACK_FAILED: 'step_executor_callback_failed',
+  // phase 1274: max_tokens stop handler prebuilt-only final path
+  MAX_TOKENS_PREBUILT_ONLY_FINAL: 'max_tokens_prebuilt_only_final',
+  // phase 1274: max_tokens stop handler empty assistant skipped
+  MAX_TOKENS_ASSISTANT_EMPTY_SKIPPED: 'max_tokens_assistant_empty_skipped',
 } as const;
 
 /**

@@ -33,6 +33,8 @@ export interface StepCallbacks {
   onToolExecutionFailed?: (toolName: string, toolUseId: string, errorType: string, errorMsg: string) => void;
   onSafeCallbackError?: (label: string, err: unknown) => void;
   onMessageAppended?: (role: 'assistant' | 'user', blocks: number) => void;
+  onMaxTokensPrebuiltOnlyFinal?: (meta: { prebuiltCount: number; llm: LLMCallInfo }) => void;
+  onMaxTokensAssistantEmptySkipped?: (meta: { llm: LLMCallInfo }) => void;
 }
 
 export interface StepInput {

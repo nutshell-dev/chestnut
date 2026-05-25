@@ -82,16 +82,21 @@ export function handleMaxTokensStop(
   const prebuiltResults = response.content.filter(
     (b): b is ToolResultBlock => b.type === 'tool_result'
   );
-  if (toolCalls.length > 0 || prebuiltResults.length > 0) {
-    appendAssistantMessage(messages, response.content.filter(b => b.type !== 'tool_result'));
-    input.callbacks?.onMessageAppended?.('assistant', response.content.filter(b => b.type !== 'tool_result').length);
-    const allIds = [
-      ...toolCalls.map(tc => tc.id),
-      ...prebuiltResults.map(pr => pr.tool_use_id),
-    ];
-    const truncatedResults: ToolResultBlock[] = allIds.map(id => ({
+
+  // State A: new tool_use in this round → synthesize [TRUNCATED] result for these new ids (pair valid)
+  if (toolCalls.length > 0) {
+    const assistantBlocks = response.content.filter(b => b.type !== 'tool_result' && b.type !== 'thinking');
+    // Guard: skip append if assistantBlocks is empty (prevent content: [])
+    if (assistantBlocks.length > 0) {
+      appendAssistantMessage(messages, assistantBlocks);
+      input.callbacks?.onMessageAppended?.('assistant', assistantBlocks.length);
+    } else {
+      input.callbacks?.onMaxTokensAssistantEmptySkipped?.({ llm: llmInfo });
+    }
+    // Only toolCalls.ids (prebuiltResults.ids are historical, already paired, do not overlap)
+    const truncatedResults: ToolResultBlock[] = toolCalls.map(tc => ({
       type: 'tool_result' as const,
-      tool_use_id: id,
+      tool_use_id: tc.id,
       content: `[TRUNCATED] 输出超过单次 token 上限（${maxTokens} tokens），工具调用被截断未执行。请将内容拆分为多次较小的调用。`,
       is_error: true,
     }));
@@ -100,16 +105,38 @@ export function handleMaxTokensStop(
     return {
       kind: 'max_tokens_tool_use',
       meta: {
-        toolCallCount: allIds.length,
-        // parseErrorCount=0 by design: max_tokens_tool_use path 不走 parse error counting（continue 路径 own）
+        toolCallCount: toolCalls.length,
+        // parseErrorCount=0 by design: max_tokens_tool_use path does not do parse error counting
         parseErrorCount: 0,
         allParseErrors: false,
         llm: llmInfo,
       },
     };
   }
+
+  // State B: only prebuiltResults, no new tool_use, no text → LLM added nothing this round
+  //        Original code synthesized orphan tool_result + empty content [] → violates DP「no silent drop」
+  //        Correct: final wrap-up with warning text
+  if (prebuiltResults.length > 0) {
+    input.callbacks?.onMaxTokensPrebuiltOnlyFinal?.({
+      prebuiltCount: prebuiltResults.length,
+      llm: llmInfo,
+    });
+    return {
+      kind: 'final',
+      stopReason: 'max_tokens_text',
+      finalText: `[Response truncated due to length limit at ${maxTokens} tokens; only stale tool_result blocks received, no new content]`,
+    };
+  }
+
+  // State C: toolCalls=0 prebuilt=0 → text final (preserve original logic)
   const text = extractText(response.content);
-  appendAssistantMessage(messages, response.content);
+  const assistantBlocks = response.content.filter(b => b.type !== 'tool_result' && b.type !== 'thinking');
+  if (assistantBlocks.length > 0) {
+    appendAssistantMessage(messages, response.content);
+  } else {
+    input.callbacks?.onMaxTokensAssistantEmptySkipped?.({ llm: llmInfo });
+  }
   return {
     kind: 'final',
     stopReason: 'max_tokens_text',

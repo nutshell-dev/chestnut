@@ -252,6 +252,8 @@
       "session_repaired",
       "snapshot_commit_failed",
       "snapshot_commit_uncategorized",
+      "max_tokens_assistant_empty_skipped",
+      "max_tokens_prebuilt_only_final",
       "step_executor_callback_failed",
       "task_system_init_failed",
       "task_system_start_dispatch_failed",
@@ -343,6 +345,7 @@
       "file_tool_backup_failed"
     ],
     "foundation_llm-provider_audit-events": [
+      "llm_provider_assistant_empty_content_skipped",
       "llm_provider_tool_result_missing_id",
       "llm_provider_tool_result_orphan_id"
     ],

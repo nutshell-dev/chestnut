@@ -48,6 +48,8 @@ export interface ReactOptions {
   onToolInputParseError?: (toolName: string, toolUseId: string, rawInput: string) => void;
   onToolExecutionFailed?: (toolName: string, toolUseId: string, errorType: string, errorMsg: string) => void;
   onSafeCallbackError?: (label: string, err: unknown) => void;
+  onMaxTokensPrebuiltOnlyFinal?: (meta: { prebuiltCount: number; llm: LLMCallInfo }) => void;
+  onMaxTokensAssistantEmptySkipped?: (meta: { llm: LLMCallInfo }) => void;
 }
 
 export interface ReactResult {
@@ -73,6 +75,7 @@ export async function runReact(options: ReactOptions): Promise<ReactResult> {
     onTextDelta, onTextEnd, onThinkingDelta,
     onReset, onProviderFailed, onLLMResult,
     onEmptyResponse, onUnknownStopReason, onUnparseableToolUse, onToolInputParseError, onToolExecutionFailed, onSafeCallbackError,
+    onMaxTokensPrebuiltOnlyFinal, onMaxTokensAssistantEmptySkipped,
   } = options;
 
   // 用闭包捕获 stepCount（适配旧 onToolResult 签名的 step/maxSteps 参数）
@@ -96,6 +99,8 @@ export async function runReact(options: ReactOptions): Promise<ReactResult> {
     onToolInputParseError,
     onToolExecutionFailed,
     onSafeCallbackError,
+    onMaxTokensPrebuiltOnlyFinal,
+    onMaxTokensAssistantEmptySkipped,
   };
 
   const result = await runAgent({
