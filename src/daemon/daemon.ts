@@ -13,6 +13,7 @@ import * as fsNative from 'fs';
 import * as fsAsync from 'fs/promises';
 import { createHash } from 'node:crypto';
 import { loadGlobalConfig, loadClawConfig, getClawDir, getNamedSubrootDir } from '../foundation/config/index.js';
+import { MOTION_CLAW_ID } from '../constants.js';
 
 import { startDaemonLoop } from './daemon-loop.js';
 import { NodeFileSystem } from '../foundation/fs/node-fs.js';
@@ -44,7 +45,7 @@ export interface DaemonCommandDeps {
 export function createDaemonCommand(deps: DaemonCommandDeps) {
   return async function daemonCommand(name: string): Promise<void> {
     const globalConfig = loadGlobalConfig(deps.configDefaults);
-    const isMotion = name === 'motion';
+    const isMotion = name === MOTION_CLAW_ID;
 
     // 配置
     const dir = isMotion ? getNamedSubrootDir('motion') : getClawDir(name);
@@ -65,7 +66,7 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
     let instances: DaemonInstances;
     try {
       instances = await deps.assemble({
-        identity: isMotion ? 'motion' : 'claw',
+        identity: isMotion ? MOTION_CLAW_ID : 'claw',
         clawId: name,
         clawDir: dir,
         globalConfig,

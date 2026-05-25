@@ -22,6 +22,7 @@ import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { setTimeout } from 'timers/promises';
 import { getNamedSubrootDir } from '../foundation/config/index.js';
+import { MOTION_CLAW_ID } from '../constants.js';
 import { NodeFileSystem } from '../foundation/fs/node-fs.js';
 import { type AuditLog, createAuditWriter } from '../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../foundation/process-manager/factories.js';
@@ -140,12 +141,12 @@ export async function runWatchdogLoop(): Promise<void> {
 
   while (!stopped) {
     // 1. Check motion liveness
-    const status = pm.getAliveStatus('motion');
+    const status = pm.getAliveStatus(MOTION_CLAW_ID);
     
     // watchdog_check: 枚举所有存活进程
     const aliveIds: string[] = [];
     const presentClawIds: string[] = [];
-    if (status.alive) aliveIds.push('motion');
+    if (status.alive) aliveIds.push(MOTION_CLAW_ID);
     const fs = getClawforumFs();
     if (fs.existsSync(CLAWS_DIR)) {
       for (const entry of fs.listSync(CLAWS_DIR, { includeDirs: true })) {
@@ -159,7 +160,7 @@ export async function runWatchdogLoop(): Promise<void> {
     
     if (!status.alive) {
       log(`[watchdog] motion down (${status.reason}), restarting...`);
-      auditWriter.write('watchdog_restart_triggered', 'motion');
+      auditWriter.write('watchdog_restart_triggered', MOTION_CLAW_ID);
       log(`[watchdog] motion down (${status.reason}), restarting...`);
       try {
         // best-effort cleanup before respawn / per phase 636 ratify:
@@ -167,7 +168,7 @@ export async function runWatchdogLoop(): Promise<void> {
         //     (a) 真 stale PID 文件 → safe to ignore (audit captures)
         //     (b) motion 仍活（race / 另 watchdog instance spawn 中）→ spawn 端 line 168 'already running' explicit handle
         //   - cleanup 失败不阻塞 respawn / spawn 自身判 race / failure 仅 audit observability
-        await pm.stop('motion').catch((e) => {
+        await pm.stop(MOTION_CLAW_ID).catch((e) => {
           const msg = `[watchdog] Failed to clean up motion before restart: ${e instanceof Error ? e.message : String(e)}`;
           logWithAudit(msg, WATCHDOG_AUDIT_EVENTS.CLEANUP_FAILED, msg.slice(0, AUDIT_MESSAGE_MAX_CHARS));
         });
@@ -178,14 +179,14 @@ export async function runWatchdogLoop(): Promise<void> {
         const relBundle = path.relative(projectRoot, bundleEntry);
         const daemonEntryPath = fsProj.existsSync(relBundle) ? bundleEntry : path.resolve(thisDir, '..', 'daemon-entry.js');
         const clawforumDir = getClawforumDir();
-        const pid = await pm.spawn('motion', {
+        const pid = await pm.spawn(MOTION_CLAW_ID, {
           command: 'node',
-          args: [daemonEntryPath, 'motion'],
+          args: [daemonEntryPath, MOTION_CLAW_ID],
           logFile: path.join(getNamedSubrootDir('motion'), DAEMON_LOG),
           env: { ...process.env, CLAWFORUM_ROOT: path.dirname(clawforumDir) } as Record<string, string | undefined>,
         });
         log(`[watchdog] motion restarted (PID=${pid})`);
-        auditWriter.write('process_spawn', 'motion', `pid=${pid}`);
+        auditWriter.write('process_spawn', MOTION_CLAW_ID, `pid=${pid}`);
         motionRestartFailures = 0;  // Success, reset counter
       } catch (err) {
         if (err instanceof Error && err.message.includes('already running')) {
@@ -194,7 +195,7 @@ export async function runWatchdogLoop(): Promise<void> {
           motionRestartFailures = 0;
         } else {
           motionRestartFailures++;
-          auditWriter.write('process_spawn_failed', 'motion', `error=${err instanceof Error ? err.message : String(err)}`);
+          auditWriter.write('process_spawn_failed', MOTION_CLAW_ID, `error=${err instanceof Error ? err.message : String(err)}`);
           log(`[watchdog] FAILED to restart motion (failure #${motionRestartFailures}): ${err}`);
         }
       }
