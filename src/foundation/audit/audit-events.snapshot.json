@@ -139,6 +139,7 @@
       "contract_verifier_result_parse_failed",
       "contract_verifier_skipped",
       "contract_verifier_started",
+      "contract_yaml_legacy_acceptance_field",
       "contract_yaml_schema_invalid",
       "subtask_completed",
       "verification_failed",

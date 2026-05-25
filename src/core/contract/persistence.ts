@@ -10,6 +10,7 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import type { Contract } from '../contract/types.js';
 import type { ContractYaml, ProgressData } from './types.js';
 import { emitContractYamlSchemaInvalid } from './audit-emit.js';
+import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 
 const CONTRACT_DEFAULTS = {
   schema_version: 1,
@@ -63,8 +64,14 @@ export async function loadContractYaml(
     throw new Error(`contract.yaml schema invalid for contract ${contractId}`);
   }
   // Backwards-compat: old yaml used `acceptance` field, now renamed to `verification`
+  // SUNSET per phase 1257 r134 C fork: 30 天 audit `CONTRACT_YAML_LEGACY_ACCEPTANCE_FIELD` 0 触发 → r135+ phase 删本 fallback
   const data = parsed as Record<string, unknown>;
   if (Array.isArray(data.acceptance) && !Array.isArray(data.verification)) {
+    ctx.audit.write(
+      CONTRACT_AUDIT_EVENTS.CONTRACT_YAML_LEGACY_ACCEPTANCE_FIELD,
+      `contractId=${contractId}`,
+      `field=acceptance`,
+    );
     data.verification = data.acceptance;
   }
   delete data.acceptance;

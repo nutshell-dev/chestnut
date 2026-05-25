@@ -79,7 +79,6 @@ export interface ContractYaml {
     id: string;
     description: string;
   }>;
-  /** @deprecated backwards-compat: old field name was `acceptance`, now use `verification` */
   verification?: Array<
     | { subtask_id: string; type: 'script'; script_file?: string }
     | { subtask_id: string; type: 'llm'; prompt_file?: string }

@@ -12,6 +12,7 @@ export const CONTRACT_AUDIT_EVENTS = {
   LOCK_SCHEMA_INVALID: 'contract_lock_schema_invalid',   // ← NEW (phase 576)
   LOCK_CLEANUP_FAILED: 'contract_lock_cleanup_failed',   // ← NEW (phase 850 / r108 F fork F2.1)
   PROGRESS_SCHEMA_INVALID: 'contract_progress_schema_invalid',  // ← NEW (phase 587)
+  CONTRACT_YAML_LEGACY_ACCEPTANCE_FIELD: 'contract_yaml_legacy_acceptance_field', // ← NEW phase 1257 r134 C fork (mirror PID_FILE_LEGACY_FORMAT phase 1023+1180 模板)
   CONTRACT_YAML_SCHEMA_INVALID: 'contract_yaml_schema_invalid', // ← NEW (phase 587)
   OBSERVER_STATE_PARSE_FAILED: 'contract_observer_state_parse_failed',  // ← NEW (phase 1012 / r123 C fork)
   PROGRESS_CORRUPTED: 'contract_progress_corrupted',
