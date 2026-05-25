@@ -21,7 +21,8 @@ import { fileURLToPath } from 'url';
 import { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
-import { makeAudit } from '../../helpers/audit.js';
+import { makeAudit, waitForAuditEvent } from '../../helpers/audit.js';
+import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-events.js';
 import { createTestTaskSystem } from '../../helpers/task-system.js';
 import { waitFor } from '../../helpers/wait-for.js';
 
@@ -50,13 +51,19 @@ describe('AsyncTaskSystem dispatch latency (phase 1147 r127 B fork)', () => {
   let tempDir: string;
   let mockFs: NodeFileSystem;
   let taskSystem: AsyncTaskSystem;
+  // phase 1247: destructure full makeAudit() 为 waitForAuditEvent 准备
+  let auditEvents: ReturnType<typeof makeAudit>['events'];
+  let auditEmitter: ReturnType<typeof makeAudit>['emitter'];
 
   beforeEach(async () => {
     tempDir = await createTempDir('phase1147-');
     mockFs = new NodeFileSystem({ baseDir: tempDir });
     await mockFs.ensureDir('tasks');
 
-    taskSystem = createTestTaskSystem(tempDir, mockFs, makeAudit().audit, createHangingMockLLM());
+    const auditObj = makeAudit();
+    auditEvents = auditObj.events;
+    auditEmitter = auditObj.emitter;
+    taskSystem = createTestTaskSystem(tempDir, mockFs, auditObj.audit, createHangingMockLLM());
     await taskSystem.initialize();
     taskSystem.startDispatch();
   });
@@ -99,6 +106,10 @@ describe('AsyncTaskSystem dispatch latency (phase 1147 r127 B fork)', () => {
 
     // Atomic rename to .json — watcher should now pick it up
     await fs.rename(tmpPath, jsonPath);
-    await waitFor(() => mockFs.exists('tasks/queues/running/atomic-test.json'), 5_000);
+    // phase 1247: wait for TASK_STARTED audit event (因果后置于 movePendingToRunning)
+    // 替 wall-clock polling `waitFor(mockFs.exists, 5_000)` (β unique derive mirror phase 1143 + 1175)
+    await waitForAuditEvent(auditEmitter, auditEvents, TASK_AUDIT_EVENTS.TASK_STARTED, 10_000);
+    // 可选验证 running file 已存在（causally guaranteed by audit emit site at system.ts:538）
+    expect(await mockFs.exists('tasks/queues/running/atomic-test.json')).toBe(true);
   });
 });

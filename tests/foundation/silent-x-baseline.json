@@ -271,14 +271,14 @@
     },
     {
       "file": "src/core/async-task-system/system.ts",
-      "line": 478,
+      "line": 477,
       "body_excerpt": ".catch(() => {}",
       "reason": "best-effort cleanup before throw / throw 真传播 / cleanup 失败无害",
       "form": "promise"
     },
     {
       "file": "src/core/async-task-system/system.ts",
-      "line": 675,
+      "line": 674,
       "body_excerpt": ".catch(() => {",
       "reason": "fs.move 路径仍 cover 持久化",
       "form": "promise"

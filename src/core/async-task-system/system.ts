@@ -456,7 +456,6 @@ export class AsyncTaskSystem {
 
       // IMMEDIATELY occupy slot - critical to prevent race conditions
       this.runningTasks.set(task.id, { abortController, promise });
-      emitTaskStarted(this.auditWriter, { taskId: task.id });
     }
   }
 
