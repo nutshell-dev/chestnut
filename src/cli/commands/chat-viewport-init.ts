@@ -12,7 +12,7 @@ import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
 import { isFileNotFound } from '../../foundation/fs/types.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
-import type { TurnTracker } from './chat-viewport.js';
+import type { TurnTracker } from './chat-viewport-types.js';
 
 export interface UncaughtHandlerDeps {
   agentDir: string;

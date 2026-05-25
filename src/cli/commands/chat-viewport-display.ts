@@ -9,6 +9,7 @@ import { wrapLine, fitLine } from '../utils/string.js';
 import { OUTPUT_LINES_CAP } from './constants.js';
 import type { MainTurnUIController } from './main-turn-ui.js';
 import type { createViewportObservability } from './chat-viewport-observability.js';
+import type { ClawTrack } from './chat-viewport-claw-line.js';
 
 export interface OutputLine {
   color: string;
@@ -24,7 +25,8 @@ export interface DisplayDeps {
   observability: ReturnType<typeof createViewportObservability>;
   mainUI?: MainTurnUIController;
   // for onResize
-  updateClawPanel: () => void;
+  updateClawPanel: (clawTrackMap: Map<string, ClawTrack>) => void;
+  clawTrackMap: Map<string, ClawTrack>;
   spawnText: { setText(text: string): void };
   shadowText: { setText(text: string): void };
   taskStatusBar: { renderSpawn(cols: number): string; renderShadow(cols: number): string };
@@ -86,7 +88,7 @@ export function createDisplay(deps: DisplayDeps) {
   const clearOutputLines = () => { outputLines.length = 0; };
 
   const onResize = () => {
-    deps.updateClawPanel();
+    deps.updateClawPanel(deps.clawTrackMap);
     const cols = process.stdout.columns ?? 80;
     deps.spawnText.setText(deps.taskStatusBar.renderSpawn(cols));
     deps.shadowText.setText(deps.taskStatusBar.renderShadow(cols));

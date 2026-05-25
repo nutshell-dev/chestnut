@@ -41,7 +41,7 @@
     },
     {
       "file": "src/cli/commands/chat-viewport.ts",
-      "line": 321,
+      "line": 238,
       "body_excerpt": "} catch (e) {",
       "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
     },

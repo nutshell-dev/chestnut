@@ -52,17 +52,7 @@ export interface ChatViewportOptions {
   audit: AuditLog; // audit sink for createWatcher
 }
 
-export interface TurnTracker {
-  begin(): void;
-  end(): void;
-  abort(): void;
-  interrupted(): void;
-  requestInterrupt(source: 'esc'): void;
-  forceReset(): void;
-  isActive(): boolean;
-  getInterruptSource(): 'esc' | null;
-  destroy(): void;
-}
+export type { TurnTracker } from './chat-viewport-types.js';
 
 export async function runChatViewport(options: ChatViewportOptions): Promise<void> {
   const pm = createProcessManagerForCLI();
@@ -144,82 +134,8 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   const clawTrackMap = new Map<string, ClawTrack>();
 
   const clawPanel = createClawPanel({ attachedClawBar });
-  const updateClawPanel = () => clawPanel.updateClawPanel(clawTrackMap);
 
-  // Compose display (mainUI is not yet assigned; updateDisplay guards against undefined)
-  const display = createDisplay({
-    label: options.label,
-    outputText,
-    tui,
-    observability,
-    updateClawPanel,
-    spawnText,
-    shadowText,
-    taskStatusBar,
-  });
-
-  mainUI = createMainTurnUI({
-    appendOutput: display.appendOutput,
-    updateDisplay: display.updateDisplay,
-    trimOutputNewlines,
-    getThinkingMode: () => thinkingMode,
-    audit: options.audit,
-    observability,
-  });
-
-  // Wire display to the now-assigned mainUI by creating a single proxy display
-  // that delegates to the original display but supplies mainUI.
-  // We achieve this by mutating the deps object reference that display captured.
-  // However, deps was captured by value in the closure.  Instead we rely on the
-  // fact that display.updateDisplay guards `deps.mainUI ? ... : ''`, and we
-  // swap in a wrapper that provides mainUI.
-  // Simpler: recreate display once now that mainUI and updateClawPanel are known.
-  // The outputLines state is local to createDisplay, so we must not recreate it.
-  // Therefore we must keep the first display and only ensure mainUI is visible.
-  //
-  // Safe resolution: the original code already did `let mainUI` and then defined
-  // updateDisplay referencing `mainUI` before it was assigned.  The guard
-  // `mainUI ? mainUI.getStatus() : ''` made this safe.  Our display module keeps
-  // the same guard, but the `deps.mainUI` field is undefined at creation time.
-  // Because `deps` is an object passed by reference, we can mutate it:
-  (display as unknown as { _deps?: { mainUI?: MainTurnUIController } })._deps = { mainUI };
-  // This is hacky.  Better: we redesign display deps to accept a mutable holder.
-  //
-  // Cleanest fix: change DisplayDeps so mainUI is optional, and add a setter.
-  // But we want minimal code change.  Let's just accept that display already
-  // works because `deps.mainUI` is read at call time, and `deps` is an object
-  // reference.  Wait — in the display module, `deps` is the parameter object
-  // which IS passed by reference.  So if we mutate `deps.mainUI = mainUI` here,
-  // the closure inside display will see the updated value!
-  // Let's verify: display module captures `deps` in its closures.  In JS/TS,
-  // object parameters are passed by sharing (reference), so mutations are visible.
-  // Yes!  We can just do:
-  //   (display as any).deps.mainUI = mainUI;
-  // But we don't expose deps.  Let's add a tiny setter to display module, or
-  // just restructure.
-  //
-  // For simplicity and zero behavioural change, we will recreate display
-  // but we need to preserve outputLines.  We can export outputLines from the
-  // first display and pass it to the second.  Let's modify createDisplay to
-  // accept an optional initial outputLines array.
-
-  // Actually, the simplest zero-change approach: in display.ts we already have
-  // `mainUI?: MainTurnUIController`.  We can mutate the deps object if we keep
-  // a reference to it.  But createDisplay doesn't expose deps.
-  //
-  // Let's add a lightweight `setMainUI` method to the display return object.
-  // This is the cleanest way.
-
-  // For now, we accept the pragmatic solution: recreate display with outputLines
-  // carried over.  This requires a small change to createDisplay to accept
-  // `outputLines?: OutputLine[]`.
-
-  // To keep things moving, we'll use the following pragmatic approach:
-  // The display module's updateDisplay only reads `deps.mainUI` at runtime.
-  // We can pass a proxy object whose `mainUI` property is a getter that returns
-  // the current value of the `mainUI` variable in this closure.
-
-  // REVISED PLAN: Use a mutable holder object for mainUI.
+  // Display 使用 mutable holder pattern 让后续赋值的 mainUI 可被 display 读取
   const mainUIHolder: { ref?: MainTurnUIController } = {};
   const displayWithHolder = createDisplay({
     label: options.label,
@@ -227,7 +143,8 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     tui,
     observability,
     get mainUI() { return mainUIHolder.ref; },
-    updateClawPanel,
+    updateClawPanel: clawPanel.updateClawPanel,
+    clawTrackMap,
     spawnText,
     shadowText,
     taskStatusBar,
@@ -286,7 +203,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
 
   const clawManager = createClawManager({
     fs: clawsFs, pm, audit: options.audit, isMotion, clawsDir, clawTrackMap,
-    updateClawPanel,
+    updateClawPanel: clawPanel.updateClawPanel,
     requestRender: () => tui.requestRender(),
   });
 
@@ -298,7 +215,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
 
   const clawPanelTickInterval = setInterval(() => {
     if (clawTrackMap.size > 0) {
-      updateClawPanel();
+      clawPanel.updateClawPanel(clawTrackMap);
       tui.requestRender();
     }
   }, CLAW_PANEL_TICK_INTERVAL_MS);
@@ -353,7 +270,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     appendOutput: displayWithHolder.appendOutput,
     invalidateBodyCache: displayWithHolder.invalidateBodyCache,
     clearOutputLines: displayWithHolder.clearOutputLines,
-    mainUI, clawManager, updateClawPanel,
+    mainUI, clawManager, updateClawPanel: clawPanel.updateClawPanel,
     getThinkingMode: () => thinkingMode,
     setThinkingMode: (m) => { thinkingMode = m; },
     getRegistry: () => commandRegistry,
@@ -471,7 +388,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   if (clawsDir) {
     const rescanClawsDir = createRescanClawsDir({
       clawsFs, clawsDir, clawTrackMap, clawManager,
-      audit: options.audit, agentDir: options.agentDir, updateClawPanel,
+      audit: options.audit, agentDir: options.agentDir, updateClawPanel: clawPanel.updateClawPanel,
     });
     clawManager.refreshAllClawStatus();
     rescanClawsDir();

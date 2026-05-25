@@ -24,7 +24,7 @@ export interface CommandsDeps {
   clearOutputLines: () => void;
   mainUI: MainTurnUIController;
   clawManager: ClawManager;
-  updateClawPanel: () => void;
+  updateClawPanel: (clawTrackMap: Map<string, ClawTrack>) => void;
   getThinkingMode: () => ThinkingMode;
   setThinkingMode: (m: ThinkingMode) => void;
   getRegistry: () => Map<string, ViewportCommand>;
@@ -77,7 +77,7 @@ export const createViewportCommands = (deps: CommandsDeps): ViewportCommand[] =>
         t.referenceMs = Date.now();
         deps.clawTrackMap.set(clawId, t);
         deps.clawManager.attachClawWatcher(clawId, path.join(clawDir, STREAM_FILE));
-        deps.updateClawPanel();
+        deps.updateClawPanel(deps.clawTrackMap);
         deps.appendOutput('\x1b[2m', `[attach] ${clawId} 已加入面板`);
       }
     },
@@ -96,12 +96,12 @@ export const createViewportCommands = (deps: CommandsDeps): ViewportCommand[] =>
       if (arg === '--all') {
         await deps.clawManager.detachAllWatchers();
         deps.clawTrackMap.clear();
-        deps.updateClawPanel();
+        deps.updateClawPanel(deps.clawTrackMap);
         deps.appendOutput('\x1b[2m', '[detach] 已清空所有 claw');
       } else {
         await deps.clawManager.detachWatcher(arg);
         deps.clawTrackMap.delete(arg);
-        deps.updateClawPanel();
+        deps.updateClawPanel(deps.clawTrackMap);
         deps.appendOutput('\x1b[2m', `[detach] ${arg} 已从面板移除`);
       }
     },

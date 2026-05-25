@@ -18,7 +18,7 @@ export interface ClawManagerDeps {
   isMotion: boolean;
   clawsDir: string;
   clawTrackMap: Map<string, ClawTrack>;
-  updateClawPanel: () => void;
+  updateClawPanel: (clawTrackMap: Map<string, ClawTrack>) => void;
   requestRender: () => void;
 }
 
@@ -149,7 +149,7 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
             }
           } catch { /* skip */ }
         }
-        updateClawPanel();
+        updateClawPanel(clawTrackMap);
         requestRender();
       }
     } catch { /* ENOENT 等，跳过 */ }

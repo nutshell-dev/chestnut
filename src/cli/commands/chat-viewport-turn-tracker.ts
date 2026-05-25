@@ -5,7 +5,7 @@
  * Why: turn logic is independently mutable (state machine changes w/o affecting display/event handling)
  */
 
-import type { TurnTracker } from './chat-viewport.js';
+import type { TurnTracker } from './chat-viewport-types.js';
 
 export interface TurnTrackerDeps {
   mainUI: {

@@ -15,6 +15,7 @@ const SUB_FILES = [
   'chat-viewport-task-events.ts',
   'chat-viewport-task-status-bar.ts',
   'chat-viewport-turn-tracker.ts',
+  'chat-viewport-types.ts',
   'chat-viewport-utils.ts',
   'chat-viewport-watcher.ts',
 ];
