@@ -20,16 +20,16 @@ describe('codec-inbox roundtrip (phase 907 / audit-2026-05-16 #7)', () => {
     expect(round.from).toBe('a"b');
   });
 
-  it('roundtrip 含 newline in extraMeta', () => {
-    const msg = baseMsg({ extraMeta: { note: 'line1\nline2' } });
+  it('roundtrip 含 newline in metadata', () => {
+    const msg = baseMsg({ metadata: { note: 'line1\nline2' } });
     const round = decodeInbox(encodeInbox(msg));
-    expect(round.extraMeta?.note).toBe('line1\nline2');
+    expect(round.metadata?.note).toBe('line1\nline2');
   });
 
-  it('roundtrip 含 carriage-return in extraMeta', () => {
-    const msg = baseMsg({ extraMeta: { note: 'a\rb' } });
+  it('roundtrip 含 carriage-return in metadata', () => {
+    const msg = baseMsg({ metadata: { note: 'a\rb' } });
     const round = decodeInbox(encodeInbox(msg));
-    expect(round.extraMeta?.note).toBe('a\rb');
+    expect(round.metadata?.note).toBe('a\rb');
   });
 
   it('roundtrip 含 literal backslash in from', () => {

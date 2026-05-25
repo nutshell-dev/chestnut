@@ -4,7 +4,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { randomUUID } from 'crypto';
 
-import { getMotionDir, loadGlobalConfig } from '../../src/foundation/config/index.js';
+import { getNamedSubrootDir, loadGlobalConfig } from '../../src/foundation/config/index.js';
 import { getWatchdogPid, isWatchdogAlive } from '../../src/watchdog/watchdog-pid.js';
 import { setAuditWriter } from '../../src/watchdog/watchdog-context.js';
 import { WATCHDOG_AUDIT_EVENTS } from '../../src/watchdog/audit-events.js';
@@ -16,7 +16,7 @@ vi.mock('../../src/foundation/config/index.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/foundation/config/index.js')>();
   return {
     ...actual,
-    getMotionDir: vi.fn(),
+    getNamedSubrootDir: vi.fn(),
     loadGlobalConfig: vi.fn(),
   };
 });
@@ -32,7 +32,7 @@ describe('watchdog-pid corrupt path', () => {
     tmpDir = path.join(os.tmpdir(), `wd-pid-corrupt-${randomUUID()}`);
     clawforumDir = path.join(tmpDir, '.clawforum');
     fs.mkdirSync(clawforumDir, { recursive: true });
-    vi.mocked(getMotionDir).mockReturnValue(path.join(clawforumDir, 'motion'));
+    vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(clawforumDir, 'motion'));
     vi.mocked(loadGlobalConfig).mockReturnValue({ watchdog: { claw_inactivity_timeout_ms: 300_000 } } as any);
     process.env.CLAWFORUM_ROOT = '/test/root';
 

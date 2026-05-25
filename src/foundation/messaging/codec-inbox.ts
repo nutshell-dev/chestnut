@@ -79,8 +79,14 @@ export function encodeInbox(
     `timestamp: ${msg.timestamp}`,
   ];
 
-  if (msg.contract_id) {
-    lines.push(`contract_id: ${yamlQuote(msg.contract_id)}`);
+  // Generic metadata pass-through
+  if (msg.metadata) {
+    const reserved = new Set(['id', 'type', 'from', 'to', 'priority', 'timestamp']);
+    for (const [k, v] of Object.entries(msg.metadata)) {
+      if (!reserved.has(k) && !k.startsWith('__')) {
+        lines.push(`${k}: ${yamlQuote(v)}`);
+      }
+    }
   }
 
   // Append extra fields, guard against overriding standard keys
@@ -95,11 +101,12 @@ export function encodeInbox(
     }
   }
 
-  // Write out extraMeta fields (non __-prefixed), extraFields takes precedence
+  // Write out extraMeta fields (non __-prefixed), extraFields + metadata takes precedence
   if (msg.extraMeta) {
     const reservedAndExtra = new Set([
       'id', 'type', 'from', 'to', 'priority', 'timestamp',
       ...(extraFields ? Object.keys(extraFields) : []),
+      ...(msg.metadata ? Object.keys(msg.metadata) : []),
     ]);
     for (const [k, v] of Object.entries(msg.extraMeta)) {
       if (!reservedAndExtra.has(k) && !k.startsWith('__')) {
@@ -124,14 +131,19 @@ export function decodeInbox(raw: string): InboxMessage {
 
   const { meta, body } = parseFrontmatter(raw);
 
-  const knownKeys = new Set(['id', 'type', 'from', 'source', 'to', 'content',
-    'priority', 'timestamp', 'contract_id', 'claw_id', 'reply_to']);
+  const baseKeys = new Set(['id', 'type', 'from', 'source', 'to', 'content',
+    'priority', 'timestamp', 'reply_to']);
 
-  // A.1: 收集未识别字段
+  // Generic metadata pass-through (non-base keys excluding internal __-prefixed)
+  const metadata: Record<string, string> = {};
   const extraMeta: Record<string, string> = {};
   for (const [k, v] of Object.entries(meta)) {
-    if (!knownKeys.has(k)) {
-      extraMeta[k] = v;
+    if (!baseKeys.has(k)) {
+      if (k.startsWith('__')) {
+        extraMeta[k] = v;
+      } else if (k !== 'claw_id') {
+        metadata[k] = v;
+      }
     }
   }
 
@@ -142,7 +154,7 @@ export function decodeInbox(raw: string): InboxMessage {
     extraMeta.__original_priority = rawPriority;
   }
 
-  // A.3: legacy claw_id field  observability (不跨键 fallback 到 contract_id)
+  // A.3: legacy claw_id field observability (generic metadata pass-through)
   if (meta.claw_id !== undefined) {
     extraMeta.__legacy_claw_id = meta.claw_id;
   }
@@ -162,7 +174,7 @@ export function decodeInbox(raw: string): InboxMessage {
     content: body,
     priority,
     timestamp: meta.timestamp ?? new Date().toISOString(),
-    contract_id: meta.contract_id,
+    ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
     ...(Object.keys(extraMeta).length > 0 ? { extraMeta } : {}),
   };
 }

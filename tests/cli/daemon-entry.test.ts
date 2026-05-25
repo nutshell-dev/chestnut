@@ -17,7 +17,7 @@ vi.mock('../../src/foundation/audit/index.js', () => ({
 
 vi.mock('../../src/foundation/config/index.js', () => ({
   getClawDir: vi.fn(() => '/tmp/test-claw'),
-  getMotionDir: vi.fn(() => '/tmp/test-motion'),
+  getNamedSubrootDir: vi.fn(() => '/tmp/test-motion'),
 }));
 
 vi.mock('../../src/daemon/daemon.js', () => ({

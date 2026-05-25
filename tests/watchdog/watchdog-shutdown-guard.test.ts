@@ -5,14 +5,14 @@ import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { _resetShutdownGuard, runWatchdogLoop } from '../../src/watchdog/watchdog.js';
 import { createProcessManagerForCLI } from '../../src/cli/utils/factories.js';
-import { getMotionDir, loadGlobalConfig } from '../../src/foundation/config/index.js';
+import { getNamedSubrootDir, loadGlobalConfig } from '../../src/foundation/config/index.js';
 import { setTimeout as setTimeoutP } from 'timers/promises';
 
 vi.mock('../../src/foundation/config/index.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/foundation/config/index.js')>();
   return {
     ...actual,
-    getMotionDir: vi.fn(),
+    getNamedSubrootDir: vi.fn(),
     loadGlobalConfig: vi.fn(),
   };
 });
@@ -37,7 +37,7 @@ describe('watchdog signal handler lifecycle (phase 994 A.1)', () => {
     const clawforumDir = path.join(tmpDir, '.clawforum');
     fs.mkdirSync(path.join(clawforumDir, 'motion', 'logs'), { recursive: true });
     fs.mkdirSync(path.join(clawforumDir, 'logs'), { recursive: true });
-    vi.mocked(getMotionDir).mockReturnValue(path.join(clawforumDir, 'motion'));
+    vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(clawforumDir, 'motion'));
     vi.mocked(loadGlobalConfig).mockReturnValue({
       watchdog: { interval_ms: 100, claw_inactivity_timeout_ms: 300_000 },
       audit: { retention: { max_size_mb: null } },

@@ -329,7 +329,7 @@ from: ${msg.from}
 to: ${msg.to}
 priority: ${msg.priority}
 timestamp: ${msg.timestamp}
-${msg.contract_id ? `contract_id: ${msg.contract_id}` : ''}
+${msg.metadata?.contract_id ? `contract_id: ${msg.metadata.contract_id}` : ''}
 ---
 
 ${msg.content}

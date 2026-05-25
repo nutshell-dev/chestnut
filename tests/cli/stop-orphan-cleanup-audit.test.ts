@@ -37,7 +37,7 @@ vi.mock('../../src/foundation/config/index.js', async (importOriginal) => {
     ...actual,
     loadGlobalConfig: vi.fn(),
     getGlobalConfigPath: vi.fn(() => '/tmp/test/.clawforum/config.yaml'),
-    getMotionDir: vi.fn(() => '/tmp/test/.clawforum/motion'),
+    getNamedSubrootDir: vi.fn(() => '/tmp/test/.clawforum/motion'),
   };
 });
 

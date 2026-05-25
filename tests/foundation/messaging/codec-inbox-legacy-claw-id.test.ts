@@ -23,21 +23,21 @@ describe('phase 1132 D.2: codec-inbox legacy claw_id', () => {
   it('case 1: 仅 claw_id present → contract_id undefined + extraMeta.__legacy_claw_id', () => {
     const raw = `---\nid: msg-1\ntype: heartbeat\nfrom: system\nto: claw1\npriority: normal\ntimestamp: 2026-05-20T00:00:00Z\nclaw_id: claw1\n---\n\nbody\n`;
     const msg = decodeInbox(raw);
-    expect(msg.contract_id).toBeUndefined();
+    expect(msg.metadata?.contract_id).toBeUndefined();
     expect(msg.extraMeta?.__legacy_claw_id).toBe('claw1');
   });
 
   it('case 2: 仅 contract_id present → contract_id = value + 无 __legacy_claw_id', () => {
     const raw = `---\nid: msg-2\ntype: message\nfrom: sender\nto: claw1\npriority: high\ntimestamp: 2026-05-20T00:00:00Z\ncontract_id: contract-42\n---\n\nbody\n`;
     const msg = decodeInbox(raw);
-    expect(msg.contract_id).toBe('contract-42');
+    expect(msg.metadata?.contract_id).toBe('contract-42');
     expect(msg.extraMeta?.__legacy_claw_id).toBeUndefined();
   });
 
   it('case 3: 双 present → contract_id = meta.contract_id + __legacy_claw_id = meta.claw_id', () => {
     const raw = `---\nid: msg-3\ntype: message\nfrom: sender\nto: claw1\npriority: normal\ntimestamp: 2026-05-20T00:00:00Z\ncontract_id: contract-42\nclaw_id: claw1\n---\n\nbody\n`;
     const msg = decodeInbox(raw);
-    expect(msg.contract_id).toBe('contract-42');
+    expect(msg.metadata?.contract_id).toBe('contract-42');
     expect(msg.extraMeta?.__legacy_claw_id).toBe('claw1');
   });
 });
@@ -85,7 +85,7 @@ describe('phase 1132 D.2: inbox-reader legacy claw_id audit', () => {
     const results = await reader.drainInbox();
 
     expect(results).toHaveLength(1);
-    expect(results[0].message.contract_id).toBeUndefined();
+    expect(results[0].message.metadata?.contract_id).toBeUndefined();
     expect(results[0].message.extraMeta?.__legacy_claw_id).toBe('claw1');
 
     const legacyAudit = auditCalls.filter(

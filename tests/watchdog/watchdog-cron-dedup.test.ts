@@ -10,7 +10,7 @@ import { randomUUID } from 'crypto';
 import { maybeCronClawCrash } from '../../src/watchdog/watchdog-cron.js';
 import { clawPreviouslyAlive, everSpawned, clawPreviouslyNotified } from '../../src/watchdog/watchdog-context.js';
 import { WATCHDOG_AUDIT_EVENTS } from '../../src/watchdog/audit-events.js';
-import { getMotionDir, loadGlobalConfig } from '../../src/foundation/config/index.js';
+import { getNamedSubrootDir, loadGlobalConfig } from '../../src/foundation/config/index.js';
 import { clawHasContract, gatherClawSnapshot } from '../../src/watchdog/watchdog-utils.js';
 import { InboxWriter } from '../../src/foundation/messaging/index.js';
 import type { ProcessManager } from '../../src/foundation/process-manager/index.js';
@@ -19,7 +19,7 @@ vi.mock('../../src/foundation/config/index.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/foundation/config/index.js')>();
   return {
     ...actual,
-    getMotionDir: vi.fn(),
+    getNamedSubrootDir: vi.fn(),
     loadGlobalConfig: vi.fn(),
   };
 });
@@ -57,7 +57,7 @@ describe('watchdog crash_notification dedup (phase 1207 gap A)', () => {
     fs.mkdirSync(clawsDir, { recursive: true });
     fs.mkdirSync(path.join(clawforumDir, 'motion', 'inbox', 'pending'), { recursive: true });
 
-    vi.mocked(getMotionDir).mockReturnValue(path.join(clawforumDir, 'motion'));
+    vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(clawforumDir, 'motion'));
     vi.mocked(loadGlobalConfig).mockReturnValue({} as any);
     vi.mocked(clawHasContract).mockReturnValue(true);
     vi.mocked(gatherClawSnapshot).mockReturnValue({

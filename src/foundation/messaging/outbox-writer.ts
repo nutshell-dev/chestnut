@@ -20,7 +20,7 @@ export interface OutboxWriteOptions {
   type: 'response' | 'contract_update' | 'status_report' | 'report' | 'question' | 'result' | 'error';
   to: string;
   content: string;
-  contract_id?: string;
+  metadata?: Record<string, string>;
   priority?: 'critical' | 'high' | 'normal' | 'low';
 }
 
@@ -53,7 +53,7 @@ export class OutboxWriter {
       content: options.content,
       timestamp: new Date().toISOString(),
       priority: options.priority ?? 'normal',
-      contract_id: options.contract_id,
+      metadata: options.metadata,
     };
 
     // Generate filename: {timestamp}_{type}_{uuid}.md
@@ -75,7 +75,7 @@ export class OutboxWriter {
         to: options.to,
         type: options.type,
         id: message.id,
-        contractId: options.contract_id,
+        contractId: options.metadata?.contract_id,
       });
       return filePath;
     } catch (err) {

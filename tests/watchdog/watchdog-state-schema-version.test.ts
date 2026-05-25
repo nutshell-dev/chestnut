@@ -12,12 +12,12 @@ vi.mock('../../src/foundation/config/index.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/foundation/config/index.js')>();
   return {
     ...actual,
-    getMotionDir: vi.fn(),
+    getNamedSubrootDir: vi.fn(),
     loadGlobalConfig: vi.fn(),
   };
 });
 
-import { getMotionDir, loadGlobalConfig } from '../../src/foundation/config/index.js';
+import { getNamedSubrootDir, loadGlobalConfig } from '../../src/foundation/config/index.js';
 import {
   loadWatchdogState,
   saveWatchdogState,
@@ -40,7 +40,7 @@ describe('watchdog-state schema_version invariant — phase 1134', () => {
     tmpDir = path.join(os.tmpdir(), `wd-schema-${randomUUID()}`);
     clawforumDir = path.join(tmpDir, '.clawforum');
     fs.mkdirSync(clawforumDir, { recursive: true });
-    vi.mocked(getMotionDir).mockReturnValue(path.join(clawforumDir, 'motion'));
+    vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(clawforumDir, 'motion'));
     vi.mocked(loadGlobalConfig).mockReturnValue({ watchdog: { claw_inactivity_timeout_ms: 300_000 } } as any);
   });
 

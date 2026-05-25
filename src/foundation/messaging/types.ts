@@ -15,8 +15,8 @@ export interface InboxMessage {
   content: string;
   priority: Priority;
   timestamp: string;
-  contract_id?: string;
   reply_to?: string;
+  metadata?: Record<string, string>;
   extraMeta?: Record<string, string>;
 }
 
@@ -28,8 +28,8 @@ export interface OutboxMessage {
   content: string;
   timestamp: string;
   priority: 'critical' | 'high' | 'normal' | 'low';
-  contract_id?: string;
   in_reply_to?: string;
+  metadata?: Record<string, string>;
 }
 
 export interface HeartbeatEntry {
