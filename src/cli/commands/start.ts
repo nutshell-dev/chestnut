@@ -11,7 +11,7 @@ import * as path from 'path';
 import { fileURLToPath } from 'url';
 import * as fs from 'fs';
 import * as readline from 'readline';
-import type { ProgressData } from '../../core/contract/types.js';
+
 import { isInitialized, loadGlobalConfig, getNamedSubrootDir, buildLLMConfig, patchGlobalConfigPrimary, FORMAT_MAP } from '../../foundation/config/index.js';
 import { CONFIG_DEFAULTS } from '../../assembly/config-defaults.js';
 import { createLLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
@@ -32,8 +32,8 @@ import { MOTION_CLAW_ID } from '../../constants.js';
 import { PROCESS_SPAWN_CONFIRM_MS } from '../../foundation/process-manager/index.js';
 import { CliError } from '../errors.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
-import { CONTRACT_ACTIVE_DIR, CONTRACT_PAUSED_DIR, CONTRACT_ARCHIVE_DIR } from '../../core/contract/index.js';
 import { getWorkspaceRoot } from '../../foundation/paths.js';
+import { readOnboardingStatus, type OnboardingStatus } from '../../core/contract/index.js';
 import { DAEMON_LOG } from '../constants.js';
 
 export function buildOnboardingSubtasks(language: string): Array<{ id: string; description: string }> {
@@ -89,11 +89,6 @@ export async function pickLanguage(): Promise<string> {
   });
 }
 
-type OnboardingStatus =
-  | { state: 'complete' }
-  | { state: 'in_progress'; contractId: string; pending: string[] }
-  | { state: 'not_found' };
-
 /**
  * Atomic snapshot of initialization + onboarding state.
  * Merges two disk reads into a single synchronous call to eliminate
@@ -111,53 +106,10 @@ export function getInitializationSnapshot(motionDir: string): {
 
 /**
  * Find the Onboarding contract and determine its completion state.
+ * Wrapper around L4 readOnboardingStatus pure helper (static-phase path).
  */
 export function getOnboardingStatus(motionDir: string): OnboardingStatus {
-  const dirs = [CONTRACT_ACTIVE_DIR, CONTRACT_PAUSED_DIR, CONTRACT_ARCHIVE_DIR];
-
-  for (const dir of dirs) {
-    const contractsDir = path.join(motionDir, dir);
-    if (!fs.existsSync(contractsDir)) continue;
-
-    let entries: string[];
-    try {
-      entries = fs.readdirSync(contractsDir);
-    } catch {
-      continue;
-    }
-
-    for (const contractId of entries) {
-      const contractYaml = path.join(contractsDir, contractId, 'contract.yaml');
-      const progressJson = path.join(contractsDir, contractId, 'progress.json');
-      if (!fs.existsSync(contractYaml) || !fs.existsSync(progressJson)) continue;
-
-      let title = '';
-      try {
-        const yaml = fs.readFileSync(contractYaml, 'utf-8');
-        const m = yaml.match(/^title:\s*["']?(.+?)["']?\s*$/m);
-        title = m?.[1] ?? '';
-      } catch { continue; }
-
-      if (title !== 'Onboarding') continue;
-
-      let progress: ProgressData;
-      try {
-        progress = JSON.parse(fs.readFileSync(progressJson, 'utf-8')) as ProgressData;
-      } catch { continue; }
-
-      const subtasks = progress.subtasks ?? {};
-      const pending = Object.entries(subtasks)
-        .filter(([, v]) => v.status !== 'completed')
-        .map(([k]) => k);
-
-      if (dir === CONTRACT_ARCHIVE_DIR && pending.length === 0) {
-        return { state: 'complete' };
-      }
-      return { state: 'in_progress', contractId, pending };
-    }
-  }
-
-  return { state: 'not_found' };
+  return readOnboardingStatus(motionDir);
 }
 
 type LLMErrorType = 'auth' | 'model' | 'network' | 'rate_limit' | 'unknown';
@@ -464,7 +416,7 @@ async function _start(audit?: AuditLog): Promise<void> {
         idPrefix: 'start',
       });
     } else {
-      const pendingList = onboarding.pending.join(', ');
+      const pendingList = onboarding.pending?.join(', ') ?? '';
       new InboxWriter(notifyFs, inboxDir, notifyAudit).writeSync({
         type: 'message', source: 'system', priority: 'high',
         body: `Resuming Onboarding contract (${onboarding.contractId}). Pending subtasks: ${pendingList}. Please continue.`,

@@ -34,6 +34,12 @@ export {
   CONTRACT_ARCHIVE_DIR,
 } from './dirs.js';
 
+export {
+  readOnboardingStatus,
+  type OnboardingStatus,
+  type OnboardingStatusKind,
+} from './onboarding-discovery.js';
+
 /**
  * ContractSystem 工厂 —— 严格对齐 ctor 7 参数
  *
