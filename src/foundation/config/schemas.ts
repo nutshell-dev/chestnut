@@ -44,7 +44,7 @@ export function createLLMProviderSchema(defaults: Pick<ConfigDefaults, 'reactDef
     api_key: z.string().min(1, 'api_key must not be empty'),
     base_url: z.string().optional(),
     model: z.string().optional(),
-    max_tokens: z.number().min(1).max(128000).default(defaults.reactDefaultMaxTokens),
+    max_tokens: z.number().min(1).max(100_000_000).default(defaults.reactDefaultMaxTokens),
     temperature: z.number().min(0).max(2).default(0.7),
     timeout_ms: z.number().min(1000).max(600000).default(DEFAULT_LLM_TIMEOUT_MS),
     thinking: z.boolean().optional(),
