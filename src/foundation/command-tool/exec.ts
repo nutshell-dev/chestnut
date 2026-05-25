@@ -16,7 +16,6 @@ import { exec } from '../process-exec/index.js';
 import { ProcessExecError } from '../process-exec/index.js';
 import { PROCESS_EXEC_DEFAULT_TIMEOUT_MS } from '../process-exec/index.js';
 import { formatErr, safeNumber } from '../utils/format.js';
-import type { CommandToolDeps } from './index.js';
 
 function truncate(str: string, maxLen: number): string {
   if (!str || str.length <= maxLen) return str || '';
@@ -54,7 +53,7 @@ async function persistOverflow(
 
 export const EXEC_TOOL_NAME = 'exec' as const;
 
-export function createExecTool(deps: CommandToolDeps = {}) {
+export function createExecTool() {
   return {
     name: EXEC_TOOL_NAME,
     profiles: ['full', 'subagent', 'miner'],
@@ -83,15 +82,9 @@ export function createExecTool(deps: CommandToolDeps = {}) {
 
     async execute(args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
       const command = args.command as string;
-      const cmd = command.trim();
-      const firstWord = cmd.split(/\s+/)[0];
 
-      if (deps.denyList?.some(d => d === firstWord)) {
-        return { success: false, content: `command '${firstWord}' is denied` };
-      }
-      if (deps.allowList && !deps.allowList.some(a => a === firstWord)) {
-        return { success: false, content: `command '${firstWord}' is not allowed` };
-      }
+      // phase 1280: allow/deny reject 路径已 REFRAMED-OUT by-design 2026-05-25 user ratify
+      // 未来 restriction 走 OS-level sandbox / 详 design §A.r136-cmd-tool-no-perm-mgmt-cleanup
 
       const cwdArg = args.cwd as string | undefined;
       const cwd = cwdArg
@@ -162,5 +155,5 @@ export function createExecTool(deps: CommandToolDeps = {}) {
   };
 }
 
-// Backward-compat singleton (no allowList/denyList)
+// singleton execTool export (phase 1280: factory now 0-arg / REFRAMED-OUT)
 export const execTool = createExecTool();
