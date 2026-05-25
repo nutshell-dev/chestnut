@@ -39,7 +39,7 @@ export const CONTRACT_AUDIT_EVENTS = {
   COMPLETED: 'contract_completed',
   PAUSED: 'contract_paused',
   RESUMED: 'contract_resumed',
-  // phase 569 const 化（acceptance.ts 7 处字面量收）
+  // phase 569 const 化（verification.ts 7 处字面量收）
   SUBTASK_COMPLETED: 'subtask_completed',
   VERIFICATION_FAILED: 'verification_failed',
   ESCALATED: 'contract_escalation',

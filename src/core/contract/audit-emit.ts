@@ -15,9 +15,10 @@ import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 // ─── phase 1235 B.3: invariant assert for empty contractId ─────────────────
 function assertContractIdNonEmpty(
   audit: AuditLog,
-  contractId: string,
+  contractId: string | undefined,
   emitFnName: string,
 ): boolean {
+  if (contractId === undefined) return true;
   if (contractId === '') {
     audit.write(
       CONTRACT_AUDIT_EVENTS.TYPED_EMIT_INVARIANT_VIOLATION,
@@ -102,6 +103,7 @@ export function emitContractProgressSchemaInvalid(
     raw?: string;
   },
 ): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractProgressSchemaInvalid')) return;
   const cols: string[] = [];
   if (opts.contractId !== undefined) cols.push(`contractId=${opts.contractId}`);
   if (opts.path !== undefined) cols.push(`path=${opts.path}`);
@@ -126,6 +128,7 @@ export function emitContractYamlSchemaInvalid(
     raw?: string;
   },
 ): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractYamlSchemaInvalid')) return;
   const cols: string[] = [`contractId=${opts.contractId}`, `path=${opts.path}`];
   if (opts.reason !== undefined) cols.push(`reason=${opts.reason}`);
   if (opts.actual !== undefined) cols.push(`actual=${opts.actual}`);
@@ -159,6 +162,7 @@ export function emitContractProgressCorrupted(
     message?: string;
   },
 ): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractProgressCorrupted')) return;
   const cols: string[] = [];
   if (opts.context !== undefined) cols.push(`context=${opts.context}`);
   if (opts.contractId !== undefined) cols.push(`contractId=${opts.contractId}`);
@@ -187,6 +191,7 @@ export function emitContractRollbackFailed(
   audit: AuditLog,
   opts: { contractId: string; error: string },
 ): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractRollbackFailed')) return;
   audit.write(
     CONTRACT_AUDIT_EVENTS.ROLLBACK_FAILED,
     `contractId=${opts.contractId}`,
@@ -199,6 +204,7 @@ export function emitContractRollbackIncomplete(
   audit: AuditLog,
   opts: { contractId: string; remaining: string },
 ): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractRollbackIncomplete')) return;
   audit.write(
     CONTRACT_AUDIT_EVENTS.ROLLBACK_INCOMPLETE,
     `contractId=${opts.contractId}`,
@@ -211,6 +217,7 @@ export function emitContractCreated(
   audit: AuditLog,
   opts: { contractId: string; subtasks: number; title: string },
 ): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractCreated')) return;
   audit.write(
     CONTRACT_AUDIT_EVENTS.CREATED,
     opts.contractId,
@@ -224,6 +231,7 @@ export function emitContractVerificationStarted(
   audit: AuditLog,
   opts: { contractId: string; subtaskId: string },
 ): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractVerificationStarted')) return;
   audit.write(
     CONTRACT_AUDIT_EVENTS.VERIFICATION_STARTED,
     `contractId=${opts.contractId}`,
@@ -236,6 +244,7 @@ export function emitContractUpdated(
   audit: AuditLog,
   opts: { contractId: string; subtaskId: string; status: string },
 ): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractUpdated')) return;
   audit.write(
     CONTRACT_AUDIT_EVENTS.UPDATED,
     `contractId=${opts.contractId}`,
@@ -299,6 +308,7 @@ export function emitContractVerificationResetFailed(
     error?: string;
   },
 ): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractVerificationResetFailed')) return;
   const cols: string[] = [];
   if (opts.contractId !== undefined) cols.push(opts.contractId);
   if (opts.subtaskId !== undefined) cols.push(`subtaskId=${opts.subtaskId}`);
@@ -313,6 +323,7 @@ export function emitContractVerificationBackgroundFailed(
   audit: AuditLog,
   opts: { contractId: string; subtaskId: string; error: string },
 ): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractVerificationBackgroundFailed')) return;
   audit.write(
     CONTRACT_AUDIT_EVENTS.VERIFICATION_BACKGROUND_FAILED,
     `contractId=${opts.contractId}`,
@@ -326,6 +337,7 @@ export function emitContractCompleteOnCancelled(
   audit: AuditLog,
   opts: { contractId: string; subtaskId: string; context?: string },
 ): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractCompleteOnCancelled')) return;
   const cols: string[] = [
     `contractId=${opts.contractId}`,
     `subtaskId=${opts.subtaskId}`,
@@ -339,6 +351,7 @@ export function emitContractVerificationBackgroundDone(
   audit: AuditLog,
   opts: { contractId: string; subtaskId: string; result: string },
 ): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractVerificationBackgroundDone')) return;
   audit.write(
     CONTRACT_AUDIT_EVENTS.VERIFICATION_BACKGROUND_DONE,
     `contractId=${opts.contractId}`,
@@ -364,6 +377,7 @@ export function emitContractSubtaskDuplicateDone(
   audit: AuditLog,
   opts: { contractId: string; subtaskId: string },
 ): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractSubtaskDuplicateDone')) return;
   audit.write(
     CONTRACT_AUDIT_EVENTS.SUBTASK_DUPLICATE_DONE,
     `contractId=${opts.contractId}`,
@@ -376,6 +390,7 @@ export function emitContractSubtaskAlreadyCompleted(
   audit: AuditLog,
   opts: { contractId: string; subtaskId: string },
 ): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractSubtaskAlreadyCompleted')) return;
   audit.write(
     CONTRACT_AUDIT_EVENTS.SUBTASK_ALREADY_COMPLETED,
     `contractId=${opts.contractId}`,
@@ -395,6 +410,7 @@ export function emitContractUnexpectedAsyncThrow(
     stack?: string;
   },
 ): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractUnexpectedAsyncThrow')) return;
   const cols: string[] = [`context=${opts.context}`, `contractId=${opts.contractId}`];
   if (opts.subtaskId !== undefined) cols.push(`subtaskId=${opts.subtaskId}`);
   if (opts.errorType !== undefined) cols.push(`errorType=${opts.errorType}`);
@@ -408,6 +424,7 @@ export function emitContractPassed(
   audit: AuditLog,
   opts: { contractId: string; subtaskId: string },
 ): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractPassed')) return;
   audit.write(
     CONTRACT_AUDIT_EVENTS.PASSED,
     `contractId=${opts.contractId}`,
@@ -420,6 +437,7 @@ export function emitContractCancelled(
   audit: AuditLog,
   opts: { contractId: string; reason?: string; abortVerifierFailed?: string },
 ): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractCancelled')) return;
   const cols: string[] = [opts.contractId];
   if (opts.reason !== undefined) cols.push(`reason=${opts.reason}`);
   if (opts.abortVerifierFailed !== undefined) cols.push(`abort_verifier_failed=${opts.abortVerifierFailed}`);
@@ -431,6 +449,7 @@ export function emitContractCompleted(
   audit: AuditLog,
   opts: { contractId: string; title: string; claw: string },
 ): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractCompleted')) return;
   audit.write(
     CONTRACT_AUDIT_EVENTS.COMPLETED,
     opts.contractId,
@@ -444,6 +463,7 @@ export function emitContractPaused(
   audit: AuditLog,
   opts: { contractId: string; checkpoint: string },
 ): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractPaused')) return;
   audit.write(
     CONTRACT_AUDIT_EVENTS.PAUSED,
     opts.contractId,
@@ -456,6 +476,7 @@ export function emitContractResumed(
   audit: AuditLog,
   opts: { contractId: string },
 ): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractResumed')) return;
   audit.write(CONTRACT_AUDIT_EVENTS.RESUMED, opts.contractId);
 }
 
@@ -464,6 +485,7 @@ export function emitContractSubtaskCompleted(
   audit: AuditLog,
   opts: { contractId: string; subtaskId: string; progress: string; claw: string },
 ): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractSubtaskCompleted')) return;
   audit.write(
     CONTRACT_AUDIT_EVENTS.SUBTASK_COMPLETED,
     `contractId=${opts.contractId}`,
@@ -478,6 +500,7 @@ export function emitContractVerificationFailed(
   audit: AuditLog,
   opts: { contractId: string; subtaskId: string; feedback?: string },
 ): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractVerificationFailed')) return;
   const cols: string[] = [
     `contractId=${opts.contractId}`,
     `subtaskId=${opts.subtaskId}`,
@@ -497,6 +520,7 @@ export function emitContractEscalated(
     context?: string;
   },
 ): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractEscalated')) return;
   const cols: string[] = [
     `contractId=${opts.contractId}`,
     `subtaskId=${opts.subtaskId}`,
@@ -512,6 +536,7 @@ export function emitContractVerificationTimeout(
   audit: AuditLog,
   opts: { contractId: string; subtaskId: string; claw: string },
 ): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractVerificationTimeout')) return;
   audit.write(
     CONTRACT_AUDIT_EVENTS.VERIFICATION_TIMEOUT,
     `contractId=${opts.contractId}`,
@@ -608,6 +633,7 @@ export function emitContractCompletedHandlerFailed(
   audit: AuditLog,
   opts: { contractId: string; error: string },
 ): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractCompletedHandlerFailed')) return;
   audit.write(
     CONTRACT_AUDIT_EVENTS.CONTRACT_COMPLETED_HANDLER_FAILED,
     `contractId=${opts.contractId}`,

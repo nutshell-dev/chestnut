@@ -131,6 +131,7 @@ export class SkillSystem {
       try {
         await this.register(skillDir);
       } catch (err) {
+        if (err instanceof SkillDuplicateError) throw err;
         this.audit?.write(SKILL_AUDIT_EVENTS.LOAD_FAILED,
           `skill_dir=${skillDir}`,
           `skills_dir=${this.skillsDir}`,

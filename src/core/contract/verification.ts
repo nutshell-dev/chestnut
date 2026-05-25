@@ -64,7 +64,7 @@ export interface VerificationContext extends LockContext {
 
 async function runVerificationByType(
   ctx: VerificationContext,
-  acceptanceConfig: VerificationConfig,
+  verificationConfig: VerificationConfig,
   contractAbsDir: string,
   contractId: string,
   subtaskId: string,
@@ -72,8 +72,8 @@ async function runVerificationByType(
   evidence: string,
   artifacts: string[],
 ): Promise<VerificationResult> {
-  if (acceptanceConfig.type === 'script') {
-    const scriptFile = acceptanceConfig.script_file;
+  if (verificationConfig.type === 'script') {
+    const scriptFile = verificationConfig.script_file;
     if (!scriptFile) {
       emitContractVerificationResetFailed(
         ctx.audit,
@@ -87,7 +87,7 @@ async function runVerificationByType(
     return ctx.runScriptVerification(scriptFile, contractAbsDir);
   }
 
-  const promptFile = acceptanceConfig.prompt_file;
+  const promptFile = verificationConfig.prompt_file;
   if (!promptFile) {
     emitContractVerificationResetFailed(
       ctx.audit,
@@ -116,7 +116,7 @@ async function applyVerificationOutcome(
   subtaskDesc: string,
   result: VerificationResult,
   contractYaml: ContractYaml,
-  acceptanceConfig: VerificationConfig,
+  verificationConfig: VerificationConfig,
 ): Promise<{ allCompleted: boolean; passed: boolean } | null> {
   return ctx.withProgressLock(contractId, async () => {
     const progress = await ctx.getProgress(contractId);
@@ -176,7 +176,7 @@ async function applyVerificationOutcome(
     }
 
     subtask.retry_count = (subtask.retry_count || 0) + 1;
-    const failureCause = acceptanceConfig.type === 'script' ? 'script_failed' : 'llm_rejected';
+    const failureCause = verificationConfig.type === 'script' ? 'script_failed' : 'llm_rejected';
     subtask.last_failed_feedback = {
       feedback: result.feedback,
       cause: failureCause,
@@ -197,9 +197,9 @@ async function applyVerificationOutcome(
     );
     await ctx.saveProgress(contractId, progress);
 
-    const verificationFile = acceptanceConfig.type === 'script'
-      ? acceptanceConfig.script_file ?? 'unknown'
-      : acceptanceConfig.prompt_file ?? 'unknown';
+    const verificationFile = verificationConfig.type === 'script'
+      ? verificationConfig.script_file ?? 'unknown'
+      : verificationConfig.prompt_file ?? 'unknown';
     const formattedFeedback = result.structured
       ? formatRejectionFeedback(
           subtaskId,
@@ -208,7 +208,7 @@ async function applyVerificationOutcome(
           result.structured.issues || [],
           subtask.retry_count,
           maxRetries,
-          acceptanceConfig.type,
+          verificationConfig.type,
           verificationFile,
         )
       : result.feedback;
@@ -238,9 +238,9 @@ export async function runVerificationPipeline(
 ): Promise<VerificationResult> {
   const { contractId, subtaskId, evidence, artifacts } = params;
   const contractYaml = await ctx.loadContractYaml(contractId);
-  const acceptanceConfig = contractYaml.verification?.find(a => a.subtask_id === subtaskId);
+  const verificationConfig = contractYaml.verification?.find(a => a.subtask_id === subtaskId);
 
-  if (!acceptanceConfig) {
+  if (!verificationConfig) {
     return completeSubtaskSync(ctx, contractId, subtaskId, evidence, artifacts);
   }
 
@@ -266,7 +266,7 @@ export async function runVerificationPipeline(
     emitContractVerificationStarted(ctx.audit, { contractId, subtaskId });
   });
 
-  runVerificationInBackground(ctx, params, contractYaml, acceptanceConfig)
+  runVerificationInBackground(ctx, params, contractYaml, verificationConfig)
     .catch(err => {
       if (isProgrammingBug(err)) {
         emitContractUnexpectedAsyncThrow(
@@ -304,7 +304,7 @@ export async function runVerificationInBackground(
   ctx: VerificationContext,
   params: { contractId: string; subtaskId: string; evidence: string; artifacts?: string[] },
   contractYaml: ContractYaml,
-  acceptanceConfig: VerificationConfig,
+  verificationConfig: VerificationConfig,
 ): Promise<void> {
   const { contractId, subtaskId, evidence, artifacts = [] } = params;
   const subtaskDef = contractYaml.subtasks.find(st => st.id === subtaskId);
@@ -315,7 +315,7 @@ export async function runVerificationInBackground(
   try {
     const result = await runVerificationByType(
       ctx,
-      acceptanceConfig,
+      verificationConfig,
       contractAbsDir,
       contractId,
       subtaskId,
@@ -331,7 +331,7 @@ export async function runVerificationInBackground(
       subtaskDesc,
       result,
       contractYaml,
-      acceptanceConfig,
+      verificationConfig,
     );
     outcomeKind = outcome?.passed ? 'passed' : 'failed';
 

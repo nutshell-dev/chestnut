@@ -131,7 +131,7 @@ export async function saveProgress(
 
 // phase 791 (P0.17): updateContractStatus deleted.
 // Function promised persistence but only wrote audit; naming illusion violated M#11.
-// COMPLETED audit single-source via archiveAndEmit (acceptance.ts:75).
+// COMPLETED audit single-source via archiveAndEmit (verification.ts:75).
 
 export async function checkAllSubtasksCompleted(
   ctx: PersistenceContext,
