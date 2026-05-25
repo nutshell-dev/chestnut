@@ -230,37 +230,37 @@
     },
     {
       "file": "core/builtins.test.ts",
-      "line": 731,
+      "line": 701,
       "excerpt": "      const mockAudit = { write: vi.fn() };"
     },
     {
       "file": "core/builtins.test.ts",
-      "line": 742,
+      "line": 712,
       "excerpt": "      const mockAudit = { write: vi.fn() };"
     },
     {
       "file": "core/builtins.test.ts",
-      "line": 767,
+      "line": 737,
       "excerpt": "      const mockAudit = { write: vi.fn() };"
     },
     {
       "file": "core/builtins.test.ts",
-      "line": 845,
+      "line": 815,
       "excerpt": "      const mockAudit = { write: vi.fn() };"
     },
     {
       "file": "core/builtins.test.ts",
-      "line": 900,
+      "line": 870,
       "excerpt": "      const auditWriter = { write: vi.fn() };"
     },
     {
       "file": "core/builtins.test.ts",
-      "line": 923,
+      "line": 893,
       "excerpt": "      const auditWriter = { write: vi.fn() };"
     },
     {
       "file": "core/builtins.test.ts",
-      "line": 947,
+      "line": 917,
       "excerpt": "      const auditWriter = { write: vi.fn() };"
     },
     {

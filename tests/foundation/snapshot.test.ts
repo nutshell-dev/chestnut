@@ -12,6 +12,7 @@ import { Snapshot } from '../../src/foundation/snapshot/index.js';
 import { SNAPSHOT_IGNORE_PATTERNS } from '../../src/assembly/snapshot-patterns.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { SNAPSHOT_AUDIT_EVENTS } from '../../src/foundation/snapshot/audit-events.js';
+import { makeMockAudit } from '../helpers/audit.js';
 
 // git 必须可用才能跑这些测试
 let gitAvailable = false;
@@ -279,7 +280,7 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
       });
 
       it('consecutive failures are shared across instances for the same dir', async () => {
-      const audit = { write: vi.fn() };
+      const audit = makeMockAudit();
       const snapshot1 = new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir }), audit, []);
       const snapshot2 = new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir }), audit, []);
       await snapshot1.init();
@@ -313,7 +314,7 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
       });
 
       it('commit writes snapshot_degraded audit at exactly 3 consecutive failures', async () => {
-      const audit = { write: vi.fn() };
+      const audit = makeMockAudit();
       const snapshot = new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir }), audit, []);
       await snapshot.init();
       await fsp.writeFile(path.join(tmpDir, 'data.txt'), 'hello');
@@ -346,7 +347,7 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
       });
 
       it('commit does not write snapshot_degraded on 4th+ failure', async () => {
-      const audit = { write: vi.fn() };
+      const audit = makeMockAudit();
       const snapshot = new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir }), audit, []);
       await snapshot.init();
       await fsp.writeFile(path.join(tmpDir, 'data.txt'), 'hello');
@@ -402,7 +403,7 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
 
       it('commit cleans only whitelisted sync scratch dirs, leaving lifecycle dirs intact', async () => {
       const fs = new NodeFileSystem({ baseDir: tmpDir });
-      const audit = { write: vi.fn() };
+      const audit = makeMockAudit();
       const scratchDir = path.join(tmpDir, 'tasks', 'sync', 'exec');
       const lifecycleDir = path.join(tmpDir, 'tasks', 'sync', 'shadow');
       await fs.ensureDir(scratchDir);
@@ -493,7 +494,7 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
         return baseFs.ensureDir(dir);
       });
 
-      const audit = { write: vi.fn() };
+      const audit = makeMockAudit();
       const scratchDir = path.join(tmpDir, 'tasks', 'sync', 'exec');
       const snapshot = new Snapshot(tmpDir, fs, audit, [], [scratchDir]);
       await snapshot.init();
@@ -534,7 +535,7 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
 
       it('commit skips cleanup + emits audit when caller mis-configures syncCleanupDirs with agent dir itself', async () => {
       const fs = new NodeFileSystem({ baseDir: tmpDir });
-      const audit = { write: vi.fn() };
+      const audit = makeMockAudit();
       // mis-config: syncCleanupDirs contains agent dir itself → relDir === ''
       const snapshot = new Snapshot(tmpDir, fs, audit, [], [tmpDir]);
       await snapshot.init();
@@ -599,7 +600,7 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
       return processExec(cmd, args, opts);
     });
 
-    const audit = { write: vi.fn() };
+    const audit = makeMockAudit();
     const snapshot = new Snapshot(tmpDir, new NodeFileSystem({ baseDir: tmpDir }), audit, []);
     const result = await snapshot.init();
 
@@ -649,7 +650,7 @@ describe.skipIf(!gitAvailable)('Snapshot', () => {
     const fs = Object.create(baseFs);
     fs.removeDir = vi.fn().mockRejectedValue(new Error('mock cleanup failure'));
 
-    const audit = { write: vi.fn() };
+    const audit = makeMockAudit();
     const snapshot = new Snapshot(tmpDir, fs, audit, []);
 
     // 关键：init 不抛 / 仍返 Result.err
