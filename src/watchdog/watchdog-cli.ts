@@ -9,9 +9,10 @@ import {
   getWatchdogEntryPath,
 } from './watchdog-context.js';
 import {
-  getWatchdogPid, isWatchdogAlive, removeWatchdogPid,
+  getWatchdogPid, isWatchdogAlive, removeWatchdogPid, WatchdogPidForeignWorkspaceError,
 } from './watchdog-pid.js';
 import { getWorkspaceRoot } from '../foundation/paths.js';
+import { CliError } from '../cli/errors.js';
 
 // Watchdog lifecycle poll：通用 100ms 间隔
 const WATCHDOG_POLL_INTERVAL_MS = 100;
@@ -37,9 +38,21 @@ export async function startCommand(): Promise<void> {
   const watchdogEntryPath = getWatchdogEntryPath();
 
   // 幂等：本 workspace 的 watchdog 已在运行则直接返回
-  if (isWatchdogAlive()) {
-    console.log(`Watchdog already running (PID: ${getWatchdogPid()})`);
-    return;
+  try {
+    if (isWatchdogAlive()) {
+      console.log(`Watchdog already running (PID: ${getWatchdogPid()})`);
+      return;
+    }
+  } catch (err) {
+    if (err instanceof WatchdogPidForeignWorkspaceError) {
+      throw new CliError(
+        `Watchdog already running for foreign workspace.\n` +
+        `  PID:   ${err.foreignPid}\n` +
+        `  Root:  ${err.foreignRoot}\n\n` +
+        `Run "clawforum stop" in that workspace.`
+      );
+    }
+    throw err;
   }
 
   // spawn watchdog，显式传 CLAWFORUM_ROOT
