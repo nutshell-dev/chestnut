@@ -12,12 +12,13 @@ import { CLAWSPACE_DIR, CLAWS_DIR } from '../../../foundation/paths.js';
 export const DISK_MONITOR_CRON_TIMEOUT_MS = 60_000;
 
 /** 递归计算目录大小（bytes） */
-function getDirSize(dir: string, fs: FileSystem, audit?: AuditLog): number {
+function getDirSize(dir: string, fs: FileSystem, audit?: AuditLog, signal?: AbortSignal): number {
   try {
     let size = 0;
     for (const entry of fs.listSync(dir, { includeDirs: true })) {
+      if (signal?.aborted) return size;
       if (entry.isDirectory) {
-        size += getDirSize(path.join(dir, entry.name), fs, audit);
+        size += getDirSize(path.join(dir, entry.name), fs, audit, signal);
       } else {
         size += entry.size;
       }
@@ -41,6 +42,7 @@ export interface DiskMonitorOptions {
   audit: AuditLog;
   motionAudit: AuditLog;   // motion-side audit (装配方预 build)
   motionInbox: InboxWriter; // motion inbox writer (装配方预 build)
+  signal?: AbortSignal;
 }
 
 export async function runDiskMonitor(opts: DiskMonitorOptions): Promise<void> {
@@ -49,9 +51,10 @@ export async function runDiskMonitor(opts: DiskMonitorOptions): Promise<void> {
 
   let totalSize = 0;
   for (const clawId of opts.fs.listSync(clawsDir, { includeDirs: true }).map(e => e.name)) {
+    if (opts.signal?.aborted) return;
     const clawspaceDir = path.join(clawsDir, clawId, CLAWSPACE_DIR);
     if (opts.fs.existsSync(clawspaceDir)) {
-      totalSize += getDirSize(clawspaceDir, opts.fs, opts.audit);
+      totalSize += getDirSize(clawspaceDir, opts.fs, opts.audit, opts.signal);
     }
   }
 

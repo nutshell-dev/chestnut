@@ -621,13 +621,14 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
             name: 'disk-monitor',
             enabled: globalConfig.cron?.jobs?.disk_monitor?.enabled ?? true,
             schedule: parseSchedule(diskScheduleStr, auditWriter),
-            handler: () => runDiskMonitor({
+            handler: (signal) => runDiskMonitor({
               clawforumDir,
               limitMB: diskLimitMB,
               fs: clawforumFs,
               audit: auditWriter,
               motionAudit: auditWriter,  // phase 724 α：主 auditWriter 单 instance 复用
               motionInbox: diskMonitorInbox,
+              signal,
             }),
             timeoutMs: DISK_MONITOR_CRON_TIMEOUT_MS,
           },
@@ -635,12 +636,13 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
             name: 'llm-stats',
             enabled: globalConfig.cron?.jobs?.llm_stats?.enabled ?? true,
             schedule: parseSchedule(globalConfig.cron?.jobs?.llm_stats?.schedule ?? 'daily:06:00', auditWriter),
-            handler: () => runLlmStats({
+            handler: (signal) => runLlmStats({
               clawforumDir,
               motionDir: clawDir,
               clawforumFs,
               motionFs: systemFs,
               audit: auditWriter,
+              signal,
             }),
             timeoutMs: LLM_STATS_CRON_TIMEOUT_MS,
           },
@@ -659,10 +661,11 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
             name: 'metrics-snapshot',
             enabled: globalConfig.cron?.jobs?.metrics_snapshot?.enabled ?? true,
             schedule: parseSchedule(globalConfig.cron?.jobs?.metrics_snapshot?.schedule ?? 'interval:5m', auditWriter),
-            handler: () => runMetricsSnapshot({
+            handler: (signal) => runMetricsSnapshot({
               motionDir: path.join(clawforumDir, 'motion'),
               fs: clawforumFs,
               audit: auditWriter,
+              signal,
             }),
             timeoutMs: METRICS_SNAPSHOT_CRON_TIMEOUT_MS,
           },
@@ -670,12 +673,13 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
             name: 'contract-observer',
             enabled: true,
             schedule: parseSchedule(globalConfig.cron?.jobs?.contract_observer?.schedule ?? 'interval:1m', auditWriter),
-            handler: () => runContractObserver({
+            handler: (signal) => runContractObserver({
               clawforumDir,
               motionInboxDir,
               fs: clawforumFs,
               motionAudit: auditWriter,  // phase 724 α：主 auditWriter 单 instance 复用
               notifyInbox: (payload, audit) => notifyInbox(clawforumFs, payload, audit),
+              signal,
             }),
             timeoutMs: CONTRACT_OBSERVER_CRON_TIMEOUT_MS,
           },
@@ -683,10 +687,11 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
             name: 'git-gc-weekly',
             enabled: globalConfig.cron?.jobs?.git_gc_weekly?.enabled ?? true,
             schedule: parseSchedule(globalConfig.cron?.jobs?.git_gc_weekly?.schedule ?? 'daily:03:00', auditWriter),
-            handler: () => runGitGcWeekly({
+            handler: (signal) => runGitGcWeekly({
               clawforumDir,
               fs: clawforumFs,
               audit: auditWriter,
+              signal,
             }),
             timeoutMs: GIT_GC_WEEKLY_CRON_TIMEOUT_MS,
           },
@@ -694,7 +699,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
             name: 'retention-cleanup',
             enabled: globalConfig.cron?.jobs?.retention_cleanup?.enabled ?? true,
             schedule: parseSchedule(globalConfig.cron?.jobs?.retention_cleanup?.schedule ?? 'daily:04:00', auditWriter),
-            handler: () => runRetentionCleanup({
+            handler: (signal) => runRetentionCleanup({
               motionDir: clawDir,
               fs: clawforumFs,
               audit: auditWriter,
@@ -704,6 +709,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
                 tasks: globalConfig.retention?.tasks_max_days ?? 60,
                 dialog: globalConfig.retention?.dialog_max_days ?? 90,
               },
+              signal,
             }),
             timeoutMs: RETENTION_CLEANUP_CRON_TIMEOUT_MS,
           },
@@ -711,13 +717,14 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
             name: 'audit-size-monitor',
             enabled: globalConfig.cron?.jobs?.audit_size_monitor?.enabled ?? true,
             schedule: parseSchedule(globalConfig.cron?.jobs?.audit_size_monitor?.schedule ?? 'interval:6h', auditWriter),
-            handler: () => runAuditSizeMonitor({
+            handler: (signal) => runAuditSizeMonitor({
               fs: clawforumFs,
               audit: auditWriter,
               clawforumDir,
               motionAuditPath: path.join(clawforumDir, 'motion', 'audit.tsv'),
               rootAuditPath: path.join(clawforumDir, 'audit.tsv'),
               motionInbox: diskMonitorInbox,
+              signal,
             }),
             timeoutMs: AUDIT_SIZE_MONITOR_CRON_TIMEOUT_MS,
           },
@@ -725,11 +732,12 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
             name: 'outbox-drain',
             enabled: globalConfig.cron?.jobs?.outbox_drain?.enabled ?? true,
             schedule: parseSchedule(globalConfig.cron?.jobs?.outbox_drain?.schedule ?? 'interval:30s', auditWriter),
-            handler: () => runOutboxDrain({
+            handler: (signal) => runOutboxDrain({
               clawforumDir,
               motionInboxDir: path.join(clawDir, 'inbox', 'pending'),
               fs: clawforumFs,
               audit: auditWriter,
+              signal,
             }),
             timeoutMs: OUTBOX_DRAIN_CRON_TIMEOUT_MS,
           },
@@ -737,7 +745,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
             name: 'sunset-monitor',
             enabled: globalConfig.cron?.jobs?.sunset_monitor?.enabled ?? true,
             schedule: parseSchedule(globalConfig.cron?.jobs?.sunset_monitor?.schedule ?? 'interval:30d', auditWriter),
-            handler: () => runSunsetMonitor({
+            handler: (signal) => runSunsetMonitor({
               fs: clawforumFs,
               audit: auditWriter,
               clawforumDir,
@@ -749,6 +757,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
                 'legacy_pending_task_no_mode',
               ],
               motionInbox: diskMonitorInbox,
+              signal,
             }),
             timeoutMs: SUNSET_MONITOR_CRON_TIMEOUT_MS,
           },

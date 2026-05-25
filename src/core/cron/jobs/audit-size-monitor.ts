@@ -32,12 +32,14 @@ export interface AuditSizeMonitorOptions {
   warnBytes?: number;
   criticalBytes?: number;
   motionInbox?: InboxWriter;
+  signal?: AbortSignal;
 }
 
 export async function runAuditSizeMonitor(opts: AuditSizeMonitorOptions): Promise<void> {
   const warn = opts.warnBytes ?? AUDIT_SIZE_WARN_BYTES;
   const critical = opts.criticalBytes ?? AUDIT_SIZE_CRITICAL_BYTES;
   for (const p of [opts.motionAuditPath, opts.rootAuditPath]) {
+    if (opts.signal?.aborted) return;
     try {
       const stat = opts.fs.statSync(p);
       const size = stat.size;

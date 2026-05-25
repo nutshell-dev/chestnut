@@ -12,6 +12,7 @@ export interface MetricsSnapshotOptions {
   motionDir: string;   // motion 目录完整路径
   fs: FileSystem;       // baseDir 可访问 motionDir（用于 clawforumFs）
   audit: AuditLog;
+  signal?: AbortSignal;
 }
 
 /** 统计目录下文件数，目录不存在返回 0 */

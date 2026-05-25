@@ -54,6 +54,7 @@ export interface LlmStatsOptions {
   clawforumFs: FileSystem;   // baseDir = clawforumDir
   motionFs: FileSystem;       // baseDir = motionDir
   audit: AuditLog;
+  signal?: AbortSignal;
 }
 
 export async function runLlmStats(opts: LlmStatsOptions): Promise<void> {
@@ -61,13 +62,14 @@ export async function runLlmStats(opts: LlmStatsOptions): Promise<void> {
   const yesterday = new Date(Date.now() - 86400000);
   const targetDate = yesterday.toISOString().slice(0, 10); // "YYYY-MM-DD"
 
+  if (opts.signal?.aborted) return;
   const entries = collectEntries(opts, targetDate);
   if (entries.length === 0) {
     opts.audit.write(CRON_AUDIT_EVENTS.LLM_STATS, `step=empty_result`, `date=${targetDate}`);
     return;
   }
 
-  const summary = aggregate(entries, targetDate);
+  const summary = aggregate(entries, targetDate, opts.signal);
 
   // 追加到 .clawforum/logs/llm-stats.jsonl
   opts.clawforumFs.ensureDirSync(path.dirname(LLM_STATS_FILE));
@@ -93,9 +95,11 @@ function collectEntries(opts: LlmStatsOptions, targetDate: string): ParsedLlmRow
   ];
 
   for (const { fs, file, clawId } of candidates) {
+    if (opts.signal?.aborted) return results;
     if (!fs.existsSync(file)) continue;
     const lines = fs.readSync(file).split('\n');
     for (const line of lines) {
+      if (opts.signal?.aborted) return results;
       if (!line.trim()) continue;
       const cols = line.split('\t');
       const ts = cols[0] ?? '';
@@ -127,7 +131,7 @@ function collectEntries(opts: LlmStatsOptions, targetDate: string): ParsedLlmRow
   return results;
 }
 
-function aggregate(entries: ParsedLlmRow[], targetDate: string): LlmStatsSummary {
+function aggregate(entries: ParsedLlmRow[], targetDate: string, signal?: AbortSignal): LlmStatsSummary {
   const byModel: Record<string, ModelStats> = {};
   const byClaw: Record<string, ClawStats> = {};
 
@@ -138,6 +142,7 @@ function aggregate(entries: ParsedLlmRow[], targetDate: string): LlmStatsSummary
   let latencyCount = 0;
 
   for (const d of entries) {
+    if (signal?.aborted) break;
     if (d.success) {
       successCalls++;
       latencySum += d.latencyMs;
