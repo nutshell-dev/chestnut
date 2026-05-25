@@ -334,11 +334,6 @@
       "excerpt": "    const mockAudit = { write: vi.fn() };"
     },
     {
-      "file": "core/task.test.ts",
-      "line": 895,
-      "excerpt": "      const mockAuditWriter = { write: vi.fn() };"
-    },
-    {
       "file": "core/contract-concurrency.test.ts",
       "line": 47,
       "excerpt": "    const mockAudit = { write: vi.fn() };"

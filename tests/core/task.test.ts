@@ -22,7 +22,7 @@ import { TASK_AUDIT_EVENTS } from '../../src/core/async-task-system/audit-events
 import { SUBAGENT_AUDIT_EVENTS } from '../../src/core/subagent/audit-events.js';
 import { TEST_LLM_TIMEOUT_MS, SUBAGENT_DEFAULT_TIMEOUT_MS, SUBAGENT_WAIT_TIMEOUT_MS, SUBAGENT_LONG_TIMEOUT_MS } from '../helpers/test-timeouts.js';
 import { SUBAGENT_TIMEOUT_MS } from '../../src/core/subagent/constants.js';
-import { makeAudit, waitForAuditEvent } from '../helpers/audit.js';
+import { makeAudit, makeMockAudit, waitForAuditEvent } from '../helpers/audit.js';
 import { createTestTaskSystem } from '../helpers/task-system.js';
 import { waitFor } from '../helpers/wait-for.js';
 
@@ -871,7 +871,7 @@ describe('Task System + SubAgent', () => {
     });
 
     test('should write audit event when appendToLog fs.append throws', async ({ ctx }) => {
-      const mockAuditWriter = { write: vi.fn() };
+      const mockAuditWriter = makeMockAudit();
 
       // FS mock：append 始终失败，其余方法正常
       const throwingFs = Object.create(ctx.mockFs);
