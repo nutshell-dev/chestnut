@@ -52,17 +52,7 @@ export interface ChatViewportOptions {
   audit: AuditLog; // audit sink for createWatcher
 }
 
-export interface TurnTracker {
-  begin(): void;
-  end(): void;
-  abort(): void;
-  interrupted(): void;
-  requestInterrupt(source: 'esc'): void;
-  forceReset(): void;
-  isActive(): boolean;
-  getInterruptSource(): 'esc' | null;
-  destroy(): void;
-}
+export type { TurnTracker } from './chat-viewport-types.js';
 
 export async function runChatViewport(options: ChatViewportOptions): Promise<void> {
   const pm = createProcessManagerForCLI();

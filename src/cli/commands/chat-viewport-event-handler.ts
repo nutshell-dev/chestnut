@@ -14,7 +14,7 @@ import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
 import type { CallerType } from '../../core/caller-types.js';
 import type { StreamReader } from '../../foundation/stream/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
-import type { TurnTracker } from './chat-viewport.js';
+import type { TurnTracker } from './chat-viewport-types.js';
 import type { MainTurnUIController } from './main-turn-ui.js';
 import type { ThinkingMode } from './chat-viewport-commands.js';
 import type { createViewportObservability } from './chat-viewport-observability.js';

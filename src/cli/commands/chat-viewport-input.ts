@@ -1,7 +1,7 @@
 import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { MainTurnUIController } from './main-turn-ui.js';
-import type { TurnTracker } from './chat-viewport.js';
+import type { TurnTracker } from './chat-viewport-types.js';
 
 export type ShutdownReason = 'daemon_dead' | 'user_quit' | 'stream_end';
 
