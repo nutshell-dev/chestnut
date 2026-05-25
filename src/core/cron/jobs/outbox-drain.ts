@@ -26,6 +26,7 @@ export interface OutboxDrainOptions {
   fs: FileSystem;              // baseDir = clawforumDir
   audit: AuditLog;             // motion system audit
   limit?: number;              // 每 tick 每 claw 最大 drain 数（防单 claw bomb motion inbox）
+  signal?: AbortSignal;
 }
 
 const DEFAULT_LIMIT_PER_CLAW = 50;
@@ -56,6 +57,7 @@ export async function runOutboxDrain(opts: OutboxDrainOptions): Promise<void> {
   let totalDrained = 0;
 
   for (const clawId of clawIds) {
+    if (opts.signal?.aborted) return;
     const outboxPending = path.join(clawsDir, clawId, 'outbox', 'pending');
     const outboxDone = path.join(clawsDir, clawId, 'outbox', 'done');
     const processingDir = path.join(clawsDir, clawId, 'outbox', 'processing');
@@ -79,6 +81,7 @@ export async function runOutboxDrain(opts: OutboxDrainOptions): Promise<void> {
 
     const toRead = files.slice(0, limitPerClaw);
     for (const fileName of toRead) {
+      if (opts.signal?.aborted) return;
       const srcPath = path.join(outboxPending, fileName);
       const claimToken = `cron_${process.pid}_${Date.now()}_${randomUUID().slice(0, 8)}`;
       const claimedPath = path.join(processingDir, `${claimToken}_${fileName}`);

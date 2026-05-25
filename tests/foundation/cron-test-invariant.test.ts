@@ -25,9 +25,9 @@ describe('phase 1238: cron unit test wall-clock race invariant', () => {
       f.endsWith('.test.ts')
     );
 
-    // Exception list: parser unit tests 不涉 wall-clock
+    // Exception list: parser unit tests / lint grep tests 不涉 wall-clock
     const EXCEPTIONS = new Set<string>([
-      // 'parse-schedule-unit.test.ts',  // 若在 runner/handler 命名下加例外
+      'handler-signal-cascade-invariant.test.ts',  // phase 1266: lint grep assemble.ts + jobs type signature, 0 runner runtime
     ]);
 
     const violations: string[] = [];

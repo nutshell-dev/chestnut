@@ -18,6 +18,7 @@ export interface ContractObserverOptions {
   fs: FileSystem;             // baseDir = clawforumDir (装配方预 build)
   motionAudit: AuditLog;      // motion system audit (装配方预 build)
   notifyInbox: (payload: InboxMessageOptionsBase & { inboxDir: string }, audit: AuditLog) => void; // 装配方 closure 包装
+  signal?: AbortSignal;
 }
 
 // 持久化文件：上次观察时间戳
@@ -74,6 +75,7 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
 
 
   for (const clawId of clawIds) {
+    if (options.signal?.aborted) return;
     try {
       const clawDir = path.join(clawforumDir, CLAWS_DIR, clawId);
       const clawEvents = collectContractEvents(fs, clawDir, clawId, lastCheckTs, motionAudit);

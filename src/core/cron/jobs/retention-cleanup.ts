@@ -19,6 +19,7 @@ export interface RetentionCleanupOptions {
     tasks?: number;
     dialog?: number;
   };
+  signal?: AbortSignal;
 }
 
 const DIRS: Array<{ relPath: string; maxDaysKey: keyof RetentionCleanupOptions['maxDays'] }> = [
@@ -38,6 +39,7 @@ export async function runRetentionCleanup(opts: RetentionCleanupOptions): Promis
   let totalDeleted = 0;
 
   for (const { relPath, maxDaysKey } of DIRS) {
+    if (opts.signal?.aborted) return;
     const maxD = maxDays[maxDaysKey];
     if (!maxD) continue;
 
@@ -47,6 +49,7 @@ export async function runRetentionCleanup(opts: RetentionCleanupOptions): Promis
     const cutoff = now - maxD * 24 * 60 * 60 * 1000;
     try {
       for (const entry of fs.listSync(dir)) {
+        if (opts.signal?.aborted) return;
         if (entry.isDirectory) continue;
         try {
           const stats = fs.statSync(path.join(dir, entry.name));

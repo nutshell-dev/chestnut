@@ -15,6 +15,7 @@ export interface GitGcWeeklyOptions {
   clawforumDir: string;
   fs: FileSystem;
   audit: AuditLog;
+  signal?: AbortSignal;
 }
 
 export async function runGitGcWeekly(opts: GitGcWeeklyOptions): Promise<void> {
@@ -25,6 +26,7 @@ export async function runGitGcWeekly(opts: GitGcWeeklyOptions): Promise<void> {
 
   const clawIds = fs.listSync(clawsDir, { includeDirs: true }).map(e => e.name);
   for (const clawId of clawIds) {
+    if (opts.signal?.aborted) return;
     const gitDir = path.join(clawsDir, clawId, '.git');
     if (!fs.existsSync(gitDir)) continue;
     try {

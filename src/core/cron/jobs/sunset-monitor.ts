@@ -31,14 +31,16 @@ export interface SunsetMonitorOptions {
   legacyConsts: string[]; // e.g. ['PID_FILE_LEGACY_FORMAT', 'INBOX_LEGACY_CLAW_ID_FIELD', 'LEGACY_PENDING_TASK_NO_MODE']
   thresholdDays?: number;
   motionInbox?: InboxWriter;
+  signal?: AbortSignal;
 }
 
 export async function runSunsetMonitor(opts: SunsetMonitorOptions): Promise<void> {
   const threshold = opts.thresholdDays ?? SUNSET_DEFAULT_THRESHOLD_DAYS;
   const cutoffMs = Date.now() - threshold * 24 * 3600 * 1000;
   for (const constName of opts.legacyConsts) {
+    if (opts.signal?.aborted) return;
     try {
-      const count = await queryAuditCount(opts.fs, [opts.motionAuditPath, opts.rootAuditPath], constName, cutoffMs);
+      const count = await queryAuditCount(opts.fs, [opts.motionAuditPath, opts.rootAuditPath], constName, cutoffMs, opts.signal);
       if (count === 0) {
         opts.audit.write(CRON_AUDIT_EVENTS.SUNSET_READY, `const=${constName}`, `threshold_days=${threshold}`);
         if (opts.motionInbox) {
@@ -62,12 +64,15 @@ async function queryAuditCount(
   paths: string[],
   constName: string,
   cutoffMs: number,
+  signal?: AbortSignal,
 ): Promise<number> {
   let total = 0;
   for (const p of paths) {
+    if (signal?.aborted) return total;
     try {
       const content = fs.readSync(p);
       for (const line of content.split('\n')) {
+        if (signal?.aborted) return total;
         if (!line) continue;
         const parts = line.split('\t');
         if (parts.length < 3) continue;
