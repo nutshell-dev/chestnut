@@ -20,6 +20,14 @@ import { randomUUID } from 'crypto';
 
 const CLI_ENTRY = path.resolve(process.cwd(), 'dist/cli.js');
 
+// phase 1311 α-1: precondition fail-fast (mirror feedback_flaky_test_zero_tolerance / sister B.r1257 closed by phase 1257)
+if (!fs.existsSync(CLI_ENTRY)) {
+  throw new Error(
+    `[phase1311-α-1] CLI_ENTRY missing: ${CLI_ENTRY} — run \`pnpm run build\` first. ` +
+    `worktree-no-dist 根因 sister row B.r1257 closed by phase 1257 commit hook (run pnpm install hook trigger build)`,
+  );
+}
+
 function runCli(args: string[], env: Record<string, string> = {}): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
   return new Promise((resolve, reject) => {
     const child = spawn('node', [CLI_ENTRY, ...args], {
@@ -42,6 +50,27 @@ function runCli(args: string[], env: Record<string, string> = {}): Promise<{ std
         console.error('[phase1145-β] CLI subprocess exitCode:', exitCode);
         console.error('[phase1145-β] STDOUT (full):\n' + stdout);
         console.error('[phase1145-β] STDERR (full):\n' + stderr);
+        // phase 1311 α-2: persist diagnostic to OS tmpdir (mirror phase 1307 α-2 模板)
+        const dumpPath = path.join(
+          tmpdir(),
+          `phase1311-cli-smoke-fail-${process.pid}-${Date.now()}.json`,
+        );
+        try {
+          fs.writeFileSync(dumpPath, JSON.stringify({
+            args,
+            envKeys: Object.keys(env),
+            CLI_ENTRY,
+            cliEntryExists: fs.existsSync(CLI_ENTRY),
+            exitCode,
+            stdout,
+            stderr,
+            cwd: process.cwd(),
+            timestamp: new Date().toISOString(),
+          }, null, 2));
+          console.error(`[phase1311-α-2] diagnostic dump written to ${dumpPath}`);
+        } catch (writeErr) {
+          console.error(`[phase1311-α-2] failed to write diagnostic dump:`, writeErr);
+        }
       }
       resolve({ stdout, stderr, exitCode });
     });
