@@ -70,37 +70,51 @@ describe('watchdog orphan sweep', () => {
   });
 
   it('sweep kills orphan watchdogs excluding pid-file one + audits ORPHAN_SWEEP_KILLED', async () => {
-    const { sweepOrphanWatchdogs } = await import('../../src/watchdog/orphan-sweep.js');
+    vi.useFakeTimers();
+    try {
+      const { sweepOrphanWatchdogs } = await import('../../src/watchdog/orphan-sweep.js');
 
-    const pidFile = path.join(clawforumDir, 'watchdog.pid');
-    fs.writeFileSync(pidFile, JSON.stringify({ pid: 1000, root: '/test/root' }));
+      const pidFile = path.join(clawforumDir, 'watchdog.pid');
+      fs.writeFileSync(pidFile, JSON.stringify({ pid: 1000, root: '/test/root' }));
 
-    mockFindProcesses.mockReturnValue([1000, 2000, 3000]);
+      mockFindProcesses.mockReturnValue([1000, 2000, 3000]);
 
-    const killed = await sweepOrphanWatchdogs(fsFactory);
+      const sweepPromise = sweepOrphanWatchdogs(fsFactory);
+      await vi.advanceTimersByTimeAsync(1001);
+      const killed = await sweepPromise;
 
-    expect(killed).toEqual([2000, 3000]);
-    expect(mockKill).toHaveBeenCalledWith(2000, 'TERM');
-    expect(mockKill).toHaveBeenCalledWith(3000, 'TERM');
-    expect(mockKill).not.toHaveBeenCalledWith(1000, expect.any(String));
-    expect(auditSpy).toHaveBeenCalledWith(
-      WATCHDOG_AUDIT_EVENTS.ORPHAN_SWEEP_KILLED,
-      expect.stringContaining('count=2'),
-      expect.stringContaining('pids=2000,3000'),
-      expect.stringContaining('kept=1000'),
-    );
+      expect(killed).toEqual([2000, 3000]);
+      expect(mockKill).toHaveBeenCalledWith(2000, 'TERM');
+      expect(mockKill).toHaveBeenCalledWith(3000, 'TERM');
+      expect(mockKill).not.toHaveBeenCalledWith(1000, expect.any(String));
+      expect(auditSpy).toHaveBeenCalledWith(
+        WATCHDOG_AUDIT_EVENTS.ORPHAN_SWEEP_KILLED,
+        expect.stringContaining('count=2'),
+        expect.stringContaining('pids=2000,3000'),
+        expect.stringContaining('kept=1000'),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('excludePid=null kills all including pid-file one', async () => {
-    const { sweepOrphanWatchdogs } = await import('../../src/watchdog/orphan-sweep.js');
+    vi.useFakeTimers();
+    try {
+      const { sweepOrphanWatchdogs } = await import('../../src/watchdog/orphan-sweep.js');
 
-    mockFindProcesses.mockReturnValue([1000, 2000]);
+      mockFindProcesses.mockReturnValue([1000, 2000]);
 
-    const killed = await sweepOrphanWatchdogs(fsFactory, { excludePid: null });
+      const sweepPromise = sweepOrphanWatchdogs(fsFactory, { excludePid: null });
+      await vi.advanceTimersByTimeAsync(1001);
+      const killed = await sweepPromise;
 
-    expect(killed).toEqual([1000, 2000]);
-    expect(mockKill).toHaveBeenCalledWith(1000, 'TERM');
-    expect(mockKill).toHaveBeenCalledWith(2000, 'TERM');
+      expect(killed).toEqual([1000, 2000]);
+      expect(mockKill).toHaveBeenCalledWith(1000, 'TERM');
+      expect(mockKill).toHaveBeenCalledWith(2000, 'TERM');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('findProcesses throws → audit ORPHAN_SWEEP_FAILED phase=find + return []', async () => {
@@ -121,22 +135,29 @@ describe('watchdog orphan sweep', () => {
   });
 
   it('SIGTERM failure on one pid audits failure + continues killing others', async () => {
-    const { sweepOrphanWatchdogs } = await import('../../src/watchdog/orphan-sweep.js');
+    vi.useFakeTimers();
+    try {
+      const { sweepOrphanWatchdogs } = await import('../../src/watchdog/orphan-sweep.js');
 
-    mockFindProcesses.mockReturnValue([2000, 3000]);
-    mockKill.mockImplementation((pid: number) => {
-      if (pid === 2000) throw new Error('EPERM');
-    });
+      mockFindProcesses.mockReturnValue([2000, 3000]);
+      mockKill.mockImplementation((pid: number) => {
+        if (pid === 2000) throw new Error('EPERM');
+      });
 
-    const killed = await sweepOrphanWatchdogs(fsFactory, { excludePid: null });
+      const sweepPromise = sweepOrphanWatchdogs(fsFactory, { excludePid: null });
+      await vi.advanceTimersByTimeAsync(1001);
+      const killed = await sweepPromise;
 
-    expect(killed).toEqual([3000]);
-    expect(auditSpy).toHaveBeenCalledWith(
-      WATCHDOG_AUDIT_EVENTS.ORPHAN_SWEEP_FAILED,
-      'phase=sigterm',
-      'pid=2000',
-      expect.stringContaining('EPERM'),
-    );
-    expect(mockKill).toHaveBeenCalledWith(3000, 'TERM');
+      expect(killed).toEqual([3000]);
+      expect(auditSpy).toHaveBeenCalledWith(
+        WATCHDOG_AUDIT_EVENTS.ORPHAN_SWEEP_FAILED,
+        'phase=sigterm',
+        'pid=2000',
+        expect.stringContaining('EPERM'),
+      );
+      expect(mockKill).toHaveBeenCalledWith(3000, 'TERM');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
