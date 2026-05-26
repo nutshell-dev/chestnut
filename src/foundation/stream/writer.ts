@@ -42,7 +42,13 @@ export class StreamWriter implements StreamLog {
           if (lastNewline !== -1 && lastNewline < content.length - 1) {
             nodeFs.writeAtomicSync(STREAM_FILE, content.substring(0, lastNewline + 1));
           }
-        } catch { /* silent: if repair fails, archive as-is */ }
+        } catch (err) {
+          this.audit.write(
+            STREAM_AUDIT_EVENTS.TRUNCATION_REPAIR_FAILED,
+            `reason=${err instanceof Error ? err.message : String(err)}`,
+            'archive_will_proceed=true',
+          );
+        }
         this.fs.ensureDirSync(ARCHIVE_DIR);
         this.fs.moveSync(STREAM_FILE, `${ARCHIVE_DIR}/stream.${Date.now()}_${randomUUID().slice(0, 8)}.jsonl`);
       } catch (err) {

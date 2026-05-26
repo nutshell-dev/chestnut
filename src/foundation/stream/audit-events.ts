@@ -21,4 +21,5 @@ export const STREAM_AUDIT_EVENTS = {
   READER_WATCHER_CALLBACK_FAILED: 'stream_reader_watcher_callback_failed',
   READER_WATCHER_RESET: 'stream_reader_watcher_reset',
   READER_CORRUPT: 'stream_reader_corrupt',
+  TRUNCATION_REPAIR_FAILED: 'stream_truncation_repair_failed',
 } as const;
