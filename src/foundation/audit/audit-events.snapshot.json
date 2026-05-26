@@ -109,6 +109,7 @@
       "contract_event_collector_scan_failed",
       "contract_lock_cleanup_failed",
       "contract_lock_cleared",
+      "contract_lock_retry",
       "contract_lock_schema_invalid",
       "contract_lock_unlink_failed",
       "contract_move_archive_failed",
