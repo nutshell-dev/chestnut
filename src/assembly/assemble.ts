@@ -268,6 +268,12 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
       auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=contract_manager`, `phase=construct`, `reason=${errMsg(e)}`);
       throw new Error(`Assembly: ContractSystem construct failed: ${errMsg(e)}`, { cause: e });
     }
+    try {
+      await contractManager.init();
+    } catch (e) {
+      auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=contract_manager`, `phase=init`, `reason=${errMsg(e)}`);
+      throw new Error(`Assembly: ContractSystem.init failed: ${errMsg(e)}`, { cause: e });
+    }
 
     // --- L2: outboxWriter ---
     let outboxWriter: OutboxWriter;

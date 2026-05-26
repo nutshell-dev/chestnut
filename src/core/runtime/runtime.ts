@@ -301,16 +301,6 @@ export class Runtime {
   }
 
   /**
-   * MVP alignment: resume a paused contract (extracted from start())
-   */
-  async resumeContractIfPaused(): Promise<void> {
-    const paused = await this.contractManager.loadPaused();
-    if (paused) {
-      await this.contractManager.resume(paused.id);
-    }
-  }
-
-  /**
    * Format the injection text for an inbox message by its type.
    * user_chat: no prefix (user typed in the chat)
    * user_inbox_message: [user inbox message] prefix (user sent a message via CLI)

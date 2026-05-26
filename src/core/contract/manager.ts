@@ -291,6 +291,26 @@ export class ContractSystem {
     return loadPausedContract(this._discoveryCtx(), this.pausedDir);
   }
 
+  /**
+   * boot reconcile / DP「中断恢复 + 持久化一切 + 事后可审计」直接 derive
+   * phase 1285 InboxReader.init() 模板 mirror
+   */
+  async init(): Promise<void> {
+    const paused = await this.loadPaused();
+    if (paused) {
+      this.audit.write(
+        CONTRACT_AUDIT_EVENTS.CONTRACT_BOOT_RECONCILE,
+        `paused_contract_id=${paused.id}`,
+        'recovered=true',
+      );
+    } else {
+      this.audit.write(
+        CONTRACT_AUDIT_EVENTS.CONTRACT_BOOT_RECONCILE,
+        'recovered=false',
+      );
+    }
+  }
+
   // Verification
   async completeSubtask(params: {
     contractId: string;

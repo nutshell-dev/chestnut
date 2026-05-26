@@ -86,7 +86,6 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
 
     try {
       await runtime.initialize();
-      await runtime.resumeContractIfPaused();
     } catch (e) {
       // 兜底：Runtime 侧若已精确 audit（如 inboxReader.init / sessionManager.save）此行幂等重复；
       // Runtime 侧漏网的失败由此行唯一覆盖，postmortem 信号"需补精确 audit"

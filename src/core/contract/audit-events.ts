@@ -62,6 +62,8 @@ export const CONTRACT_AUDIT_EVENTS = {
   EVENT_COLLECTOR_SCAN_FAILED: 'contract_event_collector_scan_failed',
   CONTRACT_DIR_SCAN_FAILED: 'contract_dir_scan_failed',
   OBSERVER_STATE_LOAD_FAILED: 'contract_observer_state_load_failed',
+  // phase 1335 (r138 F fork): boot reconcile audit emit trace
+  CONTRACT_BOOT_RECONCILE: 'contract_boot_reconcile',
   // phase 1235 B.3: typed emit empty contractId invariant
   TYPED_EMIT_INVARIANT_VIOLATION: 'contract_typed_emit_invariant_violation',
 } as const;

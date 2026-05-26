@@ -100,6 +100,7 @@
     ],
     "core_contract_audit-events": [
       "contract_archive_started",
+      "contract_boot_reconcile",
       "contract_cancelled",
       "contract_complete_on_cancelled",
       "contract_completed",
