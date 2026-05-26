@@ -7,6 +7,7 @@
 import * as path from 'path';
 import { InboxWriter } from './inbox-writer.js';
 import type { InboxMessageOptionsBase } from './inbox-writer.js';
+import type { InboxMessage } from './types.js';
 import type { FileSystem } from '../fs/types.js';
 import type { AuditLog } from '../audit/index.js';
 import { MOTION_CLAW_ID } from '../../constants.js';
@@ -34,6 +35,20 @@ export function notifyClaw(
     // This catch is a best-effort barrier against TUI raw-mode render pollution.
     // Do not rethrow — notify is a side-channel, failure must not affect main flow.
   }
+}
+
+/**
+ * Async inbox write with error propagation.
+ * Used by result-delivery where fallback-path retry requires throw semantics.
+ * Kept in Messaging module so InboxWriter direct construct stays within module boundary.
+ */
+export async function writeInboxAsync(
+  fs: FileSystem,
+  inboxDir: string,
+  message: InboxMessage,
+  audit: AuditLog,
+): Promise<void> {
+  await new InboxWriter(fs, inboxDir, audit).write(message);
 }
 
 /**

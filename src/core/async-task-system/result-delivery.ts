@@ -2,8 +2,7 @@ import { randomUUID } from 'crypto';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { InboxMessage } from '../../foundation/messaging/types.js';
-import { InboxWriter } from '../../foundation/messaging/index.js';
-import { INBOX_PENDING_DIR } from '../../foundation/messaging/dirs.js';
+import { writeInboxAsync } from '../../foundation/messaging/index.js';
 import { formatErr } from './_helpers.js';
 import {
   emitResultWriteFailed,
@@ -95,7 +94,7 @@ export async function sendToolResult(
   };
 
   try {
-    await new InboxWriter(fs, INBOX_PENDING_DIR, auditWriter).write(baseMsg);
+    await writeInboxAsync(fs, 'inbox/pending', baseMsg, auditWriter);
   } catch (err) {
     if (resultRef) {
       // inbox 写失败：删除孤立的 results 文件，降级为 inline 内容重试
@@ -107,7 +106,7 @@ export async function sendToolResult(
         });
       });
       try {
-        await new InboxWriter(fs, INBOX_PENDING_DIR, auditWriter).write({ ...baseMsg, content: inlineContent });
+        await writeInboxAsync(fs, 'inbox/pending', { ...baseMsg, content: inlineContent }, auditWriter);
         return;
       } catch (inlineErr) {
         emitInboxWriteFailed(auditWriter, {
@@ -186,7 +185,7 @@ export async function sendResult(
   };
 
   try {
-    await new InboxWriter(fs, INBOX_PENDING_DIR, auditWriter).write(baseMsg);
+    await writeInboxAsync(fs, 'inbox/pending', baseMsg, auditWriter);
   } catch (err) {
     if (resultRef) {
       // inbox 写失败：删除孤立的 results 文件，降级为 inline 内容重试
@@ -198,7 +197,7 @@ export async function sendResult(
         });
       });
       try {
-        await new InboxWriter(fs, INBOX_PENDING_DIR, auditWriter).write({ ...baseMsg, content: inlineContent });
+        await writeInboxAsync(fs, 'inbox/pending', { ...baseMsg, content: inlineContent }, auditWriter);
         // phase 789: inline fallback success 也算 inbox 已投递 → 写 SENT_MARKER
         await writeSentMarker(fs, auditWriter, task.id);
         return;
@@ -244,7 +243,7 @@ export async function sendFallbackError(
     priority: 'high',
     timestamp: new Date().toISOString(),
   };
-  await new InboxWriter(fs, INBOX_PENDING_DIR, auditWriter).write(msg);
+  await writeInboxAsync(fs, 'inbox/pending', msg, auditWriter);
 
   // phase 789 (audit-2026-05-14 P0.20): SubAgentTask fallback inbox success → 写 SENT_MARKER
   // 防止 next recovery 重发 sendResult 导致父 inbox 收 fallback + real result 双投递

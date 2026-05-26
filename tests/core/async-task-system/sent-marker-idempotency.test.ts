@@ -14,6 +14,9 @@ vi.mock('../../../src/foundation/messaging/index.js', () => {
   }));
   return {
     InboxWriter: MockInboxWriter,
+    writeInboxAsync: vi.fn().mockImplementation((fs, inboxDir, message, audit) => {
+      return new MockInboxWriter(fs, inboxDir, audit).write(message);
+    }),
   };
 });
 

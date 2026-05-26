@@ -1,11 +1,10 @@
-import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { MEMORY_AUDIT_EVENTS } from './audit-events.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/index.js';
 import type { Message, ContentBlock, TextBlock, LLMResponse } from '../../foundation/llm-provider/types.js';
-import { InboxWriter } from '../../foundation/messaging/index.js';
+import { notifyInbox } from '../../foundation/messaging/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { DialogStore } from '../../foundation/dialog-store/index.js';
 import type { SessionData } from '../../foundation/dialog-store/types.js';
@@ -320,16 +319,17 @@ async function runDeepDreamForClaw(
     );
   }
 
-  // 投递到 claw inbox
+  // 投递到 claw inbox（self-notify / chrooted fs / 走 deprecated notifyInbox helper）
   const clawAudit = createSystemAudit(clawFs, clawDir);
-  new InboxWriter(clawFs, path.join('inbox', 'pending'), clawAudit).writeSync({
+  notifyInbox(clawFs, {
+    inboxDir: 'inbox/pending',
     type: 'deep_dream',
     source: 'cron:dream',
     priority: 'low',
     body: dreamOutput,
     idPrefix: `${Date.now()}_deep_dream`,
     extraFields: { session_count: String(dreamOutputs.length) },
-  });
+  }, clawAudit);
 
   audit.write(MEMORY_AUDIT_EVENTS.DEEP_DREAM_JOB, `step=finished`, `clawId=${clawId}`, `dream_count=${dreamOutputs.length}`);
 }

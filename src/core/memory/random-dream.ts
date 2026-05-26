@@ -5,7 +5,7 @@ import type { FileSystem } from '../../foundation/fs/types.js';
 import { MEMORY_AUDIT_EVENTS } from './audit-events.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { AsyncTaskSystem } from '../async-task-system/index.js';
-import { InboxWriter } from '../../foundation/messaging/index.js';
+import { notifyClaw } from '../../foundation/messaging/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { CONTRACT_DIR } from '../contract/index.js';
 import type { ProgressData } from '../contract/index.js';
@@ -403,12 +403,13 @@ export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
   );
 
   // 投递到 motion inbox（motionAudit 已在调度前实例化，直接复用）
-  new InboxWriter(opts.fs, path.join(opts.motionDir, 'inbox', 'pending'), motionAudit).writeSync({
+  const clawforumRoot = path.dirname(opts.motionDir);
+  notifyClaw(opts.fs, clawforumRoot, 'motion', {
     type: 'random_dream',
     source: 'cron:dream',
     priority: 'low',
     body: dreamOutput,
     idPrefix: `${Date.now()}_random_dream`,
     extraFields: { dream_count: String(outputs.length) },
-  });
+  }, motionAudit);
 }
