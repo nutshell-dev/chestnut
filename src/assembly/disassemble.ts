@@ -1,4 +1,4 @@
-import type { Instances } from './index.js';
+import type { Instances } from './types.js';
 import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
 
 export async function disassemble(instances: Instances, signal: string): Promise<void> {

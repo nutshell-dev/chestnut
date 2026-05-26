@@ -80,7 +80,7 @@ import { buildLLMConfig } from '../foundation/config/index.js';
 import { DEFAULT_MAX_CONCURRENT_TASKS } from '../core/async-task-system/constants.js';
 import { DEFAULT_MAX_STEPS } from '../core/agent-executor/index.js';
 
-import type { AssembleConfig, Instances } from './index.js';
+import type { AssembleConfig, Instances } from './types.js';
 import { createGateway } from '../core/gateway/index.js';
 import type { Gateway } from '../core/gateway/index.js';
 import { createAskUserTool } from '../core/gateway/index.js';

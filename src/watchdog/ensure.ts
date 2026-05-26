@@ -3,31 +3,16 @@
  * 「确保 watchdog 在运行」职责唯一入口 (ML#1)
  * OS-level advisory lock 保 atomic check-and-spawn (ML#9)
  */
-import { createAuditWriter } from '../foundation/audit/index.js';
 import type { FileSystem } from '../foundation/fs/types.js';
-import { getClawforumDir, getClawforumFs, getGlobalConfig, getAuditWriter, setAuditWriter } from './watchdog-context.js';
+import { getClawforumDir, getAuditWriter } from './watchdog-context.js';
 import { isWatchdogAlive } from './watchdog-pid.js';
 import { startCommand as rawStartCommand } from './watchdog-cli.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
+import { ensureAuditWired } from './audit-wiring.js';
+export { ensureAuditWired };
 
 const LOCK_ACQUIRE_TIMEOUT_MS = 3000;
 const LOCK_RETRY_INTERVAL_MS = 50;
-
-/**
- * Lazy-init workspace audit writer for CLI-side watchdog operations.
- * No-op if already wired (e.g. daemon process that called setAuditWriter).
- * Fail-soft: logs to console on error, never throws.
- */
-export function ensureAuditWired(fsFactory: (baseDir: string) => FileSystem): void {
-  if (getAuditWriter() !== null) return;
-  try {
-    const auditMaxSizeMb = getGlobalConfig(fsFactory).audit?.retention?.max_size_mb ?? null;
-    const auditWriter = createAuditWriter(getClawforumFs(fsFactory), 'audit.tsv', auditMaxSizeMb);
-    setAuditWriter(auditWriter);
-  } catch (err) {
-    console.error('Failed to wire watchdog audit in CLI:', err);
-  }
-}
 
 /**
  * 唯一入口、所有 caller 必经此。

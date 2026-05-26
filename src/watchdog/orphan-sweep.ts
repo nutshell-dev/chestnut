@@ -9,7 +9,7 @@ import { createProcessManagerForCLI } from '../cli/utils/factories.js';
 import { getWatchdogEntryPath } from './watchdog-context.js';
 import { getWatchdogPid } from './watchdog-pid.js';
 import { getAuditWriter } from './watchdog-context.js';
-import { ensureAuditWired } from './ensure.js';
+import { ensureAuditWired } from './audit-wiring.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 
 const SWEEP_GRACE_MS = 1000;
