@@ -31,6 +31,26 @@ module.exports = {
       },
     },
     {
+      name: 'no-orphans',
+      comment: [
+        'orphan file (无人 import) = 死代码累债 / phase 1301 立',
+        'severity warn 持续 future drift 监测 (当前 phase 1301 删 constants.ts 后真 orphan 0)',
+        '未来 NEW file 必有 import 才能 land、否则 warn signal',
+        'allowlist: SDK entry / config file / .d.ts (已 by tsPreCompilationDeps 修)',
+        '升档锚: 真 orphan 持续 0 → 升 severity error (phase 1304+)',
+      ].join(' '),
+      severity: 'warn',
+      from: {
+        orphan: true,
+        pathNot: [
+          '\\.d\\.ts$',
+          '^src/index\\.ts$',
+          '\\.dependency-cruiser\\.cjs$',
+        ],
+      },
+      to: {},
+    },
+    {
       name: 'nodefilesystem-only-from-bootstrap',
       comment: [
         'ML#7 耦合界面稳定：NodeFileSystem 直构造仅 4 bootstrap site:',
@@ -59,6 +79,7 @@ module.exports = {
   ],
   options: {
     tsConfig: { fileName: 'tsconfig.json' },
+    tsPreCompilationDeps: true,  // NEW phase 1301: 追 TS type-only import 进 dep graph / 修 phase 1298 orphan 假阳 3 file (tool-protocol/index + tool-protocol/permission + tools/async-dispatch) / TS 项目 must-have / per `feedback_design_claim_requires_empirical_evidence` Tier 1 N+1 实证
     enhancedResolveOptions: {
       exportsFields: ['exports'],
       conditionNames: ['import', 'require', 'node'],

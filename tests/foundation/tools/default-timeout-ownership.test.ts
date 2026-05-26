@@ -20,11 +20,10 @@ describe('phase 1027: DEFAULT_TOOL_TIMEOUT_MS L2 唯一 ownership', () => {
     expect(src).not.toMatch(/defaultTimeoutMs\s*=\s*60000/);
   });
 
-  it('L5 runtime/constants.ts 0 DEFAULT_TOOL_TIMEOUT_MS (反向 3: L5 不再持)', () => {
-    const src = fs.readFileSync(
+  it('L5 runtime/constants.ts 已删除 (反向 3: phase 1301 删空壳 / L5 不再持)', () => {
+    const exists = fs.existsSync(
       path.resolve(__dirname, '../../../src/core/runtime/constants.ts'),
-      'utf8'
     );
-    expect(src).not.toMatch(/DEFAULT_TOOL_TIMEOUT_MS/);
+    expect(exists).toBe(false);
   });
 });
