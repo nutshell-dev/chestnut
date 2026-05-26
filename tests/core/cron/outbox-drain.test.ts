@@ -7,8 +7,10 @@ import { runOutboxDrain } from '../../../src/core/cron/jobs/outbox-drain.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { AuditWriter } from '../../../src/foundation/audit/writer.js';
 import { CRON_AUDIT_EVENTS } from '../../../src/core/cron/audit-events.js';
+import { createMessaging } from '../../../src/foundation/messaging/index.js';
+import { encodeOutbox } from '../../../src/foundation/messaging/codec-outbox.js';
 
-describe('outbox-drain cron job (phase 1160 P0-2)', () => {
+describe('outbox-drain cron job (phase 1160 P0-2 + phase 1333 tick trigger)', () => {
   let clawforumDir: string;
   let motionInboxDir: string;
   let clawDir: string;
@@ -34,22 +36,42 @@ describe('outbox-drain cron job (phase 1160 P0-2)', () => {
     fsNative.rmSync(clawforumDir, { recursive: true, force: true });
   });
 
+  function makeMessaging() {
+    return createMessaging({ clawforumDir, fs, audit });
+  }
+
   // 反向 1: outbox pending → motion inbox real delivery (production wiring)
   it('反向 1: outbox pending → motion inbox real delivery', async () => {
-    const content = '# Test message\nhello motion';
+    const content = encodeOutbox({
+      id: 'msg-1',
+      type: 'question',
+      from: 'test-claw',
+      to: 'motion',
+      content: 'hello motion',
+      timestamp: '2026-05-26T12:00:00.000Z',
+      priority: 'normal',
+    });
     fsNative.writeFileSync(path.join(outboxPending, 'msg1.md'), content);
 
-    await runOutboxDrain({ clawforumDir, motionInboxDir, fs, audit });
+    await runOutboxDrain({ messaging: makeMessaging(), audit });
 
     const inboxFiles = fsNative.readdirSync(motionInboxDir);
     expect(inboxFiles).toHaveLength(1);
-    expect(fsNative.readFileSync(path.join(motionInboxDir, inboxFiles[0]), 'utf-8')).toBe(content);
+    expect(fsNative.readFileSync(path.join(motionInboxDir, inboxFiles[0]), 'utf-8')).toContain('hello motion');
   });
 
   // 反向 2: pending → done atomic move (0 remaining + 1 done)
   it('反向 2: pending → done atomic move (0 remaining + 1 done)', async () => {
-    fsNative.writeFileSync(path.join(outboxPending, 'msg1.md'), 'msg');
-    await runOutboxDrain({ clawforumDir, motionInboxDir, fs, audit });
+    fsNative.writeFileSync(path.join(outboxPending, 'msg1.md'), encodeOutbox({
+      id: 'msg-1',
+      type: 'question',
+      from: 'test-claw',
+      to: 'motion',
+      content: 'msg',
+      timestamp: '2026-05-26T12:00:00.000Z',
+      priority: 'normal',
+    }));
+    await runOutboxDrain({ messaging: makeMessaging(), audit });
 
     expect(fsNative.readdirSync(outboxPending)).toHaveLength(0);
     const doneFiles = fsNative.readdirSync(outboxDone);
@@ -57,15 +79,20 @@ describe('outbox-drain cron job (phase 1160 P0-2)', () => {
     expect(doneFiles[0]).toMatch(/^\d+_.*_msg1\.md$/);
   });
 
-  // 反向 3: OUTBOX_DRAIN_START + DONE audit emit + count 字段正确
-  it('反向 3: OUTBOX_DRAIN_START + DONE audit emit with correct count', async () => {
-    fsNative.writeFileSync(path.join(outboxPending, 'a.md'), 'a');
-    fsNative.writeFileSync(path.join(outboxPending, 'b.md'), 'b');
+  // 反向 3: OUTBOX_DRAIN_DONE audit emit + count 字段正确
+  it('反向 3: OUTBOX_DRAIN_DONE audit emit with correct count', async () => {
+    fsNative.writeFileSync(path.join(outboxPending, 'a.md'), encodeOutbox({
+      id: 'a', type: 'question', from: 'test-claw', to: 'motion',
+      content: 'a', timestamp: '2026-05-26T12:00:00.000Z', priority: 'normal',
+    }));
+    fsNative.writeFileSync(path.join(outboxPending, 'b.md'), encodeOutbox({
+      id: 'b', type: 'question', from: 'test-claw', to: 'motion',
+      content: 'b', timestamp: '2026-05-26T12:00:00.000Z', priority: 'normal',
+    }));
 
-    await runOutboxDrain({ clawforumDir, motionInboxDir, fs, audit });
+    await runOutboxDrain({ messaging: makeMessaging(), audit });
 
     const auditContent = fsNative.readFileSync(path.join(clawforumDir, 'motion', 'audit.tsv'), 'utf-8');
-    expect(auditContent).toContain(CRON_AUDIT_EVENTS.OUTBOX_DRAIN_START);
     expect(auditContent).toContain(CRON_AUDIT_EVENTS.OUTBOX_DRAIN_DONE);
     expect(auditContent).toContain('total=2');
   });
@@ -73,20 +100,29 @@ describe('outbox-drain cron job (phase 1160 P0-2)', () => {
   // 边界: 无 outbox → 不 crash、0 emit
   it('边界: 无 claws → 不 crash、audit 仅 DONE total=0', async () => {
     fsNative.rmSync(clawDir, { recursive: true, force: true });
-    await runOutboxDrain({ clawforumDir, motionInboxDir, fs, audit });
+    await runOutboxDrain({ messaging: makeMessaging(), audit });
 
     const auditContent = fsNative.readFileSync(path.join(clawforumDir, 'motion', 'audit.tsv'), 'utf-8');
-    expect(auditContent).toContain(CRON_AUDIT_EVENTS.OUTBOX_DRAIN_START);
+    expect(auditContent).toContain(CRON_AUDIT_EVENTS.OUTBOX_DRAIN_DONE);
     expect(auditContent).toContain('total=0');
   });
 
   // 边界: limit 截断
   it('边界: limit 截断超额 outbox', async () => {
-    fsNative.writeFileSync(path.join(outboxPending, '1.md'), '1');
-    fsNative.writeFileSync(path.join(outboxPending, '2.md'), '2');
-    fsNative.writeFileSync(path.join(outboxPending, '3.md'), '3');
+    fsNative.writeFileSync(path.join(outboxPending, '1.md'), encodeOutbox({
+      id: '1', type: 'question', from: 'test-claw', to: 'motion',
+      content: '1', timestamp: '2026-05-26T12:00:00.000Z', priority: 'normal',
+    }));
+    fsNative.writeFileSync(path.join(outboxPending, '2.md'), encodeOutbox({
+      id: '2', type: 'question', from: 'test-claw', to: 'motion',
+      content: '2', timestamp: '2026-05-26T12:00:00.000Z', priority: 'normal',
+    }));
+    fsNative.writeFileSync(path.join(outboxPending, '3.md'), encodeOutbox({
+      id: '3', type: 'question', from: 'test-claw', to: 'motion',
+      content: '3', timestamp: '2026-05-26T12:00:00.000Z', priority: 'normal',
+    }));
 
-    await runOutboxDrain({ clawforumDir, motionInboxDir, fs, audit, limit: 2 });
+    await runOutboxDrain({ messaging: makeMessaging(), limitPerClaw: 2, audit });
 
     expect(fsNative.readdirSync(outboxPending)).toHaveLength(1);
     expect(fsNative.readdirSync(motionInboxDir)).toHaveLength(2);

@@ -195,6 +195,7 @@ vi.mock('../../src/foundation/messaging/index.js', () => {
     InboxWriter: MockInboxWriter,
     createInboxReader: vi.fn(() => ({ init: vi.fn().mockResolvedValue(undefined), drainInbox: vi.fn(() => []), drainAndDeliver: vi.fn(() => ({ entries: [], handles: [] })), markDone: vi.fn(), markFailed: vi.fn(), ack: vi.fn(), nack: vi.fn() })),
     createOutboxWriter: vi.fn(() => ({ write: vi.fn().mockResolvedValue(undefined) })),
+    createMessaging: vi.fn(() => ({ drainOutboxes: vi.fn().mockResolvedValue({ delivered: 0, failed: 0 }) })),
     readInboxFileMeta: vi.fn(),
   };
 });
