@@ -12,6 +12,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
+import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
+
+const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
 // ── readline mock ──────────────────────────────────────────────────────────────
 const { rlAnswer } = vi.hoisted(() => ({ rlAnswer: { value: '' } }));
@@ -132,12 +135,12 @@ describe('getOnboardingStatus', () => {
   afterEach(() => { fs.rmSync(tmpDir, { recursive: true, force: true }); });
 
   it('无 contract 目录 → not_found', () => {
-    expect(getOnboardingStatus(tmpDir)).toEqual({ state: 'not_found' });
+    expect(getOnboardingStatus(tmpDir, { fsFactory })).toEqual({ state: 'not_found' });
   });
 
   it('active/ 中无 Onboarding 契约 → not_found', () => {
     writeContract(tmpDir, 'active', 'c1', 'SomeOtherTask', { step1: { status: 'completed' } });
-    expect(getOnboardingStatus(tmpDir)).toEqual({ state: 'not_found' });
+    expect(getOnboardingStatus(tmpDir, { fsFactory })).toEqual({ state: 'not_found' });
   });
 
   it('active/ 中 Onboarding 有 pending subtask → in_progress', () => {
@@ -146,7 +149,7 @@ describe('getOnboardingStatus', () => {
       identity: { status: 'pending' },
       user: { status: 'pending' },
     });
-    const result = getOnboardingStatus(tmpDir);
+    const result = getOnboardingStatus(tmpDir, { fsFactory });
     expect(result.state).toBe('in_progress');
     if (result.state === 'in_progress') {
       expect(result.contractId).toBe('ob1');
@@ -161,7 +164,7 @@ describe('getOnboardingStatus', () => {
       language: { status: 'completed' },
       identity: { status: 'completed' },
     });
-    expect(getOnboardingStatus(tmpDir).state).toBe('in_progress');
+    expect(getOnboardingStatus(tmpDir, { fsFactory }).state).toBe('in_progress');
   });
 
   it('archive/ 中 Onboarding 全部完成 → complete', () => {
@@ -170,7 +173,7 @@ describe('getOnboardingStatus', () => {
       identity: { status: 'completed' },
       user: { status: 'completed' },
     });
-    expect(getOnboardingStatus(tmpDir)).toEqual({ state: 'complete' });
+    expect(getOnboardingStatus(tmpDir, { fsFactory })).toEqual({ state: 'complete' });
   });
 
   it('archive/ 中 Onboarding 有 pending → in_progress', () => {
@@ -178,7 +181,7 @@ describe('getOnboardingStatus', () => {
       language: { status: 'completed' },
       soul: { status: 'pending' },
     });
-    const result = getOnboardingStatus(tmpDir);
+    const result = getOnboardingStatus(tmpDir, { fsFactory });
     expect(result.state).toBe('in_progress');
     if (result.state === 'in_progress') {
       expect(result.pending).toContain('soul');
@@ -189,7 +192,7 @@ describe('getOnboardingStatus', () => {
     writeContract(tmpDir, 'paused', 'ob1', 'Onboarding', {
       language: { status: 'pending' },
     });
-    expect(getOnboardingStatus(tmpDir).state).toBe('in_progress');
+    expect(getOnboardingStatus(tmpDir, { fsFactory }).state).toBe('in_progress');
   });
 
   it('progress.json 损坏 → 跳过该契约，返回 not_found', () => {
@@ -197,6 +200,6 @@ describe('getOnboardingStatus', () => {
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, 'contract.yaml'), 'title: "Onboarding"\n');
     fs.writeFileSync(path.join(dir, 'progress.json'), '{broken json}}}');
-    expect(getOnboardingStatus(tmpDir)).toEqual({ state: 'not_found' });
+    expect(getOnboardingStatus(tmpDir, { fsFactory })).toEqual({ state: 'not_found' });
   });
 });

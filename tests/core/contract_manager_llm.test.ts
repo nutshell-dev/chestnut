@@ -255,6 +255,7 @@ describe('ContractSystem Acceptance Flow', () => {
     tempDir = clawDir;  // 保持后续代码兼容
 
     const nodeFs = new NodeFileSystem({ baseDir: clawDir });
+    const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
     const logsDir = path.join(clawDir, 'logs');
     await fs.mkdir(logsDir, { recursive: true });
     auditEmitter = new EventEmitter();
@@ -269,7 +270,7 @@ describe('ContractSystem Acceptance Flow', () => {
       stream: vi.fn(),
     } as unknown as LLMOrchestrator;
 
-    manager = new ContractSystem(clawDir, 'test-claw', nodeFs, mockAudit as any, mockLLM, createToolRegistry());
+    manager = new ContractSystem(clawDir, 'test-claw', nodeFs, mockAudit as any, mockLLM, createToolRegistry(), undefined, fsFactory);
   });
 
   afterEach(async () => {
@@ -535,7 +536,8 @@ describe('ContractSystem Acceptance Flow', () => {
       const contractId = 'test-llm-not-injected';
       // manager without llm
       const nodeFs = new NodeFileSystem({ baseDir: clawDir });
-      const noLLMManager = new ContractSystem(clawDir, 'test-claw', nodeFs, mockAudit as any, undefined, createToolRegistry());
+      const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
+      const noLLMManager = new ContractSystem(clawDir, 'test-claw', nodeFs, mockAudit as any, undefined, createToolRegistry(), undefined, fsFactory);
 
       await setupContract(tempDir, contractId, makeContractYaml({
         subtasks: [{ id: 'task-1', description: 'Test task' }],
@@ -891,12 +893,15 @@ describe('ContractSystem — background verification error handling', () => {
     const clawDir = path.join(rootDir, 'claws', 'test-claw');
     await fs.mkdir(clawDir, { recursive: true });
     const nodeFs = new NodeFileSystem({ baseDir: clawDir });
+    const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
     const mockLLM = {
       call: vi.fn(),
       stream: vi.fn(),
     } as unknown as LLMOrchestrator;
     const manager = new ContractSystem(
       clawDir, 'test-claw', nodeFs, captureAudit as any, mockLLM, createToolRegistry(),
+      undefined,
+      fsFactory,
     );
 
     const contractId = 'typeerror-test-contract';
@@ -946,12 +951,15 @@ describe('ContractSystem — background verification error handling', () => {
     const clawDir = path.join(rootDir, 'claws', 'test-claw');
     await fs.mkdir(clawDir, { recursive: true });
     const nodeFs = new NodeFileSystem({ baseDir: clawDir });
+    const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
     const mockLLM = {
       call: vi.fn(),
       stream: vi.fn(),
     } as unknown as LLMOrchestrator;
     const manager = new ContractSystem(
       clawDir, 'test-claw', nodeFs, captureAudit as any, mockLLM, createToolRegistry(),
+      undefined,
+      fsFactory,
     );
 
     const contractId = 'business-error-test-contract';

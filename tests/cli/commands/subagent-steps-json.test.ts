@@ -7,8 +7,21 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import { subagentStepsCommand, subagentStepCommand } from '../../../src/cli/commands/subagent-steps.js';
+import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 
-vi.mock('fs');
+const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
+
+vi.mock('fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('fs')>();
+  return {
+    ...actual,
+    existsSync: vi.fn(),
+    readdirSync: vi.fn(),
+    readFileSync: vi.fn(),
+    statSync: vi.fn(() => ({ mtime: new Date(), size: 0 })),
+    realpathSync: vi.fn((p: string) => p),
+  };
+});
 
 vi.mock('../../../src/cli/commands/subagent-helpers.js', () => ({
   resolveClawDir: vi.fn().mockReturnValue('/tmp/claws/test-claw'),
@@ -63,7 +76,7 @@ describe('subagent steps --json', () => {
   it('outputs JSON for steps command', async () => {
     vi.mocked(fs.existsSync).mockReturnValue(true);
 
-    await subagentStepsCommand('task-1', 'test-claw', { json: true });
+    await subagentStepsCommand({ fsFactory }, 'task-1', 'test-claw', { json: true });
 
     const output = consoleLogSpy.mock.calls.flat().join('\n');
     const parsed = JSON.parse(output);
@@ -78,7 +91,7 @@ describe('subagent steps --json', () => {
   it('outputs JSON for step command', async () => {
     vi.mocked(fs.existsSync).mockReturnValue(true);
 
-    await subagentStepCommand('1', 'task-1', 'test-claw', { json: true });
+    await subagentStepCommand({ fsFactory }, '1', 'task-1', 'test-claw', { json: true });
 
     const output = consoleLogSpy.mock.calls.flat().join('\n');
     const parsed = JSON.parse(output);
@@ -91,7 +104,7 @@ describe('subagent steps --json', () => {
   it('falls back to text render without --json (steps)', async () => {
     vi.mocked(fs.existsSync).mockReturnValue(true);
 
-    await subagentStepsCommand('task-1', 'test-claw');
+    await subagentStepsCommand({ fsFactory }, 'task-1', 'test-claw');
 
     const output = consoleLogSpy.mock.calls.flat().join('\n');
     expect(output).toContain('TURN');
@@ -100,7 +113,7 @@ describe('subagent steps --json', () => {
   it('falls back to text render without --json (step)', async () => {
     vi.mocked(fs.existsSync).mockReturnValue(true);
 
-    await subagentStepCommand('1', 'task-1', 'test-claw');
+    await subagentStepCommand({ fsFactory }, '1', 'task-1', 'test-claw');
 
     const output = consoleLogSpy.mock.calls.flat().join('\n');
     expect(output).toContain('turn 1');
@@ -111,7 +124,7 @@ describe('subagent steps --json', () => {
     const { parseMessagesFromSession } = await import('../../../src/cli/commands/_message-renderer.js');
     vi.mocked(parseMessagesFromSession).mockReturnValue([]);
 
-    await subagentStepsCommand('task-1', 'test-claw', { json: true });
+    await subagentStepsCommand({ fsFactory }, 'task-1', 'test-claw', { json: true });
 
     const output = consoleLogSpy.mock.calls.flat().join('\n');
     const parsed = JSON.parse(output);

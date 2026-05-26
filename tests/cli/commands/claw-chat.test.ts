@@ -3,6 +3,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { chatCommand } from '../../../src/cli/commands/claw-chat.js';
+import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
+
+const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
 describe('claw-chat', () => {
   let tmpDir: string;
@@ -29,6 +32,6 @@ describe('claw-chat', () => {
   });
 
   it('error msg contains Try guidance hint when claw does not exist (phase 981 E-α2)', async () => {
-    await expect(chatCommand('nonexistent-claw')).rejects.toThrow(/Try `clawforum claw list`/);
+    await expect(chatCommand({ fsFactory }, 'nonexistent-claw')).rejects.toThrow(/Try `clawforum claw list`/);
   });
 });

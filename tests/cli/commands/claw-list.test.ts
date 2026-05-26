@@ -9,8 +9,21 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { listCommand } from '../../../src/cli/commands/claw-list.js';
 import { FAKE_LIVE_PID } from '../../helpers/test-pids.js';
+import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 
-vi.mock('fs');
+const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
+
+vi.mock('fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('fs')>();
+  return {
+    ...actual,
+    existsSync: vi.fn(),
+    readdirSync: vi.fn(),
+    readFileSync: vi.fn(),
+    statSync: vi.fn(() => ({ mtime: new Date(), size: 0, isDirectory: () => true, isFile: () => true })),
+    realpathSync: vi.fn((p: string) => p),
+  };
+});
 
 vi.mock('../../../src/foundation/config/index.js', () => ({
   loadGlobalConfig: vi.fn(),
@@ -18,8 +31,8 @@ vi.mock('../../../src/foundation/config/index.js', () => ({
 }));
 
 vi.mock('../../../src/cli/utils/factories.js', () => ({
-  createDirContext: vi.fn(() => ({ audit: { write: vi.fn() } })),
-  createProcessManagerForCLI: vi.fn(() => ({ isAlive: vi.fn(), readPid: vi.fn() })),
+  createDirContext: vi.fn((deps: any) => ({ audit: { write: vi.fn() } })),
+  createProcessManagerForCLI: vi.fn((deps: any) => ({ isAlive: vi.fn(), readPid: vi.fn() })),
 }));
 
 vi.mock('../../../src/cli/commands/claw-shared.js', () => ({
@@ -70,15 +83,15 @@ describe('claw-list', () => {
       return true;
     });
 
-    vi.mocked(fs.readdirSync).mockImplementation((p: fs.PathLike) => {
+    vi.mocked(fs.readdirSync).mockImplementation((p: fs.PathLike, options?: any) => {
       const sp = String(p);
-      if (sp.endsWith('claws')) return ['claw-a', 'claw-b'] as any;
+      if (sp.endsWith('claws')) return ['claw-a', 'claw-b'].map(n => ({ name: n, isDirectory: () => true, isFile: () => false })) as any;
       if (sp.endsWith('outbox/pending')) return [] as any;
       if (sp.includes('contract')) return [] as any;
       throw new Error(`Unexpected readdirSync: ${sp}`);
     });
 
-    await listCommand();
+    await listCommand({ fsFactory });
 
     const output = consoleLogSpy.mock.calls.flat().join('\n');
     expect(output).toMatch(/claw-a.*running/);
@@ -88,13 +101,13 @@ describe('claw-list', () => {
 
   it('handles 0 claws gracefully', async () => {
     vi.mocked(fs.existsSync).mockReturnValue(true);
-    vi.mocked(fs.readdirSync).mockImplementation((p: fs.PathLike) => {
+    vi.mocked(fs.readdirSync).mockImplementation((p: fs.PathLike, options?: any) => {
       const sp = String(p);
       if (sp.endsWith('claws')) return [] as any;
       throw new Error(`Unexpected readdirSync: ${sp}`);
     });
 
-    await listCommand();
+    await listCommand({ fsFactory });
 
     expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('No claws'));
   });
@@ -127,18 +140,12 @@ describe('claw-list', () => {
 
     vi.mocked(fs.readdirSync).mockImplementation((p: fs.PathLike, options?: any) => {
       const sp = String(p);
-      if (sp.endsWith('claws')) return ['claw-c'] as any;
-      if (sp.endsWith('outbox/pending')) return ['o1.md', 'o2.md', 'o3.md'] as any;
+      if (sp.endsWith('claws')) return ['claw-c'].map(n => ({ name: n, isDirectory: () => true, isFile: () => false })) as any;
+      if (sp.endsWith('outbox/pending')) return ['o1.md', 'o2.md', 'o3.md'].map(n => ({ name: n, isDirectory: () => false, isFile: () => true })) as any;
       if (sp.endsWith('contract/active')) {
-        if (options && (options as any).withFileTypes) {
-          return [{ isDirectory: () => true, name: 'c1' }] as any;
-        }
-        return ['c1'] as any;
+        return [{ isDirectory: () => true, name: 'c1', isFile: () => false }] as any;
       }
       if (sp.endsWith('contract/paused')) {
-        if (options && (options as any).withFileTypes) {
-          return [] as any;
-        }
         return [] as any;
       }
       if (sp.endsWith('c1')) return [] as any;
@@ -151,7 +158,7 @@ describe('claw-list', () => {
       throw new Error(`Unexpected readFileSync: ${sp}`);
     });
 
-    await listCommand();
+    await listCommand({ fsFactory });
 
     const output = consoleLogSpy.mock.calls.flat().join('\n');
     expect(output).toMatch(/claw-c/);
@@ -174,15 +181,15 @@ describe('claw-list', () => {
       return true;
     });
 
-    vi.mocked(fs.readdirSync).mockImplementation((p: fs.PathLike) => {
+    vi.mocked(fs.readdirSync).mockImplementation((p: fs.PathLike, options?: any) => {
       const sp = String(p);
-      if (sp.endsWith('claws')) return ['claw-a', 'claw-b'] as any;
+      if (sp.endsWith('claws')) return ['claw-a', 'claw-b'].map(n => ({ name: n, isDirectory: () => true, isFile: () => false })) as any;
       if (sp.endsWith('outbox/pending')) return [] as any;
       if (sp.includes('contract')) return [] as any;
       throw new Error(`Unexpected readdirSync: ${sp}`);
     });
 
-    await listCommand({ json: true });
+    await listCommand({ fsFactory }, { json: true });
 
     const output = consoleLogSpy.mock.calls.flat().join('\n');
     const parsed = JSON.parse(output);

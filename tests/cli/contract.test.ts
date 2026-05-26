@@ -5,7 +5,7 @@ import * as path from 'path';
 import { type ContractYaml } from '../../src/core/contract/index.js';
 
 vi.mock('../../src/cli/utils/factories.js', () => ({
-  createDirContext: vi.fn(() => ({
+  createDirContext: vi.fn((_deps: any) => ({
     fs: {
       appendSync: vi.fn(() => { throw new Error('disk full'); }),
     },
@@ -19,6 +19,9 @@ vi.mock('../../src/foundation/messaging/index.js', () => ({
 
 import { notifyContractCreated } from '../../src/cli/commands/contract.js';
 import { createDirContext } from '../../src/cli/utils/factories.js';
+import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
+
+const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
 describe('notifyContractCreated audit observability', () => {
   it('audit includes contractId on append failure', () => {
@@ -36,7 +39,7 @@ describe('notifyContractCreated audit observability', () => {
       subtasks: [{ id: 't1', description: 'd1' }],
     } as any;
 
-    notifyContractCreated('/tmp/claw', 'claw-1', 'test-contract-001', contract);
+    notifyContractCreated({ fsFactory }, '/tmp/claw', 'claw-1', 'test-contract-001', contract);
 
     expect(audit.write).toHaveBeenCalledWith(
       'stream_append_failed',
@@ -64,7 +67,7 @@ describe('notifyContractCreated audit observability', () => {
         title: 'T', goal: 'G', subtasks: [{ id: 's1', description: 'd' }],
       };
 
-      notifyContractCreated(tempDir, 'claw-A', 'c-001', contract);
+      notifyContractCreated({ fsFactory }, tempDir, 'claw-A', 'c-001', contract);
       const streamContent = fs.readFileSync(path.join(tempDir, 'stream.jsonl'), 'utf-8');
       const lines = streamContent.trim().split('\n');
       expect(lines).toHaveLength(1);
@@ -95,7 +98,7 @@ describe('notifyContractCreated audit observability', () => {
       title: 'T', goal: 'G', subtasks: [],
     };
 
-    expect(() => notifyContractCreated('/tmp/claw', 'claw-A', 'c-002', contract)).not.toThrow();
+    expect(() => notifyContractCreated({ fsFactory }, '/tmp/claw', 'claw-A', 'c-002', contract)).not.toThrow();
 
     expect(audit.write).toHaveBeenCalledTimes(1);
     const call = audit.write.mock.calls[0];

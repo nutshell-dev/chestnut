@@ -247,7 +247,7 @@ describe('phase 1038 C-3 Contract state machine integrity (W3-B α-1+α-4+α-7)'
         },
       };
       const manager = new ContractSystem(
-        clawDir, 'test-claw', nodeFs, audit as any, undefined, createToolRegistry()
+        clawDir, 'test-claw', nodeFs, audit as any, undefined, createToolRegistry(), undefined, (dir: string) => new NodeFileSystem({ baseDir: dir })
       );
       if (overrides.moveToArchiveThrows) {
         vi.spyOn(manager as any, 'moveToArchive').mockRejectedValue(new Error('archive mock error'));

@@ -93,6 +93,8 @@ import { AuditWriter } from '../../src/foundation/audit/writer.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { WATCHDOG_AUDIT_EVENTS } from '../../src/watchdog/audit-events.js';
 
+const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
+
 // ─── Step 1: fix-4 existing tests (N1 audit parameter fix) ───────────────────
 
 describe('maybeCronClawInactivity — fix 4: per-claw error isolation', () => {
@@ -129,7 +131,7 @@ describe('maybeCronClawInactivity — fix 4: per-claw error isolation', () => {
 
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-    await expect(maybeCronClawInactivity(mockPm, mockAudit)).resolves.not.toThrow();
+    await expect(maybeCronClawInactivity(mockPm, mockAudit, fsFactory)).resolves.not.toThrow();
 
     expect(clawHasContract).toHaveBeenCalledTimes(2);
 
@@ -145,7 +147,7 @@ describe('maybeCronClawInactivity — fix 4: per-claw error isolation', () => {
       throw new Error('all fail');
     });
 
-    await expect(maybeCronClawInactivity(mockPm, mockAudit)).resolves.not.toThrow();
+    await expect(maybeCronClawInactivity(mockPm, mockAudit, fsFactory)).resolves.not.toThrow();
     expect(clawHasContract).toHaveBeenCalledTimes(2);
   });
 
@@ -154,7 +156,7 @@ describe('maybeCronClawInactivity — fix 4: per-claw error isolation', () => {
     // Clear any calls from previous tests in this describe block
     calls.length = 0;
 
-    await maybeCronClawInactivity(mockPm, mockAudit);
+    await maybeCronClawInactivity(mockPm, mockAudit, fsFactory);
 
     const scanCall = calls.find(([type]) => type === WATCHDOG_AUDIT_EVENTS.CLAW_SCAN);
     expect(scanCall).toBeDefined();
@@ -195,7 +197,7 @@ describe('logWithAudit — A1 clearance', () => {
     setAuditWriter(auditWriter);
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-    logWithAudit('test message', WATCHDOG_AUDIT_EVENTS.CLEANUP_FAILED, 'test payload');
+    logWithAudit(fsFactory, 'test message', WATCHDOG_AUDIT_EVENTS.CLEANUP_FAILED, 'test payload');
 
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('test message'));
 
@@ -211,7 +213,7 @@ describe('logWithAudit — A1 clearance', () => {
     setAuditWriter(auditWriter);
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-    logWithAudit('no audit message');
+    logWithAudit(fsFactory, 'no audit message');
 
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('no audit message'));
 
@@ -226,7 +228,7 @@ describe('logWithAudit — A1 clearance', () => {
     setAuditWriter(null);
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-    expect(() => logWithAudit('null audit message', WATCHDOG_AUDIT_EVENTS.CLEANUP_FAILED)).not.toThrow();
+    expect(() => logWithAudit(fsFactory, 'null audit message', WATCHDOG_AUDIT_EVENTS.CLEANUP_FAILED)).not.toThrow();
 
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('null audit message'));
 
@@ -267,7 +269,7 @@ describe('shutdownWatchdog — fix 005: save state on signal', () => {
     const stateFile = path.join(tmpDir, '.clawforum', 'watchdog-state.json');
     expect(fs.existsSync(stateFile)).toBe(false);
 
-    expect(() => shutdownWatchdog(auditWriter, 'SIGTERM')).toThrow('exit');
+    expect(() => shutdownWatchdog(fsFactory, auditWriter, 'SIGTERM')).toThrow('exit');
 
     expect(fs.existsSync(stateFile)).toBe(true);
     const savedState = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
@@ -290,7 +292,7 @@ describe('shutdownWatchdog — fix 005: save state on signal', () => {
     fs.rmSync(stateFile, { force: true });
     fs.mkdirSync(stateFile);
 
-    expect(() => shutdownWatchdog(auditWriter, 'SIGTERM')).toThrow('exit');
+    expect(() => shutdownWatchdog(fsFactory, auditWriter, 'SIGTERM')).toThrow('exit');
 
     fs.rmdirSync(stateFile);
 
@@ -308,9 +310,9 @@ describe('shutdownWatchdog — fix 005: save state on signal', () => {
     const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
 
     // first call throws due to process.exit mock
-    expect(() => shutdownWatchdog(auditWriter, 'SIGTERM')).toThrow('exit');
+    expect(() => shutdownWatchdog(fsFactory, auditWriter, 'SIGTERM')).toThrow('exit');
     // second call early returns, no throw
-    expect(() => shutdownWatchdog(auditWriter, 'SIGINT')).not.toThrow();
+    expect(() => shutdownWatchdog(fsFactory, auditWriter, 'SIGINT')).not.toThrow();
 
     // audit 只写了第一次的 SIGTERM
     const auditPath = path.join(tmpDir, '.clawforum', 'audit.tsv');
@@ -342,11 +344,11 @@ describe('getWatchdogPid', () => {
   it('returns pid when pid file exists with valid content', () => {
     const pidFile = path.join(tmpDir, '.clawforum', 'watchdog.pid');
     fs.writeFileSync(pidFile, JSON.stringify({ pid: FAKE_LIVE_PID_ALT, root: '/some/root' }));
-    expect(getWatchdogPid()).toBe(FAKE_LIVE_PID_ALT);
+    expect(getWatchdogPid(fsFactory)).toBe(FAKE_LIVE_PID_ALT);
   });
 
   it('returns null when pid file does not exist', () => {
-    expect(getWatchdogPid()).toBeNull();
+    expect(getWatchdogPid(fsFactory)).toBeNull();
   });
 });
 
@@ -377,30 +379,30 @@ describe('isWatchdogAlive', () => {
     const pidFile = path.join(tmpDir, '.clawforum', 'watchdog.pid');
     fs.writeFileSync(pidFile, JSON.stringify({ pid: FAKE_LIVE_PID_ALT, root: '/test/root' }));
     const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
-    expect(isWatchdogAlive()).toBe(true);
+    expect(isWatchdogAlive(fsFactory)).toBe(true);
     expect(killSpy).toHaveBeenCalledWith(FAKE_LIVE_PID_ALT, 0);
   });
 
   it('returns false and removes pid file when root does not match', () => {
     const pidFile = path.join(tmpDir, '.clawforum', 'watchdog.pid');
     fs.writeFileSync(pidFile, JSON.stringify({ pid: FAKE_LIVE_PID_ALT, root: '/different/root' }));
-    expect(isWatchdogAlive()).toBe(false);
+    expect(isWatchdogAlive(fsFactory)).toBe(false);
     expect(fs.existsSync(pidFile)).toBe(false);
   });
 
   it('returns false when pid file does not exist', () => {
-    expect(isWatchdogAlive()).toBe(false);
+    expect(isWatchdogAlive(fsFactory)).toBe(false);
   });
 });
 
 describe('getWatchdogEntryPath', () => {
   it('returns a path ending with watchdog-entry.js', () => {
-    const result = getWatchdogEntryPath();
+    const result = getWatchdogEntryPath(fsFactory);
     expect(result).toMatch(/watchdog-entry\.js$/);
   });
 
   it('returns a string (path is resolvable)', () => {
-    const result = getWatchdogEntryPath();
+    const result = getWatchdogEntryPath(fsFactory);
     expect(typeof result).toBe('string');
     expect(result.length).toBeGreaterThan(0);
   });
@@ -431,7 +433,7 @@ describe('startCommand', () => {
     vi.spyOn(process, 'kill').mockImplementation(() => true);
 
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    await startCommand();
+    await startCommand(fsFactory);
 
     expect(spawnDetached).not.toHaveBeenCalled();
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('already running'));
@@ -441,7 +443,7 @@ describe('startCommand', () => {
 
   it('spawns watchdog process when not alive', async () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    await startCommand();
+    await startCommand(fsFactory);
 
     expect(spawnDetached).toHaveBeenCalledWith(
       'node',
@@ -453,7 +455,7 @@ describe('startCommand', () => {
 
   it('reports start failure if pid file not written after 30 polls', async () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    await startCommand();
+    await startCommand(fsFactory);
 
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('may have failed'));
     logSpy.mockRestore();
@@ -478,7 +480,7 @@ describe('stopCommand', () => {
 
   it('logs "not running" and removes pid file if watchdog is not alive', async () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    await stopCommand();
+    await stopCommand(fsFactory);
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('not running'));
     logSpy.mockRestore();
   });
@@ -495,7 +497,7 @@ describe('stopCommand', () => {
       .mockImplementation(() => { throw new Error('ESRCH'); }); // subsequent 0-checks → dead
 
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    await stopCommand();
+    await stopCommand(fsFactory);
 
     expect(killSpy).toHaveBeenCalledWith(FAKE_LIVE_PID_ALT, 'SIGTERM');
     logSpy.mockRestore();
@@ -512,7 +514,7 @@ describe('stopCommand', () => {
       .mockImplementationOnce(() => { throw new Error('EPERM'); });  // SIGTERM fails
 
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    await stopCommand();
+    await stopCommand(fsFactory);
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Failed to send SIGTERM'), expect.anything());
     logSpy.mockRestore();
   });
@@ -569,7 +571,7 @@ describe('runWatchdogLoop', () => {
       exitSpy.mockRestore();
     });
     try {
-      await runWatchdogLoop();
+      await runWatchdogLoop(fsFactory);
     } catch {
       // process.exit mock may throw — expected
     }
@@ -668,11 +670,11 @@ describe('maybeCronClawCrash — crash audit', () => {
 
     // First call: alive=true (establish baseline)
     vi.mocked(mockPm.isAlive).mockReturnValue(true);
-    maybeCronClawCrash(mockPm, mockAudit as any);
+    maybeCronClawCrash(mockPm, mockAudit as any, fsFactory);
 
     // Second call: alive=false (crash detected)
     vi.mocked(mockPm.isAlive).mockReturnValue(false);
-    maybeCronClawCrash(mockPm, mockAudit as any);
+    maybeCronClawCrash(mockPm, mockAudit as any, fsFactory);
 
     expect(mockAudit.write).toHaveBeenCalledWith(
       WATCHDOG_AUDIT_EVENTS.CLAW_CRASH_DETECTED,
@@ -688,7 +690,7 @@ describe('maybeCronClawCrash — crash audit', () => {
 
     // Establish alive baseline
     vi.mocked(mockPm.isAlive).mockReturnValue(true);
-    maybeCronClawCrash(mockPm, mockAudit as any);
+    maybeCronClawCrash(mockPm, mockAudit as any, fsFactory);
 
     // Mock InboxWriter to throw
     writeSyncSpy.mockImplementation(() => {
@@ -696,7 +698,7 @@ describe('maybeCronClawCrash — crash audit', () => {
     });
 
     vi.mocked(mockPm.isAlive).mockReturnValue(false);
-    maybeCronClawCrash(mockPm, mockAudit as any);
+    maybeCronClawCrash(mockPm, mockAudit as any, fsFactory);
 
     expect(mockAudit.write).toHaveBeenCalledWith(
       WATCHDOG_AUDIT_EVENTS.CLAW_CRASH_NOTIFY_DROPPED,
@@ -714,7 +716,7 @@ describe('maybeCronClawCrash — crash audit', () => {
     // Clear previous calls to isolate this test
     vi.mocked(mockAudit.write).mockClear();
 
-    maybeCronClawCrash(mockPm, mockAudit as any);
+    maybeCronClawCrash(mockPm, mockAudit as any, fsFactory);
 
     const calls = vi.mocked(mockAudit.write).mock.calls;
     const scanCall = calls.find(([type]) => type === WATCHDOG_AUDIT_EVENTS.CLAW_SCAN);
@@ -775,7 +777,7 @@ describe('loadWatchdogState / saveWatchdogState — A2+A3+A4', () => {
     const mockAudit = { write: vi.fn() } as unknown as AuditWriter;
     setAuditWriter(mockAudit);
 
-    expect(() => loadWatchdogState()).not.toThrow();
+    expect(() => loadWatchdogState(fsFactory)).not.toThrow();
     expect(mockAudit.write).not.toHaveBeenCalledWith(
       WATCHDOG_AUDIT_EVENTS.STATE_LOAD_FAILED,
       expect.any(String),
@@ -789,7 +791,7 @@ describe('loadWatchdogState / saveWatchdogState — A2+A3+A4', () => {
     const mockAudit = { write: vi.fn() } as unknown as AuditWriter;
     setAuditWriter(mockAudit);
 
-    loadWatchdogState();
+    loadWatchdogState(fsFactory);
 
     expect(mockAudit.write).toHaveBeenCalledWith(
       WATCHDOG_AUDIT_EVENTS.STATE_LOAD_FAILED,
@@ -815,7 +817,7 @@ describe('loadWatchdogState / saveWatchdogState — A2+A3+A4', () => {
     const mockAudit = { write: vi.fn() } as unknown as AuditWriter;
     setAuditWriter(mockAudit);
 
-    loadWatchdogState();
+    loadWatchdogState(fsFactory);
 
     // corrupt 路径 catch 内应清空 Maps，防止 partial populate 泄漏
     expect(lastInactivityNotified.size).toBe(0);
@@ -827,7 +829,7 @@ describe('loadWatchdogState / saveWatchdogState — A2+A3+A4', () => {
     fs.writeFileSync(stateFile, 'NOT_VALID_JSON{{{{');
 
     // 让 moveSync 抛错（spyOn getClawforumFs 返回的实例）
-    const clawforumFs = getClawforumFs();
+    const clawforumFs = getClawforumFs(fsFactory);
     const moveSpy = vi.spyOn(clawforumFs, 'moveSync').mockImplementation(() => {
       throw new Error('mock move failure');
     });
@@ -835,7 +837,7 @@ describe('loadWatchdogState / saveWatchdogState — A2+A3+A4', () => {
     const mockAudit = { write: vi.fn() } as unknown as AuditWriter;
     setAuditWriter(mockAudit);
 
-    loadWatchdogState();
+    loadWatchdogState(fsFactory);
 
     moveSpy.mockRestore();
 
@@ -853,7 +855,7 @@ describe('loadWatchdogState / saveWatchdogState — A2+A3+A4', () => {
     fs.writeFileSync(stateFile, JSON.stringify({ old: true }));
     const oldStat = fs.statSync(stateFile);
 
-    saveWatchdogState();
+    saveWatchdogState(fsFactory);
 
     const newStat = fs.statSync(stateFile);
     // Atomic write via rename creates a new inode (POSIX)

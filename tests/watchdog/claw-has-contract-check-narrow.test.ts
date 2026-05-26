@@ -18,6 +18,7 @@ import { WATCHDOG_AUDIT_EVENTS } from '../../src/watchdog/audit-events.js';
 
 describe('clawHasContract dual-code narrow (phase 1215)', () => {
   let testDir: string;
+  const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
   beforeEach(() => {
     testDir = path.join(tmpdir(), `wdutils-${randomUUID()}`);
@@ -35,7 +36,7 @@ describe('clawHasContract dual-code narrow (phase 1215)', () => {
       throw new FileNotFoundError('contract/paused');
     });
 
-    const result = clawHasContract(testDir, audit as any);
+    const result = clawHasContract(testDir, fsFactory, audit as any);
 
     expect(result).toBe(false);
     expect(audit.write).not.toHaveBeenCalled();
@@ -49,7 +50,7 @@ describe('clawHasContract dual-code narrow (phase 1215)', () => {
       throw err;
     });
 
-    const result = clawHasContract(testDir, audit as any);
+    const result = clawHasContract(testDir, fsFactory, audit as any);
 
     expect(result).toBe(false);
     expect(audit.write).not.toHaveBeenCalled();
@@ -63,7 +64,7 @@ describe('clawHasContract dual-code narrow (phase 1215)', () => {
       throw err;
     });
 
-    const result = clawHasContract(testDir, audit as any);
+    const result = clawHasContract(testDir, fsFactory, audit as any);
 
     expect(result).toBe(false);
     expect(audit.write).toHaveBeenCalledTimes(2); // active + paused both throw

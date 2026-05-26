@@ -3,6 +3,7 @@ import { promises as nativeFs } from 'node:fs';
 import * as path from 'node:path';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 import { createDirContext } from '../../src/cli/utils/factories.js';
+import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { createStreamReader, STREAM_FILE, type StreamEvent, type StreamReader } from '../../src/foundation/stream/index.js';
 import { makeAudit } from '../helpers/audit.js';
 import { waitFor } from '../helpers/wait-for.js';
@@ -47,6 +48,8 @@ function dispatchMainEvent(ev: StreamEvent, mainUI: MainTurnUIController) {
 // phase161 subscribe 回归：it 1（事件触达 handleEvent）已迁入 tests/e2e/chat-viewport-regression.test.ts
 // （Step 9 骨架 + Step 10-15 基线集合提供等价覆盖；phase165 Step 16 删除）
 // 本 describe 保留 it 2（STREAM_READER_FILE_MISSING 防线）
+const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
+
 describe('chat-viewport 订阅 motion stream（phase161 回归）', () => {
   const cleanups: Array<() => Promise<void>> = [];
 
@@ -60,7 +63,7 @@ describe('chat-viewport 订阅 motion stream（phase161 回归）', () => {
     const wrongDir = await createTempDir('phase161-wrong-');
     cleanups.push(() => cleanupTempDir(wrongDir));
 
-    const { fs } = createDirContext(wrongDir);
+    const { fs } = createDirContext({ fsFactory }, wrongDir);
     const { audit, events } = makeAudit();
     const reader = createStreamReader(fs, STREAM_FILE, () => {}, audit);
     cleanups.push(() => reader.stop());
@@ -140,8 +143,8 @@ describe('chat-viewport 主 UI 隔离（phase162）', () => {
     await nativeFs.writeFile(mainStreamPath, '');
     await nativeFs.writeFile(taskStreamPath, '');
 
-    const { fs: mainFs } = createDirContext(agentDir);
-    const { fs: taskFs } = createDirContext(taskDir);
+    const { fs: mainFs } = createDirContext({ fsFactory }, agentDir);
+    const { fs: taskFs } = createDirContext({ fsFactory }, taskDir);
     const { audit, events } = makeAudit();
 
     const mainUI = createMainTurnUI({
@@ -243,8 +246,8 @@ describe('chat-viewport 主 UI 并发隔离（phase162 streamReader）', () => {
     await nativeFs.writeFile(mainStreamPath, '');
     await nativeFs.writeFile(taskStreamPath, '');
 
-    const { fs: mainFs } = createDirContext(agentDir);
-    const { fs: taskFs } = createDirContext(taskDir);
+    const { fs: mainFs } = createDirContext({ fsFactory }, agentDir);
+    const { fs: taskFs } = createDirContext({ fsFactory }, taskDir);
     const { audit, events } = makeAudit();
 
     const mainUI = createMainTurnUI({

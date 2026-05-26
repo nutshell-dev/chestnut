@@ -6,6 +6,9 @@ import {
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
+
+const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
 describe('subagent-steps wrap', () => {
   let tmpDir: string;
@@ -61,7 +64,7 @@ describe('subagent-steps wrap', () => {
 
     // When called directly (simulating outer .action wrapper), the throw propagates
     // and wrapper calls handleCliError → console.error once.
-    await expect(subagentStepCommand('5', 'sub-1', 'test-claw')).rejects.toThrow(
+    await expect(subagentStepCommand({ fsFactory }, '5', 'sub-1', 'test-claw')).rejects.toThrow(
       'step 5 out of range (total turns: 1)',
     );
     // No direct console.error in the function anymore (throw handles it)
@@ -75,7 +78,7 @@ describe('subagent-steps wrap', () => {
     ]);
 
     await expect(
-      subagentStepCommand('5', 'sub-1', 'test-claw', { json: true }),
+      subagentStepCommand({ fsFactory }, '5', 'sub-1', 'test-claw', { json: true }),
     ).rejects.toThrow('process.exit called');
     expect(exitSpy).toHaveBeenCalledWith(1);
     expect(exitSpy).toHaveBeenCalledTimes(1);
@@ -89,13 +92,13 @@ describe('subagent-steps wrap', () => {
       { role: 'assistant', content: [{ type: 'text', text: 'hi' }] },
     ]);
 
-    await subagentStepsCommand('sub-1', 'test-claw');
+    await subagentStepsCommand({ fsFactory }, 'sub-1', 'test-claw');
     expect(exitSpy).not.toHaveBeenCalled();
     expect(consoleLogSpy).toHaveBeenCalledTimes(1);
   });
 
   it('steps claw not exist → throws CliError (propagates to wrapper)', async () => {
-    await expect(subagentStepsCommand('sub-1', 'no-such-claw')).rejects.toThrow(
+    await expect(subagentStepsCommand({ fsFactory }, 'sub-1', 'no-such-claw')).rejects.toThrow(
       'Claw "no-such-claw" does not exist',
     );
     expect(exitSpy).not.toHaveBeenCalled();

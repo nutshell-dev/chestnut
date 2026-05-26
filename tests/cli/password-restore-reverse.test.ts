@@ -3,6 +3,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
+import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
+
+const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
 // 反向 1：验证 passwordQuestion restore 行为
 const { rlAnswers } = vi.hoisted(() => ({ rlAnswers: { queue: [] as string[] } }));
@@ -62,14 +65,14 @@ describe('passwordQuestion reverse — _writeToOutput restored after password pr
 
   it('Branch 2 手动配置：apiKey prompt 后 _writeToOutput 恢复为 original（不是 wrapper）', async () => {
     rlAnswers.queue = ['2', '2', 'https://api.openai.com/v1', 'sk-test', 'gpt-4o'];
-    await initCommand(true);
+    await initCommand({ fsFactory }, true);
     // wrapper 包含 muted 变量，恢复后的 original 不包含
     expect(mockRl._writeToOutput.toString()).not.toContain('muted');
   });
 
   it('Branch 3 选择 provider：apiKey prompt 后 _writeToOutput 恢复为 original（不是 wrapper）', async () => {
     rlAnswers.queue = ['3', '1', 'sk-ant-xxx', ''];
-    await initCommand(true);
+    await initCommand({ fsFactory }, true);
     expect(mockRl._writeToOutput.toString()).not.toContain('muted');
   });
 });

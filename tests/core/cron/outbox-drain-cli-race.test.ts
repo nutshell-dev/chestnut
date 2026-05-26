@@ -60,7 +60,7 @@ describe('phase 1222 r131 E fork α-2: outbox-drain ↔ CLI race atomic claim', 
     // Run both concurrently to maximize race probability
     await Promise.all([
       runOutboxDrain({ clawforumDir, motionInboxDir, fs, audit }),
-      outboxCommand('test-claw', { limit: 99 }, { audit }),
+      outboxCommand({ fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }) }, 'test-claw', { limit: 99 }, { audit }),
     ]);
 
     console.log = origLog;
@@ -112,28 +112,30 @@ describe('phase 1222 r131 E fork α-2: outbox-drain ↔ CLI race atomic claim', 
     const content = '# Race test\ncli-loser';
     fsNative.writeFileSync(path.join(outboxPending, 'msg1.md'), content);
 
-    const origRename = fsNative.promises.rename;
-    let renameCallCount = 0;
-    (fsNative.promises as any).rename = async (oldPath: string, newPath: string) => {
-      renameCallCount++;
+    const clawDirForOutbox = path.join(clawforumDir, 'claws', 'test-claw');
+    const clawFs = new NodeFileSystem({ baseDir: clawDirForOutbox });
+    const origMove = clawFs.move.bind(clawFs);
+    let moveCallCount = 0;
+    const moveSpy = vi.spyOn(clawFs, 'move').mockImplementation(async (oldPath: string, newPath: string) => {
+      moveCallCount++;
       const oldPathStr = String(oldPath);
-      // Intercept the first atomic-claim rename (pending → processing) to simulate race lost
-      if (renameCallCount === 1 && oldPathStr.endsWith('msg1.md')) {
+      // Intercept the first atomic-claim move (pending → processing) to simulate race lost
+      if (moveCallCount === 1 && oldPathStr.endsWith('msg1.md')) {
         const err = new Error('ENOENT: no such file or directory') as NodeJS.ErrnoException;
         err.code = 'ENOENT';
         throw err;
       }
-      return origRename(oldPath, newPath);
-    };
+      return origMove(oldPath, newPath);
+    });
 
     const logs: string[] = [];
     console.log = (...args: unknown[]) => { logs.push(args.map(String).join(' ')); };
 
     try {
-      await outboxCommand('test-claw', { limit: 99 }, { audit });
+      await outboxCommand({ fsFactory: () => clawFs }, 'test-claw', { limit: 99 }, { audit });
     } finally {
       console.log = origLog;
-      (fsNative.promises as any).rename = origRename;
+      moveSpy.mockRestore();
     }
 
     // No stdout content because CLI lost the race

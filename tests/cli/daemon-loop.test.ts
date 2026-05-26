@@ -14,6 +14,9 @@ import type { Watcher } from '../../src/foundation/file-watcher/types.js';
 import type { FileSystem } from '../../src/foundation/fs/types.js';
 import { createWatcher } from '../../src/foundation/file-watcher/index.js';
 import { IdleTimeoutSignal, UserInterrupt, PriorityInboxInterrupt } from '../../src/core/signals.js';
+import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
+
+const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 import { LLMAllProvidersFailedError } from '../../src/foundation/llm-orchestrator/errors.js';
 
 // Module-level mock so ESM named exports are replaceable
@@ -62,6 +65,7 @@ describe('startDaemonLoop interrupt poller circuit breaker', () => {
     } as unknown as Runtime;
 
     const { stop } = startDaemonLoop({
+      fsFactory,
       runtime: mockRuntime,
       agentDir: '/tmp/test-agent-fix9',
       clawId: 'test-agent-fix9',
@@ -117,6 +121,7 @@ describe('startDaemonLoop - LLM retry', () => {
     const mockRuntime = { processBatch, retryLastTurn, abort: vi.fn() } as unknown as Runtime;
 
     const { stop } = startDaemonLoop({
+      fsFactory,
       runtime: mockRuntime,
       agentDir: '/tmp/daemon-llm-retry-test',
       clawId: 'daemon-llm-retry-test',
@@ -158,6 +163,7 @@ describe('startDaemonLoop - LLM retry', () => {
     const mockRuntime = { processBatch, retryLastTurn, abort: vi.fn() } as unknown as Runtime;
 
     const { stop } = startDaemonLoop({
+      fsFactory,
       runtime: mockRuntime,
       agentDir: '/tmp/agent-max-retry',
       clawId: 'agent-max-retry',
@@ -224,6 +230,7 @@ describe('startDaemonLoop - LLM retry', () => {
     const mockRuntime = { processBatch, retryLastTurn, abort: vi.fn() } as unknown as Runtime;
 
     const { stop } = startDaemonLoop({
+      fsFactory,
       runtime: mockRuntime,
       agentDir: '/tmp/non-llm-error-test',
       clawId: 'non-llm-error-test',
@@ -267,6 +274,7 @@ describe('startDaemonLoop - interrupt audit', () => {
     const mockRuntime = { processBatch, retryLastTurn: vi.fn(), abort: vi.fn() } as unknown as Runtime;
 
     const { stop } = startDaemonLoop({
+      fsFactory,
       runtime: mockRuntime,
       agentDir: '/tmp/idle-test',
       clawId: 'idle-test',
@@ -298,6 +306,7 @@ describe('startDaemonLoop - interrupt audit', () => {
     const mockRuntime = { processBatch, retryLastTurn: vi.fn(), abort: vi.fn() } as unknown as Runtime;
 
     const { stop } = startDaemonLoop({
+      fsFactory,
       runtime: mockRuntime,
       agentDir: '/tmp/user-test',
       clawId: 'user-test',
@@ -329,6 +338,7 @@ describe('startDaemonLoop - interrupt audit', () => {
     const mockRuntime = { processBatch, retryLastTurn: vi.fn(), abort: vi.fn() } as unknown as Runtime;
 
     const { stop } = startDaemonLoop({
+      fsFactory,
       runtime: mockRuntime,
       agentDir: '/tmp/priority-test',
       clawId: 'priority-test',
@@ -371,6 +381,7 @@ describe('startDaemonLoop - iteration audit', () => {
     const mockRuntime = { processBatch, retryLastTurn: vi.fn(), abort: vi.fn() } as unknown as Runtime;
 
     const { stop } = startDaemonLoop({
+      fsFactory,
       runtime: mockRuntime,
       agentDir: '/tmp/chain-test',
       clawId: 'chain-test',

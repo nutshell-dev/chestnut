@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { scanSubagentResults, type SubagentKind } from '../../src/cli/commands/subagent-helpers.js';
+import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { TASKS_SYNC_SPAWN_DIR } from '../../src/core/spawn-system/constants.js';
 import { TASKS_SYNC_SHADOW_DIR } from '../../src/core/shadow-system/constants.js';
 
@@ -28,7 +29,13 @@ describe('subagent-helpers SubagentKind', () => {
     fs.writeFileSync(path.join(shadowDir, 'shadow-abc', 'audit.tsv'),
       `${new Date().toISOString()}\tshadow_start\tabc\n${new Date().toISOString()}\ttask_completed\tabc\n`);
 
-    const entries = scanSubagentResults(tmpDir);
+    const fsFactory = (dir: string) => {
+      const fs = new NodeFileSystem({ baseDir: dir });
+      const orig = fs.listSync.bind(fs);
+      fs.listSync = (p: string, opts?: any) => orig(p, { ...opts, includeDirs: true });
+      return fs;
+    };
+    const entries = scanSubagentResults({ fsFactory }, tmpDir);
     const shadowEntry = entries.find(e => e.id === 'shadow-abc');
     expect(shadowEntry).toBeDefined();
     expect(shadowEntry!.kind).toBe('shadow');
@@ -40,7 +47,13 @@ describe('subagent-helpers SubagentKind', () => {
     fs.writeFileSync(path.join(spawnDir, 'spawn-xyz', 'audit.tsv'),
       `${new Date().toISOString()}\tspawn_start\txyz\n${new Date().toISOString()}\ttask_completed\txyz\n`);
 
-    const entries = scanSubagentResults(tmpDir);
+    const fsFactory = (dir: string) => {
+      const fs = new NodeFileSystem({ baseDir: dir });
+      const orig = fs.listSync.bind(fs);
+      fs.listSync = (p: string, opts?: any) => orig(p, { ...opts, includeDirs: true });
+      return fs;
+    };
+    const entries = scanSubagentResults({ fsFactory }, tmpDir);
     const spawnEntry = entries.find(e => e.id === 'spawn-xyz');
     expect(spawnEntry).toBeDefined();
     expect(spawnEntry!.kind).toBe('spawn');

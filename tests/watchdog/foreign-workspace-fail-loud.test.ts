@@ -28,6 +28,7 @@ describe('watchdog-pid foreign workspace fail-loud', () => {
   let auditWriter: AuditWriter;
   let auditSpy: ReturnType<typeof vi.spyOn>;
   const originalRoot = process.env.CLAWFORUM_ROOT;
+  const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
   beforeEach(() => {
     tmpDir = path.join(os.tmpdir(), `wd-pid-foreign-${randomUUID()}`);
@@ -64,7 +65,7 @@ describe('watchdog-pid foreign workspace fail-loud', () => {
     const foreignAlivePid = process.pid;
     fs.writeFileSync(pidFile, JSON.stringify({ pid: foreignAlivePid, root: '/foreign/root' }));
 
-    expect(() => isWatchdogAlive()).toThrow(WatchdogPidForeignWorkspaceError);
+    expect(() => isWatchdogAlive(fsFactory)).toThrow(WatchdogPidForeignWorkspaceError);
 
     expect(auditSpy).toHaveBeenCalledWith(
       WATCHDOG_AUDIT_EVENTS.PID_FOREIGN_WORKSPACE,
@@ -79,7 +80,7 @@ describe('watchdog-pid foreign workspace fail-loud', () => {
     const pidFile = path.join(clawforumDir, 'watchdog.pid');
     fs.writeFileSync(pidFile, JSON.stringify({ pid: DEAD_PID, root: '/foreign/root' }));
 
-    const result = isWatchdogAlive();
+    const result = isWatchdogAlive(fsFactory);
 
     expect(result).toBe(false);
     expect(auditSpy).toHaveBeenCalledWith(
@@ -92,7 +93,7 @@ describe('watchdog-pid foreign workspace fail-loud', () => {
   });
 
   it('pid file ENOENT: returns false + no throw + no audit', () => {
-    const result = isWatchdogAlive();
+    const result = isWatchdogAlive(fsFactory);
 
     expect(result).toBe(false);
     expect(auditSpy).not.toHaveBeenCalled();
@@ -104,7 +105,7 @@ describe('watchdog-pid foreign workspace fail-loud', () => {
     fs.chmodSync(pidFile, 0o000);
 
     try {
-      expect(() => isWatchdogAlive()).toThrow();
+      expect(() => isWatchdogAlive(fsFactory)).toThrow();
       expect(auditSpy).toHaveBeenCalledWith(
         WATCHDOG_AUDIT_EVENTS.PID_READ_FAILED,
         expect.stringContaining('error='),
@@ -120,7 +121,7 @@ describe('watchdog-pid foreign workspace fail-loud', () => {
     const foreignAlivePid = process.pid;
     fs.writeFileSync(pidFile, JSON.stringify({ pid: foreignAlivePid, root: '/foreign/root' }));
 
-    await expect(startCommand()).rejects.toThrow('Watchdog already running for foreign workspace');
-    await expect(startCommand()).rejects.toThrow('clawforum stop');
+    await expect(startCommand(fsFactory)).rejects.toThrow('Watchdog already running for foreign workspace');
+    await expect(startCommand(fsFactory)).rejects.toThrow('clawforum stop');
   });
 });

@@ -26,6 +26,9 @@ vi.mock('../../src/foundation/audit/index.js', () => ({
 }));
 
 import { contractEventsCommand } from '../../src/cli/commands/contract.js';
+import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
+
+const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
 describe('contractEventsCommand', () => {
   let clawDir: string;
@@ -46,7 +49,7 @@ describe('contractEventsCommand', () => {
   });
 
   it('should output nothing when no archive or active directories exist', async () => {
-    await contractEventsCommand('test-claw', 0);
+    await contractEventsCommand({ fsFactory }, 'test-claw', 0);
     expect(logSpy).not.toHaveBeenCalled();
   });
 
@@ -65,7 +68,7 @@ describe('contractEventsCommand', () => {
     }));
 
     // sinceTs before completion → should detect
-    await contractEventsCommand('test-claw', completedAt.getTime() - 1000);
+    await contractEventsCommand({ fsFactory }, 'test-claw', completedAt.getTime() - 1000);
 
     expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining('[contract_completed]'),
@@ -90,7 +93,7 @@ describe('contractEventsCommand', () => {
     }));
 
     // sinceTs after completion → should not detect
-    await contractEventsCommand('test-claw', completedAt.getTime() + 1000);
+    await contractEventsCommand({ fsFactory }, 'test-claw', completedAt.getTime() + 1000);
     expect(logSpy).not.toHaveBeenCalled();
   });
 
@@ -109,7 +112,7 @@ describe('contractEventsCommand', () => {
       },
     }));
 
-    await contractEventsCommand('test-claw', escalatedAt.getTime() - 1000);
+    await contractEventsCommand({ fsFactory }, 'test-claw', escalatedAt.getTime() - 1000);
 
     expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining('[contract_escalation]'),
@@ -132,7 +135,7 @@ describe('contractEventsCommand', () => {
       },
     }));
 
-    await contractEventsCommand('test-claw', 0);
+    await contractEventsCommand({ fsFactory }, 'test-claw', 0);
     expect(logSpy).not.toHaveBeenCalled();
   });
 
@@ -150,7 +153,7 @@ describe('contractEventsCommand', () => {
       },
     }));
 
-    await contractEventsCommand('test-claw', escalatedAt.getTime() + 1000);
+    await contractEventsCommand({ fsFactory }, 'test-claw', escalatedAt.getTime() + 1000);
     expect(logSpy).not.toHaveBeenCalled();
   });
 
@@ -160,7 +163,7 @@ describe('contractEventsCommand', () => {
     fs.mkdirSync(archiveDir, { recursive: true });
     fs.writeFileSync(path.join(archiveDir, 'progress.json'), '{invalid json');
 
-    await expect(contractEventsCommand('test-claw', 0)).resolves.not.toThrow();
+    await expect(contractEventsCommand({ fsFactory }, 'test-claw', 0)).resolves.not.toThrow();
     expect(logSpy).not.toHaveBeenCalled();
     expect(mockAuditWrite).toHaveBeenCalledWith(
       'contract_progress_corrupted',

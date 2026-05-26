@@ -65,13 +65,6 @@ vi.mock('../../src/cli/utils/factories.js', () => ({
   })),
 }));
 
-vi.mock('../../src/foundation/fs/node-fs.js', () => ({
-  NodeFileSystem: vi.fn().mockImplementation(function (this: any, opts: any) {
-    this.baseDir = opts.baseDir;
-    this.existsSync = vi.fn().mockReturnValue(true);
-  }),
-}));
-
 vi.mock('../../src/foundation/audit/index.js', () => ({
   createSystemAudit: mockCreateSystemAudit,
   createAuditWriter: vi.fn(),
@@ -92,6 +85,9 @@ vi.mock('fs', async (importOriginal) => {
 // ============================================================================
 import { stopAllCommand } from '../../src/cli/commands/stop.js';
 import { createSystemAudit } from '../../src/foundation/audit/index.js';
+import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
+
+const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
 describe('stop — orphan cleanup silent → audit (P1.4)', () => {
   beforeEach(() => {
@@ -106,7 +102,7 @@ describe('stop — orphan cleanup silent → audit (P1.4)', () => {
     mockFindProcesses.mockReturnValue([1111, 2222]);
     mockCreateSystemAudit.mockReturnValue({ write: mockAuditState.write });
 
-    await stopAllCommand();
+    await stopAllCommand({ fsFactory });
 
     const sigtermEvents = mockAuditState.events.filter(e => e[0] === 'orphan_sigterm_failed');
     expect(sigtermEvents).toHaveLength(2);
@@ -135,7 +131,7 @@ describe('stop — orphan cleanup silent → audit (P1.4)', () => {
     });
     mockCreateSystemAudit.mockReturnValue({ write: mockAuditState.write });
 
-    await stopAllCommand();
+    await stopAllCommand({ fsFactory });
 
     const listFailedEvents = mockAuditState.events.filter(e => e[0] === 'process_list_failed');
     expect(listFailedEvents).toHaveLength(1);
@@ -156,7 +152,7 @@ describe('stop — orphan cleanup silent → audit (P1.4)', () => {
     });
 
     // 不应抛错
-    await expect(stopAllCommand()).resolves.not.toThrow();
+    await expect(stopAllCommand({ fsFactory })).resolves.not.toThrow();
 
     // audit 为 null，所以没有任何 audit 事件
     expect(mockAuditState.events).toHaveLength(0);

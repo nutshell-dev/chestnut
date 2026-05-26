@@ -18,6 +18,7 @@ function makeMockFs(): FileSystem {
     writeAtomicSync: vi.fn(),
     ensureDirSync: vi.fn(),
     deleteSync: vi.fn(),
+    writeExclusiveSync: vi.fn(),
   } as unknown as FileSystem;
 }
 

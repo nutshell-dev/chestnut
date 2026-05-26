@@ -85,6 +85,9 @@ vi.mock('fs', async (importOriginal) => {
 // ============================================================================
 import { stopAllCommand } from '../../src/cli/commands/stop.js';
 import { WATCHDOG_AUDIT_EVENTS } from '../../src/watchdog/audit-events.js';
+import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
+
+const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
 describe('stop — orphan watchdog sweep (phase 1269 sub-4)', () => {
   beforeEach(() => {
@@ -96,7 +99,7 @@ describe('stop — orphan watchdog sweep (phase 1269 sub-4)', () => {
     mockFindProcesses.mockReturnValue([1111, 2222]);
     mockCreateSystemAudit.mockReturnValue({ write: mockAuditState.write });
 
-    await stopAllCommand();
+    await stopAllCommand({ fsFactory });
 
     const sweepEvents = mockAuditState.events.filter(e => e[0] === WATCHDOG_AUDIT_EVENTS.ORPHAN_SWEEP_KILLED);
     expect(sweepEvents).toHaveLength(1);

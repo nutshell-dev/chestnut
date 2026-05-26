@@ -26,8 +26,7 @@ describe('chat-viewport CRASH audit (phase 816 B1)', () => {
     expect(auditEventsCode).toMatch(/CHAT_CRASH_UNCAUGHT:\s*'cli_chat_crash_uncaught'/);
   });
 
-  it('uncaughtHandler 内导入 createSystemAudit + NodeFileSystem', () => {
-    expect(sourceCode).toContain("import { NodeFileSystem } from '../../foundation/fs/node-fs.js';");
+  it('uncaughtHandler 内导入 createSystemAudit', () => {
     expect(sourceCode).toContain("import { createSystemAudit } from '../../foundation/audit/index.js';");
   });
 
@@ -41,7 +40,7 @@ describe('chat-viewport CRASH audit (phase 816 B1)', () => {
     expect(idx).toBeGreaterThan(-1);
     const block = sourceCode.slice(idx, idx + 1200);
     expect(block).toContain('createSystemAudit(');
-    expect(block).toContain('new NodeFileSystem({ baseDir: deps.agentDir })');
+    expect(block).toContain('deps.fsFactory ? deps.fsFactory(deps.agentDir) : deps.fs');
     // fail-soft 外层 try + catch
     expect(block).toMatch(/try\s*\{[\s\S]*?createSystemAudit[\s\S]*?\}\s*catch/);
   });

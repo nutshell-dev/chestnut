@@ -15,6 +15,8 @@ import { makeAudit, waitForAuditEvent } from '../../helpers/audit.js';
 import { createToolRegistry } from '../../../src/foundation/tools/index.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
 
+const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
+
 let tmpDir: string;
 let clawDir: string;
 let nodeFs: NodeFileSystem;
@@ -45,6 +47,8 @@ describe('no verification path', () => {
       audit,
       undefined,
       createToolRegistry(),
+      undefined,
+      fsFactory,
     );
 
     const contractId = await manager.create(
@@ -85,6 +89,8 @@ describe('no verification path', () => {
       audit,
       undefined,
       createToolRegistry(),
+      undefined,
+      fsFactory,
     );
 
     const contractId = await manager.create(
@@ -144,6 +150,8 @@ describe('no verification path', () => {
       audit,
       undefined,
       createToolRegistry(),
+      undefined,
+      fsFactory,
     );
 
     const contractId = await manager.create(

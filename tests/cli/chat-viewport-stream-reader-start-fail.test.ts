@@ -7,6 +7,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createEventHandler } from '../../src/cli/commands/chat-viewport-event-handler.js';
 import { VIEWPORT_AUDIT_EVENTS } from '../../src/cli/commands/viewport-audit-events.js';
+import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
+
+const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
 const { mockCreateStreamReader } = vi.hoisted(() => ({
   mockCreateStreamReader: vi.fn(),
@@ -55,6 +58,7 @@ describe('phase 1217 (r131 C fork) B.2 — stream reader start fail no register'
       appendOutput: vi.fn(),
       showSystemMessages: false,
       showContractEvents: false,
+      fsFactory,
       agentDir: '/tmp/agent',
       label: 'test',
       audit: { write: auditWrite } as any,

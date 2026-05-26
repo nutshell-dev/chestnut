@@ -17,6 +17,9 @@ import {
 } from '../../src/foundation/config/index.js';
 import { CONFIG_DEFAULTS } from '../../src/assembly/config-defaults.js';
 import { listCommand } from '../../src/cli/commands/claw.js';
+import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
+
+const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
 describe('CLI Config', () => {
   let originalRoot: string | undefined;
@@ -101,7 +104,7 @@ describe('CLI Config', () => {
 
   describe('loadGlobalConfig', () => {
     it('should throw error when config not found', () => {
-      expect(() => loadGlobalConfig(CONFIG_DEFAULTS)).toThrow('Run "clawforum init" first');
+      expect(() => loadGlobalConfig({ fsFactory }, CONFIG_DEFAULTS)).toThrow('Run "clawforum init" first');
     });
 
     it('should throw error for invalid yaml', () => {
@@ -109,7 +112,7 @@ describe('CLI Config', () => {
       fs.mkdirSync(path.dirname(configPath), { recursive: true });
       fs.writeFileSync(configPath, 'invalid: yaml: content: [}');
 
-      expect(() => loadGlobalConfig(CONFIG_DEFAULTS)).toThrow();
+      expect(() => loadGlobalConfig({ fsFactory }, CONFIG_DEFAULTS)).toThrow();
     });
 
     it('should load valid config', () => {
@@ -128,9 +131,9 @@ describe('CLI Config', () => {
           retry_delay_ms: 1000,
         },
       };
-      saveGlobalConfig(config);
+      saveGlobalConfig({ fsFactory }, config);
 
-      const loaded = loadGlobalConfig(CONFIG_DEFAULTS);
+      const loaded = loadGlobalConfig({ fsFactory }, CONFIG_DEFAULTS);
 
       expect(loaded.version).toBe('1');
       expect(loaded.llm.primary.api_key).toBe('test-key');
@@ -139,7 +142,7 @@ describe('CLI Config', () => {
 
   describe('isInitialized', () => {
     it('should return false when not initialized', () => {
-      expect(isInitialized()).toBe(false);
+      expect(isInitialized({ fsFactory })).toBe(false);
     });
 
     it('should return true when initialized', () => {
@@ -147,13 +150,13 @@ describe('CLI Config', () => {
       fs.mkdirSync(path.dirname(configPath), { recursive: true });
       fs.writeFileSync(configPath, 'version: 1\n');
 
-      expect(isInitialized()).toBe(true);
+      expect(isInitialized({ fsFactory })).toBe(true);
     });
   });
 
   describe('clawExists', () => {
     it('should return false for non-existent claw', () => {
-      expect(clawExists('nonexistent')).toBe(false);
+      expect(clawExists({ fsFactory }, 'nonexistent')).toBe(false);
     });
 
     it('should return true for existing claw', () => {
@@ -161,7 +164,7 @@ describe('CLI Config', () => {
       fs.mkdirSync(clawDir, { recursive: true });
       fs.writeFileSync(path.join(clawDir, 'config.yaml'), 'name: test-claw\n');
 
-      expect(clawExists('test-claw')).toBe(true);
+      expect(clawExists({ fsFactory }, 'test-claw')).toBe(true);
     });
   });
 
@@ -183,7 +186,7 @@ describe('CLI Config', () => {
           retry_delay_ms: 1000,
         },
       };
-      saveGlobalConfig(config);
+      saveGlobalConfig({ fsFactory }, config);
 
       // 创建两个测试 claw
       const clawDir1 = getClawDir('claw-alpha');
@@ -194,7 +197,7 @@ describe('CLI Config', () => {
       fs.writeFileSync(path.join(clawDir2, 'config.yaml'), 'name: claw-beta\n');
 
       // 执行 list 命令（不抛出错误即成功）
-      await expect(listCommand()).resolves.not.toThrow();
+      await expect(listCommand({ fsFactory })).resolves.not.toThrow();
     });
 
     it('should handle empty claws directory', async () => {
@@ -214,10 +217,10 @@ describe('CLI Config', () => {
           retry_delay_ms: 1000,
         },
       };
-      saveGlobalConfig(config);
+      saveGlobalConfig({ fsFactory }, config);
 
       // 执行 list 命令（应该正常返回，提示没有 claws，不抛出错误）
-      await expect(listCommand()).resolves.toBeUndefined();
+      await expect(listCommand({ fsFactory })).resolves.toBeUndefined();
     });
 
     it('should auto-create claws directory if not exists', async () => {
@@ -237,7 +240,7 @@ describe('CLI Config', () => {
           retry_delay_ms: 1000,
         },
       };
-      saveGlobalConfig(config);
+      saveGlobalConfig({ fsFactory }, config);
 
       // 确保 claws 目录不存在
       const clawsDir = path.join(path.dirname(getGlobalConfigPath()), 'claws');
@@ -246,7 +249,7 @@ describe('CLI Config', () => {
       }
 
       // 执行 list 命令应该自动创建目录
-      await expect(listCommand()).resolves.toBeUndefined();
+      await expect(listCommand({ fsFactory })).resolves.toBeUndefined();
       expect(fs.existsSync(clawsDir)).toBe(true);
     });
   });
@@ -261,7 +264,7 @@ describe('CLI Config', () => {
       const rawYaml = 'version: "1"\nllm:\n  primary:\n    name: anthropic\n    api_key: ${TEST_CLAW_API_KEY_EXPAND}\n    model: claude-3-5-haiku\n    max_tokens: 4096\n    temperature: 0.7\n    timeout_ms: 60000\n  retry_attempts: 3\n  retry_delay_ms: 1000\n';
       fs.writeFileSync(configPath, rawYaml);
 
-      const loaded = loadGlobalConfig(CONFIG_DEFAULTS);
+      const loaded = loadGlobalConfig({ fsFactory }, CONFIG_DEFAULTS);
       expect(loaded.llm.primary.api_key).toBe('resolved-secret-value');
 
       delete process.env.TEST_CLAW_API_KEY_EXPAND;
@@ -274,7 +277,7 @@ describe('CLI Config', () => {
       const rawYaml = 'version: "1"\nllm:\n  primary:\n    name: anthropic\n    api_key: ${MISSING_CLAW_TEST_VAR_XYZ}\n    model: test\n    max_tokens: 4096\n    temperature: 0.7\n    timeout_ms: 60000\n  retry_attempts: 3\n  retry_delay_ms: 1000\n';
       fs.writeFileSync(configPath, rawYaml);
 
-      expect(() => loadGlobalConfig(CONFIG_DEFAULTS)).toThrow(/MISSING_CLAW_TEST_VAR_XYZ/);
+      expect(() => loadGlobalConfig({ fsFactory }, CONFIG_DEFAULTS)).toThrow(/MISSING_CLAW_TEST_VAR_XYZ/);
     });
   });
 });

@@ -21,6 +21,7 @@ import { MESSAGING_AUDIT_EVENTS } from '../../src/foundation/messaging/audit-eve
 describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
   let agentDir: string;
   let inboxPendingDir: string;
+  const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
   beforeEach(() => {
     agentDir = path.join(os.tmpdir(), `daemon-loop-test-${randomUUID()}`);
@@ -126,6 +127,7 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
         label: '[test daemon]',
         audit,
         inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 50 },
+        fsFactory,
       });
 
       // Let one iteration run (processBatch → waitForInbox 50ms)
@@ -158,6 +160,7 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
         audit,
         inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 50 },
         motion: { onInboxMessages },
+        fsFactory,
       });
 
       await new Promise(r => setTimeout(r, 20));
@@ -204,6 +207,7 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
         audit,
         inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 50 },
         streamWriter,
+        fsFactory,
       });
 
       await new Promise(r => setTimeout(r, 80));

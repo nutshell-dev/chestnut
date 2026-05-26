@@ -41,6 +41,7 @@ describe('audit wired in CLI', () => {
   let tmpDir: string;
   let clawforumDir: string;
   const originalConsoleError = console.error;
+  const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
   beforeEach(() => {
     tmpDir = path.join(os.tmpdir(), `wd-audit-wire-${randomUUID()}`);
@@ -69,7 +70,7 @@ describe('audit wired in CLI', () => {
 
     mockFindProcesses.mockReturnValue([2000]);
 
-    const killed = await sweepOrphanWatchdogs({ excludePid: null });
+    const killed = await sweepOrphanWatchdogs(fsFactory, { excludePid: null });
 
     expect(killed).toEqual([2000]);
     expect(getAuditWriter()).not.toBeNull();

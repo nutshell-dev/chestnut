@@ -9,6 +9,7 @@ import { setAuditWriter } from '../../src/watchdog/watchdog-context.js';
 import { WATCHDOG_AUDIT_EVENTS } from '../../src/watchdog/audit-events.js';
 import { AuditWriter } from '../../src/foundation/audit/writer.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
+const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
 const mockFindProcesses = vi.hoisted(() => vi.fn().mockReturnValue([]));
 const mockKill = vi.hoisted(() => vi.fn());
@@ -76,7 +77,7 @@ describe('watchdog orphan sweep', () => {
 
     mockFindProcesses.mockReturnValue([1000, 2000, 3000]);
 
-    const killed = await sweepOrphanWatchdogs();
+    const killed = await sweepOrphanWatchdogs(fsFactory);
 
     expect(killed).toEqual([2000, 3000]);
     expect(mockKill).toHaveBeenCalledWith(2000, 'TERM');
@@ -95,7 +96,7 @@ describe('watchdog orphan sweep', () => {
 
     mockFindProcesses.mockReturnValue([1000, 2000]);
 
-    const killed = await sweepOrphanWatchdogs({ excludePid: null });
+    const killed = await sweepOrphanWatchdogs(fsFactory, { excludePid: null });
 
     expect(killed).toEqual([1000, 2000]);
     expect(mockKill).toHaveBeenCalledWith(1000, 'TERM');
@@ -109,7 +110,7 @@ describe('watchdog orphan sweep', () => {
       throw new Error('pgrep failed');
     });
 
-    const killed = await sweepOrphanWatchdogs();
+    const killed = await sweepOrphanWatchdogs(fsFactory);
 
     expect(killed).toEqual([]);
     expect(auditSpy).toHaveBeenCalledWith(
@@ -127,7 +128,7 @@ describe('watchdog orphan sweep', () => {
       if (pid === 2000) throw new Error('EPERM');
     });
 
-    const killed = await sweepOrphanWatchdogs({ excludePid: null });
+    const killed = await sweepOrphanWatchdogs(fsFactory, { excludePid: null });
 
     expect(killed).toEqual([3000]);
     expect(auditSpy).toHaveBeenCalledWith(

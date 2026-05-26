@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { clawStepsCommand, clawStepCommand } from '../../src/cli/commands/claw-steps.js';
+import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
+
+const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 import { CliError } from '../../src/cli/errors.js';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -41,7 +44,7 @@ describe('claw-steps', () => {
           { role: 'assistant', content: [{ type: 'text', text: 'motion hello' }] },
         ],
       });
-      await clawStepsCommand('motion');
+      await clawStepsCommand({ fsFactory }, 'motion');
       expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('motion hello'));
     });
 
@@ -51,27 +54,27 @@ describe('claw-steps', () => {
           { role: 'assistant', content: [{ type: 'text', text: 'claw hello' }] },
         ],
       });
-      await clawStepsCommand('test-claw');
+      await clawStepsCommand({ fsFactory }, 'test-claw');
       expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('claw hello'));
     });
 
     it('不存在 claw → CliError「Claw ... does not exist」', async () => {
-      await expect(clawStepsCommand('no-such')).rejects.toThrow('Claw "no-such" does not exist');
+      await expect(clawStepsCommand({ fsFactory }, 'no-such')).rejects.toThrow('Claw "no-such" does not exist');
     });
 
     it('motion dir 缺失 → CliError「Motion directory not found」', async () => {
-      await expect(clawStepsCommand('motion')).rejects.toThrow('Motion directory not found');
+      await expect(clawStepsCommand({ fsFactory }, 'motion')).rejects.toThrow('Motion directory not found');
     });
 
     it('dialog/current.json 缺失 → CliError「dialog session not found」', async () => {
       const dir = path.join(tmpDir, '.clawforum', 'claws', 'empty-claw', 'dialog');
       fs.mkdirSync(dir, { recursive: true });
-      await expect(clawStepsCommand('empty-claw')).rejects.toThrow('dialog session not found');
+      await expect(clawStepsCommand({ fsFactory }, 'empty-claw')).rejects.toThrow('dialog session not found');
     });
 
     it('空 turns → No turns found.', async () => {
       writeCurrentJson('motion', { messages: [] });
-      await clawStepsCommand('motion');
+      await clawStepsCommand({ fsFactory }, 'motion');
       expect(consoleLogSpy).toHaveBeenCalledWith('No turns found.');
     });
   });
@@ -83,7 +86,7 @@ describe('claw-steps', () => {
           { role: 'assistant', content: [{ type: 'text', text: 'detail text' }] },
         ],
       });
-      await clawStepCommand('1', 'motion');
+      await clawStepCommand({ fsFactory }, '1', 'motion');
       expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('detail text'));
     });
 
@@ -104,7 +107,7 @@ describe('claw-steps', () => {
           },
         ],
       });
-      await clawStepCommand('1.a', 'motion');
+      await clawStepCommand({ fsFactory }, '1.a', 'motion');
       expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('=== call: Read ==='));
     });
 
@@ -114,12 +117,12 @@ describe('claw-steps', () => {
           { role: 'assistant', content: [{ type: 'text', text: 'only' }] },
         ],
       });
-      await expect(clawStepCommand('99', 'motion')).rejects.toThrow('Turn 99 not found');
+      await expect(clawStepCommand({ fsFactory }, '99', 'motion')).rejects.toThrow('Turn 99 not found');
     });
 
     it('step 格式非法 → CliError「Invalid step number」', async () => {
       writeCurrentJson('motion', { messages: [] });
-      await expect(clawStepCommand('abc', 'motion')).rejects.toThrow('Invalid step number: abc');
+      await expect(clawStepCommand({ fsFactory }, 'abc', 'motion')).rejects.toThrow('Invalid step number: abc');
     });
   });
 });

@@ -43,6 +43,9 @@ vi.mock('../../src/cli/utils/factories.js', () => ({
 // Imports (after mocks)
 // ============================================================================
 import { stopCommand } from '../../src/cli/commands/motion.js';
+import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
+
+const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
 describe('phase 961: motion steps/step action uses withCliErrorHandling wrapper', () => {
   beforeEach(() => {
@@ -53,7 +56,7 @@ describe('phase 961: motion steps/step action uses withCliErrorHandling wrapper'
     expect(stepsIdx).toBeGreaterThan(-1);
     const block = indexSource.slice(stepsIdx, stepsIdx + 400);
     expect(block).toContain('.action(withCliErrorHandling(async () => {');
-    expect(block).toContain('await motionStepsCommand();');
+    expect(block).toContain('await motionStepsCommand({ fsFactory });');
     // phase 961: raw try/catch removed
     expect(block).not.toMatch(/try\s*\{/);
     expect(block).not.toContain('process.exitCode = handleCliError(error)');
@@ -64,7 +67,7 @@ describe('phase 961: motion steps/step action uses withCliErrorHandling wrapper'
     expect(stepIdx).toBeGreaterThan(-1);
     const block = indexSource.slice(stepIdx, stepIdx + 400);
     expect(block).toContain('.action(withCliErrorHandling(async (n: string) => {');
-    expect(block).toContain('await motionStepCommand(n);');
+    expect(block).toContain('await motionStepCommand({ fsFactory }, n);');
     // phase 961: raw try/catch removed
     expect(block).not.toMatch(/try\s*\{/);
     expect(block).not.toContain('process.exitCode = handleCliError(error)');
@@ -94,7 +97,7 @@ describe('phase 922: motion stop failed branch exitCode', () => {
     mockPmState.isAlive.mockReturnValue(true);
     mockPmState.stop.mockResolvedValue(false);
 
-    await stopCommand();
+    await stopCommand({ fsFactory });
 
     expect(consoleSpy).toHaveBeenCalledWith('✗ Failed to stop Motion');
     expect(process.exitCode).toBe(1);
@@ -104,7 +107,7 @@ describe('phase 922: motion stop failed branch exitCode', () => {
     mockPmState.isAlive.mockReturnValue(true);
     mockPmState.stop.mockResolvedValue(true);
 
-    await stopCommand();
+    await stopCommand({ fsFactory });
 
     expect(consoleSpy).toHaveBeenCalledWith('✓ Stopped Motion daemon');
     expect(process.exitCode).toBe(0);

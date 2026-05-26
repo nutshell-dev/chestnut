@@ -13,6 +13,7 @@ import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 describe('gatherClawSnapshot forensic context (phase 1207 gap B)', () => {
   let testDir: string;
   let clawDir: string;
+  const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
   beforeEach(() => {
     testDir = path.join(tmpdir(), `wd-snap-${randomUUID()}`);
@@ -41,14 +42,14 @@ describe('gatherClawSnapshot forensic context (phase 1207 gap B)', () => {
     ];
     fs.writeFileSync(path.join(clawDir, 'audit.tsv'), lines.join('\n') + '\n', 'utf-8');
 
-    const snapshot = gatherClawSnapshot(clawDir, mockPm, 'claw-test');
+    const snapshot = gatherClawSnapshot(clawDir, fsFactory, mockPm, 'claw-test');
 
     expect(snapshot.lastAuditEvents).toHaveLength(5);
     expect(snapshot.lastAuditEvents).toEqual(lines.slice(-5));
   });
 
   it('reverse 2: claw audit.tsv missing → lastAuditEvents undefined gracefully', () => {
-    const snapshot = gatherClawSnapshot(clawDir, mockPm, 'claw-test');
+    const snapshot = gatherClawSnapshot(clawDir, fsFactory, mockPm, 'claw-test');
 
     expect(snapshot.lastAuditEvents).toBeUndefined();
   });
@@ -61,7 +62,7 @@ describe('gatherClawSnapshot forensic context (phase 1207 gap B)', () => {
     fs.writeFileSync(path.join(clawDir, 'audit.tsv'), auditLines.join('\n') + '\n', 'utf-8');
 
     // Use real gatherClawSnapshot through a mini integration path
-    const snapshot = gatherClawSnapshot(clawDir, mockPm, 'claw-test');
+    const snapshot = gatherClawSnapshot(clawDir, fsFactory, mockPm, 'claw-test');
     expect(snapshot.lastAuditEvents).toBeDefined();
 
     const lastEventsStr = snapshot.lastAuditEvents!.map(e => e.replace(/\t/g, '|')).join(' >> ');
@@ -76,7 +77,7 @@ describe('gatherClawSnapshot forensic context (phase 1207 gap B)', () => {
     ];
     fs.writeFileSync(path.join(clawDir, 'audit.tsv'), lines.join('\n') + '\n', 'utf-8');
 
-    const snapshot = gatherClawSnapshot(clawDir, mockPm, 'claw-test');
+    const snapshot = gatherClawSnapshot(clawDir, fsFactory, mockPm, 'claw-test');
 
     expect(snapshot.lastAuditEvents).toHaveLength(2);
     expect(snapshot.lastAuditEvents).toEqual(lines);

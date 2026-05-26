@@ -50,6 +50,7 @@ function trackCtor(name: string, factory: () => any) {
 vi.mock('../../src/foundation/audit/writer.js', () => ({
   AuditWriter: vi.fn(() => ({ write: mockAuditWrite })),
   AUDIT_FILE: 'audit.tsv',
+  reconcileFallbackDumps: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('../../src/foundation/snapshot/index.js', () => ({
@@ -70,9 +71,14 @@ vi.mock('../../src/foundation/stream/index.js', () => ({
 }));
 
 vi.mock('../../src/foundation/fs/node-fs.js', () => ({
-  NodeFileSystem: vi.fn(() => ({
+  NodeFileSystem: vi.fn(({ baseDir }: { baseDir: string }) => ({
     ensureDir: vi.fn().mockResolvedValue(undefined),
-    existsSync: vi.fn(() => false),
+    existsSync: vi.fn((p: string) => fs.existsSync(path.join(baseDir, p))),
+    statSync: vi.fn((p: string) => fs.statSync(path.join(baseDir, p))),
+    readBytesSync: vi.fn((p: string, start: number, end: number) => {
+      const buf = fs.readFileSync(path.join(baseDir, p));
+      return buf.subarray(start, end);
+    }),
     listSync: vi.fn(() => []),
   })),
 }));

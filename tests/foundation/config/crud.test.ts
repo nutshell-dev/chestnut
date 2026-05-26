@@ -4,8 +4,12 @@ import * as path from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 
+import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
+
 const { loadGlobalConfig, loadClawConfig, patchGlobalConfigPrimary } = await import('../../../src/foundation/config/crud.js');
 const { CONFIG_DEFAULTS } = await import('../../../src/assembly/config-defaults.js');
+
+const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
 let tempDir: string;
 
@@ -29,7 +33,7 @@ describe('loadGlobalConfig', () => {
     fs.mkdirSync(path.dirname(configPath), { recursive: true });
     fs.writeFileSync(configPath, '{ invalid yaml: [ }');
 
-    expect(() => loadGlobalConfig(CONFIG_DEFAULTS)).toThrow('Invalid YAML in config');
+    expect(() => loadGlobalConfig({ fsFactory }, CONFIG_DEFAULTS)).toThrow('Invalid YAML in config');
   });
 
   it('throws on missing env var reference', () => {
@@ -42,7 +46,7 @@ llm:
     api_key: \${NONEXISTENT_VAR}
 `);
 
-    expect(() => loadGlobalConfig(CONFIG_DEFAULTS)).toThrow('Invalid global config (env var)');
+    expect(() => loadGlobalConfig({ fsFactory }, CONFIG_DEFAULTS)).toThrow('Invalid global config (env var)');
   });
 
   it('throws on read failure (permission)', () => {
@@ -52,7 +56,7 @@ llm:
     fs.chmodSync(configPath, 0o000);
 
     try {
-      expect(() => loadGlobalConfig(CONFIG_DEFAULTS)).toThrow('Failed to read config');
+      expect(() => loadGlobalConfig({ fsFactory }, CONFIG_DEFAULTS)).toThrow('Failed to read config');
     } finally {
       fs.chmodSync(configPath, 0o644);
     }
@@ -74,7 +78,7 @@ llm:
     api_key: \${TEST_CLAW_KEY}
 `);
 
-    const config = loadClawConfig('testclaw', CONFIG_DEFAULTS);
+    const config = loadClawConfig({ fsFactory }, 'testclaw', CONFIG_DEFAULTS);
     expect(config.llm?.primary?.api_key).toBe('sk-claw-123');
   });
 
@@ -83,7 +87,7 @@ llm:
     fs.mkdirSync(clawDir, { recursive: true });
     fs.writeFileSync(path.join(clawDir, 'config.yaml'), '{ bad');
 
-    expect(() => loadClawConfig('badclaw', CONFIG_DEFAULTS)).toThrow('Invalid YAML in config');
+    expect(() => loadClawConfig({ fsFactory }, 'badclaw', CONFIG_DEFAULTS)).toThrow('Invalid YAML in config');
   });
 });
 
@@ -96,6 +100,6 @@ describe('patchGlobalConfig', () => {
     fs.mkdirSync(path.dirname(configPath), { recursive: true });
     fs.writeFileSync(configPath, '- item1\n- item2\n');
 
-    expect(() => patchGlobalConfigPrimary({ model: 'x' })).toThrow('config parse failed');
+    expect(() => patchGlobalConfigPrimary({ fsFactory }, { model: 'x' })).toThrow('config parse failed');
   });
 });

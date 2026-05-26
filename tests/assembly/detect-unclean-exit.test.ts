@@ -38,7 +38,8 @@ describe('detectUncleanExit catch audit', () => {
       throw err;
     });
 
-    detectUncleanExit('/tmp/audit', audit as any);
+    const mockFs = { existsSync: mockExistsSync, statSync: mockStatSync };
+    detectUncleanExit('/tmp/audit', audit as any, mockFs as any);
 
     expect(audit.write).toHaveBeenCalledWith(
       'assemble_failed',
@@ -57,7 +58,8 @@ describe('detectUncleanExit catch audit', () => {
       throw err;
     });
 
-    detectUncleanExit('/tmp/audit', audit as any);
+    const mockFs = { existsSync: mockExistsSync, statSync: mockStatSync };
+    detectUncleanExit('/tmp/audit', audit as any, mockFs as any);
 
     expect(audit.write).not.toHaveBeenCalled();
   });

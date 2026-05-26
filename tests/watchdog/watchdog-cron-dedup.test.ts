@@ -13,7 +13,9 @@ import { WATCHDOG_AUDIT_EVENTS } from '../../src/watchdog/audit-events.js';
 import { getNamedSubrootDir, loadGlobalConfig } from '../../src/foundation/config/index.js';
 import { clawHasContract, gatherClawSnapshot } from '../../src/watchdog/watchdog-utils.js';
 import { InboxWriter } from '../../src/foundation/messaging/index.js';
+import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import type { ProcessManager } from '../../src/foundation/process-manager/index.js';
+const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
 vi.mock('../../src/foundation/config/index.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/foundation/config/index.js')>();
@@ -89,7 +91,7 @@ describe('watchdog crash_notification dedup (phase 1207 gap A)', () => {
     everSpawned.add(clawId);
     vi.mocked(mockPm.isAlive).mockReturnValue(false);
 
-    maybeCronClawCrash(mockPm, mockAudit as any);
+    maybeCronClawCrash(mockPm, mockAudit as any, fsFactory);
 
     expect(inboxWriteMock).toHaveBeenCalledTimes(1);
     expect(inboxWriteMock).toHaveBeenCalledWith(
@@ -112,12 +114,12 @@ describe('watchdog crash_notification dedup (phase 1207 gap A)', () => {
     clawPreviouslyAlive.set(clawId, true);
     everSpawned.add(clawId);
     vi.mocked(mockPm.isAlive).mockReturnValue(false);
-    maybeCronClawCrash(mockPm, mockAudit as any);
+    maybeCronClawCrash(mockPm, mockAudit as any, fsFactory);
     expect(inboxWriteMock).toHaveBeenCalledTimes(1);
     inboxWriteMock.mockClear();
 
     // Second tick: same dead claw → skip
-    maybeCronClawCrash(mockPm, mockAudit as any);
+    maybeCronClawCrash(mockPm, mockAudit as any, fsFactory);
 
     expect(inboxWriteMock).not.toHaveBeenCalled();
     expect(mockAudit.write).toHaveBeenCalledWith(
@@ -134,13 +136,13 @@ describe('watchdog crash_notification dedup (phase 1207 gap A)', () => {
     // First crash
     clawPreviouslyAlive.set(clawId, true);
     vi.mocked(mockPm.isAlive).mockReturnValue(false);
-    maybeCronClawCrash(mockPm, mockAudit as any);
+    maybeCronClawCrash(mockPm, mockAudit as any, fsFactory);
     expect(clawPreviouslyNotified.has(clawId)).toBe(true);
     inboxWriteMock.mockClear();
 
     // Recovery: claw becomes alive
     vi.mocked(mockPm.isAlive).mockReturnValue(true);
-    maybeCronClawCrash(mockPm, mockAudit as any);
+    maybeCronClawCrash(mockPm, mockAudit as any, fsFactory);
 
     expect(clawPreviouslyNotified.has(clawId)).toBe(false);
     expect(mockAudit.write).toHaveBeenCalledWith(
@@ -153,7 +155,7 @@ describe('watchdog crash_notification dedup (phase 1207 gap A)', () => {
     inboxWriteMock.mockClear();
     everSpawned.add(clawId);
     vi.mocked(mockPm.isAlive).mockReturnValue(false);
-    maybeCronClawCrash(mockPm, mockAudit as any);
+    maybeCronClawCrash(mockPm, mockAudit as any, fsFactory);
 
     expect(inboxWriteMock).toHaveBeenCalledTimes(1);
     expect(inboxWriteMock).toHaveBeenCalledWith(
@@ -172,7 +174,7 @@ describe('watchdog crash_notification dedup (phase 1207 gap A)', () => {
     // Remove claw dir
     fs.rmSync(path.join(clawsDir, clawId), { recursive: true, force: true });
 
-    maybeCronClawCrash(mockPm, mockAudit as any);
+    maybeCronClawCrash(mockPm, mockAudit as any, fsFactory);
 
     expect(clawPreviouslyAlive.has(clawId)).toBe(false);
     expect(everSpawned.has(clawId)).toBe(false);

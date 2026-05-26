@@ -21,6 +21,7 @@ import { createViewportObservability } from '../../src/cli/commands/chat-viewpor
 import type { AuditWriter } from '../../src/foundation/audit/writer.js';
 import type { FileSystem } from '../../src/foundation/fs/index.js';
 import { createEventCollector } from '../helpers/event-collector.js';
+import { NodeFileSystem } from '../../src/foundation/fs/index.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -75,7 +76,7 @@ async function setupFixture(options?: { agentDirPrefix?: string }): Promise<Regr
   const streamPath = nativePath.join(agentDir, STREAM_FILE);
   const auditPath = nativePath.join(agentDir, AUDIT_FILE);
 
-  const { fs, audit: realAudit } = createDirContext(agentDir);
+  const { fs, audit: realAudit } = createDirContext({ fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }) }, agentDir);
   const audit = wrapAuditCapture(realAudit);
 
   // NEW (phase 759 step B / M#3+M#7+D7 align): fixture 经 StreamWriter own 路径 ensure stream file exists

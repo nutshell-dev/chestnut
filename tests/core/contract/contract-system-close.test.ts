@@ -48,7 +48,7 @@ describe('phase 1217 (r131 C fork) B.1 — ContractSystem.close() true disposabl
     auditWrite = vi.fn();
     const mockAudit = { write: auditWrite };
     const mockLlm = { id: 'mock-llm' } as any;
-    manager = new ContractSystem(clawDir, 'test-claw', nodeFs, mockAudit as any, mockLlm, createToolRegistry());
+    manager = new ContractSystem(clawDir, 'test-claw', nodeFs, mockAudit as any, mockLlm, createToolRegistry(), undefined, (dir: string) => new NodeFileSystem({ baseDir: dir }));
     mockRunContractVerifier.mockReset();
   });
 
@@ -158,6 +158,8 @@ describe('phase 1217 (r131 C fork) B.1 — ContractSystem.close() true disposabl
       { write: vi.fn() } as any,
       undefined,
       createToolRegistry(),
+      undefined,
+      (dir: string) => new NodeFileSystem({ baseDir: dir }),
     );
 
     // 用 vi.spyOn 包装 close

@@ -30,7 +30,9 @@ import {
   setAuditWriter,
 } from '../../src/watchdog/watchdog-context.js';
 import { WATCHDOG_AUDIT_EVENTS } from '../../src/watchdog/audit-events.js';
+import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import type { AuditLog } from '../../src/foundation/audit/index.js';
+const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
 describe('watchdog-state schema_version invariant — phase 1134', () => {
   let tmpDir: string;
@@ -68,7 +70,7 @@ describe('watchdog-state schema_version invariant — phase 1134', () => {
     setAuditWriter(mockAudit);
 
     // Should not throw to caller
-    expect(() => loadWatchdogState()).not.toThrow();
+    expect(() => loadWatchdogState(fsFactory)).not.toThrow();
 
     // Maps should be reset to empty
     expect(lastInactivityNotified.size).toBe(0);
@@ -110,7 +112,7 @@ describe('watchdog-state schema_version invariant — phase 1134', () => {
     const mockAudit = { write: vi.fn() } as unknown as AuditLog;
     setAuditWriter(mockAudit);
 
-    loadWatchdogState();
+    loadWatchdogState(fsFactory);
 
     // No schema-related audit errors
     const badEvents = mockAudit.write.mock.calls.filter(
@@ -125,7 +127,7 @@ describe('watchdog-state schema_version invariant — phase 1134', () => {
     expect(everSpawned.has('claw1')).toBe(true);
 
     // Subsequent save writes schema_version, not version
-    saveWatchdogState();
+    saveWatchdogState(fsFactory);
     const savedRaw = fs.readFileSync(stateFile, 'utf-8');
     const saved = JSON.parse(savedRaw);
     expect(saved.schema_version).toBe(2);

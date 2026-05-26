@@ -4,9 +4,11 @@ import * as path from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { _resetShutdownGuard, runWatchdogLoop } from '../../src/watchdog/watchdog.js';
-import { createProcessManagerForCLI } from '../../src/cli/utils/factories.js';
+import { createProcessManagerForCLI } from '../../src/foundation/process-manager/factories.js';
 import { getNamedSubrootDir, loadGlobalConfig } from '../../src/foundation/config/index.js';
+import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { setTimeout as setTimeoutP } from 'timers/promises';
+const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
 vi.mock('../../src/foundation/config/index.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/foundation/config/index.js')>();
@@ -17,8 +19,8 @@ vi.mock('../../src/foundation/config/index.js', async (importOriginal) => {
   };
 });
 
-vi.mock('../../src/cli/utils/factories.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/cli/utils/factories.js')>();
+vi.mock('../../src/foundation/process-manager/factories.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/foundation/process-manager/factories.js')>();
   return {
     ...actual,
     createProcessManagerForCLI: vi.fn(),
@@ -69,7 +71,7 @@ describe('watchdog signal handler lifecycle (phase 994 A.1)', () => {
       exitSpy.mockRestore();
     });
     try {
-      await runWatchdogLoop();
+      await runWatchdogLoop(fsFactory);
     } catch {
       // process.exit mock may throw — expected
     }

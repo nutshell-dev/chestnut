@@ -39,7 +39,7 @@ describe('ContractSystem lifecycle race (phase 791 / P0.16 + P0.18)', () => {
       },
     };
     manager = new ContractSystem(
-      clawDir, 'test-claw', nodeFs, captureAudit as any, undefined, createToolRegistry()
+      clawDir, 'test-claw', nodeFs, captureAudit as any, undefined, createToolRegistry(), undefined, (dir: string) => new NodeFileSystem({ baseDir: dir })
     );
   });
 
@@ -117,7 +117,7 @@ describe('ContractSystem lifecycle race (phase 791 / P0.16 + P0.18)', () => {
     } as unknown as LLMOrchestrator;
 
     const testManager = new ContractSystem(
-      clawDir, 'test-claw', manager['fs'], manager['audit'] as any, mockLLM, createToolRegistry()
+      clawDir, 'test-claw', manager['fs'], manager['audit'] as any, mockLLM, createToolRegistry(), undefined, (dir: string) => new NodeFileSystem({ baseDir: dir })
     );
 
     // Mock runLLMVerification to delay, simulating slow background verification

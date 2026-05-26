@@ -27,7 +27,7 @@ describe('chat-viewport error handling (phase 523 + 524)', () => {
   describe('phase 523 Step A: writeUserChat 失败守护', () => {
     it('writeUserChat 调用包 try/catch', () => {
       // 找 onSubmit 内 writeUserChat 段
-      const match = sourceCode.match(/try\s*\{\s*writeUserChat\(options\.agentDir,\s*trimmed\);\s*\}\s*catch/);
+      const match = sourceCode.match(/try\s*\{\s*writeUserChat\(options\.agentDir,\s*trimmed,\s*options\.fsFactory\);\s*\}\s*catch/);
       expect(match).toBeTruthy();
     });
 

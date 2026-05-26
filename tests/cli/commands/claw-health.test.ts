@@ -8,9 +8,22 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { healthCommand } from '../../../src/cli/commands/claw-health.js';
+import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
+
+const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 import { CliError } from '../../../src/cli/errors.js';
 
-vi.mock('fs');
+vi.mock('fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('fs')>();
+  return {
+    ...actual,
+    existsSync: vi.fn(),
+    readdirSync: vi.fn(),
+    readFileSync: vi.fn(),
+    statSync: vi.fn(() => ({ mtime: new Date(), size: 0, isDirectory: () => true })),
+    realpathSync: vi.fn((p: string) => p),
+  };
+});
 
 vi.mock('../../../src/foundation/config/index.js', () => ({
   loadGlobalConfig: vi.fn(),
@@ -20,8 +33,8 @@ vi.mock('../../../src/foundation/config/index.js', () => ({
 }));
 
 vi.mock('../../../src/cli/utils/factories.js', () => ({
-  createDirContext: vi.fn(() => ({ audit: { write: vi.fn() } })),
-  createProcessManagerForCLI: vi.fn(() => ({ isAlive: vi.fn() })),
+  createDirContext: vi.fn((deps: any) => ({ audit: { write: vi.fn() } })),
+  createProcessManagerForCLI: vi.fn((deps: any) => ({ isAlive: vi.fn() })),
 }));
 
 describe('claw-health', () => {
@@ -45,7 +58,7 @@ describe('claw-health', () => {
   it('throws CliError when claw does not exist', async () => {
     const { clawExists } = await import('../../../src/foundation/config/index.js');
     vi.mocked(clawExists).mockReturnValue(false);
-    await expect(healthCommand('foo')).rejects.toBeInstanceOf(CliError);
+    await expect(healthCommand({ fsFactory }, 'foo')).rejects.toBeInstanceOf(CliError);
   });
 
   it('displays running status with inbox/outbox counts', async () => {
@@ -54,16 +67,21 @@ describe('claw-health', () => {
       isAlive: vi.fn().mockReturnValue(true),
     } as any);
 
-    vi.mocked(fs.readdirSync).mockImplementation((p: fs.PathLike) => {
+    vi.mocked(fs.readdirSync).mockImplementation((p: fs.PathLike, options?: any) => {
       const sp = String(p);
-      if (sp.includes('inbox/pending')) return ['a.md', 'b.md', 'c.md'] as any;
-      if (sp.includes('outbox/pending')) return ['x.md', 'y.md'] as any;
-      if (sp.includes('contract/active')) return [] as any;
+      if (sp.includes('inbox/pending')) return ['a.md', 'b.md', 'c.md'].map(n => ({ name: n, isDirectory: () => false, isFile: () => true })) as any;
+      if (sp.includes('outbox/pending')) return ['x.md', 'y.md'].map(n => ({ name: n, isDirectory: () => false, isFile: () => true })) as any;
+      if (sp.includes('contract/active')) {
+        if (options && (options as any).withFileTypes) {
+          return [{ isDirectory: () => true, name: 'c1', isFile: () => false }] as any;
+        }
+        return [] as any;
+      }
       if (sp.includes('contract/paused')) return [] as any;
       throw new Error(`Unexpected readdirSync: ${sp}`);
     });
 
-    await healthCommand('test-claw');
+    await healthCommand({ fsFactory }, 'test-claw');
 
     const output = consoleLogSpy.mock.calls.flat().join('\n');
     expect(output).toMatch(/running/);
@@ -83,7 +101,7 @@ describe('claw-health', () => {
       throw err;
     });
 
-    await healthCommand('test-claw');
+    await healthCommand({ fsFactory }, 'test-claw');
 
     const output = consoleLogSpy.mock.calls.flat().join('\n');
     expect(output).toMatch(/stopped/);
@@ -111,7 +129,7 @@ describe('claw-health', () => {
       throw new Error(`Unexpected readdirSync: ${sp}`);
     });
 
-    await healthCommand('test-claw');
+    await healthCommand({ fsFactory }, 'test-claw');
 
     const output = consoleLogSpy.mock.calls.flat().join('\n');
     expect(output).toMatch(/contract: active/);
@@ -125,14 +143,14 @@ describe('claw-health', () => {
 
     vi.mocked(fs.readdirSync).mockImplementation((p: fs.PathLike) => {
       const sp = String(p);
-      if (sp.includes('inbox/pending')) return ['a.md'] as any;
-      if (sp.includes('outbox/pending')) return ['x.md'] as any;
+      if (sp.includes('inbox/pending')) return ['a.md'].map(n => ({ name: n, isDirectory: () => false, isFile: () => true })) as any;
+      if (sp.includes('outbox/pending')) return ['x.md'].map(n => ({ name: n, isDirectory: () => false, isFile: () => true })) as any;
       if (sp.includes('contract/active')) return [] as any;
       if (sp.includes('contract/paused')) return [] as any;
       throw new Error(`Unexpected readdirSync: ${sp}`);
     });
 
-    await healthCommand('test-claw', { json: true });
+    await healthCommand({ fsFactory }, 'test-claw', { json: true });
 
     const output = consoleLogSpy.mock.calls.flat().join('\n');
     const parsed = JSON.parse(output);
@@ -159,7 +177,7 @@ describe('claw-health', () => {
       });
 
       // healthCommand 不 throw、inboxPending=0
-      await expect(healthCommand('test-claw')).resolves.toBeUndefined();
+      await expect(healthCommand({ fsFactory }, 'test-claw')).resolves.toBeUndefined();
     });
 
     it('inbox EACCES → throw (bubble to handleCliError)', async () => {
@@ -177,7 +195,7 @@ describe('claw-health', () => {
         throw new Error(`Unexpected readdirSync: ${String(p)}`);
       });
 
-      await expect(healthCommand('test-claw')).rejects.toThrow();
+      await expect(healthCommand({ fsFactory }, 'test-claw')).rejects.toThrow();
     });
 
     it('outbox EACCES → throw', async () => {
@@ -197,7 +215,7 @@ describe('claw-health', () => {
         throw new Error(`Unexpected readdirSync: ${sp}`);
       });
 
-      await expect(healthCommand('test-claw')).rejects.toThrow();
+      await expect(healthCommand({ fsFactory }, 'test-claw')).rejects.toThrow();
     });
 
     it('contract sub-dir EACCES → throw', async () => {
@@ -219,7 +237,7 @@ describe('claw-health', () => {
         throw new Error(`Unexpected readdirSync: ${sp}`);
       });
 
-      await expect(healthCommand('test-claw')).rejects.toThrow();
+      await expect(healthCommand({ fsFactory }, 'test-claw')).rejects.toThrow();
     });
 
     it('contract scan ENOENT silent — 0 throw', async () => {
@@ -240,7 +258,7 @@ describe('claw-health', () => {
         throw new Error(`Unexpected readdirSync: ${sp}`);
       });
 
-      await expect(healthCommand('test-claw')).resolves.toBeUndefined();
+      await expect(healthCommand({ fsFactory }, 'test-claw')).resolves.toBeUndefined();
     });
   });
 });

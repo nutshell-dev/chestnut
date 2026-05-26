@@ -11,6 +11,7 @@ import { WATCHDOG_AUDIT_EVENTS } from '../../src/watchdog/audit-events.js';
 import { AuditWriter } from '../../src/foundation/audit/writer.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { FAKE_LIVE_PID, FAKE_LIVE_PID_ALT } from '../helpers/test-pids.js';
+const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
 vi.mock('../../src/foundation/config/index.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/foundation/config/index.js')>();
@@ -61,7 +62,7 @@ describe('watchdog-pid corrupt path', () => {
     const pidFile = path.join(clawforumDir, 'watchdog.pid');
     fs.writeFileSync(pidFile, '<malformed>');
 
-    const result = getWatchdogPid();
+    const result = getWatchdogPid(fsFactory);
 
     expect(result).toBeNull();
     expect(auditSpy).toHaveBeenCalledWith(
@@ -81,7 +82,7 @@ describe('watchdog-pid corrupt path', () => {
     const pidFile = path.join(clawforumDir, 'watchdog.pid');
     fs.writeFileSync(pidFile, JSON.stringify({ pid: 'not-a-number', root: '/test/root' }));
 
-    const result = getWatchdogPid();
+    const result = getWatchdogPid(fsFactory);
 
     expect(result).toBeNull();
     expect(auditSpy).toHaveBeenCalledWith(
@@ -102,7 +103,7 @@ describe('watchdog-pid corrupt path', () => {
     //       testing corruption recovery). pid: FAKE_LIVE_PID is normal use.
     fs.writeFileSync(pidFile, JSON.stringify({ pid: FAKE_LIVE_PID, root: 99999 }));
 
-    const result = isWatchdogAlive();
+    const result = isWatchdogAlive(fsFactory);
 
     expect(result).toBe(false);
     expect(auditSpy).toHaveBeenCalledWith(
@@ -121,7 +122,7 @@ describe('watchdog-pid corrupt path', () => {
     const pidFile = path.join(clawforumDir, 'watchdog.pid');
     fs.writeFileSync(pidFile, JSON.stringify({ pid: FAKE_LIVE_PID_ALT, root: '/test/root' }));
 
-    const result = getWatchdogPid();
+    const result = getWatchdogPid(fsFactory);
 
     expect(result).toBe(FAKE_LIVE_PID_ALT);
     expect(auditSpy).not.toHaveBeenCalled();

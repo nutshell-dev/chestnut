@@ -15,6 +15,8 @@ import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import * as os from 'os';
 import { createToolRegistry } from '../../src/foundation/tools/index.js';
 
+const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
+
 let testDir: string;
 let clawDir: string;
 
@@ -41,7 +43,7 @@ describe('submitSubtaskTool', () => {
     await fs.mkdir(clawDir, { recursive: true });
     nodeFs = new NodeFileSystem({ baseDir: clawDir });
     const mockAudit = { write: vi.fn() };
-    manager = new ContractSystem(clawDir, 'test-claw', nodeFs, mockAudit as any, undefined, createToolRegistry());
+    manager = new ContractSystem(clawDir, 'test-claw', nodeFs, mockAudit as any, undefined, createToolRegistry(), undefined, fsFactory);
     submitSubtaskTool = createSubmitSubtaskTool(manager);
   });
 

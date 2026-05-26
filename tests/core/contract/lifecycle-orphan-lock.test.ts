@@ -40,7 +40,7 @@ describe('phase 871 r113 G fork: contract lock orphan-on-fs-move-throw cluster f
       },
     };
     manager = new ContractSystem(
-      clawDir, 'test-claw', nodeFs, captureAudit as any, undefined, createToolRegistry()
+      clawDir, 'test-claw', nodeFs, captureAudit as any, undefined, createToolRegistry(), undefined, (dir: string) => new NodeFileSystem({ baseDir: dir })
     );
   });
 

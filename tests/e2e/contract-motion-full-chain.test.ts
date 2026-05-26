@@ -14,6 +14,8 @@ import { createToolRegistry } from '../../src/foundation/tools/index.js';
 import { makeContractYaml } from '../helpers/contract-yaml.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../src/core/contract/audit-events.js';
 
+const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
+
 const { mockRunContractVerifier } = vi.hoisted(() => ({
   mockRunContractVerifier: vi.fn(),
 }));
@@ -50,7 +52,7 @@ describe('contract-motion-full-chain (phase 1168 α-5)', () => {
       },
     };
     const mockLlm = { id: 'mock-llm' } as any;
-    manager = new ContractSystem(clawDir, 'test-claw', nodeFs, audit as any, mockLlm, createToolRegistry());
+    manager = new ContractSystem(clawDir, 'test-claw', nodeFs, audit as any, mockLlm, createToolRegistry(), undefined, fsFactory);
   });
 
   afterEach(async () => {

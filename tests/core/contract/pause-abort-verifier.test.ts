@@ -39,7 +39,7 @@ describe('pauseContract abort verifier propagation (phase 1162 DD3)', () => {
       write: () => {},
     };
     manager = new ContractSystem(
-      clawDir, 'test-claw', nodeFs, captureAudit as any, undefined, createToolRegistry()
+      clawDir, 'test-claw', nodeFs, captureAudit as any, undefined, createToolRegistry(), undefined, (dir: string) => new NodeFileSystem({ baseDir: dir })
     );
   });
 

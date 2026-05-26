@@ -11,6 +11,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
+import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
+
+const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
 const { outboxCommand } = await import('../../src/cli/commands/claw.js');
 
@@ -60,7 +63,7 @@ describe('outboxCommand', () => {
     const pending = seedPending(root, 'orphan-claw', 3);
     expect(fs.existsSync(path.join(root, '.clawforum', 'claws', 'orphan-claw', 'config.yaml'))).toBe(false);
 
-    await outboxCommand('orphan-claw', { limit: 99 });
+    await outboxCommand({ fsFactory }, 'orphan-claw', { limit: 99 });
 
     const remaining = fs.readdirSync(pending).filter(f => f.endsWith('.md'));
     expect(remaining).toEqual([]);
@@ -69,13 +72,13 @@ describe('outboxCommand', () => {
   });
 
   it('throws clear error when claw directory does not exist', async () => {
-    await expect(outboxCommand('never-existed')).rejects.toThrow(/Claw directory not found/);
+    await expect(outboxCommand({ fsFactory }, 'never-existed')).rejects.toThrow(/Claw directory not found/);
   });
 
   it('prints "outbox is empty" when pending dir missing but clawDir exists', async () => {
     fs.mkdirSync(path.join(root, '.clawforum', 'claws', 'claw-empty'), { recursive: true });
 
-    await outboxCommand('claw-empty');
+    await outboxCommand({ fsFactory }, 'claw-empty');
 
     expect(logs.some(l => l.includes('outbox is empty'))).toBe(true);
   });
@@ -83,7 +86,7 @@ describe('outboxCommand', () => {
   it('respects --limit and reports remaining count', async () => {
     seedPending(root, 'busy', 5);
 
-    await outboxCommand('busy', { limit: 2 });
+    await outboxCommand({ fsFactory }, 'busy', { limit: 2 });
 
     expect(logs.some(l => l.includes('(3 more unread message(s))'))).toBe(true);
   });

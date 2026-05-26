@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { AuditLog } from '../../src/foundation/audit/index.js';
+import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
+
+const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 import { ProcessManager } from '../../src/foundation/process-manager/index.js';
 import { once } from 'events';
 import { EventEmitter } from 'events';
@@ -200,6 +203,7 @@ async function waitForAuditCall(eventName: string, timeoutMs = 15_000): Promise<
 import { createDaemonCommand } from '../../src/daemon/daemon.js';
 
 const daemonCommand = createDaemonCommand({
+  fsFactory,
   configDefaults: {} as any,
   assemble: mockState.mockAssemble,
   disassemble: mockState.mockDisassemble,

@@ -39,6 +39,7 @@ describe('ensureWatchdog singleton lock', () => {
   let auditWriter: AuditWriter;
   let auditSpy: ReturnType<typeof vi.spyOn>;
   const originalRoot = process.env.CLAWFORUM_ROOT;
+  const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
   beforeEach(() => {
     tmpDir = path.join(os.tmpdir(), `wd-ensure-${randomUUID()}`);
@@ -84,7 +85,7 @@ describe('ensureWatchdog singleton lock', () => {
       fs.writeFileSync(pidFile, JSON.stringify({ pid: process.pid, root: '/test/root' }));
     });
 
-    await Promise.all([ensureWatchdog(), ensureWatchdog()]);
+    await Promise.all([ensureWatchdog(fsFactory), ensureWatchdog(fsFactory)]);
 
     expect(spawnCount).toBe(1);
   });
@@ -104,7 +105,7 @@ describe('ensureWatchdog singleton lock', () => {
       fs.writeFileSync(pidFile, JSON.stringify({ pid: 12345, root: '/test/root' }));
     });
 
-    await ensureWatchdog();
+    await ensureWatchdog(fsFactory);
 
     expect(spawnCount).toBe(1);
     expect(auditSpy).toHaveBeenCalledWith(
@@ -125,7 +126,7 @@ describe('ensureWatchdog singleton lock', () => {
     // lock holder in a child process that never releases.
     // Simpler: create lock file with alive PID and let tryAcquireLoop spin.
     // Vitest default test timeout is 5s, our lock timeout is 3s — acceptable.
-    await expect(ensureWatchdog()).rejects.toThrow('Failed to acquire watchdog lock');
+    await expect(ensureWatchdog(fsFactory)).rejects.toThrow('Failed to acquire watchdog lock');
 
     expect(auditSpy).toHaveBeenCalledWith(
       WATCHDOG_AUDIT_EVENTS.ENSURE_LOCK_TIMEOUT,
@@ -138,6 +139,6 @@ describe('ensureWatchdog singleton lock', () => {
     const foreignAlivePid = process.pid;
     fs.writeFileSync(pidFile, JSON.stringify({ pid: foreignAlivePid, root: '/foreign/root' }));
 
-    await expect(ensureWatchdog()).rejects.toThrow(WatchdogPidForeignWorkspaceError);
+    await expect(ensureWatchdog(fsFactory)).rejects.toThrow(WatchdogPidForeignWorkspaceError);
   });
 });

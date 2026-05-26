@@ -13,7 +13,9 @@ import { WATCHDOG_AUDIT_EVENTS } from '../../src/watchdog/audit-events.js';
 import { getNamedSubrootDir, loadGlobalConfig } from '../../src/foundation/config/index.js';
 import { clawHasContract, gatherClawSnapshot } from '../../src/watchdog/watchdog-utils.js';
 import { InboxWriter } from '../../src/foundation/messaging/index.js';
+import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import type { ProcessManager } from '../../src/foundation/process-manager/index.js';
+const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
 vi.mock('../../src/foundation/config/index.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/foundation/config/index.js')>();
@@ -86,7 +88,7 @@ describe('watchdog everSpawned crash detection (phase 1047)', () => {
     // isAlive returns false (crashed)
     vi.mocked(mockPm.isAlive).mockReturnValue(false);
 
-    maybeCronClawCrash(mockPm, mockAudit as any);
+    maybeCronClawCrash(mockPm, mockAudit as any, fsFactory);
 
     expect(mockAudit.write).toHaveBeenCalledWith(
       WATCHDOG_AUDIT_EVENTS.CLAW_CRASH_DETECTED,
@@ -107,7 +109,7 @@ describe('watchdog everSpawned crash detection (phase 1047)', () => {
     // Now remove claw dir
     fs.rmSync(path.join(clawsDir, clawId), { recursive: true, force: true });
 
-    maybeCronClawCrash(mockPm, mockAudit as any);
+    maybeCronClawCrash(mockPm, mockAudit as any, fsFactory);
 
     expect(everSpawned.has(clawId)).toBe(false);
     expect(clawPreviouslyAlive.has(clawId)).toBe(false);

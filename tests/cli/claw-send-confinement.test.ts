@@ -3,6 +3,9 @@ import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
 import { randomUUID } from 'crypto';
+import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
+
+const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
 // Mock node-fs to spy on NodeFileSystem ctor
 vi.mock('../../src/foundation/fs/node-fs.js', async (importOriginal) => {
@@ -46,7 +49,7 @@ describe('claw-send — confinement baseDir vs root (P0.2 phase 611)', () => {
 
     vi.mocked(getGlobalConfigPath).mockReturnValue(path.join(tmpRoot, '.clawforum', 'config.yaml'));
 
-    await sendCommand('test-claw', 'hello');
+    await sendCommand({ fsFactory }, 'test-claw', 'hello');
 
     // NodeFileSystem 应该被构造了，且 baseDir 不是 '/'，而是包含 test-claw 的目录
     expect(NodeFileSystem).toHaveBeenCalledTimes(1);

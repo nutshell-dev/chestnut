@@ -10,6 +10,9 @@ import { createDirContext } from '../../src/cli/utils/factories.js';
 import * as fsNative from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
+
+const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
 describe('findRecentTurnStartOffset', () => {
   let tmpDir: string;
@@ -24,20 +27,20 @@ describe('findRecentTurnStartOffset', () => {
   });
 
   it('文件不存在 / 返 0', () => {
-    const { fs } = createDirContext(tmpDir);
+    const { fs } = createDirContext({ fsFactory }, tmpDir);
     expect(findRecentTurnStartOffset(fs, 'nonexistent.jsonl')).toBe(0);
   });
 
   it('空文件 / 返 0', () => {
     fsNative.writeFileSync(path.join(tmpDir, 'stream.jsonl'), '');
-    const { fs } = createDirContext(tmpDir);
+    const { fs } = createDirContext({ fsFactory }, tmpDir);
     expect(findRecentTurnStartOffset(fs, 'stream.jsonl')).toBe(0);
   });
 
   it('无 turn_start events / 返 file size (fallback to tail)', () => {
     const content = '{"type":"daemon_started"}\n{"type":"llm_call"}\n';
     fsNative.writeFileSync(path.join(tmpDir, 'stream.jsonl'), content);
-    const { fs } = createDirContext(tmpDir);
+    const { fs } = createDirContext({ fsFactory }, tmpDir);
     const offset = findRecentTurnStartOffset(fs, 'stream.jsonl');
     expect(offset).toBe(content.length);
   });
@@ -46,7 +49,7 @@ describe('findRecentTurnStartOffset', () => {
     const line1 = '{"type":"daemon_started","ts":1}\n';
     const line2 = '{"type":"turn_start","ts":2,"sources":[]}\n';
     fsNative.writeFileSync(path.join(tmpDir, 'stream.jsonl'), line1 + line2);
-    const { fs } = createDirContext(tmpDir);
+    const { fs } = createDirContext({ fsFactory }, tmpDir);
     const offset = findRecentTurnStartOffset(fs, 'stream.jsonl');
     expect(offset).toBe(line1.length);  // turn_start line 起点 = line1.length
   });
@@ -58,7 +61,7 @@ describe('findRecentTurnStartOffset', () => {
     const llmStartLine = '{"type":"llm_start"}\n';
     const content = turn1Line + turnEnd + turn2Line + llmStartLine;
     fsNative.writeFileSync(path.join(tmpDir, 'stream.jsonl'), content);
-    const { fs } = createDirContext(tmpDir);
+    const { fs } = createDirContext({ fsFactory }, tmpDir);
     const offset = findRecentTurnStartOffset(fs, 'stream.jsonl');
     // 最近 turn_start 起点 = turn1Line + turnEnd 之后
     expect(offset).toBe(turn1Line.length + turnEnd.length);
@@ -70,7 +73,7 @@ describe('findRecentTurnStartOffset', () => {
     const recentLLM = '{"type":"llm_start"}\n';
     const content = oldContent + recentTurn + recentLLM;
     fsNative.writeFileSync(path.join(tmpDir, 'stream.jsonl'), content);
-    const { fs } = createDirContext(tmpDir);
+    const { fs } = createDirContext({ fsFactory }, tmpDir);
     const offset = findRecentTurnStartOffset(fs, 'stream.jsonl', 1024);  // 仅扫末尾 1KB
     // 在 1KB scan 内能找到最近 turn_start
     expect(offset).toBe(oldContent.length);
@@ -81,7 +84,7 @@ describe('findRecentTurnStartOffset', () => {
     const oldContent = 'x'.repeat(100000) + '\n';
     const content = turnStart + oldContent;  // turn_start 在最早 / 1KB scan 不到
     fsNative.writeFileSync(path.join(tmpDir, 'stream.jsonl'), content);
-    const { fs } = createDirContext(tmpDir);
+    const { fs } = createDirContext({ fsFactory }, tmpDir);
     const offset = findRecentTurnStartOffset(fs, 'stream.jsonl', 1024);
     expect(offset).toBe(content.length);  // fallback to tail
   });

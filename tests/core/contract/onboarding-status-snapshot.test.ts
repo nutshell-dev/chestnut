@@ -12,6 +12,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import * as path from 'path';
 import {
   readOnboardingStatus,
   type OnboardingStatus,
@@ -45,6 +46,35 @@ function makeMockFs(structure: {
       if (p in files) return files[p];
       throw new Error('ENOENT');
     },
+    readSync: (p: string) => {
+      if (throwOn.has(p)) throw new Error('ENOENT');
+      if (p in files) return files[p];
+      throw new Error('ENOENT');
+    },
+    listSync: (p: string) => {
+      if (throwOn.has(p)) throw new Error('ENOENT');
+      const names = [...new Set(Object.keys(files)
+        .filter((f) => f.startsWith(p + '/'))
+        .map((f) => f.slice(p.length + 1).split('/')[0]))];
+      return names.map((name) => ({
+        name,
+        path: path.join(p, name),
+        isDirectory: dirs.has(path.join(p, name)),
+        isFile: !dirs.has(path.join(p, name)),
+        size: 0,
+        mtime: new Date(),
+      }));
+    },
+  };
+}
+
+function wrapFs(baseDir: string, fs: MinimalFs): MinimalFs {
+  return {
+    existsSync: (p: string) => fs.existsSync(path.join(baseDir, p)),
+    readdirSync: (p: string) => fs.readdirSync(path.join(baseDir, p)),
+    readFileSync: (p: string, enc: 'utf-8') => fs.readFileSync(path.join(baseDir, p), enc),
+    readSync: (p: string) => fs.readSync(path.join(baseDir, p)),
+    listSync: (p: string) => fs.listSync(path.join(baseDir, p)),
   };
 }
 
@@ -64,7 +94,7 @@ describe('readOnboardingStatus happy path', () => {
         }),
       },
     });
-    const result = readOnboardingStatus('/motion', fs);
+    const result = readOnboardingStatus('/motion', { fsFactory: (baseDir) => wrapFs(baseDir, fs) });
     expect(result).toEqual({
       state: 'in_progress',
       contractId: 'ob1',
@@ -85,13 +115,13 @@ describe('readOnboardingStatus happy path', () => {
         }),
       },
     });
-    const result = readOnboardingStatus('/motion', fs);
+    const result = readOnboardingStatus('/motion', { fsFactory: (baseDir) => wrapFs(baseDir, fs) });
     expect(result).toEqual({ state: 'complete' });
   });
 
   it('无 contract 目录 → not_found', () => {
     const fs = makeMockFs({});
-    const result = readOnboardingStatus('/motion', fs);
+    const result = readOnboardingStatus('/motion', { fsFactory: (baseDir) => wrapFs(baseDir, fs) });
     expect(result).toEqual({ state: 'not_found' });
   });
 
@@ -107,7 +137,7 @@ describe('readOnboardingStatus happy path', () => {
         }),
       },
     });
-    const result = readOnboardingStatus('/motion', fs);
+    const result = readOnboardingStatus('/motion', { fsFactory: (baseDir) => wrapFs(baseDir, fs) });
     expect(result).toEqual({
       state: 'in_progress',
       contractId: 'ob1',
@@ -129,7 +159,7 @@ describe('readOnboardingStatus reverse', () => {
         '/motion/contract/paused/ob1/progress.json': JSON.stringify({ subtasks: {} }),
       },
     });
-    const result = readOnboardingStatus('/motion', fs);
+    const result = readOnboardingStatus('/motion', { fsFactory: (baseDir) => wrapFs(baseDir, fs) });
     expect(result).toEqual({ state: 'in_progress', contractId: 'ob1', pending: [] });
   });
 
@@ -144,7 +174,7 @@ describe('readOnboardingStatus reverse', () => {
       },
       throwOn: ['/motion/contract/active/ob1/progress.json'],
     });
-    const result = readOnboardingStatus('/motion', fs);
+    const result = readOnboardingStatus('/motion', { fsFactory: (baseDir) => wrapFs(baseDir, fs) });
     // progress.json read throw → catch{continue} → 无其他 contract → not_found
     expect(result).toEqual({ state: 'not_found' });
   });
@@ -157,7 +187,7 @@ describe('readOnboardingStatus reverse', () => {
         '/motion/contract/active/ob1/progress.json': JSON.stringify({}),
       },
     });
-    const result = readOnboardingStatus('/motion', fs);
+    const result = readOnboardingStatus('/motion', { fsFactory: (baseDir) => wrapFs(baseDir, fs) });
     expect(result).toEqual({ state: 'in_progress', contractId: 'ob1', pending: [] });
   });
 
@@ -169,7 +199,7 @@ describe('readOnboardingStatus reverse', () => {
         '/motion/contract/active/ob1/progress.json': JSON.stringify({ subtasks: [] }),
       },
     });
-    const result = readOnboardingStatus('/motion', fs);
+    const result = readOnboardingStatus('/motion', { fsFactory: (baseDir) => wrapFs(baseDir, fs) });
     // Object.entries([]) 不会抛，但 .filter 后 pending=[]，会返回 in_progress
     // 实际上 JSON.parse 后 cast 为 ProgressShape，Object.entries([]) → []，pending=[]
     // 所以这是合法路径，不是错误。改为测试 schema 完全破坏的情况：
@@ -185,7 +215,7 @@ describe('readOnboardingStatus reverse', () => {
         '/motion/contract/active/ob1/progress.json': '"not an object"',
       },
     });
-    const result = readOnboardingStatus('/motion', fs);
+    const result = readOnboardingStatus('/motion', { fsFactory: (baseDir) => wrapFs(baseDir, fs) });
     // JSON.parse 得 string，cast 为 ProgressShape，Object.entries("not an object") → 不会抛（但行为不对）
     // 实际上 string 没有 subtasks 属性 → undefined → {} → pending=[] → in_progress
     // 这不是 catch 路径。需要 JSON.parse 后的 Object.entries 抛错？不会。
@@ -201,7 +231,7 @@ describe('readOnboardingStatus reverse', () => {
         '/motion/contract/active/ob1/progress.json': '{broken json}}}',
       },
     });
-    const result = readOnboardingStatus('/motion', fs);
+    const result = readOnboardingStatus('/motion', { fsFactory: (baseDir) => wrapFs(baseDir, fs) });
     expect(result).toEqual({ state: 'not_found' });
   });
 });

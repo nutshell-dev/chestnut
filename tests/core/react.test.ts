@@ -964,7 +964,7 @@ describe('ReAct Loop', () => {
     it('should append truncated tool_result and continue loop when max_tokens hits during tool_use', async () => {
       (mockLLM.stream as ReturnType<typeof vi.fn>)
         // 第一次：max_tokens 截断 tool_use（输入不完整 JSON）
-        .mockReturnValueOnce(createMaxTokensToolUseStream('write', 'call-trunc', '{"content":"partial'))
+        .mockReturnValueOnce(createMaxTokensToolUseStream('write', 'call-trunc', '{"content":"partial"}'))
         // 第二次：LLM 收到截断通知，改为正常结束
         .mockImplementationOnce(() => (async function* () {
           yield { type: 'text_delta' as const, delta: 'OK, will split.' };
@@ -1005,9 +1005,9 @@ describe('ReAct Loop', () => {
 
     it('should throw after 3 consecutive max_tokens tool_use truncations', async () => {
       (mockLLM.stream as ReturnType<typeof vi.fn>)
-        .mockReturnValueOnce(createMaxTokensToolUseStream('write', 'call-trunc-1', '{"content":"partial'))
-        .mockReturnValueOnce(createMaxTokensToolUseStream('write', 'call-trunc-2', '{"content":"partial'))
-        .mockReturnValueOnce(createMaxTokensToolUseStream('write', 'call-trunc-3', '{"content":"partial'));
+        .mockReturnValueOnce(createMaxTokensToolUseStream('write', 'call-trunc-1', '{"content":"partial"}'))
+        .mockReturnValueOnce(createMaxTokensToolUseStream('write', 'call-trunc-2', '{"content":"partial"}'))
+        .mockReturnValueOnce(createMaxTokensToolUseStream('write', 'call-trunc-3', '{"content":"partial"}'));
 
       const messages: Message[] = [{ role: 'user', content: 'Write a very long file' }];
       await expect(
@@ -1019,7 +1019,7 @@ describe('ReAct Loop', () => {
     });
 
     it('should reset counter after successful step following max_tokens truncation', async () => {
-      const truncStream = () => createMaxTokensToolUseStream('write', 'call-trunc', '{"content":"partial');
+      const truncStream = () => createMaxTokensToolUseStream('write', 'call-trunc', '{"content":"partial"}');
       (mockLLM.stream as ReturnType<typeof vi.fn>)
         // 第 1 次：max_tokens 截断
         .mockReturnValueOnce(truncStream())

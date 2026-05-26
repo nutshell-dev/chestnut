@@ -11,6 +11,9 @@ import type { Message, ToolUseBlock, ToolResultBlock } from '../../src/foundatio
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
+
+const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
 describe('_message-renderer', () => {
   describe('parseMessagesFromSession', () => {
@@ -280,15 +283,15 @@ describe('_message-renderer', () => {
         ],
       };
       fs.writeFileSync(filePath, JSON.stringify(session));
-      const loaded = loadSessionFromFile(filePath);
+      const loaded = loadSessionFromFile({ fsFactory }, filePath);
       expect(loaded.messages).toHaveLength(1);
       expect(loaded.messages[0].role).toBe('assistant');
     });
 
     it('文件不存在 → 抛 CliError「dialog session not found」', () => {
       const filePath = path.join(tmpDir, 'no-such.json');
-      expect(() => loadSessionFromFile(filePath)).toThrow(CliError);
-      expect(() => loadSessionFromFile(filePath)).toThrow('dialog session not found');
+      expect(() => loadSessionFromFile({ fsFactory }, filePath)).toThrow(CliError);
+      expect(() => loadSessionFromFile({ fsFactory }, filePath)).toThrow('dialog session not found');
     });
   });
 });

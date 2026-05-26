@@ -58,7 +58,7 @@ describe('Phase 86: clean stop 生命周期修复', () => {
 
     it('saveWatchdogState 应写入 clawPreviouslyAlive', () => {
       const saveMatch = watchdogSource.match(
-        /function saveWatchdogState\(\)[\s\S]{0,800}?\}/
+        /function saveWatchdogState\(fsFactory[\s\S]{0,800}?\}/
       );
       expect(saveMatch).toBeTruthy();
       expect(saveMatch![0]).toContain('clawPreviouslyAlive');
@@ -66,25 +66,25 @@ describe('Phase 86: clean stop 生命周期修复', () => {
 
     it('saveWatchdogState 应写入 everSpawned', () => {
       const saveMatch = watchdogSource.match(
-        /function saveWatchdogState\(\)[\s\S]{0,800}?\}/
+        /function saveWatchdogState\(fsFactory[\s\S]{0,800}?\}/
       );
       expect(saveMatch).toBeTruthy();
       expect(saveMatch![0]).toContain('everSpawned');
     });
 
     it('loadWatchdogState 应读取 clawPreviouslyAlive', () => {
-      const startIdx = watchdogSource.indexOf('function loadWatchdogState()');
+      const startIdx = watchdogSource.indexOf('function loadWatchdogState(fsFactory');
       expect(startIdx).toBeGreaterThan(-1);
-      const endIdx = watchdogSource.indexOf('export function saveWatchdogState', startIdx);
+      const endIdx = watchdogSource.indexOf('export function saveWatchdogState(fsFactory', startIdx);
       expect(endIdx).toBeGreaterThan(startIdx);
       const loadBlock = watchdogSource.slice(startIdx, endIdx);
       expect(loadBlock).toContain('clawPreviouslyAlive');
     });
 
     it('loadWatchdogState 应读取 everSpawned', () => {
-      const startIdx = watchdogSource.indexOf('function loadWatchdogState()');
+      const startIdx = watchdogSource.indexOf('function loadWatchdogState(fsFactory');
       expect(startIdx).toBeGreaterThan(-1);
-      const endIdx = watchdogSource.indexOf('export function saveWatchdogState', startIdx);
+      const endIdx = watchdogSource.indexOf('export function saveWatchdogState(fsFactory', startIdx);
       expect(endIdx).toBeGreaterThan(startIdx);
       const loadBlock = watchdogSource.slice(startIdx, endIdx);
       expect(loadBlock).toContain('everSpawned');
@@ -107,13 +107,13 @@ describe('Phase 86: clean stop 生命周期修复', () => {
       expect(stopSource).toContain('clean-stop');
     });
 
-    it('应使用 writeFileSync 写入标记', () => {
+    it('应使用 atomic write 写入标记', () => {
       // 找到 clean-stop 相关代码块
       const cleanStopSection = stopSource.slice(
         stopSource.indexOf('clean-stop') - 100,
         stopSource.indexOf('clean-stop') + 200
       );
-      expect(cleanStopSection).toContain('writeFileSync');
+      expect(cleanStopSection).toContain('writeAtomicSync');
     });
 
     it('应在 claws 停止后、Done 输出前写入标记', () => {
@@ -135,8 +135,8 @@ describe('Phase 86: clean stop 生命周期修复', () => {
   // ==========================================================================
   describe('Step 3+4: daemon-loop clean-stop 检测', () => {
     it('daemon-loop 应包含 clean-stop 标记检测逻辑', () => {
-      const cleanStopFileIdx = daemonLoopSource.indexOf('cleanStopFile');
-      expect(cleanStopFileIdx).toBeGreaterThan(-1);
+      const cleanStopIdx = daemonLoopSource.indexOf("'clean-stop'");
+      expect(cleanStopIdx).toBeGreaterThan(-1);
     });
 
     it('clean-stop 检测应消费标记文件', () => {
@@ -145,7 +145,7 @@ describe('Phase 86: clean stop 生命周期修复', () => {
       );
       expect(isCleanStopMatch).toBeTruthy();
       const block = isCleanStopMatch![0];
-      expect(block).toContain('unlinkSync');
+      expect(block).toContain('deleteSync');
       expect(block).toContain('return true');
       expect(block).toContain('return false');
     });
@@ -155,19 +155,19 @@ describe('Phase 86: clean stop 生命周期修复', () => {
       const condIdx = daemonLoopSource.indexOf('!isCleanStop');
       expect(condIdx).toBeGreaterThan(-1);
       const condBlock = daemonLoopSource.slice(condIdx, condIdx + 300);
-      expect(condBlock).toContain('llmRetryStateFile');
+      expect(condBlock).toContain('llm-retry-state.json');
     });
 
-    it('标记文件应被一次性消费（unlinkSync）', () => {
-      // 找到 cleanStopFile 定义（而非注释中的 clean-stop）
-      const cleanStopFileIdx = daemonLoopSource.indexOf('cleanStopFile');
-      expect(cleanStopFileIdx).toBeGreaterThan(-1);
-      // unlinkSync 应在 cleanStopFile 附近（±300字符内）
+    it('标记文件应被一次性消费（deleteSync）', () => {
+      // 找到 clean-stop 附近 deleteSync 调用
+      const cleanStopIdx = daemonLoopSource.indexOf("'clean-stop'");
+      expect(cleanStopIdx).toBeGreaterThan(-1);
+      // deleteSync 应在 clean-stop 附近（±300字符内）
       const surroundingCode = daemonLoopSource.slice(
-        cleanStopFileIdx - 50,
-        cleanStopFileIdx + 300
+        cleanStopIdx - 50,
+        cleanStopIdx + 300
       );
-      expect(surroundingCode).toContain('unlinkSync');
+      expect(surroundingCode).toContain('deleteSync');
     });
   });
 });

@@ -65,7 +65,7 @@ describe('EvolutionSystem — clawFsFactory 注入路径（caller DIP enforce）
       motionAudit: motionAudit as any,
       clawsBaseDir,
       clawFsFactory: factory,
-      clawContractManagerFactory: (clawDir, targetClaw, fs) => new ContractSystem(clawDir, targetClaw, fs, { write: vi.fn() } as any, undefined, createToolRegistry()),
+      clawContractManagerFactory: (clawDir, targetClaw, fs) => new ContractSystem(clawDir, targetClaw, fs, { write: vi.fn() } as any, undefined, createToolRegistry(), undefined, (dir: string) => new NodeFileSystem({ baseDir: dir })),
     };
 
     const evolutionSystem = new EvolutionSystem({
@@ -98,7 +98,7 @@ describe('EvolutionSystem — clawFsFactory 注入路径（caller DIP enforce）
       motionAudit: motionAudit as any,
       clawsBaseDir,
       clawFsFactory: factory,
-      clawContractManagerFactory: (clawDir, targetClaw, fs) => new ContractSystem(clawDir, targetClaw, fs, { write: vi.fn() } as any, undefined, createToolRegistry()),
+      clawContractManagerFactory: (clawDir, targetClaw, fs) => new ContractSystem(clawDir, targetClaw, fs, { write: vi.fn() } as any, undefined, createToolRegistry(), undefined, (dir: string) => new NodeFileSystem({ baseDir: dir })),
     };
 
     const evolutionSystem = new EvolutionSystem({
@@ -138,7 +138,7 @@ describe('EvolutionSystem — clawFsFactory 注入路径（caller DIP enforce）
       motionAudit: motionAudit as any,
       clawsBaseDir,
       clawFsFactory: factory,
-      clawContractManagerFactory: (clawDir, targetClaw, fs) => new ContractSystem(clawDir, targetClaw, fs, { write: vi.fn() } as any, undefined, createToolRegistry()),
+      clawContractManagerFactory: (clawDir, targetClaw, fs) => new ContractSystem(clawDir, targetClaw, fs, { write: vi.fn() } as any, undefined, createToolRegistry(), undefined, (dir: string) => new NodeFileSystem({ baseDir: dir })),
     };
 
     const evolutionSystem = new EvolutionSystem({

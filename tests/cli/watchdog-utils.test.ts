@@ -17,6 +17,8 @@ import {
   shouldResetNotifyCount,
 } from '../../src/watchdog/watchdog-utils.js';
 
+const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
+
 let testDir: string;
 
 beforeEach(() => {
@@ -31,23 +33,23 @@ afterEach(() => {
 
 describe('clawHasContract', () => {
   it('returns false when no contract dirs exist', () => {
-    expect(clawHasContract(testDir)).toBe(false);
+    expect(clawHasContract(testDir, fsFactory)).toBe(false);
   });
 
   it('returns true when contract/active has a subdirectory', () => {
     fs.mkdirSync(path.join(testDir, 'contract', 'active', 'contract-123'), { recursive: true });
-    expect(clawHasContract(testDir)).toBe(true);
+    expect(clawHasContract(testDir, fsFactory)).toBe(true);
   });
 
   it('returns true when contract/paused has a subdirectory', () => {
     fs.mkdirSync(path.join(testDir, 'contract', 'paused', 'contract-456'), { recursive: true });
-    expect(clawHasContract(testDir)).toBe(true);
+    expect(clawHasContract(testDir, fsFactory)).toBe(true);
   });
 
   it('returns false when contract/active exists but has no subdirectories (only files)', () => {
     fs.mkdirSync(path.join(testDir, 'contract', 'active'), { recursive: true });
     fs.writeFileSync(path.join(testDir, 'contract', 'active', 'somefile.json'), '{}');
-    expect(clawHasContract(testDir)).toBe(false);
+    expect(clawHasContract(testDir, fsFactory)).toBe(false);
   });
 });
 
@@ -197,29 +199,29 @@ const fakePm = (alive: boolean) => ({ isAlive: () => alive });
 
 describe('gatherClawSnapshot', () => {
   it('status=running when pm.isAlive=true', () => {
-    const snap = gatherClawSnapshot(testDir, fakePm(true), 'c1');
+    const snap = gatherClawSnapshot(testDir, fsFactory, fakePm(true), 'c1');
     expect(snap.status).toBe('running');
   });
 
   it('status=stopped when pm.isAlive=false', () => {
-    const snap = gatherClawSnapshot(testDir, fakePm(false), 'c1');
+    const snap = gatherClawSnapshot(testDir, fsFactory, fakePm(false), 'c1');
     expect(snap.status).toBe('stopped');
   });
 
   it('contract=active:<id> when active dir has a subdirectory', () => {
     fs.mkdirSync(path.join(testDir, 'contract', 'active', 'ctr-abc'), { recursive: true });
-    const snap = gatherClawSnapshot(testDir, fakePm(false), 'c1');
+    const snap = gatherClawSnapshot(testDir, fsFactory, fakePm(false), 'c1');
     expect(snap.contract).toBe('active:ctr-abc');
   });
 
   it('contract=paused:<id> when paused dir has a subdirectory', () => {
     fs.mkdirSync(path.join(testDir, 'contract', 'paused', 'ctr-def'), { recursive: true });
-    const snap = gatherClawSnapshot(testDir, fakePm(false), 'c1');
+    const snap = gatherClawSnapshot(testDir, fsFactory, fakePm(false), 'c1');
     expect(snap.contract).toBe('paused:ctr-def');
   });
 
   it('contract=none when no contract dirs exist', () => {
-    const snap = gatherClawSnapshot(testDir, fakePm(false), 'c1');
+    const snap = gatherClawSnapshot(testDir, fsFactory, fakePm(false), 'c1');
     expect(snap.contract).toBe('none');
   });
 
@@ -229,7 +231,7 @@ describe('gatherClawSnapshot', () => {
     fs.writeFileSync(path.join(inboxDir, 'msg1.md'), '');
     fs.writeFileSync(path.join(inboxDir, 'msg2.md'), '');
     fs.writeFileSync(path.join(inboxDir, 'ignore.txt'), '');
-    const snap = gatherClawSnapshot(testDir, fakePm(false), 'c1');
+    const snap = gatherClawSnapshot(testDir, fsFactory, fakePm(false), 'c1');
     expect(snap.inboxPending).toBe(2);
   });
 
@@ -237,7 +239,7 @@ describe('gatherClawSnapshot', () => {
     const outboxDir = path.join(testDir, 'outbox', 'pending');
     fs.mkdirSync(outboxDir, { recursive: true });
     fs.writeFileSync(path.join(outboxDir, 'out1.md'), '');
-    const snap = gatherClawSnapshot(testDir, fakePm(false), 'c1');
+    const snap = gatherClawSnapshot(testDir, fsFactory, fakePm(false), 'c1');
     expect(snap.outboxPending).toBe(1);
   });
 });

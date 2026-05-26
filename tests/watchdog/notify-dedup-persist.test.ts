@@ -15,6 +15,7 @@ import { setAuditWriter } from '../../src/watchdog/watchdog-context.js';
 import { WATCHDOG_AUDIT_EVENTS } from '../../src/watchdog/audit-events.js';
 import { AuditWriter } from '../../src/foundation/audit/writer.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
+const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 import { maybeCronClawCrash } from '../../src/watchdog/watchdog-cron.js';
 import { clawHasContract, gatherClawSnapshot } from '../../src/watchdog/watchdog-utils.js';
 import { InboxWriter } from '../../src/foundation/messaging/index.js';
@@ -104,13 +105,13 @@ describe('watchdog notify dedup persist (phase 1269 sub-3)', () => {
     clawPreviouslyAlive.set(clawId, true);
     everSpawned.add(clawId);
     vi.mocked(mockPm.isAlive).mockReturnValue(false);
-    maybeCronClawCrash(mockPm, auditWriter);
+    maybeCronClawCrash(mockPm, auditWriter, fsFactory);
 
     expect(inboxWriteMock).toHaveBeenCalledTimes(1);
     expect(clawPreviouslyNotified.has(clawId)).toBe(true);
 
     // Save state (simulate end-of-tick save)
-    saveWatchdogState();
+    saveWatchdogState(fsFactory);
 
     // Reset in-memory state (simulate watchdog restart)
     clawPreviouslyAlive.clear();
@@ -118,7 +119,7 @@ describe('watchdog notify dedup persist (phase 1269 sub-3)', () => {
     clawPreviouslyNotified.clear();
 
     // Reload state
-    loadWatchdogState();
+    loadWatchdogState(fsFactory);
     expect(clawPreviouslyNotified.has(clawId)).toBe(true);
 
     // Simulate new process manager / audit
@@ -129,7 +130,7 @@ describe('watchdog notify dedup persist (phase 1269 sub-3)', () => {
     everSpawned.add(clawId);
     clawPreviouslyAlive.set(clawId, true);
     vi.mocked(mockPm.isAlive).mockReturnValue(false);
-    maybeCronClawCrash(mockPm, auditWriter);
+    maybeCronClawCrash(mockPm, auditWriter, fsFactory);
 
     expect(inboxWriteMock).not.toHaveBeenCalled();
     expect(auditSpy).toHaveBeenCalledWith(
@@ -146,28 +147,28 @@ describe('watchdog notify dedup persist (phase 1269 sub-3)', () => {
     // First crash
     clawPreviouslyAlive.set(clawId, true);
     vi.mocked(mockPm.isAlive).mockReturnValue(false);
-    maybeCronClawCrash(mockPm, auditWriter);
+    maybeCronClawCrash(mockPm, auditWriter, fsFactory);
     expect(clawPreviouslyNotified.has(clawId)).toBe(true);
-    saveWatchdogState();
+    saveWatchdogState(fsFactory);
 
     // Reset in-memory state
     clawPreviouslyAlive.clear();
     everSpawned.clear();
     clawPreviouslyNotified.clear();
-    loadWatchdogState();
+    loadWatchdogState(fsFactory);
     expect(clawPreviouslyNotified.has(clawId)).toBe(true);
 
     // Alive recovery
     vi.mocked(mockPm.isAlive).mockReturnValue(true);
-    maybeCronClawCrash(mockPm, auditWriter);
+    maybeCronClawCrash(mockPm, auditWriter, fsFactory);
     expect(clawPreviouslyNotified.has(clawId)).toBe(false);
-    saveWatchdogState();
+    saveWatchdogState(fsFactory);
 
     // Reset again
     clawPreviouslyAlive.clear();
     everSpawned.clear();
     clawPreviouslyNotified.clear();
-    loadWatchdogState();
+    loadWatchdogState(fsFactory);
     expect(clawPreviouslyNotified.has(clawId)).toBe(false);
 
     // Next crash should re-emit
@@ -175,7 +176,7 @@ describe('watchdog notify dedup persist (phase 1269 sub-3)', () => {
     everSpawned.add(clawId);
     clawPreviouslyAlive.set(clawId, true);
     vi.mocked(mockPm.isAlive).mockReturnValue(false);
-    maybeCronClawCrash(mockPm, auditWriter);
+    maybeCronClawCrash(mockPm, auditWriter, fsFactory);
 
     expect(inboxWriteMock).toHaveBeenCalledTimes(1);
     expect(inboxWriteMock).toHaveBeenCalledWith(
@@ -201,7 +202,7 @@ describe('watchdog notify dedup persist (phase 1269 sub-3)', () => {
     clawPreviouslyAlive.clear();
     everSpawned.clear();
     clawPreviouslyNotified.clear();
-    loadWatchdogState();
+    loadWatchdogState(fsFactory);
 
     expect(clawPreviouslyNotified.has(clawId)).toBe(false);
 
@@ -209,12 +210,12 @@ describe('watchdog notify dedup persist (phase 1269 sub-3)', () => {
     clawPreviouslyAlive.set(clawId, true);
     everSpawned.add(clawId);
     vi.mocked(mockPm.isAlive).mockReturnValue(false);
-    maybeCronClawCrash(mockPm, auditWriter);
+    maybeCronClawCrash(mockPm, auditWriter, fsFactory);
 
     expect(inboxWriteMock).toHaveBeenCalledTimes(1);
 
     // Save should write v2
-    saveWatchdogState();
+    saveWatchdogState(fsFactory);
     const saved = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
     expect(saved.schema_version).toBe(2);
     expect(saved.clawPreviouslyNotified).toBeDefined();
