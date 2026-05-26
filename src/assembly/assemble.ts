@@ -42,7 +42,8 @@ import { DEFAULT_DISK_WARNING_MB } from '../watchdog/constants.js';
 import { spawnTool } from '../core/spawn-system/index.js';
 import { createShadowTool } from '../core/shadow-system/index.js';
 import { cleanupOrphanedTemp } from './cleanup.js';
-import { createInboxReader, createOutboxWriter, notifyInbox, InboxWriter } from '../foundation/messaging/index.js';
+import { createInboxReader, createOutboxWriter, notifyInbox, InboxWriter, createMessaging } from '../foundation/messaging/index.js';
+import type { Messaging } from '../foundation/messaging/index.js';
 import { createSubmitSubtaskTool } from '../core/contract/index.js';
 import { createDoneTool } from '../core/subagent/index.js';
 import { createStatusTool } from '../core/status-service/index.js';
@@ -66,7 +67,7 @@ import { runSunsetMonitor } from '../core/cron/jobs/sunset-monitor.js';
 import { createMemorySystem, memorySearchTool } from '../core/memory/index.js';
 import type { MemorySystem } from '../core/memory/index.js';
 import { runContractObserver } from '../core/contract/jobs/contract-observer.js';
-import { runOutboxDrain } from '../core/cron/jobs/outbox-drain.js';
+import { runOutboxDrain, DEFAULT_LIMIT_PER_CLAW as OUTBOX_DRAIN_DEFAULT_LIMIT } from '../core/cron/jobs/outbox-drain.js';
 import { DISK_MONITOR_CRON_TIMEOUT_MS } from '../core/cron/jobs/disk-monitor.js';
 import { LLM_STATS_CRON_TIMEOUT_MS } from '../core/cron/jobs/llm-stats.js';
 import { METRICS_SNAPSHOT_CRON_TIMEOUT_MS } from '../core/cron/jobs/metrics-snapshot.js';
@@ -564,6 +565,9 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
         throw new Error(`Assembly: clawforumFs construct failed: ${errMsg(e)}`, { cause: e });
       }
 
+      // phase 1333: Messaging instance for cron outbox-drain tick trigger
+      const messaging: Messaging = createMessaging({ clawforumDir, fs: clawforumFs, audit: auditWriter });
+
       // --- MemorySystem (L5, motion only) ---
       let memorySystem: MemorySystem | undefined;
       if (isMotion) {
@@ -730,11 +734,10 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
             enabled: globalConfig.cron?.jobs?.outbox_drain?.enabled ?? true,
             schedule: parseSchedule(globalConfig.cron?.jobs?.outbox_drain?.schedule ?? 'interval:30s', auditWriter),
             handler: (signal) => runOutboxDrain({
-              clawforumDir,
-              motionInboxDir: path.join(clawDir, 'inbox', 'pending'),
-              fs: clawforumFs,
-              audit: auditWriter,
+              messaging,
+              limitPerClaw: OUTBOX_DRAIN_DEFAULT_LIMIT,
               signal,
+              audit: auditWriter,
             }),
             timeoutMs: OUTBOX_DRAIN_CRON_TIMEOUT_MS,
           },
