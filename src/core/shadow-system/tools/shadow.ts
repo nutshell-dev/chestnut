@@ -12,10 +12,9 @@ import type { ToolResult } from '../../../foundation/tool-protocol/index.js';
 import type { Message, ToolDefinition } from '../../../foundation/llm-provider/types.js';
 import { runShadow } from '../system.js';
 import { SHADOW_AUDIT_EVENTS } from '../audit-events.js';
-import { spawnShadowSubagent } from '../index.js';
+import { spawnShadowSubagent } from '../spawn-shadow-subagent.js';
 import { stripIncompleteToolUse } from '../_helpers.js';
-
-export const SHADOW_TOOL_NAME = 'shadow' as const;
+import { SHADOW_TOOL_NAME } from '../constants.js';
 
 export function createShadowTool(deps: {
   getTurnSnapshot: () => {

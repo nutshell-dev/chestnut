@@ -10,7 +10,8 @@ import { buildSummonContractTask, buildMinerSystemPrompt, buildMiningUserMessage
 import { ASK_MOTION_TOOL_NAME, ASK_MOTION_TOOL_DESCRIPTION, ASK_MOTION_TOOL_SCHEMA } from './ask-motion.js';
 import { writePendingSubagentTaskFile } from '../../async-task-system/index.js';
 import { SUMMON_AUDIT_EVENTS } from '../audit-events.js';
-import { spawnShadowSubagent, stripIncompleteToolUse } from '../../shadow-system/index.js';
+import { spawnShadowSubagent } from '../../shadow-system/spawn-shadow-subagent.js';
+import { stripIncompleteToolUse } from '../../shadow-system/_helpers.js';
 
 const SUMMON_SUBAGENT_TIMEOUT_MS = 3600 * 1000;   // 1 hour
 

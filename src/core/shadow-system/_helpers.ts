@@ -6,7 +6,7 @@
  */
 
 import type { Message } from '../../foundation/llm-provider/types.js';
-import { SHADOW_TOOL_NAME } from './tools/shadow.js';
+import { SHADOW_TOOL_NAME } from './constants.js';
 import { buildShadowInstruction, type BuildShadowInstructionArgs } from '../../prompts/index.js';
 
 /**
