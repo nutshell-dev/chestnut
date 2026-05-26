@@ -94,6 +94,7 @@
       "task_scheduled",
       "task_shutdown_pending_cleanups_drained",
       "task_shutdown_timeout",
+      "task_shutdown_timeout_hit",
       "task_start_failed",
       "task_started",
       "tool_async_result",

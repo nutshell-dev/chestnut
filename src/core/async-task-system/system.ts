@@ -695,6 +695,16 @@ export class AsyncTaskSystem {
     };
   }
 
+  /**
+   * Abort all running tasks immediately.
+   * Used by Runtime when shutdown timeout is hit (phase 1332 N4).
+   */
+  abort(): void {
+    for (const state of this.runningTasks.values()) {
+      state.abortController.abort();
+    }
+  }
+
   async shutdown(timeoutMs: number = 30000): Promise<void> {
     this._shuttingDown = true;
     // 顺序：先关 watcher（避免 shutdown 期间新事件进队）→ 旧 shutdown 流程
@@ -702,11 +712,10 @@ export class AsyncTaskSystem {
     this.pendingWatcher = undefined;
 
     // Signal all running tasks to stop
-    for (const state of this.runningTasks.values()) {
-      state.abortController.abort();
-    }
+    this.abort();
 
     // Wait for all tasks with timeout
+    let timedOut = false;
     if (this.runningTasks.size > 0) {
       const promises = Array.from(this.runningTasks.values()).map(s => s.promise);
       let timer: ReturnType<typeof setTimeout> | undefined;
@@ -717,7 +726,7 @@ export class AsyncTaskSystem {
             timer = setTimeout(() => reject(new Error('Shutdown timeout')), timeoutMs);
           }),
         ]).catch(() => {
-          // Timeout is acceptable
+          timedOut = true;
           emitShutdownTimeout(this.auditWriter);
         });
       } finally {
@@ -738,5 +747,9 @@ export class AsyncTaskSystem {
 
     this.runningTasks.clear();
     this.pendingQueue = [];
+
+    if (timedOut) {
+      throw new Error('Shutdown timeout');
+    }
   }
 }

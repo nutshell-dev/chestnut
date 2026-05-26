@@ -37,4 +37,5 @@ export const TASK_AUDIT_EVENTS = {
   LEGACY_PENDING_TASK_NO_MODE: 'legacy_pending_task_no_mode', // ← NEW (phase 1258 / F.2 sunset observability)
   RUNNING_FILE_DELETE_FAILED: 'task_running_file_delete_failed', // ← NEW (phase 1324 / r137 C fork F.hot.6)
   CLEANUP_RETENTION_DELETE_FAILED: 'task_cleanup_retention_delete_failed',
+  TASK_SHUTDOWN_TIMEOUT_HIT: 'task_shutdown_timeout_hit', // ← NEW (phase 1332 / r138 C fork N4)
 } as const;
