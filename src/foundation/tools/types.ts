@@ -15,6 +15,24 @@ import type { CallerType } from '../../core/caller-types.js';
 import type { PermissionChecker } from '../tool-protocol/permission.js';
 
 /**
+ * phase 1337 r138 D fork: L2c capability-tag enum.
+ * Framework-level capability dimension, decoupled from L3 business CallerType.
+ */
+export type ToolGroup =
+  | 'fs-read'
+  | 'fs-write'
+  | 'spawn'
+  | 'audit'
+  | 'llm'
+  | 'cron'
+  | 'skill'
+  | 'messaging'
+  | 'memory'
+  | 'status'
+  | 'shadow'
+  | 'subagent-protocol';
+
+/**
  * Escape multi-line content for audit TSV log (used by ToolExecutorImpl).
  * Truncated to 120 chars to prevent audit log bloat; full content is
  * preserved in the actual tool result.
@@ -45,8 +63,14 @@ export interface ExecContext {
   workspaceDir: string;
   /** 装配-level 共享 sync dir（兜底落盘 + FileTool write_backups 共用 / 应然 §A.7）/ Assembly 装配期注入 */
   syncDir: string;
-  /** Caller type for spawn recursion prevention */
+  /** Caller type for spawn recursion prevention
+   * @deprecated phase 1337 r138 D fork sunset by sub-4 / use allowedGroups + callerLabel
+   */
   callerType: CallerType;
+  /** phase 1337: capability-tag based group filtering (replaces callerType) */
+  allowedGroups?: ReadonlySet<ToolGroup>;
+  /** phase 1337: opaque audit label (replaces callerType semantic) */
+  callerLabel?: string;
   fs: FileSystem;
   fsFactory?: (baseDir: string) => FileSystem;
   llm?: LLMOrchestrator;
@@ -96,6 +120,8 @@ export interface Tool extends ToolDescriptor {
   defaultTimeoutMs?: number;
   /** Which profiles this tool belongs to. Each tool declares its own (M#3). */
   profiles: readonly ToolProfile[];
+  /** phase 1337: capability group this tool belongs to (replaces profile-based implicit filtering) */
+  group?: ToolGroup;
   execute(args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult>;
 }
 
