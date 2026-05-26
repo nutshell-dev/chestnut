@@ -22,6 +22,7 @@ const VI_MOCK_FILES = [
   'tests/cli/daemon-entry.test.ts',
   'tests/cli/chat-viewport-claw-manager-narrow.test.ts',
   'tests/cli/chat-viewport-stream-reader-start-fail.test.ts',
+  'tests/core/contract/lock-retry-jitter.test.ts',
   'tests/cli/claw-send-confinement.test.ts',
   'tests/cli/commands/claw-health.test.ts',
   'tests/cli/commands/claw-list.test.ts',

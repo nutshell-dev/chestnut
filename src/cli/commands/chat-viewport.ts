@@ -203,7 +203,20 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   // tail stream.jsonl
   const streamReader = createStreamReader(fs, STREAM_FILE, (ev) => mainUI.withScope('main', () => handleEvent(ev)), options.audit, { persistent: false });
   const recentTurnOffset = findRecentTurnStartOffset(fs, STREAM_FILE);
-  streamReader.start(recentTurnOffset);
+  try {
+    streamReader.start(recentTurnOffset);
+  } catch (err) {
+    // declared field 装配端兑现 per phase 1325 / existing VIEWPORT_AUDIT_EVENTS.STREAM_READER_START_FAILED
+    options.audit.write(
+      VIEWPORT_AUDIT_EVENTS.STREAM_READER_START_FAILED,
+      `reason=${err instanceof Error ? err.message : String(err)}`,
+      `offset=${recentTurnOffset}`,
+    );
+    mainUI.withScope('main', () => {
+      // fallback render — let user know stream tail unavailable but viewport survives
+      handleEvent({ type: 'system_message', text: 'Stream reader 启动失败，部分实时更新功能受限。Audit log 已记录。' } as any);
+    });
+  }
 
   const clawManager = createClawManager({
     fs: clawsFs, pm, audit: options.audit, isMotion, clawsDir, clawTrackMap,

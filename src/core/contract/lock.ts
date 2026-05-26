@@ -15,6 +15,7 @@ import {
   emitContractLockCleared,
   emitContractLockCleanupFailed,
   emitContractLockUnlinkFailed,
+  emitContractLockRetry,
 } from './audit-emit.js';
 import { isAlive } from '../../foundation/process-exec/index.js';
 
@@ -75,7 +76,16 @@ export async function acquireLock(ctx: LockContext, lockPath: string): Promise<v
       }
 
       if (i < LOCK_MAX_RETRIES - 1) {
-        await new Promise(r => setTimeout(r, LOCK_RETRY_DELAY_MS));
+        // jitter range [T/2, 1.5T] / 0 NEW magic / uses only existing LOCK_RETRY_DELAY_MS
+        // (per phase 1317 user ratify「魔法数字不接受」/ dispatch α exp backoff + cap 5s REFRAMED)
+        const delayMs = LOCK_RETRY_DELAY_MS / 2 + Math.random() * LOCK_RETRY_DELAY_MS;
+        emitContractLockRetry(ctx.audit, {
+          attempt: i + 1,
+          max_retries: LOCK_MAX_RETRIES,
+          reason: lastReason,
+          delay_ms: Math.round(delayMs),
+        });
+        await new Promise(r => setTimeout(r, delayMs));
       }
     }
   }

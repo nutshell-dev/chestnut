@@ -78,6 +78,24 @@ export function emitContractLockSchemaInvalid(
   );
 }
 
+// ─── LOCK_RETRY ─────────────────────────────────────────────────────────────
+export function emitContractLockRetry(
+  audit: AuditLog,
+  opts: {
+    attempt: number;
+    max_retries: number;
+    reason: string;
+    delay_ms: number;
+  },
+): void {
+  audit.write(
+    CONTRACT_AUDIT_EVENTS.LOCK_RETRY,
+    `attempt=${opts.attempt}/${opts.max_retries}`,
+    `reason=${opts.reason}`,
+    `delay_ms=${opts.delay_ms}`,
+  );
+}
+
 // ─── LOCK_CLEANUP_FAILED ────────────────────────────────────────────────────
 export function emitContractLockCleanupFailed(
   audit: AuditLog,
