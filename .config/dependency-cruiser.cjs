@@ -33,11 +33,10 @@ module.exports = {
     {
       name: 'no-orphans',
       comment: [
-        'orphan file (无人 import) = 死代码累债 / phase 1301 立',
-        'severity warn 持续 future drift 监测 (当前 phase 1301 删 constants.ts 后真 orphan 0)',
-        '未来 NEW file 必有 import 才能 land、否则 warn signal',
-        'allowlist: SDK entry / config file / .d.ts (已 by tsPreCompilationDeps 修)',
-        '升档锚: 真 orphan 持续 0 → 升 severity error (phase 1304+)',
+        'orphan file (无人 import) = 死代码累债 / phase 1301 立 / phase 1302 整目录 allowlist 改',
+        'severity warn 持续 future drift 监测',
+        'allowlist: SDK entry / config file (.config/ 整目录) / .d.ts',
+        '未来加 NEW config 入 .config/ 自动 cover, 无需更新 allowlist',
       ].join(' '),
       severity: 'warn',
       from: {
@@ -45,7 +44,7 @@ module.exports = {
         pathNot: [
           '\\.d\\.ts$',
           '^src/index\\.ts$',
-          '\\.dependency-cruiser\\.cjs$',
+          '^\\.config/',  // ← NEW phase 1302: 整目录 allowlist / 替换原 leaf file 路径
         ],
       },
       to: {},

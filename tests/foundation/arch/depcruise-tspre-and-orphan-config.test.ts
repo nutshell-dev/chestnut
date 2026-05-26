@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 // @ts-ignore — CJS config loaded in ESM test context
-import config from '../../../.dependency-cruiser.cjs';
+import config from '../../../.config/dependency-cruiser.cjs';
 
 /**
  * dependency-cruiser config: phase 1301 tsPreCompilationDeps + no-orphans
@@ -25,6 +25,6 @@ describe('dependency-cruiser config: phase 1301 tsPreCompilationDeps + no-orphan
     expect(rule.from.orphan).toBe(true);
     expect(rule.from.pathNot).toContain('\\.d\\.ts$');
     expect(rule.from.pathNot).toContain('^src/index\\.ts$');
-    expect(rule.from.pathNot).toContain('\\.dependency-cruiser\\.cjs$');
+    expect(rule.from.pathNot).toContain('^\\.config/');
   });
 });
