@@ -51,6 +51,8 @@ describe('ToolExecutor async routing', () => {
       clawId: 'test-claw',
       clawDir: '/tmp/test',
       callerType: 'claw',
+      allowedGroups: new Set(['fs-read', 'fs-write', 'spawn']),
+      callerLabel: 'claw',
       fs: createMockFs() as any,
       profile: { name: 'test', permissions: { read: true, write: true, execute: true, send: true, spawn: true } },
       stepNumber: 1,
@@ -70,6 +72,7 @@ describe('ToolExecutor async routing', () => {
       readonly: false,
       idempotent: false,
       supportsAsync: true,
+      group: 'spawn',
       async execute(): Promise<ToolResult> {
         return { success: true, content: 'async result' };
       },
@@ -77,7 +80,7 @@ describe('ToolExecutor async routing', () => {
     registry.register(asyncTool);
 
     // Call with async: true and callerType: 'subagent'
-    const subagentCtx = { ...mockCtx, callerType: 'subagent' as const };
+    const subagentCtx = { ...mockCtx, callerLabel: 'subagent', allowedGroups: new Set() };
     const result = await executor.execute({
       toolName: 'asyncTool',
       args: {},
@@ -86,7 +89,7 @@ describe('ToolExecutor async routing', () => {
     });
 
     expect(result.success).toBe(false);
-    expect(result.content).toContain('not available for subagents');
+    expect(result.content).toContain('not available for this caller');
     expect(mockTaskSystem.scheduleTool).not.toHaveBeenCalled();
   });
 
@@ -99,6 +102,7 @@ describe('ToolExecutor async routing', () => {
 
       readonly: false,
       idempotent: false,
+      group: 'spawn',
       // supportsAsync is undefined (false by default)
       async execute(): Promise<ToolResult> {
         return { success: true, content: 'sync result' };
@@ -128,6 +132,7 @@ describe('ToolExecutor async routing', () => {
       readonly: false,
       idempotent: false,
       supportsAsync: true,
+      group: 'spawn',
       async execute(): Promise<ToolResult> {
         return { success: true, content: 'async result' };
       },
@@ -160,6 +165,7 @@ describe('ToolExecutor async routing', () => {
       readonly: false,
       idempotent: false,
       supportsAsync: true,
+      group: 'spawn',
       async execute(): Promise<ToolResult> {
         return { success: true, content: 'async result' };
       },

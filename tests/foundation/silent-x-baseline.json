@@ -344,7 +344,7 @@
         },
         {
             "file": "src/foundation/tools/executor.ts",
-            "line": 148,
+            "line": 149,
             "body_excerpt": ".catch(() => {}",
             "reason": "race loser handled by executionPromise.catch L150+",
             "form": "promise"

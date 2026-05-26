@@ -191,6 +191,8 @@ describe('Tools', () => {
         clawId: 'test',
         clawDir: '/test',
         profile: 'full',
+        allowedGroups: new Set(['fs-read']),
+        callerLabel: 'claw',
         fs: mockFs,
       });
 
@@ -219,6 +221,8 @@ describe('Tools', () => {
         clawId: 'test',
         clawDir: '/test',
         profile: 'full',
+        allowedGroups: new Set(['fs-read']),
+        callerLabel: 'claw',
         fs: mockFs,
       });
 
@@ -246,6 +250,8 @@ describe('Tools', () => {
         clawId: 'test',
         clawDir: '/test',
         profile: 'full',
+        allowedGroups: new Set(['fs-read']),
+        callerLabel: 'claw',
         fs: mockFs,
       });
 
@@ -282,6 +288,8 @@ describe('Tools', () => {
         clawId: 'test',
         clawDir: '/test',
         profile: 'full',
+        allowedGroups: new Set(['fs-read']),
+        callerLabel: 'claw',
         fs: mockFs,
       });
 
@@ -313,6 +321,8 @@ describe('Tools', () => {
         clawId: 'test',
         clawDir: '/test',
         profile: 'full',
+        allowedGroups: new Set(['fs-read']),
+        callerLabel: 'claw',
         fs: mockFs,
       });
 
@@ -375,6 +385,8 @@ describe('Tools', () => {
         clawId: 'test',
         clawDir: '/test',
         profile: 'full',
+        allowedGroups: new Set(['fs-read']),
+        callerLabel: 'claw',
         fs: mockFs,
       });
 
@@ -416,6 +428,8 @@ describe('Tools', () => {
         clawId: 'test',
         clawDir: '/test',
         profile: 'full',
+        allowedGroups: new Set(['fs-read']),
+        callerLabel: 'claw',
         fs: mockFs,
       });
 
@@ -433,6 +447,7 @@ describe('Tools', () => {
         readonly: true,
         idempotent: true,
         supportsAsync: true,
+        group: 'fs-read',
         execute: async () => ({ success: true, content: 'sync result' }),
       });
 
@@ -440,6 +455,8 @@ describe('Tools', () => {
         clawId: 'test',
         clawDir: '/test',
         profile: 'full',
+        allowedGroups: new Set(['fs-read']),
+        callerLabel: 'claw',
         fs: {
           ...mockFs,
           writeAtomic: vi.fn().mockResolvedValue(undefined),
@@ -468,6 +485,7 @@ describe('Tools', () => {
         readonly: false,
         idempotent: false,
         supportsAsync: false,
+        group: 'fs-read',
         execute: async () => ({ success: true, content: 'sync' }),
       });
 
@@ -480,6 +498,8 @@ describe('Tools', () => {
         clawId: 'test',
         clawDir: '/test',
         profile: 'full',
+        allowedGroups: new Set(['fs-read']),
+        callerLabel: 'claw',
         fs: mockFs,
       });
 
@@ -503,6 +523,7 @@ describe('Tools', () => {
         readonly: false,
         idempotent: true,
         supportsAsync: true,
+        group: 'fs-read',
         execute: async () => ({ success: true, content: 'done' }),
       });
 
@@ -510,6 +531,8 @@ describe('Tools', () => {
         clawId: 'test',
         clawDir: '/test',
         profile: 'full',
+        allowedGroups: new Set(['fs-read']),
+        callerLabel: 'claw',
         fs: {
           ...mockFs,
           writeAtomic: vi.fn().mockResolvedValue(undefined),
@@ -554,6 +577,8 @@ describe('Tools', () => {
         clawId: 'test',
         clawDir: '/test',
         profile: 'full',
+        allowedGroups: new Set(['fs-read']),
+        callerLabel: 'claw',
         fs: mockFs,
       });
 
