@@ -61,6 +61,7 @@ const VI_MOCK_FILES = [
   'tests/core/contract/verifier-job.test.ts',
   'tests/core/contract/verifier-robustness.test.ts',
   'tests/core/contract_manager.test.ts',
+  'tests/core/contract_manager-escalation.test.ts',
   'tests/core/contract_manager_llm.test.ts',
   'tests/core/evolution-system.test.ts',
   'tests/core/evolution-system/retro-scheduler.test.ts',
