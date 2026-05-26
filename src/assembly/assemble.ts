@@ -37,6 +37,9 @@ import { summonContractExtractPostProcessor } from '../core/summon-system/index.
 import { createFileTools, TASKS_SYNC_WRITE_DIR } from '../foundation/file-tool/index.js';
 import { createCommandTools, TASKS_SYNC_EXEC_DIR } from '../foundation/command-tool/index.js';
 import { createClawPermissionChecker } from '../core/permissions/claw-permissions.js';
+import { TASKS_SYNC_SUBAGENT_DIR } from '../core/subagent/index.js';
+import { TASKS_SYNC_SPAWN_DIR } from '../core/spawn-system/index.js';
+import { TASKS_SYNC_SHADOW_DIR } from '../core/shadow-system/index.js';
 import { CRON_TICK_INTERVAL_MS } from '../core/cron/constants.js';
 import { DEFAULT_DISK_WARNING_MB } from '../watchdog/constants.js';
 import { spawnTool } from '../core/spawn-system/index.js';
@@ -285,7 +288,19 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
     }
 
     // A.6 motionInboxDir 提前到 taskSystem / callback 定义前（双链路保险 / cron job 注册块同步引用）
-    const permissionChecker = createClawPermissionChecker({ clawDir, strict: true, audit: auditWriter, fs: clawFs });
+    const permissionChecker = createClawPermissionChecker({
+      clawDir,
+      strict: true,
+      audit: auditWriter,
+      fs: clawFs,
+      taskSyncDirs: [
+        TASKS_SYNC_EXEC_DIR,
+        TASKS_SYNC_WRITE_DIR,
+        TASKS_SYNC_SUBAGENT_DIR,
+        TASKS_SYNC_SPAWN_DIR,
+        TASKS_SYNC_SHADOW_DIR,
+      ],
+    });
     const motionInboxDir = path.join(clawDir, 'inbox', 'pending');
     const motionInbox = new InboxWriter(systemFs, motionInboxDir, auditWriter);
 

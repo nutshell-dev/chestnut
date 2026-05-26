@@ -34,11 +34,6 @@ import {
   TASKS_QUEUES_RESULTS_DIR,
   TASKS_SUBAGENTS_DIR,
 } from '../async-task-system/index.js';
-import { TASKS_SYNC_SUBAGENT_DIR } from '../subagent/index.js';
-import { TASKS_SYNC_SPAWN_DIR } from '../spawn-system/index.js';
-import { TASKS_SYNC_SHADOW_DIR } from '../shadow-system/index.js';
-import { TASKS_SYNC_EXEC_DIR } from '../../foundation/command-tool/index.js';
-import { TASKS_SYNC_WRITE_DIR } from '../../foundation/file-tool/index.js';
 import { CLAWSPACE_DIR } from '../../foundation/paths.js';
 import type { PermissionChecker } from '../../foundation/tool-protocol/permission.js';
 export type { PermissionChecker } from '../../foundation/tool-protocol/permission.js';
@@ -56,9 +51,10 @@ const SYSTEM_PATHS = [
 ];
 
 /**
- * Directories where claws can write
+ * Directories where claws can write（base paths / 不含 taskSyncDirs）
+ * Phase 1335: task sync dirs 装配期 inject
  */
-const WRITABLE_PATHS = [
+const BASE_WRITABLE_PATHS = [
   'MEMORY.md',
   'memory',
   'USER.md',
@@ -74,12 +70,7 @@ const WRITABLE_PATHS = [
   TASKS_QUEUES_DONE_DIR,
   TASKS_QUEUES_FAILED_DIR,
   TASKS_QUEUES_RESULTS_DIR,
-  TASKS_SUBAGENTS_DIR,            // phase 512 / 子代理 workspace（α 简化 / 所有 callerType 等价 / 升 β 推 r+1+）
-  TASKS_SYNC_EXEC_DIR,             // phase 536 / sync exec scratch
-  TASKS_SYNC_WRITE_DIR,            // phase 536 / sync write scratch
-  TASKS_SYNC_SUBAGENT_DIR,         // phase 536 + 764 / sync L4 直调 L3 lifecycle
-  TASKS_SYNC_SPAWN_DIR,            // phase 766 spawn 工具自身 sync 路径
-  TASKS_SYNC_SHADOW_DIR,             // phase 767 shadow 工具自身 sync 路径
+  TASKS_SUBAGENTS_DIR,            // phase 512 / 子代理 workspace
   'logs',
 ];
 
@@ -98,6 +89,9 @@ export interface ClawPermissionOptions {
 
   /** FileSystem for path resolution (symlink traversal guard) */
   fs?: FileSystem;
+
+  /** Phase 1335: task sync directories injected at assembly time */
+  taskSyncDirs?: readonly string[];
 }
 
 /**
@@ -223,8 +217,11 @@ function checkWritePermission(
   const relativePath = getRelativeToClaw(clawDir, targetPath, options.fs);
 
   if (relativePath !== null) {
+    const writablePaths = options.taskSyncDirs
+      ? [...BASE_WRITABLE_PATHS, ...options.taskSyncDirs]
+      : BASE_WRITABLE_PATHS;
     const isSystemPath = matchesPathPatterns(relativePath, systemPaths);
-    const isWritablePath = matchesPathPatterns(relativePath, WRITABLE_PATHS);
+    const isWritablePath = matchesPathPatterns(relativePath, writablePaths);
 
     // Check system paths (read-only)
     if (isSystemPath) {
