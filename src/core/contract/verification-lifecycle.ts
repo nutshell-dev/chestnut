@@ -21,7 +21,6 @@ import {
   emitContractSubtaskDuplicateDone,
   emitContractSubtaskAlreadyCompleted,
   emitContractArchivePartialRecoveryFailed,
-  emitContractVerificationPipelineRaceRejected,
 } from './audit-emit.js';
 
 export async function archiveAndEmit(

@@ -331,7 +331,7 @@ export class ContractSystem {
           const raw = await this.fs.read(progressPath);
           const progress = JSON.parse(raw) as { status?: string; contract_id?: string };
           if (progress.status === 'archive_pending_recovery') {
-            const contractId = progress.contract_id ?? entry.name;
+            const contractId = makeContractId(progress.contract_id ?? entry.name);
             const contractYaml = await this.loadContractYaml(contractId);
             await archiveAndEmit(
               this._verificationCtx(),
