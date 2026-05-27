@@ -129,7 +129,7 @@ describe('phase 1038 C-3 Contract state machine integrity (W3-B α-1+α-4+α-7)'
       expect(notifyCalls).toContainEqual(expect.objectContaining({ type: 'contract_completed' }));
     });
 
-    it('revert itself fails → original archive error preserved (best-effort)', async () => {
+    it('revert itself fails → original archive error preserved + partial recovery audit (best-effort)', async () => {
       const { ctx, events } = makeAcceptanceCtx({ moveToArchiveThrows: true, saveProgressThrows: true });
       (ctx.getProgress as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
         contract_id: 'c3',
@@ -139,9 +139,11 @@ describe('phase 1038 C-3 Contract state machine integrity (W3-B α-1+α-4+α-7)'
 
       await archiveAndEmit(ctx, 'c3', 'Test', 'test');
 
-      // 2 audit emit (1 revert fail + 1 original archive fail) but no throw
+      // phase 1371 sub-2: revert failure now emits ARCHIVE_PARTIAL_RECOVERY_FAILED + sets archive_pending_recovery
       const moveArchiveFails = events.filter(e => e[0] === CONTRACT_AUDIT_EVENTS.MOVE_ARCHIVE_FAILED);
-      expect(moveArchiveFails.length).toBeGreaterThanOrEqual(2);
+      expect(moveArchiveFails.length).toBeGreaterThanOrEqual(1);
+      const partialRecoveryEvents = events.filter(e => e[0] === CONTRACT_AUDIT_EVENTS.ARCHIVE_PARTIAL_RECOVERY_FAILED);
+      expect(partialRecoveryEvents.length).toBeGreaterThanOrEqual(1);
     });
   });
 

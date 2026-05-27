@@ -104,6 +104,8 @@
       "tool_task_retry"
     ],
     "core_contract_audit-events": [
+      "contract_archive_partial_recovery_failed",
+      "contract_archive_recovered",
       "contract_archive_started",
       "contract_boot_reconcile",
       "contract_cancelled",
@@ -153,6 +155,7 @@
       "subtask_completed",
       "verification_failed",
       "verification_passed",
+      "verification_pipeline_race_rejected",
       "verification_timeout"
     ],
     "core_cron_audit-events": [

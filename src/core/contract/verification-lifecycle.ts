@@ -20,6 +20,8 @@ import {
   emitContractProgressCorrupted,
   emitContractSubtaskDuplicateDone,
   emitContractSubtaskAlreadyCompleted,
+  emitContractArchivePartialRecoveryFailed,
+  emitContractVerificationPipelineRaceRejected,
 } from './audit-emit.js';
 
 export async function archiveAndEmit(
@@ -46,14 +48,33 @@ export async function archiveAndEmit(
         }
       });
     } catch (revertErr) {
-      emitContractMoveArchiveFailed(
-        ctx.audit,
-        {
-          context: `${contextLabel}.revertStatus`,
-          message: 'revert progress.status to running failed after archive failed',
-          error: formatErr(revertErr),
-        },
-      );
+      // phase 1371 sub-2: rollback failure → explicit partial recovery state machine
+      try {
+        await ctx.withProgressLock(contractId, async () => {
+          const progress = await ctx.getProgress(contractId);
+          progress.status = 'archive_pending_recovery';
+          await ctx.saveProgress(contractId, progress);
+        });
+        emitContractArchivePartialRecoveryFailed(
+          ctx.audit,
+          {
+            contractId,
+            context: contextLabel,
+            message: 'archive failed and rollback to running also failed; set archive_pending_recovery for boot reconcile',
+            error: formatErr(revertErr),
+          },
+        );
+      } catch (stateErr) {
+        emitContractArchivePartialRecoveryFailed(
+          ctx.audit,
+          {
+            contractId,
+            context: `${contextLabel}.setPendingRecovery`,
+            message: 'archive failed, rollback failed, and setting archive_pending_recovery also failed',
+            error: formatErr(stateErr),
+          },
+        );
+      }
     }
     emitContractMoveArchiveFailed(
       ctx.audit,

@@ -51,7 +51,7 @@ import type {
   ContractYaml, ProgressData, VerificationResult, VerifierConfig, VerifierResult,
 } from './types.js';
 import {
-  withProgressLock as wpl,
+  lockContract,
   type LockContext,
 } from './lock.js';
 import { loadActiveContract, loadPausedContract, type DiscoveryContext } from './discovery.js';
@@ -78,6 +78,7 @@ import {
   writeVerificationError,
   type VerificationContext,
 } from './verification.js';
+import { archiveAndEmit } from './verification-lifecycle.js';
 
 // Contract default value constants
 const CONTRACT_DEFAULTS = {
@@ -317,6 +318,32 @@ export class ContractSystem {
         CONTRACT_AUDIT_EVENTS.CONTRACT_BOOT_RECONCILE,
         'recovered=false',
       );
+    }
+
+    // phase 1371 sub-2: boot reconcile — scan active contracts for archive_pending_recovery
+    if (await this.fs.exists(this.activeDir)) {
+      const entries = await this.fs.list(this.activeDir, { includeDirs: true });
+      for (const entry of entries) {
+        if (!entry.isDirectory) continue;
+        const progressPath = `${this.activeDir}/${entry.name}/progress.json`;
+        if (!(await this.fs.exists(progressPath))) continue;
+        try {
+          const raw = await this.fs.read(progressPath);
+          const progress = JSON.parse(raw) as { status?: string; contract_id?: string };
+          if (progress.status === 'archive_pending_recovery') {
+            const contractId = progress.contract_id ?? entry.name;
+            const contractYaml = await this.loadContractYaml(contractId);
+            await archiveAndEmit(
+              this._verificationCtx(),
+              contractId,
+              contractYaml.title,
+              'ContractSystem.init.bootReconcile',
+            );
+          }
+        } catch {
+          // silent: corrupted progress.json boot reconcile best-effort skip
+        }
+      }
     }
   }
 
@@ -572,8 +599,12 @@ export class ContractSystem {
   // ============================================================================
 
   private async withProgressLock<T>(contractId: ContractId, fn: () => Promise<T>): Promise<T> {
-    const dir = await this.contractDir(contractId);
-    return wpl(this._lockCtx(), dir, contractId, fn);
+    const { release } = await lockContract(this._lockCtx(), contractId, (id) => this.contractDir(id));
+    try {
+      return await fn();
+    } finally {
+      await release();
+    }
   }
 
   private async loadContractYaml(contractId: ContractId): Promise<ContractYaml> {

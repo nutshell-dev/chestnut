@@ -142,6 +142,8 @@ describe('ContractSystem - misc (LLM verification + escalation + phase239 audit)
           5000,
           10,
         );
+        // phase 1371 sub-3: extra grace for mutex release microtask to land
+        await new Promise(r => setTimeout(r, 50));
       }
 
       // phase 1305: poll for BOTH escalated_at AND ESCALATED audit emit
@@ -198,6 +200,8 @@ describe('ContractSystem - misc (LLM verification + escalation + phase239 audit)
           5000,
           10,
         );
+        // phase 1371 sub-3: extra grace for mutex release microtask to land
+        await new Promise(r => setTimeout(r, 50));
       }
 
       scriptSpy.mockRestore();

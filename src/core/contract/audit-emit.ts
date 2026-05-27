@@ -372,15 +372,17 @@ export function emitContractCompleteOnCancelled(
 // ─── VERIFICATION_BACKGROUND_DONE ─────────────────────────────────────────────
 export function emitContractVerificationBackgroundDone(
   audit: AuditLog,
-  opts: { contractId: ContractId; subtaskId: SubtaskId; result: string },
+  opts: { contractId: ContractId; subtaskId: SubtaskId; result: string; cancelReason?: string; missingSubtaskId?: string },
 ): void {
   if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractVerificationBackgroundDone')) return;
-  audit.write(
-    CONTRACT_AUDIT_EVENTS.VERIFICATION_BACKGROUND_DONE,
+  const cols: string[] = [
     `contractId=${opts.contractId}`,
     `subtaskId=${opts.subtaskId}`,
     `result=${opts.result}`,
-  );
+  ];
+  if (opts.cancelReason !== undefined) cols.push(`cancel_reason=${opts.cancelReason}`);
+  if (opts.missingSubtaskId !== undefined) cols.push(`missing_subtask_id=${opts.missingSubtaskId}`);
+  audit.write(CONTRACT_AUDIT_EVENTS.VERIFICATION_BACKGROUND_DONE, ...cols);
 }
 
 // ─── VERIFICATION_SCRIPT_STARTED ──────────────────────────────────────────────
@@ -699,6 +701,56 @@ export function emitContractObserverStateLoadFailed(
     `path=${opts.path}`,
     `reason=${opts.reason}`,
   );
+}
+
+// ─── ARCHIVE_PARTIAL_RECOVERY_FAILED ────────────────────────────────────────
+export function emitContractArchivePartialRecoveryFailed(
+  audit: AuditLog,
+  opts: {
+    contractId: ContractId;
+    context?: string;
+    message?: string;
+    error?: string;
+  },
+): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractArchivePartialRecoveryFailed')) return;
+  const cols: string[] = [`contractId=${opts.contractId}`];
+  if (opts.context !== undefined) cols.push(`context=${opts.context}`);
+  if (opts.message !== undefined) cols.push(`message=${opts.message}`);
+  if (opts.error !== undefined) cols.push(`error=${opts.error}`);
+  audit.write(CONTRACT_AUDIT_EVENTS.ARCHIVE_PARTIAL_RECOVERY_FAILED, ...cols);
+}
+
+// ─── ARCHIVE_RECOVERED ────────────────────────────────────────────────────────
+export function emitContractArchiveRecovered(
+  audit: AuditLog,
+  opts: {
+    contractId: ContractId;
+    context?: string;
+  },
+): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractArchiveRecovered')) return;
+  const cols: string[] = [`contractId=${opts.contractId}`];
+  if (opts.context !== undefined) cols.push(`context=${opts.context}`);
+  audit.write(CONTRACT_AUDIT_EVENTS.ARCHIVE_RECOVERED, ...cols);
+}
+
+// ─── VERIFICATION_PIPELINE_RACE_REJECTED ─────────────────────────────────────
+export function emitContractVerificationPipelineRaceRejected(
+  audit: AuditLog,
+  opts: {
+    contractId: ContractId;
+    subtaskId?: string;
+    context?: string;
+    reason?: string;
+  },
+): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractVerificationPipelineRaceRejected')) return;
+  const cols: string[] = [`contractId=${opts.contractId}`];
+  if (opts.subtaskId !== undefined) cols.push(`subtaskId=${opts.subtaskId}`);
+  if (opts.context !== undefined) cols.push(`context=${opts.context}`);
+  if (opts.reason !== undefined) cols.push(`reason=${opts.reason}`);
+  audit.write(CONTRACT_AUDIT_EVENTS.VERIFICATION_PIPELINE_RACE_REJECTED, ...cols);
 }
 
 // ─── Legacy helper: format error ──────────────────────────────────────────────

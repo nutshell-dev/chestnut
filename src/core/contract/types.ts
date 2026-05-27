@@ -23,7 +23,8 @@ export type ContractStatus =
   | 'paused'
   | 'completed'
   | 'failed'
-  | 'cancelled';
+  | 'cancelled'
+  | 'archive_pending_recovery';  // phase 1371 sub-2: archiveAndEmit partial recovery state
 
 export type SubtaskStatus =
   | 'todo'

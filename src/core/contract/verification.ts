@@ -20,10 +20,12 @@ import {
   emitContractVerificationFailed,
   emitContractVerificationResetFailed,
   emitContractVerificationStarted,
+  emitContractVerificationPipelineRaceRejected,
 } from './audit-emit.js';
 
 
 import { archiveAndEmit, completeSubtaskSync } from './verification-lifecycle.js';
+import { acquireVerificationMutex, releaseVerificationMutex } from './verification-mutex.js';
 import { writeVerificationInbox, writeVerificationError, safeNotify } from './verification-notify.js';
 import { formatRejectionFeedback, formatValidIds } from './verification-format.js';
 import type { VerificationContext } from './verification-types.js';
@@ -83,6 +85,11 @@ async function runVerificationByType(
   );
 }
 
+type ApplyOutcome =
+  | { allCompleted: boolean; passed: boolean }
+  | { kind: 'cancelled' }
+  | { kind: 'missing_subtask' };
+
 async function applyVerificationOutcome(
   ctx: VerificationContext,
   contractId: ContractId,
@@ -91,7 +98,7 @@ async function applyVerificationOutcome(
   result: VerificationResult,
   contractYaml: ContractYaml,
   verificationConfig: VerificationConfig,
-): Promise<{ allCompleted: boolean; passed: boolean } | null> {
+): Promise<ApplyOutcome> {
   return ctx.withProgressLock(contractId, async () => {
     const progress = await ctx.getProgress(contractId);
 
@@ -105,7 +112,7 @@ async function applyVerificationOutcome(
           message: 'contract already cancelled, skip verification outcome write',
         },
       );
-      return null;
+      return { kind: 'cancelled' };
     }
 
     const subtask = progress.subtasks[subtaskId];
@@ -119,7 +126,7 @@ async function applyVerificationOutcome(
           error: 'subtask missing from progress after in_progress mark',
         },
       );
-      return null;
+      return { kind: 'missing_subtask' };
     }
 
     if (result.passed) {
@@ -190,6 +197,8 @@ async function applyVerificationOutcome(
 
     if (subtask.retry_count >= maxRetries) {
       subtask.escalated_at = new Date().toISOString();
+      // phase 1371 sub-5: 'escalated' is a legitimate SubtaskStatus value per code reality
+      // (spec divergence ratified: spec aligns code, not the reverse)
       subtask.status = 'escalated';
       await ctx.saveProgress(contractId, progress);
       emitContractEscalated(
@@ -211,12 +220,24 @@ export async function runVerificationPipeline(
   params: { contractId: ContractId; subtaskId: SubtaskId; evidence: string; artifacts?: string[] },
 ): Promise<VerificationResult> {
   const { contractId, subtaskId, evidence, artifacts } = params;
+
   const contractYaml = await ctx.loadContractYaml(contractId);
   const verificationConfig = contractYaml.verification?.find(a => a.subtask_id === subtaskId);
 
-  if (!verificationConfig) {
-    return completeSubtaskSync(ctx, contractId, subtaskId, evidence, artifacts);
+  if (verificationConfig) {
+    if (!acquireVerificationMutex(contractId, subtaskId)) {
+      emitContractVerificationPipelineRaceRejected(
+        ctx.audit,
+        { contractId, subtaskId, context: 'runVerificationPipeline', reason: 'verification_pipeline_already_active' },
+      );
+      throw new ToolError(`Verification pipeline for contract "${contractId}" subtask "${subtaskId}" is already active — concurrent attempt rejected.`);
+    }
   }
+
+  try {
+    if (!verificationConfig) {
+      return completeSubtaskSync(ctx, contractId, subtaskId, evidence, artifacts);
+    }
 
   await ctx.withProgressLock(contractId, async () => {
     const progress = await ctx.getProgress(contractId);
@@ -272,6 +293,12 @@ export async function runVerificationPipeline(
     });
 
   return { passed: false, feedback: '', async: true };
+  } catch (e) {
+    if (verificationConfig) {
+      releaseVerificationMutex(contractId, subtaskId);
+    }
+    throw e;
+  }
 }
 
 export async function runVerificationInBackground(
@@ -285,7 +312,9 @@ export async function runVerificationInBackground(
   const subtaskDesc = subtaskDef?.description || subtaskId;
   const contractAbsDir = path.join(ctx.clawDir, await ctx.contractDir(contractId), contractId);
 
-  let outcomeKind: 'passed' | 'failed' | 'error' = 'error';
+  let outcomeKind: 'passed' | 'failed' | 'error' | 'cancelled' | 'missing_subtask' = 'error';
+  let cancelReason: string | undefined;
+  let missingSubtaskId: string | undefined;
   try {
     const result = await runVerificationByType(
       ctx,
@@ -307,16 +336,28 @@ export async function runVerificationInBackground(
       contractYaml,
       verificationConfig,
     );
-    outcomeKind = outcome?.passed ? 'passed' : 'failed';
 
-    if (outcome?.passed && outcome.allCompleted) {
+    if ('kind' in outcome) {
+      if (outcome.kind === 'cancelled') {
+        outcomeKind = 'cancelled';
+        cancelReason = 'contract_cancelled';
+      } else if (outcome.kind === 'missing_subtask') {
+        outcomeKind = 'missing_subtask';
+        missingSubtaskId = subtaskId;
+      }
+    } else {
+      outcomeKind = outcome.passed ? 'passed' : 'failed';
+    }
+
+    if (!('kind' in outcome) && outcome.passed && outcome.allCompleted) {
       const progressAfterLock = await ctx.getProgress(contractId);
       if (progressAfterLock.status === 'cancelled') {
         emitContractCompleteOnCancelled(
           ctx.audit,
           { contractId, subtaskId, context: 'runVerificationInBackground' },
         );
-        outcomeKind = 'failed';
+        outcomeKind = 'cancelled';
+        cancelReason = 'contract_cancelled_after_verification';
       } else {
         await archiveAndEmit(ctx, contractId, contractYaml.title, 'ContractSystem._runVerificationInBackground');
       }
@@ -324,8 +365,9 @@ export async function runVerificationInBackground(
   } finally {
     emitContractVerificationBackgroundDone(
       ctx.audit,
-      { contractId, subtaskId, result: outcomeKind },
+      { contractId, subtaskId, result: outcomeKind, cancelReason, missingSubtaskId },
     );
+    releaseVerificationMutex(contractId, subtaskId);
   }
 }
 
