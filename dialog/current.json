@@ -1,17 +1,22 @@
 {
   "version": 2,
   "clawId": "test-claw",
-  "createdAt": "2026-05-27T11:30:23.734Z",
-  "updatedAt": "2026-05-27T11:30:23.776Z",
+  "createdAt": "2026-05-27T11:30:35.206Z",
+  "updatedAt": "2026-05-27T11:30:35.256Z",
   "systemPrompt": "## Available Skills\nNo skills loaded.\n",
   "messages": [
     {
       "role": "user",
-      "content": "[system message (0s ago)] Claw inactive"
+      "content": "[system message (0s ago)] Critical priority\n\n[system message (0s ago)] High priority\n\n[system message (0s ago)] Normal priority"
     },
     {
       "role": "assistant",
-      "content": []
+      "content": [
+        {
+          "type": "text",
+          "text": "Processed batch"
+        }
+      ]
     }
   ],
   "toolsForLLM": [
@@ -56,5 +61,5 @@
       }
     }
   ],
-  "trace_id": "3b68f80b571f69ec"
+  "trace_id": "8da9183a87fe4026"
 }
