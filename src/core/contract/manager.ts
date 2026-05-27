@@ -62,7 +62,7 @@ import {
   type PersistenceContext,
   PROGRESS_CURRENT_SCHEMA_VERSION,
 } from './persistence.js';
-import { type ContractId, makeContractId } from './types.js';
+import { type ContractId, makeContractId, type SubtaskId } from './types.js';
 import type { ClawId } from '../../foundation/identity/index.js';
 import { runContractVerifier } from './verifier-job.js';
 import {
@@ -322,7 +322,7 @@ export class ContractSystem {
   // Verification
   async completeSubtask(params: {
     contractId: ContractId;
-    subtaskId: string;
+    subtaskId: SubtaskId;
     evidence: string;
     artifacts?: string[];
   }): Promise<VerificationResult> {
@@ -579,7 +579,7 @@ export class ContractSystem {
     return loadYaml(this._persistenceCtx(), contractId);
   }
 
-  async _writeVerificationError(contractId: ContractId, subtaskId: string, error: unknown): Promise<void> {
+  async _writeVerificationError(contractId: ContractId, subtaskId: SubtaskId, error: unknown): Promise<void> {
     return writeVerificationError(this._verificationCtx(), contractId, subtaskId, error);
   }
 
@@ -607,7 +607,7 @@ export class ContractSystem {
     promptFile: string,
     contractAbsDir: string,
     contractId: ContractId,
-    subtaskId: string,
+    subtaskId: SubtaskId,
     subtaskDesc: string,
     evidence: string,
     artifacts: string[],

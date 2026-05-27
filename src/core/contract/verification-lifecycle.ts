@@ -4,7 +4,7 @@
  */
 
 import type { VerificationContext } from './verification-types.js';
-import type { VerificationResult } from './types.js';
+import type { VerificationResult, SubtaskId } from './types.js';
 import { safeNotify } from './verification-notify.js';
 import { formatValidIds } from './verification-format.js';
 import { formatErr } from '../../foundation/utils/format.js';
@@ -69,7 +69,7 @@ export async function archiveAndEmit(
 export async function completeSubtaskSync(
   ctx: VerificationContext,
   contractId: ContractId,
-  subtaskId: string,
+  subtaskId: SubtaskId,
   evidence: string,
   artifacts?: string[],
 ): Promise<VerificationResult> {

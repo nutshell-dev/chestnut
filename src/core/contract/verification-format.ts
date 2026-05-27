@@ -3,14 +3,14 @@
  * Format helpers — pure functions
  */
 
-import type { ProgressData } from './types.js';
+import type { ProgressData, SubtaskId } from './types.js';
 
 export function formatValidIds(progress: ProgressData): string {
   return Object.keys(progress.subtasks).join(', ');
 }
 
 export function formatRejectionFeedback(
-  subtaskId: string,
+  subtaskId: SubtaskId,
   subtaskDesc: string,
   reason: string,
   issues: string[],

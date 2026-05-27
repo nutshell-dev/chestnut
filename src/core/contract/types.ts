@@ -167,3 +167,11 @@ export interface ArchiveContractRef {
 declare const ContractIdBrand: unique symbol;
 export type ContractId = string & { readonly [ContractIdBrand]: true };
 export function makeContractId(s: string): ContractId { return s as ContractId; }
+
+// ============================================================================
+// phase 1366: SubtaskId branded type (compile-time ID discrimination)
+// ============================================================================
+
+declare const SubtaskIdBrand: unique symbol;
+export type SubtaskId = string & { readonly [SubtaskIdBrand]: true };
+export function makeSubtaskId(s: string): SubtaskId { return s as SubtaskId; }

@@ -5,7 +5,7 @@
  */
 
 import * as path from 'path';
-import type { AcceptanceFailedNotification, ContractYaml, VerificationResult } from './types.js';
+import type { AcceptanceFailedNotification, ContractYaml, VerificationResult, SubtaskId } from './types.js';
 import { ToolError, isProgrammingBug } from '../../foundation/errors.js';
 import { formatErr } from '../../foundation/utils/format.js';
 import {
@@ -41,7 +41,7 @@ async function runVerificationByType(
   verificationConfig: VerificationConfig,
   contractAbsDir: string,
   contractId: ContractId,
-  subtaskId: string,
+  subtaskId: SubtaskId,
   subtaskDesc: string,
   evidence: string,
   artifacts: string[],
@@ -86,7 +86,7 @@ async function runVerificationByType(
 async function applyVerificationOutcome(
   ctx: VerificationContext,
   contractId: ContractId,
-  subtaskId: string,
+  subtaskId: SubtaskId,
   subtaskDesc: string,
   result: VerificationResult,
   contractYaml: ContractYaml,
@@ -208,7 +208,7 @@ async function applyVerificationOutcome(
 
 export async function runVerificationPipeline(
   ctx: VerificationContext,
-  params: { contractId: ContractId; subtaskId: string; evidence: string; artifacts?: string[] },
+  params: { contractId: ContractId; subtaskId: SubtaskId; evidence: string; artifacts?: string[] },
 ): Promise<VerificationResult> {
   const { contractId, subtaskId, evidence, artifacts } = params;
   const contractYaml = await ctx.loadContractYaml(contractId);
@@ -276,7 +276,7 @@ export async function runVerificationPipeline(
 
 export async function runVerificationInBackground(
   ctx: VerificationContext,
-  params: { contractId: ContractId; subtaskId: string; evidence: string; artifacts?: string[] },
+  params: { contractId: ContractId; subtaskId: SubtaskId; evidence: string; artifacts?: string[] },
   contractYaml: ContractYaml,
   verificationConfig: VerificationConfig,
 ): Promise<void> {

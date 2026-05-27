@@ -6,7 +6,7 @@
 
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { ToolRegistry } from '../../foundation/tools/index.js';
-import type { ContractYaml, ProgressData, VerificationResult, VerifierConfig, VerifierResult } from './types.js';
+import type { ContractYaml, ProgressData, VerificationResult, VerifierConfig, VerifierResult, SubtaskId } from './types.js';
 import { type LockContext } from './lock.js';
 import type { ClawId } from '../../foundation/identity/index.js';
 import type { ContractId } from './types.js';
@@ -30,7 +30,7 @@ export interface VerificationContext extends LockContext {
     promptFile: string,
     contractAbsDir: string,
     contractId: ContractId,
-    subtaskId: string,
+    subtaskId: SubtaskId,
     subtaskDesc: string,
     evidence: string,
     artifacts: string[],

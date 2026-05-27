@@ -12,7 +12,7 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import { formatErr } from '../../foundation/utils/format.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 import type { ClawId } from '../../foundation/identity/index.js';
-import type { ContractId } from './types.js';
+import type { ContractId, SubtaskId } from './types.js';
 
 
 
@@ -251,7 +251,7 @@ export function emitContractCreated(
 // ─── VERIFICATION_STARTED ─────────────────────────────────────────────────────
 export function emitContractVerificationStarted(
   audit: AuditLog,
-  opts: { contractId: ContractId; subtaskId: string },
+  opts: { contractId: ContractId; subtaskId: SubtaskId },
 ): void {
   if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractVerificationStarted')) return;
   audit.write(
@@ -264,7 +264,7 @@ export function emitContractVerificationStarted(
 // ─── UPDATED ────────────────────────────────────────────────────────────────
 export function emitContractUpdated(
   audit: AuditLog,
-  opts: { contractId: ContractId; subtaskId: string; status: string },
+  opts: { contractId: ContractId; subtaskId: SubtaskId; status: string },
 ): void {
   if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractUpdated')) return;
   audit.write(
@@ -343,7 +343,7 @@ export function emitContractVerificationResetFailed(
 // ─── VERIFICATION_BACKGROUND_FAILED ───────────────────────────────────────────
 export function emitContractVerificationBackgroundFailed(
   audit: AuditLog,
-  opts: { contractId: ContractId; subtaskId: string; error: string },
+  opts: { contractId: ContractId; subtaskId: SubtaskId; error: string },
 ): void {
   if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractVerificationBackgroundFailed')) return;
   audit.write(
@@ -357,7 +357,7 @@ export function emitContractVerificationBackgroundFailed(
 // ─── COMPLETE_ON_CANCELLED ──────────────────────────────────────────────────
 export function emitContractCompleteOnCancelled(
   audit: AuditLog,
-  opts: { contractId: ContractId; subtaskId: string; context?: string },
+  opts: { contractId: ContractId; subtaskId: SubtaskId; context?: string },
 ): void {
   if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractCompleteOnCancelled')) return;
   const cols: string[] = [
@@ -371,7 +371,7 @@ export function emitContractCompleteOnCancelled(
 // ─── VERIFICATION_BACKGROUND_DONE ─────────────────────────────────────────────
 export function emitContractVerificationBackgroundDone(
   audit: AuditLog,
-  opts: { contractId: ContractId; subtaskId: string; result: string },
+  opts: { contractId: ContractId; subtaskId: SubtaskId; result: string },
 ): void {
   if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractVerificationBackgroundDone')) return;
   audit.write(
@@ -397,7 +397,7 @@ export function emitContractVerificationScriptStarted(
 // ─── SUBTASK_DUPLICATE_DONE ─────────────────────────────────────────────────
 export function emitContractSubtaskDuplicateDone(
   audit: AuditLog,
-  opts: { contractId: ContractId; subtaskId: string },
+  opts: { contractId: ContractId; subtaskId: SubtaskId },
 ): void {
   if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractSubtaskDuplicateDone')) return;
   audit.write(
@@ -410,7 +410,7 @@ export function emitContractSubtaskDuplicateDone(
 // ─── SUBTASK_ALREADY_COMPLETED ──────────────────────────────────────────────
 export function emitContractSubtaskAlreadyCompleted(
   audit: AuditLog,
-  opts: { contractId: ContractId; subtaskId: string },
+  opts: { contractId: ContractId; subtaskId: SubtaskId },
 ): void {
   if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractSubtaskAlreadyCompleted')) return;
   audit.write(
@@ -444,7 +444,7 @@ export function emitContractUnexpectedAsyncThrow(
 // ─── PASSED (key-fix site: split ${contractId}/${subtaskId}) ────────────────
 export function emitContractPassed(
   audit: AuditLog,
-  opts: { contractId: ContractId; subtaskId: string },
+  opts: { contractId: ContractId; subtaskId: SubtaskId },
 ): void {
   if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractPassed')) return;
   audit.write(
@@ -505,7 +505,7 @@ export function emitContractResumed(
 // ─── SUBTASK_COMPLETED (key-fix site: split ${contractId}/${subtaskId}) ─────
 export function emitContractSubtaskCompleted(
   audit: AuditLog,
-  opts: { contractId: ContractId; subtaskId: string; progress: string; claw: string },
+  opts: { contractId: ContractId; subtaskId: SubtaskId; progress: string; claw: string },
 ): void {
   if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractSubtaskCompleted')) return;
   audit.write(
@@ -520,7 +520,7 @@ export function emitContractSubtaskCompleted(
 // ─── VERIFICATION_FAILED (key-fix site: split ${contractId}/${subtaskId}) ─────
 export function emitContractVerificationFailed(
   audit: AuditLog,
-  opts: { contractId: ContractId; subtaskId: string; feedback?: string },
+  opts: { contractId: ContractId; subtaskId: SubtaskId; feedback?: string },
 ): void {
   if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractVerificationFailed')) return;
   const cols: string[] = [
@@ -536,7 +536,7 @@ export function emitContractEscalated(
   audit: AuditLog,
   opts: {
     contractId: ContractId;
-    subtaskId: string;
+    subtaskId: SubtaskId;
     retryCount: number;
     claw: string;
     context?: string;
@@ -556,7 +556,7 @@ export function emitContractEscalated(
 // ─── VERIFICATION_TIMEOUT (key-fix site: split ${contractId}/${subtaskId}) ────
 export function emitContractVerificationTimeout(
   audit: AuditLog,
-  opts: { contractId: ContractId; subtaskId: string; claw: string },
+  opts: { contractId: ContractId; subtaskId: SubtaskId; claw: string },
 ): void {
   if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractVerificationTimeout')) return;
   audit.write(

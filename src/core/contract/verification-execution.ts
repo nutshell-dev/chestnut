@@ -5,7 +5,7 @@
 
 import * as path from 'path';
 import type { VerificationContext } from './verification-types.js';
-import type { VerificationResult } from './types.js';
+import type { VerificationResult, SubtaskId } from './types.js';
 import { exec } from '../../foundation/process-exec/index.js';
 import { ProcessExecError } from '../../foundation/process-exec/index.js';
 import { CONTRACT_SCRIPT_TIMEOUT_MS } from './constants.js';
@@ -54,7 +54,7 @@ export async function runLLMVerification(
   promptFile: string,
   contractAbsDir: string,
   contractId: ContractId,
-  subtaskId: string,
+  subtaskId: SubtaskId,
   subtaskDesc: string,
   evidence: string,
   artifacts: string[],
