@@ -20,10 +20,12 @@ import {
   emitContractVerificationFailed,
   emitContractVerificationResetFailed,
   emitContractVerificationStarted,
+  emitContractVerificationPipelineRaceRejected,
 } from './audit-emit.js';
 
 
 import { archiveAndEmit, completeSubtaskSync } from './verification-lifecycle.js';
+import { acquireVerificationMutex, releaseVerificationMutex } from './verification-mutex.js';
 import { writeVerificationInbox, writeVerificationError, safeNotify } from './verification-notify.js';
 import { formatRejectionFeedback, formatValidIds } from './verification-format.js';
 import type { VerificationContext } from './verification-types.js';
@@ -211,12 +213,23 @@ export async function runVerificationPipeline(
   params: { contractId: ContractId; subtaskId: SubtaskId; evidence: string; artifacts?: string[] },
 ): Promise<VerificationResult> {
   const { contractId, subtaskId, evidence, artifacts } = params;
-  const contractYaml = await ctx.loadContractYaml(contractId);
-  const verificationConfig = contractYaml.verification?.find(a => a.subtask_id === subtaskId);
 
-  if (!verificationConfig) {
-    return completeSubtaskSync(ctx, contractId, subtaskId, evidence, artifacts);
+  if (!acquireVerificationMutex(contractId)) {
+    emitContractVerificationPipelineRaceRejected(
+      ctx.audit,
+      { contractId, subtaskId, context: 'runVerificationPipeline', reason: 'verification_pipeline_already_active' },
+    );
+    throw new ToolError(`Verification pipeline for contract "${contractId}" is already active — concurrent attempt rejected.`);
   }
+
+  try {
+    const contractYaml = await ctx.loadContractYaml(contractId);
+    const verificationConfig = contractYaml.verification?.find(a => a.subtask_id === subtaskId);
+
+    if (!verificationConfig) {
+      releaseVerificationMutex(contractId);
+      return completeSubtaskSync(ctx, contractId, subtaskId, evidence, artifacts);
+    }
 
   await ctx.withProgressLock(contractId, async () => {
     const progress = await ctx.getProgress(contractId);
@@ -269,9 +282,16 @@ export async function runVerificationPipeline(
           },
         );
       });
+    })
+    .finally(() => {
+      releaseVerificationMutex(contractId);
     });
 
   return { passed: false, feedback: '', async: true };
+  } catch (e) {
+    releaseVerificationMutex(contractId);
+    throw e;
+  }
 }
 
 export async function runVerificationInBackground(
