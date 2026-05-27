@@ -371,15 +371,17 @@ export function emitContractCompleteOnCancelled(
 // ─── VERIFICATION_BACKGROUND_DONE ─────────────────────────────────────────────
 export function emitContractVerificationBackgroundDone(
   audit: AuditLog,
-  opts: { contractId: ContractId; subtaskId: SubtaskId; result: string },
+  opts: { contractId: ContractId; subtaskId: SubtaskId; result: string; cancelReason?: string; missingSubtaskId?: string },
 ): void {
   if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractVerificationBackgroundDone')) return;
-  audit.write(
-    CONTRACT_AUDIT_EVENTS.VERIFICATION_BACKGROUND_DONE,
+  const cols: string[] = [
     `contractId=${opts.contractId}`,
     `subtaskId=${opts.subtaskId}`,
     `result=${opts.result}`,
-  );
+  ];
+  if (opts.cancelReason !== undefined) cols.push(`cancel_reason=${opts.cancelReason}`);
+  if (opts.missingSubtaskId !== undefined) cols.push(`missing_subtask_id=${opts.missingSubtaskId}`);
+  audit.write(CONTRACT_AUDIT_EVENTS.VERIFICATION_BACKGROUND_DONE, ...cols);
 }
 
 // ─── VERIFICATION_SCRIPT_STARTED ──────────────────────────────────────────────

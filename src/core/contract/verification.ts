@@ -85,6 +85,11 @@ async function runVerificationByType(
   );
 }
 
+type ApplyOutcome =
+  | { allCompleted: boolean; passed: boolean }
+  | { kind: 'cancelled' }
+  | { kind: 'missing_subtask' };
+
 async function applyVerificationOutcome(
   ctx: VerificationContext,
   contractId: ContractId,
@@ -93,7 +98,7 @@ async function applyVerificationOutcome(
   result: VerificationResult,
   contractYaml: ContractYaml,
   verificationConfig: VerificationConfig,
-): Promise<{ allCompleted: boolean; passed: boolean } | null> {
+): Promise<ApplyOutcome> {
   return ctx.withProgressLock(contractId, async () => {
     const progress = await ctx.getProgress(contractId);
 
@@ -107,7 +112,7 @@ async function applyVerificationOutcome(
           message: 'contract already cancelled, skip verification outcome write',
         },
       );
-      return null;
+      return { kind: 'cancelled' };
     }
 
     const subtask = progress.subtasks[subtaskId];
@@ -121,7 +126,7 @@ async function applyVerificationOutcome(
           error: 'subtask missing from progress after in_progress mark',
         },
       );
-      return null;
+      return { kind: 'missing_subtask' };
     }
 
     if (result.passed) {
@@ -305,7 +310,9 @@ export async function runVerificationInBackground(
   const subtaskDesc = subtaskDef?.description || subtaskId;
   const contractAbsDir = path.join(ctx.clawDir, await ctx.contractDir(contractId), contractId);
 
-  let outcomeKind: 'passed' | 'failed' | 'error' = 'error';
+  let outcomeKind: 'passed' | 'failed' | 'error' | 'cancelled' | 'missing_subtask' = 'error';
+  let cancelReason: string | undefined;
+  let missingSubtaskId: string | undefined;
   try {
     const result = await runVerificationByType(
       ctx,
@@ -327,16 +334,28 @@ export async function runVerificationInBackground(
       contractYaml,
       verificationConfig,
     );
-    outcomeKind = outcome?.passed ? 'passed' : 'failed';
 
-    if (outcome?.passed && outcome.allCompleted) {
+    if ('kind' in outcome) {
+      if (outcome.kind === 'cancelled') {
+        outcomeKind = 'cancelled';
+        cancelReason = 'contract_cancelled';
+      } else if (outcome.kind === 'missing_subtask') {
+        outcomeKind = 'missing_subtask';
+        missingSubtaskId = subtaskId;
+      }
+    } else {
+      outcomeKind = outcome.passed ? 'passed' : 'failed';
+    }
+
+    if (!('kind' in outcome) && outcome.passed && outcome.allCompleted) {
       const progressAfterLock = await ctx.getProgress(contractId);
       if (progressAfterLock.status === 'cancelled') {
         emitContractCompleteOnCancelled(
           ctx.audit,
           { contractId, subtaskId, context: 'runVerificationInBackground' },
         );
-        outcomeKind = 'failed';
+        outcomeKind = 'cancelled';
+        cancelReason = 'contract_cancelled_after_verification';
       } else {
         await archiveAndEmit(ctx, contractId, contractYaml.title, 'ContractSystem._runVerificationInBackground');
       }
@@ -344,7 +363,7 @@ export async function runVerificationInBackground(
   } finally {
     emitContractVerificationBackgroundDone(
       ctx.audit,
-      { contractId, subtaskId, result: outcomeKind },
+      { contractId, subtaskId, result: outcomeKind, cancelReason, missingSubtaskId },
     );
   }
 }
