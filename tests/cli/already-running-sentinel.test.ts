@@ -3,20 +3,25 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
-// Prevent program.parse() from executing during module load
+// Prevent program.parse() from executing during module load.
+// Use plain functions (not vi.fn) inside vi.mock factory to avoid
+// hoisting reliability issues that can cause intermittent mock failure.
 vi.mock('commander', async () => {
   const mod = await vi.importActual<typeof import('commander')>('commander');
   const program = new mod.Command();
-  program.parse = vi.fn(() => program);
-  program.parseAsync = vi.fn(() => Promise.resolve(program));
+  program.parse = () => program;
+  program.parseAsync = () => Promise.resolve(program);
   return { ...mod, program };
 });
 
+// phase1363: complete mock with plain functions to prevent infinite hang
+// in the spawn-ready polling loop if the mock intermittently fails.
 vi.mock('../../src/foundation/process-manager/agent-factory.js', () => ({
-  createAgentProcessManager: vi.fn(() => ({
-    isAlive: vi.fn(() => true),
-    spawn: vi.fn(),
-  })),
+  createAgentProcessManager: () => ({
+    isAlive: () => true,
+    spawn: () => Promise.resolve(),
+    markReady: () => Promise.resolve(),
+  }),
 }));
 
 describe('already-running sentinel (phase 981 E-α3)', () => {
@@ -80,5 +85,51 @@ describe('already-running sentinel (phase 981 E-α3)', () => {
 
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('⚠'));
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('already running'));
+  });
+
+  // phase1363 reverse tests — invariant against root-cause regression
+
+  it('claw daemon actionHandler resolves in <1000ms (happy path)', async () => {
+    setupConfig();
+
+    const clawDir = path.join(tmpDir, '.clawforum', 'claws', 'running-claw');
+    fs.mkdirSync(clawDir, { recursive: true });
+    fs.writeFileSync(path.join(clawDir, 'config.yaml'), 'name: running-claw\n');
+
+    const { program } = await import('commander');
+    await import('../../src/cli/index.js');
+
+    const clawCmd = program.commands.find((c: any) => c.name() === 'claw');
+    const daemonCmd = clawCmd?.commands.find((c: any) => c.name() === 'daemon');
+
+    const start = Date.now();
+    await (daemonCmd as any)._actionHandler(['running-claw']);
+    const elapsed = Date.now() - start;
+
+    expect(elapsed).toBeLessThan(1000);
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('already running'));
+  });
+
+  it('mock spawn returns a resolved promise (regression invariant)', async () => {
+    const { createAgentProcessManager } = await import(
+      '../../src/foundation/process-manager/agent-factory.js'
+    );
+    const pm = createAgentProcessManager({} as any, {} as any);
+    const result = pm.spawn('test-claw', {
+      command: 'node',
+      args: ['daemon-entry.js', 'test-claw'],
+      logFile: path.join(tmpDir, 'daemon.log'),
+    });
+
+    expect(result).toBeInstanceOf(Promise);
+    await expect(result).resolves.toBeUndefined();
+  });
+
+  it('CLI dynamic import does not block indefinitely (boot-chain integrity)', async () => {
+    const start = Date.now();
+    await import('../../src/cli/index.js');
+    const elapsed = Date.now() - start;
+
+    expect(elapsed).toBeLessThan(3000);
   });
 });
