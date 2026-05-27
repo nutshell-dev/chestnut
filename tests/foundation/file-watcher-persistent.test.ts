@@ -4,7 +4,7 @@
  * Module-level mock of chokidar to verify options passed through.
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createWatcher } from '../../src/foundation/file-watcher/index.js';
 
 vi.mock('chokidar', () => ({

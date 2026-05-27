@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { runDeepDream, type DeepDreamOptions } from '../../../src/core/memory/deep-dream.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';

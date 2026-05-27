@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import { CRON_TICK_INTERVAL_MS } from '../../../src/core/cron/constants.js';
 import { CronRunner, type CronJob } from '../../../src/core/cron/runner.js';
