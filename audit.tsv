@@ -1,15 +1,13 @@
-2026-05-27T11:30:34.879Z	seq=1	dialog_archive_empty
-2026-05-27T11:30:34.886Z	seq=2	dialog_cold_start
-2026-05-27T11:30:34.899Z	seq=3	session_loaded	source=empty
-2026-05-27T11:30:34.907Z	seq=4	session_archive_failed	path=dialog/current.json	reason=File not found: "dialog/current.json"
-2026-05-27T11:30:34.918Z	seq=5	task_recovery_complete	system	pending=0	recovered_running=0	failed=0
-2026-05-27T11:30:35.166Z	seq=6	inbox_inject	file=critical_msg.md	type=message	from=motion	to=test-claw	pri=critical	trace_id=8da9183a87fe4026
-2026-05-27T11:30:35.172Z	seq=7	inbox_inject	file=high_msg.md	type=message	from=motion	to=test-claw	pri=high	trace_id=8da9183a87fe4026
-2026-05-27T11:30:35.176Z	seq=8	inbox_inject	file=normal_msg.md	type=message	from=motion	to=test-claw	pri=normal	trace_id=8da9183a87fe4026
-2026-05-27T11:30:35.185Z	seq=9	dialog_archive_empty	trace_id=8da9183a87fe4026
-2026-05-27T11:30:35.190Z	seq=10	dialog_cold_start	trace_id=8da9183a87fe4026
-2026-05-27T11:30:35.195Z	seq=11	turn_start	trace_id=8da9183a87fe4026
-2026-05-27T11:30:35.201Z	seq=12	dialog_archive_empty	trace_id=8da9183a87fe4026
-2026-05-27T11:30:35.206Z	seq=13	dialog_cold_start	trace_id=8da9183a87fe4026
-2026-05-27T11:30:35.211Z	seq=14	dialog_turn_begin	trace_id=8da9183a87fe4026
-2026-05-27T11:30:35.244Z	seq=15	llm_call	test	in=0	out=0	latency_ms=1	trace_id=8da9183a87fe4026
+2026-05-27T11:30:35.863Z	seq=1	dialog_archive_empty
+2026-05-27T11:30:35.869Z	seq=2	dialog_cold_start
+2026-05-27T11:30:35.880Z	seq=3	session_loaded	source=empty
+2026-05-27T11:30:35.888Z	seq=4	session_archive_failed	path=dialog/current.json	reason=File not found: "dialog/current.json"
+2026-05-27T11:30:35.994Z	seq=5	task_recovery_complete	system	pending=0	recovered_running=0	failed=0
+2026-05-27T11:30:36.099Z	seq=6	inbox_inject	file=test.md	type=message	from=motion	to=test-claw	pri=normal	trace_id=492dac83d261c03b
+2026-05-27T11:30:36.109Z	seq=7	dialog_archive_empty	trace_id=492dac83d261c03b
+2026-05-27T11:30:36.117Z	seq=8	dialog_cold_start	trace_id=492dac83d261c03b
+2026-05-27T11:30:36.125Z	seq=9	turn_start	trace_id=492dac83d261c03b
+2026-05-27T11:30:36.150Z	seq=10	dialog_archive_empty	trace_id=492dac83d261c03b
+2026-05-27T11:30:36.157Z	seq=11	dialog_cold_start	trace_id=492dac83d261c03b
+2026-05-27T11:30:36.169Z	seq=12	dialog_turn_begin	trace_id=492dac83d261c03b
+2026-05-27T11:30:36.273Z	seq=13	llm_call	test	in=0	out=0	latency_ms=0	trace_id=492dac83d261c03b
