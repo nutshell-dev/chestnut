@@ -1,13 +1,15 @@
-2026-05-27T11:30:22.751Z	seq=1	dialog_archive_empty
-2026-05-27T11:30:22.755Z	seq=2	dialog_cold_start
-2026-05-27T11:30:22.775Z	seq=3	session_loaded	source=empty
-2026-05-27T11:30:22.840Z	seq=4	session_archive_failed	path=dialog/current.json	reason=File not found: "dialog/current.json"
-2026-05-27T11:30:22.869Z	seq=5	task_recovery_complete	system	pending=0	recovered_running=0	failed=0
-2026-05-27T11:30:22.957Z	seq=6	inbox_inject	file=old2.md	type=message	from=motion	to=test-claw	pri=normal	trace_id=5c517d99a847b94f
-2026-05-27T11:30:22.967Z	seq=7	dialog_archive_empty	trace_id=5c517d99a847b94f
-2026-05-27T11:30:22.971Z	seq=8	dialog_cold_start	trace_id=5c517d99a847b94f
-2026-05-27T11:30:22.977Z	seq=9	turn_start	trace_id=5c517d99a847b94f
-2026-05-27T11:30:22.991Z	seq=10	dialog_archive_empty	trace_id=5c517d99a847b94f
-2026-05-27T11:30:23.003Z	seq=11	dialog_cold_start	trace_id=5c517d99a847b94f
-2026-05-27T11:30:23.008Z	seq=12	dialog_turn_begin	trace_id=5c517d99a847b94f
-2026-05-27T11:30:23.031Z	seq=13	llm_call	test	in=0	out=0	latency_ms=0	trace_id=5c517d99a847b94f
+2026-05-27T11:30:23.417Z	seq=1	dialog_archive_empty
+2026-05-27T11:30:23.451Z	seq=2	dialog_cold_start
+2026-05-27T11:30:23.512Z	seq=3	session_loaded	source=empty
+2026-05-27T11:30:23.612Z	seq=4	session_archive_failed	path=dialog/current.json	reason=File not found: "dialog/current.json"
+2026-05-27T11:30:23.674Z	seq=5	task_recovery_complete	system	pending=0	recovered_running=0	failed=0
+2026-05-27T11:30:23.702Z	seq=6	inbox_inject	file=watchdog-msg.md	type=watchdog_claw_inactivity	from=watchdog	to=test-claw	pri=high	trace_id=3b68f80b571f69ec
+2026-05-27T11:30:23.707Z	seq=7	runtime_inbox_unknown_type	type=watchdog_claw_inactivity	from=watchdog	trace_id=3b68f80b571f69ec
+2026-05-27T11:30:23.713Z	seq=8	dialog_archive_empty	trace_id=3b68f80b571f69ec
+2026-05-27T11:30:23.718Z	seq=9	dialog_cold_start	trace_id=3b68f80b571f69ec
+2026-05-27T11:30:23.725Z	seq=10	turn_start	trace_id=3b68f80b571f69ec
+2026-05-27T11:30:23.730Z	seq=11	dialog_archive_empty	trace_id=3b68f80b571f69ec
+2026-05-27T11:30:23.734Z	seq=12	dialog_cold_start	trace_id=3b68f80b571f69ec
+2026-05-27T11:30:23.739Z	seq=13	dialog_turn_begin	trace_id=3b68f80b571f69ec
+2026-05-27T11:30:23.764Z	seq=14	llm_call	test	in=0	out=0	latency_ms=2	trace_id=3b68f80b571f69ec
+2026-05-27T11:30:23.771Z	seq=15	llm_empty_response	stop_reason=end_turn	trace_id=3b68f80b571f69ec

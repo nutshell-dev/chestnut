@@ -1,22 +1,17 @@
 {
   "version": 2,
   "clawId": "test-claw",
-  "createdAt": "2026-05-27T11:30:23.003Z",
-  "updatedAt": "2026-05-27T11:30:23.040Z",
+  "createdAt": "2026-05-27T11:30:23.734Z",
+  "updatedAt": "2026-05-27T11:30:23.776Z",
   "systemPrompt": "## Available Skills\nNo skills loaded.\n",
   "messages": [
     {
       "role": "user",
-      "content": "[system message (2h ago)] Body"
+      "content": "[system message (0s ago)] Claw inactive"
     },
     {
       "role": "assistant",
-      "content": [
-        {
-          "type": "text",
-          "text": "ok"
-        }
-      ]
+      "content": []
     }
   ],
   "toolsForLLM": [
@@ -61,5 +56,5 @@
       }
     }
   ],
-  "trace_id": "5c517d99a847b94f"
+  "trace_id": "3b68f80b571f69ec"
 }
