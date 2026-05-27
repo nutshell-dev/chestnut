@@ -12,14 +12,14 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import { formatErr } from '../../foundation/utils/format.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 import type { ClawId } from '../../foundation/identity/index.js';
-import { type ContractId, makeContractId } from './types.js';
+import type { ContractId } from './types.js';
 
 
 
 // ─── phase 1235 B.3: invariant assert for empty contractId ─────────────────
 function assertContractIdNonEmpty(
   audit: AuditLog,
-  contractId: ContractId | undefined,
+  contractId: string | undefined,
   emitFnName: string,
 ): boolean {
   if (contractId === undefined) return true;
@@ -125,7 +125,7 @@ export function emitContractProgressSchemaInvalid(
     raw?: string;
   },
 ): void {
-  if (!assertContractIdNonEmpty(audit, opts.contractId ? makeContractId(opts.contractId) : undefined, 'emitContractProgressSchemaInvalid')) return;
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractProgressSchemaInvalid')) return;
   const cols: string[] = [];
   if (opts.contractId !== undefined) cols.push(`contractId=${opts.contractId}`);
   if (opts.path !== undefined) cols.push(`path=${opts.path}`);
@@ -184,7 +184,7 @@ export function emitContractProgressCorrupted(
     message?: string;
   },
 ): void {
-  if (!assertContractIdNonEmpty(audit, opts.contractId ? makeContractId(opts.contractId) : undefined, 'emitContractProgressCorrupted')) return;
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractProgressCorrupted')) return;
   const cols: string[] = [];
   if (opts.context !== undefined) cols.push(`context=${opts.context}`);
   if (opts.contractId !== undefined) cols.push(`contractId=${opts.contractId}`);
@@ -330,7 +330,7 @@ export function emitContractVerificationResetFailed(
     error?: string;
   },
 ): void {
-  if (!assertContractIdNonEmpty(audit, opts.contractId ? makeContractId(opts.contractId) : undefined, 'emitContractVerificationResetFailed')) return;
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractVerificationResetFailed')) return;
   const cols: string[] = [];
   if (opts.contractId !== undefined) cols.push(opts.contractId);
   if (opts.subtaskId !== undefined) cols.push(`subtaskId=${opts.subtaskId}`);

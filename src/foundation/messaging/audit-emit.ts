@@ -11,7 +11,7 @@
 import type { AuditLog } from '../audit/index.js';
 import { MESSAGING_AUDIT_EVENTS } from './audit-events.js';
 import type { ClawId } from '../identity/index.js';
-import type { TaskId } from '../../core/async-task-system/types.js';
+
 
 
 
@@ -73,7 +73,7 @@ export function emitInboxLegacyClawIdField(
 // ─── INBOX_DEDUPED ────────────────────────────────────────────────────────────
 export function emitInboxDeduped(
   audit: AuditLog,
-  opts: { file: string; taskId: TaskId },
+  opts: { file: string; taskId: string },
 ): void {
   audit.write(MESSAGING_AUDIT_EVENTS.INBOX_DEDUPED, `file=${opts.file}`, `taskId=${opts.taskId}`);
 }

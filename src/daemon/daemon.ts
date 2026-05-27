@@ -70,7 +70,7 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
     let instances: DaemonInstances;
     try {
       instances = await deps.assemble({
-        identity: isMotion ? 'motion' : 'claw',
+        identity: isMotion ? 'motion' : 'claw', // identity='motion' literal
         clawId: clawId,
         clawDir: dir,
         globalConfig,

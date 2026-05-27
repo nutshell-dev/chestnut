@@ -17,19 +17,19 @@
         },
         {
             "file": "src/cli/commands/chat-viewport-claw-manager.ts",
-            "line": 150,
+            "line": 152,
             "body_excerpt": "} catch { /* skip */ }",
             "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
         },
         {
             "file": "src/cli/commands/chat-viewport-claw-manager.ts",
-            "line": 155,
+            "line": 157,
             "body_excerpt": "} catch { /* ENOENT 等，跳过 */ }",
             "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
         },
         {
             "file": "src/cli/commands/chat-viewport-claw-manager.ts",
-            "line": 69,
+            "line": 71,
             "body_excerpt": "} catch { /* polling fallback */ }",
             "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
         },
@@ -309,14 +309,14 @@
         },
         {
             "file": "src/core/async-task-system/task-recovery.ts",
-            "line": 122,
+            "line": 124,
             "body_excerpt": ".catch(() => {}",
             "reason": "phase 989 C.3 retry-count cleanup hygiene / D5 align",
             "form": "promise"
         },
         {
             "file": "src/core/async-task-system/task-recovery.ts",
-            "line": 199,
+            "line": 201,
             "body_excerpt": ".catch(() => {}",
             "reason": "retryPath delete 失败无害 / 残文件下次 startup 覆盖",
             "form": "promise"
@@ -344,21 +344,21 @@
         },
         {
             "file": "src/foundation/tools/executor.ts",
-            "line": 149,
+            "line": 151,
             "body_excerpt": ".catch(() => {}",
             "reason": "race loser handled by executionPromise.catch L150+",
             "form": "promise"
         },
         {
             "file": "src/foundation/dialog-store/store.ts",
-            "line": 332,
+            "line": 336,
             "body_excerpt": ".catch(() => {",
             "reason": "phase 1149 D fork ratify accepted-stable α / shadow promise 三件套 by-design / 12 caller universe 全 await + audit emit 实证齐全",
             "form": "promise"
         },
         {
             "file": "src/foundation/dialog-store/store.ts",
-            "line": 325,
+            "line": 334,
             "body_excerpt": ".catch(() => {",
             "reason": "pre-existing silent catch / TODO phase TBD convert to canonical",
             "form": "promise"
