@@ -1,0 +1,2 @@
+- Check disk space
+- Verify connections
