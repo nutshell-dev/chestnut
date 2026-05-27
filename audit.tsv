@@ -1,13 +1,13 @@
-2026-05-27T11:30:19.655Z	seq=1	dialog_archive_empty
-2026-05-27T11:30:19.661Z	seq=2	dialog_cold_start
-2026-05-27T11:30:19.666Z	seq=3	session_loaded	source=empty
-2026-05-27T11:30:19.736Z	seq=4	session_archive_failed	path=dialog/current.json	reason=File not found: "dialog/current.json"
-2026-05-27T11:30:19.803Z	seq=5	task_recovery_complete	system	pending=0	recovered_running=0	failed=0
-2026-05-27T11:30:19.815Z	seq=6	inbox_inject	file=test.md	type=message	from=motion	to=test-claw	pri=normal	trace_id=6cbe428559095aea
-2026-05-27T11:30:19.823Z	seq=7	dialog_archive_empty	trace_id=6cbe428559095aea
-2026-05-27T11:30:19.828Z	seq=8	dialog_cold_start	trace_id=6cbe428559095aea
-2026-05-27T11:30:19.833Z	seq=9	turn_start	trace_id=6cbe428559095aea
-2026-05-27T11:30:19.840Z	seq=10	dialog_archive_empty	trace_id=6cbe428559095aea
-2026-05-27T11:30:19.846Z	seq=11	dialog_cold_start	trace_id=6cbe428559095aea
-2026-05-27T11:30:19.850Z	seq=12	dialog_turn_begin	trace_id=6cbe428559095aea
-2026-05-27T11:30:19.888Z	seq=13	llm_call	test-model	in=0	out=0	latency_ms=0	trace_id=6cbe428559095aea
+2026-05-27T11:30:21.368Z	seq=1	dialog_archive_empty
+2026-05-27T11:30:21.375Z	seq=2	dialog_cold_start
+2026-05-27T11:30:21.381Z	seq=3	session_loaded	source=empty
+2026-05-27T11:30:21.391Z	seq=4	session_archive_failed	path=dialog/current.json	reason=File not found: "dialog/current.json"
+2026-05-27T11:30:21.399Z	seq=5	task_recovery_complete	system	pending=0	recovered_running=0	failed=0
+2026-05-27T11:30:21.422Z	seq=6	inbox_inject	file=old.md	type=message	from=motion	to=test-claw	pri=normal	trace_id=121b58e4e4ca24e9
+2026-05-27T11:30:21.472Z	seq=7	dialog_archive_empty	trace_id=121b58e4e4ca24e9
+2026-05-27T11:30:21.509Z	seq=8	dialog_cold_start	trace_id=121b58e4e4ca24e9
+2026-05-27T11:30:21.513Z	seq=9	turn_start	trace_id=121b58e4e4ca24e9
+2026-05-27T11:30:21.577Z	seq=10	dialog_archive_empty	trace_id=121b58e4e4ca24e9
+2026-05-27T11:30:21.587Z	seq=11	dialog_cold_start	trace_id=121b58e4e4ca24e9
+2026-05-27T11:30:21.633Z	seq=12	dialog_turn_begin	trace_id=121b58e4e4ca24e9
+2026-05-27T11:30:21.678Z	seq=13	llm_call	test	in=0	out=0	latency_ms=1	trace_id=121b58e4e4ca24e9
