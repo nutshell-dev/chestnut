@@ -88,9 +88,3 @@ export interface ToolTask {
   isShadow?: boolean;
 }
 
-// ============================================================================
-// phase 1358: TaskId branded type (compile-time ID discrimination)
-// phase 1365 r-phase1365: 物理迁 foundation/identity / 暂保 re-export for sub-1 backward compat / sub-2 删
-// ============================================================================
-
-export { type TaskId, makeTaskId } from '../../foundation/identity/index.js';

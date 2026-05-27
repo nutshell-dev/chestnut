@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import type { TaskId } from '../../../src/core/async-task-system/types.js';
-import { makeTaskId } from '../../../src/core/async-task-system/types.js';
+import type { TaskId } from '../../../src/foundation/identity/index.js';
+import { makeTaskId } from '../../../src/foundation/identity/index.js';
 import type { ContractId } from '../../../src/core/contract/types.js';
 import { makeContractId } from '../../../src/core/contract/types.js';
 

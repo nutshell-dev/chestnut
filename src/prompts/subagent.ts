@@ -5,7 +5,7 @@
  */
 
 
-import type { TaskId } from '../core/async-task-system/types.js';
+import type { TaskId } from '../foundation/identity/index.js';
 
 export const DEFAULT_SUBAGENT_SYSTEM_PROMPT = `You are a subagent assigned to complete a specific task.
 You CANNOT spawn other subagents - use your available tools to complete the task yourself.

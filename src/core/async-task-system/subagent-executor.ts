@@ -24,7 +24,7 @@ import { sendResult, sendFallbackError } from './result-delivery.js';
 import type { PostProcessor } from './post-processors/types.js';
 import type { SubAgentTask } from './types.js';
 import type { DialogStore } from '../../foundation/dialog-store/index.js';
-import type { TaskId } from './types.js';
+import type { TaskId } from '../../foundation/identity/index.js';
 
 
 

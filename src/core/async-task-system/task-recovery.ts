@@ -19,7 +19,7 @@ import { TASK_AUDIT_EVENTS } from './audit-events.js';
 import { validateTaskShape, backupCorruptTask } from './task-corrupt-helpers.js';
 import { isFileNotFound } from '../../foundation/fs/types.js';
 import { sendFallbackError, sendResult, SENT_MARKER } from './result-delivery.js';
-import type { TaskId } from './types.js';
+import type { TaskId } from '../../foundation/identity/index.js';
 
 
 const RETRY_COUNT_PATH = (taskId: TaskId) =>

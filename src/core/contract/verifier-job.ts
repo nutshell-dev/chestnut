@@ -25,7 +25,7 @@ import { TASKS_SYNC_SUBAGENT_DIR } from '../subagent/index.js';
 import { TASKS_SUBAGENTS_DIR } from '../subagent/constants.js';
 import { buildSubagentSystemPrompt, CONTRACT_VERIFIER_SYSTEM_PROMPT } from '../../prompts/index.js';
 import type { VerifierConfig, VerifierResult } from './types.js';
-import { makeTaskId } from '../async-task-system/types.js';
+import { makeTaskId } from '../../foundation/identity/index.js';
 
 
 export async function runContractVerifier(config: VerifierConfig): Promise<VerifierResult> {

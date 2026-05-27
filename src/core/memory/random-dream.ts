@@ -10,7 +10,7 @@ import { createSystemAudit } from '../../foundation/audit/index.js';
 import type { ProgressData } from '../contract/index.js';
 import type { ClawId } from '../../foundation/identity/index.js';
 import type { ContractId } from '../contract/types.js';
-import { type TaskId, makeTaskId } from '../async-task-system/types.js';
+import { type TaskId, makeTaskId } from '../../foundation/identity/index.js';
 import { listArchiveContracts } from '../contract/index.js';
 import {
   RANDOM_DREAM_SYSTEM_PROMPT,

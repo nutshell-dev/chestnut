@@ -11,7 +11,7 @@ import { ASK_MOTION_TOOL_NAME, ASK_MOTION_TOOL_DESCRIPTION, ASK_MOTION_TOOL_SCHE
 
 import { SUMMON_AUDIT_EVENTS } from '../audit-events.js';
 import { spawnShadowSubagent, stripIncompleteToolUse } from '../../shadow-system/index.js';
-import { type TaskId, makeTaskId } from '../../async-task-system/types.js';
+import { type TaskId, makeTaskId } from '../../../foundation/identity/index.js';
 
 const SUMMON_SUBAGENT_TIMEOUT_MS = 3600 * 1000;   // 1 hour
 

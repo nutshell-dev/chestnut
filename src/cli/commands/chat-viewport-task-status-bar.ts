@@ -14,7 +14,7 @@
 
 import { fitLine } from '../utils/string.js';
 import { DEFAULT_MAX_STEPS } from '../../core/agent-executor/defaults.js';
-import type { TaskId } from '../../core/async-task-system/types.js';
+import type { TaskId } from '../../foundation/identity/index.js';
 
 
 export interface TaskTrack {

@@ -58,7 +58,7 @@ import {
 } from './audit-emit.js';
 import type { PostProcessor } from './post-processors/types.js';
 import type { AsyncTaskSystemOptions, SubAgentTask, ToolTask } from './types.js';
-import { type TaskId, makeTaskId } from './types.js';
+import { type TaskId, makeTaskId } from '../../foundation/identity/index.js';
 
 
 

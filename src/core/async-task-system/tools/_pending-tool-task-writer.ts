@@ -10,7 +10,7 @@ import type { FileSystem } from '../../../foundation/fs/types.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
 import type { AsyncToolTaskArgs } from '../../../foundation/tools/index.js';
 import { emitTaskScheduled } from '../audit-emit.js';
-import { makeTaskId } from '../types.js';
+import { makeTaskId } from '../../../foundation/identity/index.js';
 
 
 /**
