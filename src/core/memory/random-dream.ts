@@ -10,6 +10,7 @@ import { createSystemAudit } from '../../foundation/audit/index.js';
 import type { ProgressData } from '../contract/index.js';
 import type { ClawId } from '../../foundation/identity/index.js';
 import type { ContractId } from '../contract/types.js';
+import { type TaskId, makeTaskId } from '../async-task-system/types.js';
 import { listArchiveContracts } from '../contract/index.js';
 import {
   RANDOM_DREAM_SYSTEM_PROMPT,
@@ -239,7 +240,7 @@ async function discoverWeightedContracts(
 
 export async function waitForTaskResult(
   motionFs: FileSystem,
-  taskId: string,
+  taskId: TaskId,
   timeoutMs: number,
   pollIntervalMs = 30_000,
   audit?: AuditLog,
@@ -332,7 +333,7 @@ export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
   const subagentTimeoutMs = opts.subagentTimeoutMs ?? DEFAULT_RANDOM_DREAM_TIMEOUT_MS;
   const subagentMaxSteps = opts.subagentMaxSteps ?? DEFAULT_RANDOM_DREAM_MAX_STEPS;
 
-  const taskId = await opts.taskSystem.schedule('subagent', {
+  const taskId = makeTaskId(await opts.taskSystem.schedule('subagent', {
     kind: 'subagent',
     mode: 'standard',
     intent: buildRandomDreamPrompt(weightedContracts),
@@ -341,7 +342,7 @@ export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
     parentClawId: MOTION_CLAW_ID,
     originClawId: MOTION_CLAW_ID,
     systemPrompt: RANDOM_DREAM_SYSTEM_PROMPT,    // phase 546: dead import 活化（同 deep-dream 直 LLMService.call 模板 align）
-  });
+  }));
 
   opts.audit.write(MEMORY_AUDIT_EVENTS.RANDOM_DREAM_JOB, `step=subagent_started`, `taskId=${taskId}`);
 

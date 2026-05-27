@@ -14,9 +14,11 @@
 
 import { fitLine } from '../utils/string.js';
 import { DEFAULT_MAX_STEPS } from '../../core/agent-executor/defaults.js';
+import type { TaskId } from '../../core/async-task-system/types.js';
+
 
 export interface TaskTrack {
-  taskId: string;
+  taskId: TaskId;
   callerType: 'subagent' | 'shadow';   // 'subagent' 加 'spawn' 共归 spawn 数组、'shadow' 归 shadow 数组
   currentTool: string | null;
   toolSuccess: boolean | null;
@@ -27,7 +29,7 @@ export interface TaskTrack {
   lastError: string | null;
 }
 
-export function makeTaskTrack(taskId: string, callerType: 'subagent' | 'shadow'): TaskTrack {
+export function makeTaskTrack(taskId: TaskId, callerType: 'subagent' | 'shadow'): TaskTrack {
   return {
     taskId,
     callerType,
@@ -65,9 +67,9 @@ export interface TaskStatusBarDeps {
 }
 
 export interface TaskStatusBarController {
-  addTrack(taskId: string, callerType: string): void;
-  removeTrack(taskId: string): void;
-  updateTrack(taskId: string, event: { type: string; [key: string]: unknown }): void;
+  addTrack(taskId: TaskId, callerType: string): void;
+  removeTrack(taskId: TaskId): void;
+  updateTrack(taskId: TaskId, event: { type: string; [key: string]: unknown }): void;
   renderSpawn(cols: number): string;   // 多行 join、堆顶 = 数组 head
   renderShadow(cols: number): string;
   hasAny(): boolean;
@@ -78,9 +80,9 @@ export function createTaskStatusBar(deps: TaskStatusBarDeps): TaskStatusBarContr
   const spawnTracks: TaskTrack[] = [];   // head = 堆顶 = 视觉最上
   const shadowTracks: TaskTrack[] = [];
 
-  const findIndex = (arr: TaskTrack[], taskId: string) => arr.findIndex(tr => tr.taskId === taskId);
+  const findIndex = (arr: TaskTrack[], taskId: TaskId) => arr.findIndex(tr => tr.taskId === taskId);
 
-  const addTrack = (taskId: string, callerType: string) => {
+  const addTrack = (taskId: TaskId, callerType: string) => {
     const isShadow = callerType === 'shadow';
     const track = makeTaskTrack(taskId, isShadow ? 'shadow' : 'subagent');
     const arr = isShadow ? shadowTracks : spawnTracks;
@@ -88,18 +90,18 @@ export function createTaskStatusBar(deps: TaskStatusBarDeps): TaskStatusBarContr
     deps.updateRender();
   };
 
-  const removeTrack = (taskId: string) => {
+  const removeTrack = (taskId: TaskId) => {
     let idx = findIndex(spawnTracks, taskId);
     if (idx >= 0) { spawnTracks.splice(idx, 1); deps.updateRender(); return; }
     idx = findIndex(shadowTracks, taskId);
     if (idx >= 0) { shadowTracks.splice(idx, 1); deps.updateRender(); return; }
   };
 
-  const find = (taskId: string): TaskTrack | undefined => {
+  const find = (taskId: TaskId): TaskTrack | undefined => {
     return spawnTracks.find(tr => tr.taskId === taskId) ?? shadowTracks.find(tr => tr.taskId === taskId);
   };
 
-  const updateTrack = (taskId: string, event: { type: string; [key: string]: unknown }) => {
+  const updateTrack = (taskId: TaskId, event: { type: string; [key: string]: unknown }) => {
     const tr = find(taskId);
     if (!tr) return;   // 未注册 task 不处理
     switch (event.type) {

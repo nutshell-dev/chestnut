@@ -37,6 +37,8 @@ import { createDisplay } from './chat-viewport-display.js';
 import { createClawPanel, createRescanClawsDir } from './chat-viewport-claw-panel.js';
 import { createEventHandler, type TaskWatch } from './chat-viewport-event-handler.js';
 import { initOwnStateFromHistory, createUncaughtHandler } from './chat-viewport-init.js';
+import { type TaskId, makeTaskId } from '../../core/async-task-system/types.js';
+
 
 // File-local interval / timeout constants
 const INTERRUPT_CLEANUP_TIMEOUT_MS = 5000;
@@ -170,7 +172,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   // Task stream watching (for dispatch/spawn subagent progress)
   const taskWatchMap = new Map<string, TaskWatch>();
 
-  const stopTaskWatch = async (taskId: string) => {
+  const stopTaskWatch = async (taskId: TaskId) => {
     const tw = taskWatchMap.get(taskId);
     if (!tw) return;
     await tw.streamReader?.stop();
@@ -182,7 +184,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     taskStatusBar,
     audit: options.audit,
   });
-  const handleTaskEvent = (taskId: string, ev: unknown) => _taskEventHandler(taskId, ev as Parameters<typeof _taskEventHandler>[1]);
+  const handleTaskEvent = (taskId: TaskId, ev: unknown) => _taskEventHandler(taskId, ev as Parameters<typeof _taskEventHandler>[1]);
 
   const handleEvent = createEventHandler({
     turnTracker,
@@ -270,7 +272,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     const now = Date.now();
     for (const [taskId, tw] of taskWatchMap) {
       if (now - tw.lastEventMs > TASK_STALE_TIMEOUT_MS) {
-        void stopTaskWatch(taskId);
+        void stopTaskWatch(makeTaskId(taskId));
         try {
           options.audit.write(
             VIEWPORT_AUDIT_EVENTS.TASK_STREAM_STALE_CLEANUP,

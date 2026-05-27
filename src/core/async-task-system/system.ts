@@ -58,6 +58,8 @@ import {
 } from './audit-emit.js';
 import type { PostProcessor } from './post-processors/types.js';
 import type { AsyncTaskSystemOptions, SubAgentTask, ToolTask } from './types.js';
+import { type TaskId, makeTaskId } from './types.js';
+
 
 
 interface TaskState {
@@ -217,7 +219,7 @@ export class AsyncTaskSystem {
     taskKind: 'subagent',
     payload: Omit<SubAgentTask, 'id' | 'createdAt'>,
   ): Promise<string> {
-    const taskId = randomUUID();
+    const taskId = makeTaskId(randomUUID());
     const task = {
       ...payload,
       id: taskId,
@@ -257,7 +259,7 @@ export class AsyncTaskSystem {
   /**
    * Sync dedup gate: check if taskId already exists in running, cancelling, or pending.
    */
-  private _isDuplicate(taskId: string): boolean {
+  private _isDuplicate(taskId: TaskId): boolean {
     return this.runningTasks.has(taskId)
         || this.cancellingIds.has(taskId)
         || this.pendingQueue.some(t => t.id === taskId);
@@ -352,10 +354,10 @@ export class AsyncTaskSystem {
    * Shared by watcher callback and _initialScanPending.
    */
   private async _ingestPendingFile(filePath: string): Promise<void> {
-    let taskId: string | undefined;
+    let taskId: TaskId | undefined;
     try {
-      taskId = path.basename(filePath, '.json');
-      if (this._isDuplicate(taskId)) return;
+      taskId = makeTaskId(path.basename(filePath, '.json'));
+      if (!taskId || this._isDuplicate(taskId)) return;
 
       const task = await this._loadPendingTask(filePath);
       if (!task) return;
@@ -366,7 +368,7 @@ export class AsyncTaskSystem {
       // (a) cancel 期间 ghost dispatch (phase 556 β)
       // (b) concurrent ingest 双 push 同 taskId (phase 612 P1.7)
       // (c) 上次 ingest 已 push 但本次 await 慢于其
-      if (this._isDuplicate(taskId)) return;
+      if (!taskId || this._isDuplicate(taskId)) return;
 
       await this._enqueueAndDispatch(task);
     } catch (err) {
@@ -478,7 +480,7 @@ export class AsyncTaskSystem {
   /**
    * Move task file from pending to running directory
    */
-  private async movePendingToRunning(taskId: string): Promise<void> {
+  private async movePendingToRunning(taskId: TaskId): Promise<void> {
     await this.fs.move(
       `${TASKS_QUEUES_PENDING_DIR}/${taskId}.json`,
       `${TASKS_QUEUES_RUNNING_DIR}/${taskId}.json`
@@ -489,7 +491,7 @@ export class AsyncTaskSystem {
   /**
    * Move task file from running to done
    */
-  private async moveTaskToDone(taskId: string): Promise<void> {
+  private async moveTaskToDone(taskId: TaskId): Promise<void> {
     try {
       await this.fs.move(
         `${TASKS_QUEUES_RUNNING_DIR}/${taskId}.json`,
@@ -512,7 +514,7 @@ export class AsyncTaskSystem {
     }
   }
 
-  private async moveTaskToFailed(taskId: string): Promise<void> {
+  private async moveTaskToFailed(taskId: TaskId): Promise<void> {
     try {
       await this.fs.move(
         `${TASKS_QUEUES_RUNNING_DIR}/${taskId}.json`,
@@ -567,7 +569,7 @@ export class AsyncTaskSystem {
   /**
    * Cancel a running task
    */
-  async cancel(taskId: string): Promise<void> {
+  async cancel(taskId: TaskId): Promise<void> {
     // 1. 先检查 running
     const state = this.runningTasks.get(taskId);
     if (state) {

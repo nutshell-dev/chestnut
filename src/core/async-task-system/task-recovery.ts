@@ -19,8 +19,10 @@ import { TASK_AUDIT_EVENTS } from './audit-events.js';
 import { validateTaskShape, backupCorruptTask } from './task-corrupt-helpers.js';
 import { isFileNotFound } from '../../foundation/fs/types.js';
 import { sendFallbackError, sendResult, SENT_MARKER } from './result-delivery.js';
+import type { TaskId } from './types.js';
 
-const RETRY_COUNT_PATH = (taskId: string) =>
+
+const RETRY_COUNT_PATH = (taskId: TaskId) =>
   `${TASKS_QUEUES_RESULTS_DIR}/${taskId}/result.txt.retry-count`;
 const MAX_RECOVERY_RETRIES = 3;
 // SENT_MARKER 迁 result-delivery.ts（写者归属 / phase 789）

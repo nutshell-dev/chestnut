@@ -19,6 +19,7 @@ import type { TurnTracker } from './chat-viewport-types.js';
 import type { MainTurnUIController } from './main-turn-ui.js';
 import type { ThinkingMode } from './chat-viewport-commands.js';
 import type { createViewportObservability } from './chat-viewport-observability.js';
+import { type TaskId, makeTaskId } from '../../core/async-task-system/types.js';
 
 export interface TaskWatch {
   callerType: CallerType;
@@ -40,8 +41,8 @@ export interface EventHandlerDeps {
   audit: AuditLog;
   observability: ReturnType<typeof createViewportObservability>;
   taskWatchMap: Map<string, TaskWatch>;
-  handleTaskEvent: (taskId: string, ev: unknown) => void;
-  taskStatusBar: { addTrack(taskId: string, callerType: string): void };
+  handleTaskEvent: (taskId: TaskId, ev: unknown) => void;
+  taskStatusBar: { addTrack(taskId: TaskId, callerType: string): void };
   getThinkingMode: () => ThinkingMode;
   fsFactory: (baseDir: string) => FileSystem;
 }
@@ -241,7 +242,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
         const taskReader = createStreamReader(taskFs, STREAM_FILE, (ev) => {
           const tw = deps.taskWatchMap.get(taskId);
           if (tw) tw.lastEventMs = Date.now();
-          deps.mainUI.withScope('task', () => deps.handleTaskEvent(taskId, ev));
+          deps.mainUI.withScope('task', () => deps.handleTaskEvent(makeTaskId(taskId), ev));
         }, deps.audit, { persistent: true });
         try {
           taskReader.start();
@@ -259,7 +260,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
         };
         deps.taskWatchMap.set(taskId, tw);
         if (!tw.silent) {
-          deps.taskStatusBar.addTrack(taskId, callerType);
+          deps.taskStatusBar.addTrack(makeTaskId(taskId), callerType);
         }
         break;
       }

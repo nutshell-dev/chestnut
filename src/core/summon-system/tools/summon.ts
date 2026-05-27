@@ -12,6 +12,8 @@ import { ASK_MOTION_TOOL_NAME, ASK_MOTION_TOOL_DESCRIPTION, ASK_MOTION_TOOL_SCHE
 import { SUMMON_AUDIT_EVENTS } from '../audit-events.js';
 import { spawnShadowSubagent } from '../../shadow-system/spawn-shadow-subagent.js';
 import { stripIncompleteToolUse } from '../../shadow-system/_helpers.js';
+import { type TaskId, makeTaskId } from '../../async-task-system/types.js';
+
 
 
 const SUMMON_SUBAGENT_TIMEOUT_MS = 3600 * 1000;   // 1 hour
@@ -149,7 +151,7 @@ export class SummonTool implements Tool {
 
     // 调度 summoner（声明式 postProcessor 替代 closure 注册）
     try {
-      let taskId: string;
+      let taskId: TaskId;
       if (!isMining) {
         const stripped = stripIncompleteToolUse(dialogMessages) ?? dialogMessages ?? [];
         const result = await spawnShadowSubagent({
@@ -165,7 +167,7 @@ export class SummonTool implements Tool {
         });
         taskId = result.taskId;
       } else {
-        taskId = await ctx.taskSystem!.schedule('subagent', {
+        taskId = makeTaskId(await ctx.taskSystem!.schedule('subagent', {
           kind: 'subagent',
           mode: 'standard',
           intent: userMessage,
@@ -178,7 +180,7 @@ export class SummonTool implements Tool {
           postProcessor: 'summon-contract-extract',  // 声明式 post-processor
           mainContextSnapshot,
           systemPrompt,                            // phase 546: 透传 caller-side specialized prompt（mining: buildMinerSystemPrompt）
-        });
+        }));
       }
 
       return {

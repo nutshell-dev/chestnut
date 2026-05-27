@@ -11,13 +11,15 @@ import {
   emitToolAsyncResult,
 } from './audit-emit.js';
 import { TASKS_QUEUES_RUNNING_DIR } from './dirs.js';
+import type { TaskId } from './types.js';
+
 
 export interface ExecuteToolTaskDeps {
   fs: FileSystem;
   auditWriter: AuditLog;
   retryBaseDelayMs: number;
-  moveTaskToDone: (taskId: string) => Promise<void>;
-  moveTaskToFailed: (taskId: string) => Promise<void>;
+  moveTaskToDone: (taskId: TaskId) => Promise<void>;
+  moveTaskToFailed: (taskId: TaskId) => Promise<void>;
 }
 
 /**

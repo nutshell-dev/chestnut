@@ -3,6 +3,7 @@ import { SUMMON_AUDIT_EVENTS } from '../audit-events.js';
 import { formatErr } from '../../../foundation/utils/format.js';
 import { AUDIT_MESSAGE_MAX_CHARS } from '../../../foundation/audit/index.js';
 
+
 /**
  * summon-contract-extract PostProcessor
  *

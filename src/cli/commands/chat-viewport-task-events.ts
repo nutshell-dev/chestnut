@@ -9,9 +9,11 @@
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
 import type { TaskStatusBarController } from './chat-viewport-task-status-bar.js';
+import type { TaskId } from '../../core/async-task-system/types.js';
+
 
 export interface TaskEventHandlerDeps {
-  stopTaskWatch: (taskId: string) => void;
+  stopTaskWatch: (taskId: TaskId) => void;
   taskStatusBar: TaskStatusBarController;
   audit?: AuditLog;
 }
@@ -28,7 +30,7 @@ export type TaskEvent = {
 };
 
 export function createTaskEventHandler(deps: TaskEventHandlerDeps) {
-  return (taskId: string, event: TaskEvent) => {
+  return (taskId: TaskId, event: TaskEvent) => {
     switch (event.type) {
       case 'tool_call':
       case 'tool_result':

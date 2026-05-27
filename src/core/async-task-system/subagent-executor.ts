@@ -24,6 +24,8 @@ import { sendResult, sendFallbackError } from './result-delivery.js';
 import type { PostProcessor } from './post-processors/types.js';
 import type { SubAgentTask } from './types.js';
 import type { DialogStore } from '../../foundation/dialog-store/index.js';
+import type { TaskId } from './types.js';
+
 
 
 
@@ -38,8 +40,8 @@ export interface ExecuteSubAgentTaskDeps {
   parentStreamLog?: StreamLog;
   postProcessors: Map<string, PostProcessor>;
   mainDialogStore?: DialogStore;
-  moveTaskToDone: (taskId: string) => Promise<void>;
-  moveTaskToFailed: (taskId: string) => Promise<void>;
+  moveTaskToDone: (taskId: TaskId) => Promise<void>;
+  moveTaskToFailed: (taskId: TaskId) => Promise<void>;
   toolTimeoutMs?: number;
   permissionChecker?: PermissionChecker;
 }

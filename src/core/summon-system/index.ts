@@ -15,6 +15,7 @@ import { SUMMON_AUDIT_EVENTS } from './audit-events.js';
 import { type ContractId, makeContractId } from '../contract/types.js';
 
 
+
 /** Phase 1335 (r138 F fork): cross-module query API — pending retrospective reference */
 export interface PendingRetroRef {
   contractId: ContractId;

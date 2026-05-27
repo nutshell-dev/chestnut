@@ -15,6 +15,7 @@ import type { Message } from '../../foundation/llm-provider/types.js';
 import { synthesizeFormB } from './_helpers.js';
 import { type BuildShadowInstructionArgs } from '../../prompts/index.js';
 import type { SpawnShadowSubagentOptions, SpawnShadowSubagentResult } from './types.js';
+import { makeTaskId } from '../async-task-system/types.js';
 
 
 export async function spawnShadowSubagent(
@@ -53,5 +54,5 @@ export async function spawnShadowSubagent(
     postProcessor: opts.postProcessor,
   });
 
-  return { taskId, shadowId };
+  return { taskId: makeTaskId(taskId), shadowId };
 }

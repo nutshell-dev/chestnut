@@ -18,6 +18,7 @@ import type { CallerType } from '../caller-types.js';
 import type { ClawId } from '../../foundation/identity/index.js';
 
 
+
 export interface AsyncTaskSystemOptions {
   maxConcurrent?: number;
   auditWriter: AuditLog;
@@ -41,7 +42,7 @@ export interface AsyncTaskSystemOptions {
 
 interface CommonSubAgentTaskFields {
   kind: 'subagent';
-  id: string;
+  id: TaskId;
   timeoutMs: number;
   maxSteps: number;
   parentClawId: string;
@@ -70,7 +71,7 @@ export type SubAgentTask =
 
 export interface ToolTask {
   kind: 'tool';
-  id: string;
+  id: TaskId;
   toolName: string;
   args: Record<string, unknown>;        // fs-persistable / 替代 callback closure
   parentClawDir: string;                // caller clawDir / ctx 重建用
@@ -89,6 +90,6 @@ export interface ToolTask {
 // phase 1358: TaskId branded type (compile-time ID discrimination)
 // ============================================================================
 
-declare const TaskIdBrand: unique symbol;
+export declare const TaskIdBrand: unique symbol;
 export type TaskId = string & { readonly [TaskIdBrand]: true };
 export function makeTaskId(s: string): TaskId { return s as TaskId; }

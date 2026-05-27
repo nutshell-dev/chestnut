@@ -10,6 +10,7 @@ import type { FileSystem } from '../../../foundation/fs/types.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
 import type { AsyncToolTaskArgs } from '../../../foundation/tools/index.js';
 import { emitTaskScheduled } from '../audit-emit.js';
+import { makeTaskId } from '../types.js';
 
 
 /**
@@ -21,7 +22,7 @@ export async function writePendingToolTaskFile(
   audit: AuditLog | undefined,
   args: AsyncToolTaskArgs,
 ): Promise<string> {
-  const taskId = randomUUID();
+  const taskId = makeTaskId(randomUUID());
   const task = {
     id: taskId,
     createdAt: new Date().toISOString(),

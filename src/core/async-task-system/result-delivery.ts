@@ -14,12 +14,14 @@ import { TASKS_QUEUES_RESULTS_DIR } from './dirs.js';
 import { SUMMARY_MAX_CHARS } from '../../foundation/utils/format.js';
 import type { SubAgentTask, ToolTask } from './types.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
+import type { TaskId } from './types.js';
 
 
-export const SENT_MARKER = (taskId: string): string =>
+
+export const SENT_MARKER = (taskId: TaskId): string =>
   `${TASKS_QUEUES_RESULTS_DIR}/${taskId}/result.txt.sent`;
 
-async function writeSentMarker(fs: FileSystem, auditWriter: AuditLog, taskId: string): Promise<void> {
+async function writeSentMarker(fs: FileSystem, auditWriter: AuditLog, taskId: TaskId): Promise<void> {
   try {
     await fs.writeAtomic(SENT_MARKER(taskId), '1');
   } catch (markerErr) {

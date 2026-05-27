@@ -36,6 +36,8 @@ import {
 import { InboxWriter, type InboxMessageMeta } from './inbox-writer.js';
 import { UUID_SHORT_LEN } from '../../constants.js';
 import { InboxListFailed, InboxMoveFailed } from './errors.js';
+import { type TaskId, makeTaskId } from '../../core/async-task-system/types.js';
+
 
 
 function classifyErrno(err: unknown): 'ENOSPC' | 'EACCES' | 'EIO' | 'EMFILE' | 'ENOENT' | 'OTHER' {
@@ -171,11 +173,11 @@ export class InboxReader {
           });
         }
 
-        let taskId: string | undefined;
+        let taskId: TaskId | undefined;
         try {
           const parsed = JSON.parse(message.content);
           if (typeof parsed.taskId === 'string') {
-            taskId = parsed.taskId;
+            taskId = makeTaskId(parsed.taskId);
           }
         } catch {
           // silent: non-JSON content — skip dedupe
