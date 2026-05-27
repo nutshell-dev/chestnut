@@ -7,7 +7,8 @@ import * as path from 'path';
 import type { VerificationContext } from './verification-types.js';
 import { notifyClaw } from '../../foundation/messaging/index.js';
 
-import type { ContractId, SubtaskId } from './types.js';
+import type { ContractId } from '../../foundation/identity/index.js';
+import type { SubtaskId } from './types.js';
 import { formatErr } from '../../foundation/utils/format.js';
 import { ToolTimeoutError } from '../../foundation/errors.js';
 import type { LastFailedFeedback, AcceptanceFailedNotification } from './types.js';

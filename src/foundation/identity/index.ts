@@ -1,1 +1,1 @@
-export { type ClawId, makeClawId, type TaskId, makeTaskId } from './types.js';
+export { type ClawId, makeClawId, type TaskId, makeTaskId, type ContractId, makeContractId } from './types.js';

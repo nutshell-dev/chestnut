@@ -12,7 +12,7 @@ import { CONTRACT_SCRIPT_TIMEOUT_MS } from './constants.js';
 import { ToolTimeoutError } from '../../foundation/errors.js';
 import { formatErr } from '../../foundation/utils/format.js';
 import { DEFAULT_LLM_IDLE_TIMEOUT_MS } from '../../foundation/llm-orchestrator/index.js';
-import type { ContractId } from './types.js';
+import type { ContractId } from '../../foundation/identity/index.js';
 import { DEFAULT_MAX_STEPS } from '../agent-executor/index.js';
 import {
   emitContractVerificationScriptStarted,

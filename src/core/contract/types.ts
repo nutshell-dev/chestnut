@@ -4,6 +4,7 @@
  */
 
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
+import type { ContractId } from '../../foundation/identity/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { ToolRegistry } from '../../foundation/tools/index.js';
@@ -159,14 +160,6 @@ export interface ArchiveContractRef {
   contractDir: string;
   archivedAt?: string;
 }
-
-// ============================================================================
-// phase 1358: ContractId branded type (compile-time ID discrimination)
-// ============================================================================
-
-declare const ContractIdBrand: unique symbol;
-export type ContractId = string & { readonly [ContractIdBrand]: true };
-export function makeContractId(s: string): ContractId { return s as ContractId; }
 
 // ============================================================================
 // phase 1366: SubtaskId branded type (compile-time ID discrimination)

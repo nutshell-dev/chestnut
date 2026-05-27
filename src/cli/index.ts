@@ -47,7 +47,7 @@ import { getClawforumRoot, getClawDir, loadGlobalConfig } from '../foundation/co
 import { CONFIG_DEFAULTS } from '../assembly/config-defaults.js';
 import { parseIntOption } from './parse-int-option.js';
 import { makeClawId } from '../foundation/identity/index.js';
-import { makeContractId } from '../core/contract/types.js';
+import { makeContractId } from '../foundation/identity/index.js';
 import { MOTION_CLAW_ID } from '../constants.js';
 
 const fsFactory = (baseDir: string): FileSystem => new NodeFileSystem({ baseDir });

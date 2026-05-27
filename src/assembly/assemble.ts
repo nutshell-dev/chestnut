@@ -92,7 +92,7 @@ import { createStreamReader, STREAM_FILE, findRecentTurnStartOffset } from '../f
 import { TASKS_SYNC_DIR } from '../core/async-task-system/index.js';
 import { DIALOG_DIR } from '../foundation/dialog-store/dirs.js';
 import { makeClawId, type ClawId } from '../foundation/identity/index.js';
-import type { ContractId } from '../core/contract/types.js';
+import type { ContractId } from '../foundation/identity/index.js';
 import { MOTION_CLAW_ID } from '../constants.js';
 
 

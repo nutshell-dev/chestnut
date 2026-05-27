@@ -20,7 +20,7 @@ import { CONTRACT_DIR } from '../../core/contract/index.js';
 import { CliError } from '../errors.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { ClawId } from '../../foundation/identity/index.js';
-import { type ContractId, makeContractId } from '../../core/contract/types.js';
+import { type ContractId, makeContractId } from '../../foundation/identity/index.js';
 
 
 
