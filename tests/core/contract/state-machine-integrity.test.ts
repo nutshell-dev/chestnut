@@ -83,6 +83,7 @@ function makeAcceptanceCtx(
     runVerifierWithCancel: vi.fn(async () => ({ passed: true, feedback: '' })),
     fs: {
       exists: vi.fn(async () => true),
+      existsSync: vi.fn(() => true),
       read: vi.fn(async () => ''),
       writeAtomic: vi.fn(async () => {}),
       removeDir: vi.fn(async () => {}),

@@ -241,6 +241,8 @@ export class InboxReader {
       const inflightPath = path.join(this.inflightDir, fileName);
       try {
         await this.fs.move(entry.filePath, inflightPath);
+        const now = new Date();
+        await this.fs.utimes(inflightPath, now, now);
         handles.push({ filePath: inflightPath, originalFileName: fileName });
         deliveredEntries.push({ message: entry.message, filePath: inflightPath });
       } catch (err) {

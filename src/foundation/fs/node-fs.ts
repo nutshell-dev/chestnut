@@ -295,6 +295,11 @@ export class NodeFileSystem implements FileSystem {
     return wrapENOENT(relativePath, () => stat(absolute));
   }
 
+  async utimes(relativePath: string, atime: Date, mtime: Date): Promise<void> {
+    const absolute = this.resolveAndCheck(relativePath);
+    return wrapENOENT(relativePath, () => fs.utimes(absolute, atime, mtime));
+  }
+
   async move(fromPath: string, toPath: string): Promise<void> {
     const fromAbsolute = this.resolveAndCheck(fromPath);
     const toAbsolute = this.resolveAndCheck(toPath);
@@ -505,6 +510,11 @@ export class NodeFileSystem implements FileSystem {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') return false;
       throw err;
     }
+  }
+
+  utimesSync(relativePath: string, atime: Date, mtime: Date): void {
+    const absolute = this.resolveAndCheck(relativePath);
+    return wrapENOENTSync(relativePath, () => fsSync.utimesSync(absolute, atime, mtime));
   }
 
   syncSync(relativePath: string): void {

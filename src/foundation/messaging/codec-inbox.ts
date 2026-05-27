@@ -79,6 +79,10 @@ export function encodeInbox(
     `timestamp: ${msg.timestamp}`,
   ];
 
+  if (msg.reply_to !== undefined) {
+    lines.push(`reply_to: ${yamlQuote(msg.reply_to)}`);
+  }
+
   // Generic metadata pass-through
   if (msg.metadata) {
     const reserved = new Set(['id', 'type', 'from', 'to', 'priority', 'timestamp']);
@@ -166,7 +170,7 @@ export function decodeInbox(raw: string): InboxMessage {
     extraMeta.__original_type = String(rawType);   // 非 string 输入仍记原值
   }
 
-  return {
+  const result: InboxMessage = {
     id: meta.id ?? randomUUID(),
     type,
     from: meta.from ?? meta.source ?? 'unknown',
@@ -177,4 +181,10 @@ export function decodeInbox(raw: string): InboxMessage {
     ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
     ...(Object.keys(extraMeta).length > 0 ? { extraMeta } : {}),
   };
+
+  if (meta.reply_to !== undefined) {
+    result.reply_to = meta.reply_to;
+  }
+
+  return result;
 }

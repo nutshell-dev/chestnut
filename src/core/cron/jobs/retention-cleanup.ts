@@ -30,6 +30,7 @@ const DIRS: Array<{ relPath: string; maxDaysKey: keyof RetentionCleanupOptions['
   { relPath: INBOX_FAILED_DIR, maxDaysKey: 'inbox' },
   { relPath: 'outbox/done', maxDaysKey: 'outbox' },
   { relPath: 'outbox/failed', maxDaysKey: 'outbox' },
+  { relPath: 'outbox/processing', maxDaysKey: 'outbox' },
   { relPath: 'tasks/done', maxDaysKey: 'tasks' },
   { relPath: 'tasks/failed', maxDaysKey: 'tasks' },
   { relPath: 'tasks/results', maxDaysKey: 'tasks' },

@@ -142,6 +142,14 @@ export interface FileSystem {
    */
   stat(path: string): Promise<StatInfo>;
 
+  /**
+   * Update file access and modification times.
+   * @param path - Relative path within configured baseDir
+   * @param atime - New access time
+   * @param mtime - New modification time
+   */
+  utimes(path: string, atime: Date, mtime: Date): Promise<void>;
+
   // ========================================================================
   // Synchronous Operations
   // ========================================================================
@@ -245,6 +253,14 @@ export interface FileSystem {
    * Returns false if path does not exist.
    */
   isDirectorySync(path: string): boolean;
+
+  /**
+   * Update file access and modification times (sync).
+   * @param path - Relative path within configured baseDir
+   * @param atime - New access time
+   * @param mtime - New modification time
+   */
+  utimesSync(path: string, atime: Date, mtime: Date): void;
 
   /**
    * Delete a file synchronously.

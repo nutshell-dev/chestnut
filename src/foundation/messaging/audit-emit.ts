@@ -174,6 +174,27 @@ export function emitOutboxSent(
   audit.write(MESSAGING_AUDIT_EVENTS.OUTBOX_SENT, ...cols);
 }
 
+// ─── OUTBOX_PROCESSING_ORPHAN_CLEANED ─────────────────────────────────────────
+export function emitOutboxProcessingOrphanCleaned(
+  audit: AuditLog,
+  opts: { count: number },
+): void {
+  audit.write(MESSAGING_AUDIT_EVENTS.OUTBOX_PROCESSING_ORPHAN_CLEANED, `count=${opts.count}`);
+}
+
+// ─── UNKNOWN_DESTINATION_DLQ ──────────────────────────────────────────────────
+export function emitUnknownDestinationDlq(
+  audit: AuditLog,
+  opts: { targetClawId: string; reason: string; file: string },
+): void {
+  audit.write(
+    MESSAGING_AUDIT_EVENTS.UNKNOWN_DESTINATION_DLQ,
+    `target_claw_id=${opts.targetClawId}`,
+    `reason=${opts.reason}`,
+    `file=${opts.file}`,
+  );
+}
+
 // ─── OUTBOX_SEND_FAILED ───────────────────────────────────────────────────────
 export function emitOutboxSendFailed(
   audit: AuditLog,

@@ -11,6 +11,8 @@ import type { InboxMessage } from './types.js';
 import type { FileSystem } from '../fs/types.js';
 import type { AuditLog } from '../audit/index.js';
 import { MOTION_CLAW_ID } from '../../constants.js';
+import { emitUnknownDestinationDlq } from './audit-emit.js';
+import { randomUUID } from 'crypto';
 
 
 /**
@@ -25,6 +27,31 @@ export function notifyClaw(
   message: InboxMessageOptionsBase,
   audit: AuditLog,
 ): void {
+  // phase 1372 sub-4: DLQ for unknown destination — prevent silent orphan dir creation
+  if (targetClawId !== MOTION_CLAW_ID && typeof fs.existsSync === 'function') {
+    const targetClawRoot = path.join(clawforumRoot, 'claws', targetClawId);
+    if (!fs.existsSync(targetClawRoot)) {
+      const dlqDir = path.join(clawforumRoot, MOTION_CLAW_ID, 'inbox', 'dead-letter');
+      const fileName = `${Date.now()}_${randomUUID().slice(0, 8)}_${targetClawId}.md`;
+      const dlqPath = path.join(dlqDir, fileName);
+      try {
+        fs.ensureDirSync(dlqDir);
+        InboxWriter.__internal_create(fs, makeInboxPath(dlqDir), audit).writeSync({
+          ...message,
+          source: message.source ?? 'unknown',
+        });
+        emitUnknownDestinationDlq(audit, {
+          targetClawId,
+          reason: 'claw_not_found',
+          file: fileName,
+        });
+      } catch {
+        // silent: best-effort DLQ write; do not rethrow.
+      }
+      return;
+    }
+  }
+
   const targetInboxDir = targetClawId === MOTION_CLAW_ID
     ? path.join(clawforumRoot, MOTION_CLAW_ID, 'inbox', 'pending')
     : path.join(clawforumRoot, 'claws', targetClawId, 'inbox', 'pending');

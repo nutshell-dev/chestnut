@@ -57,6 +57,7 @@ import type { ClawId } from '../identity/index.js';
 import * as path from 'path';
 import { INBOX_DONE_DIR, INBOX_FAILED_DIR } from './dirs.js';
 import { MESSAGING_AUDIT_EVENTS } from './audit-events.js';
+import { emitOutboxProcessingOrphanCleaned } from './audit-emit.js';
 import {
   drainOutboxes,
   type DrainOutboxesOptions,
@@ -101,6 +102,7 @@ export async function cleanupRetention(opts: {
     { relPath: INBOX_FAILED_DIR, maxDaysKey: 'inbox' },
     { relPath: 'outbox/done', maxDaysKey: 'outbox' },
     { relPath: 'outbox/failed', maxDaysKey: 'outbox' },
+    { relPath: 'outbox/processing', maxDaysKey: 'outbox' },
   ];
 
   for (const { relPath, maxDaysKey } of dirs) {
@@ -112,6 +114,7 @@ export async function cleanupRetention(opts: {
     if (!fs.existsSync(dir)) continue;
 
     const cutoff = now - maxD * 24 * 60 * 60 * 1000;
+    let dirDeleted = 0;
     try {
       for (const entry of fs.listSync(dir)) {
         if (signal?.aborted) break;
@@ -121,6 +124,7 @@ export async function cleanupRetention(opts: {
           if (stats.mtime.getTime() < cutoff) {
             fs.deleteSync(path.join(dir, entry.name));
             totalDeleted++;
+            dirDeleted++;
           }
         } catch (err) {
           audit.write(MESSAGING_AUDIT_EVENTS.RETENTION_CLEANUP_DELETE_FAILED, `context=per-file`, `dir=${dir}`, `file=${entry.name}`, `reason=${err instanceof Error ? err.message : String(err)}`);
@@ -128,6 +132,10 @@ export async function cleanupRetention(opts: {
       }
     } catch (err) {
       audit.write(MESSAGING_AUDIT_EVENTS.RETENTION_CLEANUP_DELETE_FAILED, `context=per-dir`, `dir=${dir}`, `reason=${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    if (relPath === 'outbox/processing' && dirDeleted > 0) {
+      emitOutboxProcessingOrphanCleaned(audit, { count: dirDeleted });
     }
   }
 

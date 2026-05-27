@@ -379,9 +379,11 @@
       "inbox_write_failed",
       "inbox_written",
       "messaging_retention_cleanup_delete_failed",
+      "messaging_unknown_destination_dlq",
       "notify_claw_failed",
       "notify_claw_sent",
       "outbox_delivered",
+      "outbox_processing_orphan_cleaned",
       "outbox_send_failed",
       "outbox_sent"
     ],
