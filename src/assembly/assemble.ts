@@ -32,7 +32,7 @@ import type { EvolutionSystem } from '../core/evolution-system/index.js';
 
 import { createAsyncTaskSystem } from '../core/async-task-system/index.js';
 import type { AsyncTaskSystem } from '../core/async-task-system/system.js';
-import { summonContractExtractPostProcessor } from '../core/summon-system/index.js';
+import { summonContractExtractPostProcessor, AskMotionTool } from '../core/summon-system/index.js';
 
 import { createFileTools, TASKS_SYNC_WRITE_DIR } from '../foundation/file-tool/index.js';
 import { createCommandTools, TASKS_SYNC_EXEC_DIR } from '../foundation/command-tool/index.js';
@@ -323,6 +323,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
         permissionChecker,          // NEW: permission checker for subagent file tools
         motionInbox,
         fsFactory,
+        askMotionToolFactory: (llm, motionDialogStore) => new AskMotionTool(llm, motionDialogStore),
       });
     } catch (e) {
       auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=task_system`, `phase=construct`, `reason=${errMsg(e)}`);

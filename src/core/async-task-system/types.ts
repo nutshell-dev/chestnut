@@ -39,6 +39,8 @@ export interface AsyncTaskSystemOptions {
   toolTimeoutMs?: number;
   permissionChecker?: PermissionChecker;
   fsFactory: (baseDir: string) => FileSystem;
+  // NEW phase 1369: AskMotionTool factory inject (per phase 619 caller DIP enforce template / cut async-task→summon reverse)
+  askMotionToolFactory: (llm: LLMOrchestrator, motionDialogStore: DialogStore) => import('../../foundation/tools/index.js').Tool;
 }
 
 

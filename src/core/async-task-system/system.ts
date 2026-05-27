@@ -30,6 +30,7 @@ import {
 import { CLAWSPACE_DIR } from '../../foundation/paths.js';
 import type { StreamLog } from '../../foundation/stream/index.js';
 import type { DialogStore } from '../../foundation/dialog-store/index.js';
+import type { Tool } from '../../foundation/tools/index.js';
 import { sendFallbackError } from './result-delivery.js';
 import { recoverTasks } from './task-recovery.js';
 import { validateTaskShape, backupCorruptTask } from './task-corrupt-helpers.js';
@@ -83,6 +84,7 @@ export class AsyncTaskSystem {
   private readonly toolTimeoutMs?: number;
   private permissionChecker?: PermissionChecker;
   private fsFactory: (baseDir: string) => FileSystem;
+  private readonly askMotionToolFactory: (llm: LLMOrchestrator, motionDialogStore: DialogStore) => Tool;
   private _shuttingDown = false;
 
   /**
@@ -125,6 +127,7 @@ export class AsyncTaskSystem {
     this.toolTimeoutMs = options.toolTimeoutMs;
     this.permissionChecker = options.permissionChecker;
     this.fsFactory = options.fsFactory;
+    this.askMotionToolFactory = options.askMotionToolFactory;
   }
 
   async initialize(): Promise<void> {
@@ -452,6 +455,7 @@ export class AsyncTaskSystem {
           moveTaskToFailed: this.moveTaskToFailed.bind(this),
           toolTimeoutMs: this.toolTimeoutMs,
           permissionChecker: this.permissionChecker,
+          askMotionToolFactory: this.askMotionToolFactory,
         });
       }
     } catch (error) {

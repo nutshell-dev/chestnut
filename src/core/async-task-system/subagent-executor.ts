@@ -16,11 +16,11 @@ import {
   emitHandlerFailed,
   emitResultDeliveryFailed,
 } from './audit-emit.js';
-import { AskMotionTool } from '../summon-system/tools/ask-motion.js';
 import { TASKS_QUEUES_RESULTS_DIR, TASKS_SUBAGENTS_DIR } from './dirs.js';
 import { buildSubagentSystemPrompt, DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../../prompts/index.js';
 import { sendResult, sendFallbackError } from './result-delivery.js';
 
+import type { Tool } from '../../foundation/tools/index.js';
 import type { PostProcessor } from './post-processors/types.js';
 import type { SubAgentTask } from './types.js';
 import type { DialogStore } from '../../foundation/dialog-store/index.js';
@@ -44,6 +44,8 @@ export interface ExecuteSubAgentTaskDeps {
   moveTaskToFailed: (taskId: TaskId) => Promise<void>;
   toolTimeoutMs?: number;
   permissionChecker?: PermissionChecker;
+  // NEW phase 1369: AskMotionTool factory inject (per phase 619 caller DIP enforce template / cut async-task→summon reverse)
+  askMotionToolFactory: (llm: LLMOrchestrator, motionDialogStore: DialogStore) => Tool;
 }
 
 async function applyPostProcessor(
@@ -125,7 +127,7 @@ export async function executeSubAgentTask(
           new NoopAuditWriter(),  // ask_motion 不 own motion audit
           'current.json',
         );
-        const askMotion = new AskMotionTool(llm, motionDialogStore);
+        const askMotion = deps.askMotionToolFactory(llm, motionDialogStore);
         r.register(askMotion);
       }
 

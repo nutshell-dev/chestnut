@@ -92,6 +92,7 @@ function makeDeps() {
     postProcessors: new Map(),
     moveTaskToDone: vi.fn().mockResolvedValue(undefined),
     moveTaskToFailed: vi.fn().mockResolvedValue(undefined),
+    askMotionToolFactory: () => ({ name: 'ask_motion', description: '', readonly: false, idempotent: false, schema: { type: 'object' }, execute: vi.fn(async () => ({ ok: true, content: '' })) } as unknown as import('../../src/foundation/tools/index.js').Tool),
   };
 }
 
