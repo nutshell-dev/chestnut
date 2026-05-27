@@ -51,7 +51,7 @@ import type {
   ContractYaml, ProgressData, VerificationResult, VerifierConfig, VerifierResult,
 } from './types.js';
 import {
-  withProgressLock as wpl,
+  lockContract,
   type LockContext,
 } from './lock.js';
 import { loadActiveContract, loadPausedContract, type DiscoveryContext } from './discovery.js';
@@ -571,8 +571,12 @@ export class ContractSystem {
   // ============================================================================
 
   private async withProgressLock<T>(contractId: ContractId, fn: () => Promise<T>): Promise<T> {
-    const dir = await this.contractDir(contractId);
-    return wpl(this._lockCtx(), dir, contractId, fn);
+    const { release } = await lockContract(this._lockCtx(), contractId, (id) => this.contractDir(id));
+    try {
+      return await fn();
+    } finally {
+      await release();
+    }
   }
 
   private async loadContractYaml(contractId: ContractId): Promise<ContractYaml> {

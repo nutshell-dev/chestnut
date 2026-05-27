@@ -11,6 +11,8 @@ import * as path from 'path';
 import { lockContract } from '../../../src/core/contract/lock.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
+import { ContractSystem } from '../../../src/core/contract/manager.js';
+import { createToolRegistry } from '../../../src/foundation/tools/index.js';
 
 let tmpDir: string;
 let nodeFs: NodeFileSystem;
@@ -98,5 +100,41 @@ describe('lockContract (phase 1362)', () => {
     expect(raceRetryCalls).toHaveLength(6);
     const exhaustedCall = raceRetryCalls[raceRetryCalls.length - 1];
     expect(exhaustedCall).toContain('result=exhausted');
+  });
+});
+
+describe('manager.withProgressLock uses lockContract atomic (phase 1371 sub-1)', () => {
+  it('acquires lock via lockContract TOCTOU re-verify (contractDir called twice)', async () => {
+    const clawDir = tmpDir;
+    const activeDir = path.join(clawDir, 'contract', 'active');
+    const contractId = 'test-c1';
+    const contractDir = path.join(activeDir, contractId);
+    await fs.mkdir(contractDir, { recursive: true });
+    await fs.writeFile(
+      path.join(contractDir, 'progress.json'),
+      JSON.stringify({ schema_version: 1, contract_id: contractId, status: 'running', subtasks: {} }),
+    );
+
+    const manager = new ContractSystem({
+      clawDir,
+      clawId: 'test-claw',
+      fs: nodeFs,
+      audit: mockAudit as any,
+      toolRegistry: createToolRegistry(),
+      fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
+    });
+
+    const contractDirSpy = vi.spyOn(manager as any, 'contractDir');
+
+    const result = await (manager as any).withProgressLock(contractId, async () => 'locked-value');
+
+    expect(result).toBe('locked-value');
+    // lockContract calls contractDirFn twice: before + after lock acquisition (TOCTOU re-verify)
+    expect(contractDirSpy).toHaveBeenCalledTimes(2);
+    expect(contractDirSpy).toHaveBeenCalledWith(contractId);
+
+    // lock file should be released (deleted) after withProgressLock returns
+    const lockPath = path.join(contractDir, 'progress.lock');
+    await expect(fs.access(lockPath)).rejects.toThrow();
   });
 });
