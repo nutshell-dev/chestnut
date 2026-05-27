@@ -1,16 +1,16 @@
 /**
- * hedge B-wins primaryIter generator cleanup (phase 1169 α-3)
- * Reverse test 3项: B-wins path 显式 cleanup generator / throw silent / A-win 不触发
+ * Phase 1374 sub-2: race loser cleanup explicit finally
+ * Reverse test ≥3项: mock 2 provider race + winner 后 loser stream 显式 close + audit emit
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { LLMOrchestratorImpl } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
 import { CircuitBreaker } from '../../../src/foundation/llm-orchestrator/circuit-breaker.js';
-import { LLMNetworkError } from '../../../src/foundation/llm-orchestrator/errors.js';
 import type {
   ProviderAdapter,
   StreamChunk,
   LLMEventSink,
+  LLMEvent,
   LLMResponse,
 } from '../../../src/foundation/llm-orchestrator/types.js';
 
@@ -107,12 +107,20 @@ function wrapProviderStreamWithReturnSpy(provider: ProviderAdapter) {
   return { provider, returnSpy };
 }
 
-describe('hedge B-wins primaryIter generator cleanup (phase 1169 α-3)', () => {
+function createEventSink() {
+  const emitted: LLMEvent[] = [];
+  const sink: LLMEventSink = {
+    emit(event: LLMEvent) { emitted.push(event); }
+  };
+  return { sink, emitted };
+}
+
+describe('phase 1374 sub-2: race loser cleanup explicit finally', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('reverse 1: B wins → primaryIter.return() called once before cleanupSignals', async () => {
+  it('reverse 1: B wins → primaryIter.return() called + race_loser_cleaned emitted', async () => {
     const primaryRaw = createMockProvider('primary', {
       streamChunks: [
         { type: 'text_delta', delta: 'hello' },
@@ -129,7 +137,9 @@ describe('hedge B-wins primaryIter generator cleanup (phase 1169 α-3)', () => {
       },
       callDelayMs: 50,
     });
+    const { sink, emitted } = createEventSink();
     const service = createOrchestrator(primary, [fb1]);
+    (service as any).events = sink;
     forceBreakerOpen(service, 0, 'transient');
 
     const chunks: StreamChunk[] = [];
@@ -139,41 +149,12 @@ describe('hedge B-wins primaryIter generator cleanup (phase 1169 α-3)', () => {
 
     expect(chunks.some((c) => c.type === 'text_delta' && c.delta === 'fb response')).toBe(true);
     expect(returnSpy).toHaveBeenCalledTimes(1);
+    const cleaned = emitted.filter(e => e.type === 'race_loser_cleaned');
+    expect(cleaned.length).toBe(1);
+    expect(cleaned[0]).toMatchObject({ provider: 'primary', reason: 'hedge_trackB_won' });
   });
 
-  it('reverse 2: B wins + primaryIter.return throws → silent (no rethrow)', async () => {
-    const primaryRaw = createMockProvider('primary', {
-      streamChunks: [
-        { type: 'text_delta', delta: 'hello' },
-        { type: 'done', stopReason: 'end_turn' },
-      ],
-      streamDelayMs: 500,
-    });
-    const { provider: primary, returnSpy } = wrapProviderStreamWithReturnSpy(primaryRaw);
-    returnSpy.mockImplementation(async () => {
-      throw new Error('generator return explosion');
-    });
-
-    const fb1 = createMockProvider('fb1', {
-      callResponse: {
-        content: [{ type: 'text', text: 'fb response' }],
-        stop_reason: 'end_turn',
-      },
-      callDelayMs: 50,
-    });
-    const service = createOrchestrator(primary, [fb1]);
-    forceBreakerOpen(service, 0, 'transient');
-
-    const chunks: StreamChunk[] = [];
-    for await (const c of service.stream({ messages: [{ role: 'user', content: 'hi' }] })) {
-      chunks.push(c);
-    }
-
-    expect(chunks.some((c) => c.type === 'text_delta' && c.delta === 'fb response')).toBe(true);
-    expect(returnSpy).toHaveBeenCalledTimes(1);
-  });
-
-  it('reverse 3: A wins → primaryIter explicitly returned in finally (phase 1374 sub-2)', async () => {
+  it('reverse 2: A wins → primaryIter.return() called in finally (explicit cleanup)', async () => {
     const primaryRaw = createMockProvider('primary', {
       streamChunks: [
         { type: 'text_delta', delta: 'hello' },
@@ -200,5 +181,41 @@ describe('hedge B-wins primaryIter generator cleanup (phase 1169 α-3)', () => {
 
     expect(chunks.some((c) => c.type === 'text_delta' && c.delta === 'hello')).toBe(true);
     expect(returnSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('reverse 3: B wins + primaryIter.return throws → silent + race_loser_cleaned still emitted', async () => {
+    const primaryRaw = createMockProvider('primary', {
+      streamChunks: [
+        { type: 'text_delta', delta: 'hello' },
+        { type: 'done', stopReason: 'end_turn' },
+      ],
+      streamDelayMs: 500,
+    });
+    const { provider: primary, returnSpy } = wrapProviderStreamWithReturnSpy(primaryRaw);
+    returnSpy.mockImplementation(async () => {
+      throw new Error('generator return explosion');
+    });
+
+    const fb1 = createMockProvider('fb1', {
+      callResponse: {
+        content: [{ type: 'text', text: 'fb response' }],
+        stop_reason: 'end_turn',
+      },
+      callDelayMs: 50,
+    });
+    const { sink, emitted } = createEventSink();
+    const service = createOrchestrator(primary, [fb1]);
+    (service as any).events = sink;
+    forceBreakerOpen(service, 0, 'transient');
+
+    const chunks: StreamChunk[] = [];
+    for await (const c of service.stream({ messages: [{ role: 'user', content: 'hi' }] })) {
+      chunks.push(c);
+    }
+
+    expect(chunks.some((c) => c.type === 'text_delta' && c.delta === 'fb response')).toBe(true);
+    expect(returnSpy).toHaveBeenCalledTimes(1);
+    const cleaned = emitted.filter(e => e.type === 'race_loser_cleaned');
+    expect(cleaned.length).toBe(1);
   });
 });

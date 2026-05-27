@@ -152,7 +152,7 @@ describe('hedge double-fail primaryIter generator cleanup (phase 984)', () => {
     expect(returnSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('A 胜 drain → primaryIter.return NOT called by us (for-await auto-close)', async () => {
+  it('A 胜 drain → primaryIter.return explicitly called in finally (phase 1374 sub-2)', async () => {
     const primaryRaw = createMockProvider('primary', {
       streamChunks: [
         { type: 'text_delta', delta: 'hello' },
@@ -178,6 +178,6 @@ describe('hedge double-fail primaryIter generator cleanup (phase 984)', () => {
     }
 
     expect(chunks.some((c) => c.type === 'text_delta' && c.delta === 'hello')).toBe(true);
-    expect(returnSpy).not.toHaveBeenCalled();
+    expect(returnSpy).toHaveBeenCalledTimes(1);
   });
 });

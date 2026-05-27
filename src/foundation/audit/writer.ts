@@ -124,6 +124,13 @@ export async function reconcileFallbackDumps(fs: FileSystem): Promise<void> {
       for (const [origin, lines] of byOrigin) {
         try {
           await fs.appendSync(origin, lines.join('\n') + '\n');
+          // phase 1374 sub-4: ensure recovery data is truly persisted (fsync)
+          try {
+            fs.syncSync(origin);
+          } catch (syncErr) {
+            const reason = syncErr instanceof Error ? syncErr.message : String(syncErr);
+            console.error(`[AUDIT WARNING] reconcile fallback fsync failed: origin=${origin} reason=${reason}`);
+          }
         } catch {
           // silent: 目标文件可能已被删 / 权限变（best-effort per-file、其他 origin 仍继续）
         }

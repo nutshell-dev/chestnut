@@ -97,11 +97,25 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
 
   private events: LLMEventSink;
 
+  // phase 1374 sub-3: SDK client cache (instance-lifetime)
+  private sdkClientCache = new Map<string, LLMProvider>();
+
+  private getSdkClient(config: ProviderConfig): LLMProvider {
+    const key = `${config.apiFormat ?? 'unknown'}:${config.model ?? 'unknown'}:${(config.apiKey ?? '').slice(-8)}`;
+    if (!this.sdkClientCache.has(key)) {
+      this.sdkClientCache.set(key, createLLMProvider(config));
+      this.events?.emit({ type: 'sdk_client_cache_miss', preset: config.apiFormat ?? 'unknown', model: config.model ?? 'unknown' });
+    } else {
+      this.events?.emit({ type: 'sdk_client_cache_hit', preset: config.apiFormat ?? 'unknown', model: config.model ?? 'unknown' });
+    }
+    return this.sdkClientCache.get(key)!;
+  }
+
   constructor(config: LLMOrchestratorConfig) {
     this.config = config;
     this.events = config.events;
-    this.primary = createLLMProvider(config.primary);
-    this.fallbacks = (config.fallbacks ?? []).map(createLLMProvider);
+    this.primary = this.getSdkClient(config.primary);
+    this.fallbacks = (config.fallbacks ?? []).map((c) => this.getSdkClient(c));
     
     // Initialize circuit breakers if configured
     const cb = config.circuitBreaker;
@@ -251,47 +265,88 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
       }
 
       const fb = this.fallbacks[i];
+      let fbLastError: Error | undefined;
 
-      const hardTimeoutMs = options.hardTimeoutMs;
-      let providerSignal: AbortSignal | undefined;
-      let cleanupSignal: () => void = () => {};
-      let hardSignal: AbortSignal | undefined;
-      if (hardTimeoutMs) {
-        const [handle, cleanup] = withCombinedAbortSignal(options.signal, hardTimeoutMs);
-        providerSignal = handle.signal;
-        cleanupSignal = cleanup;
-        hardSignal = handle.signal;
-      } else {
-        providerSignal = options.signal;
-      }
-      const providerOptions: LLMCallOptions = { ...options, signal: providerSignal, hardTimeoutMs: undefined, streamIdleTimeoutMs: undefined };
+      // Retry loop for fallback provider (symmetric with primary and stream())
+      for (let attempt = 0; attempt < this.config.maxAttempts; attempt++) {
+        if (options.signal?.aborted) throw makeExternalAbortError(options.signal.reason as AbortReason | undefined);
 
-      try {
-        const response = await fb.call(providerOptions);
-        cleanupSignal();
-
-        // Circuit breaker: record success
-        this.breakers[i + 1]?.onSuccess();
-
-        this.updateLastSuccess(fb, true);
-        return response;
-
-      } catch (fallbackError) {
-        cleanupSignal();
-        const err = fallbackError as Error;
-        if (options.signal?.aborted) throw err;
-        // Hard timeout fired → fast failover, skip backoff
-        if (err.name === 'AbortError' && hardSignal?.aborted) throw err;
-        // Provider self-thrown AbortError when hard signal did not fire
-        if (err.name === 'AbortError' && !hardSignal?.aborted) throw err;
-        this.events.emit({ type: 'provider_exhausted', provider: fb.name, error: err.message });
-        const wasOpen = this.breakers[i + 1]?.isOpen();
-        this.breakers[i + 1]?.onFailure(classifyLLMError(err));
-        if (!wasOpen && this.breakers[i + 1]?.isOpen()) {
-          this.events.emit({ type: 'breaker_opened', provider: fb.name, consecutiveFailures: this.config.circuitBreaker?.failureThreshold ?? 0 });
+        const hardTimeoutMs = options.hardTimeoutMs;
+        let providerSignal: AbortSignal | undefined;
+        let cleanupSignal: () => void = () => {};
+        let hardSignal: AbortSignal | undefined;
+        if (hardTimeoutMs) {
+          const [handle, cleanup] = withCombinedAbortSignal(options.signal, hardTimeoutMs);
+          providerSignal = handle.signal;
+          cleanupSignal = cleanup;
+          hardSignal = handle.signal;
+        } else {
+          providerSignal = options.signal;
         }
-        failures.push({ provider: fb.name, error: err });
+        const providerOptions: LLMCallOptions = { ...options, signal: providerSignal, hardTimeoutMs: undefined, streamIdleTimeoutMs: undefined };
+
+        try {
+          const response = await fb.call(providerOptions);
+          cleanupSignal();
+
+          // Circuit breaker: record success
+          this.breakers[i + 1]?.onSuccess();
+
+          this.updateLastSuccess(fb, true);
+          return response;
+
+        } catch (fallbackError) {
+          cleanupSignal();
+          fbLastError = fallbackError as Error;
+
+          if (options.signal?.aborted) throw fbLastError;
+          // Hard timeout fired → fast failover, skip backoff
+          if (fbLastError.name === 'AbortError' && hardSignal?.aborted) throw fbLastError;
+          // Provider self-thrown AbortError when hard signal did not fire
+          if (fbLastError.name === 'AbortError' && !hardSignal?.aborted) throw fbLastError;
+
+          this.events.emit({
+            type: 'provider_attempt_failed',
+            provider: fb.name,
+            attempt,
+            error: fbLastError.message,
+            errorClass: classifyLLMError(fbLastError),
+            userActionHint: getUserActionHint(fbLastError),
+          });
+
+          // class-aware retry decision (symmetric with primary)
+          const errClass = classifyLLMError(fbLastError);
+          if (errClass === 'permanent') {
+            this.events.emit({
+              type: 'permanent_skip_retry',
+              provider: fb.name,
+              attempt,
+              errorClass: errClass,
+            });
+            break; // 跳出 retry loop / 进入下一个 fallback
+          }
+
+          // Wait before retry (exponential backoff with jitter, 30s max)
+          if (attempt < this.config.maxAttempts - 1) {
+            const backoffMs = Math.min(
+              this.config.retryDelayMs * Math.pow(2, attempt) * (0.75 + Math.random() * 0.5),
+              MAX_BACKOFF_MS,
+            );
+            this.events.emit({ type: 'retry_scheduled', provider: fb.name, attempt, backoffMs });
+            await delay(backoffMs, options.signal);
+          }
+        }
       }
+
+      // Circuit breaker: record failure after all attempts exhausted
+      const wasOpen = this.breakers[i + 1]?.isOpen();
+      this.breakers[i + 1]?.onFailure(classifyLLMError(fbLastError!));
+      if (!wasOpen && this.breakers[i + 1]?.isOpen()) {
+        this.events.emit({ type: 'breaker_opened', provider: fb.name, consecutiveFailures: this.config.circuitBreaker?.failureThreshold ?? 0 });
+      }
+
+      this.events.emit({ type: 'provider_exhausted', provider: fb.name, error: fbLastError!.message });
+      failures.push({ provider: fb.name, error: fbLastError! });
     }
     
     // All providers failed
@@ -744,6 +799,8 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
         };
         throw err;
       } finally {
+        // phase 1374 sub-2: explicit cleanup instead of relying on GC / for-await auto-close
+        try { await primaryIter.return?.(); } catch { /* silent: generator already closed, ignore */ }
         cleanupSignals();
       }
       return;
@@ -789,6 +846,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
       this.updateLastSuccess(winner.provider, true);
       // NEW: drain primary generator (mirror L821 double-fail template)
       try { await primaryIter.return?.(); } catch { /* silent: generator already closed, ignore */ }
+      this.events.emit({ type: 'race_loser_cleaned', provider: this.primary.name, reason: 'hedge_trackB_won' });
       cleanupSignals();
       yield* wrapResponseAsStream(winner.response, winner.provider);
       return;

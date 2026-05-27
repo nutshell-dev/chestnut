@@ -67,7 +67,10 @@ export type LLMEvent =
   | { type: 'hedge_primary_post_first_chunk_failure'; provider: string; error: Error }
   | { type: 'hedge_fallback_committed'; winnerProvider: string; primaryProvider: string; primaryError: string; primaryErrorClass: LLMErrorClass; cacheCreationInputTokens?: number; cacheReadInputTokens?: number }
   | { type: 'hedge_primary_succeeded_after_race_lost'; primaryProvider: string; winnerProvider: string }
-  | { type: 'all_providers_context_exceeded'; totalAttempted: number; skippedCount: number };
+  | { type: 'all_providers_context_exceeded'; totalAttempted: number; skippedCount: number }
+  | { type: 'race_loser_cleaned'; provider: string; reason: string }
+  | { type: 'sdk_client_cache_hit'; preset: string; model: string }
+  | { type: 'sdk_client_cache_miss'; preset: string; model: string };
 
 /**
  * LLM event sink protocol — defined here (L2b), implemented by assembly layer (L6)
