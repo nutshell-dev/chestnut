@@ -1,4 +1,5 @@
 import { formatErr } from './utils/format.js';
+import { type ClawDir } from '../foundation/identity/index.js';
 
 export type ErrorCode =
   // Permission errors (1xx)
@@ -80,7 +81,7 @@ export class PermissionError extends ClawError {
 export class PathNotInClawSpaceError extends PermissionError {
   readonly code: ErrorCode = 'PATH_NOT_IN_CLAW_SPACE';
 
-  constructor(path: string, clawDir: string) {
+  constructor(path: string, clawDir: ClawDir) {
     super(
       `Path "${path}" is not within the claw's workspace`,
       { path, clawDir }

@@ -9,6 +9,7 @@ import type { Gateway } from '../core/gateway/index.js';
 import type { EvolutionSystem } from '../core/evolution-system/index.js';
 import type { ClawId } from '../foundation/identity/index.js';
 import type { Messaging } from '../foundation/messaging/index.js';
+import { type ClawDir } from '../foundation/identity/index.js';
 
 
 export type Identity = 'motion' | 'claw';
@@ -16,7 +17,7 @@ export type Identity = 'motion' | 'claw';
 export interface AssembleConfig {
   readonly identity: Identity;
   readonly clawId: ClawId;
-  readonly clawDir: string;
+  readonly clawDir: ClawDir;
   readonly globalConfig: ClawGlobalConfig;
   readonly clawConfig: ClawConfig | null;  // identity='claw' 必填；'motion' 为 null
 }

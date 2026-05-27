@@ -21,6 +21,7 @@ import { CliError } from '../errors.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { ClawId } from '../../foundation/identity/index.js';
 import { type ContractId, makeContractId } from '../../foundation/identity/index.js';
+import { type ClawDir } from '../../foundation/identity/index.js';
 
 
 
@@ -38,7 +39,7 @@ function parseAndValidateContractYaml(yamlContent: string): ContractYaml {
   return contract;
 }
 
-export function notifyContractCreated(deps: { fsFactory: (baseDir: string) => FileSystem }, clawDir: string, clawId: ClawId, contractId: ContractId, contract: ContractYaml): void {
+export function notifyContractCreated(deps: { fsFactory: (baseDir: string) => FileSystem }, clawDir: ClawDir, clawId: ClawId, contractId: ContractId, contract: ContractYaml): void {
   const { fs, audit: contractAudit } = createDirContext(deps, clawDir);
 
   // best-effort：通知 viewport via stream.jsonl（失败不中断 contract 创建）

@@ -14,6 +14,7 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import { makeClawId } from '../../foundation/identity/index.js';
 import type { createClawManager } from './chat-viewport-claw-manager.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
+import { makeClawDir } from '../../foundation/identity/index.js';
 
 export interface ClawPanelDeps {
   attachedClawBar: { setText(text: string): void };
@@ -66,9 +67,9 @@ export function createRescanClawsDir(deps: RescanClawsDirDeps) {
         if (!e.isDirectory) continue;
         const clawId = e.name;
         if (deps.clawTrackMap.has(clawId)) continue;
-        const clawDir = path.join(deps.clawsDir, clawId);
+        const clawDir = makeClawDir(path.join(deps.clawsDir, clawId));
         // getContractCreatedMs 用 clawsFs (baseDir=clawsDir) / 传相对路径 clawId
-        const contractMs = getContractCreatedMs(deps.clawsFs, clawId, deps.audit);
+        const contractMs = getContractCreatedMs(deps.clawsFs, clawDir, deps.audit);
         if (contractMs !== null) {
           const t = makeClawTrack();
           t.hasContract = true;

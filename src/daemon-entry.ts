@@ -16,7 +16,7 @@ try {
     throw new Error(`Invalid daemon argv[2]: ${JSON.stringify(rawName)}`);
   }
   const name = rawName;
-  const dir = name === MOTION_CLAW_ID ? getNamedSubrootDir('motion') : getClawDir(name);
+  const dir = name === MOTION_CLAW_ID ? makeClawDir(getNamedSubrootDir('motion')) : getClawDir(name);
   const shimFs: FileSystem = fsFactory(dir);
   shimAudit = createSystemAudit(shimFs, dir);
 } catch {
@@ -48,6 +48,7 @@ import { createDaemonCommand } from './daemon/daemon.js';
 import { CONFIG_DEFAULTS } from './assembly/config-defaults.js';
 import { assemble, disassemble } from './assembly/index.js';
 import { ASSEMBLY_AUDIT_EVENTS } from './assembly/audit-events.js';
+import { makeClawDir } from './foundation/identity/index.js';
 
 const daemonCommand = createDaemonCommand({
   fsFactory,

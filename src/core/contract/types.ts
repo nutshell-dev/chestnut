@@ -10,6 +10,7 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import type { ToolRegistry } from '../../foundation/tools/index.js';
 import type { Priority } from '../../foundation/messaging/types.js';
 import type { ClawId } from '../../foundation/identity/index.js';
+import { type ClawDir } from '../../foundation/identity/index.js';
 
 
 
@@ -126,7 +127,7 @@ export interface VerificationResult {
 export interface VerifierConfig {
   agentId: string;
   prompt: string;
-  clawDir: string;
+  clawDir: ClawDir;
   clawId: ClawId;               // phase 514 / caller's clawId for subagent context
   llm: LLMOrchestrator;
   fs: FileSystem;
@@ -169,3 +170,12 @@ export interface ArchiveContractRef {
 declare const SubtaskIdBrand: unique symbol;
 export type SubtaskId = string & { readonly [SubtaskIdBrand]: true };
 export function makeSubtaskId(s: string): SubtaskId { return s as SubtaskId; }
+
+// ============================================================================
+// phase 1376: ArchiveDir branded path type (compile-time path discrimination)
+// per ML#3 资源唯一归属 / contract archive 业务专属 → contract types own
+// ============================================================================
+
+declare const ArchiveDirBrand: unique symbol;
+export type ArchiveDir = string & { readonly [ArchiveDirBrand]: true };
+export function makeArchiveDir(s: string): ArchiveDir { return s as ArchiveDir; }

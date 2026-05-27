@@ -11,6 +11,7 @@ import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
 import { createChatViewportWatcher } from './chat-viewport-watcher.js';
 import { type ClawTrack, makeClawTrack } from './chat-viewport-claw-line.js';
 import { type ClawId, makeClawId } from '../../foundation/identity/index.js';
+import { makeClawDir } from '../../foundation/identity/index.js';
 
 
 export interface ClawManagerDeps {
@@ -186,7 +187,7 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
       const clawId = makeClawId(rawClawId);
       const streamFile = path.join(clawsDir, clawId, STREAM_FILE);
       if (!clawTrackMap.has(clawId)) {
-        const clawDir = path.join(clawsDir, clawId);
+        const clawDir = makeClawDir(path.join(clawsDir, clawId));
         const contractMs = getContractCreatedMs(fs, clawDir, audit);
         if (contractMs === null) continue;
         const track = makeClawTrack();
@@ -207,7 +208,7 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
         }
         track.isAlive = false;
       }
-      track.hasContract = getContractCreatedMs(fs, path.join(clawsDir, clawId), audit) !== null;
+      track.hasContract = getContractCreatedMs(fs, makeClawDir(path.join(clawsDir, clawId)), audit) !== null;
       refreshClawStatus(clawId);
     }
   };

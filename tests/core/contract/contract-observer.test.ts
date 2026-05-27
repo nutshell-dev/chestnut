@@ -67,7 +67,7 @@ function makeOpts(overrides: Partial<{
   notifyClaw: ReturnType<typeof vi.fn>;
 }> = {}) {
   return {
-    clawforumDir: '/tmp/test',
+    clawforumRoot: '/tmp/test',
     fs: makeFsMock('empty'),
     motionAudit: makeAuditMock(),
     notifyClaw: vi.fn(),
@@ -81,7 +81,7 @@ describe('Phase 542 — contract-observer deps 装配方注入', () => {
     await runContractObserver(opts);
     expect(opts.notifyClaw).toHaveBeenCalledWith(
       opts.fs,
-      opts.clawforumDir,
+      opts.clawforumRoot,
       'motion',
       expect.objectContaining({ type: 'contract_events' }),
       opts.motionAudit,
@@ -93,7 +93,7 @@ describe('Phase 542 — contract-observer deps 装配方注入', () => {
     await runContractObserver(opts);
     expect(opts.notifyClaw).toHaveBeenCalledWith(
       opts.fs,
-      opts.clawforumDir,
+      opts.clawforumRoot,
       'motion',
       expect.objectContaining({ type: 'contract_events' }),
       opts.motionAudit,

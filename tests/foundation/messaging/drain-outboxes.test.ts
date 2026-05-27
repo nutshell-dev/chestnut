@@ -57,7 +57,7 @@ describe('phase 1333 drainOutboxes Messaging write-side encap', () => {
     await writeOutboxMsg(clawId, msg);
 
     const audit = makeAudit();
-    const result = await drainOutboxes({ clawforumDir, fs: fsNfs, audit });
+    const result = await drainOutboxes({ clawforumRoot: clawforumDir, fs: fsNfs, audit });
 
     expect(result.delivered).toBe(1);
     expect(result.failed).toBe(0);
@@ -98,7 +98,7 @@ describe('phase 1333 drainOutboxes Messaging write-side encap', () => {
 
     const audit = makeAudit();
     const promises = Array.from({ length: 10 }, () =>
-      drainOutboxes({ clawforumDir, fs: fsNfs, audit }),
+      drainOutboxes({ clawforumRoot: clawforumDir, fs: fsNfs, audit }),
     );
     const results = await Promise.all(promises);
 
@@ -144,7 +144,7 @@ describe('phase 1333 drainOutboxes Messaging write-side encap', () => {
     });
 
     const audit = makeAudit();
-    const result = await drainOutboxes({ clawforumDir, fs: fsNfs, audit });
+    const result = await drainOutboxes({ clawforumRoot: clawforumDir, fs: fsNfs, audit });
 
     expect(result.delivered).toBe(2);
 
@@ -177,7 +177,7 @@ describe('phase 1333 drainOutboxes Messaging write-side encap', () => {
     }
 
     const audit = makeAudit();
-    const result = await drainOutboxes({ clawforumDir, fs: fsNfs, audit, limitPerClaw: 5 });
+    const result = await drainOutboxes({ clawforumRoot: clawforumDir, fs: fsNfs, audit, limitPerClaw: 5 });
 
     expect(result.delivered).toBe(5);
 
@@ -213,7 +213,7 @@ describe('phase 1333 drainOutboxes Messaging write-side encap', () => {
     setTimeout(() => abortController.abort(), 10);
 
     const result = await drainOutboxes({
-      clawforumDir,
+      clawforumRoot: clawforumDir,
       fs: fsNfs,
       audit,
       signal: abortController.signal,

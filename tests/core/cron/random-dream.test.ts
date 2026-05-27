@@ -36,12 +36,12 @@ function makeMockTaskSystem(): AsyncTaskSystem {
 
 const mockAudit = { write: vi.fn() };
 
-function makeOpts(clawforumDir: string, motionDir: string): RandomDreamOptions {
+function makeOpts(clawforumRoot: string, motionDir: string): RandomDreamOptions {
   return {
-    clawforumDir,
+    clawforumRoot,
     motionDir,
     taskSystem: makeMockTaskSystem(),
-    fs: new NodeFileSystem({ baseDir: clawforumDir }),
+    fs: new NodeFileSystem({ baseDir: clawforumRoot }),
     motionFs: new NodeFileSystem({ baseDir: motionDir }),
     audit: mockAudit as any,
   };
@@ -58,34 +58,34 @@ async function writeTaskCompletion(motionDir: string, taskId: string, logContent
 // ─── 测试 ─────────────────────────────────────────────────────
 
 describe('runRandomDream', () => {
-  let clawforumDir: string;
+  let clawforumRoot: string;
   let motionDir: string;
   const taskId = `task-${randomUUID()}`;
 
   beforeEach(async () => {
     vi.restoreAllMocks();
-    clawforumDir = await createTempDir();
-    motionDir = path.join(clawforumDir, 'motion');
+    clawforumRoot = await createTempDir();
+    motionDir = path.join(clawforumRoot, 'motion');
     await fs.mkdir(path.join(motionDir, 'inbox', 'pending'), { recursive: true });
     mockWritePendingSubAgentTask.mockReset();
     mockWritePendingSubAgentTask.mockResolvedValue(taskId);
   });
 
   afterEach(async () => {
-    await Promise.all([cleanupTempDir(clawforumDir), cleanupTempDir(motionDir)]);
+    await Promise.all([cleanupTempDir(clawforumRoot), cleanupTempDir(motionDir)]);
     vi.clearAllMocks();
   });
 
   // ── 无契约 ──────────────────────────────────────────────────
 
   it('claws 目录不存在时直接返回', async () => {
-    await expect(runRandomDream(makeOpts(clawforumDir, motionDir))).resolves.toBeUndefined();
+    await expect(runRandomDream(makeOpts(clawforumRoot, motionDir))).resolves.toBeUndefined();
     expect(mockWritePendingSubAgentTask).not.toHaveBeenCalled();
   }, 30000); // was default 15000ms
 
   it('claws 目录存在但无 archive 契约时直接返回', async () => {
-    await fs.mkdir(path.join(clawforumDir, 'claws', 'claw-1', 'contract', 'archive'), { recursive: true });
-    await expect(runRandomDream(makeOpts(clawforumDir, motionDir))).resolves.toBeUndefined();
+    await fs.mkdir(path.join(clawforumRoot, 'claws', 'claw-1', 'contract', 'archive'), { recursive: true });
+    await expect(runRandomDream(makeOpts(clawforumRoot, motionDir))).resolves.toBeUndefined();
     expect(mockWritePendingSubAgentTask).not.toHaveBeenCalled();
   });
 
@@ -95,7 +95,7 @@ describe('runRandomDream', () => {
     beforeEach(async () => {
       // 创建一个契约目录
       await fs.mkdir(
-        path.join(clawforumDir, 'claws', 'claw-1', 'contract', 'archive', 'contract-001'),
+        path.join(clawforumRoot, 'claws', 'claw-1', 'contract', 'archive', 'contract-001'),
         { recursive: true }
       );
     });
@@ -109,10 +109,10 @@ Prompt: ...
 
       await writeTaskCompletion(motionDir, taskId, dreamLog);
 
-      await runRandomDream(makeOpts(clawforumDir, motionDir));
+      await runRandomDream(makeOpts(clawforumRoot, motionDir));
 
       // state 更新
-      const statePath = path.join(clawforumDir, '.random-dream-state.json');
+      const statePath = path.join(clawforumRoot, '.random-dream-state.json');
       expect(fsSync.existsSync(statePath)).toBe(true);
       const state = JSON.parse(fsSync.readFileSync(statePath, 'utf-8'));
       expect(state.processedContractIds).toContain('contract-001');
@@ -135,7 +135,7 @@ Prompt: ...
     it('多个 [DREAM_OUTPUT] 块全部提取', async () => {
       // 创建第二个契约
       await fs.mkdir(
-        path.join(clawforumDir, 'claws', 'claw-2', 'contract', 'archive', 'contract-002'),
+        path.join(clawforumRoot, 'claws', 'claw-2', 'contract', 'archive', 'contract-002'),
         { recursive: true }
       );
 
@@ -149,10 +149,10 @@ Prompt: ...
 
       await writeTaskCompletion(motionDir, taskId, dreamLog);
 
-      await runRandomDream(makeOpts(clawforumDir, motionDir));
+      await runRandomDream(makeOpts(clawforumRoot, motionDir));
 
       const state = JSON.parse(fsSync.readFileSync(
-        path.join(clawforumDir, '.random-dream-state.json'), 'utf-8'
+        path.join(clawforumRoot, '.random-dream-state.json'), 'utf-8'
       ));
       expect(state.processedContractIds).toContain('contract-001');
       expect(state.processedContractIds).toContain('contract-002');
@@ -161,7 +161,7 @@ Prompt: ...
     it('log 中无 [DREAM_OUTPUT] 块时不写 inbox', async () => {
       await writeTaskCompletion(motionDir, taskId, '=== started ===\nsome output\n[DREAM_COMPLETE]');
 
-      await runRandomDream(makeOpts(clawforumDir, motionDir));
+      await runRandomDream(makeOpts(clawforumRoot, motionDir));
 
       const inboxFiles = fsSync.readdirSync(path.join(motionDir, 'inbox', 'pending'));
       const randomDreamFiles = inboxFiles.filter(f => fsSync.readFileSync(path.join(motionDir, 'inbox', 'pending', f), 'utf8').includes('type: random_dream'));
@@ -171,12 +171,12 @@ Prompt: ...
     describe('Phase 546 — random-dream systemPrompt 透传', () => {
     it('passes RANDOM_DREAM_SYSTEM_PROMPT to writePendingSubAgentTask', async () => {
       await fs.mkdir(
-        path.join(clawforumDir, 'claws', 'claw-1', 'contract', 'archive', 'contract-001'),
+        path.join(clawforumRoot, 'claws', 'claw-1', 'contract', 'archive', 'contract-001'),
         { recursive: true }
       );
       await writeTaskCompletion(motionDir, taskId, '=== started ===');
 
-      await runRandomDream(makeOpts(clawforumDir, motionDir));
+      await runRandomDream(makeOpts(clawforumRoot, motionDir));
 
       expect(mockWritePendingSubAgentTask).toHaveBeenCalledWith(
         expect.anything(),
@@ -201,7 +201,7 @@ Prompt: ...
         );
         // result.txt 不存在
 
-        const runPromise = runRandomDream(makeOpts(clawforumDir, motionDir));
+        const runPromise = runRandomDream(makeOpts(clawforumRoot, motionDir));
 
         // 推进一个轮询周期（30 秒）
         await vi.advanceTimersByTimeAsync(30_001);
@@ -237,11 +237,11 @@ Prompt: ...
   it('Fix 3 回归：同一 claw 的第二个契约 hint 不含"新claw"', async () => {
     // 同一 claw 两个契约
     await fs.mkdir(
-      path.join(clawforumDir, 'claws', 'claw-1', 'contract', 'archive', 'contract-A'),
+      path.join(clawforumRoot, 'claws', 'claw-1', 'contract', 'archive', 'contract-A'),
       { recursive: true }
     );
     await fs.mkdir(
-      path.join(clawforumDir, 'claws', 'claw-1', 'contract', 'archive', 'contract-B'),
+      path.join(clawforumRoot, 'claws', 'claw-1', 'contract', 'archive', 'contract-B'),
       { recursive: true }
     );
 
@@ -254,7 +254,7 @@ Prompt: ...
 
     await writeTaskCompletion(motionDir, taskId, '=== started ===');
 
-    await runRandomDream(makeOpts(clawforumDir, motionDir));
+    await runRandomDream(makeOpts(clawforumRoot, motionDir));
 
     expect(capturedPrompt).not.toBe('');
     const lines = capturedPrompt.split('\n').filter(l => l.includes('claw-1'));
@@ -274,8 +274,8 @@ Prompt: ...
   it('同 claw 多契约：仅首契约获「新claw」bonus（α / phase 585）', async () => {
     // claw-A 多契约 / claw-B 单契约 / 期望 claw-A 首契约 + claw-B 单契约获 hint「新claw」
     // claw-A 后续契约不获「新claw」hint（fixture 控）
-    const clawAArchive = path.join(clawforumDir, 'claws', 'claw-A', 'contract', 'archive');
-    const clawBArchive = path.join(clawforumDir, 'claws', 'claw-B', 'contract', 'archive');
+    const clawAArchive = path.join(clawforumRoot, 'claws', 'claw-A', 'contract', 'archive');
+    const clawBArchive = path.join(clawforumRoot, 'claws', 'claw-B', 'contract', 'archive');
     await fs.mkdir(path.join(clawAArchive, 'contract-A1'), { recursive: true });
     await fs.mkdir(path.join(clawAArchive, 'contract-A2'), { recursive: true });
     await fs.mkdir(path.join(clawBArchive, 'contract-B1'), { recursive: true });
@@ -287,7 +287,7 @@ Prompt: ...
     });
     await writeTaskCompletion(motionDir, taskId, '=== started ===');
 
-    await runRandomDream(makeOpts(clawforumDir, motionDir));
+    await runRandomDream(makeOpts(clawforumRoot, motionDir));
 
     // prompt 各 contract 行的 hint 文案
     const lines = capturedPrompt.split('\n').filter(l => l.match(/^\d+\./));
@@ -309,17 +309,17 @@ Prompt: ...
   it('已处理契约排序靠后（权重 -80）', async () => {
     // 两个 claw 各一个契约
     await fs.mkdir(
-      path.join(clawforumDir, 'claws', 'claw-new', 'contract', 'archive', 'contract-new'),
+      path.join(clawforumRoot, 'claws', 'claw-new', 'contract', 'archive', 'contract-new'),
       { recursive: true }
     );
     await fs.mkdir(
-      path.join(clawforumDir, 'claws', 'claw-old', 'contract', 'archive', 'contract-old'),
+      path.join(clawforumRoot, 'claws', 'claw-old', 'contract', 'archive', 'contract-old'),
       { recursive: true }
     );
 
     // 预置 state：contract-old 已处理
     await fs.writeFile(
-      path.join(clawforumDir, '.random-dream-state.json'),
+      path.join(clawforumRoot, '.random-dream-state.json'),
       JSON.stringify({ processedContractIds: ['contract-old'] }),
       'utf-8'
     );
@@ -332,7 +332,7 @@ Prompt: ...
 
     await writeTaskCompletion(motionDir, taskId, '=== started ===');
 
-    await runRandomDream(makeOpts(clawforumDir, motionDir));
+    await runRandomDream(makeOpts(clawforumRoot, motionDir));
 
     expect(capturedPrompt).not.toBe('');
     const lines = capturedPrompt.split('\n').filter(l => l.match(/^\d+\./));
@@ -349,7 +349,7 @@ Prompt: ...
 
   it('近期完成的契约权重高于普通契约', async () => {
     // contract-recent：有近期完成的 subtask
-    const recentDir = path.join(clawforumDir, 'claws', 'claw-1', 'contract', 'archive', 'contract-recent');
+    const recentDir = path.join(clawforumRoot, 'claws', 'claw-1', 'contract', 'archive', 'contract-recent');
     await fs.mkdir(recentDir, { recursive: true });
     await fs.writeFile(path.join(recentDir, 'progress.json'), JSON.stringify({
       subtasks: {
@@ -358,7 +358,7 @@ Prompt: ...
     }), 'utf-8');
 
     // contract-old：有很久以前完成的 subtask（几乎没有加权）
-    const oldDir = path.join(clawforumDir, 'claws', 'claw-2', 'contract', 'archive', 'contract-old-done');
+    const oldDir = path.join(clawforumRoot, 'claws', 'claw-2', 'contract', 'archive', 'contract-old-done');
     await fs.mkdir(oldDir, { recursive: true });
     await fs.writeFile(path.join(oldDir, 'progress.json'), JSON.stringify({
       subtasks: {
@@ -373,7 +373,7 @@ Prompt: ...
     });
     await writeTaskCompletion(motionDir, taskId, '=== started ===');
 
-    await runRandomDream(makeOpts(clawforumDir, motionDir));
+    await runRandomDream(makeOpts(clawforumRoot, motionDir));
 
     const lines = capturedPrompt.split('\n').filter(l => l.match(/^\d+\./));
     const idxRecent = lines.findIndex(l => l.includes('contract-recent'));
@@ -385,7 +385,7 @@ Prompt: ...
 
   it('有失败 subtask 的契约权重更高', async () => {
     // contract-failed：有 failed subtask
-    const failedDir = path.join(clawforumDir, 'claws', 'claw-1', 'contract', 'archive', 'contract-failed');
+    const failedDir = path.join(clawforumRoot, 'claws', 'claw-1', 'contract', 'archive', 'contract-failed');
     await fs.mkdir(failedDir, { recursive: true });
     await fs.writeFile(path.join(failedDir, 'progress.json'), JSON.stringify({
       subtasks: {
@@ -394,7 +394,7 @@ Prompt: ...
     }), 'utf-8');
 
     // contract-normal：无 progress.json
-    const normalDir = path.join(clawforumDir, 'claws', 'claw-2', 'contract', 'archive', 'contract-normal');
+    const normalDir = path.join(clawforumRoot, 'claws', 'claw-2', 'contract', 'archive', 'contract-normal');
     await fs.mkdir(normalDir, { recursive: true });
 
     let capturedPrompt = '';
@@ -404,7 +404,7 @@ Prompt: ...
     });
     await writeTaskCompletion(motionDir, taskId, '=== started ===');
 
-    await runRandomDream(makeOpts(clawforumDir, motionDir));
+    await runRandomDream(makeOpts(clawforumRoot, motionDir));
 
     const lines = capturedPrompt.split('\n').filter(l => l.match(/^\d+\./));
     const idxFailed = lines.findIndex(l => l.includes('contract-failed'));
@@ -422,14 +422,14 @@ Prompt: ...
     beforeEach(async () => {
       // 创建一个契约目录
       await fs.mkdir(
-        path.join(clawforumDir, 'claws', 'claw-1', 'contract', 'archive', 'contract-001'),
+        path.join(clawforumRoot, 'claws', 'claw-1', 'contract', 'archive', 'contract-001'),
         { recursive: true }
       );
     });
 
     it('loadRandomDreamState parse 错时 audit RANDOM_DREAM_ERROR step=load_state 并返空（A.dream-state-io-silent random-dream 扩散 phase 597）', async () => {
       // setup: 写入损坏 .random-dream-state.json
-      await fs.writeFile(path.join(clawforumDir, '.random-dream-state.json'), 'corrupted{', 'utf-8');
+      await fs.writeFile(path.join(clawforumRoot, '.random-dream-state.json'), 'corrupted{', 'utf-8');
 
       const dreamLog = `=== SubAgent ${taskId} started ===
 [DREAM_OUTPUT contract_id="contract-001"]
@@ -437,7 +437,7 @@ Prompt: ...
 [/DREAM_OUTPUT]`;
       await writeTaskCompletion(motionDir, taskId, dreamLog);
 
-      await runRandomDream(makeOpts(clawforumDir, motionDir));
+      await runRandomDream(makeOpts(clawforumRoot, motionDir));
 
       expect(mockAudit.write).toHaveBeenCalledWith(
         'cron_random_dream_error',
@@ -454,7 +454,7 @@ Prompt: ...
 [/DREAM_OUTPUT]`;
       await writeTaskCompletion(motionDir, taskId, dreamLog);
 
-      await runRandomDream(makeOpts(clawforumDir, motionDir));
+      await runRandomDream(makeOpts(clawforumRoot, motionDir));
 
       const loadStateCalls = mockAudit.write.mock.calls.filter((c: any[]) =>
         c.some((arg: any) => typeof arg === 'string' && arg.includes('step=load_state'))
@@ -463,7 +463,7 @@ Prompt: ...
     });
 
     it('saveRandomDreamState writeAtomicSync 失败时 audit step=save_state 并 re-throw', async () => {
-      const clawforumNodeFs = new NodeFileSystem({ baseDir: clawforumDir });
+      const clawforumNodeFs = new NodeFileSystem({ baseDir: clawforumRoot });
       const writeSpy = vi.spyOn(clawforumNodeFs, 'writeAtomicSync').mockImplementation(function (this: NodeFileSystem, p: string, content: string) {
         if (p === '.random-dream-state.json') {
           throw Object.assign(new Error('EIO: i/o error'), { code: 'EIO' });
@@ -477,7 +477,7 @@ Prompt: ...
 [/DREAM_OUTPUT]`;
       await writeTaskCompletion(motionDir, taskId, dreamLog);
 
-      await expect(runRandomDream({ ...makeOpts(clawforumDir, motionDir), fs: clawforumNodeFs, audit: mockAudit })).rejects.toThrow();
+      await expect(runRandomDream({ ...makeOpts(clawforumRoot, motionDir), fs: clawforumNodeFs, audit: mockAudit })).rejects.toThrow();
 
       expect(mockAudit.write).toHaveBeenCalledWith(
         'cron_random_dream_error',
@@ -495,7 +495,7 @@ Prompt: ...
     vi.useFakeTimers();
     try {
       await fs.mkdir(
-        path.join(clawforumDir, 'claws', 'claw-1', 'contract', 'archive', 'contract-timeout'),
+        path.join(clawforumRoot, 'claws', 'claw-1', 'contract', 'archive', 'contract-timeout'),
         { recursive: true }
       );
       const taskResultDir = path.join(motionDir, 'tasks', 'queues', 'results', taskId);
@@ -506,7 +506,7 @@ Prompt: ...
         '=== started ==='
       );
 
-      const runPromise = runRandomDream(makeOpts(clawforumDir, motionDir));
+      const runPromise = runRandomDream(makeOpts(clawforumRoot, motionDir));
 
       // 推进超过 1 小时（3_600_000 ms）
       await vi.advanceTimersByTimeAsync(3_600_001);

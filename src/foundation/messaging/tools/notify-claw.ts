@@ -1,3 +1,4 @@
+import { type ClawforumRoot } from '../../../foundation/identity/index.js';
 /**
  * @module L2.Messaging
  * notify_claw tool - motion 视角、向 target claw inbox 直接发消息（指挥型 push 模型）
@@ -19,7 +20,7 @@ export const NOTIFY_CLAW_TOOL_NAME = 'notify_claw' as const;
 
 export interface NotifyClawDeps {
   fs: FileSystem;
-  clawforumRoot: string;  // motion dir 的父 dir、用于 resolve target claw dir
+  clawforumRoot: ClawforumRoot;  // motion dir 的父 dir、用于 resolve target claw dir
   audit: AuditLog;        // motion audit（NOTIFY_CLAW_SENT/FAILED emit）
 }
 

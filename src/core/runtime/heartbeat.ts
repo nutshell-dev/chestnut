@@ -9,6 +9,7 @@ import { notifyClaw } from '../../foundation/messaging/index.js';
 import type { InboxReader } from '../../foundation/messaging/index.js';
 import { HEARTBEAT_AUDIT_EVENTS } from './heartbeat-audit-events.js';
 import { MOTION_CLAW_ID } from '../../constants.js';
+import { type ClawforumRoot } from '../../foundation/identity/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 
 export interface HeartbeatOptions {
@@ -23,14 +24,14 @@ export interface HeartbeatOptions {
  * Motion 心跳触发器
  */
 export class Heartbeat {
-  private readonly baseDir: string;
+  private readonly baseDir: ClawforumRoot;
   private readonly interval: number;
   private lastRun: number;
   private readonly fs: FileSystem;
   private readonly audit: AuditLog;
   private readonly inboxReader: InboxReader;
 
-  constructor(baseDir: string, options: HeartbeatOptions) {
+  constructor(baseDir: ClawforumRoot, options: HeartbeatOptions) {
     this.baseDir = baseDir;
     this.interval = (options.interval ?? 300) * 1000;
     this.lastRun = Date.now();  // 启动后等满一个 interval 再首次触发
@@ -84,6 +85,6 @@ export class Heartbeat {
  * Factory: createHeartbeat
  * 装配期构造 Heartbeat / 承 phase212 D.1 工厂模板.
  */
-export function createHeartbeat(baseDir: string, opts: HeartbeatOptions): Heartbeat {
+export function createHeartbeat(baseDir: ClawforumRoot, opts: HeartbeatOptions): Heartbeat {
   return new Heartbeat(baseDir, opts);
 }

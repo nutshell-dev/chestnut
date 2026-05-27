@@ -33,7 +33,7 @@ describe('phase 1154 — audit-size-monitor cron job', () => {
     await runAuditSizeMonitor({
       fs,
       audit,
-      clawforumDir: '/tmp/test',
+      clawforumRoot: '/tmp/test',
       motionAuditPath: '/tmp/test/motion/audit.tsv',
       rootAuditPath: '/tmp/test/audit.tsv',
     });
@@ -47,7 +47,7 @@ describe('phase 1154 — audit-size-monitor cron job', () => {
     await runAuditSizeMonitor({
       fs,
       audit,
-      clawforumDir: '/tmp/test',
+      clawforumRoot: '/tmp/test',
       motionAuditPath: '/tmp/test/motion/audit.tsv',
       rootAuditPath: '/tmp/test/audit.tsv',
       motionInbox: { writeSync: inboxWrite } as unknown as Parameters<typeof runAuditSizeMonitor>[0]['motionInbox'],
@@ -66,7 +66,7 @@ describe('phase 1154 — audit-size-monitor cron job', () => {
     await runAuditSizeMonitor({
       fs,
       audit,
-      clawforumDir: '/tmp/test',
+      clawforumRoot: '/tmp/test',
       motionAuditPath: '/tmp/test/motion/audit.tsv',
       rootAuditPath: '/tmp/test/audit.tsv',
       motionInbox: { writeSync: inboxWrite } as unknown as Parameters<typeof runAuditSizeMonitor>[0]['motionInbox'],
@@ -84,7 +84,7 @@ describe('phase 1154 — audit-size-monitor cron job', () => {
     await runAuditSizeMonitor({
       fs,
       audit,
-      clawforumDir: '/tmp/test',
+      clawforumRoot: '/tmp/test',
       motionAuditPath: '/tmp/test/motion/audit.tsv',
       rootAuditPath: '/tmp/test/audit.tsv',
     });

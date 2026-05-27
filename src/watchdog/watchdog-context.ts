@@ -15,6 +15,7 @@ import { CONFIG_DEFAULTS } from '../assembly/config-defaults.js';
 import type { FileSystem } from '../foundation/fs/types.js';
 import type { AuditLog } from '../foundation/audit/index.js';
 import { createDirContext } from '../foundation/process-manager/factories.js';
+import { makeClawDir } from '../foundation/identity/index.js';
 
 // === 共享 Map（cron state）/ ESM const reference 跨 file 同实例 ===
 
@@ -45,7 +46,7 @@ let _auditWriter: AuditLog | null = null;
 
 /** 1:1 保 watchdog.ts:29-31 */
 export function getClawforumDir(): string {
-  return path.dirname(getNamedSubrootDir('motion'));
+  return path.dirname(makeClawDir(getNamedSubrootDir('motion')));
 }
 
 /**
@@ -71,7 +72,7 @@ export function getWatchdogEntryPath(fsFactory: (baseDir: string) => FileSystem)
 /** 1:1 保 watchdog.ts:58-67 */
 export function getMotionContext(fsFactory: (baseDir: string) => FileSystem): { fs: FileSystem; audit: AuditLog } {
   if (!_motionCtx) {
-    _motionCtx = createDirContext({ fsFactory }, getNamedSubrootDir('motion'));
+    _motionCtx = createDirContext({ fsFactory }, makeClawDir(getNamedSubrootDir('motion')));
     // 失败契约（fail-fast）：createDirContext 抛错 → 直接上抛
     //   - _motionCtx 保持 null，调用方（watchdog 主循环）整个 iteration 失败
     //   - 不做 catch 重建、不降级写 stdout；watchdog 进程应由 SIGTERM 或 uncaughtException 兜底

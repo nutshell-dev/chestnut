@@ -16,10 +16,12 @@ import { clawHasContract, getClawActivityInfo, gatherClawSnapshot, getEffectiveI
 import { getContractCreatedMs } from '../core/contract/index.js';
 import { getNamedSubrootDir } from '../foundation/config/index.js';
 import { notifyClaw } from '../foundation/messaging/index.js';
+import { makeClawforumRoot, makeClawDir } from '../foundation/identity/index.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 import { MOTION_CLAW_ID } from '../constants.js';
 import { makeClawId } from '../foundation/identity/index.js';
 import { CLAWS_DIR } from '../foundation/paths.js';
+
 
 
 // Check for claws with an active contract but no progress for a long time, and send a reminder
@@ -44,7 +46,7 @@ export async function maybeCronClawInactivity(pm: ProcessManager, audit: AuditLo
   for (const rawClawId of clawEntries.map(e => e.name)) {
     const clawId = makeClawId(rawClawId);
     try {
-      const clawDir = path.join(getClawforumDir(), CLAWS_DIR, rawClawId);
+      const clawDir = makeClawDir(path.join(getClawforumDir(), CLAWS_DIR, rawClawId));
 
       // Has an active contract?
       if (!clawHasContract(clawDir, fsFactory, audit)) continue;
@@ -123,7 +125,7 @@ export function maybeCronClawCrash(pm: ProcessManager, audit: AuditLog, fsFactor
 
   for (const rawClawId of clawEntries.map(e => e.name)) {
     const clawId = makeClawId(rawClawId);
-    const clawDir = path.join(getClawforumDir(), CLAWS_DIR, rawClawId);
+    const clawDir = makeClawDir(path.join(getClawforumDir(), CLAWS_DIR, rawClawId));
     const currentlyAlive = pm.isAlive(clawId);
     const wasAlive = clawPreviouslyAlive.get(rawClawId);
 
@@ -163,7 +165,7 @@ export function maybeCronClawCrash(pm: ProcessManager, audit: AuditLog, fsFactor
       const body = `contract: ${snapshot.contract}, outbox_pending: ${snapshot.outboxPending}${lastEventsStr}`;
 
       const { fs: motionFs, audit: motionAudit } = getMotionContext(fsFactory);
-      const clawforumRoot = path.dirname(getNamedSubrootDir('motion'));
+      const clawforumRoot = makeClawforumRoot(path.dirname(makeClawDir(getNamedSubrootDir('motion'))));
       notifyClaw(motionFs, clawforumRoot, MOTION_CLAW_ID, {
         type: 'crash_notification',
         source: rawClawId,

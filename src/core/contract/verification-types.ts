@@ -10,11 +10,12 @@ import type { ContractYaml, ProgressData, VerificationResult, VerifierConfig, Ve
 import { type LockContext } from './lock.js';
 import type { ClawId } from '../../foundation/identity/index.js';
 import type { ContractId } from '../../foundation/identity/index.js';
+import { type ClawDir } from '../../foundation/identity/index.js';
 
 
 
 export interface VerificationContext extends LockContext {
-  clawDir: string;
+  clawDir: ClawDir;
   clawId: ClawId;
   llm?: LLMOrchestrator;
   contractDir: (contractId: ContractId) => Promise<string>;
@@ -25,10 +26,10 @@ export interface VerificationContext extends LockContext {
   moveContractToArchive: (contractId: ContractId) => Promise<void>;
   emitContractCompleted: (contractId: ContractId) => Promise<void>;
   onNotify?: (type: string, data: Record<string, unknown>) => void;
-  runScriptVerification: (scriptFile: string, contractAbsDir: string) => Promise<VerificationResult>;
+  runScriptVerification: (scriptFile: string, contractAbsDir: ClawDir) => Promise<VerificationResult>;
   runLLMVerification: (
     promptFile: string,
-    contractAbsDir: string,
+    contractAbsDir: ClawDir,
     contractId: ContractId,
     subtaskId: SubtaskId,
     subtaskDesc: string,

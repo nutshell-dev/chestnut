@@ -39,7 +39,7 @@ describe('contract observer state file shape_mismatch emits OBSERVER_STATE_PARSE
     const { audit, events } = makeAuditMock();
 
     await runContractObserver({
-      clawforumDir: '/tmp/test',
+      clawforumRoot: '/tmp/test',
       fs,
       motionAudit: audit,
       notifyClaw: vi.fn(),
@@ -63,7 +63,7 @@ describe('contract observer state file shape_mismatch emits OBSERVER_STATE_PARSE
     const { audit, events } = makeAuditMock();
 
     await runContractObserver({
-      clawforumDir: '/tmp/test',
+      clawforumRoot: '/tmp/test',
       fs,
       motionAudit: audit,
       notifyClaw: vi.fn(),
@@ -86,7 +86,7 @@ describe('contract observer state file shape_mismatch emits OBSERVER_STATE_PARSE
     const { audit, events } = makeAuditMock();
 
     await runContractObserver({
-      clawforumDir: '/tmp/test',
+      clawforumRoot: '/tmp/test',
       fs,
       motionAudit: audit,
       notifyClaw: vi.fn(),

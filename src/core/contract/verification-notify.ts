@@ -6,6 +6,7 @@
 import * as path from 'path';
 import type { VerificationContext } from './verification-types.js';
 import { notifyClaw } from '../../foundation/messaging/index.js';
+import { makeClawforumRoot } from '../../foundation/identity/index.js';
 
 import type { ContractId } from '../../foundation/identity/index.js';
 import type { SubtaskId } from './types.js';
@@ -60,7 +61,7 @@ export function writeVerificationInbox(
     body = feedback || 'No feedback provided';
   }
 
-  const clawforumRoot = path.dirname(path.dirname(ctx.clawDir));
+  const clawforumRoot = makeClawforumRoot(path.dirname(path.dirname(ctx.clawDir)));
   notifyClaw(ctx.fs, clawforumRoot, ctx.clawId, {
     type: verdict === 'passed' ? 'verification_result' : 'verification_rejection',
     source: 'contract_system',
@@ -85,7 +86,7 @@ export async function writeVerificationError(
       ? `Acceptance verifier timed out after ${(error as ToolTimeoutError).context?.timeoutMs ?? '?'}ms. 资源 / 网络问题 / 重试可能修复。Error: ${errorMsg}`
       : `Acceptance verification crashed (system bug). Error: ${errorMsg}. 修代码后再 retry。`;
 
-  const clawforumRoot = path.dirname(path.dirname(ctx.clawDir));
+  const clawforumRoot = makeClawforumRoot(path.dirname(path.dirname(ctx.clawDir)));
   notifyClaw(ctx.fs, clawforumRoot, ctx.clawId, {
     type: 'verification_error',
     source: 'contract_system',

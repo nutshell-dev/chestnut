@@ -78,9 +78,11 @@ function assertSafeClawId(name: string): void {
   }
 }
 
-export function getClawDir(name: string): string {
+import { type ClawDir, makeClawDir } from './identity/index.js';
+
+export function getClawDir(name: string): ClawDir {
   assertSafeClawId(name);
-  return path.join(getWorkspaceRoot(), '.clawforum', 'claws', name);
+  return makeClawDir(path.join(getWorkspaceRoot(), '.clawforum', 'claws', name));
 }
 
 export function getClawforumRoot(): string {

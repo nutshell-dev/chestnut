@@ -11,11 +11,12 @@ import type { AuditLog } from '../audit/index.js';
 import type { FileSystem } from '../fs/types.js';
 
 import { MOTION_CLAW_ID } from '../../constants.js';
+import { makeClawDir } from '../identity/index.js';
 
 export function createAgentProcessManager(deps: { fsFactory: (baseDir: string) => FileSystem }, audit: AuditLog): ProcessManager {
   const baseDir = getClawforumRoot();
   const fs = deps.fsFactory(baseDir);
   const resolveAgentDir = (id: string) =>
-    id === MOTION_CLAW_ID ? getNamedSubrootDir('motion') : getClawDir(id);
+    id === MOTION_CLAW_ID ? makeClawDir(getNamedSubrootDir('motion')) : getClawDir(id);
   return new ProcessManager(fs, baseDir, audit, resolveAgentDir);
 }

@@ -36,6 +36,7 @@ import {
 } from '../async-task-system/index.js';
 import { CLAWSPACE_DIR } from '../../foundation/paths.js';
 import type { PermissionChecker } from '../../foundation/tool-protocol/permission.js';
+import { type ClawDir } from '../../foundation/identity/index.js';
 export type { PermissionChecker } from '../../foundation/tool-protocol/permission.js';
 
 
@@ -76,7 +77,7 @@ const BASE_WRITABLE_PATHS = [
 
 export interface ClawPermissionOptions {
   /** Base directory for the claw */
-  clawDir: string;
+  clawDir: ClawDir;
 
   /** System paths that should be read-only (default: SYSTEM_PATHS) */
   systemPaths?: string[];
@@ -132,7 +133,7 @@ function matchesPathPatterns(
  * Get path relative to claw directory
  */
 function getRelativeToClaw(
-  clawDir: string,
+  clawDir: ClawDir,
   targetPath: string,
   fs?: FileSystem
 ): string | null {

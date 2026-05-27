@@ -5,6 +5,7 @@ import { cleanupRetention } from '../../../foundation/messaging/index.js';
 import { INBOX_DONE_DIR, INBOX_FAILED_DIR } from '../../../foundation/messaging/dirs.js';
 import { cleanupTaskRetention } from '../../async-task-system/index.js';
 import { cleanupArchives } from '../../../foundation/dialog-store/index.js';
+import { type ClawDir } from '../../../foundation/identity/index.js';
 
 /**
  * Cron job timeout (ms) / 防 stuck handler 占 cron tick.
@@ -13,7 +14,7 @@ import { cleanupArchives } from '../../../foundation/dialog-store/index.js';
 export const RETENTION_CLEANUP_CRON_TIMEOUT_MS = 120_000;
 
 export interface RetentionCleanupOptions {
-  motionDir: string;
+  motionDir: ClawDir;
   fs: FileSystem;
   audit: AuditLog;
   maxDays: {

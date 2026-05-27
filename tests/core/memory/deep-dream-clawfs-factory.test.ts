@@ -31,7 +31,7 @@ function makeTextResponse(text: string) {
 
 function makeOpts(overrides: Partial<DeepDreamOptions> = {}): DeepDreamOptions {
   return {
-    clawforumDir: '',
+    clawforumRoot: '',
     llmConfig: fakeLlmConfig,
     llmService: mockLlmService as any,
     fs: new NodeFileSystem({ baseDir: '' }),
@@ -62,7 +62,7 @@ describe('runDeepDream — clawFsFactory 注入路径（caller DIP enforce）', 
 
     const factory = vi.fn().mockImplementation((clawDir: string) => new NodeFileSystem({ baseDir: clawDir }));
 
-    await runDeepDream(makeOpts({ clawforumDir, fs: new NodeFileSystem({ baseDir: clawforumDir }), clawFsFactory: factory }));
+    await runDeepDream(makeOpts({ clawforumRoot: clawforumDir, fs: new NodeFileSystem({ baseDir: clawforumDir }), clawFsFactory: factory }));
 
     expect(factory).toHaveBeenCalledTimes(3);
     expect(factory).toHaveBeenCalledWith(path.join(clawsDir, 'a'));
@@ -78,7 +78,7 @@ describe('runDeepDream — clawFsFactory 注入路径（caller DIP enforce）', 
 
     const factory = vi.fn().mockImplementation((clawDir: string) => new NodeFileSystem({ baseDir: clawDir }));
 
-    await runDeepDream(makeOpts({ clawforumDir, fs: new NodeFileSystem({ baseDir: clawforumDir }), clawFsFactory: factory }));
+    await runDeepDream(makeOpts({ clawforumRoot: clawforumDir, fs: new NodeFileSystem({ baseDir: clawforumDir }), clawFsFactory: factory }));
 
     expect(factory).not.toHaveBeenCalled();
 
@@ -104,7 +104,7 @@ describe('runDeepDream — clawFsFactory 注入路径（caller DIP enforce）', 
       return new NodeFileSystem({ baseDir: clawDir });
     });
 
-    await runDeepDream(makeOpts({ clawforumDir, fs: new NodeFileSystem({ baseDir: clawforumDir }), clawFsFactory: factory }));
+    await runDeepDream(makeOpts({ clawforumRoot: clawforumDir, fs: new NodeFileSystem({ baseDir: clawforumDir }), clawFsFactory: factory }));
 
     expect(factory).toHaveBeenCalledTimes(3);
     expect(factory).toHaveBeenCalledWith(path.join(clawsDir, 'ok1'));

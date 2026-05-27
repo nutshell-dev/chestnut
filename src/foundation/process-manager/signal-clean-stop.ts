@@ -1,4 +1,4 @@
-/**
+import { type ClawforumRoot } from '../../foundation/identity/index.js';/**
  * @module L2.ProcessManager.SignalCleanStop
  * Explicit clean-stop flag API (phase 1373 sub-3).
  *
@@ -13,11 +13,11 @@ import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
 
 export async function signalCleanStop(
   fs: FileSystem,
-  clawforumDir: string,
+  clawforumRoot: ClawforumRoot,
   clawName: string,
   audit?: AuditLog,
 ): Promise<void> {
-  const flagPath = path.join(clawforumDir, clawName, 'clean-stop');
+  const flagPath = path.join(clawforumRoot, clawName, 'clean-stop');
   await fs.writeAtomic(flagPath, '');
   audit?.write(PROCESS_MANAGER_AUDIT_EVENTS.CLEAN_STOP_SIGNALED, `claw=${clawName}`);
 }

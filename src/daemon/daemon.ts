@@ -25,6 +25,7 @@ import { DAEMON_AUDIT_EVENTS } from './audit-events.js';
 import type { DaemonInstances } from './types.js';
 import type { ConfigDefaults } from '../foundation/config/schemas.js';
 import { makeClawId, type ClawId } from '../foundation/identity/index.js';
+import { type ClawDir, makeClawDir } from '../foundation/identity/index.js';
 
 
 export interface DaemonCommandDeps {
@@ -33,7 +34,7 @@ export interface DaemonCommandDeps {
   assemble: (config: {
     identity: 'motion' | 'claw';
     clawId: ClawId;
-    clawDir: string;
+    clawDir: ClawDir;
     globalConfig: any;
     clawConfig: any | null;
   }) => Promise<DaemonInstances>;
@@ -52,7 +53,7 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
     const isMotion = name === MOTION_CLAW_ID;
 
     // 配置
-    const dir = isMotion ? getNamedSubrootDir('motion') : getClawDir(name);
+    const dir = isMotion ? makeClawDir(getNamedSubrootDir('motion')) : getClawDir(name);
 
     // pre-assemble audit sink（phase189 §7.A3 清零；assemble 前的失败也需 audit）
     const preAssembleFs = deps.fsFactory(dir);

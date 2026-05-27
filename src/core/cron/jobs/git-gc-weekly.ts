@@ -1,4 +1,5 @@
 import * as path from 'path';
+import { type ClawforumRoot } from '../../../foundation/identity/index.js';
 import { exec } from '../../../foundation/process-exec/index.js';
 import type { FileSystem } from '../../../foundation/fs/types.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
@@ -12,15 +13,15 @@ import { CLAWS_DIR } from '../../../foundation/paths.js';
 export const GIT_GC_WEEKLY_CRON_TIMEOUT_MS = 120_000;
 
 export interface GitGcWeeklyOptions {
-  clawforumDir: string;
+  clawforumRoot: ClawforumRoot;
   fs: FileSystem;
   audit: AuditLog;
   signal?: AbortSignal;
 }
 
 export async function runGitGcWeekly(opts: GitGcWeeklyOptions): Promise<void> {
-  const { clawforumDir, fs, audit } = opts;
-  const clawsDir = path.join(clawforumDir, CLAWS_DIR);
+  const { clawforumRoot, fs, audit } = opts;
+  const clawsDir = path.join(clawforumRoot, CLAWS_DIR);
 
   if (!fs.existsSync(clawsDir)) return;
 

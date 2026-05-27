@@ -17,19 +17,19 @@
         },
         {
             "file": "src/cli/commands/chat-viewport-claw-manager.ts",
-            "line": 152,
+            "line": 153,
             "body_excerpt": "} catch { /* skip */ }",
             "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
         },
         {
             "file": "src/cli/commands/chat-viewport-claw-manager.ts",
-            "line": 157,
+            "line": 158,
             "body_excerpt": "} catch { /* ENOENT 等，跳过 */ }",
             "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
         },
         {
             "file": "src/cli/commands/chat-viewport-claw-manager.ts",
-            "line": 71,
+            "line": 72,
             "body_excerpt": "} catch { /* polling fallback */ }",
             "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
         },
@@ -344,7 +344,7 @@
         },
         {
             "file": "src/foundation/tools/executor.ts",
-            "line": 151,
+            "line": 152,
             "body_excerpt": ".catch(() => {}",
             "reason": "race loser handled by executionPromise.catch L150+",
             "form": "promise"

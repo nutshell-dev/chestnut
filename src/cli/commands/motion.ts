@@ -28,6 +28,7 @@ import { SKILLS_DIR_DEFAULT, BUNDLED_SKILLS_DIR_NAME } from '../../foundation/sk
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
+import { type ClawDir, makeClawDir } from '../../foundation/identity/index.js';
 
 // Get current file directory (ESM compatible)
 const __filename = fileURLToPath(import.meta.url);
@@ -76,7 +77,7 @@ async function copyDir(deps: { fsFactory: (baseDir: string) => FileSystem }, src
  * Install builtin skills to motion skills directory.
  * Source: dist/skills/ (falls back to src/skills/ during development)
  */
-async function installBuiltinSkills(deps: { fsFactory: (baseDir: string) => FileSystem }, motionDir: string): Promise<void> {
+async function installBuiltinSkills(deps: { fsFactory: (baseDir: string) => FileSystem }, motionDir: ClawDir): Promise<void> {
   // Try dist path first, fall back to src
   let skillsSource = path.join(__dirname, '..', BUNDLED_SKILLS_DIR_NAME);
   const srcFs = deps.fsFactory(__dirname);
@@ -138,7 +139,7 @@ async function writeTemplate(deps: { fsFactory: (baseDir: string) => FileSystem 
  */
 export async function initCommand(deps: { fsFactory: (baseDir: string) => FileSystem }, silent = false, extraDeps?: { audit?: AuditLog }): Promise<void> {
   const audit = extraDeps?.audit;
-  const motionDir = getNamedSubrootDir(MOTION_CLAW_ID);
+  const motionDir = makeClawDir(getNamedSubrootDir(MOTION_CLAW_ID));
   const motionConfigDir = getMotionConfigDir();
   
   console.log(`Initializing Motion at: ${motionDir}`);
@@ -204,7 +205,7 @@ export async function initCommand(deps: { fsFactory: (baseDir: string) => FileSy
  */
 export async function chatCommand(deps: { fsFactory: (baseDir: string) => FileSystem }): Promise<void> {
   const globalConfig = loadGlobalConfig(deps, CONFIG_DEFAULTS);
-  const motionDir = getNamedSubrootDir(MOTION_CLAW_ID);
+  const motionDir = makeClawDir(getNamedSubrootDir(MOTION_CLAW_ID));
   const { audit: systemAudit } = createDirContext(deps, motionDir);
 
   // Check whether Motion has been initialized

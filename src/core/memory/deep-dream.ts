@@ -7,12 +7,14 @@ import type { LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/in
 import type { Message, ContentBlock, TextBlock, LLMResponse } from '../../foundation/llm-provider/types.js';
 import { notifyInbox } from '../../foundation/messaging/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
-import { type ClawId, makeClawId } from '../../foundation/identity/index.js';
+import { type ClawId, makeClawId } from '../../foundation/identity/index.js'
+import { type ClawforumRoot } from '../../foundation/identity/index.js';
 import { DialogStore } from '../../foundation/dialog-store/index.js';
 import type { SessionData } from '../../foundation/dialog-store/types.js';
 import { CLAWS_DIR } from '../../foundation/paths.js';
 import { INBOX_PENDING_DIR } from '../../foundation/messaging/dirs.js';
 import { FileNotFoundError } from '../../foundation/fs/types.js';
+import { type ClawDir, makeClawDir } from '../../foundation/identity/index.js';
 import {
   DEEP_DREAM_SYSTEM_PROMPT,
   buildDreamInput,
@@ -29,7 +31,7 @@ interface DreamStateData {
 }
 
 export interface DeepDreamOptions {
-  clawforumDir: string;                  // .clawforum/ 根目录
+  clawforumRoot: ClawforumRoot;                  // .clawforum/ 根目录
   motionDir?: string;                    // motion 域 / dream-outputs 归属
   motionFs?: FileSystem;                 // baseDir = motionDir
   llmConfig: LLMOrchestratorConfig;
@@ -38,7 +40,7 @@ export interface DeepDreamOptions {
   fs: FileSystem;
   audit: AuditLog;
   /** 临时构建 per-claw FileSystem 的 factory（memory/system.ts 注入 / 业务 0 触 L1 impl）*/
-  clawFsFactory: (clawDir: string) => FileSystem;
+  clawFsFactory: (clawDir: ClawDir) => FileSystem;
   signal?: AbortSignal;
 }
 
@@ -170,7 +172,7 @@ async function maybeMergeCompressions(
 
 async function runDeepDreamForClaw(
   clawId: ClawId,
-  clawDir: string,
+  clawDir: ClawDir,
   clawFs: FileSystem,
   motionFs: FileSystem | undefined,
   llm: LLMOrchestrator,
@@ -353,7 +355,7 @@ export async function runDeepDream(opts: DeepDreamOptions): Promise<void> {
 
   // 串行处理每个 claw
   for (const clawId of clawIds) {
-    const clawDir = path.join(opts.clawforumDir, CLAWS_DIR, clawId);
+    const clawDir = makeClawDir(path.join(opts.clawforumRoot, CLAWS_DIR, clawId));
     try {
       const clawFs = opts.clawFsFactory(clawDir);
       await runDeepDreamForClaw(makeClawId(clawId), clawDir, clawFs, opts.motionFs, llm, maxCompressionTokens, opts.audit, opts.signal);

@@ -1,3 +1,4 @@
+import { type ClawforumRoot } from '../../../foundation/identity/index.js';
 /**
  * @module L5.Cron.AuditSizeMonitor
  * @layer L5
@@ -26,9 +27,9 @@ const AUDIT_SIZE_CRITICAL_BYTES = 1024 * 1024 * 1024;  // 1 GB
 export interface AuditSizeMonitorOptions {
   fs: FileSystem;
   audit: AuditLog;
-  clawforumDir: string;
-  motionAuditPath: string;     // <clawforumDir>/motion/audit.tsv
-  rootAuditPath: string;        // <clawforumDir>/audit.tsv
+  clawforumRoot: ClawforumRoot;
+  motionAuditPath: string;     // <clawforumRoot>/motion/audit.tsv
+  rootAuditPath: string;        // <clawforumRoot>/audit.tsv
   warnBytes?: number;
   criticalBytes?: number;
   motionInbox?: InboxWriter;

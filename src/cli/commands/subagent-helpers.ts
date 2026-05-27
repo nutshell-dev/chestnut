@@ -8,6 +8,7 @@ import {
   getClawDir,
   getNamedSubrootDir,
 } from '../../foundation/paths.js';
+import { type ClawDir, makeClawDir } from '../../foundation/identity/index.js';
 import {
   TASKS_QUEUES_DONE_DIR,
   TASKS_QUEUES_FAILED_DIR,
@@ -38,11 +39,11 @@ const QUEUE_DIRS = [
   TASKS_QUEUES_RUNNING_DIR,
 ];
 
-export function resolveClawDir(clawId: ClawId): string {
-  return clawId === MOTION_CLAW_ID ? getNamedSubrootDir(MOTION_CLAW_ID) : getClawDir(clawId);
+export function resolveClawDir(clawId: ClawId): ClawDir {
+  return clawId === MOTION_CLAW_ID ? makeClawDir(getNamedSubrootDir(MOTION_CLAW_ID)) : getClawDir(clawId);
 }
 
-export function inferKind(deps: { fsFactory: (baseDir: string) => FileSystem }, id: string, clawDir: string): SubagentKind {
+export function inferKind(deps: { fsFactory: (baseDir: string) => FileSystem }, id: string, clawDir: ClawDir): SubagentKind {
   if (id.startsWith('verifier-')) return 'verifier';
 
   const clawFs = deps.fsFactory(clawDir);
@@ -101,7 +102,7 @@ export function inferStatus(deps: { fsFactory: (baseDir: string) => FileSystem }
   return 'running';
 }
 
-export function getStartedAt(deps: { fsFactory: (baseDir: string) => FileSystem }, resultDir: string, id: string, clawDir: string): Date | undefined {
+export function getStartedAt(deps: { fsFactory: (baseDir: string) => FileSystem }, resultDir: string, id: string, clawDir: ClawDir): Date | undefined {
   const clawFs = deps.fsFactory(clawDir);
 
   // Try task.json createdAt first
@@ -161,7 +162,7 @@ export interface SubagentEntry {
   contractId?: string;
 }
 
-export function scanSubagentResults(deps: { fsFactory: (baseDir: string) => FileSystem }, clawDir: string): SubagentEntry[] {
+export function scanSubagentResults(deps: { fsFactory: (baseDir: string) => FileSystem }, clawDir: ClawDir): SubagentEntry[] {
   const entries: SubagentEntry[] = [];
   const clawFs = deps.fsFactory(clawDir);
 
@@ -204,7 +205,7 @@ export function scanSubagentResults(deps: { fsFactory: (baseDir: string) => File
 
 function scanSyncDir(
   deps: { fsFactory: (baseDir: string) => FileSystem },
-  clawDir: string,
+  clawDir: ClawDir,
   syncSubDir: string,
   filterPrefix?: string,
   defaultKind?: SubagentKind,

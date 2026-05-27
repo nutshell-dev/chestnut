@@ -14,6 +14,7 @@ import { FileNotFoundError } from '../../foundation/fs/types.js';
 import { isProgrammingBug } from '../../foundation/errors.js';
 import { readPendingRetrospective, InvalidJSONError, UnexpectedFormatError } from '../summon-system/index.js';
 import type { ContractId } from '../../foundation/identity/index.js';
+import { type ClawDir, makeClawDir } from '../../foundation/identity/index.js';
 
 
 export interface EvolutionSystemDeps {
@@ -46,10 +47,10 @@ export interface MotionReviewContext {
   /** Claws 基础目录（解析目标 claw 路径：`path.resolve(clawsBaseDir, targetClaw)`）*/
   clawsBaseDir: string;
   /** 临时构建 target claw FileSystem 的 factory（assembly 注入 / 业务 0 触 L1 impl）*/
-  clawFsFactory: (clawDir: string) => FileSystem;
+  clawFsFactory: (clawDir: ClawDir) => FileSystem;
   /** 临时构建 target claw ContractSystem 的 factory（assembly 注入 / 业务 0 触 L4 ctor）。
    *  factory 内部封装 createSystemAudit（避免 L2 audit instance leak 到业务）/ mirror phase 609 clawFsFactory 模板。 */
-  clawContractManagerFactory: (clawDir: string, targetClaw: string, fs: FileSystem) => ContractSystem;
+  clawContractManagerFactory: (clawDir: ClawDir, targetClaw: string, fs: FileSystem) => ContractSystem;
 }
 
 const STATE_FILE_PATH = '.evolution-system-state.json';   // motion root
@@ -223,7 +224,7 @@ export class EvolutionSystem {
     // Part 2: contract YAML + skills + mining messages（daemon.ts:160-213 等价）
 
     // 2.1 加载契约 YAML（factory 注入 target claw ContractSystem / phase 619 caller-DIP enforce）
-    const clawDir = path.join(ctx.clawsBaseDir, targetClaw);
+    const clawDir = makeClawDir(path.join(ctx.clawsBaseDir, targetClaw));
     const clawFs = ctx.clawFsFactory(clawDir);
     const clawContractManager = ctx.clawContractManagerFactory(clawDir, targetClaw, clawFs);
 

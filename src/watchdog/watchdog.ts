@@ -23,7 +23,7 @@ import { fileURLToPath } from 'url';
 import { setTimeout } from 'timers/promises';
 import { getNamedSubrootDir } from '../foundation/config/index.js';
 import { MOTION_CLAW_ID } from '../constants.js';
-import { makeClawId } from '../foundation/identity/index.js';
+import { makeClawId, makeClawforumRoot, makeClawDir } from '../foundation/identity/index.js';
 import type { FileSystem } from '../foundation/fs/types.js';
 import { type AuditLog, createAuditWriter } from '../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../foundation/process-manager/factories.js';
@@ -181,12 +181,12 @@ export async function runWatchdogLoop(fsFactory: (baseDir: string) => FileSystem
         const fsProj = fsFactory(projectRoot);
         const relBundle = path.relative(projectRoot, bundleEntry);
         const daemonEntryPath = fsProj.existsSync(relBundle) ? bundleEntry : path.resolve(thisDir, '..', 'daemon-entry.js');
-        const clawforumDir = getClawforumDir();
+        const clawforumRoot = makeClawforumRoot(getClawforumDir());
         const pid = await pm.spawn(MOTION_CLAW_ID, {
           command: 'node',
           args: [daemonEntryPath, MOTION_CLAW_ID],
-          logFile: path.join(getNamedSubrootDir('motion'), DAEMON_LOG),
-          env: { ...process.env, CLAWFORUM_ROOT: path.dirname(clawforumDir) } as Record<string, string | undefined>,
+          logFile: path.join(makeClawDir(getNamedSubrootDir('motion')), DAEMON_LOG),
+          env: { ...process.env, CLAWFORUM_ROOT: path.dirname(clawforumRoot) } as Record<string, string | undefined>,
         });
         log(fsFactory, `[watchdog] motion restarted (PID=${pid})`);
         auditWriter.write('process_spawn', MOTION_CLAW_ID, `pid=${pid}`);

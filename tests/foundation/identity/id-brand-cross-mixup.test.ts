@@ -7,10 +7,12 @@ import type { TaskId } from '../../../src/foundation/identity/index.js';
 import { makeTaskId } from '../../../src/foundation/identity/index.js';
 import type { ToolUseId } from '../../../src/foundation/tool-protocol/index.js';
 import { makeToolUseId } from '../../../src/foundation/tool-protocol/index.js';
-import type { SubtaskId } from '../../../src/core/contract/types.js';
-import { makeSubtaskId } from '../../../src/core/contract/types.js';
+import type { SubtaskId, ArchiveDir } from '../../../src/core/contract/types.js';
+import { makeSubtaskId, makeArchiveDir } from '../../../src/core/contract/types.js';
+import type { ClawDir, ClawforumRoot } from '../../../src/foundation/identity/types.js';
+import { makeClawDir, makeClawforumRoot } from '../../../src/foundation/identity/types.js';
 
-describe('ID brand cross-mixup forbidden (20 combinations)', () => {
+describe('ID brand cross-mixup forbidden (32 combinations)', () => {
   const clawId: ClawId = makeClawId('claw');
   const contractId: ContractId = makeContractId('contract');
   const taskId: TaskId = makeTaskId('task');
@@ -114,6 +116,50 @@ describe('ID brand cross-mixup forbidden (20 combinations)', () => {
     takeTool(subtaskId);
     // @ts-expect-error TS2345
     takeSubtask(toolUseId);
+    expect(true).toBe(true);
+  });
+
+  it('ClawDir ↔ ClawId', () => {
+    const clawDir: ClawDir = makeClawDir('/claw');
+    function takeClawDir(_: ClawDir): void {}
+    function takeClaw(_: ClawId): void {}
+    // @ts-expect-error TS2345
+    takeClawDir(clawId);
+    // @ts-expect-error TS2345
+    takeClaw(clawDir);
+    expect(true).toBe(true);
+  });
+
+  it('ClawDir ↔ ContractId', () => {
+    const clawDir: ClawDir = makeClawDir('/claw');
+    function takeClawDir(_: ClawDir): void {}
+    function takeContract(_: ContractId): void {}
+    // @ts-expect-error TS2345
+    takeClawDir(contractId);
+    // @ts-expect-error TS2345
+    takeContract(clawDir);
+    expect(true).toBe(true);
+  });
+
+  it('ClawforumRoot ↔ TaskId', () => {
+    const root: ClawforumRoot = makeClawforumRoot('/root');
+    function takeRoot(_: ClawforumRoot): void {}
+    function takeTask(_: TaskId): void {}
+    // @ts-expect-error TS2345
+    takeRoot(taskId);
+    // @ts-expect-error TS2345
+    takeTask(root);
+    expect(true).toBe(true);
+  });
+
+  it('ArchiveDir ↔ ToolUseId', () => {
+    const archiveDir: ArchiveDir = makeArchiveDir('/archive');
+    function takeArchive(_: ArchiveDir): void {}
+    function takeTool(_: ToolUseId): void {}
+    // @ts-expect-error TS2345
+    takeArchive(toolUseId);
+    // @ts-expect-error TS2345
+    takeTool(archiveDir);
     expect(true).toBe(true);
   });
 

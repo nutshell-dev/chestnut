@@ -50,6 +50,7 @@ import { TASKS_SYNC_DIR } from '../async-task-system/index.js';
 import { formatTimeAgo } from './utils.js';
 import type { ClawId } from '../../foundation/identity/index.js';
 import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
+import { type ClawDir } from '../../foundation/identity/index.js';
 
 
 
@@ -1139,7 +1140,7 @@ export class Runtime {
     return { systemPrompt: r.full, identityContent: r.identityContent };
   }
 
-  private async ensureDirectories(_clawDir: string): Promise<void> {
+  private async ensureDirectories(_clawDir: ClawDir): Promise<void> {
     for (const dir of CLAW_SUBDIRS) {
       await this.systemFs.ensureDir(dir);
     }

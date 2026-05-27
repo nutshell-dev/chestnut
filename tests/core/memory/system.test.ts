@@ -13,7 +13,7 @@ import { runRandomDream as runRandomDreamMock } from '../../../src/core/memory/r
 
 describe('MemorySystem', () => {
   const mockOpts = {
-    clawforumDir: '/tmp/clawforum',
+    clawforumRoot: '/tmp/clawforum',
     motionDir: '/tmp/motion',
     fs: {} as any,
     motionFs: {} as any,
@@ -42,7 +42,7 @@ describe('MemorySystem', () => {
       await sys.runDeepDream();
       expect(runDeepDreamMock).toHaveBeenCalledOnce();
       expect(runDeepDreamMock).toHaveBeenCalledWith(expect.objectContaining({
-        clawforumDir: '/tmp/clawforum',
+        clawforumRoot: '/tmp/clawforum',
         llmConfig: mockOpts.llmConfig,
         llmService: mockOpts.llmService,
         maxCompressionTokens: 100,
@@ -75,7 +75,7 @@ describe('MemorySystem', () => {
       await sys.runRandomDream();
       expect(runRandomDreamMock).toHaveBeenCalledOnce();
       expect(runRandomDreamMock).toHaveBeenCalledWith(expect.objectContaining({
-        clawforumDir: '/tmp/clawforum',
+        clawforumRoot: '/tmp/clawforum',
         motionDir: '/tmp/motion',
         taskSystem: mockOpts.taskSystem,
         fs: mockOpts.fs,

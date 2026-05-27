@@ -22,6 +22,7 @@ import type { AuditLog } from '../audit/index.js';
 import type { ToolRegistry } from './types.js';
 import type { PermissionChecker } from '../tool-protocol/permission.js';
 import type { ClawId } from '../identity/index.js';
+import { type ClawDir } from '../identity/index.js';
 
 
 /**
@@ -32,7 +33,7 @@ export interface ExecContextImplOptions {
   clawId: ClawId;
   
   /** Claw workspace directory */
-  clawDir: string;
+  clawDir: ClawDir;
   
   /** phase 509 / 可选 / 默认 fallback = path.join(clawDir, CLAWSPACE_DIR) */
   workspaceDir?: string;
@@ -133,7 +134,7 @@ export function cloneExecContext(
  */
 export class ExecContextImpl implements ExecContext {
   clawId: ClawId;
-  clawDir: string;
+  clawDir: ClawDir;
   workspaceDir: string;
   syncDir: string;
   profile: ToolProfile;

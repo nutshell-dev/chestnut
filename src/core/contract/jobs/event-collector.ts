@@ -5,11 +5,12 @@ import type { ProgressData } from '../manager.js';
 import { CONTRACT_AUDIT_EVENTS } from '../audit-events.js';
 import { CONTRACT_DIR } from '../dirs.js';
 import type { ClawId } from '../../../foundation/identity/index.js';
+import { type ClawDir } from '../../../foundation/identity/index.js';
 
 
 export function collectContractEvents(
   fs: FileSystem,
-  clawDir: string,
+  clawDir: ClawDir,
   clawId: ClawId,
   sinceTs: number,
   audit: AuditLog,

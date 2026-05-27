@@ -8,6 +8,7 @@ import * as path from 'path';
 import type { AcceptanceFailedNotification, ContractYaml, VerificationResult, SubtaskId } from './types.js';
 import { ToolError, isProgrammingBug } from '../../foundation/errors.js';
 import { formatErr } from '../../foundation/utils/format.js';
+import { type ClawDir, makeClawDir } from '../../foundation/identity/index.js';
 import {
   emitContractCompleteOnCancelled,
   emitContractEscalated,
@@ -41,7 +42,7 @@ type VerificationConfig =
 async function runVerificationByType(
   ctx: VerificationContext,
   verificationConfig: VerificationConfig,
-  contractAbsDir: string,
+  contractAbsDir: ClawDir,
   contractId: ContractId,
   subtaskId: SubtaskId,
   subtaskDesc: string,
@@ -310,7 +311,7 @@ export async function runVerificationInBackground(
   const { contractId, subtaskId, evidence, artifacts = [] } = params;
   const subtaskDef = contractYaml.subtasks.find(st => st.id === subtaskId);
   const subtaskDesc = subtaskDef?.description || subtaskId;
-  const contractAbsDir = path.join(ctx.clawDir, await ctx.contractDir(contractId), contractId);
+  const contractAbsDir = makeClawDir(path.join(ctx.clawDir, await ctx.contractDir(contractId), contractId));
 
   let outcomeKind: 'passed' | 'failed' | 'error' | 'cancelled' | 'missing_subtask' = 'error';
   let cancelReason: string | undefined;

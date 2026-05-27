@@ -1,4 +1,4 @@
-/**
+import { type ClawforumRoot } from '../../foundation/identity/index.js';/**
  * Notification utilities - Unified notification helpers
  *
  * Standardizes error handling and formatting for inbox notifications.
@@ -22,7 +22,7 @@ import { randomUUID } from 'crypto';
  */
 export function notifyClaw(
   fs: FileSystem,
-  clawforumRoot: string,
+  clawforumRoot: ClawforumRoot,
   targetClawId: string,
   message: InboxMessageOptionsBase,
   audit: AuditLog,

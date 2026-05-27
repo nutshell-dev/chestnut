@@ -49,7 +49,7 @@ import { createDirContext } from '../foundation/process-manager/factories.js';
 import { getClawforumRoot, getClawDir, loadGlobalConfig } from '../foundation/config/index.js';
 import { CONFIG_DEFAULTS } from '../assembly/config-defaults.js';
 import { parseIntOption } from './parse-int-option.js';
-import { makeClawId } from '../foundation/identity/index.js';
+import { makeClawId, makeClawDir } from '../foundation/identity/index.js';
 import { makeContractId } from '../foundation/identity/index.js';
 import { MOTION_CLAW_ID } from '../constants.js';
 
@@ -309,7 +309,7 @@ motionCmd
     const { createSystemAudit } = await import('../foundation/audit/index.js');
     const { createAgentProcessManager } = await import('../foundation/process-manager/agent-factory.js');
     loadGlobalConfig({ fsFactory }, CONFIG_DEFAULTS);
-    const motionDir = getNamedSubrootDir('motion');
+    const motionDir = makeClawDir(getNamedSubrootDir('motion'));
     const baseDir = path.dirname(motionDir);
     const nodeFs = fsFactory(baseDir);
     const systemAudit = createSystemAudit(nodeFs, baseDir);

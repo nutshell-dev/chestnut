@@ -91,7 +91,7 @@ import { createAskUserTool } from '../core/gateway/index.js';
 import { createStreamReader, STREAM_FILE, findRecentTurnStartOffset } from '../foundation/stream/index.js';
 import { TASKS_SYNC_DIR } from '../core/async-task-system/index.js';
 import { DIALOG_DIR } from '../foundation/dialog-store/dirs.js';
-import { makeClawId, type ClawId } from '../foundation/identity/index.js';
+import { makeClawId, type ClawId, makeClawforumRoot, type ClawDir, makeClawDir } from '../foundation/identity/index.js';
 import type { ContractId } from '../foundation/identity/index.js';
 import { MOTION_CLAW_ID } from '../constants.js';
 
@@ -367,7 +367,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
           motionAudit: auditWriter,
           clawsBaseDir: path.resolve(clawDir, '..', CLAWS_DIR),
           clawFsFactory: fsFactory,
-          clawContractManagerFactory: (d: string, id: string, fs: FileSystem) => createContractSystem({ clawDir: d, clawId: makeClawId(id), fs, audit: createSystemAudit(fs, d), toolRegistry, toolTimeoutMs, fsFactory }),
+          clawContractManagerFactory: (d: ClawDir, id: string, fs: FileSystem) => createContractSystem({ clawDir: d, clawId: makeClawId(id), fs, audit: createSystemAudit(fs, d), toolRegistry, toolTimeoutMs, fsFactory }),
         };
         contractManager.onContractCompleted(async (contractId) => {
           if (!evolutionSystem) return; // P1.NPE guard (phase 620 / mirror phase 607 dream-trigger)
@@ -554,7 +554,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
       // fs = parentFs (baseDir = .clawforum/) align clawforumRoot、避免 systemFs (baseDir = motion/) 沙箱拒 sibling claws/<to> absolute path
       toolRegistry.register(createNotifyClawTool({
         fs: parentFs,
-        clawforumRoot: path.dirname(clawDir),  // motion clawDir = <root>/.clawforum/motion → <root>/.clawforum (clawforumRoot)
+        clawforumRoot: makeClawforumRoot(path.dirname(clawDir)),  // motion clawDir = <root>/.clawforum/motion → <root>/.clawforum (clawforumRoot)
         audit: auditWriter,
       }));
     }
@@ -568,7 +568,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
       const heartbeatIntervalMs = globalConfig.motion?.heartbeat_interval_ms ?? 0;
       if (heartbeatIntervalMs > 0) {
         try {
-          heartbeat = createHeartbeat(path.join(clawDir, '..'), {
+          heartbeat = createHeartbeat(makeClawforumRoot(path.join(clawDir, '..')), {
             interval: heartbeatIntervalMs / 1000,
             fs: parentFs,
             audit: auditWriter,
@@ -585,7 +585,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
     let cronRunner: CronRunner | undefined;
     let messaging: Messaging | undefined;
     if (isMotion && (globalConfig.cron?.enabled ?? true)) {
-      const clawforumDir = path.join(clawDir, '..');
+      const clawforumRoot = makeClawforumRoot(path.join(clawDir, '..'));
       const tickMs = globalConfig.cron?.tick_interval_ms ?? CRON_TICK_INTERVAL_MS;
       const diskLimitMB = globalConfig.watchdog?.disk_warning_mb ?? DEFAULT_DISK_WARNING_MB;
       const diskScheduleStr = globalConfig.cron?.jobs?.disk_monitor?.schedule ?? 'hourly';
@@ -594,14 +594,14 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
       // 失败语义：与既有模块（Snapshot / StreamWriter）一致 —— audit 写 assemble_failed 后上抛
       let clawforumFs: FileSystem;
       try {
-        clawforumFs = fsFactory(clawforumDir);
+        clawforumFs = fsFactory(clawforumRoot);
       } catch (e) {
         auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=cron_runner`, `phase=fs_construct`, `reason=${errMsg(e)}`);
         throw new Error(`Assembly: clawforumFs construct failed: ${errMsg(e)}`, { cause: e });
       }
 
       // phase 1333: Messaging instance for cron outbox-drain tick trigger
-      messaging = createMessaging({ clawforumDir, fs: clawforumFs, audit: auditWriter });
+      messaging = createMessaging({ clawforumRoot, fs: clawforumFs, audit: auditWriter });
 
       // --- MemorySystem (L5, motion only) ---
       let memorySystem: MemorySystem | undefined;
@@ -617,7 +617,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
         const getContractProgress = async (clawId: ClawId, contractId: ContractId): Promise<import('../core/contract/index.js').ProgressData> => {
           let cs = contractSystemCache.get(clawId);
           if (!cs) {
-            const cDir = path.join(clawforumDir, CLAWS_DIR, clawId);
+            const cDir = makeClawDir(path.join(clawforumRoot, CLAWS_DIR, clawId));
             const cFs = fsFactory(cDir);
             const cAudit = createSystemAudit(cFs, cDir);
             cs = createContractSystem({ clawDir: cDir, clawId, fs: cFs, audit: cAudit, llm, toolRegistry, toolTimeoutMs, fsFactory });
@@ -628,7 +628,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
 
         try {
           memorySystem = createMemorySystem({
-            clawforumDir,
+            clawforumRoot,
             motionDir: clawDir,
             fs: clawforumFs,
             motionFs: systemFs,
@@ -658,7 +658,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
             enabled: globalConfig.cron?.jobs?.disk_monitor?.enabled ?? true,
             schedule: parseSchedule(diskScheduleStr, auditWriter),
             handler: (signal) => runDiskMonitor({
-              clawforumDir,
+              clawforumRoot,
               limitMB: diskLimitMB,
               fs: clawforumFs,
               audit: auditWriter,
@@ -673,7 +673,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
             enabled: globalConfig.cron?.jobs?.llm_stats?.enabled ?? true,
             schedule: parseSchedule(globalConfig.cron?.jobs?.llm_stats?.schedule ?? 'daily:06:00', auditWriter),
             handler: (signal) => runLlmStats({
-              clawforumDir,
+              clawforumRoot,
               motionDir: clawDir,
               clawforumFs,
               motionFs: systemFs,
@@ -698,7 +698,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
             enabled: globalConfig.cron?.jobs?.metrics_snapshot?.enabled ?? true,
             schedule: parseSchedule(globalConfig.cron?.jobs?.metrics_snapshot?.schedule ?? 'interval:5m', auditWriter),
             handler: (signal) => runMetricsSnapshot({
-              motionDir: path.join(clawforumDir, 'motion'),
+              motionDir: makeClawDir(path.join(clawforumRoot, 'motion')),
               fs: clawforumFs,
               audit: auditWriter,
               signal,
@@ -710,7 +710,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
             enabled: true,
             schedule: parseSchedule(globalConfig.cron?.jobs?.contract_observer?.schedule ?? 'interval:1m', auditWriter),
             handler: (signal) => runContractObserver({
-              clawforumDir,
+              clawforumRoot,
               fs: clawforumFs,
               motionAudit: auditWriter,  // phase 724 α：主 auditWriter 单 instance 复用
               notifyClaw: (fs, clawforumRoot, targetClawId, payload, audit) => notifyClaw(fs, clawforumRoot, targetClawId, payload, audit),
@@ -723,7 +723,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
             enabled: globalConfig.cron?.jobs?.git_gc_weekly?.enabled ?? true,
             schedule: parseSchedule(globalConfig.cron?.jobs?.git_gc_weekly?.schedule ?? 'daily:03:00', auditWriter),
             handler: (signal) => runGitGcWeekly({
-              clawforumDir,
+              clawforumRoot,
               fs: clawforumFs,
               audit: auditWriter,
               signal,
@@ -755,9 +755,9 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
             handler: (signal) => runAuditSizeMonitor({
               fs: clawforumFs,
               audit: auditWriter,
-              clawforumDir,
-              motionAuditPath: path.join(clawforumDir, 'motion', 'audit.tsv'),
-              rootAuditPath: path.join(clawforumDir, 'audit.tsv'),
+              clawforumRoot,
+              motionAuditPath: path.join(clawforumRoot, 'motion', 'audit.tsv'),
+              rootAuditPath: path.join(clawforumRoot, 'audit.tsv'),
               motionInbox: diskMonitorInbox,
               signal,
             }),
@@ -782,9 +782,9 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
             handler: (signal) => runSunsetMonitor({
               fs: clawforumFs,
               audit: auditWriter,
-              clawforumDir,
-              motionAuditPath: path.join(clawforumDir, 'motion', 'audit.tsv'),
-              rootAuditPath: path.join(clawforumDir, 'audit.tsv'),
+              clawforumRoot,
+              motionAuditPath: path.join(clawforumRoot, 'motion', 'audit.tsv'),
+              rootAuditPath: path.join(clawforumRoot, 'audit.tsv'),
               legacyConsts: [
                 'pid_file_legacy_format',
                 'inbox_legacy_claw_id_field',

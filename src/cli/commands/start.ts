@@ -27,6 +27,7 @@ import { createToolRegistry } from '../../foundation/tools/index.js';
 import { createDirContext } from '../../foundation/process-manager/factories.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { notifyClaw } from '../../foundation/messaging/index.js';
+import { makeClawforumRoot } from '../../foundation/identity/index.js';
 import { MOTION_CLAW_ID } from '../../constants.js';
 
 import { CliError } from '../errors.js';
@@ -35,6 +36,7 @@ import { getWorkspaceRoot } from '../../foundation/paths.js';
 import { readOnboardingStatus, type OnboardingStatus } from '../../core/contract/index.js';
 import { DAEMON_LOG } from '../../daemon/constants.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
+import { type ClawDir, makeClawDir } from '../../foundation/identity/index.js';
 
 export function buildOnboardingSubtasks(language: string): Array<{ id: string; description: string }> {
   let langInstruction: string;
@@ -94,7 +96,7 @@ export async function pickLanguage(): Promise<string> {
  * Merges two disk reads into a single synchronous call to eliminate
  * TOCTOU window between isInitialized() and getOnboardingStatus().
  */
-export function getInitializationSnapshot(deps: { fsFactory: (baseDir: string) => FileSystem }, motionDir: string): {
+export function getInitializationSnapshot(deps: { fsFactory: (baseDir: string) => FileSystem }, motionDir: ClawDir): {
   isInitialized: boolean;
   onboarding: OnboardingStatus;
 } {
@@ -108,7 +110,7 @@ export function getInitializationSnapshot(deps: { fsFactory: (baseDir: string) =
  * Find the Onboarding contract and determine its completion state.
  * Wrapper around L4 readOnboardingStatus pure helper (static-phase path).
  */
-export function getOnboardingStatus(motionDir: string, deps: { fsFactory: (baseDir: string) => FileSystem }): OnboardingStatus {
+export function getOnboardingStatus(motionDir: ClawDir, deps: { fsFactory: (baseDir: string) => FileSystem }): OnboardingStatus {
   return readOnboardingStatus(motionDir, deps);
 }
 
@@ -286,7 +288,7 @@ export async function startCommand(deps: { fsFactory: (baseDir: string) => FileS
 
 async function _start(deps: { fsFactory: (baseDir: string) => FileSystem }, audit?: AuditLog): Promise<void> {
   // Step 1: workspace init
-  const motionDir = getNamedSubrootDir(MOTION_CLAW_ID);
+  const motionDir = makeClawDir(getNamedSubrootDir(MOTION_CLAW_ID));
   const snapshot = getInitializationSnapshot(deps, motionDir);
   const wasFirstRun = !snapshot.isInitialized;
   if (wasFirstRun) {
@@ -380,7 +382,7 @@ async function _start(deps: { fsFactory: (baseDir: string) => FileSystem }, audi
     });
 
     
-    notifyClaw(notifyFs, path.dirname(motionDir), MOTION_CLAW_ID, {
+    notifyClaw(notifyFs, makeClawforumRoot(path.dirname(motionDir)), MOTION_CLAW_ID, {
       type: 'message',
       source: 'system',
       priority: 'high',
@@ -406,14 +408,14 @@ async function _start(deps: { fsFactory: (baseDir: string) => FileSystem }, audi
         subtasks: buildOnboardingSubtasks('auto'),
         verification: [],
       });
-      notifyClaw(notifyFs, path.dirname(motionDir), MOTION_CLAW_ID, {
+      notifyClaw(notifyFs, makeClawforumRoot(path.dirname(motionDir)), MOTION_CLAW_ID, {
         type: 'message', source: 'system', priority: 'high',
         body: `New contract created (${contractId}): Onboarding. Please begin execution.`,
         idPrefix: 'start',
       }, notifyAudit);
     } else {
       const pendingList = onboarding.pending?.join(', ') ?? '';
-      notifyClaw(notifyFs, path.dirname(motionDir), MOTION_CLAW_ID, {
+      notifyClaw(notifyFs, makeClawforumRoot(path.dirname(motionDir)), MOTION_CLAW_ID, {
         type: 'message', source: 'system', priority: 'high',
         body: `Resuming Onboarding contract (${onboarding.contractId}). Pending subtasks: ${pendingList}. Please continue.`,
         idPrefix: 'start',

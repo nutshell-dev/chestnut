@@ -34,6 +34,7 @@ import {
 } from './types.js';
 import { safeNumber } from '../utils/format.js';
 import type { ClawId } from '../identity/index.js';
+import { type ClawDir } from '../identity/index.js';
 
 
 // Re-export types from ./types.js for caller compat (18 caller 0 改)
@@ -345,7 +346,7 @@ export class ToolExecutorImpl implements IToolExecutor {
  * Extended ToolExecutor with context factory
  */
 export class ToolExecutor extends ToolExecutorImpl {
-  private clawDir: string;
+  private clawDir: ClawDir;
   private syncDir: string;
   private workspaceDir: string;
   private fs: FileSystem;

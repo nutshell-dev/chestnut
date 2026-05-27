@@ -1,4 +1,4 @@
-/**
+import { type ClawforumRoot } from '../../foundation/identity/index.js';/**
  * @module L4.Messaging.DrainOutboxes
  * Drain pending outboxes across all claws and deliver to recipient inbox.
  * - routing destination determined by message `to:` field
@@ -20,7 +20,7 @@ import { MOTION_CLAW_ID } from '../../constants.js';
 export const DEFAULT_LIMIT_PER_CLAW = 50;
 
 export interface DrainOutboxesOptions {
-  clawforumDir: string;
+  clawforumRoot: ClawforumRoot;
   fs: FileSystem;
   audit: AuditLog;
   limitPerClaw?: number;
@@ -35,11 +35,11 @@ export interface DrainResult {
 }
 
 export async function drainOutboxes(opts: DrainOutboxesOptions): Promise<DrainResult> {
-  const { clawforumDir, fs, audit } = opts;
+  const { clawforumRoot, fs, audit } = opts;
   const limitPerClaw = opts.final ? Infinity : (opts.limitPerClaw ?? DEFAULT_LIMIT_PER_CLAW);
 
   // 1. scan claws/*
-  const clawsDir = path.join(clawforumDir, CLAWS_DIR);
+  const clawsDir = path.join(clawforumRoot, CLAWS_DIR);
   let clawIds: string[];
   try {
     clawIds = fs.listSync(clawsDir, { includeDirs: true })
@@ -105,7 +105,7 @@ export async function drainOutboxes(opts: DrainOutboxesOptions): Promise<DrainRe
         // routing by `to:` field
         const to = msg.to || MOTION_CLAW_ID;
         const targetInboxDir = to === MOTION_CLAW_ID
-          ? path.join(clawforumDir, MOTION_CLAW_ID, 'inbox', 'pending')
+          ? path.join(clawforumRoot, MOTION_CLAW_ID, 'inbox', 'pending')
           : path.join(clawsDir, to, 'inbox', 'pending');
 
         const inboxWriter = InboxWriter.__internal_create(fs, makeInboxPath(targetInboxDir), audit);

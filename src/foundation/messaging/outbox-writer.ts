@@ -13,6 +13,7 @@ import { encodeOutbox } from './codec-outbox.js';
 import { emitOutboxSent, emitOutboxSendFailed } from './audit-emit.js';
 import { UUID_SHORT_LEN } from '../../constants.js';
 import type { ClawId } from '../identity/index.js';
+import { type ClawDir } from '../identity/index.js';
 
 
 /**
@@ -31,7 +32,7 @@ declare const OutboxPathBrand: unique symbol;
 export type OutboxPath = string & { readonly [OutboxPathBrand]: true };
 
 /** Factory: construct an OutboxPath from a clawId and clawDir. */
-export function makeOutboxPath(clawId: ClawId, clawDir: string): OutboxPath {
+export function makeOutboxPath(clawId: ClawId, clawDir: ClawDir): OutboxPath {
   void clawId; // semantic param — aligns with createOutboxWriter signature
   return path.join(clawDir, 'outbox', 'pending') as OutboxPath;
 }

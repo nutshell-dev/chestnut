@@ -27,6 +27,7 @@ import { DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../../prompts/index.js';
 import type { PermissionChecker } from '../../foundation/tool-protocol/permission.js';
 import { makeClawId } from '../../foundation/identity/index.js';
 import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
+import { type ClawDir } from '../../foundation/identity/index.js';
 
 
 
@@ -35,7 +36,7 @@ export interface SubAgentOptions {
   resultDir: string;        // phase443: caller 注入完整 path（如 `tasks/results/${task.id}`）/ SubAgent 0 知字符串约定
   messageStore: DialogStore;             // phase453: caller 装配期注入 ephemeral DialogStore（filename='messages.json' / 0 clawId / 0 archive 触发）
   prompt: string;
-  clawDir: string;
+  clawDir: ClawDir;
   syncDir: string;
   llm: LLMOrchestrator;
   registry: ToolRegistry;
@@ -67,7 +68,7 @@ export class SubAgent {
   private resultDir: string;
   private messageStore: DialogStore;
   private prompt: string;
-  private clawDir: string;
+  private clawDir: ClawDir;
   private syncDir: string;
   private llm: LLMOrchestrator;
   private registry: ToolRegistry;

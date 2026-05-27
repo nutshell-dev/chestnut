@@ -25,6 +25,7 @@ import type { PostProcessor } from './post-processors/types.js';
 import type { SubAgentTask } from './types.js';
 import type { DialogStore } from '../../foundation/dialog-store/index.js';
 import type { TaskId } from '../../foundation/identity/index.js';
+import { type ClawDir } from '../../foundation/identity/index.js';
 
 
 
@@ -36,7 +37,7 @@ export interface ExecuteSubAgentTaskDeps {
   auditWriter: AuditLog;
   llm: LLMOrchestrator;
   registry: ToolRegistry;
-  clawDir: string;
+  clawDir: ClawDir;
   parentStreamLog?: StreamLog;
   postProcessors: Map<string, PostProcessor>;
   mainDialogStore?: DialogStore;

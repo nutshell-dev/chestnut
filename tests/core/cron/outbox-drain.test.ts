@@ -37,7 +37,7 @@ describe('outbox-drain cron job (phase 1160 P0-2 + phase 1333 tick trigger)', ()
   });
 
   function makeMessaging() {
-    return createMessaging({ clawforumDir, fs, audit });
+    return createMessaging({ clawforumRoot: clawforumDir, fs, audit });
   }
 
   // 反向 1: outbox pending → motion inbox real delivery (production wiring)

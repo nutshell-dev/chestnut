@@ -15,10 +15,12 @@ import {
   emitContractCancelled,
 } from './audit-emit.js';
 
+import { type ArchiveDir } from './types.js';
+
 export interface LifecycleContext extends LockContext {
   activeDir: string;
   pausedDir: string;
-  archiveDir: string;
+  archiveDir: ArchiveDir;
   contractDir: (contractId: ContractId) => Promise<string>;
   loadContract: (contractId: ContractId) => Promise<Contract>;
   getProgress: (contractId: ContractId) => Promise<ProgressData>;

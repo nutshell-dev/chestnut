@@ -14,6 +14,7 @@ import type { ScheduleAsyncTool } from './async-dispatch.js';
 import type { PermissionChecker } from '../tool-protocol/permission.js';
 import type { ClawId } from '../identity/index.js';
 import type { ToolUseId } from '../tool-protocol/index.js';
+import { type ClawDir } from '../identity/index.js';
 
 
 
@@ -61,7 +62,7 @@ export function escapeForLog(s: string): string {
  */
 export interface ExecContext {
   clawId: ClawId;
-  clawDir: string;
+  clawDir: ClawDir;
   /** phase 509 NEW / 装配期 per-callerType resolve / 主代理=clawDir/clawspace / 子代理=clawDir/tasks/subagents/<task-id> (phase 512 落地) */
   workspaceDir: string;
   /** 装配-level 共享 sync dir（兜底落盘 + FileTool write_backups 共用 / 应然 §A.7）/ Assembly 装配期注入 */
@@ -184,7 +185,7 @@ export interface IToolExecutor {
  */
 export interface ToolExecutorOptions {
   registry: ToolRegistry;
-  clawDir: string;
+  clawDir: ClawDir;
   syncDir: string;
   workspaceDir?: string;
   fs: FileSystem;

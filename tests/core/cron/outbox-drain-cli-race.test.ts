@@ -52,7 +52,7 @@ describe('phase 1222 r131 E fork α-2: outbox-drain ↔ CLI race atomic claim', 
   });
 
   function makeMessaging() {
-    return createMessaging({ clawforumDir, fs, audit });
+    return createMessaging({ clawforumRoot: clawforumDir, fs, audit });
   }
 
   // reverse 1: cron + CLI concurrent drain → 0 double-delivery invariant

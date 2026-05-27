@@ -24,6 +24,7 @@ import { SubAgent } from './agent.js';
 import { DONE_TOOL_NAME } from './tools/done.js';
 import type { ClawId } from '../../foundation/identity/index.js';
 import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
+import { type ClawDir } from '../../foundation/identity/index.js';
 
 
 
@@ -38,7 +39,7 @@ export interface RunSubagentOptions {
   callerType?: CallerType;
 
   // 基础设施依赖（caller 注入）
-  clawDir: string;
+  clawDir: ClawDir;
   fs: FileSystem;
   fsFactory?: (baseDir: string) => FileSystem;
   llm: LLMOrchestrator;

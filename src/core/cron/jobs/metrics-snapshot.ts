@@ -1,6 +1,7 @@
 import type { FileSystem } from '../../../foundation/fs/types.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
 import { CRON_AUDIT_EVENTS } from '../audit-events.js';
+import { type ClawDir } from '../../../foundation/identity/index.js';
 
 /**
  * Cron job timeout (ms) / 防 stuck handler 占 cron tick.
@@ -9,7 +10,7 @@ import { CRON_AUDIT_EVENTS } from '../audit-events.js';
 export const METRICS_SNAPSHOT_CRON_TIMEOUT_MS = 30_000;
 
 export interface MetricsSnapshotOptions {
-  motionDir: string;   // motion 目录完整路径
+  motionDir: ClawDir;   // motion 目录完整路径
   fs: FileSystem;       // baseDir 可访问 motionDir（用于 clawforumFs）
   audit: AuditLog;
   signal?: AbortSignal;

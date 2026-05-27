@@ -1,3 +1,4 @@
+import { type ClawforumRoot } from '../../../foundation/identity/index.js';
 /**
  * @module L5.Cron.SunsetMonitor
  * @layer L5
@@ -25,7 +26,7 @@ export const SUNSET_DEFAULT_THRESHOLD_DAYS = 30;
 export interface SunsetMonitorOptions {
   fs: FileSystem;
   audit: AuditLog;
-  clawforumDir: string;
+  clawforumRoot: ClawforumRoot;
   motionAuditPath: string;
   rootAuditPath: string;
   legacyConsts: string[]; // e.g. ['PID_FILE_LEGACY_FORMAT', 'INBOX_LEGACY_CLAW_ID_FIELD', 'LEGACY_PENDING_TASK_NO_MODE']

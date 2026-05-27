@@ -26,9 +26,10 @@ export function createDialogStore(
 
 import * as path from 'path';
 import { DIALOG_AUDIT_EVENTS } from './audit-events.js';
+import { type ClawDir } from '../identity/index.js';
 
 export async function cleanupArchives(opts: {
-  motionDir: string;
+  motionDir: ClawDir;
   fs: FileSystem;
   audit: AuditLog;
   maxDays: number;

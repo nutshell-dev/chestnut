@@ -24,6 +24,7 @@ import { CONTRACT_DIR } from '../core/contract/index.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 import { formatErr } from '../foundation/utils/format.js';
 import type { ClawId } from '../foundation/identity/index.js';
+import { type ClawDir } from '../foundation/identity/index.js';
 
 
 // Parse stream.jsonl, return the timestamp of the last event and the last error message
@@ -75,7 +76,7 @@ export async function getClawActivityInfo(
 }
 
 // Check if a claw has an active or paused contract
-export function clawHasContract(clawDir: string, fsFactory: (baseDir: string) => FileSystem, audit?: AuditLog): boolean {
+export function clawHasContract(clawDir: ClawDir, fsFactory: (baseDir: string) => FileSystem, audit?: AuditLog): boolean {
   const fs = fsFactory(clawDir);
   for (const sub of ['active', 'paused']) {
     try {
@@ -112,7 +113,7 @@ export interface ProcessLiveness {
 
 const AUDIT_TAIL_N = 5;
 
-export function gatherClawSnapshot(clawDir: string, fsFactory: (baseDir: string) => FileSystem, pm: ProcessLiveness, clawId: ClawId): ClawSnapshot {
+export function gatherClawSnapshot(clawDir: ClawDir, fsFactory: (baseDir: string) => FileSystem, pm: ProcessLiveness, clawId: ClawId): ClawSnapshot {
   const status = pm.isAlive(clawId) ? 'running' : 'stopped';
 
   const fs = fsFactory(clawDir);

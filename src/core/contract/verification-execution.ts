@@ -14,6 +14,8 @@ import { formatErr } from '../../foundation/utils/format.js';
 import { DEFAULT_LLM_IDLE_TIMEOUT_MS } from '../../foundation/llm-orchestrator/index.js';
 import type { ContractId } from '../../foundation/identity/index.js';
 import { DEFAULT_MAX_STEPS } from '../agent-executor/index.js';
+import { type ClawDir } from '../../foundation/identity/index.js';
+// phase 1376: contractAbsDir is clawDir, branded
 import {
   emitContractVerificationScriptStarted,
   emitContractVerificationTimeout,
@@ -22,7 +24,7 @@ import {
 export async function runScriptVerification(
   ctx: VerificationContext,
   scriptFile: string,
-  contractAbsDir: string,
+  contractAbsDir: ClawDir,
 ): Promise<VerificationResult> {
   const resolved = path.resolve(contractAbsDir, scriptFile);
   if (!resolved.startsWith(contractAbsDir + path.sep)) {
@@ -52,7 +54,7 @@ export async function runScriptVerification(
 export async function runLLMVerification(
   ctx: VerificationContext,
   promptFile: string,
-  contractAbsDir: string,
+  contractAbsDir: ClawDir,
   contractId: ContractId,
   subtaskId: SubtaskId,
   subtaskDesc: string,

@@ -22,7 +22,7 @@ function makeOpts(overrides: Partial<{
   legacyConsts: string[];
 }> = {}) {
   return {
-    clawforumDir: '/tmp/test',
+    clawforumRoot: '/tmp/test',
     motionAuditPath: '/tmp/test/motion/audit.tsv',
     rootAuditPath: '/tmp/test/audit.tsv',
     legacyConsts: ['legacy_pending_task_no_mode'],

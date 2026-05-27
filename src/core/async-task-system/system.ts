@@ -60,6 +60,7 @@ import {
 import type { PostProcessor } from './post-processors/types.js';
 import type { AsyncTaskSystemOptions, SubAgentTask, ToolTask } from './types.js';
 import { type TaskId, makeTaskId } from '../../foundation/identity/index.js';
+import { type ClawDir, makeClawDir } from '../../foundation/identity/index.js';
 
 
 
@@ -112,7 +113,7 @@ export class AsyncTaskSystem {
   private readonly retryBaseDelayMs: number;
 
   constructor(
-    private readonly clawDir: string,
+    private readonly clawDir: ClawDir,
     private readonly fs: FileSystem,
     options: AsyncTaskSystemOptions,
   ) {
@@ -683,7 +684,7 @@ export class AsyncTaskSystem {
   private buildToolTaskExecContext(task: ToolTask, signal: AbortSignal): import('../../foundation/tools/index.js').ExecContext {
     return {
       clawId: makeClawId(task.parentClawId),
-      clawDir: task.parentClawDir,
+      clawDir: makeClawDir(task.parentClawDir),
       workspaceDir: path.join(task.parentClawDir, CLAWSPACE_DIR),
       syncDir: path.join(task.parentClawDir, TASKS_SYNC_DIR),
       allowedGroups: CALLER_TYPE_TO_GROUPS[task.callerType ?? 'claw'],

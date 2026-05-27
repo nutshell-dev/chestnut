@@ -18,11 +18,12 @@ import { TASKS_SUBAGENTS_DIR } from '../../core/subagent/constants.js';
 import { TASKS_SYNC_SUBAGENT_DIR } from '../../core/subagent/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { ClawId } from '../../foundation/identity/index.js';
+import { type ClawDir } from '../../foundation/identity/index.js';
 
 
 // ─── Resolve result dir ──────────────────────────────────────
 
-function resolveResultDir(deps: { fsFactory: (baseDir: string) => FileSystem }, clawDir: string, id: string): string {
+function resolveResultDir(deps: { fsFactory: (baseDir: string) => FileSystem }, clawDir: ClawDir, id: string): string {
   const clawFs = deps.fsFactory(clawDir);
 
   // Try async path first

@@ -22,6 +22,7 @@ import type { InboxMessage } from '../../foundation/messaging/types.js';
 import type { ToolProfile } from '../../foundation/tool-protocol/index.js';
 import type { ClawId } from '../../foundation/identity/index.js';
 import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
+import { type ClawDir } from '../../foundation/identity/index.js';
 
 
 
@@ -62,7 +63,7 @@ export interface RuntimeDependencies {
 /** 1:1 保 runtime.ts:74-101 body */
 export interface RuntimeOptions {
   clawId: ClawId;
-  clawDir: string;
+  clawDir: ClawDir;
   llmConfig: LLMOrchestratorConfig;
   maxSteps?: number;
   toolProfile?: ToolProfile;
