@@ -1164,14 +1164,13 @@ export class Runtime {
     const { session } = await this.sessionManager.load();
     const oldMessages = session.messages;
     // 2. archive 当前 sessionManager
-    await this.sessionManager.archive().catch((err) => {
-      const code = (err as { code?: string })?.code;
-      if (code !== 'ENOENT' && code !== 'FS_NOT_FOUND') {
-        const msg = formatErr(err);
-        this.auditWriter.write(RUNTIME_AUDIT_EVENTS.REGIME_SWITCH_FAILED,
-          `phase=archive`, `reason=${msg}`);
-      }
-    });
+    try {
+      await this.sessionManager.archive();
+    } catch (e) {
+      const msg = formatErr(e);
+      this.auditWriter.write(RUNTIME_AUDIT_EVENTS.REGIME_SWITCH_HARD_FAIL, `reason=${msg}`);
+      throw e;  // NEW phase 1373 sub-2: fail-fast / 不 silent continue
+    }
     // 3. 计算 inherited per strategy
     let inherited: Message[];
     switch (strategy) {

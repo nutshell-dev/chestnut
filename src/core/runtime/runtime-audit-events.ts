@@ -43,6 +43,7 @@ export const RUNTIME_AUDIT_EVENTS = {
   REGIME_SWITCH_COMMITTED: 'regime_switch_committed', // NEW phase1108
   // phase 539: regime switch failed audit event
   REGIME_SWITCH_FAILED: 'regime_switch_failed',
+  REGIME_SWITCH_HARD_FAIL: 'regime_switch_hard_fail',
   // phase 598: optional section read failed audit event
   OPTIONAL_SECTION_READ_FAILED: 'runtime_optional_section_read_failed',
   // phase 845: step executor callback failed audit event
