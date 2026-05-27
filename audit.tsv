@@ -1,14 +1,12 @@
-2026-05-27T11:30:14.364Z	seq=1	dialog_archive_empty
-2026-05-27T11:30:14.370Z	seq=2	dialog_cold_start
-2026-05-27T11:30:14.380Z	seq=3	session_loaded	source=empty
-2026-05-27T11:30:14.393Z	seq=4	session_archive_failed	path=dialog/current.json	reason=File not found: "dialog/current.json"
-2026-05-27T11:30:14.411Z	seq=5	task_recovery_complete	system	pending=0	recovered_running=0	failed=0
-2026-05-27T11:30:14.546Z	seq=6	inbox_failed	file=broken.md	error_code=OTHER	reason=Malformed frontmatter: missing closing ---	trace_id=0f212ad4561aab69
-2026-05-27T11:30:14.559Z	seq=7	inbox_inject	file=good.md	type=message	from=motion	to=test-claw	pri=normal	trace_id=0f212ad4561aab69
-2026-05-27T11:30:14.566Z	seq=8	dialog_archive_empty	trace_id=0f212ad4561aab69
-2026-05-27T11:30:14.571Z	seq=9	dialog_cold_start	trace_id=0f212ad4561aab69
-2026-05-27T11:30:14.576Z	seq=10	turn_start	trace_id=0f212ad4561aab69
-2026-05-27T11:30:14.584Z	seq=11	dialog_archive_empty	trace_id=0f212ad4561aab69
-2026-05-27T11:30:14.589Z	seq=12	dialog_cold_start	trace_id=0f212ad4561aab69
-2026-05-27T11:30:14.595Z	seq=13	dialog_turn_begin	trace_id=0f212ad4561aab69
-2026-05-27T11:30:14.624Z	seq=14	llm_call	test	in=0	out=0	latency_ms=0	trace_id=0f212ad4561aab69
+2026-05-27T11:30:14.525Z	seq=1	dialog_archive_empty
+2026-05-27T11:30:14.530Z	seq=2	dialog_cold_start
+2026-05-27T11:30:14.540Z	seq=3	session_loaded	source=empty
+2026-05-27T11:30:14.585Z	seq=4	session_archive_failed	path=dialog/current.json	reason=File not found: "dialog/current.json"
+2026-05-27T11:30:14.669Z	seq=5	task_recovery_complete	system	pending=0	recovered_running=0	failed=0
+2026-05-27T11:30:14.681Z	seq=6	dialog_archive_empty	trace_id=1b2085de305aa1eb
+2026-05-27T11:30:14.686Z	seq=7	dialog_cold_start	trace_id=1b2085de305aa1eb
+2026-05-27T11:30:14.696Z	seq=8	turn_start	trace_id=1b2085de305aa1eb
+2026-05-27T11:30:14.704Z	seq=9	llm_call	test	in=0	out=0	latency_ms=1	trace_id=1b2085de305aa1eb
+2026-05-27T11:30:14.724Z	seq=10	turn_end	trace_id=1b2085de305aa1eb
+2026-05-27T11:30:14.747Z	seq=11	turn_start	trace_id=f6f3070a015ba163
+2026-05-27T11:30:14.767Z	seq=12	llm_call	test	in=0	out=0	latency_ms=0	trace_id=f6f3070a015ba163
