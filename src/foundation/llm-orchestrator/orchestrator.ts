@@ -101,12 +101,12 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
   private sdkClientCache = new Map<string, LLMProvider>();
 
   private getSdkClient(config: ProviderConfig): LLMProvider {
-    const key = `${config.apiFormat}:${config.model}:${config.apiKey.slice(-8)}`;
+    const key = `${config.apiFormat ?? 'unknown'}:${config.model ?? 'unknown'}:${(config.apiKey ?? '').slice(-8)}`;
     if (!this.sdkClientCache.has(key)) {
       this.sdkClientCache.set(key, createLLMProvider(config));
-      this.events.emit({ type: 'sdk_client_cache_miss', preset: config.apiFormat, model: config.model });
+      this.events?.emit({ type: 'sdk_client_cache_miss', preset: config.apiFormat ?? 'unknown', model: config.model ?? 'unknown' });
     } else {
-      this.events.emit({ type: 'sdk_client_cache_hit', preset: config.apiFormat, model: config.model });
+      this.events?.emit({ type: 'sdk_client_cache_hit', preset: config.apiFormat ?? 'unknown', model: config.model ?? 'unknown' });
     }
     return this.sdkClientCache.get(key)!;
   }
