@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Post-merge hook: verify merged tree compiles and tests pass.
+# Enabled via: git config core.hooksPath .githooks
+# If this fails, the merge has already completed; consider manual rollback.
+
+set -e
+
+echo "[post-merge] running pnpm typecheck..."
+if ! pnpm run typecheck; then
+  echo ""
+  echo "[post-merge] TYPECHECK FAILED on merged tree."
+  echo "[post-merge] The merge is already recorded. Options:"
+  echo "[post-merge]   1. git reset --hard HEAD~1   (if HEAD~1 is correct)"
+  echo "[post-merge]   2. investigate and fix forward"
+  exit 1
+fi
+
+echo "[post-merge] running pnpm test:run..."
+if ! pnpm run test:run; then
+  echo ""
+  echo "[post-merge] TESTS FAILED on merged tree."
+  exit 1
+fi
+
+echo "[post-merge] green."

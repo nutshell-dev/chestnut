@@ -1,0 +1,70 @@
+{
+  "name": "clawforum",
+  "version": "0.1.0",
+  "description": "Clawforum - AI Agent Orchestration System",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "clawforum": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "scripts": {
+    "build": "tsup --config .config/tsup.config.ts && pnpm run copy-templates && pnpm run copy-skills",
+    "copy-templates": "cp -r src/cli/commands/templates dist/",
+    "copy-skills": "cp -r src/skills dist/",
+    "dev": "tsup --config .config/tsup.config.ts --watch",
+    "test": "vitest --config .config/vitest.config.ts",
+    "test:run": "vitest run --config .config/vitest.config.ts",
+    "test:fast": "vitest run --config .config/vitest.config.ts --exclude 'tests/e2e/**' --exclude 'tests/foundation/process-*' --exclude 'tests/foundation/process-exec/**' --exclude 'tests/cli/daemon-entry.test.ts' --exclude 'tests/cli/already-running-sentinel.test.ts'",
+    "typecheck": "tsc --noEmit",
+    "lint": "pnpm run typecheck && pnpm run lint:arch",
+    "migrate:claw-agents-versions": "bash scripts/migrate-claw-agents-versions.sh",
+    "lint:arch": "depcruise --config .config/dependency-cruiser.cjs src"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "orchestration",
+    "llm",
+    "automation"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.82.0",
+    "@mariozechner/pi-tui": "^0.58.3",
+    "chokidar": "^4.0.3",
+    "commander": "^13.1.0",
+    "ink": "^5.0.1",
+    "js-yaml": "^4.1.0",
+    "react": "^18.3.1",
+    "string-width": "^8.2.0",
+    "undici": "^8.0.2",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^22.13.10",
+    "@types/react": "^18.3.18",
+    "@vitest/coverage-v8": "^3.2.4",
+    "dependency-cruiser": "^16.10.0",
+    "tsup": "^8.4.0",
+    "typescript": "^5.8.2",
+    "vitest": "^3.0.8"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "pnpm": {
+    "ignoredBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}

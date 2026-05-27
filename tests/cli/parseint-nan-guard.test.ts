@@ -1,0 +1,29 @@
+import { describe, it, expect } from 'vitest';
+import { parseIntOption } from '../../src/cli/parse-int-option.js';
+
+describe('parseIntOption (Layer A validation)', () => {
+  it('parses a valid integer string', () => {
+    expect(parseIntOption('10', '--limit must be a non-negative integer')).toBe(10);
+    expect(parseIntOption('1704067200000', '--since must be a Unix timestamp in milliseconds')).toBe(1704067200000);
+    expect(parseIntOption('0', '--limit must be a non-negative integer')).toBe(0);
+  });
+
+  it('throws CliError for non-numeric --limit', () => {
+    expect(() => parseIntOption('abc', '--limit must be a non-negative integer'))
+      .toThrow('--limit must be a non-negative integer, got: abc');
+  });
+
+  it('throws CliError for non-numeric --since with "Unix timestamp in milliseconds" semantic context', () => {
+    expect(() => parseIntOption('xyz', '--since must be a Unix timestamp in milliseconds'))
+      .toThrow('--since must be a Unix timestamp in milliseconds, got: xyz');
+  });
+
+  it('throws CliError for empty string', () => {
+    expect(() => parseIntOption('', '--limit must be a non-negative integer'))
+      .toThrow('--limit must be a non-negative integer, got: ');
+  });
+
+  it('parses integer prefix from mixed alphanumeric string (parseInt behavior)', () => {
+    expect(parseIntOption('12abc', '--limit must be a non-negative integer')).toBe(12);
+  });
+});

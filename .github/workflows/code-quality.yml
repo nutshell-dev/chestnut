@@ -1,0 +1,43 @@
+name: Code Quality
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-and-format:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check
+        run: pnpm run typecheck
+
+      - name: Arch invariants (dependency-cruiser)
+        run: pnpm run lint:arch
+
+      - name: Check for console.log statements
+        run: |
+          if grep -r "console.log" src/ --include="*.ts" | grep -v "console.warn\|console.error"; then
+            echo "⚠️  Found console.log statements. Consider using proper logging."
+            exit 1
+          fi
+        continue-on-error: true

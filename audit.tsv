@@ -1,6 +1,0 @@
-2026-05-27T11:30:37.054Z	seq=1	dialog_archive_empty
-2026-05-27T11:30:37.071Z	seq=2	dialog_cold_start
-2026-05-27T11:30:37.079Z	seq=3	session_loaded	source=empty
-2026-05-27T11:30:37.085Z	seq=4	session_archive_failed	path=dialog/current.json	reason=File not found: "dialog/current.json"
-2026-05-27T11:30:37.098Z	seq=5	task_recovery_complete	system	pending=0	recovered_running=0	failed=0
-2026-05-27T11:30:37.107Z	seq=6	llm_call	test	in=0	out=0	latency_ms=0

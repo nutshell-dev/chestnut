@@ -1,0 +1,8 @@
+{
+  "session_id": "timeout-test-1",
+  "ended_at": "2026-05-27T03:24:02.872Z",
+  "reason": "clear",
+  "agents_spawned": 0,
+  "agents_completed": 0,
+  "modes_used": []
+}

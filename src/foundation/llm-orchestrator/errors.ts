@@ -1,0 +1,69 @@
+/**
+ * LLMOrchestrator (L2b) error types — retry policy + all-providers-failed.
+ *
+ * LLM base error classes (LLMError, LLMRateLimitError, etc.) live in L1
+ * llm-provider/errors.ts per M#5 (L1 provider adapters throw them, so they
+ * must not be defined in a higher layer).
+ *
+ * classifyLLMError / getUserActionHint are retry-policy functions that
+ * operate on L1 error classes; they belong to L2b where retry logic lives.
+ */
+
+import {
+  LLMError,
+  LLMAuthError,
+  LLMModelNotFoundError,
+  LLMRateLimitError,
+  LLMNetworkError,
+  LLMTimeoutError,
+} from '../llm-provider/errors.js';
+import type { ErrorCode } from '../errors.js';
+
+export { LLMError, LLMRateLimitError, LLMTimeoutError, LLMAuthError, LLMNetworkError, LLMEmptyResponseError, LLMModelNotFoundError } from '../llm-provider/errors.js';
+
+export class LLMAllProvidersFailedError extends LLMError {
+  readonly code: ErrorCode = 'LLM_ALL_PROVIDERS_FAILED';
+  readonly failures: Array<{ provider: string; error: Error }>;
+
+  constructor(failures: Array<{ provider: string; error: Error }>) {
+    const summary = failures
+      .map(f => `${f.provider} (${f.error.message.slice(0, 80)})`)
+      .join(', ');
+    super(
+      `All LLM providers failed: ${summary}`,
+      { failures: failures.map(f => ({ provider: f.provider, error: f.error.message })) }
+    );
+    this.failures = failures;
+  }
+}
+
+export type LLMErrorClass = 'permanent' | 'transient' | 'rate_limit' | 'abort' | 'unknown';
+
+export function classifyLLMError(err: unknown): LLMErrorClass {
+  if (err instanceof LLMAuthError || err instanceof LLMModelNotFoundError) return 'permanent';
+  if (err instanceof LLMRateLimitError) return 'rate_limit';
+  if (err instanceof LLMNetworkError || err instanceof LLMTimeoutError) return 'transient';
+  if (err instanceof Error && err.name === 'AbortError') return 'abort';
+  if (err instanceof LLMError) return 'transient';
+  return 'unknown';
+}
+
+export type UserActionHint =
+  | 'rotate_api_key'
+  | 'switch_primary'
+  | 'wait_retry_after'
+  | 'check_quota'
+  | null;
+
+export function getUserActionHint(err: unknown): UserActionHint {
+  if (err instanceof LLMAuthError) {
+    const msg = err.message.toLowerCase();
+    if (msg.includes('quota') || msg.includes('credit') || msg.includes('insufficient')) {
+      return 'check_quota';
+    }
+    return 'rotate_api_key';
+  }
+  if (err instanceof LLMModelNotFoundError) return 'switch_primary';
+  if (err instanceof LLMRateLimitError) return 'wait_retry_after';
+  return null;
+}

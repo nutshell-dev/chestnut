@@ -1,0 +1,83 @@
+/**
+ * LLM Provider (L1) error classes — thrown by provider adapters.
+ *
+ * Canonical owner per M#5: L1 modules do not depend on L2b. Since L1 provider
+ * adapters (anthropic, openai, gemini, custom-anthropic) throw these errors,
+ * they must live in L1, not L2b.
+ *
+ * classifyLLMError / getUserActionHint (retry policy) remain in L2b
+ * llm-orchestrator/errors.ts, importing base classes from here.
+ */
+
+import { ClawError, type ErrorCode } from '../errors.js';
+
+export class LLMError extends ClawError {
+  readonly code: ErrorCode = 'LLM_CALL_FAILED';
+}
+
+export class LLMRateLimitError extends LLMError {
+  readonly code: ErrorCode = 'LLM_RATE_LIMITED';
+  readonly retryAfter?: number;
+
+  constructor(provider: string, retryAfter?: number) {
+    super(
+      `Rate limited by provider "${provider}"`,
+      { provider, retryAfter }
+    );
+    this.retryAfter = retryAfter;
+  }
+}
+
+export class LLMTimeoutError extends LLMError {
+  readonly code: ErrorCode = 'LLM_TIMEOUT';
+  readonly timeoutMs: number;
+
+  constructor(provider: string, timeoutMs: number) {
+    super(
+      `LLM call to "${provider}" timed out after ${timeoutMs}ms`,
+      { provider, timeoutMs }
+    );
+    this.timeoutMs = timeoutMs;
+  }
+}
+
+export class LLMAuthError extends LLMError {
+  readonly code: ErrorCode = 'LLM_AUTH_FAILED';
+  constructor(provider: string, statusCode: number, message?: string) {
+    super(
+      message ?? `LLM auth failed for ${provider} (HTTP ${statusCode})`,
+      { provider, statusCode },
+    );
+  }
+}
+
+export class LLMNetworkError extends LLMError {
+  readonly code: ErrorCode = 'LLM_NETWORK_FAILED';
+  constructor(provider: string, cause?: Error) {
+    super(
+      `LLM network failure for ${provider}${cause ? `: ${cause.message}` : ''}`,
+      { provider },
+      cause,
+    );
+  }
+}
+
+export class LLMEmptyResponseError extends LLMError {
+  readonly code: ErrorCode = 'LLM_EMPTY_RESPONSE';
+  constructor(provider: string) {
+    super(
+      `LLM returned empty response from ${provider}`,
+      { provider },
+    );
+  }
+}
+
+export class LLMModelNotFoundError extends LLMError {
+  readonly code: ErrorCode = 'LLM_MODEL_NOT_FOUND';
+  constructor(provider: string, model: string) {
+    super(
+      `LLM model not found: ${provider}/${model} (HTTP 404)`,
+      { provider, model },
+    );
+  }
+}

@@ -1,0 +1,49 @@
+# Dependencies
+node_modules
+package-lock.json
+yarn.lock
+
+# Build output
+dist/
+*.js.map
+*.d.ts
+*.d.cts
+
+# Test artifacts
+coverage/
+*.log
+.test-*/
+
+# Runtime data
+.clawforum/
+!tests/fixtures/.clawforum/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+.env.*.local
+skills/skill-creator/
+clawspace/
+
+# TypeScript incremental build info (pre-commit hook)
+.tsbuildinfo
+.tsbuildinfo.test
+
+# Vitest cache (phase 1367: worktree-local / 避免 multi-worktree node_modules/.vite share race)
+.vitest-cache/
+
+# Design docs (untracked, kept outside repo)
+design/
+memory/
+!tests/design/

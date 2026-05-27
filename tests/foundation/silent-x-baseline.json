@@ -1,0 +1,367 @@
+{
+    "version": 1,
+    "description": "Baseline whitelist of pre-existing silent catch blocks. NEW silent catch must include canonical `// silent: <reason>` annotation OR audit.write / throw / console.error in body.",
+    "established": "2026-05-17 (phase 964 r119 C fork)",
+    "entries": [
+        {
+            "file": "src/assembly/cleanup.ts",
+            "line": 27,
+            "body_excerpt": "} catch {",
+            "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
+        },
+        {
+            "file": "src/core/subagent/agent.ts",
+            "line": 362,
+            "body_excerpt": "} catch {",
+            "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
+        },
+        {
+            "file": "src/cli/commands/chat-viewport-claw-manager.ts",
+            "line": 152,
+            "body_excerpt": "} catch { /* skip */ }",
+            "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
+        },
+        {
+            "file": "src/cli/commands/chat-viewport-claw-manager.ts",
+            "line": 157,
+            "body_excerpt": "} catch { /* ENOENT 等，跳过 */ }",
+            "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
+        },
+        {
+            "file": "src/cli/commands/chat-viewport-claw-manager.ts",
+            "line": 71,
+            "body_excerpt": "} catch { /* polling fallback */ }",
+            "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
+        },
+        {
+            "file": "src/cli/commands/chat-viewport-input.ts",
+            "line": 41,
+            "body_excerpt": "} catch { /* best-effort */ }",
+            "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
+        },
+        {
+            "file": "src/cli/commands/chat-viewport.ts",
+            "line": 322,
+            "body_excerpt": "} catch (e) {",
+            "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
+        },
+        {
+            "file": "src/cli/commands/claw-list.ts",
+            "line": 118,
+            "body_excerpt": "} catch { /* ignore read errors */ }",
+            "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
+        },
+        {
+            "file": "src/cli/commands/claw-list.ts",
+            "line": 38,
+            "body_excerpt": "} catch { /* skip */ }",
+            "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
+        },
+        {
+            "file": "src/cli/commands/claw-list.ts",
+            "line": 68,
+            "body_excerpt": "} catch { /* skip */ }",
+            "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
+        },
+        {
+            "file": "src/cli/commands/claw-list.ts",
+            "line": 86,
+            "body_excerpt": "} catch { /* skip */ }",
+            "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
+        },
+        {
+            "file": "src/cli/commands/claw-trace.ts",
+            "line": 103,
+            "body_excerpt": "} catch { /* skip */ }",
+            "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
+        },
+        {
+            "file": "src/cli/commands/claw-trace.ts",
+            "line": 121,
+            "body_excerpt": "} catch { /* skip */ }",
+            "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
+        },
+        {
+            "file": "src/cli/commands/claw-trace.ts",
+            "line": 133,
+            "body_excerpt": "} catch { /* skip */ }",
+            "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
+        },
+        {
+            "file": "src/cli/commands/claw-trace.ts",
+            "line": 181,
+            "body_excerpt": "} catch { /* skip invalid */ }",
+            "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
+        },
+        {
+            "file": "src/cli/commands/claw-trace.ts",
+            "line": 183,
+            "body_excerpt": "} catch { /* skip */ }",
+            "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
+        },
+        {
+            "file": "src/cli/commands/claw-trace.ts",
+            "line": 321,
+            "body_excerpt": "} catch { /* no archive dir */ }",
+            "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
+        },
+        {
+            "file": "src/cli/commands/claw-trace.ts",
+            "line": 327,
+            "body_excerpt": "} catch { /* no current */ }",
+            "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
+        },
+        {
+            "file": "src/cli/commands/claw-trace.ts",
+            "line": 344,
+            "body_excerpt": "} catch { /* skip */ }",
+            "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
+        },
+        {
+            "file": "src/cli/commands/stop.ts",
+            "line": 54,
+            "body_excerpt": "} catch { /* no claws dir */ }",
+            "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
+        },
+        {
+            "file": "src/cli/commands/stop.ts",
+            "line": 88,
+            "body_excerpt": "} catch { /* best-effort */ }",
+            "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
+        },
+        {
+            "file": "src/cli/commands/subagent-helpers.ts",
+            "line": 119,
+            "body_excerpt": "} catch { /* ignore */ }",
+            "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
+        },
+        {
+            "file": "src/cli/commands/subagent-helpers.ts",
+            "line": 62,
+            "body_excerpt": "} catch { /* ignore parse errors */ }",
+            "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
+        },
+        {
+            "file": "src/cli/commands/subagent-helpers.ts",
+            "line": 72,
+            "body_excerpt": "} catch { /* ignore */ }",
+            "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
+        },
+        {
+            "file": "src/cli/commands/subagent-helpers.ts",
+            "line": 91,
+            "body_excerpt": "} catch { /* ignore */ }",
+            "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
+        },
+        {
+            "file": "src/cli/commands/subagent-helpers.ts",
+            "line": 105,
+            "body_excerpt": "} catch { /* ignore */ }",
+            "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
+        },
+        {
+            "file": "src/cli/utils/password-prompt.ts",
+            "line": 26,
+            "body_excerpt": "try { rlx._writeToOutput = original; } catch { /* private API gone */ }",
+            "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
+        },
+        {
+            "file": "src/core/memory/random-dream.ts",
+            "line": 166,
+            "body_excerpt": "} catch { /* 无 progress.json，跳过 */ }",
+            "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
+        },
+        {
+            "file": "src/core/permissions/claw-permissions.ts",
+            "line": 140,
+            "body_excerpt": "} catch {",
+            "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
+        },
+        {
+            "file": "src/daemon/daemon-loop.ts",
+            "line": 262,
+            "body_excerpt": "} catch { /* Ignore: state persistence failure should not break the main loop */ }",
+            "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
+        },
+        {
+            "file": "src/daemon/daemon-loop.ts",
+            "line": 284,
+            "body_excerpt": "} catch { /* Ignore: first start or corrupted file, use defaults */ }",
+            "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
+        },
+        {
+            "file": "src/daemon/daemon.ts",
+            "line": 110,
+            "body_excerpt": "} catch { /* AGENTS.md 不存在时跳过 */ }",
+            "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
+        },
+        {
+            "file": "src/foundation/file-tool/search.ts",
+            "line": 166,
+            "body_excerpt": "} catch { /* claw dir not accessible */ }",
+            "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
+        },
+        {
+            "file": "src/foundation/fs/atomic.ts",
+            "line": 58,
+            "body_excerpt": "} catch {",
+            "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
+        },
+        {
+            "file": "src/foundation/fs/node-fs.ts",
+            "line": 127,
+            "body_excerpt": "} catch {",
+            "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
+        },
+        {
+            "file": "src/foundation/llm-provider/custom-anthropic-sse-parser.ts",
+            "line": 134,
+            "body_excerpt": "} catch {",
+            "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
+        },
+        {
+            "file": "src/foundation/llm-provider/gemini-sse-parser.ts",
+            "line": 121,
+            "body_excerpt": "} catch {",
+            "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
+        },
+        {
+            "file": "src/foundation/llm-provider/openai-sse-parser.ts",
+            "line": 195,
+            "body_excerpt": "} catch {",
+            "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
+        },
+        {
+            "file": "src/foundation/transport/unix-socket.ts",
+            "line": 248,
+            "body_excerpt": "} catch {",
+            "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
+        },
+        {
+            "file": "src/watchdog/watchdog-log.ts",
+            "line": 22,
+            "body_excerpt": "} catch {",
+            "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
+        },
+        {
+            "file": "src/watchdog/watchdog-pid.ts",
+            "line": 26,
+            "body_excerpt": "} catch {",
+            "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
+        },
+        {
+            "file": "src/watchdog/watchdog-state.ts",
+            "line": 118,
+            "body_excerpt": "} catch { /* ignore: crash handler 不抛 */ }",
+            "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
+        },
+        {
+            "file": "src/watchdog/ensure.ts",
+            "line": 62,
+            "body_excerpt": "} catch { /* race ok */ }",
+            "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
+        },
+        {
+            "file": "src/watchdog/ensure.ts",
+            "line": 85,
+            "body_excerpt": "} catch { /* 已被 stale recover 清 ok */ }",
+            "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
+        },
+        {
+            "file": "src/watchdog/orphan-sweep.ts",
+            "line": 62,
+            "body_excerpt": "} catch { /* dead now */ }",
+            "reason": "pre-existing silent catch / TODO phase TBD convert to canonical"
+        },
+        {
+            "file": "src/watchdog/watchdog-utils.ts",
+            "line": 124,
+            "body_excerpt": "} catch { /* silent: contract dir scan ENOENT is legitimate / skip */ }",
+            "reason": "pre-existing silent catch / converted to canonical silent comment"
+        },
+        {
+            "file": "src/core/runtime/runtime.ts",
+            "line": 276,
+            "body_excerpt": ".catch(() => {",
+            "reason": "phase 1024 G.3 by-design: barrier 不阻塞 stop / save error 上游 SAVE_FAILED 已 audit emit",
+            "form": "promise"
+        },
+        {
+            "file": "src/core/async-task-system/system.ts",
+            "line": 478,
+            "body_excerpt": ".catch(() => {}",
+            "reason": "best-effort cleanup before throw / throw 真传播 / cleanup 失败无害",
+            "form": "promise"
+        },
+        {
+            "file": "src/core/async-task-system/system.ts",
+            "line": 675,
+            "body_excerpt": ".catch(() => {",
+            "reason": "fs.move 路径仍 cover 持久化",
+            "form": "promise"
+        },
+        {
+            "file": "src/core/async-task-system/system.ts",
+            "line": 786,
+            "body_excerpt": ".catch(() => {",
+            "reason": "Timeout acceptable / arrow body emitShutdownTimeout audit emit",
+            "form": "promise"
+        },
+        {
+            "file": "src/core/async-task-system/task-recovery.ts",
+            "line": 124,
+            "body_excerpt": ".catch(() => {}",
+            "reason": "phase 989 C.3 retry-count cleanup hygiene / D5 align",
+            "form": "promise"
+        },
+        {
+            "file": "src/core/async-task-system/task-recovery.ts",
+            "line": 201,
+            "body_excerpt": ".catch(() => {}",
+            "reason": "retryPath delete 失败无害 / 残文件下次 startup 覆盖",
+            "form": "promise"
+        },
+        {
+            "file": "src/core/cron/runner.ts",
+            "line": 106,
+            "body_excerpt": ".catch(() => {}",
+            "reason": "boot-time first-load best-effort / 空 state graceful",
+            "form": "promise"
+        },
+        {
+            "file": "src/core/cron/runner.ts",
+            "line": 304,
+            "body_excerpt": ".catch(() => {}",
+            "reason": "Persist cron state fire-and-forget non-blocking / tick-saveState",
+            "form": "promise"
+        },
+        {
+            "file": "src/assembly/assemble.ts",
+            "line": 784,
+            "body_excerpt": ".catch(() => {}",
+            "reason": "Best-effort cleanup of already-constructed resources during assemble failure rollback",
+            "form": "promise"
+        },
+        {
+            "file": "src/foundation/tools/executor.ts",
+            "line": 151,
+            "body_excerpt": ".catch(() => {}",
+            "reason": "race loser handled by executionPromise.catch L150+",
+            "form": "promise"
+        },
+        {
+            "file": "src/foundation/dialog-store/store.ts",
+            "line": 338,
+            "body_excerpt": ".catch(() => {",
+            "reason": "phase 1149 D fork ratify accepted-stable α / shadow promise 三件套 by-design / 12 caller universe 全 await + audit emit 实证齐全",
+            "form": "promise"
+        },
+        {
+            "file": "src/foundation/dialog-store/store.ts",
+            "line": 334,
+            "body_excerpt": ".catch(() => {",
+            "reason": "pre-existing silent catch / TODO phase TBD convert to canonical",
+            "form": "promise"
+        }
+    ]
+}
