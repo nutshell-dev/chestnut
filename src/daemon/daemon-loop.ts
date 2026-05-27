@@ -45,6 +45,7 @@ import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../cor
 import { LLMAllProvidersFailedError } from '../foundation/llm-orchestrator/errors.js';
 import { CONTRACT_DIR } from '../core/contract/index.js';
 import { STATUS_SUBDIR } from '../foundation/process-manager/index.js';
+import { INBOX_PENDING_DIR } from '../foundation/messaging/dirs.js';
 
 
 /**
@@ -302,7 +303,7 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
         startupFired = true;
         const inboxEmpty = (() => {
           try {
-            return agentFs.listSync('inbox/pending').filter(e => e.name.endsWith('.md')).length === 0;
+            return agentFs.listSync(INBOX_PENDING_DIR).filter(e => e.name.endsWith('.md')).length === 0;
           } catch { /* Ignore: inbox check failure, assume not empty to be safe */ return true; }
         })();
         const hasActive = (() => {
@@ -314,7 +315,7 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
           // Dedup: only write if no startup_check already pending (heartbeat pattern)
           const alreadyPending = (() => {
             try {
-              return agentFs.listSync('inbox/pending').map(e => e.name).some(f => f.includes('_startup_check_'));
+              return agentFs.listSync(INBOX_PENDING_DIR).map(e => e.name).some(f => f.includes('_startup_check_'));
             } catch { /* Ignore: pending check failure, assume no pending startup_check */ return false; }
           })();
           // Cooldown: prevent spam from rapid daemon restarts

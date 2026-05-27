@@ -17,6 +17,7 @@ import { startDaemonLoop } from './daemon-loop.js';
 import { createSystemAudit, type AuditLog } from '../foundation/audit/index.js';
 import { createAgentProcessManager } from '../foundation/process-manager/agent-factory.js';
 import { isFileNotFound } from '../foundation/fs/types.js';
+import { INBOX_PENDING_DIR } from '../foundation/messaging/dirs.js';
 import type { FileSystem } from '../foundation/fs/types.js';
 
 import { LockConflictError } from '../foundation/process-manager/index.js';
@@ -95,10 +96,10 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
 
     // 清理残留心跳（上次 daemon 的遗留，重启后无需立即巡查）
     try {
-      const entries = await preAssembleFs.list('inbox/pending');
+      const entries = await preAssembleFs.list(INBOX_PENDING_DIR);
       for (const entry of entries) {
         if (entry.name.includes('_heartbeat_')) {
-          await preAssembleFs.delete(path.join('inbox/pending', entry.name));
+          await preAssembleFs.delete(path.join(INBOX_PENDING_DIR, entry.name));
         }
       }
     } catch (e: any) {
