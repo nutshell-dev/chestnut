@@ -21,7 +21,7 @@ import { TASKS_SYNC_SHADOW_DIR } from '../../core/shadow-system/index.js';
 import { MOTION_CLAW_ID } from '../../constants.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { ClawId } from '../../foundation/identity/index.js';
-import { type ContractId, makeContractId } from '../../core/contract/types.js';
+import { type ContractId, makeContractId } from '../../foundation/identity/index.js';
 
 
 

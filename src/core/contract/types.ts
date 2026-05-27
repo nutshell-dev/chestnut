@@ -4,6 +4,7 @@
  */
 
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
+import type { ContractId } from '../../foundation/identity/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { ToolRegistry } from '../../foundation/tools/index.js';
@@ -159,14 +160,6 @@ export interface ArchiveContractRef {
   contractDir: string;
   archivedAt?: string;
 }
-
-// ============================================================================
-// phase 1378 r-phase1378: ContractId 物理迁 foundation/identity / 暂保 re-export for sub-1 backward compat / sub-2 删
-// ============================================================================
-
-import type { ContractId } from '../../foundation/identity/index.js';
-export type { ContractId };
-export { makeContractId } from '../../foundation/identity/index.js';
 
 // ============================================================================
 // phase 1366: SubtaskId branded type (compile-time ID discrimination)

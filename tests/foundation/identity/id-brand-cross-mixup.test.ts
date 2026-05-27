@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import type { ClawId } from '../../../src/foundation/identity/types.js';
 import { makeClawId } from '../../../src/foundation/identity/types.js';
-import type { ContractId } from '../../../src/core/contract/types.js';
-import { makeContractId } from '../../../src/core/contract/types.js';
+import type { ContractId } from '../../../src/foundation/identity/index.js';
+import { makeContractId } from '../../../src/foundation/identity/index.js';
 import type { TaskId } from '../../../src/foundation/identity/index.js';
 import { makeTaskId } from '../../../src/foundation/identity/index.js';
 import type { ToolUseId } from '../../../src/foundation/tool-protocol/index.js';

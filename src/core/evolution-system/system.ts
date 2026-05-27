@@ -13,7 +13,7 @@ import type { Message } from '../../foundation/llm-provider/types.js';
 import { FileNotFoundError } from '../../foundation/fs/types.js';
 import { isProgrammingBug } from '../../foundation/errors.js';
 import { readPendingRetrospective, InvalidJSONError, UnexpectedFormatError } from '../summon-system/index.js';
-import type { ContractId } from '../contract/types.js';
+import type { ContractId } from '../../foundation/identity/index.js';
 
 
 export interface EvolutionSystemDeps {

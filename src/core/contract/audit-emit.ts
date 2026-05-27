@@ -12,7 +12,8 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import { formatErr } from '../../foundation/utils/format.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 import type { ClawId } from '../../foundation/identity/index.js';
-import type { ContractId, SubtaskId } from './types.js';
+import type { ContractId } from '../../foundation/identity/index.js';
+import type { SubtaskId } from './types.js';
 
 
 

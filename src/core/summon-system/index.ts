@@ -12,7 +12,7 @@ import type { FileSystem } from '../../foundation/fs/types.js';
 import { CLAWSPACE_DIR } from '../../foundation/paths.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { SUMMON_AUDIT_EVENTS } from './audit-events.js';
-import { type ContractId, makeContractId } from '../contract/types.js';
+import { type ContractId, makeContractId } from '../../foundation/identity/index.js';
 
 
 

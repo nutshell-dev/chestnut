@@ -62,7 +62,8 @@ import {
   type PersistenceContext,
   PROGRESS_CURRENT_SCHEMA_VERSION,
 } from './persistence.js';
-import { type ContractId, makeContractId, type SubtaskId } from './types.js';
+import { type ContractId, makeContractId } from '../../foundation/identity/index.js';
+import type { SubtaskId } from './types.js';
 import type { ClawId } from '../../foundation/identity/index.js';
 import { runContractVerifier } from './verifier-job.js';
 import {

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import type { ContractId } from '../../../src/core/contract/types.js';
-import { makeContractId } from '../../../src/core/contract/types.js';
+import type { ContractId } from '../../../src/foundation/identity/index.js';
+import { makeContractId } from '../../../src/foundation/identity/index.js';
 import type { ClawId } from '../../../src/foundation/identity/types.js';
 import { makeClawId } from '../../../src/foundation/identity/types.js';
 
