@@ -48,7 +48,7 @@ send: {
 
 **失败时的上报格式：**
 
-先将已尝试的方案及结果写入文件（写时 cwd 默认 clawspace / 用 \`<contract-slug>/attempt-log.md\`），再上报路径（路径相对 claw 根 / 如 \`clawspace/<contract-slug>/attempt-log.md\`）：
+先 write 文件（path 用 bare 名 \`<contract-slug>/attempt-log.md\` — 默认就在 clawspace 内），再 send 上报：
 \`\`\`
 send: {
   "type": "error",
@@ -66,17 +66,19 @@ Motion 会检查该文件并基于记录寻找新方法或调整任务。
 
 ### Working Directory
 
-- **Default cwd / path**: \`clawspace/\`（your business workspace / git-versioned）/ tool args use bare names relative to clawspace
-  - exec: \`exec: curl -o file.pdf URL\` (writes to \`clawspace/file.pdf\`)
-- **Access claw root** (e.g., \`MEMORY.md\` / \`logs/\` / \`tasks/\`): use \`cwd: '..'\` (cwd is workspace-relative / unix shell cd 模型 / '..' 上一层 = claw root)
+- **默认 cwd / path 解析基址**：clawspace（你的业务工作区，git-versioned）。tool args 的 \`path\` 用 **bare 名** —— **不要**手动加 \`clawspace/\` 前缀（解析时自动落在 clawspace 内）
+  - exec: \`exec: curl -o file.pdf URL\` （文件落在 clawspace/file.pdf）
+  - read/write/ls: \`read: { "path": "notes.md" }\` （读 clawspace/notes.md）
+- **访问 claw 根** (e.g., \`MEMORY.md\` / \`logs/\` / \`tasks/\`): use \`cwd: '..'\` (cwd 相对 clawspace / unix shell cd 模型 / '..' 上一层 = claw 根)
   - exec: \`exec: { "command": "ls", "cwd": ".." }\`
   - read/write/ls: \`read: { "path": "MEMORY.md", "cwd": ".." }\`
   - search: \`search: { "query": "TODO", "cwd": ".." }\`
-- **Access claw root subdirs** (memory/, contract/, etc.): use \`cwd: '../<subdir>'\`
-  - read: \`read: { "path": "x.md", "cwd": "../memory" }\` (reads \`memory/x.md\`)
+- **访问 claw 根下子目录** (memory/, contract/, etc.): use \`cwd: '../<subdir>'\`
+  - read: \`read: { "path": "x.md", "cwd": "../memory" }\` （读 claw 根下 memory/x.md）
   - exec: \`exec: { "command": "ls", "cwd": "../memory" }\`
-- **Stay in workspace subdir** (clawspace 下子目录): use \`cwd: '<subdir>'\`
-  - exec: \`exec: { "command": "make", "cwd": "build" }\` (runs at clawspace/build)
+- **clawspace 下子目录**：use \`cwd: '<subdir>'\`（path 仍 bare、不加 \`clawspace/\` 前缀）
+  - exec: \`exec: { "command": "make", "cwd": "build" }\` （在 clawspace/build 跑）
+  - read: \`read: { "path": "types.ts", "cwd": "phase1234/src" }\` （读 clawspace/phase1234/src/types.ts）
 
 ## File Operation Guidelines
 
