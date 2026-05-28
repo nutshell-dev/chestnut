@@ -8,7 +8,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import type {
   LLMResponse,
   ContentBlock,
-} from './types.js';
+} from '../llm-provider/types.js';
 import {
   LLMError,
   LLMRateLimitError,

@@ -6,7 +6,7 @@
  */
 
 import type { ProviderConfig, LLMCallOptions, ProviderAdapter, StreamChunk } from './types.js';
-import type { LLMResponse } from './types.js';
+import type { LLMResponse } from '../llm-provider/types.js';
 import { assertContentBlocks } from './_block-guards.js';
 import { LLM_PROVIDER_AUDIT_EVENTS } from './audit-events.js';
 
@@ -28,8 +28,10 @@ export abstract class BaseAnthropicAdapter implements ProviderAdapter {
   abstract call(options: LLMCallOptions): Promise<LLMResponse>;
   abstract stream?(options: LLMCallOptions): AsyncIterableIterator<StreamChunk>;
 
-  protected get auditLog(): import('./types.js').AuditSink | undefined {
-    return this.config.observer;
+  onStreamParseError?: (event: { provider: string; raw: string; error: string }) => void;
+
+  protected get auditLog() {
+    return this.config.auditLog;
   }
 
   protected get providerName(): string {

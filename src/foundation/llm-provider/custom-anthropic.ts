@@ -7,7 +7,7 @@
 
 import type {
   LLMResponse,
-} from './types.js';
+} from '../llm-provider/types.js';
 import {
   LLMError,
   LLMNetworkError,
@@ -119,7 +119,7 @@ export class CustomAnthropicAdapter extends BaseAnthropicAdapter {
    * Stream LLM response with true SSE parsing
    */
   async* stream(options: LLMCallOptions): AsyncIterableIterator<StreamChunk> {
-    const { timeoutMs, signal, observer } = options;
+    const { timeoutMs, signal } = options;
     const body = this.buildRequestBody(options);
 
     const timeout = timeoutMs ?? this.config.timeoutMs;
@@ -138,7 +138,7 @@ export class CustomAnthropicAdapter extends BaseAnthropicAdapter {
       // 进入 stream 阶段：切换 timer 为总时长保护
       abortHandle.enterStreamPhase(STREAM_MAX_DURATION_MS);
       const idleTimeoutMs = Math.min(timeout, STREAM_IDLE_MAX_MS);
-      yield* parseAnthropicSSEStream(response, abortHandle, idleTimeoutMs, this.name, observer?.onStreamParseError);
+      yield* parseAnthropicSSEStream(response, abortHandle, idleTimeoutMs, this.name, this.onStreamParseError);
     } catch (error) {
       const classified = classifyFetchAbortError(error, signal, timeout, this.name);
       if (classified) throw classified;
