@@ -423,9 +423,15 @@ describe('waitForInbox', () => {
       return mockWatcher as unknown as Watcher;
     });
 
+    let listCallCount = 0;
     const mockFs = {
       ensureDirSync: vi.fn(),
       resolve: vi.fn((p: string) => p),
+      listSync: vi.fn(() => {
+        listCallCount++;
+        // snapshot + post-setup re-check: empty; callback onwards: new file
+        return listCallCount <= 2 ? [] : [{ name: 'msg1.md', isDirectory: false }];
+      }),
     } as unknown as FileSystem;
     const mockAudit = { write: vi.fn() } as unknown as AuditLog;
 
@@ -447,7 +453,11 @@ describe('waitForInbox', () => {
     const mockWatcher = { close: vi.fn().mockResolvedValue(undefined) };
     vi.mocked(createWatcher).mockReturnValue(mockWatcher as unknown as Watcher);
 
-    const mockFs = { ensureDirSync: vi.fn(), resolve: vi.fn((p: string) => p) } as unknown as FileSystem;
+    const mockFs = {
+      ensureDirSync: vi.fn(),
+      resolve: vi.fn((p: string) => p),
+      listSync: vi.fn().mockReturnValue([]),
+    } as unknown as FileSystem;
     const mockAudit = { write: vi.fn() } as unknown as AuditLog;
 
     const promise = waitForInbox(mockFs, mockAudit, '/tmp/inbox', 1_000);
@@ -484,7 +494,16 @@ describe('waitForInbox', () => {
       return mockWatcher as unknown as Watcher;
     });
 
-    const mockFs = { ensureDirSync: vi.fn(), resolve: vi.fn((p: string) => p) } as unknown as FileSystem;
+    let listCallCount2 = 0;
+    const mockFs = {
+      ensureDirSync: vi.fn(),
+      resolve: vi.fn((p: string) => p),
+      listSync: vi.fn(() => {
+        listCallCount2++;
+        // snapshot + post-setup re-check: empty; callback onwards: new file
+        return listCallCount2 <= 2 ? [] : [{ name: 'new.md', isDirectory: false }];
+      }),
+    } as unknown as FileSystem;
     const mockAudit = { write: vi.fn() } as unknown as AuditLog;
 
     const promise = waitForInbox(mockFs, mockAudit, '/tmp/inbox', 1_000);

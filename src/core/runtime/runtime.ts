@@ -734,8 +734,8 @@ export class Runtime {
                      :                                         'idle_timeout';
         await this.sessionManager.commitTurn(reason);
         for (const h of addressedHandles) {
-          // PriorityInboxInterrupt: ack（既有）/ UserInterrupt + IdleTimeoutSignal: nack 让下轮 redrive
-          if (err instanceof PriorityInboxInterrupt) {
+          // PriorityInboxInterrupt + UserInterrupt: ack / IdleTimeoutSignal: nack 让下轮 redrive
+          if (err instanceof PriorityInboxInterrupt || err instanceof UserInterrupt) {
             await this.inboxReader.ack(h);
           } else {
             await this.inboxReader.nack(h, formatErr(err));

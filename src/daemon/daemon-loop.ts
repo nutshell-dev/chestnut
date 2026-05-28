@@ -183,8 +183,24 @@ export function waitForInbox(
     let watcher: Watcher | null = null;
     let settled = false;
 
-    const done = async () => {
+    // 1. Snapshot existing files
+    const existingFiles = new Set<string>();
+    try {
+      for (const e of fs.listSync(inboxPendingDir)) existingFiles.add(e.name);
+    } catch { /* silent: dir may not exist yet, empty snapshot is correct */ }
+
+    // 2. Check if genuinely new files exist
+    const hasNewFile = (): boolean => {
+      try {
+        const current = fs.listSync(inboxPendingDir);
+        return current.some(e => !existingFiles.has(e.name));
+      } catch { return false; }
+    };
+
+    // 3. Filtered resolve: only on genuinely new files
+    const tryDone = async () => {
       if (settled) return;
+      if (!hasNewFile()) return;  // fallback poller false positive → ignore
       settled = true;
       clearTimeout(timer);
       await watcher?.close();
@@ -192,13 +208,24 @@ export function waitForInbox(
       resolve();
     };
 
-    const timer = setTimeout(() => void done(), timeoutMs);
+    // 4. Timeout with last check
+    const timer = setTimeout(() => {
+      if (!settled && hasNewFile()) {
+        settled = true;
+        if (watcher) { void watcher.close().then(() => resolve()); }
+        else resolve();
+      } else if (!settled) {
+        settled = true;
+        if (watcher) { void watcher.close().then(() => resolve()); }
+        else resolve();
+      }
+    }, timeoutMs);
 
     try {
       fs.ensureDirSync(inboxPendingDir);
       watcher = createWatcher(
         fs.resolve(inboxPendingDir),
-        () => void done(),
+        () => { void tryDone(); },
         {
           stability: 'immediate',
           onError: (err, context) => {
@@ -214,6 +241,8 @@ export function waitForInbox(
           },
         },
       );
+      // 5. Re-check after watcher setup (close race: file arrived between snapshot and watcher start)
+      if (hasNewFile()) { void tryDone(); }
     } catch (err) {
       audit.write(
         MESSAGING_AUDIT_EVENTS.INBOX_WATCHER_FAILED,
@@ -221,14 +250,11 @@ export function waitForInbox(
         'context=init',
         `reason=${err instanceof Error ? err.message : String(err)}`,
       );
-      void done().catch((doneErr) => {
-        audit.write(
-          MESSAGING_AUDIT_EVENTS.INBOX_WATCHER_FAILED,
-          `path=${inboxPendingDir}`,
-          'context=init_done_failed',
-          `reason=${doneErr instanceof Error ? doneErr.message : String(doneErr)}`,
-        );
-      });
+      if (!settled) {
+        settled = true;
+        clearTimeout(timer);
+        resolve();
+      }
     }
   });
 }

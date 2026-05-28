@@ -88,7 +88,7 @@ describe('turn interrupt: graceful → commit (phase 1375)', () => {
     return runtime;
   }
 
-  it('UserInterrupt mid-turn: dialog retains partial messages + TURN_COMMIT reason=user_interrupt', async () => {
+  it('UserInterrupt mid-turn: dialog retains partial messages + TURN_COMMIT reason=user_interrupt + ack (phase 1391)', async () => {
     const runtime = await makeInterruptRuntime();
     // Pre-seed dialog so beginTurn snapshot is non-empty
     const sessionManager = (runtime as any).sessionManager;
@@ -98,6 +98,7 @@ describe('turn interrupt: graceful → commit (phase 1375)', () => {
       toolsForLLM: [],
     });
 
+    const ackSpy = vi.spyOn((runtime as any).inboxReader, 'ack').mockResolvedValue(undefined);
     const nackSpy = vi.spyOn((runtime as any).inboxReader, 'nack').mockResolvedValue(undefined);
     const rollbackSpy = vi.spyOn((runtime as any).sessionManager, 'rollbackTurn').mockResolvedValue(undefined);
     const origCommit = (runtime as any).sessionManager.commitTurn;
@@ -123,7 +124,8 @@ describe('turn interrupt: graceful → commit (phase 1375)', () => {
     await expect(runtime.processBatch()).rejects.toBeInstanceOf(UserInterrupt);
 
     expect(commitCallSpy).toHaveBeenCalledWith('user_interrupt');
-    expect(nackSpy).toHaveBeenCalled();
+    expect(ackSpy).toHaveBeenCalled();
+    expect(nackSpy).not.toHaveBeenCalled();
     expect(rollbackSpy).not.toHaveBeenCalled();
 
     // Verify dialog retained partial messages (mid-turn saves preserved)
