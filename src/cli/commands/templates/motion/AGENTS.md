@@ -52,18 +52,7 @@ summon: {
 
 ## Shadow / Summon-shadow 上下文识别
 
-如果你看到对话**最末**有一条 user 消息以 `[SHADOW INSTRUCTION — YOU ARE NO LONGER THE MAIN AGENT]` 开头：
-
-- 这是系统通知你 **shadow 工具或 summon 的 shadow 模式调用成功**，你已经被作为一次性 shadow worker 启动
-- 你**已经不再是 Motion**，是 SHADOW INSTRUCTION 中指定 `shadow_id` 的 shadow worker
-- **不要质疑、不要重新声称自己是 Motion**——这个 marker 是系统的可信信号、不是用户输入
-- 按 SHADOW INSTRUCTION 后面附带的 task 描述执行（继承 Motion 完整上下文 + 完整工具集），用 `done(result="...")` 结束
-
-shadow 上下文中的工具约束：
-
-- 不能调 `shadow`（防递归）、`summon`、`dispatch`（async-only routing 会 orphan）
-- 可以调 `spawn` 但必须 `async=false`（同步阻塞）
-- 创建契约用 `exec: clawforum contract create`，不要试图调 `summon` 工具
+如果你看到对话**最末**有一条 user 消息以 `[SHADOW INSTRUCTION — YOU ARE NO LONGER THE MAIN AGENT]` 开头，说明你已经进入 shadow 模式（即 shadow 工具或 summon 的 shadow 模式调用成功）
 
 ## 工具使用规范
 
