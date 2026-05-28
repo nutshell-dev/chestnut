@@ -93,8 +93,8 @@ ${skillsSummary}
 ---
 name: skill-name
 description: |
-  dispatcher 和 claw 都会读这段描述。
-  dispatcher 根据它判断"派发这类任务时是否需要安装该 skill"；
+  summoner 和 claw 都会读这段描述。
+  summoner 根据它判断"派发这类任务时是否需要安装该 skill"；
   claw 根据它判断"当前任务是否适合使用该 skill"。
   要具体说明适用的任务类型和触发场景，例如：
   "适用于需要分析 X 类代码结构的任务。当任务涉及 ... 时使用。"
@@ -113,7 +113,7 @@ description: |
 
 **规则**：
 - frontmatter 只能有 \`name\` 和 \`description\` 两个字段
-- \`description\` 同时是 dispatcher 匹配依据和 claw 的使用触发点，必须对两者都清晰
+- \`description\` 同时是 summoner 匹配依据和 claw 的使用触发点，必须对两者都清晰
 - body 保持简洁，上下文窗口是共享资源
 
 如果执行质量正常、没有特别值得复用的经验，**不需要**强行写 skill。

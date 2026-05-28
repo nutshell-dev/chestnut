@@ -146,5 +146,5 @@ export function buildMiningUserMessage(
 }
 
 export function buildAskMotionCloneFirstMessage(question: string): string {
-  return `你是 Motion 的分身，由 dispatch 在意图挖掘阶段创建。你只负责回答问题，不能调用任何工具。请基于你已有的对话上下文作答，协助完成契约创建。\n\n---\n\n${question}`;
+  return `你是 Motion 的分身，由 summon 在意图挖掘阶段创建。你只负责回答问题，不能调用任何工具。请基于你已有的对话上下文作答，协助完成契约创建。\n\n---\n\n${question}`;
 }
