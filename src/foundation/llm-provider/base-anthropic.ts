@@ -6,7 +6,7 @@
  */
 
 import type { ProviderConfig, LLMCallOptions, ProviderAdapter, StreamChunk } from './types.js';
-import type { LLMResponse } from '../llm-provider/types.js';
+import type { LLMResponse } from './types.js';
 import { assertContentBlocks } from './_block-guards.js';
 import { LLM_PROVIDER_AUDIT_EVENTS } from './audit-events.js';
 

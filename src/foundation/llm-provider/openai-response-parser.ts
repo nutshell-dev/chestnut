@@ -4,7 +4,7 @@
  * dep: providerName + onToolArgParseError? callback
  */
 
-import type { LLMResponse, ContentBlock } from '../llm-provider/types.js';
+import type { LLMResponse, ContentBlock } from './types.js';
 import { LLMEmptyResponseError } from './errors.js';
 
 interface OpenAIResponse {

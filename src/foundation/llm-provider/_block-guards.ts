@@ -1,4 +1,4 @@
-import type { ContentBlock } from '../llm-provider/types.js';
+import type { ContentBlock } from './types.js';
 
 /**
  * Runtime assertion that a value is a ContentBlock array.

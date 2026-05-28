@@ -3,7 +3,7 @@
  * 抽自 custom-anthropic.ts (phase 642 / mirror phase 630)
  */
 
-import type { LLMResponse, ContentBlock } from '../llm-provider/types.js';
+import type { LLMResponse, ContentBlock } from './types.js';
 import { LLMEmptyResponseError } from './errors.js';
 
 export interface AnthropicResponse {
