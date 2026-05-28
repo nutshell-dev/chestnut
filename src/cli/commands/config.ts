@@ -14,6 +14,7 @@ import { CONFIG_DEFAULTS } from '../../assembly/config-defaults.js';
 import { PRESETS } from '../../foundation/config/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/factories.js';
 import { CliError } from '../errors.js';
+import { fitLine } from '../utils/string.js';
 import { REACT_DEFAULT_MAX_TOKENS } from '../../core/step-executor/constants.js';
 import { DEFAULT_LLM_TIMEOUT_MS } from '../../foundation/llm-orchestrator/defaults.js';
 import { MOTION_CLAW_ID } from '../../constants.js';
@@ -234,8 +235,12 @@ async function providerList(deps: { fsFactory: (baseDir: string) => FileSystem }
   const pPreset = primary.preset ?? '';
   const pLabel = primary.label || pPreset || '(unknown)';
   const pModel = primary.model || PRESETS[pPreset]?.defaultModel || 'unknown';
+  const terminalWidth = process.stdout.columns ?? 80;
+  const fixedColWidth = 57; // "  PRIMARY   " + padEnd(10,15,18) + 3 spaces
+  const urlWidth = Math.max(10, terminalWidth - fixedColWidth);
+
   const pBaseUrl = primary.base_url || PRESETS[pPreset]?.defaultBaseUrl || '-';
-  console.log(`  PRIMARY   ${pPreset.padEnd(10)} ${pLabel.padEnd(15)} ${pModel.padEnd(18)} ${pBaseUrl.slice(0, 30)}`);
+  console.log(`  PRIMARY   ${pPreset.padEnd(10)} ${pLabel.padEnd(15)} ${pModel.padEnd(18)} ${fitLine(pBaseUrl, urlWidth)}`);
 
   // Fallbacks
   fallbacks.forEach((f, i) => {
@@ -243,7 +248,7 @@ async function providerList(deps: { fsFactory: (baseDir: string) => FileSystem }
     const fLabel = f.label || fPreset || '(unknown)';
     const fModel = f.model || PRESETS[fPreset]?.defaultModel || 'unknown';
     const fBaseUrl = f.base_url || PRESETS[fPreset]?.defaultBaseUrl || '-';
-    console.log(`  #${i + 1}       ${fPreset.padEnd(10)} ${fLabel.padEnd(15)} ${fModel.padEnd(18)} ${fBaseUrl.slice(0, 30)}`);
+    console.log(`  #${i + 1}       ${fPreset.padEnd(10)} ${fLabel.padEnd(15)} ${fModel.padEnd(18)} ${fitLine(fBaseUrl, urlWidth)}`);
   });
   
   console.log();
