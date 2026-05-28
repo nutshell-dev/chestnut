@@ -24,6 +24,7 @@ const mockLLMConfig: LLMOrchestratorConfig = {
     name: 'test',
     apiKey: 'test-key',
     model: 'test-model',
+    apiFormat: 'anthropic' as const,
     maxTokens: 100,
     temperature: 0,
   },
