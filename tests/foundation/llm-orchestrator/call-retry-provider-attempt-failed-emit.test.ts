@@ -47,7 +47,7 @@ describe('phase 1324 C.2: call() retry path provider_attempt_failed emit', () =>
     const { sink, emitted } = createMockSink();
     const primary = createFailingProvider('primary', 999);
     const orchestrator = new LLMOrchestratorImpl({
-      primary: { provider: 'mock', model: 'mock-model' },
+      primary: { name: 'mock', apiKey: 'test', model: 'mock-model', apiFormat: 'anthropic' as const },
       maxAttempts: 3,
       retryDelayMs: 10,
       events: sink,
@@ -88,7 +88,7 @@ describe('phase 1324 C.2: call() retry path provider_attempt_failed emit', () =>
     const { sink, emitted } = createMockSink();
     const primary = createFailingProvider('primary', 1);
     const orchestrator = new LLMOrchestratorImpl({
-      primary: { provider: 'mock', model: 'mock-model' },
+      primary: { name: 'mock', apiKey: 'test', model: 'mock-model', apiFormat: 'anthropic' as const },
       maxAttempts: 3,
       retryDelayMs: 10,
       events: sink,
@@ -115,7 +115,7 @@ describe('phase 1324 C.2: call() retry path provider_attempt_failed emit', () =>
     const { sink, emitted } = createMockSink();
     const primary = createFailingProvider('primary', 1);
     const orchestrator = new LLMOrchestratorImpl({
-      primary: { provider: 'mock', model: 'mock-model' },
+      primary: { name: 'mock', apiKey: 'test', model: 'mock-model', apiFormat: 'anthropic' as const },
       maxAttempts: 2,
       retryDelayMs: 10,
       events: sink,

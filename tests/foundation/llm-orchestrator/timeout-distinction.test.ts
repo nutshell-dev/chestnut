@@ -76,7 +76,7 @@ describe('LLMOrchestratorImpl timeout distinction (Phase 538)', () => {
     });
 
     const service = new LLMOrchestratorImpl({
-      primary: { name: 'primary', apiKey: 'test', model: 'test' },
+      primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       maxAttempts: 1,
       retryDelayMs: 0,
       events: noopSink,
@@ -115,7 +115,7 @@ describe('LLMOrchestratorImpl timeout distinction (Phase 538)', () => {
     });
 
     const service = new LLMOrchestratorImpl({
-      primary: { name: 'primary', apiKey: 'test', model: 'test' },
+      primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       maxAttempts: 1,
       retryDelayMs: 0,
       events: sink,
@@ -153,7 +153,7 @@ describe('LLMOrchestratorImpl timeout distinction (Phase 538)', () => {
     });
 
     const service = new LLMOrchestratorImpl({
-      primary: { name: 'primary', apiKey: 'test', model: 'test' },
+      primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       maxAttempts: 1,
       retryDelayMs: 0,
       events: noopSink,

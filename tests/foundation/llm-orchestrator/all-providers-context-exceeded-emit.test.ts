@@ -37,8 +37,8 @@ function createMockProvider(
 function createOrchestrator(primary: ProviderAdapter, fallbacks: ProviderAdapter[]) {
   const noopSink: LLMEventSink = { emit: () => {} };
   const service = new LLMOrchestratorImpl({
-    primary: { name: primary.name, apiKey: 'test', model: primary.model, maxTokens: 1024 },
-    fallbacks: fallbacks.map(fb => ({ name: fb.name, apiKey: 'test', model: fb.model, maxTokens: 1024 })),
+    primary: { name: primary.name, apiKey: 'test', model: primary.model, maxTokens: 1024, apiFormat: 'anthropic' as const },
+    fallbacks: fallbacks.map(fb => ({ name: fb.name, apiKey: 'test', model: fb.model, maxTokens: 1024, apiFormat: 'anthropic' as const })),
     maxAttempts: 1,
     retryDelayMs: 0,
     events: noopSink,

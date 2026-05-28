@@ -50,8 +50,8 @@ describe('phase 1374 sub-1: call() fallback retry symmetry', () => {
     const primary = createFailingProvider('primary', 999);
     const fallback = createFailingProvider('fallback', 999);
     const orchestrator = new LLMOrchestratorImpl({
-      primary: { name: primary.name, apiKey: 'test', model: primary.model },
-      fallbacks: [{ name: fallback.name, apiKey: 'test', model: fallback.model }],
+      primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
+      fallbacks: [{ name: fallback.name, apiKey: 'test', model: fallback.model, apiFormat: 'anthropic' as const }],
       maxAttempts: 3,
       retryDelayMs: 10,
       events: sink,
@@ -84,8 +84,8 @@ describe('phase 1374 sub-1: call() fallback retry symmetry', () => {
     const primary = createFailingProvider('primary', 999);
     const fallback = createFailingProvider('fallback', 2);
     const orchestrator = new LLMOrchestratorImpl({
-      primary: { name: primary.name, apiKey: 'test', model: primary.model },
-      fallbacks: [{ name: fallback.name, apiKey: 'test', model: fallback.model }],
+      primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
+      fallbacks: [{ name: fallback.name, apiKey: 'test', model: fallback.model, apiFormat: 'anthropic' as const }],
       maxAttempts: 3,
       retryDelayMs: 10,
       events: sink,
@@ -125,8 +125,8 @@ describe('phase 1374 sub-1: call() fallback retry symmetry', () => {
       },
     };
     const orchestrator = new LLMOrchestratorImpl({
-      primary: { name: primary.name, apiKey: 'test', model: primary.model },
-      fallbacks: [{ name: fallback.name, apiKey: 'test', model: fallback.model }],
+      primary: { name: primary.name, apiKey: 'test', model: primary.model, apiFormat: 'anthropic' as const },
+      fallbacks: [{ name: fallback.name, apiKey: 'test', model: fallback.model, apiFormat: 'anthropic' as const }],
       maxAttempts: 3,
       retryDelayMs: 10,
       events: sink,

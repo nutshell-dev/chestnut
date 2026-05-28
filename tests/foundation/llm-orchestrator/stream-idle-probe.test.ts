@@ -69,7 +69,7 @@ describe('Stream idle probe (⚓4 ε ratified by phase 628)', () => {
     );
 
     const service = new LLMOrchestratorImpl({
-      primary: { name: 'primary', apiKey: 'test', model: 'test' },
+      primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       maxAttempts: 2,
       retryDelayMs: 0,
       events: sink,
@@ -127,8 +127,8 @@ describe('Stream idle probe (⚓4 ε ratified by phase 628)', () => {
     const fallback = createMockProvider('fallback');
 
     const service = new LLMOrchestratorImpl({
-      primary: { name: 'primary', apiKey: 'test', model: 'test' },
-      fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test' }],
+      primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
+      fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const }],
       maxAttempts: 1,
       retryDelayMs: 0,
       events: sink,
@@ -179,7 +179,7 @@ describe('Stream idle probe (⚓4 ε ratified by phase 628)', () => {
     );
 
     const service = new LLMOrchestratorImpl({
-      primary: { name: 'primary', apiKey: 'test', model: 'test' },
+      primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       maxAttempts: 1,
       retryDelayMs: 0,
       events: sink,

@@ -91,7 +91,7 @@ describe('mergeSignals cleanup (Phase 538)', () => {
   it('100 次成功 call 后 listener 不累积', async () => {
     const primary = createMockProvider('primary');
     const service = new LLMOrchestratorImpl({
-      primary: { name: 'primary', apiKey: 'test', model: 'test' },
+      primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       maxAttempts: 1,
       retryDelayMs: 0,
       events: noopSink,
@@ -124,7 +124,7 @@ describe('mergeSignals cleanup (Phase 538)', () => {
     });
 
     const service = new LLMOrchestratorImpl({
-      primary: { name: 'primary', apiKey: 'test', model: 'test' },
+      primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       maxAttempts: 1,
       retryDelayMs: 0,
       events: noopSink,
