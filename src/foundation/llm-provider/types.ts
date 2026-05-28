@@ -6,11 +6,7 @@
  */
 
 import type { ApiFormat } from './presets.js';
-
-/** Minimal audit sink interface — L1 owns this duck-typed interface, L2b implements */
-export interface AuditSink {
-  write(event: string, ...details: string[]): void;
-}
+import type { AuditLog } from '../audit/index.js';
 
 // ============================================================================
 // LLM Protocol Message Types (L1 canonical)
@@ -135,8 +131,8 @@ export interface ProviderConfig {
   /** Reasoning effort for OpenAI o-series models */
   reasoningEffort?: 'low' | 'medium' | 'high';
 
-  /** Optional audit sink for formatter guard events (L2b injects via config) */
-  auditLog?: AuditSink;
+  /** Optional audit log for formatter guard events */
+  auditLog?: AuditLog;
 }
 
 /**

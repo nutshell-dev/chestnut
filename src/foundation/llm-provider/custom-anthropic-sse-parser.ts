@@ -7,6 +7,7 @@
 import type { StreamChunk } from './types.js';
 import type { CombinedAbortHandle } from './abort-helper.js';
 import { LLMError, LLMRateLimitError } from './errors.js';
+import { AUDIT_MESSAGE_MAX_CHARS } from '../audit/index.js';
 import { AUDIT_PREVIEW_LEN } from '../constants.js';
 
 export type StreamParseErrorCallback = (event: {
@@ -20,7 +21,6 @@ export type StreamParseErrorCallback = (event: {
  *
  * @param providerName - provider name (用于 LLMError + LLMRateLimitError throw + observability event)
  * @param onStreamParseError - 可选 SSE parse 错回调
- * @param maxAuditChars - 审计日志 raw 字段最大长度（默认 200，与 AUDIT_MESSAGE_MAX_CHARS 对齐）
  */
 export async function* parseAnthropicSSEStream(
   response: Response,
@@ -28,7 +28,6 @@ export async function* parseAnthropicSSEStream(
   idleTimeoutMs: number,
   providerName: string,
   onStreamParseError?: StreamParseErrorCallback,
-  maxAuditChars: number = 200,
 ): AsyncIterableIterator<StreamChunk> {
   const reader = response.body!.getReader();
   const decoder = new TextDecoder();
@@ -74,7 +73,7 @@ export async function* parseAnthropicSSEStream(
               // tool_use 缺 id 或 name = upstream malformed / 不发 malformed yield / 走观测通道
               onStreamParseError?.({
                 provider: providerName,
-                raw: JSON.stringify(block).slice(0, maxAuditChars),
+                raw: JSON.stringify(block).slice(0, AUDIT_MESSAGE_MAX_CHARS),
                 error: 'tool_use missing id or name',
               });
               continue;
