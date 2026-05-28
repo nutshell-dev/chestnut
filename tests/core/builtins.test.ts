@@ -17,6 +17,7 @@ import { memorySearchTool } from '../../src/core/memory/tools/memory_search.js';
 import { execTool } from '../../src/foundation/command-tool/index.js';
 import { spawnTool } from '../../src/core/spawn-system/index.js';
 import { ExecContextImpl } from '../../src/foundation/tools/context.js';
+import { makeClawforumRoot } from '../../src/foundation/identity/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
 import { OutboxWriter } from '../../src/foundation/messaging/index.js';
 import { createOutboxWriter } from '../../src/foundation/messaging/index.js';
@@ -48,6 +49,7 @@ describe('Builtin Tools', () => {
     mockFs = new NodeFileSystem({ baseDir: tempDir });
     outboxWriter = createOutboxWriter('test-claw', tempDir, mockFs, makeAudit().audit);
     ctx = new ExecContextImpl({
+      clawforumRoot: makeClawforumRoot(tempDir),
       clawId: 'test-claw',
       clawDir: tempDir,
       syncDir: path.join(tempDir, 'tasks', 'sync'),
@@ -493,13 +495,14 @@ describe('Builtin Tools', () => {
     });
 
     it('should allow specific claw target for non-Motion (D11 align)', async () => {
-      const mainClawDir = path.join(tempDir, 'main-claw');
+      const mainClawDir = path.join(tempDir, 'claws', 'main-claw');
       await fs.mkdir(mainClawDir, { recursive: true });
       const otherClawDir = path.join(tempDir, 'claws', 'other-claw', 'clawspace');
       await fs.mkdir(otherClawDir, { recursive: true });
       await fs.writeFile(path.join(otherClawDir, 'note.txt'), 'cross-claw content');
 
       const mainCtx = new ExecContextImpl({
+        clawforumRoot: makeClawforumRoot(tempDir),
         clawId: 'main-claw',
         clawDir: mainClawDir,
         syncDir: path.join(mainClawDir, 'tasks/sync'),
@@ -531,6 +534,7 @@ describe('Builtin Tools', () => {
       const motionFs = new NodeFileSystem({ baseDir: motionDir });
       const motionOutboxWriter = createOutboxWriter('motion', motionDir, motionFs, makeAudit().audit);
       const motionCtx = new ExecContextImpl({
+        clawforumRoot: makeClawforumRoot(tempDir),
         clawId: 'motion',
         clawDir: motionDir,
         profile: 'full',
@@ -576,6 +580,7 @@ describe('Builtin Tools', () => {
       const motionFs = new NodeFileSystem({ baseDir: nonExistentDir });
       const motionOutboxWriter = createOutboxWriter('motion', nonExistentDir, motionFs);
       const motionCtx = new ExecContextImpl({
+        clawforumRoot: makeClawforumRoot(tempDir),
         clawId: 'motion',
         clawDir: nonExistentDir,
         profile: 'full',
@@ -601,6 +606,7 @@ describe('Builtin Tools', () => {
       const motionFs = new NodeFileSystem({ baseDir: motionDir });
       const motionOutboxWriter = createOutboxWriter('motion', motionDir, motionFs, makeAudit().audit);
       const motionCtx = new ExecContextImpl({
+        clawforumRoot: makeClawforumRoot(tempDir),
         clawId: 'motion',
         clawDir: motionDir,
         profile: 'full',
@@ -638,6 +644,7 @@ describe('Builtin Tools', () => {
       const motionFs = new NodeFileSystem({ baseDir: motionDir });
       const motionOutboxWriter = createOutboxWriter('motion', motionDir, motionFs, makeAudit().audit);
       const motionCtx = new ExecContextImpl({
+        clawforumRoot: makeClawforumRoot(tempDir),
         clawId: 'motion',
         clawDir: motionDir,
         permissions: { read: true, write: true, execute: true, spawn: true, send: true, network: false, system: false },
@@ -839,6 +846,7 @@ describe('Builtin Tools', () => {
       controller.abort(); // 预先 abort
 
       const abortCtx = new ExecContextImpl({
+        clawforumRoot: makeClawforumRoot(tempDir),
         clawId: 'test-claw',
         clawDir: tempDir,
         profile: 'full',
@@ -868,6 +876,7 @@ describe('Builtin Tools', () => {
 
     it('clawDir 不存在时返回 ENOENT 错误（success:false）', async () => {
       const missingDirCtx = new ExecContextImpl({
+        clawforumRoot: makeClawforumRoot(path.join(path.join(tempDir, 'nonexistent-dir-xyz'), "..")),
         clawId: 'test-claw',
         clawDir: path.join(tempDir, 'nonexistent-dir-xyz'),
         profile: 'full',
@@ -912,6 +921,7 @@ describe('Builtin Tools', () => {
       const fsNative = await import('fs');
       fsNative.mkdirSync(path.join(tempDir, 'clawspace'), { recursive: true });
       const subagentCtx = new ExecContextImpl({
+        clawforumRoot: makeClawforumRoot(tempDir),
         clawId: 'test',
         clawDir: tempDir,
         workspaceDir: path.join(tempDir, 'clawspace'),
@@ -933,6 +943,7 @@ describe('Builtin Tools', () => {
       fsNative.mkdirSync(subagentTempDir, { recursive: true });
       fsNative.mkdirSync(path.join(tempDir, 'clawspace'), { recursive: true });
       const subagentCtx = new ExecContextImpl({
+        clawforumRoot: makeClawforumRoot(tempDir),
         clawId: 'test',
         clawDir: tempDir,
         workspaceDir: path.join(tempDir, 'clawspace'),
@@ -957,6 +968,7 @@ describe('Builtin Tools', () => {
       const fsNative = await import('fs');
       fsNative.mkdirSync(path.join(tempDir, 'clawspace'), { recursive: true });
       const subagentCtx = new ExecContextImpl({
+        clawforumRoot: makeClawforumRoot(tempDir),
         clawId: 'test',
         clawDir: tempDir,
         workspaceDir: path.join(tempDir, 'clawspace'),
@@ -1021,6 +1033,7 @@ describe('Builtin Tools', () => {
       mockSchedule.mockResolvedValue('task-xxx');
 
       const ctxWithMaxSteps = new ExecContextImpl({
+        clawforumRoot: makeClawforumRoot(tempDir),
         clawId: 'test-claw',
         clawDir: tempDir,
         profile: 'full',
@@ -1054,6 +1067,7 @@ describe('Builtin Tools', () => {
 
       const motionFs = new NodeFileSystem({ baseDir: motionDir });
       const motionCtx = new ExecContextImpl({
+        clawforumRoot: makeClawforumRoot(tempDir),
         clawId: 'motion',
         clawDir: motionDir,
         profile: 'full',
@@ -1078,6 +1092,7 @@ describe('Builtin Tools', () => {
 
       const motionFs = new NodeFileSystem({ baseDir: motionDir });
       const subagentCtx = new ExecContextImpl({
+        clawforumRoot: makeClawforumRoot(tempDir),
         clawId: 'task-uuid-123',
         clawDir: motionDir,
         profile: 'full',
@@ -1095,13 +1110,14 @@ describe('Builtin Tools', () => {
     });
 
     it('should allow specific claw target for non-Motion (D11 align)', async () => {
-      const mainClawDir = path.join(tempDir, 'main-claw');
+      const mainClawDir = path.join(tempDir, 'claws', 'main-claw');
       await fs.mkdir(mainClawDir, { recursive: true });
       const claw1Dir = path.join(tempDir, 'claws', 'claw1', 'clawspace');
       await fs.mkdir(claw1Dir, { recursive: true });
       await fs.writeFile(path.join(claw1Dir, 'note.txt'), 'Note from claw1');
 
       const mainCtx = new ExecContextImpl({
+        clawforumRoot: makeClawforumRoot(tempDir),
         clawId: 'main-claw',
         clawDir: mainClawDir,
         syncDir: path.join(mainClawDir, 'tasks/sync'),
@@ -1121,6 +1137,7 @@ describe('Builtin Tools', () => {
       await fs.mkdir(motionDir, { recursive: true });
       const motionFs = new NodeFileSystem({ baseDir: motionDir });
       const motionCtx = new ExecContextImpl({
+        clawforumRoot: makeClawforumRoot(tempDir),
         clawId: 'motion',
         clawDir: motionDir,
         profile: 'full',
@@ -1140,6 +1157,7 @@ describe('Builtin Tools', () => {
       await fs.mkdir(motionDir, { recursive: true });
       const motionFs = new NodeFileSystem({ baseDir: motionDir });
       const motionCtx = new ExecContextImpl({
+        clawforumRoot: makeClawforumRoot(tempDir),
         clawId: 'motion',
         clawDir: motionDir,
         profile: 'full',
@@ -1166,6 +1184,7 @@ describe('Builtin Tools', () => {
 
       const motionFs = new NodeFileSystem({ baseDir: motionDir });
       const motionCtx = new ExecContextImpl({
+        clawforumRoot: makeClawforumRoot(tempDir),
         clawId: 'motion',
         clawDir: motionDir,
         profile: 'full',
@@ -1189,6 +1208,7 @@ describe('Builtin Tools', () => {
 
       const motionFs = new NodeFileSystem({ baseDir: motionDir });
       const motionCtx = new ExecContextImpl({
+        clawforumRoot: makeClawforumRoot(tempDir),
         clawId: 'motion',
         clawDir: motionDir,
         profile: 'full',
@@ -1208,6 +1228,7 @@ describe('Builtin Tools', () => {
       await fs.mkdir(motionDir, { recursive: true });
       const motionFs = new NodeFileSystem({ baseDir: motionDir });
       const motionCtx = new ExecContextImpl({
+        clawforumRoot: makeClawforumRoot(tempDir),
         clawId: 'motion',
         clawDir: motionDir,
         profile: 'full',
@@ -1253,6 +1274,7 @@ describe('Builtin Tools', () => {
 
       const motionFs = new NodeFileSystem({ baseDir: motionDir });
       const motionCtx = new ExecContextImpl({
+        clawforumRoot: makeClawforumRoot(tempDir),
         clawId: 'motion',
         clawDir: motionDir,
         profile: 'full',
@@ -1276,6 +1298,7 @@ describe('Builtin Tools', () => {
 
       const motionFs = new NodeFileSystem({ baseDir: motionDir });
       const subagentCtx = new ExecContextImpl({
+        clawforumRoot: makeClawforumRoot(tempDir),
         clawId: 'subagent-456',
         clawDir: motionDir,
         profile: 'full',
@@ -1292,13 +1315,14 @@ describe('Builtin Tools', () => {
     });
 
     it('should allow specific claw target for non-Motion (D11 align)', async () => {
-      const mainClawDir = path.join(tempDir, 'main-claw');
+      const mainClawDir = path.join(tempDir, 'claws', 'main-claw');
       await fs.mkdir(mainClawDir, { recursive: true });
       const claw1Dir = path.join(tempDir, 'claws', 'claw1', 'clawspace');
       await fs.mkdir(claw1Dir, { recursive: true });
       await fs.writeFile(path.join(claw1Dir, 'file.txt'), 'content');
 
       const mainCtx = new ExecContextImpl({
+        clawforumRoot: makeClawforumRoot(tempDir),
         clawId: 'main-claw',
         clawDir: mainClawDir,
         syncDir: path.join(mainClawDir, 'tasks/sync'),
@@ -1324,6 +1348,7 @@ describe('Builtin Tools', () => {
 
       const motionFs = new NodeFileSystem({ baseDir: motionDir });
       const motionCtx = new ExecContextImpl({
+        clawforumRoot: makeClawforumRoot(tempDir),
         clawId: 'motion',
         clawDir: motionDir,
         profile: 'full',
@@ -1347,6 +1372,7 @@ describe('Builtin Tools', () => {
 
       const motionFs = new NodeFileSystem({ baseDir: motionDir });
       const subagentCtx = new ExecContextImpl({
+        clawforumRoot: makeClawforumRoot(tempDir),
         clawId: 'task-uuid',
         clawDir: motionDir,
         profile: 'full',

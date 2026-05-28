@@ -15,7 +15,7 @@ import type { DialogStore } from '../../foundation/dialog-store/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { PermissionChecker } from '../../foundation/tool-protocol/permission.js';
 import type { CallerType } from '../caller-types.js';
-import type { ClawId, TaskId } from '../../foundation/identity/index.js';
+import type { ClawId, TaskId, ClawforumRoot } from '../../foundation/identity/index.js';
 import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
 
 
@@ -39,6 +39,8 @@ export interface AsyncTaskSystemOptions {
   toolTimeoutMs?: number;
   permissionChecker?: PermissionChecker;
   fsFactory: (baseDir: string) => FileSystem;
+  /** phase 1387: Assembly 装配期注入的 clawforum 根目录 */
+  clawforumRoot: ClawforumRoot;
   // NEW phase 1369: AskMotionTool factory inject (per phase 619 caller DIP enforce template / cut async-task→summon reverse)
   askMotionToolFactory: (llm: LLMOrchestrator, motionDialogStore: DialogStore) => import('../../foundation/tools/index.js').Tool;
 }

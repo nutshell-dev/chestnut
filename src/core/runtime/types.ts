@@ -20,7 +20,7 @@ import type { PermissionChecker } from '../../foundation/tool-protocol/permissio
 
 import type { InboxMessage } from '../../foundation/messaging/types.js';
 import type { ToolProfile } from '../../foundation/tool-protocol/index.js';
-import type { ClawId } from '../../foundation/identity/index.js';
+import type { ClawId, ClawforumRoot } from '../../foundation/identity/index.js';
 import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
 import { type ClawDir } from '../../foundation/identity/index.js';
 
@@ -64,6 +64,8 @@ export interface RuntimeDependencies {
 export interface RuntimeOptions {
   clawId: ClawId;
   clawDir: ClawDir;
+  /** phase 1387: Assembly 装配期注入的 clawforum 根目录 */
+  clawforumRoot: ClawforumRoot;
   llmConfig: LLMOrchestratorConfig;
   maxSteps?: number;
   toolProfile?: ToolProfile;

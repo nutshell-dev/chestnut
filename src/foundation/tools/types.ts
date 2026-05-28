@@ -12,7 +12,7 @@ import type { AuditLog } from '../audit/index.js';
 import type { ToolDescriptor, ToolResult } from '../tool-protocol/index.js';
 import type { ScheduleAsyncTool } from './async-dispatch.js';
 import type { PermissionChecker } from '../tool-protocol/permission.js';
-import type { ClawId } from '../identity/index.js';
+import type { ClawId, ClawforumRoot } from '../identity/index.js';
 import type { ToolUseId } from '../tool-protocol/index.js';
 import { type ClawDir } from '../identity/index.js';
 
@@ -63,6 +63,10 @@ export function escapeForLog(s: string): string {
 export interface ExecContext {
   clawId: ClawId;
   clawDir: ClawDir;
+  /** phase 1387: .clawforum/ 根（Assembly 装配期注入 / motion 布局 + 普通 claw 布局共用单一 truth source）。
+   *  历史 bug: FileTool 8 site 使用 "clawDir 的父目录拼接 CLAWS_DIR" 的推算方式、在普通 claw 布局下落 claws/claws/ 多嵌。
+   *  本字段消歧义 + 单 truth source。 */
+  clawforumRoot: ClawforumRoot;
   /** phase 509 NEW / 装配期 per-callerType resolve / 主代理=clawDir/clawspace / 子代理=clawDir/tasks/subagents/<task-id> (phase 512 落地) */
   workspaceDir: string;
   /** 装配-level 共享 sync dir（兜底落盘 + FileTool write_backups 共用 / 应然 §A.7）/ Assembly 装配期注入 */
@@ -186,6 +190,8 @@ export interface IToolExecutor {
 export interface ToolExecutorOptions {
   registry: ToolRegistry;
   clawDir: ClawDir;
+  /** phase 1387: Assembly 装配期注入的 clawforum 根目录 */
+  clawforumRoot: ClawforumRoot;
   syncDir: string;
   workspaceDir?: string;
   fs: FileSystem;

@@ -136,7 +136,7 @@ export const searchTool: Tool = {
             content: 'Error: claw: "*" broadcast is Motion-only. Use claw: "<id>" for specific claw access.',
           };
         }
-        const clawsDir = nodePath.resolve(ctx.clawDir, '..', CLAWS_DIR);
+        const clawsDir = nodePath.join(ctx.clawforumRoot, CLAWS_DIR);
         const clawforumFs = ctx.fsFactory(clawsDir);
         let clawIds: string[];
         try {
@@ -195,9 +195,9 @@ export const searchTool: Tool = {
       }
       // Resolve path to target claw's directory
       const rawSearchPath = nodePath.normalize(pathArg);
-      baseDir = nodePath.resolve(ctx.clawDir, '..', CLAWS_DIR, clawParam, rawSearchPath);
+      baseDir = nodePath.resolve(ctx.clawforumRoot, CLAWS_DIR, clawParam, rawSearchPath);
       // Escape check: must be within the target claw's directory
-      const clawsDir = nodePath.resolve(ctx.clawDir, '..', CLAWS_DIR);
+      const clawsDir = nodePath.join(ctx.clawforumRoot, CLAWS_DIR);
       const clawRoot = nodePath.join(clawsDir, clawParam);
       if (baseDir !== clawRoot && !baseDir.startsWith(clawRoot + nodePath.sep)) {
         return {
@@ -220,7 +220,7 @@ export const searchTool: Tool = {
       
       if (useNativeFs) {
         // Use walkNative for single claw search
-        const targetFs = ctx.fsFactory!(nodePath.resolve(ctx.clawDir, '..', CLAWS_DIR, clawParam!));
+        const targetFs = ctx.fsFactory!(nodePath.join(ctx.clawforumRoot, CLAWS_DIR, clawParam!));
         await walkNative(
           targetFs,
           nodePath.normalize(pathArg),

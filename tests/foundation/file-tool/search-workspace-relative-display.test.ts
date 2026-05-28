@@ -12,6 +12,7 @@ import { searchTool } from '../../../src/foundation/file-tool/index.js';
 import { ExecContextImpl } from '../../../src/foundation/tools/context.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import { createClawPermissionChecker } from '../../../src/core/permissions/claw-permissions.js';
+import { makeClawforumRoot } from '../../../src/foundation/identity/index.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 
 describe('search tool — workspace-relative display (phase 776)', () => {
@@ -127,6 +128,7 @@ describe('search tool — workspace-relative display (phase 776)', () => {
     const ctx = new ExecContextImpl({
       clawId: 'main-claw',
       clawDir: mainClawDir,
+      clawforumRoot: makeClawforumRoot(tempDir),
       syncDir: path.join(mainClawDir, 'tasks/sync'),
       profile: 'full',
       fs: mockFs,

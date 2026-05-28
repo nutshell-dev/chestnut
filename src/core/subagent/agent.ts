@@ -27,7 +27,7 @@ import { DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../../prompts/index.js';
 import type { PermissionChecker } from '../../foundation/tool-protocol/permission.js';
 import { makeClawId } from '../../foundation/identity/index.js';
 import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
-import { type ClawDir } from '../../foundation/identity/index.js';
+import { type ClawDir, type ClawforumRoot } from '../../foundation/identity/index.js';
 
 
 
@@ -37,6 +37,8 @@ export interface SubAgentOptions {
   messageStore: DialogStore;             // phase453: caller 装配期注入 ephemeral DialogStore（filename='messages.json' / 0 clawId / 0 archive 触发）
   prompt: string;
   clawDir: ClawDir;
+  /** phase 1387: Assembly 装配期注入的 clawforum 根目录 */
+  clawforumRoot: ClawforumRoot;
   syncDir: string;
   llm: LLMOrchestrator;
   registry: ToolRegistry;
@@ -69,6 +71,7 @@ export class SubAgent {
   private messageStore: DialogStore;
   private prompt: string;
   private clawDir: ClawDir;
+  private clawforumRoot: ClawforumRoot;
   private syncDir: string;
   private llm: LLMOrchestrator;
   private registry: ToolRegistry;
@@ -102,6 +105,7 @@ private callerType?: CallerType;
     this.messageStore = options.messageStore;
     this.prompt = options.prompt;
     this.clawDir = options.clawDir;
+    this.clawforumRoot = options.clawforumRoot;
     this.syncDir = options.syncDir;
     this.llm = options.llm;
     this.registry = options.registry;
@@ -199,6 +203,7 @@ private callerType?: CallerType;
         registry: this.registry,
         defaultTimeoutMs: this.toolTimeoutMs,   // NEW phase 1029 / F-2
         clawDir: this.clawDir,
+        clawforumRoot: this.clawforumRoot,
         syncDir: this.syncDir,
         workspaceDir: this.workspaceDir,   // phase 512
         fs: this.fs,

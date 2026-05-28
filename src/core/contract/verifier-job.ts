@@ -93,6 +93,7 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
       agentId: config.agentId,
       callerType: 'verifier',
       clawDir: config.clawDir,
+      clawforumRoot: config.clawforumRoot,
       fs: config.fs,
       fsFactory: config.fsFactory!,
       llm: config.llm,

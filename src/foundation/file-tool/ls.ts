@@ -83,9 +83,9 @@ export const lsTool: Tool = {
         };
       }
       // Resolve path to target claw's directory
-      targetPath = nodePath.resolve(ctx.clawDir, '..', CLAWS_DIR, clawParam, nodePath.normalize(pathArg));
+      targetPath = nodePath.resolve(ctx.clawforumRoot, CLAWS_DIR, clawParam, nodePath.normalize(pathArg));
       // Escape check: must be within the target claw's directory
-      const clawsDir = nodePath.resolve(ctx.clawDir, '..', CLAWS_DIR);
+      const clawsDir = nodePath.join(ctx.clawforumRoot, CLAWS_DIR);
       const clawRoot = nodePath.join(clawsDir, clawParam);
       if (targetPath !== clawRoot && !targetPath.startsWith(clawRoot + nodePath.sep)) {
         return {

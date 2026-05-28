@@ -274,6 +274,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
         toolRegistry,   // phase 704: toolRegistry 注入 ContractSystem
         toolTimeoutMs,  // phase 1029 / F-2
         fsFactory,
+        clawforumRoot: isMotion ? makeClawforumRoot(path.dirname(clawDir)) : makeClawforumRoot(path.join(clawDir, '..')),
       });
     } catch (e) {
       auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=contract_manager`, `phase=construct`, `reason=${errMsg(e)}`);
@@ -326,6 +327,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
         permissionChecker,          // NEW: permission checker for subagent file tools
         motionInbox,
         fsFactory,
+        clawforumRoot: isMotion ? makeClawforumRoot(path.dirname(clawDir)) : makeClawforumRoot(path.join(clawDir, '..')),
         askMotionToolFactory: (llm, motionDialogStore) => new AskMotionTool(llm, motionDialogStore),
       });
     } catch (e) {
@@ -368,9 +370,9 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
           motionFs: systemFs,
           motionBaseDir: clawDir,
           motionAudit: auditWriter,
-          clawsBaseDir: path.resolve(clawDir, '..', CLAWS_DIR),
+          clawsBaseDir: path.join(makeClawforumRoot(path.dirname(clawDir)), CLAWS_DIR),
           clawFsFactory: fsFactory,
-          clawContractManagerFactory: (d: ClawDir, id: string, fs: FileSystem) => createContractSystem({ clawDir: d, clawId: makeClawId(id), fs, audit: createSystemAudit(fs, d), toolRegistry, toolTimeoutMs, fsFactory }),
+          clawContractManagerFactory: (d: ClawDir, id: string, fs: FileSystem) => createContractSystem({ clawDir: d, clawId: makeClawId(id), fs, audit: createSystemAudit(fs, d), toolRegistry, toolTimeoutMs, fsFactory, clawforumRoot: makeClawforumRoot(path.join(d, '..', '..')) }),
         };
         contractManager.onContractCompleted(async (contractId) => {
           if (!evolutionSystem) return; // P1.NPE guard (phase 620 / mirror phase 607 dream-trigger)
@@ -513,6 +515,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
         identity: isMotion ? 'motion' : 'claw',
         clawId: isMotion ? MOTION_CLAW_ID : clawId,
         clawDir,
+        clawforumRoot: isMotion ? makeClawforumRoot(path.dirname(clawDir)) : makeClawforumRoot(path.join(clawDir, '..')),
         llmConfig,
         maxSteps,
         toolProfile,
@@ -623,7 +626,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
             const cDir = makeClawDir(path.join(clawforumRoot, CLAWS_DIR, clawId));
             const cFs = fsFactory(cDir);
             const cAudit = createSystemAudit(cFs, cDir);
-            cs = createContractSystem({ clawDir: cDir, clawId, fs: cFs, audit: cAudit, llm, toolRegistry, toolTimeoutMs, fsFactory });
+            cs = createContractSystem({ clawDir: cDir, clawId, fs: cFs, audit: cAudit, llm, toolRegistry, toolTimeoutMs, fsFactory, clawforumRoot });
             contractSystemCache.set(clawId, cs);
           }
           return cs.getProgress(contractId);

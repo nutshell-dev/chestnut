@@ -64,7 +64,7 @@ import {
 } from './persistence.js';
 import { type ContractId, makeContractId } from '../../foundation/identity/index.js';
 import { type SubtaskId, type ArchiveDir, makeArchiveDir } from './types.js';
-import type { ClawId } from '../../foundation/identity/index.js';
+import type { ClawId, ClawforumRoot } from '../../foundation/identity/index.js';
 import { runContractVerifier } from './verifier-job.js';
 import {
   pauseContract, resumeContract, cancelContract,
@@ -98,6 +98,8 @@ export {
 export interface ContractSystemDeps {
   clawDir: ClawDir;
   clawId: ClawId;
+  /** phase 1387: Assembly 装配期注入的 clawforum 根目录 */
+  clawforumRoot: ClawforumRoot;
   fs: FileSystem;
   audit: AuditLog;
   llm?: LLMOrchestrator;
@@ -112,6 +114,7 @@ export class ContractSystem {
   private readonly clawId: ClawId;
   private readonly audit: AuditLog;
   private llm?: LLMOrchestrator;
+  private clawforumRoot: ClawforumRoot;
   private toolRegistry: ToolRegistry;
   private toolTimeoutMs?: number;
   private fsFactory: (baseDir: string) => FileSystem;
@@ -190,6 +193,7 @@ export class ContractSystem {
     this.fs = deps.fs;
     this.audit = deps.audit;
     this.llm = deps.llm;
+    this.clawforumRoot = deps.clawforumRoot;
     this.toolRegistry = deps.toolRegistry;
     this.toolTimeoutMs = deps.toolTimeoutMs;
     this.fsFactory = deps.fsFactory;
@@ -278,7 +282,7 @@ export class ContractSystem {
       toolTimeoutMs: this.toolTimeoutMs,
       runVerifierWithCancel: async (contractId, config) => {
         const controller = new AbortController();
-        const promise = runContractVerifier({ ...config, signal: controller.signal, contractId, fsFactory: this.fsFactory });
+        const promise = runContractVerifier({ ...config, signal: controller.signal, contractId, fsFactory: this.fsFactory, clawforumRoot: this.clawforumRoot });
         this._registerVerifierController(contractId, controller, promise);
         try {
           return await promise;

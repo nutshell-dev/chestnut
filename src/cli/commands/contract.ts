@@ -21,7 +21,7 @@ import { CliError } from '../errors.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { ClawId } from '../../foundation/identity/index.js';
 import { type ContractId, makeContractId } from '../../foundation/identity/index.js';
-import { type ClawDir } from '../../foundation/identity/index.js';
+import { type ClawDir, makeClawforumRoot } from '../../foundation/identity/index.js';
 
 
 
@@ -88,7 +88,8 @@ export async function contractCreateCommand(deps: { fsFactory: (baseDir: string)
 
   const clawDir = getClawDir(clawId);
   const clawFs = deps.fsFactory(clawDir);
-  const manager = new ContractSystem({ clawDir, clawId, fs: clawFs, audit: createSystemAudit(clawFs, clawDir), toolRegistry: createToolRegistry(), fsFactory: deps.fsFactory });
+  const clawforumRoot = makeClawforumRoot(path.join(clawDir, '..'));
+  const manager = new ContractSystem({ clawDir, clawId, fs: clawFs, audit: createSystemAudit(clawFs, clawDir), toolRegistry: createToolRegistry(), fsFactory: deps.fsFactory, clawforumRoot });
 
   const contractId = await manager.create(contract);
   audit?.write(CLI_AUDIT_EVENTS.CONTRACT_CREATE, `claw=${clawId}`, `contract=${contractId}`, `mode=file`);
@@ -110,7 +111,8 @@ export async function contractCreateFromDirCommand(deps: { fsFactory: (baseDir: 
 
   const clawDir = getClawDir(clawId);
   const clawFs = deps.fsFactory(clawDir);
-  const manager = new ContractSystem({ clawDir, clawId, fs: clawFs, audit: createSystemAudit(clawFs, clawDir), toolRegistry: createToolRegistry(), fsFactory: deps.fsFactory });
+  const clawforumRoot = makeClawforumRoot(path.join(clawDir, '..'));
+  const manager = new ContractSystem({ clawDir, clawId, fs: clawFs, audit: createSystemAudit(clawFs, clawDir), toolRegistry: createToolRegistry(), fsFactory: deps.fsFactory, clawforumRoot });
 
   const contractId = await manager.create(contract);
   audit?.write(CLI_AUDIT_EVENTS.CONTRACT_CREATE, `claw=${clawId}`, `contract=${contractId}`, `mode=dir`);
@@ -152,7 +154,8 @@ export async function contractEventsCommand(deps: { fsFactory: (baseDir: string)
 export async function contractLogCommand(deps: { fsFactory: (baseDir: string) => FileSystem }, clawId: ClawId, contractId?: string): Promise<void> {
   const clawDir = getClawDir(clawId);
   const clawFs = deps.fsFactory(clawDir);
-  const manager = new ContractSystem({ clawDir, clawId, fs: clawFs, audit: createSystemAudit(clawFs, clawDir), toolRegistry: createToolRegistry(), fsFactory: deps.fsFactory });
+  const clawforumRoot = makeClawforumRoot(path.join(clawDir, '..'));
+  const manager = new ContractSystem({ clawDir, clawId, fs: clawFs, audit: createSystemAudit(clawFs, clawDir), toolRegistry: createToolRegistry(), fsFactory: deps.fsFactory, clawforumRoot });
 
   // 若未指定 contractId，用 active 契约
   let resolvedId = contractId;

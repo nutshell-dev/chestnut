@@ -25,7 +25,7 @@ import type { PostProcessor } from './post-processors/types.js';
 import type { SubAgentTask } from './types.js';
 import type { DialogStore } from '../../foundation/dialog-store/index.js';
 import type { TaskId } from '../../foundation/identity/index.js';
-import { type ClawDir } from '../../foundation/identity/index.js';
+import { type ClawDir, type ClawforumRoot } from '../../foundation/identity/index.js';
 
 
 
@@ -38,6 +38,8 @@ export interface ExecuteSubAgentTaskDeps {
   llm: LLMOrchestrator;
   registry: ToolRegistry;
   clawDir: ClawDir;
+  /** phase 1387: Assembly 装配期注入的 clawforum 根目录 */
+  clawforumRoot: ClawforumRoot;
   parentStreamLog?: StreamLog;
   postProcessors: Map<string, PostProcessor>;
   mainDialogStore?: DialogStore;
@@ -153,6 +155,7 @@ export async function executeSubAgentTask(
       agentId: task.id,
       callerType: task.callerType,
       clawDir,
+      clawforumRoot: deps.clawforumRoot,
       fs,
       fsFactory,
       llm,

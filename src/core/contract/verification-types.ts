@@ -38,6 +38,6 @@ export interface VerificationContext extends LockContext {
   ) => Promise<VerificationResult>;
   withProgressLock: <T>(contractId: ContractId, fn: () => Promise<T>) => Promise<T>;
   toolRegistry: ToolRegistry;
-  runVerifierWithCancel: (contractId: ContractId, config: Omit<VerifierConfig, 'signal'>) => Promise<VerifierResult>;
+  runVerifierWithCancel: (contractId: ContractId, config: Omit<VerifierConfig, 'signal' | 'clawforumRoot'>) => Promise<VerifierResult>;
   toolTimeoutMs?: number;
 }

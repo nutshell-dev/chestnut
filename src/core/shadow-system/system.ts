@@ -127,6 +127,7 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
       agentId: shadowId,
       callerType: 'shadow',
       clawDir: opts.ctx.clawDir,
+      clawforumRoot: opts.ctx.clawforumRoot,
       fs: opts.ctx.fs,
       fsFactory: opts.ctx.fsFactory,
       llm: opts.ctx.llm,
