@@ -68,7 +68,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
     });
 
     const service = new LLMOrchestratorImpl({
-      primary: { name: 'primary', apiKey: 'test', model: 'test' },
+      primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       maxAttempts: 1,
       retryDelayMs: 0,
       events: noopSink,
@@ -100,8 +100,8 @@ describe('LLMOrchestratorImpl - stream failover', () => {
     });
 
     const service = new LLMOrchestratorImpl({
-      primary: { name: 'primary', apiKey: 'test', model: 'test' },
-      fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test' }],
+      primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
+      fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const }],
       maxAttempts: 1,
       retryDelayMs: 0,
       events: noopSink,
@@ -134,7 +134,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
     });
 
     const service = new LLMOrchestratorImpl({
-      primary: { name: 'primary', apiKey: 'test', model: 'test' },
+      primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       maxAttempts: 1,
       retryDelayMs: 0,
       events: noopSink,
@@ -177,8 +177,8 @@ describe('LLMOrchestratorImpl - stream failover', () => {
     });
 
     const service = new LLMOrchestratorImpl({
-      primary: { name: 'primary', apiKey: 'test', model: 'test' },
-      fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test' }],
+      primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
+      fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const }],
       maxAttempts: 2,   // 即使有重试机会也不应重试 mid-stream
       retryDelayMs: 0,
       events: noopSink,
@@ -210,7 +210,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
     });
 
     const service = new LLMOrchestratorImpl({
-      primary: { name: 'primary', apiKey: 'test', model: 'test' },
+      primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       maxAttempts: 2,
       retryDelayMs: 0,
       events: noopSink,
@@ -230,7 +230,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
   // Phase 20: getProviderInfo()
   it('should getProviderInfo() return isFallback=false when primary succeeds', async () => {
     const service = new LLMOrchestratorImpl({
-      primary: { name: 'primary', apiKey: 'test', model: 'test-model' },
+      primary: { name: 'primary', apiKey: 'test', model: 'test-model', apiFormat: 'anthropic' as const },
       maxAttempts: 1,
       retryDelayMs: 0,
       events: noopSink,
@@ -252,8 +252,8 @@ describe('LLMOrchestratorImpl - stream failover', () => {
     const goodFallback = createMockProvider('fb');
 
     const service = new LLMOrchestratorImpl({
-      primary: { name: 'p', apiKey: 'test', model: 'test' },
-      fallbacks: [{ name: 'fb', apiKey: 'test', model: 'test' }],
+      primary: { name: 'p', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
+      fallbacks: [{ name: 'fb', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const }],
       maxAttempts: 1,
       retryDelayMs: 0,
       events: noopSink,
@@ -279,7 +279,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
     } as any;
 
     const service = new LLMOrchestratorImpl({
-      primary: { name: 'primary', apiKey: 'test', model: 'test' },
+      primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       maxAttempts: 1,
       retryDelayMs: 0,
       events: noopSink,
@@ -312,8 +312,8 @@ describe('LLMOrchestratorImpl - stream failover', () => {
     });
 
     const service = new LLMOrchestratorImpl({
-      primary: { name: 'primary', apiKey: 'test', model: 'test' },
-      fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test' }],
+      primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
+      fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const }],
       maxAttempts: 1,
       retryDelayMs: 0,
       events: noopSink,
@@ -346,8 +346,8 @@ describe('LLMOrchestratorImpl - stream failover', () => {
     });
 
     const service = new LLMOrchestratorImpl({
-      primary: { name: 'primary', apiKey: 'test', model: 'test' },
-      fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test' }],
+      primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
+      fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const }],
       maxAttempts: 1,
       retryDelayMs: 0,
       events: noopSink,
@@ -388,8 +388,8 @@ describe('LLMOrchestratorImpl - stream failover', () => {
     });
 
     const service = new LLMOrchestratorImpl({
-      primary: { name: 'primary', apiKey: 'test', model: 'test' },
-      fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test' }],
+      primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
+      fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const }],
       maxAttempts: 1,
       retryDelayMs: 0,
       events: noopSink,
@@ -415,7 +415,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       (badPrimary as any).call = async () => { throw new Error('primary failed'); };
 
       const service = new LLMOrchestratorImpl({
-        primary: { name: 'p', apiKey: 'test', model: 'test' },
+        primary: { name: 'p', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
         fallbacks: [],
         maxAttempts: 1,
         retryDelayMs: 0,
@@ -429,7 +429,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
 
     it('成功 call 后 getProviderInfo 返成功 adapter info', async () => {
       const service = new LLMOrchestratorImpl({
-        primary: { name: 'primary', apiKey: 'test', model: 'foo' },
+        primary: { name: 'primary', apiKey: 'test', model: 'foo', apiFormat: 'anthropic' as const },
         maxAttempts: 1,
         retryDelayMs: 0,
         events: noopSink,
@@ -446,8 +446,8 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       const goodFallback = createMockProvider('fb');
 
       const service = new LLMOrchestratorImpl({
-        primary: { name: 'p', apiKey: 'test', model: 'test' },
-        fallbacks: [{ name: 'fb', apiKey: 'test', model: 'test' }],
+        primary: { name: 'p', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
+        fallbacks: [{ name: 'fb', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const }],
         maxAttempts: 1,
         retryDelayMs: 0,
         events: noopSink,
@@ -472,8 +472,8 @@ describe('LLMOrchestratorImpl - stream failover', () => {
 
       const { sink, emitted } = createMockSink();
       const service = new LLMOrchestratorImpl({
-        primary: { name: 'p', apiKey: 'test', model: 'test' },
-        fallbacks: [{ name: 'fb', apiKey: 'test', model: 'test' }],
+        primary: { name: 'p', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
+        fallbacks: [{ name: 'fb', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const }],
         maxAttempts: 1,
         retryDelayMs: 0,
         events: sink,
@@ -497,8 +497,8 @@ describe('LLMOrchestratorImpl - stream failover', () => {
 
       const { sink, emitted } = createMockSink();
       const service = new LLMOrchestratorImpl({
-        primary: { name: 'p', apiKey: 'test', model: 'test' },
-        fallbacks: [{ name: 'fb1', apiKey: 'test', model: 'test' }, { name: 'fb2', apiKey: 'test', model: 'test' }],
+        primary: { name: 'p', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
+        fallbacks: [{ name: 'fb1', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const }, { name: 'fb2', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const }],
         maxAttempts: 1,
         retryDelayMs: 0,
         events: sink,
@@ -535,8 +535,8 @@ describe('LLMOrchestratorImpl - circuit breaker', () => {
     const goodFallback = createMockProvider('fallback');
 
     const service = new LLMOrchestratorImpl({
-      primary: { name: 'p', apiKey: 'x', model: 'x' },
-      fallbacks: [{ name: 'fb', apiKey: 'x', model: 'x' }],
+      primary: { name: 'p', apiKey: 'x', model: 'x', apiFormat: 'anthropic' as const },
+      fallbacks: [{ name: 'fb', apiKey: 'x', model: 'x', apiFormat: 'anthropic' as const }],
       maxAttempts: 1,
       retryDelayMs: 0,
       circuitBreaker: { failureThreshold: 2, resetTimeoutMs: 60000 },
@@ -574,8 +574,8 @@ describe('LLMOrchestratorImpl - circuit breaker', () => {
     const goodFallback = createMockProvider('fb');
 
     const service = new LLMOrchestratorImpl({
-      primary: { name: 'p', apiKey: 'x', model: 'x' },
-      fallbacks: [{ name: 'fb', apiKey: 'x', model: 'x' }],
+      primary: { name: 'p', apiKey: 'x', model: 'x', apiFormat: 'anthropic' as const },
+      fallbacks: [{ name: 'fb', apiKey: 'x', model: 'x', apiFormat: 'anthropic' as const }],
       maxAttempts: 1,
       retryDelayMs: 0,
       circuitBreaker: { failureThreshold: 2, resetTimeoutMs: 50 },
@@ -616,8 +616,8 @@ describe('LLMOrchestratorImpl - circuit breaker', () => {
     const goodFallback = createMockProvider('fb');
 
     const service = new LLMOrchestratorImpl({
-      primary: { name: 'p', apiKey: 'x', model: 'x' },
-      fallbacks: [{ name: 'fb', apiKey: 'x', model: 'x' }],
+      primary: { name: 'p', apiKey: 'x', model: 'x', apiFormat: 'anthropic' as const },
+      fallbacks: [{ name: 'fb', apiKey: 'x', model: 'x', apiFormat: 'anthropic' as const }],
       maxAttempts: 1,
       retryDelayMs: 0,
       circuitBreaker: { failureThreshold: 2, resetTimeoutMs: 50 },
@@ -658,8 +658,8 @@ describe('LLMOrchestratorImpl - circuit breaker', () => {
     const goodFallback = createMockProvider('fb');
 
     const service = new LLMOrchestratorImpl({
-      primary: { name: 'p', apiKey: 'x', model: 'x' },
-      fallbacks: [{ name: 'fb', apiKey: 'x', model: 'x' }],
+      primary: { name: 'p', apiKey: 'x', model: 'x', apiFormat: 'anthropic' as const },
+      fallbacks: [{ name: 'fb', apiKey: 'x', model: 'x', apiFormat: 'anthropic' as const }],
       maxAttempts: 1,
       retryDelayMs: 0,
       circuitBreaker: { failureThreshold: 2, resetTimeoutMs: 50 },
@@ -697,8 +697,8 @@ describe('LLMOrchestratorImpl - circuit breaker', () => {
     };
 
     const service = new LLMOrchestratorImpl({
-      primary: { name: 'p1', apiKey: 'x', model: 'x' },
-      fallbacks: [{ name: 'p2', apiKey: 'x', model: 'x' }],
+      primary: { name: 'p1', apiKey: 'x', model: 'x', apiFormat: 'anthropic' as const },
+      fallbacks: [{ name: 'p2', apiKey: 'x', model: 'x', apiFormat: 'anthropic' as const }],
       maxAttempts: 1,
       retryDelayMs: 0,
       events: noopSink,
@@ -718,8 +718,8 @@ describe('LLMOrchestratorImpl - external abort signal', () => {
     const fallback = createMockProvider('fallback');
 
     const service = new LLMOrchestratorImpl({
-      primary: { name: 'primary', apiKey: 'test', model: 'test' },
-      fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test' }],
+      primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
+      fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const }],
       maxAttempts: 1,
       retryDelayMs: 0,
       events: noopSink,
@@ -748,8 +748,8 @@ describe('LLMOrchestratorImpl - external abort signal', () => {
     const fallback = createMockProvider('fallback', fallbackStream);
 
     const service = new LLMOrchestratorImpl({
-      primary: { name: 'primary', apiKey: 'test', model: 'test' },
-      fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test' }],
+      primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
+      fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const }],
       maxAttempts: 1,
       retryDelayMs: 0,
       events: noopSink,
@@ -775,7 +775,7 @@ describe('LLMOrchestratorImpl - external abort signal', () => {
     };
 
     const service = new LLMOrchestratorImpl({
-      primary: { name: 'primary', apiKey: 'test', model: 'test' },
+      primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       maxAttempts: 3,
       retryDelayMs: 10_000,
       events: noopSink,
@@ -801,7 +801,7 @@ describe('LLMOrchestratorImpl - external abort signal', () => {
     };
 
     const service = new LLMOrchestratorImpl({
-      primary: { name: 'primary', apiKey: 'test', model: 'test' },
+      primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       maxAttempts: 3,
       retryDelayMs: 10_000,
       events: noopSink,
@@ -823,7 +823,7 @@ describe('LLMOrchestratorImpl - events (Phase 254)', () => {
     const failingAdapter = createMockProvider('p1');
     (failingAdapter as any).call = async () => { throw new Error('timeout'); };
     const svc = new LLMOrchestratorImpl({
-      primary: { name: 'p1', apiKey: 'test', model: 'test' },
+      primary: { name: 'p1', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       fallbacks: [],
       maxAttempts: 1,
       retryDelayMs: 0,
@@ -844,7 +844,7 @@ describe('LLMOrchestratorImpl - events (Phase 254)', () => {
       return { content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' };
     };
     const svc = new LLMOrchestratorImpl({
-      primary: { name: 'p1', apiKey: 'test', model: 'test' },
+      primary: { name: 'p1', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       fallbacks: [],
       maxAttempts: 2,
       retryDelayMs: 100,
@@ -867,8 +867,8 @@ describe('LLMOrchestratorImpl - events (Phase 254)', () => {
     (primary as any).call = async () => { throw new Error('fail'); };
     const fallback = createMockProvider('fb1');
     const svc = new LLMOrchestratorImpl({
-      primary: { name: 'p1', apiKey: 'test', model: 'test' },
-      fallbacks: [{ name: 'fb1', apiKey: 'test', model: 'test' }],
+      primary: { name: 'p1', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
+      fallbacks: [{ name: 'fb1', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const }],
       maxAttempts: 1,
       retryDelayMs: 0,
       events: sink,
@@ -886,7 +886,7 @@ describe('LLMOrchestratorImpl - events (Phase 254)', () => {
     const primary = createMockProvider('p1');
     (primary as any).call = async () => { throw new Error('health-fail'); };
     const svc = new LLMOrchestratorImpl({
-      primary: { name: 'p1', apiKey: 'test', model: 'test' },
+      primary: { name: 'p1', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       fallbacks: [],
       maxAttempts: 1,
       retryDelayMs: 0,
@@ -906,7 +906,7 @@ describe('LLMOrchestratorImpl - events (Phase 254)', () => {
       throw new Error('mid-stream-fail');
     });
     const svc = new LLMOrchestratorImpl({
-      primary: { name: 'p1', apiKey: 'test', model: 'test' },
+      primary: { name: 'p1', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
       fallbacks: [],
       maxAttempts: 1,
       retryDelayMs: 0,
@@ -957,8 +957,8 @@ describe('LLMOrchestratorImpl - idle failover', () => {
     });
 
     const svc = new LLMOrchestratorImpl({
-      primary: { name: 'p1', apiKey: 'k', model: 'm' },
-      fallbacks: [{ name: 'p2', apiKey: 'k', model: 'm' }],
+      primary: { name: 'p1', apiKey: 'k', model: 'm', apiFormat: 'anthropic' as const },
+      fallbacks: [{ name: 'p2', apiKey: 'k', model: 'm', apiFormat: 'anthropic' as const }],
       maxAttempts: 1,
       retryDelayMs: 0,
       events: sink,
@@ -988,8 +988,8 @@ describe('LLMOrchestratorImpl - idle failover', () => {
     const p2 = makeSlowAdapter('p2');
 
     const svc = new LLMOrchestratorImpl({
-      primary: { name: 'p1', apiKey: 'k', model: 'm' },
-      fallbacks: [{ name: 'p2', apiKey: 'k', model: 'm' }],
+      primary: { name: 'p1', apiKey: 'k', model: 'm', apiFormat: 'anthropic' as const },
+      fallbacks: [{ name: 'p2', apiKey: 'k', model: 'm', apiFormat: 'anthropic' as const }],
       maxAttempts: 1,
       retryDelayMs: 0,
       events: sink,
@@ -1020,8 +1020,8 @@ describe('LLMOrchestratorImpl - idle failover', () => {
     };
 
     const svc = new LLMOrchestratorImpl({
-      primary: { name: 'p1', apiKey: 'k', model: 'm' },
-      fallbacks: [{ name: 'p2', apiKey: 'k', model: 'm' }],
+      primary: { name: 'p1', apiKey: 'k', model: 'm', apiFormat: 'anthropic' as const },
+      fallbacks: [{ name: 'p2', apiKey: 'k', model: 'm', apiFormat: 'anthropic' as const }],
       maxAttempts: 1,
       retryDelayMs: 0,
       events: sink,
@@ -1052,8 +1052,8 @@ describe('LLMOrchestratorImpl - context_exceeded failover (Phase 408)', () => {
       yield { type: 'done', stopReason: 'end_turn' };
     });
     const service = new LLMOrchestratorImpl({
-      primary: { name: 'mock1', apiKey: 'k', model: 'm' },
-      fallbacks: [{ name: 'mock2', apiKey: 'k', model: 'm' }],
+      primary: { name: 'mock1', apiKey: 'k', model: 'm', apiFormat: 'anthropic' as const },
+      fallbacks: [{ name: 'mock2', apiKey: 'k', model: 'm', apiFormat: 'anthropic' as const }],
       maxAttempts: 1,
       retryDelayMs: 0,
       events: noopSink,
@@ -1078,8 +1078,8 @@ describe('LLMOrchestratorImpl - context_exceeded failover (Phase 408)', () => {
       yield { type: 'done', stopReason: 'context_length_exceeded' };
     });
     const service = new LLMOrchestratorImpl({
-      primary: { name: 'mock1', apiKey: 'k', model: 'm' },
-      fallbacks: [{ name: 'mock2', apiKey: 'k', model: 'm' }],
+      primary: { name: 'mock1', apiKey: 'k', model: 'm', apiFormat: 'anthropic' as const },
+      fallbacks: [{ name: 'mock2', apiKey: 'k', model: 'm', apiFormat: 'anthropic' as const }],
       maxAttempts: 1,
       retryDelayMs: 0,
       events: noopSink,
@@ -1102,8 +1102,8 @@ describe('LLMOrchestratorImpl - context_exceeded failover (Phase 408)', () => {
       yield { type: 'done', stopReason: 'end_turn' };
     });
     const service = new LLMOrchestratorImpl({
-      primary: { name: 'mock1', apiKey: 'k', model: 'm' },
-      fallbacks: [{ name: 'mock2', apiKey: 'k', model: 'm' }],
+      primary: { name: 'mock1', apiKey: 'k', model: 'm', apiFormat: 'anthropic' as const },
+      fallbacks: [{ name: 'mock2', apiKey: 'k', model: 'm', apiFormat: 'anthropic' as const }],
       maxAttempts: 1,
       retryDelayMs: 0,
       events: sink,
