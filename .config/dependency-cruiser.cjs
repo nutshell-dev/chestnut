@@ -88,6 +88,23 @@ module.exports = {
       },
     },
     {
+      name: 'no-deep-into-assembly-config-defaults',
+      comment: [
+        'ML#7 + ML#9 — Assembly CONFIG_DEFAULTS 对外通道仅 barrel。',
+        '跨模块消费者（cli/, daemon-entry.ts, watchdog/）只能 import',
+        'src/assembly/index.ts、不得深穿 src/assembly/config-defaults.ts。',
+        'phase 1413 立、treat finding `A.phase1413-config-defaults-exposure-channel` ⏳ → ✅。',
+        'scope: 本规则仅治 CONFIG_DEFAULTS。sister deep imports',
+        '（snapshot-patterns.ts / audit-events.ts）是同型 sister drift、',
+        '留 follow-up phase 治（需配套修 tests/cli/stop-orphan-* total mock）。',
+        '示例 fix: import { CONFIG_DEFAULTS } from "../../assembly/index.js"',
+        '而非 "../../assembly/config-defaults.js"',
+      ].join(' '),
+      severity: 'error',
+      from: { path: '^src', pathNot: '^src/assembly/' },
+      to: { path: '^src/assembly/config-defaults\\.ts$' },
+    },
+    {
       name: 'no-circular',
       comment: [
         'ML#5 模块依赖单向、禁止双向/循环',

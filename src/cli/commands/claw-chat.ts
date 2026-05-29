@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 import {
   loadGlobalConfig, clawExists, getClawDir,
 } from '../../foundation/config/index.js';
-import { CONFIG_DEFAULTS } from '../../assembly/config-defaults.js';
+import { CONFIG_DEFAULTS } from '../../assembly/index.js';
 import { CliError } from '../errors.js';
 import { runChatViewport } from './chat-viewport.js';
 import { createDirContext } from '../../foundation/audit/index.js';

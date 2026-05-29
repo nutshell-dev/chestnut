@@ -11,7 +11,7 @@ import * as yaml from 'js-yaml';
 import {
   loadGlobalConfig, clawExists, getClawDir,
 } from '../../foundation/config/index.js';
-import { CONFIG_DEFAULTS } from '../../assembly/config-defaults.js';
+import { CONFIG_DEFAULTS } from '../../assembly/index.js';
 import { CliError } from '../errors.js';
 import { CONTRACT_DIR } from '../../core/contract/index.js';
 import { DIALOG_DIR } from '../../foundation/dialog-store/dirs.js';

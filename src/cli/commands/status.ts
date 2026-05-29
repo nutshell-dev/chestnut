@@ -5,7 +5,7 @@
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { loadGlobalConfig, getNamedSubrootDir } from '../../foundation/config/index.js';
-import { CONFIG_DEFAULTS } from '../../assembly/config-defaults.js';
+import { CONFIG_DEFAULTS } from '../../assembly/index.js';
 import { ProcessManager, ProcessListUnavailable } from '../../foundation/process-manager/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/factories.js';
 import { CLAWS_DIR } from '../../foundation/paths.js';

@@ -65,10 +65,14 @@ vi.mock('../../src/watchdog/watchdog-context.js', async (importOriginal) => {
   };
 });
 
-vi.mock('../../src/foundation/audit/index.js', () => ({
-  createSystemAudit: mockCreateSystemAudit,
-  createAuditWriter: vi.fn(),
-}));
+vi.mock('../../src/foundation/audit/index.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/foundation/audit/index.js')>();
+  return {
+    ...actual,
+    createSystemAudit: mockCreateSystemAudit,
+    createAuditWriter: vi.fn(),
+  };
+});
 
 vi.mock('fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('fs')>();

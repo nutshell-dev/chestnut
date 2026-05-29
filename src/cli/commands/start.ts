@@ -12,7 +12,7 @@ import { fileURLToPath } from 'url';
 import * as readline from 'readline';
 
 import { isInitialized, loadGlobalConfig, getNamedSubrootDir, buildLLMConfig, patchGlobalConfigPrimary, FORMAT_MAP } from '../../foundation/config/index.js';
-import { CONFIG_DEFAULTS } from '../../assembly/config-defaults.js';
+import { CONFIG_DEFAULTS } from '../../assembly/index.js';
 import { createLLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import { PRESETS } from '../../foundation/config/index.js';
 import { initCommand } from './init.js';

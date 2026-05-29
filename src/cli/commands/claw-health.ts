@@ -7,7 +7,7 @@ import * as path from 'path';
 import {
   loadGlobalConfig, clawExists, getClawDir, getGlobalConfigPath,
 } from '../../foundation/config/index.js';
-import { CONFIG_DEFAULTS } from '../../assembly/config-defaults.js';
+import { CONFIG_DEFAULTS } from '../../assembly/index.js';
 import { CliError } from '../errors.js';
 import { createDirContext } from '../../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/factories.js';

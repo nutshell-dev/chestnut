@@ -8,7 +8,7 @@ import { randomUUID } from 'crypto';
 import {
   loadGlobalConfig, clawExists, getGlobalConfigPath,
 } from '../../foundation/config/index.js';
-import { CONFIG_DEFAULTS } from '../../assembly/config-defaults.js';
+import { CONFIG_DEFAULTS } from '../../assembly/index.js';
 import { CliError } from '../errors.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { writeInboxAsync } from '../../foundation/messaging/index.js';

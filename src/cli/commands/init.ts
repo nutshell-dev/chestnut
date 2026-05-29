@@ -14,7 +14,7 @@ import {
   DEFAULT_RETRY_DELAY_MS,
   INIT_LLM_IDLE_TIMEOUT_MS,
 } from '../../foundation/llm-orchestrator/defaults.js';
-import { CONFIG_DEFAULTS } from '../../assembly/config-defaults.js';
+import { CONFIG_DEFAULTS } from '../../assembly/index.js';
 import {
   WATCHDOG_INTERVAL_MS,
   DEFAULT_DISK_WARNING_MB,

@@ -11,7 +11,7 @@
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { loadGlobalConfig, getNamedSubrootDir } from '../../foundation/config/index.js';
-import { CONFIG_DEFAULTS } from '../../assembly/config-defaults.js';
+import { CONFIG_DEFAULTS } from '../../assembly/index.js';
 import { STATUS_SUBDIR } from '../../foundation/process-manager/index.js';
 import { MOTION_CLAW_ID } from '../../constants.js';
 

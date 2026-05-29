@@ -10,7 +10,7 @@ import {
   type ClawGlobalConfig,
   type LLMProviderConfig,
 } from '../../foundation/config/index.js';
-import { CONFIG_DEFAULTS } from '../../assembly/config-defaults.js';
+import { CONFIG_DEFAULTS } from '../../assembly/index.js';
 import { PRESETS } from '../../foundation/config/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/factories.js';
 import { CliError } from '../errors.js';

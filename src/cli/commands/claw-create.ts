@@ -6,7 +6,7 @@ import {
   loadGlobalConfig, saveClawConfig, clawExists, getClawDir, CLAW_SUBDIRS,
 } from '../../foundation/config/index.js';
 // path module intentionally not used in this file after refactor
-import { CONFIG_DEFAULTS } from '../../assembly/config-defaults.js';
+import { CONFIG_DEFAULTS } from '../../assembly/index.js';
 import { CliError } from '../errors.js';
 import { buildAgentsMdTemplate } from '../../prompts/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';

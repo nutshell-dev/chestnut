@@ -7,7 +7,7 @@ import * as path from 'path';
 import {
   loadGlobalConfig, getGlobalConfigPath,
 } from '../../foundation/config/index.js';
-import { CONFIG_DEFAULTS } from '../../assembly/config-defaults.js';
+import { CONFIG_DEFAULTS } from '../../assembly/index.js';
 import { createDirContext } from '../../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/factories.js';
 import type { FileSystem } from '../../foundation/fs/types.js';

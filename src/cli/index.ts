@@ -49,7 +49,7 @@ import { getWorkspaceRoot } from '../foundation/paths.js';
 import { DAEMON_LOG } from '../daemon/constants.js';
 import { createDirContext } from '../foundation/audit/index.js';
 import { getClawforumRoot, getClawDir, loadGlobalConfig } from '../foundation/config/index.js';
-import { CONFIG_DEFAULTS } from '../assembly/config-defaults.js';
+import { CONFIG_DEFAULTS } from '../assembly/index.js';
 import { parseIntOption } from './parse-int-option.js';
 import { makeClawId, makeClawDir } from '../foundation/identity/index.js';
 import { makeContractId } from '../foundation/identity/index.js';
@@ -233,7 +233,7 @@ clawCmd
   .action(withCliErrorHandling(async (name: string) => {
     // 前台入口：后台启动
     const { loadGlobalConfig, clawExists, getClawDir, getGlobalConfigPath } = await import('../foundation/config/index.js');
-    const { CONFIG_DEFAULTS } = await import('../assembly/config-defaults.js');
+    const { CONFIG_DEFAULTS } = await import('../assembly/index.js');
     const { createSystemAudit } = await import('../foundation/audit/index.js');
     const { createAgentProcessManager } = await import('../foundation/process-manager/agent-factory.js');
     loadGlobalConfig({ fsFactory }, CONFIG_DEFAULTS);
@@ -326,7 +326,7 @@ motionCmd
   .action(withCliErrorHandling(async () => {
     // 前台入口
     const { loadGlobalConfig, getNamedSubrootDir } = await import('../foundation/config/index.js');
-    const { CONFIG_DEFAULTS } = await import('../assembly/config-defaults.js');
+    const { CONFIG_DEFAULTS } = await import('../assembly/index.js');
     const { createSystemAudit } = await import('../foundation/audit/index.js');
     const { createAgentProcessManager } = await import('../foundation/process-manager/agent-factory.js');
     loadGlobalConfig({ fsFactory }, CONFIG_DEFAULTS);

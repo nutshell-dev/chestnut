@@ -6,7 +6,7 @@
 import {
   loadGlobalConfig, clawExists,
 } from '../../foundation/config/index.js';
-import { CONFIG_DEFAULTS } from '../../assembly/config-defaults.js';
+import { CONFIG_DEFAULTS } from '../../assembly/index.js';
 import { CliError } from '../errors.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/factories.js';
 import type { AuditLog } from '../../foundation/audit/index.js';

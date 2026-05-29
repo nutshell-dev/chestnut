@@ -11,7 +11,7 @@
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { getNamedSubrootDir, loadGlobalConfig } from '../foundation/config/index.js';
-import { CONFIG_DEFAULTS } from '../assembly/config-defaults.js';
+import { CONFIG_DEFAULTS } from '../assembly/index.js';
 import type { FileSystem } from '../foundation/fs/types.js';
 import type { AuditLog } from '../foundation/audit/index.js';
 import { createDirContext } from '../foundation/audit/index.js';

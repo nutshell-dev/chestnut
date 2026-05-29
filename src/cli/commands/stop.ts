@@ -6,7 +6,7 @@ import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { loadGlobalConfig, getGlobalConfigPath, getNamedSubrootDir } from '../../foundation/config/index.js';
 import { MOTION_CLAW_ID } from '../../constants.js';
-import { CONFIG_DEFAULTS } from '../../assembly/config-defaults.js';
+import { CONFIG_DEFAULTS } from '../../assembly/index.js';
 import { createAuditWriter } from '../../foundation/audit/index.js';
 import { getClawforumFs, getGlobalConfig, setAuditWriter as setWatchdogAuditWriter } from '../../watchdog/watchdog-context.js';
 import { stopCommand as watchdogStop } from '../../watchdog/watchdog.js';
