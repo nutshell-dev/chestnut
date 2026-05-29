@@ -88,7 +88,7 @@ describe('Runtime processBatch orchestrator (phase 1285)', () => {
     return runtime;
   }
 
-  it('UserInterrupt calls commitTurn(reason=user_interrupt) + ack + rethrows (phase 1391)', async () => {
+  it('UserInterrupt + user_chat message: commitTurn(reason=user_interrupt) + ack + rethrows (phase 1391 / 1403)', async () => {
     const runtime = await makeInterruptRuntime();
     const ackSpy = vi.spyOn((runtime as any).inboxReader, 'ack').mockResolvedValue(undefined);
     const nackSpy = vi.spyOn((runtime as any).inboxReader, 'nack').mockResolvedValue(undefined);
@@ -100,8 +100,8 @@ describe('Runtime processBatch orchestrator (phase 1285)', () => {
       sources: [],
       count: 1,
       infos: [{
-        id: 'msg1', type: 'message', from: 'sender', to: 'edge-claw',
-        content: 'hi', priority: 'normal', timestamp: new Date().toISOString(),
+        id: 'msg1', type: 'user_chat', from: 'user', to: 'edge-claw',
+        content: 'hi', priority: 'high', timestamp: new Date().toISOString(),
       } as InboxMessage],
       addressedHandles: [{ filePath: 'inflight/msg1.md', originalFileName: 'msg1.md' }],
     };
@@ -113,6 +113,78 @@ describe('Runtime processBatch orchestrator (phase 1285)', () => {
     expect(ackSpy).toHaveBeenCalled();
     expect(nackSpy).not.toHaveBeenCalled();
     expect(rollbackSpy).not.toHaveBeenCalled();
+  });
+
+  it('UserInterrupt + system-typed message (type=message): commitTurn + nack(reason=user_interrupt_non_user_typed) + rethrows (phase 1403)', async () => {
+    const runtime = await makeInterruptRuntime();
+    const ackSpy = vi.spyOn((runtime as any).inboxReader, 'ack').mockResolvedValue(undefined);
+    const nackSpy = vi.spyOn((runtime as any).inboxReader, 'nack').mockResolvedValue(undefined);
+    const rollbackSpy = vi.spyOn((runtime as any).sessionManager, 'rollbackTurn').mockResolvedValue(undefined);
+    const commitSpy = vi.spyOn((runtime as any).sessionManager, 'commitTurn').mockResolvedValue(undefined);
+
+    runtime.drainResult = {
+      injected: [{ role: 'user', content: [{ type: 'text', text: 'contract done' }] }],
+      sources: [],
+      count: 1,
+      infos: [{
+        id: 'msg1', type: 'message', from: 'dialogstore-auditor', to: 'motion',
+        content: 'contract done', priority: 'high', timestamp: new Date().toISOString(),
+      } as InboxMessage],
+      addressedHandles: [{ filePath: 'inflight/msg1.md', originalFileName: 'msg1.md' }],
+    };
+    runtime.reactThrow = new UserInterrupt();
+
+    await expect(runtime.processBatch()).rejects.toBeInstanceOf(UserInterrupt);
+
+    expect(commitSpy).toHaveBeenCalledWith('user_interrupt');
+    expect(ackSpy).not.toHaveBeenCalled();
+    expect(nackSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ filePath: 'inflight/msg1.md' }),
+      'user_interrupt_non_user_typed',
+    );
+    expect(rollbackSpy).not.toHaveBeenCalled();
+  });
+
+  it('UserInterrupt + mixed batch (user_chat + system message): ack user-typed, nack system (phase 1403)', async () => {
+    const runtime = await makeInterruptRuntime();
+    const ackSpy = vi.spyOn((runtime as any).inboxReader, 'ack').mockResolvedValue(undefined);
+    const nackSpy = vi.spyOn((runtime as any).inboxReader, 'nack').mockResolvedValue(undefined);
+    const commitSpy = vi.spyOn((runtime as any).sessionManager, 'commitTurn').mockResolvedValue(undefined);
+
+    runtime.drainResult = {
+      injected: [
+        { role: 'user', content: [{ type: 'text', text: 'hi' }] },
+        { role: 'user', content: [{ type: 'text', text: 'contract done' }] },
+      ],
+      sources: [],
+      count: 2,
+      infos: [
+        {
+          id: 'msg1', type: 'user_chat', from: 'user', to: 'edge-claw',
+          content: 'hi', priority: 'high', timestamp: new Date().toISOString(),
+        },
+        {
+          id: 'msg2', type: 'message', from: 'auditor', to: 'edge-claw',
+          content: 'contract done', priority: 'high', timestamp: new Date().toISOString(),
+        },
+      ] as InboxMessage[],
+      addressedHandles: [
+        { filePath: 'inflight/msg1.md', originalFileName: 'msg1.md' },
+        { filePath: 'inflight/msg2.md', originalFileName: 'msg2.md' },
+      ],
+    };
+    runtime.reactThrow = new UserInterrupt();
+
+    await expect(runtime.processBatch()).rejects.toBeInstanceOf(UserInterrupt);
+
+    expect(commitSpy).toHaveBeenCalledWith('user_interrupt');
+    expect(ackSpy).toHaveBeenCalledWith(expect.objectContaining({ filePath: 'inflight/msg1.md' }));
+    expect(nackSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ filePath: 'inflight/msg2.md' }),
+      'user_interrupt_non_user_typed',
+    );
+    expect(ackSpy).toHaveBeenCalledTimes(1);
+    expect(nackSpy).toHaveBeenCalledTimes(1);
   });
 
   it('successful turn calls commitTurn + ack', async () => {

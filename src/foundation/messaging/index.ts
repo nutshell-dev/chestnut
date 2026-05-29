@@ -15,6 +15,7 @@ export type { InboxMessageOptionsBase, InboxMessageMeta, InboxPath } from './inb
 export { InboxReader } from './inbox-reader.js';
 export type { InboxEntry } from './inbox-reader.js';
 export type { InboxHandle } from './types.js';
+export { isUserTypedInbox } from './types.js';
 export { InboxListFailed, InboxMoveFailed } from './errors.js';
 export type { InboxMoveOp, InboxMetaError } from './errors.js';
 

@@ -88,7 +88,7 @@ describe('turn interrupt: graceful → commit (phase 1375)', () => {
     return runtime;
   }
 
-  it('UserInterrupt mid-turn: dialog retains partial messages + TURN_COMMIT reason=user_interrupt + ack (phase 1391)', async () => {
+  it('UserInterrupt + user_chat: dialog retains partial messages + TURN_COMMIT reason=user_interrupt + ack (phase 1391 / 1403)', async () => {
     const runtime = await makeInterruptRuntime();
     // Pre-seed dialog so beginTurn snapshot is non-empty
     const sessionManager = (runtime as any).sessionManager;
@@ -113,8 +113,8 @@ describe('turn interrupt: graceful → commit (phase 1375)', () => {
       sources: [],
       count: 1,
       infos: [{
-        id: 'msg1', type: 'message', from: 'sender', to: 'edge-claw',
-        content: 'hi', priority: 'normal', timestamp: new Date().toISOString(),
+        id: 'msg1', type: 'user_chat', from: 'user', to: 'edge-claw',
+        content: 'hi', priority: 'high', timestamp: new Date().toISOString(),
       } as InboxMessage],
       addressedHandles: [{ filePath: 'inflight/msg1.md', originalFileName: 'msg1.md' }],
     };
@@ -134,6 +134,60 @@ describe('turn interrupt: graceful → commit (phase 1375)', () => {
     expect(session.messages[1].content).toBe('step-2');
 
     // Verify audit TURN_COMMIT with reason
+    const turnCommitCalls = auditSpy.mock.calls.filter(
+      (c: any[]) => c[0] === DIALOG_AUDIT_EVENTS.TURN_COMMIT,
+    );
+    expect(turnCommitCalls.length).toBeGreaterThanOrEqual(1);
+    const lastTurnCommit = turnCommitCalls[turnCommitCalls.length - 1];
+    expect(lastTurnCommit.some((c: any) => String(c).includes('reason=user_interrupt'))).toBe(true);
+  });
+
+  it('UserInterrupt + system-typed (type=message): dialog retains + TURN_COMMIT reason=user_interrupt + nack(reason=user_interrupt_non_user_typed) (phase 1403)', async () => {
+    const runtime = await makeInterruptRuntime();
+    const sessionManager = (runtime as any).sessionManager;
+    await sessionManager.save({
+      systemPrompt: 'sp',
+      messages: [{ role: 'user', content: 'pre-seed' }],
+      toolsForLLM: [],
+    });
+
+    const ackSpy = vi.spyOn((runtime as any).inboxReader, 'ack').mockResolvedValue(undefined);
+    const nackSpy = vi.spyOn((runtime as any).inboxReader, 'nack').mockResolvedValue(undefined);
+    const rollbackSpy = vi.spyOn((runtime as any).sessionManager, 'rollbackTurn').mockResolvedValue(undefined);
+    const origCommit = (runtime as any).sessionManager.commitTurn;
+    const commitCallSpy = vi.spyOn((runtime as any).sessionManager, 'commitTurn').mockImplementation(async (reason?: string) => {
+      return origCommit.call((runtime as any).sessionManager, reason);
+    });
+    const auditSpy = vi.spyOn((runtime as any).auditWriter, 'write');
+
+    runtime.drainResult = {
+      injected: [{ role: 'user', content: [{ type: 'text', text: 'contract done' }] }],
+      sources: [],
+      count: 1,
+      infos: [{
+        id: 'msg1', type: 'message', from: 'dialogstore-auditor', to: 'motion',
+        content: 'contract done', priority: 'high', timestamp: new Date().toISOString(),
+      } as InboxMessage],
+      addressedHandles: [{ filePath: 'inflight/msg1.md', originalFileName: 'msg1.md' }],
+    };
+    runtime.midTurnSaves = 1;
+    runtime.reactThrow = new UserInterrupt();
+
+    await expect(runtime.processBatch()).rejects.toBeInstanceOf(UserInterrupt);
+
+    expect(commitCallSpy).toHaveBeenCalledWith('user_interrupt');
+    expect(ackSpy).not.toHaveBeenCalled();
+    expect(nackSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ filePath: 'inflight/msg1.md' }),
+      'user_interrupt_non_user_typed',
+    );
+    expect(rollbackSpy).not.toHaveBeenCalled();
+
+    // Dialog 仍保留 mid-turn 内容（commit 语义不变）
+    const { session } = await sessionManager.load();
+    expect(session.messages.length).toBeGreaterThanOrEqual(2);
+
+    // TURN_COMMIT reason=user_interrupt 一致
     const turnCommitCalls = auditSpy.mock.calls.filter(
       (c: any[]) => c[0] === DIALOG_AUDIT_EVENTS.TURN_COMMIT,
     );
