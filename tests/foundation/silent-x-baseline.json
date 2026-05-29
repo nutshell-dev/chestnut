@@ -344,9 +344,9 @@
         },
         {
             "file": "src/foundation/tools/executor.ts",
-            "line": 152,
+            "line": 153,
             "body_excerpt": ".catch(() => {}",
-            "reason": "race loser handled by executionPromise.catch L150+",
+            "reason": "race loser handled by executionPromise.catch L150+ / line shifted +1 by phase 1406 caller-access gate",
             "form": "promise"
         },
         {

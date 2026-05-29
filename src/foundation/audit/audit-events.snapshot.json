@@ -240,7 +240,7 @@
     "core_permissions_audit-events": [
       "permission_strict_disabled"
     ],
-    "core_runtime_heartbeat-audit-events": [
+    "core_heartbeat_audit-events": [
       "heartbeat_checklist_read_failed",
       "heartbeat_fire_failed"
     ],
@@ -442,6 +442,9 @@
     ],
     "foundation_audit_audit-events": [
       "audit_fallback_dropped"
+    ],
+    "foundation_tools_audit-events": [
+      "tool_caller_access_violation"
     ],
     "foundation_snapshot_audit-events": [
       "snapshot_commit_failed",

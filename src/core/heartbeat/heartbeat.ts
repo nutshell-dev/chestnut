@@ -7,7 +7,7 @@
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { notifyClaw } from '../../foundation/messaging/index.js';
 import type { InboxReader } from '../../foundation/messaging/index.js';
-import { HEARTBEAT_AUDIT_EVENTS } from './heartbeat-audit-events.js';
+import { HEARTBEAT_AUDIT_EVENTS } from './audit-events.js';
 import { MOTION_CLAW_ID } from '../../constants.js';
 import { type ClawforumRoot } from '../../foundation/identity/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';

@@ -45,23 +45,30 @@ describe('SummonTool', () => {
     tempDir = await createTempDir();
     mockFs = new NodeFileSystem({ baseDir: tempDir });
     auditEvents = [];
-    tool = new SummonTool(
-      async () => 'mock system prompt',
-      () => [{ name: 'mock_tool', description: 'Mock tool', input_schema: { type: 'object' } }],
-      () => [{ name: 'mock_tool', description: 'Mock tool', input_schema: { type: 'object' } }],
-      () => [],
-    );
+    tool = new SummonTool();
   });
 
   afterEach(async () => {
     await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
   });
 
-  function makeCtx(callerType: 'claw' | 'subagent' | 'dispatcher', options?: { originClawId?: string; clawId?: string }) {
+  function makeCtx(
+    callerType: 'claw' | 'subagent' | 'dispatcher',
+    options?: {
+      originClawId?: string;
+      clawId?: string;
+      /** phase 1406: shadow snapshot fixture (caller deep state). */
+      snapshot?: {
+        systemPrompt?: string;
+        tools?: Array<{ name: string; description: string; input_schema: unknown }>;
+        messages?: Message[];
+      };
+    },
+  ) {
     const auditWriter = {
       write: (type: string, ...args: unknown[]) => { auditEvents.push({ type, args }); },
     } as any;
-    return new ExecContextImpl({
+    const ctx = new ExecContextImpl({
       clawId: options?.clawId ?? 'test-claw',
       clawDir: tempDir,
       profile: 'full',
@@ -71,7 +78,15 @@ describe('SummonTool', () => {
       originClawId: options?.originClawId,
       auditWriter,
       taskSystem: createMockTaskSystem(mockFs, auditWriter),
-    });
+      getCallerSnapshot: async () => ({
+        systemPrompt: options?.snapshot?.systemPrompt ?? 'mock system prompt',
+        tools: (options?.snapshot?.tools ?? [
+          { name: 'mock_tool', description: 'Mock tool', input_schema: { type: 'object' } },
+        ]) as any,
+        messages: options?.snapshot?.messages ?? [],
+      }),
+    } as any);
+    return ctx;
   }
 
   it('should allow summon when callerType is claw', async () => {
@@ -145,13 +160,8 @@ Content.
           ] as unknown as string,
         },
       ];
-      const ctx = makeCtx('claw');
-      const customTool = new SummonTool(
-        async () => 'mock system prompt',
-        () => [{ name: 'mock_tool', description: 'Mock tool', input_schema: { type: 'object' } }],
-        () => [{ name: 'mock_tool', description: 'Mock tool', input_schema: { type: 'object' } }],
-        () => motionDialog,
-      );
+      const ctx = makeCtx('claw', { snapshot: { messages: motionDialog } });
+      const customTool = new SummonTool();
 
       await customTool.execute({ goal: 'audit L1 FileSystem', mode: 'shadow' }, ctx);
 
@@ -179,13 +189,8 @@ Content.
           ] as unknown as string,
         },
       ];
-      const ctx = makeCtx('claw');
-      const customTool = new SummonTool(
-        async () => 'mock system prompt',
-        () => [{ name: 'mock_tool', description: 'Mock tool', input_schema: { type: 'object' } }],
-        () => [{ name: 'mock_tool', description: 'Mock tool', input_schema: { type: 'object' } }],
-        () => motionDialog,
-      );
+      const ctx = makeCtx('claw', { snapshot: { messages: motionDialog } });
+      const customTool = new SummonTool();
 
       await customTool.execute({ goal: 'create foo contract', mode: 'shadow' }, ctx);
 
@@ -205,13 +210,8 @@ Content.
         { role: 'user', content: 'hi' },
         { role: 'assistant', content: 'hello' },
       ];
-      const ctx = makeCtx('claw');
-      const customTool = new SummonTool(
-        async () => 'mock system prompt',
-        () => [{ name: 'mock_tool', description: 'Mock tool', input_schema: { type: 'object' } }],
-        () => [{ name: 'mock_tool', description: 'Mock tool', input_schema: { type: 'object' } }],
-        () => motionDialog,
-      );
+      const ctx = makeCtx('claw', { snapshot: { messages: motionDialog } });
+      const customTool = new SummonTool();
 
       await customTool.execute({ goal: 'follow up', mode: 'shadow' }, ctx);
 
@@ -253,13 +253,8 @@ Content.
       const motionDialog: Message[] = [
         { role: 'user', content: 'test' },
       ];
-      const customTool = new SummonTool(
-        async () => mockMotionPrompt,
-        () => [{ name: 'mock_tool', description: 'Mock tool', input_schema: { type: 'object' } }],
-        () => [{ name: 'mock_tool', description: 'Mock tool', input_schema: { type: 'object' } }],
-        () => motionDialog,
-      );
-      const ctx = makeCtx('claw');
+      const customTool = new SummonTool();
+      const ctx = makeCtx('claw', { snapshot: { systemPrompt: mockMotionPrompt, messages: motionDialog } });
 
       await customTool.execute({ goal: 'describe intent', mode: 'shadow' }, ctx);
 
@@ -283,13 +278,8 @@ Content.
 
     it('shadow mode passes Motion getSystemPrompt output', async () => {
       const mockMotionPrompt = 'MOTION_SYSTEM_PROMPT_FIXTURE';
-      const customTool = new SummonTool(
-        async () => mockMotionPrompt,
-        () => [{ name: 'mock_tool', description: 'Mock tool', input_schema: { type: 'object' } }],
-        () => [{ name: 'mock_tool', description: 'Mock tool', input_schema: { type: 'object' } }],
-        () => [],
-      );
-      const ctx = makeCtx('claw');
+      const customTool = new SummonTool();
+      const ctx = makeCtx('claw', { snapshot: { systemPrompt: mockMotionPrompt } });
       await customTool.execute({ goal: 'describe intent', mode: 'shadow' }, ctx);
 
       const tasks = await readPendingTasks(tempDir);
@@ -529,7 +519,14 @@ Content.
         llm: {} as unknown as LLMOrchestrator,
         auditWriter: auditWriter as any,
         taskSystem: createMockTaskSystem(mockFs, auditWriter as any),
-      });
+        // phase 1406: caller snapshot fixture with empty messages — verify
+        // shadow path still emits no-dialog-context audit when caller messages=[].
+        getCallerSnapshot: async () => ({
+          systemPrompt: 'mock system prompt',
+          tools: [],
+          messages: [],
+        }),
+      } as any);
 
       await tool.execute({ goal: 'test task' }, ctx);
 

@@ -62,7 +62,7 @@ import {
   type PersistenceContext,
   PROGRESS_CURRENT_SCHEMA_VERSION,
 } from './persistence.js';
-import { type ContractId, makeContractId, makeClawforumRoot } from '../../foundation/identity/index.js';
+import { type ContractId, makeContractId, resolveClawforumRoot } from '../../foundation/identity/index.js';
 import { type SubtaskId, type ArchiveDir, makeArchiveDir } from './types.js';
 import type { ClawId, ClawforumRoot } from '../../foundation/identity/index.js';
 import { runContractVerifier } from './verifier-job.js';
@@ -72,7 +72,7 @@ import {
   type LifecycleContext,
 } from './lifecycle.js';
 import { type ClawDir } from '../../foundation/identity/index.js';
-import * as path from 'path';
+// phase 1406: path import removed — clawforumRoot 推算迁 resolveClawforumRoot
 import {
   runVerificationPipeline,
   runScriptVerification as runScriptVerificationFn,
@@ -194,7 +194,7 @@ export class ContractSystem {
     this.fs = deps.fs;
     this.audit = deps.audit;
     this.llm = deps.llm;
-    this.clawforumRoot = deps.clawforumRoot ?? makeClawforumRoot(path.join(deps.clawDir, '..', '..'));
+    this.clawforumRoot = deps.clawforumRoot ?? resolveClawforumRoot(deps.clawDir, /* isMotion */ false);
     this.toolRegistry = deps.toolRegistry;
     this.toolTimeoutMs = deps.toolTimeoutMs;
     this.fsFactory = deps.fsFactory;

@@ -57,3 +57,27 @@ export interface ToolResult {
 declare const ToolUseIdBrand: unique symbol;
 export type ToolUseId = string & { readonly [ToolUseIdBrand]: true };
 export function makeToolUseId(s: string): ToolUseId { return s as ToolUseId; }
+
+// ============================================================================
+// phase 1406: CallerSnapshot — caller deep context shape (lazy / declared opt-in)
+// ============================================================================
+
+import type { Message, ToolDefinition } from '../llm-provider/types.js';
+
+/**
+ * Caller deep context snapshot — system prompt + tool list + dialog messages.
+ *
+ * Type-only schema. Provided by ExecContext.getCallerSnapshot() when bound
+ * by Assembly / Claw at construction time. Lazy: not materialized until called.
+ *
+ * Access gate: only tools declaring `accessesCaller: true` are allowed
+ * to invoke getCallerSnapshot(); ToolExecutor wraps and audit-emits otherwise.
+ */
+export interface CallerSnapshot {
+  /** Caller's current system prompt (Prompt module output). */
+  systemPrompt: string;
+  /** Caller's full tool list (LLM-facing definitions, profile-filtered). */
+  tools: ToolDefinition[];
+  /** Caller's current turn dialog messages. */
+  messages: Message[];
+}

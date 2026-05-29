@@ -40,19 +40,14 @@ describe('Phase 1166 — default mode shadow', () => {
     vi.restoreAllMocks();
     tempDir = await createTempDir();
     mockFs = new NodeFileSystem({ baseDir: tempDir });
-    tool = new SummonTool(
-      async () => 'mock system prompt',
-      () => [{ name: 'mock_tool', description: 'Mock tool', input_schema: { type: 'object' } }],
-      () => [{ name: 'mock_tool', description: 'Mock tool', input_schema: { type: 'object' } }],
-      () => [],
-    );
+    tool = new SummonTool();
   });
 
   afterEach(async () => {
     await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
   });
 
-  function makeCtx() {
+  function makeCtx(snapshotMessages: Message[] = []) {
     const auditWriter = { write: vi.fn() } as any;
     return new ExecContextImpl({
       clawId: 'test-claw',
@@ -63,17 +58,19 @@ describe('Phase 1166 — default mode shadow', () => {
       llm: {} as unknown as LLMOrchestrator,
       auditWriter,
       taskSystem: createMockTaskSystem(mockFs, auditWriter),
-    });
+      getCallerSnapshot: async () => ({
+        systemPrompt: 'mock system prompt',
+        tools: [
+          { name: 'mock_tool', description: 'Mock tool', input_schema: { type: 'object' } as any },
+        ],
+        messages: snapshotMessages,
+      }),
+    } as any);
   }
 
   it('reverse 1 — 默认 mode 不传 mode 走 shadow 路径', async () => {
-    const customTool = new SummonTool(
-      async () => 'mock system prompt',
-      () => [{ name: 'mock_tool', description: 'Mock tool', input_schema: { type: 'object' } }],
-      () => [{ name: 'mock_tool', description: 'Mock tool', input_schema: { type: 'object' } }],
-      () => [{ role: 'user', content: 'test' }],
-    );
-    const ctx = makeCtx();
+    const customTool = new SummonTool();
+    const ctx = makeCtx([{ role: 'user', content: 'test' }]);
     const result = await customTool.execute({ goal: 'test goal' }, ctx);
 
     expect(result.success).toBe(true);
@@ -98,13 +95,8 @@ describe('Phase 1166 — default mode shadow', () => {
   });
 
   it('reverse 3 — 显式 mode: shadow 仍走 shadow 路径', async () => {
-    const customTool = new SummonTool(
-      async () => 'mock system prompt',
-      () => [{ name: 'mock_tool', description: 'Mock tool', input_schema: { type: 'object' } }],
-      () => [{ name: 'mock_tool', description: 'Mock tool', input_schema: { type: 'object' } }],
-      () => [{ role: 'user', content: 'test' }],
-    );
-    const ctx = makeCtx();
+    const customTool = new SummonTool();
+    const ctx = makeCtx([{ role: 'user', content: 'test' }]);
     const result = await customTool.execute({ goal: 'test goal', mode: 'shadow' }, ctx);
 
     expect(result.success).toBe(true);

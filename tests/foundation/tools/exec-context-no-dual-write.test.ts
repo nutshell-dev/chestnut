@@ -18,17 +18,17 @@ import { randomUUID } from 'crypto';
 import { promises as fs } from 'fs';
 
 describe('phase 1174 ExecContext 7-site dual-write eviction', () => {
-  // reverse 1: summon defaults to [] when getCurrentMessages absent (shadow mode)
-  it('summon defaults to empty messages when getCurrentMessages not injected', async () => {
+  // reverse 1 (phase 1406 update from phase 1174):
+  //   Old shape: 4-callback ctor with optional getCurrentMessages
+  //   New shape (phase 1406): 0-arg ctor + ctx.getCallerSnapshot() returns
+  //   { systemPrompt, tools, messages }. Empty messages still triggers
+  //   summon_no_dialog_context audit. The legacy reverse case (no callback
+  //   injected) is supplanted by: getCallerSnapshot provider returns messages=[].
+  it('shadow path with empty caller snapshot messages emits summon_no_dialog_context audit', async () => {
     const tempDir = path.join(tmpdir(), `ec-ndw-${randomUUID()}`);
     await fs.mkdir(tempDir, { recursive: true });
     const mockFs = new NodeFileSystem({ baseDir: tempDir });
-    const tool = new SummonTool(
-      async () => 'mock system prompt',
-      () => [{ name: 'mock_tool', description: 'Mock tool', input_schema: { type: 'object' } }],
-      () => [{ name: 'mock_tool', description: 'Mock tool', input_schema: { type: 'object' } }],
-      // getCurrentMessages absent → undefined
-    );
+    const tool = new SummonTool();
     const auditWriter = { write: vi.fn() };
     const ctx = new ExecContextImpl({
       clawId: 'test-claw',
@@ -38,7 +38,15 @@ describe('phase 1174 ExecContext 7-site dual-write eviction', () => {
       fs: mockFs,
       auditWriter: auditWriter as any,
       taskSystem: { schedule: vi.fn().mockResolvedValue('task-xxx') } as any,
-    });
+      // phase 1406: caller snapshot provider — empty messages fixture.
+      getCallerSnapshot: async () => ({
+        systemPrompt: 'mock system prompt',
+        tools: [
+          { name: 'mock_tool', description: 'Mock tool', input_schema: { type: 'object' } as any },
+        ],
+        messages: [],
+      }),
+    } as any);
 
     const result = await tool.execute({ goal: 'test goal', mode: 'shadow' }, ctx);
 

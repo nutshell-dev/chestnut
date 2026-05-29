@@ -9,7 +9,8 @@ import type { ToolProfile } from '../tool-protocol/index.js';
 import type { FileSystem } from '../fs/types.js';
 import type { LLMOrchestrator } from '../llm-orchestrator/index.js';
 import type { AuditLog } from '../audit/index.js';
-import type { ToolDescriptor, ToolResult } from '../tool-protocol/index.js';
+import type { ToolDescriptor, ToolResult, CallerSnapshot } from '../tool-protocol/index.js';
+export type { CallerSnapshot };
 import type { ScheduleAsyncTool } from './async-dispatch.js';
 import type { PermissionChecker } from '../tool-protocol/permission.js';
 import type { ClawId, ClawforumRoot } from '../identity/index.js';
@@ -112,6 +113,21 @@ export interface ExecContext {
   taskSystem?: TaskScheduler;
   /** phase 1343 α-6: turn-level trace id for cross-module audit correlation */
   trace_id?: string;
+  /**
+   * phase 1406: lazy caller deep context snapshot.
+   * Returns caller's systemPrompt + tools + messages on demand.
+   * Bound by Claw/Assembly at construction time (typically reads
+   * DialogStore/ToolRegistry/Prompt module). Lazy — not materialized until called.
+   *
+   * Access gate: only tools declaring `accessesCaller: true` are allowed to
+   * invoke this method; ToolExecutor wraps with a throwing variant otherwise
+   * and emits `TOOL_CALLER_ACCESS_VIOLATION` audit.
+   *
+   * Optional because: not all ExecContexts need it (subagents may have null
+   * caller-snapshot semantics). Tools that declare accessesCaller=true and
+   * receive a ctx without this field will see the executor guard reject.
+   */
+  getCallerSnapshot?(): Promise<CallerSnapshot>;
 }
 
 /**
@@ -138,6 +154,20 @@ export interface Tool extends ToolDescriptor {
   profiles: readonly ToolProfile[];
   /** phase 1337: capability group this tool belongs to (replaces profile-based implicit filtering) */
   group: ToolGroup;
+  /**
+   * phase 1406: declares whether this tool reads caller deep context via
+   * `ctx.getCallerSnapshot()`.
+   *
+   * Defaults to false. Tools that need caller systemPrompt + tools + messages
+   * (e.g., SummonTool for shadow inheritance) must opt-in by setting true.
+   * ToolExecutor enforces: tools without accessesCaller=true calling
+   * `getCallerSnapshot()` throw + emit `TOOL_CALLER_ACCESS_VIOLATION` audit.
+   *
+   * M#8 minimal interface守: caller deep context is a stronger capability
+   * (read caller's dialog history + system prompt) — explicit declaration
+   * enables mechanical audit + future lint.
+   */
+  readonly accessesCaller?: boolean;
   execute(args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult>;
 }
 

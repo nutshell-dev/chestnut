@@ -92,6 +92,12 @@ export interface ExecContextImplOptions {
   taskSystem?: import('./types.js').TaskScheduler;
   /** phase 1343 α-6: turn-level trace id for cross-module audit correlation */
   trace_id?: string;
+  /**
+   * phase 1406: lazy caller deep context provider (systemPrompt + tools + messages).
+   * Bound by Claw/Assembly at construction. Only tools declaring
+   * `accessesCaller: true` are allowed to invoke; ToolExecutor wraps otherwise.
+   */
+  getCallerSnapshot?: import('./types.js').ExecContext['getCallerSnapshot'];
 }
 
 /**
@@ -161,6 +167,7 @@ export class ExecContextImpl implements ExecContext {
   toolTimeoutMs?: number;
   taskSystem?: import('./types.js').TaskScheduler;
   trace_id?: string;
+  getCallerSnapshot?: import('./types.js').ExecContext['getCallerSnapshot'];
   stopRequested: boolean = false;
   
   private startTime: number;
@@ -190,6 +197,7 @@ export class ExecContextImpl implements ExecContext {
     this.toolTimeoutMs = options.toolTimeoutMs;
     this.taskSystem = options.taskSystem;
     this.trace_id = options.trace_id;
+    this.getCallerSnapshot = options.getCallerSnapshot;
     this.stepNumber = 0;
     this.startTime = Date.now();
   }

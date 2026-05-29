@@ -51,12 +51,7 @@ describe('SummonTool verify parameter', () => {
     vi.restoreAllMocks();
     tempDir = await createTempDir();
     mockFs = new NodeFileSystem({ baseDir: tempDir });
-    tool = new SummonTool(
-      async () => 'mock system prompt',
-      () => [{ name: 'mock_tool', description: 'Mock tool', input_schema: { type: 'object' } }],
-      () => [{ name: 'mock_tool', description: 'Mock tool', input_schema: { type: 'object' } }],
-      () => [],
-    );
+    tool = new SummonTool();
   });
 
   afterEach(async () => {
@@ -76,7 +71,15 @@ describe('SummonTool verify parameter', () => {
       llm: {} as unknown as LLMOrchestrator,
       auditWriter,
       taskSystem: createMockTaskSystem(mockFs, auditWriter),
-    });
+      // phase 1406: caller snapshot fixture (shadow path).
+      getCallerSnapshot: async () => ({
+        systemPrompt: 'mock system prompt',
+        tools: [
+          { name: 'mock_tool', description: 'Mock tool', input_schema: { type: 'object' } as any },
+        ],
+        messages: [],
+      }),
+    } as any);
   }
 
   it('default verify=false: prompt does NOT contain verification section', async () => {

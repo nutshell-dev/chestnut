@@ -43,6 +43,7 @@ import { TASKS_SYNC_SHADOW_DIR } from '../core/shadow-system/index.js';
 import { CRON_TICK_INTERVAL_MS } from '../core/cron/constants.js';
 import { DEFAULT_DISK_WARNING_MB } from '../watchdog/constants.js';
 import { spawnTool } from '../core/spawn-system/index.js';
+import { SummonTool } from '../core/summon-system/index.js';
 import { createShadowTool } from '../core/shadow-system/index.js';
 import { cleanupOrphanedTemp } from './cleanup.js';
 import { createInboxReader, createOutboxWriter, notifyInbox, notifyClaw, InboxWriter, createMessaging, makeInboxPath } from '../foundation/messaging/index.js';
@@ -91,7 +92,7 @@ import { createAskUserTool } from '../core/gateway/index.js';
 import { createStreamReader, STREAM_FILE, findRecentTurnStartOffset } from '../foundation/stream/index.js';
 import { TASKS_SYNC_DIR } from '../core/async-task-system/index.js';
 import { DIALOG_DIR } from '../foundation/dialog-store/dirs.js';
-import { makeClawId, type ClawId, makeClawforumRoot, type ClawDir, makeClawDir } from '../foundation/identity/index.js';
+import { makeClawId, type ClawId, resolveClawforumRoot, type ClawDir, makeClawDir } from '../foundation/identity/index.js';
 import type { ContractId } from '../foundation/identity/index.js';
 import { MOTION_CLAW_ID } from '../constants.js';
 
@@ -249,6 +250,12 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
       toolRegistry.register(spawnTool);
       // shadowTool 改为 post-runtime 注册（需要 Runtime.getTurnSnapshot）
 
+      // phase 1406: SummonTool 走标准注册路径（构造期 0 参 / accessesCaller=true /
+      // shadow path 通过 ExecContext.getCallerSnapshot() 读 caller 深度态、
+      // mining path 用 ctx.registry 取 miner profile 工具）。不再走 Runtime
+      // initialize() 内反向 import + new + register「结构性循环依赖妥协」。
+      toolRegistry.register(new SummonTool());
+
       // phase378 后 exec 业务归 CommandTool L2 / 不再经 registerBuiltinTools / Assembly 显式注册
       const commandTools = createCommandTools();
       toolRegistry.register(commandTools.exec);
@@ -274,9 +281,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
         toolRegistry,   // phase 704: toolRegistry 注入 ContractSystem
         toolTimeoutMs,  // phase 1029 / F-2
         fsFactory,
-        clawforumRoot: isMotion
-          ? makeClawforumRoot(path.dirname(clawDir))  // Motion-only callsite: isMotion branch
-          : makeClawforumRoot(path.join(clawDir, '..', '..')),
+        clawforumRoot: resolveClawforumRoot(clawDir, isMotion),  // phase 1406: 单一 truth source
       });
     } catch (e) {
       auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=contract_manager`, `phase=construct`, `reason=${errMsg(e)}`);
@@ -329,9 +334,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
         permissionChecker,          // NEW: permission checker for subagent file tools
         motionInbox,
         fsFactory,
-        clawforumRoot: isMotion
-          ? makeClawforumRoot(path.dirname(clawDir))  // Motion-only callsite: isMotion branch
-          : makeClawforumRoot(path.join(clawDir, '..', '..')),
+        clawforumRoot: resolveClawforumRoot(clawDir, isMotion),  // phase 1406: 单一 truth source
         askMotionToolFactory: (llm, motionDialogStore) => new AskMotionTool(llm, motionDialogStore),
       });
     } catch (e) {
@@ -375,11 +378,11 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
           motionBaseDir: clawDir,
           motionAudit: auditWriter,
           clawsBaseDir: path.join(
-            makeClawforumRoot(path.dirname(clawDir)),  // Motion-only callsite: evolutionSystem block is guarded by if (isMotion)
+            resolveClawforumRoot(clawDir, true),  // phase 1406: motion-only context (guarded by if isMotion)
             CLAWS_DIR
           ),
           clawFsFactory: fsFactory,
-          clawContractManagerFactory: (d: ClawDir, id: string, fs: FileSystem) => createContractSystem({ clawDir: d, clawId: makeClawId(id), fs, audit: createSystemAudit(fs, d), toolRegistry, toolTimeoutMs, fsFactory, clawforumRoot: makeClawforumRoot(path.join(d, '..', '..')) }),
+          clawContractManagerFactory: (d: ClawDir, id: string, fs: FileSystem) => createContractSystem({ clawDir: d, clawId: makeClawId(id), fs, audit: createSystemAudit(fs, d), toolRegistry, toolTimeoutMs, fsFactory, clawforumRoot: resolveClawforumRoot(d, /* isMotion */ false) }),
         };
         contractManager.onContractCompleted(async (contractId) => {
           if (!evolutionSystem) return; // P1.NPE guard (phase 620 / mirror phase 607 dream-trigger)
@@ -525,9 +528,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
         identity: isMotion ? 'motion' : 'claw',
         clawId: isMotion ? MOTION_CLAW_ID : clawId,
         clawDir,
-        clawforumRoot: isMotion
-          ? makeClawforumRoot(path.dirname(clawDir))  // Motion-only callsite: isMotion branch
-          : makeClawforumRoot(path.join(clawDir, '..', '..')),
+        clawforumRoot: resolveClawforumRoot(clawDir, isMotion),  // phase 1406: 单一 truth source
         llmConfig,
         maxSteps,
         toolProfile,
@@ -572,7 +573,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
       // fs = parentFs (baseDir = .clawforum/) align clawforumRoot、避免 systemFs (baseDir = motion/) 沙箱拒 sibling claws/<to> absolute path
       toolRegistry.register(createNotifyClawTool({
         fs: parentFs,
-        clawforumRoot: makeClawforumRoot(path.dirname(clawDir)),  // Motion-only callsite: motion clawDir = <root>/.clawforum/motion → <root>/.clawforum (clawforumRoot)
+        clawforumRoot: resolveClawforumRoot(clawDir, true),  // phase 1406: motion-only context (motion clawDir = <root>/motion → root)
         audit: auditWriter,
       }));
     }
@@ -586,7 +587,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
       const heartbeatIntervalMs = globalConfig.motion?.heartbeat_interval_ms ?? 0;
       if (heartbeatIntervalMs > 0) {
         try {
-          heartbeat = createHeartbeat(makeClawforumRoot(path.join(clawDir, '..')), {  // Motion-only callsite: isMotion guard
+          heartbeat = createHeartbeat(resolveClawforumRoot(clawDir, true), {  // phase 1406: motion-only context
             interval: heartbeatIntervalMs / 1000,
             fs: parentFs,
             audit: auditWriter,
@@ -603,7 +604,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
     let cronRunner: CronRunner | undefined;
     let messaging: Messaging | undefined;
     if (isMotion && (globalConfig.cron?.enabled ?? true)) {
-      const clawforumRoot = makeClawforumRoot(path.join(clawDir, '..'));  // Motion-only callsite: isMotion+cron guard
+      const clawforumRoot = resolveClawforumRoot(clawDir, true);  // phase 1406: motion-only context (isMotion+cron guard)
       const tickMs = globalConfig.cron?.tick_interval_ms ?? CRON_TICK_INTERVAL_MS;
       const diskLimitMB = globalConfig.watchdog?.disk_warning_mb ?? DEFAULT_DISK_WARNING_MB;
       const diskScheduleStr = globalConfig.cron?.jobs?.disk_monitor?.schedule ?? 'hourly';

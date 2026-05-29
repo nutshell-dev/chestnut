@@ -1,0 +1,203 @@
+/**
+ * @module L2.DialogStore
+ *
+ * phase 1406: regime switch 实质逻辑迁入（per design row
+ * A.phase1406-dialogstore-receive-switchregime）。
+ *
+ * 应然 anchor：ML#2 业务语义归属（dialog 重组是 DialogStore 业务、不是循环
+ * 服务业务）+ ML#3 资源唯一归属（dialog messages + archive + factory 全在
+ * DialogStore 持）+ DP「中断可恢复」原子性。
+ *
+ * 实施立场：保留 audit 命名空间灵活性（caller 注入 `auditEvents` consts），
+ * phase 521+539+600+646+1054 audit invariants 不破。
+ *
+ * 实然 prior：原在 `src/core/runtime/runtime.ts:_performRegimeSwitch` ~80 行
+ * 实质逻辑、Runtime 自承担「dialog 资源重组」违反 ML#2/#3。
+ */
+
+import * as path from 'node:path';
+import type { FileSystem } from '../fs/types.js';
+import type { AuditLog } from '../audit/index.js';
+import type { Message, ToolDefinition } from '../llm-provider/types.js';
+import { formatErr } from '../utils/format.js';
+import { DialogStore } from './store.js';
+import { DIALOG_DIR } from './dirs.js';
+
+/** Regime switch 继承策略：identity 变化时 inherited messages 算法。*/
+export type RegimeStrategy = 'all' | 'last-turn' | 'none';
+
+/**
+ * Audit event const namespace (caller 注入)。
+ *
+ * 当前 caller 是 Runtime / 使用 `RUNTIME_AUDIT_EVENTS` 命名空间。phase 521
+ * 历史立项时挂在 Runtime audit namespace、本次迁移保持兼容（snapshot.json
+ * lock 不破）。未来可考虑迁 `DIALOG_AUDIT_EVENTS` 命名空间。
+ */
+export interface RegimeSwitchAuditEvents {
+  REGIME_SWITCH: string;
+  REGIME_SWITCH_COMMITTED: string;
+  REGIME_SWITCH_FAILED: string;
+  REGIME_SWITCH_HARD_FAIL: string;
+}
+
+export interface PerformRegimeSwitchOpts {
+  /** 继承策略 */
+  strategy: RegimeStrategy;
+  /** 新 system prompt（caller 已 build） */
+  newSystemPrompt: string;
+  /** 当前 DialogStore 实例（即将 archive） */
+  currentStore: DialogStore;
+  /** DialogStore factory（产 new instance for new regime） */
+  dialogStoreFactory: () => DialogStore;
+  /** 新 regime 的工具列表（caller's toolRegistry 已 format） */
+  toolsForLLM: ToolDefinition[];
+  /** clawDir（用于 recovery dump path 构造） */
+  clawDir: string;
+  /** system fs (recovery dump 写入) */
+  systemFs: FileSystem;
+  /** caller's AuditLog */
+  audit: AuditLog;
+  /** caller's audit event consts namespace */
+  auditEvents: RegimeSwitchAuditEvents;
+}
+
+export interface PerformRegimeSwitchResult {
+  newStore: DialogStore;
+  inheritedCount: number;
+  discardedCount: number;
+}
+
+/** phase 521: 'last-turn' 策略 helper / 找最近 'user' role msg / 从那里切片 */
+function extractLastTurn(messages: Message[]): Message[] {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === 'user') return messages.slice(i);
+  }
+  return messages; // 0 user msg / 全继承
+}
+
+/**
+ * Regime switch — identity 变化时把当前 dialog session archive + 按策略
+ * 构造继承 messages + 产 new DialogStore 实例并 save。
+ *
+ * Atomicity 保证（phase 600 ratify）：
+ * - archive 失败 → REGIME_SWITCH_HARD_FAIL audit + throw（无 partial state）
+ * - save 失败 → recovery dump 写入 + REGIME_SWITCH_FAILED(phase=save) + throw
+ * - dump 失败 → REGIME_SWITCH_FAILED(phase=save_and_dump) + throw
+ *
+ * Failed cases throw → caller's `_checkRegimeSwitch` 不更新 `lastIdentityHash`
+ * → 下 turn 重试自愈（D7）。
+ *
+ * Audit field symmetry 保证（phase 646 ratify）：
+ *   phase=save 与 phase=save_and_dump 都含 `recovery_path` 字段。
+ *
+ * @param opts 所有依赖 + audit 命名空间（DI）
+ * @returns 新 DialogStore 实例 + 继承/丢弃统计
+ */
+export async function performRegimeSwitch(
+  opts: PerformRegimeSwitchOpts,
+): Promise<PerformRegimeSwitchResult> {
+  const {
+    strategy,
+    newSystemPrompt,
+    currentStore,
+    dialogStoreFactory,
+    toolsForLLM,
+    clawDir,
+    systemFs,
+    audit,
+    auditEvents,
+  } = opts;
+
+  // 1. 加载 oldMessages
+  const { session } = await currentStore.load();
+  const oldMessages = session.messages;
+
+  // 2. archive 当前 sessionManager（phase 1373 sub-2 fail-fast / 不 silent continue）
+  try {
+    await currentStore.archive();
+  } catch (e) {
+    const msg = formatErr(e);
+    audit.write(auditEvents.REGIME_SWITCH_HARD_FAIL, `reason=${msg}`);
+    throw e;
+  }
+
+  // 3. 计算 inherited per strategy
+  let inherited: Message[];
+  switch (strategy) {
+    case 'none': inherited = []; break;
+    case 'last-turn': inherited = extractLastTurn(oldMessages); break;
+    case 'all': inherited = oldMessages; break;
+    default:
+      audit.write(auditEvents.REGIME_SWITCH_FAILED,
+        'context=unknown_strategy', `strategy=${strategy}`);
+      inherited = oldMessages;
+  }
+
+  // 4. tool_use 悬空 repair（per L5.G4）
+  const { repaired } = DialogStore.repair(inherited, {
+    interruptionMessage: 'Regime switch: tools may have changed.',
+  });
+
+  // 5. prepare newSessionManager（0 fs mutate / verified store.ts:29-41）
+  const newSessionManager = dialogStoreFactory();
+
+  // 6. save inherited 到 newSessionManager (atomic critical)
+  try {
+    await newSessionManager.save({
+      systemPrompt: newSystemPrompt,
+      messages: repaired,
+      toolsForLLM,
+    });
+  } catch (saveErr) {
+    // catch recovery dump (D1+D5 兜底 / 类 phase 586 audit fallback dump 模板)
+    const recoveryPath = path.join(clawDir, DIALOG_DIR, `regime-switch-recovery-${Date.now()}.json`);
+    try {
+      const recoveryData = JSON.stringify({
+        systemPrompt: newSystemPrompt,
+        repaired,
+        original: oldMessages,
+        strategy,
+        timestamp: new Date().toISOString(),
+        reason: saveErr instanceof Error ? saveErr.message : String(saveErr),
+      }, null, 2);
+      await systemFs.writeAtomic(recoveryPath, recoveryData);
+      audit.write(
+        auditEvents.REGIME_SWITCH_FAILED,
+        `phase=save`,
+        `recovery_path=${recoveryPath}`,
+        `inherited_count=${repaired.length}`,
+        `reason=${saveErr instanceof Error ? saveErr.message : String(saveErr)}`,
+      );
+    } catch (dumpErr) {
+      // dump 失败的 final fallback：纯 audit / inherited 极端场景丢失
+      audit.write(
+        auditEvents.REGIME_SWITCH_FAILED,
+        `phase=save_and_dump`,
+        `recovery_path=${recoveryPath}`,
+        `save_reason=${saveErr instanceof Error ? saveErr.message : String(saveErr)}`,
+        `dump_reason=${dumpErr instanceof Error ? dumpErr.message : String(dumpErr)}`,
+        `inherited_count=${repaired.length}`,
+      );
+    }
+    throw saveErr;
+  }
+
+  // 7+8. audit 成功（caller 拿 newStore 后自行 sessionManager = newStore commit 替换）
+  audit.write(
+    auditEvents.REGIME_SWITCH_COMMITTED,
+    `strategy=${strategy}`,
+    `inherited=${repaired.length}`,
+  );
+  audit.write(
+    auditEvents.REGIME_SWITCH,
+    `strategy=${strategy}`,
+    `inherited=${repaired.length}`,
+    `discarded=${oldMessages.length - repaired.length}`,
+  );
+
+  return {
+    newStore: newSessionManager,
+    inheritedCount: repaired.length,
+    discardedCount: oldMessages.length - repaired.length,
+  };
+}

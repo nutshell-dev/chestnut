@@ -1,7 +1,7 @@
 import type { Tool, ExecContext } from '../../../foundation/tools/index.js';
 import type { ToolResult } from '../../../foundation/tool-protocol/index.js';
 
-import type { Message, ToolDefinition } from '../../../foundation/llm-provider/types.js';
+import type { ToolDefinition } from '../../../foundation/llm-provider/types.js';
 import { createSkillSystem } from '../../../foundation/skill-system/index.js';
 import { DISPATCH_SKILLS_PATH as DISPATCH_SKILLS_DIR } from '../../../foundation/paths.js';
 
@@ -39,16 +39,19 @@ export class SummonTool implements Tool {
   readonly idempotent = false;
   readonly profiles = ['full'] as const;
   readonly group = 'spawn';
+  /**
+   * phase 1406: shadow mode reads caller's deep context (systemPrompt + tools +
+   * messages) via ctx.getCallerSnapshot(). Mining mode does not need caller
+   * snapshot (uses buildMinerSystemPrompt + ctx.registry for miner profile).
+   *
+   * Declared true to allow shadow's snapshot() call. ToolExecutor enforces.
+   */
+  readonly accessesCaller = true;
 
-  constructor(
-    private getSystemPrompt: () => Promise<string>,  // buildSystemPrompt() 是 async
-    private getToolsForLLM: () => ToolDefinition[], // Motion 完整工具列表（KV cache 关键）
-    private getToolsForProfile: (profile: string) => ToolDefinition[], // 按 profile 获取工具列表
-    private getCurrentMessages?: () => Message[] | undefined,  // current turn dialogMessages (L4 → factory injection)
-  ) {
-    void this.getToolsForLLM;
-    void this.getToolsForProfile;
-  }
+  // phase 1406: constructor takes 0 args; caller deep state via ctx.getCallerSnapshot().
+  // Replaces phase 766 + phase 1119 4-callback closure binding that forced Runtime
+  // to reverse-import this class and new() it inside Runtime.initialize().
+  constructor() {}
 
   schema = {
     type: 'object',
@@ -116,30 +119,45 @@ export class SummonTool implements Tool {
       return { success: false, content: 'Mining mode requires LLM service, but none is available.' };
     }
 
-    // 异步调度 summoner（后台运行，结果通过 inbox 送回）
-    // miner 使用独立系统提示；shadow 复用 Motion 系统提示确保 KV cache 命中
-    const systemPrompt = isMining
-      ? buildMinerSystemPrompt()
-      : await this.getSystemPrompt();
     const idleTimeoutMs = typeof args.idleTimeoutMs === 'number'
       ? args.idleTimeoutMs
       : DEFAULT_LLM_IDLE_TIMEOUT_MS;
 
-    // 构造包含完整对话上下文的 messages 数组
-    // L4 turn state → getter injection; canonical-only path (phase 1174)
-    const dialogMessages = this.getCurrentMessages?.() ?? [];
-    if (dialogMessages.length === 0) {
-      ctx.auditWriter?.write(SUMMON_AUDIT_EVENTS.NO_DIALOG_CONTEXT);
+    // phase 1406: shadow reads caller deep snapshot via ToolProtocol caller协议.
+    // mining uses independent system prompt + ctx.registry for miner profile.
+    let systemPrompt: string;
+    let toolsForLLM: ToolDefinition[];
+    let dialogMessages: import('../../../foundation/llm-provider/types.js').Message[];
+
+    if (isMining) {
+      systemPrompt = buildMinerSystemPrompt();
+      const minerTools = ctx.registry
+        ? ctx.registry.formatForLLM(ctx.registry.getForProfile('miner'))
+        : [];
+      toolsForLLM = [
+        ...minerTools,
+        { name: ASK_MOTION_TOOL_NAME, description: ASK_MOTION_TOOL_DESCRIPTION, input_schema: ASK_MOTION_TOOL_SCHEMA },
+      ];
+      dialogMessages = [];
+    } else {
+      // shadow path: caller deep snapshot (Motion's systemPrompt + tools + messages).
+      if (!ctx.getCallerSnapshot) {
+        return {
+          success: false,
+          content: 'summon shadow mode requires caller snapshot (ExecContext.getCallerSnapshot not bound by Assembly).',
+          error: 'summon_caller_snapshot_unavailable',
+        };
+      }
+      const snap = await ctx.getCallerSnapshot();
+      systemPrompt = snap.systemPrompt;
+      toolsForLLM = snap.tools;
+      dialogMessages = snap.messages;
+      if (dialogMessages.length === 0) {
+        ctx.auditWriter?.write(SUMMON_AUDIT_EVENTS.NO_DIALOG_CONTEXT);
+      }
     }
 
-    // miner 使用专属工具列表（miner profile + ask_motion）；shadow 用 Motion 完整列表确保 KV cache 命中
     const motionClawDir = isMining ? ctx.clawDir : undefined;
-    const toolsForLLM = isMining
-      ? [
-          ...this.getToolsForProfile('miner'),
-          { name: ASK_MOTION_TOOL_NAME, description: ASK_MOTION_TOOL_DESCRIPTION, input_schema: ASK_MOTION_TOOL_SCHEMA },
-        ]
-      : this.getToolsForLLM();
 
     // 装配 mainContextSnapshot from ctx.currentToolUseId
     const mainContextSnapshot = ctx.clawId && ctx.currentToolUseId

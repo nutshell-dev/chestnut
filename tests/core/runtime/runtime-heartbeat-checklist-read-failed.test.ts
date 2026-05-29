@@ -9,7 +9,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { Runtime } from '../../../src/core/runtime/runtime.js';
-import { HEARTBEAT_AUDIT_EVENTS } from '../../../src/core/runtime/heartbeat-audit-events.js';
+import { HEARTBEAT_AUDIT_EVENTS } from '../../../src/core/heartbeat/audit-events.js';
 
 class HeartbeatTestRuntime extends Runtime {
   async testFormatInboxMessage(type: string, from: string, body: string, timestamp?: string): Promise<string> {

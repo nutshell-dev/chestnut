@@ -16,17 +16,17 @@ import type { Message } from '../../foundation/llm-provider/types.js';
 import type { InboxMessage } from '../../foundation/messaging/types.js';
 import { InboxListFailed, InboxMoveFailed, isUserTypedInbox } from '../../foundation/messaging/index.js';
 
-import { DialogStore } from '../../foundation/dialog-store/index.js';
-import { SummonTool } from '../summon-system/index.js';
+import { DialogStore, performRegimeSwitch } from '../../foundation/dialog-store/index.js';
+// phase 1406: SummonTool import removed — Assembly 标准注册路径，G→F 单向依赖恢复
 import { runReact } from '../agent-executor/index.js';
 import { summarizeLastExit } from './last-exit-summary.js';
 import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../signals.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import { RUNTIME_AUDIT_EVENTS, REACT_LOOP_AUDIT_EVENTS } from './runtime-audit-events.js';
 import { TASK_AUDIT_EVENTS } from '../async-task-system/audit-events.js';
-import { HEARTBEAT_AUDIT_EVENTS } from './heartbeat-audit-events.js';
+import { HEARTBEAT_AUDIT_EVENTS } from '../heartbeat/audit-events.js';
 import { CLAW_SUBDIRS } from '../../foundation/paths.js';
-import { DIALOG_DIR } from '../../foundation/dialog-store/dirs.js';
+// phase 1406: DIALOG_DIR no longer used here — regime-switch recovery path is owned by performRegimeSwitch helper
 import { oneLine, formatErr } from '../../foundation/utils/format.js';
 import { escapeForLog } from '../../foundation/tools/index.js';
 import { MaxStepsExceededError } from '../agent-executor/index.js';
@@ -63,13 +63,7 @@ function auditError(
   audit.write(event, ...extras, `reason=${formatErr(err)}`);
 }
 
-/** phase 521: 'last-turn' regime switch helper / 找最近 'user' role msg / 从那里切片 */
-function extractLastTurn(messages: Message[]): Message[] {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i].role === 'user') return messages.slice(i);
-  }
-  return messages; // 0 user msg / 全继承
-}
+// phase 1406: extractLastTurn 迁出 → foundation/dialog-store/regime-switch.ts（per ML#2 业务归属）
 
 /**
  * Runtime - fully assembled Claw runtime instance
@@ -206,6 +200,15 @@ export class Runtime {
       maxSteps: this.options.maxSteps ?? DEFAULT_MAX_STEPS,
       auditWriter: this.auditWriter,
       taskSystem: this.taskSystem,
+      // phase 1406: caller-snapshot provider (lazy). SummonTool / AskMotionTool
+      // and other accessesCaller=true tools get caller's systemPrompt + tools
+      // + messages via this callback. ToolExecutor wraps with throwing variant
+      // for undeclared tools. Bound to current turn's runtime snapshot fields.
+      getCallerSnapshot: async () => ({
+        systemPrompt: this._currentSystemPrompt ?? '',
+        tools: this._currentTools ?? [],
+        messages: this._currentMessages ?? [],
+      }),
     });
 
     // phase 766: inject registry into execContext for sync spawn path
@@ -241,19 +244,9 @@ export class Runtime {
       throw new Error(`Runtime: AsyncTaskSystem.startDispatch failed: ${formatErr(e)}`, { cause: e });
     }
 
-    // 6. SummonTool 注册（候选 γ：结构性循环依赖妥协 / l6_assembly §7）
-    // NOTE: SummonTool 闭包依赖 this.buildSystemPrompt / this.toolRegistry.formatForLLM
-    //       Assembly 构造期 Runtime 尚未 new / 此 register 必须留在 Runtime 内
-    const summonTool = new SummonTool(
-      () => this.buildSystemPrompt(),
-      () => this.toolRegistry.formatForLLM(this.toolRegistry.getAll()),
-      (profile) => this.toolRegistry.formatForLLM(
-        this.toolRegistry.getForProfile(profile as import('../../foundation/tool-protocol/index.js').ToolProfile),
-      ),
-      () => this.getCurrentMessages(),  // L4 turn state → factory injection
-    );
-    this.toolRegistry.register(summonTool);
-
+    // phase 1406: SummonTool 注册迁出 Runtime → Assembly 标准路径
+    // （assemble.ts:251 toolRegistry.register(new SummonTool())）。
+    // Runtime 不再反向 import 此 L4 Tool 类，G→F 单向依赖恢复。
     if (this.options.identityToolFilter) {
       this.options.identityToolFilter(this.toolRegistry);
     }
@@ -1210,93 +1203,37 @@ export class Runtime {
     }
   }
 
+  /**
+   * phase 1406: regime switch 实质逻辑迁出 → `foundation/dialog-store/regime-switch.ts`
+   *   `performRegimeSwitch(opts)` helper（dialog 资源重组归 DialogStore module）
+   * Runtime 仅保留薄壳：装配 opts + 调 helper + commit `this.sessionManager`。
+   *
+   * 设计 align：ML#2 业务语义归属（dialog 重组 = DialogStore 业务）+ ML#3 资源唯一
+   * 归属（dialog messages + archive + factory 全在 DialogStore 持）+ DP 中断可恢复
+   * atomicity（phase 600/646 invariants 不破、audit 命名空间不变）。
+   */
   private async _performRegimeSwitch(newSystemPrompt: string): Promise<void> {
-    const strategy = this.options.regimeSwitchStrategy ?? 'all';
-    // 1. 加载 oldMessages
-    const { session } = await this.sessionManager.load();
-    const oldMessages = session.messages;
-    // 2. archive 当前 sessionManager
-    try {
-      await this.sessionManager.archive();
-    } catch (e) {
-      const msg = formatErr(e);
-      this.auditWriter.write(RUNTIME_AUDIT_EVENTS.REGIME_SWITCH_HARD_FAIL, `reason=${msg}`);
-      throw e;  // NEW phase 1373 sub-2: fail-fast / 不 silent continue
-    }
-    // 3. 计算 inherited per strategy
-    let inherited: Message[];
-    switch (strategy) {
-      case 'none': inherited = []; break;
-      case 'last-turn': inherited = extractLastTurn(oldMessages); break;
-      case 'all':
-        inherited = oldMessages;
-        break;
-      default:
-        this.auditWriter.write(RUNTIME_AUDIT_EVENTS.REGIME_SWITCH_FAILED,
-          'context=unknown_strategy', `strategy=${strategy}`);
-        inherited = oldMessages;
-    }
-    // 4. tool_use 悬空 repair（per L5.G4）
-    const { repaired } = DialogStore.repair(inherited, { interruptionMessage: 'Regime switch: tools may have changed.' });
-    // 5. prepare newSessionManager（0 fs mutate / verified store.ts:29-41）
-    const newSessionManager = this.dialogStoreFactory();
-    // 6. save inherited 到 newSessionManager (atomic critical)
     const regimeTools = this.toolRegistry.formatForLLM(
-      this.toolRegistry.getForProfile(this.options.toolProfile ?? 'full')
+      this.toolRegistry.getForProfile(this.options.toolProfile ?? 'full'),
     );
-    try {
-      await newSessionManager.save({
-        systemPrompt: newSystemPrompt,
-        messages: repaired,
-        toolsForLLM: regimeTools,
-      });
-    } catch (saveErr) {
-      // catch recovery dump (D1+D5 兜底 / 类 phase 586 audit fallback dump 模板)
-      const recoveryPath = path.join(this.options.clawDir, DIALOG_DIR, `regime-switch-recovery-${Date.now()}.json`);
-      try {
-        const recoveryData = JSON.stringify({
-          systemPrompt: newSystemPrompt,
-          repaired,
-          original: oldMessages,
-          strategy,
-          timestamp: new Date().toISOString(),
-          reason: saveErr instanceof Error ? saveErr.message : String(saveErr),
-        }, null, 2);
-        await this.systemFs.writeAtomic(recoveryPath, recoveryData);
-        this.auditWriter.write(
-          RUNTIME_AUDIT_EVENTS.REGIME_SWITCH_FAILED,
-          `phase=save`,
-          `recovery_path=${recoveryPath}`,
-          `inherited_count=${repaired.length}`,
-          `reason=${saveErr instanceof Error ? saveErr.message : String(saveErr)}`,
-        );
-      } catch (dumpErr) {
-        // dump 失败的 final fallback：纯 audit / inherited 极端场景丢失
-        this.auditWriter.write(
-          RUNTIME_AUDIT_EVENTS.REGIME_SWITCH_FAILED,
-          `phase=save_and_dump`,
-          `recovery_path=${recoveryPath}`,
-          `save_reason=${saveErr instanceof Error ? saveErr.message : String(saveErr)}`,
-          `dump_reason=${dumpErr instanceof Error ? dumpErr.message : String(dumpErr)}`,
-          `inherited_count=${repaired.length}`,
-        );
-      }
-      throw saveErr;   // 让 outer _checkRegimeSwitch catch 处理 lastIdentityHash 不更新
-    }
-    // 7. commit 替换（仅 save 成功后）
-    this.sessionManager = newSessionManager;
-    // 8. audit 成功
-    this.auditWriter.write(
-      RUNTIME_AUDIT_EVENTS.REGIME_SWITCH_COMMITTED,
-      `strategy=${strategy}`,
-      `inherited=${repaired.length}`,
-    );
-    this.auditWriter.write(
-      RUNTIME_AUDIT_EVENTS.REGIME_SWITCH,
-      `strategy=${strategy}`,
-      `inherited=${repaired.length}`,
-      `discarded=${oldMessages.length - repaired.length}`,
-    );
+    const result = await performRegimeSwitch({
+      strategy: this.options.regimeSwitchStrategy ?? 'all',
+      newSystemPrompt,
+      currentStore: this.sessionManager,
+      dialogStoreFactory: this.dialogStoreFactory,
+      toolsForLLM: regimeTools,
+      clawDir: this.options.clawDir,
+      systemFs: this.systemFs,
+      audit: this.auditWriter,
+      auditEvents: {
+        REGIME_SWITCH: RUNTIME_AUDIT_EVENTS.REGIME_SWITCH,
+        REGIME_SWITCH_COMMITTED: RUNTIME_AUDIT_EVENTS.REGIME_SWITCH_COMMITTED,
+        REGIME_SWITCH_FAILED: RUNTIME_AUDIT_EVENTS.REGIME_SWITCH_FAILED,
+        REGIME_SWITCH_HARD_FAIL: RUNTIME_AUDIT_EVENTS.REGIME_SWITCH_HARD_FAIL,
+      },
+    });
+    // commit 替换（caller responsibility per regime-switch.ts JSDoc）
+    this.sessionManager = result.newStore;
   }
 
 }

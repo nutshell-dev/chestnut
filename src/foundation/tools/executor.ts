@@ -25,6 +25,7 @@ import type { AuditLog } from '../audit/index.js';
 import type { AbortReason } from '../llm-provider/index.js';
 import type { ScheduleAsyncTool } from './async-dispatch.js';
 import { DEFAULT_TOOL_TIMEOUT_MS } from './constants.js';
+import { TOOL_AUDIT_EVENTS } from './audit-events.js';
 import {
   escapeForLog,
   type ToolRegistry,
@@ -152,6 +153,44 @@ export class ToolExecutorImpl implements IToolExecutor {
     timeoutPromise.catch(() => {});
 
     const ctxWithSignal = cloneExecContext(ctx, { signal: mergedSignal, currentToolUseId: options.toolUseId });
+
+    // phase 1406: caller-access gate. Tools that did not declare
+    // `accessesCaller: true` are wrapped to throw + audit-emit when calling
+    // `ctx.getCallerSnapshot()`. Tools that declared but receive a ctx
+    // without a bound provider also see the throw (Assembly装配 omission).
+    const declaredAccess = tool.accessesCaller === true;
+    if (!declaredAccess) {
+      const audit = ctx.auditWriter;
+      const toolNameLocal = toolName;
+      ctxWithSignal.getCallerSnapshot = async () => {
+        audit?.write(
+          TOOL_AUDIT_EVENTS.TOOL_CALLER_ACCESS_VIOLATION,
+          toolNameLocal,
+          options.toolUseId ?? '',
+          'reason=accessesCaller_not_declared',
+        );
+        throw new Error(
+          `Tool '${toolNameLocal}' did not declare accessesCaller=true ` +
+          `but called ctx.getCallerSnapshot()`,
+        );
+      };
+    } else if (typeof ctxWithSignal.getCallerSnapshot !== 'function') {
+      const audit = ctx.auditWriter;
+      const toolNameLocal = toolName;
+      ctxWithSignal.getCallerSnapshot = async () => {
+        audit?.write(
+          TOOL_AUDIT_EVENTS.TOOL_CALLER_ACCESS_VIOLATION,
+          toolNameLocal,
+          options.toolUseId ?? '',
+          'reason=provider_not_bound',
+        );
+        throw new Error(
+          `Tool '${toolNameLocal}' declared accessesCaller=true but ExecContext ` +
+          `was constructed without getCallerSnapshot provider`,
+        );
+      };
+    }
+
     const executionPromise = tool.execute(args, ctxWithSignal);
     executionPromise.catch((err: unknown) => {
       // race loser audit：execution 真实抛错但 timeoutPromise 先 race 赢、winner audit 仅记 ToolTimeoutError、

@@ -8,6 +8,9 @@
 
 export { DialogStore, MarkerNotFoundError, migrateAndValidateSession, validateSessionData } from './store.js';
 export type { SessionData, LoadResult, DialogMarker, RestoreResult } from './types.js';
+// phase 1406: regime switch 业务（dialog 资源重组）从 Runtime 迁入 DialogStore module
+export { performRegimeSwitch } from './regime-switch.js';
+export type { RegimeStrategy, RegimeSwitchAuditEvents, PerformRegimeSwitchOpts, PerformRegimeSwitchResult } from './regime-switch.js';
 
 import type { FileSystem } from '../fs/types.js';
 import type { AuditLog } from '../audit/index.js';
