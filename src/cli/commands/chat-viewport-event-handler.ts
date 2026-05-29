@@ -245,7 +245,11 @@ export function createEventHandler(deps: EventHandlerDeps) {
           deps.mainUI.withScope('task', () => deps.handleTaskEvent(makeTaskId(taskId), ev));
         }, deps.audit, { persistent: true });
         try {
-          taskReader.start();
+          // phase 1401 Bug A: 从 0 catch-up，避免漏 reader 启动前 shadow 已写的
+          // task_attempt_start / turn_start / llm_start（race 23ms 内三连）。
+          // 这些早期事件不到达 viewport 时 lastEventMs 不更新，stale-sweep
+          // 会在长 LLM 首调 5min 后误杀 — 完整推理见 coding plan/phase1401。
+          taskReader.start(0);
         } catch (err) {
           try {
             deps.audit.write(VIEWPORT_AUDIT_EVENTS.STREAM_READER_START_FAILED, `taskId=${taskId}`, `reason=${err instanceof Error ? err.message : String(err)}`);

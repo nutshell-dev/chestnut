@@ -178,6 +178,11 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     if (!tw) return;
     await tw.streamReader?.stop();
     taskWatchMap.delete(taskId);
+    // phase 1401 Bug C: stale-sweep / shutdown 路径必须与 turn_end happy path 对称清 UI track。
+    // turn_end 走 chat-viewport-task-events.ts:44-45 updateTrack(turn_end) → 内部 removeTrack；
+    // 但 stopTaskWatch 之前不清 UI track → shadowTracks/spawnTracks 残留 `⊙ ()` 渲染永不清。
+    // removeTrack 是 idempotent（taskStatusBar:93-98 findIndex 找不到 silent return）。
+    taskStatusBar.removeTrack(taskId);
   };
 
   const _taskEventHandler = createTaskEventHandler({
@@ -267,8 +272,10 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   const daemonCheckInterval = setInterval(checkDaemonAlive, DAEMON_LIVENESS_CHECK_INTERVAL_MS);
   daemonCheckInterval.unref();
 
-  // Stale task stream sweep（5min 无 event → cleanup）
-  const TASK_STALE_TIMEOUT_MS = 5 * 60 * 1000;
+  // Stale task stream sweep（30min 无 event → cleanup）
+  // phase 1401 Bug B: 5min 太短 — shadow 首调 kimi-k2.5 实测 latency 317657ms = 5.29min（含 thinking）
+  // 直接撞 5min 阈值被误杀。30min 覆盖 LLM 上界 + safety margin；超过仍清属合理保护。
+  const TASK_STALE_TIMEOUT_MS = 30 * 60 * 1000;
   const TASK_SWEEP_INTERVAL_MS = 60 * 1000;
   const taskSweepInterval = setInterval(() => {
     const now = Date.now();

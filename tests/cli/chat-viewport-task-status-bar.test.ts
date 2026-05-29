@@ -82,6 +82,34 @@ describe('chat-viewport-task-status-bar', () => {
     bar.removeTrack('task-1');
     expect(bar.hasAny()).toBe(false);
   });
+
+  // phase 1401 Bug C: stale-sweep / shutdown 路径 stopTaskWatch 必同步清 UI track，
+  // 否则 shadowTracks 残留渲染 `[shadow-xxxxxx] ⊙ ()` 永不清。
+  // 直接验 removeTrack idempotent 行为 + 即使没经 turn_end 也能清干净。
+  it('removeTrack on shadow track without prior turn_end (stale-sweep path)', () => {
+    const { bar, updateRender } = makeDeps();
+    bar.addTrack('shadow-stale', 'shadow');
+    expect(bar.renderShadow(80)).toContain('shadow-shadow');
+    expect(bar.hasAny()).toBe(true);
+    const renderCallsBefore = updateRender.mock.calls.length;
+    bar.removeTrack('shadow-stale');
+    expect(bar.renderShadow(80)).not.toContain('shadow-shadow');
+    expect(bar.hasAny()).toBe(false);
+    expect(updateRender.mock.calls.length).toBeGreaterThan(renderCallsBefore);
+  });
+
+  it('removeTrack is idempotent (turn_end then stale-sweep double-call safe)', () => {
+    const { bar, updateRender } = makeDeps();
+    bar.addTrack('task-dup', 'subagent');
+    bar.updateTrack('task-dup', { type: 'turn_end' });
+    expect(bar.hasAny()).toBe(false);
+    const callsAfterFirstRemove = updateRender.mock.calls.length;
+    // second removeTrack（stopTaskWatch path）应 noop / 不报错
+    expect(() => bar.removeTrack('task-dup')).not.toThrow();
+    expect(bar.hasAny()).toBe(false);
+    // 第二次 noop 不触发 updateRender
+    expect(updateRender.mock.calls.length).toBe(callsAfterFirstRemove);
+  });
 });
 
 describe('buildTaskLine', () => {
