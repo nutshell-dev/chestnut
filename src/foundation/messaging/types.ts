@@ -47,9 +47,3 @@ export interface HeartbeatEntry {
   message_count: number;
   memory_usage?: number;
 }
-
-const USER_TYPED_INBOX_TYPES = ['user_chat', 'user_inbox_message'] as const;
-
-export function isUserTypedInbox(msg: InboxMessage): boolean {
-  return (USER_TYPED_INBOX_TYPES as readonly string[]).includes(msg.type);
-}

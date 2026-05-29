@@ -142,7 +142,7 @@ describe('turn interrupt: graceful → commit (phase 1375)', () => {
     expect(lastTurnCommit.some((c: any) => String(c).includes('reason=user_interrupt'))).toBe(true);
   });
 
-  it('UserInterrupt + system-typed (type=message): dialog retains + TURN_COMMIT reason=user_interrupt + nack(reason=user_interrupt_non_user_typed) (phase 1403)', async () => {
+  it('UserInterrupt + system-typed (type=message): dialog retains + TURN_COMMIT reason=user_interrupt + ack (phase 1415 reframe phase 1403)', async () => {
     const runtime = await makeInterruptRuntime();
     const sessionManager = (runtime as any).sessionManager;
     await sessionManager.save({
@@ -176,11 +176,10 @@ describe('turn interrupt: graceful → commit (phase 1375)', () => {
     await expect(runtime.processBatch()).rejects.toBeInstanceOf(UserInterrupt);
 
     expect(commitCallSpy).toHaveBeenCalledWith('user_interrupt');
-    expect(ackSpy).not.toHaveBeenCalled();
-    expect(nackSpy).toHaveBeenCalledWith(
+    expect(ackSpy).toHaveBeenCalledWith(
       expect.objectContaining({ filePath: 'inflight/msg1.md' }),
-      'user_interrupt_non_user_typed',
     );
+    expect(nackSpy).not.toHaveBeenCalled();
     expect(rollbackSpy).not.toHaveBeenCalled();
 
     // Dialog 仍保留 mid-turn 内容（commit 语义不变）

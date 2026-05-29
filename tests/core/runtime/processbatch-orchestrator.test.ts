@@ -115,7 +115,7 @@ describe('Runtime processBatch orchestrator (phase 1285)', () => {
     expect(rollbackSpy).not.toHaveBeenCalled();
   });
 
-  it('UserInterrupt + system-typed message (type=message): commitTurn + nack(reason=user_interrupt_non_user_typed) + rethrows (phase 1403)', async () => {
+  it('UserInterrupt + system-typed message (type=message): commitTurn + ack + rethrows (phase 1415 reframe phase 1403)', async () => {
     const runtime = await makeInterruptRuntime();
     const ackSpy = vi.spyOn((runtime as any).inboxReader, 'ack').mockResolvedValue(undefined);
     const nackSpy = vi.spyOn((runtime as any).inboxReader, 'nack').mockResolvedValue(undefined);
@@ -137,15 +137,14 @@ describe('Runtime processBatch orchestrator (phase 1285)', () => {
     await expect(runtime.processBatch()).rejects.toBeInstanceOf(UserInterrupt);
 
     expect(commitSpy).toHaveBeenCalledWith('user_interrupt');
-    expect(ackSpy).not.toHaveBeenCalled();
-    expect(nackSpy).toHaveBeenCalledWith(
+    expect(ackSpy).toHaveBeenCalledWith(
       expect.objectContaining({ filePath: 'inflight/msg1.md' }),
-      'user_interrupt_non_user_typed',
     );
+    expect(nackSpy).not.toHaveBeenCalled();
     expect(rollbackSpy).not.toHaveBeenCalled();
   });
 
-  it('UserInterrupt + mixed batch (user_chat + system message): ack user-typed, nack system (phase 1403)', async () => {
+  it('UserInterrupt + mixed batch (user_chat + system message): ack both (phase 1415 reframe phase 1403)', async () => {
     const runtime = await makeInterruptRuntime();
     const ackSpy = vi.spyOn((runtime as any).inboxReader, 'ack').mockResolvedValue(undefined);
     const nackSpy = vi.spyOn((runtime as any).inboxReader, 'nack').mockResolvedValue(undefined);
@@ -179,12 +178,9 @@ describe('Runtime processBatch orchestrator (phase 1285)', () => {
 
     expect(commitSpy).toHaveBeenCalledWith('user_interrupt');
     expect(ackSpy).toHaveBeenCalledWith(expect.objectContaining({ filePath: 'inflight/msg1.md' }));
-    expect(nackSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ filePath: 'inflight/msg2.md' }),
-      'user_interrupt_non_user_typed',
-    );
-    expect(ackSpy).toHaveBeenCalledTimes(1);
-    expect(nackSpy).toHaveBeenCalledTimes(1);
+    expect(ackSpy).toHaveBeenCalledWith(expect.objectContaining({ filePath: 'inflight/msg2.md' }));
+    expect(ackSpy).toHaveBeenCalledTimes(2);
+    expect(nackSpy).not.toHaveBeenCalled();
   });
 
   it('successful turn calls commitTurn + ack', async () => {

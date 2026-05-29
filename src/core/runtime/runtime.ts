@@ -15,7 +15,7 @@ import { type FileSystem } from '../../foundation/fs/types.js';
 // phase 1414: isFileNotFound import removed — HEARTBEAT.md 读迁 Heartbeat 模块 inbox-formatter
 import type { Message } from '../../foundation/llm-provider/types.js';
 import type { InboxMessage } from '../../foundation/messaging/types.js';
-import { InboxListFailed, InboxMoveFailed, isUserTypedInbox } from '../../foundation/messaging/index.js';
+import { InboxListFailed, InboxMoveFailed } from '../../foundation/messaging/index.js';
 import type { MessageFormatterRegistry } from '../../foundation/messaging/index.js';
 
 import { DialogStore, performRegimeSwitch } from '../../foundation/dialog-store/index.js';
@@ -731,30 +731,14 @@ export class Runtime {
                      : err instanceof UserInterrupt          ? 'user_interrupt'
                      :                                         'idle_timeout';
         await this.sessionManager.commitTurn(reason);
-        // phase 1403: UserInterrupt 按 inbox 消息来源分流 ack/nack。
-        // user-typed (user_chat / user_inbox_message) → ack（用户已显式 stop，消息消费）
-        // 系统/agent 投递 → nack 回 pending/，等待下一轮 redrive，避免静默吞掉系统通知
-        // 来源判别交由 Messaging 模块 isUserTypedInbox predicate（不在 Runtime 内联 type 字面量）
-        // infos 与 addressedHandles 由 _drainOwnInbox 自同一 addressed[] 派生位置对齐；
-        // 用 filePath 显式建 Map 避免依赖隐式位置对齐（ML#9 显式表达）。
-        const messageByPath = new Map<string, InboxMessage>();
-        for (let i = 0; i < addressedHandles.length; i++) {
-          const h = addressedHandles[i];
-          if (h && infos[i]) messageByPath.set(h.filePath, infos[i]);
-        }
+        // phase 1415: UserInterrupt + PriorityInboxInterrupt 路径 inbox 文件一律 ack —
+        // 判据是「inject 已落 dialog」（save + commitTurn 双道落盘已完成）、非消息来源。
+        // crash recovery（drain 后 save 前）由 InboxReader.init() reconcile 兜底。
+        // IdleTimeoutSignal: nack 让下轮 redrive（dialog 未 commit 新增内容、消息真未消费）。
         for (const h of addressedHandles) {
-          if (err instanceof PriorityInboxInterrupt) {
-            // phase 1319 让位语义不变：让出本批以处理 priority 消息
+          if (err instanceof PriorityInboxInterrupt || err instanceof UserInterrupt) {
             await this.inboxReader.ack(h);
-          } else if (err instanceof UserInterrupt) {
-            const msg = messageByPath.get(h.filePath);
-            if (msg && isUserTypedInbox(msg)) {
-              await this.inboxReader.ack(h);
-            } else {
-              await this.inboxReader.nack(h, 'user_interrupt_non_user_typed');
-            }
           } else {
-            // IdleTimeoutSignal: nack 让下轮 redrive
             await this.inboxReader.nack(h, formatErr(err));
           }
         }
