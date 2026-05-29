@@ -97,6 +97,7 @@ Motion 会检查该文件并基于记录寻找新方法或调整任务。
     - Example: \`exec: { "command": "curl -o report.pdf https://...", "async": true }\`
     - Result message: from=task_system, content contains taskId + execution result
   - ⚠️ exec is a **non-idempotent** operation — async retries may cause the command to run multiple times; confirm idempotency before retrying
+  - **Output truncation**: exec output is capped per call (head+tail kept). When truncated, the result message tells you the path of the saved full output and gives a ready-to-use \`read\` invocation — follow that hint with \`read\` (paginate via offset/limit)
 
 ## Communicating with Motion
 

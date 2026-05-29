@@ -32,7 +32,7 @@ function truncateHeadTail(output: string, relPath: string): string {
   const head = output.slice(0, HEAD_LIMIT);
   const tail = output.slice(-TAIL_LIMIT);
   const truncatedBytes = output.length - HEAD_LIMIT - TAIL_LIMIT;
-  return `${head}\n[...truncated ${truncatedBytes} bytes...]\n${tail}\nFull output saved to: ${relPath}`;
+  return `${head}\n[...truncated ${truncatedBytes} bytes...]\n${tail}\nFull output (${output.length} bytes) saved. Use \`read\` with offset/limit to view ranges (read is capped per call, paginate by offset):\n  read: { "path": "${relPath}", "offset": 1, "limit": 200 }`;
 }
 
 async function persistOverflow(
@@ -45,7 +45,7 @@ async function persistOverflow(
     const fullPath = path.join(ctx.syncDir, TASKS_SYNC_EXEC_DIR.split('/').pop()!, `${id}.md`);
     const frontmatter = `---\nsource: exec_overflow\ncontent_length: ${output.length}\ncreated_at: ${new Date().toISOString()}\n---\n`;
     await ctx.fs.writeAtomic(fullPath, frontmatter + output);
-    return path.relative(ctx.clawDir, fullPath);
+    return path.relative(ctx.workspaceDir, fullPath);
   } catch (err) {
     ctx.auditWriter?.write('overflow_persist_failed', `reason=${formatErr(err)}`);
     return null;
