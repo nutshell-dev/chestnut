@@ -568,7 +568,7 @@ describe('ReAct Loop', () => {
         yield { type: 'tool_use_start', toolUse: { id: 'id-1', name: 'read', partialInput: '' } };
         yield { type: 'tool_use_delta', toolUse: { id: 'id-1', name: 'read', partialInput: '{"path":"a.txt"}' } };
         yield { type: 'tool_use_start', toolUse: { id: 'id-2', name: 'search', partialInput: '' } };
-        yield { type: 'tool_use_delta', toolUse: { id: 'id-2', name: 'search', partialInput: '{"query":"foo"}' } };
+        yield { type: 'tool_use_delta', toolUse: { id: 'id-2', name: 'search', partialInput: '{"pattern":"foo"}' } };
         yield { type: 'done' };
       })
       .mockImplementationOnce(async function* () {
@@ -765,7 +765,7 @@ describe('ReAct Loop', () => {
           yield { type: 'tool_use_start', toolUse: { id: 'id1', name: 'read' } };
           yield { type: 'tool_use_delta', toolUse: { id: 'id1', name: 'read', partialInput: '{"path":"a.txt"}' } };
           yield { type: 'tool_use_start', toolUse: { id: 'id2', name: 'search' } };
-          yield { type: 'tool_use_delta', toolUse: { id: 'id2', name: 'search', partialInput: '{"query":"q"}' } };
+          yield { type: 'tool_use_delta', toolUse: { id: 'id2', name: 'search', partialInput: '{"pattern":"q"}' } };
           yield { type: 'done' };
         } else {
           yield { type: 'text_delta', delta: 'Done with both tools' };
@@ -792,7 +792,7 @@ describe('ReAct Loop', () => {
     expect(batch[0].toolName).toBe('read');
     expect(batch[0].args).toEqual({ path: 'a.txt' });
     expect(batch[1].toolName).toBe('search');
-    expect(batch[1].args).toEqual({ query: 'q' });
+    expect(batch[1].args).toEqual({ pattern: 'q' });
 
     // 顺序 execute 不被调用（全部走并行路径）
     expect(parallelExecutor.execute).not.toHaveBeenCalled();

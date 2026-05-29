@@ -36,6 +36,7 @@ export const CLAW_SUBDIRS = [
   'tasks/queues/results',
   'tasks/sync/exec',
   'tasks/sync/write',
+  'tasks/sync/search',
   'tasks/sync/subagent',
   'tasks/sync/spawn',
   'tasks/sync/shadow',
