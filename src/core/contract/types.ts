@@ -90,6 +90,7 @@ export interface ContractYaml {
   auth_level?: 'auto' | 'notify' | 'confirm';
   verification_attempts?: number;  // 全局 retry 上限，默认 3
   // escalation 字段已废弃（phase 1399），读时通过 persistence.ts 自动迁移到 verification_attempts
+  audit_interval?: number;  // phase 1424: contract auditor 周期、step 为单位、0 = disable（默 0）
 }
 
 // Progress data structure

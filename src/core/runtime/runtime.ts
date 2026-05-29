@@ -561,6 +561,9 @@ export class Runtime {
           },
           onStepComplete: async () => {
             await this.sessionManager.save({ systemPrompt, messages, toolsForLLM: tools, trace_id: this.currentTraceId });
+            // phase 1424: contract auditor 周期 LLM 对照 expectations 检查
+            // fire-and-forget（不阻塞 Runtime step / 反馈走 inbox high priority 下轮 step 起 PriorityInboxInterrupt 中断）
+            void this.contractManager.maybeAuditStep(this.execContext.stepNumber);
             // 步间检查：高优先级消息到达时提前结束本轮
             if (await this._hasHighPriorityInbox()) {
               this.currentAbortController?.abort({ type: 'step_yield' });

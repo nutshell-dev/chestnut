@@ -7,6 +7,11 @@ import { ContractSystem, type ContractSystemDeps } from './manager.js';
 
 export { ContractSystem, type ContractSystemDeps } from './manager.js';
 
+// phase 1424: contract auditor exports
+export { ContractAuditor, type ContractAuditorDeps, type AuditorVerdict, type AuditorDrift, type AuditRequest, type AuditOutcome, parseVerdict } from './contract-auditor.js';
+export { contractFootprint, type ContractFootprint, type ContractFootprintOptions } from './contract-footprint.js';
+export { buildAuditorPrompt, type AuditorPromptInput } from './auditor-prompt.js';
+
 export {
   type ProgressData,
   type VerificationResult,
