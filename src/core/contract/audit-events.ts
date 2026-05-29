@@ -76,4 +76,8 @@ export const CONTRACT_AUDIT_EVENTS = {
   VERIFICATION_PIPELINE_RACE_REJECTED: 'verification_pipeline_race_rejected',
   // phase 1235 B.3: typed emit empty contractId invariant
   TYPED_EMIT_INVARIANT_VIOLATION: 'contract_typed_emit_invariant_violation',
+  // phase 1424: contract auditor 周期 LLM 对照 expectations 检查 + inbox 高优反馈
+  CONTRACT_AUDIT_TRIGGERED: 'contract_audit_triggered',
+  CONTRACT_AUDIT_DRIFT_DETECTED: 'contract_audit_drift_detected',
+  CONTRACT_AUDIT_FEEDBACK_DELIVERED: 'contract_audit_feedback_delivered',
 } as const;

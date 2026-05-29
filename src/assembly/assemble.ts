@@ -27,6 +27,7 @@ import { writePendingToolTaskFile } from '../core/async-task-system/index.js';
 import { createSkillSystem, SkillSystem } from '../foundation/skill-system/index.js';
 import { SKILLS_DIR_DEFAULT } from '../foundation/skill-system/index.js';
 import { ContractSystem, createContractSystem } from '../core/contract/index.js';
+import { ContractAuditor } from '../core/contract/contract-auditor.js';
 import { createEvolutionSystem } from '../core/evolution-system/index.js';
 import type { EvolutionSystem } from '../core/evolution-system/index.js';
 
@@ -452,6 +453,29 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
     } catch (e) {
       auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=inbox_reader`, `phase=construct`, `reason=${errMsg(e)}`);
       throw new Error(`Assembly: InboxReader construct failed: ${errMsg(e)}`, { cause: e });
+    }
+
+    // phase 1424: ContractAuditor 装配 — 周期 LLM 对照 expectations 检查 + inbox 高优反馈
+    // llm 可缺省（早期装配未注入 llm 时跳过 auditor / contract.audit_interval 默 0 时也不触发）
+    if (llm) {
+      try {
+        const clawInbox = InboxWriter.__internal_create(
+          systemFs,
+          makeInboxPath(path.join(clawDir, 'inbox', 'pending')),
+          auditWriter,
+        );
+        const auditor = new ContractAuditor({
+          audit: auditWriter,
+          fs: systemFs,
+          inbox: clawInbox,
+          llm,
+          inboxPendingDir: 'inbox/pending',  // 相对 systemFs.baseDir(=clawDir)
+        });
+        contractManager.attachAuditor(auditor);
+      } catch (e) {
+        auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=contract_auditor`, `phase=construct`, `reason=${errMsg(e)}`);
+        // 非致命：装配失败不阻塞 Runtime 起步 / contract auditor 默 disabled 状态
+      }
     }
 
     // phase 1414: inbox 消息 formatter 注册表（业主自家 register、Runtime 仅 dispatch）

@@ -81,6 +81,7 @@ import {
   type VerificationContext,
 } from './verification.js';
 import { archiveAndEmit } from './verification-lifecycle.js';
+import { ContractAuditor } from './contract-auditor.js';
 
 // Contract default value constants
 const CONTRACT_DEFAULTS = {
@@ -124,6 +125,11 @@ export class ContractSystem {
   private pausedDir = CONTRACT_PAUSED_DIR;
   private archiveDir: ArchiveDir = makeArchiveDir(CONTRACT_ARCHIVE_DIR);
   onNotify?: (type: string, data: Record<string, unknown>) => void;
+
+  // phase 1424: contract auditor 周期 LLM 对照 expectations 检查 + inbox 高优反馈
+  private auditor?: ContractAuditor;
+  /** 同 contract 内 last audited step（防同 step 重复触发） */
+  private auditorState = new Map<string, number>();
 
   private contractCompletedCallbacks: Set<(contractId: ContractId) => Promise<void>> = new Set();
 
@@ -202,6 +208,85 @@ export class ContractSystem {
 
   setOnNotify(cb: (type: string, data: Record<string, unknown>) => void): void {
     this.onNotify = cb;
+  }
+
+  // ============================================================================
+  // phase 1424: contract auditor 接入
+  // ============================================================================
+
+  /** Assembly 装配期调、注入 ContractAuditor 实例 / 仅设置 / 不主动 fire */
+  attachAuditor(auditor: ContractAuditor): void {
+    this.auditor = auditor;
+  }
+
+  /**
+   * Runtime.onStepComplete 钩子调 / 每 ReAct step 完成后触发
+   *
+   * 1. 无 auditor 注入 → 直返（不破坏既有调用）
+   * 2. 无 active contract → 直返
+   * 3. contract.audit_interval 缺省 / 0 → 直返
+   * 4. currentStep - lastAuditedStep < interval → 直返
+   * 5. 否则：mark lastAuditedStep、fire-and-forget auditor.maybeAudit
+   *
+   * 容错：auditor 抛错不传播、写 audit 即返
+   * 不 await LLM call（fire-and-forget / 不阻塞 Runtime step 推进）
+   */
+  async maybeAuditStep(currentStep: number): Promise<void> {
+    if (!this.auditor) return;
+    let active: Contract | null;
+    try {
+      active = await this.loadActive();
+    } catch {
+      return;  // 容错：loadActive 失败不影响 Runtime
+    }
+    if (!active) return;
+
+    let contractYaml: ContractYaml;
+    try {
+      contractYaml = await this.loadContractYaml(makeContractId(active.id));
+    } catch {
+      return;
+    }
+
+    const interval = contractYaml.audit_interval ?? 0;
+    if (interval <= 0) return;
+
+    const last = this.auditorState.get(active.id) ?? 0;
+    if (currentStep - last < interval) return;
+
+    // 同步 mark：防 fire-and-forget 期间 Runtime 再次进入 maybeAuditStep 时重复触发
+    this.auditorState.set(active.id, currentStep);
+
+    let progress: ProgressData;
+    try {
+      progress = await this.getProgress(makeContractId(active.id));
+    } catch {
+      return;
+    }
+
+    const done: string[] = [];
+    const pending: string[] = [];
+    let inProgress: string | null = null;
+    for (const [subtaskId, info] of Object.entries(progress.subtasks)) {
+      if (info.status === 'completed') done.push(subtaskId);
+      else if (info.status === 'in_progress') inProgress = subtaskId;
+      else pending.push(subtaskId);
+    }
+
+    // fire-and-forget
+    void this.auditor.maybeAudit({
+      contractId: active.id,
+      contractTitle: active.title,
+      clawId: this.clawId,
+      currentStep,
+      auditInterval: interval,
+      lastAuditedStep: last,
+      expectations: contractYaml.expectations,
+      contractStartedAt: progress.started_at,
+      progress: { done, in_progress: inProgress, pending },
+    }).catch(() => {
+      // 容错：auditor 内部已 audit + 限流、外层不重复 audit
+    });
   }
 
   // ============================================================================
@@ -533,6 +618,7 @@ export class ContractSystem {
       subtasks: contractYaml.subtasks,
       verification: contractYaml.verification ?? [],
       verification_attempts: contractYaml.verification_attempts,
+      audit_interval: contractYaml.audit_interval,
       auth_level: contractYaml.auth_level ?? CONTRACT_DEFAULTS.auth_level,
     });
     await this.fs.writeAtomic(`${this.activeDir}/${contractId}/contract.yaml`, content);
