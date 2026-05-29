@@ -26,7 +26,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "pnpm run typecheck && pnpm run lint:arch",
     "migrate:claw-agents-versions": "bash scripts/migrate-claw-agents-versions.sh",
-    "lint:arch": "depcruise --config .config/dependency-cruiser.cjs src"
+    "lint:arch": "depcruise --config .config/dependency-cruiser.cjs src",
+    "test:parallel": "bash scripts/test-parallel.sh"
   },
   "keywords": [
     "ai",

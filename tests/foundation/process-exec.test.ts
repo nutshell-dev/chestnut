@@ -96,17 +96,14 @@ describe('ProcessExec exec', () => {
   });
 
   it.concurrent('should throw ProcessExecError on timeout', async () => {
-    await expect(
-      exec('node', ['-e', 'setTimeout(() => {}, 60000)'], {
-        cwd: workDir,
-        timeout: 1000,
-      }),
-    ).rejects.toThrow(ProcessExecError);
-
+    // phase 1394: __testMinTimeoutMs/__testSigkillGraceMs 绕过 1000ms 硬常量 / 把单 test
+    // wall 从 ~2s 降到 ~0.3s。行为契约 (throws ProcessExecError + killed=true) 不变。
     try {
       await exec('node', ['-e', 'setTimeout(() => {}, 60000)'], {
         cwd: workDir,
-        timeout: 1000,
+        timeout: 100,
+        __testMinTimeoutMs: 100,
+        __testSigkillGraceMs: 100,
       });
       expect.fail('should have thrown');
     } catch (err) {
@@ -162,10 +159,13 @@ describe('ProcessExec exec', () => {
     // Node script that ignores SIGTERM, only SIGKILL can stop it
     const script = `process.on('SIGTERM', () => {}); setTimeout(() => {}, 60000);`;
 
+    // phase 1394: 短常数 100ms 让 SIGKILL 升级真路径触发但 wall 从 ~2s 降到 ~0.3s
     try {
       await exec('node', ['-e', script], {
         cwd: workDir,
-        timeout: 1000, // clamped to MIN 1000ms
+        timeout: 100,
+        __testMinTimeoutMs: 100,
+        __testSigkillGraceMs: 100,
       });
       expect.fail('should have thrown');
     } catch (err) {

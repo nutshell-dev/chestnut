@@ -23,6 +23,20 @@ export interface ExecOptions {
    * (phase 1385 G5 / claim 3)
    */
   maxBuffer?: number;
+  /**
+   * Test-only override for PROCESS_EXEC_TIMEOUT_MIN_MS (default 1000ms).
+   * Production callers MUST NOT use this — it bypasses the empirical floor
+   * for real exec. Sole purpose: cut test wall (phase 1394) for tests
+   * that deliberately trigger timeout/SIGKILL paths with a short window.
+   */
+  __testMinTimeoutMs?: number;
+  /**
+   * Test-only override for PROCESS_EXEC_SIGKILL_GRACE_MS (default 1000ms).
+   * Production callers MUST NOT use this — POSIX 行业 graceful 期被绕过。
+   * Sole purpose: cut SIGTERM→SIGKILL grace in test for fast escalation paths
+   * (phase 1394).
+   */
+  __testSigkillGraceMs?: number;
 }
 
 export interface ExecResult {

@@ -23,10 +23,12 @@ import { ProcessExecError } from './errors.js';
 /**
  * Clamp caller-supplied timeout into the supported range.
  * Pure / side-effect free / unit-testable.
+ * `minOverride` lets tests bypass the empirical floor (phase 1394).
  */
-function clampTimeout(requested: number): number {
+function clampTimeout(requested: number, minOverride?: number): number {
+  const min = minOverride ?? PROCESS_EXEC_TIMEOUT_MIN_MS;
   return Math.min(
-    Math.max(requested, PROCESS_EXEC_TIMEOUT_MIN_MS),
+    Math.max(requested, min),
     PROCESS_EXEC_TIMEOUT_MAX_MS,
   );
 }
@@ -120,6 +122,7 @@ class KillEscalator {
   constructor(
     private readonly proc: ReturnType<typeof spawn>,
     private readonly isSettled: () => boolean,
+    private readonly graceMs: number = PROCESS_EXEC_SIGKILL_GRACE_MS,
   ) {}
 
   arm(): void {
@@ -127,7 +130,7 @@ class KillEscalator {
       if (!this.isSettled()) {
         this.proc.kill('SIGKILL');
       }
-    }, PROCESS_EXEC_SIGKILL_GRACE_MS);
+    }, this.graceMs);
   }
 
   disarm(): void {
@@ -147,7 +150,7 @@ async function runProcess(
   args: string[],
   options: ExecOptions,
 ): Promise<ExecResult> {
-  const timeout = clampTimeout(options.timeout ?? PROCESS_EXEC_DEFAULT_TIMEOUT_MS);
+  const timeout = clampTimeout(options.timeout ?? PROCESS_EXEC_DEFAULT_TIMEOUT_MS, options.__testMinTimeoutMs);
   const maxBuffer = Math.max(1, options.maxBuffer ?? PROCESS_EXEC_DEFAULT_MAX_BUFFER);
   const env = buildChildEnv(options);
 
@@ -167,7 +170,7 @@ async function runProcess(
     let settled = false;
     const isSettled = () => settled;
 
-    const escalator = new KillEscalator(proc, isSettled);
+    const escalator = new KillEscalator(proc, isSettled, options.__testSigkillGraceMs);
     const collector = new BufferCollector(maxBuffer, () => {
       proc.kill(); // SIGTERM
       escalator.arm();
