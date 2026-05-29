@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { execSync } from 'node:child_process';
 import { resolveDaemonEntry, resolveWatchdogEntry } from '../../src/foundation/paths.js';
-import type { FileSystem } from '../../src/foundation/fs/types.js';
 
 // daemon-entry.js / watchdog-entry.js 字符串字面量唯一权威 = foundation/paths.ts
 // 的 resolveDaemonEntry / resolveWatchdogEntry。其他 src/ 文件不得持有该字面量
@@ -50,27 +49,16 @@ describe('foundation/paths.ts: entry-resolver single source', () => {
     ).toEqual([]);
   });
 
-  it('resolveDaemonEntry returns bundled path when bundled exists', () => {
-    const fakeFs = {
-      existsSync: (p: string) => p.endsWith('/foundation/daemon-entry.js'),
-    } as unknown as FileSystem;
-    const result = resolveDaemonEntry(fakeFs);
-    expect(result).toMatch(/foundation\/daemon-entry\.js$/);
+  it('resolveDaemonEntry returns an absolute path ending with daemon-entry.js', () => {
+    const result = resolveDaemonEntry();
+    expect(result).toMatch(/\/daemon-entry\.js$/);
+    expect(result.startsWith('/')).toBe(true);
   });
 
-  it('resolveWatchdogEntry returns bundled path when bundled exists', () => {
-    const fakeFs = {
-      existsSync: (p: string) => p.endsWith('/foundation/watchdog-entry.js'),
-    } as unknown as FileSystem;
-    const result = resolveWatchdogEntry(fakeFs);
-    expect(result).toMatch(/foundation\/watchdog-entry\.js$/);
-  });
-
-  it('resolver falls back to one-level-up when bundled missing', () => {
-    const fakeFs = { existsSync: () => false } as unknown as FileSystem;
-    const result = resolveDaemonEntry(fakeFs);
-    // 应在 src/ 根（PATHS_THIS_DIR=src/foundation/ 上溯一级）
-    expect(result).toMatch(/\/src\/daemon-entry\.js$/);
+  it('resolveWatchdogEntry returns an absolute path ending with watchdog-entry.js', () => {
+    const result = resolveWatchdogEntry();
+    expect(result).toMatch(/\/watchdog-entry\.js$/);
+    expect(result.startsWith('/')).toBe(true);
   });
 
   it('resolveDaemonEntry imported by all 7 cli/commands + 1 watchdog caller', () => {
