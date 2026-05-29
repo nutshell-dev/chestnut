@@ -439,7 +439,6 @@
     "foundation_skill-system_audit-events": [
       "skill_dir_not_found",
       "skill_duplicate_rejected",
-      "skill_duplicate_skipped",
       "skill_load_failed",
       "skill_namespace_invalid",
       "skill_registry_loaded"

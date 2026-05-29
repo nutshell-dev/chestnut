@@ -5,6 +5,13 @@ import { validatePriority, validateType } from './codec-validation.js';
 /**
  * Parse YAML frontmatter — module-level helper / shared by encodeInbox/decodeInbox + InboxWriter.readMeta.
  * Returns meta + body. Throws if frontmatter is malformed.
+ *
+ * Sister implementations（phase 461 ratify「各 caller 自治」、phase 1433 加 cross-ref）：
+ * - `src/foundation/skill-system/registry.ts` parseFrontmatter — 简 regex unquote / 有 EOF tolerance（phase 953）
+ * - `src/core/memory/tools/memory_search.ts` parseFrontmatter — 简 regex unquote / 无 EOF tolerance
+ *
+ * 本实现独有：`yamlUnquote` 富 unquote（支持 `\"` `\n` `\r` `\\` escape）。
+ * 改共享 frame syntax（`---\n` 边界、CRLF 归一、`:` split）需同步 sister；caller 特异（yamlUnquote）保持独立。
  */
 export function parseFrontmatter(raw: string): { meta: Record<string, string>; body: string } {
   // Normalize CRLF to LF for consistent parsing

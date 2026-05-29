@@ -43,7 +43,11 @@ export function createSkillTool(skillRegistry: SkillSystem): Tool {
     async execute(args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
       const name = String(args.name);
 
-      // Load from custom skills directory if specified (e.g., dispatch templates)
+      // Load from custom skills directory if specified (e.g., dispatch templates).
+      // 临时二级 registry：本次调用 own 实例、加载指定目录后即用即弃、生命周期不溢出本 execute。
+      // phase 382 ratify「二级 registry 机制 = 显式设计、非应急 fallback」、schema.skillsDir 文档明示用途。
+      // 触发条件 = caller 显式传 args.skillsDir（如 motion 传 "clawspace/dispatch-skills"）；
+      // 不传则走下方默认分支（注入的 skillRegistry 单例、装配期 own 生命周期）。
       if (args.skillsDir) {
         try {
           const tempRegistry = createSkillSystem(ctx.fs, String(args.skillsDir), ctx.auditWriter);

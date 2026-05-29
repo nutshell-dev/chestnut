@@ -6,7 +6,6 @@
 export const SKILL_AUDIT_EVENTS = {
   LOAD_FAILED: 'skill_load_failed',
   REGISTRY_LOADED: 'skill_registry_loaded',
-  DUPLICATE_SKIPPED: 'skill_duplicate_skipped',
   DUPLICATE_REJECTED: 'skill_duplicate_rejected',
   NAMESPACE_INVALID: 'skill_namespace_invalid',
   DIR_NOT_FOUND: 'skill_dir_not_found',

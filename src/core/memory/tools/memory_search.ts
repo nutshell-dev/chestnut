@@ -10,6 +10,13 @@ export const MEMORY_SEARCH_TOOL_NAME = 'memory_search' as const;
 /**
  * Parse YAML frontmatter (industry standard syntax / per practices.md §DRY reflex 反例落地 / phase 461)
  * 1:1 inline copy from deleted src/foundation/frontmatter/ / 各 caller 自治 / format schema 业务归 caller。
+ *
+ * Sister implementations（phase 461 ratify「各 caller 自治」、phase 1433 加 cross-ref）：
+ * - `src/foundation/skill-system/registry.ts` parseFrontmatter — 简 regex unquote / 有 EOF tolerance（phase 953）
+ * - `src/foundation/messaging/codec-inbox.ts` parseFrontmatter — yamlUnquote 富 unquote / 无 EOF tolerance
+ *
+ * 本实现独有：无（最简 baseline）。
+ * 改共享 frame syntax（`---\n` 边界、CRLF 归一、`:` split）需同步 sister；caller 特异保持独立。
  */
 function parseFrontmatter(raw: string): { meta: Record<string, string>; body: string } {
   // Normalize CRLF to LF for consistent parsing

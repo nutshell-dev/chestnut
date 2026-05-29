@@ -29,6 +29,13 @@ export class SkillDuplicateError extends Error {
 /**
  * Parse YAML frontmatter (industry standard syntax / per practices.md §DRY reflex 反例落地 / phase 461)
  * 1:1 inline copy from deleted src/foundation/frontmatter/ / 各 caller 自治 / format schema 业务归 caller。
+ *
+ * Sister implementations（phase 461 ratify「各 caller 自治」、phase 1433 加 cross-ref）：
+ * - `src/foundation/messaging/codec-inbox.ts` parseFrontmatter — yamlUnquote 富 unquote / 无 EOF tolerance
+ * - `src/core/memory/tools/memory_search.ts` parseFrontmatter — 简 regex unquote / 无 EOF tolerance
+ *
+ * 本实现独有：EOF tolerance（phase 953 / 容忍文件末尾无 trailing newline）+ 简 regex unquote。
+ * 改共享 frame syntax（`---\n` 边界、CRLF 归一、`:` split）需同步 sister；caller 特异（unquote / EOF）保持独立。
  */
 function parseFrontmatter(raw: string): { meta: Record<string, string>; body: string } {
   // Normalize CRLF to LF for consistent parsing
