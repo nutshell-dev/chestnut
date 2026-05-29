@@ -2,7 +2,7 @@
  * @module L2.FileTool
  * ls tool - List directory contents
  *
- * Cross-claw access: `claw: "<id>"` available to all agents; `claw: "*"` (if applicable) Motion-only.
+ * Cross-claw access: `claw: "<id>"` targets another claw (read/ls do NOT implement `"*"` broadcast — only search does).
  */
 
 import * as nodePath from 'path';
@@ -29,7 +29,7 @@ export const lsTool: Tool = {
       },
       claw: {
         type: 'string',
-        description: 'Target claw ID (specific target available to all agents; broadcast Motion-only). e.g. { "path": "contract/archive", "claw": "claw1" }',
+        description: 'Target claw ID. e.g. { "path": "contract/archive", "claw": "claw1" }',
       },
     },
     required: [],
@@ -43,7 +43,7 @@ export const lsTool: Tool = {
     const clawParam = args.claw as string | undefined;
     // From constants.ts: pagination limit
 
-    // Cross-claw ls: specific target = any agent / broadcast '*' = Motion-only (per D11 inter-claw)
+    // Cross-claw ls: specific target = any agent. ls does NOT implement '*' broadcast (only search does).
     let targetPath: string;
     let entries: { path: string; isDirectory: boolean; isFile: boolean; size?: number }[];
 
@@ -70,6 +70,14 @@ export const lsTool: Tool = {
         };
       }
       // specific target / 任意 callerType OK（D11 inter-claw 互访 align）
+      // Reject '*' explicitly — ls does not implement broadcast (only search does).
+      // Without this, '*' silently falls through to ENOENT on <clawsDir>/*.
+      if (clawParam === '*') {
+        return {
+          success: false,
+          content: 'Error: claw: "*" broadcast is not supported by ls (only search supports it).',
+        };
+      }
       // Validate clawParam (no path traversal)
       if (clawParam.includes('/') || clawParam.includes('..') || clawParam === '' || clawParam === '.' || clawParam.startsWith('.')) {
         return {

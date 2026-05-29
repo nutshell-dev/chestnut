@@ -19,7 +19,7 @@ export const writeTool: Tool = {
   name: WRITE_TOOL_NAME,
   profiles: ['full', 'subagent', 'miner'],
   group: 'fs-write',
-  description: 'Write a file in your clawspace. Path is relative to clawspace (do NOT prefix with "clawspace/"). Use "../" in path to access claw root subdirs (e.g., "../tasks/subagents/x/temp.md"). Use append: true to append.',
+  description: 'Write a file in your clawspace. Path is relative to clawspace (do NOT prefix with "clawspace/"). Use "../" in path to access claw root files (e.g., "../MEMORY.md", "../memory/notes.md"). Use append: true to append.',
   schema: {
     type: 'object',
     properties: {

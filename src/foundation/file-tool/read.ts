@@ -2,7 +2,7 @@
  * @module L2.FileTool
  * read tool - Read file contents
  *
- * Cross-claw access: `claw: "<id>"` available to all agents; `claw: "*"` (if applicable) Motion-only.
+ * Cross-claw access: `claw: "<id>"` targets another claw (read/ls do NOT implement `"*"` broadcast — only search does).
  */
 
 import * as nodePath from 'path';
@@ -20,7 +20,7 @@ export const readTool: Tool = {
   name: READ_TOOL_NAME,
   profiles: ['full', 'readonly', 'subagent', 'miner'],
   group: 'fs-read',
-  description: 'Read a file in your clawspace. Path is relative to clawspace (do NOT prefix with "clawspace/"). Use "../" in path to access claw root (e.g., "../MEMORY.md"). Use claw: "<id>" to read another claw\'s files (available to all agents); claw: "*" is Motion-only.',
+  description: 'Read a file in your clawspace. Path is relative to clawspace (do NOT prefix with "clawspace/"). Use "../" in path to access claw root (e.g., "../MEMORY.md"). Use claw: "<id>" to read another claw\'s files.',
   schema: {
     type: 'object',
     properties: {
@@ -38,7 +38,7 @@ export const readTool: Tool = {
       },
       claw: {
         type: 'string',
-        description: 'Target claw ID (specific target available to all agents; broadcast Motion-only). e.g. { "path": "contract/xxx/progress.json", "claw": "claw1" }',
+        description: 'Target claw ID. e.g. { "path": "contract/xxx/progress.json", "claw": "claw1" }',
       },
     },
     required: ['path'],
@@ -75,6 +75,14 @@ export const readTool: Tool = {
         return {
           success: false,
           content: 'Error: Cross-claw access not available in this context (fsFactory not injected)',
+        };
+      }
+      // Reject '*' explicitly — read does not implement broadcast (only search does).
+      // Without this, '*' silently falls through to ENOENT on <clawsDir>/*/clawspace.
+      if (clawParam === '*') {
+        return {
+          success: false,
+          content: 'Error: claw: "*" broadcast is not supported by read (only search supports it).',
         };
       }
       // Validate clawParam (no path traversal)
