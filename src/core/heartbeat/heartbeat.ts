@@ -65,7 +65,8 @@ export class Heartbeat {
         type: 'heartbeat',
         source: 'system',
         priority: 'low',
-        body: '心跳触发，请巡查。',
+        // phase 1419: heartbeat formatter 0 读 ctx.body（措辞由 formatter 拼 base + HEARTBEAT.md）→ sender 不传 dead payload
+        body: '',
         idPrefix: 'hb',
       }, this.audit);
       this.lastRun = Date.now();  // 只在成功写入后更新

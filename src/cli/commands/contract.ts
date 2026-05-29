@@ -57,15 +57,16 @@ export function notifyContractCreated(deps: { fsFactory: (baseDir: string) => Fi
   } as StreamEvent);
 
   // 写 inbox 通知，触发 claw daemon 开始执行（best-effort）
+  // phase 1419: prefix / 连接词英化（mirror phase 1404 viewport 英化）/ 业务字段保留 user 原文
   const subtaskLines = contract.subtasks.map(s => `- ${s.id}: ${s.description}`).join('\n');
-  const lines = [`新契约已创建（${contractId}）：${contract.title}`];
-  if (contract.background) lines.push(`背景：${contract.background}`);
-  lines.push(`目标：${contract.goal}`);
-  if (contract.expectations) lines.push(`执行要求：${contract.expectations}`);
-  lines.push(`子任务：`);
+  const lines = [`New contract created (${contractId}): ${contract.title}`];
+  if (contract.background) lines.push(`Background: ${contract.background}`);
+  lines.push(`Goal: ${contract.goal}`);
+  if (contract.expectations) lines.push(`Expectations: ${contract.expectations}`);
+  lines.push(`Subtasks:`);
   lines.push(subtaskLines);
-  lines.push(`执行完每个子任务后，调用 done 提交验收：`);
-  lines.push(`done: { "subtask": "<subtask-id>", "evidence": "<产出物路径或完成摘要>" }`);
+  lines.push(`After each subtask, submit verification via done:`);
+  lines.push(`done: { "subtask": "<subtask-id>", "evidence": "<output path or completion summary>" }`);
   const body = lines.join('\n');
   notifySystem(
     fs,

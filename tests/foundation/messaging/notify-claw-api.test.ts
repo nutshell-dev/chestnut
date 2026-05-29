@@ -42,7 +42,7 @@ describe('notifyClaw API', () => {
       type: 'heartbeat',
       source: 'system',
       priority: 'low',
-      body: '心跳触发，请巡查。',
+      body: 'heartbeat-body-sample',   // phase 1419: body field generic test sample (heartbeat sender uses empty string in prod)
       idPrefix: 'hb',
     }, audit);
 
@@ -55,7 +55,7 @@ describe('notifyClaw API', () => {
     expect(content).toMatch(/type: heartbeat/);
     expect(content).toMatch(/from: "system"/);
     expect(content).toMatch(/priority: low/);
-    expect(content).toMatch(/心跳触发，请巡查。/);
+    expect(content).toMatch(/heartbeat-body-sample/);
   });
 
   it("notifyClaw('worker-1', ...) writes to claws/worker-1/inbox/pending", async () => {

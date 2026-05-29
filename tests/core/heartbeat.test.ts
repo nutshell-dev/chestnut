@@ -87,7 +87,10 @@ describe('Heartbeat', () => {
       expect(content).toContain('type: heartbeat');
       expect(content).toContain('from: "system"');
       expect(content).toContain('priority: low');
-      expect(content).toContain('心跳触发，请巡查。');
+      // phase 1419: heartbeat body is now empty (formatter ignores ctx.body / 措辞由 formatter 拼 base + HEARTBEAT.md)
+      // Body section after frontmatter must be empty string (no Chinese, no leftover payload)
+      const bodyAfterFrontmatter = content.split(/^---\s*$/m).slice(2).join('---').trim();
+      expect(bodyAfterFrontmatter).toBe('');
     });
 
     describe('with fake timers', () => {

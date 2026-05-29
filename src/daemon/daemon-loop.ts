@@ -374,7 +374,7 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
               type: 'startup_check',
               source: 'daemon',
               priority: 'high',
-              body: '系统启动。请检查活跃契约并继续执行。',
+              body: 'System startup. Please review active contracts and resume execution.',
             }, audit);
           }
           // No continue — processBatch() naturally picks up the inbox file

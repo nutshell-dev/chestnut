@@ -51,9 +51,13 @@ import { createInboxReader, createOutboxWriter, notifyInbox, notifyClaw, InboxWr
 import { createMessageFormatterRegistry, registerMessagingFormatters } from '../foundation/messaging/index.js';
 import type { MessageFormatterRegistry } from '../foundation/messaging/index.js';
 // phase 1414: 业主自家 inbox-formatter
-import { formatCrashNotification } from '../watchdog/inbox-formatter.js';
+// phase 1419: 4 业主补注 sister（contract / daemon / memory / watchdog inactivity）+ Watchdog 切 register helper 形态
+import { registerWatchdogFormatters } from '../watchdog/inbox-formatter.js';
 import { formatUserChat } from '../core/gateway/index.js';
 import { createHeartbeatInboxFormatter } from '../core/heartbeat/index.js';
+import { registerContractFormatters } from '../core/contract/inbox-formatters.js';
+import { registerDaemonFormatters } from '../daemon/inbox-formatter.js';
+import { registerMemoryFormatters } from '../core/memory/inbox-formatter.js';
 import type { Messaging } from '../foundation/messaging/index.js';
 import { createSubmitSubtaskTool } from '../core/contract/index.js';
 import { createDoneTool } from '../core/subagent/index.js';
@@ -454,7 +458,10 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
     const formatterRegistry: MessageFormatterRegistry = createMessageFormatterRegistry();
     registerMessagingFormatters(formatterRegistry);                        // 'user_inbox_message' + 'message'
     formatterRegistry.register('user_chat', formatUserChat);               // Gateway 业主
-    formatterRegistry.register('crash_notification', formatCrashNotification);  // Watchdog 业主
+    registerWatchdogFormatters(formatterRegistry);                         // Watchdog 业主：crash_notification + claw_inactivity
+    registerContractFormatters(formatterRegistry);                         // ContractSystem 业主：contract_events + 3 verification_*
+    registerDaemonFormatters(formatterRegistry);                           // DaemonLoop 业主：startup_check
+    registerMemoryFormatters(formatterRegistry);                           // MemorySystem 业主：random_dream + deep_dream
     if (isMotion) {
       // 与 createHeartbeat 同 guard：只 motion 装 heartbeat formatter
       formatterRegistry.register(
