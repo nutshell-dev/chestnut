@@ -18,7 +18,8 @@ const VI_MOCK_FILES = [
   'tests/assembly/assemble-lockfile-cleanup.test.ts',
   'tests/assembly/assemble.test.ts',
   'tests/assembly/detect-unclean-exit.test.ts',
-  'tests/cli/already-running-sentinel.test.ts',
+  // phase 1421: tests/cli/already-running-sentinel.test.ts moved to fast project
+  // — daemon command bodies extracted with DI seam; tests no longer need vi.mock.
   'tests/cli/daemon-entry.test.ts',
   'tests/cli/chat-viewport-claw-manager-narrow.test.ts',
   'tests/cli/chat-viewport-stream-reader-start-fail.test.ts',

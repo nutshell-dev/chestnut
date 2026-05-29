@@ -1,44 +1,43 @@
+/**
+ * already-running sentinel (phase 981 E-α3, retreated phase 1421)
+ *
+ * phase 1421: rewritten to call extracted `clawDaemonCommand` /
+ * `motionDaemonCommand` directly with a fake processManager via DI, instead of
+ * `vi.mock`-ing the agent-factory module under a commander action handler.
+ * Root cause of prior flake: `vi.mock` of dynamic `await import()` was
+ * intermittently bypassed under high concurrent ESM load, letting real
+ * ProcessManager.spawn fall through (15s ready-poll hang for claw / process.exit
+ * for motion). DI removes that dependency.
+ */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { clawDaemonCommand, type DaemonPM } from '../../src/cli/commands/claw-daemon.js';
+import { motionDaemonCommand } from '../../src/cli/commands/motion-daemon.js';
+import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
+import { CliError } from '../../src/cli/errors.js';
 
-// Prevent program.parse() from executing during module load.
-// Use plain functions (not vi.fn) inside vi.mock factory to avoid
-// hoisting reliability issues that can cause intermittent mock failure.
-vi.mock('commander', async () => {
-  const mod = await vi.importActual<typeof import('commander')>('commander');
-  const program = new mod.Command();
-  program.parse = () => program;
-  program.parseAsync = () => Promise.resolve(program);
-  return { ...mod, program };
-});
+const fsFactory = (baseDir: string) => new NodeFileSystem({ baseDir });
 
-// phase1363: complete mock with plain functions to prevent infinite hang
-// in the spawn-ready polling loop if the mock intermittently fails.
-vi.mock('../../src/foundation/process-manager/agent-factory.js', () => ({
-  createAgentProcessManager: () => ({
-    isAlive: () => true,
-    spawn: () => Promise.resolve(),
-    markReady: () => Promise.resolve(),
-  }),
-}));
-
-describe('already-running sentinel (phase 981 E-α3)', () => {
+describe('already-running sentinel (phase 981 E-α3 / phase 1421 DI)', () => {
   let tmpDir: string;
   let originalRoot: string | undefined;
   let warnSpy: ReturnType<typeof vi.spyOn>;
+  let logSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
-    vi.restoreAllMocks();
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'clawforum-ar-test-'));
     originalRoot = process.env.CLAWFORUM_ROOT;
     process.env.CLAWFORUM_ROOT = tmpDir;
     warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    setupConfig();
   });
 
   afterEach(() => {
     warnSpy.mockRestore();
+    logSpy.mockRestore();
     if (originalRoot === undefined) delete process.env.CLAWFORUM_ROOT;
     else process.env.CLAWFORUM_ROOT = originalRoot;
     fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -53,83 +52,53 @@ describe('already-running sentinel (phase 981 E-α3)', () => {
     );
   }
 
-  it('claw daemon warns with ⚠ when already running', async () => {
-    setupConfig();
-
-    const clawDir = path.join(tmpDir, '.clawforum', 'claws', 'running-claw');
+  function setupClaw(name: string) {
+    const clawDir = path.join(tmpDir, '.clawforum', 'claws', name);
     fs.mkdirSync(clawDir, { recursive: true });
-    fs.writeFileSync(path.join(clawDir, 'config.yaml'), 'name: running-claw\n');
+    fs.writeFileSync(path.join(clawDir, 'config.yaml'), `name: ${name}\n`);
+  }
 
-    const { program } = await import('commander');
-    await import('../../src/cli/index.js');
+  /** Fake pm that always reports the agent as alive — `spawn` must never be reached. */
+  function aliveFakePM(): DaemonPM {
+    return {
+      isAlive: () => true,
+      spawn: () => {
+        throw new Error('spawn should not be invoked when isAlive=true');
+      },
+    };
+  }
 
-    const clawCmd = program.commands.find((c: any) => c.name() === 'claw');
-    const daemonCmd = clawCmd?.commands.find((c: any) => c.name() === 'daemon');
-
-    await (daemonCmd as any)._actionHandler(['running-claw']);
-
+  it('clawDaemonCommand warns ⚠ when isAlive=true', async () => {
+    setupClaw('running-claw');
+    await clawDaemonCommand({ fsFactory, processManager: aliveFakePM() }, 'running-claw');
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('⚠'));
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('already running'));
   });
 
-  it('motion daemon warns with ⚠ when already running', async () => {
-    setupConfig();
-
-    const { program } = await import('commander');
-    await import('../../src/cli/index.js');
-
-    const motionCmd = program.commands.find((c: any) => c.name() === 'motion');
-    const daemonCmd = motionCmd?.commands.find((c: any) => c.name() === 'daemon');
-
-    await (daemonCmd as any)._actionHandler([]);
-
+  it('motionDaemonCommand warns ⚠ when isAlive=true', async () => {
+    await motionDaemonCommand({ fsFactory, processManager: aliveFakePM() });
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('⚠'));
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('already running'));
   });
 
-  // phase1363 reverse tests — invariant against root-cause regression
-
-  it('claw daemon actionHandler resolves in <1000ms (happy path)', async () => {
-    setupConfig();
-
-    const clawDir = path.join(tmpDir, '.clawforum', 'claws', 'running-claw');
-    fs.mkdirSync(clawDir, { recursive: true });
-    fs.writeFileSync(path.join(clawDir, 'config.yaml'), 'name: running-claw\n');
-
-    const { program } = await import('commander');
-    await import('../../src/cli/index.js');
-
-    const clawCmd = program.commands.find((c: any) => c.name() === 'claw');
-    const daemonCmd = clawCmd?.commands.find((c: any) => c.name() === 'daemon');
-
-    const start = Date.now();
-    await (daemonCmd as any)._actionHandler(['running-claw']);
-    const elapsed = Date.now() - start;
-
-    expect(elapsed).toBeLessThan(1000);
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('already running'));
+  it('clawDaemonCommand throws CliError when claw does not exist (no static fallthrough)', async () => {
+    await expect(
+      clawDaemonCommand({ fsFactory, processManager: aliveFakePM() }, 'ghost-claw'),
+    ).rejects.toBeInstanceOf(CliError);
   });
 
-  it('mock spawn returns a resolved promise (regression invariant)', async () => {
-    const { createAgentProcessManager } = await import(
-      '../../src/foundation/process-manager/agent-factory.js'
-    );
-    const pm = createAgentProcessManager({} as any, {} as any);
-    const result = pm.spawn('test-claw', {
-      command: 'node',
-      args: ['daemon-entry.js', 'test-claw'],
-      logFile: path.join(tmpDir, 'daemon.log'),
-    });
-
-    expect(result).toBeInstanceOf(Promise);
-    await expect(result).resolves.toBeUndefined();
+  it('clawDaemonCommand happy-path early-return completes in <500ms', async () => {
+    setupClaw('running-claw');
+    const start = Date.now();
+    await clawDaemonCommand({ fsFactory, processManager: aliveFakePM() }, 'running-claw');
+    const elapsed = Date.now() - start;
+    expect(elapsed).toBeLessThan(500);
   });
 
-  it('CLI dynamic import does not block indefinitely (boot-chain integrity)', async () => {
-    const start = Date.now();
-    await import('../../src/cli/index.js');
-    const elapsed = Date.now() - start;
-
-    expect(elapsed).toBeLessThan(3000);
+  it('DaemonPM shape invariant — fake pm satisfies the structural contract', () => {
+    const pm: DaemonPM = aliveFakePM();
+    expect(typeof pm.isAlive).toBe('function');
+    expect(typeof pm.spawn).toBe('function');
+    expect(pm.isAlive('whatever-id' as any)).toBe(true);
   });
 });

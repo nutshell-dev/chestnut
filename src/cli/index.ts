@@ -15,8 +15,6 @@ import { withCliErrorHandling } from './with-cli-error-handling.js';
 // + foundation/tools (combined ~10s vitest cold load), forcing every CLI subcommand
 // (e.g. `claw daemon`) to pay that cost. Lazy imports defer the cost to the user
 // who actually runs `start` or `init`.
-import * as path from 'path';
-import { fileURLToPath } from 'url';
 import { NodeFileSystem } from '../foundation/fs/node-fs.js';
 import type { FileSystem } from '../foundation/fs/types.js';
 import { 
@@ -45,15 +43,12 @@ import { statusCommand } from './commands/status.js';
 import { createSubagentCommand } from './commands/subagent.js';
 import { clawStepsCommand, clawStepCommand } from './commands/claw-steps.js';
 import { motionStepsCommand, motionStepCommand } from './commands/motion-steps.js';
-import { getWorkspaceRoot } from '../foundation/paths.js';
-import { DAEMON_LOG } from '../daemon/constants.js';
 import { createDirContext } from '../foundation/audit/index.js';
 import { getClawforumRoot, getClawDir, loadGlobalConfig } from '../foundation/config/index.js';
 import { CONFIG_DEFAULTS } from '../assembly/index.js';
 import { parseIntOption } from './parse-int-option.js';
-import { makeClawId, makeClawDir } from '../foundation/identity/index.js';
+import { makeClawId } from '../foundation/identity/index.js';
 import { makeContractId } from '../foundation/identity/index.js';
-import { MOTION_CLAW_ID } from '../constants.js';
 
 const fsFactory = (baseDir: string): FileSystem => new NodeFileSystem({ baseDir });
 
@@ -231,36 +226,8 @@ clawCmd
   .command('daemon <name>')
   .description('Start Claw daemon (auto-backgrounds)')
   .action(withCliErrorHandling(async (name: string) => {
-    // 前台入口：后台启动
-    const { loadGlobalConfig, clawExists, getClawDir, getGlobalConfigPath } = await import('../foundation/config/index.js');
-    const { CONFIG_DEFAULTS } = await import('../assembly/index.js');
-    const { createSystemAudit } = await import('../foundation/audit/index.js');
-    const { createAgentProcessManager } = await import('../foundation/process-manager/agent-factory.js');
-    loadGlobalConfig({ fsFactory }, CONFIG_DEFAULTS);
-    if (!clawExists({ fsFactory }, name)) {
-      throw new CliError(`Claw "${name}" does not exist. Try \`clawforum claw list\` to see existing claws.`);
-    }
-    const clawDir = getClawDir(name);
-    const baseDir = path.dirname(getGlobalConfigPath());
-    const nodeFs = fsFactory(baseDir);
-    const systemAudit = createSystemAudit(nodeFs, baseDir);
-    const pm = createAgentProcessManager({ fsFactory }, systemAudit);
-    if (pm.isAlive(makeClawId(name))) {
-      console.warn(`⚠ Claw "${name}" is already running`);
-      return;
-    }
-    const thisDir = path.dirname(fileURLToPath(import.meta.url));
-    const bundleEntry = path.join(thisDir, 'daemon-entry.js');
-    const bundleFs = fsFactory(thisDir);
-    const relBundle = path.relative(thisDir, bundleEntry);
-    const daemonEntryPath = bundleFs.existsSync(relBundle) ? bundleEntry : path.resolve(thisDir, '..', 'daemon-entry.js');
-    const pid = await pm.spawn(makeClawId(name), {
-      command: 'node',
-      args: [daemonEntryPath, name],
-      logFile: path.join(clawDir, DAEMON_LOG),
-      env: { ...process.env, CLAWFORUM_ROOT: getWorkspaceRoot() } as Record<string, string | undefined>,
-    });
-    console.log(`Started Claw "${name}" (PID: ${pid})`);
+    const { clawDaemonCommand } = await import('./commands/claw-daemon.js');
+    await clawDaemonCommand({ fsFactory }, name);
   }));
 
 clawCmd.on('command:*', (ops) => {
@@ -324,33 +291,8 @@ motionCmd
   .command('daemon')
   .description('Start Motion daemon (auto-backgrounds)')
   .action(withCliErrorHandling(async () => {
-    // 前台入口
-    const { loadGlobalConfig, getNamedSubrootDir } = await import('../foundation/config/index.js');
-    const { CONFIG_DEFAULTS } = await import('../assembly/index.js');
-    const { createSystemAudit } = await import('../foundation/audit/index.js');
-    const { createAgentProcessManager } = await import('../foundation/process-manager/agent-factory.js');
-    loadGlobalConfig({ fsFactory }, CONFIG_DEFAULTS);
-    const motionDir = makeClawDir(getNamedSubrootDir('motion'));
-    // Motion-only callsite: motionDir = <clawforumRoot>/motion → dirname 一层即 clawforumRoot
-    const baseDir = path.dirname(motionDir);
-    const nodeFs = fsFactory(baseDir);
-    const systemAudit = createSystemAudit(nodeFs, baseDir);
-    const pm = createAgentProcessManager({ fsFactory }, systemAudit);
-    if (pm.isAlive(MOTION_CLAW_ID)) {
-      console.warn('⚠ Motion is already running');
-      return;
-    }
-    const thisDir = path.dirname(fileURLToPath(import.meta.url));
-    const bundleEntry = path.join(thisDir, 'daemon-entry.js');
-    const bundleFs = fsFactory(thisDir);
-    const daemonEntryPath = bundleFs.existsSync('daemon-entry.js') ? bundleEntry : path.resolve(thisDir, '..', 'daemon-entry.js');
-    const pid = await pm.spawn(MOTION_CLAW_ID, {
-      command: 'node',
-      args: [daemonEntryPath, MOTION_CLAW_ID],
-      logFile: path.join(motionDir, DAEMON_LOG),
-      env: { ...process.env, CLAWFORUM_ROOT: getWorkspaceRoot() } as Record<string, string | undefined>,
-    });
-    console.log(`Started Motion daemon (PID: ${pid})`);
+    const { motionDaemonCommand } = await import('./commands/motion-daemon.js');
+    await motionDaemonCommand({ fsFactory });
   }));
 
 motionCmd.on('command:*', (ops) => {
