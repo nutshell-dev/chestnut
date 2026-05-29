@@ -200,8 +200,8 @@ describe('Builtin Tools - status tool', () => {
 
     // 先找文件顶部的 import 部分来加
 
-    // subtask failed 状态显示 ✗
-    it('should show ✗ icon for failed subtask', async () => {
+    // phase 1405 Fix 2: 'failed' SubtaskStatus 删；status tool 现仅 ✓ (completed) vs ○ (其他)
+    it('should show ○ icon for non-completed subtasks', async () => {
       const mockAudit = makeMockAudit();
       const manager = new ContractSystem({
         clawDir: tempDir,
@@ -212,25 +212,25 @@ describe('Builtin Tools - status tool', () => {
         fsFactory
       });
       const contractId = await manager.create({
-        title: 'Fail Test',
+        title: 'Mixed Test',
         goal: 'test',
         subtasks: [
-          { id: 'fail-task', description: 'This will fail' },
+          { id: 'in-progress-task', description: 'Still running' },
           { id: 'ok-task', description: 'This is ok' },
         ],
         verification: [],
         deliverables: [],
       });
-      // 直接修改 progress.json 设置 failed 状态
+      // 直接修改 progress.json 设置 in_progress 状态
       const progressPath = path.join(tempDir, 'contract/active', contractId, 'progress.json');
       const raw = await fs.readFile(progressPath, 'utf-8');
       const progress = JSON.parse(raw);
-      progress.subtasks['fail-task'].status = 'failed';
+      progress.subtasks['in-progress-task'].status = 'in_progress';
       await fs.writeFile(progressPath, JSON.stringify(progress));
 
       const statusTool = createStatusTool(manager);
       const result = await statusTool.execute({}, ctx);
-      expect(result.content).toContain('✗ fail-task');
+      expect(result.content).toContain('○ in-progress-task');
       expect(result.content).toContain('○ ok-task');
     });
 

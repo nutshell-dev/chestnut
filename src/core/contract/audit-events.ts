@@ -66,6 +66,7 @@ export const CONTRACT_AUDIT_EVENTS = {
   // phase 1335 (r138 F fork): boot reconcile audit emit trace
   CONTRACT_BOOT_RECONCILE: 'contract_boot_reconcile',
   CONTRACT_BOOT_MIGRATE_ESCALATED: 'contract_boot_migrate_escalated', // ← NEW phase 1399: boot 时 escalated 残留 migrate
+  CONTRACT_BOOT_MIGRATE_ARCHIVE_SKIPPED: 'contract_boot_migrate_archive_skipped', // ← NEW phase 1405: boot migrate 后 yaml load 失败、跳过 archive 留 forensics
   // phase 1362 (r140): contractDir → acquireLock TOCTOU race retry audit trace
   CONTRACT_DIR_RACE_RETRY: 'contract_dir_race_retry',
   // phase 1371 sub-2: archiveAndEmit partial recovery audit trace

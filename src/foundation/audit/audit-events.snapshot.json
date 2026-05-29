@@ -107,6 +107,7 @@
       "contract_archive_partial_recovery_failed",
       "contract_archive_recovered",
       "contract_archive_started",
+      "contract_boot_migrate_archive_skipped",
       "contract_boot_migrate_escalated",
       "contract_boot_reconcile",
       "contract_cancelled",

@@ -362,7 +362,18 @@ export class ContractSystem {
                 progress.status = 'completed';
                 await this.fs.writeAtomic(progressPath, JSON.stringify(progress, null, 2));
                 const contractId = makeContractId(progress.contract_id ?? entry.name);
-                const contractYaml = await this.loadContractYaml(contractId).catch(() => null);
+                // phase 1405: yaml load 失败时跳过 archive、显式 audit 留 forensics（避免 stuck-in-active 静默）
+                let contractYaml: Awaited<ReturnType<typeof this.loadContractYaml>> | null = null;
+                try {
+                  contractYaml = await this.loadContractYaml(contractId);
+                } catch (err) {
+                  this.audit.write(
+                    CONTRACT_AUDIT_EVENTS.CONTRACT_BOOT_MIGRATE_ARCHIVE_SKIPPED,
+                    `contractId=${contractId}`,
+                    `reason=yaml_load_failed`,
+                    `error=${err instanceof Error ? err.message : String(err)}`,
+                  );
+                }
                 if (contractYaml) {
                   await archiveAndEmit(this._verificationCtx(), contractId, contractYaml.title, 'init.migrate_escalated');
                 }

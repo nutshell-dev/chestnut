@@ -72,6 +72,47 @@ export function writeVerificationInbox(
   }, ctx.audit);
 }
 
+/**
+ * phase 1405: force-accept path inbox notification
+ *
+ * Called when retry_count >= verification_attempts and verification still fails.
+ * System decides to force-accept the last submission (DP「motion 是决策主体」—
+ * system retry threshold doesn't substitute for motion's quality judgment;
+ * motion sees force_accepted flag + last_failed_feedback in contract_completed
+ * and decides whether to create a new contract).
+ *
+ * Claw needs this inbox or it'll wait forever after submit_subtask in async mode.
+ */
+export function writeForceAcceptInbox(
+  ctx: VerificationContext,
+  contractId: ContractId,
+  subtaskId: SubtaskId,
+  allCompleted: boolean,
+  retryCount: number,
+  lastFeedback: string | undefined,
+): void {
+  const summary = lastFeedback ? `\n⚠ last_failure: ${lastFeedback}` : '';
+  const body = allCompleted
+    ? `Subtask ${subtaskId} force-accepted after ${retryCount} attempts. All subtasks complete!${summary}`
+    : `Subtask ${subtaskId} force-accepted after ${retryCount} attempts.${summary}`;
+
+  const clawforumRoot = ctx.clawforumRoot ?? makeClawforumRoot(getClawforumRoot());
+  notifyClaw(ctx.fs, clawforumRoot, ctx.clawId, {
+    type: 'verification_result',
+    source: 'contract_system',
+    to: ctx.clawId,
+    priority: 'normal',
+    body,
+    extraFields: {
+      contract_id: contractId,
+      subtask_id: subtaskId,
+      verdict: 'passed',
+      force_accepted: 'true',
+      retry_count: String(retryCount),
+    },
+  }, ctx.audit);
+}
+
 export async function writeVerificationError(
   ctx: VerificationContext,
   contractId: ContractId,
@@ -118,6 +159,7 @@ export async function writeVerificationError(
           subtask.status = 'completed';
           subtask.completed_at = new Date().toISOString();
           subtask.force_accepted = true;
+          const lastFeedback = subtask.last_failed_feedback?.feedback;
           await ctx.saveProgress(contractId, progress);
           emitSubtaskForceAccepted(ctx.audit, {
             contractId, subtaskId, retryCount: subtask.retry_count, claw: ctx.clawId,
@@ -127,6 +169,8 @@ export async function writeVerificationError(
           });
 
           const allCompleted = await ctx.checkAllSubtasksCompleted(contractId, progress);
+          // phase 1405: force-accept 必给 claw inbox 反馈、否则 submit_subtask async claw 永远等不到 verdict
+          writeForceAcceptInbox(ctx, contractId, subtaskId, allCompleted, subtask.retry_count, lastFeedback);
           if (allCompleted && progress.status !== 'completed') {
             progress.status = 'completed';
             await ctx.saveProgress(contractId, progress);

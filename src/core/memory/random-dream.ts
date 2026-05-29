@@ -150,10 +150,10 @@ async function computeWeight(
         if (recencyBonus > 20) hints.push('近期完成');
       }
 
-      // 失败/困难加权
+      // 失败/困难加权（phase 1405: 'failed' 状态删、改用 force_accepted = system 强接受 = 难点信号）
       let difficultyBonus = 0;
       for (const s of subtasks) {
-        if (s.status === 'failed') difficultyBonus += 20;
+        if (s.force_accepted === true) difficultyBonus += 20;
         else if ((s.retry_count ?? 0) >= 2) difficultyBonus += 10;
       }
       weight += difficultyBonus;
@@ -184,10 +184,10 @@ async function computeWeight(
         if (recencyBonus > 20) hints.push('近期完成');
       }
 
-      // 失败/困难加权
+      // 失败/困难加权（phase 1405: 'failed' 状态删、改用 force_accepted = system 强接受 = 难点信号）
       let difficultyBonus = 0;
       for (const s of subtasks) {
-        if (s.status === 'failed') difficultyBonus += 20;
+        if (s.force_accepted === true) difficultyBonus += 20;
         else if ((s.retry_count ?? 0) >= 2) difficultyBonus += 10;
       }
       weight += difficultyBonus;

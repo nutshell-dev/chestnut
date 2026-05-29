@@ -27,7 +27,7 @@ import {
 
 import { archiveAndEmit, completeSubtaskSync } from './verification-lifecycle.js';
 import { acquireVerificationMutex, releaseVerificationMutex } from './verification-mutex.js';
-import { writeVerificationInbox, writeVerificationError, safeNotify } from './verification-notify.js';
+import { writeVerificationInbox, writeForceAcceptInbox, writeVerificationError, safeNotify } from './verification-notify.js';
 import { formatRejectionFeedback, formatValidIds } from './verification-format.js';
 import type { VerificationContext } from './verification-types.js';
 import type { ContractId } from '../../foundation/identity/index.js';
@@ -175,6 +175,7 @@ async function applyVerificationOutcome(
       subtask.status = 'completed';
       subtask.completed_at = new Date().toISOString();
       subtask.force_accepted = true;
+      const lastFeedback = subtask.last_failed_feedback?.feedback;
       emitSubtaskForceAccepted(ctx.audit, {
         contractId, subtaskId, retryCount: subtask.retry_count, claw: ctx.clawId,
       });
@@ -185,6 +186,9 @@ async function applyVerificationOutcome(
       const allCompleted = await ctx.checkAllSubtasksCompleted(contractId, progress);
       if (allCompleted) { progress.status = 'completed'; }
       await ctx.saveProgress(contractId, progress);
+
+      // phase 1405: force-accept 必给 claw inbox 反馈、否则 submit_subtask async claw 永远等不到 verdict
+      writeForceAcceptInbox(ctx, contractId, subtaskId, allCompleted, subtask.retry_count, lastFeedback);
 
       // archiveAndEmit 由 runVerificationInBackground 在 withProgressLock 外调用（防嵌套锁）
       return { allCompleted, passed: true };
@@ -396,5 +400,5 @@ export async function runVerificationInBackground(
 // re-export for backward compat (caller cascade 0)
 export { runScriptVerification, runLLMVerification } from './verification-execution.js';
 export { archiveAndEmit, completeSubtaskSync } from './verification-lifecycle.js';
-export { writeVerificationInbox, writeVerificationError, safeNotify } from './verification-notify.js';
+export { writeVerificationInbox, writeForceAcceptInbox, writeVerificationError, safeNotify } from './verification-notify.js';
 export { formatRejectionFeedback } from './verification-format.js';

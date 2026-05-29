@@ -24,7 +24,7 @@ async function getContractStatus(ctx: ExecContext, contractSystem: ContractSyste
 
     const lines = [`Contract: "${contract.title}" (${doneCount}/${totalCount} subtasks done)`];
     for (const s of contract.subtasks) {
-      const icon = s.status === 'completed' ? '✓' : s.status === 'failed' ? '✗' : '○';
+      const icon = s.status === 'completed' ? '✓' : '○';
       lines.push(`  ${icon} ${s.id}: ${s.description}`);
     }
     return lines.join('\n');

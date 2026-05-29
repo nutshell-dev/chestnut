@@ -209,7 +209,14 @@ export function createEventHandler(deps: EventHandlerDeps) {
           const completed = event.completedCount as number | undefined;
           const total = event.subtaskTotal as number | undefined;
           const progress = completed != null && total != null ? `, ${completed} of ${total}` : '';
-          if (deps.showContractEvents) deps.appendOutput('\x1b[2m', `  ✓ [contract] ${subtaskId} passed${progress} (${claw})`);
+          // phase 1405: force-accept 区分显示、让用户看见质量信号（DP「用户可观察」）
+          const forceAccepted = event.force_accepted === true;
+          if (deps.showContractEvents) {
+            const line = forceAccepted
+              ? `  ⚠ [contract] ${subtaskId} force-accepted${progress} (${claw})`
+              : `  ✓ [contract] ${subtaskId} passed${progress} (${claw})`;
+            deps.appendOutput('\x1b[2m', line);
+          }
         } else if (sub === 'verification_failed') {
           const claw = (event.clawId as string) ?? '';
           if (!claw || claw === deps.label) break;  // 隐藏自己的契约通知

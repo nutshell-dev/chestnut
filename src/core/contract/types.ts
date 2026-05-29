@@ -30,8 +30,7 @@ export type ContractStatus =
 export type SubtaskStatus =
   | 'todo'
   | 'in_progress'
-  | 'completed'
-  | 'failed';
+  | 'completed';
 
 export interface LastFailedFeedback {
   feedback: string;
