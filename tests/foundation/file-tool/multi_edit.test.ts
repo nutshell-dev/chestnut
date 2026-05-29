@@ -44,14 +44,22 @@ describe('multi_edit tool', () => {
     const result = await multiEditTool.execute({
       path: 'file.txt',
       edits: [
-        { old_string: 'a', new_string: 'x' },
-        { old_string: 'c', new_string: 'y' },
+        { oldText: 'a', newText: 'x' },
+        { oldText: 'c', newText: 'y' },
       ],
     }, ctx);
 
     expect(result.success).toBe(true);
     expect(result.content).toContain('2 edits applied');
-    expect(result.metadata).toEqual({ results: [{ index: 0, replaced: 1 }, { index: 1, replaced: 1 }] });
+    // phase 1434: applied summary + first-edit preview
+    expect(result.content).toContain('Applied:');
+    expect(result.content).toMatch(/edit\[0\]: at line \d+/);
+    expect(result.content).toMatch(/edit\[1\]: at line \d+/);
+    expect(result.content).toContain('First edit preview:');
+    expect(result.content).toContain('@@ around line 1 @@');
+    expect(result.content).toContain('- a');
+    expect(result.content).toContain('+ x');
+    expect(result.metadata).toEqual({ results: [{ index: 0, replaced: 1, line: 1 }, { index: 1, replaced: 1, line: 1 }] });
 
     const content = await mockFs.read('clawspace/file.txt');
     expect(content).toBe('x b y d');
@@ -64,29 +72,31 @@ describe('multi_edit tool', () => {
     const result = await multiEditTool.execute({
       path: 'file.txt',
       edits: [
-        { old_string: 'hello', new_string: 'hi' },
-        { old_string: 'notfound', new_string: 'replacement' },
+        { oldText: 'hello', newText: 'hi' },
+        { oldText: 'notfound', newText: 'replacement' },
       ],
     }, ctx);
 
     expect(result.success).toBe(false);
     expect(result.content).toContain('edit[1]');
     expect(result.content).toContain('0 matches');
-    expect(result.metadata).toEqual({ failed_index: 1, results: [{ index: 0, replaced: 1 }] });
+    expect(result.content).toContain('Verify current content with `read`');
+    expect(result.content).toContain('an earlier edit may have invalidated this one');
+    expect(result.metadata).toEqual({ failed_index: 1, results: [{ index: 0, replaced: 1, line: 1 }] });
 
     const content = await mockFs.read('clawspace/file.txt');
     expect(content).toBe('hello world');
   });
 
-  it('should abort and rollback on mid-way multiple matches without replace_all', async () => {
+  it('should abort and rollback on mid-way multiple matches without replaceAll', async () => {
     await mockFs.ensureDir('clawspace');
     await mockFs.writeAtomic('clawspace/file.txt', 'foo bar foo');
 
     const result = await multiEditTool.execute({
       path: 'file.txt',
       edits: [
-        { old_string: 'bar', new_string: 'qux' },
-        { old_string: 'foo', new_string: 'qux' },
+        { oldText: 'bar', newText: 'qux' },
+        { oldText: 'foo', newText: 'qux' },
       ],
     }, ctx);
 
@@ -105,8 +115,8 @@ describe('multi_edit tool', () => {
     const result = await multiEditTool.execute({
       path: 'file.txt',
       edits: [
-        { old_string: 'hello', new_string: 'goodbye' },
-        { old_string: 'hello', new_string: 'hi' },
+        { oldText: 'hello', newText: 'goodbye' },
+        { oldText: 'hello', newText: 'hi' },
       ],
     }, ctx);
 
@@ -125,8 +135,8 @@ describe('multi_edit tool', () => {
     const result = await multiEditTool.execute({
       path: 'file.txt',
       edits: [
-        { old_string: 'original', new_string: 'updated' },
-        { old_string: 'content', new_string: 'data' },
+        { oldText: 'original', newText: 'updated' },
+        { oldText: 'content', newText: 'data' },
       ],
     }, ctx);
 
@@ -148,8 +158,8 @@ describe('multi_edit tool', () => {
     await multiEditTool.execute({
       path: 'file.txt',
       edits: [
-        { old_string: 'a', new_string: 'x' },
-        { old_string: 'b', new_string: 'y' },
+        { oldText: 'a', newText: 'x' },
+        { oldText: 'b', newText: 'y' },
       ],
     }, ctx);
 
@@ -166,8 +176,8 @@ describe('multi_edit tool', () => {
     const result = await multiEditTool.execute({
       path: 'file.txt',
       edits: [
-        { old_string: 'a', new_string: 'x' },
-        { old_string: 'notfound', new_string: 'y' },
+        { oldText: 'a', newText: 'x' },
+        { oldText: 'notfound', newText: 'y' },
       ],
     }, ctx);
 

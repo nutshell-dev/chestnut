@@ -22,13 +22,13 @@ export const writeTool: Tool = {
   name: WRITE_TOOL_NAME,
   profiles: ['full', 'subagent', 'miner'],
   group: 'fs-write',
-  description: 'Write a file in your clawspace. Path is relative to clawspace (do NOT prefix with "clawspace/"). Use "../" in path to access claw root files (e.g., "../MEMORY.md", "../memory/notes.md"). Use append: true to append. Overwrite (no append) requires the file to have been fully read via `read` in this daemon process and unchanged since.',
+  description: 'Write a file. Path resolves against your clawspace; use "../" to access claw root (e.g. "../MEMORY.md", "../memory/notes.md"). Set append: true to append. Overwrite (no append) requires the file to have been fully read via `read` in this daemon process and unchanged since.',
   schema: {
     type: 'object',
     properties: {
       path: {
         type: 'string',
-        description: 'File path (relative to clawspace, with "../" allowed for claw root access)',
+        description: 'File path (workspace-relative, "../" allowed for claw root access)',
       },
       content: {
         type: 'string',

@@ -3,11 +3,12 @@
  * edit tool - Replace exact string in a file
  *
  * Features:
- * - Unique match by default (multiple matches reject unless replace_all=true)
- * - 0 match fail loud with hint
+ * - Unique match by default (multiple matches reject unless replaceAll=true)
+ * - 0 match fail loud with hint (verify with `read`)
  * - Backup to syncDir with frontmatter
  * - Atomic write (temp+rename)
  * - File must exist (use write to create)
+ * - Success returns ±3-line context diff (formatEditDiff)
  */
 
 import type { Tool, ExecContext } from '../tools/index.js';
@@ -16,6 +17,7 @@ import type { ToolResult } from '../tool-protocol/index.js';
 import { backupToSync } from './sync-backup.js';
 import { resolveWorkspacePath } from './resolve-path.js';
 import { computeContentHash } from './file-state.js';
+import { formatEditDiff, lineDelta } from './edit-format.js';
 export const EDIT_TOOL_NAME = 'edit' as const;
 
 function countMatches(s: string, pattern: string): number {
@@ -33,37 +35,37 @@ export const editTool: Tool = {
   name: EDIT_TOOL_NAME,
   profiles: ['full', 'subagent', 'miner'],
   group: 'fs-write',
-  description: 'Edit a file by exact string replace. Path is relative to clawspace (do NOT prefix with "clawspace/"). Use "../" in path to access claw root files. old_string must uniquely match by default; use replace_all=true for batch. File must exist.',
+  description: 'Edit a file by exact string replace. Path resolves against your clawspace; use "../" to access claw root (e.g. "../MEMORY.md"). oldText must uniquely match by default; set replaceAll=true for batch. File must exist (use write to create).',
   schema: {
     type: 'object',
     properties: {
       path: {
         type: 'string',
-        description: 'File path (relative to clawspace, with "../" allowed for claw root access)',
+        description: 'File path (workspace-relative, "../" allowed for claw root access)',
       },
-      old_string: {
+      oldText: {
         type: 'string',
-        description: 'Exact string to replace (must uniquely match by default)',
+        description: 'Exact text to replace (must uniquely match by default; preserve whitespace / newlines / indentation literally)',
       },
-      new_string: {
+      newText: {
         type: 'string',
-        description: 'Replacement string',
+        description: 'Replacement text (empty string deletes the matched range)',
       },
-      replace_all: {
+      replaceAll: {
         type: 'boolean',
         description: 'If true, replace all occurrences instead of just the first',
       },
     },
-    required: ['path', 'old_string', 'new_string'],
+    required: ['path', 'oldText', 'newText'],
   },
   readonly: false,
   idempotent: false,
 
   async execute(args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
     const filePath = args.path as string;
-    const oldString = args.old_string as string;
-    const newString = args.new_string as string;
-    const replaceAll = args.replace_all === true;
+    const oldText = args.oldText as string;
+    const newText = args.newText as string;
+    const replaceAll = args.replaceAll === true;
 
     const resolved = resolveWorkspacePath(ctx, filePath);
     if (resolved.startsWith('..') || resolved.startsWith('/')) {
@@ -92,17 +94,17 @@ export const editTool: Tool = {
     const content = await ctx.fs.read(resolved);
 
     // Match checking
-    const matches = countMatches(content, oldString);
+    const matches = countMatches(content, oldText);
     if (matches === 0) {
       return {
         success: false,
-        content: `Error: 0 matches for old_string in '${filePath}' (G4 fail loud / check exact string including whitespace / newlines / indentation)`,
+        content: `Error: 0 matches for oldText in '${filePath}'. Verify current content with \`read\` (the file may have changed since your last read) and ensure whitespace / newlines / indentation match literally.`,
       };
     }
     if (matches > 1 && !replaceAll) {
       return {
         success: false,
-        content: `Error: ${matches} matches for old_string in '${filePath}' (G4 fail loud / expand old_string with more context to make it unique / or use replace_all=true for explicit batch)`,
+        content: `Error: ${matches} matches for oldText in '${filePath}'. Expand oldText with surrounding context to make it unique, or set replaceAll=true for explicit batch. Use \`read\` to confirm current content if unsure.`,
       };
     }
 
@@ -111,8 +113,8 @@ export const editTool: Tool = {
 
     // Replace
     const replaced = replaceAll
-      ? content.split(oldString).join(newString)
-      : content.replace(oldString, newString);
+      ? content.split(oldText).join(newText)
+      : content.replace(oldText, newText);
 
     await ctx.fs.writeAtomic(resolved, replaced);
     // edit operates on whole content (read full, replace, write back) → counts as full read post-edit
@@ -125,9 +127,15 @@ export const editTool: Tool = {
 
     const replacedCount = replaceAll ? matches : 1;
     const backupHint = backupPath ? ` (backup: ${backupPath})` : '';
+    const delta = lineDelta(oldText, newText) * replacedCount;
+    const deltaHint = delta === 0 ? '' : ` / line delta ${delta >= 0 ? '+' : ''}${delta}`;
+    const diff = formatEditDiff(content, oldText, newText);
+    const moreHint = replaceAll && matches > 1
+      ? `\n(${matches - 1} more replacement${matches - 1 === 1 ? '' : 's'} elsewhere; preview shows first)`
+      : '';
     return {
       success: true,
-      content: `Edited: ${filePath} (replaced ${replacedCount}/${matches} matches)${backupHint}`,
+      content: `Edited: ${filePath} (replaced ${replacedCount}/${matches} matches${deltaHint})${backupHint}\n\n${diff}${moreHint}`,
       metadata: { replaced: replacedCount },
     };
   },

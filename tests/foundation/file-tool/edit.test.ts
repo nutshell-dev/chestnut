@@ -43,28 +43,32 @@ describe('edit tool', () => {
 
     const result = await editTool.execute({
       path: 'file.txt',
-      old_string: 'hello',
-      new_string: 'hi',
+      oldText: 'hello',
+      newText: 'hi',
     }, ctx);
 
     expect(result.success).toBe(true);
     expect(result.content).toContain('Edited:');
     expect(result.content).toContain('replaced 1/1');
+    // phase 1434: diff preview shows context with - / + markers
+    expect(result.content).toContain('@@ around line 1 @@');
+    expect(result.content).toContain('- hello');
+    expect(result.content).toContain('+ hi');
     expect(result.metadata).toEqual({ replaced: 1 });
 
     const content = await mockFs.read('clawspace/file.txt');
     expect(content).toBe('hi world');
   });
 
-  it('should replace all matches with replace_all=true', async () => {
+  it('should replace all matches with replaceAll=true', async () => {
     await mockFs.ensureDir('clawspace');
     await mockFs.writeAtomic('clawspace/file.txt', 'foo bar foo baz foo');
 
     const result = await editTool.execute({
       path: 'file.txt',
-      old_string: 'foo',
-      new_string: 'qux',
-      replace_all: true,
+      oldText: 'foo',
+      newText: 'qux',
+      replaceAll: true,
     }, ctx);
 
     expect(result.success).toBe(true);
@@ -81,30 +85,33 @@ describe('edit tool', () => {
 
     const result = await editTool.execute({
       path: 'file.txt',
-      old_string: 'notfound',
-      new_string: 'replacement',
+      oldText: 'notfound',
+      newText: 'replacement',
     }, ctx);
 
     expect(result.success).toBe(false);
     expect(result.content).toContain('0 matches');
+    expect(result.content).toContain('Verify current content with `read`');
 
     const content = await mockFs.read('clawspace/file.txt');
     expect(content).toBe('hello world');
   });
 
-  it('should fail loud on multiple matches without replace_all', async () => {
+  it('should fail loud on multiple matches without replaceAll', async () => {
     await mockFs.ensureDir('clawspace');
     await mockFs.writeAtomic('clawspace/file.txt', 'foo bar foo');
 
     const result = await editTool.execute({
       path: 'file.txt',
-      old_string: 'foo',
-      new_string: 'qux',
+      oldText: 'foo',
+      newText: 'qux',
     }, ctx);
 
     expect(result.success).toBe(false);
     expect(result.content).toContain('2 matches');
-    expect(result.content).toContain('replace_all=true');
+    expect(result.content).toContain('replaceAll=true');
+    expect(result.content).toContain('Expand oldText with surrounding context');
+    expect(result.content).toContain('Use `read` to confirm');
 
     const content = await mockFs.read('clawspace/file.txt');
     expect(content).toBe('foo bar foo');
@@ -113,8 +120,8 @@ describe('edit tool', () => {
   it('should reject when file does not exist', async () => {
     const result = await editTool.execute({
       path: 'nonexistent.txt',
-      old_string: 'a',
-      new_string: 'b',
+      oldText: 'a',
+      newText: 'b',
     }, ctx);
 
     expect(result.success).toBe(false);
@@ -128,8 +135,8 @@ describe('edit tool', () => {
 
     const result = await editTool.execute({
       path: 'versioned.txt',
-      old_string: 'original',
-      new_string: 'updated',
+      oldText: 'original',
+      newText: 'updated',
     }, ctx);
 
     expect(result.success).toBe(true);
@@ -152,8 +159,8 @@ describe('edit tool', () => {
 
     await editTool.execute({
       path: 'atomic.txt',
-      old_string: 'hello',
-      new_string: 'world',
+      oldText: 'hello',
+      newText: 'world',
     }, ctx);
 
     expect(writeSpy).toHaveBeenCalledWith('clawspace/atomic.txt', 'world');
@@ -177,8 +184,8 @@ describe('edit tool', () => {
 
     const result = await editTool.execute({
       path: 'file.txt',
-      old_string: 'hello',
-      new_string: 'hi',
+      oldText: 'hello',
+      newText: 'hi',
     }, ctx);
 
     expect(result.success).toBe(true);

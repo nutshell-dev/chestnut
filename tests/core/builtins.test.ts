@@ -420,7 +420,7 @@ describe('Builtin Tools', () => {
       await mockFs.ensureDir('clawspace');
       await mockFs.writeAtomic('clawspace/edit.txt', 'hello world');
 
-      const result = await editTool.execute({ path: 'edit.txt', old_string: 'hello', new_string: 'hi' }, ctx);
+      const result = await editTool.execute({ path: 'edit.txt', oldText: 'hello', newText: 'hi' }, ctx);
 
       expect(result.success).toBe(true);
       expect(result.content).toContain('Edited:');
@@ -433,24 +433,24 @@ describe('Builtin Tools', () => {
       await mockFs.ensureDir('clawspace');
       await mockFs.writeAtomic('clawspace/edit.txt', 'hello world');
 
-      const result = await editTool.execute({ path: 'edit.txt', old_string: 'notfound', new_string: 'x' }, ctx);
+      const result = await editTool.execute({ path: 'edit.txt', oldText: 'notfound', newText: 'x' }, ctx);
 
       expect(result.success).toBe(false);
       expect(result.content).toContain('0 matches');
     });
 
-    it('should fail loud on multiple matches without replace_all', async () => {
+    it('should fail loud on multiple matches without replaceAll', async () => {
       await mockFs.ensureDir('clawspace');
       await mockFs.writeAtomic('clawspace/edit.txt', 'foo bar foo');
 
-      const result = await editTool.execute({ path: 'edit.txt', old_string: 'foo', new_string: 'qux' }, ctx);
+      const result = await editTool.execute({ path: 'edit.txt', oldText: 'foo', newText: 'qux' }, ctx);
 
       expect(result.success).toBe(false);
       expect(result.content).toContain('2 matches');
     });
 
     it('should reject when file does not exist', async () => {
-      const result = await editTool.execute({ path: 'nonexistent.txt', old_string: 'a', new_string: 'b' }, ctx);
+      const result = await editTool.execute({ path: 'nonexistent.txt', oldText: 'a', newText: 'b' }, ctx);
       expect(result.success).toBe(false);
       expect(result.content).toContain('does not exist');
     });
@@ -464,8 +464,8 @@ describe('Builtin Tools', () => {
       const result = await multiEditTool.execute({
         path: 'multi.txt',
         edits: [
-          { old_string: 'a', new_string: 'x' },
-          { old_string: 'c', new_string: 'y' },
+          { oldText: 'a', newText: 'x' },
+          { oldText: 'c', newText: 'y' },
         ],
       }, ctx);
 
@@ -482,14 +482,14 @@ describe('Builtin Tools', () => {
       const result = await multiEditTool.execute({
         path: 'multi.txt',
         edits: [
-          { old_string: 'hello', new_string: 'hi' },
-          { old_string: 'notfound', new_string: 'x' },
+          { oldText: 'hello', newText: 'hi' },
+          { oldText: 'notfound', newText: 'x' },
         ],
       }, ctx);
 
       expect(result.success).toBe(false);
       expect(result.content).toContain('edit[1]');
-      expect(result.metadata).toEqual({ failed_index: 1, results: [{ index: 0, replaced: 1 }] });
+      expect(result.metadata).toEqual({ failed_index: 1, results: [{ index: 0, replaced: 1, line: 1 }] });
       const content = await mockFs.read('clawspace/multi.txt');
       expect(content).toBe('hello world');
     });

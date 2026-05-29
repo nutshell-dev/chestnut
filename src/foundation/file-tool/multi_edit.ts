@@ -8,6 +8,7 @@
  * - Single backup before all edits
  * - Atomic write on success (single writeAtomic)
  * - File must exist
+ * - Success returns Applied summary + First edit preview (formatEditDiff)
  */
 
 import type { Tool, ExecContext } from '../tools/index.js';
@@ -16,6 +17,7 @@ import type { ToolResult } from '../tool-protocol/index.js';
 import { backupToSync } from './sync-backup.js';
 import { resolveWorkspacePath } from './resolve-path.js';
 import { computeContentHash } from './file-state.js';
+import { findFirstMatchLine, formatEditDiff, lineDelta } from './edit-format.js';
 export const MULTI_EDIT_TOOL_NAME = 'multi_edit' as const;
 
 function countMatches(s: string, pattern: string): number {
@@ -33,34 +35,34 @@ export const multiEditTool: Tool = {
   name: MULTI_EDIT_TOOL_NAME,
   profiles: ['full', 'subagent', 'miner'],
   group: 'fs-write',
-  description: 'Apply multiple sequential edits to a file. Path is relative to clawspace (do NOT prefix with "clawspace/"). Use "../" in path to access claw root files. Edits are applied in order; on any failure, all edits are rolled back. Single backup before all edits. File must exist.',
+  description: 'Apply multiple sequential edits to a file atomically. Path resolves against your clawspace; use "../" to access claw root. Edits apply in order; any failure rolls all back (0 fs write). Single backup before all edits. File must exist.',
   schema: {
     type: 'object',
     properties: {
       path: {
         type: 'string',
-        description: 'File path (relative to clawspace, with "../" allowed for claw root access)',
+        description: 'File path (workspace-relative, "../" allowed for claw root access)',
       },
       edits: {
         type: 'array',
-        description: 'Array of edits to apply in order',
+        description: 'Array of edits to apply in order. Each edit takes oldText (exact match) + newText, optional replaceAll. Note: edits[i].oldText must match the file AFTER edits[0..i-1] have been applied — order-sensitive.',
         items: {
           type: 'object',
           properties: {
-            old_string: {
+            oldText: {
               type: 'string',
-              description: 'Exact string to replace',
+              description: 'Exact text to replace',
             },
-            new_string: {
+            newText: {
               type: 'string',
-              description: 'Replacement string',
+              description: 'Replacement text (empty string deletes the matched range)',
             },
-            replace_all: {
+            replaceAll: {
               type: 'boolean',
               description: 'If true, replace all occurrences instead of just the first',
             },
           },
-          required: ['old_string', 'new_string'],
+          required: ['oldText', 'newText'],
         },
       },
     },
@@ -71,7 +73,7 @@ export const multiEditTool: Tool = {
 
   async execute(args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
     const filePath = args.path as string;
-    const edits = args.edits as Array<{ old_string: string; new_string: string; replace_all?: boolean }>;
+    const edits = args.edits as Array<{ oldText: string; newText: string; replaceAll?: boolean }>;
 
     const resolved = resolveWorkspacePath(ctx, filePath);
     if (resolved.startsWith('..') || resolved.startsWith('/')) {
@@ -92,7 +94,7 @@ export const multiEditTool: Tool = {
     if (!edits || edits.length === 0) {
       return {
         success: false,
-        content: `Error: edits array must contain at least 1 edit (G4 fail loud)`,
+        content: `Error: edits array must contain at least 1 edit`,
       };
     }
 
@@ -112,29 +114,34 @@ export const multiEditTool: Tool = {
 
     // Apply edits in-memory
     let current = original;
-    const results: Array<{ index: number; replaced: number }> = [];
+    const results: Array<{ index: number; replaced: number; line: number | null }> = [];
+    let firstEditPreview = '';
 
     for (let i = 0; i < edits.length; i++) {
       const edit = edits[i];
-      const matches = countMatches(current, edit.old_string);
+      const matches = countMatches(current, edit.oldText);
       if (matches === 0) {
         return {
           success: false,
-          content: `Error: edit[${i}] 0 matches for old_string (G3 hint: fix the first failed edit and retry / subsequent edits may be invalidated / all changes rolled back / 0 file writes)`,
+          content: `Error: edit[${i}] 0 matches for oldText. All changes rolled back / 0 file writes. Verify current content with \`read\` (the file may have changed) — also note: edits[${i}].oldText must match the file AFTER edits[0..${i - 1}] have been applied, so an earlier edit may have invalidated this one.`,
           metadata: { failed_index: i, results },
         };
       }
-      if (matches > 1 && !edit.replace_all) {
+      if (matches > 1 && !edit.replaceAll) {
         return {
           success: false,
-          content: `Error: edit[${i}] ${matches} matches (expand old_string or use replace_all=true / G3 hint: fix the first failed edit and retry / all changes rolled back)`,
+          content: `Error: edit[${i}] ${matches} matches. Expand oldText with surrounding context or set replaceAll=true. All changes rolled back / 0 file writes. Use \`read\` to confirm current content if unsure.`,
           metadata: { failed_index: i, results },
         };
       }
-      current = edit.replace_all
-        ? current.split(edit.old_string).join(edit.new_string)
-        : current.replace(edit.old_string, edit.new_string);
-      results.push({ index: i, replaced: edit.replace_all ? matches : 1 });
+      const matchLine = findFirstMatchLine(current, edit.oldText);
+      if (i === 0) {
+        firstEditPreview = formatEditDiff(current, edit.oldText, edit.newText);
+      }
+      current = edit.replaceAll
+        ? current.split(edit.oldText).join(edit.newText)
+        : current.replace(edit.oldText, edit.newText);
+      results.push({ index: i, replaced: edit.replaceAll ? matches : 1, line: matchLine });
     }
 
     // All edits succeeded — single atomic write
@@ -147,9 +154,19 @@ export const multiEditTool: Tool = {
     });
 
     const backupHint = backupPath ? ` (backup: ${backupPath})` : '';
+    const totalDelta = edits.reduce(
+      (sum, e, i) => sum + lineDelta(e.oldText, e.newText) * results[i].replaced,
+      0,
+    );
+    const deltaHint = totalDelta === 0 ? '' : ` / line delta ${totalDelta >= 0 ? '+' : ''}${totalDelta}`;
+    const summary = results
+      .map(r => `  edit[${r.index}]: ${r.line !== null ? `at line ${r.line}` : '(in-edit chain)'} / replaced ${r.replaced}`)
+      .join('\n');
+    const previewBlock = firstEditPreview ? `\n\nFirst edit preview:\n${firstEditPreview}` : '';
+    const moreHint = edits.length > 1 ? `\n(${edits.length - 1} more edit${edits.length - 1 === 1 ? '' : 's'} applied; preview shows edits[0])` : '';
     return {
       success: true,
-      content: `Multi-edited: ${filePath} (${edits.length} edits applied)${backupHint}`,
+      content: `Multi-edited: ${filePath} (${edits.length} edits applied${deltaHint})${backupHint}\n\nApplied:\n${summary}${previewBlock}${moreHint}`,
       metadata: { results },
     };
   },

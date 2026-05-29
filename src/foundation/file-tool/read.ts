@@ -58,7 +58,7 @@ export const readTool: Tool = {
   profiles: ['full', 'readonly', 'subagent', 'miner'],
   group: 'fs-read',
   description: [
-    'Reads a file. Path is relative to your clawspace (do NOT prefix with "clawspace/"). Use "../" in path to access claw root (e.g., "../MEMORY.md"). Pass `claw: "<id>"` to read another claw\'s file.',
+    'Reads a file. Path resolves against your clawspace; use "../" to access claw root (e.g. "../MEMORY.md"). Pass `claw: "<id>"` to read another claw\'s file.',
     '',
     'Default (no offset/limit): up to the first 200 lines.',
     '',
@@ -73,7 +73,7 @@ export const readTool: Tool = {
     properties: {
       path: {
         type: 'string',
-        description: 'File path (relative to clawspace, with "../" allowed for claw root access)',
+        description: 'File path (workspace-relative, "../" allowed for claw root access)',
       },
       offset: {
         type: 'number',

@@ -19,13 +19,13 @@ export const lsTool: Tool = {
   name: LS_TOOL_NAME,
   profiles: ['full', 'readonly', 'subagent', 'miner'],
   group: 'fs-read',
-  description: 'List files in your clawspace. Path is relative to clawspace (do NOT prefix with "clawspace/"). Use "../" in path to access claw root subdirs (e.g., "../memory"). Use claw: "<id>" to list another claw\'s files.',
+  description: 'List files. Path resolves against your clawspace; use "../" to access claw root subdirs (e.g. "../memory"). Set claw: "<id>" to list another claw\'s files.',
   schema: {
     type: 'object',
     properties: {
       path: {
         type: 'string',
-        description: 'Directory path to list (relative to clawspace, with "../" allowed for claw root access)',
+        description: 'Directory path (workspace-relative, "../" allowed for claw root access)',
       },
       claw: {
         type: 'string',
