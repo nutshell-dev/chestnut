@@ -6,6 +6,8 @@
  */
 
 import * as path from 'path';
+import { fileURLToPath } from 'url';
+import type { FileSystem } from './fs/types.js';
 import { INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR, OUTBOX_PENDING_DIR } from './messaging/dirs.js';
 
 
@@ -103,4 +105,36 @@ export function getNamedSubrootDir(name: string): string {
 
 export function getClawConfigPath(name: string): string {
   return path.join(getClawDir(name), 'config.yaml');
+}
+
+
+// ── spawn 入口路径解析（M#1 单一权威 / phase 1436）──
+//
+// bundled 输出：tsup code-split 将所有 chunk（含本 helper）平铺至 dist/、
+// daemon-entry.js / watchdog-entry.js 与之同处 dist/ 顶层。
+// unbundled / dev：thisDir = src/foundation/、entry 编译至 dist 根、上溯 1 级。
+//
+// 散落历史：phase 1436 前 7 cli/commands + 1 watchdog 共 8 caller 各自手算路径、
+// 3 种 fallback 层数（0/1/2）+ 2 种 exists 判定（callerDir / cwd 相对）= 6 种写法。
+// tsup code-split 平铺策略一改即全炸（toolprotocol-rechecker / messaging-auditor /
+// tools-auditor daemon spawn MODULE_NOT_FOUND 实证）。
+
+const PATHS_THIS_DIR = path.dirname(fileURLToPath(import.meta.url));
+
+export function resolveDaemonEntry(fs: FileSystem): string {
+  return resolveSpawnEntry(fs, 'daemon-entry.js');
+}
+
+export function resolveWatchdogEntry(fs: FileSystem): string {
+  return resolveSpawnEntry(fs, 'watchdog-entry.js');
+}
+
+function resolveSpawnEntry(fs: FileSystem, filename: string): string {
+  // bundled 同处 dist/ 顶层。命中即返。
+  const bundled = path.join(PATHS_THIS_DIR, filename);
+  if (fs.existsSync(bundled)) return bundled;
+  // unbundled / dev：上溯 1 级（src/foundation/ → src/）；
+  // 也作 pgrep pattern 兜底：即使物理不存（test fixture 不落 dist）也返该字符串，
+  // 由 caller spawn 时 node 报真 MODULE_NOT_FOUND，与 phase 1436 前同语义。
+  return path.resolve(PATHS_THIS_DIR, '..', filename);
 }

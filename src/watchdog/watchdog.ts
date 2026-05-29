@@ -19,7 +19,6 @@
  */
 
 import * as path from 'path';
-import { fileURLToPath } from 'url';
 import { setTimeout } from 'timers/promises';
 import { getNamedSubrootDir } from '../foundation/config/index.js';
 import { MOTION_CLAW_ID } from '../constants.js';
@@ -29,7 +28,7 @@ import { type AuditLog, createAuditWriter } from '../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../foundation/process-manager/index.js';
 import { LockConflictError } from '../foundation/process-manager/index.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
-import { CLAWS_DIR } from '../foundation/paths.js';
+import { CLAWS_DIR, resolveDaemonEntry } from '../foundation/paths.js';
 import { DAEMON_LOG } from '../daemon/constants.js';
 import { AUDIT_MESSAGE_MAX_CHARS } from '../foundation/audit/index.js';
 
@@ -176,12 +175,7 @@ export async function runWatchdogLoop(fsFactory: (baseDir: string) => FileSystem
           const msg = `[watchdog] Failed to clean up motion before restart: ${e instanceof Error ? e.message : String(e)}`;
           logWithAudit(fsFactory, msg, WATCHDOG_AUDIT_EVENTS.CLEANUP_FAILED, msg.slice(0, AUDIT_MESSAGE_MAX_CHARS));
         });
-        const thisDir = path.dirname(fileURLToPath(import.meta.url));
-        const bundleEntry = path.join(thisDir, 'daemon-entry.js');
-        const projectRoot = path.resolve(thisDir, '..', '..');
-        const fsProj = fsFactory(projectRoot);
-        const relBundle = path.relative(projectRoot, bundleEntry);
-        const daemonEntryPath = fsProj.existsSync(relBundle) ? bundleEntry : path.resolve(thisDir, '..', 'daemon-entry.js');
+        const daemonEntryPath = resolveDaemonEntry(fsFactory(process.cwd()));
         const clawforumRoot = makeClawforumRoot(getClawforumDir());
         const pid = await pm.spawn(MOTION_CLAW_ID, {
           command: 'node',

@@ -7,7 +7,6 @@
  */
 
 import * as path from 'path';
-import { fileURLToPath } from 'url';
 import {
   loadGlobalConfig, getNamedSubrootDir,
 } from '../../foundation/config/index.js';
@@ -16,7 +15,7 @@ import { createSystemAudit } from '../../foundation/audit/index.js';
 import { createAgentProcessManager } from '../../foundation/process-manager/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { makeClawDir } from '../../foundation/identity/index.js';
-import { getWorkspaceRoot } from '../../foundation/paths.js';
+import { getWorkspaceRoot, resolveDaemonEntry } from '../../foundation/paths.js';
 import { DAEMON_LOG } from '../../daemon/constants.js';
 import { MOTION_CLAW_ID } from '../../constants.js';
 import type { DaemonPM } from './claw-daemon.js';
@@ -40,14 +39,7 @@ export async function motionDaemonCommand(deps: MotionDaemonDeps): Promise<void>
     console.warn('⚠ Motion is already running');
     return;
   }
-  // bundle layout: daemon-entry.js sits next to cli/index.js (one level above commands/)
-  const thisDir = path.dirname(fileURLToPath(import.meta.url));
-  const cliDir = path.dirname(thisDir);
-  const bundleEntry = path.join(cliDir, 'daemon-entry.js');
-  const bundleFs = deps.fsFactory(cliDir);
-  const daemonEntryPath = bundleFs.existsSync('daemon-entry.js')
-    ? bundleEntry
-    : path.resolve(cliDir, '..', 'daemon-entry.js');
+  const daemonEntryPath = resolveDaemonEntry(nodeFs);
   const pid = await pm.spawn(MOTION_CLAW_ID, {
     command: 'node',
     args: [daemonEntryPath, MOTION_CLAW_ID],

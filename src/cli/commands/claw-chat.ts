@@ -3,7 +3,6 @@
  */
 
 import * as path from 'path';
-import { fileURLToPath } from 'url';
 import {
   loadGlobalConfig, clawExists, getClawDir,
 } from '../../foundation/config/index.js';
@@ -12,7 +11,7 @@ import { CliError } from '../errors.js';
 import { runChatViewport } from './chat-viewport.js';
 import { createDirContext } from '../../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
-import { getWorkspaceRoot } from '../../foundation/paths.js';
+import { getWorkspaceRoot, resolveDaemonEntry } from '../../foundation/paths.js';
 import { DAEMON_LOG } from '../../daemon/constants.js';
 import { makeClawId } from '../../foundation/identity/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
@@ -36,11 +35,7 @@ export async function chatCommand(deps: { fsFactory: (baseDir: string) => FileSy
       const pm = createProcessManagerForCLI(deps);
       if (!pm.isAlive(makeClawId(name))) {
         console.log(`Starting Claw "${name}" daemon...`);
-        const thisDir = path.dirname(fileURLToPath(import.meta.url));
-        const bundleEntry = path.join(thisDir, 'daemon-entry.js');
-        const bundleFs = deps.fsFactory(thisDir);
-        const relBundle = path.relative(thisDir, bundleEntry);
-        const daemonEntryPath = bundleFs.existsSync(relBundle) ? bundleEntry : path.resolve(thisDir, '..', '..', 'daemon-entry.js');
+        const daemonEntryPath = resolveDaemonEntry(deps.fsFactory(clawDir));
         const pid = await pm.spawn(makeClawId(name), {
           command: 'node',
           args: [daemonEntryPath, name],

@@ -8,7 +8,6 @@
  */
 
 import * as path from 'path';
-import { fileURLToPath } from 'url';
 import {
   loadGlobalConfig, clawExists, getClawDir, getGlobalConfigPath,
 } from '../../foundation/config/index.js';
@@ -19,7 +18,7 @@ import type { ProcessManager } from '../../foundation/process-manager/manager.js
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { CliError } from '../errors.js';
 import { makeClawId } from '../../foundation/identity/index.js';
-import { getWorkspaceRoot } from '../../foundation/paths.js';
+import { getWorkspaceRoot, resolveDaemonEntry } from '../../foundation/paths.js';
 import { DAEMON_LOG } from '../../daemon/constants.js';
 
 export type DaemonPM = Pick<ProcessManager, 'isAlive' | 'spawn'>;
@@ -48,15 +47,7 @@ export async function clawDaemonCommand(
     console.warn(`⚠ Claw "${name}" is already running`);
     return;
   }
-  // bundle layout: daemon-entry.js sits next to cli/index.js (one level above commands/)
-  const thisDir = path.dirname(fileURLToPath(import.meta.url));
-  const cliDir = path.dirname(thisDir);
-  const bundleEntry = path.join(cliDir, 'daemon-entry.js');
-  const bundleFs = deps.fsFactory(cliDir);
-  const relBundle = path.relative(cliDir, bundleEntry);
-  const daemonEntryPath = bundleFs.existsSync(relBundle)
-    ? bundleEntry
-    : path.resolve(cliDir, '..', 'daemon-entry.js');
+  const daemonEntryPath = resolveDaemonEntry(nodeFs);
   const pid = await pm.spawn(makeClawId(name), {
     command: 'node',
     args: [daemonEntryPath, name],

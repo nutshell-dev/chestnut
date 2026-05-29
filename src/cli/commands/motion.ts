@@ -21,7 +21,7 @@ import { Snapshot } from '../../foundation/snapshot/index.js';
 import { createDirContext } from '../../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { SNAPSHOT_IGNORE_PATTERNS } from '../../assembly/snapshot-patterns.js';
-import { CLAWS_DIR, getWorkspaceRoot } from '../../foundation/paths.js';
+import { CLAWS_DIR, getWorkspaceRoot, resolveDaemonEntry } from '../../foundation/paths.js';
 import { DAEMON_LOG } from '../../daemon/constants.js';
 import { TASKS_SYNC_EXEC_DIR } from '../../foundation/command-tool/index.js';
 import { TASKS_SYNC_WRITE_DIR } from '../../foundation/file-tool/index.js';
@@ -226,9 +226,7 @@ export async function chatCommand(deps: { fsFactory: (baseDir: string) => FileSy
       const pm = createProcessManagerForCLI(deps);
       if (!pm.isAlive(MOTION_CLAW_ID)) {
         console.log('Starting Motion daemon...');
-        const thisDir = path.dirname(fileURLToPath(import.meta.url));
-        const thisFs = deps.fsFactory(thisDir);
-        const daemonEntryPath = thisFs.existsSync('daemon-entry.js') ? path.join(thisDir, 'daemon-entry.js') : path.resolve(thisDir, '..', '..', 'daemon-entry.js');
+        const daemonEntryPath = resolveDaemonEntry(deps.fsFactory(motionDir));
         const pid = await pm.spawn(MOTION_CLAW_ID, {
           command: 'node',
           args: [daemonEntryPath, MOTION_CLAW_ID],

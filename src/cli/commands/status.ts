@@ -3,12 +3,11 @@
  */
 
 import * as path from 'path';
-import { fileURLToPath } from 'url';
 import { loadGlobalConfig, getNamedSubrootDir } from '../../foundation/config/index.js';
 import { CONFIG_DEFAULTS } from '../../assembly/index.js';
 import { ProcessManager, ProcessListUnavailable } from '../../foundation/process-manager/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
-import { CLAWS_DIR } from '../../foundation/paths.js';
+import { CLAWS_DIR, resolveDaemonEntry } from '../../foundation/paths.js';
 import {
   getWatchdogPid,
   isWatchdogAlive,
@@ -65,7 +64,7 @@ export async function statusCommand(deps: { fsFactory: (baseDir: string) => File
   }
 
   // 4. Orphan scan: find processes not tracked by PID files
-  const thisDir = path.dirname(fileURLToPath(import.meta.url));
+  const nodeFs = deps.fsFactory(process.cwd());
 
   // Watchdog orphans
   const wdPath = getWatchdogEntryPath(deps.fsFactory);
@@ -75,8 +74,7 @@ export async function statusCommand(deps: { fsFactory: (baseDir: string) => File
   }
 
   // Daemon orphans
-  const thisFs = deps.fsFactory(thisDir);
-  const daemonEntryPath = thisFs.existsSync('daemon-entry.js') ? path.join(thisDir, 'daemon-entry.js') : path.resolve(thisDir, '..', '..', 'daemon-entry.js');
+  const daemonEntryPath = resolveDaemonEntry(nodeFs);
   const motionPid = motionStatus.pid;
   const trackedPids = [motionPid, ...clawStatuses.map(s => s.status.pid)].filter((p): p is number => p !== undefined);
   const orphanDaemons = findOrphanProcesses(pm, daemonEntryPath, trackedPids);

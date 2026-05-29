@@ -8,7 +8,6 @@
  */
 
 import * as path from 'path';
-import { fileURLToPath } from 'url';
 import * as readline from 'readline';
 
 import { isInitialized, loadGlobalConfig, getNamedSubrootDir, buildLLMConfig, patchGlobalConfigPrimary, FORMAT_MAP } from '../../foundation/config/index.js';
@@ -32,7 +31,7 @@ import { MOTION_CLAW_ID } from '../../constants.js';
 
 import { CliError } from '../errors.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
-import { getWorkspaceRoot } from '../../foundation/paths.js';
+import { getWorkspaceRoot, resolveDaemonEntry } from '../../foundation/paths.js';
 import { readOnboardingStatus, type OnboardingStatus } from '../../core/contract/index.js';
 import { DAEMON_LOG } from '../../daemon/constants.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
@@ -320,9 +319,7 @@ async function _start(deps: { fsFactory: (baseDir: string) => FileSystem }, audi
 
   // Step 2: motion init
   const { fs: notifyFs, audit: notifyAudit } = createDirContext(deps, motionDir);
-  const thisDir = path.dirname(fileURLToPath(import.meta.url));
-  const thisFs = deps.fsFactory(thisDir);
-  const daemonEntryPath = thisFs.existsSync('daemon-entry.js') ? path.join(thisDir, 'daemon-entry.js') : path.resolve(thisDir, '..', '..', 'daemon-entry.js');
+  const daemonEntryPath = resolveDaemonEntry(notifyFs);
   const motionSpawnOptions = {
     command: 'node' as const,
     args: [daemonEntryPath, MOTION_CLAW_ID],

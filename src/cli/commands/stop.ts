@@ -3,7 +3,6 @@
  */
 
 import * as path from 'path';
-import { fileURLToPath } from 'url';
 import { loadGlobalConfig, getGlobalConfigPath, getNamedSubrootDir } from '../../foundation/config/index.js';
 import { MOTION_CLAW_ID } from '../../constants.js';
 import { CONFIG_DEFAULTS } from '../../assembly/index.js';
@@ -16,7 +15,7 @@ import { kill } from '../../foundation/process-exec/index.js';
 import { createSystemAudit, type AuditLog } from '../../foundation/audit/index.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from '../../foundation/process-manager/audit-events.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
-import { CLAWS_DIR } from '../../foundation/paths.js';
+import { CLAWS_DIR, resolveDaemonEntry } from '../../foundation/paths.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { makeClawId } from '../../foundation/identity/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
@@ -106,10 +105,7 @@ export async function stopAllCommand(deps: { fsFactory: (baseDir: string) => Fil
   // Cleanup: pgrep兜底，清理残留的daemon-entry.js孤儿进程
   // Use full path as pattern to only match current installation
   try {
-    const thisDir = path.dirname(fileURLToPath(import.meta.url));
-    // bundled: thisDir=dist/, daemon-entry.js is sibling; unbundled: thisDir=dist/cli/commands/, go up 2
-    const thisFs = deps.fsFactory(thisDir);
-    const daemonEntryPath = thisFs.existsSync('daemon-entry.js') ? path.join(thisDir, 'daemon-entry.js') : path.resolve(thisDir, '..', '..', 'daemon-entry.js');
+    const daemonEntryPath = resolveDaemonEntry(deps.fsFactory(process.cwd()));
     let pids: number[] = [];
     try {
       pids = pm.findProcesses(daemonEntryPath);

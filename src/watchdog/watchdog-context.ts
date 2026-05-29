@@ -9,7 +9,7 @@
  */
 
 import * as path from 'path';
-import { fileURLToPath } from 'url';
+import { resolveWatchdogEntry } from '../foundation/paths.js';
 import { getNamedSubrootDir, loadGlobalConfig } from '../foundation/config/index.js';
 import { CONFIG_DEFAULTS } from '../assembly/index.js';
 import type { FileSystem } from '../foundation/fs/types.js';
@@ -53,17 +53,8 @@ export function getClawforumDir(): string {
  * Returns the absolute path to the watchdog entry script for this installation.
  * Used as the pgrep pattern to scope process operations to the current install.
  */
-/** 1:1 保 watchdog.ts:37-47 */
 export function getWatchdogEntryPath(fsFactory: (baseDir: string) => FileSystem): string {
-  const thisDir = path.dirname(fileURLToPath(import.meta.url));
-  const bundleEntry = path.join(thisDir, 'watchdog-entry.js');
-  const fallbackEntry = path.resolve(thisDir, '..', '..', 'dist', 'watchdog-entry.js');
-  const projectRoot = path.resolve(thisDir, '..', '..');
-  const fsProj = fsFactory(projectRoot);
-  const relBundle = path.relative(projectRoot, bundleEntry);
-  return fsProj.existsSync(relBundle)
-    ? bundleEntry
-    : fallbackEntry;
+  return resolveWatchdogEntry(fsFactory(process.cwd()));
 }
 
 // motion audit 归属：watchdog 对 motion 的观察事件（inbox 通知 / crash 通知）
