@@ -69,7 +69,7 @@ export function createExecTool(): Tool {
         },
         cwd: {
           type: 'string',
-          description: 'Working directory (relative path resolved against workspace root, or absolute, with ".." to escape workspace). Default: workspace root.',
+          description: 'Working directory, relative to workspace root. Use ".." to escape workspace to claw root (e.g. cwd: "../memory"). Default: workspace root.',
         },
         timeoutMs: {
           type: 'number',
@@ -115,13 +115,11 @@ export function createExecTool(): Tool {
         }
         return { success: true, content: result.output || '(no output)' };
       } catch (error) {
-        // 失败时总是附上 cwd，防止 LLM 对路径上下文产生幻觉（例如误以为在根目录）
-        const cwdHint = `\n[cwd]: ${cwd}`;
-
+        // cwd hint 已删（phase: 心智收敛 workspace-relative / error 已含 LLM 自己的 tool_use，cwd 信息冗余）
         if (!(error instanceof ProcessExecError)) {
           return {
             success: false,
-            content: `Error: ${error instanceof Error ? error.message : String(error)}${cwdHint}`,
+            content: `Error: ${error instanceof Error ? error.message : String(error)}`,
           };
         }
 
@@ -132,14 +130,14 @@ export function createExecTool(): Tool {
             const truncated = relPath
               ? truncateHeadTail(error.output, relPath)
               : truncate(error.output, EXEC_MAX_OUTPUT);
-            return { success: false, content: `Error: command output exceeded 1 MB limit.${cwdHint}\n[output]: ${truncated}` };
+            return { success: false, content: `Error: command output exceeded 1 MB limit.\n[output]: ${truncated}` };
           }
           const partial = error.output
             ? `\n[partial output]: ${truncate(error.output, EXEC_MAX_OUTPUT)}`
             : '';
           return {
             success: false,
-            content: `Error: command output exceeded 1 MB limit. Use head/tail to truncate, or redirect to a file.${partial}${cwdHint}`,
+            content: `Error: command output exceeded 1 MB limit. Use head/tail to truncate, or redirect to a file.${partial}`,
           };
         }
 
@@ -149,13 +147,13 @@ export function createExecTool(): Tool {
           const truncated = relPath
             ? truncateHeadTail(error.output, relPath)
             : truncate(error.output, EXEC_MAX_OUTPUT);
-          return { success: false, content: `Error: ${error.message}${cwdHint}\n[output]: ${truncated}` };
+          return { success: false, content: `Error: ${error.message}\n[output]: ${truncated}` };
         }
         const output = error.output ? `\n[output]: ${truncate(error.output, EXEC_MAX_OUTPUT)}` : '';
 
         return {
           success: false,
-          content: `Error: ${error.message}${output}${cwdHint}`,
+          content: `Error: ${error.message}${output}`,
         };
       }
     },

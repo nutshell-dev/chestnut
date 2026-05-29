@@ -74,7 +74,7 @@ export const searchTool: Tool = {
       },
       cwd: {
         type: 'string',
-        description: 'Override base for path resolution (relative to workspace root, or absolute, with ".." to escape workspace to claw root). Default: workspace root.',
+        description: 'Override base for path resolution, relative to workspace root. Use ".." to escape workspace to claw root (e.g. cwd: "../memory"). Default: workspace root.',
       },
       max_results: {
         type: 'number',

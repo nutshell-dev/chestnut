@@ -863,15 +863,16 @@ describe('Builtin Tools', () => {
       expect(result.content).toMatch(/abort|cancel|operation/i);
     });
 
-    it('失败时在内容中附带 [cwd] 提示，帮助 LLM 定位路径上下文', async () => {
+    it('失败结果不暴露绝对路径（claw 心智 workspace-relative）', async () => {
       const result = await execTool.execute(
         { command: "sh -c 'exit 1'" },
         ctx,
       );
 
       expect(result.success).toBe(false);
-      expect(result.content).toContain('[cwd]:');
-      expect(result.content).toContain(ctx.clawDir);
+      // cwdHint 已删 — 错误内容不应携带 [cwd] 标记或绝对 clawDir
+      expect(result.content).not.toContain('[cwd]:');
+      expect(result.content).not.toContain(ctx.clawDir);
     });
 
     it('clawDir 不存在时返回 ENOENT 错误（success:false）', async () => {
