@@ -41,19 +41,23 @@ export function logWithAudit(
   }
 }
 
-// Write an inbox message (YAML frontmatter .md format)
-/** 1:1 保 watchdog.ts:178-191 */
-export function writeWatchdogInboxMessage(fsFactory: (baseDir: string) => FileSystem, type: string, content: Record<string, unknown>): void {
+// Write the `claw_inactivity` inbox message (YAML frontmatter .md format).
+// phase 1426: 改 type-specific 函数 / 删 helper 内部 `watchdog_${type}` 模板字符串前缀拼接
+// (业主 type 命名由 caller decide / ML#2 / phase 1419 formatter 注册 `claw_inactivity` 匹配)
+export function writeClawInactivityInbox(
+  fsFactory: (baseDir: string) => FileSystem,
+  content: Record<string, unknown>,
+): void {
   const motionDir = makeClawDir(getNamedSubrootDir('motion'));
   // Motion-only callsite: motionDir = <clawforumRoot>/motion → dirname 一层即 clawforumRoot
   const clawforumRoot = makeClawforumRoot(path.dirname(motionDir));
   const { fs, audit } = getMotionContext(fsFactory);
   const body = typeof content.message === 'string' ? content.message : JSON.stringify(content);
   notifyClaw(fs, clawforumRoot, MOTION_CLAW_ID, {
-    type: `watchdog_${type}`,
+    type: 'claw_inactivity',
     source: 'watchdog',
     priority: 'high',
     body,
-    idPrefix: `${Date.now()}_${type}`,
+    idPrefix: `${Date.now()}_claw_inactivity`,
   }, audit);
 }

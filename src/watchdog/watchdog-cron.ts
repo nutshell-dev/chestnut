@@ -11,7 +11,7 @@ import {
   getClawforumDir, getClawforumFs, getGlobalConfig, getMotionContext,
   lastInactivityNotified, inactivityNotifyCount, clawPreviouslyAlive, everSpawned, clawPreviouslyNotified,
 } from './watchdog-context.js';
-import { log, writeWatchdogInboxMessage } from './watchdog-log.js';
+import { log, writeClawInactivityInbox } from './watchdog-log.js';
 import { clawHasContract, getClawActivityInfo, gatherClawSnapshot, getEffectiveInterval, shouldResetNotifyCount } from './watchdog-utils.js';
 import { getContractCreatedMs } from '../core/contract/index.js';
 import { getNamedSubrootDir } from '../foundation/config/index.js';
@@ -85,7 +85,7 @@ export async function maybeCronClawInactivity(pm: ProcessManager, audit: AuditLo
       if (lastError) body += `, last error: ${lastError}`;
 
       log(fsFactory, `[watchdog] Claw ${rawClawId} no progress ${inactiveMin}m (notify #${displayCount}) with active contract${lastError ? ` (last error: ${lastError})` : ''}`);
-      writeWatchdogInboxMessage(fsFactory, 'claw_inactivity', {
+      writeClawInactivityInbox(fsFactory, {
         message: body,
         claw_id: rawClawId,
         inactive_ms: now - referenceMs,

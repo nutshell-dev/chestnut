@@ -232,7 +232,7 @@ export {
 } from './watchdog-pid.js';
 
 export {
-  log, logWithAudit, writeWatchdogInboxMessage,
+  log, logWithAudit, writeClawInactivityInbox,
 } from './watchdog-log.js';
 
 export {
