@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { encodeOutbox } from '../../../src/foundation/messaging/codec-outbox.js';
+import { encodeOutbox, decodeOutbox } from '../../../src/foundation/messaging/codec-outbox.js';
 import { decodeInbox } from '../../../src/foundation/messaging/codec-inbox.js';
 import type { OutboxMessage } from '../../../src/foundation/messaging/types.js';
 
@@ -99,5 +99,76 @@ describe('codec-outbox', () => {
     const result = encodeOutbox(msg);
 
     expect(result).toContain('from: "claw \\"alpha\\""');
+  });
+
+  // phase 1428 P5: decodeOutbox 镜像 decodeInbox 语义对称
+  describe('decodeOutbox', () => {
+    it('round-trips through encodeOutbox preserving base fields', () => {
+      const msg: OutboxMessage = {
+        id: 'rt-out',
+        type: 'response',
+        from: 'claw-b',
+        to: 'motion',
+        content: 'roundtrip outbox',
+        timestamp: '2026-05-29T10:00:00.000Z',
+        priority: 'high',
+      };
+      const decoded = decodeOutbox(encodeOutbox(msg));
+      expect(decoded.id).toBe(msg.id);
+      expect(decoded.type).toBe(msg.type);
+      expect(decoded.from).toBe(msg.from);
+      expect(decoded.to).toBe(msg.to);
+      expect(decoded.content).toBe(msg.content);
+      expect(decoded.priority).toBe(msg.priority);
+      expect(decoded.timestamp).toBe(msg.timestamp);
+    });
+
+    it('passes through metadata fields (excluding reserved + __-prefixed)', () => {
+      const msg: OutboxMessage = {
+        id: 'meta-out',
+        type: 'contract_update',
+        from: 'claw-a',
+        to: 'claw-b',
+        content: 'body',
+        timestamp: '2026-05-29T10:00:00.000Z',
+        priority: 'normal',
+        metadata: { contract_id: 'abc', subtask_id: 'sub-1' },
+      };
+      const decoded = decodeOutbox(encodeOutbox(msg));
+      expect(decoded.metadata).toEqual({ contract_id: 'abc', subtask_id: 'sub-1' });
+    });
+
+    it('decodes in_reply_to when present in raw frontmatter', () => {
+      const raw = [
+        '---',
+        'id: r1',
+        'type: response',
+        'from: a',
+        'to: b',
+        'priority: normal',
+        'timestamp: 2026-05-29T10:00:00.000Z',
+        'in_reply_to: orig-msg-id',
+        '---',
+        '',
+        'body',
+        '',
+      ].join('\n');
+      const decoded = decodeOutbox(raw);
+      expect(decoded.in_reply_to).toBe('orig-msg-id');
+    });
+
+    it('throws on missing YAML frontmatter', () => {
+      expect(() => decodeOutbox('no frontmatter body')).toThrow(/missing YAML frontmatter/);
+    });
+
+    it('fills defaults for absent base fields', () => {
+      const raw = '---\npriority: normal\n---\n\nbare\n';
+      const decoded = decodeOutbox(raw);
+      expect(decoded.id).toBeTruthy();         // randomUUID fallback
+      expect(decoded.from).toBe('unknown');
+      expect(decoded.to).toBe('');
+      expect(decoded.content).toBe('bare');
+      expect(decoded.type).toBe('response');   // fallback default
+    });
   });
 });

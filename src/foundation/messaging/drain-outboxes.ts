@@ -13,7 +13,8 @@ import type { FileSystem } from '../fs/types.js';
 import { isFileNotFound } from '../fs/types.js';
 import type { AuditLog } from '../audit/index.js';
 import { InboxWriter, makeInboxPath } from './inbox-writer.js';
-import { decodeInbox } from './codec-inbox.js';
+import { decodeOutbox } from './codec-outbox.js';
+import type { InboxMessage } from './types.js';
 import { CLAWS_DIR } from '../paths.js';
 import { MOTION_CLAW_ID } from '../../constants.js';
 
@@ -100,16 +101,30 @@ export async function drainOutboxes(opts: DrainOutboxesOptions): Promise<DrainRe
 
       try {
         const content = fs.readSync(claimedPath);
-        const msg = decodeInbox(content);
+        const outboxMsg = decodeOutbox(content);
 
         // routing by `to:` field
-        const to = msg.to || MOTION_CLAW_ID;
+        const to = outboxMsg.to || MOTION_CLAW_ID;
         const targetInboxDir = to === MOTION_CLAW_ID
           ? path.join(clawforumRoot, MOTION_CLAW_ID, 'inbox', 'pending')
           : path.join(clawsDir, to, 'inbox', 'pending');
 
+        // outbox → inbox envelope: outbox business types map to generic 'message' inbox type;
+        // outbox.in_reply_to → inbox.reply_to; metadata/content/priority pass through.
+        const inboxMsg: InboxMessage = {
+          id: outboxMsg.id,
+          type: outboxMsg.type,
+          from: outboxMsg.from,
+          to: outboxMsg.to,
+          content: outboxMsg.content,
+          priority: outboxMsg.priority,
+          timestamp: outboxMsg.timestamp,
+          ...(outboxMsg.in_reply_to !== undefined ? { reply_to: outboxMsg.in_reply_to } : {}),
+          ...(outboxMsg.metadata !== undefined ? { metadata: outboxMsg.metadata } : {}),
+        };
+
         const inboxWriter = InboxWriter.__internal_create(fs, makeInboxPath(targetInboxDir), audit);
-        await inboxWriter.write(msg);
+        await inboxWriter.write(inboxMsg);
 
         // mv processing → done
         await fs.ensureDir(outboxDone);

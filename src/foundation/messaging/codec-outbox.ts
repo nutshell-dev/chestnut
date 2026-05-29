@@ -1,5 +1,7 @@
-import type { OutboxMessage } from '../messaging/types.js';
-import { yamlQuote } from './codec-inbox.js';
+import { randomUUID } from 'crypto';
+import type { OutboxMessage, Priority } from '../messaging/types.js';
+import { parseFrontmatter, yamlQuote } from './codec-inbox.js';
+import { validatePriority } from './codec-validation.js';
 
 /**
  * Encode OutboxMessage to YAML frontmatter + body string.
@@ -28,4 +30,48 @@ export function encodeOutbox(msg: OutboxMessage): string {
 
   lines.push('---', '', msg.content, '');
   return lines.join('\n');
+}
+
+/**
+ * Decode raw string to OutboxMessage. Mirror of decodeInbox for outbox files.
+ * phase 1428: P5 — semantic symmetry, replaces decodeInbox borrowed by drain-outboxes.
+ * Reads base fields + in_reply_to + generic metadata pass-through.
+ */
+export function decodeOutbox(raw: string): OutboxMessage {
+  if (!raw.startsWith('---\n') && !raw.startsWith('---\r\n')) {
+    throw new Error('Invalid outbox message: missing YAML frontmatter');
+  }
+
+  const { meta, body } = parseFrontmatter(raw);
+
+  const baseKeys = new Set(['id', 'type', 'from', 'to', 'content',
+    'priority', 'timestamp', 'in_reply_to']);
+
+  const metadata: Record<string, string> = {};
+  for (const [k, v] of Object.entries(meta)) {
+    if (!baseKeys.has(k) && !k.startsWith('__')) {
+      metadata[k] = v;
+    }
+  }
+
+  const priority = validatePriority(meta.priority) as Priority;
+
+  const result: OutboxMessage = {
+    id: meta.id ?? randomUUID(),
+    type: (meta.type ?? 'response') as OutboxMessage['type'],
+    from: meta.from ?? 'unknown',
+    to: meta.to ?? '',
+    content: body,
+    timestamp: meta.timestamp ?? new Date().toISOString(),
+    priority,
+  };
+
+  if (meta.in_reply_to !== undefined) {
+    result.in_reply_to = meta.in_reply_to;
+  }
+  if (Object.keys(metadata).length > 0) {
+    result.metadata = metadata;
+  }
+
+  return result;
 }
