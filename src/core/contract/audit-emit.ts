@@ -534,26 +534,24 @@ export function emitContractVerificationFailed(
   audit.write(CONTRACT_AUDIT_EVENTS.VERIFICATION_FAILED, ...cols);
 }
 
-// ─── ESCALATED (key-fix site: split ${contractId}/${subtaskId}) ─────────────
-export function emitContractEscalated(
+// ─── SUBTASK_FORCE_ACCEPTED (key-fix site: split ${contractId}/${subtaskId}) ─────────────
+export function emitSubtaskForceAccepted(
   audit: AuditLog,
   opts: {
     contractId: ContractId;
     subtaskId: SubtaskId;
     retryCount: number;
     claw: string;
-    context?: string;
   },
 ): void {
-  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractEscalated')) return;
-  const cols: string[] = [
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitSubtaskForceAccepted')) return;
+  audit.write(
+    CONTRACT_AUDIT_EVENTS.SUBTASK_FORCE_ACCEPTED,
     `contractId=${opts.contractId}`,
     `subtaskId=${opts.subtaskId}`,
     `retry_count=${opts.retryCount}`,
     `claw=${opts.claw}`,
-  ];
-  if (opts.context !== undefined) cols.push(`context=${opts.context}`);
-  audit.write(CONTRACT_AUDIT_EVENTS.ESCALATED, ...cols);
+  );
 }
 
 // ─── VERIFICATION_TIMEOUT (key-fix site: split ${contractId}/${subtaskId}) ────

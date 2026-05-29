@@ -64,47 +64,6 @@ describe('phase 1010 — silent X TODO cluster narrow', () => {
     expect(events[0]).toContain('code=EACCES');
   });
 
-  it('event-collector.ts active ENOENT silent (first-run)', () => {
-    const { audit, events } = makeAudit();
-    // archive 正常 (空), active throw ENOENT
-    const fs = {
-      listSync: (p: string) => {
-        if (p.includes('active')) {
-          const err = new Error('ENOENT') as NodeJS.ErrnoException;
-          err.code = 'ENOENT';
-          throw err;
-        }
-        return [];
-      },
-      readSync: () => '',
-      existsSync: () => true,
-    } as unknown as FileSystem;
-    const result = collectContractEvents(fs, '/tmp/claw', 'claw1', 0, audit);
-    expect(result).toEqual([]);
-    expect(events).toHaveLength(0);
-  });
-
-  it('event-collector.ts active EACCES → EVENT_COLLECTOR_SCAN_FAILED audit', () => {
-    const { audit, events } = makeAudit();
-    const fs = {
-      listSync: (p: string) => {
-        if (p.includes('active')) {
-          const err = new Error('EACCES') as NodeJS.ErrnoException;
-          err.code = 'EACCES';
-          throw err;
-        }
-        return [];
-      },
-      readSync: () => '',
-      existsSync: () => true,
-    } as unknown as FileSystem;
-    const result = collectContractEvents(fs, '/tmp/claw', 'claw1', 0, audit);
-    expect(result).toEqual([]);
-    expect(events).toHaveLength(1);
-    expect(events[0][0]).toBe(CONTRACT_AUDIT_EVENTS.EVENT_COLLECTOR_SCAN_FAILED);
-    expect(events[0]).toContain('dir=active');
-  });
-
   it('utils.ts getContractCreatedMs ENOENT silent', () => {
     const { audit, events } = makeAudit();
     const fs = makeFsThrow('ENOENT');

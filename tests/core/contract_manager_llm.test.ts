@@ -352,7 +352,7 @@ describe('ContractSystem Acceptance Flow', () => {
       const contractId = 'test-contract-3';
       await setupContract(tempDir, contractId, makeContractYaml({
         subtasks: [{ id: 'task-1', description: 'Test task' }],
-        escalation: { max_retries: 3 },
+        verification_attempts: 3,
       }));
 
       const verificationDir = path.join(tempDir, 'contract', 'active', contractId, 'verification');
@@ -468,7 +468,7 @@ describe('ContractSystem Acceptance Flow', () => {
       await setupContract(tempDir, contractId, makeContractYaml({
         subtasks: [{ id: 'task-1', description: 'Test task implementation' }],
         verification: [{ subtask_id: 'task-1', type: 'llm', prompt_file: 'verification/task-1.prompt.txt' }],
-        escalation: { max_retries: 3 },
+        verification_attempts: 3,
       }));
 
       const verificationDir = path.join(tempDir, 'contract', 'active', contractId, 'verification');
@@ -645,7 +645,7 @@ describe('ContractSystem Acceptance Flow', () => {
       await setupContract(tempDir, contractId, makeContractYaml({
         subtasks: [{ id: 'task-1', description: 'Test task' }],
         verification: [{ subtask_id: 'task-1', type: 'llm', prompt_file: 'verification/task-1.prompt.txt' }],
-        escalation: { max_retries: 3 },
+        verification_attempts: 3,
       }));
 
       const verificationDir = path.join(tempDir, 'contract', 'active', contractId, 'verification');
@@ -709,13 +709,13 @@ describe('ContractSystem Acceptance Flow', () => {
     });
   });
 
-  describe('Escalation', () => {
-    it('should write escalation audit when retry_count reaches max_retries', async () => {
+  describe('Force-accept', () => {
+    it('should write force-accept audit when retry_count reaches max_attempts', async () => {
       const contractId = 'test-contract-7';
-      // Setup contract with max_retries=2
+      // Setup contract with verification_attempts=2
       await setupContract(tempDir, contractId, makeContractYaml({
         subtasks: [{ id: 'task-1', description: 'Test task' }],
-        escalation: { max_retries: 2 },
+        verification_attempts: 2,
       }), { 'task-1': 'todo' });
 
       const verificationDir = path.join(tempDir, 'contract', 'active', contractId, 'verification');
@@ -723,17 +723,18 @@ describe('ContractSystem Acceptance Flow', () => {
       await fs.writeFile(path.join(verificationDir, 'task-1.sh'), '#!/bin/bash\nexit 1', { mode: 0o755 });
 
       // Pre-set retry_count to 1 (simulating one previous failure)
-      // This means this failure will push it to 2, triggering escalation
-      const progressPath = path.join(tempDir, 'contract', 'active', contractId, 'progress.json');
-      const initialProgress = JSON.parse(await fs.readFile(progressPath, 'utf-8'));
+      // This means this failure will push it to 2, triggering force-accept
+      const activeProgressPath = path.join(tempDir, 'contract', 'active', contractId, 'progress.json');
+      const archiveProgressPath = path.join(tempDir, 'contract', 'archive', contractId, 'progress.json');
+      const initialProgress = JSON.parse(await fs.readFile(activeProgressPath, 'utf-8'));
       initialProgress.subtasks['task-1'].retry_count = 1;
-      await fs.writeFile(progressPath, JSON.stringify(initialProgress, null, 2));
+      await fs.writeFile(activeProgressPath, JSON.stringify(initialProgress, null, 2));
 
       // Set execFile to fail
       execFileMockBehavior = 'fail';
       execFileMockStderr = 'test failure';
 
-      // This failure should push retry_count to 2, triggering escalation audit
+      // This failure should push retry_count to 2, triggering force-accept audit
       const auditWriter = (manager as any).audit;
       await manager.completeSubtask({
         contractId,
@@ -741,20 +742,21 @@ describe('ContractSystem Acceptance Flow', () => {
         evidence: 'attempt 2',
       });
 
-      // Escalation audit is written after inbox, so wait for the audit call
-      const deadline = Date.now() + 5000;
-      while (Date.now() < deadline) {
-        if (auditWriter.write.mock.calls.some((c: any[]) => c[0] === CONTRACT_AUDIT_EVENTS.ESCALATED)) break;
-        await new Promise(r => setTimeout(r, 10));
-      }
+      // Wait for background verification to finish (ensures saveProgress + archiveAndEmit have completed)
+      await waitForAcceptanceDone(auditEmitter, contractId, 'task-1');
 
-      const progress = JSON.parse(await fs.readFile(progressPath, 'utf-8'));
+      let progress: any;
+      try {
+        progress = JSON.parse(await fs.readFile(archiveProgressPath, 'utf-8'));
+      } catch {
+        progress = JSON.parse(await fs.readFile(activeProgressPath, 'utf-8'));
+      }
       expect(progress.subtasks['task-1'].retry_count).toBe(2);
 
-      const escalationCalls = auditWriter.write.mock.calls.filter((c: any[]) => c[0] === CONTRACT_AUDIT_EVENTS.ESCALATED);
-      expect(escalationCalls.length).toBeGreaterThan(0);
-      expect(escalationCalls[0]).toEqual(expect.arrayContaining([
-        CONTRACT_AUDIT_EVENTS.ESCALATED,
+      const forceAcceptCalls = auditWriter.write.mock.calls.filter((c: any[]) => c[0] === CONTRACT_AUDIT_EVENTS.SUBTASK_FORCE_ACCEPTED);
+      expect(forceAcceptCalls.length).toBeGreaterThan(0);
+      expect(forceAcceptCalls[0]).toEqual(expect.arrayContaining([
+        CONTRACT_AUDIT_EVENTS.SUBTASK_FORCE_ACCEPTED,
         expect.stringContaining(`contractId=${contractId}`),
         expect.stringContaining('subtaskId=task-1'),
       ]));
@@ -844,7 +846,7 @@ describe('ContractSystem Acceptance Flow', () => {
       const contractId = 'test-inbox-rejected';
       await setupContract(tempDir, contractId, makeContractYaml({
         subtasks: [{ id: 'task-1', description: 'Test task' }],
-        escalation: { max_retries: 3 },
+        verification_attempts: 3,
       }));
 
       const verificationDir = path.join(tempDir, 'contract', 'active', contractId, 'verification');

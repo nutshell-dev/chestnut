@@ -4,7 +4,7 @@ import { runContractObserver } from '../../../src/core/contract/jobs/contract-ob
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 
-function makeFsMock(scenario: 'empty' | 'completed' | 'escalated'): FileSystem {
+function makeFsMock(scenario: 'empty' | 'completed'): FileSystem {
   const now = Date.now();
   const oldTs = now - 86400000;
   const files = new Map<string, string>();
@@ -17,14 +17,6 @@ function makeFsMock(scenario: 'empty' | 'completed' | 'escalated'): FileSystem {
         st1: { completed_at: new Date(now).toISOString() },
       },
     }));
-  } else if (scenario === 'escalated') {
-    files.set('/tmp/test/claws/claw1/contract/active/contract-b/progress.json', JSON.stringify({
-      contract_id: 'contract-b',
-      status: 'active',
-      subtasks: {
-        st1: { escalated_at: new Date(now).toISOString(), retry_count: 2 },
-      },
-    }));
   }
 
   const dirs = new Map<string, { name: string; isDirectory: boolean; size: number }[]>();
@@ -33,11 +25,6 @@ function makeFsMock(scenario: 'empty' | 'completed' | 'escalated'): FileSystem {
     dirs.set('/tmp/test/claws/claw1', [{ name: 'contract', isDirectory: true, size: 0 }]);
     dirs.set('/tmp/test/claws/claw1/contract', [{ name: 'archive', isDirectory: true, size: 0 }]);
     dirs.set('/tmp/test/claws/claw1/contract/archive', [{ name: 'contract-a', isDirectory: true, size: 0 }]);
-  } else if (scenario === 'escalated') {
-    dirs.set('/tmp/test/claws', [{ name: 'claw1', isDirectory: true, size: 0 }]);
-    dirs.set('/tmp/test/claws/claw1', [{ name: 'contract', isDirectory: true, size: 0 }]);
-    dirs.set('/tmp/test/claws/claw1/contract', [{ name: 'active', isDirectory: true, size: 0 }]);
-    dirs.set('/tmp/test/claws/claw1/contract/active', [{ name: 'contract-b', isDirectory: true, size: 0 }]);
   } else {
     dirs.set('/tmp/test/claws', [{ name: 'claw1', isDirectory: true, size: 0 }]);
     dirs.set('/tmp/test/claws/claw1', [{ name: 'contract', isDirectory: true, size: 0 }]);
@@ -78,18 +65,6 @@ function makeOpts(overrides: Partial<{
 describe('Phase 542 — contract-observer deps 装配方注入', () => {
   it('completed contract events → notifyClaw called', async () => {
     const opts = makeOpts({ fs: makeFsMock('completed') });
-    await runContractObserver(opts);
-    expect(opts.notifyClaw).toHaveBeenCalledWith(
-      opts.fs,
-      opts.clawforumRoot,
-      'motion',
-      expect.objectContaining({ type: 'contract_events' }),
-      opts.motionAudit,
-    );
-  });
-
-  it('escalated contract events → notifyClaw called', async () => {
-    const opts = makeOpts({ fs: makeFsMock('escalated') });
     await runContractObserver(opts);
     expect(opts.notifyClaw).toHaveBeenCalledWith(
       opts.fs,

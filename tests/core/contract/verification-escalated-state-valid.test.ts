@@ -1,7 +1,7 @@
 /**
  * @module tests/core/contract/verification-escalated-state-valid
- * Phase 1371 sub-5: 'escalated' state spec divergence — reverse test
- * Verifies that 'escalated' is a legitimate SubtaskStatus with valid transition + recovery path.
+ * Phase 1399: force-accept state transition valid (phase 1399)
+ * Verifies that max verification attempts triggers force-accept with valid transition + recovery path.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -46,15 +46,15 @@ function makeManager(audit: any) {
   });
 }
 
-describe('escalated state transition valid (phase 1371 sub-5)', () => {
-  it('max retries reached → subtask.status escalated + audit emit + recovery path executable', async () => {
+describe('force-accept state transition valid (phase 1399)', () => {
+  it('max attempts reached → subtask.status completed + force_accepted + audit emit + recovery path executable', async () => {
     const { audit, events, emitter } = makeAudit();
     const manager = makeManager(audit);
 
     const contractId = await manager.create(makeContractYaml({
       subtasks: [{ id: 't1', description: 'd1' }],
       verification: [{ subtask_id: 't1', type: 'script', script_file: 'verify.sh' }],
-      escalation: { max_retries: 2 },
+      verification_attempts: 2,
     }));
 
     // Mock script verification to always fail
@@ -65,31 +65,25 @@ describe('escalated state transition valid (phase 1371 sub-5)', () => {
     await waitForAuditEvent(emitter, events, CONTRACT_AUDIT_EVENTS.VERIFICATION_BACKGROUND_DONE);
     await new Promise(r => setTimeout(r, 100));
 
-    // Second failure
+    // Second failure → force-accept (retry_count reaches verification_attempts=2)
     await manager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'e2' });
     await waitForAuditEvent(emitter, events, CONTRACT_AUDIT_EVENTS.VERIFICATION_BACKGROUND_DONE);
     await new Promise(r => setTimeout(r, 100));
 
-    // Third failure → escalation
-    await manager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'e3' });
-    await waitForAuditEvent(emitter, events, CONTRACT_AUDIT_EVENTS.ESCALATED);
-    await new Promise(r => setTimeout(r, 100));
+    // Verify force-accepted audit
+    const forceAcceptedEvents = events.filter(e => e[0] === CONTRACT_AUDIT_EVENTS.SUBTASK_FORCE_ACCEPTED);
+    expect(forceAcceptedEvents.length).toBeGreaterThanOrEqual(1);
+    const lastForceAccepted = forceAcceptedEvents[forceAcceptedEvents.length - 1];
+    expect(lastForceAccepted.some((c: any) => String(c).includes('contractId=' + contractId))).toBe(true);
+    expect(lastForceAccepted.some((c: any) => String(c).includes('subtaskId=t1'))).toBe(true);
 
-    // Verify escalated audit
-    const escalatedEvents = events.filter(e => e[0] === CONTRACT_AUDIT_EVENTS.ESCALATED);
-    expect(escalatedEvents.length).toBeGreaterThanOrEqual(1);
-    const lastEscalated = escalatedEvents[escalatedEvents.length - 1];
-    expect(lastEscalated.some((c: any) => String(c).includes('contractId=' + contractId))).toBe(true);
-    expect(lastEscalated.some((c: any) => String(c).includes('subtaskId=t1'))).toBe(true);
-
-    // Verify progress shows escalated status
+    // Verify progress shows completed + force_accepted status
     const progress = await manager.getProgress(contractId);
-    expect(progress.subtasks['t1'].status).toBe('escalated');
-    expect(typeof progress.subtasks['t1'].escalated_at).toBe('string');
+    expect(progress.subtasks['t1'].status).toBe('completed');
+    expect(progress.subtasks['t1'].force_accepted).toBe(true);
 
-    // Recovery path: contract can still be cancelled after escalation
-    await manager.cancel(contractId, 'escalated recovery');
-    const progressAfterCancel = await manager.getProgress(contractId);
-    expect(progressAfterCancel.status).toBe('cancelled');
+    // Recovery path: contract is auto-completed after force-accept (archive via archiveAndEmit)
+    const progressAfter = await manager.getProgress(contractId);
+    expect(progressAfter.status).toBe('completed');
   });
 });

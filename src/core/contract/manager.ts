@@ -336,7 +336,40 @@ export class ContractSystem {
         if (!(await this.fs.exists(progressPath))) continue;
         try {
           const raw = await this.fs.read(progressPath);
-          const progress = JSON.parse(raw) as { status?: string; contract_id?: string };
+          const progress = JSON.parse(raw) as { status?: string; contract_id?: string; subtasks?: Record<string, { status?: string; escalated_at?: string; completed_at?: string }> };
+
+          // NEW phase 1399: active dir 'escalated' 残留 migrate → completed + force_accepted
+          if (progress.subtasks) {
+            let mutated = false;
+            for (const [stId, st] of Object.entries(progress.subtasks)) {
+              if (st.status === 'escalated') {
+                st.status = 'completed';
+                (st as any).force_accepted = true;
+                delete (st as any).escalated_at;
+                if (!st.completed_at) st.completed_at = new Date().toISOString();
+                mutated = true;
+                this.audit.write(
+                  CONTRACT_AUDIT_EVENTS.CONTRACT_BOOT_MIGRATE_ESCALATED,
+                  `contractId=${progress.contract_id ?? entry.name}`,
+                  `subtaskId=${stId}`,
+                );
+              }
+            }
+            if (mutated) {
+              await this.fs.writeAtomic(progressPath, JSON.stringify(progress, null, 2));
+              const allCompleted = Object.values(progress.subtasks).every(s => s.status === 'completed');
+              if (allCompleted && progress.status !== 'completed') {
+                progress.status = 'completed';
+                await this.fs.writeAtomic(progressPath, JSON.stringify(progress, null, 2));
+                const contractId = makeContractId(progress.contract_id ?? entry.name);
+                const contractYaml = await this.loadContractYaml(contractId).catch(() => null);
+                if (contractYaml) {
+                  await archiveAndEmit(this._verificationCtx(), contractId, contractYaml.title, 'init.migrate_escalated');
+                }
+              }
+            }
+          }
+
           if (progress.status === 'archive_pending_recovery') {
             const contractId = makeContractId(progress.contract_id ?? entry.name);
             const contractYaml = await this.loadContractYaml(contractId);
@@ -488,6 +521,7 @@ export class ContractSystem {
       expectations: contractYaml.expectations,
       subtasks: contractYaml.subtasks,
       verification: contractYaml.verification ?? [],
+      verification_attempts: contractYaml.verification_attempts,
       auth_level: contractYaml.auth_level ?? CONTRACT_DEFAULTS.auth_level,
     });
     await this.fs.writeAtomic(`${this.activeDir}/${contractId}/contract.yaml`, content);
@@ -618,7 +652,7 @@ export class ContractSystem {
     return loadYaml(this._persistenceCtx(), contractId);
   }
 
-  async _writeVerificationError(contractId: ContractId, subtaskId: SubtaskId, error: unknown): Promise<void> {
+  async _writeVerificationError(contractId: ContractId, subtaskId: SubtaskId, error: unknown): Promise<{ archived?: boolean }> {
     return writeVerificationError(this._verificationCtx(), contractId, subtaskId, error);
   }
 

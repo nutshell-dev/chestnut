@@ -11,7 +11,6 @@ import { formatErr } from '../../foundation/utils/format.js';
 import { type ClawDir, makeClawDir } from '../../foundation/identity/index.js';
 import {
   emitContractCompleteOnCancelled,
-  emitContractEscalated,
   emitContractPassed,
   emitContractProgressCorrupted,
   emitContractSubtaskCompleted,
@@ -22,6 +21,7 @@ import {
   emitContractVerificationResetFailed,
   emitContractVerificationStarted,
   emitContractVerificationPipelineRaceRejected,
+  emitSubtaskForceAccepted,
 } from './audit-emit.js';
 
 
@@ -163,20 +163,43 @@ async function applyVerificationOutcome(
       feedback: result.feedback,
       cause: failureCause,
     };
+    const maxAttempts = contractYaml.verification_attempts ?? 3;
+
+    emitContractVerificationFailed(
+      ctx.audit,
+      { contractId, subtaskId, feedback: result.feedback },
+    );
+
+    if (subtask.retry_count >= maxAttempts) {
+      // 强制接受：试光次数当 completed 推进、保留 last_failed_feedback + force_accepted 标记
+      subtask.status = 'completed';
+      subtask.completed_at = new Date().toISOString();
+      subtask.force_accepted = true;
+      emitSubtaskForceAccepted(ctx.audit, {
+        contractId, subtaskId, retryCount: subtask.retry_count, claw: ctx.clawId,
+      });
+      safeNotify(ctx, 'subtask_completed', {
+        contract_id: contractId, subtask_id: subtaskId, force_accepted: true,
+      });
+
+      const allCompleted = await ctx.checkAllSubtasksCompleted(contractId, progress);
+      if (allCompleted) { progress.status = 'completed'; }
+      await ctx.saveProgress(contractId, progress);
+
+      // archiveAndEmit 由 runVerificationInBackground 在 withProgressLock 外调用（防嵌套锁）
+      return { allCompleted, passed: true };
+    }
+
+    // retry_count < maxAttempts: 保留 retry 路径
     subtask.status = 'todo';
-    const maxRetries = contractYaml.escalation?.max_retries ?? 3;
     safeNotify(ctx, 'verification_failed', {
       contract_id: contractId,
       subtask_id: subtaskId,
       cause: failureCause,
       feedback: result.feedback,
       retry_count: subtask.retry_count,
-      max_retries: maxRetries,
+      max_attempts: maxAttempts,
     } satisfies AcceptanceFailedNotification);
-    emitContractVerificationFailed(
-      ctx.audit,
-      { contractId, subtaskId, feedback: result.feedback },
-    );
     await ctx.saveProgress(contractId, progress);
 
     const verificationFile = verificationConfig.type === 'script'
@@ -189,29 +212,13 @@ async function applyVerificationOutcome(
           result.structured.reason,
           result.structured.issues || [],
           subtask.retry_count,
-          maxRetries,
+          maxAttempts,
           verificationConfig.type,
           verificationFile,
         )
       : result.feedback;
     writeVerificationInbox(ctx, contractId, subtaskId, 'rejected', false, formattedFeedback, subtask.retry_count);
 
-    if (subtask.retry_count >= maxRetries) {
-      subtask.escalated_at = new Date().toISOString();
-      // phase 1371 sub-5: 'escalated' is a legitimate SubtaskStatus value per code reality
-      // (spec divergence ratified: spec aligns code, not the reverse)
-      subtask.status = 'escalated';
-      await ctx.saveProgress(contractId, progress);
-      emitContractEscalated(
-        ctx.audit,
-        {
-          contractId,
-          subtaskId,
-          retryCount: subtask.retry_count,
-          claw: ctx.clawId,
-        },
-      );
-    }
     return { allCompleted: false, passed: false };
   });
 }
@@ -289,7 +296,15 @@ export async function runVerificationPipeline(
           { contractId, subtaskId, error: formatErr(err) },
         );
       }
-      writeVerificationError(ctx, contractId, subtaskId, err).catch(inboxErr => {
+      writeVerificationError(ctx, contractId, subtaskId, err).then(async (result) => {
+        // phase 1399: writeVerificationError 内防嵌套锁未调 archiveAndEmit，此处补调
+        if (result.archived === false) {
+          const progressAfterLock = await ctx.getProgress(contractId);
+          if (progressAfterLock.status === 'completed') {
+            await archiveAndEmit(ctx, contractId, contractYaml.title, 'ContractSystem.backgroundVerification.errorForceAccept');
+          }
+        }
+      }).catch(inboxErr => {
         emitContractVerificationResetFailed(
           ctx.audit,
           {

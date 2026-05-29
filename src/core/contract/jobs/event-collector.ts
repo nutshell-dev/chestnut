@@ -40,8 +40,12 @@ function formatContractCompletedEvent(
   if (completed.length > 0) {
     lines.push('  subtasks:');
     for (const [stId, st] of completed) {
+      const prefix = st.force_accepted ? '[force-accepted] ' : '';
       const ev = st.evidence ?? '';
-      lines.push(`    [${stId}] ${ev}`);
+      lines.push(`    ${prefix}[${stId}] ${ev}`);
+      if (st.last_failed_feedback?.feedback) {
+        lines.push(`      ⚠ last_failure: ${st.last_failed_feedback.feedback}`);
+      }
     }
   }
   return lines.join('\n');
@@ -110,63 +114,6 @@ export function collectContractEvents(
       audit?.write(
         CONTRACT_AUDIT_EVENTS.EVENT_COLLECTOR_SCAN_FAILED,
         `dir=archive`,
-        `code=${code ?? 'unknown'}`,
-        `error=${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
-  }
-
-  // 2. active 中升级事件
-  const activeDir = path.join(clawDir, CONTRACT_DIR, 'active');
-  try {
-    const dirs = fs.listSync(activeDir, { includeDirs: true })
-      .filter(e => e.isDirectory);
-    for (const d of dirs) {
-      const progressPath = path.join(activeDir, d.name, 'progress.json');
-      try {
-        const raw = fs.readSync(progressPath);
-        const parsed = JSON.parse(raw) as { contract_id?: unknown; status?: unknown; subtasks?: unknown };
-        if (
-          typeof parsed.contract_id !== 'string' ||
-          typeof parsed.status !== 'string' ||
-          typeof parsed.subtasks !== 'object' || parsed.subtasks === null
-        ) {
-          audit?.write(
-            CONTRACT_AUDIT_EVENTS.PROGRESS_SCHEMA_INVALID,
-            `clawId=${clawId}`,
-            `contract=${d.name}`,
-            `context=event_collector_active`,
-          );
-          continue;
-        }
-        const progress = parsed as ProgressData;
-        for (const [stId, st] of Object.entries(progress.subtasks)) {
-          if (st.escalated_at && new Date(st.escalated_at).getTime() > sinceTs) {
-            events.push(`[contract_escalation] claw=${clawId} contract=${d.name} subtask=${stId} retry_count=${st.retry_count}`);
-          }
-        }
-      } catch (err) {
-        // phase 1154 r+ derive: ENOENT-equivalent = progress.json absent (active 升级 race)、非 corruption 语义
-        if (isFileNotFound(err)) {
-          continue; // silent skip absent / 不入 audit
-        }
-        audit?.write(
-          CONTRACT_AUDIT_EVENTS.PROGRESS_CORRUPTED,
-          `clawId=${clawId}`,
-          `contract=${d.name}`,
-          `context=event_collector_active`,
-          `error=${err instanceof Error ? err.message : String(err)}`,
-        );
-        continue;
-      }
-    }
-  } catch (err) {
-    // phase 1154 r+ derive: 双码 narrow via foundation helper (FileSystem 抽象层抛 FS_NOT_FOUND)
-    if (!isFileNotFound(err)) {
-      const code = (err as NodeJS.ErrnoException)?.code;
-      audit?.write(
-        CONTRACT_AUDIT_EVENTS.EVENT_COLLECTOR_SCAN_FAILED,
-        `dir=active`,
         `code=${code ?? 'unknown'}`,
         `error=${err instanceof Error ? err.message : String(err)}`,
       );

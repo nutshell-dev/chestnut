@@ -31,7 +31,7 @@ function makeAcceptanceCtx(
   overrides: {
     moveToArchiveThrows?: boolean;
     saveProgressThrows?: boolean;
-    maxRetries?: number;
+    maxAttempts?: number;
     progress?: ProgressData;
   } = {},
 ): { ctx: VerificationContext; events: Array<[string, ...(string | number)[]]>; notifyCalls: Array<{ type: string; data: Record<string, unknown> }> } {
@@ -49,9 +49,7 @@ function makeAcceptanceCtx(
       title: 'Test',
       goal: 'Test',
       subtasks: [{ id: 'st1', description: 'ST1' }],
-      escalation: overrides.maxRetries !== undefined
-        ? { max_retries: overrides.maxRetries }
-        : undefined,
+      verification_attempts: overrides.maxAttempts,
     })),
     getProgress: vi.fn(async (id: string) => {
       return storedProgress[id] ?? {
@@ -147,9 +145,9 @@ describe('phase 1038 C-3 Contract state machine integrity (W3-B α-1+α-4+α-7)'
     });
   });
 
-  describe('α-4 writeVerificationError reset path escalation check', () => {
-    it('reset path retry_count >= maxRetries → escalated_at set + ESCALATED audit', async () => {
-      const { ctx, events } = makeAcceptanceCtx({ maxRetries: 3 });
+  describe('α-4 writeVerificationError reset path force-accept check', () => {
+    it('reset path retry_count >= maxAttempts → force_accepted + SUBTASK_FORCE_ACCEPTED audit', async () => {
+      const { ctx, events } = makeAcceptanceCtx({ maxAttempts: 3 });
       // setup: subtask with retry_count=2 + in_progress
       (ctx.getProgress as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
         contract_id: 'c1',
@@ -164,20 +162,19 @@ describe('phase 1038 C-3 Contract state machine integrity (W3-B α-1+α-4+α-7)'
       const saveCalls = (ctx.saveProgress as ReturnType<typeof vi.fn>).mock.calls;
       expect(saveCalls.length).toBeGreaterThanOrEqual(1);
       const savedProgress = saveCalls[0][1] as ProgressData;
-      expect(savedProgress.subtasks['st1'].escalated_at).toBeDefined();
+      expect(savedProgress.subtasks['st1'].force_accepted).toBe(true);
 
       expect(events).toContainEqual(expect.arrayContaining([
-        CONTRACT_AUDIT_EVENTS.ESCALATED,
+        CONTRACT_AUDIT_EVENTS.SUBTASK_FORCE_ACCEPTED,
         expect.stringContaining('contractId=c1'),
         expect.stringContaining('subtaskId=st1'),
         expect.stringContaining('retry_count=3'),
         expect.stringContaining('claw=claw-test'),
-        expect.stringContaining('context=writeVerificationError.reset'),
       ]));
     });
 
-    it('reset path retry_count < maxRetries → escalated_at unset', async () => {
-      const { ctx } = makeAcceptanceCtx({ maxRetries: 3 });
+    it('reset path retry_count < maxAttempts → force_accepted unset', async () => {
+      const { ctx } = makeAcceptanceCtx({ maxAttempts: 3 });
       // setup: subtask with retry_count=0 + in_progress
       (ctx.getProgress as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
         contract_id: 'c2',
@@ -192,12 +189,12 @@ describe('phase 1038 C-3 Contract state machine integrity (W3-B α-1+α-4+α-7)'
       const saveCalls = (ctx.saveProgress as ReturnType<typeof vi.fn>).mock.calls;
       expect(saveCalls.length).toBeGreaterThanOrEqual(1);
       const savedProgress = saveCalls[0][1] as ProgressData;
-      expect(savedProgress.subtasks['st1'].escalated_at).toBeUndefined();
+      expect(savedProgress.subtasks['st1'].force_accepted).toBeUndefined();
     });
 
-    it('reset path with no escalation config → uses default maxRetries=3', async () => {
-      const { ctx, events } = makeAcceptanceCtx({ /* no maxRetries override */ });
-      // setup: subtask with retry_count=3 (default maxRetries=3) → should escalate
+    it('reset path with no verification_attempts config → uses default maxAttempts=3', async () => {
+      const { ctx, events } = makeAcceptanceCtx({ /* no maxAttempts override */ });
+      // setup: subtask with retry_count=3 (default maxAttempts=3) → should force-accept
       (ctx.getProgress as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
         contract_id: 'c3',
         status: 'running',
@@ -217,10 +214,10 @@ describe('phase 1038 C-3 Contract state machine integrity (W3-B α-1+α-4+α-7)'
       const saveCalls = (ctx.saveProgress as ReturnType<typeof vi.fn>).mock.calls;
       expect(saveCalls.length).toBeGreaterThanOrEqual(1);
       const savedProgress = saveCalls[0][1] as ProgressData;
-      expect(savedProgress.subtasks['st1'].escalated_at).toBeDefined();
+      expect(savedProgress.subtasks['st1'].force_accepted).toBe(true);
 
       expect(events).toContainEqual(expect.arrayContaining([
-        CONTRACT_AUDIT_EVENTS.ESCALATED,
+        CONTRACT_AUDIT_EVENTS.SUBTASK_FORCE_ACCEPTED,
       ]));
     });
   });

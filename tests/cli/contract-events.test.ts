@@ -3,7 +3,6 @@
  *
  * Verifies contract event detection:
  * - completed contracts in archive (since timestamp)
- * - escalated subtasks in active (escalated_at > sinceTs)
  * - no output when no events
  */
 
@@ -94,66 +93,6 @@ describe('contractEventsCommand', () => {
 
     // sinceTs after completion → should not detect
     await contractEventsCommand({ fsFactory }, 'test-claw', completedAt.getTime() + 1000);
-    expect(logSpy).not.toHaveBeenCalled();
-  });
-
-  it('should detect escalated subtask in active contract', async () => {
-    const contractId = 'contract-003';
-    const activeDir = path.join(clawDir, 'contract', 'active', contractId);
-    fs.mkdirSync(activeDir, { recursive: true });
-
-    const escalatedAt = new Date('2026-04-17T10:00:00Z');
-    fs.writeFileSync(path.join(activeDir, 'progress.json'), JSON.stringify({
-      contract_id: contractId,
-      status: 'active',
-      subtasks: {
-        't1': { status: 'todo', retry_count: 3, escalated_at: escalatedAt.toISOString() },
-        't2': { status: 'done', retry_count: 0 },
-      },
-    }));
-
-    await contractEventsCommand({ fsFactory }, 'test-claw', escalatedAt.getTime() - 1000);
-
-    expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining('[contract_escalation]'),
-    );
-    expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining('subtask=t1'),
-    );
-  });
-
-  it('should not report escalation without escalated_at', async () => {
-    const contractId = 'contract-004';
-    const activeDir = path.join(clawDir, 'contract', 'active', contractId);
-    fs.mkdirSync(activeDir, { recursive: true });
-
-    fs.writeFileSync(path.join(activeDir, 'progress.json'), JSON.stringify({
-      contract_id: contractId,
-      status: 'active',
-      subtasks: {
-        't1': { status: 'todo', retry_count: 3 },
-      },
-    }));
-
-    await contractEventsCommand({ fsFactory }, 'test-claw', 0);
-    expect(logSpy).not.toHaveBeenCalled();
-  });
-
-  it('should not report escalation when escalated_at before sinceTs', async () => {
-    const contractId = 'contract-005';
-    const activeDir = path.join(clawDir, 'contract', 'active', contractId);
-    fs.mkdirSync(activeDir, { recursive: true });
-
-    const escalatedAt = new Date('2026-04-17T10:00:00Z');
-    fs.writeFileSync(path.join(activeDir, 'progress.json'), JSON.stringify({
-      contract_id: contractId,
-      status: 'active',
-      subtasks: {
-        't1': { status: 'todo', retry_count: 5, escalated_at: escalatedAt.toISOString() },
-      },
-    }));
-
-    await contractEventsCommand({ fsFactory }, 'test-claw', escalatedAt.getTime() + 1000);
     expect(logSpy).not.toHaveBeenCalled();
   });
 

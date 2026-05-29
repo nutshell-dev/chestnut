@@ -43,8 +43,8 @@ describe('phase 1154 — event-collector FS_NOT_FOUND narrow + α-4 progress_cor
     const result = collectContractEvents(fs, '/tmp/claw', 'claw1', 0, audit);
     expect(result).toEqual([]);
     expect(events).toHaveLength(0);
-    // archive + active 各 1 个 entry → readSync 被调 2 次
-    expect(readCalls).toBe(2);
+    // 仅 archive 1 个 entry → readSync 被调 1 次
+    expect(readCalls).toBe(1);
   });
 
   it('progress.json readSync EACCES → emit PROGRESS_CORRUPTED 2 次 (archive + active)', () => {
@@ -62,8 +62,8 @@ describe('phase 1154 — event-collector FS_NOT_FOUND narrow + α-4 progress_cor
     } as unknown as FileSystem;
     const result = collectContractEvents(fs, '/tmp/claw', 'claw1', 0, audit);
     expect(result).toEqual([]);
-    // archive + active 各 1 个 entry → 各 emit 1 次
-    expect(events).toHaveLength(2);
+    // 仅 archive 1 个 entry → emit 1 次
+    expect(events).toHaveLength(1);
     expect(events[0][0]).toBe(CONTRACT_AUDIT_EVENTS.PROGRESS_CORRUPTED);
   });
 
@@ -78,8 +78,8 @@ describe('phase 1154 — event-collector FS_NOT_FOUND narrow + α-4 progress_cor
     } as unknown as FileSystem;
     const result = collectContractEvents(fs, '/tmp/claw', 'claw1', 0, audit);
     expect(result).toEqual([]);
-    // archive + active 各 1 个 entry → 各 emit 1 次
-    expect(events).toHaveLength(2);
+    // 仅 archive 1 个 entry → emit 1 次
+    expect(events).toHaveLength(1);
     expect(events[0][0]).toBe(CONTRACT_AUDIT_EVENTS.PROGRESS_CORRUPTED);
   });
 });

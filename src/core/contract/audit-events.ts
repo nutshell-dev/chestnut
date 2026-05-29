@@ -14,6 +14,7 @@ export const CONTRACT_AUDIT_EVENTS = {
   LOCK_RETRY: 'contract_lock_retry',                    // ← NEW (phase 1325 / r137 B fork)
   PROGRESS_SCHEMA_INVALID: 'contract_progress_schema_invalid',  // ← NEW (phase 587)
   CONTRACT_YAML_LEGACY_ACCEPTANCE_FIELD: 'contract_yaml_legacy_acceptance_field', // ← NEW phase 1257 r134 C fork (mirror PID_FILE_LEGACY_FORMAT phase 1023+1180 模板)
+  CONTRACT_YAML_LEGACY_ESCALATION_FIELD: 'contract_yaml_legacy_escalation_field', // ← NEW phase 1399: escalation.max_retries → verification_attempts 30天兼容
   CONTRACT_YAML_SCHEMA_INVALID: 'contract_yaml_schema_invalid', // ← NEW (phase 587)
   OBSERVER_STATE_PARSE_FAILED: 'contract_observer_state_parse_failed',  // ← NEW (phase 1012 / r123 C fork)
   PROGRESS_CORRUPTED: 'contract_progress_corrupted',
@@ -42,8 +43,8 @@ export const CONTRACT_AUDIT_EVENTS = {
   RESUMED: 'contract_resumed',
   // phase 569 const 化（verification.ts 7 处字面量收）
   SUBTASK_COMPLETED: 'subtask_completed',
+  SUBTASK_FORCE_ACCEPTED: 'subtask_force_accepted', // ← NEW phase 1399: force-accept 路径审计
   VERIFICATION_FAILED: 'verification_failed',
-  ESCALATED: 'contract_escalation',
   VERIFICATION_TIMEOUT: 'verification_timeout',
   // phase 993 D.2 (r121 J fork audit-2026-05-17 NEW.P1 D.2): verifier catch audit emit (timeout/other)
   VERIFIER_FAILED: 'contract_verifier_failed',
@@ -64,6 +65,7 @@ export const CONTRACT_AUDIT_EVENTS = {
   OBSERVER_STATE_LOAD_FAILED: 'contract_observer_state_load_failed',
   // phase 1335 (r138 F fork): boot reconcile audit emit trace
   CONTRACT_BOOT_RECONCILE: 'contract_boot_reconcile',
+  CONTRACT_BOOT_MIGRATE_ESCALATED: 'contract_boot_migrate_escalated', // ← NEW phase 1399: boot 时 escalated 残留 migrate
   // phase 1362 (r140): contractDir → acquireLock TOCTOU race retry audit trace
   CONTRACT_DIR_RACE_RETRY: 'contract_dir_race_retry',
   // phase 1371 sub-2: archiveAndEmit partial recovery audit trace

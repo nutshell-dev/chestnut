@@ -31,8 +31,7 @@ export type SubtaskStatus =
   | 'todo'
   | 'in_progress'
   | 'completed'
-  | 'failed'
-  | 'escalated';   // phase 1102 con-4: explicit escalation state to break infinite loops
+  | 'failed';
 
 export interface LastFailedFeedback {
   feedback: string;
@@ -45,7 +44,7 @@ export interface AcceptanceFailedNotification {
   cause: 'llm_rejected' | 'programming_bug' | 'subagent_timeout' | 'script_failed';
   feedback: string;
   retry_count: number;
-  max_retries: number;
+  max_attempts: number;
 }
 
 export interface SubTask {
@@ -90,9 +89,8 @@ export interface ContractYaml {
     | { subtask_id: string; type: 'llm'; prompt_file?: string }
   >;
   auth_level?: 'auto' | 'notify' | 'confirm';
-  escalation?: {
-    max_retries?: number;  // 默认 3
-  };
+  verification_attempts?: number;  // 全局 retry 上限，默认 3
+  // escalation 字段已废弃（phase 1399），读时通过 persistence.ts 自动迁移到 verification_attempts
 }
 
 // Progress data structure
@@ -107,7 +105,7 @@ export interface ProgressData {
     artifacts?: string[];
     retry_count?: number;           // 默认 0，每次验收失败 +1
     last_failed_feedback?: LastFailedFeedback;
-    escalated_at?: string;
+    force_accepted?: boolean;        // phase 1399: retry 试光后强接受标记
   }>;
   started_at?: string;
   checkpoint?: string | null;

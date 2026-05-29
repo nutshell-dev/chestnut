@@ -1,7 +1,7 @@
 /**
  * ContractSystem misc tests (phase 1339 split)
  *
- * Extracted from contract_manager-escalation.test.ts:65-301 (LLM verification + escalation writes escalated_at + phase239 audit lifecycle).
+ * Extracted from contract_manager-escalation.test.ts:65-301 (LLM verification + force-accept writes force_accepted + phase239 audit lifecycle).
  * All 7 tests use vi.spyOn only (no spawn / no concurrent lock) → fast project.
  *
  * This commit also deletes contract_manager-escalation.test.ts (empty after this extraction).
@@ -104,20 +104,21 @@ describe('ContractSystem - misc (LLM verification + escalation + phase239 audit)
     });
   });
 
-  // === Phase 137: escalated_at written when retry_count reaches maxRetries ===
+  // === Phase 137: force_accepted written when retry_count reaches maxAttempts ===
 
-  describe('escalation writes escalated_at', () => {
-    it('should set escalated_at after reaching max retries', async () => {
+  describe('force-accept writes force_accepted', () => {
+    it('should set force_accepted after reaching max attempts', async () => {
       const mockAudit = makeMockAudit();
       const testManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory });
 
       const contractId = await testManager.create(makeContractYaml({
-        title: 'Escalation Test',
-        goal: 'Test escalated_at',
+        title: 'Force Accept Test',
+        goal: 'Test force_accepted',
         subtasks: [{ id: 't1', description: 'T1' }],
         verification: [
           { subtask_id: 't1', type: 'script', script_file: 'verification/t1.sh' },
         ],
+        verification_attempts: 2,
       }));
 
       // Create script file so verification config resolves
@@ -133,8 +134,8 @@ describe('ContractSystem - misc (LLM verification + escalation + phase239 audit)
         structured: { passed: false, reason: 'test', issues: [] },
       });
 
-      // Default maxRetries = 3, need 3 failures to trigger escalation
-      for (let i = 0; i < 3; i++) {
+      // verification_attempts = 2, need 2 failures to trigger force-accept
+      for (let i = 0; i < 2; i++) {
         await testManager.completeSubtask({ contractId, subtaskId: 't1', evidence: `attempt ${i + 1}` });
         // Wait for background verification to complete (subtask leaves in_progress)
         await waitFor(
@@ -146,16 +147,16 @@ describe('ContractSystem - misc (LLM verification + escalation + phase239 audit)
         await new Promise(r => setTimeout(r, 50));
       }
 
-      // phase 1305: poll for BOTH escalated_at AND ESCALATED audit emit
-      // (race fix: escalated_at saveProgress 可能在 audit emit 前 land /
+      // phase 1305: poll for BOTH force_accepted AND SUBTASK_FORCE_ACCEPTED audit emit
+      // (race fix: force_accepted saveProgress 可能在 audit emit 前 land /
       //  N=2 累 flaky 实证 phase 1290 R5 + main 复测 2026-05-26)
       await waitFor(
         async () => {
-          const escalated = Boolean((await testManager.getProgress(contractId)).subtasks['t1'].escalated_at);
-          const escalationEmitted = mockAudit.write.mock.calls.some(
-            (c: any[]) => c[0] === CONTRACT_AUDIT_EVENTS.ESCALATED,
+          const forceAccepted = Boolean((await testManager.getProgress(contractId)).subtasks['t1'].force_accepted);
+          const forceAcceptEmitted = mockAudit.write.mock.calls.some(
+            (c: any[]) => c[0] === CONTRACT_AUDIT_EVENTS.SUBTASK_FORCE_ACCEPTED,
           );
-          return escalated && escalationEmitted;
+          return forceAccepted && forceAcceptEmitted;
         },
         5000,
         10,
@@ -164,22 +165,22 @@ describe('ContractSystem - misc (LLM verification + escalation + phase239 audit)
       scriptSpy.mockRestore();
 
       const progress = await testManager.getProgress(contractId);
-      expect(progress.subtasks['t1'].retry_count).toBe(3);
-      expect(progress.subtasks['t1'].escalated_at).toBeDefined();
-      expect(new Date(progress.subtasks['t1'].escalated_at!).getTime()).toBeGreaterThan(0);
+      expect(progress.subtasks['t1'].retry_count).toBe(2);
+      expect(progress.subtasks['t1'].force_accepted).toBe(true);
     });
 
-    it('should not set escalated_at before reaching max retries', async () => {
+    it('should not set force_accepted before reaching max attempts', async () => {
       const mockAudit = makeMockAudit();
       const testManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory });
 
       const contractId = await testManager.create(makeContractYaml({
-        title: 'No Escalation Test',
-        goal: 'Test no escalated_at',
+        title: 'No Force Accept Test',
+        goal: 'Test no force_accepted',
         subtasks: [{ id: 't1', description: 'T1' }],
         verification: [
           { subtask_id: 't1', type: 'script', script_file: 'verification/t1.sh' },
         ],
+        verification_attempts: 3,
       }));
 
       const contractDir = path.join(clawDir, 'contract/active', contractId);
@@ -192,7 +193,7 @@ describe('ContractSystem - misc (LLM verification + escalation + phase239 audit)
         feedback: 'verification failed',
       });
 
-      // Only 2 failures — below maxRetries (3)
+      // Only 2 failures — below verification_attempts (3)
       for (let i = 0; i < 2; i++) {
         await testManager.completeSubtask({ contractId, subtaskId: 't1', evidence: `attempt ${i + 1}` });
         await waitFor(
@@ -208,7 +209,7 @@ describe('ContractSystem - misc (LLM verification + escalation + phase239 audit)
 
       const progress = await testManager.getProgress(contractId);
       expect(progress.subtasks['t1'].retry_count).toBe(2);
-      expect(progress.subtasks['t1'].escalated_at).toBeUndefined();
+      expect(progress.subtasks['t1'].force_accepted).toBeUndefined();
     });
   });
 

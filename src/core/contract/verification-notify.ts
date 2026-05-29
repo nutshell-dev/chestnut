@@ -15,8 +15,8 @@ import { ToolTimeoutError } from '../../foundation/errors.js';
 import type { LastFailedFeedback, AcceptanceFailedNotification } from './types.js';
 import {
   emitContractNotifyFailed,
-  emitContractEscalated,
   emitContractVerificationResetFailed,
+  emitSubtaskForceAccepted,
 } from './audit-emit.js';
 
 type NotifyType = 'subtask_completed' | 'verification_failed' | 'contract_completed';
@@ -77,7 +77,7 @@ export async function writeVerificationError(
   contractId: ContractId,
   subtaskId: SubtaskId,
   error: unknown,
-): Promise<void> {
+): Promise<{ archived?: boolean }> {
   const errorMsg = formatErr(error);
   const cause: LastFailedFeedback['cause'] =
     error instanceof ToolTimeoutError ? 'subagent_timeout' : 'programming_bug';
@@ -100,6 +100,7 @@ export async function writeVerificationError(
     },
   }, ctx.audit);
 
+  let result: { archived?: boolean } = {};
   try {
     await ctx.withProgressLock(contractId, async () => {
       const progress = await ctx.getProgress(contractId);
@@ -110,33 +111,39 @@ export async function writeVerificationError(
         subtask.last_failed_feedback = { feedback: feedbackText, cause };
 
         const contractYaml = await ctx.loadContractYaml(contractId);
-        const maxRetries = contractYaml.escalation?.max_retries ?? 3;
+        const maxAttempts = contractYaml.verification_attempts ?? 3;
 
-        if (subtask.retry_count >= maxRetries) {
-          subtask.escalated_at = new Date().toISOString();
-          subtask.status = 'escalated';
+        if (subtask.retry_count >= maxAttempts) {
+          // 强制接受：timeout/crash 路径达上限同样 force_accepted
+          subtask.status = 'completed';
+          subtask.completed_at = new Date().toISOString();
+          subtask.force_accepted = true;
           await ctx.saveProgress(contractId, progress);
-          emitContractEscalated(
-            ctx.audit,
-            {
-              contractId,
-              subtaskId,
-              retryCount: subtask.retry_count,
-              claw: ctx.clawId,
-              context: 'writeVerificationError.reset',
-            },
-          );
-        } else {
-          await ctx.saveProgress(contractId, progress);
+          emitSubtaskForceAccepted(ctx.audit, {
+            contractId, subtaskId, retryCount: subtask.retry_count, claw: ctx.clawId,
+          });
+          safeNotify(ctx, 'subtask_completed', {
+            contract_id: contractId, subtask_id: subtaskId, force_accepted: true,
+          });
+
+          const allCompleted = await ctx.checkAllSubtasksCompleted(contractId, progress);
+          if (allCompleted && progress.status !== 'completed') {
+            progress.status = 'completed';
+            await ctx.saveProgress(contractId, progress);
+            // archiveAndEmit 由 caller（runVerificationInBackground catch）在 withProgressLock 外调用
+            result = { archived: false };
+            return;
+          }
+          return;
         }
-
+        await ctx.saveProgress(contractId, progress);
         safeNotify(ctx, 'verification_failed', {
           contract_id: contractId,
           subtask_id: subtaskId,
           cause,
           feedback: feedbackText,
           retry_count: subtask.retry_count,
-          max_retries: maxRetries,
+          max_attempts: maxAttempts,
         } satisfies AcceptanceFailedNotification);
       }
     });
@@ -146,5 +153,6 @@ export async function writeVerificationError(
       { context: 'ContractSystem._writeVerificationError.resetStatus', error: formatErr(e) },
     );
   }
+  return result;
 }
 

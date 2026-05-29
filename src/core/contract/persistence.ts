@@ -76,6 +76,23 @@ export async function loadContractYaml(
   }
   delete data.acceptance;
 
+  // NEW phase 1399: escalation.max_retries → verification_attempts 30 天兼容
+  // SUNSET: 监控 CONTRACT_YAML_LEGACY_ESCALATION_FIELD audit 0 触发后 phase 1430+ 删 fallback
+  if (
+    typeof data.escalation === 'object' && data.escalation !== null &&
+    typeof (data.escalation as Record<string, unknown>).max_retries === 'number' &&
+    data.verification_attempts === undefined
+  ) {
+    ctx.audit.write(
+      CONTRACT_AUDIT_EVENTS.CONTRACT_YAML_LEGACY_ESCALATION_FIELD,
+      `contractId=${contractId}`,
+      `field=escalation.max_retries`,
+      `new_field=verification_attempts`,
+    );
+    data.verification_attempts = (data.escalation as Record<string, unknown>).max_retries;
+  }
+  delete data.escalation;
+
   return data as unknown as ContractYaml;
 }
 

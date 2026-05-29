@@ -233,11 +233,11 @@ describe('ContractSystem - fire-and-forget 失败状态机 (phase 468 / feedback
         cause: 'llm_rejected',
         feedback: 'rejected by LLM',
         retry_count: 1,
-        max_retries: 3,
+        max_attempts: 3,
       });
     });
 
-    it('max_retries 后 subtask 仍 todo（不进 failed）', async () => {
+    it('max_attempts 后 subtask force_accepted（status=completed）', async () => {
       const mockAudit = makeMockAudit();
       const testManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory });
 
@@ -248,7 +248,7 @@ describe('ContractSystem - fire-and-forget 失败状态机 (phase 468 / feedback
         verification: [
           { subtask_id: 't1', type: 'script', script_file: 'verification/t1.sh' },
         ],
-        escalation: { max_retries: 2 },
+        verification_attempts: 2,
       }));
 
       const contractDir = path.join(clawDir, 'contract/active', contractId);
@@ -261,7 +261,7 @@ describe('ContractSystem - fire-and-forget 失败状态机 (phase 468 / feedback
         feedback: 'verification failed',
       });
 
-      for (let i = 0; i < 3; i++) {
+      for (let i = 0; i < 2; i++) {
         await completeSubtaskWithRetry(testManager, { contractId, subtaskId: 't1', evidence: `attempt ${i + 1}` });
         await waitFor(
           async () => (await testManager.getProgress(contractId)).subtasks['t1'].status !== 'in_progress',
@@ -270,26 +270,26 @@ describe('ContractSystem - fire-and-forget 失败状态机 (phase 468 / feedback
         );
       }
 
-      // Escalation saveProgress runs after inbox write; poll for escalated_at
+      // Force-accept saveProgress runs after inbox write; poll for force_accepted
       await waitFor(
-        async () => Boolean((await testManager.getProgress(contractId)).subtasks['t1'].escalated_at),
+        async () => Boolean((await testManager.getProgress(contractId)).subtasks['t1'].force_accepted),
         5000,
         10,
       );
 
       const progress = await testManager.getProgress(contractId);
-      // phase 1102 con-4: status becomes 'escalated' (not 'failed') after max retries
-      expect(progress.subtasks['t1'].status).toBe('escalated');
+      // After max attempts, subtask is force-accepted (completed, not failed)
+      expect(progress.subtasks['t1'].status).toBe('completed');
       expect(progress.subtasks['t1'].status).not.toBe('failed');
-      expect(progress.subtasks['t1'].retry_count).toBe(3);
-      expect(progress.subtasks['t1'].escalated_at).toBeDefined();
+      expect(progress.subtasks['t1'].retry_count).toBe(2);
+      expect(progress.subtasks['t1'].force_accepted).toBe(true);
 
       const escalationCalls = mockAudit.write.mock.calls.filter(
-        (c: any[]) => c[0] === CONTRACT_AUDIT_EVENTS.ESCALATED
+        (c: any[]) => c[0] === CONTRACT_AUDIT_EVENTS.SUBTASK_FORCE_ACCEPTED
       );
       expect(escalationCalls.length).toBeGreaterThan(0); // at least 1; exact count is retry-dependent
       expect(escalationCalls[0]).toEqual(expect.arrayContaining([
-        CONTRACT_AUDIT_EVENTS.ESCALATED,
+        CONTRACT_AUDIT_EVENTS.SUBTASK_FORCE_ACCEPTED,
         expect.stringContaining(`contractId=${contractId}`),
         expect.stringContaining('subtaskId=t1'),
       ]));

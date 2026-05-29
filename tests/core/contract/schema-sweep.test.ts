@@ -340,40 +340,6 @@ describe('event-collector schema check', () => {
     );
   });
 
-  it('skips active contract with null subtasks and audits PROGRESS_SCHEMA_INVALID', () => {
-    const mockAudit = makeMockAudit();
-    const now = Date.now();
-    const fsMock = makeFsWithContracts([
-      {
-        dir: 'active',
-        name: 'bad',
-        progress: { contract_id: 'bad', status: 'active', subtasks: null },
-      },
-      {
-        dir: 'active',
-        name: 'good',
-        progress: {
-          contract_id: 'good',
-          status: 'active',
-          subtasks: {
-            t1: { escalated_at: new Date(now + 1000).toISOString(), retry_count: 2 },
-          },
-        },
-      },
-    ]);
-
-    const events = collectContractEvents(fsMock, clawDir, 'test-claw', now, mockAudit as any);
-    expect(events.length).toBe(1);
-    expect(events[0]).toContain('contract=good');
-
-    expect(mockAudit.write).toHaveBeenCalledWith(
-      'contract_progress_schema_invalid',
-      expect.stringContaining('clawId=test-claw'),
-      expect.stringContaining('contract=bad'),
-      expect.stringContaining('context=event_collector_active'),
-    );
-  });
-
   it('audits PROGRESS_CORRUPTED on JSON.parse throw', () => {
     const mockAudit = makeMockAudit();
     const files = new Map<string, string>();

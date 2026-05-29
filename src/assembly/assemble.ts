@@ -479,14 +479,17 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
     const contractNotifyCallback = (type: string, data: Record<string, unknown>) => {
       streamWriter!.write({ ts: Date.now(), type: 'user_notify', subtype: type, ...data });
 
-      // A.6 双链路：motion inbox 实时收契约事件 (D8 事件驱动 align)
-      notifyInbox(systemFs, {
-        inboxDir: motionInboxDir,
-        type: 'contract_events',
-        source: 'system',
-        priority: 'high',
-        body: `[${type}] claw=${clawId} ${formatNotifyData(data)}`,
-      }, auditWriter);
+      // A.6 双链路：motion inbox 只接契约终态事件（决策点）
+      // subtask_completed / verification_failed 仅 streamWriter（viewport 可见、motion 决策无用）
+      if (type === 'contract_completed') {
+        notifyInbox(systemFs, {
+          inboxDir: motionInboxDir,
+          type: 'contract_events',
+          source: 'system',
+          priority: 'high',
+          body: `[${type}] claw=${clawId} ${formatNotifyData(data)}`,
+        }, auditWriter);
+      }
     };
 
     const dependencies: RuntimeDependencies = {
