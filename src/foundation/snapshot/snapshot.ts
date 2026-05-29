@@ -28,7 +28,7 @@ import {
   emitSnapshotSyncRestoreFailed,
   emitSnapshotTryClearFailed,
 } from './audit-emit.js';
-import { ok, err as errResult, type Result } from '../utils/result.js';
+import { ok, err as errResult, type Result } from '../utils/index.js';
 import { classifyGitError, type ExpectedGitFailure, type GitExecError } from './git-errors.js';
 import { AUDIT_MESSAGE_MAX_CHARS } from '../audit/index.js';
 

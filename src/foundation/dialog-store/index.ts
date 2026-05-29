@@ -12,6 +12,10 @@ export type { SessionData, LoadResult, DialogMarker, RestoreResult } from './typ
 export { performRegimeSwitch } from './regime-switch.js';
 export type { RegimeStrategy, RegimeSwitchAuditEvents, PerformRegimeSwitchOpts, PerformRegimeSwitchResult } from './regime-switch.js';
 
+// phase 1432 F6: dirs path const re-export — 跨模块 (cli) 路径合成走 barrel。
+// allowlist: assembly/assemble.ts (装配根 bootstrap by-design)。
+export { DIALOG_DIR, DIALOG_ARCHIVE_DIR } from './dirs.js';
+
 import type { FileSystem } from '../fs/types.js';
 import type { AuditLog } from '../audit/index.js';
 import { DialogStore } from './store.js';

@@ -17,7 +17,7 @@ import {
   emitInboxWritten,
 } from './audit-emit.js';
 import { UUID_SHORT_LEN } from '../../constants.js';
-import { ok, err as errResult, type Result } from '../utils/result.js';
+import { ok, err as errResult, type Result } from '../utils/index.js';
 import type { InboxMetaError } from './errors.js';
 
 export type InboxMessageMeta = Record<string, string>;

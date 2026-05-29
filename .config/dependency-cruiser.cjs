@@ -202,6 +202,46 @@ module.exports = {
       to: { path: '^src/foundation/messaging/dirs\\.ts$' },
     },
     {
+      name: 'no-deep-into-dialog-store-dirs',
+      comment: [
+        'ML#7 + ML#9 — foundation/dialog-store/dirs.ts path const 跨模块通道仅 barrel。',
+        '跨模块 caller (cli/) 只能 import',
+        'src/foundation/dialog-store/index.ts、不得深穿 src/foundation/dialog-store/dirs.ts。',
+        'phase 1432 F6 立、treat finding F6 dialog-store/dirs ⏳ → ✅。',
+        'allowlist (by-design):',
+        '  - src/assembly/assemble.ts: 装配根 bootstrap、L6 装配胶水允许 deep import L2 internal',
+      ].join(' '),
+      severity: 'error',
+      from: {
+        path: '^src',
+        pathNot: [
+          '^src/foundation/dialog-store/',
+          '^src/assembly/assemble\\.ts$',
+        ],
+      },
+      to: { path: '^src/foundation/dialog-store/dirs\\.ts$' },
+    },
+    {
+      name: 'no-deep-into-utils-result',
+      comment: [
+        'ML#7 + ML#9 — foundation/utils/result.ts 跨模块通道仅 barrel。',
+        '跨模块 caller (foundation sister + cli/, core/) 只能 import',
+        'src/foundation/utils/index.ts、不得深穿 src/foundation/utils/result.ts。',
+        'phase 1432 F7 立、treat finding F7 utils/result ⏳ → ✅。',
+        'allowlist (by-design):',
+        '  - src/index.ts: SDK 顶层 re-export (公共 SDK 表面边界)',
+      ].join(' '),
+      severity: 'error',
+      from: {
+        path: '^src',
+        pathNot: [
+          '^src/foundation/utils/',
+          '^src/index\\.ts$',
+        ],
+      },
+      to: { path: '^src/foundation/utils/result\\.ts$' },
+    },
+    {
       name: 'no-circular',
       comment: [
         'ML#5 模块依赖单向、禁止双向/循环',
