@@ -141,20 +141,38 @@ export function createExecTool(): Tool {
           };
         }
 
-        // General error (non-zero exit code, timeout, etc.)
+        // phase 1417: ToolResult.success 契约语义 reframe
+        //   success: false ⇔ 工具自身没完成契约（spawn-error / timeout / signal-kill / maxBuffer / abort）
+        //   success: true  ⇔ 工具完成契约（output 已交回 agent），无论 command 自己 exit 几
+        // exit code 是 agent 自己解读的语义信号（grep 无匹配 / diff 有差异 / test 退出码）。
+        // L1 process-exec 表面不动（snapshot/verification/cron caller 仍享 reject-on-non-zero 便利层）。
+        // 判据：killed=true（timeout/signal-kill）或 exitCode=null（spawn-error）→ 真异常 success:false
+        //        其他（纯非零 exit）→ success:true，content 头带 [exit N]
+        const isRealFailure = error.killed === true || error.exitCode === null;
+
+        if (isRealFailure) {
+          if (error.output.length > EXEC_MAX_OUTPUT) {
+            const relPath = await persistOverflow(ctx, error.output);
+            const truncated = relPath
+              ? truncateHeadTail(error.output, relPath)
+              : truncate(error.output, EXEC_MAX_OUTPUT);
+            return { success: false, content: `Error: ${error.message}\n[output]: ${truncated}` };
+          }
+          const output = error.output ? `\n[output]: ${truncate(error.output, EXEC_MAX_OUTPUT)}` : '';
+          return { success: false, content: `Error: ${error.message}${output}` };
+        }
+
+        // 纯非零退出码：command 自己语义信号、tool 已完成契约
+        const exitLine = `[exit ${error.exitCode}]`;
         if (error.output.length > EXEC_MAX_OUTPUT) {
           const relPath = await persistOverflow(ctx, error.output);
           const truncated = relPath
             ? truncateHeadTail(error.output, relPath)
             : truncate(error.output, EXEC_MAX_OUTPUT);
-          return { success: false, content: `Error: ${error.message}\n[output]: ${truncated}` };
+          return { success: true, content: `${exitLine}\n${truncated}` };
         }
-        const output = error.output ? `\n[output]: ${truncate(error.output, EXEC_MAX_OUTPUT)}` : '';
-
-        return {
-          success: false,
-          content: `Error: ${error.message}${output}`,
-        };
+        const body = error.output || '(no output)';
+        return { success: true, content: `${exitLine}\n${body}` };
       }
     },
   };

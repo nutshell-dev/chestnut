@@ -791,11 +791,14 @@ describe('Builtin Tools', () => {
   });
 
   describe('exec tool', () => {
-    it('should return error for non-existent command', async () => {
+    it('non-existent command (sh exits 127): agent 语义信号、success:true + [exit 127]', async () => {
+      // phase 1417: `sh -c nonexistent_command_xyz` → sh 进程 spawn 成功、shell 找不到命令 → exit 127。
+      // sh ran 完成了 tool 契约、127 是 sh 的标准「command not found」语义信号、agent 自己解读。
+      // 对比真 spawn-error（sh 本身找不到）走 isRealFailure 分支 → success:false。
       const result = await execTool.execute({ command: 'nonexistent_command_xyz' }, ctx);
 
-      expect(result.success).toBe(false);
-      expect(result.content).toContain('Error');
+      expect(result.success).toBe(true);
+      expect(result.content).toMatch(/^\[exit 127\]/);
     });
 
     // Phase 21 Step 1: PATH augmentation
@@ -818,27 +821,38 @@ describe('Builtin Tools', () => {
       expect(count).toBeGreaterThanOrEqual(1); // 至少存在一次
     });
 
-    // Phase 16: stderr/stdout capture in error path
-    it('should include stderr in error result when command writes to stderr and exits non-zero', async () => {
+    // phase 1417: exit ≠ 0 是 agent 语义信号、不是工具失败 → success:true + content 头带 [exit N]
+    it('exit non-zero with stderr: success:true + content 头带 [exit N] + stderr 原文', async () => {
       const result = await execTool.execute(
         { command: "sh -c 'echo \"stderr output\" >&2; exit 1'" },
         ctx,
       );
 
-      expect(result.success).toBe(false);
-      expect(result.content).toContain('[output]');
+      expect(result.success).toBe(true);
+      expect(result.content).toMatch(/^\[exit 1\]/);
       expect(result.content).toContain('stderr output');
     });
 
-    it('should include stdout in error result when command writes to stdout and exits non-zero', async () => {
+    it('exit non-zero with stdout: success:true + content 头带 [exit N] + stdout 原文', async () => {
       const result = await execTool.execute(
         { command: "sh -c 'echo \"stdout output\"; exit 1'" },
         ctx,
       );
 
-      expect(result.success).toBe(false);
-      expect(result.content).toContain('[output]');
+      expect(result.success).toBe(true);
+      expect(result.content).toMatch(/^\[exit 1\]/);
       expect(result.content).toContain('stdout output');
+    });
+
+    it('grep no match (exit 1) 是 agent 语义信号、不是工具失败：success:true', async () => {
+      // grep 无匹配 → exit 1、stdout 空。这是 grep 表达「找不到」的标准 POSIX 语义。
+      const result = await execTool.execute(
+        { command: "echo 'haystack' | grep 'needle'" },
+        ctx,
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.content).toMatch(/^\[exit 1\]/);
     });
 
     it('abort signal 已触发时命令被取消，返回 success:false', async () => {
@@ -863,14 +877,16 @@ describe('Builtin Tools', () => {
       expect(result.content).toMatch(/abort|cancel|operation/i);
     });
 
-    it('失败结果不暴露绝对路径（claw 心智 workspace-relative）', async () => {
+    it('exit non-zero 结果不暴露绝对路径（claw 心智 workspace-relative）', async () => {
       const result = await execTool.execute(
         { command: "sh -c 'exit 1'" },
         ctx,
       );
 
-      expect(result.success).toBe(false);
-      // cwdHint 已删 — 错误内容不应携带 [cwd] 标记或绝对 clawDir
+      // phase 1417: 纯非零退出 = agent 语义信号 = success:true，content 头带 [exit N]
+      expect(result.success).toBe(true);
+      expect(result.content).toMatch(/^\[exit 1\]/);
+      // cwdHint 已删 — content 不应携带 [cwd] 标记或绝对 clawDir
       expect(result.content).not.toContain('[cwd]:');
       expect(result.content).not.toContain(ctx.clawDir);
     });
