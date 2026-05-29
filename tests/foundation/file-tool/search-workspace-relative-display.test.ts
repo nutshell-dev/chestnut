@@ -1,8 +1,9 @@
 /**
  * Phase 776 — search workspace-relative display test
+ * Phase 1422 — updated for unified segmented output (pattern / [Content matches]).
  *
  * Verify that search results show workspace-relative paths (no clawspace/ prefix)
- * for same-claw searches, while cross-claw display semantics remain unchanged.
+ * for same-claw searches, while cross-claw display attaches [clawId] prefix.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -15,12 +16,11 @@ import { createClawPermissionChecker } from '../../../src/core/permissions/claw-
 import { makeClawforumRoot } from '../../../src/foundation/identity/index.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 
-describe('search tool — workspace-relative display (phase 776)', () => {
+describe('search tool — workspace-relative display (phase 776 + 1422)', () => {
   let tempDir: string;
 
   beforeEach(async () => {
     tempDir = await createTempDir();
-
   });
 
   afterEach(async () => {
@@ -42,11 +42,13 @@ describe('search tool — workspace-relative display (phase 776)', () => {
       permissionChecker: createClawPermissionChecker({ clawDir, strict: true }),
     });
 
-    const result = await searchTool.execute({ query: 'needle' }, ctx);
+    const result = await searchTool.execute({ pattern: 'needle' }, ctx);
 
     expect(result.success).toBe(true);
-    expect(result.content).toContain('foo.txt:1:');
-    expect(result.content).not.toContain('clawspace/foo.txt:');
+    expect(result.content).toContain('[Content matches]');
+    expect(result.content).toContain('foo.txt');
+    expect(result.content).toContain('1: needle in haystack');
+    expect(result.content).not.toContain('clawspace/foo.txt');
   });
 
   it('same-claw cwd: "..": displays MEMORY.md not clawspace/MEMORY.md', async () => {
@@ -64,10 +66,11 @@ describe('search tool — workspace-relative display (phase 776)', () => {
       permissionChecker: createClawPermissionChecker({ clawDir, strict: true }),
     });
 
-    const result = await searchTool.execute({ query: 'needle', cwd: '..' }, ctx);
+    const result = await searchTool.execute({ pattern: 'needle', cwd: '..' }, ctx);
 
     expect(result.success).toBe(true);
-    expect(result.content).toContain('MEMORY.md:1:');
+    expect(result.content).toContain('MEMORY.md');
+    expect(result.content).toContain('1: needle memory');
     expect(result.content).not.toContain('clawspace/');
   });
 
@@ -86,10 +89,11 @@ describe('search tool — workspace-relative display (phase 776)', () => {
       permissionChecker: createClawPermissionChecker({ clawDir, strict: true }),
     });
 
-    const result = await searchTool.execute({ query: 'needle' }, ctx);
+    const result = await searchTool.execute({ pattern: 'needle' }, ctx);
 
     expect(result.success).toBe(true);
-    expect(result.content).toContain('sub/bar.txt:1:');
+    expect(result.content).toContain('sub/bar.txt');
+    expect(result.content).toContain('1: needle nested');
     expect(result.content).not.toContain('clawspace/sub/');
   });
 
@@ -110,14 +114,15 @@ describe('search tool — workspace-relative display (phase 776)', () => {
       permissionChecker: createClawPermissionChecker({ clawDir, strict: true }),
     });
 
-    const result = await searchTool.execute({ query: 'needle' }, ctx);
+    const result = await searchTool.execute({ pattern: 'needle' }, ctx);
 
     expect(result.success).toBe(true);
-    expect(result.content).toContain('foo.txt:1:');
-    expect(result.content).not.toContain('tasks/subagents/task-123/foo.txt:');
+    expect(result.content).toContain('foo.txt');
+    expect(result.content).toContain('1: needle subagent');
+    expect(result.content).not.toContain('tasks/subagents/task-123/foo.txt');
   });
 
-  it('cross-claw search: keeps target claw-relative display (unchanged)', async () => {
+  it('cross-claw search: prefixes matches with [clawId]', async () => {
     const mainClawDir = path.join(tempDir, '.clawforum', 'claws', 'main-claw');
     await fs.mkdir(mainClawDir, { recursive: true });
     const otherClawDir = path.join(tempDir, 'claws', 'other-claw', 'clawspace');
@@ -136,11 +141,11 @@ describe('search tool — workspace-relative display (phase 776)', () => {
       permissionChecker: createClawPermissionChecker({ clawDir: mainClawDir, strict: true }),
     });
 
-    const result = await searchTool.execute({ query: 'needle', path: 'clawspace', claw: 'other-claw' }, ctx);
+    const result = await searchTool.execute({ pattern: 'needle', path: 'clawspace', claw: 'other-claw' }, ctx);
 
     expect(result.success).toBe(true);
-    // cross-claw walkNative returns relPath relative to target claw root
-    expect(result.content).toContain('note.txt:');
+    expect(result.content).toContain('[other-claw]');
+    expect(result.content).toContain('note.txt');
     expect(result.content).toContain('cross-claw needle');
   });
 });

@@ -458,9 +458,10 @@ describe('Builtin Tools', () => {
       await mockFs.writeAtomic('clawspace/note1.txt', 'Hello world\nThis is a test\nHello again');
       await mockFs.writeAtomic('clawspace/note2.txt', 'Goodbye world');
 
-      const result = await searchTool.execute({ query: 'hello' }, ctx);
+      const result = await searchTool.execute({ pattern: 'hello' }, ctx);
 
       expect(result.success).toBe(true);
+      expect(result.content).toContain('[Content matches]');
       expect(result.content).toContain('Hello world');
       expect(result.content).toContain('Hello again');
       expect(result.content).not.toContain('Goodbye');
@@ -470,25 +471,14 @@ describe('Builtin Tools', () => {
       await mockFs.ensureDir('clawspace');
       await mockFs.writeAtomic('clawspace/empty.txt', 'Nothing here');
 
-      const result = await searchTool.execute({ query: 'xyz' }, ctx);
+      const result = await searchTool.execute({ pattern: 'xyz' }, ctx);
 
       expect(result.success).toBe(true);
-      expect(result.content).toContain('未找到');
-    });
-
-    it('should respect max_results', async () => {
-      await mockFs.ensureDir('clawspace');
-      await mockFs.writeAtomic('clawspace/many.txt', 'target\ntarget\ntarget\ntarget\ntarget\ntarget');
-
-      const result = await searchTool.execute({ query: 'target', max_results: 3 }, ctx);
-
-      expect(result.success).toBe(true);
-      const lines = result.content.split('\n').filter(l => l.trim());
-      expect(lines.length).toBe(3);
+      expect(result.content).toBe('No matches for "xyz".');
     });
 
     it('should reject claw="*" for non-Motion (broadcast still Motion-only)', async () => {
-      const result = await searchTool.execute({ query: 'test', path: 'clawspace', claw: '*' }, ctx);
+      const result = await searchTool.execute({ pattern: 'test', path: 'clawspace', claw: '*' }, ctx);
 
       expect(result.success).toBe(false);
       expect(result.content).toContain('Motion-only');
@@ -511,9 +501,10 @@ describe('Builtin Tools', () => {
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
         permissionChecker: createClawPermissionChecker({ clawDir: mainClawDir, strict: true }),
       });
-      const result = await searchTool.execute({ query: 'cross-claw', path: 'clawspace', claw: 'other-claw' }, mainCtx);
+      const result = await searchTool.execute({ pattern: 'cross-claw', path: 'clawspace', claw: 'other-claw' }, mainCtx);
 
       expect(result.success).toBe(true);
+      expect(result.content).toContain('[other-claw]');
       expect(result.content).toContain('note.txt');
       expect(result.content).toContain('cross-claw content');
     });
@@ -561,7 +552,7 @@ describe('Builtin Tools', () => {
       const claw3Dir = path.join(clawsDir, 'claw3');
       await fs.mkdir(claw3Dir, { recursive: true });
 
-      const result = await searchTool.execute({ query: 'error', path: 'clawspace/', claw: '*' }, motionCtx);
+      const result = await searchTool.execute({ pattern: 'error', path: 'clawspace/', claw: '*' }, motionCtx);
 
       expect(result.success).toBe(true);
       // Results should have [clawId] prefix
@@ -569,9 +560,9 @@ describe('Builtin Tools', () => {
       expect(result.content).toContain('[claw2]');
       expect(result.content).toContain('disk full');
       expect(result.content).toContain('timeout');
-      // Format: [clawId] clawspace/file.txt:line: content
-      expect(result.content).toMatch(/\[claw1\] clawspace\/note\.txt:\d+:/);
-      expect(result.content).toMatch(/\[claw2\] clawspace\/log\.txt:\d+:/);
+      // Format: [clawId] clawspace/file.txt with line: content on next line (segmented)
+      expect(result.content).toMatch(/\[claw1\] clawspace\/note\.txt/);
+      expect(result.content).toMatch(/\[claw2\] clawspace\/log\.txt/);
     });
 
     it('should return no results when no claws directory exists (claw: "*")', async () => {
@@ -590,19 +581,16 @@ describe('Builtin Tools', () => {
         permissionChecker: createClawPermissionChecker({ clawDir: nonExistentDir, strict: true }),
       });
 
-      const result = await searchTool.execute({ query: 'test', path: 'clawspace/', claw: '*' }, motionCtx);
+      const result = await searchTool.execute({ pattern: 'test', path: 'clawspace/', claw: '*' }, motionCtx);
 
       expect(result.success).toBe(true);
-      expect(result.content).toContain('未找到');
-      expect(result.content).toContain('无 claw 目录');
+      expect(result.content).toBe('No matches for "test".');
     });
 
-    it('should respect max_results with claw: "*" across all claws', async () => {
-      // Motion's own directory (as motion's clawDir)
+    it('should aggregate matches across multiple claws with claw: "*"', async () => {
       const motionDir = path.join(tempDir, 'motion');
       await fs.mkdir(motionDir, { recursive: true });
-      
-      // Create Motion context with motion's clawDir
+
       const motionFs = new NodeFileSystem({ baseDir: motionDir });
       const motionOutboxWriter = createOutboxWriter('motion', motionDir, motionFs, makeAudit().audit);
       const motionCtx = new ExecContextImpl({
@@ -611,33 +599,33 @@ describe('Builtin Tools', () => {
         clawDir: motionDir,
         profile: 'full',
         fs: motionFs,
-      fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
+        fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
         outboxWriter: motionOutboxWriter,
         permissionChecker: createClawPermissionChecker({ clawDir: motionDir, strict: true }),
       });
-      
-      // Create other claws
+
       const clawsDir = path.join(tempDir, 'claws');
-      
-      // Create claw1 with multiple matches
+
       const claw1Dir = path.join(clawsDir, 'claw1', 'clawspace');
       await fs.mkdir(claw1Dir, { recursive: true });
       await fs.writeFile(path.join(claw1Dir, 'many.txt'), 'target\ntarget\ntarget');
-      
-      // Create claw2 with multiple matches
+
       const claw2Dir = path.join(clawsDir, 'claw2', 'clawspace');
       await fs.mkdir(claw2Dir, { recursive: true });
       await fs.writeFile(path.join(claw2Dir, 'many.txt'), 'target\ntarget\ntarget');
 
-      const result = await searchTool.execute({ query: 'target', path: 'clawspace/', claw: '*', max_results: 4 }, motionCtx);
+      const result = await searchTool.execute({ pattern: 'target', path: 'clawspace/', claw: '*' }, motionCtx);
 
       expect(result.success).toBe(true);
-      const lines = result.content.split('\n').filter(l => l.trim());
-      expect(lines.length).toBe(4);
+      // 6 content matches total (3 per claw × 2 claws) — under preview limit 20, full return
+      const claw1Count = (result.content.match(/\[claw1\]/g) || []).length;
+      const claw2Count = (result.content.match(/\[claw2\]/g) || []).length;
+      expect(claw1Count).toBeGreaterThan(0);
+      expect(claw2Count).toBeGreaterThan(0);
     });
 
     // M2 fix: claw="*" search returns results in stable alphabetical order
-    it('should return results in alphabetical claw order with max_results (M2)', async () => {
+    it('should return results in alphabetical claw order (M2)', async () => {
       const motionDir = path.join(tempDir, 'motion');
       await fs.mkdir(motionDir, { recursive: true });
 
@@ -670,17 +658,16 @@ describe('Builtin Tools', () => {
       await fs.mkdir(mClawDir, { recursive: true });
       await fs.writeFile(path.join(mClawDir, 'file.txt'), 'match\nmatch\nmatch');
 
-      // Search with max_results=4 - should take from a_claw first (alphabetically)
-      const result = await searchTool.execute({ query: 'match', path: 'clawspace/', claw: '*', max_results: 4 }, motionCtx);
+      const result = await searchTool.execute({ pattern: 'match', path: 'clawspace/', claw: '*' }, motionCtx);
 
       expect(result.success).toBe(true);
-      const lines = result.content.split('\n').filter(l => l.trim());
-      expect(lines.length).toBe(4);
-      // With sorting, a_claw (alphabetically first) fills 2 slots, then m_claw fills 2
-      expect(lines[0]).toContain('[a_claw]');
-      expect(lines[1]).toContain('[a_claw]');
-      expect(lines[2]).toContain('[m_claw]');
-      expect(lines[3]).toContain('[m_claw]');
+      // a_claw should appear before m_claw before z_claw in the output (stable alphabetical order)
+      const aPos = result.content.indexOf('[a_claw]');
+      const mPos = result.content.indexOf('[m_claw]');
+      const zPos = result.content.indexOf('[z_claw]');
+      expect(aPos).toBeGreaterThan(-1);
+      expect(mPos).toBeGreaterThan(aPos);
+      expect(zPos).toBeGreaterThan(mPos);
     });
   });
 
@@ -1376,9 +1363,10 @@ describe('Builtin Tools', () => {
         permissionChecker: createClawPermissionChecker({ clawDir: motionDir, strict: true }),
       });
 
-      const result = await searchTool.execute({ query: 'Error', path: 'clawspace', claw: 'claw1' }, motionCtx);
+      const result = await searchTool.execute({ pattern: 'Error', path: 'clawspace', claw: 'claw1' }, motionCtx);
 
       expect(result.success).toBe(true);
+      expect(result.content).toContain('[claw1]');
       expect(result.content).toContain('disk full');
     });
 
@@ -1402,9 +1390,10 @@ describe('Builtin Tools', () => {
         permissionChecker: createClawPermissionChecker({ clawDir: motionDir, strict: true }),
       });
 
-      const result = await searchTool.execute({ query: 'Warning', path: 'clawspace', claw: 'claw1' }, subagentCtx);
+      const result = await searchTool.execute({ pattern: 'Warning', path: 'clawspace', claw: 'claw1' }, subagentCtx);
 
       expect(result.success).toBe(true);
+      expect(result.content).toContain('[claw1]');
       expect(result.content).toContain('timeout');
     });
   });

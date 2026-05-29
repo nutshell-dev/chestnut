@@ -45,7 +45,7 @@ describe('phase 1036: search.ts walkNative signal observance (F-4)', () => {
     });
 
     const result = await searchTool.execute(
-      { query: 'needle', path: 'clawspace', claw: 'other-claw' },
+      { pattern: 'needle', path: 'clawspace', claw: 'other-claw' },
       ctx,
     );
 
@@ -76,11 +76,11 @@ describe('phase 1036: search.ts walkNative signal observance (F-4)', () => {
     });
 
     const result = await searchTool.execute(
-      { query: 'needle', path: 'clawspace', claw: 'other-claw' },
+      { pattern: 'needle', path: 'clawspace', claw: 'other-claw' },
       ctx,
     );
 
     expect(result.success).toBe(true);
-    expect(result.content).toBe('未找到包含 "needle" 的内容');
+    expect(result.content).toBe('No matches for "needle".');
   });
 });

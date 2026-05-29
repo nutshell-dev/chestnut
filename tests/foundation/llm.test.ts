@@ -222,7 +222,7 @@ describe('LLM Service', () => {
           role: 'assistant', 
           content: [
             { type: 'text', text: 'Let me search.' },
-            { type: 'tool_use', id: 'call_1', name: 'search', input: { query: 'test' } }
+            { type: 'tool_use', id: 'call_1', name: 'search', input: { pattern: 'test' } }
           ]
         },
         { 
@@ -1248,7 +1248,7 @@ describe('OpenAIAdapter — Phase 98 fixes', () => {
         message: {
           tool_calls: [{
             id: 'call_1', type: 'function',
-            function: { name: 'search', arguments: '{"query":&quot;hello world&quot;}' },
+            function: { name: 'search', arguments: '{"pattern":&quot;hello world&quot;}' },
           }],
           content: null,
         },
@@ -1257,7 +1257,7 @@ describe('OpenAIAdapter — Phase 98 fixes', () => {
     }));
     const res = await new OpenAIAdapter(config).call({ messages: [{ role: 'user', content: 'search' }] });
     const tool = res.content.find(b => b.type === 'tool_use') as any;
-    expect(tool.input.query).toBe('hello world');
+    expect(tool.input.pattern).toBe('hello world');
   });
 
   // 修复 5：extraHeaders 合并进 fetch headers
