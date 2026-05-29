@@ -30,9 +30,6 @@ export interface ToolDescriptor {
   schema: JSONSchema7;
 }
 
-// ToolRegistry — canonical definition in tools/types.ts (L2c).
-// Re-exported here for backward compat; remove post phase 2F.
-
 /**
  * Tool execution result
  */
@@ -46,9 +43,6 @@ export interface ToolResult {
     [key: string]: unknown;
   };
 }
-
-// ExecContext 和 Tool 已迁至 L2c tools/types.ts。
-// 上方重导出桥保持向后兼容，阶段二完成后移除。
 
 // ============================================================================
 // phase 1358: ToolUseId branded type (compile-time ID discrimination)
