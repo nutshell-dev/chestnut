@@ -19,6 +19,7 @@ import { InboxListFailed, InboxMoveFailed } from '../../foundation/messaging/ind
 import type { MessageFormatterRegistry } from '../../foundation/messaging/index.js';
 
 import { DialogStore, performRegimeSwitch } from '../../foundation/dialog-store/index.js';
+import { loadReadFileState, clearReadFileState } from '../../foundation/file-tool/file-state-persist.js';
 // phase 1406: SummonTool import removed — Assembly 标准注册路径，G→F 单向依赖恢复
 import { runReact } from '../agent-executor/index.js';
 import { summarizeLastExit } from './last-exit-summary.js';
@@ -206,6 +207,7 @@ export class Runtime {
       maxSteps: this.options.maxSteps ?? DEFAULT_MAX_STEPS,
       auditWriter: this.auditWriter,
       taskSystem: this.taskSystem,
+      persistReadFileState: true,  // phase 1443: main claw ctx persists readFileState to <clawDir>/read-state.json
       // phase 1406: caller-snapshot provider (lazy). SummonTool / AskMotionTool
       // and other accessesCaller=true tools get caller's systemPrompt + tools
       // + messages via this callback. ToolExecutor wraps with throwing variant
@@ -256,6 +258,11 @@ export class Runtime {
     if (this.options.identityToolFilter) {
       this.options.identityToolFilter(this.toolRegistry);
     }
+
+    // phase 1443: load readFileState from disk to survive daemon restart
+    // (ML#4「持久化一切信息到磁盘」 + DP「事后能完整重建任一时刻状态」).
+    // Missing / corrupt file → empty Map + audit (fail-safe: claw must re-read).
+    this.execContext.readFileState = await loadReadFileState(this.systemFs, this.auditWriter);
 
     this.initialized = true;
   }
@@ -1231,6 +1238,10 @@ export class Runtime {
         REGIME_SWITCH_FAILED: RUNTIME_AUDIT_EVENTS.REGIME_SWITCH_FAILED,
         REGIME_SWITCH_HARD_FAIL: RUNTIME_AUDIT_EVENTS.REGIME_SWITCH_HARD_FAIL,
       },
+      // phase 1443: clear readFileState (in-memory + disk) after regime switch commits.
+      // Dialog context was just purged; gate state must be purged too, else next overwrite
+      // bypasses the "claw must have seen the file" intent post-compaction.
+      onSwitchComplete: () => clearReadFileState(this.execContext),
     });
     // commit 替换（caller responsibility per regime-switch.ts JSDoc）
     this.sessionManager = result.newStore;

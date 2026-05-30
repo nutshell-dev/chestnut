@@ -386,8 +386,8 @@ describe('Builtin Tools', () => {
       // claw 不 read、直接 edit
       const editResult = await editTool.execute({
         path: 'edit-gate.txt',
-        old_string: 'bar',
-        new_string: 'qux',
+        oldText: 'bar',
+        newText: 'qux',
       }, ctx);
       expect(editResult.success).toBe(true);
 
@@ -413,8 +413,8 @@ describe('Builtin Tools', () => {
       // edit something in that range
       await editTool.execute({
         path: 'partial-edit.txt',
-        old_string: 'Line 55',
-        new_string: 'Line FIFTY-FIVE',
+        oldText: 'Line 55',
+        newText: 'Line FIFTY-FIVE',
       }, ctx);
 
       // overwrite must still be rejected
@@ -435,8 +435,8 @@ describe('Builtin Tools', () => {
       // edit
       await editTool.execute({
         path: 'full-edit.txt',
-        old_string: 'beta',
-        new_string: 'BETA',
+        oldText: 'beta',
+        newText: 'BETA',
       }, ctx);
 
       // overwrite should pass — claw knew full content + made explicit edit
@@ -455,8 +455,8 @@ describe('Builtin Tools', () => {
       const multiResult = await multiEditTool.execute({
         path: 'multi-gate.txt',
         edits: [
-          { old_string: 'a', new_string: 'A' },
-          { old_string: 'b', new_string: 'B' },
+          { oldText: 'a', newText: 'A' },
+          { oldText: 'b', newText: 'B' },
         ],
       }, ctx);
       expect(multiResult.success).toBe(true);

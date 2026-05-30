@@ -59,6 +59,16 @@ export interface PerformRegimeSwitchOpts {
   audit: AuditLog;
   /** caller's audit event consts namespace */
   auditEvents: RegimeSwitchAuditEvents;
+  /**
+   * phase 1443: optional cleanup callback invoked after regime switch commits.
+   * Used by Runtime to clear ExecContext.readFileState + delete `<clawDir>/read-state.json`
+   * (gate state should track context: regime switch purges dialog context, so it must purge
+   * gate state too — otherwise "智能体是决策主体" is violated post-compaction).
+   *
+   * Failures inside the callback are caller's responsibility (caller handles + audits);
+   * regime switch itself succeeds regardless.
+   */
+  onSwitchComplete?: () => Promise<void>;
 }
 
 export interface PerformRegimeSwitchResult {
@@ -194,6 +204,12 @@ export async function performRegimeSwitch(
     `inherited=${repaired.length}`,
     `discarded=${oldMessages.length - repaired.length}`,
   );
+
+  // phase 1443: invoke optional cleanup callback (e.g. Runtime clears readFileState).
+  // Caller is responsible for error handling; regime switch itself is already committed.
+  if (opts.onSwitchComplete) {
+    await opts.onSwitchComplete();
+  }
 
   return {
     newStore: newSessionManager,

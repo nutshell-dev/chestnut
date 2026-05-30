@@ -372,7 +372,12 @@
       "session_save_failed"
     ],
     "foundation_file-tool_audit-events": [
-      "file_tool_backup_failed"
+      "file_tool_backup_failed",
+      "overwrite_gate_rejected",
+      "read_file_state_loaded",
+      "read_file_state_persist_failed",
+      "read_file_state_recorded",
+      "read_overflow_persist_failed"
     ],
     "foundation_llm-provider_audit-events": [
       "llm_provider_assistant_empty_content_skipped",

@@ -38,6 +38,33 @@ export type ToolGroup =
   | 'subagent-protocol';
 
 /**
+ * File overwrite gate state per file path.
+ *
+ * phase 1430: introduced as `Map<path, FileState>` replacement for flat `fullyReadPaths: Set<string>`.
+ * phase 1439: type relocated here from `foundation/file-tool/file-state.ts` (ML#5 fix —
+ * `tools/` is L2 framework layer, must not reverse-import from `file-tool/` upper layer).
+ *
+ * Semantic owner: foundation/file-tool/ (writes via read/edit/multi_edit, reads via write).
+ * Type lives in tools/ to keep ExecContext self-contained.
+ *
+ * Cross-target reads MUST NOT write to caller's map (see l2_file_tool.md §7.A.invariant 2).
+ */
+export interface FileState {
+  /** SHA-256 hex digest of content seen by the agent. */
+  hash: string;
+  /** File mtime (ms epoch) at the time of the read. */
+  timestamp: number;
+  /**
+   * True only if the read covered the entire file:
+   * (a) offset and limit both undefined
+   * (b) no line cap triggered
+   * (c) no byte cap triggered
+   * (d) same-target read (no cross-target param)
+   */
+  isFullRead: boolean;
+}
+
+/**
  * Escape multi-line content for audit TSV log (used by ToolExecutorImpl).
  * Truncated to 120 chars to prevent audit log bloat; full content is
  * preserved in the actual tool result.
@@ -99,10 +126,20 @@ export interface ExecContext {
   currentToolUseId?: string;
   /**
    * Per-claw read state for overwrite gate (phase 1430、formerly `fullyReadPaths: Set<string>`).
-   * Map<resolvedPath, FileState{hash, timestamp, isFullRead}> — daemon-process scoped.
+   * Map<resolvedPath, FileState{hash, timestamp, isFullRead}>.
    * Cross-claw reads MUST NOT write to caller's map (per §7.A.invariant 2).
+   *
+   * Lifecycle (phase 1443): persisted to `<clawDir>/read-state.json` when `persistReadFileState=true`;
+   * loaded by Runtime.initialize(); cleared by regime-switch hook. Without `persistReadFileState`
+   * (subagent contexts), the Map only lives for the duration of the context.
    */
-  readFileState: Map<string, import('../file-tool/file-state.js').FileState>;
+  readFileState: Map<string, FileState>;
+  /**
+   * If true, FileStateManager helpers persist readFileState mutations to `<clawDir>/read-state.json`
+   * and regime-switch deletes the file. Runtime sets this to true for the main claw context.
+   * Subagent contexts leave it undefined → skip persistence (state lives only in memory).
+   */
+  persistReadFileState?: boolean;
   /** Tool registry reference for sync spawn path (phase 766) */
   registry?: ToolRegistry;
   /** Whether this context belongs to a shadow agent (phase 766 prep for 767) */

@@ -11,7 +11,7 @@
 import type { FileSystem } from '../fs/types.js';
 import type { LLMOrchestrator } from '../llm-orchestrator/index.js';
 import type { ToolProfile } from '../tool-protocol/index.js';
-import type { ExecContext, ToolGroup } from './types.js';
+import type { ExecContext, ToolGroup, FileState } from './types.js';
 import path from 'path';
 import { MOTION_CLAW_ID } from '../../constants.js';
 import { CLAWSPACE_DIR } from '../paths.js';
@@ -82,7 +82,9 @@ export interface ExecContextImplOptions {
    * Per-claw read state for overwrite gate (phase 1430).
    * See ExecContext.readFileState for semantics.
    */
-  readFileState?: Map<string, import('../file-tool/file-state.js').FileState>;
+  readFileState?: Map<string, FileState>;
+  /** phase 1443: opt-in flag for atomic-persistence + regime-switch clearing (default false = subagent). */
+  persistReadFileState?: boolean;
   /** Tool registry reference for sync spawn path (phase 766) */
   registry?: ToolRegistry;
   /** Whether this context belongs to a shadow agent (phase 766 prep for 767) */
@@ -163,7 +165,8 @@ export class ExecContextImpl implements ExecContext {
   originClawId?: string;
   auditWriter?: AuditLog;
   currentToolUseId?: string;
-  readFileState: Map<string, import('../file-tool/file-state.js').FileState>;
+  readFileState: Map<string, FileState>;
+  persistReadFileState?: boolean;
   registry?: ToolRegistry;
   isShadow?: boolean;
   permissionChecker?: PermissionChecker;
@@ -194,6 +197,7 @@ export class ExecContextImpl implements ExecContext {
     this.auditWriter = options.auditWriter;
     this.currentToolUseId = options.currentToolUseId;
     this.readFileState = options.readFileState ?? new Map();
+    this.persistReadFileState = options.persistReadFileState;
     this.registry = options.registry;
     this.isShadow = options.isShadow;
     this.permissionChecker = options.permissionChecker;

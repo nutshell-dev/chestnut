@@ -23,7 +23,8 @@ import {
 import { resolveWorkspacePath } from './resolve-path.js';
 import { safeNumber } from '../utils/index.js';
 import { formatErr } from '../utils/format.js';
-import { computeContentHash } from './file-state.js';
+import { recordReadResult } from './file-state-manager.js';
+import { FILE_TOOL_AUDIT_EVENTS } from './audit-events.js';
 
 import { CLAWS_DIR, CLAWSPACE_DIR } from '../paths.js';
 import { UUID_SHORT_LEN } from '../../constants.js';
@@ -48,7 +49,7 @@ async function persistOverflow(ctx: ExecContext, output: string): Promise<string
     await ctx.fs.writeAtomic(fullPath, frontmatter + output);
     return nodePath.relative(ctx.workspaceDir, fullPath);
   } catch (err) {
-    ctx.auditWriter?.write('read_overflow_persist_failed', `reason=${formatErr(err)}`);
+    ctx.auditWriter?.write(FILE_TOOL_AUDIT_EVENTS.READ_OVERFLOW_PERSIST_FAILED, `reason=${formatErr(err)}`);
     return null;
   }
 }
@@ -234,11 +235,7 @@ export const readTool: Tool = {
       // readFileState write — same-claw only (cross-claw must not pollute caller's gate per §7.A.invariant)
       if (clawParam === undefined && fileMtime !== undefined) {
         const isFullRead = !rangeRequested && !lineCapTriggered && !byteCapTriggered;
-        ctx.readFileState.set(resolved, {
-          hash: computeContentHash(fullFileContent),
-          timestamp: fileMtime,
-          isFullRead,
-        });
+        recordReadResult(ctx, resolved, fullFileContent, fileMtime, isFullRead);
       }
 
       return {
