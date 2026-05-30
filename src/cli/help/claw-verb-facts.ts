@@ -161,9 +161,13 @@ export const CLAW_VERB_FACTS: readonly VerbFact[] = [
     options: [
       // phase 1480: required: true → composer 顶层显此 flag 字面、避免 silent-X
       { flag: '--contract <contractId>', desc: 'Contract ID', required: true },
-      { flag: '--step <n>', desc: 'Show full content of step N (no truncation)' },
+      // phase 1484: N or N.x form, aligned with `claw step N.x`
+      { flag: '--step <n>', desc: 'Show full content of step N or N.x (e.g. 5 or 5.a)' },
     ],
-    examples: ['clawforum claw alice trace --contract C-123'],
+    examples: [
+      'clawforum claw alice trace --contract C-123',
+      'clawforum claw alice trace --contract C-123 --step 5.a',
+    ],
   },
 
   // ── Discovery (flat verbs) ─────────────────────────────────────────────

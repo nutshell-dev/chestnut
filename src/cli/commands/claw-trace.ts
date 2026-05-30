@@ -57,7 +57,7 @@ export async function clawTraceCommand(
   deps: { fsFactory: (baseDir: string) => FileSystem },
   clawId: ClawId,
   contractId: ContractId,
-  step?: number,
+  step?: string,
 ): Promise<void> {
   loadGlobalConfig(deps, CONFIG_DEFAULTS);
 
@@ -87,6 +87,31 @@ export async function clawTraceCommand(
     // 概览输出
     showTraceOverview(clawId, contractId, title, startedAt, events);
   }
+}
+
+/**
+ * Parse a `step` arg from `claw trace --step <n>`.
+ *
+ * Accepts:
+ *   - `5`     → turn 5, slot a (first tool of that turn)
+ *   - `5.a`   → turn 5, slot a
+ *   - `5.b`   → turn 5, slot b
+ *
+ * Same N.x convention as `clawforum claw <name> step <n>` so the two CLI
+ * surfaces share the same addressing (phase 1484 numbering coherence).
+ */
+function parseStepArg(raw: string): { turn: number; slotIdx: number } {
+  const m = raw.match(/^(\d+)(?:\.([a-z]))?$/);
+  if (!m) {
+    throw new CliError(`Invalid --step value: "${raw}" (expected "N" or "N.x" form, e.g. 5 or 5.a)`);
+  }
+  const turn = parseInt(m[1], 10);
+  const slotIdx = m[2] ? m[2].charCodeAt(0) - 97 : 0;
+  return { turn, slotIdx };
+}
+
+function slotLetter(idx: number): string {
+  return String.fromCharCode(97 + idx);
 }
 
 // ============================================================================
@@ -208,15 +233,19 @@ function showTraceOverview(
   console.log(`Contract: ${titleLine} (${contractId})`);
 
   const startedStr = new Date(startedAt).toLocaleString();
-  const totalSteps = events.filter(e => e.type === 'tool_result').length;
-  console.log(`Claw: ${clawId} | Started: ${startedStr} | Steps: ${totalSteps}`);
+  // phase 1484: header 用 Turns 与 steps cmd 同词、turn 数 = LLM 调用次数 = llm_start event 数
+  const totalTurns = events.filter(e => e.type === 'llm_start').length;
+  console.log(`Claw: ${clawId} | Started: ${startedStr} | Turns: ${totalTurns}`);
   console.log('');
 
-  // 遍历事件输出
-  let round = 0;
-  let stepSeq = 0;
+  // phase 1484 numbering coherence with `claw steps` / `claw step N.x`：
+  // - turn 计数 = 每次 llm_start ++
+  // - 同 turn 内 tool_result 槽位 a/b/c... (重置 per llm_start)
+  // - turn 标号印在该 turn 内容**之前**(不像旧实现印在之后再下文换行)
+  let turn = 0;
+  let slotInTurn = 0;
   let textBuf = '';
-  let nextRoundTrigger: string | null = null;
+  let pendingTrigger: string | null = null;
 
   const flushText = () => {
     const trimmed = textBuf.trim();
@@ -226,22 +255,23 @@ function showTraceOverview(
     }
   };
 
-  const printSeparator = () => {
-    const trigger = nextRoundTrigger ? ` (${nextRoundTrigger})` : '';
-    const label = `Round ${round}${trigger}`;
+  const printTurnHeader = () => {
+    const trigger = pendingTrigger ? ` (${pendingTrigger})` : '';
+    const label = `Turn ${turn}${trigger}`;
     const line = '─'.repeat(50);
     const pos = Math.floor((50 - label.length) / 2);
     const sep = line.slice(0, pos) + label + line.slice(pos + label.length);
     console.log(sep.slice(0, 50));
-    nextRoundTrigger = null;
+    pendingTrigger = null;
   };
 
   for (const ev of events) {
     switch (ev.type) {
       case 'llm_start': {
         flushText();
-        if (round > 0) printSeparator();
-        round++;
+        turn++;
+        slotInTurn = 0;
+        printTurnHeader();
         break;
       }
       case 'thinking_delta': {
@@ -257,20 +287,22 @@ function showTraceOverview(
         break;
       }
       case 'tool_call': {
-        // 不再用于计数，计数改为在 tool_result 时进行
+        // 不再用于计数；计数在 tool_result 时进行（与 dialog turn N.x 槽位对齐）
         break;
       }
       case 'tool_result': {
-        stepSeq++;
+        const slotChar = slotLetter(slotInTurn);
+        slotInTurn++;
         const name = ev.name || 'unknown';
         const mark = ev.success === false ? ' ✗' : '';
         const summaryPart = ev.summary ? ` ${ev.summary}` : '';
-        console.log(`[#${stepSeq}] ${name}:${mark}${summaryPart}`);
+        console.log(`[${turn}.${slotChar}] ${name}:${mark}${summaryPart}`);
         break;
       }
       case 'user_notify': {
+        // user_notify 标记影响下一 turn 的 LLM 反应、trigger 标注下一 turn header
         if (ev.subtype) {
-          nextRoundTrigger = ev.subtype;
+          pendingTrigger = ev.subtype;
         }
         break;
       }
@@ -286,27 +318,43 @@ function showTraceOverview(
 async function showStepDetail(
   fileSystem: FileSystem,
   events: StreamEvent[],
-  targetStep: number,
+  rawStep: string,
 ): Promise<void> {
-  // 第一阶段：找第 N 个 tool_result，取其 tool_use_id
-  let resultCount = 0;
+  const { turn: targetTurn, slotIdx: targetSlot } = parseStepArg(rawStep);
+
+  // phase 1484: 找 (turn targetTurn, slot targetSlot) 对应的 tool_result.
+  // 顺序扫 events、按 llm_start 进 turn、按 tool_result 进 slot.
+  let curTurn = 0;
+  let curSlot = 0;
   let targetToolName = '';
   let targetToolUseId = '';
 
   for (const ev of events) {
-    if (ev.type === 'tool_result') {
-      resultCount++;
-      if (resultCount === targetStep) {
+    if (ev.type === 'llm_start') {
+      curTurn++;
+      curSlot = 0;
+      continue;
+    }
+    if (ev.type === 'tool_result' && curTurn === targetTurn) {
+      if (curSlot === targetSlot) {
         targetToolName = ev.name || 'unknown';
         targetToolUseId = ev.tool_use_id || '';
         break;
       }
+      curSlot++;
     }
   }
 
   if (!targetToolName) {
-    throw new CliError(`Step ${targetStep} not found`);
+    throw new CliError(
+      `Step ${targetTurn}.${slotLetter(targetSlot)} not found`,
+    );
   }
+
+  // 输出 header（与 overview 同形态 [N.x]）— 先于 dialog 查找、即使 dialog 缺失
+  // 用户也能确认查询的是哪一步。
+  console.log(`[${targetTurn}.${slotLetter(targetSlot)}] ${targetToolName}`);
+  console.log('');
 
   // 读取 dialog/current.json + 所有 archive/*.json，按 mtime 升序合并
   let messages: DialogMessage[] = [];
@@ -357,7 +405,7 @@ async function showStepDetail(
   let targetToolResult: ToolResultBlock | null = null;
 
   if (targetToolUseId) {
-    // 新路径：按 ID 查找（精确，不受历史步骤数量影响）
+    // 主路径：按 stream 里取到的 tool_use_id 在 dialog 里精确匹配。
     outer: for (const msg of messages) {
       if (msg.role !== 'assistant') continue;
       const content = msg.content;
@@ -372,29 +420,28 @@ async function showStepDetail(
       }
     }
   } else {
-    // 降级路径：旧 stream 文件无 tool_use_id，保留计数法
-    let toolUseCount = 0;
+    // 降级路径：旧 stream 无 tool_use_id。在 dialog 里按 (turn, slot) 同体系定位。
+    let asstSeen = 0;
     outer: for (const msg of messages) {
       if (msg.role !== 'assistant') continue;
+      asstSeen++;
+      if (asstSeen !== targetTurn) continue;
       const content = msg.content;
       if (!Array.isArray(content)) continue;
+      let slot = 0;
       for (const block of content) {
         if (typeof block !== 'object' || block === null) continue;
         const b = block as { type?: string };
         if (b.type === 'tool_use') {
-          toolUseCount++;
-          if (toolUseCount === targetStep) {
+          if (slot === targetSlot) {
             targetToolUse = block as ToolUseBlock;
             break outer;
           }
+          slot++;
         }
       }
     }
   }
-
-  // 输出 header（始终使用流里的名称，与 overview 一致）
-  console.log(`[#${targetStep}] ${targetToolName}`);
-  console.log('');
 
   if (!targetToolUse) {
     console.log('(Content unavailable: dialog not found)');

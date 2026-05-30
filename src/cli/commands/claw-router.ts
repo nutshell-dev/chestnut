@@ -381,13 +381,14 @@ async function runDaemon(deps: RouterDeps, name: string, args: string[]): Promis
 async function runTrace(deps: RouterDeps, name: string, args: string[]): Promise<void> {
   const parser = makeVerbParser('trace');
   parser.requiredOption('--contract <contractId>', 'Contract ID');
-  parser.option('--step <n>', 'Show full content of step N (no truncation)', (v) => parseInt(v, 10));
+  // phase 1484: --step 接 string (N or N.x form) / 解析推到 clawTraceCommand 与 claw step N.x 同源
+  parser.option('--step <n>', 'Show full content of step N or N.x (e.g. 5 or 5.a)');
   try {
     parser.parse(args, { from: 'user' });
   } catch (err) {
     throw new CliError(`invalid 'claw <name> trace' options: ${(err as Error).message}`);
   }
-  const opts = parser.opts() as { contract: string; step?: number };
+  const opts = parser.opts() as { contract: string; step?: string };
   const { clawTraceCommand } = await import('./claw.js');
   await clawTraceCommand(deps, makeClawId(name), makeContractId(opts.contract), opts.step);
 }
