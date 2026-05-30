@@ -21,8 +21,7 @@ import {
 } from './constants.js';
 
 import { resolveWorkspacePath } from './resolve-path.js';
-import { safeNumber } from '../utils/index.js';
-import { formatErr } from '../utils/format.js';
+import { safeNumber, formatErr } from '../utils/index.js';
 import { computeContentHash } from './file-state.js';
 
 import { CLAWS_DIR, CLAWSPACE_DIR } from '../paths.js';
