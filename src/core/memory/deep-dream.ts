@@ -341,6 +341,25 @@ async function runDeepDreamForClaw(
 
 // ─── 主函数 ───────────────────────────────────────────────────
 
+// phase 1467: export internal pure helpers for test coverage (F9 from audit-2026-05-30).
+// API surface unchanged for production callers (runDeepDream stays the only public entry).
+// `__test_*` 前缀 + `@internal` JSDoc 双标记防误用。
+/** @internal test-only export (phase 1467) */
+export const __test_extractText = extractText;
+/** @internal test-only export (phase 1467) */
+export const __test_responseText = responseText;
+/** @internal test-only export (phase 1467) */
+export const __test_serializeSession = serializeSession;
+/** @internal test-only export (phase 1467) */
+export const __test_estimateTokens = estimateTokens;
+/** @internal test-only export (phase 1467) */
+export const __test_loadDreamState = loadDreamState;
+/** @internal test-only export (phase 1467) */
+export const __test_saveDreamState = saveDreamState;
+/** @internal test-only export (phase 1467) */
+export const __test_DEEP_DREAM_STATE_FILE = DEEP_DREAM_STATE_FILE;
+export type { DreamStateData as __test_DreamStateData };
+
 export async function runDeepDream(opts: DeepDreamOptions): Promise<void> {
   const maxCompressionTokens = opts.maxCompressionTokens ?? 4000;
   if (!opts.fs.existsSync(CLAWS_DIR)) return;

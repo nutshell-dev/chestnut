@@ -292,6 +292,12 @@ interface DreamExtractionResult {
   contractIds: string[];
 }
 
+// phase 1467: export-for-test (F9 from audit-2026-05-30) / API surface unchanged for production
+/** @internal test-only export (phase 1467) */
+export function __test_extractDreamOutputs(log: string): DreamExtractionResult {
+  return extractDreamOutputs(log);
+}
+
 /** 从 sub-agent log 中提取 [DREAM_OUTPUT contract_id="..."]...[/DREAM_OUTPUT] 块 */
 function extractDreamOutputs(log: string): DreamExtractionResult {
   const outputs: string[] = [];
