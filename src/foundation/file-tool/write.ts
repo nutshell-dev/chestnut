@@ -68,19 +68,19 @@ export const writeTool: Tool = {
     }
     checker.resolveAndCheck(resolved, 'write');
 
-    // overwrite gate — phase 1430 hash + mtime + isFullRead
+    // overwrite gate — phase 1430 hash + mtime + isFullRead, granular reason since phase 1457 followup
     if (!append) {
       const exists = await ctx.fs.exists(resolved);
       if (exists) {
-        const gateError = await enforceFullReadGate(ctx, resolved, filePath);
-        if (gateError) {
+        const gate = await enforceFullReadGate(ctx, resolved, filePath);
+        if (!gate.ok) {
           ctx.auditWriter?.write(
             FILE_TOOL_AUDIT_EVENTS.OVERWRITE_GATE_REJECTED,
-            `path=${resolved} reason=gate-rejected`,
+            `path=${resolved} reason=${gate.reason}`,
           );
           return {
             success: false,
-            content: gateError.content + ` For files where the response would exceed 100 KB, use edit/multi_edit, or write with append:true.`,
+            content: gate.result.content + ` For files where the response would exceed 100 KB, use edit/multi_edit, or write with append:true.`,
           };
         }
       }

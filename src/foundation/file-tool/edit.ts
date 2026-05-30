@@ -137,11 +137,11 @@ export const editTool: Tool = {
     // phase 1447: replaceAll is bulk-destructive (rewrites every match including
     // contexts the agent may never have seen) → same gate as write overwrite.
     if (replaceAll) {
-      const gateError = await enforceFullReadGate(ctx, resolved, filePath);
-      if (gateError) {
+      const gate = await enforceFullReadGate(ctx, resolved, filePath);
+      if (!gate.ok) {
         return {
           success: false,
-          content: gateError.content + ` This is required because replaceAll=true rewrites every match, including contexts you may not have seen. Alternatively, set replaceAll=false with a uniquely-matching oldText to scope the change.`,
+          content: gate.result.content + ` This is required because replaceAll=true rewrites every match, including contexts you may not have seen. Alternatively, set replaceAll=false with a uniquely-matching oldText to scope the change.`,
         };
       }
     }

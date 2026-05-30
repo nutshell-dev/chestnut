@@ -130,11 +130,11 @@ export const multiEditTool: Tool = {
     // Unique-match-only batches stay cheap (no read prerequisite).
     const hasReplaceAll = edits.some(e => e.replaceAll === true);
     if (hasReplaceAll) {
-      const gateError = await enforceFullReadGate(ctx, resolved, filePath);
-      if (gateError) {
+      const gate = await enforceFullReadGate(ctx, resolved, filePath);
+      if (!gate.ok) {
         return {
           success: false,
-          content: gateError.content + ` This is required because at least one edit uses replaceAll=true, which rewrites every match. Alternatively, remove replaceAll from all edits (each edit must uniquely match).`,
+          content: gate.result.content + ` This is required because at least one edit uses replaceAll=true, which rewrites every match. Alternatively, remove replaceAll from all edits (each edit must uniquely match).`,
         };
       }
     }
