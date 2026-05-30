@@ -36,8 +36,6 @@ async function getContractStatus(ctx: ExecContext, contractSystem: ContractSyste
 
 async function getTaskStatus(ctx: ExecContext): Promise<string> {
   try {
-    // Check if task system is functional by accessing its state
-    // Design doc: was returning fake 'See task system logs', now shows actual status
     const pendingDir = TASKS_QUEUES_PENDING_DIR;
     const runningDir = TASKS_QUEUES_RUNNING_DIR;
     

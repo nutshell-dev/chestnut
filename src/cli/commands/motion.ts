@@ -20,7 +20,7 @@ import { CliError } from '../errors.js';
 import { Snapshot } from '../../foundation/snapshot/index.js';
 import { createDirContext } from '../../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
-import { SNAPSHOT_IGNORE_PATTERNS } from '../../assembly/snapshot-patterns.js';
+import { SNAPSHOT_IGNORE_PATTERNS } from '../../assembly/index.js';
 import { CLAWS_DIR, getWorkspaceRoot, resolveDaemonEntry } from '../../foundation/paths.js';
 import { DAEMON_LOG } from '../../daemon/constants.js';
 import { TASKS_SYNC_EXEC_DIR } from '../../foundation/command-tool/index.js';

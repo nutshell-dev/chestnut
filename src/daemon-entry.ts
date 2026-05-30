@@ -47,7 +47,7 @@ process.on('uncaughtException', (err) => {
 import { createDaemonCommand } from './daemon/daemon.js';
 import { CONFIG_DEFAULTS } from './assembly/index.js';
 import { assemble, disassemble } from './assembly/index.js';
-import { ASSEMBLY_AUDIT_EVENTS } from './assembly/audit-events.js';
+import { ASSEMBLY_AUDIT_EVENTS } from './assembly/index.js';
 import { makeClawDir } from './foundation/identity/index.js';
 
 const daemonCommand = createDaemonCommand({

@@ -13,7 +13,7 @@ import {
   getWatchdogPid, isWatchdogAlive, removeWatchdogPid, WatchdogPidForeignWorkspaceError,
 } from './watchdog-pid.js';
 import { getWorkspaceRoot } from '../foundation/paths.js';
-import { CliError } from '../cli/errors.js';
+import { CliError } from '../foundation/errors.js';
 
 // Watchdog lifecycle poll：通用 100ms 间隔
 const WATCHDOG_POLL_INTERVAL_MS = 100;
