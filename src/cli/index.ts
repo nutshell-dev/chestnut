@@ -7,7 +7,7 @@ if (!process.env.CLAWFORUM_ROOT) {
   process.env.CLAWFORUM_ROOT = process.cwd();
 }
 
-import { program } from 'commander';
+import { program, Help } from 'commander';
 import { CliError } from './errors.js';
 import { withCliErrorHandling } from './with-cli-error-handling.js';
 // `initCommand` and `startCommand` are lazy-loaded inside their action handlers
@@ -46,6 +46,23 @@ program
   .version('0.1.0')
   // phase 1472：`claw <subject> [args...]` 子命令用 passThroughOptions、要求父级 enablePositionalOptions
   .enablePositionalOptions();
+
+// phase 1488: 顶层 `clawforum --help` Commands 列表里 `claw` 行清掉 commander
+// 默认渲染出的 `[subject] [args...]` 内部抽象、与 motion/contract/skill 等命令
+// family 同形显示。
+//
+// 实现：仅在 cmd.name() === 'claw' 时返回纯 name；其他命令走 commander Help 类
+// 默认 subcommandTerm（保留 `step <n>` / `help [command]` 等正常 positional 显示）。
+//
+// 注：commander v13 的 configureHelp 会沿 subcommand 链继承、子命令同 cmd.name
+// 字面才命中、其他 cmd 走 default 路径不破。
+{
+  const defaultSubcommandTerm = new Help().subcommandTerm.bind(new Help());
+  program.configureHelp({
+    subcommandTerm: (cmd) =>
+      cmd.name() === 'claw' ? cmd.name() : defaultSubcommandTerm(cmd),
+  });
+}
 
 // config command
 program.addCommand(createConfigCommand({ fsFactory }));
