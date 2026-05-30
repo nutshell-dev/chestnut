@@ -14,6 +14,8 @@ import type { FileSystem } from '../../foundation/fs/types.js';
 import { writeInboxAsync } from '../../foundation/messaging/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { CLAWS_DIR } from '../../foundation/paths.js';
+import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
+import { makeClawId } from '../../foundation/identity/index.js';
 
 export async function sendCommand(
   deps: { fsFactory: (baseDir: string) => FileSystem },
@@ -45,4 +47,11 @@ export async function sendCommand(
   }, audit);
 
   console.log(`Message sent to "${name}"`);
+
+  const processManager = createProcessManagerForCLI(deps);
+  if (!processManager.isAlive(makeClawId(name))) {
+    console.log(
+      `Note: claw "${name}" is not running. Start it with: clawforum claw ${name} daemon`,
+    );
+  }
 }
