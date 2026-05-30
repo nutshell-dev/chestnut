@@ -47,5 +47,5 @@ export async function createCommand(deps: { fsFactory: (baseDir: string) => File
   audit?.write(CLI_AUDIT_EVENTS.CLAW_CREATE, `name=${name}`);
   console.log(`✓ Created Claw "${name}"`);
   console.log(`  Location: ${clawDir}`);
-  console.log(`\nNext step: clawforum claw chat ${name}`);
+  console.log(`\nNext step: clawforum claw ${name} chat`);
 }

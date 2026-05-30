@@ -23,6 +23,21 @@ vi.mock('readline', () => ({
   createInterface: vi.fn(() => mockRl),
 }));
 
+// phase 1470: init now probes LLM after save. Stub to no-op so this test focuses
+// on password prompt restore behavior, not probe network.
+vi.mock('../../src/cli/llm-connection-check.js', () => ({
+  checkLLMConnection: async () => ({ ok: true, model: 'mock-model' }),
+  promptReconfigure: async () => true,
+  LLM_ERROR_LABELS: {
+    auth: 'API key invalid or unauthorized',
+    model: 'Model not found or unavailable',
+    network: 'Network error',
+    rate_limit: 'Rate limit',
+    unknown: 'Unknown',
+  },
+  classifyLLMError: () => 'unknown',
+}));
+
 let processExitSpy: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {

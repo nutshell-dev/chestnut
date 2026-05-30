@@ -50,7 +50,7 @@ export function buildSummonContractTask(
 目标 claw 已由用户指定：**${targetClaw}**。
 执行 \`clawforum claw list\` 确认它存在且处于 daemon 状态。
 如未运行，执行：
-  exec: clawforum claw daemon ${targetClaw}
+  exec: clawforum claw ${targetClaw} daemon
   exec: clawforum claw list   ← 再次确认状态已变为 running，再继续`;
   } else {
     task += `
@@ -58,8 +58,8 @@ export function buildSummonContractTask(
 - 判断依据：上下文效率，不根据 claw 名称推断能力
 - 如果现有 claw 的对话状态专注于不同的项目或任务域，应新建 claw
 - 如需新建：
-  exec: clawforum claw create <name>
-  exec: clawforum claw daemon <name>
+  exec: clawforum claw <name> create
+  exec: clawforum claw <name> daemon
   exec: clawforum claw list   ← 确认 daemon 已运行再继续
 - targetClaw 必须是 claw id（kebab-case），不能是 UUID 或 taskId`;
   }

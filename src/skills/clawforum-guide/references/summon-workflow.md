@@ -35,8 +35,8 @@ exec: clawforum claw list
 - **复用**：选择对话状态与本次任务相关的 claw
 - **新建**：现有 claw 专注于不同项目或任务域时
   ```
-  exec: clawforum claw create <name>
-  exec: clawforum claw daemon <name>
+  exec: clawforum claw <name> create
+  exec: clawforum claw <name> daemon
   exec: clawforum claw list   ← 确认 daemon 已运行再继续
   ```
 - targetClaw 必须是 claw id（kebab-case），不能是 UUID 或 taskId

@@ -1,6 +1,10 @@
 /**
- * @module L6.CLI.Claw.Cp
- * Copy local files/directories into a Claw's clawspace
+ * @module L6.CLI.Claw.Import
+ * Import local files/directories into a Claw's clawspace.
+ *
+ * Phase 1472 Step B：从 `cp` 重命名为 `import` —— `cp` 沿用 unix 双参数对称隐喻
+ * 与本命令实然单向「塞文件进 claw」语义不符。改 `import` 后单参数 `<source>`
+ * 自洽、方向自解释、未来加反向 `export` 自然对称。
  */
 
 import * as path from 'path';
@@ -47,7 +51,7 @@ async function tryStat(fs: FileSystem, p: string): Promise<StatInfo | null> {
   }
 }
 
-export async function cpCommand(
+export async function importCommand(
   deps: { fsFactory: (baseDir: string) => FileSystem },
   source: string,
   clawName: string,

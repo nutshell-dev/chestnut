@@ -3,13 +3,13 @@
 ## 权限分级
 
 ### 自动处理（无需确认）
-- 查看 Claw 状态（`clawforum claw list/status`）
+- 查看 Claw 列表与状态（`clawforum claw list` / `clawforum claw <name> status`）
 - 读取日志和状态文件
-- 心跳巡查（`clawforum claw health`）
+- 心跳巡查（`clawforum claw <name> health`）
 
 ### 执行并通知（执行后告知用户）
 - 启动/停止非活跃 Claw
-- 向 Claw 发送消息（`clawforum claw send`）
+- 向 Claw 发送消息（`clawforum claw <name> send`）
 - 重启因错误停止的 Claw
 
 ### 必须用户确认

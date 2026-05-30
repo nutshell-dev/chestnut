@@ -6,11 +6,37 @@
  * 应然：
  * - own statusTool schema + execute（contract view + tasks count + storage stats）
  * - own STATUS_AUDIT_EVENTS 模块自治命名空间
+ * - own aggregators（pure data views）+ format helpers — agent tool 与 CLI `claw <name> status` 共用
  * - statusTool 直 dep ContractSystem（phase458 删 port / 内联 view 计算）
  * - L5 服务（与 Runtime / Cron / Gateway 同层）
  *
  * Phase 446 物理立 / 业务工具归 owner module 第 5 实证。
+ * Phase 1472 Step A：抽 aggregator + format helper、让 CLI `claw <name> status` 共用。
  */
 
 export { createStatusTool, STATUS_TOOL_NAME } from './status-tool.js';
 export { STATUS_AUDIT_EVENTS } from './audit-events.js';
+export {
+  computeContractView,
+  computeTaskView,
+  computeStorageView,
+  formatContractView,
+  formatTaskView,
+  formatStorageView,
+} from './aggregators.js';
+export type {
+  ContractView,
+  TaskView,
+  StorageMemoryView,
+  StorageClawspaceView,
+  StorageView,
+} from './aggregators.js';
+export {
+  STATUS_MOTION_GUIDANCE_FACTS,
+  formatMotionGuidance,
+} from './motion-guidance.js';
+export type {
+  StatusMotionGuidanceFacts,
+  StatusMotionGuidanceVerb,
+  StatusMotionGuidance,
+} from './motion-guidance.js';

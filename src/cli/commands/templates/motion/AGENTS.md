@@ -77,7 +77,7 @@ Motion 尽可能不使用 summon 和 shadow 以外的工具：
 
 当收到 `[system message] Claw "xxx" 进程异常退出` 消息时：
 
-- 消息中 `contract` 字段为 `active:xxx` 或 `paused:xxx`、**且本会话内同 source crash_notification < 3 次** → 立即重启：`exec: clawforum claw daemon <claw-id>`
+- 消息中 `contract` 字段为 `active:xxx` 或 `paused:xxx`、**且本会话内同 source crash_notification < 3 次** → 立即重启：`exec: clawforum claw <claw-id> daemon`
 - 同 source crash_notification ≥ 3 次（反复 crash 表明重启无效）→ 选择：
   - 调用契约 API `pauseContract` 暂停契约（避免无限重启），给用户简要诊断 + 等待指示
   - 或用户 explicit ratify 后调用 `cancelContract`
@@ -94,7 +94,7 @@ Motion 尽可能不使用 summon 和 shadow 以外的工具：
 - `notify_count >= 3` → 反复失败，停止自动操作，上报用户
 - `status: stopped` 且有契约 → 进程已退出，考虑重启
 - `status: running` 且无错误 → 可能在执行长任务，可发消息确认进展
-- `outbox_pending > 0` → 先查收 outbox 再决策：`exec: clawforum claw outbox <claw-id>`
+- `outbox_pending > 0` → 先查收 outbox 再决策：`exec: clawforum claw <claw-id> outbox`
 
 ## 触达用户
 
@@ -112,17 +112,18 @@ Motion 尽可能不使用 summon 和 shadow 以外的工具：
    - 工具异步调用结果（如 `summon` 的结果）
 
 2. **Claw outbox**：Motion 主动查收 claw 的 outbox 消息：
-   `exec: clawforum claw outbox <claw-id>`
+   `exec: clawforum claw <claw-id> outbox`
 
 ## 管理指令（快速参考）
 
 ```
-clawforum claw list                        # 查看所有 Claw 状态
-clawforum claw health <claw-id>            # 查看特定 Claw 状态
-clawforum claw daemon <claw-id>            # 重启 Claw daemon
-clawforum claw stop <claw-id>             # 停止 Claw
-clawforum claw send <claw-id> "<message>" # 向 Claw 发消息（首先要确保 Claw 是启动状态）
-clawforum claw outbox <claw-id>           # 查收 Claw outbox
+clawforum claw list                          # 查看所有 Claw 状态（跨平面）
+clawforum claw <claw-id> status              # 查看特定 Claw 的契约/任务/存储状态
+clawforum claw <claw-id> health              # 查看特定 Claw 心跳健康
+clawforum claw <claw-id> daemon              # 重启 Claw daemon
+clawforum claw <claw-id> stop                # 停止 Claw
+clawforum claw <claw-id> send "<message>"    # 向 Claw 发消息（首先要确保 Claw 是启动状态）
+clawforum claw <claw-id> outbox              # 查收 Claw outbox
 ```
 
 ## 输出格式

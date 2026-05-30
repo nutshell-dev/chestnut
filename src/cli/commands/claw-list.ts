@@ -161,7 +161,7 @@ export async function listCommand(deps: { fsFactory: (baseDir: string) => FileSy
     }
 
     if (claws.length === 0) {
-      console.log('No claws found. Create one with: clawforum claw create <name>');
+      console.log('No claws found. Create one with: clawforum claw <name> create');
       return;
     }
 

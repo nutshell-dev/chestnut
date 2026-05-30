@@ -14,14 +14,14 @@ search: { "query": "error", "path": "logs/", "claw": "claw-id" }
 
 向 Claw 发消息：
 ```
-exec: clawforum claw send <claw-id> "<message>"
-exec: clawforum claw send <claw-id> "<message>" --priority high
+exec: clawforum claw <claw-id> send "<message>"
+exec: clawforum claw <claw-id> send "<message>" --priority high
 ```
 
 查收 Claw outbox：
 ```
-exec: clawforum claw outbox <claw-id>
-exec: clawforum claw outbox <claw-id> --limit 5
+exec: clawforum claw <claw-id> outbox
+exec: clawforum claw <claw-id> outbox --limit 5
 ```
 
 **不要用 `write` 工具直接向 claw inbox 目录写文件**——格式错误，永远不会被处理。`contract create` CLI 已自动发送 inbox 通知，无需额外操作。

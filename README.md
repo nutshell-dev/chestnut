@@ -148,12 +148,12 @@ clawforum stop           # gracefully stop everything
 **Advanced**
 
 ```bash
-clawforum claw list                # list all Claws and their status
-clawforum claw chat <name>         # talk to a specific Claw directly
-clawforum claw trace [--claw <n>]  # inspect contract execution step by step
+clawforum claw list                       # list all Claws and their status
+clawforum claw <name> chat                # talk to a specific Claw directly
+clawforum claw <name> trace --contract <id>  # inspect contract execution step by step
 ```
 
-For the full command set (`claw create / send / outbox / cp / read / health / step`, `motion daemon / steps`, `contract create / log / events`, `skill *`, etc.), run `clawforum --help`.
+For the full command set (`claw <name> {create,send,outbox,import,read,health,step,status,...}`, `motion daemon / steps`, `contract create / log / events`, `skill *`, etc.), run `clawforum --help` or `clawforum claw --help`.
 
 ---
 

@@ -48,14 +48,14 @@ clawforum contract log --claw ${clawId} --contract ${contractId}
 ### 第二步：还原工作过程
 
 \`\`\`
-clawforum claw trace --claw ${clawId} --contract ${contractId}
+clawforum claw ${clawId} trace --contract ${contractId}
 \`\`\`
 
 阅读 claw 的完整工作过程（多轮执行，步骤统一编号 #1, #2, ...），包含每步工具调用的结果摘要。
 如某步骤摘要不够，需要看完整输入/输出时：
 
 \`\`\`
-clawforum claw trace --claw ${clawId} --contract ${contractId} --step <n>
+clawforum claw ${clawId} trace --contract ${contractId} --step <n>
 \`\`\`
 
 ### 第三步：评估执行质量

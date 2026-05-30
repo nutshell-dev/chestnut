@@ -66,6 +66,7 @@ import type { Messaging } from '../foundation/messaging/index.js';
 import { createSubmitSubtaskTool } from '../core/contract/index.js';
 import { createDoneTool } from '../core/subagent/index.js';
 import { createStatusTool } from '../core/status-service/index.js';
+import { composeStatusMotionGuidance } from './motion-guidance-composer.js';
 import { createSkillTool } from '../foundation/skill-system/tools/skill.js';
 import { createSendTool } from '../foundation/messaging/tools/send.js';
 import { createNotifyClawTool } from '../foundation/messaging/tools/notify-claw.js';
@@ -410,7 +411,11 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
     // done 注册：phase360 后 done 业务归 ContractSystem / 不再经 registerBuiltinTools / Assembly 显式注册
     toolRegistry.register(createSubmitSubtaskTool(contractManager));
     toolRegistry.register(createDoneTool());                    // phase 765: 通用 done 工具（shadow / spawn 子代理 result 提交）
-    toolRegistry.register(createStatusTool(contractManager));   // phase 446: builtins/index.ts 不再 register / Assembly 显式（同 phase 440 send + phase 442 skill 模板）
+    // phase 446: builtins/index.ts 不再 register / Assembly 显式（同 phase 440 send + phase 442 skill 模板）
+    // phase 1472 Step D: Motion 注入 motion guidance composer 输出（CLI hint 段）；其他 claw 不传 = 0 尾段
+    toolRegistry.register(
+      createStatusTool(contractManager, isMotion ? composeStatusMotionGuidance() : undefined),
+    );
 
     // skill 注册：phase442 后 skill 业务归 SkillSystem / 不再经 registerBuiltinTools / Assembly 显式注册
     // Motion 注入 dispatchSkillsDir（dispatch 模板池 own / DISPATCH_SKILLS_PATH 物理路径不上 LLM 表面）；

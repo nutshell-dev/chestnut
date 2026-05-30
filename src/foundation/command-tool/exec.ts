@@ -17,6 +17,24 @@ import { exec } from '../process-exec/index.js';
 import { ProcessExecError } from '../process-exec/index.js';
 import { PROCESS_EXEC_DEFAULT_TIMEOUT_MS } from '../process-exec/index.js';
 import { formatErr, safeNumber } from '../utils/index.js';
+import { COMMAND_TOOL_AUDIT_EVENTS } from './audit-events.js';
+
+/**
+ * Detect commands that would kill the motion daemon process itself.
+ *
+ * Matches:
+ *   - `clawforum stop`        (kills watchdog → motion → claws)
+ *   - `clawforum motion stop` (kills motion only)
+ *
+ * Does NOT match `clawforum watchdog stop` (doesn't directly kill motion).
+ *
+ * Accepted false positive: `echo "clawforum stop"` is also blocked.
+ * Threat model is well-meaning agent, not adversary — shell evasion
+ * (eval, env-var splicing, path tricks) is out of scope.
+ */
+function looksLikeClawforumSelfKill(command: string): boolean {
+  return /\bclawforum\s+(motion\s+)?stop\b/i.test(command);
+}
 
 function truncate(str: string, maxLen: number): string {
   if (!str || str.length <= maxLen) return str || '';
@@ -88,6 +106,27 @@ export function createExecTool(): Tool {
 
     async execute(args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
       const command = args.command as string;
+
+      // phase 1473: motion-chain self-kill guard
+      //   motion 调 `clawforum stop` / `clawforum motion stop` → SIGTERM 自身进程
+      //   → in-flight tool_use_result 丢失 → motion 重启回到悬挂 tool_use
+      //   → LLM 再次发起 stop → 死循环
+      if (ctx.isMotionChain && looksLikeClawforumSelfKill(command)) {
+        ctx.auditWriter?.write(
+          COMMAND_TOOL_AUDIT_EVENTS.EXEC_MOTION_SELF_KILL_BLOCKED,
+          `clawId=${ctx.clawId}`,
+          `command=${command.slice(0, 200)}`,
+        );
+        return {
+          success: false,
+          content:
+            'Error: motion-chain cannot exec `clawforum stop` / `clawforum motion stop` ' +
+            'via shell. The command SIGTERMs motion itself; the in-flight tool result ' +
+            'is lost, and after restart motion re-issues the same command (infinite ' +
+            'loop). To stop motion, ask the user or use an external CLI process. ' +
+            '(phase 1473 guard)',
+        };
+      }
 
       // phase 1280: allow/deny reject 路径已 REFRAMED-OUT by-design 2026-05-25 user ratify
       // 未来 restriction 走 OS-level sandbox / 详 design §A.r136-cmd-tool-no-perm-mgmt-cleanup

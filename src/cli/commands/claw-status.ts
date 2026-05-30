@@ -1,0 +1,94 @@
+/**
+ * @module L6.CLI.Claw.Status
+ *
+ * `clawforum claw <name> status` — read-only inspection of another claw's
+ * business state (contract / tasks / storage). Phase 1472 Step C.
+ *
+ * 设计：
+ * - 复用 L5.StatusService 的 aggregator + format helper（共用方 = agent status tool）
+ * - fs root 切到目标 claw 的 clawDir、依赖 atomic write 约定（contract/task queue 已 atomic）
+ *   不加锁、读到瞬时一致 view
+ * - audience：motion 常用（查 worker claw 状态）；用户也可直接调
+ *   `clawforum status` （进程层）留给用户看 watchdog/motion/claws alive 概览
+ * - format 与 agent status tool 输出一致、避免漂移；多 `Claw:` header 标 namespace
+ */
+
+import * as path from 'path';
+import { loadGlobalConfig, clawExists, getClawDir } from '../../foundation/config/index.js';
+import { CONFIG_DEFAULTS } from '../../assembly/index.js';
+import { CliError } from '../errors.js';
+import { createSystemAudit } from '../../foundation/audit/index.js';
+import { ContractSystem } from '../../core/contract/index.js';
+import { createToolRegistry } from '../../foundation/tools/index.js';
+import { makeClawId, resolveClawforumRoot } from '../../foundation/identity/index.js';
+import {
+  computeContractView,
+  computeTaskView,
+  computeStorageView,
+  formatContractView,
+  formatTaskView,
+  formatStorageView,
+} from '../../core/status-service/index.js';
+import type { FileSystem } from '../../foundation/fs/types.js';
+
+interface ClawStatusOpts {
+  json?: boolean;
+}
+
+export async function clawStatusCommand(
+  deps: { fsFactory: (baseDir: string) => FileSystem },
+  name: string,
+  opts: ClawStatusOpts = {},
+): Promise<void> {
+  loadGlobalConfig(deps, CONFIG_DEFAULTS);
+
+  if (!clawExists(deps, name)) {
+    throw new CliError(`Claw "${name}" does not exist. Try \`clawforum claw list\` to see existing claws.`);
+  }
+
+  const clawDir = getClawDir(name);
+  const clawFs = deps.fsFactory(clawDir);
+  const clawId = makeClawId(name);
+  const clawforumRoot = resolveClawforumRoot(clawDir, /* isMotion */ false);
+
+  const contractSystem = new ContractSystem({
+    clawDir,
+    clawId,
+    fs: clawFs,
+    audit: createSystemAudit(clawFs, clawDir),
+    toolRegistry: createToolRegistry(),
+    fsFactory: deps.fsFactory,
+    clawforumRoot,
+  });
+
+  const [contractView, taskView, storageView] = await Promise.all([
+    computeContractView(contractSystem),
+    computeTaskView(clawFs),
+    computeStorageView(clawFs),
+  ]);
+
+  if (opts.json) {
+    console.log(
+      JSON.stringify(
+        {
+          claw: name,
+          clawDir: path.resolve(clawDir),
+          contract: contractView,
+          tasks: taskView,
+          storage: storageView,
+        },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+
+  const lines: string[] = [];
+  lines.push(`Claw: ${name}`);
+  lines.push(`ClawDir: ${path.resolve(clawDir)}`);
+  lines.push(formatContractView(contractView));
+  lines.push(formatTaskView(taskView));
+  lines.push(...formatStorageView(storageView));
+  console.log(lines.join('\n'));
+}

@@ -57,11 +57,10 @@ function wrapFailureForMotion(rawResult: string): string {
   return [
     `[SUMMON_SHADOW_FAILED:no_contract_created]`,
     ``,
-    `子代理完成但 0 次 contract create 成功（依据 subagent audit 系统真相）。最常见原因：弱模型脱离了契约创建流、用继承的工具直接执行了任务（未创建契约、目标 claw 未收到工作）。`,
+    `子代理完成但 0 次 contract create 成功。`,
     ``,
     `**建议路径**：`,
-    `- 若原 goal 适合单次直接执行（不需要 claw 多步 / parallel / retrospective）：换 \`spawn\` 工具派子代理执行。`,
-    `- 若必须走契约流（需要 claw 复用）：换强模型再 \`summon\`、或人工介入。`,
+    `- 使用 \`summon\` 工具的 \`mining\` 模式重试`,
     ``,
     `--- raw subagent output (diagnostic only, NOT a completion signal) ---`,
     truncated,

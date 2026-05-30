@@ -105,7 +105,7 @@ describe('CLI smoke - parseInt NaN guard Layer B canary', () => {
 
   it('outbox --limit 10 → exit 0, no NaN error (Layer B integration canary)', async () => {
     const { stderr, exitCode } = await runCli(
-      ['claw', 'outbox', 'test-claw', '--limit', '10'],
+      ['claw', 'test-claw', 'outbox', '--limit', '10'],
       { CLAWFORUM_ROOT: root }
     );
     expect(exitCode).toBe(0);

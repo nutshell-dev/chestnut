@@ -1,119 +1,55 @@
 /**
- * status tool - Get Claw status information
- * 
- * Enhanced with (MVP aligned):
- * - Active contract progress
- * - Task queue status
- * - MEMORY.md size, clawspace file count
+ * status tool — agent-facing self-introspection.
+ *
+ * 行内职责：聚合 view（调 aggregator）+ 关键 error 写 audit + format 文本。
+ * 业务聚合本身归 `aggregators.ts`（CLI `claw <name> status` 共用）。
  */
 
 import type { Tool, ExecContext } from '../../foundation/tools/index.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { ContractSystem } from '../contract/index.js';
-import { TASKS_QUEUES_PENDING_DIR, TASKS_QUEUES_RUNNING_DIR } from '../async-task-system/index.js';
 import { STATUS_AUDIT_EVENTS } from './audit-events.js';
+import {
+  computeContractView,
+  computeTaskView,
+  computeStorageView,
+  formatContractView,
+  formatTaskView,
+  formatStorageView,
+} from './aggregators.js';
+import { type StatusMotionGuidance, formatMotionGuidance } from './motion-guidance.js';
+import { MOTION_CLAW_ID } from '../../constants.js';
 
-async function getContractStatus(ctx: ExecContext, contractSystem: ContractSystem): Promise<string> {
-  try {
-    const contract = await contractSystem.loadActive();
-    if (!contract) return 'Contract: No active contract';
+// merge note (phase 1472 ← main phase 1468)：
+// main side（phase 1468）re-export 3 内联 helper（getContractStatus / getTaskStatus /
+// getStorageStatus）作 `__test_*` 测试 surface（F9 audit-2026-05-30）。phase 1472 Step A
+// refactor 已把这 3 helper 抽成 `aggregators.ts` 中 pure function (computeContractView /
+// computeTaskView / computeStorageView) + format helper、tests/core/status-service/
+// aggregators.test.ts 14 case 覆盖等价计算逻辑（含 ENOENT / FS_NOT_FOUND silent + 错误折进 view）。
+// audit-emission 路径（pure aggregator 不写 audit、由本 wrapper 写）由
+// status-tool-helpers.test.ts 重写为 createStatusTool integration test 保持 phase 1468
+// F9 cov 意图（CONTRACT_ERROR / TASK_PENDING_ERROR / TASK_RUNNING_ERROR 三条 audit emit）。
 
-    // phase 458: 内联 view 计算（移自删除的 status-port-impl.ts createContractStatusPort）
-    const doneCount = contract.subtasks.filter(s => s.status === 'completed').length;
-    const totalCount = contract.subtasks.length;
-
-    const lines = [`Contract: "${contract.title}" (${doneCount}/${totalCount} subtasks done)`];
-    for (const s of contract.subtasks) {
-      const icon = s.status === 'completed' ? '✓' : '○';
-      lines.push(`  ${icon} ${s.id}: ${s.description}`);
-    }
-    return lines.join('\n');
-  } catch (err) {
-    ctx.auditWriter?.write(STATUS_AUDIT_EVENTS.CONTRACT_ERROR, `error=${err instanceof Error ? err.message : String(err)}`);
-    return 'Contract: Error loading';
-  }
-}
-
-async function getTaskStatus(ctx: ExecContext): Promise<string> {
-  try {
-    const pendingDir = TASKS_QUEUES_PENDING_DIR;
-    const runningDir = TASKS_QUEUES_RUNNING_DIR;
-    
-    let pendingCount = 0;
-    let runningCount = 0;
-    
-    try {
-      const pending = await ctx.fs.list(pendingDir, { includeDirs: false });
-      pendingCount = pending.length;
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code;
-      if (code !== 'ENOENT' && code !== 'FS_NOT_FOUND') {
-        ctx.auditWriter?.write(STATUS_AUDIT_EVENTS.TASK_PENDING_ERROR, `error=${err instanceof Error ? err.message : String(err)}`);
-      }
-    }
-    
-    try {
-      const running = await ctx.fs.list(runningDir, { includeDirs: false });
-      runningCount = running.length;
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code;
-      if (code !== 'ENOENT' && code !== 'FS_NOT_FOUND') {
-        ctx.auditWriter?.write(STATUS_AUDIT_EVENTS.TASK_RUNNING_ERROR, `error=${err instanceof Error ? err.message : String(err)}`);
-      }
-    }
-    
-    if (runningCount > 0) {
-      return `Tasks: ${runningCount} running, ${pendingCount} pending`;
-    } else if (pendingCount > 0) {
-      return `Tasks: ${pendingCount} pending`;
-    } else {
-      return 'Tasks: idle';
-    }
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return `Tasks: unavailable (${msg})`;
-  }
-}
-
-async function getStorageStatus(ctx: ExecContext): Promise<string[]> {
-  const lines: string[] = [];
-  
-  try {
-    // MEMORY.md size
-    if (await ctx.fs.exists('MEMORY.md')) {
-      const content = await ctx.fs.read('MEMORY.md');
-      lines.push(`MEMORY.md: ${(content.length / 1024).toFixed(1)}KB`);
-    } else {
-      lines.push('MEMORY.md: Not found');
-    }
-  } catch (err: unknown) {
-    lines.push(`MEMORY.md: Error (${err instanceof Error ? err.message : 'unknown'})`);
-  }
-  
-  try {
-    // clawspace file count (ENOENT/FS_NOT_FOUND = 目录不存在，正常返回空)
-    const entries = await ctx.fs.list(CLAWSPACE_DIR, { recursive: true, includeDirs: false }).catch((err: unknown) => {
-      const code = (err as NodeJS.ErrnoException)?.code;
-      if (code === 'ENOENT' || code === 'FS_NOT_FOUND') return [];
-      throw err;
-    });
-    lines.push(`Clawspace: ${entries.length} files`);
-  } catch (err: unknown) {
-    lines.push(`Clawspace: Error (${err instanceof Error ? err.message : 'unknown'})`);
-  }
-  
-  return lines;
-}
-
-import { CLAWSPACE_DIR } from '../../foundation/paths.js';
 export const STATUS_TOOL_NAME = 'status' as const;
 
-export function createStatusTool(contractSystem: ContractSystem): Tool {
+/**
+ * createStatusTool —— phase 1472 Step D：可选 motionGuidance 参数。
+ *
+ * 当 ctx.clawId === MOTION_CLAW_ID 且 motionGuidance 被 Assembly 注入时、
+ * execute 输出尾段 append CLI hint 段。其他 claw / 未注入时 0 尾段。
+ *
+ * 装配方（src/assembly/assemble.ts）按 isMotion 判断是否注入 composer 输出。
+ */
+export function createStatusTool(
+  contractSystem: ContractSystem,
+  motionGuidance?: StatusMotionGuidance,
+): Tool {
   return {
     name: STATUS_TOOL_NAME,
     profiles: ['full', 'readonly'],
     group: 'status',
-    description: 'Get comprehensive status: Claw ID, profile, step count, active contract with full subtask list (id/description/status), tasks, storage (MEMORY.md, clawspace). Call at turn start to re-orient after restart.',
+    description:
+      'Get comprehensive status: Claw ID, profile, step count, active contract with full subtask list (id/description/status), tasks, storage (MEMORY.md, clawspace). Call at turn start to re-orient after restart.',
     schema: {
       type: 'object',
       properties: {},
@@ -130,15 +66,31 @@ export function createStatusTool(contractSystem: ContractSystem): Tool {
         `Step: ${ctx.stepNumber}/${ctx.maxSteps}`,
         `Elapsed: ${ctx.getElapsedMs()}ms`,
       ];
-      
-      // Add contract status (MVP aligned)
-      lines.push(await getContractStatus(ctx, contractSystem));
-      
-      // Add task status (MVP aligned)
-      lines.push(await getTaskStatus(ctx));
-      
-      // Add storage status (MVP aligned)
-      lines.push(...await getStorageStatus(ctx));
+
+      const contractView = await computeContractView(contractSystem);
+      if (contractView.type === 'error') {
+        ctx.auditWriter?.write(STATUS_AUDIT_EVENTS.CONTRACT_ERROR, `error=${contractView.message}`);
+      }
+      lines.push(formatContractView(contractView));
+
+      const taskView = await computeTaskView(ctx.fs);
+      if (taskView.type === 'counts') {
+        if (taskView.pendingError) {
+          ctx.auditWriter?.write(STATUS_AUDIT_EVENTS.TASK_PENDING_ERROR, `error=${taskView.pendingError}`);
+        }
+        if (taskView.runningError) {
+          ctx.auditWriter?.write(STATUS_AUDIT_EVENTS.TASK_RUNNING_ERROR, `error=${taskView.runningError}`);
+        }
+      }
+      lines.push(formatTaskView(taskView));
+
+      const storageView = await computeStorageView(ctx.fs);
+      lines.push(...formatStorageView(storageView));
+
+      // phase 1472 Step D — motion guidance 尾段（仅 motion + 已注入时）
+      if (motionGuidance && ctx.clawId === MOTION_CLAW_ID) {
+        lines.push(formatMotionGuidance(motionGuidance));
+      }
 
       return {
         success: true,

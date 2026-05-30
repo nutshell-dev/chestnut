@@ -1,0 +1,177 @@
+/**
+ * Status aggregators — pure data views over (ContractSystem, FileSystem).
+ *
+ * Phase 1472 (Step A) — 抽出 status-tool 内嵌的 3 个 getXxxStatus 为 pure function +
+ * format helper、让 agent-facing status tool 与 CLI `claw <name> status` 共用。
+ *
+ * 设计原则：
+ * - aggregator 不写 audit、无副作用（除 FS 读）/ 把错误折进 view 形态、由调用方决定是否 audit
+ * - format helper 把 view → 文本（agent 与 CLI 共用、避免输出漂移）
+ * - CLI 也用同一组 aggregator + format、只是把 fs 切到目标 claw 的 clawDir 根
+ */
+
+import type { FileSystem } from '../../foundation/fs/types.js';
+import type { ContractSystem } from '../contract/index.js';
+import { TASKS_QUEUES_PENDING_DIR, TASKS_QUEUES_RUNNING_DIR } from '../async-task-system/index.js';
+import { CLAWSPACE_DIR } from '../../foundation/paths.js';
+
+// ── Views ───────────────────────────────────────────────────────────────────
+
+export type ContractView =
+  | { type: 'no-active' }
+  | {
+      type: 'active';
+      title: string;
+      doneCount: number;
+      totalCount: number;
+      subtasks: { id: string; description: string; status: string }[];
+    }
+  | { type: 'error'; message: string };
+
+export type TaskView =
+  | { type: 'counts'; running: number; pending: number; pendingError?: string; runningError?: string }
+  | { type: 'unavailable'; message: string };
+
+export type StorageMemoryView =
+  | { type: 'size'; bytes: number }
+  | { type: 'not-found' }
+  | { type: 'error'; message: string };
+
+export type StorageClawspaceView =
+  | { type: 'count'; files: number }
+  | { type: 'error'; message: string };
+
+export interface StorageView {
+  memoryMd: StorageMemoryView;
+  clawspace: StorageClawspaceView;
+}
+
+// ── Aggregators ─────────────────────────────────────────────────────────────
+
+export async function computeContractView(contractSystem: ContractSystem): Promise<ContractView> {
+  try {
+    const contract = await contractSystem.loadActive();
+    if (!contract) return { type: 'no-active' };
+    const doneCount = contract.subtasks.filter(s => s.status === 'completed').length;
+    return {
+      type: 'active',
+      title: contract.title,
+      doneCount,
+      totalCount: contract.subtasks.length,
+      subtasks: contract.subtasks.map(s => ({
+        id: s.id,
+        description: s.description,
+        status: s.status,
+      })),
+    };
+  } catch (err) {
+    // silent: pure aggregator 不写 audit / loadActive 失败折进 view 由调用方写 STATUS_AUDIT_EVENTS.CONTRACT_ERROR
+    return { type: 'error', message: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export async function computeTaskView(fs: FileSystem): Promise<TaskView> {
+  try {
+    let pending = 0;
+    let running = 0;
+    let pendingError: string | undefined;
+    let runningError: string | undefined;
+
+    try {
+      pending = (await fs.list(TASKS_QUEUES_PENDING_DIR, { includeDirs: false })).length;
+    } catch (err) {
+      // silent: ENOENT/FS_NOT_FOUND 视作"队列目录尚未建"、非业务错误；其余 error 折进 pendingError 字段由调用方 audit
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code !== 'ENOENT' && code !== 'FS_NOT_FOUND') {
+        pendingError = err instanceof Error ? err.message : String(err);
+      }
+    }
+
+    try {
+      running = (await fs.list(TASKS_QUEUES_RUNNING_DIR, { includeDirs: false })).length;
+    } catch (err) {
+      // silent: 同 pending 段、ENOENT 视作未建队列、其余折进 runningError
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code !== 'ENOENT' && code !== 'FS_NOT_FOUND') {
+        runningError = err instanceof Error ? err.message : String(err);
+      }
+    }
+
+    return { type: 'counts', running, pending, pendingError, runningError };
+  } catch (err) {
+    // silent: pure aggregator 不写 audit / 外层兜底任何意外、折进 view 形态由调用方决定降级文本
+    return { type: 'unavailable', message: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export async function computeStorageView(fs: FileSystem): Promise<StorageView> {
+  let memoryMd: StorageMemoryView;
+  try {
+    if (await fs.exists('MEMORY.md')) {
+      const content = await fs.read('MEMORY.md');
+      memoryMd = { type: 'size', bytes: content.length };
+    } else {
+      memoryMd = { type: 'not-found' };
+    }
+  } catch (err) {
+    // silent: pure aggregator 不写 audit / MEMORY.md 读失败折进 view 由调用方决定降级文本
+    memoryMd = { type: 'error', message: err instanceof Error ? err.message : 'unknown' };
+  }
+
+  let clawspace: StorageClawspaceView;
+  try {
+    const entries = await fs
+      .list(CLAWSPACE_DIR, { recursive: true, includeDirs: false })
+      .catch((err: unknown) => {
+        // silent: ENOENT/FS_NOT_FOUND 视作"空 clawspace"返回 []、其余真错重抛由外层兜底
+        const code = (err as NodeJS.ErrnoException)?.code;
+        if (code === 'ENOENT' || code === 'FS_NOT_FOUND') return [];
+        throw err;
+      });
+    clawspace = { type: 'count', files: entries.length };
+  } catch (err) {
+    // silent: pure aggregator 不写 audit / clawspace list 失败折进 view
+    clawspace = { type: 'error', message: err instanceof Error ? err.message : 'unknown' };
+  }
+
+  return { memoryMd, clawspace };
+}
+
+// ── Format helpers (shared by agent tool + CLI) ─────────────────────────────
+
+export function formatContractView(v: ContractView): string {
+  if (v.type === 'no-active') return 'Contract: No active contract';
+  if (v.type === 'error') return 'Contract: Error loading';
+  const lines = [`Contract: "${v.title}" (${v.doneCount}/${v.totalCount} subtasks done)`];
+  for (const s of v.subtasks) {
+    const icon = s.status === 'completed' ? '✓' : '○';
+    lines.push(`  ${icon} ${s.id}: ${s.description}`);
+  }
+  return lines.join('\n');
+}
+
+export function formatTaskView(v: TaskView): string {
+  if (v.type === 'unavailable') return `Tasks: unavailable (${v.message})`;
+  if (v.running > 0) return `Tasks: ${v.running} running, ${v.pending} pending`;
+  if (v.pending > 0) return `Tasks: ${v.pending} pending`;
+  return 'Tasks: idle';
+}
+
+export function formatStorageView(v: StorageView): string[] {
+  const lines: string[] = [];
+  if (v.memoryMd.type === 'size') {
+    lines.push(`MEMORY.md: ${(v.memoryMd.bytes / 1024).toFixed(1)}KB`);
+  } else if (v.memoryMd.type === 'not-found') {
+    lines.push('MEMORY.md: Not found');
+  } else {
+    lines.push(`MEMORY.md: Error (${v.memoryMd.message})`);
+  }
+
+  if (v.clawspace.type === 'count') {
+    lines.push(`Clawspace: ${v.clawspace.files} files`);
+  } else {
+    lines.push(`Clawspace: Error (${v.clawspace.message})`);
+  }
+
+  return lines;
+}

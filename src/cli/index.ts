@@ -17,20 +17,9 @@ import { withCliErrorHandling } from './with-cli-error-handling.js';
 // who actually runs `start` or `init`.
 import { NodeFileSystem } from '../foundation/fs/node-fs.js';
 import type { FileSystem } from '../foundation/fs/types.js';
-import {
-  createCommand,
-  chatCommand,
-  stopCommand,
-  listCommand,
-  healthCommand,
-  sendCommand,
-  outboxCommand,
-  cpCommand,
-  readCommand,
-  readStateCommand,
-} from './commands/claw.js';
+import { dispatchClawSubcommand } from './commands/claw-router.js';
 
-import { 
+import {
   initCommand as motionInitCommand,
   chatCommand as motionChatCommand,
   stopCommand as motionStopCommand,
@@ -42,21 +31,21 @@ import { createConfigCommand } from './commands/config.js';
 import { stopAllCommand } from './commands/stop.js';
 import { statusCommand } from './commands/status.js';
 import { createSubagentCommand } from './commands/subagent.js';
-import { clawStepsCommand, clawStepCommand } from './commands/claw-steps.js';
 import { motionStepsCommand, motionStepCommand } from './commands/motion-steps.js';
 import { createDirContext } from '../foundation/audit/index.js';
 import { getClawforumRoot, getClawDir, loadGlobalConfig } from '../foundation/config/index.js';
 import { CONFIG_DEFAULTS } from '../assembly/index.js';
 import { parseIntOption } from './parse-int-option.js';
 import { makeClawId } from '../foundation/identity/index.js';
-import { makeContractId } from '../foundation/identity/index.js';
 
 const fsFactory = (baseDir: string): FileSystem => new NodeFileSystem({ baseDir });
 
 program
   .name('clawforum')
   .description('AI Agent Orchestration System')
-  .version('0.1.0');
+  .version('0.1.0')
+  // phase 1472：`claw <subject> [args...]` 子命令用 passThroughOptions、要求父级 enablePositionalOptions
+  .enablePositionalOptions();
 
 // config command
 program.addCommand(createConfigCommand({ fsFactory }));
@@ -98,156 +87,26 @@ program
     await initCommand({ fsFactory }, false, { audit });
   }));
 
-// claw command group
-const clawCmd = program
-  .command('claw')
-  .description('Manage Claws');
-
-// claw create
-clawCmd
-  .command('create <name>')
-  .description('Create a new Claw')
-  .action(withCliErrorHandling(async (name: string) => {
-    loadGlobalConfig({ fsFactory }, CONFIG_DEFAULTS);
-    const { audit } = createDirContext({ fsFactory }, getClawDir(name));
-    await createCommand({ fsFactory }, name, { audit });
-  }));
-
-// claw chat
-clawCmd
-  .command('chat <name>')
-  .description('Chat with a Claw')
-  .action(withCliErrorHandling(async (name: string) => {
-    await chatCommand({ fsFactory }, name);
-  }));
-
-// claw stop
-clawCmd
-  .command('stop <name>')
-  .description('Stop Claw daemon')
-  .action(withCliErrorHandling(async (name: string) => {
-    loadGlobalConfig({ fsFactory }, CONFIG_DEFAULTS);
-    const { audit } = createDirContext({ fsFactory }, getClawDir(name));
-    await stopCommand({ fsFactory }, name, { audit });
-  }));
-
-// claw list
-clawCmd
-  .command('list')
-  .description('List all Claws and their status')
-  .option('--json', 'Output as JSON (machine-readable)')
-  .action(withCliErrorHandling(async (opts: { json?: boolean }) => {
-    await listCommand({ fsFactory }, opts);
-  }));
-
-// claw health
-clawCmd
-  .command('health <name>')
-  .description('Show Claw health status')
-  .option('--json', 'Output as JSON (machine-readable)')
-  .action(withCliErrorHandling(async (name: string, opts: { json?: boolean }) => {
-    await healthCommand({ fsFactory }, name, opts);
-  }));
-
-// claw send
-clawCmd
-  .command('send <name> <message>')
-  .description('Send a message to a Claw inbox')
-  .option('--priority <level>', 'Message priority (critical/high/normal/low)', 'normal')
-  .action(withCliErrorHandling(async (name: string, message: string, opts: { priority: string }) => {
-    // 验证 priority 值
-    const validPriorities = ['critical', 'high', 'normal', 'low'];
-    if (!validPriorities.includes(opts.priority)) {
-      throw new CliError(`Invalid priority: ${opts.priority}. Must be one of: ${validPriorities.join(', ')}`);
-    }
-    await sendCommand({ fsFactory }, name, message, { priority: opts.priority as 'critical' | 'high' | 'normal' | 'low' });
-  }));
-
-// claw outbox
-clawCmd
-  .command('outbox <name>')
-  .description('Read and consume outbox messages from a Claw')
-  .option('--limit <n>', 'Max messages to read (default: 1)', '1')
-  .action(withCliErrorHandling(async (name: string, opts: { limit: string }) => {
-    loadGlobalConfig({ fsFactory }, CONFIG_DEFAULTS);
-    const { audit } = createDirContext({ fsFactory }, getClawDir(name));
-    const limit = parseIntOption(opts.limit, '--limit must be a non-negative integer');
-    await outboxCommand({ fsFactory }, name, { limit }, { audit });
-  }));
-
-// claw cp
-clawCmd
-  .command('cp <source> <name>')
-  .description('Copy a local file/directory into a Claw\'s clawspace')
-  .option('-t, --target <subdir>', 'Target subdirectory under clawspace')
-  .action(withCliErrorHandling(async (source: string, name: string, opts: { target?: string }) => {
-    await cpCommand({ fsFactory }, source, name, opts.target);
-  }));
-
-// claw read
-clawCmd
-  .command('read <name> <path>')
-  .description('Read a file from a Claw\'s clawspace')
-  .option('--offset <n>', 'Starting line (1-indexed, negative counts from end)', parseInt)
-  .option('--limit <n>', 'Max lines to read', parseInt)
-  .action(withCliErrorHandling(async (name: string, filePath: string, opts: { offset?: number; limit?: number }) => {
-    await readCommand({ fsFactory }, name, filePath, opts);
-  }));
-
-// claw read-state (phase 1452 / F-NEXT.1)
-clawCmd
-  .command('read-state <name>')
-  .description('Inspect a Claw\'s overwrite-gate state (read-state.json)')
-  .option('--json', 'Output as JSON (machine-readable)')
-  .action(withCliErrorHandling(async (name: string, opts: { json?: boolean }) => {
-    await readStateCommand({ fsFactory }, name, opts);
-  }));
-
-// claw trace
-clawCmd
-  .command('trace')
-  .description('Show claw execution trace for a contract')
-  .requiredOption('-c, --claw <id>', 'Target claw ID')
-  .requiredOption('--contract <contractId>', 'Contract ID')
-  .option('--step <n>', 'Show full content of step N (no truncation)', parseInt)
-  .action(withCliErrorHandling(async (opts: { claw: string; contract: string; step?: number }) => {
-    const { clawTraceCommand } = await import('./commands/claw.js');
-    await clawTraceCommand({ fsFactory }, makeClawId(opts.claw), makeContractId(opts.contract), opts.step);
-  }));
-
-// claw steps
-clawCmd
-  .command('steps <name>')
-  .description('Show main agent turn steps (name = "motion" or claw name)')
-  .action(withCliErrorHandling(async (name: string) => {
-    await clawStepsCommand({ fsFactory }, name);
-  }));
-
-// claw step
-clawCmd
-  .command('step <n> <name>')
-  .description('Show full detail of a single turn (n = "N" for whole turn, "N.x" for slot x)')
-  .action(withCliErrorHandling(async (n: string, name: string) => {
-    await clawStepCommand({ fsFactory }, n, name);
-  }));
-
-// claw daemon (auto-backgrounds)
-clawCmd
-  .command('daemon <name>')
-  .description('Start Claw daemon (auto-backgrounds)')
-  .action(withCliErrorHandling(async (name: string) => {
-    const { clawDaemonCommand } = await import('./commands/claw-daemon.js');
-    await clawDaemonCommand({ fsFactory }, name);
-  }));
-
-clawCmd.on('command:*', (ops) => {
-  console.error(`error: unknown command '${ops[0]}'\n`);
-  console.error('Available commands:');
-  for (const c of clawCmd.commands) {
-    console.error(`  ${c.name().padEnd(12)}  ${c.description()}`);
-  }
-  process.exitCode = 1;
-});
+// claw command group — phase 1472：subject-first 形态
+//
+//   clawforum claw <name> <verb> [args...]    一般形态：作用在指定 claw 上
+//   clawforum claw list [--json]              平面形态：跨 claw 列表
+//
+// 详 src/cli/commands/claw-router.ts。commander v13 `passThroughOptions(true)`
+// 把 `<subject>` 之后所有 token 原样塞进 [args...]、由 router 按 verb 解析。
+program
+  .command('claw <subject> [args...]')
+  .description(
+    'Manage Claws: `clawforum claw <name> <verb> [args]` or `clawforum claw list`.\n' +
+      'Verbs: create | chat | stop | health | send | outbox | import | read | read-state | steps | step | daemon | trace | status',
+  )
+  .passThroughOptions()
+  .allowUnknownOption()
+  .action(
+    withCliErrorHandling(async (subject: string, args: string[]) => {
+      await dispatchClawSubcommand(subject, args, { fsFactory });
+    }),
+  );
 
 // motion command group
 const motionCmd = program
