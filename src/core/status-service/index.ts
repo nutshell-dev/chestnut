@@ -12,6 +12,8 @@
  *
  * Phase 446 物理立 / 业务工具归 owner module 第 5 实证。
  * Phase 1472 Step A：抽 aggregator + format helper、让 CLI `claw <name> status` 共用。
+ * Phase 1478 Step A：加 forum-level aggregator + formatter（system + active claws 聚合）
+ *   给 `clawforum status` CLI 用、与 per-claw aggregator 平行（进程层 vs 业务层）。
  */
 
 export { createStatusTool, STATUS_TOOL_NAME } from './status-tool.js';
@@ -40,3 +42,18 @@ export type {
   StatusMotionGuidanceVerb,
   StatusMotionGuidance,
 } from './motion-guidance.js';
+export {
+  computeProcessUptimeMs,
+  computeClawInboxUnread,
+  computeClawLastActivityAgoMs,
+  computeForumStatusView,
+  findOrphans,
+} from './forum-aggregators.js';
+export type {
+  SystemComponentView,
+  ActiveClawView,
+  OrphansView,
+  ForumStatusView,
+  ForumStatusDeps,
+} from './forum-aggregators.js';
+export { formatForumStatusView, humanizeUptime, humanizeAgo } from './forum-formatter.js';

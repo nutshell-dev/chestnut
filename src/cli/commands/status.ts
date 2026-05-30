@@ -1,84 +1,61 @@
 /**
- * Status command - Show status of all clawforum processes
+ * `clawforum status` — global overview of clawforum runtime.
+ *
+ * Phase 1478 重塑：从原全量 claw dump 改为「最重要状态」聚合：
+ *   System（watchdog + motion + orphan ⚠）+ Active claws (N / total)
+ * 每个 active claw 三行（uptime / last activity / inbox unread）
+ *
+ * 实现层：本命令仅装配 deps + 调 L5.StatusService.computeForumStatusView +
+ * formatForumStatusView。所有数据 view + 文本格式归 status-service 模块 own。
  */
 
 import * as path from 'path';
 import { loadGlobalConfig, getNamedSubrootDir } from '../../foundation/config/index.js';
 import { CONFIG_DEFAULTS } from '../../assembly/index.js';
-import { ProcessManager, ProcessListUnavailable } from '../../foundation/process-manager/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
-import { CLAWS_DIR, resolveDaemonEntry } from '../../foundation/paths.js';
+import { resolveDaemonEntry } from '../../foundation/paths.js';
 import {
   getWatchdogPid,
   isWatchdogAlive,
   getWatchdogEntryPath,
 } from '../../watchdog/watchdog.js';
 import { MOTION_CLAW_ID } from '../../constants.js';
-import { makeClawId } from '../../foundation/identity/index.js';
+import { getProcessStartTime } from '../../foundation/process-exec/index.js';
+import {
+  computeForumStatusView,
+  formatForumStatusView,
+} from '../../core/status-service/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
-
-export function findOrphanProcesses(
-  pm: ProcessManager,
-  entryPath: string,
-  excludePids: (number | null | undefined)[],
-): number[] {
-  const validExcludes = excludePids.filter((p): p is number => typeof p === 'number');
-  try {
-    return pm.findProcesses(entryPath).filter(p => !validExcludes.includes(p) && p !== process.pid);
-  } catch (err) {
-    if (err instanceof ProcessListUnavailable) {
-      // audit 已由 findProcesses 写；降级：跳过孤儿扫描
-      return [];
-    }
-    throw err;
-  }
-}
 
 export async function statusCommand(deps: { fsFactory: (baseDir: string) => FileSystem }): Promise<void> {
   loadGlobalConfig(deps, CONFIG_DEFAULTS);
 
-  // 1. Watchdog
-  const watchdogPid = getWatchdogPid(deps.fsFactory);
-  const watchdogAlive = isWatchdogAlive(deps.fsFactory);
-  console.log(`watchdog: ${watchdogAlive ? `running (PID=${watchdogPid})` : 'stopped'}`);
-
-  // 2. Motion
-  const baseDir = path.dirname(getNamedSubrootDir(MOTION_CLAW_ID));
+  const motionDir = getNamedSubrootDir(MOTION_CLAW_ID);
+  const baseDir = path.dirname(motionDir);
   const pm = createProcessManagerForCLI(deps);
-  const motionStatus = pm.getAliveStatus(MOTION_CLAW_ID);
-  console.log(`motion:   ${motionStatus.alive ? `running (${motionStatus.reason})` : `stopped (${motionStatus.reason})`}`);
 
-  // 3. Claws
-  const clawStatuses: { name: string; status: { alive: boolean; reason: string; pid?: number } }[] = [];
-  const baseFs = deps.fsFactory(baseDir);
-  if (baseFs.existsSync(CLAWS_DIR)) {
-    const clawEntries = baseFs.listSync(CLAWS_DIR, { includeDirs: true })
-      .filter(e => e.isDirectory)
-      .map(e => e.name);
+  const watchdogPid = getWatchdogPid(deps.fsFactory);
+  const watchdog = {
+    pid: typeof watchdogPid === 'number' ? watchdogPid : undefined,
+    alive: isWatchdogAlive(deps.fsFactory),
+    entryPath: getWatchdogEntryPath(deps.fsFactory),
+  };
 
-    for (const name of clawEntries) {
-      const s = pm.getAliveStatus(makeClawId(name));
-      console.log(`  ${name}: ${s.alive ? `running (${s.reason})` : `stopped (${s.reason})`}`);
-      clawStatuses.push({ name, status: s });
-    }
-  }
-
-  // 4. Orphan scan: find processes not tracked by PID files
   const nodeFs = deps.fsFactory(process.cwd());
-
-  // Watchdog orphans
-  const wdPath = getWatchdogEntryPath(deps.fsFactory);
-  const wdPids = findOrphanProcesses(pm, wdPath, [watchdogPid]);
-  if (wdPids.length > 0) {
-    console.log(`  ⚠ orphan watchdog(s): PIDs ${wdPids.join(', ')}`);
-  }
-
-  // Daemon orphans
   const daemonEntryPath = resolveDaemonEntry(nodeFs);
-  const motionPid = motionStatus.pid;
-  const trackedPids = [motionPid, ...clawStatuses.map(s => s.status.pid)].filter((p): p is number => p !== undefined);
-  const orphanDaemons = findOrphanProcesses(pm, daemonEntryPath, trackedPids);
-  if (orphanDaemons.length > 0) {
-    console.log(`  ⚠ orphan daemon(s): PIDs ${orphanDaemons.join(', ')}`);
+
+  const view = computeForumStatusView({
+    fsFactory: deps.fsFactory,
+    baseDir,
+    motionDir,
+    pm,
+    now: () => Date.now(),
+    getStartTime: (pid: number) => getProcessStartTime(pid),
+    watchdog,
+    daemonEntryPath,
+  });
+
+  for (const line of formatForumStatusView(view)) {
+    console.log(line);
   }
 }
