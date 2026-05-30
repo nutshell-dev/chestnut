@@ -118,21 +118,56 @@ describe('Builtin Tools', () => {
       expect(result.success).toBe(true);
       const returnedLines = result.content.split('\n').filter(l => l.startsWith('Line '));
       expect(returnedLines.length).toBe(400);
-      // user-supplied limit is rangeRequested → never full-read
+      // limit=400 only covers lines 1-400 of 500 → did NOT see all lines → isFullRead=false
       const state = ctx.readFileState.get('clawspace/big.txt');
       expect(state?.isFullRead).toBe(false);
     });
 
-    // phase 1430: limit ≥ file lines + no offset = whole file by user choice; but rangeRequested = true → isFullRead false
-    // (intentional simplification: any explicit range param disqualifies full-read; use no-args to trigger gate qualification)
-    it('explicit limit covering whole file still flags isFullRead=false (gate honors literal absence of range)', async () => {
+    // phase 1444: explicit limit that covers every current line qualifies as full-read
+    // (semantic 已与 "no offset/limit" 解耦：trust signal 是 "agent actually saw all lines"、
+    // 不是 "agent didn't pass range params"。)
+    it('phase 1444: limit >= totalLines qualifies isFullRead=true', async () => {
       await mockFs.ensureDir('clawspace');
       await mockFs.writeAtomic('clawspace/tiny.txt', 'a\nb\nc');
 
       await readTool.execute({ path: 'tiny.txt', limit: 999 }, ctx);
 
       const state = ctx.readFileState.get('clawspace/tiny.txt');
+      expect(state?.isFullRead).toBe(true);
+    });
+
+    it('phase 1444: limit equal to totalLines qualifies isFullRead=true', async () => {
+      await mockFs.ensureDir('clawspace');
+      const lines = Array.from({ length: 500 }, (_, i) => `Line ${i + 1}`);
+      await mockFs.writeAtomic('clawspace/exact.txt', lines.join('\n'));
+
+      await readTool.execute({ path: 'exact.txt', limit: 500 }, ctx);
+
+      const state = ctx.readFileState.get('clawspace/exact.txt');
+      expect(state?.isFullRead).toBe(true);
+    });
+
+    it('phase 1444: offset > 1 disqualifies even if limit covers rest', async () => {
+      await mockFs.ensureDir('clawspace');
+      const lines = Array.from({ length: 10 }, (_, i) => `Line ${i + 1}`);
+      await mockFs.writeAtomic('clawspace/offset.txt', lines.join('\n'));
+
+      // offset=2 means agent skipped line 1 → not full-read
+      await readTool.execute({ path: 'offset.txt', offset: 2, limit: 100 }, ctx);
+
+      const state = ctx.readFileState.get('clawspace/offset.txt');
       expect(state?.isFullRead).toBe(false);
+    });
+
+    it('phase 1444: offset=1 + limit covering rest qualifies isFullRead=true', async () => {
+      await mockFs.ensureDir('clawspace');
+      const lines = Array.from({ length: 10 }, (_, i) => `Line ${i + 1}`);
+      await mockFs.writeAtomic('clawspace/exact-from1.txt', lines.join('\n'));
+
+      await readTool.execute({ path: 'exact-from1.txt', offset: 1, limit: 100 }, ctx);
+
+      const state = ctx.readFileState.get('clawspace/exact-from1.txt');
+      expect(state?.isFullRead).toBe(true);
     });
 
     it('should return error for non-existent file', async () => {

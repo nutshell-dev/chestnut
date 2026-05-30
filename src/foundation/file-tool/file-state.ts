@@ -5,7 +5,10 @@
  * phase 1430: replaces flat `fullyReadPaths: Set<string>` with three-field cache:
  *   - hash: SHA-256 of content the agent saw (32 bytes; tolerates mtime false-positives)
  *   - timestamp: file mtime at read time (used for staleness short-circuit)
- *   - isFullRead: true ONLY when read with neither offset nor limit AND no cap triggered AND same-target
+ *   - isFullRead: true iff the read covered every current line + no byte-cap truncation
+ *     + same-target. phase 1444 reframe: was "no offset/limit at all"; now an explicit
+ *     `limit >= totalLines` read also qualifies (removes 200-line cliff that banned
+ *     overwrite of files >200 lines).
  *
  * Map<resolvedPath, FileState> lives on ExecContext; lifecycle = daemon process.
  * Cross-target reads MUST NOT write to caller's map (see §7.A.invariant 2).
@@ -19,11 +22,15 @@ export interface FileState {
   /** File mtime (ms epoch) at the time of the read. */
   timestamp: number;
   /**
-   * True only if the read covered the entire file:
-   * (a) offset and limit both undefined
-   * (b) no line cap triggered
-   * (c) no byte cap triggered
+   * True iff the read covered every current line of the file:
+   * (a) visible range started at line 1 (offset undefined OR offset === 1)
+   * (b) visible range covered through the last line (end >= totalLines after slicing)
+   * (c) output not byte-cap truncated (≤ READ_OUTPUT_HARD_CAP_BYTES)
    * (d) same-target read (no cross-target param)
+   *
+   * phase 1444 reframe: was "(a) offset/limit both undefined (b) no line cap";
+   * now `limit >= totalLines` explicit reads also count, removing the 200-line
+   * cliff that effectively banned overwrite of larger files.
    */
   isFullRead: boolean;
 }
