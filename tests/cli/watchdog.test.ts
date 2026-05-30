@@ -23,12 +23,13 @@ vi.mock('../../src/foundation/config/index.js', async (importOriginal) => {
   };
 });
 
-// Mock watchdog-utils so we can control clawHasContract
+// Mock watchdog-utils so we can control clawHasContract / clawHasActiveContract
 vi.mock('../../src/watchdog/watchdog-utils.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/watchdog/watchdog-utils.js')>();
   return {
     ...actual,
     clawHasContract: vi.fn(),
+    clawHasActiveContract: vi.fn(),       // phase 1482: inactivity path now uses this
     getClawActivityInfo: vi.fn(),
     gatherClawSnapshot: vi.fn(),
     shouldResetNotifyCount: vi.fn().mockReturnValue(false),
@@ -84,7 +85,7 @@ import {
   saveWatchdogState,
 } from '../../src/watchdog/watchdog.js';
 import { getNamedSubrootDir, loadGlobalConfig } from '../../src/foundation/config/index.js';
-import { clawHasContract, gatherClawSnapshot } from '../../src/watchdog/watchdog-utils.js';
+import { clawHasContract, clawHasActiveContract, gatherClawSnapshot } from '../../src/watchdog/watchdog-utils.js';
 import { lastInactivityNotified, inactivityNotifyCount, getClawforumFs } from '../../src/watchdog/watchdog-context.js';
 import { InboxWriter } from '../../src/foundation/messaging/index.js';
 import { spawnDetached } from '../../src/foundation/process-exec/spawn-detached.js';
@@ -126,7 +127,8 @@ describe('maybeCronClawInactivity — fix 4: per-claw error isolation', () => {
   });
 
   it('continues checking claw-b even when claw-a check throws', async () => {
-    vi.mocked(clawHasContract)
+    // phase 1482: inactivity 改用 clawHasActiveContract (paused 不算 inactivity)
+    vi.mocked(clawHasActiveContract)
       .mockImplementationOnce(() => { throw new Error('stat error'); })
       .mockReturnValueOnce(false);
 
@@ -134,7 +136,7 @@ describe('maybeCronClawInactivity — fix 4: per-claw error isolation', () => {
 
     await expect(maybeCronClawInactivity(mockPm, mockAudit, fsFactory)).resolves.not.toThrow();
 
-    expect(clawHasContract).toHaveBeenCalledTimes(2);
+    expect(clawHasActiveContract).toHaveBeenCalledTimes(2);
 
     expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining('Error checking claw'),
@@ -144,12 +146,12 @@ describe('maybeCronClawInactivity — fix 4: per-claw error isolation', () => {
   });
 
   it('does not throw even if all claws error', async () => {
-    vi.mocked(clawHasContract).mockImplementation(() => {
+    vi.mocked(clawHasActiveContract).mockImplementation(() => {
       throw new Error('all fail');
     });
 
     await expect(maybeCronClawInactivity(mockPm, mockAudit, fsFactory)).resolves.not.toThrow();
-    expect(clawHasContract).toHaveBeenCalledTimes(2);
+    expect(clawHasActiveContract).toHaveBeenCalledTimes(2);
   });
 
   it('emits watchdog_claw_scan with ctx=inactivity after scanning claws dir', async () => {

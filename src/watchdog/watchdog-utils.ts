@@ -75,10 +75,26 @@ export async function getClawActivityInfo(
   }
 }
 
-// Check if a claw has an active or paused contract
+// Check if a claw has an active or paused contract.
+// 用于 crash detection — paused contract 的 claw crash motion 也需要知道（可能要 resume）.
 export function clawHasContract(clawDir: ClawDir, fsFactory: (baseDir: string) => FileSystem, audit?: AuditLog): boolean {
+  return clawHasContractSub(clawDir, fsFactory, ['active', 'paused'], audit);
+}
+
+// phase 1482: Check if a claw has an ACTIVE contract only.
+// 用于 inactivity timeout — paused 本就该停、不算 inactivity（root cause D 类 fix）.
+export function clawHasActiveContract(clawDir: ClawDir, fsFactory: (baseDir: string) => FileSystem, audit?: AuditLog): boolean {
+  return clawHasContractSub(clawDir, fsFactory, ['active'], audit);
+}
+
+function clawHasContractSub(
+  clawDir: ClawDir,
+  fsFactory: (baseDir: string) => FileSystem,
+  subs: readonly string[],
+  audit?: AuditLog,
+): boolean {
   const fs = fsFactory(clawDir);
-  for (const sub of ['active', 'paused']) {
+  for (const sub of subs) {
     try {
       const entries = fs.listSync(path.join(CONTRACT_DIR, sub), { includeDirs: true });
       if (entries.some(e => e.isDirectory)) return true;
@@ -93,6 +109,59 @@ export function clawHasContract(clawDir: ClawDir, fsFactory: (baseDir: string) =
     }
   }
   return false;
+}
+
+// ---- phase 1482: claw_inactivity FailureClass taxonomy ----
+
+/**
+ * Failure class for `claw_inactivity` watchdog notification.
+ * 业主 own enum、由 既有 snapshot 数据派生（不需 NEW state collection）。
+ *
+ * - `daemon_stopped`: 进程不在跑（user 主动 stop 或 crash dedup'd）→ 重启
+ * - `daemon_silent`:  进程跑、无 lastError、stream 静默 → 看 audit events tail
+ * - `daemon_errored`: 进程跑、有 lastError → 看 lastError context
+ *
+ * Assembly motion guidance composer type-only import 此 enum、按 class switch
+ * 1 primary action（DP「相关」derive / 1 primary action per sub-state）.
+ */
+export type FailureClass = 'daemon_stopped' | 'daemon_silent' | 'daemon_errored';
+
+export interface DeriveFailureClassInput {
+  daemonAlive: boolean;
+  lastError: string | null | undefined;
+}
+
+export function deriveFailureClass(input: DeriveFailureClassInput): FailureClass {
+  if (!input.daemonAlive) return 'daemon_stopped';
+  if (input.lastError) return 'daemon_errored';
+  return 'daemon_silent';
+}
+
+/** Body 字面按 failure_class 改、取代统一 "no progress for Nm" 误导措辞 (user 实战触发). */
+export function formatInactivityBody(opts: {
+  clawId: string;
+  inactiveMin: number;
+  notifyCount: number;     // displayCount (notifyCount + 1)
+  failureClass: FailureClass;
+  daemonStatus: 'running' | 'stopped';
+  contract: string;
+  inboxPending: number;
+  outboxPending: number;
+  lastError?: string | null;
+}): string {
+  const prefix = (() => {
+    switch (opts.failureClass) {
+      case 'daemon_stopped':
+        return `Claw ${opts.clawId} daemon stopped, last activity ${opts.inactiveMin}m ago`;
+      case 'daemon_silent':
+        return `Claw ${opts.clawId} daemon running but no stream event for ${opts.inactiveMin}m`;
+      case 'daemon_errored':
+        return `Claw ${opts.clawId} daemon running with error ${opts.inactiveMin}m ago`;
+    }
+  })();
+  let body = `${prefix} (notification #${opts.notifyCount}). Status: ${opts.daemonStatus}, contract: ${opts.contract}, inbox_pending: ${opts.inboxPending}, outbox_pending: ${opts.outboxPending}`;
+  if (opts.lastError) body += `, last error: ${opts.lastError}`;
+  return body;
 }
 
 // ---- Phase 18: gatherClawSnapshot ----

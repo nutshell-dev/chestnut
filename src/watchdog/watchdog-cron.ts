@@ -12,7 +12,7 @@ import {
   lastInactivityNotified, inactivityNotifyCount, clawPreviouslyAlive, everSpawned, clawPreviouslyNotified,
 } from './watchdog-context.js';
 import { log, writeClawInactivityInbox } from './watchdog-log.js';
-import { clawHasContract, getClawActivityInfo, gatherClawSnapshot, getEffectiveInterval, shouldResetNotifyCount } from './watchdog-utils.js';
+import { clawHasContract, clawHasActiveContract, getClawActivityInfo, gatherClawSnapshot, getEffectiveInterval, shouldResetNotifyCount, deriveFailureClass, formatInactivityBody } from './watchdog-utils.js';
 import { getContractCreatedMs } from '../core/contract/index.js';
 import { getNamedSubrootDir } from '../foundation/config/index.js';
 import { notifyClaw } from '../foundation/messaging/index.js';
@@ -48,8 +48,8 @@ export async function maybeCronClawInactivity(pm: ProcessManager, audit: AuditLo
     try {
       const clawDir = makeClawDir(path.join(getClawforumDir(), CLAWS_DIR, rawClawId));
 
-      // Has an active contract?
-      if (!clawHasContract(clawDir, fsFactory, audit)) continue;
+      // phase 1482: inactivity 仅对 ACTIVE contract 触发 / paused 本就该停（不算 inactivity / D 类 root cause fix）
+      if (!clawHasActiveContract(clawDir, fsFactory, audit)) continue;
 
       // Parse stream.jsonl to get real progress
       const clawFs = fsFactory(clawDir);
@@ -79,12 +79,25 @@ export async function maybeCronClawInactivity(pm: ProcessManager, audit: AuditLo
       const snapshot = gatherClawSnapshot(clawDir, fsFactory, pm, clawId);
       const inactiveMin = Math.round((now - referenceMs) / 60000);
 
-      // Body without directives: pure factual data (including notification number)
+      // phase 1482: 业主 own FailureClass enum + body 按 class 改字面（取代 "no progress" 误导）
       const displayCount = notifyCount + 1;
-      let body = `Claw ${clawId} no progress for ${inactiveMin}m (notification #${displayCount}). Status: ${snapshot.status}, contract: ${snapshot.contract}, inbox_pending: ${snapshot.inboxPending}, outbox_pending: ${snapshot.outboxPending}`;
-      if (lastError) body += `, last error: ${lastError}`;
+      const failureClass = deriveFailureClass({
+        daemonAlive: snapshot.status === 'running',
+        lastError,
+      });
+      const body = formatInactivityBody({
+        clawId,
+        inactiveMin,
+        notifyCount: displayCount,
+        failureClass,
+        daemonStatus: snapshot.status,
+        contract: snapshot.contract,
+        inboxPending: snapshot.inboxPending,
+        outboxPending: snapshot.outboxPending,
+        lastError,
+      });
 
-      log(fsFactory, `[watchdog] Claw ${rawClawId} no progress ${inactiveMin}m (notify #${displayCount}) with active contract${lastError ? ` (last error: ${lastError})` : ''}`);
+      log(fsFactory, `[watchdog] Claw ${rawClawId} ${failureClass} ${inactiveMin}m (notify #${displayCount})${lastError ? ` (last error: ${lastError})` : ''}`);
       writeClawInactivityInbox(fsFactory, {
         message: body,
         claw_id: rawClawId,
@@ -95,6 +108,7 @@ export async function maybeCronClawInactivity(pm: ProcessManager, audit: AuditLo
         outbox_pending: snapshot.outboxPending,
         notify_count: displayCount,
         as_of: new Date().toISOString(),
+        failure_class: failureClass,
         ...(lastError ? { last_error: lastError } : {}),
       });
       inactivityNotifyCount.set(rawClawId, displayCount);
