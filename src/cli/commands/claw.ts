@@ -33,4 +33,5 @@ export { outboxCommand } from './claw-outbox.js';
 export { clawTraceCommand } from './claw-trace.js';
 export { importCommand } from './claw-import.js';
 export { readCommand } from './claw-read.js';
+export { lsCommand } from './claw-ls.js';
 export { clawStatusCommand } from './claw-status.js';

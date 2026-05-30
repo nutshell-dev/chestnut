@@ -29,6 +29,7 @@ import {
   outboxCommand,
   importCommand,
   readCommand,
+  lsCommand,
   clawStatusCommand,
 } from './claw.js';
 import { CliError } from '../errors.js';
@@ -64,6 +65,7 @@ const VERB_NAMES = [
   'outbox',
   'import',
   'read',
+  'ls',
   'steps',
   'step',
   'daemon',
@@ -224,6 +226,7 @@ export async function dispatchClawSubcommand(
     case 'outbox': return runOutbox(deps, name, verbArgs);
     case 'import': return runImport(deps, name, verbArgs);
     case 'read': return runRead(deps, name, verbArgs);
+    case 'ls': return runLs(deps, name, verbArgs);
     case 'steps': return runSteps(deps, name, verbArgs);
     case 'step': return runStep(deps, name, verbArgs);
     case 'daemon': return runDaemon(deps, name, verbArgs);
@@ -335,6 +338,21 @@ async function runRead(deps: RouterDeps, name: string, args: string[]): Promise<
   const [filePath] = parser.processedArgs;
   const opts = parser.opts() as { offset?: number; limit?: number };
   await readCommand(deps, name, filePath as string, opts);
+}
+
+async function runLs(deps: RouterDeps, name: string, args: string[]): Promise<void> {
+  const parser = makeVerbParser('ls');
+  parser.argument('[path]', 'subdirectory within clawspace (default: clawspace root)');
+  parser.option('-r, --recursive', 'List recursively');
+  parser.option('--json', 'Output as JSON (machine-readable)');
+  try {
+    parser.parse(args, { from: 'user' });
+  } catch (err) {
+    throw new CliError(`invalid 'claw <name> ls' args: ${(err as Error).message}`);
+  }
+  const [subPath] = parser.processedArgs as [string | undefined];
+  const opts = parser.opts() as { recursive?: boolean; json?: boolean };
+  await lsCommand(deps, name, subPath, opts);
 }
 
 

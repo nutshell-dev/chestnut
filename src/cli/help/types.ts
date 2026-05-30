@@ -39,6 +39,13 @@ export interface VerbOption {
   desc: string;
   /** 默认值字面（若有）。 */
   defaultValue?: string;
+  /**
+   * 必传 option（commander `.requiredOption`）。phase 1480 加：
+   * 顶层 help 行的 signature 段会显示必传 option 的 flag 字面、
+   * 避免「verb 看起来无参、跑起来报 required option missing」silent-X
+   * （phase 1480 trace fact 实证：顶层只出 `trace`、漏掉 `--contract <id>`）。
+   */
+  required?: boolean;
 }
 
 export interface VerbFact {

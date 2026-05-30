@@ -53,6 +53,13 @@ describe('composeClawHelp (top-level)', () => {
     expect(help).not.toContain('Notes:');
   });
 
+  it('top-level signature surfaces required options (phase 1480 silent-X fix)', () => {
+    // trace verb's required option `--contract <contractId>` must appear on
+    // the top-level help row, not be hidden until the user runs the command
+    // and gets `required option '--contract <contractId>' not specified`.
+    expect(help).toMatch(/^\s+trace\s+--contract <contractId>\s+/m);
+  });
+
   it('does not leak commander internal `<subject>` placeholder', () => {
     expect(help).not.toContain('<subject>');
   });

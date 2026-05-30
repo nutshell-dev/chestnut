@@ -37,15 +37,34 @@ function padRight(s: string, n: number): string {
   return s + ' '.repeat(n - s.length);
 }
 
-/** Render a verb's argument list (e.g., `<message>`, `[verb]`). Excludes options. */
+/** Render a verb's positional argument list (e.g., `<message>`, `[verb]`). Excludes options. */
 function renderArgList(fact: VerbFact): string {
   if (!fact.args || fact.args.length === 0) return '';
   return ' ' + fact.args.map((a) => (a.required ? `<${a.name}>` : `[${a.name}]`)).join(' ');
 }
 
+/**
+ * Render the verb signature tail for the **top-level** help row.
+ *
+ * = positional args + required-option flag literals (phase 1480).
+ *
+ * Surfacing required options prevents the silent-X where the top-level help
+ * row shows just the verb name (e.g. `trace`), but the verb refuses to run
+ * without a required option (e.g. `--contract <id>`). Optional options stay
+ * hidden at the top level — users discover them via `claw help <verb>`.
+ */
+function renderTopLevelSignatureTail(fact: VerbFact): string {
+  const args = renderArgList(fact);
+  const requiredOpts = (fact.options ?? [])
+    .filter((o) => o.required === true)
+    .map((o) => ` ${o.flag}`)
+    .join('');
+  return `${args}${requiredOpts}`;
+}
+
 /** Render a single verb's one-line entry for the top-level group list. */
 function renderVerbLine(fact: VerbFact): string {
-  const signature = `  ${fact.name}${renderArgList(fact)}`;
+  const signature = `  ${fact.name}${renderTopLevelSignatureTail(fact)}`;
   return `${padRight(signature, SIGNATURE_COL)}${fact.summary}`;
 }
 
@@ -116,8 +135,9 @@ export function composeClawVerbHelp(fact: VerbFact): string {
   if (fact.options && fact.options.length > 0) {
     lines.push('Options:');
     for (const o of fact.options) {
-      const tail = o.defaultValue ? ` (default: ${o.defaultValue})` : '';
-      lines.push(`  ${padRight(o.flag, 24)}${o.desc}${tail}`);
+      const requiredMark = o.required === true ? ' (required)' : '';
+      const defaultTail = o.defaultValue ? ` (default: ${o.defaultValue})` : '';
+      lines.push(`  ${padRight(o.flag, 24)}${o.desc}${requiredMark}${defaultTail}`);
     }
     lines.push('');
   }

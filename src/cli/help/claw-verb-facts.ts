@@ -120,6 +120,22 @@ export const CLAW_VERB_FACTS: readonly VerbFact[] = [
       'clawforum claw alice import ./drafts -t inbox',
     ],
   },
+  {
+    name: 'ls',
+    group: 'messaging',
+    form: 'instance',
+    summary: "List files in the claw's clawspace",
+    args: [{ name: 'path', required: false, desc: 'Subdirectory within clawspace (default: root)' }],
+    options: [
+      { flag: '-r, --recursive', desc: 'List recursively' },
+      { flag: '--json', desc: 'Output as JSON (machine-readable)' },
+    ],
+    examples: [
+      'clawforum claw alice ls',
+      'clawforum claw alice ls notes',
+      'clawforum claw alice ls --recursive',
+    ],
+  },
 
   // ── Observation ────────────────────────────────────────────────────────
   {
@@ -143,7 +159,8 @@ export const CLAW_VERB_FACTS: readonly VerbFact[] = [
     form: 'instance',
     summary: 'Show contract execution trace for a claw',
     options: [
-      { flag: '--contract <contractId>', desc: 'Contract ID (required)' },
+      // phase 1480: required: true → composer 顶层显此 flag 字面、避免 silent-X
+      { flag: '--contract <contractId>', desc: 'Contract ID', required: true },
       { flag: '--step <n>', desc: 'Show full content of step N (no truncation)' },
     ],
     examples: ['clawforum claw alice trace --contract C-123'],
