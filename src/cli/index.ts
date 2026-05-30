@@ -35,7 +35,7 @@ import {
   chatCommand as motionChatCommand,
   stopCommand as motionStopCommand,
 } from './commands/motion.js';
-import { contractCreateCommand, contractCreateFromDirCommand, contractLogCommand, contractEventsCommand } from './commands/contract.js';
+import { contractCreateCommand, contractCreateFromDirCommand, contractLogCommand, contractEventsCommand, contractCancelCommand } from './commands/contract.js';
 import { skillInstallUserCommand, skillInstallClawCommand } from './commands/skill.js';
 import { runWatchdogLoop, startCommand as watchdogStart, stopCommand as watchdogStop } from '../watchdog/watchdog.js';
 import { createConfigCommand } from './commands/config.js';
@@ -347,6 +347,18 @@ contractCmd
   .option('--contract <id>', 'Contract ID (default: active contract)')
   .action(withCliErrorHandling(async (opts: { claw: string; contract?: string }) => {
     await contractLogCommand({ fsFactory }, makeClawId(opts.claw), opts.contract);
+  }));
+
+contractCmd
+  .command('cancel')
+  .description('Cancel an active or paused contract (moves to archive with status=cancelled)')
+  .requiredOption('-c, --claw <id>', 'Target claw ID')
+  .requiredOption('--reason <text>', 'Cancel reason (recorded in progress checkpoint)')
+  .option('--contract <id>', 'Contract ID (default: active contract)')
+  .action(withCliErrorHandling(async (opts: { claw: string; reason: string; contract?: string }) => {
+    loadGlobalConfig({ fsFactory }, CONFIG_DEFAULTS);
+    const { audit } = createDirContext({ fsFactory }, getClawDir(opts.claw));
+    await contractCancelCommand({ fsFactory }, makeClawId(opts.claw), opts.reason, opts.contract, { audit });
   }));
 
 contractCmd
