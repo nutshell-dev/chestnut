@@ -7,6 +7,7 @@ import * as path from 'path';
 import { promises as fs } from 'fs';
 
 import { editTool } from '../../../src/foundation/file-tool/edit.js';
+import { readTool } from '../../../src/foundation/file-tool/read.js';
 import { createClawPermissionChecker } from '../../../src/core/permissions/claw-permissions.js';
 import { ExecContextImpl } from '../../../src/foundation/tools/context.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
@@ -60,9 +61,12 @@ describe('edit tool', () => {
     expect(content).toBe('hi world');
   });
 
-  it('should replace all matches with replaceAll=true', async () => {
+  it('should replace all matches with replaceAll=true (requires prior full read — phase 1447)', async () => {
     await mockFs.ensureDir('clawspace');
     await mockFs.writeAtomic('clawspace/file.txt', 'foo bar foo baz foo');
+
+    // phase 1447: replaceAll=true requires fullread gate (same as write overwrite)
+    await readTool.execute({ path: 'file.txt' }, ctx);
 
     const result = await editTool.execute({
       path: 'file.txt',
@@ -194,5 +198,106 @@ describe('edit tool', () => {
     const content = await mockFs.read('clawspace/file.txt');
     expect(content).toBe('hi world');
     writeSpy.mockRestore();
+  });
+
+  // phase 1447: replaceAll fullread + stale gate (asymmetry fix vs write overwrite)
+  describe('phase 1447: replaceAll fullread + stale gate', () => {
+    it('rejects replaceAll when file has never been read', async () => {
+      await mockFs.ensureDir('clawspace');
+      await mockFs.writeAtomic('clawspace/r.txt', 'foo bar foo');
+
+      const result = await editTool.execute({
+        path: 'r.txt',
+        oldText: 'foo',
+        newText: 'qux',
+        replaceAll: true,
+      }, ctx);
+
+      expect(result.success).toBe(false);
+      expect(result.content).toContain('not been fully read');
+      expect(result.content).toContain('replaceAll=true rewrites every match');
+      expect(result.content).toContain('set replaceAll=false');
+
+      const content = await mockFs.read('clawspace/r.txt');
+      expect(content).toBe('foo bar foo');
+    });
+
+    it('rejects replaceAll after partial read (limit smaller than totalLines)', async () => {
+      await mockFs.ensureDir('clawspace');
+      const lines = Array.from({ length: 50 }, (_, i) => `Line ${i + 1} foo`).join('\n');
+      await mockFs.writeAtomic('clawspace/p.txt', lines);
+
+      // partial read: only 10 lines of 50
+      await readTool.execute({ path: 'p.txt', limit: 10 }, ctx);
+
+      const result = await editTool.execute({
+        path: 'p.txt',
+        oldText: 'foo',
+        newText: 'qux',
+        replaceAll: true,
+      }, ctx);
+
+      expect(result.success).toBe(false);
+      expect(result.content).toContain('not been fully read');
+      expect(result.content).toContain('replaceAll=true rewrites every match');
+    });
+
+    it('allows replaceAll after full read', async () => {
+      await mockFs.ensureDir('clawspace');
+      await mockFs.writeAtomic('clawspace/f.txt', 'foo bar foo');
+
+      await readTool.execute({ path: 'f.txt' }, ctx);
+
+      const result = await editTool.execute({
+        path: 'f.txt',
+        oldText: 'foo',
+        newText: 'qux',
+        replaceAll: true,
+      }, ctx);
+
+      expect(result.success).toBe(true);
+      const content = await mockFs.read('clawspace/f.txt');
+      expect(content).toBe('qux bar qux');
+    });
+
+    it('rejects replaceAll when file modified externally since last read (stale)', async () => {
+      await mockFs.ensureDir('clawspace');
+      await mockFs.writeAtomic('clawspace/s.txt', 'foo bar foo');
+
+      await readTool.execute({ path: 's.txt' }, ctx);
+
+      // external modification: advance mtime + change content
+      await new Promise(r => setTimeout(r, 15));
+      const fsNative = await import('fs');
+      fsNative.writeFileSync(path.join(tempDir, 'clawspace/s.txt'), 'foo CHANGED foo');
+
+      const result = await editTool.execute({
+        path: 's.txt',
+        oldText: 'foo',
+        newText: 'qux',
+        replaceAll: true,
+      }, ctx);
+
+      expect(result.success).toBe(false);
+      expect(result.content).toMatch(/modified since/);
+
+      // file should be unchanged (rollback)
+      const content = await mockFs.read('clawspace/s.txt');
+      expect(content).toBe('foo CHANGED foo');
+    });
+
+    it('allows replaceAll=false (default) without read prerequisite', async () => {
+      await mockFs.ensureDir('clawspace');
+      await mockFs.writeAtomic('clawspace/d.txt', 'unique-pattern content');
+
+      // no read; unique-match edit should still work
+      const result = await editTool.execute({
+        path: 'd.txt',
+        oldText: 'unique-pattern',
+        newText: 'changed',
+      }, ctx);
+
+      expect(result.success).toBe(true);
+    });
   });
 });

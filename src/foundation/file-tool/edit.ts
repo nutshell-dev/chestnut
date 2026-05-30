@@ -17,6 +17,7 @@ import type { ToolResult } from '../tool-protocol/index.js';
 import { backupToSync } from './sync-backup.js';
 import { resolveWorkspacePath } from './resolve-path.js';
 import { computeContentHash } from './file-state.js';
+import { enforceFullReadGate } from './fullread-gate.js';
 import { formatEditDiff, lineDelta } from './edit-format.js';
 export const EDIT_TOOL_NAME = 'edit' as const;
 
@@ -106,6 +107,18 @@ export const editTool: Tool = {
         success: false,
         content: `Error: ${matches} matches for oldText in '${filePath}'. Expand oldText with surrounding context to make it unique, or set replaceAll=true for explicit batch. Use \`read\` to confirm current content if unsure.`,
       };
+    }
+
+    // phase 1447: replaceAll is bulk-destructive (rewrites every match including
+    // contexts the agent may never have seen) → same gate as write overwrite.
+    if (replaceAll) {
+      const gateError = await enforceFullReadGate(ctx, resolved, filePath);
+      if (gateError) {
+        return {
+          success: false,
+          content: gateError.content + ` This is required because replaceAll=true rewrites every match, including contexts you may not have seen. Alternatively, set replaceAll=false with a uniquely-matching oldText to scope the change.`,
+        };
+      }
     }
 
     // Backup

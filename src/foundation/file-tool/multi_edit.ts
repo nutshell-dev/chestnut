@@ -17,6 +17,7 @@ import type { ToolResult } from '../tool-protocol/index.js';
 import { backupToSync } from './sync-backup.js';
 import { resolveWorkspacePath } from './resolve-path.js';
 import { computeContentHash } from './file-state.js';
+import { enforceFullReadGate } from './fullread-gate.js';
 import { findFirstMatchLine, formatEditDiff, lineDelta } from './edit-format.js';
 export const MULTI_EDIT_TOOL_NAME = 'multi_edit' as const;
 
@@ -105,6 +106,20 @@ export const multiEditTool: Tool = {
         success: false,
         content: `Error: File '${filePath}' does not exist (use write to create)`,
       };
+    }
+
+    // phase 1447: if any edit uses replaceAll, the whole batch is bulk-destructive
+    // (same destruction surface as write overwrite) → require fullread + stale gate.
+    // Unique-match-only batches stay cheap (no read prerequisite).
+    const hasReplaceAll = edits.some(e => e.replaceAll === true);
+    if (hasReplaceAll) {
+      const gateError = await enforceFullReadGate(ctx, resolved, filePath);
+      if (gateError) {
+        return {
+          success: false,
+          content: gateError.content + ` This is required because at least one edit uses replaceAll=true, which rewrites every match. Alternatively, remove replaceAll from all edits (each edit must uniquely match).`,
+        };
+      }
     }
 
     const original = await ctx.fs.read(resolved);

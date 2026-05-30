@@ -7,6 +7,7 @@ import * as path from 'path';
 import { promises as fs } from 'fs';
 
 import { multiEditTool } from '../../../src/foundation/file-tool/multi_edit.js';
+import { readTool } from '../../../src/foundation/file-tool/read.js';
 import { createClawPermissionChecker } from '../../../src/core/permissions/claw-permissions.js';
 import { ExecContextImpl } from '../../../src/foundation/tools/context.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
@@ -198,5 +199,88 @@ describe('multi_edit tool', () => {
 
     expect(result.success).toBe(false);
     expect(result.content).toContain('at least 1 edit');
+  });
+
+  // phase 1447: multi_edit with any replaceAll=true requires fullread + stale gate
+  describe('phase 1447: multi_edit replaceAll fullread + stale gate', () => {
+    it('rejects multi_edit when any edit has replaceAll=true and file not fully read', async () => {
+      await mockFs.ensureDir('clawspace');
+      await mockFs.writeAtomic('clawspace/r.txt', 'foo bar foo baz');
+
+      const result = await multiEditTool.execute({
+        path: 'r.txt',
+        edits: [
+          { oldText: 'bar', newText: 'BAR' },
+          { oldText: 'foo', newText: 'qux', replaceAll: true },
+        ],
+      }, ctx);
+
+      expect(result.success).toBe(false);
+      expect(result.content).toContain('not been fully read');
+      expect(result.content).toContain('at least one edit uses replaceAll=true');
+      expect(result.content).toContain('remove replaceAll from all edits');
+
+      const content = await mockFs.read('clawspace/r.txt');
+      expect(content).toBe('foo bar foo baz');
+    });
+
+    it('allows multi_edit with all unique-match edits (no replaceAll) without prior read', async () => {
+      await mockFs.ensureDir('clawspace');
+      await mockFs.writeAtomic('clawspace/u.txt', 'alpha beta gamma');
+
+      const result = await multiEditTool.execute({
+        path: 'u.txt',
+        edits: [
+          { oldText: 'alpha', newText: 'A' },
+          { oldText: 'gamma', newText: 'G' },
+        ],
+      }, ctx);
+
+      expect(result.success).toBe(true);
+      const content = await mockFs.read('clawspace/u.txt');
+      expect(content).toBe('A beta G');
+    });
+
+    it('allows multi_edit with replaceAll after full read', async () => {
+      await mockFs.ensureDir('clawspace');
+      await mockFs.writeAtomic('clawspace/f.txt', 'foo bar foo');
+
+      await readTool.execute({ path: 'f.txt' }, ctx);
+
+      const result = await multiEditTool.execute({
+        path: 'f.txt',
+        edits: [
+          { oldText: 'foo', newText: 'qux', replaceAll: true },
+        ],
+      }, ctx);
+
+      expect(result.success).toBe(true);
+      const content = await mockFs.read('clawspace/f.txt');
+      expect(content).toBe('qux bar qux');
+    });
+
+    it('rejects multi_edit replaceAll when file modified externally since read (stale)', async () => {
+      await mockFs.ensureDir('clawspace');
+      await mockFs.writeAtomic('clawspace/s.txt', 'foo bar foo');
+
+      await readTool.execute({ path: 's.txt' }, ctx);
+
+      await new Promise(r => setTimeout(r, 15));
+      const fsNative = await import('fs');
+      fsNative.writeFileSync(path.join(tempDir, 'clawspace/s.txt'), 'foo CHANGED foo');
+
+      const result = await multiEditTool.execute({
+        path: 's.txt',
+        edits: [
+          { oldText: 'foo', newText: 'qux', replaceAll: true },
+        ],
+      }, ctx);
+
+      expect(result.success).toBe(false);
+      expect(result.content).toMatch(/modified since/);
+
+      const content = await mockFs.read('clawspace/s.txt');
+      expect(content).toBe('foo CHANGED foo');
+    });
   });
 });

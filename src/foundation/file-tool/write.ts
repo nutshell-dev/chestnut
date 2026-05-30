@@ -17,6 +17,7 @@ import type { ToolResult } from '../tool-protocol/index.js';
 import { backupToSync } from './sync-backup.js';
 import { resolveWorkspacePath } from './resolve-path.js';
 import { computeContentHash } from './file-state.js';
+import { enforceFullReadGate } from './fullread-gate.js';
 
 export const WRITE_TOOL_NAME = 'write' as const;
 
@@ -66,38 +67,17 @@ export const writeTool: Tool = {
     }
     checker.resolveAndCheck(resolved, 'write');
 
-    // overwrite gate — phase 1430 hash + mtime + isFullRead
+    // overwrite gate — phase 1430 (inlined) → phase 1447 (shared helper).
+    // Only triggers for `overwrite` mode on an existing file; new-file create
+    // and append both bypass.
     if (!append) {
       const exists = await ctx.fs.exists(resolved);
       if (exists) {
-        const state = ctx.readFileState.get(resolved);
-        // L1: never read or partial read
-        if (!state || !state.isFullRead) {
+        const gateError = await enforceFullReadGate(ctx, resolved, filePath);
+        if (gateError) {
           return {
             success: false,
-            content: `Error: File '${filePath}' has not been fully read in this daemon process. Use \`read\` to cover every current line (start at line 1, with limit >= totalLines, no byte-cap truncation) first. For files where the response would exceed 100 KB, use edit/multi_edit, or write with append:true.`,
-          };
-        }
-        // L2: external modification check (mtime advanced AND content hash differs)
-        try {
-          const stat = await ctx.fs.stat(resolved);
-          const currentMtime = stat.mtime.getTime();
-          if (currentMtime > state.timestamp) {
-            const currentContent = await ctx.fs.read(resolved);
-            if (computeContentHash(currentContent) !== state.hash) {
-              return {
-                success: false,
-                content: `Error: File '${filePath}' has been modified since your last read (either by the user or by another tool). Read it again before overwriting.`,
-              };
-            }
-            // mtime advanced but content unchanged (cloud sync touch / antivirus / etc.) — refresh timestamp + allow
-            state.timestamp = currentMtime;
-          }
-        } catch {
-          // stat/read failed mid-gate — fail safe: reject with re-read hint
-          return {
-            success: false,
-            content: `Error: Could not verify '${filePath}' is unchanged since last read. Read it again before overwriting.`,
+            content: gateError.content + ` For files where the response would exceed 100 KB, use edit/multi_edit, or write with append:true.`,
           };
         }
       }
