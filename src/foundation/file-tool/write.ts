@@ -4,8 +4,10 @@
  *
  * Features (MVP aligned):
  * - Auto-backups to clawDir/tasks/sync/ (turn-scoped / cleaned by Snapshot commit)
- * - Overwrite gate (phase 1430): uses `readFileState` Map (hash + mtime + isFullRead).
+ * - Overwrite gate (phase 1430, semantic 1444): uses `readFileState` Map (hash + mtime + isFullRead).
  *   - L1 not-read / partial: reject "File not fully read; read it first before overwriting."
+ *     (phase 1444: "fully read" = read covered every current line + no byte-cap truncation;
+ *      explicit `limit >= totalLines` counts.)
  *   - L2 stale: reject "File modified since read; read it again before overwriting."
  */
 
@@ -22,7 +24,7 @@ export const writeTool: Tool = {
   name: WRITE_TOOL_NAME,
   profiles: ['full', 'subagent', 'miner'],
   group: 'fs-write',
-  description: 'Write a file. Path resolves against your clawspace; use "../" to access claw root (e.g. "../MEMORY.md", "../memory/notes.md"). Set append: true to append. Overwrite (no append) requires the file to have been fully read via `read` in this daemon process and unchanged since.',
+  description: 'Write a file. Path resolves against your clawspace; use "../" to access claw root (e.g. "../MEMORY.md", "../memory/notes.md"). Set append: true to append. Overwrite (no append) requires a prior `read` that covered every current line of the file (no byte-cap truncation) and the file unchanged since that read.',
   schema: {
     type: 'object',
     properties: {
@@ -73,7 +75,7 @@ export const writeTool: Tool = {
         if (!state || !state.isFullRead) {
           return {
             success: false,
-            content: `Error: File '${filePath}' has not been fully read in this daemon process. Read it first before overwriting (no offset/limit, no truncation triggered). For files exceeding read caps, use edit/multi_edit, or write with append:true.`,
+            content: `Error: File '${filePath}' has not been fully read in this daemon process. Use \`read\` to cover every current line (start at line 1, with limit >= totalLines, no byte-cap truncation) first. For files where the response would exceed 100 KB, use edit/multi_edit, or write with append:true.`,
           };
         }
         // L2: external modification check (mtime advanced AND content hash differs)

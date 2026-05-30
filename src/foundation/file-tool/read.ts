@@ -7,7 +7,11 @@
  * phase 1430 cap model:
  *   - `READ_DEFAULT_LINES = 200` applies when caller does NOT pass `limit`; `offset` alone still triggers the cap (from `offset`).
  *   - `READ_OUTPUT_HARD_CAP_BYTES = 100 KB` applies regardless: above it, head+tail returned and full content persists to `tasks/sync/read/<id>.md` (mirrors exec_overflow).
- *   - `readFileState` Map entry written only for same-claw reads; `isFullRead: true` only when neither offset/limit nor any cap was applied.
+ *   - `readFileState` Map entry written only for same-claw reads.
+ *   - `isFullRead: true` iff this read covered every current line of the file
+ *     (start at line 1 AND limit window reaches totalLines) AND output not byte-cap truncated.
+ *     phase 1444 reframe: explicit `limit >= totalLines` reads also qualify (was previously
+ *     "no offset/limit at all" — the 200-line cliff banned overwrite of larger files).
  */
 
 import * as nodePath from 'path';
@@ -61,11 +65,11 @@ export const readTool: Tool = {
     '',
     'Default (no offset/limit): up to the first 200 lines.',
     '',
-    'With limit set: up to `limit` lines starting from `offset` (defaults to line 1). The 200-line default no longer applies; setting only `offset` keeps the 200-line cap from `offset`.',
+    'With limit set: up to `limit` lines starting from `offset` (defaults to line 1). Setting only `offset` keeps a 200-line window from `offset`.',
     '',
     'If the response would exceed 100 KB: only the head and tail are returned, the full content is saved to disk, and the saved path is in the response. Read that saved path with offset/limit to view ranges of it.',
     '',
-    'Overwrite via `write` is rejected unless `read` previously qualified this file as fully read (no offset/limit, no cap triggered) and the file is unchanged since that read. For files exceeding the caps, modify via `edit`/`multi_edit` (range-based, no full-read requirement) or use `write` with `append: true` (bypasses the gate).',
+    'Overwrite via `write` is rejected unless this read covered every current line of the file (start at line 1 with limit >= totalLines, no byte-cap truncation) and the file is unchanged since. For files where one read can\'t cover everything (>100 KB output), modify via `edit`/`multi_edit` (range-based, no full-read requirement) or use `write` with `append: true` (bypasses the gate).',
   ].join('\n'),
   schema: {
     type: 'object',
@@ -189,7 +193,6 @@ export const readTool: Tool = {
 
     try {
       const totalLines = fullFileContent.split('\n').length;
-      const rangeRequested = offset !== undefined || limit !== undefined;
 
       // Compute start (1-indexed; negative counts from end)
       let start: number;
@@ -232,7 +235,11 @@ export const readTool: Tool = {
 
       // readFileState write — same-claw only (cross-claw must not pollute caller's gate per §7.A.invariant)
       if (clawParam === undefined && fileMtime !== undefined) {
-        const isFullRead = !rangeRequested && !lineCapTriggered && !byteCapTriggered;
+        // phase 1444: isFullRead = "this read covered every current line of the file".
+        // Decoupled from rangeRequested — an explicit `limit >= totalLines` read also counts.
+        // (Removes the 200-line cliff that effectively banned overwrite of larger files.)
+        const sawAllLines = start === 0 && end >= totalLines;
+        const isFullRead = sawAllLines && !byteCapTriggered;
         ctx.readFileState.set(resolved, {
           hash: computeContentHash(fullFileContent),
           timestamp: fileMtime,
