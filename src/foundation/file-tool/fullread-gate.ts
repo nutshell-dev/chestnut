@@ -11,54 +11,59 @@
  * L2: mtime + content-hash double check (mtime touched but content unchanged
  *      refreshes timestamp + allows; mtime advanced + hash differs rejects)
  *
- * Returns null on pass; otherwise returns `GateReject` with `result`
- * (ToolResult to surface) and `reason` (one of 4 categories for audit).
+ * Returns `{ ok: true }` on pass; otherwise `{ ok: false, reason, result }`:
+ *   - `not-read`   — readFileState entry missing (never read OR load failed)
+ *   - `partial`    — entry exists but `isFullRead === false` (range / cap)
+ *   - `stale`      — mtime advanced AND content hash differs from snapshot
+ *   - `verify-failed` — stat / read threw mid-check (fail-safe reject)
  *
- * The canonical L1 / L2 messages are stable across callers — tests assert
- * substrings like "not been fully read" and "modified since" against all
- * three tools uniformly.
+ * `result` is the ToolResult callers surface (canonical L1/L2 messages stable
+ * across tools). Callers commonly append an operation-specific actionable
+ * suffix (e.g. "For files >100 KB, use edit..." for write; "Alternatively,
+ * set replaceAll=false..." for edit). Callers also use `reason` to emit
+ * granular audit (write.ts OVERWRITE_GATE_REJECTED reason=<reason>).
  *
- * phase 1460: discriminated return — caller emits `reason=${gate.reason}`
- * to OVERWRITE_GATE_REJECTED audit (4 classes: not-read / partial / stale /
- * verify-fail). phase 1447 commit 2 抽 helper 时丢失 reason 分类 →
- * phase 1452 e2e 4 case fail → phase 1460 回填。
+ * phase 1457 follow-up: was `Promise<ToolResult | null>` — reason was opaque
+ * to callers; tests asserting `reason=stale|partial|not-read` failed against
+ * generic `reason=gate-rejected`. Now reason is part of the contract.
  */
 
 import type { ExecContext } from '../tools/index.js';
 import type { ToolResult } from '../tool-protocol/index.js';
 import { computeContentHash } from './file-hash.js';
 
-export type GateRejectReason = 'not-read' | 'partial' | 'stale' | 'verify-fail';
+export type GateRejectReason = 'not-read' | 'partial' | 'stale' | 'verify-failed';
 
-export interface GateReject {
-  result: ToolResult;
-  reason: GateRejectReason;
-}
+export type GateResult =
+  | { ok: true }
+  | { ok: false; reason: GateRejectReason; result: ToolResult };
 
 export async function enforceFullReadGate(
   ctx: ExecContext,
   resolved: string,
   filePath: string,
-): Promise<GateReject | null> {
+): Promise<GateResult> {
   const state = ctx.readFileState.get(resolved);
-  // L1.a: never-read (no state entry, also covers corrupt-disk → empty Map)
+  // L1: never-read
   if (!state) {
     return {
+      ok: false,
+      reason: 'not-read',
       result: {
         success: false,
         content: `Error: File '${filePath}' has not been fully read in this daemon process. Use \`read\` to cover every current line (start at line 1, with limit >= totalLines, no byte-cap truncation) first.`,
       },
-      reason: 'not-read',
     };
   }
-  // L1.b: partial-read (state exists but isFullRead=false)
+  // L1: partial-read
   if (!state.isFullRead) {
     return {
+      ok: false,
+      reason: 'partial',
       result: {
         success: false,
         content: `Error: File '${filePath}' has not been fully read in this daemon process. Use \`read\` to cover every current line (start at line 1, with limit >= totalLines, no byte-cap truncation) first.`,
       },
-      reason: 'partial',
     };
   }
   // L2: stale (mtime + hash double check)
@@ -69,11 +74,12 @@ export async function enforceFullReadGate(
       const currentContent = await ctx.fs.read(resolved);
       if (computeContentHash(currentContent) !== state.hash) {
         return {
+          ok: false,
+          reason: 'stale',
           result: {
             success: false,
             content: `Error: File '${filePath}' has been modified since your last read (either by the user or by another tool). Read it again before this operation.`,
           },
-          reason: 'stale',
         };
       }
       // mtime touched but content unchanged (cloud sync / antivirus) — refresh + allow
@@ -81,12 +87,13 @@ export async function enforceFullReadGate(
     }
   } catch {
     return {
+      ok: false,
+      reason: 'verify-failed',
       result: {
         success: false,
         content: `Error: Could not verify '${filePath}' is unchanged since last read. Read it again before this operation.`,
       },
-      reason: 'verify-fail',
     };
   }
-  return null;
+  return { ok: true };
 }

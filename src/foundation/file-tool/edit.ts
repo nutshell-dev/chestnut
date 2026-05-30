@@ -138,7 +138,7 @@ export const editTool: Tool = {
     // contexts the agent may never have seen) → same gate as write overwrite.
     if (replaceAll) {
       const gate = await enforceFullReadGate(ctx, resolved, filePath);
-      if (gate) {
+      if (!gate.ok) {
         return {
           success: false,
           content: gate.result.content + ` This is required because replaceAll=true rewrites every match, including contexts you may not have seen. Alternatively, set replaceAll=false with a uniquely-matching oldText to scope the change.`,

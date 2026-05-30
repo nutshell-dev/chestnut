@@ -131,7 +131,7 @@ export const multiEditTool: Tool = {
     const hasReplaceAll = edits.some(e => e.replaceAll === true);
     if (hasReplaceAll) {
       const gate = await enforceFullReadGate(ctx, resolved, filePath);
-      if (gate) {
+      if (!gate.ok) {
         return {
           success: false,
           content: gate.result.content + ` This is required because at least one edit uses replaceAll=true, which rewrites every match. Alternatively, remove replaceAll from all edits (each edit must uniquely match).`,

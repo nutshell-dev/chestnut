@@ -68,12 +68,12 @@ export const writeTool: Tool = {
     }
     checker.resolveAndCheck(resolved, 'write');
 
-    // overwrite gate — phase 1430 hash + mtime + isFullRead
+    // overwrite gate — phase 1430 hash + mtime + isFullRead, granular reason since phase 1457 followup
     if (!append) {
       const exists = await ctx.fs.exists(resolved);
       if (exists) {
         const gate = await enforceFullReadGate(ctx, resolved, filePath);
-        if (gate) {
+        if (!gate.ok) {
           ctx.auditWriter?.write(
             FILE_TOOL_AUDIT_EVENTS.OVERWRITE_GATE_REJECTED,
             `path=${resolved} reason=${gate.reason}`,
