@@ -54,10 +54,3 @@ export interface VerbFact {
   /** 退役 verb / 别名说明等额外提示，仅在 per-verb help 显示。 */
   note?: string;
 }
-
-/** retired verb 描述（仅出现在 footer，schema 未泛化、N=1 单实证）。 */
-export interface RetiredVerbNote {
-  retired: string;
-  replacement: string;
-  note?: string;
-}

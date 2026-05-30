@@ -1,8 +1,0 @@
-{
-  "session_id": "test-session-abc",
-  "ended_at": "2026-05-27T03:22:39.646Z",
-  "reason": "other",
-  "agents_spawned": 0,
-  "agents_completed": 0,
-  "modes_used": []
-}

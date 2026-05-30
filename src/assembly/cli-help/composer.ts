@@ -15,7 +15,7 @@
  * 同型参考：assembly/motion-guidance-composer.ts（phase 1472 同模式 + 本 phase γ-help 镜像）。
  */
 
-import type { VerbFact, VerbGroup, RetiredVerbNote } from '../../foundation/cli-help/index.js';
+import type { VerbFact, VerbGroup } from '../../foundation/cli-help/index.js';
 
 /** CLI binary 字面 —— 与 motion-guidance-composer 同源约定、Assembly 内 source of truth。 */
 const CLI_BINARY = 'clawforum';
@@ -55,38 +55,15 @@ function renderGroup(group: VerbGroup, facts: readonly VerbFact[]): string[] {
   return [GROUP_HEADERS[group], ...groupFacts.map(renderVerbLine), ''];
 }
 
-function renderExamples(facts: readonly VerbFact[]): string[] {
-  // Surface up to 1 example per verb that has any, capped to keep help compact.
-  const lines: string[] = ['Examples:'];
-  for (const fact of facts) {
-    if (fact.examples && fact.examples.length > 0) {
-      lines.push(`  ${fact.examples[0]}`);
-    }
-  }
-  return [...lines, ''];
-}
-
-function renderRetiredFooter(retired: readonly RetiredVerbNote[]): string[] {
-  if (retired.length === 0) return [];
-  const lines: string[] = ['Notes:'];
-  for (const r of retired) {
-    const note = r.note ? ` (${r.note})` : '';
-    lines.push(`  \`${r.retired}\` has been retired — use \`${r.replacement}\` instead.${note}`);
-  }
-  return lines;
-}
-
 /**
  * Compose top-level `clawforum claw --help` text.
  *
- * Layout: Usage block + 4 verb groups + Examples + retired footer.
+ * Layout: Usage block + verb groups.
  * Replaces commander's default `Usage: clawforum claw [options] <subject> [args...]`
  * which is opaque to users (`<subject>` is a commander internal abstraction).
+ * Per-verb examples live on `claw help <verb>`, not in the top-level summary.
  */
-export function composeClawHelp(
-  facts: readonly VerbFact[],
-  retired: readonly RetiredVerbNote[] = [],
-): string {
+export function composeClawHelp(facts: readonly VerbFact[]): string {
   const lines: string[] = [];
 
   // Usage — three forms, all surfaced.
@@ -101,11 +78,8 @@ export function composeClawHelp(
     lines.push(...renderGroup(group, facts));
   }
 
-  // Examples.
-  lines.push(...renderExamples(facts));
-
-  // Retired verbs footer.
-  lines.push(...renderRetiredFooter(retired));
+  // Trim trailing blank lines.
+  while (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
 
   return lines.join('\n');
 }

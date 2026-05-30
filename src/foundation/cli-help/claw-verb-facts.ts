@@ -11,12 +11,12 @@
  *
  * 形态约定：
  * - `list` / `help` 是 flat verb（无 `<claw-name>`、subject 直接是 verb 字面）
- * - 其余 14 verb 是 instance verb（subject = claw name / args[0] = verb）
- * - `help` 自身也纳入 fact 表（D5 ratify、防双源）但本 phase 不在 help 输出中
- *   重复列出 "help" 行（composer 自己出 Usage 段已含 help 入口字面）
+ * - 其余 verb 是 instance verb（subject = claw name / args[0] = verb）
+ * - `help` 自身也纳入 fact 表（D5 ratify、防双源）但 composer 自己出 Usage 段
+ *   已含 help 入口字面、不重复列「help」行于分组列表中。
  */
 
-import type { VerbFact, RetiredVerbNote } from './types.js';
+import type { VerbFact } from './types.js';
 
 export const CLAW_VERB_FACTS: readonly VerbFact[] = [
   // ── Lifecycle ──────────────────────────────────────────────────────────
@@ -105,14 +105,6 @@ export const CLAW_VERB_FACTS: readonly VerbFact[] = [
     examples: ['clawforum claw alice read notes/today.md'],
   },
   {
-    name: 'read-state',
-    group: 'messaging',
-    form: 'instance',
-    summary: 'Show the inbox read cursor',
-    options: [{ flag: '--json', desc: 'Output as JSON (machine-readable)' }],
-    examples: ['clawforum claw alice read-state'],
-  },
-  {
     name: 'import',
     group: 'messaging',
     form: 'instance',
@@ -171,15 +163,6 @@ export const CLAW_VERB_FACTS: readonly VerbFact[] = [
     summary: 'Show top-level help, or per-verb help when a verb name follows',
     args: [{ name: 'verb', required: false, desc: 'Verb name to describe in detail' }],
     examples: ['clawforum claw help', 'clawforum claw help send'],
-  },
-] as const;
-
-/** retired verb（仅 footer 显示）。 */
-export const CLAW_RETIRED_VERBS: readonly RetiredVerbNote[] = [
-  {
-    retired: 'cp',
-    replacement: 'import',
-    note: 'phase 1472 retired `cp` to remove "two-arg symmetry" misnaming',
   },
 ] as const;
 

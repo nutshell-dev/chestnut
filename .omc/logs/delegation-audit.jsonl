@@ -1,2 +1,0 @@
-{"tool":"Write","filePath":"/test/file.ts","decision":"warned","reason":"source_file","enforcementLevel":"warn","sessionId":"test-session","timestamp":"2026-05-27T03:22:47.963Z"}
-{"tool":"Write","filePath":"/test/file.ts","decision":"warned","reason":"source_file","enforcementLevel":"warn","sessionId":"test-session","timestamp":"2026-05-27T03:25:08.073Z"}

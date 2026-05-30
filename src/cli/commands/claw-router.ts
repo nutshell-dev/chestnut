@@ -29,7 +29,6 @@ import {
   outboxCommand,
   importCommand,
   readCommand,
-  readStateCommand,
   clawStatusCommand,
 } from './claw.js';
 import { CliError } from '../errors.js';
@@ -42,7 +41,6 @@ import type { FileSystem } from '../../foundation/fs/types.js';
 import { clawStepsCommand, clawStepCommand } from './claw-steps.js';
 import {
   CLAW_VERB_FACTS,
-  CLAW_RETIRED_VERBS,
   type VerbFact,
 } from '../../foundation/cli-help/index.js';
 import {
@@ -66,7 +64,6 @@ const VERB_NAMES = [
   'outbox',
   'import',
   'read',
-  'read-state',
   'steps',
   'step',
   'daemon',
@@ -102,7 +99,7 @@ function findHelpFlag(args: readonly string[]): boolean {
 
 /** Render top-level claw help (composer-driven, replaces commander default). */
 export function renderClawTopHelp(): string {
-  return composeClawHelp(CLAW_VERB_FACTS, CLAW_RETIRED_VERBS);
+  return composeClawHelp(CLAW_VERB_FACTS);
 }
 
 /** Render per-verb help. Returns undefined if verb name not registered. */
@@ -219,7 +216,6 @@ export async function dispatchClawSubcommand(
     case 'outbox': return runOutbox(deps, name, verbArgs);
     case 'import': return runImport(deps, name, verbArgs);
     case 'read': return runRead(deps, name, verbArgs);
-    case 'read-state': return runReadState(deps, name, verbArgs);
     case 'steps': return runSteps(deps, name, verbArgs);
     case 'step': return runStep(deps, name, verbArgs);
     case 'daemon': return runDaemon(deps, name, verbArgs);
@@ -333,16 +329,6 @@ async function runRead(deps: RouterDeps, name: string, args: string[]): Promise<
   await readCommand(deps, name, filePath as string, opts);
 }
 
-async function runReadState(deps: RouterDeps, name: string, args: string[]): Promise<void> {
-  const parser = makeVerbParser('read-state');
-  parser.option('--json', 'Output as JSON (machine-readable)');
-  try {
-    parser.parse(args, { from: 'user' });
-  } catch (err) {
-    throw new CliError(`invalid 'claw <name> read-state' options: ${(err as Error).message}`);
-  }
-  await readStateCommand(deps, name, parser.opts());
-}
 
 async function runSteps(deps: RouterDeps, name: string, args: string[]): Promise<void> {
   if (args.length > 0) {

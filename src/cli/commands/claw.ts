@@ -20,7 +20,6 @@
  * - claw-trace.ts         clawTraceCommand + 6 trace helper（自治 sub-module）
  * - claw-import.ts        importCommand  (phase 1472：cp → import 重命名)
  * - claw-read.ts          readCommand
- * - claw-read-state.ts    readStateCommand (phase 1452 / F-NEXT.1 / 观察 read-state.json)
  * - claw-status.ts        clawStatusCommand (phase 1472：新增 motion 用 CLI 查 claw 业务态)
  */
 
@@ -34,5 +33,4 @@ export { outboxCommand } from './claw-outbox.js';
 export { clawTraceCommand } from './claw-trace.js';
 export { importCommand } from './claw-import.js';
 export { readCommand } from './claw-read.js';
-export { readStateCommand } from './claw-read-state.js';
 export { clawStatusCommand } from './claw-status.js';
