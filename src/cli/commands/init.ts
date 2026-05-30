@@ -25,6 +25,7 @@ import { DEFAULT_MAX_STEPS } from '../../core/agent-executor/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
+import { checkLLMConnection, promptReconfigure, LLM_ERROR_LABELS } from '../llm-connection-check.js';
 
 // Known providers shown in "Select provider" list (excludes generic custom-* entries)
 const PROVIDER_LIST = [
@@ -310,6 +311,44 @@ export async function initCommand(deps: { fsFactory: (baseDir: string) => FileSy
     const root = getWorkspaceRoot();
     const fs = deps.fsFactory(root);
     fs.ensureDirSync('.clawforum/logs');
+
+    // ── Verify LLM API reachable ─────────────────────────────────────────────
+    // Per DP「事后审计」+ DP「智能体是决策主体」(init 阶段 user 主体):
+    // probe 真实 LLM、失败给 user 错误类型 + reconfigure 选项。
+    console.log('\nTesting LLM connection...');
+    audit?.write(CLI_AUDIT_EVENTS.INIT_PROBE_ATTEMPTED, `preset=${presetId}`, `model=${model}`);
+    const t0 = Date.now();
+    const probe = await checkLLMConnection(deps);
+    const latencyMs = Date.now() - t0;
+    if (probe.ok) {
+      audit?.write(CLI_AUDIT_EVENTS.INIT_PROBE_SUCCEEDED, `preset=${presetId}`, `model=${probe.model}`, `latency_ms=${latencyMs}`);
+      console.log(`  ✓ ${probe.model} (${latencyMs}ms)`);
+    } else {
+      audit?.write(
+        CLI_AUDIT_EVENTS.INIT_PROBE_FAILED,
+        `preset=${presetId}`,
+        `error_type=${probe.errorType}`,
+        `message=${probe.message.slice(0, 200)}`,
+      );
+      console.log(`  ✗ ${LLM_ERROR_LABELS[probe.errorType]}`);
+      // 截断防 base64 body / 长 stack dump 灌 stdout
+      console.log(`  Details: ${probe.message.slice(0, 200)}`);
+
+      if (probe.errorType === 'auth' || probe.errorType === 'model') {
+        // actionable errors → 提供 reconfigure 选项
+        const fixed = await promptReconfigure(deps, rl, probe.errorType);
+        if (fixed) {
+          audit?.write(CLI_AUDIT_EVENTS.INIT_PROBE_RECONFIGURED, `preset=${presetId}`);
+        } else {
+          audit?.write(CLI_AUDIT_EVENTS.INIT_PROBE_SKIPPED, `preset=${presetId}`, `reason=user_exit_reconfigure`);
+          console.log('  ⚠ LLM not verified. Run "clawforum config" later to fix.');
+        }
+      } else {
+        // network / rate_limit / unknown — 可能 transient、warn 不阻断
+        audit?.write(CLI_AUDIT_EVENTS.INIT_PROBE_SKIPPED, `preset=${presetId}`, `reason=transient_${probe.errorType}`);
+        console.log('  ⚠ Continuing anyway — fix later with "clawforum config" if needed.');
+      }
+    }
 
     audit?.write(CLI_AUDIT_EVENTS.INIT_DONE);
     console.log('\n✓ Initialized successfully!');
