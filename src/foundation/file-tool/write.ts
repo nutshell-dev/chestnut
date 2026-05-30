@@ -14,7 +14,9 @@ import type { ToolResult } from '../tool-protocol/index.js';
 
 import { backupToSync } from './sync-backup.js';
 import { resolveWorkspacePath } from './resolve-path.js';
-import { computeContentHash } from './file-state.js';
+import { computeContentHash } from './file-hash.js';
+import { recordWriteResult } from './file-state-manager.js';
+import { FILE_TOOL_AUDIT_EVENTS } from './audit-events.js';
 
 export const WRITE_TOOL_NAME = 'write' as const;
 
@@ -71,6 +73,11 @@ export const writeTool: Tool = {
         const state = ctx.readFileState.get(resolved);
         // L1: never read or partial read
         if (!state || !state.isFullRead) {
+          const reason = state ? 'partial' : 'not-read';
+          ctx.auditWriter?.write(
+            FILE_TOOL_AUDIT_EVENTS.OVERWRITE_GATE_REJECTED,
+            `path=${resolved} reason=${reason}`,
+          );
           return {
             success: false,
             content: `Error: File '${filePath}' has not been fully read in this daemon process. Read it first before overwriting (no offset/limit, no truncation triggered). For files exceeding read caps, use edit/multi_edit, or write with append:true.`,
@@ -83,6 +90,10 @@ export const writeTool: Tool = {
           if (currentMtime > state.timestamp) {
             const currentContent = await ctx.fs.read(resolved);
             if (computeContentHash(currentContent) !== state.hash) {
+              ctx.auditWriter?.write(
+                FILE_TOOL_AUDIT_EVENTS.OVERWRITE_GATE_REJECTED,
+                `path=${resolved} reason=stale`,
+              );
               return {
                 success: false,
                 content: `Error: File '${filePath}' has been modified since your last read (either by the user or by another tool). Read it again before overwriting.`,
@@ -93,6 +104,10 @@ export const writeTool: Tool = {
           }
         } catch {
           // stat/read failed mid-gate — fail safe: reject with re-read hint
+          ctx.auditWriter?.write(
+            FILE_TOOL_AUDIT_EVENTS.OVERWRITE_GATE_REJECTED,
+            `path=${resolved} reason=verify-failed`,
+          );
           return {
             success: false,
             content: `Error: Could not verify '${filePath}' is unchanged since last read. Read it again before overwriting.`,
@@ -111,13 +126,9 @@ export const writeTool: Tool = {
         await ctx.fs.append(resolved, content);
       } else {
         await ctx.fs.writeAtomic(resolved, content);
-        // overwrite 写成功 → 更新 readFileState（写入的就是新全文）
+        // overwrite 写成功 → 更新 readFileState（写入的就是新全文、isFullRead=true）
         const newStat = await ctx.fs.stat(resolved);
-        ctx.readFileState.set(resolved, {
-          hash: computeContentHash(content),
-          timestamp: newStat.mtime.getTime(),
-          isFullRead: true,
-        });
+        recordWriteResult(ctx, resolved, content, newStat.mtime.getTime());
       }
 
       const backupHint = backupPath ? ` (backup: ${backupPath})` : '';

@@ -16,7 +16,7 @@ import type { ToolResult } from '../tool-protocol/index.js';
 
 import { backupToSync } from './sync-backup.js';
 import { resolveWorkspacePath } from './resolve-path.js';
-import { computeContentHash } from './file-state.js';
+import { recordEditResult } from './file-state-manager.js';
 import { findFirstMatchLine, formatEditDiff, lineDelta } from './edit-format.js';
 export const MULTI_EDIT_TOOL_NAME = 'multi_edit' as const;
 
@@ -146,16 +146,9 @@ export const multiEditTool: Tool = {
 
     // All edits succeeded — single atomic write
     await ctx.fs.writeAtomic(resolved, current);
-    // phase 1437: 同 edit.ts，不能 unconditionally 升 isFullRead=true。
-    // multi_edit 工具内部 read 全文是私事，claw 只显式知道一组 old_string→new_string 替换。
-    // 保留 prev isFullRead 让 read-then-multi_edit-then-write 全文链通过、partial-then-multi_edit-then-write 仍拒。
-    const prevState = ctx.readFileState.get(resolved);
+    // phase 1437: 不升 isFullRead=true、保 prevState。phase 1439 V3: 语义封装到 recordEditResult。
     const newStat = await ctx.fs.stat(resolved);
-    ctx.readFileState.set(resolved, {
-      hash: computeContentHash(current),
-      timestamp: newStat.mtime.getTime(),
-      isFullRead: prevState?.isFullRead ?? false,
-    });
+    recordEditResult(ctx, resolved, current, newStat.mtime.getTime());
 
     const backupHint = backupPath ? ` (backup: ${backupPath})` : '';
     const totalDelta = edits.reduce(

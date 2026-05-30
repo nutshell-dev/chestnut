@@ -16,7 +16,7 @@ import type { ToolResult } from '../tool-protocol/index.js';
 
 import { backupToSync } from './sync-backup.js';
 import { resolveWorkspacePath } from './resolve-path.js';
-import { computeContentHash } from './file-state.js';
+import { recordEditResult } from './file-state-manager.js';
 import { formatEditDiff, lineDelta } from './edit-format.js';
 export const EDIT_TOOL_NAME = 'edit' as const;
 
@@ -117,17 +117,10 @@ export const editTool: Tool = {
       : content.replace(oldText, newText);
 
     await ctx.fs.writeAtomic(resolved, replaced);
-    // phase 1437: 不能 unconditionally 升 isFullRead=true。
-    // edit 工具内部 ctx.fs.read 读全文是私事，claw 只显式知道 old_string→new_string 一处替换。
-    // 只有 claw 此前真通过 read 工具看过全文（prevState.isFullRead===true），edit 后才仍算"看过全文"
-    // （claw 可基于旧全文 + 自己 commit 的 edit 推算新全文）。否则保持 false。
-    const prevState = ctx.readFileState.get(resolved);
+    // phase 1437: 不升 isFullRead=true、保 prevState（edit 内部 read 全文是私事）。
+    // phase 1439 V3: 语义封装到 recordEditResult、本处仅调用、不再复制 prev-state-inheritance 规则。
     const newStat = await ctx.fs.stat(resolved);
-    ctx.readFileState.set(resolved, {
-      hash: computeContentHash(replaced),
-      timestamp: newStat.mtime.getTime(),
-      isFullRead: prevState?.isFullRead ?? false,
-    });
+    recordEditResult(ctx, resolved, replaced, newStat.mtime.getTime());
 
     const replacedCount = replaceAll ? matches : 1;
     const backupHint = backupPath ? ` (backup: ${backupPath})` : '';
