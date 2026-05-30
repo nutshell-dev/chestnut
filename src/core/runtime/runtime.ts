@@ -96,8 +96,8 @@ export class Runtime {
 
   // Foundation
   /**
-   * @protected allows subclasses such as MotionRuntime to read system files (SOUL.md, etc.)
-   * Note: subclasses should not write directly; preserve runtime encapsulation
+   * @protected allows system-files read (SOUL.md, etc.) by create-runtime helper + identity-based system path builders
+   * (phase 266 reframed MotionRuntime subclass to identity-based dispatch; preserve runtime encapsulation — no direct writes)
    */
   protected systemFs!: FileSystem;  // used by system components (no permission check)
   protected llm!: LLMOrchestrator;
@@ -105,8 +105,8 @@ export class Runtime {
   // Core
   protected sessionManager!: DialogStore;
   /**
-   * @protected allows subclasses such as MotionRuntime to call buildParts() to customize prompt injection order
-   * Note: subclasses should treat this as read-only and must not modify injector state
+   * @protected allows create-runtime helper to call buildParts() / customize prompt injection order
+   * (phase 266 reframed MotionRuntime subclass to identity-based dispatch; treat as read-only — no injector state mutation)
    */
   protected contextInjector!: ContextInjector;
   protected toolRegistry!: ToolRegistry;
@@ -363,7 +363,7 @@ export class Runtime {
    * Read and drain inbox/pending/*.md for this instance.
    * Uses drainAndDeliver() to move files to inflight/ (delivered but not yet acked).
    * Unaddressed messages are immediately acked; addressed handles returned for turn-end ack.
-   * @protected available for reuse by subclass MotionRuntime
+   * @protected available for create-runtime helper reuse (phase 266 reframed MotionRuntime subclass to identity-based dispatch)
    */
   protected async _drainOwnInbox(): Promise<{
     injected: Message[];
@@ -485,7 +485,7 @@ export class Runtime {
 
   /**
    * Run the LLM ReAct loop over the given messages and save the session.
-   * @protected available for reuse by subclass MotionRuntime
+   * @protected available for create-runtime helper reuse (phase 266 reframed MotionRuntime subclass to identity-based dispatch)
    */
   protected async _runReact(messages: Message[], callbacks?: StreamCallbacks): Promise<void> {
     // phase 786: stopRequested 是 per-turn flag，每 turn 起首 reset

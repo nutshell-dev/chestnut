@@ -98,7 +98,8 @@ export class ContextInjector {
 
   /**
    * Build raw parts for system prompt injection
-   * Returns individual sections for flexible composition (used by MotionRuntime)
+   * Returns individual sections for flexible composition (used by create-runtime helper
+   * via buildMotionSystemPrompt — phase 266 reframed MotionRuntime subclass to identity-based dispatch)
    */
   async buildParts(): Promise<{
     agents: string;
