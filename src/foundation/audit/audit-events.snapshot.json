@@ -320,11 +320,9 @@
     ],
     "core_summon-system_audit-events": [
       "retro_index_parse_failed",
-      "summon_contract_done_missing_fields",
-      "summon_contract_done_not_found",
-      "summon_contract_done_parse_failed",
       "summon_dispatched",
       "summon_load_skills_failed",
+      "summon_no_contract_created",
       "summon_no_dialog_context",
       "summon_rejected_shadow",
       "summon_write_by_contract_failed"

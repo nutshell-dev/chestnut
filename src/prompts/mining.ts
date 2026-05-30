@@ -32,7 +32,7 @@ export function buildMinerSystemPrompt(): string {
 
 ## 第二阶段：契约创建
 
-完成以下步骤，最终在回复末尾输出 [CONTRACT_DONE] 标记。**第二步起必须从工具调用开始。**
+完成以下步骤，在 contract create CLI 成功返回后直接 \`done(result=...)\` 退出。**第二步起必须从工具调用开始。**
 
 ### 第一步：确定目标 claw
 
@@ -110,11 +110,7 @@ escalation:
 exec: clawforum contract create --claw <targetClawId> --dir clawspace/contract-drafts/<contract-slug>
 \`\`\`
 
-### 第五步：在最终回复末尾输出（格式不可变）
-
-\`\`\`
-[CONTRACT_DONE]{"contractId":"<id>","targetClaw":"<claw-id>"}[/CONTRACT_DONE]
-\`\`\`
+CLI 成功返回 \`Contract created: <id> for claw <claw-id>\` 即视为本次任务完成、可直接 \`done(result="<给 Motion 的简报>")\` 退出。系统按 subagent audit 真相自动登记 retro、无需在 result 内附加任何特殊标记。
 
 ---
 
