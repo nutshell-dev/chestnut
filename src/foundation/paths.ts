@@ -6,7 +6,6 @@
  */
 
 import * as path from 'path';
-import * as nodeFs from 'fs';
 import { fileURLToPath } from 'url';
 import type { FileSystem } from './fs/types.js';
 import { INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR, OUTBOX_PENDING_DIR } from './messaging/dirs.js';
@@ -111,22 +110,25 @@ export function getClawConfigPath(name: string): string {
 
 // ── spawn 入口路径解析（M#1 单一权威 / phase 1436）──
 //
-// bundled 输出：tsup code-split 将所有 chunk（含本 helper）平铺至 dist/、
-// daemon-entry.js / watchdog-entry.js 与之同处 dist/ 顶层。
-// unbundled / dev：thisDir = src/foundation/、entry 编译至 dist 根、上溯 1 级。
+// bundled 输出：tsup code-split 将所有 chunk（含本 helper）平铺至 dist/，
+// daemon-entry.js / watchdog-entry.js 与之同处 dist/ 顶层 → PATHS_THIS_DIR = dist/。
+// unbundled / dev：thisDir = dist/foundation/（tsc 保 src 层级），entry 至 dist 根，
+// 上溯 1 级 → PATHS_THIS_DIR basename = 'foundation'。
 //
-// 散落历史：phase 1436 前 7 cli/commands + 1 watchdog 共 8 caller 各自手算路径、
-// 3 种 fallback 层数（0/1/2）+ 2 种 exists 判定（callerDir / cwd 相对）= 6 种写法。
-// tsup code-split 平铺策略一改即全炸（toolprotocol-rechecker / messaging-auditor /
-// tools-auditor daemon spawn MODULE_NOT_FOUND 实证）。
+// 模式判别：basename 比较纯路径结构、无 fs 依赖（ML#3 fs 归 foundation/fs/、
+// paths.ts 是 L1 路径层不应直 import node:fs）。
 //
-// fs 选型：helper 内部 nodeFs（探测自身 deployment layout 的绝对路径、与 user
-// FileSystem 抽象的 clawspace 相对路径约束属不同维度、不可混）。FileSystem 参数
-// 在 caller 处接受但不传入解析路径、保留签名一致（caller 不必懂内部细节）。
-// signature 保 `(fs: FileSystem)`：(1) caller 调用形式与既有 `existsSync` 风格
-// 一致；(2) 未来若 entry 路径源迁回 user fs（罕见）签名不破。
+// 散落历史：phase 1436 前 7 cli/commands + 1 watchdog 共 8 caller 各自手算路径，
+// 3 种 fallback 层数 + 2 种 exists 判定 = 6 种写法。tsup code-split 平铺策略一改
+// 即全炸（toolprotocol-rechecker / messaging-auditor / tools-auditor daemon spawn
+// MODULE_NOT_FOUND 实证）。
+//
+// signature 保 `(_fs?: FileSystem)`：caller 调用形式与既有 `existsSync` 风格一致、
+// 未来若 entry 路径源迁回 user fs（罕见）签名不破。当前实现不消费 fs 参数（路径
+// 结构自决）。
 
 const PATHS_THIS_DIR = path.dirname(fileURLToPath(import.meta.url));
+const PATHS_IS_BUNDLED = path.basename(PATHS_THIS_DIR) !== 'foundation';
 
 export function resolveDaemonEntry(_fs?: FileSystem): string {
   return resolveSpawnEntry('daemon-entry.js');
@@ -137,11 +139,6 @@ export function resolveWatchdogEntry(_fs?: FileSystem): string {
 }
 
 function resolveSpawnEntry(filename: string): string {
-  // bundled 同处 dist/ 顶层。命中即返。
-  const bundled = path.join(PATHS_THIS_DIR, filename);
-  if (nodeFs.existsSync(bundled)) return bundled;
-  // unbundled / dev：上溯 1 级（src/foundation/ → src/）；
-  // 也作 pgrep pattern 兜底：即使物理不存（test fixture 不落 dist）也返该字符串，
-  // 由 caller spawn 时 node 报真 MODULE_NOT_FOUND，与 phase 1436 前同语义。
+  if (PATHS_IS_BUNDLED) return path.join(PATHS_THIS_DIR, filename);
   return path.resolve(PATHS_THIS_DIR, '..', filename);
 }
