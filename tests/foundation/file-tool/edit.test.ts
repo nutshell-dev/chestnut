@@ -300,4 +300,73 @@ describe('edit tool', () => {
       expect(result.success).toBe(true);
     });
   });
+
+  // phase 1456: error diagnostic + edge case polish
+  describe('phase 1456: error diagnostics + edge cases', () => {
+    it('0 match error includes near-miss hint when similar line exists', async () => {
+      await mockFs.ensureDir('clawspace');
+      await mockFs.writeAtomic('clawspace/n.txt', 'header\nexport function foo(x: number)\nfooter');
+
+      const result = await editTool.execute({
+        path: 'n.txt',
+        oldText: 'export function foo(x: number, y: string)',
+        newText: 'whatever',
+      }, ctx);
+
+      expect(result.success).toBe(false);
+      expect(result.content).toContain('0 matches for oldText');
+      expect(result.content).toContain('Near matches');
+      expect(result.content).toContain('exact-prefix');
+      expect(result.content).toContain('export function foo(x: number)');
+    });
+
+    it('multi match error includes line numbers list (first 5 + overflow indicator)', async () => {
+      await mockFs.ensureDir('clawspace');
+      const lines = Array.from({ length: 8 }, (_, i) => `line ${i + 1} target`).join('\n');
+      await mockFs.writeAtomic('clawspace/m.txt', lines);
+
+      const result = await editTool.execute({
+        path: 'm.txt',
+        oldText: 'target',
+        newText: 'replaced',
+      }, ctx);
+
+      expect(result.success).toBe(false);
+      expect(result.content).toContain('8 matches');
+      expect(result.content).toContain('at lines: 1, 2, 3, 4, 5, +3 more');
+    });
+
+    it('rejects no-op edit (oldText === newText) without touching file', async () => {
+      await mockFs.ensureDir('clawspace');
+      await mockFs.writeAtomic('clawspace/nop.txt', 'unique content');
+      const writeSpy = vi.spyOn(mockFs, 'writeAtomic');
+
+      const result = await editTool.execute({
+        path: 'nop.txt',
+        oldText: 'unique',
+        newText: 'unique',
+      }, ctx);
+
+      expect(result.success).toBe(false);
+      expect(result.content).toContain('no-op');
+      // no fs write should happen
+      const fileWrites = writeSpy.mock.calls.filter(([p]) => p === 'clawspace/nop.txt');
+      expect(fileWrites.length).toBe(0);
+      writeSpy.mockRestore();
+    });
+
+    it('rejects empty oldText immediately', async () => {
+      await mockFs.ensureDir('clawspace');
+      await mockFs.writeAtomic('clawspace/e.txt', 'content');
+
+      const result = await editTool.execute({
+        path: 'e.txt',
+        oldText: '',
+        newText: 'whatever',
+      }, ctx);
+
+      expect(result.success).toBe(false);
+      expect(result.content).toContain('oldText must be a non-empty string');
+    });
+  });
 });

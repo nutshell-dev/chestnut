@@ -18,7 +18,7 @@ import { backupToSync } from './sync-backup.js';
 import { resolveWorkspacePath } from './resolve-path.js';
 import { recordEditResult } from './file-state-manager.js';
 import { enforceFullReadGate } from './fullread-gate.js';
-import { findFirstMatchLine, formatEditDiff, lineDelta } from './edit-format.js';
+import { findFirstMatchLine, formatEditDiff, lineDelta, findNearMatches, findAllMatchLines } from './edit-format.js';
 export const MULTI_EDIT_TOOL_NAME = 'multi_edit' as const;
 
 function countMatches(s: string, pattern: string): number {
@@ -46,7 +46,7 @@ export const multiEditTool: Tool = {
       },
       edits: {
         type: 'array',
-        description: 'Array of edits to apply in order. Each edit takes oldText (exact match) + newText, optional replaceAll. Note: edits[i].oldText must match the file AFTER edits[0..i-1] have been applied — order-sensitive.',
+        description: 'Array of edits to apply in order. Each edit takes oldText (exact match) + newText, optional replaceAll. Note: edits[i].oldText must match the file AFTER edits[0..i-1] have been applied — order-sensitive. Line numbers in the Applied summary reflect the file state BEFORE that specific edit was applied (subsequent edits may shift positions).',
         items: {
           type: 'object',
           properties: {
@@ -99,6 +99,23 @@ export const multiEditTool: Tool = {
       };
     }
 
+    // phase 1456 P3+P4: per-edit structural validation before any IO.
+    for (let i = 0; i < edits.length; i++) {
+      const e = edits[i];
+      if (typeof e.oldText !== 'string' || e.oldText.length === 0) {
+        return {
+          success: false,
+          content: `Error: edit[${i}].oldText must be a non-empty string.`,
+        };
+      }
+      if (e.oldText === e.newText) {
+        return {
+          success: false,
+          content: `Error: edit[${i}] oldText === newText (no-op). Skip this edit or set newText to the intended replacement.`,
+        };
+      }
+    }
+
     // File must exist
     const exists = await ctx.fs.exists(resolved);
     if (!exists) {
@@ -136,16 +153,24 @@ export const multiEditTool: Tool = {
       const edit = edits[i];
       const matches = countMatches(current, edit.oldText);
       if (matches === 0) {
+        // phase 1456 P1: attach near-miss hint (against the post-prev-edits `current` state)
+        const nearMatches = findNearMatches(current, edit.oldText);
+        const nearHint = nearMatches.length > 0
+          ? `\n\nNear matches in the file's current state (line: text):\n` + nearMatches.map(m => `  ${m.line} (${m.score}): ${m.text}`).join('\n')
+          : '';
         return {
           success: false,
-          content: `Error: edit[${i}] 0 matches for oldText. All changes rolled back / 0 file writes. Verify current content with \`read\` (the file may have changed) — also note: edits[${i}].oldText must match the file AFTER edits[0..${i - 1}] have been applied, so an earlier edit may have invalidated this one.`,
+          content: `Error: edit[${i}] 0 matches for oldText. All changes rolled back / 0 file writes. Verify current content with \`read\` (the file may have changed) — also note: edits[${i}].oldText must match the file AFTER edits[0..${i - 1}] have been applied, so an earlier edit may have invalidated this one.${nearHint}`,
           metadata: { failed_index: i, results },
         };
       }
       if (matches > 1 && !edit.replaceAll) {
+        // phase 1456 P2: attach match line list
+        const lines = findAllMatchLines(current, edit.oldText, 5);
+        const lineList = lines.join(', ') + (matches > 5 ? `, +${matches - 5} more` : '');
         return {
           success: false,
-          content: `Error: edit[${i}] ${matches} matches. Expand oldText with surrounding context or set replaceAll=true. All changes rolled back / 0 file writes. Use \`read\` to confirm current content if unsure.`,
+          content: `Error: edit[${i}] ${matches} matches at lines: ${lineList}. Expand oldText with surrounding context or set replaceAll=true. All changes rolled back / 0 file writes. Use \`read\` to confirm current content if unsure.`,
           metadata: { failed_index: i, results },
         };
       }
@@ -171,8 +196,10 @@ export const multiEditTool: Tool = {
       0,
     );
     const deltaHint = totalDelta === 0 ? '' : ` / line delta ${totalDelta >= 0 ? '+' : ''}${totalDelta}`;
+    // phase 1456 P6: line numbers reflect the file state BEFORE each edit was applied
+    // (subsequent edits may shift positions). Annotate to prevent misreading.
     const summary = results
-      .map(r => `  edit[${r.index}]: ${r.line !== null ? `at line ${r.line}` : '(in-edit chain)'} / replaced ${r.replaced}`)
+      .map(r => `  edit[${r.index}]: ${r.line !== null ? `at line ${r.line} (before this edit)` : '(in-edit chain)'} / replaced ${r.replaced}`)
       .join('\n');
     const previewBlock = firstEditPreview ? `\n\nFirst edit preview:\n${firstEditPreview}` : '';
     const moreHint = edits.length > 1 ? `\n(${edits.length - 1} more edit${edits.length - 1 === 1 ? '' : 's'} applied; preview shows edits[0])` : '';

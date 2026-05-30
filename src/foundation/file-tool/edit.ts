@@ -18,7 +18,7 @@ import { backupToSync } from './sync-backup.js';
 import { resolveWorkspacePath } from './resolve-path.js';
 import { recordEditResult } from './file-state-manager.js';
 import { enforceFullReadGate } from './fullread-gate.js';
-import { formatEditDiff, lineDelta } from './edit-format.js';
+import { formatEditDiff, lineDelta, findNearMatches, findAllMatchLines } from './edit-format.js';
 export const EDIT_TOOL_NAME = 'edit' as const;
 
 function countMatches(s: string, pattern: string): number {
@@ -83,6 +83,23 @@ export const editTool: Tool = {
     }
     checker.resolveAndCheck(resolved, 'write');
 
+    // phase 1456 P4: empty oldText is structurally invalid (would match nothing in a
+    // useful way). Reject explicitly rather than silently failing with "0 matches".
+    if (typeof oldText !== 'string' || oldText.length === 0) {
+      return {
+        success: false,
+        content: `Error: oldText must be a non-empty string for edit on '${filePath}'.`,
+      };
+    }
+    // phase 1456 P3: no-op edit (oldText === newText) consumes IO + bumps mtime + may
+    // refresh readFileState — violates DP「不丢弃/静默」. Reject + tell agent to skip.
+    if (oldText === newText) {
+      return {
+        success: false,
+        content: `Error: oldText === newText (no-op edit on '${filePath}'). Skip this edit or set newText to the intended replacement.`,
+      };
+    }
+
     // File must exist
     const exists = await ctx.fs.exists(resolved);
     if (!exists) {
@@ -97,15 +114,23 @@ export const editTool: Tool = {
     // Match checking
     const matches = countMatches(content, oldText);
     if (matches === 0) {
+      // phase 1456 P1: attach near-miss hint so agent knows where to look
+      const nearMatches = findNearMatches(content, oldText);
+      const nearHint = nearMatches.length > 0
+        ? '\n\nNear matches (line: text):\n' + nearMatches.map(m => `  ${m.line} (${m.score}): ${m.text}`).join('\n')
+        : '';
       return {
         success: false,
-        content: `Error: 0 matches for oldText in '${filePath}'. Verify current content with \`read\` (the file may have changed since your last read) and ensure whitespace / newlines / indentation match literally.`,
+        content: `Error: 0 matches for oldText in '${filePath}'. Verify current content with \`read\` (the file may have changed since your last read) and ensure whitespace / newlines / indentation match literally.${nearHint}`,
       };
     }
     if (matches > 1 && !replaceAll) {
+      // phase 1456 P2: attach match line list so agent can pick which to expand
+      const lines = findAllMatchLines(content, oldText, 5);
+      const lineList = lines.join(', ') + (matches > 5 ? `, +${matches - 5} more` : '');
       return {
         success: false,
-        content: `Error: ${matches} matches for oldText in '${filePath}'. Expand oldText with surrounding context to make it unique, or set replaceAll=true for explicit batch. Use \`read\` to confirm current content if unsure.`,
+        content: `Error: ${matches} matches for oldText in '${filePath}' (at lines: ${lineList}). Expand oldText with surrounding context to make it unique, or set replaceAll=true for explicit batch. Use \`read\` to confirm current content if unsure.`,
       };
     }
 

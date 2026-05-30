@@ -283,4 +283,93 @@ describe('multi_edit tool', () => {
       expect(content).toBe('foo CHANGED foo');
     });
   });
+
+  // phase 1456: error diagnostic + edge case polish
+  describe('phase 1456: error diagnostics + edge cases', () => {
+    it('edit[i] 0 match error includes near-miss hint', async () => {
+      await mockFs.ensureDir('clawspace');
+      await mockFs.writeAtomic('clawspace/n.txt', 'alpha\nexport function bar(x: number)\nomega');
+
+      const result = await multiEditTool.execute({
+        path: 'n.txt',
+        edits: [
+          { oldText: 'export function bar(x: number, y: string)', newText: 'whatever' },
+        ],
+      }, ctx);
+
+      expect(result.success).toBe(false);
+      expect(result.content).toContain('edit[0] 0 matches');
+      expect(result.content).toContain('Near matches');
+      expect(result.content).toContain('exact-prefix');
+    });
+
+    it('edit[i] multi match error includes line numbers list', async () => {
+      await mockFs.ensureDir('clawspace');
+      const lines = Array.from({ length: 6 }, (_, i) => `line ${i + 1} target`).join('\n');
+      await mockFs.writeAtomic('clawspace/m.txt', lines);
+
+      const result = await multiEditTool.execute({
+        path: 'm.txt',
+        edits: [
+          { oldText: 'target', newText: 'replaced' },
+        ],
+      }, ctx);
+
+      expect(result.success).toBe(false);
+      expect(result.content).toContain('6 matches at lines: 1, 2, 3, 4, 5, +1 more');
+    });
+
+    it('rejects no-op edit (oldText === newText) at entry without touching file', async () => {
+      await mockFs.ensureDir('clawspace');
+      await mockFs.writeAtomic('clawspace/nop.txt', 'content');
+      const writeSpy = vi.spyOn(mockFs, 'writeAtomic');
+
+      const result = await multiEditTool.execute({
+        path: 'nop.txt',
+        edits: [
+          { oldText: 'content', newText: 'replaced' },  // valid first
+          { oldText: 'same', newText: 'same' },         // no-op second
+        ],
+      }, ctx);
+
+      expect(result.success).toBe(false);
+      expect(result.content).toContain('edit[1]');
+      expect(result.content).toContain('no-op');
+      // no fs write should happen
+      const fileWrites = writeSpy.mock.calls.filter(([p]) => p === 'clawspace/nop.txt');
+      expect(fileWrites.length).toBe(0);
+      writeSpy.mockRestore();
+    });
+
+    it('rejects empty oldText at entry validation', async () => {
+      await mockFs.ensureDir('clawspace');
+      await mockFs.writeAtomic('clawspace/e.txt', 'content');
+
+      const result = await multiEditTool.execute({
+        path: 'e.txt',
+        edits: [
+          { oldText: '', newText: 'whatever' },
+        ],
+      }, ctx);
+
+      expect(result.success).toBe(false);
+      expect(result.content).toContain('edit[0].oldText must be a non-empty string');
+    });
+
+    it('Applied summary annotates line numbers as "before this edit"', async () => {
+      await mockFs.ensureDir('clawspace');
+      await mockFs.writeAtomic('clawspace/a.txt', 'alpha beta gamma');
+
+      const result = await multiEditTool.execute({
+        path: 'a.txt',
+        edits: [
+          { oldText: 'alpha', newText: 'A' },
+          { oldText: 'gamma', newText: 'G' },
+        ],
+      }, ctx);
+
+      expect(result.success).toBe(true);
+      expect(result.content).toContain('at line 1 (before this edit)');
+    });
+  });
 });
