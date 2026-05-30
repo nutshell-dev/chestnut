@@ -17,7 +17,7 @@ import { withCliErrorHandling } from './with-cli-error-handling.js';
 // who actually runs `start` or `init`.
 import { NodeFileSystem } from '../foundation/fs/node-fs.js';
 import type { FileSystem } from '../foundation/fs/types.js';
-import { dispatchClawSubcommand } from './commands/claw-router.js';
+import { dispatchClawSubcommand, renderClawTopHelp } from './commands/claw-router.js';
 
 import {
   initCommand as motionInitCommand,
@@ -87,26 +87,33 @@ program
     await initCommand({ fsFactory }, false, { audit });
   }));
 
-// claw command group — phase 1472：subject-first 形态
+// claw command group — phase 1472：subject-first 形态 / phase 1477：composer-driven help
 //
 //   clawforum claw <name> <verb> [args...]    一般形态：作用在指定 claw 上
 //   clawforum claw list [--json]              平面形态：跨 claw 列表
+//   clawforum claw help [<verb>]              composer-driven help 入口（phase 1477 α）
 //
 // 详 src/cli/commands/claw-router.ts。commander v13 `passThroughOptions(true)`
 // 把 `<subject>` 之后所有 token 原样塞进 [args...]、由 router 按 verb 解析。
-program
+//
+// phase 1477：用 composer 输出顶层 help、替 commander 默认 `Usage: ... <subject> [args...]`
+// （`<subject>` 是 commander 内部抽象、用户不需关心）。.helpOption(false) 关闭
+// commander 自家 -h/--help 处理（避免 "Usage: clawforum claw [options]" 头部漏出），
+// 由 router 内自家拦 `--help` / `-h` + `claw help [<verb>]` 关键字。顶层 `claw --help`
+// 也由 router 拦截（args 含 `--help` 当 verbToken 处理）。
+const clawCommand = program
   .command('claw <subject> [args...]')
-  .description(
-    'Manage Claws: `clawforum claw <name> <verb> [args]` or `clawforum claw list`.\n' +
-      'Verbs: create | chat | stop | health | send | outbox | import | read | read-state | steps | step | daemon | trace | status',
-  )
+  .description('Manage Claws (run `clawforum claw help` for full reference)')
   .passThroughOptions()
   .allowUnknownOption()
+  .helpOption(false)
   .action(
     withCliErrorHandling(async (subject: string, args: string[]) => {
       await dispatchClawSubcommand(subject, args, { fsFactory });
     }),
   );
+// Replace commander's default help output with composer-driven text.
+clawCommand.helpInformation = () => `${renderClawTopHelp()}\n`;
 
 // motion command group
 const motionCmd = program

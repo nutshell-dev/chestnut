@@ -40,6 +40,16 @@ import { parseIntOption } from '../parse-int-option.js';
 import { makeClawId, makeContractId } from '../../foundation/identity/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { clawStepsCommand, clawStepCommand } from './claw-steps.js';
+import {
+  CLAW_VERB_FACTS,
+  CLAW_RETIRED_VERBS,
+  type VerbFact,
+} from '../../foundation/cli-help/index.js';
+import {
+  composeClawHelp,
+  composeClawVerbHelp,
+  findVerbFact,
+} from '../../assembly/cli-help/index.js';
 
 export interface RouterDeps {
   fsFactory: (baseDir: string) => FileSystem;
@@ -68,9 +78,44 @@ type VerbName = typeof VERB_NAMES[number];
 
 const VERB_SET: ReadonlySet<string> = new Set(VERB_NAMES);
 
-// Verb names that ALSO appear as top-level subject (currently only `list`).
+/** Test-only re-export of VERB_NAMES so invariant tests can assert fact/router parity. */
+export const __TEST_VERB_NAMES_FROM_ROUTER: readonly string[] = VERB_NAMES;
+
+// Verb names that ALSO appear as top-level subject (flat verbs).
 // Used to reject claw names that collide with reserved tokens.
-const RESERVED_SUBJECTS: ReadonlySet<string> = new Set(['list']);
+// `help` joined as of phase 1477 (γ-help routing).
+const RESERVED_SUBJECTS: ReadonlySet<string> = new Set(['list', 'help']);
+
+/** Output one line to stdout (test-friendly indirection in case we capture later). */
+function writeHelp(text: string): void {
+  process.stdout.write(text.endsWith('\n') ? text : `${text}\n`);
+}
+
+/**
+ * Detect `--help` / `-h` in args. Returns the help flag if present.
+ * Used to intercept `claw <name> <verb> --help` and render per-verb help
+ * before the per-verb option parser sees the flag.
+ */
+function findHelpFlag(args: readonly string[]): boolean {
+  return args.some((a) => a === '--help' || a === '-h');
+}
+
+/** Render top-level claw help (composer-driven, replaces commander default). */
+export function renderClawTopHelp(): string {
+  return composeClawHelp(CLAW_VERB_FACTS, CLAW_RETIRED_VERBS);
+}
+
+/** Render per-verb help. Returns undefined if verb name not registered. */
+export function renderClawVerbHelp(verbName: string): string | undefined {
+  const fact = findVerbFact(CLAW_VERB_FACTS, verbName);
+  if (!fact) return undefined;
+  return composeClawVerbHelp(fact);
+}
+
+/** Resolve a fact by verb name (test helper). */
+export function getClawVerbFact(verbName: string): VerbFact | undefined {
+  return findVerbFact(CLAW_VERB_FACTS, verbName);
+}
 
 /**
  * Make a fresh commander Command for an ad-hoc verb-scoped option parse.
@@ -93,6 +138,32 @@ export async function dispatchClawSubcommand(
   args: string[],
   deps: RouterDeps,
 ): Promise<void> {
+  // Path 0a: `claw --help` / `claw -h` — commander has helpOption(false) so
+  // these tokens flow through as `subject` (passThroughOptions). Treat them
+  // as alias of `claw help`.
+  if (subject === '--help' || subject === '-h') {
+    writeHelp(renderClawTopHelp());
+    return;
+  }
+
+  // Path 0: `claw help [<verb>]` — α help routing (phase 1477).
+  // `claw help` → top-level help / `claw help <verb>` → per-verb help.
+  if (subject === 'help') {
+    const verbToken = args[0];
+    if (!verbToken) {
+      writeHelp(renderClawTopHelp());
+      return;
+    }
+    const verbHelp = renderClawVerbHelp(verbToken);
+    if (!verbHelp) {
+      throw new CliError(
+        `unknown verb '${verbToken}'. available: ${VERB_NAMES.join(', ')}`,
+      );
+    }
+    writeHelp(verbHelp);
+    return;
+  }
+
   // Path 1: `claw list [--json]`
   if (subject === 'list') {
     const parser = makeVerbParser('status'); // dummy name for option parsing
@@ -126,6 +197,18 @@ export async function dispatchClawSubcommand(
 
   const verb = verbToken as VerbName;
   const verbArgs = args.slice(1);
+
+  // β help intercept (phase 1477): `claw <name> <verb> --help` / `-h`
+  // → render per-verb help and short-circuit before per-verb option parser
+  //   (commander would otherwise error on unknown option / required arg).
+  if (findHelpFlag(verbArgs)) {
+    const verbHelp = renderClawVerbHelp(verb);
+    // Guarded by VERB_SET above; renderClawVerbHelp must succeed.
+    if (verbHelp) {
+      writeHelp(verbHelp);
+      return;
+    }
+  }
 
   switch (verb) {
     case 'create': return runCreate(deps, name, verbArgs);
