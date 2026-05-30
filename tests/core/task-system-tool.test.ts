@@ -544,6 +544,12 @@ describe('AsyncTaskSystem Tool Tasks', () => {
 
   describe('cold-start recovery', () => {
     it('should recover subagent tasks from pending/ on initialize', async () => {
+      // phase 1438: 停 beforeEach taskSystem dispatch watcher 防 race。
+      // root cause：startDispatch() 起 fs watcher 监听 <testClawDir>/tasks/queues/pending/
+      // (system.ts:153-193)、本测试同 dir 直接 write file 会触发 watcher 'add' →
+      // _ingestPendingFile 异步搬到 running/ → exists() race。详 project_phase1438。
+      await taskSystem.shutdown(0).catch(() => {});
+
       // Directly write a pending subagent file without going through scheduleTool
       const taskId = 'recovered-subagent-id';
       const task = { 
@@ -736,6 +742,9 @@ describe('AsyncTaskSystem Tool Tasks', () => {
     });
 
     it('should recover pending/ tool tasks on initialize (fs-driven)', async () => {
+      // phase 1438: 停 beforeEach taskSystem dispatch watcher 防 race（sister to L546）
+      await taskSystem.shutdown(0).catch(() => {});
+
       // phase432: ToolTask 改 fs-driven / pending 中的 tool task 保留并被 ingest 执行
       const taskId = 'pending-tool-task-id';
       const task = {
