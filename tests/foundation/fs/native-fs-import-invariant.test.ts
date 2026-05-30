@@ -7,6 +7,10 @@ describe('foundation/fs: native fs import invariant (phase 1283 ML#3 lock)', () 
     'src/foundation/fs/',
     'src/foundation/audit/writer.ts',
     'src/foundation/process-exec/spawn-detached.ts',
+    // phase 1436 hotfix: resolveSpawnEntry checks bundled dist entry existence
+    // via PATHS_THIS_DIR (process-internal, can't go through FileSystem abstraction
+    // which requires a baseDir context).
+    'src/foundation/paths.ts',
   ];
 
   function findTsFiles(dir: string): string[] {
