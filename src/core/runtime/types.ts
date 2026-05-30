@@ -10,6 +10,7 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import type { Snapshot } from '../../foundation/snapshot/index.js';
 import type { DialogStore } from '../../foundation/dialog-store/index.js';
 import type { InboxReader, OutboxWriter, MessageFormatterRegistry } from '../../foundation/messaging/index.js';
+import type { MotionGuidanceRegistry } from '../../assembly/guidance/index.js';
 import type { ToolRegistry } from '../../foundation/tools/index.js';
 import type { IToolExecutor } from '../../foundation/tools/index.js';
 import type { ContextInjector } from '../dialog/index.js';
@@ -61,6 +62,13 @@ export interface RuntimeDependencies {
 
   /** phase 1414: inbox 消息 formatter 注册表（Assembly 装配期填、各业主自家 formatter）*/
   readonly formatterRegistry: MessageFormatterRegistry;
+
+  /**
+   * phase 1469: motion guidance registry — Assembly motion 装配期填 / claw 装配 undefined.
+   * Runtime motion-side formatInboxMessage 末端 append guidance / claw 见 phase 1414 形态不变.
+   * 详 design/modules/l2_messaging.md §10.
+   */
+  readonly guidanceRegistry?: MotionGuidanceRegistry;
 }
 
 /** 1:1 保 runtime.ts:74-101 body */
