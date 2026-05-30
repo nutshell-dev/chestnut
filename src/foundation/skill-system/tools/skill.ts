@@ -45,7 +45,7 @@ export function createSkillTool(skillRegistry: SkillSystem, opts: SkillToolOptio
           type: 'string',
           enum: ['self', 'dispatch'],
           default: 'self',
-          description: "Which skill pool to load from. 'self' (default) = caller's own skills/ directory. 'dispatch' = Motion's dispatch template library (Motion only; rejected for other claws).",
+          description: "Which skill pool to load from. 'self' (default) = caller's own skill pool. 'dispatch' = Motion's dispatch template pool (Motion only; rejected for other claws).",
         },
       },
       required: ['name'],

@@ -66,19 +66,19 @@ export function buildSummonContractTask(
 
   task += `
 
-### 2. 安装 dispatch-skills（如需要）
+### 2. 安装 dispatch 模板（如需要）
 
-**两类技能目录，定位不同：**
-- \`skills/\`：Motion 自己用的技能（如 \`clawforum-guide\`）
-- \`./dispatch-skills/\`：可安装到 claw 的任务模板，摘要已在上方列出
+**两类技能池，定位不同：**
+- \`scope: "self"\`：Motion 自己用的技能（如 \`clawforum-guide\`）
+- \`scope: "dispatch"\`：可安装到 claw 的任务模板，摘要已在上方列出
 
-如需查看某个 dispatch-skill 的完整内容：
+如需查看某个 dispatch 模板的完整内容：
 skill: { "name": "<skill-name>", "scope": "dispatch" }
 
-如需将 dispatch-skill 安装到目标 claw：
+如需将 dispatch 模板安装到目标 claw：
 exec: clawforum skill install --claw <id> --skill <name>
 
-**注意**：直接调用 \`skill: { "name": "..." }\`（不带 \`scope\`，默认 \`scope: "self"\`）只查 Motion 自己的 \`skills/\`，找不到 dispatch-skill。
+**注意**：直接调用 \`skill: { "name": "..." }\`（不带 \`scope\`，默认 \`scope: "self"\`）只查 Motion 自己的 self 池，找不到 dispatch 模板。
 
 ### 3. 写契约文件
 
