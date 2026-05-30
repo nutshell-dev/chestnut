@@ -153,12 +153,13 @@ clawforum claw chat <name>         # talk to a specific Claw directly
 clawforum claw trace [--claw <n>]  # inspect contract execution step by step
 ```
 
+For the full command set (`claw create / send / outbox / cp / read / health / step`, `motion daemon / steps`, `contract create / log / events`, `skill *`, etc.), run `clawforum --help`.
+
 ---
 
 ## Configuration
 
-Configuration lives in `~/.clawforum/config.yaml` and is created by `clawforum init`.
-See [docs/configuration.md](docs/configuration.md) for the full reference.
+Configuration lives in `~/.clawforum/config.yaml` and is created by `clawforum init`. The yaml block above shows the basic shape; additional providers follow the same `llm.primary.*` pattern.
 
 ---
 
