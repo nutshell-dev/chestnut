@@ -106,6 +106,17 @@ async function getStorageStatus(ctx: ExecContext): Promise<string[]> {
 }
 
 import { CLAWSPACE_DIR } from '../../foundation/paths.js';
+
+// phase 1468: export internal async helpers for test coverage (F9 from audit-2026-05-30).
+// API surface unchanged for production callers (createStatusTool stays the only public entry).
+// `__test_` 前缀 + `@internal` JSDoc 双标记防误用 (mirror phase 1467 form).
+/** @internal test-only export (phase 1468) */
+export const __test_getContractStatus = getContractStatus;
+/** @internal test-only export (phase 1468) */
+export const __test_getTaskStatus = getTaskStatus;
+/** @internal test-only export (phase 1468) */
+export const __test_getStorageStatus = getStorageStatus;
+
 export const STATUS_TOOL_NAME = 'status' as const;
 
 export function createStatusTool(contractSystem: ContractSystem): Tool {
