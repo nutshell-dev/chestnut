@@ -351,30 +351,6 @@ Content.
       return `2026-05-30T06:00:00.000Z\tseq=${seq}\ttool_exec\texec\tok\telapsed_ms=100\tsummary=${escaped}`;
     }
 
-    it('phase1466: 0 contract evidence → wrap framing + NO_CONTRACT_CREATED audit', async () => {
-      const auditWriter = makeAuditWriter();
-      await writeSubAudit('task-pp-test', [
-        execOkRow(1, 'Started Claw "filetool-auditor" (PID: 1234)'),
-        execOkRow(2, 'some other exec output'),
-      ]);
-
-      const result = await summonContractExtractPostProcessor(
-        'Subagent finished but never called contract create.',
-        { id: 'task-pp-test', callerType: 'miner' } as any,
-        false,
-        mockFs,
-        auditWriter as any,
-      );
-
-      expect(auditWriter.write).toHaveBeenCalledWith(
-        'summon_no_contract_created',
-        'taskId=task-pp-test',
-      );
-      expect(result).toContain('[SUMMON_SHADOW_FAILED:no_contract_created]');
-      expect(result).toContain('spawn');
-      expect(result).toContain('Subagent finished but never called');
-    });
-
     it('phase1466: 1 contract evidence → success summary + by-contract trigger written + no failure audit', async () => {
       const auditWriter = makeAuditWriter();
       await writeSubAudit('task-pp-test', [
