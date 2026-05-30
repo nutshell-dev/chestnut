@@ -50,6 +50,9 @@ import { cleanupOrphanedTemp } from './cleanup.js';
 import { createInboxReader, createOutboxWriter, notifyInbox, notifyClaw, InboxWriter, createMessaging, makeInboxPath } from '../foundation/messaging/index.js';
 // phase 1414: formatter registry + Messaging 自家通用 formatter
 import { createMessageFormatterRegistry, registerMessagingFormatters } from '../foundation/messaging/index.js';
+// phase 1469: motion guidance registry (motion-only / claw 不装)
+import { createMotionGuidanceRegistry, registerAllMotionGuidance } from './guidance/index.js';
+import type { MotionGuidanceRegistry } from './guidance/index.js';
 import type { MessageFormatterRegistry } from '../foundation/messaging/index.js';
 // phase 1414: 业主自家 inbox-formatter
 // phase 1419: 4 业主补注 sister（contract / daemon / memory / watchdog inactivity）+ Watchdog 切 register helper 形态
@@ -496,6 +499,14 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
       );
     }
 
+    // phase 1469: motion guidance registry (motion-only 装 / claw 装配 undefined)
+    // 业主 facts + state schema / Assembly own composer 物理 / 22 type 全 register（含 NO_GUIDANCE sentinel）
+    let guidanceRegistry: MotionGuidanceRegistry | undefined;
+    if (isMotion) {
+      guidanceRegistry = createMotionGuidanceRegistry();
+      registerAllMotionGuidance(guidanceRegistry);
+    }
+
     // --- Snapshot（phase155B 已搬，但需保证在 Runtime 之前） ---
     let snapshot: Snapshot;
     try {
@@ -569,6 +580,8 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
       dialogStoreFactory: makeDialogStore,
       // phase 1414: inbox 消息 formatter 注册表（业主自家 register）
       formatterRegistry,
+      // phase 1469: motion guidance registry（motion-only / claw 装配 undefined）
+      guidanceRegistry,
     };
 
     // 孤儿临时文件清理（从 Runtime.initialize 搬来；Assembly 负责一次性的启动清理）

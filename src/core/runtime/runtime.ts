@@ -17,6 +17,7 @@ import type { Message } from '../../foundation/llm-provider/types.js';
 import type { InboxMessage } from '../../foundation/messaging/types.js';
 import { InboxListFailed, InboxMoveFailed } from '../../foundation/messaging/index.js';
 import type { MessageFormatterRegistry } from '../../foundation/messaging/index.js';
+import type { MotionGuidanceRegistry } from '../../assembly/guidance/index.js';
 
 import { DialogStore, performRegimeSwitch } from '../../foundation/dialog-store/index.js';
 import { loadReadFileState, clearReadFileState } from '../../foundation/file-tool/file-state-persist.js';
@@ -120,6 +121,8 @@ export class Runtime {
   private snapshot!: Snapshot;
   // phase 1414: inbox 消息 formatter 注册表（Assembly 装配期填、各业主自家）
   private formatterRegistry!: MessageFormatterRegistry;
+  // phase 1469: motion guidance registry — motion 装配期填 / claw undefined / formatInboxMessage 末端 motion-side append
+  private guidanceRegistry?: MotionGuidanceRegistry;
 
   // phase 521: regime switch coordination
   private dialogStoreFactory!: () => DialogStore;
@@ -136,6 +139,7 @@ export class Runtime {
     const deps = options.dependencies;
     this.dialogStoreFactory = deps.dialogStoreFactory;
     this.formatterRegistry = deps.formatterRegistry;   // phase 1414: ctor-time bind（formatInboxMessage 可在 initialize 前调）
+    this.guidanceRegistry = deps.guidanceRegistry;     // phase 1469: motion-only / claw undefined
     if (deps.parentStreamLog) {
       deps.taskSystem.setParentStreamLog(deps.parentStreamLog);
     }
@@ -349,11 +353,18 @@ export class Runtime {
    * 通过 formatterRegistry 自家 register 自家 message type formatter。
    * Runtime 不字面持任何上下游 message type / 措辞 / FS 读 / 业主 audit。
    */
-  protected async formatInboxMessage(type: string, from: string, body: string, timestamp?: string): Promise<string> {
+  protected async formatInboxMessage(
+    type: string,
+    from: string,
+    body: string,
+    timestamp?: string,
+    extraMeta?: Record<string, string>,
+  ): Promise<string> {
     const ago = timestamp ? formatTimeAgo(timestamp) : '';
     const t = ago ? ` (${ago})` : '';
 
     const formatter = this.formatterRegistry.resolve(type);
+    let formatted: string;
     if (!formatter) {
       // DP 不静默：未注册 type 必 audit + 走默 fallback（不丢消息）
       this.auditWriter.write(
@@ -361,9 +372,26 @@ export class Runtime {
         `type=${type}`,
         `from=${from}`,
       );
-      return `[system message${t}] ${body}`;
+      formatted = `[system message${t}] ${body}`;
+    } else {
+      formatted = await formatter({ from, body, timestampSec: t });
     }
-    return formatter({ from, body, timestampSec: t });
+
+    // phase 1469: motion-side append guidance（motion 装配 guidanceRegistry 必持 / claw undefined → 跳）
+    if (this.guidanceRegistry) {
+      try {
+        const g = this.guidanceRegistry.compose(type, extraMeta ?? {});
+        if (g) formatted += '\n\n' + g.text;
+      } catch (e) {
+        // 不可预期失败暴露 / audit emit / 不破 message 投递（fallback graceful、仅缺 guidance 追加）
+        this.auditWriter.write(
+          'guidance_composer_failed',
+          `type=${type}`,
+          `reason=${e instanceof Error ? e.message : String(e)}`,
+        );
+      }
+    }
+    return formatted;
   }
 
   /**
@@ -472,6 +500,7 @@ export class Runtime {
         message.from,
         message.content,
         message.timestamp,
+        message.extraMeta,   // phase 1469: motion-side guidance composer reads state from extraMeta
       );
       if (message.type === 'user_chat') {
         userChatParts.push(formatted);
