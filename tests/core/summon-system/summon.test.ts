@@ -339,10 +339,27 @@ Content.
       return { write: vi.fn() };
     }
 
-    it('should audit when dispatcher finishes without [CONTRACT_DONE] block', async () => {
+    async function writeSubAudit(taskId: string, rows: string[]): Promise<void> {
+      const auditDir = path.join(tempDir, 'tasks', 'queues', 'results', taskId);
+      await fs.mkdir(auditDir, { recursive: true });
+      await fs.writeFile(path.join(auditDir, 'audit.tsv'), rows.join('\n') + '\n');
+    }
+
+    function execOkRow(seq: number, summary: string): string {
+      // mimic ToolExecutor audit row format (executor.ts:222-228 + escapeForLog)
+      const escaped = summary.replace(/\n/g, '\\n').slice(0, 120);
+      return `2026-05-30T06:00:00.000Z\tseq=${seq}\ttool_exec\texec\tok\telapsed_ms=100\tsummary=${escaped}`;
+    }
+
+    it('phase1466: 0 contract evidence → wrap framing + NO_CONTRACT_CREATED audit', async () => {
       const auditWriter = makeAuditWriter();
+      await writeSubAudit('task-pp-test', [
+        execOkRow(1, 'Started Claw "filetool-auditor" (PID: 1234)'),
+        execOkRow(2, 'some other exec output'),
+      ]);
+
       const result = await summonContractExtractPostProcessor(
-        'Dispatcher finished with no marker.',
+        'Subagent finished but never called contract create.',
         { id: 'task-pp-test', callerType: 'miner' } as any,
         false,
         mockFs,
@@ -350,34 +367,20 @@ Content.
       );
 
       expect(auditWriter.write).toHaveBeenCalledWith(
-        'summon_contract_done_not_found',
+        'summon_no_contract_created',
         'taskId=task-pp-test',
       );
-      expect(result).toBe('Dispatcher finished with no marker.');
+      expect(result).toContain('[SUMMON_SHADOW_FAILED:no_contract_created]');
+      expect(result).toContain('spawn');
+      expect(result).toContain('Subagent finished but never called');
     });
 
-    it('should audit when [CONTRACT_DONE] parsed but fields missing', async () => {
+    it('phase1466: 1 contract evidence → success summary + by-contract trigger written + no failure audit', async () => {
       const auditWriter = makeAuditWriter();
-      const result = await summonContractExtractPostProcessor(
-        'Done.\n[CONTRACT_DONE]{"targetClaw":"my-claw"}[/CONTRACT_DONE]',
-        { id: 'task-pp-test', callerType: 'shadow' } as any,
-        false,
-        mockFs,
-        auditWriter as any,
-      );
-
-      expect(auditWriter.write).toHaveBeenCalledWith(
-        'summon_contract_done_missing_fields',
-        'taskId=task-pp-test',
-        'contractId=missing',
-        'targetClaw=my-claw',
-      );
-      expect(result).toContain('[CONTRACT_DONE]');
-    });
-
-    it('should write by-contract file and return summary on valid [CONTRACT_DONE]', async () => {
-      const auditWriter = makeAuditWriter();
-      const resultText = 'Work done.\n[CONTRACT_DONE]{"contractId":"c-001","targetClaw":"my-claw"}[/CONTRACT_DONE]';
+      await writeSubAudit('task-pp-test', [
+        execOkRow(1, 'Contract created: 1780122465165-bcf86856 for claw filetool-auditor'),
+      ]);
+      const resultText = 'wj，已派出 filetool-auditor 去审查 L2c FileTool 模块！';
       const summary = await summonContractExtractPostProcessor(
         resultText,
         { id: 'task-pp-test', callerType: 'miner' } as any,
@@ -386,70 +389,111 @@ Content.
         auditWriter as any,
       );
 
-      // by-contract 文件写入
       const byContractPath = path.join(
-        tempDir, 'clawspace', 'pending-retrospective', 'by-contract', 'c-001.json',
+        tempDir, 'clawspace', 'pending-retrospective', 'by-contract', '1780122465165-bcf86856.json',
       );
       const raw = JSON.parse(await fs.readFile(byContractPath, 'utf-8'));
-      expect(raw.contractId).toBe('c-001');
-      expect(raw.targetClaw).toBe('my-claw');
+      expect(raw.contractId).toBe('1780122465165-bcf86856');
+      expect(raw.targetClaw).toBe('filetool-auditor');
       expect(raw.mode).toBe('mining');
       expect(raw.miningTaskId).toBe('task-pp-test');
 
-      // 摘要不含 CONTRACT_DONE 块
-      expect(summary).not.toContain('[CONTRACT_DONE]');
-      expect(summary).toContain('Work done.');
+      expect(summary).toContain('wj，已派出 filetool-auditor');
+      expect(summary).toContain('[CONTRACTS_CREATED]');
+      expect(summary).toContain('1780122465165-bcf86856 (claw=filetool-auditor)');
+      expect(summary).not.toContain('[SUMMON_SHADOW_FAILED');
 
-      // 无 dispatch audit 事件（全是正常路径）
-      const dispatchCalls = auditWriter.write.mock.calls.filter(
+      const failCalls = auditWriter.write.mock.calls.filter(
         (c: any) => c[0]?.startsWith('summon_'),
       );
-      expect(dispatchCalls).toHaveLength(0);
+      expect(failCalls).toHaveLength(0);
     });
 
-    it('should derive mode=shadow from callerType=shadow', async () => {
+    it('phase1466: N contracts evidence → N by-contract triggers, all independent', async () => {
       const auditWriter = makeAuditWriter();
-      const resultText = '[CONTRACT_DONE]{"contractId":"c-desc","targetClaw":"claw-b"}[/CONTRACT_DONE]';
-      await summonContractExtractPostProcessor(
-        resultText,
-        { id: 'task-desc', callerType: 'shadow' } as any,
+      await writeSubAudit('task-multi', [
+        execOkRow(1, 'Contract created: c1-aaa for claw claw-alpha'),
+        execOkRow(5, 'Contract created: c2-bbb for claw claw-beta'),
+      ]);
+
+      const summary = await summonContractExtractPostProcessor(
+        'Done.',
+        { id: 'task-multi', callerType: 'shadow' } as any,
         false,
         mockFs,
         auditWriter as any,
       );
 
-      const byContractPath = path.join(
-        tempDir, 'clawspace', 'pending-retrospective', 'by-contract', 'c-desc.json',
-      );
-      const raw = JSON.parse(await fs.readFile(byContractPath, 'utf-8'));
-      expect(raw.mode).toBe('shadow');
-      expect(raw.shadowTaskId).toBe('task-desc');
-      expect(raw.miningTaskId).toBeUndefined();
+      const aPath = path.join(tempDir, 'clawspace', 'pending-retrospective', 'by-contract', 'c1-aaa.json');
+      const bPath = path.join(tempDir, 'clawspace', 'pending-retrospective', 'by-contract', 'c2-bbb.json');
+      const a = JSON.parse(await fs.readFile(aPath, 'utf-8'));
+      const b = JSON.parse(await fs.readFile(bPath, 'utf-8'));
+      expect(a.targetClaw).toBe('claw-alpha');
+      expect(b.targetClaw).toBe('claw-beta');
+      expect(a.mode).toBe('shadow');
+      expect(a.shadowTaskId).toBe('task-multi');
+      expect(summary).toContain('c1-aaa (claw=claw-alpha)');
+      expect(summary).toContain('c2-bbb (claw=claw-beta)');
     });
 
-    it('should audit when [CONTRACT_DONE] JSON parse fails', async () => {
+    it('phase1466: subAudit file missing → fallthrough to failure wrap', async () => {
       const auditWriter = makeAuditWriter();
-      await summonContractExtractPostProcessor(
-        'Done.\n[CONTRACT_DONE]{invalid json}[/CONTRACT_DONE]',
-        { id: 'task-pp-test', callerType: 'miner' } as any,
+      // no writeSubAudit call → audit.tsv doesn't exist
+
+      const result = await summonContractExtractPostProcessor(
+        'Result text.',
+        { id: 'task-no-audit', callerType: 'shadow' } as any,
         false,
         mockFs,
         auditWriter as any,
       );
 
       expect(auditWriter.write).toHaveBeenCalledWith(
-        'summon_contract_done_parse_failed',
-        expect.stringContaining('raw='),
+        'summon_no_contract_created',
+        'taskId=task-no-audit',
       );
+      expect(result).toContain('[SUMMON_SHADOW_FAILED:no_contract_created]');
     });
 
-    it('should audit when writeByContract fails', async () => {
+    it('phase1466: malformed audit rows are skipped, valid rows still extracted', async () => {
       const auditWriter = makeAuditWriter();
+      await writeSubAudit('task-mixed', [
+        'malformed line with no tabs',
+        '\t\t\t\t\t\t',  // empty cols
+        execOkRow(1, 'Contract created: c-good for claw real-claw'),
+        '2026-05-30T06:00:00.000Z\tseq=2\ttool_exec\texec\terr\telapsed_ms=10\tsummary=Some error',  // err status filtered
+        '2026-05-30T06:00:00.000Z\tseq=3\ttool_exec\twrite\tok\telapsed_ms=5\tsummary=Contract created: fake for claw should-not-match',  // wrong tool name
+      ]);
+
+      const summary = await summonContractExtractPostProcessor(
+        'Done.',
+        { id: 'task-mixed', callerType: 'shadow' } as any,
+        false,
+        mockFs,
+        auditWriter as any,
+      );
+
+      const goodPath = path.join(tempDir, 'clawspace', 'pending-retrospective', 'by-contract', 'c-good.json');
+      const good = JSON.parse(await fs.readFile(goodPath, 'utf-8'));
+      expect(good.contractId).toBe('c-good');
+
+      const fakePath = path.join(tempDir, 'clawspace', 'pending-retrospective', 'by-contract', 'fake.json');
+      await expect(fs.access(fakePath)).rejects.toThrow();  // not written
+
+      expect(summary).toContain('c-good (claw=real-claw)');
+      expect(summary).not.toContain('fake');
+    });
+
+    it('phase1466: writeByContract fail → audit WRITE_BY_CONTRACT_FAILED, evidence still drives success summary', async () => {
+      const auditWriter = makeAuditWriter();
+      await writeSubAudit('task-w-fail', [
+        execOkRow(1, 'Contract created: c-failwrite for claw my-claw'),
+      ]);
       const writeSpy = vi.spyOn(mockFs, 'writeAtomic').mockRejectedValue(new Error('disk full'));
 
-      await summonContractExtractPostProcessor(
-        '[CONTRACT_DONE]{"contractId":"c-002","targetClaw":"my-claw"}[/CONTRACT_DONE]',
-        { id: 'task-pp-test', callerType: 'miner' } as any,
+      const summary = await summonContractExtractPostProcessor(
+        'Done.',
+        { id: 'task-w-fail', callerType: 'miner' } as any,
         false,
         mockFs,
         auditWriter as any,
@@ -457,9 +501,12 @@ Content.
 
       expect(auditWriter.write).toHaveBeenCalledWith(
         'summon_write_by_contract_failed',
-        'contractId=c-002',
+        'contractId=c-failwrite',
         'error=disk full',
       );
+      // evidence existed → still success summary (retro 失败不改判定 / 契约已真创建)
+      expect(summary).toContain('[CONTRACTS_CREATED]');
+      expect(summary).toContain('c-failwrite');
 
       writeSpy.mockRestore();
     });

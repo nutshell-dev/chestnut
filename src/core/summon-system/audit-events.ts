@@ -9,9 +9,12 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 
 export const SUMMON_AUDIT_EVENTS = {
   LOAD_SKILLS_FAILED: 'summon_load_skills_failed',
-  CONTRACT_DONE_NOT_FOUND: 'summon_contract_done_not_found',
-  CONTRACT_DONE_PARSE_FAILED: 'summon_contract_done_parse_failed',
-  CONTRACT_DONE_MISSING_FIELDS: 'summon_contract_done_missing_fields',
+  /**
+   * phase 1466: subagent 完成但 0 次 contract create 成功（根据 subAudit ground truth）。
+   * 取代 phase 1464 三件套（CONTRACT_DONE_NOT_FOUND/PARSE_FAILED/MISSING_FIELDS）的语义、
+   * 判定从 LLM marker 自报告改系统真相（exec audit row）。
+   */
+  NO_CONTRACT_CREATED: 'summon_no_contract_created',
   WRITE_BY_CONTRACT_FAILED: 'summon_write_by_contract_failed',
   NO_DIALOG_CONTEXT: 'summon_no_dialog_context',
   RETRO_INDEX_PARSE_FAILED: 'retro_index_parse_failed',
