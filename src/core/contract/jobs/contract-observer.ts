@@ -76,15 +76,19 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
   }
 
   const events: string[] = [];
+  const allProblemPairs: string[] = [];
 
 
   for (const clawId of clawIds) {
     if (options.signal?.aborted) return;
     try {
       const clawDir = makeClawDir(path.join(clawforumRoot, CLAWS_DIR, clawId));
-      const clawEvents = collectContractEvents(fs, clawDir, makeClawId(clawId), lastCheckTs, motionAudit);
-      if (clawEvents.length > 0) {
-        events.push(clawEvents.join('\n'));
+      const result = collectContractEvents(fs, clawDir, makeClawId(clawId), lastCheckTs, motionAudit);
+      if (result.events.length > 0) {
+        events.push(result.events.join('\n'));
+      }
+      if (result.problemPairs.length > 0) {
+        allProblemPairs.push(...result.problemPairs);
       }
     } catch (e) {
       motionAudit.write(
@@ -97,11 +101,18 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
 
   // 有事件时写 motion inbox
   if (events.length > 0) {
+    // phase 1487: 经 extraFields 透传 problem_pairs 给 motion guidance composer
+    // observer 不扫 motion 自家 archive（scan claws/ 只含 worker）→ 不设 source_claw
+    //   (composer 见 source_claw 缺 → 走 problem_pairs 分支判 guidance)
+    // A3 callback 在 assemble.ts:550 单独透传 source_claw=clawId（含 motion 自家 contract 路径）
     notifyClawFn(fs, clawforumRoot, MOTION_CLAW_ID, {
       type: 'contract_events',
       source: 'system',
       priority: 'high',
       body: events.join('\n\n'),
+      extraFields: {
+        problem_pairs: allProblemPairs.join(','),
+      },
     }, motionAudit);
   }
 

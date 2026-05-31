@@ -328,9 +328,9 @@ describe('event-collector schema check', () => {
       },
     ]);
 
-    const events = collectContractEvents(fsMock, clawDir, 'test-claw', 0, mockAudit as any);
-    expect(events.length).toBe(1);
-    expect(events[0]).toContain('contract=good');
+    const result = collectContractEvents(fsMock, clawDir, 'test-claw', 0, mockAudit as any);
+    expect(result.events.length).toBe(1);
+    expect(result.events[0]).toContain('contract=good');
 
     expect(mockAudit.write).toHaveBeenCalledWith(
       'contract_progress_schema_invalid',
@@ -357,8 +357,8 @@ describe('event-collector schema check', () => {
       },
     } as unknown as FileSystem;
 
-    const events = collectContractEvents(fsMock, clawDir, 'test-claw', 0, mockAudit as any);
-    expect(events).toHaveLength(0);
+    const result = collectContractEvents(fsMock, clawDir, 'test-claw', 0, mockAudit as any);
+    expect(result.events).toHaveLength(0);
 
     expect(mockAudit.write).toHaveBeenCalledWith(
       'contract_progress_corrupted',

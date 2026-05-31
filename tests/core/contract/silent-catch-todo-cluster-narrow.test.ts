@@ -38,7 +38,8 @@ describe('phase 1010 — silent X TODO cluster narrow', () => {
     const { audit, events } = makeAudit();
     const fs = makeFsThrow('ENOENT');
     const result = collectContractEvents(fs, '/tmp/claw', 'claw1', 0, audit);
-    expect(result).toEqual([]);
+    expect(result.events).toEqual([]);
+    expect(result.problemPairs).toEqual([]);
     expect(events).toHaveLength(0);
   });
 
@@ -57,7 +58,8 @@ describe('phase 1010 — silent X TODO cluster narrow', () => {
       existsSync: () => true,
     } as unknown as FileSystem;
     const result = collectContractEvents(fs, '/tmp/claw', 'claw1', 0, audit);
-    expect(result).toEqual([]);
+    expect(result.events).toEqual([]);
+    expect(result.problemPairs).toEqual([]);
     expect(events).toHaveLength(1);
     expect(events[0][0]).toBe(CONTRACT_AUDIT_EVENTS.EVENT_COLLECTOR_SCAN_FAILED);
     expect(events[0]).toContain('dir=archive');

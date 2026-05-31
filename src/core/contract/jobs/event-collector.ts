@@ -25,32 +25,51 @@ function readContractMeta(
   }
 }
 
+interface FormattedEvent {
+  body: string;
+  hasFailure: boolean;     // 任意 subtask 有 last_failed_feedback
+}
+
 function formatContractCompletedEvent(
   clawId: ClawId,
   contractDirName: string,
   meta: { title?: string; goal?: string },
   progress: ProgressData,
-): string {
+): FormattedEvent {
   const lines: string[] = [`[contract_completed] claw=${clawId} contract=${contractDirName}`];
   if (meta.title) lines.push(`  title: ${meta.title}`);
   if (meta.goal) lines.push(`  goal: ${meta.goal}`);
 
+  let hasFailure = false;
   const completed = Object.entries(progress.subtasks)
     .filter(([, st]) => st.status === 'completed');
   if (completed.length > 0) {
     lines.push('  subtasks:');
     for (const [stId, st] of completed) {
-      const prefix = st.force_accepted ? '[force-accepted] ' : '';
+      // phase 1487: 去 [force-accepted] prefix（语义诚实化 / motion 是决策主体 / DP）
+      // subtask 真实态 = claw 声称提交 + 可选 last_failure 反馈 / system 不替 motion 标注「已接受」
+      // force_accepted boolean 字段保留内部 verification-lifecycle 流程不动
       const ev = st.evidence ?? '';
-      lines.push(`    ${prefix}[${stId}] ${ev}`);
+      lines.push(`    [${stId}] ${ev}`);
       if (st.last_failed_feedback?.feedback) {
         lines.push(`      ⚠ last_failure: ${st.last_failed_feedback.feedback}`);
+        hasFailure = true;
       }
     }
   }
-  return lines.join('\n');
+  return { body: lines.join('\n'), hasFailure };
 }
 
+
+/**
+ * phase 1487: 返回结构化 result 替 string[].
+ * `events` 字段保留原 join 兼容性 / `problemPairs` 用于 motion guidance composer extraMeta.
+ */
+export interface CollectedContractEventsResult {
+  events: string[];
+  /** [`<clawId>:<contractDirName>`, ...] for entries with last_failure feedback */
+  problemPairs: string[];
+}
 
 export function collectContractEvents(
   fs: FileSystem,
@@ -58,8 +77,9 @@ export function collectContractEvents(
   clawId: ClawId,
   sinceTs: number,
   audit: AuditLog,
-): string[] {
+): CollectedContractEventsResult {
   const events: string[] = [];
+  const problemPairs: string[] = [];
 
   // 1. archive 中新完成
   const archiveDir = path.join(clawDir, CONTRACT_DIR, 'archive');
@@ -89,7 +109,11 @@ export function collectContractEvents(
           .some(s => s.completed_at && new Date(s.completed_at).getTime() > sinceTs);
         if (completedAfter && progress.status === 'completed') {
           const meta = readContractMeta(fs, path.join(archiveDir, d.name));
-          events.push(formatContractCompletedEvent(clawId, d.name, meta, progress));
+          const formatted = formatContractCompletedEvent(clawId, d.name, meta, progress);
+          events.push(formatted.body);
+          if (formatted.hasFailure) {
+            problemPairs.push(`${clawId}:${d.name}`);
+          }
         }
       } catch (err) {
         // phase 1154 r+ derive: ENOENT-equivalent = progress.json absent (archive 常态 + active 升级 race)、非 corruption 语义
@@ -120,5 +144,5 @@ export function collectContractEvents(
     }
   }
 
-  return events;
+  return { events, problemPairs };
 }

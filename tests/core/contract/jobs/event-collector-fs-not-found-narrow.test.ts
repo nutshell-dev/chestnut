@@ -23,7 +23,8 @@ describe('phase 1154 — event-collector FS_NOT_FOUND narrow + α-4 progress_cor
       existsSync: () => true,
     } as unknown as FileSystem;
     const result = collectContractEvents(fs, '/tmp/claw', 'claw1', 0, audit);
-    expect(result).toEqual([]);
+    expect(result.events).toEqual([]);
+    expect(result.problemPairs).toEqual([]);
     expect(events).toHaveLength(0);
   });
 
@@ -41,7 +42,8 @@ describe('phase 1154 — event-collector FS_NOT_FOUND narrow + α-4 progress_cor
       existsSync: () => true,
     } as unknown as FileSystem;
     const result = collectContractEvents(fs, '/tmp/claw', 'claw1', 0, audit);
-    expect(result).toEqual([]);
+    expect(result.events).toEqual([]);
+    expect(result.problemPairs).toEqual([]);
     expect(events).toHaveLength(0);
     // 仅 archive 1 个 entry → readSync 被调 1 次
     expect(readCalls).toBe(1);
@@ -61,7 +63,8 @@ describe('phase 1154 — event-collector FS_NOT_FOUND narrow + α-4 progress_cor
       existsSync: () => true,
     } as unknown as FileSystem;
     const result = collectContractEvents(fs, '/tmp/claw', 'claw1', 0, audit);
-    expect(result).toEqual([]);
+    expect(result.events).toEqual([]);
+    expect(result.problemPairs).toEqual([]);
     // 仅 archive 1 个 entry → emit 1 次
     expect(events).toHaveLength(1);
     expect(events[0][0]).toBe(CONTRACT_AUDIT_EVENTS.PROGRESS_CORRUPTED);
@@ -77,7 +80,8 @@ describe('phase 1154 — event-collector FS_NOT_FOUND narrow + α-4 progress_cor
       existsSync: () => true,
     } as unknown as FileSystem;
     const result = collectContractEvents(fs, '/tmp/claw', 'claw1', 0, audit);
-    expect(result).toEqual([]);
+    expect(result.events).toEqual([]);
+    expect(result.problemPairs).toEqual([]);
     // 仅 archive 1 个 entry → emit 1 次
     expect(events).toHaveLength(1);
     expect(events[0][0]).toBe(CONTRACT_AUDIT_EVENTS.PROGRESS_CORRUPTED);
