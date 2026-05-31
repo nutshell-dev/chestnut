@@ -6,22 +6,23 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 
-function findDesignRoot(startDir: string): string {
+function findDesignRoot(startDir: string): string | null {
   let dir = startDir;
   for (let i = 0; i < 6; i++) {
     const candidate = join(dir, 'design', 'interfaces');
     if (existsSync(candidate)) return candidate;
     dir = dirname(dir);
   }
-  throw new Error('design/interfaces not found from ' + startDir);
+  return null;
 }
 
+// phase 1491: design dir 不存在时 graceful skip / clawforum 独立 checkout (CI) 上 parent dir 无 design/
 const DESIGN_ROOT = findDesignRoot(import.meta.dirname);
 const SRC_ROOT = join(import.meta.dirname, '../../src');
 
-describe('design interfaces sync invariant (phase 1327 r137 E fork)', () => {
+describe.skipIf(DESIGN_ROOT === null)('design interfaces sync invariant (phase 1327 r137 E fork)', () => {
   it('createCommandTools 0-args sig: design l2c.md vs src command-tool/index.ts align', () => {
-    const designContent = readFileSync(join(DESIGN_ROOT, 'l2c.md'), 'utf-8');
+    const designContent = readFileSync(join(DESIGN_ROOT!, 'l2c.md'), 'utf-8');
     const srcContent = readFileSync(join(SRC_ROOT, 'foundation/command-tool/index.ts'), 'utf-8');
 
     // design declared signature: 0-args
@@ -37,7 +38,7 @@ describe('design interfaces sync invariant (phase 1327 r137 E fork)', () => {
   });
 
   it('RuntimeDependencies permissionChecker field: design l5.md vs src runtime/types.ts align', () => {
-    const designContent = readFileSync(join(DESIGN_ROOT, 'l5.md'), 'utf-8');
+    const designContent = readFileSync(join(DESIGN_ROOT!, 'l5.md'), 'utf-8');
     const srcContent = readFileSync(join(SRC_ROOT, 'core/runtime/types.ts'), 'utf-8');
 
     // design must declare permissionChecker as required field in RuntimeDependencies

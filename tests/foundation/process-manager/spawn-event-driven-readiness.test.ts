@@ -124,9 +124,10 @@ describe('phase 1317 spawn event-driven readiness', () => {
     const testFileName = 'spawn-event-driven-readiness.test.ts';
     let out = '';
     try {
+      // phase 1491: cwd 改 process.cwd() / 原硬编码 worktree/phase1317 在 CI + 其他 worktree 上不存在
       out = execSync(
         `grep -rn "PROCESS_SPAWN_CONFIRM_MS" src/ tests/ --include="*.ts" --exclude="${testFileName}"`,
-        { encoding: 'utf-8', cwd: '/Users/lleefir/code/mess/260315/worktree/phase1317' },
+        { encoding: 'utf-8', cwd: process.cwd() },
       ).trim();
     } catch (err: any) {
       if (err.status !== 1) throw err;
