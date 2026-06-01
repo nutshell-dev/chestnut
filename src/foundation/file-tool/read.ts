@@ -89,7 +89,7 @@ export const readTool: Tool = {
       },
       claw: {
         type: 'string',
-        description: 'Target claw ID. e.g. { "path": "contract/xxx/progress.json", "claw": "claw1" }',
+        description: 'Target claw ID. e.g. { "path": "../MEMORY.md", "claw": "claw1" }',
       },
     },
     required: ['path'],
@@ -172,7 +172,7 @@ export const readTool: Tool = {
       } catch (error) {
         return {
           success: false,
-          content: `Error reading file: ${error instanceof Error ? error.message : String(error)}\nTip: To read another claw's file, use the "claw" parameter: { "path": "contract/xxx.json", "claw": "<claw-id>" }`,
+          content: `Error reading file: ${error instanceof Error ? error.message : String(error)}\nTip: To read another claw's file, use the "claw" parameter: { "path": "../MEMORY.md", "claw": "<claw-id>" }`,
         };
       }
     }

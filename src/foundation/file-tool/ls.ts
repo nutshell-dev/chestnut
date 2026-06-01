@@ -29,7 +29,7 @@ export const lsTool: Tool = {
       },
       claw: {
         type: 'string',
-        description: 'Target claw ID. e.g. { "path": "contract/archive", "claw": "claw1" }',
+        description: 'Target claw ID. e.g. { "path": ".", "claw": "claw1" }',
       },
     },
     required: [],
@@ -103,7 +103,7 @@ export const lsTool: Tool = {
       } catch (error) {
         return {
           success: false,
-          content: `Error listing directory: ${error instanceof Error ? error.message : String(error)}\nTip: To list another claw's directory, use the "claw" parameter: { "path": "contract/", "claw": "<claw-id>" }`,
+          content: `Error listing directory: ${error instanceof Error ? error.message : String(error)}\nTip: To list another claw's directory, use the "claw" parameter: { "path": ".", "claw": "<claw-id>" }`,
         };
       }
     } else {
@@ -113,7 +113,7 @@ export const lsTool: Tool = {
       } catch (error) {
         return {
           success: false,
-          content: `Error listing directory: ${error instanceof Error ? error.message : String(error)}\nTip: To list another claw's directory, use the "claw" parameter: { "path": "contract/", "claw": "<claw-id>" }`,
+          content: `Error listing directory: ${error instanceof Error ? error.message : String(error)}\nTip: To list another claw's directory, use the "claw" parameter: { "path": ".", "claw": "<claw-id>" }`,
         };
       }
     }
