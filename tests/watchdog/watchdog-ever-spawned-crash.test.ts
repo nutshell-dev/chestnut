@@ -31,6 +31,7 @@ vi.mock('../../src/watchdog/watchdog-utils.js', async (importOriginal) => {
   return {
     ...actual,
     clawHasContract: vi.fn(),
+    clawHasActiveContract: vi.fn().mockReturnValue(true),
     gatherClawSnapshot: vi.fn(),
   };
 });
@@ -88,11 +89,13 @@ describe('watchdog everSpawned crash detection (phase 1047)', () => {
 
     maybeCronClawCrash(mockPm, mockAudit as any, fsFactory);
 
+    // phase 2 γ4 reframe: trigger 不再依赖 wasAlive||everSpawned / 直接 !alive+activeContract+!notified
+    // audit field detected_by 砍 / 改为 crash_class (active_unexpected when no clean-stop marker)
     expect(mockAudit.write).toHaveBeenCalledWith(
       WATCHDOG_AUDIT_EVENTS.CLAW_CRASH_DETECTED,
       expect.stringContaining(clawId),
       'has_contract=true',
-      'detected_by=ever_spawned',
+      'crash_class=active_unexpected',
     );
   });
 

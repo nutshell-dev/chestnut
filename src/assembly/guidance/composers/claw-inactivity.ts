@@ -28,16 +28,15 @@ interface ClawInactivityState {
 }
 
 function isFailureClass(s: string | undefined): s is FailureClass {
-  return s === 'daemon_stopped' || s === 'daemon_silent' || s === 'daemon_errored';
+  return s === 'daemon_silent' || s === 'daemon_errored';
 }
 
+// phase 2 γ4: daemon_stopped case 移除（归 crash_notification composer 覆盖、两 type 互斥状态 0 dedup 重叠）
 export const composer: GuidanceComposer<ClawInactivityState> = (state): GuidanceEntry | null => {
   const cls = state.failure_class;
   if (!isFailureClass(cls)) return null;  // unknown class → null (Runtime fallback graceful)
   const id = state.claw_id || '<claw-id>';
   switch (cls) {
-    case 'daemon_stopped':
-      return { text: `重启 daemon： ${clawCmd(id, CLAW_VERBS.DAEMON)}` };
     case 'daemon_silent':
       return { text: `查看最近 steps 找 stuck 点： ${clawCmd(id, CLAW_VERBS.STEPS)}` };
     case 'daemon_errored':

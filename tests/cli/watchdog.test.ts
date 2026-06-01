@@ -679,11 +679,12 @@ describe('maybeCronClawCrash — crash audit', () => {
     vi.mocked(mockPm.isAlive).mockReturnValue(false);
     maybeCronClawCrash(mockPm, mockAudit as any, fsFactory);
 
+    // phase 2 γ4: detected_by field 移除 / 改 crash_class (active_unexpected when no clean-stop marker)
     expect(mockAudit.write).toHaveBeenCalledWith(
       WATCHDOG_AUDIT_EVENTS.CLAW_CRASH_DETECTED,
       expect.stringContaining(clawId),
       'has_contract=true',
-      'detected_by=previous_tick',
+      'crash_class=active_unexpected',
     );
   });
 

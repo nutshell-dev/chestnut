@@ -73,3 +73,7 @@ export function writeClawInactivityInbox(
     extraFields,
   }, audit);
 }
+
+// phase 2 γ4: crash_notification 不立 helper（与 phase 1482 writeClawInactivityInbox 对称形态偏离）。
+// 理由：现 maybeCronClawCrash 内 inline notifyClaw 调用、tests 既有 spy 假设直调路径 / helper 间接增加 vi.mock 解析复杂度。
+// 若 future 多 caller 需写 crash_notification、再 extract helper。

@@ -31,6 +31,7 @@ vi.mock('../../src/watchdog/watchdog-utils.js', async (importOriginal) => {
   return {
     ...actual,
     clawHasContract: vi.fn(),
+    clawHasActiveContract: vi.fn().mockReturnValue(true),
     gatherClawSnapshot: vi.fn(),
   };
 });
@@ -77,7 +78,7 @@ describe('watchdog crash_notification dedup (phase 1207 gap A)', () => {
 
   afterEach(() => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
-    vi.restoreAllMocks();
+    vi.clearAllMocks();
   });
 
   it('reverse 1: first crash emits crash_notification and marks notified', () => {

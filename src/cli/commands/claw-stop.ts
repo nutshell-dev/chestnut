@@ -4,7 +4,7 @@
  */
 
 import {
-  loadGlobalConfig, clawExists,
+  loadGlobalConfig, clawExists, getClawDir,
 } from '../../foundation/config/index.js';
 import { CONFIG_DEFAULTS } from '../../assembly/index.js';
 import { CliError } from '../errors.js';
@@ -17,7 +17,7 @@ import type { FileSystem } from '../../foundation/fs/types.js';
 export async function stopCommand(deps: { fsFactory: (baseDir: string) => FileSystem }, name: string, extraDeps?: { audit?: AuditLog }): Promise<void> {
   const audit = extraDeps?.audit;
   loadGlobalConfig(deps, CONFIG_DEFAULTS);
-  
+
   if (!clawExists(deps, name)) {
     throw new CliError(`Claw "${name}" does not exist`);
   }
@@ -31,6 +31,18 @@ export async function stopCommand(deps: { fsFactory: (baseDir: string) => FileSy
   }
 
   console.log(`Stopping Claw "${name}"...`);
+
+  // phase 2 γ4: write clean-stop marker BEFORE stop so watchdog can distinguish
+  // intentional user stop from unexpected crash (CrashClass active_user_stopped vs active_unexpected).
+  // Atomic tmp+rename (mirror stopAllCommand phase 1024 G.1 pattern / 防 torn-write).
+  try {
+    const clawFs = deps.fsFactory(getClawDir(name));
+    const tmpFile = `clean-stop.${process.pid}.${Date.now()}.tmp`;
+    clawFs.writeAtomicSync(tmpFile, String(Date.now()));
+    clawFs.moveSync(tmpFile, 'clean-stop');
+  } catch {
+    // silent: marker 写失败 best-effort / watchdog 缺 marker 视同 unexpected (false-positive 单次容忍)
+  }
 
   const success = await processManager.stop(makeClawId(name));
   if (success) {

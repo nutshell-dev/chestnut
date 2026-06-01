@@ -16,13 +16,7 @@ import {
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { makeClawDir } from '../../src/foundation/identity/index.js';
 
-describe('phase 1482: deriveFailureClass', () => {
-  it('daemon dead → daemon_stopped (even if lastError exists)', () => {
-    expect(deriveFailureClass({ daemonAlive: false, lastError: 'foo' })).toBe('daemon_stopped');
-    expect(deriveFailureClass({ daemonAlive: false, lastError: null })).toBe('daemon_stopped');
-    expect(deriveFailureClass({ daemonAlive: false, lastError: undefined })).toBe('daemon_stopped');
-  });
-
+describe('phase 1482 + phase 2 reframe: deriveFailureClass (daemon_stopped 移除归 crash_notification)', () => {
   it('daemon alive + no lastError → daemon_silent', () => {
     expect(deriveFailureClass({ daemonAlive: true, lastError: undefined })).toBe('daemon_silent');
     expect(deriveFailureClass({ daemonAlive: true, lastError: null })).toBe('daemon_silent');
@@ -30,6 +24,12 @@ describe('phase 1482: deriveFailureClass', () => {
 
   it('daemon alive + lastError → daemon_errored', () => {
     expect(deriveFailureClass({ daemonAlive: true, lastError: 'LLM timeout' })).toBe('daemon_errored');
+  });
+
+  it('daemon dead 不再产 daemon_stopped (caller guard daemonAlive=true 上游 / 防御 fallback silent)', () => {
+    // 此函数不再期望 daemon dead 输入；若漏 guard 仍传 false → 不抛、按 lastError 优先 fallback silent
+    expect(deriveFailureClass({ daemonAlive: false, lastError: 'foo' })).toBe('daemon_errored');
+    expect(deriveFailureClass({ daemonAlive: false, lastError: null })).toBe('daemon_silent');
   });
 });
 
@@ -43,12 +43,6 @@ describe('phase 1482: formatInactivityBody', () => {
     inboxPending: 0,
     outboxPending: 1,
   };
-
-  it('daemon_stopped → "daemon stopped, last activity Nm ago"', () => {
-    const body = formatInactivityBody({ ...base, failureClass: 'daemon_stopped' });
-    expect(body).toMatch(/Claw clawA daemon stopped, last activity 30m ago/);
-    expect(body).not.toMatch(/no progress/);
-  });
 
   it('daemon_silent → "daemon running but no stream event for Nm"', () => {
     const body = formatInactivityBody({

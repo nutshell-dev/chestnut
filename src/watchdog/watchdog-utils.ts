@@ -111,28 +111,32 @@ function clawHasContractSub(
   return false;
 }
 
-// ---- phase 1482: claw_inactivity FailureClass taxonomy ----
+// ---- phase 1482: claw_inactivity FailureClass taxonomy + phase 2 reframe ----
 
 /**
  * Failure class for `claw_inactivity` watchdog notification.
  * 业主 own enum、由 既有 snapshot 数据派生（不需 NEW state collection）。
  *
- * - `daemon_stopped`: 进程不在跑（user 主动 stop 或 crash dedup'd）→ 重启
  * - `daemon_silent`:  进程跑、无 lastError、stream 静默 → 看 audit events tail
  * - `daemon_errored`: 进程跑、有 lastError → 看 lastError context
+ *
+ * phase 2 γ4 reframe: `daemon_stopped` class 移除 — dead daemon 归 `crash_notification` 覆盖
+ * (两 type cover 互斥状态、0 dedup 重叠). inactivity 仅在 daemon ALIVE 时触发.
  *
  * Assembly motion guidance composer type-only import 此 enum、按 class switch
  * 1 primary action（DP「相关」derive / 1 primary action per sub-state）.
  */
-export type FailureClass = 'daemon_stopped' | 'daemon_silent' | 'daemon_errored';
+export type FailureClass = 'daemon_silent' | 'daemon_errored';
 
 export interface DeriveFailureClassInput {
+  /** Must be true — inactivity 仅在 daemon alive 时调（caller guard 见 maybeCronClawInactivity） */
   daemonAlive: boolean;
   lastError: string | null | undefined;
 }
 
 export function deriveFailureClass(input: DeriveFailureClassInput): FailureClass {
-  if (!input.daemonAlive) return 'daemon_stopped';
+  // phase 2 γ4: daemon_stopped 不再由本函数派生（caller 应已 guard daemonAlive=true）
+  // 防御性 fallback: 若 caller 漏 guard 传入 daemonAlive=false → 按 silent 处理（lastError 仍优先）
   if (input.lastError) return 'daemon_errored';
   return 'daemon_silent';
 }
@@ -151,8 +155,6 @@ export function formatInactivityBody(opts: {
 }): string {
   const prefix = (() => {
     switch (opts.failureClass) {
-      case 'daemon_stopped':
-        return `Claw ${opts.clawId} daemon stopped, last activity ${opts.inactiveMin}m ago`;
       case 'daemon_silent':
         return `Claw ${opts.clawId} daemon running but no stream event for ${opts.inactiveMin}m`;
       case 'daemon_errored':
@@ -162,6 +164,60 @@ export function formatInactivityBody(opts: {
   let body = `${prefix} (notification #${opts.notifyCount}). Status: ${opts.daemonStatus}, contract: ${opts.contract}, inbox_pending: ${opts.inboxPending}, outbox_pending: ${opts.outboxPending}`;
   if (opts.lastError) body += `, last error: ${opts.lastError}`;
   return body;
+}
+
+// ---- phase 2 γ4: crash_notification CrashClass taxonomy ----
+
+/**
+ * Crash class for `crash_notification` watchdog notification.
+ * 业主 own enum、由 clean-stop marker 探测决定。
+ *
+ * - `active_unexpected`: active contract + daemon dead + 无 clean-stop marker → 重启 daemon
+ * - `active_user_stopped`: active contract + daemon dead + 有 clean-stop marker (user/system 主动 stop) → motion 知情即可
+ *
+ * paused contract crash 不触发本 type（caller 应 guard `clawHasActiveContract`）.
+ * Assembly motion guidance composer type-only import 此 enum、按 class switch.
+ */
+export type CrashClass = 'active_unexpected' | 'active_user_stopped';
+
+export interface DeriveCrashClassInput {
+  hasCleanStopMarker: boolean;
+}
+
+export function deriveCrashClass(input: DeriveCrashClassInput): CrashClass {
+  return input.hasCleanStopMarker ? 'active_user_stopped' : 'active_unexpected';
+}
+
+/** 读 `<clawDir>/clean-stop` marker 存在判定 (read-only / 不消费 marker / phase 1373 sub-3 + phase 2 γ4 per-claw 扩). */
+export function hasCleanStopMarker(clawDir: ClawDir, fsFactory: (baseDir: string) => FileSystem): boolean {
+  try {
+    const fs = fsFactory(clawDir);
+    return fs.existsSync('clean-stop');
+  } catch {
+    return false;
+  }
+}
+
+/** Body 字面按 crash_class 改、取代统一 "process exited abnormally" 措辞. */
+export function formatCrashBody(opts: {
+  clawId: string;
+  crashClass: CrashClass;
+  contract: string;
+  outboxPending: number;
+  lastAuditEvents?: string[];
+}): string {
+  const prefix = (() => {
+    switch (opts.crashClass) {
+      case 'active_unexpected':
+        return `Claw ${opts.clawId} unexpectedly stopped (active contract).`;
+      case 'active_user_stopped':
+        return `Claw ${opts.clawId} stopped via user CLI (active contract).`;
+    }
+  })();
+  const eventsStr = opts.lastAuditEvents?.length
+    ? `; last_events: ${opts.lastAuditEvents.map(e => e.replace(/\t/g, '|')).join(' >> ')}`
+    : '';
+  return `${prefix} contract: ${opts.contract}, outbox_pending: ${opts.outboxPending}${eventsStr}`;
 }
 
 // ---- Phase 18: gatherClawSnapshot ----

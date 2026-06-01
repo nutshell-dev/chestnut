@@ -99,6 +99,19 @@ export async function stopAllCommand(deps: { fsFactory: (baseDir: string) => Fil
     baseFs.moveSync(tmpFile, 'clean-stop');
   } catch { /* silent: clean-stop marker 写失败 best-effort / 缺 marker 仅次启动 spurious "ungraceful shutdown" warn 不影响功能 */ }
 
+  // phase 2 γ4: 同时为每只被 stop 的 claw 写 per-claw marker so watchdog can classify
+  // CrashClass.active_user_stopped vs active_unexpected per claw (not just global).
+  for (const name of running) {
+    try {
+      const clawFs = deps.fsFactory(path.join(baseDir, CLAWS_DIR, name));
+      const tmpFile = `clean-stop.${process.pid}.${Date.now()}.tmp`;
+      clawFs.writeAtomicSync(tmpFile, String(Date.now()));
+      clawFs.moveSync(tmpFile, 'clean-stop');
+    } catch {
+      // silent: per-claw marker 写失败 best-effort（同全局 marker 处理）
+    }
+  }
+
   audit?.write(CLI_AUDIT_EVENTS.DAEMON_STOP, `scope=all`);
   console.log('Done.');
 

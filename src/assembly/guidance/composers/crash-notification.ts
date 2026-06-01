@@ -1,11 +1,47 @@
 /**
  * @module L6.Assembly.Guidance
- * phase 1469: composer for inbox type `crash_notification` — NO_GUIDANCE sentinel 占位.
+ * phase 2 γ4: motion guidance for `crash_notification` real composer
+ * (phase 1469 16 NO_GUIDANCE → 15 / 第 3 个 real composer 继 phase 1476 + 1482).
  *
- * 本 phase β scope = infrastructure + 全 register 22 type 表态.
- * 真 composer 推 phase γN 业主 state schema 细分 + CLI-by-need 同步补 CLI 后真做.
+ * 业主 (watchdog) own CrashClass enum + base body 字面 + clean-stop marker 探测。
+ * Assembly 此处 own motion-side CLI 教学：按 enum switch 1 primary action per case
+ * (DP「相关」derive / 反 phase 1476 anti-pattern #5「多 options」).
+ *
+ * State 接 via Runtime extraMeta wire (watchdog-log.ts writeCrashNotificationInbox
+ * extraFields → encodeInbox YAML → 收件方 extraMeta).
+ *
+ * 业主类型 CrashClass type-only import (peer L6↔L6 装配综合本职、不违 ML#5).
+ *
+ * Sub-case 行为：
+ *  - active_unexpected: 教 motion 重启 daemon (`chestnut claw <id> daemon`)
+ *  - active_user_stopped: null FYI (motion 知情即可、不教 action)
+ *  - unknown: null fallback (Runtime audit emit `guidance_composer_failed` 兜底)
  */
 
-import { NO_GUIDANCE } from '../types.js';
+import type { GuidanceComposer, GuidanceEntry } from '../types.js';
+import { clawCmd, CLAW_VERBS } from '../../../cli/commands/registry.js';
+import type { CrashClass } from '../../../watchdog/watchdog-utils.js';
 
-export const composer = NO_GUIDANCE;
+interface CrashNotificationState {
+  crash_class: string;        // serialized CrashClass enum
+  claw_id: string;
+  clean_stop_marker?: string;  // 'true' | 'false'
+  contract?: string;
+  outbox_pending?: string;
+}
+
+function isCrashClass(s: string | undefined): s is CrashClass {
+  return s === 'active_unexpected' || s === 'active_user_stopped';
+}
+
+export const composer: GuidanceComposer<CrashNotificationState> = (state): GuidanceEntry | null => {
+  const cls = state.crash_class;
+  if (!isCrashClass(cls)) return null;
+  const id = state.claw_id || '<claw-id>';
+  switch (cls) {
+    case 'active_unexpected':
+      return { text: `重启 daemon： ${clawCmd(id, CLAW_VERBS.DAEMON)}` };
+    case 'active_user_stopped':
+      return null;  // FYI — motion 知情即可（用户主动 stop 通常 motion 已知）
+  }
+};

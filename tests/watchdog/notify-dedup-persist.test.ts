@@ -35,6 +35,7 @@ vi.mock('../../src/watchdog/watchdog-utils.js', async (importOriginal) => {
   return {
     ...actual,
     clawHasContract: vi.fn(),
+    clawHasActiveContract: vi.fn().mockReturnValue(true),
     gatherClawSnapshot: vi.fn(),
   };
 });
@@ -91,7 +92,7 @@ describe('watchdog notify dedup persist (phase 1269 sub-3)', () => {
   afterEach(() => {
     setAuditWriter(null);
     vi.clearAllMocks();
-    vi.restoreAllMocks();
+    vi.clearAllMocks();
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
