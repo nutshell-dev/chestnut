@@ -45,7 +45,7 @@ import {
   loadWatchdogState, saveWatchdogState,
 } from './watchdog-state.js';
 import {
-  maybeCronClawInactivity, maybeCronClawCrash,
+  maybeCronClawInactivity, maybeCronClawCrash, maybeCronCheckSubscriptions,
 } from './watchdog-cron.js';
 
 const WATCHDOG_BACKOFF_MAX_MS = 5 * 60 * 1000;   // 5 minutes
@@ -204,6 +204,8 @@ export async function runWatchdogLoop(fsFactory: (baseDir: string) => FileSystem
     // 2. Cron checks (disk_check moved to CronRunner in daemon.ts)
     await maybeCronClawInactivity(pm, auditWriter, fsFactory);
     maybeCronClawCrash(pm, auditWriter, fsFactory);
+    // phase 5: process motion-requested subscriptions (file-based dir scan)
+    await maybeCronCheckSubscriptions(pm, auditWriter, fsFactory);
     saveWatchdogState(fsFactory);   // 持久化通知状态（每 tick 一次）
     
     // 3. Sleep with backoff on consecutive failures (max 5 minutes)
@@ -234,7 +236,7 @@ export {
 } from './watchdog-state.js';
 
 export {
-  maybeCronClawInactivity, maybeCronClawCrash,
+  maybeCronClawInactivity, maybeCronClawCrash, maybeCronCheckSubscriptions,
 } from './watchdog-cron.js';
 
 export {

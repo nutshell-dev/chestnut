@@ -13,6 +13,7 @@ import {
 } from './watchdog-context.js';
 import { log, writeClawInactivityInbox } from './watchdog-log.js';
 import { clawHasActiveContract, getClawActivityInfo, gatherClawSnapshot, shouldResetNotifyCount, deriveFailureClass, formatInactivityBody, deriveCrashClass, formatCrashBody, hasCleanStopMarker } from './watchdog-utils.js';
+import { listSubscriptions, consumeSubscription } from './subscription-store.js';
 import { getContractCreatedMs } from '../core/contract/index.js';
 import { getNamedSubrootDir } from '../foundation/config/index.js';
 import { notifyClaw } from '../foundation/messaging/index.js';
@@ -208,5 +209,95 @@ export function maybeCronClawCrash(pm: ProcessManager, audit: AuditLog, fsFactor
     }
 
     clawPreviouslyAlive.set(clawId, currentlyAlive);
+  }
+}
+
+// phase 5: motion-requested inactivity subscriptions tick handler.
+// 每 tick 扫 watchdog-subscriptions/ dir、判定 fire-or-consume 各订阅 (一次性).
+//
+// Conditions per subscription (claw_id, subscribed_at, threshold_ms):
+//   (a) claw dir 消失 OR 无 active contract → consume silent (CONSUMED_NO_CONTRACT audit)
+//   (b) claw 自 subscribed_at 以来有 stream event → consume silent / claw 已恢复 (CONSUMED_RECOVERED audit)
+//   (c) now < subscribed_at + threshold_ms → 等下次 tick
+//   (d) now >= subscribed_at + threshold_ms + 仍 stuck → fire claw_inactivity (与 1-shot path 同 type / 同 body shape) + consume
+export async function maybeCronCheckSubscriptions(pm: ProcessManager, audit: AuditLog, fsFactory: (baseDir: string) => FileSystem): Promise<void> {
+  const fs = getChestnutFs(fsFactory);
+  const subs = listSubscriptions(fs);
+  if (subs.length === 0) return;
+
+  const now = Date.now();
+  for (const sub of subs) {
+    const rawClawId = sub.clawId;
+    const clawId = makeClawId(rawClawId);
+    const clawDir = makeClawDir(path.join(getChestnutDir(), CLAWS_DIR, rawClawId));
+
+    try {
+      // (a) claw missing or no active contract → consume
+      if (!clawHasActiveContract(clawDir, fsFactory, audit)) {
+        audit.write(
+          WATCHDOG_AUDIT_EVENTS.SUBSCRIPTION_CONSUMED_NO_CONTRACT,
+          `claw=${rawClawId}`,
+          `reason=no_active_contract`,
+        );
+        consumeSubscription(fs, rawClawId);
+        continue;
+      }
+
+      // (b) claw recovered (stream advanced past subscription time) → consume silent
+      const clawFs = fsFactory(clawDir);
+      const { lastEventMs, lastError } = await getClawActivityInfo(clawFs, audit);
+      if (lastEventMs !== null && lastEventMs > sub.subscribed_at) {
+        audit.write(
+          WATCHDOG_AUDIT_EVENTS.SUBSCRIPTION_CONSUMED_RECOVERED,
+          `claw=${rawClawId}`,
+          `last_event_ms=${lastEventMs}`,
+        );
+        consumeSubscription(fs, rawClawId);
+        continue;
+      }
+
+      // (c) threshold not yet reached → wait
+      const fireAt = sub.subscribed_at + sub.threshold_ms;
+      if (now < fireAt) continue;
+
+      // (d) still stuck after threshold → fire + consume
+      const snapshot = gatherClawSnapshot(clawDir, fsFactory, pm, clawId);
+      const failureClass = deriveFailureClass({
+        daemonAlive: snapshot.status === 'running',
+        lastError,
+      });
+      const inactiveMin = lastEventMs !== null ? Math.round((now - lastEventMs) / 60000) : Math.round((now - sub.subscribed_at) / 60000);
+      const body = formatInactivityBody({
+        clawId,
+        inactiveMin,
+        failureClass,
+        contract: snapshot.contract,
+        lastError,
+      });
+
+      log(fsFactory, `[watchdog] Claw ${rawClawId} subscription fired ${failureClass} ${inactiveMin}m${lastError ? ` (last error: ${lastError})` : ''}`);
+      writeClawInactivityInbox(fsFactory, {
+        message: body,
+        claw_id: rawClawId,
+        inactive_ms: lastEventMs !== null ? (now - lastEventMs) : (now - sub.subscribed_at),
+        contract: snapshot.contract,
+        as_of: new Date().toISOString(),
+        failure_class: failureClass,
+        source_path: 'subscription',
+        ...(lastError ? { last_error: lastError } : {}),
+      });
+      audit.write(
+        WATCHDOG_AUDIT_EVENTS.SUBSCRIPTION_FIRED,
+        `claw=${rawClawId}`,
+        `threshold_ms=${sub.threshold_ms}`,
+        `failure_class=${failureClass}`,
+      );
+      // 同 1-shot path: 更新 lastInactivityNotified 防止 maybeCronClawInactivity 立即重发
+      lastInactivityNotified.set(rawClawId, now);
+      consumeSubscription(fs, rawClawId);
+    } catch (err) {
+      log(fsFactory, `[watchdog] Error processing subscription for ${rawClawId}: ${err instanceof Error ? err.message : String(err)}`);
+      // 不 consume / 下次 tick 重试
+    }
   }
 }

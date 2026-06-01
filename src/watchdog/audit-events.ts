@@ -26,4 +26,8 @@ export const WATCHDOG_AUDIT_EVENTS = {
   STOP: 'watchdog_stop',
   CLAW_HAS_CONTRACT_CHECK_FAILED: 'claw_has_contract_check_failed',
   STREAM_READ_FAILED: 'watchdog_stream_read_failed',
+  SUBSCRIPTION_FIRED: 'watchdog_subscription_fired',
+  SUBSCRIPTION_CONSUMED_RECOVERED: 'watchdog_subscription_consumed_recovered',
+  SUBSCRIPTION_CONSUMED_NO_CONTRACT: 'watchdog_subscription_consumed_no_contract',
+  SUBSCRIPTION_CORRUPT: 'watchdog_subscription_corrupt',
 } as const;

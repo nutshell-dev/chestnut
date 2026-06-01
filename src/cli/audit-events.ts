@@ -28,4 +28,6 @@ export const CLI_AUDIT_EVENTS = {
   DAEMON_STOP: 'cli_daemon_stop',
   CHAT_CRASH_UNCAUGHT: 'cli_chat_crash_uncaught',
   DAEMON_SPAWN_RACE_FAILED: 'cli_daemon_spawn_race_failed',
+  CLAW_WATCH: 'cli_claw_watch',                                              // NEW phase 5: motion 订阅 inactivity 后续提醒
+  CLAW_WATCH_REJECTED: 'cli_claw_watch_rejected',                            // NEW phase 5: 24h 上限 / 解析失败 等
 } as const;

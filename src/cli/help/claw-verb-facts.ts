@@ -59,6 +59,14 @@ export const CLAW_VERB_FACTS: readonly VerbFact[] = [
     options: [{ flag: '--json', desc: 'Output as JSON (machine-readable)' }],
     examples: ['chestnut claw alice status'],
   },
+  {
+    name: 'watch',
+    group: 'lifecycle',
+    form: 'instance',
+    summary: 'Subscribe to a one-shot notification if the claw remains inactive after a duration',
+    options: [{ flag: '--inactive-after <duration>', desc: 'Duration (e.g. 5m / 30m / 1h, max 24h). Default 5m.' }],
+    examples: ['chestnut claw alice watch', 'chestnut claw alice watch --inactive-after 30m'],
+  },
 
   // ── Messaging ──────────────────────────────────────────────────────────
   {

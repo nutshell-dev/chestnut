@@ -31,6 +31,7 @@ import {
   readCommand,
   lsCommand,
   clawStatusCommand,
+  watchCommand,
 } from './claw.js';
 import { CliError } from '../errors.js';
 import { createDirContext } from '../../foundation/audit/index.js';
@@ -71,6 +72,7 @@ const VERB_NAMES = [
   'daemon',
   'trace',
   'status',
+  'watch',     // phase 5: subscribe to one-shot inactivity follow-up
 ] as const;
 
 type VerbName = typeof VERB_NAMES[number];
@@ -232,6 +234,7 @@ export async function dispatchClawSubcommand(
     case 'daemon': return runDaemon(deps, name, verbArgs);
     case 'trace': return runTrace(deps, name, verbArgs);
     case 'status': return runStatus(deps, name, verbArgs);
+    case 'watch': return runWatch(deps, name, verbArgs);
   }
 }
 
@@ -405,5 +408,23 @@ async function runStatus(deps: RouterDeps, name: string, args: string[]): Promis
     throw new CliError(`'status' takes no positional arguments (got: ${parser.args.join(' ')})`);
   }
   await clawStatusCommand(deps, name, parser.opts());
+}
+
+// phase 5: claw <name> watch [--inactive-after <duration>]
+async function runWatch(deps: RouterDeps, name: string, args: string[]): Promise<void> {
+  const parser = makeVerbParser('watch');
+  parser.option('--inactive-after <duration>', 'Notify if Claw remains inactive after this duration (e.g. 5m / 30m / 1h, max 24h)', '5m');
+  try {
+    parser.parse(args, { from: 'user' });
+  } catch (err) {
+    throw new CliError(`invalid 'claw <name> watch' options: ${(err as Error).message}`);
+  }
+  if (parser.args.length > 0) {
+    throw new CliError(`'watch' takes no positional arguments (got: ${parser.args.join(' ')})`);
+  }
+  loadGlobalConfig(deps, CONFIG_DEFAULTS);
+  const { audit } = createDirContext(deps, getClawDir(name));
+  const opts = parser.opts<{ inactiveAfter?: string }>();
+  await watchCommand(deps, name, { inactiveAfter: opts.inactiveAfter }, { audit });
 }
 

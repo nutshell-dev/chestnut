@@ -35,3 +35,4 @@ export { importCommand } from './claw-import.js';
 export { readCommand } from './claw-read.js';
 export { lsCommand } from './claw-ls.js';
 export { clawStatusCommand } from './claw-status.js';
+export { watchCommand } from './claw-watch.js';

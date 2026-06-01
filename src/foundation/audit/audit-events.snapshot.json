@@ -41,6 +41,8 @@
       "cli_claw_outbox_drain_race_lost",
       "cli_claw_outbox_drain_start",
       "cli_claw_stop",
+      "cli_claw_watch",
+      "cli_claw_watch_rejected",
       "cli_contract_cancel",
       "cli_contract_create",
       "cli_contract_update",
@@ -517,7 +519,11 @@
       "watchdog_state_load_failed",
       "watchdog_state_schema_invalid",
       "watchdog_stop",
-      "watchdog_stream_read_failed"
+      "watchdog_stream_read_failed",
+      "watchdog_subscription_consumed_no_contract",
+      "watchdog_subscription_consumed_recovered",
+      "watchdog_subscription_corrupt",
+      "watchdog_subscription_fired"
     ]
   }
 }
