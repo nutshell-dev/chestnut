@@ -27,6 +27,7 @@ import { summarizeLastExit } from './last-exit-summary.js';
 import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../signals.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import { RUNTIME_AUDIT_EVENTS, REACT_LOOP_AUDIT_EVENTS } from './runtime-audit-events.js';
+import { handleTurnInterrupt, writeErrorResponse } from './error-response.js';
 import { TASK_AUDIT_EVENTS } from '../async-task-system/audit-events.js';
 // phase 1414: HEARTBEAT_AUDIT_EVENTS import removed — heartbeat 自家 inbox-formatter 持 audit
 import { CLAW_SUBDIRS } from '../../foundation/paths.js';
@@ -759,7 +760,7 @@ export class Runtime {
       return count;
     } catch (err) {
       // Turn-level error/interrupt event
-      this._handleTurnInterrupt(err, callbacks);
+      handleTurnInterrupt(err, this.auditWriter, callbacks);
       if (err instanceof PriorityInboxInterrupt
           || err instanceof UserInterrupt
           || err instanceof IdleTimeoutSignal) {
@@ -789,13 +790,13 @@ export class Runtime {
       if (err instanceof MaxStepsExceededError) {
         const errorMsg = err.message;
         for (const info of infos) {
-          await this._writeErrorResponse(info, errorMsg, 'max_steps_exhausted');
+          await writeErrorResponse(info, errorMsg, 'max_steps_exhausted', this.auditWriter, this.outboxWriter);
         }
       } else if (!(err instanceof PriorityInboxInterrupt || err instanceof UserInterrupt || err instanceof IdleTimeoutSignal)) {
         // Non-interrupt error (LLM crash, tool error, etc.) — notify senders
         const errorMsg = formatErr(err);
         for (const info of infos) {
-          await this._writeErrorResponse(info, errorMsg, 'non_interrupt_error');
+          await writeErrorResponse(info, errorMsg, 'non_interrupt_error', this.auditWriter, this.outboxWriter);
         }
       }
       // Log unexpected errors to audit (aborts and MaxSteps are expected control flow)
@@ -855,7 +856,7 @@ export class Runtime {
       this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_END);
     } catch (err) {
       // Note: do NOT save messages here - see processBatch catch block for explanation
-      this._handleTurnInterrupt(err, callbacks);
+      handleTurnInterrupt(err, this.auditWriter, callbacks);
       throw err;
     } finally {
       this.currentAbortController = null;
@@ -918,7 +919,7 @@ export class Runtime {
       callbacks?.onTurnEnd?.();
       this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_END);
     } catch (err) {
-      this._handleTurnInterrupt(err, callbacks);
+      handleTurnInterrupt(err, this.auditWriter, callbacks);
       throw err;
     } finally {
       this.currentAbortController = null;
@@ -1065,7 +1066,7 @@ export class Runtime {
       // Return the final text
       return result.finalText;
     } catch (err) {
-      this._handleTurnInterrupt(err);
+      handleTurnInterrupt(err, this.auditWriter);
       throw err;
     } finally {
       this.currentAbortController = null;
@@ -1084,60 +1085,7 @@ export class Runtime {
     this.currentAbortController?.abort({ type: 'user' });
   }
 
-  /**
-   * Handle turn interrupt/error and audit
-   */
-  private _handleTurnInterrupt(err: unknown, callbacks?: StreamCallbacks): void {
-    if (err instanceof IdleTimeoutSignal) {
-      const msg = `Interrupted (idle timeout: ${Math.round(err.timeoutMs / 1000)}s)`;
-      callbacks?.onTurnInterrupted?.('idle_timeout', msg);
-      this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_INTERRUPTED, 'cause=idle_timeout', `idle_timeout_ms=${err.timeoutMs}`);
-    } else if (err instanceof PriorityInboxInterrupt) {
-      callbacks?.onTurnInterrupted?.('priority_inbox', 'Interrupted (priority inbox)');
-      this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_INTERRUPTED, 'cause=priority_inbox');
-    } else if (err instanceof UserInterrupt) {
-      callbacks?.onTurnInterrupted?.('user_interrupt');  // 不传 message，让 viewport 自行决定显示
-      this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_INTERRUPTED, 'cause=user_interrupt');
-    } else {
-      const errorMsg = formatErr(err);
-      callbacks?.onTurnError?.(errorMsg);
-      this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_ERROR, `error=${errorMsg}`);
-    }
-  }
-
-  /**
-   * Write an error response to a sender's outbox, with audit + console fallback.
-   *
-   * Design intent (per phase 622 ratify ⚓2 = α / l5_runtime §B.outbox-error-response-strategy):
-   * outbox 失败 silent + audit OUTBOX_WRITE_FAILED / best-effort error reply
-   * caller 不阻塞（不 throw）/ context=error_response + scenario + reason 子场景区分
-   * 既有 audit_injection_alpha 模板 align / 0 NEW const（β reframe per zero_new_interface_field_reuse N=7）
-   */
-  private async _writeErrorResponse(
-    info: InboxMessage,
-    errorMsg: string,
-    scenario: 'max_steps_exhausted' | 'non_interrupt_error',
-  ): Promise<void> {
-    const sender = info.from;
-    if (!sender) return;
-
-    await this.outboxWriter.write({
-      type: 'response',
-      to: sender,
-      content: `Error: ${errorMsg}`,
-      metadata: info.metadata?.contract_id ? { contract_id: info.metadata.contract_id } : undefined,
-    }).catch(e => {
-      const reason = formatErr(e);
-      this.auditWriter.write(
-        RUNTIME_AUDIT_EVENTS.OUTBOX_WRITE_FAILED,
-        'context=error_response',
-        `scenario=${scenario}`,
-        `reason=${reason}`,
-      );
-    });
-  }
-
-  /**
+/**
    * Check if inbox has high/critical priority messages
    */
   private async _hasHighPriorityInbox(): Promise<boolean> {

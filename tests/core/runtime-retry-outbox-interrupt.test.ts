@@ -16,6 +16,7 @@ import type { Message } from '../../src/foundation/llm-provider/types.js';
 import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../../src/core/signals.js';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 import { createTestRuntime, createMockLLMConfig, createMockLLM } from './_runtime-test-helpers.js';
+import { handleTurnInterrupt } from '../../src/core/runtime/error-response.js';
 
 
 describe('Runtime RetryOutboxInterrupt', () => {
@@ -339,77 +340,55 @@ describe('Runtime RetryOutboxInterrupt', () => {
     });
   });
 
-  // ─── _handleTurnInterrupt dispatch ───────────────────────────────────────────
+  // ─── handleTurnInterrupt dispatch (phase 27 Step C: extracted to error-response.ts) ──
 
-  describe('_handleTurnInterrupt()', () => {
-    let runtime: Runtime;
-    let interruptTempDir: string;
-    let interruptClawDir: string;
-
-    beforeEach(async () => {
-      interruptTempDir = path.join(tmpdir(), `chestnut-interrupt-test-${randomUUID()}`);
-      interruptClawDir = path.join(interruptTempDir, 'claws', 'int-claw');
-      await fs.mkdir(interruptClawDir, { recursive: true });
-      runtime = await createTestRuntime({
-        clawId: 'int-claw',
-        clawDir: interruptClawDir,
-        llmConfig: createMockLLMConfig(),
-      });
-      await runtime.initialize();
-    });
-
-    afterEach(async () => {
-      await runtime.stop().catch(() => {});
-      await fs.rm(interruptTempDir, { recursive: true, force: true }).catch(() => {});
-    });
+  describe('handleTurnInterrupt()', () => {
+    const makeMockAudit = () => ({ write: vi.fn() });
 
     it('IdleTimeoutSignal → onTurnInterrupted("idle_timeout", message with seconds)', () => {
       const onTurnInterrupted = vi.fn();
       const onTurnError = vi.fn();
-      const auditSpy = vi.spyOn((runtime as unknown as RuntimeTestInternals).auditWriter, 'write');
-      (runtime as unknown as RuntimeTestInternals)._handleTurnInterrupt(new IdleTimeoutSignal(30000), { onTurnInterrupted, onTurnError });
+      const audit = makeMockAudit();
+      handleTurnInterrupt(new IdleTimeoutSignal(30000), audit, { onTurnInterrupted, onTurnError });
       expect(onTurnInterrupted).toHaveBeenCalledWith('idle_timeout', expect.stringContaining('30s'));
       expect(onTurnError).not.toHaveBeenCalled();
-      expect(auditSpy).toHaveBeenCalledWith('turn_interrupted', 'cause=idle_timeout', 'idle_timeout_ms=30000');
-      auditSpy.mockRestore();
+      expect(audit.write).toHaveBeenCalledWith('turn_interrupted', 'cause=idle_timeout', 'idle_timeout_ms=30000');
     });
 
     it('PriorityInboxInterrupt → onTurnInterrupted("priority_inbox")', () => {
       const onTurnInterrupted = vi.fn();
       const onTurnError = vi.fn();
-      const auditSpy = vi.spyOn((runtime as unknown as RuntimeTestInternals).auditWriter, 'write');
-      (runtime as unknown as RuntimeTestInternals)._handleTurnInterrupt(new PriorityInboxInterrupt(), { onTurnInterrupted, onTurnError });
+      const audit = makeMockAudit();
+      handleTurnInterrupt(new PriorityInboxInterrupt(), audit, { onTurnInterrupted, onTurnError });
       expect(onTurnInterrupted).toHaveBeenCalledWith('priority_inbox', expect.any(String));
       expect(onTurnError).not.toHaveBeenCalled();
-      expect(auditSpy).toHaveBeenCalledWith('turn_interrupted', 'cause=priority_inbox');
-      auditSpy.mockRestore();
+      expect(audit.write).toHaveBeenCalledWith('turn_interrupted', 'cause=priority_inbox');
     });
 
     it('UserInterrupt → onTurnInterrupted("user_interrupt")', () => {
       const onTurnInterrupted = vi.fn();
       const onTurnError = vi.fn();
-      const auditSpy = vi.spyOn((runtime as unknown as RuntimeTestInternals).auditWriter, 'write');
-      (runtime as unknown as RuntimeTestInternals)._handleTurnInterrupt(new UserInterrupt(), { onTurnInterrupted, onTurnError });
+      const audit = makeMockAudit();
+      handleTurnInterrupt(new UserInterrupt(), audit, { onTurnInterrupted, onTurnError });
       expect(onTurnInterrupted).toHaveBeenCalledWith('user_interrupt');  // 无 message，让 viewport 自行决定显示
       expect(onTurnError).not.toHaveBeenCalled();
-      expect(auditSpy).toHaveBeenCalledWith('turn_interrupted', 'cause=user_interrupt');
-      auditSpy.mockRestore();
+      expect(audit.write).toHaveBeenCalledWith('turn_interrupted', 'cause=user_interrupt');
     });
 
     it('Error → onTurnError with message', () => {
       const onTurnInterrupted = vi.fn();
       const onTurnError = vi.fn();
-      const auditSpy = vi.spyOn((runtime as unknown as RuntimeTestInternals).auditWriter, 'write');
-      (runtime as unknown as RuntimeTestInternals)._handleTurnInterrupt(new Error('LLM failure'), { onTurnInterrupted, onTurnError });
+      const audit = makeMockAudit();
+      handleTurnInterrupt(new Error('LLM failure'), audit, { onTurnInterrupted, onTurnError });
       expect(onTurnError).toHaveBeenCalledWith('LLM failure');
       expect(onTurnInterrupted).not.toHaveBeenCalled();
-      expect(auditSpy).toHaveBeenCalledWith('turn_error', 'error=LLM failure');
-      auditSpy.mockRestore();
+      expect(audit.write).toHaveBeenCalledWith('turn_error', 'error=LLM failure');
     });
 
     it('non-Error value → onTurnError with string', () => {
       const onTurnError = vi.fn();
-      (runtime as unknown as RuntimeTestInternals)._handleTurnInterrupt('raw string error', { onTurnError });
+      const audit = makeMockAudit();
+      handleTurnInterrupt('raw string error', audit, { onTurnError });
       expect(onTurnError).toHaveBeenCalledWith('raw string error');
     });
   });
