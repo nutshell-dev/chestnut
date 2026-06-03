@@ -34,10 +34,106 @@ async function writeSentMarker(fs: FileSystem, auditWriter: AuditLog, taskId: Ta
   }
 }
 
+interface SendResultCoreParams {
+  fs: FileSystem;
+  auditWriter: AuditLog;
+  taskId: TaskId;
+  parentClawId: string;
+  from: string;
+  fullContent: string;
+  buildInlineJson: () => string;
+  buildRefJson: (resultRef: string, summary: string) => string;
+  isError: boolean;
+  writeMarkerOnSuccess: boolean;
+  auditContexts: {
+    initialWrite: string;
+    orphanDelete: string;
+  };
+}
+
 /**
- * Send tool task result to parent claw's inbox
- * Large outputs are offloaded to TASKS_QUEUES_RESULTS_DIR/{taskId}.txt
- * Writes directly to inbox/pending/ in .md format (standard inbox format)
+ * Shared write-result-to-inbox control flow (phase 16 Step C / audit M1).
+ *
+ * Three-level degradation:
+ *   1. write result.txt + ref message  → fail: degrade to inline message
+ *   2. write inbox (ref)               → fail: delete orphan ref + retry inline
+ *   3. write inbox (inline retry)      → fail: emit inline_fallback_failed +
+ *      re-throw original err (caller fallback chain unchanged)
+ */
+async function sendResultCore(p: SendResultCoreParams): Promise<void> {
+  let resultRef: string | undefined;
+  try {
+    const resultPath = `${TASKS_QUEUES_RESULTS_DIR}/${p.taskId}/result.txt`;
+    await p.fs.ensureDir(`${TASKS_QUEUES_RESULTS_DIR}/${p.taskId}`);
+    await p.fs.writeAtomic(resultPath, p.fullContent);
+    resultRef = resultPath;
+  } catch (writeErr) {
+    emitResultWriteFailed(p.auditWriter, {
+      taskId: p.taskId,
+      context: p.auditContexts.initialWrite,
+      error: formatErr(writeErr),
+    });
+  }
+
+  const summary = resultRef ? p.fullContent.slice(0, SUMMARY_MAX_CHARS) : p.fullContent;
+  const inlineContent = p.buildInlineJson();
+  const messageContent = resultRef ? p.buildRefJson(resultRef, summary) : inlineContent;
+
+  const baseMsg: InboxMessage = {
+    id: randomUUID(),
+    type: 'task_result',
+    from: p.from,
+    to: p.parentClawId,
+    content: messageContent,
+    priority: p.isError ? 'high' : 'normal',
+    timestamp: new Date().toISOString(),
+  };
+
+  try {
+    await writeInboxAsync(p.fs, INBOX_PENDING_DIR, baseMsg, p.auditWriter);
+  } catch (err) {
+    if (resultRef) {
+      await p.fs.delete(resultRef).catch((delErr) => {
+        emitResultWriteFailed(p.auditWriter, {
+          taskId: p.taskId,
+          context: p.auditContexts.orphanDelete,
+          error: formatErr(delErr),
+        });
+      });
+      try {
+        await writeInboxAsync(p.fs, INBOX_PENDING_DIR, { ...baseMsg, content: inlineContent }, p.auditWriter);
+        if (p.writeMarkerOnSuccess) {
+          await writeSentMarker(p.fs, p.auditWriter, p.taskId);
+        }
+        return;
+      } catch (inlineErr) {
+        emitInboxWriteFailed(p.auditWriter, {
+          taskId: p.taskId,
+          context: 'inline_fallback_failed',
+          error: formatErr(inlineErr),
+        });
+      }
+    }
+    emitInboxWriteFailed(p.auditWriter, {
+      taskId: p.taskId,
+      error: formatErr(err),
+    });
+    throw err;
+  }
+
+  if (p.writeMarkerOnSuccess) {
+    // phase 789 (audit-2026-05-14 P0.19): SENT_MARKER = "parent inbox has
+    // received at least one notification for this task" idempotency token;
+    // recovery checks the marker to decide whether to skip re-send.
+    await writeSentMarker(p.fs, p.auditWriter, p.taskId);
+  }
+}
+
+/**
+ * Send tool task result to parent claw's inbox.
+ * Large outputs are offloaded to TASKS_QUEUES_RESULTS_DIR/{taskId}.txt.
+ * No SENT_MARKER for tool tasks: _recoverToolTask re-queues; idempotency
+ * is the caller's contract (ToolTask.isIdempotent).
  */
 export async function sendToolResult(
   fs: FileSystem,
@@ -47,92 +143,36 @@ export async function sendToolResult(
   isError: boolean,
 ): Promise<void> {
   const fullContent = typeof result === 'string' ? result : result.content;
-
-  // Try to write full result to TASKS_QUEUES_RESULTS_DIR/
-  let resultRef: string | undefined;
-  try {
-    const resultPath = `${TASKS_QUEUES_RESULTS_DIR}/${task.id}/result.txt`;
-    await fs.ensureDir(`${TASKS_QUEUES_RESULTS_DIR}/${task.id}`);
-    await fs.writeAtomic(resultPath, fullContent);
-    resultRef = resultPath;
-  } catch (writeErr) {
-    // Degrade gracefully: resultRef remains undefined, send full content in inbox
-    const errMsg = formatErr(writeErr);
-    emitResultWriteFailed(auditWriter, {
-      taskId: task.id,
-      context: 'write_result',
-      error: errMsg,
-    });
-  }
-
-  // Build summary (preview if resultRef exists, full content otherwise)
-  const summary = resultRef ? fullContent.slice(0, SUMMARY_MAX_CHARS) : fullContent;
-
-  // Pre-compute both versions of message content (ref and inline)
-  const inlineContent = JSON.stringify({
+  await sendResultCore({
+    fs,
+    auditWriter,
     taskId: task.id,
-    toolName: task.toolName,
-    result: fullContent,
-    is_error: isError,
-  });
-  const messageContent = resultRef
-    ? JSON.stringify({
-        taskId: task.id,
-        toolName: task.toolName,
-        summary,
-        resultRef,
-        is_error: isError,
-      })
-    : inlineContent;
-
-  const msgId = randomUUID();
-  const priority: 'high' | 'normal' = isError ? 'high' : 'normal';
-  const baseMsg: InboxMessage = {
-    id: msgId,
-    type: 'task_result',
+    parentClawId: task.parentClawId,
     from: task.callerType ?? 'task_system',
-    to: task.parentClawId,
-    content: messageContent,
-    priority,
-    timestamp: new Date().toISOString(),
-  };
-
-  try {
-    await writeInboxAsync(fs, INBOX_PENDING_DIR, baseMsg, auditWriter);
-  } catch (err) {
-    if (resultRef) {
-      // inbox 写失败：删除孤立的 results 文件，降级为 inline 内容重试
-      await fs.delete(resultRef).catch((delErr) => {
-        emitResultWriteFailed(auditWriter, {
-          taskId: task.id,
-          context: 'orphan_delete',
-          error: formatErr(delErr),
-        });
-      });
-      try {
-        await writeInboxAsync(fs, INBOX_PENDING_DIR, { ...baseMsg, content: inlineContent }, auditWriter);
-        return;
-      } catch (inlineErr) {
-        emitInboxWriteFailed(auditWriter, {
-          taskId: task.id,
-          context: 'inline_fallback_failed',
-          error: formatErr(inlineErr),
-        });
-        // 降级也失败，继续抛出原始错误（保 caller fallback 链 / 既有 throw err 路径不动）
-      }
-    }
-    const errMsg = formatErr(err);
-    emitInboxWriteFailed(auditWriter, {
+    fullContent,
+    buildInlineJson: () => JSON.stringify({
       taskId: task.id,
-      error: errMsg,
-    });
-    throw err;  // Re-throw to allow caller fallback
-  }
+      toolName: task.toolName,
+      result: fullContent,
+      is_error: isError,
+    }),
+    buildRefJson: (resultRef, summary) => JSON.stringify({
+      taskId: task.id,
+      toolName: task.toolName,
+      summary,
+      resultRef,
+      is_error: isError,
+    }),
+    isError,
+    writeMarkerOnSuccess: false,
+    auditContexts: { initialWrite: 'write_result', orphanDelete: 'orphan_delete' },
+  });
 }
 
 /**
- * Send task result to parent claw's inbox
- * Large outputs are offloaded to TASKS_QUEUES_RESULTS_DIR/{taskId}.txt
+ * Send subagent task result to parent claw's inbox.
+ * Large outputs are offloaded to TASKS_QUEUES_RESULTS_DIR/{taskId}.txt.
+ * Writes SENT_MARKER on success — recovery uses it to skip re-send.
  */
 export async function sendResult(
   fs: FileSystem,
@@ -141,90 +181,28 @@ export async function sendResult(
   result: string,
   isError: boolean,
 ): Promise<void> {
-  // Try to write full result to TASKS_QUEUES_RESULTS_DIR/
-  let resultRef: string | undefined;
-  try {
-    const resultPath = `${TASKS_QUEUES_RESULTS_DIR}/${task.id}/result.txt`;
-    await fs.ensureDir(`${TASKS_QUEUES_RESULTS_DIR}/${task.id}`);
-    await fs.writeAtomic(resultPath, result);
-    resultRef = resultPath;
-  } catch (writeErr) {
-    // Degrade gracefully: resultRef remains undefined, send full content in inbox
-    const errMsg = formatErr(writeErr);
-    emitResultWriteFailed(auditWriter, {
-      taskId: task.id,
-      context: 'send_result_write',
-      error: errMsg,
-    });
-  }
-
-  // Build summary (preview if resultRef exists, full content otherwise)
-  const summary = resultRef ? result.slice(0, SUMMARY_MAX_CHARS) : result;
-
-  // Pre-compute both versions of message content (ref and inline)
-  const inlineContent = JSON.stringify({
+  await sendResultCore({
+    fs,
+    auditWriter,
     taskId: task.id,
-    result,
-    is_error: isError,
-  });
-  const messageContent = resultRef
-    ? JSON.stringify({
-        taskId: task.id,
-        summary,
-        resultRef,
-        is_error: isError,
-      })
-    : inlineContent;
-
-  const msgId = randomUUID();
-  const priority: 'high' | 'normal' = isError ? 'high' : 'normal';
-  const baseMsg: InboxMessage = {
-    id: msgId,
-    type: 'task_result',
+    parentClawId: task.parentClawId,
     from: task.callerType ?? 'subagent',
-    to: task.parentClawId,
-    content: messageContent,
-    priority,
-    timestamp: new Date().toISOString(),
-  };
-
-  try {
-    await writeInboxAsync(fs, INBOX_PENDING_DIR, baseMsg, auditWriter);
-  } catch (err) {
-    if (resultRef) {
-      // inbox 写失败：删除孤立的 results 文件，降级为 inline 内容重试
-      await fs.delete(resultRef).catch((delErr) => {
-        emitResultWriteFailed(auditWriter, {
-          taskId: task.id,
-          context: 'orphan_delete_send',
-          error: formatErr(delErr),
-        });
-      });
-      try {
-        await writeInboxAsync(fs, INBOX_PENDING_DIR, { ...baseMsg, content: inlineContent }, auditWriter);
-        // phase 789: inline fallback success 也算 inbox 已投递 → 写 SENT_MARKER
-        await writeSentMarker(fs, auditWriter, task.id);
-        return;
-      } catch (inlineErr) {
-        emitInboxWriteFailed(auditWriter, {
-          taskId: task.id,
-          context: 'inline_fallback_failed',
-          error: formatErr(inlineErr),
-        });
-        // 降级也失败，继续抛出原始错误（保 caller fallback 链 / 既有 throw err 路径不动）
-      }
-    }
-    const errMsg = formatErr(err);
-    emitInboxWriteFailed(auditWriter, {
+    fullContent: result,
+    buildInlineJson: () => JSON.stringify({
       taskId: task.id,
-      error: errMsg,
-    });
-    throw err;  // Re-throw to allow caller fallback
-  }
-  // phase 789 (audit-2026-05-14 P0.19): inbox 主路径 success → 原子写 SENT_MARKER
-  // SENT_MARKER 是「父 inbox 已投递关于本 task 的至少一条通知」的 idempotency token
-  // crash recovery 检 marker 决定是否跳重发
-  await writeSentMarker(fs, auditWriter, task.id);
+      result,
+      is_error: isError,
+    }),
+    buildRefJson: (resultRef, summary) => JSON.stringify({
+      taskId: task.id,
+      summary,
+      resultRef,
+      is_error: isError,
+    }),
+    isError,
+    writeMarkerOnSuccess: true,
+    auditContexts: { initialWrite: 'send_result_write', orphanDelete: 'orphan_delete_send' },
+  });
 }
 
 /**
