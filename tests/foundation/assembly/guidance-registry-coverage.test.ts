@@ -31,6 +31,13 @@ const NON_SENDER_SCAN_TYPES = new Set([
   'claw_outbox_summary',         // src/core/outbox-summary/write.ts via fs.writeAtomic
   'task_result',                 // src/core/async-task-system/result-delivery.ts via const baseMsg
   'contract_audit_feedback',     // src/core/contract/contract-auditor.ts via this.deps.inbox.write
+  // phase 19 Step C: verification-notify.ts uses `resolveNotify(ctx)(...)` wrapper for DIP
+  // injection point (ctx.notifyClaw ?? defaultNotifyClaw). Scanner regex
+  // `\bnotify(?:Claw|Inbox|System)\s*\(` doesn't match the indirected call form.
+  // The 3 types ARE registered in composers/index.ts and ARE real senders — just scanner-blind.
+  'verification_error',          // src/core/contract/verification-notify.ts via resolveNotify(ctx)(...)
+  'verification_rejection',      // src/core/contract/verification-notify.ts via resolveNotify(ctx)(...)
+  'verification_result',         // src/core/contract/verification-notify.ts via resolveNotify(ctx)(...)
 ]);
 
 import { describe, it, expect } from 'vitest';
