@@ -28,7 +28,7 @@ import { CLAWS_DIR } from '../foundation/paths.js';
 // Check for claws with an active contract but no progress for a long time, and send a reminder
 /** 1:1 保 watchdog.ts:271-349 / 78 行 / inactivity timeout + backoff */
 export async function maybeCronClawInactivity(pm: ProcessManager, audit: AuditLog, fsFactory: (baseDir: string) => FileSystem): Promise<void> {
-  const timeoutMs = getGlobalConfig(fsFactory).watchdog?.claw_inactivity_timeout_ms ?? 300000;
+  const timeoutMs = getGlobalConfig(fsFactory).watchdog.claw_inactivity_timeout_ms;
   const fs = getChestnutFs(fsFactory);
   if (!fs.existsSync(CLAWS_DIR)) return;
 

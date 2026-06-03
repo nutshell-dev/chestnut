@@ -10,7 +10,7 @@ import { getChestnutFs, getGlobalConfig, getAuditWriter, setAuditWriter } from '
 export function ensureAuditWired(fsFactory: (baseDir: string) => FileSystem): void {
   if (getAuditWriter() !== null) return;
   try {
-    const auditMaxSizeMb = getGlobalConfig(fsFactory).audit?.retention?.max_size_mb ?? null;
+    const auditMaxSizeMb = getGlobalConfig(fsFactory).audit.retention.max_size_mb;
     const auditWriter = createAuditWriter(getChestnutFs(fsFactory), 'audit.tsv', auditMaxSizeMb);
     setAuditWriter(auditWriter);
   } catch (err) {

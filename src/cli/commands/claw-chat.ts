@@ -44,9 +44,9 @@ export async function chatCommand(deps: { fsFactory: (baseDir: string) => FileSy
         console.log(`Started (PID: ${pid})`);
       }
     },
-    showRecapStream: globalConfig.viewport?.show_recap_stream,
-    showSystemMessages: globalConfig.viewport?.show_system_messages,
-    showContractEvents: globalConfig.viewport?.show_contract_events,
-    trimOutputNewlines: globalConfig.viewport?.trim_output_newlines,
+    showRecapStream: globalConfig.viewport.show_recap_stream,
+    showSystemMessages: globalConfig.viewport.show_system_messages,
+    showContractEvents: globalConfig.viewport.show_contract_events,
+    trimOutputNewlines: globalConfig.viewport.trim_output_newlines,
   });
 }

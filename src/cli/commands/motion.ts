@@ -238,10 +238,10 @@ export async function chatCommand(deps: { fsFactory: (baseDir: string) => FileSy
       const { ensureWatchdog } = await import('../../watchdog/ensure.js');
       await ensureWatchdog(deps.fsFactory);
     },
-    showRecapStream: globalConfig.viewport?.show_recap_stream,
-    showSystemMessages: globalConfig.viewport?.show_system_messages,
-    showContractEvents: globalConfig.viewport?.show_contract_events,
-    trimOutputNewlines: globalConfig.viewport?.trim_output_newlines,
+    showRecapStream: globalConfig.viewport.show_recap_stream,
+    showSystemMessages: globalConfig.viewport.show_system_messages,
+    showContractEvents: globalConfig.viewport.show_contract_events,
+    trimOutputNewlines: globalConfig.viewport.trim_output_newlines,
   });
 }
 

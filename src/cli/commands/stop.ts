@@ -38,7 +38,7 @@ export async function stopAllCommand(deps: { fsFactory: (baseDir: string) => Fil
   // NEW: workspace audit 注入 watchdog 模块（与 watchdog daemon 同源）
   // 防 sub-1/sub-2/sub-4 audit emit 在 CLI 进程 silent no-op
   try {
-    const auditMaxSizeMb = getGlobalConfig(deps.fsFactory).audit?.retention?.max_size_mb ?? null;
+    const auditMaxSizeMb = getGlobalConfig(deps.fsFactory).audit.retention.max_size_mb;
     const watchdogAudit = createAuditWriter(getChestnutFs(deps.fsFactory), 'audit.tsv', auditMaxSizeMb);
     setWatchdogAuditWriter(watchdogAudit);
   } catch (err) {

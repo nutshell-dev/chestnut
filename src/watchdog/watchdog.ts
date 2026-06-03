@@ -104,7 +104,7 @@ export async function runWatchdogLoop(fsFactory: (baseDir: string) => FileSystem
   writeWatchdogPid(fsFactory, process.pid);
 
   // 先建 auditWriter，让 loadWatchdogState corrupt 路径可写 audit（N1 修复）
-  const auditMaxSizeMb = getGlobalConfig(fsFactory).audit?.retention?.max_size_mb ?? null;
+  const auditMaxSizeMb = getGlobalConfig(fsFactory).audit.retention.max_size_mb;
   const auditWriter = createAuditWriter(
     getChestnutFs(fsFactory),
     'audit.tsv',
@@ -209,7 +209,7 @@ export async function runWatchdogLoop(fsFactory: (baseDir: string) => FileSystem
     saveWatchdogState(fsFactory);   // 持久化通知状态（每 tick 一次）
     
     // 3. Sleep with backoff on consecutive failures (max 5 minutes)
-    const intervalMs = getGlobalConfig(fsFactory).watchdog?.interval_ms ?? 30000;
+    const intervalMs = getGlobalConfig(fsFactory).watchdog.interval_ms;
     const backoffMs = motionRestartFailures > 0
       ? Math.min(intervalMs * Math.pow(2, motionRestartFailures - 1), WATCHDOG_BACKOFF_MAX_MS)
       : intervalMs;

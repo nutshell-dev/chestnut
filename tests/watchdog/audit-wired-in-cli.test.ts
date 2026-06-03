@@ -5,6 +5,7 @@ import * as os from 'os';
 import { randomUUID } from 'crypto';
 
 import { getNamedSubrootDir, loadGlobalConfig } from '../../src/foundation/config/index.js';
+import { buildTestGlobalConfig } from '../helpers/global-config.js';
 import { setAuditWriter, getAuditWriter } from '../../src/watchdog/watchdog-context.js';
 import { ensureAuditWired } from '../../src/watchdog/ensure.js';
 import { WATCHDOG_AUDIT_EVENTS } from '../../src/watchdog/audit-events.js';
@@ -48,7 +49,7 @@ describe('audit wired in CLI', () => {
     chestnutDir = path.join(tmpDir, '.chestnut');
     fs.mkdirSync(chestnutDir, { recursive: true });
     vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(chestnutDir, 'motion'));
-    vi.mocked(loadGlobalConfig).mockReturnValue({} as any);
+    vi.mocked(loadGlobalConfig).mockReturnValue(buildTestGlobalConfig());
 
     setAuditWriter(null);
 
