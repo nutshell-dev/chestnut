@@ -182,6 +182,11 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     setupFiles: ['.config/vitest-setup.ts'],
+    // phase 22: clawspace 副本（.chestnut/claws/*/clawspace/.../tests/**）
+    // 被 vitest 当 CLI filter 收集进 runner，因路径深度差 import 失败、
+    // 触发 hook 超时。leading `**/` 让 exclude 在任意路径深度匹配 `.chestnut`
+    // 节、与 project-level exclude 双保险。
+    exclude: ['**/.chestnut/**', '**/node_modules/**', '**/dist/**'],
     projects: [
       {
         test: {
@@ -189,7 +194,7 @@ export default defineConfig({
           globals: true,
           environment: 'node',
           include: ['tests/**/*.test.ts'],
-          exclude: [...ISOLATED_FILES, '.chestnut/**', 'node_modules/**', 'dist/**'],
+          exclude: [...ISOLATED_FILES, '**/.chestnut/**', '**/node_modules/**', '**/dist/**'],
           pool: 'threads',
           poolOptions: { threads: { maxThreads, isolate: false } },
           testTimeout: 15000,
@@ -202,7 +207,7 @@ export default defineConfig({
           globals: true,
           environment: 'node',
           include: ISOLATED_FILES,
-          exclude: ['.chestnut/**', 'node_modules/**', 'dist/**'],
+          exclude: ['**/.chestnut/**', '**/node_modules/**', '**/dist/**'],
           pool: 'threads',
           poolOptions: { threads: { maxThreads, isolate: true } },
           testTimeout: 15000,
