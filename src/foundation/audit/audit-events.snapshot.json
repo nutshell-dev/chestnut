@@ -303,7 +303,8 @@
     "core_spawn-system_audit-events": [
       "spawn_sync_failed",
       "spawn_sync_finished",
-      "spawn_sync_started"
+      "spawn_sync_started",
+      "spawn_template_unknown"
     ],
     "core_status-service_audit-events": [
       "status_contract_error",
