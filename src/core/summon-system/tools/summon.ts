@@ -11,6 +11,7 @@ import { ASK_MOTION_TOOL_NAME, ASK_MOTION_TOOL_DESCRIPTION, ASK_MOTION_TOOL_SCHE
 
 import { SUMMON_AUDIT_EVENTS, emitSummonDispatched, emitSummonRejectedShadow } from '../audit-events.js';
 import { SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME } from '../post-processors/contract-extract.js';
+import { SUMMON_CALLER_TYPES, type SummonCallerType } from '../caller-types.js';
 import { spawnShadowSubagent, stripIncompleteToolUse } from '../../shadow-system/index.js';
 import { type TaskId, makeTaskId } from '../../../foundation/identity/index.js';
 
@@ -110,7 +111,7 @@ export class SummonTool implements Tool {
     // 确定执行模式：shadow（默认、继承 Motion 上下文）或 mining（实验中、ask_motion 问答构建上下文）
     const mode = (args.mode as 'mining' | 'shadow') ?? 'shadow';
     const isMining = mode === 'mining';
-    const callerType: 'shadow' | 'miner' = isMining ? 'miner' : 'shadow';
+    const callerType: SummonCallerType = isMining ? SUMMON_CALLER_TYPES.MINER : SUMMON_CALLER_TYPES.SHADOW;
     const verify = args.verify === true;
 
     // 根据模式构建用户消息

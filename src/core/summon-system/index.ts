@@ -4,6 +4,7 @@
  */
 
 export { SummonTool, SUMMON_TOOL_NAME } from './tools/summon.js';
+export { SUMMON_CALLER_TYPES, type SummonCallerType } from './caller-types.js';
 export { AskMotionTool, ASK_MOTION_TOOL_NAME, ASK_MOTION_TOOL_DESCRIPTION, ASK_MOTION_TOOL_SCHEMA } from './tools/ask-motion.js';
 export { SUMMON_AUDIT_EVENTS, emitSummonDispatched, emitSummonRejectedShadow } from './audit-events.js';
 export {
