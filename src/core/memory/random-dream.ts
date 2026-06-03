@@ -107,6 +107,36 @@ function saveRandomDreamState(fs: FileSystem, state: RandomDreamState, audit: Au
 
 
 /** 计算契约权重（越高越优先） */
+type SubtaskInfo = ProgressData['subtasks'][string];
+
+function calculateWeightFactors(
+  subtasks: SubtaskInfo[],
+): { recencyBonus: number; difficultyBonus: number; hints: string[] } {
+  const hints: string[] = [];
+
+  // 近期完成加权（7 天内权重最高）
+  const completedAts = subtasks
+    .map(s => s.completed_at ? new Date(s.completed_at).getTime() : 0)
+    .filter(t => t > 0);
+  let recencyBonus = 0;
+  if (completedAts.length > 0) {
+    const latestMs = Math.max(...completedAts);
+    const daysAgo = (Date.now() - latestMs) / (1000 * 60 * 60 * 24);
+    recencyBonus = Math.round(50 * Math.exp(-daysAgo / 7));
+    if (recencyBonus > 20) hints.push('近期完成');
+  }
+
+  // 失败/困难加权（phase 1405: force_accepted = system 强接受 = 难点信号）
+  let difficultyBonus = 0;
+  for (const s of subtasks) {
+    if (s.force_accepted === true) difficultyBonus += 20;
+    else if ((s.retry_count ?? 0) >= 2) difficultyBonus += 10;
+  }
+  if (difficultyBonus > 0) hints.push('执行困难');
+
+  return { recencyBonus, difficultyBonus, hints };
+}
+
 async function computeWeight(
   fs: FileSystem,
   contractId: ContractId,
@@ -138,27 +168,9 @@ async function computeWeight(
     try {
       const progress = await getContractProgress(clawId, contractId);
       const subtasks = Object.values(progress.subtasks ?? {});
-
-      // 近期完成加权（7 天内权重最高）
-      const completedAts = subtasks
-        .map(s => s.completed_at ? new Date(s.completed_at).getTime() : 0)
-        .filter(t => t > 0);
-      if (completedAts.length > 0) {
-        const latestMs = Math.max(...completedAts);
-        const daysAgo = (Date.now() - latestMs) / (1000 * 60 * 60 * 24);
-        const recencyBonus = Math.round(50 * Math.exp(-daysAgo / 7));
-        weight += recencyBonus;
-        if (recencyBonus > 20) hints.push('近期完成');
-      }
-
-      // 失败/困难加权（phase 1405: 'failed' 状态删、改用 force_accepted = system 强接受 = 难点信号）
-      let difficultyBonus = 0;
-      for (const s of subtasks) {
-        if (s.force_accepted === true) difficultyBonus += 20;
-        else if ((s.retry_count ?? 0) >= 2) difficultyBonus += 10;
-      }
-      weight += difficultyBonus;
-      if (difficultyBonus > 0) hints.push('执行困难');
+      const factors = calculateWeightFactors(subtasks);
+      weight += factors.recencyBonus + factors.difficultyBonus;
+      hints.push(...factors.hints);
     } catch { /* silent: 无 progress，跳过 */ }
   } else {
     // fallback：直接读 progress.json（backward compatible / 未注入 ContractSystem 时）
@@ -172,27 +184,9 @@ async function computeWeight(
       }
       const progress = parsed as ProgressData;
       const subtasks = Object.values(progress.subtasks ?? {});
-
-      // 近期完成加权（7 天内权重最高）
-      const completedAts = subtasks
-        .map(s => s.completed_at ? new Date(s.completed_at).getTime() : 0)
-        .filter(t => t > 0);
-      if (completedAts.length > 0) {
-        const latestMs = Math.max(...completedAts);
-        const daysAgo = (Date.now() - latestMs) / (1000 * 60 * 60 * 24);
-        const recencyBonus = Math.round(50 * Math.exp(-daysAgo / 7));
-        weight += recencyBonus;
-        if (recencyBonus > 20) hints.push('近期完成');
-      }
-
-      // 失败/困难加权（phase 1405: 'failed' 状态删、改用 force_accepted = system 强接受 = 难点信号）
-      let difficultyBonus = 0;
-      for (const s of subtasks) {
-        if (s.force_accepted === true) difficultyBonus += 20;
-        else if ((s.retry_count ?? 0) >= 2) difficultyBonus += 10;
-      }
-      weight += difficultyBonus;
-      if (difficultyBonus > 0) hints.push('执行困难');
+      const factors = calculateWeightFactors(subtasks);
+      weight += factors.recencyBonus + factors.difficultyBonus;
+      hints.push(...factors.hints);
     } catch { /* silent: 无 progress.json，跳过 */ }
   }
 
