@@ -12,6 +12,21 @@ import type { ClawId } from '../../foundation/identity/index.js';
 import type { ContractId, ChestnutRoot } from '../../foundation/identity/index.js';
 import { type ClawDir } from '../../foundation/identity/index.js';
 import type { VerificationMutex } from './verification-mutex.js';
+import type { FileSystem } from '../../foundation/fs/types.js';
+import type { AuditLog } from '../../foundation/audit/index.js';
+import type { InboxMessageOptionsBase } from '../../foundation/messaging/inbox-writer.js';
+
+/**
+ * phase 19 Step C: notifyClaw injection point (DIP).
+ * Optional — default falls back to direct foundation/messaging.notifyClaw import.
+ */
+export type NotifyClawFn = (
+  fs: FileSystem,
+  chestnutRoot: ChestnutRoot,
+  targetClawId: string,
+  message: InboxMessageOptionsBase,
+  audit: AuditLog,
+) => void;
 
 
 
@@ -31,6 +46,8 @@ export interface VerificationContractContext {
   clawId: ClawId;
   /** phase 1389: ctx-injected chestnutRoot (single truth source, no heuristic derivation) */
   chestnutRoot: ChestnutRoot;
+  /** phase 19 Step C: optional notifyClaw injection (DIP). Default = foundation/messaging direct call. */
+  notifyClaw?: NotifyClawFn;
   contractDir: (contractId: ContractId) => Promise<string>;
   loadContractYaml: (contractId: ContractId) => Promise<ContractYaml>;
   getProgress: (contractId: ContractId) => Promise<ProgressData>;

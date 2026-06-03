@@ -3,10 +3,18 @@
  * Notify helpers — safe wrapper + inbox writer + error writer
  */
 
-import type { VerificationContext } from './verification-types.js';
-import { notifyClaw } from '../../foundation/messaging/index.js';
+import type { VerificationContext, NotifyClawFn } from './verification-types.js';
+import { notifyClaw as defaultNotifyClaw } from '../../foundation/messaging/index.js';
 import { makeChestnutRoot } from '../../foundation/identity/index.js';
 import { getChestnutRoot } from '../../foundation/paths.js';
+
+/**
+ * phase 19 Step C: resolve notify channel via ctx injection point (DIP).
+ * Default falls back to foundation/messaging.notifyClaw for backward compat.
+ */
+function resolveNotify(ctx: VerificationContext): NotifyClawFn {
+  return ctx.notifyClaw ?? defaultNotifyClaw;
+}
 
 import type { ContractId } from '../../foundation/identity/index.js';
 import type { SubtaskId } from './types.js';
@@ -62,7 +70,7 @@ export function writeVerificationInbox(
   }
 
   const chestnutRoot = ctx.chestnutRoot ?? makeChestnutRoot(getChestnutRoot());
-  notifyClaw(ctx.fs, chestnutRoot, ctx.clawId, {
+  resolveNotify(ctx)(ctx.fs, chestnutRoot, ctx.clawId, {
     type: verdict === 'passed' ? 'verification_result' : 'verification_rejection',
     source: 'contract_system',
     to: ctx.clawId,
@@ -97,7 +105,7 @@ export function writeForceAcceptInbox(
     : `Subtask ${subtaskId} force-accepted after ${retryCount} attempts.${summary}`;
 
   const chestnutRoot = ctx.chestnutRoot ?? makeChestnutRoot(getChestnutRoot());
-  notifyClaw(ctx.fs, chestnutRoot, ctx.clawId, {
+  resolveNotify(ctx)(ctx.fs, chestnutRoot, ctx.clawId, {
     type: 'verification_result',
     source: 'contract_system',
     to: ctx.clawId,
@@ -113,22 +121,19 @@ export function writeForceAcceptInbox(
   }, ctx.audit);
 }
 
-export async function writeVerificationError(
+/**
+ * phase 19 Step C: pure inbox notification, no progress mutation (SRP).
+ * Caller of writeVerificationError used to bundle this with retry handling;
+ * now decomposed so each function has single responsibility.
+ */
+export function notifyVerificationError(
   ctx: VerificationContext,
   contractId: ContractId,
   subtaskId: SubtaskId,
-  error: unknown,
-): Promise<{ archived?: boolean }> {
-  const errorMsg = formatErr(error);
-  const cause: LastFailedFeedback['cause'] =
-    error instanceof ToolTimeoutError ? 'subagent_timeout' : 'programming_bug';
-  const feedbackText =
-    cause === 'subagent_timeout'
-      ? `Acceptance verifier timed out after ${(error as ToolTimeoutError).context?.timeoutMs ?? '?'}ms. 资源 / 网络问题 / 重试可能修复。Error: ${errorMsg}`
-      : `Acceptance verification crashed (system bug). Error: ${errorMsg}. 修代码后再 retry。`;
-
+  errorMsg: string,
+): void {
   const chestnutRoot = ctx.chestnutRoot ?? makeChestnutRoot(getChestnutRoot());
-  notifyClaw(ctx.fs, chestnutRoot, ctx.clawId, {
+  resolveNotify(ctx)(ctx.fs, chestnutRoot, ctx.clawId, {
     type: 'verification_error',
     source: 'contract_system',
     to: ctx.clawId,
@@ -140,7 +145,21 @@ export async function writeVerificationError(
       subtask_id: subtaskId,
     },
   }, ctx.audit);
+}
 
+/**
+ * phase 19 Step C: pure retry state machine (SRP).
+ * progress lock + retry_count increment + force-accept decision + inbox/safeNotify.
+ * Returns { archived } so caller (runVerificationInBackground catch) can do archiveAndEmit
+ * outside the progress lock.
+ */
+export async function handleVerificationErrorRetry(
+  ctx: VerificationContext,
+  contractId: ContractId,
+  subtaskId: SubtaskId,
+  cause: LastFailedFeedback['cause'],
+  feedbackText: string,
+): Promise<{ archived?: boolean }> {
   let result: { archived?: boolean } = {};
   try {
     await ctx.withProgressLock(contractId, async () => {
@@ -198,5 +217,27 @@ export async function writeVerificationError(
     );
   }
   return result;
+}
+
+/**
+ * Orchestrator: classify error → notify inbox → run retry state machine.
+ * Kept under existing name for backward compat with single callsite in verification.ts.
+ */
+export async function writeVerificationError(
+  ctx: VerificationContext,
+  contractId: ContractId,
+  subtaskId: SubtaskId,
+  error: unknown,
+): Promise<{ archived?: boolean }> {
+  const errorMsg = formatErr(error);
+  const cause: LastFailedFeedback['cause'] =
+    error instanceof ToolTimeoutError ? 'subagent_timeout' : 'programming_bug';
+  const feedbackText =
+    cause === 'subagent_timeout'
+      ? `Acceptance verifier timed out after ${(error as ToolTimeoutError).context?.timeoutMs ?? '?'}ms. 资源 / 网络问题 / 重试可能修复。Error: ${errorMsg}`
+      : `Acceptance verification crashed (system bug). Error: ${errorMsg}. 修代码后再 retry。`;
+
+  notifyVerificationError(ctx, contractId, subtaskId, errorMsg);
+  return handleVerificationErrorRetry(ctx, contractId, subtaskId, cause, feedbackText);
 }
 
