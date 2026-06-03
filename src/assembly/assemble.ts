@@ -34,7 +34,7 @@ import type { EvolutionSystem } from '../core/evolution-system/index.js';
 
 import { createAsyncTaskSystem } from '../core/async-task-system/index.js';
 import type { AsyncTaskSystem } from '../core/async-task-system/system.js';
-import { summonContractExtractPostProcessor, AskMotionTool } from '../core/summon-system/index.js';
+import { summonContractExtractPostProcessor, SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME, AskMotionTool } from '../core/summon-system/index.js';
 
 import { createFileTools, TASKS_SYNC_WRITE_DIR } from '../foundation/file-tool/index.js';
 import { createCommandTools, TASKS_SYNC_EXEC_DIR } from '../foundation/command-tool/index.js';
@@ -356,7 +356,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
       throw new Error(`Assembly: AsyncTaskSystem construct failed: ${formatErr(e)}`, { cause: e });
     }
     // phase438: 注册 PostProcessors（装配期）
-    taskSystem.addPostProcessor('summon-contract-extract', summonContractExtractPostProcessor);
+    taskSystem.addPostProcessor(SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME, summonContractExtractPostProcessor);
     // backwards-compat (phase 1142 dispatch→summon migrate): 既有 pending tasks/queues/pending/<id>.json 内 `postProcessor: 'dispatch-contract-extract'` 仍认
     // SUNSET (per phase 1180 r129 E fork sunset SOP): 30 天 audit 0 触发 LEGACY_POST_PROCESSOR_INVOKED → r130+ phase 删本 fallback + subagent-helpers.ts:52 sibling
     taskSystem.addPostProcessor('dispatch-contract-extract', summonContractExtractPostProcessor);

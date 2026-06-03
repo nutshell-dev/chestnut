@@ -10,6 +10,7 @@ import { buildSummonContractTask, buildMinerSystemPrompt, buildMiningUserMessage
 import { ASK_MOTION_TOOL_NAME, ASK_MOTION_TOOL_DESCRIPTION, ASK_MOTION_TOOL_SCHEMA } from './ask-motion.js';
 
 import { SUMMON_AUDIT_EVENTS, emitSummonDispatched, emitSummonRejectedShadow } from '../audit-events.js';
+import { SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME } from '../post-processors/contract-extract.js';
 import { spawnShadowSubagent, stripIncompleteToolUse } from '../../shadow-system/index.js';
 import { type TaskId, makeTaskId } from '../../../foundation/identity/index.js';
 
@@ -178,7 +179,7 @@ export class SummonTool implements Tool {
           toolsForLLM: toolsForLLM ?? [],
           timeoutMs: SUMMON_SUBAGENT_TIMEOUT_MS,
           idleTimeoutMs,
-          postProcessor: 'summon-contract-extract',
+          postProcessor: SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME,
           shadowIdPrefix: 'summon',
         });
         taskId = result.taskId;
@@ -193,7 +194,7 @@ export class SummonTool implements Tool {
           originClawId: ctx.originClawId ?? ctx.clawId,
           callerType,                    // 'miner'
           motionClawDir,
-          postProcessor: 'summon-contract-extract',  // 声明式 post-processor
+          postProcessor: SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME,  // 声明式 post-processor
           mainContextSnapshot,
           systemPrompt,                            // phase 546: 透传 caller-side specialized prompt（mining: buildMinerSystemPrompt）
         }));

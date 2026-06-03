@@ -6,6 +6,13 @@ import type { FileSystem } from '../../../foundation/fs/types.js';
 const RAW_OUTPUT_DIAGNOSTIC_MAX = 2000;
 
 /**
+ * PostProcessor 注册名 — Assembly 装配期 addPostProcessor 用、
+ * tasks.json `postProcessor` 字段写入、subagent-helpers 分支判断用。
+ * canonical owner = post-processors/contract-extract.ts（M#3）
+ */
+export const SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME = 'summon-contract-extract' as const;
+
+/**
  * exec 工具 audit row schema（`src/foundation/tools/executor.ts:222-228`）：
  *   <ts>\t<seq>\ttool_exec\t<toolName>\t<status>\telapsed_ms=<N>\tsummary=<escapeForLog(content)>
  *

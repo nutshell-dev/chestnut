@@ -20,6 +20,7 @@ import { TASKS_SYNC_SUBAGENT_DIR } from '../../core/subagent/index.js';
 import { TASKS_SYNC_SPAWN_DIR } from '../../core/spawn-system/index.js';
 import { TASKS_SYNC_SHADOW_DIR } from '../../core/shadow-system/index.js';
 import { MOTION_CLAW_ID } from '../../constants.js';
+import { SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME } from '../../core/summon-system/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { ClawId } from '../../foundation/identity/index.js';
 import { type ContractId, makeContractId } from '../../foundation/identity/index.js';
@@ -59,7 +60,7 @@ export function inferKind(deps: { fsFactory: (baseDir: string) => FileSystem }, 
           return 'random_dream';
         }
         // SUNSET (per phase 1180): 'dispatch-contract-extract' branch 与 assemble.ts:295 sibling、同步删 if audit 0 触发 30 天
-        if (task.callerType === 'shadow' || task.callerType === 'miner' || task.postProcessor === 'summon-contract-extract' || task.postProcessor === 'dispatch-contract-extract') {
+        if (task.callerType === 'shadow' || task.callerType === 'miner' || task.postProcessor === SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME || task.postProcessor === 'dispatch-contract-extract') {
           return 'summon';
         }
         if (task.callerType === 'subagent') {

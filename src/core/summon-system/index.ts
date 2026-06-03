@@ -6,7 +6,10 @@
 export { SummonTool, SUMMON_TOOL_NAME } from './tools/summon.js';
 export { AskMotionTool, ASK_MOTION_TOOL_NAME, ASK_MOTION_TOOL_DESCRIPTION, ASK_MOTION_TOOL_SCHEMA } from './tools/ask-motion.js';
 export { SUMMON_AUDIT_EVENTS, emitSummonDispatched, emitSummonRejectedShadow } from './audit-events.js';
-export { summonContractExtractPostProcessor } from './post-processors/contract-extract.js';
+export {
+  summonContractExtractPostProcessor,
+  SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME,
+} from './post-processors/contract-extract.js';
 
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { formatErr } from "../../foundation/utils/index.js";
