@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { assemble } from '../../src/assembly/assemble.js';
+import { buildTestGlobalConfig } from '../helpers/global-config.js';
 
 // ============================================================================
 // Shared mocks
@@ -195,9 +196,7 @@ describe('Assembly — dream-trigger handler memorySystem guard (F-r72-asm-P0-2)
     identity: 'motion' as const,
     clawId: 'motion',
     clawDir: '/tmp/motion',
-    globalConfig: {
-      audit: { retention: { max_size_mb: null as number | null } },
-      stream: { retention: { max_files: null as number | null, max_days: null as number | null } },
+    globalConfig: buildTestGlobalConfig({
       cron: {
         enabled: true,
         tick_interval_ms: 1000,
@@ -212,7 +211,7 @@ describe('Assembly — dream-trigger handler memorySystem guard (F-r72-asm-P0-2)
         max_concurrent_tasks: 5,
       },
       tool_timeout_ms: 30000,
-    },
+    }),
     clawConfig: null as unknown as { max_steps: number; tool_profile: string; subagent_max_steps: number; max_concurrent_tasks: number } | null,
   };
 

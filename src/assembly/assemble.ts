@@ -16,7 +16,7 @@ import { NodeFileSystem } from '../foundation/fs/node-fs.js';
 import { createAgentProcessManager } from '../foundation/process-manager/agent-factory.js';
 import { type Runtime, type RuntimeDependencies } from '../core/runtime/index.js';
 import { createRuntime } from '../core/runtime/index.js';
-import { createLLMOrchestrator, type LLMOrchestrator, DEFAULT_LLM_IDLE_TIMEOUT_MS } from '../foundation/llm-orchestrator/index.js';
+import { createLLMOrchestrator, type LLMOrchestrator } from '../foundation/llm-orchestrator/index.js';
 import { createLLMAuditSink } from './llm-audit-sink.js';
 import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
 import { CLAWS_DIR, DISPATCH_SKILLS_PATH } from '../foundation/paths.js';
@@ -41,8 +41,6 @@ import { createClawPermissionChecker } from '../core/permissions/claw-permission
 import { TASKS_SYNC_SUBAGENT_DIR } from '../core/subagent/index.js';
 import { TASKS_SYNC_SPAWN_DIR } from '../core/spawn-system/index.js';
 import { TASKS_SYNC_SHADOW_DIR } from '../core/shadow-system/index.js';
-import { CRON_TICK_INTERVAL_MS } from '../core/cron/constants.js';
-import { DEFAULT_DISK_WARNING_MB } from '../watchdog/constants.js';
 import { spawnTool } from '../core/spawn-system/index.js';
 import { SummonTool } from '../core/summon-system/index.js';
 import { createShadowTool } from '../core/shadow-system/index.js';
@@ -97,7 +95,6 @@ import { GIT_GC_WEEKLY_CRON_TIMEOUT_MS } from '../core/cron/jobs/git-gc-weekly.j
 import { RETENTION_CLEANUP_CRON_TIMEOUT_MS } from '../core/cron/jobs/retention-cleanup.js';
 import { AUDIT_SIZE_MONITOR_CRON_TIMEOUT_MS } from '../core/cron/jobs/audit-size-monitor.js';
 import { buildLLMConfig } from '../foundation/llm-orchestrator/config-adapter.js';
-import { DEFAULT_MAX_CONCURRENT_TASKS } from '../core/async-task-system/constants.js';
 
 import type { AssembleConfig, Instances } from './types.js';
 import { createGateway } from '../core/gateway/index.js';
@@ -161,7 +158,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
     throw new Error('clawConfig is required when identity=claw');
   }
   const isMotion = identity === 'motion';
-  const auditMaxSizeMb = globalConfig.audit?.retention?.max_size_mb ?? null;
+  const auditMaxSizeMb = globalConfig.audit.retention.max_size_mb;
 
   // phase155A + B + C 联合约定：system 组件无权限校验；工具层强制权限校验
   // systemFs: used by AuditWriter / Snapshot / DialogStore / Skill/Contract/Outbox/Inbox/Task/Context/Stream
@@ -235,14 +232,14 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
     // runReact 内部持有唯一 fallback（agent-executor 自持默认值）。
     const globalDefaultMaxSteps = globalConfig.default_max_steps;
     const maxSteps: number | undefined = isMotion
-      ? (globalConfig.motion?.max_steps ?? globalDefaultMaxSteps)
+      ? (globalConfig.motion.max_steps ?? globalDefaultMaxSteps)
       : (clawConfig!.max_steps ?? globalDefaultMaxSteps);
     const maxConcurrent = isMotion
-      ? (globalConfig.motion?.max_concurrent_tasks ?? DEFAULT_MAX_CONCURRENT_TASKS)
-      : (clawConfig!.max_concurrent_tasks ?? DEFAULT_MAX_CONCURRENT_TASKS);
+      ? globalConfig.motion.max_concurrent_tasks
+      : clawConfig!.max_concurrent_tasks;
     const toolProfile = isMotion ? 'full' : clawConfig!.tool_profile;
     const toolTimeoutMs = globalConfig.tool_timeout_ms;
-    const idleTimeoutMs = globalConfig.motion?.llm_idle_timeout_ms ?? DEFAULT_LLM_IDLE_TIMEOUT_MS;
+    const idleTimeoutMs = globalConfig.motion.llm_idle_timeout_ms;
 
     // --- L3-L5: llm ---
     try {
@@ -539,8 +536,8 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
     // --- StreamWriter 前置（phase182 B.p166-5 升档：setter 双阶段消除） ---
     try {
       streamWriter = createStreamWriter(systemFs, auditWriter, {
-        maxFiles: globalConfig.stream?.retention?.max_files ?? null,
-        maxDays: globalConfig.stream?.retention?.max_days ?? null,
+        maxFiles: globalConfig.stream.retention.max_files,
+        maxDays: globalConfig.stream.retention.max_days,
       });
       streamWriter.open();
     } catch (e) {
@@ -667,7 +664,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
     // --- 6. Heartbeat (motion + interval > 0, daemon.ts L158-169) ---
     let heartbeat: Heartbeat | undefined;
     if (isMotion) {
-      const heartbeatIntervalMs = globalConfig.motion?.heartbeat_interval_ms ?? 0;
+      const heartbeatIntervalMs = globalConfig.motion.heartbeat_interval_ms;
       if (heartbeatIntervalMs > 0) {
         try {
           heartbeat = createHeartbeat(resolveChestnutRoot(clawDir, true), {  // phase 1406: motion-only context
@@ -685,11 +682,11 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
 
     // --- 7. CronRunner (motion + cron.enabled, daemon.ts L187-248) ---
     let cronRunner: CronRunner | undefined;
-    if (isMotion && (globalConfig.cron?.enabled ?? true)) {
+    if (isMotion && globalConfig.cron.enabled) {
       const chestnutRoot = resolveChestnutRoot(clawDir, true);  // phase 1406: motion-only context (isMotion+cron guard)
-      const tickMs = globalConfig.cron?.tick_interval_ms ?? CRON_TICK_INTERVAL_MS;
-      const diskLimitMB = globalConfig.watchdog?.disk_warning_mb ?? DEFAULT_DISK_WARNING_MB;
-      const diskScheduleStr = globalConfig.cron?.jobs?.disk_monitor?.schedule ?? 'hourly';
+      const tickMs = globalConfig.cron.tick_interval_ms;
+      const diskLimitMB = globalConfig.watchdog.disk_warning_mb;
+      const diskScheduleStr = globalConfig.cron.jobs.disk_monitor.schedule;
 
       // phase155D：预制 chestnutFs，被 disk-monitor / dream-trigger 闭包共用（冻结 §6）
       // 失败语义：与既有模块（Snapshot / StreamWriter）一致 —— audit 写 assemble_failed 后上抛
@@ -734,7 +731,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
             taskSystem: runtime.getTaskSystem(),
             llmService: llm,
             llmConfig,
-            maxCompressionTokens: globalConfig.cron?.jobs?.dream_trigger?.max_compression_tokens,
+            maxCompressionTokens: globalConfig.cron.jobs.dream_trigger.max_compression_tokens,
             clawFsFactory: fsFactory,
             getContractProgress,
           });
@@ -751,7 +748,7 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
         cronRunner = createCronRunner([
           {
             name: 'disk-monitor',
-            enabled: globalConfig.cron?.jobs?.disk_monitor?.enabled ?? true,
+            enabled: globalConfig.cron.jobs.disk_monitor.enabled,
             schedule: parseSchedule(diskScheduleStr, auditWriter),
             handler: (signal) => runDiskMonitor({
               chestnutRoot,
@@ -766,8 +763,8 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
           },
           {
             name: 'llm-stats',
-            enabled: globalConfig.cron?.jobs?.llm_stats?.enabled ?? true,
-            schedule: parseSchedule(globalConfig.cron?.jobs?.llm_stats?.schedule ?? 'daily:06:00', auditWriter),
+            enabled: globalConfig.cron.jobs.llm_stats.enabled,
+            schedule: parseSchedule(globalConfig.cron.jobs.llm_stats.schedule, auditWriter),
             handler: (signal) => runLlmStats({
               chestnutRoot,
               motionDir: clawDir,
@@ -780,8 +777,8 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
           },
           {
             name: 'dream-trigger',
-            enabled: globalConfig.cron?.jobs?.dream_trigger?.enabled ?? false,
-            schedule: parseSchedule(globalConfig.cron?.jobs?.dream_trigger?.schedule ?? 'daily:04:00', auditWriter),
+            enabled: globalConfig.cron.jobs.dream_trigger.enabled,
+            schedule: parseSchedule(globalConfig.cron.jobs.dream_trigger.schedule, auditWriter),
             handler: async (signal) => {
               if (!memorySystem) return;
               await memorySystem.runDeepDream(undefined, { signal });
@@ -791,8 +788,8 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
           },
           {
             name: 'metrics-snapshot',
-            enabled: globalConfig.cron?.jobs?.metrics_snapshot?.enabled ?? true,
-            schedule: parseSchedule(globalConfig.cron?.jobs?.metrics_snapshot?.schedule ?? 'interval:5m', auditWriter),
+            enabled: globalConfig.cron.jobs.metrics_snapshot.enabled,
+            schedule: parseSchedule(globalConfig.cron.jobs.metrics_snapshot.schedule, auditWriter),
             handler: (signal) => runMetricsSnapshot({
               motionDir: makeClawDir(path.join(chestnutRoot, 'motion')),
               fs: chestnutFs,
@@ -803,8 +800,8 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
           },
           {
             name: 'contract-observer',
-            enabled: true,
-            schedule: parseSchedule(globalConfig.cron?.jobs?.contract_observer?.schedule ?? 'interval:1m', auditWriter),
+            enabled: globalConfig.cron.jobs.contract_observer.enabled,
+            schedule: parseSchedule(globalConfig.cron.jobs.contract_observer.schedule, auditWriter),
             handler: (signal) => runContractObserver({
               chestnutRoot,
               fs: chestnutFs,
@@ -816,8 +813,8 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
           },
           {
             name: 'git-gc-weekly',
-            enabled: globalConfig.cron?.jobs?.git_gc_weekly?.enabled ?? true,
-            schedule: parseSchedule(globalConfig.cron?.jobs?.git_gc_weekly?.schedule ?? 'daily:03:00', auditWriter),
+            enabled: globalConfig.cron.jobs.git_gc_weekly.enabled,
+            schedule: parseSchedule(globalConfig.cron.jobs.git_gc_weekly.schedule, auditWriter),
             handler: (signal) => runGitGcWeekly({
               chestnutRoot,
               fs: chestnutFs,
@@ -828,17 +825,17 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
           },
           {
             name: 'retention-cleanup',
-            enabled: globalConfig.cron?.jobs?.retention_cleanup?.enabled ?? true,
-            schedule: parseSchedule(globalConfig.cron?.jobs?.retention_cleanup?.schedule ?? 'daily:04:00', auditWriter),
+            enabled: globalConfig.cron.jobs.retention_cleanup.enabled,
+            schedule: parseSchedule(globalConfig.cron.jobs.retention_cleanup.schedule, auditWriter),
             handler: (signal) => runRetentionCleanup({
               motionDir: clawDir,
               fs: chestnutFs,
               audit: auditWriter,
               maxDays: {
-                inbox: globalConfig.retention?.inbox_max_days ?? 30,
-                outbox: globalConfig.retention?.outbox_max_days ?? 30,
-                tasks: globalConfig.retention?.tasks_max_days ?? 60,
-                dialog: globalConfig.retention?.dialog_max_days ?? 90,
+                inbox: globalConfig.retention.inbox_max_days,
+                outbox: globalConfig.retention.outbox_max_days,
+                tasks: globalConfig.retention.tasks_max_days,
+                dialog: globalConfig.retention.dialog_max_days,
               },
               signal,
             }),
@@ -846,8 +843,8 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
           },
           {
             name: 'audit-size-monitor',
-            enabled: globalConfig.cron?.jobs?.audit_size_monitor?.enabled ?? true,
-            schedule: parseSchedule(globalConfig.cron?.jobs?.audit_size_monitor?.schedule ?? 'interval:6h', auditWriter),
+            enabled: globalConfig.cron.jobs.audit_size_monitor.enabled,
+            schedule: parseSchedule(globalConfig.cron.jobs.audit_size_monitor.schedule, auditWriter),
             handler: (signal) => runAuditSizeMonitor({
               fs: chestnutFs,
               audit: auditWriter,
@@ -862,8 +859,8 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
           // phase 1476: outbox-summary cron 替 outbox-drain（pull 模型 / 详 l5_cron.md A.phase1476-outbox-summary-cron-job）
           {
             name: 'outbox-summary',
-            enabled: globalConfig.cron?.jobs?.outbox_summary?.enabled ?? true,
-            schedule: parseSchedule(globalConfig.cron?.jobs?.outbox_summary?.schedule ?? 'interval:1s', auditWriter),
+            enabled: globalConfig.cron.jobs.outbox_summary.enabled,
+            schedule: parseSchedule(globalConfig.cron.jobs.outbox_summary.schedule, auditWriter),
             handler: (signal) => runOutboxSummary({
               chestnutRoot,
               fs: chestnutFs,
