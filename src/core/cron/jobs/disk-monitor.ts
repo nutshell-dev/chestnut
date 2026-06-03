@@ -1,4 +1,5 @@
 import * as path from 'path';
+import { formatErr } from "../../../foundation/utils/index.js";
 import { type ChestnutRoot } from '../../../foundation/identity/index.js';
 import type { FileSystem } from '../../../foundation/fs/types.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
@@ -33,7 +34,7 @@ function getDirSize(dir: string, fs: FileSystem, audit?: AuditLog, signal?: Abor
       CRON_AUDIT_EVENTS.DISK_MONITOR_CHECK,
       `step=scan_failed`,
       `dir=${dir}`,
-      `reason=${err instanceof Error ? err.message : String(err)}`,
+      `reason=${formatErr(err)}`,
     );
     return 0; // partial scan / best-effort
   }

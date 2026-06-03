@@ -3,6 +3,7 @@
  */
 
 import type { Tool, ExecContext, ExecutionInfra } from '../../../foundation/tools/index.js';
+import { formatErr } from "../../../foundation/utils/index.js";
 import type { ToolResult } from '../../../foundation/tool-protocol/index.js';
 import type { FileEntry } from '../../../foundation/fs/types.js';
 export const MEMORY_SEARCH_TOOL_NAME = 'memory_search' as const;
@@ -103,7 +104,7 @@ export const memorySearchTool: Tool = {
       } catch (e) {
         return {
           success: false,
-          content: `错误: 无效的正则表达式 "${pattern}": ${e instanceof Error ? e.message : String(e)}`,
+          content: `错误: 无效的正则表达式 "${pattern}": ${formatErr(e)}`,
         };
       }
     }

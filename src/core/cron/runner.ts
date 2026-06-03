@@ -4,6 +4,7 @@
  */
 
 import type { AuditLog } from '../../foundation/audit/index.js';
+import { formatErr } from "../../foundation/utils/index.js";
 import { isFileNotFound } from '../../foundation/fs/types.js';
 import { CRON_AUDIT_EVENTS } from './audit-events.js';
 import { CRON_TICK_INTERVAL_MS } from './constants.js';
@@ -173,7 +174,7 @@ export class CronRunner {
                 `job=${meta.job}`,
                 `run_key=${meta.runKey}`,
                 `outcome=err`,
-                `error=${err instanceof Error ? err.message : String(err)}`,
+                `error=${formatErr(err)}`,
               );
             },
           );
@@ -257,7 +258,7 @@ export class CronRunner {
             this.audit.write(CRON_AUDIT_EVENTS.JOB_ERROR,
               `job=${job.name}`,
               `run_key=${key}`,
-              `error=${err instanceof Error ? err.message : String(err)}`,
+              `error=${formatErr(err)}`,
             );
           })
           .finally(() => {
@@ -319,7 +320,7 @@ export class CronRunner {
             this.audit.write(CRON_AUDIT_EVENTS.JOB_ERROR,
               `job=${job.name}`,
               `run_key=${key}`,
-              `error=${err instanceof Error ? err.message : String(err)}`,
+              `error=${formatErr(err)}`,
               'context=late_after_timeout',
             );
             this.cancelling.delete(job.name);
@@ -341,7 +342,7 @@ export class CronRunner {
             this.audit.write(CRON_AUDIT_EVENTS.JOB_ERROR,
               `job=${job.name}`,
               `run_key=${key}`,
-              `error=${result.err instanceof Error ? result.err.message : String(result.err)}`,
+              `error=${formatErr(result.err)}`,
             );
           }
           // settled 或 err 路径：仅在未 timeout 时清 running
@@ -353,7 +354,7 @@ export class CronRunner {
     }
     // Persist cron state after each tick (fire-and-forget, non-blocking)
     this.saveState().catch((err) => {
-      const reason = err instanceof Error ? err.message : String(err);
+      const reason = formatErr(err);
       this.audit.write(CRON_AUDIT_EVENTS.STATE_SAVE_FAILED, `reason=${reason}`);
     });
   }

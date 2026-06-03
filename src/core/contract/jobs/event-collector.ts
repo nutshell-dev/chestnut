@@ -1,4 +1,5 @@
 import * as path from 'path';
+import { formatErr } from "../../../foundation/utils/index.js";
 import * as yaml from 'js-yaml';
 import { isFileNotFound, type FileSystem } from '../../../foundation/fs/types.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
@@ -126,7 +127,7 @@ export function collectContractEvents(
           `clawId=${clawId}`,
           `contract=${d.name}`,
           `context=event_collector_archive`,
-          `error=${err instanceof Error ? err.message : String(err)}`,
+          `error=${formatErr(err)}`,
         );
         continue;
       }
@@ -139,7 +140,7 @@ export function collectContractEvents(
         CONTRACT_AUDIT_EVENTS.EVENT_COLLECTOR_SCAN_FAILED,
         `dir=archive`,
         `code=${code ?? 'unknown'}`,
-        `error=${err instanceof Error ? err.message : String(err)}`,
+        `error=${formatErr(err)}`,
       );
     }
   }

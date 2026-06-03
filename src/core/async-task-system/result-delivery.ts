@@ -258,7 +258,7 @@ export async function sendFallbackError(
       const code = (err as { code?: string })?.code;
       // EEXIST 路径 idempotent 安全，silent 合规；非 EEXIST 是真 fs 故障，audit 留痕
       if (code !== 'EEXIST') {
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = formatErr(err);
         emitResultDeliveryEnsureDirFailed(auditWriter, {
           taskId: task.id,
           dir: resultsDir,

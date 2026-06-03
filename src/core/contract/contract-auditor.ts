@@ -14,6 +14,7 @@
  */
 
 import type { AuditLog } from '../../foundation/audit/index.js';
+import { formatErr } from "../../foundation/utils/index.js";
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { InboxWriter } from '../../foundation/messaging/inbox-writer.js';
@@ -134,7 +135,7 @@ export class ContractAuditor {
     try {
       verdict = await this.callAuditorLLM(prompt);
     } catch (err) {
-      const reason = err instanceof Error ? err.message : String(err);
+      const reason = formatErr(err);
       this.deps.audit.write(
         CONTRACT_AUDIT_EVENTS.CONTRACT_AUDIT_TRIGGERED,
         `contractId=${req.contractId}`,

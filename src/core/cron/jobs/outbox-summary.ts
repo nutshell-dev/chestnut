@@ -10,6 +10,7 @@
  */
 
 import type { AuditLog } from '../../../foundation/audit/index.js';
+import { formatErr } from "../../../foundation/utils/index.js";
 import type { FileSystem } from '../../../foundation/fs/types.js';
 import type { ChestnutRoot } from '../../../foundation/identity/index.js';
 import { CRON_AUDIT_EVENTS } from '../audit-events.js';
@@ -35,7 +36,7 @@ export async function runOutboxSummary(opts: OutboxSummaryJobOptions): Promise<v
   } catch (err) {
     opts.audit.write(
       CRON_AUDIT_EVENTS.OUTBOX_SUMMARY_FAILED,
-      `reason=${err instanceof Error ? err.message : String(err)}`,
+      `reason=${formatErr(err)}`,
     );
     throw err;
   }

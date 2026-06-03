@@ -7,6 +7,7 @@
  */
 
 import { isFileNotFound } from '../../foundation/fs/types.js';
+import { formatErr } from "../../foundation/utils/index.js";
 import { runSubagent } from '../subagent/index.js';
 
 import {
@@ -59,7 +60,7 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
               agentId: config.agentId,
               clawId: config.clawId,
               kind: 'progress_read_error',
-              reason: err instanceof Error ? err.message : String(err),
+              reason: formatErr(err),
             },
           );
         }
@@ -140,7 +141,7 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
                 agentId: config.agentId,
                 clawId: config.clawId,
                 stage: 'done_result_first_parse',
-                reason: parseErr instanceof Error ? parseErr.message : String(parseErr),
+                reason: formatErr(parseErr),
               },
             );
           }
@@ -186,7 +187,7 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
       );
       return { passed: false, feedback: '验收子代理超时' };
     }
-    const msg = err instanceof Error ? err.message : String(err);
+    const msg = formatErr(err);
     emitContractVerifierFailed(
       config.audit,
       {

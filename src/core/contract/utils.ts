@@ -9,6 +9,7 @@
  */
 
 import * as path from 'path';
+import { formatErr } from "../../foundation/utils/index.js";
 import { isFileNotFound, type FileSystem } from '../../foundation/fs/types.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CONTRACT_DIR } from './dirs.js';
@@ -45,7 +46,7 @@ export function getContractCreatedMs(
           {
             dir: sub,
             code: code ?? 'unknown',
-            error: err instanceof Error ? err.message : String(err),
+            error: formatErr(err),
           },
         );
       }

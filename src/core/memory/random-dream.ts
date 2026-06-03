@@ -1,4 +1,5 @@
 import * as path from 'path';
+import { formatErr } from "../../foundation/utils/index.js";
 import { MOTION_CLAW_ID } from '../../constants.js';
 import { FileNotFoundError } from '../../foundation/fs/types.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
@@ -80,7 +81,7 @@ function loadRandomDreamState(fs: FileSystem, audit: AuditLog): RandomDreamState
     // 其他 IO 错（parse 损坏 / 权限 / 等）必 audit + 返空 resilient
     audit.write(MEMORY_AUDIT_EVENTS.RANDOM_DREAM_ERROR,
       `step=load_state`,
-      `reason=${err instanceof Error ? err.message : String(err)}`,
+      `reason=${formatErr(err)}`,
     );
     return { processedContractIds: [] };
   }
@@ -95,7 +96,7 @@ function saveRandomDreamState(fs: FileSystem, state: RandomDreamState, audit: Au
   } catch (err) {
     audit.write(MEMORY_AUDIT_EVENTS.RANDOM_DREAM_ERROR,
       `step=save_state`,
-      `reason=${err instanceof Error ? err.message : String(err)}`,
+      `reason=${formatErr(err)}`,
     );
     throw err;   // re-throw 保 caller flow（cron runner phase 552 late_error 路径捕获）
   }

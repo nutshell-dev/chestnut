@@ -1,4 +1,5 @@
 import * as path from 'path';
+import { formatErr } from "../../foundation/utils/index.js";
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { MEMORY_AUDIT_EVENTS } from './audit-events.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
@@ -94,7 +95,7 @@ function loadDreamState(clawFs: FileSystem, audit: AuditLog, clawId: ClawId): Dr
     audit.write(MEMORY_AUDIT_EVENTS.DEEP_DREAM_ERROR,
       `step=load_state`,
       `clawId=${clawId}`,
-      `reason=${err instanceof Error ? err.message : String(err)}`,
+      `reason=${formatErr(err)}`,
     );
     return { processedArchives: [], currentSessionDreamedDate: '' };
   }
@@ -107,7 +108,7 @@ function saveDreamState(clawFs: FileSystem, state: DreamStateData, audit: AuditL
     audit.write(MEMORY_AUDIT_EVENTS.DEEP_DREAM_ERROR,
       `step=save_state`,
       `clawId=${clawId}`,
-      `reason=${err instanceof Error ? err.message : String(err)}`,
+      `reason=${formatErr(err)}`,
     );
     // F36: do not re-throw — preserve progress of successfully processed files
   }
@@ -218,7 +219,7 @@ async function runDeepDreamForClaw(
         `step=read_session`,
         `clawId=${clawId}`,
         `file=${sf.filename}`,
-        `reason=${err instanceof Error ? err.message : String(err)}`,
+        `reason=${formatErr(err)}`,
       );
       // 损坏 archive 永标记跳过（防 retry-storm / mirror line 198-201 空 session 模式）
       if (sf.filename !== 'current.json') {
@@ -260,7 +261,7 @@ async function runDeepDreamForClaw(
       });
       dreamOutput = responseText(res);
     } catch (err) {
-      audit.write(MEMORY_AUDIT_EVENTS.DEEP_DREAM_CALL_FAILED, `step=call_1`, `clawId=${clawId}`, `file=${sf.filename}`, `reason=${err instanceof Error ? err.message : String(err)}`);
+      audit.write(MEMORY_AUDIT_EVENTS.DEEP_DREAM_CALL_FAILED, `step=call_1`, `clawId=${clawId}`, `file=${sf.filename}`, `reason=${formatErr(err)}`);
       continue;
     }
 
@@ -279,7 +280,7 @@ async function runDeepDreamForClaw(
       });
       compression = responseText(res);
     } catch (err) {
-      audit.write(MEMORY_AUDIT_EVENTS.DEEP_DREAM_CALL_FAILED, `step=call_2`, `clawId=${clawId}`, `file=${sf.filename}`, `reason=${err instanceof Error ? err.message : String(err)}`);
+      audit.write(MEMORY_AUDIT_EVENTS.DEEP_DREAM_CALL_FAILED, `step=call_2`, `clawId=${clawId}`, `file=${sf.filename}`, `reason=${formatErr(err)}`);
       // 压缩失败不阻断流程，截取前 maxCompressionTokens chars 防 meta-compression 超上下文
       compression = dreamOutput.slice(0, maxCompressionTokens);
     }
@@ -379,7 +380,7 @@ export async function runDeepDream(opts: DeepDreamOptions): Promise<void> {
       const clawFs = opts.clawFsFactory(clawDir);
       await runDeepDreamForClaw(makeClawId(clawId), clawDir, clawFs, opts.motionFs, llm, maxCompressionTokens, opts.audit, opts.signal);
     } catch (err) {
-      opts.audit.write(MEMORY_AUDIT_EVENTS.DEEP_DREAM_UNEXPECTED, `step=unexpected`, `clawId=${clawId}`, `reason=${err instanceof Error ? err.message : String(err)}`);
+      opts.audit.write(MEMORY_AUDIT_EVENTS.DEEP_DREAM_UNEXPECTED, `step=unexpected`, `clawId=${clawId}`, `reason=${formatErr(err)}`);
       // 单 claw 失败不阻断其他 claw
     }
   }

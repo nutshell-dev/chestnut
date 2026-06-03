@@ -9,6 +9,7 @@
  */
 
 import { buildRetroPrompt } from '../../prompts/index.js';
+import { formatErr } from "../../foundation/utils/index.js";
 import { MOTION_CLAW_ID } from '../../constants.js';
 import type { AsyncTaskSystem } from '../async-task-system/index.js';
 import { createSkillSystem } from '../../foundation/skill-system/index.js';
@@ -55,7 +56,7 @@ export async function scheduleRetro(config: RetroConfig): Promise<void> {
     }
   } catch (e) {
     config.audit.write(RETRO_AUDIT_EVENTS.SKILL_FAILED,
-      `error=${e instanceof Error ? e.message : String(e)}`);
+      `error=${formatErr(e)}`);
   }
 
   // 构建 retroPrompt（A.3）

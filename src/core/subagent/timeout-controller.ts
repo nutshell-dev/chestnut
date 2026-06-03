@@ -11,6 +11,7 @@
  */
 
 import type { AuditLog } from '../../foundation/audit/index.js';
+import { formatErr } from "../../foundation/utils/index.js";
 import { ToolTimeoutError } from '../../foundation/errors.js';
 import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../signals.js';
 import type { AbortReason } from '../../foundation/llm-provider/index.js';
@@ -79,7 +80,7 @@ export function createTimeoutController(opts: TimeoutControllerOptions): Timeout
     opts.auditWriter.write(
       SUBAGENT_AUDIT_EVENTS.TIMEOUT_REJECTION,
       `agentId=${opts.agentId}`,
-      `reason=${e instanceof Error ? e.message : String(e)}`,
+      `reason=${formatErr(e)}`,
     );
   });
 

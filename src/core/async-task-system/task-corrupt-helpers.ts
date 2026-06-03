@@ -1,4 +1,5 @@
 import type { FileSystem } from '../../foundation/fs/types.js';
+import { formatErr } from "../../foundation/utils/index.js";
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { emitTaskCorrupt } from './audit-emit.js';
 import { AUDIT_MESSAGE_MAX_CHARS } from '../../foundation/audit/index.js';
@@ -29,7 +30,7 @@ export async function backupCorruptTask(
   emitTaskCorrupt(auditWriter, {
     backup: backupPath,
     moveOk,
-    moveError: moveOk ? undefined : (moveErr instanceof Error ? moveErr.message : String(moveErr)).slice(0, AUDIT_MESSAGE_MAX_CHARS),
-    error: (err instanceof Error ? err.message : String(err)).slice(0, AUDIT_MESSAGE_MAX_CHARS),
+    moveError: moveOk ? undefined : (formatErr(moveErr)).slice(0, AUDIT_MESSAGE_MAX_CHARS),
+    error: (formatErr(err)).slice(0, AUDIT_MESSAGE_MAX_CHARS),
   });
 }

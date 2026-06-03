@@ -4,6 +4,7 @@
  */
 
 import * as path from 'path';
+import { formatErr } from "../../foundation/utils/index.js";
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { AUDIT_PREVIEW_LEN } from '../../foundation/constants.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
@@ -106,12 +107,12 @@ export async function unlinkStaleLock(ctx: LockContext, lockPath: string, reason
       {
         reason,
         code: (err as NodeJS.ErrnoException)?.code ?? 'unknown',
-        error: (err as Error)?.message ?? String(err),
+        error: formatErr(err),
       },
     );
     emitContractLockUnlinkFailed(
       ctx.audit,
-      { reason, error: (err as Error)?.message ?? String(err) },
+      { reason, error: formatErr(err) },
     );
     return false;
   }
@@ -154,7 +155,7 @@ export async function releaseLock(ctx: LockContext, lockPath: string): Promise<v
           context: 'ContractSystem.releaseLock',
           path: lockPath,
           reason: 'read_error',
-          error: e instanceof Error ? e.message : String(e),
+          error: formatErr(e),
         },
       );
     }
@@ -168,7 +169,7 @@ export async function releaseLock(ctx: LockContext, lockPath: string): Promise<v
       {
         context: 'ContractSystem.releaseLock',
         path: lockPath,
-        error: e instanceof Error ? e.message : String(e),
+        error: formatErr(e),
       },
     );
   }

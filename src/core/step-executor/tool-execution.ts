@@ -10,6 +10,7 @@
  */
 
 import type { ToolUseBlock, ToolResultBlock } from '../../foundation/llm-provider/types.js';
+import { formatErr } from "../../foundation/utils/index.js";
 import type { ExecContext } from '../../foundation/tools/index.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { IToolExecutor, ToolRegistry } from '../../foundation/tools/index.js';
@@ -214,7 +215,7 @@ export async function executeSingleTool(
     });
   } catch (err) {
     const errorType = err instanceof Error ? err.constructor.name : 'Error';
-    const errorMsg = err instanceof Error ? err.message : String(err);
+    const errorMsg = formatErr(err);
     safeCallback(
       'onToolExecutionFailed',
       () => callbacks?.onToolExecutionFailed?.(toolCall.name, makeToolUseId(toolCall.id), errorType, errorMsg),

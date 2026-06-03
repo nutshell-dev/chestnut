@@ -21,6 +21,7 @@
  */
 
 import * as yaml from 'js-yaml';
+import { formatErr } from "../../foundation/utils/index.js";
 import { randomUUID } from 'crypto';
 
 import type { FileSystem } from '../../foundation/fs/types.js';
@@ -198,7 +199,7 @@ export class ContractSystem {
           this.audit,
           {
             contractId,
-            abortVerifierFailed: abortErr instanceof Error ? abortErr.message : String(abortErr),
+            abortVerifierFailed: formatErr(abortErr),
           },
         );
       }
@@ -468,7 +469,7 @@ export class ContractSystem {
                     CONTRACT_AUDIT_EVENTS.CONTRACT_BOOT_MIGRATE_ARCHIVE_SKIPPED,
                     `contractId=${contractId}`,
                     `reason=yaml_load_failed`,
-                    `error=${err instanceof Error ? err.message : String(err)}`,
+                    `error=${formatErr(err)}`,
                   );
                 }
                 if (contractYaml) {
@@ -542,7 +543,7 @@ export class ContractSystem {
           this.audit,
           {
             contractId,
-            error: e instanceof Error ? e.message : String(e),
+            error: formatErr(e),
           },
         );
       }
@@ -605,14 +606,14 @@ export class ContractSystem {
           {
             old: existing.id,
             new: contractId,
-            reason: err instanceof Error ? err.message : String(err),
+            reason: formatErr(err),
           },
         );
         // phase 1038 α-7: throw instead of swallow — state machine invariant「1 active contract per claw」
         // 不可 create new contract while previous archive failed (导致 multi-active state)
         throw new ToolError(
           `Cannot create contract "${contractId}": previous active contract "${existing.id}" archive failed. ` +
-          `Manual intervention required: check archive/ dir + retry create. Original error: ${err instanceof Error ? err.message : String(err)}`,
+          `Manual intervention required: check archive/ dir + retry create. Original error: ${formatErr(err)}`,
           { cause: err }
         );
       }
@@ -659,7 +660,7 @@ export class ContractSystem {
               context: 'ContractSystem.rollbackCleanup',
               contractId,
               errorType: deleteErr instanceof Error ? deleteErr.constructor.name : typeof deleteErr,
-              error: deleteErr instanceof Error ? deleteErr.message : String(deleteErr),
+              error: formatErr(deleteErr),
               stack: deleteErr instanceof Error ? deleteErr.stack ?? '' : '',
             },
           );
@@ -668,7 +669,7 @@ export class ContractSystem {
           this.audit,
           {
             contractId,
-            error: deleteErr instanceof Error ? deleteErr.message : String(deleteErr),
+            error: formatErr(deleteErr),
           },
         );
       });
@@ -690,7 +691,7 @@ export class ContractSystem {
     } catch (err) {
       emitContractNotifyFailed(
         this.audit,
-        { error: err instanceof Error ? err.message : String(err) },
+        { error: formatErr(err) },
       );
     }
     emitContractCreated(

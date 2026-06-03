@@ -11,6 +11,7 @@
  */
 
 import type { FileSystem } from '../../foundation/fs/types.js';
+import { formatErr } from "../../foundation/utils/index.js";
 import type { ContractSystem } from '../contract/index.js';
 import { TASKS_QUEUES_PENDING_DIR, TASKS_QUEUES_RUNNING_DIR } from '../async-task-system/index.js';
 import { CLAWSPACE_DIR } from '../../foundation/paths.js';
@@ -66,7 +67,7 @@ export async function computeContractView(contractSystem: ContractSystem): Promi
     };
   } catch (err) {
     // silent: pure aggregator 不写 audit / loadActive 失败折进 view 由调用方写 STATUS_AUDIT_EVENTS.CONTRACT_ERROR
-    return { type: 'error', message: err instanceof Error ? err.message : String(err) };
+    return { type: 'error', message: formatErr(err) };
   }
 }
 
@@ -83,7 +84,7 @@ export async function computeTaskView(fs: FileSystem): Promise<TaskView> {
       // silent: ENOENT/FS_NOT_FOUND 视作"队列目录尚未建"、非业务错误；其余 error 折进 pendingError 字段由调用方 audit
       const code = (err as NodeJS.ErrnoException).code;
       if (code !== 'ENOENT' && code !== 'FS_NOT_FOUND') {
-        pendingError = err instanceof Error ? err.message : String(err);
+        pendingError = formatErr(err);
       }
     }
 
@@ -93,14 +94,14 @@ export async function computeTaskView(fs: FileSystem): Promise<TaskView> {
       // silent: 同 pending 段、ENOENT 视作未建队列、其余折进 runningError
       const code = (err as NodeJS.ErrnoException).code;
       if (code !== 'ENOENT' && code !== 'FS_NOT_FOUND') {
-        runningError = err instanceof Error ? err.message : String(err);
+        runningError = formatErr(err);
       }
     }
 
     return { type: 'counts', running, pending, pendingError, runningError };
   } catch (err) {
     // silent: pure aggregator 不写 audit / 外层兜底任何意外、折进 view 形态由调用方决定降级文本
-    return { type: 'unavailable', message: err instanceof Error ? err.message : String(err) };
+    return { type: 'unavailable', message: formatErr(err) };
   }
 }
 

@@ -1,4 +1,5 @@
 import * as path from 'path';
+import { formatErr } from "../../../foundation/utils/index.js";
 import { type ChestnutRoot } from '../../../foundation/identity/index.js';
 import { exec } from '../../../foundation/process-exec/index.js';
 import type { FileSystem } from '../../../foundation/fs/types.js';
@@ -37,7 +38,7 @@ export async function runGitGcWeekly(opts: GitGcWeeklyOptions): Promise<void> {
         CRON_AUDIT_EVENTS.GIT_GC_WEEKLY,
         `claw=${clawId}`,
         `step=gc_failed`,
-        `error=${err instanceof Error ? err.message : String(err)}`,
+        `error=${formatErr(err)}`,
       );
     }
   }

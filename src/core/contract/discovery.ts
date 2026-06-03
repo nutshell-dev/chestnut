@@ -4,6 +4,7 @@
  */
 
 import { type ContractId, makeContractId } from '../../foundation/identity/index.js';
+import { formatErr } from "../../foundation/utils/index.js";
 import { isFileNotFound, type FileSystem } from '../../foundation/fs/types.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { Contract } from '../contract/types.js';
@@ -63,11 +64,11 @@ async function findLatestContract(
       if (!isFileNotFound(error)) {
         emitContractProgressCorrupted(
           ctx.audit,
-          { file: entry.name, error: error instanceof Error ? error.message : String(error) },
+          { file: entry.name, error: formatErr(error) },
         );
         emitContractProgressCorrupted(
           ctx.audit,
-          { context: auditContext, contractId: entry.name, error: error instanceof Error ? error.message : String(error) },
+          { context: auditContext, contractId: entry.name, error: formatErr(error) },
         );
       }
       continue;

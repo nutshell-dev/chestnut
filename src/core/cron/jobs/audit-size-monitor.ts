@@ -1,4 +1,5 @@
 import { type ChestnutRoot } from '../../../foundation/identity/index.js';
+import { formatErr } from "../../../foundation/utils/index.js";
 /**
  * @module L5.Cron.AuditSizeMonitor
  * @layer L5
@@ -88,7 +89,7 @@ export async function runAuditSizeMonitor(opts: AuditSizeMonitorOptions): Promis
         CRON_AUDIT_EVENTS.AUDIT_SIZE_CHECK_FAILED,
         `path=${p}`,
         `code=${(err as NodeJS.ErrnoException)?.code ?? 'unknown'}`,
-        `error=${err instanceof Error ? err.message : String(err)}`,
+        `error=${formatErr(err)}`,
       );
     }
   }

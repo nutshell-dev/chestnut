@@ -10,6 +10,7 @@
  */
 
 import type { FileSystem } from '../../foundation/fs/types.js';
+import { formatErr } from "../../foundation/utils/index.js";
 import type { Contract } from '../contract/types.js';
 import type { SkillSystem } from '../../foundation/skill-system/index.js';
 import type { ContractSystem } from '../contract/index.js';
@@ -119,7 +120,7 @@ export class ContextInjector {
       agents = agentsResult.content.trim();
     }
     if (agentsResult.err && !(agentsResult.err instanceof FileNotFoundError)) {
-      this.audit?.write(DIALOG_AUDIT_EVENTS.LOAD_FAILED, 'file=AGENTS.md', `reason=${agentsResult.err instanceof Error ? agentsResult.err.message : String(agentsResult.err)}`);
+      this.audit?.write(DIALOG_AUDIT_EVENTS.LOAD_FAILED, 'file=AGENTS.md', `reason=${formatErr(agentsResult.err)}`);
     }
 
     // Try to read MEMORY.md (with mtime cache)
@@ -129,7 +130,7 @@ export class ContextInjector {
       memory = '## Memory\n' + memoryResult.content.trim();
     }
     if (memoryResult.err && !(memoryResult.err instanceof FileNotFoundError)) {
-      this.audit?.write(DIALOG_AUDIT_EVENTS.LOAD_FAILED, 'file=MEMORY.md', `reason=${memoryResult.err instanceof Error ? memoryResult.err.message : String(memoryResult.err)}`);
+      this.audit?.write(DIALOG_AUDIT_EVENTS.LOAD_FAILED, 'file=MEMORY.md', `reason=${formatErr(memoryResult.err)}`);
     }
 
     // Inject skill metadata if available
@@ -150,7 +151,7 @@ export class ContextInjector {
       } catch (err) {
         // FNF silent OK / else audit (phase 646 D2 align)
         if (!(err instanceof FileNotFoundError)) {
-          this.audit?.write(DIALOG_AUDIT_EVENTS.LOAD_FAILED, 'file=contract', `reason=${err instanceof Error ? err.message : String(err)}`);
+          this.audit?.write(DIALOG_AUDIT_EVENTS.LOAD_FAILED, 'file=contract', `reason=${formatErr(err)}`);
         }
       }
     }

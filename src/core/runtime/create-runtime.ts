@@ -13,6 +13,7 @@
  */
 
 import { Runtime } from './runtime.js';
+import { formatErr } from "../../foundation/utils/index.js";
 import { MOTION_CLAW_ID } from '../../constants.js';
 import type { RuntimeOptions } from './types.js';
 import type { ContextInjector } from '../dialog/index.js';
@@ -38,7 +39,7 @@ async function tryReadOptionalSection(
     audit?.write(
       RUNTIME_AUDIT_EVENTS.OPTIONAL_SECTION_READ_FAILED,
       `path=${filePath}`,
-      `reason=${err instanceof Error ? err.message : String(err)}`,
+      `reason=${formatErr(err)}`,
     );
     return undefined;
   }

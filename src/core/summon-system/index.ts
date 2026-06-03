@@ -9,6 +9,7 @@ export { SUMMON_AUDIT_EVENTS, emitSummonDispatched, emitSummonRejectedShadow } f
 export { summonContractExtractPostProcessor } from './post-processors/contract-extract.js';
 
 import type { FileSystem } from '../../foundation/fs/types.js';
+import { formatErr } from "../../foundation/utils/index.js";
 import { CLAWSPACE_DIR } from '../../foundation/paths.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { SUMMON_AUDIT_EVENTS } from './audit-events.js';
@@ -87,7 +88,7 @@ export async function listPendingRetrospectives(opts: {
       results.push(ref);
     } catch (e) {
       // silent: bulk listing per-file parse-fail audit-emitted + skip
-      opts.audit?.write(SUMMON_AUDIT_EVENTS.RETRO_INDEX_PARSE_FAILED, `contractId=${contractId}`, `reason=${e instanceof Error ? e.message : String(e)}`);
+      opts.audit?.write(SUMMON_AUDIT_EVENTS.RETRO_INDEX_PARSE_FAILED, `contractId=${contractId}`, `reason=${formatErr(e)}`);
     }
   }
 

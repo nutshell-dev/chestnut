@@ -4,6 +4,7 @@
  */
 
 import type { FileSystem } from '../../foundation/fs/types.js';
+import { formatErr } from "../../foundation/utils/index.js";
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { AsyncTaskSystem } from './system.js';
 import type { AsyncTaskSystemOptions, SubAgentTask } from './types.js';
@@ -61,11 +62,11 @@ export async function cleanupTaskRetention(opts: {
             totalDeleted++;
           }
         } catch (err) {
-          audit.write(TASK_AUDIT_EVENTS.CLEANUP_RETENTION_DELETE_FAILED, `context=per-file`, `dir=${dir}`, `file=${entry.name}`, `reason=${err instanceof Error ? err.message : String(err)}`);
+          audit.write(TASK_AUDIT_EVENTS.CLEANUP_RETENTION_DELETE_FAILED, `context=per-file`, `dir=${dir}`, `file=${entry.name}`, `reason=${formatErr(err)}`);
         }
       }
     } catch (err) {
-      audit.write(TASK_AUDIT_EVENTS.CLEANUP_RETENTION_DELETE_FAILED, `context=per-dir`, `dir=${dir}`, `reason=${err instanceof Error ? err.message : String(err)}`);
+      audit.write(TASK_AUDIT_EVENTS.CLEANUP_RETENTION_DELETE_FAILED, `context=per-dir`, `dir=${dir}`, `reason=${formatErr(err)}`);
     }
   }
 

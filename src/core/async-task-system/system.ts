@@ -441,7 +441,7 @@ export class AsyncTaskSystem {
             this.auditWriter?.write(
               TASK_AUDIT_EVENTS.RUNNING_FILE_DELETE_FAILED,
               `task_id=${task.id}`,
-              `reason=${err instanceof Error ? err.message : String(err)}`,
+              `reason=${formatErr(err)}`,
             );
           });
           throw new Error(`Tool "${task.toolName}" not found in registry`);
@@ -607,7 +607,7 @@ export class AsyncTaskSystem {
         } catch (innerErr) {
           // L2 audit writer recursion border: align `[AUDIT CRITICAL]` console.error pattern
           // (foundation/audit/writer.ts:81+99 + foundation/audit/index.ts:14-16 design)
-          console.error(`[AUDIT CRITICAL] task cancel audit nested throw: taskId=${taskId} reason=${innerErr instanceof Error ? innerErr.message : String(innerErr)}`);
+          console.error(`[AUDIT CRITICAL] task cancel audit nested throw: taskId=${taskId} reason=${formatErr(innerErr)}`);
         }
       }
       emitCancelled(this.auditWriter, { taskId, from: 'running' });

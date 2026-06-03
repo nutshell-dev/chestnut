@@ -388,7 +388,7 @@ export class Runtime {
         this.auditWriter.write(
           'guidance_composer_failed',
           `type=${type}`,
-          `reason=${e instanceof Error ? e.message : String(e)}`,
+          `reason=${formatErr(e)}`,
         );
       }
     }

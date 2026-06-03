@@ -1,4 +1,5 @@
 import * as path from 'path';
+import { formatErr } from "../../../foundation/utils/index.js";
 import { isFileNotFound, type FileSystem } from '../../../foundation/fs/types.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
 import type { InboxMessageOptionsBase } from '../../../foundation/messaging/index.js';
@@ -52,7 +53,7 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
         CONTRACT_AUDIT_EVENTS.OBSERVER_STATE_LOAD_FAILED,
         `file=${stateFile}`,
         `code=${code ?? 'unknown'}`,
-        `error=${err instanceof Error ? err.message : String(err)}`,
+        `error=${formatErr(err)}`,
       );
     }
     // 行为兼容: lastCheckTs 保 0 (first-run-like)、不 throw
@@ -70,7 +71,7 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
     motionAudit.write(
       CONTRACT_AUDIT_EVENTS.CONTRACT_DIR_SCAN_FAILED,
       `dir=${clawsDir}`,
-      `reason=${err instanceof Error ? err.message : String(err)}`,
+      `reason=${formatErr(err)}`,
     );
     return;
   }
@@ -94,7 +95,7 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
       motionAudit.write(
         CONTRACT_AUDIT_EVENTS.OBSERVER_EVENT_FAILED,
         `claw=${clawId}`,
-        `reason=${e instanceof Error ? e.message : String(e)}`
+        `reason=${formatErr(e)}`
       );
     }
   }

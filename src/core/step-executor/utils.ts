@@ -4,6 +4,7 @@
  */
 
 import type { Message, ContentBlock, ToolUseBlock, ToolResultBlock } from '../../foundation/llm-provider/types.js';
+import { formatErr } from "../../foundation/utils/index.js";
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
 
@@ -33,7 +34,7 @@ export function parseToolInput(raw: string, _toolName: string): ParseToolInputRe
   try {
     return { ok: true, data: JSON.parse(raw || '{}') };
   } catch (err) {
-    const errorMsg = err instanceof Error ? err.message : String(err);
+    const errorMsg = formatErr(err);
     return { ok: false, raw: raw ?? '', error: errorMsg };
   }
 }

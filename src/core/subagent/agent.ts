@@ -234,7 +234,7 @@ export class SubAgent {
               this.auditWriter.write(
                 SUBAGENT_AUDIT_EVENTS.STEP_COMPLETE_FAILED,
                 `agentId=${this.agentId}`,
-                `error=${err instanceof Error ? err.message : String(err)}`,
+                `error=${formatErr(err)}`,
               );
               // 不 throw — audit 失败不终止任务
             }
@@ -249,7 +249,7 @@ export class SubAgent {
               this.auditWriter.write(
                 SUBAGENT_AUDIT_EVENTS.PERSIST_FAILED,
                 `agentId=${this.agentId}`,
-                `error=${err instanceof Error ? err.message : String(err)}`,
+                `error=${formatErr(err)}`,
               );
               // 不 throw — 持久化失败不终止任务
             }
@@ -307,7 +307,7 @@ export class SubAgent {
         this.auditWriter.write(
           SUBAGENT_AUDIT_EVENTS.PERSIST_FAILED,
           `agentId=${this.agentId}`,
-          `error=${e instanceof Error ? e.message : String(e)}`,
+          `error=${formatErr(e)}`,
         );
       }
     }
@@ -325,7 +325,7 @@ export class SubAgent {
       this.auditWriter.write(
         SUBAGENT_AUDIT_EVENTS.LOG_APPEND_FAILED,
         `agentId=${this.agentId}`,
-        `error=${e instanceof Error ? e.message : String(e)}`,
+        `error=${formatErr(e)}`,
       );
     }
   }

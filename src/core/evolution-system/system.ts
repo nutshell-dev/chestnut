@@ -1,5 +1,6 @@
 // src/core/evolution-system/system.ts
 import type { AuditLog } from '../../foundation/audit/index.js';
+import { formatErr } from "../../foundation/utils/index.js";
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { AsyncTaskSystem } from '../async-task-system/index.js';
 import { ContractSystem } from '../contract/index.js';
@@ -113,7 +114,7 @@ export class EvolutionSystem {
       }
       this.deps.audit.write(
         RETRO_AUDIT_EVENTS.STATE_LOAD_FAILED,
-        `reason=${e instanceof Error ? e.message : String(e)}`,
+        `reason=${formatErr(e)}`,
       );
       // best-effort: 0 dedupe / 不抛
     }
@@ -135,8 +136,8 @@ export class EvolutionSystem {
       RETRO_AUDIT_EVENTS.STATE_LOAD_FAILED,
       `backup=${backupPath}`,
       `move_ok=${moveOk}`,
-      ...(moveOk ? [] : [`move_error=${moveErr instanceof Error ? moveErr.message : String(moveErr)}`]),
-      `reason=${err instanceof Error ? err.message : String(err)}`,
+      ...(moveOk ? [] : [`move_error=${formatErr(moveErr)}`]),
+      `reason=${formatErr(err)}`,
     );
   }
 
@@ -151,7 +152,7 @@ export class EvolutionSystem {
     } catch (e) {
       this.deps.audit.write(
         RETRO_AUDIT_EVENTS.STATE_SAVE_FAILED,
-        `reason=${e instanceof Error ? e.message : String(e)}`,
+        `reason=${formatErr(e)}`,
       );
       // best-effort: 不抛
     }
@@ -217,7 +218,7 @@ export class EvolutionSystem {
       if (code === 'ENOENT' || e instanceof FileNotFoundError) {
         return { status: 'skipped_index_missing', detail: 'ENOENT' };
       }
-      this.deps.audit.write(RETRO_AUDIT_EVENTS.INDEX_FAILED, `contractId=${contractId}`, `error=${e instanceof Error ? e.message : String(e)}`);
+      this.deps.audit.write(RETRO_AUDIT_EVENTS.INDEX_FAILED, `contractId=${contractId}`, `error=${formatErr(e)}`);
       return { status: 'error', detail: code };
     }
 
@@ -235,7 +236,7 @@ export class EvolutionSystem {
       this.deps.audit.write(
         RETRO_AUDIT_EVENTS.YAML_FAILED,
         `contractId=${contractId}`,
-        `error=${e instanceof Error ? e.message : String(e)}`,
+        `error=${formatErr(e)}`,
       );
       return { status: 'error', detail: 'yaml_failed' };
     }
@@ -264,7 +265,7 @@ export class EvolutionSystem {
           this.deps.audit.write(
             RETRO_AUDIT_EVENTS.MINING_FAILED,
             `taskId=${miningTaskId}`,
-            `error=${e instanceof Error ? e.message : String(e)}`,
+            `error=${formatErr(e)}`,
           );
         }
         // best-effort：加载失败退化为空上下文
@@ -288,7 +289,7 @@ export class EvolutionSystem {
     } catch (e) {
       this.deps.audit.write(
         RETRO_AUDIT_EVENTS.SCHEDULE_FAILED,
-        `error=${e instanceof Error ? e.message : String(e)}`,
+        `error=${formatErr(e)}`,
       );
       return { status: 'error', detail: 'schedule_failed' };
     }
@@ -301,13 +302,13 @@ export class EvolutionSystem {
           CONTRACT_AUDIT_EVENTS.UNEXPECTED_ASYNC_THROW,
           `context=EvolutionSystem.retroIndexCleanup`,
           `errorType=${e instanceof Error ? e.constructor.name : typeof e}`,
-          `error=${e instanceof Error ? e.message : String(e)}`,
+          `error=${formatErr(e)}`,
           `stack=${e instanceof Error ? e.stack ?? '' : ''}`,
         );
       }
       this.deps.audit.write(
         RETRO_AUDIT_EVENTS.CLEANUP_FAILED,
-        `error=${e instanceof Error ? e.message : String(e)}`,
+        `error=${formatErr(e)}`,
       );
     });
 
