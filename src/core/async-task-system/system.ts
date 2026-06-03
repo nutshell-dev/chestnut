@@ -36,7 +36,7 @@ import { recoverTasks } from './task-recovery.js';
 import { validateTaskShape, backupCorruptTask } from './task-corrupt-helpers.js';
 import { executeSubAgentTask } from './subagent-executor.js';
 import { executeToolTask } from './tool-executor.js';
-import { createWatcher, type Watcher } from '../../foundation/file-watcher/index.js';
+import { createPendingWatcher, type PendingWatcherHandle } from './pending-watcher.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
 import { STREAM_TASK_EVENTS } from './stream-events.js';
 import { formatErr } from './_helpers.js';
@@ -46,8 +46,6 @@ import {
   emitPendingIngestFailed,
   emitPendingQueueOverflow,
   emitPendingQueueOverflowNotified,
-  emitPendingWatcherFailed,
-  emitRecoveryFailed,
   emitStartFailed,
   emitMoveFailed,
   emitCancelPromiseRejected,
@@ -58,7 +56,7 @@ import {
   emitShutdownPendingCleanupsDrained,
 } from './audit-emit.js';
 import type { PostProcessor } from './post-processors/types.js';
-import type { AsyncTaskSystemOptions, SubAgentTask, ToolTask } from './types.js';
+import type { AsyncTaskSystemOptions, SubAgentTask, ToolTask, TaskKind, TaskExecutor } from './types.js';
 import { type TaskId, makeTaskId } from '../../foundation/identity/index.js';
 import { type ClawDir, makeClawDir, type ChestnutRoot } from '../../foundation/identity/index.js';
 
@@ -79,7 +77,7 @@ export class AsyncTaskSystem {
   private overflowNotified = false;
   private auditWriter: AuditLog;
   private parentStreamLog?: StreamLog;
-  private pendingWatcher?: Watcher;
+  private pendingWatcherHandle?: PendingWatcherHandle;
   private mainDialogStore?: DialogStore;
 
   private postProcessors: Map<string, PostProcessor> = new Map();
@@ -114,6 +112,7 @@ export class AsyncTaskSystem {
   private pendingQueue: Array<SubAgentTask | ToolTask> = [];
 
   private readonly retryBaseDelayMs: number;
+  private readonly executors: Record<TaskKind, TaskExecutor>;
 
   constructor(
     private readonly clawDir: ClawDir,
@@ -133,6 +132,55 @@ export class AsyncTaskSystem {
     this.fsFactory = options.fsFactory;
     this.chestnutRoot = options.chestnutRoot;
     this.askMotionToolFactory = options.askMotionToolFactory;
+
+    // Strategy table: dispatches task body by kind. Adding a new kind
+    // requires extending union + registering one entry — _startTask itself
+    // does not change. (phase 16 Step B / audit finding H2)
+    this.executors = {
+      tool: async (task, signal) => {
+        if (task.kind !== 'tool') return;
+        const tool = this.registry.getAll().find(t => t.name === task.toolName);
+        if (!tool) {
+          await this.fs.delete(`${TASKS_QUEUES_RUNNING_DIR}/${task.id}.json`).catch((err) => {
+            this.auditWriter?.write(
+              TASK_AUDIT_EVENTS.RUNNING_FILE_DELETE_FAILED,
+              `task_id=${task.id}`,
+              `reason=${formatErr(err)}`,
+            );
+          });
+          throw new Error(`Tool "${task.toolName}" not found in registry`);
+        }
+        const reconstructedCtx = this.buildToolTaskExecContext(task, signal);
+        const callback = () => tool.execute(task.args, reconstructedCtx);
+        await executeToolTask(task, callback, signal, {
+          fs: this.fs,
+          auditWriter: this.auditWriter,
+          retryBaseDelayMs: this.retryBaseDelayMs,
+          moveTaskToDone: this.moveTaskToDone.bind(this),
+          moveTaskToFailed: this.moveTaskToFailed.bind(this),
+        });
+      },
+      subagent: async (task, signal) => {
+        if (task.kind === 'tool') return;
+        await executeSubAgentTask(task, signal, {
+          fs: this.fs,
+          fsFactory: this.fsFactory,
+          auditWriter: this.auditWriter,
+          llm: this.llm,
+          registry: this.registry,
+          clawDir: this.clawDir,
+          chestnutRoot: this.chestnutRoot,
+          parentStreamLog: this.parentStreamLog,
+          postProcessors: this.postProcessors,
+          mainDialogStore: this.mainDialogStore,
+          moveTaskToDone: this.moveTaskToDone.bind(this),
+          moveTaskToFailed: this.moveTaskToFailed.bind(this),
+          toolTimeoutMs: this.toolTimeoutMs,
+          permissionChecker: this.permissionChecker,
+          askMotionToolFactory: this.askMotionToolFactory,
+        });
+      },
+    };
   }
 
   async initialize(): Promise<void> {
@@ -153,57 +201,15 @@ export class AsyncTaskSystem {
    * initialize() has completed.
    */
   startDispatch(): void {
-    // 构造 watcher：add 事件触发 _ingestPendingFile 入队 + dispatch
-    // 防御：测试 mock fs 可能缺少 resolve，跳过不影响行为
-    if (!this.pendingWatcher && typeof this.fs.resolve === 'function') {
-      this.pendingWatcher = createWatcher(
-        this.fs.resolve(TASKS_QUEUES_PENDING_DIR),
-        (event) => {
-          if (event.type !== 'add') return;
-          if (!event.path.endsWith('.json')) return;
-          this._ingestPendingFile(event.path).catch((err) => {
-            emitPendingIngestFailed(
-              this.auditWriter,
-              {
-                context: 'watcher_async',
-                path: event.path,
-                error: formatErr(err),
-              },
-            );
-          });
-        },
-        {
-          stability: 'immediate',
-          recursive: false,
-          persistent: true,
-          onError: (err, context) => {
-            const eventType = context === 'callback'
-              ? TASK_AUDIT_EVENTS.PENDING_WATCHER_CALLBACK_FAILED
-              : TASK_AUDIT_EVENTS.PENDING_WATCHER_FAILED;
-            emitPendingWatcherFailed(
-              this.auditWriter,
-              {
-                event: eventType,
-                path: TASKS_QUEUES_PENDING_DIR,
-                context,
-                reason: err.message,
-              },
-            );
-          },
-        },
-      );
+    if (!this.pendingWatcherHandle) {
+      this.pendingWatcherHandle = createPendingWatcher({
+        fs: this.fs,
+        auditWriter: this.auditWriter,
+        pendingDir: TASKS_QUEUES_PENDING_DIR,
+        ingest: (filePath) => this._ingestPendingFile(filePath),
+      });
     }
-    // 启动扫描：把 pending/ 中既有 subagent 文件入队（_ingestPendingFile 内含 _dispatch 触发）
-    void this._initialScanPending().catch((err) => {
-      emitRecoveryFailed(
-        this.auditWriter,
-        {
-          source: 'system',
-          context: 'initial_scan_pending_failed',
-          error: formatErr(err),
-        },
-      );
-    });
+    void this.pendingWatcherHandle.start();
     this._dispatch();
   }
 
@@ -250,19 +256,6 @@ export class AsyncTaskSystem {
   }
 
 
-
-  /**
-   * Startup scan: ingest all existing pending files through the same path
-   * as the watcher. Called by recoverTasks after filesystem cleanup.
-   */
-  private async _initialScanPending(): Promise<void> {
-    const entries = await this.fs.list(TASKS_QUEUES_PENDING_DIR);
-    for (const entry of entries) {
-      if (entry.name.endsWith('.json')) {
-        await this._ingestPendingFile(entry.path);
-      }
-    }
-  }
 
   /**
    * Sync dedup gate: check if taskId already exists in running, cancelling, or pending.
@@ -430,50 +423,8 @@ export class AsyncTaskSystem {
     signal: AbortSignal
   ): Promise<void> {
     try {
-      // Move file from pending to running (async operation)
       await this.movePendingToRunning(task.id);
-      
-      // Execute the task
-      if (task.kind === 'tool') {
-        const tool = this.registry.getAll().find(t => t.name === task.toolName);
-        if (!tool) {
-          await this.fs.delete(`${TASKS_QUEUES_RUNNING_DIR}/${task.id}.json`).catch((err) => {
-            this.auditWriter?.write(
-              TASK_AUDIT_EVENTS.RUNNING_FILE_DELETE_FAILED,
-              `task_id=${task.id}`,
-              `reason=${formatErr(err)}`,
-            );
-          });
-          throw new Error(`Tool "${task.toolName}" not found in registry`);
-        }
-        const reconstructedCtx = this.buildToolTaskExecContext(task, signal);
-        const callback = () => tool.execute(task.args, reconstructedCtx);
-        await executeToolTask(task, callback, signal, {
-          fs: this.fs,
-          auditWriter: this.auditWriter,
-          retryBaseDelayMs: this.retryBaseDelayMs,
-          moveTaskToDone: this.moveTaskToDone.bind(this),
-          moveTaskToFailed: this.moveTaskToFailed.bind(this),
-        });
-      } else {
-        await executeSubAgentTask(task, signal, {
-          fs: this.fs,
-          fsFactory: this.fsFactory,
-          auditWriter: this.auditWriter,
-          llm: this.llm,
-          registry: this.registry,
-          clawDir: this.clawDir,
-          chestnutRoot: this.chestnutRoot,
-          parentStreamLog: this.parentStreamLog,
-          postProcessors: this.postProcessors,
-          mainDialogStore: this.mainDialogStore,
-          moveTaskToDone: this.moveTaskToDone.bind(this),
-          moveTaskToFailed: this.moveTaskToFailed.bind(this),
-          toolTimeoutMs: this.toolTimeoutMs,
-          permissionChecker: this.permissionChecker,
-          askMotionToolFactory: this.askMotionToolFactory,
-        });
-      }
+      await this.executors[task.kind](task, signal);
     } catch (error) {
       const errorMsg = formatErr(error);
       emitStartFailed(this.auditWriter, {
@@ -735,8 +686,8 @@ export class AsyncTaskSystem {
   async shutdown(timeoutMs: number = 30000): Promise<boolean> {
     this._shuttingDown = true;
     // 顺序：先关 watcher（避免 shutdown 期间新事件进队）→ 旧 shutdown 流程
-    await this.pendingWatcher?.close();
-    this.pendingWatcher = undefined;
+    await this.pendingWatcherHandle?.close();
+    this.pendingWatcherHandle = undefined;
 
     // Signal all running tasks to stop
     this.abort();

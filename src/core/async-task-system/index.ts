@@ -32,7 +32,13 @@ import * as path from 'path';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
 import { type ClawDir } from '../../foundation/identity/index.js';
 
-export async function cleanupTaskRetention(opts: {
+/**
+ * Delete task files (done/, failed/, results/) older than maxDays.
+ * Renamed from cleanupTaskRetention in phase 16 Step D (audit M3).
+ * Audit event name task_cleanup_retention_delete_failed is wire-level
+ * and intentionally left as-is for historical log compatibility.
+ */
+export async function cleanupExpiredTaskFiles(opts: {
   motionDir: ClawDir;
   fs: FileSystem;
   audit: AuditLog;

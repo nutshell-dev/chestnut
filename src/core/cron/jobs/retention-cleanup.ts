@@ -3,7 +3,7 @@ import type { AuditLog } from '../../../foundation/audit/index.js';
 import { CRON_AUDIT_EVENTS } from '../audit-events.js';
 import { cleanupRetention } from '../../../foundation/messaging/index.js';
 import { INBOX_DONE_DIR, INBOX_FAILED_DIR } from '../../../foundation/messaging/index.js';
-import { cleanupTaskRetention } from '../../async-task-system/index.js';
+import { cleanupExpiredTaskFiles } from '../../async-task-system/index.js';
 import { cleanupArchives } from '../../../foundation/dialog-store/index.js';
 import { type ClawDir } from '../../../foundation/identity/index.js';
 
@@ -47,7 +47,7 @@ export async function runRetentionCleanup(opts: RetentionCleanupOptions): Promis
   totalDeleted += await cleanupRetention({ motionDir, fs, audit, maxDays, signal });
 
   if (!signal?.aborted && maxDays.tasks) {
-    totalDeleted += await cleanupTaskRetention({ motionDir, fs, audit, maxDays: maxDays.tasks, signal });
+    totalDeleted += await cleanupExpiredTaskFiles({ motionDir, fs, audit, maxDays: maxDays.tasks, signal });
   }
 
   if (!signal?.aborted && maxDays.dialog) {

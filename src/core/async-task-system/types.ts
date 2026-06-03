@@ -76,6 +76,21 @@ export type SubAgentTask =
   | (CommonSubAgentTaskFields & { mode: 'standard'; intent: string; shadowMessages?: undefined; intentPreview?: undefined })
   | (CommonSubAgentTaskFields & { mode: 'shadow'; intent?: undefined; shadowMessages: Message[]; intentPreview: string });
 
+/**
+ * Discriminator union of task kinds.
+ * Used as Record key for executor strategy table (phase 16 Step B).
+ */
+export type TaskKind = SubAgentTask['kind'] | ToolTask['kind'];
+
+/**
+ * Strategy entry: dispatches the body of a task after movePendingToRunning.
+ * Stored in AsyncTaskSystem.executors: Record<TaskKind, TaskExecutor>.
+ */
+export type TaskExecutor = (
+  task: SubAgentTask | ToolTask,
+  signal: AbortSignal,
+) => Promise<void>;
+
 export interface ToolTask {
   kind: 'tool';
   id: TaskId;

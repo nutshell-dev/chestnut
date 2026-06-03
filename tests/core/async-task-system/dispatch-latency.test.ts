@@ -24,8 +24,9 @@ import { fileURLToPath } from 'url';
 describe('AsyncTaskSystem dispatch latency (phase 1147 r127 B fork)', () => {
   it('AsyncTaskSystem 用 stability=immediate (regression guard for phase 1147 revert)', () => {
     const __filename = fileURLToPath(import.meta.url);
-    const systemSrcPath = path.resolve(path.dirname(__filename), '../../../src/core/async-task-system/system.ts');
-    const src = readFileSync(systemSrcPath, 'utf-8');
+    // phase 16 Step A: watcher 拆出 pending-watcher.ts、stability 字符串随之迁移
+    const watcherSrcPath = path.resolve(path.dirname(__filename), '../../../src/core/async-task-system/pending-watcher.ts');
+    const src = readFileSync(watcherSrcPath, 'utf-8');
     expect(src).toMatch(/stability:\s*['"]immediate['"]/);
   });
 });

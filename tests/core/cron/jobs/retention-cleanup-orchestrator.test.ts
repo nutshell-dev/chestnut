@@ -49,7 +49,7 @@ describe('retention-cleanup orchestrator', () => {
     const audit: AuditLog = { write: (t, ...c) => writes.push({ type: t, cols: c.map(String) }) };
 
     vi.spyOn(messaging, 'cleanupRetention').mockResolvedValue(3);
-    vi.spyOn(taskSystem, 'cleanupTaskRetention').mockResolvedValue(5);
+    vi.spyOn(taskSystem, 'cleanupExpiredTaskFiles').mockResolvedValue(5);
     vi.spyOn(dialogStore, 'cleanupArchives').mockResolvedValue(7);
 
     await runRetentionCleanup({
@@ -60,7 +60,7 @@ describe('retention-cleanup orchestrator', () => {
     });
 
     expect(messaging.cleanupRetention).toHaveBeenCalled();
-    expect(taskSystem.cleanupTaskRetention).toHaveBeenCalled();
+    expect(taskSystem.cleanupExpiredTaskFiles).toHaveBeenCalled();
     expect(dialogStore.cleanupArchives).toHaveBeenCalled();
 
     const cleanupEvent = writes.find(w => w.type === CRON_AUDIT_EVENTS.RETENTION_CLEANUP);
@@ -74,7 +74,7 @@ describe('retention-cleanup orchestrator', () => {
     const audit: AuditLog = { write: (t, ...c) => writes.push({ type: t, cols: c.map(String) }) };
 
     vi.spyOn(messaging, 'cleanupRetention').mockResolvedValue(0);
-    vi.spyOn(taskSystem, 'cleanupTaskRetention').mockResolvedValue(0);
+    vi.spyOn(taskSystem, 'cleanupExpiredTaskFiles').mockResolvedValue(0);
     vi.spyOn(dialogStore, 'cleanupArchives').mockResolvedValue(0);
 
     await runRetentionCleanup({
@@ -94,7 +94,7 @@ describe('retention-cleanup orchestrator', () => {
     const audit: AuditLog = { write: vi.fn() };
 
     vi.spyOn(messaging, 'cleanupRetention').mockResolvedValue(1);
-    vi.spyOn(taskSystem, 'cleanupTaskRetention').mockResolvedValue(1);
+    vi.spyOn(taskSystem, 'cleanupExpiredTaskFiles').mockResolvedValue(1);
     vi.spyOn(dialogStore, 'cleanupArchives').mockResolvedValue(1);
 
     await runRetentionCleanup({
@@ -112,7 +112,7 @@ describe('retention-cleanup orchestrator', () => {
     const audit: AuditLog = { write: vi.fn() };
 
     vi.spyOn(messaging, 'cleanupRetention').mockResolvedValue(0);
-    const taskSpy = vi.spyOn(taskSystem, 'cleanupTaskRetention').mockResolvedValue(0);
+    const taskSpy = vi.spyOn(taskSystem, 'cleanupExpiredTaskFiles').mockResolvedValue(0);
     const dialogSpy = vi.spyOn(dialogStore, 'cleanupArchives').mockResolvedValue(0);
 
     await runRetentionCleanup({

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { cleanupTaskRetention } from '../../../src/core/async-task-system/index.js';
+import { cleanupExpiredTaskFiles } from '../../../src/core/async-task-system/index.js';
 import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-events.js';
 import type { FileSystem, FileEntry, StatInfo } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
@@ -43,7 +43,7 @@ function mockFs(opts: {
   } as unknown as FileSystem;
 }
 
-describe('cleanupTaskRetention', () => {
+describe('cleanupExpiredTaskFiles', () => {
   it('deletes expired files and keeps recent ones', async () => {
     const now = Date.now();
     const fs = mockFs({ exists: true });
@@ -70,7 +70,7 @@ describe('cleanupTaskRetention', () => {
     }));
     const audit: AuditLog = { write: vi.fn() };
 
-    const deleted = await cleanupTaskRetention({ motionDir: '/m', fs, audit, maxDays: 30 });
+    const deleted = await cleanupExpiredTaskFiles({ motionDir: '/m', fs, audit, maxDays: 30 });
 
     expect(deleted).toBe(2);
     const deletedCalls = (fs.deleteSync as ReturnType<typeof vi.fn>).mock.calls;
@@ -89,7 +89,7 @@ describe('cleanupTaskRetention', () => {
     });
     const audit: AuditLog = { write: vi.fn() };
 
-    const deleted = await cleanupTaskRetention({ motionDir: '/m', fs, audit, maxDays: 30 });
+    const deleted = await cleanupExpiredTaskFiles({ motionDir: '/m', fs, audit, maxDays: 30 });
 
     expect(deleted).toBe(0);
     expect(fs.deleteSync).not.toHaveBeenCalled();
@@ -99,7 +99,7 @@ describe('cleanupTaskRetention', () => {
     const fs = mockFs({ exists: false });
     const audit: AuditLog = { write: vi.fn() };
 
-    const deleted = await cleanupTaskRetention({ motionDir: '/m', fs, audit, maxDays: 30 });
+    const deleted = await cleanupExpiredTaskFiles({ motionDir: '/m', fs, audit, maxDays: 30 });
 
     expect(deleted).toBe(0);
     expect(fs.listSync).not.toHaveBeenCalled();
@@ -126,7 +126,7 @@ describe('cleanupTaskRetention', () => {
     const writes: Array<{ type: string; cols: string[] }> = [];
     const audit: AuditLog = { write: (t, ...c) => writes.push({ type: t, cols: c.map(String) }) };
 
-    const deleted = await cleanupTaskRetention({ motionDir: '/m', fs, audit, maxDays: 30 });
+    const deleted = await cleanupExpiredTaskFiles({ motionDir: '/m', fs, audit, maxDays: 30 });
 
     expect(deleted).toBe(0);
     expect(writes.some(w => w.type === TASK_AUDIT_EVENTS.CLEANUP_RETENTION_DELETE_FAILED)).toBe(true);
