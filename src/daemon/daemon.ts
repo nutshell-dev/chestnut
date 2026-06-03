@@ -10,6 +10,7 @@
 
 import * as path from 'path';
 import { createHash } from 'node:crypto';
+import { formatErr } from '../foundation/utils/index.js';
 import { loadGlobalConfig, loadClawConfig, getClawDir, getNamedSubrootDir } from '../foundation/config/index.js';
 import { MOTION_CLAW_ID } from '../constants.js';
 
@@ -93,7 +94,7 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
     } catch (e) {
       // 兜底：Runtime 侧若已精确 audit（如 inboxReader.init / sessionManager.save）此行幂等重复；
       // Runtime 侧漏网的失败由此行唯一覆盖，postmortem 信号"需补精确 audit"
-      auditWriter.write(deps.auditEvents.assembleFailed, `module=runtime`, `phase=post_assemble_init`, `reason=${errMsg(e)}`);
+      auditWriter.write(deps.auditEvents.assembleFailed, `module=runtime`, `phase=post_assemble_init`, `reason=${formatErr(e)}`);
       process.exit(1);
     }
 
@@ -189,8 +190,4 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
 
     await promise;
   };
-}
-
-function errMsg(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
 }

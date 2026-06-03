@@ -5,6 +5,7 @@
  */
 
 import { runReact, DEFAULT_MAX_STEPS } from '../agent-executor/index.js';
+import { formatErr } from '../../foundation/utils/index.js';
 import type { ToolExecutor, ToolRegistry } from '../../foundation/tools/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
@@ -273,7 +274,7 @@ export class SubAgent {
       // Extract final text result
       return result.finalText ?? '[No output produced]';
     } catch (error) {
-      const errMsg = error instanceof Error ? error.message : String(error);
+      const errMsg = formatErr(error);
       await this.appendToLog(`=== Error: ${errMsg} ===\n`);
 
       classifyAndAuditError({

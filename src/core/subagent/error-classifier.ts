@@ -16,6 +16,7 @@
 import type { StreamEvent } from '../../foundation/stream/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { ToolTimeoutError } from '../../foundation/errors.js';
+import { formatErr } from '../../foundation/utils/index.js';
 import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../signals.js';
 import type { AbortReason } from '../../foundation/llm-provider/index.js';
 import { AGENT_STREAM_EVENTS } from '../agent-executor/index.js';
@@ -31,7 +32,7 @@ export interface ClassifyErrorOptions {
 
 export function classifyAndAuditError(opts: ClassifyErrorOptions): void {
   const { error, safeSwWrite, auditWriter, timeoutMs } = opts;
-  const errMsg = error instanceof Error ? error.message : String(error);
+  const errMsg = formatErr(error);
 
   if (error instanceof ToolTimeoutError) {
     safeSwWrite({ ts: Date.now(), type: AGENT_STREAM_EVENTS.TURN_INTERRUPTED, message: `Timeout after ${timeoutMs}ms` });
