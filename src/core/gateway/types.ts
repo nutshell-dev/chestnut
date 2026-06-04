@@ -48,7 +48,7 @@ export interface Gateway {
   start(): Promise<void>;
   /** Stop：先停 reader，再 drop 连接，最后 close transport。idempotent。 */
   stop(): Promise<void>;
-  /** Step 2 占位：抛 Error('ask_user not implemented in this phase') */
+  /** 向客户端发送 question、阻塞等待用户回复；超时 / abort / 无 listener / broadcast 失败 → 返回 failureResult。 */
   askUser(question: string, ctx: ExecContext): Promise<ToolResult>;
   /** 返回当前连接快照（调用方不持有引用） */
   getActiveConnections(): readonly Connection[];
