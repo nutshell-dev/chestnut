@@ -1,0 +1,240 @@
+/**
+ * @module L6.Assembly.MotionAddons
+ * @layer L6 装配层
+ *
+ * assemble() SRP 子工厂：Motion-only 附加组件（Gateway + Heartbeat + CronRunner + MemorySystem）。
+ * phase 34 Step D：从 assemble() 抽出步骤 16-17（motion-only addons）。
+ */
+
+import path from 'path';
+import { formatErr } from '../foundation/utils/index.js';
+import type { StreamWriter } from '../foundation/stream/index.js';
+import { createHeartbeat, type Heartbeat } from '../core/runtime/index.js';
+import type { Runtime } from '../core/runtime/index.js';
+import { createCronRunner, type CronRunner } from '../core/cron/index.js';
+import { createDiskMonitorJob } from '../core/cron/jobs/disk-monitor.js';
+import { createLlmStatsJob } from '../core/cron/jobs/llm-stats.js';
+import { createMetricsSnapshotJob } from '../core/cron/jobs/metrics-snapshot.js';
+import { createGitGcWeeklyJob } from '../core/cron/jobs/git-gc-weekly.js';
+import { createRetentionCleanupJob } from '../core/cron/jobs/retention-cleanup.js';
+import { createAuditSizeMonitorJob } from '../core/cron/jobs/audit-size-monitor.js';
+import { createDreamTriggerJob } from '../core/cron/jobs/dream-trigger.js';
+import { createMemorySystem, memorySearchTool } from '../core/memory/index.js';
+import type { MemorySystem } from '../core/memory/index.js';
+import { createClawContractBridge } from '../core/memory/claw-contract-bridge.js';
+import { createContractObserverJob } from '../core/contract/jobs/contract-observer.js';
+import { createOutboxSummaryJob } from '../core/cron/jobs/outbox-summary.js';
+import { createGateway } from '../core/gateway/index.js';
+import type { Gateway } from '../core/gateway/index.js';
+import { createAskUserTool } from '../core/gateway/index.js';
+import { createStreamReader, STREAM_FILE, findRecentTurnStartOffset } from '../foundation/stream/index.js';
+import { createNotifyClawTool } from '../foundation/messaging/tools/notify-claw.js';
+import { notifyClaw } from '../foundation/messaging/index.js';
+import { resolveChestnutRoot, makeClawDir } from '../foundation/identity/index.js';
+import type { CoreInfraOutput } from './core-infrastructure.js';
+import type { BusinessSysOutput } from './business-systems.js';
+import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
+import type { AssembleConfig } from './types.js';
+
+export interface MotionAddonsInput {
+  core: CoreInfraOutput;
+  business: BusinessSysOutput;
+  runtime: Runtime;
+  config: AssembleConfig;
+  streamWriter: StreamWriter;
+}
+
+export interface MotionAddonsOutput {
+  gateway?: Gateway;
+  heartbeat?: Heartbeat;
+  cronRunner?: CronRunner;
+  disposeContractSystems?: () => Promise<void>;
+}
+
+export async function createMotionAddons(
+  input: MotionAddonsInput,
+): Promise<MotionAddonsOutput> {
+  const { core, business, runtime, config, streamWriter } = input;
+  const { clawDir, globalConfig } = config;
+  const {
+    systemFs, parentFs, auditWriter,
+    llmConfig, llm,
+    toolTimeoutMs,
+    toolRegistry, fsFactory,
+  } = core;
+  const { inboxReader } = business;
+
+  let gateway: Gateway | undefined;
+  let heartbeat: Heartbeat | undefined;
+  let cronRunner: CronRunner | undefined;
+  let disposeContractSystems: (() => Promise<void>) | undefined;
+
+  // --- Gateway (motion only, offline mode) ---
+  try {
+    gateway = createGateway({
+      streamFactory: (onEvent) => createStreamReader(systemFs, STREAM_FILE, onEvent, auditWriter),
+      getInitialOffset: () => findRecentTurnStartOffset(systemFs, STREAM_FILE),
+      transport: undefined,                      // offline mode (latent: future wire UnixDomainSocketTransport per phase 1055)
+      interrupt: () => runtime.abort(),          // offline 不会触发，留接口
+      audit: auditWriter,
+    });
+  } catch (e) {
+    auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=gateway`, `phase=construct`, `reason=${formatErr(e)}`);
+    throw new Error(`Assembly: Gateway construct failed: ${formatErr(e)}`, { cause: e });
+  }
+  // ask_user 工具：motion 启 / claw 不启（决策 #25：用户 ↔ motion ↔ claw 中介）
+  toolRegistry.register(createAskUserTool(gateway));
+  // notify_claw 工具：motion-only（D11 单向访问特权 / phase 477 design / phase 822 实施 / phase 1021 P0 三重错位 hotfix）
+  // motion → claw inbox push、与 send（claw → 自己 outbox pull）物理不同、§10.3 不对称设计
+  // fs = parentFs (baseDir = .chestnut/) align chestnutRoot、避免 systemFs (baseDir = motion/) 沙箱拒 sibling claws/<to> absolute path
+  toolRegistry.register(createNotifyClawTool({
+    fs: parentFs,
+    chestnutRoot: resolveChestnutRoot(clawDir, true),  // phase 1406: motion-only context (motion clawDir = <root>/motion → root)
+    audit: auditWriter,
+  }));
+
+  // --- Heartbeat (motion + interval > 0, daemon.ts L158-169) ---
+  const heartbeatIntervalMs = globalConfig.motion.heartbeat_interval_ms;
+  if (heartbeatIntervalMs > 0) {
+    try {
+      heartbeat = createHeartbeat(resolveChestnutRoot(clawDir, true), {  // phase 1406: motion-only context
+        interval: heartbeatIntervalMs / 1000,
+        fs: parentFs,
+        audit: auditWriter,
+        inboxReader,
+      });
+    } catch (e) {
+      auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=heartbeat`, `phase=construct`, `reason=${formatErr(e)}`);
+      throw new Error(`Assembly: Heartbeat construct failed: ${formatErr(e)}`, { cause: e });
+    }
+  }
+
+  // --- CronRunner (motion + cron.enabled, daemon.ts L187-248) ---
+  if (globalConfig.cron.enabled) {
+    const chestnutRoot = resolveChestnutRoot(clawDir, true);  // phase 1406: motion-only context (isMotion+cron guard)
+    const tickMs = globalConfig.cron.tick_interval_ms;
+    const diskLimitMB = globalConfig.watchdog.disk_warning_mb;
+
+    // phase155D：预制 chestnutFs，被 disk-monitor / dream-trigger 闭包共用（冻结 §6）
+    // 失败语义：与既有模块（Snapshot / StreamWriter）一致 —— audit 写 assemble_failed 后上抛
+    let chestnutFs: import('../foundation/fs/types.js').FileSystem;
+    try {
+      chestnutFs = fsFactory(chestnutRoot);
+    } catch (e) {
+      auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=cron_runner`, `phase=fs_construct`, `reason=${formatErr(e)}`);
+      throw new Error(`Assembly: chestnutFs construct failed: ${formatErr(e)}`, { cause: e });
+    }
+
+    // --- MemorySystem (L5, motion only) ---
+    let memorySystem: MemorySystem | undefined;
+    {
+      // M#3: random-dream 读取 contract progress 走 ContractSystem API（phase 1104）
+      const clawContractBridge = createClawContractBridge({
+        fsFactory,
+        chestnutRoot,
+        llm,
+        toolRegistry,
+        toolTimeoutMs,
+      });
+      disposeContractSystems = async () => {
+        await clawContractBridge.dispose();
+      };
+
+      try {
+        memorySystem = createMemorySystem({
+          chestnutRoot,
+          motionDir: clawDir,
+          fs: chestnutFs,
+          motionFs: systemFs,
+          audit: auditWriter,
+          taskSystem: runtime.getTaskSystem(),
+          llmService: llm,
+          llmConfig,
+          maxCompressionTokens: globalConfig.cron.jobs.dream_trigger.max_compression_tokens,
+          clawFsFactory: fsFactory,
+          getContractProgress: clawContractBridge.getContractProgress,
+        });
+      } catch (e) {
+        auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=memory_system`, `phase=construct`, `reason=${formatErr(e)}`);
+        throw new Error(`Assembly: MemorySystem construct failed: ${formatErr(e)}`, { cause: e });
+      }
+      toolRegistry.register(memorySearchTool);
+    }
+
+    // phase 8: diskMonitorInbox 移除 — disk + audit-size 警告改 viewport stream（移出 motion inbox / dev_warning subtype）
+
+    try {
+      const cronJobs = [
+        createDiskMonitorJob({
+          chestnutRoot,
+          limitMB: diskLimitMB,
+          fs: chestnutFs,
+          audit: auditWriter,
+          motionAudit: auditWriter,  // phase 724 α：主 auditWriter 单 instance 复用
+          streamLog: streamWriter,   // phase 8: viewport stream (取代 motionInbox)
+        }, globalConfig),
+        createLlmStatsJob({
+          chestnutRoot,
+          motionDir: clawDir,
+          chestnutFs,
+          motionFs: systemFs,
+          audit: auditWriter,
+        }, globalConfig),
+        createDreamTriggerJob({ memorySystem: memorySystem! }, globalConfig),
+        createMetricsSnapshotJob({
+          motionDir: makeClawDir(path.join(chestnutRoot, 'motion')),
+          fs: chestnutFs,
+          audit: auditWriter,
+        }, globalConfig),
+        createContractObserverJob({
+          chestnutRoot,
+          fs: chestnutFs,
+          motionAudit: auditWriter,  // phase 724 α：主 auditWriter 单 instance 复用
+          notifyClaw: (fs, chestnutRoot, targetClawId, payload, audit) => notifyClaw(fs, chestnutRoot, targetClawId, payload, audit),
+        }, globalConfig),
+        createGitGcWeeklyJob({
+          chestnutRoot,
+          fs: chestnutFs,
+          audit: auditWriter,
+        }, globalConfig),
+        createRetentionCleanupJob({
+          motionDir: clawDir,
+          fs: chestnutFs,
+          audit: auditWriter,
+          maxDays: {
+            inbox: globalConfig.retention.inbox_max_days,
+            outbox: globalConfig.retention.outbox_max_days,
+            tasks: globalConfig.retention.tasks_max_days,
+            dialog: globalConfig.retention.dialog_max_days,
+          },
+        }, globalConfig),
+        createAuditSizeMonitorJob({
+          fs: chestnutFs,
+          audit: auditWriter,
+          chestnutRoot,
+          motionAuditPath: path.join(chestnutRoot, 'motion', 'audit.tsv'),
+          rootAuditPath: path.join(chestnutRoot, 'audit.tsv'),
+          streamLog: streamWriter,   // phase 8: viewport stream (取代 motionInbox)
+        }, globalConfig),
+        createOutboxSummaryJob({
+          chestnutRoot,
+          fs: chestnutFs,
+          audit: auditWriter,
+        }, globalConfig),
+      ];
+      cronRunner = createCronRunner(cronJobs, auditWriter);
+    } catch (e) {
+      auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=cron_runner`, `phase=construct`, `reason=${formatErr(e)}`);
+      throw new Error(`Assembly: CronRunner construct failed: ${formatErr(e)}`, { cause: e });
+    }
+
+    try {
+      cronRunner.start(tickMs);
+    } catch (e) {
+      auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=cron_runner`, `phase=start`, `reason=${formatErr(e)}`);
+      throw new Error(`Assembly: CronRunner start failed: ${formatErr(e)}`, { cause: e });
+    }
+  }
+
+  return { gateway, heartbeat, cronRunner, disposeContractSystems };
+}
