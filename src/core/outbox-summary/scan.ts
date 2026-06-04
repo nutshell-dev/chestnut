@@ -1,6 +1,7 @@
 /**
  * @module L4.OutboxSummary
  * phase 1476: scan all claws/*\/outbox/pending → counts + fileSet.
+ * phase 42: outbox/pending 列举改走 Messaging.OutboxReader（消 MLP-3 直访）。
  *
  * 业主仅 own claw outbox/pending 计数 + 文件身份扫描。MOTION_CLAW_ID 跳过
  * （motion 自家不该写 outbox-summary 到自家 outbox）。失败 silent skip per claw
@@ -10,6 +11,7 @@
 import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { isFileNotFound } from '../../foundation/fs/types.js';
+import type { OutboxReader } from '../../foundation/messaging/index.js';
 import type { ChestnutRoot } from '../../foundation/identity/index.js';
 import { CLAWS_DIR } from '../../foundation/paths.js';
 import { MOTION_CLAW_ID } from '../../constants.js';
@@ -18,11 +20,12 @@ import type { OutboxSummaryState } from './types.js';
 
 export interface ScanDeps {
   chestnutRoot: ChestnutRoot;
-  fs: FileSystem;
+  fs: FileSystem;             // 仅供 enumerate claws/（§7.B B.4 cross-cutting 留 future）
+  outboxReader: OutboxReader; // Messaging 对外入口：单 claw outbox/pending 列举
 }
 
-export function scanOutboxes(deps: ScanDeps): OutboxSummaryState {
-  const { chestnutRoot, fs } = deps;
+export async function scanOutboxes(deps: ScanDeps): Promise<OutboxSummaryState> {
+  const { chestnutRoot, fs, outboxReader } = deps;
   const clawsDir = path.join(chestnutRoot, CLAWS_DIR);
 
   let clawIds: string[];
@@ -30,11 +33,9 @@ export function scanOutboxes(deps: ScanDeps): OutboxSummaryState {
     clawIds = fs.listSync(clawsDir, { includeDirs: true })
       .filter(e => e.isDirectory)
       .map(e => e.name)
-      .filter(id => id !== MOTION_CLAW_ID);  // motion 自家不扫
+      .filter(id => id !== MOTION_CLAW_ID);
   } catch (err) {
-    if (isFileNotFound(err)) {
-      return emptyState();
-    }
+    if (isFileNotFound(err)) return emptyState();
     throw err;
   }
 
@@ -42,19 +43,11 @@ export function scanOutboxes(deps: ScanDeps): OutboxSummaryState {
   const fileSet: string[] = [];
 
   for (const clawId of clawIds) {
-    const pendingDir = path.join(clawsDir, clawId, 'outbox', 'pending');
-    try {
-      const files = fs.listSync(pendingDir, { includeDirs: false })
-        .filter(e => e.name.endsWith('.md'))
-        .map(e => e.name);
-      if (files.length > 0) {
-        counts[clawId] = files.length;
-        for (const f of files) fileSet.push(`${clawId}:${f}`);
-      }
-    } catch (err) {
-      if (isFileNotFound(err)) continue;
-      // 其他失败 silent skip 本 claw（per-tick 异常隔离）
-      continue;
+    const clawDir = path.join(clawsDir, clawId);
+    const files = await outboxReader.listClawOutboxPending(clawDir);
+    if (files.length > 0) {
+      counts[clawId] = files.length;
+      for (const f of files) fileSet.push(`${clawId}:${f}`);
     }
   }
 

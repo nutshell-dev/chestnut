@@ -1,5 +1,6 @@
 /**
  * phase 1476: hash + scan unit tests (real NodeFileSystem + tmpdir).
+ * phase 42: scanOutboxes 改 async + 注入 OutboxReader。
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -11,6 +12,15 @@ import { computeHash } from '../../../src/core/outbox-summary/hash.js';
 import { scanOutboxes } from '../../../src/core/outbox-summary/scan.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { makeChestnutRoot } from '../../../src/foundation/identity/index.js';
+import { OutboxReader } from '../../../src/foundation/messaging/index.js';
+
+function makeAudit() {
+  const events: Array<[string, ...unknown[]]> = [];
+  return {
+    audit: { write: (t: string, ...c: unknown[]) => { events.push([t, ...c]); } },
+    events,
+  };
+}
 
 describe('phase 1476: computeHash', () => {
   it('returns 12-char hex', () => {
@@ -41,19 +51,22 @@ describe('phase 1476: computeHash', () => {
 describe('phase 1476: scanOutboxes (real fs)', () => {
   let root: string;
   let fs: NodeFileSystem;
+  let outboxReader: OutboxReader;
 
   beforeEach(async () => {
     root = path.join(tmpdir(), `outbox-summary-scan-${randomUUID()}`);
     await fsAsync.mkdir(path.join(root, 'claws'), { recursive: true });
     fs = new NodeFileSystem({ baseDir: root });
+    const { audit } = makeAudit();
+    outboxReader = new OutboxReader(fs, audit);
   });
 
   afterEach(async () => {
     await fsAsync.rm(root, { recursive: true, force: true }).catch(() => {});
   });
 
-  it('empty claws dir → empty state', () => {
-    const state = scanOutboxes({ chestnutRoot: makeChestnutRoot(root), fs });
+  it('empty claws dir → empty state', async () => {
+    const state = await scanOutboxes({ chestnutRoot: makeChestnutRoot(root), fs, outboxReader });
     expect(state.counts).toEqual({});
     expect(state.total_claws).toBe(0);
     expect(state.total_msgs).toBe(0);
@@ -63,7 +76,7 @@ describe('phase 1476: scanOutboxes (real fs)', () => {
   it('skips motion claw', async () => {
     await fsAsync.mkdir(path.join(root, 'claws/motion/outbox/pending'), { recursive: true });
     await fsAsync.writeFile(path.join(root, 'claws/motion/outbox/pending/foo.md'), 'x');
-    const state = scanOutboxes({ chestnutRoot: makeChestnutRoot(root), fs });
+    const state = await scanOutboxes({ chestnutRoot: makeChestnutRoot(root), fs, outboxReader });
     expect(state.counts).toEqual({});
   });
 
@@ -73,7 +86,7 @@ describe('phase 1476: scanOutboxes (real fs)', () => {
     await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/a1.md'), 'x');
     await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/a2.md'), 'x');
     await fsAsync.writeFile(path.join(root, 'claws/clawB/outbox/pending/b1.md'), 'x');
-    const state = scanOutboxes({ chestnutRoot: makeChestnutRoot(root), fs });
+    const state = await scanOutboxes({ chestnutRoot: makeChestnutRoot(root), fs, outboxReader });
     expect(state.counts).toEqual({ clawA: 2, clawB: 1 });
     expect(state.total_claws).toBe(2);
     expect(state.total_msgs).toBe(3);
@@ -84,13 +97,13 @@ describe('phase 1476: scanOutboxes (real fs)', () => {
     await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
     await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/a1.md'), 'x');
     await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/junk.txt'), 'x');
-    const state = scanOutboxes({ chestnutRoot: makeChestnutRoot(root), fs });
+    const state = await scanOutboxes({ chestnutRoot: makeChestnutRoot(root), fs, outboxReader });
     expect(state.counts).toEqual({ clawA: 1 });
   });
 
   it('claws/<id>/outbox missing → silent skip', async () => {
     await fsAsync.mkdir(path.join(root, 'claws/clawA'), { recursive: true });
-    const state = scanOutboxes({ chestnutRoot: makeChestnutRoot(root), fs });
+    const state = await scanOutboxes({ chestnutRoot: makeChestnutRoot(root), fs, outboxReader });
     expect(state.counts).toEqual({});
   });
 
@@ -98,8 +111,8 @@ describe('phase 1476: scanOutboxes (real fs)', () => {
     await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
     await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m1.md'), 'x');
     await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m2.md'), 'x');
-    const a = scanOutboxes({ chestnutRoot: makeChestnutRoot(root), fs });
-    const b = scanOutboxes({ chestnutRoot: makeChestnutRoot(root), fs });
+    const a = await scanOutboxes({ chestnutRoot: makeChestnutRoot(root), fs, outboxReader });
+    const b = await scanOutboxes({ chestnutRoot: makeChestnutRoot(root), fs, outboxReader });
     expect(a.hash).toBe(b.hash);
   });
 });

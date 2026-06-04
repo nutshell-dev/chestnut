@@ -29,7 +29,7 @@ import type { Gateway } from '../core/gateway/index.js';
 import { createAskUserTool } from '../core/gateway/index.js';
 import { createStreamReader, STREAM_FILE, findRecentTurnStartOffset } from '../foundation/stream/index.js';
 import { createNotifyClawTool } from '../foundation/messaging/tools/notify-claw.js';
-import { notifyClaw } from '../foundation/messaging/index.js';
+import { notifyClaw, OutboxReader } from '../foundation/messaging/index.js';
 import { resolveChestnutRoot, makeClawDir } from '../foundation/identity/index.js';
 import type { CoreInfraOutput } from './core-infrastructure.js';
 import type { BusinessSysOutput } from './business-systems.js';
@@ -220,6 +220,9 @@ export async function createMotionAddons(
           chestnutRoot,
           fs: chestnutFs,
           audit: auditWriter,
+          inboxReader,
+          inboxWriter: business.selfInbox,
+          outboxReader: new OutboxReader(chestnutFs, auditWriter),
         }, globalConfig),
       ];
       cronRunner = createCronRunner(cronJobs, auditWriter);

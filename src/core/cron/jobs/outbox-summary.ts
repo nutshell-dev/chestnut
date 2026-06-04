@@ -12,6 +12,7 @@
 import type { AuditLog } from '../../../foundation/audit/index.js';
 import { formatErr } from "../../../foundation/utils/index.js";
 import type { FileSystem } from '../../../foundation/fs/types.js';
+import type { InboxReader, InboxWriter, OutboxReader } from '../../../foundation/messaging/index.js';
 import type { ChestnutRoot } from '../../../foundation/identity/index.js';
 import { CRON_AUDIT_EVENTS } from '../audit-events.js';
 import { runOutboxSummaryTick } from '../../outbox-summary/index.js';
@@ -19,13 +20,16 @@ import type { CronJob } from '../runner.js';
 import { parseSchedule } from '../runner.js';
 import type { ClawGlobalConfig } from '../../../foundation/config/index.js';
 
-/** Cron job timeout per ML#2 (per-module business decides). 5s 充裕：dedup scan = file list only. */
+/** Cron job timeout per ML#2 (per-module business decides). 5s 充裕：dedup scan = meta parse only. */
 export const OUTBOX_SUMMARY_CRON_TIMEOUT_MS = 5_000;
 
 export interface OutboxSummaryJobOptions {
   chestnutRoot: ChestnutRoot;
   fs: FileSystem;
   audit: AuditLog;
+  inboxReader: InboxReader;
+  inboxWriter: InboxWriter;
+  outboxReader: OutboxReader;
   signal?: AbortSignal;
 }
 
@@ -33,6 +37,9 @@ export interface OutboxSummaryJobDeps {
   chestnutRoot: ChestnutRoot;
   fs: FileSystem;
   audit: AuditLog;
+  inboxReader: InboxReader;
+  inboxWriter: InboxWriter;
+  outboxReader: OutboxReader;
 }
 
 export async function runOutboxSummary(opts: OutboxSummaryJobOptions): Promise<void> {
@@ -41,6 +48,9 @@ export async function runOutboxSummary(opts: OutboxSummaryJobOptions): Promise<v
       chestnutRoot: opts.chestnutRoot,
       fs: opts.fs,
       audit: opts.audit,
+      inboxReader: opts.inboxReader,
+      inboxWriter: opts.inboxWriter,
+      outboxReader: opts.outboxReader,
     });
   } catch (err) {
     opts.audit.write(
