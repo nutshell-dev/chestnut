@@ -17,9 +17,10 @@ import type { AuditLog } from '../audit/index.js';
 import { DIALOG_AUDIT_EVENTS } from './audit-events.js';
 import { randomUUID } from 'crypto';
 import { UUID_SHORT_LEN } from '../../constants.js';
-import type { ToolUseId } from '../tool-protocol/index.js';
-import { detectAndMigrateVersion, validateSessionData, MarkerNotFoundError } from './validate.js';
+
+import { detectAndMigrateVersion, validateSessionData } from './validate.js';
 import { repairMessages } from './repair.js';
+import { restoreMessages } from './restore.js';
 
 /**
  * loadStable() retry base delay（ms）.
@@ -598,101 +599,18 @@ export class DialogStore {
   /**
    * Restore message prefix up to and including the marker assistant message.
    * Scans current.json then archive/*.json (newest first).
+   * phase 46 Step D: delegate to restore.ts pure function.
    */
   async restore(marker: DialogMarker): Promise<RestoreResult> {
-    return this._restore(marker, false);
+    return restoreMessages(this.fs, this.currentPath, this.archiveDir, marker, false, this.audit);
   }
 
   /**
    * Restore message prefix up to and including the marker assistant message.
-   * Scans current.json then archive/*.json (newest first).
+   * phase 46 Step D: delegate to restore.ts pure function.
    */
   async restorePrefix(marker: DialogMarker): Promise<RestoreResult> {
-    return this._restore(marker, true);
-  }
-
-  /**
-   * Shared restore implementation
-   */
-  private async _restore(marker: DialogMarker, inclusive: boolean): Promise<RestoreResult> {
-    // 1. Scan current.json
-    try {
-      const content = await this.fs.read(this.currentPath);
-      const parsed = JSON.parse(content) as Partial<SessionData>;
-      const detected = detectAndMigrateVersion(parsed, 'current.json', this.audit);
-      if (detected === null) {
-        // version unknown — treat as corrupted and fall through to archive
-        throw new Error('session version unknown');
-      }
-      const data = this.validateSession(detected);
-      const sliced = sliceMessagesAtMarker(data.messages, marker.toolUseId, inclusive);
-      if (sliced !== null) {
-        return {
-          messages: sliced,
-          systemPrompt: data.systemPrompt,
-          toolsForLLM: data.toolsForLLM,
-          meta: { foundIn: 'current' },
-        };
-      }
-    } catch (err) {
-      const code = (err as { code?: string }).code;
-      if (code !== 'ENOENT' && code !== 'FS_NOT_FOUND') {
-        this.audit.write(
-          DIALOG_AUDIT_EVENTS.CORRUPTED,
-          'file=current.json',
-          `context=restore_${inclusive ? 'prefix' : 'before'}`,
-          `reason=${formatErr(err)}`,
-        );
-      }
-      // current 不存在或损坏 / 走 archive
-    }
-
-    // 2. Scan archive/*.json (按时间倒序 / 找首个含 toolUseId 的)
-    try {
-      // ensureDir 不在此调用——_restore 是只读操作，不应有 fs 副作用
-      // 若 archive dir 不存在，后续 fs.list() 抛 ENOENT → catch → 抛 MarkerNotFoundError（正确语义）
-      const entries = await this.fs.list(this.archiveDir);
-      const sorted = entries
-        .filter(e => e.isFile && e.name.endsWith('.json') && !isNaN(this.parseArchiveTimestamp(e.name)))
-        .sort((a, b) => this.parseArchiveTimestamp(b.name) - this.parseArchiveTimestamp(a.name)); // Newest first / 与 loadLatestArchive 一致
-
-      for (const entry of sorted) {
-        try {
-          const content = await this.fs.read(path.join(this.archiveDir, entry.name));
-          const parsed = JSON.parse(content) as Partial<SessionData>;
-          const detected = detectAndMigrateVersion(parsed, entry.name, this.audit);
-          if (detected === null) {
-            continue; // version unknown (version > SESSION_CURRENT_VERSION)
-          }
-          const data = this.validateSession(detected);
-          const sliced = sliceMessagesAtMarker(data.messages, marker.toolUseId, inclusive);
-          if (sliced !== null) {
-            return {
-              messages: sliced,
-              systemPrompt: data.systemPrompt,
-              toolsForLLM: data.toolsForLLM,
-              meta: { foundIn: 'archive', foundFile: entry.name },
-            };
-          }
-        } catch (err) {
-          this.audit.write(
-            DIALOG_AUDIT_EVENTS.ARCHIVE_PARSE_FAILED,
-            `file=${entry.name}`,
-            `reason=${formatErr(err)}`,
-          );
-          // 单个 archive 损坏跳过 / 继续找
-        }
-      }
-    } catch (err) {
-      this.audit.write(
-        DIALOG_AUDIT_EVENTS.ARCHIVE_DIR_FAILED,
-        `reason=${formatErr(err)}`,
-      );
-      // archive dir 失败 / 走最终抛错
-    }
-
-    // 3. 找不到
-    throw new MarkerNotFoundError(marker.clawId, marker.toolUseId);
+    return restoreMessages(this.fs, this.currentPath, this.archiveDir, marker, true, this.audit);
   }
 
   /**
@@ -703,25 +621,6 @@ export class DialogStore {
   private validateSession(data: SessionData): SessionData {
     return validateSessionData(data, this.audit, this.clawId);
   }
-}
-
-/**
- * 找含 toolUseId 的 assistant message / 返切片（含该 message）
- * 0 命中返 null
- */
-function sliceMessagesAtMarker(messages: Message[], toolUseId: ToolUseId, inclusive = true): Message[] | null {
-  for (let i = 0; i < messages.length; i++) {
-    const msg = messages[i];
-    if (msg.role === 'assistant' && Array.isArray(msg.content)) {
-      const hasMarker = msg.content.some(
-        block => block.type === 'tool_use' && block.id === toolUseId,
-      );
-      if (hasMarker) {
-        return messages.slice(0, inclusive ? i + 1 : i);  // inclusive 含 marker assistant message
-      }
-    }
-  }
-  return null;
 }
 
 // phase 46 Step B: re-export 保直接从 store.js import 的 caller 0 改（barrel 透明）
