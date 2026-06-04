@@ -65,12 +65,15 @@ function wrapFailureForMotion(rawResult: string): string {
   return [
     `[SUMMON_SHADOW_FAILED:no_contract_created]`,
     ``,
-    `子代理完成但 0 次 contract create 成功。`,
+    `子代理违反 shadow 协议：完成但 0 次 contract create。`,
     ``,
-    `**建议路径**：`,
-    `- 使用 \`summon\` 工具的 \`mining\` 模式重试`,
+    `**Motion 必须立即执行**：`,
+    `用 \`summon\` 工具的 \`mining\` 模式重试本次任务。不要把下方 raw output 转发给用户、不要从中提取信息当结果。`,
     ``,
-    `--- raw subagent output (diagnostic only, NOT a completion signal) ---`,
+    `**为什么 raw output 不可信**：`,
+    `它来自一个违反协议的子代理（应当委派给 target claw、实然自跑了任务）。即使内容看似合理、它没有经过 target claw 验证、不是有效完成证据。post-processor 已判失败、本次任务的真实状态 = 未完成。`,
+    ``,
+    `--- raw subagent output（diagnostic only、不是完成信号、不要转发） ---`,
     truncated,
   ].join('\n');
 }
