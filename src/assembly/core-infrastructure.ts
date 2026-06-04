@@ -20,7 +20,7 @@ import { createSkillSystem, SkillSystem } from '../foundation/skill-system/index
 import { SKILLS_DIR_DEFAULT } from '../foundation/skill-system/index.js';
 import { ContractSystem, createContractSystem } from '../core/contract/index.js';
 import { createOutboxWriter, type OutboxWriter } from '../foundation/messaging/index.js';
-import { resolveChestnutRoot } from '../foundation/identity/index.js';
+import { resolveChestnutRoot, type ClawDir, type ClawId } from '../foundation/identity/index.js';
 import { TASKS_SYNC_DIR } from '../core/async-task-system/index.js';
 import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
 import type { AssembleConfig } from './types.js';
@@ -50,6 +50,8 @@ export interface CoreInfraOutput {
   outboxWriter: OutboxWriter;
   isMotion: boolean;
   chestnutRoot: string;
+  clawDir: ClawDir;
+  clawId: ClawId;
 }
 
 /**
@@ -240,6 +242,8 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
       outboxWriter,
       isMotion,
       chestnutRoot,
+      clawDir,
+      clawId,
     };
   } catch (e) {
     if (lockState.acquired && processManager) {

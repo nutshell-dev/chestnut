@@ -35,7 +35,10 @@ describe('claw-permissions no L4 import invariant', () => {
 
   it('taskSyncDirs injected at assembly time cascades to permission checks', async () => {
     const assemblePath = path.resolve(__dirname, '../../../src/assembly/assemble.ts');
-    const content = await fs.readFile(assemblePath, 'utf-8');
+    const businessPath = path.resolve(__dirname, '../../../src/assembly/business-systems.ts');
+    const assembleContent = await fs.readFile(assemblePath, 'utf-8');
+    const businessContent = await fs.readFile(businessPath, 'utf-8');
+    const content = assembleContent + businessContent;
 
     expect(content).toContain('taskSyncDirs:');
     expect(content).toContain('TASKS_SYNC_SUBAGENT_DIR');

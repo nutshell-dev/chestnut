@@ -3,7 +3,7 @@ import { formatErr } from '../foundation/utils/index.js';
 
 import type { FileSystem } from '../foundation/fs/types.js';
 
-import { createSystemAudit, type AuditLog } from '../foundation/audit/index.js';
+import type { AuditLog } from '../foundation/audit/index.js';
 import { createSnapshot } from '../foundation/snapshot/index.js';
 import { SNAPSHOT_IGNORE_PATTERNS } from './snapshot-patterns.js';
 import type { Snapshot } from '../foundation/snapshot/index.js';
@@ -20,58 +20,22 @@ import { createContractNotifyCallback } from './contract-notify-callback.js';
 import type { CoreInfraOutput } from './core-infrastructure.js';
 
 import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
-import { CLAWS_DIR, DISPATCH_SKILLS_PATH } from '../foundation/paths.js';
 
-import { createToolExecutor } from '../foundation/tools/index.js';
-import type { IToolExecutor } from '../foundation/tools/index.js';
-import { writePendingToolTaskFile } from '../core/async-task-system/index.js';
-
-import { createContractSystem } from '../core/contract/index.js';
-import { ContractAuditor } from '../core/contract/contract-auditor.js';
-import { createEvolutionSystem } from '../core/evolution-system/index.js';
-import type { EvolutionSystem } from '../core/evolution-system/index.js';
-
-import { createAsyncTaskSystem } from '../core/async-task-system/index.js';
-import type { AsyncTaskSystem } from '../core/async-task-system/system.js';
-import { summonContractExtractPostProcessor, SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME, AskMotionTool } from '../core/summon-system/index.js';
-
-
-import { createClawPermissionChecker } from '../core/permissions/claw-permissions.js';
-import { TASKS_SYNC_SUBAGENT_DIR } from '../core/subagent/index.js';
-import { TASKS_SYNC_SPAWN_DIR } from '../core/spawn-system/index.js';
-import { TASKS_SYNC_SHADOW_DIR } from '../core/shadow-system/index.js';
 import { TASKS_SYNC_EXEC_DIR } from '../foundation/command-tool/index.js';
 import { TASKS_SYNC_WRITE_DIR } from '../foundation/file-tool/index.js';
 
+
+
+
+
+
 import { createShadowTool } from '../core/shadow-system/index.js';
 import { cleanupOrphanedTemp } from './cleanup.js';
-import { createInboxReader, notifyClaw, InboxWriter, makeInboxPath } from '../foundation/messaging/index.js';
-// phase 1414: formatter registry + Messaging 自家通用 formatter
-import { createMessageFormatterRegistry, registerMessagingFormatters } from '../foundation/messaging/index.js';
-// phase 1469: motion guidance registry (motion-only / claw 不装)
-import { createMotionGuidanceRegistry, registerAllMotionGuidance } from './guidance/index.js';
-import type { MotionGuidanceRegistry } from './guidance/index.js';
-import type { MessageFormatterRegistry } from '../foundation/messaging/index.js';
-// phase 1414: 业主自家 inbox-formatter
-// phase 1419: 4 业主补注 sister（contract / daemon / memory / watchdog inactivity）+ Watchdog 切 register helper 形态
-import { registerWatchdogFormatters } from '../watchdog/inbox-formatter.js';
-import { formatUserChat } from '../core/gateway/index.js';
-import { createHeartbeatInboxFormatter } from '../core/heartbeat/index.js';
-import { registerContractFormatters } from '../core/contract/inbox-formatters.js';
-import { registerAsyncTaskSystemFormatters } from '../core/async-task-system/inbox-formatter.js';
-import { registerDaemonFormatters } from '../daemon/inbox-formatter.js';
-import { registerMemoryFormatters } from '../core/memory/inbox-formatter.js';
-import { createSubmitSubtaskTool } from '../core/contract/index.js';
-import { createDoneTool } from '../core/subagent/index.js';
-import { createStatusTool } from '../core/status-service/index.js';
-import { composeStatusMotionGuidance } from './motion-guidance-composer.js';
-import { createSkillTool } from '../foundation/skill-system/tools/skill.js';
-import { createSendTool } from '../foundation/messaging/tools/send.js';
-import { createNotifyClawTool } from '../foundation/messaging/tools/notify-claw.js';
-import { createDialogStore } from '../foundation/dialog-store/index.js';
-import type { InboxReader } from '../foundation/messaging/index.js';
+import { notifyClaw } from '../foundation/messaging/index.js';
 
-import type { DialogStore } from '../foundation/dialog-store/index.js';
+
+import { createNotifyClawTool } from '../foundation/messaging/tools/notify-claw.js';
+
 
 import { createHeartbeat, type Heartbeat } from '../core/runtime/index.js';
 import { createCronRunner, CronRunner } from '../core/cron/index.js';
@@ -89,17 +53,17 @@ import { createClawContractBridge } from '../core/memory/claw-contract-bridge.js
 import { createContractObserverJob } from '../core/contract/jobs/contract-observer.js';
 // phase 1476: outbox-drain cron 砍 — pull 模型替 push（详 design/modules/l5_cron.md A.phase1476-outbox-summary-cron-job）
 import { createOutboxSummaryJob } from '../core/cron/jobs/outbox-summary.js';
-import { buildLLMConfig } from '../foundation/llm-orchestrator/config-adapter.js';
+
 
 import type { AssembleConfig, Instances } from './types.js';
 import { createCoreInfrastructure } from './core-infrastructure.js';
+import { createBusinessSystems } from './business-systems.js';
 import { createGateway } from '../core/gateway/index.js';
 import type { Gateway } from '../core/gateway/index.js';
 import { createAskUserTool } from '../core/gateway/index.js';
 import { createStreamReader, STREAM_FILE, findRecentTurnStartOffset } from '../foundation/stream/index.js';
 
-import { DIALOG_DIR } from '../foundation/dialog-store/dirs.js';
-import { makeClawId, resolveChestnutRoot, type ClawDir, makeClawDir } from '../foundation/identity/index.js';
+import { resolveChestnutRoot, makeClawDir } from '../foundation/identity/index.js';
 import { MOTION_CLAW_ID } from '../constants.js';
 
 
@@ -157,206 +121,21 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
   try {
     core = await createCoreInfrastructure({ config, lockState });
     const {
-      fsFactory, systemFs, clawFs, parentFs,
+      fsFactory, systemFs, parentFs,
       auditWriter, processManager,
       llmConfig, llm,
-      maxSteps, maxConcurrent, toolProfile, toolTimeoutMs, idleTimeoutMs,
+      maxSteps, toolProfile, toolTimeoutMs, idleTimeoutMs,
       toolRegistry, skillRegistry, contractManager, outboxWriter,
     } = core;
 
     // A.6 motionInboxDir 提前到 taskSystem / callback 定义前（双链路保险 / cron job 注册块同步引用）
-    const permissionChecker = createClawPermissionChecker({
-      clawDir,
-      strict: true,
-      audit: auditWriter,
-      fs: clawFs,
-      taskSyncDirs: [
-        TASKS_SYNC_EXEC_DIR,
-        TASKS_SYNC_WRITE_DIR,
-        TASKS_SYNC_SUBAGENT_DIR,
-        TASKS_SYNC_SPAWN_DIR,
-        TASKS_SYNC_SHADOW_DIR,
-      ],
-    });
-    const motionInboxDir = path.join(clawDir, 'inbox', 'pending');
-    const motionInbox = InboxWriter.__internal_create(systemFs, makeInboxPath(motionInboxDir), auditWriter);
-
-    // --- L3-L5: taskSystem（仅构造，不调 initialize / startDispatch；业务动作归 Runtime） ---
-    let taskSystem: AsyncTaskSystem;
-    try {
-      taskSystem = createAsyncTaskSystem(clawDir, systemFs, {
-        maxConcurrent,
-        auditWriter,
-        llm,
-        contractManager,
-        outboxWriter,
-        registry: toolRegistry,     // NEW: 装配好的 registry 注入 AsyncTaskSystem / 子代理共用
-        toolTimeoutMs,              // phase 1029 / F-2
-        permissionChecker,          // NEW: permission checker for subagent file tools
-        motionInbox,
-        fsFactory,
-        chestnutRoot: resolveChestnutRoot(clawDir, isMotion),  // phase 1406: 单一 truth source
-        askMotionToolFactory: (llm, motionDialogStore) => new AskMotionTool(llm, motionDialogStore),
-      });
-    } catch (e) {
-      auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=task_system`, `phase=construct`, `reason=${formatErr(e)}`);
-      throw new Error(`Assembly: AsyncTaskSystem construct failed: ${formatErr(e)}`, { cause: e });
-    }
-    // phase438: 注册 PostProcessors（装配期）
-    taskSystem.addPostProcessor(SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME, summonContractExtractPostProcessor);
-    // backwards-compat (phase 1142 dispatch→summon migrate): 既有 pending tasks/queues/pending/<id>.json 内 `postProcessor: 'dispatch-contract-extract'` 仍认
-    // SUNSET (per phase 1180 r129 E fork sunset SOP): 30 天 audit 0 触发 LEGACY_POST_PROCESSOR_INVOKED → r130+ phase 删本 fallback + subagent-helpers.ts:52 sibling
-    taskSystem.addPostProcessor('dispatch-contract-extract', summonContractExtractPostProcessor);
-
-    // NOTE: taskSystem.initialize() / startDispatch() 属 AsyncTaskSystem 业务语义，由 Runtime.initialize() 调用
-    //       参见 接口冻结.md §4 "业务动作归属" + 原则 #2
-
-    // --- L3-L5: EvolutionSystem (motion only / phase411 Step B) ---
-    let evolutionSystem: EvolutionSystem | undefined;
-    if (isMotion) {
-      try {
-        evolutionSystem = createEvolutionSystem({
-          fs: systemFs,
-          audit: auditWriter,
-          taskSystem,
-          contractManager,
-        });
-      } catch (e) {
-        auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=evolution_system`, `phase=construct`, `reason=${formatErr(e)}`);
-        throw new Error(`Assembly: EvolutionSystem construct failed: ${formatErr(e)}`, { cause: e });
-      }
-      if (evolutionSystem) {
-        try {
-          await evolutionSystem.init();
-        } catch (e) {
-          auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=evolution_system`, `phase=init`, `reason=${formatErr(e)}`);
-          throw new Error(`Assembly: EvolutionSystem.init failed: ${formatErr(e)}`, { cause: e });
-        }
-
-        // Wire ContractSystem.contract_completed → EvolutionSystem.runRetroForContract
-        const motionReviewContext = {
-          motionFs: systemFs,
-          motionBaseDir: clawDir,
-          motionAudit: auditWriter,
-          clawsBaseDir: path.join(
-            resolveChestnutRoot(clawDir, true),  // phase 1406: motion-only context (guarded by if isMotion)
-            CLAWS_DIR
-          ),
-          clawFsFactory: fsFactory,
-          clawContractManagerFactory: (d: ClawDir, id: string, fs: FileSystem) => createContractSystem({ clawDir: d, clawId: makeClawId(id), fs, audit: createSystemAudit(fs, d), toolRegistry, toolTimeoutMs, fsFactory, chestnutRoot: resolveChestnutRoot(d, /* isMotion */ false) }),
-        };
-        contractManager.onContractCompleted(async (contractId) => {
-          if (!evolutionSystem) return; // P1.NPE guard (phase 620 / mirror phase 607 dream-trigger)
-          await evolutionSystem.runRetroForContract(contractId, motionReviewContext);
-        });
-      }
-    }
-
-    // 注入工具属性（避免通过 ExecContext 传业务依赖）
-    // done 注册：phase360 后 done 业务归 ContractSystem / 不再经 registerBuiltinTools / Assembly 显式注册
-    toolRegistry.register(createSubmitSubtaskTool(contractManager));
-    toolRegistry.register(createDoneTool());                    // phase 765: 通用 done 工具（shadow / spawn 子代理 result 提交）
-    // phase 446: builtins/index.ts 不再 register / Assembly 显式（同 phase 440 send + phase 442 skill 模板）
-    // phase 1472 Step D: Motion 注入 motion guidance composer 输出（CLI hint 段）；其他 claw 不传 = 0 尾段
-    toolRegistry.register(
-      createStatusTool(contractManager, isMotion ? composeStatusMotionGuidance() : undefined),
-    );
-
-    // skill 注册：phase442 后 skill 业务归 SkillSystem / 不再经 registerBuiltinTools / Assembly 显式注册
-    // Motion 注入 dispatchSkillsDir（dispatch 模板池 own / DISPATCH_SKILLS_PATH 物理路径不上 LLM 表面）；
-    // 其他 claw 不传 = scope='dispatch' 运行期 reject（Motion→claw 单向访问原则）。
-    toolRegistry.register(createSkillTool(skillRegistry, isMotion ? { dispatchSkillsDir: DISPATCH_SKILLS_PATH } : {}));
-
-    // send 注册：phase440 后 send 业务归 Messaging / 不再经 registerBuiltinTools / Assembly 显式注册
-    toolRegistry.register(createSendTool(outboxWriter));
-
-    // --- L3-L5: toolExecutor ---
-    let toolExecutor: IToolExecutor;
-    try {
-      toolExecutor = createToolExecutor(
-        toolRegistry,
-        toolTimeoutMs,
-        (args) => writePendingToolTaskFile(clawFs, auditWriter, args),
-      );
-    } catch (e) {
-      auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=tool_executor`, `phase=construct`, `reason=${formatErr(e)}`);
-      throw new Error(`Assembly: IToolExecutor construct failed: ${formatErr(e)}`, { cause: e });
-    }
-
-    // NOTE: 此段 L2 装配位于 L3-L5 之后，是 phase155C squash-merge 时为避免大规模代码移动保留的形态。
-    // 语义正确（变量作用域覆盖全函数，依赖链仍 DAG），但与 phase155B 原拓扑"L2 先于 L3-L5"不一致。
-    // 如要对齐拓扑走独立 phase 处理，见 coding plan/phase155/phase155C/fixup/合并计划.md §C5
-    // --- L2: sessionManager + inboxReader + outboxWriter ---
-
-    const makeDialogStore = (): DialogStore =>
-      createDialogStore(systemFs, DIALOG_DIR, auditWriter, 'current.json', clawId);
-
-    let sessionManager: DialogStore;
-    try {
-      sessionManager = makeDialogStore();
-    } catch (e) {
-      auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=session_manager`, `phase=construct`, `reason=${formatErr(e)}`);
-      throw new Error(`Assembly: DialogStore construct failed: ${formatErr(e)}`, { cause: e });
-    }
-
-    // phase470: inject mainDialogStore after sessionManager is available
-    taskSystem.setMainDialogStore(sessionManager);
-
-    let inboxReader: InboxReader;
-    try {
-      inboxReader = createInboxReader(systemFs, auditWriter, 'inbox');
-    } catch (e) {
-      auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=inbox_reader`, `phase=construct`, `reason=${formatErr(e)}`);
-      throw new Error(`Assembly: InboxReader construct failed: ${formatErr(e)}`, { cause: e });
-    }
-
-    // phase 1424: ContractAuditor 装配 — 周期 LLM 对照 expectations 检查 + inbox 高优反馈
-    // llm 可缺省（早期装配未注入 llm 时跳过 auditor / contract.audit_interval 默 0 时也不触发）
-    if (llm) {
-      try {
-        const clawInbox = InboxWriter.__internal_create(
-          systemFs,
-          makeInboxPath(path.join(clawDir, 'inbox', 'pending')),
-          auditWriter,
-        );
-        const auditor = new ContractAuditor({
-          audit: auditWriter,
-          fs: systemFs,
-          inbox: clawInbox,
-          llm,
-          inboxPendingDir: 'inbox/pending',  // 相对 systemFs.baseDir(=clawDir)
-        });
-        contractManager.attachAuditor(auditor);
-      } catch (e) {
-        auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=contract_auditor`, `phase=construct`, `reason=${formatErr(e)}`);
-        // 非致命：装配失败不阻塞 Runtime 起步 / contract auditor 默 disabled 状态
-      }
-    }
-
-    // phase 1414: inbox 消息 formatter 注册表（业主自家 register、Runtime 仅 dispatch）
-    const formatterRegistry: MessageFormatterRegistry = createMessageFormatterRegistry();
-    registerMessagingFormatters(formatterRegistry);                        // 'user_inbox_message' + 'message'
-    formatterRegistry.register('user_chat', formatUserChat);               // Gateway 业主
-    registerWatchdogFormatters(formatterRegistry);                         // Watchdog 业主：crash_notification + claw_inactivity
-    registerContractFormatters(formatterRegistry);                         // ContractSystem 业主：contract_events + 3 verification_*
-    registerAsyncTaskSystemFormatters(formatterRegistry);                  // AsyncTaskSystem 业主：task_queue_overflow (phase 7)
-    registerDaemonFormatters(formatterRegistry);                           // DaemonLoop 业主：startup_check
-    registerMemoryFormatters(formatterRegistry);                           // MemorySystem 业主：random_dream + deep_dream
-    if (isMotion) {
-      // 与 createHeartbeat 同 guard：只 motion 装 heartbeat formatter
-      formatterRegistry.register(
-        'heartbeat',
-        createHeartbeatInboxFormatter({ systemFs, audit: auditWriter }),
-      );
-    }
-
-    // phase 1469: motion guidance registry (motion-only 装 / claw 装配 undefined)
-    // 业主 facts + state schema / Assembly own composer 物理 / 22 type 全 register（含 NO_GUIDANCE sentinel）
-    let guidanceRegistry: MotionGuidanceRegistry | undefined;
-    if (isMotion) {
-      guidanceRegistry = createMotionGuidanceRegistry();
-      registerAllMotionGuidance(guidanceRegistry);
-    }
+    const business = await createBusinessSystems({ core });
+    const {
+      taskSystem, evolutionSystem,
+      permissionChecker, motionInboxDir,
+      toolExecutor, sessionManager, makeDialogStore,
+      inboxReader, formatterRegistry, guidanceRegistry,
+    } = business;
 
     // --- Snapshot（phase155B 已搬，但需保证在 Runtime 之前） ---
     let snapshot: Snapshot;

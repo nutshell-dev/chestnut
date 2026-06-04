@@ -28,10 +28,12 @@ const REGISTER_HELPER_FILES = [
 function extractRegisteredTypes(): Set<string> {
   const types = new Set<string>();
   const assembleContent = fs.readFileSync(path.join(srcDir, 'assembly/assemble.ts'), 'utf-8');
-  // (1) assemble.ts 内 formatterRegistry.register('X', ...) 直接调
-  const directMatches = assembleContent.matchAll(/formatterRegistry\.register\(\s*'([^']+)'/g);
+  const businessContent = fs.readFileSync(path.join(srcDir, 'assembly/business-systems.ts'), 'utf-8');
+  const assemblyContent = assembleContent + businessContent;
+  // (1) assembly 文件内 formatterRegistry.register('X', ...) 直接调
+  const directMatches = assemblyContent.matchAll(/formatterRegistry\.register\(\s*'([^']+)'/g);
   for (const m of directMatches) types.add(m[1]);
-  // (2) 业主 helper：仅当 helper 实际被 assemble.ts 调用时其 register('X', ...) 才生效
+  // (2) 业主 helper：仅当 helper 实际被 assembly 文件调用时其 register('X', ...) 才生效
   for (const rel of REGISTER_HELPER_FILES) {
     const fp = path.join(srcDir, rel);
     if (!fs.existsSync(fp)) continue;
@@ -39,7 +41,7 @@ function extractRegisteredTypes(): Set<string> {
     // 提 helper file 内 export function registerXxxFormatters
     const helperExports = [...content.matchAll(/export\s+function\s+(register\w+Formatters)\s*\(/g)].map(m => m[1]);
     // 仅当对应 helper 在 assemble.ts 有调用时、其 register 才算生效
-    const liveHelpers = helperExports.filter(name => new RegExp(`\\b${name}\\s*\\(`).test(assembleContent));
+    const liveHelpers = helperExports.filter(name => new RegExp(`\\b${name}\\s*\\(`).test(assemblyContent));
     if (liveHelpers.length === 0) continue;
     const matches = content.matchAll(/registry\.register\(\s*'([^']+)'/g);
     for (const m of matches) types.add(m[1]);
