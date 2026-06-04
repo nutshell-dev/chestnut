@@ -556,29 +556,41 @@ export async function assemble(config: AssembleConfig): Promise<Instances> {
       auditWriter,
     });
 
+    // === RuntimeDependencies 分组构造（assembly-auditor §六.5 follow-up / 可读性） ===
+    const messagingDeps = {
+      inboxReader,
+      outboxWriter,
+      parentStreamLog: streamWriter!,
+    };
+
+    const toolingDeps = {
+      toolRegistry,
+      toolExecutor,
+      skillRegistry,
+      formatterRegistry,
+      // phase 27 Step D P5: guidance compose callback hook（motion-only / claw 装配 undefined）
+      guidanceCompose: (type: string, state: Record<string, string>) => guidanceRegistry?.compose(type, state) ?? null,
+    };
+
+    const lifecycleDeps = {
+      snapshot,
+      sessionManager,
+    };
+
     const dependencies: RuntimeDependencies = {
       fsFactory,
       systemFs,
       auditWriter,
-      snapshot,
-      sessionManager,
-      inboxReader,
-      outboxWriter,
       llm,
-      toolRegistry,
-      toolExecutor,
       contractManager,
       taskSystem,
-      skillRegistry,
       permissionChecker,  // NEW phase 1273 / 复用 line 287 既有构造
-      parentStreamLog: streamWriter!,
       contractNotifyCallback,
       // phase 521: regime switch coordination / Assembly own factory / closure capture 5 const
       dialogStoreFactory: makeDialogStore,
-      // phase 1414: inbox 消息 formatter 注册表（业主自家 register）
-      formatterRegistry,
-      // phase 27 Step D P5: guidance compose callback hook（motion-only / claw 装配 undefined）
-      guidanceCompose: (type, state) => guidanceRegistry?.compose(type, state) ?? null,
+      ...messagingDeps,
+      ...toolingDeps,
+      ...lifecycleDeps,
     };
 
     // 孤儿临时文件清理（从 Runtime.initialize 搬来；Assembly 负责一次性的启动清理）
