@@ -6,7 +6,8 @@
  * Dependency: FileSystem
  */
 
-export { DialogStore, MarkerNotFoundError, migrateAndValidateSession, validateSessionData } from './store.js';
+export { DialogStore } from './store.js';
+export { MarkerNotFoundError, migrateAndValidateSession, validateSessionData } from './validate.js';
 export type { SessionData, LoadResult, DialogMarker, RestoreResult } from './types.js';
 // phase 1406: regime switch 业务（dialog 资源重组）从 Runtime 迁入 DialogStore module
 export { performRegimeSwitch } from './regime-switch.js';

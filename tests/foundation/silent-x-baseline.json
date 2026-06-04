@@ -351,16 +351,9 @@
         },
         {
             "file": "src/foundation/dialog-store/store.ts",
-            "line": 344,
+            "line": 340,
             "body_excerpt": ".catch(() => {",
-            "reason": "phase 1149 D fork ratify accepted-stable α / shadow promise 三件套 by-design / 12 caller universe 全 await + audit emit 实证齐全 / phase 1400 +5 / phase 15 formatErr barrel import +1",
-            "form": "promise"
-        },
-        {
-            "file": "src/foundation/dialog-store/store.ts",
-            "line": 334,
-            "body_excerpt": ".catch(() => {",
-            "reason": "pre-existing silent catch / TODO phase TBD convert to canonical / stale line marker carried from pre-phase1375",
+            "reason": "pre-existing silent catch / TODO phase TBD convert to canonical / stale line marker carried from pre-phase1375 / phase 46 Step B line shift +6",
             "form": "promise"
         }
     ]

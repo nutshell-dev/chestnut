@@ -17,12 +17,8 @@ import type { AuditLog } from '../audit/index.js';
 import { DIALOG_AUDIT_EVENTS } from './audit-events.js';
 import { randomUUID } from 'crypto';
 import { UUID_SHORT_LEN } from '../../constants.js';
-import type { ClawId } from '../identity/index.js';
 import type { ToolUseId } from '../tool-protocol/index.js';
-
-
-
-const SESSION_CURRENT_VERSION = 2;
+import { detectAndMigrateVersion, validateSessionData, MarkerNotFoundError } from './validate.js';
 
 /**
  * loadStable() retry base delay（ms）.
@@ -80,7 +76,7 @@ export class DialogStore {
     try {
       const content = await this.fs.read(this.currentPath);
       const parsed = JSON.parse(content) as Partial<SessionData>;
-      const detected = this.detectAndMigrateVersion(parsed, 'current.json');
+      const detected = detectAndMigrateVersion(parsed, 'current.json', this.audit);
       if (detected === null) {
         this.audit.write(DIALOG_AUDIT_EVENTS.CORRUPTED, 'file=current.json', `reason=version_unknown`);
         throw new Error('session version unknown');
@@ -475,7 +471,7 @@ export class DialogStore {
     try {
       const content = await this.fs.read(filePath);
       const parsed = JSON.parse(content) as Partial<SessionData>;
-      const detected = this.detectAndMigrateVersion(parsed, filename);
+      const detected = detectAndMigrateVersion(parsed, filename, this.audit);
       if (detected === null) {
         this.audit.write(DIALOG_AUDIT_EVENTS.CORRUPTED, `file=${filename}`, `reason=version_unknown`);
         throw new Error(`session version unknown in archive ${filename}`);
@@ -524,7 +520,7 @@ export class DialogStore {
         try {
           const content = await this.fs.read(path.join(this.archiveDir, entry.name));
           const parsed = JSON.parse(content) as Partial<SessionData>;
-          const detected = this.detectAndMigrateVersion(parsed, entry.name);
+          const detected = detectAndMigrateVersion(parsed, entry.name, this.audit);
           if (detected === null) {
             this.audit.write(DIALOG_AUDIT_EVENTS.ARCHIVE_PARSE_FAILED, `file=${entry.name}`, `reason=version_unknown`);
             continue;
@@ -655,7 +651,7 @@ export class DialogStore {
     try {
       const content = await this.fs.read(this.currentPath);
       const parsed = JSON.parse(content) as Partial<SessionData>;
-      const detected = this.detectAndMigrateVersion(parsed, 'current.json');
+      const detected = detectAndMigrateVersion(parsed, 'current.json', this.audit);
       if (detected === null) {
         // version unknown — treat as corrupted and fall through to archive
         throw new Error('session version unknown');
@@ -696,7 +692,7 @@ export class DialogStore {
         try {
           const content = await this.fs.read(path.join(this.archiveDir, entry.name));
           const parsed = JSON.parse(content) as Partial<SessionData>;
-          const detected = this.detectAndMigrateVersion(parsed, entry.name);
+          const detected = detectAndMigrateVersion(parsed, entry.name, this.audit);
           if (detected === null) {
             continue; // version unknown (version > SESSION_CURRENT_VERSION)
           }
@@ -732,29 +728,9 @@ export class DialogStore {
   }
 
   /**
-   * Detect version and migrate v1 → v2 if needed.
-   * Returns null for unknown versions (> SESSION_CURRENT_VERSION) to trigger corrupt path.
-   */
-  private detectAndMigrateVersion(parsed: Partial<SessionData>, filename: string): SessionData | null {
-    // v1 → v2 intentional migration (phase 713 logic 保留)
-    if (!parsed.toolsForLLM) {
-      (parsed as SessionData).toolsForLLM = [];
-      (parsed as SessionData).version = 2;
-      this.audit.write(DIALOG_AUDIT_EVENTS.VERSION_MIGRATE, `file=${filename}`, `from=1`, `to=2`);
-      return parsed as SessionData;
-    }
-    // NEW unknown version reject（phase 1019 r124 E fork）
-    if (typeof parsed.version === 'number' && parsed.version > SESSION_CURRENT_VERSION) {
-      this.audit.write(DIALOG_AUDIT_EVENTS.VERSION_UNKNOWN, `file=${filename}`,
-        `actual=${parsed.version}`, `current=${SESSION_CURRENT_VERSION}`);
-      return null;  // caller treats as corrupt
-    }
-    return parsed as SessionData;
-  }
-
-  /**
    * Validate and normalize session data
    * phase 1400: 委托 validateSessionData / 消 DRY 违反 / clawId fallback 来源传 this.clawId
+   * phase 46 Step B: validateSessionData 迁至 validate.ts
    */
   private validateSession(data: SessionData): SessionData {
     return validateSessionData(data, this.audit, this.clawId);
@@ -780,74 +756,5 @@ function sliceMessagesAtMarker(messages: Message[], toolUseId: ToolUseId, inclus
   return null;
 }
 
-/**
- * Standalone version migration + validation helpers.
- * Exported for CLI tools and deep-dream that read dialog files without a full DialogStore instance.
- * audit is optional (read-only / CLI scenarios don't need audit side-effects).
- */
-export function migrateAndValidateSession(
-  raw: unknown,
-  filename: string,
-  audit?: AuditLog,
-): SessionData | null {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-  const parsed = raw as Partial<SessionData>;
-
-  // v1 → v2 migration
-  if (!parsed.toolsForLLM) {
-    (parsed as SessionData).toolsForLLM = [];
-    (parsed as SessionData).version = 2;
-    audit?.write?.(DIALOG_AUDIT_EVENTS.VERSION_MIGRATE, `file=${filename}`, `from=1`, `to=2`);
-  }
-  // unknown version reject
-  if (typeof parsed.version === 'number' && parsed.version > SESSION_CURRENT_VERSION) {
-    audit?.write?.(DIALOG_AUDIT_EVENTS.VERSION_UNKNOWN, `file=${filename}`,
-      `actual=${parsed.version}`, `current=${SESSION_CURRENT_VERSION}`);
-    return null;
-  }
-  return parsed as SessionData;
-}
-
-export function validateSessionData(
-  data: SessionData,
-  audit?: AuditLog,
-  clawIdFallback?: string,
-): SessionData {
-  let version: number = data.version ?? 2;
-  if (typeof version !== 'number' || version > 2 || version < 1) {
-    audit?.write?.(DIALOG_AUDIT_EVENTS.INVARIANT_FAILED, `field=version`, `got=${String(data.version)}`, `fallback=2`);
-    version = 2;
-  }
-  if (!Number.isInteger(version)) {
-    audit?.write?.(DIALOG_AUDIT_EVENTS.INVARIANT_FAILED, `field=version`, `got=${String(data.version)}`, `reason=non_integer`);
-    version = 2;
-  }
-  const messages = Array.isArray(data.messages)
-    ? data.messages.filter((m): m is Message => {
-        const valid = m != null && typeof m === 'object' && 'role' in m && 'content' in m;
-        if (!valid) {
-          audit?.write?.(DIALOG_AUDIT_EVENTS.INVARIANT_FAILED, `field=messages.entry`, `got=${typeof m}`, `filter=skipped`);
-        }
-        return valid;
-      })
-    : [];
-  return {
-    version: version as SessionData['version'],
-    clawId: data.clawId ?? clawIdFallback,
-    createdAt: data.createdAt ?? new Date().toISOString(),
-    updatedAt: data.updatedAt ?? new Date().toISOString(),
-    systemPrompt: data.systemPrompt ?? '',
-    messages,
-    toolsForLLM: Array.isArray(data.toolsForLLM) ? data.toolsForLLM : [],
-  };
-}
-
-export class MarkerNotFoundError extends Error {
-  constructor(
-    readonly clawId: ClawId,
-    readonly toolUseId: ToolUseId,
-  ) {
-    super(`marker not found: clawId=${clawId} toolUseId=${toolUseId}`);
-    this.name = 'MarkerNotFoundError';
-  }
-}
+// phase 46 Step B: re-export 保直接从 store.js import 的 caller 0 改（barrel 透明）
+export { MarkerNotFoundError, migrateAndValidateSession, validateSessionData } from './validate.js';
