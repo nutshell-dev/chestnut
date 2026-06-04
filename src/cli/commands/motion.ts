@@ -30,6 +30,7 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { type ClawDir, makeClawDir } from '../../foundation/identity/index.js';
+import { copyDir } from '../utils/copy-dir.js';
 
 // Get current file directory (ESM compatible)
 const __filename = fileURLToPath(import.meta.url);
@@ -51,26 +52,6 @@ async function readTemplate(deps: { fsFactory: (baseDir: string) => FileSystem }
     const srcPath = path.join(__dirname, '..', '..', '..', '..', 'src', 'cli', 'commands', 'templates', 'motion', name);
     const srcFs = deps.fsFactory(path.dirname(srcPath));
     return srcFs.readSync(path.basename(srcPath));
-  }
-}
-
-/**
- * Copy directory recursively
- */
-async function copyDir(deps: { fsFactory: (baseDir: string) => FileSystem }, src: string, dest: string): Promise<void> {
-  const srcFs = deps.fsFactory(src);
-  const destFs = deps.fsFactory(dest);
-  await destFs.ensureDir('.');
-  const entries = await srcFs.list('.');
-  for (const entry of entries) {
-    const srcRel = entry.name;
-    const destRel = entry.name;
-    if (entry.isDirectory) {
-      await copyDir(deps, path.join(src, entry.name), path.join(dest, entry.name));
-    } else {
-      const content = await srcFs.read(srcRel);
-      await destFs.writeAtomic(destRel, content);
-    }
   }
 }
 

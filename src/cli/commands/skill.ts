@@ -15,25 +15,8 @@ import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { CliError } from '../errors.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { ClawId } from '../../foundation/identity/index.js';
+import { copyDir } from '../utils/copy-dir.js';
 
-
-/**
- * Copy directory recursively
- */
-async function copyDir(deps: { fsFactory: (baseDir: string) => FileSystem }, src: string, dest: string): Promise<void> {
-  const srcFs = deps.fsFactory(src);
-  const destFs = deps.fsFactory(dest);
-  await destFs.ensureDir('.');
-  const entries = await srcFs.list('.');
-  for (const entry of entries) {
-    if (entry.isDirectory) {
-      await copyDir(deps, path.join(src, entry.name), path.join(dest, entry.name));
-    } else {
-      const content = await srcFs.read(entry.name);
-      await destFs.writeAtomic(entry.name, content);
-    }
-  }
-}
 
 /**
  * User mode: install skill from local path to workspace

@@ -12,35 +12,7 @@ import { loadGlobalConfig, clawExists, getClawDir } from '../../foundation/confi
 import { CLAWSPACE_DIR } from '../../foundation/paths.js';
 import { CliError } from '../errors.js';
 import type { FileSystem, StatInfo } from '../../foundation/fs/types.js';
-
-interface CopyStats {
-  files: number;
-  dirs: number;
-  bytes: number;
-}
-
-async function copyDir(
-  deps: { fsFactory: (baseDir: string) => FileSystem },
-  src: string,
-  dest: string,
-  stats: CopyStats,
-): Promise<void> {
-  const srcFs = deps.fsFactory(src);
-  const destFs = deps.fsFactory(dest);
-  await destFs.ensureDir('.');
-  const entries = await srcFs.list('.', { includeDirs: true });
-  for (const entry of entries) {
-    if (entry.isDirectory) {
-      stats.dirs++;
-      await copyDir(deps, path.join(src, entry.name), path.join(dest, entry.name), stats);
-    } else {
-      const content = await srcFs.read(entry.name);
-      await destFs.writeAtomic(entry.name, content);
-      stats.files++;
-      stats.bytes += Buffer.byteLength(content, 'utf-8');
-    }
-  }
-}
+import { copyDir, type CopyStats } from '../utils/copy-dir.js';
 
 async function tryStat(fs: FileSystem, p: string): Promise<StatInfo | null> {
   try {
