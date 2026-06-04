@@ -16,24 +16,108 @@ import type { AuditLog } from '../foundation/audit/index.js';
 import { createDirContext } from '../foundation/audit/index.js';
 import { makeClawDir } from '../foundation/identity/index.js';
 
-// === 共享 Map（cron state）/ ESM const reference 跨 file 同实例 ===
+// === 内部 Map/Set（cron state）—— 通过 clawStateAPI 访问 ===
 
-/** 1:1 保 watchdog.ts:194 */
-export const lastInactivityNotified: Map<string, number> = new Map();
+const _lastInactivityNotified = new Map<string, number>();
+const _clawPreviouslyAlive = new Map<string, boolean>();
+const _inactivityNotifyCount = new Map<string, number>();
+const _everSpawned = new Set<string>();
+const _clawPreviouslyNotified = new Map<string, number>();
 
-/** 1:1 保 watchdog.ts:195 */
-export const clawPreviouslyAlive: Map<string, boolean> = new Map();
+interface MapStore<V> {
+  get(k: string): V | undefined;
+  set(k: string, v: V): void;
+  has(k: string): boolean;
+  delete(k: string): boolean;
+  keys(): IterableIterator<string>;
+  clear(): void;
+  readonly size: number;
+}
 
-/** 1:1 保 watchdog.ts:196 */
-export const inactivityNotifyCount: Map<string, number> = new Map();
+interface SetStore {
+  add(k: string): void;
+  has(k: string): boolean;
+  delete(k: string): boolean;
+  keys(): IterableIterator<string>;
+  clear(): void;
+  readonly size: number;
+}
 
-/** Track claws that have ever been alive for first-tick crash detection (phase 1047) */
-export const everSpawned: Set<string> = new Set();
+function mapStore<V>(m: Map<string, V>): MapStore<V> {
+  return {
+    get: (k) => m.get(k),
+    set: (k, v) => { m.set(k, v); },
+    has: (k) => m.has(k),
+    delete: (k) => m.delete(k),
+    keys: () => m.keys(),
+    clear: () => m.clear(),
+    get size() { return m.size; },
+  };
+}
 
-/** Track claws for which crash_notification has already been emitted (phase 1207 dedup)
- *  phase 1269: persist to state (Map<string, notified_ts_ms>)
- */
-export const clawPreviouslyNotified: Map<string, number> = new Map();
+function setStore(s: Set<string>): SetStore {
+  return {
+    add: (k) => { s.add(k); },
+    has: (k) => s.has(k),
+    delete: (k) => s.delete(k),
+    keys: () => s.keys(),
+    clear: () => s.clear(),
+    get size() { return s.size; },
+  };
+}
+
+export interface ClawStateSnapshot {
+  lastInactivityNotified: Record<string, number>;
+  clawPreviouslyAlive: Record<string, boolean>;
+  inactivityNotifyCount: Record<string, number>;
+  everSpawned: string[];
+  clawPreviouslyNotified?: Record<string, number>;
+}
+
+export const clawStateAPI = {
+  lastInactivityNotified: mapStore(_lastInactivityNotified),
+  clawPreviouslyAlive: mapStore(_clawPreviouslyAlive),
+  inactivityNotifyCount: mapStore(_inactivityNotifyCount),
+  everSpawned: setStore(_everSpawned),
+  clawPreviouslyNotified: mapStore(_clawPreviouslyNotified),
+
+  snapshot(): ClawStateSnapshot {
+    return {
+      lastInactivityNotified: Object.fromEntries(_lastInactivityNotified),
+      clawPreviouslyAlive: Object.fromEntries(_clawPreviouslyAlive),
+      inactivityNotifyCount: Object.fromEntries(_inactivityNotifyCount),
+      everSpawned: [..._everSpawned],
+      clawPreviouslyNotified: Object.fromEntries(_clawPreviouslyNotified),
+    };
+  },
+
+  replaceAll(s: ClawStateSnapshot): void {
+    _lastInactivityNotified.clear();
+    for (const [k, v] of Object.entries(s.lastInactivityNotified ?? {})) {
+      _lastInactivityNotified.set(k, v);
+    }
+
+    _clawPreviouslyAlive.clear();
+    for (const [k, v] of Object.entries(s.clawPreviouslyAlive ?? {})) {
+      _clawPreviouslyAlive.set(k, v);
+    }
+
+    _inactivityNotifyCount.clear();
+    for (const [k, v] of Object.entries(s.inactivityNotifyCount ?? {})) {
+      _inactivityNotifyCount.set(k, v);
+    }
+
+    _everSpawned.clear();
+    for (const id of s.everSpawned ?? []) {
+      _everSpawned.add(id);
+    }
+
+    _clawPreviouslyNotified.clear();
+    for (const [k, v] of Object.entries(s.clawPreviouslyNotified ?? {})) {
+      _clawPreviouslyNotified.set(k, v);
+    }
+  },
+} as const;
 
 // === Lazy cache state（封装 / 经 getter） ===
 

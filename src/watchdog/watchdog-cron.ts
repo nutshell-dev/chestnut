@@ -10,7 +10,7 @@ import type { ProcessManager } from '../foundation/process-manager/index.js';
 import type { AuditLog } from '../foundation/audit/index.js';
 import {
   getChestnutDir, getChestnutFs, getGlobalConfig, getMotionContext,
-  lastInactivityNotified, inactivityNotifyCount, clawPreviouslyAlive, everSpawned, clawPreviouslyNotified,
+  clawStateAPI,
 } from './watchdog-context.js';
 import { log, writeClawInactivityInbox } from './watchdog-log.js';
 import { clawHasActiveContract, getClawActivityInfo, gatherClawSnapshot, shouldResetNotifyCount, deriveFailureClass, formatInactivityBody, deriveCrashClass, formatCrashBody, hasCleanStopMarker } from './watchdog-utils.js';
@@ -37,10 +37,10 @@ export async function maybeCronClawInactivity(pm: ProcessManager, audit: AuditLo
   const clawEntries = fs.listSync(CLAWS_DIR, { includeDirs: true }).filter(e => e.isDirectory);
   const existingClawIds = new Set(clawEntries.map(entry => entry.name));
   audit.write(WATCHDOG_AUDIT_EVENTS.CLAW_SCAN, `ctx=inactivity present=${[...existingClawIds].join(',')}`);
-  for (const id of lastInactivityNotified.keys()) {
+  for (const id of clawStateAPI.lastInactivityNotified.keys()) {
     if (!existingClawIds.has(id)) {
-      lastInactivityNotified.delete(id);
-      inactivityNotifyCount.delete(id);
+      clawStateAPI.lastInactivityNotified.delete(id);
+      clawStateAPI.inactivityNotifyCount.delete(id);
     }
   }
 
@@ -72,7 +72,7 @@ export async function maybeCronClawInactivity(pm: ProcessManager, audit: AuditLo
       //   - 已通知过 + claw 无新 stream 活动 → skip (user 关切「占用 motion 上下文」)
       //   - shouldResetNotifyCount (referenceMs > lastNotified) = 真有 progress → 允许重新通知
       //   - motion 干预后 claw 完全冻死无 stream → 无 reset → 走 restart 路径 (crash_notification) 让 motion 知
-      const lastNotified = lastInactivityNotified.get(rawClawId) ?? 0;
+      const lastNotified = clawStateAPI.lastInactivityNotified.get(rawClawId) ?? 0;
       if (lastNotified > 0 && !shouldResetNotifyCount(referenceMs, lastNotified)) {
         continue;  // 已通知 + 无 progress → 不重发
       }
@@ -104,7 +104,7 @@ export async function maybeCronClawInactivity(pm: ProcessManager, audit: AuditLo
         failure_class: failureClass,
         ...(lastError ? { last_error: lastError } : {}),
       });
-      lastInactivityNotified.set(rawClawId, now);
+      clawStateAPI.lastInactivityNotified.set(rawClawId, now);
     } catch (err) {
       log(fsFactory, `[watchdog] Error checking claw ${rawClawId}: ${formatErr(err)}`);
     }
@@ -125,11 +125,11 @@ export function maybeCronClawCrash(pm: ProcessManager, audit: AuditLog, fsFactor
   const clawEntries = fs.listSync(CLAWS_DIR, { includeDirs: true }).filter(e => e.isDirectory);
   const existingClawIds = new Set(clawEntries.map(entry => entry.name));
   audit.write(WATCHDOG_AUDIT_EVENTS.CLAW_SCAN, `ctx=crash present=${[...existingClawIds].join(',')}`);
-  for (const id of clawPreviouslyAlive.keys()) {
+  for (const id of clawStateAPI.clawPreviouslyAlive.keys()) {
     if (!existingClawIds.has(id)) {
-      clawPreviouslyAlive.delete(id);
-      everSpawned.delete(id);
-      clawPreviouslyNotified.delete(id);
+      clawStateAPI.clawPreviouslyAlive.delete(id);
+      clawStateAPI.everSpawned.delete(id);
+      clawStateAPI.clawPreviouslyNotified.delete(id);
     }
   }
 
@@ -139,7 +139,7 @@ export function maybeCronClawCrash(pm: ProcessManager, audit: AuditLog, fsFactor
     const currentlyAlive = pm.isAlive(clawId);
 
     if (currentlyAlive) {
-      everSpawned.add(rawClawId);
+      clawStateAPI.everSpawned.add(rawClawId);
     }
 
     if (!currentlyAlive) {
@@ -147,17 +147,17 @@ export function maybeCronClawCrash(pm: ProcessManager, audit: AuditLog, fsFactor
       // paused contract 永不通知 (clawHasActiveContract 内部已 active-only)
       if (!clawHasActiveContract(clawDir, fsFactory, audit)) {
         // 不发通知（contract 不 active 或不存在）
-        clawPreviouslyAlive.set(rawClawId, currentlyAlive);
+        clawStateAPI.clawPreviouslyAlive.set(rawClawId, currentlyAlive);
         continue;
       }
 
-      if (clawPreviouslyNotified.has(rawClawId)) {
+      if (clawStateAPI.clawPreviouslyNotified.has(rawClawId)) {
         audit.write(
           WATCHDOG_AUDIT_EVENTS.CLAW_CRASH_NOTIFY_DEDUPED,
           `claw=${rawClawId}`,
           `reason=already_notified`,
         );
-        clawPreviouslyAlive.set(rawClawId, currentlyAlive);
+        clawStateAPI.clawPreviouslyAlive.set(rawClawId, currentlyAlive);
         continue;
       }
 
@@ -196,12 +196,12 @@ export function maybeCronClawCrash(pm: ProcessManager, audit: AuditLog, fsFactor
         },
       }, motionAudit);
 
-      clawPreviouslyNotified.set(rawClawId, Date.now());
+      clawStateAPI.clawPreviouslyNotified.set(rawClawId, Date.now());
     }
 
     // Alive recovery transition: allow next crash to re-notify (option a — simple 1 notif per event)
-    if (currentlyAlive && clawPreviouslyNotified.has(clawId)) {
-      clawPreviouslyNotified.delete(clawId);
+    if (currentlyAlive && clawStateAPI.clawPreviouslyNotified.has(clawId)) {
+      clawStateAPI.clawPreviouslyNotified.delete(clawId);
       audit.write(
         WATCHDOG_AUDIT_EVENTS.CLAW_CRASH_NOTIFY_RESET,
         `claw=${clawId}`,
@@ -209,7 +209,7 @@ export function maybeCronClawCrash(pm: ProcessManager, audit: AuditLog, fsFactor
       );
     }
 
-    clawPreviouslyAlive.set(clawId, currentlyAlive);
+    clawStateAPI.clawPreviouslyAlive.set(clawId, currentlyAlive);
   }
 }
 
@@ -294,7 +294,7 @@ export async function maybeCronCheckSubscriptions(pm: ProcessManager, audit: Aud
         `failure_class=${failureClass}`,
       );
       // 同 1-shot path: 更新 lastInactivityNotified 防止 maybeCronClawInactivity 立即重发
-      lastInactivityNotified.set(rawClawId, now);
+      clawStateAPI.lastInactivityNotified.set(rawClawId, now);
       consumeSubscription(fs, rawClawId);
     } catch (err) {
       log(fsFactory, `[watchdog] Error processing subscription for ${rawClawId}: ${formatErr(err)}`);

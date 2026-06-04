@@ -87,7 +87,7 @@ import {
 import { getNamedSubrootDir, loadGlobalConfig } from '../../src/foundation/config/index.js';
 import { buildTestGlobalConfig } from '../helpers/global-config.js';
 import { clawHasContract, clawHasActiveContract, gatherClawSnapshot } from '../../src/watchdog/watchdog-utils.js';
-import { lastInactivityNotified, inactivityNotifyCount, getChestnutFs } from '../../src/watchdog/watchdog-context.js';
+import { clawStateAPI, getChestnutFs } from '../../src/watchdog/watchdog-context.js';
 import { InboxWriter } from '../../src/foundation/messaging/index.js';
 import { spawnDetached } from '../../src/foundation/process-exec/spawn-detached.js';
 import { setTimeout as setTimeoutP } from 'timers/promises';
@@ -790,8 +790,8 @@ describe('loadWatchdogState / saveWatchdogState — A2+A3+A4', () => {
     const stateFile = path.join(chestnutDir, 'watchdog-state.json');
 
     // 先 populate Maps with stale data
-    lastInactivityNotified.set('stale-claw', 12345);
-    inactivityNotifyCount.set('stale-claw', 7);
+    clawStateAPI.lastInactivityNotified.set('stale-claw', 12345);
+    clawStateAPI.inactivityNotifyCount.set('stale-claw', 7);
 
     // 写真正 corrupt 的 JSON
     fs.writeFileSync(stateFile, '{ not valid json');
@@ -802,8 +802,8 @@ describe('loadWatchdogState / saveWatchdogState — A2+A3+A4', () => {
     loadWatchdogState(fsFactory);
 
     // corrupt 路径 catch 内应清空 Maps，防止 partial populate 泄漏
-    expect(lastInactivityNotified.size).toBe(0);
-    expect(inactivityNotifyCount.size).toBe(0);
+    expect(clawStateAPI.lastInactivityNotified.size).toBe(0);
+    expect(clawStateAPI.inactivityNotifyCount.size).toBe(0);
   });
 
   it('loadWatchdogState audits move failure separately', () => {

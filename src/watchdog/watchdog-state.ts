@@ -5,7 +5,7 @@
 
 import type { FileSystem } from '../foundation/fs/types.js';
 import { formatErr } from "../foundation/utils/index.js";
-import { getChestnutFs, getAuditWriter, lastInactivityNotified, inactivityNotifyCount, clawPreviouslyAlive, everSpawned, clawPreviouslyNotified } from './watchdog-context.js';
+import { getChestnutFs, getAuditWriter, clawStateAPI } from './watchdog-context.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 import { AUDIT_MESSAGE_MAX_CHARS } from '../foundation/audit/index.js';
 import { isFileNotFound } from '../foundation/fs/types.js';
@@ -44,21 +44,7 @@ export function loadWatchdogState(fsFactory: (baseDir: string) => FileSystem): v
         (typeof stateVersion !== 'number' || stateVersion > CURRENT_WATCHDOG_SCHEMA_VERSION)) {
       throw new WatchdogSchemaError(stateVersion, CURRENT_WATCHDOG_SCHEMA_VERSION);
     }
-    for (const [k, v] of Object.entries(state.lastInactivityNotified ?? {})) {
-      lastInactivityNotified.set(k, v);
-    }
-    for (const [k, v] of Object.entries(state.inactivityNotifyCount ?? {})) {
-      inactivityNotifyCount.set(k, v);
-    }
-    for (const [k, v] of Object.entries(state.clawPreviouslyAlive ?? {})) {
-      clawPreviouslyAlive.set(k, v);
-    }
-    for (const id of state.everSpawned ?? []) {
-      everSpawned.add(id);
-    }
-    for (const [k, v] of Object.entries(state.clawPreviouslyNotified ?? {})) {
-      clawPreviouslyNotified.set(k, v);
-    }
+    clawStateAPI.replaceAll(state);
   } catch (err) {
     if (isFileNotFound(err)) {
       // 首次启动 — 从空状态开始
@@ -66,11 +52,13 @@ export function loadWatchdogState(fsFactory: (baseDir: string) => FileSystem): v
     }
 
     // corrupt path: Maps reset to empty (mirror ENOENT) / partial populate from broken state must not leak / per phase 636
-    lastInactivityNotified.clear();
-    inactivityNotifyCount.clear();
-    clawPreviouslyAlive.clear();
-    everSpawned.clear();
-    clawPreviouslyNotified.clear();
+    clawStateAPI.replaceAll({
+      lastInactivityNotified: {},
+      inactivityNotifyCount: {},
+      clawPreviouslyAlive: {},
+      everSpawned: [],
+      clawPreviouslyNotified: {},
+    });
 
     const fs = getChestnutFs(fsFactory);
     const backupPath = `watchdog-state.json.corrupt-${Date.now()}`;
@@ -100,13 +88,7 @@ export function loadWatchdogState(fsFactory: (baseDir: string) => FileSystem): v
 export function saveWatchdogState(fsFactory: (baseDir: string) => FileSystem): void {
   const state: WatchdogState = {
     schema_version: 2,
-    lastInactivityNotified: Object.fromEntries(lastInactivityNotified),
-    inactivityNotifyCount: Object.fromEntries(inactivityNotifyCount),
-    // NEW — phase 1072
-    clawPreviouslyAlive: Object.fromEntries(clawPreviouslyAlive),
-    everSpawned: Array.from(everSpawned),
-    // NEW — phase 1269
-    clawPreviouslyNotified: Object.fromEntries(clawPreviouslyNotified),
+    ...clawStateAPI.snapshot(),
   };
   const fs = getChestnutFs(fsFactory);
   fs.writeAtomicSync('watchdog-state.json', JSON.stringify(state, null, 2));

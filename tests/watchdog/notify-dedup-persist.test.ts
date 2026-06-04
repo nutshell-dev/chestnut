@@ -8,10 +8,7 @@ import { getNamedSubrootDir, loadGlobalConfig } from '../../src/foundation/confi
 import {
   loadWatchdogState, saveWatchdogState,
 } from '../../src/watchdog/watchdog-state.js';
-import {
-  clawPreviouslyAlive, everSpawned, clawPreviouslyNotified,
-} from '../../src/watchdog/watchdog-context.js';
-import { setAuditWriter } from '../../src/watchdog/watchdog-context.js';
+import { clawStateAPI, setAuditWriter } from '../../src/watchdog/watchdog-context.js';
 import { WATCHDOG_AUDIT_EVENTS } from '../../src/watchdog/audit-events.js';
 import { AuditWriter } from '../../src/foundation/audit/writer.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
@@ -84,9 +81,9 @@ describe('watchdog notify dedup persist (phase 1269 sub-3)', () => {
     vi.mocked(notifyClaw).mockImplementation(inboxWriteMock);
 
     // Reset state
-    clawPreviouslyAlive.clear();
-    everSpawned.clear();
-    clawPreviouslyNotified.clear();
+    clawStateAPI.clawPreviouslyAlive.clear();
+    clawStateAPI.everSpawned.clear();
+    clawStateAPI.clawPreviouslyNotified.clear();
   });
 
   afterEach(() => {
@@ -101,33 +98,33 @@ describe('watchdog notify dedup persist (phase 1269 sub-3)', () => {
     fs.mkdirSync(path.join(clawsDir, clawId), { recursive: true });
 
     // First crash
-    clawPreviouslyAlive.set(clawId, true);
-    everSpawned.add(clawId);
+    clawStateAPI.clawPreviouslyAlive.set(clawId, true);
+    clawStateAPI.everSpawned.add(clawId);
     vi.mocked(mockPm.isAlive).mockReturnValue(false);
     maybeCronClawCrash(mockPm, auditWriter, fsFactory);
 
     expect(inboxWriteMock).toHaveBeenCalledTimes(1);
-    expect(clawPreviouslyNotified.has(clawId)).toBe(true);
+    expect(clawStateAPI.clawPreviouslyNotified.has(clawId)).toBe(true);
 
     // Save state (simulate end-of-tick save)
     saveWatchdogState(fsFactory);
 
     // Reset in-memory state (simulate watchdog restart)
-    clawPreviouslyAlive.clear();
-    everSpawned.clear();
-    clawPreviouslyNotified.clear();
+    clawStateAPI.clawPreviouslyAlive.clear();
+    clawStateAPI.everSpawned.clear();
+    clawStateAPI.clawPreviouslyNotified.clear();
 
     // Reload state
     loadWatchdogState(fsFactory);
-    expect(clawPreviouslyNotified.has(clawId)).toBe(true);
+    expect(clawStateAPI.clawPreviouslyNotified.has(clawId)).toBe(true);
 
     // Simulate new process manager / audit
     inboxWriteMock.mockClear();
     auditSpy.mockClear();
 
     // Re-seed everSpawned so crash detection triggers
-    everSpawned.add(clawId);
-    clawPreviouslyAlive.set(clawId, true);
+    clawStateAPI.everSpawned.add(clawId);
+    clawStateAPI.clawPreviouslyAlive.set(clawId, true);
     vi.mocked(mockPm.isAlive).mockReturnValue(false);
     maybeCronClawCrash(mockPm, auditWriter, fsFactory);
 
@@ -144,36 +141,36 @@ describe('watchdog notify dedup persist (phase 1269 sub-3)', () => {
     fs.mkdirSync(path.join(clawsDir, clawId), { recursive: true });
 
     // First crash
-    clawPreviouslyAlive.set(clawId, true);
+    clawStateAPI.clawPreviouslyAlive.set(clawId, true);
     vi.mocked(mockPm.isAlive).mockReturnValue(false);
     maybeCronClawCrash(mockPm, auditWriter, fsFactory);
-    expect(clawPreviouslyNotified.has(clawId)).toBe(true);
+    expect(clawStateAPI.clawPreviouslyNotified.has(clawId)).toBe(true);
     saveWatchdogState(fsFactory);
 
     // Reset in-memory state
-    clawPreviouslyAlive.clear();
-    everSpawned.clear();
-    clawPreviouslyNotified.clear();
+    clawStateAPI.clawPreviouslyAlive.clear();
+    clawStateAPI.everSpawned.clear();
+    clawStateAPI.clawPreviouslyNotified.clear();
     loadWatchdogState(fsFactory);
-    expect(clawPreviouslyNotified.has(clawId)).toBe(true);
+    expect(clawStateAPI.clawPreviouslyNotified.has(clawId)).toBe(true);
 
     // Alive recovery
     vi.mocked(mockPm.isAlive).mockReturnValue(true);
     maybeCronClawCrash(mockPm, auditWriter, fsFactory);
-    expect(clawPreviouslyNotified.has(clawId)).toBe(false);
+    expect(clawStateAPI.clawPreviouslyNotified.has(clawId)).toBe(false);
     saveWatchdogState(fsFactory);
 
     // Reset again
-    clawPreviouslyAlive.clear();
-    everSpawned.clear();
-    clawPreviouslyNotified.clear();
+    clawStateAPI.clawPreviouslyAlive.clear();
+    clawStateAPI.everSpawned.clear();
+    clawStateAPI.clawPreviouslyNotified.clear();
     loadWatchdogState(fsFactory);
-    expect(clawPreviouslyNotified.has(clawId)).toBe(false);
+    expect(clawStateAPI.clawPreviouslyNotified.has(clawId)).toBe(false);
 
     // Next crash should re-emit
     inboxWriteMock.mockClear();
-    everSpawned.add(clawId);
-    clawPreviouslyAlive.set(clawId, true);
+    clawStateAPI.everSpawned.add(clawId);
+    clawStateAPI.clawPreviouslyAlive.set(clawId, true);
     vi.mocked(mockPm.isAlive).mockReturnValue(false);
     maybeCronClawCrash(mockPm, auditWriter, fsFactory);
 
@@ -202,16 +199,16 @@ describe('watchdog notify dedup persist (phase 1269 sub-3)', () => {
     }, null, 2));
 
     // Reset and load
-    clawPreviouslyAlive.clear();
-    everSpawned.clear();
-    clawPreviouslyNotified.clear();
+    clawStateAPI.clawPreviouslyAlive.clear();
+    clawStateAPI.everSpawned.clear();
+    clawStateAPI.clawPreviouslyNotified.clear();
     loadWatchdogState(fsFactory);
 
-    expect(clawPreviouslyNotified.has(clawId)).toBe(false);
+    expect(clawStateAPI.clawPreviouslyNotified.has(clawId)).toBe(false);
 
     // First crash should emit
-    clawPreviouslyAlive.set(clawId, true);
-    everSpawned.add(clawId);
+    clawStateAPI.clawPreviouslyAlive.set(clawId, true);
+    clawStateAPI.everSpawned.add(clawId);
     vi.mocked(mockPm.isAlive).mockReturnValue(false);
     maybeCronClawCrash(mockPm, auditWriter, fsFactory);
 

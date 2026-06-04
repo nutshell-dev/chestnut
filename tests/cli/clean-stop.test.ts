@@ -56,38 +56,21 @@ describe('Phase 86: clean stop 生命周期修复', () => {
       expect(interfaceMatch![0]).toContain('everSpawned');
     });
 
-    it('saveWatchdogState 应写入 clawPreviouslyAlive', () => {
+    it('saveWatchdogState 应调用 clawStateAPI.snapshot()', () => {
       const saveMatch = watchdogSource.match(
         /function saveWatchdogState\(fsFactory[\s\S]{0,800}?\}/
       );
       expect(saveMatch).toBeTruthy();
-      expect(saveMatch![0]).toContain('clawPreviouslyAlive');
+      expect(saveMatch![0]).toContain('clawStateAPI.snapshot()');
     });
 
-    it('saveWatchdogState 应写入 everSpawned', () => {
-      const saveMatch = watchdogSource.match(
-        /function saveWatchdogState\(fsFactory[\s\S]{0,800}?\}/
-      );
-      expect(saveMatch).toBeTruthy();
-      expect(saveMatch![0]).toContain('everSpawned');
-    });
-
-    it('loadWatchdogState 应读取 clawPreviouslyAlive', () => {
+    it('loadWatchdogState 应调用 clawStateAPI.replaceAll()', () => {
       const startIdx = watchdogSource.indexOf('function loadWatchdogState(fsFactory');
       expect(startIdx).toBeGreaterThan(-1);
       const endIdx = watchdogSource.indexOf('export function saveWatchdogState(fsFactory', startIdx);
       expect(endIdx).toBeGreaterThan(startIdx);
       const loadBlock = watchdogSource.slice(startIdx, endIdx);
-      expect(loadBlock).toContain('clawPreviouslyAlive');
-    });
-
-    it('loadWatchdogState 应读取 everSpawned', () => {
-      const startIdx = watchdogSource.indexOf('function loadWatchdogState(fsFactory');
-      expect(startIdx).toBeGreaterThan(-1);
-      const endIdx = watchdogSource.indexOf('export function saveWatchdogState(fsFactory', startIdx);
-      expect(endIdx).toBeGreaterThan(startIdx);
-      const loadBlock = watchdogSource.slice(startIdx, endIdx);
-      expect(loadBlock).toContain('everSpawned');
+      expect(loadBlock).toContain('clawStateAPI.replaceAll(');
     });
 
     it('clawPreviouslyAlive Map 本身应仍存在（用于 crash 检测）', () => {

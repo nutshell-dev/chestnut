@@ -22,13 +22,7 @@ import {
   loadWatchdogState,
   saveWatchdogState,
 } from '../../src/watchdog/watchdog-state.js';
-import {
-  lastInactivityNotified,
-  inactivityNotifyCount,
-  clawPreviouslyAlive,
-  everSpawned,
-  setAuditWriter,
-} from '../../src/watchdog/watchdog-context.js';
+import { clawStateAPI, setAuditWriter } from '../../src/watchdog/watchdog-context.js';
 import { WATCHDOG_AUDIT_EVENTS } from '../../src/watchdog/audit-events.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import type { AuditLog } from '../../src/foundation/audit/index.js';
@@ -48,10 +42,10 @@ describe('watchdog-state schema_version invariant — phase 1134', () => {
 
   afterEach(() => {
     setAuditWriter(null);
-    lastInactivityNotified.clear();
-    inactivityNotifyCount.clear();
-    clawPreviouslyAlive.clear();
-    everSpawned.clear();
+    clawStateAPI.lastInactivityNotified.clear();
+    clawStateAPI.inactivityNotifyCount.clear();
+    clawStateAPI.clawPreviouslyAlive.clear();
+    clawStateAPI.everSpawned.clear();
     vi.clearAllMocks();
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
@@ -73,10 +67,10 @@ describe('watchdog-state schema_version invariant — phase 1134', () => {
     expect(() => loadWatchdogState(fsFactory)).not.toThrow();
 
     // Maps should be reset to empty
-    expect(lastInactivityNotified.size).toBe(0);
-    expect(inactivityNotifyCount.size).toBe(0);
-    expect(clawPreviouslyAlive.size).toBe(0);
-    expect(everSpawned.size).toBe(0);
+    expect(clawStateAPI.lastInactivityNotified.size).toBe(0);
+    expect(clawStateAPI.inactivityNotifyCount.size).toBe(0);
+    expect(clawStateAPI.clawPreviouslyAlive.size).toBe(0);
+    expect(clawStateAPI.everSpawned.size).toBe(0);
 
     // Audit should contain STATE_SCHEMA_INVALID with reason and actual version
     const auditCalls = mockAudit.write.mock.calls;
@@ -121,10 +115,10 @@ describe('watchdog-state schema_version invariant — phase 1134', () => {
     expect(badEvents).toHaveLength(0);
 
     // Maps loaded successfully from legacy file
-    expect(lastInactivityNotified.get('claw1')).toBe(100);
-    expect(inactivityNotifyCount.get('claw1')).toBe(2);
-    expect(clawPreviouslyAlive.get('claw1')).toBe(true);
-    expect(everSpawned.has('claw1')).toBe(true);
+    expect(clawStateAPI.lastInactivityNotified.get('claw1')).toBe(100);
+    expect(clawStateAPI.inactivityNotifyCount.get('claw1')).toBe(2);
+    expect(clawStateAPI.clawPreviouslyAlive.get('claw1')).toBe(true);
+    expect(clawStateAPI.everSpawned.has('claw1')).toBe(true);
 
     // Subsequent save writes schema_version, not version
     saveWatchdogState(fsFactory);

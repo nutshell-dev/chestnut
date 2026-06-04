@@ -8,7 +8,7 @@ import * as path from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { maybeCronClawCrash } from '../../src/watchdog/watchdog-cron.js';
-import { clawPreviouslyAlive, everSpawned, clawPreviouslyNotified } from '../../src/watchdog/watchdog-context.js';
+import { clawStateAPI } from '../../src/watchdog/watchdog-context.js';
 import { WATCHDOG_AUDIT_EVENTS } from '../../src/watchdog/audit-events.js';
 import { getNamedSubrootDir, loadGlobalConfig } from '../../src/foundation/config/index.js';
 import { clawHasContract, gatherClawSnapshot } from '../../src/watchdog/watchdog-utils.js';
@@ -71,9 +71,9 @@ describe('watchdog crash_notification dedup (phase 1207 gap A)', () => {
     vi.mocked(notifyClaw).mockImplementation(inboxWriteMock);
 
     // Reset state
-    clawPreviouslyAlive.clear();
-    everSpawned.clear();
-    clawPreviouslyNotified.clear();
+    clawStateAPI.clawPreviouslyAlive.clear();
+    clawStateAPI.everSpawned.clear();
+    clawStateAPI.clawPreviouslyNotified.clear();
   });
 
   afterEach(() => {
@@ -86,8 +86,8 @@ describe('watchdog crash_notification dedup (phase 1207 gap A)', () => {
     fs.mkdirSync(path.join(clawsDir, clawId), { recursive: true });
 
     // wasAlive=true, currentlyAlive=false → crash (everSpawned pre-seeded as if claw was alive before)
-    clawPreviouslyAlive.set(clawId, true);
-    everSpawned.add(clawId);
+    clawStateAPI.clawPreviouslyAlive.set(clawId, true);
+    clawStateAPI.everSpawned.add(clawId);
     vi.mocked(mockPm.isAlive).mockReturnValue(false);
 
     maybeCronClawCrash(mockPm, mockAudit as any, fsFactory);
@@ -100,7 +100,7 @@ describe('watchdog crash_notification dedup (phase 1207 gap A)', () => {
       expect.objectContaining({ type: 'crash_notification', source: clawId }),
       expect.anything(),
     );
-    expect(clawPreviouslyNotified.has(clawId)).toBe(true);
+    expect(clawStateAPI.clawPreviouslyNotified.has(clawId)).toBe(true);
     expect(mockAudit.write).toHaveBeenCalledWith(
       WATCHDOG_AUDIT_EVENTS.CLAW_CRASH_DETECTED,
       expect.stringContaining(clawId),
@@ -114,8 +114,8 @@ describe('watchdog crash_notification dedup (phase 1207 gap A)', () => {
     fs.mkdirSync(path.join(clawsDir, clawId), { recursive: true });
 
     // First crash (everSpawned pre-seeded as if claw was alive before)
-    clawPreviouslyAlive.set(clawId, true);
-    everSpawned.add(clawId);
+    clawStateAPI.clawPreviouslyAlive.set(clawId, true);
+    clawStateAPI.everSpawned.add(clawId);
     vi.mocked(mockPm.isAlive).mockReturnValue(false);
     maybeCronClawCrash(mockPm, mockAudit as any, fsFactory);
     expect(inboxWriteMock).toHaveBeenCalledTimes(1);
@@ -137,17 +137,17 @@ describe('watchdog crash_notification dedup (phase 1207 gap A)', () => {
     fs.mkdirSync(path.join(clawsDir, clawId), { recursive: true });
 
     // First crash
-    clawPreviouslyAlive.set(clawId, true);
+    clawStateAPI.clawPreviouslyAlive.set(clawId, true);
     vi.mocked(mockPm.isAlive).mockReturnValue(false);
     maybeCronClawCrash(mockPm, mockAudit as any, fsFactory);
-    expect(clawPreviouslyNotified.has(clawId)).toBe(true);
+    expect(clawStateAPI.clawPreviouslyNotified.has(clawId)).toBe(true);
     inboxWriteMock.mockClear();
 
     // Recovery: claw becomes alive
     vi.mocked(mockPm.isAlive).mockReturnValue(true);
     maybeCronClawCrash(mockPm, mockAudit as any, fsFactory);
 
-    expect(clawPreviouslyNotified.has(clawId)).toBe(false);
+    expect(clawStateAPI.clawPreviouslyNotified.has(clawId)).toBe(false);
     expect(mockAudit.write).toHaveBeenCalledWith(
       WATCHDOG_AUDIT_EVENTS.CLAW_CRASH_NOTIFY_RESET,
       `claw=${clawId}`,
@@ -156,7 +156,7 @@ describe('watchdog crash_notification dedup (phase 1207 gap A)', () => {
 
     // Next crash should re-emit (everSpawned pre-seeded)
     inboxWriteMock.mockClear();
-    everSpawned.add(clawId);
+    clawStateAPI.everSpawned.add(clawId);
     vi.mocked(mockPm.isAlive).mockReturnValue(false);
     maybeCronClawCrash(mockPm, mockAudit as any, fsFactory);
 
@@ -174,17 +174,17 @@ describe('watchdog crash_notification dedup (phase 1207 gap A)', () => {
     const clawId = `claw-dedup-${randomUUID().slice(0, 8)}`;
     fs.mkdirSync(path.join(clawsDir, clawId), { recursive: true });
 
-    clawPreviouslyAlive.set(clawId, true);
-    clawPreviouslyNotified.set(clawId, Date.now());
-    everSpawned.add(clawId);
+    clawStateAPI.clawPreviouslyAlive.set(clawId, true);
+    clawStateAPI.clawPreviouslyNotified.set(clawId, Date.now());
+    clawStateAPI.everSpawned.add(clawId);
 
     // Remove claw dir
     fs.rmSync(path.join(clawsDir, clawId), { recursive: true, force: true });
 
     maybeCronClawCrash(mockPm, mockAudit as any, fsFactory);
 
-    expect(clawPreviouslyAlive.has(clawId)).toBe(false);
-    expect(everSpawned.has(clawId)).toBe(false);
-    expect(clawPreviouslyNotified.has(clawId)).toBe(false);
+    expect(clawStateAPI.clawPreviouslyAlive.has(clawId)).toBe(false);
+    expect(clawStateAPI.everSpawned.has(clawId)).toBe(false);
+    expect(clawStateAPI.clawPreviouslyNotified.has(clawId)).toBe(false);
   });
 });

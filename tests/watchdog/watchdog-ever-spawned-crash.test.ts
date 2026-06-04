@@ -8,7 +8,7 @@ import * as path from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { maybeCronClawCrash } from '../../src/watchdog/watchdog-cron.js';
-import { clawPreviouslyAlive, everSpawned } from '../../src/watchdog/watchdog-context.js';
+import { clawStateAPI } from '../../src/watchdog/watchdog-context.js';
 import { WATCHDOG_AUDIT_EVENTS } from '../../src/watchdog/audit-events.js';
 import { getNamedSubrootDir, loadGlobalConfig } from '../../src/foundation/config/index.js';
 import { clawHasContract, gatherClawSnapshot } from '../../src/watchdog/watchdog-utils.js';
@@ -68,8 +68,8 @@ describe('watchdog everSpawned crash detection (phase 1047)', () => {
     mockAudit = { write: vi.fn() };
 
     // Reset state
-    clawPreviouslyAlive.clear();
-    everSpawned.clear();
+    clawStateAPI.clawPreviouslyAlive.clear();
+    clawStateAPI.everSpawned.clear();
   });
 
   afterEach(() => {
@@ -82,7 +82,7 @@ describe('watchdog everSpawned crash detection (phase 1047)', () => {
     fs.mkdirSync(path.join(clawsDir, clawId), { recursive: true });
 
     // Pre-seed everSpawned (simulating prior tick saw it alive)
-    everSpawned.add(clawId);
+    clawStateAPI.everSpawned.add(clawId);
     // clawPreviouslyAlive does NOT have clawId (cleanup or first tick)
     // isAlive returns false (crashed)
     vi.mocked(mockPm.isAlive).mockReturnValue(false);
@@ -104,15 +104,15 @@ describe('watchdog everSpawned crash detection (phase 1047)', () => {
     fs.mkdirSync(path.join(clawsDir, clawId), { recursive: true });
 
     // Establish state
-    everSpawned.add(clawId);
-    clawPreviouslyAlive.set(clawId, false);
+    clawStateAPI.everSpawned.add(clawId);
+    clawStateAPI.clawPreviouslyAlive.set(clawId, false);
 
     // Now remove claw dir
     fs.rmSync(path.join(clawsDir, clawId), { recursive: true, force: true });
 
     maybeCronClawCrash(mockPm, mockAudit as any, fsFactory);
 
-    expect(everSpawned.has(clawId)).toBe(false);
-    expect(clawPreviouslyAlive.has(clawId)).toBe(false);
+    expect(clawStateAPI.everSpawned.has(clawId)).toBe(false);
+    expect(clawStateAPI.clawPreviouslyAlive.has(clawId)).toBe(false);
   });
 });

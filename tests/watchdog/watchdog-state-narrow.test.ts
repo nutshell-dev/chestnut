@@ -10,12 +10,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   loadWatchdogState,
 } from '../../src/watchdog/watchdog-state.js';
-import {
-  lastInactivityNotified,
-  inactivityNotifyCount,
-  clawPreviouslyAlive,
-  everSpawned,
-} from '../../src/watchdog/watchdog-context.js';
+import { clawStateAPI } from '../../src/watchdog/watchdog-context.js';
 import { FileNotFoundError } from '../../src/foundation/fs/types.js';
 import { WATCHDOG_AUDIT_EVENTS } from '../../src/watchdog/audit-events.js';
 
@@ -33,17 +28,17 @@ import { getChestnutFs, getAuditWriter } from '../../src/watchdog/watchdog-conte
 describe('loadWatchdogState dual-code narrow (phase 1215)', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    lastInactivityNotified.clear();
-    inactivityNotifyCount.clear();
-    clawPreviouslyAlive.clear();
-    everSpawned.clear();
+    clawStateAPI.lastInactivityNotified.clear();
+    clawStateAPI.inactivityNotifyCount.clear();
+    clawStateAPI.clawPreviouslyAlive.clear();
+    clawStateAPI.everSpawned.clear();
   });
 
   afterEach(() => {
-    lastInactivityNotified.clear();
-    inactivityNotifyCount.clear();
-    clawPreviouslyAlive.clear();
-    everSpawned.clear();
+    clawStateAPI.lastInactivityNotified.clear();
+    clawStateAPI.inactivityNotifyCount.clear();
+    clawStateAPI.clawPreviouslyAlive.clear();
+    clawStateAPI.everSpawned.clear();
   });
 
   it('reverse 1: FileNotFoundError → 0 audit emit + Maps empty', () => {
@@ -58,10 +53,10 @@ describe('loadWatchdogState dual-code narrow (phase 1215)', () => {
     loadWatchdogState();
 
     expect(audit.write).not.toHaveBeenCalled();
-    expect(lastInactivityNotified.size).toBe(0);
-    expect(inactivityNotifyCount.size).toBe(0);
-    expect(clawPreviouslyAlive.size).toBe(0);
-    expect(everSpawned.size).toBe(0);
+    expect(clawStateAPI.lastInactivityNotified.size).toBe(0);
+    expect(clawStateAPI.inactivityNotifyCount.size).toBe(0);
+    expect(clawStateAPI.clawPreviouslyAlive.size).toBe(0);
+    expect(clawStateAPI.everSpawned.size).toBe(0);
   });
 
   it('reverse 2: raw ENOENT → 0 audit emit + Maps empty', () => {
@@ -77,10 +72,10 @@ describe('loadWatchdogState dual-code narrow (phase 1215)', () => {
     loadWatchdogState();
 
     expect(audit.write).not.toHaveBeenCalled();
-    expect(lastInactivityNotified.size).toBe(0);
-    expect(inactivityNotifyCount.size).toBe(0);
-    expect(clawPreviouslyAlive.size).toBe(0);
-    expect(everSpawned.size).toBe(0);
+    expect(clawStateAPI.lastInactivityNotified.size).toBe(0);
+    expect(clawStateAPI.inactivityNotifyCount.size).toBe(0);
+    expect(clawStateAPI.clawPreviouslyAlive.size).toBe(0);
+    expect(clawStateAPI.everSpawned.size).toBe(0);
   });
 
   it('reverse 3: corrupt JSON → emit STATE_LOAD_FAILED + Maps cleared', () => {
@@ -99,9 +94,9 @@ describe('loadWatchdogState dual-code narrow (phase 1215)', () => {
       expect.stringContaining('move_ok=true'),
       expect.stringContaining('error='),
     );
-    expect(lastInactivityNotified.size).toBe(0);
-    expect(inactivityNotifyCount.size).toBe(0);
-    expect(clawPreviouslyAlive.size).toBe(0);
-    expect(everSpawned.size).toBe(0);
+    expect(clawStateAPI.lastInactivityNotified.size).toBe(0);
+    expect(clawStateAPI.inactivityNotifyCount.size).toBe(0);
+    expect(clawStateAPI.clawPreviouslyAlive.size).toBe(0);
+    expect(clawStateAPI.everSpawned.size).toBe(0);
   });
 });
