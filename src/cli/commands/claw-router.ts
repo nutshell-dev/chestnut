@@ -37,7 +37,8 @@ import { CliError } from '../errors.js';
 import { createDirContext } from '../../foundation/audit/index.js';
 import { getClawDir, loadGlobalConfig } from '../../foundation/config/index.js';
 import { parseIntOption } from '../parse-int-option.js';
-import { makeClawId, makeContractId } from '../../foundation/identity/index.js';
+import { makeContractId } from '../../core/contract/types.js';
+import { makeClawId } from '../../foundation/identity/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { clawStepsCommand, clawStepCommand } from './claw-steps.js';
 import {

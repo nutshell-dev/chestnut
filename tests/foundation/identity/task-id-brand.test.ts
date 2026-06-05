@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import type { TaskId } from '../../../src/core/async-task-system/types.js';
 import { makeTaskId } from '../../../src/core/async-task-system/types.js';
-import type { ContractId } from '../../../src/foundation/identity/index.js';
-import { makeContractId } from '../../../src/foundation/identity/index.js';
+import type { ContractId } from '../../../src/core/contract/types.js';
+import { makeContractId } from '../../../src/core/contract/types.js';
 
 describe('TaskId brand compile-time enforce', () => {
   it('prevents assigning ContractId to TaskId', () => {

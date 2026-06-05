@@ -4,8 +4,14 @@
  */
 
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
-import type { ContractId } from '../../foundation/identity/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
+
+// phase 64: ContractId brand 迁回（自 foundation/identity 解散）— 注释 admit
+// 「物理迁自 core/contract/types.ts」(phase 1378)
+// per ML#3 资源唯一归属（按业务真实归属）+ M#1 contract lifecycle 独立可变
+declare const ContractIdBrand: unique symbol;
+export type ContractId = string & { readonly [ContractIdBrand]: true };
+export function makeContractId(s: string): ContractId { return s as ContractId; }
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { ToolRegistry } from '../../foundation/tools/index.js';
 import type { Priority } from '../../foundation/messaging/types.js';

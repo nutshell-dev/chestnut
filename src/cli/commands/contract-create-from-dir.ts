@@ -10,7 +10,7 @@ import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { createToolRegistry } from '../../foundation/tools/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { ClawId } from '../../foundation/identity/index.js';
-import { makeContractId } from '../../foundation/identity/index.js';
+import { makeContractId } from '../../core/contract/types.js';
 import { resolveChestnutRoot } from '../../foundation/identity/index.js';
 import { parseAndValidateContractYaml, notifyContractCreated } from './contract-helpers.js';
 

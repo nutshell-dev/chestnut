@@ -30,7 +30,7 @@ import { archiveAndEmit, completeSubtaskSync } from './verification-lifecycle.js
 import { writeVerificationInbox, writeForceAcceptInbox, writeVerificationError, safeNotify } from './verification-notify.js';
 import { formatRejectionFeedback, formatValidIds } from './verification-format.js';
 import type { VerificationContext } from './verification-types.js';
-import type { ContractId } from '../../foundation/identity/index.js';
+import type { ContractId } from './types.js';
 
 
 export type { VerificationContext } from './verification-types.js';

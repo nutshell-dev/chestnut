@@ -5,7 +5,8 @@ import type { LLMOrchestrator, LLMOrchestratorConfig } from '../../foundation/ll
 import type { ProgressData } from '../contract/index.js';
 import { runDeepDream } from './deep-dream.js';
 import { runRandomDream } from './random-dream.js';
-import type { ClawId, ChestnutRoot, ContractId, ClawDir } from '../../foundation/identity/index.js';
+import type { ContractId } from '../contract/types.js';
+import type { ClawId, ChestnutRoot, ClawDir } from '../../foundation/identity/index.js';
 
 
 

@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import type { SubtaskId } from '../../../src/core/contract/types.js';
 import { makeSubtaskId } from '../../../src/core/contract/types.js';
-import type { ContractId } from '../../../src/foundation/identity/index.js';
-import { makeContractId } from '../../../src/foundation/identity/index.js';
+import type { ContractId } from '../../../src/core/contract/types.js';
+import { makeContractId } from '../../../src/core/contract/types.js';
 
 describe('SubtaskId brand compile-time enforce', () => {
   it('prevents assigning ContractId to SubtaskId', () => {

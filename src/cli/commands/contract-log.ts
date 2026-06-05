@@ -11,7 +11,7 @@ import { createToolRegistry } from '../../foundation/tools/index.js';
 import { CliError } from '../errors.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { ClawId } from '../../foundation/identity/index.js';
-import { makeContractId } from '../../foundation/identity/index.js';
+import { makeContractId } from '../../core/contract/types.js';
 import { resolveChestnutRoot } from '../../foundation/identity/index.js';
 
 export async function contractLogCommand(deps: { fsFactory: (baseDir: string) => FileSystem }, clawId: ClawId, contractId?: string): Promise<void> {

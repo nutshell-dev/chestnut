@@ -16,7 +16,7 @@ function resolveNotify(ctx: VerificationContext): NotifyClawFn {
   return ctx.notifyClaw ?? defaultNotifyClaw;
 }
 
-import type { ContractId } from '../../foundation/identity/index.js';
+import type { ContractId } from './types.js';
 import type { SubtaskId } from './types.js';
 import { formatErr } from '../../foundation/utils/index.js';
 import { ToolTimeoutError } from '../../foundation/errors.js';

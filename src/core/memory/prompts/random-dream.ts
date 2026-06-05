@@ -26,7 +26,7 @@
  */
 
 import type { ClawId } from '../../../foundation/identity/index.js';
-import type { ContractId } from '../../../foundation/identity/index.js';
+import type { ContractId } from '../../contract/types.js';
 
 
 export const RANDOM_DREAM_SYSTEM_PROMPT = `\

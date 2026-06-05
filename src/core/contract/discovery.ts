@@ -3,7 +3,7 @@
  * Contract loading from active / paused dir
  */
 
-import { type ContractId, makeContractId } from '../../foundation/identity/index.js';
+import { type ContractId, makeContractId } from './types.js';
 import { formatErr } from "../../foundation/utils/index.js";
 import { isFileNotFound, type FileSystem } from '../../foundation/fs/types.js';
 import type { AuditLog } from '../../foundation/audit/index.js';

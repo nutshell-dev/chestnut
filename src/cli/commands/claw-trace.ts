@@ -16,7 +16,7 @@ import { CONTRACT_DIR } from '../../core/contract/index.js';
 import { DIALOG_DIR } from '../../foundation/dialog-store/index.js';
 import { migrateAndValidateSession, validateSessionData } from '../../foundation/dialog-store/store.js';
 import type { ClawId } from '../../foundation/identity/index.js';
-import type { ContractId } from '../../foundation/identity/index.js';
+import type { ContractId } from '../../core/contract/types.js';
 
 
 

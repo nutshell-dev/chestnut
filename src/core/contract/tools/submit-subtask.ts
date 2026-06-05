@@ -8,7 +8,7 @@
 import type { Tool, ExecContext } from '../../../foundation/tools/index.js';
 import type { ToolResult } from '../../../foundation/tool-protocol/index.js';
 import type { ContractSystem } from '../manager.js';
-import { makeContractId } from '../../../foundation/identity/index.js';
+import { makeContractId } from '../types.js';
 import { makeSubtaskId, type SubtaskId } from '../types.js';
 
 /**

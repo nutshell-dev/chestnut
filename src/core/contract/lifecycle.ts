@@ -3,7 +3,7 @@
  * Contract status transitions: pause / resume / cancel / archive / completion check
  */
 
-import type { ContractId } from '../../foundation/identity/index.js';
+import type { ContractId } from './types.js';
 import type { Contract } from '../contract/types.js';
 import type { ProgressData } from './types.js';
 import { lockContract, releaseLock, type LockContext } from './lock.js';

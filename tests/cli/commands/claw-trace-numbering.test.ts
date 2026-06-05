@@ -19,7 +19,8 @@ import * as os from 'node:os';
 import { clawTraceCommand } from '../../../src/cli/commands/claw-trace.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { CliError } from '../../../src/cli/errors.js';
-import { makeClawId, makeContractId } from '../../../src/foundation/identity/index.js';
+import { makeContractId } from '../../../src/core/contract/types.js';
+import { makeClawId } from '../../../src/foundation/identity/index.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 

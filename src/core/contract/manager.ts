@@ -63,7 +63,8 @@ import {
   type PersistenceContext,
   PROGRESS_CURRENT_SCHEMA_VERSION,
 } from './persistence.js';
-import { type ContractId, makeContractId, resolveChestnutRoot } from '../../foundation/identity/index.js';
+import { type ContractId, makeContractId } from './types.js';
+import { resolveChestnutRoot } from '../../foundation/identity/index.js';
 import { type SubtaskId, type ArchiveDir, makeArchiveDir } from './types.js';
 import type { ClawId, ChestnutRoot } from '../../foundation/identity/index.js';
 import { runContractVerifier } from './verifier-job.js';

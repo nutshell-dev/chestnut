@@ -5,7 +5,7 @@
  */
 
 import type { ClawId } from '../foundation/identity/index.js';
-import type { ContractId } from '../foundation/identity/index.js';
+import type { ContractId } from '../core/contract/types.js';
 
 
 export function buildRetroPrompt(

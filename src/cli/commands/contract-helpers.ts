@@ -12,7 +12,7 @@ import { STREAM_FILE, createPerResourceStreamWriter, type StreamEvent } from '..
 import { CliError } from '../errors.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { ClawId } from '../../foundation/identity/index.js';
-import type { ContractId } from '../../foundation/identity/index.js';
+import type { ContractId } from '../../core/contract/types.js';
 import type { ClawDir } from '../../foundation/identity/index.js';
 
 export function parseAndValidateContractYaml(yamlContent: string): ContractYaml {

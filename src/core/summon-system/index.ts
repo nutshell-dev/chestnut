@@ -17,7 +17,7 @@ import { formatErr } from "../../foundation/utils/index.js";
 import { CLAWSPACE_DIR } from '../../foundation/paths.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { SUMMON_AUDIT_EVENTS } from './audit-events.js';
-import { type ContractId, makeContractId } from '../../foundation/identity/index.js';
+import { type ContractId, makeContractId } from '../contract/types.js';
 
 /** kebab-case claw id 模式 — 与 schema 内 targetClaw description 字面一致 */
 const TARGET_CLAW_PATTERN = /^[a-z0-9-]+$/;

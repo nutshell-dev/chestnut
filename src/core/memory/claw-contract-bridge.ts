@@ -1,5 +1,6 @@
 import * as path from 'path';
-import type { ClawId, ContractId, ChestnutRoot } from '../../foundation/identity/index.js';
+import type { ContractId } from '../contract/types.js';
+import type { ClawId, ChestnutRoot } from '../../foundation/identity/index.js';
 import { makeClawDir } from '../../foundation/identity/index.js';
 import { CLAWS_DIR } from '../../foundation/paths.js';
 import type { FileSystem } from '../../foundation/fs/types.js';

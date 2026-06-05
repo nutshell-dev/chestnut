@@ -12,7 +12,7 @@ import { CONTRACT_SCRIPT_TIMEOUT_MS } from './constants.js';
 import { ToolTimeoutError } from '../../foundation/errors.js';
 import { formatErr } from '../../foundation/utils/index.js';
 import { DEFAULT_LLM_IDLE_TIMEOUT_MS } from '../../foundation/llm-orchestrator/index.js';
-import type { ContractId } from '../../foundation/identity/index.js';
+import type { ContractId } from './types.js';
 // phase 1490: 不再传 maxSteps、VerifierConfig.maxSteps optional / undefined 透传到 SubAgent boundary fallback。
 import { type ClawDir } from '../../foundation/identity/index.js';
 // phase 1376: contractAbsDir is clawDir, branded

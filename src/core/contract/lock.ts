@@ -20,7 +20,7 @@ import {
 } from './audit-emit.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 import { isAlive } from '../../foundation/process-exec/index.js';
-import type { ContractId } from '../../foundation/identity/index.js';
+import type { ContractId } from './types.js';
 
 
 export interface LockContext {
