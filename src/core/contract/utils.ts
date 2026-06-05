@@ -15,7 +15,7 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import { CONTRACT_DIR } from './dirs.js';
 
 import { emitContractContractDirScanFailed } from './audit-emit.js';
-import { type ClawDir } from '../../foundation/identity/index.js';
+import { type ClawDir } from '../../foundation/paths.js';
 
 const EPOCH_2020_01_01_MS = 1_577_836_800_000;
 

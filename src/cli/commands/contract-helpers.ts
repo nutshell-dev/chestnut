@@ -11,9 +11,9 @@ import { notifySystem } from '../../foundation/messaging/index.js';
 import { STREAM_FILE, createPerResourceStreamWriter, type StreamEvent } from '../../foundation/stream/index.js';
 import { CliError } from '../errors.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
-import type { ClawId } from '../../foundation/identity/index.js';
+import type { ClawId } from '../../foundation/paths.js';
 import type { ContractId } from '../../core/contract/types.js';
-import type { ClawDir } from '../../foundation/identity/index.js';
+import type { ClawDir } from '../../foundation/paths.js';
 
 export function parseAndValidateContractYaml(yamlContent: string): ContractYaml {
   const parsed = yaml.load(yamlContent);

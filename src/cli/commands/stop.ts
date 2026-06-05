@@ -17,7 +17,7 @@ import { PROCESS_MANAGER_AUDIT_EVENTS } from '../../foundation/process-manager/a
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { CLAWS_DIR, resolveDaemonEntry } from '../../foundation/paths.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
-import { makeClawId } from '../../foundation/identity/index.js';
+import { makeClawId } from '../../foundation/paths.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 
 export async function stopAllCommand(deps: { fsFactory: (baseDir: string) => FileSystem }, extraDeps?: { audit?: AuditLog }): Promise<void> {

@@ -5,7 +5,7 @@
  */
 
 import type { Message, ToolDefinition } from '../llm-provider/types.js';
-import type { ClawId } from '../identity/index.js';
+import type { ClawId } from '../paths.js';
 import type { ToolUseId } from '../tool-protocol/index.js';
 
 

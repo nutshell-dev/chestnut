@@ -25,7 +25,7 @@ import type { PostProcessor } from './post-processors/types.js';
 import type { SubAgentTask } from './types.js';
 import type { DialogStore } from '../../foundation/dialog-store/index.js';
 import type { TaskId } from './types.js';
-import { type ClawDir, type ChestnutRoot } from '../../foundation/identity/index.js';
+import { type ClawDir, type ChestnutRoot } from '../../foundation/paths.js';
 
 
 

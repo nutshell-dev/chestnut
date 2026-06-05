@@ -35,7 +35,7 @@ import { motionStepsCommand, motionStepCommand } from './commands/motion-steps.j
 import { createDirContext } from '../foundation/audit/index.js';
 import { getChestnutRoot, getClawDir, loadGlobalConfig } from '../foundation/config/index.js';
 import { parseIntOption } from './parse-int-option.js';
-import { makeClawId } from '../foundation/identity/index.js';
+import { makeClawId } from '../foundation/paths.js';
 
 const fsFactory = (baseDir: string): FileSystem => new NodeFileSystem({ baseDir });
 

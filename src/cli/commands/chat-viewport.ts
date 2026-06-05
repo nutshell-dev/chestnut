@@ -25,7 +25,7 @@ import { MOTION_CLAW_ID } from '../../constants.js';
 
 import { writeUserChat } from './chat-viewport-utils.js';
 import { findRecentTurnStartOffset } from '../../foundation/stream/index.js';
-import { makeClawId } from '../../foundation/identity/index.js';
+import { makeClawId } from '../../foundation/paths.js';
 import { type ClawTrack } from './chat-viewport-claw-line.js';
 import { createMainTurnUI, type MainTurnUIController } from './main-turn-ui.js';
 import { createTaskEventHandler } from './chat-viewport-task-events.js';

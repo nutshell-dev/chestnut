@@ -15,7 +15,7 @@ import { FileNotFoundError } from '../../foundation/fs/types.js';
 import { isProgrammingBug } from '../../foundation/errors.js';
 import { readPendingRetrospective, InvalidJSONError, UnexpectedFormatError, InvalidTargetClawError } from '../summon-system/index.js';
 import type { ContractId } from '../contract/types.js';
-import { type ClawDir, makeClawDir } from '../../foundation/identity/index.js';
+import { type ClawDir, makeClawDir } from '../../foundation/paths.js';
 
 
 export interface EvolutionSystemDeps {

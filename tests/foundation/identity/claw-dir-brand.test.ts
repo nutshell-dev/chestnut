@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { type ClawDir, makeClawDir } from '../../../src/foundation/identity/index.js';
+import { type ClawDir, makeClawDir } from '../../../src/foundation/paths.js';
 import * as path from 'path';
 
 describe('ClawDir brand', () => {

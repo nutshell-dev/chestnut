@@ -7,8 +7,8 @@ import type { ProgressData } from '../manager.js';
 import type { ContractStatus } from '../types.js';
 import { CONTRACT_AUDIT_EVENTS } from '../audit-events.js';
 import { CONTRACT_DIR } from '../dirs.js';
-import type { ClawId } from '../../../foundation/identity/index.js';
-import { type ClawDir } from '../../../foundation/identity/index.js';
+import type { ClawId } from '../../../foundation/paths.js';
+import { type ClawDir } from '../../../foundation/paths.js';
 
 function readContractMeta(
   fs: FileSystem,

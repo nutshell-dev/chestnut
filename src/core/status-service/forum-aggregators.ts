@@ -20,7 +20,7 @@ import { ProcessManager, ProcessListUnavailable } from '../../foundation/process
 import { CLAWS_DIR } from '../../foundation/paths.js';
 import { AUDIT_FILE } from '../../foundation/audit/index.js';
 import { INBOX_PENDING_DIR } from '../../foundation/messaging/index.js';
-import { makeClawId } from '../../foundation/identity/index.js';
+import { makeClawId } from '../../foundation/paths.js';
 import { MOTION_CLAW_ID } from '../../constants.js';
 
 // ── Views ───────────────────────────────────────────────────────────────────

@@ -11,8 +11,8 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
 import { createChatViewportWatcher } from './chat-viewport-watcher.js';
 import { type ClawTrack, makeClawTrack } from './chat-viewport-claw-line.js';
-import { type ClawId, makeClawId } from '../../foundation/identity/index.js';
-import { makeClawDir } from '../../foundation/identity/index.js';
+import { type ClawId, makeClawId } from '../../foundation/paths.js';
+import { makeClawDir } from '../../foundation/paths.js';
 
 
 export interface ClawManagerDeps {

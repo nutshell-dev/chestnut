@@ -30,7 +30,7 @@ import { createAskUserTool } from '../core/gateway/index.js';
 import { createStreamReader, STREAM_FILE, findRecentTurnStartOffset } from '../foundation/stream/index.js';
 import { createNotifyClawTool } from '../foundation/messaging/tools/notify-claw.js';
 import { notifyClaw, OutboxReader } from '../foundation/messaging/index.js';
-import { resolveChestnutRoot, makeClawDir } from '../foundation/identity/index.js';
+import { resolveChestnutRoot, makeClawDir } from '../foundation/paths.js';
 import type { CoreInfraOutput } from './core-infrastructure.js';
 import type { BusinessSysOutput } from './business-systems.js';
 import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';

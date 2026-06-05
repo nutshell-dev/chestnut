@@ -13,8 +13,8 @@ import type { AuditLog } from '../audit/index.js';
 import { encodeOutbox } from './codec-outbox.js';
 import { emitOutboxSent, emitOutboxSendFailed } from './audit-emit.js';
 import { UUID_SHORT_LEN } from '../../constants.js';
-import type { ClawId } from '../identity/index.js';
-import { type ClawDir } from '../identity/index.js';
+import type { ClawId } from '../paths.js';
+import { type ClawDir } from '../paths.js';
 
 
 /**

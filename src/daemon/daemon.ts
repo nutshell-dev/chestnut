@@ -25,8 +25,8 @@ import { LockConflictError } from '../foundation/process-manager/index.js';
 import { DAEMON_AUDIT_EVENTS } from './audit-events.js';
 import type { DaemonInstances } from './types.js';
 
-import { makeClawId, type ClawId } from '../foundation/identity/index.js';
-import { type ClawDir, makeClawDir } from '../foundation/identity/index.js';
+import { makeClawId, type ClawId } from '../foundation/paths.js';
+import { type ClawDir, makeClawDir } from '../foundation/paths.js';
 
 
 export interface DaemonCommandDeps {

@@ -28,7 +28,7 @@ import type { ForumStatusDeps } from '../../../src/core/status-service/index.js'
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { ProcessManager } from '../../../src/foundation/process-manager/index.js';
 import { ProcessListUnavailable } from '../../../src/foundation/process-manager/index.js';
-import { makeClawId } from '../../../src/foundation/identity/index.js';
+import { makeClawId } from '../../../src/foundation/paths.js';
 import { MOTION_CLAW_ID } from '../../../src/constants.js';
 
 // ── Fake FS helpers ─────────────────────────────────────────────────────────

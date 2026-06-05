@@ -10,7 +10,7 @@ import { randomUUID } from 'crypto';
 import { scanOutboxes, truncatePreview } from '../../../src/core/outbox-summary/scan.js';
 import { PREVIEW_MAX_CHARS } from '../../../src/core/outbox-summary/types.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
-import { makeChestnutRoot } from '../../../src/foundation/identity/index.js';
+import { makeChestnutRoot } from '../../../src/foundation/paths.js';
 import { OutboxReader } from '../../../src/foundation/messaging/index.js';
 import { encodeOutbox } from '../../../src/foundation/messaging/codec-outbox.js';
 import type { OutboxMessage } from '../../../src/foundation/messaging/types.js';

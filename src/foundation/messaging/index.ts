@@ -81,8 +81,8 @@ export { emitOutboxSent, emitOutboxSendFailed } from './audit-emit.js';
 
 export { notifyInbox, notifySystem, notifyClaw, writeInboxAsync } from './notify.js';
 
-import type { ClawId } from '../identity/index.js';
-import { type ClawDir } from '../identity/index.js';
+import type { ClawId } from '../paths.js';
+import { type ClawDir } from '../paths.js';
 
 // phase 1476: drainOutboxes / Messaging / createMessaging 全砍。
 // claw→motion 通信改 pull 模型（motion 见 claw_outbox_summary 索引 → CLI claw <id> outbox 拉取消费）。

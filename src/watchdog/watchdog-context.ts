@@ -14,7 +14,7 @@ import { getNamedSubrootDir, loadGlobalConfig } from '../foundation/config/index
 import type { FileSystem } from '../foundation/fs/types.js';
 import type { AuditLog } from '../foundation/audit/index.js';
 import { createDirContext } from '../foundation/audit/index.js';
-import { makeClawDir } from '../foundation/identity/index.js';
+import { makeClawDir } from '../foundation/paths.js';
 
 // === 内部 Map/Set（cron state）—— 通过 clawStateAPI 访问 ===
 

@@ -6,7 +6,7 @@
 // (phase 814 Step B — P1.37 const namespace sweep).
 // ============================================================================
 
-import { makeClawId } from './foundation/identity/index.js';
+import { makeClawId } from './foundation/paths.js';
 
 // ----------------------------------------------------------------------------
 // System Identities

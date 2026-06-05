@@ -22,7 +22,7 @@ import { stopProcess } from './stop.js';
 import { findProcesses } from './find.js';
 import { CLAWS_DIR } from '../paths.js';
 import type { ProcessManagerContext, SpawnOptions } from './types.js';
-import type { ClawId } from '../identity/index.js';
+import type { ClawId } from '../paths.js';
 
 
 export { LockConflictError } from './types.js';

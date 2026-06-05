@@ -17,8 +17,8 @@ import { TASKS_QUEUES_RESULTS_DIR } from '../../core/async-task-system/index.js'
 import { TASKS_SUBAGENTS_DIR } from '../../core/subagent/constants.js';
 import { TASKS_SYNC_SUBAGENT_DIR } from '../../core/subagent/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
-import type { ClawId } from '../../foundation/identity/index.js';
-import { type ClawDir } from '../../foundation/identity/index.js';
+import type { ClawId } from '../../foundation/paths.js';
+import { type ClawDir } from '../../foundation/paths.js';
 
 
 // ─── Resolve result dir ──────────────────────────────────────

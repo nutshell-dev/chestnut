@@ -5,7 +5,7 @@ import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
 import type { ProcessManagerContext } from './types.js';
 import type { PidFileContent } from './pid.js';
 import { isFileNotFound } from '../fs/types.js';
-import type { ClawId } from '../identity/index.js';
+import type { ClawId } from '../paths.js';
 
 
 export async function markReady(ctx: ProcessManagerContext, clawId: ClawId): Promise<void> {

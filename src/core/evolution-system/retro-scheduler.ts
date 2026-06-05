@@ -19,7 +19,7 @@ import type { FileSystem } from '../../foundation/fs/types.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { Message } from '../../foundation/llm-provider/types.js';
 import { RETRO_AUDIT_EVENTS } from './retro-audit-events.js';
-import { makeClawId } from '../../foundation/identity/index.js';
+import { makeClawId } from '../../foundation/paths.js';
 import type { ContractId } from '../contract/types.js';
 
 

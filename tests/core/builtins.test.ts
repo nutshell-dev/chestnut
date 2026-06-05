@@ -17,7 +17,7 @@ import { memorySearchTool } from '../../src/core/memory/tools/memory_search.js';
 import { execTool } from '../../src/foundation/command-tool/index.js';
 import { spawnTool } from '../../src/core/spawn-system/index.js';
 import { ExecContextImpl } from '../../src/foundation/tools/context.js';
-import { makeChestnutRoot } from '../../src/foundation/identity/index.js';
+import { makeChestnutRoot } from '../../src/foundation/paths.js';
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
 import { OutboxWriter } from '../../src/foundation/messaging/index.js';
 import { createOutboxWriter } from '../../src/foundation/messaging/index.js';

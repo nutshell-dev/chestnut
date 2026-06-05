@@ -20,7 +20,7 @@ import { clawTraceCommand } from '../../../src/cli/commands/claw-trace.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { CliError } from '../../../src/cli/errors.js';
 import { makeContractId } from '../../../src/core/contract/types.js';
-import { makeClawId } from '../../../src/foundation/identity/index.js';
+import { makeClawId } from '../../../src/foundation/paths.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 

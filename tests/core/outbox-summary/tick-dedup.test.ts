@@ -20,7 +20,7 @@ import { randomUUID } from 'crypto';
 import { runOutboxSummaryTick, SUMMARY_INBOX_TYPE } from '../../../src/core/outbox-summary/index.js';
 import { DEDUP_DONE_WINDOW_MS } from '../../../src/core/outbox-summary/dedup.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
-import { makeChestnutRoot } from '../../../src/foundation/identity/index.js';
+import { makeChestnutRoot } from '../../../src/foundation/paths.js';
 import { InboxReader, InboxWriter, makeInboxPath } from '../../../src/foundation/messaging/index.js';
 import { OutboxReader } from '../../../src/foundation/messaging/index.js';
 

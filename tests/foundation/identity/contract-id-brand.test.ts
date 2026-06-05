@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import type { ContractId } from '../../../src/core/contract/types.js';
 import { makeContractId } from '../../../src/core/contract/types.js';
-import type { ClawId } from '../../../src/foundation/identity/types.js';
-import { makeClawId } from '../../../src/foundation/identity/types.js';
+import type { ClawId } from '../../../src/foundation/paths.js';
+import { makeClawId } from '../../../src/foundation/paths.js';
 
 describe('ContractId brand compile-time enforce', () => {
   it('prevents assigning ClawId to ContractId', () => {

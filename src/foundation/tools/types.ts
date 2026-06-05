@@ -14,9 +14,9 @@ import type { ToolDescriptor, ToolResult, CallerSnapshot } from '../tool-protoco
 export type { CallerSnapshot };
 import type { ScheduleAsyncTool } from './async-dispatch.js';
 import type { PermissionChecker } from '../tool-protocol/permission.js';
-import type { ClawId, ChestnutRoot } from '../identity/index.js';
+import type { ClawId, ChestnutRoot } from '../paths.js';
 import type { ToolUseId } from '../tool-protocol/index.js';
-import { type ClawDir } from '../identity/index.js';
+import { type ClawDir } from '../paths.js';
 
 
 

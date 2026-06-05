@@ -17,7 +17,7 @@ import { ContractSystem } from '../../src/core/contract/manager.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { createToolRegistry } from '../../src/foundation/tools/index.js';
 import { CliError } from '../../src/cli/errors.js';
-import { makeClawId } from '../../src/foundation/identity/index.js';
+import { makeClawId } from '../../src/foundation/paths.js';
 import { makeMockAudit } from '../helpers/audit.js';
 import { makeContractYaml } from '../helpers/contract-yaml.js';
 

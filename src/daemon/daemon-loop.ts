@@ -33,7 +33,7 @@ import {
 import { notifyInbox } from '../foundation/messaging/index.js';
 import { dispatchError } from './error-handlers.js';
 import { STATUS_SUBDIR } from '../foundation/process-manager/index.js';
-import type { ClawId } from '../foundation/identity/index.js';
+import type { ClawId } from '../foundation/paths.js';
 import { createStreamCallbacks } from './stream-callbacks.js';
 import { waitForInbox } from './inbox-watcher.js';
 import { shouldEmitStartupCheck } from './startup-check.js';

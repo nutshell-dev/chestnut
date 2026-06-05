@@ -1,5 +1,5 @@
 import { formatErr } from './utils/index.js';
-import { type ClawDir } from '../foundation/identity/index.js';
+import { type ClawDir } from '../foundation/paths.js';
 
 export type ErrorCode =
   // Permission errors (1xx)

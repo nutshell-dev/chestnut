@@ -23,8 +23,8 @@ import { LLM_OUTPUT_EVENTS } from '../foundation/stream/index.js';
 import { CONTRACT_DIR } from '../core/contract/index.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 import { formatErr } from '../foundation/utils/index.js';
-import type { ClawId } from '../foundation/identity/index.js';
-import { type ClawDir } from '../foundation/identity/index.js';
+import type { ClawId } from '../foundation/paths.js';
+import { type ClawDir } from '../foundation/paths.js';
 
 
 // Parse stream.jsonl, return the timestamp of the last event and the last error message

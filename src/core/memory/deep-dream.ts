@@ -8,14 +8,14 @@ import type { LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/in
 import type { Message, ContentBlock, TextBlock, LLMResponse } from '../../foundation/llm-provider/types.js';
 import { notifyInbox } from '../../foundation/messaging/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
-import { type ClawId, makeClawId } from '../../foundation/identity/index.js'
-import { type ChestnutRoot } from '../../foundation/identity/index.js';
+import { type ClawId, makeClawId } from '../../foundation/paths.js'
+import { type ChestnutRoot } from '../../foundation/paths.js';
 import { DialogStore } from '../../foundation/dialog-store/index.js';
 import type { SessionData } from '../../foundation/dialog-store/types.js';
 import { CLAWS_DIR } from '../../foundation/paths.js';
 import { INBOX_PENDING_DIR } from '../../foundation/messaging/index.js';
 import { FileNotFoundError } from '../../foundation/fs/types.js';
-import { type ClawDir, makeClawDir } from '../../foundation/identity/index.js';
+import { type ClawDir, makeClawDir } from '../../foundation/paths.js';
 import {
   DEEP_DREAM_SYSTEM_PROMPT,
   buildDreamInput,

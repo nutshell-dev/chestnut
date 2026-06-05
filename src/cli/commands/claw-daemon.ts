@@ -16,7 +16,7 @@ import { createAgentProcessManager } from '../../foundation/process-manager/inde
 import type { ProcessManager } from '../../foundation/process-manager/manager.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { CliError } from '../errors.js';
-import { makeClawId } from '../../foundation/identity/index.js';
+import { makeClawId } from '../../foundation/paths.js';
 import { getWorkspaceRoot, resolveDaemonEntry } from '../../foundation/paths.js';
 import { DAEMON_LOG } from '../../daemon/constants.js';
 

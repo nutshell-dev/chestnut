@@ -3,7 +3,7 @@ import { formatErr } from "../utils/index.js";
 import { getPidFile, ensureStatusDir } from './paths.js';
 import { getProcessStartTime, makeProcessStartTime, type ProcessStartTime } from '../process-exec/index.js';
 import type { ProcessManagerContext } from './types.js';
-import type { ClawId } from '../identity/index.js';
+import type { ClawId } from '../paths.js';
 
 
 export interface PidFileContent {

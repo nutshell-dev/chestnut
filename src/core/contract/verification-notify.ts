@@ -5,7 +5,7 @@
 
 import type { VerificationContext, NotifyClawFn } from './verification-types.js';
 import { notifyClaw as defaultNotifyClaw } from '../../foundation/messaging/index.js';
-import { makeChestnutRoot } from '../../foundation/identity/index.js';
+import { makeChestnutRoot } from '../../foundation/paths.js';
 import { getChestnutRoot } from '../../foundation/paths.js';
 
 /**

@@ -5,7 +5,7 @@
  */
 import * as path from 'node:path';
 import type { FileSystem } from '../../foundation/fs/types.js';
-import { type ClawDir } from '../../foundation/identity/index.js';
+import { type ClawDir } from '../../foundation/paths.js';
 import {
   CONTRACT_ACTIVE_DIR,
   CONTRACT_PAUSED_DIR,

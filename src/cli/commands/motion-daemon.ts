@@ -13,7 +13,7 @@ import {
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { createAgentProcessManager } from '../../foundation/process-manager/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
-import { makeClawDir } from '../../foundation/identity/index.js';
+import { makeClawDir } from '../../foundation/paths.js';
 import { getWorkspaceRoot, resolveDaemonEntry } from '../../foundation/paths.js';
 import { DAEMON_LOG } from '../../daemon/constants.js';
 import { MOTION_CLAW_ID } from '../../constants.js';

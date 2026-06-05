@@ -30,7 +30,7 @@ export * from './audit-emit.js';
 
 import * as path from 'path';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
-import { type ClawDir } from '../../foundation/identity/index.js';
+import { type ClawDir } from '../../foundation/paths.js';
 
 /**
  * Delete task files (done/, failed/, results/) older than maxDays.

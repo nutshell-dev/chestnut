@@ -24,7 +24,7 @@ import { createToolRegistry } from '../../foundation/tools/index.js';
 import { createDirContext } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { notifyClaw } from '../../foundation/messaging/index.js';
-import { makeChestnutRoot } from '../../foundation/identity/index.js';
+import { makeChestnutRoot } from '../../foundation/paths.js';
 import { MOTION_CLAW_ID } from '../../constants.js';
 
 import { CliError } from '../errors.js';
@@ -33,7 +33,7 @@ import { getWorkspaceRoot, resolveDaemonEntry } from '../../foundation/paths.js'
 import { readOnboardingStatus, type OnboardingStatus } from '../../core/contract/index.js';
 import { DAEMON_LOG } from '../../daemon/constants.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
-import { type ClawDir, makeClawDir } from '../../foundation/identity/index.js';
+import { type ClawDir, makeClawDir } from '../../foundation/paths.js';
 
 export function buildOnboardingSubtasks(language: string): Array<{ id: string; description: string }> {
   let langInstruction: string;

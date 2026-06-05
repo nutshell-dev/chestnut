@@ -10,7 +10,7 @@
 
 import type { AuditLog } from '../audit/index.js';
 import { MESSAGING_AUDIT_EVENTS } from './audit-events.js';
-import type { ClawId } from '../identity/index.js';
+import type { ClawId } from '../paths.js';
 
 
 

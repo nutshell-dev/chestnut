@@ -1,4 +1,4 @@
-import { type ChestnutRoot } from '../../../foundation/identity/index.js';
+import { type ChestnutRoot } from '../../../foundation/paths.js';
 import { formatErr } from "../../../foundation/utils/index.js";
 /**
  * @module L5.Cron.AuditSizeMonitor

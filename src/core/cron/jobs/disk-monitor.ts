@@ -1,6 +1,6 @@
 import * as path from 'path';
 import { formatErr } from "../../../foundation/utils/index.js";
-import { type ChestnutRoot } from '../../../foundation/identity/index.js';
+import { type ChestnutRoot } from '../../../foundation/paths.js';
 import type { FileSystem } from '../../../foundation/fs/types.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
 import { CRON_AUDIT_EVENTS } from '../audit-events.js';

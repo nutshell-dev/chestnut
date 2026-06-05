@@ -7,7 +7,7 @@
 
 import type { Message } from '../llm-provider/types.js';
 import type { AuditLog } from '../audit/index.js';
-import type { ClawId } from '../identity/index.js';
+import type { ClawId } from '../paths.js';
 import type { SessionData } from './types.js';
 import { DIALOG_AUDIT_EVENTS } from './audit-events.js';
 import type { ToolUseId } from '../tool-protocol/index.js';

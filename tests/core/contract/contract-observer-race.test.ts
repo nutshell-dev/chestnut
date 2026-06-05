@@ -12,7 +12,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { runContractObserver } from '../../../src/core/contract/jobs/contract-observer.js';
 import type { FileSystem, FileEntry } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
-import { makeChestnutRoot } from '../../../src/foundation/identity/index.js';
+import { makeChestnutRoot } from '../../../src/foundation/paths.js';
 
 interface MockArchiveSpec {
   clawId: string;

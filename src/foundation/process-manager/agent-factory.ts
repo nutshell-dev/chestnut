@@ -11,7 +11,7 @@ import type { AuditLog } from '../audit/index.js';
 import type { FileSystem } from '../fs/types.js';
 
 import { MOTION_CLAW_ID } from '../../constants.js';
-import { makeClawDir } from '../identity/index.js';
+import { makeClawDir } from '../paths.js';
 
 export function createAgentProcessManager(deps: { fsFactory: (baseDir: string) => FileSystem }, audit: AuditLog): ProcessManager {
   const baseDir = getChestnutRoot();

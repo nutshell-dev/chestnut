@@ -5,7 +5,7 @@
 
 import { resolveClawDir, scanSubagentResults, formatDate, formatDuration, truncateId, type SubagentKind, type SubagentStatus } from './subagent-helpers.js';
 import { handleCliError, CliError } from '../errors.js';
-import { makeClawId } from '../../foundation/identity/index.js';
+import { makeClawId } from '../../foundation/paths.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 
 interface ListOptions {

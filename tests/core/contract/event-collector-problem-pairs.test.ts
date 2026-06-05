@@ -9,7 +9,7 @@ import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { collectContractEvents } from '../../../src/core/contract/jobs/event-collector.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
-import { makeClawId, makeClawDir } from '../../../src/foundation/identity/index.js';
+import { makeClawId, makeClawDir } from '../../../src/foundation/paths.js';
 
 function makeAudit() {
   return { write: () => {} };

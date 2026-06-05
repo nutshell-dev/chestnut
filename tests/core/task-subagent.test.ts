@@ -20,7 +20,7 @@ import { SUBAGENT_AUDIT_EVENTS } from '../../src/core/subagent/audit-events.js';
 import { SUBAGENT_WAIT_TIMEOUT_MS, SUBAGENT_LONG_TIMEOUT_MS } from '../helpers/test-timeouts.js';
 import { makeAudit, makeMockAudit } from '../helpers/audit.js';
 import { ToolExecutor } from '../../src/foundation/tools/index.js';
-import { makeChestnutRoot } from '../../src/foundation/identity/index.js';
+import { makeChestnutRoot } from '../../src/foundation/paths.js';
 import type { FileSystem } from '../../src/foundation/fs/types.js';
 import type { ToolRegistryImpl } from '../../src/foundation/tools/registry.js';
 import type { AuditLog } from '../../src/foundation/audit/index.js';

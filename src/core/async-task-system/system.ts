@@ -11,7 +11,7 @@ import { CALLER_TYPE_TO_GROUPS } from '../caller-types.js';
 import * as path from 'path';
 
 import type { PermissionChecker } from '../../foundation/tool-protocol/permission.js';
-import { makeClawId } from '../../foundation/identity/index.js';
+import { makeClawId } from '../../foundation/paths.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 
 import { DEFAULT_MAX_CONCURRENT_TASKS, SHUTDOWN_DRAIN_GRACE_MS, DEFAULT_RETRY_BASE_DELAY_MS, PENDING_QUEUE_MAX } from './constants.js';
@@ -58,7 +58,7 @@ import {
 import type { PostProcessor } from './post-processors/types.js';
 import type { AsyncTaskSystemOptions, SubAgentTask, ToolTask, TaskKind, TaskExecutor } from './types.js';
 import { type TaskId, makeTaskId } from './types.js';
-import { type ClawDir, makeClawDir, type ChestnutRoot } from '../../foundation/identity/index.js';
+import { type ClawDir, makeClawDir, type ChestnutRoot } from '../../foundation/paths.js';
 
 
 

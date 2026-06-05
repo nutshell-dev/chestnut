@@ -14,7 +14,7 @@ import * as path from 'path';
 import { formatErr } from "../utils/index.js";
 import { randomUUID } from 'crypto';
 import type { FileSystem } from '../fs/types.js';
-import { makeClawId } from '../identity/index.js';
+import { makeClawId } from '../paths.js';
 import type { InboxMessage, InboxHandle } from '../messaging/types.js';
 import { PRIORITY_VALUES, type Priority } from '../messaging/types.js';
 import { decodeInbox } from './codec-inbox.js';

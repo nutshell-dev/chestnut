@@ -57,9 +57,9 @@ import {
 import { TASKS_SYNC_DIR } from '../async-task-system/index.js';
 
 import { formatTimeAgo } from './utils.js';
-import type { ClawId } from '../../foundation/identity/index.js';
+import type { ClawId } from '../../foundation/paths.js';
 import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
-import { type ClawDir } from '../../foundation/identity/index.js';
+import { type ClawDir } from '../../foundation/paths.js';
 
 
 

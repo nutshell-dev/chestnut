@@ -19,7 +19,7 @@ import { CliError } from '../errors.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { ContractSystem } from '../../core/contract/index.js';
 import { createToolRegistry } from '../../foundation/tools/index.js';
-import { makeClawId, resolveChestnutRoot } from '../../foundation/identity/index.js';
+import { makeClawId, resolveChestnutRoot } from '../../foundation/paths.js';
 import {
   computeContractView,
   computeTaskView,

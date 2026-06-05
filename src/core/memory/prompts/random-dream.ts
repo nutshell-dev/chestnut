@@ -25,7 +25,7 @@
  * ```
  */
 
-import type { ClawId } from '../../../foundation/identity/index.js';
+import type { ClawId } from '../../../foundation/paths.js';
 import type { ContractId } from '../../contract/types.js';
 
 

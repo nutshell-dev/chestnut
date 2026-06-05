@@ -21,7 +21,7 @@ import {
 } from '../../../src/foundation/file-tool/file-state-persist.js';
 import { FILE_TOOL_AUDIT_EVENTS } from '../../../src/foundation/file-tool/audit-events.js';
 import { createClawPermissionChecker } from '../../../src/core/permissions/claw-permissions.js';
-import { makeChestnutRoot } from '../../../src/foundation/identity/index.js';
+import { makeChestnutRoot } from '../../../src/foundation/paths.js';
 import { CALLER_TYPE_TO_GROUPS } from '../../../src/core/caller-types.js';
 
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';

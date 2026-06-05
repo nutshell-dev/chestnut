@@ -13,7 +13,7 @@ import type { FileSystem } from '../../foundation/fs/types.js';
 import { CONTRACT_DIR } from '../../core/contract/index.js';
 import { CLAWS_DIR } from '../../foundation/paths.js';
 import { getLastActiveMs } from './claw-shared.js';
-import { makeClawId } from '../../foundation/identity/index.js';
+import { makeClawId } from '../../foundation/paths.js';
 import { handleCliError } from '../errors.js';
 
 /**

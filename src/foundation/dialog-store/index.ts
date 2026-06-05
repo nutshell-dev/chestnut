@@ -36,7 +36,7 @@ export function createDialogStore(
 import * as path from 'path';
 import { DIALOG_AUDIT_EVENTS } from './audit-events.js';
 import { DIALOG_ARCHIVE_DIR } from './dirs.js';
-import { type ClawDir } from '../identity/index.js';
+import { type ClawDir } from '../paths.js';
 
 export async function cleanupArchives(opts: {
   motionDir: ClawDir;

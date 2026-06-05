@@ -10,7 +10,7 @@ import {
 import { CliError } from '../errors.js';
 import { createDirContext } from '../../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
-import { makeClawId } from '../../foundation/identity/index.js';
+import { makeClawId } from '../../foundation/paths.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { CONTRACT_DIR } from '../../core/contract/index.js';
 import { formatRelativeTime, getLastActiveMs } from './claw-shared.js';

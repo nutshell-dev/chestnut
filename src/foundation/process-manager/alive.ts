@@ -2,7 +2,7 @@ import { isAlive as l1IsAlive, makeProcessStartTime, type ProcessStartTime } fro
 import { formatErr } from "../utils/index.js";
 import { getPidFile } from './paths.js';
 import type { ProcessManagerContext } from './types.js';
-import type { ClawId } from '../identity/index.js';
+import type { ClawId } from '../paths.js';
 
 
 /**

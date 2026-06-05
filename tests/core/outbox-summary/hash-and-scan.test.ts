@@ -11,7 +11,7 @@ import { randomUUID } from 'crypto';
 import { computeHash } from '../../../src/core/outbox-summary/hash.js';
 import { scanOutboxes } from '../../../src/core/outbox-summary/scan.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
-import { makeChestnutRoot } from '../../../src/foundation/identity/index.js';
+import { makeChestnutRoot } from '../../../src/foundation/paths.js';
 import { OutboxReader } from '../../../src/foundation/messaging/index.js';
 
 function makeAudit() {

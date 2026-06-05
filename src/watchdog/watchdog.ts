@@ -23,7 +23,7 @@ import { formatErr } from "../foundation/utils/index.js";
 import { setTimeout } from 'timers/promises';
 import { getNamedSubrootDir } from '../foundation/config/index.js';
 import { MOTION_CLAW_ID } from '../constants.js';
-import { makeClawId, makeChestnutRoot, makeClawDir } from '../foundation/identity/index.js';
+import { makeClawId, makeChestnutRoot, makeClawDir } from '../foundation/paths.js';
 import type { FileSystem } from '../foundation/fs/types.js';
 import { type AuditLog, createAuditWriter } from '../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../foundation/process-manager/index.js';

@@ -12,10 +12,10 @@ import { makeClawTrack, buildClawLine, type ClawTrack } from './chat-viewport-cl
 import { STREAM_FILE } from '../../foundation/stream/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
-import { makeClawId } from '../../foundation/identity/index.js';
+import { makeClawId } from '../../foundation/paths.js';
 import type { createClawManager } from './chat-viewport-claw-manager.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
-import { makeClawDir } from '../../foundation/identity/index.js';
+import { makeClawDir } from '../../foundation/paths.js';
 
 export interface ClawPanelDeps {
   attachedClawBar: { setText(text: string): void };

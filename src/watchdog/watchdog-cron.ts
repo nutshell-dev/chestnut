@@ -18,10 +18,10 @@ import { listSubscriptions, consumeSubscription } from './subscription-store.js'
 import { getContractCreatedMs } from '../core/contract/index.js';
 import { getNamedSubrootDir } from '../foundation/config/index.js';
 import { notifyClaw } from '../foundation/messaging/index.js';
-import { makeChestnutRoot, makeClawDir, type ClawId, type ClawDir } from '../foundation/identity/index.js';
+import { makeChestnutRoot, makeClawDir, type ClawId, type ClawDir } from '../foundation/paths.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 import { MOTION_CLAW_ID } from '../constants.js';
-import { makeClawId } from '../foundation/identity/index.js';
+import { makeClawId } from '../foundation/paths.js';
 import { CLAWS_DIR } from '../foundation/paths.js';
 
 interface FireInactivityOpts {

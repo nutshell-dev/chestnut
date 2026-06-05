@@ -15,7 +15,7 @@
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { InboxReader, InboxWriter, OutboxReader } from '../../foundation/messaging/index.js';
-import type { ChestnutRoot } from '../../foundation/identity/index.js';
+import type { ChestnutRoot } from '../../foundation/paths.js';
 import { CRON_AUDIT_EVENTS } from '../cron/audit-events.js';
 import { scanOutboxes } from './scan.js';
 import { findExistingSummaryByHash } from './dedup.js';

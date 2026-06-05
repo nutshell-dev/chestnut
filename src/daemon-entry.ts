@@ -48,7 +48,7 @@ import { createDaemonCommand } from './daemon/daemon.js';
 
 import { assemble, disassemble } from './assembly/index.js';
 import { ASSEMBLY_AUDIT_EVENTS } from './assembly/index.js';
-import { makeClawDir } from './foundation/identity/index.js';
+import { makeClawDir } from './foundation/paths.js';
 
 const daemonCommand = createDaemonCommand({
   fsFactory,

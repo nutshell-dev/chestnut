@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import type { ClawId } from '../../../src/foundation/identity/types.js';
-import { makeClawId } from '../../../src/foundation/identity/types.js';
+import type { ClawId } from '../../../src/foundation/paths.js';
+import { makeClawId } from '../../../src/foundation/paths.js';
 import type { ContractId } from '../../../src/core/contract/types.js';
 import { makeContractId } from '../../../src/core/contract/types.js';
 import type { TaskId } from '../../../src/core/async-task-system/types.js';
@@ -9,8 +9,8 @@ import type { ToolUseId } from '../../../src/foundation/tool-protocol/index.js';
 import { makeToolUseId } from '../../../src/foundation/tool-protocol/index.js';
 import type { SubtaskId, ArchiveDir } from '../../../src/core/contract/types.js';
 import { makeSubtaskId, makeArchiveDir } from '../../../src/core/contract/types.js';
-import type { ClawDir, ChestnutRoot } from '../../../src/foundation/identity/types.js';
-import { makeClawDir, makeChestnutRoot } from '../../../src/foundation/identity/types.js';
+import type { ClawDir, ChestnutRoot } from '../../../src/foundation/paths.js';
+import { makeClawDir, makeChestnutRoot } from '../../../src/foundation/paths.js';
 
 describe('ID brand cross-mixup forbidden (32 combinations)', () => {
   const clawId: ClawId = makeClawId('claw');

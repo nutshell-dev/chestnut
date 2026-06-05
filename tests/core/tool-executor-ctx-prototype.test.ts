@@ -15,7 +15,7 @@ import { ToolRegistryImpl } from '../../src/foundation/tools/registry.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { makeAudit } from '../helpers/audit.js';
 import { MOTION_CLAW_ID } from '../../src/constants.js';
-import { makeChestnutRoot } from '../../src/foundation/identity/index.js';
+import { makeChestnutRoot } from '../../src/foundation/paths.js';
 import * as fsp from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';

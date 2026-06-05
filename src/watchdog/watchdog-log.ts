@@ -4,7 +4,7 @@
  */
 
 import * as path from 'path';
-import { makeChestnutRoot, makeClawDir } from '../foundation/identity/index.js';
+import { makeChestnutRoot, makeClawDir } from '../foundation/paths.js';
 import type { FileSystem } from '../foundation/fs/types.js';
 import { getChestnutFs, getAuditWriter, getMotionContext } from './watchdog-context.js';
 import { getNamedSubrootDir } from '../foundation/config/index.js';

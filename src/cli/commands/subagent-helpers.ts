@@ -8,7 +8,7 @@ import {
   getClawDir,
   getNamedSubrootDir,
 } from '../../foundation/paths.js';
-import { type ClawDir, makeClawDir } from '../../foundation/identity/index.js';
+import { type ClawDir, makeClawDir } from '../../foundation/paths.js';
 import {
   TASKS_QUEUES_DONE_DIR,
   TASKS_QUEUES_FAILED_DIR,
@@ -25,7 +25,7 @@ import {
   SUMMON_CALLER_TYPES,
 } from '../../core/summon-system/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
-import type { ClawId } from '../../foundation/identity/index.js';
+import type { ClawId } from '../../foundation/paths.js';
 import { type ContractId, makeContractId } from '../../core/contract/types.js';
 
 

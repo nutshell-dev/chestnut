@@ -5,7 +5,7 @@ import { cleanupRetention } from '../../../foundation/messaging/index.js';
 // INBOX_DONE_DIR / INBOX_FAILED_DIR removed with DIRS (Phase 28 Step B)
 import { cleanupExpiredTaskFiles } from '../../async-task-system/index.js';
 import { cleanupArchives } from '../../../foundation/dialog-store/index.js';
-import { type ClawDir } from '../../../foundation/identity/index.js';
+import { type ClawDir } from '../../../foundation/paths.js';
 import type { CronJob } from '../runner.js';
 import { parseSchedule } from '../runner.js';
 import type { ClawGlobalConfig } from '../../../foundation/config/index.js';

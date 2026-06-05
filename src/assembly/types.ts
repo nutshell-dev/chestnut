@@ -7,8 +7,8 @@ import type { CronRunner } from '../core/cron/index.js';
 import type { ClawGlobalConfig, ClawConfig } from './compose-config.js';
 import type { Gateway } from '../core/gateway/index.js';
 import type { EvolutionSystem } from '../core/evolution-system/index.js';
-import type { ClawId } from '../foundation/identity/index.js';
-import { type ClawDir } from '../foundation/identity/index.js';
+import type { ClawId } from '../foundation/paths.js';
+import { type ClawDir } from '../foundation/paths.js';
 
 
 export type Identity = 'motion' | 'claw';

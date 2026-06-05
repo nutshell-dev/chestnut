@@ -21,9 +21,9 @@ import type { PermissionChecker } from '../../foundation/tool-protocol/permissio
 
 import type { InboxMessage } from '../../foundation/messaging/types.js';
 import type { ToolProfile } from '../../foundation/tool-protocol/index.js';
-import type { ClawId, ChestnutRoot } from '../../foundation/identity/index.js';
+import type { ClawId, ChestnutRoot } from '../../foundation/paths.js';
 import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
-import { type ClawDir } from '../../foundation/identity/index.js';
+import { type ClawDir } from '../../foundation/paths.js';
 
 
 

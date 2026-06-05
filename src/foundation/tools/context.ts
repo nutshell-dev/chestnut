@@ -22,8 +22,8 @@ import type { DialogStore } from '../dialog-store/index.js';
 
 import type { ToolRegistry } from './types.js';
 import type { PermissionChecker } from '../tool-protocol/permission.js';
-import type { ClawId, ChestnutRoot } from '../identity/index.js';
-import { type ClawDir } from '../identity/index.js';
+import type { ClawId, ChestnutRoot } from '../paths.js';
+import { type ClawDir } from '../paths.js';
 
 
 /**

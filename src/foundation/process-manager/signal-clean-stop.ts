@@ -1,4 +1,4 @@
-import { type ChestnutRoot } from '../../foundation/identity/index.js';
+import { type ChestnutRoot } from '../../foundation/paths.js';
 
 /**
  * @module L2.ProcessManager.SignalCleanStop

@@ -1,6 +1,6 @@
 import type { FileSystem } from '../fs/types.js';
 import type { AuditLog } from '../audit/index.js';
-import type { ClawId } from '../identity/index.js';
+import type { ClawId } from '../paths.js';
 import type { ProcessStartTime } from '../process-exec/index.js';
 
 

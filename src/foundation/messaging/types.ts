@@ -1,4 +1,4 @@
-import type { ClawId } from '../identity/index.js';
+import type { ClawId } from '../paths.js';
 
 export type Priority = 'low' | 'normal' | 'high' | 'critical';
 

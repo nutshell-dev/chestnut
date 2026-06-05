@@ -64,16 +64,16 @@ import {
   PROGRESS_CURRENT_SCHEMA_VERSION,
 } from './persistence.js';
 import { type ContractId, makeContractId } from './types.js';
-import { resolveChestnutRoot } from '../../foundation/identity/index.js';
+import { resolveChestnutRoot } from '../../foundation/paths.js';
 import { type SubtaskId, type ArchiveDir, makeArchiveDir } from './types.js';
-import type { ClawId, ChestnutRoot } from '../../foundation/identity/index.js';
+import type { ClawId, ChestnutRoot } from '../../foundation/paths.js';
 import { runContractVerifier } from './verifier-job.js';
 import {
   pauseContract, resumeContract, cancelContract, markCrashed,
   isContractComplete, moveContractToArchive,
   type LifecycleContext,
 } from './lifecycle.js';
-import { type ClawDir } from '../../foundation/identity/index.js';
+import { type ClawDir } from '../../foundation/paths.js';
 // phase 1406: path import removed — chestnutRoot 推算迁 resolveChestnutRoot
 import {
   runVerificationPipeline,

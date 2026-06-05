@@ -19,7 +19,7 @@ import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { ContractAuditor, parseVerdict } from '../../../src/core/contract/contract-auditor.js';
 import { InboxWriter, makeInboxPath } from '../../../src/foundation/messaging/index.js';
 import { makeAudit } from '../../helpers/audit.js';
-import { makeClawId } from '../../../src/foundation/identity/index.js';
+import { makeClawId } from '../../../src/foundation/paths.js';
 import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/index.js';
 import type { LLMResponse } from '../../../src/foundation/llm-provider/types.js';
 

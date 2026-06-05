@@ -4,7 +4,7 @@ import { isAlive as l1IsAlive, getProcessStartTime, makeProcessStartTime, type P
 import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
 import { getLockFile } from './paths.js';
 import { LockConflictError, type ProcessManagerContext } from './types.js';
-import { makeClawId, type ClawId } from '../identity/index.js';
+import { makeClawId, type ClawId } from '../paths.js';
 
 
 export function readLockPid(

@@ -12,7 +12,7 @@ import { createDirContext } from '../../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { getWorkspaceRoot, resolveDaemonEntry } from '../../foundation/paths.js';
 import { DAEMON_LOG } from '../../daemon/constants.js';
-import { makeClawId } from '../../foundation/identity/index.js';
+import { makeClawId } from '../../foundation/paths.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 
 export async function chatCommand(deps: { fsFactory: (baseDir: string) => FileSystem }, name: string): Promise<void> {

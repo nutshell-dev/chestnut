@@ -16,7 +16,7 @@ import { AUDIT_MESSAGE_MAX_CHARS } from '../audit/index.js';
 import { isAlive as l1IsAlive, getProcessStartTime } from '../process-exec/index.js';
 import { LockConflictError, type ProcessManagerContext } from './types.js';
 import type { SpawnOptions } from './types.js';
-import { makeClawId, type ClawId } from '../identity/index.js';
+import { makeClawId, type ClawId } from '../paths.js';
 
 
 const sleep = (ms: number): Promise<void> =>

@@ -8,10 +8,10 @@ import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js
 import type { ToolRegistry } from '../../foundation/tools/index.js';
 import type { ContractYaml, ProgressData, VerificationResult, VerifierConfig, VerifierResult, SubtaskId } from './types.js';
 import { type LockContext } from './lock.js';
-import type { ClawId } from '../../foundation/identity/index.js';
+import type { ClawId } from '../../foundation/paths.js';
 import type { ContractId } from './types.js';
-import type { ChestnutRoot } from '../../foundation/identity/index.js';
-import { type ClawDir } from '../../foundation/identity/index.js';
+import type { ChestnutRoot } from '../../foundation/paths.js';
+import { type ClawDir } from '../../foundation/paths.js';
 import type { VerificationMutex } from './verification-mutex.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { AuditLog } from '../../foundation/audit/index.js';

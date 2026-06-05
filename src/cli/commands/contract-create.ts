@@ -9,9 +9,9 @@ import { createSystemAudit, type AuditLog } from '../../foundation/audit/index.j
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { createToolRegistry } from '../../foundation/tools/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
-import type { ClawId } from '../../foundation/identity/index.js';
+import type { ClawId } from '../../foundation/paths.js';
 import { makeContractId } from '../../core/contract/types.js';
-import { resolveChestnutRoot } from '../../foundation/identity/index.js';
+import { resolveChestnutRoot } from '../../foundation/paths.js';
 import { parseAndValidateContractYaml, notifyContractCreated } from './contract-helpers.js';
 
 export async function contractCreateCommand(deps: { fsFactory: (baseDir: string) => FileSystem }, clawId: ClawId, filePath: string, extraDeps?: { audit?: AuditLog }): Promise<void> {

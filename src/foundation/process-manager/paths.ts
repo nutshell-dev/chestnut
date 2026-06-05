@@ -1,6 +1,6 @@
 import * as path from 'path';
 import type { ProcessManagerContext } from './types.js';
-import type { ClawId } from '../identity/index.js';
+import type { ClawId } from '../paths.js';
 
 
 export const STATUS_SUBDIR = 'status';

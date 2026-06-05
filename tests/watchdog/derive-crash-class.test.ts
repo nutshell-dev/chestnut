@@ -13,7 +13,7 @@ import {
   formatCrashBody,
 } from '../../src/watchdog/watchdog-utils.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
-import { makeClawDir } from '../../src/foundation/identity/index.js';
+import { makeClawDir } from '../../src/foundation/paths.js';
 
 describe('phase 2: deriveCrashClass', () => {
   it('no marker → active_unexpected', () => {

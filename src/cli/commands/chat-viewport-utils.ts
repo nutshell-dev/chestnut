@@ -6,7 +6,7 @@
 import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { notifyClaw } from '../../foundation/messaging/index.js';
-import { makeChestnutRoot } from '../../foundation/identity/index.js';
+import { makeChestnutRoot } from '../../foundation/paths.js';
 import { getChestnutRoot } from '../../foundation/paths.js';
 import { createDirContext } from '../../foundation/audit/index.js';
 /** 写用户输入到 inbox（chat 命令期间用户输入流入 daemon）/ 1:1 保 chat-viewport.ts:78-89 body */

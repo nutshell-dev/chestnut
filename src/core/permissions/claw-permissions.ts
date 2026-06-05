@@ -36,7 +36,7 @@ import {
 } from '../async-task-system/index.js';
 import { CLAWSPACE_DIR } from '../../foundation/paths.js';
 import type { PermissionChecker } from '../../foundation/tool-protocol/permission.js';
-import { type ClawDir } from '../../foundation/identity/index.js';
+import { type ClawDir } from '../../foundation/paths.js';
 export type { PermissionChecker } from '../../foundation/tool-protocol/permission.js';
 
 

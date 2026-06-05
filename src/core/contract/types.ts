@@ -15,8 +15,8 @@ export function makeContractId(s: string): ContractId { return s as ContractId; 
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { ToolRegistry } from '../../foundation/tools/index.js';
 import type { Priority } from '../../foundation/messaging/types.js';
-import type { ClawId, ChestnutRoot } from '../../foundation/identity/index.js';
-import { type ClawDir } from '../../foundation/identity/index.js';
+import type { ClawId, ChestnutRoot } from '../../foundation/paths.js';
+import { type ClawDir } from '../../foundation/paths.js';
 
 
 

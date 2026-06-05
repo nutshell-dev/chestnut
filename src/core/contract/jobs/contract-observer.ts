@@ -7,9 +7,9 @@ import { scanArchivedContracts } from './event-collector.js';
 import { CONTRACT_AUDIT_EVENTS } from '../audit-events.js';
 import { CLAWS_DIR } from '../../../foundation/paths.js';
 import { MOTION_CLAW_ID } from '../../../constants.js';
-import { makeClawId } from '../../../foundation/identity/index.js'
-import { type ChestnutRoot } from '../../../foundation/identity/index.js';
-import { makeClawDir } from '../../../foundation/identity/index.js';
+import { makeClawId } from '../../../foundation/paths.js'
+import { type ChestnutRoot } from '../../../foundation/paths.js';
+import { makeClawDir } from '../../../foundation/paths.js';
 import type { CronJob } from '../../cron/runner.js';
 import { parseSchedule } from '../../cron/runner.js';
 import type { ClawGlobalConfig } from '../../../foundation/config/index.js';

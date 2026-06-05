@@ -14,7 +14,7 @@ import {
   clawHasContract,
 } from '../../src/watchdog/watchdog-utils.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
-import { makeClawDir } from '../../src/foundation/identity/index.js';
+import { makeClawDir } from '../../src/foundation/paths.js';
 
 describe('phase 1482 + phase 2 reframe: deriveFailureClass (daemon_stopped 移除归 crash_notification)', () => {
   it('daemon alive + no lastError → daemon_silent', () => {

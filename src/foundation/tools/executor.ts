@@ -35,8 +35,8 @@ import {
   type ToolExecutorOptions,
 } from './types.js';
 import { safeNumber } from '../utils/index.js';
-import type { ClawId, ChestnutRoot } from '../identity/index.js';
-import { type ClawDir } from '../identity/index.js';
+import type { ClawId, ChestnutRoot } from '../paths.js';
+import { type ClawDir } from '../paths.js';
 
 
 // Re-export types from ./types.js for caller compat (18 caller 0 改)

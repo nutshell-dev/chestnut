@@ -8,7 +8,7 @@ import type { StreamWriter } from '../foundation/stream/index.js';
 import type { Snapshot } from '../foundation/snapshot/index.js';
 import type { ProcessManager } from '../foundation/process-manager/index.js';
 import type { AuditLog } from '../foundation/audit/index.js';
-import type { ClawId } from '../foundation/identity/index.js';
+import type { ClawId } from '../foundation/paths.js';
 
 
 /**

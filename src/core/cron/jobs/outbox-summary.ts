@@ -13,7 +13,7 @@ import type { AuditLog } from '../../../foundation/audit/index.js';
 import { formatErr } from "../../../foundation/utils/index.js";
 import type { FileSystem } from '../../../foundation/fs/types.js';
 import type { InboxReader, InboxWriter, OutboxReader } from '../../../foundation/messaging/index.js';
-import type { ChestnutRoot } from '../../../foundation/identity/index.js';
+import type { ChestnutRoot } from '../../../foundation/paths.js';
 import { CRON_AUDIT_EVENTS } from '../audit-events.js';
 import { runOutboxSummaryTick } from '../../outbox-summary/index.js';
 import type { CronJob } from '../runner.js';

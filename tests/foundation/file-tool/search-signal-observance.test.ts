@@ -12,7 +12,7 @@ import { searchTool } from '../../../src/foundation/file-tool/index.js';
 import { ExecContextImpl } from '../../../src/foundation/tools/context.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import { createClawPermissionChecker } from '../../../src/core/permissions/claw-permissions.js';
-import { makeChestnutRoot } from '../../../src/foundation/identity/index.js';
+import { makeChestnutRoot } from '../../../src/foundation/paths.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 
 describe('phase 1036: search.ts walkNative signal observance (F-4)', () => {

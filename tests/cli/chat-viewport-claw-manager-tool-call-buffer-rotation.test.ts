@@ -10,7 +10,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createClawManager } from '../../src/cli/commands/chat-viewport-claw-manager.js';
 import { makeClawTrack, type ClawTrack } from '../../src/cli/commands/chat-viewport-claw-line.js';
-import { makeClawId } from '../../src/foundation/identity/index.js';
+import { makeClawId } from '../../src/foundation/paths.js';
 import type { FileSystem } from '../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../src/foundation/audit/index.js';
 
