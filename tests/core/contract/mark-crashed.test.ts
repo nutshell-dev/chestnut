@@ -1,5 +1,5 @@
 /**
- * Phase 1152 G.5: cancelContract saveProgress-before-abort op-order reverse tests
+ * Phase 63 Step G: markCrashed unit tests
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as path from 'path';
@@ -9,6 +9,7 @@ import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { makeContractYaml } from '../../helpers/contract-yaml.js';
 import { createToolRegistry } from '../../../src/foundation/tools/index.js';
+import { ToolError } from '../../../src/foundation/errors.js';
 
 vi.mock('../../../src/core/contract/constants.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../src/core/contract/constants.js')>();
@@ -19,17 +20,19 @@ vi.mock('../../../src/core/contract/constants.js', async (importOriginal) => {
   };
 });
 
-describe('phase 1152 G.5: cancelContract saveProgress before abort order', () => {
+describe('phase 63: markCrashed', () => {
   let tempDir: string;
   let clawDir: string;
   let manager: ContractSystem;
   let nodeFs: NodeFileSystem;
+  let notifyCalls: Array<{ type: string; data: Record<string, unknown> }>;
 
   beforeEach(async () => {
     tempDir = await createTempDir();
     clawDir = path.join(tempDir, 'claws', 'test-claw');
     await fs.mkdir(clawDir, { recursive: true });
     nodeFs = new NodeFileSystem({ baseDir: clawDir });
+    notifyCalls = [];
     const captureAudit = {
       write: () => {},
     };
@@ -41,6 +44,9 @@ describe('phase 1152 G.5: cancelContract saveProgress before abort order', () =>
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir })
     });
+    manager.setOnNotify((type, data) => {
+      notifyCalls.push({ type, data });
+    });
   });
 
   afterEach(async () => {
@@ -48,57 +54,50 @@ describe('phase 1152 G.5: cancelContract saveProgress before abort order', () =>
     await cleanupTempDir(tempDir);
   });
 
-  it('phase 63: cancelContract triggers safeNotify("contract_cancelled")', async () => {
-    const notifyCalls: Array<{ type: string; data: Record<string, unknown> }> = [];
-    manager.setOnNotify((type, data) => {
-      notifyCalls.push({ type, data });
-    });
-
+  it('saveProgress(status="crashed") + move to archive + safeNotify', async () => {
     const contractId = await manager.create(makeContractYaml({
-      title: 'Cancel Notify Test',
+      title: 'Crash Test',
       goal: 'Test',
       deliverables: [],
       subtasks: [{ id: 't1', description: 'T1' }],
       verification: [],
     }));
-    // create triggers contract_created notify, clear to only verify cancel
+    // create 会触发 contract_created notify、清掉只验 markCrashed 的
     notifyCalls.length = 0;
 
-    await manager.cancel(contractId, 'user cancelled');
+    await manager.markCrashed(contractId, 'system: maxstepsexceedederror');
+
+    const progress = await manager.getProgress(contractId);
+    expect(progress.status).toBe('crashed');
+    expect(progress.checkpoint).toBe('crashed: system: maxstepsexceedederror');
+
+    const archiveContractDir = path.join(clawDir, 'contract', 'archive', contractId);
+    await expect(fs.access(archiveContractDir)).resolves.toBeUndefined();
 
     expect(notifyCalls).toHaveLength(1);
-    expect(notifyCalls[0].type).toBe('contract_cancelled');
+    expect(notifyCalls[0].type).toBe('contract_crashed');
     expect(notifyCalls[0].data).toMatchObject({
       contractId,
-      reason: 'user cancelled',
+      cause: 'system: maxstepsexceedederror',
     });
   });
 
-  // 反向 1: happy path — cancelContract 后 progress.json status='cancelled' + contract 在 archive dir
-  it('happy path: cancel saves progress as cancelled then moves to archive', async () => {
+  it('throws ToolError if contract already in archive', async () => {
     const contractId = await manager.create(makeContractYaml({
-      title: 'Cancel Order Test',
+      title: 'Crash Already Archived',
       goal: 'Test',
       deliverables: [],
       subtasks: [{ id: 't1', description: 'T1' }],
       verification: [],
     }));
 
-    await manager.cancel(contractId, 'user cancelled');
-
-    const progress = await manager.getProgress(contractId);
-    expect(progress.status).toBe('cancelled');
-    expect(progress.checkpoint).toBe('cancelled: user cancelled');
-
-    // contract should be in archive dir
-    const archiveContractDir = path.join(clawDir, 'contract', 'archive', contractId);
-    await expect(fs.access(archiveContractDir)).resolves.toBeUndefined();
+    await manager.cancel(contractId, 'pre-cancel');
+    await expect(manager.markCrashed(contractId, 'cause')).rejects.toThrow(ToolError);
   });
 
-  // 反向 2: abortContractVerifiers throws → catch 不阻断 → saveProgress 已 land + fs.move 仍执行
-  it('abort throw: saveProgress lands before abort, catch does not block move', async () => {
+  it('abortContractVerifiers failure does not break main flow', async () => {
     const contractId = await manager.create(makeContractYaml({
-      title: 'Cancel Abort Throw Test',
+      title: 'Crash Abort Throw',
       goal: 'Test',
       deliverables: [],
       subtasks: [{ id: 't1', description: 'T1' }],
@@ -109,41 +108,42 @@ describe('phase 1152 G.5: cancelContract saveProgress before abort order', () =>
       throw new Error('verifier abort boom');
     });
 
-    // Should NOT throw — abort is best-effort wrapped in try/catch
-    await expect(manager.cancel(contractId, 'test abort throw')).resolves.toBeUndefined();
+    await expect(manager.markCrashed(contractId, 'cause')).resolves.toBeUndefined();
 
-    // saveProgress must have landed before abort was called
     const progress = await manager.getProgress(contractId);
-    expect(progress.status).toBe('cancelled');
+    expect(progress.status).toBe('crashed');
 
-    // contract should still be moved to archive
     const archiveContractDir = path.join(clawDir, 'contract', 'archive', contractId);
     await expect(fs.access(archiveContractDir)).resolves.toBeUndefined();
 
     abortSpy.mockRestore();
   });
 
-  // 反向 3: saveProgress reject → catch 块 releaseLock(source) + throw / lock 不 orphan
-  it('saveProgress reject: source lock released + throw propagated', async () => {
-    const contractId = await manager.create(makeContractYaml({
-      title: 'Cancel Save Reject Test',
+  it('emits CONTRACT_CRASHED audit', async () => {
+    const auditWrites: string[][] = [];
+    const audit = {
+      write: (...args: string[]) => auditWrites.push(args),
+    };
+    const localManager = new ContractSystem({
+      clawDir,
+      clawId: 'test-claw',
+      fs: nodeFs,
+      audit: audit as any,
+      toolRegistry: createToolRegistry(),
+      fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir })
+    });
+
+    const contractId = await localManager.create(makeContractYaml({
+      title: 'Crash Audit Test',
       goal: 'Test',
       deliverables: [],
       subtasks: [{ id: 't1', description: 'T1' }],
       verification: [],
     }));
 
-    const sourceLockPath = path.join(clawDir, 'contract', 'active', contractId, 'progress.lock');
+    await localManager.markCrashed(contractId, 'cause');
 
-    const saveSpy = vi.spyOn(manager as any, 'saveProgress').mockRejectedValue(
-      new Error('ENOSPC: no space left on device')
-    );
-
-    await expect(manager.cancel(contractId, 'test save reject')).rejects.toThrow('ENOSPC');
-
-    // source lock must be released (deleted)
-    await expect(fs.access(sourceLockPath)).rejects.toThrow();
-
-    saveSpy.mockRestore();
+    expect(auditWrites.some(a => a[0] === 'contract_crashed' && a.some(s => s.includes('contractId=' + contractId)))).toBe(true);
+    expect(auditWrites.some(a => a[0] === 'contract_crashed' && a.some(s => s.includes('cause=cause')))).toBe(true);
   });
 });
