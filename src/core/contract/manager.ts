@@ -24,7 +24,7 @@ import * as yaml from 'js-yaml';
 import { formatErr } from "../../foundation/utils/index.js";
 import { randomUUID } from 'crypto';
 
-import type { FileSystem } from '../../foundation/fs/types.js';
+import { isFileNotFound, type FileSystem } from '../../foundation/fs/types.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { Contract, SubtaskStatus } from '../contract/types.js';
 import { ToolError, isProgrammingBug } from '../../foundation/errors.js';
@@ -716,10 +716,27 @@ export class ContractSystem {
     return contractId;
   }
 
+  /**
+   * 读 contract progress.json。
+   *
+   * TOCTOU mitigation: `contractDir` + `fs.read` 跨步骤间、archive move
+   * (verification-lifecycle.ts:34 `moveContractToArchive` 在 withProgressLock
+   * 外执行) 可能将文件从 active dir 移到 archive dir。捕 `FileNotFoundError`
+   * 重探 contractDir 一次。第二次仍 FileNotFoundError 则真不存在、暴露给 caller。
+   */
   async getProgress(contractId: ContractId): Promise<ProgressData | null> {
-    const dir = await this.contractDir(contractId);
+    let dir: string;
+    let content: string;
+    try {
+      dir = await this.contractDir(contractId);
+      content = await this.fs.read(`${dir}/${contractId}/progress.json`);
+    } catch (err) {
+      if (!isFileNotFound(err)) throw err;
+      // race retry: contractDir + fs.read 再走一遍，archive 已稳定
+      dir = await this.contractDir(contractId);
+      content = await this.fs.read(`${dir}/${contractId}/progress.json`);
+    }
     const progressPath = `${dir}/${contractId}/progress.json`;
-    const content = await this.fs.read(progressPath);
     const parsed = JSON.parse(content) as { schema_version?: unknown; contract_id?: unknown; status?: unknown; subtasks?: unknown };
 
     // NEW phase 1134 / schema_version invariant (mirror phase 1019 contract.yaml)
