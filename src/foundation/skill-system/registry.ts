@@ -7,7 +7,7 @@
  */
 
 import type { FileSystem } from '../../foundation/fs/types.js';
-import { formatErr } from "../utils/index.js";
+import { formatErr, parseFrontmatterFrame } from "../utils/index.js";
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { ToolError } from '../errors.js';
 import { SKILL_AUDIT_EVENTS } from './audit-events.js';
@@ -36,53 +36,7 @@ export class SkillDuplicateError extends Error {
   }
 }
 
-/**
- * Parse YAML frontmatter (industry standard syntax / per practices.md §DRY reflex 反例落地 / phase 461)
- * 1:1 inline copy from deleted src/foundation/frontmatter/ / 各 caller 自治 / format schema 业务归 caller。
- *
- * Sister implementations（phase 461 ratify「各 caller 自治」、phase 1433 加 cross-ref）：
- * - `src/foundation/messaging/codec-inbox.ts` parseFrontmatter — yamlUnquote 富 unquote / 无 EOF tolerance
- * - `src/core/memory/tools/memory_search.ts` parseFrontmatter — 简 regex unquote / 无 EOF tolerance
- *
- * 本实现独有：EOF tolerance（phase 953 / 容忍文件末尾无 trailing newline）+ 简 regex unquote。
- * 改共享 frame syntax（`---\n` 边界、CRLF 归一、`:` split）需同步 sister；caller 特异（unquote / EOF）保持独立。
- */
-function parseFrontmatter(raw: string): { meta: Record<string, string>; body: string } {
-  // Normalize CRLF to LF for consistent parsing
-  const normalized = raw.replace(/\r\n/g, '\n');
 
-  if (!normalized.startsWith('---\n')) return { meta: {}, body: raw };
-  const afterOpen = normalized.slice(4);
-
-  // Try strict close pattern first: '\n---\n' followed by body
-  let closeIdx = afterOpen.indexOf('\n---\n');
-  let bodySliceOffset = 5; // length of '\n---\n'
-  let useEofClose = false;
-
-  if (closeIdx < 0) {
-    // phase 953 (r118 H fork): tolerate EOF without trailing newline
-    // '---\nname: foo\n---' (some editors save without final newline) is valid frontmatter with empty body
-    if (afterOpen.endsWith('\n---')) {
-      closeIdx = afterOpen.length - 4; // offset of '\n' before '---'
-      bodySliceOffset = 4; // '\n---' (no trailing \n)
-      useEofClose = true;
-    } else {
-      throw new Error('Malformed frontmatter: missing closing ---');
-    }
-  }
-
-  const meta: Record<string, string> = {};
-  for (const line of afterOpen.slice(0, closeIdx).split('\n')) {
-    const ci = line.indexOf(':');
-    if (ci <= 0) continue;
-    const key = line.slice(0, ci).trim();
-    const value = line.slice(ci + 1).trim().replace(/^["']|["']$/g, '');
-    meta[key] = value;
-  }
-
-  const body = useEofClose ? '' : afterOpen.slice(closeIdx + bodySliceOffset).trim();
-  return { meta, body };
-}
 
 export interface SkillMeta {
   name: string;
@@ -174,8 +128,12 @@ export class SkillSystem {
     const skillMdPath = `${skillDir}/SKILL.md`;
     const content = await this.fs.read(skillMdPath);
     
-    // 解析 frontmatter
-    const { meta: frontmatter } = parseFrontmatter(content);
+    // 解析 frontmatter (phase 62: frame syntax 共享 helper + caller-side unquote 自治)
+    const { meta: rawMeta } = parseFrontmatterFrame(content, { eofTolerant: true });
+    const frontmatter: Record<string, string> = {};
+    for (const [k, v] of Object.entries(rawMeta)) {
+      frontmatter[k] = v.replace(/^["']|["']$/g, '');
+    }
     
     // 从路径提取技能名（作为 fallback）
     const dirName = skillDir.split('/').pop() || 'unknown';

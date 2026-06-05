@@ -3,45 +3,12 @@
  */
 
 import type { Tool, ExecContext, ExecutionInfra } from '../../../foundation/tools/index.js';
-import { formatErr } from "../../../foundation/utils/index.js";
+import { formatErr, parseFrontmatterFrame } from "../../../foundation/utils/index.js";
 import type { ToolResult } from '../../../foundation/tool-protocol/index.js';
 import type { FileEntry } from '../../../foundation/fs/types.js';
 export const MEMORY_SEARCH_TOOL_NAME = 'memory_search' as const;
 
-/**
- * Parse YAML frontmatter (industry standard syntax / per practices.md §DRY reflex 反例落地 / phase 461)
- * 1:1 inline copy from deleted src/foundation/frontmatter/ / 各 caller 自治 / format schema 业务归 caller。
- *
- * Sister implementations（phase 461 ratify「各 caller 自治」、phase 1433 加 cross-ref）：
- * - `src/foundation/skill-system/registry.ts` parseFrontmatter — 简 regex unquote / 有 EOF tolerance（phase 953）
- * - `src/foundation/messaging/codec-inbox.ts` parseFrontmatter — yamlUnquote 富 unquote / 无 EOF tolerance
- *
- * 本实现独有：无（最简 baseline）。
- * 改共享 frame syntax（`---\n` 边界、CRLF 归一、`:` split）需同步 sister；caller 特异保持独立。
- */
-function parseFrontmatter(raw: string): { meta: Record<string, string>; body: string } {
-  // Normalize CRLF to LF for consistent parsing
-  const normalized = raw.replace(/\r\n/g, '\n');
 
-  if (!normalized.startsWith('---\n')) return { meta: {}, body: raw };
-  const afterOpen = normalized.slice(4);
-  const closeIdx = afterOpen.indexOf('\n---\n');
-  if (closeIdx < 0) {
-    throw new Error('Malformed frontmatter: missing closing ---');
-  }
-
-  const meta: Record<string, string> = {};
-  for (const line of afterOpen.slice(0, closeIdx).split('\n')) {
-    const ci = line.indexOf(':');
-    if (ci <= 0) continue;
-    const key = line.slice(0, ci).trim();
-    const value = line.slice(ci + 1).trim().replace(/^["']|["']$/g, '');
-    meta[key] = value;
-  }
-
-  // Everything after the closing --- is the body
-  return { meta, body: afterOpen.slice(closeIdx + 5).trim() };
-}
 
 export const memorySearchTool: Tool = {
   name: MEMORY_SEARCH_TOOL_NAME,
@@ -129,9 +96,13 @@ export const memorySearchTool: Tool = {
       try {
         const text = await infra.fs.read(entry.path);
 
-        // frontmatter 元数据过滤
+        // frontmatter 元数据过滤 (phase 62: frame syntax 共享 helper + caller-side unquote 自治)
         if (Object.keys(metaFilter).length > 0) {
-          const { meta } = parseFrontmatter(text);
+          const { meta: rawMeta } = parseFrontmatterFrame(text);
+          const meta: Record<string, string> = {};
+          for (const [k, v] of Object.entries(rawMeta)) {
+            meta[k] = v.replace(/^["']|["']$/g, '');
+          }
           if (!metaMatches(meta, metaFilter)) continue;
         }
 

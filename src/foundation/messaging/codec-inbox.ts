@@ -1,40 +1,20 @@
 import { randomUUID } from 'crypto';
 import type { InboxMessage } from '../messaging/types.js';
 import { validatePriority, validateType } from './codec-validation.js';
+import { parseFrontmatterFrame } from '../utils/frontmatter-frame.js';
 
 /**
- * Parse YAML frontmatter — module-level helper / shared by encodeInbox/decodeInbox + InboxWriter.readMeta.
- * Returns meta + body. Throws if frontmatter is malformed.
- *
- * Sister implementations（phase 461 ratify「各 caller 自治」、phase 1433 加 cross-ref）：
- * - `src/foundation/skill-system/registry.ts` parseFrontmatter — 简 regex unquote / 有 EOF tolerance（phase 953）
- * - `src/core/memory/tools/memory_search.ts` parseFrontmatter — 简 regex unquote / 无 EOF tolerance
- *
- * 本实现独有：`yamlUnquote` 富 unquote（支持 `\"` `\n` `\r` `\\` escape）。
- * 改共享 frame syntax（`---\n` 边界、CRLF 归一、`:` split）需同步 sister；caller 特异（yamlUnquote）保持独立。
+ * Thin wrapper: frame helper + yamlUnquote post-process.
+ * Keeps export for external callers (inbox-writer.ts, codec-outbox.ts).
+ * per phase 62 frame syntax 共享、unquote 自治.
  */
 export function parseFrontmatter(raw: string): { meta: Record<string, string>; body: string } {
-  // Normalize CRLF to LF for consistent parsing
-  const normalized = raw.replace(/\r\n/g, '\n');
-
-  if (!normalized.startsWith('---\n')) return { meta: {}, body: raw };
-  const afterOpen = normalized.slice(4);
-  const closeIdx = afterOpen.indexOf('\n---\n');
-  if (closeIdx < 0) {
-    throw new Error('Malformed frontmatter: missing closing ---');
-  }
-
+  const { meta: rawMeta, body } = parseFrontmatterFrame(raw);
   const meta: Record<string, string> = {};
-  for (const line of afterOpen.slice(0, closeIdx).split('\n')) {
-    const ci = line.indexOf(':');
-    if (ci <= 0) continue;
-    const key = line.slice(0, ci).trim();
-    const value = yamlUnquote(line.slice(ci + 1).trim());
-    meta[key] = value;
+  for (const [k, v] of Object.entries(rawMeta)) {
+    meta[k] = yamlUnquote(v);
   }
-
-  // Everything after the closing --- is the body
-  return { meta, body: afterOpen.slice(closeIdx + 5).trim() };
+  return { meta, body };
 }
 
 /**
