@@ -38,6 +38,7 @@ export const CONTRACT_AUDIT_EVENTS = {
   // phase345: caller 风格统一并轨（B.p344-1 / contract lifecycle events）
   PASSED: 'verification_passed',
   CANCELLED: 'contract_cancelled',
+  CRASHED: 'contract_crashed',                  // phase 63 NEW
   COMPLETED: 'contract_completed',
   PAUSED: 'contract_paused',
   RESUMED: 'contract_resumed',

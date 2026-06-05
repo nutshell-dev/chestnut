@@ -8,11 +8,14 @@ import type { Contract } from '../contract/types.js';
 import type { ProgressData } from './types.js';
 import { lockContract, releaseLock, type LockContext } from './lock.js';
 import { ToolError } from '../../foundation/errors.js';
+import { formatErr } from '../../foundation/utils/index.js';
 
 import {
   emitContractPaused,
   emitContractResumed,
   emitContractCancelled,
+  emitContractCrashed,
+  emitContractNotifyFailed,
 } from './audit-emit.js';
 
 import { type ArchiveDir } from './types.js';
@@ -28,6 +31,8 @@ export interface LifecycleContext extends LockContext {
   checkAllSubtasksCompleted: (contractId: ContractId, progress: ProgressData) => Promise<boolean>;
   /** phase 1020 (r124 C fork): cancelContract abort propagation to active verifier subagents */
   abortContractVerifiers: (contractId: ContractId, reason: string) => void;
+  /** phase 63: onNotify callback for contract terminal state alerts */
+  onNotify?: (type: string, data: Record<string, unknown>) => void;
 }
 
 export async function pauseContract(
@@ -161,6 +166,69 @@ export async function cancelContract(
   }
 
   emitContractCancelled(ctx.audit, { contractId, reason });
+  safeNotify(ctx, 'contract_cancelled', { contractId, reason });
+}
+
+// phase 63: safe notify wrapper for lifecycle functions
+function safeNotify(
+  ctx: LifecycleContext,
+  type: 'contract_cancelled' | 'contract_crashed',
+  data: Record<string, unknown>,
+): void {
+  try {
+    ctx.onNotify?.(type, data);
+  } catch (err) {
+    emitContractNotifyFailed(ctx.audit, { notifyType: type, error: formatErr(err) });
+  }
+}
+
+/**
+ * phase 63: ContractSystem 新增 markCrashed 入口
+ *
+ * 与 cancelContract 对称、但语义不同：
+ * - cancelContract: 主动决策中止（user CLI / system 决定停）
+ * - markCrashed:    被动崩（agent 物理推不动、Runtime catch 5 typed Error 触发）
+ *
+ * 流程：lockContract / saveProgress(crashed) / abortContractVerifiers / fs.move source → archive / release / emit audit / safeNotify
+ */
+export async function markCrashed(
+  ctx: LifecycleContext,
+  contractId: ContractId,
+  cause: string,
+): Promise<void> {
+  const { dir, release: releaseSource } = await lockContract(ctx, contractId, ctx.contractDir);
+  if (dir === ctx.archiveDir) {
+    await releaseSource();
+    throw new ToolError(`Cannot mark crashed contract "${contractId}": already archived`);
+  }
+  await ctx.fs.ensureDir(ctx.archiveDir);
+
+  const targetLockPath = `${ctx.archiveDir}/${contractId}/progress.lock`;
+  try {
+    // (2) canonical decision: saveProgress first (durable crashed mark)
+    const progress = await ctx.getProgress(contractId);
+    progress.status = 'crashed';
+    progress.checkpoint = `crashed: ${cause}`;
+    await ctx.saveProgress(contractId, progress);
+
+    // (3) abort verifier subagents (best-effort)
+    try {
+      ctx.abortContractVerifiers(contractId, cause);
+    } catch (abortErr) {
+      // silent: abort verifier best-effort, markCrashed main flow must not break
+    }
+
+    // (4) move whole dir
+    await ctx.fs.move(`${dir}/${contractId}`, `${ctx.archiveDir}/${contractId}`);
+  } catch (err) {
+    try { await releaseSource(); } catch { /* 不阻断 throw chain */ }
+    throw err;
+  } finally {
+    await releaseLock(ctx, targetLockPath);
+  }
+
+  emitContractCrashed(ctx.audit, { contractId, cause });
+  safeNotify(ctx, 'contract_crashed', { contractId, cause });
 }
 
 export async function isContractComplete(

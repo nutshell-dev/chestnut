@@ -125,6 +125,7 @@
       "contract_complete_on_cancelled",
       "contract_completed",
       "contract_completed_handler_failed",
+      "contract_crashed",
       "contract_created",
       "contract_dir_race_retry",
       "contract_dir_scan_failed",

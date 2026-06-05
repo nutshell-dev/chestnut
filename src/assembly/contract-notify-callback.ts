@@ -59,6 +59,40 @@ export function createContractNotifyCallback(deps: ContractNotifyDeps): Contract
         },
       }, deps.auditWriter);
     }
+
+    // phase 63: contract_cancelled NEW
+    if (type === 'contract_cancelled') {
+      const reason = typeof data.reason === 'string' ? data.reason : '';
+      notifyInbox(deps.systemFs, {
+        inboxDir: deps.selfInboxDir,
+        type: 'contract_cancelled',
+        source: 'system',
+        priority: 'high',
+        body: `[contract_cancelled] claw=${deps.clawId} ${formatNotifyData(data)}`,
+        extraFields: {
+          source_claw: deps.clawId,
+          contract_id: String(data.contractId ?? ''),
+          reason,
+        },
+      }, deps.auditWriter);
+    }
+
+    // phase 63: contract_crashed NEW
+    if (type === 'contract_crashed') {
+      const cause = typeof data.cause === 'string' ? data.cause : '';
+      notifyInbox(deps.systemFs, {
+        inboxDir: deps.selfInboxDir,
+        type: 'contract_crashed',
+        source: 'system',
+        priority: 'high',
+        body: `[contract_crashed] claw=${deps.clawId} ${formatNotifyData(data)}`,
+        extraFields: {
+          source_claw: deps.clawId,
+          contract_id: String(data.contractId ?? ''),
+          cause,
+        },
+      }, deps.auditWriter);
+    }
   };
 }
 

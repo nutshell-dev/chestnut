@@ -457,6 +457,19 @@ export function emitContractPassed(
   );
 }
 
+// ─── CRASHED ────────────────────────────────────────────────────────────────
+export function emitContractCrashed(
+  audit: AuditLog,
+  fields: { contractId: ContractId; cause: string },
+): void {
+  if (!assertContractIdNonEmpty(audit, fields.contractId, 'emitContractCrashed')) return;
+  audit.write(
+    CONTRACT_AUDIT_EVENTS.CRASHED,
+    `contractId=${fields.contractId}`,
+    `cause=${fields.cause}`,
+  );
+}
+
 // ─── CANCELLED ──────────────────────────────────────────────────────────────
 export function emitContractCancelled(
   audit: AuditLog,

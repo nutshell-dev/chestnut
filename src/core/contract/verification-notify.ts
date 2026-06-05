@@ -27,7 +27,7 @@ import {
   emitSubtaskForceAccepted,
 } from './audit-emit.js';
 
-type NotifyType = 'subtask_completed' | 'verification_failed' | 'contract_completed';
+type NotifyType = 'subtask_completed' | 'verification_failed' | 'contract_completed' | 'contract_cancelled' | 'contract_crashed';
 
 export function safeNotify(
   ctx: VerificationContext,

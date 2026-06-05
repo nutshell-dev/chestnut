@@ -30,6 +30,8 @@ import { composer as taskResult } from './task-result.js';
 import { composer as contractCreated } from './contract-created.js';
 import { composer as contractResume } from './contract-resume.js';
 import { composer as contractAuditFeedback } from './contract-audit-feedback.js';
+import { composer as contractCancelled } from './contract-cancelled.js';
+import { composer as contractCrashed } from './contract-crashed.js';
 
 export function registerAllMotionGuidance(registry: MotionGuidanceRegistry): void {
   registry.register('crash_notification', crashNotification);
@@ -51,4 +53,6 @@ export function registerAllMotionGuidance(registry: MotionGuidanceRegistry): voi
   registry.register('contract_created', contractCreated);
   registry.register('contract_resume', contractResume);
   registry.register('contract_audit_feedback', contractAuditFeedback);
+  registry.register('contract_cancelled', contractCancelled);   // phase 63 γ NEW
+  registry.register('contract_crashed', contractCrashed);       // phase 63 γ NEW
 }

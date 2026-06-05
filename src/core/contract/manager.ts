@@ -68,7 +68,7 @@ import { type SubtaskId, type ArchiveDir, makeArchiveDir } from './types.js';
 import type { ClawId, ChestnutRoot } from '../../foundation/identity/index.js';
 import { runContractVerifier } from './verifier-job.js';
 import {
-  pauseContract, resumeContract, cancelContract,
+  pauseContract, resumeContract, cancelContract, markCrashed,
   isContractComplete, moveContractToArchive,
   type LifecycleContext,
 } from './lifecycle.js';
@@ -355,6 +355,7 @@ export class ContractSystem {
       saveProgress: (id, p) => this.saveProgress(id, p),
       checkAllSubtasksCompleted: (id, p) => this.checkAllCompleted(id, p),
       abortContractVerifiers: (id, reason) => this._abortContractVerifiers(id, reason),
+      onNotify: this.onNotify,
     };
   }
 
@@ -517,6 +518,10 @@ export class ContractSystem {
 
   async cancel(contractId: ContractId, reason: string): Promise<void> {
     return cancelContract(this._lifecycleCtx(), contractId, reason);
+  }
+
+  async markCrashed(contractId: ContractId, cause: string): Promise<void> {
+    return markCrashed(this._lifecycleCtx(), contractId, cause);
   }
 
   async isComplete(contractId: ContractId): Promise<boolean> {
