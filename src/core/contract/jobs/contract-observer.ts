@@ -133,7 +133,10 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
     return;
   }
 
-  const events: string[] = [];
+  const completedEvents: string[] = [];
+  const cancelledEvents: string[] = [];
+  const crashedEvents: string[] = [];
+  const recoveryEvents: string[] = [];
   const allProblemPairs: string[] = [];
   const newlyDiscovered: string[] = [];
 
@@ -148,9 +151,23 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
         newlyDiscovered.push(key);
         // bootstrap 期不 emit、仅填 set（防 migration 后历史 archive 大量重 emit）
         if (state.bootstrapDone) {
-          events.push(entry.body);
-          if (entry.hasFailure) {
-            allProblemPairs.push(key);
+          switch (entry.status) {
+            case 'completed':
+              completedEvents.push(entry.body);
+              if (entry.hasFailure) allProblemPairs.push(key);
+              break;
+            case 'cancelled':
+              cancelledEvents.push(entry.body);
+              break;
+            case 'crashed':
+              crashedEvents.push(entry.body);
+              break;
+            case 'archive_pending_recovery':
+              recoveryEvents.push(entry.body);
+              break;
+            default:
+              // unknown_status: 投 generic 防丢失（保 contract_events 路径）
+              completedEvents.push(entry.body);
           }
         }
       }
@@ -163,20 +180,43 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
     }
   }
 
-  // 有事件时写 motion inbox（仅 bootstrap 后）
-  if (events.length > 0) {
-    // phase 1487: 经 extraFields 透传 problem_pairs 给 motion guidance composer
-    // observer 不扫 motion 自家 archive（scan claws/ 只含 worker）→ 不设 source_claw
-    //   (composer 见 source_claw 缺 → 走 problem_pairs 分支判 guidance)
-    // A3 callback 在 assemble.ts 单独透传 source_claw=clawId（含 motion 自家 contract 路径）
+  // 分流投递 3 个独立 notifyClawFn 调用（type 不同）
+  if (completedEvents.length > 0) {
     notifyClawFn(fs, chestnutRoot, MOTION_CLAW_ID, {
       type: 'contract_events',
       source: 'system',
       priority: 'high',
-      body: events.join('\n\n'),
+      body: completedEvents.join('\n\n'),
       extraFields: {
         problem_pairs: allProblemPairs.join(','),
       },
+    }, motionAudit);
+  }
+
+  if (cancelledEvents.length > 0) {
+    notifyClawFn(fs, chestnutRoot, MOTION_CLAW_ID, {
+      type: 'contract_cancelled',
+      source: 'system',
+      priority: 'high',
+      body: cancelledEvents.join('\n\n'),
+    }, motionAudit);
+  }
+
+  if (crashedEvents.length > 0) {
+    notifyClawFn(fs, chestnutRoot, MOTION_CLAW_ID, {
+      type: 'contract_crashed',
+      source: 'system',
+      priority: 'high',
+      body: crashedEvents.join('\n\n'),
+    }, motionAudit);
+  }
+
+  if (recoveryEvents.length > 0) {
+    notifyClawFn(fs, chestnutRoot, MOTION_CLAW_ID, {
+      type: 'contract_events',  // recovery 复用 contract_events、不立第 4 个 type
+      source: 'system',
+      priority: 'high',
+      body: recoveryEvents.join('\n\n'),
     }, motionAudit);
   }
 

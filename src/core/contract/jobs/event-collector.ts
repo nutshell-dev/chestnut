@@ -4,6 +4,7 @@ import * as yaml from 'js-yaml';
 import { isFileNotFound, type FileSystem } from '../../../foundation/fs/types.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
 import type { ProgressData } from '../manager.js';
+import type { ContractStatus } from '../types.js';
 import { CONTRACT_AUDIT_EVENTS } from '../audit-events.js';
 import { CONTRACT_DIR } from '../dirs.js';
 import type { ClawId } from '../../../foundation/identity/index.js';
@@ -29,15 +30,44 @@ function readContractMeta(
 interface FormattedEvent {
   body: string;
   hasFailure: boolean;     // 任意 subtask 有 last_failed_feedback
+  status: ContractStatus;
+  reason?: string;
+  cause?: string;
 }
 
-function formatContractCompletedEvent(
+function formatContractEvent(
   clawId: ClawId,
   contractDirName: string,
   meta: { title?: string; goal?: string },
   progress: ProgressData,
 ): FormattedEvent {
-  const lines: string[] = [`[contract_completed] claw=${clawId} contract=${contractDirName}`];
+  const status = progress.status;
+  switch (status) {
+    case 'completed':
+      return formatCompleted(clawId, contractDirName, meta, progress);
+    case 'cancelled':
+      return formatCancelled(clawId, contractDirName, meta, progress);
+    case 'crashed':
+      return formatCrashed(clawId, contractDirName, meta, progress);
+    case 'archive_pending_recovery':
+      return formatPendingRecovery(clawId, contractDirName, meta, progress);
+    default:
+      // active/paused 不该在 archive 中、防御性：标 unknown 字面
+      return {
+        body: `[contract_unknown_status:${String(status)}] claw=${clawId} contract=${contractDirName}`,
+        hasFailure: false,
+        status,
+      };
+  }
+}
+
+function formatCompleted(
+  clawId: ClawId,
+  dirName: string,
+  meta: { title?: string; goal?: string },
+  progress: ProgressData,
+): FormattedEvent {
+  const lines: string[] = [`[contract_completed] claw=${clawId} contract=${dirName}`];
   if (meta.title) lines.push(`  title: ${meta.title}`);
   if (meta.goal) lines.push(`  goal: ${meta.goal}`);
 
@@ -48,8 +78,6 @@ function formatContractCompletedEvent(
     lines.push('  subtasks:');
     for (const [stId, st] of completed) {
       // phase 1487: 去 [force-accepted] prefix（语义诚实化 / motion 是决策主体 / DP）
-      // subtask 真实态 = claw 声称提交 + 可选 last_failure 反馈 / system 不替 motion 标注「已接受」
-      // force_accepted boolean 字段保留内部 verification-lifecycle 流程不动
       const ev = st.evidence ?? '';
       lines.push(`    [${stId}] ${ev}`);
       if (st.last_failed_feedback?.feedback) {
@@ -58,7 +86,57 @@ function formatContractCompletedEvent(
       }
     }
   }
-  return { body: lines.join('\n'), hasFailure };
+  return { body: lines.join('\n'), hasFailure, status: 'completed' };
+}
+
+function formatCancelled(
+  clawId: ClawId,
+  dirName: string,
+  meta: { title?: string; goal?: string },
+  progress: ProgressData,
+): FormattedEvent {
+  const reason = (progress.checkpoint ?? '').replace(/^cancelled:\s*/, '') || '(no reason given)';
+  const lines: string[] = [`[contract_cancelled] claw=${clawId} contract=${dirName}`];
+  if (meta.title) lines.push(`  title: ${meta.title}`);
+  if (meta.goal) lines.push(`  goal: ${meta.goal}`);
+  lines.push(`  reason: ${reason}`);
+  const completed = Object.entries(progress.subtasks).filter(([, st]) => st.status === 'completed');
+  if (completed.length > 0) {
+    lines.push(`  subtasks (completed before cancel):`);
+    for (const [stId] of completed) lines.push(`    [${stId}]`);
+  }
+  return { body: lines.join('\n'), hasFailure: true, status: 'cancelled', reason };
+}
+
+function formatCrashed(
+  clawId: ClawId,
+  dirName: string,
+  meta: { title?: string; goal?: string },
+  progress: ProgressData,
+): FormattedEvent {
+  const cause = (progress.checkpoint ?? '').replace(/^crashed:\s*/, '') || '(no cause given)';
+  const lines: string[] = [`[contract_crashed] claw=${clawId} contract=${dirName}`];
+  if (meta.title) lines.push(`  title: ${meta.title}`);
+  if (meta.goal) lines.push(`  goal: ${meta.goal}`);
+  lines.push(`  cause: ${cause}`);
+  const completed = Object.entries(progress.subtasks).filter(([, st]) => st.status === 'completed');
+  if (completed.length > 0) {
+    lines.push(`  subtasks (completed before crash):`);
+    for (const [stId] of completed) lines.push(`    [${stId}]`);
+  }
+  return { body: lines.join('\n'), hasFailure: true, status: 'crashed', cause };
+}
+
+function formatPendingRecovery(
+  clawId: ClawId,
+  dirName: string,
+  meta: { title?: string; goal?: string },
+  _progress: ProgressData,
+): FormattedEvent {
+  const lines: string[] = [`[contract_archive_pending_recovery] claw=${clawId} contract=${dirName}`];
+  if (meta.title) lines.push(`  title: ${meta.title}`);
+  lines.push(`  note: archive partial recovery state (phase 1371 sub-2)、boot reconcile 待处理`);
+  return { body: lines.join('\n'), hasFailure: true, status: 'archive_pending_recovery' };
 }
 
 /**
@@ -70,6 +148,10 @@ export interface ArchivedContractEntry {
   hasFailure: boolean;
   /** max(subtask.completed_at) ms epoch、0 if no subtask completed_at */
   latestSubtaskCompletedAtMs: number;
+  // phase 63 NEW
+  status: ContractStatus;     // entry 终态、observer 据此分流
+  reason?: string;            // cancelled 时填
+  cause?: string;             // crashed 时填
 }
 
 /**
@@ -109,7 +191,6 @@ export function scanArchivedContracts(
           continue;
         }
         const progress = parsed as ProgressData;
-        if (progress.status !== 'completed') continue;
         const latestSubtaskCompletedAtMs = Object.values(progress.subtasks)
           .reduce((max, s) => {
             if (!s.completed_at) return max;
@@ -117,12 +198,15 @@ export function scanArchivedContracts(
             return ts > max ? ts : max;
           }, 0);
         const meta = readContractMeta(fs, path.join(archiveDir, d.name));
-        const formatted = formatContractCompletedEvent(clawId, d.name, meta, progress);
+        const formatted = formatContractEvent(clawId, d.name, meta, progress);
         entries.push({
           contractId: d.name,
           body: formatted.body,
           hasFailure: formatted.hasFailure,
           latestSubtaskCompletedAtMs,
+          status: formatted.status,
+          reason: formatted.reason,
+          cause: formatted.cause,
         });
       } catch (err) {
         // phase 1154 r+ derive: ENOENT-equivalent = progress.json absent (archive 常态 + active 升级 race)、非 corruption 语义
