@@ -1,6 +1,6 @@
 import type { ExecContext } from '../../foundation/tools/index.js';
 import type { Message, ToolDefinition } from '../../foundation/llm-provider/types.js';
-import type { TaskId } from '../../foundation/identity/index.js';
+import type { TaskId } from '../async-task-system/types.js';
 
 
 export interface SpawnShadowSubagentOptions {

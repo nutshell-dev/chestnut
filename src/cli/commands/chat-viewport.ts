@@ -39,7 +39,7 @@ import { createDisplay } from './chat-viewport-display.js';
 import { createClawPanel, createRescanClawsDir } from './chat-viewport-claw-panel.js';
 import { createEventHandler, type TaskWatch } from './chat-viewport-event-handler.js';
 import { initOwnStateFromHistory, createUncaughtHandler } from './chat-viewport-init.js';
-import { type TaskId, makeTaskId } from '../../foundation/identity/index.js';
+import { type TaskId, makeTaskId } from '../../core/async-task-system/types.js';
 
 
 // File-local interval / timeout constants

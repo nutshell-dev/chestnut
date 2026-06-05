@@ -14,7 +14,7 @@ import { TASKS_QUEUES_RESULTS_DIR } from './dirs.js';
 import { SUMMARY_MAX_CHARS } from '../../foundation/utils/index.js';
 import type { SubAgentTask, ToolTask } from './types.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
-import type { TaskId } from '../../foundation/identity/index.js';
+import type { TaskId } from './types.js';
 
 
 

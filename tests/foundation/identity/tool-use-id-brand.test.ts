@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import type { ToolUseId } from '../../../src/foundation/tool-protocol/index.js';
 import { makeToolUseId } from '../../../src/foundation/tool-protocol/index.js';
-import type { TaskId } from '../../../src/foundation/identity/index.js';
-import { makeTaskId } from '../../../src/foundation/identity/index.js';
+import type { TaskId } from '../../../src/core/async-task-system/types.js';
+import { makeTaskId } from '../../../src/core/async-task-system/types.js';
 
 describe('ToolUseId brand compile-time enforce', () => {
   it('prevents assigning TaskId to ToolUseId', () => {

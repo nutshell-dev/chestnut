@@ -15,7 +15,7 @@ import type { Message } from '../../foundation/llm-provider/types.js';
 import { synthesizeFormB } from './_helpers.js';
 import { type BuildShadowInstructionArgs } from '../../prompts/index.js';
 import type { SpawnShadowSubagentOptions, SpawnShadowSubagentResult } from './types.js';
-import { makeTaskId } from '../../foundation/identity/index.js';
+import { makeTaskId } from '../async-task-system/types.js';
 import { makeToolUseId } from '../../foundation/tool-protocol/index.js';
 
 

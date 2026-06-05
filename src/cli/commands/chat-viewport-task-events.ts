@@ -9,7 +9,7 @@
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
 import type { TaskStatusBarController } from './chat-viewport-task-status-bar.js';
-import type { TaskId } from '../../foundation/identity/index.js';
+import type { TaskId } from '../../core/async-task-system/types.js';
 
 
 export interface TaskEventHandlerDeps {

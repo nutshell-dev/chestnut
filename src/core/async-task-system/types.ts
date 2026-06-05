@@ -15,8 +15,15 @@ import type { DialogStore } from '../../foundation/dialog-store/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { PermissionChecker } from '../../foundation/tool-protocol/permission.js';
 import type { CallerType } from '../caller-types.js';
-import type { ClawId, TaskId, ChestnutRoot } from '../../foundation/identity/index.js';
+import type { ClawId, ChestnutRoot } from '../../foundation/identity/index.js';
 import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
+
+// phase 64: TaskId brand 迁回（自 foundation/identity 解散）— types.ts 历史注释 admit
+// 「物理迁自 core/async-task-system/types.ts」(phase 1365)
+// per ML#3 资源唯一归属（按业务真实归属、非机制 surface）+ M#1 task lifecycle 独立可变
+declare const TaskIdBrand: unique symbol;
+export type TaskId = string & { readonly [TaskIdBrand]: true };
+export function makeTaskId(s: string): TaskId { return s as TaskId; }
 
 
 

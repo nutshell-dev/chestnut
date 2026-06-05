@@ -14,7 +14,7 @@
 
 import { fitLine } from '../utils/string.js';
 // phase 1490: TaskTrack.maxSteps 初值不再 import DEFAULT_MAX_STEPS — UI render 不显示该字段、event 驱动更新（line 119）即填真值。
-import type { TaskId } from '../../foundation/identity/index.js';
+import type { TaskId } from '../../core/async-task-system/types.js';
 
 
 export interface TaskTrack {

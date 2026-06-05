@@ -11,7 +11,7 @@ import { createSystemAudit } from '../../foundation/audit/index.js';
 import type { ProgressData } from '../contract/index.js';
 import type { ClawId } from '../../foundation/identity/index.js';
 import type { ContractId } from '../../foundation/identity/index.js';
-import { type TaskId, makeTaskId } from '../../foundation/identity/index.js';
+import { type TaskId, makeTaskId } from '../async-task-system/types.js';
 import { type ChestnutRoot, makeChestnutRoot } from '../../foundation/identity/index.js';
 import { listArchiveContracts } from '../contract/index.js';
 import { type ClawDir } from '../../foundation/identity/index.js';

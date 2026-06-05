@@ -13,7 +13,7 @@ import { SUMMON_AUDIT_EVENTS, emitSummonDispatched, emitSummonRejectedShadow } f
 import { SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME } from '../post-processors/contract-extract.js';
 import { SUMMON_CALLER_TYPES, type SummonCallerType } from '../caller-types.js';
 import { spawnShadowSubagent, stripIncompleteToolUse, SHADOW_CALLER_LABEL } from '../../shadow-system/index.js';
-import { type TaskId, makeTaskId } from '../../../foundation/identity/index.js';
+import { type TaskId, makeTaskId } from '../../async-task-system/types.js';
 
 const SUMMON_SUBAGENT_TIMEOUT_MS = 3600 * 1000;   // 1 hour
 

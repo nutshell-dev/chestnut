@@ -11,7 +11,7 @@ import {
   emitToolAsyncResult,
 } from './audit-emit.js';
 import { TASKS_QUEUES_RUNNING_DIR } from './dirs.js';
-import type { TaskId } from '../../foundation/identity/index.js';
+import type { TaskId } from './types.js';
 
 
 export interface ExecuteToolTaskDeps {
