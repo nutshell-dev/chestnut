@@ -10,9 +10,7 @@ import { formatErr } from "../utils/index.js";
 import { ExecContextImpl, cloneExecContext } from './context.js';
 
 import {
-  ToolNotFoundError,
   ToolTimeoutError,
-  ToolInvalidInputError,
 } from '../errors.js';
 import { CLAWSPACE_DIR } from '../paths.js';
 import type { ExecContext } from './types.js';
@@ -67,7 +65,15 @@ export class ToolExecutorImpl implements IToolExecutor {
     // 1. Find tool
     const tool = this.registry.get(toolName);
     if (!tool) {
-      throw new ToolNotFoundError(toolName);
+      ctx.auditWriter?.write(
+        TOOL_AUDIT_EVENTS.TOOL_NOT_FOUND,
+        `toolName=${toolName}`,
+        `caller=${ctx.callerLabel}`,
+      );
+      return {
+        success: false,
+        content: `Tool '${toolName}' not found in registry. Available tools depend on caller profile.`,
+      };
     }
 
     const timeoutMs = options.timeoutMs ?? tool.defaultTimeoutMs ?? this.defaultTimeoutMs;
@@ -75,7 +81,17 @@ export class ToolExecutorImpl implements IToolExecutor {
     // 2. Schema validation (simple check)
     const validation = this.validateArgs(toolName, args);
     if (!validation.valid) {
-      throw new ToolInvalidInputError(toolName, validation.errors?.[0] ?? 'Invalid input');
+      const errMsg = validation.errors?.[0] ?? 'Invalid input';
+      ctx.auditWriter?.write(
+        TOOL_AUDIT_EVENTS.TOOL_INVALID_INPUT,
+        `toolName=${toolName}`,
+        `error=${errMsg}`,
+        `caller=${ctx.callerLabel}`,
+      );
+      return {
+        success: false,
+        content: `Invalid input for tool '${toolName}': ${errMsg}`,
+      };
     }
 
     // Async path: tool lifecycle owned by AsyncTaskSystem, no signal merge here.
