@@ -150,11 +150,16 @@ export function createExecTool(): Tool {
       const timeoutMs = safeNumber(args.timeoutMs);
 
       try {
+        const env = ctx.subagentTaskId
+          ? { ...process.env, CHESTNUT_SUBAGENT_TASK_ID: ctx.subagentTaskId }
+          : undefined;   // 不设 = 走 process-exec 默认继承 process.env、维持现状
+
         const result = await exec('sh', ['-c', command], {
           cwd,
           timeout: timeoutMs,
           signal: ctx.signal,
           stdin: args.stdin as string | undefined,
+          env,
         });
 
         if (result.output.length > EXEC_MAX_OUTPUT) {

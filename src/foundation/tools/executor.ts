@@ -441,7 +441,7 @@ export class ToolExecutor extends ToolExecutorImpl {
    */
   getExecContext(
     profile: ToolProfile,
-    options: { clawId: ClawId; maxSteps: number; signal?: AbortSignal; allowedGroups: ReadonlySet<ToolGroup>; callerLabel: string; originClawId?: string; permissionChecker?: PermissionChecker }
+    options: { clawId: ClawId; maxSteps: number; signal?: AbortSignal; allowedGroups: ReadonlySet<ToolGroup>; callerLabel: string; originClawId?: string; permissionChecker?: PermissionChecker; subagentTaskId?: string }
   ): ExecContextImpl {
     return new ExecContextImpl({
       clawId: options.clawId,
@@ -462,6 +462,7 @@ export class ToolExecutor extends ToolExecutorImpl {
       originClawId: options.originClawId,
       auditWriter: this.auditWriter,
       registry: this.registry,
+      subagentTaskId: options.subagentTaskId,
     });
   }
 }

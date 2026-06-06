@@ -10,6 +10,7 @@ import { buildSummonContractTask, buildMinerSystemPrompt, buildMiningUserMessage
 
 
 import { SUMMON_AUDIT_EVENTS, emitSummonDispatched, emitSummonRejectedShadow } from '../audit-events.js';
+import type { SummonStateStore } from '../summon-state-store.js';
 import { SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME } from '../post-processors/contract-extract.js';
 import { SUMMON_CALLER_TYPES, type SummonCallerType } from '../caller-types.js';
 import { spawnShadowSubagent, stripIncompleteToolUse, SHADOW_CALLER_LABEL } from '../../shadow-system/index.js';
@@ -45,10 +46,8 @@ export class SummonTool implements Tool {
    */
   readonly accessesCaller = true;
 
-  // phase 1406: constructor takes 0 args; caller deep state via ctx.getCallerSnapshot().
-  // Replaces phase 766 + phase 1119 4-callback closure binding that forced Runtime
-  // to reverse-import this class and new() it inside Runtime.initialize().
-  constructor() {}
+  // phase 108 Step B: constructor takes SummonStateStore for verify decision persistence.
+  constructor(private readonly stateStore: SummonStateStore) {}
 
   schema = {
     type: 'object',
@@ -135,12 +134,16 @@ export class SummonTool implements Tool {
             callerType: SUMMON_CALLER_TYPES.MINER,
             motionClawDir: ctx.clawDir,
             maxSteps: args.maxSteps as number | undefined,
+            verify,
+            targetClaw: args.targetClaw as string | undefined,
           })
         : await this.executeShadow({
             userMessage,
             idleTimeoutMs,
             ctx,
             mainContextSnapshot,
+            verify,
+            targetClaw: args.targetClaw as string | undefined,
           });
 
       if (!('taskId' in result)) return result;
@@ -171,8 +174,10 @@ export class SummonTool implements Tool {
     idleTimeoutMs: number;
     ctx: ExecContext;
     mainContextSnapshot: { clawId: string; toolUseId: string } | undefined;
+    verify: boolean;
+    targetClaw?: string;
   }): Promise<{ taskId: TaskId } | { success: false; content: string; error?: string }> {
-    const { userMessage, idleTimeoutMs, ctx } = opts;
+    const { userMessage, idleTimeoutMs, ctx, verify, targetClaw } = opts;
     if (!ctx.getCallerSnapshot) {
       return {
         success: false,
@@ -197,6 +202,15 @@ export class SummonTool implements Tool {
       shadowIdPrefix: 'summon',
     });
     if (!('taskId' in result)) return result;
+
+    await this.stateStore.write({
+      taskId: result.taskId,
+      verify,
+      targetClaw,
+      mode: 'shadow',
+      dispatchedAt: new Date().toISOString(),
+    });
+
     return { taskId: result.taskId };
   }
 
@@ -208,8 +222,10 @@ export class SummonTool implements Tool {
     callerType: SummonCallerType;
     motionClawDir: string | undefined;
     maxSteps: number | undefined;
+    verify: boolean;
+    targetClaw?: string;
   }): Promise<{ taskId: TaskId } | { success: false; content: string }> {
-    const { userMessage, ctx, mainContextSnapshot, callerType, motionClawDir, maxSteps } = opts;
+    const { userMessage, ctx, mainContextSnapshot, callerType, motionClawDir, maxSteps, verify, targetClaw } = opts;
     const systemPrompt = buildMinerSystemPrompt();
     // toolsForLLM is built for LLM-side miner profile; current schedule signature
     // doesn't pass tools (mining branch reads ctx.registry on subagent boot per phase 1406).
@@ -236,6 +252,15 @@ export class SummonTool implements Tool {
       mainContextSnapshot,
       systemPrompt,
     }));
+
+    await this.stateStore.write({
+      taskId,
+      verify,
+      targetClaw,
+      mode: 'mining',
+      dispatchedAt: new Date().toISOString(),
+    });
+
     return { taskId };
   }
 }

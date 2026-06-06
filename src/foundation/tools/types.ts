@@ -196,6 +196,13 @@ export interface ExecutionAudit {
    * receive a ctx without this field will see the executor guard reject.
    */
   getCallerSnapshot?(): Promise<CallerSnapshot>;
+  /**
+   * subagent task id (set by subagent ctx builder at assembly time).
+   * 通用执行身份标识、不携带任何业务语义。
+   * exec / spawn 等工具可借此注入子进程 env 实现跨进程身份传递。
+   * Motion 主代理 ctx 不设此字段。
+   */
+  subagentTaskId?: string;
 }
 
 /**

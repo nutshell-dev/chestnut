@@ -24,6 +24,10 @@ export const SUMMON_AUDIT_EVENTS = {
   // §A.phase1409-summon-dispatched-and-rejected-business-events (amended-by phase 1411)。
   DISPATCHED: 'summon_dispatched',
   REJECTED_SHADOW: 'summon_rejected_shadow',
+  SUMMON_VERIFY_FALSE_VIOLATION: 'summon_verify_false_violation',
+  SUMMON_STATE_WRITE_FAILED: 'summon_state_write_failed',
+  SUMMON_STATE_READ_FAILED: 'summon_state_read_failed',
+  SUMMON_GATE_NO_DECISION: 'summon_gate_no_decision',
 } as const;
 
 export function emitSummonDispatched(audit: AuditLog, opts: {

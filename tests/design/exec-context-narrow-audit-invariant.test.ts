@@ -32,7 +32,7 @@ const D4_FIELDS = new Set([
 ]);
 /** D5 ExecutionAudit */
 const D5_FIELDS = new Set([
-  'auditWriter', 'currentToolUseId', 'trace_id', 'readFileState', 'persistReadFileState', 'getCallerSnapshot',
+  'auditWriter', 'currentToolUseId', 'trace_id', 'readFileState', 'persistReadFileState', 'getCallerSnapshot', 'subagentTaskId',
 ]);
 
 function classifyField(field: string): string {

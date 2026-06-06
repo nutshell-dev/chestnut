@@ -51,7 +51,7 @@ describe('SummonTool verify parameter', () => {
     vi.restoreAllMocks();
     tempDir = await createTempDir();
     mockFs = new NodeFileSystem({ baseDir: tempDir });
-    tool = new SummonTool();
+    tool = new SummonTool({ write: vi.fn().mockResolvedValue(undefined), read: vi.fn().mockResolvedValue(undefined) });
   });
 
   afterEach(async () => {
@@ -91,9 +91,12 @@ describe('SummonTool verify parameter', () => {
     expect(tasks).toHaveLength(1);
 
     const content = getTaskContent(tasks[0]);
-    expect(content).not.toContain('verification:');
-    expect(content).not.toContain('escalation:');
     expect(content).not.toContain('prompt_file:');
+    // verification: / escalation: 仅在禁令行出现（不出现 yaml 模板或 verification/.prompt.txt 格式段）
+    const verificationMatches = content.match(/verification:/g);
+    expect(verificationMatches?.length ?? 0).toBe(1);
+    const escalationMatches = content.match(/escalation:/g);
+    expect(escalationMatches?.length ?? 0).toBe(1);
   });
 
   it('explicit verify=true: prompt contains verification section', async () => {
@@ -119,8 +122,11 @@ describe('SummonTool verify parameter', () => {
     expect(tasks).toHaveLength(1);
 
     const content = getTaskContent(tasks[0]);
-    expect(content).not.toContain('verification:');
-    expect(content).not.toContain('escalation:');
     expect(content).not.toContain('prompt_file:');
+    // verification: / escalation: 仅在禁令行出现（不出现 yaml 模板或 verification/.prompt.txt 格式段）
+    const verificationMatches = content.match(/verification:/g);
+    expect(verificationMatches?.length ?? 0).toBe(1);
+    const escalationMatches = content.match(/escalation:/g);
+    expect(escalationMatches?.length ?? 0).toBe(1);
   });
 });

@@ -7,6 +7,7 @@ if (!process.env.CHESTNUT_ROOT) {
   process.env.CHESTNUT_ROOT = process.cwd();
 }
 
+import * as path from 'path';
 import { program, Help } from 'commander';
 import { CliError } from './errors.js';
 import { withCliErrorHandling } from './with-cli-error-handling.js';
@@ -34,6 +35,7 @@ import { createSubagentCommand } from './commands/subagent.js';
 import { motionStepsCommand, motionStepCommand } from './commands/motion-steps.js';
 import { createDirContext } from '../foundation/audit/index.js';
 import { getChestnutRoot, getClawDir, loadGlobalConfig } from '../foundation/config/index.js';
+import { createSummonStateStore, createSummonContractCreateGate } from '../core/summon-system/index.js';
 import { parseIntOption } from './parse-int-option.js';
 import { makeClawId } from '../foundation/paths.js';
 
@@ -216,7 +218,11 @@ contractCmd
     } else if (opts.file) {
       await contractCreateCommand({ fsFactory }, makeClawId(opts.claw), opts.file, { audit });
     } else if (opts.dir) {
-      await contractCreateFromDirCommand({ fsFactory }, makeClawId(opts.claw), opts.dir, { audit });
+      const motionClawDir = path.join(getChestnutRoot(), 'motion');
+      const motionFs = fsFactory(motionClawDir);
+      const summonStateStore = createSummonStateStore(motionFs);
+      const summonContractCreateGate = createSummonContractCreateGate(summonStateStore);
+      await contractCreateFromDirCommand({ fsFactory, summonContractCreateGate }, makeClawId(opts.claw), opts.dir, { audit });
     } else {
       throw new CliError('must provide --file or --dir');
     }

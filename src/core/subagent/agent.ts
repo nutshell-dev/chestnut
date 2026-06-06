@@ -194,6 +194,7 @@ export class SubAgent {
             callerLabel: callerType,
             originClawId: this.originClawId,
             permissionChecker: this.permissionChecker,
+            subagentTaskId: this.agentId,
           }),
           maxSteps: this.maxSteps,
           maxConsecutiveParseErrors: this.maxConsecutiveParseErrors,

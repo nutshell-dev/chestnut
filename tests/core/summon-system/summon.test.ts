@@ -7,6 +7,7 @@ import { promises as fs } from 'fs';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { SummonTool } from '../../../src/core/summon-system/tools/summon.js';
+import type { SummonStateStore } from '../../../src/core/summon-system/index.js';
 import { buildMinerSystemPrompt } from '../../../src/prompts/mining.js';
 import { summonContractExtractPostProcessor } from '../../../src/core/summon-system/post-processors/contract-extract.js';
 import { ExecContextImpl } from '../../../src/foundation/tools/context.js';
@@ -40,12 +41,19 @@ describe('SummonTool', () => {
   let auditEvents: Array<{ type: string; args: unknown[] }>;
   let tool: SummonTool;
 
+  function createMockStateStore(): SummonStateStore {
+    return {
+      write: vi.fn().mockResolvedValue(undefined),
+      read: vi.fn().mockResolvedValue(undefined),
+    };
+  }
+
   beforeEach(async () => {
     vi.restoreAllMocks();
     tempDir = await createTempDir();
     mockFs = new NodeFileSystem({ baseDir: tempDir });
     auditEvents = [];
-    tool = new SummonTool();
+    tool = new SummonTool(createMockStateStore());
   });
 
   afterEach(async () => {
@@ -161,7 +169,7 @@ Content.
         },
       ];
       const ctx = makeCtx('claw', { snapshot: { messages: motionDialog } });
-      const customTool = new SummonTool();
+      const customTool = new SummonTool(createMockStateStore());
 
       await customTool.execute({ goal: 'audit L1 FileSystem', mode: 'shadow' }, ctx);
 
@@ -190,7 +198,7 @@ Content.
         },
       ];
       const ctx = makeCtx('claw', { snapshot: { messages: motionDialog } });
-      const customTool = new SummonTool();
+      const customTool = new SummonTool(createMockStateStore());
 
       await customTool.execute({ goal: 'create foo contract', mode: 'shadow' }, ctx);
 
@@ -211,7 +219,7 @@ Content.
         { role: 'assistant', content: 'hello' },
       ];
       const ctx = makeCtx('claw', { snapshot: { messages: motionDialog } });
-      const customTool = new SummonTool();
+      const customTool = new SummonTool(createMockStateStore());
 
       await customTool.execute({ goal: 'follow up', mode: 'shadow' }, ctx);
 
@@ -253,7 +261,7 @@ Content.
       const motionDialog: Message[] = [
         { role: 'user', content: 'test' },
       ];
-      const customTool = new SummonTool();
+      const customTool = new SummonTool(createMockStateStore());
       const ctx = makeCtx('claw', { snapshot: { systemPrompt: mockMotionPrompt, messages: motionDialog } });
 
       await customTool.execute({ goal: 'describe intent', mode: 'shadow' }, ctx);
@@ -278,7 +286,7 @@ Content.
 
     it('shadow mode passes Motion getSystemPrompt output', async () => {
       const mockMotionPrompt = 'MOTION_SYSTEM_PROMPT_FIXTURE';
-      const customTool = new SummonTool();
+      const customTool = new SummonTool(createMockStateStore());
       const ctx = makeCtx('claw', { snapshot: { systemPrompt: mockMotionPrompt } });
       await customTool.execute({ goal: 'describe intent', mode: 'shadow' }, ctx);
 

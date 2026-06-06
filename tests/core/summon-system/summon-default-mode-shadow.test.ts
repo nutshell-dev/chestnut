@@ -40,7 +40,7 @@ describe('Phase 1166 — default mode shadow', () => {
     vi.restoreAllMocks();
     tempDir = await createTempDir();
     mockFs = new NodeFileSystem({ baseDir: tempDir });
-    tool = new SummonTool();
+    tool = new SummonTool({ write: vi.fn().mockResolvedValue(undefined), read: vi.fn().mockResolvedValue(undefined) });
   });
 
   afterEach(async () => {
@@ -69,7 +69,7 @@ describe('Phase 1166 — default mode shadow', () => {
   }
 
   it('reverse 1 — 默认 mode 不传 mode 走 shadow 路径', async () => {
-    const customTool = new SummonTool();
+    const customTool = new SummonTool({ write: vi.fn().mockResolvedValue(undefined), read: vi.fn().mockResolvedValue(undefined) });
     const ctx = makeCtx([{ role: 'user', content: 'test' }]);
     const result = await customTool.execute({ goal: 'test goal' }, ctx);
 
@@ -95,7 +95,7 @@ describe('Phase 1166 — default mode shadow', () => {
   });
 
   it('reverse 3 — 显式 mode: shadow 仍走 shadow 路径', async () => {
-    const customTool = new SummonTool();
+    const customTool = new SummonTool({ write: vi.fn().mockResolvedValue(undefined), read: vi.fn().mockResolvedValue(undefined) });
     const ctx = makeCtx([{ role: 'user', content: 'test' }]);
     const result = await customTool.execute({ goal: 'test goal', mode: 'shadow' }, ctx);
 

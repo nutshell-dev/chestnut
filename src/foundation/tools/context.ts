@@ -105,6 +105,11 @@ export interface ExecContextImplOptions {
    * `accessesCaller: true` are allowed to invoke; ToolExecutor wraps otherwise.
    */
   getCallerSnapshot?: import('./types.js').ExecContext['getCallerSnapshot'];
+  /**
+   * subagent task id (set by subagent ctx builder at assembly time).
+   * 通用执行身份标识、不携带任何业务语义。
+   */
+  subagentTaskId?: string;
 }
 
 /**
@@ -176,6 +181,7 @@ export class ExecContextImpl implements ExecContext {
   taskSystem?: import('./types.js').TaskScheduler;
   trace_id?: string;
   getCallerSnapshot?: import('./types.js').ExecContext['getCallerSnapshot'];
+  subagentTaskId?: string;
   stopRequested: boolean = false;
   
   private startTime: number;
@@ -207,6 +213,7 @@ export class ExecContextImpl implements ExecContext {
     this.taskSystem = options.taskSystem;
     this.trace_id = options.trace_id;
     this.getCallerSnapshot = options.getCallerSnapshot;
+    this.subagentTaskId = options.subagentTaskId;
     this.stepNumber = 0;
     this.startTime = Date.now();
   }

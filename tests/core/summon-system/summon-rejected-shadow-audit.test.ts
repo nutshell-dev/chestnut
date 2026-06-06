@@ -33,7 +33,7 @@ describe('Phase 1411 — summon_rejected_shadow audit emit', () => {
     vi.restoreAllMocks();
     tempDir = await createTempDir();
     mockFs = new NodeFileSystem({ baseDir: tempDir });
-    tool = new SummonTool();
+    tool = new SummonTool({ write: vi.fn().mockResolvedValue(undefined), read: vi.fn().mockResolvedValue(undefined) });
     auditWrite = vi.fn();
   });
 

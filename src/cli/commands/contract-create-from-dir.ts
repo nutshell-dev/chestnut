@@ -14,14 +14,23 @@ import type { ClawId } from '../../foundation/paths.js';
 import { makeContractId } from '../../core/contract/types.js';
 import { resolveChestnutRoot } from '../../assembly/install-paths.js';
 import { parseAndValidateContractYaml, notifyContractCreated } from './contract-helpers.js';
+import type { SummonContractCreateGate } from '../../core/summon-system/index.js';
 
-export async function contractCreateFromDirCommand(deps: { fsFactory: (baseDir: string) => FileSystem }, clawId: ClawId, dirPath: string, extraDeps?: { audit?: AuditLog }): Promise<void> {
+export async function contractCreateFromDirCommand(
+  deps: { fsFactory: (baseDir: string) => FileSystem; summonContractCreateGate: SummonContractCreateGate },
+  clawId: ClawId,
+  dirPath: string,
+  extraDeps?: { audit?: AuditLog },
+): Promise<void> {
   const audit = extraDeps?.audit;
   const absDir = path.resolve(dirPath);
   const srcFs = deps.fsFactory(absDir);
 
   const yamlContent = srcFs.readSync('contract.yaml');
   const contract = parseAndValidateContractYaml(yamlContent);
+
+  // NEW: summon gate（subagentTaskId 来自 env、非子代理时 undefined → no-op）
+  await deps.summonContractCreateGate.check(process.env.CHESTNUT_SUBAGENT_TASK_ID, contract);
 
   const clawDir = getClawDir(clawId);
   const clawFs = deps.fsFactory(clawDir);
