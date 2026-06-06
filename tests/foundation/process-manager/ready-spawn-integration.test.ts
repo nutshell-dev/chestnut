@@ -24,10 +24,7 @@ vi.mock('../../../src/foundation/process-manager/constants.js', async (importOri
   return { ...actual, DAEMON_SHUTDOWN_GRACE_MS: 0, SPAWN_POLL_INTERVAL_MS: 10 };
 });
 
-// Mock spawnDetached so no real process starts; use process.pid so l1IsAlive passes for real
-vi.mock('../../../src/foundation/process-exec/spawn-detached.js', () => ({
-  spawnDetached: vi.fn().mockReturnValue({ pid: process.pid }),
-}));
+// spawnDetached injected via ctx (phase 106 DI hygiene)
 
 describe('ready-spawn integration', () => {
   let tempDir: string;
@@ -35,9 +32,6 @@ describe('ready-spawn integration', () => {
 
   beforeEach(async () => {
     vi.restoreAllMocks();
-
-    const { spawnDetached } = await import('../../../src/foundation/process-exec/spawn-detached.js');
-    vi.mocked(spawnDetached).mockReturnValue({ pid: process.pid } as any);
 
     tempDir = path.join(tmpdir(), `ready-spawn-${randomUUID()}`);
     await fs.mkdir(tempDir, { recursive: true });
@@ -56,6 +50,7 @@ describe('ready-spawn integration', () => {
       fs: nodeFs,
       audit,
       resolveDir: (id: string) => path.join(tempDir, 'claws', id),
+      spawnDetached: vi.fn().mockReturnValue({ pid: process.pid }),
     };
 
     // 延迟写 ready marker，模拟 daemon 慢 boot

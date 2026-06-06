@@ -16,10 +16,7 @@ import { execSync } from 'node:child_process';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { FAKE_LIVE_PID } from '../../helpers/test-pids.js';
 
-// Mock getProcessStartTime to avoid slow ps call in tests
-vi.mock('../../../src/foundation/process-exec/process-starttime.js', () => ({
-  getProcessStartTime: vi.fn().mockReturnValue(undefined),
-}));
+// getProcessStartTime injected via ctx (phase 106 DI hygiene)
 import { spawnProcess } from '../../../src/foundation/process-manager/spawn.js';
 import { makeAudit } from '../../helpers/audit.js';
 import type { ProcessManagerContext } from '../../../src/foundation/process-manager/types.js';
@@ -30,14 +27,7 @@ vi.mock('../../../src/foundation/process-manager/constants.js', async (importOri
   return { ...actual, DAEMON_SHUTDOWN_GRACE_MS: 0, SPAWN_POLL_INTERVAL_MS: 1 };
 });
 
-// Mock spawnDetached so no real process starts
-vi.mock('../../../src/foundation/process-exec/index.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../src/foundation/process-exec/index.js')>();
-  return {
-    ...actual,
-    spawnDetached: vi.fn().mockReturnValue({ pid: FAKE_LIVE_PID }),
-  };
-});
+// spawnDetached injected via ctx (phase 106 DI hygiene)
 
 describe('phase 1317 spawn event-driven readiness', () => {
   let tempDir: string;
@@ -45,9 +35,6 @@ describe('phase 1317 spawn event-driven readiness', () => {
 
   beforeEach(async () => {
     vi.restoreAllMocks();
-
-    const { spawnDetached } = await import('../../../src/foundation/process-exec/index.js');
-    vi.mocked(spawnDetached).mockReturnValue({ pid: process.pid } as any);
 
     tempDir = path.join(tmpdir(), `spawn-event-driven-${randomUUID()}`);
     await fs.mkdir(tempDir, { recursive: true });
@@ -82,6 +69,8 @@ describe('phase 1317 spawn event-driven readiness', () => {
         return readyCallCount >= 100;
       },
       l1IsAlive: vi.fn().mockReturnValue(true),
+      spawnDetached: vi.fn().mockReturnValue({ pid: process.pid }),
+      getProcessStartTime: vi.fn().mockReturnValue(undefined),
     };
 
     const result = await spawnProcess(ctx, clawId, {
@@ -110,6 +99,8 @@ describe('phase 1317 spawn event-driven readiness', () => {
       },
       isReady: () => false,
       l1IsAlive: vi.fn().mockReturnValue(true),
+      spawnDetached: vi.fn().mockReturnValue({ pid: process.pid }),
+      getProcessStartTime: vi.fn().mockReturnValue(undefined),
     };
 
     await expect(

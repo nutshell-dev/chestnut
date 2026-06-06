@@ -1,7 +1,7 @@
 import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
 import { formatErr } from "../utils/index.js";
 import { getPidFile, ensureStatusDir } from './paths.js';
-import { getProcessStartTime, makeProcessStartTime, type ProcessStartTime } from '../process-exec/index.js';
+import { getProcessStartTime as defaultGetProcessStartTime, makeProcessStartTime, type ProcessStartTime } from '../process-exec/index.js';
 import type { ProcessManagerContext } from './types.js';
 import type { ClawId } from '../paths.js';
 
@@ -74,7 +74,7 @@ export async function selfWritePid(ctx: ProcessManagerContext, clawId: ClawId): 
   try {
     await ensureStatusDir(ctx, clawId);
     const pidFile = getPidFile(ctx, clawId);
-    const startTime = getProcessStartTime(process.pid);
+    const startTime = (ctx.getProcessStartTime ?? defaultGetProcessStartTime)(process.pid);
     const payload: PidFileContent = { pid: process.pid, ...(startTime !== undefined ? { startTime } : {}) };
     await ctx.fs.writeAtomic(pidFile, JSON.stringify(payload));
     ctx.audit.write(

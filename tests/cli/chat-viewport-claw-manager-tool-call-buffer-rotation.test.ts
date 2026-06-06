@@ -14,10 +14,7 @@ import { makeClawId } from '../../src/foundation/paths.js';
 import type { FileSystem } from '../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../src/foundation/audit/index.js';
 
-vi.mock('../../src/foundation/process-exec/index.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/foundation/process-exec/index.js')>();
-  return { ...actual, isAlive: vi.fn().mockReturnValue(true) };
-});
+// isAlive not mocked — createClawManager tests use readPid=null path so isAlive is never called (phase 106 DI hygiene)
 
 vi.mock('../../src/cli/commands/chat-viewport-watcher.js', () => ({
   createChatViewportWatcher: vi.fn().mockReturnValue({ close: vi.fn().mockResolvedValue(undefined) }),

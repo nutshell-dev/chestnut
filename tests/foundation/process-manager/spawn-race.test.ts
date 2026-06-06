@@ -25,14 +25,7 @@ vi.mock('../../../src/foundation/process-manager/constants.js', async (importOri
   return { ...actual, DAEMON_SHUTDOWN_GRACE_MS: 0, SPAWN_POLL_INTERVAL_MS: 0 };
 });
 
-// Mock spawnDetached so no real process starts; mock isAlive so poll passes
-vi.mock('../../../src/foundation/process-exec/index.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../src/foundation/process-exec/index.js')>();
-  return {
-    ...actual,
-    spawnDetached: vi.fn().mockReturnValue({ pid: FAKE_LIVE_PID }),
-  };
-});
+// spawnDetached injected via ctx (phase 106 DI hygiene)
 
 describe('spawn EEXIST race audit 归类（phase 591 / A.spawn-eexist-race-misclassify）', () => {
   let tempDir: string;
@@ -40,8 +33,6 @@ describe('spawn EEXIST race audit 归类（phase 591 / A.spawn-eexist-race-miscl
 
   beforeEach(async () => {
     vi.restoreAllMocks();
-    const { spawnDetached } = await import('../../../src/foundation/process-exec/index.js');
-    vi.mocked(spawnDetached).mockReturnValue({ pid: FAKE_LIVE_PID } as any);
 
     tempDir = path.join(tmpdir(), `spawn-race-${randomUUID()}`);
     await fs.mkdir(tempDir, { recursive: true });
@@ -76,6 +67,7 @@ describe('spawn EEXIST race audit 归类（phase 591 / A.spawn-eexist-race-miscl
       resolveDir: (id: string) => path.join(tempDir, 'claws', id),
       isReady: () => true,
       l1IsAlive: vi.fn().mockReturnValue(true),
+      spawnDetached: vi.fn().mockReturnValue({ pid: FAKE_LIVE_PID }),
     };
 
     mockWriteExclusiveOnceEEXIST();
@@ -118,6 +110,7 @@ describe('spawn EEXIST race audit 归类（phase 591 / A.spawn-eexist-race-miscl
       resolveDir: (id: string) => path.join(tempDir, 'claws', id),
       isReady: () => true,
       l1IsAlive: vi.fn().mockReturnValue(true),
+      spawnDetached: vi.fn().mockReturnValue({ pid: FAKE_LIVE_PID }),
     };
 
     // Pre-create empty PID file so readSync succeeds in the EEXIST branch
@@ -157,6 +150,7 @@ describe('spawn EEXIST race audit 归类（phase 591 / A.spawn-eexist-race-miscl
       resolveDir: (id: string) => path.join(tempDir, 'claws', id),
       isReady: () => true,
       l1IsAlive: vi.fn().mockReturnValue(true),
+      spawnDetached: vi.fn().mockReturnValue({ pid: FAKE_LIVE_PID }),
     };
 
     mockWriteExclusiveOnceEEXIST();

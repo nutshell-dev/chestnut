@@ -16,10 +16,7 @@ import { makeAudit } from '../../helpers/audit.js';
 
 import type { ProcessManagerContext } from '../../../src/foundation/process-manager/types.js';
 
-// Mock spawnDetached so no real process starts; use process.pid so l1IsAlive passes for real
-vi.mock('../../../src/foundation/process-exec/spawn-detached.js', () => ({
-  spawnDetached: vi.fn().mockReturnValue({ pid: process.pid }),
-}));
+// spawnDetached injected via ctx (phase 106 DI hygiene)
 
 describe('ready-spawn real-poll interval', () => {
   let tempDir: string;
@@ -27,9 +24,6 @@ describe('ready-spawn real-poll interval', () => {
 
   beforeEach(async () => {
     vi.restoreAllMocks();
-
-    const { spawnDetached } = await import('../../../src/foundation/process-exec/spawn-detached.js');
-    vi.mocked(spawnDetached).mockReturnValue({ pid: process.pid } as any);
 
     tempDir = path.join(tmpdir(), `ready-spawn-real-poll-${randomUUID()}`);
     await fs.mkdir(tempDir, { recursive: true });
@@ -48,6 +42,7 @@ describe('ready-spawn real-poll interval', () => {
       fs: nodeFs,
       audit,
       resolveDir: (id: string) => path.join(tempDir, 'claws', id),
+      spawnDetached: vi.fn().mockReturnValue({ pid: process.pid }),
     };
 
     // 在 200ms 后写 ready marker（event-driven loop 无 deadline，永等到 ready）

@@ -34,14 +34,7 @@ vi.mock('../../../src/foundation/process-manager/pid.js', async (importOriginal)
   };
 });
 
-// Mock spawnDetached so no real process starts; mock isAlive so poll passes
-vi.mock('../../../src/foundation/process-exec/index.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../src/foundation/process-exec/index.js')>();
-  return {
-    ...actual,
-    spawnDetached: vi.fn().mockReturnValue({ pid: FAKE_LIVE_PID }),
-  };
-});
+// spawnDetached injected via ctx (phase 106 DI hygiene)
 
 describe('spawn — removePid silent → audit (P1.1)', () => {
   let tempDir: string;
@@ -49,8 +42,6 @@ describe('spawn — removePid silent → audit (P1.1)', () => {
 
   beforeEach(async () => {
     vi.restoreAllMocks();
-    const { spawnDetached } = await import('../../../src/foundation/process-exec/index.js');
-    vi.mocked(spawnDetached).mockReturnValue({ pid: FAKE_LIVE_PID } as any);
 
     const { removePid } = await import('../../../src/foundation/process-manager/pid.js');
     vi.mocked(removePid).mockImplementation(async () => {
@@ -79,6 +70,7 @@ describe('spawn — removePid silent → audit (P1.1)', () => {
       resolveDir: (id: string) => path.join(tempDir, 'claws', id),
       isReady: () => true,
       l1IsAlive: vi.fn().mockReturnValue(true),
+      spawnDetached: vi.fn().mockReturnValue({ pid: FAKE_LIVE_PID }),
     };
 
     let writeExclusiveCallCount = 0;

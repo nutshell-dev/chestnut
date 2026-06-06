@@ -12,7 +12,7 @@ import * as path from 'path';
 import type { FileSystem } from '../fs/types.js';
 import type { AuditLog } from '../audit/index.js';
 import type { ProcessStartTime } from '../process-exec/index.js';
-import { isAlive as defaultL1IsAlive } from '../process-exec/index.js';
+import { isAlive as defaultL1IsAlive, spawnDetached as defaultSpawnDetached, getProcessStartTime as defaultGetProcessStartTime } from '../process-exec/index.js';
 
 import * as pidOps from './pid.js';
 import * as aliveOps from './alive.js';
@@ -40,6 +40,8 @@ export class ProcessManager {
     audit: AuditLog,
     dirResolver?: (id: string) => string,
     l1IsAlive?: typeof defaultL1IsAlive,
+    spawnDetached?: typeof defaultSpawnDetached,
+    getProcessStartTime?: typeof defaultGetProcessStartTime,
   ) {
     this.fs = fs;
     this._ctx = {
@@ -50,6 +52,8 @@ export class ProcessManager {
       isReady: (clawId: ClawId) => this.isReady(clawId),
       readLockPid: (clawId: ClawId) => this.readLockPid(clawId),
       l1IsAlive,
+      spawnDetached,
+      getProcessStartTime,
     };
   }
 

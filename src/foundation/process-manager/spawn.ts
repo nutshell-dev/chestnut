@@ -1,6 +1,6 @@
 import * as path from 'path';
 import { formatErr } from "../utils/index.js";
-import { spawnDetached, kill } from '../process-exec/index.js';
+import { spawnDetached as defaultSpawnDetached, kill } from '../process-exec/index.js';
 import { DAEMON_SHUTDOWN_GRACE_MS, SPAWN_POLL_INTERVAL_MS } from './constants.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
 import { FileNotFoundError } from '../fs/types.js';
@@ -13,7 +13,7 @@ import { readPid, removePid } from './pid.js';
 import type { PidFileContent } from './pid.js';
 import { findProcesses } from './find.js';
 import { AUDIT_MESSAGE_MAX_CHARS } from '../audit/index.js';
-import { isAlive as defaultL1IsAlive, getProcessStartTime } from '../process-exec/index.js';
+import { isAlive as defaultL1IsAlive, getProcessStartTime as defaultGetProcessStartTime } from '../process-exec/index.js';
 import { LockConflictError, type ProcessManagerContext } from './types.js';
 import type { SpawnOptions } from './types.js';
 import { makeClawId, type ClawId } from '../paths.js';
@@ -209,7 +209,7 @@ async function handlePidFileConflict(
 ): Promise<void> {
   const stored = await readPid(ctx, clawId);
   if (stored !== null) {
-    const startTimeForVerify = stored.startTime ?? getProcessStartTime(stored.pid);
+    const startTimeForVerify = stored.startTime ?? (ctx.getProcessStartTime ?? defaultGetProcessStartTime)(stored.pid);
     if ((ctx.l1IsAlive ?? defaultL1IsAlive)(stored.pid, startTimeForVerify)) {
       throw new LockConflictError(
         clawId,
@@ -279,13 +279,13 @@ async function spawnAndAwaitReady(
 ): Promise<number> {
   const pidFile = getPidFile(ctx, clawId);
   try {
-    const { pid } = spawnDetached(options.command, options.args, {
+    const { pid } = (ctx.spawnDetached ?? defaultSpawnDetached)(options.command, options.args, {
       cwd: options.cwd,
       env: options.env,
       logFile: options.logFile,
     });
 
-    const childStartTime = getProcessStartTime(pid);
+    const childStartTime = (ctx.getProcessStartTime ?? defaultGetProcessStartTime)(pid);
     const pidPayload: PidFileContent = {
       pid,
       ...(childStartTime !== undefined ? { startTime: childStartTime } : {}),

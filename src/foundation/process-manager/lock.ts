@@ -1,6 +1,6 @@
 import * as path from 'path';
 import { formatErr } from "../utils/index.js";
-import { isAlive as defaultL1IsAlive, getProcessStartTime, makeProcessStartTime, type ProcessStartTime } from '../process-exec/index.js';
+import { isAlive as defaultL1IsAlive, getProcessStartTime as defaultGetProcessStartTime, makeProcessStartTime, type ProcessStartTime } from '../process-exec/index.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
 import { getLockFile } from './paths.js';
 import { LockConflictError, type ProcessManagerContext } from './types.js';
@@ -66,7 +66,7 @@ export function acquireLock(ctx: ProcessManagerContext, clawId: ClawId): void {
   const readLockPidFn = ctx.readLockPid ?? ((id: string) => readLockPid(ctx, makeClawId(id)));
   const holder = readLockPidFn(clawId);
   if (holder !== null) {
-    const holderStartTime = holder.startTime ?? getProcessStartTime(holder.pid);
+    const holderStartTime = holder.startTime ?? (ctx.getProcessStartTime ?? defaultGetProcessStartTime)(holder.pid);
     if ((ctx.l1IsAlive ?? defaultL1IsAlive)(holder.pid, holderStartTime)) {
       throw new LockConflictError(
         clawId,

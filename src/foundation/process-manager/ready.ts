@@ -1,6 +1,6 @@
 import { getReadyFile, getPidFile, ensureStatusDir } from './paths.js';
 import { formatErr } from "../utils/index.js";
-import { isAlive as defaultL1IsAlive, getProcessStartTime, makeProcessStartTime, type ProcessStartTime } from '../process-exec/index.js';
+import { isAlive as defaultL1IsAlive, getProcessStartTime as defaultGetProcessStartTime, makeProcessStartTime, type ProcessStartTime } from '../process-exec/index.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
 import type { ProcessManagerContext } from './types.js';
 import type { PidFileContent } from './pid.js';
@@ -12,7 +12,7 @@ export async function markReady(ctx: ProcessManagerContext, clawId: ClawId): Pro
   try {
     await ensureStatusDir(ctx, clawId);
     const readyFile = getReadyFile(ctx, clawId);
-    const startTime = getProcessStartTime(process.pid);
+    const startTime = (ctx.getProcessStartTime ?? defaultGetProcessStartTime)(process.pid);
     const payload: PidFileContent = { pid: process.pid, ...(startTime !== undefined ? { startTime } : {}) };
     await ctx.fs.writeAtomic(readyFile, JSON.stringify(payload));
     ctx.audit.write(

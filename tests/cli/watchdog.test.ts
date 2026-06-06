@@ -37,17 +37,14 @@ vi.mock('../../src/watchdog/watchdog-utils.js', async (importOriginal) => {
   };
 });
 
-// Mock spawnDetached (startCommand uses spawnDetached from L1 ProcessExec)
-vi.mock('../../src/foundation/process-exec/spawn-detached.js', () => ({
-  spawnDetached: vi.fn().mockReturnValue({ pid: FAKE_LIVE_PID }),
-}));
+// spawnDetached runs for real but its internal child_process.spawn is mocked (phase 106 DI hygiene)
 
 // Mock child_process (keep for any other indirect usage)
 vi.mock('child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('child_process')>();
   return {
     ...actual,
-    spawn: vi.fn(),
+    spawn: vi.fn().mockReturnValue({ pid: FAKE_LIVE_PID, unref: vi.fn() }),
     spawnSync: vi.fn(),
   };
 });
@@ -89,7 +86,7 @@ import { buildTestGlobalConfig } from '../helpers/global-config.js';
 import { clawHasContract, clawHasActiveContract, gatherClawSnapshot } from '../../src/watchdog/watchdog-utils.js';
 import { clawStateAPI, getChestnutFs } from '../../src/watchdog/watchdog-context.js';
 import { InboxWriter } from '../../src/foundation/messaging/index.js';
-import { spawnDetached } from '../../src/foundation/process-exec/spawn-detached.js';
+import { spawn } from 'child_process';
 import { setTimeout as setTimeoutP } from 'timers/promises';
 import { createProcessManagerForCLI } from '../../src/foundation/process-manager/factories.js';
 import { AuditWriter } from '../../src/foundation/audit/writer.js';
@@ -422,7 +419,7 @@ describe('startCommand', () => {
     const chestnutDir = path.join(tmpDir, '.chestnut');
     fs.mkdirSync(chestnutDir, { recursive: true });
     vi.mocked(getNamedSubrootDir).mockReturnValue(path.join(chestnutDir, 'motion'));
-    vi.mocked(spawnDetached).mockReturnValue({ pid: FAKE_LIVE_PID });
+    vi.mocked(spawn).mockReturnValue({ pid: FAKE_LIVE_PID, unref: vi.fn() });
   });
 
   afterEach(() => {
@@ -439,7 +436,7 @@ describe('startCommand', () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     await startCommand(fsFactory);
 
-    expect(spawnDetached).not.toHaveBeenCalled();
+    expect(spawn).not.toHaveBeenCalled();
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('already running'));
     logSpy.mockRestore();
     vi.restoreAllMocks();
@@ -449,10 +446,10 @@ describe('startCommand', () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     await startCommand(fsFactory);
 
-    expect(spawnDetached).toHaveBeenCalledWith(
+    expect(spawn).toHaveBeenCalledWith(
       'node',
       expect.arrayContaining([expect.stringContaining('watchdog-entry')]),
-      expect.objectContaining({ env: expect.any(Object) }),
+      expect.objectContaining({ detached: true, env: expect.any(Object) }),
     );
     logSpy.mockRestore();
   });
