@@ -16,6 +16,7 @@ import {
 import { SPAWN_AUDIT_EVENTS } from '../audit-events.js';
 import { AUDIT_PREVIEW_LEN } from '../../../foundation/constants.js';
 import { SHADOW_CALLER_LABEL } from '../../shadow-system/index.js';
+import { SPAWN_DEFAULT_TIMEOUT_MS } from '../constants.js';
 
 /**
  * Spawn tool implementation
@@ -49,7 +50,7 @@ export function createSpawnTool(deps: SpawnToolDeps = {}): Tool {
         },
         timeoutMs: {
           type: 'number',
-          description: 'Timeout in milliseconds (default: 60000)',
+          description: `Timeout in milliseconds (default: ${SPAWN_DEFAULT_TIMEOUT_MS})`,
         },
         maxSteps: {
           type: 'number',
@@ -68,11 +69,11 @@ export function createSpawnTool(deps: SpawnToolDeps = {}): Tool {
     },
     readonly: false,
     idempotent: false,
-    defaultTimeoutMs: 60_000,
+    defaultTimeoutMs: SPAWN_DEFAULT_TIMEOUT_MS,
 
     async execute(args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
       const intent = String(args.intent);
-      const timeoutMs = typeof args.timeoutMs === 'number' ? args.timeoutMs : 60_000;
+      const timeoutMs = typeof args.timeoutMs === 'number' ? args.timeoutMs : SPAWN_DEFAULT_TIMEOUT_MS;
       const maxSteps = typeof args.maxSteps === 'number'
         ? args.maxSteps
         : (ctx.subagentMaxSteps ?? ctx.maxSteps);
