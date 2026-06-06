@@ -25,3 +25,31 @@ export function makeTraceId(raw: string): TraceId {
   }
   return raw as TraceId;
 }
+
+/**
+ * Phase 140: per-ID-dimension naming mapping entry.
+ *
+ * Owned by each module (the "owner" of the corresponding ID dimension) and
+ * aggregated at the assembly layer. Moved here to avoid L1-L4 modules
+ * importing from L6 assembly.
+ */
+export interface IdNamingEntry {
+  /** snake_case audit.tsv column name */
+  readonly auditCol: string;
+  /** snake_case dialog metadata field, or null if not stored in dialog */
+  readonly dialogMeta: string | null;
+  /** camelCase TypeScript field / brand type name */
+  readonly tsField: string;
+  /** kebab-case CLI flag fragment (or parenthetical note if implicit) */
+  readonly cliFlag: string;
+}
+
+/**
+ * Phase 140: per-event column schema entry for snapshot.json.
+ */
+export interface ColSchemaEntry {
+  readonly name: string;
+  readonly type: 'string' | 'number' | 'boolean';
+  readonly required: boolean;
+  readonly max_chars?: number;
+}

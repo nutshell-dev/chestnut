@@ -6,6 +6,9 @@
  *
  * RETRO_* 子域 events 已迁出至 ./retro-audit-events.ts（phase383 / r52 H 裁决 1+5）。
  */
+
+import type { IdNamingEntry } from '../../foundation/audit/types.js';
+
 export const CONTRACT_AUDIT_EVENTS = {
   LOCK_CLEARED: 'contract_lock_cleared',
   LOCK_UNLINK_FAILED: 'contract_lock_unlink_failed',
@@ -86,4 +89,24 @@ export const CONTRACT_AUDIT_EVENTS = {
   CONTRACT_AUDIT_TRIGGERED: 'contract_audit_triggered',
   CONTRACT_AUDIT_DRIFT_DETECTED: 'contract_audit_drift_detected',
   CONTRACT_AUDIT_FEEDBACK_DELIVERED: 'contract_audit_feedback_delivered',
+} as const;
+
+/**
+ * Phase 140: contract 业主声明 ID-naming map.
+ *
+ * SoT: contract 模块 own ContractId / SubtaskId 语义。
+ */
+export const CONTRACT_ID_NAMING: Readonly<Record<string, IdNamingEntry>> = {
+  contract: {
+    auditCol: 'contract_id',
+    dialogMeta: 'contract_id',  // inbox metadata
+    tsField: 'ContractId',      // brand type
+    cliFlag: '--col contract_id',
+  },
+  subtask: {
+    auditCol: 'subtask_id',
+    dialogMeta: 'subtask_id',
+    tsField: 'SubtaskId',       // brand type
+    cliFlag: '--col subtask_id',
+  },
 } as const;

@@ -4,6 +4,9 @@
  * Module-owned event namespace per H1 design (phase334 / r36 α 决策)。
  * 字符串值与 phase148 起 events.ts 中央注册表的 SESSION_* 系列等价 / 0 漂移。
  */
+
+import type { IdNamingEntry } from '../audit/types.js';
+
 export const DIALOG_AUDIT_EVENTS = {
   LOAD_FAILED: 'session_load_failed',
   SAVE_FAILED: 'session_save_failed',
@@ -26,4 +29,18 @@ export const DIALOG_AUDIT_EVENTS = {
   TURN_ROLLBACK: 'dialog_turn_rollback',
   FLUSH_CHAIN_ERROR: 'dialog_flush_chain_error',
   CLEANUP_ARCHIVES_DELETE_FAILED: 'dialog_cleanup_archives_delete_failed',
+} as const;
+
+/**
+ * Phase 140: dialog-store 业主声明 ID-naming map.
+ *
+ * SoT: dialog-store own turn sequence 语义。
+ */
+export const DIALOG_ID_NAMING: Readonly<Record<string, IdNamingEntry>> = {
+  turn: {
+    auditCol: 'turn',
+    dialogMeta: null,  // implicit via messages.length
+    tsField: 'turnSeq',
+    cliFlag: '(implicit, via --col step)',
+  },
 } as const;

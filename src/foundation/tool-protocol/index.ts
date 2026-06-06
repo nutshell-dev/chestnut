@@ -48,7 +48,8 @@ export interface ToolResult {
 // phase 1358: ToolUseId branded type (compile-time ID discrimination)
 // ============================================================================
 
-export { ToolUseId, makeToolUseId } from './tool-use-id.js';
+export type { ToolUseId } from './tool-use-id.js';
+export { makeToolUseId } from './tool-use-id.js';
 
 // ============================================================================
 // phase 1406: CallerSnapshot — caller deep context shape (lazy / declared opt-in)

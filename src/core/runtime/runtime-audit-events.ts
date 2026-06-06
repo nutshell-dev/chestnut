@@ -8,6 +8,9 @@
  * 合并理由：events.ts 中 Runtime + LLM Response 是 2 分组 / 但 caller 同为 runtime.ts /
  * 1 文件聚合更简洁（M#3 资源唯一归属：runtime caller 模块 own）。
  */
+
+import type { IdNamingEntry, ColSchemaEntry } from '../../foundation/audit/types.js';
+
 export const RUNTIME_AUDIT_EVENTS = {
   // 原有
   PROCESS_BATCH_FAILED: 'runtime_process_batch_failed',
@@ -76,4 +79,49 @@ export const REACT_LOOP_AUDIT_EVENTS = {
   LLM_CALL: 'llm_call',
   LLM_ERROR: 'llm_error',
   MARK_CRASHED_FAILED: 'mark_crashed_failed',  // phase 63 NEW
+} as const;
+
+/**
+ * Phase 140: runtime 业主声明 ID-naming map.
+ *
+ * SoT: runtime 是 trace_id / stepNumber 的产生方。
+ */
+export const RUNTIME_ID_NAMING: Readonly<Record<string, IdNamingEntry>> = {
+  trace: {
+    auditCol: 'trace_id',
+    dialogMeta: 'trace_id',
+    tsField: 'traceId',
+    cliFlag: '--trace',
+  },
+  step: {
+    auditCol: 'step',
+    dialogMeta: null,  // dialog session 不存 step
+    tsField: 'stepNumber',
+    cliFlag: '--col step',
+  },
+} as const;
+
+/**
+ * Phase 140: runtime tool 类 event col schema (β 兼容期，required: false).
+ * 用于 snapshot.json schema 同步（Step E）+ lock test 守 emit cols.
+ */
+export const RUNTIME_TOOL_EVENT_COLS: Readonly<Record<string, readonly ColSchemaEntry[]>> = {
+  tool_result: [
+    { name: 'tool_name', type: 'string', required: true },
+    { name: 'tool_use_id', type: 'string', required: false },
+    { name: 'step', type: 'number', required: false },
+    { name: 'contract_id', type: 'string', required: false },
+    { name: 'trace_id', type: 'string', required: false },
+    { name: 'status', type: 'string', required: false },
+    { name: 'summary', type: 'string', required: false, max_chars: 200 },
+    { name: 'content_size', type: 'number', required: false },
+  ],
+  tool_call_input: [
+    { name: 'tool_name', type: 'string', required: true },
+    { name: 'tool_use_id', type: 'string', required: false },
+    { name: 'step', type: 'number', required: false },
+    { name: 'contract_id', type: 'string', required: false },
+    { name: 'args_size', type: 'number', required: true },
+    { name: 'trace_id', type: 'string', required: false },
+  ],
 } as const;

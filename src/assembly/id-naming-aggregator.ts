@@ -11,25 +11,19 @@
  * - Audit column names (auditCol) are unique across the aggregated map.
  */
 
-export interface IdNamingEntry {
-  /** snake_case audit.tsv column name */
-  readonly auditCol: string;
-  /** snake_case dialog metadata field, or null if not stored in dialog */
-  readonly dialogMeta: string | null;
-  /** camelCase TypeScript field / brand type name */
-  readonly tsField: string;
-  /** kebab-case CLI flag fragment (or parenthetical note if implicit) */
-  readonly cliFlag: string;
-}
+import type { IdNamingEntry } from '../foundation/audit/types.js';
+import { RUNTIME_ID_NAMING } from '../core/runtime/runtime-audit-events.js';
+import { CONTRACT_ID_NAMING } from '../core/contract/audit-events.js';
+import { DIALOG_ID_NAMING } from '../foundation/dialog-store/audit-events.js';
+import { LLM_PROVIDER_ID_NAMING } from '../foundation/llm-provider/audit-events.js';
 
-// Step A: framework starts empty. Step C will spread-import owner maps here.
-// import { RUNTIME_ID_NAMING } from '../core/runtime/runtime-audit-events.js';
-// import { CONTRACT_ID_NAMING } from '../core/contract/audit-events.js';
-// import { DIALOG_ID_NAMING } from '../foundation/dialog-store/audit-events.js';
-// import { LLM_PROVIDER_ID_NAMING } from '../foundation/llm-provider/audit-events.js';
+export type { IdNamingEntry } from '../foundation/audit/types.js';
 
 export const AggregatedIdNamingMap: Readonly<Record<string, IdNamingEntry>> = {
-  // Step C will populate with spread imports from owner modules.
+  ...RUNTIME_ID_NAMING,
+  ...CONTRACT_ID_NAMING,
+  ...DIALOG_ID_NAMING,
+  ...LLM_PROVIDER_ID_NAMING,
 } as const;
 
 export type AggregatedIdName = keyof typeof AggregatedIdNamingMap;
