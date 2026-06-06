@@ -127,15 +127,13 @@ const VI_MOCK_FILES = [
   'tests/foundation/process-manager/spawn-race.test.ts',
   'tests/foundation/process-manager/spawn-remove-pid-audit.test.ts',
   'tests/foundation/process/stop-race.test.ts',
-  // snapshot tests share module-level `_stateMap` singleton in snapshot.ts:51;
-  // under isolate:false the map persists across test files within a worker thread,
-  // causing cross-file race when vitest related schedules multiple snapshot
-  // tests into the same worker (symptom: ENOENT .git/HEAD + stale git log
-  // "fix:" assertion fail). Moved to isolated project to reset module per file.
-  'tests/foundation/snapshot.test.ts',
-  'tests/foundation/snapshot/cleanup-race-cluster.test.ts',
-  'tests/foundation/snapshot/commit-throttle.test.ts',
-  'tests/foundation/snapshot/consecutive-failures-singleton.test.ts',
+  // phase 83 (SHA 5a4ca7a9): _stateMap module-level singleton
+  // 已解散为 Snapshot instance private state (ML#3 治)，cross-reassemble 走
+  // disk persist 唯一路径。snapshot 4 file 移出 ISOLATED。注释保留作历史。
+  // 'tests/foundation/snapshot.test.ts',
+  // 'tests/foundation/snapshot/cleanup-race-cluster.test.ts',
+  // 'tests/foundation/snapshot/commit-throttle.test.ts',
+  // 'tests/foundation/snapshot/consecutive-failures-singleton.test.ts',
   // task.test.ts uses chokidar watcher (25 waitFor/listRunning sites): task
   // scheduled by writing pending file, watcher async-fires 'add' event to
   // ingest. Under fast project isolate:false + concurrent workers, watcher
