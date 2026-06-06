@@ -7,3 +7,10 @@
  * caller: ToolExecutor ctor fallback only.
  */
 export const DEFAULT_TOOL_TIMEOUT_MS = 3_600_000;
+
+/**
+ * escapeForLog helper 输出截断 cap.
+ * 用于 log / audit display 时把 tool args / output 转 \\n 转义 + 截断到此长度、防 log 行过长。
+ * caller: foundation/tools/types.ts escapeForLog().
+ */
+export const TOOL_LOG_ESCAPE_CHARS = 120;

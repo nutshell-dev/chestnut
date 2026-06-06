@@ -12,6 +12,7 @@ import type { AuditLog } from '../audit/index.js';
 import type { DialogStore } from '../dialog-store/index.js';
 import type { ToolDescriptor, ToolResult, CallerSnapshot } from '../tool-protocol/index.js';
 export type { CallerSnapshot };
+import { TOOL_LOG_ESCAPE_CHARS } from './constants.js';
 import type { ScheduleAsyncTool } from './async-dispatch.js';
 import type { PermissionChecker } from '../tool-protocol/permission.js';
 import type { ClawId } from '../paths.js';
@@ -75,7 +76,7 @@ export interface FileState {
  * preserved in the actual tool result.
  */
 export function escapeForLog(s: string): string {
-  return s.replace(/\n/g, '\\n').slice(0, 120);
+  return s.replace(/\n/g, '\\n').slice(0, TOOL_LOG_ESCAPE_CHARS);
 }
 
 // ── Tool & ExecContext ─────────────────────────────────────────────
