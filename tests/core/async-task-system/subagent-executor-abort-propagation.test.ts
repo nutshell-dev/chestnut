@@ -10,27 +10,11 @@ const { mockRunSubagent } = vi.hoisted(() => ({
   mockRunSubagent: vi.fn().mockResolvedValue({ text: 'done', capturedResult: undefined }),
 }));
 
-const { mockGetDisplayResult } = vi.hoisted(() => ({
-  mockGetDisplayResult: vi.fn().mockReturnValue('done'),
-}));
 
-vi.mock('../../../src/core/subagent/index.js', () => ({
-  runSubagent: mockRunSubagent,
-  NoopAuditWriter: class NoopAuditWriter { write() {} },
-  createPerTaskRegistry: vi.fn().mockImplementation((_registry: any) => ({
-    register: vi.fn(),
-    getAll: vi.fn().mockReturnValue([]),
-    get: vi.fn().mockReturnValue(undefined),
-    formatForLLM: vi.fn().mockReturnValue([]),
-  })),
-  DONE_TOOL_NAME: 'done',
-  getDisplayResult: mockGetDisplayResult,
-}));
 
 describe('subagent-executor abort propagation (phase 1373 sub-5)', () => {
   beforeEach(() => {
     mockRunSubagent.mockClear();
-    mockGetDisplayResult.mockClear();
   });
 
   it('task abort signal 应 cascade 到 runSubagent 的 signal 参数', async () => {
@@ -63,12 +47,14 @@ describe('subagent-executor abort propagation (phase 1373 sub-5)', () => {
         formatForLLM: vi.fn().mockReturnValue([]),
         getAll: vi.fn().mockReturnValue([]),
         get: vi.fn().mockReturnValue(undefined),
+        getForProfile: vi.fn().mockReturnValue([]),
       } as any,
       clawDir: '/tmp/test',
       postProcessors: new Map(),
       moveTaskToDone: vi.fn().mockResolvedValue(undefined),
       moveTaskToFailed: vi.fn().mockResolvedValue(undefined),
       askMotionToolFactory: vi.fn().mockReturnValue({} as any),
+      runSubagent: mockRunSubagent,
     });
 
     expect(mockRunSubagent).toHaveBeenCalled();
@@ -109,12 +95,14 @@ describe('subagent-executor abort propagation (phase 1373 sub-5)', () => {
         formatForLLM: vi.fn().mockReturnValue([]),
         getAll: vi.fn().mockReturnValue([]),
         get: vi.fn().mockReturnValue(undefined),
+        getForProfile: vi.fn().mockReturnValue([]),
       } as any,
       clawDir: '/tmp/test',
       postProcessors: new Map(),
       moveTaskToDone: vi.fn().mockResolvedValue(undefined),
       moveTaskToFailed: vi.fn().mockResolvedValue(undefined),
       askMotionToolFactory: vi.fn().mockReturnValue({} as any),
+      runSubagent: mockRunSubagent,
     });
 
     expect(mockRunSubagent).toHaveBeenCalled();

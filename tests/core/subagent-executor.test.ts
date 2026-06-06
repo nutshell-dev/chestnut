@@ -15,33 +15,7 @@ const { mockRunSubagent } = vi.hoisted(() => ({
   mockRunSubagent: vi.fn(),
 }));
 
-const { mockCreateDoneTool } = vi.hoisted(() => ({
-  mockCreateDoneTool: vi.fn(() => ({
-    name: 'done',
-    description: 'done',
-    schema: { type: 'object', properties: {} },
-    execute: vi.fn(),
-  })),
-}));
 
-vi.mock('../../src/core/subagent/index.js', () => ({
-  runSubagent: mockRunSubagent,
-  NoopAuditWriter: class NoopAuditWriter { write() {} },
-  createDoneTool: mockCreateDoneTool,
-  DONE_TOOL_NAME: 'done',
-  createPerTaskRegistry: (registry: any, profile: any) => {
-    const r = {
-      register: vi.fn(),
-      getAll: vi.fn().mockReturnValue([]),
-    };
-    for (const t of (registry.getForProfile?.(profile) ?? [])) {
-      if (t.name === 'done') continue;
-      r.register(t);
-    }
-    r.register(mockCreateDoneTool());
-    return r;
-  },
-}));
 
 function makeTask(overrides: Partial<SubAgentTask> = {}): SubAgentTask {
   return {
@@ -93,6 +67,7 @@ function makeDeps() {
     moveTaskToDone: vi.fn().mockResolvedValue(undefined),
     moveTaskToFailed: vi.fn().mockResolvedValue(undefined),
     askMotionToolFactory: () => ({ name: 'ask_motion', description: '', readonly: false, idempotent: false, schema: { type: 'object' }, execute: vi.fn(async () => ({ ok: true, content: '' })) } as unknown as import('../../src/foundation/tools/index.js').Tool),
+    runSubagent: mockRunSubagent,
   };
 }
 
@@ -144,7 +119,7 @@ describe('Phase 546 — subagent-executor systemPrompt 注入', () => {
     expect(captured.systemPrompt).toMatch(/Task ID|callerClawId|workspace/);
   });
 
-  it('creates fresh done instance per subagent task (phase 944)', async () => {
+  it('calls runSubagent per subagent task (phase 944)', async () => {
     const task1 = makeTask();
     const task2 = makeTask();
     const deps = makeDeps();
@@ -152,7 +127,6 @@ describe('Phase 546 — subagent-executor systemPrompt 注入', () => {
     await executeSubAgentTask(task1, new AbortController().signal, deps);
     await executeSubAgentTask(task2, new AbortController().signal, deps);
 
-    expect(mockCreateDoneTool).toHaveBeenCalledTimes(2);
     expect(mockRunSubagent).toHaveBeenCalledTimes(2);
   });
 });

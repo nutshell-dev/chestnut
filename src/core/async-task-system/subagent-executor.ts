@@ -6,7 +6,7 @@ import type { PermissionChecker } from '../../foundation/tool-protocol/permissio
 import { callerTypeToProfile } from '../caller-types.js';
 
 import type { ToolRegistry } from '../../foundation/tools/index.js';
-import { runSubagent, NoopAuditWriter, createPerTaskRegistry, DONE_TOOL_NAME, getDisplayResult } from '../subagent/index.js';
+import { runSubagent as defaultRunSubagent, NoopAuditWriter, createPerTaskRegistry, DONE_TOOL_NAME, getDisplayResult } from '../subagent/index.js';
 import { createDialogStore } from '../../foundation/dialog-store/index.js';
 
 import { STREAM_TASK_EVENTS } from './stream-events.js';
@@ -50,6 +50,7 @@ export interface ExecuteSubAgentTaskDeps {
   permissionChecker?: PermissionChecker;
   // NEW phase 1369: AskMotionTool factory inject (per phase 619 caller DIP enforce template / cut async-task→summon reverse)
   askMotionToolFactory: (llm: LLMOrchestrator, motionDialogStore: DialogStore) => Tool;
+  runSubagent?: typeof defaultRunSubagent;
 }
 
 async function applyPostProcessor(
@@ -152,7 +153,7 @@ export async function executeSubAgentTask(
     // phase 1373 sub-5: task abort signal cascade to runSubagent
     const compositeSignal = AbortSignal.any?.([signal].filter(Boolean)) ?? signal;
 
-    const { text, capturedResult } = await runSubagent({
+    const { text, capturedResult } = await (deps.runSubagent ?? defaultRunSubagent)({
       agentId: task.id,
       callerType: task.callerType,
       clawDir,
