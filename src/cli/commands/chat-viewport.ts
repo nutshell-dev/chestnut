@@ -47,6 +47,9 @@ const CLAW_REFRESH_INTERVAL_MS = 2000;
 const CLAW_PANEL_TICK_INTERVAL_MS = 1000;
 const DAEMON_LIVENESS_CHECK_INTERVAL_MS = 3000;
 
+/** chat-viewport 命令进程 crash log 文件（logs/ multi-owner subdir 内 cli/chat-viewport own 子树）*/
+const CHAT_CRASH_LOG_FILE = 'logs/chat-crash.log';
+
 /**
  * phase 31 P2.4: ChatViewportOptions 按 role 拆 ISP align。
  */
@@ -402,7 +405,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   tui.setFocus(editor);
 
   // 防御层：任何未捕获异常先还原终端，防止 terminal emulator 因 raw mode 未还原而闪退
-  const crashLogPath = path.join(options.agentDir, 'logs', 'chat-crash.log');
+  const crashLogPath = path.join(options.agentDir, CHAT_CRASH_LOG_FILE);
   const uncaughtHandler = createUncaughtHandler({ agentDir: options.agentDir, fs, fsFactory: options.fsFactory, tui, crashLogPath, audit: options.audit });
   process.on('uncaughtException', uncaughtHandler);
   process.on('unhandledRejection', uncaughtHandler);
