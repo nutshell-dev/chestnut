@@ -31,3 +31,10 @@ export const SHUTDOWN_DEFAULT_TIMEOUT_MS = 30_000;
  * + notify motion (overflow notification per phase 670).
  */
 export const PENDING_QUEUE_MAX = 1000;
+
+/**
+ * Subagent task.intent audit row preview cap.
+ * subagent-executor 在 audit row 显示 task.intent 短摘要时截断到此长度、防 audit row 字段过长。
+ * 与 shadow-system SHADOW_INTENT_PREVIEW_CHARS 独立可变（同值 60、按 module 自治；ML#1 反向测试 + ML#5 避免 L4→L4 跨模块依赖）
+ */
+export const TASK_INTENT_PREVIEW_CHARS = 60;

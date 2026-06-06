@@ -18,3 +18,10 @@ export const SHADOW_CALLER_LABEL = 'shadow';
  * phase 105 const 化（修 phase 1xx pre-existing 5 处 cross-file hardcoded、ML#3）
  */
 export const SHADOW_DEFAULT_TIMEOUT_MS = 300_000;
+
+/**
+ * Shadow task intentPreview field cap.
+ * spawn-shadow-subagent 创建 ShadowTask 时、opts.task 截断到此长度作为 intentPreview 字段值；audit / 不进 LLM。
+ * 与 async-task-system TASK_INTENT_PREVIEW_CHARS 独立可变（同值 60）。
+ */
+export const SHADOW_INTENT_PREVIEW_CHARS = 60;
