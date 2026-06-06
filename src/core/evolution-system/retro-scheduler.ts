@@ -12,7 +12,7 @@ import { buildRetroPrompt } from '../../prompts/index.js';
 import { formatErr } from "../../foundation/utils/index.js";
 import { MOTION_CLAW_ID } from '../../constants.js';
 import type { AsyncTaskSystem } from '../async-task-system/index.js';
-import { createSkillSystem } from '../../foundation/skill-system/index.js';
+import { createSkillSystem as defaultCreateSkillSystem } from '../../foundation/skill-system/index.js';
 import { DISPATCH_SKILLS_PATH as DISPATCH_SKILLS_DIR } from '../summon-system/dispatch-skills-paths.js';
 // phase 1490: 不再传 maxSteps、task.maxSteps optional / undefined 透传到 SubAgent boundary fallback。
 import type { FileSystem } from '../../foundation/fs/types.js';
@@ -35,6 +35,7 @@ export interface RetroConfig {
   audit: AuditLog;  // claw audit (for skill failure log)
   retroSubagentTimeoutMs?: number;   // default 600000ms
   taskSystem: AsyncTaskSystem;
+  createSkillSystem?: typeof defaultCreateSkillSystem;
 }
 
 /**
@@ -48,7 +49,8 @@ export async function scheduleRetro(config: RetroConfig): Promise<void> {
   // 加载 dispatch-skills（A.5 / best-effort）
   let skillsSummary = '';
   try {
-    const reg = createSkillSystem(config.motionFs, DISPATCH_SKILLS_DIR, config.audit);
+    const createSkillFn = config.createSkillSystem ?? defaultCreateSkillSystem;
+    const reg = createSkillFn(config.motionFs, DISPATCH_SKILLS_DIR, config.audit);
     await reg.loadAll();
     const formatted = reg.formatForContext();
     if (!formatted.includes('No skills loaded')) {

@@ -10,18 +10,16 @@ import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import { SUBAGENT_TIMEOUT_MS } from '../../../src/core/subagent/constants.js';
 
-const { mockSkillLoadAll, mockSkillFormat, mockSchedule } = vi.hoisted(() => ({
-  mockSkillLoadAll: vi.fn().mockResolvedValue(undefined),
-  mockSkillFormat: vi.fn().mockReturnValue('No skills loaded'),
-  mockSchedule: vi.fn().mockResolvedValue('mock-task-id'),
-}));
-
-vi.mock('../../../src/foundation/skill-system/registry.js', () => ({
-  SkillSystem: vi.fn().mockImplementation(() => ({
-    loadAll: mockSkillLoadAll,
-    formatForContext: mockSkillFormat,
-  })),
-}));
+const { mockSkillLoadAll, mockSkillFormat, mockSchedule, mockSkillFactory } = vi.hoisted(() => {
+  const mockSkillLoadAll = vi.fn().mockResolvedValue(undefined);
+  const mockSkillFormat = vi.fn().mockReturnValue('No skills loaded');
+  return {
+    mockSkillLoadAll,
+    mockSkillFormat,
+    mockSchedule: vi.fn().mockResolvedValue('mock-task-id'),
+    mockSkillFactory: vi.fn(() => ({ loadAll: mockSkillLoadAll, formatForContext: mockSkillFormat })),
+  };
+});
 
 function makeConfig(overrides: Partial<RetroConfig> = {}): RetroConfig {
   return {
@@ -34,6 +32,7 @@ function makeConfig(overrides: Partial<RetroConfig> = {}): RetroConfig {
     baseMessages: [{ role: 'user', content: 'hi' }],
     audit: { write: vi.fn() } as unknown as AuditLog,
     taskSystem: { schedule: mockSchedule } as unknown as RetroConfig['taskSystem'],
+    createSkillSystem: mockSkillFactory,
     ...overrides,
   };
 }
