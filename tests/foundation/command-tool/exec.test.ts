@@ -5,6 +5,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { execTool } from '../../../src/foundation/command-tool/exec.js';
+import { EXEC_COMMAND_PLACEHOLDER_CHARS } from '../../../src/foundation/command-tool/constants.js';
 import { makeExecContext } from '../../helpers/exec-context.js';
 
 describe('phase 96 exec empty-output placeholder', () => {
@@ -38,6 +39,8 @@ describe('phase 96 exec empty-output placeholder', () => {
       .split('\n')
       .find((l) => l.startsWith('[command]:'));
     expect(commandLine).toBeDefined();
-    expect(commandLine!.length).toBeLessThanOrEqual(200 + '[command]: '.length + '[truncated]'.length);
+    expect(commandLine!.length).toBeLessThanOrEqual(
+      EXEC_COMMAND_PLACEHOLDER_CHARS + '[command]: '.length + '[truncated]'.length,
+    );
   });
 });

@@ -16,7 +16,7 @@ import type { Tool } from '../tools/index.js';
 import { randomUUID } from 'crypto';
 import * as path from 'path';
 import { UUID_SHORT_LEN } from '../../constants.js';
-import { EXEC_MAX_OUTPUT, EXEC_OVERFLOW_DIR_NAME } from './constants.js';
+import { EXEC_MAX_OUTPUT, EXEC_OVERFLOW_DIR_NAME, EXEC_COMMAND_PLACEHOLDER_CHARS } from './constants.js';
 import { AUDIT_MESSAGE_MAX_CHARS } from '../constants.js';
 import { exec } from '../process-exec/index.js';
 import { ProcessExecError } from '../process-exec/index.js';
@@ -59,8 +59,9 @@ function truncateHeadTail(output: string, relPath: string): string {
 }
 
 function formatNoOutput(command: string): string {
-  const MAX = 200;
-  const short = command.length > MAX ? command.slice(0, MAX) + '[truncated]' : command;
+  const short = command.length > EXEC_COMMAND_PLACEHOLDER_CHARS
+    ? command.slice(0, EXEC_COMMAND_PLACEHOLDER_CHARS) + '[truncated]'
+    : command;
   return `(no output)\n[command]: ${short}`;
 }
 
