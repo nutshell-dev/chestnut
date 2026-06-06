@@ -51,7 +51,8 @@ const VI_MOCK_FILES = [
   // phase 1352 reverted (post-merge fix): spawn tool extraction conflicted with phase 1332
   // builtins.test.ts now has vi.hoisted only (mockSchedule) → stays in fast project
   // phase 1353: builtins-slow.test.ts moved to fast (dead vi.mock removed)
-  'tests/core/contract-review-request.test.ts',
+  // phase 118 (SHA <TBD>): EvolutionSystemDeps DI 复用替 vi.mock skill-system pattern
+  // 'tests/core/contract-review-request.test.ts',
   'tests/core/contract/archive-race.test.ts',
   'tests/core/contract/audit-completed-single-emit.test.ts',
   'tests/core/contract/cancel-save-before-abort.test.ts',
