@@ -21,6 +21,16 @@ import type { MainTurnUIController } from './main-turn-ui.js';
 import type { ThinkingMode } from './chat-viewport-commands.js';
 import type { createViewportObservability } from './chat-viewport-observability.js';
 import { type TaskId, makeTaskId } from '../../core/async-task-system/types.js';
+import { shortenErrorMsg } from './chat-viewport-utils.js';
+
+/**
+ * provider_attempt_failed / breaker_opened 事件 display 时 errorMsg 截断 cap。
+ * < 此长度直接显示、>= 此长度截至 (cap - 3) + '...'.
+ */
+const PROVIDER_ATTEMPT_FAILED_ERR_DISPLAY_CHARS = 60;
+
+/** provider_failed 事件 display 时 errorMsg 截断 cap。 */
+const FALLBACK_FAILURE_ERR_DISPLAY_CHARS = 80;
 
 export interface TaskWatch {
   callerType: CallerType;
@@ -200,7 +210,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
             : errorClass === 'transient' ? 'network/service unavailable'
             : errorClass === 'rate_limit' ? 'rate limited'
             : 'unknown error';
-          const shortErr = typeof errorMsg === 'string' && errorMsg.length > 60 ? errorMsg.slice(0, 57) + '...' : errorMsg;
+          const shortErr = typeof errorMsg === 'string' ? shortenErrorMsg(errorMsg, PROVIDER_ATTEMPT_FAILED_ERR_DISPLAY_CHARS) : errorMsg;
           deps.appendOutput('\x1b[2m', `\x1b[38;5;203m✗\x1b[0m \x1b[2m${providerName} ${classLabel} (${shortErr}) / suggestion: ${hint}\x1b[0m`);
         }
         break;
@@ -224,7 +234,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
       case 'provider_exhausted': {
         const providerName = event.provider as string;
         const errorMsg = event.error as string;
-        const shortErr = typeof errorMsg === 'string' && errorMsg.length > 60 ? errorMsg.slice(0, 57) + '...' : errorMsg;
+        const shortErr = typeof errorMsg === 'string' ? shortenErrorMsg(errorMsg, PROVIDER_ATTEMPT_FAILED_ERR_DISPLAY_CHARS) : errorMsg;
         deps.appendOutput('\x1b[2m', `\x1b[38;5;203m✗\x1b[0m \x1b[2m${providerName} exhausted retries (${shortErr})\x1b[0m`);
         break;
       }
@@ -234,7 +244,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
         const providerModel = event.model as string;
         const errorMsg = event.error as string;
         // 截断过长的错误消息
-        const shortErr = errorMsg.length > 80 ? errorMsg.slice(0, 77) + '...' : errorMsg;
+        const shortErr = shortenErrorMsg(errorMsg, FALLBACK_FAILURE_ERR_DISPLAY_CHARS);
         deps.appendOutput('\x1b[2m', `\x1b[38;5;203m✗\x1b[0m \x1b[2m${providerModel} · ${providerName} failed: ${shortErr}\x1b[0m`);
         break;
       }
