@@ -21,7 +21,8 @@ const VI_MOCK_FILES = [
   // phase 1421: tests/cli/already-running-sentinel.test.ts moved to fast project
   // — daemon command bodies extracted with DI seam; tests no longer need vi.mock.
   'tests/cli/daemon-entry.test.ts',
-  'tests/cli/chat-viewport-claw-manager-narrow.test.ts',
+  // phase 99 (SHA df8f4558): l1IsAlive DI injected via ProcessManagerContext — tests no longer need vi.mock for process-exec isAlive.
+  // 'tests/cli/chat-viewport-claw-manager-narrow.test.ts',
   'tests/cli/chat-viewport-stream-reader-start-fail.test.ts',
   'tests/core/contract/lock-retry-jitter.test.ts',
   'tests/cli/claw-send-confinement.test.ts',
@@ -36,8 +37,10 @@ const VI_MOCK_FILES = [
   'tests/cli/motion-steps-action-error.test.ts',
   'tests/cli/password-restore-reverse.test.ts',
   'tests/cli/start.test.ts',
-  'tests/cli/stop-orphan-cleanup-audit.test.ts',
-  'tests/cli/watchdog.test.ts',
+  // phase 99 (SHA df8f4558): l1IsAlive DI injected via ProcessManagerContext — tests no longer need vi.mock for process-exec isAlive.
+  // 'tests/cli/stop-orphan-cleanup-audit.test.ts',
+  // phase 99 (SHA df8f4558): l1IsAlive DI injected via ProcessManagerContext.
+  // 'tests/cli/watchdog.test.ts',
   'tests/core/async-task-system/cancel-pending-corrupt.test.ts',
   'tests/core/async-task-system/race-deadletter.test.ts',
   'tests/core/async-task-system/sent-marker-idempotency.test.ts',
@@ -128,18 +131,30 @@ const VI_MOCK_FILES = [
   'tests/foundation/llm.test.ts',
   'tests/foundation/messaging/inbox-reader-race.test.ts',
   'tests/foundation/process-exec/process-starttime-catch-filter.test.ts',
-  'tests/foundation/process-manager/isready-stale-self-cleanup.test.ts',
-  'tests/foundation/process-manager/ready-cleanup-narrow.test.ts',
-  'tests/foundation/process-manager/ready-silent-x-narrow.test.ts',
-  'tests/foundation/process-manager/ready-spawn-integration.test.ts',
-  'tests/foundation/process-manager/ready-spawn-real-poll.test.ts',
-  'tests/foundation/process-manager/ready-stale-cleanup-narrow.test.ts',
-  'tests/foundation/process-manager/ready.test.ts',
-  'tests/foundation/process-manager/spawn-duration-metric.test.ts',
-  'tests/foundation/process-manager/spawn-fast-fail-child-died.test.ts',
-  'tests/foundation/process-manager/spawn-race.test.ts',
-  'tests/foundation/process-manager/spawn-remove-pid-audit.test.ts',
-  'tests/foundation/process/stop-race.test.ts',
+  // phase 99 (SHA df8f4558): l1IsAlive DI injected via ProcessManagerContext — no longer needs module registry isolation.
+  // 'tests/foundation/process-manager/isready-stale-self-cleanup.test.ts',
+  // phase 99 (SHA df8f4558): l1IsAlive DI injected via ProcessManagerContext — no longer needs module registry isolation.
+  // 'tests/foundation/process-manager/ready-cleanup-narrow.test.ts',
+  // phase 99 (SHA df8f4558): l1IsAlive DI injected via ProcessManagerContext — no longer needs module registry isolation.
+  // 'tests/foundation/process-manager/ready-silent-x-narrow.test.ts',
+  // phase 99 (SHA df8f4558): l1IsAlive DI injected via ProcessManagerContext.
+  // 'tests/foundation/process-manager/ready-spawn-integration.test.ts',
+  // phase 99 (SHA df8f4558): l1IsAlive DI injected via ProcessManagerContext.
+  // 'tests/foundation/process-manager/ready-spawn-real-poll.test.ts',
+  // phase 99 (SHA df8f4558): l1IsAlive DI injected via ProcessManagerContext — no longer needs module registry isolation.
+  // 'tests/foundation/process-manager/ready-stale-cleanup-narrow.test.ts',
+  // phase 99 (SHA df8f4558): l1IsAlive DI injected via ProcessManagerContext — no longer needs module registry isolation.
+  // 'tests/foundation/process-manager/ready.test.ts',
+  // phase 99 (SHA df8f4558): l1IsAlive DI injected via ProcessManagerContext — spawnDetached mock remains but isAlive vi.mock removed.
+  // 'tests/foundation/process-manager/spawn-duration-metric.test.ts',
+  // phase 99 (SHA df8f4558): l1IsAlive DI injected via ProcessManagerContext — spawnDetached mock remains but isAlive vi.mock removed.
+  // 'tests/foundation/process-manager/spawn-fast-fail-child-died.test.ts',
+  // phase 99 (SHA df8f4558): l1IsAlive DI injected via ProcessManagerContext — spawnDetached mock remains but isAlive vi.mock removed.
+  // 'tests/foundation/process-manager/spawn-race.test.ts',
+  // phase 99 (SHA df8f4558): l1IsAlive DI injected via ProcessManagerContext — spawnDetached mock remains but isAlive vi.mock removed.
+  // 'tests/foundation/process-manager/spawn-remove-pid-audit.test.ts',
+  // phase 99 (SHA df8f4558): l1IsAlive DI injected via ProcessManagerContext — kill mock remains but isAlive vi.mock removed.
+  // 'tests/foundation/process/stop-race.test.ts',
   // phase 83 (SHA 5a4ca7a9): _stateMap module-level singleton
   // 已解散为 Snapshot instance private state (ML#3 治)，cross-reassemble 走
   // disk persist 唯一路径。snapshot 4 file 移出 ISOLATED。注释保留作历史。
