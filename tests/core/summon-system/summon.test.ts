@@ -113,6 +113,16 @@ describe('SummonTool', () => {
     expect(auditEvents.find(e => e.type === TASK_AUDIT_EVENTS.TASK_SCHEDULED)).toBeDefined();
   });
 
+  it('phase 124: success content includes "dispatched to create contract"', async () => {
+    const ctx = makeCtx('claw');
+    const result = await tool.execute({ goal: 'do something' }, ctx);
+
+    expect(result.success).toBe(true);
+    expect(result.content).toContain('dispatched');
+    expect(result.content).toContain('to create contract');
+    expect(result.content).not.toContain('Summon subagent started');
+  });
+
   it('should pass postProcessor field to scheduleSubAgent', async () => {
     const ctx = makeCtx('claw');
     await tool.execute({ goal: 'test postProcessor' }, ctx);
