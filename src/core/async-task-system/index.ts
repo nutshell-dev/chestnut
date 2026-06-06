@@ -30,6 +30,11 @@ export * from './audit-emit.js';
 
 import * as path from 'path';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
+import {
+  TASKS_QUEUES_DONE_DIR,
+  TASKS_QUEUES_FAILED_DIR,
+  TASKS_QUEUES_RESULTS_DIR,
+} from './dirs.js';
 
 /**
  * Delete task files (done/, failed/, results/) older than maxDays.
@@ -48,7 +53,11 @@ export async function cleanupExpiredTaskFiles(opts: {
   const now = Date.now();
   let totalDeleted = 0;
 
-  const dirs = ['tasks/done', 'tasks/failed', 'tasks/results'];
+  // phase 120 Step G: bug fix — 原 inline 'tasks/done'/'tasks/failed'/'tasks/results'
+  // 与实然 dir 'tasks/queues/done|failed|results' (per TASKS_QUEUES_*_DIR) 路径错配、
+  // 导致 fs.existsSync 返 false 后 continue、cleanup 实际清 0 文件 (latent bug)。
+  // const 化 + 路径修正 = ML#3 single source 后业务路径正确、cron retention-cleanup 真清正确 dir。
+  const dirs = [TASKS_QUEUES_DONE_DIR, TASKS_QUEUES_FAILED_DIR, TASKS_QUEUES_RESULTS_DIR];
 
   for (const relPath of dirs) {
     if (signal?.aborted) break;
