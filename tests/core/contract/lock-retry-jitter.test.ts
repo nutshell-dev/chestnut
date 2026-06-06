@@ -20,10 +20,6 @@ vi.mock('../../../src/core/contract/constants.js', async (importOriginal) => {
   };
 });
 
-vi.mock('../../../src/foundation/process-exec/index.js', () => ({
-  isAlive: vi.fn(() => true),
-}));
-
 describe('phase 1325 lock retry jitter + audit emit', () => {
   it('jitter range 100 sample 落 [T/2, 1.5T]', () => {
     const T = 100; // mocked LOCK_RETRY_DELAY_MS
@@ -59,7 +55,7 @@ describe('phase 1325 lock retry jitter + audit emit', () => {
     };
 
     await expect(
-      acquireLock({ fs: mockFs as any, audit: mockAudit as any }, '/tmp/test.lock')
+      acquireLock({ fs: mockFs as any, audit: mockAudit as any, l1IsAlive: vi.fn(() => true) }, '/tmp/test.lock')
     ).rejects.toThrow(/Failed to acquire lock after/);
 
     // 5 retries → 4 delays → 4 audit emits
@@ -99,7 +95,7 @@ describe('phase 1325 lock retry jitter + audit emit', () => {
 
     // 10 concurrent acquireLock on different lock paths
     const promises = Array.from({ length: 10 }, (_, i) =>
-      acquireLock({ fs: mockFs as any, audit: mockAudit as any }, `/tmp/test-${i}.lock`).catch(() => {
+      acquireLock({ fs: mockFs as any, audit: mockAudit as any, l1IsAlive: vi.fn(() => true) }, `/tmp/test-${i}.lock`).catch(() => {
         // expected to fail
       })
     );

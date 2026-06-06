@@ -54,6 +54,7 @@ export interface VerificationExecutionContext {
   llm?: LLMOrchestrator;
   toolRegistry: ToolRegistry;
   toolTimeoutMs?: number;
+  exec?: typeof import('../../foundation/process-exec/index.js').exec;
   runScriptVerification: (scriptFile: string, contractAbsDir: ClawDir) => Promise<VerificationResult>;
   runLLMVerification: (
     promptFile: string,

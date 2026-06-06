@@ -19,7 +19,7 @@ import {
   emitContractLockRetry,
 } from './audit-emit.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
-import { isAlive } from '../../foundation/process-exec/index.js';
+import { isAlive as defaultL1IsAlive } from '../../foundation/process-exec/index.js';
 import { type ContractId, makeContractId } from './types.js';
 import { isolateCorruptedFile } from './_isolation-helper.js';
 import { LockContentionExhaustedError } from './errors.js';
@@ -27,6 +27,7 @@ import { LockContentionExhaustedError } from './errors.js';
 export interface LockContext {
   fs: FileSystem;
   audit: AuditLog;
+  l1IsAlive?: typeof defaultL1IsAlive;
 }
 
 export async function acquireLock(ctx: LockContext, lockPath: string): Promise<void> {
@@ -74,7 +75,7 @@ export async function acquireLock(ctx: LockContext, lockPath: string): Promise<v
           lastReason = 'unlink failed on corrupt lock file after isolation failed';
         }
         const { pid, time } = parsed as { pid: number; time: number };
-        if (!isAlive(pid)) {
+        if (!(ctx.l1IsAlive ?? defaultL1IsAlive)(pid)) {
           lastReason = `holder PID ${pid} is dead (stale lock)`;
           if (await unlinkStaleLock(ctx, lockPath, `stale_pid_${pid}`)) continue;
           lastReason = `unlink failed on stale lock (PID ${pid})`;

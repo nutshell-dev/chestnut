@@ -6,7 +6,7 @@
 import * as path from 'path';
 import type { VerificationContext } from './verification-types.js';
 import type { VerificationResult, SubtaskId } from './types.js';
-import { exec } from '../../foundation/process-exec/index.js';
+import { exec as defaultExec } from '../../foundation/process-exec/index.js';
 import { ProcessExecError } from '../../foundation/process-exec/index.js';
 import { CONTRACT_SCRIPT_TIMEOUT_MS } from './constants.js';
 import { ToolTimeoutError } from '../../foundation/errors.js';
@@ -35,7 +35,7 @@ export async function runScriptVerification(
     { script: scriptFile, cwd: ctx.clawDir },
   );
   try {
-    await exec('sh', [resolved], {
+    await (ctx.exec ?? defaultExec)('sh', [resolved], {
       cwd: ctx.clawDir,
       timeout: CONTRACT_SCRIPT_TIMEOUT_MS,
     });

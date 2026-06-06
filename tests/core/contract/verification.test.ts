@@ -9,17 +9,7 @@ import { formatRejectionFeedback, runScriptVerification } from '../../../src/cor
 import { ProcessExecError } from '../../../src/foundation/process-exec/index.js';
 import type { VerificationContext } from '../../../src/core/contract/verification.js';
 
-const { mockExec } = vi.hoisted(() => ({
-  mockExec: vi.fn(),
-}));
-
-vi.mock('../../../src/foundation/process-exec/index.js', async (importOriginal) => {
-  const mod = await importOriginal<typeof import('../../../src/foundation/process-exec/index.js')>();
-  return {
-    ...mod,
-    exec: mockExec,
-  };
-});
+const mockExec = vi.fn();
 
 function makeCtx(overrides: Partial<VerificationContext> = {}): VerificationContext {
   return {
@@ -27,6 +17,7 @@ function makeCtx(overrides: Partial<VerificationContext> = {}): VerificationCont
     clawId: 'claw-test',
     audit: makeMockAudit() as unknown as VerificationContext['audit'],
     notifyClaw: vi.fn(),
+    exec: mockExec,
     ...overrides,
   } as VerificationContext;
 }
