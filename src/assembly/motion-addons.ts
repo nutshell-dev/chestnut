@@ -30,6 +30,7 @@ import { createAskUserTool } from '../core/gateway/index.js';
 import { createStreamReader, STREAM_FILE, findRecentTurnStartOffset } from '../foundation/stream/index.js';
 import { createNotifyClawTool } from '../foundation/messaging/tools/notify-claw.js';
 import { notifyClaw, OutboxReader } from '../foundation/messaging/index.js';
+import { MOTION_CLAW_ID } from '../constants.js';
 import { resolveChestnutRoot } from './install-paths.js';
 import { makeClawDir } from '../foundation/paths.js';
 import type { CoreInfraOutput } from './core-infrastructure.js';
@@ -98,11 +99,13 @@ export async function createMotionAddons(
   const heartbeatIntervalMs = globalConfig.motion.heartbeat_interval_ms;
   if (heartbeatIntervalMs > 0) {
     try {
-      heartbeat = createHeartbeat(resolveChestnutRoot(clawDir, true), {  // phase 1406: motion-only context
+      // phase 84: DI callback - L6 装配期 bind chestnutRoot + MOTION_CLAW_ID + notifyClaw
+      const chestnutRoot = resolveChestnutRoot(clawDir, true);
+      heartbeat = createHeartbeat({  // phase 1406: motion-only context
         interval: heartbeatIntervalMs / 1000,
-        fs: parentFs,
         audit: auditWriter,
         inboxReader,
+        notifyInbox: (msg) => notifyClaw(parentFs, chestnutRoot, MOTION_CLAW_ID, msg, auditWriter),
       });
     } catch (e) {
       auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=heartbeat`, `phase=construct`, `reason=${formatErr(e)}`);

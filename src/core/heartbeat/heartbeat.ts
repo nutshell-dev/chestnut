@@ -1,43 +1,46 @@
 /**
  * Heartbeat - Motion 心跳触发器
  *
- * 间隔可配置（heartbeat_interval_ms），默认禁用（0）。开启后向 motion inbox 写入 heartbeat 消息
+ * 间隔可配置（heartbeat_interval_ms），默认禁用（0）。开启后向 motion inbox 写入 heartbeat 消息。
+ *
+ * phase 84 (在 phase84 worktree): L4 surface 去 chestnutRoot - DI callback pattern
+ * (heartbeat 不知 chestnut 拓扑、不持 ChestnutRoot brand、纯接 notify callback、
+ * caller 装配期 bind chestnutRoot + MOTION_CLAW_ID + notifyClaw)。
+ * per ML#5 严守 (L4 不预设上层装配根概念) + ML#1 SRP (heartbeat 0 知 messaging 路径业务)。
  */
 
-import type { FileSystem } from '../../foundation/fs/types.js';
-import { notifyClaw } from '../../foundation/messaging/index.js';
-import type { InboxReader } from '../../foundation/messaging/index.js';
+import type { InboxReader, InboxMessageOptionsBase } from '../../foundation/messaging/index.js';
 import { HEARTBEAT_AUDIT_EVENTS } from './audit-events.js';
-import { MOTION_CLAW_ID } from '../../constants.js';
-import { type ChestnutRoot } from '../../assembly/install-paths.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
+
+/** phase 84: DI callback - caller (L6 装配期) bind chestnutRoot + targetClawId + audit */
+export type HeartbeatNotifyInboxFn = (message: InboxMessageOptionsBase) => void;
 
 export interface HeartbeatOptions {
   /** 心跳间隔（秒），默认 300（5分钟） */
   interval?: number;
-  fs: FileSystem;
   audit: AuditLog;
   inboxReader: InboxReader;
+  /** phase 84: caller-bound notify (L6 装配期 bind fs + chestnutRoot + MOTION_CLAW_ID + audit) */
+  notifyInbox: HeartbeatNotifyInboxFn;
 }
 
 /**
  * Motion 心跳触发器
  */
 export class Heartbeat {
-  private readonly baseDir: ChestnutRoot;
   private readonly interval: number;
   private lastRun: number;
-  private readonly fs: FileSystem;
   private readonly audit: AuditLog;
   private readonly inboxReader: InboxReader;
+  private readonly notifyInbox: HeartbeatNotifyInboxFn;
 
-  constructor(baseDir: ChestnutRoot, options: HeartbeatOptions) {
-    this.baseDir = baseDir;
+  constructor(options: HeartbeatOptions) {
     this.interval = (options.interval ?? 300) * 1000;
     this.lastRun = Date.now();  // 启动后等满一个 interval 再首次触发
-    this.fs = options.fs;
     this.audit = options.audit;
     this.inboxReader = options.inboxReader;
+    this.notifyInbox = options.notifyInbox;
   }
 
   /**
@@ -61,14 +64,14 @@ export class Heartbeat {
         return;
       }
 
-      notifyClaw(this.fs, this.baseDir, MOTION_CLAW_ID, {
+      this.notifyInbox({
         type: 'heartbeat',
         source: 'system',
         priority: 'low',
         // phase 1419: heartbeat formatter 0 读 ctx.body（措辞由 formatter 拼 base + HEARTBEAT.md）→ sender 不传 dead payload
         body: '',
         idPrefix: 'hb',
-      }, this.audit);
+      });
       this.lastRun = Date.now();  // 只在成功写入后更新
     } catch (error) {
       this.audit.write(
@@ -85,7 +88,9 @@ export class Heartbeat {
 /**
  * Factory: createHeartbeat
  * 装配期构造 Heartbeat / 承 phase212 D.1 工厂模板.
+ *
+ * phase 84: 删 baseDir param、caller 在 opts.notify 内 bind chestnutRoot
  */
-export function createHeartbeat(baseDir: ChestnutRoot, opts: HeartbeatOptions): Heartbeat {
-  return new Heartbeat(baseDir, opts);
+export function createHeartbeat(opts: HeartbeatOptions): Heartbeat {
+  return new Heartbeat(opts);
 }

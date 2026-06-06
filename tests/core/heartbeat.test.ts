@@ -12,14 +12,22 @@ import * as path from 'path';
 import { Heartbeat } from '../../src/core/runtime/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { createSystemAudit } from '../../src/foundation/audit/index.js';
-import { createInboxReader } from '../../src/foundation/messaging/index.js';
+import { createInboxReader, notifyClaw } from '../../src/foundation/messaging/index.js';
+import { makeChestnutRoot } from '../../src/assembly/install-paths.js';
 import { createTempDir, cleanupTempDirSync } from '../utils/temp.js';
 
 function createTestHeartbeat(tempDir: string, intervalSec: number = 1): Heartbeat {
   const nodeFs = new NodeFileSystem({ baseDir: tempDir });
   const audit = createSystemAudit(nodeFs, tempDir);
   const inboxReader = createInboxReader(nodeFs, audit, path.join(tempDir, 'motion', 'inbox'));
-  return new Heartbeat(tempDir, { interval: intervalSec, fs: nodeFs, audit, inboxReader });
+  // phase 84: DI callback - bind chestnutRoot + MOTION_CLAW_ID + fs + audit at caller
+  const chestnutRoot = makeChestnutRoot(tempDir);
+  return new Heartbeat({
+    interval: intervalSec,
+    audit,
+    inboxReader,
+    notifyInbox: (msg) => notifyClaw(nodeFs, chestnutRoot, 'motion', msg, audit),
+  });
 }
 
 describe('Heartbeat', () => {
