@@ -8,7 +8,7 @@
 
 import { isFileNotFound } from '../../foundation/fs/types.js';
 import { formatErr } from "../../foundation/utils/index.js";
-import { runSubagent } from '../subagent/index.js';
+import { runSubagent as defaultRunSubagent } from '../subagent/index.js';
 
 import {
   emitContractVerifierSkipped,
@@ -101,7 +101,8 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
     registry.register(doneTool);
 
     // 调 runSubagent helper（替代 createSubAgent + 自治 audit/stream/workspace）
-    const { text, capturedResult } = await runSubagent({
+    const subagentImpl = config.runSubagent ?? defaultRunSubagent;
+    const { text, capturedResult } = await subagentImpl({
       agentId: config.agentId,
       callerType: 'verifier',
       clawDir: config.clawDir,

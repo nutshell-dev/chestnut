@@ -20,14 +20,6 @@ const { mockRunSubagent } = vi.hoisted(() => ({
   mockRunSubagent: vi.fn(),
 }));
 
-vi.mock('../../../src/core/subagent/index.js', async (importOriginal) => {
-  const mod = await importOriginal<typeof import('../../../src/core/subagent/index.js')>();
-  return {
-    ...mod,
-    runSubagent: mockRunSubagent,
-  };
-});
-
 function makeAudit() {
   const events: Array<[string, ...(string | number)[]]> = [];
   const audit = {
@@ -53,6 +45,7 @@ function makeConfig(overrides: Partial<VerifierConfig> = {}): VerifierConfig {
       getForProfile: vi.fn().mockReturnValue([]),
     } as unknown as VerifierConfig['toolRegistry'],
     fsFactory: vi.fn(() => ({}) as unknown as VerifierConfig['fs']),
+    runSubagent: mockRunSubagent,
     ...overrides,
   };
 }

@@ -160,6 +160,8 @@ export interface VerifierRuntimeConfig {
   toolTimeoutMs?: number;
   /** Factory for cross-claw FileSystem access (injected by ContractSystem) */
   fsFactory?: (baseDir: string) => FileSystem;
+  /** phase 91: optional runSubagent injection for DI (replaces vi.mock pattern in tests) */
+  runSubagent?: (opts: unknown) => Promise<{ text: string; capturedResult?: unknown }>;
 }
 
 export type VerifierConfig = VerifierIdentityConfig & VerifierRuntimeConfig;
