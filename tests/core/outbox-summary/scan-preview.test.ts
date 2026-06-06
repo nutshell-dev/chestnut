@@ -107,7 +107,7 @@ describe('scanOutboxes preview collection', () => {
       encodeOutbox(makeMsg('latest message here', '2026-06-04T11:00:00Z')),
     );
 
-    const state = await scanOutboxes({ chestnutRoot: makeChestnutRoot(root), fs, outboxReader });
+    const state = await scanOutboxes({ clawsDir: `${root}/claws`, fs, outboxReader });
     expect(state.previews).toEqual({ clawA: 'latest message here' });
   });
 
@@ -119,7 +119,7 @@ describe('scanOutboxes preview collection', () => {
       encodeOutbox(makeMsg(longContent, '2026-06-04T10:00:00Z')),
     );
 
-    const state = await scanOutboxes({ chestnutRoot: makeChestnutRoot(root), fs, outboxReader });
+    const state = await scanOutboxes({ clawsDir: `${root}/claws`, fs, outboxReader });
     expect(state.previews.clawA).toBe('a'.repeat(PREVIEW_MAX_CHARS) + '…');
   });
 
@@ -130,7 +130,7 @@ describe('scanOutboxes preview collection', () => {
       'INVALID CONTENT',
     );
 
-    const state = await scanOutboxes({ chestnutRoot: makeChestnutRoot(root), fs, outboxReader });
+    const state = await scanOutboxes({ clawsDir: `${root}/claws`, fs, outboxReader });
     expect(state.counts).toEqual({ clawA: 1 });
     expect(state.previews).toEqual({ clawA: '(读取失败)' });
   });
@@ -147,7 +147,7 @@ describe('scanOutboxes preview collection', () => {
       encodeOutbox(makeMsg('clawB reports done', '2026-06-04T10:00:00Z')),
     );
 
-    const state = await scanOutboxes({ chestnutRoot: makeChestnutRoot(root), fs, outboxReader });
+    const state = await scanOutboxes({ clawsDir: `${root}/claws`, fs, outboxReader });
     expect(state.previews).toEqual({
       clawA: 'clawA says hi',
       clawB: 'clawB reports done',

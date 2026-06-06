@@ -1,11 +1,10 @@
 import * as path from 'path';
 import { formatErr } from "../../../foundation/utils/index.js";
-import { type ChestnutRoot } from '../../../assembly/install-paths.js';
 import type { FileSystem } from '../../../foundation/fs/types.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
 import { CRON_AUDIT_EVENTS } from '../audit-events.js';
 import type { StreamLog } from '../../../foundation/stream/index.js';
-import { CLAWSPACE_DIR, CLAWS_DIR } from '../../../assembly/claw-dirs.js';
+import { CLAWSPACE_DIR } from '../../../assembly/claw-dirs.js';
 import type { CronJob } from '../runner.js';
 import { parseSchedule } from '../runner.js';
 import type { ClawGlobalConfig } from '../../../foundation/config/index.js';
@@ -44,7 +43,7 @@ function getDirSize(dir: string, fs: FileSystem, audit?: AuditLog, signal?: Abor
 }
 
 export interface DiskMonitorOptions {
-  chestnutRoot: ChestnutRoot;   // .chestnut/ 根目录
+  clawsDir: string;   // phase 84: caller (装配期) 算好 claws dir 后传入
   limitMB: number;        // 阈值（informational only / 仅作开发者参考、无 action）
   fs: FileSystem;
   audit: AuditLog;
@@ -54,7 +53,7 @@ export interface DiskMonitorOptions {
 }
 
 export interface DiskMonitorJobDeps {
-  chestnutRoot: ChestnutRoot;
+  clawsDir: string;
   limitMB: number;
   fs: FileSystem;
   audit: AuditLog;
@@ -63,7 +62,7 @@ export interface DiskMonitorJobDeps {
 }
 
 export async function runDiskMonitor(opts: DiskMonitorOptions): Promise<void> {
-  const clawsDir = path.join(opts.chestnutRoot, CLAWS_DIR);
+  const { clawsDir } = opts;
   if (!opts.fs.existsSync(clawsDir)) return;
 
   let totalSize = 0;

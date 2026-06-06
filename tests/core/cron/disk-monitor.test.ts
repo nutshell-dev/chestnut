@@ -27,7 +27,7 @@ function makeOpts(overrides: Partial<{
   limitMB: number; fs: FileSystem; audit: AuditLog; motionAudit: AuditLog; streamLog: StreamLog;
 }> = {}) {
   return {
-    chestnutRoot: '/tmp/test',
+    clawsDir: '/tmp/test/claws',
     limitMB: 100,
     fs: makeFsMock(0),
     audit: makeAuditMock(),

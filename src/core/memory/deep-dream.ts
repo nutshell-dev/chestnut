@@ -9,7 +9,6 @@ import type { Message, ContentBlock, TextBlock, LLMResponse } from '../../founda
 import { notifyInbox } from '../../foundation/messaging/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { type ClawId, makeClawId } from '../../foundation/paths.js'
-import { type ChestnutRoot } from '../../assembly/install-paths.js';
 import { DialogStore } from '../../foundation/dialog-store/index.js';
 import type { SessionData } from '../../foundation/dialog-store/types.js';
 import { CLAWS_DIR } from '../../assembly/claw-dirs.js';
@@ -32,7 +31,7 @@ interface DreamStateData {
 }
 
 export interface DeepDreamOptions {
-  chestnutRoot: ChestnutRoot;                  // .chestnut/ 根目录
+  clawsDir: string;                              // phase 84: caller (装配期) 算好 claws dir 后传入
   motionDir?: string;                    // motion 域 / dream-outputs 归属
   motionFs?: FileSystem;                 // baseDir = motionDir
   llmConfig: LLMOrchestratorConfig;
@@ -399,7 +398,7 @@ export async function runDeepDream(opts: DeepDreamOptions): Promise<void> {
 
   // 串行处理每个 claw
   for (const clawId of clawIds) {
-    const clawDir = makeClawDir(path.join(opts.chestnutRoot, CLAWS_DIR, clawId));
+    const clawDir = makeClawDir(path.join(opts.clawsDir, clawId));
     try {
       const clawFs = opts.clawFsFactory(clawDir);
       await runDeepDreamForClaw(makeClawId(clawId), clawDir, clawFs, opts.motionFs, llm, maxCompressionTokens, opts.audit, opts.signal);

@@ -6,13 +6,12 @@ import type { ProgressData } from '../contract/index.js';
 import { runDeepDream } from './deep-dream.js';
 import { runRandomDream } from './random-dream.js';
 import type { ContractId } from '../contract/types.js';
-import type { ChestnutRoot } from '../../assembly/install-paths.js';
 import type { ClawId, ClawDir } from '../../foundation/paths.js';
 
 
 
 export interface MemorySystemOptions {
-  chestnutRoot: ChestnutRoot;
+  clawsDir: string;       // phase 84: caller (装配期) 算好 claws dir 后传入
   motionDir: ClawDir;
   fs: FileSystem;
   motionFs: FileSystem;               // baseDir = motionDir / NEW
@@ -32,7 +31,7 @@ export class MemorySystem {
 
   async runDeepDream(maxCompressionTokens?: number, opts?: { signal?: AbortSignal }): Promise<void> {
     return runDeepDream({
-      chestnutRoot: this.opts.chestnutRoot,
+      clawsDir: this.opts.clawsDir,
       motionDir: this.opts.motionDir,
       motionFs: this.opts.motionFs,
       llmConfig: this.opts.llmConfig,
@@ -47,7 +46,7 @@ export class MemorySystem {
 
   async runRandomDream(opts?: { signal?: AbortSignal }): Promise<void> {
     return runRandomDream({
-      chestnutRoot: this.opts.chestnutRoot,
+      clawsDir: this.opts.clawsDir,
       motionDir: this.opts.motionDir,
       taskSystem: this.opts.taskSystem,
       fs: this.opts.fs,

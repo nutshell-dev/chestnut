@@ -90,7 +90,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
 
   it('0 unread + no existing summary → no write, CLEARED audit', async () => {
     await runOutboxSummaryTick({
-      chestnutRoot: makeChestnutRoot(root),
+      clawsDir: `${root}/claws`,
       fs,
       inboxReader,
       inboxWriter,
@@ -105,7 +105,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
     await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
     await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m1.md'), 'x');
     await runOutboxSummaryTick({
-      chestnutRoot: makeChestnutRoot(root),
+      clawsDir: `${root}/claws`,
       fs,
       inboxReader,
       inboxWriter,
@@ -121,7 +121,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
     await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
     await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m1.md'), 'x');
     await runOutboxSummaryTick({
-      chestnutRoot: makeChestnutRoot(root),
+      clawsDir: `${root}/claws`,
       fs,
       inboxReader,
       inboxWriter,
@@ -131,7 +131,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
     const firstSummary = (await listSummaries(root, 'pending', fs))[0];
     events.length = 0;
     await runOutboxSummaryTick({
-      chestnutRoot: makeChestnutRoot(root),
+      clawsDir: `${root}/claws`,
       fs,
       inboxReader,
       inboxWriter,
@@ -146,7 +146,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
     await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
     await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m1.md'), 'x');
     await runOutboxSummaryTick({
-      chestnutRoot: makeChestnutRoot(root),
+      clawsDir: `${root}/claws`,
       fs,
       inboxReader,
       inboxWriter,
@@ -159,7 +159,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
 
     events.length = 0;
     await runOutboxSummaryTick({
-      chestnutRoot: makeChestnutRoot(root),
+      clawsDir: `${root}/claws`,
       fs,
       inboxReader,
       inboxWriter,
@@ -174,7 +174,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
     await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
     await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m1.md'), 'x');
     await runOutboxSummaryTick({
-      chestnutRoot: makeChestnutRoot(root),
+      clawsDir: `${root}/claws`,
       fs,
       inboxReader,
       inboxWriter,
@@ -189,7 +189,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
 
     events.length = 0;
     await runOutboxSummaryTick({
-      chestnutRoot: makeChestnutRoot(root),
+      clawsDir: `${root}/claws`,
       fs,
       inboxReader,
       inboxWriter,
@@ -203,7 +203,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
     await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
     await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m1.md'), 'x');
     await runOutboxSummaryTick({
-      chestnutRoot: makeChestnutRoot(root),
+      clawsDir: `${root}/claws`,
       fs,
       inboxReader,
       inboxWriter,
@@ -218,7 +218,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
 
     events.length = 0;
     await runOutboxSummaryTick({
-      chestnutRoot: makeChestnutRoot(root),
+      clawsDir: `${root}/claws`,
       fs,
       inboxReader,
       inboxWriter,
@@ -233,7 +233,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
     await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
     await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m1.md'), 'x');
     await runOutboxSummaryTick({
-      chestnutRoot: makeChestnutRoot(root),
+      clawsDir: `${root}/claws`,
       fs,
       inboxReader,
       inboxWriter,
@@ -245,7 +245,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
     await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m2.md'), 'y');
     events.length = 0;
     await runOutboxSummaryTick({
-      chestnutRoot: makeChestnutRoot(root),
+      clawsDir: `${root}/claws`,
       fs,
       inboxReader,
       inboxWriter,
@@ -262,7 +262,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
     await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
     await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m1.md'), 'x');
     await runOutboxSummaryTick({
-      chestnutRoot: makeChestnutRoot(root),
+      clawsDir: `${root}/claws`,
       fs,
       inboxReader,
       inboxWriter,
@@ -274,7 +274,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
 
     events.length = 0;
     await runOutboxSummaryTick({
-      chestnutRoot: makeChestnutRoot(root),
+      clawsDir: `${root}/claws`,
       fs,
       inboxReader,
       inboxWriter,

@@ -1,4 +1,3 @@
-import { type ChestnutRoot } from '../../../assembly/install-paths.js';
 import { formatErr } from "../../../foundation/utils/index.js";
 /**
  * @module L5.Cron.AuditSizeMonitor
@@ -37,9 +36,8 @@ const auditOverThreshold = new Map<string, 'warn' | 'critical'>();
 export interface AuditSizeMonitorOptions {
   fs: FileSystem;
   audit: AuditLog;
-  chestnutRoot: ChestnutRoot;
-  motionAuditPath: string;     // <chestnutRoot>/motion/audit.tsv
-  rootAuditPath: string;        // <chestnutRoot>/audit.tsv
+  motionAuditPath: string;     // pre-computed motion audit path (装配期 算)
+  rootAuditPath: string;        // pre-computed root audit path (装配期 算)
   warnBytes?: number;
   criticalBytes?: number;
   streamLog?: StreamLog;   // phase 8: motion streamWriter / 警告改 viewport user_notify 注入
@@ -49,7 +47,6 @@ export interface AuditSizeMonitorOptions {
 export interface AuditSizeMonitorJobDeps {
   fs: FileSystem;
   audit: AuditLog;
-  chestnutRoot: ChestnutRoot;
   motionAuditPath: string;
   rootAuditPath: string;
   warnBytes?: number;

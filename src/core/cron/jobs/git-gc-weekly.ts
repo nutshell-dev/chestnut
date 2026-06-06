@@ -1,11 +1,9 @@
 import * as path from 'path';
 import { formatErr } from "../../../foundation/utils/index.js";
-import { type ChestnutRoot } from '../../../assembly/install-paths.js';
 import { exec } from '../../../foundation/process-exec/index.js';
 import type { FileSystem } from '../../../foundation/fs/types.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
 import { CRON_AUDIT_EVENTS } from '../audit-events.js';
-import { CLAWS_DIR } from '../../../assembly/claw-dirs.js';
 import type { CronJob } from '../runner.js';
 import { parseSchedule } from '../runner.js';
 import type { ClawGlobalConfig } from '../../../foundation/config/index.js';
@@ -17,21 +15,20 @@ import type { ClawGlobalConfig } from '../../../foundation/config/index.js';
 export const GIT_GC_WEEKLY_CRON_TIMEOUT_MS = 120_000;
 
 export interface GitGcWeeklyOptions {
-  chestnutRoot: ChestnutRoot;
+  clawsDir: string;
   fs: FileSystem;
   audit: AuditLog;
   signal?: AbortSignal;
 }
 
 export interface GitGcWeeklyJobDeps {
-  chestnutRoot: ChestnutRoot;
+  clawsDir: string;
   fs: FileSystem;
   audit: AuditLog;
 }
 
 export async function runGitGcWeekly(opts: GitGcWeeklyOptions): Promise<void> {
-  const { chestnutRoot, fs, audit } = opts;
-  const clawsDir = path.join(chestnutRoot, CLAWS_DIR);
+  const { clawsDir, fs, audit } = opts;
 
   if (!fs.existsSync(clawsDir)) return;
 

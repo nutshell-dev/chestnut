@@ -12,7 +12,7 @@ import type { ProgressData } from '../contract/index.js';
 import type { ClawId } from '../../foundation/paths.js';
 import type { ContractId } from '../contract/types.js';
 import { type TaskId, makeTaskId } from '../async-task-system/types.js';
-import { type ChestnutRoot, makeChestnutRoot } from '../../assembly/install-paths.js';
+import { makeChestnutRoot } from '../../assembly/install-paths.js';
 import { listArchiveContracts } from '../contract/index.js';
 import { type ClawDir } from '../../foundation/paths.js';
 import {
@@ -26,7 +26,8 @@ const DEFAULT_RANDOM_DREAM_MAX_STEPS = 200;
 // ─── 类型定义 ────────────────────────────────────────────────
 
 export interface RandomDreamOptions {
-  chestnutRoot: ChestnutRoot;
+  /** phase 84: clawsDir 暂未 use（field 留过渡、原 chestnutRoot 字段是 dead field、L423 仍内部 compute chestnutRoot from motionDir作 motion-specific notifyClaw business）*/
+  clawsDir: string;
   motionDir: ClawDir;
   taskSystem: AsyncTaskSystem;
   fs: FileSystem;             // baseDir = chestnutRoot

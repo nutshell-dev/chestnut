@@ -5,7 +5,6 @@ import { CRON_AUDIT_EVENTS } from '../audit-events.js';
 import { CLAWS_DIR } from '../../../assembly/claw-dirs.js';
 import { MOTION_CLAW_ID } from '../../../constants.js';
 import { type ClawId, makeClawId } from '../../../foundation/paths.js'
-import { type ChestnutRoot } from '../../../assembly/install-paths.js';
 import { type ClawDir } from '../../../foundation/paths.js';
 import type { CronJob } from '../runner.js';
 import { parseSchedule } from '../runner.js';
@@ -57,7 +56,6 @@ export interface LlmStatsSummary {
 }
 
 export interface LlmStatsOptions {
-  chestnutRoot: ChestnutRoot;
   motionDir: ClawDir;
   chestnutFs: FileSystem;   // baseDir = chestnutRoot
   motionFs: FileSystem;       // baseDir = motionDir
@@ -66,7 +64,6 @@ export interface LlmStatsOptions {
 }
 
 export interface LlmStatsJobDeps {
-  chestnutRoot: ChestnutRoot;
   motionDir: ClawDir;
   chestnutFs: FileSystem;
   motionFs: FileSystem;

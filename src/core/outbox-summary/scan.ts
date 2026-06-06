@@ -12,22 +12,20 @@ import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { isFileNotFound } from '../../foundation/fs/types.js';
 import type { OutboxReader } from '../../foundation/messaging/index.js';
-import type { ChestnutRoot } from '../../assembly/install-paths.js';
-import { CLAWS_DIR } from '../../assembly/claw-dirs.js';
 import { MOTION_CLAW_ID } from '../../constants.js';
 import { computeHash } from './hash.js';
 import { PREVIEW_MAX_CHARS } from './types.js';
 import type { OutboxSummaryState } from './types.js';
 
 export interface ScanDeps {
-  chestnutRoot: ChestnutRoot;
-  fs: FileSystem;             // 仅供 enumerate claws/（§7.B B.4 cross-cutting 留 future）
+  /** phase 84: caller (L6 装配期) 算好 claws dir 后传入 / L4 模块 0 知 chestnut 拓扑 */
+  clawsDir: string;
+  fs: FileSystem;             // 仅供 enumerate claws/
   outboxReader: OutboxReader; // Messaging 对外入口：单 claw outbox/pending 列举
 }
 
 export async function scanOutboxes(deps: ScanDeps): Promise<OutboxSummaryState> {
-  const { chestnutRoot, fs, outboxReader } = deps;
-  const clawsDir = path.join(chestnutRoot, CLAWS_DIR);
+  const { clawsDir, fs, outboxReader } = deps;
 
   let clawIds: string[];
   try {

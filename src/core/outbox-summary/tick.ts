@@ -15,14 +15,14 @@
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { InboxReader, InboxWriter, OutboxReader } from '../../foundation/messaging/index.js';
-import type { ChestnutRoot } from '../../assembly/install-paths.js';
 import { CRON_AUDIT_EVENTS } from '../cron/audit-events.js';
 import { scanOutboxes } from './scan.js';
 import { findExistingSummaryByHash } from './dedup.js';
 import { writeNewSummary } from './write.js';
 
 export interface OutboxSummaryTickDeps {
-  chestnutRoot: ChestnutRoot;
+  /** phase 84: caller (L6 装配期) 算好 claws dir 后传入 */
+  clawsDir: string;
   fs: FileSystem;
   inboxReader: InboxReader;
   inboxWriter: InboxWriter;
@@ -33,7 +33,7 @@ export interface OutboxSummaryTickDeps {
 
 export async function runOutboxSummaryTick(deps: OutboxSummaryTickDeps): Promise<void> {
   const state = await scanOutboxes({
-    chestnutRoot: deps.chestnutRoot,
+    clawsDir: deps.clawsDir,
     fs: deps.fs,
     outboxReader: deps.outboxReader,
   });

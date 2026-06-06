@@ -135,6 +135,7 @@ export async function createMotionAddons(
       // M#3: random-dream 读取 contract progress 走 ContractSystem API（phase 1104）
       const clawContractBridge = createClawContractBridge({
         fsFactory,
+        clawsDir: path.join(chestnutRoot, 'claws'),  // phase 84
         chestnutRoot,
         llm,
         toolRegistry,
@@ -146,7 +147,7 @@ export async function createMotionAddons(
 
       try {
         memorySystem = createMemorySystem({
-          chestnutRoot,
+          clawsDir: path.join(chestnutRoot, 'claws'),  // phase 84
           motionDir: clawDir,
           fs: chestnutFs,
           motionFs: systemFs,
@@ -170,7 +171,7 @@ export async function createMotionAddons(
     try {
       const cronJobs = [
         createDiskMonitorJob({
-          chestnutRoot,
+          clawsDir: path.join(chestnutRoot, 'claws'),  // phase 84
           limitMB: diskLimitMB,
           fs: chestnutFs,
           audit: auditWriter,
@@ -178,7 +179,6 @@ export async function createMotionAddons(
           streamLog: streamWriter,   // phase 8: viewport stream (取代 motionInbox)
         }, globalConfig),
         createLlmStatsJob({
-          chestnutRoot,
           motionDir: clawDir,
           chestnutFs,
           motionFs: systemFs,
@@ -197,7 +197,7 @@ export async function createMotionAddons(
           notifyClaw: (fs, chestnutRoot, targetClawId, payload, audit) => notifyClaw(fs, chestnutRoot, targetClawId, payload, audit),
         }, globalConfig),
         createGitGcWeeklyJob({
-          chestnutRoot,
+          clawsDir: path.join(chestnutRoot, 'claws'),  // phase 84
           fs: chestnutFs,
           audit: auditWriter,
         }, globalConfig),
@@ -215,13 +215,12 @@ export async function createMotionAddons(
         createAuditSizeMonitorJob({
           fs: chestnutFs,
           audit: auditWriter,
-          chestnutRoot,
           motionAuditPath: path.join(chestnutRoot, 'motion', 'audit.tsv'),
           rootAuditPath: path.join(chestnutRoot, 'audit.tsv'),
           streamLog: streamWriter,   // phase 8: viewport stream (取代 motionInbox)
         }, globalConfig),
         createOutboxSummaryJob({
-          chestnutRoot,
+          clawsDir: path.join(chestnutRoot, 'claws'),  // phase 84: L4 0 知 chestnut 拓扑、装配期算
           fs: chestnutFs,
           audit: auditWriter,
           inboxReader,
