@@ -15,9 +15,7 @@ export type { CallerSnapshot };
 import { TOOL_LOG_ESCAPE_CHARS } from './constants.js';
 import type { ScheduleAsyncTool } from './async-dispatch.js';
 import type { PermissionChecker } from '../tool-protocol/permission.js';
-import type { ClawId } from '../paths.js';
 import type { ToolUseId } from '../tool-protocol/index.js';
-import { type ClawDir } from '../paths.js';
 
 
 
@@ -96,8 +94,8 @@ export function escapeForLog(s: string): string {
 
 /** 身份维度（D1）：clawId / clawDir / chestnutRoot / workspaceDir / syncDir / originClawId / isMotionChain */
 export interface ClawIdentity {
-  clawId: ClawId;
-  clawDir: ClawDir;
+  clawId: string;
+  clawDir: string;
   /** phase 98: caller (装配期) 算好的 claws dir、L4/L2c 0 知 chestnut 拓扑 */
   clawsDir: string;
   /** phase 509 NEW / 装配期 per-callerType resolve / 主代理=clawDir/clawspace / 子代理=clawDir/tasks/subagents/<task-id> (phase 512 落地) */
@@ -309,7 +307,7 @@ export interface IToolExecutor {
  */
 export interface ToolExecutorOptions {
   registry: ToolRegistry;
-  clawDir: ClawDir;
+  clawDir: string;
   /** phase 98: caller (装配期) 算好的 claws dir */
   clawsDir: string;
   syncDir: string;

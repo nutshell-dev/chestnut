@@ -18,13 +18,12 @@
  * 本 file 保：runWatchdogLoop（main loop）+ shutdownWatchdog（graceful stop）+ barrel re-export
  */
 
+import { makeChestnutRoot } from '../assembly/install-paths.js';
 import * as path from 'path';
 import { formatErr } from "../foundation/utils/index.js";
 import { setTimeout } from 'timers/promises';
 import { getNamedSubrootDir } from '../foundation/config/index.js';
 import { MOTION_CLAW_ID } from '../constants.js';
-import { makeChestnutRoot } from '../assembly/install-paths.js';
-import { makeClawId, makeClawDir } from '../foundation/paths.js';
 import type { FileSystem } from '../foundation/fs/types.js';
 import { type AuditLog, createAuditWriter } from '../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../foundation/process-manager/index.js';
@@ -137,7 +136,7 @@ async function restartMotionIfDown(
     const pid = await pm.spawn(MOTION_CLAW_ID, {
       command: 'node',
       args: [daemonEntryPath, MOTION_CLAW_ID],
-      logFile: path.join(makeClawDir(getNamedSubrootDir('motion')), DAEMON_LOG),
+      logFile: path.join(getNamedSubrootDir('motion'), DAEMON_LOG),
       env: { ...process.env, CHESTNUT_ROOT: path.dirname(chestnutRoot) } as Record<string, string | undefined>,
     });
     log(fsFactory, `[watchdog] motion restarted (PID=${pid})`);
@@ -216,7 +215,7 @@ export async function runWatchdogLoop(fsFactory: (baseDir: string) => FileSystem
       for (const entry of fs.listSync(CLAWS_DIR, { includeDirs: true })) {
         if (entry.isDirectory) {
           presentClawIds.push(entry.name);
-          const clawId = makeClawId(entry.name);
+          const clawId = entry.name;
           if (pm.isAlive(clawId)) aliveIds.push(entry.name);
         }
       }

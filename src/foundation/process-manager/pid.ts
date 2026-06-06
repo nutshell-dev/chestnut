@@ -1,9 +1,8 @@
+import { getPidFile, ensureStatusDir } from './paths.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
 import { formatErr } from "../utils/index.js";
-import { getPidFile, ensureStatusDir } from './paths.js';
 import { getProcessStartTime as defaultGetProcessStartTime, makeProcessStartTime, type ProcessStartTime } from '../process-exec/index.js';
 import type { ProcessManagerContext } from './types.js';
-import type { ClawId } from '../paths.js';
 
 
 export interface PidFileContent {
@@ -11,7 +10,7 @@ export interface PidFileContent {
   startTime?: ProcessStartTime;
 }
 
-export async function readPid(ctx: ProcessManagerContext, clawId: ClawId): Promise<PidFileContent | null> {
+export async function readPid(ctx: ProcessManagerContext, clawId: string): Promise<PidFileContent | null> {
   try {
     const pidFile = getPidFile(ctx, clawId);
     const content = (await ctx.fs.read(pidFile)).trim();
@@ -53,7 +52,7 @@ export async function readPid(ctx: ProcessManagerContext, clawId: ClawId): Promi
   }
 }
 
-export async function removePid(ctx: ProcessManagerContext, clawId: ClawId): Promise<void> {
+export async function removePid(ctx: ProcessManagerContext, clawId: string): Promise<void> {
   try {
     const pidFile = getPidFile(ctx, clawId);
     await ctx.fs.delete(pidFile);
@@ -70,7 +69,7 @@ export async function removePid(ctx: ProcessManagerContext, clawId: ClawId): Pro
   }
 }
 
-export async function selfWritePid(ctx: ProcessManagerContext, clawId: ClawId): Promise<void> {
+export async function selfWritePid(ctx: ProcessManagerContext, clawId: string): Promise<void> {
   try {
     await ensureStatusDir(ctx, clawId);
     const pidFile = getPidFile(ctx, clawId);
@@ -89,7 +88,7 @@ export async function selfWritePid(ctx: ProcessManagerContext, clawId: ClawId): 
   }
 }
 
-export async function selfRemovePid(ctx: ProcessManagerContext, clawId: ClawId): Promise<void> {
+export async function selfRemovePid(ctx: ProcessManagerContext, clawId: string): Promise<void> {
   const stored = await readPid(ctx, clawId);
   if (stored !== null && stored.pid === process.pid) {
     await removePid(ctx, clawId);
@@ -98,7 +97,7 @@ export async function selfRemovePid(ctx: ProcessManagerContext, clawId: ClawId):
 
 export async function removePidIfMatch(
   ctx: ProcessManagerContext,
-  clawId: ClawId,
+  clawId: string,
   expectedPid: number,
   expectedStartTime?: ProcessStartTime,
 ): Promise<boolean> {

@@ -6,6 +6,7 @@
  * phase 34 Step D：从 assemble() 抽出步骤 16-17（motion-only addons）。
  */
 
+import { resolveChestnutRoot } from './install-paths.js';
 import path from 'path';
 import { formatErr } from '../foundation/utils/index.js';
 import type { StreamWriter } from '../foundation/stream/index.js';
@@ -31,8 +32,6 @@ import { createStreamReader, STREAM_FILE, findRecentTurnStartOffset } from '../f
 import { createNotifyClawTool } from '../foundation/messaging/tools/notify-claw.js';
 import { notifyClaw, OutboxReader } from '../foundation/messaging/index.js';
 import { MOTION_CLAW_ID } from '../constants.js';
-import { resolveChestnutRoot } from './install-paths.js';
-import { makeClawDir } from '../foundation/paths.js';
 import type { CoreInfraOutput } from './core-infrastructure.js';
 import type { BusinessSysOutput } from './business-systems.js';
 import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
@@ -190,7 +189,7 @@ export async function createMotionAddons(
         }, globalConfig),
         createDreamTriggerJob({ memorySystem: memorySystem! }, globalConfig),
         createMetricsSnapshotJob({
-          motionDir: makeClawDir(path.join(chestnutRoot, 'motion')),
+          motionDir: path.join(chestnutRoot, 'motion'),
           fs: chestnutFs,
           audit: auditWriter,
         }, globalConfig),

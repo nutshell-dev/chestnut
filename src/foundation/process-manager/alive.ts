@@ -1,8 +1,7 @@
+import { getPidFile } from './paths.js';
 import { isAlive as defaultL1IsAlive, makeProcessStartTime, type ProcessStartTime } from '../process-exec/index.js';
 import { formatErr } from "../utils/index.js";
-import { getPidFile } from './paths.js';
 import type { ProcessManagerContext } from './types.js';
-import type { ClawId } from '../paths.js';
 
 
 /**
@@ -20,7 +19,7 @@ import type { ClawId } from '../paths.js';
  */
 export function getAliveStatus(
   ctx: ProcessManagerContext,
-  clawId: ClawId,
+  clawId: string,
 ): { alive: boolean; reason: string; pid?: number } {
   try {
     const pidFile = getPidFile(ctx, clawId);
@@ -70,6 +69,6 @@ export function getAliveStatus(
   }
 }
 
-export function isAliveByPidFile(ctx: ProcessManagerContext, clawId: ClawId): boolean {
+export function isAliveByPidFile(ctx: ProcessManagerContext, clawId: string): boolean {
   return getAliveStatus(ctx, clawId).alive;
 }

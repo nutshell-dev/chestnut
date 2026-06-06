@@ -2,6 +2,7 @@
  * Create a contract for a claw
  */
 
+import { resolveChestnutRoot } from '../../assembly/install-paths.js';
 import * as path from 'path';
 import { ContractSystem } from '../../core/contract/index.js';
 import { getClawDir } from '../../foundation/config/index.js';
@@ -10,12 +11,10 @@ import { notifyClaw } from '../../foundation/messaging/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { createToolRegistry } from '../../foundation/tools/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
-import type { ClawId } from '../../foundation/paths.js';
 import { makeContractId } from '../../core/contract/types.js';
-import { resolveChestnutRoot } from '../../assembly/install-paths.js';
 import { parseAndValidateContractYaml, notifyContractCreated } from './contract-helpers.js';
 
-export async function contractCreateCommand(deps: { fsFactory: (baseDir: string) => FileSystem }, clawId: ClawId, filePath: string, extraDeps?: { audit?: AuditLog }): Promise<void> {
+export async function contractCreateCommand(deps: { fsFactory: (baseDir: string) => FileSystem }, clawId: string, filePath: string, extraDeps?: { audit?: AuditLog }): Promise<void> {
   const audit = extraDeps?.audit;
   const absFilePath = path.resolve(filePath);
   const fileSystem = deps.fsFactory(path.dirname(absFilePath));

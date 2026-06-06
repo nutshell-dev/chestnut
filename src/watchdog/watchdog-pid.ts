@@ -3,11 +3,11 @@
  * PID file management — 0 module state 依赖（仅 fs）
  */
 
+import { getWorkspaceRoot } from '../assembly/install-paths.js';
 import type { FileSystem } from '../foundation/fs/types.js';
 import { formatErr } from "../foundation/utils/index.js";
 import { getChestnutFs } from './watchdog-context.js';
 import { isAlive } from '../foundation/process-exec/index.js';
-import { getWorkspaceRoot } from '../assembly/install-paths.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 import { getAuditWriter } from './watchdog-context.js';
 import { AUDIT_MESSAGE_MAX_CHARS } from '../foundation/audit/index.js';

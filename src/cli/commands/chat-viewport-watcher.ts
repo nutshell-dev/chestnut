@@ -8,7 +8,6 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import { createWatcher } from '../../foundation/file-watcher/index.js';
 import type { Watcher } from '../../foundation/file-watcher/index.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
-import type { ClawId } from '../../foundation/paths.js';
 
 
 export type { Watcher };
@@ -26,7 +25,7 @@ export type { Watcher };
  */
 export function createChatViewportWatcher(
   fs: FileSystem,
-  clawId: ClawId,
+  clawId: string,
   streamPath: string,
   refresh: () => void,
   audit: AuditLog,

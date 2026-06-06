@@ -5,17 +5,16 @@
  * Internal mode: install dispatch-skill to a specific claw
  */
 
-import * as path from 'path';
+import { DISPATCH_SKILLS_SUBDIR } from '../../core/summon-system/dispatch-skills-paths.js';
 import { getWorkspaceRoot } from '../../assembly/install-paths.js';
+import * as path from 'path';
 import { CLAWSPACE_DIR } from '../../assembly/claw-dirs.js';
 import { SKILLS_DIR_DEFAULT } from '../../foundation/skill-system/index.js';
-import { DISPATCH_SKILLS_SUBDIR } from '../../core/summon-system/dispatch-skills-paths.js';
 import { getClawDir } from '../../foundation/config/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { CliError } from '../errors.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
-import type { ClawId } from '../../foundation/paths.js';
 import { copyDir } from '../utils/copy-dir.js';
 
 
@@ -60,7 +59,7 @@ export async function skillInstallUserCommand(deps: { fsFactory: (baseDir: strin
  * - Copy from motion/clawspace/dispatch-skills/{skillName}/
  * - To clawDir/skills/{skillName}/
  */
-export async function skillInstallClawCommand(deps: { fsFactory: (baseDir: string) => FileSystem }, clawId: ClawId, skillName: string, extraDeps?: { audit?: AuditLog }): Promise<void> {
+export async function skillInstallClawCommand(deps: { fsFactory: (baseDir: string) => FileSystem }, clawId: string, skillName: string, extraDeps?: { audit?: AuditLog }): Promise<void> {
   const audit = extraDeps?.audit;
   // Phase 537 — traversal guard for both identifier params
   if (

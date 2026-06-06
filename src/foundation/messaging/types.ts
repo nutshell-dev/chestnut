@@ -1,4 +1,3 @@
-import type { ClawId } from '../paths.js';
 
 export type Priority = 'low' | 'normal' | 'high' | 'critical';
 
@@ -40,7 +39,7 @@ export interface InboxHandle {
 }
 
 export interface HeartbeatEntry {
-  claw_id: ClawId;
+  claw_id: string;
   timestamp: string;
   status: 'idle' | 'working' | 'error';
   current_contract?: string;

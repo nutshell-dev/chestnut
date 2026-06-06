@@ -8,11 +8,11 @@
  *
  * mock fs in-memory、不依赖 real time。
  */
+import { makeChestnutRoot } from '../../../src/assembly/install-paths.js';
 import { describe, it, expect, vi } from 'vitest';
 import { runContractObserver } from '../../../src/core/contract/jobs/contract-observer.js';
 import type { FileSystem, FileEntry } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
-import { makeChestnutRoot } from '../../../src/assembly/install-paths.js';
 const TEST_CLAWS_DIR = '/test/root/claws';
 const TEST_MOTION_DIR = '/test/root/motion';
 

@@ -6,6 +6,7 @@
  * `clawDaemonCommand`. See phase1421 PHASE1421.md §3-4 for root cause + design.
  */
 
+import { getWorkspaceRoot } from '../../assembly/install-paths.js';
 import * as path from 'path';
 import {
   loadGlobalConfig, getNamedSubrootDir,
@@ -13,8 +14,6 @@ import {
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { createAgentProcessManager } from '../../foundation/process-manager/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
-import { makeClawDir } from '../../foundation/paths.js';
-import { getWorkspaceRoot } from '../../assembly/install-paths.js';
 import { resolveDaemonEntry } from '../../assembly/spawn-entry.js';
 import { DAEMON_LOG } from '../../daemon/constants.js';
 import { MOTION_CLAW_ID } from '../../constants.js';
@@ -28,7 +27,7 @@ export interface MotionDaemonDeps {
 
 export async function motionDaemonCommand(deps: MotionDaemonDeps): Promise<void> {
   loadGlobalConfig({ fsFactory: deps.fsFactory });
-  const motionDir = makeClawDir(getNamedSubrootDir('motion'));
+  const motionDir = getNamedSubrootDir('motion');
   // Motion-only callsite: motionDir = <chestnutRoot>/motion → dirname 一层即 chestnutRoot
   const baseDir = path.dirname(motionDir);
   const nodeFs = deps.fsFactory(baseDir);

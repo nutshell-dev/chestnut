@@ -2,6 +2,7 @@
  * Create a contract from a directory containing contract.yaml + verification/
  */
 
+import { resolveChestnutRoot } from '../../assembly/install-paths.js';
 import * as path from 'path';
 import { ContractSystem, CONTRACT_DIR } from '../../core/contract/index.js';
 import { getClawDir } from '../../foundation/config/index.js';
@@ -10,15 +11,13 @@ import { notifyClaw } from '../../foundation/messaging/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { createToolRegistry } from '../../foundation/tools/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
-import type { ClawId } from '../../foundation/paths.js';
 import { makeContractId } from '../../core/contract/types.js';
-import { resolveChestnutRoot } from '../../assembly/install-paths.js';
 import { parseAndValidateContractYaml, notifyContractCreated } from './contract-helpers.js';
 import type { SummonContractCreateGate } from '../../core/summon-system/index.js';
 
 export async function contractCreateFromDirCommand(
   deps: { fsFactory: (baseDir: string) => FileSystem; summonContractCreateGate: SummonContractCreateGate },
-  clawId: ClawId,
+  clawId: string,
   dirPath: string,
   extraDeps?: { audit?: AuditLog },
 ): Promise<void> {

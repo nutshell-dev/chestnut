@@ -11,13 +11,12 @@
 
 import type { StreamWriter } from '../foundation/stream/index.js';
 import type { AuditLog } from '../foundation/audit/index.js';
-import type { ClawId } from '../foundation/paths.js';
 import type { FileSystem } from '../foundation/fs/types.js';
 import { notifyInbox } from '../foundation/messaging/index.js';
 
 export interface ContractNotifyDeps {
   streamWriter: StreamWriter;
-  clawId: ClawId;
+  clawId: string;
   systemFs: FileSystem;
   /**
    * phase 37: 本 daemon 自家 inbox dir（= clawDir/inbox/pending）。

@@ -2,6 +2,7 @@
  * @module L6.CLI.Claw.Chat
  */
 
+import { getWorkspaceRoot } from '../../assembly/install-paths.js';
 import * as path from 'path';
 import {
   loadGlobalConfig, clawExists, getClawDir, getClawConfigPath,
@@ -10,10 +11,8 @@ import { CliError } from '../errors.js';
 import { runChatViewport } from './chat-viewport.js';
 import { createDirContext } from '../../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
-import { getWorkspaceRoot } from '../../assembly/install-paths.js';
 import { resolveDaemonEntry } from '../../assembly/spawn-entry.js';
 import { DAEMON_LOG } from '../../daemon/constants.js';
-import { makeClawId } from '../../foundation/paths.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 
 export async function chatCommand(deps: { fsFactory: (baseDir: string) => FileSystem }, name: string): Promise<void> {
@@ -34,10 +33,10 @@ export async function chatCommand(deps: { fsFactory: (baseDir: string) => FileSy
     fsFactory: deps.fsFactory,
     ensureDaemon: async () => {
       const pm = createProcessManagerForCLI(deps);
-      if (!pm.isAlive(makeClawId(name))) {
+      if (!pm.isAlive(name)) {
         console.log(`Starting Claw "${name}" daemon...`);
         const daemonEntryPath = resolveDaemonEntry(deps.fsFactory(clawDir));
-        const pid = await pm.spawn(makeClawId(name), {
+        const pid = await pm.spawn(name, {
           command: 'node',
           args: [daemonEntryPath, name],
           logFile: path.join(clawDir, DAEMON_LOG),

@@ -7,6 +7,7 @@
  * - Partial onboarding: resumes with a reminder
  */
 
+import { getWorkspaceRoot, makeChestnutRoot } from '../../assembly/install-paths.js';
 import * as path from 'path';
 import { formatErr } from "../../foundation/utils/index.js";
 import * as readline from 'readline';
@@ -24,17 +25,14 @@ import { createToolRegistry } from '../../foundation/tools/index.js';
 import { createDirContext } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { notifyClaw } from '../../foundation/messaging/index.js';
-import { makeChestnutRoot } from '../../assembly/install-paths.js';
 import { MOTION_CLAW_ID } from '../../constants.js';
 
 import { CliError } from '../errors.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
-import { getWorkspaceRoot } from '../../assembly/install-paths.js';
 import { resolveDaemonEntry } from '../../assembly/spawn-entry.js';
 import { readOnboardingStatus, type OnboardingStatus } from '../../core/contract/index.js';
 import { DAEMON_LOG } from '../../daemon/constants.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
-import { type ClawDir, makeClawDir } from '../../foundation/paths.js';
 
 export function buildOnboardingSubtasks(language: string): Array<{ id: string; description: string }> {
   let langInstruction: string;
@@ -94,7 +92,7 @@ export async function pickLanguage(): Promise<string> {
  * Merges two disk reads into a single synchronous call to eliminate
  * TOCTOU window between isInitialized() and getOnboardingStatus().
  */
-export function getInitializationSnapshot(deps: { fsFactory: (baseDir: string) => FileSystem }, motionDir: ClawDir): {
+export function getInitializationSnapshot(deps: { fsFactory: (baseDir: string) => FileSystem }, motionDir: string): {
   isInitialized: boolean;
   onboarding: OnboardingStatus;
 } {
@@ -108,7 +106,7 @@ export function getInitializationSnapshot(deps: { fsFactory: (baseDir: string) =
  * Find the Onboarding contract and determine its completion state.
  * Wrapper around L4 readOnboardingStatus pure helper (static-phase path).
  */
-export function getOnboardingStatus(motionDir: ClawDir, deps: { fsFactory: (baseDir: string) => FileSystem }): OnboardingStatus {
+export function getOnboardingStatus(motionDir: string, deps: { fsFactory: (baseDir: string) => FileSystem }): OnboardingStatus {
   return readOnboardingStatus(motionDir, deps);
 }
 
@@ -125,7 +123,7 @@ export async function startCommand(deps: { fsFactory: (baseDir: string) => FileS
 
 async function _start(deps: { fsFactory: (baseDir: string) => FileSystem }, audit?: AuditLog): Promise<void> {
   // Step 1: workspace init
-  const motionDir = makeClawDir(getNamedSubrootDir(MOTION_CLAW_ID));
+  const motionDir = getNamedSubrootDir(MOTION_CLAW_ID);
   const snapshot = getInitializationSnapshot(deps, motionDir);
   const wasFirstRun = !snapshot.isInitialized;
   if (wasFirstRun) {

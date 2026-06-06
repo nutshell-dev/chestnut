@@ -25,7 +25,6 @@
  * ```
  */
 
-import type { ClawId } from '../../../foundation/paths.js';
 import type { ContractId } from '../../contract/types.js';
 
 
@@ -68,7 +67,7 @@ export const RANDOM_DREAM_SYSTEM_PROMPT = `\
  */
 export function buildRandomDreamPrompt(
   weightedContracts: Array<{
-    clawId: ClawId;
+    clawId: string;
     contractId: ContractId;
     contractDir: string;   // 绝对路径
     weight: number;

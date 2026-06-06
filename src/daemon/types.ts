@@ -8,7 +8,6 @@ import type { StreamWriter } from '../foundation/stream/index.js';
 import type { Snapshot } from '../foundation/snapshot/index.js';
 import type { ProcessManager } from '../foundation/process-manager/index.js';
 import type { AuditLog } from '../foundation/audit/index.js';
-import type { ClawId } from '../foundation/paths.js';
 
 
 /**
@@ -16,7 +15,7 @@ import type { ClawId } from '../foundation/paths.js';
  * Structural subset of Assembly's Instances (decoupled in phase1101).
  */
 export interface DaemonInstances {
-  readonly clawId: ClawId;
+  readonly clawId: string;
   readonly runtime: Runtime;
   readonly streamWriter: StreamWriter;
   readonly snapshot: Snapshot;

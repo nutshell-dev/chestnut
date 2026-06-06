@@ -193,7 +193,6 @@ export async function checkAllSubtasksCompleted(
 import { CONTRACT_ARCHIVE_DIR } from './dirs.js';
 import { CLAWS_DIR } from '../../assembly/claw-dirs.js';
 import type { ArchiveContractRef } from './types.js';
-import { makeClawId } from '../../foundation/paths.js';
 import { type ContractId, makeContractId } from './types.js';
 
 
@@ -233,7 +232,7 @@ export async function listArchiveContracts(opts: {
         if (filter.untilMs !== undefined && at > filter.untilMs) continue;
       }
 
-      results.push({ clawId: makeClawId(clawId), contractId: makeContractId(contractId), contractDir, archivedAt });
+      results.push({ clawId: clawId, contractId: makeContractId(contractId), contractDir, archivedAt });
     }
   }
 

@@ -15,14 +15,13 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import { CONTRACT_DIR } from './dirs.js';
 
 import { emitContractContractDirScanFailed } from './audit-emit.js';
-import { type ClawDir } from '../../foundation/paths.js';
 
 const EPOCH_2020_01_01_MS = 1_577_836_800_000;
 
 /** 返回当前活跃/暂停契约的创建时间（毫秒），无契约时返回 null */
 export function getContractCreatedMs(
   fs: FileSystem,
-  clawDir: ClawDir,
+  clawDir: string,
   audit?: AuditLog,
 ): number | null {
   for (const sub of ['active', 'paused']) {

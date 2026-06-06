@@ -3,11 +3,10 @@
  * Pure utility helpers for chat-viewport — 0 闭包依赖
  */
 
+import { getChestnutRoot, makeChestnutRoot } from '../../assembly/install-paths.js';
 import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { notifyClaw } from '../../foundation/messaging/index.js';
-import { makeChestnutRoot } from '../../assembly/install-paths.js';
-import { getChestnutRoot } from '../../assembly/install-paths.js';
 import { createDirContext } from '../../foundation/audit/index.js';
 /** 写用户输入到 inbox（chat 命令期间用户输入流入 daemon）/ 1:1 保 chat-viewport.ts:78-89 body */
 export function writeUserChat(agentDir: string, message: string, fsFactory: (baseDir: string) => FileSystem): void {

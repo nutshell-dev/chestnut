@@ -49,9 +49,8 @@ const ALLOW_LIST_FILES = new Set([
 ]);
 
 describe('foundation/ 域 ML#5 invariant: no business caller role literal', () => {
-  it('foundation/paths.ts + tool-protocol/ 不持 quoted business role literal', () => {
+  it('foundation/tool-protocol/ 不持 quoted business role literal', () => {
     const targetFiles = [
-      'src/foundation/paths.ts',
       'src/foundation/tool-protocol/index.ts',
     ];
     for (const file of targetFiles) {

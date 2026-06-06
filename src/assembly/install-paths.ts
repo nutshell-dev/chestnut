@@ -10,11 +10,10 @@
  * `coding plan/cluster-claw-decoupling-roadmap.md`。
  *
  * Claw* brand + factory + resolveChestnutRoot 仍 paths.ts、phase 82+ cluster 处理
- *（200+ caller、大 cluster）；import ClawDir type-only = L6 → L1 合规过渡。
+ *（200+ caller、大 cluster）；import string type-only = L6 → L1 合规过渡。
  */
 
 import * as path from 'path';
-import { type ClawDir, makeClawDir } from '../foundation/paths.js';
 
 /** Workspace root — prefers CHESTNUT_ROOT env var (inherited by exec child processes). */
 export function getWorkspaceRoot(): string {
@@ -54,9 +53,9 @@ function assertSafeClawId(name: string): void {
   }
 }
 
-export function getClawDir(name: string): ClawDir {
+export function getClawDir(name: string): string {
   assertSafeClawId(name);
-  return makeClawDir(path.join(getWorkspaceRoot(), '.chestnut', 'claws', name));
+  return path.join(getWorkspaceRoot(), '.chestnut', 'claws', name);
 }
 
 export function getClawConfigPath(name: string): string {
@@ -81,11 +80,11 @@ export function makeChestnutRoot(s: string): ChestnutRoot { return s as Chestnut
  *
  * 调用方需告知是否 motion（来自 Assembly 装配期 isMotion guard）。
  *
- * @param clawDir 此 claw 的实例目录（branded ClawDir）
+ * @param clawDir 此 claw 的实例目录（branded string）
  * @param isMotion 是否 motion claw（拓扑差异由配置决定）
  * @returns branded ChestnutRoot
  */
-export function resolveChestnutRoot(clawDir: ClawDir, isMotion: boolean): ChestnutRoot {
+export function resolveChestnutRoot(clawDir: string, isMotion: boolean): ChestnutRoot {
   return isMotion
     ? makeChestnutRoot(path.join(clawDir, '..')) // Motion-only callsite: motion clawDir = <root>/motion → root
     : makeChestnutRoot(path.join(clawDir, '..', '..'));

@@ -33,7 +33,6 @@ import {
 import { notifyInbox } from '../foundation/messaging/index.js';
 import { dispatchError } from './error-handlers.js';
 import { STATUS_SUBDIR } from '../foundation/process-manager/index.js';
-import type { ClawId } from '../foundation/paths.js';
 import { createStreamCallbacks } from './stream-callbacks.js';
 import { waitForInbox } from './inbox-watcher.js';
 import { shouldEmitStartupCheck } from './startup-check.js';
@@ -58,7 +57,7 @@ export interface DaemonLoopOptions {
   fsFactory: (baseDir: string) => FileSystem;
   runtime: IRuntimeDaemon & IRuntimeChat;
   agentDir: string;          // agent root directory (listens for interrupt signals)
-  clawId: ClawId;            // agent identifier (kebab-case)
+  clawId: string;            // agent identifier (kebab-case)
   label: string;             // log prefix, e.g. '[motion daemon]' or '[daemon]'
   audit: AuditLog;              // audit sink for createWatcher
 

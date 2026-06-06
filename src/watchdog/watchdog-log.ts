@@ -3,9 +3,8 @@
  * Watchdog logging + audit + inbox message
  */
 
-import * as path from 'path';
 import { makeChestnutRoot } from '../assembly/install-paths.js';
-import { makeClawDir } from '../foundation/paths.js';
+import * as path from 'path';
 import type { FileSystem } from '../foundation/fs/types.js';
 import { getChestnutFs, getAuditWriter, getMotionContext } from './watchdog-context.js';
 import { getNamedSubrootDir } from '../foundation/config/index.js';
@@ -51,7 +50,7 @@ export function writeClawInactivityInbox(
   fsFactory: (baseDir: string) => FileSystem,
   content: Record<string, unknown>,
 ): void {
-  const motionDir = makeClawDir(getNamedSubrootDir('motion'));
+  const motionDir = getNamedSubrootDir('motion');
   // Motion-only callsite: motionDir = <chestnutRoot>/motion → dirname 一层即 chestnutRoot
   const chestnutRoot = makeChestnutRoot(path.dirname(motionDir));
   const { fs, audit } = getMotionContext(fsFactory);

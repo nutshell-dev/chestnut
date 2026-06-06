@@ -25,16 +25,14 @@ import { LockConflictError } from '../foundation/process-manager/index.js';
 import { DAEMON_AUDIT_EVENTS } from './audit-events.js';
 import type { DaemonInstances } from './types.js';
 
-import { makeClawId, type ClawId } from '../foundation/paths.js';
-import { type ClawDir, makeClawDir } from '../foundation/paths.js';
 
 
 export interface DaemonCommandDeps {
   fsFactory: (baseDir: string) => FileSystem;
   assemble: (config: {
     identity: 'motion' | 'claw';
-    clawId: ClawId;
-    clawDir: ClawDir;
+    clawId: string;
+    clawDir: string;
     globalConfig: any;
     clawConfig: any | null;
   }) => Promise<DaemonInstances>;
@@ -48,12 +46,12 @@ export interface DaemonCommandDeps {
 
 export function createDaemonCommand(deps: DaemonCommandDeps) {
   return async function daemonCommand(name: string): Promise<void> {
-    const clawId = makeClawId(name);
+    const clawId = name;
     const globalConfig = loadGlobalConfig({ fsFactory: deps.fsFactory });
     const isMotion = name === MOTION_CLAW_ID;
 
     // 配置
-    const dir = isMotion ? makeClawDir(getNamedSubrootDir('motion')) : getClawDir(name);
+    const dir = isMotion ? getNamedSubrootDir('motion') : getClawDir(name);
 
     // pre-assemble audit sink（phase189 §7.A3 清零；assemble 前的失败也需 audit）
     const preAssembleFs = deps.fsFactory(dir);

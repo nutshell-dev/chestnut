@@ -23,19 +23,15 @@ import type { DialogStore } from '../dialog-store/index.js';
 import type { ToolRegistry } from './types.js';
 import type { PermissionChecker } from '../tool-protocol/permission.js';
 
-import type { ClawId } from '../paths.js';
-import { type ClawDir } from '../paths.js';
-
-
 /**
  * Options for creating execution context
  */
 export interface ExecContextImplOptions {
   /** Claw identifier */
-  clawId: ClawId;
-  
+  clawId: string;
+
   /** Claw workspace directory */
-  clawDir: ClawDir;
+  clawDir: string;
 
   /** phase 98: caller (装配期) 算好的 claws dir */
   clawsDir: string;
@@ -154,8 +150,8 @@ export function cloneExecContext(
  * Execution context implementation
  */
 export class ExecContextImpl implements ExecContext {
-  clawId: ClawId;
-  clawDir: ClawDir;
+  clawId: string;
+  clawDir: string;
   clawsDir: string;  // phase 98
   workspaceDir: string;
   syncDir: string;

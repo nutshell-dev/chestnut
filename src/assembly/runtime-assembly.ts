@@ -6,6 +6,7 @@
  * phase 34 Step C：从 assemble() 抽出步骤 12-15（Snapshot → StreamWriter → Runtime → shadowTool）。
  */
 
+import { resolveChestnutRoot } from './install-paths.js';
 import path from 'path';
 import { formatErr } from '../foundation/utils/index.js';
 import { createSnapshot } from '../foundation/snapshot/index.js';
@@ -22,7 +23,6 @@ import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
 import { TASKS_SYNC_EXEC_DIR } from '../foundation/command-tool/index.js';
 import { TASKS_SYNC_WRITE_DIR } from '../foundation/file-tool/index.js';
 import { createShadowTool } from '../core/shadow-system/index.js';
-import { resolveChestnutRoot } from './install-paths.js';
 import { MOTION_CLAW_ID } from '../constants.js';
 import { CLAW_SUBDIRS } from './claw-subdirs.js';
 import type { AssembleConfig } from './types.js';

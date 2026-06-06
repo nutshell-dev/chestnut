@@ -20,7 +20,6 @@ import { ProcessManager, ProcessListUnavailable } from '../../foundation/process
 import { CLAWS_DIR } from '../../assembly/claw-dirs.js';
 import { AUDIT_FILE } from '../../foundation/audit/index.js';
 import { INBOX_PENDING_DIR } from '../../foundation/messaging/index.js';
-import { makeClawId } from '../../foundation/paths.js';
 import { MOTION_CLAW_ID } from '../../constants.js';
 
 // ── Views ───────────────────────────────────────────────────────────────────
@@ -196,7 +195,7 @@ export function computeForumStatusView(deps: ForumStatusDeps): ForumStatusView {
     totalClawCount = entries.length;
 
     for (const name of entries) {
-      const s = deps.pm.getAliveStatus(makeClawId(name));
+      const s = deps.pm.getAliveStatus(name);
       if (!s.alive || s.pid === undefined) continue;
       trackedPids.push(s.pid);
       const clawDir = path.join(deps.baseDir, CLAWS_DIR, name);

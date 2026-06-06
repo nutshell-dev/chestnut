@@ -18,7 +18,6 @@ import { formatErr } from "../../foundation/utils/index.js";
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { InboxWriter } from '../../foundation/messaging/inbox-writer.js';
-import type { ClawId } from '../../foundation/paths.js';
 import type { ContentBlock, TextBlock } from '../../foundation/llm-provider/types.js';
 import { buildAuditorPrompt } from './auditor-prompt.js';
 import { contractFootprint, type ContractFootprintOptions } from './contract-footprint.js';
@@ -49,7 +48,7 @@ export interface ContractAuditorDeps {
 export interface AuditRequest {
   contractId: string;
   contractTitle: string;
-  clawId: ClawId;
+  clawId: string;
   /** ReAct 步数（来自 ctx.stepNumber） */
   currentStep: number;
   /** audit_interval（contract.yaml 配置、0=disable） */

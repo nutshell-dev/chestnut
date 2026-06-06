@@ -38,7 +38,6 @@ import { createDirContext } from '../../foundation/audit/index.js';
 import { getClawDir, loadGlobalConfig } from '../../foundation/config/index.js';
 import { parseIntOption } from '../parse-int-option.js';
 import { makeContractId } from '../../core/contract/types.js';
-import { makeClawId } from '../../foundation/paths.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { clawStepsCommand, clawStepCommand } from './claw-steps.js';
 import {
@@ -380,7 +379,7 @@ async function runTrace(deps: RouterDeps, name: string, args: string[]): Promise
   }
   const opts = parser.opts() as { contract: string; step?: string };
   const { clawTraceCommand } = await import('./claw.js');
-  await clawTraceCommand(deps, makeClawId(name), makeContractId(opts.contract), opts.step);
+  await clawTraceCommand(deps, name, makeContractId(opts.contract), opts.step);
 }
 
 async function runStatus(deps: RouterDeps, name: string, args: string[]): Promise<void> {

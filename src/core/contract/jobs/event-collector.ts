@@ -7,8 +7,6 @@ import type { ProgressData } from '../manager.js';
 import type { ContractStatus } from '../types.js';
 import { CONTRACT_AUDIT_EVENTS } from '../audit-events.js';
 import { CONTRACT_DIR } from '../dirs.js';
-import type { ClawId } from '../../../foundation/paths.js';
-import { type ClawDir } from '../../../foundation/paths.js';
 
 function readContractMeta(
   fs: FileSystem,
@@ -36,7 +34,7 @@ interface FormattedEvent {
 }
 
 function formatContractEvent(
-  clawId: ClawId,
+  clawId: string,
   contractDirName: string,
   meta: { title?: string; goal?: string },
   progress: ProgressData,
@@ -62,7 +60,7 @@ function formatContractEvent(
 }
 
 function formatCompleted(
-  clawId: ClawId,
+  clawId: string,
   dirName: string,
   meta: { title?: string; goal?: string },
   progress: ProgressData,
@@ -90,7 +88,7 @@ function formatCompleted(
 }
 
 function formatCancelled(
-  clawId: ClawId,
+  clawId: string,
   dirName: string,
   meta: { title?: string; goal?: string },
   progress: ProgressData,
@@ -109,7 +107,7 @@ function formatCancelled(
 }
 
 function formatCrashed(
-  clawId: ClawId,
+  clawId: string,
   dirName: string,
   meta: { title?: string; goal?: string },
   progress: ProgressData,
@@ -128,7 +126,7 @@ function formatCrashed(
 }
 
 function formatPendingRecovery(
-  clawId: ClawId,
+  clawId: string,
   dirName: string,
   meta: { title?: string; goal?: string },
   _progress: ProgressData,
@@ -163,8 +161,8 @@ export interface ArchivedContractEntry {
  */
 export function scanArchivedContracts(
   fs: FileSystem,
-  clawDir: ClawDir,
-  clawId: ClawId,
+  clawDir: string,
+  clawId: string,
   audit: AuditLog,
 ): ArchivedContractEntry[] {
   const entries: ArchivedContractEntry[] = [];
@@ -254,8 +252,8 @@ export interface CollectedContractEventsResult {
  */
 export function collectContractEvents(
   fs: FileSystem,
-  clawDir: ClawDir,
-  clawId: ClawId,
+  clawDir: string,
+  clawId: string,
   sinceTs: number,
   audit: AuditLog,
 ): CollectedContractEventsResult {

@@ -20,7 +20,6 @@ import { clawTraceCommand } from '../../../src/cli/commands/claw-trace.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { CliError } from '../../../src/cli/errors.js';
 import { makeContractId } from '../../../src/core/contract/types.js';
-import { makeClawId } from '../../../src/foundation/paths.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
@@ -96,7 +95,7 @@ describe('claw-trace numbering coherence (phase 1484)', () => {
       { ts: startedTs + 4, type: 'tool_result', name: 'write', tool_use_id: 't2' },
     ]);
 
-    await clawTraceCommand({ fsFactory }, makeClawId('alice'), makeContractId('C-1'));
+    await clawTraceCommand({ fsFactory }, 'alice', makeContractId('C-1'));
     const out = logs.join('\n');
 
     expect(out).toContain('Turns: 2');
@@ -112,7 +111,7 @@ describe('claw-trace numbering coherence (phase 1484)', () => {
       { ts: startedTs + 4, type: 'tool_result', name: 'write', tool_use_id: 't2' },
     ]);
 
-    await clawTraceCommand({ fsFactory }, makeClawId('alice'), makeContractId('C-1'));
+    await clawTraceCommand({ fsFactory }, 'alice', makeContractId('C-1'));
     const out = logs.join('\n');
 
     expect(out).toMatch(/Turn 1\b/);
@@ -131,7 +130,7 @@ describe('claw-trace numbering coherence (phase 1484)', () => {
       { ts: startedTs + 6, type: 'tool_result', name: 'submit', tool_use_id: 't4' },
     ]);
 
-    await clawTraceCommand({ fsFactory }, makeClawId('alice'), makeContractId('C-1'));
+    await clawTraceCommand({ fsFactory }, 'alice', makeContractId('C-1'));
     const out = logs.join('\n');
 
     expect(out).toContain('[1.a] read');
@@ -151,7 +150,7 @@ describe('claw-trace numbering coherence (phase 1484)', () => {
       { ts: startedTs + 4, type: 'tool_result', name: 'second', tool_use_id: 't2' },
     ]);
 
-    await clawTraceCommand({ fsFactory }, makeClawId('alice'), makeContractId('C-1'));
+    await clawTraceCommand({ fsFactory }, 'alice', makeContractId('C-1'));
     const out = logs.join('\n');
 
     const idxTurn1 = out.indexOf('Turn 1');
@@ -175,7 +174,7 @@ describe('claw-trace numbering coherence (phase 1484)', () => {
       { ts: startedTs + 5, type: 'tool_result', name: 'next', tool_use_id: 't2' },
     ]);
 
-    await clawTraceCommand({ fsFactory }, makeClawId('alice'), makeContractId('C-1'));
+    await clawTraceCommand({ fsFactory }, 'alice', makeContractId('C-1'));
     const out = logs.join('\n');
 
     expect(out).toMatch(/Turn 2 \(subtask_completed\)/);
@@ -192,7 +191,7 @@ describe('claw-trace numbering coherence (phase 1484)', () => {
       { ts: startedTs + 2, type: 'tool_result', name: 'mytool', tool_use_id: 't1' },
     ]);
 
-    await clawTraceCommand({ fsFactory }, makeClawId('alice'), makeContractId('C-1'), '1');
+    await clawTraceCommand({ fsFactory }, 'alice', makeContractId('C-1'), '1');
     const out = logs.join('\n');
     expect(out).toContain('[1.a] mytool');
   });
@@ -205,7 +204,7 @@ describe('claw-trace numbering coherence (phase 1484)', () => {
       { ts: startedTs + 3, type: 'tool_result', name: 'second', tool_use_id: 't2' },
     ]);
 
-    await clawTraceCommand({ fsFactory }, makeClawId('alice'), makeContractId('C-1'), '1.b');
+    await clawTraceCommand({ fsFactory }, 'alice', makeContractId('C-1'), '1.b');
     const out = logs.join('\n');
     expect(out).toContain('[1.b] second');
     expect(out).not.toContain('[1.a]');
@@ -216,7 +215,7 @@ describe('claw-trace numbering coherence (phase 1484)', () => {
     writeStream(clawDir, [{ ts: startedTs + 1, type: 'llm_start' }]);
 
     await expect(
-      clawTraceCommand({ fsFactory }, makeClawId('alice'), makeContractId('C-1'), '5x'),
+      clawTraceCommand({ fsFactory }, 'alice', makeContractId('C-1'), '5x'),
     ).rejects.toBeInstanceOf(CliError);
   });
 
@@ -228,7 +227,7 @@ describe('claw-trace numbering coherence (phase 1484)', () => {
     ]);
 
     await expect(
-      clawTraceCommand({ fsFactory }, makeClawId('alice'), makeContractId('C-1'), '99.a'),
+      clawTraceCommand({ fsFactory }, 'alice', makeContractId('C-1'), '99.a'),
     ).rejects.toBeInstanceOf(CliError);
   });
 });

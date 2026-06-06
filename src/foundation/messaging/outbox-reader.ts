@@ -32,7 +32,7 @@ export class OutboxReader {
    *
    * Use case: aggregator queries (outbox-summary unread count) 不该自己 fs.list outbox。
    *
-   * @param clawDir absolute path to a claw root (per ClawDir convention)
+   * @param clawDir absolute path to a claw root (per string convention)
    * @returns sorted filename array (basename, not absolute path)
    *   - empty array if dir missing / list failed (silent)
    */

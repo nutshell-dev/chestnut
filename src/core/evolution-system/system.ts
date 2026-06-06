@@ -15,7 +15,6 @@ import { FileNotFoundError } from '../../foundation/fs/types.js';
 import { isProgrammingBug } from '../../foundation/errors.js';
 import { readPendingRetrospective, InvalidJSONError, UnexpectedFormatError, InvalidTargetClawError } from '../summon-system/index.js';
 import type { ContractId } from '../contract/types.js';
-import { type ClawDir, makeClawDir } from '../../foundation/paths.js';
 
 
 export interface EvolutionSystemDeps {
@@ -52,10 +51,10 @@ export interface MotionResources {
 /** target claw 构造 factory（运行期按 targetClaw 解析）。 */
 export interface ClawFactories {
   /** 临时构建 target claw FileSystem 的 factory（assembly 注入 / 业务 0 触 L1 impl）*/
-  clawFsFactory: (clawDir: ClawDir) => FileSystem;
+  clawFsFactory: (clawDir: string) => FileSystem;
   /** 临时构建 target claw ContractSystem 的 factory（assembly 注入 / 业务 0 触 L4 ctor）。
    *  factory 内部封装 createSystemAudit（避免 L2 audit instance leak 到业务）。 */
-  clawContractManagerFactory: (clawDir: ClawDir, targetClaw: string, fs: FileSystem) => ContractSystem;
+  clawContractManagerFactory: (clawDir: string, targetClaw: string, fs: FileSystem) => ContractSystem;
 }
 
 /** 调用方便组合：runRetroForContract 一次性收到 motion 资源 + claw factory 两组语义。
@@ -229,7 +228,7 @@ export class EvolutionSystem {
     // Part 2: contract YAML + skills + mining messages（daemon.ts:160-213 等价）
 
     // 2.1 加载契约 YAML（factory 注入 target claw ContractSystem / phase 619 caller-DIP enforce）
-    const clawDir = makeClawDir(path.join(ctx.clawsBaseDir, targetClaw));
+    const clawDir = path.join(ctx.clawsBaseDir, targetClaw);
     const clawFs = ctx.clawFsFactory(clawDir);
     const clawContractManager = ctx.clawContractManagerFactory(clawDir, targetClaw, clawFs);
 

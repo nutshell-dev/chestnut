@@ -17,7 +17,6 @@ import type { PermissionChecker } from '../../foundation/tool-protocol/permissio
 import type { WatcherFactory } from '../../foundation/file-watcher/index.js';
 import type { CallerType } from '../caller-types.js';
 
-import type { ClawId } from '../../foundation/paths.js';
 import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
 
 // phase 64: TaskId brand 迁回（自 foundation/identity 解散）— types.ts 历史注释 admit
@@ -79,7 +78,7 @@ interface CommonSubAgentTaskFields {
    */
   motionClawDir?: string;
   postProcessor?: string;            // 声明式 post-processor 名称（registry lookup）
-  mainContextSnapshot?: { clawId: ClawId; toolUseId: ToolUseId };  // NEW marker mode
+  mainContextSnapshot?: { clawId: string; toolUseId: ToolUseId };  // NEW marker mode
   systemPrompt?: string;                 // phase 546 internal field：caller-side specialized system prompt（agent 不可见 / 与 phase 470 砍 agent-facing spawn schema 不冲突 / fall-back DEFAULT_SUBAGENT_SYSTEM_PROMPT）
   // phase 1087：shadow async 上下文快照字段
   isShadow?: boolean;

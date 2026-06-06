@@ -1,5 +1,7 @@
 import path from 'path';
 import { formatErr } from '../foundation/utils/index.js';
+import { resolveChestnutRoot } from './install-paths.js';
+import { DISPATCH_SKILLS_PATH } from '../core/summon-system/dispatch-skills-paths.js';
 
 import { createClawPermissionChecker } from '../core/permissions/claw-permissions.js';
 import { TASKS_SYNC_EXEC_DIR } from '../foundation/command-tool/index.js';
@@ -19,7 +21,6 @@ import { createStatusTool } from '../core/status-service/index.js';
 import { composeStatusMotionGuidance } from './motion-guidance-composer.js';
 import { createSkillTool } from '../foundation/skill-system/tools/skill.js';
 import { CLAWS_DIR } from './claw-dirs.js';
-import { DISPATCH_SKILLS_PATH } from '../core/summon-system/dispatch-skills-paths.js';
 import { createSendTool } from '../foundation/messaging/tools/send.js';
 import { createToolExecutor } from '../foundation/tools/index.js';
 import type { IToolExecutor } from '../foundation/tools/index.js';
@@ -43,9 +44,6 @@ import type { MessageFormatterRegistry } from '../foundation/messaging/index.js'
 import { createContractSystem } from '../core/contract/index.js';
 import { createSystemAudit } from '../foundation/audit/index.js';
 import { notifyClaw as notifyClawFn } from '../foundation/messaging/index.js';
-import { makeClawId } from '../foundation/paths.js';
-import { resolveChestnutRoot } from './install-paths.js';
-import type { ClawDir } from '../foundation/paths.js';
 import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
 import type { CoreInfraOutput } from './core-infrastructure.js';
 
@@ -160,12 +158,12 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
           CLAWS_DIR
         ),
         clawFsFactory: fsFactory,
-        clawContractManagerFactory: (d: ClawDir, id: string, fs: typeof systemFs) => {
+        clawContractManagerFactory: (d: string, id: string, fs: typeof systemFs) => {
           const cr = resolveChestnutRoot(d, false);
           const perClawAudit = createSystemAudit(fs, d);
           return createContractSystem({
             clawDir: d,
-            clawId: makeClawId(id),
+            clawId: id,
             fs,
             audit: perClawAudit,
             toolRegistry,

@@ -28,7 +28,6 @@ import type { ForumStatusDeps } from '../../../src/core/status-service/index.js'
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { ProcessManager } from '../../../src/foundation/process-manager/index.js';
 import { ProcessListUnavailable } from '../../../src/foundation/process-manager/index.js';
-import { makeClawId } from '../../../src/foundation/paths.js';
 import { MOTION_CLAW_ID } from '../../../src/constants.js';
 
 // ── Fake FS helpers ─────────────────────────────────────────────────────────
@@ -181,7 +180,7 @@ function makePm(
   orphanPids: number[] = [],
 ): ProcessManager {
   return {
-    getAliveStatus: (clawId: ReturnType<typeof makeClawId>) => {
+    getAliveStatus: (clawId: string) => {
       const key = String(clawId);
       return alive[key] ?? { alive: false, reason: 'no PID file' };
     },
@@ -258,7 +257,7 @@ describe('computeForumStatusView', () => {
       clawFs: { 'cmdtool-v3': clawAFs },
       aliveMap: {
         [String(MOTION_CLAW_ID)]: { alive: true, reason: 'alive', pid: 52703 },
-        [String(makeClawId('cmdtool-v3'))]: { alive: true, reason: 'alive', pid: 53508 },
+        [String('cmdtool-v3')]: { alive: true, reason: 'alive', pid: 53508 },
       },
       startTimes: { 52703: fourHoursAgo, 53508: fourHoursAgo, 52933: fourHoursAgo },
       watchdog: { pid: 52933, alive: true, entryPath: '/wd-entry' },

@@ -5,6 +5,7 @@
  * saveProgress / abort verifier / fs.move) lives in core/contract/lifecycle.ts.
  */
 
+import { resolveChestnutRoot } from '../../assembly/install-paths.js';
 import { ContractSystem } from '../../core/contract/index.js';
 import { getClawDir } from '../../foundation/config/index.js';
 import { createSystemAudit, type AuditLog } from '../../foundation/audit/index.js';
@@ -13,14 +14,12 @@ import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { createToolRegistry } from '../../foundation/tools/index.js';
 import { CliError } from '../errors.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
-import type { ClawId } from '../../foundation/paths.js';
 import { makeContractId } from '../../core/contract/types.js';
 import * as path from 'path';
-import { resolveChestnutRoot } from '../../assembly/install-paths.js';
 
 export async function contractCancelCommand(
   deps: { fsFactory: (baseDir: string) => FileSystem },
-  clawId: ClawId,
+  clawId: string,
   reason: string,
   contractIdInput: string | undefined,
   extraDeps?: { audit?: AuditLog },

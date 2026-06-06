@@ -11,7 +11,6 @@ import { CALLER_TYPE_TO_GROUPS } from '../caller-types.js';
 import * as path from 'path';
 
 import type { PermissionChecker } from '../../foundation/tool-protocol/permission.js';
-import { makeClawId } from '../../foundation/paths.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 
 import { DEFAULT_MAX_CONCURRENT_TASKS, SHUTDOWN_DRAIN_GRACE_MS, SHUTDOWN_DEFAULT_TIMEOUT_MS, DEFAULT_RETRY_BASE_DELAY_MS, PENDING_QUEUE_MAX } from './constants.js';
@@ -59,7 +58,6 @@ import type { PostProcessor } from './post-processors/types.js';
 import type { AsyncTaskSystemOptions, SubAgentTask, ToolTask, TaskKind, TaskExecutor } from './types.js';
 import { type TaskId, makeTaskId } from './types.js';
 
-import { type ClawDir, makeClawDir } from '../../foundation/paths.js';
 
 
 
@@ -116,7 +114,7 @@ export class AsyncTaskSystem {
   private readonly executors: Record<TaskKind, TaskExecutor>;
 
   constructor(
-    private readonly clawDir: ClawDir,
+    private readonly clawDir: string,
     private readonly fs: FileSystem,
     private readonly options: AsyncTaskSystemOptions,
   ) {
@@ -668,8 +666,8 @@ export class AsyncTaskSystem {
 
   private buildToolTaskExecContext(task: ToolTask, signal: AbortSignal): import('../../foundation/tools/index.js').ExecContext {
     return {
-      clawId: makeClawId(task.parentClawId),
-      clawDir: makeClawDir(task.parentClawDir),
+      clawId: task.parentClawId,
+      clawDir: task.parentClawDir,
       clawsDir: this.clawsDir,
       workspaceDir: path.join(task.parentClawDir, CLAWSPACE_DIR),
       syncDir: path.join(task.parentClawDir, TASKS_SYNC_DIR),

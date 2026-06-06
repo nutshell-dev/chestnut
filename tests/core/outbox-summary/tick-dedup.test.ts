@@ -12,6 +12,7 @@
  *  - all unread consumed + new tick → CLEARED, old summary stays pending
  */
 
+import { makeChestnutRoot } from '../../../src/assembly/install-paths.js';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fsAsync from 'fs/promises';
 import * as path from 'path';
@@ -20,7 +21,6 @@ import { randomUUID } from 'crypto';
 import { runOutboxSummaryTick, SUMMARY_INBOX_TYPE } from '../../../src/core/outbox-summary/index.js';
 import { DEDUP_DONE_WINDOW_MS } from '../../../src/core/outbox-summary/dedup.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
-import { makeChestnutRoot } from '../../../src/assembly/install-paths.js';
 import { InboxReader, InboxWriter, makeInboxPath } from '../../../src/foundation/messaging/index.js';
 import { OutboxReader } from '../../../src/foundation/messaging/index.js';
 

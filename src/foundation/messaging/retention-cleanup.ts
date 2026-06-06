@@ -7,13 +7,12 @@ import * as path from 'path';
 import { formatErr } from "../utils/index.js";
 import type { FileSystem } from '../fs/types.js';
 import type { AuditLog } from '../audit/index.js';
-import { type ClawDir } from '../paths.js';
 import { INBOX_DONE_DIR, INBOX_FAILED_DIR } from './dirs.js';
 import { MESSAGING_AUDIT_EVENTS } from './audit-events.js';
 import { emitOutboxProcessingOrphanCleaned } from './audit-emit.js';
 
 export async function cleanupRetention(opts: {
-  motionDir: ClawDir;
+  motionDir: string;
   fs: FileSystem;
   audit: AuditLog;
   maxDays: { inbox?: number; outbox?: number };

@@ -20,7 +20,6 @@ import { type CallerType, callerTypeToProfile, CALLER_TYPE_TO_GROUPS } from '../
 import type { DialogStore } from '../../foundation/dialog-store/index.js';
 import { DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../../prompts/index.js';
 import type { PermissionChecker } from '../../foundation/tool-protocol/permission.js';
-import { makeClawId } from '../../foundation/paths.js';
 import { createTimeoutController } from './timeout-controller.js';
 import { createStreamCallbacks } from './stream-callbacks.js';
 import { classifyAndAuditError } from './error-classifier.js';
@@ -186,7 +185,7 @@ export class SubAgent {
           llm: this.llm,
           executor,
           ctx: executor.getExecContext(executorProfile, {
-            clawId: makeClawId(this.agentId),
+            clawId: this.agentId,
             // phase 1490: SubAgent boundary resolve ExecContext.maxSteps（mirror runtime.ts:212 / runtime-boundary owns single resolve point）
             maxSteps: this.maxSteps ?? DEFAULT_MAX_STEPS,
             signal: timeout.signal,

@@ -1,8 +1,6 @@
 import * as path from 'path';
 import type { ContractId } from '../contract/types.js';
-import type { ClawId } from '../../foundation/paths.js';
 import type { NotifyClawFn } from '../contract/verification-types.js';
-import { makeClawDir } from '../../foundation/paths.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { ToolRegistry } from '../../foundation/tools/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
@@ -23,7 +21,7 @@ export interface ClawContractBridgeDeps {
 }
 
 export interface ClawContractBridge {
-  getContractProgress(clawId: ClawId, contractId: ContractId): Promise<ProgressData | null>;
+  getContractProgress(clawId: string, contractId: ContractId): Promise<ProgressData | null>;
   dispose(): Promise<void>;
 }
 
@@ -31,10 +29,10 @@ export function createClawContractBridge(deps: ClawContractBridgeDeps): ClawCont
   const cache = new Map<string, ContractSystem>();
 
   return {
-    async getContractProgress(clawId: ClawId, contractId: ContractId) {
+    async getContractProgress(clawId: string, contractId: ContractId) {
       let cs = cache.get(clawId);
       if (!cs) {
-        const cDir = makeClawDir(path.join(deps.clawsDir, clawId));
+        const cDir = path.join(deps.clawsDir, clawId);
         const cFs = deps.fsFactory(cDir);
         const cAudit = createSystemAudit(cFs, cDir);
         cs = createContractSystem({

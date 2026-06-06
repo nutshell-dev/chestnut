@@ -5,8 +5,6 @@ import type { AuditLog } from '../../../foundation/audit/index.js';
 import type { InboxMessageOptionsBase } from '../../../foundation/messaging/index.js';
 import { scanArchivedContracts } from './event-collector.js';
 import { CONTRACT_AUDIT_EVENTS } from '../audit-events.js';
-import { makeClawId } from '../../../foundation/paths.js'
-import { makeClawDir } from '../../../foundation/paths.js';
 
 /** phase 101: DI callback - caller (装配期) bind fs + chestnutRoot + MOTION_CLAW_ID + audit */
 export type NotifyMotionFn = (message: InboxMessageOptionsBase) => void;
@@ -147,8 +145,8 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
   for (const clawId of clawIds) {
     if (options.signal?.aborted) return;
     try {
-      const clawDir = makeClawDir(path.join(clawsDir, clawId));
-      const entries = scanArchivedContracts(fs, clawDir, makeClawId(clawId), motionAudit);
+      const clawDir = path.join(clawsDir, clawId);
+      const entries = scanArchivedContracts(fs, clawDir, clawId, motionAudit);
       for (const entry of entries) {
         const key = `${clawId}:${entry.contractId}`;
         if (notifiedSet.has(key)) continue;  // dedup: 已通知

@@ -10,7 +10,6 @@ import { CliError } from '../errors.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
-import { makeClawId } from '../../foundation/paths.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 
 export async function stopCommand(deps: { fsFactory: (baseDir: string) => FileSystem }, name: string, extraDeps?: { audit?: AuditLog }): Promise<void> {
@@ -25,7 +24,7 @@ export async function stopCommand(deps: { fsFactory: (baseDir: string) => FileSy
   const processManager = createProcessManagerForCLI(deps);
 
   // Check if running
-  if (!processManager.isAlive(makeClawId(name))) {
+  if (!processManager.isAlive(name)) {
     console.log(`Claw "${name}" is not running`);
     return;
   }
@@ -44,7 +43,7 @@ export async function stopCommand(deps: { fsFactory: (baseDir: string) => FileSy
     // silent: marker 写失败 best-effort / watchdog 缺 marker 视同 unexpected (false-positive 单次容忍)
   }
 
-  const success = await processManager.stop(makeClawId(name));
+  const success = await processManager.stop(name);
   if (success) {
     audit?.write(CLI_AUDIT_EVENTS.CLAW_STOP, `name=${name}`, `status=success`);
     console.log(`✓ Stopped Claw "${name}"`);

@@ -7,6 +7,7 @@
  *  - enable processManager DI for tests (no vi.mock on dynamic await import)
  */
 
+import { getWorkspaceRoot } from '../../assembly/install-paths.js';
 import * as path from 'path';
 import {
   loadGlobalConfig, clawExists, getClawDir, getGlobalConfigPath, getClawConfigPath,
@@ -16,8 +17,6 @@ import { createAgentProcessManager } from '../../foundation/process-manager/inde
 import type { ProcessManager } from '../../foundation/process-manager/manager.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { CliError } from '../errors.js';
-import { makeClawId } from '../../foundation/paths.js';
-import { getWorkspaceRoot } from '../../assembly/install-paths.js';
 import { resolveDaemonEntry } from '../../assembly/spawn-entry.js';
 import { DAEMON_LOG } from '../../daemon/constants.js';
 
@@ -44,12 +43,12 @@ export async function clawDaemonCommand(
   const systemAudit = createSystemAudit(nodeFs, baseDir);
   const pm: DaemonPM = deps.processManager
     ?? createAgentProcessManager({ fsFactory: deps.fsFactory }, systemAudit);
-  if (pm.isAlive(makeClawId(name))) {
+  if (pm.isAlive(name)) {
     console.warn(`⚠ Claw "${name}" is already running`);
     return;
   }
   const daemonEntryPath = resolveDaemonEntry(nodeFs);
-  const pid = await pm.spawn(makeClawId(name), {
+  const pid = await pm.spawn(name, {
     command: 'node',
     args: [daemonEntryPath, name],
     logFile: path.join(clawDir, DAEMON_LOG),

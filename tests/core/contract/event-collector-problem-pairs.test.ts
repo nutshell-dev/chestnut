@@ -9,7 +9,6 @@ import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { collectContractEvents } from '../../../src/core/contract/jobs/event-collector.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
-import { makeClawId, makeClawDir } from '../../../src/foundation/paths.js';
 
 function makeAudit() {
   return { write: () => {} };
@@ -57,8 +56,8 @@ describe('phase 1487: collectContractEvents result shape', () => {
         'st-1': { status: 'completed', evidence: 'src/login.ts', completed_at: '2026-05-31T00:00:00Z' },
       },
     }));
-    const clawDir = makeClawDir(path.join(chestnutRoot, 'claws/worker-1'));
-    const result = collectContractEvents(fs, clawDir, makeClawId('worker-1'), sinceTs, makeAudit());
+    const clawDir = path.join(chestnutRoot, 'claws/worker-1');
+    const result = collectContractEvents(fs, clawDir, 'worker-1', sinceTs, makeAudit());
     expect(result.events.length).toBe(1);
     expect(result.problemPairs).toEqual([]);
     expect(result.events[0]).toContain('[contract_completed] claw=worker-1 contract=1780-abcd');
@@ -77,8 +76,8 @@ describe('phase 1487: collectContractEvents result shape', () => {
         },
       },
     }));
-    const clawDir = makeClawDir(path.join(chestnutRoot, 'claws/worker-1'));
-    const result = collectContractEvents(fs, clawDir, makeClawId('worker-1'), sinceTs, makeAudit());
+    const clawDir = path.join(chestnutRoot, 'claws/worker-1');
+    const result = collectContractEvents(fs, clawDir, 'worker-1', sinceTs, makeAudit());
     expect(result.events.length).toBe(1);
     expect(result.problemPairs).toEqual(['worker-1:1780-cdef']);
     expect(result.events[0]).toContain('⚠ last_failure: Failed test isolation');
@@ -96,8 +95,8 @@ describe('phase 1487: collectContractEvents result shape', () => {
         },
       },
     }));
-    const clawDir = makeClawDir(path.join(chestnutRoot, 'claws/worker-1'));
-    const result = collectContractEvents(fs, clawDir, makeClawId('worker-1'), sinceTs, makeAudit());
+    const clawDir = path.join(chestnutRoot, 'claws/worker-1');
+    const result = collectContractEvents(fs, clawDir, 'worker-1', sinceTs, makeAudit());
     expect(result.events[0]).not.toContain('[force-accepted]');
     expect(result.events[0]).toContain('[st-1] src/auth.ts');
   });
@@ -115,8 +114,8 @@ describe('phase 1487: collectContractEvents result shape', () => {
         },
       },
     }));
-    const clawDir = makeClawDir(path.join(chestnutRoot, 'claws/worker-1'));
-    const result = collectContractEvents(fs, clawDir, makeClawId('worker-1'), sinceTs, makeAudit());
+    const clawDir = path.join(chestnutRoot, 'claws/worker-1');
+    const result = collectContractEvents(fs, clawDir, 'worker-1', sinceTs, makeAudit());
     expect(result.problemPairs).toEqual(['worker-1:1780-ffff']);  // 单 contract / 1 pair (即便多 subtask)
   });
 
@@ -127,8 +126,8 @@ describe('phase 1487: collectContractEvents result shape', () => {
         'st-1': { status: 'completed', evidence: 'old.ts', completed_at: '2025-12-01T00:00:00Z' },
       },
     }));
-    const clawDir = makeClawDir(path.join(chestnutRoot, 'claws/worker-1'));
-    const result = collectContractEvents(fs, clawDir, makeClawId('worker-1'), sinceTs, makeAudit());
+    const clawDir = path.join(chestnutRoot, 'claws/worker-1');
+    const result = collectContractEvents(fs, clawDir, 'worker-1', sinceTs, makeAudit());
     expect(result.events).toEqual([]);
     expect(result.problemPairs).toEqual([]);
   });

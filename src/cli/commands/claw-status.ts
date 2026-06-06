@@ -13,6 +13,7 @@
  * - format 与 agent status tool 输出一致、避免漂移；多 `Claw:` header 标 namespace
  */
 
+import { resolveChestnutRoot } from '../../assembly/install-paths.js';
 import * as path from 'path';
 import { loadGlobalConfig, clawExists, getClawDir, getClawConfigPath } from '../../foundation/config/index.js';
 import { CliError } from '../errors.js';
@@ -20,8 +21,6 @@ import { createSystemAudit } from '../../foundation/audit/index.js';
 import { notifyClaw } from '../../foundation/messaging/index.js';
 import { ContractSystem } from '../../core/contract/index.js';
 import { createToolRegistry } from '../../foundation/tools/index.js';
-import { makeClawId } from '../../foundation/paths.js';
-import { resolveChestnutRoot } from '../../assembly/install-paths.js';
 import {
   computeContractView,
   computeTaskView,
@@ -50,7 +49,7 @@ export async function clawStatusCommand(
 
   const clawDir = getClawDir(name);
   const clawFs = deps.fsFactory(clawDir);
-  const clawId = makeClawId(name);
+  const clawId = name;
   const chestnutRoot = resolveChestnutRoot(clawDir, /* isMotion */ false);
 
   const audit = createSystemAudit(clawFs, clawDir);
@@ -90,7 +89,7 @@ export async function clawStatusCommand(
 
   const lines: string[] = [];
   lines.push(`Claw: ${name}`);
-  lines.push(`ClawDir: ${path.resolve(clawDir)}`);
+  lines.push(`string: ${path.resolve(clawDir)}`);
   lines.push(formatContractView(contractView));
   lines.push(formatTaskView(taskView));
   lines.push(...formatStorageView(storageView));

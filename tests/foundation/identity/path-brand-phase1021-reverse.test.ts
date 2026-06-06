@@ -8,21 +8,20 @@
  * After branding: path.dirname returns string → can't assign to ChestnutRoot → TS2322.
  */
 
-import { describe, it, expect } from 'vitest';
 import { type ChestnutRoot, makeChestnutRoot } from '../../../src/assembly/install-paths.js';
-import { type ClawDir, makeClawDir } from '../../../src/foundation/paths.js';
+import { describe, it, expect } from 'vitest';
 import * as path from 'path';
 
 describe('phase 1021 path-mixup compile-time defense', () => {
   it('// @ts-expect-error: path.dirname returns string, not ChestnutRoot', () => {
-    const clawDir = makeClawDir('/abs/.chestnut/motion');
+    const clawDir = '/abs/.chestnut/motion';
     // @ts-expect-error — path.dirname returns string (untyped) / can't assign to ChestnutRoot
     const wrongRoot: ChestnutRoot = path.dirname(clawDir);
     expect(wrongRoot).toBeDefined();
   });
 
   it('// @ts-expect-error: dirname(dirname()) double-strip (phase 1021 real bug)', () => {
-    const clawDir = makeClawDir('/abs/.chestnut/motion');
+    const clawDir = '/abs/.chestnut/motion';
     // @ts-expect-error
     const wrongRoot: ChestnutRoot = path.dirname(path.dirname(clawDir));
     expect(wrongRoot).toBeDefined();
@@ -34,7 +33,7 @@ describe('phase 1021 path-mixup compile-time defense', () => {
   });
 
   it('正向: makeChestnutRoot(path.dirname(clawDir)) 入口构造合法', () => {
-    const clawDir = makeClawDir('/abs/.chestnut/motion');
+    const clawDir = '/abs/.chestnut/motion';
     const root: ChestnutRoot = makeChestnutRoot(path.dirname(clawDir));
     expect(root).toBe('/abs/.chestnut');
   });

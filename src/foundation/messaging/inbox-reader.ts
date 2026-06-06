@@ -14,7 +14,6 @@ import * as path from 'path';
 import { formatErr } from "../utils/index.js";
 import { randomUUID } from 'crypto';
 import type { FileSystem } from '../fs/types.js';
-import { makeClawId } from '../paths.js';
 import type { InboxMessage, InboxHandle } from '../messaging/types.js';
 import { PRIORITY_VALUES, type Priority } from '../messaging/types.js';
 import { decodeInbox } from './codec-inbox.js';
@@ -170,7 +169,7 @@ export class InboxReader {
         if (message.extraMeta?.__legacy_claw_id !== undefined) {
           emitInboxLegacyClawIdField(this.audit, {
             file: entry.name,
-            clawId: makeClawId(message.extraMeta.__legacy_claw_id),
+            clawId: message.extraMeta.__legacy_claw_id,
           });
         }
 

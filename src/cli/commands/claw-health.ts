@@ -10,7 +10,6 @@ import {
 import { CliError } from '../errors.js';
 import { createDirContext } from '../../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
-import { makeClawId } from '../../foundation/paths.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { CONTRACT_DIR } from '../../core/contract/index.js';
 import { formatRelativeTime, getLastActiveMs } from './claw-shared.js';
@@ -34,7 +33,7 @@ export async function healthCommand(deps: { fsFactory: (baseDir: string) => File
   const processManager = createProcessManagerForCLI(deps);
   const { audit: systemAudit } = createDirContext(deps, baseDir);
 
-  const isRunning = processManager.isAlive(makeClawId(name));
+  const isRunning = processManager.isAlive(name);
 
   // Read inbox/outbox pending counts in real time
   let inboxPending = 0;

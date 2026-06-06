@@ -6,14 +6,13 @@ import type { ProgressData } from '../contract/index.js';
 import { runDeepDream } from './deep-dream.js';
 import { runRandomDream } from './random-dream.js';
 import type { ContractId } from '../contract/types.js';
-import type { ClawId, ClawDir } from '../../foundation/paths.js';
 import type { RandomDreamNotifyMotionFn } from './random-dream.js';
 
 
 
 export interface MemorySystemOptions {
   clawsDir: string;       // phase 84: caller (装配期) 算好 claws dir 后传入
-  motionDir: ClawDir;
+  motionDir: string;
   fs: FileSystem;
   motionFs: FileSystem;               // baseDir = motionDir / NEW
   audit: AuditLog;
@@ -22,9 +21,9 @@ export interface MemorySystemOptions {
   llmConfig: LLMOrchestratorConfig;   // deep-dream 内部仍需 config（state file 路径等）
   maxCompressionTokens?: number;
   /** 临时构建 per-claw FileSystem 的 factory（assembly 注入 / 业务 0 触 L1 impl）*/
-  clawFsFactory: (clawDir: ClawDir) => FileSystem;
+  clawFsFactory: (clawDir: string) => FileSystem;
   /** M#3：random-dream 读取 contract progress 走 ContractSystem API */
-  getContractProgress?: (clawId: ClawId, contractId: ContractId) => Promise<ProgressData | null>;
+  getContractProgress?: (clawId: string, contractId: ContractId) => Promise<ProgressData | null>;
   /** phase 92: random-dream caller-bound notify motion */
   notifyMotion: RandomDreamNotifyMotionFn;
 }

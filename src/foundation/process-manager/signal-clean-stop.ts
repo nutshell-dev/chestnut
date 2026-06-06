@@ -1,4 +1,3 @@
-import { type ChestnutRoot } from '../../assembly/install-paths.js';
 
 /**
  * @module L2.ProcessManager.SignalCleanStop
@@ -8,6 +7,7 @@ import { type ChestnutRoot } from '../../assembly/install-paths.js';
  * so the next boot can detect graceful shutdown and skip backoff state.
  */
 
+import { type ChestnutRoot } from '../../assembly/install-paths.js';
 import * as path from 'path';
 import type { FileSystem } from '../fs/types.js';
 import type { AuditLog } from '../audit/index.js';

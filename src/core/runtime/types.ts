@@ -22,9 +22,7 @@ import type { PermissionChecker } from '../../foundation/tool-protocol/permissio
 import type { InboxMessage } from '../../foundation/messaging/types.js';
 import type { ToolProfile } from '../../foundation/tool-protocol/index.js';
 
-import type { ClawId } from '../../foundation/paths.js';
 import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
-import { type ClawDir } from '../../foundation/paths.js';
 
 
 
@@ -82,8 +80,8 @@ export interface RuntimeDependencies {
 
 /** 1:1 保 runtime.ts:74-101 body */
 export interface RuntimeOptions {
-  clawId: ClawId;
-  clawDir: ClawDir;
+  clawId: string;
+  clawDir: string;
   /** phase 98: caller (装配期) 算好的 claws dir */
   clawsDir: string;
   llmConfig: LLMOrchestratorConfig;
@@ -156,7 +154,7 @@ export interface ChatOptions {
 export interface IRuntimeLifecycle {
   initialize(): Promise<void>;
   stop(): Promise<void>;
-  getStatus(): { initialized: boolean; clawId: ClawId };
+  getStatus(): { initialized: boolean; clawId: string };
   getTurnCount(): number;
   getTaskSystem(): AsyncTaskSystem;
   getAuditWriter(): AuditLog;

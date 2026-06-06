@@ -27,7 +27,6 @@ import type { SubAgentTask } from './types.js';
 import type { DialogStore } from '../../foundation/dialog-store/index.js';
 import type { TaskId } from './types.js';
 
-import { type ClawDir } from '../../foundation/paths.js';
 
 
 
@@ -39,7 +38,7 @@ export interface ExecuteSubAgentTaskDeps {
   auditWriter: AuditLog;
   llm: LLMOrchestrator;
   registry: ToolRegistry;
-  clawDir: ClawDir;
+  clawDir: string;
   /** phase 98: caller (装配期) 算好的 claws dir */
   clawsDir: string;
   parentStreamLog?: StreamLog;

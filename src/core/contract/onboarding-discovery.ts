@@ -5,7 +5,6 @@
  */
 import * as path from 'node:path';
 import type { FileSystem } from '../../foundation/fs/types.js';
-import { type ClawDir } from '../../foundation/paths.js';
 import {
   CONTRACT_ACTIVE_DIR,
   CONTRACT_PAUSED_DIR,
@@ -32,7 +31,7 @@ interface ProgressShape { subtasks?: Record<string, ProgressSubtask>; }
  * - 未来如需 race observability、加 audit emit hook（推升档锚 (c) 命中后）
  */
 export function readOnboardingStatus(
-  motionDir: ClawDir,
+  motionDir: string,
   deps: { fsFactory: (baseDir: string) => FileSystem },
 ): OnboardingStatus {
   const fs = deps.fsFactory(motionDir);

@@ -12,10 +12,8 @@ import { makeClawTrack, buildClawLine, type ClawTrack } from './chat-viewport-cl
 import { STREAM_FILE } from '../../foundation/stream/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
-import { makeClawId } from '../../foundation/paths.js';
 import type { createClawManager } from './chat-viewport-claw-manager.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
-import { makeClawDir } from '../../foundation/paths.js';
 
 export interface ClawPanelDeps {
   attachedClawBar: { setText(text: string): void };
@@ -68,7 +66,7 @@ export function createRescanClawsDir(deps: RescanClawsDirDeps) {
         if (!e.isDirectory) continue;
         const clawId = e.name;
         if (deps.clawTrackMap.has(clawId)) continue;
-        const clawDir = makeClawDir(path.join(deps.clawsDir, clawId));
+        const clawDir = path.join(deps.clawsDir, clawId);
         // getContractCreatedMs 用 clawsFs (baseDir=clawsDir) / 传相对路径 clawId
         const contractMs = getContractCreatedMs(deps.clawsFs, clawDir, deps.audit);
         if (contractMs !== null) {
@@ -77,7 +75,7 @@ export function createRescanClawsDir(deps: RescanClawsDirDeps) {
           t.referenceMs = contractMs;
           deps.clawTrackMap.set(clawId, t);
           // 开 watcher
-          deps.clawManager.attachClawWatcher(makeClawId(clawId), path.join(clawDir, STREAM_FILE));
+          deps.clawManager.attachClawWatcher(clawId, path.join(clawDir, STREAM_FILE));
         }
       }
       if (deps.clawTrackMap.size > 0) {

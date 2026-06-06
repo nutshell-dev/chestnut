@@ -57,9 +57,7 @@ import {
 import { TASKS_SYNC_DIR } from '../async-task-system/index.js';
 
 import { formatTimeAgo } from './utils.js';
-import type { ClawId } from '../../foundation/paths.js';
 import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
-import { type ClawDir } from '../../foundation/paths.js';
 
 
 
@@ -1145,7 +1143,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon, IRuntimeChat 
    */
   getStatus(): {
     initialized: boolean;
-    clawId: ClawId;
+    clawId: string;
   } {
     return {
       initialized: this.initialized,
@@ -1204,7 +1202,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon, IRuntimeChat 
     return { systemPrompt: r.full, identityContent: r.identityContent };
   }
 
-  private async ensureDirectories(_clawDir: ClawDir): Promise<void> {
+  private async ensureDirectories(_clawDir: string): Promise<void> {
     for (const dir of this.clawSubdirs) {
       await this.systemFs.ensureDir(dir);
     }

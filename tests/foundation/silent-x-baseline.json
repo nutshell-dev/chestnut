@@ -17,19 +17,19 @@
         },
         {
             "file": "src/cli/commands/chat-viewport-claw-manager.ts",
-            "line": 163,
+            "line": 161,
             "body_excerpt": "} catch { /* skip */ }",
             "reason": "pre-existing silent catch / TODO phase TBD convert to canonical / phase 15 line shift +1 by formatErr barrel import"
         },
         {
             "file": "src/cli/commands/chat-viewport-claw-manager.ts",
-            "line": 168,
+            "line": 166,
             "body_excerpt": "} catch { /* ENOENT 等，跳过 */ }",
             "reason": "pre-existing silent catch / TODO phase TBD convert to canonical / phase 15 line shift +1 by formatErr barrel import"
         },
         {
             "file": "src/cli/commands/chat-viewport-claw-manager.ts",
-            "line": 73,
+            "line": 71,
             "body_excerpt": "} catch { /* polling fallback */ }",
             "reason": "pre-existing silent catch / TODO phase TBD convert to canonical / phase 15 line shift +1 by formatErr barrel import"
         },
@@ -344,7 +344,7 @@
         },
         {
             "file": "src/foundation/tools/executor.ts",
-            "line": 170,
+            "line": 167,
             "body_excerpt": ".catch(() => {}",
             "reason": "race loser handled by executionPromise.catch L150+ / line shifted +2 (phase 1406 +1 / phase 15 formatErr barrel import +1) / phase 70 +16",
             "form": "promise"

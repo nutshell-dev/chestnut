@@ -1,3 +1,4 @@
+import { ensureStatusDir, getLockFile, getPidFile } from './paths.js';
 import * as path from 'path';
 import { formatErr } from "../utils/index.js";
 import { spawnDetached as defaultSpawnDetached, kill as defaultKill } from '../process-exec/index.js';
@@ -5,7 +6,6 @@ import { DAEMON_SHUTDOWN_GRACE_MS, SPAWN_POLL_INTERVAL_MS } from './constants.js
 import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
 import { FileNotFoundError } from '../fs/types.js';
 import { ProcessListUnavailable } from './errors.js';
-import { ensureStatusDir, getLockFile, getPidFile } from './paths.js';
 import { isAliveByPidFile as checkAlive } from './alive.js';
 import { isReady as checkReady } from './ready.js';
 import { readLockPid } from './lock.js';
@@ -16,7 +16,6 @@ import { AUDIT_MESSAGE_MAX_CHARS } from '../audit/index.js';
 import { isAlive as defaultL1IsAlive, getProcessStartTime as defaultGetProcessStartTime } from '../process-exec/index.js';
 import { LockConflictError, type ProcessManagerContext } from './types.js';
 import type { SpawnOptions } from './types.js';
-import { makeClawId, type ClawId } from '../paths.js';
 
 
 const sleep = (ms: number): Promise<void> =>
@@ -45,11 +44,11 @@ const sleep = (ms: number): Promise<void> =>
  */
 export async function spawnProcess(
   ctx: ProcessManagerContext,
-  clawId: ClawId,
+  clawId: string,
   options: SpawnOptions,
 ): Promise<number> {
   const startMs = Date.now();
-  const isAliveByPidFile = ctx.isAlive ?? ((id: string) => checkAlive(ctx, makeClawId(id)));
+  const isAliveByPidFile = ctx.isAlive ?? ((id: string) => checkAlive(ctx, id));
   if (isAliveByPidFile(clawId)) {
     throw new LockConflictError(
       clawId,
@@ -73,7 +72,7 @@ export async function spawnProcess(
  */
 async function cleanupOrphans(
   ctx: ProcessManagerContext,
-  clawId: ClawId,
+  clawId: string,
   options: SpawnOptions,
 ): Promise<void> {
   const pattern = options.args.join(' ');
@@ -125,7 +124,7 @@ async function cleanupOrphans(
  */
 async function cleanupLock(
   ctx: ProcessManagerContext,
-  clawId: ClawId,
+  clawId: string,
 ): Promise<void> {
   const lockFile = getLockFile(ctx, clawId);
   try {
@@ -178,7 +177,7 @@ async function cleanupLock(
  */
 async function writePidExclusive(
   ctx: ProcessManagerContext,
-  clawId: ClawId,
+  clawId: string,
 ): Promise<void> {
   const pidFile = getPidFile(ctx, clawId);
   await ensureStatusDir(ctx, clawId);
@@ -204,7 +203,7 @@ async function writePidExclusive(
  */
 async function handlePidFileConflict(
   ctx: ProcessManagerContext,
-  clawId: ClawId,
+  clawId: string,
   pidFile: string,
 ): Promise<void> {
   const stored = await readPid(ctx, clawId);
@@ -272,10 +271,10 @@ async function handlePidFileConflict(
  */
 async function spawnAndAwaitReady(
   ctx: ProcessManagerContext,
-  clawId: ClawId,
+  clawId: string,
   options: SpawnOptions,
   startMs: number,
-  isAliveByPidFile: (id: ClawId) => boolean,
+  isAliveByPidFile: (id: string) => boolean,
 ): Promise<number> {
   const pidFile = getPidFile(ctx, clawId);
   try {
@@ -292,7 +291,7 @@ async function spawnAndAwaitReady(
     };
     await ctx.fs.writeAtomic(pidFile, JSON.stringify(pidPayload));
 
-    const isReady = ctx.isReady ?? ((id: string) => checkReady(ctx, makeClawId(id)));
+    const isReady = ctx.isReady ?? ((id: string) => checkReady(ctx, id));
     let ready = isReady(clawId);
     while (!ready) {
       if (!isAliveByPidFile(clawId)) {

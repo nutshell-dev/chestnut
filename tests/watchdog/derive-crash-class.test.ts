@@ -13,7 +13,6 @@ import {
   formatCrashBody,
 } from '../../src/watchdog/watchdog-utils.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
-import { makeClawDir } from '../../src/foundation/paths.js';
 
 describe('phase 2: deriveCrashClass', () => {
   it('no marker → active_unexpected', () => {
@@ -39,22 +38,22 @@ describe('phase 2: hasCleanStopMarker', () => {
   });
 
   it('marker absent → false', () => {
-    expect(hasCleanStopMarker(makeClawDir(root), fsFactory)).toBe(false);
+    expect(hasCleanStopMarker(root, fsFactory)).toBe(false);
   });
 
   it('marker present → true', async () => {
     await fsAsync.writeFile(path.join(root, 'clean-stop'), '');
-    expect(hasCleanStopMarker(makeClawDir(root), fsFactory)).toBe(true);
+    expect(hasCleanStopMarker(root, fsFactory)).toBe(true);
   });
 
   it('claw dir missing → false (silent fallback)', () => {
-    expect(hasCleanStopMarker(makeClawDir(path.join(tmpdir(), `non-existent-${randomUUID()}`)), fsFactory)).toBe(false);
+    expect(hasCleanStopMarker(path.join(tmpdir(), `non-existent-${randomUUID()}`), fsFactory)).toBe(false);
   });
 
   it('marker read 后不删除 (read-only / 不消费)', async () => {
     await fsAsync.writeFile(path.join(root, 'clean-stop'), '');
-    expect(hasCleanStopMarker(makeClawDir(root), fsFactory)).toBe(true);
-    expect(hasCleanStopMarker(makeClawDir(root), fsFactory)).toBe(true);
+    expect(hasCleanStopMarker(root, fsFactory)).toBe(true);
+    expect(hasCleanStopMarker(root, fsFactory)).toBe(true);
     // marker 还在
     expect(await fsAsync.readFile(path.join(root, 'clean-stop'), 'utf-8')).toBe('');
   });

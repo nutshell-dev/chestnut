@@ -17,7 +17,6 @@ import { ContractSystem } from '../../src/core/contract/manager.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { createToolRegistry } from '../../src/foundation/tools/index.js';
 import { CliError } from '../../src/cli/errors.js';
-import { makeClawId } from '../../src/foundation/paths.js';
 import { makeMockAudit } from '../helpers/audit.js';
 import { makeContractYaml } from '../helpers/contract-yaml.js';
 
@@ -34,7 +33,7 @@ async function seedActiveContract(): Promise<string> {
   const clawFs = new NodeFileSystem({ baseDir: clawDir });
   const manager = new ContractSystem({
     clawDir,
-    clawId: makeClawId(CLAW_ID),
+    clawId: CLAW_ID,
     fs: clawFs,
     audit: makeMockAudit(),
     toolRegistry: createToolRegistry(),
@@ -71,7 +70,7 @@ describe('contractCancelCommand (phase 1471)', () => {
 
     await contractCancelCommand(
       { fsFactory },
-      makeClawId(CLAW_ID),
+      CLAW_ID,
       'user requested abort',
       contractId,
       { audit },
@@ -106,7 +105,7 @@ describe('contractCancelCommand (phase 1471)', () => {
 
     await contractCancelCommand(
       { fsFactory },
-      makeClawId(CLAW_ID),
+      CLAW_ID,
       'default-active cancel',
       undefined,
       { audit },
@@ -130,7 +129,7 @@ describe('contractCancelCommand (phase 1471)', () => {
     await expect(
       contractCancelCommand(
         { fsFactory },
-        makeClawId(CLAW_ID),
+        CLAW_ID,
         'r',
         undefined,
         { audit },
@@ -145,7 +144,7 @@ describe('contractCancelCommand (phase 1471)', () => {
     try {
       await contractCancelCommand(
         { fsFactory },
-        makeClawId(CLAW_ID),
+        CLAW_ID,
         'r',
         'no-such-contract-id',
         { audit },

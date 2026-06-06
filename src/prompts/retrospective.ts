@@ -4,12 +4,11 @@
  * Builds the prompt for contract retrospective subagent.
  */
 
-import type { ClawId } from '../foundation/paths.js';
 import type { ContractId } from '../core/contract/types.js';
 
 
 export function buildRetroPrompt(
-  clawId: ClawId,
+  clawId: string,
   contractId: ContractId,
   contractYaml: string,
   skillsSummary?: string,

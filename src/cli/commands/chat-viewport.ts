@@ -25,7 +25,6 @@ import { MOTION_CLAW_ID } from '../../constants.js';
 
 import { writeUserChat } from './chat-viewport-utils.js';
 import { findRecentTurnStartOffset } from '../../foundation/stream/index.js';
-import { makeClawId } from '../../foundation/paths.js';
 import { type ClawTrack } from './chat-viewport-claw-line.js';
 import { createMainTurnUI, type MainTurnUIController } from './main-turn-ui.js';
 import { createTaskEventHandler } from './chat-viewport-task-events.js';
@@ -269,7 +268,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   const checkDaemonAlive = async () => {
     if (daemonDead) return;
     try {
-      const stored = await pm.readPid(makeClawId(options.label));
+      const stored = await pm.readPid(options.label);
       if (stored === null) return;
       if (!isAlive(stored.pid)) {
         // 进程不存在
@@ -413,7 +412,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   // 重连状态校正：tracker 标 active 但 daemon 实际不存活 / forceReset 防误触 ESC 中断
   if (turnTracker.isActive()) {
     try {
-      const stored = await pm.readPid(makeClawId(options.label));
+      const stored = await pm.readPid(options.label);
       if (stored === null) {
         turnTracker.forceReset();
       } else {

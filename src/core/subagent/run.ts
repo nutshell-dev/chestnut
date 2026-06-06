@@ -23,14 +23,12 @@ import type { PermissionChecker } from '../../foundation/tool-protocol/permissio
 import { SubAgent } from './agent.js';
 import { DONE_TOOL_NAME, type CapturableTool } from './tools/done.js';
 
-import type { ClawId } from '../../foundation/paths.js';
 import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
-import { type ClawDir } from '../../foundation/paths.js';
 
 
 
 export interface MainContextSnapshot {
-  clawId: ClawId;
+  clawId: string;
   toolUseId: ToolUseId;
 }
 
@@ -40,7 +38,7 @@ export interface RunSubagentOptions {
   callerType?: CallerType;
 
   // 基础设施依赖（caller 注入）
-  clawDir: ClawDir;
+  clawDir: string;
   /** phase 98: caller (装配期) 算好的 claws dir */
   clawsDir: string;
   fs: FileSystem;

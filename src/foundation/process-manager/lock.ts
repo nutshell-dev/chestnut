@@ -1,15 +1,14 @@
+import { getLockFile } from './paths.js';
 import * as path from 'path';
 import { formatErr } from "../utils/index.js";
 import { isAlive as defaultL1IsAlive, getProcessStartTime as defaultGetProcessStartTime, makeProcessStartTime, type ProcessStartTime } from '../process-exec/index.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
-import { getLockFile } from './paths.js';
 import { LockConflictError, type ProcessManagerContext } from './types.js';
-import { makeClawId, type ClawId } from '../paths.js';
 
 
 export function readLockPid(
   ctx: ProcessManagerContext,
-  clawId: ClawId,
+  clawId: string,
 ): { pid: number; startTime?: ProcessStartTime } | null {
   try {
     const lockFile = getLockFile(ctx, clawId);
@@ -52,7 +51,7 @@ export function readLockPid(
   }
 }
 
-export function acquireLock(ctx: ProcessManagerContext, clawId: ClawId): void {
+export function acquireLock(ctx: ProcessManagerContext, clawId: string): void {
   const lockFile = getLockFile(ctx, clawId);
   ctx.fs.ensureDirSync(path.dirname(lockFile));
   try {
@@ -63,7 +62,7 @@ export function acquireLock(ctx: ProcessManagerContext, clawId: ClawId): void {
     if (err?.code !== 'EEXIST') throw err;
   }
 
-  const readLockPidFn = ctx.readLockPid ?? ((id: string) => readLockPid(ctx, makeClawId(id)));
+  const readLockPidFn = ctx.readLockPid ?? ((id: string) => readLockPid(ctx, id));
   const holder = readLockPidFn(clawId);
   if (holder !== null) {
     const holderStartTime = holder.startTime ?? (ctx.getProcessStartTime ?? defaultGetProcessStartTime)(holder.pid);
@@ -113,8 +112,8 @@ export function acquireLock(ctx: ProcessManagerContext, clawId: ClawId): void {
   }
 }
 
-export function releaseLock(ctx: ProcessManagerContext, clawId: ClawId): void {
-  const readLockPidFn = ctx.readLockPid ?? ((id: string) => readLockPid(ctx, makeClawId(id)));
+export function releaseLock(ctx: ProcessManagerContext, clawId: string): void {
+  const readLockPidFn = ctx.readLockPid ?? ((id: string) => readLockPid(ctx, id));
   const holder = readLockPidFn(clawId);
   if (holder === null || holder.pid !== process.pid) return;
   const lockFile = getLockFile(ctx, clawId);

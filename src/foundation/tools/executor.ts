@@ -34,9 +34,6 @@ import {
 } from './types.js';
 import { safeNumber } from '../utils/index.js';
 
-import type { ClawId } from '../paths.js';
-import { type ClawDir } from '../paths.js';
-
 
 // Re-export types from ./types.js for caller compat (18 caller 0 改)
 export type {
@@ -414,7 +411,7 @@ export class ToolExecutorImpl implements IToolExecutor {
  * Extended ToolExecutor with context factory
  */
 export class ToolExecutor extends ToolExecutorImpl {
-  private clawDir: ClawDir;
+  private clawDir: string;
   private clawsDir: string;
   private syncDir: string;
   private workspaceDir: string;
@@ -441,7 +438,7 @@ export class ToolExecutor extends ToolExecutorImpl {
    */
   getExecContext(
     profile: ToolProfile,
-    options: { clawId: ClawId; maxSteps: number; signal?: AbortSignal; allowedGroups: ReadonlySet<ToolGroup>; callerLabel: string; originClawId?: string; permissionChecker?: PermissionChecker; subagentTaskId?: string }
+    options: { clawId: string; maxSteps: number; signal?: AbortSignal; allowedGroups: ReadonlySet<ToolGroup>; callerLabel: string; originClawId?: string; permissionChecker?: PermissionChecker; subagentTaskId?: string }
   ): ExecContextImpl {
     return new ExecContextImpl({
       clawId: options.clawId,

@@ -3,10 +3,8 @@
  * Shared helpers for subagent CLI commands
  */
 
+import { getClawDir, getNamedSubrootDir } from '../../assembly/install-paths.js';
 import * as path from 'path';
-import { getClawDir } from '../../assembly/install-paths.js';
-import { getNamedSubrootDir } from '../../assembly/install-paths.js';
-import { type ClawDir, makeClawDir } from '../../foundation/paths.js';
 import {
   TASKS_QUEUES_DONE_DIR,
   TASKS_QUEUES_FAILED_DIR,
@@ -23,7 +21,6 @@ import {
   SUMMON_CALLER_TYPES,
 } from '../../core/summon-system/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
-import type { ClawId } from '../../foundation/paths.js';
 import { type ContractId, makeContractId } from '../../core/contract/types.js';
 
 
@@ -41,11 +38,11 @@ const QUEUE_DIRS = [
   TASKS_QUEUES_RUNNING_DIR,
 ];
 
-export function resolveClawDir(clawId: ClawId): ClawDir {
-  return clawId === MOTION_CLAW_ID ? makeClawDir(getNamedSubrootDir(MOTION_CLAW_ID)) : getClawDir(clawId);
+export function resolveClawDir(clawId: string): string {
+  return clawId === MOTION_CLAW_ID ? getNamedSubrootDir(MOTION_CLAW_ID) : getClawDir(clawId);
 }
 
-export function inferKind(deps: { fsFactory: (baseDir: string) => FileSystem }, id: string, clawDir: ClawDir): SubagentKind {
+export function inferKind(deps: { fsFactory: (baseDir: string) => FileSystem }, id: string, clawDir: string): SubagentKind {
   if (id.startsWith('verifier-')) return 'verifier';
 
   const clawFs = deps.fsFactory(clawDir);
@@ -104,7 +101,7 @@ export function inferStatus(deps: { fsFactory: (baseDir: string) => FileSystem }
   return 'running';
 }
 
-export function getStartedAt(deps: { fsFactory: (baseDir: string) => FileSystem }, resultDir: string, id: string, clawDir: ClawDir): Date | undefined {
+export function getStartedAt(deps: { fsFactory: (baseDir: string) => FileSystem }, resultDir: string, id: string, clawDir: string): Date | undefined {
   const clawFs = deps.fsFactory(clawDir);
 
   // Try task.json createdAt first
@@ -164,7 +161,7 @@ export interface SubagentEntry {
   contractId?: string;
 }
 
-export function scanSubagentResults(deps: { fsFactory: (baseDir: string) => FileSystem }, clawDir: ClawDir): SubagentEntry[] {
+export function scanSubagentResults(deps: { fsFactory: (baseDir: string) => FileSystem }, clawDir: string): SubagentEntry[] {
   const entries: SubagentEntry[] = [];
   const clawFs = deps.fsFactory(clawDir);
 
@@ -207,7 +204,7 @@ export function scanSubagentResults(deps: { fsFactory: (baseDir: string) => File
 
 function scanSyncDir(
   deps: { fsFactory: (baseDir: string) => FileSystem },
-  clawDir: ClawDir,
+  clawDir: string,
   syncSubDir: string,
   filterPrefix?: string,
   defaultKind?: SubagentKind,

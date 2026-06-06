@@ -19,7 +19,6 @@ import type { FileSystem } from '../../foundation/fs/types.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { Message } from '../../foundation/llm-provider/types.js';
 import { RETRO_AUDIT_EVENTS } from './retro-audit-events.js';
-import { makeClawId } from '../../foundation/paths.js';
 import type { ContractId } from '../contract/types.js';
 
 
@@ -63,7 +62,7 @@ export async function scheduleRetro(config: RetroConfig): Promise<void> {
 
   // 构建 retroPrompt（A.3）
   const retroPrompt = buildRetroPrompt(
-    makeClawId(config.targetClaw), config.contractId, config.contractYaml, skillsSummary
+    config.targetClaw, config.contractId, config.contractYaml, skillsSummary
   );
   // 调度 retro subagent（A.4）
   await config.taskSystem.schedule('subagent', {

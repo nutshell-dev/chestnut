@@ -13,7 +13,6 @@ import type { FileSystem } from '../../foundation/fs/types.js';
 import { CONTRACT_DIR } from '../../core/contract/index.js';
 import { CLAWS_DIR } from '../../assembly/claw-dirs.js';
 import { getLastActiveMs } from './claw-shared.js';
-import { makeClawId } from '../../foundation/paths.js';
 import { handleCliError } from '../errors.js';
 
 /** claw-list title console 显示截断 cap（防 list 行过长）*/
@@ -110,12 +109,12 @@ export async function listCommand(deps: { fsFactory: (baseDir: string) => FileSy
     for (const entry of entries) {
       const clawFs = deps.fsFactory(path.join(clawsDir, entry));
       if (clawFs.existsSync('config.yaml')) {
-        const isRunning = processManager.isAlive(makeClawId(entry));
+        const isRunning = processManager.isAlive(entry);
         let pid: number | undefined;
 
         if (isRunning) {
           try {
-            const stored = await processManager.readPid(makeClawId(entry));
+            const stored = await processManager.readPid(entry);
             if (stored !== null) pid = stored.pid;
           } catch { /* silent: ignore read errors */ }
         }

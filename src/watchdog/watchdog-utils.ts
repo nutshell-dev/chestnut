@@ -23,8 +23,6 @@ import { LLM_OUTPUT_EVENTS } from '../foundation/stream/index.js';
 import { CONTRACT_DIR } from '../core/contract/index.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 import { formatErr } from '../foundation/utils/index.js';
-import type { ClawId } from '../foundation/paths.js';
-import { type ClawDir } from '../foundation/paths.js';
 
 
 // Parse stream.jsonl, return the timestamp of the last event and the last error message
@@ -77,18 +75,18 @@ export async function getClawActivityInfo(
 
 // Check if a claw has an active or paused contract.
 // 用于 crash detection — paused contract 的 claw crash motion 也需要知道（可能要 resume）.
-export function clawHasContract(clawDir: ClawDir, fsFactory: (baseDir: string) => FileSystem, audit?: AuditLog): boolean {
+export function clawHasContract(clawDir: string, fsFactory: (baseDir: string) => FileSystem, audit?: AuditLog): boolean {
   return clawHasContractSub(clawDir, fsFactory, ['active', 'paused'], audit);
 }
 
 // phase 1482: Check if a claw has an ACTIVE contract only.
 // 用于 inactivity timeout — paused 本就该停、不算 inactivity（root cause D 类 fix）.
-export function clawHasActiveContract(clawDir: ClawDir, fsFactory: (baseDir: string) => FileSystem, audit?: AuditLog): boolean {
+export function clawHasActiveContract(clawDir: string, fsFactory: (baseDir: string) => FileSystem, audit?: AuditLog): boolean {
   return clawHasContractSub(clawDir, fsFactory, ['active'], audit);
 }
 
 function clawHasContractSub(
-  clawDir: ClawDir,
+  clawDir: string,
   fsFactory: (baseDir: string) => FileSystem,
   subs: readonly string[],
   audit?: AuditLog,
@@ -184,7 +182,7 @@ export function deriveCrashClass(input: DeriveCrashClassInput): CrashClass {
 }
 
 /** 读 `<clawDir>/clean-stop` marker 存在判定 (read-only / 不消费 marker / phase 1373 sub-3 + phase 2 γ4 per-claw 扩). */
-export function hasCleanStopMarker(clawDir: ClawDir, fsFactory: (baseDir: string) => FileSystem): boolean {
+export function hasCleanStopMarker(clawDir: string, fsFactory: (baseDir: string) => FileSystem): boolean {
   try {
     const fs = fsFactory(clawDir);
     return fs.existsSync('clean-stop');
@@ -225,7 +223,7 @@ export interface ProcessLiveness {
 
 const AUDIT_TAIL_N = 5;
 
-export function gatherClawSnapshot(clawDir: ClawDir, fsFactory: (baseDir: string) => FileSystem, pm: ProcessLiveness, clawId: ClawId): ClawSnapshot {
+export function gatherClawSnapshot(clawDir: string, fsFactory: (baseDir: string) => FileSystem, pm: ProcessLiveness, clawId: string): ClawSnapshot {
   const status = pm.isAlive(clawId) ? 'running' : 'stopped';
 
   const fs = fsFactory(clawDir);

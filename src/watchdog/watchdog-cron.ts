@@ -3,6 +3,7 @@
  * Watchdog cron jobs — claw inactivity timeout + crash detection
  */
 
+import { makeChestnutRoot } from '../assembly/install-paths.js';
 import * as path from 'path';
 import { formatErr } from "../foundation/utils/index.js";
 import type { FileSystem } from '../foundation/fs/types.js';
@@ -18,17 +19,14 @@ import { listSubscriptions, consumeSubscription } from './subscription-store.js'
 import { getContractCreatedMs } from '../core/contract/index.js';
 import { getNamedSubrootDir } from '../foundation/config/index.js';
 import { notifyClaw } from '../foundation/messaging/index.js';
-import { makeChestnutRoot } from '../assembly/install-paths.js';
-import { makeClawDir, type ClawId, type ClawDir } from '../foundation/paths.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 import { MOTION_CLAW_ID } from '../constants.js';
-import { makeClawId } from '../foundation/paths.js';
 import { CLAWS_DIR } from '../assembly/claw-dirs.js';
 
 interface FireInactivityOpts {
   rawClawId: string;
-  clawId: ClawId;
-  clawDir: ClawDir;
+  clawId: string;
+  clawDir: string;
   fsFactory: (baseDir: string) => FileSystem;
   pm: ProcessManager;
   inactiveMin: number;
@@ -86,9 +84,9 @@ export async function maybeCronClawInactivity(pm: ProcessManager, audit: AuditLo
 
   const now = Date.now();
   for (const rawClawId of clawEntries.map(e => e.name)) {
-    const clawId = makeClawId(rawClawId);
+    const clawId = rawClawId;
     try {
-      const clawDir = makeClawDir(path.join(getChestnutDir(), CLAWS_DIR, rawClawId));
+      const clawDir = path.join(getChestnutDir(), CLAWS_DIR, rawClawId);
 
       // phase 1482: inactivity 仅对 ACTIVE contract 触发 / paused 本就该停（不算 inactivity / D 类 root cause fix）
       if (!clawHasActiveContract(clawDir, fsFactory, audit)) continue;
@@ -159,8 +157,8 @@ export function maybeCronClawCrash(pm: ProcessManager, audit: AuditLog, fsFactor
   }
 
   for (const rawClawId of clawEntries.map(e => e.name)) {
-    const clawId = makeClawId(rawClawId);
-    const clawDir = makeClawDir(path.join(getChestnutDir(), CLAWS_DIR, rawClawId));
+    const clawId = rawClawId;
+    const clawDir = path.join(getChestnutDir(), CLAWS_DIR, rawClawId);
     const currentlyAlive = pm.isAlive(clawId);
 
     if (currentlyAlive) {
@@ -206,7 +204,7 @@ export function maybeCronClawCrash(pm: ProcessManager, audit: AuditLog, fsFactor
       });
 
       const { fs: motionFs, audit: motionAudit } = getMotionContext(fsFactory);
-      const chestnutRoot = makeChestnutRoot(path.dirname(makeClawDir(getNamedSubrootDir('motion'))));
+      const chestnutRoot = makeChestnutRoot(path.dirname(getNamedSubrootDir('motion')));
       notifyClaw(motionFs, chestnutRoot, MOTION_CLAW_ID, {
         type: 'crash_notification',
         source: rawClawId,
@@ -254,8 +252,8 @@ export async function maybeCronCheckSubscriptions(pm: ProcessManager, audit: Aud
   const now = Date.now();
   for (const sub of subs) {
     const rawClawId = sub.clawId;
-    const clawId = makeClawId(rawClawId);
-    const clawDir = makeClawDir(path.join(getChestnutDir(), CLAWS_DIR, rawClawId));
+    const clawId = rawClawId;
+    const clawDir = path.join(getChestnutDir(), CLAWS_DIR, rawClawId);
 
     try {
       // (a) claw missing or no active contract → consume

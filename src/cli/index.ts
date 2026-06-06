@@ -37,7 +37,6 @@ import { createDirContext } from '../foundation/audit/index.js';
 import { getChestnutRoot, getClawDir, loadGlobalConfig } from '../foundation/config/index.js';
 import { createSummonStateStore, createSummonContractCreateGate } from '../core/summon-system/index.js';
 import { parseIntOption } from './parse-int-option.js';
-import { makeClawId } from '../foundation/paths.js';
 
 const fsFactory = (baseDir: string): FileSystem => new NodeFileSystem({ baseDir });
 
@@ -216,13 +215,13 @@ contractCmd
     if (opts.file && opts.dir) {
       throw new CliError('--file and --dir are mutually exclusive. Use one of --file or --dir, not both.');
     } else if (opts.file) {
-      await contractCreateCommand({ fsFactory }, makeClawId(opts.claw), opts.file, { audit });
+      await contractCreateCommand({ fsFactory }, opts.claw, opts.file, { audit });
     } else if (opts.dir) {
       const motionClawDir = path.join(getChestnutRoot(), 'motion');
       const motionFs = fsFactory(motionClawDir);
       const summonStateStore = createSummonStateStore(motionFs);
       const summonContractCreateGate = createSummonContractCreateGate(summonStateStore);
-      await contractCreateFromDirCommand({ fsFactory, summonContractCreateGate }, makeClawId(opts.claw), opts.dir, { audit });
+      await contractCreateFromDirCommand({ fsFactory, summonContractCreateGate }, opts.claw, opts.dir, { audit });
     } else {
       throw new CliError('must provide --file or --dir');
     }
@@ -234,7 +233,7 @@ contractCmd
   .requiredOption('-c, --claw <id>', 'Target claw ID')
   .option('--contract <id>', 'Contract ID (default: active contract)')
   .action(withCliErrorHandling(async (opts: { claw: string; contract?: string }) => {
-    await contractLogCommand({ fsFactory }, makeClawId(opts.claw), opts.contract);
+    await contractLogCommand({ fsFactory }, opts.claw, opts.contract);
   }));
 
 contractCmd
@@ -246,7 +245,7 @@ contractCmd
   .action(withCliErrorHandling(async (opts: { claw: string; reason: string; contract?: string }) => {
     loadGlobalConfig({ fsFactory });
     const { audit } = createDirContext({ fsFactory }, getClawDir(opts.claw));
-    await contractCancelCommand({ fsFactory }, makeClawId(opts.claw), opts.reason, opts.contract, { audit });
+    await contractCancelCommand({ fsFactory }, opts.claw, opts.reason, opts.contract, { audit });
   }));
 
 contractCmd
@@ -255,7 +254,7 @@ contractCmd
   .requiredOption('--since <timestamp>', 'Unix timestamp in milliseconds')
   .action(withCliErrorHandling(async (claw: string, opts: { since: string }) => {
     const since = parseIntOption(opts.since, '--since must be a Unix timestamp in milliseconds');
-    await contractEventsCommand({ fsFactory }, makeClawId(claw), since);
+    await contractEventsCommand({ fsFactory }, claw, since);
   }));
 
 contractCmd.on('command:*', (ops) => {
@@ -284,7 +283,7 @@ skillCmd
       }
       loadGlobalConfig({ fsFactory });
       const { audit } = createDirContext({ fsFactory }, getClawDir(opts.claw));
-      await skillInstallClawCommand({ fsFactory }, makeClawId(opts.claw), opts.skill, { audit });
+      await skillInstallClawCommand({ fsFactory }, opts.claw, opts.skill, { audit });
     } else {
       if (!source) {
         throw new CliError('source path is required');

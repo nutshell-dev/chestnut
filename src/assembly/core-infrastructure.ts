@@ -1,5 +1,6 @@
 import path from 'path';
 import { formatErr } from '../foundation/utils/index.js';
+import { resolveChestnutRoot } from './install-paths.js';
 
 import type { FileSystem } from '../foundation/fs/types.js';
 import { NodeFileSystem } from '../foundation/fs/node-fs.js';
@@ -20,8 +21,6 @@ import { createSkillSystem, SkillSystem } from '../foundation/skill-system/index
 import { SKILLS_DIR_DEFAULT } from '../foundation/skill-system/index.js';
 import { ContractSystem, createContractSystem } from '../core/contract/index.js';
 import { createOutboxWriter, type OutboxWriter, notifyClaw as notifyClawFn } from '../foundation/messaging/index.js';
-import { resolveChestnutRoot } from './install-paths.js';
-import { type ClawDir, type ClawId } from '../foundation/paths.js';
 import { TASKS_SYNC_DIR } from '../core/async-task-system/index.js';
 import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
 import type { AssembleConfig } from './types.js';
@@ -51,8 +50,8 @@ export interface CoreInfraOutput {
   outboxWriter: OutboxWriter;
   isMotion: boolean;
   chestnutRoot: string;
-  clawDir: ClawDir;
-  clawId: ClawId;
+  clawDir: string;
+  clawId: string;
 }
 
 /**

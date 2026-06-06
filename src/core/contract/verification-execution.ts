@@ -14,7 +14,6 @@ import { formatErr } from '../../foundation/utils/index.js';
 import { DEFAULT_LLM_IDLE_TIMEOUT_MS } from '../../foundation/llm-orchestrator/index.js';
 import type { ContractId } from './types.js';
 // phase 1490: 不再传 maxSteps、VerifierConfig.maxSteps optional / undefined 透传到 SubAgent boundary fallback。
-import { type ClawDir } from '../../foundation/paths.js';
 // phase 1376: contractAbsDir is clawDir, branded
 import {
   emitContractVerificationScriptStarted,
@@ -24,7 +23,7 @@ import {
 export async function runScriptVerification(
   ctx: VerificationContext,
   scriptFile: string,
-  contractAbsDir: ClawDir,
+  contractAbsDir: string,
 ): Promise<VerificationResult> {
   const resolved = path.resolve(contractAbsDir, scriptFile);
   if (!resolved.startsWith(contractAbsDir + path.sep)) {
@@ -54,7 +53,7 @@ export async function runScriptVerification(
 export async function runLLMVerification(
   ctx: VerificationContext,
   promptFile: string,
-  contractAbsDir: ClawDir,
+  contractAbsDir: string,
   contractId: ContractId,
   subtaskId: SubtaskId,
   subtaskDesc: string,

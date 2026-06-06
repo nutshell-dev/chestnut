@@ -8,11 +8,9 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import type { AsyncTaskSystem } from '../async-task-system/index.js';
 import type { InboxMessageOptionsBase } from '../../foundation/messaging/index.js';
 import type { ProgressData } from '../contract/index.js';
-import type { ClawId } from '../../foundation/paths.js';
 import type { ContractId } from '../contract/types.js';
 import { type TaskId, makeTaskId } from '../async-task-system/types.js';
 import { listArchiveContracts } from '../contract/index.js';
-import { type ClawDir } from '../../foundation/paths.js';
 import {
   RANDOM_DREAM_SYSTEM_PROMPT,
   buildRandomDreamPrompt,
@@ -27,7 +25,7 @@ const DEFAULT_RANDOM_DREAM_MAX_STEPS = 200;
 export type RandomDreamNotifyMotionFn = (message: InboxMessageOptionsBase) => void;
 
 export interface RandomDreamOptions {
-  motionDir: ClawDir;
+  motionDir: string;
   taskSystem: AsyncTaskSystem;
   fs: FileSystem;             // baseDir = chestnutRoot
   motionFs: FileSystem;       // baseDir = motionDir / NEW
@@ -44,11 +42,11 @@ export interface RandomDreamOptions {
   notifyMotion: RandomDreamNotifyMotionFn;
   signal?: AbortSignal;
   /** 读取指定 claw+contract 的 progress（M#3：不走直接文件访问） */
-  getContractProgress?: (clawId: ClawId, contractId: ContractId) => Promise<ProgressData | null>;
+  getContractProgress?: (clawId: string, contractId: ContractId) => Promise<ProgressData | null>;
 }
 
 interface WeightedContract {
-  clawId: ClawId;
+  clawId: string;
   contractId: ContractId;
   contractDir: string;
   weight: number;
@@ -143,11 +141,11 @@ async function computeWeight(
   fs: FileSystem,
   contractId: ContractId,
   contractDir: string,
-  clawId: ClawId,
+  clawId: string,
   processedIds: Set<string>,
   clawsSeen: Set<string>,     // 本次已选中的 clawId 集合
   audit: AuditLog,
-  getContractProgress?: (clawId: ClawId, contractId: ContractId) => Promise<ProgressData | null>,
+  getContractProgress?: (clawId: string, contractId: ContractId) => Promise<ProgressData | null>,
 ): Promise<{ weight: number; hint: string }> {
   let weight = 10;
   const hints: string[] = [];
@@ -222,7 +220,7 @@ async function discoverWeightedContracts(
   fs: FileSystem,
   state: RandomDreamState,
   audit: AuditLog,
-  getContractProgress?: (clawId: ClawId, contractId: ContractId) => Promise<ProgressData | null>,
+  getContractProgress?: (clawId: string, contractId: ContractId) => Promise<ProgressData | null>,
 ): Promise<WeightedContract[]> {
   const processedIds = new Set(state.processedContractIds);
   const clawsSeen = new Set<string>();

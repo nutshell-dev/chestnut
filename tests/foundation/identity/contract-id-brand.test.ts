@@ -1,16 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import type { ContractId } from '../../../src/core/contract/types.js';
 import { makeContractId } from '../../../src/core/contract/types.js';
-import type { ClawId } from '../../../src/foundation/paths.js';
-import { makeClawId } from '../../../src/foundation/paths.js';
 
 describe('ContractId brand compile-time enforce', () => {
-  it('prevents assigning ClawId to ContractId', () => {
+  it('prevents assigning string to ContractId', () => {
     function processContract(_c: ContractId): string {
       return 'ok';
     }
-    const clawId: ClawId = makeClawId('motion');
-    // @ts-expect-error TS2345: ClawId cannot be assigned to ContractId
+    const clawId: string = 'motion';
+    // @ts-expect-error TS2345: string cannot be assigned to ContractId
     processContract(clawId);
     expect(true).toBe(true);
   });

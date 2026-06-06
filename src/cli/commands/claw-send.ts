@@ -14,7 +14,6 @@ import { writeInboxAsync } from '../../foundation/messaging/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { CLAWS_DIR } from '../../assembly/claw-dirs.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
-import { makeClawId } from '../../foundation/paths.js';
 
 export async function sendCommand(
   deps: { fsFactory: (baseDir: string) => FileSystem },
@@ -49,7 +48,7 @@ export async function sendCommand(
   console.log(`Message sent to "${name}"`);
 
   const processManager = createProcessManagerForCLI(deps);
-  if (!processManager.isAlive(makeClawId(name))) {
+  if (!processManager.isAlive(name)) {
     console.log(
       `Note: claw "${name}" is not running. Start it with: chestnut claw ${name} daemon`,
     );

@@ -2,7 +2,6 @@ import * as path from 'path';
 import { STREAM_FILE } from '../../foundation/stream/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { type ClawTrack, makeClawTrack } from './chat-viewport-claw-line.js';
-import { makeClawId } from '../../foundation/paths.js';
 import type { MainTurnUIController } from './main-turn-ui.js';
 import type { ClawManager } from './chat-viewport-claw-manager.js';
 
@@ -89,7 +88,7 @@ export const createViewportCommands = (deps: CommandsDeps): ViewportCommand[] =>
         const t = makeClawTrack();
         t.referenceMs = Date.now();
         deps.clawTrackMap.set(clawId, t);
-        deps.clawManager.attachClawWatcher(makeClawId(clawId), path.join(clawDir, STREAM_FILE));
+        deps.clawManager.attachClawWatcher(clawId, path.join(clawDir, STREAM_FILE));
         deps.updateClawPanel(deps.clawTrackMap);
         deps.appendOutput('\x1b[2m', `[attach] ${clawId} attached`);
       }
@@ -112,7 +111,7 @@ export const createViewportCommands = (deps: CommandsDeps): ViewportCommand[] =>
         deps.updateClawPanel(deps.clawTrackMap);
         deps.appendOutput('\x1b[2m', '[detach] all claws detached');
       } else {
-        await deps.clawManager.detachWatcher(makeClawId(arg));
+        await deps.clawManager.detachWatcher(arg);
         deps.clawTrackMap.delete(arg);
         deps.updateClawPanel(deps.clawTrackMap);
         deps.appendOutput('\x1b[2m', `[detach] ${arg} detached`);

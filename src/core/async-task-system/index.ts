@@ -30,7 +30,6 @@ export * from './audit-emit.js';
 
 import * as path from 'path';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
-import { type ClawDir } from '../../foundation/paths.js';
 
 /**
  * Delete task files (done/, failed/, results/) older than maxDays.
@@ -39,7 +38,7 @@ import { type ClawDir } from '../../foundation/paths.js';
  * and intentionally left as-is for historical log compatibility.
  */
 export async function cleanupExpiredTaskFiles(opts: {
-  motionDir: ClawDir;
+  motionDir: string;
   fs: FileSystem;
   audit: AuditLog;
   maxDays: number;
@@ -90,7 +89,7 @@ export type SubAgentTaskInfo = Omit<SubAgentTask, 'id' | 'createdAt'>;
  * 不调 initialize / startDispatch——业务动作归 Runtime（见 l4_task_system.md §2 "#2 归属辨析"）。
  */
 export function createAsyncTaskSystem(
-  clawDir: ClawDir,
+  clawDir: string,
   fs: FileSystem,
   options: AsyncTaskSystemOptions,
 ): AsyncTaskSystem {

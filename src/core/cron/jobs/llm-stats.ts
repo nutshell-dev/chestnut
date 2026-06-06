@@ -4,8 +4,6 @@ import type { AuditLog } from '../../../foundation/audit/index.js';
 import { CRON_AUDIT_EVENTS } from '../audit-events.js';
 import { CLAWS_DIR } from '../../../assembly/claw-dirs.js';
 import { MOTION_CLAW_ID } from '../../../constants.js';
-import { type ClawId, makeClawId } from '../../../foundation/paths.js'
-import { type ClawDir } from '../../../foundation/paths.js';
 import type { CronJob } from '../runner.js';
 import { parseSchedule } from '../runner.js';
 import type { ClawGlobalConfig } from '../../../foundation/config/index.js';
@@ -26,7 +24,7 @@ interface ParsedLlmRow {
   inputTokens: number;
   outputTokens: number;
   latencyMs: number;
-  clawId: ClawId;    // 从文件路径推导
+  clawId: string;    // 从文件路径推导
 }
 
 interface ModelStats {
@@ -56,7 +54,7 @@ export interface LlmStatsSummary {
 }
 
 export interface LlmStatsOptions {
-  motionDir: ClawDir;
+  motionDir: string;
   chestnutFs: FileSystem;   // baseDir = chestnutRoot
   motionFs: FileSystem;       // baseDir = motionDir
   audit: AuditLog;
@@ -64,7 +62,7 @@ export interface LlmStatsOptions {
 }
 
 export interface LlmStatsJobDeps {
-  motionDir: ClawDir;
+  motionDir: string;
   chestnutFs: FileSystem;
   motionFs: FileSystem;
   audit: AuditLog;
@@ -95,14 +93,14 @@ export async function runLlmStats(opts: LlmStatsOptions): Promise<void> {
 function collectEntries(opts: LlmStatsOptions, targetDate: string): ParsedLlmRow[] {
   const results: ParsedLlmRow[] = [];
 
-  const candidates: Array<{ fs: FileSystem; file: string; clawId: ClawId }> = [
+  const candidates: Array<{ fs: FileSystem; file: string; clawId: string }> = [
     { fs: opts.motionFs, file: 'audit.tsv', clawId: MOTION_CLAW_ID },
     ...(() => {
       if (!opts.chestnutFs.existsSync(CLAWS_DIR)) return [];
       return opts.chestnutFs.listSync(CLAWS_DIR, { includeDirs: true }).map(e => ({
         fs: opts.chestnutFs,
         file: path.join(CLAWS_DIR, e.name, 'audit.tsv'),
-        clawId: makeClawId(e.name),
+        clawId: e.name,
       }));
     })(),
   ];

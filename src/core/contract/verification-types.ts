@@ -8,9 +8,7 @@ import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js
 import type { ToolRegistry } from '../../foundation/tools/index.js';
 import type { ContractYaml, ProgressData, VerificationResult, VerifierConfig, VerifierResult, SubtaskId } from './types.js';
 import { type LockContext } from './lock.js';
-import type { ClawId } from '../../foundation/paths.js';
 import type { ContractId } from './types.js';
-import { type ClawDir } from '../../foundation/paths.js';
 import type { VerificationMutex } from './verification-mutex.js';
 import type { InboxMessageOptionsBase } from '../../foundation/messaging/inbox-writer.js';
 
@@ -37,8 +35,8 @@ export interface VerificationLockContext extends LockContext {
 }
 
 export interface VerificationContractContext {
-  clawDir: ClawDir;
-  clawId: ClawId;
+  clawDir: string;
+  clawId: string;
   /** phase 95: required pre-bound notifyClaw (caller binds fs + chestnutRoot + audit) */
   notifyClaw: NotifyClawFn;
   contractDir: (contractId: ContractId) => Promise<string>;
@@ -55,10 +53,10 @@ export interface VerificationExecutionContext {
   toolRegistry: ToolRegistry;
   toolTimeoutMs?: number;
   exec?: typeof import('../../foundation/process-exec/index.js').exec;
-  runScriptVerification: (scriptFile: string, contractAbsDir: ClawDir) => Promise<VerificationResult>;
+  runScriptVerification: (scriptFile: string, contractAbsDir: string) => Promise<VerificationResult>;
   runLLMVerification: (
     promptFile: string,
-    contractAbsDir: ClawDir,
+    contractAbsDir: string,
     contractId: ContractId,
     subtaskId: SubtaskId,
     subtaskDesc: string,

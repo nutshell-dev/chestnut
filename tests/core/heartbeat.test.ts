@@ -6,6 +6,7 @@
  * 2. fire() - 向 motion/inbox/pending/ 写入 .md 消息
  */
 
+import { makeChestnutRoot } from '../../src/assembly/install-paths.js';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -13,7 +14,6 @@ import { Heartbeat } from '../../src/core/runtime/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { createSystemAudit } from '../../src/foundation/audit/index.js';
 import { createInboxReader, notifyClaw } from '../../src/foundation/messaging/index.js';
-import { makeChestnutRoot } from '../../src/assembly/install-paths.js';
 import { createTempDir, cleanupTempDirSync } from '../utils/temp.js';
 
 function createTestHeartbeat(tempDir: string, intervalSec: number = 1): Heartbeat {

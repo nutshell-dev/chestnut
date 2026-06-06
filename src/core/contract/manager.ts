@@ -67,14 +67,12 @@ import {
 import { type ContractId, makeContractId } from './types.js';
 import { ContractValidationError } from './errors.js';
 import { type SubtaskId, type ArchiveDir, makeArchiveDir } from './types.js';
-import type { ClawId } from '../../foundation/paths.js';
 import { runContractVerifier as defaultRunContractVerifier } from './verifier-job.js';
 import {
   pauseContract, resumeContract, cancelContract, markCrashed,
   isContractComplete, moveContractToArchive,
   type LifecycleContext,
 } from './lifecycle.js';
-import { type ClawDir } from '../../foundation/paths.js';
 import type { NotifyClawFn } from './verification-types.js';
 import {
   runVerificationPipeline,
@@ -102,8 +100,8 @@ export {
 };
 
 export interface ContractSystemDeps {
-  clawDir: ClawDir;
-  clawId: ClawId;
+  clawDir: string;
+  clawId: string;
   /** phase 104: caller (装配期) pre-bound notifyClaw (bind fs + chestnutRoot + audit) */
   notifyClaw: NotifyClawFn;
   /** phase 98: caller (装配期) 算好的 claws dir */
@@ -120,8 +118,8 @@ export interface ContractSystemDeps {
 
 export class ContractSystem {
   private fs: FileSystem;
-  private clawDir: ClawDir;
-  private readonly clawId: ClawId;
+  private clawDir: string;
+  private readonly clawId: string;
   private readonly audit: AuditLog;
   private llm?: LLMOrchestrator;
   private notifyClaw: NotifyClawFn;
@@ -384,8 +382,8 @@ export class ContractSystem {
       moveContractToArchive: (id) => this.moveToArchive(id),
       emitContractCompleted: (id) => this._emitContractCompleted(id),
       onNotify: this.onNotify,
-      runScriptVerification: (scriptFile: string, contractAbsDir: ClawDir) => this.runScriptVerification(scriptFile, contractAbsDir),
-      runLLMVerification: (promptFile: string, contractAbsDir: ClawDir, contractId: ContractId, subtaskId: SubtaskId, subtaskDesc: string, evidence: string, artifacts: string[]) =>
+      runScriptVerification: (scriptFile: string, contractAbsDir: string) => this.runScriptVerification(scriptFile, contractAbsDir),
+      runLLMVerification: (promptFile: string, contractAbsDir: string, contractId: ContractId, subtaskId: SubtaskId, subtaskDesc: string, evidence: string, artifacts: string[]) =>
         this.runLLMVerification(promptFile, contractAbsDir, contractId, subtaskId, subtaskDesc, evidence, artifacts),
       withProgressLock: (contractId, fn) => this.withProgressLock(contractId, fn),
       toolRegistry: this.toolRegistry,
@@ -848,13 +846,13 @@ export class ContractSystem {
     return moveContractToArchive(this._lifecycleCtx(), contractId);
   }
 
-  private async runScriptVerification(scriptFile: string, contractAbsDir: ClawDir): Promise<VerificationResult> {
+  private async runScriptVerification(scriptFile: string, contractAbsDir: string): Promise<VerificationResult> {
     return runScriptVerificationFn(this._verificationCtx(), scriptFile, contractAbsDir);
   }
 
   private async runLLMVerification(
     promptFile: string,
-    contractAbsDir: ClawDir,
+    contractAbsDir: string,
     contractId: ContractId,
     subtaskId: SubtaskId,
     subtaskDesc: string,

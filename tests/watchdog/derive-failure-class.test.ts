@@ -14,7 +14,6 @@ import {
   clawHasContract,
 } from '../../src/watchdog/watchdog-utils.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
-import { makeClawDir } from '../../src/foundation/paths.js';
 
 describe('phase 1482 + phase 2 reframe: deriveFailureClass (daemon_stopped 移除归 crash_notification)', () => {
   it('daemon alive + no lastError → daemon_silent', () => {
@@ -80,20 +79,20 @@ describe('phase 1482: clawHasActiveContract vs clawHasContract', () => {
 
   it('only paused/ subdir → clawHasContract true / clawHasActiveContract false', async () => {
     await fsAsync.mkdir(path.join(root, 'contract/paused/p1'), { recursive: true });
-    const clawDir = makeClawDir(root);
+    const clawDir = root;
     expect(clawHasContract(clawDir, fsFactory)).toBe(true);
     expect(clawHasActiveContract(clawDir, fsFactory)).toBe(false);
   });
 
   it('only active/ subdir → both true', async () => {
     await fsAsync.mkdir(path.join(root, 'contract/active/a1'), { recursive: true });
-    const clawDir = makeClawDir(root);
+    const clawDir = root;
     expect(clawHasContract(clawDir, fsFactory)).toBe(true);
     expect(clawHasActiveContract(clawDir, fsFactory)).toBe(true);
   });
 
   it('no contract dirs → both false', () => {
-    const clawDir = makeClawDir(root);
+    const clawDir = root;
     expect(clawHasContract(clawDir, fsFactory)).toBe(false);
     expect(clawHasActiveContract(clawDir, fsFactory)).toBe(false);
   });

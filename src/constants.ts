@@ -6,14 +6,13 @@
 // (phase 814 Step B — P1.37 const namespace sweep).
 // ============================================================================
 
-import { makeClawId } from './foundation/paths.js';
 
 // ----------------------------------------------------------------------------
 // System Identities
 // ----------------------------------------------------------------------------
 
 /** Motion claw identifier - the root orchestrator claw */
-export const MOTION_CLAW_ID = makeClawId('motion');
+export const MOTION_CLAW_ID = 'motion';
 
 // ----------------------------------------------------------------------------
 // Truncation Limits

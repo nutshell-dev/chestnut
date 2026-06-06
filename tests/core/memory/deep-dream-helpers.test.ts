@@ -19,13 +19,12 @@ import {
   type __test_DreamStateData,
 } from '../../../src/core/memory/deep-dream.js';
 import { makeMockAudit } from '../../helpers/audit.js';
-import { makeClawId } from '../../../src/foundation/paths.js';
 import { FileNotFoundError } from '../../../src/foundation/fs/types.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { Message, ContentBlock } from '../../../src/foundation/llm-provider/types.js';
 import { MEMORY_AUDIT_EVENTS } from '../../../src/core/memory/audit-events.js';
 
-const clawId = makeClawId('test-claw');
+const clawId = 'test-claw';
 
 describe('deep-dream pure helpers (phase 1467)', () => {
   describe('estimateTokens', () => {

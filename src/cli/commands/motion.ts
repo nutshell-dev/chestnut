@@ -8,6 +8,7 @@
  * Motion is the manager; it manages other Claws by calling the CLI via exec and has no dedicated tools.
  */
 
+import { getWorkspaceRoot } from '../../assembly/install-paths.js';
 import * as path from 'path';
 import { formatErr } from "../../foundation/utils/index.js";
 import { fileURLToPath } from 'url';
@@ -21,7 +22,6 @@ import { Snapshot } from '../../foundation/snapshot/index.js';
 import { createDirContext } from '../../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { SNAPSHOT_IGNORE_PATTERNS } from '../../assembly/index.js';
-import { getWorkspaceRoot } from '../../assembly/install-paths.js';
 import { CLAWS_DIR } from '../../assembly/claw-dirs.js';
 import { resolveDaemonEntry } from '../../assembly/spawn-entry.js';
 import { DAEMON_LOG } from '../../daemon/constants.js';
@@ -31,7 +31,6 @@ import { SKILLS_DIR_DEFAULT, BUNDLED_SKILLS_DIR_NAME } from '../../foundation/sk
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
-import { type ClawDir, makeClawDir } from '../../foundation/paths.js';
 import { copyDir } from '../utils/copy-dir.js';
 
 // Get current file directory (ESM compatible)
@@ -61,7 +60,7 @@ async function readTemplate(deps: { fsFactory: (baseDir: string) => FileSystem }
  * Install builtin skills to motion skills directory.
  * Source: dist/skills/ (falls back to src/skills/ during development)
  */
-async function installBuiltinSkills(deps: { fsFactory: (baseDir: string) => FileSystem }, motionDir: ClawDir): Promise<void> {
+async function installBuiltinSkills(deps: { fsFactory: (baseDir: string) => FileSystem }, motionDir: string): Promise<void> {
   // Try dist path first, fall back to src
   let skillsSource = path.join(__dirname, '..', BUNDLED_SKILLS_DIR_NAME);
   const srcFs = deps.fsFactory(__dirname);
@@ -123,7 +122,7 @@ async function writeTemplate(deps: { fsFactory: (baseDir: string) => FileSystem 
  */
 export async function initCommand(deps: { fsFactory: (baseDir: string) => FileSystem }, silent = false, extraDeps?: { audit?: AuditLog }): Promise<void> {
   const audit = extraDeps?.audit;
-  const motionDir = makeClawDir(getNamedSubrootDir(MOTION_CLAW_ID));
+  const motionDir = getNamedSubrootDir(MOTION_CLAW_ID);
   const motionConfigDir = getMotionConfigDir();
   
   console.log(`Initializing Motion at: ${motionDir}`);
@@ -189,7 +188,7 @@ export async function initCommand(deps: { fsFactory: (baseDir: string) => FileSy
  */
 export async function chatCommand(deps: { fsFactory: (baseDir: string) => FileSystem }): Promise<void> {
   const globalConfig = loadGlobalConfig(deps);
-  const motionDir = makeClawDir(getNamedSubrootDir(MOTION_CLAW_ID));
+  const motionDir = getNamedSubrootDir(MOTION_CLAW_ID);
   const { audit: systemAudit } = createDirContext(deps, motionDir);
 
   // Check whether Motion has been initialized

@@ -2,6 +2,7 @@
  * phase 44: scan preview collection + truncatePreview unit tests.
  */
 
+import { makeChestnutRoot } from '../../../src/assembly/install-paths.js';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fsAsync from 'fs/promises';
 import * as path from 'path';
@@ -10,7 +11,6 @@ import { randomUUID } from 'crypto';
 import { scanOutboxes, truncatePreview } from '../../../src/core/outbox-summary/scan.js';
 import { PREVIEW_MAX_CHARS } from '../../../src/core/outbox-summary/types.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
-import { makeChestnutRoot } from '../../../src/assembly/install-paths.js';
 import { OutboxReader } from '../../../src/foundation/messaging/index.js';
 import { encodeOutbox } from '../../../src/foundation/messaging/codec-outbox.js';
 import type { OutboxMessage } from '../../../src/foundation/messaging/types.js';

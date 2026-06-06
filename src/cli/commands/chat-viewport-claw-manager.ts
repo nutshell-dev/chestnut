@@ -11,13 +11,11 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
 import { createChatViewportWatcher } from './chat-viewport-watcher.js';
 import { type ClawTrack, makeClawTrack } from './chat-viewport-claw-line.js';
-import { type ClawId, makeClawId } from '../../foundation/paths.js';
-import { makeClawDir } from '../../foundation/paths.js';
 
 
 export interface ClawManagerDeps {
   fs: FileSystem;
-  pm: { readPid: (label: ClawId) => Promise<{ pid: number; startTime?: string } | null> };
+  pm: { readPid: (label: string) => Promise<{ pid: number; startTime?: string } | null> };
   audit: AuditLog;
   isMotion: boolean;
   clawsDir: string;
@@ -27,10 +25,10 @@ export interface ClawManagerDeps {
 }
 
 export interface ClawManager {
-  attachClawWatcher(clawId: ClawId, streamFile: string): void;
-  refreshClawStatus(clawId: ClawId): void;
+  attachClawWatcher(clawId: string, streamFile: string): void;
+  refreshClawStatus(clawId: string): void;
   refreshAllClawStatus(): Promise<void>;
-  detachWatcher(clawId: ClawId): Promise<void>;
+  detachWatcher(clawId: string): Promise<void>;
   detachAllWatchers(): Promise<void>;
   closeAll(): Promise<void>;
 }
@@ -53,7 +51,7 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
   const clawWatchers = new Map<string, Watcher>();
   const clawWatcherVersions = new Map<string, number>();
 
-  const attachClawWatcher = (clawId: ClawId, streamFile: string) => {
+  const attachClawWatcher = (clawId: string, streamFile: string) => {
     const ver = (clawWatcherVersions.get(clawId) ?? 0) + 1;
     clawWatcherVersions.set(clawId, ver);
     try {
@@ -73,7 +71,7 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
     } catch { /* polling fallback */ }
   };
 
-  const refreshClawStatus = (clawId: ClawId): void => {
+  const refreshClawStatus = (clawId: string): void => {
     if (!isMotion) return;
     const track = clawTrackMap.get(clawId);
     if (!track) return;
@@ -194,10 +192,10 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
     }
 
     for (const rawClawId of clawIds) {
-      const clawId = makeClawId(rawClawId);
+      const clawId = rawClawId;
       const streamFile = path.join(clawsDir, clawId, STREAM_FILE);
       if (!clawTrackMap.has(clawId)) {
-        const clawDir = makeClawDir(path.join(clawsDir, clawId));
+        const clawDir = path.join(clawsDir, clawId);
         const contractMs = getContractCreatedMs(fs, clawDir, audit);
         if (contractMs === null) continue;
         const track = makeClawTrack();
@@ -218,12 +216,12 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
         }
         track.isAlive = false;
       }
-      track.hasContract = getContractCreatedMs(fs, makeClawDir(path.join(clawsDir, clawId)), audit) !== null;
+      track.hasContract = getContractCreatedMs(fs, path.join(clawsDir, clawId), audit) !== null;
       refreshClawStatus(clawId);
     }
   };
 
-  const detachWatcher = async (clawId: ClawId): Promise<void> => {
+  const detachWatcher = async (clawId: string): Promise<void> => {
     await clawWatchers.get(clawId)?.close();
     clawWatchers.delete(clawId);
   };

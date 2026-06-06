@@ -10,7 +10,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createClawManager } from '../../src/cli/commands/chat-viewport-claw-manager.js';
 import { makeClawTrack, type ClawTrack } from '../../src/cli/commands/chat-viewport-claw-line.js';
-import { makeClawId } from '../../src/foundation/paths.js';
 import type { FileSystem } from '../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../src/foundation/audit/index.js';
 
@@ -60,7 +59,7 @@ function driveStream(clawId: string, streamJsonl: string): ClawTrack {
     updateClawPanel: vi.fn(),
     requestRender: vi.fn(),
   });
-  manager.refreshClawStatus(makeClawId(clawId));
+  manager.refreshClawStatus(clawId);
   return track;
 }
 
