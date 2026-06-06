@@ -10,6 +10,7 @@
  */
 
 import { randomUUID } from 'crypto';
+import { UUID_SHORT_LEN } from '../../constants.js';
 import type { Message } from '../../foundation/llm-provider/types.js';
 
 import { synthesizeFormB } from './_helpers.js';
@@ -32,7 +33,7 @@ export async function spawnShadowSubagent(
   }
 
   const prefix = opts.shadowIdPrefix ?? 'shadow';
-  const shadowId = `${prefix}-${randomUUID().slice(0, 8)}`;
+  const shadowId = `${prefix}-${randomUUID().slice(0, UUID_SHORT_LEN)}`;
 
   const instructionArgs: Omit<BuildShadowInstructionArgs, 'shadowToolName'> = {
     shadowId,

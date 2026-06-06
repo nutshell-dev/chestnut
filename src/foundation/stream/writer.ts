@@ -6,6 +6,7 @@ import { formatErr } from "../utils/index.js";
 import { STREAM_FILE, type StreamEvent, type StreamLog } from './types.js';
 import type { AuditLog } from '../audit/index.js';
 import { STREAM_AUDIT_EVENTS } from './audit-events.js';
+import { UUID_SHORT_LEN } from '../../constants.js';
 import { randomUUID } from 'node:crypto';
 
 export interface StreamRetentionOptions {
@@ -51,7 +52,7 @@ export class StreamWriter implements StreamLog {
           );
         }
         this.fs.ensureDirSync(ARCHIVE_DIR);
-        this.fs.moveSync(STREAM_FILE, `${ARCHIVE_DIR}/stream.${Date.now()}_${randomUUID().slice(0, 8)}.jsonl`);
+        this.fs.moveSync(STREAM_FILE, `${ARCHIVE_DIR}/stream.${Date.now()}_${randomUUID().slice(0, UUID_SHORT_LEN)}.jsonl`);
       } catch (err) {
         archiveFailed = true;
         this.audit.write(

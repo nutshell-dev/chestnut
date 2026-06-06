@@ -4,8 +4,7 @@ import type { FileSystem } from '../fs/types.js';
 import type { AuditLog } from './types.js';
 import { pushFallback } from './writer.js';
 import { esc } from './_helpers.js';
-
-const UUID_SHORT_LEN = 8;
+import { UUID_SHORT_LEN } from '../../constants.js';
 
 /** BatchedAuditWriter constructor option fallback default — flush 触发的 buffer line 阈值 */
 const DEFAULT_BATCH_SIZE = 50;
