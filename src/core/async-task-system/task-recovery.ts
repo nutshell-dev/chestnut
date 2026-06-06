@@ -16,6 +16,7 @@ import {
   emitRecoveryDeadLetter,
 } from './audit-emit.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
+import { TASK_RECOVERY_RAW_PREVIEW_CHARS } from './constants.js';
 import { validateTaskShape, backupCorruptTask } from './task-corrupt-helpers.js';
 import { isFileNotFound } from '../../foundation/fs/types.js';
 import { sendFallbackError, sendResult, SENT_MARKER } from './result-delivery.js';
@@ -151,7 +152,7 @@ async function _recoverWithResult(
       emitRecoveryFailed(auditWriter, {
         taskId: task.id,
         context: 'retry_counter_corrupt',
-        raw: raw.slice(0, 80),
+        raw: raw.slice(0, TASK_RECOVERY_RAW_PREVIEW_CHARS),
       });
     } else {
       retryCount = parsed;
