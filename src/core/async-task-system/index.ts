@@ -7,7 +7,7 @@ import type { FileSystem } from '../../foundation/fs/types.js';
 import { formatErr } from "../../foundation/utils/index.js";
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { AsyncTaskSystem } from './system.js';
-import type { AsyncTaskSystemOptions, SubAgentTask } from './types.js';
+import type { AsyncTaskSystemOptions } from './types.js';
 
 export { AsyncTaskSystem } from './system.js';
 export type { AsyncTaskSystemOptions, SubAgentTask } from './types.js';
@@ -26,6 +26,7 @@ export { writePendingToolTaskFile } from './tools/_pending-tool-task-writer.js';
 export { classifyTaskError } from './_helpers.js';
 
 // phase 1130: typed audit emit functions
+// phase 132 ML#8 ratify: wildcard export * by-design、20 个 emit* 中 18 个目前 cross-module 0-caller、保 wildcard ML#7 模块对外承诺扩张策略优先 ML#8、未来若大量 0-caller cluster 浮出可议改显式 list
 export * from './audit-emit.js';
 
 import * as path from 'path';
@@ -88,8 +89,6 @@ export async function cleanupExpiredTaskFiles(opts: {
 }
 
 
-/** SubAgent task scheduling payload (sans id/createdAt, filled by writer) */
-export type SubAgentTaskInfo = Omit<SubAgentTask, 'id' | 'createdAt'>;
 
 /**
  * AsyncTaskSystem 工厂函数。签名与 constructor 1:1；纯透传不加工。
