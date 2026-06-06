@@ -14,7 +14,7 @@ import type { PermissionChecker } from '../../foundation/tool-protocol/permissio
 import { makeClawId } from '../../foundation/paths.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 
-import { DEFAULT_MAX_CONCURRENT_TASKS, SHUTDOWN_DRAIN_GRACE_MS, DEFAULT_RETRY_BASE_DELAY_MS, PENDING_QUEUE_MAX } from './constants.js';
+import { DEFAULT_MAX_CONCURRENT_TASKS, SHUTDOWN_DRAIN_GRACE_MS, SHUTDOWN_DEFAULT_TIMEOUT_MS, DEFAULT_RETRY_BASE_DELAY_MS, PENDING_QUEUE_MAX } from './constants.js';
 import type { ToolRegistry } from '../../foundation/tools/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { InboxWriter } from '../../foundation/messaging/index.js';
@@ -701,7 +701,7 @@ export class AsyncTaskSystem {
     }
   }
 
-  async shutdown(timeoutMs: number = 30000): Promise<boolean> {
+  async shutdown(timeoutMs: number = SHUTDOWN_DEFAULT_TIMEOUT_MS): Promise<boolean> {
     this._shuttingDown = true;
     // 顺序：先关 watcher（避免 shutdown 期间新事件进队）→ 旧 shutdown 流程
     await this.pendingWatcherHandle?.close();

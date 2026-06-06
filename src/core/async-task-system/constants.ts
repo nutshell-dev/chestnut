@@ -19,6 +19,14 @@ export const DEFAULT_RETRY_BASE_DELAY_MS = 500;
 export const SHUTDOWN_DRAIN_GRACE_MS = 1000;
 
 /**
+ * AsyncTaskSystem.shutdown() default timeoutMs.
+ * Caller 不传 timeoutMs 时使用此默认值；超过此时间未 drain 完则 timedOut=true 返 false。
+ * 与 SHUTDOWN_DRAIN_GRACE_MS 独立可变（前者是整体 shutdown 上限、后者是 task race 后 cleanup grace）。
+ * phase 105 const 化（修 phase 1xx pre-existing system.ts:704 inline default、playbook §fallback default 子型）
+ */
+export const SHUTDOWN_DEFAULT_TIMEOUT_MS = 30_000;
+
+/**
  * Pending queue 上限 / 达此 cap 时 schedule 触发 reject + audit emit
  * + notify motion (overflow notification per phase 670).
  */
