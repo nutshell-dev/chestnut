@@ -27,6 +27,7 @@ import {
   DAEMON_FALLBACK_TIMEOUT_MS,
   INTERRUPT_POLL_INTERVAL_MS,
   INTERRUPT_POLL_MAX_ERRORS,
+  INTERRUPT_POLL_WARN_EVERY,
   REACT_CHAIN_MAX_ITERATIONS,
   LLM_RETRY_INITIAL_DELAY_MS,
 } from './constants.js';
@@ -187,6 +188,14 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
               return;
             }
             interruptErrCount++;
+            // phase 123: per-WARN_EVERY audit emit (DP「不丢弃静默」)
+            if (interruptErrCount % INTERRUPT_POLL_WARN_EVERY === 0) {
+              options.audit.write(
+                DAEMON_AUDIT_EVENTS.LOOP_INTERRUPT_POLLER_ERROR,
+                `error_count=${interruptErrCount}`,
+                `last_error=${formatErr(err)}`,
+              );
+            }
             if (interruptErrCount >= INTERRUPT_POLL_MAX_ERRORS) {
               options.audit.write(DAEMON_AUDIT_EVENTS.LOOP_INTERRUPT_POLLER_DISABLED, `error_count=${interruptErrCount}`, `last_error=${formatErr(err)}`);
               clearInterval(interruptPoller!);

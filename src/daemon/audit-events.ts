@@ -9,6 +9,7 @@ export const DAEMON_AUDIT_EVENTS = {
   SNAPSHOT_COMMIT_FAILED: 'snapshot_commit_failed',
   // daemon-loop 路径
   LOOP_INTERRUPT_POLLER_DISABLED: 'daemon_loop_interrupt_poller_disabled',
+  LOOP_INTERRUPT_POLLER_ERROR: 'daemon_loop_interrupt_poller_error',
   LOOP_ITERATION: 'daemon_loop_iteration',
   LOOP_INTERRUPT: 'daemon_loop_interrupt',
   LOOP_LLM_RETRY: 'daemon_loop_llm_retry',

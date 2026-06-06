@@ -355,6 +355,7 @@
       "daemon_loop_fatal",
       "daemon_loop_interrupt",
       "daemon_loop_interrupt_poller_disabled",
+      "daemon_loop_interrupt_poller_error",
       "daemon_loop_iteration",
       "daemon_loop_llm_retry",
       "idle_timeout",
