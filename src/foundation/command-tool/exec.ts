@@ -57,6 +57,12 @@ function truncateHeadTail(output: string, relPath: string): string {
   return `${head}\n[...truncated ${truncatedBytes} bytes...]\n${tail}\nFull output (${output.length} bytes) saved. Use \`read\` with offset/limit to view ranges (read is capped per call, paginate by offset):\n  read: { "path": "${relPath}", "offset": 1, "limit": 200 }`;
 }
 
+function formatNoOutput(command: string): string {
+  const MAX = 200;
+  const short = command.length > MAX ? command.slice(0, MAX) + '[truncated]' : command;
+  return `(no output)\n[command]: ${short}`;
+}
+
 async function persistOverflow(
   ctx: ExecContext,
   output: string,
@@ -156,7 +162,7 @@ export function createExecTool(): Tool {
             : truncate(result.output, EXEC_MAX_OUTPUT);
           return { success: true, content };
         }
-        return { success: true, content: result.output || '(no output)' };
+        return { success: true, content: result.output || formatNoOutput(command) };
       } catch (error) {
         // cwd hint 已删（phase: 心智收敛 workspace-relative / error 已含 LLM 自己的 tool_use，cwd 信息冗余）
         if (!(error instanceof ProcessExecError)) {
@@ -214,7 +220,7 @@ export function createExecTool(): Tool {
             : truncate(error.output, EXEC_MAX_OUTPUT);
           return { success: true, content: `${exitLine}\n${truncated}` };
         }
-        const body = error.output || '(no output)';
+        const body = error.output || formatNoOutput(command);
         return { success: true, content: `${exitLine}\n${body}` };
       }
     },
