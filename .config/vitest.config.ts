@@ -134,12 +134,11 @@ const VI_MOCK_FILES = [
   // 'tests/foundation/snapshot/cleanup-race-cluster.test.ts',
   // 'tests/foundation/snapshot/commit-throttle.test.ts',
   // 'tests/foundation/snapshot/consecutive-failures-singleton.test.ts',
-  // task.test.ts uses chokidar watcher (25 waitFor/listRunning sites): task
-  // scheduled by writing pending file, watcher async-fires 'add' event to
-  // ingest. Under fast project isolate:false + concurrent workers, watcher
-  // event delivery can exceed 5000ms waitFor timeout (OS-bound) → flaky
-  // (TASK_SHUTDOWN_TIMEOUT 等待 task 入 running 时 5000ms 超).
-  'tests/core/task.test.ts',
+  // phase 86 (SHA bdd329e3): createPendingWatcher 加 createWatcher
+  // factory dep + task.test.ts 注入 mock watcher 同步派发 add-event，消除
+  // OS-bound chokidar event 5000ms 超风险。task.test.ts 改归 fast project。
+  // 注释保留作历史 + 回滚锚。
+  // 'tests/core/task.test.ts',
   'tests/foundation/spawn-defaults.test.ts',
   'tests/foundation/stream-reader-race.test.ts',
   'tests/watchdog/handler-idempotent-install.test.ts',
