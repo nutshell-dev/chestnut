@@ -23,6 +23,7 @@
     "test": "vitest --config .config/vitest.config.ts",
     "test:run": "vitest run --config .config/vitest.config.ts",
     "test:fast": "vitest run --config .config/vitest.config.ts --exclude 'tests/e2e/**' --exclude 'tests/foundation/process-*' --exclude 'tests/foundation/process-exec/**' --exclude 'tests/cli/daemon-entry.test.ts' --exclude 'tests/cli/already-running-sentinel.test.ts'",
+    "test:smoke": "vitest run --config .config/vitest.config.ts --project=fast",
     "typecheck": "tsc --noEmit",
     "lint": "pnpm run typecheck && pnpm run lint:arch",
     "migrate:claw-agents-versions": "bash scripts/migrate-claw-agents-versions.sh",
