@@ -17,7 +17,6 @@
  */
 
 export { createStatusTool } from './status-tool.js';
-export { STATUS_AUDIT_EVENTS } from './audit-events.js';
 export {
   computeContractView,
   computeTaskView,
