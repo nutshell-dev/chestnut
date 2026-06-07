@@ -20,6 +20,7 @@ import type { ExecContext } from '../tools/types.js';
 import { computeContentHash } from './file-hash.js';
 import { persistReadFileState } from './file-state-persist.js';
 import { FILE_TOOL_AUDIT_EVENTS } from './audit-events.js';
+import { formatErr } from '../utils/index.js';
 
 /**
  * Record a `read` tool invocation result into the gate state map.
@@ -46,7 +47,12 @@ export function recordReadResult(
     FILE_TOOL_AUDIT_EVENTS.READ_FILE_STATE_RECORDED,
     `op=read path=${resolvedPath} isFullRead=${isFullRead}`,
   );
-  void persistReadFileState(ctx);
+  persistReadFileState(ctx).catch(err =>
+    ctx.auditWriter?.write(
+      FILE_TOOL_AUDIT_EVENTS.READ_FILE_STATE_PERSIST_FAILED,
+      `op=read path=${resolvedPath} reason=${formatErr(err)}`,
+    )
+  );
 }
 
 /**
@@ -70,7 +76,12 @@ export function recordWriteResult(
     FILE_TOOL_AUDIT_EVENTS.READ_FILE_STATE_RECORDED,
     `op=write path=${resolvedPath} isFullRead=true`,
   );
-  void persistReadFileState(ctx);
+  persistReadFileState(ctx).catch(err =>
+    ctx.auditWriter?.write(
+      FILE_TOOL_AUDIT_EVENTS.READ_FILE_STATE_PERSIST_FAILED,
+      `op=write path=${resolvedPath} reason=${formatErr(err)}`,
+    )
+  );
 }
 
 /**
@@ -99,5 +110,10 @@ export function recordEditResult(
     FILE_TOOL_AUDIT_EVENTS.READ_FILE_STATE_RECORDED,
     `op=edit path=${resolvedPath} isFullRead=${isFullRead}`,
   );
-  void persistReadFileState(ctx);
+  persistReadFileState(ctx).catch(err =>
+    ctx.auditWriter?.write(
+      FILE_TOOL_AUDIT_EVENTS.READ_FILE_STATE_PERSIST_FAILED,
+      `op=edit path=${resolvedPath} reason=${formatErr(err)}`,
+    )
+  );
 }
