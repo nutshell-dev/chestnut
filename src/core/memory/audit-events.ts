@@ -20,6 +20,9 @@ export const MEMORY_AUDIT_EVENTS = {
   RANDOM_DREAM_OUTPUT_MISSING: 'random_dream_output_missing',
   DREAM_OUTPUT_PERSISTED: 'dream_output_persisted',  // NEW phase 756
   DEEP_DREAM_RETRY_EXHAUSTED: 'deep_dream_retry_exhausted',  // NEW phase 1200
+  RANDOM_DREAM_LATE_SETTLE_PENDING: 'memory_random_dream_late_settle_pending',   // NEW phase 170
+  RANDOM_DREAM_LATE_SETTLE_CONSUMED: 'memory_random_dream_late_settle_consumed',  // NEW phase 170
+  RANDOM_DREAM_LATE_SETTLE_ABANDONED: 'memory_random_dream_late_settle_abandoned', // NEW phase 170
 } as const;
 
 
@@ -42,4 +45,7 @@ export const MEMORY_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   random_dream_output_missing: 'audit',
   dream_output_persisted: 'audit',
   deep_dream_retry_exhausted: 'audit',
+  memory_random_dream_late_settle_pending: 'audit',
+  memory_random_dream_late_settle_consumed: 'audit',
+  memory_random_dream_late_settle_abandoned: 'audit',
 } as const;

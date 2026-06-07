@@ -19,6 +19,7 @@ import {
 
 const DEFAULT_RANDOM_DREAM_TIMEOUT_MS = 3600 * 1000;  // 1h
 const DEFAULT_RANDOM_DREAM_MAX_STEPS = 200;
+const LATE_SETTLE_GRACE_MS = 7 * 24 * 60 * 60_000;  // 7 days (phase 170)
 
 // ─── 类型定义 ────────────────────────────────────────────────
 
@@ -54,13 +55,27 @@ interface WeightedContract {
   hint: string;
 }
 
+interface PendingLateSettleEntry {
+  taskId: TaskId;
+  scheduledAt: number;       // ms epoch, entry entered pending
+  expectedTimeoutAt: number; // scheduledAt + subagentTimeoutMs
+}
+
 interface RandomDreamState {
   processedContractIds: string[];
+  pendingLateSettle?: PendingLateSettleEntry[];  // NEW phase 170, optional for backward compat
 }
 
 // ─── Random Dream State I/O ──────────────────────────────────
 
 const RANDOM_DREAM_STATE_FILE = '.random-dream-state.json';
+
+function isValidPendingEntry(e: unknown): e is PendingLateSettleEntry {
+  return typeof e === 'object' && e !== null
+    && typeof (e as Record<string, unknown>).taskId === 'string'
+    && typeof (e as Record<string, unknown>).scheduledAt === 'number'
+    && typeof (e as Record<string, unknown>).expectedTimeoutAt === 'number';
+}
 
 function loadRandomDreamState(fs: FileSystem, audit: AuditLog): RandomDreamState {
   try {
@@ -68,7 +83,10 @@ function loadRandomDreamState(fs: FileSystem, audit: AuditLog): RandomDreamState
     if (typeof parsed === 'object' && parsed !== null &&
         Array.isArray((parsed as { processedContractIds?: unknown }).processedContractIds) &&
         (parsed as { processedContractIds: unknown[] }).processedContractIds.every(x => typeof x === 'string')) {
-      return parsed as RandomDreamState;
+      const pending = Array.isArray((parsed as { pendingLateSettle?: unknown }).pendingLateSettle)
+        ? (parsed as { pendingLateSettle: unknown[] }).pendingLateSettle.filter(isValidPendingEntry)
+        : [];
+      return { processedContractIds: (parsed as { processedContractIds: string[] }).processedContractIds, pendingLateSettle: pending };
     }
     audit.write(MEMORY_AUDIT_EVENTS.RANDOM_DREAM_ERROR,
       `step=load_state_shape_invalid`,
@@ -331,6 +349,90 @@ function extractDreamOutputs(log: string): DreamExtractionResult {
   return { outputs, contractIds };
 }
 
+// ─── sweep late-settle pending ───────────────────────────────
+
+async function sweepLateSettlePending(
+  opts: RandomDreamOptions,
+  state: RandomDreamState,
+): Promise<RandomDreamState> {
+  const pending = state.pendingLateSettle ?? [];
+  if (pending.length === 0) return state;
+
+  const now = Date.now();
+  const remaining: PendingLateSettleEntry[] = [];
+  let processedAccum = state.processedContractIds;
+
+  for (const entry of pending) {
+    const donePath = path.join('tasks', 'queues', 'results', entry.taskId, 'result.txt');
+    const logPath  = path.join('tasks', 'queues', 'results', entry.taskId, 'daemon.log');
+
+    if (opts.motionFs.existsSync(donePath)) {
+      // settled — consume
+      const log = opts.motionFs.existsSync(logPath)
+        ? opts.motionFs.readSync(logPath)
+        : opts.motionFs.readSync(donePath);
+
+      const { outputs, contractIds } = extractDreamOutputs(log);
+      if (outputs.length > 0) {
+        const dreamOutput = outputs.join('\n\n---\n\n');
+        const dreamOutputPath = `${MEMORY_DREAM_OUTPUTS_DIR}/${entry.taskId}.txt`;
+        await opts.motionFs.ensureDir(MEMORY_DREAM_OUTPUTS_DIR);
+        await opts.motionFs.writeAtomic(dreamOutputPath, dreamOutput);
+
+        opts.audit.write(
+          MEMORY_AUDIT_EVENTS.DREAM_OUTPUT_PERSISTED,
+          `dreamId=${entry.taskId}`,
+          `path=${dreamOutputPath}`,
+          `bytes=${dreamOutput.length}`,
+        );
+
+        opts.notifyMotion({
+          type: 'random_dream',
+          source: 'cron:dream',
+          priority: 'low',
+          body: dreamOutput,
+          idPrefix: `${entry.taskId}_late_settle`,    // dedup key含taskId、idempotent
+          extraFields: {
+            dream_count: String(outputs.length),
+            late_settle_task_id: entry.taskId,
+          },
+        });
+
+        processedAccum = [...new Set([...processedAccum, ...contractIds])];
+      }
+
+      opts.audit.write(
+        MEMORY_AUDIT_EVENTS.RANDOM_DREAM_LATE_SETTLE_CONSUMED,
+        `taskId=${entry.taskId}`,
+        `output_count=${outputs.length}`,
+        `latency_ms=${now - entry.scheduledAt}`,
+      );
+      continue;  // entry drop
+    }
+
+    // not settled — grace check
+    if (now - entry.scheduledAt > LATE_SETTLE_GRACE_MS) {
+      opts.audit.write(
+        MEMORY_AUDIT_EVENTS.RANDOM_DREAM_LATE_SETTLE_ABANDONED,
+        `taskId=${entry.taskId}`,
+        `age_ms=${now - entry.scheduledAt}`,
+        `grace_ms=${LATE_SETTLE_GRACE_MS}`,
+      );
+      continue;  // entry drop
+    }
+
+    // still pending、保
+    remaining.push(entry);
+  }
+
+  const updatedState: RandomDreamState = {
+    processedContractIds: processedAccum,
+    pendingLateSettle: remaining,
+  };
+  saveRandomDreamState(opts.fs, updatedState, opts.audit);
+  return updatedState;
+}
+
 // ─── 主函数 ──────────────────────────────────────────────────
 
 /**
@@ -343,7 +445,8 @@ function extractDreamOutputs(log: string): DreamExtractionResult {
  * - β fs.watch + γ exponential backoff rejected per phase 622 28 原则核（D5+caller-control+YAGNI dominant）
  */
 export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
-  const state = loadRandomDreamState(opts.fs, opts.audit);
+  let state = loadRandomDreamState(opts.fs, opts.audit);
+  state = await sweepLateSettlePending(opts, state);   // NEW phase 170
   const weightedContracts = await discoverWeightedContracts(opts.fs, state, opts.audit, opts.getContractProgress);
 
   if (weightedContracts.length === 0) {
@@ -381,6 +484,26 @@ export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
     opts.signal,
   );
   if (!log) {
+    // NEW phase 170: late-settle pending state
+    const now = Date.now();
+    const updatedState: RandomDreamState = {
+      processedContractIds: state.processedContractIds,
+      pendingLateSettle: [
+        ...(state.pendingLateSettle ?? []),
+        {
+          taskId,
+          scheduledAt: now - subagentTimeoutMs,
+          expectedTimeoutAt: now,
+        },
+      ],
+    };
+    saveRandomDreamState(opts.fs, updatedState, opts.audit);
+
+    opts.audit.write(
+      MEMORY_AUDIT_EVENTS.RANDOM_DREAM_LATE_SETTLE_PENDING,
+      `taskId=${taskId}`,
+      `expected_timeout_at=${now}`,
+    );
     opts.audit.write(
       MEMORY_AUDIT_EVENTS.RANDOM_DREAM_SUBAGENT_TIMEOUT,
       `reason=subagent_timeout`,
