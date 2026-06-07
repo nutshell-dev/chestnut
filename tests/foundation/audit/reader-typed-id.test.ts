@@ -82,7 +82,7 @@ describe('Phase 147 typed ID parsing', () => {
     expect(r.contentSize).toBe(128);
   });
 
-  it('warns on stderr and leaves typed undefined for invalid step value', async () => {
+  it('silently skips invalid step value (backward observation, phase 183)', async () => {
     const fs = makeFs({
       '/test/audit.tsv': '2024-01-01T00:00:00Z\tseq=1\ttool_emit\tstep=abc\n',
     });
@@ -92,10 +92,13 @@ describe('Phase 147 typed ID parsing', () => {
     expect(recs).toHaveLength(1);
     expect((recs[0] as any).stepNumber).toBeUndefined();
     expect((recs[0] as any).cols).toContain('step=abc');
-    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('invalid step value'));
+    const stepWarnings = stderrSpy.mock.calls.filter((c: any) =>
+      typeof c[0] === 'string' && c[0].includes('invalid step value')
+    );
+    expect(stepWarnings).toHaveLength(0);
   });
 
-  it('warns on stderr and leaves typed undefined for invalid content_size value', async () => {
+  it('silently skips invalid content_size value (backward observation, phase 183)', async () => {
     const fs = makeFs({
       '/test/audit.tsv': '2024-01-01T00:00:00Z\tseq=1\ttool_emit\tcontent_size=xyz\n',
     });
@@ -105,7 +108,10 @@ describe('Phase 147 typed ID parsing', () => {
     expect(recs).toHaveLength(1);
     expect((recs[0] as any).contentSize).toBeUndefined();
     expect((recs[0] as any).cols).toContain('content_size=xyz');
-    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('invalid content_size value'));
+    const sizeWarnings = stderrSpy.mock.calls.filter((c: any) =>
+      typeof c[0] === 'string' && c[0].includes('invalid content_size value')
+    );
+    expect(sizeWarnings).toHaveLength(0);
   });
 
   it('leaves stepNumber undefined when step col absent', async () => {

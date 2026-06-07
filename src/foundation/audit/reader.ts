@@ -312,7 +312,6 @@ function parseLine(line: string): AuditRecord | null {
       case 'step': {
         const n = parseInt(colValue, 10);
         if (Number.isFinite(n)) stepNumber = n;
-        else process.stderr.write(`[audit-reader] invalid step value: ${col}\n`);
         break;
       }
       case 'contract_id':
@@ -324,7 +323,6 @@ function parseLine(line: string): AuditRecord | null {
       case 'content_size': {
         const n = parseInt(colValue, 10);
         if (Number.isFinite(n)) contentSize = n;
-        else process.stderr.write(`[audit-reader] invalid content_size value: ${col}\n`);
         break;
       }
     }
