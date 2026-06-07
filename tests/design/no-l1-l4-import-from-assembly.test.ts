@@ -28,6 +28,9 @@ const BASELINE_ALLOW_LIST = new Set([
   'src/foundation/process-manager/signal-clean-stop.ts',
   'src/foundation/tools/context.ts',
   'src/foundation/tools/executor.ts',
+  // L2 foundation/messaging (2) — CLAWS_DIR from assembly/claw-dirs.js (phase 162 Step A)
+  'src/foundation/messaging/notify.ts',
+  'src/foundation/messaging/tools/notify-claw.ts',
   // L4 core/ (11)
   'src/core/async-task-system/system.ts',
   'src/core/contract/persistence.ts',

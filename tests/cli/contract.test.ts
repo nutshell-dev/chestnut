@@ -15,6 +15,7 @@ vi.mock('../../src/foundation/audit/index.js', async (importOriginal) => ({
 }));
 
 vi.mock('../../src/foundation/messaging/index.js', () => ({
+  INBOX_PENDING_DIR: 'inbox/pending',
   notifySystem: vi.fn(),
 }));
 

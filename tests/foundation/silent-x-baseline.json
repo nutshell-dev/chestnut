@@ -351,7 +351,7 @@
         },
         {
             "file": "src/foundation/dialog-store/store.ts",
-            "line": 348,
+            "line": 353,
             "body_excerpt": ".catch(() => {",
             "reason": "pre-existing silent catch / TODO phase TBD convert to canonical / stale line marker carried from pre-phase1375 / phase 46 Step B line shift +6 / Step C line shift +1 / Step D line shift +1 / Step E line shift +1",
             "form": "promise"
