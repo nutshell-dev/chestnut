@@ -18,6 +18,9 @@ import { type BuildShadowInstructionArgs } from '../../../../prompts/index.js';
 import type { SpawnShadowSubagentOptions, SpawnShadowSubagentResult } from './types.js';
 import { makeTaskId } from '../../../async-task-system/types.js';
 import { makeToolUseId } from '../../../../foundation/tool-protocol/index.js';
+
+/** Default max steps for shadow subagent execution */
+const SHADOW_MAX_STEPS_DEFAULT = 100;
 import { SHADOW_DEFAULT_TIMEOUT_MS, SHADOW_INTENT_PREVIEW_CHARS } from './constants.js';
 
 
@@ -60,7 +63,7 @@ export async function spawnShadowSubagent(
     shadowMessages,                            // shadow path 真信息源
     intentPreview: opts.task.slice(0, SHADOW_INTENT_PREVIEW_CHARS),     // δ shadow variant audit 用、不进 LLM
     timeoutMs: opts.timeoutMs ?? SHADOW_DEFAULT_TIMEOUT_MS,
-    maxSteps: opts.maxSteps ?? 100,
+    maxSteps: opts.maxSteps ?? SHADOW_MAX_STEPS_DEFAULT,
     parentClawId: opts.ctx.clawId ?? '',
     originClawId: opts.ctx.originClawId ?? opts.ctx.clawId ?? '',
     callerType: 'shadow',
