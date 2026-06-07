@@ -25,7 +25,19 @@ import { LockConflictError } from '../foundation/process-manager/index.js';
 import { DAEMON_AUDIT_EVENTS } from './audit-events.js';
 import type { DaemonInstances } from './types.js';
 
+// phase 175: idempotent signal handler refs（mirror watchdog.ts:60-61 pattern、防 test re-entry 累 listener）
+let uncaughtHandler: ((err: Error) => void) | null = null;
+let unhandledRejectionHandler: ((reason: unknown) => void) | null = null;
+let sigtermHandler: (() => void) | null = null;
+let sigintHandler: (() => void) | null = null;
 
+/** Test-only: reset all 4 daemon signal handlers between tests (mirror watchdog `_resetShutdownGuard`) */
+export function _resetDaemonSignalHandlers(): void {
+  if (uncaughtHandler) { process.removeListener('uncaughtException', uncaughtHandler); uncaughtHandler = null; }
+  if (unhandledRejectionHandler) { process.removeListener('unhandledRejection', unhandledRejectionHandler); unhandledRejectionHandler = null; }
+  if (sigtermHandler) { process.removeListener('SIGTERM', sigtermHandler); sigtermHandler = null; }
+  if (sigintHandler) { process.removeListener('SIGINT', sigintHandler); sigintHandler = null; }
+}
 
 export interface DaemonCommandDeps {
   fsFactory: (baseDir: string) => FileSystem;
@@ -144,14 +156,19 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
       auditWriter.write(deps.auditEvents.daemonCrash, `error=${msg}`);
     };
 
-    process.on('uncaughtException', (err) => {
+    // phase 175: idempotent install
+    if (uncaughtHandler) process.removeListener('uncaughtException', uncaughtHandler);
+    if (unhandledRejectionHandler) process.removeListener('unhandledRejection', unhandledRejectionHandler);
+    uncaughtHandler = (err) => {
       writeCrash(err);
       process.exit(1);
-    });
-    process.on('unhandledRejection', (reason) => {
+    };
+    unhandledRejectionHandler = (reason) => {
       writeCrash(reason);
       process.exit(1);
-    });
+    };
+    process.on('uncaughtException', uncaughtHandler);
+    process.on('unhandledRejection', unhandledRejectionHandler);
 
     const { promise, stop } = startDaemonLoop({
       fsFactory: deps.fsFactory,
@@ -180,8 +197,13 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
       }
       process.exit(0);
     };
-    process.on('SIGTERM', () => shutdown('SIGTERM'));
-    process.on('SIGINT', () => shutdown('SIGINT'));
+    // phase 175: idempotent install
+    if (sigtermHandler) process.removeListener('SIGTERM', sigtermHandler);
+    if (sigintHandler) process.removeListener('SIGINT', sigintHandler);
+    sigtermHandler = () => shutdown('SIGTERM');
+    sigintHandler = () => shutdown('SIGINT');
+    process.on('SIGTERM', sigtermHandler);
+    process.on('SIGINT', sigintHandler);
 
     await promise;
   };
