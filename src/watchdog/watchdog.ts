@@ -25,6 +25,7 @@ import { setTimeout } from 'timers/promises';
 import { getNamedSubrootDir } from '../foundation/config/index.js';
 import { MOTION_CLAW_ID } from '../constants.js';
 import type { FileSystem } from '../foundation/fs/types.js';
+import { isFileNotFound } from '../foundation/fs/types.js';
 import { type AuditLog, createAuditWriter } from '../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../foundation/process-manager/index.js';
 import { LockConflictError } from '../foundation/process-manager/index.js';
@@ -212,12 +213,23 @@ export async function runWatchdogLoop(fsFactory: (baseDir: string) => FileSystem
     if (status.alive) aliveIds.push(MOTION_CLAW_ID);
     const fs = getChestnutFs(fsFactory);
     if (fs.existsSync(CLAWS_DIR)) {
-      for (const entry of fs.listSync(CLAWS_DIR, { includeDirs: true })) {
-        if (entry.isDirectory) {
-          presentClawIds.push(entry.name);
-          const clawId = entry.name;
-          if (pm.isAlive(clawId)) aliveIds.push(entry.name);
+      try {
+        for (const entry of fs.listSync(CLAWS_DIR, { includeDirs: true })) {
+          if (entry.isDirectory) {
+            presentClawIds.push(entry.name);
+            const clawId = entry.name;
+            if (pm.isAlive(clawId)) aliveIds.push(entry.name);
+          }
         }
+      } catch (err) {
+        if (!isFileNotFound(err)) {
+          auditWriter.write(
+            WATCHDOG_AUDIT_EVENTS.CLAWS_DIR_LIST_FAILED,
+            `ctx=watchdog_tick`,
+            `error=${formatErr(err)}`,
+          );
+        }
+        // ENOENT after existsSync = race（合法）/ 其他错 audit / treat as empty（下 tick 重试）
       }
     }
     auditWriter.write('watchdog_check', `alive=${aliveIds.join(',')} present=${presentClawIds.join(',')}`);

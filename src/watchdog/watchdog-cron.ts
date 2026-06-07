@@ -7,6 +7,7 @@ import { makeChestnutRoot } from '../assembly/install-paths.js';
 import * as path from 'path';
 import { formatErr } from "../foundation/utils/index.js";
 import type { FileSystem } from '../foundation/fs/types.js';
+import { isFileNotFound } from '../foundation/fs/types.js';
 import type { ProcessManager } from '../foundation/process-manager/index.js';
 import type { AuditLog } from '../foundation/audit/index.js';
 import {
@@ -96,7 +97,19 @@ export async function maybeCronClawInactivity(pm: ProcessManager, audit: AuditLo
   }
 
   // 清理已不存在的 claw 的 Map 条目
-  const clawEntries = fs.listSync(CLAWS_DIR, { includeDirs: true }).filter(e => e.isDirectory);
+  let clawEntries: ReturnType<typeof fs.listSync>;
+  try {
+    clawEntries = fs.listSync(CLAWS_DIR, { includeDirs: true }).filter(e => e.isDirectory);
+  } catch (err) {
+    if (!isFileNotFound(err)) {
+      audit.write(
+        WATCHDOG_AUDIT_EVENTS.CLAWS_DIR_LIST_FAILED,
+        `ctx=inactivity`,
+        `error=${formatErr(err)}`,
+      );
+    }
+    return;  // race / 其他错 = treat as no claws、下 tick 重试
+  }
   const existingClawIds = new Set(clawEntries.map(entry => entry.name));
   audit.write(WATCHDOG_AUDIT_EVENTS.CLAW_SCAN, `ctx=inactivity present=${[...existingClawIds].join(',')}`);
   pruneStaleMapEntries(clawStateAPI.lastInactivityNotified, existingClawIds);
@@ -173,7 +186,19 @@ export function maybeCronClawCrash(pm: ProcessManager, audit: AuditLog, fsFactor
   }
 
   // 清理已不存在的 claw 的 Map 条目
-  const clawEntries = fs.listSync(CLAWS_DIR, { includeDirs: true }).filter(e => e.isDirectory);
+  let clawEntries: ReturnType<typeof fs.listSync>;
+  try {
+    clawEntries = fs.listSync(CLAWS_DIR, { includeDirs: true }).filter(e => e.isDirectory);
+  } catch (err) {
+    if (!isFileNotFound(err)) {
+      audit.write(
+        WATCHDOG_AUDIT_EVENTS.CLAWS_DIR_LIST_FAILED,
+        `ctx=crash`,
+        `error=${formatErr(err)}`,
+      );
+    }
+    return;  // race / 其他错 = treat as no claws、下 tick 重试
+  }
   const existingClawIds = new Set(clawEntries.map(entry => entry.name));
   audit.write(WATCHDOG_AUDIT_EVENTS.CLAW_SCAN, `ctx=crash present=${[...existingClawIds].join(',')}`);
   pruneStaleMapEntries(clawStateAPI.clawPreviouslyAlive, existingClawIds);

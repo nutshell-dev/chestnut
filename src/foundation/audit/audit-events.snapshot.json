@@ -708,6 +708,7 @@
       "watchdog_claw_crash_skipped_no_contract",
       "watchdog_claw_dir_list_failed",
       "watchdog_claw_scan",
+      "watchdog_claws_dir_list_failed",
       "watchdog_cleanup_failed",
       "watchdog_contract_dir_scan_failed",
       "watchdog_crash",
