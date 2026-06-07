@@ -35,6 +35,12 @@ export interface AuditQueryOpts {
   limit?: number;
   json?: boolean;
   follow?: boolean;
+
+  // phase 152 typed filter
+  toolUseId?: string;
+  step?: number;
+  contractId?: string;
+  subtaskId?: string;
 }
 
 export async function auditQueryCommand(
@@ -81,6 +87,11 @@ export async function auditQueryCommand(
     traceId: opts.trace,
     colFilter: opts.col,
     limit: opts.limit,
+    // phase 152 typed filter
+    toolUseId: opts.toolUseId,
+    stepNumber: opts.step,
+    contractId: opts.contractId,
+    subtaskId: opts.subtaskId,
   };
 
   // 5. dispatch read or follow
@@ -106,6 +117,10 @@ export async function auditQueryCommand(
   }
 }
 
+const TOOL_EVENT_TYPES = new Set([
+  'tool_result', 'tool_call_input', 'tool_async_result', 'tool_execution_failed',
+]);
+
 function emit(rec: AuditRecord, sourceName: string, json: boolean): void {
   if (json) {
     process.stdout.write(JSON.stringify({
@@ -114,12 +129,23 @@ function emit(rec: AuditRecord, sourceName: string, json: boolean): void {
       type: rec.type,
       cols: rec.cols,
       ...(rec.trace_id ? { trace_id: rec.trace_id } : {}),
+      // phase 152 typed ID 字段（可选）
+      ...(rec.toolUseId ? { toolUseId: rec.toolUseId } : {}),
+      ...(rec.stepNumber !== undefined ? { stepNumber: rec.stepNumber } : {}),
+      ...(rec.contractId ? { contractId: rec.contractId } : {}),
+      ...(rec.subtaskId ? { subtaskId: rec.subtaskId } : {}),
+      ...(rec.contentSize !== undefined ? { contentSize: rec.contentSize } : {}),
       source: sourceName,
     }) + '\n');
   } else {
     const parts = [rec.ts, `seq=${rec.seq}`, rec.type, ...rec.cols];
     if (rec.trace_id) parts.push(`trace_id=${rec.trace_id}`);
     process.stdout.write(parts.join('\t') + '\n');
+
+    // phase 152 jump hint（仅人读 + 仅 tool 类）
+    if (TOOL_EVENT_TYPES.has(rec.type) && rec.toolUseId) {
+      process.stdout.write(`  → 详情：chestnut audit lookup ${rec.toolUseId} -c <claw>\n`);
+    }
   }
 }
 

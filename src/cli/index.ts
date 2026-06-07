@@ -363,6 +363,11 @@ auditCmd
   .option('--limit <n>', 'Max records to yield')
   .option('--json', 'Output as JSON-line (default TSV passthrough)')
   .option('--follow', 'Tail mode: emit existing then watch for new appends')
+  // phase 152 新加 typed filter flag
+  .option('--tool-use-id <id>', 'Filter by tool_use_id (exact match)')
+  .option('--step <n>', 'Filter by step number (exact match)')
+  .option('--contract-id <id>', 'Filter by contract_id (exact match)')
+  .option('--subtask-id <id>', 'Filter by subtask_id (exact match)')
   .action(withCliErrorHandling(async (opts: {
     claw: string;
     file: string;
@@ -377,6 +382,10 @@ auditCmd
     limit?: string;
     json?: boolean;
     follow?: boolean;
+    toolUseId?: string;
+    step?: string;
+    contractId?: string;
+    subtaskId?: string;
   }) => {
     const { auditQueryCommand } = await import('./commands/audit-query.js');
     await auditQueryCommand({ fsFactory }, {
@@ -384,7 +393,26 @@ auditCmd
       fromSeq: opts.fromSeq !== undefined ? parseIntOption(opts.fromSeq, '--from-seq must be a number') : undefined,
       toSeq: opts.toSeq !== undefined ? parseIntOption(opts.toSeq, '--to-seq must be a number') : undefined,
       limit: opts.limit !== undefined ? parseIntOption(opts.limit, '--limit must be a number') : undefined,
+      step: opts.step !== undefined ? parseIntOption(opts.step, '--step must be a number') : undefined,
     });
+  }));
+
+// audit lookup
+auditCmd
+  .command('lookup <toolUseId>')
+  .description('Look up full tool content by tool_use_id (4-level fallback: current → archive → hash → unavailable)')
+  .requiredOption('-c, --claw <id>', 'Target claw ID')
+  .option('--file <name>', "Audit file name (default 'audit'; multi-file aware)", 'audit')
+  .option('--content-hash <sha8>', 'Optional sha8 hash for integrity verification (level 3 fallback)')
+  .option('--json', 'Output as JSON (LookupResult discriminated union)')
+  .action(withCliErrorHandling(async (toolUseId: string, opts: {
+    claw: string;
+    file: string;
+    contentHash?: string;
+    json?: boolean;
+  }) => {
+    const { auditLookupCommand } = await import('./commands/audit-lookup.js');
+    await auditLookupCommand({ fsFactory }, toolUseId, opts);
   }));
 
 // audit info
