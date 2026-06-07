@@ -18,6 +18,7 @@ import { isFileNotFound } from '../foundation/fs/types.js';
 import type { AuditLog } from '../foundation/audit/index.js';
 import { readAll, STREAM_FILE } from '../foundation/stream/index.js';
 import { LLM_OUTPUT_EVENTS } from '../foundation/stream/index.js';
+import { INBOX_PENDING_DIR } from '../foundation/messaging/index.js';
 // NOTE: turn_start/turn_end/turn_error NOT included — only LLM output counts as activity
 // If new stream event types are added, this set must be evaluated for inclusion
 import { CONTRACT_DIR } from '../core/contract/index.js';
@@ -267,7 +268,7 @@ export function gatherClawSnapshot(
       return 0;
     }
   };
-  const inboxPending = countMd(path.join('inbox', 'pending'));
+  const inboxPending = countMd(INBOX_PENDING_DIR);
   const outboxPending = countMd(path.join('outbox', 'pending'));
 
   // NEW: read claw audit.tsv tail for forensic context (phase 1207 gap B)

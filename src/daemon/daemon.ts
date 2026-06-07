@@ -133,7 +133,7 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
       auditWriter.write(DAEMON_AUDIT_EVENTS.SNAPSHOT_COMMIT_FAILED, `context=daemon-start`, `reason=${formatErr(err)}`);
     });
 
-    const inboxPendingDir = path.join(dir, 'inbox', 'pending');
+    const inboxPendingDir = path.join(dir, INBOX_PENDING_DIR);
 
 
     // 注册 uncaughtException / unhandledRejection 处理程序
