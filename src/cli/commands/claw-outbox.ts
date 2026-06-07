@@ -12,7 +12,7 @@ import { CliError } from '../errors.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
-import { MESSAGING_AUDIT_EVENTS } from '../../foundation/messaging/index.js';
+import { MESSAGING_AUDIT_EVENTS, OUTBOX_PENDING_DIR, OUTBOX_PROCESSING_DIR, OUTBOX_DONE_DIR } from '../../foundation/messaging/index.js';
 
 export async function outboxCommand(
   deps: { fsFactory: (baseDir: string) => FileSystem },
@@ -37,7 +37,7 @@ export async function outboxCommand(
   // Read pending files
   let files: string[] = [];
   try {
-    const allFiles = (await clawFs.list(path.join('outbox', 'pending'))).map(e => e.name);
+    const allFiles = (await clawFs.list(OUTBOX_PENDING_DIR)).map(e => e.name);
     files = allFiles.filter(f => f.endsWith('.md')).sort();
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code !== 'ENOENT') {
@@ -60,14 +60,14 @@ export async function outboxCommand(
 
   audit?.write(CLI_AUDIT_EVENTS.CLAW_OUTBOX_DRAIN_START, `claw=${name}`, `limit=${limit}`);
 
-  await clawFs.ensureDir(path.join('outbox', 'processing'));
+  await clawFs.ensureDir(OUTBOX_PROCESSING_DIR);
 
   // Read and output
   const results: string[] = [];
   for (const fileName of toRead) {
-    const relPendingPath = path.join('outbox', 'pending', fileName);
+    const relPendingPath = path.join(OUTBOX_PENDING_DIR, fileName);
     const claimToken = `cli_${process.pid}_${Date.now()}_${randomUUID().slice(0, UUID_SHORT_LEN)}`;
-    const relClaimedPath = path.join('outbox', 'processing', `${claimToken}_${fileName}`);
+    const relClaimedPath = path.join(OUTBOX_PROCESSING_DIR, `${claimToken}_${fileName}`);
 
     try {
       // ATOMIC CLAIM: winner-takes-all via OS rename
@@ -89,8 +89,8 @@ export async function outboxCommand(
 
       // Move to done/
       try {
-        await clawFs.ensureDir(path.join('outbox', 'done'));
-        const relDonePath = path.join('outbox', 'done', `${Date.now()}_${fileName}`);
+        await clawFs.ensureDir(OUTBOX_DONE_DIR);
+        const relDonePath = path.join(OUTBOX_DONE_DIR, `${Date.now()}_${fileName}`);
         await clawFs.move(relClaimedPath, relDonePath);
         audit?.write(
           MESSAGING_AUDIT_EVENTS.OUTBOX_DELIVERED,

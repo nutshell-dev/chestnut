@@ -12,7 +12,7 @@ import { createDirContext } from '../../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { CONTRACT_DIR } from '../../core/contract/index.js';
-import { INBOX_PENDING_DIR } from '../../foundation/messaging/index.js';
+import { INBOX_PENDING_DIR, OUTBOX_PENDING_DIR } from '../../foundation/messaging/index.js';
 import { formatRelativeTime, getLastActiveMs } from './claw-shared.js';
 
 /**
@@ -47,7 +47,7 @@ export async function healthCommand(deps: { fsFactory: (baseDir: string) => File
     if ((err as { code?: string })?.code !== 'ENOENT') throw err;
   }
   try {
-    const entries = clawFs.listSync(path.join('outbox', 'pending')).map(e => e.name);
+    const entries = clawFs.listSync(OUTBOX_PENDING_DIR).map(e => e.name);
     outboxPending = entries.length;
   } catch (err) {
     // phase 906 r115 O fork (audit-2026-05-16 F14): narrow to ENOENT (dir does not exist 注释意图)

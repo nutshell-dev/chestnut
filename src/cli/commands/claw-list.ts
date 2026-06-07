@@ -14,6 +14,7 @@ import { CONTRACT_DIR, CONTRACT_ARCHIVE_DIR } from '../../core/contract/index.js
 import { CLAWS_DIR } from '../../assembly/claw-dirs.js';
 import { getLastActiveMs } from './claw-shared.js';
 import { handleCliError } from '../errors.js';
+import { OUTBOX_PENDING_DIR } from '../../foundation/messaging/index.js';
 
 /** claw-list title console 显示截断 cap（防 list 行过长）*/
 const CLAW_TITLE_DISPLAY_CHARS = 28;
@@ -45,7 +46,7 @@ export async function listCommand(deps: { fsFactory: (baseDir: string) => FileSy
   // Helper: count unread outbox messages
   function getOutboxCount(clawFs: FileSystem): number {
     try {
-      return clawFs.listSync(path.join('outbox', 'pending')).map(e => e.name).length;
+      return clawFs.listSync(OUTBOX_PENDING_DIR).map(e => e.name).length;
     } catch { return 0; }
   }
 
