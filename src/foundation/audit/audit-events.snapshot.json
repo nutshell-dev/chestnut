@@ -277,6 +277,9 @@
       "deep_dream_retry_exhausted",
       "deep_dream_unexpected",
       "dream_output_persisted",
+      "memory_random_dream_late_settle_abandoned",
+      "memory_random_dream_late_settle_consumed",
+      "memory_random_dream_late_settle_pending",
       "random_dream_output_missing",
       "random_dream_subagent_timeout",
       "random_dream_wait_timeout"
