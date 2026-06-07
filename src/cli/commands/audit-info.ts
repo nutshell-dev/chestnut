@@ -97,17 +97,18 @@ function enrichFile(f: AuditFileInfo, snapshot: SnapshotJson) {
       );
     }
   } else {
-    for (const [type, fileName] of Object.entries(snapshot.fileRouting)) {
-      if (fileName === f.name) {
-        for (const [modName, types] of Object.entries(snapshot.modules)) {
-          if (types.includes(type)) {
-            if (!owner_modules.includes(modName)) owner_modules.push(modName);
-            registered_types_count++;
-            break;
-          }
+    const typesInFile = new Set<string>();
+    for (const [modName, types] of Object.entries(snapshot.modules)) {
+      for (const t of types) {
+        const typeName = typeof t === 'string' ? t : (t as { type: string }).type;
+        const routedFile = snapshot.fileRouting[typeName] ?? 'audit';
+        if (routedFile === f.name) {
+          typesInFile.add(typeName);
+          if (!owner_modules.includes(modName)) owner_modules.push(modName);
         }
       }
     }
+    registered_types_count = typesInFile.size;
   }
 
   return {

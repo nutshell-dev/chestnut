@@ -114,7 +114,7 @@ describe('audit info', () => {
     expect(output).toContain('* audit');
   });
 
-  it('schema_routing available false when no fileRouting', async () => {
+  it('schema_routing available true when fileRouting present (phase 159)', async () => {
     writeAudit('test-claw', 'content\n');
     const { getClawDir } = await import('../../src/foundation/config/index.js');
     vi.mocked(getClawDir).mockReturnValue(path.join(tempDir, 'claws', 'test-claw'));
@@ -123,6 +123,6 @@ describe('audit info', () => {
 
     const output = stdoutSpy.mock.calls.map(c => c[0] as string).join('');
     const parsed = JSON.parse(output);
-    expect(parsed.schema_routing.available).toBe(false);
+    expect(parsed.schema_routing.available).toBe(true);
   });
 });

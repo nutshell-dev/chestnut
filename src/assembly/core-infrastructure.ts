@@ -5,7 +5,7 @@ import { resolveChestnutRoot } from './install-paths.js';
 import type { FileSystem } from '../foundation/fs/types.js';
 import { NodeFileSystem } from '../foundation/fs/node-fs.js';
 
-import { createAuditWriter, type AuditLog } from '../foundation/audit/index.js';
+import { createSystemAudit, type AuditLog } from '../foundation/audit/index.js';
 import { reconcileFallbackDumps } from '../foundation/audit/index.js';
 import type { ProcessManager } from '../foundation/process-manager/index.js';
 import { createAgentProcessManager } from '../foundation/process-manager/agent-factory.js';
@@ -23,6 +23,7 @@ import { ContractSystem, createContractSystem } from '../core/contract/index.js'
 import { createOutboxWriter, type OutboxWriter, notifyClaw as notifyClawFn } from '../foundation/messaging/index.js';
 import { TASKS_SYNC_DIR } from '../core/async-task-system/index.js';
 import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
+import { AggregatedFileRouting } from './file-routing-aggregator.js';
 import type { AssembleConfig } from './types.js';
 
 export interface CoreInfraInput {
@@ -90,7 +91,10 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
   try {
     // --- 1. AuditWriter (daemon.ts L100-104) ---
     try {
-      auditWriter = createAuditWriter(systemFs, 'audit.tsv', auditMaxSizeMb);
+      auditWriter = createSystemAudit(systemFs, clawDir, {
+        typeToFile: AggregatedFileRouting,
+        maxSizeMb: auditMaxSizeMb,
+      });
     } catch (e) {
       throw new Error(`Assembly: audit writer construct failed: ${formatErr(e)}`, { cause: e });
     }

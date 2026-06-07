@@ -27,9 +27,21 @@ export { AuditWriter, AUDIT_FILE, reconcileFallbackDumps } from './writer.js';
 export { AUDIT_MESSAGE_MAX_CHARS } from './defaults.js';
 export { AUDIT_PREVIEW_LEN } from '../constants.js';
 export { createDirContext } from './dir-context.js';
+import { DispatchingAuditWriter } from './dispatching-writer.js';
+export { DispatchingAuditWriter };
 
-export function createSystemAudit(fs: FileSystem, baseDir: string): AuditLog {
-  return new AuditWriter(fs, path.join(baseDir, AUDIT_FILE));
+export function createSystemAudit(
+  fs: FileSystem,
+  baseDir: string,
+  options?: { typeToFile?: ReadonlyMap<string, string>; maxSizeMb?: number | null },
+): AuditLog {
+  if (options?.typeToFile && options.typeToFile.size > 0) {
+    return new DispatchingAuditWriter(fs, baseDir, options.typeToFile, {
+      maxSizeMb: options.maxSizeMb,
+    });
+  }
+  // 向后兼容：无 spec → 单 AuditWriter to audit.tsv
+  return new AuditWriter(fs, path.join(baseDir, AUDIT_FILE), options?.maxSizeMb);
 }
 
 export function createAuditWriter(
