@@ -302,7 +302,12 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     const now = Date.now();
     for (const [taskId, tw] of taskWatchMap) {
       if (now - tw.lastEventMs > TASK_STALE_TIMEOUT_MS) {
-        void stopTaskWatch(makeTaskId(taskId));
+        stopTaskWatch(makeTaskId(taskId)).catch(err =>
+          options.audit.write(
+            VIEWPORT_AUDIT_EVENTS.TASK_WATCH_STOP_FAILED,
+            `taskId=${taskId} reason=${formatErr(err)}`,
+          )
+        );
         try {
           options.audit.write(
             VIEWPORT_AUDIT_EVENTS.TASK_STREAM_STALE_CLEANUP,

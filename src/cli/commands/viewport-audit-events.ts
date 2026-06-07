@@ -16,6 +16,7 @@ export const VIEWPORT_AUDIT_EVENTS = {
   COMMAND_ERROR: 'viewport_command_error',
   CLAWSDIR_SCAN_FAILED: 'viewport_clawsdir_scan_failed',
   TASK_STREAM_STALE_CLEANUP: 'viewport_task_stream_stale_cleanup',
+  TASK_WATCH_STOP_FAILED: 'viewport_task_watch_stop_failed',
   INVALID_TASK_ID: 'chat_viewport_invalid_task_id',
   STREAM_READER_START_FAILED: 'chat_viewport_stream_reader_start_failed',
   HISTORY_REPLAY_FAILED: 'chat_viewport_history_replay_failed',
