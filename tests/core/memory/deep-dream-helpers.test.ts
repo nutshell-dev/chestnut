@@ -40,8 +40,12 @@ describe('deep-dream pure helpers (phase 1467)', () => {
     });
 
     it('long text scales (cl100k_base)', () => {
-      const long = 'x'.repeat(4000);
-      expect(__test_estimateTokens(long)).toBe(500); // cl100k_base compresses repeated chars
+      // diverse prose (pangram repeat) 避 repeated single-char BPE pathological case
+      // (phase 181 follow-up: phase 184 fix js-tiktoken cl100k_base repeated-char encode timeout)
+      const long = 'The quick brown fox jumps over the lazy dog. '.repeat(90); // ~4050 chars
+      const tokens = __test_estimateTokens(long);
+      expect(tokens).toBeGreaterThan(500); // 一定大于 short baseline
+      expect(tokens).toBeLessThan(2000); // diverse prose ~ chars/3 to chars/2
     });
 
     it('CJK text (cl100k_base)', () => {
