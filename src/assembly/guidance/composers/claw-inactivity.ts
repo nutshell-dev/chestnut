@@ -1,7 +1,8 @@
 /**
  * @module L6.Assembly.Guidance
- * phase 1482 γ3: motion guidance for `claw_inactivity` real composer
- * (phase 1469 17 NO_GUIDANCE → 1st real, mirror phase 1476 claw_outbox_summary).
+ * phase 1482 γ3 → phase 201:
+ *   - 删 unknown class null 旁路、unknown 走 fallback inspect (steps) + watch
+ *   - 与 phase 188 unknown_status / phase 197 archive_pending_recovery 同治理路径：unknown 不静默
  *
  * 业主 (watchdog) own FailureClass enum + base body 字面。
  * Assembly 此处 own motion-side CLI 教学：按 enum switch 1 primary action per case
@@ -35,20 +36,24 @@ function isFailureClass(s: string | undefined): s is FailureClass {
 // phase 2 γ4: daemon_stopped case 移除（归 crash_notification composer 覆盖、两 type 互斥状态 0 dedup 重叠）
 // phase 4: guidance 字面统一英文 / 简化 = 单 CLI line (diagnostic only, 无 restart — daemon 还活着不该 restart)
 // phase 5: 加 watch subscription CLI 教学 (motion 干预后若仍 stuck 主动订阅再提醒 / DP 系统为智能体服务)
-export const composer: GuidanceComposer<ClawInactivityState> = (state): GuidanceEntry | null => {
+export const composer: GuidanceComposer<ClawInactivityState> = (state): GuidanceEntry => {
   const cls = state.failure_class;
-  if (!isFailureClass(cls)) return null;  // unknown class → null (Runtime fallback graceful)
   const id = state.claw_id || '<claw-id>';
-  const inspect = (() => {
-    switch (cls) {
-      case 'daemon_silent':
-        return `To inspect what the agent is stuck on: ${clawCmd(id, CLAW_VERBS.STEPS)}`;
-      case 'daemon_errored':
-        return `To inspect: ${clawCmd(id, CLAW_VERBS.STEPS)}`;
-      default:
-        return assertNever(cls);
-    }
-  })();
+  // phase 201: 删 unknown class null 旁路、改 fallback guidance（state.claw_id 仍可用）
+  const inspect = isFailureClass(cls)
+    ? renderKnownInspect(cls, id)
+    : `To inspect: ${clawCmd(id, CLAW_VERBS.STEPS)}`;  // unknown fallback、与 daemon_errored 同型最小 hint
   const watch = `To be notified if it remains stuck after intervention: ${clawCmd(id, CLAW_VERBS.WATCH)} --inactive-after 5m`;
   return { text: `${inspect}\n${watch}` };
 };
+
+function renderKnownInspect(cls: FailureClass, id: string): string {
+  switch (cls) {
+    case 'daemon_silent':
+      return `To inspect what the agent is stuck on: ${clawCmd(id, CLAW_VERBS.STEPS)}`;
+    case 'daemon_errored':
+      return `To inspect: ${clawCmd(id, CLAW_VERBS.STEPS)}`;
+    default:
+      return assertNever(cls);
+  }
+}
