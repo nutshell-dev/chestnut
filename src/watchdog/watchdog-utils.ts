@@ -23,11 +23,7 @@ import { INBOX_PENDING_DIR, OUTBOX_PENDING_DIR } from '../foundation/messaging/i
 // If new stream event types are added, this set must be evaluated for inclusion
 import { CONTRACT_DIR } from '../core/contract/index.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
-import { formatErr } from '../foundation/utils/index.js';
-
-function assertNever(x: never): never {
-  throw new Error(`Unexpected watchdog classification: ${String(x)}`);
-}
+import { formatErr, assertNever } from '../foundation/utils/index.js';
 
 // Parse stream.jsonl, return the timestamp of the last event and the last error message
 export interface ClawActivityInfo {

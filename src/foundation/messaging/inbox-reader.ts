@@ -11,7 +11,7 @@
  */
 
 import * as path from 'path';
-import { formatErr } from "../utils/index.js";
+import { formatErr, assertNever } from "../utils/index.js";
 import { randomUUID } from 'crypto';
 import type { FileSystem } from '../fs/types.js';
 import type { InboxMessage, InboxHandle } from '../messaging/types.js';
@@ -58,10 +58,6 @@ export type InboxLocation = typeof INBOX_LOCATIONS[number];
 
 /** Locations that findByExtraMeta returns on hit (failed/ scanning is by-design declined). */
 export type ScannedInboxLocation = Exclude<InboxLocation, 'failed'>;
-
-function assertNever(x: never): never {
-  throw new Error(`Unexpected inbox location: ${String(x)}`);
-}
 
 export interface InboxEntry {
   message: InboxMessage;

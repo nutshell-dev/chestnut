@@ -1,8 +1,4 @@
-import { formatErr } from './utils/index.js';
-
-function assertNever(x: never): never {
-  throw new Error(`Unexpected write forbidden reason: ${String(x)}`);
-}
+import { formatErr, assertNever } from './utils/index.js';
 
 export type WriteForbiddenReason = 'system_readonly' | 'outside_allowlist';
 

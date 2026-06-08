@@ -4,13 +4,9 @@
  */
 
 import type { AuditLog } from '../../foundation/audit/index.js';
-import { formatErr } from "../../foundation/utils/index.js";
+import { formatErr, assertNever } from "../../foundation/utils/index.js";
 import { CRON_AUDIT_EVENTS } from './audit-events.js';
 import { CRON_TICK_INTERVAL_MS } from './constants.js';
-
-function assertNever(x: never): never {
-  throw new Error(`Unexpected cron parse failure reason: ${String(x)}`);
-}
 
 export type CronSchedule =
   | { type: 'daily'; time: string }       // "HH:MM"，每天固定时刻

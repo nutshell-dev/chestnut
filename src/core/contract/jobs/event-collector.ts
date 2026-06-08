@@ -1,5 +1,5 @@
 import * as path from 'path';
-import { formatErr } from "../../../foundation/utils/index.js";
+import { formatErr, assertNever } from "../../../foundation/utils/index.js";
 import * as yaml from 'js-yaml';
 import { isFileNotFound, type FileSystem } from '../../../foundation/fs/types.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
@@ -32,10 +32,6 @@ interface FormattedEvent {
   status: ContractStatus;
   reason?: string;
   cause?: string;
-}
-
-function assertNever(x: never): never {
-  throw new Error(`Unhandled variant: ${JSON.stringify(x)}`);
 }
 
 function formatContractEvent(

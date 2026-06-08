@@ -21,10 +21,7 @@
 import type { GuidanceComposer, GuidanceEntry } from '../types.js';
 import { clawCmd, CLAW_VERBS } from '../../../cli/commands/registry.js';
 import type { CrashClass } from '../../../watchdog/watchdog-utils.js';
-
-function assertNever(x: never): never {
-  throw new Error(`Unexpected crash class: ${String(x)}`);
-}
+import { assertNever } from '../../../foundation/utils/index.js';
 
 interface CrashNotificationState {
   crash_class: string;        // serialized CrashClass enum

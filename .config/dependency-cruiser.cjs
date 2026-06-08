@@ -256,6 +256,26 @@ module.exports = {
       to: { path: '^src/foundation/dialog-store/dirs\\.ts$' },
     },
     {
+      name: 'no-deep-into-utils-assert-never',
+      comment: [
+        'M#7 + M#9 — foundation/utils/assert-never.ts 跨模块通道仅 barrel。',
+        '跨模块 caller (foundation sister + cli/, core/, daemon/, watchdog/, assembly/) 只能',
+        'import src/foundation/utils/index.ts、不得深穿 src/foundation/utils/assert-never.ts。',
+        'phase 200 立、phase 196 + 199 inline 抽共享 utility 收官。',
+        'allowlist (by-design):',
+        '  - src/index.ts: SDK 顶层 re-export (公共 SDK 表面边界)',
+      ].join(' '),
+      severity: 'error',
+      from: {
+        path: '^src',
+        pathNot: [
+          '^src/foundation/utils/',
+          '^src/index\\.ts$',
+        ],
+      },
+      to: { path: '^src/foundation/utils/assert-never\\.ts$' },
+    },
+    {
       name: 'no-deep-into-utils-result',
       comment: [
         'ML#7 + ML#9 — foundation/utils/result.ts 跨模块通道仅 barrel。',

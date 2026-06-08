@@ -19,13 +19,9 @@ import * as path from 'node:path';
 import type { FileSystem } from '../fs/types.js';
 import type { AuditLog } from '../audit/index.js';
 import type { Message, ToolDefinition } from '../llm-provider/types.js';
-import { formatErr } from '../utils/index.js';
+import { formatErr, assertNever } from '../utils/index.js';
 import { DialogStore } from './store.js';
 import { DIALOG_DIR } from './dirs.js';
-
-function assertNever(x: never): never {
-  throw new Error(`Unexpected regime strategy: ${String(x)}`);
-}
 
 /** Regime switch 继承策略：identity 变化时 inherited messages 算法。*/
 export type RegimeStrategy = 'all' | 'last-turn' | 'none';

@@ -17,10 +17,7 @@
 import stringWidth from 'string-width';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
-
-function assertNever(x: never): never {
-  throw new Error(`Unexpected turn UI phase: ${String(x)}`);
-}
+import { assertNever } from '../../foundation/utils/index.js';
 
 export type TurnUIPhase =
   | 'idle'

@@ -21,10 +21,7 @@ import {
   type LookupOptions,
 } from '../../foundation/audit/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
-
-function assertNever(x: never): never {
-  throw new Error(`Unexpected lookup result variant: ${String(x)}`);
-}
+import { assertNever } from '../../foundation/utils/index.js';
 
 interface AuditLookupOpts {
   claw: string;

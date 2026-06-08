@@ -16,10 +16,7 @@
 import type { GuidanceComposer, GuidanceEntry } from '../types.js';
 import { clawCmd, CLAW_VERBS } from '../../../cli/commands/registry.js';
 import type { FailureClass } from '../../../watchdog/watchdog-utils.js';
-
-function assertNever(x: never): never {
-  throw new Error(`Unexpected failure class: ${String(x)}`);
-}
+import { assertNever } from '../../../foundation/utils/index.js';
 
 interface ClawInactivityState {
   failure_class: string;       // serialized FailureClass enum

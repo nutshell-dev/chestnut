@@ -1,15 +1,11 @@
 import * as path from 'path';
-import { formatErr } from "../../../foundation/utils/index.js";
+import { formatErr, assertNever } from "../../../foundation/utils/index.js";
 import { isFileNotFound, type FileSystem } from '../../../foundation/fs/types.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
 import type { InboxMessageOptionsBase } from '../../../foundation/messaging/index.js';
 import { scanArchivedContracts } from './event-collector.js';
 import { CONTRACT_AUDIT_EVENTS } from '../audit-events.js';
 import { emitContractArchiveRecoveryPendingObserved } from '../audit-emit.js';
-
-function assertNever(x: never): never {
-  throw new Error(`Unhandled variant: ${JSON.stringify(x)}`);
-}
 
 /** phase 101: DI callback - caller (装配期) bind fs + chestnutRoot + MOTION_CLAW_ID + audit */
 export type NotifyMotionFn = (message: InboxMessageOptionsBase) => void;
