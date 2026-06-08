@@ -8,6 +8,8 @@
 
 import { type ClawId, makeClawId } from './core/claw-id.js';
 
+export { type ClawId, makeClawId };
+
 // ----------------------------------------------------------------------------
 // System Identities
 // ----------------------------------------------------------------------------

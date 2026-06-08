@@ -21,6 +21,7 @@ import { SummonTool, createSummonStateStore } from '../core/summon-system/index.
 import { createSkillSystem as defaultCreateSkillSystem, SkillSystem } from '../foundation/skill-system/index.js';
 import { SKILLS_DIR_DEFAULT } from '../foundation/skill-system/index.js';
 import { ContractSystem, createContractSystem } from '../core/contract/index.js';
+import { makeClawId } from '../core/claw-id.js';
 import { createOutboxWriter, type OutboxWriter, notifyClaw as notifyClawFn } from '../foundation/messaging/index.js';
 import { TASKS_SYNC_DIR } from '../core/async-task-system/index.js';
 import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
@@ -229,7 +230,7 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
     // --- L2: outboxWriter ---
     let outboxWriter: OutboxWriter;
     try {
-      outboxWriter = createOutboxWriter(clawId, clawDir, systemFs, auditWriter);
+      outboxWriter = createOutboxWriter(makeClawId(clawId), clawDir, systemFs, auditWriter);
     } catch (e) {
       auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=outbox_writer`, `phase=construct`, `reason=${formatErr(e)}`);
       throw new Error(`Assembly: OutboxWriter construct failed: ${formatErr(e)}`, { cause: e });

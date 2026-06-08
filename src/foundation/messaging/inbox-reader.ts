@@ -37,7 +37,7 @@ import {
   emitOutboxDelivered,
 } from './audit-emit.js';
 import { InboxWriter, type InboxMessageMeta } from './inbox-writer.js';
-import { UUID_SHORT_LEN } from '../../constants.js';
+import { UUID_SHORT_LEN, makeClawId } from '../../constants.js';
 import { InboxListFailed, InboxMoveFailed } from './errors.js';
 
 
@@ -181,7 +181,7 @@ export class InboxReader {
         if (message.extraMeta?.__legacy_claw_id !== undefined) {
           emitInboxLegacyClawIdField(this.audit, {
             file: entry.name,
-            clawId: message.extraMeta.__legacy_claw_id,
+            clawId: makeClawId(message.extraMeta.__legacy_claw_id),
           });
         }
 

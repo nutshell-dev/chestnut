@@ -10,6 +10,7 @@
 
 import type { AuditLog } from '../audit/index.js';
 import { MESSAGING_AUDIT_EVENTS } from './audit-events.js';
+import type { ClawId } from '../../constants.js';
 
 
 
@@ -64,7 +65,7 @@ export function emitInboxPriorityUnknown(
 // ─── INBOX_LEGACY_CLAW_ID_FIELD ───────────────────────────────────────────────
 export function emitInboxLegacyClawIdField(
   audit: AuditLog,
-  opts: { file: string; clawId: string },
+  opts: { file: string; clawId: ClawId },
 ): void {
   audit.write(MESSAGING_AUDIT_EVENTS.INBOX_LEGACY_CLAW_ID_FIELD, `file=${opts.file}`, `claw_id=${opts.clawId}`);
 }

@@ -13,6 +13,7 @@ import type { AuditLog } from '../audit/index.js';
 import { encodeOutbox } from './codec-outbox.js';
 import { emitOutboxSent, emitOutboxSendFailed } from './audit-emit.js';
 import { UUID_SHORT_LEN } from '../../constants.js';
+import type { ClawId } from '../../constants.js';
 
 
 /**
@@ -31,7 +32,7 @@ declare const OutboxPathBrand: unique symbol;
 export type OutboxPath = string & { readonly [OutboxPathBrand]: true };
 
 /** Factory: construct an OutboxPath from a clawId and clawDir. */
-export function makeOutboxPath(clawId: string, clawDir: string): OutboxPath {
+export function makeOutboxPath(clawId: ClawId, clawDir: string): OutboxPath {
   void clawId; // semantic param — aligns with createOutboxWriter signature
   return path.join(clawDir, 'outbox', 'pending') as OutboxPath;
 }
@@ -41,14 +42,14 @@ export function makeOutboxPath(clawId: string, clawDir: string): OutboxPath {
  */
 export class OutboxWriter {
   private constructor(
-    private readonly clawId: string,
+    private readonly clawId: ClawId,
     private readonly outboxDir: OutboxPath,
     private readonly fs: FileSystem,
     private readonly audit: AuditLog,
   ) {}
 
   /** Internal factory — only callable within the Messaging module. */
-  static __internal_create(clawId: string, outboxDir: OutboxPath, fs: FileSystem, audit: AuditLog): OutboxWriter {
+  static __internal_create(clawId: ClawId, outboxDir: OutboxPath, fs: FileSystem, audit: AuditLog): OutboxWriter {
     return new OutboxWriter(clawId, outboxDir, fs, audit);
   }
 

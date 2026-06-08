@@ -52,6 +52,7 @@ export {
 import type { FileSystem } from '../fs/types.js';
 import type { AuditLog } from '../audit/index.js';
 import { InboxReader } from './inbox-reader.js';
+import type { ClawId } from '../../constants.js';
 import { OutboxWriter, makeOutboxPath } from './outbox-writer.js';
 
 export function createInboxReader(
@@ -72,7 +73,7 @@ export function createInboxReader(
 }
 
 export function createOutboxWriter(
-  clawId: string,
+  clawId: ClawId,
   clawDir: string,
   fs: FileSystem,
   audit: AuditLog,
