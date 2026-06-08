@@ -23,7 +23,7 @@ import * as path from 'path';
 import { formatErr } from "../foundation/utils/index.js";
 import { setTimeout } from 'timers/promises';
 import { getNamedSubrootDir } from '../foundation/config/index.js';
-import { MOTION_CLAW_ID } from '../constants.js';
+import { MOTION_CLAW_ID, makeClawId } from '../constants.js';
 import type { FileSystem } from '../foundation/fs/types.js';
 import { isFileNotFound } from '../foundation/fs/types.js';
 import { type AuditLog, createAuditWriter } from '../foundation/audit/index.js';
@@ -218,7 +218,7 @@ export async function runWatchdogLoop(fsFactory: (baseDir: string) => FileSystem
           if (entry.isDirectory) {
             presentClawIds.push(entry.name);
             const clawId = entry.name;
-            if (pm.isAlive(clawId)) aliveIds.push(entry.name);
+            if (pm.isAlive(makeClawId(clawId))) aliveIds.push(entry.name);
           }
         }
       } catch (err) {

@@ -16,6 +16,7 @@ import { AUDIT_MESSAGE_MAX_CHARS } from '../audit/index.js';
 import { isAlive as defaultL1IsAlive, getProcessStartTime as defaultGetProcessStartTime } from '../process-exec/index.js';
 import { LockConflictError, type ProcessManagerContext } from './types.js';
 import type { SpawnOptions } from './types.js';
+import type { ClawId } from '../../constants.js';
 
 
 const sleep = (ms: number): Promise<void> =>
@@ -44,11 +45,11 @@ const sleep = (ms: number): Promise<void> =>
  */
 export async function spawnProcess(
   ctx: ProcessManagerContext,
-  clawId: string,
+  clawId: ClawId,
   options: SpawnOptions,
 ): Promise<number> {
   const startMs = Date.now();
-  const isAliveByPidFile = ctx.isAlive ?? ((id: string) => checkAlive(ctx, id));
+  const isAliveByPidFile = ctx.isAlive ?? ((id: ClawId) => checkAlive(ctx, id));
   if (isAliveByPidFile(clawId)) {
     throw new LockConflictError(
       clawId,
@@ -72,7 +73,7 @@ export async function spawnProcess(
  */
 async function cleanupOrphans(
   ctx: ProcessManagerContext,
-  clawId: string,
+  clawId: ClawId,
   options: SpawnOptions,
 ): Promise<void> {
   const pattern = options.args.join(' ');
@@ -124,7 +125,7 @@ async function cleanupOrphans(
  */
 async function cleanupLock(
   ctx: ProcessManagerContext,
-  clawId: string,
+  clawId: ClawId,
 ): Promise<void> {
   const lockFile = getLockFile(ctx, clawId);
   try {
@@ -177,7 +178,7 @@ async function cleanupLock(
  */
 async function writePidExclusive(
   ctx: ProcessManagerContext,
-  clawId: string,
+  clawId: ClawId,
 ): Promise<void> {
   const pidFile = getPidFile(ctx, clawId);
   await ensureStatusDir(ctx, clawId);
@@ -203,7 +204,7 @@ async function writePidExclusive(
  */
 async function handlePidFileConflict(
   ctx: ProcessManagerContext,
-  clawId: string,
+  clawId: ClawId,
   pidFile: string,
 ): Promise<void> {
   const stored = await readPid(ctx, clawId);
@@ -281,10 +282,10 @@ async function handlePidFileConflict(
  */
 async function spawnAndAwaitReady(
   ctx: ProcessManagerContext,
-  clawId: string,
+  clawId: ClawId,
   options: SpawnOptions,
   startMs: number,
-  isAliveByPidFile: (id: string) => boolean,
+  isAliveByPidFile: (id: ClawId) => boolean,
 ): Promise<number> {
   const pidFile = getPidFile(ctx, clawId);
   try {
@@ -301,7 +302,7 @@ async function spawnAndAwaitReady(
     };
     await ctx.fs.writeAtomic(pidFile, JSON.stringify(pidPayload));
 
-    const isReady = ctx.isReady ?? ((id: string) => checkReady(ctx, id));
+    const isReady = ctx.isReady ?? ((id: ClawId) => checkReady(ctx, id));
     let ready = isReady(clawId);
     while (!ready) {
       if (!isAliveByPidFile(clawId)) {

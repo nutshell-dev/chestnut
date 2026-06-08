@@ -1,6 +1,7 @@
 import type { Instances } from './types.js';
 import { formatErr } from "../foundation/utils/index.js";
 import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
+import { makeClawId } from '../constants.js';
 
 export async function disassemble(instances: Instances, signal: string): Promise<void> {
   const { gateway, runtime, streamWriter, processManager, auditWriter, cronRunner, clawId, disposeContractSystems } = instances;
@@ -19,7 +20,7 @@ export async function disassemble(instances: Instances, signal: string): Promise
   // Step 1: markNotReady (NEW phase 1114; 与 gateway.stop 切断对外推送 语义对称)
   // r127 C fork C.4: markNotReady 内部自负 audit (READY_MARK_REMOVED + context=remove_failed)、
   // 不抛 → caller try/catch 是 dead code (mirror phase 1032 cleanup.ts 模板)
-  await processManager.markNotReady(clawId);
+  await processManager.markNotReady(makeClawId(clawId));
 
   // Step 1: gateway?.stop()（async；motion only；最前位置——切断对外推送 + cancel pending askUser）
   if (gateway) {
@@ -74,7 +75,7 @@ export async function disassemble(instances: Instances, signal: string): Promise
 
   // Step 5: processManager.releaseLock(clawId)（sync）
   try {
-    processManager.releaseLock(clawId);
+    processManager.releaseLock(makeClawId(clawId));
   } catch (e) {
     auditWriter.write(
       ASSEMBLY_AUDIT_EVENTS.DISASSEMBLE_STEP_FAILED,

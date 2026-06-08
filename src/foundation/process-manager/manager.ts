@@ -23,6 +23,7 @@ import { stopProcess } from './stop.js';
 import { findProcesses } from './find.js';
 import { CLAWS_DIR } from '../../assembly/claw-dirs.js';
 import type { ProcessManagerContext, SpawnOptions } from './types.js';
+import type { ClawId } from '../../constants.js';
 
 
 export { LockConflictError } from './types.js';
@@ -48,9 +49,9 @@ export class ProcessManager {
       fs,
       audit,
       resolveDir: dirResolver ?? ((id: string) => path.join(baseDir, CLAWS_DIR, id)),
-      isAlive: (clawId: string) => this.isAlive(clawId),
-      isReady: (clawId: string) => this.isReady(clawId),
-      readLockPid: (clawId: string) => this.readLockPid(clawId),
+      isAlive: (clawId: ClawId) => this.isAlive(clawId),
+      isReady: (clawId: ClawId) => this.isReady(clawId),
+      readLockPid: (clawId: ClawId) => this.readLockPid(clawId),
       l1IsAlive,
       spawnDetached,
       getProcessStartTime,
@@ -59,32 +60,32 @@ export class ProcessManager {
   }
 
   // pid CRUD
-  readPid(clawId: string): Promise<{ pid: number; startTime?: ProcessStartTime } | null> {
+  readPid(clawId: ClawId): Promise<{ pid: number; startTime?: ProcessStartTime } | null> {
     return pidOps.readPid(this._ctx, clawId);
   }
-  removePid(clawId: string): Promise<void> { return pidOps.removePid(this._ctx, clawId); }
-  selfWritePid(clawId: string): Promise<void> { return pidOps.selfWritePid(this._ctx, clawId); }
-  selfRemovePid(clawId: string): Promise<void> { return pidOps.selfRemovePid(this._ctx, clawId); }
+  removePid(clawId: ClawId): Promise<void> { return pidOps.removePid(this._ctx, clawId); }
+  selfWritePid(clawId: ClawId): Promise<void> { return pidOps.selfWritePid(this._ctx, clawId); }
+  selfRemovePid(clawId: ClawId): Promise<void> { return pidOps.selfRemovePid(this._ctx, clawId); }
 
   // alive
-  getAliveStatus(clawId: string): { alive: boolean; reason: string; pid?: number } {
+  getAliveStatus(clawId: ClawId): { alive: boolean; reason: string; pid?: number } {
     return aliveOps.getAliveStatus(this._ctx, clawId);
   }
-  isAlive(clawId: string): boolean { return aliveOps.isAliveByPidFile(this._ctx, clawId); }
-  isReady(clawId: string): boolean { return readyOps.isReady(this._ctx, clawId); }
-  markReady(clawId: string): Promise<void> { return readyOps.markReady(this._ctx, clawId); }
-  markNotReady(clawId: string): Promise<void> { return readyOps.markNotReady(this._ctx, clawId); }
+  isAlive(clawId: ClawId): boolean { return aliveOps.isAliveByPidFile(this._ctx, clawId); }
+  isReady(clawId: ClawId): boolean { return readyOps.isReady(this._ctx, clawId); }
+  markReady(clawId: ClawId): Promise<void> { return readyOps.markReady(this._ctx, clawId); }
+  markNotReady(clawId: ClawId): Promise<void> { return readyOps.markNotReady(this._ctx, clawId); }
 
   // lock
-  readLockPid(clawId: string): { pid: number; startTime?: ProcessStartTime } | null { return lockOps.readLockPid(this._ctx, clawId); }
-  acquireLock(clawId: string): void { lockOps.acquireLock(this._ctx, clawId); }
-  releaseLock(clawId: string): void { lockOps.releaseLock(this._ctx, clawId); }
+  readLockPid(clawId: ClawId): { pid: number; startTime?: ProcessStartTime } | null { return lockOps.readLockPid(this._ctx, clawId); }
+  acquireLock(clawId: ClawId): void { lockOps.acquireLock(this._ctx, clawId); }
+  releaseLock(clawId: ClawId): void { lockOps.releaseLock(this._ctx, clawId); }
 
   // lifecycle
-  spawn(clawId: string, options: SpawnOptions): Promise<number> {
+  spawn(clawId: ClawId, options: SpawnOptions): Promise<number> {
     return spawnProcess(this._ctx, clawId, options);
   }
-  stop(clawId: string): Promise<boolean> { return stopProcess(this._ctx, clawId); }
+  stop(clawId: ClawId): Promise<boolean> { return stopProcess(this._ctx, clawId); }
 
   // query
   findProcesses(pattern: string): number[] { return findProcesses(this._ctx, pattern); }

@@ -17,19 +17,19 @@
         },
         {
             "file": "src/cli/commands/chat-viewport-claw-manager.ts",
-            "line": 161,
+            "line": 162,
             "body_excerpt": "} catch { /* skip */ }",
             "reason": "pre-existing silent catch / TODO phase TBD convert to canonical / phase 15 line shift +1 by formatErr barrel import"
         },
         {
             "file": "src/cli/commands/chat-viewport-claw-manager.ts",
-            "line": 166,
+            "line": 167,
             "body_excerpt": "} catch { /* ENOENT 等，跳过 */ }",
             "reason": "pre-existing silent catch / TODO phase TBD convert to canonical / phase 15 line shift +1 by formatErr barrel import"
         },
         {
             "file": "src/cli/commands/chat-viewport-claw-manager.ts",
-            "line": 71,
+            "line": 72,
             "body_excerpt": "} catch { /* polling fallback */ }",
             "reason": "pre-existing silent catch / TODO phase TBD convert to canonical / phase 15 line shift +1 by formatErr barrel import"
         },

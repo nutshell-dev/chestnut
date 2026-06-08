@@ -3,9 +3,10 @@ import { DAEMON_SHUTDOWN_GRACE_MS, PROCESS_STOP_POLL_INTERVAL_MS } from './const
 import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
 import { readPid, removePid } from './pid.js';
 import type { ProcessManagerContext } from './types.js';
+import type { ClawId } from '../../constants.js';
 
 
-export async function stopProcess(ctx: ProcessManagerContext, clawId: string): Promise<boolean> {
+export async function stopProcess(ctx: ProcessManagerContext, clawId: ClawId): Promise<boolean> {
   const stored = await readPid(ctx, clawId);
   if (!stored) {
     return false;

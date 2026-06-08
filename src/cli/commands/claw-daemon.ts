@@ -14,6 +14,7 @@ import {
 } from '../../foundation/config/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { createAgentProcessManager } from '../../foundation/process-manager/index.js';
+import { makeClawId } from '../../constants.js';
 import type { ProcessManager } from '../../foundation/process-manager/manager.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { CliError } from '../errors.js';
@@ -43,12 +44,12 @@ export async function clawDaemonCommand(
   const systemAudit = createSystemAudit(nodeFs, baseDir);
   const pm: DaemonPM = deps.processManager
     ?? createAgentProcessManager({ fsFactory: deps.fsFactory }, systemAudit);
-  if (pm.isAlive(name)) {
+  if (pm.isAlive(makeClawId(name))) {
     console.warn(`⚠ Claw "${name}" is already running`);
     return;
   }
   const daemonEntryPath = resolveDaemonEntry(nodeFs);
-  const pid = await pm.spawn(name, {
+  const pid = await pm.spawn(makeClawId(name), {
     command: 'node',
     args: [daemonEntryPath, name],
     logFile: path.join(clawDir, DAEMON_LOG),

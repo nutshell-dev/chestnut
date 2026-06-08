@@ -9,13 +9,14 @@ import type { FileSystem } from '../../foundation/fs/types.js';
 import { isFileNotFound } from '../../foundation/fs/types.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
+import { makeClawId } from '../../constants.js';
 import { createChatViewportWatcher } from './chat-viewport-watcher.js';
 import { type ClawTrack, makeClawTrack } from './chat-viewport-claw-line.js';
 
 
 export interface ClawManagerDeps {
   fs: FileSystem;
-  pm: { readPid: (label: string) => Promise<{ pid: number; startTime?: string } | null> };
+  pm: { readPid: (label: import('../../constants.js').ClawId) => Promise<{ pid: number; startTime?: string } | null> };
   audit: AuditLog;
   isMotion: boolean;
   clawsDir: string;
@@ -208,7 +209,7 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
       }
       const track = clawTrackMap.get(clawId)!;
       try {
-        const stored = await pm.readPid(clawId);
+        const stored = await pm.readPid(makeClawId(clawId));
         track.isAlive = stored !== null && isAlive(stored.pid);
       } catch (e) {
         if (!isFileNotFound(e)) {

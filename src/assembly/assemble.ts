@@ -13,6 +13,7 @@ import { isFileNotFound } from '../foundation/fs/types.js';
 import type { CoreInfraOutput } from './core-infrastructure.js';
 
 import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
+import { makeClawId } from '../constants.js';
 
 
 
@@ -144,7 +145,7 @@ export async function assemble(config: AssembleConfig, deps?: AssembleDeps): Pro
     });
     if (lockState.acquired && core) {
       try {
-        core.processManager.releaseLock(clawId);
+        core.processManager.releaseLock(makeClawId(clawId));
       } catch (releaseErr) {
         core.auditWriter.write(
           ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED,

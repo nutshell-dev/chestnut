@@ -17,6 +17,7 @@ import { MOTION_CLAW_ID } from '../constants.js';
 import { startDaemonLoop } from './daemon-loop.js';
 import { createSystemAudit, type AuditLog } from '../foundation/audit/index.js';
 import { createAgentProcessManager } from '../foundation/process-manager/index.js';
+import { makeClawId } from '../constants.js';
 import { isFileNotFound } from '../foundation/fs/types.js';
 import { INBOX_PENDING_DIR } from '../foundation/messaging/index.js';
 import type { FileSystem } from '../foundation/fs/types.js';
@@ -73,7 +74,7 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
     const processManager = createAgentProcessManager({ fsFactory: deps.fsFactory }, preAssembleAudit);
 
     // 写 PID 文件（兜底：无论启动方式都确保 PID 可查）
-    await processManager.selfWritePid(clawId);
+    await processManager.selfWritePid(makeClawId(clawId));
 
     const clawConfig = isMotion ? null : loadClawConfig({ fsFactory: deps.fsFactory }, getClawConfigPath(name));
 
@@ -129,7 +130,7 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
       promptHash = createHash('sha256').update(agentsContent).digest('hex').slice(0, 6);
     } catch { /* silent: AGENTS.md is optional, missing is expected */ }
     auditWriter.write(deps.auditEvents.daemonStart, `sha256:${promptHash}`);
-    await processManager.markReady(clawId);
+    await processManager.markReady(makeClawId(clawId));
 
     // daemon-start commit（不阻塞启动）
     snapshot.commit(`daemon-start ${new Date().toISOString()}`).then((result) => {
@@ -191,7 +192,7 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
 
       // pid 文件清理（业务）
       try {
-        await processManager.selfRemovePid(clawId);
+        await processManager.selfRemovePid(makeClawId(clawId));
       } catch (e: any) {
         instances.auditWriter.write(DAEMON_AUDIT_EVENTS.CLEANUP_PID_FAILED, `reason=${e?.message}`);
       }

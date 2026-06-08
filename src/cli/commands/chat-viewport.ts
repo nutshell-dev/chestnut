@@ -21,7 +21,7 @@ import { isFileNotFound } from '../../foundation/fs/types.js';
 import { createStreamReader, STREAM_FILE } from '../../foundation/stream/index.js';
 import { createViewportObservability } from './chat-viewport-observability.js';
 import { CLAWS_DIR } from '../../assembly/claw-dirs.js';
-import { MOTION_CLAW_ID } from '../../constants.js';
+import { MOTION_CLAW_ID, makeClawId } from '../../constants.js';
 
 
 import { writeUserChat } from './chat-viewport-utils.js';
@@ -274,7 +274,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   const checkDaemonAlive = async () => {
     if (daemonDead) return;
     try {
-      const stored = await pm.readPid(options.label);
+      const stored = await pm.readPid(makeClawId(options.label));
       if (stored === null) return;
       if (!isAlive(stored.pid)) {
         // 进程不存在
@@ -428,7 +428,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   // 重连状态校正：tracker 标 active 但 daemon 实际不存活 / forceReset 防误触 ESC 中断
   if (turnTracker.isActive()) {
     try {
-      const stored = await pm.readPid(options.label);
+      const stored = await pm.readPid(makeClawId(options.label));
       if (stored === null) {
         turnTracker.forceReset();
       } else {

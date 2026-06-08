@@ -120,7 +120,7 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
     }
 
     try {
-      processManager.acquireLock(clawId);
+      processManager.acquireLock(makeClawId(clawId));
       lockState.acquired = true;
     } catch (e) {
       auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_LOCK_CONFLICT, `clawId=${clawId}`);
@@ -262,7 +262,7 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
   } catch (e) {
     if (lockState.acquired && processManager) {
       try {
-        processManager.releaseLock(clawId);
+        processManager.releaseLock(makeClawId(clawId));
         lockState.acquired = false;
       } catch (releaseErr) {
         auditWriter?.write(

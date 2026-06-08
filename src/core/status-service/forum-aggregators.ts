@@ -18,6 +18,7 @@ import type { FileSystem } from '../../foundation/fs/types.js';
 import { isFileNotFound } from '../../foundation/fs/types.js';
 import { ProcessManager, ProcessListUnavailable } from '../../foundation/process-manager/index.js';
 import { CLAWS_DIR } from '../../assembly/claw-dirs.js';
+import { makeClawId } from '../../constants.js';
 import { listAuditFiles } from '../../foundation/audit/index.js';
 import { INBOX_PENDING_DIR } from '../../foundation/messaging/index.js';
 import { MOTION_CLAW_ID } from '../../constants.js';
@@ -205,7 +206,7 @@ export function computeForumStatusView(deps: ForumStatusDeps): ForumStatusView {
     totalClawCount = entries.length;
 
     for (const name of entries) {
-      const s = deps.pm.getAliveStatus(name);
+      const s = deps.pm.getAliveStatus(makeClawId(name));
       if (!s.alive || s.pid === undefined) continue;
       trackedPids.push(s.pid);
       const clawDir = path.join(deps.baseDir, CLAWS_DIR, name);

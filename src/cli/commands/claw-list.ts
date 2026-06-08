@@ -9,6 +9,7 @@ import {
 } from '../../foundation/config/index.js';
 import { createDirContext } from '../../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
+import { makeClawId } from '../../constants.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { CONTRACT_DIR, CONTRACT_ARCHIVE_DIR } from '../../core/contract/index.js';
 import { CLAWS_DIR } from '../../assembly/claw-dirs.js';
@@ -110,12 +111,12 @@ export async function listCommand(deps: { fsFactory: (baseDir: string) => FileSy
     for (const entry of entries) {
       const clawFs = deps.fsFactory(path.join(clawsDir, entry));
       if (clawFs.existsSync('config.yaml')) {
-        const isRunning = processManager.isAlive(entry);
+        const isRunning = processManager.isAlive(makeClawId(entry));
         let pid: number | undefined;
 
         if (isRunning) {
           try {
-            const stored = await processManager.readPid(entry);
+            const stored = await processManager.readPid(makeClawId(entry));
             if (stored !== null) pid = stored.pid;
           } catch { /* silent: ignore read errors */ }
         }

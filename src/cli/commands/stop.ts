@@ -15,6 +15,7 @@ import { kill } from '../../foundation/process-exec/index.js';
 import { createSystemAudit, type AuditLog } from '../../foundation/audit/index.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from '../../foundation/process-manager/audit-events.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
+import { makeClawId } from '../../constants.js';
 import { CLAWS_DIR } from '../../assembly/claw-dirs.js';
 import { resolveDaemonEntry } from '../../assembly/spawn-entry.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
@@ -79,10 +80,10 @@ export async function stopAllCommand(
     }
   }
 
-  const running = clawNames.filter(name => pm.isAlive(name));
+  const running = clawNames.filter(name => pm.isAlive(makeClawId(name)));
   if (running.length > 0) {
     console.log(`Stopping ${running.length} claw(s): ${running.join(', ')}...`);
-    const results = await Promise.allSettled(running.map(name => pm.stop(name)));
+    const results = await Promise.allSettled(running.map(name => pm.stop(makeClawId(name))));
     const failed = results
       .map((r, i) => (r.status === 'rejected' ? running[i] : null))
       .filter((n): n is string => n !== null);
