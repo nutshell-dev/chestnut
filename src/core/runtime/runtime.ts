@@ -63,7 +63,6 @@ import { truncateToolContent } from './truncate.js';
 import {
   computeBudget,
   handleContextExceeded,
-  AUDIT,
 } from '../l4_context_manager/index.js';
 import { estimateTextTokens, estimateInputTokens } from '../../foundation/llm-provider/token-estimator.js';
 
@@ -630,9 +629,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
 
     let outboundMessages = messages;
     if (estimateInputTokens({ messages, systemPrompt, tools }).total > budget.available) {
-      outboundMessages = handleContextExceeded(messages, systemPrompt, budget.available);
-      this.auditWriter.write(AUDIT.CONTEXT_TRIM_STARTED, `budget=${budget.available}`);
-      this.auditWriter.write(AUDIT.CONTEXT_TRIM_COMPLETED, `remaining=${outboundMessages.length}`);
+      outboundMessages = handleContextExceeded(messages, systemPrompt, budget.available, this.auditWriter);
     }
 
     try {

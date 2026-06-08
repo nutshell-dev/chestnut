@@ -20,7 +20,6 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import type { Message } from '../../foundation/llm-provider/types.js';
 import {
   resolveHandoffMarker,
-  AUDIT,
 } from '../l4_context_manager/index.js';
 
 /** Default retro subagent timeout (ms); 10 min by design */
@@ -68,12 +67,7 @@ export async function scheduleRetro(config: RetroConfig): Promise<void> {
   }
 
   // Phase 186: resolve handoff marker for retro phase cross-round context
-  const marker = resolveHandoffMarker(config.contractId);
-  if (marker === null) {
-    config.audit.write(AUDIT.HANDOFF_MARKER_NOT_FOUND, `id=${config.contractId}`);
-  } else {
-    config.audit.write(AUDIT.HANDOFF_MARKER_RESOLVED, `id=${marker.id}`, `parent=${marker.parentRound}`);
-  }
+  resolveHandoffMarker(config.contractId, config.audit);
 
   // 构建 retroPrompt（A.3）
   const retroPrompt = buildRetroPrompt(

@@ -7,7 +7,6 @@ import { buildAskMotionCloneFirstMessage } from '../../../prompts/index.js';
 import { DialogStore } from '../../../foundation/dialog-store/index.js';
 import {
   createHandoffMarker,
-  AUDIT,
 } from '../../l4_context_manager/index.js';
 
 import { formatErr } from '../../../foundation/utils/index.js';
@@ -64,8 +63,7 @@ export class AskMotionTool implements Tool {
       const { session } = await this.motionDialogStore.loadStableTurnBoundary();
 
       // Phase 186: handoff marker for ask_motion (replaces full dialog copy)
-      const marker = createHandoffMarker('ask-motion');
-      this.auditWriter?.write(AUDIT.HANDOFF_MARKER_CREATED, `id=${marker.id}`, `parent=${marker.parentRound}`);
+      createHandoffMarker('ask-motion', this.auditWriter);
 
       // Backward compat: still pass full messages until runAgent supports handoff marker resolution
       const response = await this.llm.call({

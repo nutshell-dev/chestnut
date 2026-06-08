@@ -19,7 +19,6 @@ import { SHADOW_CALLER_LABEL } from '../../summon-system/internal/shadow/index.j
 import { SPAWN_DEFAULT_TIMEOUT_MS } from '../constants.js';
 import {
   createHandoffMarker,
-  AUDIT,
 } from '../../l4_context_manager/index.js';
 
 /**
@@ -110,8 +109,7 @@ export function createSpawnTool(deps: SpawnToolDeps = {}): Tool {
       }
 
       // Phase 186: handoff marker for spawn context
-      const marker = createHandoffMarker(ctx.clawId ?? 'unknown');
-      ctx.auditWriter?.write(AUDIT.HANDOFF_MARKER_CREATED, `id=${marker.id}`, `parent=${marker.parentRound}`);
+      createHandoffMarker(ctx.clawId ?? 'unknown', ctx.auditWriter);
 
       if (asyncMode) {
         if (!ctx.taskSystem) {

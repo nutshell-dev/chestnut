@@ -22,7 +22,6 @@ import { TASKS_SYNC_DIR } from '../async-task-system/dirs.js';
 import type { PermissionChecker } from '../../foundation/tool-protocol/permission.js';
 import {
   createHandoffMarker,
-  AUDIT,
 } from '../l4_context_manager/index.js';
 
 import { SubAgent } from './agent.js';
@@ -129,8 +128,7 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
 
   // Phase 186: create handoff marker when parent context is passed
   if (opts.messages && opts.messages.length > 0) {
-    const marker = createHandoffMarker(opts.resultDir ?? 'unknown');
-    auditWriter.write(AUDIT.HANDOFF_MARKER_CREATED, `id=${marker.id}`, `parent=${marker.parentRound}`);
+    createHandoffMarker(opts.resultDir ?? 'unknown', auditWriter);
   }
 
   const agent = new SubAgent({
