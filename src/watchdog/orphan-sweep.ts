@@ -29,7 +29,12 @@ export async function sweepOrphanWatchdogs(
   ensureAuditWired(fsFactory);
   const pm = createProcessManagerForCLI({ fsFactory });
   const wdPath = getWatchdogEntryPath(fsFactory);
-  const keepPid = opts.excludePid ?? getWatchdogPid(fsFactory);  // 默认保 pid file 那个
+  // phase 220 Step C: distinguish `null` (explicit "no exclusion, kill all" — used by `stop`)
+  // from `undefined` (omitted — fallback to pid-file owner). The previous `??` collapsed both
+  // into the fallback, so even `excludePid: null` callers got `getWatchdogPid()`'s pid as
+  // keepPid, which could accidentally match a target pid (real disk pid file leaked into the
+  // test environment) and silently drop it from the kill list.
+  const keepPid = opts.excludePid !== undefined ? opts.excludePid : getWatchdogPid(fsFactory);
 
   let allPids: number[];
   try {
