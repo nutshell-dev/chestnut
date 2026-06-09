@@ -387,7 +387,7 @@ auditCmd
     step?: string;
     contractId?: string;
     subtaskId?: string;
-    noHint?: boolean;
+    hint?: boolean;  // commander --no-X flag: --no-hint sets hint=false (default true)
   }) => {
     const { auditQueryCommand } = await import('./commands/audit-query.js');
     await auditQueryCommand({ fsFactory }, {
@@ -396,7 +396,7 @@ auditCmd
       toSeq: opts.toSeq !== undefined ? parseIntOption(opts.toSeq, '--to-seq must be a number') : undefined,
       limit: opts.limit !== undefined ? parseIntOption(opts.limit, '--limit must be a number') : undefined,
       step: opts.step !== undefined ? parseIntOption(opts.step, '--step must be a number') : undefined,
-      noHint: opts.noHint,
+      noHint: opts.hint === false,  // commander --no-hint sets hint=false; explicit false → noHint=true
     });
   }));
 

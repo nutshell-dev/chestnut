@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { Command } from 'commander';
 import { auditQueryCommand } from '../../src/cli/commands/audit-query.js';
 import type { FileSystem } from '../../src/foundation/fs/types.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
@@ -125,6 +126,97 @@ describe('audit-query 0 result hint std-2 (phase 216 Step D)', () => {
     });
     expect(stderrSpy).toHaveBeenCalledWith(
       expect.stringContaining('(no filter)')
+    );
+  });
+});
+
+describe('audit-query `--no-hint` commander wire (phase 219 Step A)', () => {
+  let tmpDir: string;
+  let fsFactory: (baseDir: string) => FileSystem;
+  let stdoutSpy: ReturnType<typeof vi.spyOn>;
+  let stderrSpy: ReturnType<typeof vi.spyOn>;
+  const originalStderrIsTTY = process.stderr.isTTY;
+
+  beforeEach(() => {
+    tmpDir = fsSync.mkdtempSync(path.join(os.tmpdir(), 'audit-query-hint-wire-'));
+    shared.baseDir = tmpDir;
+    fsSync.mkdirSync(path.join(tmpDir, 'claws', 'test-claw', '.chestnut'), { recursive: true });
+    fsSync.writeFileSync(path.join(tmpDir, 'claws', 'test-claw', 'claw.json'), JSON.stringify({ id: 'test-claw', createdAt: new Date().toISOString() }));
+    fsSync.writeFileSync(path.join(tmpDir, 'claws', 'test-claw', 'audit.tsv'), [
+      '2026-06-09T00:00:00.000Z\tseq=1\tturn_start',
+    ].join('\n') + '\n');
+
+    fsFactory = (baseDir: string) => new NodeFileSystem({ baseDir });
+    stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    Object.defineProperty(process.stderr, 'isTTY', { value: true, configurable: true });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    Object.defineProperty(process.stderr, 'isTTY', { value: originalStderrIsTTY, configurable: true });
+    try {
+      fsSync.rmSync(tmpDir, { recursive: true, force: true });
+    } catch { /* ignore */ }
+  });
+
+  it('commander --no-X flag shape: --no-hint produces hint=false, not noHint (regression guard)', async () => {
+    const prog = new Command();
+    prog.option('--no-hint', 'Suppress hint');
+    let captured: any;
+    prog.action((opts) => { captured = opts; });
+    await prog.parseAsync(['node', 'test', '--no-hint']);
+    expect(captured).toHaveProperty('hint', false);
+    expect(captured).not.toHaveProperty('noHint');
+  });
+
+  it('commander --no-X default: no flag → hint=true (regression guard)', async () => {
+    const prog = new Command();
+    prog.option('--no-hint', 'Suppress hint');
+    let captured: any;
+    prog.action((opts) => { captured = opts; });
+    await prog.parseAsync(['node', 'test']);
+    expect(captured).toHaveProperty('hint', true);
+  });
+
+  it('--no-hint through commander wire suppresses stderr (end-to-end opts translation)', async () => {
+    // Simulate what cli/index.ts does: parse with commander, then pass noHint: hint === false
+    const prog = new Command();
+    prog.option('--no-hint', 'Suppress 0 result hint to stderr');
+    let actionCalled = false;
+    prog.action(async (opts: { hint?: boolean }) => {
+      actionCalled = true;
+      await auditQueryCommand({ fsFactory }, {
+        claw: 'test-claw',
+        file: 'audit',
+        step: 99,
+        noHint: opts.hint === false,
+      });
+    });
+    await prog.parseAsync(['node', 'test', '--no-hint']);
+    expect(actionCalled).toBe(true);
+    expect(stdoutSpy).not.toHaveBeenCalled();
+    expect(stderrSpy).not.toHaveBeenCalled();
+  });
+
+  it('default (no --no-hint) through commander wire emits hint (end-to-end opts translation)', async () => {
+    const prog = new Command();
+    prog.option('--no-hint', 'Suppress 0 result hint to stderr');
+    let actionCalled = false;
+    prog.action(async (opts: { hint?: boolean }) => {
+      actionCalled = true;
+      await auditQueryCommand({ fsFactory }, {
+        claw: 'test-claw',
+        file: 'audit',
+        step: 99,
+        noHint: opts.hint === false,
+      });
+    });
+    await prog.parseAsync(['node', 'test']);
+    expect(actionCalled).toBe(true);
+    expect(stdoutSpy).not.toHaveBeenCalled();
+    expect(stderrSpy).toHaveBeenCalledWith(
+      expect.stringContaining('No audit rows match filter')
     );
   });
 });
