@@ -7,6 +7,7 @@
 
 import { randomUUID } from 'crypto';
 import { MOTION_CLAW_ID } from '../../constants.js';
+import { makeStepNumber } from '../../foundation/identity/step-number.js';
 import { CALLER_TYPE_TO_GROUPS } from '../caller-types.js';
 import * as path from 'path';
 
@@ -676,7 +677,7 @@ export class AsyncTaskSystem {
       fs: this.fs,
       fsFactory: this.fsFactory,
       profile: 'full',
-      stepNumber: 0,
+      stepNumber: makeStepNumber(0),
       maxSteps: 1,
       signal,
       isMotionChain: task.parentClawId === MOTION_CLAW_ID,

@@ -15,6 +15,7 @@ import type { IToolExecutor, ToolRegistry } from '../../foundation/tools/index.j
 import { executeStep, throwAbortError, type StepCallbacks, type StepMeta, type FinalStopReason } from '../step-executor/index.js';
 import { MaxStepsExceededError, ConsecutiveParseErrorsExceededError, ConsecutiveMaxTokensToolUseError, WallTimeExceededError } from './errors.js';
 import { DEFAULT_MAX_STEPS } from './defaults.js';
+import { makeStepNumber } from '../../foundation/identity/step-number.js';
 import { MAX_CONSECUTIVE_PARSE_ERRORS, MAX_CONSECUTIVE_MAX_TOKENS_TOOL_USE } from './constants.js';
 
 export interface AgentInput {
@@ -72,7 +73,7 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
         throw new WallTimeExceededError(deadline, elapsed);
       }
     }
-    ctx.stepNumber = stepCount;
+    ctx.stepNumber = makeStepNumber(stepCount);
     if (ctx.signal?.aborted) throwAbortError(ctx.signal);
     // phase 777: result-capture tools (done) request early stop.
     // capturedResult is read by runSubagent regardless of finalText.

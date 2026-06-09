@@ -13,6 +13,8 @@ import type { LLMOrchestrator } from '../llm-orchestrator/index.js';
 import type { ToolProfile } from '../tool-protocol/index.js';
 import type { ExecContext, ToolGroup, FileState } from './types.js';
 import type { TraceId } from '../audit/types.js';
+import type { StepNumber } from '../identity/step-number.js';
+import { makeStepNumber } from '../identity/step-number.js';
 import path from 'path';
 import { MOTION_CLAW_ID } from '../../constants.js';
 import { CLAWSPACE_DIR } from '../../assembly/claw-dirs.js';
@@ -162,7 +164,7 @@ export class ExecContextImpl implements ExecContext {
   fs: FileSystem;
   fsFactory?: (baseDir: string) => FileSystem;
   llm?: LLMOrchestrator;
-  stepNumber: number;
+  stepNumber: StepNumber;
   maxSteps: number;
   signal?: AbortSignal;
   subagentMaxSteps: number;
@@ -211,7 +213,7 @@ export class ExecContextImpl implements ExecContext {
     this.trace_id = options.trace_id;
     this.getCallerSnapshot = options.getCallerSnapshot;
     this.subagentTaskId = options.subagentTaskId;
-    this.stepNumber = 0;
+    this.stepNumber = makeStepNumber(0);
     this.startTime = Date.now();
   }
 
@@ -234,7 +236,7 @@ export class ExecContextImpl implements ExecContext {
    * Called by ReAct loop before each step
    */
   incrementStep(): void {
-    this.stepNumber++;
+    this.stepNumber = makeStepNumber(this.stepNumber + 1);
   }
 
   /**

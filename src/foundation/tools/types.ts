@@ -17,6 +17,7 @@ import type { ScheduleAsyncTool } from './async-dispatch.js';
 import type { PermissionChecker } from '../tool-protocol/permission.js';
 import type { ToolUseId } from '../tool-protocol/index.js';
 import type { TraceId } from '../audit/types.js';
+import type { StepNumber } from '../identity/step-number.js';
 
 
 
@@ -133,7 +134,7 @@ export interface ExecutionInfra {
 
 /** 执行控制维度（D4）：stepNumber / maxSteps / signal / subagentMaxSteps / toolTimeoutMs / stopRequested + requestStop / getElapsedMs / incrementStep */
 export interface ExecutionControl {
-  stepNumber: number;
+  stepNumber: StepNumber;
   maxSteps: number;
   signal?: AbortSignal;
   /** Max steps for subagents created via spawn tool */
