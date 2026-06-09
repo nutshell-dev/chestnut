@@ -28,9 +28,6 @@ import { TASKS_SUBAGENTS_DIR } from '../subagent/constants.js';
 import { buildSubagentSystemPrompt, CONTRACT_VERIFIER_SYSTEM_PROMPT } from '../../prompts/index.js';
 import type { VerifierConfig, VerifierResult } from './types.js';
 
-/** verifier result schema invalid 时 feedback 字符串截断（LLM ctx 投递、与 audit row 截断独立可变） */
-const VERIFIER_FEEDBACK_RAW_PREVIEW_CHARS = 200;
-
 export async function runContractVerifier(config: VerifierConfig): Promise<VerifierResult> {
   // phase 19 Step D: explicit runtime check replaces non-null assertion (LSP/M#4).
   // Assembler is expected to inject fsFactory; absence is a programming error in the
@@ -214,7 +211,7 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
           },
         );
       }
-      return { passed: false, feedback: `verifier result schema invalid: ${jsonStr.slice(0, VERIFIER_FEEDBACK_RAW_PREVIEW_CHARS)}` };
+      return { passed: false, feedback: `verifier result schema invalid: ${jsonStr}` };
     }
     const result = parsedText;
     if (result.passed && config.audit) {

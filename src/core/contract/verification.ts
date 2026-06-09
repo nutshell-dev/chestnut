@@ -188,7 +188,8 @@ async function applyVerificationOutcome(
 
     emitContractVerificationFailed(
       ctx.audit,
-      { contractId, subtaskId, feedback: result.feedback },
+      // phase 217: 末端单次 .message 截、producer (verifier-job) 已不自截
+      { contractId, subtaskId, feedback: ctx.audit.message(result.feedback) },
     );
 
     if (subtask.retry_count >= maxAttempts) {
