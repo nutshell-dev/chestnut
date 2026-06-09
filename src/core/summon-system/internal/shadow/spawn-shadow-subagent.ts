@@ -61,7 +61,7 @@ export async function spawnShadowSubagent(
     kind: 'subagent',
     mode: 'shadow',                            // δ discriminated union 新字段
     shadowMessages,                            // shadow path 真信息源
-    intentPreview: opts.task,                                            // δ phase 214: 存全文、消费时由 audit class 截
+    intent: opts.task,                                                    // δ phase 218: 字段重命名 intentPreview → intent (union 合并)、消费时由 audit class 截
     timeoutMs: opts.timeoutMs ?? SHADOW_DEFAULT_TIMEOUT_MS,
     maxSteps: opts.maxSteps ?? SHADOW_MAX_STEPS_DEFAULT,
     parentClawId: opts.ctx.clawId ?? '',

@@ -42,7 +42,7 @@ describe('phase 1383: handleMaxTokensStop State A orphan prebuilt observability'
     expect(onMaxTokensStateAOrphanDrop).toHaveBeenCalledWith(expect.objectContaining({
       orphans: [expect.objectContaining({
         tool_use_id: 'tc_orphan',
-        content_preview: 'real prior result',
+        content: 'real prior result',
         is_error: false,
       })],
       llm: expect.objectContaining({ model: 'test-model' }),

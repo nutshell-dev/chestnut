@@ -79,8 +79,8 @@ describe('spawnShadowSubagent (phase 1185)', () => {
     const task = tasks[0];
     expect(task.mode).toBe('shadow');
     expect(task.shadowMessages).toBeDefined();
-    expect(task.intentPreview).toBe('do X');
-    expect(task.intent).toBeUndefined();
+    expect(task.intent).toBe('do X');
+    expect(task.intentPreview).toBeUndefined();
   });
 
   it('反向 2 — shadowMessages 不含 task body 重复', async () => {
@@ -152,7 +152,7 @@ describe('spawnShadowSubagent (phase 1185)', () => {
       toolsForLLM: [],
     });
     const tasks2 = await readPendingTasks(tempDir);
-    const noPP = tasks2.find(t => t.intentPreview === 't4');
+    const noPP = tasks2.find(t => t.intent === 't4');
     expect(noPP).toBeDefined();
     expect(noPP!.postProcessor).toBeUndefined();
   });

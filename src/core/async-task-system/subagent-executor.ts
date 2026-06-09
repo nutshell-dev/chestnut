@@ -187,7 +187,7 @@ export async function executeSubAgentTask(
       kind: 'subagent',
       parent: task.parentClawId,
       callerType: task.callerType ?? 'subagent',
-      intent: auditWriter.preview(task.mode === 'shadow' ? task.intentPreview : task.intent),
+      intent: auditWriter.preview(task.intent),  // phase 218: union 简化后两 mode 均有 intent
       elapsedMs: Date.now() - taskStartTime,
       len: displayResult.length,
       subAuditPath: `tasks/queues/results/${task.id}/audit.tsv`,
@@ -226,7 +226,7 @@ export async function executeSubAgentTask(
       kind: 'subagent',
       parent: task.parentClawId,
       callerType: task.callerType ?? 'subagent',
-      intent: auditWriter.preview(task.mode === 'shadow' ? task.intentPreview : task.intent),
+      intent: auditWriter.preview(task.intent),  // phase 218: union 简化后两 mode 均有 intent
       errorCategory: classifyTaskError(error),
       elapsedMs: Date.now() - taskStartTime,
       subAuditPath: `tasks/queues/results/${task.id}/audit.tsv`,

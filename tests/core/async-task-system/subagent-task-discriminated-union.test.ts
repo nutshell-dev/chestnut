@@ -15,30 +15,27 @@ import { executeSubAgentTask } from '../../../src/core/async-task-system/subagen
 
 // 反向 1 — tsc enforce 非法组合（compile-time）
 describe('SubAgentTask discriminated union (phase 1185)', () => {
-  it('ts-expect-error: shadow variant 不允许 intent 字段', () => {
-    // @ts-expect-error shadow variant 不允许 intent 字段
+  it('ts-expect-error: shadow variant 不允许缺少 shadowMessages', () => {
+    // @ts-expect-error shadow variant 必须提供 shadowMessages
     const _badShadow: SubAgentTask = {
       mode: 'shadow',
       intent: 'x',
-      shadowMessages: [],
       kind: 'subagent',
       id: 't1',
       timeoutMs: 60_000,
       maxSteps: 10,
       parentClawId: 'c1',
       createdAt: '2026-05-24T00:00:00Z',
-      intentPreview: 'x',
     };
     expect(_badShadow).toBeDefined();
   });
 
-  it('ts-expect-error: standard variant 不允许 shadowMessages + intentPreview', () => {
-    // @ts-expect-error standard variant 不允许 shadowMessages + intentPreview
+  it('ts-expect-error: standard variant 不允许 shadowMessages', () => {
+    // @ts-expect-error standard variant 不允许 shadowMessages
     const _badStandard: SubAgentTask = {
       mode: 'standard',
       intent: 'do Y',
       shadowMessages: [],
-      intentPreview: 'y',
       kind: 'subagent',
       id: 't2',
       timeoutMs: 60_000,
@@ -53,7 +50,7 @@ describe('SubAgentTask discriminated union (phase 1185)', () => {
     const _goodShadow: SubAgentTask = {
       mode: 'shadow',
       shadowMessages: [{ role: 'user', content: 'hi' }],
-      intentPreview: 'hi',
+      intent: 'hi',
       kind: 'subagent',
       id: 't3',
       timeoutMs: 60_000,
@@ -105,7 +102,7 @@ describe('SubAgentTaskSchema backwards-compat', () => {
       mode: 'shadow',
       id: 'shadow-task',
       shadowMessages: [{ role: 'user', content: 'hi' }],
-      intentPreview: 'hi',
+      intent: 'hi',
       timeoutMs: 60_000,
       maxSteps: 10,
       parentClawId: 'c1',
@@ -115,6 +112,27 @@ describe('SubAgentTaskSchema backwards-compat', () => {
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.mode).toBe('shadow');
+      expect(result.data.intent).toBe('hi');
+    }
+  });
+
+  it('旧 shadow task 含 intentPreview 通过 preprocess 兼容 parse', () => {
+    const oldShadowTask = {
+      kind: 'subagent',
+      mode: 'shadow',
+      id: 'old-shadow-task',
+      shadowMessages: [{ role: 'user', content: 'hi' }],
+      intentPreview: 'legacy intent',
+      timeoutMs: 60_000,
+      maxSteps: 10,
+      parentClawId: 'c1',
+      createdAt: '2026-05-24T00:00:00Z',
+    };
+    const result = SubAgentTaskSchema.safeParse(oldShadowTask);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.mode).toBe('shadow');
+      expect(result.data.intent).toBe('legacy intent');
     }
   });
 });

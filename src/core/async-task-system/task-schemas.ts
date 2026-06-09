@@ -35,12 +35,13 @@ const commonSubAgentFields = {
   isShadow: z.boolean().optional(),
   shadowSystemPrompt: z.string().optional(),
   shadowToolsForLLM: z.array(z.unknown()).optional(),
+  // phase 218: intent 提到 common fields（union 合并）
+  intent: z.string(),
 };
 
 const standardSubAgentTaskSchema = z.object({
   ...commonSubAgentFields,
   mode: z.literal('standard'),
-  intent: z.string(),
   shadowMessages: z.array(z.unknown()).optional(),
 });
 
@@ -48,10 +49,6 @@ const shadowSubAgentTaskSchema = z.object({
   ...commonSubAgentFields,
   mode: z.literal('shadow'),
   shadowMessages: z.array(z.unknown()),
-  // phase 215: 去 max(60) 约束。phase 214 改 spawn-shadow 存全文（opts.task）、
-  // 消费侧 subagent-executor 用 auditWriter.preview() 末端截、schema 应同步去约束。
-  // 字段名 'intentPreview' 保留兼容（未来独立 phase 可重命名 task.intent）。
-  intentPreview: z.string(),
 });
 
 const subAgentTaskDiscriminatedUnion = z.discriminatedUnion('mode', [
@@ -60,8 +57,10 @@ const subAgentTaskDiscriminatedUnion = z.discriminatedUnion('mode', [
 ]);
 
 /**
- * Backwards-compat: old pendingTask files may lack `mode` field.
- * Preprocess injects `mode: 'standard'` for legacy files.
+ * Backwards-compat:
+ * 1. old pendingTask files may lack `mode` field. Preprocess injects `mode: 'standard'`.
+ * 2. old shadow task files may use `intentPreview` field (phase 218 renamed to `intent`).
+ *    Preprocess renames `intentPreview` → `intent` for shadow tasks.
  *
  * SUNSET per phase 1258: 30 天 audit LEGACY_PENDING_TASK_NO_MODE 0 触发
  * → r+ phase 删 preprocess hook + cascade reader (sunset-monitor cron job 周期 query)
@@ -70,7 +69,12 @@ const subAgentTaskDiscriminatedUnion = z.discriminatedUnion('mode', [
 export const SubAgentTaskSchema = z.preprocess(
   (val) => {
     if (typeof val === 'object' && val !== null && !('mode' in val)) {
-      return { ...(val as object), mode: 'standard' };
+      val = { ...(val as object), mode: 'standard' };
+    }
+    // phase 218: old shadow tasks may have intentPreview instead of intent
+    if (typeof val === 'object' && val !== null && 'intentPreview' in val && !('intent' in val)) {
+      const { intentPreview, ...rest } = val as { intentPreview: string; [k: string]: unknown };
+      val = { ...rest, intent: intentPreview };
     }
     return val;
   },

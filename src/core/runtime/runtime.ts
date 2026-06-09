@@ -719,7 +719,9 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
                 RUNTIME_AUDIT_EVENTS.MAX_TOKENS_STATE_A_ORPHAN_DROP,
                 `tool_use_id=${orphan.tool_use_id}`,
                 `is_error=${orphan.is_error}`,
-                `content_preview=${this.auditWriter?.preview(orphan.content_preview) ?? orphan.content_preview}`,
+                // phase 218: TS field renamed orphan.content_preview → orphan.content
+                // audit col literal `content_preview=` 保留跨进程 schema 稳定
+                `content_preview=${this.auditWriter?.preview(orphan.content) ?? orphan.content}`,
                 `model=${args.llm.model}`,
               );
             }

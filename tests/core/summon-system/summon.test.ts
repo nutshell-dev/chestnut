@@ -108,7 +108,7 @@ describe('SummonTool', () => {
     const tasks = await readPendingTasks(tempDir);
     expect(tasks).toHaveLength(1);
     expect(tasks[0]).toMatchObject({
-      intentPreview: expect.stringContaining('do something'),
+      intent: expect.stringContaining('do something'),
       kind: 'subagent',
       mode: 'shadow',
     });
@@ -196,7 +196,7 @@ Content.
       expect(lastMsg.content).toContain('SHADOW INSTRUCTION');
       expect(lastMsg.content).toContain('shadow_id: summon-');
       expect(lastMsg.content).toContain('## 本次目标');
-      expect(tasks[0].intentPreview).toContain('audit L1 FileSystem');
+      expect(tasks[0].intent).toContain('audit L1 FileSystem');
     });
 
     it('shadow mode: 末条 assistant tool_use 时 strip + SHADOW INSTRUCTION', async () => {

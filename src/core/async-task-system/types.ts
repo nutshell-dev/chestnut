@@ -86,9 +86,11 @@ interface CommonSubAgentTaskFields {
   shadowToolsForLLM?: ToolDefinition[];
 }
 
-export type SubAgentTask =
-  | (CommonSubAgentTaskFields & { mode: 'standard'; intent: string; shadowMessages?: undefined; intentPreview?: undefined })
-  | (CommonSubAgentTaskFields & { mode: 'shadow'; intent?: undefined; shadowMessages: Message[]; intentPreview: string });
+// phase 218: intent 在 both mode 都存在、shadow 独有 shadowMessages
+export type SubAgentTask = CommonSubAgentTaskFields & { intent: string } & (
+  | { mode: 'standard'; shadowMessages?: undefined }
+  | { mode: 'shadow'; shadowMessages: Message[] }
+);
 
 /**
  * Discriminator union of task kinds.

@@ -53,7 +53,7 @@ export function inferKind(deps: { fsFactory: (baseDir: string) => FileSystem }, 
     if (clawFs.existsSync(taskRel)) {
       try {
         const task = JSON.parse(clawFs.readSync(taskRel));
-        const intentText = task.mode === 'shadow' ? task.intentPreview : task.intent;
+        const intentText = task.intent;  // phase 218: union 简化
         if (task.systemPrompt?.includes('RANDOM_DREAM') || intentText?.includes('[DREAM_OUTPUT]')) {
           return 'random_dream';
         }
