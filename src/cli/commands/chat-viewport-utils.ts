@@ -89,14 +89,4 @@ export function fmtDuration(ms: number): string {
   return `${m}m`;
 }
 
-/**
- * 截断 error message 字符串、超 maxLen 时截至 maxLen-3 + '...' 形成 maxLen 字符显示长度。
- * 用于 viewport / log display preview、消 trigger/keep pair magic。
- * caller 仅传 trigger length、helper 内化 keep = trigger - 3 数学。
- */
-export function shortenErrorMsg(msg: string, maxLen: number): string {
-  if (msg.length <= maxLen) return msg;
-  return msg.slice(0, maxLen - 3) + '...';
-}
-
 

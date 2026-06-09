@@ -16,7 +16,7 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
 import { AGENT_STREAM_EVENTS } from '../agent-executor/index.js';
 import { SUBAGENT_AUDIT_EVENTS, emitToolCallInput } from './audit-events.js';
-import { truncateToolContent } from './truncate.js';
+
 import { oneLine } from '../../foundation/utils/index.js';
 
 export interface StreamCallbacksOptions {
@@ -92,21 +92,17 @@ export function createStreamCallbacks(opts: StreamCallbacksOptions): StreamCallb
       emitToolCallInput(opts.auditWriter, { name, toolUseId, argsSize, step: 0 });
     },
     onToolResult: (name, toolUseId, result, step, maxSteps) => {
-      const oneLineContent = oneLine(result.content ?? '');
-      const { preview, cols } = truncateToolContent(
-        oneLineContent,
-        [
-          `tool_use_id=${String(toolUseId)}`,
-          `step=${step}`,
-          `contract_id=`,
-          `trace_id=`,
-          `status=${result.success ? 'ok' : 'err'}`,
-        ],
-      );
+      const content = result.content ?? '';
+      const preview = oneLine(content);
       opts.auditWriter.write(
         SUBAGENT_AUDIT_EVENTS.TOOL_RESULT,
         name,
-        ...cols,
+        `tool_use_id=${String(toolUseId)}`,
+        `step=${step}`,
+        `contract_id=`,
+        `trace_id=`,
+        `status=${result.success ? 'ok' : 'err'}`,
+        `content_size=${Buffer.byteLength(content, 'utf-8')}`,
         `summary=${preview}`,
       );
       safeSwWrite({

@@ -59,7 +59,7 @@ import { formatTimeAgo } from './utils.js';
 import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
 import type { TraceId } from './types/trace-id.js';
 import { makeTraceId } from './types/trace-id.js';
-import { truncateToolContent } from './truncate.js';
+
 import {
   computeBudget,
   handleContextExceeded,
@@ -576,21 +576,17 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
       name: string, toolUseId: ToolUseId,
       result: ToolResult, step: number, maxSteps: number
     ) => {
-      const oneLineContent = oneLine(result.content ?? '');
-      const { preview, cols } = truncateToolContent(
-        oneLineContent,
-        [
-          `tool_use_id=${String(toolUseId)}`,
-          `step=${step}`,
-          `contract_id=`,
-          `trace_id=${String(this.execContext.trace_id ?? '')}`,
-          `status=${result.success ? 'ok' : 'err'}`,
-        ],
-      );
+      const content = result.content ?? '';
+      const preview = oneLine(content);
       this.auditWriter.write(
         RUNTIME_AUDIT_EVENTS.TOOL_RESULT,
         name,
-        ...cols,
+        `tool_use_id=${String(toolUseId)}`,
+        `step=${step}`,
+        `contract_id=`,
+        `trace_id=${String(this.execContext.trace_id ?? '')}`,
+        `status=${result.success ? 'ok' : 'err'}`,
+        `content_size=${Buffer.byteLength(content, 'utf-8')}`,
         `summary=${preview}`,
       );
       origOnToolResult?.(name, toolUseId, result, step, maxSteps);
