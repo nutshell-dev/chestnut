@@ -16,6 +16,7 @@ import { CLAWS_DIR } from '../../foundation/claw-paths.js';
 import { INBOX_PENDING_DIR } from '../../foundation/messaging/index.js';
 import { FileNotFoundError } from '../../foundation/fs/types.js';
 import { assertDreamStateShape } from './invariants.js';
+import { auditDeepDreamCrossSource } from './dream-cross-source-audit.js';
 
 /** Default max tokens for memory compression pass */
 const COMPRESSION_TOKENS_DEFAULT = 4000;
@@ -100,9 +101,21 @@ function loadDreamState(clawFs: FileSystem, audit: AuditLog, clawId: string): Dr
   }
 }
 
-function saveDreamState(clawFs: FileSystem, state: DreamStateData, audit: AuditLog, clawId: string): void {
-  // phase 247 Step A: schema invariant（违例 emit audit、不 throw、不阻 save、Path #4）
+function saveDreamState(
+  clawFs: FileSystem,
+  state: DreamStateData,
+  audit: AuditLog,
+  clawId: string,
+  listArchives?: () => Promise<string[]>,
+): void {
+  // phase 247 Step A: schema invariant
   assertDreamStateShape(state, audit, 'deep_dream_save');
+
+  // phase 247 Step B: cross-source audit（fire-and-forget、可选 provider）
+  if (listArchives) {
+    void auditDeepDreamCrossSource(state, listArchives, audit)
+      .catch(() => { /* silent: fire-and-forget cross-source audit self-defense */ });
+  }
 
   try {
     clawFs.writeAtomicSync(DEEP_DREAM_STATE_FILE, JSON.stringify(state, null, 2));
@@ -301,7 +314,7 @@ async function persistDreamRun(
       currentSessionDreamedDate: currentProcessedToday ? plan.today : plan.state.currentSessionDreamedDate,
       currentSessionRetryCount: currentProcessedToday ? 0 : plan.state.currentSessionRetryCount,
     };
-    saveDreamState(ctx.clawFs, updatedState, ctx.audit, ctx.clawId);
+    saveDreamState(ctx.clawFs, updatedState, ctx.audit, ctx.clawId, () => plan.dialogStore.listArchives());
   }
 
   if (dreamOutputs.length === 0) return;

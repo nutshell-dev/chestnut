@@ -13,6 +13,7 @@ import type { ContractId } from '../contract/types.js';
 import { type TaskId, makeTaskId } from '../async-task-system/types.js';
 import { listArchiveContracts } from '../contract/index.js';
 import { assertDreamStateShape } from './invariants.js';
+import { auditRandomDreamCrossSource } from './dream-cross-source-audit.js';
 import {
   RANDOM_DREAM_SYSTEM_PROMPT,
   buildRandomDreamPrompt,
@@ -107,9 +108,20 @@ function loadRandomDreamState(fs: FileSystem, audit: AuditLog): RandomDreamState
   }
 }
 
-function saveRandomDreamState(fs: FileSystem, state: RandomDreamState, audit: AuditLog): void {
-  // phase 247 Step A: schema invariant（违例 emit audit、不 throw、保既有 save throw 语义）
+function saveRandomDreamState(
+  fs: FileSystem,
+  state: RandomDreamState,
+  audit: AuditLog,
+  listArchiveContractIds?: () => Promise<string[]>,
+): void {
+  // phase 247 Step A: schema invariant
   assertDreamStateShape(state, audit, 'random_dream_save');
+
+  // phase 247 Step B: cross-source audit（fire-and-forget）
+  if (listArchiveContractIds) {
+    void auditRandomDreamCrossSource(state, listArchiveContractIds, audit)
+      .catch(() => { /* silent: fire-and-forget cross-source audit self-defense */ });
+  }
 
   try {
     fs.writeAtomicSync(
@@ -437,7 +449,10 @@ async function sweepLateSettlePending(
     processedContractIds: processedAccum,
     pendingLateSettle: remaining,
   };
-  saveRandomDreamState(opts.fs, updatedState, opts.audit);
+  saveRandomDreamState(opts.fs, updatedState, opts.audit, async () => {
+    const contracts = await listArchiveContracts({ fs: opts.fs });
+    return contracts.map(c => c.contractId);
+  });
   return updatedState;
 }
 
@@ -505,7 +520,10 @@ export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
         },
       ],
     };
-    saveRandomDreamState(opts.fs, updatedState, opts.audit);
+    saveRandomDreamState(opts.fs, updatedState, opts.audit, async () => {
+      const contracts = await listArchiveContracts({ fs: opts.fs });
+      return contracts.map(c => c.contractId);
+    });
 
     opts.audit.write(
       MEMORY_AUDIT_EVENTS.RANDOM_DREAM_LATE_SETTLE_PENDING,
@@ -535,7 +553,10 @@ export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
       ...new Set([...state.processedContractIds, ...contractIds]),
     ],
   };
-  saveRandomDreamState(opts.fs, updatedState, opts.audit);
+  saveRandomDreamState(opts.fs, updatedState, opts.audit, async () => {
+    const contracts = await listArchiveContracts({ fs: opts.fs });
+    return contracts.map(c => c.contractId);
+  });
 
   const dreamOutput = outputs.join('\n\n---\n\n');
   const dreamOutputPath = `${MEMORY_DREAM_OUTPUTS_DIR}/${taskId}.txt`;

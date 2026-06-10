@@ -24,6 +24,8 @@ export const MEMORY_AUDIT_EVENTS = {
   RANDOM_DREAM_LATE_SETTLE_CONSUMED: 'memory_random_dream_late_settle_consumed',  // NEW phase 170
   RANDOM_DREAM_LATE_SETTLE_ABANDONED: 'memory_random_dream_late_settle_abandoned', // NEW phase 170
   MEMORY_DREAM_INVARIANT_VIOLATED: 'memory_dream_invariant_violated',  // NEW phase 247 Step A
+  MEMORY_DREAM_CROSS_SOURCE_MISMATCH: 'memory_dream_cross_source_mismatch',  // NEW phase 247 Step B
+  MEMORY_DREAM_CROSS_SOURCE_SKIPPED: 'memory_dream_cross_source_skipped',    // NEW phase 247 Step B
 } as const;
 
 
