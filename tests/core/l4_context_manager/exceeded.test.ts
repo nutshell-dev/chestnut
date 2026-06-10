@@ -15,7 +15,8 @@ describe('handleContextExceeded', () => {
     ];
     const r = handleContextExceeded(msgs, 'sys', 10000);
     expect(r).toBeDefined();
-    expect(r.length).toBeGreaterThan(0);
+    expect(r.messages.length).toBeGreaterThan(0);
+    expect(r.wasTrimmed).toBe(false);
   });
 
   it('escalates allowCacheBreak=true when insufficient without cache break', () => {

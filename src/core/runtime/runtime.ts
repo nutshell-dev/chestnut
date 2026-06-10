@@ -60,29 +60,6 @@ import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
 import type { TraceId } from './types/trace-id.js';
 import { makeTraceId } from './types/trace-id.js';
 
-import {
-  computeBudget,
-  handleContextExceeded,
-} from '../l4_context_manager/index.js';
-import { estimateTextTokens, estimateInputTokens } from '../../foundation/llm-provider/token-estimator.js';
-
-
-
-const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
-  'claude-3-7-sonnet-20250219': 200_000,
-  'gpt-4o': 128_000,
-  'deepseek-chat': 64_000,
-  'kimi-k2.5': 256_000,
-  'MiniMax-M1': 1_000_000,
-  'gemini-2.5-pro-preview-03-25': 1_000_000,
-  'llama3.1': 128_000,
-  'grok-4': 128_000,
-  'openai/gpt-4o': 128_000,
-  'anthropic/claude-sonnet-4-5': 200_000,
-  'glm-4.6': 128_000,
-  'qwen-coder-plus-latest': 128_000,
-};
-
 function auditError(
   audit: AuditLog,
   event: string,
@@ -610,27 +587,9 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
       );
     };
 
-    // ContextManager budget + trim (Phase 186)
-    const providerInfo = this.llm.getProviderInfo?.();
-    const providerContextWindow = providerInfo?.model
-      ? (MODEL_CONTEXT_WINDOWS[providerInfo.model] ?? 128_000)
-      : 128_000;
-
-    const budget = computeBudget({
-      providerContextWindow,
-      reserveOutputTokens: 8192,
-      systemPromptTokens: estimateTextTokens(systemPrompt),
-      toolsForLLMTokens: estimateTextTokens(JSON.stringify(tools)),
-    });
-
-    let outboundMessages = messages;
-    if (estimateInputTokens({ messages, systemPrompt, tools }).total > budget.available) {
-      outboundMessages = handleContextExceeded(messages, systemPrompt, budget.available, this.auditWriter);
-    }
-
     try {
       await runReact({
-          messages: outboundMessages,
+          messages,
           systemPrompt,
           llm: this.llm,
           executor: this.toolExecutor,

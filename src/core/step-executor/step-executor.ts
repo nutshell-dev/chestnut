@@ -18,7 +18,7 @@
  * This file keeps executeStep entry point + runLLMCall LLM call layer
  */
 
-import type { LLMResponse } from '../../foundation/llm-provider/types.js';
+import type { LLMResponse, Message } from '../../foundation/llm-provider/types.js';
 import type { LLMOrchestrator, LLMCallOptions } from '../../foundation/llm-orchestrator/index.js';
 import type { StepInput, StepResult, LLMCallInfo } from './types.js';
 
@@ -30,6 +30,7 @@ import { handleToolUseStop, handleMaxTokensStop } from './stop-handlers.js';
 import {
   computeBudget,
   handleContextExceeded,
+  type LLMCallView,
 } from '../l4_context_manager/index.js';
 import { estimateTextTokens, estimateInputTokens } from '../../foundation/llm-provider/token-estimator.js';
 
@@ -49,7 +50,7 @@ const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
 };
 
 export async function executeStep(input: StepInput): Promise<StepResult> {
-  let { messages, systemPrompt, llm, tools, ctx, callbacks } = input;
+  const { messages, systemPrompt, llm, tools, ctx, callbacks } = input;
   const maxTokens = input.maxTokens;
 
   if (ctx.signal?.aborted) throwAbortError(ctx.signal);
@@ -68,13 +69,18 @@ export async function executeStep(input: StepInput): Promise<StepResult> {
     toolsForLLMTokens: estimateTextTokens(JSON.stringify(tools ?? [])),
   });
 
+  // trim 触发：产出 LLM call payload view、不替换 messages（caller 持久化引用、append 仍走 messages）
+  let callView: LLMCallView = { messages, wasTrimmed: false };
   if (budget.available > 0 && estimateInputTokens({ messages, systemPrompt, tools }).total > budget.available) {
-    messages = handleContextExceeded(messages, systemPrompt, budget.available);
+    callView = handleContextExceeded(messages, systemPrompt, budget.available);
   }
 
   const llmStartTime = Date.now();
   const callOptions: LLMCallOptions = {
-    messages, system: systemPrompt, tools, maxTokens,
+    messages: callView.messages as Message[],
+    system: systemPrompt,
+    tools,
+    maxTokens,
     signal: ctx.signal, streamIdleTimeoutMs: input.idleTimeoutMs,
   };
   const { response, llmInfo } = await runLLMCall(llm, callOptions, llmStartTime, callbacks);

@@ -10,7 +10,7 @@ export {
   resolveHandoffMarker,
   type HandoffMarker,
 } from './handoff.js';
-export { handleContextExceeded } from './exceeded.js';
+export { handleContextExceeded, type LLMCallView } from './exceeded.js';
 export {
   ContextTrimExhaustedError,
   ContextTrimInsufficientWithoutCacheBreakError,
