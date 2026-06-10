@@ -31,8 +31,9 @@ import type { Gateway } from '../core/gateway/index.js';
 import { createAskUserTool } from '../core/gateway/index.js';
 import { createStreamReader, STREAM_FILE, findRecentTurnStartOffset } from '../foundation/stream/index.js';
 import { createNotifyClawTool } from '../foundation/messaging/tools/notify-claw.js';
+import { formatClawStatusHint } from '../cli/commands/claw-shared.js';
 import { notifyClaw, OutboxReader } from '../foundation/messaging/index.js';
-import { MOTION_CLAW_ID } from '../constants.js';
+import { MOTION_CLAW_ID, makeClawId } from '../constants.js';
 import type { CoreInfraOutput } from './core-infrastructure.js';
 import type { BusinessSysOutput } from './business-systems.js';
 import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
@@ -93,6 +94,8 @@ export async function createMotionAddons(
     fs: parentFs,
     chestnutRoot: resolveChestnutRoot(clawDir, true),  // phase 1406: motion-only context (motion clawDir = <root>/motion → root)
     audit: auditWriter,
+    isClawAlive: (clawId: string) => core.processManager.isAlive(makeClawId(clawId)), // phase 232
+    formatClawStatusHint, // phase 232: M#1 single source
   }));
 
   // --- Heartbeat (motion + interval > 0, daemon.ts L158-169) ---

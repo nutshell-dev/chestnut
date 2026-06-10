@@ -11,12 +11,12 @@ import { formatErr } from "../../utils/index.js";
 import path from 'node:path';
 import type { Tool, ExecContext, ToolPermissions } from '../../tools/index.js';
 import { MOTION_CLAW_ID } from '../../../constants.js';
-import { INBOX_PENDING_DIR } from '../dirs.js';
+
 import { CLAWS_DIR } from '../../../assembly/claw-dirs.js';
 import type { ToolResult } from '../../tool-protocol/index.js';
 import type { FileSystem } from '../../fs/types.js';
 import type { AuditLog } from '../../audit/index.js';
-import { InboxWriter, makeInboxPath } from '../inbox-writer.js';
+import { notifyClaw } from '../notify.js';
 import { MESSAGING_AUDIT_EVENTS } from '../audit-events.js';
 export const NOTIFY_CLAW_TOOL_NAME = 'notify_claw' as const;
 
@@ -24,6 +24,8 @@ export interface NotifyClawDeps {
   fs: FileSystem;
   chestnutRoot: string;  // phase 90: 去 brand type-only import；motion dir 的父 dir、用于 resolve target claw dir
   audit: AuditLog;        // motion audit（NOTIFY_CLAW_SENT/FAILED emit）
+  isClawAlive: (clawId: string) => boolean; // phase 232: status hint callback
+  formatClawStatusHint: (clawName: string, isAlive: boolean) => string | undefined; // phase 232: M#1 single source
 }
 
 export function createNotifyClawTool(deps: NotifyClawDeps): Tool {
@@ -94,24 +96,26 @@ export function createNotifyClawTool(deps: NotifyClawDeps): Tool {
         return { success: false, content: `Failed to notify ${to}: claw not found` };
       }
 
-      const targetInboxDir = path.join(targetClawRoot, INBOX_PENDING_DIR);
-
       try {
-        InboxWriter.__internal_create(deps.fs, makeInboxPath(targetInboxDir), deps.audit).writeSync({
+        notifyClaw(deps.fs, deps.chestnutRoot, to, {
           type,
           source: MOTION_CLAW_ID,
           priority,
           body,
-        });
+        }, deps.audit);
         deps.audit.write(
           MESSAGING_AUDIT_EVENTS.NOTIFY_CLAW_SENT,
           `claw=${to}`,
           `type=${type}`,
           `interrupt=${interrupt}`,
         );
+        const isAlive = deps.isClawAlive(to);
+        const statusHint = deps.formatClawStatusHint(to, isAlive);
+        const baseContent = `Notified ${to}: ${type} (interrupt=${interrupt})`;
+        const content = statusHint ? `${baseContent}. ${statusHint}` : baseContent;
         return {
           success: true,
-          content: `Notified ${to}: ${type} (interrupt=${interrupt})`,
+          content,
         };
       } catch (error) {
         const reason = formatErr(error);

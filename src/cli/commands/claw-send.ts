@@ -4,13 +4,14 @@
  */
 
 import * as path from 'path';
-import { randomUUID } from 'crypto';
+
 import {
   loadGlobalConfig, clawExists, getGlobalConfigPath, getClawConfigPath,
 } from '../../foundation/config/index.js';
 import { CliError } from '../errors.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
-import { writeInboxAsync, INBOX_PENDING_DIR } from '../../foundation/messaging/index.js';
+import { notifyClaw } from '../../foundation/messaging/notify.js';
+import { formatClawStatusHint } from './claw-shared.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { CLAWS_DIR } from '../../assembly/claw-dirs.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
@@ -32,26 +33,20 @@ export async function sendCommand(
   const globalConfigPath = getGlobalConfigPath();
   const baseDir = path.dirname(globalConfigPath);
   const clawDir = path.join(baseDir, CLAWS_DIR, name);
-  const fileSystem = deps.fsFactory(clawDir);
+  const fileSystem = deps.fsFactory(baseDir);
   const audit = createSystemAudit(fileSystem, clawDir);
-  const inboxPendingRel = INBOX_PENDING_DIR;
 
-  await writeInboxAsync(fileSystem, inboxPendingRel, {
-    id: randomUUID(),
+  notifyClaw(fileSystem, baseDir, name, {
     type: 'user_inbox_message',
-    from: 'user',
-    to: name,
-    content: message,
+    source: 'user',
     priority: options?.priority ?? 'normal',
-    timestamp: new Date().toISOString(),
+    body: message,
   }, audit);
 
   console.log(`Message sent to "${name}"`);
 
   const processManager = createProcessManagerForCLI(deps);
-  if (!processManager.isAlive(makeClawId(name))) {
-    console.log(
-      `Note: claw "${name}" is not running. Start it with: chestnut claw ${name} daemon`,
-    );
-  }
+  const isAlive = processManager.isAlive(makeClawId(name));
+  const statusHint = formatClawStatusHint(name, isAlive);
+  if (statusHint) console.log(statusHint);
 }

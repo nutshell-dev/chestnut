@@ -51,7 +51,8 @@ describe('claw-send — confinement baseDir vs root (P0.2 phase 611)', () => {
 
     await sendCommand({ fsFactory }, 'test-claw', 'hello');
 
-    // Contract (phase 611 P0.2)：inbox-writing NodeFileSystem 必 clawDir-confined、不可 baseDir=/。
+    // Contract (phase 611 P0.2 + phase 232)：inbox-writing NodeFileSystem 必 confined、不可 baseDir=/。
+    // phase 232: fs baseDir 从 clawDir 升为 chestnutRoot（notifyClaw wrapper 需解析 claws/ namespace）。
     // 注：phase 8c83be84 加 daemon-alive 检查后、sendCommand 内会额外构造 ProcessManager 的
     //   NodeFileSystem (baseDir 不一定相同)。本测试只断 confinement 契约、不锁 ctor 计数。
     const calls = vi.mocked(NodeFileSystem).mock.calls;
@@ -59,8 +60,8 @@ describe('claw-send — confinement baseDir vs root (P0.2 phase 611)', () => {
     for (const ctorCall of calls) {
       expect(ctorCall[0].baseDir).not.toBe('/');
     }
-    // 至少一次构造是为了写 inbox、其 baseDir 应包含 test-claw clawDir。
-    const clawDirCall = calls.find((c) => c[0].baseDir.includes('test-claw'));
-    expect(clawDirCall).toBeDefined();
+    // phase 232: inbox-writing fs baseDir = chestnutRoot (= path.dirname(getGlobalConfigPath()))
+    const chestnutRootCall = calls.find((c) => c[0].baseDir === path.join(tmpRoot, '.chestnut'));
+    expect(chestnutRootCall).toBeDefined();
   });
 });

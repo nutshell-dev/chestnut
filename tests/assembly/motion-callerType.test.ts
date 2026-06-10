@@ -5,6 +5,7 @@ import * as os from 'os';
 import { randomUUID } from 'crypto';
 import { ExecContextImpl } from '../../src/foundation/tools/context.js';
 import { createNotifyClawTool } from '../../src/foundation/messaging/tools/notify-claw.js';
+import { formatClawStatusHint } from '../../src/cli/commands/claw-shared.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { makeAudit } from '../helpers/audit.js';
 import { CALLER_TYPE_TO_GROUPS } from '../../src/core/caller-types.js';
@@ -78,6 +79,8 @@ describe('motion callerType assemble fix (phase 1160 P0-1)', () => {
     });
 
     const tool = createNotifyClawTool({
+      isClawAlive: () => true,
+      formatClawStatusHint,
       fs,
       chestnutRoot: chestnutDir,
       audit: audit.audit,
@@ -113,6 +116,8 @@ describe('motion callerType assemble fix (phase 1160 P0-1)', () => {
     });
 
     const tool = createNotifyClawTool({
+      isClawAlive: () => true,
+      formatClawStatusHint,
       fs,
       chestnutRoot: chestnutDir,
       audit: audit.audit,

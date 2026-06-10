@@ -22,6 +22,20 @@ export function formatRelativeTime(ms: number): string {
 export { LLM_OUTPUT_EVENTS };
 
 /**
+ * Format a hint message for caller when target claw is not running.
+ *
+ * @returns hint string with restart instruction, or undefined if claw is alive.
+ * @example
+ *   formatClawStatusHint('my-claw', false)
+ *     === 'Note: claw "my-claw" is not running. Start it with: chestnut claw my-claw daemon'
+ *   formatClawStatusHint('my-claw', true) === undefined
+ */
+export function formatClawStatusHint(clawName: string, isAlive: boolean): string | undefined {
+  if (isAlive) return undefined;
+  return `Note: claw "${clawName}" is not running. Start it with: chestnut claw ${clawName} daemon`;
+}
+
+/**
  * 从 stream.jsonl 读取最后活跃时间（统一与 watchdog 指标）
  */
 export async function getLastActiveMs(clawFs: FileSystem, audit: AuditLog): Promise<number | undefined> {

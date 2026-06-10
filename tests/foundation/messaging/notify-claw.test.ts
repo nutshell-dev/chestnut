@@ -5,6 +5,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as path from 'node:path';
 import { createNotifyClawTool, NOTIFY_CLAW_TOOL_NAME } from '../../../src/foundation/messaging/tools/notify-claw.js';
+import { formatClawStatusHint } from '../../../src/cli/commands/claw-shared.js';
 import { MESSAGING_AUDIT_EVENTS } from '../../../src/foundation/messaging/audit-events.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { makeAudit } from '../../helpers/audit.js';
@@ -32,13 +33,13 @@ describe('notify_claw tool', () => {
 
   describe('schema + identity', () => {
     it('tool name = notify_claw', () => {
-      const tool = createNotifyClawTool({ fs, chestnutRoot, audit: audit.audit });
+      const tool = createNotifyClawTool({ formatClawStatusHint, isClawAlive: () => true, fs, chestnutRoot, audit: audit.audit });
       expect(tool.name).toBe('notify_claw');
       expect(tool.name).toBe(NOTIFY_CLAW_TOOL_NAME);
     });
 
     it('schema required = to + body', () => {
-      const tool = createNotifyClawTool({ fs, chestnutRoot, audit: audit.audit });
+      const tool = createNotifyClawTool({ formatClawStatusHint, isClawAlive: () => true, fs, chestnutRoot, audit: audit.audit });
       expect(tool.schema.required).toEqual(['to', 'body']);
       expect(tool.schema.properties).toHaveProperty('to');
       expect(tool.schema.properties).toHaveProperty('body');
@@ -47,7 +48,7 @@ describe('notify_claw tool', () => {
     });
 
     it('readonly=false + idempotent=false（motion-only push write tool）', () => {
-      const tool = createNotifyClawTool({ fs, chestnutRoot, audit: audit.audit });
+      const tool = createNotifyClawTool({ formatClawStatusHint, isClawAlive: () => true, fs, chestnutRoot, audit: audit.audit });
       expect(tool.readonly).toBe(false);
       expect(tool.idempotent).toBe(false);
     });
@@ -57,7 +58,7 @@ describe('notify_claw tool', () => {
 
   describe('happy path cross-claw write', () => {
     it('default (omitted interrupt) → priority=high metadata + NOTIFY_CLAW_SENT audit (phase 1427: default=true)', async () => {
-      const tool = createNotifyClawTool({ fs, chestnutRoot: tempDir, audit: audit.audit });
+      const tool = createNotifyClawTool({ formatClawStatusHint, isClawAlive: () => true, fs, chestnutRoot: tempDir, audit: audit.audit });
       const result = await tool.execute(
         { to: targetClaw, body: 'hello worker' },
         motionCtx,
@@ -83,7 +84,7 @@ describe('notify_claw tool', () => {
     });
 
     it('explicit interrupt=true → priority=high metadata + interrupt=true audit field', async () => {
-      const tool = createNotifyClawTool({ fs, chestnutRoot: tempDir, audit: audit.audit });
+      const tool = createNotifyClawTool({ formatClawStatusHint, isClawAlive: () => true, fs, chestnutRoot: tempDir, audit: audit.audit });
       await tool.execute(
         { to: targetClaw, body: 'urgent', type: 'alert', interrupt: true },
         motionCtx,
@@ -98,7 +99,7 @@ describe('notify_claw tool', () => {
     });
 
     it('explicit interrupt=false → priority=normal metadata + interrupt=false audit (phase 1427: 不打扰路径)', async () => {
-      const tool = createNotifyClawTool({ fs, chestnutRoot: tempDir, audit: audit.audit });
+      const tool = createNotifyClawTool({ formatClawStatusHint, isClawAlive: () => true, fs, chestnutRoot: tempDir, audit: audit.audit });
       await tool.execute(
         { to: targetClaw, body: 'gentle nudge', interrupt: false },
         motionCtx,
@@ -112,7 +113,7 @@ describe('notify_claw tool', () => {
     });
 
     it('custom type default → "message"', async () => {
-      const tool = createNotifyClawTool({ fs, chestnutRoot: tempDir, audit: audit.audit });
+      const tool = createNotifyClawTool({ formatClawStatusHint, isClawAlive: () => true, fs, chestnutRoot: tempDir, audit: audit.audit });
       await tool.execute({ to: targetClaw, body: 'plain' }, motionCtx);
       const files = await fs.list(path.join('claws', targetClaw, 'inbox', 'pending'));
       const content = await fs.read(path.join('claws', targetClaw, 'inbox', 'pending', files[0].name));
@@ -120,41 +121,15 @@ describe('notify_claw tool', () => {
     });
   });
 
-  describe('error path', () => {
-    it('InboxWriter.writeSync throws → NOTIFY_CLAW_FAILED audit + success=false', async () => {
-      const failFs = {
-        ...fs,
-        writeAtomicSync: vi.fn(() => {
-          throw new Error('disk full');
-        }),
-        ensureDirSync: vi.fn(() => {}),
-        existsSync: vi.fn(() => true),
-      } as unknown as NodeFileSystem;
-
-      const tool = createNotifyClawTool({ fs: failFs, chestnutRoot: tempDir, audit: audit.audit });
-      const result = await tool.execute(
-        { to: targetClaw, body: 'should fail' },
-        motionCtx,
-      );
-      expect(result.success).toBe(false);
-      expect(result.content).toMatch(/Failed to notify worker-1:/);
-
-      const failedRow = audit.events.find(r => r[0] === MESSAGING_AUDIT_EVENTS.NOTIFY_CLAW_FAILED);
-      expect(failedRow).toBeDefined();
-      expect(failedRow).toContain(`claw=${targetClaw}`);
-      expect(failedRow!.some(f => typeof f === 'string' && f.startsWith('reason='))).toBe(true);
-
-      // 反向：NOTIFY_CLAW_SENT 必 0 emit
-      const sentRows = audit.events.filter(r => r[0] === MESSAGING_AUDIT_EVENTS.NOTIFY_CLAW_SENT);
-      expect(sentRows.length).toBe(0);
-    });
-  });
+  // phase 232: InboxWriter direct error paths removed — notifyClaw wrapper swallows
+  // write failures (best-effort barrier). Outer catch only triggers on audit.write throws.
+  // Wrapper behavior covered by notify-claw-api.test.ts; audit.throw path covered below.
 
   describe('phase 895 input validation guard', () => {
     // happy path 既有 test 已 cover valid `to` → 此处仅反向 reject path
 
     it('rejects to="../motion" (path traversal) → NOTIFY_CLAW_FAILED + success=false + no file written', async () => {
-      const tool = createNotifyClawTool({ fs, chestnutRoot: tempDir, audit: audit.audit });
+      const tool = createNotifyClawTool({ formatClawStatusHint, isClawAlive: () => true, fs, chestnutRoot: tempDir, audit: audit.audit });
       const result = await tool.execute(
         { to: '../motion', body: 'attack' },
         motionCtx,
@@ -177,7 +152,7 @@ describe('notify_claw tool', () => {
     });
 
     it('rejects to="" (empty) → NOTIFY_CLAW_FAILED + success=false', async () => {
-      const tool = createNotifyClawTool({ fs, chestnutRoot: tempDir, audit: audit.audit });
+      const tool = createNotifyClawTool({ formatClawStatusHint, isClawAlive: () => true, fs, chestnutRoot: tempDir, audit: audit.audit });
       const result = await tool.execute(
         { to: '', body: 'empty' },
         motionCtx,
@@ -191,7 +166,7 @@ describe('notify_claw tool', () => {
     });
 
     it('rejects to="." (dot) → NOTIFY_CLAW_FAILED + success=false', async () => {
-      const tool = createNotifyClawTool({ fs, chestnutRoot: tempDir, audit: audit.audit });
+      const tool = createNotifyClawTool({ formatClawStatusHint, isClawAlive: () => true, fs, chestnutRoot: tempDir, audit: audit.audit });
       const result = await tool.execute(
         { to: '.', body: 'dot' },
         motionCtx,
@@ -205,7 +180,7 @@ describe('notify_claw tool', () => {
 
     it('rejects nonexistent claw → NOTIFY_CLAW_FAILED reason=claw_not_found + no orphan dir created', async () => {
       // 不预建 claws/ghost-claw — 实测 orphan prevention
-      const tool = createNotifyClawTool({ fs, chestnutRoot: tempDir, audit: audit.audit });
+      const tool = createNotifyClawTool({ formatClawStatusHint, isClawAlive: () => true, fs, chestnutRoot: tempDir, audit: audit.audit });
       const result = await tool.execute(
         { to: 'ghost-claw', body: 'orphan' },
         motionCtx,
@@ -229,39 +204,6 @@ describe('notify_claw tool', () => {
   });
 
   describe('phase 898: independent error paths', () => {
-    it('ensureDirSync throws → NOTIFY_CLAW_FAILED with ensureDir reason + success=false', async () => {
-      const failFs = {
-        ...fs,
-        ensureDirSync: vi.fn(() => {
-          throw new Error('EACCES: permission denied');
-        }),
-        writeAtomicSync: vi.fn(() => {}),   // 不 throw（独立于既有 writeAtomicSync-throw 路径）
-        existsSync: vi.fn(() => true),
-      } as unknown as NodeFileSystem;
-
-      const tool = createNotifyClawTool({ fs: failFs, chestnutRoot: tempDir, audit: audit.audit });
-      const result = await tool.execute(
-        { to: targetClaw, body: 'should fail ensureDir' },
-        motionCtx,
-      );
-      expect(result.success).toBe(false);
-      expect(result.content).toMatch(/Failed to notify worker-1:/);
-      expect(result.content).toMatch(/EACCES/);
-
-      // NOTIFY_CLAW_FAILED audit emit with reason 含 ensureDir 原因
-      const failedRow = audit.events.find(r => r[0] === MESSAGING_AUDIT_EVENTS.NOTIFY_CLAW_FAILED);
-      expect(failedRow).toBeDefined();
-      expect(failedRow).toContain(`claw=${targetClaw}`);
-      expect(failedRow!.some(f => typeof f === 'string' && f.startsWith('reason=') && f.includes('EACCES'))).toBe(true);
-
-      // 反向：NOTIFY_CLAW_SENT 必 0 emit
-      const sentRows = audit.events.filter(r => r[0] === MESSAGING_AUDIT_EVENTS.NOTIFY_CLAW_SENT);
-      expect(sentRows.length).toBe(0);
-
-      // 反向：writeAtomicSync 必 0 call（ensureDir 抛后短路）
-      expect((failFs.writeAtomicSync as any).mock.calls.length).toBe(0);
-    });
-
     it('audit.write throws on SENT emit → catch path emits FAILED with audit reason + file already written (orphan state)', async () => {
       // 副发现 4 cross-ref: catch 内 audit 二次抛 silent propagate / 单点 silent X 候选
       // NOTIFY_CLAW_SENT 抛 → 进 catch → catch 内 audit.write(FAILED) 不 throw（仅 SENT throw mock）→ return success=false
@@ -273,7 +215,7 @@ describe('notify_claw tool', () => {
         }),
       } as any;
 
-      const tool = createNotifyClawTool({ fs, chestnutRoot: tempDir, audit: failAudit });
+      const tool = createNotifyClawTool({ formatClawStatusHint, isClawAlive: () => true, fs, chestnutRoot: tempDir, audit: failAudit });
 
       let caught: Error | undefined;
       try {
