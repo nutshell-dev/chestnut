@@ -109,6 +109,8 @@ export const CONTRACT_AUDIT_EVENTS = {
   CONTRACT_ARCHIVE_RECOVERY_PENDING_OBSERVED: 'contract_archive_recovery_pending_observed',
   // Phase 230: contract create policy rejected
   CONTRACT_CREATE_POLICY_REJECTED: 'contract_create_policy_rejected',
+  // phase 233 Step A: saveProgress 入口 schema invariant 违例
+  CONTRACT_PROGRESS_INVARIANT_VIOLATED: 'contract_progress_invariant_violated',
 } as const;
 
 /**
@@ -210,4 +212,5 @@ export const CONTRACT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   contract_archive_reconcile_failed: 'audit',
   contract_archive_reconcile_summary: 'audit',
   contract_archive_recovery_pending_observed: 'audit',
+  contract_progress_invariant_violated: 'audit',
 } as const;

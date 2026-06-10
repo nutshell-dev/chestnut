@@ -67,6 +67,7 @@ import {
   type PersistenceContext,
   PROGRESS_CURRENT_SCHEMA_VERSION,
 } from './persistence.js';
+import { assertProgressShapeInvariants } from './invariants.js';
 import { type ContractId, makeContractId } from './types.js';
 import { ContractValidationError } from './errors.js';
 import { type SubtaskId, type ArchiveDir, makeArchiveDir } from './types.js';
@@ -477,10 +478,12 @@ export class ContractSystem {
               }
             }
             if (mutated) {
+              assertProgressShapeInvariants(progress as ProgressData, this.audit, 'boot_reconcile_escalated');
               await this.fs.writeAtomic(progressPath, JSON.stringify(progress, null, 2));
               const allCompleted = Object.values(progress.subtasks).every(s => s.status === 'completed');
               if (allCompleted && progress.status !== 'completed') {
                 progress.status = 'completed';
+                assertProgressShapeInvariants(progress as ProgressData, this.audit, 'boot_reconcile_all_completed');
                 await this.fs.writeAtomic(progressPath, JSON.stringify(progress, null, 2));
                 const contractId = makeContractId(progress.contract_id ?? entry.name);
                 // phase 1405: yaml load 失败时跳过 archive、显式 audit 留 forensics（避免 stuck-in-active 静默）

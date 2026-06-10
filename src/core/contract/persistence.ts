@@ -16,6 +16,7 @@ import { makeClawId } from '../../constants.js';
 import { emitContractYamlSchemaInvalid } from './audit-emit.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 import { isolateCorruptedFile } from './_isolation-helper.js';
+import { assertProgressShapeInvariants } from './invariants.js';
 
 const CONTRACT_DEFAULTS = {
   schema_version: 1,
@@ -171,6 +172,10 @@ export async function saveProgress(
   const dir = await ctx.contractDir(contractId);
   const progressPath = `${dir}/${contractId}/progress.json`;
   const progressToSave = { schema_version: PROGRESS_CURRENT_SCHEMA_VERSION, ...progress };
+
+  // phase 233 Step A: schema invariant check（违例 emit audit、不 throw、不阻 save、Path #4 防 break）
+  assertProgressShapeInvariants(progressToSave, ctx.audit, 'saveProgress');
+
   await ctx.fs.writeAtomic(progressPath, JSON.stringify(progressToSave, null, 2));
 }
 
