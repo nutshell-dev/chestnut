@@ -5,13 +5,18 @@ import type { TurnTracker } from './chat-viewport-types.js';
 
 export type ShutdownReason = 'daemon_dead' | 'user_quit' | 'stream_end';
 
+export interface EditorHandle {
+  getText(): string;
+  setText(text: string): void;
+}
+
 export interface InputHandlerDeps {
   fs: FileSystem;
   agentDir: string;
   turnTracker: TurnTracker;
   mainUI: MainTurnUIController;
-  clearOutputLines: () => void;
-  invalidateBodyCache: () => void;
+  editor: EditorHandle;
+  requestRender: () => void;
   resolveExit: () => void;
   setShutdownReason: (r: ShutdownReason) => void;
 }
@@ -24,9 +29,8 @@ export const createTuiInputHandler = (deps: InputHandlerDeps) =>
       return { consume: true };
     }
     if (data.includes('\x0c')) {
-      deps.clearOutputLines();
-      deps.invalidateBodyCache();
-      deps.mainUI.clearPreview();
+      deps.editor.setText('');
+      deps.requestRender();
       return { consume: true };
     }
     if (data.includes('\x1b') && !data.includes('\x1b[') && !data.includes('\r') && !data.includes('\n')) {
@@ -38,7 +42,7 @@ export const createTuiInputHandler = (deps: InputHandlerDeps) =>
       const interruptFile = path.join(deps.agentDir, 'interrupt');
       try {
         deps.fs.writeAtomicSync(interruptFile, '');
-      } catch { /* best-effort */ }
+      } catch { /* silent: best-effort interrupt write */ }
       deps.turnTracker.requestInterrupt('esc');
       return { consume: true };
     }
