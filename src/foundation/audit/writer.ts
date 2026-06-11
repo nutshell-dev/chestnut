@@ -289,6 +289,9 @@ export class AuditWriter implements AuditLog {
 
 /** Test-only: reset module-level fallback state (do not call in production) */
 export function _resetFallbackForTest(): void {
+  if (process.env.NODE_ENV !== 'test') {
+    throw new Error('_resetFallbackForTest is for tests only');
+  }
   pendingFallback.length = 0;
   exitHandlerInstalled = false;
   overflowMetaEmitted = false;

@@ -105,6 +105,9 @@ export async function runDiskMonitor(opts: DiskMonitorOptions): Promise<void> {
 
 /** Test-only: reset dedup state between cases. */
 export function __resetDiskMonitorState(): void {
+  if (process.env.NODE_ENV !== 'test') {
+    throw new Error('__resetDiskMonitorState is for tests only');
+  }
   diskOverThreshold = false;
 }
 

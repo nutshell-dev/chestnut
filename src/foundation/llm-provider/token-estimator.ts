@@ -24,6 +24,13 @@ export const PER_MESSAGE_OVERHEAD_TOKENS = 4;
 
 /** Lazy singleton tiktoken encoding (cl100k_base baseline) */
 let encodingCache: Tiktoken | null = null;
+
+export function __resetForTest(): void {
+  if (process.env.NODE_ENV !== 'test') {
+    throw new Error('__resetForTest is for tests only');
+  }
+  encodingCache = null;
+}
 function getEnc(): Tiktoken {
   if (encodingCache === null) {
     encodingCache = getEncoding('cl100k_base');

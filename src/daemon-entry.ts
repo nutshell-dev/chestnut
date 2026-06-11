@@ -9,6 +9,14 @@ import { MOTION_CLAW_ID } from './constants.js';
 const fsFactory = (baseDir: string): FileSystem => new NodeFileSystem({ baseDir });
 
 let shimAudit: AuditLog | null = null;
+
+export function __resetForTest(): void {
+  if (process.env.NODE_ENV !== 'test') {
+    throw new Error('__resetForTest is for tests only');
+  }
+  shimAudit = null;
+}
+
 try {
   const rawName = process.argv[2];
   // Phase 1200: daemon entry argv schema validate
