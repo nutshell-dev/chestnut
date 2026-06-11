@@ -12,12 +12,22 @@ import { createClawManager } from '../../src/cli/commands/chat-viewport-claw-man
 import { makeClawTrack, type ClawTrack } from '../../src/cli/commands/chat-viewport-claw-line.js';
 import type { FileSystem } from '../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../src/foundation/audit/index.js';
+import type { ClawTopology } from '../../src/core/claw-topology/index.js';
 
 // isAlive not mocked — createClawManager tests use readPid=null path so isAlive is never called (phase 106 DI hygiene)
 
 vi.mock('../../src/cli/commands/chat-viewport-watcher.js', () => ({
   createChatViewportWatcher: vi.fn().mockReturnValue({ close: vi.fn().mockResolvedValue(undefined) }),
 }));
+
+function makeMockTopology(clawsDir: string): ClawTopology {
+  return {
+    enumerate: vi.fn().mockReturnValue([]),
+    resolve: vi.fn((clawId: string) => ({ kind: 'local', clawDir: `${clawsDir}/${clawId}` })),
+    read: vi.fn(),
+    readJSON: vi.fn(),
+  } as unknown as ClawTopology;
+}
 
 function makeStreamFs(content: string): FileSystem {
   const buf = Buffer.from(content, 'utf-8');
@@ -55,6 +65,7 @@ function driveStream(clawId: string, streamJsonl: string): ClawTrack {
     audit: { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)} as unknown as AuditLog,
     isMotion: true,
     clawsDir: '/tmp/claws',
+    clawTopology: makeMockTopology('/tmp/claws'),
     clawTrackMap,
     updateClawPanel: vi.fn(),
     requestRender: vi.fn(),

@@ -22,6 +22,7 @@ import { createStreamReader, STREAM_FILE } from '../../foundation/stream/index.j
 import { createViewportObservability } from './chat-viewport-observability.js';
 import { CLAWS_DIR } from '../../foundation/claw-paths.js';
 import { MOTION_CLAW_ID, makeClawId } from '../../constants.js';
+import { createClawTopology } from '../../core/claw-topology/index.js';
 
 
 import { writeUserChat } from './chat-viewport-utils.js';
@@ -159,6 +160,8 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   const isMotion = options.label === MOTION_CLAW_ID;
   const clawsDir = isMotion ? path.join(options.agentDir, '..', CLAWS_DIR) : '';
   const clawsFs = isMotion && clawsDir ? createDirContext({ fsFactory: options.fsFactory }, clawsDir).fs : fs;
+  const chestnutRoot = isMotion ? path.join(options.agentDir, '..') : options.agentDir;
+  const clawTopology = createClawTopology({ fs: clawsFs, chestnutRoot, audit: options.audit, motionClawId: MOTION_CLAW_ID, motionDir: isMotion ? options.agentDir : String(MOTION_CLAW_ID) });
   const clawTrackMap = new Map<string, ClawTrack>();
 
   const clawPanel = createClawPanel({ attachedClawBar });
@@ -250,7 +253,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   }
 
   const clawManager = createClawManager({
-    fs: clawsFs, pm, audit: options.audit, isMotion, clawsDir, clawTrackMap,
+    fs: clawsFs, pm, audit: options.audit, isMotion, clawsDir, clawTopology, clawTrackMap,
     updateClawPanel: clawPanel.updateClawPanel,
     requestRender: () => tui.requestRender(),
   });
@@ -322,7 +325,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
 
   // --- 注册 slash 命令 ---
   for (const cmd of createViewportCommands({
-    isMotion, clawsDir, clawTrackMap, fs,
+    isMotion, clawsDir, clawTopology, clawTrackMap, fs,
     appendOutput: displayWithHolder.appendOutput,
     invalidateBodyCache: displayWithHolder.invalidateBodyCache,
     clearOutputLines: displayWithHolder.clearOutputLines,
@@ -473,7 +476,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   let clawScanInterval: NodeJS.Timeout | null = null;
   if (clawsDir) {
     const rescanClawsDir = createRescanClawsDir({
-      clawsFs, clawsDir, clawTrackMap, clawManager,
+      clawsFs, clawsDir, clawTopology, clawTrackMap, clawManager,
       audit: options.audit, agentDir: options.agentDir, updateClawPanel: clawPanel.updateClawPanel,
     });
     clawManager.refreshAllClawStatus();

@@ -8,6 +8,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createClawManager } from '../../../src/cli/commands/chat-viewport-claw-manager.js';
 import { VIEWPORT_AUDIT_EVENTS } from '../../../src/cli/commands/viewport-audit-events.js';
 import { makeAudit } from '../../helpers/audit.js';
+import type { ClawTopology } from '../../../src/core/claw-topology/index.js';
+
+function makeMockTopology(clawsDir: string): ClawTopology {
+  return {
+    enumerate: vi.fn().mockReturnValue([]),
+    resolve: vi.fn((clawId: string) => ({ kind: 'local', clawDir: `${clawsDir}/${clawId}` })),
+    read: vi.fn(),
+    readJSON: vi.fn(),
+  } as unknown as ClawTopology;
+}
 
 describe('phase 979: refreshAllClawStatus silent watcher narrow', () => {
   let audit: ReturnType<typeof makeAudit>;
@@ -31,6 +41,7 @@ describe('phase 979: refreshAllClawStatus silent watcher narrow', () => {
       audit: audit.audit,
       isMotion: true,
       clawsDir: '/test/claws',
+      clawTopology: makeMockTopology('/test/claws'),
       clawTrackMap: new Map(),
       updateClawPanel: vi.fn(),
       requestRender: vi.fn(),
@@ -43,20 +54,21 @@ describe('phase 979: refreshAllClawStatus silent watcher narrow', () => {
   });
 
   it('non-ENOENT (EACCES) → REFRESH_CLAWS_FAILED audit emit with code+error fields', async () => {
-    const fsThrowEacces = {
-      listSync: vi.fn(() => {
-        const err: any = new Error('permission denied');
-        err.code = 'EACCES';
-        throw err;
-      }),
-    } as any;
+    const err = Object.assign(new Error('permission denied'), { code: 'EACCES' });
+    const topologyThrowEacces: ClawTopology = {
+      enumerate: vi.fn(() => { throw err; }),
+      resolve: vi.fn((clawId: string) => ({ kind: 'local', clawDir: `/test/claws/${clawId}` })),
+      read: vi.fn(),
+      readJSON: vi.fn(),
+    } as unknown as ClawTopology;
 
     const manager = createClawManager({
-      fs: fsThrowEacces,
+      fs: {} as any,
       pm: { readPid: async () => null },
       audit: audit.audit,
       isMotion: true,
       clawsDir: '/test/claws',
+      clawTopology: topologyThrowEacces,
       clawTrackMap: new Map(),
       updateClawPanel: vi.fn(),
       requestRender: vi.fn(),

@@ -1,6 +1,8 @@
 import * as path from 'path';
 import { STREAM_FILE } from '../../foundation/stream/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
+import type { ClawTopology } from '../../core/claw-topology/index.js';
+import { makeClawId } from '../../constants.js';
 import { type ClawTrack, makeClawTrack } from './chat-viewport-claw-line.js';
 import type { MainTurnUIController } from './main-turn-ui.js';
 import type { ClawManager } from './chat-viewport-claw-manager.js';
@@ -21,6 +23,7 @@ export interface ViewportCommand {
 export interface CommandsClawDeps {
   isMotion: boolean;
   clawsDir: string;
+  clawTopology: ClawTopology;
   clawTrackMap: Map<string, ClawTrack>;
   fs: FileSystem;
   clawManager: ClawManager;
@@ -79,7 +82,12 @@ export const createViewportCommands = (deps: CommandsDeps): ViewportCommand[] =>
         deps.appendOutput('\x1b[31m', '[attach] usage: /attach <clawId>');
         return;
       }
-      const clawDir = path.join(deps.clawsDir, clawId);
+      const location = deps.clawTopology.resolve(makeClawId(clawId));
+      if (location.kind !== 'local') {
+        deps.appendOutput('\x1b[31m', `[attach] claw "${clawId}" remote location not supported`);
+        return;
+      }
+      const clawDir = location.clawDir;
       if (!deps.fs.existsSync(clawDir)) {
         deps.appendOutput('\x1b[31m', `[attach] claw "${clawId}" not found`);
       } else if (deps.clawTrackMap.has(clawId)) {

@@ -9,8 +9,8 @@ import type { FileSystem } from '../../foundation/fs/types.js';
 import { isFileNotFound } from '../../foundation/fs/types.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
-import { makeClawId } from '../../constants.js';
-import { enumerateClaws } from '../../foundation/claw-paths.js';
+import { MOTION_CLAW_ID, makeClawId } from '../../constants.js';
+import type { ClawTopology } from '../../core/claw-topology/index.js';
 import { createChatViewportWatcher } from './chat-viewport-watcher.js';
 import { type ClawTrack, makeClawTrack } from './chat-viewport-claw-line.js';
 
@@ -21,6 +21,7 @@ export interface ClawManagerDeps {
   audit: AuditLog;
   isMotion: boolean;
   clawsDir: string;
+  clawTopology: ClawTopology;
   clawTrackMap: Map<string, ClawTrack>;
   updateClawPanel: (clawTrackMap: Map<string, ClawTrack>) => void;
   requestRender: () => void;
@@ -49,7 +50,7 @@ const appendCappedBuffer = (track: ClawTrack, delta: string) => {
 };
 
 export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
-  const { fs, pm, audit, isMotion, clawsDir, clawTrackMap, updateClawPanel, requestRender } = deps;
+  const { fs, pm, audit, isMotion, clawTopology, clawTrackMap, updateClawPanel, requestRender } = deps;
   const clawWatchers = new Map<string, Watcher>();
   const clawWatcherVersions = new Map<string, number>();
 
@@ -77,7 +78,9 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
     if (!isMotion) return;
     const track = clawTrackMap.get(clawId);
     if (!track) return;
-    const streamFile = path.join(clawsDir, clawId, STREAM_FILE);
+    const location = clawTopology.resolve(makeClawId(clawId));
+    if (location.kind !== 'local') return;
+    const streamFile = path.join(location.clawDir, STREAM_FILE);
     try {
       const stat = fs.statSync(streamFile);
       if (stat.size < track.fileSize) {
@@ -172,7 +175,7 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
     if (!isMotion) return;
     let clawIds: string[] = [];
     try {
-      clawIds = enumerateClaws(fs, clawsDir);
+      clawIds = clawTopology.enumerate().filter(id => id !== MOTION_CLAW_ID);
     } catch (err) {
       // phase 979 (r120 C fork / phase 975 B-α2):
       // ENOENT (clawsDir 首次启动) silent OK / non-ENOENT (FS perm / NFS hang / EACCES) audit emit 防 orphan watcher silent 累
@@ -193,9 +196,11 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
 
     for (const rawClawId of clawIds) {
       const clawId = rawClawId;
-      const streamFile = path.join(clawsDir, clawId, STREAM_FILE);
+      const loc = clawTopology.resolve(makeClawId(clawId));
+      if (loc.kind !== 'local') continue;
+      const streamFile = path.join(loc.clawDir, STREAM_FILE);
       if (!clawTrackMap.has(clawId)) {
-        const clawDir = path.join(clawsDir, clawId);
+        const clawDir = loc.clawDir;
         const contractMs = getContractCreatedMs(fs, clawDir, audit);
         if (contractMs === null) continue;
         const track = makeClawTrack();
@@ -216,7 +221,9 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
         }
         track.isAlive = false;
       }
-      track.hasContract = getContractCreatedMs(fs, path.join(clawsDir, clawId), audit) !== null;
+      const loc2 = clawTopology.resolve(makeClawId(clawId));
+      if (loc2.kind !== 'local') continue;
+      track.hasContract = getContractCreatedMs(fs, loc2.clawDir, audit) !== null;
       refreshClawStatus(clawId);
     }
   };

@@ -12,6 +12,8 @@ import { makeClawTrack, buildClawLine, type ClawTrack } from './chat-viewport-cl
 import { STREAM_FILE } from '../../foundation/stream/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
+import type { ClawTopology } from '../../core/claw-topology/index.js';
+import { makeClawId } from '../../constants.js';
 import type { createClawManager } from './chat-viewport-claw-manager.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
 import { DEFAULT_TERMINAL_WIDTH } from '../utils/constants.js';
@@ -51,6 +53,7 @@ export function createClawPanel(deps: ClawPanelDeps) {
 export interface RescanClawsDirDeps {
   clawsFs: FileSystem;
   clawsDir: string;
+  clawTopology: ClawTopology;
   clawTrackMap: Map<string, ClawTrack>;
   clawManager: ReturnType<typeof createClawManager>;
   audit: AuditLog;
@@ -67,7 +70,9 @@ export function createRescanClawsDir(deps: RescanClawsDirDeps) {
         if (!e.isDirectory) continue;
         const clawId = e.name;
         if (deps.clawTrackMap.has(clawId)) continue;
-        const clawDir = path.join(deps.clawsDir, clawId);
+        const location = deps.clawTopology.resolve(makeClawId(clawId));
+        if (location.kind !== 'local') continue;
+        const clawDir = location.clawDir;
         // getContractCreatedMs 用 clawsFs (baseDir=clawsDir) / 传相对路径 clawId
         const contractMs = getContractCreatedMs(deps.clawsFs, clawDir, deps.audit);
         if (contractMs !== null) {

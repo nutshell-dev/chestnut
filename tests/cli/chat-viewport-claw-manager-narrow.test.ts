@@ -12,6 +12,18 @@ import { FileNotFoundError } from '../../src/foundation/fs/types.js';
 import { VIEWPORT_AUDIT_EVENTS } from '../../src/cli/commands/viewport-audit-events.js';
 import type { FileSystem } from '../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../src/foundation/audit/index.js';
+import type { ClawTopology } from '../../src/core/claw-topology/index.js';
+
+function makeMockTopology(clawsDir: string, overrides?: {
+  enumerate?: () => string[];
+}): ClawTopology {
+  return {
+    enumerate: overrides?.enumerate ?? vi.fn().mockReturnValue([]),
+    resolve: vi.fn((clawId: string) => ({ kind: 'local', clawDir: `${clawsDir}/${clawId}` })),
+    read: vi.fn(),
+    readJSON: vi.fn(),
+  } as unknown as ClawTopology;
+}
 
 function makeMockFs(overrides?: {
   listSync?: () => ReturnType<FileSystem['listSync']>;
@@ -58,6 +70,7 @@ describe('chat-viewport-claw-manager dual-code narrow (phase 1215)', () => {
       audit: audit as unknown as AuditLog,
       isMotion: true,
       clawsDir: '/tmp/claws',
+      clawTopology: makeMockTopology('/tmp/claws'),
       clawTrackMap: new Map(),
       updateClawPanel: vi.fn(),
       requestRender: vi.fn(),
@@ -83,6 +96,7 @@ describe('chat-viewport-claw-manager dual-code narrow (phase 1215)', () => {
       audit: audit as unknown as AuditLog,
       isMotion: true,
       clawsDir: '/tmp/claws',
+      clawTopology: makeMockTopology('/tmp/claws'),
       clawTrackMap: new Map(),
       updateClawPanel: vi.fn(),
       requestRender: vi.fn(),
@@ -93,21 +107,23 @@ describe('chat-viewport-claw-manager dual-code narrow (phase 1215)', () => {
     expect(audit.write).not.toHaveBeenCalled();
   });
 
-  it('reverse 3: fs.listSync throws EACCES → emit REFRESH_CLAWS_FAILED', async () => {
+  it('reverse 3: topology.enumerate throws EACCES → emit REFRESH_CLAWS_FAILED', async () => {
     const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
     const err = Object.assign(new Error('Permission denied'), { code: 'EACCES' });
-    const mockFs = makeMockFs({
-      listSync: vi.fn().mockImplementation(() => {
-        throw err;
-      }),
-    });
+    const topologyThrowEacces: ClawTopology = {
+      enumerate: vi.fn(() => { throw err; }),
+      resolve: vi.fn((clawId: string) => ({ kind: 'local', clawDir: `/tmp/claws/${clawId}` })),
+      read: vi.fn(),
+      readJSON: vi.fn(),
+    } as unknown as ClawTopology;
 
     const manager = createClawManager({
-      fs: mockFs,
+      fs: makeMockFs(),
       pm: { readPid: vi.fn().mockResolvedValue(null) },
       audit: audit as unknown as AuditLog,
       isMotion: true,
       clawsDir: '/tmp/claws',
+      clawTopology: topologyThrowEacces,
       clawTrackMap: new Map(),
       updateClawPanel: vi.fn(),
       requestRender: vi.fn(),
