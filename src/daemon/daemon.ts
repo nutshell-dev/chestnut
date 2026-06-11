@@ -34,6 +34,9 @@ let sigintHandler: (() => void) | null = null;
 
 /** Test-only: reset all 4 daemon signal handlers between tests (mirror watchdog `_resetShutdownGuard`) */
 export function _resetDaemonSignalHandlers(): void {
+  if (process.env.NODE_ENV !== 'test') {
+    throw new Error('_resetDaemonSignalHandlers is for tests only');
+  }
   if (uncaughtHandler) { process.removeListener('uncaughtException', uncaughtHandler); uncaughtHandler = null; }
   if (unhandledRejectionHandler) { process.removeListener('unhandledRejection', unhandledRejectionHandler); unhandledRejectionHandler = null; }
   if (sigtermHandler) { process.removeListener('SIGTERM', sigtermHandler); sigtermHandler = null; }

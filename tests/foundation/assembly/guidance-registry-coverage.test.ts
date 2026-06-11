@@ -3,7 +3,7 @@
  * guidanceRegistry register（含 NO_GUIDANCE sentinel 表态）。
  *
  * Sender 站点（balanced-paren scan）：
- *   - notifyClaw(...) / notifyInbox(...) / notifySystem(...) call body 内 type: 'X' 字面量
+ *   - notifyClaw(...) / notifyInbox(...) call body 内 type: 'X' 字面量
  *   - InboxWriter.writeSync({ type: 'X', ... }) 直调
  *   - writeInboxAsync(...) call body 内 type: 'X' 字面量
  *   - 三元 `type: cond ? 'X' : 'Y'` 表达式中两 branch 字面量（如 verification_result/rejection）
@@ -60,7 +60,7 @@ function extractRegisteredTypes(): Set<string> {
 }
 
 /**
- * notifyClaw / notifyInbox / notifySystem 实际调用站点 + InboxWriter.writeSync 直调站点
+ * notifyClaw / notifyInbox 实际调用站点 + InboxWriter.writeSync 直调站点
  * 提取 type 字面量。Balanced-paren scan 避免跨调用 false positive（phase 1419/1426 治学）。
  */
 function extractSenderTypes(): Map<string, string[]> {

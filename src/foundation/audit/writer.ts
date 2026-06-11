@@ -8,7 +8,7 @@
  *
  * `pendingFallback` array + drop counter 是 module-scope 变量、所有 `AuditWriter` 实例共享。
  * 设计动机：
- * - **崩溃兜底**：主写入路径失败时、所有 writer 共享同一 fallback 队列、统一 dump 到 /tmp/clawforum-audit-fallback-*.tsv
+ * - **崩溃兜底**：主写入路径失败时、所有 writer 共享同一 fallback 队列、统一 dump 到 /tmp/chestnut-audit-fallback-*.tsv
  * - **跨实例 reconcile**：daemon 重启后 `reconcileFallbackDumps` 扫所有 dump、回放至各对应 audit.tsv（per-file partition by origin frontmatter）
  * - **drop 计数全局聚合**：buffer overflow 时 FIFO drop 累计 counter、不分实例、便于 frontmatter 观测
  *

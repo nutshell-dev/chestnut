@@ -109,6 +109,9 @@ export async function runAuditSizeMonitor(opts: AuditSizeMonitorOptions): Promis
 
 /** Test-only: reset dedup state between cases. */
 export function __resetAuditSizeMonitorState(): void {
+  if (process.env.NODE_ENV !== 'test') {
+    throw new Error('__resetAuditSizeMonitorState is for tests only');
+  }
   auditOverThreshold.clear();
 }
 

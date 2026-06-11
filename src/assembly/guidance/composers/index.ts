@@ -2,9 +2,10 @@
  * @module L6.Assembly.Guidance
  * phase 1469: Composer registration aggregate.
  * phase 1476: 22 → 18 type reframe（移 5 outbox-routed type + 加 1 claw_outbox_summary real composer）.
+ * phase 63 γ: 加 contract_cancelled + contract_crashed 2 real composer（→ 20 type）.
  *
- * 装配期一次性调 `registerAllMotionGuidance(registry)`、按 18 inbox type 显式 register 各 composer.
- * 当前结构：13 NO_GUIDANCE sentinel + 5 real composer（claw_outbox_summary by phase 1476 γ2）.
+ * 装配期一次性调 `registerAllMotionGuidance(registry)`、按 20 inbox type 显式 register 各 composer.
+ * 当前结构：13 NO_GUIDANCE sentinel + 7 real composer（claw_outbox_summary by phase 1476 γ2 + contract_cancelled/crashed by phase 63 γ）.
  *
  * DP「不静默」+ ML#9 显式表达：每 sender type 必显式 register / 漏注由
  * `tests/foundation/assembly/guidance-registry-coverage.test.ts` 抓.

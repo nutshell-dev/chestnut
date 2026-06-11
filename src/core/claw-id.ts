@@ -2,8 +2,10 @@
  * @module Core.ClawId
  * phase 204: ClawId brand type — M#9 推广至 ID 维度。
  *
- * Rationale: 5 sibling ID 已 branded（ContractId / SubtaskId / TaskId / TraceId /
- * ToolUseId）、唯 ClawId 是 plain `string`。本 phase 立 infrastructure、follow-up
+ * Rationale: 多 sibling ID 已 branded（11 unique-symbol brand: ContractId / SubtaskId /
+ * TaskId / TraceId / ToolUseId / ArchiveDir / ChestnutRoot / StepNumber / OutboxPath /
+ * InboxPath / ProcessStartTime + 3 string-literal brand: AuditLog / AuditReader / TraceId）、
+ * 唯 ClawId 是 plain `string`。本 phase 立 infrastructure、follow-up
  * phases module-by-module 渐进迁移 120+ `clawId: string` 现有 site。
  *
  * Pattern: 沿用 ContractId pattern（src/core/contract/types.ts:12-14）：

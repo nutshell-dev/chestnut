@@ -428,7 +428,7 @@ export async function runVerificationInBackground(
   }
 }
 
-// re-export for backward compat (caller cascade 0)
+// re-export for backward compat (caller cascade: 2 test files via verification.js barrel — verification.test.ts + state-machine-integrity.test.ts)
 export { runScriptVerification, runLLMVerification } from './verification-execution.js';
 export { archiveAndEmit, completeSubtaskSync } from './verification-lifecycle.js';
 export { writeVerificationInbox, writeForceAcceptInbox, writeVerificationError, safeNotify } from './verification-notify.js';

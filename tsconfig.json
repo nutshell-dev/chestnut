@@ -19,8 +19,6 @@
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
     "verbatimModuleSyntax": true,
-    "jsx": "react-jsx",
-    "jsxImportSource": "react",
     "types": ["node"]
   },
   "include": ["src/**/*"],

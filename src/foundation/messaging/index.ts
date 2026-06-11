@@ -17,7 +17,7 @@ export { InboxWriter, makeInboxPath } from './inbox-writer.js';
 export type { InboxMessageOptionsBase } from './inbox-writer.js';
 
 export { InboxReader } from './inbox-reader.js';
-export type { InboxEntry, InboxLocation, ScannedInboxLocation } from './inbox-reader.js';
+export type { InboxEntry, ScannedInboxLocation } from './inbox-reader.js';
 export type { InboxHandle, OutboxMessage } from './types.js';
 export { InboxListFailed, InboxMoveFailed } from './errors.js';
 
@@ -82,7 +82,7 @@ export function createOutboxWriter(
 }
 
 
-export { notifyInbox, notifySystem, notifyClaw, writeInboxAsync } from './notify.js';
+export { notifyInbox, notifyClaw, writeInboxAsync } from './notify.js';
 
 
 // phase 1476: drainOutboxes / Messaging / createMessaging 全砍。

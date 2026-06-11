@@ -202,6 +202,9 @@ export function getAuditWriter(): AuditLog | null {
  * left in place as belt-and-suspenders.
  */
 export function _resetWatchdogContextForTest(): void {
+  if (process.env.NODE_ENV !== 'test') {
+    throw new Error('_resetWatchdogContextForTest is for tests only');
+  }
   // 5 lazy caches
   _motionCtx = null;
   _chestnutFs = null;

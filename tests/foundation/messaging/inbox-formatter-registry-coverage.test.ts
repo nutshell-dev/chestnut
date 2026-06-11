@@ -1,5 +1,5 @@
 /**
- * phase 1419 invariant: src/ 内任何 notifyClaw / notifyInbox / notifySystem
+ * phase 1419 invariant: src/ 内任何 notifyClaw / notifyInbox
  * 调用的 `type: 'X'` 字面量必经 Assembly register（含业主 helper 内 register）。
  *
  * 守 phase 1414 应然「业主自家管 message type formatter」+ DP「未经显式不静默」。
@@ -50,14 +50,14 @@ function extractRegisteredTypes(): Set<string> {
 }
 
 /**
- * notifyClaw / notifyInbox / notifySystem 实际调用站点提取。
+ * notifyClaw / notifyInbox 实际调用站点提取。
  * Balanced-paren scan：找 `notifyXxx(` 起、按 paren 深度扫到匹配 `)`、
  * 只在此 slice 内匹配 `type: 'X'` 字面量（防跨调用 false positive，
  * 如 `notifyClaw: (...) => notifyClaw(...)` 后面 ~100 行的 streamWriter.write({type:'X'}）。
  */
 function extractSenderTypes(): Map<string, string[]> {
   const byType = new Map<string, string[]>();
-  const callRe = /\bnotify(?:Claw|Inbox|System)\s*\(/g;
+  const callRe = /\bnotify(?:Claw|Inbox)\s*\(/g;
 
   function recordType(content: string, callStart: number, slice: string, full: string) {
     const typeRe = /\btype\s*:\s*'([^']+)'/g;
@@ -104,7 +104,7 @@ function extractSenderTypes(): Map<string, string[]> {
 }
 
 describe('phase 1419: inbox formatter registry coverage invariant', () => {
-  it('every type literal in src/ notifyClaw|notifyInbox|notifySystem callers must be registered', () => {
+  it('every type literal in src/ notifyClaw|notifyInbox callers must be registered', () => {
     const registered = extractRegisteredTypes();
     const senderByType = extractSenderTypes();
     const unregistered: Array<{ type: string; sites: string[] }> = [];
@@ -141,7 +141,7 @@ describe('phase 1419: inbox formatter registry coverage invariant', () => {
   });
 
   /**
-   * phase 1426: 在 phase 1419 base 上加 NEW assertion — notifyClaw/notifyInbox/notifySystem
+   * phase 1426: 在 phase 1419 base 上加 NEW assertion — notifyClaw/notifyInbox
    * call body 内 `type:` 字段不得为含 `${}` 插值的模板字符串。
    *
    * 触发：`src/watchdog/watchdog-log.ts:53 type: \`watchdog_${type}\`` 致 caller 传
@@ -154,10 +154,10 @@ describe('phase 1419: inbox formatter registry coverage invariant', () => {
    * invariant 间接守 + 业主自家 register 时模板字符串本身不在已注册集合即触发 phase 1419
    * fail / 识别表达式形态非本测责任）。
    */
-  it('phase 1426: type field in notifyClaw|notifyInbox|notifySystem call body must not be an interpolated template literal', () => {
+  it('phase 1426: type field in notifyClaw|notifyInbox call body must not be an interpolated template literal', () => {
     type Violation = { site: string; preview: string };
     const violations: Violation[] = [];
-    const callRe = /\bnotify(?:Claw|Inbox|System)\s*\(/g;
+    const callRe = /\bnotify(?:Claw|Inbox)\s*\(/g;
 
     function walk(dir: string) {
       for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
