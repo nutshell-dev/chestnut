@@ -51,6 +51,8 @@ export function emitToolCallInput(audit: AuditLog, opts: {
  *
  * 字符串值与 src/core/runtime/runtime-audit-events.ts 的 REACT_LOOP_AUDIT_EVENTS 等价 / 0 漂移。
  * 不抽共享层文件（避免新增模块层级 / M#5 反向）。
+ * phase 272 Step E：机械守约 = tests/core/runtime/react-loop-audit-events-equiv.test.ts
+ *                NEW const 必同步 / equiv test fail 强制 sync。
  */
 export const REACT_LOOP_AUDIT_EVENTS = {
   TURN_START: 'turn_start',
@@ -59,6 +61,7 @@ export const REACT_LOOP_AUDIT_EVENTS = {
   TURN_ERROR: 'turn_error',
   LLM_CALL: 'llm_call',
   LLM_ERROR: 'llm_error',
+  MARK_CRASHED_FAILED: 'mark_crashed_failed',  // phase 63 NEW (synced phase 272 Step E)
 } as const;
 
 
@@ -84,4 +87,5 @@ export const SUBAGENT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   subagent_steps_invariant_violated: 'audit',
   subagent_artifact_cross_source_mismatch: 'audit',
   subagent_artifact_cross_source_skipped: 'audit',
+  mark_crashed_failed: 'audit',  // NEW (synced phase 272 Step E)
 } as const;

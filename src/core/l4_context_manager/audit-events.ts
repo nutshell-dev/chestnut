@@ -1,6 +1,6 @@
 /**
  * @module L4.ContextManager
- * ContextManager audit events — 9 consts for audit sink emission
+ * ContextManager audit events — 7 consts for audit sink emission
  */
 
 export const CONTEXT_TRIM_STARTED = 'context_trim_started';

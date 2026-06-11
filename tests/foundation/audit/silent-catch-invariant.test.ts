@@ -1,6 +1,13 @@
 /**
  * Phase 1324 C.4: mechanical silent-catch invariant lint
  * Mirror phase 964+1019+1244+1265+1266+1277+1278 N=8 cluster template.
+ *
+ * phase 272 Step E: TARGET_DIRS 扩 src-wide
+ *
+ * 历史 phase 1324 C.4 立 cluster-local lint (3 dir scope)、其他 19+ dir 含 silent catch 漂入不被 CI 拦。
+ * 本 phase 扩 src-wide + 显式 allowlist by-design silent catch 子集 (mirror business-literal 53 file ratchet 模式)。
+ *
+ * 升档：allowlist 中条目应有明确 by-design 注释 anchor、定期 sweep 清理。
  */
 
 import { describe, it, expect } from 'vitest';
@@ -9,11 +16,34 @@ import { execSync } from 'node:child_process';
 const PROJECT_ROOT = new URL('../../../', import.meta.url).pathname;
 const SRC_ROOT = `${PROJECT_ROOT}src`;
 
-const TARGET_DIRS = [
-  'src/core/async-task-system',
-  'src/foundation/stream',
-  'src/foundation/llm-orchestrator',
-];
+const TARGET_DIRS = ['src'];
+
+// phase 272 Step E: by-design silent catch baseline allowlist (src-wide grep)
+// 以下文件含显式 `catch { /* silent: ... */ }` 注释、属 by-design fail-soft / best-effort / race 路径。
+// 升档：N >= 50 时拆 phase 续治、本 phase 仅 ratchet 守新增不漂。
+const CATCH_SILENT_ALLOWLIST = new Set([
+  // phase 1324 ratify
+  'task-recovery.ts',
+  'orchestrator.ts',
+  // phase 272 Step E baseline (src-wide grep by-design silent catches)
+  'chat-viewport-init.ts',
+  'chat-viewport-input.ts',
+  'claw-list.ts',
+  'claw-trace.ts',
+  'daemon-entry.ts',
+  'daemon.ts',
+  'ensure.ts',
+  'inbox-watcher.ts',
+  'onboarding-discovery.ts',
+  'orphan-sweep.ts',
+  'reader.ts',
+  'stop.ts',
+  'subagent-helpers.ts',
+  'timeout-controller.ts',
+  'watchdog-state.ts',
+  'watchdog-utils.ts',
+  'watcher.ts',
+]);
 
 function grepInDir(dir: string, pattern: string): string[] {
   try {
@@ -27,25 +57,19 @@ function grepInDir(dir: string, pattern: string): string[] {
   }
 }
 
-describe('phase 1324 C.4: silent-catch mechanical invariant lint', () => {
+describe('phase 1324 C.4 + phase 272 Step E: silent-catch mechanical invariant lint', () => {
   for (const dir of TARGET_DIRS) {
     const fullDir = `${PROJECT_ROOT}${dir}`;
 
     it(`${dir}: 0 bare .catch(() => {}) silent catch`, () => {
       const hits = grepInDir(fullDir, String.raw`\.catch\(\(\)\s*=>\s*\{\s*\}\)`);
-      // Allowlist: pre-existing by-design silent catches (phase 1324 scope only fixes 3 sites)
-      // task-recovery.ts delete failures are best-effort cleanup, ratchet for r138+ extended sweep
-      const allowlist: string[] = ['task-recovery.ts'];
-      const unallowed = hits.filter(h => !allowlist.some(a => h.includes(a)));
+      const unallowed = hits.filter(h => !Array.from(CATCH_SILENT_ALLOWLIST).some(a => h.includes(a)));
       expect(unallowed).toEqual([]);
     });
 
-    it(`${dir}: 0 } catch { /* silent */ pattern`, () => {
+    it(`${dir}: 0 } catch { /* silent */ pattern without allowlist`, () => {
       const hits = grepInDir(fullDir, String.raw`}\s*catch\s*\{\s*/\*\s*silent`);
-      // Allowlist: pre-existing by-design generator cleanup catches in orchestrator.ts
-      // (generator already closed, ignore) — ratchet for r138+ extended sweep
-      const allowlist: string[] = ['orchestrator.ts'];
-      const unallowed = hits.filter(h => !allowlist.some(a => h.includes(a)));
+      const unallowed = hits.filter(h => !Array.from(CATCH_SILENT_ALLOWLIST).some(a => h.includes(a)));
       expect(unallowed).toEqual([]);
     });
   }

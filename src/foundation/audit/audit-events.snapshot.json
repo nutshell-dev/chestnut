@@ -556,6 +556,7 @@
       "ghost_callback_after_turn_end",
       "llm_call",
       "llm_error",
+      "mark_crashed_failed",
       "subagent_artifact_cross_source_mismatch",
       "subagent_artifact_cross_source_skipped",
       "subagent_log_append_failed",
@@ -563,6 +564,10 @@
       "subagent_step_complete_failed",
       "subagent_steps_invariant_violated",
       "subagent_timeout_rejection",
+      "turn_end",
+      "turn_error",
+      "turn_interrupted",
+      "turn_start",
       {
         "type": "tool_call_input",
         "cols": [
@@ -598,10 +603,6 @@
           }
         ]
       },
-      "turn_end",
-      "turn_error",
-      "turn_interrupted",
-      "turn_start",
       {
         "type": "tool_result",
         "cols": [
@@ -929,6 +930,6 @@
     "file": "src/core/runtime/runtime.ts",
     "eventType": "tool_call_input",
     "valueType": "StepNumber",
-    "_comment": "phase 216 \u7acb\u3001white-list SoT \u5355\u6e90\u3001\u8de8\u4e1a\u4e3b ctx \u5b57\u6bb5 stepNumber \u7531 agent-executor \u4ea7\u751f / runtime emit"
+    "_comment": "phase 216 立、white-list SoT 单源、跨业主 ctx 字段 stepNumber 由 agent-executor 产生 / runtime emit"
   }
 }
