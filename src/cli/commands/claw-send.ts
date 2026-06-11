@@ -60,6 +60,6 @@ export async function sendCommand(
     // silent: contract dir scan failure is legitimate → treat as no active contract
     hasContract = false;
   }
-  const contractHint = !hasContract ? formatNoActiveContractHint(name) : undefined;
+  const contractHint = formatNoActiveContractHint(name, hasContract);
   if (contractHint) console.log(contractHint);
 }

@@ -158,9 +158,9 @@ describe('cli claw send status hint (phase 232)', () => {
   });
 
   it('uses formatNoActiveContractHint helper (phase 241)', async () => {
-
-    expect(formatNoActiveContractHint('my-claw')).toBe(
+    expect(formatNoActiveContractHint('my-claw', false)).toBe(
       'No active contract for "my-claw". Ask claw to reply via send tool in message body.',
     );
+    expect(formatNoActiveContractHint('my-claw', true)).toBeUndefined();
   });
 });
