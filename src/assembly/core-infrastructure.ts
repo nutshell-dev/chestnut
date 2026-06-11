@@ -22,6 +22,7 @@ import { createSkillSystem as defaultCreateSkillSystem, SkillSystem } from '../f
 import { SKILLS_DIR_DEFAULT } from '../foundation/skill-system/index.js';
 import { ContractSystem, createContractSystem } from '../core/contract/index.js';
 import { makeClawId } from '../core/claw-id.js';
+import { MOTION_CLAW_ID } from '../constants.js';
 import { createOutboxWriter, type OutboxWriter, notifyClaw as notifyClawFn } from '../foundation/messaging/index.js';
 import { TASKS_SYNC_DIR } from '../core/async-task-system/index.js';
 import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
@@ -166,6 +167,9 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
       throw new Error(`Assembly: LLMOrchestrator construct failed: ${formatErr(e)}`, { cause: e });
     }
 
+    // phase 1406: 单一 truth source（提前到 toolRegistry 装配前供 wireClawTopology 使用）
+    const chestnutRoot = resolveChestnutRoot(clawDir, isMotion);
+
     // --- L3-L5: toolRegistry（空；SummonTool 留给 Runtime） ---
     let toolRegistry: ToolRegistry;
     try {
@@ -179,6 +183,16 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
 
       toolRegistry.register(spawnTool);
       // shadowTool 改为 post-runtime 注册（需要 Runtime.getTurnSnapshot）
+
+      // phase 257: wire ClawTopology（替换 read/ls/search via Map.set 同名替换）
+      const { wireClawTopology } = await import('./wire-claw-topology.js');
+      wireClawTopology({
+        fs: systemFs,
+        chestnutRoot,
+        audit: auditWriter,
+        toolRegistry,
+        motionClawId: MOTION_CLAW_ID,
+      });
 
       // phase 1406: SummonTool 走标准注册路径（构造期 0 参 / accessesCaller=true /
       // shadow path 通过 ExecContext.getCallerSnapshot() 读 caller 深度态、
@@ -207,7 +221,6 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
     }
 
     // --- L3-L5: contractManager ---
-    const chestnutRoot = resolveChestnutRoot(clawDir, isMotion);  // phase 1406: 单一 truth source
     const clawsDir = path.join(chestnutRoot, CLAWS_DIR);  // phase 98
 
     let contractManager: ContractSystem;

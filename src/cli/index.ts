@@ -42,7 +42,9 @@ import { CLAWS_DIR } from '../foundation/claw-paths.js';
 import { createSystemAudit } from '../foundation/audit/index.js';
 import { notifyClaw } from '../foundation/messaging/index.js';
 import { makeClawId } from '../core/claw-id.js';
+import { MOTION_CLAW_ID } from '../constants.js';
 import { createToolRegistry } from '../foundation/tools/index.js';
+import { createFileTools } from '../foundation/file-tool/index.js';
 import { parseIntOption } from './parse-int-option.js';
 import { collectColFilter } from './commands/audit-query.js';
 
@@ -235,12 +237,27 @@ contractCmd
       const clawFs = fsFactory(clawDir);
       const chestnutRoot = resolveChestnutRoot(clawDir, /* isMotion */ false);
       const clawAudit = createSystemAudit(clawFs, clawDir);
+
+      // phase 257: wire ClawTopology 到 ContractSystem 的 ToolRegistry
+      const toolRegistry = createToolRegistry();
+      for (const tool of createFileTools()) {
+        toolRegistry.register(tool);
+      }
+      const { wireClawTopology } = await import('../assembly/wire-claw-topology.js');
+      wireClawTopology({
+        fs: clawFs,
+        chestnutRoot,
+        audit: clawAudit,
+        toolRegistry,
+        motionClawId: MOTION_CLAW_ID,
+      });
+
       const contractSystem = createContractSystem({
         clawDir,
         clawId: makeClawId(opts.claw),
         fs: clawFs,
         audit: clawAudit,
-        toolRegistry: createToolRegistry(),
+        toolRegistry,
         fsFactory,
         clawsDir: path.join(chestnutRoot, CLAWS_DIR),
         notifyClaw: (targetClawId, message) => notifyClaw(clawFs, chestnutRoot, targetClawId, message, clawAudit),
