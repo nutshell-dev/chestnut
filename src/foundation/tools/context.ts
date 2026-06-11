@@ -26,6 +26,7 @@ import type { DialogStore } from '../dialog-store/index.js';
 
 import type { ToolRegistry } from './types.js';
 import type { PermissionChecker } from '../tool-protocol/permission.js';
+import { TOOL_AUDIT_EVENTS } from './audit-events.js';
 
 /**
  * Options for creating execution context
@@ -242,7 +243,7 @@ export class ExecContextImpl implements ExecContext {
    */
   requestStop(): void {
     this.stopRequested = true;
-    this.auditWriter?.write('stop_requested', `clawId=${this.clawId}`, `step=${this.stepNumber}`);
+    this.auditWriter?.write(TOOL_AUDIT_EVENTS.STOP_REQUESTED, `clawId=${this.clawId}`, `step=${this.stepNumber}`);
   }
 
 }

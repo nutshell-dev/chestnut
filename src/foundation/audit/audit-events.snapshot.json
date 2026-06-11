@@ -814,7 +814,11 @@
       "tool_caller_access_violation",
       "tool_invalid_input",
       "tool_not_found",
-      "tools_invariant_violation"
+      "tools_invariant_violation",
+      "tool_async_rejected",
+      "tool_async_start",
+      "tool_exec_race_loser",
+      "stop_requested"
     ],
     "core_claw-topology_audit-events": [
       "cross_claw_read_failed",

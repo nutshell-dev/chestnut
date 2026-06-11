@@ -96,7 +96,7 @@ export class ToolExecutorImpl implements IToolExecutor {
     if (options.async) {
       if (!tool.group || !ctx.allowedGroups?.has(tool.group)) {
         ctx.auditWriter?.write(
-          'tool_async_rejected',
+          TOOL_AUDIT_EVENTS.TOOL_ASYNC_REJECTED,
           toolName,
           options.toolUseId ?? '',
           `reason=group_membership`,
@@ -107,7 +107,7 @@ export class ToolExecutorImpl implements IToolExecutor {
       }
       if (!tool.supportsAsync) {
         ctx.auditWriter?.write(
-          'tool_async_rejected',
+          TOOL_AUDIT_EVENTS.TOOL_ASYNC_REJECTED,
           toolName,
           options.toolUseId ?? '',
           `reason=unsupported`,
@@ -116,7 +116,7 @@ export class ToolExecutorImpl implements IToolExecutor {
       }
       if (!this.scheduleAsyncTool) {
         ctx.auditWriter?.write(
-          'tool_async_rejected',
+          TOOL_AUDIT_EVENTS.TOOL_ASYNC_REJECTED,
           toolName,
           options.toolUseId ?? '',
           `reason=dispatch_unconfigured`,
@@ -135,7 +135,7 @@ export class ToolExecutorImpl implements IToolExecutor {
         toolUseId: options.toolUseId,
       });
       ctx.auditWriter?.write(
-        'tool_async_start',
+        TOOL_AUDIT_EVENTS.TOOL_ASYNC_START,
         toolName,
         options.toolUseId ?? '',
         `task=${taskId}`,
@@ -221,10 +221,10 @@ export class ToolExecutorImpl implements IToolExecutor {
     const executionPromise = tool.execute(args, ctxWithSignal);
     executionPromise.catch((err: unknown) => {
       // race loser audit：execution 真实抛错但 timeoutPromise 先 race 赢、winner audit 仅记 ToolTimeoutError、
-      // 此处补 loser 真实 root cause 留痕（D2 信息不丢失）/ 沿 phase 614 inline 'tool_exec' 模板、0 NEW const
+      // 此处补 loser 真实 root cause 留痕（D2 信息不丢失）
       const errMsg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
       ctx.auditWriter?.write(
-        'tool_exec_race_loser',
+        TOOL_AUDIT_EVENTS.TOOL_EXEC_RACE_LOSER,
         toolName,
         'err',
         'context=execution_after_timeout',
@@ -246,6 +246,8 @@ export class ToolExecutorImpl implements IToolExecutor {
 
       const duration = Date.now() - startTime;
       const auditResult = result ?? { success: false, content: 'unknown' };
+      // phase 272 Step A allowlist anchor: 'tool_exec' 沿 phase 614 inline raw 模板 by-design / 0 NEW const
+      // 升档条件: 若 future allowlist 漂出 N >= 2 同模板 inline raw -> 抽 TOOL_AUDIT_EVENTS.TOOL_EXEC const
       ctx.auditWriter?.write(
         'tool_exec',
         toolName,
