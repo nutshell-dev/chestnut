@@ -1,7 +1,7 @@
-import type { ExecContext } from '../../../../foundation/tools/index.js';
-import type { Message, ToolDefinition } from '../../../../foundation/llm-provider/types.js';
-import type { TaskId } from '../../../async-task-system/types.js';
-import type { SummonDecisionMetadata } from '../../../async-task-system/task-schemas.js';
+import type { ExecContext } from '../../foundation/tools/index.js';
+import type { Message, ToolDefinition } from '../../foundation/llm-provider/types.js';
+import type { TaskId } from '../async-task-system/types.js';
+import type { SummonDecisionMetadata } from '../async-task-system/task-schemas.js';
 
 
 export interface SpawnShadowSubagentOptions {

@@ -54,7 +54,7 @@ function listToolFiles(): string[] {
     'src/core/contract/tools',
     'src/core/spawn-system/tools',
     'src/core/summon-system/tools',
-    'src/core/summon-system/internal/shadow/tools',
+    'src/core/shadow-system/tools',
     'src/core/subagent/tools',
     'src/core/memory/tools',
     'src/core/async-task-system/tools',

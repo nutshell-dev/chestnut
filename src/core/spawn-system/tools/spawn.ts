@@ -15,7 +15,7 @@ import {
 } from '../templates.js';
 import { SPAWN_AUDIT_EVENTS } from '../audit-events.js';
 
-import { SHADOW_CALLER_LABEL } from '../../summon-system/internal/shadow/index.js';
+import { SHADOW_CALLER_LABEL } from '../../shadow-system/index.js';
 import { SPAWN_DEFAULT_TIMEOUT_MS } from '../constants.js';
 
 /**

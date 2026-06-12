@@ -13,7 +13,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'path';
-import { createShadowTool } from '../../../src/core/summon-system/internal/shadow/index.js';
+import { createShadowTool } from '../../../src/core/shadow-system/index.js';
 import type { Message, ToolDefinition } from '../../../src/foundation/llm-provider/types.js';
 import { SummonTool } from '../../../src/core/summon-system/tools/summon.js';
 import { ExecContextImpl } from '../../../src/foundation/tools/context.js';
@@ -24,7 +24,7 @@ import { ToolRegistryImpl } from '../../../src/foundation/tools/registry.js';
 import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/index.js';
 import { createMockTaskSystem } from '../../helpers/task-system.js';
 import type { DialogStore } from '../../../src/foundation/dialog-store/index.js';
-import { SHADOW_AUDIT_EVENTS } from '../../../src/core/summon-system/internal/shadow/audit-events.js';
+import { SHADOW_AUDIT_EVENTS } from '../../../src/core/shadow-system/audit-events.js';
 import { DONE_TOOL_NAME } from '../../../src/core/subagent/tools/done.js';
 import { ToolTimeoutError } from '../../../src/foundation/errors.js';  // phase 262: hoist
 

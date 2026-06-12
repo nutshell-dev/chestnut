@@ -5,9 +5,9 @@
  * phase 1142：stripIncompleteToolUse mv from tools/shadow.ts → _helpers.ts、升 public export 作 L4 consumers (SummonSystem) 复用 API。
  */
 
-import type { Message } from '../../../../foundation/llm-provider/types.js';
+import type { Message } from '../../foundation/llm-provider/types.js';
 import { SHADOW_TOOL_NAME } from './constants.js';
-import { buildShadowInstruction, type BuildShadowInstructionArgs } from '../../../../prompts/index.js';
+import { buildShadowInstruction, type BuildShadowInstructionArgs } from '../../prompts/index.js';
 
 /**
  * Strip trailing incomplete assistant message so subagent LLM doesn't see unpaired tool_uses.
@@ -43,4 +43,4 @@ export function synthesizeFormB(args: {
   ];
 }
 
-export { formatErr } from '../../../../foundation/utils/format.js';
+export { formatErr } from '../../foundation/utils/format.js';

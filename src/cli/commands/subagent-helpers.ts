@@ -14,7 +14,7 @@ import {
 } from '../../core/async-task-system/index.js';
 import { TASKS_SYNC_SUBAGENT_DIR } from '../../core/subagent/index.js';
 import { TASKS_SYNC_SPAWN_DIR } from '../../core/spawn-system/index.js';
-import { TASKS_SYNC_SHADOW_DIR } from '../../core/summon-system/internal/shadow/index.js';
+import { TASKS_SYNC_SHADOW_DIR } from '../../core/shadow-system/index.js';
 import { MOTION_CLAW_ID } from '../../constants.js';
 import {
   SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME,

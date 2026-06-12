@@ -14,7 +14,7 @@ import { editTool } from '../../../src/foundation/file-tool/edit.js';
 import { multiEditTool } from '../../../src/foundation/file-tool/multi_edit.js';
 import { execTool } from '../../../src/foundation/command-tool/exec.js';
 import { spawnTool } from '../../../src/core/spawn-system/tools/spawn.js';
-import { createShadowTool } from '../../../src/core/summon-system/internal/shadow/tools/shadow.js';
+import { createShadowTool } from '../../../src/core/shadow-system/tools/shadow.js';
 import { memorySearchTool } from '../../../src/core/memory/tools/memory_search.js';
 import type { Tool } from '../../../src/foundation/tools/types.js';
 

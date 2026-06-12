@@ -9,7 +9,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { ExecContext } from '../../../src/foundation/tools/types.js';
 import { SummonTool } from '../../../src/core/summon-system/tools/summon.js';
-import { createShadowTool } from '../../../src/core/summon-system/internal/shadow/tools/shadow.js';
+import { createShadowTool } from '../../../src/core/shadow-system/tools/shadow.js';
 import { ExecContextImpl } from '../../../src/foundation/tools/context.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import * as path from 'path';

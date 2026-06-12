@@ -229,7 +229,7 @@ module.exports = {
           '^src/index\\.ts$',
           '^src/core/spawn-system/_helpers\\.ts$',
           '^src/core/async-task-system/_helpers\\.ts$',
-          '^src/core/summon-system/internal/shadow/_helpers\\.ts$',
+          '^src/core/shadow-system/_helpers\\.ts$',
         ],
       },
       to: { path: '^src/foundation/utils/format\\.ts$' },

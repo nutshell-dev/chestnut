@@ -147,7 +147,7 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
   const text = await agent.run();
 
   // 检 capturedResult（verifier 等用 / phase 765 扩 resultTool option）
-  // phase 805 设计意图：by-name string 0 import (避 L3→L4 反向 import / mirror summon-system/internal/shadow/system.ts:129 'done')
+  // phase 805 设计意图：by-name string 0 import (避 L3→L4 反向 import / mirror shadow-system/system.ts:129 'done')
   // phase 1056: default 改为 DONE_TOOL_NAME — done 是单一 result-capture 工具。
   const toolName = opts.resultTool ?? DONE_TOOL_NAME;
   const resultToolInstance = opts.registry.get(toolName) as (CapturableTool | undefined);

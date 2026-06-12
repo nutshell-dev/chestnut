@@ -2,13 +2,13 @@
  * shadow signal propagation tests (phase 874)
  *
  * Coverage:
- * - outer abort signal propagates to inner runSubagent (summon-system/internal/shadow/system.ts)
+ * - outer abort signal propagates to inner runSubagent (shadow-system/system.ts)
  * - pre-aborted signal boundary path
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'path';
-import { createShadowTool } from '../../../src/core/summon-system/internal/shadow/index.js';
+import { createShadowTool } from '../../../src/core/shadow-system/index.js';
 import type { Message, ToolDefinition } from '../../../src/foundation/llm-provider/types.js';
 import { ExecContextImpl } from '../../../src/foundation/tools/context.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';

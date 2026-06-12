@@ -538,7 +538,7 @@
       "turn_start",
       "guidance_composer_failed"
     ],
-    "core_summon-system_internal_shadow_audit-events": [
+    "core_shadow-system_audit-events": [
       "shadow_failed",
       "shadow_finished",
       "shadow_prefix_restored",

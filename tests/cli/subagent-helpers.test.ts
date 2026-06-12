@@ -5,7 +5,7 @@ import * as os from 'os';
 import { scanSubagentResults, type SubagentKind } from '../../src/cli/commands/subagent-helpers.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { TASKS_SYNC_SPAWN_DIR } from '../../src/core/spawn-system/constants.js';
-import { TASKS_SYNC_SHADOW_DIR } from '../../src/core/summon-system/internal/shadow/constants.js';
+import { TASKS_SYNC_SHADOW_DIR } from '../../src/core/shadow-system/constants.js';
 
 describe('subagent-helpers SubagentKind', () => {
   let tmpDir: string;

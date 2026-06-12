@@ -16,7 +16,7 @@ import { runSubagent as defaultRunSubagent, createPerTaskRegistry, getDisplayRes
 
 import { SPAWN_AUDIT_EVENTS } from './audit-events.js';
 import { formatErr } from './_helpers.js';
-import { SHADOW_CALLER_LABEL } from '../summon-system/internal/shadow/index.js';
+import { SHADOW_CALLER_LABEL } from '../shadow-system/index.js';
 
 
 export interface RunSpawnSyncOptions {

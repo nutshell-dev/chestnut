@@ -10,14 +10,14 @@
  */
 
 import { randomUUID } from 'crypto';
-import { UUID_SHORT_LEN } from '../../../../constants.js';
-import type { Message } from '../../../../foundation/llm-provider/types.js';
+import { UUID_SHORT_LEN } from '../../constants.js';
+import type { Message } from '../../foundation/llm-provider/types.js';
 
 import { synthesizeFormB } from './_helpers.js';
-import { type BuildShadowInstructionArgs } from '../../../../prompts/index.js';
+import { type BuildShadowInstructionArgs } from '../../prompts/index.js';
 import type { SpawnShadowSubagentOptions, SpawnShadowSubagentResult } from './types.js';
-import { makeTaskId } from '../../../async-task-system/types.js';
-import { makeToolUseId } from '../../../../foundation/tool-protocol/index.js';
+import { makeTaskId } from '../async-task-system/types.js';
+import { makeToolUseId } from '../../foundation/tool-protocol/index.js';
 
 /** Default max steps for shadow subagent execution */
 const SHADOW_MAX_STEPS_DEFAULT = 100;

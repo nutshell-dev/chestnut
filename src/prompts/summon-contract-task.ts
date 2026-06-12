@@ -1,6 +1,6 @@
 /**
  * Summon Contract Task Builder
- * phase 1142 rename from describing.ts、删身份混淆段（身份锚定归 summon-system/internal/shadow buildShadowInstruction）
+ * phase 1142 rename from describing.ts、删身份混淆段（身份锚定归 shadow-system buildShadowInstruction）
  *
  * Builds the task body for summon shadow mode subagent (contract creation workflow).
  * 不含身份段；身份锚由 ShadowSystem.buildShadowInstruction wrap。

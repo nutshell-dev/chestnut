@@ -8,7 +8,7 @@ import * as path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const filePath = path.resolve(__dirname, '../../src/core/summon-system/internal/shadow/spawn-shadow-subagent.ts');
+const filePath = path.resolve(__dirname, '../../src/core/shadow-system/spawn-shadow-subagent.ts');
 
 describe('shadow signal omit anchor lint (phase 1373 sub-4)', () => {
   it('spawn-shadow-subagent.ts 应包含 phase 1373 anchor comment', () => {

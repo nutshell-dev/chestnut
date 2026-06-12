@@ -7,11 +7,11 @@
  * reading from ExecContext (M#5: L2 doesn't know L4 semantics).
  */
 
-import type { Tool, ExecContext } from '../../../../../foundation/tools/index.js';
-import type { ToolResult } from '../../../../../foundation/tool-protocol/index.js';
-import type { Message, ToolDefinition } from '../../../../../foundation/llm-provider/types.js';
+import type { Tool, ExecContext } from '../../../foundation/tools/index.js';
+import type { ToolResult } from '../../../foundation/tool-protocol/index.js';
+import type { Message, ToolDefinition } from '../../../foundation/llm-provider/types.js';
 import { runShadow } from '../system.js';
-import { runSubagent as defaultRunSubagent } from '../../../../subagent/index.js';
+import { runSubagent as defaultRunSubagent } from '../../subagent/index.js';
 import { SHADOW_AUDIT_EVENTS } from '../audit-events.js';
 import { spawnShadowSubagent } from '../spawn-shadow-subagent.js';
 import { stripIncompleteToolUse } from '../_helpers.js';

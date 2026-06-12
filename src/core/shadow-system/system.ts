@@ -6,19 +6,19 @@
 
 import * as path from 'path';
 import { randomUUID } from 'crypto';
-import type { ExecContext } from '../../../../foundation/tools/index.js';
-import type { ToolResult } from '../../../../foundation/tool-protocol/index.js';
-import type { Message } from '../../../../foundation/llm-provider/types.js';
+import type { ExecContext } from '../../foundation/tools/index.js';
+import type { ToolResult } from '../../foundation/tool-protocol/index.js';
+import type { Message } from '../../foundation/llm-provider/types.js';
 
-import { UUID_SHORT_LEN } from '../../../../constants.js';
+import { UUID_SHORT_LEN } from '../../constants.js';
 import { TASKS_SYNC_SHADOW_DIR, SHADOW_DEFAULT_TIMEOUT_MS } from './constants.js';
-import { runSubagent as defaultRunSubagent, createPerTaskRegistry, getDisplayResult } from '../../../subagent/index.js';
+import { runSubagent as defaultRunSubagent, createPerTaskRegistry, getDisplayResult } from '../subagent/index.js';
 
 import { SHADOW_AUDIT_EVENTS } from './audit-events.js';
 import { synthesizeFormB, formatErr } from './_helpers.js';
-import { classifyTaskError } from '../../../async-task-system/index.js';
-import type { BuildShadowInstructionArgs } from '../../../../prompts/index.js';
-import { type ToolUseId, makeToolUseId } from '../../../../foundation/tool-protocol/index.js';
+import { classifyTaskError } from '../async-task-system/index.js';
+import type { BuildShadowInstructionArgs } from '../../prompts/index.js';
+import { type ToolUseId, makeToolUseId } from '../../foundation/tool-protocol/index.js';
 
 
 
@@ -33,7 +33,7 @@ interface RunShadowOptions {
   /** L4 turn state snapshot — injected by shadow tool factory (not from ctx) */
   turnSnapshot?: {
     systemPrompt?: string;
-    tools?: import('../../../../foundation/llm-provider/types.js').ToolDefinition[];
+    tools?: import('../../foundation/llm-provider/types.js').ToolDefinition[];
     messages?: Message[];
   };
   /** DI seam: optional runSubagent override (replaces vi.mock pattern) */

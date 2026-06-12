@@ -7,7 +7,7 @@ import { CLAW_SUBDIRS } from '../../src/assembly/claw-subdirs.js';
 import { CLAWS_DIR } from '../../src/foundation/claw-paths.js';
 import { TASKS_SYNC_SUBAGENT_DIR } from '../../src/core/subagent/constants.js';
 import { TASKS_SYNC_SPAWN_DIR } from '../../src/core/spawn-system/constants.js';
-import { TASKS_SYNC_SHADOW_DIR } from '../../src/core/summon-system/internal/shadow/constants.js';
+import { TASKS_SYNC_SHADOW_DIR } from '../../src/core/shadow-system/constants.js';
 
 describe('CLAW_SUBDIRS — 名实一致（per-claw 内子目录列表 / 不含 CLAWS_DIR 顶层容器）', () => {
   let tmpClawDir: string;
