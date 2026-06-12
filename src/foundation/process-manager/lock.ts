@@ -4,6 +4,7 @@ import { formatErr } from "../utils/index.js";
 import { isAlive as defaultL1IsAlive, getProcessStartTime as defaultGetProcessStartTime, makeProcessStartTime, type ProcessStartTime } from '../process-exec/index.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
 import { LockConflictError, type ProcessManagerContext } from './types.js';
+import { isFileNotFound } from '../fs/types.js';
 import type { ClawId } from '../../constants.js';
 
 
@@ -40,8 +41,8 @@ export function readLockPid(
       return { pid: legacyPid, startTime: undefined };
     }
     return null;
-  } catch (err: any) {
-    if (err?.code !== 'ENOENT' && err?.code !== 'FS_NOT_FOUND') {
+  } catch (err) {
+    if (!isFileNotFound(err)) {
       ctx.audit.write(
         PROCESS_MANAGER_AUDIT_EVENTS.LOCKFILE_READ_FAILED,
         `claw=${clawId}`,
@@ -59,8 +60,8 @@ export function acquireLock(ctx: ProcessManagerContext, clawId: ClawId): void {
     ctx.fs.writeExclusiveSync(lockFile, String(process.pid));
     ctx.audit.write(PROCESS_MANAGER_AUDIT_EVENTS.LOCK_ACQUIRED, `claw=${clawId}`, `pid=${process.pid}`);
     return;
-  } catch (err: any) {
-    if (err?.code !== 'EEXIST') throw err;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
   }
 
   const readLockPidFn = ctx.readLockPid ?? ((id: ClawId) => readLockPid(ctx, id));
@@ -84,8 +85,8 @@ export function acquireLock(ctx: ProcessManagerContext, clawId: ClawId): void {
 
   try {
     ctx.fs.deleteSync(lockFile);
-  } catch (e: any) {
-    if (e?.code !== 'ENOENT' && e?.code !== 'FS_NOT_FOUND') {
+  } catch (e) {
+    if (!isFileNotFound(e)) {
       ctx.audit.write(
         PROCESS_MANAGER_AUDIT_EVENTS.LOCKFILE_CLEANUP_FAILED,
         `claw=${clawId}`,
@@ -102,8 +103,8 @@ export function acquireLock(ctx: ProcessManagerContext, clawId: ClawId): void {
       `pid=${process.pid}`,
       `context=stale_retry`,
     );
-  } catch (retryErr: any) {
-    if (retryErr?.code === 'EEXIST') {
+  } catch (retryErr) {
+    if ((retryErr as NodeJS.ErrnoException).code === 'EEXIST') {
       throw new LockConflictError(
         clawId,
         `Another "${clawId}" daemon acquired the lock during retry`,
@@ -121,8 +122,8 @@ export function releaseLock(ctx: ProcessManagerContext, clawId: ClawId): void {
   try {
     ctx.fs.deleteSync(lockFile);
     ctx.audit.write(PROCESS_MANAGER_AUDIT_EVENTS.LOCK_RELEASED, `claw=${clawId}`, `pid=${process.pid}`);
-  } catch (err: any) {
-    if (err?.code !== 'ENOENT' && err?.code !== 'FS_NOT_FOUND') {
+  } catch (err) {
+    if (!isFileNotFound(err)) {
       ctx.audit.write(
         PROCESS_MANAGER_AUDIT_EVENTS.LOCKFILE_CLEANUP_FAILED,
         `claw=${clawId}`,

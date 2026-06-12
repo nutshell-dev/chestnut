@@ -120,9 +120,9 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
           await preAssembleFs.delete(path.join(INBOX_PENDING_DIR, entry.name));
         }
       }
-    } catch (e: any) {
+    } catch (e) {
       if (!isFileNotFound(e)) {
-        auditWriter.write(DAEMON_AUDIT_EVENTS.CLEANUP_HEARTBEAT_FAILED, `reason=${e?.message}`);
+        auditWriter.write(DAEMON_AUDIT_EVENTS.CLEANUP_HEARTBEAT_FAILED, `reason=${(e as Error).message}`);
       }
     }
 
@@ -196,8 +196,8 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
       // pid 文件清理（业务）
       try {
         await processManager.selfRemovePid(makeClawId(clawId));
-      } catch (e: any) {
-        instances.auditWriter.write(DAEMON_AUDIT_EVENTS.CLEANUP_PID_FAILED, `reason=${e?.message}`);
+      } catch (e) {
+        instances.auditWriter.write(DAEMON_AUDIT_EVENTS.CLEANUP_PID_FAILED, `reason=${(e as Error).message}`);
       }
       process.exit(0);
     };

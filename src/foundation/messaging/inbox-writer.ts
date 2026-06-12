@@ -20,6 +20,7 @@ import { assertMessageShape } from './invariants.js';
 import { SequenceCounter, formatSeq } from './sequence-counter.js';
 import { ok, err as errResult, type Result } from '../utils/index.js';
 import type { InboxMetaError } from './errors.js';
+import { isFileNotFound } from '../fs/types.js';
 
 export type InboxMessageMeta = Record<string, string>;
 
@@ -139,14 +140,14 @@ export class InboxWriter {
     let content: string;
     try {
       content = fs.readSync(filePath);
-    } catch (e: any) {
-      if (e?.code === 'FS_NOT_FOUND' || e?.code === 'ENOENT') {
+    } catch (e) {
+      if (isFileNotFound(e)) {
         return errResult({ kind: 'not_found', cause: e });
       }
-      if (e?.code === 'EACCES' || e?.code === 'EPERM') {
+      if ((e as NodeJS.ErrnoException).code === 'EACCES' || (e as NodeJS.ErrnoException).code === 'EPERM') {
         return errResult({ kind: 'permission_denied', cause: e });
       }
-      if (e?.code === 'EIO' || e?.code === 'EBUSY' || e?.code === 'ENOSPC') {
+      if ((e as NodeJS.ErrnoException).code === 'EIO' || (e as NodeJS.ErrnoException).code === 'EBUSY' || (e as NodeJS.ErrnoException).code === 'ENOSPC') {
         return errResult({ kind: 'io_failed', cause: e });
       }
       return errResult({ kind: 'read_failed', cause: e });

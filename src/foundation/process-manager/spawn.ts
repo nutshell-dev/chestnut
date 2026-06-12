@@ -4,7 +4,7 @@ import { formatErr } from "../utils/index.js";
 import { spawnDetached as defaultSpawnDetached, kill as defaultKill } from '../process-exec/index.js';
 import { DAEMON_SHUTDOWN_GRACE_MS, SPAWN_POLL_INTERVAL_MS } from './constants.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
-import { FileNotFoundError } from '../fs/types.js';
+import { isFileNotFound } from '../fs/types.js';
 import { ProcessListUnavailable } from './errors.js';
 import { isAliveByPidFile as checkAlive } from './alive.js';
 import { isReady as checkReady } from './ready.js';
@@ -94,7 +94,7 @@ async function cleanupOrphans(
     try {
       (ctx.kill ?? defaultKill)(pid, 'TERM');
       sentAny = true;
-    } catch (err: any) {
+    } catch (err) {
       orphanFailCount++;
       ctx.audit.write(
         PROCESS_MANAGER_AUDIT_EVENTS.ORPHAN_SIGTERM_FAILED,
@@ -136,7 +136,7 @@ async function cleanupLock(
         try {
           (ctx.kill ?? defaultKill)(lockHolder.pid, 'TERM');
           await sleep(DAEMON_SHUTDOWN_GRACE_MS);
-        } catch (err: any) {
+        } catch (err) {
           ctx.audit.write(
             PROCESS_MANAGER_AUDIT_EVENTS.LOCKFILE_CLEANUP_FAILED,
             `claw=${clawId}`,
@@ -149,8 +149,8 @@ async function cleanupLock(
     }
     try {
       await ctx.fs.delete(lockFile);
-    } catch (err: any) {
-      if (err?.code !== 'ENOENT' && err?.code !== 'FS_NOT_FOUND') {
+    } catch (err) {
+      if (!isFileNotFound(err)) {
         ctx.audit.write(
           PROCESS_MANAGER_AUDIT_EVENTS.LOCKFILE_CLEANUP_FAILED,
           `claw=${clawId}`,
@@ -160,12 +160,12 @@ async function cleanupLock(
         );
       }
     }
-  } catch (err: any) {
-    if (err?.code !== 'ENOENT' && err?.code !== 'FS_NOT_FOUND') {
+  } catch (err) {
+    if (!isFileNotFound(err)) {
       ctx.audit.write(
         PROCESS_MANAGER_AUDIT_EVENTS.LOCKFILE_READ_FAILED,
         `claw=${clawId}`,
-        `reason=${err?.code || formatErr(err)}`,
+        `reason=${(err as NodeJS.ErrnoException).code || formatErr(err)}`,
       );
     }
   }
@@ -185,8 +185,8 @@ async function writePidExclusive(
 
   try {
     ctx.fs.writeExclusiveSync(pidFile, String(process.pid));
-  } catch (err: any) {
-    if (err?.code !== 'EEXIST') throw err;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
     await handlePidFileConflict(ctx, clawId, pidFile);
   }
 }
@@ -235,8 +235,8 @@ async function handlePidFileConflict(
   try {
     existingContent = ctx.fs.readSync(pidFile).trim();
     readSucceeded = true;
-  } catch (readErr: any) {
-    if (readErr?.code === 'ENOENT' || readErr instanceof FileNotFoundError) {
+  } catch (readErr) {
+    if (isFileNotFound(readErr)) {
       // race: concurrent removePid deleted pidFile / benign
       ctx.audit.write(
         PROCESS_MANAGER_AUDIT_EVENTS.PID_READ_FAILED,

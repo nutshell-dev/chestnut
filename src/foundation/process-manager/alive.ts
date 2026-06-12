@@ -3,6 +3,7 @@ import type { ClawId } from '../../constants.js';
 import { isAlive as defaultL1IsAlive, makeProcessStartTime, type ProcessStartTime } from '../process-exec/index.js';
 import { formatErr } from "../utils/index.js";
 import type { ProcessManagerContext } from './types.js';
+import { isFileNotFound } from '../fs/types.js';
 
 
 /**
@@ -54,7 +55,7 @@ export function getAliveStatus(
       // M#1 probe ≠ delete：probe 不 mutate state、stale pidfile 清理归 stop/recovery 显式路径
       // 历史 deleteSync 引发 stop.ts isAliveByPidFile race（new4.P1.1 + new4.P2.1-C 同根 cluster phase 879）
       return { alive: false, reason: `PID ${pid} not alive` };
-    } catch (err: any) {
+    } catch (err) {
       // PM-5：非 ESRCH/EPERM 的异常 → 保守假设 alive，避免误杀健康进程
       const code = (err as NodeJS.ErrnoException).code;
       if (code === 'ESRCH' || code === 'EPERM') {
@@ -62,11 +63,11 @@ export function getAliveStatus(
       }
       return { alive: true, reason: `isAlive probe failed: ${formatErr(err)}`, pid };
     }
-  } catch (err: any) {
-    if (err.code === 'ENOENT' || err.code === 'FS_NOT_FOUND') {
+  } catch (err) {
+    if (isFileNotFound(err)) {
       return { alive: false, reason: 'no PID file' };
     }
-    return { alive: false, reason: `read error: ${err.code || err.message}` };
+    return { alive: false, reason: `read error: ${(err as NodeJS.ErrnoException).code || (err as Error).message}` };
   }
 }
 

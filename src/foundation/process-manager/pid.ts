@@ -4,6 +4,7 @@ import { formatErr } from "../utils/index.js";
 import { getProcessStartTime as defaultGetProcessStartTime, makeProcessStartTime, type ProcessStartTime } from '../process-exec/index.js';
 import type { ProcessManagerContext } from './types.js';
 import type { ClawId } from '../../constants.js';
+import { isFileNotFound } from '../fs/types.js';
 
 
 export interface PidFileContent {
@@ -42,8 +43,8 @@ export async function readPid(ctx: ProcessManagerContext, clawId: ClawId): Promi
     }
     ctx.audit.write(PROCESS_MANAGER_AUDIT_EVENTS.PID_FILE_PARSE_FAILED, `claw=${clawId}`);
     return null;
-  } catch (err: any) {
-    if (err?.code === 'ENOENT' || err?.code === 'FS_NOT_FOUND') return null;
+  } catch (err) {
+    if (isFileNotFound(err)) return null;
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.PID_READ_FAILED,
       `claw=${clawId}`,
@@ -58,8 +59,8 @@ export async function removePid(ctx: ProcessManagerContext, clawId: ClawId): Pro
     const pidFile = getPidFile(ctx, clawId);
     await ctx.fs.delete(pidFile);
     ctx.audit.write(PROCESS_MANAGER_AUDIT_EVENTS.PID_REMOVE_OK, `claw=${clawId}`);
-  } catch (err: any) {
-    if (err.code === 'ENOENT' || err.code === 'FS_NOT_FOUND') {
+  } catch (err) {
+    if (isFileNotFound(err)) {
       return;
     }
     ctx.audit.write(
@@ -83,7 +84,7 @@ export async function selfWritePid(ctx: ProcessManagerContext, clawId: ClawId): 
       `pid=${process.pid}`,
       ...(startTime ? [`startTime=${startTime}`] : ['startTime_skipped']),
     );
-  } catch (e: any) {
+  } catch (e) {
     ctx.audit.write(PROCESS_MANAGER_AUDIT_EVENTS.PID_WRITE_FAILED, `claw=${clawId}`, `reason=${formatErr(e)}`);
     throw e;
   }

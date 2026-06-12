@@ -97,7 +97,7 @@ chestnut motion chat   # resume the Motion chat
 Chestnut works with any major LLM provider — Anthropic, OpenAI, DeepSeek, Gemini, Ollama, and more. Select your provider interactively with `chestnut init`; if the corresponding API key environment variable is already set, it's detected automatically.
 
 ```yaml
-# ~/.chestnut/config.yaml
+# ./.chestnut/config.yaml
 llm:
   primary:
     preset: anthropic
@@ -132,7 +132,9 @@ For the full command set (`claw <name> {create,send,outbox,import,read,health,st
 
 ## Configuration
 
-Configuration lives in `~/.chestnut/config.yaml` and is created by `chestnut init`. The yaml block above shows the basic shape; additional providers follow the same `llm.primary.*` pattern.
+Configuration lives in `./.chestnut/config.yaml` (per workspace, relative to the directory where you run `chestnut`) and is created by `chestnut init`. The yaml block above shows the basic shape; additional providers follow the same `llm.primary.*` pattern.
+
+**Workspace root override**: set `CHESTNUT_ROOT=/some/path` to force config and runtime state to live under that path instead of the current directory. Useful if you want a stable per-user workspace independent of `cwd`.
 
 ---
 

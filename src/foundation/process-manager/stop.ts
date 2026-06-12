@@ -55,13 +55,13 @@ export async function stopProcess(ctx: ProcessManagerContext, clawId: ClawId): P
       `via=${via}`,
     );
     return true;
-  } catch (err: any) {
+  } catch (err) {
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_STOP_FAILED,
       `claw=${clawId}`,
       `pid=${stored.pid}`,
       `via=${via}`,
-      `reason=${err.code || err.message}`,
+      `reason=${(err as NodeJS.ErrnoException).code || (err as Error).message}`,
     );
     return false;
   }

@@ -27,11 +27,11 @@ const SIGNAL_MAP: Record<Signal, NodeJS.Signals> = {
 export function kill(pid: number, signal: Signal): void {
   try {
     process.kill(pid, SIGNAL_MAP[signal]);
-  } catch (err: any) {
-    if (err?.code === 'ESRCH') return;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ESRCH') return;
     throw new ProcessExecError({
       message: `kill(${pid}, ${signal}) failed: ${formatErr(err)}`,
-      code: err?.code,
+      code: (err as NodeJS.ErrnoException).code,
       signal,
     });
   }
@@ -49,8 +49,8 @@ export function kill(pid: number, signal: Signal): void {
 export function isAlive(pid: number, expectedStartTime?: ProcessStartTime): boolean {
   try {
     process.kill(pid, 0);
-  } catch (err: any) {
-    if (err?.code === 'EPERM') return true;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'EPERM') return true;
     return false;
   }
   if (expectedStartTime === undefined || process.platform === 'win32') return true; // skip verify

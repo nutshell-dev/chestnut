@@ -21,7 +21,7 @@ export async function markReady(ctx: ProcessManagerContext, clawId: ClawId): Pro
       `pid=${process.pid}`,
       ...(startTime ? [`startTime=${startTime}`] : ['startTime_skipped']),
     );
-  } catch (e: any) {
+  } catch (e) {
     // audit failure but don't throw — caller (daemon boot) should continue, ready signal just absent
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.READY_MARK_WROTE,
@@ -37,8 +37,8 @@ export async function markNotReady(ctx: ProcessManagerContext, clawId: ClawId): 
   try {
     await ctx.fs.delete(readyFile);
     ctx.audit.write(PROCESS_MANAGER_AUDIT_EVENTS.READY_MARK_REMOVED, `claw=${clawId}`);
-  } catch (err: any) {
-    if (err?.code === 'ENOENT' || err?.code === 'FS_NOT_FOUND') {
+  } catch (err) {
+    if (isFileNotFound(err)) {
       // benign: marker 不存在 (boot crash before markReady / 已 markNotReady)
       return;
     }
@@ -72,8 +72,8 @@ export function isReady(ctx: ProcessManagerContext, clawId: ClawId): boolean {
   try {
     readyContent = ctx.fs.readSync(readyFile);
     pidContent = ctx.fs.readSync(pidFile);
-  } catch (err: any) {
-    if (err?.code === 'ENOENT' || err?.code === 'FS_NOT_FOUND') {
+  } catch (err) {
+    if (isFileNotFound(err)) {
       return false; // 任一缺则 not ready (normal)
     }
     ctx.audit.write(
@@ -93,7 +93,7 @@ export function isReady(ctx: ProcessManagerContext, clawId: ClawId): boolean {
     readyPid = ready.pid;
     readyStartTime = typeof ready.startTime === 'string' ? makeProcessStartTime(ready.startTime) : undefined;
     pidFilePid = pidData.pid;
-  } catch (err: any) {
+  } catch (err) {
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.READY_CHECK_PARSE_FAILED,
       `claw=${clawId}`,
@@ -110,7 +110,7 @@ export function isReady(ctx: ProcessManagerContext, clawId: ClawId): boolean {
       `pid_file_pid=${pidFilePid}`,
     );
     // r128 C fork C.1: narrow ENOENT only / non-ENOENT audit emit (mirror phase 1032 cleanup.ts)
-    ctx.fs.delete(readyFile).catch((e: any) => {
+    ctx.fs.delete(readyFile).catch((e) => {
       if (!isFileNotFound(e)) {
         ctx.audit.write(
           PROCESS_MANAGER_AUDIT_EVENTS.READY_STALE_CLEANUP_FAILED,
@@ -124,7 +124,7 @@ export function isReady(ctx: ProcessManagerContext, clawId: ClawId): boolean {
   }
   try {
     return (ctx.l1IsAlive ?? defaultL1IsAlive)(readyPid, readyStartTime);
-  } catch (err: any) {
+  } catch (err) {
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.READY_CHECK_ISALIVE_THROW,
       `claw=${clawId}`,
