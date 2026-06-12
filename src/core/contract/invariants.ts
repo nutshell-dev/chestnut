@@ -14,10 +14,7 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import type { ProgressData } from './types.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 
-// ContractStatus union 7 值（与 types.ts:27-34 同源、改时同步）
-const CONTRACT_STATUS_SET: ReadonlySet<string> = new Set([
-  'pending', 'running', 'paused', 'completed', 'cancelled', 'crashed', 'archive_pending_recovery',
-]);
+// phase 282 Step A: CONTRACT_STATUS_SET 已删除（status 改 derive、不再做 shape invariant check）
 
 const SUBTASK_STATUS_SET: ReadonlySet<string> = new Set(['todo', 'in_progress', 'completed']);
 
@@ -27,8 +24,9 @@ export function assertProgressShapeInvariants(
   source: 'saveProgress' | 'boot_reconcile_escalated' | 'boot_reconcile_all_completed',
 ): void {
   checkSchemaVersion(progress, audit, source);
-  checkContractIdNonEmpty(progress, audit, source);
-  checkContractStatusInUnion(progress, audit, source);
+  // phase 282 Step A: status 改 derive from subtasks，不再做 shape invariant check
+  // phase 282 Step B: contract_id 改 derive from caller/dir，不再做 shape invariant check
+  // checkContractStatusInUnion(progress, audit, source);
   checkSubtasksShape(progress, audit, source);
 }
 
@@ -42,29 +40,6 @@ function checkSchemaVersion(p: ProgressData, audit: AuditLog, source: string): v
       `contract_id=${String(p.contract_id ?? 'unknown')}`,
       `actual=${String(p.schema_version)}`,
       `current=1`,
-      `source=${source}`,
-    );
-  }
-}
-
-function checkContractIdNonEmpty(p: ProgressData, audit: AuditLog, source: string): void {
-  if (typeof p.contract_id !== 'string' || p.contract_id.length === 0) {
-    audit.write(
-      CONTRACT_AUDIT_EVENTS.CONTRACT_PROGRESS_INVARIANT_VIOLATED,
-      `kind=contract_id_invalid`,
-      `actual=${String(p.contract_id)}`,
-      `source=${source}`,
-    );
-  }
-}
-
-function checkContractStatusInUnion(p: ProgressData, audit: AuditLog, source: string): void {
-  if (!CONTRACT_STATUS_SET.has(p.status as string)) {
-    audit.write(
-      CONTRACT_AUDIT_EVENTS.CONTRACT_PROGRESS_INVARIANT_VIOLATED,
-      `kind=status_not_in_union`,
-      `contract_id=${String(p.contract_id ?? 'unknown')}`,
-      `actual=${String(p.status)}`,
       `source=${source}`,
     );
   }

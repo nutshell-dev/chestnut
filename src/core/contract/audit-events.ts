@@ -111,9 +111,10 @@ export const CONTRACT_AUDIT_EVENTS = {
   CONTRACT_CREATE_POLICY_REJECTED: 'contract_create_policy_rejected',
   // phase 233 Step A: saveProgress 入口 schema invariant 违例
   CONTRACT_PROGRESS_INVARIANT_VIOLATED: 'contract_progress_invariant_violated',
-  // phase 233 Step B: saveProgress 入口 cross-source mismatch
-  CONTRACT_PROGRESS_CROSS_SOURCE_MISMATCH: 'contract_progress_cross_source_mismatch',
-  CONTRACT_PROGRESS_CROSS_SOURCE_SKIPPED: 'contract_progress_cross_source_skipped',
+  // phase 282 Step A: legacy status field ignored on load
+  CONTRACT_LEGACY_STATUS_FIELD_IGNORED: 'contract_legacy_status_field_ignored',
+  // phase 282 Step B: legacy contract_id field ignored on load
+  CONTRACT_LEGACY_CONTRACT_ID_FIELD_IGNORED: 'contract_legacy_contract_id_field_ignored',
   CONTRACT_OBSERVER_STATE_INVARIANT_VIOLATED: 'contract_observer_state_invariant_violated',
   // phase 66 NEW (raw migration phase 272 Step C)
   MARK_CRASHED_GRACEFUL_FALLBACK: 'mark_crashed_graceful_fallback',
@@ -220,7 +221,7 @@ export const CONTRACT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   contract_archive_reconcile_summary: 'audit',
   contract_archive_recovery_pending_observed: 'audit',
   contract_progress_invariant_violated: 'audit',
-  contract_progress_cross_source_mismatch: 'audit',
-  contract_progress_cross_source_skipped: 'audit',
+  contract_legacy_status_field_ignored: 'audit',
+  contract_legacy_contract_id_field_ignored: 'audit',
   contract_observer_state_invariant_violated: 'audit',
 } as const;

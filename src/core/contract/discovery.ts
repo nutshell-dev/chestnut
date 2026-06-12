@@ -44,8 +44,6 @@ async function findLatestContract(
       const raw = await ctx.fs.read(progressPath);
       const parsed = JSON.parse(raw) as { contract_id?: unknown; status?: unknown; subtasks?: unknown; started_at?: unknown };
       if (
-        typeof parsed.contract_id !== 'string' ||
-        typeof parsed.status !== 'string' ||
         typeof parsed.subtasks !== 'object' || parsed.subtasks === null
       ) {
         emitContractProgressSchemaInvalid(

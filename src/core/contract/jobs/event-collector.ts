@@ -179,8 +179,6 @@ export function scanArchivedContracts(
         const raw = fs.readSync(progressPath);
         const parsed = JSON.parse(raw) as { contract_id?: unknown; status?: unknown; subtasks?: unknown };
         if (
-          typeof parsed.contract_id !== 'string' ||
-          typeof parsed.status !== 'string' ||
           typeof parsed.subtasks !== 'object' || parsed.subtasks === null
         ) {
           audit?.write(

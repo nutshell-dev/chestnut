@@ -89,9 +89,11 @@ describe('moveContractToArchive lock acquire (phase 860 / P0-B)', () => {
     }));
 
     // phase 188: archive precondition requires terminal status
+    // phase 282 Step A: status derive from subtasks → 需先完成所有 subtasks
     await (manager as any).withProgressLock(contractId, async () => {
       const progress = await manager.getProgress(contractId);
-      progress.status = 'completed';
+      progress.subtasks.t1.status = 'completed';
+      progress.subtasks.t1.completed_at = new Date().toISOString();
       await (manager as any).saveProgress(contractId, progress);
     });
     await (manager as any).moveToArchive(contractId);
@@ -120,9 +122,11 @@ describe('moveContractToArchive lock acquire (phase 860 / P0-B)', () => {
     }));
 
     // phase 188: archive precondition requires terminal status
+    // phase 282 Step A: status derive from subtasks → 需先完成所有 subtasks
     await (manager as any).withProgressLock(contractId, async () => {
       const progress = await manager.getProgress(contractId);
-      progress.status = 'completed';
+      progress.subtasks.t1.status = 'completed';
+      progress.subtasks.t1.completed_at = new Date().toISOString();
       await (manager as any).saveProgress(contractId, progress);
     });
     await manager.moveToArchive(contractId);

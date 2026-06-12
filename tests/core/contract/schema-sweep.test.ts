@@ -49,7 +49,7 @@ afterEach(async () => {
 // ============================================================================
 
 describe('getProgress schema check', () => {
-  it('throws on corrupt schema (missing contract_id)', async () => {
+  it('throws on corrupt schema (missing subtasks)', async () => {
     const mockAudit = makeMockAudit();
     const manager = new ContractSystem({
       clawDir,
@@ -68,7 +68,7 @@ describe('getProgress schema check', () => {
       verification: [],
     }));
 
-    // overwrite with schema-invalid JSON (parsable but missing required fields)
+    // overwrite with schema-invalid JSON (parsable but missing subtasks)
     const progressPath = path.join(clawDir, 'contract', 'active', contractId, 'progress.json');
     await fs.writeFile(progressPath, JSON.stringify({ foo: 'bar' }), 'utf-8');
 
@@ -193,12 +193,12 @@ describe('discovery schema check', () => {
     const mockAudit = makeMockAudit();
     const activeDir = path.join(clawDir, 'contract', 'active');
 
-    // Contract A: schema invalid (missing contract_id)
+    // Contract A: schema invalid (subtasks=null)
     const dirA = path.join(activeDir, 'contract-a');
     await fs.mkdir(dirA, { recursive: true });
     await fs.writeFile(
       path.join(dirA, 'progress.json'),
-      JSON.stringify({ status: 'running', subtasks: {} }),
+      JSON.stringify({ status: 'running', subtasks: null }),
       'utf-8',
     );
 
@@ -321,7 +321,7 @@ describe('event-collector schema check', () => {
       {
         dir: 'archive',
         name: 'bad',
-        progress: { status: 'completed', subtasks: { t1: { completed_at: new Date().toISOString() } } }, // missing contract_id
+        progress: { status: 'completed', subtasks: null }, // schema invalid
       },
       {
         dir: 'archive',

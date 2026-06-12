@@ -52,9 +52,9 @@ import { UUID_SHORT_LEN, type ClawId } from '../../constants.js';
 
 import type {
   ContractYaml, ProgressData, VerificationResult, VerifierConfig, VerifierResult,
-  ContractCreatePolicy, CreatePolicyContext, CreateContractOptions,
+  ContractCreatePolicy, CreatePolicyContext, CreateContractOptions, ContractStatus,
 } from './types.js';
-import { ContractCreatePolicyViolationError } from './types.js';
+import { ContractCreatePolicyViolationError, deriveProgressStatus } from './types.js';
 import {
   lockContract,
   type LockContext,
@@ -349,7 +349,6 @@ export class ContractSystem {
       audit: this.audit,
       contractDir: (id) => this.contractDir(id),
       getProgress: (id) => this.getProgress(id),
-      getContractYaml: (id) => this.loadContractYaml(id),    // phase 233 Step B
       markCrashed: (id, cause) => this.markCrashed(id, cause),
     };
   }
@@ -686,12 +685,18 @@ export class ContractSystem {
       );
       try {
         // phase 188 Step A: archive precondition requires terminal status
-        // flip old contract to completed before archiving (create replaces old contract)
+        // phase 282 Step A: status derive from subtasks → flip old contract subtasks
+        // to completed before archiving (create replaces old contract)
         const existingId = makeContractId(existing.id);
         await this.withProgressLock(existingId, async () => {
           const progress = await this.getProgress(existingId);
           if (progress && !['completed', 'cancelled', 'crashed', 'archive_pending_recovery'].includes(progress.status)) {
-            progress.status = 'completed';
+            for (const st of Object.values(progress.subtasks)) {
+              if (st.status !== 'completed') {
+                st.status = 'completed';
+                if (!st.completed_at) st.completed_at = new Date().toISOString();
+              }
+            }
             await this.saveProgress(existingId, progress);
           }
         });
@@ -743,9 +748,13 @@ export class ContractSystem {
       checkpoint: null,
     };
     try {
+      // phase 282 Step B: persist without derive fields (contract_id/status)
+      const persisted = { ...progress };
+      delete (persisted as Record<string, unknown>).contract_id;
+      delete (persisted as Record<string, unknown>).status;
       await this.fs.writeAtomic(
         `${this.activeDir}/${contractId}/progress.json`,
-        JSON.stringify(progress, null, 2)
+        JSON.stringify(persisted, null, 2)
       );
     } catch (err) {
       await this.fs.removeDir(`${this.activeDir}/${contractId}`).catch((deleteErr) => {
@@ -855,8 +864,6 @@ export class ContractSystem {
     }
 
     if (
-      typeof parsed.contract_id !== 'string' ||
-      typeof parsed.status !== 'string' ||
       typeof parsed.subtasks !== 'object' || parsed.subtasks === null
     ) {
       emitContractProgressSchemaInvalid(
@@ -883,7 +890,45 @@ export class ContractSystem {
       }
       return null;
     }
-    return parsed as ProgressData;
+
+    // phase 282 Step B: derive contract_id from caller-provided id（dir name 是 SoT）
+    if ('contract_id' in parsed) {
+      this.audit.write(
+        CONTRACT_AUDIT_EVENTS.CONTRACT_LEGACY_CONTRACT_ID_FIELD_IGNORED,
+        `contractId=${contractId}`,
+        `legacy_contract_id=${String((parsed as Record<string, unknown>).contract_id)}`,
+      );
+      delete (parsed as Record<string, unknown>).contract_id;
+    }
+
+    // phase 282 Step A: derive status from subtasks。
+    // 对于可从 subtasks derive 的状态（completed/running/pending），legacy status field 忽略 + derive。
+    // 对于不可 derive 的生命周期状态（cancelled/crashed/paused/archive_pending_recovery），
+    // 暂时保留文件中值（saveProgress 也会保留这些状态），避免状态丢失。
+    const DERIVABLE_STATUSES = new Set<string>(['completed', 'running', 'pending']);
+    const progressData = parsed as Omit<ProgressData, 'status'> & { status?: ContractStatus; contract_id?: ContractId };
+    const derivedStatus = deriveProgressStatus({ subtasks: progressData.subtasks });
+    const fileStatus = (parsed as Record<string, unknown>).status;
+
+    if (typeof fileStatus === 'string' && !DERIVABLE_STATUSES.has(fileStatus)) {
+      // 保留不可 derive 的生命周期状态
+      progressData.status = fileStatus as ContractStatus;
+    } else {
+      if ('status' in parsed) {
+        this.audit.write(
+          CONTRACT_AUDIT_EVENTS.CONTRACT_LEGACY_STATUS_FIELD_IGNORED,
+          `contractId=${contractId}`,
+          `legacy_status=${String(fileStatus)}`,
+          `derived_status=${derivedStatus}`,
+        );
+        delete (parsed as Record<string, unknown>).status;
+      }
+      progressData.status = derivedStatus;
+    }
+
+    progressData.contract_id = contractId;
+
+    return progressData as ProgressData;
   }
 
   // ============================================================================

@@ -123,9 +123,11 @@ describe('phase 871 r113 G fork: contract lock orphan-on-fs-move-throw cluster f
     }));
 
     // phase 188: archive precondition requires terminal status
+    // phase 282 Step A: status derive from subtasks → 需先完成所有 subtasks 才能 archive
     await (manager as any).withProgressLock(contractId, async () => {
       const progress = await manager.getProgress(contractId);
-      progress.status = 'completed';
+      progress.subtasks.t1.status = 'completed';
+      progress.subtasks.t1.completed_at = new Date().toISOString();
       await (manager as any).saveProgress(contractId, progress);
     });
 

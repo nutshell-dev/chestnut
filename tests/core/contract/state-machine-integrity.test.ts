@@ -271,6 +271,13 @@ describe('phase 1038 C-3 Contract state machine integrity (W3-B α-1+α-4+α-7)'
       // create existing active contract c1
       const { manager: mgr0 } = makeManager();
       await mgr0.create(makeContractYaml({ id: 'c1', title: 'Existing' }));
+      // phase 282 Step A: status derive from subtasks → 需先完成所有 subtasks 才能 archive
+      await (mgr0 as any).withProgressLock('c1', async () => {
+        const p = await mgr0.getProgress('c1');
+        p.subtasks['task-1'].status = 'completed';
+        p.subtasks['task-1'].completed_at = new Date().toISOString();
+        await (mgr0 as any).saveProgress('c1', p);
+      });
 
       // now try to create c2 with archive failing
       const { manager, nodeFs } = makeManager({ moveToArchiveThrows: true });
@@ -289,6 +296,13 @@ describe('phase 1038 C-3 Contract state machine integrity (W3-B α-1+α-4+α-7)'
       // create existing active contract c1
       const { manager: mgr0 } = makeManager();
       await mgr0.create(makeContractYaml({ id: 'c1', title: 'Existing' }));
+      // phase 282 Step A: status derive from subtasks → 需先完成所有 subtasks 才能 archive
+      await (mgr0 as any).withProgressLock('c1', async () => {
+        const p = await mgr0.getProgress('c1');
+        p.subtasks['task-1'].status = 'completed';
+        p.subtasks['task-1'].completed_at = new Date().toISOString();
+        await (mgr0 as any).saveProgress('c1', p);
+      });
 
       // now create c2 with archive succeeding
       const { manager, nodeFs } = makeManager({ moveToArchiveThrows: false });

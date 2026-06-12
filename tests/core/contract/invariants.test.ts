@@ -61,49 +61,19 @@ describe('contract progress shape invariants (phase 233 Step A)', () => {
     });
   });
 
-  describe('sub-check 2: contract_id', () => {
-    it('正常 contract_id 0 emit', () => {
-      const audit = makeMockAudit();
-      assertProgressShapeInvariants(makeProgress({ contract_id: 'valid-id' }), audit, 'saveProgress');
-      expect(audit.write).not.toHaveBeenCalled();
-    });
-
-    it('contract_id="" 空字符串 → emit kind=contract_id_invalid', () => {
+  describe('sub-check 2: contract_id (phase 282 Step B)', () => {
+    it('contract_id 已改为 derive from caller/dir，invariants 不再检查 contract_id', () => {
       const audit = makeMockAudit();
       assertProgressShapeInvariants(makeProgress({ contract_id: '' }), audit, 'saveProgress');
-      expect(audit.write).toHaveBeenCalledTimes(1);
-      const call = (audit.write as ReturnType<typeof vi.fn>).mock.calls[0];
-      expect(call[0]).toBe(CONTRACT_AUDIT_EVENTS.CONTRACT_PROGRESS_INVARIANT_VIOLATED);
-      expect(call).toContainEqual(expect.stringContaining('kind=contract_id_invalid'));
-    });
-
-    it('contract_id=null → emit kind=contract_id_invalid', () => {
-      const audit = makeMockAudit();
-      assertProgressShapeInvariants(makeProgress({ contract_id: null }), audit, 'saveProgress');
-      expect(audit.write).toHaveBeenCalledTimes(1);
-      const call = (audit.write as ReturnType<typeof vi.fn>).mock.calls[0];
-      expect(call).toContainEqual(expect.stringContaining('kind=contract_id_invalid'));
+      expect(audit.write).not.toHaveBeenCalled();
     });
   });
 
-  describe('sub-check 3: ContractStatus union', () => {
-    it('所有 7 个合法状态 0 emit', () => {
-      const statuses = ['pending', 'running', 'paused', 'completed', 'cancelled', 'crashed', 'archive_pending_recovery'];
-      for (const status of statuses) {
-        const audit = makeMockAudit();
-        assertProgressShapeInvariants(makeProgress({ status }), audit, 'saveProgress');
-        expect(audit.write).not.toHaveBeenCalled();
-      }
-    });
-
-    it('status="invalid_state" → emit kind=status_not_in_union', () => {
+  describe('sub-check 3: ContractStatus union (phase 282 Step A)', () => {
+    it('status 已改为 derive from subtasks，invariants 不再检查 status union', () => {
       const audit = makeMockAudit();
       assertProgressShapeInvariants(makeProgress({ status: 'invalid_state' }), audit, 'saveProgress');
-      expect(audit.write).toHaveBeenCalledTimes(1);
-      const call = (audit.write as ReturnType<typeof vi.fn>).mock.calls[0];
-      expect(call[0]).toBe(CONTRACT_AUDIT_EVENTS.CONTRACT_PROGRESS_INVARIANT_VIOLATED);
-      expect(call).toContainEqual(expect.stringContaining('kind=status_not_in_union'));
-      expect(call).toContainEqual(expect.stringContaining('actual=invalid_state'));
+      expect(audit.write).not.toHaveBeenCalled();
     });
   });
 
@@ -154,21 +124,21 @@ describe('contract progress shape invariants (phase 233 Step A)', () => {
   describe('source 字段', () => {
     it('saveProgress 调用源 = "saveProgress"', () => {
       const audit = makeMockAudit();
-      assertProgressShapeInvariants(makeProgress({ contract_id: '' }), audit, 'saveProgress');
+      assertProgressShapeInvariants(makeProgress({ schema_version: 99 }), audit, 'saveProgress');
       const call = (audit.write as ReturnType<typeof vi.fn>).mock.calls[0];
       expect(call).toContainEqual(expect.stringContaining('source=saveProgress'));
     });
 
     it('boot_reconcile_escalated 源', () => {
       const audit = makeMockAudit();
-      assertProgressShapeInvariants(makeProgress({ contract_id: '' }), audit, 'boot_reconcile_escalated');
+      assertProgressShapeInvariants(makeProgress({ schema_version: 99 }), audit, 'boot_reconcile_escalated');
       const call = (audit.write as ReturnType<typeof vi.fn>).mock.calls[0];
       expect(call).toContainEqual(expect.stringContaining('source=boot_reconcile_escalated'));
     });
 
     it('boot_reconcile_all_completed 源', () => {
       const audit = makeMockAudit();
-      assertProgressShapeInvariants(makeProgress({ contract_id: '' }), audit, 'boot_reconcile_all_completed');
+      assertProgressShapeInvariants(makeProgress({ schema_version: 99 }), audit, 'boot_reconcile_all_completed');
       const call = (audit.write as ReturnType<typeof vi.fn>).mock.calls[0];
       expect(call).toContainEqual(expect.stringContaining('source=boot_reconcile_all_completed'));
     });
@@ -212,7 +182,10 @@ describe('contract progress shape invariants (phase 233 Step A)', () => {
 
       const progressPath = path.join(clawDir, 'contract', 'active', contractId, 'progress.json');
       const content = JSON.parse(await fs.readFile(progressPath, 'utf-8'));
-      expect(content.contract_id).toBe(contractId);
+      // phase 282 Step B: contract_id is derive field, not persisted
+      expect(content).not.toHaveProperty('contract_id');
+      expect(content.schema_version).toBe(1);
+      expect(content.subtasks).toBeDefined();
 
       const badCalls = (mockAudit.write as ReturnType<typeof vi.fn>).mock.calls.filter(
         (c: any[]) => c[0] === CONTRACT_AUDIT_EVENTS.CONTRACT_PROGRESS_INVARIANT_VIOLATED,
@@ -220,7 +193,7 @@ describe('contract progress shape invariants (phase 233 Step A)', () => {
       expect(badCalls).toHaveLength(0);
     });
 
-    it('非法 progress 写入 → 文件仍落盘（不 throw）+ audit emit', async () => {
+    it('非法 progress 写入 → 文件仍落盘（不 throw）+ audit emit (phase 282 Step A)', async () => {
       const mockAudit = makeMockAudit();
       const nodeFs = new NodeFileSystem({ baseDir: clawDir });
       const manager = new ContractSystem({
@@ -241,31 +214,29 @@ describe('contract progress shape invariants (phase 233 Step A)', () => {
         verification: [],
       }));
 
-      // 直接 overwrite progress.json 为非法状态
+      // 直接 overwrite progress.json 为非法 subtask status
       const progressPath = path.join(clawDir, 'contract', 'active', contractId, 'progress.json');
       await fs.writeFile(progressPath, JSON.stringify({
         schema_version: 1,
         contract_id: contractId,
-        status: 'bogus_status',
-        subtasks: { t1: { status: 'todo' } },
+        status: 'running',
+        subtasks: { t1: { status: 'invalid_status' } },
       }), 'utf-8');
 
       // 通过 getProgress 读取后再 saveProgress 应该 emit audit 但不 throw
       const progress = await manager.getProgress(contractId);
       expect(progress).not.toBeNull();
-      // 修改 status 为非法值再 save
-      (progress as any).status = 'bogus_status';
       await manager.saveProgress(contractId, progress as any);
 
       const badCalls = (mockAudit.write as ReturnType<typeof vi.fn>).mock.calls.filter(
         (c: any[]) => c[0] === CONTRACT_AUDIT_EVENTS.CONTRACT_PROGRESS_INVARIANT_VIOLATED,
       );
       expect(badCalls.length).toBeGreaterThanOrEqual(1);
-      expect(badCalls.some((c: any[]) => c.some((s: string) => s.includes('kind=status_not_in_union')))).toBe(true);
+      expect(badCalls.some((c: any[]) => c.some((s: string) => s.includes('kind=subtask_status_not_in_union')))).toBe(true);
 
       // 文件仍然落盘
       const saved = JSON.parse(await fs.readFile(progressPath, 'utf-8'));
-      expect(saved.status).toBe('bogus_status');
+      expect(saved.subtasks.t1.status).toBe('invalid_status');
     });
   });
 

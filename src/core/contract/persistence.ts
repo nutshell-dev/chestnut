@@ -17,7 +17,7 @@ import { emitContractYamlSchemaInvalid } from './audit-emit.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 import { isolateCorruptedFile } from './_isolation-helper.js';
 import { assertProgressShapeInvariants } from './invariants.js';
-import { auditProgressCrossSource } from './cross-source-audit.js';
+// phase 282 Step B: cross-source audit 整文件已删除（status + contract_id + yaml-dep 均 derive）
 
 const CONTRACT_DEFAULTS = {
   schema_version: 1,
@@ -32,8 +32,6 @@ export interface PersistenceContext {
   audit: AuditLog;
   contractDir: (contractId: ContractId) => Promise<string>;
   getProgress: (contractId: ContractId) => Promise<ProgressData | null>;
-  /** phase 233 Step B: cross-source audit yaml loader、可选注入 */
-  getContractYaml?: (contractId: ContractId) => Promise<ContractYaml | null>;
   markCrashed?: (contractId: ContractId, cause: string) => Promise<void>;
 }
 
@@ -89,7 +87,7 @@ export async function loadContractYaml(
     }
     return null;
   }
-  // Backwards-compat: old yaml used `acceptance` field, now renamed to `verification`
+  // Backwards-compat: old yaml used the legacy field, now renamed to `verification`
   // SUNSET per phase 1257 r134 C fork: 30 天 audit `CONTRACT_YAML_LEGACY_ACCEPTANCE_FIELD` 0 触发 → r135+ phase 删本 fallback
   const data = parsed as Record<string, unknown>;
   if (Array.isArray(data.acceptance) && !Array.isArray(data.verification)) {
@@ -175,13 +173,22 @@ export async function saveProgress(
   const dir = await ctx.contractDir(contractId);
   const progressPath = `${dir}/${contractId}/progress.json`;
   const progressToSave = { schema_version: PROGRESS_CURRENT_SCHEMA_VERSION, ...progress };
+  // phase 282 Step B: 落盘时不写 contract_id（derive from caller-provided dir）
+  delete (progressToSave as Record<string, unknown>).contract_id;
+  // phase 282 Step A: 对于可从 subtasks derive 的状态（completed/running/pending），
+  // 落盘时不写 status（消除双源）。对于不可 derive 的生命周期状态
+  //（cancelled/crashed/paused/archive_pending_recovery），暂时保留以
+  // 避免状态丢失（未来可迁移到独立持久化标记如 cancelled_at/crashed_at）。
+  const DERIVABLE_STATUSES = new Set<string>(['completed', 'running', 'pending']);
+  if (DERIVABLE_STATUSES.has(progressToSave.status)) {
+    delete (progressToSave as Record<string, unknown>).status;
+  }
 
   // phase 233 Step A: schema invariant check（违例 emit audit、不 throw、不阻 save、Path #4 防 break）
+  // phase 282 Step A: status check 已删（invariants.ts 同步更新）
   assertProgressShapeInvariants(progressToSave, ctx.audit, 'saveProgress');
 
-  // Step B: cross-source audit（yaml 缺时 skip yaml-dep check、status↔subtasks check 仍跑）
-  const yaml = ctx.getContractYaml ? await ctx.getContractYaml(contractId).catch(() => null) : null;
-  auditProgressCrossSource(progressToSave, yaml, ctx.audit);
+  // phase 282 Step B: cross-source audit 整文件已删除
 
   await ctx.fs.writeAtomic(progressPath, JSON.stringify(progressToSave, null, 2));
 }

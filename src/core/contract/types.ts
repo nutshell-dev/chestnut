@@ -99,11 +99,9 @@ export interface ContractYaml {
   audit_interval?: number;  // phase 1424: contract auditor 周期、step 为单位、0 = disable（默 0）
 }
 
-// Progress data structure
-export interface ProgressData {
+// phase 282 Step B: 落盘 schema（不含 derive field）
+export interface ProgressDataPersisted {
   schema_version?: number;  // NEW phase 1134 / v1 = current
-  contract_id: ContractId;
-  status: ContractStatus;
   subtasks: Record<string, {
     status: SubtaskStatus;
     completed_at?: string;
@@ -116,6 +114,36 @@ export interface ProgressData {
   started_at?: string;
   completed_at?: string;  // phase 280: evolution-system high-water mark source (archive time)
   checkpoint?: string | null;
+}
+
+// Progress data structure（运行时 schema：derive fields 由 loader 注入）
+// phase 282: status/contract_id 是 derive 字段，落盘不写；内存对象仍保留字段以兼容现有代码。
+export interface ProgressData extends ProgressDataPersisted {
+  contract_id: ContractId;   // phase 282 Step B: derive from caller/dir
+  status: ContractStatus;    // phase 282 Step A: derive from subtasks
+}
+
+/**
+ * phase 282 Step A: derive contract status from subtasks（消除 CS-1/2/3/4 双源）。
+ *
+ * Derive rules（translated from cross-source-audit CS-1/2/3/4）:
+ * - 所有 subtask completed（或有 completed_at / force_accepted）→ 'completed'
+ * - 有 subtask in_progress → 'in_progress'
+ * - 空 subtasks → 'pending'
+ * - 否则 → 'pending'
+ *
+ * 注意：'running' / 'paused' / 'cancelled' / 'crashed' / 'archive_pending_recovery'
+ * 等生命周期状态无法从 subtasks 单独 derive，仍由业务代码显式控制。
+ */
+export function deriveProgressStatus(p: Pick<ProgressDataPersisted, 'subtasks'>): ContractStatus {
+  const subtasks = Object.values(p.subtasks);
+  if (subtasks.length === 0) return 'pending';
+  // 转译 CS-1/3/4：所有 subtask 语义上 completed（status='completed' 或有 completed_at / force_accepted）
+  if (subtasks.every(s => s.status === 'completed' || s.completed_at !== undefined || s.force_accepted)) {
+    return 'completed';
+  }
+  // 转译 CS-2 反向：不是所有 completed → running（存在 todo / in_progress）
+  return 'running';
 }
 
 export interface VerificationResult {
