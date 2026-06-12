@@ -14,7 +14,7 @@
  * 同型参考：core/status-service/motion-guidance.ts StatusMotionGuidance facts
  * （phase 1469 立、归业主 L5 core、phase 1472 γ1 motion 实施 / 本 fact 同型归 L6 cli 业主）。
  *
- * 注：phase 1477 初立时错放 `src/foundation/cli-help/`、违 ML#5 底层不预设上层；
+ * 注：phase 1477 初立时错放 `src/foundation/cli-help/`、违 M#5 底层不预设上层；
  * phase 1479 修：foundation L1 不知 CLI verb / args 这些 L6 概念，挪 `src/cli/help/`。
  */
 

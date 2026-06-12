@@ -9,8 +9,5 @@
 export { trim, type TrimOptions, type TrimResult } from './trim.js';
 export { computeBudget, type BudgetInputs, type BudgetResult } from './budget.js';
 export { handleContextExceeded, type LLMCallView } from './exceeded.js';
-export {
-  ContextTrimExhaustedError,
-  ContextTrimInsufficientWithoutCacheBreakError,
-} from './errors.js';
+export { ContextTrimExhaustedError } from './errors.js';
 export * as AUDIT from './audit-events.js';

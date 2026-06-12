@@ -1,6 +1,6 @@
 /**
  * phase 1489: 提取 SubAgent.run() 内嵌的 stream/audit 双写回调工厂 + ghost-after-turn-end 守护。
- * derive ML#1 — 流回调 / 超时 / 错误分类是独立可变方向。
+ * derive M#1 — 流回调 / 超时 / 错误分类是独立可变方向。
  *
  * 行为契约：
  * - safeSwWrite: turnEnded 后写 → silent + emit GHOST_CALLBACK_AFTER_TURN_END (once per turn)

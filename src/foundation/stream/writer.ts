@@ -111,7 +111,7 @@ export class StreamWriter implements StreamLog {
   write(event: StreamEvent): void {
     if (!this.isOpen) {
       // cancel / disassemble 期间异步 cleanup 调 write 是预期 race
-      // DP「中断可恢复」+ ML#10 不合理停下 → graceful drop + audit
+      // DP「中断可恢复」+ M#10 不合理停下 → graceful drop + audit
       this.audit.write(
         STREAM_AUDIT_EVENTS.WRITE_AFTER_CLOSE,
         `type=${event.type}`,

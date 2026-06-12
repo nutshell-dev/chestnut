@@ -11,7 +11,7 @@
  * phase 195 Step A: scope 扩 src/core + src/foundation（排除 cli/assembly/prompts/watchdog）
  * + 加 STEP_B_PENDING_ALLOW（exec.ts:135 + forum-formatter.ts:22 待 Step B design 审）.
  *
- * 守 ML#9「不可消除的耦合应显式表达、优先表达为让编译器检查」 — typed const enable
+ * 守 M#9「不可消除的耦合应显式表达、优先表达为让编译器检查」 — typed const enable
  * 编译期 typo 检测、配 invariant runtime 兜底 surface bypass detection.
  *
  * scope：composers/<type>.ts 内任何 string literal 含 `chestnut` 前缀 + 多 token 模式 →
@@ -92,7 +92,7 @@ describe('phase 1469: guidance composer must reference CLI via CLI_COMMANDS type
     expect(violations).toEqual([]);
   });
 
-  it('src/core + src/foundation contain no bare chestnut CLI literals (ML#5 violation)', () => {
+  it('src/core + src/foundation contain no bare chestnut CLI literals (M#5 violation)', () => {
     const violations: Array<{ file: string; line: number; literal: string }> = [];
     for (const subDir of SCAN_DIRS) {
       const dir = path.join(projectSrc, subDir);
@@ -122,7 +122,7 @@ describe('phase 1469: guidance composer must reference CLI via CLI_COMMANDS type
     if (filtered.length > 0) {
       const summary = filtered.map(v => `  - ${v.file}:${v.line}: '${v.literal}'`).join('\n');
       throw new Error(
-        `ML#5 violation — ${filtered.length} bare chestnut CLI literal(s) in src/core + src/foundation:\n${summary}\n` +
+        `M#5 violation — ${filtered.length} bare chestnut CLI literal(s) in src/core + src/foundation:\n${summary}\n` +
           `Business modules must not contain CLI literals. Move CLI hint to CLI handler layer.`,
       );
     }

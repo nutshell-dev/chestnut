@@ -1,6 +1,6 @@
 /**
  * @module L2.Messaging.RetentionCleanup
- * phase 1428: 抽自 index.ts ML#1 SRP — barrel 不持 impl
+ * phase 1428: 抽自 index.ts M#1 SRP — barrel 不持 impl
  */
 
 import * as path from 'path';

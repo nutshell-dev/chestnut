@@ -24,7 +24,7 @@ import { randomUUID } from 'crypto';
  */
 export function notifyClaw(
   fs: FileSystem,
-  chestnutRoot: string,  // phase 90: 去 brand type-only import (ML#5 单向守、messaging 0 知 L6 brand)
+  chestnutRoot: string,  // phase 90: 去 brand type-only import (M#5 单向守、messaging 0 知 L6 brand)
   targetClawId: string,
   message: InboxMessageOptionsBase,
   audit: AuditLog,

@@ -6,7 +6,7 @@
  * phase 84 (在 phase84 worktree): L4 surface 去 chestnutRoot - DI callback pattern
  * (heartbeat 不知 chestnut 拓扑、不持 ChestnutRoot brand、纯接 notify callback、
  * caller 装配期 bind chestnutRoot + MOTION_CLAW_ID + notifyClaw)。
- * per ML#5 严守 (L4 不预设上层装配根概念) + ML#1 SRP (heartbeat 0 知 messaging 路径业务)。
+ * per M#5 严守 (L4 不预设上层装配根概念) + M#1 SRP (heartbeat 0 知 messaging 路径业务)。
  */
 
 import type { InboxReader, InboxMessageOptionsBase } from '../../foundation/messaging/index.js';

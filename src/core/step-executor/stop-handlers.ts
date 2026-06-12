@@ -98,7 +98,7 @@ export function handleMaxTokensStop(
       input.callbacks?.onMaxTokensAssistantEmptySkipped?.({ llm: llmInfo });
     }
     // phase 1282: prebuilt 已 cover 的 tool_use id 不再 synthesize [TRUNCATED] / 防 duplicate tool_result 同 id
-    // 仅透传 stream-side parseError 结果（ML#9「不丢弃静默」），historical/orphan tool_result 仍丢弃
+    // 仅透传 stream-side parseError 结果（M#9「不丢弃静默」），historical/orphan tool_result 仍丢弃
     const parseErrorPrebuilt = prebuiltResults.filter(pr =>
       /^Tool input JSON parse failed for/.test(pr.content)
     );

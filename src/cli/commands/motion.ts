@@ -217,7 +217,7 @@ export async function chatCommand(deps: { fsFactory: (baseDir: string) => FileSy
         });
         console.log(`✓ Started (PID: ${pid})`);
       }
-      // 确保 watchdog 在运行（唯一入口、phase 1269 ML#1）
+      // 确保 watchdog 在运行（唯一入口、phase 1269 M#1）
       const { ensureWatchdog } = await import('../../watchdog/ensure.js');
       await ensureWatchdog(deps.fsFactory);
     },

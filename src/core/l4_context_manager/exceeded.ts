@@ -1,17 +1,10 @@
 /**
  * @module L4.ContextManager
  * Context-exceeded handling: trim first, then escalate to next provider.
- *
- * Internally defaults to allowCacheBreak=true for second-pass trim
- * (agent progress > cache hit).
  */
 
 import type { Message } from '../../foundation/llm-provider/types.js';
 import { trim } from './trim.js';
-import {
-  ContextTrimInsufficientWithoutCacheBreakError,
-} from './errors.js';
-import { CACHE_INVALIDATED_BY_DEEP_TRIM } from './audit-events.js';
 import type { AuditWriter } from './trim.js';
 
 /**
@@ -35,15 +28,6 @@ export function handleContextExceeded(
   target: number,
   auditWriter?: AuditWriter,
 ): LLMCallView {
-  try {
-    const result = trim(messages, systemPrompt, { target, allowCacheBreak: false }, auditWriter);
-    return { messages: result.messages, wasTrimmed: result.droppedCount > 0 };
-  } catch (e) {
-    if (e instanceof ContextTrimInsufficientWithoutCacheBreakError) {
-      const result = trim(messages, systemPrompt, { target, allowCacheBreak: true }, auditWriter);
-      auditWriter?.write(CACHE_INVALIDATED_BY_DEEP_TRIM, `dropped=${result.droppedCount}`, `cacheBroken=${result.cacheBroken}`);
-      return { messages: result.messages, wasTrimmed: result.droppedCount > 0 };
-    }
-    throw e;
-  }
+  const result = trim(messages, systemPrompt, { target }, auditWriter);
+  return { messages: result.messages, wasTrimmed: result.droppedCount > 0 };
 }

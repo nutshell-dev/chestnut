@@ -1,4 +1,4 @@
-/** Daemon stdout log file path / phase 1364 r-phase1364 物理迁自 src/cli/constants.ts（ML#3 daemon stdout 输出资源归 daemon 单 owner / cli + watchdog launcher 都是 setter）*/
+/** Daemon stdout log file path / phase 1364 r-phase1364 物理迁自 src/cli/constants.ts（M#3 daemon stdout 输出资源归 daemon 单 owner / cli + watchdog launcher 都是 setter）*/
 export const DAEMON_LOG = 'logs/daemon.log';
 
 /** Default fallback timeout for daemon operations (ms) */
@@ -28,7 +28,7 @@ export const INTERRUPT_POLL_WARN_EVERY = 5;
 /** Interrupt poller 连续错误上限（达后禁 poller + emit LOOP_INTERRUPT_POLLER_DISABLED audit）*/
 export const INTERRUPT_POLL_MAX_ERRORS = 20;
 
-/** Interrupt poller disable 后 recovery backoff（ms）/ phase 229: DP「中断可恢复」+ ML#8 接口最小 */
+/** Interrupt poller disable 后 recovery backoff（ms）/ phase 229: DP「中断可恢复」+ M#8 接口最小 */
 export const INTERRUPT_POLL_RECOVERY_BACKOFF_MS = 30_000;
 
 /**

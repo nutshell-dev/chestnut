@@ -6,20 +6,15 @@
  * - tool_use and tool_result must be paired (no orphans)
  * - turn boundary intact (do not cut inside a user turn)
  * - first user message must be preserved
- * - cache anchor strategy: default keep anchor; deep trim can break it
  */
 
 import type { Message } from '../../foundation/llm-provider/types.js';
 import { estimateMessageTokens, estimateMessagesTokens } from '../../foundation/llm-provider/token-estimator.js';
-import {
-  ContextTrimExhaustedError,
-  ContextTrimInsufficientWithoutCacheBreakError,
-} from './errors.js';
+import { ContextTrimExhaustedError } from './errors.js';
 import {
   CONTEXT_TRIM_STARTED,
   CONTEXT_TRIM_COMPLETED,
   CONTEXT_TRIM_EXHAUSTED,
-  CONTEXT_TRIM_INSUFFICIENT_WITHOUT_CACHE_BREAK,
 } from './audit-events.js';
 
 /** Optional audit sink duck type */
@@ -27,28 +22,12 @@ export type AuditWriter = { write(event: string, ...details: string[]): void };
 
 export interface TrimOptions {
   target: number;                       // target token count (≤ budget.available)
-  allowCacheBreak?: boolean;            // default false: keep cache anchor; true: deep trim at cost of cache hit
 }
 
 export interface TrimResult {
   messages: Message[];                  // trimmed messages (LLM API valid)
   droppedCount: number;
-  cacheBroken: boolean;                 // whether cache anchor was actually broken
   estimatedTokensAfter: number;
-}
-
-/** Find the first message containing a cache_control marker, or -1 if none. */
-function findCacheAnchor(messages: readonly Message[]): number {
-  for (let i = 0; i < messages.length; i++) {
-    const msg = messages[i];
-    if (typeof msg.content === 'string') continue;
-    for (const block of msg.content) {
-      if ((block as Record<string, unknown>).cache_control !== undefined) {
-        return i;
-      }
-    }
-  }
-  return -1;
 }
 
 /** Build map: assistant message index → user message index(s) that hold matching tool_result(s). */
@@ -96,14 +75,12 @@ function findFirstUserIndex(messages: readonly Message[]): number {
 /**
  * Trim messages to fit within target token count.
  *
- * 5 invariants:
+ * Invariants:
  * 1. tool_use/tool_result pairing: if an assistant message with tool_use is dropped,
  *    all user messages containing matching tool_result(s) are also dropped.
  * 2. Turn boundary: we drop whole messages (not partial content), preserving sequence validity.
  * 3. First user message is never dropped.
- * 4. Cache anchor: default (allowCacheBreak=false) only drops messages after the anchor.
- *    allowCacheBreak=true can drop messages before/including the anchor, setting cacheBroken=true.
- * 5. droppedCount and estimatedTokensAfter are real values.
+ * 4. droppedCount and estimatedTokensAfter are real values.
  */
 export function trim(
   messages: Message[],
@@ -112,7 +89,7 @@ export function trim(
   auditWriter?: AuditWriter,
 ): TrimResult {
   void systemPrompt; // trim does not modify system prompt
-  const { target, allowCacheBreak = false } = options;
+  const { target } = options;
 
   // 1. Estimate current tokens
   let currentTokens = estimateMessagesTokens(messages);
@@ -120,33 +97,22 @@ export function trim(
     return {
       messages,
       droppedCount: 0,
-      cacheBroken: false,
       estimatedTokensAfter: currentTokens,
     };
   }
 
   auditWriter?.write(CONTEXT_TRIM_STARTED, `before=${currentTokens}`, `target=${target}`);
 
-  // 2. Find cache anchor
-  const anchor = findCacheAnchor(messages);
-  // Fallback: no cache_control marker in messages → anchor = 0 (protect first message)
-  const effectiveAnchor = anchor >= 0 ? anchor : 0;
-
-  // 3. Find first user message (must preserve)
+  // 2. Find first user message (must preserve)
   const firstUserIndex = findFirstUserIndex(messages);
 
-  // 4. Build tool pairing map
+  // 3. Build tool pairing map
   const toolPairs = buildToolPairMap(messages);
-
-  // 5. Determine trimmable range
-  // allowCacheBreak=false: only trim messages after the anchor
-  // allowCacheBreak=true: can trim from the start
-  const startIndex = allowCacheBreak ? 0 : effectiveAnchor + 1;
 
   const dropped = new Set<number>();
 
-  // 6. Drop from oldest until we fit target or run out of trimmable messages
-  for (let i = startIndex; i < messages.length; i++) {
+  // 4. Drop from oldest until we fit target or run out of trimmable messages
+  for (let i = 0; i < messages.length; i++) {
     if (dropped.has(i)) continue;
 
     // Never drop the first user message
@@ -197,31 +163,23 @@ export function trim(
     }
   }
 
-  // 7. If still over target after trimming
+  // 5. If still over target after trimming
   if (currentTokens > target) {
-    if (!allowCacheBreak) {
-      auditWriter?.write(CONTEXT_TRIM_INSUFFICIENT_WITHOUT_CACHE_BREAK, `after=${currentTokens}`, `target=${target}`);
-      throw new ContextTrimInsufficientWithoutCacheBreakError(
-        `Trim insufficient without cache break: ${currentTokens} > ${target}`
-      );
-    }
     auditWriter?.write(CONTEXT_TRIM_EXHAUSTED, `after=${currentTokens}`, `target=${target}`);
     throw new ContextTrimExhaustedError(
       `Trim exhausted: ${currentTokens} > ${target}`
     );
   }
 
-  // 8. Build result
+  // 6. Build result
   const remaining = messages.filter((_, i) => !dropped.has(i));
   const droppedCount = dropped.size;
-  const cacheBroken = allowCacheBreak && anchor >= 0 && dropped.has(anchor);
 
   auditWriter?.write(CONTEXT_TRIM_COMPLETED, `after=${currentTokens}`, `dropped=${droppedCount}`);
 
   return {
     messages: remaining,
     droppedCount,
-    cacheBroken,
     estimatedTokensAfter: currentTokens,
   };
 }

@@ -10,7 +10,3 @@
 export class ContextTrimExhaustedError extends Error {
   readonly name = 'ContextTrimExhaustedError';
 }
-
-export class ContextTrimInsufficientWithoutCacheBreakError extends Error {
-  readonly name = 'ContextTrimInsufficientWithoutCacheBreakError';
-}

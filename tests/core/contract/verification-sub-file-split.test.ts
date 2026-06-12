@@ -24,7 +24,7 @@ describe('phase 1237 contract/verification sub-file cluster DAG', () => {
   });
 
   // 反向 2: cluster DAG / 无 cycle (per phase 1228 DAG 断言模板)
-  it('4 sub-file cluster forms a DAG (no cycle / ML#5 严格判断)', async () => {
+  it('4 sub-file cluster forms a DAG (no cycle / M#5 严格判断)', async () => {
     const importMap = new Map<string, Set<string>>();
     for (const file of SUB_FILES) {
       const content = await fs.readFile(`src/core/contract/${file}`, 'utf-8');

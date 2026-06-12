@@ -70,7 +70,7 @@ function auditError(
   audit.write(event, ...extras, `reason=${formatErr(err)}`);
 }
 
-// phase 1406: extractLastTurn 迁出 → foundation/dialog-store/regime-switch.ts（per ML#2 业务归属）
+// phase 1406: extractLastTurn 迁出 → foundation/dialog-store/regime-switch.ts（per M#2 业务归属）
 
 /**
  * Runtime - fully assembled Claw runtime instance
@@ -214,7 +214,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
       auditWriter: this.auditWriter,
       taskSystem: this.taskSystem,
       persistReadFileState: true,  // phase 1443: main claw ctx persists readFileState to <clawDir>/read-state.json
-      // phase 146: ML#3 资源唯一归属真治、直接 read 真 owner、不经 Runtime mirror state
+      // phase 146: M#3 资源唯一归属真治、直接 read 真 owner、不经 Runtime mirror state
       getCallerSnapshot: async () => {
         const { systemPrompt } = await this._resolveSystemPromptForRun();
         const tools = this.toolRegistry.formatForLLM(
@@ -267,7 +267,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     }
 
     // phase 1443: load readFileState from disk to survive daemon restart
-    // (ML#4「持久化一切信息到磁盘」 + DP「事后能完整重建任一时刻状态」).
+    // (M#4「持久化一切信息到磁盘」 + DP「事后能完整重建任一时刻状态」).
     // Missing / corrupt file → empty Map + audit (fail-safe: claw must re-read).
     this.execContext.readFileState = await loadReadFileState(this.systemFs, this.auditWriter);
 
@@ -1108,7 +1108,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
    *   `performRegimeSwitch(opts)` helper（dialog 资源重组归 DialogStore module）
    * Runtime 仅保留薄壳：装配 opts + 调 helper + commit `this.sessionManager`。
    *
-   * 设计 align：ML#2 业务语义归属（dialog 重组 = DialogStore 业务）+ ML#3 资源唯一
+   * 设计 align：M#2 业务语义归属（dialog 重组 = DialogStore 业务）+ M#3 资源唯一
    * 归属（dialog messages + archive + factory 全在 DialogStore 持）+ DP 中断可恢复
    * atomicity（phase 600/646 invariants 不破、audit 命名空间不变）。
    */

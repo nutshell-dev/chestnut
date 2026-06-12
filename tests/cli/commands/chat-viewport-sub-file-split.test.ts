@@ -32,8 +32,8 @@ describe('phase 1209 + 1228 chat-viewport sub-file cluster DAG', () => {
     expect(_a2).toBe(true);
   });
 
-  // 反向 2 (重写 by phase 1228): cluster DAG / 无 cycle (ML#5 严格判断)
-  it('14 sub-file cluster forms a DAG (no cycle / ML#5 严格判断)', async () => {
+  // 反向 2 (重写 by phase 1228): cluster DAG / 无 cycle (M#5 严格判断)
+  it('14 sub-file cluster forms a DAG (no cycle / M#5 严格判断)', async () => {
     const importMap = new Map<string, Set<string>>();
     for (const file of SUB_FILES) {
       const content = await fs.readFile(`src/cli/commands/${file}`, 'utf-8');

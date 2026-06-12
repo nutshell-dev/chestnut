@@ -14,7 +14,7 @@ import type { ToolResult } from '../../../foundation/tool-protocol/index.js';
 export const DONE_TOOL_NAME = 'done' as const;
 
 /**
- * phase 1489: ML#9 显式表达「Tool 实例携带 captured result 回 caller」这条不可消除的耦合。
+ * phase 1489: M#9 显式表达「Tool 实例携带 captured result 回 caller」这条不可消除的耦合。
  * caller (run.ts) 凭 registry.get(name) 拿 Tool 后读 capturedResult / 类型推断成立、不需 `as` 断言绕过编译器。
  */
 export interface CapturableTool<T = unknown> {

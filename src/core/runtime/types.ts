@@ -53,9 +53,9 @@ export interface RuntimeDependencies {
   readonly skillRegistry: SkillSystem;
 
   // === L4 (phase 1273) ===
-  readonly permissionChecker: PermissionChecker;  // required / 编译期 enforce ML#9
+  readonly permissionChecker: PermissionChecker;  // required / 编译期 enforce M#9
 
-  // phase 1283: fsFactory inject (ML#3 file I/O resource unique ownership)
+  // phase 1283: fsFactory inject (M#3 file I/O resource unique ownership)
   readonly fsFactory: (baseDir: string) => FileSystem;
 
   // 构造期注入（phase182 B.p166-5 升档：setter 双阶段消除）

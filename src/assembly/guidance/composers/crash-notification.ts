@@ -12,7 +12,7 @@
  * State 接 via Runtime extraMeta wire (watchdog-log.ts writeCrashNotificationInbox
  * extraFields → encodeInbox YAML → 收件方 extraMeta).
  *
- * 业主类型 CrashClass type-only import (peer L6↔L6 装配综合本职、不违 ML#5).
+ * 业主类型 CrashClass type-only import (peer L6↔L6 装配综合本职、不违 M#5).
  *
  * Sub-case 行为：
  *  - active_unexpected: 教 motion 重启 daemon (`chestnut claw <id> daemon`) + inspect (steps)

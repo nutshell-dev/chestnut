@@ -1,7 +1,7 @@
 /**
  * @module tests.design.no-chestnut-dir-naming
  * phase 1376 sub-4: mechanical lint ban `chestnutDir` keyword in src/.
- * per ML#1 同型职责不分双名 / chestnutRoot/chestnutDir 同义统一。
+ * per M#1 同型职责不分双名 / chestnutRoot/chestnutDir 同义统一。
  */
 
 import { describe, it, expect } from 'vitest';

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { LockConflictError } from '../../../src/foundation/process-manager/types.js';
 
 describe('LockConflictError default message', () => {
-  it('does not contain "daemon" in the default message (ML#5 generic)', () => {
+  it('does not contain "daemon" in the default message (M#5 generic)', () => {
     const err = new LockConflictError('test-claw');
     expect(err.message).not.toContain('daemon');
   });

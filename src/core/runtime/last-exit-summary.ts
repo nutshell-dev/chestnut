@@ -53,7 +53,7 @@ export function readLastExitEvent(fs: FileSystem, auditPath: string): RawEvent |
     if (!isFileNotFound(err)) {
       // last-exit-summary 是 pure helper / 0 audit writer / 失败 silent 接受
       // 影响仅 = interruptionMessage null / DialogStore.repair 仍 OK / startup-only
-      // phase 904 / r115 O fork P2 re-eval: γ accepted-stable confirmed（caller DialogStore.repair audit cover repair attempt、不引 audit dep 保 ML#8）
+      // phase 904 / r115 O fork P2 re-eval: γ accepted-stable confirmed（caller DialogStore.repair audit cover repair attempt、不引 audit dep 保 M#8）
     }
     return null;
   }

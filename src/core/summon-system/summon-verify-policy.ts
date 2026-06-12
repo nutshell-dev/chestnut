@@ -32,7 +32,7 @@ export function createSummonVerifyPolicy(
 
       let task: SubAgentTask | undefined;
       try {
-        // phase 276 Step A: makeTaskId SoT (ML#9 编译器可检) / 替 'subagentTaskId as TaskId' 直 cast
+        // phase 276 Step A: makeTaskId SoT (M#9 编译器可检) / 替 'subagentTaskId as TaskId' 直 cast
         task = await deps.loadTask(makeTaskId(subagentTaskId));
       } catch (err) {
         deps.auditWriter.write(

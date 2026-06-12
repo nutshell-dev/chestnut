@@ -3,8 +3,8 @@
  *
  * chestnut 安装根 + 子目录 + claw 实例路径推算 + brand type.
  *
- * phase 242 ML#5/ML#9 真治: phase 78/81 era 迁 → L6 Assembly own、但 3 foundation
- * → L6 反向 imports = ML#5 strict violation。user 「好」 ratify Path #6、reverse
+ * phase 242 M#5/M#9 真治: phase 78/81 era 迁 → L6 Assembly own、但 3 foundation
+ * → L6 反向 imports = M#5 strict violation。user 「好」 ratify Path #6、reverse
  * phase 78/81 era trade-off、install-paths 归 foundation 真 owner (path 是基础设施、
  * 与 fs/identity 同层、与 phase 238 claw-paths 同型基础设施)。
  *

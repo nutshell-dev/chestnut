@@ -4,7 +4,7 @@
  *
  * 业务语义 = inbox 消息格式化时机/接口、归 Messaging L2 own。
  * 散到各业主模块自管自家 message type formatter（消除 Runtime
- * formatInboxMessage case-switch 违反 ML#2/#3/#5）。
+ * formatInboxMessage case-switch 违反 M#2/#3/#5）。
  *
  * 装配期一次 register、运行期不变（M#6 依赖结构稳定）。Runtime 仅
  * dispatch + DP 不静默 fallback（未注册 type emit `INBOX_UNKNOWN_TYPE`

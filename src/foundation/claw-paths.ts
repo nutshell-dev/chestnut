@@ -3,13 +3,13 @@
  *
  * chestnut claw 目录命名约定 (path const) + enumeration helper.
  *
- * phase 238 ML#5/ML#9 真治: phase 75 era 迁 → L6 Assembly own、但 27+ L4/L5 → L6
- * 反向 imports 累积 = ML#5 strict violation。user 「要根治」 ratify Path #6 触发
+ * phase 238 M#5/M#9 真治: phase 75 era 迁 → L6 Assembly own、但 27+ L4/L5 → L6
+ * 反向 imports 累积 = M#5 strict violation。user 「要根治」 ratify Path #6 触发
  * 「原则冲突立即中断」、reverse phase 75 era trade-off、path const + helper 归
  * foundation 真 owner (path 是基础设施、与 fs/identity 同层、与 ClawId brand 同 owner、
  * L6 Assembly 仅 inject 不 own)。
  *
- * sister phase 157 SNAPSHOT_IGNORE_PATTERNS 归 snapshot module own (ML#3 + Philosophy
+ * sister phase 157 SNAPSHOT_IGNORE_PATTERNS 归 snapshot module own (M#3 + Philosophy
  * 「系统能自己做的就自己做好」同型真治模板)。
  */
 

@@ -25,7 +25,7 @@ import {
 
 
 import { archiveAndEmit, completeSubtaskSync } from './verification-lifecycle.js';
-// phase 1465: verification mutex 改 ContractSystem 实例、经 ctx.verificationMutex 访问 (ML#3 + Tier 1 真治)
+// phase 1465: verification mutex 改 ContractSystem 实例、经 ctx.verificationMutex 访问 (M#3 + Tier 1 真治)
 import { writeVerificationInbox, writeForceAcceptInbox, writeVerificationError, safeNotify } from './verification-notify.js';
 import { formatRejectionFeedback, formatValidIds } from './verification-format.js';
 import type { VerificationContext } from './verification-types.js';

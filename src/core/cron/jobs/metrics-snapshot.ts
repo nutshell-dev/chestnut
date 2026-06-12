@@ -7,7 +7,7 @@ import type { ClawGlobalConfig } from '../../../foundation/config/index.js';
 
 /**
  * Cron job timeout (ms) / 防 stuck handler 占 cron tick.
- * 由本 module 业务自决 (per ML#2 模块为自己业务语义负责).
+ * 由本 module 业务自决 (per M#2 模块为自己业务语义负责).
  */
 export const METRICS_SNAPSHOT_CRON_TIMEOUT_MS = 30_000;
 

@@ -1,6 +1,6 @@
 /**
  * phase 1489: 提取 SubAgent.run() catch 块的 6 分支错误分类 + 双写（stream + audit）。
- * derive ML#1 — 错误分类与流回调 / 超时是独立可变方向。
+ * derive M#1 — 错误分类与流回调 / 超时是独立可变方向。
  *
  * 行为契约（与原 agent.ts:420-448 catch 块等价）：
  * - ToolTimeoutError       → TURN_INTERRUPTED + cause=turn_timeout + turn_timeout_ms

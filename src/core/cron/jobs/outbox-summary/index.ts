@@ -20,7 +20,7 @@ import type { CronJob } from '../../runner.js';
 import { parseSchedule } from '../../runner.js';
 import type { ClawGlobalConfig } from '../../../../foundation/config/index.js';
 
-/** Cron job timeout per ML#2 (per-module business decides). 5s 充裕：dedup scan = meta parse only. */
+/** Cron job timeout per M#2 (per-module business decides). 5s 充裕：dedup scan = meta parse only. */
 export const OUTBOX_SUMMARY_CRON_TIMEOUT_MS = 5_000;
 
 // business re-export

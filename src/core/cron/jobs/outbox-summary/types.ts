@@ -2,7 +2,7 @@
  * @module L4.OutboxSummary
  * phase 1476: state schema for outbox unread summary scan.
  *
- * 业主 own facts + state schema (ML#2 + ML#5):
+ * 业主 own facts + state schema (M#2 + M#5):
  * - 仅 own claw outbox/pending 计数 + 文件身份
  * - 不知 motion CLI / 不预设 guidance 字面（归 Assembly composer）
  * - Assembly composer 经 Runtime extraMeta 接 stringified 字段

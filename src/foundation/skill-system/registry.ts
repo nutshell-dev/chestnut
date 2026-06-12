@@ -31,7 +31,7 @@ export class SkillDuplicateError extends Error {
     public readonly attemptedDir: string,
   ) {
     super(
-      `Skill duplicate registration rejected: ${skillName} (existing=${existingDir}, attempted=${attemptedDir}). per DP 不丢弃 + ML#3 资源唯一归属`,
+      `Skill duplicate registration rejected: ${skillName} (existing=${existingDir}, attempted=${attemptedDir}). per DP 不丢弃 + M#3 资源唯一归属`,
     );
   }
 }

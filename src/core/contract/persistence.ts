@@ -220,7 +220,7 @@ import { type ContractId, makeContractId } from './types.js';
 
 /**
  * Phase 1335 (r138 F fork): cross-module query API — list archived contracts
- * ML#3 资源唯一归属：ContractSystem own archive / caller 不直访 fs
+ * M#3 资源唯一归属：ContractSystem own archive / caller 不直访 fs
  */
 export async function listArchiveContracts(opts: {
   fs: FileSystem;

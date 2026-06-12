@@ -26,7 +26,7 @@ export { writePendingToolTaskFile } from './tools/_pending-tool-task-writer.js';
 export { classifyTaskError } from './_helpers.js';
 
 // phase 1130: typed audit emit functions
-// phase 132 ML#8 ratify: wildcard export * by-design、20 个 emit* 中 18 个目前 cross-module 0-caller、保 wildcard ML#7 模块对外承诺扩张策略优先 ML#8、未来若大量 0-caller cluster 浮出可议改显式 list
+// phase 132 M#8 ratify: wildcard export * by-design、20 个 emit* 中 18 个目前 cross-module 0-caller、保 wildcard M#7 模块对外承诺扩张策略优先 M#8、未来若大量 0-caller cluster 浮出可议改显式 list
 export * from './audit-emit.js';
 
 import * as path from 'path';
@@ -59,7 +59,7 @@ export async function cleanupExpiredTaskFiles(opts: {
   // phase 120 Step G: bug fix — 原 inline 'tasks/done'/'tasks/failed'/'tasks/results'
   // 与实然 dir 'tasks/queues/done|failed|results' (per TASKS_QUEUES_*_DIR) 路径错配、
   // 导致 fs.existsSync 返 false 后 continue、cleanup 实际清 0 文件 (latent bug)。
-  // const 化 + 路径修正 = ML#3 single source 后业务路径正确、cron retention-cleanup 真清正确 dir。
+  // const 化 + 路径修正 = M#3 single source 后业务路径正确、cron retention-cleanup 真清正确 dir。
   // phase 287 Step D: cleanup dirs 加 sync/search + sync/exec overflow（file-tool + command-tool 写处）
   const dirs = [
     TASKS_QUEUES_DONE_DIR,

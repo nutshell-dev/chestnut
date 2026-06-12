@@ -8,7 +8,7 @@ import type { FileSystem } from '../../foundation/fs/types.js';
 
 // phase 64: ContractId brand 迁回（自 foundation/identity 解散）— 注释 admit
 // 「物理迁自 core/contract/types.ts」(phase 1378)
-// per ML#3 资源唯一归属（按业务真实归属）+ M#1 contract lifecycle 独立可变
+// per M#3 资源唯一归属（按业务真实归属）+ M#1 contract lifecycle 独立可变
 declare const ContractIdBrand: unique symbol;
 export type ContractId = string & { readonly [ContractIdBrand]: true };
 export function makeContractId(s: string): ContractId { return s as ContractId; }
@@ -216,7 +216,7 @@ export function makeSubtaskId(s: string): SubtaskId { return s as SubtaskId; }
 
 // ============================================================================
 // phase 1376: ArchiveDir branded path type (compile-time path discrimination)
-// per ML#3 资源唯一归属 / contract archive 业务专属 → contract types own
+// per M#3 资源唯一归属 / contract archive 业务专属 → contract types own
 // ============================================================================
 
 declare const ArchiveDirBrand: unique symbol;

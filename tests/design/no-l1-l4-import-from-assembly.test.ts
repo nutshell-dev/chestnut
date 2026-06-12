@@ -1,7 +1,7 @@
 /**
  * phase 117 ratchet: L1-L4 不 import from src/assembly/（L6 装配层）
  *
- * 应然：ML#5 单向。L1 primitive + L2 基础设施 + L3 通用 + L4 业务都不上引 L6。
+ * 应然：M#5 单向。L1 primitive + L2 基础设施 + L3 通用 + L4 业务都不上引 L6。
  *
  * 当前实然 20 file allow-list = tech debt (主因 ChestnutRoot brand + getClawDir helper +
  * install-paths 仍 L6 own、L1-L4 反向 import 取 brand/helper)、留 design-gap。
@@ -34,7 +34,7 @@ function walk(dir: string): string[] {
   return files;
 }
 
-describe('phase 117: ML#5 ratchet — L1-L4 不 import from src/assembly/ (L6)', () => {
+describe('phase 117: M#5 ratchet — L1-L4 不 import from src/assembly/ (L6)', () => {
   it('src/foundation/ + src/core/ 不新增 import from src/assembly/ (baseline ratchet)', () => {
     const files = [...walk('src/foundation'), ...walk('src/core')];
     const hits: string[] = [];

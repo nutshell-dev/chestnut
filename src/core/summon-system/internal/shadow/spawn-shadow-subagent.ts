@@ -3,10 +3,10 @@
  * @layer L4
  * @depends L4.AsyncTaskSystem.schedule, L4.ShadowSystem._helpers (synthesizeFormB), L2.Prompts (buildShadowInstruction)
  *
- * 装配 shadow subagent task 唯一入口 (ML#1 + ML#2 + ML#3 align)。
+ * 装配 shadow subagent task 唯一入口 (M#1 + M#2 + M#3 align)。
  *
  * phase 1185 derive：phase 1142 升 SHADOW INSTRUCTION primitives 为 public 但「装配组合」散落 shadow.ts + summon.ts、
- * 真 production 双 push bug 实证、ML#11「停下来重构」兑现。
+ * 真 production 双 push bug 实证、M#11「停下来重构」兑现。
  */
 
 import { randomUUID } from 'crypto';

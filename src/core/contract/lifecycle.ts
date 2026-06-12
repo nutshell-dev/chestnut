@@ -165,7 +165,7 @@ export async function cancelContract(
       ctx.abortContractVerifiers(contractId, reason);
     } catch (abortErr) {
       // 不破 cancel 主流程；abortContractVerifiers 内已 try/catch + audit emit
-      // 此处仅 outer 保险（按 ML#10 不合理停下、subordinate failure 不阻 superordinate flow）
+      // 此处仅 outer 保险（按 M#10 不合理停下、subordinate failure 不阻 superordinate flow）
     }
 
     // (4) move whole dir

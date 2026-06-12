@@ -5,7 +5,7 @@
  * History:
  * - phase 1371 sub-3: 首立 module-level singleton (completeSubtaskSync vs runVerificationPipeline race guard)
  * - phase 1465: 模块级 singleton → ContractSystem instance state
- *   (ML#3 资源唯一归属 + Tier 1 `feedback_flaky_test_zero_tolerance` 真治)
+ *   (M#3 资源唯一归属 + Tier 1 `feedback_flaky_test_zero_tolerance` 真治)
  *
  * 改前 module-level `const activePipelines = new Set<string>()` 跨 vitest worker pool
  * leak entry / 测试需 `_resetVerificationMutexForTest` global hook 防 leak / 测试 file

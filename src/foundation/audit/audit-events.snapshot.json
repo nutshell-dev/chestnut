@@ -412,10 +412,8 @@
       "heartbeat_fire_failed"
     ],
     "core_l4_context_manager_audit-events": [
-      "cache_invalidated_by_deep_trim",
       "context_trim_completed",
       "context_trim_exhausted",
-      "context_trim_insufficient_without_cache_break",
       "context_trim_started"
     ],
     "core_runtime_runtime-audit-events": [

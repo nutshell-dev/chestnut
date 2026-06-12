@@ -7,7 +7,7 @@
  * 装配期一次性调 `registerAllMotionGuidance(registry)`、按 20 inbox type 显式 register 各 composer.
  * 当前结构：13 NO_GUIDANCE sentinel + 7 real composer（claw_outbox_summary by phase 1476 γ2 + contract_cancelled/crashed by phase 63 γ）.
  *
- * DP「不静默」+ ML#9 显式表达：每 sender type 必显式 register / 漏注由
+ * DP「不静默」+ M#9 显式表达：每 sender type 必显式 register / 漏注由
  * `tests/foundation/assembly/guidance-registry-coverage.test.ts` 抓.
  */
 

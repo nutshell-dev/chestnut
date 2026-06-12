@@ -8,7 +8,7 @@ function makeTextMsg(role: 'user' | 'assistant', text: string): Message {
 }
 
 describe('handleContextExceeded', () => {
-  it('returns trim result when trim succeeds without cache break', () => {
+  it('returns trim result when trim succeeds', () => {
     const msgs: Message[] = [
       makeTextMsg('user', 'first'),
       makeTextMsg('assistant', 'second'),
@@ -19,24 +19,21 @@ describe('handleContextExceeded', () => {
     expect(r.wasTrimmed).toBe(false);
   });
 
-  it('escalates allowCacheBreak=true when insufficient without cache break', () => {
+  it('throws ContextTrimExhaustedError when trim cannot fit', () => {
     const msgs: Message[] = [
       makeTextMsg('user', 'first'),
       makeTextMsg('assistant', 'second'),
       makeTextMsg('user', 'third'),
     ];
-    // With target=0, first-pass (allowCacheBreak=false) should be insufficient
-    // because anchor=0 and only messages after anchor can be trimmed.
-    // Second-pass (allowCacheBreak=true) may still fail if total > target even after deep trim.
-    // But with enough messages, deep trim may succeed.
+    // target=0 requires dropping below first user tokens, which is impossible.
     expect(() => handleContextExceeded(msgs, 'sys', 0)).toThrow(ContextTrimExhaustedError);
   });
 
-  it('throws ContextTrimExhaustedError when even deep trim cannot fit', () => {
+  it('throws ContextTrimExhaustedError when even dropping all non-first-user messages cannot fit', () => {
     const msgs: Message[] = [
       makeTextMsg('user', 'first'),
     ];
-    // Single user message cannot be dropped (invariant 3), so even deep trim fails
+    // Single user message cannot be dropped (invariant 3)
     expect(() => handleContextExceeded(msgs, 'sys', 0)).toThrow(ContextTrimExhaustedError);
   });
 });

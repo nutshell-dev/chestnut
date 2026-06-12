@@ -6,7 +6,7 @@
  * Dependencies: FileSystem
  */
 
-// phase 128 ML#8 ratify: makeOutboxPath production cross-module 0 caller、tests/assembly/ 5 file use only
+// phase 128 M#8 ratify: makeOutboxPath production cross-module 0 caller、tests/assembly/ 5 file use only
 // 保留 export 维持 test reachability、若未来 src 无 caller 浮出 0 增加可降为 deep import
 export { OutboxWriter, makeOutboxPath } from './outbox-writer.js';
 
@@ -43,7 +43,7 @@ export type {
   MessageFormatter,
   MessageFormatterRegistry,
 } from './formatter-registry.js';
-// phase 128 ML#8 ratify: formatUserInboxMessage production cross-module 0 caller、tests/assembly/ 5 file use only
+// phase 128 M#8 ratify: formatUserInboxMessage production cross-module 0 caller、tests/assembly/ 5 file use only
 export {
   formatUserInboxMessage,
   registerMessagingFormatters,

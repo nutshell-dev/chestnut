@@ -16,8 +16,8 @@ import {
   patchYamlConfig,
   configExists,
 } from './loader.js';
-// phase 81: API reframe — crud.ts 0 知 chestnut path 约定、纯 yaml CRUD generic、ML#1 SRP 真守。
-// caller (L6) 自调 getClawConfigPath(name) 然后传 configPath、ML#5 守。
+// phase 81: API reframe — crud.ts 0 知 chestnut path 约定、纯 yaml CRUD generic、M#1 SRP 真守。
+// caller (L6) 自调 getClawConfigPath(name) 然后传 configPath、M#5 守。
 import { getGlobalConfigPath } from './global-config-path.js';
 import type { FileSystem } from '../fs/types.js';
 

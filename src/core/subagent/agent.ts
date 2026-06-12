@@ -35,7 +35,7 @@ export interface SubAgentOptions {
   resultDir: string;        // phase443: caller 注入完整 path（如 `tasks/results/${task.id}`）/ SubAgent 0 知字符串约定
   messageStore: DialogStore;             // phase453: caller 装配期注入 ephemeral DialogStore（filename='messages.json' / 0 clawId / 0 archive 触发）
   prompt: string;
-  /** phase 1489 (ML#8 derive): caller 装配期 own ToolExecutor 构造 / SubAgent 不再 own 7 个 executor-only 字段（clawDir/chestnutRoot/syncDir/fsFactory/workspaceDir/subagentMaxSteps/toolTimeoutMs）。 */
+  /** phase 1489 (M#8 derive): caller 装配期 own ToolExecutor 构造 / SubAgent 不再 own 7 个 executor-only 字段（clawDir/chestnutRoot/syncDir/fsFactory/workspaceDir/subagentMaxSteps/toolTimeoutMs）。 */
   toolExecutor: ToolExecutor;
   llm: LLMOrchestrator;
   registry: ToolRegistry;

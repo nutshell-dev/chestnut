@@ -20,7 +20,7 @@ export interface BuildShadowInstructionArgs {
   toolUseId: ToolUseId;
   task: string;
   /**
-   * Shadow tool name (caller injected / phase 1306 DIP / 防 prompts/ 反向 import core/ 违 ML#5).
+   * Shadow tool name (caller injected / phase 1306 DIP / 防 prompts/ 反向 import core/ 违 M#5).
    * Caller (core/summon-system/internal/shadow/_helpers.ts) 传 SHADOW_TOOL_NAME from tools/shadow.
    */
   shadowToolName: string;

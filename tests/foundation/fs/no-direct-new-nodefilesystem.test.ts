@@ -33,7 +33,7 @@ describe('foundation/fs: no direct `new NodeFileSystem` outside bootstrap (phase
 
     expect(
       violations,
-      `ML#3+ML#7 violation: ${violations.join('\n')}. Inject fsFactory instead.`
+      `M#3+M#7 violation: ${violations.join('\n')}. Inject fsFactory instead.`
     ).toEqual([]);
   });
 });

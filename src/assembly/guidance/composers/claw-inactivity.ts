@@ -11,7 +11,7 @@
  * State 接 via Runtime extraMeta wire (watchdog-log.ts writeClawInactivityInbox
  * extraFields → encodeInbox YAML → 收件方 extraMeta).
  *
- * 业主类型 FailureClass type-only import (peer L6↔L6 装配综合本职、不违 ML#5).
+ * 业主类型 FailureClass type-only import (peer L6↔L6 装配综合本职、不违 M#5).
  */
 
 import type { GuidanceComposer, GuidanceEntry } from '../types.js';

@@ -7,7 +7,7 @@
  * - 业主仅 own facts + structured state schema
  * - Assembly own guidance composer 物理（composers/<type>.ts、Assembly 自家写、不业主 export）
  * - composer 输出自由 text 单字段、含真实 CLI 字面（经 clawCmd + CLAW_VERBS / CONTRACT_COMMANDS typed const 引用）+ 决策上下文
- * - sentinel NO_GUIDANCE 化解 ML#8 vs DP「不静默」+ ML#9 真冲突
+ * - sentinel NO_GUIDANCE 化解 M#8 vs DP「不静默」+ M#9 真冲突
  */
 
 export interface GuidanceEntry {
@@ -35,7 +35,7 @@ export interface MotionGuidanceRegistry {
  *
  * 业主装配期 `registry.register(type, NO_GUIDANCE)` 显式表态 / 漏注 invariant test 抓。
  *
- * 化解 ML#8（对外表面最小）vs DP「不静默」+ ML#9（显式表达）真冲突 — 单 register API
+ * 化解 M#8（对外表面最小）vs DP「不静默」+ M#9（显式表达）真冲突 — 单 register API
  * + sentinel typed value 满足两侧（详 §10.2 选项 3-C ratify）。
  */
 export const NO_GUIDANCE: GuidanceComposer<unknown> = () => null;

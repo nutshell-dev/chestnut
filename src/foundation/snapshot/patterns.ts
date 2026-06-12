@@ -2,12 +2,12 @@
  * SNAPSHOT_IGNORE_PATTERNS aggregation point.
  *
  * Owns the cross-module ignore policy for code snapshots.
- * phase 157: moved from src/assembly/snapshot-patterns.ts (ML#1/#3 true ownership, snapshot module owns)
+ * phase 157: moved from src/assembly/snapshot-patterns.ts (M#1/#3 true ownership, snapshot module owns)
  *
  * 应然 anchor:
- * - ML#1 patterns are a snapshot module business concept, independently variable from assembly concerns
- * - ML#3 resource single ownership: patterns belong to the snapshot module
- * - ML#9 explicit expression: physical path reflects layer ownership (foundation/snapshot/)
+ * - M#1 patterns are a snapshot module business concept, independently variable from assembly concerns
+ * - M#3 resource single ownership: patterns belong to the snapshot module
+ * - M#9 explicit expression: physical path reflects layer ownership (foundation/snapshot/)
  *
  * phase 936 r114+ Cluster 3 site #1 β-inject landed
  * phase 157 α true ownership: moved to foundation/snapshot/patterns.ts

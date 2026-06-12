@@ -21,7 +21,7 @@ import type { SummonDecisionMetadata } from './task-schemas.js';
 
 // phase 64: TaskId brand 迁回（自 foundation/identity 解散）— types.ts 历史注释 admit
 // 「物理迁自 core/async-task-system/types.ts」(phase 1365)
-// per ML#3 资源唯一归属（按业务真实归属、非机制 surface）+ M#1 task lifecycle 独立可变
+// per M#3 资源唯一归属（按业务真实归属、非机制 surface）+ M#1 task lifecycle 独立可变
 declare const TaskIdBrand: unique symbol;
 export type TaskId = string & { readonly [TaskIdBrand]: true };
 export function makeTaskId(s: string): TaskId { return s as TaskId; }

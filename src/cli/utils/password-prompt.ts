@@ -2,7 +2,7 @@ import type * as readline from 'readline';
 
 /**
  * readline.Interface 私有 API `_writeToOutput` 显式 augment
- * （ML#9「不可消除耦合显式表达」+ 编译期可检 method 签名 / 替历史 `(rl as any)._writeToOutput`）
+ * （M#9「不可消除耦合显式表达」+ 编译期可检 method 签名 / 替历史 `(rl as any)._writeToOutput`）
  */
 export type ReadlineWithWriteToOutput = readline.Interface & {
   _writeToOutput?: (str: string) => void;

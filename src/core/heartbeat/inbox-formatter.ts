@@ -7,7 +7,7 @@
  *
  * phase 1414 derive：原在 Runtime formatInboxMessage case 'heartbeat'、
  * 含 systemFs.read + 自家 audit + 双码 narrow，迁入业主模块（消除
- * Runtime 字面知 Heartbeat 业务、ML#2/#3 真治）。
+ * Runtime 字面知 Heartbeat 业务、M#2/#3 真治）。
  *
  * phase 1018 r124 D fork 既有立场保留：
  *   ENOENT (HEARTBEAT.md 未配) silent skip / 非 ENOENT 显式 audit。

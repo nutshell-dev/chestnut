@@ -11,9 +11,9 @@ export { disassemble } from './disassemble.js';
 
 // phase 1413+1448: Assembly 对外表面显式暴露通道（pre-assemble shared const + events + patterns）。
 // CONFIG_DEFAULTS / ASSEMBLY_AUDIT_EVENTS 二 const 跨 L3 core/* + L5
-// watchdog 业主、ML#5 客观约束聚合必寓 L6。跨模块 caller（cli/daemon-entry/watchdog）pre-assemble
+// watchdog 业主、M#5 客观约束聚合必寓 L6。跨模块 caller（cli/daemon-entry/watchdog）pre-assemble
 // 阶段需消费 → barrel re-export。
-// 显式 ratify (ML#9 不可消除耦合应显式表达)。depcruise 3 forbidden rule
+// 显式 ratify (M#9 不可消除耦合应显式表达)。depcruise 3 forbidden rule
 // `no-deep-into-assembly-{config-defaults,audit-events}` 守 future drift。
 // 注：daemon-entry / watchdog-entry 物理路径解析归 `assembly/spawn-entry.ts`
 // `resolveDaemonEntry` / `resolveWatchdogEntry`（phase 1436 立单一权威、phase 72 迁 L6 Assembly）。

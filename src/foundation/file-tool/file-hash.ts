@@ -3,7 +3,7 @@
  * SHA-256 content hash helper for overwrite gate.
  *
  * phase 1430: introduced alongside FileState type for write/edit/multi_edit gate equality + mtime false-positive guard.
- * phase 1439: FileState type relocated to `tools/types.ts` (ML#5 cross-layer fix); this file isolated to pure hash utility.
+ * phase 1439: FileState type relocated to `tools/types.ts` (M#5 cross-layer fix); this file isolated to pure hash utility.
  */
 
 import { createHash } from 'crypto';

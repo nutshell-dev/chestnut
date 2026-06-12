@@ -153,7 +153,7 @@ export class ContractSystem {
 
   /**
    * phase 1465: per-ContractSystem instance verification mutex
-   * 应然：mutex 资源归 ContractSystem 实例 (ML#3 资源唯一归属)
+   * 应然：mutex 资源归 ContractSystem 实例 (M#3 资源唯一归属)
    * 实然 (改前)：模块级 const activePipelines = new Set<string>() 跨 vitest worker pool leak
    *               + test 需 _resetVerificationMutexForTest global hook 防 leak
    *               + dev log phase 1388-1393 多次 flaky 报告同根 + Tier 1 flaky_test_zero_tolerance 直接违反

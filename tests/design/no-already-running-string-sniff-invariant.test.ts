@@ -10,7 +10,7 @@ const REPO_ROOT = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)),
  *
  * spawn.ts 把"already running"冲突显式为 LockConflictError 后，调用方必须用
  * `instanceof LockConflictError` 判别，禁止回退到 `err.message.includes('already running')`
- * 这类字符串嗅探（ML#9「不可消除的耦合应显式表达，优先表达为让编译器检查」）。
+ * 这类字符串嗅探（M#9「不可消除的耦合应显式表达，优先表达为让编译器检查」）。
  *
  * grep 必须 0 hit。重新引入字符串嗅探 → 此测试 fail。
  *

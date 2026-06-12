@@ -43,7 +43,7 @@ export type ToolGroup =
  * File overwrite gate state per file path.
  *
  * phase 1430: introduced as `Map<path, FileState>` replacement for flat `fullyReadPaths: Set<string>`.
- * phase 1439: type relocated here from `foundation/file-tool/file-state.ts` (ML#5 fix —
+ * phase 1439: type relocated here from `foundation/file-tool/file-state.ts` (M#5 fix —
  * `tools/` is L2 framework layer, must not reverse-import from `file-tool/` upper layer).
  *
  * Semantic owner: foundation/file-tool/ (writes via read/edit/multi_edit, reads via write).

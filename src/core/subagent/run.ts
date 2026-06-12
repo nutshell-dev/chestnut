@@ -84,8 +84,8 @@ export interface RunSubagentResult {
 export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagentResult> {
   await opts.fs.ensureDir(opts.resultDir);
 
-  // audit 自治创建（caller 不传基础设施 writer、ML#8 接口最小）
-  // stream 走 L2 createPerResourceStreamWriter（ML#3 stream 物理格式归 L2、phase 1116）
+  // audit 自治创建（caller 不传基础设施 writer、M#8 接口最小）
+  // stream 走 L2 createPerResourceStreamWriter（M#3 stream 物理格式归 L2、phase 1116）
   const auditWriter = createAuditWriter(opts.fs, `${opts.resultDir}/audit.tsv`);
   const streamPath = `${opts.resultDir}/${STREAM_FILE}`;
   const baseStreamWriter = createPerResourceStreamWriter(opts.fs, streamPath, auditWriter);
@@ -104,7 +104,7 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
   // workspace shared with caller workspaceDir 路径决策（mirror async / verifier 既有 phase 518 决策）
   const sharedWorkspaceDir = path.join(opts.clawDir, CLAWSPACE_DIR);
 
-  // phase 1489 (ML#8 derive): caller (run.ts) own ToolExecutor 构造、SubAgent 不再 own
+  // phase 1489 (M#8 derive): caller (run.ts) own ToolExecutor 构造、SubAgent 不再 own
   // 7 个 executor-only 字段、SubAgentOptions 收窄到「SubAgent 自身真正需要的」最小集合。
   const toolExecutor = new ToolExecutor({
     registry: opts.registry,

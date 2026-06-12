@@ -4,7 +4,7 @@
  *
  * phase 1443 introduction:
  *   - Treats readFileState as run-time information that must survive daemon restart
- *     (ML#4「持久化一切信息到磁盘、运行时句柄从磁盘信息重建」).
+ *     (M#4「持久化一切信息到磁盘、运行时句柄从磁盘信息重建」).
  *   - Triggered by FileStateManager helpers after every mutation (best-effort, audit on failure).
  *   - Loaded by Runtime.initialize() on startup.
  *   - Cleared by regime-switch hook (state is dialog-scoped from claw's perspective).

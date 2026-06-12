@@ -4,7 +4,7 @@
  * Returns raw meta values (trimmed but NOT unquoted) + body. Callers apply own unquote variant
  * (per phase 461 ratify「各 caller 自治」+ phase 62 抽 frame syntax 共享、unquote 保独立).
  *
- * frame syntax 单源（ML#3 资源唯一归属）：
+ * frame syntax 单源（M#3 资源唯一归属）：
  * - `\r\n` → `\n` normalize
  * - `---\n` opener required (otherwise returns empty meta + body=raw)
  * - `\n---\n` closer (strict) / `\n---` EOF closer (opt-in via opts.eofTolerant)

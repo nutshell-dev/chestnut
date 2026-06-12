@@ -3,8 +3,8 @@
  * phase 1424: contract-scoped audit slice view function
  *
  * derive 自 L2 AuditLog 持久化数据（audit.tsv 行）、按 contractId + timestamp 切片 + 按 tool family 聚合。
- * ML#5 底层不预设上层：L2 AuditLog 不暴露契约级 API、本 view 在 L4 派生。
- * ML#1 业务模块业务语义负责：契约履历是契约语义、归 ContractSystem。
+ * M#5 底层不预设上层：L2 AuditLog 不暴露契约级 API、本 view 在 L4 派生。
+ * M#1 业务模块业务语义负责：契约履历是契约语义、归 ContractSystem。
  *
  * 实现：通过 FileSystem 读 audit.tsv 文件（per-claw audit.tsv）、行级 parse、filter、聚合。
  * 不动 AuditLog interface（仅 writes）。

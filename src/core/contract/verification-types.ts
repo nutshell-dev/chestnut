@@ -31,7 +31,7 @@ export type NotifyClawFn = (
 
 export interface VerificationLockContext extends LockContext {
   withProgressLock: <T>(contractId: ContractId, fn: () => Promise<T>) => Promise<T>;
-  /** phase 1465: per-ContractSystem instance race guard for verification pipeline (ML#3 + Tier 1 flaky_test_zero_tolerance) */
+  /** phase 1465: per-ContractSystem instance race guard for verification pipeline (M#3 + Tier 1 flaky_test_zero_tolerance) */
   verificationMutex: VerificationMutex;
 }
 

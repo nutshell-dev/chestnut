@@ -1,7 +1,7 @@
 /**
  * @module L6.Watchdog.Ensure
- * 「确保 watchdog 在运行」职责唯一入口 (ML#1)
- * OS-level advisory lock 保 atomic check-and-spawn (ML#9)
+ * 「确保 watchdog 在运行」职责唯一入口 (M#1)
+ * OS-level advisory lock 保 atomic check-and-spawn (M#9)
  */
 import { makeChestnutRoot } from '../foundation/install-paths.js';
 import type { FileSystem } from '../foundation/fs/types.js';

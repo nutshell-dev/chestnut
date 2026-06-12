@@ -4,15 +4,15 @@
  * phase 1406: regime switch 实质逻辑迁入（per design row
  * A.phase1406-dialogstore-receive-switchregime）。
  *
- * 应然 anchor：ML#2 业务语义归属（dialog 重组是 DialogStore 业务、不是循环
- * 服务业务）+ ML#3 资源唯一归属（dialog messages + archive + factory 全在
+ * 应然 anchor：M#2 业务语义归属（dialog 重组是 DialogStore 业务、不是循环
+ * 服务业务）+ M#3 资源唯一归属（dialog messages + archive + factory 全在
  * DialogStore 持）+ DP「中断可恢复」原子性。
  *
  * 实施立场：保留 audit 命名空间灵活性（caller 注入 `auditEvents` consts），
  * phase 521+539+600+646+1054 audit invariants 不破。
  *
  * 实然 prior：原在 `src/core/runtime/runtime.ts:_performRegimeSwitch` ~80 行
- * 实质逻辑、Runtime 自承担「dialog 资源重组」违反 ML#2/#3。
+ * 实质逻辑、Runtime 自承担「dialog 资源重组」违反 M#2/#3。
  */
 
 import * as path from 'node:path';

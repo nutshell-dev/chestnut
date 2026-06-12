@@ -1,6 +1,6 @@
 /**
  * phase 1489: 提取 SubAgent.run() 内嵌的「超时控制 + idle 计时 + 外部 signal 桥接」三合一编排。
- * derive ML#1 — 超时策略与流回调 / 错误分类是独立可变方向。
+ * derive M#1 — 超时策略与流回调 / 错误分类是独立可变方向。
  *
  * 行为契约（必与原 agent.ts 等价、tests/core/subagent.test.ts + task-subagent.test.ts 守）：
  * - timeoutMs 到点 → AbortController.abort({ type: 'turn_timeout', ms }) → timeoutPromise reject(ToolTimeoutError)

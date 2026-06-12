@@ -2,7 +2,7 @@
  * foundation/ 域 grep-based invariant lint cluster
  *
  * phase 1395: merged from
- *   - no-business-role-in-foundation.test.ts (ML#5: 不持 business caller role literal)
+ *   - no-business-role-in-foundation.test.ts (M#5: 不持 business caller role literal)
  *   - no-reverse-audit-import.test.ts (phase 1278 α: AUDIT_PREVIEW_LEN 从 L0 import)
  *
  * 两者皆为 walk(src) + readFileSync regex 模式的 invariant lint，
@@ -48,7 +48,7 @@ const ALLOW_LIST_FILES = new Set([
   'src/foundation/tools/types.ts',
 ]);
 
-describe('foundation/ 域 ML#5 invariant: no business caller role literal', () => {
+describe('foundation/ 域 M#5 invariant: no business caller role literal', () => {
   it('foundation/tool-protocol/ 不持 quoted business role literal', () => {
     const targetFiles = [
       'src/foundation/tool-protocol/index.ts',
@@ -140,7 +140,7 @@ describe('phase 213 Step D: audit cap constants owned inside audit module', () =
 });
 
 describe('phase 1479: CLI verb fact schema must not live in foundation/', () => {
-  // ML#5: foundation L1 不预设 L6 CLI verb / args / examples 这些上层概念。
+  // M#5: foundation L1 不预设 L6 CLI verb / args / examples 这些上层概念。
   // phase 1477 错放 src/foundation/cli-help/、phase 1479 挪 src/cli/help/ 后立此 invariant 防回归。
   it('src/foundation/ has no file/dir named cli-help, verb-facts, or CLAW_VERB symbol', () => {
     const files = walk('src/foundation');
@@ -157,7 +157,7 @@ describe('phase 1479: CLI verb fact schema must not live in foundation/', () => 
     }
     if (violations.length > 0) {
       expect.fail(
-        `foundation/ 不应持 CLI verb fact schema (ML#5 layering). Violations:\n${violations.join('\n')}`,
+        `foundation/ 不应持 CLI verb fact schema (M#5 layering). Violations:\n${violations.join('\n')}`,
       );
     }
   });
