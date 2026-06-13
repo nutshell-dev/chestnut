@@ -56,8 +56,12 @@ const LastFailedFeedbackSchema = z.object({
   cause: z.enum(['llm_rejected', 'programming_bug', 'subagent_timeout', 'script_failed']),
 }).strict();
 
+// phase 362: SUBTASK_STATUSES_TUPLE 复用 (ML#1 单源 from status-tuples.ts)
+import { SUBTASK_STATUSES_TUPLE } from './status-tuples.js';
+
 const SubtaskProgressSchema = z.object({
-  status: z.enum(['todo', 'in_progress', 'completed']),
+  // phase 362: tuple derive (mirror phase 347 LIFECYCLE pattern)
+  status: z.enum(SUBTASK_STATUSES_TUPLE),
   completed_at: z.string().optional(),
   evidence: z.string().optional(),
   artifacts: z.array(z.string()).optional(),

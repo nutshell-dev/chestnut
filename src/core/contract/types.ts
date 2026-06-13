@@ -32,14 +32,27 @@ import { LIFECYCLE_PERSISTED_STATUSES_TUPLE } from './status-tuples.js';
 
 export type LifecyclePersistedStatus = (typeof LIFECYCLE_PERSISTED_STATUSES_TUPLE)[number];
 
+/**
+ * phase 365: typed ReadonlySet<LifecyclePersistedStatus> derive (mirror phase 348 DERIVABLE pattern + phase 362 SUBTASK pattern)
+ * 用于 manager.ts getProgress legacy status field LIFECYCLE membership check (替 unsafe cast)
+ */
+export const LIFECYCLE_PERSISTED_STATUSES: ReadonlySet<LifecyclePersistedStatus> = new Set(LIFECYCLE_PERSISTED_STATUSES_TUPLE);
+
 // 'pending' / 'running' / 'completed' = DerivableStatus (derive subset)
 // 'paused' / 'cancelled' / 'crashed' / 'archive_pending_recovery' = LifecyclePersistedStatus (persist subset)
 export type ContractStatus = DerivableStatus | LifecyclePersistedStatus;
 
-export type SubtaskStatus =
-  | 'todo'
-  | 'in_progress'
-  | 'completed';
+// phase 362: SubtaskStatus 改 derive from tuple (ML#1 共用基础设施单源、mirror DerivableStatus pattern)
+// re-export tuple 保 backward compat 既有 import path
+export { SUBTASK_STATUSES_TUPLE } from './status-tuples.js';
+import { SUBTASK_STATUSES_TUPLE } from './status-tuples.js';
+
+export type SubtaskStatus = (typeof SUBTASK_STATUSES_TUPLE)[number];
+
+/**
+ * phase 362: typed Set derive from tuple (mirror DERIVABLE_STATUSES、ML#1 单源 + ML#9 typed Set)
+ */
+export const SUBTASK_STATUSES: ReadonlySet<SubtaskStatus> = new Set(SUBTASK_STATUSES_TUPLE);
 
 export interface LastFailedFeedback {
   feedback: string;

@@ -54,7 +54,7 @@ import type {
   ContractYaml, ProgressData, VerificationResult, VerifierConfig, VerifierResult,
   ContractCreatePolicy, CreatePolicyContext, CreateContractOptions,
 } from './types.js';
-import { ContractCreatePolicyViolationError, deriveProgressStatus, stripDerivableStatus, DERIVABLE_STATUSES } from './types.js';
+import { ContractCreatePolicyViolationError, deriveProgressStatus, stripDerivableStatus, DERIVABLE_STATUSES, LIFECYCLE_PERSISTED_STATUSES } from './types.js';
 import type { LifecyclePersistedStatus } from './types.js';
 import {
   lockContract,
@@ -890,18 +890,28 @@ export class ContractSystem {
     const legacyStatus = (rawParsed as Record<string, unknown>).status;
     // phase 345: narrow type LifecyclePersistedStatus (disjoint subset、derive subset 由 derivedStatus 处理)
     let preservedLifecycleStatus: LifecyclePersistedStatus | undefined;
-    // phase 342: DERIVABLE_STATUSES const 复用 types.ts (ML#1 共用基础设施单源)
-    // phase 344: typed Set<DerivableStatus> 需 cast string check (runtime 不窄)
-    if (typeof legacyStatus === 'string' && !(DERIVABLE_STATUSES as ReadonlySet<string>).has(legacyStatus)) {
-      // 保留不可 derive 的生命周期状态（cancelled/crashed/paused/archive_pending_recovery）
-      preservedLifecycleStatus = legacyStatus as LifecyclePersistedStatus;
-    } else if (legacyStatus !== undefined) {
-      // 可 derive 状态、legacy field 忽略 + emit audit
-      this.audit.write(
-        CONTRACT_AUDIT_EVENTS.CONTRACT_LEGACY_STATUS_FIELD_IGNORED,
-        `contractId=${contractId}`,
-        `legacy_status=${String(legacyStatus)}`,
-      );
+    // phase 365: explicit LIFECYCLE_PERSISTED_STATUSES membership check (replace unsafe cast)
+    // ML#9 + DP「不静默」: unknown legacy string (非 derive 非 persist) 显式 emit audit + 忽略、不 fake-cast as LifecyclePersistedStatus
+    if (typeof legacyStatus === 'string') {
+      if ((LIFECYCLE_PERSISTED_STATUSES as ReadonlySet<string>).has(legacyStatus)) {
+        // 保留不可 derive 的生命周期状态（cancelled/crashed/paused/archive_pending_recovery）
+        preservedLifecycleStatus = legacyStatus as LifecyclePersistedStatus;
+      } else if (!(DERIVABLE_STATUSES as ReadonlySet<string>).has(legacyStatus)) {
+        // unknown legacy string (非 derive 非 persist)、emit audit + 忽略
+        this.audit.write(
+          CONTRACT_AUDIT_EVENTS.CONTRACT_LEGACY_STATUS_FIELD_IGNORED,
+          `contractId=${contractId}`,
+          `legacy_status=${String(legacyStatus)}`,
+          `reason=unknown_lifecycle`,
+        );
+      } else {
+        // 可 derive 状态、legacy field 忽略 + emit audit
+        this.audit.write(
+          CONTRACT_AUDIT_EVENTS.CONTRACT_LEGACY_STATUS_FIELD_IGNORED,
+          `contractId=${contractId}`,
+          `legacy_status=${String(legacyStatus)}`,
+        );
+      }
     }
     delete (rawParsed as Record<string, unknown>).status;
 

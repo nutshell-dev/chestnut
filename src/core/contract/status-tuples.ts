@@ -15,6 +15,12 @@
 
 export const DERIVABLE_STATUSES_TUPLE = ['pending', 'running', 'completed'] as const;
 
+/**
+ * phase 362: SubtaskStatus tuple (mirror DERIVABLE/LIFECYCLE tuple pattern、ML#1 共用基础设施单源)
+ * subtask 状态 = 'todo' | 'in_progress' | 'completed' (与 ContractStatus 独立、仅 'completed' literal 共享)
+ */
+export const SUBTASK_STATUSES_TUPLE = ['todo', 'in_progress', 'completed'] as const;
+
 export const LIFECYCLE_PERSISTED_STATUSES_TUPLE = [
   'paused',                       // paused 子目录、用户主动暂停
   'cancelled',                    // archive 子目录、用户 CLI / system 主动停
