@@ -26,9 +26,25 @@ import {
   buildRandomDreamPrompt,
 } from './prompts/random-dream.js';
 
-const DEFAULT_RANDOM_DREAM_TIMEOUT_MS = 3600 * 1000;  // 1h
+/**
+ * Default random-dream subagent execution timeout（ms）= 1 hour.
+ * Derivation: 3600 * 1000 = 1hr / 给 dream subagent 足够时长完成探索性思考 /
+ * 配 HEARTBEAT_INTERVAL_SEC_DEFAULT (300s) 即 timeout 内至少 12 次 heartbeat.
+ */
+const DEFAULT_RANDOM_DREAM_TIMEOUT_MS = 3600 * 1000;
+
+/**
+ * Default random-dream max step count（agent loop iteration cap）.
+ * Derivation: 200 step ≈ 给 dream subagent 充分探索空间 / 比 DEFAULT_MAX_STEPS (1000) 紧 5×
+ * 因 dream 任务相对局限 / 防 runaway loop OOM.
+ */
 const DEFAULT_RANDOM_DREAM_MAX_STEPS = 200;
-const LATE_SETTLE_GRACE_MS = 7 * 24 * 60 * 60_000;  // 7 days (phase 170)
+/**
+ * Random-dream late settle grace period（ms）= 7 days（phase 170 立）.
+ * Derivation: 7 * 24 * 60 * 60_000 = 604_800_000 ms / 给 dream subagent 真超时后 settle 状态留
+ * 长尾观察窗 / 7 天足够 cover 任何「task 实际完成但 settle 通知延迟」case / 之后视为永久放弃.
+ */
+const LATE_SETTLE_GRACE_MS = 7 * 24 * 60 * 60_000;
 
 // ─── 类型定义 ────────────────────────────────────────────────
 

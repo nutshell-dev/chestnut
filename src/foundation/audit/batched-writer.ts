@@ -6,10 +6,18 @@ import { pushFallback } from './writer.js';
 import { esc, clipPreview, clipMessage, clipSummary } from './_helpers.js';
 import { UUID_SHORT_LEN } from '../../constants.js';
 
-/** BatchedAuditWriter constructor option fallback default — flush 触发的 buffer line 阈值 */
+/**
+ * BatchedAuditWriter constructor option fallback default — flush 触发的 buffer line 阈值.
+ * Derivation: 50 line ≈ 一次典型 batch（1-2 turn audit）/ 平衡 fs write 频率 vs memory footprint /
+ * 配合 DEFAULT_FLUSH_INTERVAL_MS (1000) 形成 size-or-time 双触发.
+ */
 const DEFAULT_BATCH_SIZE = 50;
 
-/** BatchedAuditWriter constructor option fallback default — periodic flush interval (ms) */
+/**
+ * BatchedAuditWriter constructor option fallback default — periodic flush interval (ms).
+ * Derivation: 1000ms = 1s 给低频 audit 写入兜底 / 配合 DEFAULT_BATCH_SIZE (50) /
+ * 配 fs 写时间 ≤ 50ms 即 < 5% wall clock overhead.
+ */
 const DEFAULT_FLUSH_INTERVAL_MS = 1000;
 
 

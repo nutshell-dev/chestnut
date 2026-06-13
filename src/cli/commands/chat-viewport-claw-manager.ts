@@ -35,10 +35,18 @@ export interface ClawManager {
   closeAll(): Promise<void>;
 }
 
-/** ClawTrack textBuffer 上限 / 防 UI 内存膨胀 */
+/**
+ * ClawTrack textBuffer 上限 / 防 UI 内存膨胀.
+ * Derivation: 64 * 1024 = 64KB ≈ 30K 中文字 / 足够显示典型 LLM turn 完整 text stream /
+ * 超 cap 时 ring-buffer 滚旧 / 比 RESULT_SINGLE_LINE_MAX (60 char) 大 1000× 因 textBuffer 累全 turn.
+ */
 const TEXT_BUFFER_CAP = 64 * 1024;
 
-/** 截断后保留最近 N 字节 (cap 的 1/2 / 滑动窗口稳定保留近期上下文) */
+/**
+ * 截断 textBuffer 后保留最近 N 字节（滑动窗口）.
+ * Derivation: 32 * 1024 = 32KB = TEXT_BUFFER_CAP (64KB) / 2 / 1/2 cap 给截断后保留近期
+ * 上下文足够 LLM 看清最近上下文 / 滑动窗口给用户感知平稳（不全清空）.
+ */
 const TEXT_BUFFER_KEEP = 32 * 1024;
 
 const appendCappedBuffer = (track: ClawTrack, delta: string) => {

@@ -21,7 +21,12 @@
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { RETRO_AUDIT_EVENTS } from './retro-audit-events.js';
 
-// NOTE: 改 schema version 时同步 system.ts 字面量
+/**
+ * Evolution state schema 当前版本号.
+ * Derivation: 1 = 首版 schema、未有迁移 / 改 schema 时同步 system.ts 字面量 +
+ * 同步 PROGRESS_CURRENT_SCHEMA_VERSION 类（业务初版 schema 均 1）.
+ * 升级时 read 路径用版本号区分 migration.
+ */
 const EVOLUTION_STATE_CURRENT_VERSION = 1;
 
 export function assertEvolutionStateShape(state: unknown, audit: AuditLog): void {

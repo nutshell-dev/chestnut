@@ -26,6 +26,11 @@ interface CancellationEntry {
   reason: string;
 }
 
+/**
+ * Maximum cancelled contract batch render count（guidance composer 内 cancelled events 展示上限）.
+ * Derivation: 10 batch ≈ 一次 guidance 可读取的 cancelled entry 数 / 平衡 prompt 完整 vs token 灌爆 /
+ * 与 contract-crashed.ts MAX_BATCH_RENDER 同值同语义但 file-private（不抽 cross-file helper、playbook 否决）.
+ */
 const MAX_BATCH_RENDER = 10;
 
 export const composer: GuidanceComposer<ContractCancelledState> = (state): GuidanceEntry => {

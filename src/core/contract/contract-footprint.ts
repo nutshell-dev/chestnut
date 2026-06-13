@@ -13,7 +13,11 @@
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { FileNotFoundError } from '../../foundation/fs/types.js';
 
-/** Default cap on recent execution sample count for contract footprint */
+/**
+ * Default cap on recent execution sample count for contract footprint.
+ * Derivation: 50 sample ≈ 一次典型 contract 完整 turn 的 exec 数（多 tool call）/
+ * 平衡 footprint 精度 vs prompt token 灌爆 / 配 FOOTPRINT_READS_TOP_N=20 给 reads slot 留位.
+ */
 const RECENT_EXEC_N_DEFAULT = 50;
 
 export interface FootprintWrite {

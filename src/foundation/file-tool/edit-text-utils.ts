@@ -13,6 +13,10 @@
  * line scanning, not only diff format).
  */
 
+/**
+ * Diff context lines on each side of a hunk（formatEditDiff 用）.
+ * Derivation: 3 = unified-diff 业界默认值（git diff / diff -u 默认）/ 平衡可读 vs 输出量.
+ */
 const CONTEXT_LINES = 3;
 
 /**
@@ -91,10 +95,18 @@ export function lineDelta(oldText: string, newText: string): number {
 
 // ── phase 1456: error diagnostic helpers ─────────────────────────────────
 
-/** Max lines scanned in findNearMatches for files larger than this threshold. */
+/**
+ * Max lines scanned in findNearMatches.
+ * Derivation: 5000 line ≈ 一般 src file 上限的 ~ 5× / 防巨型 generated file 扫描 OOM /
+ * 配合 partial-substring weakest signal 即使 5000 line 处理时间 < 1s.
+ */
 const NEAR_MATCH_SCAN_LINE_LIMIT = 5000;
 
-/** Truncate line text shown in diagnostics so a single huge line doesn't blow context. */
+/**
+ * Diagnostic 显示行的 char 截断长度.
+ * Derivation: 200 char ≈ 1.5 terminal line / 配 RESULT_SINGLE_LINE_MAX (60) 留更多空间因
+ * diagnostic 比 result preview 信息密度高 / 防 single huge line 灌爆 LLM context.
+ */
 const NEAR_MATCH_LINE_TEXT_MAX = 200;
 
 export interface NearMatch {

@@ -17,7 +17,13 @@ import { CliError } from '../errors.js';
 
 // phase 324 H10: 拷贝硬化常量。
 const COPY_ALLOWED_EXTENSIONS = new Set(['.sh', '.md', '.txt', '.json', '.yaml', '.yml']);
-const COPY_MAX_FILE_BYTES_DEFAULT = 1 * 1024 * 1024;   // 1MB
+
+/**
+ * contract dir copy 单 file 大小上限（默 1 MB）.
+ * Derivation: 1 * 1024 * 1024 = 1_048_576 byte / 覆盖典型 contract template (.sh/.md/.yaml 等) 平均 < 10KB /
+ * 1MB 留足极大 spec 余量 / env CHESTNUT_CONTRACT_DIR_COPY_MAX_BYTES 覆盖.
+ */
+const COPY_MAX_FILE_BYTES_DEFAULT = 1 * 1024 * 1024;
 function getCopyMaxFileBytes(): number {
   const raw = process.env.CHESTNUT_CONTRACT_DIR_COPY_MAX_BYTES;
   if (!raw) return COPY_MAX_FILE_BYTES_DEFAULT;

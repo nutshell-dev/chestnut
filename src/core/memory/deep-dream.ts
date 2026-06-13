@@ -19,7 +19,11 @@ import type { ClawTopology } from '../../core/claw-topology/index.js';
 import { assertDreamStateShape } from './invariants.js';
 import { auditDeepDreamCrossSource } from './dream-cross-source-audit.js';
 
-/** Default max tokens for memory compression pass */
+/**
+ * Default max tokens for memory compression pass（deep-dream LLM call 上限）.
+ * Derivation: 4000 token ≈ 3000 中文字 / 配 COMPRESSION_TARGET_MAX_CHARS=500 内嵌 prompt budget /
+ * 留余给 reasoning + JSON output structure / 比 SUBAGENT 默认低因 dream 任务限定明确.
+ */
 const COMPRESSION_TOKENS_DEFAULT = 4000;
 import {
   DEEP_DREAM_SYSTEM_PROMPT,

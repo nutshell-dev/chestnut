@@ -5,12 +5,23 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import { waitFor } from '../../helpers/wait-for.js';
 
+/**
+ * Fallback poller 加速 poll interval（test 内）— 注入 createWatcher 让 fallback 路径 10ms tick.
+ * Derivation: 10ms << FALLBACK_CONSECUTIVE_FAIL_LIMIT (5) × prod default poll (500ms) = 2500ms /
+ * 比 prod default (500ms) 快 50× 加速 test / 配 ESCALATION_WAIT_BUDGET_MS 总等待 budget.
+ */
 const FAST_POLL_MS = 10;
 // Expected time to reach escalation = FAST_POLL_MS × FALLBACK_CONSECUTIVE_FAIL_LIMIT (50ms).
 // Wall-clock safety factor for CI load (×100) — same shape as other src→test derivation
 // patterns (mirror Tier 1 magic-treatment-kit src cluster #4 derive-from-export pattern).
 const WALL_CLOCK_SAFETY_FACTOR = 100;
 const ESCALATION_WAIT_BUDGET_MS = FAST_POLL_MS * FALLBACK_CONSECUTIVE_FAIL_LIMIT * WALL_CLOCK_SAFETY_FACTOR;
+
+/**
+ * Reset observation poll count — 测 fallback reset 后再观察 N 次 poll 内不再 escalate.
+ * Derivation: 10 = 给 reset 后 stable 状态足够 sample / 配 POST_RESET_WAIT_BUDGET_MS
+ * = 10 × 10 × 100 = 10000ms post-reset 观察期.
+ */
 const RESET_OBSERVATION_POLL_COUNT = 10;
 const POST_RESET_WAIT_BUDGET_MS = FAST_POLL_MS * RESET_OBSERVATION_POLL_COUNT * WALL_CLOCK_SAFETY_FACTOR;
 

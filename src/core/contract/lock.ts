@@ -209,6 +209,12 @@ export interface LockContractResult {
   release: () => Promise<void>;
 }
 
+/**
+ * Contract lock TOCTOU race retry 上限.
+ * Derivation: 5 = 经验值 / 1-2 conflict 视为并发竞争、3+ 视为系统问题 / 配
+ * LOCK_CONTRACT_RETRY_DELAY_MS=50ms 总 budget ≈ 250ms / 比 LOCK_MAX_RETRIES=20 紧 4×
+ * 因 contract lock 是 high-frequency / 短 retry path.
+ */
 export const LOCK_CONTRACT_MAX_RETRY = 5;
 
 /**

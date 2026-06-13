@@ -25,6 +25,11 @@ interface ContractPair {
   contract: string;
 }
 
+/**
+ * Maximum claw-contract pair render count（guidance composer 内 contract events 展示上限）.
+ * Derivation: 10 pair ≈ 一次 guidance refresh 可读取列表 / 平衡 prompt 完整 vs token 灌爆 /
+ * 配合 audit footprint sample 同型经验值（FOOTPRINT_READS_TOP_N=20）/ 防 long event list 灌满 prompt.
+ */
 const MAX_PAIR_RENDER = 10;
 
 // phase 324 H11: 严格 id 字符集、拒含 `:` `,` `` ` `` `\n` 等可注入 CLI / markdown 的字符。

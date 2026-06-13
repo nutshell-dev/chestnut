@@ -60,7 +60,11 @@ interface SendResultCoreParams {
  *   3. write inbox (inline retry)      → fail: emit inline_fallback_failed +
  *      re-throw original err (caller fallback chain unchanged)
  */
-/** Inbox result summary cap — owned by result-delivery (convergent 500 with audit summary cap). */
+/**
+ * Inbox result summary cap — owned by result-delivery (convergent 500 with audit summary cap).
+ * Derivation: 500 char ≈ 1-2 段中文 / 配 audit summary 同值（500）形成 convergent boundary /
+ * 比 TEXT_BUFFER_CAP (64KB) 小 100×+ 因 summary 是 distilled 摘要 / 防 inbox 内单 entry 灌爆.
+ */
 const TASK_RESULT_SUMMARY_MAX_CHARS = 500;
 
 async function sendResultCore(p: SendResultCoreParams): Promise<void> {

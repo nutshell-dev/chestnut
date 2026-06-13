@@ -26,6 +26,11 @@ const CONTRACT_DEFAULTS = {
   auth_level: 'auto' as const,
 };
 
+/**
+ * Progress (contract progress.json) 当前 schema 版本号.
+ * Derivation: 1 = 首版 schema、未有迁移 / 配 EVOLUTION_STATE_CURRENT_VERSION 同型经验值（业务初版 schema 均 1）/
+ * 升级时 read 路径用版本号区分 migration.
+ */
 export const PROGRESS_CURRENT_SCHEMA_VERSION = 1;
 
 export interface PersistenceContext {

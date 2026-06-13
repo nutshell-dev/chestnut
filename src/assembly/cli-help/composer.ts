@@ -29,7 +29,12 @@ const GROUP_HEADERS: Record<VerbGroup, string> = {
 
 const GROUP_ORDER: readonly VerbGroup[] = ['lifecycle', 'messaging', 'observation', 'discovery'];
 
-/** Pad a verb signature (col 1) to a fixed column so summaries align. */
+/**
+ * Pad a verb signature (col 1) to a fixed column so summaries align.
+ * Derivation: 32 char 覆盖 typical CLI verb signature 如 `chestnut motion start <opts>` /
+ * 配 80-col terminal 留 48 col 给 summary description / 比 NAME_PAD (18) 长 ≈ 2× 因
+ * signature 含 verb + opts 综合.
+ */
 const SIGNATURE_COL = 32;
 
 function padRight(s: string, n: number): string {

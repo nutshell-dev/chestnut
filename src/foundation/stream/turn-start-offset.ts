@@ -1,6 +1,12 @@
 import type { FileSystem } from '../fs/types.js';
 
-const TURN_START_SCAN_BYTES_DEFAULT = 64 * 1024;   // 64KB
+/**
+ * Default scan window 字节数 - turn-start 位置 backward 搜寻预算.
+ * Derivation: 64 * 1024 = 64KB ≈ 30K 中文字 / 覆盖最近 1-2 个 turn 的 stream content /
+ * 配 TEXT_BUFFER_CAP (64KB) 同值因 scan 窗口与 in-mem buffer 对齐 /
+ * 防巨型 turn (mass tool output) 时 scan OOM.
+ */
+const TURN_START_SCAN_BYTES_DEFAULT = 64 * 1024;
 
 /**
  * 启动期 backward scan stream.jsonl 找最近 turn_start byte offset。

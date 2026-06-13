@@ -10,6 +10,11 @@
 
 import { createHash } from 'crypto';
 
+/**
+ * Outbox summary dedup hash 长度（SHA256 前缀截取）.
+ * Derivation: 12 hex char = 48 bit / 碰撞率 ≈ 2^48 (>200 万亿) 足够 outbox dedup /
+ * 比 full SHA256 (64 char) 短 5×、节省 audit row + storage 空间 / 业界 git short SHA 同长.
+ */
 export const HASH_LEN = 12;
 
 /** Compute dedup hash from already-sorted file set ("<clawId>:<filename>" pairs). */

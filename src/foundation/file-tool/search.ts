@@ -28,6 +28,11 @@ import {
   SEARCH_SKIP_DISPLAY_LIMIT,
 } from './constants.js';
 
+/**
+ * Search regex pattern 字符长度上限 — 防 user 误传 huge regex 触 catastrophic backtracking.
+ * Derivation: 1024 char ≈ 32 复杂 regex token (avg 32 char/token) / 远超 typical regex (≤ 80 char) /
+ * 不限制实际可用模式但拦极端 OOM input.
+ */
 const PATTERN_MAX_LEN = 1024;
 
 type SkipReason = 'binary' | 'permission' | 'io_error' | 'size_limit';

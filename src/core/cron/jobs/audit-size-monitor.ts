@@ -27,8 +27,19 @@ import type { CronJobGlobalConfig } from '../runner.js';
  */
 export const AUDIT_SIZE_MONITOR_CRON_TIMEOUT_MS = 30_000;
 
-const AUDIT_SIZE_WARN_BYTES = 500 * 1024 * 1024;       // 500 MB
-const AUDIT_SIZE_CRITICAL_BYTES = 1024 * 1024 * 1024;  // 1 GB
+/**
+ * audit.tsv size warning threshold（500 MB）.
+ * Derivation: 500 * 1024 * 1024 = 524_288_000 byte / ≈ 5 周满载 audit 累积 /
+ * 配 AUDIT_SIZE_CRITICAL_BYTES (1 GB) 形成 warn→critical 二级告警.
+ */
+const AUDIT_SIZE_WARN_BYTES = 500 * 1024 * 1024;
+
+/**
+ * audit.tsv size critical threshold（1 GB）.
+ * Derivation: 1024 * 1024 * 1024 = 1_073_741_824 byte / ≈ 10 周满载 / 触发紧急 audit rotate /
+ * 比 WARN 双倍因 disk 空间消耗速率约线性、双倍给运维窗口反应.
+ */
+const AUDIT_SIZE_CRITICAL_BYTES = 1024 * 1024 * 1024;
 
 // phase 8: dedup per audit path / daemon process 生命周期内、under→over 时 emit / over→under 清状态允许下次再 fire
 const auditOverThreshold = new Map<string, 'warn' | 'critical'>();

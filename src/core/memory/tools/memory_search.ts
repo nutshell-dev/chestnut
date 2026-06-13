@@ -9,7 +9,11 @@ import type { FileEntry } from '../../../foundation/fs/types.js';
 import { MEMORY_DIR } from '../memory-paths.js';
 export const MEMORY_SEARCH_TOOL_NAME = 'memory_search' as const;
 
-/** Default cap on search results returned to agent */
+/**
+ * Default cap on memory search results returned to agent.
+ * Derivation: 10 result ≈ agent 单次 search 可处理的 hit 数（避免 LLM context 灌爆）/
+ * 配合 RECENT_EXEC_N_DEFAULT (50) 给 footprint sample 留位 / 平衡 recall vs precision.
+ */
 const SEARCH_MAX_RESULTS_DEFAULT = 10;
 
 

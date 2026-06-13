@@ -21,7 +21,11 @@
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { MEMORY_AUDIT_EVENTS } from './audit-events.js';
 
-// deep-dream.ts 内 retry exhausted 阈值 = 3（phase 1200）
+/**
+ * deep-dream.ts 内 retry exhausted 阈值（cross-source audit 验证用、phase 1200 立）.
+ * Derivation: 3 = deep-dream.ts retry 上限的镜像值 / 配 DEFAULT_VERIFICATION_ATTEMPTS=3 同型 /
+ * 若 deep-dream.ts 改 retry 限定、本 const 需同步.
+ */
 const DEEP_DREAM_RETRY_UPPER_BOUND = 3;
 
 interface DeepDreamStateLike {

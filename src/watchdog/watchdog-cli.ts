@@ -19,10 +19,18 @@ import { CliError } from '../foundation/errors.js';
 // Watchdog lifecycle poll：通用 100ms 间隔
 const WATCHDOG_POLL_INTERVAL_MS = 100;
 
-// startCommand: 等 PID 文件写入 / 100ms × 30 = 3s 总 timeout
+/**
+ * startCommand: 等 PID 文件写入的 poll attempts 上限.
+ * Derivation: 100ms × 30 = 3s 总 timeout / 配 WATCHDOG_POLL_INTERVAL_MS=100 /
+ * 比 LOCK_ACQUIRE_TIMEOUT_MS=3000 同值 / 给 daemon spawn 完成 PID 写入足够时间.
+ */
 const WATCHDOG_START_MAX_ATTEMPTS = 30;
 
-// stopCommand: 等 SIGTERM 后退出 / 100ms × 50 = 5s 总 timeout
+/**
+ * stopCommand: 等 SIGTERM 后 daemon 退出的 poll attempts 上限.
+ * Derivation: 100ms × 50 = 5s 总 timeout / 比 START 长 67% 因 stop 需 daemon 自己 flush
+ * + 释资源 / 比 INTERRUPT_CLEANUP_TIMEOUT_MS=5000 同值（共享 graceful shutdown 协议）.
+ */
 const WATCHDOG_STOP_MAX_ATTEMPTS = 50;
 
 /**

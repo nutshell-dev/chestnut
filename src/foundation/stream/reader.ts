@@ -22,19 +22,34 @@ import { createWatcher, type Watcher } from '../file-watcher/index.js';
 import { STREAM_AUDIT_EVENTS } from './audit-events.js';
 import { StringDecoder } from 'node:string_decoder';
 
-/** 连续 parse_failed 达到此值触发 STREAM_READER_CORRUPT（trigger=consecutive_fail）。 */
+/**
+ * 连续 parse_failed 达到此值触发 STREAM_READER_CORRUPT（trigger=consecutive_fail）.
+ * Derivation: 5 = 经验值 / 1-2 fail 可能 chunk 边界 transient / ≥ 5 consecutive 表 stream
+ * 内容真异常 / 配 RECENT_FAIL_RATIO_THRESHOLD (0.5) 形成「连续」+「占比」双判.
+ */
 const CONSECUTIVE_PARSE_FAIL_LIMIT = 5;
 
-/** recentOutcomes 环形窗口大小；窗口满后按占比判定 ratio_high。 */
+/**
+ * recentOutcomes 环形窗口大小；窗口满后按占比判定 ratio_high.
+ * Derivation: 10 ≈ 一次 turn 的 event 量 / 窗口太小（< 5）易误判 transient / 太大（> 50）
+ * 延迟 corruption detection / 配 RECENT_FAIL_RATIO_THRESHOLD (0.5) 即 5/10 fail 触发.
+ */
 const RECENT_WINDOW = 10;
 
-
-
-/** 近 RECENT_WINDOW 次 parse 的失败占比阈值（> 则触发 trigger=ratio_high）。 */
+/**
+ * 近 RECENT_WINDOW 次 parse 的失败占比阈值（> 则触发 trigger=ratio_high）.
+ * Derivation: 0.5 = 50% fail rate / 半数失败明显异常 / < 0.5 transient 可接受 /
+ * 严格于 CONSECUTIVE_PARSE_FAIL_LIMIT (5 连续) 因 ratio 路径要求窗口已填.
+ */
 const RECENT_FAIL_RATIO_THRESHOLD = 0.5;
 
-/** Stream reader pending buffer 上限 / 防 unbounded line buffering OOM (默 50MB) */
-const MAX_PENDING_BYTES = 50 * 1024 * 1024; // 50MB
+/**
+ * Stream reader pending buffer 上限 / 防 unbounded line buffering OOM.
+ * Derivation: 50 * 1024 * 1024 = 50MB / 覆盖典型 LLM turn full text stream + tool result /
+ * 比 TEXT_BUFFER_CAP (64KB) 大 800× 因 reader 服务长生命周期、accumulate 完整 turn /
+ * 超 cap 时 emit READER_BUFFER_OVERFLOW + 丢弃尾部.
+ */
+const MAX_PENDING_BYTES = 50 * 1024 * 1024;
 
 export interface StreamReader {
   /** Start watching and emit new events. Throws if already started. */

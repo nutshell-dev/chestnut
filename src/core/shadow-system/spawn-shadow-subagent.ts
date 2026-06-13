@@ -19,7 +19,11 @@ import type { SpawnShadowSubagentOptions, SpawnShadowSubagentResult } from './ty
 import { makeTaskId } from '../async-task-system/types.js';
 import { makeToolUseId } from '../../foundation/tool-protocol/index.js';
 
-/** Default max steps for shadow subagent execution */
+/**
+ * Default max steps for shadow subagent execution（agent loop iteration cap）.
+ * Derivation: 100 step ≈ shadow 派生子代理足够完成「契约创建」类 reasoning / 比
+ * DEFAULT_MAX_STEPS (1000) 紧 10× 因 shadow 任务限定明确 / 防 runaway loop 浪费 token.
+ */
 const SHADOW_MAX_STEPS_DEFAULT = 100;
 import { SHADOW_DEFAULT_TIMEOUT_MS } from './constants.js';
 
