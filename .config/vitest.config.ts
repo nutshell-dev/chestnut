@@ -188,7 +188,6 @@ const VI_MOCK_FILES = [
   'tests/watchdog/watchdog-ever-spawned-crash.test.ts',
   'tests/watchdog/watchdog-pid-corrupt.test.ts',
   'tests/watchdog/watchdog-shutdown-guard.test.ts',
-  'tests/watchdog/watchdog-state-legacy-fallback-audit.test.ts',
   'tests/watchdog/watchdog-state-narrow.test.ts',
   'tests/watchdog/watchdog-state-schema-version.test.ts',
   // phase 288 Step C sync: 48 entries added per find -name '*.test.ts' -exec grep 'vi.mock(' {} \;
