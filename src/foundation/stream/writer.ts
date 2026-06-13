@@ -143,10 +143,13 @@ export class StreamWriter implements StreamLog {
     try {
       if (!this.fs.existsSync(ARCHIVE_DIR)) return;
 
-      const files = this.fs.listSync(ARCHIVE_DIR, { pattern: '^stream\\.\\d+\\.jsonl$' })
+      // phase 324 H8: 归档名实际为 stream.<ts>_<uuid>.jsonl（writer.ts:55），
+      // 旧 regex `^stream\.\d+\.jsonl$` 永不匹配 → maxFiles/maxDays 全为 no-op、
+      // 长跑进程归档无界堆。修正正则匹配 ts_uuid 形。
+      const files = this.fs.listSync(ARCHIVE_DIR, { pattern: '^stream\\.\\d+_[A-Za-z0-9]+\\.jsonl$' })
         .map(f => ({
           path: f.path,
-          ts: parseInt(f.name.split('.')[1], 10),
+          ts: parseInt(f.name.split('.')[1].split('_')[0], 10),
         }))
         .sort((a, b) => b.ts - a.ts);
 

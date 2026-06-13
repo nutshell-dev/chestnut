@@ -461,9 +461,11 @@ describe('startCommand', () => {
     vi.restoreAllMocks();
   });
 
-  it('spawns watchdog process when not alive', async () => {
+  it('spawns watchdog process when not alive (throws CliError because PID never appears in test)', async () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    await startCommand(fsFactory);
+    // phase 324 H2: startCommand 现在在 PID 未写时 throw CliError 而非静默 exit 0。
+    // 本测试环境 spawn 被 mock、不会真写 PID → 必 throw。
+    await expect(startCommand(fsFactory)).rejects.toThrow(/Watchdog failed to start/);
 
     expect(spawn).toHaveBeenCalledWith(
       'node',
@@ -473,11 +475,9 @@ describe('startCommand', () => {
     logSpy.mockRestore();
   });
 
-  it('reports start failure if pid file not written after 30 polls', async () => {
+  it('phase 324 H2: throws CliError if pid file not written after 30 polls', async () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    await startCommand(fsFactory);
-
-    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('may have failed'));
+    await expect(startCommand(fsFactory)).rejects.toThrow(/Watchdog failed to start within/);
     logSpy.mockRestore();
   });
 });

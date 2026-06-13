@@ -85,9 +85,10 @@ export async function loadActiveContract(
 ): Promise<Contract | null> {
   const latest = await findLatestContract(ctx, activeDir, 'ContractSystem.loadActive');
   if (!latest) return null;
-  const contract = await ctx.loadContract(makeContractId(latest.name));
-  contract.status = 'running';
-  return contract;
+  // phase 324 C2: 不再覆盖 status——loadContract 已从 progress 派生（含 cancelled /
+  // crashed / archive_pending_recovery 等终态、boot race / mid-archive 残留时不再
+  // 谎报 running，下游 auditor / dialog injector / status service 不被毒化。
+  return ctx.loadContract(makeContractId(latest.name));
 }
 
 export async function loadPausedContract(
@@ -96,7 +97,6 @@ export async function loadPausedContract(
 ): Promise<Contract | null> {
   const latest = await findLatestContract(ctx, pausedDir, 'ContractSystem.loadPaused');
   if (!latest) return null;
-  const contract = await ctx.loadContract(makeContractId(latest.name));
-  contract.status = 'paused';
-  return contract;
+  // phase 324 C2: 同 loadActiveContract — 不覆盖 status，信任 progress 派生。
+  return ctx.loadContract(makeContractId(latest.name));
 }

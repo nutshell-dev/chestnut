@@ -156,12 +156,31 @@ export function createAuditReader(
         // File shrunk or rotated: check for .bak
         const dir = path.dirname(currentPath);
         const base = path.basename(currentPath);
-        const bakPath = path.join(dir, `${base}.bak`);
-        if (fs.existsSync(bakPath)) {
-          // Rotation: read tail of .bak if any, then switch to new file
-          const bakStat = fs.statSync(bakPath);
+        const bakPrefix = `${base}.`;
+        const bakSuffix = '.bak';
+        let newestBakPath: string | null = null;
+        let newestBakMtimeMs = -1;
+        try {
+          for (const entry of fs.listSync(dir)) {
+            const n = entry.name;
+            // 接受两形：legacy ${base}.bak 与 phase 1+ ${base}.<uuid>.bak。
+            if (!n.startsWith(bakPrefix) || !n.endsWith(bakSuffix)) continue;
+            const p = path.join(dir, n);
+            const s = fs.statSync(p);
+            const mt = s.mtime instanceof Date ? s.mtime.getTime() : 0;
+            if (mt > newestBakMtimeMs) {
+              newestBakMtimeMs = mt;
+              newestBakPath = p;
+            }
+          }
+        } catch {
+          // silent: dir read failure during follow() polling is best-effort — no bak handover this round, next poll iteration retries naturally
+        }
+        if (newestBakPath && fs.existsSync(newestBakPath)) {
+          // Rotation: read tail of newest .bak if any, then switch to new file
+          const bakStat = fs.statSync(newestBakPath);
           if (bakStat.size > lastSize) {
-            const bakContent = fs.readSync(bakPath);
+            const bakContent = fs.readSync(newestBakPath);
             const tail = bakContent.slice(lastSize);
             for (const rec of parseChunk(tail, opts)) {
               if (closed) return;

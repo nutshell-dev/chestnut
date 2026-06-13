@@ -72,7 +72,15 @@ async function setupFixtures(): Promise<TestFixtures> {
   const contractYamlPath = path.join(targetClawDir, 'contract', 'active', contractId, 'contract.yaml');
   await fs.writeFile(contractYamlPath, 'contract_id: ' + contractId + '\nintent: test');
   const progressPath = path.join(targetClawDir, 'contract', 'active', contractId, 'progress.json');
-  await fs.writeFile(progressPath, JSON.stringify({ schema_version: 1, contract_id: contractId, status: 'active', subtasks: {} }));
+  // phase 324 C5: completed_at 必须存在，否则 evolution 拒推水位、返 skipped_missing_completed_at。
+  // phase 325 (main): schema_version: 1 字段必填（Zod SoT migration）。
+  await fs.writeFile(progressPath, JSON.stringify({
+    schema_version: 1,
+    contract_id: contractId,
+    status: 'active',
+    subtasks: {},
+    completed_at: new Date().toISOString(),
+  }));
 
   // 构造 motion 侧 EvolutionSystem + ctx
   const motionFs = new NodeFileSystem({ baseDir: motionDir });

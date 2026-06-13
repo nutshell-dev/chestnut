@@ -65,9 +65,7 @@ async function installBuiltinSkills(deps: { fsFactory: (baseDir: string) => File
   // Try dist path first, fall back to src
   let skillsSource = path.join(__dirname, '..', BUNDLED_SKILLS_DIR_NAME);
   const srcFs = deps.fsFactory(__dirname);
-  try {
-    await srcFs.exists(path.join('..', BUNDLED_SKILLS_DIR_NAME));
-  } catch {
+  if (!(await srcFs.exists(path.join('..', BUNDLED_SKILLS_DIR_NAME)))) {
     skillsSource = path.join(__dirname, '..', '..', '..', '..', 'src', BUNDLED_SKILLS_DIR_NAME);
   }
 
@@ -109,13 +107,9 @@ async function ensureDir(deps: { fsFactory: (baseDir: string) => FileSystem }, d
 async function writeTemplate(deps: { fsFactory: (baseDir: string) => FileSystem }, filePath: string, content: string): Promise<boolean> {
   const fs = deps.fsFactory(path.dirname(filePath));
   const relPath = path.basename(filePath);
-  try {
-    await fs.exists(relPath);
-    return false; // file already exists
-  } catch {
-    await fs.writeAtomic(relPath, content);
-    return true; // newly created
-  }
+  if (await fs.exists(relPath)) return false;
+  await fs.writeAtomic(relPath, content);
+  return true;
 }
 
 /**
@@ -194,9 +188,7 @@ export async function chatCommand(deps: { fsFactory: (baseDir: string) => FileSy
 
   // Check whether Motion has been initialized
   const motionFs = deps.fsFactory(motionDir);
-  try {
-    await motionFs.exists('AGENTS.md');
-  } catch {
+  if (!(await motionFs.exists('AGENTS.md'))) {
     throw new CliError('Motion not initialized. Run: chestnut motion init');
   }
 

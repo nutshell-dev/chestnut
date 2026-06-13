@@ -151,6 +151,17 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
       if (location.kind !== 'local') continue;
       const entries = scanArchivedContracts(fs, location.clawDir, makeClawId(clawId), motionAudit);
       for (const entry of entries) {
+        // phase 324 H11: 验 claw / contract id 字符集，防 `:` `,` `` ` `` `\n` 注入。
+        // 不合规 id 跳过、不入 problem_pairs / dedup set；audit 一条 OBSERVER_EVENT_FAILED。
+        if (!/^[A-Za-z0-9_-]{1,64}$/.test(clawId) || !/^[A-Za-z0-9_-]{1,64}$/.test(entry.contractId)) {
+          motionAudit.write(
+            CONTRACT_AUDIT_EVENTS.OBSERVER_EVENT_FAILED,
+            `claw=${clawId}`,
+            `contract=${entry.contractId}`,
+            `reason=id_charset_invalid`,
+          );
+          continue;
+        }
         const key = `${clawId}:${entry.contractId}`;
         if (notifiedSet.has(key)) continue;  // dedup: 已通知
         newlyDiscovered.push(key);

@@ -233,14 +233,20 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
 
     let contractManager: ContractSystem;
     try {
+      // phase 324 H12: notifyClaw 跨 claw 落 inbox 时 join 出 <chestnutRoot>/claws/<other>/...
+      // 绝对路径；旧码 bind systemFs (baseDir=clawDir)、resolveAndCheck 一律拒
+      // PermissionError、外层 try/catch 静默吞 → 跨 claw 通知 0 落。
+      // 改 bind 一个 chestnut-root-scoped fs、绝对路径在合法范围。
+      const rootFs = fsFactory(chestnutRoot);
       contractManager = createContractSystem({
         clawDir, clawId: makeClawId(clawId), fs: systemFs, audit: auditWriter, llm,
         toolRegistry,   // phase 704: toolRegistry 注入 ContractSystem
         toolTimeoutMs,  // phase 1029 / F-2
         fsFactory,
         // phase 104: pre-bound notifyClaw (bind fs + chestnutRoot + audit)
+        // phase 324 H12: fs 改用 rootFs（chestnut-root-scoped）让绝对 inbox 路径能落。
         notifyClaw: (targetClawId, message) =>
-          notifyClawFn(systemFs, chestnutRoot, targetClawId, message, auditWriter!),
+          notifyClawFn(rootFs, chestnutRoot, targetClawId, message, auditWriter!),
       });
     } catch (e) {
       auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=contract_manager`, `phase=construct`, `reason=${formatErr(e)}`);

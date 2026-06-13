@@ -54,6 +54,16 @@ import {
 
 const WATCHDOG_BACKOFF_MAX_MS = 5 * 60 * 1000;   // 5 minutes
 
+// phase 324 H3: 连续 motion restart 失败 cap，触顶进 circuit-open。
+// 默 10 次。env WATCHDOG_MAX_RESTART 设有效正整数时覆盖。
+const WATCHDOG_MAX_RESTART_DEFAULT = 10;
+function getMaxRestart(): number {
+  const raw = process.env.WATCHDOG_MAX_RESTART;
+  if (!raw) return WATCHDOG_MAX_RESTART_DEFAULT;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : WATCHDOG_MAX_RESTART_DEFAULT;
+}
+
 // === Shutdown (21 行) ===
 
 /** Module-level guard: prevent reentrant shutdown when SIGTERM + SIGINT both fire */
@@ -146,7 +156,8 @@ async function restartMotionIfDown(
     return { newBackoff: baseInterval, newFailures: 0 };
   } catch (err) {
     if (err instanceof LockConflictError) {
-      // 另一个 watchdog 实例已经启动了 motion，不算失败
+      // phase 324 H3 锚：LockConflictError 重置 failures 是 intentional —— 失锁意味着另
+      // 一个 watchdog 实例赢了 race、不是本机 motion spawn 失败，所以不入失败计数。
       log(fsFactory, `[watchdog] motion already started by another instance`);
       return { newBackoff: baseInterval, newFailures: 0 };
     }
@@ -203,6 +214,9 @@ export async function runWatchdogLoop(fsFactory: (baseDir: string) => FileSystem
 
   // Motion restart failure tracking for backoff
   let motionRestartFailures = 0;
+  // phase 324 H3: circuit-open flag — 一旦触顶，停止 spawn 直到手动重启 watchdog。
+  let gaveUpOnMotion = false;
+  const maxRestart = getMaxRestart();
 
   while (!stopped) {
     // 1. Check motion liveness
@@ -236,16 +250,46 @@ export async function runWatchdogLoop(fsFactory: (baseDir: string) => FileSystem
     auditWriter.write(WATCHDOG_AUDIT_EVENTS.WATCHDOG_CHECK, `alive=${aliveIds.join(',')} present=${presentClawIds.join(',')}`);
 
     const intervalMs = getGlobalConfig(fsFactory).watchdog.interval_ms;
-    const { newBackoff, newFailures } = await restartMotionIfDown(
-      pm,
-      fsFactory,
-      auditWriter,
-      status,
-      motionRestartFailures,
-      intervalMs,
-      WATCHDOG_BACKOFF_MAX_MS,
-    );
-    motionRestartFailures = newFailures;
+    let nextSleepMs: number;
+    if (gaveUpOnMotion) {
+      // circuit-open: 不再 spawn、按 max backoff idle、cron 仍跑（claw 监控不停）
+      nextSleepMs = WATCHDOG_BACKOFF_MAX_MS;
+      if (status.alive) {
+        // motion 莫名活过来了（手动重启）→ 解 circuit-open、回 normal mode
+        log(fsFactory, '[watchdog] motion is alive again, reopening circuit');
+        gaveUpOnMotion = false;
+        motionRestartFailures = 0;
+        nextSleepMs = intervalMs;
+      }
+    } else if (motionRestartFailures >= maxRestart && !status.alive) {
+      // phase 324 H3: 触顶 → circuit-open。停 spawn、audit 一条 GAVE_UP、
+      // 等待手动重启或 motion 自己恢复（外部 supervisor 拉起）。
+      gaveUpOnMotion = true;
+      auditWriter.write(
+        WATCHDOG_AUDIT_EVENTS.WATCHDOG_GAVE_UP,
+        `consecutive_failures=${motionRestartFailures}`,
+        `cap=${maxRestart}`,
+        `reason=motion_unrecoverable`,
+      );
+      log(
+        fsFactory,
+        `[watchdog] gave up restarting motion after ${motionRestartFailures} consecutive failures (cap=${maxRestart}); ` +
+        `entering circuit-open. Restart watchdog manually after fixing motion.`,
+      );
+      nextSleepMs = WATCHDOG_BACKOFF_MAX_MS;
+    } else {
+      const { newBackoff, newFailures } = await restartMotionIfDown(
+        pm,
+        fsFactory,
+        auditWriter,
+        status,
+        motionRestartFailures,
+        intervalMs,
+        WATCHDOG_BACKOFF_MAX_MS,
+      );
+      motionRestartFailures = newFailures;
+      nextSleepMs = newBackoff;
+    }
 
     // 2. Cron checks (disk_check moved to CronRunner in daemon.ts)
     await maybeCronClawInactivity(pm, auditWriter, fsFactory);
@@ -254,8 +298,8 @@ export async function runWatchdogLoop(fsFactory: (baseDir: string) => FileSystem
     await maybeCronCheckSubscriptions(pm, auditWriter, fsFactory);
     saveWatchdogState(fsFactory);   // 持久化通知状态（每 tick 一次）
 
-    // 3. Sleep with backoff on consecutive failures (max 5 minutes)
-    await setTimeout(newBackoff);
+    // 3. Sleep with backoff on consecutive failures (max 5 minutes) — or circuit-open idle
+    await setTimeout(nextSleepMs);
   }
 }
 

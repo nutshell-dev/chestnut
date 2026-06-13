@@ -39,6 +39,7 @@ import { STATUS_SUBDIR } from '../foundation/process-manager/index.js';
 import { createStreamCallbacks } from './stream-callbacks.js';
 import { waitForInbox } from './inbox-watcher.js';
 import { shouldEmitStartupCheck } from './startup-check.js';
+import { isWatchdogAlive } from '../watchdog/watchdog-pid.js';
 
 
 
@@ -92,6 +93,8 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
   const agentFs = fsFactory(agentDir);
   let stopped = false;
   let startupFired = false;
+  // phase 324 H4: dedup motion 自审 watchdog audit。
+  let watchdogMissingAudited = false;
 
   // phase 1154 r+ derive: 60s liveness 心跳（B + 心跳混合方案）
   const LIVENESS_HEARTBEAT_MS = 60_000;
@@ -219,6 +222,23 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
       // Heartbeat check (moved into daemon loop to avoid setInterval race conditions)
       if (heartbeat?.isDue()) {
         await heartbeat.fire();
+      }
+
+      // phase 324 H4: motion 自审 watchdog 存活、不活时 audit。
+      // 仅 motion daemon 检（claw daemon 无 supervisor 自审职责）。
+      // dedup：仅在 alive→dead 转折或首次观察时 audit、避免每 tick 灌日志。
+      if (motion && !isWatchdogAlive(fsFactory)) {
+        if (!watchdogMissingAudited) {
+          options.audit.write(
+            DAEMON_AUDIT_EVENTS.WATCHDOG_MISSING,
+            `pid=${process.pid}`,
+            `uptime_s=${Math.round(process.uptime())}`,
+          );
+          watchdogMissingAudited = true;
+        }
+      } else if (motion && watchdogMissingAudited) {
+        // watchdog 回来了，重置 dedup
+        watchdogMissingAudited = false;
       }
 
       let interruptPoller: ReturnType<typeof setInterval> | null = null;

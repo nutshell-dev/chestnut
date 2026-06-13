@@ -1,8 +1,11 @@
 /**
- * ReactResult.stopReason propagation — phase 1483
+ * ReactResult.stopReason propagation — phase 1483 + phase 324 (review-2026-06-13 C6)
  *
  * 守护：loop.mapStopReason 把 step-executor 的 FinalStopReason 正确投射到 ReactResult.stopReason，
- * 其中 'content_filter' 字面单独保留（不再折叠为 'unknown'）— audit-2026-05-30 finding #3 修复。
+ *
+ * - phase 1483: 'content_filter' 字面单独保留（不再折叠为 'unknown'）— audit-2026-05-30 finding #3 修复
+ * - phase 324 C6: 'refusal' / 'safety' / 'stop_sequence' / 新 SDK 值在 step-executor 不再
+ *   折叠为 'content_filter'、改返 'unknown'。content_filter 桶仅当 API 真返 'content_filter' 时占。
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -51,12 +54,15 @@ async function runWithStopReason(stopReason: string): Promise<string> {
   return result.stopReason;
 }
 
-describe('ReactResult.stopReason propagation (phase 1483 #3 content_filter 不折叠)', () => {
-  it('LLM unrecognized stop_reason → step-executor 映射 content_filter → ReactResult 保留 content_filter', async () => {
-    // step-executor.ts:65 把任何 unrecognized stop_reason 映射为 'content_filter'；
-    // phase 1483 前 loop.mapStopReason 把 content_filter 折叠为 'unknown'、丢信息；
-    // phase 1483 后保留 'content_filter' 字面。
-    expect(await runWithStopReason('refusal')).toBe('content_filter');
+describe('ReactResult.stopReason propagation (phase 1483 + phase 324 C6 桶分立)', () => {
+  it('phase 324 C6: LLM unrecognized stop_reason (refusal) → step-executor 返 unknown → ReactResult 保留 unknown', async () => {
+    // phase 324 C6 修前：step-executor 把任何 unrecognized stop_reason 折叠为 'content_filter'；
+    // 修后：未识别值返 'unknown'，content_filter 桶仅留给 API 真返 'content_filter' 时占。
+    expect(await runWithStopReason('refusal')).toBe('unknown');
+  });
+
+  it('phase 1483: API 真返 content_filter → 保留 content_filter（不折叠 unknown）', async () => {
+    expect(await runWithStopReason('content_filter')).toBe('content_filter');
   });
 
   it('end_turn → end_turn', async () => {

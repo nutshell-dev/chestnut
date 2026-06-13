@@ -26,4 +26,6 @@ export const RETRO_AUDIT_EVENTS = {
   EVOLUTION_STATE_INVARIANT_VIOLATED: 'evolution_state_invariant_violated',
   // phase 280: legacy schema migration audit
   EVOLUTION_LEGACY_SCHEMA_MIGRATED_RESET: 'evolution_legacy_schema_migrated_reset',
+  // phase 324 C5: progress.completed_at 缺失 → 拒绝推水位 / 防单坏 contract 毒化高水位
+  EVOLUTION_SKIPPED_MISSING_COMPLETED_AT: 'evolution_skipped_missing_completed_at',
 } as const;

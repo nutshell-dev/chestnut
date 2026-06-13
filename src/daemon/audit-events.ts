@@ -34,6 +34,8 @@ export const DAEMON_AUDIT_EVENTS = {
   // NEW phase 272 Step B: raw audit emit migration to const SoT
   UNHANDLED_REJECTION: 'daemon_unhandled_rejection',
   UNCAUGHT_EXCEPTION: 'daemon_uncaught_exception',
+  // phase 324 H4: motion 自审 watchdog 存活 / 不活时 audit（dedup 单次/dead-streak）
+  WATCHDOG_MISSING: 'watchdog_missing',
 } as const;
 
 /**

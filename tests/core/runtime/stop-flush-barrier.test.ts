@@ -46,7 +46,7 @@ describe('runtime.stop flush barrier (phase 1024 G.3)', () => {
         } as any,
         toolRegistry: {} as any,
         toolExecutor: {} as any,
-        contractManager: { loadPaused: vi.fn().mockResolvedValue(null) } as any,
+        contractManager: { loadPaused: vi.fn().mockResolvedValue(null), close: vi.fn().mockResolvedValue(undefined) } as any,
         taskSystem: {
           shutdown: vi.fn().mockResolvedValue(undefined),
         } as any,
@@ -66,6 +66,8 @@ describe('runtime.stop flush barrier (phase 1024 G.3)', () => {
       }),
     };
     (runtime as any).sessionManager = mockDialogStore;
+    // phase 324 H5: Runtime.stop 现 await contractManager.close()，测试需注入 mock
+    (runtime as any).contractManager = { close: vi.fn().mockResolvedValue(undefined) };
 
     return runtime;
   }

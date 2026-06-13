@@ -33,6 +33,7 @@ export interface RetroResult {
     | 'finished'
     | 'skipped_duplicate'
     | 'skipped_index_missing'
+    | 'skipped_missing_completed_at'  // phase 324 C5
     | 'error';
   detail?: string;
 }
@@ -239,12 +240,30 @@ export class EvolutionSystem {
     const clawContractManager = ctx.clawContractManagerFactory(clawDir, targetClaw, clawFs);
 
     // phase 280: 高水位线 dedupe（替代 processedContractIds Set）
+    // phase 324 C5: progress.completed_at 缺失时不再 fallback Date.now()
+    // —— 旧码会把高水位推到当前时间、屏蔽所有真正较老的 contract、retro 处理永久禁。
+    // 改返 skipped_missing_completed_at、不推水位、写 audit。
     let contractArchivedAtMs: number;
     try {
       const progress = await clawContractManager.getProgress(contractId);
-      contractArchivedAtMs = progress?.completed_at
-        ? new Date(progress.completed_at).getTime()
-        : Date.now();
+      if (!progress?.completed_at) {
+        this.deps.audit.write(
+          RETRO_AUDIT_EVENTS.EVOLUTION_SKIPPED_MISSING_COMPLETED_AT,
+          `contractId=${contractId}`,
+          `reason=progress_completed_at_missing`,
+        );
+        return { status: 'skipped_missing_completed_at', detail: 'progress.completed_at missing — refusing to advance watermark' };
+      }
+      contractArchivedAtMs = new Date(progress.completed_at).getTime();
+      if (!Number.isFinite(contractArchivedAtMs)) {
+        this.deps.audit.write(
+          RETRO_AUDIT_EVENTS.EVOLUTION_SKIPPED_MISSING_COMPLETED_AT,
+          `contractId=${contractId}`,
+          `reason=progress_completed_at_unparseable`,
+          `raw=${progress.completed_at}`,
+        );
+        return { status: 'skipped_missing_completed_at', detail: 'progress.completed_at unparseable — refusing to advance watermark' };
+      }
     } catch (e) {
       this.deps.audit.write(
         RETRO_AUDIT_EVENTS.INDEX_FAILED,

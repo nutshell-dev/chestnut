@@ -77,7 +77,12 @@ export async function startCommand(
   if (pid) {
     console.log(`Watchdog started (PID: ${pid})`);
   } else {
-    console.log('Watchdog may have failed to start');
+    // phase 324 H2: throw CliError 让 wrapper 映射真退出码、不再 exit 0 静默
+    throw new CliError(
+      `Watchdog failed to start within ${(WATCHDOG_POLL_INTERVAL_MS * WATCHDOG_START_MAX_ATTEMPTS) / 1000}s. ` +
+      `Check daemon log under .chestnut/logs/.`,
+      1,
+    );
   }
 }
 

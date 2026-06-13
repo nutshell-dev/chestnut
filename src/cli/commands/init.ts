@@ -350,13 +350,20 @@ export async function initCommand(deps: { fsFactory: (baseDir: string) => FileSy
         }
       } else {
         // network / rate_limit / unknown — 可能 transient、warn 不阻断
+        // phase 324 H2: 不阻断流程（config 仍写）但设非 0 exit code、
+        // 让 CI / 自动化能感知探测失败、避免静默 exit 0 制造假绿。
         audit?.write(CLI_AUDIT_EVENTS.INIT_PROBE_SKIPPED, `preset=${presetId}`, `reason=transient_${probe.errorType}`);
         console.log('  ⚠ Continuing anyway — fix later with "chestnut config" if needed.');
+        process.exitCode = 2;
       }
     }
 
     audit?.write(CLI_AUDIT_EVENTS.INIT_DONE);
-    console.log('\n✓ Initialized successfully!');
+    if (process.exitCode && process.exitCode !== 0) {
+      console.log('\n⚠ Initialized with warnings (LLM probe failed). Re-run "chestnut config" once provider is reachable.');
+    } else {
+      console.log('\n✓ Initialized successfully!');
+    }
     if (!silent) {
       console.log('\nNext steps:');
       console.log('  1. Create a Claw: chestnut claw <name> create');

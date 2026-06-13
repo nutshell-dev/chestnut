@@ -101,11 +101,22 @@ export async function executeStep(input: StepInput): Promise<StepResult> {
 
   if (response.stop_reason === 'max_tokens') return handleMaxTokensStop(response, input, llmInfo, maxTokens);
 
+  // phase 324 C6: 显式 'content_filter' API 值 → 保留为 'content_filter'；
+  // 其他未识别（refusal / safety / stop_sequence / 新出 SDK 值）→ 'unknown'。
+  // 旧码把全部未识别 stop_reason 都折叠到 'content_filter'，下游 loop.ts:138-146
+  // mapStopReason 期望两桶分立（phase 1483 / phase 788 锚）。
+  if (response.stop_reason === 'content_filter') {
+    const text = extractText(response.content);
+    appendAssistantMessage(messages, response.content);
+    callbacks?.onMessageAppended?.('assistant', response.content.length);
+    return { kind: 'final', stopReason: asFinalStopReason('content_filter'), finalText: text };
+  }
+
   callbacks?.onUnknownStopReason?.(response.stop_reason);
   const text = extractText(response.content);
   appendAssistantMessage(messages, response.content);
   callbacks?.onMessageAppended?.('assistant', response.content.length);
-  return { kind: 'final', stopReason: asFinalStopReason('content_filter'), finalText: text };
+  return { kind: 'final', stopReason: asFinalStopReason('unknown'), finalText: text };
 }
 
 async function runLLMCall(

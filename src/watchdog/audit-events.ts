@@ -39,6 +39,8 @@ export const WATCHDOG_AUDIT_EVENTS = {
   WATCHDOG_RESTART_TRIGGERED: 'watchdog_restart_triggered',
   WATCHDOG_START: 'watchdog_start',
   WATCHDOG_CHECK: 'watchdog_check',
+  // phase 324 H3: motion 连续 restart 失败触顶 → circuit-open、停 spawn
+  WATCHDOG_GAVE_UP: 'watchdog_gave_up',
 } as const;
 
 
@@ -81,4 +83,5 @@ export const WATCHDOG_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   watchdog_restart_triggered: 'audit',
   watchdog_start: 'audit',
   watchdog_check: 'audit',
+  watchdog_gave_up: 'audit',
 } as const;

@@ -140,8 +140,12 @@ function getRelativeToClaw(
     let resolvedClaw: string;
     let resolvedTarget: string;
 
+    // phase 324 C3: 始终用 options.clawDir 解析 claw root，不依赖 fs.resolve('.')。
+    // 旧代码在 fs 由 chestnut-root-scoped factory 构造时（evolution-system / memory
+    // 经 clawFsFactory），claw root 被取作更宽 root → containment 检查放过任意
+    // <chestnutRoot>/* → 读隔离失效。
     if (fs) {
-      resolvedClaw = fs.resolve('.');
+      resolvedClaw = fs.resolve(clawDir);
       resolvedTarget = fs.resolve(targetPath);
     } else {
       resolvedClaw = path.resolve(clawDir);

@@ -111,8 +111,9 @@ describe('StreamWriter', () => {
     const { audit, events } = makeAudit();
     const archiveDir = path.join(tmpDir, 'logs', 'stream');
     fsSync.mkdirSync(archiveDir, { recursive: true });
-    fsSync.writeFileSync(path.join(archiveDir, 'stream.1000.jsonl'), '');
-    fsSync.writeFileSync(path.join(archiveDir, 'stream.2000.jsonl'), '');
+    // phase 324 H8: 归档名形 stream.<ts>_<uuid>.jsonl（writer.ts:55）。
+    fsSync.writeFileSync(path.join(archiveDir, 'stream.1000_abcdef.jsonl'), '');
+    fsSync.writeFileSync(path.join(archiveDir, 'stream.2000_fedcba.jsonl'), '');
 
     // Mock deleteSync to throw
     const originalDeleteSync = fs.deleteSync.bind(fs);
@@ -134,7 +135,7 @@ describe('StreamWriter', () => {
     const { audit, events } = makeAudit();
     const archiveDir = path.join(tmpDir, 'logs', 'stream');
     fsSync.mkdirSync(archiveDir, { recursive: true });
-    fsSync.writeFileSync(path.join(archiveDir, 'stream.1000.jsonl'), '');
+    fsSync.writeFileSync(path.join(archiveDir, 'stream.1000_abcdef.jsonl'), '');
 
     // Mock listSync to throw
     fs.listSync = vi.fn(() => { throw new Error('list blocked'); });

@@ -59,7 +59,7 @@ describe('runtime.stop shutdown timeout (phase 1332 N4)', () => {
         llm: { close: vi.fn().mockResolvedValue(undefined) } as any,
         toolRegistry: {} as any,
         toolExecutor: {} as any,
-        contractManager: { loadPaused: vi.fn().mockResolvedValue(null) } as any,
+        contractManager: { loadPaused: vi.fn().mockResolvedValue(null), close: vi.fn().mockResolvedValue(undefined) } as any,
         taskSystem: {
           shutdown: deps.shutdownImpl ?? vi.fn().mockResolvedValue(undefined),
           abort: deps.abortImpl ?? vi.fn(),
@@ -78,6 +78,8 @@ describe('runtime.stop shutdown timeout (phase 1332 N4)', () => {
     (runtime as any).llm = { close: vi.fn().mockResolvedValue(undefined) };
     (runtime as any).sessionManager = mockDialogStore;
     (runtime as any).auditWriter = auditWriter;
+    // phase 324 H5: Runtime.stop 现 await contractManager.close()，测试需注入 mock
+    (runtime as any).contractManager = { close: vi.fn().mockResolvedValue(undefined) };
 
     return { runtime, auditEvents };
   }

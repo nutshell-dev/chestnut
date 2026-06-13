@@ -15,6 +15,16 @@ import { makeContractId } from '../../core/contract/types.js';
 import { parseAndValidateContractYaml, notifyContractCreated } from './contract-helpers.js';
 import { CliError } from '../errors.js';
 
+// phase 324 H10: 拷贝硬化常量。
+const COPY_ALLOWED_EXTENSIONS = new Set(['.sh', '.md', '.txt', '.json', '.yaml', '.yml']);
+const COPY_MAX_FILE_BYTES_DEFAULT = 1 * 1024 * 1024;   // 1MB
+function getCopyMaxFileBytes(): number {
+  const raw = process.env.CHESTNUT_CONTRACT_DIR_COPY_MAX_BYTES;
+  if (!raw) return COPY_MAX_FILE_BYTES_DEFAULT;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : COPY_MAX_FILE_BYTES_DEFAULT;
+}
+
 export async function contractCreateFromDirCommand(
   deps: { fsFactory: (baseDir: string) => FileSystem; contractSystem: ContractSystem },
   clawId: string,
@@ -50,21 +60,51 @@ export async function contractCreateFromDirCommand(
   console.log(`Contract created: ${contractId} for claw ${clawId}`);
 
   // Copy verification/ 目录（若存在；回退读取旧版 acceptance/）
+  // phase 324 H10: 硬化拷贝路径，防 attacker-controlled tarball 用 symlink / 危险扩展 / 超大文件 /
+  // realpath 越界注入 .sh 到 verifier 可执行处。
+  //   - realpath 检 source 落 absDir 内（防 symlink 出/相对路径绕）
+  //   - 扩展白名单
+  //   - 单文件 size cap
+  // .sh 仍允许（合约 verifier 脚本本就是 .sh）但必须从受信 source 内来。
   const srcDir = srcFs.existsSync('verification') ? 'verification' : srcFs.existsSync('acceptance') ? 'acceptance' : undefined;
   if (srcDir) {
     const clawDir = getClawDir(clawId);
     const clawFs = deps.fsFactory(clawDir);
     const destRel = path.join(CONTRACT_DIR, 'active', contractId, 'verification');
     await clawFs.ensureDir(destRel);
+    const realAbsDir = await srcFs.realpath('.').catch(() => absDir);
+    const maxFileBytes = getCopyMaxFileBytes();
     const entries = await srcFs.list(srcDir);
     for (const entry of entries) {
       const srcRel = path.join(srcDir, entry.name);
+      const realSrc = await srcFs.realpath(srcRel).catch(() => null);
+      if (!realSrc) {
+        audit?.write(CLI_AUDIT_EVENTS.CONTRACT_CREATE, `claw=${clawId}`, `contract=${contractId}`, `skip=realpath_failed`, `entry=${entry.name}`);
+        continue;
+      }
+      // 防 symlink 出 absDir / 相对路径绕：realpath 必须仍落 absDir 内
+      const realNorm = path.resolve(realSrc);
+      const baseNorm = path.resolve(realAbsDir);
+      if (realNorm !== baseNorm && !realNorm.startsWith(baseNorm + path.sep)) {
+        audit?.write(CLI_AUDIT_EVENTS.CONTRACT_CREATE, `claw=${clawId}`, `contract=${contractId}`, `skip=symlink_or_escape`, `entry=${entry.name}`);
+        continue;
+      }
       const srcStat = await srcFs.stat(srcRel);
-      if (!srcStat.isFile) continue;   // 跳过子目录和符号链接
+      if (!srcStat.isFile) continue;   // 跳过子目录
+      // 扩展白名单
+      const ext = path.extname(entry.name).toLowerCase();
+      if (!COPY_ALLOWED_EXTENSIONS.has(ext)) {
+        audit?.write(CLI_AUDIT_EVENTS.CONTRACT_CREATE, `claw=${clawId}`, `contract=${contractId}`, `skip=ext_not_allowed`, `entry=${entry.name}`, `ext=${ext}`);
+        continue;
+      }
+      // 单文件 size cap
+      if (srcStat.size > maxFileBytes) {
+        audit?.write(CLI_AUDIT_EVENTS.CONTRACT_CREATE, `claw=${clawId}`, `contract=${contractId}`, `skip=oversize`, `entry=${entry.name}`, `size=${srcStat.size}`, `cap=${maxFileBytes}`);
+        continue;
+      }
       const destFileRel = path.join(destRel, entry.name);
       const content = await srcFs.read(srcRel);
       await clawFs.writeAtomic(destFileRel, content);
-      // .sh files get 0o755 via writeAtomic default 0o644; skipping chmod as per plan
     }
   }
 

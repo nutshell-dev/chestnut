@@ -77,12 +77,11 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
     // ProcessManager 接管 PID 文件
     const processManager = createAgentProcessManager({ fsFactory: deps.fsFactory }, preAssembleAudit);
 
-    // 写 PID 文件（兜底：无论启动方式都确保 PID 可查）
-    await processManager.selfWritePid(makeClawId(clawId));
-
     const clawConfig = isMotion ? null : loadClawConfig({ fsFactory: deps.fsFactory }, getClawConfigPath(name));
 
-    // Assembly 装配
+    // Assembly 装配（phase 324 H1：先取锁、再写 PID。
+    // 若先写 PID，losing 实例会在 LockConflictError 前覆盖上家 PID 文件 →
+    // pm.isAlive 谎报、stop 找不到真进程、watchdog 重生 race。）
     let instances: DaemonInstances;
     try {
       instances = await deps.assemble({
@@ -101,6 +100,9 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
       preAssembleAudit.write(deps.auditEvents.assembleFailed, 'module=pre_assemble', 'phase=preconstruct', `reason=${reason}`);
       process.exit(1);
     }
+
+    // 锁取成后写 PID 文件（兜底：无论启动方式都确保 PID 可查）
+    await processManager.selfWritePid(makeClawId(clawId));
 
     const { runtime, streamWriter, snapshot, auditWriter, heartbeat } = instances;
 

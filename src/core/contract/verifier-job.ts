@@ -41,7 +41,16 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
   }
 
   // phase 1080: crash-recovery — skip verifier if contract was cancelled
+  // phase 324 C4: 扩展短路至所有 terminal / paused 生命周期状态。
+  //   - file status in {cancelled, crashed, paused, archive_pending_recovery}
+  //     → 不烧 LLM token、立即返不通过
+  //   - ENOENT → contract 已被 move 出 active/（archived 等）→ 同上短路
+  //   - 仅"派生状态"（running / pending / completed，progress.json 不存 status 字段）才继续
+  //
+  // 不直走 getProgress：verifier-job 是底层 helper、不应回调 ContractSystem
+  // 创建循环依赖；status 在 progress.json 的可观察字段已够辨识非派生生命周期。
   if (config.contractId) {
+    const TERMINAL_OR_PAUSED = new Set(['cancelled', 'crashed', 'paused', 'archive_pending_recovery']);
     const progressPath = path.join(
       CONTRACT_ACTIVE_DIR,
       config.contractId,
@@ -50,32 +59,40 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
     try {
       const raw = await config.fs.read(progressPath);
       const progress = JSON.parse(raw) as { status?: string };
-      if (progress.status === 'cancelled') {
+      if (typeof progress.status === 'string' && TERMINAL_OR_PAUSED.has(progress.status)) {
         if (config.audit) {
           emitContractVerifierSkipped(
             config.audit,
-            { contractId: config.contractId, agentId: config.agentId, reason: 'contract_cancelled' },
+            { contractId: config.contractId, agentId: config.agentId, reason: `contract_${progress.status}` },
           );
         }
-        return { passed: false, feedback: 'Contract was cancelled before verifier started' };
+        return { passed: false, feedback: `Contract was ${progress.status} before verifier started` };
       }
     } catch (err) {
       // phase 1154 r+ derive: 双码 narrow via foundation helper (FileSystem 抽象层抛 FS_NOT_FOUND)
-      if (!isFileNotFound(err)) {
+      if (isFileNotFound(err)) {
+        // phase 324 C4: ENOENT → contract 已 archived / 已移走，verifier 没目的地了，短路。
         if (config.audit) {
-          emitContractVerifierFailed(
+          emitContractVerifierSkipped(
             config.audit,
-            {
-              contractId: config.contractId,
-              agentId: config.agentId,
-              clawId: config.clawId,
-              kind: 'progress_read_error',
-              reason: formatErr(err),
-            },
+            { contractId: config.contractId, agentId: config.agentId, reason: 'contract_no_longer_active' },
           );
         }
+        return { passed: false, feedback: 'Contract is no longer in active/ — skipping verifier' };
       }
-      // ENOENT or other read error: do not block verifier
+      if (config.audit) {
+        emitContractVerifierFailed(
+          config.audit,
+          {
+            contractId: config.contractId,
+            agentId: config.agentId,
+            clawId: config.clawId,
+            kind: 'progress_read_error',
+            reason: formatErr(err),
+          },
+        );
+      }
+      // 其他 read error: do not block verifier（保留旧 fallthrough、错误已 audit）
     }
   }
 

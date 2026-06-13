@@ -28,11 +28,18 @@ export function findRecentTurnStartOffset(
   const idx = text.lastIndexOf(marker);
   if (idx === -1) return size;
   const lineStartInBuf = text.lastIndexOf('\n', idx) + 1;
-  const fileOffset = readStart + lineStartInBuf;
+  // phase 324 H9: lineStartInBuf 是 JS UTF-16 code-unit index；readStart 是文件
+  // 字节偏移。直接相加在含非 ASCII（CJK）时偏 → StreamReader resume off codepoint
+  // → parse_fail loop escalate corrupt detection。改用 Buffer.byteLength 把
+  // 前缀字符串重编码为 utf-8 字节数，再加 readStart。
+  const lineStartByteOffsetInBuf = Buffer.byteLength(text.slice(0, lineStartInBuf), 'utf-8');
+  const fileOffset = readStart + lineStartByteOffsetInBuf;
   if (readStart > 0 && lineStartInBuf === 0) {
     const nextNl = text.indexOf('\n');
     if (nextNl === -1) return size;
-    return readStart + nextNl + 1;
+    // 同上：nextNl + 1 也是 UTF-16 index，需 byteLength。
+    const nextNlByteOffsetInBuf = Buffer.byteLength(text.slice(0, nextNl + 1), 'utf-8');
+    return readStart + nextNlByteOffsetInBuf;
   }
   return fileOffset;
 }

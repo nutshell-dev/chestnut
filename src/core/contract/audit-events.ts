@@ -50,6 +50,8 @@ export const CONTRACT_AUDIT_EVENTS = {
   // phase 569 const 化（verification.ts 7 处字面量收）
   SUBTASK_COMPLETED: 'subtask_completed',
   SUBTASK_FORCE_ACCEPTED: 'subtask_force_accepted', // ← NEW phase 1399: force-accept 路径审计
+  // phase 324 H6: 旧 contract 被新 contract 替换时、未完成 subtask 被 force-complete 的审计
+  SUBTASK_FORCE_COMPLETED_REPLACED: 'subtask_force_completed_replaced',
   VERIFICATION_FAILED: 'verification_failed',
   VERIFICATION_TIMEOUT: 'verification_timeout',
   // phase 993 D.2 (r121 J fork audit-2026-05-17 NEW.P1 D.2): verifier catch audit emit (timeout/other)

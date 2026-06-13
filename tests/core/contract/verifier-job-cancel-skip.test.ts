@@ -47,6 +47,7 @@ describe('phase 1080: verifier-job cancel skip', () => {
     const result = await runContractVerifier(makeConfig({ audit, fs: fs as unknown as VerifierConfig['fs'] }));
 
     expect(result.passed).toBe(false);
+    // phase 324 C4: feedback wording 改 `Contract was ${status} before verifier started`
     expect(result.feedback).toBe('Contract was cancelled before verifier started');
     expect(mockRunSubagent).not.toHaveBeenCalled();
 
@@ -55,6 +56,27 @@ describe('phase 1080: verifier-job cancel skip', () => {
     expect(skippedRow).toContain('agentId=verifier-test-contract-1');
     expect(skippedRow).toContain('reason=contract_cancelled');
   });
+
+  // phase 324 C4: 扩展短路至所有 terminal / paused 状态。
+  it.each(['paused', 'crashed', 'archive_pending_recovery'] as const)(
+    'phase 324 C4: skips verifier when status is %s',
+    async (status) => {
+      const { audit, events } = makeAudit();
+      const fs = {
+        read: vi.fn().mockResolvedValue(JSON.stringify({ status })),
+      };
+
+      const result = await runContractVerifier(makeConfig({ audit, fs: fs as unknown as VerifierConfig['fs'] }));
+
+      expect(result.passed).toBe(false);
+      expect(result.feedback).toBe(`Contract was ${status} before verifier started`);
+      expect(mockRunSubagent).not.toHaveBeenCalled();
+
+      const skippedRow = events.find(e => e[0] === CONTRACT_AUDIT_EVENTS.VERIFIER_SKIPPED);
+      expect(skippedRow).toBeDefined();
+      expect(skippedRow).toContain(`reason=contract_${status}`);
+    },
+  );
 
   it('runs verifier normally when contract status is active', async () => {
     const { audit, events } = makeAudit();
@@ -75,27 +97,24 @@ describe('phase 1080: verifier-job cancel skip', () => {
     expect(skippedRow).toBeUndefined();
   });
 
-  it('runs verifier when progress.json does not exist (ENOENT)', async () => {
+  // phase 324 C4: ENOENT 改短路（contract 已 move 出 active/，verifier 没目的地）。
+  it('phase 324 C4: skips verifier when progress.json does not exist (ENOENT → no longer active)', async () => {
     const { audit, events } = makeAudit();
     const err = new Error('ENOENT: no such file') as NodeJS.ErrnoException;
     err.code = 'ENOENT';
     const fs = {
       read: vi.fn().mockRejectedValue(err),
     };
-    mockRunSubagent.mockResolvedValue({
-      text: '',
-      capturedResult: { passed: true, reason: 'ok' },
-    });
 
     const result = await runContractVerifier(makeConfig({ audit, fs: fs as unknown as VerifierConfig['fs'] }));
 
-    expect(result.passed).toBe(true);
-    expect(mockRunSubagent).toHaveBeenCalledTimes(1);
+    expect(result.passed).toBe(false);
+    expect(result.feedback).toContain('no longer in active');
+    expect(mockRunSubagent).not.toHaveBeenCalled();
 
     const skippedRow = events.find(e => e[0] === CONTRACT_AUDIT_EVENTS.VERIFIER_SKIPPED);
-    expect(skippedRow).toBeUndefined();
-    const failedRow = events.find(e => e[0] === CONTRACT_AUDIT_EVENTS.VERIFIER_FAILED);
-    expect(failedRow).toBeUndefined();
+    expect(skippedRow).toBeDefined();
+    expect(skippedRow).toContain('reason=contract_no_longer_active');
   });
 
   it('runs verifier when progress.json read fails with non-ENOENT error (audit only)', async () => {

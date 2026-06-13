@@ -341,6 +341,12 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     await this.sessionManager.getFlushPromise().catch(() => {
       /* save error 已经 audit.SAVE_FAILED emit / barrier 不阻塞 stop */
     });
+    // phase 324 H5: 关 ContractSystem、abort 仍活的 verifier AbortController 串、
+    // await 其 termination promise。否则 SIGTERM 留 verifier LLM stream 泄漏
+    // —— 正是 phase 1332 N4 + close() 引入要防的。
+    await this.contractManager.close().catch(() => {
+      /* close error 已 audit emit / barrier 不阻塞 stop */
+    });
     await this.llm.close();
   }
 

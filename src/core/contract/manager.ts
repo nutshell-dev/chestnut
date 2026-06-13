@@ -686,14 +686,27 @@ export class ContractSystem {
         // phase 188 Step A: archive precondition requires terminal status
         // phase 282 Step A: status derive from subtasks → flip old contract subtasks
         // to completed before archiving (create replaces old contract)
+        // phase 324 H6: 标 force_accepted + last_failed_feedback + audit 一条
+        // SUBTASK_FORCE_COMPLETED_REPLACED，让下游（evolution / retro）能区分
+        // 被替换的 abandoned subtask 与真实完成的 subtask。
         const existingId = makeContractId(existing.id);
         await this.withProgressLock(existingId, async () => {
           const progress = await this.getProgress(existingId);
           if (progress && !['completed', 'cancelled', 'crashed', 'archive_pending_recovery'].includes(progress.status)) {
-            for (const st of Object.values(progress.subtasks)) {
+            for (const [subtaskId, st] of Object.entries(progress.subtasks)) {
               if (st.status !== 'completed') {
                 st.status = 'completed';
+                st.force_accepted = true;   // phase 324 H6: 区分 abandoned vs 真完成
+                // 不设 last_failed_feedback：本路径无 verification failure；
+                // 替换原因走 SUBTASK_FORCE_COMPLETED_REPLACED audit、是 SoT。
                 if (!st.completed_at) st.completed_at = new Date().toISOString();
+                this.audit.write(
+                  CONTRACT_AUDIT_EVENTS.SUBTASK_FORCE_COMPLETED_REPLACED,
+                  `contractId=${existingId}`,
+                  `subtaskId=${subtaskId}`,
+                  `new_contract_id=${contractId}`,
+                  `reason=replaced_by_new_contract`,
+                );
               }
             }
             await this.saveProgress(existingId, progress);

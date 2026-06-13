@@ -211,6 +211,7 @@
       "mark_crashed_graceful_fallback",
       "subtask_completed",
       "subtask_force_accepted",
+      "subtask_force_completed_replaced",
       "verification_failed",
       "verification_passed",
       "verification_pipeline_race_rejected",
@@ -332,6 +333,7 @@
       "contract_retro_yaml_failed",
       "evolution_boot_reconcile",
       "evolution_legacy_schema_migrated_reset",
+      "evolution_skipped_missing_completed_at",
       "evolution_state_invariant_violated",
       "retro_skipped_duplicate",
       "retro_state_load_failed",
@@ -704,7 +706,8 @@
       "snapshot_commit_failed",
       "snapshot_commit_uncategorized",
       "user_interrupt",
-      "wait"
+      "wait",
+      "watchdog_missing"
     ],
     "foundation_dialog-store_audit-events": [
       "dialog_archive_all_corrupted",
@@ -889,6 +892,7 @@
       "watchdog_crash",
       "watchdog_ensure_lock_stale_recovered",
       "watchdog_ensure_lock_timeout",
+      "watchdog_gave_up",
       "watchdog_orphan_sweep_failed",
       "watchdog_orphan_sweep_killed",
       "watchdog_pid_corrupt",

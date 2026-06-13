@@ -27,6 +27,14 @@ interface ContractPair {
 
 const MAX_PAIR_RENDER = 10;
 
+// phase 324 H11: 严格 id 字符集、拒含 `:` `,` `` ` `` `\n` 等可注入 CLI / markdown 的字符。
+// 上下游一致：producer (contract-observer) + consumer (本 composer) 都校验、防单边漏。
+const ID_REGEX = /^[A-Za-z0-9_-]{1,64}$/;
+
+function isValidId(s: string): boolean {
+  return ID_REGEX.test(s);
+}
+
 export const composer: GuidanceComposer<ContractEventsState> = (state): GuidanceEntry => {
   const pairs = parsePairs(state);
   return { text: renderCliBlock(pairs) };
@@ -42,12 +50,17 @@ function parsePairs(state: ContractEventsState): ContractPair[] {
       .map(pair => {
         const sepIdx = pair.indexOf(':');
         if (sepIdx <= 0 || sepIdx >= pair.length - 1) return null;
-        return { claw: pair.slice(0, sepIdx), contract: pair.slice(sepIdx + 1) };
+        const claw = pair.slice(0, sepIdx);
+        const contract = pair.slice(sepIdx + 1);
+        // phase 324 H11: 拒含非法字符的 id（防 contract id 嵌 `:` 伪造额外 pair / 注入 motion prompt）
+        if (!isValidId(claw) || !isValidId(contract)) return null;
+        return { claw, contract };
       })
       .filter((p): p is ContractPair => p !== null);
   }
   // A3 path：single source_claw + contract_id
-  if (state.source_claw && state.contract_id) {
+  if (state.source_claw && state.contract_id
+    && isValidId(state.source_claw) && isValidId(state.contract_id)) {
     return [{ claw: state.source_claw, contract: state.contract_id }];
   }
   return [];
