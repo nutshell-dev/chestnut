@@ -41,6 +41,9 @@ export const WATCHDOG_AUDIT_EVENTS = {
   WATCHDOG_CHECK: 'watchdog_check',
   // phase 324 H3: motion 连续 restart 失败触顶 → circuit-open、停 spawn
   WATCHDOG_GAVE_UP: 'watchdog_gave_up',
+  // phase 346 B3 (review-2026-06-13): PID-reuse 探测 / argv 不匹配 skip kill
+  ORPHAN_SWEEP_PID_REUSE_SKIPPED: 'watchdog_orphan_sweep_pid_reuse_skipped',
+  PID_REUSE_DETECTED: 'watchdog_pid_reuse_detected',
 } as const;
 
 
@@ -82,6 +85,8 @@ export const WATCHDOG_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   watchdog_subscription_process_failed: 'audit',
   watchdog_restart_triggered: 'audit',
   watchdog_start: 'audit',
+  watchdog_orphan_sweep_pid_reuse_skipped: 'audit',
+  watchdog_pid_reuse_detected: 'audit',
   watchdog_check: 'audit',
   watchdog_gave_up: 'audit',
 } as const;

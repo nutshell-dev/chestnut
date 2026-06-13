@@ -13,6 +13,7 @@ export { spawnDetached } from './spawn-detached.js';
 export { kill, isAlive } from './process-control.js';
 export type { Signal } from './process-control.js';
 export { findByPattern } from './find-by-pattern.js';
+export { isPidArgvMatching, readPidArgv } from './argv-verify.js';
 export { getProcessStartTime, makeProcessStartTime } from './process-starttime.js';
 export type { ProcessStartTime } from './process-starttime.js';
 export { ProcessExecError, ProcessListUnavailable } from './errors.js';

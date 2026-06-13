@@ -83,16 +83,24 @@ describe('ProcessManager.spawn() - Phase 19 daemon-entry.js', () => {
 
   it('should SIGTERM orphaned processes found by pgrep', async () => {
     const orphanPid = 99991;
+    const clawId = 'orphan-claw';
 
-    // pgrep returns one orphan PID
+    // phase 346 B2: cleanupOrphans 现做两步：
+    //   1. pgrep → 候选 PID
+    //   2. ps -o pid=,command= -p ...PIDs → 候选 cmdline、按 clawId token 二次过滤
+    // 测试需 mock 两个 spawnSync 调用，第二个返 cmdline 含 clawId 才会真 kill。
     vi.mocked(spawnSync).mockReturnValueOnce({ status: 0, stdout: `${orphanPid}\n`, stderr: '' } as any);
+    vi.mocked(spawnSync).mockReturnValueOnce({
+      status: 0,
+      stdout: `${orphanPid} node /fake/daemon-entry.js ${clawId}\n`,
+      stderr: '',
+    } as any);
     vi.mocked(spawn).mockReturnValue({ pid: process.pid, unref: vi.fn() } as any);
 
     const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
 
     const { audit } = makeAudit();
     const pm = new ProcessManager(nodeFs, tempDir, audit);
-    const clawId = 'orphan-claw';
     const clawDir = path.join(tempDir, 'claws', clawId);
     const logFile = path.join(clawDir, 'logs', 'daemon.log');
     await fs.mkdir(clawDir, { recursive: true });

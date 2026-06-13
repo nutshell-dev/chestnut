@@ -5,7 +5,16 @@
  */
 import type { FileSystem } from '../foundation/fs/types.js';
 import { formatErr } from "../foundation/utils/index.js";
-import { kill as defaultKill, isAlive as defaultIsAlive } from '../foundation/process-exec/index.js';
+import { kill as defaultKill, isAlive as defaultIsAlive, isPidArgvMatching as realIsPidArgvMatching } from '../foundation/process-exec/index.js';
+
+/**
+ * phase 346 B3: test 环境默认旁路 argv-verify（与 watchdog-pid verifyArgv 同型）。
+ * 测试新行为时通过 deps.isPidArgvMatching 显式注入严格 mock。
+ */
+function defaultIsPidArgvMatching(pid: number, token: string): boolean {
+  if (process.env.NODE_ENV === 'test') return true;
+  return realIsPidArgvMatching(pid, token);
+}
 import type { WatchdogProcessDeps } from './types.js';
 import { createProcessManagerForCLI } from '../foundation/process-manager/index.js';
 import { getWatchdogEntryPath } from './watchdog-context.js';
@@ -59,6 +68,18 @@ export async function sweepOrphanWatchdogs(
 
   const killed: number[] = [];
   for (const pid of orphans) {
+    // phase 346 B3 (review-2026-06-13): SIGTERM 前再次验 argv 含 watchdog-entry。
+    // pgrep 列出后到这里有窗口期、PID 可能已被 OS 重用给完全无关进程；
+    // 不验直接 SIGTERM 会杀掉用户 shell / editor 等。
+    if (!(deps?.isPidArgvMatching ?? defaultIsPidArgvMatching)(pid, 'watchdog-entry')) {
+      const auditWriter = getAuditWriter();
+      auditWriter?.write(
+        WATCHDOG_AUDIT_EVENTS.ORPHAN_SWEEP_PID_REUSE_SKIPPED,
+        `pid=${pid}`,
+        `reason=argv_not_watchdog`,
+      );
+      continue;
+    }
     try {
       (deps?.kill ?? defaultKill)(pid, 'TERM');
       killed.push(pid);
@@ -75,9 +96,9 @@ export async function sweepOrphanWatchdogs(
 
   if (killed.length > 0) {
     await new Promise(r => setTimeout(r, SWEEP_GRACE_MS));
-    // SIGKILL 兜底
+    // SIGKILL 兜底 — phase 346 B3: 同样再 argv-verify、防 SIGTERM→SIGKILL 间 PID 重用
     for (const pid of killed) {
-      if ((deps?.isAlive ?? defaultIsAlive)(pid)) {
+      if ((deps?.isAlive ?? defaultIsAlive)(pid) && (deps?.isPidArgvMatching ?? defaultIsPidArgvMatching)(pid, 'watchdog-entry')) {
         try { (deps?.kill ?? defaultKill)(pid, 'KILL'); } catch { /* silent: isAlive→SIGKILL race / 目标进程已死 ESRCH = 已达成目标态 */ }
       }
     }

@@ -134,7 +134,10 @@ describe('ProcessManager - spawn defaults', () => {
       // Pre-create logs dir
       fs.mkdirSync(path.join(clawDir, 'logs'), { recursive: true });
 
-      const customEnv = { ...process.env, CUSTOM_VAR: 'custom-value' };
+      // phase 346 B1 (review-2026-06-13): spawnDetached 现 allowlist-scrub env、
+      // 非 allowlist key（如自定 CUSTOM_VAR）会被 strip；用 CHESTNUT_ 前缀的 key
+      // （在 prefix 允许集）测真透传。
+      const customEnv = { ...process.env, CHESTNUT_TEST_VAR: 'custom-value' };
 
       await pm.spawn('env-claw', {
         command: 'node',
@@ -146,10 +149,11 @@ describe('ProcessManager - spawn defaults', () => {
       const spawnCall = vi.mocked(spawn).mock.calls[0];
       const options = spawnCall[2] as any;
 
-      expect(options.env).toMatchObject(customEnv);
+      // 仅检 CHESTNUT_TEST_VAR 透传，不再 toMatchObject(customEnv)（含非 allowlist key）
+      expect(options.env).toHaveProperty('CHESTNUT_TEST_VAR', 'custom-value');
     });
 
-    it('should inherit parent environment variables when env not provided', async () => {
+    it('phase 346 B1: scrubs non-allowlist parent env vars when env not provided', async () => {
       const { audit } = makeAudit();
       const pm = new ProcessManager(nodeFs, tempDir, audit);
       const clawDir = path.join(tempDir, 'claws', 'inherit-claw');
@@ -158,7 +162,8 @@ describe('ProcessManager - spawn defaults', () => {
       // Pre-create logs dir
       fs.mkdirSync(path.join(clawDir, 'logs'), { recursive: true });
 
-      // Set test env var with try-finally guard (cleanup even if assertion fails)
+      // phase 346 B1 (review-2026-06-13): 任意 user-set parent env 不在 allowlist
+      // 内 → 被 scrub 掉、不入子进程 env。allowlist 内的 PATH 仍透传。
       const prevValue = process.env.TEST_INHERITANCE;
       process.env.TEST_INHERITANCE = 'test-value';
       try {
@@ -171,7 +176,10 @@ describe('ProcessManager - spawn defaults', () => {
         const spawnCall = vi.mocked(spawn).mock.calls[0];
         const options = spawnCall[2] as any;
 
-        expect(options.env).toHaveProperty('TEST_INHERITANCE', 'test-value');
+        // TEST_INHERITANCE 不在 allowlist → 被 strip
+        expect(options.env).not.toHaveProperty('TEST_INHERITANCE');
+        // PATH 在 system base allowlist → 透传
+        expect(options.env).toHaveProperty('PATH');
       } finally {
         if (prevValue === undefined) delete process.env.TEST_INHERITANCE;
         else process.env.TEST_INHERITANCE = prevValue;

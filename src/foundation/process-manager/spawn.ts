@@ -11,7 +11,7 @@ import { isReady as checkReady } from './ready.js';
 import { readLockPid } from './lock.js';
 import { readPid, removePid } from './pid.js';
 import type { PidFileContent } from './pid.js';
-import { findProcesses } from './find.js';
+import { findProcessesDetailed, commandContainsClawIdToken } from './find.js';
 
 import { isAlive as defaultL1IsAlive, getProcessStartTime as defaultGetProcessStartTime } from '../process-exec/index.js';
 import { LockConflictError, type ProcessManagerContext } from './types.js';
@@ -77,9 +77,12 @@ async function cleanupOrphans(
   options: SpawnOptions,
 ): Promise<void> {
   const pattern = options.args.join(' ');
-  let pids: number[] = [];
+  // phase 346 B2 (review-2026-06-13): pgrep -f 用 regex-substring 匹配，
+  // claw-a 会匹配 claw-abc / claw-a-1 等 prefix-collision claw → 误杀 sibling
+  // daemon。先 detailed 列、再按 clawId token-match 二次过滤。
+  let processes: Array<{ pid: number; command: string }> = [];
   try {
-    pids = findProcesses(ctx, pattern);
+    processes = findProcessesDetailed(ctx, pattern);
   } catch (err) {
     if (err instanceof ProcessListUnavailable) {
       // 降级：孤儿清理跳过；spawn 继续
@@ -90,20 +93,35 @@ async function cleanupOrphans(
 
   let sentAny = false;
   let orphanFailCount = 0;
-  for (const pid of pids) {
+  let skippedMismatch = 0;
+  for (const proc of processes) {
+    // 二次过滤：command 必须含 clawId 作为独立 token、非 substring
+    // command 为空（ps 失败 fallback）时保守 skip + audit、不 kill
+    if (!commandContainsClawIdToken(proc.command, clawId)) {
+      skippedMismatch++;
+      ctx.audit.write(
+        PROCESS_MANAGER_AUDIT_EVENTS.ORPHAN_MATCH_SKIPPED,
+        `claw=${clawId}`,
+        `pid=${proc.pid}`,
+        `reason=clawid_token_mismatch`,
+      );
+      continue;
+    }
     try {
-      (ctx.kill ?? defaultKill)(pid, 'TERM');
+      (ctx.kill ?? defaultKill)(proc.pid, 'TERM');
       sentAny = true;
     } catch (err) {
       orphanFailCount++;
       ctx.audit.write(
         PROCESS_MANAGER_AUDIT_EVENTS.ORPHAN_SIGTERM_FAILED,
         `claw=${clawId}`,
-        `pid=${pid}`,
+        `pid=${proc.pid}`,
         `reason=${formatErr(err)}`,
       );
     }
   }
+  // skippedMismatch 计数仅 audit、不计 failure（这些不是真 orphan、是 sibling）
+  void skippedMismatch;
   if (orphanFailCount > 0) {
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.ORPHAN_CLEANUP_PARTIAL,
