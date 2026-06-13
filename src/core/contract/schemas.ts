@@ -67,6 +67,40 @@ export const ContractProgressPersistedSchema = z.object({
   started_at: z.string().optional(),
   completed_at: z.string().optional(),
   checkpoint: z.union([z.string(), z.null()]).optional(),
+  // phase 330: non-derivable lifecycle status preserved by persistence.ts (per phase 282 Step A design intent)
+  // derivable status (completed/running/pending) 不持久化 (由 loader derive from subtasks)
+  status: z.enum(['cancelled', 'crashed', 'paused', 'archive_pending_recovery']).optional(),
 }).strict();
 
 export type ContractProgressPersistedValidated = z.infer<typeof ContractProgressPersistedSchema>;
+
+// phase 332: archive reader loose schema for historical preservation
+// M#2 archive 业务语义 = historical preservation (218/274 archive file legacy schema_version-missing + 多 legacy 字段 shape)、
+// minimal validation = subtasks is record(object)、其余字段 passthrough (archive event-collector 只 read 真需字段)
+// 不同于 PersistedSchema (active path strict-end)、use case strictness 一以贯之 Path #6
+// passthrough subtasks 内部 (legacy may lack last_failed_feedback.cause、status enum 等 strict 约束)
+const ArchiveSubtaskShape = z.object({
+  status: z.string().optional(),
+  completed_at: z.string().optional(),
+  evidence: z.string().optional(),
+  artifacts: z.array(z.string()).optional(),
+  retry_count: z.number().optional(),
+  last_failed_feedback: z.object({
+    feedback: z.string().optional(),
+    cause: z.string().optional(),
+  }).passthrough().optional(),
+  force_accepted: z.boolean().optional(),
+}).passthrough();
+
+export const ContractProgressArchiveLooseSchema = z.object({
+  schema_version: z.literal(1).optional(),
+  subtasks: z.record(z.string(), ArchiveSubtaskShape),
+  started_at: z.string().optional(),
+  completed_at: z.string().optional(),
+  checkpoint: z.union([z.string(), z.null()]).optional(),
+  status: z.string().optional(),
+  // phase 335: contract_id 在 archive/boot_reconcile 路径 legacy 可含 (derive 字段)、explicit typed access
+  contract_id: z.string().optional(),
+}).passthrough();
+
+export type ContractProgressArchiveValidated = z.infer<typeof ContractProgressArchiveLooseSchema>;

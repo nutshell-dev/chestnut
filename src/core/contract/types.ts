@@ -88,7 +88,9 @@ export type ProgressDataPersisted = ContractProgressPersistedValidated;
 
 // Progress data structure（运行时 schema：derive fields 由 loader 注入）
 // phase 282: status/contract_id 是 derive 字段，落盘不写；内存对象仍保留字段以兼容现有代码。
-export interface ProgressData extends ProgressDataPersisted {
+// phase 330: Omit<..., 'status'> 因 ProgressDataPersisted.status 是 non-derivable subset、
+// ProgressData.status 是全 ContractStatus enum (含 derivable + non-derivable)
+export interface ProgressData extends Omit<ProgressDataPersisted, 'status'> {
   contract_id: ContractId;   // phase 282 Step B: derive from caller/dir
   status: ContractStatus;    // phase 282 Step A: derive from subtasks
 }

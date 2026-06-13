@@ -67,7 +67,7 @@ import {
   type PersistenceContext,
   PROGRESS_CURRENT_SCHEMA_VERSION,
 } from './persistence.js';
-import { ContractProgressPersistedSchema } from './schemas.js';
+import { ContractProgressPersistedSchema, ContractProgressArchiveLooseSchema } from './schemas.js';
 import { type ContractId, makeContractId } from './types.js';
 import { ContractValidationError } from './errors.js';
 import { type SubtaskId, type ArchiveDir, makeArchiveDir } from './types.js';
@@ -454,7 +454,14 @@ export class ContractSystem {
         if (!(await this.fs.exists(progressPath))) continue;
         try {
           const raw = await this.fs.read(progressPath);
-          const progress = JSON.parse(raw) as { status?: string; contract_id?: string; subtasks?: Record<string, { status?: string; escalated_at?: string; completed_at?: string; force_accepted?: boolean }> };
+          // phase 335 Zod SoT (ML#9 优先编译器检查、phase 332 升档 (A) sister):
+          // boot_reconcile = legacy migration loop business semantic、复用 ContractProgressArchiveLooseSchema loose schema (passthrough subtasks 允许 legacy 'escalated' status)
+          const rawParsed: unknown = JSON.parse(raw);
+          const validation = ContractProgressArchiveLooseSchema.safeParse(rawParsed);
+          if (!validation.success) {
+            continue;
+          }
+          const progress = validation.data;
 
           // NEW phase 1399: active dir 'escalated' 残留 migrate → completed + force_accepted
           if (progress.subtasks) {
@@ -475,11 +482,16 @@ export class ContractSystem {
             }
             if (mutated) {
               // phase 319: 删 assertProgressShapeInvariants（load 端 ContractProgressPersistedSchema.safeParse 已守、boot reconcile 双 check 冗余）
-              await this.fs.writeAtomic(progressPath, JSON.stringify(progress, null, 2));
+              // phase 338: align phase 282 Step A design intent (derivable status 不持久化、由 loader derive from subtasks)、strip derivable before writeAtomic
+              const persistedProgress: Record<string, unknown> = { ...progress };
+              if (persistedProgress.status === 'pending' || persistedProgress.status === 'running' || persistedProgress.status === 'completed') {
+                delete persistedProgress.status;
+              }
+              await this.fs.writeAtomic(progressPath, JSON.stringify(persistedProgress, null, 2));
               const allCompleted = Object.values(progress.subtasks).every(s => s.status === 'completed');
               if (allCompleted && progress.status !== 'completed') {
+                // phase 338: status mutation in-memory only (downstream archiveAndEmit 用)、2nd writeAtomic 删 (redundant after strip)
                 progress.status = 'completed';
-                await this.fs.writeAtomic(progressPath, JSON.stringify(progress, null, 2));
                 const contractId = makeContractId(progress.contract_id ?? entry.name);
                 // phase 1405: yaml load 失败时跳过 archive、显式 audit 留 forensics（避免 stuck-in-active 静默）
                 let contractYaml: Awaited<ReturnType<typeof this.loadContractYaml>> | null = null;

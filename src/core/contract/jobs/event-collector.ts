@@ -8,6 +8,7 @@ import type { ContractStatus } from '../types.js';
 import { CONTRACT_AUDIT_EVENTS } from '../audit-events.js';
 import { emitContractArchiveNonTerminalDetected } from '../audit-emit.js';
 import { CONTRACT_ARCHIVE_DIR } from '../dirs.js';
+import { ContractProgressArchiveLooseSchema } from '../schemas.js';
 import type { ClawId } from '../../../constants.js';
 
 function readContractMeta(
@@ -177,10 +178,14 @@ export function scanArchivedContracts(
       const progressPath = path.join(archiveDir, d.name, 'progress.json');
       try {
         const raw = fs.readSync(progressPath);
-        const parsed = JSON.parse(raw) as { contract_id?: unknown; status?: unknown; subtasks?: unknown };
-        if (
-          typeof parsed.subtasks !== 'object' || parsed.subtasks === null
-        ) {
+        // phase 332 Zod SoT loose schema (M#2 archive 业务语义 = historical preservation、
+        // 218/274 archive legacy file 不 strict-end reject、loose Zod schema_version.optional())
+        const rawParsed: unknown = JSON.parse(raw);
+        // strip legacy derive fields (contract_id) before safeParse、status field 保留 (archive 可含 non-derivable lifecycle)
+        const obj = rawParsed as Record<string, unknown>;
+        delete obj.contract_id;
+        const result = ContractProgressArchiveLooseSchema.safeParse(obj);
+        if (!result.success) {
           audit?.write(
             CONTRACT_AUDIT_EVENTS.PROGRESS_SCHEMA_INVALID,
             `clawId=${clawId}`,
@@ -189,7 +194,11 @@ export function scanArchivedContracts(
           );
           continue;
         }
-        const progress = parsed as ProgressData;
+        const progress = {
+          ...result.data,
+          contract_id: d.name,
+          status: result.data.status ?? 'completed',
+        } as ProgressData;
         const latestSubtaskCompletedAtMs = Object.values(progress.subtasks)
           .reduce((max, s) => {
             if (!s.completed_at) return max;

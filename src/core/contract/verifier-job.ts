@@ -18,6 +18,7 @@ import {
   emitContractVerifierPassed,
   emitContractVerifierResultParseFailed,
 } from './audit-emit.js';
+import { z } from 'zod';
 import { CONTRACT_ACTIVE_DIR } from './dirs.js';
 import * as path from 'path';
 import { createDoneTool, DONE_TOOL_NAME } from '../subagent/index.js';
@@ -27,6 +28,11 @@ import { TASKS_SYNC_SUBAGENT_DIR } from '../subagent/index.js';
 import { TASKS_SUBAGENTS_DIR } from '../subagent/constants.js';
 import { buildSubagentSystemPrompt, CONTRACT_VERIFIER_SYSTEM_PROMPT } from '../../prompts/index.js';
 import type { VerifierConfig, VerifierResult } from './types.js';
+
+// phase 330: peek-pattern schema for crash-recovery cancelled-skip check (passthrough、允许其他字段)
+const LifecycleStatusPeekSchema = z.object({
+  status: z.enum(['cancelled', 'crashed', 'paused', 'archive_pending_recovery']).optional(),
+}).passthrough();
 
 export async function runContractVerifier(config: VerifierConfig): Promise<VerifierResult> {
   // phase 19 Step D: explicit runtime check replaces non-null assertion (LSP/M#4).
@@ -58,7 +64,11 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
     );
     try {
       const raw = await config.fs.read(progressPath);
-      const progress = JSON.parse(raw) as { status?: string };
+      // phase 330 Zod SoT broaden (ML#9 优先编译器检查、phase 326 升档 (C) sister):
+      // crash-recovery skip check uses peek-pattern (passthrough、仅 access status field、不强制 full schema)
+      const rawParsed: unknown = JSON.parse(raw);
+      const result = LifecycleStatusPeekSchema.safeParse(rawParsed);
+      const progress = result.success ? result.data : {};
       if (typeof progress.status === 'string' && TERMINAL_OR_PAUSED.has(progress.status)) {
         if (config.audit) {
           emitContractVerifierSkipped(
