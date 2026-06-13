@@ -35,6 +35,12 @@ const { mockSchedule } = vi.hoisted(() => ({
   mockSchedule: vi.fn(),
 }));
 
+/**
+ * Mtime tick guard (15ms): 等 OS mtime 精度 tick 跨过、保 stale gate 真触发.
+ * Derivation: > APFS/ext4 ms 级 mtime 粒度 / 跨平台 1 tick safety margin.
+ */
+const MTIME_TICK_GUARD_MS = 15;
+
 describe('Builtin Tools', () => {
   let tempDir: string;
   const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
@@ -380,7 +386,7 @@ describe('Builtin Tools', () => {
       await readTool.execute({ path: 'stale.txt' }, ctx);
 
       // external process modifies the file (advance mtime + change content)
-      await new Promise(r => setTimeout(r, 15));
+      await new Promise(r => setTimeout(r, MTIME_TICK_GUARD_MS));
       fsNative.writeFileSync(path.join(tempDir, 'clawspace/stale.txt'), 'v2 external content');
 
       const writeResult = await writeTool.execute({

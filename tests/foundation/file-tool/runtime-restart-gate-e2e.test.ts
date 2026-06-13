@@ -26,6 +26,12 @@ import { CALLER_TYPE_TO_GROUPS } from '../../../src/core/caller-types.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { makeAudit } from '../../helpers/audit.js';
 
+/**
+ * Mtime tick guard (15ms): 等 OS mtime 精度 tick 跨过、保 fs.stat 看到 mtime 变化.
+ * Derivation: > APFS/ext4 ms 级 mtime 粒度 / 跨平台 1 tick safety margin.
+ */
+const MTIME_TICK_GUARD_MS = 15;
+
 interface E2eCtx {
   ctx: ExecContextImpl;
   audit: ReturnType<typeof makeAudit>;
@@ -122,7 +128,7 @@ describe('Runtime restart gate e2e (phase 1452 / F-NEXT.3)', () => {
     await persistReadFileState(ctxA);  // flush
 
     // external modify between A teardown and B startup
-    await new Promise(r => setTimeout(r, 15));  // mtime tick guard (cross-platform ms precision)
+    await new Promise(r => setTimeout(r, MTIME_TICK_GUARD_MS));  // mtime tick guard (cross-platform ms precision)
     await fs.writeFile(path.join(clawDir, 'clawspace/y.md'), 'externally modified');
 
     // B: load + attempt overwrite

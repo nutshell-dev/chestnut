@@ -7,6 +7,12 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { LLMOrchestratorImpl } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
 import type { ProviderAdapter, StreamChunk, LLMEventSink, LLMEvent } from '../../../src/foundation/llm-orchestrator/types.js';
 
+/**
+ * Mock chunk 间间隔 (40ms): < streamIdleTimeoutMs（it 内设 50ms+）保 reset 不触错杀.
+ * Derivation: < streamIdleTimeoutMs / > microtask flush 保 idle timer 实际跑过.
+ */
+const MOCK_CHUNK_GAP_MS = 40;
+
 const noopSink: LLMEventSink = { emit: () => {} };
 
 function createMockSink() {
@@ -148,9 +154,9 @@ describe('LLMOrchestratorImpl timeout distinction (Phase 538)', () => {
   it('stream() chunk 到达时 reset idle timer → 正常流不被错杀', async () => {
     const primary = createMockProvider('primary', async function* () {
       yield { type: 'text_delta', delta: 'a' };
-      await new Promise((resolve) => setTimeout(resolve, 40));
+      await new Promise((resolve) => setTimeout(resolve, MOCK_CHUNK_GAP_MS));
       yield { type: 'text_delta', delta: 'b' };
-      await new Promise((resolve) => setTimeout(resolve, 40));
+      await new Promise((resolve) => setTimeout(resolve, MOCK_CHUNK_GAP_MS));
       yield { type: 'text_delta', delta: 'c' };
       yield { type: 'done' };
     });

@@ -27,8 +27,17 @@ export type TurnUIPhase =
   | 'interrupting';
 
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-const SPINNER_INTERVAL_MS = 80;
-const MIN_DWELL_MS = 200;
+
+/**
+ * Spinner 帧切换节奏。Exported: e2e 测可镜像验渲染节奏.
+ */
+export const SPINNER_INTERVAL_MS = 80;
+
+/**
+ * Spinner 进 phase 后保证可见 dwell（ms）。dwell 内 clear 推迟兑现。
+ * Exported: tests/ 镜像此契约（如 e2e 测 exceed MIN_DWELL_MS 触发 stop sync）.
+ */
+export const MIN_DWELL_MS = 200;
 
 export interface MainTurnUIDeps {
   appendOutput: (color: string, text: string, wrap?: boolean, hangIndent?: string) => void;

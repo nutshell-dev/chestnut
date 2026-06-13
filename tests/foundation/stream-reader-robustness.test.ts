@@ -23,6 +23,18 @@ import { createEventCollector } from '../helpers/event-collector.js';
 import { STREAM_AUDIT_EVENTS } from '../../src/foundation/stream/audit-events.js';
 import type { AuditLog } from '../../src/foundation/audit/index.js';
 
+/**
+ * Inverse waitFor 窗口（断言 "no event emitted within window"）.
+ * Derivation: > chokidar settle (100ms) + reader callback budget / 给 false-positive 假阳性窗口.
+ */
+const INVERSE_WAITFOR_WINDOW_MS = 200;
+
+/**
+ * chokidar batch boundary gap：appends 间留间隙以触 separate events（防 coalesce 合批）.
+ * Derivation: > CHOKIDAR_STABILITY_THRESHOLD_MS (100ms? - 实际 chokidar default) 的一半 / 保 events 分批.
+ */
+const CHOKIDAR_BATCH_BOUNDARY_GAP_MS = 50;
+
 describe('StreamReader — robustness/encoding/corrupt', () => {
   let tempDir: string;
   let fs: NodeFileSystem;
@@ -93,7 +105,7 @@ describe('StreamReader — robustness/encoding/corrupt', () => {
 
     nativeAppend(streamAbs, Buffer.concat([prefix, charFirstByte]));
 
-    await new Promise(r => setTimeout(r, 200)); // sleep: inverse waitFor — assert no event emitted within window
+    await new Promise(r => setTimeout(r, INVERSE_WAITFOR_WINDOW_MS)); // inverse waitFor — assert no event emitted within window
     expect(ec.events.length).toBe(0);
     const partial_parseFailed = auditRec.events.filter(([t]) => t === STREAM_AUDIT_EVENTS.READER_PARSE_FAILED);
     expect(partial_parseFailed.length).toBe(0);
@@ -120,7 +132,7 @@ describe('StreamReader — robustness/encoding/corrupt', () => {
     const streamAbs = nativePath.join(tempDir, STREAM_FILE);
 
     nativeAppend(streamAbs, Buffer.concat([prefix, emojiHalf1]));
-    await new Promise(r => setTimeout(r, 200)); // sleep: inverse waitFor — assert no event emitted within window
+    await new Promise(r => setTimeout(r, INVERSE_WAITFOR_WINDOW_MS)); // inverse waitFor — assert no event emitted within window
     expect(ec.events.length).toBe(0);
 
     nativeAppend(streamAbs, Buffer.concat([emojiHalf2, suffix]));
@@ -149,8 +161,8 @@ describe('StreamReader — robustness/encoding/corrupt', () => {
     const streamAbs = nativePath.join(tempDir, STREAM_FILE);
     for (let i = 0; i < 5; i++) {
       nativeAppend(streamAbs, Buffer.from(`{broken_line_${i}\n`, 'utf-8'));
-      // chokidar batch boundary: 50ms gap so appends fire as separate events (not coalesced)
-      await new Promise(r => setTimeout(r, 50));
+      // chokidar batch boundary: gap so appends fire as separate events (not coalesced)
+      await new Promise(r => setTimeout(r, CHOKIDAR_BATCH_BOUNDARY_GAP_MS));
     }
 
     await auditEc.whenPredicate((events) =>
@@ -172,7 +184,7 @@ describe('StreamReader — robustness/encoding/corrupt', () => {
     expect(reader.isActive()).toBe(false);
 
     writer.write({ ts: 999, type: 'post_corrupt', text: 'should_not_arrive' });
-    await new Promise(r => setTimeout(r, 200)); // sleep: inverse waitFor — assert no event emitted within window
+    await new Promise(r => setTimeout(r, INVERSE_WAITFOR_WINDOW_MS)); // inverse waitFor — assert no event emitted within window
     expect(ec.events.find(e => (e as any).type === 'post_corrupt')).toBeUndefined();
   });
 
@@ -199,8 +211,8 @@ describe('StreamReader — robustness/encoding/corrupt', () => {
     const pattern: ('ok' | 'bad')[] = ['ok','bad','ok','bad','ok','bad','ok','bad','bad','bad'];
     for (let i = 0; i < 10; i++) {
       nativeAppend(streamAbs, pattern[i] === 'ok' ? okLine(i) : badLine(i));
-      // chokidar batch boundary: 50ms gap so appends fire as separate events (not coalesced)
-      await new Promise(r => setTimeout(r, 50));
+      // chokidar batch boundary: gap so appends fire as separate events (not coalesced)
+      await new Promise(r => setTimeout(r, CHOKIDAR_BATCH_BOUNDARY_GAP_MS));
     }
 
     await auditEc.whenPredicate((events) =>

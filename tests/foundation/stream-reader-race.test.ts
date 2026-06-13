@@ -4,6 +4,12 @@ import { makeAudit } from '../helpers/audit.js';
 import type { FileSystem, StatInfo } from '../../src/foundation/fs/types.js';
 import type { WatchEvent } from '../../src/foundation/file-watcher/types.js';
 
+/**
+ * Promise.race anti-hang deadline (2s): assertion 永不应到此 / hang detector.
+ * Derivation: >>> typical reader stop budget (≤ 100ms) / ×20 safety / test runner < 5s 内退出.
+ */
+const ANTI_HANG_DEADLINE_MS = 2000;
+
 // Capture watcher callback for manual trigger
 let capturedCallback: ((ev: WatchEvent) => void) | null = null;
 
@@ -163,7 +169,7 @@ describe('StreamReader readIncrement async race (phase 876 new.P1.4)', () => {
     // Both should resolve without hanging
     await expect(Promise.race([
       Promise.all([readPromise, stopPromise]),
-      new Promise((_resolve, reject) => setTimeout(() => reject(new Error('hang')), 2000)),
+      new Promise((_resolve, reject) => setTimeout(() => reject(new Error('hang')), ANTI_HANG_DEADLINE_MS)),
     ])).resolves.toBeDefined();
   });
 
@@ -245,7 +251,7 @@ describe('StreamReader readIncrement async race (phase 876 new.P1.4)', () => {
     await expect(
       Promise.race([
         Promise.all([readPromise, stopPromise]),
-        new Promise((_resolve, reject) => setTimeout(() => reject(new Error('hang')), 2000)),
+        new Promise((_resolve, reject) => setTimeout(() => reject(new Error('hang')), ANTI_HANG_DEADLINE_MS)),
       ]),
     ).resolves.toBeDefined();
   });

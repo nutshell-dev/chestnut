@@ -14,6 +14,12 @@ import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 
+/**
+ * Mtime tick guard (15ms): 等 OS mtime 精度 tick 跨过、保 stale gate 真触发.
+ * Derivation: > APFS/ext4 ms 级 mtime 粒度 / 跨平台 1 tick safety margin.
+ */
+const MTIME_TICK_GUARD_MS = 15;
+
 describe('edit tool', () => {
   let tempDir: string;
   let mockFs: NodeFileSystem;
@@ -267,7 +273,7 @@ describe('edit tool', () => {
       await readTool.execute({ path: 's.txt' }, ctx);
 
       // external modification: advance mtime + change content
-      await new Promise(r => setTimeout(r, 15));
+      await new Promise(r => setTimeout(r, MTIME_TICK_GUARD_MS));
       const fsNative = await import('fs');
       fsNative.writeFileSync(path.join(tempDir, 'clawspace/s.txt'), 'foo CHANGED foo');
 

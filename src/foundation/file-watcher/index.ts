@@ -6,4 +6,9 @@
  */
 
 export type { WatchEventType, WatchEvent, Watcher, WatcherErrorContext, WatcherFactory } from './types.js';
-export { createWatcher, FALLBACK_CONSECUTIVE_FAIL_LIMIT } from './watcher.js';
+export {
+  createWatcher,
+  FALLBACK_CONSECUTIVE_FAIL_LIMIT,
+  CHOKIDAR_STABILITY_THRESHOLD_MS,
+  CHOKIDAR_POLL_INTERVAL_MS,
+} from './watcher.js';

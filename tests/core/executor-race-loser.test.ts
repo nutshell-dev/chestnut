@@ -15,6 +15,18 @@ import { NodeFileSystem } from '../../src/foundation/fs/index.js';
 import { AuditWriter } from '../../src/foundation/audit/writer.js';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 
+/**
+ * Mock 慢 tool 执行时长 (200ms): > timeoutMs=50 触发 ToolTimeoutError 路径.
+ * Derivation: > timeoutMs ×4 / 保 race winner = timeout side / phase 293 起 200ms 稳定.
+ */
+const MOCK_SLOW_TOOL_MS = 200;
+
+/**
+ * Race loser audit settle (150ms): 等 loser 的 throw 实际写入 audit.tsv.
+ * Derivation: phase 291 收紧 300→150 / > AuditWriter flush + fs.appendFile budget.
+ */
+const RACE_LOSER_AUDIT_SETTLE_MS = 150;
+
 describe('executor race-loser audit (phase 816 B2)', () => {
   let tempDir: string;
   let mockFs: NodeFileSystem;
@@ -49,7 +61,7 @@ describe('executor race-loser audit (phase 816 B2)', () => {
       schema: { type: 'object', properties: {}, required: [] },
       readonly: true,
       async execute() {
-        await new Promise(r => setTimeout(r, 200)); // sleep: mock slow tool execution
+        await new Promise(r => setTimeout(r, MOCK_SLOW_TOOL_MS)); // sleep: mock slow tool execution
         throw new Error('real root cause');
       },
     });
@@ -65,7 +77,7 @@ describe('executor race-loser audit (phase 816 B2)', () => {
     expect(result.content).toMatch(/timed out/);
 
     const auditPath = path.join(tempDir, 'audit.tsv');
-    await new Promise(r => setTimeout(r, 150)); // sleep: let race loser audit write (phase 291: 300→150)
+    await new Promise(r => setTimeout(r, RACE_LOSER_AUDIT_SETTLE_MS)); // sleep: let race loser audit write (phase 291: 300→150)
 
     const auditContent = await fs.readFile(auditPath, 'utf-8').catch(() => '');
     const rows = auditContent.trim().split('\n');

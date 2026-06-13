@@ -19,6 +19,12 @@ import { DEAD_PID } from '../helpers/dead-pid.js';
 import { createToolRegistry } from '../../src/foundation/tools/index.js';
 import { makeMockAudit } from '../helpers/audit.js';
 
+/**
+ * Pre-lock-release scheduling (50ms): pause() 锁第一次 EEXIST 后 wait 100ms 内必释放.
+ * Derivation: < LOCK_RETRY_DELAY_MS=100ms / > microtask flush / 保第二次 retry 拿到锁.
+ */
+const PRE_RELEASE_LOCK_MS = 50;
+
 vi.mock('../../src/core/contract/constants.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/core/contract/constants.js')>();
   return {
@@ -75,7 +81,7 @@ describe('ContractSystem - lock retry (phase 1351 split)', () => {
     // pause() 先 fs.move(active → paused)，锁文件随目录一起移动到 paused/。
     // 50ms 后从移动后的位置释放锁，确保第二次重试能拿到锁
     const movedLockPath = path.join(clawDir, 'contract', 'paused', contractId, 'progress.lock');
-    setTimeout(() => fs.unlink(movedLockPath).catch(() => {}), 50);
+    setTimeout(() => fs.unlink(movedLockPath).catch(() => {}), PRE_RELEASE_LOCK_MS);
 
     // pause() 内部走 acquireLock → 第一次 EEXIST → wait 100ms → 锁已释放 → 第二次成功
     await expect(manager.pause(contractId, 'checkpoint')).resolves.not.toThrow();

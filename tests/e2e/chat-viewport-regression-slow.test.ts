@@ -18,11 +18,24 @@ import {
   createMainTurnUI,
   type MainTurnUIController,
 } from '../../src/cli/commands/chat-viewport.js';
+import { MIN_DWELL_MS } from '../../src/cli/commands/main-turn-ui.js';
 import { SUBAGENT_LONG_TIMEOUT_MS } from '../helpers/test-timeouts.js';
 import { createViewportObservability } from '../../src/cli/commands/chat-viewport-observability.js';
 import type { AuditWriter } from '../../src/foundation/audit/writer.js';
 import type { FileSystem } from '../../src/foundation/fs/index.js';
 import { createEventCollector } from '../helpers/event-collector.js';
+
+/**
+ * waitForAudit poll interval (phase 224 tighter from earlier value).
+ * Derivation: < typical audit event flush (10ms) / 不漏窗 + 不过 busy-spin.
+ */
+const WAIT_FOR_AUDIT_POLL_MS = 5;
+
+/**
+ * Event-throttle mimic: gap between successive stream events to drive realistic chokidar batches.
+ * Derivation: > chokidar tick / < INVERSE_WAITFOR window / 模真实 throttle 节奏.
+ */
+const EVENT_THROTTLE_MIMIC_MS = 50;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -198,7 +211,7 @@ async function waitForAudit(
   while (Date.now() - start < timeoutMs) {
     const matched = fx.audit.filter(type);
     if (matched.length >= count) return matched;
-    await new Promise(r => setTimeout(r, 5));  // phase 224: tighter poll for waitForAudit
+    await new Promise(r => setTimeout(r, WAIT_FOR_AUDIT_POLL_MS));  // phase 224: tighter poll for waitForAudit
   }
   throw new Error(`waitForAudit timeout: type=${type} count=${count}; got ${fx.audit.filter(type).length}`);
 }
@@ -232,7 +245,7 @@ describe('chat-viewport regression baseline — slow outliers', () => {
     for (let i = 1; i <= N; i++) {
       await appendStreamEvent(fx, { type: 'tool_call', step: i, name: 'exec' });
       await appendStreamEvent(fx, { type: 'tool_result', step: i, name: 'exec', success: true });
-      await new Promise(r => setTimeout(r, 50));
+      await new Promise(r => setTimeout(r, EVENT_THROTTLE_MIMIC_MS));
     }
 
     await appendStreamEvent(fx, { type: 'turn_end' });
@@ -281,7 +294,7 @@ describe('chat-viewport regression baseline — slow outliers', () => {
 
     for (let i = 0; i < 6; i++) {
       appendStreamRaw(fx, Buffer.from(`{broken_line_${i}\n`, 'utf-8'));
-      await new Promise(r => setTimeout(r, 50));
+      await new Promise(r => setTimeout(r, EVENT_THROTTLE_MIMIC_MS));
     }
 
     await waitForAudit(fx, STREAM_AUDIT_EVENTS.READER_CORRUPT, 1);
@@ -319,14 +332,16 @@ describe('chat-viewport regression baseline — slow outliers', () => {
     const fx = await bootstrapFixture();
 
     fx.mainUI.enterPhase('waiting_llm');
-    await new Promise(r => setTimeout(r, 250)); // sleep: exceed MIN_DWELL_MS to ensure stop sync trigger
+    // exceed MIN_DWELL_MS to ensure stop sync trigger; margin > pendingClearTimer schedule jitter
+    const EXCEED_MARGIN_MS = 50;
+    await new Promise(r => setTimeout(r, MIN_DWELL_MS + EXCEED_MARGIN_MS));
     fx.mainUI.enterPhase('idle');
 
     fx.mainUI.withScope('task', () => {
       fx.mainUI.clearPreview();
     });
 
-    await new Promise(r => setTimeout(r, 50));
+    await new Promise(r => setTimeout(r, EVENT_THROTTLE_MIMIC_MS));
 
     const auditContent = await nativeFs.readFile(fx.auditPath, 'utf-8');
     expect(auditContent).toContain('viewport_spinner_lifecycle');

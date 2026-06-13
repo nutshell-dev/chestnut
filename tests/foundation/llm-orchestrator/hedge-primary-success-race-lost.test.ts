@@ -19,6 +19,12 @@ import type {
   LLMResponse,
 } from '../../../src/foundation/llm-orchestrator/types.js';
 
+/**
+ * Sim trackAPromise IIFE 异步 settle 间隔 (10ms): 验证 .then().catch() 走 then 路径.
+ * Derivation: > microtask flush / 不依赖具体 src timeout / 仅给 IIFE await 跨 tick.
+ */
+const SIM_PROMISE_SETTLE_MS = 10;
+
 function createDeferredMockProvider(
   name: string,
   opts: {
@@ -248,7 +254,7 @@ describe('phase 978 — hedge B-wins primary outcome 3 态', () => {
     // construct trackAPromise-like IIFE manually、verify .then().catch() 永走 then
     const simTrackAPromise: Promise<{ winner: 'A' | 'A-error'; data?: string; error?: Error }> = (async () => {
       try {
-        await new Promise((r) => setTimeout(r, 10));
+        await new Promise((r) => setTimeout(r, SIM_PROMISE_SETTLE_MS));
         return { winner: 'A' as const, data: 'chunk' };
       } catch (e) {
         return { winner: 'A-error' as const, error: e as Error };

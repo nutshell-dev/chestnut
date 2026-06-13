@@ -17,6 +17,12 @@ import { NodeFileSystem } from '../../src/foundation/fs/index.js';
 import { AuditWriter } from '../../src/foundation/audit/writer.js';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 
+/**
+ * Abort 触发延迟 (50ms): timeoutMs=10_000 >> 此值、保 abort 先 win.
+ * Derivation: > microtask flush / << timeoutMs / 让 abortable 工具进入 await 后再 abort.
+ */
+const ABORT_TRIGGER_DELAY_MS = 50;
+
 describe('ToolExecutor', () => {
   let tempDir: string;
   let mockFs: NodeFileSystem;
@@ -402,7 +408,7 @@ describe('ToolExecutor', () => {
       });
 
       // Abort after a short delay
-      setTimeout(() => abortController.abort(), 50);
+      setTimeout(() => abortController.abort(), ABORT_TRIGGER_DELAY_MS);
 
       const result = await execPromise;
       expect(result.success).toBe(false);

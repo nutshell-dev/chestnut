@@ -13,6 +13,12 @@ import type { ToolRegistryImpl } from '../../../src/foundation/tools/registry.js
 import { SUBAGENT_AUDIT_EVENTS } from '../../../src/core/subagent/audit-events.js';
 import type { StreamEvent } from '../../../src/foundation/stream/types.js';
 
+/**
+ * Mock runReact 超 timeout 延迟 (200ms): > timeoutMs=50 触发 ghost callback 后窗口.
+ * Derivation: phase 294 收紧 500→200 / × timeoutMs 4 倍保 timeout 严格先 fire.
+ */
+const MOCK_RUN_REACT_OVERSHOOT_MS = 200;
+
 vi.mock('../../../src/core/agent-executor/loop.js', () => ({
   runReact: vi.fn(),
 }));
@@ -111,7 +117,7 @@ describe('SubAgent race ghost callback (Phase 538)', () => {
         onTextDelta?: (delta: string) => void;
         onToolCall?: (name: string, toolUseId: string) => void;
       }) => {
-        await new Promise((resolve) => setTimeout(resolve, 200)); // sleep: mock runReact timeout delay (phase 294: 500→200; timeoutMs=50)
+        await new Promise((resolve) => setTimeout(resolve, MOCK_RUN_REACT_OVERSHOOT_MS)); // sleep: mock runReact timeout delay (phase 294: 500→200; timeoutMs=50)
         // timeout 后这些 callback 是 "ghost"
         opts.onTextDelta?.('ghost text');
         opts.onToolCall?.('ghost_tool', 'gt1');

@@ -7,6 +7,12 @@ import { ProcessManager } from '../../src/foundation/process-manager/index.js';
 import { once } from 'events';
 import { EventEmitter } from 'events';
 
+/**
+ * Libuv I/O callback settle (50ms): flushMicrotasks 内给真实 I/O callback 机会执行.
+ * Derivation: > microtask flush / 给 ProcessManager.writeAtomic 等 libuv 异步 callback land.
+ */
+const LIBUV_IO_SETTLE_MS = 50;
+
 // ============================================================================
 // Hoisted mock state（供 vi.mock factory 引用，必须 hoisted）
 // ============================================================================
@@ -173,7 +179,7 @@ function makeMockInstances(overrides?: Partial<any>) {
 async function flushMicrotasks(n = 10) {
   for (let i = 0; i < n; i++) await Promise.resolve();
   // 让真实 I/O（如 ProcessManager.writeAtomic）的 libuv callback 有机会执行
-  await new Promise(resolve => setTimeout(resolve, 50));
+  await new Promise(resolve => setTimeout(resolve, LIBUV_IO_SETTLE_MS));
 }
 
 async function waitForProcessOn(event: string, timeoutMs = 10_000): Promise<Function> {

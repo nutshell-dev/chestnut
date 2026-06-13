@@ -7,6 +7,12 @@ import { describe, it, expect, vi } from 'vitest';
 import { LLMOrchestratorImpl } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
 import type { ProviderAdapter, StreamChunk, LLMEventSink, LLMEvent } from '../../../src/foundation/llm-orchestrator/types.js';
 
+/**
+ * Mock stream 延长延迟 / mock probe 延长延迟: 让 stream 进入 idle window 后触 abort.
+ * Derivation: = streamIdleTimeoutMs=50ms / streamIdleProbeTimeoutMs=50ms（与 it 参数一致）.
+ */
+const MOCK_STREAM_HOLD_MS = 50;
+
 function createMockSink() {
   const emitted: LLMEvent[] = [];
   const sink: LLMEventSink = {
@@ -52,7 +58,7 @@ describe('Stream idle probe (⚓4 ε ratified by phase 628)', () => {
           // first stream: idle timeout
           yield { type: 'text_delta', delta: 'first' };
           await new Promise<void>((resolve, reject) => {
-            const timer = setTimeout(resolve, 50);
+            const timer = setTimeout(resolve, MOCK_STREAM_HOLD_MS);
             opts.signal?.addEventListener('abort', () => {
               clearTimeout(timer);
               reject(new Error('AbortError'));
@@ -100,7 +106,7 @@ describe('Stream idle probe (⚓4 ε ratified by phase 628)', () => {
       async function* (opts: { signal?: AbortSignal }) {
         yield { type: 'text_delta', delta: 'first' };
         await new Promise<void>((resolve, reject) => {
-          const timer = setTimeout(resolve, 50);
+          const timer = setTimeout(resolve, MOCK_STREAM_HOLD_MS);
           opts.signal?.addEventListener('abort', () => {
             clearTimeout(timer);
             reject(new Error('AbortError'));
@@ -113,7 +119,7 @@ describe('Stream idle probe (⚓4 ε ratified by phase 628)', () => {
         return new Promise((resolve, reject) => {
           const timer = setTimeout(() => {
             reject(new Error('probe timeout'));
-          }, 50);
+          }, MOCK_STREAM_HOLD_MS);
           opts?.signal?.addEventListener('abort', () => {
             clearTimeout(timer);
             const err = new Error('AbortError');
@@ -163,7 +169,7 @@ describe('Stream idle probe (⚓4 ε ratified by phase 628)', () => {
       async function* (opts: { signal?: AbortSignal }) {
         yield { type: 'text_delta', delta: 'first' };
         await new Promise<void>((resolve, reject) => {
-          const timer = setTimeout(resolve, 50);
+          const timer = setTimeout(resolve, MOCK_STREAM_HOLD_MS);
           opts.signal?.addEventListener('abort', () => {
             clearTimeout(timer);
             reject(new Error('AbortError'));

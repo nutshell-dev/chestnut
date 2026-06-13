@@ -6,6 +6,12 @@ import { Runtime } from '../../../src/core/runtime/runtime.js';
 import type { DialogStore } from '../../../src/foundation/dialog-store/index.js';
 import { makeAudit } from '../../helpers/audit.js';
 
+/**
+ * Mock pending flush 完成延迟 (50ms): 等 runtime.stop 调用 getFlushPromise 后 settle.
+ * Derivation: > microtask flush / 给 stop barrier 真等 flush settle 的窗口.
+ */
+const MOCK_FLUSH_SETTLE_MS = 50;
+
 describe('runtime.stop flush barrier (phase 1024 G.3)', () => {
   let flushResolved: boolean;
   let llmCloseCalled: boolean;
@@ -68,7 +74,7 @@ describe('runtime.stop flush barrier (phase 1024 G.3)', () => {
     const mockDialogStore = {
       getFlushPromise: vi.fn().mockReturnValue(
         new Promise<void>((resolve) => {
-          setTimeout(() => { flushResolved = true; resolve(); }, 50);
+          setTimeout(() => { flushResolved = true; resolve(); }, MOCK_FLUSH_SETTLE_MS);
         }),
       ),
       load: vi.fn().mockResolvedValue({ session: { version: 2, messages: [], toolsForLLM: [] }, source: 'empty' }),

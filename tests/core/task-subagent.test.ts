@@ -24,6 +24,12 @@ import type { FileSystem } from '../../src/foundation/fs/types.js';
 import type { ToolRegistryImpl } from '../../src/foundation/tools/registry.js';
 import type { AuditLog } from '../../src/foundation/audit/index.js';
 
+/**
+ * Mock abort-check tick interval (50ms): 20 iterations 累 ≈ 1000ms 长任务.
+ * Derivation: × 20 = 1000ms 总长 / 每 tick 给 abort signal 检测窗口.
+ */
+const MOCK_ABORT_CHECK_TICK_MS = 50;
+
 /** phase 1489: 测试 helper / 替原 SubAgent 内 new ToolExecutor 装配语义 */
 function makeSubAgentToolExecutor(opts: {
   clawDir: string;
@@ -250,7 +256,7 @@ function createMockLLM(responses: LLMResponse[]): LLMOrchestrator {
           if (options.signal?.aborted) {
             throw new Error('Aborted');
           }
-          await new Promise(r => setTimeout(r, 50));
+          await new Promise(r => setTimeout(r, MOCK_ABORT_CHECK_TICK_MS));
         }
         return {
           content: [{ type: 'text', text: 'Done' }],

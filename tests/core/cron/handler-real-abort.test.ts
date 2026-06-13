@@ -11,6 +11,18 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { CronRunner, type CronJob } from '../../../src/core/cron/runner.js';
 import { CRON_AUDIT_EVENTS } from '../../../src/core/cron/audit-events.js';
 
+/**
+ * Mock 慢 handler 超 timeoutMs 触发 abort: 500ms >> timeoutMs=50ms.
+ * Derivation: ×10 timeoutMs 保 timeout fire 先于 handler settle.
+ */
+const MOCK_OVER_TIMEOUT_HANDLER_MS = 500;
+
+/**
+ * Mock 快 handler 正常 complete (10ms): cleanup 路径无 leak verify.
+ * Derivation: > microtask flush / 给 fake timer advanceTimersByTimeAsync 推进 50ms 足以 settle.
+ */
+const MOCK_FAST_HANDLER_MS = 10;
+
 function makeMockAudit() {
   const events: Array<[string, ...string[]]> = [];
   return {
@@ -39,7 +51,7 @@ describe('cron handler real abort (phase 1232 r132 C)', () => {
       timeoutMs: 50,
       handler: async (signal?: AbortSignal) => {
         capturedSignal = signal;
-        await new Promise(r => setTimeout(r, 500));  // 超 timeoutMs
+        await new Promise(r => setTimeout(r, MOCK_OVER_TIMEOUT_HANDLER_MS));  // 超 timeoutMs
       },
     };
     const runner = new CronRunner([job], audit as any);
@@ -116,7 +128,7 @@ describe('cron handler real abort (phase 1232 r132 C)', () => {
       schedule: { type: 'hourly' },
       handler: async () => {
         handlerRan = true;
-        await new Promise(r => setTimeout(r, 10));
+        await new Promise(r => setTimeout(r, MOCK_FAST_HANDLER_MS));
       },
     };
     const runner = new CronRunner([job], audit as any);

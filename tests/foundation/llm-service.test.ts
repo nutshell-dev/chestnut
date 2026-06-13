@@ -6,6 +6,18 @@ import { LLMOrchestratorImpl } from '../../src/foundation/llm-orchestrator/orche
 import type { ProviderAdapter, StreamChunk, LLMEventSink, LLMEvent } from '../../src/foundation/llm-orchestrator/types.js';
 import { LLMError, LLMAllProvidersFailedError, LLMTimeoutError } from '../../src/foundation/llm-orchestrator/errors.js';
 
+/**
+ * AbortController 触发延迟 (50ms): 等 retry/stream 进入 backoff sleep 后再 abort.
+ * Derivation: << retryDelayMs=10_000ms 必落在 backoff 中段 / > eventloop tick 不抢先.
+ */
+const ABORT_TRIGGER_DELAY_MS = 50;
+
+/**
+ * AbortController 短触发延迟 (20ms): 等 stream 进入 race 期才 abort、不抢前.
+ * Derivation: > microtask flush / < streamIdleTimeoutMs=200ms / 落在 race 窗口.
+ */
+const ABORT_TRIGGER_QUICK_DELAY_MS = 20;
+
 // Mock provider factory
 
 const noopSink: LLMEventSink = { emit: () => {} };
@@ -784,7 +796,7 @@ describe('LLMOrchestratorImpl - external abort signal', () => {
 
     const ac = new AbortController();
 
-    setTimeout(() => ac.abort(), 50);
+    setTimeout(() => ac.abort(), ABORT_TRIGGER_DELAY_MS);
 
     await expect(service.call({ messages: [], signal: ac.signal }))
       .rejects.toThrow(/aborted/i);
@@ -809,7 +821,7 @@ describe('LLMOrchestratorImpl - external abort signal', () => {
     (service as any).primary = primary;
 
     const ac = new AbortController();
-    setTimeout(() => ac.abort(), 50);
+    setTimeout(() => ac.abort(), ABORT_TRIGGER_DELAY_MS);
 
     await expect(async () => {
       for await (const _ of service.stream({ messages: [], signal: ac.signal })) {}
@@ -1030,7 +1042,7 @@ describe('LLMOrchestratorImpl - idle failover', () => {
     (svc as any).fallbacks = [p2];
 
     const userCtrl = new AbortController();
-    setTimeout(() => userCtrl.abort(), 20);
+    setTimeout(() => userCtrl.abort(), ABORT_TRIGGER_QUICK_DELAY_MS);
 
     await expect(async () => {
       for await (const _ of svc.stream({ messages: [], signal: userCtrl.signal, streamIdleTimeoutMs: 200 })) {}

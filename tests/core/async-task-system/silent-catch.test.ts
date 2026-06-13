@@ -12,6 +12,12 @@ import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import { SUBAGENT_SHORT_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
 
+/**
+ * Fire-and-forget audit microtask settle (10ms): 等 catch 内 audit.write 落定.
+ * Derivation: > microtask flush 1 turn / 给 audit 排队事件 land 的窗口.
+ */
+const AUDIT_MICROTASK_SETTLE_MS = 10;
+
 // ─── S1 helpers ───────────────────────────────────────────────────────────────
 
 function makeMockFsForS1(opts: { moveReject?: boolean; deleteReject?: boolean } = {}): FileSystem {
@@ -234,7 +240,7 @@ describe('phase 541: silent catch fixes', () => {
       capturedWatcherCallback!({ type: 'add', path: 'tasks/queues/pending/task-watcher.json' });
 
       // 等待 microtask 完成
-      await new Promise((r) => setTimeout(r, 10));
+      await new Promise((r) => setTimeout(r, AUDIT_MICROTASK_SETTLE_MS));
 
       const watcherAsyncEvents = auditEvents.filter(
         (e) => e[0] === TASK_AUDIT_EVENTS.PENDING_INGEST_FAILED && e.some((c) => typeof c === 'string' && c.includes('context=watcher_async')),

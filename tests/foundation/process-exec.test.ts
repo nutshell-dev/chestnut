@@ -17,6 +17,18 @@ import { exec, kill, isAlive, findByPattern } from '../../src/foundation/process
 import { ProcessExecError, ProcessListUnavailable } from '../../src/foundation/process-exec/index.js';
 import { DEAD_PID } from '../helpers/dead-pid.js';
 
+/**
+ * Subprocess hang duration: 1 minute, >>> any test timeout, force kill expected.
+ * Derivation: self-describing (60_000 = 60 sec); large enough that test timeout always fires first.
+ */
+const SUBPROC_HANG_MS = 60_000;
+
+/**
+ * Subprocess short sleep: below MIN timeout clamp (1000ms), so the test exec returns success.
+ * Derivation: 100ms < PROCESS_EXEC_TIMEOUT_MIN_MS=1000ms → exec finishes before clamp deadline.
+ */
+const SUBPROC_SHORT_SLEEP_MS = 100;
+
 describe('ProcessExec exec', () => {
   const workDir = tmpdir();
 
@@ -99,7 +111,7 @@ describe('ProcessExec exec', () => {
     // phase 1394: __testMinTimeoutMs/__testSigkillGraceMs 绕过 1000ms 硬常量 / 把单 test
     // wall 从 ~2s 降到 ~0.3s。行为契约 (throws ProcessExecError + killed=true) 不变。
     try {
-      await exec('node', ['-e', 'setTimeout(() => {}, 60000)'], {
+      await exec('node', ['-e', `setTimeout(() => {}, ${SUBPROC_HANG_MS})`], {
         cwd: workDir,
         timeout: 100,
         __testMinTimeoutMs: 100,
@@ -136,7 +148,7 @@ describe('ProcessExec exec', () => {
   it.concurrent('should clamp timeout to MIN (1000ms)', async () => {
     // Requesting 10ms timeout should be clamped to 1000ms minimum
     // A 100ms sleep should succeed under the clamped timeout
-    const result = await exec('node', ['-e', 'setTimeout(() => {}, 100)'], {
+    const result = await exec('node', ['-e', `setTimeout(() => {}, ${SUBPROC_SHORT_SLEEP_MS})`], {
       cwd: workDir,
       timeout: 10, // below MIN, will be clamped to 1000
     });
@@ -157,7 +169,7 @@ describe('ProcessExec exec', () => {
 
   it.concurrent('should escalate to SIGKILL when process traps SIGTERM', async () => {
     // Node script that ignores SIGTERM, only SIGKILL can stop it
-    const script = `process.on('SIGTERM', () => {}); setTimeout(() => {}, 60000);`;
+    const script = `process.on('SIGTERM', () => {}); setTimeout(() => {}, ${SUBPROC_HANG_MS});`;
 
     // phase 1394: 短常数 100ms 让 SIGKILL 升级真路径触发但 wall 从 ~2s 降到 ~0.3s
     try {

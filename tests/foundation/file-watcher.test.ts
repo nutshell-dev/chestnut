@@ -8,6 +8,18 @@ import * as os from 'os';
 import { createWatcher } from '../../src/foundation/file-watcher/index.js';
 import { waitFor } from '../helpers/wait-for.js';
 
+/**
+ * Polling tick interval for waitForCount loop (10ms).
+ * Derivation: > eventloop tick / < typical chokidar settle / 不 busy-spin 也不漏窗.
+ */
+const POLL_TICK_MS = 10;
+
+/**
+ * Async error settle budget (100ms).
+ * Derivation: phase 288 收紧 500ms→100ms / 等 onError throw 触发后再 close.
+ */
+const ASYNC_ERROR_SETTLE_MS = 100;
+
 // Mock chokidar with EventEmitter-based fake
 // phase 743 step C — L40+L62 mock chokidar for CI inotify compat
 // chokidar single-file watch on non-existent path 'add' event is unreliable on CI overlayfs / tmpfs
@@ -52,7 +64,7 @@ describe('FileWatcher', () => {
       if (Date.now() - start > timeoutMs) {
         throw new Error(`waitForCount timeout: got ${arr.length}/${n}`);
       }
-      await new Promise(r => setTimeout(r, 10));
+      await new Promise(r => setTimeout(r, POLL_TICK_MS));
     }
   }
 
@@ -186,7 +198,7 @@ describe('FileWatcher', () => {
     );
 
     // sleep: async error trigger; no deterministic signal (phase 288: 500ms → 100ms)
-    await new Promise(r => setTimeout(r, 100));
+    await new Promise(r => setTimeout(r, ASYNC_ERROR_SETTLE_MS));
     await watcher.close();
 
     // onError throwing should not cause infinite loop or unhandled rejection

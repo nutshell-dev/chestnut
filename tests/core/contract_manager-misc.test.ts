@@ -19,6 +19,12 @@ import { createToolRegistry } from '../../src/foundation/tools/index.js';
 import { makeMockAudit } from '../helpers/audit.js';
 import { DEFAULT_MAX_STEPS } from '../../src/core/agent-executor/index.js';  // phase 262: hoist
 
+/**
+ * Mutex release microtask grace (50ms): 等 background verification 释放 mutex 后继续.
+ * Derivation: phase 1371 sub-3 / > microtask flush 1 turn / 给 saveProgress 落定 audit emit 窗口.
+ */
+const MUTEX_RELEASE_GRACE_MS = 50;
+
 let testDir: string;
 let clawDir: string;
 
@@ -149,7 +155,7 @@ describe('ContractSystem - misc (LLM verification + escalation + phase239 audit)
           10,
         );
         // phase 1371 sub-3: extra grace for mutex release microtask to land
-        await new Promise(r => setTimeout(r, 50));
+        await new Promise(r => setTimeout(r, MUTEX_RELEASE_GRACE_MS));
       }
 
       // phase 1305: poll for BOTH force_accepted AND SUBTASK_FORCE_ACCEPTED audit emit
@@ -209,7 +215,7 @@ describe('ContractSystem - misc (LLM verification + escalation + phase239 audit)
           10,
         );
         // phase 1371 sub-3: extra grace for mutex release microtask to land
-        await new Promise(r => setTimeout(r, 50));
+        await new Promise(r => setTimeout(r, MUTEX_RELEASE_GRACE_MS));
       }
 
       scriptSpy.mockRestore();

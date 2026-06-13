@@ -15,6 +15,12 @@ import { makeAudit, waitForAuditEvent } from '../../helpers/audit.js';
 import { createToolRegistry } from '../../../src/foundation/tools/index.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
 
+/**
+ * Mock 慢 verification 延迟 (150ms): 保 subtask 留 in_progress 长到同步断言完成.
+ * Derivation: > 同步断言总 budget / 给 mock LLM call 真延迟而非 instant resolve.
+ */
+const MOCK_SLOW_VERIFICATION_MS = 150;
+
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
 let tmpDir: string;
@@ -116,7 +122,7 @@ describe('no verification path', () => {
     // duration of this test so assertions are deterministic.
     vi.spyOn(manager as any, 'runLLMVerification').mockImplementation(async () => {
       // sleep: keep subtask in_progress long enough for synchronous assertions above
-      await new Promise((r) => setTimeout(r, 150));
+      await new Promise((r) => setTimeout(r, MOCK_SLOW_VERIFICATION_MS));
       return { passed: true, feedback: 'mocked' };
     });
 

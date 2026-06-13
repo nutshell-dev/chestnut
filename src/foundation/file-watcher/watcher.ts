@@ -33,17 +33,19 @@ const DEFAULT_FALLBACK_POLL_MS = 500;
  * Chokidar awaitWriteFinish stability threshold (ms).
  * 等待 file write 停止 N ms 视为「写完成」/ 防 partial-write 触发 read 提前.
  * Value: 100ms = chokidar README 推荐起步值 / 平衡 file-write-burst 检测 vs delivery latency.
+ *
+ * Exported: tests/ 镜像此契约（settle 等待 write 完成）.
  */
-// phase 1212: file-private restored (dispatch-latency test phase 1147 重写改 source-grep 不需 import)
-const CHOKIDAR_STABILITY_THRESHOLD_MS = 100;
+export const CHOKIDAR_STABILITY_THRESHOLD_MS = 100;
 
 /**
  * Chokidar awaitWriteFinish poll interval (ms).
  * file size 监测频率 / 检 stability 收敛.
  * Value: 50ms = chokidar 默认 / < stability threshold / 保 poll 至少 2 次内 detect stability.
+ *
+ * Exported: tests/ 镜像此契约.
  */
-// phase 1212: file-private restored (same reason as STABILITY_THRESHOLD_MS)
-const CHOKIDAR_POLL_INTERVAL_MS = 50;
+export const CHOKIDAR_POLL_INTERVAL_MS = 50;
 
 class ChokidarWatcher implements Watcher {
   private active = true;

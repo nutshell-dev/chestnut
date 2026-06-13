@@ -3,6 +3,12 @@ import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import { CRON_AUDIT_EVENTS } from '../../../src/core/cron/audit-events.js';
 import { CronRunner, type CronJob } from '../../../src/core/cron/runner.js';
 
+/**
+ * Mock 快 handler 执行时长 (50ms): < timeoutMs=200 保 settle 不被误杀.
+ * Derivation: < timeoutMs / 4 / handler 在 vi.useFakeTimers 下也保持 magnitude.
+ */
+const MOCK_QUICK_HANDLER_MS = 50;
+
 // mock helper
 function makeMockAudit(): { write: ReturnType<typeof vi.fn> } {
   return { write: vi.fn() };
@@ -54,7 +60,7 @@ describe('CronRunner timeout escalation', () => {
 
   it('handler 正常 settle 不误杀', async () => {
     const handler = vi.fn(async () => {
-      await new Promise(r => setTimeout(r, 50));
+      await new Promise(r => setTimeout(r, MOCK_QUICK_HANDLER_MS));
     });
     const job: CronJob = {
       name: 'fast',
@@ -108,7 +114,7 @@ describe('CronRunner timeout escalation', () => {
 
   it('undefined timeoutMs 走原路径 regression', async () => {
     const handler = vi.fn(async () => {
-      await new Promise(r => setTimeout(r, 50));
+      await new Promise(r => setTimeout(r, MOCK_QUICK_HANDLER_MS));
     });
     const job: CronJob = {
       name: 'legacy',

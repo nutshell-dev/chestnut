@@ -12,6 +12,12 @@ import { createToolRegistry } from '../../../src/foundation/tools/index.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
 import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/index.js';
 
+/**
+ * Mock 慢 background verification 延迟 (150ms): 给 cancel race 留 in_progress 窗口.
+ * Derivation: > microtask flush / 保 completeSubtask 返后 verification 仍 in-flight.
+ */
+const MOCK_SLOW_VERIFICATION_MS = 150;
+
 vi.mock('../../../src/core/contract/constants.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../src/core/contract/constants.js')>();
   return {
@@ -136,7 +142,7 @@ describe('ContractSystem lifecycle race (phase 791 / P0.16 + P0.18)', () => {
 
     // Mock runLLMVerification to delay, simulating slow background verification
     vi.spyOn(testManager as any, 'runLLMVerification').mockImplementation(async () => {
-      await new Promise(r => setTimeout(r, 150)); // sleep: mock slow background verification
+      await new Promise(r => setTimeout(r, MOCK_SLOW_VERIFICATION_MS)); // sleep: mock slow background verification
       return { passed: true, feedback: 'mocked' };
     });
 

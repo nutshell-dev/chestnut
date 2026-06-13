@@ -8,6 +8,12 @@ import { createEventCollector } from '../helpers/event-collector.js';
 import { STREAM_AUDIT_EVENTS } from '../../src/foundation/stream/audit-events.js';
 import type { AuditLog } from '../../src/foundation/audit/index.js';
 
+/**
+ * Reader probe-finish settle (150ms): 等 createStreamReader 完 initial probe scan.
+ * Derivation: phase 290 收紧 300→150 / > chokidar add ready 80ms + probe loop budget.
+ */
+const READER_PROBE_FINISH_MS = 150;
+
 describe('StreamReader', () => {
   let tempDir: string;
   let fs: NodeFileSystem;
@@ -115,7 +121,7 @@ describe('StreamReader', () => {
     }, audit);
     reader.start();
 
-    await new Promise(r => setTimeout(r, 150)); // sleep: let reader finish probe pattern (phase 290: 300→150)
+    await new Promise(r => setTimeout(r, READER_PROBE_FINISH_MS)); // sleep: let reader finish probe pattern (phase 290: 300→150)
 
     writer.write({ ts: 1, type: 'first' });
     writer.write({ ts: 2, type: 'second' });

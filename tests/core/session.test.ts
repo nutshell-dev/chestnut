@@ -17,6 +17,12 @@ import type { Message } from '../../src/foundation/llm-provider/types.js';
 import { makeSession } from '../helpers/session-fixtures.js';
 import { DIALOG_AUDIT_EVENTS } from '../../src/foundation/dialog-store/audit-events.js';
 
+/**
+ * 时间戳可区分最小间隔 (5ms): 保 createdAt 严格 > old createdAt.
+ * Derivation: > APFS/ext4 ms 时间精度 / archive 后再 save 给跨 tick window.
+ */
+const DISTINGUISHABLE_TIMESTAMP_GAP_MS = 5;
+
 describe('Session Persistence', () => {
   let testDir: string;
   beforeEach(async () => {
@@ -307,7 +313,7 @@ describe('DialogStore unit tests', () => {
     await sm.archive();
 
     // Small delay so timestamps are distinguishable
-    await new Promise(r => setTimeout(r, 5));
+    await new Promise(r => setTimeout(r, DISTINGUISHABLE_TIMESTAMP_GAP_MS));
 
     // New session after archive
     await sm.save({ systemPrompt: 'test-system-prompt', messages: [{ role: 'user', content: 'new' }], toolsForLLM: [] });

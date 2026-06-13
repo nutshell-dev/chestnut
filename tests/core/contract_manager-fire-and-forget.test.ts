@@ -19,6 +19,12 @@ import { createToolRegistry } from '../../src/foundation/tools/index.js';
 import { makeMockAudit } from '../helpers/audit.js';
 // phase 1465: _resetVerificationMutexForTest import removed — mutex now instance-bound, per-test fresh ContractSystem 自然提供 fresh mutex
 
+/**
+ * Retry exponential backoff base delay (50ms): backoff = base × 2^attempt.
+ * Derivation: > microtask flush / 第 1 retry = 50ms / 第 5 retry = 800ms / 总 < 2s budget.
+ */
+const RETRY_BASE_DELAY_MS = 50;
+
 let testDir: string;
 let clawDir: string;
 
@@ -40,7 +46,7 @@ async function completeSubtaskWithRetry(
       return await manager.completeSubtask(params);
     } catch (e: any) {
       if (e?.message?.includes('already active') && attempt < maxRetries - 1) {
-        await new Promise(r => setTimeout(r, 50 * Math.pow(2, attempt)));
+        await new Promise(r => setTimeout(r, RETRY_BASE_DELAY_MS * Math.pow(2, attempt)));
         continue;
       }
       throw e;

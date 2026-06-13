@@ -19,6 +19,18 @@ import {
   SUBAGENT_LONG_TIMEOUT_MS,
 } from '../helpers/test-timeouts.js';
 
+/**
+ * 紧凑轮询间隔 (5ms) for waitForAudit poll loop.
+ * Derivation: phase 224 收紧；> eventloop tick / 给 audit ring flush 最小窗口.
+ */
+const TIGHT_POLL_MS = 5;
+
+/**
+ * 较宽轮询间隔 (50ms) for waitForArchive (fs.access 检测).
+ * Derivation: > fs.access syscall budget / < waitForArchive budget 分钟级 / 不刷爆 syscall.
+ */
+const WIDE_POLL_MS = 50;
+
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
 const { mockRunContractVerifier } = vi.hoisted(() => ({
@@ -80,7 +92,7 @@ describe('contract-motion-full-chain (phase 1168 α-5)', () => {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
       if (auditEvents.some(e => e[0] === type)) return;
-      await new Promise(r => setTimeout(r, 5));  // phase 224: tighter poll for waitForAudit
+      await new Promise(r => setTimeout(r, TIGHT_POLL_MS));  // phase 224: tighter poll for waitForAudit
     }
     throw new Error(`timeout waiting for audit event ${type}`);
   }
@@ -93,7 +105,7 @@ describe('contract-motion-full-chain (phase 1168 α-5)', () => {
         await fs.access(archiveDir);
         return true;
       } catch {
-        await new Promise(r => setTimeout(r, 50));
+        await new Promise(r => setTimeout(r, WIDE_POLL_MS));
       }
     }
     return false;

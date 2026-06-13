@@ -13,6 +13,12 @@ import { AuditWriter } from '../../src/foundation/audit/writer.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { WatchdogPidForeignWorkspaceError } from '../../src/watchdog/watchdog-pid.js';
 
+/**
+ * Mock spawn race window 延 (30ms): 夸大 spawn 之间 race window.
+ * Derivation: > eventloop tick / 给 ensureWatchdog 双 race 落 single spawn 路径.
+ */
+const SPAWN_RACE_WINDOW_MS = 30;
+
 let spawnCount = 0;
 
 vi.mock('../../src/foundation/config/index.js', async (importOriginal) => {
@@ -93,7 +99,7 @@ describe('ensureWatchdog singleton lock', () => {
     mockStart.mockImplementation(async () => {
       spawnCount++;
       // Small delay to exaggerate the race window
-      await new Promise(r => setTimeout(r, 30));
+      await new Promise(r => setTimeout(r, SPAWN_RACE_WINDOW_MS));
       const pidFile = path.join(chestnutDir, 'watchdog.pid');
       // Use current process PID so isAlive() returns true in double-check
       fs.writeFileSync(pidFile, JSON.stringify({ pid: process.pid, root: '/test/root' }));

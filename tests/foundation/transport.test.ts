@@ -8,7 +8,32 @@ import { UnixDomainSocketTransport } from '../../src/foundation/transport/index.
 import type { Connection } from '../../src/foundation/transport/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
 
+/** Test-level safety deadline (2s). 远大于 unix-domain socket I/O 实测 << 100ms / 防 hang */
 const TIMEOUT_MS = 2000;
+
+/**
+ * 等 OS 完成 connect / close 在 server side 内部注册（短 settle）.
+ * Derivation: libuv async I/O propagation ~ 1-5ms / ×4 safety = 20ms.
+ */
+const CONNECT_REGISTER_BUDGET_MS = 20;
+
+/**
+ * 等 client destroy / disconnect 后 server 侧 propagation.
+ * Derivation: CONNECT_REGISTER_BUDGET_MS + extra margin for socket teardown.
+ */
+const DISCONNECT_PROPAGATE_BUDGET_MS = 30;
+
+/**
+ * 等 server 侧消息处理 / OS 释放 socket file.
+ * Derivation: handle queue flush + onMessage callback ≈ 10-20ms / ×3 safety = 50ms.
+ */
+const MSG_PROCESS_BUDGET_MS = 50;
+
+/**
+ * Poll tick interval for recursive setTimeout loop.
+ * Derivation: < eventloop typical tick / 不 busy-spin 不漏窗.
+ */
+const POLL_TICK_MS = 10;
 
 function makeSocketPath(): string {
   return join(tmpdir(), `chestnut-test-${randomUUID()}.sock`);
@@ -153,12 +178,12 @@ describe('UnixDomainSocketTransport', () => {
     const c = await connectClient(path);
     clients.push(c);
     // wait one tick for server-side connection registration
-    await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, CONNECT_REGISTER_BUDGET_MS));
     c.end();
     const conn = await waitFor(gone, 'onDisconnect');
     expect(conn.id).toMatch(/^[0-9a-f-]{36}$/);
     // allow close event to propagate
-    await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, CONNECT_REGISTER_BUDGET_MS));
     expect(transport.getConnections()).toHaveLength(0);
   });
 
@@ -193,7 +218,7 @@ describe('UnixDomainSocketTransport', () => {
     clients.push(...cs);
     await waitFor(
       new Promise<void>((resolve) => {
-        const tick = () => (conns.length === 5 ? resolve() : setTimeout(tick, 10));
+        const tick = () => (conns.length === 5 ? resolve() : setTimeout(tick, POLL_TICK_MS));
         tick();
       }),
       '5 connects',
@@ -206,7 +231,7 @@ describe('UnixDomainSocketTransport', () => {
     expect(lines).toEqual(['hi', 'hi', 'hi', 'hi', 'hi']);
 
     cs[2].destroy();
-    await new Promise((r) => setTimeout(r, 30));
+    await new Promise((r) => setTimeout(r, DISCONNECT_PROPAGATE_BUDGET_MS));
     const recvs2 = [cs[0], cs[1], cs[3], cs[4]].map((c) => nextLine(c));
     const { failed: failed2 } = transport.broadcast('again');
     expect(failed2).toHaveLength(0);
@@ -250,11 +275,11 @@ describe('UnixDomainSocketTransport', () => {
     await transport.listen({ socketPath: path });
     const c = await connectClient(path);
     clients.push(c);
-    await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, CONNECT_REGISTER_BUDGET_MS));
     c.write('a\nb\nc\n');
     c.write('hel');
     c.write('lo\n');
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, MSG_PROCESS_BUDGET_MS));
     expect(msgs).toEqual(['a', 'b', 'c', 'hello']);
   });
 
@@ -263,7 +288,7 @@ describe('UnixDomainSocketTransport', () => {
     const t = makeTransport();
     await t.listen({ socketPath: path });
     await t.close();
-    await new Promise(r => setTimeout(r, 50)); // 等 OS 释放 socket
+    await new Promise(r => setTimeout(r, MSG_PROCESS_BUDGET_MS)); // 等 OS 释放 socket
     await expect(connectClient(path)).rejects.toThrow();
   });
 
@@ -297,7 +322,7 @@ describe('UnixDomainSocketTransport', () => {
     const c = await connectClient(path);
     clients.push(c);
     c.write('a\nb\n');
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, MSG_PROCESS_BUDGET_MS));
     expect(got).toEqual(['a', 'b']);
     expect(errors.length).toBeGreaterThanOrEqual(2);
     expect(errors[0]).toMatchObject({ kind: 'callback_error', callbackName: 'onMessage' });
@@ -320,9 +345,9 @@ describe('UnixDomainSocketTransport', () => {
     await transport.listen({ socketPath: path });
     const c = await connectClient(path);
     clients.push(c);
-    await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, CONNECT_REGISTER_BUDGET_MS));
     c.end();
-    await new Promise((r) => setTimeout(r, 30));
+    await new Promise((r) => setTimeout(r, DISCONNECT_PROPAGATE_BUDGET_MS));
     expect(disconnectReason).toBeUndefined();
   });
 
@@ -336,7 +361,7 @@ describe('UnixDomainSocketTransport', () => {
     // Simulate a server-level error by forcing the internal server to emit 'error'
     const server = (transport as unknown as { server: import('node:net').Server }).server;
     server.emit('error', new Error('simulated server error'));
-    await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, CONNECT_REGISTER_BUDGET_MS));
     expect(errors).toHaveLength(1);
     expect(errors[0]).toMatchObject({ kind: 'server_error' });
     expect(errors[0].error.message).toBe('simulated server error');
@@ -351,7 +376,7 @@ describe('UnixDomainSocketTransport', () => {
     const c = await connectClient(path);
     clients.push(c);
     c.write('a\n\nb\n');
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, MSG_PROCESS_BUDGET_MS));
     expect(msgs).toEqual(['a', '', 'b']);
   });
 

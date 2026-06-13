@@ -20,6 +20,12 @@ import { PROCESS_MANAGER_AUDIT_EVENTS } from '../../../src/foundation/process-ma
 import { FAKE_LIVE_PID, FAKE_LIVE_PID_STRING } from '../../helpers/test-pids.js';
 import type { ProcessManagerContext } from '../../../src/foundation/process-manager/types.js';
 
+/**
+ * Stale marker delete poll interval (50ms): 等 async delete settle.
+ * Derivation: > unlink syscall budget / × 20 retries 给 total 1s 上限.
+ */
+const STALE_MARKER_POLL_MS = 50;
+
 describe('isReady / markReady / markNotReady', () => {
   let tempDir: string;
   let nodeFs: NodeFileSystem;
@@ -129,7 +135,7 @@ describe('isReady / markReady / markNotReady', () => {
     for (let i = 0; i < 20; i++) {
       const exists = await fs.access(readyFile).then(() => true).catch(() => false);
       if (!exists) break;
-      await new Promise(r => setTimeout(r, 50));
+      await new Promise(r => setTimeout(r, STALE_MARKER_POLL_MS));
     }
     const markerStillExists = await fs.access(readyFile).then(() => true).catch(() => false);
     expect(markerStillExists).toBe(false);

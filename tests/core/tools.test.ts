@@ -17,6 +17,18 @@ import {
   ToolTimeoutError,
 } from '../../src/foundation/errors.js';
 
+/**
+ * Mock tool 短任务执行时长 / monotonic clock advance step.
+ * Derivation: > 1ms 跨 microtask flush / < typical vitest tick 不显著拖慢.
+ */
+const MOCK_TOOL_QUICK_MS = 10;
+
+/**
+ * Mock 慢任务执行时长（设 > 配套 timeoutMs=50 触发 ToolTimeoutError）.
+ * Derivation: phase 293 调 500→200，保 > timeoutMs ×4 触发 timeout 路径稳定.
+ */
+const MOCK_TOOL_SLOW_MS = 200;
+
 describe('Tools', () => {
   describe('ToolRegistryImpl', () => {
     let registry: ToolRegistryImpl;
@@ -195,7 +207,7 @@ describe('Tools', () => {
       });
 
       const elapsed1 = ctx.getElapsedMs();
-      await new Promise(r => setTimeout(r, 10));
+      await new Promise(r => setTimeout(r, MOCK_TOOL_QUICK_MS));
       const elapsed2 = ctx.getElapsedMs();
 
       expect(elapsed1).toBeGreaterThanOrEqual(0);
@@ -277,7 +289,7 @@ describe('Tools', () => {
         profiles: ['full'],
         readonly: true,
         execute: async () => {
-          await new Promise(r => setTimeout(r, 200)); // sleep: mock slow tool execution (phase 293: 500→200; timeoutMs=50)
+          await new Promise(r => setTimeout(r, MOCK_TOOL_SLOW_MS)); // mock slow tool execution; > timeoutMs=50 → ToolTimeoutError
           return { success: true, content: '' };
         },
       });
@@ -345,7 +357,7 @@ describe('Tools', () => {
         readonly: true,
         execute: async () => {
           executionOrder.push(1);
-          await new Promise(r => setTimeout(r, 10));
+          await new Promise(r => setTimeout(r, MOCK_TOOL_QUICK_MS));
           executionOrder.push(-1);
           return { success: true, content: '1' };
         },
@@ -359,7 +371,7 @@ describe('Tools', () => {
         readonly: true,
         execute: async () => {
           executionOrder.push(2);
-          await new Promise(r => setTimeout(r, 10));
+          await new Promise(r => setTimeout(r, MOCK_TOOL_QUICK_MS));
           executionOrder.push(-2);
           return { success: true, content: '2' };
         },
@@ -373,7 +385,7 @@ describe('Tools', () => {
         readonly: true,
         execute: async () => {
           executionOrder.push(3);
-          await new Promise(r => setTimeout(r, 10));
+          await new Promise(r => setTimeout(r, MOCK_TOOL_QUICK_MS));
           executionOrder.push(-3);
           return { success: true, content: '3' };
         },

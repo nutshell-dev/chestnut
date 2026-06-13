@@ -10,6 +10,12 @@ import { SUBAGENT_DEFAULT_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
 import type { FileSystem, FileEntry } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 
+/**
+ * Fire-and-forget audit microtask settle (10ms): 等 _ingestPendingFile 内 audit.write 落定.
+ * Derivation: > microtask flush 1 turn / 给 fire-and-forget audit land 窗口.
+ */
+const AUDIT_MICROTASK_SETTLE_MS = 10;
+
 function makeAudit(): { audit: AuditLog; events: Array<[string, ...(string | number)[]]> } {
   const events: Array<[string, ...(string | number)[]]> = [];
   const audit: AuditLog = {
@@ -155,7 +161,7 @@ describe('async-task queue cross-source audit (phase 284)', () => {
       );
 
       // 给 microtask 一点时间让 fire-and-forget audit 完成
-      await new Promise(r => setTimeout(r, 10));
+      await new Promise(r => setTimeout(r, AUDIT_MICROTASK_SETTLE_MS));
 
       const mismatch = events.filter(e => e[0] === TASK_AUDIT_EVENTS.ASYNC_TASK_QUEUE_CROSS_SOURCE_MISMATCH);
       expect(mismatch).toHaveLength(0);

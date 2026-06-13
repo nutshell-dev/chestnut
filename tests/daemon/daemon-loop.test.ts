@@ -19,6 +19,24 @@ import type { Runtime } from '../../src/core/runtime/index.js';
 import type { StreamLog } from '../../src/foundation/stream/types.js';
 import { MESSAGING_AUDIT_EVENTS } from '../../src/foundation/messaging/audit-events.js';
 
+/**
+ * 给 chokidar watcher 完成内部 fs.watch 注册 / ready 触发的 budget.
+ * Derivation: chokidar typical ready ≤ 20ms / ×2.5 safety = 50ms.
+ */
+const WATCHER_SETUP_BUDGET_MS = 50;
+
+/**
+ * 让 daemon loop 至少跑过 1 iteration（processBatch 完成 1 次）.
+ * Derivation: > eventloop tick / < fallbackTimeoutMs=50 / 不漏 iteration.
+ */
+const LOOP_ITERATION_BUDGET_MS = 20;
+
+/**
+ * Daemon loop 多 iteration budget: 等 ≥ 2 iteration 完成.
+ * Derivation: ≥ 2 × LOOP_ITERATION_BUDGET_MS + margin.
+ */
+const DAEMON_MULTI_TICK_BUDGET_MS = 80;
+
 describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
   let agentDir: string;
   let inboxPendingDir: string;
@@ -74,7 +92,7 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
       const promise = waitForInbox(fs, audit, inboxPendingDir, TIMEOUT_MS);
 
       // Give watcher time to set up
-      await new Promise(r => setTimeout(r, 50));
+      await new Promise(r => setTimeout(r, WATCHER_SETUP_BUDGET_MS));
       fsNative.writeFileSync(path.join(inboxPendingDir, 'test.md'), '# hello');
 
       const start = Date.now();
@@ -132,7 +150,7 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
       });
 
       // Let one iteration run (processBatch → waitForInbox 50ms)
-      await new Promise(r => setTimeout(r, 20));
+      await new Promise(r => setTimeout(r, LOOP_ITERATION_BUDGET_MS));
       stop();
 
       // Wait for loop to drain and promise resolve
@@ -165,7 +183,7 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
         fsFactory,
       });
 
-      await new Promise(r => setTimeout(r, 20));
+      await new Promise(r => setTimeout(r, LOOP_ITERATION_BUDGET_MS));
       stop();
       await promise;
 
@@ -212,7 +230,7 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
         fsFactory,
       });
 
-      await new Promise(r => setTimeout(r, 80));
+      await new Promise(r => setTimeout(r, DAEMON_MULTI_TICK_BUDGET_MS));
       stop();
       await promise;
 

@@ -27,6 +27,12 @@ import { createTestTaskSystem, createMockWatcherFactory } from '../helpers/task-
 import { waitFor } from '../helpers/wait-for.js';
 
 /**
+ * Mock slow stream chunk 间隔 (50ms): 等 abort signal 中段触发 / 慢逐 chunk yield.
+ * Derivation: > microtask flush / 给 mid-execution cancel 触发窗口.
+ */
+const MOCK_SLOW_STREAM_GAP_MS = 50;
+
+/**
  * Convert LLMResponse to stream chunks for mock
  */
 async function* responseToStreamChunks(response: LLMResponse): AsyncIterableIterator<StreamChunk> {
@@ -267,11 +273,11 @@ describe('Task System + SubAgent', () => {
       async function* slowStream(): AsyncIterableIterator<StreamChunk> {
         yield { type: 'text_delta', delta: 'Starting' };
         // Wait a bit, then check for abort
-        await new Promise(r => setTimeout(r, 50));
+        await new Promise(r => setTimeout(r, MOCK_SLOW_STREAM_GAP_MS));
         yield { type: 'text_delta', delta: '...' };
-        await new Promise(r => setTimeout(r, 50));
+        await new Promise(r => setTimeout(r, MOCK_SLOW_STREAM_GAP_MS));
         yield { type: 'text_delta', delta: '...' };
-        await new Promise(r => setTimeout(r, 50));
+        await new Promise(r => setTimeout(r, MOCK_SLOW_STREAM_GAP_MS));
         yield { type: 'done' };
       }
       

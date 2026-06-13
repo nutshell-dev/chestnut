@@ -7,6 +7,18 @@ import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { makeAudit } from '../../helpers/audit.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 
+/**
+ * Mock writeAtomic 慢写时长 (20ms)：让 serialize chain race 实际有窗口.
+ * Derivation: > microtask flush / 给 concurrent save B 在 A 之 awaitAtomic 中段进入 chain.
+ */
+const MOCK_SLOW_WRITE_MS = 20;
+
+/**
+ * Settle 等 flushPromise 不应 resolve 的负断言窗口 (10ms).
+ * Derivation: > microtask flush / 给 flush.then 跑过 1 turn 后断 flushResolved=false.
+ */
+const FLUSH_NEGATIVE_SETTLE_MS = 10;
+
 describe('DialogStore flushPromise serialize (phase 1024 G.2)', () => {
   let tempDir: string;
   let fs: NodeFileSystem;
@@ -32,7 +44,7 @@ describe('DialogStore flushPromise serialize (phase 1024 G.2)', () => {
     vi.spyOn(fs, 'writeAtomic').mockImplementation(async (_path, content) => {
       const text = typeof content === 'string' ? content : String(content);
       writeOrder.push(text);
-      await new Promise((r) => setTimeout(r, 20)); // simulate slow write
+      await new Promise((r) => setTimeout(r, MOCK_SLOW_WRITE_MS)); // simulate slow write
     });
 
     await Promise.all([
@@ -59,7 +71,7 @@ describe('DialogStore flushPromise serialize (phase 1024 G.2)', () => {
     let flushResolved = false;
     flushPromise.then(() => { flushResolved = true; });
 
-    await new Promise((r) => setTimeout(r, 10));
+    await new Promise((r) => setTimeout(r, FLUSH_NEGATIVE_SETTLE_MS));
     expect(flushResolved).toBe(false);
 
     resolveWrite();

@@ -24,6 +24,12 @@ import { createEventCollector } from '../helpers/event-collector.js';
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
 import { SUBAGENT_LONG_TIMEOUT_MS } from '../helpers/test-timeouts.js';
 
+/**
+ * waitForAudit poll interval (phase 224 tighter from earlier value).
+ * Derivation: < typical audit event flush (10ms) / 不漏窗 + 不过 busy-spin.
+ */
+const WAIT_FOR_AUDIT_POLL_MS = 5;
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -195,7 +201,7 @@ async function waitForAudit(
   while (Date.now() - start < timeoutMs) {
     const matched = fx.audit.filter(type);
     if (matched.length >= count) return matched;
-    await new Promise(r => setTimeout(r, 5));  // phase 224: tighter poll for waitForAudit
+    await new Promise(r => setTimeout(r, WAIT_FOR_AUDIT_POLL_MS));  // phase 224: tighter poll for waitForAudit
   }
   throw new Error(`waitForAudit timeout: type=${type} count=${count}; got ${fx.audit.filter(type).length}`);
 }

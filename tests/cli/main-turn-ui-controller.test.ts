@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createMainTurnUI } from '../../src/cli/commands/chat-viewport.js';
+import { MIN_DWELL_MS } from '../../src/cli/commands/main-turn-ui.js';
 import { VIEWPORT_AUDIT_EVENTS } from '../../src/cli/commands/viewport-audit-events.js';
 
 describe('MainTurnUIController', () => {
@@ -235,7 +236,7 @@ describe('MainTurnUIController', () => {
       vi.advanceTimersByTime(150);
       // 此时 pendingClearTimer fired, stopSpinnerNow ran, spinnerStopTs ≈ T0+200
 
-      // cycle 2: fresh restart at T0+205 (within MIN_DWELL_MS=200 from stop)
+      // cycle 2: fresh restart at T0+(MIN_DWELL_MS+5) (within MIN_DWELL_MS from stop)
       vi.advanceTimersByTime(5);
       ui.enterPhase('waiting_llm');   // startSpinner fresh 分支
       // continuity 分支应触发：spinnerStartTs ≈ T0+6 (virtual, T0+205 - 199)
@@ -256,8 +257,8 @@ describe('MainTurnUIController', () => {
 
       // cycle 1
       ui.enterPhase('waiting_llm');
-      vi.advanceTimersByTime(200);
-      ui.enterPhase('streaming_text');   // elapsed=200 ≥ MIN → stop immediate
+      vi.advanceTimersByTime(MIN_DWELL_MS);
+      ui.enterPhase('streaming_text');   // elapsed=MIN_DWELL_MS → stop immediate
       // 此时 spinnerStopTs ≈ T0+200
 
       // cycle 2: 等 1 秒后 start（> MIN_DWELL_MS from stop）

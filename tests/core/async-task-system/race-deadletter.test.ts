@@ -12,6 +12,12 @@ import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import { SUBAGENT_SHORT_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
 
+/**
+ * Concurrent read 双 await 落 pending 后才断言 defers.length=2 的 settle 间隔.
+ * Derivation: > microtask flush（两 spy.mock fs.read 都进 await 队列）/ < 任意路径 deadline.
+ */
+const PENDING_READ_SETTLE_MS = 10;
+
 vi.mock('../../../src/core/async-task-system/result-delivery.js', () => ({
   sendResult: vi.fn(),
   sendFallbackError: vi.fn().mockRejectedValue(new Error('fallback failed')),
@@ -118,7 +124,7 @@ describe('phase 556: race + dead-letter cluster fix', () => {
       const cancelPromise = system.cancel(taskId);
 
       // 等一个 tick，让 cancel 执行到 await fs.exists 并挂起
-      await new Promise((r) => setTimeout(r, 0));
+      await new Promise(setImmediate);
 
       // resolve fs.read（此时 cancellingIds 中仍有 taskId）
       resolveRead(JSON.stringify({
@@ -324,7 +330,7 @@ describe('phase 556: race + dead-letter cluster fix', () => {
       const p2 = (system as any)._ingestPendingFile(filePath);
 
       // 等待两个 read 都被挂起
-      await new Promise((r) => setTimeout(r, 10));
+      await new Promise((r) => setTimeout(r, PENDING_READ_SETTLE_MS));
       expect(defers.length).toBe(2);
 
       // 同时 resolve 两个 read
@@ -379,7 +385,7 @@ describe('phase 556: race + dead-letter cluster fix', () => {
       const ingestPromise = (system as any)._ingestPendingFile(filePath);
       const cancelPromise = system.cancel(taskId);
 
-      await new Promise((r) => setTimeout(r, 0));
+      await new Promise(setImmediate);
 
       resolveRead(JSON.stringify({
         kind: 'subagent',

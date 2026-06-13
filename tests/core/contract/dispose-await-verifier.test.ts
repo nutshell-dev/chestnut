@@ -12,6 +12,18 @@ import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { createToolRegistry } from '../../../src/foundation/tools/index.js';
 import { makeMockAudit } from '../../helpers/audit.js';
 
+/**
+ * Mock cs1.close 慢 dispose 时长 (10ms): 与 cs2 5ms 形成 close 顺序 race.
+ * Derivation: 2 × MOCK_CS2_CLOSE_MS 保 cs1 严格 > cs2 / 序断言依赖此差值.
+ */
+const MOCK_CS1_CLOSE_MS = 10;
+
+/**
+ * Mock cs2.close 较快 dispose 时长 (5ms).
+ * Derivation: < MOCK_CS1_CLOSE_MS / 给 closeOrder 排列 race 端口.
+ */
+const MOCK_CS2_CLOSE_MS = 5;
+
 const { mockRunContractVerifier } = vi.hoisted(() => ({
   mockRunContractVerifier: vi.fn(),
 }));
@@ -126,12 +138,12 @@ describe('ContractSystem.close() async await verifier termination', () => {
 
     vi.spyOn(cs1, 'close').mockImplementation(async () => {
       closeOrder.push('cs1-start');
-      await new Promise(r => setTimeout(r, 10));
+      await new Promise(r => setTimeout(r, MOCK_CS1_CLOSE_MS));
       closeOrder.push('cs1-end');
     });
     vi.spyOn(cs2, 'close').mockImplementation(async () => {
       closeOrder.push('cs2-start');
-      await new Promise(r => setTimeout(r, 5));
+      await new Promise(r => setTimeout(r, MOCK_CS2_CLOSE_MS));
       closeOrder.push('cs2-end');
     });
 

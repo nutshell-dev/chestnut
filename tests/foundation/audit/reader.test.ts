@@ -9,6 +9,18 @@ import {
 } from '../../../src/foundation/audit/reader.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 
+/**
+ * Follow-mode append delay (50ms): 等 follow() iter 进入 wait 后再 append.
+ * Derivation: > microtask flush / < FOLLOW_CLOSE_DEADLINE_MS / 让 follow loop 实际跑过一轮.
+ */
+const FOLLOW_APPEND_DELAY_MS = 50;
+
+/**
+ * Follow-mode test 总 deadline (400ms): hang fail-safe.
+ * Derivation: >>> append delay (50ms) + iter callback budget / 不死等.
+ */
+const FOLLOW_CLOSE_DEADLINE_MS = 400;
+
 function makeFs(entries: Record<string, string | { size: number; isDirectory?: boolean }>): FileSystem {
   const store: Record<string, string> = {};
   const meta: Record<string, { size: number; isDirectory: boolean }> = {};
@@ -345,10 +357,10 @@ describe('AuditReader', () => {
       // Append after a short delay
       setTimeout(() => {
         append('/test/audit.tsv', '2024-01-01T00:00:01Z\tseq=2\tb\n');
-      }, 50);
+      }, FOLLOW_APPEND_DELAY_MS);
 
       const recs: unknown[] = [];
-      const timeout = setTimeout(() => { reader.close(); }, 400);
+      const timeout = setTimeout(() => { reader.close(); }, FOLLOW_CLOSE_DEADLINE_MS);
       for await (const rec of iter) {
         recs.push(rec);
         if (recs.length >= 1) { reader.close(); break; }
