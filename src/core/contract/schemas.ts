@@ -18,6 +18,16 @@
 
 import { z } from 'zod';
 
+// phase 347: LifecyclePersistedStatus 4 literals 单源 tuple (ML#1 共用基础设施单源)
+// type derive 归 types.ts (`(typeof TUPLE)[number]`)、z.enum + Set + ContractStatus union 全 derive from this tuple
+// 物理放 schemas.ts (与 z.enum 同 file、避免 schemas.ts → types.ts circular dep、types.ts → schemas.ts 单向 align)
+export const LIFECYCLE_PERSISTED_STATUSES_TUPLE = [
+  'paused',                       // paused 子目录、用户主动暂停
+  'cancelled',                    // archive 子目录、用户 CLI / system 主动停
+  'crashed',                      // archive 子目录、agent 物理推不动 (phase 63)
+  'archive_pending_recovery',     // archiveAndEmit partial recovery state (phase 1371 sub-2)
+] as const;
+
 const SubTaskSchema = z.object({
   id: z.string(),
   description: z.string(),
@@ -69,7 +79,8 @@ export const ContractProgressPersistedSchema = z.object({
   checkpoint: z.union([z.string(), z.null()]).optional(),
   // phase 330: non-derivable lifecycle status preserved by persistence.ts (per phase 282 Step A design intent)
   // derivable status (completed/running/pending) 不持久化 (由 loader derive from subtasks)
-  status: z.enum(['cancelled', 'crashed', 'paused', 'archive_pending_recovery']).optional(),
+  // phase 347: tuple derive (ML#1 单源 from types.ts LIFECYCLE_PERSISTED_STATUSES_TUPLE)
+  status: z.enum(LIFECYCLE_PERSISTED_STATUSES_TUPLE).optional(),
 }).strict();
 
 export type ContractProgressPersistedValidated = z.infer<typeof ContractProgressPersistedSchema>;

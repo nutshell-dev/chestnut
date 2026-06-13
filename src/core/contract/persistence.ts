@@ -13,6 +13,7 @@ import { ToolError } from '../../foundation/errors.js';
 import type { Contract } from '../contract/types.js';
 import type { ContractYaml } from './types.js';
 import type { ProgressData } from './types.js';
+import { stripDerivableStatus } from './types.js';
 import { ContractYamlSchema, ContractProgressPersistedSchema } from './schemas.js';
 import { makeClawId } from '../../constants.js';
 import { emitContractYamlSchemaInvalid } from './audit-emit.js';
@@ -128,10 +129,8 @@ export async function saveProgress(
   // 落盘时不写 status（消除双源）。对于不可 derive 的生命周期状态
   //（cancelled/crashed/paused/archive_pending_recovery），暂时保留以
   // 避免状态丢失（未来可迁移到独立持久化标记如 cancelled_at/crashed_at）。
-  const DERIVABLE_STATUSES = new Set<string>(['completed', 'running', 'pending']);
-  if (DERIVABLE_STATUSES.has(progressToSave.status)) {
-    delete (progressToSave as Record<string, unknown>).status;
-  }
+  // phase 342: stripDerivableStatus helper (ML#1 共用基础设施单源)
+  stripDerivableStatus(progressToSave as Record<string, unknown>);
 
   // phase 319: Zod SoT safeParse defensive (replace assertProgressShapeInvariants、ML#9 优先编译器检查)
   // phase 233 Step A anchor: 违例 emit audit、不 throw、不阻 save、Path #4 防 break

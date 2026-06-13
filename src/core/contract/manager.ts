@@ -52,9 +52,10 @@ import { UUID_SHORT_LEN, type ClawId } from '../../constants.js';
 
 import type {
   ContractYaml, ProgressData, VerificationResult, VerifierConfig, VerifierResult,
-  ContractCreatePolicy, CreatePolicyContext, CreateContractOptions, ContractStatus,
+  ContractCreatePolicy, CreatePolicyContext, CreateContractOptions,
 } from './types.js';
-import { ContractCreatePolicyViolationError, deriveProgressStatus } from './types.js';
+import { ContractCreatePolicyViolationError, deriveProgressStatus, stripDerivableStatus, DERIVABLE_STATUSES } from './types.js';
+import type { LifecyclePersistedStatus } from './types.js';
 import {
   lockContract,
   type LockContext,
@@ -483,10 +484,9 @@ export class ContractSystem {
             if (mutated) {
               // phase 319: 删 assertProgressShapeInvariants（load 端 ContractProgressPersistedSchema.safeParse 已守、boot reconcile 双 check 冗余）
               // phase 338: align phase 282 Step A design intent (derivable status 不持久化、由 loader derive from subtasks)、strip derivable before writeAtomic
+              // phase 342: stripDerivableStatus helper (ML#1 共用基础设施单源、与 persistence.ts saveProgress 共用)
               const persistedProgress: Record<string, unknown> = { ...progress };
-              if (persistedProgress.status === 'pending' || persistedProgress.status === 'running' || persistedProgress.status === 'completed') {
-                delete persistedProgress.status;
-              }
+              stripDerivableStatus(persistedProgress);
               await this.fs.writeAtomic(progressPath, JSON.stringify(persistedProgress, null, 2));
               const allCompleted = Object.values(progress.subtasks).every(s => s.status === 'completed');
               if (allCompleted && progress.status !== 'completed') {
@@ -888,11 +888,13 @@ export class ContractSystem {
       delete (rawParsed as Record<string, unknown>).contract_id;
     }
     const legacyStatus = (rawParsed as Record<string, unknown>).status;
-    let preservedLifecycleStatus: ContractStatus | undefined;
-    const DERIVABLE_STATUSES = new Set<string>(['completed', 'running', 'pending']);
-    if (typeof legacyStatus === 'string' && !DERIVABLE_STATUSES.has(legacyStatus)) {
+    // phase 345: narrow type LifecyclePersistedStatus (disjoint subset、derive subset 由 derivedStatus 处理)
+    let preservedLifecycleStatus: LifecyclePersistedStatus | undefined;
+    // phase 342: DERIVABLE_STATUSES const 复用 types.ts (ML#1 共用基础设施单源)
+    // phase 344: typed Set<DerivableStatus> 需 cast string check (runtime 不窄)
+    if (typeof legacyStatus === 'string' && !(DERIVABLE_STATUSES as ReadonlySet<string>).has(legacyStatus)) {
       // 保留不可 derive 的生命周期状态（cancelled/crashed/paused/archive_pending_recovery）
-      preservedLifecycleStatus = legacyStatus as ContractStatus;
+      preservedLifecycleStatus = legacyStatus as LifecyclePersistedStatus;
     } else if (legacyStatus !== undefined) {
       // 可 derive 状态、legacy field 忽略 + emit audit
       this.audit.write(

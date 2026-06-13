@@ -6,7 +6,7 @@
 import * as path from 'path';
 import { isFileNotFound, type FileSystem } from '../../../foundation/fs/types.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
-import type { ContractStatus, ProgressData } from '../types.js';
+import type { ContractStatus } from '../types.js';
 import { CONTRACT_ARCHIVE_DIR } from '../dirs.js';
 import type { ClawId } from '../../../constants.js';
 import {
@@ -14,6 +14,7 @@ import {
   emitContractArchiveReconcileFailed,
   emitContractArchiveReconcileSummary,
 } from '../audit-emit.js';
+import { ContractProgressArchiveLooseSchema } from '../schemas.js';
 
 const ACTIVE_STATUSES = new Set<ContractStatus>(['pending', 'running', 'paused']);
 
@@ -49,13 +50,18 @@ export async function reconcileArchiveStaleEntries(
     const progressPath = path.join(archiveDir, d.name, 'progress.json');
     try {
       const raw = await ctx.fs.read(progressPath);
-      const progress = JSON.parse(raw) as ProgressData;
-      if (!ACTIVE_STATUSES.has(progress.status)) continue; // 终态跳过
+      // phase 341 Zod SoT broaden (ML#9 优先编译器检查、复用 phase 332 loose schema、cluster N=10)
+      const rawParsed: unknown = JSON.parse(raw);
+      const validation = ContractProgressArchiveLooseSchema.safeParse(rawParsed);
+      if (!validation.success) continue; // 解析失败、跳过 (archive use case loose、skip silent)
+      const persisted = validation.data;
+      const currentStatus = persisted.status as ContractStatus | undefined;
+      if (!currentStatus || !ACTIVE_STATUSES.has(currentStatus)) continue; // 终态跳过
 
-      // 翻 archive_pending_recovery
-      const oldStatus = progress.status;
-      progress.status = 'archive_pending_recovery';
-      await ctx.fs.writeAtomic(progressPath, JSON.stringify(progress, null, 2));
+      // 翻 archive_pending_recovery (non-derivable status、phase 330 strict schema align、无需 strip pattern)
+      const oldStatus = currentStatus;
+      const newPayload = { ...persisted, status: 'archive_pending_recovery' as const };
+      await ctx.fs.writeAtomic(progressPath, JSON.stringify(newPayload, null, 2));
 
       emitContractArchiveReconcileStale(ctx.audit, {
         clawId, contractId: d.name, oldStatus, newStatus: 'archive_pending_recovery',

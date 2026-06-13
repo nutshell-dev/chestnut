@@ -24,14 +24,18 @@ import type { ClawId } from '../../constants.js';
 // Contract domain types (canonical owner per interfaces/l4.md)
 // ============================================================================
 
-export type ContractStatus =
-  | 'pending'
-  | 'running'
-  | 'paused'
-  | 'completed'
-  | 'cancelled'
-  | 'crashed'                                  // phase 63: agent loop 推不动契约的终态
-  | 'archive_pending_recovery';  // phase 1371 sub-2: archiveAndEmit partial recovery state
+// phase 345: ContractStatus disjoint union recompose
+// derive subset (DerivableStatus) 见 deriveProgressStatus return type、由 loader derive from subtasks
+// persist subset (LifecyclePersistedStatus) 持久化保留、显式生命周期状态机
+// phase 347: tuple-as-const + type derive (ML#1 共用基础设施单源、4 literals 单源)
+// tuple 物理放 schemas.ts (与 z.enum 同 file、避免 schemas.ts → types.ts circular dep)、type derive 仍归 types.ts
+import { LIFECYCLE_PERSISTED_STATUSES_TUPLE } from './schemas.js';
+
+export type LifecyclePersistedStatus = (typeof LIFECYCLE_PERSISTED_STATUSES_TUPLE)[number];
+
+// 'pending' / 'running' / 'completed' = DerivableStatus (derive subset)
+// 'paused' / 'cancelled' / 'crashed' / 'archive_pending_recovery' = LifecyclePersistedStatus (persist subset)
+export type ContractStatus = DerivableStatus | LifecyclePersistedStatus;
 
 export type SubtaskStatus =
   | 'todo'
@@ -107,7 +111,21 @@ export interface ProgressData extends Omit<ProgressDataPersisted, 'status'> {
  * 注意：'running' / 'paused' / 'cancelled' / 'crashed' / 'archive_pending_recovery'
  * 等生命周期状态无法从 subtasks 单独 derive，仍由业务代码显式控制。
  */
-export function deriveProgressStatus(p: Pick<ProgressDataPersisted, 'subtasks'>): ContractStatus {
+/**
+ * phase 344: derivable status subset type narrow (ML#9 优先编译器检查)。
+ * phase 348: tuple-as-const + type derive (ML#1 共用基础设施单源、mirror phase 347 LIFECYCLE pattern)。
+ *
+ * Derivable status (phase 282 Step A design intent):
+ * - 'pending'/'running'/'completed' 由 loader derive from subtasks、不持久化
+ * - 'paused'/'cancelled'/'crashed'/'archive_pending_recovery' 不可 derive、持久化保留
+ *
+ * 与 ContractStatus (wide enum) 对称、derivable subset typed narrow。
+ */
+export const DERIVABLE_STATUSES_TUPLE = ['pending', 'running', 'completed'] as const;
+
+export type DerivableStatus = (typeof DERIVABLE_STATUSES_TUPLE)[number];
+
+export function deriveProgressStatus(p: Pick<ProgressDataPersisted, 'subtasks'>): DerivableStatus {
   const subtasks = Object.values(p.subtasks);
   if (subtasks.length === 0) return 'pending';
   // 转译 CS-1/3/4：所有 subtask 语义上 completed（status='completed' 或有 completed_at / force_accepted）
@@ -116,6 +134,29 @@ export function deriveProgressStatus(p: Pick<ProgressDataPersisted, 'subtasks'>)
   }
   // 转译 CS-2 反向：不是所有 completed → running（存在 todo / in_progress）
   return 'running';
+}
+
+/**
+ * phase 342: 共用基础设施单源 (ML#1)。
+ * phase 344: typed ReadonlySet<DerivableStatus> (ML#9 typed set)。
+ * phase 348: Set derive from tuple (ML#1 单源、3 literals 不再重复)。
+ */
+export const DERIVABLE_STATUSES: ReadonlySet<DerivableStatus> = new Set(DERIVABLE_STATUSES_TUPLE);
+
+/**
+ * phase 342: strip derivable status field before persist。
+ * 双 site 使用: persistence.ts saveProgress + manager.ts boot_reconcile。
+ * 对称 deriveProgressStatus (derive on load) + stripDerivableStatus (strip on persist)。
+ *
+ * In-place mutation: caller 传入 cloned object (e.g., `{ ...progress }`) 直接传入即可、
+ * 不再 inline `||` chain check + delete。
+ *
+ * phase 344: typed ReadonlySet<DerivableStatus> 需 cast string check (Set.has runtime 不窄 string)。
+ */
+export function stripDerivableStatus(p: Record<string, unknown>): void {
+  if (typeof p.status === 'string' && (DERIVABLE_STATUSES as ReadonlySet<string>).has(p.status)) {
+    delete p.status;
+  }
 }
 
 export interface VerificationResult {
