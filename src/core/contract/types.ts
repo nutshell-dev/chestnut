@@ -27,9 +27,8 @@ import type { ClawId } from '../../constants.js';
 // phase 345: ContractStatus disjoint union recompose
 // derive subset (DerivableStatus) 见 deriveProgressStatus return type、由 loader derive from subtasks
 // persist subset (LifecyclePersistedStatus) 持久化保留、显式生命周期状态机
-// phase 347: tuple-as-const + type derive (ML#1 共用基础设施单源、4 literals 单源)
-// tuple 物理放 schemas.ts (与 z.enum 同 file、避免 schemas.ts → types.ts circular dep)、type derive 仍归 types.ts
-import { LIFECYCLE_PERSISTED_STATUSES_TUPLE } from './schemas.js';
+// phase 358: status tuples 物理放 status-tuples.ts (解 schemas/types circular dep)、type derive 仍归 types.ts
+import { LIFECYCLE_PERSISTED_STATUSES_TUPLE } from './status-tuples.js';
 
 export type LifecyclePersistedStatus = (typeof LIFECYCLE_PERSISTED_STATUSES_TUPLE)[number];
 
@@ -120,8 +119,11 @@ export interface ProgressData extends Omit<ProgressDataPersisted, 'status'> {
  * - 'paused'/'cancelled'/'crashed'/'archive_pending_recovery' 不可 derive、持久化保留
  *
  * 与 ContractStatus (wide enum) 对称、derivable subset typed narrow。
+ * phase 358: DERIVABLE_STATUSES_TUPLE 物理迁 status-tuples.ts (解 schemas/types circular dep)
+ * 自身 re-export 保 backward compat 既有 import path
  */
-export const DERIVABLE_STATUSES_TUPLE = ['pending', 'running', 'completed'] as const;
+export { DERIVABLE_STATUSES_TUPLE } from './status-tuples.js';
+import { DERIVABLE_STATUSES_TUPLE } from './status-tuples.js';
 
 export type DerivableStatus = (typeof DERIVABLE_STATUSES_TUPLE)[number];
 
@@ -142,6 +144,51 @@ export function deriveProgressStatus(p: Pick<ProgressDataPersisted, 'subtasks'>)
  * phase 348: Set derive from tuple (ML#1 单源、3 literals 不再重复)。
  */
 export const DERIVABLE_STATUSES: ReadonlySet<DerivableStatus> = new Set(DERIVABLE_STATUSES_TUPLE);
+
+/**
+ * phase 351: ARCHIVE_ALLOWED_STATUSES tuple/type/Set 一以贯之 (mirror phase 347/348 pattern)。
+ * 终态契约可 archive 的 4 status: completed (derivable terminal) + 3 LifecyclePersistedStatus terminals。
+ */
+export const ARCHIVE_ALLOWED_STATUSES_TUPLE = [
+  'completed',                    // DerivableStatus 终态
+  'cancelled',                    // LifecyclePersistedStatus
+  'crashed',                      // LifecyclePersistedStatus
+  'archive_pending_recovery',     // LifecyclePersistedStatus
+] as const;
+
+export type ArchiveAllowedStatus = (typeof ARCHIVE_ALLOWED_STATUSES_TUPLE)[number];
+
+export const ARCHIVE_ALLOWED_STATUSES: ReadonlySet<ArchiveAllowedStatus> = new Set(ARCHIVE_ALLOWED_STATUSES_TUPLE);
+
+/**
+ * phase 351: ACTIVE_STATUSES tuple/type/Set 一以贯之 (mirror phase 347/348 pattern)。
+ * 非终态契约的 3 status: pending + running (DerivableStatus 活动态) + paused (LifecyclePersistedStatus 暂停)。
+ * archive sweep 用、检测 archive 内仍含 ACTIVE status 的 stale entries。
+ */
+export const ACTIVE_STATUSES_TUPLE = [
+  'pending',                      // DerivableStatus
+  'running',                      // DerivableStatus
+  'paused',                       // LifecyclePersistedStatus
+] as const;
+
+export type ActiveStatus = (typeof ACTIVE_STATUSES_TUPLE)[number];
+
+export const ACTIVE_STATUSES: ReadonlySet<ActiveStatus> = new Set(ACTIVE_STATUSES_TUPLE);
+
+/**
+ * phase 352: ALL_CONTRACT_STATUSES_TUPLE 合 2 base tuples (DERIVABLE + LIFECYCLE)、
+ * cluster N=13 完整 status 体系单源 (ML#1 + ML#9 一以贯之)。
+ *
+ * ContractStatus = (typeof ALL_CONTRACT_STATUSES_TUPLE)[number] 等价 DerivableStatus | LifecyclePersistedStatus
+ * (现 type 仍保 union 形态、便 deriveProgressStatus return narrow type 互兼容)。
+ *
+ * ALL_CONTRACT_STATUSES Set 提供 runtime check 基础设施 (e.g., 测试 exhaustive enumeration、status validation)。
+ */
+// phase 358: ALL_CONTRACT_STATUSES_TUPLE 物理迁 status-tuples.ts、re-export 保 backward compat
+export { ALL_CONTRACT_STATUSES_TUPLE } from './status-tuples.js';
+import { ALL_CONTRACT_STATUSES_TUPLE } from './status-tuples.js';
+
+export const ALL_CONTRACT_STATUSES: ReadonlySet<ContractStatus> = new Set(ALL_CONTRACT_STATUSES_TUPLE);
 
 /**
  * phase 342: strip derivable status field before persist。

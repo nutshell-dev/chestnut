@@ -18,15 +18,10 @@
 
 import { z } from 'zod';
 
-// phase 347: LifecyclePersistedStatus 4 literals 单源 tuple (ML#1 共用基础设施单源)
-// type derive 归 types.ts (`(typeof TUPLE)[number]`)、z.enum + Set + ContractStatus union 全 derive from this tuple
-// 物理放 schemas.ts (与 z.enum 同 file、避免 schemas.ts → types.ts circular dep、types.ts → schemas.ts 单向 align)
-export const LIFECYCLE_PERSISTED_STATUSES_TUPLE = [
-  'paused',                       // paused 子目录、用户主动暂停
-  'cancelled',                    // archive 子目录、用户 CLI / system 主动停
-  'crashed',                      // archive 子目录、agent 物理推不动 (phase 63)
-  'archive_pending_recovery',     // archiveAndEmit partial recovery state (phase 1371 sub-2)
-] as const;
+// phase 358: LIFECYCLE_PERSISTED_STATUSES_TUPLE 物理迁 status-tuples.ts (解 schemas/types circular dep)
+// 自身 re-export 保 backward compat 既有 import path
+export { LIFECYCLE_PERSISTED_STATUSES_TUPLE } from './status-tuples.js';
+import { LIFECYCLE_PERSISTED_STATUSES_TUPLE, ALL_CONTRACT_STATUSES_TUPLE } from './status-tuples.js';
 
 const SubTaskSchema = z.object({
   id: z.string(),
@@ -109,7 +104,8 @@ export const ContractProgressArchiveLooseSchema = z.object({
   started_at: z.string().optional(),
   completed_at: z.string().optional(),
   checkpoint: z.union([z.string(), z.null()]).optional(),
-  status: z.string().optional(),
+  // phase 358: z.enum(ALL_CONTRACT_STATUSES_TUPLE) narrow (M#9 优先编译器检查、phase 352 升档 B sister)
+  status: z.enum(ALL_CONTRACT_STATUSES_TUPLE).optional(),
   // phase 335: contract_id 在 archive/boot_reconcile 路径 legacy 可含 (derive 字段)、explicit typed access
   contract_id: z.string().optional(),
 }).passthrough();

@@ -4,7 +4,7 @@ import * as yaml from 'js-yaml';
 import { isFileNotFound, type FileSystem } from '../../../foundation/fs/types.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
 import type { ProgressData } from '../manager.js';
-import type { ContractStatus } from '../types.js';
+import type { ArchiveAllowedStatus } from '../types.js';
 import { CONTRACT_AUDIT_EVENTS } from '../audit-events.js';
 import { emitContractArchiveNonTerminalDetected } from '../audit-emit.js';
 import { CONTRACT_ARCHIVE_DIR } from '../dirs.js';
@@ -31,7 +31,7 @@ function readContractMeta(
 interface FormattedEvent {
   body: string;
   hasFailure: boolean;     // 任意 subtask 有 last_failed_feedback
-  status: ContractStatus;
+  status: ArchiveAllowedStatus;
   reason?: string;
   cause?: string;
 }
@@ -151,7 +151,7 @@ export interface ArchivedContractEntry {
   /** max(subtask.completed_at) ms epoch、0 if no subtask completed_at */
   latestSubtaskCompletedAtMs: number;
   // phase 63 NEW
-  status: ContractStatus;     // entry 终态、observer 据此分流
+  status: ArchiveAllowedStatus;     // entry 终态、observer 据此分流
   reason?: string;            // cancelled 时填
   cause?: string;             // crashed 时填
 }

@@ -5,7 +5,8 @@
 
 import type { ContractId } from './types.js';
 import type { Contract } from '../contract/types.js';
-import type { ProgressData, ContractStatus } from './types.js';
+import type { ProgressData } from './types.js';
+import { ARCHIVE_ALLOWED_STATUSES } from './types.js';
 import { PROGRESS_CURRENT_SCHEMA_VERSION } from './persistence.js';
 import { lockContract, releaseLock, type LockContext } from './lock.js';
 import { ToolError } from '../../foundation/errors.js';
@@ -275,12 +276,7 @@ export async function isContractComplete(
   return ctx.checkAllSubtasksCompleted(contractId, progress);
 }
 
-const ARCHIVE_ALLOWED_STATUSES = new Set<ContractStatus>([
-  'completed',
-  'cancelled',
-  'crashed',
-  'archive_pending_recovery',
-]);
+// phase 351: ARCHIVE_ALLOWED_STATUSES 复用 types.ts (ML#1 共用基础设施单源、mirror phase 347/348 pattern)
 
 export async function moveContractToArchive(
   ctx: LifecycleContext,
@@ -298,7 +294,8 @@ export async function moveContractToArchive(
     await releaseSource();
     throw new ToolError(`Contract "${contractId}" progress unavailable: cannot archive`);
   }
-  if (!ARCHIVE_ALLOWED_STATUSES.has(progress.status)) {
+  // phase 351: cast string for typed Set runtime check (mirror phase 344 stripDerivableStatus pattern)
+  if (!(ARCHIVE_ALLOWED_STATUSES as ReadonlySet<string>).has(progress.status)) {
     emitContractArchivePreconditionViolated(
       ctx.audit,
       { contractId, status: progress.status, context: 'moveContractToArchive' },

@@ -208,12 +208,7 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
                 context: 'observer_scan',
               });
               break;
-            case 'pending':
-            case 'running':
-            case 'paused':
-              // unreachable: scanArchivedContracts 已 filter（emit audit + skip）
-              // exhaustive switch 编译期保证、不应在运行时命中
-              break;
+            // phase 356: 'pending'/'running'/'paused' unreachable cases 删 (narrow ArchiveAllowedStatus 编译期 enforce 不可达)
             default:
               return assertNever(entry.status);
           }

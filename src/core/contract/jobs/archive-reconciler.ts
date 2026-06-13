@@ -7,6 +7,7 @@ import * as path from 'path';
 import { isFileNotFound, type FileSystem } from '../../../foundation/fs/types.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
 import type { ContractStatus } from '../types.js';
+import { ACTIVE_STATUSES } from '../types.js';
 import { CONTRACT_ARCHIVE_DIR } from '../dirs.js';
 import type { ClawId } from '../../../constants.js';
 import {
@@ -16,7 +17,7 @@ import {
 } from '../audit-emit.js';
 import { ContractProgressArchiveLooseSchema } from '../schemas.js';
 
-const ACTIVE_STATUSES = new Set<ContractStatus>(['pending', 'running', 'paused']);
+// phase 351: ACTIVE_STATUSES 复用 types.ts (ML#1 共用基础设施单源、mirror phase 347/348 pattern)
 
 export interface ArchiveReconcilerContext {
   fs: FileSystem;
@@ -56,7 +57,8 @@ export async function reconcileArchiveStaleEntries(
       if (!validation.success) continue; // 解析失败、跳过 (archive use case loose、skip silent)
       const persisted = validation.data;
       const currentStatus = persisted.status as ContractStatus | undefined;
-      if (!currentStatus || !ACTIVE_STATUSES.has(currentStatus)) continue; // 终态跳过
+      // phase 351: cast string for typed Set runtime check (mirror phase 344 pattern)
+      if (!currentStatus || !(ACTIVE_STATUSES as ReadonlySet<string>).has(currentStatus)) continue; // 终态跳过
 
       // 翻 archive_pending_recovery (non-derivable status、phase 330 strict schema align、无需 strip pattern)
       const oldStatus = currentStatus;
