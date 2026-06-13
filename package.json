@@ -39,7 +39,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.82.0",
+    "@anthropic-ai/sdk": "^0.104.1",
     "@mariozechner/pi-tui": "^0.58.3",
     "chokidar": "^4.0.3",
     "commander": "^13.1.0",
