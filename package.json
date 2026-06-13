@@ -24,6 +24,7 @@
     "test:run": "vitest run --config .config/vitest.config.ts",
     "test:fast": "vitest run --config .config/vitest.config.ts --exclude 'tests/e2e/**' --exclude 'tests/foundation/process-*' --exclude 'tests/foundation/process-exec/**' --exclude 'tests/cli/daemon-entry.test.ts' --exclude 'tests/cli/already-running-sentinel.test.ts'",
     "test:smoke": "vitest run --config .config/vitest.config.ts --project=fast",
+    "test:diff": "vitest run --config .config/vitest.config.ts --changed=main",
     "typecheck": "tsc --noEmit",
     "lint": "pnpm run typecheck && pnpm run lint:arch && pnpm run lint:lint",
     "lint:arch": "depcruise --config .config/dependency-cruiser.cjs src",
