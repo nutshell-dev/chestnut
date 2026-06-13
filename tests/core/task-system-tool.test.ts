@@ -288,28 +288,33 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       const executeCallback = vi.fn().mockResolvedValue({ success: true, content: longResult });
       
       const taskId = await scheduleToolCompat(taskSystem, 'testTool', executeCallback, 'parent-claw');
-      
+
+      // Wait for the full completion: result.txt exists AND inbox has a complete .md file.
+      // Original test waited only on result.txt, then assumed inbox was ready — flaky under
+      // full-suite concurrency when inbox write lagged result.txt write or vice versa.
+      // (l4_async_task_system test-coverage §9 open flake / phase 305/312/343)
+      const resultPath = path.join(testClawDir, 'tasks', 'queues', 'results', taskId, 'result.txt');
+      const inboxDir = path.join(testClawDir, 'inbox', 'pending');
+      let inboxPath = '';
       await waitFor(async () => {
         try {
-          await fs.readFile(path.join(testClawDir, 'tasks', 'queues', 'results', taskId, 'result.txt'), 'utf-8');
+          await fs.readFile(resultPath, 'utf-8');
+        } catch { return false; }
+        const inboxFiles = await fs.readdir(inboxDir).catch(() => [] as string[]);
+        const mdFiles = (inboxFiles as string[]).filter(f => f.endsWith('.md'));
+        if (mdFiles.length === 0) return false;
+        const candidate = path.join(inboxDir, mdFiles[0]);
+        try {
+          const content = await fs.readFile(candidate, 'utf-8');
+          if (!/^---[\s\S]+---\n\n/.test(content)) return false;
+          inboxPath = candidate;
           return true;
-        } catch {
-          return false;
-        }
+        } catch { return false; }
       });
-      
-      // Full result should be in results directory
-      const resultFile = await fs.readFile(
-        path.join(testClawDir, 'tasks', 'queues', 'results', taskId, 'result.txt'),
-        'utf-8'
-      );
+
+      const resultFile = await fs.readFile(resultPath, 'utf-8');
       expect(resultFile).toContain(longResult);
-      
-      // Inbox should have truncated summary preview (resultRef points to full content)
-      const inboxFiles = await fs.readdir(path.join(testClawDir, 'inbox', 'pending'));
-      expect(inboxFiles.length).toBeGreaterThan(0);
-      
-      const inboxPath = path.join(testClawDir, 'inbox', 'pending', inboxFiles[0]);
+
       const inboxFile = await waitForCompleteFile(inboxPath, /^---[\s\S]+---\n\n/);
       
       const match = inboxFile.match(/---\n([\s\S]*?)\n---\n\n([\s\S]*)/);

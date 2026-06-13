@@ -14,6 +14,9 @@ import formatterParityRequireConstants from './eslint-rules/formatter-parity-req
 import foundationNoBusinessRoleLiteral from './eslint-rules/foundation-no-business-role-literal.js';
 import auditCapConstScope from './eslint-rules/audit-cap-const-scope.js';
 import foundationNoCliVerbFact from './eslint-rules/foundation-no-cli-verb-fact.js';
+import noMotionLiteralInSrc from './eslint-rules/no-motion-literal-in-src.js';
+import noConsoleInBusinessPath from './eslint-rules/no-console-in-business-path.js';
+import noSilentCatchOutsideAllowlist from './eslint-rules/no-silent-catch-outside-allowlist.js';
 
 /** @type {import('eslint').Linter.Config[]} */
 export default [
@@ -45,6 +48,9 @@ export default [
           'foundation-no-business-role-literal': foundationNoBusinessRoleLiteral,
           'audit-cap-const-scope': auditCapConstScope,
           'foundation-no-cli-verb-fact': foundationNoCliVerbFact,
+          'no-motion-literal-in-src': noMotionLiteralInSrc,
+          'no-console-in-business-path': noConsoleInBusinessPath,
+          'no-silent-catch-outside-allowlist': noSilentCatchOutsideAllowlist,
         },
       },
     },
@@ -66,6 +72,9 @@ export default [
       'chestnut-custom/foundation-no-business-role-literal': 'error',
       'chestnut-custom/audit-cap-const-scope': 'error',
       'chestnut-custom/foundation-no-cli-verb-fact': 'error',
+      'chestnut-custom/no-motion-literal-in-src': 'error',
+      'chestnut-custom/no-console-in-business-path': 'error',
+      'chestnut-custom/no-silent-catch-outside-allowlist': 'error',
     },
   },
 ];
