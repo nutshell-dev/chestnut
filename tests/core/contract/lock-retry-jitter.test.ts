@@ -20,14 +20,23 @@ vi.mock('../../../src/core/contract/constants.js', async (importOriginal) => {
   };
 });
 
+/**
+ * Mocked LOCK_RETRY_DELAY_MS value（file-top vi.mock 替 src const 为 100ms 加速 test）.
+ * Derivation: 100ms 是 mock 值（src default 500ms）、缩短让 100-sample jitter spread 测试在 ms 级完成 /
+ * jitter 算法验 [T/2, 1.5T] 范围 + spread density、与具体 T 无关.
+ */
+const MOCKED_LOCK_RETRY_DELAY_MS = 100;
+
 describe('phase 1325 lock retry jitter + audit emit', () => {
   it('jitter range 100 sample 落 [T/2, 1.5T]', () => {
-    const T = 100; // mocked LOCK_RETRY_DELAY_MS
-    const samples = Array.from({ length: 100 }, () => T / 2 + Math.random() * T);
+    const samples = Array.from(
+      { length: 100 },
+      () => MOCKED_LOCK_RETRY_DELAY_MS / 2 + Math.random() * MOCKED_LOCK_RETRY_DELAY_MS,
+    );
     const min = Math.min(...samples);
     const max = Math.max(...samples);
-    expect(min).toBeGreaterThanOrEqual(T / 2);
-    expect(max).toBeLessThanOrEqual(T * 1.5);
+    expect(min).toBeGreaterThanOrEqual(MOCKED_LOCK_RETRY_DELAY_MS / 2);
+    expect(max).toBeLessThanOrEqual(MOCKED_LOCK_RETRY_DELAY_MS * 1.5);
     // spread: not all same value
     const unique = new Set(samples.map(s => Math.round(s))).size;
     expect(unique).toBeGreaterThan(50);
@@ -110,10 +119,9 @@ describe('phase 1325 lock retry jitter + audit emit', () => {
     expect(uniqueDelays).toBeGreaterThan(5);
 
     // all delays within [T/2, 1.5T]
-    const T = 100;
     for (const d of allDelays) {
-      expect(d).toBeGreaterThanOrEqual(T / 2);
-      expect(d).toBeLessThanOrEqual(T * 1.5);
+      expect(d).toBeGreaterThanOrEqual(MOCKED_LOCK_RETRY_DELAY_MS / 2);
+      expect(d).toBeLessThanOrEqual(MOCKED_LOCK_RETRY_DELAY_MS * 1.5);
     }
 
     setTimeoutSpy.mockRestore();

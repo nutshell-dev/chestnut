@@ -13,6 +13,12 @@
 
 import { isFileNotFound, type FileSystem } from '../../foundation/fs/types.js';
 
+/**
+ * audit.tsv 尾部读字节数（用于 readBytesSync(start, end) tail read）.
+ * Derivation: 4096 = 4KB ≈ Linux 默认 page size / ≈ 30-50 audit rows
+ * 给最后一次进程退出语义重构提供足够 context（最近事件 + 退出 trigger）.
+ * 4KB 是 fs read 的物理操作单元 / smaller 浪费 syscall / larger 浪费 memory.
+ */
 const TAIL_BYTES = 4096;
 
 interface RawEvent {

@@ -44,7 +44,19 @@ export interface ContractObserverJobDeps {
 
 // 持久化文件：observer 状态（已通知 contract set + lastCheckTs metric + bootstrap marker）
 const STATE_FILE = 'status/contract-observer-state.json';
+
+/**
+ * Persisted observer state schema 版本号.
+ * Derivation: 1 → 2 在 phase 37 引入 dedup-based 通知去重（替代 lastCheckTs hard filter）;
+ * 升级时整 set notifiedContracts 字段 migration / 用版本号区分 read 路径.
+ */
 const STATE_SCHEMA_VERSION = 2;
+
+/**
+ * notifiedContracts set 上限 — 防 long-lived observer 累积 set 膨胀致 state file 超大.
+ * Derivation: 5000 ≈ 一年活跃 contract 上限（按 ~14/day 估算）/ 配 LRU evict 老 entry /
+ * 触上限 audit emit 提示运维（实际未达上限 ≈ 实际项目跑了几月后才接近）.
+ */
 const NOTIFIED_CAP = 5000;
 
 /**

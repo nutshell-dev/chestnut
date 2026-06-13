@@ -16,6 +16,13 @@
 const CONTEXT_LINES = 3;
 
 /**
+ * Pass 3 partial-substring min needle length（findNearMatches weakest signal threshold）.
+ * Derivation: 短于 20 char 的 needle prefix 假阳性率太高（多个 unrelated code lines 共享短前缀）/
+ * ≥ 20 char 给 substring 足够区分度 / 经验值 ≈ 1 行短代码 line.
+ */
+const PARTIAL_SUBSTRING_MIN_LEN = 20;
+
+/**
  * Find the 1-based line number where `needle` first appears in `haystack`.
  * Returns null if no match.
  */
@@ -174,12 +181,11 @@ export function findNearMatches(
   if (matches.length >= limit) return matches;
 
   // Pass 3: partial-substring (weakest signal; only if needle is long enough)
-  if (needleFirstLine.length >= 20) {
-    const runLen = 20;
+  if (needleFirstLine.length >= PARTIAL_SUBSTRING_MIN_LEN) {
     for (let i = 0; i < scanCount && matches.length < limit; i++) {
       if (seen.has(i)) continue;
-      for (let start = 0; start + runLen <= needleFirstLine.length; start++) {
-        const run = needleFirstLine.slice(start, start + runLen);
+      for (let start = 0; start + PARTIAL_SUBSTRING_MIN_LEN <= needleFirstLine.length; start++) {
+        const run = needleFirstLine.slice(start, start + PARTIAL_SUBSTRING_MIN_LEN);
         if (lines[i].includes(run)) {
           matches.push({ line: i + 1, text: clipLineText(lines[i]), score: 'partial-substring' });
           break;

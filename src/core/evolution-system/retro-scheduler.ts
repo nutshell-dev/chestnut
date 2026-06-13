@@ -20,7 +20,13 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import type { Message } from '../../foundation/llm-provider/types.js';
 
 /** Default retro subagent timeout (ms); 10 min by design */
-const RETRO_SUBAGENT_TIMEOUT_MS_DEFAULT = 10 * 60_000;
+/**
+ * Default retroSubagentTimeoutMs (10 minutes) — used when ContractYaml 未指定.
+ * Derivation: 10min × 60_000ms = 600_000ms / 给 retro reflective subagent 足够时长
+ * 完成多轮 LLM call + summary 写入 / < SUBAGENT_TIMEOUT_MS (5min) × 2 防 worker hang.
+ * Exported: tests/ 镜像此 default（state-file.test.ts 验 default fallback）.
+ */
+export const RETRO_SUBAGENT_TIMEOUT_MS_DEFAULT = 10 * 60_000;
 import { RETRO_AUDIT_EVENTS } from './retro-audit-events.js';
 import type { ContractId } from '../contract/types.js';
 

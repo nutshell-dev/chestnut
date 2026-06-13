@@ -14,6 +14,7 @@ import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { promises as fs } from 'fs';
 import { Runtime } from '../../../src/core/runtime/runtime.js';
+import { DEFAULT_MAX_STEPS } from '../../../src/core/agent-executor/defaults.js';
 import { makeRuntimeDeps } from '../../helpers/runtime-deps.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 import type { LLMOrchestratorConfig } from '../../../../src/foundation/llm-orchestrator/types.js';
@@ -89,7 +90,7 @@ describe('Runtime internal ContextInjector + ExecContext self-construction (phas
     expect(execCtx.clawId).toBe('test-claw');
     expect(execCtx.clawDir).toBe(clawDir);
     expect(execCtx.profile).toBe('full');
-    expect(execCtx.maxSteps).toBe(1000); // DEFAULT_MAX_STEPS
+    expect(execCtx.maxSteps).toBe(DEFAULT_MAX_STEPS);
   });
 
   it('lazy-injects registry and mainDialogStore into execContext after initialize (phase 766/768)', async () => {

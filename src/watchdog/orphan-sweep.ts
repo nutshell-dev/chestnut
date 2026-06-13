@@ -14,6 +14,11 @@ import { getAuditWriter } from './watchdog-context.js';
 import { ensureAuditWired } from './audit-wiring.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 
+/**
+ * Orphan sweep grace period（ms）before SIGKILL.
+ * Derivation: 1s 让 orphan watchdog process 接 SIGTERM 后有机会清理资源 + 写最后 audit；
+ * < user-perceived sweep delay / > typical process teardown (≤ 200ms).
+ */
 const SWEEP_GRACE_MS = 1000;
 
 /**

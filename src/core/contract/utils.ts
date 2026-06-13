@@ -16,6 +16,12 @@ import { CONTRACT_DIR } from './dirs.js';
 
 import { emitContractContractDirScanFailed } from './audit-emit.js';
 
+/**
+ * UTC epoch ms for 2020-01-01T00:00:00Z（contract ID 生成 base 时间锚）.
+ * Derivation: Date.UTC(2020, 0, 1) = 1_577_836_800_000.
+ * 用于将「since 2020 elapsed ms」嵌入 contract ID、避免裸 epoch ms 大数 + 选 2020
+ * 因 chestnut 项目开发起步年份接近、ID 字符串短小且有人类可读语义.
+ */
 const EPOCH_2020_01_01_MS = 1_577_836_800_000;
 
 /** 返回当前活跃/暂停契约的创建时间（毫秒），无契约时返回 null */

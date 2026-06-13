@@ -4,6 +4,11 @@ import { SUMMON_CALLER_TYPES } from '../caller-types.js';
 import { formatErr } from '../../../foundation/utils/index.js';
 import type { FileSystem } from '../../../foundation/fs/types.js';
 
+/**
+ * post-processor 失败 audit 时附带的 raw output 最大字符数（diagnostic 截断 cap）.
+ * Derivation: 2000 char ≈ 1-2 page LLM raw response / 足够诊断 contract 提取失败原因
+ * 但不致 audit row 膨胀过大（audit.tsv 单行 ≈ 80 col × 25 line / 单 col 不超此）.
+ */
 const RAW_OUTPUT_DIAGNOSTIC_MAX = 2000;
 
 /**

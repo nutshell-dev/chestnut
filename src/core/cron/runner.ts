@@ -87,7 +87,13 @@ export interface CronJobGlobalConfig<JobName extends string> {
   };
 }
 
-const CANCELLING_STUCK_TICKS = 10; // timeout 后 N ticks 仍 cancelling 视为 handler 永挂
+/**
+ * Cron handler timeout 后视为 stuck 的 tick 阈值.
+ * Derivation: timeout 后 10 ticks（≈ 10s @ 1s cron tick）仍 cancelling 视为 handler 永挂;
+ * 触发 fail-loud audit + 释 inflight slot 给后续 schedule.
+ * 配 CRON_TICK_INTERVAL_MS=1000、总 stuck detection budget = CANCELLING_STUCK_TICKS × tick_ms ≈ 10s.
+ */
+const CANCELLING_STUCK_TICKS = 10;
 
 /**
  * Cron 调度器、**stateless** 设计（D4 显式豁免、详 `design/modules/l5_cron.md §4`）。

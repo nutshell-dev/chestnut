@@ -210,6 +210,13 @@ export interface LockContractResult {
 }
 
 export const LOCK_CONTRACT_MAX_RETRY = 5;
+
+/**
+ * Contract lock TOCTOU race retry delay (ms).
+ * Derivation: 50ms 是 chokidar settle 一半 / 比 LOCK_RETRY_DELAY_MS (500ms) 短 10× /
+ * contract 层 lookup→lock race 在 ms 级 fs 操作内、短 retry 即可化解多并发夹击.
+ * 配 LOCK_CONTRACT_MAX_RETRY=5、总 budget ~ 250ms.
+ */
 const LOCK_CONTRACT_RETRY_DELAY_MS = 50;
 
 /**

@@ -13,7 +13,17 @@ import { ensureAuditWired } from './audit-wiring.js';
 import { sweepOrphanWatchdogs as defaultSweep } from './orphan-sweep.js';
 export { ensureAuditWired };
 
+/**
+ * Watchdog ensure_singleton lock 获取总 budget（ms）.
+ * Derivation: 3s 给并发 ensure 调用足够等待先到者完成 spawn / kill stale 过程；
+ * 配 LOCK_RETRY_INTERVAL_MS=50ms 共 ~60 retry / 远小于 user-perceived hang 上限.
+ */
 const LOCK_ACQUIRE_TIMEOUT_MS = 3000;
+
+/**
+ * Watchdog lock retry poll interval（ms）.
+ * Derivation: 50ms = LOCK_ACQUIRE_TIMEOUT_MS / 60 retry / 不 busy-spin 也不漏窗.
+ */
 const LOCK_RETRY_INTERVAL_MS = 50;
 
 /**

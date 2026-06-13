@@ -16,7 +16,12 @@ import { SUMMON_CALLER_TYPES, type SummonCallerType } from '../caller-types.js';
 import { spawnShadowSubagent, stripIncompleteToolUse, SHADOW_CALLER_LABEL } from '../../shadow-system/index.js';
 import { type TaskId, makeTaskId } from '../../async-task-system/types.js';
 
-const SUMMON_SUBAGENT_TIMEOUT_MS = 3600 * 1000;   // 1 hour
+/**
+ * Summon subagent execution timeout（ms）= 1 hour.
+ * Derivation: 3600 * 1000 = 1hr / 给子代理足够时长完成「契约创建」（含多轮 LLM call + 工具执行）/
+ * 比 SUBAGENT_TIMEOUT_MS (5min) 长 12× 因 summon 全流程复杂 / 上限防 hung subagent.
+ */
+const SUMMON_SUBAGENT_TIMEOUT_MS = 3600 * 1000;
 
 export const SUMMON_TOOL_NAME = 'summon' as const;
 

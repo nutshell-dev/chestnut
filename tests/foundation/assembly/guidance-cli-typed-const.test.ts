@@ -45,9 +45,14 @@ function walkTsFiles(dir: string, cb: (filePath: string) => void): void {
 }
 
 // phase 195 Step B 待审 ratify 中、暂 allow（Step B 后由 follow-up phase 治 / 删此 allow）
+//
+// phase 339 Step F: 改用 (file, "chestnut <verb>") 锚 — 不再用 line number.
+// 旧锚 line: forum-formatter.ts:22 → :32（D）→ :32（F 不变）; exec.ts:135 → :147（F）
+// 历次 jsdoc / 上方 code 增长每次都要 sync line number、维护负担高。
+// 新锚（file, chestnut + first verb）对 line 移动不敏感、对 string 内 trailing 内容不敏感.
 const STEP_B_PENDING_ALLOW = new Set([
-  'foundation/command-tool/exec.ts:135',
-  'core/status-service/forum-formatter.ts:22',
+  'foundation/command-tool/exec.ts::chestnut stop',
+  'core/status-service/forum-formatter.ts::chestnut status',
 ]);
 
 const SCAN_DIRS = ['core', 'foundation'];
@@ -116,8 +121,13 @@ describe('phase 1469: guidance composer must reference CLI via CLI_COMMANDS type
       });
     }
 
-    // 过滤 Step B 待审项
-    const filtered = violations.filter(v => !STEP_B_PENDING_ALLOW.has(`${v.file}:${v.line}`));
+    // 过滤 Step B 待审项 — 用 (file, "chestnut <first-verb>") 锚而非 line number
+    // 抓 chestnut + 紧跟的 word（不含 trailing 内容）做稳定指纹
+    const filtered = violations.filter(v => {
+      const firstTwoTokens = v.literal.match(/^chestnut\s+\w+/)?.[0];
+      if (!firstTwoTokens) return true;
+      return !STEP_B_PENDING_ALLOW.has(`${v.file}::${firstTwoTokens}`);
+    });
 
     if (filtered.length > 0) {
       const summary = filtered.map(v => `  - ${v.file}:${v.line}: '${v.literal}'`).join('\n');

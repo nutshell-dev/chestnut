@@ -43,10 +43,32 @@ import { initOwnStateFromHistory, createUncaughtHandler } from './chat-viewport-
 import { type TaskId, makeTaskId } from '../../core/async-task-system/types.js';
 
 
-// File-local interval / timeout constants
+/**
+ * Interrupt 信号触发后 cleanup 总 budget（ms）.
+ * Derivation: 5s 给 async shutdown（stream stop + audit flush + fs sync）足够时长 /
+ * < user-perceptible hard kill delay (≈ 10s) / 平衡 graceful 与 force exit.
+ */
 const INTERRUPT_CLEANUP_TIMEOUT_MS = 5000;
+
+/**
+ * Claw panel 全量刷新 tick（ms）— 重读 claws/ dir 并重渲染.
+ * Derivation: 2s 平衡 UI 实时感 vs fs read 开销 / 比 CLAW_PANEL_TICK_INTERVAL_MS 长一倍
+ * 因 refresh 含 fs scan 而 tick 仅本地 re-render.
+ */
 const CLAW_REFRESH_INTERVAL_MS = 2000;
+
+/**
+ * Claw panel 局部 re-render tick（ms）— 不重新扫 dir 仅刷已有 state.
+ * Derivation: 1s 给 UI 平滑刷帧而 CPU 几无负担 / 配 CLAW_REFRESH_INTERVAL_MS 双频形成层级.
+ */
 const CLAW_PANEL_TICK_INTERVAL_MS = 1000;
+
+/**
+ * Daemon liveness probe tick（ms）— 用于检测 daemon 进程是否仍存.
+ * Derivation: 3s 比 panel tick 稀疏（liveness 检查不需要高频）/ < user-perceived
+ * "dead daemon" 等待延迟（~5s）/ 配 INTERRUPT_CLEANUP_TIMEOUT_MS 保 cleanup
+ * 后 ≥ 1 次 liveness 重检以确认状态.
+ */
 const DAEMON_LIVENESS_CHECK_INTERVAL_MS = 3000;
 
 /** chat-viewport 命令进程 crash log 文件（logs/ multi-owner subdir 内 cli/chat-viewport own 子树）*/

@@ -8,19 +8,33 @@ import { CliError } from '../errors.js';
 import { type Step } from './session-parser.js';
 import { renderArgs, renderArgsFull, truncateSingleLine } from './arg-renderer.js';
 
+/**
+ * Tool result single-line truncation max chars（→ result preview 显示长度上限）.
+ * Derivation: 60 char ≈ 1/2 terminal line（约 120 col 标准 CLI）/ 平衡可读 vs scrollback consumption /
+ * 配 ERR variant + multi-line indicator 显示后总 < 80 col 一行.
+ */
+const RESULT_SINGLE_LINE_MAX = 60;
+
+/**
+ * User input / text preview truncation max chars（renderSteps 内 user input 与 text-only turn 显示上限）.
+ * Derivation: 80 char ≈ 1 terminal line（约 120 col 标准 CLI 减 step prefix）/
+ * 大于 RESULT_SINGLE_LINE_MAX 因 user input / text 比 tool result 信息密度低、需更多 char 看意图.
+ */
+const INPUT_TEXT_SINGLE_LINE_MAX = 80;
+
 function renderResult(result: ToolResultBlock | undefined): string {
   if (!result) return '→ (pending)';
   const content = result.content;
   if (result.is_error) {
     const lines = content.split('\n');
-    if (lines.length > 1) return `→ ERR ${truncateSingleLine(content, 60)} (${lines.length} lines)`;
-    return `→ ERR ${truncateSingleLine(content, 60)}`;
+    if (lines.length > 1) return `→ ERR ${truncateSingleLine(content, RESULT_SINGLE_LINE_MAX)} (${lines.length} lines)`;
+    return `→ ERR ${truncateSingleLine(content, RESULT_SINGLE_LINE_MAX)}`;
   }
   if (content === '' || content.trim() === '') return '→ ok';
   const lines = content.split('\n');
-  if (lines.length > 1) return `→ ${truncateSingleLine(content, 60)} (${lines.length} lines)`;
-  if (content.length <= 60) return `→ ${content}`;
-  return `→ ${truncateSingleLine(content, 60)}`;
+  if (lines.length > 1) return `→ ${truncateSingleLine(content, RESULT_SINGLE_LINE_MAX)} (${lines.length} lines)`;
+  if (content.length <= RESULT_SINGLE_LINE_MAX) return `→ ${content}`;
+  return `→ ${truncateSingleLine(content, RESULT_SINGLE_LINE_MAX)}`;
 }
 
 function slotLetter(idx: number): string {
@@ -64,13 +78,13 @@ export function renderSteps(steps: Step[], opts: RenderStepsOpts = {}): string {
   for (const step of steps) {
     // user input row (仅 turn 起点 step 含)
     if (step.userInput) {
-      lines.push(`${step.num}  (user) "${truncateSingleLine(step.userInput.content, 80)}"`);
+      lines.push(`${step.num}  (user) "${truncateSingleLine(step.userInput.content, INPUT_TEXT_SINGLE_LINE_MAX)}"`);
     }
 
     // text-only turns
     if (step.toolUses.length === 0 && step.texts.length > 0) {
       const text = step.texts.join(' ');
-      lines.push(`${step.num}  (text) "${truncateSingleLine(text, 80)}"`);
+      lines.push(`${step.num}  (text) "${truncateSingleLine(text, INPUT_TEXT_SINGLE_LINE_MAX)}"`);
       continue;
     }
 

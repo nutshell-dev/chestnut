@@ -13,7 +13,17 @@
 import type { ForumStatusView, SystemComponentView, ActiveClawView } from './forum-aggregators.js';
 import { MOTION_CLAW_ID } from '../../constants.js';
 
+/**
+ * Claw name 列 padding 宽度（forum 列表对齐 col）.
+ * Derivation: 18 char 覆盖 typical claw name 长度 (e.g. "anti-corruption" = 15) + margin /
+ * 配 mockup ratified in conversation 2026-05-30 视觉对齐.
+ */
 const NAME_PAD = 18;
+
+/**
+ * System component name 列 padding 宽度（watchdog / motion 等 short 名）.
+ * Derivation: 10 char 覆盖 "watchdog" + margin / 比 NAME_PAD 短因 system 名固定且短.
+ */
 const SYS_NAME_PAD = 10;
 
 export function formatForumStatusView(view: ForumStatusView): string[] {

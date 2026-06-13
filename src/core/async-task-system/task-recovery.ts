@@ -24,6 +24,11 @@ import type { TaskId } from './types.js';
 
 const RETRY_COUNT_PATH = (taskId: TaskId) =>
   `${TASKS_QUEUES_RESULTS_DIR}/${taskId}/result.txt.retry-count`;
+/**
+ * Task recovery 最大重试次数 — 防 startup recovery 路径无限循环.
+ * Derivation: 3 = 1 initial + 2 retry / 平衡 fast-fail vs transient fs error 容忍;
+ * 与 DEFAULT_VERIFICATION_ATTEMPTS (3) 同型经验值.
+ */
 const MAX_RECOVERY_RETRIES = 3;
 // SENT_MARKER 迁 result-delivery.ts（写者归属 / phase 789）
 

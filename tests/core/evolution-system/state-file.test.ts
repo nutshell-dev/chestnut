@@ -11,6 +11,7 @@ import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { AuditWriter } from '../../../src/foundation/audit/writer.js';
 import { RETRO_AUDIT_EVENTS } from '../../../src/core/evolution-system/retro-audit-events.js';
 import { createToolRegistry } from '../../../src/foundation/tools/index.js';
+import { RETRO_SUBAGENT_TIMEOUT_MS_DEFAULT } from '../../../src/core/evolution-system/retro-scheduler.js';
 
 // ============================================================================
 // Mock: SkillSystem
@@ -229,7 +230,7 @@ describe('EvolutionSystem state file dedupe', () => {
     await evolutionSystem.runRetroForContract(contractId, ctx);
 
     const args = mockSchedule.mock.calls[0][1];
-    expect(args.timeoutMs).toBe(600000);
+    expect(args.timeoutMs).toBe(RETRO_SUBAGENT_TIMEOUT_MS_DEFAULT);
   });
 
   it('retroSubagentTimeoutMs override value is passed through', async () => {

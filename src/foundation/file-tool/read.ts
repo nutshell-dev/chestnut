@@ -50,7 +50,18 @@ const ReadInputSchema = z.object({
 
 type ReadInput = z.infer<typeof ReadInputSchema>;
 
+/**
+ * Head bytes preserved when read tool output 超 EXEC_MAX_OUTPUT 触发 truncation.
+ * Derivation: 600 byte ≈ 头部足够看 file 起步 context（imports + 起点行）/ 配 TAIL_LIMIT=1400 共 2000B ≈ 同 exec.ts truncation budget /
+ * 同 exec.ts:49 file-private const 同值 / 业务一致 head:tail = 3:7 给 tail 更多空间因 error trace 偏 tail.
+ */
 const HEAD_LIMIT = 600;
+
+/**
+ * Tail bytes preserved when read tool output 超 EXEC_MAX_OUTPUT 触发 truncation.
+ * Derivation: 1400 byte ≈ 尾部足够看 file 结尾 + error trace / 配 HEAD_LIMIT=600 共 2000B /
+ * 同 exec.ts:50 file-private const 同值（业务 truncation 协议一致）.
+ */
 const TAIL_LIMIT = 1400;
 
 function truncateHeadTail(content: string, relPath: string): string {

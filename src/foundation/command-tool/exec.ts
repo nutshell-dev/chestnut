@@ -46,7 +46,19 @@ function truncate(str: string, maxLen: number): string {
   return str.slice(0, maxLen) + '\n[truncated]';
 }
 
+/**
+ * Head bytes preserved when exec tool output 超 EXEC_MAX_OUTPUT 触发 truncation.
+ * Derivation: 600 byte ≈ 头部 stdout/stderr 起步行 + 提示符 / 配 TAIL_LIMIT=1400 共 2000B = EXEC_MAX_OUTPUT /
+ * 同 file-tool/read.ts:53 file-private const 同值（业务 truncation 协议一致）.
+ */
 const HEAD_LIMIT = 600;
+
+/**
+ * Tail bytes preserved when exec tool output 超 EXEC_MAX_OUTPUT 触发 truncation.
+ * Derivation: 1400 byte ≈ 尾部 exit + error trace / 配 HEAD_LIMIT=600 共 2000B = EXEC_MAX_OUTPUT /
+ * 同 file-tool/read.ts:54 file-private const 同值（业务 truncation 协议一致）/
+ * head:tail = 3:7 给 tail 更多空间因 error trace 偏 tail.
+ */
 const TAIL_LIMIT = 1400;
 // EXEC_MAX_OUTPUT = 2000 (HEAD + TAIL = 2000)
 
