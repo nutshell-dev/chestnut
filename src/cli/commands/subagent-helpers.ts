@@ -52,9 +52,14 @@ export function inferKind(deps: { fsFactory: (baseDir: string) => FileSystem }, 
     const taskRel = path.join(qdir, `${id}.json`);
     if (clawFs.existsSync(taskRel)) {
       try {
-        const task = JSON.parse(clawFs.readSync(taskRel));
-        const intentText = task.intent;  // phase 218: union 简化
-        if (task.systemPrompt?.includes('RANDOM_DREAM') || intentText?.includes('[DREAM_OUTPUT]')) {
+        // phase 355 C3 (review-2026-06-13): JSON.parse 返非对象（string / number）会让
+        // 下游 `.intent` NPE。先验对象 shape、否则 skip 当 partial 文件。
+        const raw: unknown = JSON.parse(clawFs.readSync(taskRel));
+        if (typeof raw !== 'object' || raw === null) continue;
+        const task = raw as { intent?: unknown; systemPrompt?: unknown; callerType?: unknown; postProcessor?: unknown };
+        const intentText = typeof task.intent === 'string' ? task.intent : undefined;
+        const systemPrompt = typeof task.systemPrompt === 'string' ? task.systemPrompt : undefined;
+        if (systemPrompt?.includes('RANDOM_DREAM') || intentText?.includes('[DREAM_OUTPUT]')) {
           return 'random_dream';
         }
         if (task.callerType === SUMMON_CALLER_TYPES.SHADOW || task.callerType === SUMMON_CALLER_TYPES.MINER || task.postProcessor === SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME || task.postProcessor === 'dispatch-contract-extract') {
@@ -64,7 +69,7 @@ export function inferKind(deps: { fsFactory: (baseDir: string) => FileSystem }, 
           return 'spawn';
         }
         return 'spawn';
-      } catch { /* silent: ignore parse errors */ }
+      } catch { /* silent: parse 失败属 partial / corrupt task.json，按 spawn fallback 容忍 */ }
     }
   }
 
@@ -108,9 +113,13 @@ export function getStartedAt(deps: { fsFactory: (baseDir: string) => FileSystem 
     const taskRel = path.join(qdir, `${id}.json`);
     if (clawFs.existsSync(taskRel)) {
       try {
-        const task = JSON.parse(clawFs.readSync(taskRel));
-        if (task.createdAt) return new Date(task.createdAt);
-      } catch { /* silent: ignore */ }
+        // phase 355 C3: 验对象 shape + createdAt 是字符串、否则 skip
+        const raw: unknown = JSON.parse(clawFs.readSync(taskRel));
+        if (typeof raw === 'object' && raw !== null) {
+          const task = raw as { createdAt?: unknown };
+          if (typeof task.createdAt === 'string') return new Date(task.createdAt);
+        }
+      } catch { /* silent: parse 失败 fallback audit.tsv 行 */ }
     }
   }
 

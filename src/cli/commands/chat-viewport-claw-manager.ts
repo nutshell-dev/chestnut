@@ -111,9 +111,13 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
         for (const line of lines) {
           if (!line.trim()) continue;
           try {
-            const ev = JSON.parse(line);
+            // phase 355 C3 (review-2026-06-13): JSON.parse 返非对象会让 ev.type 等 NPE。先验对象 shape、否则 skip 行。
+            const parsed: unknown = JSON.parse(line);
+            if (typeof parsed !== 'object' || parsed === null) continue;
+            const ev = parsed as Record<string, unknown> & { type?: string };
+            if (typeof ev.type !== 'string') continue;
             if (ev.type === 'turn_start') { track.turnCount++; track.step = 0; track.active = true; }
-            else if (ev.type === 'tool_result') { track.step = ev.step ?? track.step; track.maxSteps = ev.maxSteps ?? track.maxSteps; }
+            else if (ev.type === 'tool_result') { track.step = (ev.step as number) ?? track.step; track.maxSteps = (ev.maxSteps as number) ?? track.maxSteps; }
             else if (ev.type === 'turn_error') { track.active = false; track.lastError = (ev.error as string) ?? 'error'; }
             else if (ev.type === 'turn_end' || ev.type === 'turn_interrupted') { track.active = false; track.lastError = null; }
 

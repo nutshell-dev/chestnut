@@ -241,9 +241,11 @@ export async function stopCommand(deps: { fsFactory: (baseDir: string) => FileSy
   if (stopped) {
     audit?.write(CLI_AUDIT_EVENTS.MOTION_STOP, `status=success`);
     console.log('✓ Stopped Motion daemon');
-  } else {
-    audit?.write(CLI_AUDIT_EVENTS.MOTION_STOP, `status=failed`);
-    console.log('✗ Failed to stop Motion');
-    process.exitCode = 1;
+    return;
   }
+  // phase 355 C2 (review-2026-06-13): throw CliError 而非 process.exitCode=1 静默。
+  // process.exitCode 等 Node 自然 drain + audit writer fs flush 才退、race 可能
+  // 把 code 改回 0；throw 让 handleCliError 立即 process.exit(1)、CI 看到真信号。
+  audit?.write(CLI_AUDIT_EVENTS.MOTION_STOP, `status=failed`);
+  throw new CliError('✗ Failed to stop Motion', 1);
 }

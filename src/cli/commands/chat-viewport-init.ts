@@ -75,12 +75,15 @@ export function initOwnStateFromHistory(deps: InitOwnStateDeps): void {
     for (const line of lines) {
       if (!line.trim()) continue;
       try {
-        const ev = JSON.parse(line);
+        // phase 355 C3 (review-2026-06-13): 验对象 shape 防 .type NPE
+        const raw: unknown = JSON.parse(line);
+        if (typeof raw !== 'object' || raw === null) continue;
+        const ev = raw as { type?: string };
         if (ev.type === 'turn_start')       { deps.turnTracker.begin(); }
         else if (ev.type === 'turn_end' || ev.type === 'turn_interrupted' || ev.type === 'turn_error') {
           deps.turnTracker.forceReset();
         }
-      } catch { /* silent: skip malformed JSON line in history replay */ }
+      } catch { /* silent: stream 行 corrupt → skip 单行 */ }
     }
   } catch (err) {
     // phase 904 / audit-2026-05-16 P2 site 2: 分流 ENOENT silent vs 其他 audit emit

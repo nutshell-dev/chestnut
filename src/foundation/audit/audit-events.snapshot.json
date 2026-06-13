@@ -811,7 +811,8 @@
       "process_stop_stale",
       "process_stopped",
       "starttime_mismatch",
-      "starttime_verify_skipped_windows"
+      "starttime_verify_skipped_windows",
+      "stop_pid_removed_before_dead"
     ],
     "foundation_skill-system_audit-events": [
       "skill_dir_not_found",

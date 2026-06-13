@@ -19,3 +19,10 @@ export const SPAWN_POLL_INTERVAL_MS = 50;
  * 在 DAEMON_SHUTDOWN_GRACE_MS deadline 内每隔此周期 isAlive check.
  */
 export const PROCESS_STOP_POLL_INTERVAL_MS = 100;
+/**
+ * phase 355 C1 (review-2026-06-13): SIGKILL 后等 kernel 异步 reap 进程的 grace (ms).
+ * stopProcess 删 PID 文件前 verify-loop 上限；超时仍未死 → audit 留诊断、仍删
+ * （不阻 stop 完成；这是诊断信号、不是正确性 invariant）。
+ * Value: 1000 (1s) — kernel reap 一般 ms 级、给足缓冲；超时罕见、出现即应人介入。
+ */
+export const SIGKILL_DEAD_VERIFY_GRACE_MS = 1000;

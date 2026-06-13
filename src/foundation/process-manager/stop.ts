@@ -1,5 +1,5 @@
 import { kill as defaultKill, isAlive as defaultL1IsAlive } from '../process-exec/index.js';
-import { DAEMON_SHUTDOWN_GRACE_MS, PROCESS_STOP_POLL_INTERVAL_MS } from './constants.js';
+import { DAEMON_SHUTDOWN_GRACE_MS, PROCESS_STOP_POLL_INTERVAL_MS, SIGKILL_DEAD_VERIFY_GRACE_MS } from './constants.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
 import { readPid, removePid } from './pid.js';
 import type { ProcessManagerContext } from './types.js';
@@ -45,6 +45,22 @@ export async function stopProcess(ctx: ProcessManagerContext, clawId: ClawId): P
         `claw=${clawId}`,
         `pid=${stored.pid}`,
       );
+      // phase 355 C1 (review-2026-06-13): SIGKILL 是 async（kernel 异步 reap）、
+      // 调返时进程未必已死。删 PID 前 verify-loop 等真死、防 isAlive race + spawn
+      // 第二实例。超时仍活 → audit 留诊断、仍删（不阻 stop 完成、人介入修）。
+      const verifyDeadline = Date.now() + SIGKILL_DEAD_VERIFY_GRACE_MS;
+      while (Date.now() < verifyDeadline) {
+        if (!(ctx.l1IsAlive ?? defaultL1IsAlive)(stored.pid, stored.startTime)) break;
+        await new Promise(resolve => setTimeout(resolve, PROCESS_STOP_POLL_INTERVAL_MS));
+      }
+      if ((ctx.l1IsAlive ?? defaultL1IsAlive)(stored.pid, stored.startTime)) {
+        ctx.audit.write(
+          PROCESS_MANAGER_AUDIT_EVENTS.STOP_PID_REMOVED_BEFORE_DEAD,
+          `claw=${clawId}`,
+          `pid=${stored.pid}`,
+          `grace_ms=${SIGKILL_DEAD_VERIFY_GRACE_MS}`,
+        );
+      }
     }
 
     await removePid(ctx, clawId);

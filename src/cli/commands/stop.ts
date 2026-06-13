@@ -21,6 +21,7 @@ import { CLAWS_DIR } from '../../foundation/claw-paths.js';
 import { resolveDaemonEntry } from '../../assembly/spawn-entry.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { isFileNotFound, type FileSystem } from '../../foundation/fs/types.js';
+import { CliError } from '../errors.js';
 
 export async function stopAllCommand(
   deps: { fsFactory: (baseDir: string) => FileSystem },
@@ -81,15 +82,19 @@ export async function stopAllCommand(
     }
   }
 
+  // phase 355 C2 (review-2026-06-13): partial-stop failure 在循环末
+  // throw CliError、让 wrapper 真退非 0、不再 console.warn 静默 + 后续 return success。
+  // 收集 failed 列表后延到 cleanup 之后 throw（保留 marker 写 / orphan cleanup 等业务）。
   const running = clawNames.filter(name => pm.isAlive(makeClawId(name)));
+  let stopFailed: string[] = [];
   if (running.length > 0) {
     console.log(`Stopping ${running.length} claw(s): ${running.join(', ')}...`);
     const results = await Promise.allSettled(running.map(name => pm.stop(makeClawId(name))));
-    const failed = results
+    stopFailed = results
       .map((r, i) => (r.status === 'rejected' ? running[i] : null))
       .filter((n): n is string => n !== null);
-    if (failed.length > 0) {
-      console.warn(`Failed to stop ${failed.length} claw(s): ${failed.join(', ')}`);
+    if (stopFailed.length > 0) {
+      console.warn(`Failed to stop ${stopFailed.length} claw(s): ${stopFailed.join(', ')}`);
     } else {
       console.log('All claws stopped');
     }
@@ -155,6 +160,14 @@ export async function stopAllCommand(
       PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_LIST_FAILED,
       `context=stop_all_cleanup_pipeline`,
       `reason=${formatErr(err)}`,
+    );
+  }
+
+  // phase 355 C2: cleanup 完后才 throw、保 cleanup 不被 partial-failure 跳过。
+  if (stopFailed.length > 0) {
+    throw new CliError(
+      `Failed to stop ${stopFailed.length} claw(s): ${stopFailed.join(', ')}`,
+      1,
     );
   }
 }

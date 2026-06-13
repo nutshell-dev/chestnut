@@ -129,9 +129,12 @@ async function readContractStartedAt(fileSystem: FileSystem, contractId: Contrac
   for (const p of [archivePath, activePath]) {
     try {
       const content = await fileSystem.read(p);
-      const data = JSON.parse(content);
-      if (data.started_at) return data.started_at;
-    } catch { /* silent: skip */ }
+      // phase 355 C3 (review-2026-06-13): 验对象 shape + started_at 字符串、否则 skip
+      const raw: unknown = JSON.parse(content);
+      if (typeof raw !== 'object' || raw === null) continue;
+      const data = raw as { started_at?: unknown };
+      if (typeof data.started_at === 'string') return data.started_at;
+    } catch { /* silent: parse 失败 / 文件不存 → 尝试下一路径 */ }
   }
   return null;
 }
@@ -147,9 +150,12 @@ async function readContractTitle(fileSystem: FileSystem, contractId: ContractId)
   for (const p of [archivePath, activePath]) {
     try {
       const content = await fileSystem.read(p);
-      const data = JSON.parse(content);
-      if (data.title) return data.title;
-    } catch { /* silent: skip */ }
+      // phase 355 C3: 同型守
+      const raw: unknown = JSON.parse(content);
+      if (typeof raw !== 'object' || raw === null) continue;
+      const data = raw as { title?: unknown };
+      if (typeof data.title === 'string') return data.title;
+    } catch { /* silent: parse 失败 → 尝试下一路径或 yaml fallback */ }
   }
 
   // 从 contract.yaml 读取
@@ -204,11 +210,14 @@ async function readStreamEvents(fileSystem: FileSystem, startedAt: string): Prom
       const lines = content.trim().split('\n').filter(Boolean);
       for (const line of lines) {
         try {
-          const ev: StreamEvent = JSON.parse(line);
+          // phase 355 C3: 验对象 + ts 字段、否则 skip 行
+          const raw: unknown = JSON.parse(line);
+          if (typeof raw !== 'object' || raw === null) continue;
+          const ev = raw as StreamEvent;
           if (typeof ev.ts === 'number' && ev.ts >= startedTs) {
             events.push(ev);
           }
-        } catch { /* silent: skip invalid */ }
+        } catch { /* silent: stream 行 corrupt → skip 单行 */ }
       }
     } catch { /* silent: skip */ }
   }
