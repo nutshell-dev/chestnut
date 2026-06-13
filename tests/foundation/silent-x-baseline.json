@@ -1,6 +1,0 @@
-{
-    "version": 1,
-    "description": "Baseline whitelist of pre-existing silent catch blocks. NEW silent catch must include canonical `// silent: <reason>` annotation OR audit.write / throw / console.error in body. (phase 268: original 58 entries pruned — 8 真 still-silent 改 canonical / 50 stale residue 清; entries[] reserved for future pre-existing silent encountered before treat)",
-    "established": "2026-05-17 (phase 964 r119 C fork) / pruned 2026-06-11 (phase 268)",
-    "entries": []
-}

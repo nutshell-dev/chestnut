@@ -17,6 +17,10 @@ import foundationNoCliVerbFact from './eslint-rules/foundation-no-cli-verb-fact.
 import noMotionLiteralInSrc from './eslint-rules/no-motion-literal-in-src.js';
 import noConsoleInBusinessPath from './eslint-rules/no-console-in-business-path.js';
 import noSilentCatchOutsideAllowlist from './eslint-rules/no-silent-catch-outside-allowlist.js';
+import noSilentXWithoutAllowedPattern from './eslint-rules/no-silent-x-without-allowed-pattern.js';
+import noRuntimeCurrentStateGetter from './eslint-rules/no-runtime-current-state-getter.js';
+import noClawsEnumerationFanout from './eslint-rules/no-claws-enumeration-fanout.js';
+import noDirectNewNodeFileSystem from './eslint-rules/no-direct-new-nodefilesystem.js';
 
 /** @type {import('eslint').Linter.Config[]} */
 export default [
@@ -51,6 +55,10 @@ export default [
           'no-motion-literal-in-src': noMotionLiteralInSrc,
           'no-console-in-business-path': noConsoleInBusinessPath,
           'no-silent-catch-outside-allowlist': noSilentCatchOutsideAllowlist,
+          'no-silent-x-without-allowed-pattern': noSilentXWithoutAllowedPattern,
+          'no-runtime-current-state-getter': noRuntimeCurrentStateGetter,
+          'no-claws-enumeration-fanout': noClawsEnumerationFanout,
+          'no-direct-new-nodefilesystem': noDirectNewNodeFileSystem,
         },
       },
     },
@@ -75,6 +83,10 @@ export default [
       'chestnut-custom/no-motion-literal-in-src': 'error',
       'chestnut-custom/no-console-in-business-path': 'error',
       'chestnut-custom/no-silent-catch-outside-allowlist': 'error',
+      'chestnut-custom/no-silent-x-without-allowed-pattern': 'error',
+      'chestnut-custom/no-runtime-current-state-getter': 'error',
+      'chestnut-custom/no-claws-enumeration-fanout': 'error',
+      'chestnut-custom/no-direct-new-nodefilesystem': 'error',
     },
   },
 ];
