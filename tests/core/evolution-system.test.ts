@@ -64,7 +64,7 @@ async function setupFixtures(): Promise<TestFixtures> {
   const contractYamlPath = path.join(targetClawDir, 'contract', 'active', contractId, 'contract.yaml');
   await fs.writeFile(contractYamlPath, 'contract_id: ' + contractId + '\nintent: test');
   const progressPath = path.join(targetClawDir, 'contract', 'active', contractId, 'progress.json');
-  await fs.writeFile(progressPath, JSON.stringify({ contract_id: contractId, status: 'completed', subtasks: {}, completed_at: '2026-06-10T12:00:00.000Z' }));
+  await fs.writeFile(progressPath, JSON.stringify({ schema_version: 1, contract_id: contractId, status: 'completed', subtasks: {}, completed_at: '2026-06-10T12:00:00.000Z' }));
 
   const motionFs = new NodeFileSystem({ baseDir: motionDir });
   const motionAudit = new AuditWriter(motionFs, 'audit.tsv');
@@ -135,7 +135,7 @@ describe('EvolutionSystem - lazy load atomicity', () => {
     const contractYamlPath2 = path.join(contractDir2, 'contract.yaml');
     await fs.writeFile(contractYamlPath2, 'contract_id: ' + contractId2 + '\nintent: test');
     const progressPath2 = path.join(contractDir2, 'progress.json');
-    await fs.writeFile(progressPath2, JSON.stringify({ contract_id: contractId2, status: 'completed', subtasks: {}, completed_at: '2026-06-10T12:00:00.000Z' }));
+    await fs.writeFile(progressPath2, JSON.stringify({ schema_version: 1, contract_id: contractId2, status: 'completed', subtasks: {}, completed_at: '2026-06-10T12:00:00.000Z' }));
 
     const [r1, r2] = await Promise.all([
       evolutionSystem.runRetroForContract(contractId, ctx),

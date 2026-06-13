@@ -104,6 +104,8 @@ describe('ContractSystem lifecycle race (phase 791 / P0.16 + P0.18)', () => {
     await fs.writeFile(
       path.join(contractDir, 'progress.json'),
       JSON.stringify({
+        // phase 319: 加 schema_version 以匹配 Zod SoT strict 要求（mirror phase 311 ContractYaml strict pattern）
+        schema_version: 1,
         contract_id: contractId,
         status: 'running',
         subtasks: {

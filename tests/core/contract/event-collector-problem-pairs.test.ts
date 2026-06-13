@@ -18,7 +18,7 @@ function makeProgress(opts: {
   contractId: string;
   subtasks: Record<string, { status: string; evidence?: string; force_accepted?: boolean; last_failed_feedback?: { feedback: string }; completed_at?: string }>;
 }) {
-  return JSON.stringify({
+  return JSON.stringify({ schema_version: 1,
     contract_id: opts.contractId,
     status: 'completed',
     subtasks: opts.subtasks,

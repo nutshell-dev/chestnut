@@ -40,7 +40,7 @@ describe('Phase 188 Step C: reconcileArchiveStaleEntries', () => {
     await fs.mkdir(archiveDir, { recursive: true });
     await fs.writeFile(
       path.join(archiveDir, 'progress.json'),
-      JSON.stringify({
+      JSON.stringify({ schema_version: 1,
         contract_id: contractId,
         status,
         subtasks: {},

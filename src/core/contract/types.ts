@@ -79,25 +79,12 @@ export interface Contract {
 
 // YAML contract file structure (exported for CLI use).
 // phase 311: type derive from Zod schema (ML#9 优先编译器检查)
-import type { ContractYamlValidated } from './schemas.js';
+import type { ContractYamlValidated, ContractProgressPersistedValidated } from './schemas.js';
 export type ContractYaml = ContractYamlValidated;
 
 // phase 282 Step B: 落盘 schema（不含 derive field）
-export interface ProgressDataPersisted {
-  schema_version?: number;  // NEW phase 1134 / v1 = current
-  subtasks: Record<string, {
-    status: SubtaskStatus;
-    completed_at?: string;
-    evidence?: string;
-    artifacts?: string[];
-    retry_count?: number;           // 默认 0，每次验收失败 +1
-    last_failed_feedback?: LastFailedFeedback;
-    force_accepted?: boolean;        // phase 1399: retry 试光后强接受标记
-  }>;
-  started_at?: string;
-  completed_at?: string;  // phase 280: evolution-system high-water mark source (archive time)
-  checkpoint?: string | null;
-}
+// phase 319: type derive from Zod schema (ML#9 优先编译器检查、broaden phase 311 pattern)
+export type ProgressDataPersisted = ContractProgressPersistedValidated;
 
 // Progress data structure（运行时 schema：derive fields 由 loader 注入）
 // phase 282: status/contract_id 是 derive 字段，落盘不写；内存对象仍保留字段以兼容现有代码。

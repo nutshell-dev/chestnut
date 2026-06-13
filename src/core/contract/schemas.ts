@@ -1,15 +1,19 @@
 /**
  * @module L4.ContractSystem.Schemas
- * Zod schemas for ContractYaml shape validation (phase 311 ML#9 strict + 编码规范契约先行).
+ * Zod schemas for ContractYaml + ContractProgressPersisted shape validation (phase 311 + phase 319 ML#9 strict + 编码规范契约先行).
  *
- * Phase 311: ContractYaml hand-rolled `as { ... }` validation 改 Zod SoT (mirror
- * task-schemas.ts + phase 305 file-tool pattern)。schema_version: z.literal(1) brand
- * + .strict() reject unknown field + type derive from schema。
+ * Phase 311 立 ContractYamlSchema (mirror task-schemas.ts + phase 305 file-tool pattern)。
+ * Phase 319 broaden: ContractProgressPersistedSchema + Zod SoT for progress.json (mirror
+ *   phase 311 ContractYamlSchema pattern、phase 311 升档条件 (A) sister)。
  *
- * 替换 phase 1019 / r124 E fork hand-rolled schema_version invariant check + phase
- * 1257/1399 旧字段 silent fallback parse code（旧 verification 前身字段 + escalation.max_retries→
- * verification_attempts、active load path 9 天 audit 0 emit + 0 production active load
- * path file by phase 311 evidence-based verify）。
+ * 共享 pattern: schema_version: z.literal(1) brand + .strict() reject unknown field + type derive from schema。
+ *
+ * Phase 311 替换 phase 1019 / r124 E fork hand-rolled schema_version invariant check + phase
+ *   1257/1399 旧字段 silent fallback parse code (active load path 9 天 audit 0 emit + 0
+ *   production active load path file by phase 311 evidence-based verify)。
+ * Phase 319 替换 phase 1134 hand-rolled schema_version invariant check + invariants.ts
+ *   assertProgressShapeInvariants (production 0 active progress.json + 0 audit emit
+ *   contract_progress_invariant_violated 9 天 verify)。
  */
 
 import { z } from 'zod';
@@ -39,3 +43,30 @@ export const ContractYamlSchema = z.object({
 }).strict();
 
 export type ContractYamlValidated = z.infer<typeof ContractYamlSchema>;
+
+// phase 319 broaden Zod SoT pattern for progress.json (mirror ContractYamlSchema)
+
+const LastFailedFeedbackSchema = z.object({
+  feedback: z.string(),
+  cause: z.enum(['llm_rejected', 'programming_bug', 'subagent_timeout', 'script_failed']),
+}).strict();
+
+const SubtaskProgressSchema = z.object({
+  status: z.enum(['todo', 'in_progress', 'completed']),
+  completed_at: z.string().optional(),
+  evidence: z.string().optional(),
+  artifacts: z.array(z.string()).optional(),
+  retry_count: z.number().optional(),
+  last_failed_feedback: LastFailedFeedbackSchema.optional(),
+  force_accepted: z.boolean().optional(),
+}).strict();
+
+export const ContractProgressPersistedSchema = z.object({
+  schema_version: z.literal(1),
+  subtasks: z.record(z.string(), SubtaskProgressSchema),
+  started_at: z.string().optional(),
+  completed_at: z.string().optional(),
+  checkpoint: z.union([z.string(), z.null()]).optional(),
+}).strict();
+
+export type ContractProgressPersistedValidated = z.infer<typeof ContractProgressPersistedSchema>;

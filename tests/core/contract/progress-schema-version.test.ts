@@ -79,7 +79,7 @@ describe('progress.json schema_version invariant — phase 1134', () => {
     );
   });
 
-  it('getProgress accepts legacy progress.json without schema_version', async () => {
+  it('getProgress rejects legacy progress.json without schema_version (phase 319 strict-end)', async () => {
     const mockAudit = makeMockAudit();
     const manager = new ContractSystem({
       clawDir,
@@ -98,7 +98,8 @@ describe('progress.json schema_version invariant — phase 1134', () => {
       verification: [],
     }));
 
-    // overwrite with legacy format (no schema_version)
+    // phase 319 strict-end: legacy format (no schema_version) is now rejected by Zod
+    // (mirror phase 311 ContractYaml strict pattern、ML#9 优先编译器检查)
     const progressPath = path.join(clawDir, 'contract', 'active', contractId, 'progress.json');
     await fs.writeFile(
       progressPath,
@@ -107,14 +108,12 @@ describe('progress.json schema_version invariant — phase 1134', () => {
     );
 
     const progress = await manager.getProgress(contractId);
-    expect(progress.contract_id).toBe(contractId);
-    expect(progress.status).toBe('running');
-    expect(progress.subtasks.t1.status).toBe('todo');
+    expect(progress).toBeNull();
 
-    // No PROGRESS_SCHEMA_INVALID audit for absent schema_version
+    // PROGRESS_SCHEMA_INVALID emit + isolation
     const badCalls = mockAudit.write.mock.calls.filter(
       (c: any[]) => c[0] === CONTRACT_AUDIT_EVENTS.PROGRESS_SCHEMA_INVALID,
     );
-    expect(badCalls).toHaveLength(0);
+    expect(badCalls.length).toBeGreaterThan(0);
   });
 });

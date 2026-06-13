@@ -68,9 +68,10 @@ describe('getProgress schema check', () => {
       verification: [],
     }));
 
-    // overwrite with schema-invalid JSON (parsable but missing subtasks)
+    // overwrite with schema-invalid JSON (parsable + schema_version present but missing subtasks)
+    // phase 319: 加 schema_version 以隔离测试 shape-invalid 路径（不混入 schema_version-invariant 路径）
     const progressPath = path.join(clawDir, 'contract', 'active', contractId, 'progress.json');
-    await fs.writeFile(progressPath, JSON.stringify({ foo: 'bar' }), 'utf-8');
+    await fs.writeFile(progressPath, JSON.stringify({ schema_version: 1, foo: 'bar' }), 'utf-8');
 
     const result = await manager.getProgress(contractId);
     expect(result).toBeNull();
@@ -106,7 +107,8 @@ describe('getProgress schema check', () => {
     const progressPath = path.join(clawDir, 'contract', 'active', contractId, 'progress.json');
     await fs.writeFile(
       progressPath,
-      JSON.stringify({ contract_id: contractId, status: 'active', subtasks: null }),
+      // phase 319: 加 schema_version 以隔离测试 shape-invalid 路径
+      JSON.stringify({ schema_version: 1, contract_id: contractId, status: 'active', subtasks: null }),
       'utf-8',
     );
 
@@ -139,7 +141,7 @@ describe('loadContractYaml schema check', () => {
     // minimal progress so contractDir resolves
     await fs.writeFile(
       path.join(contractDir, 'progress.json'),
-      JSON.stringify({ contract_id: contractId, status: 'running', subtasks: {} }),
+      JSON.stringify({ schema_version: 1, contract_id: contractId, status: 'running', subtasks: {} }),
       'utf-8',
     );
 
@@ -170,7 +172,7 @@ describe('loadContractYaml schema check', () => {
     await fs.writeFile(path.join(contractDir, 'contract.yaml'), '', 'utf-8');
     await fs.writeFile(
       path.join(contractDir, 'progress.json'),
-      JSON.stringify({ contract_id: contractId, status: 'running', subtasks: {} }),
+      JSON.stringify({ schema_version: 1, contract_id: contractId, status: 'running', subtasks: {} }),
       'utf-8',
     );
 
@@ -200,7 +202,7 @@ describe('discovery schema check', () => {
     await fs.mkdir(dirA, { recursive: true });
     await fs.writeFile(
       path.join(dirA, 'progress.json'),
-      JSON.stringify({ status: 'running', subtasks: null }),
+      JSON.stringify({ schema_version: 1, status: 'running', subtasks: null }),
       'utf-8',
     );
 
@@ -209,7 +211,7 @@ describe('discovery schema check', () => {
     await fs.mkdir(dirB, { recursive: true });
     await fs.writeFile(
       path.join(dirB, 'progress.json'),
-      JSON.stringify({ contract_id: 'contract-b', status: 'running', subtasks: {}, started_at: '2024-01-01T00:00:00Z' }),
+      JSON.stringify({ schema_version: 1, contract_id: 'contract-b', status: 'running', subtasks: {}, started_at: '2024-01-01T00:00:00Z' }),
       'utf-8',
     );
 
@@ -218,7 +220,7 @@ describe('discovery schema check', () => {
     await fs.mkdir(dirC, { recursive: true });
     await fs.writeFile(
       path.join(dirC, 'progress.json'),
-      JSON.stringify({ contract_id: 'contract-c', status: 'running', subtasks: {}, started_at: '2024-06-01T00:00:00Z' }),
+      JSON.stringify({ schema_version: 1, contract_id: 'contract-c', status: 'running', subtasks: {}, started_at: '2024-06-01T00:00:00Z' }),
       'utf-8',
     );
 
@@ -256,7 +258,7 @@ describe('discovery schema check', () => {
     await fs.mkdir(dirA, { recursive: true });
     await fs.writeFile(
       path.join(dirA, 'progress.json'),
-      JSON.stringify({ contract_id: 'contract-a', status: 'active', subtasks: null }),
+      JSON.stringify({ schema_version: 1, contract_id: 'contract-a', status: 'active', subtasks: null }),
       'utf-8',
     );
 

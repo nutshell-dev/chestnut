@@ -74,7 +74,7 @@ describe('contractEventsCommand', () => {
     fs.mkdirSync(archiveDir, { recursive: true });
 
     const completedAt = new Date('2026-04-17T10:00:00Z');
-    fs.writeFileSync(path.join(archiveDir, 'progress.json'), JSON.stringify({
+    fs.writeFileSync(path.join(archiveDir, 'progress.json'), JSON.stringify({ schema_version: 1,
       contract_id: contractId,
       status: 'completed',
       subtasks: {
@@ -99,7 +99,7 @@ describe('contractEventsCommand', () => {
     fs.mkdirSync(archiveDir, { recursive: true });
 
     const completedAt = new Date('2026-04-17T10:00:00Z');
-    fs.writeFileSync(path.join(archiveDir, 'progress.json'), JSON.stringify({
+    fs.writeFileSync(path.join(archiveDir, 'progress.json'), JSON.stringify({ schema_version: 1,
       contract_id: contractId,
       status: 'completed',
       subtasks: {

@@ -8,12 +8,12 @@ import { formatErr } from "../../foundation/utils/index.js";
 import { isFileNotFound, type FileSystem } from '../../foundation/fs/types.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { Contract } from '../contract/types.js';
-import type { ProgressData } from './types.js';
 
 import {
   emitContractProgressSchemaInvalid,
   emitContractProgressCorrupted,
 } from './audit-emit.js';
+import { ContractProgressPersistedSchema } from './schemas.js';
 
 export interface DiscoveryContext {
   fs: FileSystem;
@@ -42,18 +42,21 @@ async function findLatestContract(
 
     try {
       const raw = await ctx.fs.read(progressPath);
-      const parsed = JSON.parse(raw) as { contract_id?: unknown; status?: unknown; subtasks?: unknown; started_at?: unknown };
-      if (
-        typeof parsed.subtasks !== 'object' || parsed.subtasks === null
-      ) {
+      const rawParsed: unknown = JSON.parse(raw);
+      // phase 325 Zod SoT broaden (mirror phase 319 ContractProgressPersistedSchema strict)
+      // strip legacy derive fields (contract_id + status) before strict safeParse
+      const obj = rawParsed as Record<string, unknown>;
+      delete obj.contract_id;
+      delete obj.status;
+      const result = ContractProgressPersistedSchema.safeParse(obj);
+      if (!result.success) {
         emitContractProgressSchemaInvalid(
           ctx.audit,
           { context: auditContext, contractId: entry.name, path: progressPath },
         );
         continue;
       }
-      const data = parsed as ProgressData;
-      const startedAt = data.started_at ?? '';
+      const startedAt = result.data.started_at ?? '';
       if (!latest || startedAt > latest.startedAt) {
         latest = { name: entry.name, startedAt };
       }

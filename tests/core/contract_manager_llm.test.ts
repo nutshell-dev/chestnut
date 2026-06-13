@@ -106,6 +106,7 @@ async function setupContract(
 
   // Write progress.json
   const progress = {
+    schema_version: 1,
     contract_id: contractId,
     status: 'running',
     subtasks: (contractYaml.subtasks as any[]).reduce((acc: Record<string, unknown>, st: any) => {

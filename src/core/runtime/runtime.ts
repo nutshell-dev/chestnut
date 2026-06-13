@@ -59,7 +59,7 @@ import { formatTimeAgo } from './utils.js';
 import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
 import type { TraceId } from './types/trace-id.js';
 import { makeTraceId } from './types/trace-id.js';
-import { commitTurnEvent, type TurnEventCommitDeps } from './turn-event-commit.js';
+import { commitTurnEvent, type TurnEventCommitDeps } from '../turn-event-commit.js';
 
 function auditError(
   audit: AuditLog,

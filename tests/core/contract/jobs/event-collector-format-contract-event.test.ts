@@ -9,7 +9,7 @@ import { makeAudit } from '../../../helpers/audit.js';
 
 function makeFsForStatus(status: string, checkpoint?: string): FileSystem {
   const files = new Map<string, string>();
-  files.set('/tmp/claw/contract/archive/c1/progress.json', JSON.stringify({
+  files.set('/tmp/claw/contract/archive/c1/progress.json', JSON.stringify({ schema_version: 1,
     contract_id: 'c1',
     status,
     checkpoint: checkpoint ?? null,

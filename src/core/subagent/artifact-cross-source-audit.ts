@@ -4,7 +4,7 @@
  * 应然 anchor（per design/modules/l3_subagent.md §「persist-state observability」、phase 270 Step B + phase 283）：
  * - AC-4 phase 224 同源 bug 子代理检测：textEndCount > 0 但末轮 dialog 非 assistant text
  *
- * 已删（phase 283 by-construction equal via commitTurnEvent）：
+ * 已删（phase 283 by-construction equal via commitTurnEvent in src/core/turn-event-commit.ts、phase 317 迁 L3 共用 infra flat root）：
  * - AC-1/AC-2/AC-3/AC-5/AC-6 counter check
  *
  * 不 throw（DP1 + Path #4 防 break finally）。

@@ -54,7 +54,7 @@ function makeOpts(chestnutRoot: string, motionDir: string): RandomDreamOptions {
 async function createArchiveContract(chestnutRoot: string, clawId: string, contractId: string, completedAt = new Date().toISOString()) {
   const dir = path.join(chestnutRoot, 'claws', clawId, 'contract', 'archive', contractId);
   await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(path.join(dir, 'progress.json'), JSON.stringify({
+  await fs.writeFile(path.join(dir, 'progress.json'), JSON.stringify({ schema_version: 1,
     subtasks: {
       s1: { status: 'completed', completed_at: completedAt },
     },
@@ -352,7 +352,7 @@ Prompt: ...
     // contract-recent：有近期完成的 subtask
     const recentDir = path.join(chestnutRoot, 'claws', 'claw-1', 'contract', 'archive', 'contract-recent');
     await fs.mkdir(recentDir, { recursive: true });
-    await fs.writeFile(path.join(recentDir, 'progress.json'), JSON.stringify({
+    await fs.writeFile(path.join(recentDir, 'progress.json'), JSON.stringify({ schema_version: 1,
       subtasks: {
         s1: { status: 'completed', completed_at: new Date(Date.now() - 1000 * 60 * 60).toISOString() }, // 1 小时前
       },
@@ -361,7 +361,7 @@ Prompt: ...
     // contract-old：有很久以前完成的 subtask（几乎没有加权）
     const oldDir = path.join(chestnutRoot, 'claws', 'claw-2', 'contract', 'archive', 'contract-old-done');
     await fs.mkdir(oldDir, { recursive: true });
-    await fs.writeFile(path.join(oldDir, 'progress.json'), JSON.stringify({
+    await fs.writeFile(path.join(oldDir, 'progress.json'), JSON.stringify({ schema_version: 1,
       subtasks: {
         s1: { status: 'completed', completed_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 60).toISOString() }, // 60 天前
       },
@@ -388,7 +388,7 @@ Prompt: ...
     // contract-failed：有 failed subtask
     const failedDir = path.join(chestnutRoot, 'claws', 'claw-1', 'contract', 'archive', 'contract-failed');
     await fs.mkdir(failedDir, { recursive: true });
-    await fs.writeFile(path.join(failedDir, 'progress.json'), JSON.stringify({
+    await fs.writeFile(path.join(failedDir, 'progress.json'), JSON.stringify({ schema_version: 1,
       subtasks: {
         s1: { status: 'failed' },
       },

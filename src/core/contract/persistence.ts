@@ -13,12 +13,11 @@ import { ToolError } from '../../foundation/errors.js';
 import type { Contract } from '../contract/types.js';
 import type { ContractYaml } from './types.js';
 import type { ProgressData } from './types.js';
-import { ContractYamlSchema } from './schemas.js';
+import { ContractYamlSchema, ContractProgressPersistedSchema } from './schemas.js';
 import { makeClawId } from '../../constants.js';
 import { emitContractYamlSchemaInvalid } from './audit-emit.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 import { isolateCorruptedFile } from './_isolation-helper.js';
-import { assertProgressShapeInvariants } from './invariants.js';
 // phase 282 Step B: cross-source audit 整文件已删除（status + contract_id + yaml-dep 均 derive）
 
 const CONTRACT_DEFAULTS = {
@@ -121,7 +120,8 @@ export async function saveProgress(
 ): Promise<void> {
   const dir = await ctx.contractDir(contractId);
   const progressPath = `${dir}/${contractId}/progress.json`;
-  const progressToSave = { schema_version: PROGRESS_CURRENT_SCHEMA_VERSION, ...progress };
+  // phase 319: ProgressData.schema_version now z.literal(1) brand (Zod SoT)、显式 set 保 writer SoT
+  const progressToSave = { ...progress, schema_version: PROGRESS_CURRENT_SCHEMA_VERSION };
   // phase 282 Step B: 落盘时不写 contract_id（derive from caller-provided dir）
   delete (progressToSave as Record<string, unknown>).contract_id;
   // phase 282 Step A: 对于可从 subtasks derive 的状态（completed/running/pending），
@@ -133,9 +133,20 @@ export async function saveProgress(
     delete (progressToSave as Record<string, unknown>).status;
   }
 
-  // phase 233 Step A: schema invariant check（违例 emit audit、不 throw、不阻 save、Path #4 防 break）
-  // phase 282 Step A: status check 已删（invariants.ts 同步更新）
-  assertProgressShapeInvariants(progressToSave, ctx.audit, 'saveProgress');
+  // phase 319: Zod SoT safeParse defensive (replace assertProgressShapeInvariants、ML#9 优先编译器检查)
+  // phase 233 Step A anchor: 违例 emit audit、不 throw、不阻 save、Path #4 防 break
+  const validation = ContractProgressPersistedSchema.safeParse(progressToSave);
+  if (!validation.success) {
+    const firstIssue = validation.error.issues[0];
+    ctx.audit.write(
+      CONTRACT_AUDIT_EVENTS.CONTRACT_PROGRESS_INVARIANT_VIOLATED,
+      `kind=${firstIssue?.code ?? 'unknown'}`,
+      `contract_id=${contractId}`,
+      `path=${firstIssue?.path.join('.') ?? 'unknown'}`,
+      `message=${firstIssue?.message ?? 'unknown'}`,
+      `source=saveProgress`,
+    );
+  }
 
   // phase 282 Step B: cross-source audit 整文件已删除
 

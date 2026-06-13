@@ -33,6 +33,19 @@ module.exports = {
       to: { path: '^src/core/' },
     },
     {
+      name: 'no-subagent-to-runtime',
+      comment: [
+        'ML#5 单向依赖 strict + M#3 资源唯一归属。',
+        'src/core/subagent/ (L3) 不得 import src/core/runtime/ (L5)、含 type-only import。',
+        'phase 317 真治 phase 283 turn-event-commit module 层 misown (drift-backlog A.phase283、subagent → runtime reverse import 违 M#5)、',
+        '与 phase 238 / 242 ML#5 strict reverse era trade-off 同型 cluster。',
+        'ML#9 优先编译器检查、防 future L3 → L5 反向 import regression。',
+      ].join(' '),
+      severity: 'error',
+      from: { path: '^src/core/subagent/' },
+      to: { path: '^src/core/runtime/' },
+    },
+    {
       name: 'fs-only-via-foundation-filesystem',
       comment: [
         'ML#3 资源唯一归属：file I/O 必经 L1 FileSystem 接口。',

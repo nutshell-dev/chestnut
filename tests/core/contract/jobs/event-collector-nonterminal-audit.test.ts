@@ -9,7 +9,7 @@ import { CONTRACT_AUDIT_EVENTS } from '../../../../src/core/contract/audit-event
 
 function makeFsForStatus(status: string, checkpoint?: string): FileSystem {
   const files = new Map<string, string>();
-  files.set('/tmp/claw/contract/archive/c1/progress.json', JSON.stringify({
+  files.set('/tmp/claw/contract/archive/c1/progress.json', JSON.stringify({ schema_version: 1,
     contract_id: 'c1',
     status,
     checkpoint: checkpoint ?? null,
@@ -35,7 +35,7 @@ function makeFsForMixed(statuses: string[]): FileSystem {
   for (let i = 0; i < statuses.length; i++) {
     const name = `c${i}`;
     dirEntries.push({ name, isDirectory: true, size: 0 });
-    files.set(`/tmp/claw/contract/archive/${name}/progress.json`, JSON.stringify({
+    files.set(`/tmp/claw/contract/archive/${name}/progress.json`, JSON.stringify({ schema_version: 1,
       contract_id: name,
       status: statuses[i],
       checkpoint: null,

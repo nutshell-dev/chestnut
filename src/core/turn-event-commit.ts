@@ -1,5 +1,9 @@
 /**
- * Phase 283: typed commit function for turn events.
+ * Phase 283 立: typed commit function for turn events.
+ * Phase 317 迁 L3 共用 infra flat root (ML#5 strict + M#3): subagent (L3) → runtime (L5)
+ *   反向 import 违 M#5、原 module 误归 runtime own 违 M#3。迁 src/core/turn-event-commit.ts
+ *   flat root (mirror caller-types.ts + claw-id.ts + signals.ts cross-cutting infra pattern)、
+ *   depcruise rule `no-subagent-to-runtime` 立防 future regression。
  *
  * By-construction guarantee: every turn event that affects the dialog
  * also emits a corresponding stream event through a single typed function.
@@ -9,7 +13,7 @@
  * this function owns the stream-emit side to ensure no event is dropped.
  */
 
-import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
+import type { ToolUseId } from '../foundation/tool-protocol/index.js';
 
 export type TurnEvent =
   | { kind: 'text_end' }

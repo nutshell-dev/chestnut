@@ -20,7 +20,7 @@ function makeFsMock(scenario: 'empty' | 'completed' | 'mixed' | 'recovery'): Fil
   }));
 
   if (scenario === 'completed') {
-    files.set('/tmp/test/claws/claw1/contract/archive/contract-a/progress.json', JSON.stringify({
+    files.set('/tmp/test/claws/claw1/contract/archive/contract-a/progress.json', JSON.stringify({ schema_version: 1,
       contract_id: 'contract-a',
       status: 'completed',
       subtasks: {
@@ -30,18 +30,18 @@ function makeFsMock(scenario: 'empty' | 'completed' | 'mixed' | 'recovery'): Fil
   }
 
   if (scenario === 'mixed') {
-    files.set('/tmp/test/claws/claw1/contract/archive/c1/progress.json', JSON.stringify({
+    files.set('/tmp/test/claws/claw1/contract/archive/c1/progress.json', JSON.stringify({ schema_version: 1,
       contract_id: 'c1',
       status: 'completed',
       subtasks: { st1: { completed_at: new Date(now).toISOString() } },
     }));
-    files.set('/tmp/test/claws/claw1/contract/archive/c2/progress.json', JSON.stringify({
+    files.set('/tmp/test/claws/claw1/contract/archive/c2/progress.json', JSON.stringify({ schema_version: 1,
       contract_id: 'c2',
       status: 'cancelled',
       checkpoint: 'cancelled: user manual',
       subtasks: {},
     }));
-    files.set('/tmp/test/claws/claw1/contract/archive/c3/progress.json', JSON.stringify({
+    files.set('/tmp/test/claws/claw1/contract/archive/c3/progress.json', JSON.stringify({ schema_version: 1,
       contract_id: 'c3',
       status: 'crashed',
       checkpoint: 'crashed: system: maxstepsexceedederror',
@@ -50,7 +50,7 @@ function makeFsMock(scenario: 'empty' | 'completed' | 'mixed' | 'recovery'): Fil
   }
 
   if (scenario === 'recovery') {
-    files.set('/tmp/test/claws/claw1/contract/archive/c-recovery/progress.json', JSON.stringify({
+    files.set('/tmp/test/claws/claw1/contract/archive/c-recovery/progress.json', JSON.stringify({ schema_version: 1,
       contract_id: 'c-recovery',
       status: 'archive_pending_recovery',
       subtasks: {},

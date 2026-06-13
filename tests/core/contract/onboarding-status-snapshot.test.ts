@@ -86,7 +86,7 @@ describe('readOnboardingStatus happy path', () => {
       dirs: ['/motion/contract/active'],
       files: {
         '/motion/contract/active/ob1/contract.yaml': 'title: "Onboarding"\n',
-        '/motion/contract/active/ob1/progress.json': JSON.stringify({
+        '/motion/contract/active/ob1/progress.json': JSON.stringify({ schema_version: 1,
           subtasks: {
             language: { status: 'completed' },
             identity: { status: 'pending' },
@@ -107,7 +107,7 @@ describe('readOnboardingStatus happy path', () => {
       dirs: ['/motion/contract/archive'],
       files: {
         '/motion/contract/archive/ob1/contract.yaml': 'title: "Onboarding"\n',
-        '/motion/contract/archive/ob1/progress.json': JSON.stringify({
+        '/motion/contract/archive/ob1/progress.json': JSON.stringify({ schema_version: 1,
           subtasks: {
             language: { status: 'completed' },
             identity: { status: 'completed' },
@@ -130,9 +130,9 @@ describe('readOnboardingStatus happy path', () => {
       dirs: ['/motion/contract/active', '/motion/contract/paused'],
       files: {
         '/motion/contract/active/c1/contract.yaml': 'title: "OtherTask"\n',
-        '/motion/contract/active/c1/progress.json': JSON.stringify({ subtasks: {} }),
+        '/motion/contract/active/c1/progress.json': JSON.stringify({ schema_version: 1, subtasks: {} }),
         '/motion/contract/paused/ob1/contract.yaml': 'title: "Onboarding"\n',
-        '/motion/contract/paused/ob1/progress.json': JSON.stringify({
+        '/motion/contract/paused/ob1/progress.json': JSON.stringify({ schema_version: 1,
           subtasks: { step1: { status: 'pending' } },
         }),
       },
@@ -154,9 +154,9 @@ describe('readOnboardingStatus reverse', () => {
       dirs: ['/motion/contract/active', '/motion/contract/paused'],
       files: {
         '/motion/contract/active/c1/contract.yaml': 'title: "OnboardingX"\n',
-        '/motion/contract/active/c1/progress.json': JSON.stringify({ subtasks: {} }),
+        '/motion/contract/active/c1/progress.json': JSON.stringify({ schema_version: 1, subtasks: {} }),
         '/motion/contract/paused/ob1/contract.yaml': 'title: "Onboarding"\n',
-        '/motion/contract/paused/ob1/progress.json': JSON.stringify({ subtasks: {} }),
+        '/motion/contract/paused/ob1/progress.json': JSON.stringify({ schema_version: 1, subtasks: {} }),
       },
     });
     const result = readOnboardingStatus('/motion', { fsFactory: (baseDir) => wrapFs(baseDir, fs) });
@@ -168,7 +168,7 @@ describe('readOnboardingStatus reverse', () => {
       dirs: ['/motion/contract/active'],
       files: {
         '/motion/contract/active/ob1/contract.yaml': 'title: "Onboarding"\n',
-        '/motion/contract/active/ob1/progress.json': JSON.stringify({
+        '/motion/contract/active/ob1/progress.json': JSON.stringify({ schema_version: 1,
           subtasks: { step1: { status: 'pending' } },
         }),
       },
@@ -196,7 +196,7 @@ describe('readOnboardingStatus reverse', () => {
       dirs: ['/motion/contract/active'],
       files: {
         '/motion/contract/active/ob1/contract.yaml': 'title: "Onboarding"\n',
-        '/motion/contract/active/ob1/progress.json': JSON.stringify({ subtasks: [] }),
+        '/motion/contract/active/ob1/progress.json': JSON.stringify({ schema_version: 1, subtasks: [] }),
       },
     });
     const result = readOnboardingStatus('/motion', { fsFactory: (baseDir) => wrapFs(baseDir, fs) });

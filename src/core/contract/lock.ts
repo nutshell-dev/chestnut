@@ -4,6 +4,7 @@
  */
 
 import * as path from 'path';
+import { z } from 'zod';
 import { formatErr } from "../../foundation/utils/index.js";
 import type { FileSystem } from '../../foundation/fs/types.js';
 
@@ -22,6 +23,18 @@ import { isAlive as defaultL1IsAlive } from '../../foundation/process-exec/index
 import { type ContractId, makeContractId } from './types.js';
 import { isolateCorruptedFile } from './_isolation-helper.js';
 import { LockContentionExhaustedError } from './errors.js';
+
+// phase 326 Zod SoT (ML#9 优先编译器检查): inline lock metadata schemas
+// LockMetadataSchema: acquire 路径、{ pid, time } 必为有限数
+// LockMetadataReleaseSchema: release verify 路径、subset (pid only)
+const LockMetadataSchema = z.object({
+  pid: z.number().finite(),
+  time: z.number().finite(),
+}).strict();
+
+const LockMetadataReleaseSchema = z.object({
+  pid: z.number().finite(),
+}).strict();
 
 export interface LockContext {
   fs: FileSystem;
@@ -46,12 +59,10 @@ export async function acquireLock(ctx: LockContext, lockPath: string): Promise<v
 
       try {
         const raw = await ctx.fs.read(lockPath);
-        const parsed = JSON.parse(raw) as { pid?: unknown; time?: unknown };
-        // schema 校验：pid + time 必为有限数 / 非法视同 corrupt
-        if (
-          typeof parsed.pid !== 'number' || !Number.isFinite(parsed.pid) ||
-          typeof parsed.time !== 'number' || !Number.isFinite(parsed.time)
-        ) {
+        // phase 326 Zod SoT (ML#9 优先编译器检查): pid + time 必为有限数、非法视同 corrupt
+        const rawParsed: unknown = JSON.parse(raw);
+        const validation = LockMetadataSchema.safeParse(rawParsed);
+        if (!validation.success) {
           emitContractLockSchemaInvalid(
             ctx.audit,
             { path: lockPath, raw: ctx.audit.preview(raw) },
@@ -73,7 +84,7 @@ export async function acquireLock(ctx: LockContext, lockPath: string): Promise<v
           if (await unlinkStaleLock(ctx, lockPath, 'corrupt_lock_file_schema_invalid')) continue;
           lastReason = 'unlink failed on corrupt lock file after isolation failed';
         }
-        const { pid, time } = parsed as { pid: number; time: number };
+        const { pid, time } = validation.success ? validation.data : { pid: 0, time: 0 };
         if (!(ctx.l1IsAlive ?? defaultL1IsAlive)(pid)) {
           lastReason = `holder PID ${pid} is dead (stale lock)`;
           if (await unlinkStaleLock(ctx, lockPath, `stale_pid_${pid}`)) continue;
@@ -134,14 +145,20 @@ export async function releaseLock(ctx: LockContext, lockPath: string): Promise<v
     // phase 1102 con-3: verify ownership before deleting to prevent race-condition
     // where a concurrent force-clear removed our lock and replaced it with another
     const raw = await ctx.fs.read(lockPath);
-    let parsed: { pid?: unknown } | undefined;
+    // phase 326 Zod SoT (ML#9 优先编译器检查): release verify、subset schema (pid only)
+    // backward compat: JSON.parse throw (old plain-text lock files) → silent skip (treat as unowned, allow delete)
+    let parsedPid: number | undefined;
     try {
-      parsed = JSON.parse(raw) as { pid?: unknown };
+      const rawParsed: unknown = JSON.parse(raw);
+      const validation = LockMetadataReleaseSchema.safeParse(rawParsed);
+      if (validation.success) {
+        parsedPid = validation.data.pid;
+      }
     } catch {
       // silent: backward compat — old-format lock files (plain text / empty) treat as unowned, allow delete
-      parsed = undefined;
+      parsedPid = undefined;
     }
-    if (parsed && typeof parsed.pid === 'number' && parsed.pid !== process.pid) {
+    if (parsedPid !== undefined && parsedPid !== process.pid) {
       emitContractLockUnlinkFailed(
         ctx.audit,
         {
@@ -149,7 +166,7 @@ export async function releaseLock(ctx: LockContext, lockPath: string): Promise<v
           path: lockPath,
           reason: 'ownership_mismatch',
           expectedPid: process.pid,
-          actualPid: parsed.pid as number,
+          actualPid: parsedPid,
         },
       );
       return;

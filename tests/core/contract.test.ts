@@ -45,7 +45,9 @@ auth_level: notify
   await fs.writeFile(path.join(contractDir, 'contract.yaml'), yamlContent);
 
   // Create progress.json
+  // phase 319: schema_version: 1 required by Zod SoT strict (mirror phase 311 pattern)
   const progress = {
+    schema_version: 1,
     contract_id: contractId,
     status,
     subtasks: {
@@ -199,6 +201,7 @@ auth_level: auto
       await fs.writeFile(path.join(contractDir, 'contract.yaml'), yamlContent);
 
       const progress = {
+        schema_version: 1,
         contract_id: 'contract-002',
         status: 'running',
         subtasks: { 'st-001': { status: 'todo' } },
@@ -248,6 +251,7 @@ auth_level: auto
       await fs.writeFile(path.join(contractDir, 'contract.yaml'), yamlContent);
 
       const progress = {
+        schema_version: 1,
         contract_id: 'contract-003',
         status: 'running',
         subtasks: { 'st-001': { status: 'todo' } },
@@ -295,6 +299,7 @@ auth_level: auto
       await fs.writeFile(path.join(contractDir, 'contract.yaml'), yamlContent);
 
       const progress = {
+        schema_version: 1,
         contract_id: 'contract-004',
         status: 'running',
         subtasks: { 'st-001': { status: 'todo' } },
@@ -339,6 +344,7 @@ auth_level: auto
 
       // Both pending
       const progress = {
+        schema_version: 1,
         contract_id: 'contract-005',
         status: 'running',
         subtasks: {

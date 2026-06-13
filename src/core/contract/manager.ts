@@ -67,7 +67,7 @@ import {
   type PersistenceContext,
   PROGRESS_CURRENT_SCHEMA_VERSION,
 } from './persistence.js';
-import { assertProgressShapeInvariants } from './invariants.js';
+import { ContractProgressPersistedSchema } from './schemas.js';
 import { type ContractId, makeContractId } from './types.js';
 import { ContractValidationError } from './errors.js';
 import { type SubtaskId, type ArchiveDir, makeArchiveDir } from './types.js';
@@ -474,12 +474,11 @@ export class ContractSystem {
               }
             }
             if (mutated) {
-              assertProgressShapeInvariants(progress as ProgressData, this.audit, 'boot_reconcile_escalated');
+              // phase 319: 删 assertProgressShapeInvariants（load 端 ContractProgressPersistedSchema.safeParse 已守、boot reconcile 双 check 冗余）
               await this.fs.writeAtomic(progressPath, JSON.stringify(progress, null, 2));
               const allCompleted = Object.values(progress.subtasks).every(s => s.status === 'completed');
               if (allCompleted && progress.status !== 'completed') {
                 progress.status = 'completed';
-                assertProgressShapeInvariants(progress as ProgressData, this.audit, 'boot_reconcile_all_completed');
                 await this.fs.writeAtomic(progressPath, JSON.stringify(progress, null, 2));
                 const contractId = makeContractId(progress.contract_id ?? entry.name);
                 // phase 1405: yaml load 失败时跳过 archive、显式 audit 留 forensics（避免 stuck-in-active 静默）
@@ -831,104 +830,86 @@ export class ContractSystem {
       content = await this.fs.read(`${dir}/${contractId}/progress.json`);
     }
     const progressPath = `${dir}/${contractId}/progress.json`;
-    const parsed = JSON.parse(content) as { schema_version?: unknown; contract_id?: unknown; status?: unknown; subtasks?: unknown };
+    const rawParsed: unknown = JSON.parse(content);
 
-    // NEW phase 1134 / schema_version invariant (mirror phase 1019 contract.yaml)
-    if (parsed.schema_version !== undefined &&
-        (typeof parsed.schema_version !== 'number' || parsed.schema_version > PROGRESS_CURRENT_SCHEMA_VERSION)) {
-      emitContractProgressSchemaInvalid(
-        this.audit,
-        {
-          contractId,
-          path: progressPath,
-          reason: 'unknown_schema_version',
-          actual: String(parsed.schema_version),
-          current: PROGRESS_CURRENT_SCHEMA_VERSION,
-        },
-      );
-      await isolateCorruptedFile(this.fs, this.audit, {
-        contractId, contractDir: `${dir}/${contractId}`, filename: 'progress.json',
-        reason: 'unknown_schema_version',
-      });
-      try {
-        await this.markCrashed(contractId, 'system: schema_corruption_progress_json');
-      } catch (markErr) {
-        this.audit.write(
-          CONTRACT_AUDIT_EVENTS.CONTRACT_FILE_ISOLATION_FAILED,
-          `contractId=${contractId}`,
-          `context=markCrashed_after_isolation`,
-          `reason=${formatErr(markErr)}`,
-        );
-      }
-      return null;
-    }
-
-    if (
-      typeof parsed.subtasks !== 'object' || parsed.subtasks === null
-    ) {
-      emitContractProgressSchemaInvalid(
-        this.audit,
-        {
-          contractId,
-          path: progressPath,
-          raw: this.audit.preview(content),
-        },
-      );
-      await isolateCorruptedFile(this.fs, this.audit, {
-        contractId, contractDir: `${dir}/${contractId}`, filename: 'progress.json',
-        reason: 'schema_invalid',
-      });
-      try {
-        await this.markCrashed(contractId, 'system: schema_corruption_progress_json');
-      } catch (markErr) {
-        this.audit.write(
-          CONTRACT_AUDIT_EVENTS.CONTRACT_FILE_ISOLATION_FAILED,
-          `contractId=${contractId}`,
-          `context=markCrashed_after_isolation`,
-          `reason=${formatErr(markErr)}`,
-        );
-      }
-      return null;
-    }
-
-    // phase 282 Step B: derive contract_id from caller-provided id（dir name 是 SoT）
-    if ('contract_id' in parsed) {
+    // phase 319: legacy derive field handling (contract_id + status) before strict Zod parse
+    // (Zod .strict() would reject these legacy fields、需先 strip + emit audit observability for derive)
+    const legacyContractId = (rawParsed as Record<string, unknown>).contract_id;
+    if (legacyContractId !== undefined) {
       this.audit.write(
         CONTRACT_AUDIT_EVENTS.CONTRACT_LEGACY_CONTRACT_ID_FIELD_IGNORED,
         `contractId=${contractId}`,
-        `legacy_contract_id=${String((parsed as Record<string, unknown>).contract_id)}`,
+        `legacy_contract_id=${String(legacyContractId)}`,
       );
-      delete (parsed as Record<string, unknown>).contract_id;
+      delete (rawParsed as Record<string, unknown>).contract_id;
     }
-
-    // phase 282 Step A: derive status from subtasks。
-    // 对于可从 subtasks derive 的状态（completed/running/pending），legacy status field 忽略 + derive。
-    // 对于不可 derive 的生命周期状态（cancelled/crashed/paused/archive_pending_recovery），
-    // 暂时保留文件中值（saveProgress 也会保留这些状态），避免状态丢失。
+    const legacyStatus = (rawParsed as Record<string, unknown>).status;
+    let preservedLifecycleStatus: ContractStatus | undefined;
     const DERIVABLE_STATUSES = new Set<string>(['completed', 'running', 'pending']);
-    const progressData = parsed as Omit<ProgressData, 'status'> & { status?: ContractStatus; contract_id?: ContractId };
-    const derivedStatus = deriveProgressStatus({ subtasks: progressData.subtasks });
-    const fileStatus = (parsed as Record<string, unknown>).status;
+    if (typeof legacyStatus === 'string' && !DERIVABLE_STATUSES.has(legacyStatus)) {
+      // 保留不可 derive 的生命周期状态（cancelled/crashed/paused/archive_pending_recovery）
+      preservedLifecycleStatus = legacyStatus as ContractStatus;
+    } else if (legacyStatus !== undefined) {
+      // 可 derive 状态、legacy field 忽略 + emit audit
+      this.audit.write(
+        CONTRACT_AUDIT_EVENTS.CONTRACT_LEGACY_STATUS_FIELD_IGNORED,
+        `contractId=${contractId}`,
+        `legacy_status=${String(legacyStatus)}`,
+      );
+    }
+    delete (rawParsed as Record<string, unknown>).status;
 
-    if (typeof fileStatus === 'string' && !DERIVABLE_STATUSES.has(fileStatus)) {
-      // 保留不可 derive 的生命周期状态
-      progressData.status = fileStatus as ContractStatus;
-    } else {
-      if ('status' in parsed) {
-        this.audit.write(
-          CONTRACT_AUDIT_EVENTS.CONTRACT_LEGACY_STATUS_FIELD_IGNORED,
-          `contractId=${contractId}`,
-          `legacy_status=${String(fileStatus)}`,
-          `derived_status=${derivedStatus}`,
+    // phase 319: Zod SoT safeParse (mirror phase 311 ContractYamlSchema pattern)
+    const result = ContractProgressPersistedSchema.safeParse(rawParsed);
+    if (!result.success) {
+      const firstIssue = result.error.issues[0];
+      const isSchemaVersionIssue = firstIssue?.path[0] === 'schema_version';
+      if (isSchemaVersionIssue) {
+        emitContractProgressSchemaInvalid(
+          this.audit,
+          {
+            contractId,
+            path: progressPath,
+            reason: 'unknown_schema_version',
+            actual: String((rawParsed as Record<string, unknown>).schema_version),
+            current: PROGRESS_CURRENT_SCHEMA_VERSION,
+          },
         );
-        delete (parsed as Record<string, unknown>).status;
+      } else {
+        emitContractProgressSchemaInvalid(
+          this.audit,
+          {
+            contractId,
+            path: progressPath,
+            raw: this.audit.preview(content),
+          },
+        );
       }
-      progressData.status = derivedStatus;
+      const isolationReason = isSchemaVersionIssue ? 'unknown_schema_version' : 'schema_invalid';
+      await isolateCorruptedFile(this.fs, this.audit, {
+        contractId, contractDir: `${dir}/${contractId}`, filename: 'progress.json',
+        reason: isolationReason,
+      });
+      try {
+        await this.markCrashed(contractId, 'system: schema_corruption_progress_json');
+      } catch (markErr) {
+        this.audit.write(
+          CONTRACT_AUDIT_EVENTS.CONTRACT_FILE_ISOLATION_FAILED,
+          `contractId=${contractId}`,
+          `context=markCrashed_after_isolation`,
+          `reason=${formatErr(markErr)}`,
+        );
+      }
+      return null;
     }
 
-    progressData.contract_id = contractId;
-
-    return progressData as ProgressData;
+    // phase 282 Step A/B: derive status + contract_id from caller/dir/subtasks
+    const derivedStatus = preservedLifecycleStatus ?? deriveProgressStatus({ subtasks: result.data.subtasks });
+    return {
+      ...result.data,
+      contract_id: contractId,
+      status: derivedStatus,
+    };
   }
 
   // ============================================================================

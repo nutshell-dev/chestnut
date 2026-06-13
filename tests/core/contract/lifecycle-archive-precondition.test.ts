@@ -96,7 +96,7 @@ describe('Phase 188 Step A: moveContractToArchive precondition', () => {
     );
     await fs.writeFile(
       path.join(contractDir, 'progress.json'),
-      JSON.stringify({
+      JSON.stringify({ schema_version: 1,
         contract_id: contractId,
         status,
         subtasks: {},

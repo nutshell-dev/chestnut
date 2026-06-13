@@ -49,7 +49,7 @@ function writeContract(
   const dir = path.join(motionDir, 'contract', bucket, contractId);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'contract.yaml'), `title: "${title}"\n`);
-  fs.writeFileSync(path.join(dir, 'progress.json'), JSON.stringify({ subtasks }));
+  fs.writeFileSync(path.join(dir, 'progress.json'), JSON.stringify({ schema_version: 1, subtasks }));
 }
 
 // ── buildOnboardingSubtasks ────────────────────────────────────────────────────

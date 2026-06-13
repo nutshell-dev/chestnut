@@ -36,7 +36,7 @@ async function setupFixtures() {
   const contractYamlPath = path.join(targetClawDir, 'contract', 'active', contractId, 'contract.yaml');
   await fs.writeFile(contractYamlPath, 'contract_id: ' + contractId + '\nintent: test');
   const progressPath = path.join(targetClawDir, 'contract', 'active', contractId, 'progress.json');
-  await fs.writeFile(progressPath, JSON.stringify({ contract_id: contractId, status: 'active', subtasks: {} }));
+  await fs.writeFile(progressPath, JSON.stringify({ schema_version: 1, contract_id: contractId, status: 'active', subtasks: {} }));
 
   const motionFs = new NodeFileSystem({ baseDir: motionDir });
   const motionAudit = { write: vi.fn() };
@@ -140,7 +140,7 @@ describe('EvolutionSystem — clawFsFactory 注入路径（caller DIP enforce）
     const contractYamlPath2 = path.join(targetClawDir2, 'contract', 'active', contractId2, 'contract.yaml');
     await fs.writeFile(contractYamlPath2, 'contract_id: ' + contractId2 + '\nintent: test');
     const progressPath2 = path.join(targetClawDir2, 'contract', 'active', contractId2, 'progress.json');
-    await fs.writeFile(progressPath2, JSON.stringify({ contract_id: contractId2, status: 'active', subtasks: {} }));
+    await fs.writeFile(progressPath2, JSON.stringify({ schema_version: 1, contract_id: contractId2, status: 'active', subtasks: {} }));
 
     const factory = vi.fn().mockImplementation((clawDir: string) => new NodeFileSystem({ baseDir: clawDir }));
 
