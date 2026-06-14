@@ -68,7 +68,8 @@ describe('claw-status (phase 1472 Step C)', () => {
 
     const out = consoleLogSpy.mock.calls.map((c) => String(c[0])).join('\n');
     expect(out).toContain(`Claw: foo`);
-    expect(out).toContain(`string: ${path.resolve(clawDir)}`);
+    // phase 369 §4 (review-2026-06-13): 'string:' typeof leak → 'Dir:' 语义前缀
+    expect(out).toContain(`Dir: ${path.resolve(clawDir)}`);
     expect(out).toContain('Contract: No active contract');
     expect(out).toContain('Tasks: idle');
     expect(out).toContain('MEMORY.md: Not found');

@@ -12,7 +12,7 @@ import type { Message } from '../../foundation/llm-provider/types.js';
 
 import { UUID_SHORT_LEN } from '../../constants.js';
 import { TASKS_SYNC_SHADOW_DIR, SHADOW_DEFAULT_TIMEOUT_MS } from './constants.js';
-import { runSubagent as defaultRunSubagent, createPerTaskRegistry, getDisplayResult } from '../subagent/index.js';
+import { runSubagent as defaultRunSubagent, createPerTaskRegistry, getDisplayResult, DONE_TOOL_NAME } from '../subagent/index.js';
 
 import { SHADOW_AUDIT_EVENTS } from './audit-events.js';
 import { synthesizeFormB, formatErr } from './_helpers.js';
@@ -142,7 +142,8 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
       resultDir,
       maxSteps: opts.maxSteps ?? opts.ctx.subagentMaxSteps ?? opts.ctx.maxSteps,
       timeoutMs: opts.timeoutMs ?? SHADOW_DEFAULT_TIMEOUT_MS,
-      resultTool: 'done',
+      // phase 369 §4 (review-2026-06-13): 用 const、tool 重命名时 shadow-system 跟住
+      resultTool: DONE_TOOL_NAME,
       isShadow: true,
       // phase 1162 r128 D fork DD2: shadow 独立 lifecycle (phase 1084 ratify 维持)。
       // 显式不传 signal 字段而非 fake `new AbortController().signal` (M#9 显式表达 / honesty fix)。

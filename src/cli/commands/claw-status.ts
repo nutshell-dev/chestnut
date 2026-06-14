@@ -92,7 +92,8 @@ export async function clawStatusCommand(
 
   const lines: string[] = [];
   lines.push(`Claw: ${name}`);
-  lines.push(`string: ${path.resolve(clawDir)}`);
+  // phase 369 §4 (review-2026-06-13): 'string:' 是 typeof 泄漏、不是字段语义；改 'Dir:'
+  lines.push(`Dir: ${path.resolve(clawDir)}`);
   lines.push(formatContractView(contractView));
   lines.push(formatTaskView(taskView));
   lines.push(...formatStorageView(storageView));

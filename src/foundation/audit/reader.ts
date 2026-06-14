@@ -263,12 +263,17 @@ function *parseContent(content: string, opts: ReadOptions): Generator<AuditRecor
   }
 }
 
+// phase 369 §4 (review-2026-06-13): ISO date prefix shape check, century-agnostic.
+// 旧 `chunk.startsWith('20')` 仅识别 2000-2099 年（Y2100 失效 + 历史 1900s import 也不识）。
+// regex 验 YYYY-MM-DD 前缀，覆盖任意四位年份。
+const ISO_DATE_PREFIX_RE = /^\d{4}-\d{2}-\d{2}/;
+
 function *parseChunk(chunk: string, opts: ReadOptions): Generator<AuditRecord> {
   // chunk may start in the middle of a line; skip to first newline unless at start
   let start = 0;
-  if (chunk.length > 0 && chunk[0] !== '\n' && !chunk.startsWith('20')) {
-    // Heuristic: if chunk doesn't start with a timestamp (beginning with '20' for 20xx),
-    // skip to first newline to avoid partial line
+  if (chunk.length > 0 && chunk[0] !== '\n' && !ISO_DATE_PREFIX_RE.test(chunk)) {
+    // Heuristic: if chunk doesn't start with an ISO date timestamp,
+    // skip to first newline to avoid partial line.
     const firstNl = chunk.indexOf('\n');
     if (firstNl === -1) return; // no complete line
     start = firstNl + 1;

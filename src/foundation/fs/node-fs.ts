@@ -340,6 +340,20 @@ export class NodeFileSystem implements FileSystem {
       const fd = fsSync.openSync(tmpFile, 'r+');
       try { fsSync.fsyncSync(fd); } finally { fsSync.closeSync(fd); }
       fsSync.renameSync(tmpFile, absolute);
+
+      // phase 369 §4 (review-2026-06-13): fsync parent dir 保 rename 持久。
+      // ext4 default / btrfs / ZFS rename 可能仅 page cache、crash 丢 rename。
+      // Windows / 部分 FS r-open 目录不支持、捕获静默（mirror async 路径）。
+      try {
+        const dirFd = fsSync.openSync(dir, 'r');
+        try { fsSync.fsyncSync(dirFd); } finally { fsSync.closeSync(dirFd); }
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException).code;
+        if (code !== 'EISDIR' && code !== 'EACCES' && code !== 'EPERM' && code !== 'ENOTSUP' && code !== 'EINVAL') {
+          // silent: 跨 FS unsupported error 已枚举；atomic 已完成、不抛
+        }
+        // silent: dir fsync unsupported on this FS / platform
+      }
     } catch (error) {
       try { fsSync.unlinkSync(tmpFile); } catch { /* by-design: best-effort tmpFile cleanup post-rename; original error propagates via throw (L345); phase 166 ratify */ }
       throw error;

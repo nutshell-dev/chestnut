@@ -48,9 +48,27 @@ export async function writeAtomic(
     } finally {
       await handle.close();
     }
-    
+
     // Atomic rename
     await fs.rename(tmpFile, filePath);
+
+    // phase 369 §4 (review-2026-06-13): fsync parent dir after rename.
+    // ext4 default / btrfs / ZFS 上 rename 可能仅入 page cache、未落 inode journal
+    // → crash-after-rename-before-dir-journal 会丢 rename（文件内容 fsync'd 但 rename 没落）。
+    // 打开 parent r-mode + fsync(fd) 保 rename 持久。Windows / 部分 FS 无法 r-open 目录、
+    // 捕获 EISDIR/EACCES/EPERM/ENOTSUP/EINVAL 后静默（atomic 仍完成、durability 跨平台
+    // 不保证但无回归）。
+    try {
+      const dirHandle = await fs.open(dir, 'r');
+      try { await dirHandle.sync(); }
+      finally { await dirHandle.close(); }
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code !== 'EISDIR' && code !== 'EACCES' && code !== 'EPERM' && code !== 'ENOTSUP' && code !== 'EINVAL') {
+        // silent: 跨 FS unsupported error 已枚举、其余少见、原 atomic 已完成、不抛
+      }
+      // silent: dir fsync unsupported on this FS / platform — atomic write 已完成
+    }
   } catch (error) {
     // Clean up temp file on error
     try {
