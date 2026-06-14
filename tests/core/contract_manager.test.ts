@@ -18,7 +18,6 @@ import * as path from 'path';
 import { ContractSystem } from '../../src/core/contract/manager.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../src/core/contract/audit-events.js';
-import { waitFor } from '../helpers/wait-for.js';
 import { makeContractYaml } from '../helpers/contract-yaml.js';
 import { DEAD_PID } from '../helpers/dead-pid.js';
 import { createToolRegistry } from '../../src/foundation/tools/index.js';

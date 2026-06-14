@@ -9,12 +9,6 @@ import { createWatcher } from '../../src/foundation/file-watcher/index.js';
 import { waitFor } from '../helpers/wait-for.js';
 
 /**
- * Polling tick interval for waitForCount loop (10ms).
- * Derivation: > eventloop tick / < typical chokidar settle / 不 busy-spin 也不漏窗.
- */
-const POLL_TICK_MS = 10;
-
-/**
  * Async error settle budget (100ms).
  * Derivation: phase 288 收紧 500ms→100ms / 等 onError throw 触发后再 close.
  */
@@ -58,14 +52,42 @@ describe('FileWatcher', () => {
   // end of current microtask tick (<1ms in practice). Budget = microtask_max (~5ms) × CI safety (×100).
   const MOCK_EVENT_PROPAGATION_BUDGET_MS = 500;
 
-  async function waitForCount(arr: unknown[], n: number, timeoutMs = MOCK_EVENT_PROPAGATION_BUDGET_MS): Promise<void> {
-    const start = Date.now();
-    while (arr.length < n) {
-      if (Date.now() - start > timeoutMs) {
-        throw new Error(`waitForCount timeout: got ${arr.length}/${n}`);
-      }
-      await new Promise(r => setTimeout(r, POLL_TICK_MS));
-    }
+  /**
+   * phase 372: 事件驱动 array buffer — push 时 resolve 已 await 的 awaitN(n) Promise.
+   * 替原 waitForCount polling helper、消除 10ms 间隔等待.
+   */
+  interface EventBuffer<T> {
+    arr: T[];
+    push(item: T): void;
+    awaitN(n: number, timeoutMs?: number): Promise<void>;
+  }
+  function makeEventBuffer<T>(): EventBuffer<T> {
+    const arr: T[] = [];
+    const subs: Array<{ n: number; resolve: () => void; reject: (e: Error) => void; timer: NodeJS.Timeout }> = [];
+    return {
+      arr,
+      push: (item: T) => {
+        arr.push(item);
+        for (let i = subs.length - 1; i >= 0; i--) {
+          if (arr.length >= subs[i].n) {
+            clearTimeout(subs[i].timer);
+            subs[i].resolve();
+            subs.splice(i, 1);
+          }
+        }
+      },
+      awaitN: (n: number, timeoutMs = MOCK_EVENT_PROPAGATION_BUDGET_MS) => {
+        if (arr.length >= n) return Promise.resolve();
+        return new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(() => {
+            const idx = subs.findIndex(s => s.timer === timer);
+            if (idx !== -1) subs.splice(idx, 1);
+            reject(new Error(`awaitN timeout: got ${arr.length}/${n}`));
+          }, timeoutMs);
+          subs.push({ n, resolve, reject, timer });
+        });
+      },
+    };
   }
 
   function waitForReady<T>(setupWatcher: (onReady: () => void) => T): Promise<T> {
@@ -79,7 +101,7 @@ describe('FileWatcher', () => {
   it('callback receives add/change/unlink events', async () => {
     // Mock non-macOS to prevent fallback poll from interfering with event assertions
     const platformSpy = vi.spyOn(process, 'platform', 'get').mockReturnValue('linux');
-    const events: { type: string; path: string }[] = [];
+    const events = makeEventBuffer<{ type: string; path: string }>();
     const watcher = await waitForReady((onReady) =>
       createWatcher(
         '/fake/path/watch.txt',
@@ -91,18 +113,18 @@ describe('FileWatcher', () => {
     // Simulate chokidar 'all' event (real chokidar does not reliably fire 'add' on CI)
     // createWatcher listens to 'all', not individual 'add'/'change'/'unlink'
     fakeWatcherInstance.emit('all', 'add', '/fake/path/watch.txt', { size: 5, mtime: new Date() });
-    await waitForCount(events, 1);
-    expect(events[0]).toMatchObject({ type: 'add', path: 'watch.txt' });
+    await events.awaitN(1);
+    expect(events.arr[0]).toMatchObject({ type: 'add', path: 'watch.txt' });
 
     // Simulate 'change' event
     fakeWatcherInstance.emit('all', 'change', '/fake/path/watch.txt', { size: 5, mtime: new Date() });
-    await waitForCount(events, 2);
-    expect(events[1]).toMatchObject({ type: 'change', path: 'watch.txt' });
+    await events.awaitN(2);
+    expect(events.arr[1]).toMatchObject({ type: 'change', path: 'watch.txt' });
 
     // Simulate 'unlink' event
     fakeWatcherInstance.emit('all', 'unlink', '/fake/path/watch.txt');
-    await waitForCount(events, 3);
-    expect(events[2]).toMatchObject({ type: 'unlink', path: 'watch.txt' });
+    await events.awaitN(3);
+    expect(events.arr[2]).toMatchObject({ type: 'unlink', path: 'watch.txt' });
 
     await watcher.close();
     expect(fakeWatcherInstance.close).toHaveBeenCalled();
@@ -112,8 +134,8 @@ describe('FileWatcher', () => {
   it('callback error triggers onError(err, "callback") and continues', async () => {
     // Mock non-macOS to prevent fallback poll from interfering with event assertions
     const platformSpy = vi.spyOn(process, 'platform', 'get').mockReturnValue('linux');
-    const errors: { err: Error; context: string }[] = [];
-    const callbackTicks: number[] = [];
+    const errors = makeEventBuffer<{ err: Error; context: string }>();
+    const callbackTicks = makeEventBuffer<number>();
     let callCount = 0;
     const watcher = await waitForReady((onReady) =>
       createWatcher(
@@ -133,13 +155,13 @@ describe('FileWatcher', () => {
 
     // First emit -> callback throws -> onError 'callback' + continue
     fakeWatcherInstance.emit('all', 'add', '/fake/path/watch.txt', { size: 5, mtime: new Date() });
-    await waitForCount(errors, 1);
+    await errors.awaitN(1);
 
     // Second emit -> callback normal
     fakeWatcherInstance.emit('all', 'change', '/fake/path/watch.txt', { size: 5, mtime: new Date() });
-    await waitForCount(callbackTicks, 2);
+    await callbackTicks.awaitN(2);
 
-    expect(errors.some(e => e.context === 'callback' && e.err.message === 'callback boom')).toBe(true);
+    expect(errors.arr.some(e => e.context === 'callback' && e.err.message === 'callback boom')).toBe(true);
     expect(callCount).toBeGreaterThanOrEqual(2);
 
     await watcher.close();
@@ -147,7 +169,7 @@ describe('FileWatcher', () => {
   });
 
   it('onReady error triggers onError(err, "ready")', async () => {
-    const errors: { err: Error; context: string }[] = [];
+    const errors = makeEventBuffer<{ err: Error; context: string }>();
     const watcher = createWatcher(
       path.join(tmpDir, 'watch.txt'),
       () => {},
@@ -158,26 +180,31 @@ describe('FileWatcher', () => {
       },
     );
 
-    await waitForCount(errors, 1);
+    await errors.awaitN(1);
     await watcher.close();
 
-    expect(errors.some(e => e.context === 'ready' && e.err.message === 'ready boom')).toBe(true);
+    expect(errors.arr.some(e => e.context === 'ready' && e.err.message === 'ready boom')).toBe(true);
   });
 
   it('chokidar error triggers onError(err, "watch")', async () => {
     const errors: { err: Error; context: string }[] = [];
+    // phase 372: onError 内 Promise resolve 替原 waitFor() polling
+    let firstErrorResolve!: () => void;
+    const firstErrorP = new Promise<void>((r) => { firstErrorResolve = r; });
     // use null-byte path to deterministically trigger chokidar error (α.2 / per phase 703 D-1)
     const watcher = createWatcher(
       path.join(tmpDir, 'invalid\0path.txt'),
       () => {},
       {
         stability: 'immediate',
-        onError: (err, context) => errors.push({ err, context }),
+        onError: (err, context) => {
+          errors.push({ err, context });
+          if (errors.length === 1) firstErrorResolve();
+        },
       },
     );
 
-    // chokidar emits 'error' for invalid path with null byte / waitFor strict（不 silent skip）
-    await waitFor(() => errors.length > 0, MOCK_EVENT_PROPAGATION_BUDGET_MS);
+    await firstErrorP;
     await watcher.close();
 
     expect(errors.some(e => e.context === 'watch')).toBe(true);
@@ -288,7 +315,7 @@ describe('FileWatcher', () => {
 
   it('fallback poll emits change event to callback', async () => {
     const platformSpy = vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin');
-    const events: { type: string; path: string }[] = [];
+    const events = makeEventBuffer<{ type: string; path: string }>();
 
     const watcher = createWatcher(
       path.join(tmpDir, 'watch.txt'),
@@ -296,10 +323,10 @@ describe('FileWatcher', () => {
       { stability: 'immediate', fallbackPollMs: 50 },
     );
 
-    await waitForCount(events, 1);
+    await events.awaitN(1);
 
-    expect(events.length).toBeGreaterThanOrEqual(1);
-    expect(events.every(e => e.type === 'change')).toBe(true);
+    expect(events.arr.length).toBeGreaterThanOrEqual(1);
+    expect(events.arr.every(e => e.type === 'change')).toBe(true);
 
     await watcher.close();
     platformSpy.mockRestore();

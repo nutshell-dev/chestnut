@@ -64,3 +64,29 @@ export async function waitForAuditEvent(
     emitter.on('write', handler);
   });
 }
+
+/**
+ * Wait for the *next* occurrence of an audit event (does not fast-path past events).
+ * Use for sequential / loop scenarios where the same event fires multiple times.
+ * phase 372: 立此 helper 替 contract_manager fire-and-forget 测 polling waitFor.
+ */
+export async function waitForNextAuditEvent(
+  emitter: EventEmitter,
+  eventType: string,
+  timeoutMs = TEST_LLM_TIMEOUT_MS,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      emitter.off('write', handler);
+      reject(new Error(`timeout waiting for next audit event ${eventType}`));
+    }, timeoutMs);
+    const handler = (type: string) => {
+      if (type === eventType) {
+        clearTimeout(timer);
+        emitter.off('write', handler);
+        resolve();
+      }
+    };
+    emitter.on('write', handler);
+  });
+}

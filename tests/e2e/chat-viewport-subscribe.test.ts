@@ -6,8 +6,6 @@ import { createDirContext } from '../../src/foundation/audit/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { createStreamReader, STREAM_FILE, type StreamEvent, type StreamReader } from '../../src/foundation/stream/index.js';
 import { makeAudit } from '../helpers/audit.js';
-import { waitFor } from '../helpers/wait-for.js';
-import { SUBAGENT_LONG_TIMEOUT_MS } from '../helpers/test-timeouts.js';
 import { VIEWPORT_AUDIT_EVENTS } from '../../src/cli/commands/viewport-audit-events.js';
 import { STREAM_AUDIT_EVENTS } from '../../src/foundation/stream/audit-events.js';
 import { createMainTurnUI, createTaskEventHandler, type MainTurnUIController } from '../../src/cli/commands/chat-viewport.js';
@@ -275,8 +273,14 @@ describe('chat-viewport 主 UI 并发隔离（phase162 streamReader）', () => {
     });
 
     const taskStatusBarCalls: Array<{ taskId: string; event: unknown }> = [];
+    // phase 372: taskStatusBar.updateTrack 内 Promise resolve 替原 waitFor() polling
+    let twoStatusBarCallsResolve!: () => void;
+    const twoStatusBarCallsP = new Promise<void>((r) => { twoStatusBarCallsResolve = r; });
     const mockTaskStatusBar3 = {
-      updateTrack: (tid: string, ev: unknown) => { taskStatusBarCalls.push({ taskId: tid, event: ev }); },
+      updateTrack: (tid: string, ev: unknown) => {
+        taskStatusBarCalls.push({ taskId: tid, event: ev });
+        if (taskStatusBarCalls.length === 2) twoStatusBarCallsResolve();
+      },
       removeTrack: () => {},
     };
     const taskHandler = createTaskEventHandler({
@@ -290,6 +294,9 @@ describe('chat-viewport 主 UI 并发隔离（phase162 streamReader）', () => {
       new Promise<void>((r) => { mainReaderReady = r; }),
       new Promise<void>((r) => { taskReaderReady = r; }),
     ]);
+    // phase 372: mainReader callback 内 Promise resolve 替原 waitFor() polling
+    let helloPreviewResolve!: () => void;
+    const helloPreviewP = new Promise<void>((r) => { helloPreviewResolve = r; });
     const mainReader = createStreamReader(
       mainFs, STREAM_FILE,
       (ev) => {
@@ -298,6 +305,7 @@ describe('chat-viewport 主 UI 并发隔离（phase162 streamReader）', () => {
           mainUI.enterPhase('streaming_text');
           const buf = mainUI.appendToBuffer((ev as Record<string, unknown>).delta as string);
           mainUI.setPreview(buf);
+          if (mainUI.getPreview().includes('hello')) helloPreviewResolve();
         }
       },
       audit,
@@ -329,14 +337,14 @@ describe('chat-viewport 主 UI 并发隔离（phase162 streamReader）', () => {
     await appendJsonl(mainStreamPath, { type: 'turn_start' });
     await appendJsonl(mainStreamPath, { type: 'llm_start' });
     await appendJsonl(mainStreamPath, { type: 'text_delta', delta: 'hello' });
-    await waitFor(() => mainUI.getPreview().includes('hello'), SUBAGENT_LONG_TIMEOUT_MS);
+    await helloPreviewP;
     expect(mainUI.getPreview()).toContain('hello');
 
     // task stream：tool_call → tool_result → turn_end（subagent 活动）
     await appendJsonl(taskStreamPath, { type: 'tool_call', name: 'read_file' });
     await appendJsonl(taskStreamPath, { type: 'tool_result', success: true, step: 1, maxSteps: 3, summary: 'ok' });
     await appendJsonl(taskStreamPath, { type: 'turn_end' });
-    await waitFor(() => taskStatusBarCalls.length >= 2, SUBAGENT_LONG_TIMEOUT_MS);
+    await twoStatusBarCallsP;
 
     // 关键断言：task 事件过后主 preview 不被清空
     expect(mainUI.getPreview()).toContain('hello');

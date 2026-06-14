@@ -27,7 +27,6 @@ import { ProcessManager, ProcessListUnavailable } from '../../src/foundation/pro
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 import { makeAudit } from '../helpers/audit.js';
-import { waitFor } from '../helpers/wait-for.js';
 import { spawnSync, spawn } from 'child_process';  // phase 273: hoist 5 dyn imports (vi.mock above hoisted by vitest)
 import { DEAD_PID_STRING } from '../helpers/dead-pid.js';
 

@@ -12,11 +12,11 @@ import * as path from 'path';
 import { ContractSystem } from '../../src/core/contract/manager.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../src/core/contract/audit-events.js';
-import { waitFor } from '../helpers/wait-for.js';
 import { ToolTimeoutError } from '../../src/foundation/errors.js';  // phase 261: hoist (no vi.mock in this file)
 import { makeContractYaml } from '../helpers/contract-yaml.js';
 import { createToolRegistry } from '../../src/foundation/tools/index.js';
-import { makeMockAudit } from '../helpers/audit.js';
+import { makeAudit, makeMockAudit, waitForAuditEvent, waitForNextAuditEvent } from '../helpers/audit.js';
+import { waitFor } from '../helpers/wait-for.js';
 // phase 1465: _resetVerificationMutexForTest import removed — mutex now instance-bound, per-test fresh ContractSystem 自然提供 fresh mutex
 
 /**
@@ -79,7 +79,7 @@ describe('ContractSystem - fire-and-forget 失败状态机 (phase 468 / feedback
   });
 
     it('LLM judged failed → cause=llm_rejected + reset todo + retry_count++', async () => {
-      const mockAudit = makeMockAudit();
+      const { audit: mockAudit, emitter } = makeAudit();
       const testManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
@@ -101,14 +101,11 @@ describe('ContractSystem - fire-and-forget 失败状态机 (phase 468 / feedback
         feedback: 'LLM says no',
       });
 
+      const verifDoneP = waitForNextAuditEvent(emitter, CONTRACT_AUDIT_EVENTS.VERIFICATION_BACKGROUND_DONE);
       const result = await testManager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'done' });
       expect(result.async).toBe(true);
 
-      await waitFor(
-        async () => (await testManager.getProgress(contractId)).subtasks['t1'].status !== 'in_progress',
-        5000,
-        10,
-      );
+      await verifDoneP;
 
       const progress = await testManager.getProgress(contractId);
       expect(progress.subtasks['t1'].status).toBe('todo');
@@ -120,7 +117,8 @@ describe('ContractSystem - fire-and-forget 失败状态机 (phase 468 / feedback
     });
 
     it('programming bug throw → cause=programming_bug + reset todo', async () => {
-      const mockAudit = makeMockAudit();
+      // 注：rejection path (mockRejectedValue) 下 VERIFICATION_BACKGROUND_DONE 在 inner finally 早于 outer .catch 的 state reset、event-driven 不适用。保留 waitFor polling 此 cases (#2/#3/#6 同因) 等 state 真 settle。
+      const { audit: mockAudit, events } = makeAudit();
       const testManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
@@ -154,14 +152,15 @@ describe('ContractSystem - fire-and-forget 失败状态机 (phase 468 / feedback
       expect(progress.subtasks['t1'].last_failed_feedback?.cause).toBe('programming_bug');
       expect(progress.subtasks['t1'].last_failed_feedback?.feedback).toContain('system bug');
 
-      const unexpectedThrowCalls = mockAudit.write.mock.calls.filter(
-        (c: any[]) => c[0] === CONTRACT_AUDIT_EVENTS.UNEXPECTED_ASYNC_THROW
+      const unexpectedThrowCalls = events.filter(
+        (e) => e[0] === CONTRACT_AUDIT_EVENTS.UNEXPECTED_ASYNC_THROW
       );
       expect(unexpectedThrowCalls.length).toBeGreaterThan(0); // at least 1; exact count is retry-dependent
       expect(unexpectedThrowCalls[0][4]).toContain('TypeError');
     });
 
     it('subagent timeout → cause=subagent_timeout + reset todo', async () => {
+      // 注：rejection path 同 #2 timing 问题、保留 waitFor polling
       const mockAudit = makeMockAudit();
       const testManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
     clawsDir: '/tmp/test/claws',
@@ -198,7 +197,7 @@ describe('ContractSystem - fire-and-forget 失败状态机 (phase 468 / feedback
     });
 
     it('onNotify verification_failed payload schema = AcceptanceFailedNotification', async () => {
-      const mockAudit = makeMockAudit();
+      const { audit: mockAudit, emitter } = makeAudit();
       const testManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
@@ -222,13 +221,9 @@ describe('ContractSystem - fire-and-forget 失败状态机 (phase 468 / feedback
         feedback: 'rejected by LLM',
       });
 
+      const verifDoneP = waitForNextAuditEvent(emitter, CONTRACT_AUDIT_EVENTS.VERIFICATION_BACKGROUND_DONE);
       await testManager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'done' });
-
-      await waitFor(
-        async () => (await testManager.getProgress(contractId)).subtasks['t1'].status !== 'in_progress',
-        5000,
-        10,
-      );
+      await verifDoneP;
 
       const notifyCall = onNotifySpy.mock.calls.find(
         (call: any[]) => call[0] === 'verification_failed'
@@ -246,7 +241,7 @@ describe('ContractSystem - fire-and-forget 失败状态机 (phase 468 / feedback
     });
 
     it('max_attempts 后 subtask force_accepted（status=completed）', async () => {
-      const mockAudit = makeMockAudit();
+      const { audit: mockAudit, events, emitter } = makeAudit();
       const testManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
@@ -271,20 +266,13 @@ describe('ContractSystem - fire-and-forget 失败状态机 (phase 468 / feedback
       });
 
       for (let i = 0; i < 2; i++) {
+        const verifDoneP = waitForNextAuditEvent(emitter, CONTRACT_AUDIT_EVENTS.VERIFICATION_BACKGROUND_DONE);
         await completeSubtaskWithRetry(testManager, { contractId, subtaskId: 't1', evidence: `attempt ${i + 1}` });
-        await waitFor(
-          async () => (await testManager.getProgress(contractId)).subtasks['t1'].status !== 'in_progress',
-          5000,
-          10,
-        );
+        await verifDoneP;
       }
 
-      // Force-accept saveProgress runs after inbox write; poll for force_accepted
-      await waitFor(
-        async () => Boolean((await testManager.getProgress(contractId)).subtasks['t1'].force_accepted),
-        5000,
-        10,
-      );
+      // Force-accept saveProgress runs after inbox write; SUBTASK_FORCE_ACCEPTED 可能已在 2nd 迭代 emit、用 fast-path
+      await waitForAuditEvent(emitter, events, CONTRACT_AUDIT_EVENTS.SUBTASK_FORCE_ACCEPTED);
 
       const progress = await testManager.getProgress(contractId);
       // After max attempts, subtask is force-accepted (completed, not failed)
@@ -293,8 +281,8 @@ describe('ContractSystem - fire-and-forget 失败状态机 (phase 468 / feedback
       expect(progress.subtasks['t1'].retry_count).toBe(2);
       expect(progress.subtasks['t1'].force_accepted).toBe(true);
 
-      const escalationCalls = mockAudit.write.mock.calls.filter(
-        (c: any[]) => c[0] === CONTRACT_AUDIT_EVENTS.SUBTASK_FORCE_ACCEPTED
+      const escalationCalls = events.filter(
+        (e) => e[0] === CONTRACT_AUDIT_EVENTS.SUBTASK_FORCE_ACCEPTED
       );
       expect(escalationCalls.length).toBeGreaterThan(0); // at least 1; exact count is retry-dependent
       expect(escalationCalls[0]).toEqual(expect.arrayContaining([
@@ -305,6 +293,7 @@ describe('ContractSystem - fire-and-forget 失败状态机 (phase 468 / feedback
     });
 
     it('retry_count 跨多次失败递增', async () => {
+      // 注：iter 2/3 是 rejection path 同 #2 timing 问题、整个 it 保留 waitFor polling
       const mockAudit = makeMockAudit();
       const testManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
     clawsDir: '/tmp/test/claws',

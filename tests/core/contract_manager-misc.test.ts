@@ -16,7 +16,7 @@ import { CONTRACT_AUDIT_EVENTS } from '../../src/core/contract/audit-events.js';
 import { waitFor } from '../helpers/wait-for.js';
 import { makeContractYaml } from '../helpers/contract-yaml.js';
 import { createToolRegistry } from '../../src/foundation/tools/index.js';
-import { makeMockAudit } from '../helpers/audit.js';
+import { makeAudit, makeMockAudit, waitForAuditEvent, waitForNextAuditEvent } from '../helpers/audit.js';
 import { DEFAULT_MAX_STEPS } from '../../src/core/agent-executor/index.js';  // phase 262: hoist
 
 /**
@@ -117,7 +117,7 @@ describe('ContractSystem - misc (LLM verification + escalation + phase239 audit)
 
   describe('force-accept writes force_accepted', () => {
     it('should set force_accepted after reaching max attempts', async () => {
-      const mockAudit = makeMockAudit();
+      const { audit: mockAudit, events, emitter } = makeAudit();
       const testManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
@@ -147,31 +147,15 @@ describe('ContractSystem - misc (LLM verification + escalation + phase239 audit)
 
       // verification_attempts = 2, need 2 failures to trigger force-accept
       for (let i = 0; i < 2; i++) {
+        const verifDoneP = waitForNextAuditEvent(emitter, CONTRACT_AUDIT_EVENTS.VERIFICATION_BACKGROUND_DONE);
         await testManager.completeSubtask({ contractId, subtaskId: 't1', evidence: `attempt ${i + 1}` });
-        // Wait for background verification to complete (subtask leaves in_progress)
-        await waitFor(
-          async () => (await testManager.getProgress(contractId)).subtasks['t1'].status !== 'in_progress',
-          5000,
-          10,
-        );
+        await verifDoneP;
         // phase 1371 sub-3: extra grace for mutex release microtask to land
         await new Promise(r => setTimeout(r, MUTEX_RELEASE_GRACE_MS));
       }
 
-      // phase 1305: poll for BOTH force_accepted AND SUBTASK_FORCE_ACCEPTED audit emit
-      // (race fix: force_accepted saveProgress 可能在 audit emit 前 land /
-      //  N=2 累 flaky 实证 phase 1290 R5 + main 复测 2026-05-26)
-      await waitFor(
-        async () => {
-          const forceAccepted = Boolean((await testManager.getProgress(contractId)).subtasks['t1'].force_accepted);
-          const forceAcceptEmitted = mockAudit.write.mock.calls.some(
-            (c: any[]) => c[0] === CONTRACT_AUDIT_EVENTS.SUBTASK_FORCE_ACCEPTED,
-          );
-          return forceAccepted && forceAcceptEmitted;
-        },
-        5000,
-        10,
-      );
+      // SUBTASK_FORCE_ACCEPTED 在 saveProgress 之后 emit（verification-notify.ts 顺序）、fast-path 等
+      await waitForAuditEvent(emitter, events, CONTRACT_AUDIT_EVENTS.SUBTASK_FORCE_ACCEPTED);
 
       scriptSpy.mockRestore();
 
@@ -181,7 +165,7 @@ describe('ContractSystem - misc (LLM verification + escalation + phase239 audit)
     });
 
     it('should not set force_accepted before reaching max attempts', async () => {
-      const mockAudit = makeMockAudit();
+      const { audit: mockAudit, emitter } = makeAudit();
       const testManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
@@ -208,12 +192,9 @@ describe('ContractSystem - misc (LLM verification + escalation + phase239 audit)
 
       // Only 2 failures — below verification_attempts (3)
       for (let i = 0; i < 2; i++) {
+        const verifDoneP = waitForNextAuditEvent(emitter, CONTRACT_AUDIT_EVENTS.VERIFICATION_BACKGROUND_DONE);
         await testManager.completeSubtask({ contractId, subtaskId: 't1', evidence: `attempt ${i + 1}` });
-        await waitFor(
-          async () => (await testManager.getProgress(contractId)).subtasks['t1'].status !== 'in_progress',
-          5000,
-          10,
-        );
+        await verifDoneP;
         // phase 1371 sub-3: extra grace for mutex release microtask to land
         await new Promise(r => setTimeout(r, MUTEX_RELEASE_GRACE_MS));
       }
