@@ -305,7 +305,18 @@ export default defineConfig({
           globals: true,
           environment: 'node',
           include: ISOLATED_FILES,
-          exclude: ['**/.chestnut/**', '**/node_modules/**', '**/dist/**'],
+          exclude: [
+            '**/.chestnut/**',
+            '**/node_modules/**',
+            '**/dist/**',
+            // phase 371 §5 (review-2026-06-13): test:fast script 旧用 CLI --exclude
+            // 跳这两文件、但 CLI 顶层 filter 不真覆盖 include-overriding 的 isolated
+            // project。改 project-level exclude 真护栏。test:fast script 已删 CLI flag。
+            // 现 daemon-entry pass 12s（phase 1146/1240 修后），保 exclude 为预防 regression
+            // 时 test:fast wall-time 守护，需运行时单独跑 `pnpm vitest run tests/cli/daemon-entry.test.ts`。
+            'tests/cli/daemon-entry.test.ts',
+            'tests/cli/already-running-sentinel.test.ts',
+          ],
           pool: 'threads',
           poolOptions: { threads: { maxThreads, isolate: true } },
           testTimeout: 15000,

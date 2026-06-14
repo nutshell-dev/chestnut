@@ -21,10 +21,25 @@ import { randomUUID } from 'crypto';
 const CLI_ENTRY = path.resolve(process.cwd(), 'dist/cli.js');
 
 // phase 1311 α-1: precondition fail-fast (mirror feedback_flaky_test_zero_tolerance / sister B.r1257 closed by phase 1257)
+// phase 371 §5 (review-2026-06-13): augment with diagnostics — reviewer reported
+// "CLI_ENTRY missing but dist/cli.js exists" oxymoron, hard to debug without state.
 if (!fs.existsSync(CLI_ENTRY)) {
+  const distDir = path.dirname(CLI_ENTRY);
+  let distEntries: string[] = [];
+  let distListErr: string | null = null;
+  try {
+    distEntries = fs.existsSync(distDir) ? fs.readdirSync(distDir).slice(0, 20) : [];
+  } catch (err) {
+    distListErr = err instanceof Error ? err.message : String(err);
+  }
   throw new Error(
-    `[phase1311-α-1] CLI_ENTRY missing: ${CLI_ENTRY} — run \`pnpm run build\` first. ` +
-    `worktree-no-dist 根因 sister row B.r1257 closed by phase 1257 commit hook (run pnpm install hook trigger build)`,
+    `[phase1311-α-1] CLI_ENTRY missing: ${CLI_ENTRY}\n` +
+    `  cwd:           ${process.cwd()}\n` +
+    `  distDir:       ${distDir} (exists=${fs.existsSync(distDir)})\n` +
+    `  distEntries:   ${distListErr ?? (distEntries.length > 0 ? distEntries.join(', ') : '(empty)')}\n` +
+    `globalSetup at .config/vitest-global-setup.ts should auto-build dist/cli.js. ` +
+    `If you see this in CI, the build failed silently — check workflow logs above. ` +
+    `worktree-no-dist 根因 sister row B.r1257 closed by phase 1257 commit hook (run pnpm install hook trigger build).`,
   );
 }
 
