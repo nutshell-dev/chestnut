@@ -12,19 +12,7 @@ import { NodeFileSystem } from '../../src/foundation/fs/index.js';
 const TIMEOUT_MS = 2000;
 
 /**
- * 等 OS 完成 connect / close 在 server side 内部注册（短 settle）.
- * Derivation: libuv async I/O propagation ~ 1-5ms / ×4 safety = 20ms.
- */
-const CONNECT_REGISTER_BUDGET_MS = 20;
-
-/**
- * 等 client destroy / disconnect 后 server 侧 propagation.
- * Derivation: CONNECT_REGISTER_BUDGET_MS + extra margin for socket teardown.
- */
-const DISCONNECT_PROPAGATE_BUDGET_MS = 30;
-
-/**
- * 等 server 侧消息处理 / OS 释放 socket file.
+ * 等 OS 释放 socket file（仅 `rejects new connections after close` 一处用、其他时序均 event-driven）.
  * Derivation: handle queue flush + onMessage callback ≈ 10-20ms / ×3 safety = 50ms.
  */
 const MSG_PROCESS_BUDGET_MS = 50;
@@ -165,19 +153,20 @@ describe('UnixDomainSocketTransport', () => {
   it('client disconnect fires onDisconnect', async () => {
     const path = makeSocketPath();
     transport = makeTransport();
+    const connRegistered = new Promise<void>((resolve) => {
+      transport!.onConnect(() => resolve());
+    });
     const gone = new Promise<Connection>((resolve) => {
       transport!.onDisconnect((c, _reason) => resolve(c));
     });
     await transport.listen({ socketPath: path });
     const c = await connectClient(path);
     clients.push(c);
-    // wait one tick for server-side connection registration
-    await new Promise((r) => setTimeout(r, CONNECT_REGISTER_BUDGET_MS));
+    await connRegistered;
     c.end();
     const conn = await waitFor(gone, 'onDisconnect');
     expect(conn.id).toMatch(/^[0-9a-f-]{36}$/);
-    // allow close event to propagate
-    await new Promise((r) => setTimeout(r, CONNECT_REGISTER_BUDGET_MS));
+    // phase 370: src 已先 connections.delete(id) 后 safeFire(disconnectCbs)、gone 解析后 getConnections 已空
     expect(transport.getConnections()).toHaveLength(0);
   });
 
@@ -212,6 +201,12 @@ describe('UnixDomainSocketTransport', () => {
         if (conns.length >= 5) resolve();
       });
     });
+    // phase 370: 同模式 onDisconnect Promise 等 cs[2].destroy() 后 getConnections().length === 4
+    const fourLeftP = new Promise<void>((resolve) => {
+      transport!.onDisconnect(() => {
+        if (transport!.getConnections().length === 4) resolve();
+      });
+    });
     await transport.listen({ socketPath: path });
 
     const cs = await Promise.all([0, 1, 2, 3, 4].map(() => connectClient(path)));
@@ -225,7 +220,7 @@ describe('UnixDomainSocketTransport', () => {
     expect(lines).toEqual(['hi', 'hi', 'hi', 'hi', 'hi']);
 
     cs[2].destroy();
-    await new Promise((r) => setTimeout(r, DISCONNECT_PROPAGATE_BUDGET_MS));
+    await fourLeftP;
     const recvs2 = [cs[0], cs[1], cs[3], cs[4]].map((c) => nextLine(c));
     const { failed: failed2 } = transport.broadcast('again');
     expect(failed2).toHaveLength(0);
@@ -265,15 +260,23 @@ describe('UnixDomainSocketTransport', () => {
     const path = makeSocketPath();
     transport = makeTransport();
     const msgs: string[] = [];
-    transport.onMessage((_c, d) => msgs.push(d));
+    const fourMsgsP = new Promise<void>((resolve) => {
+      transport!.onMessage((_c, d) => {
+        msgs.push(d);
+        if (msgs.length === 4) resolve();
+      });
+    });
+    const connRegistered = new Promise<void>((resolve) => {
+      transport!.onConnect(() => resolve());
+    });
     await transport.listen({ socketPath: path });
     const c = await connectClient(path);
     clients.push(c);
-    await new Promise((r) => setTimeout(r, CONNECT_REGISTER_BUDGET_MS));
+    await connRegistered;
     c.write('a\nb\nc\n');
     c.write('hel');
     c.write('lo\n');
-    await new Promise((r) => setTimeout(r, MSG_PROCESS_BUDGET_MS));
+    await fourMsgsP;
     expect(msgs).toEqual(['a', 'b', 'c', 'hello']);
   });
 
@@ -306,17 +309,27 @@ describe('UnixDomainSocketTransport', () => {
     const path = makeSocketPath();
     transport = makeTransport();
     const errors: TransportErrorEvent[] = [];
-    transport.onTransportError((evt) => errors.push(evt));
     const got: string[] = [];
+    const twoErrsP = new Promise<void>((resolve) => {
+      transport!.onTransportError((evt) => {
+        errors.push(evt);
+        if (errors.length >= 2) resolve();
+      });
+    });
     transport.onMessage(() => {
       throw new Error('cb1 boom');
     });
-    transport.onMessage((_c, d) => got.push(d));
+    const twoMsgsP = new Promise<void>((resolve) => {
+      transport!.onMessage((_c, d) => {
+        got.push(d);
+        if (got.length === 2) resolve();
+      });
+    });
     await transport.listen({ socketPath: path });
     const c = await connectClient(path);
     clients.push(c);
     c.write('a\nb\n');
-    await new Promise((r) => setTimeout(r, MSG_PROCESS_BUDGET_MS));
+    await Promise.all([twoMsgsP, twoErrsP]);
     expect(got).toEqual(['a', 'b']);
     expect(errors.length).toBeGreaterThanOrEqual(2);
     expect(errors[0]).toMatchObject({ kind: 'callback_error', callbackName: 'onMessage' });
@@ -333,29 +346,40 @@ describe('UnixDomainSocketTransport', () => {
     const path = makeSocketPath();
     transport = makeTransport();
     let disconnectReason: Error | undefined = new Error('should-be-overwritten');
-    transport.onDisconnect((_c, reason) => {
-      disconnectReason = reason;
+    const disconnected = new Promise<void>((resolve) => {
+      transport!.onDisconnect((_c, reason) => {
+        disconnectReason = reason;
+        resolve();
+      });
+    });
+    const connRegistered = new Promise<void>((resolve) => {
+      transport!.onConnect(() => resolve());
     });
     await transport.listen({ socketPath: path });
     const c = await connectClient(path);
     clients.push(c);
-    await new Promise((r) => setTimeout(r, CONNECT_REGISTER_BUDGET_MS));
+    await connRegistered;
     c.end();
-    await new Promise((r) => setTimeout(r, DISCONNECT_PROPAGATE_BUDGET_MS));
+    await disconnected;
     expect(disconnectReason).toBeUndefined();
   });
 
   it('emits server_error via onTransportError', async () => {
     transport = makeTransport();
     const errors: TransportErrorEvent[] = [];
-    transport.onTransportError((evt) => {
-      if (evt.kind === 'server_error') errors.push(evt);
+    const serverErrorP = new Promise<void>((resolve) => {
+      transport!.onTransportError((evt) => {
+        if (evt.kind === 'server_error') {
+          errors.push(evt);
+          resolve();
+        }
+      });
     });
     await transport.listen({ socketPath: makeSocketPath() });
     // Simulate a server-level error by forcing the internal server to emit 'error'
     const server = (transport as unknown as { server: import('node:net').Server }).server;
     server.emit('error', new Error('simulated server error'));
-    await new Promise((r) => setTimeout(r, CONNECT_REGISTER_BUDGET_MS));
+    await serverErrorP;
     expect(errors).toHaveLength(1);
     expect(errors[0]).toMatchObject({ kind: 'server_error' });
     expect(errors[0].error.message).toBe('simulated server error');
@@ -365,12 +389,17 @@ describe('UnixDomainSocketTransport', () => {
     const path = makeSocketPath();
     transport = makeTransport();
     const msgs: string[] = [];
-    transport.onMessage((_c, d) => msgs.push(d));
+    const threeMsgsP = new Promise<void>((resolve) => {
+      transport!.onMessage((_c, d) => {
+        msgs.push(d);
+        if (msgs.length === 3) resolve();
+      });
+    });
     await transport.listen({ socketPath: path });
     const c = await connectClient(path);
     clients.push(c);
     c.write('a\n\nb\n');
-    await new Promise((r) => setTimeout(r, MSG_PROCESS_BUDGET_MS));
+    await threeMsgsP;
     expect(msgs).toEqual(['a', '', 'b']);
   });
 

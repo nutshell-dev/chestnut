@@ -22,20 +22,9 @@ import { MESSAGING_AUDIT_EVENTS } from '../../src/foundation/messaging/audit-eve
 /**
  * 给 chokidar watcher 完成内部 fs.watch 注册 / ready 触发的 budget.
  * Derivation: chokidar typical ready ≤ 20ms / ×2.5 safety = 50ms.
+ * （仅 waitForInbox 内部 watcher setup race 的 test 仍用此 sleep；phase 370 把 daemon loop 等 iteration 的 sleeps 全改 event Promise）
  */
 const WATCHER_SETUP_BUDGET_MS = 50;
-
-/**
- * 让 daemon loop 至少跑过 1 iteration（processBatch 完成 1 次）.
- * Derivation: > eventloop tick / < fallbackTimeoutMs=50 / 不漏 iteration.
- */
-const LOOP_ITERATION_BUDGET_MS = 20;
-
-/**
- * Daemon loop 多 iteration budget: 等 ≥ 2 iteration 完成.
- * Derivation: ≥ 2 × LOOP_ITERATION_BUDGET_MS + margin.
- */
-const DAEMON_MULTI_TICK_BUDGET_MS = 80;
 
 describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
   let agentDir: string;
@@ -129,7 +118,12 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
   describe('startDaemonLoop', () => {
     it('stop() 后 promise resolve + 不再起新 tick', async () => {
       const audit = createMockAudit();
-      const processBatch = vi.fn().mockResolvedValue(0);
+      let processBatchCalled!: () => void;
+      const processBatchOnce = new Promise<void>((r) => { processBatchCalled = r; });
+      const processBatch = vi.fn().mockImplementation(async () => {
+        processBatchCalled();
+        return 0;
+      });
       const retryLastTurn = vi.fn().mockResolvedValue(undefined);
       const abort = vi.fn();
 
@@ -149,8 +143,8 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
         fsFactory,
       });
 
-      // Let one iteration run (processBatch → waitForInbox 50ms)
-      await new Promise(r => setTimeout(r, LOOP_ITERATION_BUDGET_MS));
+      // phase 370: processBatch first-call Promise 替原 LOOP_ITERATION sleep
+      await processBatchOnce;
       stop();
 
       // Wait for loop to drain and promise resolve
@@ -162,7 +156,12 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
 
     it('runtime.processBatch 被传入 wrapped callbacks（streamWriter 存在时）', async () => {
       const audit = createMockAudit();
-      const processBatch = vi.fn().mockResolvedValue(0);
+      let processBatchCalled!: () => void;
+      const processBatchOnce = new Promise<void>((r) => { processBatchCalled = r; });
+      const processBatch = vi.fn().mockImplementation(async () => {
+        processBatchCalled();
+        return 0;
+      });
       const mockRuntime = {
         processBatch,
         retryLastTurn: vi.fn().mockResolvedValue(undefined),
@@ -183,7 +182,8 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
         fsFactory,
       });
 
-      await new Promise(r => setTimeout(r, LOOP_ITERATION_BUDGET_MS));
+      // phase 370: processBatch first-call Promise 替原 LOOP_ITERATION sleep
+      await processBatchOnce;
       stop();
       await promise;
 
@@ -195,9 +195,12 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
     it('streamWriter 通过 createStreamCallbacks 收到 turn events', async () => {
       const audit = createMockAudit();
       const streamEvents: Array<{ type: string; [k: string]: unknown }> = [];
+      let turnEndSeenResolve!: () => void;
+      const turnEndSeen = new Promise<void>((r) => { turnEndSeenResolve = r; });
       const streamWriter: StreamLog = {
         write: (ev) => {
           streamEvents.push(ev);
+          if (ev.type === 'turn_end') turnEndSeenResolve();
         },
       };
 
@@ -230,7 +233,8 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
         fsFactory,
       });
 
-      await new Promise(r => setTimeout(r, DAEMON_MULTI_TICK_BUDGET_MS));
+      // phase 370: turn_end event Promise 替原 DAEMON_MULTI_TICK sleep
+      await turnEndSeen;
       stop();
       await promise;
 

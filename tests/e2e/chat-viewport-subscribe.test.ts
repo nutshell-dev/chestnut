@@ -169,18 +169,26 @@ describe('chat-viewport 主 UI 隔离（phase162）', () => {
       taskStatusBar: mockTaskStatusBar2 as any,
     });
 
+    let mainReaderReady!: () => void;
+    let taskReaderReady!: () => void;
+    const readersReady = Promise.all([
+      new Promise<void>((r) => { mainReaderReady = r; }),
+      new Promise<void>((r) => { taskReaderReady = r; }),
+    ]);
     const mainReader = createStreamReader(mainFs, STREAM_FILE,
       (ev) => mainUI.withScope('main', () => dispatchMainEvent(ev, mainUI)),
-      audit);
+      audit,
+      { onReady: () => mainReaderReady() });
     const taskReader = createStreamReader(taskFs, STREAM_FILE,
       (ev) => mainUI.withScope('task', () => taskHandler(taskId, ev)),
-      audit);
+      audit,
+      { onReady: () => taskReaderReady() });
     cleanups.push(() => mainReader.stop());
     cleanups.push(() => taskReader.stop());
     mainReader.start();
     taskReader.start();
 
-    await new Promise(r => setTimeout(r, STREAM_SETTLE_BUDGET_MS)); // sleep: let stream reader start and settle
+    await readersReady;
 
     await appendJsonl(mainStreamPath, { type: 'turn_start' });
     await appendJsonl(mainStreamPath, { type: 'llm_start' });
@@ -276,6 +284,12 @@ describe('chat-viewport 主 UI 并发隔离（phase162 streamReader）', () => {
       taskStatusBar: mockTaskStatusBar3 as any,
     });
 
+    let mainReaderReady!: () => void;
+    let taskReaderReady!: () => void;
+    const readersReady = Promise.all([
+      new Promise<void>((r) => { mainReaderReady = r; }),
+      new Promise<void>((r) => { taskReaderReady = r; }),
+    ]);
     const mainReader = createStreamReader(
       mainFs, STREAM_FILE,
       (ev) => {
@@ -287,6 +301,7 @@ describe('chat-viewport 主 UI 并发隔离（phase162 streamReader）', () => {
         }
       },
       audit,
+      { onReady: () => mainReaderReady() },
     );
     const taskReader = createStreamReader(
       taskFs, STREAM_FILE,
@@ -294,12 +309,13 @@ describe('chat-viewport 主 UI 并发隔离（phase162 streamReader）', () => {
         taskHandler(taskId, ev);
       },
       audit,
+      { onReady: () => taskReaderReady() },
     );
     cleanups.push(() => mainReader.stop());
     cleanups.push(() => taskReader.stop());
     mainReader.start();
     taskReader.start();
-    await new Promise(r => setTimeout(r, STREAM_SETTLE_BUDGET_MS)); // sleep: let stream reader start and settle
+    await readersReady;
 
     // NOTE: chokidar 对快速连续 append 会合并/丢弃 FS 事件——必须在 append 间插入间隔，
     // 让 createStreamReader 的 watcher 能逐条捕获。这是 chokidar 已知行为，不是 reader 的 bug。
