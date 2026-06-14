@@ -26,6 +26,8 @@ const ALLOWLIST_BASENAMES = new Set([
   // phase 272 Step E baseline
   'chat-viewport-init.ts',
   'chat-viewport-input.ts',
+  // phase 367: viewport task stale cleanup audit self-failure tolerated
+  'chat-viewport.ts',
   'claw-list.ts',
   'claw-trace.ts',
   'daemon-entry.ts',

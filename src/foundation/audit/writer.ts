@@ -49,7 +49,9 @@ interface FallbackEntry {
 const pendingFallback: FallbackEntry[] = [];
 let exitHandlerInstalled = false;
 let overflowMetaEmitted = false;
-let flushTimer: ReturnType<typeof setInterval> | null = null;
+// phase 367: 单次 setTimeout 替原 setInterval flushTimer; pushFallback trigger 一次、多 push 共用
+let flushMaxLatencyTimer: ReturnType<typeof setTimeout> | null = null;
+const FALLBACK_FLUSH_LATENCY_MS = 5000;  // 同原 5s tick
 
 // phase 1380: drop observability counters (phase 586 D1.b ratify 顺延 + observability 补完)
 let dropCountTotal = 0;            // module-level、never reset (process lifetime)
@@ -83,12 +85,18 @@ export function pushFallback(line: string, origin: string): void {
   ensurePeriodicFlush();
 }
 
+/**
+ * phase 367 event-driven flush scheduling (替原 setInterval 5s):
+ * - 仅首次 pushFallback trigger 一次 setTimeout(FALLBACK_FLUSH_LATENCY_MS)
+ * - 后续 pushFallback 共用 timer；dump 内 clear timer；新 push 再 schedule
+ */
 function ensurePeriodicFlush(): void {
-  if (flushTimer) return;
-  flushTimer = setInterval(() => {
+  if (flushMaxLatencyTimer) return;
+  flushMaxLatencyTimer = setTimeout(() => {
+    flushMaxLatencyTimer = null;
     dumpFallback();
-  }, 5000);
-  flushTimer.unref(); // 不阻 event loop 退出
+  }, FALLBACK_FLUSH_LATENCY_MS);
+  flushMaxLatencyTimer.unref();
 }
 
 function dumpFallback(): void {
@@ -135,6 +143,8 @@ function dumpFallback(): void {
     console.error(
       `[AUDIT CRITICAL] fallback dump failed: reason=${reason} pending=${pendingFallback.length}`,
     );
+    // phase 367: 失败重试：重新 schedule timer
+    if (pendingFallback.length > 0) ensurePeriodicFlush();
   }
 }
 
@@ -300,9 +310,10 @@ export function _resetFallbackForTest(): void {
   dropCountSinceLastDump = 0;
   firstDropTs = null;
   lastDropTs = null;
-  if (flushTimer) {
-    clearInterval(flushTimer);
-    flushTimer = null;
+  // phase 367: 清 maxLatency timer (替原 flushTimer)
+  if (flushMaxLatencyTimer) {
+    clearTimeout(flushMaxLatencyTimer);
+    flushMaxLatencyTimer = null;
   }
 }
 

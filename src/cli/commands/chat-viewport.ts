@@ -216,7 +216,36 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     taskStatusBar,
     audit: options.audit,
   });
-  const handleTaskEvent = (taskId: TaskId, ev: unknown) => _taskEventHandler(taskId, ev as Parameters<typeof _taskEventHandler>[1]);
+  // phase 367 step A: per-task lazy stale check 替原 60s setInterval sweep
+  // 每个 task event 到达时检 tw.lastEventMs 是否过 TASK_STALE_TIMEOUT_MS、过则 cleanup
+  // 替代:
+  //   - taskSweepInterval (60s 全扫) → 内联 lazy check
+  const TASK_STALE_TIMEOUT_MS = 30 * 60 * 1000;
+  const handleTaskEvent = (taskId: TaskId, ev: unknown): void => {
+    const tw = taskWatchMap.get(taskId);
+    if (tw) {
+      const now = Date.now();
+      const idleMs = now - tw.lastEventMs;
+      if (idleMs > TASK_STALE_TIMEOUT_MS) {
+        // task 已 stale: cleanup 而非 process event (phase 1401 Bug B: 5min 太短 → 30min)
+        stopTaskWatch(makeTaskId(taskId)).catch(err =>
+          options.audit.write(
+            VIEWPORT_AUDIT_EVENTS.TASK_WATCH_STOP_FAILED,
+            `taskId=${taskId} reason=${formatErr(err)}`,
+          )
+        );
+        try {
+          options.audit.write(
+            VIEWPORT_AUDIT_EVENTS.TASK_STREAM_STALE_CLEANUP,
+            `taskId=${taskId}`,
+            `idle_ms=${idleMs}`,
+          );
+        } catch { /* silent: audit self-failure tolerated */ }
+        return;
+      }
+    }
+    _taskEventHandler(taskId, ev as Parameters<typeof _taskEventHandler>[1]);
+  };
 
   const handleEvent = createEventHandler({
     turnTracker,
@@ -311,32 +340,8 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     onError: (err) => process.stderr.write(`[viewport] daemon liveness watcher error: ${err.message}\n`),
   });
 
-  // Stale task stream sweep（30min 无 event → cleanup）
-  // phase 1401 Bug B: 5min 太短 — shadow 首调 kimi-k2.5 实测 latency 317657ms = 5.29min（含 thinking）
-  // 直接撞 5min 阈值被误杀。30min 覆盖 LLM 上界 + safety margin；超过仍清属合理保护。
-  const TASK_STALE_TIMEOUT_MS = 30 * 60 * 1000;
-  const TASK_SWEEP_INTERVAL_MS = 60 * 1000;
-  const taskSweepInterval = setInterval(() => {
-    const now = Date.now();
-    for (const [taskId, tw] of taskWatchMap) {
-      if (now - tw.lastEventMs > TASK_STALE_TIMEOUT_MS) {
-        stopTaskWatch(makeTaskId(taskId)).catch(err =>
-          options.audit.write(
-            VIEWPORT_AUDIT_EVENTS.TASK_WATCH_STOP_FAILED,
-            `taskId=${taskId} reason=${formatErr(err)}`,
-          )
-        );
-        try {
-          options.audit.write(
-            VIEWPORT_AUDIT_EVENTS.TASK_STREAM_STALE_CLEANUP,
-            `taskId=${taskId}`,
-            `idle_ms=${now - tw.lastEventMs}`,
-          );
-        } catch { /* audit self-failure tolerated */ }
-      }
-    }
-  }, TASK_SWEEP_INTERVAL_MS);
-  taskSweepInterval.unref();
+  // Stale task stream cleanup: phase 367 改 per-task lazy check (handleTaskEvent 内 inline 上方)
+  // phase 1401 Bug B: 30min stale timeout 业务 threshold 不动；sweep 周期 setInterval 删（事件驱动 lazy 替）
 
   // --- 注册 slash 命令 ---
   for (const cmd of createViewportCommands({
@@ -511,7 +516,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     // silent: cleanup path; watcher close 失败不影响 viewport 退出 / shutdown observability 已 record
     if (clawsWatcher) await clawsWatcher.close().catch(() => { /* silent: cleanup */ });
     await daemonLivenessWatcher.close().catch(() => { /* silent: cleanup */ });
-    clearInterval(taskSweepInterval);
+    // phase 367: taskSweepInterval 删、改 per-task lazy check (handleTaskEvent inline)
     await streamReader.stop();
     await clawManager.closeAll();
     // clawScanInterval 已删 → clawsWatcher 替（cleanup 在上方 await clawsWatcher.close()）

@@ -30,7 +30,8 @@ export interface BatchedAuditWriterOptions {
 export class BatchedAuditWriter implements AuditLog {
   readonly __brand = 'AuditLog' as const;
   private buffer: string[] = [];
-  private timer: ReturnType<typeof setInterval> | null = null;
+  // phase 367: 单次 setTimeout 替原 setInterval flushTimer; write trigger 一次、多 write 共用
+  private maxLatencyTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly fs: FileSystem;
   private readonly filePath: string;
   private readonly maxBytes: number | null;
@@ -56,8 +57,9 @@ export class BatchedAuditWriter implements AuditLog {
     this.buffer.push(parts.join('\t') + '\n');
     if (this.buffer.length >= this.batchSize) {
       this.flush();
+      return;
     }
-    this._ensureTimer();
+    if (this.buffer.length > 0) this._scheduleFlush();
   }
 
   flush(): void {
@@ -89,10 +91,8 @@ export class BatchedAuditWriter implements AuditLog {
         );
       }
       // SUCCESS: reset backoff
-      if (this.currentIntervalMs !== this.flushIntervalMs) {
-        this.currentIntervalMs = this.flushIntervalMs;
-        this._resetTimer();
-      }
+      this.currentIntervalMs = this.flushIntervalMs;
+      this._clearMaxLatency();
     } catch (err) {
       const reason = formatErr(err);
       console.error(
@@ -101,33 +101,39 @@ export class BatchedAuditWriter implements AuditLog {
       for (const line of batch) {
         pushFallback(line, this.filePath);
       }
-      // FAILURE: exponential backoff timer
+      // FAILURE: exponential backoff applied on next _scheduleFlush
       this.currentIntervalMs = Math.min(this.currentIntervalMs * 2, this.maxBackoffMs);
-      this._resetTimer();
+      this._clearMaxLatency();
     }
   }
 
-  private _ensureTimer(): void {
-    if (this.timer) return;
-    this.timer = setInterval(() => this.flush(), this.currentIntervalMs);
-    this.timer.unref();
+  /**
+   * phase 367 event-driven flush scheduling (替原 setInterval 周期 tick):
+   * - 仅 write trigger 一次 setTimeout(currentIntervalMs)
+   * - 后续 write 不重创 timer（multi-write 合一次 flush）
+   * - flush 内 clear timer；新 write 再 schedule
+   * - 比 setInterval 节省：idle 时无空跑、不阻 event loop（unref）
+   */
+  private _scheduleFlush(): void {
+    if (this.maxLatencyTimer) return;  // 已 scheduled
+    this.maxLatencyTimer = setTimeout(() => {
+      this.maxLatencyTimer = null;
+      this.flush();
+    }, this.currentIntervalMs);
+    this.maxLatencyTimer.unref();
   }
 
-  private _resetTimer(): void {
-    if (this.timer) {
-      clearInterval(this.timer);
-      this.timer = null;
+  private _clearMaxLatency(): void {
+    if (this.maxLatencyTimer) {
+      clearTimeout(this.maxLatencyTimer);
+      this.maxLatencyTimer = null;
     }
-    this._ensureTimer();
   }
 
   /** Dispose: flush remaining + clear timer. Call on shutdown. */
   dispose(): void {
+    this._clearMaxLatency();
     this.flush();
-    if (this.timer) {
-      clearInterval(this.timer);
-      this.timer = null;
-    }
   }
 
   preview(s: string): string { return clipPreview(s); }

@@ -19,13 +19,7 @@ import {
   SUBAGENT_LONG_TIMEOUT_MS,
 } from '../helpers/test-timeouts.js';
 import { createAuditEmitterHelper, type AuditEmitterHelper } from '../helpers/audit-emitter.js';
-
-/**
- * 较宽轮询间隔 (50ms) for waitForArchive (fs.access 检测).
- * Derivation: > fs.access syscall budget / < waitForArchive budget 分钟级 / 不刷爆 syscall.
- * 注：waitForArchive 仍 polling 因 fs.access 是 detection、改 file-watcher 留 follow-up phase.
- */
-const WIDE_POLL_MS = 50;
+import { waitForPathExists } from '../helpers/wait-for-file.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
@@ -90,16 +84,13 @@ describe('contract-motion-full-chain (phase 1168 α-5)', () => {
 
   async function waitForArchive(contractId: string, timeoutMs = WAIT_FOR_DEFAULT_BUDGET_MS): Promise<boolean> {
     const archiveDir = path.join(clawDir, 'contract/archive', contractId);
-    const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-      try {
-        await fs.access(archiveDir);
-        return true;
-      } catch {
-        await new Promise(r => setTimeout(r, WIDE_POLL_MS));
-      }
+    // phase 367: file-watcher 监父 dir 'addDir' 事件 替原 50ms fs.access polling
+    try {
+      await waitForPathExists(archiveDir, timeoutMs);
+      return true;
+    } catch {
+      return false;
     }
-    return false;
   }
 
   // ───── Case 1: happy path ─────
