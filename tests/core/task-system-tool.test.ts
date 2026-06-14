@@ -25,7 +25,7 @@ import { lsTool } from '../../src/foundation/file-tool/ls.js';
 import { searchTool } from '../../src/foundation/file-tool/search.js';
 import { makeAudit, waitForAuditEvent } from '../helpers/audit.js';
 import { TASK_AUDIT_EVENTS } from '../../src/core/async-task-system/audit-events.js';
-import { waitForCompleteFile } from '../helpers/wait-for-file.js';
+import { waitForCompleteFile, waitForPathExists, waitForAnyFile } from '../helpers/wait-for-file.js';
 import { makeTaskSystemDeps } from '../helpers/task-system.js';
 import { waitFor } from '../helpers/wait-for.js';
 import { writePendingToolTaskFile } from '../../src/core/async-task-system/tools/_pending-tool-task-writer.js';
@@ -229,9 +229,7 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       const taskId = await scheduleToolCompat(taskSystem, 'testTool', slowCallback, 'parent-claw');
 
       const runningPath = path.join(testClawDir, 'tasks', 'queues', 'running', `${taskId}.json`);
-      await waitFor(async () => {
-        try { await fs.access(runningPath); return true; } catch { return false; }
-      });
+      await waitForPathExists(runningPath);
 
       // Task should be in running directory after dispatch
       const taskFile = await fs.readFile(runningPath, 'utf-8');
@@ -254,10 +252,7 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       // phase 1175 B.flaky-24: 等 inbox file atomic write 完成 + frontmatter 完整再 parse
       // mirror L291 / L955 同 file 邻位 phase 1090 模板
       const inboxDir = path.join(testClawDir, 'inbox', 'pending');
-      await waitFor(async () => {
-        const files = await fs.readdir(inboxDir).catch(() => [] as string[]);
-        return (files as string[]).some(f => f.endsWith('.md'));
-      });
+      await waitForAnyFile(inboxDir, (f) => f.endsWith('.md'));
 
       expect(executeCallback).toHaveBeenCalled();
 
@@ -295,22 +290,10 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       // (l4_async_task_system test-coverage §9 open flake / phase 305/312/343)
       const resultPath = path.join(testClawDir, 'tasks', 'queues', 'results', taskId, 'result.txt');
       const inboxDir = path.join(testClawDir, 'inbox', 'pending');
-      let inboxPath = '';
-      await waitFor(async () => {
-        try {
-          await fs.readFile(resultPath, 'utf-8');
-        } catch { return false; }
-        const inboxFiles = await fs.readdir(inboxDir).catch(() => [] as string[]);
-        const mdFiles = (inboxFiles as string[]).filter(f => f.endsWith('.md'));
-        if (mdFiles.length === 0) return false;
-        const candidate = path.join(inboxDir, mdFiles[0]);
-        try {
-          const content = await fs.readFile(candidate, 'utf-8');
-          if (!/^---[\s\S]+---\n\n/.test(content)) return false;
-          inboxPath = candidate;
-          return true;
-        } catch { return false; }
-      });
+      // phase 368: staged event-driven 替原 compound polling predicate
+      await waitForPathExists(resultPath);
+      const inboxName = await waitForAnyFile(inboxDir, (f) => f.endsWith('.md'));
+      const inboxPath = path.join(inboxDir, inboxName);
 
       const resultFile = await fs.readFile(resultPath, 'utf-8');
       expect(resultFile).toContain(longResult);
@@ -331,16 +314,12 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       
       const taskId = await scheduleToolCompat(taskSystem, 'testTool', executeCallback, 'parent-claw');
       
-      await waitFor(async () => {
-        const files = await fs.readdir(path.join(testClawDir, 'inbox', 'pending')).catch(() => [] as string[]);
-        const inboxFiles = (files as string[]).filter(f => f.endsWith('.md'));
-        if (inboxFiles.length === 0) return false;
-        const content = await fs.readFile(
-          path.join(testClawDir, 'inbox', 'pending', inboxFiles[0]),
-          'utf-8',
-        );
-        return /---\n[\s\S]*?\n---\n\n[\s\S]+/.test(content);
-      });
+      // phase 368: staged event-driven 替原 compound polling predicate
+      {
+        const _inboxDir = path.join(testClawDir, 'inbox', 'pending');
+        const _name = await waitForAnyFile(_inboxDir, (f) => f.endsWith('.md'));
+        await waitForCompleteFile(path.join(_inboxDir, _name), /---\n[\s\S]*?\n---\n\n[\s\S]+/);
+      }
       
       // Check inbox/pending/ for the error result message
       const inboxFiles = await fs.readdir(path.join(testClawDir, 'inbox', 'pending'));
@@ -369,14 +348,7 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       
       const taskId = await scheduleToolCompat(taskSystem, 'testTool', executeCallback, 'parent-claw');
       
-      await waitFor(async () => {
-        try {
-          await fs.readFile(path.join(testClawDir, 'tasks', 'queues', 'done', `${taskId}.json`), 'utf-8');
-          return true;
-        } catch {
-          return false;
-        }
-      });
+      await waitForPathExists(path.join(testClawDir, 'tasks', 'queues', 'done', `${taskId}.json`));
       
       // Task should be in done directory
       const doneFile = await fs.readFile(
@@ -430,10 +402,7 @@ describe('AsyncTaskSystem Tool Tasks', () => {
         'parent-claw',
       );
 
-      await waitFor(async () => {
-        const files = await fs.readdir(path.join(testClawDir, 'inbox', 'pending')).catch(() => []);
-        return files.filter((f: string) => f.endsWith('.md')).length > 0;
-      });
+      await waitForAnyFile(path.join(testClawDir, 'inbox', 'pending'), (f) => f.endsWith('.md'));
       await taskSystem2.shutdown(1).catch(() => {});
 
       // fallback 消息应该存在
@@ -772,10 +741,7 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       taskSystem2.startDispatch();
 
       // phase432: running tool task 移回 pending，再被 ingest 执行
-      await waitFor(async () => {
-        const doneExists = await fs.access(path.join(testClawDir, 'tasks', 'queues', 'done', `${taskId}.json`)).then(() => true).catch(() => false);
-        return doneExists;
-      });
+      await waitForPathExists(path.join(testClawDir, 'tasks', 'queues', 'done', `${taskId}.json`));
 
       const runningExists = await fs.access(path.join(testClawDir, 'tasks', 'queues', 'running', `${taskId}.json`)).then(() => true).catch(() => false);
       expect(runningExists).toBe(false);
@@ -875,10 +841,7 @@ describe('AsyncTaskSystem Tool Tasks', () => {
 
       // phase432: pending tool task 被 ingest 并执行 / phase 1309 α-1: timeout dump diagnostic
       try {
-        await waitFor(async () => {
-          const doneExists = await fs.access(path.join(testClawDir, 'tasks', 'queues', 'done', `${taskId}.json`)).then(() => true).catch(() => false);
-          return doneExists;
-        });
+        await waitForPathExists(path.join(testClawDir, 'tasks', 'queues', 'done', `${taskId}.json`));
       } catch (waitForErr) {
         const failedEvents = auditEvents.filter(e =>
           e.type === TASK_AUDIT_EVENTS.TASK_FAILED ||
@@ -1030,10 +993,7 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       const executeCallback = vi.fn().mockResolvedValue({ success: true, content: longContent });
 
       const taskId = await scheduleToolCompat(taskSystem, 'testTool', executeCallback, 'parent-claw');
-      await waitFor(async () => {
-        const files = await fs.readdir(path.join(testClawDir, 'inbox', 'pending')).catch(() => [] as string[]);
-        return (files as string[]).some(f => f.endsWith('.md'));
-      });
+      await waitForAnyFile(path.join(testClawDir, 'inbox', 'pending'), (f) => f.endsWith('.md'));
 
       // Check inbox/pending/ for the result message
       const inboxFiles = await fs.readdir(path.join(testClawDir, 'inbox', 'pending'));
@@ -1059,10 +1019,7 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       const executeCallback = vi.fn().mockResolvedValue({ success: true, content: 'direct result' });
 
       await scheduleToolCompat(taskSystem, 'testTool', executeCallback, 'parent-claw');
-      await waitFor(async () => {
-        const files = await fs.readdir(path.join(testClawDir, 'inbox', 'pending')).catch(() => [] as string[]);
-        return (files as string[]).some(f => f.endsWith('.md'));
-      });
+      await waitForAnyFile(path.join(testClawDir, 'inbox', 'pending'), (f) => f.endsWith('.md'));
 
       // Inbox file must be .md (not .json or other)
       const inboxFiles = await fs.readdir(path.join(testClawDir, 'inbox', 'pending'));
@@ -1102,10 +1059,7 @@ describe('AsyncTaskSystem Tool Tasks', () => {
 
       const executeCallback = vi.fn().mockResolvedValue({ success: true, content: 'fallback content' });
       await scheduleToolCompat(taskSystem2, 'testTool', executeCallback, 'parent-claw');
-      await waitFor(async () => {
-        const files = await fs.readdir(path.join(testClawDir, 'inbox', 'pending')).catch(() => [] as string[]);
-        return (files as string[]).some(f => f.endsWith('.md'));
-      });
+      await waitForAnyFile(path.join(testClawDir, 'inbox', 'pending'), (f) => f.endsWith('.md'));
 
       // Check inbox/pending/ for the result message
       const inboxFiles = (await fs.readdir(path.join(testClawDir, 'inbox', 'pending'))).filter(f => f.endsWith('.md'));
@@ -1176,10 +1130,7 @@ describe('AsyncTaskSystem Tool Tasks', () => {
         maxRetries: 2,
       });
 
-      await waitFor(async () => {
-        const files = await fs.readdir(path.join(testClawDir, 'inbox', 'pending')).catch(() => [] as string[]);
-        return (files as string[]).some(f => f.endsWith('.md'));
-      });
+      await waitForAnyFile(path.join(testClawDir, 'inbox', 'pending'), (f) => f.endsWith('.md'));
 
       // Wait for task to complete before reading inbox (B.flaky-18)
       await waitFor(() => taskSystem.listRunning().length === 0);
@@ -1209,16 +1160,12 @@ describe('AsyncTaskSystem Tool Tasks', () => {
         maxRetries: 2,
       });
 
-      await waitFor(async () => {
-        const files = await fs.readdir(path.join(testClawDir, 'inbox', 'pending')).catch(() => [] as string[]);
-        const inboxFiles = (files as string[]).filter(f => f.endsWith('.md'));
-        if (inboxFiles.length === 0) return false;
-        const content = await fs.readFile(
-          path.join(testClawDir, 'inbox', 'pending', inboxFiles[0]),
-          'utf-8',
-        );
-        return /---\n[\s\S]*?\n---\n\n[\s\S]+/.test(content);
-      });
+      // phase 368: staged event-driven 替原 compound polling predicate
+      {
+        const _inboxDir = path.join(testClawDir, 'inbox', 'pending');
+        const _name = await waitForAnyFile(_inboxDir, (f) => f.endsWith('.md'));
+        await waitForCompleteFile(path.join(_inboxDir, _name), /---\n[\s\S]*?\n---\n\n[\s\S]+/);
+      }
 
       // Should have been called 3 times (1 initial + 2 retries)
       expect(alwaysFailCallback).toHaveBeenCalledTimes(3);
@@ -1240,14 +1187,9 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       expect(content.summary).toContain('retries');
 
       // Task should be in failed directory (retries exhausted)
-      await waitFor(
-        async () =>
-          fs
-            .access(path.join(testClawDir, 'tasks', 'queues', 'failed', `${taskId}.json`))
-            .then(() => true)
-            .catch(() => false),
+      await waitForPathExists(
+        path.join(testClawDir, 'tasks', 'queues', 'failed', `${taskId}.json`),
         10000,
-        20,
       );
 
       const failedFile = await fs.readFile(
@@ -1264,10 +1206,7 @@ describe('AsyncTaskSystem Tool Tasks', () => {
         isIdempotent: false,
       });
 
-      await waitFor(async () => {
-        const files = await fs.readdir(path.join(testClawDir, 'inbox', 'pending')).catch(() => [] as string[]);
-        return (files as string[]).some(f => f.endsWith('.md'));
-      });
+      await waitForAnyFile(path.join(testClawDir, 'inbox', 'pending'), (f) => f.endsWith('.md'));
 
       // Wait for task to complete before reading inbox (B.flaky-21)
       await waitFor(() => taskSystem.listRunning().length === 0);
@@ -1324,9 +1263,7 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       const failCallback = vi.fn().mockRejectedValue(new Error('Tool error'));
       const taskId = await scheduleToolCompat(taskSystem2, 'tool', failCallback, 'parent', { isIdempotent: false });
 
-      await waitFor(async () => {
-        return await fs.access(path.join(testClawDir, 'tasks', 'queues', 'failed', `${taskId}.json`)).then(() => true).catch(() => false);
-      });
+      await waitForPathExists(path.join(testClawDir, 'tasks', 'queues', 'failed', `${taskId}.json`));
 
       // Task should end up in failed (tool execution failed, retries exhausted)
       const failedExists = await fs.access(
@@ -1450,10 +1387,7 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       freshSystem.startDispatch();
 
       // phase432: Tool task 被恢复执行并最终移到 done/
-      await waitFor(async () => {
-        const doneExists = await fs.access(path.join(freshDir, 'tasks', 'queues', 'done', `${taskId}.json`)).then(() => true).catch(() => false);
-        return doneExists;
-      });
+      await waitForPathExists(path.join(freshDir, 'tasks', 'queues', 'done', `${taskId}.json`));
 
       const doneExists = await fs.access(path.join(freshDir, 'tasks', 'queues', 'done', `${taskId}.json`)).then(() => true).catch(() => false);
       expect(doneExists).toBe(true);

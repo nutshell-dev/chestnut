@@ -29,12 +29,6 @@ const DISCONNECT_PROPAGATE_BUDGET_MS = 30;
  */
 const MSG_PROCESS_BUDGET_MS = 50;
 
-/**
- * Poll tick interval for recursive setTimeout loop.
- * Derivation: < eventloop typical tick / 不 busy-spin 不漏窗.
- */
-const POLL_TICK_MS = 10;
-
 function makeSocketPath(): string {
   return join(tmpdir(), `chestnut-test-${randomUUID()}.sock`);
 }
@@ -211,18 +205,18 @@ describe('UnixDomainSocketTransport', () => {
     const path = makeSocketPath();
     transport = makeTransport();
     const conns: Connection[] = [];
-    transport.onConnect((c) => conns.push(c));
+    // phase 368: 替 recursive setTimeout polling — onConnect 事件触发 resolve.
+    const fiveConnectsP = new Promise<void>((resolve) => {
+      transport!.onConnect((c) => {
+        conns.push(c);
+        if (conns.length >= 5) resolve();
+      });
+    });
     await transport.listen({ socketPath: path });
 
     const cs = await Promise.all([0, 1, 2, 3, 4].map(() => connectClient(path)));
     clients.push(...cs);
-    await waitFor(
-      new Promise<void>((resolve) => {
-        const tick = () => (conns.length === 5 ? resolve() : setTimeout(tick, POLL_TICK_MS));
-        tick();
-      }),
-      '5 connects',
-    );
+    await waitFor(fiveConnectsP, '5 connects');
 
     const recvs = cs.map((c) => nextLine(c));
     const { failed: failed1 } = transport.broadcast('hi');

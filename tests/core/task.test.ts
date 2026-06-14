@@ -25,6 +25,7 @@ import { SUBAGENT_TIMEOUT_MS } from '../../src/core/subagent/constants.js';
 import { makeAudit, makeMockAudit, waitForAuditEvent } from '../helpers/audit.js';
 import { createTestTaskSystem, createMockWatcherFactory } from '../helpers/task-system.js';
 import { waitFor } from '../helpers/wait-for.js';
+import { waitForAnyFile, waitForCompleteFile } from '../helpers/wait-for-file.js';
 
 /**
  * Mock slow stream chunk 间隔 (50ms): 等 abort signal 中段触发 / 慢逐 chunk yield.
@@ -368,10 +369,7 @@ describe('Task System + SubAgent', () => {
       });
 
       // 等待超时触发 + 任务完成 + inbox 写入
-      await waitFor(async () => {
-        const files = await fs.readdir(path.join(ctx.tempDir, 'inbox', 'pending')).catch(() => []);
-        return (files as string[]).filter(f => f.endsWith('.md')).length > 0;
-      });
+      await waitForAnyFile(path.join(ctx.tempDir, 'inbox', 'pending'), (f) => f.endsWith('.md'));
 
       // inbox 中有 is_error: true 的消息（验证 executeTask catch 被执行）
       const inboxDir = path.join(ctx.tempDir, 'inbox', 'pending');
@@ -429,10 +427,7 @@ describe('Task System + SubAgent', () => {
         parentClawId: 'test-claw',
       });
 
-      await waitFor(async () => {
-        const files = await fs.readdir(path.join(ctx.tempDir, 'inbox', 'pending')).catch(() => []);
-        return (files as string[]).filter(f => f.endsWith('.md')).length > 0;
-      });
+      await waitForAnyFile(path.join(ctx.tempDir, 'inbox', 'pending'), (f) => f.endsWith('.md'));
       await failSystem.shutdown(1000);
 
       // fallback 消息应该存在于 inbox
@@ -476,18 +471,13 @@ describe('Task System + SubAgent', () => {
       });
 
       const inboxDir = path.join(ctx.tempDir, 'inbox', 'pending');
-      await waitFor(
-        async () => {
-          const files = await fs.readdir(inboxDir).catch(() => [] as string[]);
-          const mdFiles = (files as string[]).filter(f => f.endsWith('.md'));
-          if (mdFiles.length === 0) return false;
-          const content = await fs
-            .readFile(path.join(inboxDir, mdFiles[0]), 'utf-8')
-            .catch(() => '');
-          return content.includes('is_error') && content.includes(taskId);
-        },
-        15000, // was 10000
-        20,
+      // phase 368: staged event-driven 替原 compound polling predicate
+      const _inboxName = await waitForAnyFile(inboxDir, (f) => f.endsWith('.md'), 15000);
+      // taskId + is_error 同时出现的 regex（content.includes 两词 → 任一顺序）
+      await waitForCompleteFile(
+        path.join(inboxDir, _inboxName),
+        new RegExp(`(?=.*is_error)(?=.*${taskId.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')})`, 's'),
+        15000,
       );
       await failSystem.shutdown(1000);
 

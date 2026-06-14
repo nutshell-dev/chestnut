@@ -18,13 +18,11 @@ import { markReady, markNotReady, isReady } from '../../../src/foundation/proces
 import { makeAudit } from '../../helpers/audit.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from '../../../src/foundation/process-manager/audit-events.js';
 import { FAKE_LIVE_PID, FAKE_LIVE_PID_STRING } from '../../helpers/test-pids.js';
+import { waitForPathGone } from '../../helpers/wait-for-file.js';
 import type { ProcessManagerContext } from '../../../src/foundation/process-manager/types.js';
 
-/**
- * Stale marker delete poll interval (50ms): 等 async delete settle.
- * Derivation: > unlink syscall budget / × 20 retries 给 total 1s 上限.
- */
-const STALE_MARKER_POLL_MS = 50;
+/** Stale marker self-cleanup safety budget (1s). phase 368: event-driven 替原 50ms × 20 polling. */
+const STALE_MARKER_BUDGET_MS = 1000;
 
 describe('isReady / markReady / markNotReady', () => {
   let tempDir: string;
@@ -130,13 +128,9 @@ describe('isReady / markReady / markNotReady', () => {
       ]),
     );
 
-    // r127 C.1: stale marker self-cleanup — async delete (fire-and-forget in isReady),
-    // retry until file disappears or timeout
-    for (let i = 0; i < 20; i++) {
-      const exists = await fs.access(readyFile).then(() => true).catch(() => false);
-      if (!exists) break;
-      await new Promise(r => setTimeout(r, STALE_MARKER_POLL_MS));
-    }
+    // r127 C.1: stale marker self-cleanup — async delete (fire-and-forget in isReady).
+    // phase 368: file-watcher 'unlink' event 替原 polling.
+    await waitForPathGone(readyFile, STALE_MARKER_BUDGET_MS);
     const markerStillExists = await fs.access(readyFile).then(() => true).catch(() => false);
     expect(markerStillExists).toBe(false);
   });
