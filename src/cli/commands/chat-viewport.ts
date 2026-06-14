@@ -12,7 +12,8 @@ import { formatErr } from "../../foundation/utils/index.js";
 import { createDirContext } from '../../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { isAlive } from '../../foundation/process-exec/index.js';
-import { CLAW_SCAN_INTERVAL_MS } from './constants.js';
+import { createWatcher, type Watcher } from '../../foundation/file-watcher/index.js';
+import { createDaemonLivenessMonitor } from './chat-viewport-daemon-liveness.js';
 import { DEFAULT_TERMINAL_WIDTH } from '../utils/constants.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
@@ -49,27 +50,6 @@ import { type TaskId, makeTaskId } from '../../core/async-task-system/types.js';
  * < user-perceptible hard kill delay (≈ 10s) / 平衡 graceful 与 force exit.
  */
 const INTERRUPT_CLEANUP_TIMEOUT_MS = 5000;
-
-/**
- * Claw panel 全量刷新 tick（ms）— 重读 claws/ dir 并重渲染.
- * Derivation: 2s 平衡 UI 实时感 vs fs read 开销 / 比 CLAW_PANEL_TICK_INTERVAL_MS 长一倍
- * 因 refresh 含 fs scan 而 tick 仅本地 re-render.
- */
-const CLAW_REFRESH_INTERVAL_MS = 2000;
-
-/**
- * Claw panel 局部 re-render tick（ms）— 不重新扫 dir 仅刷已有 state.
- * Derivation: 1s 给 UI 平滑刷帧而 CPU 几无负担 / 配 CLAW_REFRESH_INTERVAL_MS 双频形成层级.
- */
-const CLAW_PANEL_TICK_INTERVAL_MS = 1000;
-
-/**
- * Daemon liveness probe tick（ms）— 用于检测 daemon 进程是否仍存.
- * Derivation: 3s 比 panel tick 稀疏（liveness 检查不需要高频）/ < user-perceived
- * "dead daemon" 等待延迟（~5s）/ 配 INTERRUPT_CLEANUP_TIMEOUT_MS 保 cleanup
- * 后 ≥ 1 次 liveness 重检以确认状态.
- */
-const DAEMON_LIVENESS_CHECK_INTERVAL_MS = 3000;
 
 /** chat-viewport 命令进程 crash log 文件（logs/ multi-owner subdir 内 cli/chat-viewport own 子树）*/
 const CHAT_CRASH_LOG_FILE = 'logs/chat-crash.log';
@@ -280,43 +260,56 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     requestRender: () => tui.requestRender(),
   });
 
-  // fallback 轮询（claw 刷新 + panel tick 拆独立 interval）
-  const clawRefreshInterval = setInterval(() => {
-    if (isMotion) clawManager.refreshAllClawStatus();
-  }, CLAW_REFRESH_INTERVAL_MS);
-  clawRefreshInterval.unref();
-
-  const clawPanelTickInterval = setInterval(() => {
+  // 事件驱动：claws/ dir add/unlink 触发 refresh + rescan + panel re-render（替原 3 setInterval polling、phase 361）
+  // 替代:
+  //   - clawRefreshInterval (2s) → refreshAllClawStatus
+  //   - clawPanelTickInterval (1s) → updateClawPanel + requestRender
+  //   - clawScanInterval → rescanClawsDir
+  let clawsWatcher: Watcher | null = null;
+  const scheduleClawPanelUpdate = (): void => {
     if (clawTrackMap.size > 0) {
       clawPanel.updateClawPanel(clawTrackMap);
       tui.requestRender();
     }
-  }, CLAW_PANEL_TICK_INTERVAL_MS);
-  clawPanelTickInterval.unref();
-
-  // Daemon 存活检测（每 3 秒一次）
-  let daemonDead = false;
-  const checkDaemonAlive = async () => {
-    if (daemonDead) return;
-    try {
-      const stored = await pm.readPid(makeClawId(options.label));
-      if (stored === null) return;
-      if (!isAlive(stored.pid)) {
-        // 进程不存在
-        daemonDead = true;
-        turnTracker.abort();
-        displayWithHolder.appendOutput('\x1b[31m', '✗ Daemon stopped');
-        observability.recordShutdown('daemon_dead');
-      }
-    } catch (e) {
-      // silent: FileNotFound 在 daemon 首次写 pid 前 expected / non-FileNotFound 经 stderr.write 上报
-      if (!isFileNotFound(e)) {
-        process.stderr.write(`[viewport] daemon liveness PID read failed: ${(e as Error).message}\n`);
-      }
-    }
   };
-  const daemonCheckInterval = setInterval(checkDaemonAlive, DAEMON_LIVENESS_CHECK_INTERVAL_MS);
-  daemonCheckInterval.unref();
+  let rescanClawsDirFn: (() => void) | null = null;
+  if (isMotion && clawsDir) {
+    rescanClawsDirFn = createRescanClawsDir({
+      clawsFs, clawTopology, clawTrackMap, clawManager,
+      audit: options.audit, agentDir: options.agentDir, updateClawPanel: clawPanel.updateClawPanel,
+    });
+    // initial 同步
+    clawManager.refreshAllClawStatus();
+    rescanClawsDirFn();
+    clawsWatcher = createWatcher(
+      clawsDir,
+      (event) => {
+        if (event.type === 'add' || event.type === 'unlink' || event.type === 'addDir' || event.type === 'unlinkDir') {
+          clawManager.refreshAllClawStatus();
+          rescanClawsDirFn?.();
+          scheduleClawPanelUpdate();
+        }
+      },
+      { persistent: false, stability: 'stable' },
+    );
+  }
+
+  // Daemon 存活检测（事件驱动：PID file unlink 触发、phase 361 替原 setInterval polling）
+  // daemon SIGKILL 不清 PID 的情形由 watchdog stale PID 清理覆盖（会触 'unlink'）.
+  let daemonDead = false;
+  const onDaemonDead = (): void => {
+    if (daemonDead) return;
+    daemonDead = true;
+    // 进程不存在
+    turnTracker.abort();
+    displayWithHolder.appendOutput('\x1b[31m', '✗ Daemon stopped');
+    observability.recordShutdown('daemon_dead');
+  };
+  const daemonLivenessWatcher = createDaemonLivenessMonitor({
+    pidFilePath: pm.getPidFilePath(makeClawId(options.label)),
+    onDead: onDaemonDead,
+    onError: (err) => process.stderr.write(`[viewport] daemon liveness watcher error: ${err.message}\n`),
+  });
 
   // Stale task stream sweep（30min 无 event → cleanup）
   // phase 1401 Bug B: 5min 太短 — shadow 首调 kimi-k2.5 实测 latency 317657ms = 5.29min（含 thinking）
@@ -494,18 +487,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   };
   tui.addInputListener(focusListener);
 
-  // Periodically rescan clawsDir — 检测新 claw 创建 + 已存在 claw 内 contract 创建
-  let clawScanInterval: NodeJS.Timeout | null = null;
-  if (clawsDir) {
-    const rescanClawsDir = createRescanClawsDir({
-      clawsFs, clawTopology, clawTrackMap, clawManager,
-      audit: options.audit, agentDir: options.agentDir, updateClawPanel: clawPanel.updateClawPanel,
-    });
-    clawManager.refreshAllClawStatus();
-    rescanClawsDir();
-    clawScanInterval = setInterval(rescanClawsDir, CLAW_SCAN_INTERVAL_MS);
-    clawScanInterval.unref();
-  }
+  // clawsDir rescan + refreshAllClawStatus 已合并到 clawsWatcher 事件驱动路径上方（phase 361）
 
   // 兜底：SIGINT 退出（终端未进 raw mode 时 Ctrl+C 转为 SIGINT）
   const sigintHandler = () => resolveExit();
@@ -526,13 +508,13 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     process.removeListener('unhandledRejection', uncaughtHandler);
     mainUI.enterPhase('idle');
     observability.recordShutdown(shutdownReason);
-    clearInterval(clawRefreshInterval);
-    clearInterval(clawPanelTickInterval);
-    clearInterval(daemonCheckInterval);
+    // silent: cleanup path; watcher close 失败不影响 viewport 退出 / shutdown observability 已 record
+    if (clawsWatcher) await clawsWatcher.close().catch(() => { /* silent: cleanup */ });
+    await daemonLivenessWatcher.close().catch(() => { /* silent: cleanup */ });
     clearInterval(taskSweepInterval);
     await streamReader.stop();
     await clawManager.closeAll();
-    if (clawScanInterval) clearInterval(clawScanInterval);
+    // clawScanInterval 已删 → clawsWatcher 替（cleanup 在上方 await clawsWatcher.close()）
     await Promise.all(
       Array.from(taskWatchMap.values())
         .map(tw => tw.streamReader?.stop())

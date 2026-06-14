@@ -21,12 +21,13 @@ import type { IRuntimeDaemon } from '../core/runtime/index.js';
 import type { StreamWriter } from '../foundation/stream/index.js';
 import type { AuditLog } from '../foundation/audit/index.js';
 import { DAEMON_AUDIT_EVENTS, LOOP_ITERATION_TYPES } from './audit-events.js';
+import { createInterruptWatcher } from './interrupt-watcher.js';
+import type { Watcher } from '../foundation/file-watcher/index.js';
 
 import type { Heartbeat } from '../core/runtime/index.js';
 
 import {
   DAEMON_FALLBACK_TIMEOUT_MS,
-  INTERRUPT_POLL_INTERVAL_MS,
   INTERRUPT_POLL_MAX_ERRORS,
   INTERRUPT_POLL_RECOVERY_BACKOFF_MS,
   INTERRUPT_POLL_WARN_EVERY,
@@ -241,54 +242,48 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
         watchdogMissingAudited = false;
       }
 
-      let interruptPoller: ReturnType<typeof setInterval> | null = null;
+      let interruptWatcher: Watcher | null = null;
 
       // Build wrappedCallbacks outside try so catch block can access it for retryLastTurn
       const wrappedCallbacks = streamWriter ? createStreamCallbacks(streamWriter, runtime as import('../core/runtime/index.js').Runtime) : undefined;
 
       try {
-        // Start polling for the interrupt file
+        // Event-driven interrupt watcher (phase 361: 替原 setInterval polling)
         let interruptErrCount = 0;
-
-        const pollInterruptFile = () => {
-          try {
-            agentFs.deleteSync('interrupt');
-            // Reached here: file existed and was deleted — trigger abort
-            runtime.abort();
-            interruptErrCount = 0;
-          } catch (err) {
-            if ((err as NodeJS.ErrnoException)?.code === 'ENOENT' || (err as NodeJS.ErrnoException)?.code === 'FS_NOT_FOUND') {
-              // No interrupt file — normal case, reset error count
+        const onInterrupt = (): void => {
+          runtime.abort();
+          interruptErrCount = 0;
+        };
+        const onInterruptError = (err: Error): void => {
+          interruptErrCount++;
+          // phase 123: per-WARN_EVERY audit emit (DP「不丢弃静默」)
+          if (interruptErrCount % INTERRUPT_POLL_WARN_EVERY === 0) {
+            options.audit.write(
+              DAEMON_AUDIT_EVENTS.LOOP_INTERRUPT_POLLER_ERROR,
+              `error_count=${interruptErrCount}`,
+              `last_error=${formatErr(err)}`,
+            );
+          }
+          if (interruptErrCount >= INTERRUPT_POLL_MAX_ERRORS) {
+            options.audit.write(DAEMON_AUDIT_EVENTS.LOOP_INTERRUPT_POLLER_DISABLED, `error_count=${interruptErrCount}`, `last_error=${formatErr(err)}`);
+            // silent: disable path; close 失败不阻塞 recovery setTimeout 路径
+            interruptWatcher?.close().catch(() => { /* silent: disable cleanup */ });
+            interruptWatcher = null;
+            // phase 229: DP「中断可恢复」+ DP「系统能自己做的就自己做好」delayed retry recovery
+            setTimeout(() => {
+              options.audit.write(DAEMON_AUDIT_EVENTS.LOOP_INTERRUPT_POLLER_RECOVERY_ATTEMPT, `backoff_ms=${INTERRUPT_POLL_RECOVERY_BACKOFF_MS}`);
               interruptErrCount = 0;
-              return;
-            }
-            interruptErrCount++;
-            // phase 123: per-WARN_EVERY audit emit (DP「不丢弃静默」)
-            if (interruptErrCount % INTERRUPT_POLL_WARN_EVERY === 0) {
-              options.audit.write(
-                DAEMON_AUDIT_EVENTS.LOOP_INTERRUPT_POLLER_ERROR,
-                `error_count=${interruptErrCount}`,
-                `last_error=${formatErr(err)}`,
-              );
-            }
-            if (interruptErrCount >= INTERRUPT_POLL_MAX_ERRORS) {
-              options.audit.write(DAEMON_AUDIT_EVENTS.LOOP_INTERRUPT_POLLER_DISABLED, `error_count=${interruptErrCount}`, `last_error=${formatErr(err)}`);
-              clearInterval(interruptPoller!);
-              interruptPoller = null;
-              // phase 229: DP「中断可恢复」+ DP「系统能自己做的就自己做好」delayed retry recovery
-              setTimeout(() => {
-                options.audit.write(DAEMON_AUDIT_EVENTS.LOOP_INTERRUPT_POLLER_RECOVERY_ATTEMPT, `backoff_ms=${INTERRUPT_POLL_RECOVERY_BACKOFF_MS}`);
-                interruptErrCount = 0;
-                interruptPoller = setInterval(pollInterruptFile, INTERRUPT_POLL_INTERVAL_MS);
-                interruptPoller.unref();
-                options.audit.write(DAEMON_AUDIT_EVENTS.LOOP_INTERRUPT_POLLER_RECOVERED);
-              }, INTERRUPT_POLL_RECOVERY_BACKOFF_MS);
-            }
+              interruptWatcher = createInterruptWatcher({
+                agentFs, agentDir, onInterrupt, onError: onInterruptError,
+              });
+              options.audit.write(DAEMON_AUDIT_EVENTS.LOOP_INTERRUPT_POLLER_RECOVERED);
+            }, INTERRUPT_POLL_RECOVERY_BACKOFF_MS);
           }
         };
 
-        interruptPoller = setInterval(pollInterruptFile, INTERRUPT_POLL_INTERVAL_MS);
-        interruptPoller.unref();
+        interruptWatcher = createInterruptWatcher({
+          agentFs, agentDir, onInterrupt, onError: onInterruptError,
+        });
 
         try {
           if (llmRetryPending) {
@@ -327,16 +322,18 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
             }
           }
         } finally {
-          if (interruptPoller) {
-            clearInterval(interruptPoller);
-            interruptPoller = null;
+          if (interruptWatcher) {
+            // silent: cleanup path; close 失败不影响 finally 后续
+            await interruptWatcher.close().catch(() => { /* silent: cleanup */ });
+            interruptWatcher = null;
           }
         }
       } catch (err) {
-        // Clean up the poller
-        if (interruptPoller) {
-          clearInterval(interruptPoller);
-          interruptPoller = null;
+        // Clean up the watcher
+        if (interruptWatcher) {
+          // silent: error path; close 失败不影响 dispatchError
+          await interruptWatcher.close().catch(() => { /* silent: cleanup */ });
+          interruptWatcher = null;
         }
 
         await dispatchError(err, {

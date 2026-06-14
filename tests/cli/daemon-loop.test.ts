@@ -2,11 +2,13 @@
  * daemon-loop tests
  *
  * fix 7 — waitForInbox done() idempotency (settled guard prevents double-resolve)
- * fix 9 — interrupt poller circuit breaker (disables after 20 consecutive errors)
+ *
+ * Note (phase 361): fix 9 (interrupt poller circuit breaker test) 已删 —
+ * polling-specific test (vi.advanceTimersByTime 200ms × 21) 不再适用 event-driven
+ * file-watcher 架构. circuit breaker 契约现由 tests/daemon/interrupt-watcher.test.ts 覆盖.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import * as fsNative from 'fs';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { startDaemonLoop } from '../../src/daemon/daemon-loop.js';
 import { waitForInbox } from '../../src/daemon/inbox-watcher.js';
 import type { Runtime } from '../../src/core/runtime/index.js';
@@ -29,74 +31,6 @@ vi.mock('fs', async (importOriginal) => {
 vi.mock('../../src/foundation/file-watcher/index.js', () => ({
   createWatcher: vi.fn(),
 }));
-
-// ─── fix 9: interrupt poller circuit breaker ──────────────────────────────────
-
-describe('startDaemonLoop interrupt poller circuit breaker', () => {
-  let errSpy: ReturnType<typeof vi.spyOn>;
-  let warnSpy: ReturnType<typeof vi.spyOn>;
-
-  beforeEach(() => {
-    vi.useFakeTimers();
-    // unlinkSync is already replaced by the module-level vi.mock above
-    vi.mocked(fsNative.unlinkSync).mockImplementation(() => {
-      throw new Error('eperm');
-    });
-    errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-    vi.mocked(fsNative.unlinkSync).mockRestore();
-    errSpy.mockRestore();
-
-  });
-
-  it('disables interrupt poller after 20 consecutive errors', async () => {
-    // processBatch returns 0 → daemon goes to waitForInbox
-    // The try block starts the interrupt poller, then awaits processBatch/waitForInbox
-    // We want to advance timers to trigger the poller 20 times
-    const mockAudit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
-    const processBatch = vi.fn().mockResolvedValue(0);
-    const mockRuntime = {
-      processBatch,
-      abort: vi.fn(),
-      retryLastTurn: vi.fn(),
-    } as unknown as Runtime;
-
-    const { stop } = startDaemonLoop({
-      fsFactory,
-      runtime: mockRuntime,
-      agentDir: '/tmp/test-agent-fix9',
-      clawId: 'test-agent-fix9',
-      label: '[test-fix9]',
-      audit: mockAudit as unknown as AuditLog,
-      inbox: { pendingDir: '/tmp/test-inbox-fix9', fallbackTimeoutMs: 60_000 },
-    });
-
-    // Let processBatch resolve (tick microtasks)
-    await Promise.resolve();
-
-    // Advance 200ms × 21 to trigger the poller 20+ times
-    for (let i = 0; i < 21; i++) {
-      vi.advanceTimersByTime(200);
-      await Promise.resolve();
-    }
-
-    // phase 1154 α-2: wait emit 已删除 / 仅检查 poller disabled
-    expect(mockAudit.write).toHaveBeenCalledWith(
-      'daemon_loop_interrupt_poller_disabled',
-      expect.stringContaining('error_count='),
-      expect.stringContaining('last_error='),
-    );
-
-    stop();
-    // Advance to flush waitForInbox timeout so the loop can terminate cleanly
-    vi.advanceTimersByTime(60_001);
-    await Promise.resolve();
-  });
-});
 
 // ─── LLM retry ────────────────────────────────────────────────────────────────
 

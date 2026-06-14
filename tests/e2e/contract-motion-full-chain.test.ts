@@ -18,16 +18,12 @@ import {
   WAIT_FOR_DEFAULT_POLL_MS,
   SUBAGENT_LONG_TIMEOUT_MS,
 } from '../helpers/test-timeouts.js';
-
-/**
- * 紧凑轮询间隔 (5ms) for waitForAudit poll loop.
- * Derivation: phase 224 收紧；> eventloop tick / 给 audit ring flush 最小窗口.
- */
-const TIGHT_POLL_MS = 5;
+import { createAuditEmitterHelper, type AuditEmitterHelper } from '../helpers/audit-emitter.js';
 
 /**
  * 较宽轮询间隔 (50ms) for waitForArchive (fs.access 检测).
  * Derivation: > fs.access syscall budget / < waitForArchive budget 分钟级 / 不刷爆 syscall.
+ * 注：waitForArchive 仍 polling 因 fs.access 是 detection、改 file-watcher 留 follow-up phase.
  */
 const WIDE_POLL_MS = 50;
 
@@ -50,7 +46,7 @@ describe('contract-motion-full-chain (phase 1168 α-5)', () => {
   let clawDir: string;
   let manager: ContractSystem;
   let nodeFs: NodeFileSystem;
-  let auditEvents: Array<[string, ...(string | number)[]]>;
+  let auditHelper: AuditEmitterHelper;
 
   beforeEach(async () => {
     vi.restoreAllMocks();
@@ -62,17 +58,16 @@ describe('contract-motion-full-chain (phase 1168 α-5)', () => {
     await fs.mkdir(clawDir, { recursive: true });
 
     nodeFs = new NodeFileSystem({ baseDir: clawDir });
-    auditEvents = [];
-    const audit = {
-      write: (type: string, ...cols: (string | number)[]) => {
-        auditEvents.push([type, ...cols]);
-      },
+    // phase 361: event-driven audit emitter 替原 setTimeout poll loop
+    const baseAudit = {
+      write: () => {},
       preview: (s: string) => s,
       message: (s: string) => s,
       summary: (s: string) => s,
     };
+    auditHelper = createAuditEmitterHelper(baseAudit as never);
     const mockLlm = { id: 'mock-llm' } as any;
-    manager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: audit as any, llm: mockLlm, toolRegistry: createToolRegistry(), fsFactory,
+    manager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: auditHelper.audit as any, llm: mockLlm, toolRegistry: createToolRegistry(), fsFactory,
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
   });
@@ -89,12 +84,8 @@ describe('contract-motion-full-chain (phase 1168 α-5)', () => {
   }
 
   async function waitForAudit(type: string, timeoutMs = WAIT_FOR_DEFAULT_BUDGET_MS): Promise<void> {
-    const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-      if (auditEvents.some(e => e[0] === type)) return;
-      await new Promise(r => setTimeout(r, TIGHT_POLL_MS));  // phase 224: tighter poll for waitForAudit
-    }
-    throw new Error(`timeout waiting for audit event ${type}`);
+    // phase 361: event-driven 替原 setTimeout poll
+    await auditHelper.waitFor((evs) => evs.some(e => e[0] === type), timeoutMs);
   }
 
   async function waitForArchive(contractId: string, timeoutMs = WAIT_FOR_DEFAULT_BUDGET_MS): Promise<boolean> {
@@ -136,7 +127,7 @@ describe('contract-motion-full-chain (phase 1168 α-5)', () => {
     const archived = await waitForArchive(contractId);
     expect(archived).toBe(true);
 
-    const passedEvents = auditEvents.filter(e => e[0] === CONTRACT_AUDIT_EVENTS.PASSED);
+    const passedEvents = auditHelper.events.filter(e => e[0] === CONTRACT_AUDIT_EVENTS.PASSED);
     expect(passedEvents.length).toBeGreaterThanOrEqual(1);
   });
 
@@ -164,7 +155,7 @@ describe('contract-motion-full-chain (phase 1168 α-5)', () => {
 
     await waitForAudit('contract_verification_background_done');
 
-    const failedEvents = auditEvents.filter(e => e[0] === CONTRACT_AUDIT_EVENTS.VERIFICATION_FAILED);
+    const failedEvents = auditHelper.events.filter(e => e[0] === CONTRACT_AUDIT_EVENTS.VERIFICATION_FAILED);
     expect(failedEvents.length).toBeGreaterThanOrEqual(1);
 
     const archiveDir = path.join(clawDir, 'contract/archive', contractId);
@@ -215,7 +206,7 @@ describe('contract-motion-full-chain (phase 1168 α-5)', () => {
     await waitForAudit('contract_verification_background_done', SUBAGENT_LONG_TIMEOUT_MS);
 
     // verification_failed should NOT be emitted for cancelled contract
-    const failedEvents = auditEvents.filter(e => e[0] === CONTRACT_AUDIT_EVENTS.VERIFICATION_FAILED);
+    const failedEvents = auditHelper.events.filter(e => e[0] === CONTRACT_AUDIT_EVENTS.VERIFICATION_FAILED);
     expect(failedEvents.length).toBe(0);
 
     abortHandler?.();

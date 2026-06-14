@@ -23,12 +23,7 @@ import type { FileSystem } from '../../src/foundation/fs/index.js';
 import { createEventCollector } from '../helpers/event-collector.js';
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
 import { SUBAGENT_LONG_TIMEOUT_MS } from '../helpers/test-timeouts.js';
-
-/**
- * waitForAudit poll interval (phase 224 tighter from earlier value).
- * Derivation: < typical audit event flush (10ms) / 不漏窗 + 不过 busy-spin.
- */
-const WAIT_FOR_AUDIT_POLL_MS = 5;
+import { createAuditEmitterHelper, type AuditEmitterHelper } from '../helpers/audit-emitter.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -36,18 +31,12 @@ const WAIT_FOR_AUDIT_POLL_MS = 5;
 
 type AuditRow = [string, ...(string | number)[]];
 
-interface AuditCapture {
-  writer: AuditWriter;
-  events: AuditRow[];
-  filter: (type: string) => AuditRow[];
-}
-
 interface RegressionFixture {
   agentDir: string;
   streamPath: string;
   auditPath: string;
   fs: FileSystem;
-  audit: AuditCapture;
+  audit: AuditEmitterHelper;
   reader: StreamReader;
   mainUI: MainTurnUIController;
   observability: ReturnType<typeof createViewportObservability>;
@@ -62,44 +51,29 @@ interface RegressionFixture {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function wrapAuditCapture(realAudit: AuditWriter): AuditCapture {
-  const events: AuditRow[] = [];
-  const writer: AuditWriter = {
-    ...realAudit,
-    write: (type: string, ...cols: (string | number)[]) => {
-      events.push([type, ...cols]);
-      realAudit.write(type, ...cols);
-    },
-  } as AuditWriter;
-  return {
-    writer,
-    events,
-    filter: (type) => events.filter(([t]) => t === type),
-  };
-}
-
 async function setupFixture(options?: { agentDirPrefix?: string }): Promise<RegressionFixture> {
   const agentDir = await createTempDir(options?.agentDirPrefix ?? 'phase165-viewport-');
   const streamPath = nativePath.join(agentDir, STREAM_FILE);
   const auditPath = nativePath.join(agentDir, AUDIT_FILE);
 
   const { fs, audit: realAudit } = createDirContext({ fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }) }, agentDir);
-  const audit = wrapAuditCapture(realAudit);
+  // phase 361: event-driven audit emitter 替原 setTimeout poll loop
+  const audit = createAuditEmitterHelper(realAudit);
 
   // NEW (phase 759 step B / M#3+M#7+D7 align): fixture 经 StreamWriter own 路径 ensure stream file exists
   // phase 743 step B writer.open() 创空文件 + emit WRITER_OPEN_CREATED_EMPTY audit
   // 让 chokidar 监视已存 path / 后续 nativeFs.appendFile 'change' 在 CI 可靠
   // Reason: fixture 是 createStreamReader caller / 按 phase 743 step D jsdoc warning 落实 ensure file pattern
-  const writer = new StreamWriter(fs, audit.writer);
+  const writer = new StreamWriter(fs, audit.audit);
   writer.open();
-  const observability = createViewportObservability({ audit: audit.writer });
+  const observability = createViewportObservability({ audit: audit.audit });
 
   const mainUI = createMainTurnUI({
     appendOutput: () => {},
     updateDisplay: () => {},
     trimOutputNewlines: false,
     getThinkingMode: () => 'off',
-    audit: audit.writer,
+    audit: audit.audit,
     observability,
   });
 
@@ -114,7 +88,7 @@ async function setupFixture(options?: { agentDirPrefix?: string }): Promise<Regr
         handleEventShim(ev, mainUI, observability);
         deliveryTimestamps.push({ type: ev.type, ts: performance.now() });
       },
-      audit.writer,
+      audit.audit,
       { persistent: false, onReady: () => resolve(r) },
     );
     r.start();
@@ -197,13 +171,8 @@ async function waitForAudit(
   count = 1,
   timeoutMs = SUBAGENT_LONG_TIMEOUT_MS,
 ): Promise<AuditRow[]> {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    const matched = fx.audit.filter(type);
-    if (matched.length >= count) return matched;
-    await new Promise(r => setTimeout(r, WAIT_FOR_AUDIT_POLL_MS));  // phase 224: tighter poll for waitForAudit
-  }
-  throw new Error(`waitForAudit timeout: type=${type} count=${count}; got ${fx.audit.filter(type).length}`);
+  // phase 361: event-driven 替原 setTimeout poll
+  return fx.audit.waitForType(type, count, timeoutMs);
 }
 
 // ---------------------------------------------------------------------------

@@ -15,6 +15,7 @@ import type { ProcessStartTime } from '../process-exec/index.js';
 import { isAlive as defaultL1IsAlive, spawnDetached as defaultSpawnDetached, getProcessStartTime as defaultGetProcessStartTime, kill as defaultKill } from '../process-exec/index.js';
 
 import * as pidOps from './pid.js';
+import { getPidFile } from './paths.js';
 import * as aliveOps from './alive.js';
 import * as readyOps from './ready.js';
 import * as lockOps from './lock.js';
@@ -66,6 +67,9 @@ export class ProcessManager {
   removePid(clawId: ClawId): Promise<void> { return pidOps.removePid(this._ctx, clawId); }
   selfWritePid(clawId: ClawId): Promise<void> { return pidOps.selfWritePid(this._ctx, clawId); }
   selfRemovePid(clawId: ClawId): Promise<void> { return pidOps.selfRemovePid(this._ctx, clawId); }
+
+  /** PID file 绝对路径（用于 file-watcher 监听 daemon liveness 等场景）. */
+  getPidFilePath(clawId: ClawId): string { return getPidFile(this._ctx, clawId); }
 
   // alive
   getAliveStatus(clawId: ClawId): { alive: boolean; reason: string; pid?: number } {
