@@ -200,6 +200,15 @@ export function createGateway(input: GatewayInput): Gateway {
               case 'send_error':
                 baseFields.push(`connId=${evt.connectionId}`, `error=${String(evt.error)}`);
                 break;
+              case 'buffer_overflow':
+                // phase 364 D1: 之前漏分支 — write buffer 满、connection 即将丢消息
+                baseFields.push(`connId=${evt.connectionId}`, `bufferedBytes=${evt.bufferedBytes}`);
+                break;
+              default: {
+                // phase 364 D1 (review-2026-06-13): exhaustive 守 TransportErrorEvent variant
+                const _exhaustive: never = evt;
+                throw new Error(`gateway onTransportError: unhandled variant: ${JSON.stringify(_exhaustive)}`);
+              }
             }
             audit.write(GATEWAY_AUDIT_EVENTS.TRANSPORT_ERROR, ...baseFields);
           }),

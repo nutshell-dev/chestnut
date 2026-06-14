@@ -356,10 +356,52 @@ export class ToolExecutorImpl implements IToolExecutor {
     const actualType = typeof value;
     if (expectedType === 'string' && actualType !== 'string') {
       errors.push(`Field "${path}" should be string, got ${actualType}`);
+      return;
     } else if (expectedType === 'number' && actualType !== 'number') {
       errors.push(`Field "${path}" should be number, got ${actualType}`);
+      return;
+    } else if (expectedType === 'integer' && (actualType !== 'number' || !Number.isInteger(value as number))) {
+      errors.push(`Field "${path}" should be integer, got ${actualType === 'number' ? 'non-integer number' : actualType}`);
+      return;
     } else if (expectedType === 'boolean' && actualType !== 'boolean') {
       errors.push(`Field "${path}" should be boolean, got ${actualType}`);
+      return;
+    }
+
+    // phase 364 D2 (review-2026-06-13): enforce schema 子约束 enum / minLength /
+    // maxLength / minimum / maximum。type check 已过、value 是 actualType。
+    // 旧 validateArgs 仅 type、LLM 看 schema 说必 enum 之一但 executor 不 enforce →
+    // 违约值进 tool 内部炸或返怪结果。
+    const schema = propSchema as {
+      enum?: unknown[];
+      minLength?: number;
+      maxLength?: number;
+      minimum?: number;
+      maximum?: number;
+      pattern?: string;
+    };
+    if (Array.isArray(schema.enum) && !schema.enum.includes(value)) {
+      const allowed = schema.enum.map(e => JSON.stringify(e)).join(', ');
+      errors.push(`Field "${path}" must be one of [${allowed}], got ${JSON.stringify(value)}`);
+      return;
+    }
+    if (expectedType === 'string') {
+      const s = value as string;
+      if (typeof schema.minLength === 'number' && s.length < schema.minLength) {
+        errors.push(`Field "${path}" must have length >= ${schema.minLength}, got ${s.length}`);
+      }
+      if (typeof schema.maxLength === 'number' && s.length > schema.maxLength) {
+        errors.push(`Field "${path}" must have length <= ${schema.maxLength}, got ${s.length}`);
+      }
+    }
+    if (expectedType === 'number' || expectedType === 'integer') {
+      const n = value as number;
+      if (typeof schema.minimum === 'number' && n < schema.minimum) {
+        errors.push(`Field "${path}" must be >= ${schema.minimum}, got ${n}`);
+      }
+      if (typeof schema.maximum === 'number' && n > schema.maximum) {
+        errors.push(`Field "${path}" must be <= ${schema.maximum}, got ${n}`);
+      }
     }
   }
 

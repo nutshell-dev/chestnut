@@ -39,12 +39,18 @@ export function makeOutboxPath(clawId: ClawId, clawDir: string): OutboxPath {
 
 function deriveClawDirFromOutboxDir(outboxDir: string): string {
   const normalized = path.normalize(outboxDir);
+  // phase 364 D3 (review-2026-06-13): 保 leading `/` 给 POSIX absolute path、
+  // 否则 split+filter+join 会 strip 前导分隔符 → SequenceCounter 拿到 relative
+  // path → fs.resolve(baseDir + relative) 形成 doubled path
+  // (<clawDir>/<clawDir-without-slash>/.next-msg-seq)。
+  const isAbsolute = path.isAbsolute(normalized);
   const parts = normalized.split(path.sep).filter(p => p.length > 0);
   if (parts.length >= 2) {
     const last = parts[parts.length - 1];
     const secondLast = parts[parts.length - 2];
     if (secondLast === 'outbox' && last === 'pending') {
-      return parts.slice(0, -2).join(path.sep) || '.';
+      const joined = parts.slice(0, -2).join(path.sep) || '.';
+      return isAbsolute && joined !== '.' ? path.sep + joined : joined;
     }
   }
   return normalized || '.';

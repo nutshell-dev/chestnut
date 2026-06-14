@@ -40,5 +40,11 @@ export function commitTurnEvent(event: TurnEvent, deps: TurnEventCommitDeps): vo
     case 'tool_result':
       deps.onToolResult?.(event.name, event.toolUseId, event.result, event.step, event.maxSteps);
       break;
+    default: {
+      // phase 364 D1 (review-2026-06-13): exhaustive 守。新增 TurnEvent variant
+      // 时编译期立即报错而非 silent fall-through。
+      const _exhaustive: never = event;
+      throw new Error(`commitTurnEvent: unhandled TurnEvent variant: ${JSON.stringify(_exhaustive)}`);
+    }
   }
 }

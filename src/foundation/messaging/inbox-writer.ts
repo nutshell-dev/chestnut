@@ -45,6 +45,9 @@ export function makeInboxPath(absoluteDir: string): InboxPath {
 
 function deriveClawDirFromInboxDir(inboxDir: string): string {
   const normalized = path.normalize(inboxDir);
+  // phase 364 D3 (review-2026-06-13): 同 outbox-writer 修。保 leading `/`、
+  // 否则 split+filter+join 形成 doubled path 写错位置。
+  const isAbsolute = path.isAbsolute(normalized);
   const parts = normalized.split(path.sep).filter(p => p.length > 0);
   if (parts.length >= 2) {
     const last = parts[parts.length - 1];
@@ -53,7 +56,8 @@ function deriveClawDirFromInboxDir(inboxDir: string): string {
       (secondLast === 'inbox' && (last === 'pending' || last === 'dead-letter')) ||
       (secondLast === 'outbox' && last === 'pending')
     ) {
-      return parts.slice(0, -2).join(path.sep) || '.';
+      const joined = parts.slice(0, -2).join(path.sep) || '.';
+      return isAbsolute && joined !== '.' ? path.sep + joined : joined;
     }
   }
   return normalized || '.';

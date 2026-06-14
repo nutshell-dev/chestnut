@@ -204,6 +204,13 @@ export async function collectStreamResponse(
           }
           if (chunk.stopReason && chunk.stopReason !== 'end_turn') state.stopReason = chunk.stopReason;
           break;
+        default: {
+          // phase 364 D1 (review-2026-06-13): exhaustive 守 StreamChunk.type literal-union。
+          // 注：StreamChunk 是单 interface（type 字段是 string literal union），不是
+          // discriminated union of interfaces，narrow 必须针对 chunk.type 字段、非整 chunk。
+          const _exhaustive: never = chunk.type;
+          throw new Error(`llm-stream-collector: unhandled chunk type: ${String(_exhaustive)}`);
+        }
       }
     }
   } catch (err) {

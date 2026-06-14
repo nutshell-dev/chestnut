@@ -397,6 +397,11 @@ export class CronRunner {
         const block = Math.floor(elapsedMs / schedule.ms);
         return `${date}-${block}`;
       }
+      default: {
+        // phase 364 D1 (review-2026-06-13): exhaustive 守 CronSchedule variant
+        const _exhaustive: never = schedule;
+        throw new Error(`computeRunKey: unhandled CronSchedule variant: ${JSON.stringify(_exhaustive)}`);
+      }
     }
   }
 }
