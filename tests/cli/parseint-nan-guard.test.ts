@@ -23,7 +23,18 @@ describe('parseIntOption (Layer A validation)', () => {
       .toThrow('--limit must be a non-negative integer, got: ');
   });
 
-  it('parses integer prefix from mixed alphanumeric string (parseInt behavior)', () => {
-    expect(parseIntOption('12abc', '--limit must be a non-negative integer')).toBe(12);
+  // phase 366 L2 (review-2026-06-13): strict 守、不再 silent 截断 trailing 非数字
+  it('phase 366 L2: rejects mixed alphanumeric string (no silent truncation)', () => {
+    expect(() => parseIntOption('12abc', '--limit must be a non-negative integer'))
+      .toThrow('--limit must be a non-negative integer, got: 12abc');
+  });
+
+  it('phase 366 L2: rejects float syntax', () => {
+    expect(() => parseIntOption('12.5', '--limit must be a non-negative integer'))
+      .toThrow('--limit must be a non-negative integer, got: 12.5');
+  });
+
+  it('phase 366 L2: accepts negative integer', () => {
+    expect(parseIntOption('-5', '--limit must be a non-negative integer')).toBe(-5);
   });
 });

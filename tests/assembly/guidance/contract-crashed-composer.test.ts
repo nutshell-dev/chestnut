@@ -83,10 +83,9 @@ describe('phase 63+191+198: contract_crashed composer', () => {
     expect(text).toContain('chestnut contract show -c worker --contract c1');
   });
 
-  it('phase 191: 空 state 兜底仍出 guidance（不返 null）', () => {
+  // phase 366 L3 (review-2026-06-13): 空 state 改返 null、不再渲染 '<unknown>' 字面
+  it('phase 366 L3: 空 state 返 null、不渲染 <unknown> 字面 CLI block', () => {
     const result = composer({});
-    expect(result).not.toBeNull();
-    expect(result!.text).toContain('chestnut claw <unknown> trace --contract <unknown>');
-    expect(result!.text).toContain('chestnut contract show -c <unknown> --contract <unknown>');
+    expect(result).toBeNull();
   });
 });

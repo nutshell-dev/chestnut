@@ -40,8 +40,12 @@ function isValidId(s: string): boolean {
   return ID_REGEX.test(s);
 }
 
-export const composer: GuidanceComposer<ContractEventsState> = (state): GuidanceEntry => {
+export const composer: GuidanceComposer<ContractEventsState> = (state): GuidanceEntry | null => {
   const pairs = parsePairs(state);
+  if (pairs.length === 0) {
+    // phase 366 L3 (review-2026-06-13): 不渲染 '<unknown>' 字面 CLI block、返 null
+    return null;
+  }
   return { text: renderCliBlock(pairs) };
 };
 
@@ -72,13 +76,8 @@ function parsePairs(state: ContractEventsState): ContractPair[] {
 }
 
 function renderCliBlock(pairs: ContractPair[]): string {
-  if (pairs.length === 0) {
-    // 兜底：state 缺关键字段、出 `<unknown>` 占位 CLI 模板（与 phase 198 cancelled/crashed 同 pattern）
-    return [
-      `${clawCmd('<unknown>', CLAW_VERBS.TRACE)} --contract <unknown>`,
-      `${CONTRACT_COMMANDS.SHOW} -c <unknown> --contract <unknown>`,
-    ].join('\n');
-  }
+  // phase 366 L3 (review-2026-06-13): unreachable empty-pairs branch removed。
+  // composer 在 pairs.length===0 处已返 null、本函数不再被空 pairs 调。
   const lines: string[] = [];
   const displayCount = Math.min(pairs.length, MAX_PAIR_RENDER);
   if (pairs.length > MAX_PAIR_RENDER) {

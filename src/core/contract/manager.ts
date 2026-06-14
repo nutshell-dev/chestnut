@@ -665,13 +665,18 @@ export class ContractSystem {
         'contract must have at least one subtask (yaml: subtasks: [- id: ..., description: ...])');
     }
 
+    // phase 366 L4 (review-2026-06-13): schema 已 require script_file / prompt_file
+    // per type、生产 yaml parse 路径已 enforce。本 runtime check 保留作 defense in depth
+    // —— 直接 caller（测试 / 未来 SDK）若绕过 parse 传 raw object 也能在 manager.create
+    // 入口被拒。TS narrow 使分支编译期看是 never，用 as Record 绕回 runtime 真验。
     for (const a of contractYaml.verification ?? []) {
-      if (a.type === 'script' && !('script_file' in a)) {
+      const aRaw = a as unknown as Record<string, unknown>;
+      if (a.type === 'script' && typeof aRaw.script_file !== 'string') {
         throw new ContractValidationError('verification', 'config_missing_field',
           `verification config for subtask "${a.subtask_id}" has type='script' but missing 'script_file' (yaml: verification: [- subtask_id: "${a.subtask_id}", type: script, script_file: ./path.sh])`,
           { subtaskId: a.subtask_id, configType: 'script', missingField: 'script_file' });
       }
-      if (a.type === 'llm' && !('prompt_file' in a)) {
+      if (a.type === 'llm' && typeof aRaw.prompt_file !== 'string') {
         throw new ContractValidationError('verification', 'config_missing_field',
           `verification config for subtask "${a.subtask_id}" has type='llm' but missing 'prompt_file' (yaml: verification: [- subtask_id: "${a.subtask_id}", type: llm, prompt_file: ./prompt.md])`,
           { subtaskId: a.subtask_id, configType: 'llm', missingField: 'prompt_file' });

@@ -33,10 +33,13 @@ interface CancellationEntry {
  */
 const MAX_BATCH_RENDER = 10;
 
-export const composer: GuidanceComposer<ContractCancelledState> = (state): GuidanceEntry => {
+export const composer: GuidanceComposer<ContractCancelledState> = (state): GuidanceEntry | null => {
   const entries = parseEntries(state);
   if (entries.length === 0) {
-    return { text: renderCliBlock([{ source_claw: '<unknown>', contract_id: '<unknown>', reason: '<unknown>' }]) };
+    // phase 366 L3 (review-2026-06-13): state 缺关键字段时不渲染 '<unknown>' 字面 CLI block。
+    // motion 可能真当合法命令调（'<unknown>' 不是 sentinel、是字面 string）。
+    // 返 null 让 caller 跳过 emit。
+    return null;
   }
   return { text: renderCliBlock(entries) };
 };

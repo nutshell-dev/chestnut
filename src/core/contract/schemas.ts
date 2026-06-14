@@ -28,9 +28,13 @@ const SubTaskSchema = z.object({
   description: z.string(),
 }).strict();
 
+// phase 366 L4 (review-2026-06-13): script_file / prompt_file 改 required per type。
+// 旧 schema 两者都 optional、与 manager.ts:669-677 runtime check 不一致 — schema 通过
+// 但 verifier 真跑时 throw `verification config ... missing 'script_file'`。
+// 现在 schema parse 即拒、错误指向具体 verification entry。
 const VerificationItemSchema = z.discriminatedUnion('type', [
-  z.object({ subtask_id: z.string(), type: z.literal('script'), script_file: z.string().optional() }).strict(),
-  z.object({ subtask_id: z.string(), type: z.literal('llm'), prompt_file: z.string().optional() }).strict(),
+  z.object({ subtask_id: z.string(), type: z.literal('script'), script_file: z.string() }).strict(),
+  z.object({ subtask_id: z.string(), type: z.literal('llm'), prompt_file: z.string() }).strict(),
 ]);
 
 export const ContractYamlSchema = z.object({

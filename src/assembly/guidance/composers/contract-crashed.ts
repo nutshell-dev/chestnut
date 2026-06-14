@@ -33,10 +33,11 @@ interface CrashEntry {
  */
 const MAX_BATCH_RENDER = 10;
 
-export const composer: GuidanceComposer<ContractCrashedState> = (state): GuidanceEntry => {
+export const composer: GuidanceComposer<ContractCrashedState> = (state): GuidanceEntry | null => {
   const entries = parseEntries(state);
   if (entries.length === 0) {
-    return { text: renderCliBlock([{ source_claw: '<unknown>', contract_id: '<unknown>', cause: '<unknown>' }]) };
+    // phase 366 L3 (review-2026-06-13): 不渲染 '<unknown>' 字面 CLI block、返 null
+    return null;
   }
   return { text: renderCliBlock(entries) };
 };

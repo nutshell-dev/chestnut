@@ -12,8 +12,15 @@ import { CliError } from './errors.js';
  * @returns Parsed integer
  */
 export function parseIntOption(value: string, errorPrefix: string): number {
-  const parsed = parseInt(value, 10);
-  if (Number.isNaN(parsed)) {
+  // phase 366 L2 (review-2026-06-13): strict 整数验。旧 `parseInt(str, 10)` 静默
+  // 截断 trailing 非数字 ('100x' → 100, '12.5' → 12)，CLI typo 被静默接受。
+  // 用 regex 守纯整数（可选前导 -）再 parseInt。
+  const trimmed = value.trim();
+  if (!/^-?\d+$/.test(trimmed)) {
+    throw new CliError(`${errorPrefix}, got: ${value}`);
+  }
+  const parsed = parseInt(trimmed, 10);
+  if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) {
     throw new CliError(`${errorPrefix}, got: ${value}`);
   }
   return parsed;

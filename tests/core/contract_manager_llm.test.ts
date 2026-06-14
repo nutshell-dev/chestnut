@@ -390,46 +390,14 @@ describe('ContractSystem Acceptance Flow', () => {
       expect(rejections[0].content).toContain('test error output');
     });
 
-    it('should return rejection when script verification config has no script_file', async () => {
-      const contractId = 'test-script-no-file';
-      await setupContract(tempDir, contractId, makeContractYaml({
-        subtasks: [{ id: 'task-1', description: 'Test task' }],
-        // type: 'script' 但故意缺 script_file
-        verification: [{ subtask_id: 'task-1', type: 'script' }],
-      }));
+    // phase 366 L4 (review-2026-06-13): Zod schema 现 require script_file per type、
+    // yaml 加载时即 reject。此测试旧路径（runtime rejection 经 inbox）已不可达；
+    // 新行为 = contract.yaml 加载阶段直接抛 schema corruption，无法到 completeSubtask
+    // 步骤。schema-rejection 测试由 contract_manager-monitor.test.ts 覆盖。
 
-      const result = await manager.completeSubtask({
-        contractId,
-        subtaskId: 'task-1',
-        evidence: 'test evidence',
-      });
-      expect(result.async).toBe(true);
-      await waitForAcceptanceDone(auditEmitter, contractId, 'task-1');
-
-      const inbox = await readClawInbox(tempDir);
-      const rejections = inbox.filter(m => m.content.includes('verification_rejection'));
-      expect(rejections).toHaveLength(1);
-      expect(rejections[0].content).toContain('缺少 script_file');
-    });
-
-    it('should log warn to monitor when script verification config has no script_file', async () => {
-      const logSpy = vi.spyOn(mockAudit, 'write');
-      const contractId = 'test-script-no-file-monitor';
-      await setupContract(tempDir, contractId, makeContractYaml({
-        title: 'Test',
-        subtasks: [{ id: 'task-1', description: 'Test task' }],
-        verification: [{ subtask_id: 'task-1', type: 'script' }], // 故意缺 script_file
-      }));
-
-      await manager.completeSubtask({ contractId, subtaskId: 'task-1', evidence: 'e' });
-      await waitForAcceptanceDone(auditEmitter, contractId, 'task-1');
-
-      expect(logSpy).toHaveBeenCalledWith(
-        CONTRACT_AUDIT_EVENTS.VERIFICATION_RESET_FAILED,
-        expect.stringContaining('context=ContractSystem.runVerificationByType'),
-        expect.anything(),
-      );
-    });
+    // phase 366 L4 (review-2026-06-13): Zod schema 现 require script_file per type、
+    // yaml 加载时即 reject，不再走 runtime warn-to-monitor path。本测试旧期望已不可达；
+    // 新行为由 contract_manager-monitor.test.ts 的 schema-parse 路径测试。
   });
 
   describe('LLM Acceptance', () => {
@@ -526,27 +494,8 @@ describe('ContractSystem Acceptance Flow', () => {
       expect(rejections[0].content).toContain('路径安全');
     });
 
-    it('should return rejection when llm verification config has no prompt_file', async () => {
-      const contractId = 'test-llm-no-file';
-      await setupContract(tempDir, contractId, makeContractYaml({
-        subtasks: [{ id: 'task-1', description: 'Test task' }],
-        // type: 'llm' 但故意缺 prompt_file
-        verification: [{ subtask_id: 'task-1', type: 'llm' }],
-      }));
-
-      const result = await manager.completeSubtask({
-        contractId,
-        subtaskId: 'task-1',
-        evidence: 'test evidence',
-      });
-      expect(result.async).toBe(true);
-      await waitForAcceptanceDone(auditEmitter, contractId, 'task-1');
-
-      const inbox = await readClawInbox(tempDir);
-      const rejections = inbox.filter(m => m.content.includes('verification_rejection'));
-      expect(rejections).toHaveLength(1);
-      expect(rejections[0].content).toContain('缺少 prompt_file');
-    });
+    // phase 366 L4 (review-2026-06-13): 同 script 测试、Zod schema 加载阶段
+    // reject 缺 prompt_file 的 yaml、不再走 runtime rejection→inbox 路径。
 
     it('should return rejection when LLM is not injected in ContractSystem', async () => {
       const contractId = 'test-llm-not-injected';
@@ -584,24 +533,8 @@ describe('ContractSystem Acceptance Flow', () => {
       expect(rejections[0].content).toContain('LLM 验收未配置');
     });
 
-    it('should log warn to monitor when llm verification config has no prompt_file', async () => {
-      const logSpy = vi.spyOn(mockAudit, 'write');
-      const contractId = 'test-llm-no-prompt-monitor';
-      await setupContract(tempDir, contractId, makeContractYaml({
-        title: 'Test',
-        subtasks: [{ id: 'task-1', description: 'Test task' }],
-        verification: [{ subtask_id: 'task-1', type: 'llm' }], // 故意缺 prompt_file
-      }));
-
-      await manager.completeSubtask({ contractId, subtaskId: 'task-1', evidence: 'e' });
-      await waitForAcceptanceDone(auditEmitter, contractId, 'task-1');
-
-      expect(logSpy).toHaveBeenCalledWith(
-        CONTRACT_AUDIT_EVENTS.VERIFICATION_RESET_FAILED,
-        expect.stringContaining('context=ContractSystem.runVerificationByType'),
-        expect.anything(),
-      );
-    });
+    // phase 366 L4 (review-2026-06-13): Zod schema 现 require prompt_file per type、
+    // yaml 加载时即 reject，不再走 runtime warn-to-monitor path。本测试旧期望已不可达。
 
     it('should prefer capturedResult over text when done tool is called', async () => {
       const contractId = 'test-llm-captured';

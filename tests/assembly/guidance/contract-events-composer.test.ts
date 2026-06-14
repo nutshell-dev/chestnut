@@ -15,10 +15,10 @@ describe('phase 205: contract-events composer', () => {
     expect(result!.text).toContain(`${CONTRACT_COMMANDS.SHOW} -c motion --contract abc-123`);
   });
 
-  it('A3 path without contract_id → fallback <unknown> placeholder', () => {
+  // phase 366 L3 (review-2026-06-13): 缺关键字段改返 null、不再渲染 '<unknown>' 字面
+  it('phase 366 L3: A3 path without contract_id → null（不渲染 <unknown>）', () => {
     const result = composer({ source_claw: 'motion' });
-    expect(result).not.toBeNull();
-    expect(result!.text).toContain('<unknown>');
+    expect(result).toBeNull();
   });
 
   it('A4 batch path (1 pair) → trace + show with real ids', () => {
@@ -37,16 +37,14 @@ describe('phase 205: contract-events composer', () => {
     expect(result!.text).toContain(`${CONTRACT_COMMANDS.SHOW} -c worker-2 --contract 1780-cdef`);
   });
 
-  it('empty state → fallback <unknown> placeholder', () => {
+  it('phase 366 L3: empty state → null（不渲染 <unknown>）', () => {
     const result = composer({});
-    expect(result).not.toBeNull();
-    expect(result!.text).toContain('<unknown>');
+    expect(result).toBeNull();
   });
 
-  it('empty problem_pairs → fallback <unknown> placeholder', () => {
+  it('phase 366 L3: empty problem_pairs → null（不渲染 <unknown>）', () => {
     const result = composer({ problem_pairs: '' });
-    expect(result).not.toBeNull();
-    expect(result!.text).toContain('<unknown>');
+    expect(result).toBeNull();
   });
 
   it('malformed pair (no colon) → skipped, others kept', () => {
@@ -56,10 +54,9 @@ describe('phase 205: contract-events composer', () => {
     expect(result!.text).not.toContain('malformed');
   });
 
-  it('all malformed pairs → fallback <unknown> placeholder', () => {
+  it('phase 366 L3: all malformed pairs → null（不渲染 <unknown>）', () => {
     const result = composer({ problem_pairs: 'malformed1,malformed2' });
-    expect(result).not.toBeNull();
-    expect(result!.text).toContain('<unknown>');
+    expect(result).toBeNull();
   });
 
   it('trims whitespace around pairs', () => {

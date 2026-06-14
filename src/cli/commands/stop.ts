@@ -111,7 +111,11 @@ export async function stopAllCommand(
 
   // phase 2 γ4: 同时为每只被 stop 的 claw 写 per-claw marker so watchdog can classify
   // CrashClass.active_user_stopped vs active_unexpected per claw (not just global).
-  for (const name of running) {
+  // phase 366 L1 (review-2026-06-13): 仅成功 stop 的 claw 写 marker。
+  // 旧码循环 running 全集即便 pm.stop 失败也写 marker → 下次 boot watchdog 把
+  // active_unexpected 翻成 active_user_stopped → 抑制 restart prompt → crash 静默。
+  const stopSucceededSet = new Set(running.filter(name => !stopFailed.includes(name)));
+  for (const name of stopSucceededSet) {
     try {
       const clawFs = deps.fsFactory(path.join(baseDir, CLAWS_DIR, name));
       const tmpFile = `clean-stop.${process.pid}.${Date.now()}.tmp`;
