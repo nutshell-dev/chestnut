@@ -1,6 +1,7 @@
 import * as path from 'path';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { AuditWriter } from '../../src/foundation/audit/writer.js';
+import type { AuditLog } from '../../src/foundation/audit/types.js';
 import { Snapshot } from '../../src/foundation/snapshot/index.js';
 import { SNAPSHOT_IGNORE_PATTERNS } from '../../src/foundation/snapshot/index.js';
 
@@ -37,13 +38,19 @@ interface MakeRuntimeDepsInput {
   clawId?: string;
   clawDir: string;
   llmConfig?: LLMOrchestratorConfig;
+  /**
+   * Optional AuditLog override (phase 379): tests can inject a mock audit to
+   * assert on call args directly instead of reading audit.tsv from disk.
+   * If omitted, defaults to a real AuditWriter writing to <clawDir>/audit.tsv.
+   */
+  auditOverride?: AuditLog;
 }
 
 export async function makeRuntimeDeps(input: MakeRuntimeDepsInput): Promise<RuntimeDependencies> {
   const { clawDir, clawId = TEST_CLAW_ID } = input;
   const systemFs = new NodeFileSystem({ baseDir: clawDir });
   const clawFs = new NodeFileSystem({ baseDir: clawDir });
-  const auditWriter = new AuditWriter(systemFs, 'audit.tsv', null);
+  const auditWriter = input.auditOverride ?? new AuditWriter(systemFs, 'audit.tsv', null);
   const snapshot = new Snapshot(clawDir, systemFs, auditWriter, SNAPSHOT_IGNORE_PATTERNS);
   const sessionManager = new DialogStore(systemFs, 'dialog', auditWriter, 'current.json', clawId);
   const inboxReader = new InboxReader(INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR, systemFs, auditWriter);

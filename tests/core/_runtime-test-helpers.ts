@@ -4,6 +4,7 @@ import { makeRuntimeDeps } from '../helpers/runtime-deps.js';
 import type { LLMOrchestratorConfig } from '../../src/foundation/llm-orchestrator/types.js';
 import type { LLMResponse } from '../../src/foundation/llm-provider/types.js';
 import type { StreamChunk } from '../../src/foundation/llm-orchestrator/types.js';
+import type { AuditLog } from '../../src/foundation/audit/types.js';
 import { TEST_LLM_TIMEOUT_MS } from '../helpers/test-timeouts.js';
 
 /**
@@ -35,11 +36,14 @@ export async function createTestRuntime(options: {
   maxSteps?: number;
   toolProfile?: string;
   maxConcurrentTasks?: number;
+  /** phase 379: optional AuditLog override (passed through to makeRuntimeDeps) */
+  auditOverride?: AuditLog;
 }) {
   const deps = await makeRuntimeDeps({
     clawDir: options.clawDir,
     clawId: options.clawId,
     llmConfig: options.llmConfig,
+    auditOverride: options.auditOverride,
   });
   return new Runtime({ ...options, dependencies: deps });
 }
