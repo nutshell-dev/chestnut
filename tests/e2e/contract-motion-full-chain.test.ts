@@ -15,7 +15,6 @@ import { makeContractYaml } from '../helpers/contract-yaml.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../src/core/contract/audit-events.js';
 import {
   WAIT_FOR_DEFAULT_BUDGET_MS,
-  WAIT_FOR_DEFAULT_POLL_MS,
   SUBAGENT_LONG_TIMEOUT_MS,
 } from '../helpers/test-timeouts.js';
 import { createAuditEmitterHelper, type AuditEmitterHelper } from '../helpers/audit-emitter.js';
@@ -185,11 +184,8 @@ describe('contract-motion-full-chain (phase 1168 α-5)', () => {
     });
     await completePromise;
 
-    // Wait for verifier to start (active verifier count > 0)
-    await vi.waitFor(
-      () => expect(manager.getActiveVerifierCount()).toBeGreaterThanOrEqual(1),
-      { timeout: WAIT_FOR_DEFAULT_BUDGET_MS, interval: WAIT_FOR_DEFAULT_POLL_MS },
-    );
+    // phase 376: VERIFIER_REGISTERED audit event 替原 getActiveVerifierCount polling
+    await waitForAudit(CONTRACT_AUDIT_EVENTS.VERIFIER_REGISTERED);
 
     await manager.cancel(contractId, 'test cancel');
 
