@@ -44,6 +44,8 @@ import {
   emitContractCreated,
   emitContractProgressSchemaInvalid,
   emitContractCreatePolicyRejected,
+  emitContractVerifierRegistered,
+  emitContractVerifierUnregistered,
 } from './audit-emit.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 import { isolateCorruptedFile } from './_isolation-helper.js';
@@ -172,6 +174,7 @@ export class ContractSystem {
       this._activeContractControllers.set(contractId, s);
     }
     s.add({ controller: ctrl, promise });
+    emitContractVerifierRegistered(this.audit, { contractId });
   }
 
   private _unregisterVerifierController(contractId: ContractId, ctrl: AbortController): void {
@@ -184,6 +187,7 @@ export class ContractSystem {
       }
     }
     if (s.size === 0) this._activeContractControllers.delete(contractId);
+    emitContractVerifierUnregistered(this.audit, { contractId });
   }
 
   hasActiveVerifiers(contractId: ContractId): boolean {

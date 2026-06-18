@@ -609,6 +609,32 @@ export function emitContractVerifierSkipped(
   );
 }
 
+// ─── VERIFIER_REGISTERED ──────────────────────────────────────────────────────
+// phase 376: 控制器注册 audit、tests 用此 event 等待 verifier 起步（替原 polling getActiveVerifierCount）
+export function emitContractVerifierRegistered(
+  audit: AuditLog,
+  opts: { contractId: ContractId },
+): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractVerifierRegistered')) return;
+  audit.write(
+    CONTRACT_AUDIT_EVENTS.VERIFIER_REGISTERED,
+    `contractId=${opts.contractId}`,
+  );
+}
+
+// ─── VERIFIER_UNREGISTERED ────────────────────────────────────────────────────
+// phase 376: 控制器注销 audit
+export function emitContractVerifierUnregistered(
+  audit: AuditLog,
+  opts: { contractId: ContractId },
+): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractVerifierUnregistered')) return;
+  audit.write(
+    CONTRACT_AUDIT_EVENTS.VERIFIER_UNREGISTERED,
+    `contractId=${opts.contractId}`,
+  );
+}
+
 // ─── VERIFIER_STARTED ─────────────────────────────────────────────────────────
 export function emitContractVerifierStarted(
   audit: AuditLog,

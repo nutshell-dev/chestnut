@@ -90,3 +90,34 @@ export async function waitForNextAuditEvent(
     emitter.on('write', handler);
   });
 }
+
+/**
+ * Wait for the Nth occurrence of an audit event (counts from subscribe time, does not fast-path past events).
+ * Use for "wait until N concurrent verifiers register" / parallel pattern.
+ * phase 376: 立此 helper 替 contract verifier vi.waitFor count polling.
+ */
+export async function waitForNthAuditEvent(
+  emitter: EventEmitter,
+  eventType: string,
+  n: number,
+  timeoutMs = TEST_LLM_TIMEOUT_MS,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let count = 0;
+    const timer = setTimeout(() => {
+      emitter.off('write', handler);
+      reject(new Error(`timeout waiting for ${n}th audit event ${eventType} (got ${count})`));
+    }, timeoutMs);
+    const handler = (type: string) => {
+      if (type === eventType) {
+        count++;
+        if (count >= n) {
+          clearTimeout(timer);
+          emitter.off('write', handler);
+          resolve();
+        }
+      }
+    };
+    emitter.on('write', handler);
+  });
+}

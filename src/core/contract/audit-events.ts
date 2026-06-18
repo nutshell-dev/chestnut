@@ -61,6 +61,9 @@ export const CONTRACT_AUDIT_EVENTS = {
   // NEW phase1108: verifier lifecycle observability
   VERIFIER_STARTED: 'contract_verifier_started',
   VERIFIER_PASSED: 'contract_verifier_passed',
+  // NEW phase 376: verifier controller register/unregister observability (event-driven test waits)
+  VERIFIER_REGISTERED: 'contract_verifier_registered',
+  VERIFIER_UNREGISTERED: 'contract_verifier_unregistered',
   // NEW phase1133 (r126 C fork C-3): done tool result first JSON.parse silent fall-through audit
   VERIFIER_RESULT_PARSE_FAILED: 'contract_verifier_result_parse_failed',
   // phase350: A.8 observer 错误暴露
