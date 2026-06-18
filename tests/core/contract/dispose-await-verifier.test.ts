@@ -4,13 +4,15 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { EventEmitter } from 'events';
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import { ContractSystem } from '../../../src/core/contract/manager.js';
+import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { createToolRegistry } from '../../../src/foundation/tools/index.js';
-import { makeMockAudit } from '../../helpers/audit.js';
+import { makeAudit, makeMockAudit, waitForNextAuditEvent } from '../../helpers/audit.js';
 
 /**
  * Mock cs1.close 慢 dispose 时长 (10ms): 与 cs2 5ms 形成 close 顺序 race.
@@ -41,6 +43,7 @@ describe('ContractSystem.close() async await verifier termination', () => {
   let clawDir: string;
   let manager: ContractSystem;
   let nodeFs: NodeFileSystem;
+  let emitter: EventEmitter;
 
   beforeEach(async () => {
     testDir = path.join(
@@ -52,7 +55,9 @@ describe('ContractSystem.close() async await verifier termination', () => {
     await fs.mkdir(clawDir, { recursive: true });
 
     nodeFs = new NodeFileSystem({ baseDir: clawDir });
-    const mockAudit = makeMockAudit();
+    // phase 376: makeAudit 拿 emitter、test 用 waitForNextAuditEvent 替原 polling
+    const { audit: mockAudit, emitter: em } = makeAudit();
+    emitter = em;
     const mockLlm = { id: 'mock-llm' } as any;
     manager = new ContractSystem({
       clawDir,
@@ -98,6 +103,8 @@ describe('ContractSystem.close() async await verifier termination', () => {
       });
     });
 
+    // phase 376: 订阅 VERIFIER_REGISTERED 之前触发 verification
+    const verifierRegistered = waitForNextAuditEvent(emitter, CONTRACT_AUDIT_EVENTS.VERIFIER_REGISTERED);
     (manager as any).runLLMVerification(
       'verification/t1.prompt.txt',
       path.join(clawDir, 'contract/active', contractId),
@@ -108,10 +115,7 @@ describe('ContractSystem.close() async await verifier termination', () => {
       [],
     ).catch(() => {});
 
-    await vi.waitFor(
-      () => expect(manager.getActiveVerifierCount()).toBeGreaterThanOrEqual(1),
-      { timeout: 5000, interval: 10 },
-    );
+    await verifierRegistered;
 
     const closePromise = manager.close();
     expect(aborted).toBe(true);

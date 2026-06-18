@@ -7,7 +7,8 @@
  * (c) cache.clear() 集成 path 调用每 instance .close()（spy verify）
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { makeMockAudit } from '../../helpers/audit.js';
+import { EventEmitter } from 'events';
+import { makeAudit, makeMockAudit, waitForNextAuditEvent } from '../../helpers/audit.js';
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
@@ -26,7 +27,8 @@ describe('phase 1217 (r131 C fork) B.1 — ContractSystem.close() true disposabl
   let clawDir: string;
   let manager: ContractSystem;
   let nodeFs: NodeFileSystem;
-  let auditWrite: ReturnType<typeof vi.fn>;
+  let emitter: EventEmitter;
+  let events: Array<[string, ...(string | number)[]]>;
 
   beforeEach(async () => {
     testDir = path.join(
@@ -38,8 +40,11 @@ describe('phase 1217 (r131 C fork) B.1 — ContractSystem.close() true disposabl
     await fs.mkdir(clawDir, { recursive: true });
 
     nodeFs = new NodeFileSystem({ baseDir: clawDir });
-    auditWrite = vi.fn();
-    const mockAudit = { write: auditWrite , preview: (s: string) => s, message: (s: string) => s, summary: (s: string) => s};
+    // phase 376: makeAudit 拿 emitter + events、test 用 waitForNextAuditEvent + events.find 替原 polling + spy
+    const audit = makeAudit();
+    const mockAudit = audit.audit;
+    emitter = audit.emitter;
+    events = audit.events;
     const mockLlm = { id: 'mock-llm' } as any;
     manager = new ContractSystem({
       clawDir,
@@ -84,6 +89,8 @@ describe('phase 1217 (r131 C fork) B.1 — ContractSystem.close() true disposabl
       });
     });
 
+    // phase 376: 订阅 VERIFIER_REGISTERED 之前触发 verification
+    const verifierRegistered = waitForNextAuditEvent(emitter, CONTRACT_AUDIT_EVENTS.VERIFIER_REGISTERED);
     // 启动 verification，这会注册一个 AbortController
     (manager as any).runLLMVerification(
       'verification/t1.prompt.txt',
@@ -95,11 +102,7 @@ describe('phase 1217 (r131 C fork) B.1 — ContractSystem.close() true disposabl
       [],
     ).catch(() => {});
 
-    // phase 1144: 等 controller 真注册完成（避 wall-clock race）
-    await vi.waitFor(
-      () => expect(manager.getActiveVerifierCount()).toBeGreaterThanOrEqual(1),
-      { timeout: 5000, interval: 10 },
-    );
+    await verifierRegistered;
 
     await manager.close();
 
@@ -131,6 +134,8 @@ describe('phase 1217 (r131 C fork) B.1 — ContractSystem.close() true disposabl
       });
     });
 
+    // phase 376: 订阅 VERIFIER_REGISTERED 之前触发 verification
+    const verifierRegistered = waitForNextAuditEvent(emitter, CONTRACT_AUDIT_EVENTS.VERIFIER_REGISTERED);
     (manager as any).runLLMVerification(
       'verification/t1.prompt.txt',
       path.join(clawDir, 'contract/active', contractId),
@@ -141,11 +146,7 @@ describe('phase 1217 (r131 C fork) B.1 — ContractSystem.close() true disposabl
       [],
     ).catch(() => {});
 
-    // phase 1144: 等 controller 真注册完成（避 wall-clock race）
-    await vi.waitFor(
-      () => expect(manager.getActiveVerifierCount()).toBeGreaterThanOrEqual(1),
-      { timeout: 5000, interval: 10 },
-    );
+    await verifierRegistered;
 
     expect(capturedSignal).toBeDefined();
     expect(capturedSignal!.aborted).toBe(false);
@@ -197,9 +198,8 @@ describe('phase 1217 (r131 C fork) B.1 — ContractSystem.close() true disposabl
   it('close() 触发 CONTRACT_SYSTEM_CLOSED audit event', async () => {
     await manager.close();
 
-    expect(auditWrite).toHaveBeenCalledWith(
-      CONTRACT_AUDIT_EVENTS.CONTRACT_SYSTEM_CLOSED,
-      expect.stringContaining('clawId='),
-    );
+    const closeEvent = events.find(e => e[0] === CONTRACT_AUDIT_EVENTS.CONTRACT_SYSTEM_CLOSED);
+    expect(closeEvent).toBeDefined();
+    expect(closeEvent![1]).toEqual(expect.stringContaining('clawId='));
   });
 });

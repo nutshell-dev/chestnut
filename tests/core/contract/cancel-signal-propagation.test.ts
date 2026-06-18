@@ -7,11 +7,13 @@
  * 3. 同 contract 多 verifier 并发，cancel abort 全部
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { makeMockAudit } from '../../helpers/audit.js';
+import { EventEmitter } from 'events';
+import { makeAudit, waitForNextAuditEvent, waitForNthAuditEvent } from '../../helpers/audit.js';
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import { ContractSystem } from '../../../src/core/contract/manager.js';
+import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { createToolRegistry } from '../../../src/foundation/tools/index.js';
 import { makeContractYaml } from '../../helpers/contract-yaml.js';
@@ -25,6 +27,7 @@ describe('phase 1020 / r124 C fork — cancel propagation 装配端真实施', (
   let clawDir: string;
   let manager: ContractSystem;
   let nodeFs: NodeFileSystem;
+  let emitter: EventEmitter;
 
   beforeEach(async () => {
     testDir = path.join(
@@ -36,7 +39,9 @@ describe('phase 1020 / r124 C fork — cancel propagation 装配端真实施', (
     await fs.mkdir(clawDir, { recursive: true });
 
     nodeFs = new NodeFileSystem({ baseDir: clawDir });
-    const mockAudit = makeMockAudit();
+    // phase 376: makeAudit 拿 emitter、test 用 waitForNextAuditEvent 替原 polling
+    const { audit: mockAudit, emitter: em } = makeAudit();
+    emitter = em;
     const mockLlm = { id: 'mock-llm' } as any;
     manager = new ContractSystem({
       clawDir,
@@ -84,6 +89,8 @@ describe('phase 1020 / r124 C fork — cancel propagation 装配端真实施', (
         });
       });
 
+      // phase 376: 订阅 VERIFIER_REGISTERED 之前触发 runLLMVerification 会漏抓、必先订阅
+      const verifierRegistered = waitForNextAuditEvent(emitter, CONTRACT_AUDIT_EVENTS.VERIFIER_REGISTERED);
       const verifierPromise = (manager as any).runLLMVerification(
         'verification/t1.prompt.txt',
         path.join(clawDir, 'contract/active', contractId),
@@ -94,11 +101,7 @@ describe('phase 1020 / r124 C fork — cancel propagation 装配端真实施', (
         [],
       );
 
-      // phase 1144: 等 controller 真注册完成（避 wall-clock race）
-      await vi.waitFor(
-        () => expect(manager.getActiveVerifierCount()).toBeGreaterThanOrEqual(1),
-        { timeout: 5000, interval: 10 },
-      );
+      await verifierRegistered;
 
       await manager.cancel(contractId, 'test reason');
 
@@ -131,6 +134,8 @@ describe('phase 1020 / r124 C fork — cancel propagation 装配端真实施', (
         });
       });
 
+      // phase 376: 订阅 VERIFIER_REGISTERED 之前触发 runLLMVerification 会漏抓、必先订阅
+      const verifierRegistered = waitForNextAuditEvent(emitter, CONTRACT_AUDIT_EVENTS.VERIFIER_REGISTERED);
       const promise = (manager as any).runLLMVerification(
         'verification/t1.prompt.txt',
         path.join(clawDir, 'contract/active', contractId),
@@ -141,11 +146,7 @@ describe('phase 1020 / r124 C fork — cancel propagation 装配端真实施', (
         [],
       );
 
-      // phase 1144: 等 controller 真注册完成（避 wall-clock race）
-      await vi.waitFor(
-        () => expect(manager.getActiveVerifierCount()).toBeGreaterThanOrEqual(1),
-        { timeout: 5000, interval: 10 },
-      );
+      await verifierRegistered;
 
       const controllers = (manager as any)._activeContractControllers;
       expect(controllers.get(contractId)).toBeDefined();
@@ -197,6 +198,8 @@ describe('phase 1020 / r124 C fork — cancel propagation 装配端真实施', (
         });
       });
 
+      // phase 376: 订阅 VERIFIER_REGISTERED ×2 之前触发 2 个 verifier、避 race
+      const twoVerifiersRegistered = waitForNthAuditEvent(emitter, CONTRACT_AUDIT_EVENTS.VERIFIER_REGISTERED, 2);
       const p1 = (manager as any).runLLMVerification(
         'verification/t1.prompt.txt',
         path.join(clawDir, 'contract/active', contractId),
@@ -216,11 +219,7 @@ describe('phase 1020 / r124 C fork — cancel propagation 装配端真实施', (
         [],
       );
 
-      // phase 1144: 等 2 个 controller 都注册完成（避 wall-clock race + N=1 时 cancel race）
-      await vi.waitFor(
-        () => expect(manager.getActiveVerifierCount()).toBeGreaterThanOrEqual(2),
-        { timeout: 5000, interval: 10 },
-      );
+      await twoVerifiersRegistered;
 
       await manager.cancel(contractId, 'test');
 
