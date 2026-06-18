@@ -223,6 +223,15 @@ describe('subagent onToolResult emit ordering (phase 1122 audit-first)', () => {
     const { agent, sw, mockAuditWriter } = makeSubAgent({ timeoutMs: 50 });
     const swWriteSpy = vi.spyOn(sw, 'write');
 
+    // phase 373: wrap mockAuditWriter.write 在 'tool_result' 时 resolve、替原 vi.waitFor polling
+    let toolResultAuditedResolve!: () => void;
+    const toolResultAudited = new Promise<void>((r) => { toolResultAuditedResolve = r; });
+    const originalWrite = mockAuditWriter.write;
+    mockAuditWriter.write = vi.fn((event: string, ...args: unknown[]) => {
+      originalWrite(event, ...(args as []));
+      if (event === 'tool_result') toolResultAuditedResolve();
+    });
+
     // timeout 后 runReact 才调 onToolResult → ghost callback
     (runReact as ReturnType<typeof vi.fn>).mockImplementation(
       async (opts: {
@@ -235,17 +244,7 @@ describe('subagent onToolResult emit ordering (phase 1122 audit-first)', () => {
     );
 
     await expect(agent.run()).rejects.toThrow();
-
-    // 等待 ghost audit 被写入（异步）
-    await vi.waitFor(
-      () => {
-        const ghostAuditCount = mockAuditWriter.write.mock.calls.filter(
-          (call: any[]) => call[0] === 'tool_result',
-        ).length;
-        expect(ghostAuditCount).toBe(1);
-      },
-      { timeout: 2000, interval: 50 },
-    );
+    await toolResultAudited;
 
     // audit 对 tool_result 仍写一次
     const toolResultAudits = mockAuditWriter.write.mock.calls.filter(

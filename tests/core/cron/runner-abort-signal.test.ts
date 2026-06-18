@@ -22,6 +22,9 @@ describe('phase 946: cron handler AbortSignal propagation', () => {
     const handlerPromise = new Promise<void>(resolve => {
       handlerPromiseResolve = resolve;
     });
+    // phase 373: handler 内 set 完 observed 后立 resolve、替原 vi.waitFor polling
+    let handlerInvokedResolve!: () => void;
+    const handlerInvoked = new Promise<void>((r) => { handlerInvokedResolve = r; });
 
     const job: CronJob = {
       name: 'test-abort',
@@ -32,6 +35,7 @@ describe('phase 946: cron handler AbortSignal propagation', () => {
         signal?.addEventListener('abort', () => {
           observed.aborted = true;
         });
+        handlerInvokedResolve();
         await handlerPromise;
       },
     };
@@ -43,7 +47,7 @@ describe('phase 946: cron handler AbortSignal propagation', () => {
     // advance timers to fire tick → handler start
     await vi.advanceTimersByTimeAsync(50);
 
-    await vi.waitFor(() => expect(observed.aborted).not.toBeNull());
+    await handlerInvoked;
     expect(observed.aborted).toBe(false);
 
     // stop → abort signal 应触发
@@ -57,12 +61,16 @@ describe('phase 946: cron handler AbortSignal propagation', () => {
   it('stop() drain 实际 < cap timeout（signal aborted → handler early settle）', async () => {
     // mock handler that respects signal early abort
     let started = false;
+    // phase 373: handler 内 set started 后立 resolve、替原 vi.waitFor polling
+    let startedResolve!: () => void;
+    const startedP = new Promise<void>((r) => { startedResolve = r; });
     const job: CronJob = {
       name: 'test-early',
       enabled: true,
       schedule: { type: 'hourly' },
       handler: async (signal) => {
         started = true;
+        startedResolve();
         await new Promise<void>((resolve, reject) => {
           signal?.addEventListener('abort', () => reject(new Error('aborted')));
           setTimeout(resolve, 30_000);  // would block 30s
@@ -74,7 +82,7 @@ describe('phase 946: cron handler AbortSignal propagation', () => {
     runner.start(10);
 
     await vi.advanceTimersByTimeAsync(50);
-    await vi.waitFor(() => expect(started).toBe(true));
+    await startedP;
 
     // 用 fake elapsed（advance 累计）替 wall-clock Date.now() 计算
     const startFakeMs = vi.getMockedSystemTime()?.getTime() ?? 0;
@@ -87,18 +95,24 @@ describe('phase 946: cron handler AbortSignal propagation', () => {
 
   it('backward compat: handler 不接 signal 0 break', async () => {
     let ran = false;
+    // phase 373: handler 内 set ran 后立 resolve、替原 vi.waitFor polling
+    let ranResolve!: () => void;
+    const ranP = new Promise<void>((r) => { ranResolve = r; });
     const job: CronJob = {
       name: 'test-legacy',
       enabled: true,
       schedule: { type: 'hourly' },
-      handler: async () => { ran = true; },
+      handler: async () => {
+        ran = true;
+        ranResolve();
+      },
     };
     const audit = makeMockAudit();
     const runner = new CronRunner([job], audit as unknown as AuditLog);
     runner.start(10);
 
     await vi.advanceTimersByTimeAsync(50);
-    await vi.waitFor(() => expect(ran).toBe(true));
+    await ranP;
     await runner.stop(100);
     expect(ran).toBe(true);
   });
