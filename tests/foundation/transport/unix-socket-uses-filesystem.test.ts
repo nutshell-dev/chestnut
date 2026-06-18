@@ -2,11 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 
 describe('foundation/transport/unix-socket.ts: uses FileSystem', () => {
-  it('does not import from node:fs or fs directly', () => {
-    const src = readFileSync('src/foundation/transport/unix-socket.ts', 'utf-8');
-    expect(src).not.toMatch(/from\s+['"]node:fs['"]/);
-    expect(src).not.toMatch(/from\s+['"]fs['"]/);
-  });
+  // negative `from 'node:fs' | 'fs'` import 由 depcruise `fs-only-via-foundation-filesystem` enforce (phase 363)
 
   it('references FileSystem type', () => {
     const src = readFileSync('src/foundation/transport/unix-socket.ts', 'utf-8');

@@ -18,6 +18,13 @@
  *   - src/foundation/fs/ (NodeFileSystem 自身实现 dir)
  *
  * phase 359: 22nd src ESLint rule
+ *
+ * Why this rule in addition to depcruise `nodefilesystem-only-from-bootstrap`:
+ *   depcruise rule `to` 仅匹配 `^src/foundation/fs/node-fs(\.ts)?$` 直接 import、
+ *   绕过路径 `import { NodeFileSystem } from 'src/foundation/fs/index.js'`
+ *   (barrel re-exports NodeFileSystem)。本 ESLint rule 守 instantiation 层、
+ *   barrel-bypass 也 catches。(phase 363 调研记录、planted barrel import 实证.)
+ *   两者 defense-in-depth、不互替。
  */
 
 const ALLOWLIST_PREFIXES = [
