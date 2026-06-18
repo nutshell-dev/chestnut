@@ -13,7 +13,7 @@
  *   2. catch block with silent-marker comment-only body
  *   3. .catch(() => {}) / .catch((e) => {}) bare arrow empty body Promise catch
  *
- * Allowlist (18 file basename) covers historical by-design fail-soft / race / best-effort 路径。
+ * Allowlist (19 file basenames) covers historical by-design fail-soft / race / best-effort 路径。
  *
  * phase 343 framing 锚 N=17 严守 N=3 + framing bias N=18 vindicate N=1 (src-targeting + ESLint AST 可)
  * 共享 phase 309 ESLint infra (18th rule)
@@ -31,6 +31,7 @@ const ALLOWLIST_BASENAMES = new Set([
   'claw-list.ts',
   'claw-trace.ts',
   'daemon-entry.ts',
+  'daemon-handlers.ts',
   'daemon.ts',
   'ensure.ts',
   'inbox-watcher.ts',

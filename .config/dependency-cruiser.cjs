@@ -92,11 +92,12 @@ module.exports = {
     {
       name: 'nodefilesystem-only-from-bootstrap',
       comment: [
-        'ML#7 耦合界面稳定：NodeFileSystem 直构造仅 5 bootstrap site:',
+        'ML#7 耦合界面稳定：NodeFileSystem 直构造仅 6 bootstrap site:',
         '  - assembly/assemble.ts',
         '  - assembly/core-infrastructure.ts',
         '  - cli/index.ts',
         '  - daemon-entry.ts',
+        '  - daemon-handlers.ts (phase 375 抽出)',
         '  - watchdog-entry.ts',
         '  - foundation/fs/* impl 自身',
         '其他必经 fsFactory inject (phase 1283 α-1 + phase 1291 α-2 deps object pattern)',
@@ -109,6 +110,7 @@ module.exports = {
           '^src/assembly/core-infrastructure\\.ts$',
           '^src/cli/index\\.ts$',
           '^src/daemon-entry\\.ts$',
+          '^src/daemon-handlers\\.ts$',
           '^src/watchdog-entry\\.ts$',
           '^src/foundation/fs/',
         ],

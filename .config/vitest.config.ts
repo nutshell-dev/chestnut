@@ -36,7 +36,7 @@ const VI_MOCK_FILES = [
   'tests/core/agent-executor/maxsteps-default.test.ts',  // phase 221: vi.mock DEFAULT_MAX_STEPS → 5 (was 23s/run)
   'tests/cli/audit-info.test.ts',
   'tests/cli/audit-query.test.ts',
-  'tests/cli/daemon-entry.test.ts',
+  'tests/cli/daemon-handlers.test.ts',
   // phase 99 (SHA df8f4558): l1IsAlive DI injected via ProcessManagerContext — tests no longer need vi.mock for process-exec isAlive.
   // 'tests/cli/chat-viewport-claw-manager-narrow.test.ts',
   'tests/cli/chat-viewport-stream-reader-start-fail.test.ts',
@@ -309,12 +309,9 @@ export default defineConfig({
             '**/.chestnut/**',
             '**/node_modules/**',
             '**/dist/**',
-            // phase 371 §5 (review-2026-06-13): test:fast script 旧用 CLI --exclude
-            // 跳这两文件、但 CLI 顶层 filter 不真覆盖 include-overriding 的 isolated
-            // project。改 project-level exclude 真护栏。test:fast script 已删 CLI flag。
-            // 现 daemon-entry pass 12s（phase 1146/1240 修后），保 exclude 为预防 regression
-            // 时 test:fast wall-time 守护，需运行时单独跑 `pnpm vitest run tests/cli/daemon-entry.test.ts`。
-            'tests/cli/daemon-entry.test.ts',
+            // phase 375: daemon-entry shim 已抽至 daemon-handlers.ts；原 daemon-entry.test.ts
+            // 随之 rename 为 daemon-handlers.test.ts 并移出 exclude（新测试不再拉 assembly graph，
+            // wall <2s）。保留 already-running-sentinel 在 fast project 运行。
             'tests/cli/already-running-sentinel.test.ts',
           ],
           pool: 'threads',

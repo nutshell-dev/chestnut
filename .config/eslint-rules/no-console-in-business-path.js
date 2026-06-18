@@ -8,7 +8,7 @@
  *
  * Allowlist (6 categories):
  *   - cli/** + watchdog/** (CLI user-face / structural boundaries)
- *   - daemon-entry.ts + watchdog-entry.ts (process-level uncaught handlers)
+ *   - daemon-entry.ts + daemon-handlers.ts + watchdog-entry.ts (process-level uncaught handlers)
  *   - foundation/audit/** (audit recursion border)
  *   - assembly/llm-audit-sink.ts (audit-of-audit fallback)
  *
@@ -28,6 +28,7 @@ const ALLOWLIST_PREFIXES = [
 
 const ALLOWLIST_FILES = [
   'src/daemon-entry.ts',
+  'src/daemon-handlers.ts',
   'src/watchdog-entry.ts',
   'src/assembly/llm-audit-sink.ts',
 ];

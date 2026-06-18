@@ -28,7 +28,7 @@ describe('dependency-cruiser config: allowlist sync (phase 1298)', () => {
     ]);
   });
 
-  it('nodefilesystem-only-from-bootstrap allowlist matches 5 bootstrap site + fs impl', () => {
+  it('nodefilesystem-only-from-bootstrap allowlist matches 6 bootstrap site + fs impl', () => {
     const rule = config.forbidden.find(
       (r: { name: string }) => r.name === 'nodefilesystem-only-from-bootstrap',
     );
@@ -39,6 +39,7 @@ describe('dependency-cruiser config: allowlist sync (phase 1298)', () => {
       '^src/assembly/core-infrastructure\\.ts$',
       '^src/cli/index\\.ts$',
       '^src/daemon-entry\\.ts$',
+      '^src/daemon-handlers\\.ts$',
       '^src/watchdog-entry\\.ts$',
       '^src/foundation/fs/',
     ]);
