@@ -51,7 +51,7 @@ async function readTemplate(deps: { fsFactory: (baseDir: string) => FileSystem }
     return distFs.readSync(path.join('templates', 'motion', name));
   } catch {
     // Fall back to src path (during development)
-    const srcPath = path.join(__dirname, '..', '..', '..', '..', 'src', 'cli', 'commands', 'templates', 'motion', name);
+    const srcPath = path.join(__dirname, '..', 'src', 'cli', 'commands', 'templates', 'motion', name);
     const srcFs = deps.fsFactory(path.dirname(srcPath));
     return srcFs.readSync(path.basename(srcPath));
   }
@@ -63,10 +63,10 @@ async function readTemplate(deps: { fsFactory: (baseDir: string) => FileSystem }
  */
 async function installBuiltinSkills(deps: { fsFactory: (baseDir: string) => FileSystem }, motionDir: string): Promise<void> {
   // Try dist path first, fall back to src
-  let skillsSource = path.join(__dirname, '..', BUNDLED_SKILLS_DIR_NAME);
+  let skillsSource = path.join(__dirname, BUNDLED_SKILLS_DIR_NAME);
   const srcFs = deps.fsFactory(__dirname);
-  if (!(await srcFs.exists(path.join('..', BUNDLED_SKILLS_DIR_NAME)))) {
-    skillsSource = path.join(__dirname, '..', '..', '..', '..', 'src', BUNDLED_SKILLS_DIR_NAME);
+  if (!(await srcFs.exists(BUNDLED_SKILLS_DIR_NAME))) {
+    skillsSource = path.join(__dirname, '..', 'src', BUNDLED_SKILLS_DIR_NAME);
   }
 
   let skillNames: string[];

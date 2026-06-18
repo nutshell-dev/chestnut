@@ -20,7 +20,7 @@ export type LLMErrorType = 'auth' | 'model' | 'network' | 'rate_limit' | 'unknow
 
 export function classifyLLMError(err: unknown): LLMErrorType {
   const msg = (formatErr(err)).toLowerCase();
-  if (msg.includes('401') || msg.includes('unauthorized') || msg.includes('invalid api key') || msg.includes('authentication')) return 'auth';
+  if (msg.includes('401') || msg.includes('unauthorized') || msg.includes('api key') || msg.includes('authenticat')) return 'auth';
   if (msg.includes('404') || msg.includes('model') || msg.includes('not found')) return 'model';
   if (msg.includes('429') || msg.includes('rate limit') || msg.includes('quota')) return 'rate_limit';
   if (msg.includes('econnrefused') || msg.includes('enotfound') || msg.includes('network') || msg.includes('timeout') || msg.includes('fetch')) return 'network';

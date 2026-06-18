@@ -149,6 +149,7 @@ async function _start(deps: { fsFactory: (baseDir: string) => FileSystem }, audi
       } else {
         // network / rate_limit / unknown — warn but continue (transient)
         console.warn(`  ⚠ ${LLM_ERROR_LABELS[connResult.errorType]} — continuing anyway`);
+        console.warn(`    ${connResult.message}`);
       }
     } else {
       console.log(`  ✓ ${connResult.model}`);
