@@ -23,7 +23,8 @@ import { tmpdir } from 'os';
 import { readTool } from '../../src/foundation/file-tool/read.js';
 import { lsTool } from '../../src/foundation/file-tool/ls.js';
 import { searchTool } from '../../src/foundation/file-tool/search.js';
-import { makeAudit, waitForAuditEvent } from '../helpers/audit.js';
+import { EventEmitter } from 'events';
+import { makeAudit, waitForAuditEvent, waitForNextAuditEvent } from '../helpers/audit.js';
 import { TASK_AUDIT_EVENTS } from '../../src/core/async-task-system/audit-events.js';
 import { waitForCompleteFile, waitForPathExists, waitForAnyFile } from '../helpers/wait-for-file.js';
 import { makeTaskSystemDeps } from '../helpers/task-system.js';
@@ -132,6 +133,7 @@ describe('AsyncTaskSystem Tool Tasks', () => {
   let mockFs: ReturnType<typeof createMockFs>;
   let testDir: string;
   let testClawDir: string;
+  let taskAuditEmitter: EventEmitter;
 
   beforeEach(async () => {
     testDir = path.join(tmpdir(), `chestnut-task-sys-${randomUUID()}`);
@@ -172,9 +174,14 @@ describe('AsyncTaskSystem Tool Tasks', () => {
         },
         moveSync: (from: string, to: string) => fsSync.renameSync(path.join(testClawDir, from), path.join(testClawDir, to)),
       } as any,
-      { maxConcurrent: TEST_MAX_CONCURRENT, retryBaseDelayMs: TEST_RETRY_BASE_DELAY_MS, auditWriter: makeAudit().audit, ...makeTaskSystemDeps() }
+      (() => {
+        // phase 381 Step B: capture emitter 让 tests 用 audit event 替 listRunning polling
+        const a = makeAudit();
+        taskAuditEmitter = a.emitter;
+        return { maxConcurrent: TEST_MAX_CONCURRENT, retryBaseDelayMs: TEST_RETRY_BASE_DELAY_MS, auditWriter: a.audit, ...makeTaskSystemDeps() };
+      })()
     );
-    
+
     await taskSystem.initialize();
     taskSystem.startDispatch();
   });
@@ -1084,8 +1091,10 @@ describe('AsyncTaskSystem Tool Tasks', () => {
   describe('cancel', () => {
     it('should not attempt double moveTaskToDone after cancel', async () => {
       const slowCallback = () => new Promise<ToolResult>(r => setTimeout(() => r({ success: true, content: 'slow' }), 200));  // phase 292: 1000ms → 200ms
+      // phase 381 Step B: 必先订阅再 schedule（_ingestPendingFile 触发 _dispatch → emit TASK_STARTED）
+      const startedP = waitForNextAuditEvent(taskAuditEmitter, TASK_AUDIT_EVENTS.TASK_STARTED);
       const taskId = await scheduleToolCompat(taskSystem, 'slowTool', slowCallback, 'parent-claw');
-      await waitFor(() => taskSystem.listRunning().includes(taskId));
+      await startedP;
 
       await taskSystem.cancel(taskId);
 
@@ -1125,15 +1134,16 @@ describe('AsyncTaskSystem Tool Tasks', () => {
         return { success: true, content: 'recovered' };
       });
 
+      // phase 381 Step B: 必先订阅 TASK_COMPLETED 再 schedule（避 fire 早于订阅 race）
+      const completedP = waitForNextAuditEvent(taskAuditEmitter, TASK_AUDIT_EVENTS.TASK_COMPLETED);
+
       const taskId = await scheduleToolCompat(taskSystem, 'flakyTool', flakyCallback, 'parent-claw', {
         isIdempotent: true,
         maxRetries: 2,
       });
 
       await waitForAnyFile(path.join(testClawDir, 'inbox', 'pending'), (f) => f.endsWith('.md'));
-
-      // Wait for task to complete before reading inbox (B.flaky-18)
-      await waitFor(() => taskSystem.listRunning().length === 0);
+      await completedP;
 
       expect(flakyCallback).toHaveBeenCalledTimes(2);
 
@@ -1202,14 +1212,15 @@ describe('AsyncTaskSystem Tool Tasks', () => {
     it('should not retry non-idempotent tool', async () => {
       const failCallback = vi.fn().mockRejectedValue(new Error('Write failed'));
 
+      // phase 381 Step B: 必先订阅 TASK_COMPLETED 再 schedule
+      const completedP = waitForNextAuditEvent(taskAuditEmitter, TASK_AUDIT_EVENTS.TASK_COMPLETED);
+
       await scheduleToolCompat(taskSystem, 'writeTool', failCallback, 'parent-claw', {
         isIdempotent: false,
       });
 
       await waitForAnyFile(path.join(testClawDir, 'inbox', 'pending'), (f) => f.endsWith('.md'));
-
-      // Wait for task to complete before reading inbox (B.flaky-21)
-      await waitFor(() => taskSystem.listRunning().length === 0);
+      await completedP;
 
       // Called exactly once, no retry
       expect(failCallback).toHaveBeenCalledTimes(1);
@@ -1407,8 +1418,10 @@ describe('AsyncTaskSystem Tool Tasks', () => {
         return { success: true, content: 'done' };
       });
 
+      // phase 381 Step B: 必先订阅再 schedule
+      const startedP = waitForNextAuditEvent(taskAuditEmitter, TASK_AUDIT_EVENTS.TASK_STARTED);
       await scheduleToolCompat(taskSystem, 'slowTool', slowCb, 'test-claw');
-      await waitFor(() => taskSystem.listRunning().length > 0);
+      await startedP;
       // Give the task time to enter the long callback (past the abort-signal gate)
       await new Promise(r => setTimeout(r, TICK_SETTLE_MS));
 
