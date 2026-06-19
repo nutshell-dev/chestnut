@@ -139,7 +139,12 @@ export class ContextInjector {
       // phase 432 Step D (review N6 真 caller migration): buildParts 是 async、
       // formatForContext 之前 prewarm 消除 cold-start race window — 首 turn prompt
       // 不再 miss skills、Step A 的 warn 也不会在 ContextInjector path 触发。
-      await this.skillRegistry.ensureLoaded();
+      // phase 433 hotfix: defensive typeof check — test mocks (e.g.
+      // dialog.test.ts:333 mockSkillRegistry as any) may not implement
+      // ensureLoaded; real SkillSystem (registry.ts class) always does.
+      if (typeof this.skillRegistry.ensureLoaded === 'function') {
+        await this.skillRegistry.ensureLoaded();
+      }
       const skillContext = this.skillRegistry.formatForContext();
       if (skillContext) {
         skills = skillContext;
