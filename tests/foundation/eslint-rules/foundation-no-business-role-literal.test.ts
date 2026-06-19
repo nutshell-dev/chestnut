@@ -6,19 +6,29 @@ const ruleTester = new RuleTester({
   languageOptions: { parserOptions: { ecmaVersion: 'latest', sourceType: 'module' } },
 });
 
-describe('eslint custom rule: foundation-no-business-role-literal (phase 330)', () => {
+describe('eslint custom rule: foundation-no-business-role-literal (phase 330 + phase 384 ext L1-L4)', () => {
   ruleTester.run('foundation-no-business-role-literal', foundationNoBusinessRoleLiteral, {
     valid: [
-      // out of scope
-      { code: 'const x = "motion";', filename: 'src/core/runtime/runtime.ts' },
+      // out of L1-L4 scope: cli/
+      { code: 'const x = "motion";', filename: 'src/cli/commands/x.ts' },
+      // out of L1-L4 scope: assembly/
+      { code: 'const x = "motion";', filename: 'src/assembly/assemble.ts' },
       // foundation allow-list file
       { code: 'const x = "motion";', filename: 'src/foundation/tools/types.ts' },
-      // foundation/audit/ (not foundation/tool-protocol/, not allow-list, but no banned literal)
+      // foundation allow-list file (newly added in phase 384)
+      { code: 'const x = "motion";', filename: 'src/foundation/messaging/notify.ts' },
+      // core allow-list file
+      { code: 'const x = "motion";', filename: 'src/core/runtime/runtime.ts' },
+      // core allow-list file (with MOTION_CLAW_ID)
+      { code: 'const x = MOTION_CLAW_ID;', filename: 'src/core/cron/jobs/disk-monitor.ts' },
+      // foundation/audit/ (not allow-list, no banned literal)
       { code: 'const x = "hello";', filename: 'src/foundation/audit/events.ts' },
       // foundation/audit/ + non-business word
       { code: 'const x = "audit";', filename: 'src/foundation/audit/events.ts' },
       // tool-protocol/ but export of non-banned
       { code: 'export const Foo = "string";', filename: 'src/foundation/tool-protocol/index.ts' },
+      // core/ non-allow-list + non-banned literal
+      { code: 'const x = "hello";', filename: 'src/core/contract/manager.ts' },
     ],
     invalid: [
       // tool-protocol: business role literal
@@ -44,6 +54,30 @@ describe('eslint custom rule: foundation-no-business-role-literal (phase 330)', 
         code: 'const x = `subagent`;',
         filename: 'src/foundation/audit/events.ts',
         errors: [{ messageId: 'businessLiteral' }],
+      },
+      // phase 384 ext: core/ non-allow-list: motion literal
+      {
+        code: 'const x = "motion";',
+        filename: 'src/core/contract/manager.ts',
+        errors: [{ messageId: 'businessLiteral' }],
+      },
+      // phase 384 ext: core/ non-allow-list: MOTION_CLAW_ID identifier
+      {
+        code: 'const x = MOTION_CLAW_ID;',
+        filename: 'src/core/contract/manager.ts',
+        errors: [{ messageId: 'motionClawIdIdentifier' }],
+      },
+      // phase 384 ext: foundation/ non-allow-list: MOTION_CLAW_ID identifier
+      {
+        code: 'const x = MOTION_CLAW_ID;',
+        filename: 'src/foundation/audit/events.ts',
+        errors: [{ messageId: 'motionClawIdIdentifier' }],
+      },
+      // phase 384 ext: tool-protocol: MOTION_CLAW_ID (strict)
+      {
+        code: 'const x = MOTION_CLAW_ID;',
+        filename: 'src/foundation/tool-protocol/index.ts',
+        errors: [{ messageId: 'motionClawIdIdentifier' }],
       },
     ],
   });
