@@ -17,6 +17,12 @@ import type { FileSystem } from './fs/types.js';
 
 export const CLAWS_DIR = 'claws' as const;
 export const CLAWSPACE_DIR = 'clawspace' as const;
+/**
+ * Claw spec file (per-claw business identity + role spec).
+ * 由 daemon-entry pre-assemble 读、core/dialog 注入 context、cli init/start 模板写入。
+ * phase 391: 抽 7 site inline 'AGENTS.md' literal 为 const (M#1 + ML#9)。
+ */
+export const CLAW_SPEC_FILE = 'AGENTS.md' as const;
 
 /**
  * Enumerate all claw IDs (sub-directories) under clawsDir.

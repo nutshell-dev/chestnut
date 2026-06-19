@@ -23,7 +23,7 @@ import { Snapshot } from '../../foundation/snapshot/index.js';
 import { createDirContext } from '../../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { SNAPSHOT_IGNORE_PATTERNS } from '../../foundation/snapshot/index.js';
-import { CLAWS_DIR } from '../../foundation/claw-paths.js';
+import { CLAWS_DIR, CLAW_SPEC_FILE } from '../../foundation/claw-paths.js';
 import { resolveDaemonEntry } from '../../assembly/spawn-entry.js';
 import { DAEMON_LOG } from '../../daemon/constants.js';
 import { TASKS_SYNC_EXEC_DIR } from '../../foundation/command-tool/index.js';
@@ -39,7 +39,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Template file names (supports both build artifacts and source directory)
-const TEMPLATE_FILES = ['AGENTS.md', 'SOUL.md', 'AUTH_POLICY.md', 'HEARTBEAT.md'];
+const TEMPLATE_FILES = [CLAW_SPEC_FILE, 'SOUL.md', 'AUTH_POLICY.md', 'HEARTBEAT.md'];
 
 /**
  * Read template file content (falls back from build artifacts to source directory)
@@ -188,7 +188,7 @@ export async function chatCommand(deps: { fsFactory: (baseDir: string) => FileSy
 
   // Check whether Motion has been initialized
   const motionFs = deps.fsFactory(motionDir);
-  if (!(await motionFs.exists('AGENTS.md'))) {
+  if (!(await motionFs.exists(CLAW_SPEC_FILE))) {
     throw new CliError('Motion not initialized. Run: chestnut motion init');
   }
 

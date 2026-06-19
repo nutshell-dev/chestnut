@@ -34,7 +34,7 @@ import {
   TASKS_QUEUES_RESULTS_DIR,
   TASKS_SUBAGENTS_DIR,
 } from '../async-task-system/index.js';
-import { CLAWSPACE_DIR } from '../../foundation/claw-paths.js';
+import { CLAWSPACE_DIR, CLAW_SPEC_FILE } from '../../foundation/claw-paths.js';
 import { CONFIG_YAML_FILE } from '../../foundation/install-paths.js';
 import type { PermissionChecker } from '../../foundation/tool-protocol/permission.js';
 export type { PermissionChecker } from '../../foundation/tool-protocol/permission.js';
@@ -44,7 +44,7 @@ export type { PermissionChecker } from '../../foundation/tool-protocol/permissio
  * System directories/files that are read-only for claws
  */
 const SYSTEM_PATHS = [
-  'AGENTS.md',
+  CLAW_SPEC_FILE,
   'dialog',
   CONFIG_YAML_FILE,
   '.chestnut',

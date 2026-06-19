@@ -26,6 +26,7 @@ import type { FileSystem } from '../foundation/fs/types.js';
 import { LockConflictError } from '../foundation/process-manager/index.js';
 import { DAEMON_AUDIT_EVENTS } from './audit-events.js';
 import type { DaemonInstances } from './types.js';
+import { CLAW_SPEC_FILE } from '../foundation/claw-paths.js';
 import type { AssembleConfig } from '../assembly/types.js';
 
 // phase 175: idempotent signal handler refs（mirror watchdog.ts:60-61 pattern、防 test re-entry 累 listener）
@@ -130,7 +131,7 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
     // daemon_start: 计算 AGENTS.md 的 sha256 前 6 位作为 system prompt 版本标识
     let promptHash = 'n/a';
     try {
-      const agentsContent = preAssembleFs.readSync('AGENTS.md');
+      const agentsContent = preAssembleFs.readSync(CLAW_SPEC_FILE);
       promptHash = createHash('sha256').update(agentsContent).digest('hex').slice(0, 6);
     } catch { /* silent: AGENTS.md is optional, missing is expected */ }
     auditWriter.write(deps.auditEvents.daemonStart, `sha256:${promptHash}`);

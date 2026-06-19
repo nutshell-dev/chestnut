@@ -14,6 +14,7 @@ import { formatErr } from "../../foundation/utils/index.js";
 import * as readline from 'readline';
 
 import { isInitialized } from '../../assembly/config-load.js';
+import { CLAW_SPEC_FILE } from '../../foundation/claw-paths.js';
 import { getNamedSubrootDir } from '../../foundation/config/index.js';
 import { initCommand } from './init.js';
 import {
@@ -166,7 +167,7 @@ async function _start(deps: { fsFactory: (baseDir: string) => FileSystem }, audi
     env: { ...process.env, CHESTNUT_ROOT: getWorkspaceRoot() } as Record<string, string | undefined>,
   };
   const motionFs = deps.fsFactory(motionDir);
-  if (!motionFs.existsSync('AGENTS.md')) {
+  if (!motionFs.existsSync(CLAW_SPEC_FILE)) {
     await motionInitCommand(deps, true);
   }
 

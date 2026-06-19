@@ -8,6 +8,7 @@ import { CLAW_SUBDIRS } from '../../assembly/claw-subdirs.js';
 // path module intentionally not used in this file after refactor
 import { CliError } from '../errors.js';
 import { buildAgentsMdTemplate } from '../../prompts/index.js';
+import { CLAW_SPEC_FILE } from '../../foundation/claw-paths.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
@@ -42,7 +43,7 @@ export async function createCommand(deps: { fsFactory: (baseDir: string) => File
   
   // Create AGENTS.md template
   const agentsTemplate = buildAgentsMdTemplate(name);
-  fileSystem.writeAtomicSync('AGENTS.md', agentsTemplate);
+  fileSystem.writeAtomicSync(CLAW_SPEC_FILE, agentsTemplate);
   
   audit?.write(CLI_AUDIT_EVENTS.CLAW_CREATE, `name=${name}`);
   console.log(`✓ Created Claw "${name}"`);
