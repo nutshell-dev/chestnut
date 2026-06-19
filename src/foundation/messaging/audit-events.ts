@@ -24,6 +24,8 @@ export const MESSAGING_AUDIT_EVENTS = {
   INBOX_MARK_DONE_FAILED: 'inbox_mark_done_failed',
   INBOX_RECONCILE: 'inbox_reconcile',
   INBOX_NACK: 'inbox_nack',
+  // phase 442 (review N3-C-H1 / R2-C-N1): unaddressed inbox 文件移到 misrouted/ 隔离
+  INBOX_MISROUTED: 'inbox_misrouted',
   // phase 429 Step A (review medium): inbox body 超 cap、防 disk DoS / runaway bug
   INBOX_BODY_OVERSIZE: 'inbox_body_oversize',
   OUTBOX_SENT: 'outbox_sent',
@@ -64,6 +66,7 @@ export const MESSAGING_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   inbox_mark_done_failed: 'audit',
   inbox_reconcile: 'audit',
   inbox_nack: 'audit',
+  inbox_misrouted: 'audit',
   inbox_body_oversize: 'audit',
   outbox_sent: 'audit',
   outbox_delivered: 'audit',

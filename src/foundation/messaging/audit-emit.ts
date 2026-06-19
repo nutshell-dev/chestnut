@@ -138,6 +138,14 @@ export function emitInboxDone(
   audit.write(MESSAGING_AUDIT_EVENTS.INBOX_DONE, `file=${opts.file}`);
 }
 
+// ─── INBOX_MISROUTED (phase 442) ─────────────────────────────────────────────
+export function emitInboxMisrouted(
+  audit: AuditLog,
+  opts: { file: string },
+): void {
+  audit.write(MESSAGING_AUDIT_EVENTS.INBOX_MISROUTED, `file=${opts.file}`);
+}
+
 // ─── OUTBOX_DELIVERED ─────────────────────────────────────────────────────────
 export function emitOutboxDelivered(
   audit: AuditLog,

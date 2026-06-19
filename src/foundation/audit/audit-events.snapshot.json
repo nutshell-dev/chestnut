@@ -764,6 +764,7 @@
       "inbox_list_failed",
       "inbox_mark_done_failed",
       "inbox_meta_failed",
+      "inbox_misrouted",
       "inbox_move_failed",
       "inbox_nack",
       "inbox_peek_race_skip",

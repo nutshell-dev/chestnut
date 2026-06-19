@@ -46,12 +46,13 @@ describe('L2 factories — 行为契约', () => {
     expect(createOutboxWriter('c1', dir, fs, audit)).not.toBe(createOutboxWriter('c1', dir, fs, audit));
   });
 
-  it('createInboxReader：baseDir 透传，三子目录固定拼 pending/done/failed（结构断言）', async () => {
+  it('createInboxReader：baseDir 透传，五子目录固定拼 pending/inflight/done/failed/misrouted（结构断言）', async () => {
     const { dir, fs, audit } = mkEnv();
     const r = createInboxReader(fs, audit, 'my_inbox');
     await r.init();
     const sub = (await readdir(path.join(dir, 'my_inbox'))).sort();
-    expect(sub).toEqual(['done', 'failed', 'inflight', 'pending']);
+    // phase 442: misrouted/ 子目录加入 (review N3-C-H1 / R2-C-N1 隔离方案)
+    expect(sub).toEqual(['done', 'failed', 'inflight', 'misrouted', 'pending']);
     // 反向保障：若工厂写错（拼成 'incoming' 或遗漏某子目录），子目录集合偏离
   });
 

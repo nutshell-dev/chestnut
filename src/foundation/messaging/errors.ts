@@ -6,7 +6,7 @@ export class InboxListFailed extends Error {
   }
 }
 
-export type InboxMoveOp = 'done' | 'failed' | 'ack_done' | 'nack_pending' | 'deliver_inflight' | 'reconcile_pending';
+export type InboxMoveOp = 'done' | 'failed' | 'ack_done' | 'nack_pending' | 'deliver_inflight' | 'reconcile_pending' | 'misrouted';
 
 export class InboxMoveFailed extends Error {
   readonly code = 'INBOX_MOVE_FAILED' as const;

@@ -30,6 +30,7 @@ import {
   emitInboxListFailed,
   emitInboxMarkDoneFailed,
   emitInboxMetaFailed,
+  emitInboxMisrouted,
   emitInboxMoveFailed,
   emitInboxNack,
   emitInboxPeekRaceSkip,
@@ -70,6 +71,8 @@ export interface InboxEntry {
 
 export class InboxReader {
   private readonly inflightDir: string;
+  // phase 442: misroutedDir 隔离 to=<other_claw> 误投消息、与 done/failed 同级独立子目录
+  private readonly misroutedDir: string;
 
   constructor(
     private readonly pendingDir: string,
@@ -78,9 +81,12 @@ export class InboxReader {
     private readonly fs: FileSystem,
     private readonly audit: AuditLog,
     inflightDir?: string,
+    misroutedDir?: string,
   ) {
     // Default inflight dir derived from pending dir: pending/ → inflight/
     this.inflightDir = inflightDir ?? pendingDir.replace(/\/pending\/?$/, '/inflight');
+    // phase 442: misrouted/ 同模式推导（pending/ → misrouted/）；fallback 仍为 pendingDir 兄弟
+    this.misroutedDir = misroutedDir ?? pendingDir.replace(/\/pending\/?$/, '/misrouted');
   }
 
   /** Ensure inbox directories exist + reconcile orphaned inflight files */
@@ -89,6 +95,7 @@ export class InboxReader {
     await this.fs.ensureDir(this.doneDir);
     await this.fs.ensureDir(this.failedDir);
     await this.fs.ensureDir(this.inflightDir);
+    await this.fs.ensureDir(this.misroutedDir);  // phase 442
     await this._reconcileInflight();
   }
 
@@ -298,6 +305,34 @@ export class InboxReader {
     }
     emitInboxDone(this.audit, { file: fileName });
     emitOutboxDelivered(this.audit, { file: fileName });
+  }
+
+  /**
+   * phase 442 (review N3-C-H1 / R2-C-N1): Move inflight handle to misrouted/
+   * for `to=<other_claw>` messages.
+   *
+   * Preserves the file (vs ack→done/ which conflates with normally-processed
+   * messages), giving DP「持久化一切信息」+ DP「事后可审计」a dedicated quarantine
+   * sink. Caller (Runtime._drainAndInjectFromInbox unaddressed branch) uses this
+   * instead of ack().
+   */
+  async markMisrouted(handle: InboxHandle): Promise<void> {
+    const fileName = handle.originalFileName;
+    const uuid8 = randomUUID().slice(0, UUID_SHORT_LEN);
+    const targetPath = path.join(this.misroutedDir, `${Date.now()}_${uuid8}_${fileName}`);
+    try {
+      await this.fs.move(handle.filePath, targetPath);
+    } catch (err) {
+      const reason = formatErr(err);
+      emitInboxMoveFailed(this.audit, {
+        file: fileName,
+        op: 'misrouted',
+        errorCode: classifyErrno(err),
+        reason,
+      });
+      throw new InboxMoveFailed(handle.filePath, 'misrouted', err);
+    }
+    emitInboxMisrouted(this.audit, { file: fileName });
   }
 
   /** Negative acknowledge: move from inflight/ back to pending/ */

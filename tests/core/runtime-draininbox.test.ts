@@ -172,6 +172,7 @@ describe('Runtime DrainInbox', () => {
 
     it('messages with to: a different agent are skipped from injection', async () => {
       const doneDir = path.join(clawDir, 'inbox', 'done');
+      const misroutedDir = path.join(clawDir, 'inbox', 'misrouted');
 
       // Write two messages: one to this agent, one to a subagent
       await writePendingMsg(
@@ -189,7 +190,7 @@ describe('Runtime DrainInbox', () => {
       }]);
       (sharedRuntime as unknown as { llm: typeof mockLLM }).llm = mockLLM;
 
-      // processBatch drains inbox (2 files moved to done)
+      // processBatch drains inbox (addressed → done/, unaddressed → misrouted/ phase 442)
       await sharedRuntime.processBatch();
 
       // Only the message addressed to test-claw should be injected into LLM context
@@ -198,10 +199,12 @@ describe('Runtime DrainInbox', () => {
       expect(userMsg?.content).toContain('Message for me');
       expect(userMsg?.content).not.toContain('Message for subagent');
 
-      // Both files should be moved to done/
+      // phase 442: addressed → done/, unaddressed → misrouted/ (隔离、不混 done)
       const doneFiles = await fs.readdir(doneDir);
       expect(doneFiles.some(f => f.endsWith('for-me.md'))).toBe(true);
-      expect(doneFiles.some(f => f.endsWith('for-subagent.md'))).toBe(true);
+      expect(doneFiles.some(f => f.endsWith('for-subagent.md'))).toBe(false);
+      const misroutedFiles = await fs.readdir(misroutedDir);
+      expect(misroutedFiles.some(f => f.endsWith('for-subagent.md'))).toBe(true);
 
       // AuditLog log should show inbox_unaddressed for the subagent message
       // phase 379: mock-call assertion 替 fs.readFile(audit.tsv) + TSV parse

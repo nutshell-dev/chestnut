@@ -427,14 +427,19 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     const { addressed } = this._splitAndAuditEntries(nonReloadEntries);
     const { injected, sources } = await this._formatInjected(addressed);
 
-    // unaddressed messages are not part of this turn — ack immediately
+    // phase 442 (review N3-C-H1 / R2-C-N1): unaddressed (to=<other_claw>) 消息
+    // 移到 misrouted/ 隔离、不 ack 到 done/。文件保留 + 独立子目录 →
+    // DP「持久化一切信息」+「事后可审计」满足；转发候选违反 ML#5（runtime
+    // 探测目标 claw 存在）、应然推导排除（详 phase 442 总览）。
+    // 既有 INBOX_UNADDRESSED audit 在 _splitAndAuditEntries 内仍 emit（已识别）；
+    // 此处 markMisrouted 内 emit INBOX_MISROUTED（已移到 fs）—— 双 event 叠加。
     const addressedPaths = new Set(addressed.map(e => e.filePath));
     const unaddressedHandles = handles.filter(h => !addressedPaths.has(h.filePath));
     for (const h of unaddressedHandles) {
       try {
-        await this.inboxReader.ack(h);
+        await this.inboxReader.markMisrouted(h);
       } catch (e) {
-        // best-effort ack; audit already emitted by InboxReader
+        // best-effort; markMisrouted 内已发 INBOX_MOVE_FAILED(op=misrouted) audit
       }
     }
 
