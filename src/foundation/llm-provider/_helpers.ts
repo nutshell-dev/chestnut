@@ -23,6 +23,7 @@ import { LLMError, LLMRateLimitError, LLMAuthError, LLMModelNotFoundError } from
  */
 export async function throwHttpErrorResponse(
   provider: string,
+  model: string,
   response: Response,
 ): Promise<never> {
   const status = response.status;
@@ -37,13 +38,13 @@ export async function throwHttpErrorResponse(
   }
 
   // phase 735 step 2: 401/403/404 分类（permanent / 0 retry）
+  // phase 445: 404 用 caller 传入 model（权威源）+ errorText 作 providerMessage、
+  // 不再用 regex 反查 errorText（provider 返自然语言 "The model does not exist" 时反查抓到 "does"）
   if (status === 401 || status === 403) {
     throw new LLMAuthError(provider, status, errorText);
   }
   if (status === 404) {
-    // model 名称 derive 自 errorText（如 "model 'xxx' not found"）/ fallback 'unknown'
-    const modelMatch = errorText.match(/model\s+['"]?([\w.-]+)['"]?/i);
-    throw new LLMModelNotFoundError(provider, modelMatch?.[1] ?? 'unknown');
+    throw new LLMModelNotFoundError(provider, model, errorText);
   }
 
   if (status === 429) {

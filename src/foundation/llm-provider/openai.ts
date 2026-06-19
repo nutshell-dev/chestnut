@@ -148,7 +148,7 @@ export class OpenAIAdapter implements ProviderAdapter {
       });
 
       if (!response.ok) {
-        await throwHttpErrorResponse(this.name, response);
+        await throwHttpErrorResponse(this.name, this.model, response);
       }
 
       const data = await response.json() as OpenAIResponse;
@@ -213,7 +213,7 @@ export class OpenAIAdapter implements ProviderAdapter {
         signal: abortHandle.signal,
       });
 
-      if (!response.ok) await throwHttpErrorResponse(this.name, response);
+      if (!response.ok) await throwHttpErrorResponse(this.name, this.model, response);
 
       // 进入 stream 阶段：切换 timer 为总时长保护
       abortHandle.enterStreamPhase(STREAM_MAX_DURATION_MS);

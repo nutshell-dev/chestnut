@@ -7,7 +7,7 @@ describe('throwHttpErrorResponse', () => {
       status: 429,
       headers: { 'retry-after': '60' },
     });
-    await expect(throwHttpErrorResponse('test-provider', response))
+    await expect(throwHttpErrorResponse('test-provider', 'test-model', response))
       .rejects.toMatchObject({
         name: 'LLMRateLimitError',
         retryAfter: 60,
@@ -16,7 +16,7 @@ describe('throwHttpErrorResponse', () => {
 
   it('throws LLMRateLimitError on 429 with no retry-after', async () => {
     const response = new Response('{"error":{"message":"rate limited"}}', { status: 429 });
-    await expect(throwHttpErrorResponse('test-provider', response))
+    await expect(throwHttpErrorResponse('test-provider', 'test-model', response))
       .rejects.toMatchObject({
         name: 'LLMRateLimitError',
         retryAfter: undefined,
@@ -25,20 +25,42 @@ describe('throwHttpErrorResponse', () => {
 
   it('throws LLMError "server error" on 500', async () => {
     const response = new Response('{"error":{"message":"oops"}}', { status: 503 });
-    await expect(throwHttpErrorResponse('test-provider', response))
+    await expect(throwHttpErrorResponse('test-provider', 'test-model', response))
       .rejects.toThrow(/Provider test-provider server error \(503\): oops/);
   });
 
   it('throws LLMError generic on 4xx (non-429)', async () => {
     const response = new Response('{"error":{"message":"bad request"}}', { status: 400 });
-    await expect(throwHttpErrorResponse('test-provider', response))
+    await expect(throwHttpErrorResponse('test-provider', 'test-model', response))
       .rejects.toThrow(/Provider test-provider error \(400\): bad request/);
   });
 
   it('falls back to text() if JSON parse fails', async () => {
     const response = new Response('plain text error', { status: 500 });
-    await expect(throwHttpErrorResponse('test-provider', response))
+    await expect(throwHttpErrorResponse('test-provider', 'test-model', response))
       .rejects.toThrow(/Provider test-provider server error \(500\): plain text error/);
+  });
+
+  // phase 445: 404 用 caller 传入 model（权威源）、不再 regex 反查 errorText
+  it('404 with natural-language body uses caller-supplied model name (not regex-extracted)', async () => {
+    const response = new Response(
+      '{"error":{"message":"The model does not exist or you do not have access"}}',
+      { status: 404 },
+    );
+    await expect(throwHttpErrorResponse('custom-anthropic', 'glm5.2', response))
+      .rejects.toMatchObject({
+        name: 'LLMModelNotFoundError',
+        message: expect.stringContaining('rejected model "glm5.2"'),
+      });
+  });
+
+  it('404 attaches provider response snippet to error message', async () => {
+    const response = new Response(
+      '{"error":{"message":"The model does not exist"}}',
+      { status: 404 },
+    );
+    await expect(throwHttpErrorResponse('custom-anthropic', 'glm5.2', response))
+      .rejects.toThrow(/Provider response: The model does not exist/);
   });
 });
 

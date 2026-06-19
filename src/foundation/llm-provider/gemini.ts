@@ -102,7 +102,7 @@ export class GeminiAdapter implements ProviderAdapter {
           signal: abortHandle.signal,
         }
       );
-      if (!response.ok) await throwHttpErrorResponse(this.name, response);
+      if (!response.ok) await throwHttpErrorResponse(this.name, this.model, response);
       const data = await response.json() as GeminiResponse & { error?: { message: string } };
       if (data.error) throw new LLMError(`Gemini API error: ${data.error.message}`, { provider: this.name });
       return parseGeminiResponse(data);
@@ -136,7 +136,7 @@ export class GeminiAdapter implements ProviderAdapter {
           signal: abortHandle.signal,
         }
       );
-      if (!response.ok) await throwHttpErrorResponse(this.name, response);
+      if (!response.ok) await throwHttpErrorResponse(this.name, this.model, response);
       // 进入 stream 阶段：切换 timer 为总时长保护
       abortHandle.enterStreamPhase(STREAM_MAX_DURATION_MS);
       const idleTimeoutMs = Math.min(timeout, STREAM_IDLE_MAX_MS);

@@ -74,10 +74,11 @@ export class LLMEmptyResponseError extends LLMError {
 
 export class LLMModelNotFoundError extends LLMError {
   readonly code: ErrorCode = 'LLM_MODEL_NOT_FOUND';
-  constructor(provider: string, model: string) {
-    super(
-      `LLM model not found: ${provider}/${model} (HTTP 404)`,
-      { provider, model },
-    );
+  constructor(provider: string, model: string, providerMessage?: string) {
+    const base = `LLM model not found: provider "${provider}" rejected model "${model}" (HTTP 404)`;
+    const detail = providerMessage
+      ? `\nProvider response: ${providerMessage.slice(0, 200)}`
+      : '';
+    super(base + detail, { provider, model, providerMessage });
   }
 }

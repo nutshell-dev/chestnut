@@ -29,7 +29,7 @@ export function classifyLLMError(err: unknown): LLMErrorType {
 
 export const LLM_ERROR_LABELS: Record<LLMErrorType, string> = {
   auth: 'API key invalid or unauthorized',
-  model: 'Model not found or unavailable',
+  model: 'Model not found or unavailable (check that model name matches provider docs exactly)',
   network: 'Network error — could not reach provider',
   rate_limit: 'Rate limit or quota exceeded',
   unknown: 'Unknown error',
