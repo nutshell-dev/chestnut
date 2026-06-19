@@ -21,6 +21,7 @@ import noSilentXWithoutAllowedPattern from './eslint-rules/no-silent-x-without-a
 import noRuntimeCurrentStateGetter from './eslint-rules/no-runtime-current-state-getter.js';
 import noClawsEnumerationFanout from './eslint-rules/no-claws-enumeration-fanout.js';
 import noDirectNewNodeFileSystem from './eslint-rules/no-direct-new-nodefilesystem.js';
+import noClawBusinessLiteral from './eslint-rules/no-claw-business-literal.js';
 
 /** @type {import('eslint').Linter.Config[]} */
 export default [
@@ -59,6 +60,7 @@ export default [
           'no-runtime-current-state-getter': noRuntimeCurrentStateGetter,
           'no-claws-enumeration-fanout': noClawsEnumerationFanout,
           'no-direct-new-nodefilesystem': noDirectNewNodeFileSystem,
+          'no-claw-business-literal': noClawBusinessLiteral,
         },
       },
     },
@@ -87,6 +89,7 @@ export default [
       'chestnut-custom/no-runtime-current-state-getter': 'error',
       'chestnut-custom/no-claws-enumeration-fanout': 'error',
       'chestnut-custom/no-direct-new-nodefilesystem': 'error',
+      'chestnut-custom/no-claw-business-literal': 'error',
     },
   },
 ];
