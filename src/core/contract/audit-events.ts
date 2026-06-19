@@ -43,6 +43,10 @@ export const CONTRACT_AUDIT_EVENTS = {
   // phase345: caller 风格统一并轨（B.p344-1 / contract lifecycle events）
   PASSED: 'verification_passed',
   CANCELLED: 'contract_cancelled',
+  // phase 422 Step C (review medium audit-emit-implies-no-write): cancelContract
+  // 半态留痕 — saveProgress 已写 'cancelled' 但 fs.move 失败、source 含 cancelled
+  // progress、target dir 缺/半成。
+  CANCEL_PARTIAL_FAILED: 'contract_cancel_partial_failed',
   CRASHED: 'contract_crashed',                  // phase 63 NEW
   COMPLETED: 'contract_completed',
   PAUSED: 'contract_paused',

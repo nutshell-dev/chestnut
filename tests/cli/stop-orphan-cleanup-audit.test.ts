@@ -23,6 +23,7 @@ const mockAuditState = vi.hoisted(() => {
 });
 
 const mockKill = vi.hoisted(() => vi.fn());
+const mockIsPidArgvMatching = vi.hoisted(() => vi.fn().mockReturnValue(true));
 const mockFindProcesses = vi.hoisted(() => vi.fn().mockReturnValue([99991, 99992]));
 const mockCreateSystemAudit = vi.hoisted(() => vi.fn(() => ({
   write: mockAuditState.write,
@@ -119,7 +120,7 @@ describe('stop — orphan cleanup silent → audit (P1.4)', () => {
       summary: (s: string) => s,
     });
 
-    await stopAllCommand({ fsFactory }, { kill: mockKill });
+    await stopAllCommand({ fsFactory }, { kill: mockKill, isPidArgvMatching: mockIsPidArgvMatching });
 
     const sigtermEvents = mockAuditState.events.filter(e => e[0] === 'orphan_sigterm_failed');
     expect(sigtermEvents).toHaveLength(2);
@@ -148,7 +149,7 @@ describe('stop — orphan cleanup silent → audit (P1.4)', () => {
     });
     mockCreateSystemAudit.mockReturnValue({ write: mockAuditState.write });
 
-    await stopAllCommand({ fsFactory }, { kill: mockKill });
+    await stopAllCommand({ fsFactory }, { kill: mockKill, isPidArgvMatching: mockIsPidArgvMatching });
 
     const listFailedEvents = mockAuditState.events.filter(e => e[0] === 'process_list_failed');
     expect(listFailedEvents).toHaveLength(1);

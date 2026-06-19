@@ -172,6 +172,15 @@ export async function cancelContract(
     // (4) move whole dir
     await ctx.fs.move(`${dir}/${contractId}`, `${ctx.archiveDir}/${contractId}`);
   } catch (err) {
+    // phase 422 Step C (review medium audit-emit-implies-no-write): saveProgress
+    // 已写 'cancelled' 到 source dir、fs.move 失败 → 半态 (source 含 cancelled
+    // progress、target dir 缺/半成)。emit audit 留痕、boot reconcile / 运维可追。
+    ctx.audit.write(
+      CONTRACT_AUDIT_EVENTS.CANCEL_PARTIAL_FAILED,
+      `contract_id=${contractId}`,
+      `reason=${reason}`,
+      `error=${formatErr(err)}`,
+    );
     try { await releaseSource(); } catch { /* audit emit + 不阻断 throw chain */ }
     throw err;
   } finally {

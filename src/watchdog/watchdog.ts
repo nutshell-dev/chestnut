@@ -18,7 +18,7 @@
  * 本 file 保：runWatchdogLoop（main loop）+ shutdownWatchdog（graceful stop）+ barrel re-export
  */
 
-import { makeChestnutRoot } from '../foundation/install-paths.js';
+import { getWorkspaceRoot } from '../foundation/install-paths.js';
 import * as path from 'path';
 import { formatErr } from "../foundation/utils/index.js";
 import { setTimeout } from 'timers/promises';
@@ -37,7 +37,7 @@ import { DAEMON_LOG } from '../daemon/constants.js';
 
 
 import {
-  getChestnutDir, getChestnutFs, getGlobalConfig, setAuditWriter,
+  getChestnutFs, getGlobalConfig, setAuditWriter,
 } from './watchdog-context.js';
 import {
   writeWatchdogPid, removeWatchdogPid,
@@ -154,12 +154,14 @@ async function restartMotionIfDown(
       logWithAudit(fsFactory, msg, WATCHDOG_AUDIT_EVENTS.CLEANUP_FAILED, audit.message(msg));
     });
     const daemonEntryPath = resolveDaemonEntry(fsFactory(process.cwd()));
-    const chestnutRoot = makeChestnutRoot(getChestnutDir());
     const pid = await pm.spawn(MOTION_CLAW_ID, {
       command: 'node',
       args: [daemonEntryPath, MOTION_CLAW_ID],
       logFile: path.join(getNamedSubrootDir('motion'), DAEMON_LOG),
-      env: { ...process.env, CHESTNUT_ROOT: path.dirname(chestnutRoot) } as Record<string, string | undefined>,
+      // phase 422 Step B (review medium orphan-cleanup uniformity): 与 motion.ts:209
+      // / start.ts / claw-chat (phase 398 N1) 全 CLI 入口对齐、不绕
+      // makeChestnutRoot/path.dirname。
+      env: { ...process.env, CHESTNUT_ROOT: getWorkspaceRoot() } as Record<string, string | undefined>,
     });
     log(fsFactory, `[watchdog] motion restarted (PID=${pid})`);
     audit.write(PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_SPAWNED, MOTION_CLAW_ID, `pid=${pid}`);

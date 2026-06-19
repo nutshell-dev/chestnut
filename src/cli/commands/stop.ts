@@ -12,7 +12,7 @@ import { getChestnutFs, getGlobalConfig, setAuditWriter as setWatchdogAuditWrite
 import { stopCommand as watchdogStop } from '../../watchdog/watchdog.js';
 import { stopCommand as motionStop } from './motion.js';
 import { ProcessListUnavailable } from '../../foundation/process-manager/index.js';
-import { kill } from '../../foundation/process-exec/index.js';
+import { kill, isPidArgvMatching } from '../../foundation/process-exec/index.js';
 import { createSystemAudit, type AuditLog } from '../../foundation/audit/index.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from '../../foundation/process-manager/audit-events.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
@@ -25,7 +25,7 @@ import { CliError } from '../errors.js';
 
 export async function stopAllCommand(
   deps: { fsFactory: (baseDir: string) => FileSystem },
-  extraDeps?: { audit?: AuditLog; kill?: typeof kill },
+  extraDeps?: { audit?: AuditLog; kill?: typeof kill; isPidArgvMatching?: typeof isPidArgvMatching },
 ): Promise<void> {
   loadGlobalConfig(deps);
 
@@ -146,7 +146,20 @@ export async function stopAllCommand(
     if (pids.length > 0) {
       console.log(`Cleaning up ${pids.length} orphan daemon process(es)...`);
       const killFn = extraDeps?.kill ?? kill;
-    for (const p of pids) {
+      const isPidArgvMatchingFn = extraDeps?.isPidArgvMatching ?? isPidArgvMatching;
+      for (const p of pids) {
+        // phase 422 Step A (review medium orphan-cleanup uniformity): SIGTERM 前
+        // 二次 argv-verify、防 findProcesses → kill 间 PID race window 误杀
+        // shell/editor。mirror orphan-sweep.ts:74,101 pattern。
+        if (!isPidArgvMatchingFn(p, daemonEntryPath)) {
+          audit?.write(
+            PROCESS_MANAGER_AUDIT_EVENTS.ORPHAN_SIGTERM_FAILED,
+            `pid=${p}`,
+            `context=stop_all_orphan_cleanup`,
+            `reason=argv_verify_failed`,
+          );
+          continue;
+        }
         try {
           killFn(p, 'TERM');
         } catch (err) {
