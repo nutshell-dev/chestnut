@@ -12,7 +12,7 @@
  */
 import { createServer, connect, type Server, type Socket } from 'node:net';
 import { formatErr, clipText } from "../utils/index.js";
-import * as path from 'path';
+// phase 398 Step B (review N5): path import removed — basename wrapper deleted, no other uses
 import { randomUUID } from 'node:crypto';
 import type { FileSystem } from '../fs/types.js';
 import { isFileNotFound } from '../fs/types.js';
@@ -90,7 +90,9 @@ export class UnixDomainSocketTransport implements Transport {
         // ECONNREFUSED = socket file 存在但无进程 listen → stale。
         // ENOENT = 文件已不在 → race 良性、走 unlink ENOENT silent 分支即可。
         if (err.code === 'ECONNREFUSED' || err.code === 'ENOENT' || err.code === 'ENOTSOCK') {
-          this.deps.fs.delete(path.basename(this.socketPath!)).then(
+          // phase 398 Step B (review N5): socketPath 是完整路径（listen 时存）;
+          // path.basename 剥成纯文件名给 fs.delete → fs scope root 找文件错位。
+          this.deps.fs.delete(this.socketPath!).then(
             () => resolve(),
             (err: unknown) => {
               // ENOENT 例外 silent：文件已不在 = race 良性
@@ -294,7 +296,8 @@ export class UnixDomainSocketTransport implements Transport {
     await new Promise<void>((resolve) => server.close(() => resolve()));
     if (this.socketPath) {
       try {
-        await this.deps.fs.delete(path.basename(this.socketPath));
+        // phase 398 Step B (review N5): 完整路径、同 probeAndCleanStale。
+        await this.deps.fs.delete(this.socketPath);
       } catch {
         // silent: socket file may already be cleaned up by OS or prior close
       }
