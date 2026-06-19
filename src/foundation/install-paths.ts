@@ -13,6 +13,12 @@
 
 import * as path from 'path';
 
+/**
+ * Config YAML filename (per-claw + global config 同名).
+ * phase 390: 抽 4 site inline 'config.yaml' literal 为 const (M#1 + ML#9)。
+ */
+export const CONFIG_YAML_FILE = 'config.yaml' as const;
+
 /** Workspace root — prefers CHESTNUT_ROOT env var (inherited by exec child processes). */
 export function getWorkspaceRoot(): string {
   return process.env.CHESTNUT_ROOT ?? process.cwd();
@@ -57,7 +63,7 @@ export function getClawDir(name: string): string {
 }
 
 export function getClawConfigPath(name: string): string {
-  return path.join(getClawDir(name), 'config.yaml');
+  return path.join(getClawDir(name), CONFIG_YAML_FILE);
 }
 
 // ============================================================================

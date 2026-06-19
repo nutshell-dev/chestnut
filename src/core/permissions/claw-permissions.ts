@@ -35,6 +35,7 @@ import {
   TASKS_SUBAGENTS_DIR,
 } from '../async-task-system/index.js';
 import { CLAWSPACE_DIR } from '../../foundation/claw-paths.js';
+import { CONFIG_YAML_FILE } from '../../foundation/install-paths.js';
 import type { PermissionChecker } from '../../foundation/tool-protocol/permission.js';
 export type { PermissionChecker } from '../../foundation/tool-protocol/permission.js';
 
@@ -45,7 +46,7 @@ export type { PermissionChecker } from '../../foundation/tool-protocol/permissio
 const SYSTEM_PATHS = [
   'AGENTS.md',
   'dialog',
-  'config.yaml',
+  CONFIG_YAML_FILE,
   '.chestnut',
   'system',
 ];

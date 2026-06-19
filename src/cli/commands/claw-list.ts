@@ -11,6 +11,7 @@ import { createProcessManagerForCLI } from '../../foundation/process-manager/ind
 import { makeClawId } from '../../constants.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { CONTRACT_DIR, CONTRACT_ARCHIVE_DIR, CONTRACT_YAML_FILE } from '../../core/contract/index.js';
+import { CONFIG_YAML_FILE } from '../../foundation/install-paths.js';
 import { CLAWS_DIR } from '../../foundation/claw-paths.js';
 import { getLastActiveMs } from './claw-shared.js';
 import { handleCliError } from '../errors.js';
@@ -109,7 +110,7 @@ export async function listCommand(deps: { fsFactory: (baseDir: string) => FileSy
 
     for (const entry of entries) {
       const clawFs = deps.fsFactory(path.join(clawsDir, entry));
-      if (clawFs.existsSync('config.yaml')) {
+      if (clawFs.existsSync(CONFIG_YAML_FILE)) {
         const isRunning = processManager.isAlive(makeClawId(entry));
         let pid: number | undefined;
 

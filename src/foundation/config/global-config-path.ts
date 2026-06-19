@@ -9,9 +9,9 @@
  * getWorkspaceRoot（chestnut 安装根原语）保 paths.ts、phase 74 cluster 处理。
  */
 
-import { getWorkspaceRoot } from '../install-paths.js';
+import { getWorkspaceRoot, CONFIG_YAML_FILE } from '../install-paths.js';
 import * as path from 'path';
 
 export function getGlobalConfigPath(): string {
-  return path.join(getWorkspaceRoot(), '.chestnut', 'config.yaml');
+  return path.join(getWorkspaceRoot(), '.chestnut', CONFIG_YAML_FILE);
 }
