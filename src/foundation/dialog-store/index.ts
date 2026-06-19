@@ -15,7 +15,7 @@ export type { PerformRegimeSwitchOpts } from './regime-switch.js';
 
 // phase 1432 F6: dirs path const re-export — 跨模块 (cli) 路径合成走 barrel。
 // allowlist: assembly/assemble.ts (装配根 bootstrap by-design)。
-export { DIALOG_DIR, DIALOG_ARCHIVE_DIR } from './dirs.js';
+export { DIALOG_DIR, DIALOG_ARCHIVE_DIR, CURRENT_DIALOG_FILE } from './dirs.js';
 
 // phase 147 Step B: lookup helper + 4 级降级路径
 export {

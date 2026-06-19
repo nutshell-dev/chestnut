@@ -7,7 +7,7 @@ import { callerTypeToProfile } from '../caller-types.js';
 
 import type { ToolRegistry } from '../../foundation/tools/index.js';
 import { runSubagent as defaultRunSubagent, NoopAuditWriter, createPerTaskRegistry, DONE_TOOL_NAME, getDisplayResult } from '../subagent/index.js';
-import { createDialogStore } from '../../foundation/dialog-store/index.js';
+import { createDialogStore, CURRENT_DIALOG_FILE } from '../../foundation/dialog-store/index.js';
 
 import { STREAM_TASK_EVENTS } from './stream-events.js';
 import { formatErr, classifyTaskError } from './_helpers.js';
@@ -128,7 +128,7 @@ export async function executeSubAgentTask(
           fs,
           task.motionClawDir,
           new NoopAuditWriter(),  // ask_motion 不 own motion audit
-          'current.json',
+          CURRENT_DIALOG_FILE,
         );
         const askMotion = deps.askMotionToolFactory(llm, motionDialogStore);
         r.register(askMotion);

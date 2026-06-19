@@ -13,6 +13,7 @@ import type { AuditLog } from '../audit/index.js';
 import type { Message } from '../llm-provider/types.js';
 import type { SessionData, DialogMarker, RestoreResult } from './types.js';
 import { MarkerNotFoundError, detectAndMigrateVersion, validateSessionData } from './validate.js';
+import { CURRENT_DIALOG_FILE } from './dirs.js';
 import { DIALOG_AUDIT_EVENTS } from './audit-events.js';
 import { formatErr } from '../utils/index.js';
 
@@ -38,7 +39,7 @@ export async function restoreMessages(
   try {
     const content = await fs.read(currentPath);
     const parsed = JSON.parse(content) as Partial<SessionData>;
-    const detected = detectAndMigrateVersion(parsed, 'current.json', audit);
+    const detected = detectAndMigrateVersion(parsed, CURRENT_DIALOG_FILE, audit);
     if (detected === null) {
       // version unknown — treat as corrupted and fall through to archive
       throw new Error('session version unknown');

@@ -6,7 +6,7 @@
 import { getClawDir, getNamedSubrootDir } from '../../foundation/install-paths.js';
 import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/types.js';
-import { DIALOG_DIR } from '../../foundation/dialog-store/index.js';
+import { DIALOG_DIR, CURRENT_DIALOG_FILE } from '../../foundation/dialog-store/index.js';
 import { MOTION_CLAW_ID } from '../../constants.js';
 import { CliError } from '../errors.js';
 import {
@@ -25,7 +25,7 @@ function resolveDialogPath(deps: { fsFactory: (baseDir: string) => FileSystem },
         : `Claw "${name}" does not exist`,
     );
   }
-  return path.join(baseDir, DIALOG_DIR, 'current.json');
+  return path.join(baseDir, DIALOG_DIR, CURRENT_DIALOG_FILE);
 }
 
 export async function clawStepsCommand(deps: { fsFactory: (baseDir: string) => FileSystem }, name: string, opts: { noHint?: boolean } = {}): Promise<void> {

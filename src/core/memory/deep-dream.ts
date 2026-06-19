@@ -9,7 +9,7 @@ import type { Message, ContentBlock, TextBlock, LLMResponse } from '../../founda
 import { notifyInbox } from '../../foundation/messaging/index.js';
 import { estimateTextTokens } from '../../foundation/llm-provider/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
-import { DialogStore, DIALOG_DIR } from '../../foundation/dialog-store/index.js';
+import { DialogStore, DIALOG_DIR, CURRENT_DIALOG_FILE } from '../../foundation/dialog-store/index.js';
 import type { SessionData } from '../../foundation/dialog-store/types.js';
 import { CLAWS_DIR } from '../../foundation/claw-paths.js';
 import { INBOX_PENDING_DIR } from '../../foundation/messaging/index.js';
@@ -147,7 +147,7 @@ function saveDreamState(
 // ─── 文件发现 ─────────────────────────────────────────────────
 
 interface SessionFile {
-  filename: string;       // 用于 state 追踪（archive）或 'current.json'
+  filename: string;       // 用于 state 追踪（archive）或 CURRENT_DIALOG_FILE
   tsMs: number;           // 时间戳，用于排序
 }
 
@@ -168,7 +168,7 @@ async function discoverUnprocessed(dialogStore: DialogStore, state: DreamStateDa
     state.currentSessionDreamedDate !== today &&
     await dialogStore.hasCurrent()
   ) {
-    files.push({ filename: 'current.json', tsMs: Date.now() });
+    files.push({ filename: CURRENT_DIALOG_FILE, tsMs: Date.now() });
   }
 
   // 按时间戳升序，current.json 因为 tsMs=Date.now() 天然排在最后
@@ -221,7 +221,7 @@ interface DreamRunPlan {
 async function prepareDeepDreamRun(ctx: DreamRunContext): Promise<DreamRunPlan | null> {
   const today = new Date().toLocaleDateString('sv');
   const state = loadDreamState(ctx.clawFs, ctx.audit, ctx.clawId);
-  const dialogStore = new DialogStore(ctx.clawFs, DIALOG_DIR, ctx.audit, 'current.json', ctx.clawId);
+  const dialogStore = new DialogStore(ctx.clawFs, DIALOG_DIR, ctx.audit, CURRENT_DIALOG_FILE, ctx.clawId);
   const sessionFiles = await discoverUnprocessed(dialogStore, state, today);
   if (sessionFiles.length === 0) {
     ctx.audit.write(MEMORY_AUDIT_EVENTS.DEEP_DREAM_JOB, `step=skip_empty`, `clawId=${ctx.clawId}`);
@@ -240,7 +240,7 @@ async function processSession(
 ): Promise<string[]> {
   let sessionData: SessionData;
   try {
-    if (sf.filename === 'current.json') {
+    if (sf.filename === CURRENT_DIALOG_FILE) {
       const result = await plan.dialogStore.load();
       if (result.source !== 'current') return compressions;
       sessionData = result.session;
@@ -254,7 +254,7 @@ async function processSession(
       `file=${sf.filename}`,
       `reason=${formatErr(err)}`,
     );
-    if (sf.filename !== 'current.json') {
+    if (sf.filename !== CURRENT_DIALOG_FILE) {
       plan.state.lastProcessedDeepDreamAt = Math.max(plan.state.lastProcessedDeepDreamAt, sf.tsMs);
       return compressions;
     }
@@ -273,7 +273,7 @@ async function processSession(
 
   const sessionText = serializeSession(sessionData.messages ?? []);
   if (!sessionText.trim()) {
-    if (sf.filename !== 'current.json') plan.state.lastProcessedDeepDreamAt = Math.max(plan.state.lastProcessedDeepDreamAt, sf.tsMs);
+    if (sf.filename !== CURRENT_DIALOG_FILE) plan.state.lastProcessedDeepDreamAt = Math.max(plan.state.lastProcessedDeepDreamAt, sf.tsMs);
     return compressions;
   }
 
@@ -308,7 +308,7 @@ async function processSession(
   compressions.push(compression);
   const merged = await maybeMergeCompressions(compressions, ctx.maxCompressionTokens, ctx.llm, ctx.signal);
 
-  if (sf.filename !== 'current.json') {
+  if (sf.filename !== CURRENT_DIALOG_FILE) {
     plan.state.lastProcessedDeepDreamAt = Math.max(plan.state.lastProcessedDeepDreamAt, sf.tsMs);
   }
   return merged;
@@ -319,7 +319,7 @@ async function persistDreamRun(
   plan: DreamRunPlan,
   dreamOutputs: string[],
 ): Promise<void> {
-  const currentProcessedToday = plan.sessionFiles.some(f => f.filename === 'current.json');
+  const currentProcessedToday = plan.sessionFiles.some(f => f.filename === CURRENT_DIALOG_FILE);
   // state 已在 processSession 中 mutate，只需保存当前值
   const updatedState: DreamStateData = {
     lastProcessedDeepDreamAt: plan.state.lastProcessedDeepDreamAt,

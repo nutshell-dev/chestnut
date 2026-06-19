@@ -12,7 +12,7 @@ import { loadGlobalConfig, clawExists } from '../../assembly/config-load.js';
 import { getClawDir, getClawConfigPath } from '../../foundation/config/index.js';
 import { CliError } from '../errors.js';
 import { CONTRACT_DIR, CONTRACT_ARCHIVE_DIR, PROGRESS_FILE, CONTRACT_YAML_FILE } from '../../core/contract/index.js';
-import { DIALOG_DIR, DIALOG_ARCHIVE_DIR } from '../../foundation/dialog-store/index.js';
+import { DIALOG_DIR, DIALOG_ARCHIVE_DIR, CURRENT_DIALOG_FILE } from '../../foundation/dialog-store/index.js';
 import { migrateAndValidateSession, validateSessionData } from '../../foundation/dialog-store/store.js';
 import type { ContractId } from '../../core/contract/types.js';
 
@@ -386,7 +386,7 @@ async function showStepDetail(
     }
   } catch { /* silent: no archive dir */ }
 
-  const currentRelPath = path.join(DIALOG_DIR, 'current.json');
+  const currentRelPath = path.join(DIALOG_DIR, CURRENT_DIALOG_FILE);
   try {
     const stat = await fileSystem.stat(currentRelPath);
     dialogFiles.push({ relPath: currentRelPath, mtime: stat.mtime.getTime() });

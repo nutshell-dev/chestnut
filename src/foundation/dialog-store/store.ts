@@ -25,6 +25,7 @@ import { randomUUID } from 'crypto';
 import { UUID_SHORT_LEN } from '../../constants.js';
 
 import { detectAndMigrateVersion, validateSessionData } from './validate.js';
+import { CURRENT_DIALOG_FILE } from './dirs.js';
 import { repairMessages } from './repair.js';
 import { restoreMessages } from './restore.js';
 import { assertDialogShapeInvariants } from './invariants.js';
@@ -92,7 +93,7 @@ export class DialogStore {
     try {
       const content = await this.fs.read(this.currentPath);
       const parsed = JSON.parse(content) as Partial<SessionData>;
-      const detected = detectAndMigrateVersion(parsed, 'current.json', this.audit);
+      const detected = detectAndMigrateVersion(parsed, CURRENT_DIALOG_FILE, this.audit);
       if (detected === null) {
         this.audit.write(DIALOG_AUDIT_EVENTS.CORRUPTED, 'file=current.json', `reason=version_unknown`);
         throw new Error('session version unknown');
