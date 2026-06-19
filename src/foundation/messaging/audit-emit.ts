@@ -31,6 +31,22 @@ export function emitInboxWriteFailed(
   audit.write(MESSAGING_AUDIT_EVENTS.INBOX_WRITE_FAILED, `file=${opts.file}`, `to=${opts.to ?? 'broadcast'}`, `reason=${opts.reason}`);
 }
 
+// ─── INBOX_BODY_OVERSIZE ──────────────────────────────────────────────────────
+// phase 429 Step A (review medium): inbox body 超 cap、emit + caller 收 throw
+export function emitInboxBodyOversize(
+  audit: AuditLog,
+  opts: { source: string; to?: string; type: string; bodySize: number; cap: number },
+): void {
+  audit.write(
+    MESSAGING_AUDIT_EVENTS.INBOX_BODY_OVERSIZE,
+    `source=${opts.source}`,
+    `to=${opts.to ?? 'broadcast'}`,
+    `type=${opts.type}`,
+    `body_size=${opts.bodySize}`,
+    `cap=${opts.cap}`,
+  );
+}
+
 // ─── INBOX_LIST_FAILED ────────────────────────────────────────────────────────
 export function emitInboxListFailed(
   audit: AuditLog,

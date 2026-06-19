@@ -756,6 +756,7 @@
       "llm_provider_tool_result_orphan_id"
     ],
     "foundation_messaging_audit-events": [
+      "inbox_body_oversize",
       "inbox_deduped",
       "inbox_done",
       "inbox_failed",

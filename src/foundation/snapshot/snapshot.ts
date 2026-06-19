@@ -325,7 +325,9 @@ export class Snapshot {
         return ok(undefined);
       }
       await this.git(['add', '.']);
-      await this.git(['commit', '-m', message]);
+      // phase 429 Step C (review low defensive): -- 声明 end-of-options、message 含
+      // '-' 开头时 git parser 绝不会 mis-treat (defense in depth、当前 -m 已消费 message)
+      await this.git(['commit', '-m', message, '--']);
       this._lastCommitMs = Date.now();
       this.state = onCommitSuccess();
       await tryClearPersist(this.fs, this.dir, this.audit);

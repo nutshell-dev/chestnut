@@ -24,6 +24,8 @@ export const MESSAGING_AUDIT_EVENTS = {
   INBOX_MARK_DONE_FAILED: 'inbox_mark_done_failed',
   INBOX_RECONCILE: 'inbox_reconcile',
   INBOX_NACK: 'inbox_nack',
+  // phase 429 Step A (review medium): inbox body 超 cap、防 disk DoS / runaway bug
+  INBOX_BODY_OVERSIZE: 'inbox_body_oversize',
   OUTBOX_SENT: 'outbox_sent',
   OUTBOX_DELIVERED: 'outbox_delivered',
   OUTBOX_SEND_FAILED: 'outbox_send_failed',
@@ -60,6 +62,7 @@ export const MESSAGING_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   inbox_mark_done_failed: 'audit',
   inbox_reconcile: 'audit',
   inbox_nack: 'audit',
+  inbox_body_oversize: 'audit',
   outbox_sent: 'audit',
   outbox_delivered: 'audit',
   outbox_send_failed: 'audit',

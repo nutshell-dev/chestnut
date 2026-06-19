@@ -15,12 +15,24 @@ import type { AuditLog } from '../audit/index.js';
 import {
   emitInboxWriteFailed,
   emitInboxWritten,
+  emitInboxBodyOversize,
 } from './audit-emit.js';
 import { assertMessageShape } from './invariants.js';
 import { SequenceCounter, formatSeq } from './sequence-counter.js';
 import { ok, err as errResult, type Result } from '../utils/index.js';
 import type { InboxMetaError } from './errors.js';
 import { isFileNotFound } from '../fs/types.js';
+
+// phase 429 Step A (review medium): inbox message body 硬上限、防 disk DoS / runaway bug
+// Derivation: 64 KiB = 65536 byte / 覆盖典型 inbox use case (大多 < 4KB) / LLM-generated
+// 长 review feedback 余量 / env CHESTNUT_INBOX_BODY_MAX_BYTES 覆盖.
+const INBOX_BODY_MAX_BYTES_DEFAULT = 64 * 1024;
+function getInboxBodyMaxBytes(): number {
+  const raw = process.env.CHESTNUT_INBOX_BODY_MAX_BYTES;
+  if (!raw) return INBOX_BODY_MAX_BYTES_DEFAULT;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : INBOX_BODY_MAX_BYTES_DEFAULT;
+}
 
 export type InboxMessageMeta = Record<string, string>;
 
@@ -103,6 +115,19 @@ export class InboxWriter {
 
   /** sync 写，供 task/system 同步路径使用 */
   writeSync(opts: InboxMessageOptionsBase): void {
+    // phase 429 Step A (review medium): inbox body 硬上限、防 disk DoS / runaway bug
+    const bodySize = Buffer.byteLength(opts.body, 'utf-8');
+    const maxBytes = getInboxBodyMaxBytes();
+    if (bodySize > maxBytes) {
+      emitInboxBodyOversize(this.audit, {
+        source: opts.source,
+        to: opts.to,
+        type: opts.type,
+        bodySize,
+        cap: maxBytes,
+      });
+      throw new Error(`Inbox body size ${bodySize} bytes exceeds cap ${maxBytes} (env CHESTNUT_INBOX_BODY_MAX_BYTES to override)`);
+    }
     const now = new Date();
     const priority = opts.priority ?? 'normal';
     const timestamp = String(now.getTime()).padStart(15, '0');
