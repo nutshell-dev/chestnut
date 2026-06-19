@@ -107,9 +107,15 @@ async function ensureDir(deps: { fsFactory: (baseDir: string) => FileSystem }, d
 async function writeTemplate(deps: { fsFactory: (baseDir: string) => FileSystem }, filePath: string, content: string): Promise<boolean> {
   const fs = deps.fsFactory(path.dirname(filePath));
   const relPath = path.basename(filePath);
-  if (await fs.exists(relPath)) return false;
-  await fs.writeAtomic(relPath, content);
-  return true;
+  try {
+    // phase 446 (review N3-H1): 单 O_EXCL syscall 消除原 exists + writeAtomic TOCTOU；
+    // 防并发 motion init 或外部修改在窗口内创建后被覆盖（SOUL.md/USER.md 用户数据保护）。
+    await fs.writeExclusive(relPath, content);
+    return true;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'EEXIST') return false;
+    throw err;
+  }
 }
 
 /**

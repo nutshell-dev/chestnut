@@ -371,6 +371,8 @@ export async function initCommand(deps: { fsFactory: (baseDir: string) => FileSy
     }
 
   } catch (error) {
+    // phase 446 (review N3-H2): 内部已是 CliError 时直接重抛、不双包污染原文案
+    if (error instanceof CliError) throw error;
     throw new CliError(`Init failed: ${formatErr(error)}`);
   } finally {
     rl.close();

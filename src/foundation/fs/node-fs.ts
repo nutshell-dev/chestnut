@@ -377,6 +377,23 @@ export class NodeFileSystem implements FileSystem {
     }
   }
 
+  async writeExclusive(relativePath: string, content: string): Promise<void> {
+    const absolute = this.resolveAndCheck(relativePath);
+    const dir = path.dirname(absolute);
+    await fs.mkdir(dir, { recursive: true });  // phase 446: 对称 writeExclusiveSync L366
+    // 'wx' = write + exclusive, throws EEXIST if file exists
+    const fh = await fs.open(absolute, 'wx');
+    try {
+      if (content) {
+        await fh.writeFile(content, { encoding: 'utf-8' });
+      }
+      // fsync for durability、对称 writeExclusiveSync L374
+      await fh.sync();
+    } finally {
+      await fh.close();
+    }
+  }
+
   readSync(relativePath: string): string {
     const absolute = this.resolveAndCheck(relativePath);
     return wrapENOENTSync(relativePath, () => fsSync.readFileSync(absolute, 'utf-8'));

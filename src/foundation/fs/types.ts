@@ -181,6 +181,18 @@ export interface FileSystem {
   writeExclusiveSync(path: string, content: string): void;
 
   /**
+   * Atomic exclusive write (O_EXCL) — async variant of writeExclusiveSync.
+   * Creates the file if it does not exist, throws EEXIST if it does.
+   * Parent directory auto-created (mkdir recursive). Includes fsync for durability.
+   * Use for caller-driven "only create if absent" semantics (e.g. template
+   * scaffolding) — single syscall eliminates exists+write TOCTOU windows.
+   * @param path - Relative path within configured baseDir
+   * @param content - Content to write
+   * @throws Error with code EEXIST if file already exists
+   */
+  writeExclusive(path: string, content: string): Promise<void>;
+
+  /**
    * Read file content synchronously.
    * @param path - Relative path within configured baseDir
    * @throws FileNotFoundError if file doesn't exist

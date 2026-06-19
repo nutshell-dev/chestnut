@@ -248,16 +248,15 @@ function checkWritePermission(
       return;
     }
 
-    // fallthrough: deny by default (explicit allow list)
-    if (!isSystemPath && !isWritablePath) {
-      options.audit?.write(
-        PERMISSION_AUDIT_EVENTS.WRITE_OUTSIDE_ALLOWLIST,
-        `path=${targetPath}`,
-      );
-      throw new WriteOperationForbiddenError(targetPath, 'outside_allowlist');
-    }
-
-    return;
+    // phase 446 (review): fallthrough deny-by-default。
+    // 至此 isSystemPath=false（上方 throw 已 cover true）+ isWritablePath=false
+    // （上方 return 已 cover true）—— 原 `if (!isSystemPath && !isWritablePath)` 永真、
+    // 后跟 unreachable return —— 删冗余条件、直接 throw。
+    options.audit?.write(
+      PERMISSION_AUDIT_EVENTS.WRITE_OUTSIDE_ALLOWLIST,
+      `path=${targetPath}`,
+    );
+    throw new WriteOperationForbiddenError(targetPath, 'outside_allowlist');
   }
 
   // Denied

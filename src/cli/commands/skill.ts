@@ -30,6 +30,15 @@ export async function skillInstallUserCommand(deps: { fsFactory: (baseDir: strin
 
   // Skill name = source directory name
   const skillName = path.basename(absSource);
+  // phase 446 (review N3-H skill): user-mode 补 claw-mode L65-76 同款 sanity guard。
+  // 防 path.basename(absSource) 派生出 ''/'.'/含 .. 等病态名后 path.join(root,
+  // SKILLS_DIR, skillName) 解析到非预期位置（如 root 自身）、copyDir 写到非 skills/ 下。
+  if (
+    typeof skillName !== 'string' || skillName === '' || skillName === '.' || skillName.startsWith('.') ||
+    skillName.includes('/') || skillName.includes('..')
+  ) {
+    throw new CliError(`Invalid skill name derived from source path: ${JSON.stringify(skillName)} (source=${absSource})`);
+  }
 
   // Verify SKILL.md exists
   const sourceFs = deps.fsFactory(absSource);

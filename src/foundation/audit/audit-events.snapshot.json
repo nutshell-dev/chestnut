@@ -441,6 +441,7 @@
       "runtime_inbox_drain_failed",
       "runtime_inbox_init_failed",
       "runtime_inbox_unknown_type",
+      "runtime_maybe_audit_step_failed",
       "runtime_optional_section_read_failed",
       "runtime_process_batch_failed",
       "runtime_session_repair_failed",

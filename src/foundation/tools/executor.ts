@@ -393,6 +393,10 @@ export class ToolExecutorImpl implements IToolExecutor {
       if (typeof schema.maxLength === 'number' && s.length > schema.maxLength) {
         errors.push(`Field "${path}" must have length <= ${schema.maxLength}, got ${s.length}`);
       }
+      // phase 446 (review): pattern 子约束、对齐 enum/minLength/maxLength 等已 enforce 项
+      if (typeof schema.pattern === 'string' && !new RegExp(schema.pattern).test(s)) {
+        errors.push(`Field "${path}" must match pattern /${schema.pattern}/, got ${JSON.stringify(s)}`);
+      }
     }
     if (expectedType === 'number' || expectedType === 'integer') {
       const n = value as number;
