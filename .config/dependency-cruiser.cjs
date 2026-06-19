@@ -271,7 +271,11 @@ module.exports = {
         'src/foundation/dialog-store/index.ts、不得深穿 src/foundation/dialog-store/dirs.ts。',
         'phase 1432 F6 立、treat finding F6 dialog-store/dirs ⏳ → ✅。',
         'allowlist (by-design):',
-        '  - src/assembly/assemble.ts: 装配根 bootstrap、L6 装配胶水允许 deep import L2 internal',
+        '  - src/assembly/assemble.ts: 装配根 bootstrap、L6 装配胶水允许 deep import L2 internal。',
+        '  - src/foundation/audit/reader.ts: dialog-store/store.ts → validate.ts → audit/index.ts → reader.ts',
+        '    存在的 audit ← dialog-store 已有依赖链，若 reader 走 dialog-store/index.ts barrel 会形成',
+        '    no-circular 违反（reader → dialog-store/index → store → validate → audit）。仅需 DIALOG_DIR',
+        '    路径常量、直 import dirs.ts 叶子 const file 避免 import 环，phase 397 立。',
       ].join(' '),
       severity: 'error',
       from: {
@@ -279,6 +283,7 @@ module.exports = {
         pathNot: [
           '^src/foundation/dialog-store/',
           '^src/assembly/assemble\\.ts$',
+          '^src/foundation/audit/reader\\.ts$',
         ],
       },
       to: { path: '^src/foundation/dialog-store/dirs\\.ts$' },
