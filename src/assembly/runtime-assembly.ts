@@ -30,6 +30,13 @@ import { MOTION_CLAW_ID } from '../constants.js';
 import { CLAW_SUBDIRS } from './claw-subdirs.js';
 import type { AssembleConfig } from './types.js';
 
+/** phase 440：默认被过滤的 systemSubtype（claw_outbox_summary / heartbeat / claw_inactivity） */
+const DEFAULT_FILTER_SUBTYPES: ReadonlySet<string> = new Set([
+  'claw_outbox_summary',
+  'heartbeat',
+  'claw_inactivity',
+]);
+
 interface RuntimeAssemblyInput {
   core: CoreInfraOutput;
   business: BusinessSysOutput;
@@ -169,6 +176,9 @@ export async function createRuntimeAssembly(
         idleTimeoutMs,
         configReloader,
         dependencies,
+        contextManagerConfig: {
+          filterSubtypes: DEFAULT_FILTER_SUBTYPES,
+        },
       });
     } catch (e) {
       auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=runtime`, `phase=construct`, `reason=${formatErr(e)}`);

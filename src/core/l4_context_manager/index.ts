@@ -1,13 +1,22 @@
 /**
  * @module L4.ContextManager
- * Barrel export — 4 sub-capabilities: trim / budget / exceeded / errors + audit events
+ * Barrel export — phase 440 context-trim pipeline + legacy budget helper + errors/audit events.
  *
- * phase 277: handoff sub-capability removed (dead subsystem cleanup per drift-backlog
- * B.phase197-context-manager-handoff-src-cleanup ratify scope)
+ * phase 440 Step D: removed legacy trim.ts / exceeded.ts; new trim-v2 pipeline is the
+ * single production path for context-window overflow handling.
  */
 
-export { trim, type TrimOptions, type TrimResult } from './trim.js';
+export {
+  trimAndPersist,
+  type TrimAndPersistInputs,
+  type TrimAndPersistResult,
+} from './trim-and-persist.js';
+export { trimV2, type TrimV2Options, type TrimV2Result } from './trim-v2.js';
 export { computeBudget, type BudgetInputs, type BudgetResult } from './budget.js';
-export { handleContextExceeded, type LLMCallView } from './exceeded.js';
 export { ContextTrimExhaustedError } from './errors.js';
+export {
+  CONTEXT_TRIM_RECENT_WINDOW_MS,
+  CONTEXT_TRIM_TARGET_RATIO,
+  CONTEXT_TRIM_PREVIEW_BYTES,
+} from './constants.js';
 export * as AUDIT from './audit-events.js';

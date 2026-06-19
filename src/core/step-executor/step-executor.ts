@@ -29,11 +29,12 @@ import { safeCallback, extractText, appendAssistantMessage } from './utils.js';
 import { collectStreamResponse } from './llm-stream-collector.js';
 import { handleToolUseStop, handleMaxTokensStop } from './stop-handlers.js';
 import {
-  computeBudget,
-  handleContextExceeded,
-  type LLMCallView,
+  trimAndPersist,
+  CONTEXT_TRIM_RECENT_WINDOW_MS,
+  CONTEXT_TRIM_TARGET_RATIO,
+  CONTEXT_TRIM_PREVIEW_BYTES,
 } from '../l4_context_manager/index.js';
-import { estimateTextTokens, estimateInputTokens } from '../../foundation/llm-provider/token-estimator.js';
+import { estimateTextTokens, estimateMessagesTokens, estimateToolsTokens } from '../../foundation/llm-provider/token-estimator.js';
 
 /**
  * Default model context window (token) when provider/model 未在 MODEL_CONTEXT_WINDOWS 表内.
@@ -58,34 +59,52 @@ const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
 };
 
 export async function executeStep(input: StepInput): Promise<StepResult> {
-  const { messages, systemPrompt, llm, tools, ctx, callbacks } = input;
+  const { messages, systemPrompt, llm, tools, ctx, callbacks, dialogStore, contextManagerConfig } = input;
   const maxTokens = input.maxTokens;
 
   if (ctx.signal?.aborted) throwAbortError(ctx.signal);
   safeCallback('onBeforeLLMCall', () => callbacks?.onBeforeLLMCall?.(), callbacks);
 
-  // Phase 186: context budget + trim before LLM call
-  const providerInfo = llm.getProviderInfo?.();
-  const providerContextWindow = providerInfo?.model
-    ? (MODEL_CONTEXT_WINDOWS[providerInfo.model] ?? DEFAULT_MODEL_CONTEXT_WINDOW)
-    : DEFAULT_MODEL_CONTEXT_WINDOW;
+  // phase 440: reactive overflow context trim
+  let effectiveMessages = messages;
+  let newMessagesFromTrim: Message[] | undefined;
+  if (dialogStore && contextManagerConfig) {
+    const providerInfo = llm.getProviderInfo?.();
+    const providerContextWindow = providerInfo?.model
+      ? (MODEL_CONTEXT_WINDOWS[providerInfo.model] ?? DEFAULT_MODEL_CONTEXT_WINDOW)
+      : DEFAULT_MODEL_CONTEXT_WINDOW;
 
-  const budget = computeBudget({
-    providerContextWindow,
-    reserveOutputTokens: maxTokens ?? 0,
-    systemPromptTokens: estimateTextTokens(systemPrompt),
-    toolsForLLMTokens: estimateTextTokens(JSON.stringify(tools ?? [])),
-  });
+    const targetMessagesTokens = Math.floor(providerContextWindow * CONTEXT_TRIM_TARGET_RATIO)
+      - estimateTextTokens(systemPrompt)
+      - estimateToolsTokens(tools ?? []);
 
-  // trim 触发：产出 LLM call payload view、不替换 messages（caller 持久化引用、append 仍走 messages）
-  let callView: LLMCallView = { messages, wasTrimmed: false };
-  if (budget.available > 0 && estimateInputTokens({ messages, systemPrompt, tools }).total > budget.available) {
-    callView = handleContextExceeded(messages, systemPrompt, budget.available);
+    const estimatedTokens = estimateMessagesTokens(messages);
+
+    if (estimatedTokens > targetMessagesTokens) {
+      const trimResult = await trimAndPersist({
+        messages,
+        systemPrompt,
+        toolsForLLM: tools ?? [],
+        contextWindow: providerContextWindow,
+        recentWindowMs: CONTEXT_TRIM_RECENT_WINDOW_MS,
+        targetRatio: CONTEXT_TRIM_TARGET_RATIO,
+        previewBytes: CONTEXT_TRIM_PREVIEW_BYTES,
+        filterSubtypes: contextManagerConfig.filterSubtypes,
+        dialogStore,
+        audit: ctx.auditWriter ?? { write: () => {} },
+        triggerKind: 'reactive_overflow',
+      });
+      // caller 引用替换：mutate in-place so all upstream references stay in sync,
+      // and surface explicit newMessages for callers that prefer explicit swap.
+      messages.splice(0, messages.length, ...trimResult.newMessages);
+      effectiveMessages = messages;
+      newMessagesFromTrim = trimResult.newMessages;
+    }
   }
 
   const llmStartTime = Date.now();
   const callOptions: LLMCallOptions = {
-    messages: callView.messages as Message[],
+    messages: effectiveMessages,
     system: systemPrompt,
     tools,
     maxTokens,
@@ -97,16 +116,16 @@ export async function executeStep(input: StepInput): Promise<StepResult> {
     callbacks?.onEmptyResponse?.(response.stop_reason);
   }
 
-  if (response.stop_reason === 'tool_use') return handleToolUseStop(response, input, llmInfo);
+  if (response.stop_reason === 'tool_use') return { ...(await handleToolUseStop(response, input, llmInfo)), newMessages: newMessagesFromTrim };
 
   if (response.stop_reason === 'end_turn' || response.stop_reason === 'stop') {
     const text = extractText(response.content);
-    appendAssistantMessage(messages, response.content);
+    appendAssistantMessage(effectiveMessages, response.content);
     callbacks?.onMessageAppended?.('assistant', response.content.length);
-    return { kind: 'final', stopReason: asFinalStopReason(response.stop_reason), finalText: text };
+    return { kind: 'final', stopReason: asFinalStopReason(response.stop_reason), finalText: text, newMessages: newMessagesFromTrim };
   }
 
-  if (response.stop_reason === 'max_tokens') return handleMaxTokensStop(response, input, llmInfo, maxTokens);
+  if (response.stop_reason === 'max_tokens') return { ...handleMaxTokensStop(response, input, llmInfo, maxTokens), newMessages: newMessagesFromTrim };
 
   // phase 324 C6: 显式 'content_filter' API 值 → 保留为 'content_filter'；
   // 其他未识别（refusal / safety / stop_sequence / 新出 SDK 值）→ 'unknown'。
@@ -114,16 +133,16 @@ export async function executeStep(input: StepInput): Promise<StepResult> {
   // mapStopReason 期望两桶分立（phase 1483 / phase 788 锚）。
   if (response.stop_reason === 'content_filter') {
     const text = extractText(response.content);
-    appendAssistantMessage(messages, response.content);
+    appendAssistantMessage(effectiveMessages, response.content);
     callbacks?.onMessageAppended?.('assistant', response.content.length);
-    return { kind: 'final', stopReason: asFinalStopReason('content_filter'), finalText: text };
+    return { kind: 'final', stopReason: asFinalStopReason('content_filter'), finalText: text, newMessages: newMessagesFromTrim };
   }
 
   callbacks?.onUnknownStopReason?.(response.stop_reason);
   const text = extractText(response.content);
-  appendAssistantMessage(messages, response.content);
+  appendAssistantMessage(effectiveMessages, response.content);
   callbacks?.onMessageAppended?.('assistant', response.content.length);
-  return { kind: 'final', stopReason: asFinalStopReason('unknown'), finalText: text };
+  return { kind: 'final', stopReason: asFinalStopReason('unknown'), finalText: text, newMessages: newMessagesFromTrim };
 }
 
 async function runLLMCall(

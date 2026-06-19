@@ -127,6 +127,8 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
   // phase 521: regime switch coordination
   private dialogStoreFactory!: () => DialogStore;
   protected lastIdentityHash?: string;  // protected: TestRuntime subclass needs read access for regime switch tests
+  // phase 440：上下文管理器运行时配置（filterSubtypes 等）
+  private contextManagerConfig?: import('../step-executor/types.js').ContextManagerRuntimeConfig;
   /** phase 69: L6 Assembly 装配期注入 claw 子目录列表 */
   private clawSubdirs!: readonly string[];
 
@@ -144,6 +146,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     this.clawSubdirs = deps.clawSubdirs;                // phase 69: DI 注入 claw 子目录列表
     this.formatterRegistry = deps.formatterRegistry;   // phase 1414: ctor-time bind（formatInboxMessage 可在 initialize 前调）
     this.guidanceCompose = deps.guidanceCompose;        // phase 27 Step D P5: callback hook
+    this.contextManagerConfig = options.contextManagerConfig;
     if (deps.parentStreamLog) {
       deps.taskSystem.setParentStreamLog(deps.parentStreamLog);
     }
@@ -645,6 +648,8 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
           messages,
           systemPrompt,
           llm: this.llm,
+          dialogStore: this.sessionManager,
+          contextManagerConfig: this.contextManagerConfig,
           executor: this.toolExecutor,
           ctx: this.execContext,
           tools,
