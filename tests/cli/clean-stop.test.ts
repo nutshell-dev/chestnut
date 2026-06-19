@@ -138,7 +138,8 @@ describe('Phase 86: clean stop 生命周期修复', () => {
       const condIdx = daemonLoopSource.indexOf('!isCleanStop');
       expect(condIdx).toBeGreaterThan(-1);
       const condBlock = daemonLoopSource.slice(condIdx, condIdx + 300);
-      expect(condBlock).toContain('llm-retry-state.json');
+      // phase 393 把 'llm-retry-state.json' literal 抽到 LLM_RETRY_STATE_FILE const、断言跟改
+      expect(condBlock).toContain('LLM_RETRY_STATE_FILE');
     });
 
     it('标记文件应被一次性消费（deleteSync）', () => {
