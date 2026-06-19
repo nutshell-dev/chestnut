@@ -104,7 +104,7 @@ describe('daemon signal handler idempotent install (phase 175)', () => {
       stopFn();
       stopFn = null;
     }
-    await p1.catch(() => { /* silent: cleanup */ });
+    await p1.catch(() => { /* silent: shutdown */ });
 
     const p2 = daemonCommand('test-claw-2');
     await flushMicrotasks(10);
@@ -114,7 +114,7 @@ describe('daemon signal handler idempotent install (phase 175)', () => {
       stopFn();
       stopFn = null;
     }
-    await p2.catch(() => { /* silent: cleanup */ });
+    await p2.catch(() => { /* silent: shutdown */ });
 
     expect(afterFirst - before).toBe(1);
     expect(afterSecond).toBe(afterFirst);
@@ -138,7 +138,7 @@ describe('daemon signal handler idempotent install (phase 175)', () => {
       stopFn();
       stopFn = null;
     }
-    await p.catch(() => { /* silent: cleanup */ });
+    await p.catch(() => { /* silent: shutdown */ });
 
     _resetDaemonSignalHandlers();
 
@@ -166,7 +166,7 @@ describe('daemon signal handler idempotent install (phase 175)', () => {
       stopFn();
       stopFn = null;
     }
-    await p1.catch(() => { /* silent: cleanup */ });
+    await p1.catch(() => { /* silent: shutdown */ });
 
     const p2 = daemonCommand('test-claw-2');
     await flushMicrotasks(10);
@@ -180,6 +180,6 @@ describe('daemon signal handler idempotent install (phase 175)', () => {
       stopFn();
       stopFn = null;
     }
-    await p2.catch(() => { /* silent: cleanup */ });
+    await p2.catch(() => { /* silent: shutdown */ });
   });
 });

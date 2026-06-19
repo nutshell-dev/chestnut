@@ -215,7 +215,7 @@ describe('ProcessManager', () => {
         args: ['--version'],
         logFile,
         env: { ...process.env },
-      }).catch(() => { /* silent: cleanup */ });
+      }).catch(() => { /* silent: expected-failure */ });
 
       expect(events.some(e => e[0] === 'pid_empty' && e.some((c: string | number | boolean) => typeof c === 'string' && c.includes('claw=empty-pid-claw')))).toBe(true);
     });

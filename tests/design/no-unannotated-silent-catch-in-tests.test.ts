@@ -24,12 +24,14 @@ import * as path from 'node:path';
 const TESTS_ROOT = path.resolve(__dirname, '..');
 const SELF_RELATIVE = path.join('design', 'no-unannotated-silent-catch-in-tests.test.ts');
 
-// `.catch(() => {})` 完全空体（无 silent: 注释、无 statement）
-// 注：实际匹配点严格 — 仅 `.catch(() => {})` 字面、不匹配 `.catch(() => { ... })` 带 body
+// `.catch(() => {})` 完全空体（promise form）— phase 428 立
 const EMPTY_CATCH_PATTERN = /\.catch\(\(\) => \{\}\)/;
 
-// Allowed: 带 silent: 注释（block 或 line form）
-const SILENT_ANNOTATION_PATTERN = /\.catch\(\(\) => \{\s*(\/\*\s*silent:|\/\/\s*silent:)/;
+// `} catch {}` / `} catch (e) {}` 完全空块体（block form）— phase 431 立
+const EMPTY_BLOCK_CATCH_PATTERN = /\}\s*catch\s*(?:\(\w*\))?\s*\{\s*\}/;
+
+// Allowed: 带 silent: 注释（block 或 line form）— 覆盖两种 catch 形式
+const SILENT_ANNOTATION_PATTERN = /(?:\.catch\(\(\) => \{|\}\s*catch\s*(?:\(\w*\))?\s*\{)\s*(?:\/\*\s*silent:|\/\/\s*silent:)/;
 
 const ALLOWED_RELATIVE_PATHS = new Set<string>([
   SELF_RELATIVE,
@@ -66,7 +68,8 @@ describe('design invariant: no unannotated silent catch in tests', () => {
       const lines = content.split('\n');
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
-        if (EMPTY_CATCH_PATTERN.test(line) && !SILENT_ANNOTATION_PATTERN.test(line)) {
+        const hasEmptyCatch = EMPTY_CATCH_PATTERN.test(line) || EMPTY_BLOCK_CATCH_PATTERN.test(line);
+        if (hasEmptyCatch && !SILENT_ANNOTATION_PATTERN.test(line)) {
           violations.push({ file: rel, line: i + 1, text: line.trim() });
         }
       }

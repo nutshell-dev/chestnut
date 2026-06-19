@@ -113,7 +113,7 @@ describe('ContractSystem.close() async await verifier termination', () => {
       'T1',
       'evidence',
       [],
-    ).catch(() => { /* silent: cleanup */ });
+    ).catch(() => { /* silent: shutdown */ });
 
     await verifierRegistered;
 

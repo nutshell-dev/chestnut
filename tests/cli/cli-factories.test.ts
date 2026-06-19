@@ -20,7 +20,7 @@ afterEach(() => {
   while (tempDirs.length) {
     const d = tempDirs.pop();
     if (d) {
-      try { rmSync(d, { recursive: true, force: true }); } catch {}
+      try { rmSync(d, { recursive: true, force: true }); } catch { /* silent: cleanup */ }
     }
   }
   // Restore env (assertion fail 也保 restore)

@@ -61,7 +61,7 @@ describe('chat-viewport 订阅 motion stream（phase161 回归）', () => {
 
   afterEach(async () => {
     while (cleanups.length) {
-      try { await cleanups.pop()!(); } catch {}
+      try { await cleanups.pop()!(); } catch { /* silent: cleanup */ }
     }
   });
 
@@ -86,7 +86,7 @@ describe('chat-viewport 主 UI 隔离（phase162）', () => {
 
   afterEach(async () => {
     while (cleanups.length) {
-      try { await cleanups.pop()!(); } catch {}
+      try { await cleanups.pop()!(); } catch { /* silent: cleanup */ }
     }
   });
 
@@ -243,7 +243,7 @@ describe('chat-viewport 主 UI 并发隔离（phase162 streamReader）', () => {
 
   afterEach(async () => {
     while (cleanups.length) {
-      try { await cleanups.pop()!(); } catch {}
+      try { await cleanups.pop()!(); } catch { /* silent: cleanup */ }
     }
   });
 

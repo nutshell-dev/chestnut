@@ -264,7 +264,7 @@ describe('daemonCommand - A4a startup success', () => {
     // Wait for mockStartDaemonLoop call event instead of fragile flushMicrotasks (phase 779 Step C)
     await once(mockStartDaemonLoopCallEvent, 'call');
     if (mockState.stopFn) mockState.stopFn();
-    await cmdPromise.catch(() => { /* silent: cleanup */ });  // 忽略 process.exit 抛错（若有）
+    await cmdPromise.catch(() => { /* silent: expected-failure */ });  // 忽略 process.exit 抛错（若有）
 
     // 断言
     expect(mockState.mockAssemble).toHaveBeenCalledWith(expect.objectContaining({
@@ -284,7 +284,7 @@ describe('daemonCommand - A4a startup success', () => {
     // Wait for mockStartDaemonLoop call event (phase 779 Step C)
     await once(mockStartDaemonLoopCallEvent, 'call');
     if (mockState.stopFn) mockState.stopFn();
-    await cmdPromise.catch(() => { /* silent: cleanup */ });
+    await cmdPromise.catch(() => { /* silent: expected-failure */ });
 
     // 断言：motion 身份分支
     expect(mockState.mockAssemble).toHaveBeenCalledWith(expect.objectContaining({
@@ -370,7 +370,7 @@ describe('daemonCommand - A4a startup failure', () => {
     const cmdPromise = daemonCommand('test-claw');
     await waitForAuditCall('snapshot_commit_uncategorized');
     if (mockState.stopFn) mockState.stopFn();
-    await cmdPromise.catch(() => { /* silent: cleanup */ });
+    await cmdPromise.catch(() => { /* silent: expected-failure */ });
 
     expect(mockState.mockAuditWrite).toHaveBeenCalledWith(
       'snapshot_commit_uncategorized',
@@ -386,7 +386,7 @@ describe('daemonCommand - A4a startup failure', () => {
     const cmdPromise = daemonCommand('test-claw');
     await waitForAuditCall('snapshot_commit_failed');
     if (mockState.stopFn) mockState.stopFn();
-    await cmdPromise.catch(() => { /* silent: cleanup */ });
+    await cmdPromise.catch(() => { /* silent: expected-failure */ });
 
     expect(mockState.mockAuditWrite).toHaveBeenCalledWith(
       'snapshot_commit_failed',
@@ -433,7 +433,7 @@ describe('daemonCommand - A4d shutdown signal', () => {
     expect(selfRemovePidSpy).toHaveBeenCalledWith('test-claw');
     selfRemovePidSpy.mockRestore();
 
-    await cmdPromise.catch(() => { /* silent: cleanup */ });
+    await cmdPromise.catch(() => { /* silent: expected-failure */ });
   });
 
   it('it #9: SIGINT → shutdown → disassemble + exit 0', async () => {
@@ -449,7 +449,7 @@ describe('daemonCommand - A4d shutdown signal', () => {
       'SIGINT',
     );
 
-    await cmdPromise.catch(() => { /* silent: cleanup */ });
+    await cmdPromise.catch(() => { /* silent: expected-failure */ });
   });
 });
 
@@ -487,7 +487,7 @@ describe('daemonCommand - A4d crash handler', () => {
     );
 
     if (mockState.stopFn) mockState.stopFn();
-    await cmdPromise.catch(() => { /* silent: cleanup */ });
+    await cmdPromise.catch(() => { /* silent: expected-failure */ });
   });
 
   it('it #11: unhandledRejection → daemon_crash audit + exit 1', async () => {
@@ -502,7 +502,7 @@ describe('daemonCommand - A4d crash handler', () => {
     );
 
     if (mockState.stopFn) mockState.stopFn();
-    await cmdPromise.catch(() => { /* silent: cleanup */ });
+    await cmdPromise.catch(() => { /* silent: expected-failure */ });
   });
 });
 
@@ -537,7 +537,7 @@ describe('daemonCommand - review_request dispatch (phase184)', () => {
     expect(options.motion?.onInboxMessages).toBeUndefined();
 
     if (mockState.stopFn) mockState.stopFn();
-    await cmdPromise.catch(() => { /* silent: cleanup */ });
+    await cmdPromise.catch(() => { /* silent: expected-failure */ });
   });
 
   it('claw 模式下 onInboxMessages 未注册（undefined）', async () => {
@@ -552,6 +552,6 @@ describe('daemonCommand - review_request dispatch (phase184)', () => {
     expect(options.motion?.onInboxMessages).toBeUndefined();
 
     if (mockState.stopFn) mockState.stopFn();
-    await cmdPromise.catch(() => { /* silent: cleanup */ });
+    await cmdPromise.catch(() => { /* silent: expected-failure */ });
   });
 });
