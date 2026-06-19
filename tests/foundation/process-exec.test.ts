@@ -232,8 +232,11 @@ describe('kill', () => {
   it.concurrent('sends SIGTERM to live process', async () => {
     const child = spawn('sleep', ['10']);
     expect(child.pid).toBeDefined();
+    // phase 385: subscribe to 'exit' event BEFORE kill (race-safe) — event-driven
+    // 替 vi.waitFor polling，与 phase 370-376 cluster 同模式
+    const exitedP = new Promise<void>(resolve => child.once('exit', () => resolve()));
     kill(child.pid!, 'TERM');
-    await vi.waitFor(() => expect(isAlive(child.pid!)).toBe(false), { interval: 10, timeout: 5000 });
+    await exitedP;
     expect(isAlive(child.pid!)).toBe(false);
   });
 });
