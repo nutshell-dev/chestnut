@@ -81,32 +81,38 @@ export class OutboxWriter {
    * @returns Path to the written file
    */
   async write(options: OutboxWriteOptions): Promise<string> {
-    // Generate message
-    const seq = this.counter.nextSync();
-    const message: OutboxMessage = {
-      id: `${this.clawId}-${seq}`,
-      type: options.type,
-      from: this.clawId,
-      to: options.to,
-      content: options.content,
-      timestamp: new Date().toISOString(),
-      priority: options.priority ?? 'normal',
-      metadata: options.metadata,
-    };
-
-    // Generate filename: {timestamp}_{type}_{seq}.md
-    const timestamp = Date.now();
-    const typeSlug = options.type.toLowerCase();
-    const filename = `${timestamp}_${typeSlug}_${formatSeq(seq)}.md`;
-    const filePath = path.join(this.outboxDir, filename);
-
-    // Format content as markdown
-    // phase 273 Step A:
-    assertMessageShape(message, this.audit, 'outbox', 'write');
-
-    const content = encodeOutbox(message);
-
+    // phase 398 Step A (review N4): await async next() to serialize via
+    // promise chain; nextSync() let two concurrent writes race the
+    // read-modify-write on .next-msg-seq → duplicate seq → filename collision.
+    // try 块包 next() 起、因 next() 内部也调 fs.writeAtomic、失败时同样应 emit
+    // OUTBOX_SEND_FAILED（与 ensureDir/writeAtomic 失败语义一致）。
+    let messageId = `${this.clawId}-<no-seq>`;
     try {
+      const seq = await this.counter.next();
+      const message: OutboxMessage = {
+        id: `${this.clawId}-${seq}`,
+        type: options.type,
+        from: this.clawId,
+        to: options.to,
+        content: options.content,
+        timestamp: new Date().toISOString(),
+        priority: options.priority ?? 'normal',
+        metadata: options.metadata,
+      };
+      messageId = message.id;
+
+      // Generate filename: {timestamp}_{type}_{seq}.md
+      const timestamp = Date.now();
+      const typeSlug = options.type.toLowerCase();
+      const filename = `${timestamp}_${typeSlug}_${formatSeq(seq)}.md`;
+      const filePath = path.join(this.outboxDir, filename);
+
+      // Format content as markdown
+      // phase 273 Step A:
+      assertMessageShape(message, this.audit, 'outbox', 'write');
+
+      const content = encodeOutbox(message);
+
       // Ensure directory exists
       await this.fs.ensureDir(this.outboxDir);
       // Write file
@@ -124,7 +130,7 @@ export class OutboxWriter {
         from: this.clawId,
         to: options.to,
         type: options.type,
-        id: message.id,
+        id: messageId,
         reason: formatErr(err),
       });
       throw err;
