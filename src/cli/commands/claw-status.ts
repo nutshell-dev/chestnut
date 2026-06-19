@@ -23,7 +23,7 @@ import { createSystemAudit } from '../../foundation/audit/index.js';
 import { notifyClaw } from '../../foundation/messaging/index.js';
 import { ContractSystem } from '../../core/contract/index.js';
 import { createToolRegistry } from '../../foundation/tools/index.js';
-import { makeClawId } from '../../core/claw-id.js';
+import { makeClawId } from '../../foundation/identity/claw-id.js';
 import {
   computeContractView,
   computeTaskView,

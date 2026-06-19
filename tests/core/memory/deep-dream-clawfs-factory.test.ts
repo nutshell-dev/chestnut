@@ -8,7 +8,7 @@ import * as os from 'os';
 import { randomUUID } from 'crypto';
 import type { LLMOrchestratorConfig } from '../../../src/foundation/llm-orchestrator/types.js';
 import { createClawTopology } from '../../../src/core/claw-topology/topology.js';
-import { makeClawId } from '../../../src/core/claw-id.js';
+import { makeClawId } from '../../../src/foundation/identity/claw-id.js';
 
 // ─── LLMOrchestrator mock ──────────────────────────────────────────
 const mockLlmCall = vi.fn();

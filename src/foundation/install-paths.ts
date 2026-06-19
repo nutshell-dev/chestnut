@@ -1,5 +1,5 @@
 /**
- * @module Foundation.InstallPaths
+ * @module L2.InstallPaths
  *
  * chestnut 安装根 + 子目录 + claw 实例路径推算 + brand type.
  *

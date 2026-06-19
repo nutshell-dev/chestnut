@@ -13,7 +13,7 @@ import { isFileNotFound } from '../../../../foundation/fs/types.js';
 import type { OutboxReader } from '../../../../foundation/messaging/index.js';
 import { MOTION_CLAW_ID } from '../../../../constants.js';
 import type { ClawTopology } from '../../../../core/claw-topology/index.js';
-import type { ClawId } from '../../../../core/claw-id.js';
+import type { ClawId } from '../../../../foundation/identity/claw-id.js';
 import { computeHash } from './hash.js';
 import { PREVIEW_MAX_CHARS } from './types.js';
 import type { OutboxSummaryState } from './types.js';

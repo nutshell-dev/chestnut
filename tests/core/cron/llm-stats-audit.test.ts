@@ -16,7 +16,7 @@ import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { LLM_STATS_AUDIT_EVENTS } from '../../../src/core/cron/jobs/llm-stats-audit-events.js';
 import { createClawTopology } from '../../../src/core/claw-topology/topology.js';
-import { makeClawId } from '../../../src/core/claw-id.js';
+import { makeClawId } from '../../../src/foundation/identity/claw-id.js';
 
 describe('phase 930 + 180: LLM_STATS audit emit avgLatencyMs key', () => {
   it('audit emit row 含 avgLatencyMs= camelCase key', async () => {

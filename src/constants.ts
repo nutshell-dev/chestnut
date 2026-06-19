@@ -1,12 +1,12 @@
-// ============================================================================
-// ClawForum Internal Constants
-// ============================================================================
-// Centralized location for L0 shared constants only.
-// Domain-specific constants have been migrated to their owner modules
-// (phase 814 Step B — P1.37 const namespace sweep).
-// ============================================================================
+/**
+ * @module L1.SharedConstants
+ *
+ * Centralized location for cross-module shared constants only.
+ * Domain-specific constants belong in their owner modules
+ * (phase 814 Step B — P1.37 const namespace sweep).
+ */
 
-import { type ClawId, makeClawId } from './core/claw-id.js';
+import { type ClawId, makeClawId } from './foundation/identity/claw-id.js';
 
 export { type ClawId, makeClawId };
 

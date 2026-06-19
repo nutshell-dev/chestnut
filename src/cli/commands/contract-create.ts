@@ -13,7 +13,7 @@ import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { createToolRegistry } from '../../foundation/tools/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { makeContractId } from '../../core/contract/types.js';
-import { makeClawId } from '../../core/claw-id.js';
+import { makeClawId } from '../../foundation/identity/claw-id.js';
 import { parseAndValidateContractYaml, notifyContractCreated } from './contract-helpers.js';
 
 export async function contractCreateCommand(deps: { fsFactory: (baseDir: string) => FileSystem }, clawId: string, filePath: string, extraDeps?: { audit?: AuditLog }): Promise<void> {

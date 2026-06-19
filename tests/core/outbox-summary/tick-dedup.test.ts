@@ -24,7 +24,7 @@ import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { InboxReader, InboxWriter, makeInboxPath } from '../../../src/foundation/messaging/index.js';
 import { OutboxReader } from '../../../src/foundation/messaging/index.js';
 import { createClawTopology } from '../../../src/core/claw-topology/topology.js';
-import { makeClawId } from '../../../src/core/claw-id.js';
+import { makeClawId } from '../../../src/foundation/identity/claw-id.js';
 import type { ClawTopology } from '../../../src/core/claw-topology/types.js';
 
 function makeAudit() {

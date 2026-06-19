@@ -2,7 +2,7 @@ import path from 'path';
 import { formatErr } from '../foundation/utils/index.js';
 import { resolveChestnutRoot } from '../foundation/install-paths.js';
 import { DISPATCH_SKILLS_PATH } from '../core/summon-system/dispatch-skills-paths.js';
-import { makeClawId } from '../core/claw-id.js';
+import { makeClawId } from '../foundation/identity/claw-id.js';
 
 import { createClawPermissionChecker } from '../core/permissions/claw-permissions.js';
 import { TASKS_SYNC_EXEC_DIR } from '../foundation/command-tool/index.js';

@@ -5,7 +5,7 @@ import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { createClawTopology } from '../../../src/core/claw-topology/topology.js';
 import { CLAW_TOPOLOGY_AUDIT_EVENTS } from '../../../src/core/claw-topology/audit-events.js';
 import { ClawIdResolveError, CrossClawReadError } from '../../../src/core/claw-topology/types.js';
-import { makeClawId } from '../../../src/core/claw-id.js';
+import { makeClawId } from '../../../src/foundation/identity/claw-id.js';
 
 describe('createClawTopology', () => {
   let tempDir: string;

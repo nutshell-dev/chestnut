@@ -1,7 +1,7 @@
 import * as path from 'path';
 import { CLAWS_DIR, enumerateClaws } from '../../foundation/claw-paths.js';
-import type { ClawId } from '../claw-id.js';
-import { makeClawId } from '../claw-id.js';
+import type { ClawId } from '../../foundation/identity/claw-id.js';
+import { makeClawId } from '../../foundation/identity/claw-id.js';
 import type { ClawTopology, ClawTopologyDeps } from './types.js';
 import { ClawIdResolveError, CrossClawReadError } from './types.js';
 import { CLAW_TOPOLOGY_AUDIT_EVENTS } from './audit-events.js';

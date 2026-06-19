@@ -13,7 +13,7 @@ import { createToolRegistry } from '../../foundation/tools/index.js';
 import { CliError } from '../errors.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { makeContractId } from '../../core/contract/types.js';
-import { makeClawId } from '../../core/claw-id.js';
+import { makeClawId } from '../../foundation/identity/claw-id.js';
 // CLAWS_DIR and path removed: phase 263
 
 /** contract-show evidence console.log 显示截断 cap（trigger=keep 同值、'…' Unicode append）*/

@@ -1,5 +1,5 @@
 /**
- * @module Assembly.GuidanceComposers
+ * @module L6.Assembly.GuidanceComposers.ContractCancelled
  * phase 63 γ NEW: contract_cancelled real composer
  * phase 190: 删 null 旁路、扩 batch 路径
  * phase 198: 精简到最小 state-driven CLI block（删事实段 + 系统已做 + 相关基础设施）

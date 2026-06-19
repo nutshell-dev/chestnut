@@ -1,5 +1,5 @@
 /**
- * @module Foundation.Utils.AssertNever
+ * @module L2.Utils.AssertNever
  * phase 200: M#9 exhaustive switch 编译期 narrow 工具单源。
  *
  * 用法（switch exhaustive default）:

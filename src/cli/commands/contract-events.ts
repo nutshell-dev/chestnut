@@ -6,7 +6,7 @@ import { collectContractEvents } from '../../core/contract/index.js';
 import { getClawDir } from '../../foundation/config/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
-import { makeClawId } from '../../core/claw-id.js';
+import { makeClawId } from '../../foundation/identity/claw-id.js';
 
 export async function contractEventsCommand(deps: { fsFactory: (baseDir: string) => FileSystem }, clawId: string, sinceTs: number): Promise<void> {
   const clawDir = getClawDir(clawId);

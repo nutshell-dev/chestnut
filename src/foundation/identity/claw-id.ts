@@ -1,5 +1,5 @@
 /**
- * @module Core.ClawId
+ * @module L2.Identity.ClawId
  * phase 204: ClawId brand type — M#9 推广至 ID 维度。
  *
  * Rationale: 多 sibling ID 已 branded（11 unique-symbol brand: ContractId / SubtaskId /

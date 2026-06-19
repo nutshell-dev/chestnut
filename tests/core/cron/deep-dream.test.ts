@@ -23,7 +23,7 @@ import type { LLMOrchestratorConfig } from '../../../src/foundation/llm-orchestr
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import { createClawTopology } from '../../../src/core/claw-topology/topology.js';
-import { makeClawId } from '../../../src/core/claw-id.js';
+import { makeClawId } from '../../../src/foundation/identity/claw-id.js';
 import type { ClawTopology } from '../../../src/core/claw-topology/types.js';
 
 // ─── LLMOrchestrator mock ──────────────────────────────────────────

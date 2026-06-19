@@ -108,7 +108,7 @@ export async function runLlmStats(opts: LlmStatsOptions): Promise<void> {
 function collectEntries(opts: LlmStatsOptions, targetDate: string): ParsedLlmRow[] {
   const results: ParsedLlmRow[] = [];
 
-  let clawIds: import('../../../core/claw-id.js').ClawId[];
+  let clawIds: import('../../../foundation/identity/claw-id.js').ClawId[];
   try {
     clawIds = opts.clawTopology.enumerate().filter(id => id !== MOTION_CLAW_ID);
   } catch {

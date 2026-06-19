@@ -1,5 +1,5 @@
 /**
- * @module Foundation.ClawPaths
+ * @module L2.ClawPaths
  *
  * chestnut claw 目录命名约定 (path const) + enumeration helper.
  *
