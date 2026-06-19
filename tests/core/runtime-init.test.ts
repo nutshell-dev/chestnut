@@ -78,44 +78,6 @@ describe('Runtime Init', () => {
       expect(runtime.getStatus().initialized).toBe(true);
     });
 
-    it('sessionManager.archive() 非 ENOENT 失败 → audit session_archive_failed', async () => {
-      const deps = await makeRuntimeDeps({ clawDir, clawId: 'test-claw' });
-      const runtime = trackRuntime(new Runtime({
-        clawId: 'test-claw',
-        clawDir,
-        llmConfig: createMockLLMConfig(),
-        dependencies: deps,
-      }));
-      const audit: string[] = [];
-      vi.spyOn(deps.sessionManager, 'archive').mockRejectedValue(Object.assign(new Error('archive failed injected'), { code: 'EACCES' }));
-      vi.spyOn(deps.auditWriter, 'write').mockImplementation((type: string, ...args: string[]) => {
-        audit.push([type, ...args].join('\t'));
-      });
-
-      await runtime.initialize();
-
-      expect(audit.some(e => /^session_archive_failed\treason=archive failed injected$/.test(e))).toBe(true);
-    });
-
-    it('sessionManager.archive() ENOENT → 不发 audit（first-run 合法）', async () => {
-      const deps = await makeRuntimeDeps({ clawDir, clawId: 'test-claw' });
-      const runtime = trackRuntime(new Runtime({
-        clawId: 'test-claw',
-        clawDir,
-        llmConfig: createMockLLMConfig(),
-        dependencies: deps,
-      }));
-      const audit: string[] = [];
-      vi.spyOn(deps.sessionManager, 'archive').mockRejectedValue(Object.assign(new Error('no such file'), { code: 'ENOENT' }));
-      vi.spyOn(deps.auditWriter, 'write').mockImplementation((type: string, ...args: string[]) => {
-        audit.push([type, ...args].join('\t'));
-      });
-
-      await runtime.initialize();
-
-      expect(audit.some(e => e.startsWith('session_archive_failed'))).toBe(false);
-    });
-
     it('deps.parentStreamLog 构造期注入 → taskSystem.setParentStreamLog 已调', async () => {
       const deps = await makeRuntimeDeps({ clawDir, clawId: 'test-claw' });
       const spy = vi.spyOn(deps.taskSystem, 'setParentStreamLog');

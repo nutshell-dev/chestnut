@@ -233,20 +233,12 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     });
 
     // 3. Session repair（业务链路）
-    //    先 load 再 archive：直接读 current.json 恢复，避免不必要的归档恢复中转。
-    //    archive 在 load 成功之后作旁路安全备份——数据已在内存中，归档只是 trail。
+    //    load 后 in-memory recovery 即完成、current.json 不动。
+    //    phase 405: 撤启动归档（archive() 不防长度增长、对 session 物理长度零控制效果；
+    //    archive 入口保留在 regime-switch 真有 session 实体断裂语义的场景）。
     await this.repairSessionIfNeeded();
 
-    // 4. 归档 session 为旁路备份（first-run ENOENT 允许）
-    await this.sessionManager.archive().catch((err) => {
-      const code = (err as { code?: string })?.code;
-      if (code !== 'ENOENT' && code !== 'FS_NOT_FOUND') {
-        const msg = formatErr(err);
-        this.auditWriter.write(RUNTIME_AUDIT_EVENTS.SESSION_ARCHIVE_FAILED, `reason=${msg}`);
-      }
-    });
-
-    // 5. AsyncTaskSystem 业务动作（M#2 归属消费者 / Assembly 只构造不调）
+    // 4. AsyncTaskSystem 业务动作（M#2 归属消费者 / Assembly 只构造不调）
     try {
       await this.taskSystem.initialize();
     } catch (e) {
