@@ -42,7 +42,7 @@ describe('Runtime audit events', () => {
 
   afterEach(async () => {
     for (const r of runtimesToStop.splice(0)) {
-      await r.stop().catch(() => {});
+      await r.stop().catch(() => { /* silent: shutdown */ });
     }
     await cleanupTempDir(tempDir);
   });
@@ -111,7 +111,7 @@ describe('Runtime audit events', () => {
         /^snapshot_commit_failed\tcontext=session-repair\treason=injected fs error/.test(e)
       )).toBe(true);
 
-      await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+      await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     });
 
     it('snapshot.commit 返 uncategorized error → audit snapshot_commit_uncategorized + 不抛', async () => {
@@ -146,7 +146,7 @@ describe('Runtime audit events', () => {
         /^snapshot_commit_uncategorized\tcontext=session-repair\texitCode=127/.test(e)
       )).toBe(true);
 
-      await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+      await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     });
   });
 

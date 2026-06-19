@@ -59,7 +59,7 @@ describe('ContractSystem — 并发幂等与锁', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
   // =========================================================================

@@ -38,9 +38,9 @@ describe('turn interrupt: graceful → commit (phase 1375)', () => {
 
   afterEach(async () => {
     for (const r of runtimes.splice(0)) {
-      await r.stop().catch(() => {});
+      await r.stop().catch(() => { /* silent: shutdown */ });
     }
-    await fs.rm(testTempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(testTempDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
   class InterruptTestRuntime extends Runtime {

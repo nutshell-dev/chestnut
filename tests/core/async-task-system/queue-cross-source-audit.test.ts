@@ -166,7 +166,7 @@ describe('async-task queue cross-source audit (phase 284)', () => {
       const mismatch = events.filter(e => e[0] === TASK_AUDIT_EVENTS.ASYNC_TASK_QUEUE_CROSS_SOURCE_MISMATCH);
       expect(mismatch).toHaveLength(0);
 
-      await system.shutdown(1).catch(() => {});
+      await system.shutdown(1).catch(() => { /* silent: shutdown */ });
     });
 
     it('fire-and-forget 模式：主路径不 throw 不阻塞', async () => {

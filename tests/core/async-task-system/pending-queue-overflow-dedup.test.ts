@@ -126,7 +126,7 @@ describe('phase 7: overflow dedup (system-level overload, 1 notif per window)', 
     clearPendingDir(baseDir);
 
     // _enqueueAndDispatch 不在 overflow case 时也会 reset dedup
-    await (system as any)._enqueueAndDispatch({ id: 'recovery-task', kind: 'subagent' } as any).catch(() => {});
+    await (system as any)._enqueueAndDispatch({ id: 'recovery-task', kind: 'subagent' } as any).catch(() => { /* silent: cleanup */ });
 
     // Re-fill queue + second overflow
     for (let i = 0; i < PENDING_QUEUE_MAX; i++) {

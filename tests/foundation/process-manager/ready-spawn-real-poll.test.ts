@@ -32,7 +32,7 @@ describe('ready-spawn real-poll interval', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
   it('ready marker 在真 poll interval 内被检测（不 mock SPAWN_POLL_INTERVAL_MS）', async () => {

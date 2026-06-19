@@ -29,7 +29,7 @@ describe('ContractSystem - Contract shape after field removal (Step 44)', () => 
     );
     clawDir = path.join(testDir, 'claws', 'test-claw');
 
-    await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     await fs.mkdir(clawDir, { recursive: true });
 
     nodeFs = new NodeFileSystem({ baseDir: clawDir });

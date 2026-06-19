@@ -32,7 +32,7 @@ describe('isReady stale marker self-cleanup（phase 1148 / C.1）', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
   function makeCtx(): ProcessManagerContext {

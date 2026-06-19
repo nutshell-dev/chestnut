@@ -48,7 +48,7 @@ describe('spawn duration metric（phase 1148 / C.3）', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
   it('反向 1：PROCESS_SPAWNED emit 含 duration_ms 非 0 col', async () => {

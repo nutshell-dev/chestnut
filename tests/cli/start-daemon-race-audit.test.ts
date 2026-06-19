@@ -26,7 +26,7 @@ describe('start.ts daemonReady race audit (phase 816 B3)', () => {
   });
 
   it('daemonReady.catch 不再是空箭头函数', () => {
-    expect(sourceCode).not.toContain('daemonReady.catch(() => {});');
+    expect(sourceCode).not.toContain('daemonReady.catch(() => { /* silent: cleanup */ });');
     expect(sourceCode).toContain('daemonReady.catch((err: unknown) => {');
   });
 

@@ -119,7 +119,7 @@ describe('Runtime.initialize() failure audits', () => {
     expect(sessionRepairFailedCall![1]).toContain('ENOSPC');
 
     // Cleanup
-    await fs.rm(path.dirname(path.dirname(clawDir)), { recursive: true, force: true }).catch(() => {});
+    await fs.rm(path.dirname(path.dirname(clawDir)), { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
   it('inboxReader.init failure audits module=inbox_reader phase=init and rethrows', async () => {
@@ -148,7 +148,7 @@ describe('Runtime.initialize() failure audits', () => {
     expect(inboxInitFailedCall![1]).toContain('EACCES');
 
     // Cleanup
-    await fs.rm(path.dirname(path.dirname(clawDir)), { recursive: true, force: true }).catch(() => {});
+    await fs.rm(path.dirname(path.dirname(clawDir)), { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
   it('snapshot.commit session-repair failure writes snapshot_commit_failed and does not throw', async () => {
@@ -197,6 +197,6 @@ describe('Runtime.initialize() failure audits', () => {
     expect(sessionRepairedCall![1]).toMatch(/^tools=\d+$/);
 
     // Cleanup
-    await fs.rm(path.dirname(path.dirname(clawDir)), { recursive: true, force: true }).catch(() => {});
+    await fs.rm(path.dirname(path.dirname(clawDir)), { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 });

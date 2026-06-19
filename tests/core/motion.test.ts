@@ -67,7 +67,7 @@ describe('MotionRuntime', () => {
 
   afterEach(async () => {
     if (runtime) {
-      await runtime.stop().catch(() => {});
+      await runtime.stop().catch(() => { /* silent: shutdown */ });
     }
     await cleanupDir(tempDir);
   });

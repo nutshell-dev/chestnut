@@ -20,13 +20,13 @@ describe('migration: legacy uuid8 filenames remain readable (phase 286)', () => 
 
   beforeEach(async () => {
     testDir = path.join(tmpdir(), `uuid8-migration-${randomUUID()}`);
-    await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     await fs.mkdir(testDir, { recursive: true });
     nfs = new NodeFileSystem({ baseDir: testDir });
   });
 
   afterEach(async () => {
-    await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
   it('inbox reader can read legacy uuid8 filename', async () => {

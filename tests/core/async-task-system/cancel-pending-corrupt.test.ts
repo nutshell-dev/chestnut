@@ -81,7 +81,7 @@ describe('cancel pending task with corrupt JSON triggers backupCorruptTask audit
       'tasks/queues/failed/task-bad.json',
     );
 
-    await system.shutdown(1).catch(() => {});
+    await system.shutdown(1).catch(() => { /* silent: shutdown */ });
   });
 
   it('valid JSON but shape mismatch → backupCorruptTask audit + file moved to failed', async () => {
@@ -137,6 +137,6 @@ describe('cancel pending task with corrupt JSON triggers backupCorruptTask audit
       'tasks/queues/failed/task-shape.json',
     );
 
-    await system.shutdown(1).catch(() => {});
+    await system.shutdown(1).catch(() => { /* silent: shutdown */ });
   });
 });

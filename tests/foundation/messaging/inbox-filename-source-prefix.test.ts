@@ -21,7 +21,7 @@ describe('inbox filename source prefix (phase 1047)', () => {
 
   beforeEach(async () => {
     testDir = path.join(tmpdir(), `inbox-prefix-${randomUUID()}`);
-    await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     await fs.mkdir(testDir, { recursive: true });
     nfs = new NodeFileSystem({ baseDir: testDir });
     const audit = { write: () => {} , preview: (s: string) => s, message: (s: string) => s, summary: (s: string) => s};
@@ -29,7 +29,7 @@ describe('inbox filename source prefix (phase 1047)', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
   it('write() filename contains source prefix from msg.from', async () => {

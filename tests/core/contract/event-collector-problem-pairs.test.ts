@@ -37,7 +37,7 @@ describe('phase 1487: collectContractEvents result shape', () => {
   });
 
   afterEach(async () => {
-    await fsAsync.rm(chestnutRoot, { recursive: true, force: true }).catch(() => {});
+    await fsAsync.rm(chestnutRoot, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
   async function makeContract(clawSub: string, contractDirName: string, progressJson: string, contractYaml = '') {

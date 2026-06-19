@@ -21,7 +21,7 @@ describe('InboxReader', () => {
 
   beforeEach(async () => {
     testDir = path.join(tmpdir(), `chestnut-inbox-${randomUUID()}`);
-    await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     await fs.mkdir(testDir, { recursive: true });
     nfs = new NodeFileSystem({ baseDir: testDir });
     reader = new InboxReader(INBOX_PENDING_DIR, INBOX_DONE_DIR, INBOX_FAILED_DIR, nfs, makeAudit().audit);
@@ -29,7 +29,7 @@ describe('InboxReader', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
   it('should parse message priority from frontmatter', async () => {

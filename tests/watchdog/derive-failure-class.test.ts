@@ -74,7 +74,7 @@ describe('phase 1482: clawHasActiveContract vs clawHasContract', () => {
   });
 
   afterEach(async () => {
-    await fsAsync.rm(root, { recursive: true, force: true }).catch(() => {});
+    await fsAsync.rm(root, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
   it('only paused/ subdir → clawHasContract true / clawHasActiveContract false', async () => {

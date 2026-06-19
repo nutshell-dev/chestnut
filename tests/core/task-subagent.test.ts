@@ -336,7 +336,7 @@ function createMockLLM(responses: LLMResponse[]): LLMOrchestrator {
         auditWriter: new NoopAuditWriter(),
       });
 
-      const runPromise = agent.run().catch(() => {}); // 预期抛 ToolTimeoutError
+      const runPromise = agent.run().catch(() => { /* silent: expected-failure */ }); // 预期抛 ToolTimeoutError
 
       await vi.advanceTimersByTimeAsync(150); // 超过 idleTimeoutMs
       await runPromise;

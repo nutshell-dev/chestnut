@@ -47,7 +47,7 @@ describe('contract-motion-full-chain (phase 1168 α-5)', () => {
 
     testDir = path.join(os.tmpdir(), `.test-contract-motion-${process.pid}-${Math.random().toString(36).slice(2, 10)}`);
     clawDir = path.join(testDir, 'claws', 'test-claw');
-    await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     await fs.mkdir(clawDir, { recursive: true });
 
     nodeFs = new NodeFileSystem({ baseDir: clawDir });
@@ -66,7 +66,7 @@ describe('contract-motion-full-chain (phase 1168 α-5)', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     vi.restoreAllMocks();
   });
 

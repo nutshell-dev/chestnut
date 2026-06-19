@@ -41,7 +41,7 @@ describe('spawn EEXIST race audit 归类（phase 591 / A.spawn-eexist-race-miscl
   });
 
   afterEach(async () => {
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
   function mockWriteExclusiveOnceEEXIST(): void {

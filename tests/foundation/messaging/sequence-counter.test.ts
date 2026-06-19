@@ -16,13 +16,13 @@ describe('SequenceCounter', () => {
 
   beforeEach(async () => {
     testDir = path.join(tmpdir(), `seq-counter-${randomUUID()}`);
-    await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     await fs.mkdir(testDir, { recursive: true });
     nfs = new NodeFileSystem({ baseDir: testDir });
   });
 
   afterEach(async () => {
-    await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
   it('starts at 1 when no seq file exists', async () => {

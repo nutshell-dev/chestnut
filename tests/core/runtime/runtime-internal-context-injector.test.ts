@@ -49,7 +49,7 @@ describe('Runtime internal ContextInjector + ExecContext self-construction (phas
 
   afterEach(async () => {
     for (const r of runtimesToStop.splice(0)) {
-      await r.stop().catch(() => {});
+      await r.stop().catch(() => { /* silent: shutdown */ });
     }
     await cleanupTempDir(tempDir);
   });

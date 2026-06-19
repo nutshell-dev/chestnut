@@ -23,6 +23,6 @@ describe('NodeFileSystem — exists PermissionError signal (P1.5 phase 611)', ()
     await fs.writeAtomic(tmpName, 'data');
     expect(await fs.exists(tmpName)).toBe(true);
     // cleanup
-    await fs.delete(tmpName).catch(() => {});
+    await fs.delete(tmpName).catch(() => { /* silent: cleanup */ });
   });
 });

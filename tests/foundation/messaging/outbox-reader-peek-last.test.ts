@@ -48,7 +48,7 @@ describe('OutboxReader.peekLastOutboxPending', () => {
   });
 
   afterEach(async () => {
-    await fsAsync.rm(root, { recursive: true, force: true }).catch(() => {});
+    await fsAsync.rm(root, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
   it('returns null when pending empty', async () => {
@@ -112,7 +112,7 @@ describe('OutboxReader.peekLastOutboxPending', () => {
     reader.listClawOutboxPending = async (dir: string) => {
       const list = await originalList(dir);
       if (list.includes(filename)) {
-        await fsAsync.rm(path.join(pendingDir, filename)).catch(() => {});
+        await fsAsync.rm(path.join(pendingDir, filename)).catch(() => { /* silent: cleanup */ });
       }
       return list;
     };

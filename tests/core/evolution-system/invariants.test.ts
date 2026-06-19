@@ -53,7 +53,7 @@ async function setupEvolutionSystem(overrides?: {
 }
 
 async function cleanup(tmpBase: string) {
-  await fs.rm(tmpBase, { recursive: true, force: true }).catch(() => {});
+  await fs.rm(tmpBase, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
 }
 
 // ============================================================================

@@ -48,7 +48,7 @@ describe('phase 859 r111 H fork: cancel path promise reject audit (Sa.2)', () =>
   });
 
   afterEach(async () => {
-    await system.shutdown(1).catch(() => {});
+    await system.shutdown(1).catch(() => { /* silent: shutdown */ });
   });
 
   // 反向 1（关键路径 reject → audit emit）
@@ -59,7 +59,7 @@ describe('phase 859 r111 H fork: cancel path promise reject audit (Sa.2)', () =>
 
     const promise = Promise.reject(rejectError);
     // Prevent unhandled rejection crash in test runner
-    promise.catch(() => {});
+    promise.catch(() => { /* silent: cleanup */ });
 
     (system as any).executingTasks.set(taskId, {
       abortController,

@@ -44,7 +44,7 @@ describe('phase 1324 C.3: running file delete fail audit emit', () => {
   });
 
   afterEach(async () => {
-    await system.shutdown(1).catch(() => {});
+    await system.shutdown(1).catch(() => { /* silent: shutdown */ });
   });
 
   it('tool not found + fs.delete throw → RUNNING_FILE_DELETE_FAILED audit emitted with task_id + reason', async () => {

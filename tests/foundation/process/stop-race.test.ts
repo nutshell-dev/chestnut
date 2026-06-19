@@ -39,7 +39,7 @@ describe('stop.ts race + getAliveStatus probe single responsibility (phase 879)'
   });
 
   afterEach(async () => {
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
   function makeCtx(audit: ProcessManagerContext['audit']): ProcessManagerContext {
@@ -118,7 +118,7 @@ describe('stop.ts race + getAliveStatus probe single responsibility (phase 879)'
       const result = await originalRead(p);
       if (p.endsWith('/pid')) {
         // readPid 成功后立即删 pidfile，模拟并发 race
-        await fs.unlink(p).catch(() => {});
+        await fs.unlink(p).catch(() => { /* silent: cleanup */ });
       }
       return result;
     });

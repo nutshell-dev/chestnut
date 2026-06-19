@@ -369,7 +369,7 @@ describe('ToolExecutor', () => {
       expect(result.content).toBe('ok');
 
       // Restore permissions for cleanup
-      await fs.chmod(readonlyDir, 0o755).catch(() => {});
+      await fs.chmod(readonlyDir, 0o755).catch(() => { /* silent: cleanup */ });
     });
 
     it('should propagate ctx.signal abort to tool when no options.signal given', async () => {

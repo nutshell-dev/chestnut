@@ -98,7 +98,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
   });
 
   afterEach(async () => {
-    await fsAsync.rm(root, { recursive: true, force: true }).catch(() => {});
+    await fsAsync.rm(root, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
   it('0 unread + no existing summary → no write, CLEARED audit', async () => {

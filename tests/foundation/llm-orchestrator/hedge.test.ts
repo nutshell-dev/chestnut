@@ -266,7 +266,7 @@ describe('LLMOrchestratorImpl hedge mode (Phase 737)', () => {
 
     await (async () => {
       for await (const _ of service.stream({ messages: [{ role: 'user', content: 'hi' }] })) {}
-    })().catch(() => {});
+    })().catch(() => { /* silent: cleanup */ });
 
     const failedEvent = events.find((e) => e.type === 'provider_attempt_failed' && (e as any).provider === 'primary');
     expect(failedEvent).toBeDefined();

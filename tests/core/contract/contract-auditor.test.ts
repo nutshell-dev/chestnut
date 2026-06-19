@@ -73,7 +73,7 @@ describe('ContractAuditor', () => {
 
   beforeEach(async () => {
     testDir = path.join(tmpdir(), `auditor-${randomUUID()}`);
-    await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     await fs.mkdir(testDir, { recursive: true });
     inboxDir = path.join(testDir, 'inbox', 'pending');
     await fs.mkdir(inboxDir, { recursive: true });
@@ -81,7 +81,7 @@ describe('ContractAuditor', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
   function makeAuditorAndAudit(verdictText: string) {

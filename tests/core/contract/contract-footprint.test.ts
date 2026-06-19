@@ -19,13 +19,13 @@ describe('contractFootprint', () => {
 
   beforeEach(async () => {
     testDir = path.join(tmpdir(), `contract-footprint-${randomUUID()}`);
-    await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     await fs.mkdir(testDir, { recursive: true });
     nfs = new NodeFileSystem({ baseDir: testDir });
   });
 
   afterEach(async () => {
-    await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
   it('returns empty footprint when audit.tsv does not exist', async () => {

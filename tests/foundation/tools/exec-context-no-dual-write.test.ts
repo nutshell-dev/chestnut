@@ -55,7 +55,7 @@ describe('phase 1174 ExecContext 7-site dual-write eviction', () => {
     // 空 messages 应触发 audit NO_DIALOG_CONTEXT
     expect(auditWriter.write).toHaveBeenCalledWith('summon_no_dialog_context');
 
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
   // reverse 2: schema 反向 — type-level assert ExecContext 不含 dual-write fields
@@ -106,6 +106,6 @@ describe('phase 1174 ExecContext 7-site dual-write eviction', () => {
     expect(result.success).toBe(false);
     expect(result.error).toBe('no_main_context');
 
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 });

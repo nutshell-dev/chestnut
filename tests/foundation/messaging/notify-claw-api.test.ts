@@ -30,14 +30,14 @@ describe('notifyClaw API', () => {
 
   beforeEach(async () => {
     chestnutRoot = path.join(tmpdir(), `notify-claw-api-${randomUUID()}`);
-    await fs.rm(chestnutRoot, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(chestnutRoot, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     await fs.mkdir(chestnutRoot, { recursive: true });
     nodeFs = new NodeFileSystem({ baseDir: chestnutRoot });
     auditEvents.length = 0;
   });
 
   afterEach(async () => {
-    await fs.rm(chestnutRoot, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(chestnutRoot, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
   it("notifyClaw('motion', ...) writes to motion/inbox/pending with correct codec", () => {

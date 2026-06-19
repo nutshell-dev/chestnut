@@ -60,7 +60,7 @@ describe('contractEventsCommand', () => {
   afterEach(async () => {
     logSpy.mockRestore();
     delete (globalThis as any).__TEST_CLAW_DIR__;
-    await fsAsync.rm(clawDir, { recursive: true, force: true }).catch(() => {});
+    await fsAsync.rm(clawDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
   it('should output nothing when no archive or active directories exist', async () => {

@@ -132,7 +132,7 @@ async function makeRealCtx(opts: { signal?: AbortSignal } = {}): Promise<ExecCon
 // phase 999 r121 P fork C.D.2: cleanup tmpDir leak per test run (async variant)
 afterEach(async () => {
   for (const d of tmpDirs) {
-    await fs.rm(d, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(d, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   }
   tmpDirs.length = 0;
 });

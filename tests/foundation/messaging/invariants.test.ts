@@ -211,7 +211,7 @@ describe('messaging write invariant (phase 273 Step A)', () => {
 
     beforeEach(async () => {
       testDir = path.join(tmpdir(), `invariant-test-${randomUUID()}`);
-      await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
+      await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
       await fs.mkdir(testDir, { recursive: true });
       nfs = new NodeFileSystem({ baseDir: testDir });
       calls = [];
@@ -224,7 +224,7 @@ describe('messaging write invariant (phase 273 Step A)', () => {
     });
 
     afterEach(async () => {
-      await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
+      await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     });
 
     it('valid → 0 emit + file written', async () => {
@@ -277,7 +277,7 @@ describe('messaging write invariant (phase 273 Step A)', () => {
 
     beforeEach(async () => {
       testDir = path.join(tmpdir(), `invariant-sync-test-${randomUUID()}`);
-      await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
+      await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
       await fs.mkdir(testDir, { recursive: true });
       nfs = new NodeFileSystem({ baseDir: testDir });
       calls = [];
@@ -290,7 +290,7 @@ describe('messaging write invariant (phase 273 Step A)', () => {
     });
 
     afterEach(async () => {
-      await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
+      await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     });
 
     it('valid opts → 0 emit + file written', () => {
@@ -321,7 +321,7 @@ describe('messaging write invariant (phase 273 Step A)', () => {
 
     beforeEach(async () => {
       testDir = path.join(tmpdir(), `outbox-invariant-test-${randomUUID()}`);
-      await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
+      await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
       await fs.mkdir(testDir, { recursive: true });
       nfs = new NodeFileSystem({ baseDir: testDir });
       calls = [];
@@ -334,7 +334,7 @@ describe('messaging write invariant (phase 273 Step A)', () => {
     });
 
     afterEach(async () => {
-      await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
+      await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     });
 
     it('valid options → 0 emit + file written', async () => {

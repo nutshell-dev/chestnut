@@ -22,13 +22,13 @@ describe('EvolutionSystem.init() boot reconcile', () => {
       `.test-evolution-boot-reconcile-${process.pid}-${Math.random().toString(36).slice(2, 10)}`,
     );
     clawDir = path.join(testDir, 'motion');
-    await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     await fs.mkdir(clawDir, { recursive: true });
     auditWrite = vi.fn();
   });
 
   afterEach(async () => {
-    await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     vi.restoreAllMocks();
   });
 

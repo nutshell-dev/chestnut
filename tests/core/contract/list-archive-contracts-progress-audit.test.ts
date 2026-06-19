@@ -28,13 +28,13 @@ describe('listArchiveContracts progress.json audit (phase 164)', () => {
       `.test-list-archive-audit-${process.pid}-${Math.random().toString(36).slice(2, 10)}`,
     );
     chestnutDir = path.join(testDir, 'chestnut');
-    await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     await fs.mkdir(chestnutDir, { recursive: true });
     auditWrite = vi.fn();
   });
 
   afterEach(async () => {
-    await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     vi.restoreAllMocks();
   });
 

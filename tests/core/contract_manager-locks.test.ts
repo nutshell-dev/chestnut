@@ -53,7 +53,7 @@ describe('ContractSystem - lock retry (phase 1351 split)', () => {
     clawDir = path.join(testDir, 'claws', 'test-claw');
 
     vi.clearAllMocks();
-    await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     await fs.mkdir(clawDir, { recursive: true });
 
     nodeFs = new NodeFileSystem({ baseDir: clawDir });
@@ -80,7 +80,7 @@ describe('ContractSystem - lock retry (phase 1351 split)', () => {
     // pause() 先 fs.move(active → paused)，锁文件随目录一起移动到 paused/。
     // 50ms 后从移动后的位置释放锁，确保第二次重试能拿到锁
     const movedLockPath = path.join(clawDir, 'contract', 'paused', contractId, 'progress.lock');
-    setTimeout(() => fs.unlink(movedLockPath).catch(() => {}), PRE_RELEASE_LOCK_MS);
+    setTimeout(() => fs.unlink(movedLockPath).catch(() => { /* silent: cleanup */ }), PRE_RELEASE_LOCK_MS);
 
     // pause() 内部走 acquireLock → 第一次 EEXIST → wait 100ms → 锁已释放 → 第二次成功
     await expect(manager.pause(contractId, 'checkpoint')).resolves.not.toThrow();
@@ -186,7 +186,7 @@ describe('ContractSystem - lock retry (phase 1351 split)', () => {
     const unlinkSpy = vi.spyOn(fsNative.promises, 'unlink').mockImplementation(async (p: any) => {
       if (String(p).endsWith('progress.lock')) {
         // 先实际删除一次，再把后续 unlink 都当成 ENOENT（模拟"外部已清理"）
-        await realUnlink(p).catch(() => {});
+        await realUnlink(p).catch(() => { /* silent: cleanup */ });
         const err: any = new Error('no such file or directory');
         err.code = 'ENOENT';
         throw err;

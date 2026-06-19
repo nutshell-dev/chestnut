@@ -27,14 +27,14 @@ beforeEach(async () => {
     `.test-boot-migrate-skipped-${process.pid}-${Math.random().toString(36).slice(2, 10)}`,
   );
   clawDir = path.join(tmpDir, 'claws', 'test-claw');
-  await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+  await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   await fs.mkdir(clawDir, { recursive: true });
   nfs = new NodeFileSystem({ baseDir: clawDir });
 });
 
 afterEach(async () => {
   vi.restoreAllMocks();
-  await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+  await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
 });
 
 function makeManager(audit: any) {

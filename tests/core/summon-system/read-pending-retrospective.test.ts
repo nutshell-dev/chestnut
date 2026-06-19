@@ -20,12 +20,12 @@ describe('readPendingRetrospective', () => {
       `.test-read-pending-retro-${process.pid}-${Math.random().toString(36).slice(2, 10)}`,
     );
     motionDir = path.join(testDir, 'motion');
-    await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     await fs.mkdir(motionDir, { recursive: true });
   });
 
   afterEach(async () => {
-    await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
   it('throws InvalidJSONError on malformed JSON', async () => {

@@ -93,7 +93,7 @@ describe('Runtime regime switch atomicity (phase 600 / A.regime-switch-atomicity
 
   afterEach(async () => {
     for (const r of runtimesToStop.splice(0)) {
-      await r.stop().catch(() => {});
+      await r.stop().catch(() => { /* silent: shutdown */ });
     }
     await cleanupTempDir(tempDir);
   });

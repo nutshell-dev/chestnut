@@ -65,7 +65,7 @@ describe('phase 1011 D.3: cancel race lost to dispatch', () => {
   });
 
   afterEach(async () => {
-    await system.shutdown(1).catch(() => {});
+    await system.shutdown(1).catch(() => { /* silent: shutdown */ });
   });
 
   it('cancel pending move ENOENT emits TASK_CANCEL_RACE_LOST_TO_DISPATCH', async () => {

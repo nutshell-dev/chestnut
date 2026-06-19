@@ -32,7 +32,7 @@ describe('OutboxReader.listClawOutboxPending', () => {
   });
 
   afterEach(async () => {
-    await fsAsync.rm(root, { recursive: true, force: true }).catch(() => {});
+    await fsAsync.rm(root, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
   it('returns empty array when outbox/pending dir missing', async () => {

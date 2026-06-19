@@ -36,7 +36,7 @@ describe('Runtime SignalAudit', () => {
 
   afterEach(async () => {
     for (const r of runtimesToStop.splice(0)) {
-      await r.stop().catch(() => {});
+      await r.stop().catch(() => { /* silent: shutdown */ });
     }
     await cleanupTempDir(tempDir);
   });
@@ -73,9 +73,9 @@ describe('Runtime SignalAudit', () => {
 
     afterEach(async () => {
       for (const r of signalRuntimes.splice(0)) {
-        await r.stop().catch(() => {});
+        await r.stop().catch(() => { /* silent: shutdown */ });
       }
-      await fs.rm(tempDir2, { recursive: true, force: true }).catch(() => {});
+      await fs.rm(tempDir2, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     });
 
     async function makeSignalRuntime() {
@@ -159,9 +159,9 @@ describe('Runtime SignalAudit', () => {
 
     afterEach(async () => {
       for (const r of piRuntimes.splice(0)) {
-        await r.stop().catch(() => {});
+        await r.stop().catch(() => { /* silent: shutdown */ });
       }
-      await fs.rm(piTempDir, { recursive: true, force: true }).catch(() => {});
+      await fs.rm(piTempDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     });
 
     it('首个 text_delta 触发 onProviderInfo，携带 getProviderInfo() 返回值', async () => {

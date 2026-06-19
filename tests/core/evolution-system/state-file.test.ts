@@ -113,7 +113,7 @@ async function setupFixtures(overrides?: {
 }
 
 async function cleanupFixtures(tmpBase: string) {
-  await fs.rm(tmpBase, { recursive: true, force: true }).catch(() => {});
+  await fs.rm(tmpBase, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
 }
 
 // ============================================================================

@@ -19,12 +19,12 @@ describe('contract_id derive (phase 282 Step B)', () => {
   beforeEach(async () => {
     tmpDir = path.join(os.tmpdir(), `.test-phase282-b-${process.pid}-${Math.random().toString(36).slice(2, 10)}`);
     clawDir = path.join(tmpDir, 'claws', 'test-claw');
-    await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     await fs.mkdir(clawDir, { recursive: true });
   });
 
   afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
   it('loadProgress returns ProgressData with contract_id from caller', async () => {

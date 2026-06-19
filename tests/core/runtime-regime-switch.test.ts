@@ -96,7 +96,7 @@ describe('Runtime regime switch (phase 521)', () => {
   afterEach(async () => {
     vi.restoreAllMocks(); // phase 711 P1-P3.1：防 DialogStore.repair 静态 spy 跨 worker leak
     for (const r of runtimesToStop.splice(0)) {
-      await r.stop().catch(() => {});
+      await r.stop().catch(() => { /* silent: shutdown */ });
     }
     await cleanupTempDir(tempDir);
   });

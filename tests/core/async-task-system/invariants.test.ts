@@ -216,7 +216,7 @@ describe('async-task save invariant (phase 239 Step A)', () => {
       const invariantEvents = events.filter((e) => e[0] === TASK_AUDIT_EVENTS.ASYNC_TASK_INVARIANT_VIOLATED);
       expect(invariantEvents).toHaveLength(0);
 
-      await system.shutdown(1).catch(() => {});
+      await system.shutdown(1).catch(() => { /* silent: shutdown */ });
     });
 
     it('非法 subagent task → 文件仍落盘（不 throw）+ audit emit', async () => {
@@ -261,7 +261,7 @@ describe('async-task save invariant (phase 239 Step A)', () => {
         ]),
       );
 
-      await system.shutdown(1).catch(() => {});
+      await system.shutdown(1).catch(() => { /* silent: shutdown */ });
     });
   });
 

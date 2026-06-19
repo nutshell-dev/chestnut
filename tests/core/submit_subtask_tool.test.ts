@@ -39,7 +39,7 @@ describe('submitSubtaskTool', () => {
       `.test-submit-subtask-${process.pid}-${Math.random().toString(36).slice(2, 10)}`,
     );
     clawDir = path.join(testDir, 'claws', 'test-claw');
-    await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     await fs.mkdir(clawDir, { recursive: true });
     nodeFs = new NodeFileSystem({ baseDir: clawDir });
     const mockAudit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
@@ -56,7 +56,7 @@ describe('submitSubtaskTool', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
   it('should return "All subtasks complete!" when last subtask accepted', async () => {

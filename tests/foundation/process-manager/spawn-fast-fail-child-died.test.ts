@@ -41,7 +41,7 @@ describe('spawn poll child-died fast-fail（phase 1136 / F.1，phase 1317 升级
   });
 
   afterEach(async () => {
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
   it('反向 1：child 半途死 → fast-fail throw "died during boot"', async () => {

@@ -46,7 +46,7 @@ async function setupEvolutionSystem(stateFileContent?: string) {
 }
 
 async function cleanup(tmpBase: string) {
-  await fs.rm(tmpBase, { recursive: true, force: true }).catch(() => {});
+  await fs.rm(tmpBase, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
 }
 
 describe('evolution-system legacy schema migration (phase 280)', () => {

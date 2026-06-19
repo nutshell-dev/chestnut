@@ -103,7 +103,7 @@ describe('scanOutboxes preview collection', () => {
   });
 
   afterEach(async () => {
-    await fsAsync.rm(root, { recursive: true, force: true }).catch(() => {});
+    await fsAsync.rm(root, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
   it('collects preview from latest message per claw', async () => {

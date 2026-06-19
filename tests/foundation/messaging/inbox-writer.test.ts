@@ -22,7 +22,7 @@ describe('InboxWriter', () => {
 
   beforeEach(async () => {
     testDir = path.join(tmpdir(), `inbox-writer-${randomUUID()}`);
-    await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     await fs.mkdir(testDir, { recursive: true });
     nfs = new NodeFileSystem({ baseDir: testDir });
     auditCalls = [];
@@ -35,7 +35,7 @@ describe('InboxWriter', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
   // ─── .write() ────────────────────────────────────────────────────────────

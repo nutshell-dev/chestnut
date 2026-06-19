@@ -38,9 +38,9 @@ describe('Runtime processBatch orchestrator (phase 1285)', () => {
 
   afterEach(async () => {
     for (const r of runtimes.splice(0)) {
-      await r.stop().catch(() => {});
+      await r.stop().catch(() => { /* silent: shutdown */ });
     }
-    await fs.rm(testTempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(testTempDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
   async function makeTestRuntime() {

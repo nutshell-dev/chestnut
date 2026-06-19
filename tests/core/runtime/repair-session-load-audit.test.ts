@@ -103,6 +103,6 @@ describe('Runtime — repairSessionIfNeeded load failure observability (R72-P1-2
     expect(sessionRepairFailedCall![2]).toContain('reason=disk-full');
 
     // Cleanup
-    await fs.rm(path.dirname(path.dirname(clawDir)), { recursive: true, force: true }).catch(() => {});
+    await fs.rm(path.dirname(path.dirname(clawDir)), { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 });

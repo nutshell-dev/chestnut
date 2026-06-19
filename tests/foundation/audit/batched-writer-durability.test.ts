@@ -22,7 +22,7 @@ describe('BatchedAuditWriter durability (phase 1168 α-4a)', () => {
 
   afterEach(async () => {
     writer?.dispose();
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
   it('反向 1：flush 后磁盘文件含已 flush 行（batchSize trigger auto-flush）', async () => {

@@ -76,17 +76,17 @@ describe('Runtime DrainInbox', () => {
       const dir = path.join(clawDir, subdir);
       const files = await fs.readdir(dir).catch(() => []);
       for (const f of files) {
-        await fs.rm(path.join(dir, f), { recursive: true, force: true }).catch(() => {});
+        await fs.rm(path.join(dir, f), { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
       }
     }
-    await fs.rm(path.join(clawDir, 'HEARTBEAT.md'), { force: true }).catch(() => {});
+    await fs.rm(path.join(clawDir, 'HEARTBEAT.md'), { force: true }).catch(() => { /* silent: cleanup */ });
     const dialogFile = path.join(clawDir, 'dialog', 'current.json');
-    await fs.rm(dialogFile, { force: true }).catch(() => {});
+    await fs.rm(dialogFile, { force: true }).catch(() => { /* silent: cleanup */ });
   });
 
   afterAll(async () => {
     for (const r of runtimesToStop.splice(0)) {
-      await r.stop().catch(() => {});
+      await r.stop().catch(() => { /* silent: shutdown */ });
     }
     await cleanupTempDir(tempDir);
   });

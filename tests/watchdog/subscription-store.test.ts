@@ -28,7 +28,7 @@ describe('phase 5: subscription-store', () => {
   });
 
   afterEach(async () => {
-    await fsAsync.rm(root, { recursive: true, force: true }).catch(() => {});
+    await fsAsync.rm(root, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
   it('empty dir → listSubscriptions returns []', () => {

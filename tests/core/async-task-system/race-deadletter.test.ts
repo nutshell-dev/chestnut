@@ -79,7 +79,7 @@ describe('phase 556: race + dead-letter cluster fix', () => {
     });
 
     afterEach(async () => {
-      await system.shutdown(1).catch(() => {});
+      await system.shutdown(1).catch(() => { /* silent: shutdown */ });
     });
 
     it('cancel during _ingestPendingFile fs.read await must prevent dispatch', async () => {
@@ -298,7 +298,7 @@ describe('phase 556: race + dead-letter cluster fix', () => {
     });
 
     afterEach(async () => {
-      await system.shutdown(1).catch(() => {});
+      await system.shutdown(1).catch(() => { /* silent: shutdown */ });
     });
 
     it('prevents double start 同 taskId on concurrent ingest', async () => {

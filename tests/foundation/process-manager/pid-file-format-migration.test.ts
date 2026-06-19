@@ -31,7 +31,7 @@ describe('PID file format migration (phase 1023)', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     vi.restoreAllMocks();
   });
 

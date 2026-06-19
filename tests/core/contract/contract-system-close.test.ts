@@ -36,7 +36,7 @@ describe('phase 1217 (r131 C fork) B.1 — ContractSystem.close() true disposabl
       `.test-contract-system-close-${process.pid}-${Math.random().toString(36).slice(2, 10)}`,
     );
     clawDir = path.join(testDir, 'claws', 'test-claw');
-    await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     await fs.mkdir(clawDir, { recursive: true });
 
     nodeFs = new NodeFileSystem({ baseDir: clawDir });
@@ -61,7 +61,7 @@ describe('phase 1217 (r131 C fork) B.1 — ContractSystem.close() true disposabl
   });
 
   afterEach(async () => {
-    await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     vi.restoreAllMocks();
   });
 
@@ -100,7 +100,7 @@ describe('phase 1217 (r131 C fork) B.1 — ContractSystem.close() true disposabl
       'T1',
       'evidence',
       [],
-    ).catch(() => {});
+    ).catch(() => { /* silent: cleanup */ });
 
     await verifierRegistered;
 
@@ -144,7 +144,7 @@ describe('phase 1217 (r131 C fork) B.1 — ContractSystem.close() true disposabl
       'T1',
       'evidence',
       [],
-    ).catch(() => {});
+    ).catch(() => { /* silent: cleanup */ });
 
     await verifierRegistered;
 

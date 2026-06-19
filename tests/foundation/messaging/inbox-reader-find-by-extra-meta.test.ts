@@ -41,7 +41,7 @@ describe('InboxReader.findByExtraMeta', () => {
   });
 
   afterEach(async () => {
-    await fsAsync.rm(root, { recursive: true, force: true }).catch(() => {});
+    await fsAsync.rm(root, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
   it('returns null when pending + done both empty', async () => {

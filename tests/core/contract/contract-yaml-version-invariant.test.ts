@@ -44,7 +44,7 @@ describe('phase 311: contract.yaml schema_version invariant (Zod literal(1))', (
       ]),
     );
 
-    await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
   it('rejects contract.yaml with missing schema_version', async () => {
@@ -76,6 +76,6 @@ describe('phase 311: contract.yaml schema_version invariant (Zod literal(1))', (
     const invalidCall = calls.find((c: any[]) => c[0] === CONTRACT_AUDIT_EVENTS.CONTRACT_YAML_SCHEMA_INVALID);
     expect(invalidCall).toBeDefined();
 
-    await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 });

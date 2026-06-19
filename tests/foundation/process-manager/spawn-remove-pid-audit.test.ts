@@ -57,7 +57,7 @@ describe('spawn — removePid silent → audit (P1.1)', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
   it('removePid 失败时写 PID_REMOVE_FAILED audit（不阻塞 retry overwrite）', async () => {

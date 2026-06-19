@@ -58,7 +58,7 @@ describe('summon decision metadata embed (phase 281 Step A)', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
   function makeCtx(

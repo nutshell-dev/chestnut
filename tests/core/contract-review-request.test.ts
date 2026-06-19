@@ -115,7 +115,7 @@ async function setupFixtures(): Promise<TestFixtures> {
 }
 
 async function cleanupFixtures(tmpBase: string) {
-  await fs.rm(tmpBase, { recursive: true, force: true }).catch(() => {});
+  await fs.rm(tmpBase, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
 }
 
 // ============================================================================

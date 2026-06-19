@@ -60,7 +60,7 @@ afterEach(async () => {
   try {
     fsNative.chmodSync(workspaceRoot, 0o700);
   } catch { /* ignore */ }
-  await fs.rm(workspaceRoot, { recursive: true, force: true }).catch(() => {});
+  await fs.rm(workspaceRoot, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
 });
 
 describe('contractCancelCommand (phase 1471)', () => {

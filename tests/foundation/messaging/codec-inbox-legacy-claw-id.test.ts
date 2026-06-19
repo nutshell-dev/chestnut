@@ -52,7 +52,7 @@ describe('phase 1132 D.2: inbox-reader legacy claw_id audit', () => {
 
   beforeEach(async () => {
     testDir = path.join(tmpdir(), `inbox-legacy-claw-${randomUUID()}`);
-    await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     await fs.mkdir(testDir, { recursive: true });
     nfs = new NodeFileSystem({ baseDir: testDir });
     auditCalls = [];
@@ -73,7 +73,7 @@ describe('phase 1132 D.2: inbox-reader legacy claw_id audit', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
   it('case 4: legacy claw_id 文件触发 INBOX_LEGACY_CLAW_ID_FIELD audit', async () => {

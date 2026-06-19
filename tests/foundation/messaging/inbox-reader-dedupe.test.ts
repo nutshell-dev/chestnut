@@ -22,7 +22,7 @@ describe('InboxReader taskId dedupe', () => {
 
   beforeEach(async () => {
     testDir = path.join(tmpdir(), `inbox-dedupe-${randomUUID()}`);
-    await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     await fs.mkdir(testDir, { recursive: true });
     nfs = new NodeFileSystem({ baseDir: testDir });
     auditCalls = [];
@@ -43,7 +43,7 @@ describe('InboxReader taskId dedupe', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
   // ─── Case 1: 双 inbox same task → 1 read（去重）──────────────────────────

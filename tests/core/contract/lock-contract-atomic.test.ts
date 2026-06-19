@@ -29,7 +29,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+  await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
 });
 
 describe('lockContract (phase 1362)', () => {

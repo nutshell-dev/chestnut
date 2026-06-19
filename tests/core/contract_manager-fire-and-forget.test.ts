@@ -67,7 +67,7 @@ describe('ContractSystem - fire-and-forget 失败状态机 (phase 468 / feedback
     clawDir = path.join(testDir, 'claws', 'test-claw');
 
     vi.clearAllMocks();
-    await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     await fs.mkdir(clawDir, { recursive: true });
 
     nodeFs = new NodeFileSystem({ baseDir: clawDir });

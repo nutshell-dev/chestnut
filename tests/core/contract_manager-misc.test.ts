@@ -44,7 +44,7 @@ describe('ContractSystem - misc (LLM verification + escalation + phase239 audit)
     clawDir = path.join(testDir, 'claws', 'test-claw');
 
     vi.clearAllMocks();
-    await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     await fs.mkdir(clawDir, { recursive: true });
 
     nodeFs = new NodeFileSystem({ baseDir: clawDir });

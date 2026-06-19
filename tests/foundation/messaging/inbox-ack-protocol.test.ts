@@ -22,7 +22,7 @@ describe('InboxReader ack/nack/reconcile protocol (phase 1285)', () => {
 
   beforeEach(async () => {
     testDir = path.join(tmpdir(), `inbox-ack-${randomUUID()}`);
-    await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     await fs.mkdir(testDir, { recursive: true });
     nfs = new NodeFileSystem({ baseDir: testDir });
     auditCalls = [];
@@ -43,7 +43,7 @@ describe('InboxReader ack/nack/reconcile protocol (phase 1285)', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
   async function writeMsg(id: string, body: string) {

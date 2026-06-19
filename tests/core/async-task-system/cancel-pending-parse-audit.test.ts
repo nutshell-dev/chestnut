@@ -47,7 +47,7 @@ describe('phase 1013 E.4: cancel pending parse fail audit', () => {
   });
 
   afterEach(async () => {
-    await system.shutdown(1).catch(() => {});
+    await system.shutdown(1).catch(() => { /* silent: shutdown */ });
   });
 
   it('cancel pending task with corrupted JSON file → PARSE_FAILED audit emitted', async () => {

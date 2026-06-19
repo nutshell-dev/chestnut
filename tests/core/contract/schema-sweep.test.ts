@@ -35,13 +35,13 @@ beforeEach(async () => {
     `.test-schema-sweep-${process.pid}-${Math.random().toString(36).slice(2, 10)}`,
   );
   clawDir = path.join(tmpDir, 'claws', 'test-claw');
-  await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+  await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   await fs.mkdir(clawDir, { recursive: true });
   nodeFs = new NodeFileSystem({ baseDir: clawDir });
 });
 
 afterEach(async () => {
-  await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+  await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
 });
 
 // ============================================================================

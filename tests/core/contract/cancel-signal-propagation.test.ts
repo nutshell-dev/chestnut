@@ -35,7 +35,7 @@ describe('phase 1020 / r124 C fork — cancel propagation 装配端真实施', (
       `.test-cancel-prop-${process.pid}-${Math.random().toString(36).slice(2, 10)}`,
     );
     clawDir = path.join(testDir, 'claws', 'test-claw');
-    await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     await fs.mkdir(clawDir, { recursive: true });
 
     nodeFs = new NodeFileSystem({ baseDir: clawDir });
@@ -58,7 +58,7 @@ describe('phase 1020 / r124 C fork — cancel propagation 装配端真实施', (
   });
 
   afterEach(async () => {
-    await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     vi.restoreAllMocks();
   });
 

@@ -190,9 +190,9 @@ describe('AsyncTaskSystem Tool Tasks', () => {
   });
 
   afterEach(async () => {
-    await taskSystem.shutdown(1).catch(() => {});
+    await taskSystem.shutdown(1).catch(() => { /* silent: shutdown */ });
     // Clean up test dir
-    await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
   describe('scheduleTool', () => {
@@ -413,7 +413,7 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       );
 
       await waitForAnyFile(path.join(testClawDir, 'inbox', 'pending'), (f) => f.endsWith('.md'));
-      await taskSystem2.shutdown(1).catch(() => {});
+      await taskSystem2.shutdown(1).catch(() => { /* silent: shutdown */ });
 
       // fallback 消息应该存在
       const inboxFiles = await fs.readdir(path.join(testClawDir, 'inbox', 'pending'));
@@ -574,7 +574,7 @@ describe('AsyncTaskSystem Tool Tasks', () => {
         expect.arrayContaining([0, 1, 2])
       );
 
-      await ts.shutdown(1).catch(() => {});
+      await ts.shutdown(1).catch(() => { /* silent: shutdown */ });
     });
   });
 
@@ -584,7 +584,7 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       // root cause：startDispatch() 起 fs watcher 监听 <testClawDir>/tasks/queues/pending/
       // (system.ts:153-193)、本测试同 dir 直接 write file 会触发 watcher 'add' →
       // _ingestPendingFile 异步搬到 running/ → exists() race。详 project_phase1438。
-      await taskSystem.shutdown(0).catch(() => {});
+      await taskSystem.shutdown(0).catch(() => { /* silent: shutdown */ });
 
       // Directly write a pending subagent file without going through scheduleTool
       const taskId = 'recovered-subagent-id';
@@ -704,7 +704,7 @@ describe('AsyncTaskSystem Tool Tasks', () => {
 
       taskSystem2.startDispatch();
 
-      await taskSystem2.shutdown(1).catch(() => {});
+      await taskSystem2.shutdown(1).catch(() => { /* silent: shutdown */ });
     });
 
     it('should recover running/ tool tasks to pending/ on initialize (fs-driven)', async () => {
@@ -772,12 +772,12 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       const doneExists = await fs.access(path.join(testClawDir, 'tasks', 'queues', 'done', `${taskId}.json`)).then(() => true).catch(() => false);
       expect(doneExists).toBe(true);
 
-      await taskSystem2.shutdown(1).catch(() => {});
+      await taskSystem2.shutdown(1).catch(() => { /* silent: shutdown */ });
     });
 
     it('should recover pending/ tool tasks on initialize (fs-driven)', async () => {
       // phase 1438: 停 beforeEach taskSystem dispatch watcher 防 race（sister to L546）
-      await taskSystem.shutdown(0).catch(() => {});
+      await taskSystem.shutdown(0).catch(() => { /* silent: shutdown */ });
 
       // phase432: ToolTask 改 fs-driven / pending 中的 tool task 保留并被 ingest 执行
       const taskId = 'pending-tool-task-id';
@@ -888,7 +888,7 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       const doneExists = await fs.access(path.join(testClawDir, 'tasks', 'queues', 'done', `${taskId}.json`)).then(() => true).catch(() => false);
       expect(doneExists).toBe(true);
 
-      await taskSystem2.shutdown(1).catch(() => {});
+      await taskSystem2.shutdown(1).catch(() => { /* silent: shutdown */ });
     });
 
     it('should rename result.txt to .sent and send inbox message once on subagent recovery', async () => {
@@ -936,7 +936,7 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       const ts1 = makeTs();
       await ts1.initialize();
       ts1.startDispatch();
-      await ts1.shutdown(1).catch(() => {});
+      await ts1.shutdown(1).catch(() => { /* silent: shutdown */ });
 
       // sendResult() 内部会重写 result.txt，但 .sent 标记必须存在
       const sentTxt = await fs.access(path.join(testClawDir, 'tasks', 'queues', 'results', taskId, 'result.txt.sent')).then(() => true).catch(() => false);
@@ -949,7 +949,7 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       const ts2 = makeTs();
       await ts2.initialize();
       ts2.startDispatch();
-      await ts2.shutdown(1).catch(() => {});
+      await ts2.shutdown(1).catch(() => { /* silent: shutdown */ });
 
       const inboxAfterSecond = await fs.readdir(path.join(testClawDir, 'inbox', 'pending'));
       expect(inboxAfterSecond).toHaveLength(1);
@@ -998,7 +998,7 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       } as any, { maxConcurrent: TEST_MAX_CONCURRENT, retryBaseDelayMs: TEST_RETRY_BASE_DELAY_MS, auditWriter: makeAudit().audit, ...makeTaskSystemDeps() });
       await ts.initialize();
       ts.startDispatch();
-      await ts.shutdown(1).catch(() => {});
+      await ts.shutdown(1).catch(() => { /* silent: shutdown */ });
 
       // Task must NOT be re-queued (result was already delivered)
       expect(await ts.listPending()).not.toContain(taskId);
@@ -1101,7 +1101,7 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       expect(content.resultRef).toBeUndefined();
       expect(content.result).toBeDefined();
 
-      await taskSystem2.shutdown(1).catch(() => {});
+      await taskSystem2.shutdown(1).catch(() => { /* silent: shutdown */ });
     });
   });
 
@@ -1299,7 +1299,7 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       ).then(() => true).catch(() => false);
       expect(failedExists).toBe(true);
 
-      await taskSystem2.shutdown(1).catch(() => {});
+      await taskSystem2.shutdown(1).catch(() => { /* silent: shutdown */ });
     });
   });
 
@@ -1426,8 +1426,8 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       expect(doneExists).toBe(true);
       expect(await freshSystem.listPending()).not.toContain(taskId);
 
-      await freshSystem.shutdown(1).catch(() => {});
-      await fs.rm(freshDir, { recursive: true, force: true }).catch(() => {});
+      await freshSystem.shutdown(1).catch(() => { /* silent: shutdown */ });
+      await fs.rm(freshDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     });
 
     it('should resolve shutdown even when a running task does not finish (timeout path)', async () => {

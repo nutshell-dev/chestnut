@@ -285,7 +285,7 @@ describe('task-recovery corrupt-backup 三件套', () => {
     });
 
     afterEach(async () => {
-      await system.shutdown(1).catch(() => {});
+      await system.shutdown(1).catch(() => { /* silent: shutdown */ });
       capturedWatcherCallback = undefined;
     });
 

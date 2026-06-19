@@ -43,7 +43,7 @@ describe('phase 1317 spawn event-driven readiness', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
   it('slow ready (many polls) → spawn resolves with pid / no deadline timeout', async () => {

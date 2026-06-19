@@ -72,7 +72,7 @@ describe('phase 1476: scanOutboxes (real fs)', () => {
   });
 
   afterEach(async () => {
-    await fsAsync.rm(root, { recursive: true, force: true }).catch(() => {});
+    await fsAsync.rm(root, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
   it('empty claws dir → empty state', async () => {

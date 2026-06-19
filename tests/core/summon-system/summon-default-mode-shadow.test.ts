@@ -44,7 +44,7 @@ describe('Phase 1166 — default mode shadow', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
   function makeCtx(snapshotMessages: Message[] = []) {

@@ -38,7 +38,7 @@ describe('Phase 1411 — summon_rejected_shadow audit emit', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
   function makeCtx(opts: { callerLabel: string; toolUseId?: string }): any {

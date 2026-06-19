@@ -37,7 +37,7 @@ describe('Runtime RetryOutboxInterrupt', () => {
 
   afterEach(async () => {
     for (const r of runtimesToStop.splice(0)) {
-      await r.stop().catch(() => {});
+      await r.stop().catch(() => { /* silent: shutdown */ });
     }
     await cleanupTempDir(tempDir);
   });
@@ -184,9 +184,9 @@ describe('Runtime RetryOutboxInterrupt', () => {
 
     afterEach(async () => {
       for (const r of edgeRuntimes.splice(0)) {
-        await r.stop().catch(() => {});
+        await r.stop().catch(() => { /* silent: shutdown */ });
       }
-      await fs.rm(testTempDir, { recursive: true, force: true }).catch(() => {});
+      await fs.rm(testTempDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     });
 
     async function makeTestRuntime() {
