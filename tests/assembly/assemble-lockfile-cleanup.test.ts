@@ -213,6 +213,7 @@ vi.mock('../../src/foundation/dialog-store/index.js', () => ({
   createDialogStore: vi.fn(() => ({ load: vi.fn(), save: vi.fn(), archive: vi.fn(), restorePrefix: vi.fn() })),
   DIALOG_DIR: 'dialog',
   DIALOG_ARCHIVE_DIR: 'dialog/archive',
+  CURRENT_DIALOG_FILE: 'current.json',
 }));
 
 vi.mock('../../src/assembly/config-load.js', () => ({
