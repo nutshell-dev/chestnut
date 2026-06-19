@@ -9,7 +9,7 @@ import type { Message, ContentBlock, TextBlock, LLMResponse } from '../../founda
 import { notifyInbox } from '../../foundation/messaging/index.js';
 import { estimateTextTokens } from '../../foundation/llm-provider/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
-import { DialogStore } from '../../foundation/dialog-store/index.js';
+import { DialogStore, DIALOG_DIR } from '../../foundation/dialog-store/index.js';
 import type { SessionData } from '../../foundation/dialog-store/types.js';
 import { CLAWS_DIR } from '../../foundation/claw-paths.js';
 import { INBOX_PENDING_DIR } from '../../foundation/messaging/index.js';
@@ -221,7 +221,7 @@ interface DreamRunPlan {
 async function prepareDeepDreamRun(ctx: DreamRunContext): Promise<DreamRunPlan | null> {
   const today = new Date().toLocaleDateString('sv');
   const state = loadDreamState(ctx.clawFs, ctx.audit, ctx.clawId);
-  const dialogStore = new DialogStore(ctx.clawFs, 'dialog', ctx.audit, 'current.json', ctx.clawId);
+  const dialogStore = new DialogStore(ctx.clawFs, DIALOG_DIR, ctx.audit, 'current.json', ctx.clawId);
   const sessionFiles = await discoverUnprocessed(dialogStore, state, today);
   if (sessionFiles.length === 0) {
     ctx.audit.write(MEMORY_AUDIT_EVENTS.DEEP_DREAM_JOB, `step=skip_empty`, `clawId=${ctx.clawId}`);

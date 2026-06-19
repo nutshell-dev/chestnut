@@ -36,6 +36,7 @@ import {
 } from '../async-task-system/index.js';
 import { CLAWSPACE_DIR, CLAW_SPEC_FILE, CLAW_MEMORY_FILE, CLAW_IDENTITY_FILE, CLAW_USER_FILE, CLAW_SOUL_FILE } from '../../foundation/claw-paths.js';
 import { CONFIG_YAML_FILE } from '../../foundation/install-paths.js';
+import { DIALOG_DIR } from '../../foundation/dialog-store/index.js';
 import type { PermissionChecker } from '../../foundation/tool-protocol/permission.js';
 export type { PermissionChecker } from '../../foundation/tool-protocol/permission.js';
 
@@ -45,7 +46,7 @@ export type { PermissionChecker } from '../../foundation/tool-protocol/permissio
  */
 const SYSTEM_PATHS = [
   CLAW_SPEC_FILE,
-  'dialog',
+  DIALOG_DIR,
   CONFIG_YAML_FILE,
   '.chestnut',
   'system',

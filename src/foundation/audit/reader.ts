@@ -21,6 +21,7 @@ import {
   type LookupResult,
   type LookupOptions,
 } from '../dialog-store/lookup.js';
+import { DIALOG_DIR } from '../dialog-store/dirs.js';
 
 /** Compile-time brand field — prevents structural matching of mocks. */
 export type { LookupResult, LookupOptions };
@@ -242,7 +243,7 @@ export function createAuditReader(
 
 function deriveDialogDir(auditFilePath: string): string {
   // audit filePath: <baseDir>/audit.tsv → dialogDir = <baseDir>/dialog
-  return path.join(path.dirname(auditFilePath), 'dialog');
+  return path.join(path.dirname(auditFilePath), DIALOG_DIR);
 }
 
 function sleep(ms: number): Promise<void> {

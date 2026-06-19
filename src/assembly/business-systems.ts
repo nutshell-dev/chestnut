@@ -35,7 +35,7 @@ import { createSendTool } from '../foundation/messaging/tools/send.js';
 import { createToolExecutor } from '../foundation/tools/index.js';
 import type { IToolExecutor } from '../foundation/tools/index.js';
 import { writePendingToolTaskFile } from '../core/async-task-system/index.js';
-import { createDialogStore } from '../foundation/dialog-store/index.js';
+import { createDialogStore, DIALOG_DIR } from '../foundation/dialog-store/index.js';
 import type { DialogStore } from '../foundation/dialog-store/index.js';
 import { createInboxReader } from '../foundation/messaging/index.js';
 import type { InboxReader } from '../foundation/messaging/index.js';
@@ -232,7 +232,7 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
   }
 
   const makeDialogStore = (): DialogStore =>
-    createDialogStore(systemFs, 'dialog', auditWriter, 'current.json', clawId);
+    createDialogStore(systemFs, DIALOG_DIR, auditWriter, 'current.json', clawId);
 
   let sessionManager: DialogStore;
   try {
