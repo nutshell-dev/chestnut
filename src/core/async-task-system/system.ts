@@ -5,7 +5,7 @@
  * Uses a pending queue + dispatcher pattern for concurrency control.
  */
 
-import { randomUUID } from 'crypto';
+import { newUuid } from '../../foundation/uuid.js';
 import { MOTION_CLAW_ID } from '../../constants.js';
 import { makeStepNumber } from '../../foundation/identity/step-number.js';
 import { CALLER_TYPE_TO_GROUPS } from '../caller-types.js';
@@ -242,7 +242,7 @@ export class AsyncTaskSystem {
     taskKind: 'subagent',
     payload: Omit<SubAgentTask, 'id' | 'createdAt'>,
   ): Promise<string> {
-    const taskId = makeTaskId(randomUUID());
+    const taskId = makeTaskId(newUuid());
     const task = {
       ...payload,
       id: taskId,

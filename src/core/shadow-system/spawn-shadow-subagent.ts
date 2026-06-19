@@ -9,8 +9,7 @@
  * 真 production 双 push bug 实证、M#11「停下来重构」兑现。
  */
 
-import { randomUUID } from 'crypto';
-import { UUID_SHORT_LEN } from '../../constants.js';
+import { newShortUuid } from '../../foundation/uuid.js';
 import type { Message } from '../../foundation/llm-provider/types.js';
 
 import { synthesizeFormB } from './_helpers.js';
@@ -41,7 +40,7 @@ export async function spawnShadowSubagent(
   }
 
   const prefix = opts.shadowIdPrefix ?? 'shadow';
-  const shadowId = `${prefix}-${randomUUID().slice(0, UUID_SHORT_LEN)}`;
+  const shadowId = `${prefix}-${newShortUuid()}`;
 
   const instructionArgs: Omit<BuildShadowInstructionArgs, 'shadowToolName'> = {
     shadowId,
@@ -49,7 +48,7 @@ export async function spawnShadowSubagent(
     spawnedByClawId: opts.ctx.clawId ?? '',
     toolUseId: opts.ctx.currentToolUseId
       ? makeToolUseId(opts.ctx.currentToolUseId)
-      : makeToolUseId(`shadow_${randomUUID().slice(0, UUID_SHORT_LEN)}`),
+      : makeToolUseId(`shadow_${newShortUuid()}`),
     task: opts.task,
   };
   // synthesizeFormB 内部调 buildShadowInstruction(instructionArgs) 嵌 task 到 SHADOW INSTRUCTION

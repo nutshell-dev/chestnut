@@ -16,7 +16,7 @@
  */
 
 import * as nodePath from 'path';
-import { randomUUID } from 'crypto';
+import { newShortUuid } from '../uuid.js';
 import { z } from 'zod';
 import type { Tool, ExecContext } from '../tools/index.js';
 import type { ToolResult } from '../tool-protocol/index.js';
@@ -32,7 +32,6 @@ import { recordReadResult } from './file-state-manager.js';
 import { FILE_TOOL_AUDIT_EVENTS } from './audit-events.js';
 import { defineFileToolSchema } from './_zod-helper.js';
 
-import { UUID_SHORT_LEN } from '../../constants.js';
 
 export const READ_TOOL_NAME = 'read' as const;
 
@@ -73,7 +72,7 @@ function truncateHeadTail(content: string, relPath: string): string {
 
 async function persistOverflow(ctx: ExecContext, output: string): Promise<string | null> {
   try {
-    const id = randomUUID().slice(0, UUID_SHORT_LEN);
+    const id = newShortUuid();
     const fullPath = nodePath.join(ctx.syncDir, TASKS_SYNC_READ_DIR.split('/').pop()!, `${id}.md`);
     const frontmatter = `---\nsource: read_overflow\ncontent_length: ${output.length}\ncreated_at: ${new Date().toISOString()}\n---\n`;
     await ctx.fs.writeAtomic(fullPath, frontmatter + output);

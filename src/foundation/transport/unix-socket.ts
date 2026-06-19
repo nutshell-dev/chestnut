@@ -13,7 +13,7 @@
 import { createServer, connect, type Server, type Socket } from 'node:net';
 import { formatErr, clipText } from "../utils/index.js";
 // phase 398 Step B (review N5): path import removed — basename wrapper deleted, no other uses
-import { randomUUID } from 'node:crypto';
+import { newUuid } from '../uuid.js';
 import type { FileSystem } from '../fs/types.js';
 import { isFileNotFound } from '../fs/types.js';
 import type { Transport, TransportOptions, BroadcastFailure, TransportErrorEvent } from './types.js';
@@ -112,7 +112,7 @@ export class UnixDomainSocketTransport implements Transport {
   }
 
   private handleConnection(sock: Socket): void {
-    const id = randomUUID();
+    const id = newUuid();
     const meta: Connection = { id, connectedAt: Date.now() };
     const entry: ConnectionEntry = { sock, meta, buf: '' };
     this.connections.set(id, entry);

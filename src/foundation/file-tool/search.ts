@@ -6,7 +6,7 @@
  * + default exclude + Q5 全英 + Q6 全扫 / overflow 落盘 / 预览 20 + Q7 cross-claw prefix）。
  */
 
-import { randomUUID } from 'crypto';
+import { newShortUuid } from '../uuid.js';
 import * as nodePath from 'path';
 import { z } from 'zod';
 import { isFileNotFound, type FileSystem } from '../fs/types.js';
@@ -18,7 +18,6 @@ import { defineFileToolSchema } from './_zod-helper.js';
 
 import { formatErr } from '../utils/index.js';
 import { FILE_TOOL_AUDIT_EVENTS } from './audit-events.js';
-import { UUID_SHORT_LEN } from '../../constants.js';
 import {
   TASKS_SYNC_SEARCH_DIR,
   SEARCH_PREVIEW_LIMIT,
@@ -218,7 +217,7 @@ async function persistOverflow(
   fullContent: string,
 ): Promise<{ relPath: string | null; error: string | null }> {
   try {
-    const id = randomUUID().slice(0, UUID_SHORT_LEN);
+    const id = newShortUuid();
     const fullPath = nodePath.join(
       ctx.syncDir,
       TASKS_SYNC_SEARCH_DIR.split('/').pop()!,

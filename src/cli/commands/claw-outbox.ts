@@ -5,8 +5,7 @@
 
 import * as path from 'path';
 import { formatErr } from "../../foundation/utils/index.js";
-import { UUID_SHORT_LEN } from '../../constants.js';
-import { randomUUID } from 'crypto';
+import { newShortUuid } from '../../foundation/uuid.js';
 import { getClawDir } from '../../foundation/config/index.js';
 import { CliError } from '../errors.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
@@ -66,7 +65,7 @@ export async function outboxCommand(
   const results: string[] = [];
   for (const fileName of toRead) {
     const relPendingPath = path.join(OUTBOX_PENDING_DIR, fileName);
-    const claimToken = `cli_${process.pid}_${Date.now()}_${randomUUID().slice(0, UUID_SHORT_LEN)}`;
+    const claimToken = `cli_${process.pid}_${Date.now()}_${newShortUuid()}`;
     const relClaimedPath = path.join(OUTBOX_PROCESSING_DIR, `${claimToken}_${fileName}`);
 
     try {

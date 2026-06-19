@@ -15,7 +15,7 @@
 
 import * as path from 'path';
 import { formatErr, assertNever } from "../utils/index.js";
-import { randomUUID } from 'crypto';
+import { newShortUuid } from '../uuid.js';
 import type { FileSystem } from '../fs/types.js';
 import { isFileNotFound } from '../fs/types.js';
 import type { InboxMessage, InboxHandle } from '../messaging/types.js';
@@ -39,7 +39,7 @@ import {
   emitOutboxDelivered,
 } from './audit-emit.js';
 import { InboxWriter, type InboxMessageMeta } from './inbox-writer.js';
-import { UUID_SHORT_LEN, makeClawId } from '../../constants.js';
+import { makeClawId } from '../../constants.js';
 import { InboxListFailed, InboxMoveFailed } from './errors.js';
 
 
@@ -289,7 +289,7 @@ export class InboxReader {
   /** Acknowledge handle: move from inflight/ to done/ */
   async ack(handle: InboxHandle): Promise<void> {
     const fileName = handle.originalFileName;
-    const uuid8 = randomUUID().slice(0, UUID_SHORT_LEN);
+    const uuid8 = newShortUuid();
     const targetPath = path.join(this.doneDir, `${Date.now()}_${uuid8}_${fileName}`);
     try {
       await this.fs.move(handle.filePath, targetPath);
@@ -318,7 +318,7 @@ export class InboxReader {
    */
   async markMisrouted(handle: InboxHandle): Promise<void> {
     const fileName = handle.originalFileName;
-    const uuid8 = randomUUID().slice(0, UUID_SHORT_LEN);
+    const uuid8 = newShortUuid();
     const targetPath = path.join(this.misroutedDir, `${Date.now()}_${uuid8}_${fileName}`);
     try {
       await this.fs.move(handle.filePath, targetPath);
@@ -357,7 +357,7 @@ export class InboxReader {
   /** Move processed file to done/ (legacy helper; ack() preferred) */
   async markDone(filePath: string): Promise<void> {
     const fileName = path.basename(filePath);
-    const uuid8 = randomUUID().slice(0, UUID_SHORT_LEN);
+    const uuid8 = newShortUuid();
     const targetPath = path.join(this.doneDir, `${Date.now()}_${uuid8}_${fileName}`);
     try {
       await this.fs.move(filePath, targetPath);
@@ -530,7 +530,7 @@ export class InboxReader {
   /** Move failed file to failed/ (legacy helper) */
   async markFailed(filePath: string): Promise<void> {
     const fileName = path.basename(filePath);
-    const uuid8 = randomUUID().slice(0, UUID_SHORT_LEN);
+    const uuid8 = newShortUuid();
     const targetPath = path.join(this.failedDir, `${Date.now()}_${uuid8}_${fileName}`);
     try {
       await this.fs.move(filePath, targetPath);

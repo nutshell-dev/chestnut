@@ -1,6 +1,7 @@
 import { NodeFileSystem } from './foundation/fs/node-fs.js';
 import type { FileSystem } from './foundation/fs/types.js';
 import { runWatchdogLoop, writeWatchdogCrash } from './watchdog/watchdog.js';
+import { DAEMON_LOG } from './daemon/constants.js';
 
 const errMsg = (reason: unknown): string =>
   reason instanceof Error ? `${reason.message}\n${reason.stack ?? ''}` : String(reason);
@@ -27,4 +28,5 @@ process.on('unhandledRejection', (reason) => {
 
 const fsFactory = (baseDir: string): FileSystem => new NodeFileSystem({ baseDir });
 
-await runWatchdogLoop(fsFactory);
+// phase 444 Step B DI：装配胶水承担 watchdog→daemon 协作连接、watchdog 模块不直 import daemon（M#5 单向）。
+await runWatchdogLoop(fsFactory, DAEMON_LOG);

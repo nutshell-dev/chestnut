@@ -10,11 +10,11 @@ import type { InboxMessageOptionsBase } from './inbox-writer.js';
 import type { InboxMessage } from './types.js';
 import type { FileSystem } from '../fs/types.js';
 import type { AuditLog } from '../audit/index.js';
-import { MOTION_CLAW_ID, UUID_SHORT_LEN } from '../../constants.js';
+import { MOTION_CLAW_ID } from '../../constants.js';
 import { INBOX_PENDING_DIR } from './dirs.js';
 import { CLAWS_DIR } from '../claw-paths.js';
 import { emitUnknownDestinationDlq } from './audit-emit.js';
-import { randomUUID } from 'crypto';
+import { newShortUuid } from '../uuid.js';
 
 
 /**
@@ -34,7 +34,7 @@ export function notifyClaw(
     const targetClawRoot = path.join(chestnutRoot, CLAWS_DIR, targetClawId);
     if (!fs.existsSync(targetClawRoot)) {
       const dlqDir = path.join(chestnutRoot, MOTION_CLAW_ID, 'inbox', 'dead-letter');
-      const fileName = `${Date.now()}_${randomUUID().slice(0, UUID_SHORT_LEN)}_${targetClawId}.md`;
+      const fileName = `${Date.now()}_${newShortUuid()}_${targetClawId}.md`;
       try {
         fs.ensureDirSync(dlqDir);
         InboxWriter.__internal_create(fs, makeInboxPath(dlqDir), audit).writeSync({

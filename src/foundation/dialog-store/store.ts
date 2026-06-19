@@ -21,8 +21,7 @@ import type { SessionData, LoadResult, DialogMarker, RestoreResult } from './typ
 import type { TraceId } from '../audit/types.js';
 import type { AuditLog } from '../audit/index.js';
 import { DIALOG_AUDIT_EVENTS } from './audit-events.js';
-import { randomUUID } from 'crypto';
-import { UUID_SHORT_LEN } from '../../constants.js';
+import { newShortUuid } from '../uuid.js';
 
 import { detectAndMigrateVersion, validateSessionData } from './validate.js';
 import { CURRENT_DIALOG_FILE } from './dirs.js';
@@ -446,7 +445,7 @@ export class DialogStore {
 
       // Generate archive filename with timestamp and UUID suffix to avoid collisions
       const timestamp = Date.now();
-      const archivePath = path.join(this.archiveDir, `${timestamp}_${randomUUID().slice(0, UUID_SHORT_LEN)}.json`);
+      const archivePath = path.join(this.archiveDir, `${timestamp}_${newShortUuid()}.json`);
 
       // Move current.json to archive
       await this.fs.move(this.currentPath, archivePath);

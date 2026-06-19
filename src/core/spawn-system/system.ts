@@ -6,11 +6,10 @@
  */
 
 import * as path from 'path';
-import { randomUUID } from 'crypto';
+import { newShortUuid } from '../../foundation/uuid.js';
 import type { ExecContext } from '../../foundation/tools/index.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 
-import { UUID_SHORT_LEN } from '../../constants.js';
 import { TASKS_SYNC_SPAWN_DIR } from './constants.js';
 import { runSubagent as defaultRunSubagent, createPerTaskRegistry, getDisplayResult } from '../subagent/index.js';
 
@@ -33,7 +32,7 @@ export interface RunSpawnSyncOptions {
  * mirror verifier-job sync subagent lifecycle 调用模板（phase 750 立）
  */
 export async function runSpawnSync(opts: RunSpawnSyncOptions): Promise<ToolResult> {
-  const id = `spawn-${randomUUID().slice(0, UUID_SHORT_LEN)}`;
+  const id = `spawn-${newShortUuid()}`;
   const resultDir = path.join(opts.ctx.clawDir, TASKS_SYNC_SPAWN_DIR, id);
 
   const aw = opts.ctx.auditWriter;

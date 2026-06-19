@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto';
+import { newUuid } from '../uuid.js';
 import type { OutboxMessage, Priority } from '../messaging/types.js';
 import { parseFrontmatter, yamlQuote } from './codec-inbox.js';
 import { validatePriority } from './codec-validation.js';
@@ -58,7 +58,7 @@ export function decodeOutbox(raw: string): OutboxMessage {
   const priority = validatePriority(meta.priority) as Priority;
 
   const result: OutboxMessage = {
-    id: meta.id ?? randomUUID(),
+    id: meta.id ?? newUuid(),
     type: (meta.type ?? 'response') as OutboxMessage['type'],
     from: meta.from ?? 'unknown',
     to: meta.to ?? '',

@@ -6,7 +6,7 @@
  */
 
 import * as path from 'path';
-import * as crypto from 'node:crypto';
+import { randomHex } from '../../foundation/uuid.js';
 import { MOTION_CLAW_ID } from '../../constants.js';
 import { CALLER_TYPE_TO_GROUPS } from '../caller-types.js';
 
@@ -800,7 +800,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
       await this.initialize();
     }
 
-    const traceId = makeTraceId(crypto.randomBytes(8).toString('hex'));
+    const traceId = makeTraceId(randomHex(8));
     this.setTraceId(traceId);
     this.execContext.trace_id = traceId;
     try {
@@ -965,7 +965,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     if (!this.initialized) {
       await this.initialize();
     }
-    const traceId = makeTraceId(crypto.randomBytes(8).toString('hex'));
+    const traceId = makeTraceId(randomHex(8));
     this.setTraceId(traceId);
     this.execContext.trace_id = traceId;
     try {
@@ -1013,7 +1013,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     if (!this.initialized) {
       await this.initialize();
     }
-    const traceId = makeTraceId(crypto.randomBytes(8).toString('hex'));
+    const traceId = makeTraceId(randomHex(8));
     this.setTraceId(traceId);
     this.execContext.trace_id = traceId;
     try {

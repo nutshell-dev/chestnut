@@ -9,6 +9,10 @@ describe('fs/node-fs.ts: writeAtomicSync uses IGNORE_PATTERN', () => {
     expect(src).not.toMatch(/"\.tmp_"\+randomUUID/);
     expect(src).not.toMatch(/'\.tmp_'\+randomUUID/);
     expect(src).not.toMatch(/\.tmp_\$\{randomUUID\(\)\}/);
+    expect(src).not.toMatch(/`\.tmp_\$\{newUuid\(\)\}`/);
+    expect(src).not.toMatch(/"\.tmp_"\+newUuid/);
+    expect(src).not.toMatch(/'\.tmp_'\+newUuid/);
+    expect(src).not.toMatch(/\.tmp_\$\{newUuid\(\)\}/);
   });
 
   it('imports IGNORE_PATTERN from atomic.js', () => {
@@ -18,6 +22,6 @@ describe('fs/node-fs.ts: writeAtomicSync uses IGNORE_PATTERN', () => {
 
   it('uses IGNORE_PATTERN in tmp file naming', () => {
     const src = readFileSync('src/foundation/fs/node-fs.ts', 'utf-8');
-    expect(src).toMatch(/\$\{IGNORE_PATTERN\}\$\{randomUUID\(\)\}/);
+    expect(src).toMatch(/\$\{IGNORE_PATTERN\}\$\{newUuid\(\)\}/);
   });
 });

@@ -5,12 +5,11 @@
  */
 
 import * as path from 'path';
-import { randomUUID } from 'crypto';
+import { newShortUuid } from '../../foundation/uuid.js';
 import type { ExecContext } from '../../foundation/tools/index.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { Message } from '../../foundation/llm-provider/types.js';
 
-import { UUID_SHORT_LEN } from '../../constants.js';
 import { TASKS_SYNC_SHADOW_DIR, SHADOW_DEFAULT_TIMEOUT_MS } from './constants.js';
 import { runSubagent as defaultRunSubagent, createPerTaskRegistry, getDisplayResult, DONE_TOOL_NAME } from '../subagent/index.js';
 
@@ -53,7 +52,7 @@ function findLastAssistantWithToolUse(messages: Message[], toolUseId: ToolUseId)
 }
 
 export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
-  const shadowId = `shadow-${randomUUID().slice(0, UUID_SHORT_LEN)}`;
+  const shadowId = `shadow-${newShortUuid()}`;
   const resultDir = path.join(opts.ctx.clawDir, TASKS_SYNC_SHADOW_DIR, shadowId);
   const spawnedAt = new Date().toISOString();
 

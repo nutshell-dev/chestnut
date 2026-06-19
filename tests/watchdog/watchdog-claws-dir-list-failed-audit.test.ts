@@ -133,7 +133,7 @@ describe('watchdog claws dir listSync audit + recovery (phase 149)', () => {
       exitSpy.mockRestore();
     });
     try {
-      await runWatchdogLoop(fsFactory);
+      await runWatchdogLoop(fsFactory, 'logs/daemon.log');
     } catch {
       // process.exit mock may throw — expected
     }

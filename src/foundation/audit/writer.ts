@@ -28,12 +28,11 @@
  * （依赖 AuditLog 的其他 L2 模块不得效仿）。
  */
 
-import { randomUUID } from 'crypto';
+import { newShortUuid } from '../uuid.js';
 import { formatErr } from "../utils/index.js";
 import type { TraceId } from './types.js';
 import * as nodeFs from 'node:fs';
 import { tmpdir } from 'node:os';
-import { UUID_SHORT_LEN } from '../../constants.js';
 import { FileNotFoundError } from '../fs/types.js';
 import type { FileSystem } from '../fs/types.js';
 import type { AuditLog } from './types.js';
@@ -286,7 +285,7 @@ export class AuditWriter implements AuditLog {
     try {
       const stats = this.fs.statSync(this.filePath);
       if (stats.size >= this.maxBytes!) {
-        this.fs.moveSync(this.filePath, `${this.filePath}.${randomUUID().slice(0, UUID_SHORT_LEN)}.bak`);
+        this.fs.moveSync(this.filePath, `${this.filePath}.${newShortUuid()}.bak`);
       }
     } catch (err) {
       // FileNotFoundError（首次写入文件不存在 from statSync）或 raw NodeJS ENOENT

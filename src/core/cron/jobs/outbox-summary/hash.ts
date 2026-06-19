@@ -8,7 +8,7 @@
  * - 12 字符 16^12 ≈ 2.8e14 碰撞概率现实零
  */
 
-import { createHash } from 'crypto';
+import { createSha256Hasher } from '../../../../foundation/hash.js';
 
 /**
  * Outbox summary dedup hash 长度（SHA256 前缀截取）.
@@ -19,7 +19,7 @@ export const HASH_LEN = 12;
 
 /** Compute dedup hash from already-sorted file set ("<clawId>:<filename>" pairs). */
 export function computeHash(sortedFileSet: string[]): string {
-  const h = createHash('sha256');
+  const h = createSha256Hasher();
   h.update(sortedFileSet.join('\n'));
-  return h.digest('hex').slice(0, HASH_LEN);
+  return h.digest().slice(0, HASH_LEN);
 }

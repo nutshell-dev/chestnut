@@ -4,7 +4,7 @@
  * Direct file-based scheduling primitive for async tool tasks.
  * Watcher (AsyncTaskSystem._ingestPendingFile) consumes the file asynchronously.
  */
-import { randomUUID } from 'crypto';
+import { newUuid } from '../../../foundation/uuid.js';
 import { TASKS_QUEUES_PENDING_DIR } from '../dirs.js';
 import type { FileSystem } from '../../../foundation/fs/types.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
@@ -23,7 +23,7 @@ export async function writePendingToolTaskFile(
   audit: AuditLog | undefined,
   args: AsyncToolTaskArgs,
 ): Promise<string> {
-  const taskId = makeTaskId(randomUUID());
+  const taskId = makeTaskId(newUuid());
   const task = {
     id: taskId,
     createdAt: new Date().toISOString(),

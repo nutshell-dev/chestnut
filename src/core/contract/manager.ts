@@ -22,7 +22,7 @@
 
 import * as yaml from 'js-yaml';
 import { formatErr } from "../../foundation/utils/index.js";
-import { randomUUID } from 'crypto';
+import { newShortUuid } from '../../foundation/uuid.js';
 
 import { isFileNotFound, type FileSystem } from '../../foundation/fs/types.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
@@ -50,7 +50,7 @@ import {
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 import { isolateCorruptedFile } from './_isolation-helper.js';
 import { CONTRACT_ACTIVE_DIR, CONTRACT_PAUSED_DIR, CONTRACT_ARCHIVE_DIR, PROGRESS_FILE } from './dirs.js';
-import { UUID_SHORT_LEN, type ClawId } from '../../constants.js';
+import { type ClawId } from '../../constants.js';
 
 import type {
   ContractYaml, ProgressData, VerificationResult, VerifierConfig, VerifierResult,
@@ -666,7 +666,7 @@ export class ContractSystem {
       throw new ContractValidationError('id', 'empty',
         'contract id must not be empty (yaml: id: "<not blank>")');
     }
-    const contractId = makeContractId(contractYaml.id || `${Date.now()}-${randomUUID().slice(0, UUID_SHORT_LEN)}`);
+    const contractId = makeContractId(contractYaml.id || `${Date.now()}-${newShortUuid()}`);
 
     // Check uniqueness against archived contracts too
     if (await this.fs.exists(`${this.archiveDir}/${contractId}`)) {

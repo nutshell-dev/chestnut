@@ -6,7 +6,7 @@
  */
 
 import * as path from 'path';
-import { randomUUID } from 'crypto';
+import { newUuid } from '../uuid.js';
 import { promises as fs, realpathSync } from 'fs';
 import * as fsSync from 'fs';
 import type {
@@ -332,7 +332,7 @@ export class NodeFileSystem implements FileSystem {
     const absolute = this.resolveAndCheck(relativePath);
     const dir = path.dirname(absolute);
     fsSync.mkdirSync(dir, { recursive: true });
-    const tmpFile = path.join(dir, `${IGNORE_PATTERN}${randomUUID()}`);
+    const tmpFile = path.join(dir, `${IGNORE_PATTERN}${newUuid()}`);
 
     try {
       fsSync.writeFileSync(tmpFile, content, { encoding: 'utf-8', mode: 0o644 });

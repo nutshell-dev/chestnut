@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto';
+import { newUuid } from '../../foundation/uuid.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { InboxMessage } from '../../foundation/messaging/types.js';
@@ -87,7 +87,7 @@ async function sendResultCore(p: SendResultCoreParams): Promise<void> {
   const messageContent = resultRef ? p.buildRefJson(resultRef, summary) : inlineContent;
 
   const baseMsg: InboxMessage = {
-    id: randomUUID(),
+    id: newUuid(),
     type: 'task_result',
     from: p.from,
     to: p.parentClawId,
@@ -222,7 +222,7 @@ export async function sendFallbackError(
   task: SubAgentTask | ToolTask,
   errorMsg: string,
 ): Promise<void> {
-  const msgId = randomUUID();
+  const msgId = newUuid();
   const msg: InboxMessage = {
     id: msgId,
     type: 'task_result',

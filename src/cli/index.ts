@@ -27,6 +27,7 @@ import {
 import { contractCreateCommand, contractCreateFromDirCommand, contractShowCommand, contractEventsCommand, contractCancelCommand } from './commands/contract.js';
 import { skillInstallUserCommand, skillInstallClawCommand } from './commands/skill.js';
 import { runWatchdogLoop, startCommand as watchdogStart, stopCommand as watchdogStop } from '../watchdog/watchdog.js';
+import { DAEMON_LOG } from '../daemon/constants.js';
 import { createConfigCommand } from './commands/config.js';
 import { stopAllCommand } from './commands/stop.js';
 import { statusCommand } from './commands/status.js';
@@ -368,7 +369,8 @@ watchdogCmd
   .command('daemon')
   .description('Run watchdog daemon (internal)')
   .action(withCliErrorHandling(async () => {
-    await runWatchdogLoop(fsFactory);
+    // phase 444 Step B DI：装配传入 daemon stdout log（M#5 watchdog 不直 import daemon）。
+    await runWatchdogLoop(fsFactory, DAEMON_LOG);
   }));
 
 watchdogCmd.on('command:*', (ops) => {

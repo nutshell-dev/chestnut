@@ -7,7 +7,7 @@
 
 import { promises as fs } from 'fs';
 import * as path from 'path';
-import { randomUUID } from 'crypto';
+import { newUuid } from '../uuid.js';
 import type { StatInfo } from './types.js';
 
 export const IGNORE_PATTERN = '.tmp_';
@@ -32,7 +32,7 @@ export async function writeAtomic(
   options?: { encoding?: BufferEncoding; mode?: number }
 ): Promise<void> {
   const dir = path.dirname(filePath);
-  const tmpFile = path.join(dir, `${IGNORE_PATTERN}${randomUUID()}`);
+  const tmpFile = path.join(dir, `${IGNORE_PATTERN}${newUuid()}`);
   
   try {
     // Write to temp file

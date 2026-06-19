@@ -33,7 +33,6 @@ import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from '../foundation/process-manager/audit-events.js';
 import { CLAWS_DIR } from '../foundation/claw-paths.js';
 import { resolveDaemonEntry } from '../assembly/spawn-entry.js';
-import { DAEMON_LOG } from '../daemon/constants.js';
 
 
 import {
@@ -134,6 +133,7 @@ async function restartMotionIfDown(
   failures: number,
   baseInterval: number,
   maxBackoff: number,
+  daemonLogName: string,
 ): Promise<RestartMotionResult> {
   if (status.alive) {
     return { newBackoff: baseInterval, newFailures: 0 };
@@ -157,7 +157,7 @@ async function restartMotionIfDown(
     const pid = await pm.spawn(MOTION_CLAW_ID, {
       command: 'node',
       args: [daemonEntryPath, MOTION_CLAW_ID],
-      logFile: path.join(getNamedSubrootDir('motion'), DAEMON_LOG),
+      logFile: path.join(getNamedSubrootDir('motion'), daemonLogName),
       // phase 422 Step B (review medium orphan-cleanup uniformity): 与 motion.ts:209
       // / start.ts / claw-chat (phase 398 N1) 全 CLI 入口对齐、不绕
       // makeChestnutRoot/path.dirname。
@@ -183,8 +183,16 @@ async function restartMotionIfDown(
 
 // === Main loop ===
 
-/** 1:1 保 watchdog.ts:402-513 */
-export async function runWatchdogLoop(fsFactory: (baseDir: string) => FileSystem): Promise<void> {
+/**
+ * 1:1 保 watchdog.ts:402-513
+ *
+ * @param fsFactory 文件系统工厂
+ * @param daemonLogName daemon stdout 日志文件相对名（phase 1364 ratify daemon 单 owner、装配 caller setter 注入；phase 444 Step B DI 化避免 watchdog→daemon 模块边）
+ */
+export async function runWatchdogLoop(
+  fsFactory: (baseDir: string) => FileSystem,
+  daemonLogName: string,
+): Promise<void> {
   log(fsFactory, '[watchdog] Daemon starting...');
 
   writeWatchdogPid(fsFactory, process.pid);
@@ -298,6 +306,7 @@ export async function runWatchdogLoop(fsFactory: (baseDir: string) => FileSystem
         motionRestartFailures,
         intervalMs,
         WATCHDOG_BACKOFF_MAX_MS,
+        daemonLogName,
       );
       motionRestartFailures = newFailures;
       nextSleepMs = newBackoff;

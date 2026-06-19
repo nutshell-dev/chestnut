@@ -3,8 +3,7 @@
  * Pure utility helpers for chat-viewport — 0 闭包依赖
  */
 
-import { randomUUID } from 'crypto';
-import { UUID_SHORT_LEN } from '../../constants.js';
+import { newShortUuid } from '../../foundation/uuid.js';
 import { EXEC_MAX_OUTPUT } from '../../foundation/command-tool/constants.js';
 import { getChestnutRoot, makeChestnutRoot } from '../../foundation/install-paths.js';
 import * as path from 'path';
@@ -57,7 +56,7 @@ export function writeUserChat(
 function persistAttachment(fs: FileSystem, agentDir: string, content: string): string | null {
   try {
     const ts = Date.now();
-    const id = randomUUID().slice(0, UUID_SHORT_LEN);
+    const id = newShortUuid();
     const relPath = path.join(ATTACHMENT_SUBDIR, `${ts}_${id}.txt`);
     const absPath = path.join(agentDir, relPath);
     fs.writeAtomicSync(absPath, content);

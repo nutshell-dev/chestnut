@@ -591,7 +591,7 @@ describe('runWatchdogLoop', () => {
       exitSpy.mockRestore();
     });
     try {
-      await runWatchdogLoop(fsFactory);
+      await runWatchdogLoop(fsFactory, 'logs/daemon.log');
     } catch {
       // process.exit mock may throw — expected
     }

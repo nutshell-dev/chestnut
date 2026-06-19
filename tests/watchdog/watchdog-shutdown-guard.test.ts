@@ -85,7 +85,7 @@ describe('watchdog signal handler lifecycle (phase 994 A.1)', () => {
       exitSpy.mockRestore();
     });
     try {
-      await runWatchdogLoop(fsFactory);
+      await runWatchdogLoop(fsFactory, 'logs/daemon.log');
     } catch {
       // process.exit mock may throw — expected
     }

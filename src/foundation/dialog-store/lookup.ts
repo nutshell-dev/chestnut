@@ -6,7 +6,7 @@
  * Owner: dialog-store (M#3: dialog content 归 dialog-store SoT).
  */
 
-import * as crypto from 'node:crypto';
+import { sha256ShortHex } from '../hash.js';
 import type { FileSystem } from '../fs/types.js';
 import type { ToolUseId } from '../tool-protocol/tool-use-id.js';
 
@@ -152,5 +152,5 @@ function findContentInMessages(messages: unknown[], toolUseId: string): string |
 }
 
 function computeSha8(content: string): string {
-  return crypto.createHash('sha256').update(content).digest('hex').slice(0, 8);
+  return sha256ShortHex(content, 8);
 }

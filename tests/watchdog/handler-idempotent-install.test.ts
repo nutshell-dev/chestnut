@@ -85,7 +85,7 @@ describe('watchdog handler idempotent install (phase 1034 / audit-2026-05-17 NEW
       exitSpy.mockRestore();
     });
     try {
-      await runWatchdogLoop(fsFactory);
+      await runWatchdogLoop(fsFactory, 'logs/daemon.log');
     } catch {
       // process.exit mock may throw — expected
     }
@@ -124,7 +124,7 @@ describe('watchdog handler idempotent install (phase 1034 / audit-2026-05-17 NEW
       exitSpy.mockRestore();
     });
 
-    const loop2 = runWatchdogLoop(fsFactory);
+    const loop2 = runWatchdogLoop(fsFactory, 'logs/daemon.log');
     await new Promise((resolve) => setImmediate(resolve));
     const duringLoop2Sigterm = process.listenerCount('SIGTERM');
     const duringLoop2Sigint = process.listenerCount('SIGINT');

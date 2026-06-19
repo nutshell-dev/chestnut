@@ -9,7 +9,7 @@
  */
 
 import * as path from 'path';
-import { createHash } from 'node:crypto';
+import { sha256ShortHex } from '../foundation/hash.js';
 import { formatErr } from '../foundation/utils/index.js';
 import { loadGlobalConfig, loadClawConfig } from '../assembly/config-load.js';
 import { getClawDir, getNamedSubrootDir, getClawConfigPath } from '../foundation/config/index.js';
@@ -57,6 +57,12 @@ export interface DaemonCommandDeps {
     daemonStart: string;
     daemonCrash: string;
   };
+  /**
+   * motion daemon 自审 watchdog 存活探针。isMotion=true 时 caller 必传；
+   * claw daemon 路径不进自审分支、不传亦不触。
+   * phase 444 DI：避免 daemon-loop 直 import watchdog 模块（M#5 单向）。
+   */
+  watchdogAliveProbe?: () => boolean;
 }
 
 export function createDaemonCommand(deps: DaemonCommandDeps) {
@@ -132,7 +138,7 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
     let promptHash = 'n/a';
     try {
       const agentsContent = preAssembleFs.readSync(CLAW_SPEC_FILE);
-      promptHash = createHash('sha256').update(agentsContent).digest('hex').slice(0, 6);
+      promptHash = sha256ShortHex(agentsContent, 6);
     } catch { /* silent: AGENTS.md is optional, missing is expected */ }
     auditWriter.write(deps.auditEvents.daemonStart, `sha256:${promptHash}`);
     await processManager.markReady(makeClawId(clawId));
@@ -185,7 +191,7 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
       audit: auditWriter,
       inbox: { pendingDir: inboxPendingDir },
       motion: isMotion
-        ? { heartbeat: heartbeat ?? undefined }
+        ? { heartbeat: heartbeat ?? undefined, watchdogAliveProbe: deps.watchdogAliveProbe! }
         : undefined,
       streamWriter,
     });

@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto';
+import { newUuid } from '../uuid.js';
 import type { InboxMessage } from '../messaging/types.js';
 import { validatePriority, validateType } from './codec-validation.js';
 import { parseFrontmatterFrame } from '../utils/frontmatter-frame.js';
@@ -158,7 +158,7 @@ export function decodeInbox(raw: string): InboxMessage {
   }
 
   const result: InboxMessage = {
-    id: meta.id ?? randomUUID(),
+    id: meta.id ?? newUuid(),
     type,
     from: meta.from ?? meta.source ?? 'unknown',
     to: meta.to ?? '',

@@ -41,7 +41,6 @@ import { STATUS_SUBDIR } from '../foundation/process-manager/index.js';
 import { createStreamCallbacks } from './stream-callbacks.js';
 import { waitForInbox } from './inbox-watcher.js';
 import { shouldEmitStartupCheck } from './startup-check.js';
-import { isWatchdogAlive } from '../watchdog/watchdog-pid.js';
 
 
 
@@ -56,6 +55,12 @@ export interface DaemonInboxConfig {
 /** motion 专用扩展（claw daemon 整体省略此组） */
 interface DaemonMotionExtensions {
   heartbeat?: Heartbeat;
+  /**
+   * motion 自审 watchdog 存活探针（phase 324 H4 业务、phase 444 DI 化）。
+   * 装配方注入：通常 `() => isWatchdogAlive(fsFactory)` 等价语义。
+   * daemon 模块不直 import watchdog 模块（M#5 单向）。
+   */
+  watchdogAliveProbe: () => boolean;
 }
 
 export interface DaemonLoopOptions {
@@ -229,7 +234,7 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
       // phase 324 H4: motion 自审 watchdog 存活、不活时 audit。
       // 仅 motion daemon 检（claw daemon 无 supervisor 自审职责）。
       // dedup：仅在 alive→dead 转折或首次观察时 audit、避免每 tick 灌日志。
-      if (motion && !isWatchdogAlive(fsFactory)) {
+      if (motion && !motion.watchdogAliveProbe()) {
         if (!watchdogMissingAudited) {
           options.audit.write(
             DAEMON_AUDIT_EVENTS.WATCHDOG_MISSING,
