@@ -19,7 +19,7 @@ import {
   emitContractVerifierResultParseFailed,
 } from './audit-emit.js';
 import { z } from 'zod';
-import { CONTRACT_ACTIVE_DIR } from './dirs.js';
+import { CONTRACT_ACTIVE_DIR, PROGRESS_FILE } from './dirs.js';
 import * as path from 'path';
 import { createDoneTool, DONE_TOOL_NAME } from '../subagent/index.js';
 import { createToolRegistry } from '../../foundation/tools/index.js';
@@ -60,7 +60,7 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
     const progressPath = path.join(
       CONTRACT_ACTIVE_DIR,
       config.contractId,
-      'progress.json',
+      PROGRESS_FILE,
     );
     try {
       const raw = await config.fs.read(progressPath);

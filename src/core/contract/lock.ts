@@ -12,6 +12,7 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import { FileNotFoundError } from '../../foundation/fs/types.js';
 import { ToolError } from '../../foundation/errors.js';
 import { LOCK_MAX_RETRIES, LOCK_RETRY_DELAY_MS, LOCK_STALE_TIMEOUT_MS } from './constants.js';
+import { PROGRESS_LOCK_FILE } from './dirs.js';
 import {
   emitContractLockSchemaInvalid,
   emitContractLockCleared,
@@ -73,7 +74,7 @@ export async function acquireLock(ctx: LockContext, lockPath: string): Promise<v
           const isolated = await isolateCorruptedFile(ctx.fs, ctx.audit, {
             contractId: makeContractId(contractId),
             contractDir,
-            filename: 'progress.lock',
+            filename: PROGRESS_LOCK_FILE,
             reason: 'schema_invalid',
           });
           if (isolated) {

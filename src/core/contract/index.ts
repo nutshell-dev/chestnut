@@ -34,6 +34,9 @@ export {
   CONTRACT_ACTIVE_DIR,
   CONTRACT_PAUSED_DIR,
   CONTRACT_ARCHIVE_DIR,
+  PROGRESS_FILE,
+  CONTRACT_YAML_FILE,
+  PROGRESS_LOCK_FILE,
 } from './dirs.js';
 
 // Phase 1335 (r138 F fork): cross-module query API

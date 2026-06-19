@@ -15,6 +15,7 @@ import type { ContractYaml } from './types.js';
 import type { ProgressData } from './types.js';
 import { stripDerivableStatus } from './types.js';
 import { ContractYamlSchema, ContractProgressPersistedSchema } from './schemas.js';
+import { CONTRACT_YAML_FILE } from './dirs.js';
 import { makeClawId } from '../../constants.js';
 import { emitContractYamlSchemaInvalid } from './audit-emit.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
@@ -63,7 +64,7 @@ export async function loadContractYaml(
     );
     const contractDir = await ctx.contractDir(contractId);
     await isolateCorruptedFile(ctx.fs, ctx.audit, {
-      contractId, contractDir: `${contractDir}/${contractId}`, filename: 'contract.yaml',
+      contractId, contractDir: `${contractDir}/${contractId}`, filename: CONTRACT_YAML_FILE,
       reason: 'schema_invalid',
     });
     if (ctx.markCrashed) {

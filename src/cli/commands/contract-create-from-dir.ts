@@ -4,7 +4,7 @@
 
 import * as path from 'path';
 import { resolveChestnutRoot } from '../../foundation/install-paths.js';
-import { CONTRACT_DIR } from '../../core/contract/index.js';
+import { CONTRACT_DIR, CONTRACT_YAML_FILE } from '../../core/contract/index.js';
 import type { ContractSystem } from '../../core/contract/index.js';
 import { ContractCreatePolicyViolationError } from '../../core/contract/types.js';
 import { getClawDir } from '../../foundation/config/index.js';
@@ -41,7 +41,7 @@ export async function contractCreateFromDirCommand(
   const absDir = path.resolve(dirPath);
   const srcFs = deps.fsFactory(absDir);
 
-  const yamlContent = srcFs.readSync('contract.yaml');
+  const yamlContent = srcFs.readSync(CONTRACT_YAML_FILE);
   const contract = parseAndValidateContractYaml(yamlContent);
 
   // Phase 230: delegate to ContractSystem.create with policy iteration

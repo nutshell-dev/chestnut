@@ -11,7 +11,7 @@ import type { InboxMessageOptionsBase } from '../../foundation/messaging/index.j
 import type { ProgressData } from '../contract/index.js';
 import type { ContractId } from '../contract/types.js';
 import { type TaskId, makeTaskId } from '../async-task-system/types.js';
-import { listArchiveContracts } from '../contract/index.js';
+import { listArchiveContracts, PROGRESS_FILE } from '../contract/index.js';
 import { assertDreamStateShape } from './invariants.js';
 
 /**
@@ -243,7 +243,7 @@ async function computeWeight(
     }
   } else {
     // fallback：直接读 progress.json（backward compatible / 未注入 ContractSystem 时）
-    const progressPath = path.join(contractDir, 'progress.json');
+    const progressPath = path.join(contractDir, PROGRESS_FILE);
     try {
       const parsed: unknown = JSON.parse(fs.readSync(progressPath));
       if (typeof parsed !== 'object' || parsed === null || typeof (parsed as Record<string, unknown>).subtasks !== 'object') {

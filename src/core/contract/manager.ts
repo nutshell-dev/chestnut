@@ -49,7 +49,7 @@ import {
 } from './audit-emit.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 import { isolateCorruptedFile } from './_isolation-helper.js';
-import { CONTRACT_ACTIVE_DIR, CONTRACT_PAUSED_DIR, CONTRACT_ARCHIVE_DIR } from './dirs.js';
+import { CONTRACT_ACTIVE_DIR, CONTRACT_PAUSED_DIR, CONTRACT_ARCHIVE_DIR, PROGRESS_FILE } from './dirs.js';
 import { UUID_SHORT_LEN, type ClawId } from '../../constants.js';
 
 import type {
@@ -952,7 +952,7 @@ export class ContractSystem {
       }
       const isolationReason = isSchemaVersionIssue ? 'unknown_schema_version' : 'schema_invalid';
       await isolateCorruptedFile(this.fs, this.audit, {
-        contractId, contractDir: `${dir}/${contractId}`, filename: 'progress.json',
+        contractId, contractDir: `${dir}/${contractId}`, filename: PROGRESS_FILE,
         reason: isolationReason,
       });
       try {

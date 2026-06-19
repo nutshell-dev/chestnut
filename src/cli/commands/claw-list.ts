@@ -10,7 +10,7 @@ import { createDirContext } from '../../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { makeClawId } from '../../constants.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
-import { CONTRACT_DIR, CONTRACT_ARCHIVE_DIR } from '../../core/contract/index.js';
+import { CONTRACT_DIR, CONTRACT_ARCHIVE_DIR, CONTRACT_YAML_FILE } from '../../core/contract/index.js';
 import { CLAWS_DIR } from '../../foundation/claw-paths.js';
 import { getLastActiveMs } from './claw-shared.js';
 import { handleCliError } from '../errors.js';
@@ -60,7 +60,7 @@ export async function listCommand(deps: { fsFactory: (baseDir: string) => FileSy
       try {
         const dirs = clawFs.listSync(path.join(CONTRACT_DIR, sub), { includeDirs: true }).map(e => e.name);
         for (const dir of dirs) {
-          const relYamlPath = path.join('contract', sub, dir, 'contract.yaml');
+          const relYamlPath = path.join('contract', sub, dir, CONTRACT_YAML_FILE);
           if (clawFs.existsSync(relYamlPath)) {
             const content = clawFs.readSync(relYamlPath);
             const match = content.match(/^title:\s*["']?(.+?)["']?\s*$/m);
@@ -73,7 +73,7 @@ export async function listCommand(deps: { fsFactory: (baseDir: string) => FileSy
       const dirs = clawFs.listSync(CONTRACT_ARCHIVE_DIR, { includeDirs: true }).map(e => e.name);
       let latest = { mtime: 0, title: '' };
       for (const dir of dirs) {
-        const relYamlPath = path.join(CONTRACT_ARCHIVE_DIR, dir, 'contract.yaml');
+        const relYamlPath = path.join(CONTRACT_ARCHIVE_DIR, dir, CONTRACT_YAML_FILE);
         if (clawFs.existsSync(relYamlPath)) {
           const stat = clawFs.statSync(relYamlPath);
           if (stat.mtime.getTime() > latest.mtime) {

@@ -11,6 +11,8 @@ import {
   CONTRACT_ACTIVE_DIR,
   CONTRACT_PAUSED_DIR,
   CONTRACT_ARCHIVE_DIR,
+  PROGRESS_FILE,
+  CONTRACT_YAML_FILE,
 } from './dirs.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 
@@ -47,8 +49,8 @@ export function readOnboardingStatus(
     let entries: string[];
     try { entries = fs.listSync(dir, { includeDirs: true }).map(e => e.name); } catch { /* silent: TOCTOU race or ENOENT during dir scan — skip to next dir */ continue; }
     for (const contractId of entries) {
-      const contractYaml = path.join(dir, contractId, 'contract.yaml');
-      const progressJson = path.join(dir, contractId, 'progress.json');
+      const contractYaml = path.join(dir, contractId, CONTRACT_YAML_FILE);
+      const progressJson = path.join(dir, contractId, PROGRESS_FILE);
       if (!fs.existsSync(contractYaml) || !fs.existsSync(progressJson)) continue;
       let title = '';
       try {

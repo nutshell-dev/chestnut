@@ -7,7 +7,7 @@ import * as path from 'path';
 import { isFileNotFound, type FileSystem } from '../../../foundation/fs/types.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
 import { ACTIVE_STATUSES } from '../types.js';
-import { CONTRACT_ARCHIVE_DIR } from '../dirs.js';
+import { CONTRACT_ARCHIVE_DIR, PROGRESS_FILE } from '../dirs.js';
 import type { ClawId } from '../../../constants.js';
 import {
   emitContractArchiveReconcileStale,
@@ -47,7 +47,7 @@ export async function reconcileArchiveStaleEntries(
 
   for (const d of dirs.filter(e => e.isDirectory)) {
     scanned++;
-    const progressPath = path.join(archiveDir, d.name, 'progress.json');
+    const progressPath = path.join(archiveDir, d.name, PROGRESS_FILE);
     try {
       const raw = await ctx.fs.read(progressPath);
       // phase 341 Zod SoT broaden (ML#9 优先编译器检查、复用 phase 332 loose schema、cluster N=10)

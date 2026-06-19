@@ -11,7 +11,7 @@ import * as yaml from 'js-yaml';
 import { loadGlobalConfig, clawExists } from '../../assembly/config-load.js';
 import { getClawDir, getClawConfigPath } from '../../foundation/config/index.js';
 import { CliError } from '../errors.js';
-import { CONTRACT_DIR, CONTRACT_ARCHIVE_DIR } from '../../core/contract/index.js';
+import { CONTRACT_DIR, CONTRACT_ARCHIVE_DIR, PROGRESS_FILE, CONTRACT_YAML_FILE } from '../../core/contract/index.js';
 import { DIALOG_DIR, DIALOG_ARCHIVE_DIR } from '../../foundation/dialog-store/index.js';
 import { migrateAndValidateSession, validateSessionData } from '../../foundation/dialog-store/store.js';
 import type { ContractId } from '../../core/contract/types.js';
@@ -123,8 +123,8 @@ function slotLetter(idx: number): string {
  */
 async function readContractStartedAt(fileSystem: FileSystem, contractId: ContractId): Promise<string | null> {
   // 先尝试 archive
-  const archivePath = path.join(CONTRACT_ARCHIVE_DIR, contractId, 'progress.json');
-  const activePath = path.join(CONTRACT_DIR, 'active', contractId, 'progress.json');
+  const archivePath = path.join(CONTRACT_ARCHIVE_DIR, contractId, PROGRESS_FILE);
+  const activePath = path.join(CONTRACT_DIR, 'active', contractId, PROGRESS_FILE);
 
   for (const p of [archivePath, activePath]) {
     try {
@@ -144,8 +144,8 @@ async function readContractStartedAt(fileSystem: FileSystem, contractId: Contrac
  */
 async function readContractTitle(fileSystem: FileSystem, contractId: ContractId): Promise<string | undefined> {
   // 从 progress.json 读取
-  const archivePath = path.join(CONTRACT_ARCHIVE_DIR, contractId, 'progress.json');
-  const activePath = path.join(CONTRACT_DIR, 'active', contractId, 'progress.json');
+  const archivePath = path.join(CONTRACT_ARCHIVE_DIR, contractId, PROGRESS_FILE);
+  const activePath = path.join(CONTRACT_DIR, 'active', contractId, PROGRESS_FILE);
 
   for (const p of [archivePath, activePath]) {
     try {
@@ -159,8 +159,8 @@ async function readContractTitle(fileSystem: FileSystem, contractId: ContractId)
   }
 
   // 从 contract.yaml 读取
-  const yamlPath = path.join(CONTRACT_ARCHIVE_DIR, contractId, 'contract.yaml');
-  const activeYamlPath = path.join(CONTRACT_DIR, 'active', contractId, 'contract.yaml');
+  const yamlPath = path.join(CONTRACT_ARCHIVE_DIR, contractId, CONTRACT_YAML_FILE);
+  const activeYamlPath = path.join(CONTRACT_DIR, 'active', contractId, CONTRACT_YAML_FILE);
 
   for (const p of [yamlPath, activeYamlPath]) {
     try {

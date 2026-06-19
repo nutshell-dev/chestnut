@@ -7,7 +7,7 @@ import type { ProgressData } from '../manager.js';
 import type { ArchiveAllowedStatus } from '../types.js';
 import { CONTRACT_AUDIT_EVENTS } from '../audit-events.js';
 import { emitContractArchiveNonTerminalDetected } from '../audit-emit.js';
-import { CONTRACT_ARCHIVE_DIR } from '../dirs.js';
+import { CONTRACT_ARCHIVE_DIR, PROGRESS_FILE, CONTRACT_YAML_FILE } from '../dirs.js';
 import { ContractProgressArchiveLooseSchema } from '../schemas.js';
 import type { ClawId } from '../../../constants.js';
 
@@ -16,7 +16,7 @@ function readContractMeta(
   contractDir: string,
 ): { title?: string; goal?: string } {
   try {
-    const raw = fs.readSync(path.join(contractDir, 'contract.yaml'));
+    const raw = fs.readSync(path.join(contractDir, CONTRACT_YAML_FILE));
     const parsed = yaml.load(raw) as { title?: unknown; goal?: unknown } | undefined;
     return {
       title: typeof parsed?.title === 'string' ? parsed.title : undefined,
@@ -175,7 +175,7 @@ export function scanArchivedContracts(
     const dirs = fs.listSync(archiveDir, { includeDirs: true })
       .filter(e => e.isDirectory);
     for (const d of dirs) {
-      const progressPath = path.join(archiveDir, d.name, 'progress.json');
+      const progressPath = path.join(archiveDir, d.name, PROGRESS_FILE);
       try {
         const raw = fs.readSync(progressPath);
         // phase 332 Zod SoT loose schema (M#2 archive 业务语义 = historical preservation、
