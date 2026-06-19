@@ -22,7 +22,7 @@ import { TASK_AUDIT_EVENTS } from '../../src/core/async-task-system/audit-events
 import { SUBAGENT_AUDIT_EVENTS } from '../../src/core/subagent/audit-events.js';
 import { TEST_LLM_TIMEOUT_MS, SUBAGENT_DEFAULT_TIMEOUT_MS, SUBAGENT_WAIT_TIMEOUT_MS, SUBAGENT_LONG_TIMEOUT_MS } from '../helpers/test-timeouts.js';
 import { SUBAGENT_TIMEOUT_MS } from '../../src/core/subagent/constants.js';
-import { makeAudit, makeMockAudit, waitForAuditEvent } from '../helpers/audit.js';
+import { makeAudit, makeMockAudit, waitForAuditEvent, waitForNextAuditEvent } from '../helpers/audit.js';
 import { createTestTaskSystem, createMockWatcherFactory } from '../helpers/task-system.js';
 import { waitFor } from '../helpers/wait-for.js';
 import { waitForAnyFile, waitForCompleteFile } from '../helpers/wait-for-file.js';
@@ -283,7 +283,9 @@ describe('Task System + SubAgent', () => {
       }
       
       await ctx.taskSystem.shutdown(1);
-      ctx.replaceTaskSystem(createTestTaskSystem(ctx.tempDir, ctx.mockFs, makeAudit().audit, {
+      // phase 381: capture emitter、用 TASK_STARTED audit event 替原 listRunning polling
+      const { audit: testAudit, emitter: testEmitter } = makeAudit();
+      ctx.replaceTaskSystem(createTestTaskSystem(ctx.tempDir, ctx.mockFs, testAudit, {
         call: vi.fn().mockResolvedValue({
           content: [{ type: 'text', text: 'Completed' }],
           stop_reason: 'end_turn',
@@ -295,7 +297,7 @@ describe('Task System + SubAgent', () => {
       } as unknown as LLMOrchestrator, { createWatcher: ctx.createWatcher }));
       await ctx.taskSystem.initialize();
       ctx.taskSystem.startDispatch();
-      
+
       const taskId = await ctx.taskSystem.scheduleSubAgent({
         kind: 'subagent',
         mode: 'standard',
@@ -305,8 +307,8 @@ describe('Task System + SubAgent', () => {
         parentClawId: 'parent-claw',
       });
 
-      // Wait for task to be dispatched to running
-      await waitFor(() => ctx.taskSystem.listRunning().includes(taskId));
+      // Wait for task to be dispatched to running (TASK_STARTED emit 严格晚于 listRunning 更新)
+      await waitForNextAuditEvent(testEmitter, TASK_AUDIT_EVENTS.TASK_STARTED);
 
       // Verify task is in running state
       expect(ctx.taskSystem.listRunning()).toContain(taskId);
@@ -507,8 +509,8 @@ describe('Task System + SubAgent', () => {
         parentClawId: 'test-claw',
       });
 
-      // Wait for task to be dispatched to running
-      await waitFor(() => ctx.taskSystem.listRunning().includes(taskId));
+      // phase 381: TASK_STARTED audit event 替原 listRunning polling
+      await waitForNextAuditEvent(emitter, TASK_AUDIT_EVENTS.TASK_STARTED);
 
       // Shutdown with 1ms timeout to force timeout path
       await ctx.taskSystem.shutdown(1);
