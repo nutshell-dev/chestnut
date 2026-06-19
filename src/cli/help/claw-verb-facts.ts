@@ -144,6 +144,23 @@ export const CLAW_VERB_FACTS: readonly VerbFact[] = [
       'chestnut claw alice ls --recursive',
     ],
   },
+  {
+    name: 'stream',
+    group: 'messaging',
+    form: 'instance',
+    summary: 'Tail the claw stream.jsonl as JSONL events to stdout (long-running)',
+    options: [
+      { flag: '--from-recent-turn', desc: 'Start from the recent turn boundary (default)' },
+      { flag: '--from-now', desc: 'Start from end of file (only new appends)' },
+      { flag: '--include-history', desc: 'Replay full history then tail' },
+      { flag: '--from-offset <N>', desc: 'Start from byte offset N' },
+    ],
+    examples: [
+      'chestnut claw motion stream',
+      'chestnut claw motion stream --from-now',
+      'chestnut claw alice stream --include-history > alice.log',
+    ],
+  },
 
   // ── Observation ────────────────────────────────────────────────────────
   {

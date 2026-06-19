@@ -45,6 +45,8 @@ const VI_MOCK_FILES = [
   'tests/cli/claw-send-confinement.test.ts',
   'tests/cli/commands/claw-health.test.ts',
   'tests/cli/commands/claw-list.test.ts',
+  'tests/cli/commands/claw-stream.test.ts',
+
   'tests/cli/commands/subagent-cli-output.test.ts',  // phase 1395 merged from subagent-list + subagent-steps-json
   'tests/cli/contract-events.test.ts',
   'tests/cli/contract.test.ts',

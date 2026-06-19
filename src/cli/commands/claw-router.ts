@@ -32,6 +32,7 @@ import {
   lsCommand,
   clawStatusCommand,
   watchCommand,
+  runStreamFromArgs,
 } from './claw.js';
 import { CliError } from '../errors.js';
 import { createDirContext } from '../../foundation/audit/index.js';
@@ -222,6 +223,7 @@ export async function dispatchClawSubcommand(
     case 'trace': return runTrace(deps, name, verbArgs);
     case 'status': return runStatus(deps, name, verbArgs);
     case 'watch': return runWatch(deps, name, verbArgs);
+    case 'stream': return runStreamFromArgs(deps, name, verbArgs);
   }
 }
 

@@ -32,6 +32,7 @@ export const CLAW_VERBS = {
   TRACE: 'trace',
   STATUS: 'status',
   WATCH: 'watch',     // phase 5: subscribe to one-shot inactivity follow-up
+  STREAM: 'stream',   // phase 447: tail stream.jsonl as JSONL events to stdout
 } as const;
 
 export type ClawVerb = typeof CLAW_VERBS[keyof typeof CLAW_VERBS];
