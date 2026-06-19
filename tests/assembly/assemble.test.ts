@@ -270,6 +270,7 @@ vi.mock('../../src/foundation/dialog-store/index.js', () => ({
   cleanupArchives: vi.fn().mockResolvedValue(0),
   DIALOG_DIR: 'dialog',
   DIALOG_ARCHIVE_DIR: 'dialog/archive',
+  CURRENT_DIALOG_FILE: 'current.json',
 }));
 
 vi.mock('../../src/assembly/config-load.js', () => ({
