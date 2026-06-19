@@ -141,7 +141,7 @@ async function restartMotionIfDown(
 
   log(fsFactory, `[watchdog] motion down (${status.reason}), restarting...`);
   audit.write(WATCHDOG_AUDIT_EVENTS.WATCHDOG_RESTART_TRIGGERED, MOTION_CLAW_ID);
-  log(fsFactory, `[watchdog] motion down (${status.reason}), restarting...`);
+  // phase 430 Step B: 删除重复 log call (history merge artifact、motion-down 写两遍)
 
   try {
     // best-effort cleanup before respawn / per phase 636 ratify:

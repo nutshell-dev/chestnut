@@ -254,7 +254,10 @@ export class Snapshot {
       await this.git(['config', 'user.name', 'chestnut']);
       await this.git(['config', 'user.email', 'chestnut@local']);
       await this.git(['add', '.']);
-      await this.git(['commit', '--allow-empty', '-m', 'init']);
+      // phase 430 Step D (phase 429 Step C consistency): init commit 也加 '--'
+      // 与 line 328 user-message commit 一致、消除「hardcoded 'init' 无攻击面所以不
+      // 需 --」的不一致 (代码模式一致性优先于 cosmetic 区别)。
+      await this.git(['commit', '--allow-empty', '-m', 'init', '--']);
       if (shouldResetCounter) {
         this.state = onCommitSuccess();
       }

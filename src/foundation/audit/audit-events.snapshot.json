@@ -779,6 +779,7 @@
       "messaging_unknown_destination_dlq",
       "notify_claw_failed",
       "notify_claw_sent",
+      "outbox_body_oversize",
       "outbox_delivered",
       "outbox_list_failed",
       "outbox_processing_orphan_cleaned",

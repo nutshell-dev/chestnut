@@ -329,6 +329,15 @@ export class EvolutionSystem {
         const parsed = JSON.parse(rawMining);
         if (Array.isArray(parsed)) {
           baseMessages = parsed;
+        } else {
+          // phase 430 Step C (review medium): shape mismatch 静默 degrade 修复
+          // — 之前 silent fallthrough、baseMessages 保持空、无 forensics
+          this.deps.audit.write(
+            RETRO_AUDIT_EVENTS.MINING_FAILED,
+            `taskId=${miningTaskId}`,
+            'reason=shape_mismatch',
+            `actual_type=${typeof parsed === 'object' && parsed !== null ? (Array.isArray(parsed) ? 'array' : 'object') : typeof parsed}`,
+          );
         }
       } catch (e) {
         if (isFileNotFound(e)) {

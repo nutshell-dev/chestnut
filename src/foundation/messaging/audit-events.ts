@@ -29,6 +29,8 @@ export const MESSAGING_AUDIT_EVENTS = {
   OUTBOX_SENT: 'outbox_sent',
   OUTBOX_DELIVERED: 'outbox_delivered',
   OUTBOX_SEND_FAILED: 'outbox_send_failed',
+  // phase 430 Step E (review medium、inbox cap 对称): outbox body 超 cap、防 disk DoS
+  OUTBOX_BODY_OVERSIZE: 'outbox_body_oversize',
   NOTIFY_CLAW_SENT: 'notify_claw_sent',
   NOTIFY_CLAW_FAILED: 'notify_claw_failed',
   RETENTION_CLEANUP_DELETE_FAILED: 'messaging_retention_cleanup_delete_failed',
@@ -66,6 +68,7 @@ export const MESSAGING_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   outbox_sent: 'audit',
   outbox_delivered: 'audit',
   outbox_send_failed: 'audit',
+  outbox_body_oversize: 'audit',
   notify_claw_sent: 'audit',
   notify_claw_failed: 'audit',
   messaging_retention_cleanup_delete_failed: 'audit',

@@ -93,6 +93,19 @@ export class InboxWriter {
 
   /** async 写，atomic */
   async write(msg: InboxMessage, extraFields?: Record<string, string>): Promise<void> {
+    // phase 430 Step A (phase 429 follow-up、review medium): async write 对称 body cap、防 disk DoS
+    const bodySize = Buffer.byteLength(msg.content, 'utf-8');
+    const maxBytes = getInboxBodyMaxBytes();
+    if (bodySize > maxBytes) {
+      emitInboxBodyOversize(this.audit, {
+        source: msg.from,
+        to: msg.to,
+        type: msg.type,
+        bodySize,
+        cap: maxBytes,
+      });
+      throw new Error(`Inbox body size ${bodySize} bytes exceeds cap ${maxBytes} (env CHESTNUT_INBOX_BODY_MAX_BYTES to override)`);
+    }
     // phase 273 Step A: schema invariant (violation emit audit、不 throw、不阻 write、保 IO 错 throw)
     assertMessageShape(msg, this.audit, 'inbox', 'write');
 

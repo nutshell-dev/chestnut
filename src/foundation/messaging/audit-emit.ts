@@ -252,3 +252,19 @@ export function emitOutboxSendFailed(
     `reason=${opts.reason}`,
   );
 }
+
+// ─── OUTBOX_BODY_OVERSIZE ─────────────────────────────────────────────────────
+// phase 430 Step E (review medium、inbox cap 对称): outbox body 超 cap、emit + caller 收 throw
+export function emitOutboxBodyOversize(
+  audit: AuditLog,
+  opts: { clawId: string; to: string; type: string; bodySize: number; cap: number },
+): void {
+  audit.write(
+    MESSAGING_AUDIT_EVENTS.OUTBOX_BODY_OVERSIZE,
+    `from=${opts.clawId}`,
+    `to=${opts.to}`,
+    `type=${opts.type}`,
+    `body_size=${opts.bodySize}`,
+    `cap=${opts.cap}`,
+  );
+}

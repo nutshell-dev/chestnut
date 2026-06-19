@@ -10,7 +10,7 @@ import type { FileSystem } from '../fs/types.js';
 import type { OutboxMessage } from '../messaging/types.js';
 import type { AuditLog } from '../audit/index.js';
 import { encodeOutbox } from './codec-outbox.js';
-import { emitOutboxSent, emitOutboxSendFailed } from './audit-emit.js';
+import { emitOutboxSent, emitOutboxSendFailed, emitOutboxBodyOversize } from './audit-emit.js';
 import { assertMessageShape } from './invariants.js';
 import { SequenceCounter, formatSeq } from './sequence-counter.js';
 import type { ClawId } from '../../constants.js';
@@ -25,6 +25,17 @@ export interface OutboxWriteOptions {
   content: string;
   metadata?: Record<string, string>;
   priority?: 'critical' | 'high' | 'normal' | 'low';
+}
+
+// phase 430 Step E (review medium、inbox cap 对称): outbox message content 硬上限、防 disk DoS
+// Derivation: 64 KiB (与 INBOX_BODY_MAX_BYTES_DEFAULT 一致、统一上限) / outbox typical use
+// case (status report / result) ≤ 4KB / env CHESTNUT_OUTBOX_BODY_MAX_BYTES 覆盖.
+const OUTBOX_BODY_MAX_BYTES_DEFAULT = 64 * 1024;
+function getOutboxBodyMaxBytes(): number {
+  const raw = process.env.CHESTNUT_OUTBOX_BODY_MAX_BYTES;
+  if (!raw) return OUTBOX_BODY_MAX_BYTES_DEFAULT;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : OUTBOX_BODY_MAX_BYTES_DEFAULT;
 }
 
 /** Branded outbox directory path — only makeOutboxPath() can construct. */
@@ -81,6 +92,19 @@ export class OutboxWriter {
    * @returns Path to the written file
    */
   async write(options: OutboxWriteOptions): Promise<string> {
+    // phase 430 Step E (review medium、inbox cap 对称): outbox body 硬上限、防 disk DoS
+    const bodySize = Buffer.byteLength(options.content, 'utf-8');
+    const maxBytes = getOutboxBodyMaxBytes();
+    if (bodySize > maxBytes) {
+      emitOutboxBodyOversize(this.audit, {
+        clawId: this.clawId,
+        to: options.to,
+        type: options.type,
+        bodySize,
+        cap: maxBytes,
+      });
+      throw new Error(`Outbox body size ${bodySize} bytes exceeds cap ${maxBytes} (env CHESTNUT_OUTBOX_BODY_MAX_BYTES to override)`);
+    }
     // phase 398 Step A (review N4): await async next() to serialize via
     // promise chain; nextSync() let two concurrent writes race the
     // read-modify-write on .next-msg-seq → duplicate seq → filename collision.
