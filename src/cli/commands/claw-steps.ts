@@ -29,19 +29,27 @@ function resolveDialogPath(deps: { fsFactory: (baseDir: string) => FileSystem },
 }
 
 export async function clawStepsCommand(deps: { fsFactory: (baseDir: string) => FileSystem }, name: string, opts: { noHint?: boolean } = {}): Promise<void> {
-  const session = loadSessionFromFile(deps, resolveDialogPath(deps, name));
-  const steps = parseMessagesFromSession(session);
+  const result = loadSessionFromFile(deps, resolveDialogPath(deps, name));
+  const steps = parseMessagesFromSession(result.session);
   if (steps.length === 0) {
     console.log('No steps found.');
     return;
   }
   const cliPrefix = name === MOTION_CLAW_ID ? MOTION_CLAW_ID : `claw ${name}`;
+  if (result.source === 'archive') {
+    console.log(`(source=archive: ${result.archiveName}, no active session)`);
+    console.log('');
+  }
   console.log(renderSteps(steps, { cliPrefix, noHint: opts.noHint }));
 }
 
 export async function clawStepCommand(deps: { fsFactory: (baseDir: string) => FileSystem }, n: string, name: string): Promise<void> {
-  const session = loadSessionFromFile(deps, resolveDialogPath(deps, name));
-  const steps = parseMessagesFromSession(session);
+  const result = loadSessionFromFile(deps, resolveDialogPath(deps, name));
+  if (result.source === 'archive') {
+    console.log(`(source=archive: ${result.archiveName}, no active session)`);
+    console.log('');
+  }
+  const steps = parseMessagesFromSession(result.session);
   // 解析 n = "N" 或 "N.x"
   const match = n.match(/^(\d+)(?:\.([a-z]))?$/);
   if (!match) throw new CliError(`Invalid step number: ${n} (expected "N" or "N.x")`);

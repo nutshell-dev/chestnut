@@ -50,7 +50,7 @@ vi.mock('../../../src/cli/commands/subagent-helpers.js', () => ({
 }));
 
 vi.mock('../../../src/cli/commands/_message-renderer.js', () => ({
-  loadSessionFromFile: vi.fn().mockReturnValue({ messages: [] }),
+  loadSessionFromFile: vi.fn().mockReturnValue({ session: { messages: [] }, source: 'current' }),
   parseMessagesFromSession: vi.fn().mockReturnValue([
     {
       num: 1,
@@ -108,7 +108,7 @@ describe('subagent steps --json', () => {
 
     vi.mocked(resolveClawDir).mockReturnValue('/tmp/claws/test-claw');
 
-    vi.mocked(loadSessionFromFile).mockReturnValue({ messages: [] });
+    vi.mocked(loadSessionFromFile).mockReturnValue({ session: { messages: [] }, source: 'current' });
     vi.mocked(parseMessagesFromSession).mockReturnValue([
       {
         num: 1,

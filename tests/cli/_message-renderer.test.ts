@@ -363,8 +363,8 @@ describe('_message-renderer', () => {
       };
       fs.writeFileSync(filePath, JSON.stringify(session));
       const loaded = loadSessionFromFile({ fsFactory }, filePath);
-      expect(loaded.messages).toHaveLength(1);
-      expect(loaded.messages[0].role).toBe('assistant');
+      expect(loaded.session.messages).toHaveLength(1);
+      expect(loaded.session.messages[0].role).toBe('assistant');
     });
 
     it('文件不存在 → 抛 CliError「dialog session not found」', () => {

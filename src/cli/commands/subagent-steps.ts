@@ -59,8 +59,8 @@ export async function subagentStepsCommand(deps: { fsFactory: (baseDir: string) 
   }
 
   const resultDir = resolveResultDir(deps, clawDir, id);
-  const session = loadSessionFromFile(deps, path.join(resultDir, 'messages.json'));
-  const steps = parseMessagesFromSession(session);
+  const loadResult = loadSessionFromFile(deps, path.join(resultDir, 'messages.json'));
+  const steps = parseMessagesFromSession(loadResult.session);
 
   if (steps.length === 0) {
     if (opts?.json) {
@@ -100,8 +100,8 @@ export async function subagentStepCommand(deps: { fsFactory: (baseDir: string) =
   }
 
   const resultDir = resolveResultDir(deps, clawDir, id);
-  const session = loadSessionFromFile(deps, path.join(resultDir, 'messages.json'));
-  const steps = parseMessagesFromSession(session);
+  const loadResult = loadSessionFromFile(deps, path.join(resultDir, 'messages.json'));
+  const steps = parseMessagesFromSession(loadResult.session);
 
   if (steps.length === 0) {
     if (opts?.json) {

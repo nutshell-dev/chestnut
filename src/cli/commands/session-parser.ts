@@ -22,6 +22,12 @@ export interface SessionLike {
   messages: Message[];
 }
 
+export interface SessionLoadResult {
+  session: SessionLike;
+  source: 'current' | 'archive';
+  archiveName?: string;
+}
+
 export function parseMessagesFromSession(session: SessionLike): Step[] {
   const messages = session.messages;
   const steps: Step[] = [];
@@ -96,16 +102,51 @@ function collectToolResults(userMsg: Message | undefined): Map<string, ToolResul
   return map;
 }
 
-export function loadSessionFromFile(deps: { fsFactory: (baseDir: string) => FileSystem }, filePath: string): SessionLike {
+export function loadSessionFromFile(
+  deps: { fsFactory: (baseDir: string) => FileSystem },
+  filePath: string,
+): SessionLoadResult {
   const baseDir = path.dirname(filePath);
   const relPath = path.basename(filePath);
   const fileSystem = deps.fsFactory(baseDir);
-  if (!fileSystem.existsSync(relPath)) {
-    throw new CliError(`dialog session not found: ${filePath}`);
+
+  // path 1: current.json exists → read directly
+  if (fileSystem.existsSync(relPath)) {
+    const raw = JSON.parse(fileSystem.readSync(relPath));
+    const session = migrateAndValidateSession(raw, relPath);
+    if (!session) throw new CliError(`dialog session version unknown: ${filePath}`);
+    return {
+      session: validateSessionData(session) as SessionLike,
+      source: 'current',
+    };
   }
-  const raw = JSON.parse(fileSystem.readSync(relPath));
-  const filename = path.basename(filePath);
-  const session = migrateAndValidateSession(raw, filename);
-  if (!session) throw new CliError(`dialog session version unknown: ${filePath}`);
-  return validateSessionData(session) as SessionLike;
+
+  // path 2: cold-start fallback → latest archive under archive/
+  const archiveDir = path.join(baseDir, 'archive');
+  const archiveFs = deps.fsFactory(archiveDir);
+  if (!archiveFs.existsSync('.')) {
+    throw new CliError(`dialog session not found: ${filePath} (archive/ also missing)`);
+  }
+  const latestArchive = findLatestArchiveSync(archiveFs);
+  if (!latestArchive) {
+    throw new CliError(`dialog session not found: ${filePath} (archive/ empty)`);
+  }
+  const raw = JSON.parse(archiveFs.readSync(latestArchive));
+  const session = migrateAndValidateSession(raw, latestArchive);
+  if (!session) throw new CliError(`dialog session version unknown: archive/${latestArchive}`);
+  return {
+    session: validateSessionData(session) as SessionLike,
+    source: 'archive',
+    archiveName: latestArchive,
+  };
+}
+
+function findLatestArchiveSync(archiveFs: FileSystem): string | null {
+  const entries = archiveFs.listSync('.');
+  const archives = entries
+    .filter((e) => e.isFile && e.name.endsWith('.json') && /^\d+_/.test(e.name))
+    .map((e) => ({ name: e.name, ts: parseInt(e.name.split('_')[0], 10) }))
+    .filter((a) => !isNaN(a.ts))
+    .sort((a, b) => b.ts - a.ts);
+  return archives.length > 0 ? archives[0].name : null;
 }
