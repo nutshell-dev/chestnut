@@ -85,6 +85,29 @@ export type ChatViewportOptions = ViewportIdentity & ViewportDisplayOptions & Vi
 
 export type { TurnTracker } from './chat-viewport-types.js';
 
+// phase 426 Step C (review medium): slash-command quote-aware tokenizer
+// 支持 "..." / '...'、连续空格折叠、未闭引号宽松（剩余当 token、不抛）。
+// 不支持 escape \" (首版最简、按需扩)。
+function tokenizeSlashArgs(s: string): string[] {
+  const tokens: string[] = [];
+  let current = '';
+  let quote: '"' | "'" | null = null;
+  for (const c of s) {
+    if (quote) {
+      if (c === quote) { quote = null; continue; }
+      current += c;
+    } else if (c === '"' || c === "'") {
+      quote = c as '"' | "'";
+    } else if (/\s/.test(c)) {
+      if (current) { tokens.push(current); current = ''; }
+    } else {
+      current += c;
+    }
+  }
+  if (current) tokens.push(current);
+  return tokens;
+}
+
 export async function runChatViewport(options: ChatViewportOptions): Promise<void> {
   const pm = createProcessManagerForCLI({ fsFactory: options.fsFactory });
   // 确保 daemon 运行
@@ -376,7 +399,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     if (cmdMatch) {
       const name = cmdMatch[1];
       const rawTail = (cmdMatch[2] ?? '').trim();
-      const args = rawTail ? rawTail.split(/\s+/) : [];
+      const args = rawTail ? tokenizeSlashArgs(rawTail) : [];
       const cmd = commandRegistry.get(name);
       if (cmd) {
         try {

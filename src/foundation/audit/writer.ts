@@ -215,13 +215,17 @@ export async function reconcileFallbackDumps(fs: FileSystem): Promise<void> {
               try { fs.syncSync(origin); } catch (_) { /* silent: fsync best-effort */ }
             } catch (_) { /* silent: per-origin best-effort */ }
           }
-        } catch {
-          // silent: 目标文件可能已被删 / 权限变（best-effort per-file、其他 origin 仍继续）
+        } catch (perOriginErr) {
+          // phase 426 Step A (review medium silent-catch): inner 失败可能 PermissionError /
+          // 文件被删；console.error 留痕、不依赖 audit 防递归 (我们正在 reconcile audit 自身)。
+          console.error(`[AUDIT WARNING] reconcile fallback per-origin write failed: origin=${origin} reason=${formatErr(perOriginErr)}`);
         }
       }
       await fs.delete(dumpPath);
-    } catch {
-      // silent: 损坏文件跳过、下轮 reconcile 重试（best-effort、不阻塞整体启动）
+    } catch (dumpErr) {
+      // phase 426 Step A (review medium silent-catch): outer dump 解析失败 (corrupt /
+      // PermissionError on read)；console.error 留痕、下轮 reconcile 重试。
+      console.error(`[AUDIT WARNING] reconcile fallback dump skipped: dumpPath=${dumpPath} reason=${formatErr(dumpErr)}`);
     }
   }
 }

@@ -56,7 +56,16 @@ const BASE_ALLOWLIST: ReadonlySet<string> = new Set([
   ...LLM_API_KEYS,
 ]);
 
-const PREFIX_ALLOW: ReadonlyArray<string> = ['CHESTNUT_', 'VITEST_', 'LC_'];
+// phase 426 Step B (review medium env-leak): VITEST_ 仅 NODE_ENV='test' 通过、prod
+// 子进程不继承测试 framework env。动态函数 (而非 module-level const) 防模块加载
+// 期 NODE_ENV 未设。
+function getPrefixAllow(): ReadonlyArray<string> {
+  const base = ['CHESTNUT_', 'LC_'];
+  if (process.env.NODE_ENV === 'test') {
+    return [...base, 'VITEST_'];
+  }
+  return base;
+}
 
 export interface ScrubEnvOptions {
   /** Extra explicit key names to permit through scrub. */
@@ -86,7 +95,7 @@ export function scrubEnv(
       result[key] = value;
       continue;
     }
-    if (PREFIX_ALLOW.some(p => key.startsWith(p))) {
+    if (getPrefixAllow().some(p => key.startsWith(p))) {
       result[key] = value;
       continue;
     }
