@@ -33,6 +33,17 @@ export const CLAW_MEMORY_FILE = 'MEMORY.md' as const;
  * phase 392: 抽 2 site inline 'IDENTITY.md' literal 为 const (M#1 + ML#9)。
  */
 export const CLAW_IDENTITY_FILE = 'IDENTITY.md' as const;
+/**
+ * 其他 claw template / 运行时 file (phase 393 抽).
+ * - SOUL.md: claw soul section（runtime init + cli motion template）
+ * - USER.md: claw user section（runtime init + permissions whitelist）
+ * - AUTH_POLICY.md: claw auth policy section（runtime init + cli motion template）
+ * - HEARTBEAT.md: claw heartbeat checklist（heartbeat module + cli motion template）
+ */
+export const CLAW_SOUL_FILE = 'SOUL.md' as const;
+export const CLAW_USER_FILE = 'USER.md' as const;
+export const CLAW_AUTH_POLICY_FILE = 'AUTH_POLICY.md' as const;
+export const CLAW_HEARTBEAT_FILE = 'HEARTBEAT.md' as const;
 
 /**
  * Enumerate all claw IDs (sub-directories) under clawsDir.

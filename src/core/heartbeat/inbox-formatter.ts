@@ -19,6 +19,7 @@ import type { FileSystem } from '../../foundation/fs/types.js';
 import { isFileNotFound } from '../../foundation/fs/types.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { HEARTBEAT_AUDIT_EVENTS } from './audit-events.js';
+import { CLAW_HEARTBEAT_FILE } from '../../foundation/claw-paths.js';
 
 export interface HeartbeatInboxFormatterDeps {
   /** Heartbeat 模块所在 claw 的 systemFs（HEARTBEAT.md 在 claw 根下）*/
@@ -32,7 +33,7 @@ export function createHeartbeatInboxFormatter(deps: HeartbeatInboxFormatterDeps)
   return async ({ timestampSec }) => {
     const base = `[system message${timestampSec}] Heartbeat triggered. Please perform a routine check.`;
     try {
-      const checklist = (await systemFs.read('HEARTBEAT.md')).trim();
+      const checklist = (await systemFs.read(CLAW_HEARTBEAT_FILE)).trim();
       return checklist ? `${base}\n\n${checklist}` : base;
     } catch (e) {
       // phase 1154 r+ derive: 双码 narrow via foundation helper（FileSystem 抽象层抛 FS_NOT_FOUND）

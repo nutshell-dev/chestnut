@@ -33,6 +33,7 @@ import {
   INTERRUPT_POLL_WARN_EVERY,
   REACT_CHAIN_MAX_ITERATIONS,
   LLM_RETRY_INITIAL_DELAY_MS,
+  LLM_RETRY_STATE_FILE,
 } from './constants.js';
 import { notifyInbox } from '../foundation/messaging/index.js';
 import { dispatchError } from './error-handlers.js';
@@ -117,7 +118,7 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
   const saveLlmRetryState = () => {
     try {
       agentFs.ensureDirSync(STATUS_SUBDIR);
-      agentFs.writeAtomicSync(path.join(STATUS_SUBDIR, 'llm-retry-state.json'), JSON.stringify({
+      agentFs.writeAtomicSync(path.join(STATUS_SUBDIR, LLM_RETRY_STATE_FILE), JSON.stringify({
         schema_version: 1,
         llmRetryCount,
         llmRetryDelayMs,
@@ -143,7 +144,7 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
   if (!isCleanStop) {
     let raw: string | undefined;
     try {
-      raw = agentFs.readSync(path.join(STATUS_SUBDIR, 'llm-retry-state.json'));
+      raw = agentFs.readSync(path.join(STATUS_SUBDIR, LLM_RETRY_STATE_FILE));
     } catch (e) {
       if (!isFileNotFound(e)) {
         options.audit.write(

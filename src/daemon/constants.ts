@@ -79,3 +79,10 @@ export const INTERRUPT_POLL_RECOVERY_BACKOFF_MS = 30_000;
  * 达 cap 时 emit LOOP_ITERATION_TYPES.CHAIN_LIMITED audit / chain 强制结束本 tick.
  */
 export const REACT_CHAIN_MAX_ITERATIONS = 100;
+
+/**
+ * LLM retry state persistence file (daemon-loop atomic + fsync write).
+ * 持 LLM retry attempt count 跨进程重启（DP「中断可恢复」derive、phase 1024 G.1 + phase 1214 ratify）.
+ * phase 393: 抽 2 site inline 'llm-retry-state.json' literal 为 const (M#1 + ML#9)。
+ */
+export const LLM_RETRY_STATE_FILE = 'llm-retry-state.json' as const;

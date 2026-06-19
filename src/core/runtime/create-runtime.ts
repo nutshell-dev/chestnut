@@ -20,7 +20,7 @@ import type { ContextInjector } from '../dialog/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { RUNTIME_AUDIT_EVENTS } from './runtime-audit-events.js';
-import { CLAW_IDENTITY_FILE } from '../../foundation/claw-paths.js';
+import { CLAW_IDENTITY_FILE, CLAW_SOUL_FILE, CLAW_USER_FILE, CLAW_AUTH_POLICY_FILE } from '../../foundation/claw-paths.js';
 
 export type CreateRuntimeOptions = RuntimeOptions & {
   identity: 'motion' | 'claw';
@@ -67,7 +67,7 @@ async function buildMotionSystemPrompt({
   }
 
   // 2. USER.md
-  const user = await tryReadOptionalSection(systemFs, 'USER.md', audit);
+  const user = await tryReadOptionalSection(systemFs, CLAW_USER_FILE, audit);
   if (user) sections.push(user);
 
   // 3. IDENTITY.md
@@ -75,7 +75,7 @@ async function buildMotionSystemPrompt({
   if (identity) sections.push(identity);
 
   // 4. SOUL.md
-  const soul = await tryReadOptionalSection(systemFs, 'SOUL.md', audit);
+  const soul = await tryReadOptionalSection(systemFs, CLAW_SOUL_FILE, audit);
   if (soul) sections.push(soul);
 
   // 5. MEMORY.md
@@ -94,7 +94,7 @@ async function buildMotionSystemPrompt({
   }
 
   // 8. AUTH_POLICY.md
-  const authPolicy = await tryReadOptionalSection(systemFs, 'AUTH_POLICY.md', audit);
+  const authPolicy = await tryReadOptionalSection(systemFs, CLAW_AUTH_POLICY_FILE, audit);
   if (authPolicy) sections.push(authPolicy);
 
   return sections.join('\n\n');
