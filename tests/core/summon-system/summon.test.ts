@@ -7,7 +7,7 @@ import { promises as fs } from 'fs';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { SummonTool } from '../../../src/core/summon-system/tools/summon.js';
-import { buildMinerSystemPrompt } from '../../../src/prompts/mining.js';
+import { buildMinerSystemPrompt } from '../../../src/templates/prompts/mining.js';
 import { summonContractExtractPostProcessor } from '../../../src/core/summon-system/post-processors/contract-extract.js';
 import { ExecContextImpl } from '../../../src/foundation/tools/context.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';

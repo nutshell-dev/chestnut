@@ -8,7 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const AGENTS_PATH = path.resolve(__dirname, '../../src/cli/commands/templates/motion/AGENTS.md');
+const AGENTS_PATH = path.resolve(__dirname, '../../../src/templates/motion/AGENTS.md');
 
 describe('motion AGENTS.md crash self-heal N≥3 bailout (phase 1207 gap C)', () => {
   const content = fs.readFileSync(AGENTS_PATH, 'utf-8');

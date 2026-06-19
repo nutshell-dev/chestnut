@@ -17,7 +17,7 @@
   },
   "scripts": {
     "build": "tsup --config .config/tsup.config.ts && pnpm run copy-templates && pnpm run copy-skills",
-    "copy-templates": "cp -r src/cli/commands/templates dist/",
+    "copy-templates": "cp -r src/templates dist/",
     "copy-skills": "cp -r src/skills dist/",
     "dev": "tsup --config .config/tsup.config.ts --watch",
     "test": "vitest --config .config/vitest.config.ts",

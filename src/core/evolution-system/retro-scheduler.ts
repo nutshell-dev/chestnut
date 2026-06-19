@@ -8,7 +8,7 @@
  * - createSkillSystem（A.5 / from core/skill）
  */
 
-import { buildRetroPrompt } from '../../prompts/index.js';
+import { buildRetroPrompt } from '../../templates/prompts/index.js';
 import { formatErr } from "../../foundation/utils/index.js";
 import { MOTION_CLAW_ID } from '../../constants.js';
 import type { AsyncTaskSystem } from '../async-task-system/index.js';

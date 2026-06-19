@@ -17,7 +17,7 @@ import { runSubagent as defaultRunSubagent, createPerTaskRegistry, getDisplayRes
 import { SHADOW_AUDIT_EVENTS } from './audit-events.js';
 import { synthesizeFormB, formatErr } from './_helpers.js';
 import { classifyTaskError } from '../async-task-system/index.js';
-import type { BuildShadowInstructionArgs } from '../../prompts/index.js';
+import type { BuildShadowInstructionArgs } from '../../templates/prompts/index.js';
 import { type ToolUseId, makeToolUseId } from '../../foundation/tool-protocol/index.js';
 
 

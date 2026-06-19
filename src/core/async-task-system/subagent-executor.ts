@@ -18,7 +18,7 @@ import {
 } from './audit-emit.js';
 import { TASKS_QUEUES_RESULTS_DIR, TASKS_SUBAGENTS_DIR } from './dirs.js';
 
-import { buildSubagentSystemPrompt, DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../../prompts/index.js';
+import { buildSubagentSystemPrompt, DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../../templates/prompts/index.js';
 import { sendResult, sendFallbackError } from './result-delivery.js';
 
 import type { Tool } from '../../foundation/tools/index.js';

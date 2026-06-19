@@ -6,7 +6,7 @@ import type { ToolResult } from '../../../foundation/tool-protocol/index.js';
 import { createSkillSystem } from '../../../foundation/skill-system/index.js';
 
 import { DEFAULT_LLM_IDLE_TIMEOUT_MS } from '../../../foundation/llm-orchestrator/index.js';
-import { buildSummonContractTask, buildMinerSystemPrompt, buildMiningUserMessage } from '../../../prompts/index.js';
+import { buildSummonContractTask, buildMinerSystemPrompt, buildMiningUserMessage } from '../../../templates/prompts/index.js';
 
 
 import { SUMMON_AUDIT_EVENTS, emitSummonDispatched, emitSummonRejectedShadow } from '../audit-events.js';

@@ -5,7 +5,7 @@
  * 后续 NEW template 在 SPAWN_TEMPLATES 加条；prompt 体量大时拆 `templates/<name>.ts` sub-file 再 import 进 registry。
  */
 
-import { DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../../prompts/index.js';
+import { DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../../templates/prompts/index.js';
 
 export const SPAWN_TEMPLATES = {
   default: DEFAULT_SUBAGENT_SYSTEM_PROMPT,

@@ -9,7 +9,7 @@
  */
 
 
-import type { ToolUseId } from '../foundation/tool-protocol/index.js';
+import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
 
 export const SHADOW_INSTRUCTION_PREFIX = `[SHADOW INSTRUCTION — YOU ARE NO LONGER THE MAIN AGENT]`;
 

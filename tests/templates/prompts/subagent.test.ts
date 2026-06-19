@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildSubagentSystemPrompt } from '../../src/prompts/subagent.js';
+import { buildSubagentSystemPrompt } from '../../../src/templates/prompts/subagent.js';
 
 describe('buildSubagentSystemPrompt', () => {
   it('教默认 clawspace + 推荐临时区 (phase 518)', () => {

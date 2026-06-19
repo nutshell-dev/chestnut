@@ -7,7 +7,7 @@ import * as path from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { executeSubAgentTask } from '../../src/core/async-task-system/subagent-executor.js';
-import { DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../../src/prompts/subagent.js';
+import { DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../../src/templates/prompts/subagent.js';
 import type { SubAgentTask } from '../../src/core/async-task-system/system.js';
 import { SUBAGENT_DEFAULT_TIMEOUT_MS } from '../helpers/test-timeouts.js';
 

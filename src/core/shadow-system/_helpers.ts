@@ -7,7 +7,7 @@
 
 import type { Message } from '../../foundation/llm-provider/types.js';
 import { SHADOW_TOOL_NAME } from './constants.js';
-import { buildShadowInstruction, type BuildShadowInstructionArgs } from '../../prompts/index.js';
+import { buildShadowInstruction, type BuildShadowInstructionArgs } from '../../templates/prompts/index.js';
 
 /**
  * Strip trailing incomplete assistant message so subagent LLM doesn't see unpaired tool_uses.

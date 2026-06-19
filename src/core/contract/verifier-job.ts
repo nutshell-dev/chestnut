@@ -26,7 +26,7 @@ import { createToolRegistry } from '../../foundation/tools/index.js';
 import { ToolTimeoutError } from '../../foundation/errors.js';
 import { TASKS_SYNC_SUBAGENT_DIR } from '../subagent/index.js';
 import { TASKS_SUBAGENTS_DIR } from '../subagent/constants.js';
-import { buildSubagentSystemPrompt, CONTRACT_VERIFIER_SYSTEM_PROMPT } from '../../prompts/index.js';
+import { buildSubagentSystemPrompt, CONTRACT_VERIFIER_SYSTEM_PROMPT } from '../../templates/prompts/index.js';
 import type { VerifierConfig, VerifierResult } from './types.js';
 
 // phase 330: peek-pattern schema for crash-recovery cancelled-skip check (passthrough、允许其他字段)

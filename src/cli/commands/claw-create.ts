@@ -7,7 +7,7 @@ import { getClawDir, getClawConfigPath } from '../../foundation/config/index.js'
 import { CLAW_SUBDIRS } from '../../assembly/claw-subdirs.js';
 // path module intentionally not used in this file after refactor
 import { CliError } from '../errors.js';
-import { buildAgentsMdTemplate } from '../../prompts/index.js';
+import { buildAgentsMdTemplate } from '../../templates/prompts/index.js';
 import { CLAW_SPEC_FILE } from '../../foundation/claw-paths.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';

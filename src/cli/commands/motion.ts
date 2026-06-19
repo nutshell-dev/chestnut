@@ -51,7 +51,7 @@ async function readTemplate(deps: { fsFactory: (baseDir: string) => FileSystem }
     return distFs.readSync(path.join('templates', 'motion', name));
   } catch {
     // Fall back to src path (during development)
-    const srcPath = path.join(__dirname, '..', 'src', 'cli', 'commands', 'templates', 'motion', name);
+    const srcPath = path.join(__dirname, '..', 'src', 'templates', 'motion', name);
     const srcFs = deps.fsFactory(path.dirname(srcPath));
     return srcFs.readSync(path.basename(srcPath));
   }

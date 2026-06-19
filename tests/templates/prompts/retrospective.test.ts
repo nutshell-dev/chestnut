@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildRetroPrompt } from '../../src/prompts/retrospective.js';
+import { buildRetroPrompt } from '../../../src/templates/prompts/retrospective.js';
 
 describe('buildRetroPrompt', () => {
   const sampleYaml = `schema_version: 1

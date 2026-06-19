@@ -18,7 +18,7 @@ import { AGENT_STREAM_EVENTS } from '../agent-executor/index.js';
 import type { StreamLog } from '../../foundation/stream/index.js';
 import { type CallerType, callerTypeToProfile, CALLER_TYPE_TO_GROUPS } from '../caller-types.js';
 import type { DialogStore } from '../../foundation/dialog-store/index.js';
-import { DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../../prompts/index.js';
+import { DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../../templates/prompts/index.js';
 import type { PermissionChecker } from '../../foundation/tool-protocol/permission.js';
 import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
 import { createTimeoutController } from './timeout-controller.js';

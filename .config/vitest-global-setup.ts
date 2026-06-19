@@ -21,9 +21,9 @@
  *
  * Known limits (documented, intentionally):
  * - Non-.ts assets (templates / skills copied via `pnpm run copy-templates`
- *   + `pnpm run copy-skills`) live under src/cli/commands/templates and
- *   src/cli/commands/skills — they are walked as part of src/, so changes
- *   under those subdirectories also trigger rebuild.
+ *   + `pnpm run copy-skills`) live under src/templates and src/skills —
+ *   they are walked as part of src/, so changes under those subdirectories
+ *   also trigger rebuild.
  * - `git checkout` between branches may leave src mtime older than dist
  *   even though the actual content differs. We do not attempt to detect
  *   this; the developer is responsible for `pnpm build` after a branch

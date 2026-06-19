@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildSummonContractTask } from '../../src/prompts/summon-contract-task.js';
+import { buildSummonContractTask } from '../../../src/templates/prompts/summon-contract-task.js';
 
 describe('buildSummonContractTask', () => {
   it('verify=false omits all verification scaffolding', () => {

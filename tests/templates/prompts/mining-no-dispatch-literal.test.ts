@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildMinerSystemPrompt } from '../../src/prompts/mining.js';
+import { buildMinerSystemPrompt } from '../../../src/templates/prompts/mining.js';
 
 describe('mining prompt: no `dispatch` literal (phase 1183 F.9)', () => {
   it('mining prompt 0 occurrences of `dispatch` literal', () => {

@@ -4,7 +4,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { synthesizeFormB } from '../../../src/core/shadow-system/_helpers.js';
-import { SHADOW_INSTRUCTION_PREFIX } from '../../../src/prompts/shadow.js';
+import { SHADOW_INSTRUCTION_PREFIX } from '../../../src/templates/prompts/shadow.js';
 import type { Message } from '../../../src/foundation/llm-provider/types.js';
 
 describe('shadow form synthesis', () => {

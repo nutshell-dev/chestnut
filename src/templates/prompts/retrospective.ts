@@ -4,7 +4,7 @@
  * Builds the prompt for contract retrospective subagent.
  */
 
-import type { ContractId } from '../core/contract/types.js';
+import type { ContractId } from '../../core/contract/types.js';
 
 
 export function buildRetroPrompt(

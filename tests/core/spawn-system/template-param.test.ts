@@ -13,7 +13,7 @@ import * as path from 'path';
 import { spawnTool } from '../../../src/core/spawn-system/index.js';
 import { createSpawnTool } from '../../../src/core/spawn-system/tools/spawn.js';
 import { SPAWN_AUDIT_EVENTS } from '../../../src/core/spawn-system/audit-events.js';
-import { DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../../../src/prompts/index.js';
+import { DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../../../src/templates/prompts/index.js';
 import { ExecContextImpl } from '../../../src/foundation/tools/context.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import { makeAudit } from '../../helpers/audit.js';
