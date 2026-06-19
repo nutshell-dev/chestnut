@@ -26,6 +26,7 @@ import type { FileSystem } from '../foundation/fs/types.js';
 import { LockConflictError } from '../foundation/process-manager/index.js';
 import { DAEMON_AUDIT_EVENTS } from './audit-events.js';
 import type { DaemonInstances } from './types.js';
+import type { AssembleConfig } from '../assembly/types.js';
 
 // phase 175: idempotent signal handler refs（mirror watchdog.ts:60-61 pattern、防 test re-entry 累 listener）
 let uncaughtHandler: ((err: Error) => void) | null = null;
@@ -46,13 +47,9 @@ export function _resetDaemonSignalHandlers(): void {
 
 export interface DaemonCommandDeps {
   fsFactory: (baseDir: string) => FileSystem;
-  assemble: (config: {
-    identity: 'motion' | 'claw';
-    clawId: string;
-    clawDir: string;
-    globalConfig: any;
-    clawConfig: any | null;
-  }) => Promise<DaemonInstances>;
+  // phase 386: inline anonymous type 替为 AssembleConfig (assembly/types.ts) —
+  // ML#9 显式表达（不可消除耦合优先编译器检查）+ ML#1 单源真理（消 inline `any` 类型逃逸 + 类型字段重复）
+  assemble: (config: AssembleConfig) => Promise<DaemonInstances>;
   disassemble: (instances: DaemonInstances, signal: string) => Promise<void>;
   auditEvents: {
     assembleFailed: string;
@@ -89,7 +86,8 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
         clawId: clawId,
         clawDir: dir,
         globalConfig,
-        clawConfig,
+        // phase 386: AssembleConfig.clawConfig 是 `ClawConfig | null`、loadClawConfig 返 `... | undefined` → coalesce null
+        clawConfig: clawConfig ?? null,
       });
     } catch (e) {
       const reason = formatErr(e);
