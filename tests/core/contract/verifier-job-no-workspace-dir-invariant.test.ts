@@ -3,7 +3,10 @@
  * Phase 1371 sub-6: verifier-job signal abort cleanup invariant test
  *
  * Enforces the phase 805 assumption: runSubagent does NOT create a subagent workspace dir.
- * If this assumption changes, this test fails immediately — forcing explicit cleanup code.
+ *
+ * NEW hit ratchet (`ensureDir|mkdir(workspace)`) 已迁 ESLint custom rule
+ * `chestnut-custom/no-subagent-ensuredir-workspace` (phase 402)。本 file 仅留
+ * cross-file aggregate count baseline (ESLint per-file scope 不擅长跨文件 count)。
  */
 
 import { describe, it, expect } from 'vitest';
@@ -25,27 +28,8 @@ function readSrcFiles(dir: string): string[] {
   return results;
 }
 
-describe('verifier-job no-workspace-dir invariant (phase 1371 sub-6)', () => {
-  it('subagent source contains 0 ensureDir/mkdir calls targeting workspace dir', () => {
-    const files = readSrcFiles('src/core/subagent');
-    const violations: string[] = [];
-
-    for (const file of files) {
-      const content = readFileSync(file, 'utf-8');
-      const lines = content.split('\n');
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        // Look for ensureDir or mkdir that mentions workspace
-        if (/ensureDir|mkdir|mkdirSync/.test(line) && /workspace|CLAWSPACE|workspaceDir/i.test(line)) {
-          violations.push(`${path.relative(process.cwd(), file)}:${i + 1}: ${line.trim()}`);
-        }
-      }
-    }
-
-    expect(violations).toEqual([]);
-  });
-
-  it('subagent source baseline: ensureDir is only used for resultDir', () => {
+describe('verifier-job no-workspace-dir invariant (phase 1371 sub-6 count baseline)', () => {
+  it('subagent source baseline: ensureDir is only used for resultDir (count = 2)', () => {
     const files = readSrcFiles('src/core/subagent');
     let ensureDirCount = 0;
 
@@ -57,6 +41,7 @@ describe('verifier-job no-workspace-dir invariant (phase 1371 sub-6)', () => {
 
     // Current baseline: run.ts (1) + agent.ts (1) = 2 ensureDir calls for resultDir
     // If this number increases, a human must verify it's not workspace dir creation.
+    // (NEW workspace dir ensureDir 已由 ESLint `no-subagent-ensuredir-workspace` 守 phase 402)
     expect(ensureDirCount).toBe(2);
   });
 });

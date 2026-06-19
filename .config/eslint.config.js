@@ -28,6 +28,7 @@ import noFilenameTag from './eslint-rules/no-filename-tag.js';
 import noRuntimeKnowsUpperLayer from './eslint-rules/no-runtime-knows-upper-layer-messages.js';
 import noReassignHandleContextExceeded from './eslint-rules/no-reassign-handle-context-exceeded.js';
 import noReadonlyAndSupportsAsyncTool from './eslint-rules/no-readonly-and-supportsasync-tool.js';
+import noSubagentEnsureDirWorkspace from './eslint-rules/no-subagent-ensuredir-workspace.js';
 
 /** @type {import('eslint').Linter.Config[]} */
 export default [
@@ -73,6 +74,7 @@ export default [
           'no-runtime-knows-upper-layer-messages': noRuntimeKnowsUpperLayer,
           'no-reassign-handle-context-exceeded': noReassignHandleContextExceeded,
           'no-readonly-and-supportsasync-tool': noReadonlyAndSupportsAsyncTool,
+          'no-subagent-ensuredir-workspace': noSubagentEnsureDirWorkspace,
         },
       },
     },
@@ -108,6 +110,7 @@ export default [
       'chestnut-custom/no-runtime-knows-upper-layer-messages': 'error',
       'chestnut-custom/no-reassign-handle-context-exceeded': 'error',
       'chestnut-custom/no-readonly-and-supportsasync-tool': 'error',
+      'chestnut-custom/no-subagent-ensuredir-workspace': 'error',
     },
   },
 ];
