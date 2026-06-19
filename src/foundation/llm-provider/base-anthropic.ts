@@ -9,6 +9,7 @@ import type { ProviderConfig, LLMCallOptions, ProviderAdapter, StreamChunk } fro
 import type { LLMResponse } from './types.js';
 import { assertContentBlocks } from './_block-guards.js';
 import { LLM_PROVIDER_AUDIT_EVENTS } from './audit-events.js';
+import { sanitizeForLLMCall } from './sanitize.js';
 
 // phase 194: Anthropic format 路径专用 model→max_tokens 查表 fallback
 // 用户未在 config 显式设 max_tokens 时由 adapter 自决（API 必填、必须给值）
@@ -64,9 +65,10 @@ export abstract class BaseAnthropicAdapter implements ProviderAdapter {
    */
   protected buildBaseRequestBody(options: LLMCallOptions): AnthropicRequestBody {
     const { messages, system, tools, maxTokens, temperature } = options;
+    const sanitized = sanitizeForLLMCall(messages);
     const body: AnthropicRequestBody = {
       model: options.model ?? this.config.model,
-      messages: this.formatMessages(messages),
+      messages: this.formatMessages(sanitized),
       max_tokens: maxTokens
         ?? this.config.maxTokens
         ?? resolveAnthropicMaxTokens(options.model ?? this.config.model),

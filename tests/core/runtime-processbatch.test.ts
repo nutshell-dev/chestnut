@@ -98,18 +98,25 @@ ${msg.content}
       // Verify LLM was called once (batch processing)
       expect(mockLLM.call).toHaveBeenCalledTimes(1);
 
-      // Verify all inbox messages were merged into a single user message (priority order preserved)
+      // phase 436: inbox messages are no longer merged; each becomes its own user message
       const callArgs = mockLLM.call.mock.calls[0][0];
       const userMessages = callArgs.messages.filter((m: { role: string }) => m.role === 'user');
-      expect(userMessages.length).toBe(1);
+      expect(userMessages.length).toBe(3);
       // All three messages present, critical first
-      const combined = userMessages[0].content;
+      const combined = userMessages.map((m: { content: string }) => m.content).join('\n');
       expect(combined).toContain('Critical priority');
       expect(combined).toContain('High priority');
       expect(combined).toContain('Normal priority');
       // Critical appears before High, High before Normal
       expect(combined.indexOf('Critical priority')).toBeLessThan(combined.indexOf('High priority'));
       expect(combined.indexOf('High priority')).toBeLessThan(combined.indexOf('Normal priority'));
+
+      // phase 436 metadata assertions
+      for (const m of userMessages) {
+        expect(m.origin).toBe('system');
+        expect(m.systemSubtype).toBe('message');
+        expect(typeof m.addedAt).toBe('string');
+      }
     });
 
     it('should move messages to done before LLM call', async () => {

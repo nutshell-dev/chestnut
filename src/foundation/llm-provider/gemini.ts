@@ -24,6 +24,7 @@ import { withCombinedAbortSignal, classifyFetchAbortError } from './abort-helper
 import { formatGeminiMessages } from './gemini-message-formatter.js';
 import { parseGeminiSSEStream } from './gemini-sse-parser.js';
 import { parseGeminiResponse, type GeminiResponse } from './gemini-response-parser.js';
+import { sanitizeForLLMCall } from './sanitize.js';
 
 type HarmCategory =
   | 'HARM_CATEGORY_HARASSMENT'
@@ -62,8 +63,9 @@ export class GeminiAdapter implements ProviderAdapter {
 
   private buildRequestBody(options: LLMCallOptions): GeminiRequest {
     const effectiveMaxTokens = options.maxTokens ?? this.config.maxTokens;
+    const sanitized = sanitizeForLLMCall(options.messages);
     const body: GeminiRequest = {
-      contents: formatGeminiMessages(options.messages),
+      contents: formatGeminiMessages(sanitized),
       generationConfig: {
         ...(effectiveMaxTokens !== undefined ? { maxOutputTokens: effectiveMaxTokens } : {}),
         temperature: options.temperature ?? this.config.temperature,

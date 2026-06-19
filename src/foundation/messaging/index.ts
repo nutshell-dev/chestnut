@@ -39,6 +39,13 @@ export { MESSAGING_AUDIT_EVENTS, MESSAGING_FILE_ROUTING } from './audit-events.j
 
 // phase 1414: inbox 消息格式化协议（散到各业主自管）
 export { createMessageFormatterRegistry } from './formatter-registry.js';
+
+// phase 436: system/user 消息识别 helper
+export {
+  SYSTEM_MESSAGE_PREFIX,
+  isSystemMessage,
+  isUserMessage,
+} from './system-message-helper.js';
 export type {
   MessageFormatter,
   MessageFormatterRegistry,

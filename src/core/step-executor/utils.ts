@@ -64,6 +64,7 @@ export function appendAssistantMessage(messages: Message[], content: ContentBloc
   messages.push({
     role: 'assistant',
     content,
+    addedAt: new Date().toISOString(),
   });
 }
 
@@ -71,6 +72,8 @@ export function appendToolResults(messages: Message[], results: ToolResultBlock[
   messages.push({
     role: 'user',
     content: results,
+    addedAt: new Date().toISOString(),
+    // 不填 origin：tool_result 既非 user 意图也非 system event、由 content block.type 区分
   });
 }
 

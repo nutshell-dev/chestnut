@@ -56,6 +56,25 @@ export type ContentBlock = TextBlock | ToolUseBlock | ToolResultBlock | Thinking
 export interface Message {
   role: Role;
   content: ContentBlock[] | string;
+
+  // chestnut 内部元数据（LLM API 调用前 sanitize 剥离、API 仅看 role + content）
+  // phase 436 立、phase 421 ratify、phase C 消费 (24h 边界 + P3 子类型分流 + trimmed 已裁过判)
+
+  /** 仅 role='user' 时有意义；tool_result 不填（内部 block.type 已区分） */
+  origin?: 'user' | 'system';
+
+  /** = InboxMessage.type 字面单源、role='user' + origin='system' 时填 */
+  systemSubtype?: string;
+
+  /** 消息写入时刻 ISO（24h 边界判断依据、phase C ContextManager 消费） */
+  addedAt?: string;
+
+  /** phase C ContextManager 触发裁剪时填、本 Step 仅立 schema */
+  trimmed?: {
+    trimmedAt: string;
+    originalContentBytes: number;
+    timesTrimmed?: number;
+  };
 }
 
 export interface ToolDefinition {

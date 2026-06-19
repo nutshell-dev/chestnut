@@ -80,8 +80,11 @@ export function createEventHandler(deps: EventHandlerDeps) {
         deps.mainUI.flushStreaming();
         const srcs = event.sources as Array<{ text: string; type: string }> | undefined;
         if (deps.showSystemMessages && srcs && srcs.length > 0) {
-          // 显示所有非 user_chat 的来源（系统消息、inbox 消息等）
-          const sysParts = srcs.filter(s => s.type !== 'user_chat').map(s => s.text);
+          // phase 436: user_chat + user_inbox_message 都属于用户意图来源；
+          // 其余来源（heartbeat、task_result、contract_* 等）才作为系统消息展示。
+          const sysParts = srcs
+            .filter(s => s.type !== 'user_chat' && s.type !== 'user_inbox_message')
+            .map(s => s.text);
           if (sysParts.length > 0) {
             deps.appendOutput('\x1b[33m', `> ${sysParts.join(' | ')}`);
           }

@@ -547,9 +547,9 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     injected: Message[];
     sources: Array<{ text: string; type: string }>;
   }> {
-    const systemParts: string[] = [];
-    const userChatParts: string[] = [];
+    const injected: Message[] = [];
     const sources: Array<{ text: string; type: string }> = [];
+    const now = new Date().toISOString();
     for (const { message } of addressed) {
       const formatted = await this.formatInboxMessage(
         message.type,
@@ -558,20 +558,21 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
         message.timestamp,
         message.extraMeta,   // phase 1469: motion-side guidance composer reads state from extraMeta
       );
-      if (message.type === 'user_chat') {
-        userChatParts.push(formatted);
-      } else {
-        systemParts.push(formatted);
-      }
+      // phase 436: user_chat + user_inbox_message → 用户意图来源（origin='user'）
+      // 其他 inbox type → 系统事件（origin='system' + systemSubtype = InboxMessage.type 单源）
+      const isUserOrigin = message.type === 'user_chat' || message.type === 'user_inbox_message';
+      injected.push({
+        role: 'user',
+        content: formatted,
+        origin: isUserOrigin ? 'user' : 'system',
+        ...(isUserOrigin ? {} : { systemSubtype: message.type }),
+        addedAt: now,
+      });
       sources.push({
         text: formatted.replace(/\r?\n/g, ' '),
         type: message.type,
       });
     }
-    const allParts = [...systemParts, ...userChatParts];
-    const injected: Message[] = allParts.length > 0
-      ? [{ role: 'user', content: allParts.join('\n\n') }]
-      : [];
     return { injected, sources };
   }
 
@@ -951,7 +952,8 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     this.execContext.trace_id = traceId;
     try {
     const { session } = await this.sessionManager.load();
-    const messages = [...session.messages, msg];
+    const enrichedMsg = msg.addedAt ? msg : { ...msg, addedAt: new Date().toISOString() };
+    const messages = [...session.messages, enrichedMsg];
     const procTools = this.toolRegistry.formatForLLM(
       this.toolRegistry.getForProfile(this.options.toolProfile ?? 'full')
     );

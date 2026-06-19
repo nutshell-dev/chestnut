@@ -28,6 +28,7 @@ import { withCombinedAbortSignal, classifyFetchAbortError } from './abort-helper
 import { formatMessages, formatTools } from './openai-message-formatter.js';
 import { parseSSEStream } from './openai-sse-parser.js';
 import { parseResponse } from './openai-response-parser.js';
+import { sanitizeForLLMCall } from './sanitize.js';
 
 /**
  * OpenAI API request body
@@ -110,9 +111,10 @@ export class OpenAIAdapter implements ProviderAdapter {
 
     const effectiveMaxTokens = maxTokens ?? this.config.maxTokens;
     // Build request body
+    const sanitized = sanitizeForLLMCall(messages);
     const body: OpenAIRequest = {
       model: options.model ?? this.config.model,
-      messages: formatMessages(messages, system),
+      messages: formatMessages(sanitized, system),
       ...(effectiveMaxTokens !== undefined ? { max_tokens: effectiveMaxTokens } : {}),
     };
 
@@ -179,9 +181,10 @@ export class OpenAIAdapter implements ProviderAdapter {
     const { messages, system, tools, maxTokens, temperature, timeoutMs, signal } = options;
 
     const effectiveMaxTokens = maxTokens ?? this.config.maxTokens;
+    const sanitized = sanitizeForLLMCall(messages);
     const body: OpenAIRequest & { stream: boolean } = {
       model: options.model ?? this.config.model,
-      messages: formatMessages(messages, system),
+      messages: formatMessages(sanitized, system),
       ...(effectiveMaxTokens !== undefined ? { max_tokens: effectiveMaxTokens } : {}),
       stream: true,
     };
