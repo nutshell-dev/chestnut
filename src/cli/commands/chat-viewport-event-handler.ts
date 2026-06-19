@@ -21,6 +21,7 @@ import type { MainTurnUIController } from './main-turn-ui.js';
 import type { ThinkingMode } from './chat-viewport-commands.js';
 import type { createViewportObservability } from './chat-viewport-observability.js';
 import { type TaskId, makeTaskId } from '../../core/async-task-system/types.js';
+import type { DescriptorSink } from './viewport-render-descriptor.js';
 
 
 export interface TaskWatch {
@@ -42,7 +43,7 @@ export interface TurnLifecycleRole {
 }
 
 export interface DisplayRenderRole {
-  appendOutput: (color: string, text: string, wrap?: boolean, hangIndent?: string) => void;
+  sink: DescriptorSink;
 }
 
 export interface InboxFilterRole {
@@ -86,7 +87,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
             .filter(s => s.type !== 'user_chat' && s.type !== 'user_inbox_message')
             .map(s => s.text);
           if (sysParts.length > 0) {
-            deps.appendOutput('\x1b[33m', `> ${sysParts.join(' | ')}`);
+            deps.sink.emit({ kind: 'text-line', color: '\x1b[33m', text: `> ${sysParts.join(' | ')}` });
           }
         }
         break;
@@ -141,7 +142,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
         deps.mainUI.flushStreaming();
         const toolName = String(event.name ?? '');
         const displayName = toolName;
-        deps.appendOutput('\x1b[36m', `⚙ ${displayName}`);
+        deps.sink.emit({ kind: 'text-line', color: '\x1b[36m', text: `⚙ ${displayName}` });
         deps.mainUI.enterPhase('running_tool', event.name as string);
         deps.mainUI.clearPreview();
         break;
@@ -153,7 +154,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
         const step = event.step ?? '?';
         const maxSteps = event.maxSteps ?? '?';
         deps.mainUI.clearPreview();
-        deps.appendOutput('\x1b[2m', `  ${icon} [${step}/${maxSteps}] ${event.summary as string}`);
+        deps.sink.emit({ kind: 'text-line', color: '\x1b[2m', text: `  ${icon} [${step}/${maxSteps}] ${event.summary as string}` });
         break;
       }
 
@@ -168,14 +169,14 @@ export function createEventHandler(deps: EventHandlerDeps) {
         const display = typeof msg === 'string' ? msg
           : interruptSrc === 'esc' ? 'Interrupted (Esc)' : 'Interrupted';
         deps.turnTracker.interrupted();
-        deps.appendOutput('\x1b[33m', display);
+        deps.sink.emit({ kind: 'text-line', color: '\x1b[33m', text: display });
         break;
       }
 
       case 'turn_error': {
         deps.turnTracker.abort();
         const errorMsg = event.error;
-        deps.appendOutput('\x1b[31m', `✗ Error: ${typeof errorMsg === 'string' ? errorMsg : String(errorMsg)}`);
+        deps.sink.emit({ kind: 'text-line', color: '\x1b[31m', text: `✗ Error: ${typeof errorMsg === 'string' ? errorMsg : String(errorMsg)}` });
         break;
       }
 
@@ -184,7 +185,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
         const providerModel = event.model as string;
         const isFallback = event.isFallback as boolean;
         const fallbackNote = isFallback ? ' \x1b[38;5;214m(fallback)\x1b[0m' : '';
-        deps.appendOutput('\x1b[2m', `Model: ${providerModel} · ${providerName}${fallbackNote}`);
+        deps.sink.emit({ kind: 'text-line', color: '\x1b[2m', text: `Model: ${providerModel} · ${providerName}${fallbackNote}` });
         break;
       }
 
@@ -207,7 +208,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
             : errorClass === 'rate_limit' ? 'rate limited'
             : 'unknown error';
           const errStr = typeof errorMsg === 'string' ? errorMsg : String(errorMsg);
-          deps.appendOutput('\x1b[2m', `\x1b[38;5;203m✗\x1b[0m \x1b[2m${providerName} ${classLabel} (${errStr}) / suggestion: ${hint}\x1b[0m`);
+          deps.sink.emit({ kind: 'text-line', color: '\x1b[2m', text: `\x1b[38;5;203m✗\x1b[0m \x1b[2m${providerName} ${classLabel} (${errStr}) / suggestion: ${hint}\x1b[0m` });
         }
         break;
       }
@@ -215,7 +216,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
       case 'breaker_opened': {
         const providerName = event.provider as string;
         const failures = event.consecutiveFailures as number | undefined;
-        deps.appendOutput('\x1b[2m', `\x1b[38;5;203m⚠\x1b[0m \x1b[2m${providerName} circuit breaker opened (${failures ?? '?'} consecutive failures), temporarily using fallback. Suggestion: check primary config / network / endpoint.\x1b[0m`);
+        deps.sink.emit({ kind: 'text-line', color: '\x1b[2m', text: `\x1b[38;5;203m⚠\x1b[0m \x1b[2m${providerName} circuit breaker opened (${failures ?? '?'} consecutive failures), temporarily using fallback. Suggestion: check primary config / network / endpoint.\x1b[0m` });
         break;
       }
 
@@ -223,7 +224,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
         const from = event.from as string;
         const to = event.to as string;
         const reason = event.reason as string;
-        deps.appendOutput('\x1b[2m', `\x1b[38;5;214m→\x1b[0m \x1b[2mswitched from ${from} to ${to} (${reason})\x1b[0m`);
+        deps.sink.emit({ kind: 'text-line', color: '\x1b[2m', text: `\x1b[38;5;214m→\x1b[0m \x1b[2mswitched from ${from} to ${to} (${reason})\x1b[0m` });
         break;
       }
 
@@ -231,7 +232,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
         const providerName = event.provider as string;
         const errorMsg = event.error;
         const errStr = typeof errorMsg === 'string' ? errorMsg : String(errorMsg);
-        deps.appendOutput('\x1b[2m', `\x1b[38;5;203m✗\x1b[0m \x1b[2m${providerName} exhausted retries (${errStr})\x1b[0m`);
+        deps.sink.emit({ kind: 'text-line', color: '\x1b[2m', text: `\x1b[38;5;203m✗\x1b[0m \x1b[2m${providerName} exhausted retries (${errStr})\x1b[0m` });
         break;
       }
 
@@ -240,7 +241,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
         const providerModel = event.model as string;
         const errorMsg = event.error;
         const errStr = typeof errorMsg === 'string' ? errorMsg : String(errorMsg);
-        deps.appendOutput('\x1b[2m', `\x1b[38;5;203m✗\x1b[0m \x1b[2m${providerModel} · ${providerName} failed: ${errStr}\x1b[0m`);
+        deps.sink.emit({ kind: 'text-line', color: '\x1b[2m', text: `\x1b[38;5;203m✗\x1b[0m \x1b[2m${providerModel} · ${providerName} failed: ${errStr}\x1b[0m` });
         break;
       }
 
@@ -254,7 +255,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
           if (!claw || claw === deps.label) break;  // 隐藏自己的契约通知
           const title = (event.title as string) ?? '';
           const count = (event.subtaskCount as number) ?? 0;
-          if (deps.showContractEvents) deps.appendOutput('\x1b[2m', `  ✓ [contract] "${title}" created for ${claw} (${count} subtasks)`);
+          if (deps.showContractEvents) deps.sink.emit({ kind: 'text-line', color: '\x1b[2m', text: `  ✓ [contract] "${title}" created for ${claw} (${count} subtasks)` });
         } else if (sub === 'subtask_completed') {
           const claw = (event.clawId as string) ?? '';
           if (!claw || claw === deps.label) break;  // 隐藏自己的契约通知
@@ -267,24 +268,24 @@ export function createEventHandler(deps: EventHandlerDeps) {
             const line = forceAccepted
               ? `  ⚠ [contract] ${subtaskId} force-accepted${progress} (${claw})`
               : `  ✓ [contract] ${subtaskId} passed${progress} (${claw})`;
-            deps.appendOutput('\x1b[2m', line);
+            deps.sink.emit({ kind: 'text-line', color: '\x1b[2m', text: line });
           }
         } else if (sub === 'verification_failed') {
           const claw = (event.clawId as string) ?? '';
           if (!claw || claw === deps.label) break;  // 隐藏自己的契约通知
           const fb = (event.feedback as string) ?? '';
-          if (deps.showContractEvents) deps.appendOutput('\x1b[2m', `  ✗ [contract] ${subtaskId} failed: ${fb} (${claw})`);
+          if (deps.showContractEvents) deps.sink.emit({ kind: 'text-line', color: '\x1b[2m', text: `  ✗ [contract] ${subtaskId} failed: ${fb} (${claw})` });
         } else if (sub === 'llm_error') {
           // llm_error 始终显示（无论来源）
           const claw = (event.clawId as string) ?? '';
           const errMsg = (event.error as string) ?? '';
           const forClaw = claw ? ` (${claw})` : '';
-          deps.appendOutput('\x1b[31m', `  ✗ [llm] ${errMsg}${forClaw}`);
+          deps.sink.emit({ kind: 'text-line', color: '\x1b[31m', text: `  ✗ [llm] ${errMsg}${forClaw}` });
         } else if (sub === 'dev_warning') {
           // phase 8: dev-attention 阈值警告（informational only / 不可 motion action / 供 developer 参考）
           // 来源：cron disk-monitor / audit-size-monitor / 等
           const msg = (event.message as string) ?? '';
-          deps.appendOutput('\x1b[33m', `  ⚠ [dev] ${msg} (informational only, no action)`);
+          deps.sink.emit({ kind: 'text-line', color: '\x1b[33m', text: `  ⚠ [dev] ${msg} (informational only, no action)` });
         }
         break;
       }

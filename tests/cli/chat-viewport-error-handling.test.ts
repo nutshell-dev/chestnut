@@ -50,7 +50,8 @@ describe('chat-viewport error handling (phase 523 + 524)', () => {
 
   describe('phase 524 Step B: cmd.execute 守护', () => {
     it('cmd.execute 调用包 try/catch', () => {
-      const match = sourceCode.match(/try\s*\{\s*cmd\.execute\(args\);\s*\}\s*catch/);
+      // phase 443 Step B: cmd.execute 返 CommandResult、try 内 await + dispatch descriptors
+      const match = sourceCode.match(/try\s*\{\s*const\s+result\s*=\s*await\s+cmd\.execute\(args\);[\s\S]*?descriptorSink\.emit[\s\S]*?\}\s*catch/);
       expect(match).toBeTruthy();
     });
 

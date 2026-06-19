@@ -55,7 +55,7 @@ describe('phase 1217 (r131 C fork) B.2 — stream reader start fail no register'
         appendOutput: vi.fn(),
         withScope: vi.fn(),
       } as any,
-      appendOutput: vi.fn(),
+      sink: { emit: vi.fn() },
       showSystemMessages: false,
       showContractEvents: false,
       fsFactory,

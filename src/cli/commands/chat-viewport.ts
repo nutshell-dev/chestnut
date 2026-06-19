@@ -273,7 +273,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   const handleEvent = createEventHandler({
     turnTracker,
     mainUI,
-    appendOutput: displayWithHolder.appendOutput,
+    sink: displayWithHolder.descriptorSink,
     showSystemMessages,
     showContractEvents,
     agentDir: options.agentDir,
@@ -369,10 +369,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   // --- 注册 slash 命令 ---
   for (const cmd of createViewportCommands({
     isMotion, clawTopology, clawTrackMap, fs,
-    appendOutput: displayWithHolder.appendOutput,
-    invalidateBodyCache: displayWithHolder.invalidateBodyCache,
-    clearOutputLines: displayWithHolder.clearOutputLines,
-    mainUI, clawManager, updateClawPanel: clawPanel.updateClawPanel,
+    mainUI, clawManager,
     getThinkingMode: () => thinkingMode,
     setThinkingMode: (m) => { thinkingMode = m; },
     getRegistry: () => commandRegistry,
@@ -381,7 +378,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   }
 
   // 输入提交处理
-  editor.onSubmit = (text: string) => {
+  editor.onSubmit = async (text: string) => {
     const trimmed = text.trim();
     if (!trimmed) {
       editor.setText('');
@@ -403,7 +400,10 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
       const cmd = commandRegistry.get(name);
       if (cmd) {
         try {
-          cmd.execute(args);
+          const result = await cmd.execute(args);
+          for (const d of result.descriptors) {
+            displayWithHolder.descriptorSink.emit(d);
+          }
         } catch (err) {
           const msg = formatErr(err);
           try {

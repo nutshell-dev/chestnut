@@ -19,7 +19,7 @@ function makeDeps(captured: { lines: string[] }): EventHandlerDeps {
       enterPhase: vi.fn(),
       clearPreview: vi.fn(),
     } as any,
-    appendOutput: (_color: string, text: string) => { captured.lines.push(text); },
+    sink: { emit: (d: any) => { if (d.kind === 'text-line') captured.lines.push(d.text); } },
     showSystemMessages: false,
     showContractEvents: true,
     agentDir: '/tmp/agent',

@@ -11,6 +11,7 @@ import { DEFAULT_TERMINAL_WIDTH } from '../utils/constants.js';
 import type { MainTurnUIController } from './main-turn-ui.js';
 import type { createViewportObservability } from './chat-viewport-observability.js';
 import type { ClawTrack } from './chat-viewport-claw-line.js';
+import type { DescriptorSink, RenderDescriptor } from './viewport-render-descriptor.js';
 
 export interface OutputLine {
   color: string;
@@ -96,6 +97,29 @@ export function createDisplay(deps: DisplayDeps) {
     updateDisplay();
   };
 
+  const descriptorSink: DescriptorSink = {
+    emit(d: RenderDescriptor): void {
+      switch (d.kind) {
+        case 'text-line':
+          appendOutput(d.color, d.text, d.wrap, d.hangIndent);
+          return;
+        case 'clear-lines':
+          clearOutputLines();
+          return;
+        case 'invalidate-cache':
+          invalidateBodyCache();
+          return;
+        case 'claw-panel-update':
+          deps.updateClawPanel(deps.clawTrackMap);
+          return;
+        default: {
+          const _exhaustive: never = d;
+          return _exhaustive;
+        }
+      }
+    },
+  };
+
   return {
     outputLines,
     invalidateBodyCache,
@@ -103,5 +127,6 @@ export function createDisplay(deps: DisplayDeps) {
     appendOutput,
     clearOutputLines,
     onResize,
+    descriptorSink,
   };
 }
