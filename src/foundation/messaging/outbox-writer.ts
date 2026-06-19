@@ -102,6 +102,7 @@ export class OutboxWriter {
         type: options.type,
         bodySize,
         cap: maxBytes,
+        contractId: options.metadata?.contract_id,
       });
       throw new Error(`Outbox body size ${bodySize} bytes exceeds cap ${maxBytes} (env CHESTNUT_OUTBOX_BODY_MAX_BYTES to override)`);
     }
@@ -156,6 +157,7 @@ export class OutboxWriter {
         type: options.type,
         id: messageId,
         reason: formatErr(err),
+        contractId: options.metadata?.contract_id,
       });
       throw err;
     }

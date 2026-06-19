@@ -33,9 +33,17 @@ export function emitInboxWriteFailed(
 
 // ─── INBOX_BODY_OVERSIZE ──────────────────────────────────────────────────────
 // phase 429 Step A (review medium): inbox body 超 cap、emit + caller 收 throw
+// phase 434 Step C (review N11 partial、outbox 对称): contract_id forensic join
 export function emitInboxBodyOversize(
   audit: AuditLog,
-  opts: { source: string; to?: string; type: string; bodySize: number; cap: number },
+  opts: {
+    source: string;
+    to?: string;
+    type: string;
+    bodySize: number;
+    cap: number;
+    contractId?: string;
+  },
 ): void {
   audit.write(
     MESSAGING_AUDIT_EVENTS.INBOX_BODY_OVERSIZE,
@@ -44,6 +52,7 @@ export function emitInboxBodyOversize(
     `type=${opts.type}`,
     `body_size=${opts.bodySize}`,
     `cap=${opts.cap}`,
+    `contract_id=${opts.contractId ?? ''}`,
   );
 }
 
@@ -241,6 +250,8 @@ export function emitOutboxSendFailed(
     type: string;
     id: string;
     reason: string;
+    // phase 434 Step B (review N11 partial、emitOutboxSent 对称): contract_id forensic join
+    contractId?: string;
   },
 ): void {
   audit.write(
@@ -250,6 +261,7 @@ export function emitOutboxSendFailed(
     `type=${opts.type}`,
     `id=${opts.id}`,
     `reason=${opts.reason}`,
+    `contract_id=${opts.contractId ?? ''}`,
   );
 }
 
@@ -257,7 +269,15 @@ export function emitOutboxSendFailed(
 // phase 430 Step E (review medium、inbox cap 对称): outbox body 超 cap、emit + caller 收 throw
 export function emitOutboxBodyOversize(
   audit: AuditLog,
-  opts: { clawId: string; to: string; type: string; bodySize: number; cap: number },
+  opts: {
+    clawId: string;
+    to: string;
+    type: string;
+    bodySize: number;
+    cap: number;
+    // phase 434 Step B (review N11 partial、emitOutboxSent 对称): contract_id 同型
+    contractId?: string;
+  },
 ): void {
   audit.write(
     MESSAGING_AUDIT_EVENTS.OUTBOX_BODY_OVERSIZE,
@@ -266,5 +286,6 @@ export function emitOutboxBodyOversize(
     `type=${opts.type}`,
     `body_size=${opts.bodySize}`,
     `cap=${opts.cap}`,
+    `contract_id=${opts.contractId ?? ''}`,
   );
 }

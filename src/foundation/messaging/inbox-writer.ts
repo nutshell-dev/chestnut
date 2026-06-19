@@ -44,6 +44,9 @@ export interface InboxMessageOptionsBase {
   to?: string;
   idPrefix?: string;
   extraFields?: Record<string, string>;
+  // phase 434 Step C (review N11 partial、outbox 对称): writeSync 路径 contract_id
+  // 跨源 join，可选；caller 在 contract context 内时 set。
+  metadata?: Record<string, string>;
 }
 
 /** Branded inbox directory path — only makeInboxPath() can construct. */
@@ -103,6 +106,7 @@ export class InboxWriter {
         type: msg.type,
         bodySize,
         cap: maxBytes,
+        contractId: msg.metadata?.contract_id,
       });
       throw new Error(`Inbox body size ${bodySize} bytes exceeds cap ${maxBytes} (env CHESTNUT_INBOX_BODY_MAX_BYTES to override)`);
     }
@@ -138,6 +142,7 @@ export class InboxWriter {
         type: opts.type,
         bodySize,
         cap: maxBytes,
+        contractId: opts.metadata?.contract_id,
       });
       throw new Error(`Inbox body size ${bodySize} bytes exceeds cap ${maxBytes} (env CHESTNUT_INBOX_BODY_MAX_BYTES to override)`);
     }

@@ -534,6 +534,10 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
         `type=${message.extraMeta?.__original_type ?? message.type}`,
         `from=${message.from}`,
         `to=${message.to}`,
+        // phase 434 Step A (review N11 partial): contract_id forensic field
+        // — cross-source join with contract audit log when sender attached
+        // metadata.contract_id; empty string when not present.
+        `contract_id=${message.metadata?.contract_id ?? ''}`,
       );
     }
     return { addressed, unaddressed };
