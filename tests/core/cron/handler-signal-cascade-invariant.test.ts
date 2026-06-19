@@ -6,42 +6,17 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '../../..');
 
-describe('cron handler signal cascade invariant (phase 1266 r135 B fork)', () => {
-  it('all cron job factory handlers must wire signal param', () => {
-    const jobsDir = path.join(repoRoot, 'src', 'core', 'cron', 'jobs');
-    const contractJobsDir = path.join(repoRoot, 'src', 'core', 'contract', 'jobs');
-
-    const jobFiles = [
-      ...readdirSync(jobsDir)
-        .filter(f => f.endsWith('.ts') && !f.endsWith('.test.ts'))
-        .map(f => path.join(jobsDir, f)),
-      ...readdirSync(contractJobsDir)
-        .filter(f => f.endsWith('.ts') && !f.endsWith('.test.ts'))
-        .map(f => path.join(contractJobsDir, f)),
-    ];
-
-    const violations: string[] = [];
-
-    for (const filePath of jobFiles) {
-      const src = readFileSync(filePath, 'utf-8');
-      const fileName = path.basename(filePath);
-
-      const handlerLines = src.split('\n').filter(line => line.includes('handler:'));
-      for (const line of handlerLines) {
-        // Matches handler: () => or handler: async () => (no signal param)
-        // Does NOT match handler: (signal) => or handler: async (signal) =>
-        if (/handler:\s*(async\s*)?\(\s*\)\s*=>/.test(line)) {
-          violations.push(`${fileName}: ${line.trim()}`);
-        }
-      }
-    }
-
-    expect(
-      violations,
-      `Found ${violations.length} handler arrow(s) missing signal param in cron job factories`,
-    ).toEqual([]);
-  });
-
+/**
+ * cron handler signal cascade invariant (phase 1266 r135 B fork)
+ *
+ * #1 NEW handler arrow without signal param ratchet 已迁 ESLint custom rule
+ * `chestnut-custom/no-cron-handler-without-signal` (phase 423).
+ *
+ * 本 file 仅留 positive presence checks #2 + #3:
+ *   #2 runXxx fn opts interface contains `signal?: AbortSignal`
+ *   #3 dream-trigger handler wires signal
+ */
+describe('cron handler signal cascade positive checks (phase 423 缩 vitest)', () => {
   it('all cron jobs runXxx fn must accept signal in opts type', () => {
     const jobsDir = path.join(repoRoot, 'src', 'core', 'cron', 'jobs');
     const contractJobsDir = path.join(repoRoot, 'src', 'core', 'contract', 'jobs');

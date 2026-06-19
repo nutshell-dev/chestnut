@@ -30,6 +30,8 @@ import noReassignHandleContextExceeded from './eslint-rules/no-reassign-handle-c
 import noReadonlyAndSupportsAsyncTool from './eslint-rules/no-readonly-and-supportsasync-tool.js';
 import noSubagentEnsureDirWorkspace from './eslint-rules/no-subagent-ensuredir-workspace.js';
 import execContextFieldBudget from './eslint-rules/exec-context-field-budget.js';
+import noEntryLiteralOutsideAllowlist from './eslint-rules/no-entry-literal-outside-allowlist.js';
+import noCronHandlerWithoutSignal from './eslint-rules/no-cron-handler-without-signal.js';
 
 /** @type {import('eslint').Linter.Config[]} */
 export default [
@@ -77,6 +79,8 @@ export default [
           'no-readonly-and-supportsasync-tool': noReadonlyAndSupportsAsyncTool,
           'no-subagent-ensuredir-workspace': noSubagentEnsureDirWorkspace,
           'exec-context-field-budget': execContextFieldBudget,
+          'no-entry-literal-outside-allowlist': noEntryLiteralOutsideAllowlist,
+          'no-cron-handler-without-signal': noCronHandlerWithoutSignal,
         },
       },
     },
@@ -114,6 +118,8 @@ export default [
       'chestnut-custom/no-readonly-and-supportsasync-tool': 'error',
       'chestnut-custom/no-subagent-ensuredir-workspace': 'error',
       'chestnut-custom/exec-context-field-budget': 'error',
+      'chestnut-custom/no-entry-literal-outside-allowlist': 'error',
+      'chestnut-custom/no-cron-handler-without-signal': 'error',
     },
   },
 ];
