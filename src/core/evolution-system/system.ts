@@ -76,6 +76,12 @@ export class EvolutionSystem {
   private state: EvolutionState = { version: 1, lastProcessedAt: 0 };
   private stateFileLoaded = false;
   private stateLoadPromise: Promise<void> | null = null;
+  // phase 406 Step B (review N7): serialize concurrent runRetroForContract
+  // calls via instance promise chain — concurrent contract completions both
+  // read/write state.lastProcessedAt; without this guard the HWM (high water
+  // mark) silently downgrades and dedupe drifts. Same pattern as
+  // foundation/messaging/SequenceCounter.next().
+  private retroChain: Promise<unknown> = Promise.resolve();
 
   constructor(private readonly deps: EvolutionSystemDeps) {
   }
@@ -191,6 +197,25 @@ export class EvolutionSystem {
 
   /** handleReviewRequest 6 步业务（phase411 Step B 物理迁自 ContractSystem） */
   async runRetroForContract(
+    contractId: ContractId,
+    ctx: MotionReviewContext,
+  ): Promise<RetroResult> {
+    // phase 406 Step B (review N7): mutex serialize、防 HWM race
+    const prev = this.retroChain;
+    const p = (async (): Promise<RetroResult> => {
+      try {
+        await prev;
+      } catch {
+        // silent: chain-only swallow — 上一次 retro 失败已被原 caller 收到、
+        // 链不能因此中断 / 否则后续 retro 全死。本次 entry 仍走 impl。
+      }
+      return this._runRetroForContractImpl(contractId, ctx);
+    })();
+    this.retroChain = p;
+    return p;
+  }
+
+  private async _runRetroForContractImpl(
     contractId: ContractId,
     ctx: MotionReviewContext,
   ): Promise<RetroResult> {
