@@ -17,6 +17,7 @@ import {
   emitContractUnexpectedAsyncThrow,
   emitContractVerificationBackgroundDone,
   emitContractVerificationBackgroundFailed,
+  emitContractSubtaskResetToTodo,
   emitContractVerificationFailed,
   emitContractVerificationResetFailed,
   emitContractVerificationStarted,
@@ -228,6 +229,10 @@ async function applyVerificationOutcome(
       max_attempts: maxAttempts,
     } satisfies AcceptanceFailedNotification);
     await ctx.saveProgress(contractId, progress);
+    // phase 425: retry path saveProgress 完成 audit、tests 用此 event 等 state settle
+    emitContractSubtaskResetToTodo(ctx.audit, {
+      contractId, subtaskId, cause: failureCause, retryCount: subtask.retry_count, maxAttempts,
+    });
 
     const verificationFile = verificationConfig.type === 'script'
       ? verificationConfig.script_file ?? 'unknown'

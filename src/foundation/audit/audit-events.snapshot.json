@@ -193,6 +193,7 @@
       "contract_rollback_incomplete",
       "contract_subtask_already_completed",
       "contract_subtask_duplicate_done",
+      "contract_subtask_reset_to_todo",
       "contract_system_closed",
       "contract_typed_emit_invariant_violation",
       "contract_unexpected_async_throw",

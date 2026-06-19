@@ -12,6 +12,7 @@ import { DEFAULT_VERIFICATION_ATTEMPTS } from './constants.js';
 import type { LastFailedFeedback, AcceptanceFailedNotification } from './types.js';
 import {
   emitContractNotifyFailed,
+  emitContractSubtaskResetToTodo,
   emitContractVerificationResetFailed,
   emitSubtaskForceAccepted,
 } from './audit-emit.js';
@@ -192,6 +193,10 @@ export async function handleVerificationErrorRetry(
           return;
         }
         await ctx.saveProgress(contractId, progress);
+        // phase 425: retry path saveProgress 完成 audit、tests 用此 event 等 state settle
+        emitContractSubtaskResetToTodo(ctx.audit, {
+          contractId, subtaskId, cause, retryCount: subtask.retry_count, maxAttempts,
+        });
         safeNotify(ctx, 'verification_failed', {
           contract_id: contractId,
           subtask_id: subtaskId,

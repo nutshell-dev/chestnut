@@ -54,6 +54,8 @@ export const CONTRACT_AUDIT_EVENTS = {
   // phase 569 const 化（verification.ts 7 处字面量收）
   SUBTASK_COMPLETED: 'subtask_completed',
   SUBTASK_FORCE_ACCEPTED: 'subtask_force_accepted', // ← NEW phase 1399: force-accept 路径审计
+  // ← NEW phase 425: handleVerificationErrorRetry 内 retry path saveProgress 后 audit、补 verification 缺口
+  SUBTASK_RESET_TO_TODO: 'contract_subtask_reset_to_todo',
   // phase 324 H6: 旧 contract 被新 contract 替换时、未完成 subtask 被 force-complete 的审计
   SUBTASK_FORCE_COMPLETED_REPLACED: 'subtask_force_completed_replaced',
   VERIFICATION_FAILED: 'verification_failed',

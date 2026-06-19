@@ -547,6 +547,30 @@ export function emitContractVerificationFailed(
   audit.write(CONTRACT_AUDIT_EVENTS.VERIFICATION_FAILED, ...cols);
 }
 
+// ─── SUBTASK_RESET_TO_TODO ────────────────────────────────────────────────────
+// phase 425: handleVerificationErrorRetry 内 retry path saveProgress 之后 audit。
+// 替原 polling `waitFor(... status !== 'in_progress')` 模式、tests 可等此 event 知 state 已 settle。
+export function emitContractSubtaskResetToTodo(
+  audit: AuditLog,
+  opts: {
+    contractId: ContractId;
+    subtaskId: SubtaskId;
+    cause: string;
+    retryCount: number;
+    maxAttempts: number;
+  },
+): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractSubtaskResetToTodo')) return;
+  audit.write(
+    CONTRACT_AUDIT_EVENTS.SUBTASK_RESET_TO_TODO,
+    `contractId=${opts.contractId}`,
+    `subtaskId=${opts.subtaskId}`,
+    `cause=${opts.cause}`,
+    `retry_count=${opts.retryCount}`,
+    `max_attempts=${opts.maxAttempts}`,
+  );
+}
+
 // ─── SUBTASK_FORCE_ACCEPTED (key-fix site: split ${contractId}/${subtaskId}) ─────────────
 export function emitSubtaskForceAccepted(
   audit: AuditLog,

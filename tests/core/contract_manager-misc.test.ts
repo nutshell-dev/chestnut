@@ -13,7 +13,6 @@ import * as path from 'path';
 import { ContractSystem } from '../../src/core/contract/manager.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../src/core/contract/audit-events.js';
-import { waitFor } from '../helpers/wait-for.js';
 import { makeContractYaml } from '../helpers/contract-yaml.js';
 import { createToolRegistry } from '../../src/foundation/tools/index.js';
 import { makeAudit, makeMockAudit, waitForAuditEvent, waitForNextAuditEvent } from '../helpers/audit.js';
@@ -57,7 +56,8 @@ describe('ContractSystem - misc (LLM verification + escalation + phase239 audit)
 
   describe('LLM verification', () => {
     it('should reset subtask to todo when verifier throws exception', async () => {
-      const mockAudit = makeMockAudit();
+      // phase 425: 用新 SUBTASK_RESET_TO_TODO audit event 替原 waitFor polling
+      const { audit: mockAudit, emitter } = makeAudit();
       const testManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
@@ -84,6 +84,9 @@ describe('ContractSystem - misc (LLM verification + escalation + phase239 audit)
         new Error('MaxStepsExceeded: step limit 50 exceeded')
       );
 
+      // phase 425: 必先订阅 SUBTASK_RESET_TO_TODO 再 completeSubtask
+      const resetP = waitForNextAuditEvent(emitter, CONTRACT_AUDIT_EVENTS.SUBTASK_RESET_TO_TODO);
+
       // Complete subtask (triggers background LLM verification)
       const result = await testManager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'done' });
 
@@ -91,11 +94,7 @@ describe('ContractSystem - misc (LLM verification + escalation + phase239 audit)
       expect(result.async).toBe(true);
 
       // Wait for background processing to complete
-      await waitFor(
-        async () => (await testManager.getProgress(contractId)).subtasks['t1'].status !== 'in_progress',
-        5000,
-        10,
-      );
+      await resetP;
 
       runLLMSpy.mockRestore();
 
