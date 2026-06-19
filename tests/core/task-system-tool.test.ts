@@ -24,7 +24,7 @@ import { readTool } from '../../src/foundation/file-tool/read.js';
 import { lsTool } from '../../src/foundation/file-tool/ls.js';
 import { searchTool } from '../../src/foundation/file-tool/search.js';
 import { EventEmitter } from 'events';
-import { makeAudit, waitForAuditEvent, waitForNextAuditEvent } from '../helpers/audit.js';
+import { makeAudit, waitForAuditEvent, waitForNextAuditEvent, waitForNthAuditEvent } from '../helpers/audit.js';
 import { TASK_AUDIT_EVENTS } from '../../src/core/async-task-system/audit-events.js';
 import { waitForCompleteFile, waitForPathExists, waitForAnyFile } from '../helpers/wait-for-file.js';
 import { makeTaskSystemDeps } from '../helpers/task-system.js';
@@ -134,6 +134,7 @@ describe('AsyncTaskSystem Tool Tasks', () => {
   let testDir: string;
   let testClawDir: string;
   let taskAuditEmitter: EventEmitter;
+  let taskAuditEvents: Array<[string, ...(string | number)[]]>;
 
   beforeEach(async () => {
     testDir = path.join(tmpdir(), `chestnut-task-sys-${randomUUID()}`);
@@ -176,8 +177,10 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       } as any,
       (() => {
         // phase 381 Step B: capture emitter 让 tests 用 audit event 替 listRunning polling
+        // phase 403 Step C: capture events 让 tests 用 events.find / .filter 替 spy mock.calls 断言
         const a = makeAudit();
         taskAuditEmitter = a.emitter;
+        taskAuditEvents = a.events;
         return { maxConcurrent: TEST_MAX_CONCURRENT, retryBaseDelayMs: TEST_RETRY_BASE_DELAY_MS, auditWriter: a.audit, ...makeTaskSystemDeps() };
       })()
     );
@@ -435,6 +438,8 @@ describe('AsyncTaskSystem Tool Tasks', () => {
         slowReleases.push(() => r({ success: true, content: 'slow' }));
       });
 
+      // phase 403: 订阅 3 TASK_STARTED 在 for loop 之前
+      const threeStartedP = waitForNthAuditEvent(taskAuditEmitter, TASK_AUDIT_EVENTS.TASK_STARTED, 3);
       // Schedule 3 slow tasks
       const taskIds: string[] = [];
       for (let i = 0; i < 3; i++) {
@@ -442,7 +447,7 @@ describe('AsyncTaskSystem Tool Tasks', () => {
         taskIds.push(id);
       }
 
-      await waitFor(() => taskSystem.listRunning().length === 3);
+      await threeStartedP;
 
       // All 3 should be running
       expect(taskSystem.listRunning().length).toBe(3);
@@ -450,18 +455,30 @@ describe('AsyncTaskSystem Tool Tasks', () => {
 
       // Schedule a 4th task - must go to pending because all 3 slows are blocked.
       const fastCallback = vi.fn().mockResolvedValue({ success: true, content: 'fast' });
+      // phase 403: 订阅 4th TASK_SCHEDULED 在 schedule 之前
+      const fourthScheduledP = waitForNextAuditEvent(taskAuditEmitter, TASK_AUDIT_EVENTS.TASK_SCHEDULED);
       const fourthId = await scheduleToolCompat(taskSystem, 'fourthTool', fastCallback, 'parent-claw');
 
-      await waitFor(async () => (await taskSystem.listPending()).includes(fourthId));
+      await fourthScheduledP;
 
       // Should be in pending, not running (slows held → no slot free)
       expect(await taskSystem.listPending()).toContain(fourthId);
       expect(taskSystem.listRunning()).not.toContain(fourthId);
 
+      // phase 403: 订阅 4 TASK_COMPLETED 在 release 之前（3 slow + 1 fourth 全完成）
+      const fourCompletedP = waitForNthAuditEvent(taskAuditEmitter, TASK_AUDIT_EVENTS.TASK_COMPLETED, 4);
       // Release the slow callbacks so the dispatcher can drain pending.
       for (const release of slowReleases) release();
 
-      await waitFor(async () => !taskSystem.listRunning().includes(fourthId) && !(await taskSystem.listPending()).includes(fourthId));
+      await fourCompletedP;
+      // phase 403: emit TASK_COMPLETED 早于 _startTask finally 的 executingTasks.delete。
+      // 4 个并发 task 各有自己的 microtask 续链、第 4 个 TASK_COMPLETED 后还需排干其他 task 的
+      // finally 续链。轮询 listRunning 空、event-driven 不行只能 yield。多次 setImmediate yield。
+      // value=0：仅 macrotask yield、不真等 wall-clock、derive = next-tick semantics
+      const FINALLY_DRAIN_YIELD_MS = 0;
+      for (let i = 0; i < 4 && taskSystem.listRunning().length > 0; i++) {
+        await new Promise(r => setTimeout(r, FINALLY_DRAIN_YIELD_MS));
+      }
       
       // Now fourth should be dispatched and completed
       expect(taskSystem.listRunning()).not.toContain(fourthId); // Should be done now
@@ -1320,17 +1337,22 @@ describe('AsyncTaskSystem Tool Tasks', () => {
         }
       );
 
-      const writeSpy = vi.spyOn((taskSystem as any).auditWriter, 'write');
-
-      const taskId = await scheduleToolCompat(taskSystem, 
+      // phase 403 Step B: 订阅 MOVE_FAILED 在 schedule 之前、替原 spy polling
+      const moveFailedP = waitForNextAuditEvent(taskAuditEmitter, TASK_AUDIT_EVENTS.MOVE_FAILED);
+      await scheduleToolCompat(taskSystem,
         'testTool',
         async () => ({ success: true, content: 'ok' }),
         'parent-claw',
       );
 
-      await waitFor(() => writeSpy.mock.calls.some(c => c[0] === 'task_move_failed'));
+      await moveFailedP;
 
-      expect(writeSpy).toHaveBeenCalledWith('task_move_failed', expect.stringContaining('taskId='), 'context=move_to_done', expect.stringContaining('Disk full'));
+      // phase 403 Step C: events.find 替 writeSpy mock.calls 模式（taskAuditEvents 由 beforeEach 捕获）
+      const moveFailedEvent = taskAuditEvents.find(e => e[0] === TASK_AUDIT_EVENTS.MOVE_FAILED);
+      expect(moveFailedEvent).toBeDefined();
+      expect(moveFailedEvent![1]).toEqual(expect.stringContaining('taskId='));
+      expect(moveFailedEvent![2]).toBe('context=move_to_done');
+      expect(moveFailedEvent![3]).toEqual(expect.stringContaining('Disk full'));
 
       vi.restoreAllMocks();
     });
