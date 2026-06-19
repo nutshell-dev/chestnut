@@ -22,6 +22,7 @@ import noRuntimeCurrentStateGetter from './eslint-rules/no-runtime-current-state
 import noClawsEnumerationFanout from './eslint-rules/no-claws-enumeration-fanout.js';
 import noDirectNewNodeFileSystem from './eslint-rules/no-direct-new-nodefilesystem.js';
 import noClawBusinessLiteral from './eslint-rules/no-claw-business-literal.js';
+import noChatMethod from './eslint-rules/no-chat-method.js';
 
 /** @type {import('eslint').Linter.Config[]} */
 export default [
@@ -61,6 +62,7 @@ export default [
           'no-claws-enumeration-fanout': noClawsEnumerationFanout,
           'no-direct-new-nodefilesystem': noDirectNewNodeFileSystem,
           'no-claw-business-literal': noClawBusinessLiteral,
+          'no-chat-method': noChatMethod,
         },
       },
     },
@@ -90,6 +92,7 @@ export default [
       'chestnut-custom/no-claws-enumeration-fanout': 'error',
       'chestnut-custom/no-direct-new-nodefilesystem': 'error',
       'chestnut-custom/no-claw-business-literal': 'error',
+      'chestnut-custom/no-chat-method': 'error',
     },
   },
 ];
