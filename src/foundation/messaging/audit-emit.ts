@@ -16,19 +16,32 @@ import type { ClawId } from '../../constants.js';
 
 
 // ─── INBOX_WRITTEN ────────────────────────────────────────────────────────────
+// phase 437 Step A (phase 434 cluster follow-up): contract_id forensic join
 export function emitInboxWritten(
   audit: AuditLog,
-  opts: { file: string; to?: string },
+  opts: { file: string; to?: string; contractId?: string },
 ): void {
-  audit.write(MESSAGING_AUDIT_EVENTS.INBOX_WRITTEN, `file=${opts.file}`, `to=${opts.to ?? 'broadcast'}`);
+  audit.write(
+    MESSAGING_AUDIT_EVENTS.INBOX_WRITTEN,
+    `file=${opts.file}`,
+    `to=${opts.to ?? 'broadcast'}`,
+    `contract_id=${opts.contractId ?? ''}`,
+  );
 }
 
 // ─── INBOX_WRITE_FAILED ───────────────────────────────────────────────────────
+// phase 437 Step A (phase 434 cluster follow-up): contract_id forensic join
 export function emitInboxWriteFailed(
   audit: AuditLog,
-  opts: { file: string; to?: string; reason: string },
+  opts: { file: string; to?: string; reason: string; contractId?: string },
 ): void {
-  audit.write(MESSAGING_AUDIT_EVENTS.INBOX_WRITE_FAILED, `file=${opts.file}`, `to=${opts.to ?? 'broadcast'}`, `reason=${opts.reason}`);
+  audit.write(
+    MESSAGING_AUDIT_EVENTS.INBOX_WRITE_FAILED,
+    `file=${opts.file}`,
+    `to=${opts.to ?? 'broadcast'}`,
+    `reason=${opts.reason}`,
+    `contract_id=${opts.contractId ?? ''}`,
+  );
 }
 
 // ─── INBOX_BODY_OVERSIZE ──────────────────────────────────────────────────────
@@ -96,11 +109,17 @@ export function emitInboxLegacyClawIdField(
 }
 
 // ─── INBOX_DEDUPED ────────────────────────────────────────────────────────────
+// phase 437 Step B (phase 434 cluster follow-up): contract_id forensic join
 export function emitInboxDeduped(
   audit: AuditLog,
-  opts: { file: string; taskId: string },
+  opts: { file: string; taskId: string; contractId?: string },
 ): void {
-  audit.write(MESSAGING_AUDIT_EVENTS.INBOX_DEDUPED, `file=${opts.file}`, `taskId=${opts.taskId}`);
+  audit.write(
+    MESSAGING_AUDIT_EVENTS.INBOX_DEDUPED,
+    `file=${opts.file}`,
+    `taskId=${opts.taskId}`,
+    `contract_id=${opts.contractId ?? ''}`,
+  );
 }
 
 // ─── INBOX_MARK_DONE_FAILED ───────────────────────────────────────────────────

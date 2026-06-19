@@ -124,10 +124,10 @@ export class InboxWriter {
       await this.fs.writeAtomic(filePath, encodeInbox(msg, extraFields));
     } catch (e) {
       const reason = formatErr(e);
-      emitInboxWriteFailed(this.audit, { file: filename, to: msg.to, reason });
+      emitInboxWriteFailed(this.audit, { file: filename, to: msg.to, reason, contractId: msg.metadata?.contract_id });
       throw e;
     }
-    emitInboxWritten(this.audit, { file: filename, to: msg.to });
+    emitInboxWritten(this.audit, { file: filename, to: msg.to, contractId: msg.metadata?.contract_id });
   }
 
   /** sync 写，供 task/system 同步路径使用 */
@@ -173,10 +173,10 @@ export class InboxWriter {
       this.fs.writeAtomicSync(path.join(this.inboxDir, filename), content);
     } catch (e) {
       const reason = formatErr(e);
-      emitInboxWriteFailed(this.audit, { file: filename, to: opts.to, reason });
+      emitInboxWriteFailed(this.audit, { file: filename, to: opts.to, reason, contractId: opts.metadata?.contract_id });
       throw e;
     }
-    emitInboxWritten(this.audit, { file: filename, to: opts.to });
+    emitInboxWritten(this.audit, { file: filename, to: opts.to, contractId: opts.metadata?.contract_id });
   }
 
   /** 读 frontmatter meta；纯读，静态方法不依赖 audit */

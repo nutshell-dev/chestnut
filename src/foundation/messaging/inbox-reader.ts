@@ -202,7 +202,7 @@ export class InboxReader {
         }
 
         if (taskId && seenTaskIds.has(taskId)) {
-          emitInboxDeduped(this.audit, { file: entry.name, taskId });
+          emitInboxDeduped(this.audit, { file: entry.name, taskId, contractId: message.metadata?.contract_id });
           try {
             await this.markDone(filePath);
           } catch (e) {
