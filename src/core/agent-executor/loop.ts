@@ -15,6 +15,7 @@ import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js
 import type { ExecContext } from '../../foundation/tools/index.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { IToolExecutor, ToolRegistry } from '../../foundation/tools/index.js';
+import { assertNever } from '../../foundation/utils/index.js';
 import { DEFAULT_MAX_STEPS } from './defaults.js';
 import { runAgent } from './agent-executor.js';
 import type { StepCallbacks, LLMCallInfo, FinalStopReason } from '../step-executor/index.js';
@@ -138,9 +139,17 @@ export async function runReact(options: ReactOptions): Promise<ReactResult> {
 function mapStopReason(
   r: FinalStopReason
 ): 'end_turn' | 'no_tool' | 'max_tokens' | 'content_filter' | 'unknown' {
-  if (r === 'max_tokens_text') return 'max_tokens';
-  if (r === 'no_tool') return 'no_tool';
-  if (r === 'content_filter') return 'content_filter';   // phase 1483: propagate distinct content_filter（不再折叠 unknown）
-  if (r === 'unknown') return 'unknown';                  // phase 788: propagate refusal/safety/etc 不折叠 end_turn
-  return 'end_turn';  // 'end_turn' 与 'stop' 均映射为 'end_turn'（向后兼容 shim）
+  // phase 398 Step C (review N8): switch + assertNever default — 新 FinalStopReason
+  // 变体编译期失败 (vs phase 1483 / 788 if-cascade + 'end_turn' default 静默折叠)。
+  switch (r) {
+    case 'max_tokens_text': return 'max_tokens';
+    case 'no_tool': return 'no_tool';
+    case 'content_filter': return 'content_filter';   // phase 1483 distinct propagate
+    case 'unknown': return 'unknown';                 // phase 788 distinct propagate
+    case 'end_turn':
+    case 'stop':
+      return 'end_turn';  // 'end_turn' 与 'stop' 均映射为 'end_turn'（向后兼容 shim）
+    default:
+      return assertNever(r);
+  }
 }
