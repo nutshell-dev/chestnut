@@ -56,6 +56,9 @@ export class SkillSystem {
   // phase 1053 α-6: lazy init guard (cold-start sync chain removal)
   private _loaded = false;
   private _loadPromise: Promise<void> | null = null;
+  // phase 432 Step A (review N6 partial): per-instance guard — first sync accessor
+  // called while !_loaded emits one console.error; subsequent silent。
+  private unloadedWarnEmitted = false;
 
   constructor(fs: FileSystem, skillsDir: string, audit?: AuditLog) {
     this.fs = fs;
@@ -75,7 +78,11 @@ export class SkillSystem {
   }
 
   /**
-   * 扫描 skillsDir，加载所有技能元信息
+   * 扫描 skillsDir，加载所有技能元信息。
+   *
+   * phase 432 Step C (review N6 doc): caller 通常应优先 `ensureLoaded()`，
+   * 它是 idempotent + lightweight（已 loaded 时 zero-cost）。`loadAll()` 直
+   * 接重新扫描、即使已 loaded 也跑、用于 explicit 强制 re-scan（罕见）。
    */
   async loadAll(): Promise<void> {
     // 检查 skills 目录是否存在
@@ -202,17 +209,45 @@ export class SkillSystem {
   }
 
   /**
-   * 获取元信息
+   * phase 432 Step B (review N6 partial): public proactive load API。
+   * Caller can `await registry.ensureLoaded()` before first sync accessor
+   * (getMeta / listMeta / formatForContext) to eliminate the cold-start
+   * race that Step A's maybeWarnUnloaded only observes.
+   * Idempotent (delegates to private _ensureLoaded、internal promise chain
+   * dedupe)、safe to call repeatedly.
+   */
+  async ensureLoaded(): Promise<void> {
+    return this._ensureLoaded();
+  }
+
+  // phase 432 Step A (review N6 partial): observability helper、不改 sync API 行为
+  private maybeWarnUnloaded(op: string): void {
+    if (!this._loaded && !this.unloadedWarnEmitted) {
+      const msg = `[SkillSystem WARNING] ${op} called before async load completed — returning empty/partial result; first prompt may miss skills. Construct SkillSystem and await loaded state before first sync accessor.`;
+      console.error(msg); // console: skill-system sync accessor race (review N6) — observability only, do not break (phase 432 Step A)
+      this.unloadedWarnEmitted = true;
+    }
+  }
+
+  /**
+   * 获取元信息（sync）。
+   *
+   * phase 432 Step C (review N6 doc): cold-start race window — 首次调用且
+   * `_loaded=false` 时返回 undefined（即使 skill 存在），后续调用 fire-and-forget
+   * 的 `_ensureLoaded()` 完成后才稳定。Caller 应优先 `await ensureLoaded()`
+   * 前置加载、再调 sync getMeta；否则 Step A 的 warn 会 emit 一次到 stderr。
    */
   getMeta(name: string): SkillMeta | undefined {
+    this.maybeWarnUnloaded('getMeta');
     void this._ensureLoaded();
     return this.metaMap.get(name);
   }
 
   /**
-   * 列出所有元信息
+   * 列出所有元信息（sync、cold-start race 同 getMeta、推 `await ensureLoaded()` 前置）。
    */
   listMeta(): SkillMeta[] {
+    this.maybeWarnUnloaded('listMeta');
     void this._ensureLoaded();
     return Array.from(this.metaMap.values());
   }
@@ -232,9 +267,15 @@ export class SkillSystem {
   }
 
   /**
-   * 生成注入到上下文的元信息摘要
+   * 生成注入到上下文的元信息摘要（sync）。
+   *
+   * phase 432 Step C (review N6 doc): cold-start race — first turn prompt
+   * 可能 miss skills（返回 'No skills loaded.'）。Caller 应优先
+   * `await registry.ensureLoaded()` 再调；e.g.
+   * `summon.ts:103` / `retro-scheduler.ts:62` 已遵循此 pattern。
    */
   formatForContext(): string {
+    this.maybeWarnUnloaded('formatForContext');
     void this._ensureLoaded();
     const metas = this.listMeta();
     if (metas.length === 0) {
