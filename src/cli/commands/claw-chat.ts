@@ -44,6 +44,10 @@ export async function chatCommand(deps: { fsFactory: (baseDir: string) => FileSy
         });
         console.log(`Started (PID: ${pid})`);
       }
+      // phase 398 Step E (review N1): mirror motion.ts:213-215 / start.ts —
+      // 没 watchdog 看护、daemon 崩了无人重启 (phase 324 H3 dead code on chat path)。
+      const { ensureWatchdog } = await import('../../watchdog/ensure.js');
+      await ensureWatchdog(deps.fsFactory);
     },
     showRecapStream: globalConfig.viewport.show_recap_stream,
     showSystemMessages: globalConfig.viewport.show_system_messages,
