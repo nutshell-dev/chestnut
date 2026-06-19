@@ -96,7 +96,12 @@ export async function contractCreateFromDirCommand(
         continue;
       }
       const srcStat = await srcFs.stat(srcRel);
-      if (!srcStat.isFile) continue;   // 跳过子目录
+      if (!srcStat.isFile) {
+        // phase 406 Step A (review N3): 嵌套子目录 skip 时 emit audit—verifier
+        // 维护者可从 audit 链溯源「`source ./lib/*.sh` 跑空」的原因。
+        audit?.write(CLI_AUDIT_EVENTS.CONTRACT_CREATE, `claw=${clawId}`, `contract=${contractId}`, `skip=nested_dir`, `entry=${entry.name}`);
+        continue;
+      }
       // 扩展白名单
       const ext = path.extname(entry.name).toLowerCase();
       if (!COPY_ALLOWED_EXTENSIONS.has(ext)) {
@@ -109,7 +114,11 @@ export async function contractCreateFromDirCommand(
         continue;
       }
       const destFileRel = path.join(destRel, entry.name);
-      const content = await srcFs.read(srcRel);
+      // phase 406 Step A (review N2): read via realpath-resolved srcFs-relative path —
+      // realpath→read 之间 symlink swap 时间窗的 TOCTOU 修复。realNorm 已在 line 94
+      // 校 baseNorm 内、安全 fall in srcFs scope。
+      const realRelToBase = path.relative(baseNorm, realNorm);
+      const content = await srcFs.read(realRelToBase);
       await clawFs.writeAtomic(destFileRel, content);
     }
   }
