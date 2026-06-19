@@ -25,6 +25,7 @@ import noClawBusinessLiteral from './eslint-rules/no-claw-business-literal.js';
 import noChatMethod from './eslint-rules/no-chat-method.js';
 import noChestnutDirNaming from './eslint-rules/no-chestnut-dir-naming.js';
 import noFilenameTag from './eslint-rules/no-filename-tag.js';
+import noRuntimeKnowsUpperLayer from './eslint-rules/no-runtime-knows-upper-layer-messages.js';
 
 /** @type {import('eslint').Linter.Config[]} */
 export default [
@@ -67,6 +68,7 @@ export default [
           'no-chat-method': noChatMethod,
           'no-chestnut-dir-naming': noChestnutDirNaming,
           'no-filename-tag': noFilenameTag,
+          'no-runtime-knows-upper-layer-messages': noRuntimeKnowsUpperLayer,
         },
       },
     },
@@ -99,6 +101,7 @@ export default [
       'chestnut-custom/no-chat-method': 'error',
       'chestnut-custom/no-chestnut-dir-naming': 'error',
       'chestnut-custom/no-filename-tag': 'error',
+      'chestnut-custom/no-runtime-knows-upper-layer-messages': 'error',
     },
   },
 ];
