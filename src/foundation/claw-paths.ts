@@ -23,6 +23,16 @@ export const CLAWSPACE_DIR = 'clawspace' as const;
  * phase 391: 抽 7 site inline 'AGENTS.md' literal 为 const (M#1 + ML#9)。
  */
 export const CLAW_SPEC_FILE = 'AGENTS.md' as const;
+/**
+ * Claw memory file (per-claw persistent memory, dialog 注入 + status aggregator 读).
+ * phase 392: 抽 4 site inline 'MEMORY.md' literal 为 const (M#1 + ML#9)。
+ */
+export const CLAW_MEMORY_FILE = 'MEMORY.md' as const;
+/**
+ * Claw identity file (per-claw identity section、Runtime initialize 读 + permissions 白名单).
+ * phase 392: 抽 2 site inline 'IDENTITY.md' literal 为 const (M#1 + ML#9)。
+ */
+export const CLAW_IDENTITY_FILE = 'IDENTITY.md' as const;
 
 /**
  * Enumerate all claw IDs (sub-directories) under clawsDir.

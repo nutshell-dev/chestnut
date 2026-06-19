@@ -34,7 +34,7 @@ import {
   TASKS_QUEUES_RESULTS_DIR,
   TASKS_SUBAGENTS_DIR,
 } from '../async-task-system/index.js';
-import { CLAWSPACE_DIR, CLAW_SPEC_FILE } from '../../foundation/claw-paths.js';
+import { CLAWSPACE_DIR, CLAW_SPEC_FILE, CLAW_MEMORY_FILE, CLAW_IDENTITY_FILE } from '../../foundation/claw-paths.js';
 import { CONFIG_YAML_FILE } from '../../foundation/install-paths.js';
 import type { PermissionChecker } from '../../foundation/tool-protocol/permission.js';
 export type { PermissionChecker } from '../../foundation/tool-protocol/permission.js';
@@ -56,10 +56,10 @@ const SYSTEM_PATHS = [
  * Phase 1335: task sync dirs 装配期 inject
  */
 const BASE_WRITABLE_PATHS = [
-  'MEMORY.md',
+  CLAW_MEMORY_FILE,
   'memory',
   'USER.md',
-  'IDENTITY.md',
+  CLAW_IDENTITY_FILE,
   'SOUL.md',
   CLAWSPACE_DIR,
   'prompts',

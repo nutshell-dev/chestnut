@@ -14,7 +14,7 @@ import type { FileSystem } from '../../foundation/fs/types.js';
 import { formatErr, assertNever } from "../../foundation/utils/index.js";
 import type { ContractSystem } from '../contract/index.js';
 import { TASKS_QUEUES_PENDING_DIR, TASKS_QUEUES_RUNNING_DIR } from '../async-task-system/index.js';
-import { CLAWSPACE_DIR } from '../../foundation/claw-paths.js';
+import { CLAWSPACE_DIR, CLAW_MEMORY_FILE } from '../../foundation/claw-paths.js';
 
 // ── Views ───────────────────────────────────────────────────────────────────
 
@@ -108,8 +108,8 @@ export async function computeTaskView(fs: FileSystem): Promise<TaskView> {
 export async function computeStorageView(fs: FileSystem): Promise<StorageView> {
   let memoryMd: StorageMemoryView;
   try {
-    if (await fs.exists('MEMORY.md')) {
-      const content = await fs.read('MEMORY.md');
+    if (await fs.exists(CLAW_MEMORY_FILE)) {
+      const content = await fs.read(CLAW_MEMORY_FILE);
       memoryMd = { type: 'size', bytes: content.length };
     } else {
       memoryMd = { type: 'not-found' };

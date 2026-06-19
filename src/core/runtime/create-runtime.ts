@@ -20,6 +20,7 @@ import type { ContextInjector } from '../dialog/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { RUNTIME_AUDIT_EVENTS } from './runtime-audit-events.js';
+import { CLAW_IDENTITY_FILE } from '../../foundation/claw-paths.js';
 
 export type CreateRuntimeOptions = RuntimeOptions & {
   identity: 'motion' | 'claw';
@@ -70,7 +71,7 @@ async function buildMotionSystemPrompt({
   if (user) sections.push(user);
 
   // 3. IDENTITY.md
-  const identity = await tryReadOptionalSection(systemFs, 'IDENTITY.md', audit);
+  const identity = await tryReadOptionalSection(systemFs, CLAW_IDENTITY_FILE, audit);
   if (identity) sections.push(identity);
 
   // 4. SOUL.md
