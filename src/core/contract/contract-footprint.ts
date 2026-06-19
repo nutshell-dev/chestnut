@@ -12,6 +12,7 @@
 
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { FileNotFoundError } from '../../foundation/fs/types.js';
+import { AUDIT_FILE } from '../../foundation/audit/index.js';
 
 /**
  * Default cap on recent execution sample count for contract footprint.
@@ -122,7 +123,7 @@ export async function contractFootprint(
   contractId: string,
   opts?: ContractFootprintOptions,
 ): Promise<ContractFootprint> {
-  const auditPath = opts?.auditPath ?? 'audit.tsv';
+  const auditPath = opts?.auditPath ?? AUDIT_FILE;
   const sinceTimestampMs = opts?.sinceTimestampMs ?? 0;
   const recentExecN = opts?.recentExecN ?? RECENT_EXEC_N_DEFAULT;
 

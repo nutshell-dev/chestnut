@@ -8,6 +8,7 @@
 
 import { resolveChestnutRoot } from '../foundation/install-paths.js';
 import { CLAWS_DIR } from '../foundation/claw-paths.js';
+import { AUDIT_FILE } from '../foundation/audit/index.js';
 import path from 'path';
 import { formatErr } from '../foundation/utils/index.js';
 import type { StreamWriter } from '../foundation/stream/index.js';
@@ -234,8 +235,8 @@ export async function createMotionAddons(
         createAuditSizeMonitorJob({
           fs: chestnutFs,
           audit: auditWriter,
-          motionAuditPath: path.join(chestnutRoot, 'motion', 'audit.tsv'),
-          rootAuditPath: path.join(chestnutRoot, 'audit.tsv'),
+          motionAuditPath: path.join(chestnutRoot, 'motion', AUDIT_FILE),
+          rootAuditPath: path.join(chestnutRoot, AUDIT_FILE),
           streamLog: streamWriter,   // phase 8: viewport stream (取代 motionInbox)
         }, globalConfig),
         createOutboxSummaryJob({

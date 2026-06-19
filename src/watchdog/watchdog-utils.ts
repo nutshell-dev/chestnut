@@ -15,7 +15,7 @@
 import * as path from 'path';
 import type { FileSystem } from '../foundation/fs/types.js';
 import { isFileNotFound } from '../foundation/fs/types.js';
-import type { AuditLog } from '../foundation/audit/index.js';
+import { type AuditLog, AUDIT_FILE } from '../foundation/audit/index.js';
 import { readAll, STREAM_FILE } from '../foundation/stream/index.js';
 import { LLM_OUTPUT_EVENTS } from '../foundation/stream/index.js';
 import { INBOX_PENDING_DIR, OUTBOX_PENDING_DIR } from '../foundation/messaging/index.js';
@@ -277,7 +277,7 @@ export function gatherClawSnapshot(
   // NEW: read claw audit.tsv tail for forensic context (phase 1207 gap B)
   let lastAuditEvents: string[] | undefined;
   try {
-    const raw = fs.readSync('audit.tsv');
+    const raw = fs.readSync(AUDIT_FILE);
     const lines = raw.split('\n').filter(l => l.trim());
     lastAuditEvents = lines.slice(-AUDIT_TAIL_N);
   } catch { /* silent: audit.tsv ENOENT or corrupt: leave undefined optional */ }

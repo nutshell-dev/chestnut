@@ -12,6 +12,7 @@ import { CALLER_TYPE_TO_GROUPS } from '../caller-types.js';
 
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import { type FileSystem } from '../../foundation/fs/types.js';
+import { AUDIT_FILE } from '../../foundation/audit/index.js';
 // phase 1414: isFileNotFound import removed — HEARTBEAT.md 读迁 Heartbeat 模块 inbox-formatter
 import type { Message } from '../../foundation/llm-provider/types.js';
 import type { InboxMessage } from '../../foundation/messaging/types.js';
@@ -285,7 +286,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     });
     if (!loadResult) return;
     const { session, source } = loadResult;
-    const auditAbsPath = this.systemFs.resolve('audit.tsv');
+    const auditAbsPath = this.systemFs.resolve(AUDIT_FILE);
     const interruptionMessage = summarizeLastExit(this.systemFs, auditAbsPath);
     this.auditWriter.write(RUNTIME_AUDIT_EVENTS.SESSION_LOADED, `source=${source}`);
     const { repaired, toolCount } = DialogStore.repair(

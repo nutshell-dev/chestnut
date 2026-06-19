@@ -22,6 +22,7 @@ import {
 } from '../../core/summon-system/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { type ContractId, makeContractId } from '../../core/contract/types.js';
+import { AUDIT_FILE } from '../../foundation/audit/index.js';
 
 
 
@@ -74,7 +75,7 @@ export function inferKind(deps: { fsFactory: (baseDir: string) => FileSystem }, 
   }
 
   // Fallback: check audit.tsv for random_dream signals
-  const auditRel = path.join(TASKS_QUEUES_RESULTS_DIR, id, 'audit.tsv');
+  const auditRel = path.join(TASKS_QUEUES_RESULTS_DIR, id, AUDIT_FILE);
   if (clawFs.existsSync(auditRel)) {
     try {
       const audit = clawFs.readSync(auditRel);
@@ -89,7 +90,7 @@ export function inferStatus(deps: { fsFactory: (baseDir: string) => FileSystem }
   const resultFs = deps.fsFactory(resultDir);
   if (resultFs.existsSync('result.txt')) return 'completed';
 
-  const auditRel = path.join(resultDir, 'audit.tsv');
+  const auditRel = path.join(resultDir, AUDIT_FILE);
   if (resultFs.existsSync(auditRel)) {
     try {
       const content = resultFs.readSync(auditRel);
@@ -125,7 +126,7 @@ export function getStartedAt(deps: { fsFactory: (baseDir: string) => FileSystem 
 
   // Fallback to audit.tsv first line timestamp
   const resultFs = deps.fsFactory(resultDir);
-  const auditRel = path.join(resultDir, 'audit.tsv');
+  const auditRel = path.join(resultDir, AUDIT_FILE);
   if (resultFs.existsSync(auditRel)) {
     try {
       const content = resultFs.readSync(auditRel);
@@ -192,7 +193,7 @@ export function scanSubagentResults(deps: { fsFactory: (baseDir: string) => File
         if (clawFs.existsSync(resultTxtRel)) {
           durationMs = clawFs.statSync(resultTxtRel).mtime.getTime() - startedAt.getTime();
         } else {
-          const auditRel = path.join(asyncRel, id, 'audit.tsv');
+          const auditRel = path.join(asyncRel, id, AUDIT_FILE);
           if (clawFs.existsSync(auditRel)) {
             durationMs = clawFs.statSync(auditRel).mtime.getTime() - startedAt.getTime();
           }
@@ -233,7 +234,7 @@ function scanSyncDir(
     const startedAt = getStartedAt(deps, resultDir, id, clawDir);
     let durationMs: number | undefined;
     if (startedAt) {
-      const auditRel = path.join(dirRel, id, 'audit.tsv');
+      const auditRel = path.join(dirRel, id, AUDIT_FILE);
       if (clawFs.existsSync(auditRel)) {
         durationMs = clawFs.statSync(auditRel).mtime.getTime() - startedAt.getTime();
       }

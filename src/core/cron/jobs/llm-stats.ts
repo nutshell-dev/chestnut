@@ -1,6 +1,6 @@
 import * as path from 'path';
 import type { FileSystem } from '../../../foundation/fs/types.js';
-import type { AuditLog } from '../../../foundation/audit/index.js';
+import { type AuditLog, AUDIT_FILE } from '../../../foundation/audit/index.js';
 import { LLM_STATS_AUDIT_EVENTS } from './llm-stats-audit-events.js';
 import { MOTION_CLAW_ID } from '../../../constants.js';
 import type { CronJob } from '../runner.js';
@@ -116,13 +116,13 @@ function collectEntries(opts: LlmStatsOptions, targetDate: string): ParsedLlmRow
     clawIds = [];
   }
   const candidates = [
-    { fs: opts.motionFs, file: 'audit.tsv', clawId: MOTION_CLAW_ID },
+    { fs: opts.motionFs, file: AUDIT_FILE, clawId: MOTION_CLAW_ID },
     ...clawIds.map(clawId => {
       const location = opts.clawTopology.resolve(clawId);
       if (location.kind !== 'local') return null;
       return {
         fs: opts.chestnutFs,
-        file: path.join(location.clawDir, 'audit.tsv'),
+        file: path.join(location.clawDir, AUDIT_FILE),
         clawId: clawId as string,
       };
     }).filter(c => c !== null),

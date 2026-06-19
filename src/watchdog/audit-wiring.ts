@@ -1,4 +1,4 @@
-import { createAuditWriter } from '../foundation/audit/index.js';
+import { createAuditWriter, AUDIT_FILE } from '../foundation/audit/index.js';
 import type { FileSystem } from '../foundation/fs/types.js';
 import { getChestnutFs, getGlobalConfig, getAuditWriter, setAuditWriter } from './watchdog-context.js';
 
@@ -11,7 +11,7 @@ export function ensureAuditWired(fsFactory: (baseDir: string) => FileSystem): vo
   if (getAuditWriter() !== null) return;
   try {
     const auditMaxSizeMb = getGlobalConfig(fsFactory).audit.retention.max_size_mb;
-    const auditWriter = createAuditWriter(getChestnutFs(fsFactory), 'audit.tsv', auditMaxSizeMb);
+    const auditWriter = createAuditWriter(getChestnutFs(fsFactory), AUDIT_FILE, auditMaxSizeMb);
     setAuditWriter(auditWriter);
   } catch (err) {
     console.error('Failed to wire watchdog audit in CLI:', err);

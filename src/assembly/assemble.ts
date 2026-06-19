@@ -2,7 +2,7 @@ import { formatErr } from '../foundation/utils/index.js';
 
 import type { FileSystem } from '../foundation/fs/types.js';
 
-import type { AuditLog } from '../foundation/audit/index.js';
+import { type AuditLog, AUDIT_FILE } from '../foundation/audit/index.js';
 import type { StreamWriter } from '../foundation/stream/index.js';
 
 import { isFileNotFound } from '../foundation/fs/types.js';
@@ -35,13 +35,13 @@ import { createMotionAddons } from './motion-addons.js';
 
 // 内部 helper（从 daemon.ts L42-75 搬入）
 export function detectUncleanExit(_auditDir: string, auditWriter: AuditLog, fs: FileSystem): void {
-  if (!fs.existsSync('audit.tsv')) return;
+  if (!fs.existsSync(AUDIT_FILE)) return;
   try {
-    const stat = fs.statSync('audit.tsv');
+    const stat = fs.statSync(AUDIT_FILE);
     if (stat.size === 0) return;
     const chunkSize = 4096;
     const offset = Math.max(0, stat.size - chunkSize);
-    const buf = fs.readBytesSync('audit.tsv', offset, stat.size);
+    const buf = fs.readBytesSync(AUDIT_FILE, offset, stat.size);
     const chunk = buf.toString('utf-8');
       const lastLine = chunk.split('\n').filter(Boolean).at(-1) ?? '';
       const type = lastLine.split('\t')[1];

@@ -26,7 +26,7 @@ import { getNamedSubrootDir } from '../foundation/config/index.js';
 import { MOTION_CLAW_ID, makeClawId } from '../constants.js';
 import type { FileSystem } from '../foundation/fs/types.js';
 import { isFileNotFound } from '../foundation/fs/types.js';
-import { type AuditLog, createAuditWriter } from '../foundation/audit/index.js';
+import { type AuditLog, createAuditWriter, AUDIT_FILE } from '../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../foundation/process-manager/index.js';
 import { LockConflictError } from '../foundation/process-manager/index.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
@@ -191,7 +191,7 @@ export async function runWatchdogLoop(fsFactory: (baseDir: string) => FileSystem
   const auditMaxSizeMb = getGlobalConfig(fsFactory).audit.retention.max_size_mb;
   const auditWriter = createAuditWriter(
     getChestnutFs(fsFactory),
-    'audit.tsv',
+    AUDIT_FILE,
     auditMaxSizeMb,
   );
   setAuditWriter(auditWriter);
