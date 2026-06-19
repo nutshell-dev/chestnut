@@ -290,12 +290,9 @@ export class ContractSystem {
     const last = this.auditorState.get(active.id) ?? 0;
     if (currentStep - last < interval) return;
 
-    // 同步 mark：防 fire-and-forget 期间 Runtime 再次进入 maybeAuditStep 时重复触发
-    this.auditorState.set(active.id, currentStep);
-
     const progress = await this.getProgress(makeContractId(active.id));
     if (!progress) {
-      return;  // 容错：getProgress schema corruption 不影响 Runtime
+      return;  // 容错：getProgress schema corruption 不 advance auditorState、下次 step 仍会重试
     }
 
     const done: string[] = [];
@@ -306,6 +303,10 @@ export class ContractSystem {
       else if (info.status === 'in_progress') inProgress = subtaskId;
       else pending.push(subtaskId);
     }
+
+    // 同步 mark：在确定要 fire-and-forget 后移到此处、防 Runtime 再次进入 maybeAuditStep 重复触发；
+    // 上移到 getProgress 之前会让 getProgress null 容错路径静默丢失一次 audit（phase 438 修）
+    this.auditorState.set(active.id, currentStep);
 
     // fire-and-forget
     void this.auditor.maybeAudit({
@@ -378,7 +379,8 @@ export class ContractSystem {
       saveProgress: (id, p) => this.saveProgress(id, p),
       checkAllSubtasksCompleted: (id, p) => this.checkAllCompleted(id, p),
       abortContractVerifiers: (id, reason) => this._abortContractVerifiers(id, reason),
-      onNotify: this.onNotify,
+      // phase 438: lazy thunk、setOnNotify 后的回调能在 ctx 已分发场景下生效（review N3-C-H3 / R2-C-N18）
+      onNotify: (type, data) => this.onNotify?.(type, data),
     };
   }
 
@@ -397,7 +399,8 @@ export class ContractSystem {
       checkAllSubtasksCompleted: (id, p) => this.checkAllCompleted(id, p),
       moveContractToArchive: (id) => this.moveToArchive(id),
       emitContractCompleted: (id) => this._emitContractCompleted(id),
-      onNotify: this.onNotify,
+      // phase 438: lazy thunk、同 _lifecycleCtx
+      onNotify: (type, data) => this.onNotify?.(type, data),
       runScriptVerification: (scriptFile: string, contractAbsDir: string) => this.runScriptVerification(scriptFile, contractAbsDir),
       runLLMVerification: (promptFile: string, contractAbsDir: string, contractId: ContractId, subtaskId: SubtaskId, subtaskDesc: string, evidence: string, artifacts: string[]) =>
         this.runLLMVerification(promptFile, contractAbsDir, contractId, subtaskId, subtaskDesc, evidence, artifacts),

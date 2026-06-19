@@ -267,6 +267,11 @@ export async function runVerificationPipeline(
   }
   const verificationConfig = contractYaml.verification?.find(a => a.subtask_id === subtaskId);
 
+  // phase 438: sync 路径（无 verificationConfig）保持原有"幂等守卫"语义 —
+  // 第二个并发提交进 completeSubtaskSync 通过内层 progressLock 串行、
+  // 见 status='completed' 结构化返回 "already completed"（不 race-reject）；
+  // 与 async 路径"必须 race-reject 防 bg 串扰"是两种并发模型、不统一闸门。
+  // review R2-C-N13 指控复核站不住、本 phase 不改 sync 语义。
   if (verificationConfig) {
     if (!ctx.verificationMutex.acquire(contractId, subtaskId)) {
       emitContractVerificationPipelineRaceRejected(
@@ -277,9 +282,13 @@ export async function runVerificationPipeline(
     }
   }
 
+  // handedOff = true 表示 release 所有权已交给 bg promise 的 .finally；
+  // 此函数返回前不可再 release。phase 438: 配对结构对称化（review N3-C-H2）。
+  // 仅 verificationConfig 存在时 acquire、!verificationConfig 时无需 release。
+  let handedOff = false;
   try {
     if (!verificationConfig) {
-      return completeSubtaskSync(ctx, contractId, subtaskId, evidence, artifacts);
+      return await completeSubtaskSync(ctx, contractId, subtaskId, evidence, artifacts);
     }
 
   await ctx.withProgressLock(contractId, async () => {
@@ -356,13 +365,18 @@ export async function runVerificationPipeline(
       // 或 rollback 窗口里 race 进入 background。
       ctx.verificationMutex.release(contractId, subtaskId);
     });
+  // phase 438: bg promise 的 .finally 已绑定 release —— 所有权移交给 bg。
+  // 不可在 outer finally 再 release（会重复）。
+  handedOff = true;
 
   return { passed: false, feedback: '', async: true };
-  } catch (e) {
-    if (verificationConfig) {
+  } finally {
+    if (verificationConfig && !handedOff) {
+      // verificationConfig 存在时 acquire 成功（!handedOff 表示 release 未交给 bg）
+      // sync 异常路径（withProgressLock throw、saveProgress throw、其他 sync 异常）
+      // 必须在此处释放。
       ctx.verificationMutex.release(contractId, subtaskId);
     }
-    throw e;
   }
 }
 
