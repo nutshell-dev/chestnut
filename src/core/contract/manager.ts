@@ -579,11 +579,16 @@ export class ContractSystem {
   }
 
   async cancel(contractId: ContractId, reason: string): Promise<void> {
-    return cancelContract(this._lifecycleCtx(), contractId, reason);
+    await cancelContract(this._lifecycleCtx(), contractId, reason);
+    // phase 398 Step D (review N9): 终态清 auditorState、防 unbounded growth +
+    // contract-id 复用残留。cancel 失败 throw、entry 留待重试。
+    this.auditorState.delete(contractId);
   }
 
   async markCrashed(contractId: ContractId, cause: string): Promise<void> {
-    return markCrashed(this._lifecycleCtx(), contractId, cause);
+    await markCrashed(this._lifecycleCtx(), contractId, cause);
+    // phase 398 Step D (review N9): 同 cancel。
+    this.auditorState.delete(contractId);
   }
 
   async isComplete(contractId: ContractId): Promise<boolean> {
@@ -615,6 +620,9 @@ export class ContractSystem {
         );
       }
     }
+    // phase 398 Step D (review N9): 完成态清 auditorState、防 unbounded growth +
+    // contract-id 复用残留（callback 失败已 audit、不阻 delete）。
+    this.auditorState.delete(contractId);
   }
 
   // ============================================================================
