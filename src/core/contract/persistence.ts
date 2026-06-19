@@ -13,7 +13,7 @@ import { ToolError } from '../../foundation/errors.js';
 import type { Contract } from '../contract/types.js';
 import type { ContractYaml } from './types.js';
 import type { ProgressData } from './types.js';
-import { stripDerivableStatus } from './types.js';
+import { stripDerivableStatus, ContractProgressInvariantViolatedError } from './types.js';
 import { ContractYamlSchema, ContractProgressPersistedSchema } from './schemas.js';
 import { CONTRACT_YAML_FILE } from './dirs.js';
 import { makeClawId } from '../../constants.js';
@@ -139,7 +139,9 @@ export async function saveProgress(
   stripDerivableStatus(progressToSave as Record<string, unknown>);
 
   // phase 319: Zod SoT safeParse defensive (replace assertProgressShapeInvariants、ML#9 优先编译器检查)
-  // phase 233 Step A anchor: 违例 emit audit、不 throw、不阻 save、Path #4 防 break
+  // phase 406 Step C (review N10): refuse to persist known-invalid shape — pre-N10
+  //   行为是「audit emit + 不阻 save」、let loader markCrashed cascade against
+  //   the corrupt JSON we just wrote. Now throw、caller decides 回退 vs abort.
   const validation = ContractProgressPersistedSchema.safeParse(progressToSave);
   if (!validation.success) {
     const firstIssue = validation.error.issues[0];
@@ -150,6 +152,10 @@ export async function saveProgress(
       `path=${firstIssue?.path.join('.') ?? 'unknown'}`,
       `message=${firstIssue?.message ?? 'unknown'}`,
       `source=saveProgress`,
+    );
+    throw new ContractProgressInvariantViolatedError(
+      `progress shape invalid: ${firstIssue?.message ?? 'unknown'}`,
+      { contractId, issuePath: firstIssue?.path.join('.') ?? 'unknown' },
     );
   }
 

@@ -22,6 +22,7 @@ export {
   type CreatePolicyContext,
   type CreateContractOptions,
   ContractCreatePolicyViolationError,
+  ContractProgressInvariantViolatedError,
 } from './types.js';
 
 export { createSubmitSubtaskTool, SUBMIT_SUBTASK_TOOL_NAME } from './tools/submit-subtask.js';

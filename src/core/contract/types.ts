@@ -325,6 +325,18 @@ export class ContractCreatePolicyViolationError extends Error {
   }
 }
 
+// phase 406 Step C (review N10): saveProgress refuses to persist known-invalid
+// progress shape — caller decides whether to abort or roll back.
+export class ContractProgressInvariantViolatedError extends Error {
+  constructor(
+    message: string,
+    public readonly details: { contractId: string; issuePath: string },
+  ) {
+    super(message);
+    this.name = 'ContractProgressInvariantViolatedError';
+  }
+}
+
 export interface CreateContractOptions {
   contract: ContractYaml;
   subagentTaskId?: string;
