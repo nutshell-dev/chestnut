@@ -23,6 +23,7 @@ import noClawsEnumerationFanout from './eslint-rules/no-claws-enumeration-fanout
 import noDirectNewNodeFileSystem from './eslint-rules/no-direct-new-nodefilesystem.js';
 import noClawBusinessLiteral from './eslint-rules/no-claw-business-literal.js';
 import noChatMethod from './eslint-rules/no-chat-method.js';
+import noChestnutDirNaming from './eslint-rules/no-chestnut-dir-naming.js';
 
 /** @type {import('eslint').Linter.Config[]} */
 export default [
@@ -63,6 +64,7 @@ export default [
           'no-direct-new-nodefilesystem': noDirectNewNodeFileSystem,
           'no-claw-business-literal': noClawBusinessLiteral,
           'no-chat-method': noChatMethod,
+          'no-chestnut-dir-naming': noChestnutDirNaming,
         },
       },
     },
@@ -93,6 +95,7 @@ export default [
       'chestnut-custom/no-direct-new-nodefilesystem': 'error',
       'chestnut-custom/no-claw-business-literal': 'error',
       'chestnut-custom/no-chat-method': 'error',
+      'chestnut-custom/no-chestnut-dir-naming': 'error',
     },
   },
 ];
