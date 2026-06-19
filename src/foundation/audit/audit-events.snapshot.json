@@ -161,6 +161,7 @@
       "contract_complete_on_cancelled",
       "contract_completed",
       "contract_completed_handler_failed",
+      "contract_crash_partial_failed",
       "contract_crashed",
       "contract_create_policy_rejected",
       "contract_created",

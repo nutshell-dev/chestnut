@@ -144,8 +144,13 @@ export class InboxReader {
 
   /**
    * Read all pending messages, sort by priority (desc) then timestamp (asc).
-   * Malformed files are automatically moved to failed/ (side effect).
-   * Files remain in pending/ — this is a non-consuming read.
+   *
+   * Side effects (phase 427 Step C, review N12 — replaces earlier self-contradictory
+   * "non-consuming read" claim):
+   * - Malformed files are moved to failed/ via markFailed (consumed for that file).
+   * - Duplicate-taskId files are moved to done/ via markDone (deduped consumed).
+   * - Successful entries remain in pending/ — caller decides via markDone/markFailed.
+   *
    * Legacy path; Runtime should prefer drainAndDeliver().
    */
   async drainInbox(): Promise<InboxEntry[]> {

@@ -288,7 +288,11 @@ export function createClawPermissionChecker(
       relativePath: string,
       operation: 'read' | 'write'
     ): string {
-      const absolute = path.resolve(options.clawDir, relativePath);
+      // phase 427 Step B (review medium permissions invariant): fs.resolve 优先 +
+      // path.resolve fallback、与 checkReadPermission/checkWritePermission 内 line 140-170
+      // 模式一致、virtual FS / rooted-fs 统一。
+      const joined = path.join(options.clawDir, relativePath);
+      const absolute = options.fs ? options.fs.resolve(joined) : path.resolve(joined);
 
       if (operation === 'read') {
         checkReadPermission(absolute, options);

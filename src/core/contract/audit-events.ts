@@ -48,6 +48,10 @@ export const CONTRACT_AUDIT_EVENTS = {
   // progress、target dir 缺/半成。
   CANCEL_PARTIAL_FAILED: 'contract_cancel_partial_failed',
   CRASHED: 'contract_crashed',                  // phase 63 NEW
+  // phase 427 Step A (review medium audit-emit-implies-no-write、phase 422 follow-up):
+  // markCrashed 半态留痕 — saveProgress 已写 'crashed' 但 fs.move 失败、source 含
+  // crashed progress、target dir 缺/半成。与 CANCEL_PARTIAL_FAILED 对称。
+  CRASH_PARTIAL_FAILED: 'contract_crash_partial_failed',
   COMPLETED: 'contract_completed',
   PAUSED: 'contract_paused',
   RESUMED: 'contract_resumed',
