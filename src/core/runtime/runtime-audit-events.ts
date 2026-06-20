@@ -22,7 +22,6 @@ export const RUNTIME_AUDIT_EVENTS = {
   // SESSION_*
   SESSION_LOADED: 'session_loaded',
   SESSION_REPAIRED: 'session_repaired',
-  SESSION_ARCHIVE_FAILED: 'session_archive_failed',
   // TASK_SYSTEM_*
   TASK_SYSTEM_INIT_FAILED: 'task_system_init_failed',
   TASK_SYSTEM_START_DISPATCH_FAILED: 'task_system_start_dispatch_failed',
