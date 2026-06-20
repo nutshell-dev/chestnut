@@ -601,6 +601,15 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     );
     const { systemPrompt, identityContent } = await this._resolveSystemPromptForRun();
 
+    // phase 518 (review-round4 N4-Core-H3): per-turn cache contract_id for tool event audit
+    // forensic join 路径（与 phase 434 messaging path 对称）。loadActive 抛错 silent +
+    // fallback ''、防 contract loader corruption 拦 turn execution。
+    let cachedTurnContractId = '';
+    try {
+      const active = await this.contractManager.loadActive();
+      if (active) cachedTurnContractId = active.id;
+    } catch { /* silent: contract loader 半态、tool emit fallback ''、不阻 turn */ }
+
     // 首个 LLM 输出 delta 时上报当前生效的 provider（确认 API 可用后才显示）
     let providerInfoEmitted = false;
     const emitProviderInfoOnce = () => {
@@ -641,7 +650,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
         name,
         `tool_use_id=${String(toolUseId)}`,
         `step=${this.execContext.stepNumber}`,
-        `contract_id=`,
+        `contract_id=${cachedTurnContractId}`,
         `trace_id=${String(this.execContext.trace_id ?? '')}`,
         `args_size=${argsSize}`,
       );
@@ -702,7 +711,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
               name,
               `tool_use_id=${String(toolUseId)}`,
               `step=${step}`,
-              `contract_id=`,
+              `contract_id=${cachedTurnContractId}`,
               `trace_id=${String(this.execContext.trace_id ?? '')}`,
               `status=${result.success ? 'ok' : 'err'}`,
               `content_size=${Buffer.byteLength(content, 'utf-8')}`,

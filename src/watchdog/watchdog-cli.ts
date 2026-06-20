@@ -73,8 +73,12 @@ export async function startCommand(
 
   // spawn watchdog，显式传 CHESTNUT_ROOT
   const chestnutRoot = getWorkspaceRoot();
+  // phase 518 (review-round4 CLI M3、phase 458 gap 补完): 显式传 cwd 防子进程继承
+  // watchdog-cli process.cwd（test/multi-workspace 污染）。phase 458 只覆盖 motion
+  // restart spawn、本 phase 补 initial watchdog spawn 同款。
   spawnDetached('node', [watchdogEntryPath], {
     env: { ...process.env, CHESTNUT_ROOT: chestnutRoot },
+    cwd: chestnutRoot,
   });
 
   // 等待 PID 文件写入

@@ -115,6 +115,9 @@ export function shutdownWatchdog(
   } else {
     auditWriter.write(WATCHDOG_AUDIT_EVENTS.STOP, `signal=${signal}`);
   }
+  // phase 518 (review-round4 CLI M、phase 477 gap 补完): shutdownWatchdog exit 前
+  // dispose audit、flush batched buffer 防 telemetry 丢
+  auditWriter.dispose?.();
   process.exit(saveFailed ? 1 : 0);
 }
 

@@ -45,6 +45,9 @@ export function registerShimHandlers(shimAudit: AuditLog | null): void {
       shimAudit?.write(DAEMON_AUDIT_EVENTS.UNHANDLED_REJECTION, `error=${msg}`);
     } catch { /* audit 写入失败静默、fallback console 保运维可见 */ }
     console.error('[daemon] Unhandled rejection:', reason);
+    // phase 518 (review-round4 CLI M、phase 477 gap 补完): shim handler 同 inner
+    // daemon handler 加 dispose、flush batched audit buffer 防 telemetry 丢
+    shimAudit?.dispose?.();
     process.exit(1);
   });
 
@@ -54,6 +57,8 @@ export function registerShimHandlers(shimAudit: AuditLog | null): void {
       shimAudit?.write(DAEMON_AUDIT_EVENTS.UNCAUGHT_EXCEPTION, `error=${msg}`);
     } catch { /* silent: audit-down 时 fallback console 保运维可见 / 已是 last-resort fallback / 不可再 audit 自身 */ }
     console.error('[daemon] Uncaught exception:', err);
+    // phase 518 (review-round4 CLI M、phase 477 gap 补完): shim handler dispose
+    shimAudit?.dispose?.();
     process.exit(1);
   });
 }

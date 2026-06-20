@@ -289,7 +289,9 @@ async function handlePidFileConflict(
       `reason=${formatErr(err)}`,
     );
   });
-  ctx.fs.writeExclusiveSync(pidFile, JSON.stringify({ pid: process.pid }));
+  // phase 518 (review-round4 medium、phase 458 gap 补完): EEXIST 恢复分支同 phase 458 主路径、
+  // 写 pid=0 sentinel 而非 process.pid（父 PID）；alive.ts pid===0 识别为 spawning placeholder。
+  ctx.fs.writeExclusiveSync(pidFile, JSON.stringify({ pid: 0 }));
 }
 
 /**

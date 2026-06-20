@@ -162,6 +162,10 @@ async function runProcess(
     });
 
     if (options.stdin !== undefined) {
+      // phase 518 (review-round4 Foundation M、crash hazard): 加 stdin 'error' listener
+      // 防 child 提前退出致 EPIPE 上升为 uncaughtException。silent: stdin 写失败的
+      // 业务影响由后续 proc.on('exit') / 'error' 兜底（exitCode + 错误捕获）。
+      proc.stdin.on('error', () => { /* silent: EPIPE 兜底防 uncaughtException、业务层走 exit code */ });
       proc.stdin.write(options.stdin);
       proc.stdin.end();
     }
