@@ -15,7 +15,7 @@ import {
 import { CLAWSPACE_DIR } from '../claw-paths.js';
 import type { ExecContext } from './types.js';
 import type { ToolGroup } from './types.js';
-import type { PermissionChecker } from '../tool-protocol/permission.js';
+import type { PermissionChecker } from '../tool-protocol/index.js';
 import type { ToolResult } from '../tool-protocol/index.js';
 import type { ToolProfile } from '../tool-protocol/index.js';
 import type { FileSystem } from '../fs/types.js';

@@ -4,7 +4,7 @@
  */
 
 import { newShortUuid } from '../../foundation/uuid.js';
-import { EXEC_MAX_OUTPUT } from '../../foundation/command-tool/constants.js';
+import { EXEC_MAX_OUTPUT } from '../../foundation/command-tool/index.js';
 import { getChestnutRoot, makeChestnutRoot } from '../../foundation/install-paths.js';
 import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/types.js';

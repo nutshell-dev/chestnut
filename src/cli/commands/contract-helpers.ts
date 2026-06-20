@@ -11,7 +11,7 @@ import { STREAM_FILE, createPerResourceStreamWriter, type StreamEvent } from '..
 import { CliError } from '../errors.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { ContractId } from '../../core/contract/types.js';
-import { ContractValidationError } from '../../core/contract/errors.js';
+import { ContractValidationError } from '../../core/contract/index.js';
 
 export function parseAndValidateContractYaml(yamlContent: string): ContractYaml {
   const parsed = yaml.load(yamlContent);

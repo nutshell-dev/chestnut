@@ -25,7 +25,7 @@ import { createDoneTool, DONE_TOOL_NAME } from '../subagent/index.js';
 import { createToolRegistry } from '../../foundation/tools/index.js';
 import { ToolTimeoutError } from '../../foundation/errors.js';
 import { TASKS_SYNC_SUBAGENT_DIR } from '../subagent/index.js';
-import { TASKS_SUBAGENTS_DIR } from '../subagent/constants.js';
+import { TASKS_SUBAGENTS_DIR } from '../subagent/index.js';
 import { buildSubagentSystemPrompt, CONTRACT_VERIFIER_SYSTEM_PROMPT } from '../../templates/prompts/index.js';
 import type { VerifierConfig, VerifierResult } from './types.js';
 

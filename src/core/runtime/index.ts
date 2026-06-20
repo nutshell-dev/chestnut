@@ -1,5 +1,6 @@
 /**
  * @module L5.Runtime
+ * phase 488: barrel re-export RELOAD_LLM_CONFIG_MESSAGE_TYPE for cli/config
  * Runtime — 核心运行时编排器。
  */
 
@@ -12,4 +13,7 @@ export type { CreateRuntimeOptions } from './create-runtime.js';
 export { Heartbeat, createHeartbeat, HEARTBEAT_AUDIT_EVENTS } from '../heartbeat/index.js';
 export type { HeartbeatOptions } from '../heartbeat/index.js';
 export { summarizeLastExit, readLastExitEvent } from './last-exit-summary.js';
+
+// phase 488: runtime-audit-events barrel re-export (cli/config caller)
+export { RELOAD_LLM_CONFIG_MESSAGE_TYPE } from './runtime-audit-events.js';
 

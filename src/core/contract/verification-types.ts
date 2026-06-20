@@ -11,7 +11,7 @@ import { type LockContext } from './lock.js';
 import type { ContractId } from './types.js';
 import type { ClawId } from '../../constants.js';
 import type { VerificationMutex } from './verification-mutex.js';
-import type { InboxMessageOptionsBase } from '../../foundation/messaging/inbox-writer.js';
+import type { InboxMessageOptionsBase } from '../../foundation/messaging/index.js';
 
 /**
  * phase 95: pre-bound notifyClaw — caller (Manager) binds fs + chestnutRoot + audit.

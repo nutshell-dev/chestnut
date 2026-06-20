@@ -7,11 +7,11 @@
 
 import { newUuid } from '../../foundation/uuid.js';
 import { MOTION_CLAW_ID } from '../../constants.js';
-import { makeStepNumber } from '../../foundation/identity/step-number.js';
+import { makeStepNumber } from '../../foundation/identity/index.js';
 import { CALLER_TYPE_TO_GROUPS } from '../caller-types.js';
 import * as path from 'path';
 
-import type { PermissionChecker } from '../../foundation/tool-protocol/permission.js';
+import type { PermissionChecker } from '../../foundation/tool-protocol/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { isFileNotFound } from '../../foundation/fs/types.js';
 

@@ -2,7 +2,7 @@ import type { FileSystem } from '../../foundation/fs/types.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import { type StreamLog, STREAM_FILE, createPerResourceStreamWriter } from '../../foundation/stream/index.js';
-import type { PermissionChecker } from '../../foundation/tool-protocol/permission.js';
+import type { PermissionChecker } from '../../foundation/tool-protocol/index.js';
 import { callerTypeToProfile } from '../caller-types.js';
 
 import type { ToolRegistry } from '../../foundation/tools/index.js';

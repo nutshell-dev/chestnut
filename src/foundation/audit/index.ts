@@ -1,3 +1,6 @@
+// phase 478: _helpers clip functions barrel re-export
+export { clipPreview, clipMessage, clipSummary } from './_helpers.js';
+
 /**
  * @module L2.AuditLog
  * AuditLog module (L2)

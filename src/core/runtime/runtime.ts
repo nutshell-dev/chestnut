@@ -21,7 +21,7 @@ import type { MessageFormatterRegistry } from '../../foundation/messaging/index.
 
 import { DialogStore, performRegimeSwitch } from '../../foundation/dialog-store/index.js';
 import { resolveContextWindow } from '../../foundation/llm-provider/model-context-windows.js';
-import { loadReadFileState, clearReadFileState } from '../../foundation/file-tool/file-state-persist.js';
+import { loadReadFileState, clearReadFileState } from '../../foundation/file-tool/index.js';
 // phase 1406: SummonTool import removed — Assembly 标准注册路径，G→F 单向依赖恢复
 import { runReact } from '../agent-executor/index.js';
 import { summarizeLastExit } from './last-exit-summary.js';
@@ -29,13 +29,13 @@ import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../sig
 import type { CallerSnapshot } from '../../foundation/tool-protocol/index.js';
 import { RUNTIME_AUDIT_EVENTS, REACT_LOOP_AUDIT_EVENTS, RELOAD_LLM_CONFIG_MESSAGE_TYPE } from './runtime-audit-events.js';
 // phase 71: writeErrorResponse 消（error-response.ts 整删）
-import { TASK_AUDIT_EVENTS } from '../async-task-system/audit-events.js';
+import { TASK_AUDIT_EVENTS } from '../async-task-system/index.js';
 // phase 1414: HEARTBEAT_AUDIT_EVENTS import removed — heartbeat 自家 inbox-formatter 持 audit
 // phase 1406: DIALOG_DIR no longer used here — regime-switch recovery path is owned by performRegimeSwitch helper
 import { formatErr } from '../../foundation/utils/index.js';
 
 import { MaxStepsExceededError, WallTimeExceededError, ConsecutiveParseErrorsExceededError, ConsecutiveMaxTokensToolUseError } from '../agent-executor/index.js';
-import { LockContentionExhaustedError } from '../contract/errors.js';
+import { LockContentionExhaustedError } from '../contract/index.js';
 import { DEFAULT_MAX_STEPS } from '../agent-executor/index.js';
 import { LLMAllProvidersFailedError } from '../../foundation/llm-orchestrator/index.js';
 import { makeContractId } from '../contract/types.js';

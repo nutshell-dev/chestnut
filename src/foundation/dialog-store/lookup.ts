@@ -8,7 +8,7 @@
 
 import { sha256ShortHex } from '../hash.js';
 import type { FileSystem } from '../fs/types.js';
-import type { ToolUseId } from '../tool-protocol/tool-use-id.js';
+import type { ToolUseId } from '../tool-protocol/index.js';
 
 /** Lookup result discriminated union (phase 147 / 4 级降级路径). */
 export type LookupResult =

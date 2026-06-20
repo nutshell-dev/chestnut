@@ -4,7 +4,7 @@
  * Composed by: src/assembly/compose-config.ts (yaml `viewport.*` field)
  */
 import { z } from 'zod';
-import { EXEC_MAX_OUTPUT } from '../../../foundation/command-tool/constants.js';
+import { EXEC_MAX_OUTPUT } from '../../../foundation/command-tool/index.js';
 
 export const viewportConfigSchema = z.object({
   show_recap_stream: z.boolean().default(false),

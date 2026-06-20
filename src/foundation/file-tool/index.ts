@@ -1,3 +1,8 @@
+// phase 473: resolve-path barrel re-export
+export { resolveWorkspacePath } from './resolve-path.js';
+// phase 479: file-state-persist barrel re-export
+export { loadReadFileState, clearReadFileState } from './file-state-persist.js';
+
 /**
  * @module L2.FileTool
  * FileTool module (L2)

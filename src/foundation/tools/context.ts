@@ -13,9 +13,9 @@ import type { LLMOrchestrator } from '../llm-orchestrator/index.js';
 import type { ToolProfile } from '../tool-protocol/index.js';
 import type { ExecContext, ToolGroup, FileState } from './types.js';
 import type { TraceId } from '../audit/types.js';
-import type { ToolUseId } from '../tool-protocol/tool-use-id.js';
-import type { StepNumber } from '../identity/step-number.js';
-import { makeStepNumber } from '../identity/step-number.js';
+import type { ToolUseId } from '../tool-protocol/index.js';
+import type { StepNumber } from '../identity/index.js';
+import { makeStepNumber } from '../identity/index.js';
 import path from 'path';
 import { MOTION_CLAW_ID } from '../../constants.js';
 import { CLAWSPACE_DIR } from '../claw-paths.js';
@@ -25,7 +25,7 @@ import type { AuditLog } from '../audit/index.js';
 import type { DialogStore } from '../dialog-store/index.js';
 
 import type { ToolRegistry } from './types.js';
-import type { PermissionChecker } from '../tool-protocol/permission.js';
+import type { PermissionChecker } from '../tool-protocol/index.js';
 import { TOOL_AUDIT_EVENTS } from './audit-events.js';
 
 /**

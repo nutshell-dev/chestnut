@@ -20,6 +20,10 @@ export type {
   LLMOrchestrator,
 } from './types.js';
 
+// phase 461: llm-provider-config-schema barrel re-export (M#7 接口稳定)
+export { llmProviderConfigSchema, FORMAT_MAP } from './llm-provider-config-schema.js';
+export type { LLMProviderConfig } from './llm-provider-config-schema.js';
+
 import { LLMOrchestratorImpl } from './orchestrator.js';
 
 export function createLLMOrchestrator(config: LLMOrchestratorConfig): LLMOrchestrator {

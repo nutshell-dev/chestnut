@@ -17,7 +17,7 @@ import type { ContextInjector } from '../dialog/index.js';
 import type { SkillSystem } from '../../foundation/skill-system/index.js';
 import type { ContractSystem } from '../contract/index.js';
 import type { AsyncTaskSystem } from '../async-task-system/index.js';
-import type { PermissionChecker } from '../../foundation/tool-protocol/permission.js';
+import type { PermissionChecker } from '../../foundation/tool-protocol/index.js';
 
 import type { InboxMessage } from '../../foundation/messaging/types.js';
 import type { ToolProfile } from '../../foundation/tool-protocol/index.js';

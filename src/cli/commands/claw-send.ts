@@ -9,7 +9,7 @@ import { loadGlobalConfig, clawExists } from '../../assembly/config-load.js';
 import { getGlobalConfigPath, getClawConfigPath } from '../../foundation/config/index.js';
 import { CliError } from '../errors.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
-import { notifyClaw } from '../../foundation/messaging/notify.js';
+import { notifyClaw } from '../../foundation/messaging/index.js';
 import { formatClawStatusHint, formatNoActiveContractHint } from './claw-shared.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { CLAWS_DIR } from '../../foundation/claw-paths.js';

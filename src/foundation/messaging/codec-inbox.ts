@@ -1,7 +1,7 @@
 import { newUuid } from '../uuid.js';
 import type { InboxMessage } from '../messaging/types.js';
 import { validatePriority, validateType } from './codec-validation.js';
-import { parseFrontmatterFrame } from '../utils/frontmatter-frame.js';
+import { parseFrontmatterFrame } from '../utils/index.js';
 
 /**
  * Thin wrapper: frame helper + yamlUnquote post-process.

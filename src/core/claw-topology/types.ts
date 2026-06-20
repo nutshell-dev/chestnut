@@ -1,4 +1,4 @@
-import type { ClawId } from '../../foundation/identity/claw-id.js';
+import type { ClawId } from '../../foundation/identity/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 

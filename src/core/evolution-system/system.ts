@@ -11,7 +11,7 @@ import { assertEvolutionStateShape } from './invariants.js';
 import * as path from 'path';
 
 import { CLAWSPACE_DIR } from '../../foundation/claw-paths.js';
-import { CONTRACT_AUDIT_EVENTS } from '../contract/audit-events.js';
+import { CONTRACT_AUDIT_EVENTS } from '../contract/index.js';
 import type { Message } from '../../foundation/llm-provider/types.js';
 import { FileNotFoundError, isFileNotFound } from '../../foundation/fs/types.js';
 import { isProgrammingBug } from '../../foundation/errors.js';

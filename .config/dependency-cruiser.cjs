@@ -353,6 +353,564 @@ module.exports = {
       to: { path: '^src/foundation/skill-system/skill-paths\\.ts$' },
     },
     {
+      name: 'crypto-only-from-foundation',
+      comment: [
+        'M#3 资源唯一归属：node:crypto 直 import 仅 foundation/uuid + foundation/hash owner module。',
+        '其他 src 必经 foundation/uuid (newUuid / newShortUuid / randomHex) 或',
+        'foundation/hash (sha256Hex / sha256ShortHex / createSha256Hasher)。',
+        'phase 449 立 foundation/uuid owner + sweep 25 randomUUID importer。',
+        'phase 452 立 foundation/hash owner + sweep 4 createHash importer。',
+        'phase 455 立 lint rule 防 future drift（同型 fs-only-via-foundation-filesystem phase 1298）。',
+      ].join(' '),
+      severity: 'error',
+      from: {
+        path: '^src',
+        pathNot: [
+          '^src/foundation/uuid\\.ts$',
+          '^src/foundation/hash\\.ts$',
+        ],
+      },
+      to: {
+        path: '^(node:)?crypto$',
+      },
+    },
+    {
+      name: 'no-daemon-to-watchdog',
+      comment: [
+        'M#5 模块依赖单向：daemon 模块 (src/daemon/*) 不得 import watchdog 模块 (src/watchdog/*)。',
+        '装配责任归 daemon-entry.ts 装配胶水（按 phase 444 Step A 设计、watchdogAliveProbe DI 注入）。',
+        'phase 456 立、F1 future drift guard、同型 no-foundation-to-core / no-subagent-to-runtime。',
+      ].join(' '),
+      severity: 'error',
+      from: { path: '^src/daemon/' },
+      to: { path: '^src/watchdog/' },
+    },
+    {
+      name: 'no-watchdog-to-daemon',
+      comment: [
+        'M#5 模块依赖单向：watchdog 模块 (src/watchdog/*) 不得 import daemon 模块 (src/daemon/*)。',
+        '装配责任归 watchdog-entry.ts + cli/index.ts 装配胶水（按 phase 444 Step B 设计、DAEMON_LOG DI 注入）。',
+        'phase 456 立、F1 future drift guard、同型 no-daemon-to-watchdog。',
+      ].join(' '),
+      severity: 'error',
+      from: { path: '^src/watchdog/' },
+      to: { path: '^src/daemon/' },
+    },
+    {
+      name: 'no-deep-into-tool-protocol-permission',
+      comment: [
+        'M#7 + M#9 — foundation/tool-protocol/permission.ts barrel-only。',
+        '10 cross-module caller (core + foundation/tools) 走 tool-protocol/index.ts barrel、',
+        '不深穿 permission.ts。phase 457 立、F4 top deep import target (10 caller) 收口。',
+        'allowlist: tool-protocol 自家 + src/index.ts SDK 顶层 re-export。',
+      ].join(' '),
+      severity: 'error',
+      from: {
+        path: '^src',
+        pathNot: [
+          '^src/foundation/tool-protocol/',
+          '^src/index\\.ts$',
+        ],
+      },
+      to: { path: '^src/foundation/tool-protocol/permission\\.ts$' },
+    },
+    {
+      name: 'no-deep-into-tool-use-id',
+      comment: [
+        'M#7 + M#9 — foundation/tool-protocol/tool-use-id.ts barrel-only。',
+        '跨模块 caller 走 tool-protocol/index.ts barrel、不深穿 tool-use-id.ts。',
+        'phase 459 立、F4 deep import target (3 caller、foundation sister direct) 收口。',
+        'allowlist:',
+        '  - tool-protocol 自家',
+        '  - src/index.ts SDK 顶层',
+        '  - foundation/llm-provider/types.ts: tool-protocol/index.ts import llm-provider/types',
+        '    走 barrel 会形成循环、保 sibling-direct（phase 1312 ratify 同型 audit←dialog-store 防环 phase 397）。',
+      ].join(' '),
+      severity: 'error',
+      from: {
+        path: '^src',
+        pathNot: [
+          '^src/foundation/tool-protocol/',
+          '^src/index\\.ts$',
+          '^src/foundation/llm-provider/types\\.ts$',
+        ],
+      },
+      to: { path: '^src/foundation/tool-protocol/tool-use-id\\.ts$' },
+    },
+    {
+      name: 'no-deep-into-identity-step-number',
+      comment: [
+        'M#7 + M#9 — foundation/identity/step-number.ts barrel-only。',
+        '跨模块 caller (foundation/tools + core) 走 identity/index.ts barrel。',
+        'phase 460 立、F4 deep import target (5 caller) 收口。',
+        'allowlist: identity 自家 + src/index.ts SDK。',
+      ].join(' '),
+      severity: 'error',
+      from: {
+        path: '^src',
+        pathNot: [
+          '^src/foundation/identity/',
+          '^src/index\\.ts$',
+        ],
+      },
+      to: { path: '^src/foundation/identity/step-number\\.ts$' },
+    },
+    {
+      name: 'no-deep-into-llm-provider-config-schema',
+      comment: [
+        'M#7 + M#9 — foundation/llm-orchestrator/llm-provider-config-schema.ts barrel-only。',
+        '跨模块 caller (cli/, core/) 走 llm-orchestrator/index.ts barrel。',
+        'phase 461 立、F4 deep import target (4 cross-module caller) 收口。',
+        'allowlist: llm-orchestrator 自家 sister direct + src/index.ts SDK。',
+      ].join(' '),
+      severity: 'error',
+      from: {
+        path: '^src',
+        pathNot: [
+          '^src/foundation/llm-orchestrator/',
+          '^src/index\\.ts$',
+        ],
+      },
+      to: { path: '^src/foundation/llm-orchestrator/llm-provider-config-schema\\.ts$' },
+    },
+    {
+      name: 'no-deep-into-subagent-constants',
+      comment: [
+        'M#7 + M#9 — core/subagent/constants.ts barrel-only。',
+        '跨模块 caller (cli/, core/) 走 subagent/index.ts barrel。',
+        'phase 463 立、F4 deep import target (3 cross-module caller) 收口。',
+        'allowlist:',
+        '  - subagent 自家 + src/index.ts SDK',
+        '  - core/async-task-system/dirs.ts: 走 subagent barrel 会形成 dirs ↔ subagent/run 循环',
+        '    保 sibling-direct（同型 phase 397 audit←dialog-store 防环）。',
+      ].join(' '),
+      severity: 'error',
+      from: {
+        path: '^src',
+        pathNot: [
+          '^src/core/subagent/',
+          '^src/index\\.ts$',
+          '^src/core/async-task-system/dirs\\.ts$',
+        ],
+      },
+      to: { path: '^src/core/subagent/constants\\.ts$' },
+    },
+    {
+      name: 'no-deep-into-contract-errors',
+      comment: [
+        'M#7 + M#9 — core/contract/errors.ts barrel-only。',
+        '跨模块 caller (cli/, core/runtime/) 走 contract/index.ts barrel。',
+        'phase 465 立、F4 deep import target (3 caller) 收口。',
+        'allowlist: contract 自家 + src/index.ts SDK。',
+      ].join(' '),
+      severity: 'error',
+      from: {
+        path: '^src',
+        pathNot: [
+          '^src/core/contract/',
+          '^src/index\\.ts$',
+        ],
+      },
+      to: { path: '^src/core/contract/errors\\.ts$' },
+    },
+    {
+      name: 'no-deep-into-command-tool-constants',
+      comment: [
+        'M#7 + M#9 — foundation/command-tool/constants.ts barrel-only。',
+        '跨模块 caller (cli/, core/) 走 command-tool/index.ts barrel。',
+        'phase 466 立、F4 deep import target (3 caller) 收口。',
+        'allowlist: command-tool 自家 + src/index.ts SDK。',
+      ].join(' '),
+      severity: 'error',
+      from: {
+        path: '^src',
+        pathNot: [
+          '^src/foundation/command-tool/',
+          '^src/index\\.ts$',
+        ],
+      },
+      to: { path: '^src/foundation/command-tool/constants\\.ts$' },
+    },
+    {
+      name: 'no-deep-into-llm-provider-token-estimator',
+      comment: [
+        'M#7 + M#9 — foundation/llm-provider/token-estimator.ts barrel-only。',
+        '跨模块 caller (core/step-executor + core/l4_context_manager) 走 llm-provider/index.ts barrel。',
+        'phase 468 立、F4 deep import target (3 caller) 收口。',
+        'allowlist: llm-provider 自家 + src/index.ts SDK。',
+      ].join(' '),
+      severity: 'error',
+      from: {
+        path: '^src',
+        pathNot: [
+          '^src/foundation/llm-provider/',
+          '^src/index\\.ts$',
+        ],
+      },
+      to: { path: '^src/foundation/llm-provider/token-estimator\\.ts$' },
+    },
+    {
+      name: 'no-deep-into-messaging-inbox-writer',
+      comment: [
+        'M#7 + M#9 — foundation/messaging/inbox-writer.ts barrel-only。',
+        '跨模块 caller (core/contract) 走 messaging/index.ts barrel。',
+        'phase 469 立、F4 deep import target (2 caller) 收口。',
+        'allowlist: messaging 自家 + src/index.ts SDK。',
+      ].join(' '),
+      severity: 'error',
+      from: {
+        path: '^src',
+        pathNot: [
+          '^src/foundation/messaging/',
+          '^src/index\\.ts$',
+        ],
+      },
+      to: { path: '^src/foundation/messaging/inbox-writer\\.ts$' },
+    },
+    {
+      name: 'no-deep-into-summon-dispatch-skills-paths',
+      comment: [
+        'M#7 + M#9 — core/summon-system/dispatch-skills-paths.ts barrel-only。',
+        'phase 470 立、F4 deep import target (3 caller incl. assembly) 收口。',
+        'allowlist:',
+        '  - summon-system 自家',
+        '  - src/index.ts SDK',
+        '  - assembly/business-systems.ts: 装配胶水（phase 1416 同型 allowlist）。',
+      ].join(' '),
+      severity: 'error',
+      from: {
+        path: '^src',
+        pathNot: [
+          '^src/core/summon-system/',
+          '^src/index\\.ts$',
+          '^src/assembly/business-systems\\.ts$',
+        ],
+      },
+      to: { path: '^src/core/summon-system/dispatch-skills-paths\\.ts$' },
+    },
+    {
+      name: 'no-deep-into-async-task-system-constants',
+      comment: [
+        'M#7 + M#9 — core/async-task-system/constants.ts barrel-only。',
+        '跨模块 caller (core/runtime + cli/) 走 async-task-system/index.ts。',
+        'phase 471 立、F4 deep import target (2 caller) 收口。',
+        'allowlist: async-task-system 自家 + src/index.ts SDK。',
+      ].join(' '),
+      severity: 'error',
+      from: {
+        path: '^src',
+        pathNot: [
+          '^src/core/async-task-system/',
+          '^src/index\\.ts$',
+        ],
+      },
+      to: { path: '^src/core/async-task-system/constants\\.ts$' },
+    },
+    {
+      name: 'no-deep-into-file-tool-resolve-path',
+      comment: [
+        'M#7 + M#9 — foundation/file-tool/resolve-path.ts barrel-only。',
+        'phase 473 立、F4 deep import target (2 cli caller) 收口。',
+      ].join(' '),
+      severity: 'error',
+      from: {
+        path: '^src',
+        pathNot: [
+          '^src/foundation/file-tool/',
+          '^src/index\\.ts$',
+        ],
+      },
+      to: { path: '^src/foundation/file-tool/resolve-path\\.ts$' },
+    },
+    {
+      name: 'no-deep-into-process-manager-audit-events',
+      comment: [
+        'M#7 + M#9 — foundation/process-manager/audit-events.ts barrel-only。',
+        'phase 474 立、F4 deep import target (2 caller: cli + watchdog) 收口。',
+      ].join(' '),
+      severity: 'error',
+      from: {
+        path: '^src',
+        pathNot: [
+          '^src/foundation/process-manager/',
+          '^src/index\\.ts$',
+        ],
+      },
+      to: { path: '^src/foundation/process-manager/audit-events\\.ts$' },
+    },
+    {
+      name: 'no-deep-into-dialog-store-store',
+      comment: [
+        'M#7 + M#9 — foundation/dialog-store/store.ts barrel-only。',
+        '跨模块 caller (cli/) 走 dialog-store/index.ts barrel（migrateAndValidateSession + validateSessionData 已通过 validate.ts -> index.ts 同名 re-export）。',
+        'phase 475 立、F4 deep import target (2 cli caller) 收口。',
+      ].join(' '),
+      severity: 'error',
+      from: {
+        path: '^src',
+        pathNot: [
+          '^src/foundation/dialog-store/',
+          '^src/index\\.ts$',
+        ],
+      },
+      to: { path: '^src/foundation/dialog-store/store\\.ts$' },
+    },
+    {
+      name: 'no-deep-into-utils-frontmatter-frame',
+      comment: [
+        'M#7 + M#9 — foundation/utils/frontmatter-frame.ts barrel-only。',
+        'phase 476 立、F4 deep import target (1 cross-module caller messaging/codec-inbox) 收口。',
+      ].join(' '),
+      severity: 'error',
+      from: {
+        path: '^src',
+        pathNot: [
+          '^src/foundation/utils/',
+          '^src/index\\.ts$',
+        ],
+      },
+      to: { path: '^src/foundation/utils/frontmatter-frame\\.ts$' },
+    },
+    {
+      name: 'no-deep-into-audit-helpers',
+      comment: [
+        'M#7 + M#9 — foundation/audit/_helpers.ts barrel-only (private helper)。',
+        'clipPreview/clipMessage/clipSummary 走 audit/index.ts barrel。',
+        'phase 478 立、F4 deep import target (1 caller subagent/noop-writers) 收口。',
+      ].join(' '),
+      severity: 'error',
+      from: {
+        path: '^src',
+        pathNot: [
+          '^src/foundation/audit/',
+          '^src/index\\.ts$',
+        ],
+      },
+      to: { path: '^src/foundation/audit/_helpers\\.ts$' },
+    },
+    {
+      name: 'no-deep-into-file-tool-file-state-persist',
+      comment: [
+        'M#7 + M#9 — foundation/file-tool/file-state-persist.ts barrel-only。',
+        'phase 479 立、F4 deep import target (1 caller runtime) 收口。',
+      ].join(' '),
+      severity: 'error',
+      from: {
+        path: '^src',
+        pathNot: [
+          '^src/foundation/file-tool/',
+          '^src/index\\.ts$',
+        ],
+      },
+      to: { path: '^src/foundation/file-tool/file-state-persist\\.ts$' },
+    },
+    {
+      name: 'no-deep-into-async-task-system-audit-events',
+      comment: [
+        'M#7 + M#9 — core/async-task-system/audit-events.ts barrel-only。',
+        'phase 481 立、F4 deep import target (1 caller runtime) 收口。',
+      ].join(' '),
+      severity: 'error',
+      from: {
+        path: '^src',
+        pathNot: [
+          '^src/core/async-task-system/',
+          '^src/index\\.ts$',
+        ],
+      },
+      to: { path: '^src/core/async-task-system/audit-events\\.ts$' },
+    },
+    {
+      name: 'no-deep-into-contract-audit-events',
+      comment: [
+        'M#7 + M#9 — core/contract/audit-events.ts barrel-only。',
+        'phase 482 立、F4 deep import target 收口。',
+        'allowlist: contract 自家 + src/index.ts SDK + assembly/{id-naming-aggregator, file-routing-aggregator}.ts',
+        '(assembly aggregator 装配胶水 by-design 直 import CONTRACT_ID_NAMING / CONTRACT_FILE_ROUTING).',
+      ].join(' '),
+      severity: 'error',
+      from: {
+        path: '^src',
+        pathNot: [
+          '^src/core/contract/',
+          '^src/index\\.ts$',
+          '^src/assembly/id-naming-aggregator\\.ts$',
+          '^src/assembly/file-routing-aggregator\\.ts$',
+        ],
+      },
+      to: { path: '^src/core/contract/audit-events\\.ts$' },
+    },
+    {
+      name: 'no-deep-into-dialog-store-audit-events',
+      comment: [
+        'M#7 + M#9 — foundation/dialog-store/audit-events.ts barrel-only。',
+        'phase 483 立、F4 deep import target 收口。',
+        'allowlist: dialog-store + src/index.ts SDK + assembly/id-naming-aggregator (DIALOG_ID_NAMING).',
+      ].join(' '),
+      severity: 'error',
+      from: {
+        path: '^src',
+        pathNot: [
+          '^src/foundation/dialog-store/',
+          '^src/index\\.ts$',
+          '^src/assembly/id-naming-aggregator\\.ts$',
+        ],
+      },
+      to: { path: '^src/foundation/dialog-store/audit-events\\.ts$' },
+    },
+    {
+      name: 'no-deep-into-contract-verification-types',
+      comment: [
+        'M#7 + M#9 — core/contract/verification-types.ts barrel-only。',
+        'phase 484 立、F4 deep import target (1 caller memory/claw-contract-bridge) 收口。',
+      ].join(' '),
+      severity: 'error',
+      from: {
+        path: '^src',
+        pathNot: [
+          '^src/core/contract/',
+          '^src/index\\.ts$',
+        ],
+      },
+      to: { path: '^src/core/contract/verification-types\\.ts$' },
+    },
+    {
+      name: 'no-deep-into-async-task-system-task-schemas',
+      comment: [
+        'M#7 + M#9 — core/async-task-system/task-schemas.ts barrel-only。',
+        'phase 485 立、F4 deep import target (1 caller shadow-system/types) 收口。',
+      ].join(' '),
+      severity: 'error',
+      from: {
+        path: '^src',
+        pathNot: [
+          '^src/core/async-task-system/',
+          '^src/index\\.ts$',
+        ],
+      },
+      to: { path: '^src/core/async-task-system/task-schemas\\.ts$' },
+    },
+    {
+      name: 'no-deep-into-messaging-notify',
+      comment: [
+        'M#7 + M#9 — foundation/messaging/notify.ts barrel-only。',
+        'phase 486 立、F4 deep import target (1 cli caller) 收口。',
+      ].join(' '),
+      severity: 'error',
+      from: {
+        path: '^src',
+        pathNot: [
+          '^src/foundation/messaging/',
+          '^src/index\\.ts$',
+        ],
+      },
+      to: { path: '^src/foundation/messaging/notify\\.ts$' },
+    },
+    {
+      name: 'no-deep-into-process-manager-manager',
+      comment: [
+        'M#7 + M#9 — foundation/process-manager/manager.ts barrel-only。',
+        'phase 487 立、F4 deep import target (1 cli caller) 收口。',
+      ].join(' '),
+      severity: 'error',
+      from: {
+        path: '^src',
+        pathNot: [
+          '^src/foundation/process-manager/',
+          '^src/index\\.ts$',
+        ],
+      },
+      to: { path: '^src/foundation/process-manager/manager\\.ts$' },
+    },
+    {
+      name: 'no-deep-into-runtime-audit-events',
+      comment: [
+        'M#7 + M#9 — core/runtime/runtime-audit-events.ts barrel-only。',
+        'phase 488 立、F4 deep import target 收口。',
+        'allowlist: runtime/ + src/index.ts + assembly/id-naming-aggregator (RUNTIME_ID_NAMING 由 aggregator 直 import).',
+      ].join(' '),
+      severity: 'error',
+      from: {
+        path: '^src',
+        pathNot: [
+          '^src/core/runtime/',
+          '^src/index\\.ts$',
+          '^src/assembly/id-naming-aggregator\\.ts$',
+        ],
+      },
+      to: { path: '^src/core/runtime/runtime-audit-events\\.ts$' },
+    },
+    {
+      name: 'no-deep-into-identity-claw-id',
+      comment: [
+        'M#7 + M#9 — foundation/identity/claw-id.ts barrel-only。',
+        '跨模块 caller (cli/, core/, assembly/, src/constants.ts) 走 identity/index.ts barrel。',
+        'phase 489 立 + NEW identity/index.ts barrel + 15 caller sweep。',
+        'allowlist: identity 自家 + src/index.ts SDK。',
+      ].join(' '),
+      severity: 'error',
+      from: {
+        path: '^src',
+        pathNot: [
+          '^src/foundation/identity/',
+          '^src/index\\.ts$',
+        ],
+      },
+      to: { path: '^src/foundation/identity/claw-id\\.ts$' },
+    },
+    {
+      name: 'child-process-only-from-foundation-process-exec',
+      comment: [
+        'M#3 资源唯一归属：child_process 直 import 仅 foundation/process-exec/ owner module。',
+        '其他 src 必经 foundation/process-exec API（spawn / exec / spawnSync 等）。',
+        'phase 490 立 lint rule、与 fs-only-via-foundation-filesystem (phase 1298) +',
+        'crypto-only-from-foundation (phase 455) 同型保护 child_process 资源。',
+      ].join(' '),
+      severity: 'error',
+      from: {
+        path: '^src',
+        pathNot: [
+          '^src/foundation/process-exec/',
+        ],
+      },
+      to: {
+        path: '^(node:)?child_process$',
+      },
+    },
+    {
+      name: 'net-only-from-foundation-transport',
+      comment: [
+        'M#3 资源唯一归属：node:net 直 import 仅 foundation/transport/ owner module。',
+        '其他 src 必经 foundation/transport API (unix-socket / 等)。',
+        'phase 491 立、同型 fs/crypto/child_process forbidden rules。',
+      ].join(' '),
+      severity: 'error',
+      from: {
+        path: '^src',
+        pathNot: [
+          '^src/foundation/transport/',
+        ],
+      },
+      to: {
+        path: '^(node:)?net$',
+      },
+    },
+    {
+      name: 'no-unused-node-modules',
+      comment: [
+        'Defensive forbid for Node modules that should not be needed in chestnut:',
+        'http/https (chestnut uses LLM providers via undici, not raw http)',
+        'tls/dns (delegated to undici / LLM provider)',
+        'stream (chestnut composes higher-level abstractions、避免直 stream)',
+        'worker_threads/cluster (单 process daemon 模式、no clustering)',
+        'process (process.env etc. 不该走 import、用 global)',
+        'phase 511 立、防 future drift introducing these unintended deps.',
+      ].join(' '),
+      severity: 'error',
+      from: { path: '^src' },
+      to: { path: '^(node:)?(http|https|tls|dns|stream|worker_threads|cluster|process)$' },
+    },
+    {
       name: 'no-circular',
       comment: [
         'ML#5 模块依赖单向、禁止双向/循环',

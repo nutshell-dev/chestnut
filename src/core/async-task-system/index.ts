@@ -1,3 +1,6 @@
+// phase 471: constants barrel re-export
+export { DEFAULT_MAX_CONCURRENT_TASKS } from './constants.js';
+
 /**
  * @module L4.AsyncTaskSystem
  * Task system exports
@@ -25,6 +28,11 @@ export {
 export { writePendingToolTaskFile } from './tools/_pending-tool-task-writer.js';
 export { classifyTaskError } from './_helpers.js';
 
+// phase 481: TASK_AUDIT_EVENTS barrel re-export
+export { TASK_AUDIT_EVENTS } from './audit-events.js';
+// phase 485: task-schemas type barrel re-export
+export type { SummonDecisionMetadata } from './task-schemas.js';
+
 // phase 1130: typed audit emit functions
 // phase 132 M#8 ratify: wildcard export * by-design、20 个 emit* 中 18 个目前 cross-module 0-caller、保 wildcard M#7 模块对外承诺扩张策略优先 M#8、未来若大量 0-caller cluster 浮出可议改显式 list
 export * from './audit-emit.js';
@@ -37,7 +45,7 @@ import {
   TASKS_QUEUES_RESULTS_DIR,
 } from './dirs.js';
 import { TASKS_SYNC_SEARCH_DIR } from '../../foundation/file-tool/index.js';
-import { TASKS_SYNC_EXEC_DIR } from '../../foundation/command-tool/constants.js';
+import { TASKS_SYNC_EXEC_DIR } from '../../foundation/command-tool/index.js';
 
 /**
  * Delete task files (done/, failed/, results/) older than maxDays.

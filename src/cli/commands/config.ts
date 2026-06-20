@@ -7,7 +7,7 @@ import * as readline from 'readline';
 import { Command } from 'commander';
 import { loadGlobalConfig, saveGlobalConfig } from '../../assembly/config-load.js';
 import type { ClawGlobalConfig } from '../../assembly/compose-config.js';
-import type { LLMProviderConfig } from '../../foundation/llm-orchestrator/llm-provider-config-schema.js';
+import type { LLMProviderConfig } from '../../foundation/llm-orchestrator/index.js';
 import { PRESETS } from '../../foundation/config/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { CliError } from '../errors.js';
@@ -21,7 +21,7 @@ import { notifyClaw } from '../../foundation/messaging/index.js';
 import { CLAWS_DIR, enumerateClaws } from '../../foundation/claw-paths.js';
 import { getChestnutRoot } from '../../foundation/install-paths.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
-import { RELOAD_LLM_CONFIG_MESSAGE_TYPE } from '../../core/runtime/runtime-audit-events.js';
+import { RELOAD_LLM_CONFIG_MESSAGE_TYPE } from '../../core/runtime/index.js';
 import { toProviderConfig } from '../../foundation/llm-orchestrator/config-adapter.js';
 import { checkLLMConnection, checkLLMConnectionFor, promptReconfigure, formatLLMError, LLM_ERROR_HINTS } from '../llm-connection-check.js';
 

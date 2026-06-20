@@ -7,6 +7,8 @@
  */
 
 export { DialogStore } from './store.js';
+// phase 483: audit-events barrel re-export
+export { DIALOG_AUDIT_EVENTS } from './audit-events.js';
 export { MarkerNotFoundError, migrateAndValidateSession, validateSessionData } from './validate.js';
 export type { SessionData } from './types.js';
 // phase 1406: regime switch 业务（dialog 资源重组）从 Runtime 迁入 DialogStore module

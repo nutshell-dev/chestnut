@@ -4,7 +4,7 @@
 export { CliError } from '../foundation/errors.js';
 
 import { CliError as CliErrorImpl } from '../foundation/errors.js';
-import { ContractValidationError } from '../core/contract/errors.js';
+import { ContractValidationError } from '../core/contract/index.js';
 
 /**
  * Handle CLI errors uniformly

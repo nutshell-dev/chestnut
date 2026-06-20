@@ -52,6 +52,13 @@ export type { ToolUseId } from './tool-use-id.js';
 export { makeToolUseId } from './tool-use-id.js';
 
 // ============================================================================
+// phase 457: PermissionChecker barrel re-export (M#7 接口稳定 / barrel-only)
+// 10 cross-module caller 走 barrel、不直 import permission.ts。
+// ============================================================================
+
+export type { PermissionChecker } from './permission.js';
+
+// ============================================================================
 // phase 1406: CallerSnapshot — caller deep context shape (lazy / declared opt-in)
 // ============================================================================
 

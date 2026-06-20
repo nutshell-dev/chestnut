@@ -1,3 +1,6 @@
+// phase 474: audit-events barrel re-export
+export { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
+
 /**
  * @module L2.ProcessManager
  * ProcessManager module (L2)

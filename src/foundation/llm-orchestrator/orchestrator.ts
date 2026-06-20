@@ -31,7 +31,7 @@ import { CircuitBreaker } from './circuit-breaker.js';
 import { createLLMProvider, type LLMProvider } from '../llm-provider/index.js';
 import { makeExternalAbortError, withCombinedAbortSignal, type AbortReason } from '../llm-provider/index.js';
 import { delay, isContentChunk, wrapResponseAsStream, mergeSignals } from './utils.js';
-import { createHash } from 'crypto';  // phase 450 (review): cache key apiKey hash
+import { sha256ShortHex } from '../hash.js';  // phase 450 (review): cache key apiKey hash
 
 /**
  * Maximum exponential backoff delay (ms).
@@ -97,7 +97,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
     // - baseUrl: 同 apiFormat+model 不同 endpoint 不应共享 client
     // - apiKey hash (SHA-256 前 8 位): 防末 8 位明文 collision + 不放完整 key
     const apiKeyHash = config.apiKey
-      ? createHash('sha256').update(config.apiKey).digest('hex').slice(0, 8)
+      ? sha256ShortHex(config.apiKey, 8)
       : 'noapikey';
     const key = [
       config.apiFormat ?? 'unknown',

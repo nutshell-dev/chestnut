@@ -6,7 +6,7 @@
  * (phase 814 Step B — P1.37 const namespace sweep).
  */
 
-import { type ClawId, makeClawId } from './foundation/identity/claw-id.js';
+import { type ClawId, makeClawId } from './foundation/identity/index.js';
 
 export { type ClawId, makeClawId };
 

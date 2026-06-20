@@ -34,7 +34,7 @@ import {
   CONTEXT_TRIM_TARGET_RATIO,
   CONTEXT_TRIM_PREVIEW_BYTES,
 } from '../l4_context_manager/index.js';
-import { estimateTextTokens, estimateMessagesTokens, estimateToolsTokens } from '../../foundation/llm-provider/token-estimator.js';
+import { estimateTextTokens, estimateMessagesTokens, estimateToolsTokens } from '../../foundation/llm-provider/index.js';
 import { resolveContextWindow } from '../../foundation/llm-provider/model-context-windows.js';
 
 

@@ -19,7 +19,7 @@ import type { CallerType } from '../caller-types.js';
 import { createDialogStore } from '../../foundation/dialog-store/index.js';
 import { CLAWSPACE_DIR } from '../../foundation/claw-paths.js';
 import { TASKS_SYNC_DIR } from '../async-task-system/dirs.js';
-import type { PermissionChecker } from '../../foundation/tool-protocol/permission.js';
+import type { PermissionChecker } from '../../foundation/tool-protocol/index.js';
 import { SubAgent } from './agent.js';
 import { DONE_TOOL_NAME, type CapturableTool } from './tools/done.js';
 

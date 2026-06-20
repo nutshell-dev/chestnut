@@ -6,7 +6,7 @@ import * as readline from 'readline';
 import { formatErr } from "../../foundation/utils/index.js";
 import { saveGlobalConfig, isInitialized } from '../../assembly/config-load.js';
 import { getWorkspaceRoot } from '../../foundation/config/index.js';
-import { FORMAT_MAP } from '../../foundation/llm-orchestrator/llm-provider-config-schema.js';
+import { FORMAT_MAP } from '../../foundation/llm-orchestrator/index.js';
 import { passwordQuestion } from '../utils/password-prompt.js';
 import { CliError } from '../errors.js';
 import { PRESETS } from '../../foundation/config/index.js';
@@ -22,7 +22,7 @@ import {
   DEFAULT_DISK_WARNING_MB,
   CLAW_INACTIVITY_TIMEOUT_MS,
 } from '../../watchdog/constants.js';
-import { DEFAULT_MAX_CONCURRENT_TASKS } from '../../core/async-task-system/constants.js';
+import { DEFAULT_MAX_CONCURRENT_TASKS } from '../../core/async-task-system/index.js';
 // phase 1485: chestnut init 生成的 config 不再写 max_steps 字段 — agent-executor 自持默认值、user 需覆盖时再加。
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';

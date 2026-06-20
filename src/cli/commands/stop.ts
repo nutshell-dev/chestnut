@@ -14,7 +14,7 @@ import { stopCommand as motionStop } from './motion.js';
 import { ProcessListUnavailable } from '../../foundation/process-manager/index.js';
 import { kill, isPidArgvMatching } from '../../foundation/process-exec/index.js';
 import { createSystemAudit, type AuditLog } from '../../foundation/audit/index.js';
-import { PROCESS_MANAGER_AUDIT_EVENTS } from '../../foundation/process-manager/audit-events.js';
+import { PROCESS_MANAGER_AUDIT_EVENTS } from '../../foundation/process-manager/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { makeClawId } from '../../constants.js';
 import { CLAWS_DIR } from '../../foundation/claw-paths.js';

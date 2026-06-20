@@ -9,6 +9,13 @@ export { ContractSystem, type ContractSystemDeps } from './manager.js';
 
 // phase 1424: contract auditor exports
 export { ContractAuditor, type ContractAuditorDeps, type AuditorVerdict, type AuditorDrift, type AuditRequest, type AuditOutcome, parseVerdict } from './contract-auditor.js';
+
+// phase 465: errors barrel re-export
+export { ContractValidationError, LockContentionExhaustedError } from './errors.js';
+// phase 482: audit-events barrel re-export (CONTRACT_AUDIT_EVENTS for evolution-system; ID/file routing constants for assembly remain deep-imported per allowlist)
+export { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
+// phase 484: verification-types barrel re-export
+export type { NotifyClawFn } from './verification-types.js';
 export { contractFootprint, type ContractFootprint, type ContractFootprintOptions } from './contract-footprint.js';
 export { buildAuditorPrompt, type AuditorPromptInput } from './auditor-prompt.js';
 

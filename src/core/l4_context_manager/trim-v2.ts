@@ -4,7 +4,7 @@
  */
 
 import type { Message, ContentBlock } from '../../foundation/llm-provider/types.js';
-import { estimateMessagesTokens } from '../../foundation/llm-provider/token-estimator.js';
+import { estimateMessagesTokens } from '../../foundation/llm-provider/index.js';
 import { ContextTrimExhaustedError } from './errors.js';
 import {
   CONTEXT_TRIM_STARTED,

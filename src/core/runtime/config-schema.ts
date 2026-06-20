@@ -5,7 +5,7 @@
  */
 import { z } from 'zod';
 import { DEFAULT_LLM_IDLE_TIMEOUT_MS } from '../../foundation/llm-orchestrator/index.js';
-import { DEFAULT_MAX_CONCURRENT_TASKS } from '../async-task-system/constants.js';
+import { DEFAULT_MAX_CONCURRENT_TASKS } from '../async-task-system/index.js';
 
 export const runtimeMotionConfigSchema = z.object({
   heartbeat_interval_ms: z.number().min(0).default(0),

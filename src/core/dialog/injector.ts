@@ -16,7 +16,7 @@ import type { SkillSystem } from '../../foundation/skill-system/index.js';
 import type { ContractSystem } from '../contract/index.js';
 import { FileNotFoundError } from '../../foundation/fs/types.js';
 import { CLAW_MEMORY_FILE, CLAW_SPEC_FILE } from '../../foundation/claw-paths.js';
-import { DIALOG_AUDIT_EVENTS } from '../../foundation/dialog-store/audit-events.js';
+import { DIALOG_AUDIT_EVENTS } from '../../foundation/dialog-store/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 
 /**

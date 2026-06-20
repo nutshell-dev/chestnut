@@ -13,7 +13,7 @@ import { formatErr } from "../../foundation/utils/index.js";
 import { MOTION_CLAW_ID } from '../../constants.js';
 import type { AsyncTaskSystem } from '../async-task-system/index.js';
 import { createSkillSystem as defaultCreateSkillSystem } from '../../foundation/skill-system/index.js';
-import { DISPATCH_SKILLS_PATH as DISPATCH_SKILLS_DIR } from '../summon-system/dispatch-skills-paths.js';
+import { DISPATCH_SKILLS_PATH as DISPATCH_SKILLS_DIR } from '../summon-system/index.js';
 // phase 1490: 不再传 maxSteps、task.maxSteps optional / undefined 透传到 SubAgent boundary fallback。
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { AuditLog } from '../../foundation/audit/index.js';

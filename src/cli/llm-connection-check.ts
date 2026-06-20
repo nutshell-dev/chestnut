@@ -10,7 +10,7 @@ import { formatErr } from "../foundation/utils/index.js";
 
 import { loadGlobalConfig, patchGlobalConfigPrimary } from '../assembly/config-load.js';
 import { PRESETS } from '../foundation/config/index.js';
-import { FORMAT_MAP } from '../foundation/llm-orchestrator/llm-provider-config-schema.js';
+import { FORMAT_MAP } from '../foundation/llm-orchestrator/index.js';
 import { buildLLMConfig } from '../assembly/config-load.js';
 import { createLLMOrchestrator } from '../foundation/llm-orchestrator/index.js';
 import { passwordQuestion } from './utils/password-prompt.js';
