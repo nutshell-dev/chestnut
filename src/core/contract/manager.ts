@@ -1046,6 +1046,15 @@ export class ContractSystem {
    * phase 1335 (r138 F fork): async close / await verifier termination promises
    */
   async close(): Promise<void> {
+    // phase 517 B3: auditor 先 close（防 dispose 期间 fire-and-forget maybeAudit 又产生新 LLM call）
+    if (this.auditor) {
+      try {
+        await this.auditor.close();
+      } catch {
+        // silent: auditor close 失败不阻其他 dispose / best-effort cleanup
+      }
+    }
+
     const terminationPromises: Promise<unknown>[] = [];
     for (const [, entries] of this._activeContractControllers) {
       for (const { controller, promise } of entries) {

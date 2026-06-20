@@ -55,9 +55,11 @@ export function createClawContractBridge(deps: ClawContractBridgeDeps): ClawCont
     },
 
     async dispose() {
-      for (const cs of cache.values()) {
-        await cs.close();
-      }
+      // phase 517 B8: allSettled 兜底、单个 ContractSystem.close 失败不阻其他
+      // 模式与 manager.ts:1060 一致（_activeContractControllers termination）
+      await Promise.allSettled(
+        Array.from(cache.values()).map(cs => cs.close()),
+      );
       cache.clear();
     },
   };

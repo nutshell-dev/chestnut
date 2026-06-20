@@ -7,6 +7,7 @@
 
 import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/types.js';
+import { isFileNotFound } from '../../foundation/fs/types.js';
 import * as yaml from 'js-yaml';
 import { loadGlobalConfig, clawExists } from '../../assembly/config-load.js';
 import { getClawDir, getClawConfigPath } from '../../foundation/config/index.js';
@@ -193,7 +194,8 @@ async function readStreamEvents(fileSystem: FileSystem, startedAt: string): Prom
       files.push({ relPath: entry.name, mtime: stat.mtime.getTime() });
     }
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') {
+    // phase 517: isFileNotFound 兼容 FileSystem 包装层（FS_NOT_FOUND）+ 原生 fs（ENOENT）
+    if (!isFileNotFound(e)) {
       process.stderr.write(`[trace] readdir stream dir failed: ${(e as Error).message}\n`);
     }
     return [];

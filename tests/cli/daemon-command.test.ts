@@ -479,7 +479,9 @@ describe('daemonCommand - A4d crash handler', () => {
     const testErr = new Error('test uncaught');
     testErr.stack = 'mock-stack';
 
-    expect(() => handler!(testErr)).toThrow('process.exit(1)');
+    // phase 517 B2: handler 现在异步走 gracefulShutdown → .finally(process.exit)
+    // process.exit mocked-throws、最终 rejected promise
+    await expect(handler!(testErr)).rejects.toThrow('process.exit(1)');
 
     expect(mockState.mockAuditWrite).toHaveBeenCalledWith(
       'daemon_crash',
@@ -494,7 +496,8 @@ describe('daemonCommand - A4d crash handler', () => {
     const cmdPromise = daemonCommand('test-claw');
     const handler = await waitForProcessOn('unhandledRejection');
 
-    expect(() => handler!('reject reason string')).toThrow('process.exit(1)');
+    // phase 517 B2: 同 #10 — 异步 graceful shutdown 后 process.exit
+    await expect(handler!('reject reason string')).rejects.toThrow('process.exit(1)');
 
     expect(mockState.mockAuditWrite).toHaveBeenCalledWith(
       'daemon_crash',

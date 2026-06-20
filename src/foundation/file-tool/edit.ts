@@ -118,6 +118,9 @@ export const editTool: Tool = {
       };
     }
 
+    // phase 517 B4: 记 read 时 mtime、write 前再验、外部改动则拒绝（防 silent 覆盖外部 edit）
+    const statBeforeRead = await ctx.fs.stat(resolved);
+    const mtimeAtRead = statBeforeRead.mtime.getTime();
     const content = await ctx.fs.read(resolved);
 
     // Match checking
@@ -153,6 +156,16 @@ export const editTool: Tool = {
           content: gate.result.content + ` This is required because replaceAll=true rewrites every match, including contexts you may not have seen. Alternatively, set replaceAll=false with a uniquely-matching oldText to scope the change.`,
         };
       }
+    }
+
+    // phase 517 B4: write 前再 stat 验 mtime、外部进程在 T1-T2 间写文件则拒绝、agent 重读后重试
+    // 接受 mtime 精度漏（同毫秒内连续 read+write 可能漏检、攻击/race 窗口太短不实用）
+    const statBeforeWrite = await ctx.fs.stat(resolved);
+    if (statBeforeWrite.mtime.getTime() !== mtimeAtRead) {
+      return {
+        success: false,
+        content: `Error: File '${filePath}' was modified externally between read and write (mtime changed). Re-read the file with \`read\` and retry the edit with current content.`,
+      };
     }
 
     // Backup

@@ -92,6 +92,11 @@ export class ContractAuditor {
   private readonly lastDeliveredBySender = new Map<string, number>();
   /** 最少投递间隔（ms）：30s（短期反馈合并） */
   private readonly minDeliveryIntervalMs = 30_000;
+  /** phase 517 B3: AbortController 中断 in-flight LLM call（SIGTERM / dispose 路径）*/
+  private abortController = new AbortController();
+  /** phase 517 B3: closed 后拒绝新 maybeAudit、保 inflight 计数 + 等待 settle */
+  private closed = false;
+  private inflightPromises = new Set<Promise<unknown>>();
 
   constructor(deps: ContractAuditorDeps) {
     this.deps = deps;
@@ -102,6 +107,10 @@ export class ContractAuditor {
    * 若 currentStep - lastAuditedStep >= auditInterval 则跑 audit
    */
   async maybeAudit(req: AuditRequest): Promise<AuditOutcome> {
+    // phase 517 B3: closed 后拒绝新 audit（防 dispose 期间又触发新 LLM call）
+    if (this.closed) {
+      return { audited: false, reason: 'auditor_closed' };
+    }
     if (req.auditInterval <= 0) {
       return { audited: false, reason: 'audit_interval_disabled' };
     }
@@ -111,6 +120,18 @@ export class ContractAuditor {
     if (!req.expectations) {
       return { audited: false, reason: 'no_expectations' };
     }
+
+    // phase 517 B3: 追 inflight、close 时 await 所有 settle
+    const work = this._doAudit(req);
+    this.inflightPromises.add(work);
+    try {
+      return await work;
+    } finally {
+      this.inflightPromises.delete(work);
+    }
+  }
+
+  private async _doAudit(req: AuditRequest): Promise<AuditOutcome> {
 
     this.deps.audit.write(
       CONTRACT_AUDIT_EVENTS.CONTRACT_AUDIT_TRIGGERED,
@@ -131,7 +152,7 @@ export class ContractAuditor {
     const prompt = buildAuditorPrompt({
       contractId: req.contractId,
       contractTitle: req.contractTitle,
-      expectations: req.expectations,
+      expectations: req.expectations!,  // maybeAudit 已 guard !expectations、_doAudit 进入时必非 undefined
       progress: req.progress,
       footprint: fp,
       recentMessages: req.recentMessages,
@@ -171,6 +192,7 @@ export class ContractAuditor {
       system: AUDITOR_SYSTEM_PROMPT,
       maxTokens: this.deps.maxOutputTokens ?? DEFAULT_AUDITOR_MAX_OUTPUT_TOKENS,
       temperature: 0.2,
+      signal: this.abortController.signal,  // phase 517 B3: dispose 时 abort in-flight LLM
     });
     const text = extractText(response.content);
     const verdict = parseVerdict(text);
@@ -233,6 +255,21 @@ ${driftLines || '（auditor 标 drift 但未给具体条目）'}
         // silent: dedup best-effort / 删失败时 agent 见 stale+new 两条不致灾、不重要到 audit
       }
     }
+  }
+
+  /**
+   * phase 517 B3: graceful dispose for shutdown path.
+   * 1. 标 closed、后续 maybeAudit 直接拒绝（reason='auditor_closed'）
+   * 2. abort in-flight LLM call（callAuditorLLM 用 signal、provider 收到 abort 抛 AbortError）
+   * 3. await 所有 inflight settle（异常路径也 settle、用 allSettled 兜底）
+   *
+   * 调用方：ContractManager.close 内 await（manager.ts:1048-1065）。
+   */
+  async close(): Promise<void> {
+    if (this.closed) return;
+    this.closed = true;
+    this.abortController.abort();
+    await Promise.allSettled(Array.from(this.inflightPromises));
   }
 }
 

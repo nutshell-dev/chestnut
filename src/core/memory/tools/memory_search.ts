@@ -6,6 +6,7 @@ import type { Tool, ExecContext, ExecutionInfra } from '../../../foundation/tool
 import { formatErr, parseFrontmatterFrame } from "../../../foundation/utils/index.js";
 import type { ToolResult } from '../../../foundation/tool-protocol/index.js';
 import type { FileEntry } from '../../../foundation/fs/types.js';
+import { isFileNotFound } from '../../../foundation/fs/types.js';
 import { MEMORY_DIR } from '../memory-paths.js';
 export const MEMORY_SEARCH_TOOL_NAME = 'memory_search' as const;
 
@@ -87,10 +88,17 @@ export const memorySearchTool: Tool = {
     let entries: FileEntry[];
     try {
       entries = await infra.fs.list(`${MEMORY_DIR}/`, { recursive: true, includeDirs: false });
-    } catch {
+    } catch (err) {
+      // phase 517 B6: 区分 ENOENT（真空目录）vs 其他 IO/权限错（应暴露给 agent）
+      if (isFileNotFound(err)) {
+        return {
+          success: true,
+          content: `${MEMORY_DIR}/ 目录为空，暂无记忆可检索`,
+        };
+      }
       return {
-        success: true,
-        content: `${MEMORY_DIR}/ 目录为空，暂无记忆可检索`,
+        success: false,
+        content: `${MEMORY_DIR}/ 检索失败: ${formatErr(err)}`,
       };
     }
 

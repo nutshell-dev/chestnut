@@ -1,4 +1,4 @@
-import type { Tool } from '../../../foundation/tools/index.js';
+import type { Tool, ExecContext } from '../../../foundation/tools/index.js';
 import type { ToolResult } from '../../../foundation/tool-protocol/index.js';
 import type { LLMOrchestrator } from '../../../foundation/llm-orchestrator/index.js';
 import type { Message } from '../../../foundation/llm-provider/types.js';
@@ -41,7 +41,7 @@ export class AskMotionTool implements Tool {
     private readonly motionDialogStore: DialogStore,
   ) {}
 
-  async execute(args: Record<string, unknown>): Promise<ToolResult> {
+  async execute(args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
     const question = args.question as string;
     const isFirstCall = this.cloneHistory.length === 0;
     const userContent = isFirstCall
@@ -57,10 +57,12 @@ export class AskMotionTool implements Tool {
       const { session } = await this.motionDialogStore.loadStableTurnBoundary();
 
       // Backward compat: still pass full messages until runAgent supports handoff marker resolution
+      // phase 517 B5: 透传 ctx.signal 给 LLM call、parent cancel/SIGTERM 时 ask-motion 内 LLM 调用也能中断
       const response = await this.llm.call({
         system: session.systemPrompt,                          // 全然一致性 / Motion 用啥 / 这里用啥
         messages: [...session.messages, ...this.cloneHistory],
         tools: session.toolsForLLM,                            // 全然一致性
+        signal: ctx.signal,                                    // phase 517 B5
       });
 
       const textBlocks = response.content.filter(b => b.type === 'text');

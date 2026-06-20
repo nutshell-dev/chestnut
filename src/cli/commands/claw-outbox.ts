@@ -10,6 +10,7 @@ import { getClawDir } from '../../foundation/config/index.js';
 import { CliError } from '../errors.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
+import { isFileNotFound } from '../../foundation/fs/types.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { MESSAGING_AUDIT_EVENTS, OUTBOX_PENDING_DIR, OUTBOX_PROCESSING_DIR, OUTBOX_DONE_DIR } from '../../foundation/messaging/index.js';
 
@@ -39,7 +40,8 @@ export async function outboxCommand(
     const allFiles = (await clawFs.list(OUTBOX_PENDING_DIR)).map(e => e.name);
     files = allFiles.filter(f => f.endsWith('.md')).sort();
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') {
+    // phase 517: isFileNotFound 兼容 FileSystem 包装层（FS_NOT_FOUND）+ 原生 fs（ENOENT）
+    if (!isFileNotFound(e)) {
       process.stderr.write(`[claw-outbox] readdir failed: ${(e as Error).message}\n`);
     }
     console.log('outbox is empty');
@@ -72,8 +74,8 @@ export async function outboxCommand(
       // ATOMIC CLAIM: winner-takes-all via OS rename
       await clawFs.move(relPendingPath, relClaimedPath);
     } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code;
-      if (code === 'ENOENT') {
+      // phase 517: race-lost = 文件已被 winner 抢走（move 抛 FileNotFoundError / FS_NOT_FOUND 或原生 ENOENT）
+      if (isFileNotFound(err)) {
         audit?.write(CLI_AUDIT_EVENTS.CLAW_OUTBOX_DRAIN_RACE_LOST,
           `claw=${name}`, `file=${fileName}`);
         continue;

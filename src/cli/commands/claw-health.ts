@@ -11,6 +11,7 @@ import { createDirContext } from '../../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { makeClawId } from '../../constants.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
+import { isFileNotFound } from '../../foundation/fs/types.js';
 import { CONTRACT_DIR } from '../../core/contract/index.js';
 import { INBOX_PENDING_DIR, OUTBOX_PENDING_DIR } from '../../foundation/messaging/index.js';
 import { formatRelativeTime, getLastActiveMs } from './claw-shared.js';
@@ -43,15 +44,15 @@ export async function healthCommand(deps: { fsFactory: (baseDir: string) => File
     const entries = clawFs.listSync(INBOX_PENDING_DIR).map(e => e.name);
     inboxPending = entries.length;
   } catch (err) {
-    // phase 906 r115 O fork (audit-2026-05-16 F14): narrow to ENOENT (dir does not exist 注释意图)
-    if ((err as { code?: string })?.code !== 'ENOENT') throw err;
+    // phase 517: 用 isFileNotFound 兼容 FileSystem 包装层（FS_NOT_FOUND）+ 原生 fs（ENOENT）
+    // phase 906 narrow 单码漏判 FS_NOT_FOUND → stopped claw 无 inbox dir 时崩
+    if (!isFileNotFound(err)) throw err;
   }
   try {
     const entries = clawFs.listSync(OUTBOX_PENDING_DIR).map(e => e.name);
     outboxPending = entries.length;
   } catch (err) {
-    // phase 906 r115 O fork (audit-2026-05-16 F14): narrow to ENOENT (dir does not exist 注释意图)
-    if ((err as { code?: string })?.code !== 'ENOENT') throw err;
+    if (!isFileNotFound(err)) throw err;
   }
 
   // Check contract status
@@ -64,8 +65,7 @@ export async function healthCommand(deps: { fsFactory: (baseDir: string) => File
         break;
       }
     } catch (err) {
-      // phase 906 r115 O fork (audit-2026-05-16 F14): narrow to ENOENT (skip 注释意图)
-      if ((err as { code?: string })?.code !== 'ENOENT') throw err;
+      if (!isFileNotFound(err)) throw err;
     }
   }
 

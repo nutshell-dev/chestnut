@@ -919,10 +919,16 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
   }
 
   /**
-   * Close/cleanup - no-op for fetch-based implementation
+   * Close/cleanup - clear SDK client cache.
+   * phase 517 B7: 实现 API 契约「close() 释放资源」。Anthropic SDK 等用 fetch keepalive
+   * agent、不显式清理依赖 GC 回收时机不可控。close 后再 call 会 lazy 重建 cache。
    */
   async close(): Promise<void> {
-    // No persistent connections to close
+    for (const [, provider] of this.sdkClientCache) {
+      // LLMProvider 接口未要求 close()、optional chain 兼容未实现的 provider
+      await (provider as { close?: () => Promise<void> | void }).close?.();
+    }
+    this.sdkClientCache.clear();
   }
 
   /**

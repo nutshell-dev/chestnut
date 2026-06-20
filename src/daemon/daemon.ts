@@ -30,8 +30,9 @@ import { CLAW_SPEC_FILE } from '../foundation/claw-paths.js';
 import type { AssembleConfig } from '../assembly/types.js';
 
 // phase 175: idempotent signal handler refs（mirror watchdog.ts:60-61 pattern、防 test re-entry 累 listener）
-let uncaughtHandler: ((err: Error) => void) | null = null;
-let unhandledRejectionHandler: ((reason: unknown) => void) | null = null;
+// phase 517 B2: handler 返 Promise（Node 忽略、但测试可 await 验 dispose + exit 时序）
+let uncaughtHandler: ((err: Error) => void | Promise<void>) | null = null;
+let unhandledRejectionHandler: ((reason: unknown) => void | Promise<void>) | null = null;
 let sigtermHandler: (() => void) | null = null;
 let sigintHandler: (() => void) | null = null;
 
@@ -171,22 +172,6 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
       auditWriter.write(deps.auditEvents.daemonCrash, `error=${msg}`);
     };
 
-    // phase 175: idempotent install
-    if (uncaughtHandler) process.removeListener('uncaughtException', uncaughtHandler);
-    if (unhandledRejectionHandler) process.removeListener('unhandledRejection', unhandledRejectionHandler);
-    uncaughtHandler = (err) => {
-      writeCrash(err);
-      auditWriter.dispose?.();  // phase 477 (review N3-L): flush batched audit 前 exit
-      process.exit(1);
-    };
-    unhandledRejectionHandler = (reason) => {
-      writeCrash(reason);
-      auditWriter.dispose?.();  // phase 477 (review N3-L)
-      process.exit(1);
-    };
-    process.on('uncaughtException', uncaughtHandler);
-    process.on('unhandledRejection', unhandledRejectionHandler);
-
     const { promise, stop } = startDaemonLoop({
       fsFactory: deps.fsFactory,
       runtime,
@@ -201,17 +186,55 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
       streamWriter,
     });
 
-    // shutdown
-    const shutdown = async (signal: string) => {
+    /**
+     * phase 517 B2: shared graceful shutdown between SIGTERM/SIGINT and uncaught/unhandledRejection.
+     * normal: 30s timeout / crash: 5s timeout (avoid hang on dispose 内死锁).
+     * 原 uncaught/unhandledRejection 仅 flush audit、不调 disassemble → runtime/task/cron/contract
+     * 资源强杀（verifier LLM stream 泄漏、cron handler 强杀、pid 残留等）。
+     */
+    const gracefulShutdown = async (reason: string, timeoutMs: number): Promise<void> => {
       stop();
-      await deps.disassemble(instances, signal);
+      const dispose = (async () => {
+        await deps.disassemble(instances, reason);
+        try {
+          await processManager.selfRemovePid(makeClawId(clawId));
+        } catch (e) {
+          instances.auditWriter.write(DAEMON_AUDIT_EVENTS.CLEANUP_PID_FAILED, `reason=${(e as Error).message}`);
+        }
+      })().catch((e) => {
+        instances.auditWriter.write(DAEMON_AUDIT_EVENTS.CLEANUP_PID_FAILED, `dispose_failed=${formatErr(e)}`);
+      });
+      await Promise.race([
+        dispose,
+        new Promise<void>(resolve => setTimeout(resolve, timeoutMs)),
+      ]);
+    };
 
-      // pid 文件清理（业务）
-      try {
-        await processManager.selfRemovePid(makeClawId(clawId));
-      } catch (e) {
-        instances.auditWriter.write(DAEMON_AUDIT_EVENTS.CLEANUP_PID_FAILED, `reason=${(e as Error).message}`);
-      }
+    // phase 175: idempotent install
+    if (uncaughtHandler) process.removeListener('uncaughtException', uncaughtHandler);
+    if (unhandledRejectionHandler) process.removeListener('unhandledRejection', unhandledRejectionHandler);
+    uncaughtHandler = (err) => {
+      writeCrash(err);
+      // phase 517 B2: crash 路径也走 graceful shutdown（5s timeout 兜底防 dispose 死锁）
+      // return Promise → Node 实际忽略、但测试可 await 验 exit + audit；类型由 listener void-return 兼容
+      return gracefulShutdown('uncaughtException', 5_000).finally(() => {
+        auditWriter.dispose?.();  // phase 477: flush batched audit 前 exit
+        process.exit(1);
+      });
+    };
+    unhandledRejectionHandler = (reason) => {
+      writeCrash(reason);
+      return gracefulShutdown('unhandledRejection', 5_000).finally(() => {
+        auditWriter.dispose?.();
+        process.exit(1);
+      });
+    };
+    process.on('uncaughtException', uncaughtHandler);
+    process.on('unhandledRejection', unhandledRejectionHandler);
+
+    // shutdown (SIGTERM/SIGINT)
+    const shutdown = async (signal: string): Promise<void> => {
+      await gracefulShutdown(signal, 30_000);
       process.exit(0);
     };
     // phase 175: idempotent install

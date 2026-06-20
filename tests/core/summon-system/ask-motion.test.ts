@@ -82,8 +82,10 @@ describe('AskMotionTool', () => {
     await mockDialogStore.save({ systemPrompt: 'system prompt', messages: [], toolsForLLM: [] });
     const tool = new AskMotionTool(llm, mockDialogStore);
 
-    await tool.execute({ question: 'q1' });
-    await tool.execute({ question: 'q2' });
+    // phase 517 B5: ctx required (was ignored before; tests must pass minimal stub)
+    const ctxStub = {} as unknown as import('../../../src/foundation/tools/index.js').ExecContext;
+    await tool.execute({ question: 'q1' }, ctxStub);
+    await tool.execute({ question: 'q2' }, ctxStub);
 
     const history = (tool as unknown as { cloneHistory: Message[] }).cloneHistory;
     const roles = history.map(m => m.role);
