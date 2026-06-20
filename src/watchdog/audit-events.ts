@@ -44,6 +44,9 @@ export const WATCHDOG_AUDIT_EVENTS = {
   // phase 346 B3 (review-2026-06-13): PID-reuse 探测 / argv 不匹配 skip kill
   ORPHAN_SWEEP_PID_REUSE_SKIPPED: 'watchdog_orphan_sweep_pid_reuse_skipped',
   PID_REUSE_DETECTED: 'watchdog_pid_reuse_detected',
+  // phase 472 (review N3-L): stopCommand SIGTERM/SIGKILL syscall 失败可观察化
+  STOP_SIGTERM_FAILED: 'watchdog_stop_sigterm_failed',
+  STOP_SIGKILL_FAILED: 'watchdog_stop_sigkill_failed',
 } as const;
 
 
@@ -71,6 +74,8 @@ export const WATCHDOG_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   watchdog_orphan_sweep_killed: 'audit',
   watchdog_orphan_sweep_failed: 'audit',
   watchdog_stop: 'audit',
+  watchdog_stop_sigterm_failed: 'audit',
+  watchdog_stop_sigkill_failed: 'audit',
   claw_has_contract_check_failed: 'audit',
   watchdog_stream_read_failed: 'audit',
   watchdog_subscription_fired: 'audit',

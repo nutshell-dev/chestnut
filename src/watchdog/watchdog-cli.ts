@@ -15,6 +15,9 @@ import {
   getWatchdogPid, isWatchdogAlive, removeWatchdogPid, WatchdogPidForeignWorkspaceError,
 } from './watchdog-pid.js';
 import { CliError } from '../foundation/errors.js';
+import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
+import { getAuditWriter } from './watchdog-context.js';
+import { formatErr } from '../foundation/utils/index.js';
 
 // Watchdog lifecycle poll：通用 100ms 间隔
 const WATCHDOG_POLL_INTERVAL_MS = 100;
@@ -113,6 +116,8 @@ export async function stopCommand(
     (deps?.kill ?? defaultKill)(pid, 'TERM');
   } catch (err) {
     console.log('Failed to send SIGTERM:', err);
+    // phase 472 (review N3-L): observability — SIGTERM 失败 emit audit
+    getAuditWriter()?.write(WATCHDOG_AUDIT_EVENTS.STOP_SIGTERM_FAILED, `pid=${pid}`, `error=${formatErr(err)}`);
   }
   
   // Wait up to 5s
@@ -128,6 +133,8 @@ export async function stopCommand(
       (deps?.kill ?? defaultKill)(pid, 'KILL');
     } catch (err) {
       console.log('Failed to send SIGKILL:', err);
+      // phase 472 (review N3-L): observability — SIGKILL 失败 emit audit
+      getAuditWriter()?.write(WATCHDOG_AUDIT_EVENTS.STOP_SIGKILL_FAILED, `pid=${pid}`, `error=${formatErr(err)}`);
     }
     await setTimeout(WATCHDOG_SIGKILL_GRACE_MS);
   }

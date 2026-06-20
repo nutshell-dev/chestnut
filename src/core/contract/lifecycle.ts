@@ -117,7 +117,14 @@ export async function resumeContract(
 
     await ctx.fs.move(`${ctx.pausedDir}/${contractId}`, `${ctx.activeDir}/${contractId}`);
   } catch (err) {
-    try { await releaseSource(); } catch { /* audit emit + 不阻断 throw chain */ }
+    try { await releaseSource(); } catch (releaseErr) {
+      // phase 472 (review N3-L): 原注释承诺 "audit emit"、本 commit 落地
+      ctx.audit.write(
+        CONTRACT_AUDIT_EVENTS.RELEASE_SOURCE_FAILED,
+        `contract_id=${contractId}`,
+        `error=${formatErr(releaseErr)}`,
+      );
+    }
     throw err;
   } finally {
     await releaseLock(ctx, targetLockPath);
@@ -181,7 +188,14 @@ export async function cancelContract(
       `reason=${reason}`,
       `error=${formatErr(err)}`,
     );
-    try { await releaseSource(); } catch { /* audit emit + 不阻断 throw chain */ }
+    try { await releaseSource(); } catch (releaseErr) {
+      // phase 472 (review N3-L): 原注释承诺 "audit emit"、本 commit 落地
+      ctx.audit.write(
+        CONTRACT_AUDIT_EVENTS.RELEASE_SOURCE_FAILED,
+        `contract_id=${contractId}`,
+        `error=${formatErr(releaseErr)}`,
+      );
+    }
     throw err;
   } finally {
     await releaseLock(ctx, targetLockPath);
@@ -275,7 +289,14 @@ export async function markCrashed(
       `cause=${cause}`,
       `error=${formatErr(err)}`,
     );
-    try { await releaseSource(); } catch { /* 不阻断 throw chain */ }
+    try { await releaseSource(); } catch (releaseErr) {
+      // phase 472 (review N3-L): observability — releaseSource 失败 audit emit
+      ctx.audit.write(
+        CONTRACT_AUDIT_EVENTS.RELEASE_SOURCE_FAILED,
+        `contract_id=${contractId}`,
+        `error=${formatErr(releaseErr)}`,
+      );
+    }
     throw err;
   } finally {
     await releaseLock(ctx, targetLockPath);
@@ -335,7 +356,14 @@ export async function moveContractToArchive(
   try {
     await ctx.fs.move(`${dir}/${contractId}`, dst);
   } catch (err) {
-    try { await releaseSource(); } catch { /* audit emit + 不阻断 throw chain */ }
+    try { await releaseSource(); } catch (releaseErr) {
+      // phase 472 (review N3-L): 原注释承诺 "audit emit"、本 commit 落地
+      ctx.audit.write(
+        CONTRACT_AUDIT_EVENTS.RELEASE_SOURCE_FAILED,
+        `contract_id=${contractId}`,
+        `error=${formatErr(releaseErr)}`,
+      );
+    }
     throw err;
   } finally {
     // release at TARGET (lock file moved with dir)

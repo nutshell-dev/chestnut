@@ -52,6 +52,8 @@ export const CONTRACT_AUDIT_EVENTS = {
   // markCrashed 半态留痕 — saveProgress 已写 'crashed' 但 fs.move 失败、source 含
   // crashed progress、target dir 缺/半成。与 CANCEL_PARTIAL_FAILED 对称。
   CRASH_PARTIAL_FAILED: 'contract_crash_partial_failed',
+  // phase 472 (review N3-L): releaseSource catch 显式 audit、原"audit emit"注释承诺落地
+  RELEASE_SOURCE_FAILED: 'contract_release_source_failed',
   COMPLETED: 'contract_completed',
   PAUSED: 'contract_paused',
   RESUMED: 'contract_resumed',
