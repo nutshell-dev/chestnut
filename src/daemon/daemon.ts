@@ -100,9 +100,11 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
       const reason = formatErr(e);
       if (e instanceof LockConflictError) {
         preAssembleAudit.write(deps.auditEvents.assembleFailed, 'module=lockfile', 'phase=preconstruct', `reason=${reason}`);
+        preAssembleAudit.dispose?.();  // phase 467 (review N3-L): flush batched audit 前 exit、防丢 telemetry
         process.exit(1);
       }
       preAssembleAudit.write(deps.auditEvents.assembleFailed, 'module=pre_assemble', 'phase=preconstruct', `reason=${reason}`);
+      preAssembleAudit.dispose?.();  // phase 467 (review N3-L)
       process.exit(1);
     }
 
@@ -117,6 +119,7 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
       // 兜底：Runtime 侧若已精确 audit（如 inboxReader.init / sessionManager.save）此行幂等重复；
       // Runtime 侧漏网的失败由此行唯一覆盖，postmortem 信号"需补精确 audit"
       auditWriter.write(deps.auditEvents.assembleFailed, `module=runtime`, `phase=post_assemble_init`, `reason=${formatErr(e)}`);
+      auditWriter.dispose?.();  // phase 467 (review N3-L): flush 前 exit
       process.exit(1);
     }
 
