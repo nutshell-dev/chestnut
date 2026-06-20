@@ -71,8 +71,10 @@ export function formatLLMError(
   if (probe.provider) {
     lines.push(`    Provider: ${probe.provider}`);
   }
-  const trimmed = probe.message.length > LLM_ERROR_PREVIEW_CHARS
-    ? probe.message.slice(0, LLM_ERROR_PREVIEW_CHARS) + '...'
+  // phase 464 (review N3-L): 按 codepoint 截断，避免 UTF-16 surrogate pair 被切断
+  const codepoints = [...probe.message];
+  const trimmed = codepoints.length > LLM_ERROR_PREVIEW_CHARS
+    ? codepoints.slice(0, LLM_ERROR_PREVIEW_CHARS).join('') + '...'
     : probe.message;
   lines.push(`    ${trimmed}`);
   if (probe.hint) {

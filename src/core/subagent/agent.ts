@@ -80,6 +80,7 @@ export class SubAgent {
   private systemPrompt?: string;
   private callerType?: CallerType;
   private messages?: Message[];
+  private _running = false;  // phase 464 (review N3-L): re-entry guard
   private originClawId?: string;
   isShadow?: boolean;
   private taskStreamWriter: StreamLog;
@@ -121,6 +122,12 @@ export class SubAgent {
    * Run the subagent and return final text result
    */
   async run(): Promise<string> {
+    // phase 464 (review N3-L): re-entry guard — this.messages 在 run() 内
+    // 通过 push 累计 mutate、第二次 run() 会复用累积状态导致历史错乱。
+    if (this._running) {
+      throw new Error(`SubAgent.run() re-entered for agentId=${this.agentId} while already running`);
+    }
+    this._running = true;
     const startTime = Date.now();
 
     const timeout = createTimeoutController({
@@ -370,6 +377,8 @@ export class SubAgent {
         { fs: this.fs, messageStore: this.messageStore },
         this.auditWriter,
       ).catch(() => { /* silent: self-defensive、不阻 finally */ });
+      // phase 464 (review N3-L): re-entry guard 释放、允许独立的下一次 run
+      this._running = false;
     }
   }
 
