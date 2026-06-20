@@ -18,6 +18,7 @@ import { MOTION_CLAW_ID } from '../../constants.js';
 import type { RuntimeOptions } from './types.js';
 import type { ContextInjector } from '../dialog/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
+import { isFileNotFound } from '../../foundation/fs/types.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { RUNTIME_AUDIT_EVENTS } from './runtime-audit-events.js';
 import { CLAW_IDENTITY_FILE, CLAW_SOUL_FILE, CLAW_USER_FILE, CLAW_AUTH_POLICY_FILE } from '../../foundation/claw-paths.js';
@@ -35,8 +36,7 @@ async function tryReadOptionalSection(
     const content = (await systemFs.read(filePath)).trim();
     return content || undefined;
   } catch (err) {
-    const errCode = (err as { code?: string }).code;
-    if (errCode === 'ENOENT' || errCode === 'FS_NOT_FOUND') return undefined; // silent skip 合规
+    if (isFileNotFound(err)) return undefined; // silent skip 合规
     audit?.write(
       RUNTIME_AUDIT_EVENTS.OPTIONAL_SECTION_READ_FAILED,
       `path=${filePath}`,

@@ -21,7 +21,7 @@ import { MOTION_CLAW_ID } from '../../constants.js';
 import { CLAWSPACE_DIR } from '../claw-paths.js';
 
 
-import type { AuditLog } from '../audit/index.js';
+import type { AuditLog } from '../audit/types.js';
 import type { DialogStore } from '../dialog-store/index.js';
 
 import type { ToolRegistry } from './types.js';

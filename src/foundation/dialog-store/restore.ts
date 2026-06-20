@@ -9,6 +9,7 @@
 
 import * as path from 'path';
 import type { FileSystem } from '../fs/types.js';
+import { isFileNotFound } from '../fs/types.js';
 import type { AuditLog } from '../audit/index.js';
 import type { Message } from '../llm-provider/types.js';
 import type { SessionData, DialogMarker, RestoreResult } from './types.js';
@@ -55,8 +56,7 @@ export async function restoreMessages(
       };
     }
   } catch (err) {
-    const code = (err as { code?: string }).code;
-    if (code !== 'ENOENT' && code !== 'FS_NOT_FOUND') {
+    if (!isFileNotFound(err)) {
       audit?.write?.(
         DIALOG_AUDIT_EVENTS.CORRUPTED,
         'file=current.json',

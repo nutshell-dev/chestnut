@@ -7,7 +7,7 @@
  * RETRO_* 子域 events 已迁出至 ./retro-audit-events.ts（phase383 / r52 H 裁决 1+5）。
  */
 
-import type { IdNamingEntry } from '../../foundation/audit/types.js';
+import type { IdNamingEntry } from '../../foundation/audit/index.js';
 
 export const CONTRACT_AUDIT_EVENTS = {
   LOCK_CLEARED: 'contract_lock_cleared',

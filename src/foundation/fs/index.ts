@@ -14,7 +14,7 @@ export type {
   FileSystemOptions,
   StatInfo,
 } from './types.js';
-export { FileNotFoundError } from './types.js';
+export { FileNotFoundError, isFileNotFound } from './types.js';
 
 // Implementation classes
 export { NodeFileSystem } from './node-fs.js';

@@ -120,6 +120,20 @@ module.exports = {
       },
     },
     {
+      name: 'no-deep-into-audit-types',
+      comment: [
+        'ML#7 + ML#9 — Audit type 对外通道仅 barrel（core/, assembly/, cli/, daemon/, watchdog/）。',
+        'foundation/ 同层 peer（tools/, dialog-store/, llm-provider/）走 sibling-direct pattern',
+        '深穿 audit/types.js 避循环（phase 1312 ratify）—— audit/index.ts → reader → ',
+        'dialog-store/lookup → tool-protocol → llm-provider/types → audit/index 循环。',
+        'phase 519 立、5 处 core/+assembly/ deep import 迁 barrel。',
+        'barrel 已 re-export: AuditLog / IdNamingEntry / ColSchemaEntry / TraceId / makeTraceId。',
+      ].join(' '),
+      severity: 'error',
+      from: { path: '^src', pathNot: '^src/foundation/' },
+      to: { path: '^src/foundation/audit/types\\.ts$' },
+    },
+    {
       name: 'no-deep-into-assembly-config-defaults',
       comment: [
         'ML#7 + ML#9 — Assembly CONFIG_DEFAULTS 对外通道仅 barrel。',

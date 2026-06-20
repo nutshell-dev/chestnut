@@ -9,7 +9,7 @@ import { formatErr } from "../../foundation/utils/index.js";
 import type { FileSystem } from '../../foundation/fs/types.js';
 
 import type { AuditLog } from '../../foundation/audit/index.js';
-import { FileNotFoundError } from '../../foundation/fs/types.js';
+import { FileNotFoundError, isFileNotFound } from '../../foundation/fs/types.js';
 import { ToolError } from '../../foundation/errors.js';
 import { LOCK_MAX_RETRIES, LOCK_RETRY_DELAY_MS, LOCK_STALE_TIMEOUT_MS } from './constants.js';
 import { PROGRESS_LOCK_FILE } from './dirs.js';
@@ -175,8 +175,7 @@ export async function releaseLock(ctx: LockContext, lockPath: string): Promise<v
   } catch (e) {
     // ENOENT / FS_NOT_FOUND: proceed to delete so the original audit behavior is preserved
     // (caller may rely on LOCK_UNLINK_FAILED when target lock was never created)
-    const code = (e as NodeJS.ErrnoException).code;
-    if (code !== 'ENOENT' && code !== 'FS_NOT_FOUND') {
+    if (!isFileNotFound(e)) {
       // Other read errors: audit and proceed with delete attempt (best-effort)
       emitContractLockUnlinkFailed(
         ctx.audit,

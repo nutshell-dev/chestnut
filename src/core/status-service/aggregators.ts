@@ -11,6 +11,7 @@
  */
 
 import type { FileSystem } from '../../foundation/fs/types.js';
+import { isFileNotFound } from '../../foundation/fs/types.js';
 import { formatErr, assertNever } from "../../foundation/utils/index.js";
 import type { ContractSystem } from '../contract/index.js';
 import { TASKS_QUEUES_PENDING_DIR, TASKS_QUEUES_RUNNING_DIR } from '../async-task-system/index.js';
@@ -82,8 +83,7 @@ export async function computeTaskView(fs: FileSystem): Promise<TaskView> {
       pending = (await fs.list(TASKS_QUEUES_PENDING_DIR, { includeDirs: false })).length;
     } catch (err) {
       // silent: ENOENT/FS_NOT_FOUND 视作"队列目录尚未建"、非业务错误；其余 error 折进 pendingError 字段由调用方 audit
-      const code = (err as NodeJS.ErrnoException).code;
-      if (code !== 'ENOENT' && code !== 'FS_NOT_FOUND') {
+      if (!isFileNotFound(err)) {
         pendingError = formatErr(err);
       }
     }
@@ -92,8 +92,7 @@ export async function computeTaskView(fs: FileSystem): Promise<TaskView> {
       running = (await fs.list(TASKS_QUEUES_RUNNING_DIR, { includeDirs: false })).length;
     } catch (err) {
       // silent: 同 pending 段、ENOENT 视作未建队列、其余折进 runningError
-      const code = (err as NodeJS.ErrnoException).code;
-      if (code !== 'ENOENT' && code !== 'FS_NOT_FOUND') {
+      if (!isFileNotFound(err)) {
         runningError = formatErr(err);
       }
     }
@@ -125,8 +124,7 @@ export async function computeStorageView(fs: FileSystem): Promise<StorageView> {
       .list(CLAWSPACE_DIR, { recursive: true, includeDirs: false })
       .catch((err: unknown) => {
         // silent: ENOENT/FS_NOT_FOUND 视作"空 clawspace"返回 []、其余真错重抛由外层兜底
-        const code = (err as NodeJS.ErrnoException)?.code;
-        if (code === 'ENOENT' || code === 'FS_NOT_FOUND') return [];
+        if (isFileNotFound(err)) return [];
         throw err;
       });
     clawspace = { type: 'count', files: entries.length };

@@ -13,7 +13,7 @@ import * as path from 'path';
 import { CLAWSPACE_DIR } from '../../foundation/claw-paths.js';
 import { CONTRACT_AUDIT_EVENTS } from '../contract/index.js';
 import type { Message } from '../../foundation/llm-provider/types.js';
-import { FileNotFoundError, isFileNotFound } from '../../foundation/fs/types.js';
+import { isFileNotFound } from '../../foundation/fs/types.js';
 import { isProgrammingBug } from '../../foundation/errors.js';
 import { readPendingRetrospective, InvalidJSONError, UnexpectedFormatError, InvalidTargetClawError } from '../summon-system/index.js';
 import type { ContractId } from '../contract/types.js';
@@ -151,9 +151,8 @@ export class EvolutionSystem {
       }
       this.state = { version: r.version, lastProcessedAt: r.lastProcessedAt };
     } catch (e) {
-      const code = (e as NodeJS.ErrnoException).code;
-      if (code === 'ENOENT' || e instanceof FileNotFoundError) {
-        // first run / silent
+      if (isFileNotFound(e)) {
+        // first run / silent（helper 内含 instanceof FileNotFoundError check）
         return;
       }
       this.deps.audit.write(
@@ -267,10 +266,10 @@ export class EvolutionSystem {
         this.deps.audit.write(RETRO_AUDIT_EVENTS.INDEX_FAILED, `contractId=${contractId}`, `reason=invalid_targetClaw`, `rawTarget=${e.raw}`);
         return { status: 'error', detail: 'invalid_targetClaw' };
       }
-      const code = (e as NodeJS.ErrnoException).code;
-      if (code === 'ENOENT' || e instanceof FileNotFoundError) {
+      if (isFileNotFound(e)) {
         return { status: 'skipped_index_missing', detail: 'ENOENT' };
       }
+      const code = (e as NodeJS.ErrnoException).code;
       this.deps.audit.write(RETRO_AUDIT_EVENTS.INDEX_FAILED, `contractId=${contractId}`, `error=${formatErr(e)}`);
       return { status: 'error', detail: code };
     }

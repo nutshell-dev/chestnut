@@ -65,8 +65,7 @@ export async function getClawActivityInfo(
 
     return { lastEventMs, lastError };
   } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code;
-    if (code !== 'ENOENT' && code !== 'FS_NOT_FOUND') {
+    if (!isFileNotFound(err)) {
       audit?.write(WATCHDOG_AUDIT_EVENTS.STREAM_READ_FAILED, `reason=${formatErr(err)}`);
     }
     return { lastEventMs: null, lastError: null };

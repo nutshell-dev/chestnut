@@ -720,8 +720,7 @@ export class AsyncTaskSystem {
         `${TASKS_QUEUES_PENDING_DIR}/${taskId}.json`,
         `${TASKS_QUEUES_FAILED_DIR}/${taskId}.json`
       ).catch((e) => {
-        const code = (e as NodeJS.ErrnoException)?.code;
-        if (code === 'ENOENT' || code === 'FS_NOT_FOUND') {
+        if (isFileNotFound(e)) {
           // race-loss: dispatch 已 movePendingToRunning / cancel pending move 失败是预期 (phase 1011 D.3)
           emitTaskCancelRaceLostToDispatch(this.auditWriter, { taskId });
         } else {

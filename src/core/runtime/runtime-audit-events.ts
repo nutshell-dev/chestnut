@@ -9,7 +9,7 @@
  * 1 文件聚合更简洁（M#3 资源唯一归属：runtime caller 模块 own）。
  */
 
-import type { IdNamingEntry, ColSchemaEntry } from '../../foundation/audit/types.js';
+import type { IdNamingEntry, ColSchemaEntry } from '../../foundation/audit/index.js';
 
 export const RUNTIME_AUDIT_EVENTS = {
   // 原有

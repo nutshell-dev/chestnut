@@ -108,8 +108,7 @@ export class InboxReader {
     try {
       entries = await this.fs.list(this.inflightDir, { includeDirs: false });
     } catch (err) {
-      const code = (err as { code?: string })?.code;
-      if (code === 'FS_NOT_FOUND' || code === 'ENOENT') return;
+      if (isFileNotFound(err)) return;
       const reason = formatErr(err);
       emitInboxListFailed(this.audit, {
         dir: this.inflightDir,
@@ -165,8 +164,7 @@ export class InboxReader {
     try {
       entries = await this.fs.list(this.pendingDir, { includeDirs: false });
     } catch (err) {
-      const code = (err as { code?: string })?.code;
-      if (code === 'FS_NOT_FOUND' || code === 'ENOENT') return [];
+      if (isFileNotFound(err)) return [];
       const reason = formatErr(err);
       emitInboxListFailed(this.audit, {
         dir: this.pendingDir,
@@ -383,8 +381,7 @@ export class InboxReader {
     try {
       entries = await this.fs.list(this.pendingDir, { includeDirs: false });
     } catch (err) {
-      const code = (err as { code?: string })?.code;
-      if (code === 'FS_NOT_FOUND' || code === 'ENOENT') return [];
+      if (isFileNotFound(err)) return [];
       const reason = formatErr(err);
       emitInboxListFailed(this.audit, {
         dir: this.pendingDir,
@@ -501,8 +498,7 @@ export class InboxReader {
     try {
       entries = await this.fs.list(dir, { includeDirs: false });
     } catch (err) {
-      const code = (err as { code?: string })?.code;
-      if (code === 'FS_NOT_FOUND' || code === 'ENOENT') return null;
+      if (isFileNotFound(err)) return null;
       return null;
     }
 

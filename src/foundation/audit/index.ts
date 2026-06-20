@@ -23,7 +23,8 @@ import { AuditWriter, AUDIT_FILE } from './writer.js';
 import * as path from 'path';
 import type { FileSystem } from '../fs/types.js';
 
-export type { AuditLog } from './types.js';
+export type { AuditLog, IdNamingEntry, ColSchemaEntry, TraceId } from './types.js';
+export { makeTraceId } from './types.js';
 import type { AuditLog } from './types.js';
 
 export { AuditWriter, AUDIT_FILE, reconcileFallbackDumps } from './writer.js';

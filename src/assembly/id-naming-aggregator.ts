@@ -11,13 +11,13 @@
  * - Audit column names (auditCol) are unique across the aggregated map.
  */
 
-import type { IdNamingEntry } from '../foundation/audit/types.js';
+import type { IdNamingEntry } from '../foundation/audit/index.js';
 import { RUNTIME_ID_NAMING } from '../core/runtime/runtime-audit-events.js';
 import { CONTRACT_ID_NAMING } from '../core/contract/audit-events.js';
 import { DIALOG_ID_NAMING } from '../foundation/dialog-store/audit-events.js';
 import { LLM_PROVIDER_ID_NAMING } from '../foundation/llm-provider/audit-events.js';
 
-export type { IdNamingEntry } from '../foundation/audit/types.js';
+export type { IdNamingEntry } from '../foundation/audit/index.js';
 
 export const AggregatedIdNamingMap: Readonly<Record<string, IdNamingEntry>> = {
   ...RUNTIME_ID_NAMING,

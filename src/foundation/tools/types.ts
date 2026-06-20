@@ -8,7 +8,7 @@ export type { JSONSchema7 };
 import type { ToolProfile } from '../tool-protocol/index.js';
 import type { FileSystem } from '../fs/types.js';
 import type { LLMOrchestrator } from '../llm-orchestrator/index.js';
-import type { AuditLog } from '../audit/index.js';
+import type { AuditLog } from '../audit/types.js';
 import type { DialogStore } from '../dialog-store/index.js';
 import type { ToolDescriptor, ToolResult, CallerSnapshot } from '../tool-protocol/index.js';
 export type { CallerSnapshot };

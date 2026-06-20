@@ -23,8 +23,10 @@ describe('tryReadOptionalSection', () => {
   });
 
   it('returns undefined on FS_NOT_FOUND (silent skip)', async () => {
+    // phase 519: 用 FileNotFoundError instance 替 plain object（与 phase 1154 α-1 helper 契约一致）
+    const { FileNotFoundError } = await import('../../../src/foundation/fs/types.js');
     const fs = {
-      read: vi.fn().mockRejectedValue(Object.assign(new Error('FS_NOT_FOUND'), { code: 'FS_NOT_FOUND' })),
+      read: vi.fn().mockRejectedValue(new FileNotFoundError('IDENTITY.md')),
     };
     const audit = vi.fn();
     const result = await tryReadOptionalSection(fs as any, 'IDENTITY.md', { write: audit } as any);

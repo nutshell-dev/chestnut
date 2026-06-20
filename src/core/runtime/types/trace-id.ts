@@ -12,5 +12,5 @@
  * Note: canonical implementation lives in `foundation/audit/types.ts` to avoid
  * foundation→core layer violations. Runtime re-exports it here for SoT alignment.
  */
-export type { TraceId } from '../../../foundation/audit/types.js';
-export { makeTraceId } from '../../../foundation/audit/types.js';
+export type { TraceId } from '../../../foundation/audit/index.js';
+export { makeTraceId } from '../../../foundation/audit/index.js';

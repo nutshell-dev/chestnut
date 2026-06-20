@@ -15,11 +15,12 @@ const CORRUPTED_SUBDIR = 'corrupted';
 import * as path from 'path';
 import { formatErr } from "../utils/index.js";
 import type { FileSystem } from '../fs/types.js';
+import { isFileNotFound } from '../fs/types.js';
 
 import type { Message, ToolUseBlock, ToolResultBlock, ToolDefinition } from '../llm-provider/types.js';
 import type { SessionData, LoadResult, DialogMarker, RestoreResult } from './types.js';
 import type { TraceId } from '../audit/types.js';
-import type { AuditLog } from '../audit/index.js';
+import type { AuditLog } from '../audit/types.js';
 import { DIALOG_AUDIT_EVENTS } from './audit-events.js';
 import { newShortUuid } from '../uuid.js';
 
@@ -103,8 +104,7 @@ export class DialogStore {
       this.prevMessagesLength = data.messages.length;
       return { session: data, source: 'current' };
     } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code;
-      if (code === 'ENOENT' || code === 'FS_NOT_FOUND') {
+      if (isFileNotFound(err)) {
         // Cold start: missing file is expected
       } else {
         this.audit.write(DIALOG_AUDIT_EVENTS.CORRUPTED, 'file=current.json', `reason=${formatErr(err)}`);
@@ -158,8 +158,7 @@ export class DialogStore {
         const s = await this.fs.stat(this.currentPath);
         statBefore = { size: s.size, mtime: s.mtime.getTime() };
       } catch (e) {
-        const code = (e as NodeJS.ErrnoException).code;
-        if (code === 'ENOENT' || code === 'FS_NOT_FOUND') {
+        if (isFileNotFound(e)) {
           // File doesn't exist — load() will cold-start; no race possible
           return this.load();
         }
@@ -173,8 +172,7 @@ export class DialogStore {
         const s = await this.fs.stat(this.currentPath);
         statAfter = { size: s.size, mtime: s.mtime.getTime() };
       } catch (e) {
-        const code = (e as NodeJS.ErrnoException).code;
-        if (code === 'ENOENT' || code === 'FS_NOT_FOUND') {
+        if (isFileNotFound(e)) {
           // File was archived/removed between load and stat — result is still valid
           return result;
         }
@@ -476,8 +474,7 @@ export class DialogStore {
         .sort((a, b) => this.parseArchiveTimestamp(a.name) - this.parseArchiveTimestamp(b.name)) // oldest first
         .map((e) => e.name);
     } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code;
-      if (code === 'ENOENT' || code === 'FS_NOT_FOUND') {
+      if (isFileNotFound(err)) {
         return [];
       }
       throw err;
@@ -493,8 +490,7 @@ export class DialogStore {
       await this.fs.stat(this.currentPath);
       return true;
     } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code;
-      if (code === 'ENOENT' || code === 'FS_NOT_FOUND') {
+      if (isFileNotFound(err)) {
         return false;
       }
       throw err;
@@ -519,8 +515,7 @@ export class DialogStore {
       }
       return this.validateSession(detected);
     } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code;
-      if (code === 'ENOENT' || code === 'FS_NOT_FOUND') {
+      if (isFileNotFound(err)) {
         throw err; // 文件不存在，直接抛出让 caller 处理
       }
       // 其他错误（parse / version / validation）——尝试隔离到 corrupted
