@@ -40,6 +40,12 @@ export class LLMAllProvidersFailedError extends LLMError {
 export type LLMErrorClass = 'permanent' | 'transient' | 'rate_limit' | 'abort' | 'unknown';
 
 export function classifyLLMError(err: unknown): LLMErrorClass {
+  if (err instanceof Error) {
+    const msg = err.message.toLowerCase();
+    if (msg.includes('quota') || msg.includes('insufficient') || msg.includes('credit') || msg.includes('billing')) {
+      return 'permanent';
+    }
+  }
   if (err instanceof LLMAuthError || err instanceof LLMModelNotFoundError) return 'permanent';
   if (err instanceof LLMRateLimitError) return 'rate_limit';
   if (err instanceof LLMNetworkError || err instanceof LLMTimeoutError) return 'transient';

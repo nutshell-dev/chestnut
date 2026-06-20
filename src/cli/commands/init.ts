@@ -27,10 +27,7 @@ import { DEFAULT_MAX_CONCURRENT_TASKS } from '../../core/async-task-system/const
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
-import { checkLLMConnection, promptReconfigure, LLM_ERROR_LABELS } from '../llm-connection-check.js';
-
-/** init probe 失败时 console.log Details 字段截断防 base64 body / 长 stack dump 灌 stdout */
-const INIT_PROBE_DETAILS_CONSOLE_PREVIEW_CHARS = 200;
+import { checkLLMConnection, promptReconfigure, formatLLMError, LLM_ERROR_HINTS } from '../llm-connection-check.js';
 
 // Known providers shown in "Select provider" list (excludes generic custom-* entries)
 const PROVIDER_LIST = [
@@ -335,9 +332,11 @@ export async function initCommand(deps: { fsFactory: (baseDir: string) => FileSy
         `error_type=${probe.errorType}`,
         `message=${audit?.message(probe.message) ?? probe.message}`,
       );
-      console.log(`  ✗ ${LLM_ERROR_LABELS[probe.errorType]}`);
-      // 截断防 base64 body / 长 stack dump 灌 stdout
-      console.log(`  Details: ${probe.message.slice(0, INIT_PROBE_DETAILS_CONSOLE_PREVIEW_CHARS)}`);
+      formatLLMError({
+        errorType: probe.errorType,
+        message: probe.message,
+        hint: LLM_ERROR_HINTS[probe.errorType],
+      }).forEach(line => console.log(line));
 
       if (probe.errorType === 'auth' || probe.errorType === 'model') {
         // actionable errors → 提供 reconfigure 选项

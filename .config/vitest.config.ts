@@ -16,7 +16,7 @@ const maxThreads = Number.isFinite(envMaxThreads) && envMaxThreads > 0
  * 维护: NEW test 用 vi.mock 需加此列表
  *
  * 生成: find tests -name "*.test.ts" -exec grep -lE "^vi\.mock\(|^\s*vi\.mock\(" {} \; | sort
- * 数量: 115 file (sync 2026-06-13 / phase 316 Step B)
+ * 数量: 117 file (sync 2026-06-19 / phase 451 Step C)
  * Invariant test: tests/design/vi-mock-list-consistency-invariant.test.ts 守 list ↔ 真 use site 一致性
  *   (phase 316 V53 a 真治、撤回 phase 306 ratify「推 §10」、详 `coding plan/phase316/`)
  */
@@ -48,6 +48,8 @@ const VI_MOCK_FILES = [
   'tests/cli/commands/claw-stream.test.ts',
 
   'tests/cli/commands/subagent-cli-output.test.ts',  // phase 1395 merged from subagent-list + subagent-steps-json
+  'tests/cli/config-provider-add-probe.test.ts',  // phase 451 Step A
+  'tests/cli/config-provider-set-primary-probe.test.ts',  // phase 451 Step A
   'tests/cli/contract-events.test.ts',
   'tests/cli/contract.test.ts',
   'tests/cli/daemon-command.test.ts',

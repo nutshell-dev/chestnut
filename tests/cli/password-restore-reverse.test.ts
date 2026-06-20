@@ -28,13 +28,16 @@ vi.mock('readline', () => ({
 vi.mock('../../src/cli/llm-connection-check.js', () => ({
   checkLLMConnection: async () => ({ ok: true, model: 'mock-model' }),
   promptReconfigure: async () => true,
+  formatLLMError: () => [],
   LLM_ERROR_LABELS: {
     auth: 'API key invalid or unauthorized',
     model: 'Model not found or unavailable',
     network: 'Network error',
     rate_limit: 'Rate limit',
-    unknown: 'Unknown',
+    quota: 'Account quota or credit exhausted',
+    unknown: 'Unrecognized provider error',
   },
+  LLM_ERROR_HINTS: {},
   classifyLLMError: () => 'unknown',
 }));
 

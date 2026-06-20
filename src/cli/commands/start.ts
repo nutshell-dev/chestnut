@@ -22,7 +22,7 @@ import {
   chatCommand as motionChatCommand,
 } from './motion.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
-import { checkLLMConnection, promptReconfigure, LLM_ERROR_LABELS } from '../llm-connection-check.js';
+
 import { ContractSystem } from '../../core/contract/index.js';
 import { createToolRegistry } from '../../foundation/tools/index.js';
 import { createDirContext } from '../../foundation/audit/index.js';
@@ -132,31 +132,6 @@ async function _start(deps: { fsFactory: (baseDir: string) => FileSystem }, audi
   if (wasFirstRun) {
     await initCommand(deps, true);
   }
-  // Step 1b: test LLM connection; offer inline reconfigure for actionable errors
-  {
-    console.log('Testing LLM connection...');
-    const connResult = await checkLLMConnection(deps);
-    if (!connResult.ok) {
-      if (connResult.errorType === 'auth' || connResult.errorType === 'model') {
-        const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-        try {
-          const fixed = await promptReconfigure(deps, rl, connResult.errorType);
-          if (!fixed) {
-            throw new CliError('LLM not configured. Run "chestnut init" or fix your config.');
-          }
-        } finally {
-          rl.close();
-        }
-      } else {
-        // network / rate_limit / unknown — warn but continue (transient)
-        console.warn(`  ⚠ ${LLM_ERROR_LABELS[connResult.errorType]} — continuing anyway`);
-        console.warn(`    ${connResult.message}`);
-      }
-    } else {
-      console.log(`  ✓ ${connResult.model}`);
-    }
-  }
-
   // Step 2: motion init
   const { fs: notifyFs, audit: notifyAudit } = createDirContext(deps, motionDir);
   const daemonEntryPath = resolveDaemonEntry(notifyFs);

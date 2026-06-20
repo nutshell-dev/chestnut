@@ -22,6 +22,8 @@ import { CLAWS_DIR, enumerateClaws } from '../../foundation/claw-paths.js';
 import { getChestnutRoot } from '../../foundation/install-paths.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { RELOAD_LLM_CONFIG_MESSAGE_TYPE } from '../../core/runtime/runtime-audit-events.js';
+import { toProviderConfig } from '../../foundation/llm-orchestrator/config-adapter.js';
+import { checkLLMConnection, checkLLMConnectionFor, promptReconfigure, formatLLMError, LLM_ERROR_HINTS } from '../llm-connection-check.js';
 
 /**
  * phase 320: 通知所有运行中的 daemon（motion + 所有 claws）重新加载 LLM 配置。
@@ -229,6 +231,33 @@ async function providerAdd(deps: { fsFactory: (baseDir: string) => FileSystem })
     saveGlobalConfig(deps, config);
     notifyRunningDaemons(deps, 'add');
 
+    // phase 451: 改 config 必 probe
+    console.log('\nTesting connection...');
+    const providerConfigRuntime = toProviderConfig(providerConfig);
+    const probe = await checkLLMConnectionFor(providerConfigRuntime);
+    if (probe.ok) {
+      console.log(`  ✓ ${probe.model}`);
+    } else {
+      formatLLMError({
+        errorType: probe.errorType,
+        message: probe.message,
+        provider: probe.provider,
+        hint: LLM_ERROR_HINTS[probe.errorType],
+      }).forEach(line => console.log(line));
+      if (role === 'primary' && (probe.errorType === 'auth' || probe.errorType === 'model')) {
+        // primary 失败 + actionable → 进 reconfigure
+        const rlProbe = createRL();
+        try {
+          await promptReconfigure(deps, rlProbe, probe.errorType);
+        } finally {
+          rlProbe.close();
+        }
+      } else if (role === 'fallback') {
+        // fallback 失败 → 警告、保留配置（用户可手动 remove）
+        console.log('  ⚠ Fallback config saved but unreachable. Use "chestnut config provider remove" to clean up.');
+      }
+    }
+
   } finally {
     rl.close();
   }
@@ -337,6 +366,28 @@ async function providerSetPrimary(deps: { fsFactory: (baseDir: string) => FileSy
   saveGlobalConfig(deps, config);
   console.log(`✓ "${label}" is now primary`);
   notifyRunningDaemons(deps, 'set-primary');
+
+  // phase 451: 改 primary 必 probe
+  console.log('\nTesting new primary connection...');
+  const probe = await checkLLMConnection(deps);
+  if (probe.ok) {
+    console.log(`  ✓ ${probe.model}`);
+  } else {
+    formatLLMError({
+      errorType: probe.errorType,
+      message: probe.message,
+      provider: probe.provider,
+      hint: LLM_ERROR_HINTS[probe.errorType],
+    }).forEach(line => console.log(line));
+    if (probe.errorType === 'auth' || probe.errorType === 'model') {
+      const rlProbe = createRL();
+      try {
+        await promptReconfigure(deps, rlProbe, probe.errorType);
+      } finally {
+        rlProbe.close();
+      }
+    }
+  }
 }
 
 // provider move command

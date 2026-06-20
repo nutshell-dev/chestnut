@@ -16,6 +16,10 @@ describe('classifyLLMError', () => {
     ])('classifies %j as auth', (msg) => {
       expect(classifyLLMError(new Error(msg))).toBe('auth');
     });
+
+    it('auth message containing "quota" is classified as quota (quota takes precedence)', () => {
+      expect(classifyLLMError(new Error('401 Unauthorized: quota exceeded'))).toBe('quota');
+    });
   });
 
   describe('model', () => {
@@ -32,9 +36,23 @@ describe('classifyLLMError', () => {
     it.each([
       ['429 Too Many Requests'],
       ['Rate limit exceeded'],
-      ['Quota exceeded'],
     ])('classifies %j as rate_limit', (msg) => {
       expect(classifyLLMError(new Error(msg))).toBe('rate_limit');
+    });
+
+    it('quota keyword no longer falls through to rate_limit', () => {
+      expect(classifyLLMError(new Error('Quota exceeded'))).toBe('quota');
+    });
+  });
+
+  describe('quota', () => {
+    it.each([
+      ['Quota exceeded'],
+      ['Insufficient credits'],
+      ['Credit balance depleted'],
+      ['Billing issue'],
+    ])('classifies %j as quota', (msg) => {
+      expect(classifyLLMError(new Error(msg))).toBe('quota');
     });
   });
 
@@ -44,6 +62,9 @@ describe('classifyLLMError', () => {
       ['ENOTFOUND api.example.com'],
       ['fetch failed'],
       ['Request timeout'],
+      ['HTTP 503 Service Unavailable'],
+      ['502 Bad Gateway'],
+      ['Internal server error'],
     ])('classifies %j as network', (msg) => {
       expect(classifyLLMError(new Error(msg))).toBe('network');
     });
@@ -51,7 +72,7 @@ describe('classifyLLMError', () => {
 
   describe('unknown', () => {
     it('classifies messages with no recognized keyword as unknown', () => {
-      expect(classifyLLMError(new Error('Internal server error xyz'))).toBe('unknown');
+      expect(classifyLLMError(new Error('Something weird happened'))).toBe('unknown');
     });
   });
 });

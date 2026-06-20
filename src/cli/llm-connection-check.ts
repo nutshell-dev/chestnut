@@ -15,32 +15,78 @@ import { buildLLMConfig } from '../assembly/config-load.js';
 import { createLLMOrchestrator } from '../foundation/llm-orchestrator/index.js';
 import { passwordQuestion } from './utils/password-prompt.js';
 import type { FileSystem } from '../foundation/fs/types.js';
+import type { ProviderConfig } from '../foundation/llm-provider/types.js';
 
-export type LLMErrorType = 'auth' | 'model' | 'network' | 'rate_limit' | 'unknown';
+export type LLMErrorType = 'auth' | 'model' | 'network' | 'rate_limit' | 'quota' | 'unknown';
 
 export function classifyLLMError(err: unknown): LLMErrorType {
   const msg = (formatErr(err)).toLowerCase();
+
+  // quota 优先于 rate_limit / auth（permanent、需用户介入）
+  if (msg.includes('quota') || msg.includes('insufficient') || msg.includes('credit') || msg.includes('billing')) {
+    return 'quota';
+  }
+
   if (msg.includes('401') || msg.includes('unauthorized') || msg.includes('api key') || msg.includes('authenticat')) return 'auth';
-  if (msg.includes('404') || msg.includes('model') || msg.includes('not found')) return 'model';
-  if (msg.includes('429') || msg.includes('rate limit') || msg.includes('quota')) return 'rate_limit';
-  if (msg.includes('econnrefused') || msg.includes('enotfound') || msg.includes('network') || msg.includes('timeout') || msg.includes('fetch')) return 'network';
+  if (msg.includes('404') || msg.includes('not found') || (msg.includes('model') && !msg.includes('network'))) return 'model';
+  if (msg.includes('429') || msg.includes('rate limit')) return 'rate_limit';
+  // network：含 5xx 服务器错（短暂性、重试可救）
+  if (msg.includes('econnrefused') || msg.includes('enotfound') || msg.includes('network') ||
+      msg.includes('timeout') || msg.includes('fetch') ||
+      /5\d\d/.test(msg) || msg.includes('server error') || msg.includes('bad gateway') || msg.includes('service unavailable')) {
+    return 'network';
+  }
   return 'unknown';
 }
 
 export const LLM_ERROR_LABELS: Record<LLMErrorType, string> = {
   auth: 'API key invalid or unauthorized',
-  model: 'Model not found or unavailable (check that model name matches provider docs exactly)',
+  model: 'Model not found or unavailable',
   network: 'Network error — could not reach provider',
-  rate_limit: 'Rate limit or quota exceeded',
-  unknown: 'Unknown error',
+  rate_limit: 'Rate limit exceeded',
+  quota: 'Account quota or credit exhausted',
+  unknown: 'Unrecognized provider error',
 };
+
+export const LLM_ERROR_HINTS: Partial<Record<LLMErrorType, string>> = {
+  auth: 'Update API key via "chestnut config provider add".',
+  model: 'Check that model name matches provider docs exactly.',
+  network: 'Check internet connection or provider status page.',
+  rate_limit: 'Wait a few seconds and retry; lower request frequency.',
+  quota: 'Top up account credit or switch provider via "chestnut config".',
+  unknown: 'See raw provider message above; report bug if persistent.',
+};
+
+const LLM_ERROR_PREVIEW_CHARS = 200;
+
+/**
+ * Format a failed LLM probe result as console output lines (callers do console.log(...lines)).
+ * Single source of truth for LLM error display across init / config / reconfigure.
+ */
+export function formatLLMError(
+  probe: { errorType: LLMErrorType; message: string; provider?: string; hint?: string },
+): string[] {
+  const lines: string[] = [];
+  lines.push(`  ✗ ${LLM_ERROR_LABELS[probe.errorType]}`);
+  if (probe.provider) {
+    lines.push(`    Provider: ${probe.provider}`);
+  }
+  const trimmed = probe.message.length > LLM_ERROR_PREVIEW_CHARS
+    ? probe.message.slice(0, LLM_ERROR_PREVIEW_CHARS) + '...'
+    : probe.message;
+  lines.push(`    ${trimmed}`);
+  if (probe.hint) {
+    lines.push(`    Hint: ${probe.hint}`);
+  }
+  return lines;
+}
 
 /**
  * Test LLM connectivity with a minimal call.
  * Returns { ok: true, model } on success, { ok: false, errorType, message } on failure.
  */
 export async function checkLLMConnection(deps: { fsFactory: (baseDir: string) => FileSystem }): Promise<
-  { ok: true; model: string } | { ok: false; errorType: LLMErrorType; message: string }
+  { ok: true; model: string } | { ok: false; errorType: LLMErrorType; message: string; provider: string }
 > {
   const globalConfig = loadGlobalConfig(deps);
   const llmConfig = buildLLMConfig(globalConfig);
@@ -58,7 +104,32 @@ export async function checkLLMConnection(deps: { fsFactory: (baseDir: string) =>
     });
     return { ok: true, model: llmConfig.primary.model };
   } catch (err) {
-    return { ok: false, errorType: classifyLLMError(err), message: formatErr(err) };
+    return { ok: false, errorType: classifyLLMError(err), message: formatErr(err), provider: llmConfig.primary.name };
+  }
+}
+
+/**
+ * Probe an explicit provider config (not the active global primary).
+ * Used by `config provider add/set-primary` to verify a candidate before commit.
+ */
+export async function checkLLMConnectionFor(provider: ProviderConfig): Promise<
+  { ok: true; model: string } | { ok: false; errorType: LLMErrorType; message: string; provider: string }
+> {
+  const svc = createLLMOrchestrator({
+    primary: provider,
+    fallbacks: [],
+    maxAttempts: 1,
+    retryDelayMs: 0,
+    events: { emit: () => {} },
+  });
+  try {
+    await svc.call({
+      messages: [{ role: 'user', content: 'Hi' }],
+      maxTokens: 1,
+    });
+    return { ok: true, model: provider.model };
+  } catch (err) {
+    return { ok: false, errorType: classifyLLMError(err), message: formatErr(err), provider: provider.name };
   }
 }
 
@@ -72,7 +143,7 @@ export async function checkLLMConnection(deps: { fsFactory: (baseDir: string) =>
 export async function promptReconfigure(
   deps: { fsFactory: (baseDir: string) => FileSystem },
   rl: readline.Interface,
-  errorType: LLMErrorType,
+  _errorType: LLMErrorType,
 ): Promise<boolean> {
   const question = (prompt: string): Promise<string> =>
     new Promise(resolve => rl.question(`${prompt}: `, ans => resolve(ans.trim())));
@@ -81,8 +152,6 @@ export async function promptReconfigure(
 
   const presetList = Object.values(PRESETS).filter(p => p.defaultBaseUrl);
   const customIdx = presetList.length + 1;
-
-  console.log(`\n  Error: ${LLM_ERROR_LABELS[errorType]}`);
 
   while (true) {
     console.log('\nReconfigure LLM:');
@@ -172,6 +241,11 @@ export async function promptReconfigure(
       console.log('  ✓ Connection successful!');
       return true;
     }
-    console.log(`  ✗ ${LLM_ERROR_LABELS[result.errorType]}`);
+    formatLLMError({
+      errorType: result.errorType,
+      message: result.message,
+      provider: undefined,
+      hint: LLM_ERROR_HINTS[result.errorType],
+    }).forEach(line => console.log(line));
   }
 }
