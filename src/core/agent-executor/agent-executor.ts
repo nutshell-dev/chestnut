@@ -133,8 +133,10 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
         }
       } else {
         consecutiveParseErrors = 0;
+        // phase 454 (review N3-M): max-tokens 计数仅在 parse-success 时重置；
+        // parse-error continue 不再重置 max-tokens、保 strike independence
+        consecutiveMaxTokensToolUse = 0;
       }
-      consecutiveMaxTokensToolUse = 0;
 
       // 3. onAfterStep（步进之后、熔断检查之后）
       if (onAfterStep) {

@@ -121,7 +121,16 @@ export async function moveFile(src: string, dst: string): Promise<void> {
     if ((err as NodeJS.ErrnoException).code !== 'EXDEV') throw err;
     // phase 289 Step B: cross-filesystem fallback (mirror `mv` behavior)
     // atomicity is lost across fs boundaries, but business paths stay intact
+    // phase 454 (review N3-M): fsync dst + size verify 让跨 fs 路径 crash-safe + 防 copyFile 截断
+    const srcStat = await fs.stat(src);
     await fs.copyFile(src, dst);
+    const fh = await fs.open(dst, 'r+');
+    try { await fh.sync(); } finally { await fh.close(); }
+    const dstStat = await fs.stat(dst);
+    if (srcStat.size !== dstStat.size) {
+      // size 不一致 → 不 unlink src（保 src 防数据丢失）、抛错让 caller 决策
+      throw new Error(`moveFile EXDEV size mismatch: src=${src} (${srcStat.size}) dst=${dst} (${dstStat.size})`);
+    }
     await fs.unlink(src);
   }
 }
