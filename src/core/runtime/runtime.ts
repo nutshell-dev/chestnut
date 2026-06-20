@@ -20,6 +20,7 @@ import { InboxListFailed, InboxMoveFailed } from '../../foundation/messaging/ind
 import type { MessageFormatterRegistry } from '../../foundation/messaging/index.js';
 
 import { DialogStore, performRegimeSwitch } from '../../foundation/dialog-store/index.js';
+import { resolveContextWindow } from '../../foundation/llm-provider/model-context-windows.js';
 import { loadReadFileState, clearReadFileState } from '../../foundation/file-tool/file-state-persist.js';
 // phase 1406: SummonTool import removed — Assembly 标准注册路径，G→F 单向依赖恢复
 import { runReact } from '../agent-executor/index.js';
@@ -55,6 +56,7 @@ import {
   type IRuntimeDaemon,
 } from './types.js';
 import { TASKS_SYNC_DIR } from '../async-task-system/index.js';
+import { maybeTrimProactive } from '../l4_context_manager/index.js';
 
 import { formatTimeAgo } from './utils.js';
 import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
@@ -129,6 +131,8 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
   protected lastIdentityHash?: string;  // protected: TestRuntime subclass needs read access for regime switch tests
   // phase 440：上下文管理器运行时配置（filterSubtypes 等）
   private contextManagerConfig?: import('../step-executor/types.js').ContextManagerRuntimeConfig;
+  /** phase 453：上次 LLM call 完成时刻 (ms epoch)；0 = 从未调用过、第一个 turn 不触发顺手裁 */
+  private lastLLMCallAt: number = 0;
   /** phase 69: L6 Assembly 装配期注入 claw 子目录列表 */
   private clawSubdirs!: readonly string[];
 
@@ -659,6 +663,8 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
           maxConsecutiveMaxTokensToolUse: this.options.maxConsecutiveMaxTokensToolUse,
           idleTimeoutMs: this.options.idleTimeoutMs,
           onLLMResult: (info) => {
+            // phase 453: 每次 LLM call 完成后更新、供下轮 turn 入口判顺手裁
+            this.lastLLMCallAt = Date.now();
             if (info.error) {
               this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.LLM_ERROR, info.model, `error=${info.error}`, `latency_ms=${info.latencyMs}`);
             } else {
@@ -818,10 +824,29 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     }
 
     const { session } = await this.sessionManager.load();
-    const messages = [...session.messages, ...injected];
+    let messages = [...session.messages, ...injected];
     const injectTools = this.toolRegistry.formatForLLM(
       this.toolRegistry.getForProfile(this.options.toolProfile ?? 'full')
     );
+
+    // phase 453: 顺手裁触发（进 turn 前判断）
+    if (this.contextManagerConfig && this.sessionManager) {
+      const providerInfo = this.llm.getProviderInfo?.();
+      const contextWindow = resolveContextWindow(providerInfo?.model);
+      const trimResult = await maybeTrimProactive({
+        messages,
+        systemPrompt: session.systemPrompt,
+        toolsForLLM: injectTools,
+        contextWindow,
+        lastLLMCallAt: this.lastLLMCallAt,
+        filterSubtypes: this.contextManagerConfig.filterSubtypes,
+        dialogStore: this.sessionManager,
+        audit: this.auditWriter,
+      });
+      if (trimResult) {
+        messages = trimResult.newMessages;
+      }
+    }
 
     // Turn start
     callbacks?.onTurnStart?.(sources);
@@ -971,10 +996,30 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     try {
     const { session } = await this.sessionManager.load();
     const enrichedMsg = msg.addedAt ? msg : { ...msg, addedAt: new Date().toISOString() };
-    const messages = [...session.messages, enrichedMsg];
+    let messages = [...session.messages, enrichedMsg];
     const procTools = this.toolRegistry.formatForLLM(
       this.toolRegistry.getForProfile(this.options.toolProfile ?? 'full')
     );
+
+    // phase 453: 顺手裁触发（进 turn 前判断）
+    if (this.contextManagerConfig && this.sessionManager) {
+      const providerInfo = this.llm.getProviderInfo?.();
+      const contextWindow = resolveContextWindow(providerInfo?.model);
+      const trimResult = await maybeTrimProactive({
+        messages,
+        systemPrompt: session.systemPrompt,
+        toolsForLLM: procTools,
+        contextWindow,
+        lastLLMCallAt: this.lastLLMCallAt,
+        filterSubtypes: this.contextManagerConfig.filterSubtypes,
+        dialogStore: this.sessionManager,
+        audit: this.auditWriter,
+      });
+      if (trimResult) {
+        messages = trimResult.newMessages;
+      }
+    }
+
     await this.sessionManager.save({
       systemPrompt: session.systemPrompt,
       messages,

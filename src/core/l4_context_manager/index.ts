@@ -11,10 +11,15 @@ export {
   type TrimAndPersistInputs,
   type TrimAndPersistResult,
 } from './trim-and-persist.js';
+export {
+  maybeTrimProactive,
+  type MaybeTrimProactiveInputs,
+} from './maybe-trim-proactive.js';
 export { trimV2, type TrimV2Options, type TrimV2Result } from './trim-v2.js';
 export { computeBudget, type BudgetInputs, type BudgetResult } from './budget.js';
 export { ContextTrimExhaustedError } from './errors.js';
 export {
+  CACHE_TTL_MS,
   CONTEXT_TRIM_RECENT_WINDOW_MS,
   CONTEXT_TRIM_TARGET_RATIO,
   CONTEXT_TRIM_PREVIEW_BYTES,
