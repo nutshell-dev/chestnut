@@ -78,6 +78,9 @@ function lookupInCurrent(fs: FileSystem, dialogDir: string, toolUseId: string): 
   if (!fs.existsSync(currentPath)) return null;
   try {
     const session = JSON.parse(fs.readSync(currentPath));
+    // phase 521 (review-round4 Foundation M): shape guard、防 session=null/null-prototype/array
+    // 致 session.messages 访问抛错被外 catch silent 吞、有效线索可观察
+    if (typeof session !== 'object' || session === null || Array.isArray(session)) return null;
     return findContentInMessages(session.messages ?? [], toolUseId);
   } catch (err) {
     process.stderr.write(`[dialog-lookup] current.json parse failed: ${err}\n`);
@@ -114,6 +117,8 @@ function lookupInArchive(
     const sessionPath = `${archiveDir}/${entry.name}`;
     try {
       const session = JSON.parse(fs.readSync(sessionPath));
+      // phase 521 (review-round4 Foundation M): shape guard、同 lookupInCurrent
+      if (typeof session !== 'object' || session === null || Array.isArray(session)) continue;
       const content = findContentInMessages(session.messages ?? [], toolUseId);
       if (content !== null) {
         const archivedAt = String(parseArchiveTs(entry.name));

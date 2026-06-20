@@ -230,6 +230,9 @@ const daemonCommand = createDaemonCommand({
   configDefaults: {} as any,
   assemble: mockState.mockAssemble,
   disassemble: mockState.mockDisassemble,
+  // phase 521 (review-round4 CLI M): motion 分支 watchdogAliveProbe! 改 explicit guard、
+  // test 需明示提供 probe（或 stub）以避开 motion 分支 throw
+  watchdogAliveProbe: () => true,
   auditEvents: {
     assembleFailed: 'assemble_failed',
     daemonStart: 'daemon_start',

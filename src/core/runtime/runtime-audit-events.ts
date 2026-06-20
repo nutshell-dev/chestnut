@@ -57,6 +57,10 @@ export const RUNTIME_AUDIT_EVENTS = {
   STEP_EXECUTOR_CALLBACK_FAILED: 'step_executor_callback_failed',
   // phase 446 (review): onStepComplete 内 fire-and-forget maybeAuditStep 防御 catch
   MAYBE_AUDIT_STEP_FAILED: 'runtime_maybe_audit_step_failed',
+  // phase 521 (review-round4 N4-Core-H2): processBatch ack/nack per-handle atomicity
+  // 防 ack/nack 抛错 cascade 到 turn-level catch 触发 rollback + duplicate delivery
+  INBOX_ACK_FAILED: 'runtime_inbox_ack_failed',
+  INBOX_NACK_FAILED: 'runtime_inbox_nack_failed',
   // phase 1274: max_tokens stop handler prebuilt-only final path
   MAX_TOKENS_PREBUILT_ONLY_FINAL: 'max_tokens_prebuilt_only_final',
   // phase 1274: max_tokens stop handler empty assistant skipped

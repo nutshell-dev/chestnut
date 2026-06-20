@@ -103,10 +103,11 @@ export async function stopAllCommand(
   // Write marker so next boot can detect intentional stop
   const baseFs = deps.fsFactory(baseDir);
   try {
-    // r126 F fork: atomic tmp+rename mirror phase 1024 G.1 / 防 crash 中 torn-write
-    const tmpFile = `clean-stop.${process.pid}.${Date.now()}.tmp`;
-    baseFs.writeAtomicSync(tmpFile, String(Date.now()));
-    baseFs.moveSync(tmpFile, 'clean-stop');
+    // phase 521 (review-round4 CLI M): writeAtomicSync 已内置 tmp+rename atomicity；
+    // 原 r126 F fork 在外层再 wrap tmpFile + moveSync (= double-tmp) → crash 在
+    // writeAtomic 完成后 moveSync 前会留 clean-stop.<pid>.<ts>.tmp 孤儿、累积 in .chestnut/。
+    // 改后直接 writeAtomicSync 到 'clean-stop'、原子 + 无中间 .tmp 残留。
+    baseFs.writeAtomicSync('clean-stop', String(Date.now()));
   } catch { /* silent: clean-stop marker 写失败 best-effort / 缺 marker 仅次启动 spurious "ungraceful shutdown" warn 不影响功能 */ }
 
   // phase 2 γ4: 同时为每只被 stop 的 claw 写 per-claw marker so watchdog can classify
@@ -117,10 +118,10 @@ export async function stopAllCommand(
   const stopSucceededSet = new Set(running.filter(name => !stopFailed.includes(name)));
   for (const name of stopSucceededSet) {
     try {
+      // phase 521 (review-round4 CLI M): 同 baseDir marker 路径、writeAtomicSync 已内置
+      // tmp+rename、外层 wrap 去除、防 .tmp 孤儿累积 in .chestnut/claws/<name>/。
       const clawFs = deps.fsFactory(path.join(baseDir, CLAWS_DIR, name));
-      const tmpFile = `clean-stop.${process.pid}.${Date.now()}.tmp`;
-      clawFs.writeAtomicSync(tmpFile, String(Date.now()));
-      clawFs.moveSync(tmpFile, 'clean-stop');
+      clawFs.writeAtomicSync('clean-stop', String(Date.now()));
     } catch {
       // silent: per-claw marker 写失败 best-effort（同全局 marker 处理）
     }

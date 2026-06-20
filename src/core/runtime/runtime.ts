@@ -884,7 +884,19 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
 
       await this.sessionManager.commitTurn();
       for (const h of addressedHandles) {
-        await this.inboxReader.ack(h);
+        try {
+          await this.inboxReader.ack(h);
+        } catch (ackErr) {
+          // phase 521 (review-round4 N4-Core-H2): per-ack atomicity、防 ack 失败
+          // cascade 到 turn-level catch 触发 rollback + duplicate delivery。
+          // InboxReader.init reconcile 兜底 inflight→pending 自然 redrive。
+          this.auditWriter.write(
+            RUNTIME_AUDIT_EVENTS.INBOX_ACK_FAILED,
+            `file=${h.originalFileName}`,
+            `path=normal_turn_end`,
+            `error=${formatErr(ackErr)}`,
+          );
+        }
       }
       return count;
     } catch (err) {
@@ -903,16 +915,38 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
         // crash recovery（drain 后 save 前）由 InboxReader.init() reconcile 兜底。
         // IdleTimeoutSignal: nack 让下轮 redrive（dialog 未 commit 新增内容、消息真未消费）。
         for (const h of addressedHandles) {
-          if (err instanceof PriorityInboxInterrupt || err instanceof UserInterrupt) {
-            await this.inboxReader.ack(h);
-          } else {
-            await this.inboxReader.nack(h, formatErr(err));
+          const isAckPath = err instanceof PriorityInboxInterrupt || err instanceof UserInterrupt;
+          try {
+            if (isAckPath) {
+              await this.inboxReader.ack(h);
+            } else {
+              await this.inboxReader.nack(h, formatErr(err));
+            }
+          } catch (opErr) {
+            // phase 521 (review-round4 N4-Core-H2): per-handle atomicity、防 ack/nack
+            // 失败 cascade 出本 catch 引复合 catch path、duplicate delivery。
+            this.auditWriter.write(
+              isAckPath ? RUNTIME_AUDIT_EVENTS.INBOX_ACK_FAILED : RUNTIME_AUDIT_EVENTS.INBOX_NACK_FAILED,
+              `file=${h.originalFileName}`,
+              `path=graceful_interrupt`,
+              `error=${formatErr(opErr)}`,
+            );
           }
         }
       } else {
         await this.sessionManager.rollbackTurn(formatErr(err));
         for (const h of addressedHandles) {
-          await this.inboxReader.nack(h, formatErr(err));
+          try {
+            await this.inboxReader.nack(h, formatErr(err));
+          } catch (nackErr) {
+            // phase 521 (review-round4 N4-Core-H2): per-nack atomicity
+            this.auditWriter.write(
+              RUNTIME_AUDIT_EVENTS.INBOX_NACK_FAILED,
+              `file=${h.originalFileName}`,
+              `path=rollback`,
+              `error=${formatErr(nackErr)}`,
+            );
+          }
         }
       }
       // phase 63 NEW: 5 typed Error → ContractSystem.markCrashed 映射 contract_crashed 通道

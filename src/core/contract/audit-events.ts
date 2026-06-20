@@ -33,6 +33,9 @@ export const CONTRACT_AUDIT_EVENTS = {
   MOVE_ARCHIVE_FAILED: 'contract_move_archive_failed',
   VERIFICATION_INBOX_FAILED: 'contract_verification_inbox_failed',
   VERIFICATION_RESET_FAILED: 'contract_verification_reset_failed',
+  // phase 521 (review-round4 Core M1): handleVerificationErrorRetry outer catch 路径下
+  // 既 reset 失败、subtask 永卡 in_progress、observability + 运维需手动 reset
+  VERIFICATION_STUCK_IN_PROGRESS: 'contract_verification_stuck_in_progress',
   VERIFICATION_BACKGROUND_FAILED: 'contract_verification_background_failed',
   COMPLETE_ON_CANCELLED: 'contract_complete_on_cancelled',
   VERIFICATION_BACKGROUND_DONE: 'contract_verification_background_done',

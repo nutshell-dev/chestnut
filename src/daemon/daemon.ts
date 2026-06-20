@@ -82,7 +82,19 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
     // ProcessManager 接管 PID 文件
     const processManager = createAgentProcessManager({ fsFactory: deps.fsFactory }, preAssembleAudit);
 
-    const clawConfig = isMotion ? null : loadClawConfig({ fsFactory: deps.fsFactory }, getClawConfigPath(name));
+    // phase 521 (review-round4 CLI M): loadClawConfig 包入 try 显式归类 module=claw_config
+    // YAML parse error 改前 escape 到 shim 无 ASSEMBLE_FAILED granularity
+    let clawConfig: ReturnType<typeof loadClawConfig> | null = null;
+    if (!isMotion) {
+      try {
+        clawConfig = loadClawConfig({ fsFactory: deps.fsFactory }, getClawConfigPath(name));
+      } catch (e) {
+        const reason = formatErr(e);
+        preAssembleAudit.write(deps.auditEvents.assembleFailed, 'module=claw_config', 'phase=preconstruct', `reason=${reason}`);
+        preAssembleAudit.dispose?.();
+        process.exit(1);
+      }
+    }
 
     // Assembly 装配（phase 324 H1：先取锁、再写 PID。
     // 若先写 PID，losing 实例会在 LockConflictError 前覆盖上家 PID 文件 →
@@ -181,7 +193,13 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
       audit: auditWriter,
       inbox: { pendingDir: inboxPendingDir },
       motion: isMotion
-        ? { heartbeat: heartbeat ?? undefined, watchdogAliveProbe: deps.watchdogAliveProbe! }
+        ? (() => {
+            // phase 521 (review-round4 CLI M): 非空断言改显式 throw、防 test 构造缺 probe + motion 分支致 undefined() crash
+            if (!deps.watchdogAliveProbe) {
+              throw new Error('daemon: deps.watchdogAliveProbe required for motion mode');
+            }
+            return { heartbeat: heartbeat ?? undefined, watchdogAliveProbe: deps.watchdogAliveProbe };
+          })()
         : undefined,
       streamWriter,
     });

@@ -106,8 +106,10 @@ export class NodeFileSystem implements FileSystem {
 
     // Normalize path to prevent directory traversal
     const normalized = path.normalize(relativePath);
-    
-    if (normalized.startsWith('..')) {
+
+    // phase 521 (review-round4 Foundation M): startsWith('..') 误拒 `..foo` `..config` 合法名
+    // 改用 exact `..` 匹配或 `'..' + sep` 前缀、严格只拦目录穿越
+    if (normalized === '..' || normalized.startsWith('..' + path.sep) || normalized.startsWith('../')) {
       throw new PermissionError(
         `Path "${relativePath}" attempts to escape base root`,
         { path: relativePath }

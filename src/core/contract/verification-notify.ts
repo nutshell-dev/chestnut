@@ -16,6 +16,7 @@ import {
   emitContractVerificationResetFailed,
   emitSubtaskForceAccepted,
 } from './audit-emit.js';
+import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 
 type NotifyType = 'subtask_completed' | 'verification_failed' | 'contract_completed' | 'contract_cancelled' | 'contract_crashed';
 
@@ -212,6 +213,28 @@ export async function handleVerificationErrorRetry(
       ctx.audit,
       { context: 'ContractSystem._writeVerificationError.resetStatus', error: formatErr(e) },
     );
+    // phase 521 (review-round4 Core M1): reset 失败时尝试 fallback 单独 lock 重置 in_progress→todo
+    // 防 subtask 永卡 in_progress、后续 submit_subtask call 全报 "already in_progress"。
+    // 若 fallback 也失败 → emit STUCK_IN_PROGRESS observability、需运维手动修
+    try {
+      await ctx.withProgressLock(contractId, async () => {
+        const fbProgress = await ctx.getProgress(contractId);
+        const fbSubtask = fbProgress?.subtasks[subtaskId];
+        if (fbSubtask && fbSubtask.status === 'in_progress') {
+          fbSubtask.status = 'todo';
+          await ctx.saveProgress(contractId, fbProgress!);
+        }
+      });
+    } catch (fbErr) {
+      ctx.audit.write(
+        CONTRACT_AUDIT_EVENTS.VERIFICATION_STUCK_IN_PROGRESS,
+        `contract_id=${contractId}`,
+        `subtask_id=${subtaskId}`,
+        `cause=${cause}`,
+        `outer_error=${formatErr(e)}`,
+        `fallback_error=${formatErr(fbErr)}`,
+      );
+    }
   }
   return result;
 }
