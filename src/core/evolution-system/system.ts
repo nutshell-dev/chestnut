@@ -28,6 +28,11 @@ export interface EvolutionSystemDeps {
   createSkillSystem?: typeof defaultCreateSkillSystem;
 }
 
+// phase 450 (review-round3 §3): retroChain wait prev 超时上限（10 min）
+// 推导：与 retroSubagentTimeoutMs 默认对齐（一个 subagent 最长生命周期）；
+// chain 卡死多因 prev subagent 自身超时未抛错、等同 stall 信号。
+const RETRO_CHAIN_STALL_TIMEOUT_MS = 10 * 60 * 1000;
+
 export interface RetroResult {
   status:
     | 'finished'
@@ -201,13 +206,26 @@ export class EvolutionSystem {
     ctx: MotionReviewContext,
   ): Promise<RetroResult> {
     // phase 406 Step B (review N7): mutex serialize、防 HWM race
+    // phase 450 (review-round3 §3): wait prev 加 stall timeout、超时不让 chain 永久阻塞下游
     const prev = this.retroChain;
     const p = (async (): Promise<RetroResult> => {
-      try {
-        await prev;
-      } catch {
-        // silent: chain-only swallow — 上一次 retro 失败已被原 caller 收到、
-        // 链不能因此中断 / 否则后续 retro 全死。本次 entry 仍走 impl。
+      let stalled = false;
+      await Promise.race([
+        prev.catch(() => undefined),  // 既有 chain-only swallow 保留
+        new Promise<void>(resolve => {
+          const t = setTimeout(() => {
+            stalled = true;
+            resolve();
+          }, RETRO_CHAIN_STALL_TIMEOUT_MS);
+          t.unref?.();  // 防 timer 阻塞 Node 退出
+        }),
+      ]);
+      if (stalled) {
+        this.deps.audit.write(
+          RETRO_AUDIT_EVENTS.RETRO_CHAIN_STALLED,
+          `contract_id=${contractId}`,
+          `timeout_ms=${RETRO_CHAIN_STALL_TIMEOUT_MS}`,
+        );
       }
       return this._runRetroForContractImpl(contractId, ctx);
     })();

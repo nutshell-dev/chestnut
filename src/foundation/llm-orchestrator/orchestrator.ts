@@ -31,6 +31,7 @@ import { CircuitBreaker } from './circuit-breaker.js';
 import { createLLMProvider, type LLMProvider } from '../llm-provider/index.js';
 import { makeExternalAbortError, withCombinedAbortSignal, type AbortReason } from '../llm-provider/index.js';
 import { delay, isContentChunk, wrapResponseAsStream, mergeSignals } from './utils.js';
+import { createHash } from 'crypto';  // phase 450 (review): cache key apiKey hash
 
 /**
  * Maximum exponential backoff delay (ms).
@@ -92,7 +93,18 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
   }
 
   private getSdkClient(config: ProviderConfig): LLMProvider {
-    const key = `${config.apiFormat ?? 'unknown'}:${config.model ?? 'unknown'}:${(config.apiKey ?? '').slice(-8)}`;
+    // phase 450 (review): cache key 含全部 endpoint-determining 字段
+    // - baseUrl: 同 apiFormat+model 不同 endpoint 不应共享 client
+    // - apiKey hash (SHA-256 前 8 位): 防末 8 位明文 collision + 不放完整 key
+    const apiKeyHash = config.apiKey
+      ? createHash('sha256').update(config.apiKey).digest('hex').slice(0, 8)
+      : 'noapikey';
+    const key = [
+      config.apiFormat ?? 'unknown',
+      config.model ?? 'unknown',
+      config.baseUrl ?? 'default',
+      apiKeyHash,
+    ].join(':');
     if (!this.sdkClientCache.has(key)) {
       this.sdkClientCache.set(key, createLLMProvider(config));
       this.events?.emit({ type: 'sdk_client_cache_miss', preset: config.apiFormat ?? 'unknown', model: config.model ?? 'unknown' });

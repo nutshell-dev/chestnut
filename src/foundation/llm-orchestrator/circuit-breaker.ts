@@ -28,6 +28,29 @@ export class CircuitBreaker {
     this.onTransition = onTransition;
   }
 
+  /**
+   * Returns whether the circuit-breaker is currently open (blocking calls).
+   *
+   * 副作用警告（phase 450 / review-round3 §3）：
+   *
+   * 本方法 mutates state — 当 `state === 'open'` 且距 openedAt 已超
+   * `resetTimeoutMs` 时、本调用会：
+   * - 将 state 从 'open' 改为 'half-open'
+   * - emit `breaker_half_open` transition 回调
+   * - 返回 false 允许一次探测
+   *
+   * 这意味着：
+   * - 并发 caller 同时调用 isOpen() 时、第一个见到「open + 过 timeout」
+   *   者触发 transition、其他 caller 此后见到 state='half-open' 也返 false
+   *   → 多 probe 并发（review-2026-06-19 指出、目前接受、未深度治理）
+   * - `wasOpen = isOpen(); ...; nowOpen = isOpen()` 模式（orchestrator.ts 13+
+   *   caller 使用）依赖此副作用、二次调用看到 transition 完成后的状态差。
+   *
+   * 未来若解决并发 probe race、应拆为：
+   * - canAttempt(): boolean — pure query（含 timeout decision）
+   * - markProbeStarted(): void — caller 显式 transition
+   *   届时所有 13+ caller 需同步改、超 review 单 phase 容量、留 follow-up phase。
+   */
   isOpen(): boolean {
     if (this.state === 'open') {
       if (Date.now() - this.openedAt! >= this.resetTimeoutMs) {

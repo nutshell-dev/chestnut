@@ -28,4 +28,7 @@ export const RETRO_AUDIT_EVENTS = {
   EVOLUTION_LEGACY_SCHEMA_MIGRATED_RESET: 'evolution_legacy_schema_migrated_reset',
   // phase 324 C5: progress.completed_at 缺失 → 拒绝推水位 / 防单坏 contract 毒化高水位
   EVOLUTION_SKIPPED_MISSING_COMPLETED_AT: 'evolution_skipped_missing_completed_at',
+  // phase 450 (review-round3 §3): retroChain wait prev 超时（10 min 默认）后
+  // 本次 retro 不再连累阻塞、emit STALLED audit + 进 impl（stall 后 prev 与本次并行、接受）
+  RETRO_CHAIN_STALLED: 'evolution_retro_chain_stalled',
 } as const;

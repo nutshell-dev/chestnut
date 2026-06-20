@@ -338,6 +338,7 @@
       "contract_retro_yaml_failed",
       "evolution_boot_reconcile",
       "evolution_legacy_schema_migrated_reset",
+      "evolution_retro_chain_stalled",
       "evolution_skipped_missing_completed_at",
       "evolution_state_invariant_violated",
       "retro_skipped_duplicate",
