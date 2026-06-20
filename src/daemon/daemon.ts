@@ -176,10 +176,12 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
     if (unhandledRejectionHandler) process.removeListener('unhandledRejection', unhandledRejectionHandler);
     uncaughtHandler = (err) => {
       writeCrash(err);
+      auditWriter.dispose?.();  // phase 477 (review N3-L): flush batched audit 前 exit
       process.exit(1);
     };
     unhandledRejectionHandler = (reason) => {
       writeCrash(reason);
+      auditWriter.dispose?.();  // phase 477 (review N3-L)
       process.exit(1);
     };
     process.on('uncaughtException', uncaughtHandler);
