@@ -185,7 +185,11 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   const isMotion = options.label === MOTION_CLAW_ID;
   const clawsDir = isMotion ? path.join(options.agentDir, '..', CLAWS_DIR) : '';
   const clawsFs = isMotion && clawsDir ? createDirContext({ fsFactory: options.fsFactory }, clawsDir).fs : fs;
-  const chestnutRoot = isMotion ? path.join(options.agentDir, '..') : options.agentDir;
+  // phase 462 (review N3-M): chestnutRoot 应为 .chestnut 子目录、与 motion 路径同
+  // motion: agentDir=.chestnut/motion → ..        =.chestnut
+  // claw:   agentDir=.chestnut/claws/<n> → ../.. =.chestnut
+  // 改前非 motion 漏一层 → chestnutRoot = clawDir 自身 → clawTopology 误路由
+  const chestnutRoot = isMotion ? path.join(options.agentDir, '..') : path.join(options.agentDir, '..', '..');
   const clawTopology = createClawTopology({ fs: clawsFs, chestnutRoot, audit: options.audit, motionClawId: MOTION_CLAW_ID, motionDir: isMotion ? options.agentDir : String(MOTION_CLAW_ID) });
   const clawTrackMap = new Map<string, ClawTrack>();
 
