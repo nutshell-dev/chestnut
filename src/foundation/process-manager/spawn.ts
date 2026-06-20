@@ -202,7 +202,11 @@ async function writePidExclusive(
   await ensureStatusDir(ctx, clawId);
 
   try {
-    ctx.fs.writeExclusiveSync(pidFile, JSON.stringify({ pid: process.pid }));
+    // phase 458 (review N3-M): 写 pid=0 占位 sentinel 而非父进程 PID。
+    // 改前 JSON.stringify({ pid: process.pid }) = 父 PID、外部 stop 在子 PID
+    // 覆盖（L322）前若 SIGTERM 会误杀父进程。alive.ts pid===0 分支识别为
+    // "spawning placeholder" 跳过 kill 决策。
+    ctx.fs.writeExclusiveSync(pidFile, JSON.stringify({ pid: 0 }));
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
     await handlePidFileConflict(ctx, clawId, pidFile);

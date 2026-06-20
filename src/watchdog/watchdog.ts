@@ -162,6 +162,9 @@ async function restartMotionIfDown(
       // / start.ts / claw-chat (phase 398 N1) 全 CLI 入口对齐、不绕
       // makeChestnutRoot/path.dirname。
       env: { ...process.env, CHESTNUT_ROOT: getWorkspaceRoot() } as Record<string, string | undefined>,
+      // phase 458 (review N3-M): 显式传 cwd 防子进程继承 watchdog process.cwd（test/multi-workspace
+      // 污染风险）。motion 子进程逻辑通过 CHESTNUT_ROOT env 寻路、cwd 应为 chestnut workspace root。
+      cwd: getWorkspaceRoot(),
     });
     log(fsFactory, `[watchdog] motion restarted (PID=${pid})`);
     audit.write(PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_SPAWNED, MOTION_CLAW_ID, `pid=${pid}`);
