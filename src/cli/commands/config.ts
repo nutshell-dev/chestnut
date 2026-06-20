@@ -171,8 +171,8 @@ async function providerAdd(deps: { fsFactory: (baseDir: string) => FileSystem })
     
     // Role selection
     console.log('\nRole:');
-    console.log('  1. primary');
-    console.log('  2. fallback');
+    console.log('1. primary');
+    console.log('2. fallback');
     const roleAnswer = await question(rl, '> ', '2');
     const role = roleAnswer === '1' ? 'primary' : 'fallback';
     
@@ -211,7 +211,7 @@ async function providerAdd(deps: { fsFactory: (baseDir: string) => FileSystem })
       const currentFallbacks = config.llm.fallbacks ?? [];
       console.log(`\nCurrent fallbacks: ${currentFallbacks.length === 0 ? '(none)' : ''}`);
       currentFallbacks.forEach((f, i) => {
-        console.log(`  #${i + 1}: ${f.label || f.preset}`);
+        console.log(`#${i + 1}: ${f.label || f.preset}`);
       });
       
       const posDefault = String(currentFallbacks.length + 1);
@@ -236,7 +236,7 @@ async function providerAdd(deps: { fsFactory: (baseDir: string) => FileSystem })
     const providerConfigRuntime = toProviderConfig(providerConfig);
     const probe = await checkLLMConnectionFor(providerConfigRuntime);
     if (probe.ok) {
-      console.log(`  ✓ ${probe.model}`);
+      console.log(`✓ ${probe.model}`);
     } else {
       formatLLMError({
         errorType: probe.errorType,
@@ -254,7 +254,7 @@ async function providerAdd(deps: { fsFactory: (baseDir: string) => FileSystem })
         }
       } else if (role === 'fallback') {
         // fallback 失败 → 警告、保留配置（用户可手动 remove）
-        console.log('  ⚠ Fallback config saved but unreachable. Use "chestnut config provider remove" to clean up.');
+        console.log('⚠ Fallback config saved but unreachable. Use "chestnut config provider remove" to clean up.');
       }
     }
 
@@ -371,7 +371,7 @@ async function providerSetPrimary(deps: { fsFactory: (baseDir: string) => FileSy
   console.log('\nTesting new primary connection...');
   const probe = await checkLLMConnection(deps);
   if (probe.ok) {
-    console.log(`  ✓ ${probe.model}`);
+    console.log(`✓ ${probe.model}`);
   } else {
     formatLLMError({
       errorType: probe.errorType,

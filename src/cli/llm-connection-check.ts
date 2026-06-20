@@ -67,18 +67,18 @@ export function formatLLMError(
   probe: { errorType: LLMErrorType; message: string; provider?: string; hint?: string },
 ): string[] {
   const lines: string[] = [];
-  lines.push(`  ✗ ${LLM_ERROR_LABELS[probe.errorType]}`);
+  lines.push(`✗ ${LLM_ERROR_LABELS[probe.errorType]}`);
   if (probe.provider) {
-    lines.push(`    Provider: ${probe.provider}`);
+    lines.push(`  Provider: ${probe.provider}`);
   }
   // phase 464 (review N3-L): 按 codepoint 截断，避免 UTF-16 surrogate pair 被切断
   const codepoints = [...probe.message];
   const trimmed = codepoints.length > LLM_ERROR_PREVIEW_CHARS
     ? codepoints.slice(0, LLM_ERROR_PREVIEW_CHARS).join('') + '...'
     : probe.message;
-  lines.push(`    ${trimmed}`);
+  lines.push(`  ${trimmed}`);
   if (probe.hint) {
-    lines.push(`    Hint: ${probe.hint}`);
+    lines.push(`  Hint: ${probe.hint}`);
   }
   return lines;
 }
@@ -157,10 +157,10 @@ export async function promptReconfigure(
 
   while (true) {
     console.log('\nReconfigure LLM:');
-    console.log('  1. Update API key');
-    console.log('  2. Change model');
-    console.log('  3. Change format & base URL');
-    console.log('  n. Exit');
+    console.log('1. Update API key');
+    console.log('2. Change model');
+    console.log('3. Change format & base URL');
+    console.log('n. Exit');
     const choice = await question('\n> ');
 
     if (choice === 'n' || choice === 'N') return false;
@@ -168,13 +168,13 @@ export async function promptReconfigure(
     if (choice === '1') {
       const raw = await passwordPrompt('New API key');
       if (raw === 'b') continue;
-      if (!raw) { console.log('  API key is required.'); continue; }
+      if (!raw) { console.log('API key is required.'); continue; }
       patchGlobalConfigPrimary(deps, { api_key: raw });
 
     } else if (choice === '2') {
       const raw = await question('New model (b = back, "auto" = preset default)');
       if (raw === 'b') continue;
-      if (!raw) { console.log('  Model is required. Type "auto" to use preset default.'); continue; }
+      if (!raw) { console.log('Model is required. Type "auto" to use preset default.'); continue; }
       patchGlobalConfigPrimary(deps, { model: raw });
 
     } else if (choice === '3') {
@@ -187,43 +187,43 @@ export async function promptReconfigure(
         if (step === 'pick') {
           console.log('\nChange provider (b = back to menu):');
           presetList.forEach((p, i) =>
-            console.log(`  ${i + 1}. ${p.displayName}  (${p.defaultBaseUrl})`)
+            console.log(`${i + 1}. ${p.displayName}  (${p.defaultBaseUrl})`)
           );
-          console.log(`  ${customIdx}. Custom (enter format & base URL manually)`);
+          console.log(`${customIdx}. Custom (enter format & base URL manually)`);
 
           const raw = await question('\n> ');
           if (raw === 'b') break;
           const idx = parseInt(raw, 10);
-          if (isNaN(idx)) { console.log('  Invalid choice: not a number.'); continue; }
+          if (isNaN(idx)) { console.log('Invalid choice: not a number.'); continue; }
 
           if (idx >= 1 && idx <= presetList.length) {
             const p = presetList[idx - 1];
             chosenPreset = p.id;
             chosenBaseUrl = p.defaultBaseUrl ?? '';
             patchGlobalConfigPrimary(deps, { preset: chosenPreset, base_url: chosenBaseUrl || undefined });
-            console.log(`  ✓ Set provider to ${p.displayName}`);
+            console.log(`✓ Set provider to ${p.displayName}`);
             step = 'done';
           } else if (idx === customIdx) {
             step = 'customFormat';
           } else {
-            console.log('  Invalid choice.');
+            console.log('Invalid choice.');
           }
 
         } else if (step === 'customFormat') {
           console.log('\nAPI format (b = back):');
-          console.log('  1. Anthropic');
-          console.log('  2. OpenAI');
-          console.log('  3. Gemini');
+          console.log('1. Anthropic');
+          console.log('2. OpenAI');
+          console.log('3. Gemini');
           const raw = await question('\n> ');
           if (raw === 'b') { step = 'pick'; continue; }
           chosenPreset = FORMAT_MAP[raw] ?? '';
-          if (!chosenPreset) { console.log('  Invalid choice.'); continue; }
+          if (!chosenPreset) { console.log('Invalid choice.'); continue; }
           step = 'baseUrl';
 
         } else if (step === 'baseUrl') {
           const raw = await question('Base URL (b = back)');
           if (raw === 'b') { step = 'customFormat'; continue; }
-          if (!raw) { console.log('  Base URL is required.'); continue; }
+          if (!raw) { console.log('Base URL is required.'); continue; }
           chosenBaseUrl = raw;
           patchGlobalConfigPrimary(deps, { preset: chosenPreset, base_url: chosenBaseUrl });
           step = 'done';
@@ -233,14 +233,14 @@ export async function promptReconfigure(
       if (step !== 'done') continue;
 
     } else {
-      console.log('  Invalid choice.');
+      console.log('Invalid choice.');
       continue;
     }
 
-    console.log('  Testing connection...');
+    console.log('Testing connection...');
     const result = await checkLLMConnection(deps);
     if (result.ok) {
-      console.log('  ✓ Connection successful!');
+      console.log('✓ Connection successful!');
       return true;
     }
     formatLLMError({

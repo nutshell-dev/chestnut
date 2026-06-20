@@ -1,8 +1,9 @@
 /**
  * Phase 451 Step B — formatLLMError display template invariant tests.
+ * Phase 515: 缩进归一（结果行顶格、字段缩进 2）。
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 
 const { formatLLMError, LLM_ERROR_LABELS } = await import('../../src/cli/llm-connection-check.js');
 
@@ -16,10 +17,10 @@ describe('formatLLMError', () => {
     });
 
     expect(lines).toEqual([
-      `  ✗ ${LLM_ERROR_LABELS.model}`,
-      '    Provider: anthropic',
-      '    model not found',
-      '    Hint: Check that model name matches provider docs exactly.',
+      `✗ ${LLM_ERROR_LABELS.model}`,
+      '  Provider: anthropic',
+      '  model not found',
+      '  Hint: Check that model name matches provider docs exactly.',
     ]);
   });
 
@@ -30,8 +31,8 @@ describe('formatLLMError', () => {
     });
 
     expect(lines).toEqual([
-      `  ✗ ${LLM_ERROR_LABELS.auth}`,
-      '    401 Unauthorized',
+      `✗ ${LLM_ERROR_LABELS.auth}`,
+      '  401 Unauthorized',
     ]);
     expect(lines.some(l => l.includes('Provider:'))).toBe(false);
     expect(lines.some(l => l.includes('Hint:'))).toBe(false);
@@ -44,8 +45,8 @@ describe('formatLLMError', () => {
       message: longMessage,
     });
 
-    const messageLine = lines.find(l => l.startsWith('    '))!;
-    expect(messageLine).toBe(`    ${'X'.repeat(200)}...`);
+    const messageLine = lines.find(l => l.startsWith('  '))!;
+    expect(messageLine).toBe(`  ${'X'.repeat(200)}...`);
   });
 
   it('does not truncate message at exactly 200 chars', () => {
@@ -55,8 +56,8 @@ describe('formatLLMError', () => {
       message: exact,
     });
 
-    const messageLine = lines.find(l => l.startsWith('    '))!;
-    expect(messageLine).toBe(`    ${exact}`);
+    const messageLine = lines.find(l => l.startsWith('  '))!;
+    expect(messageLine).toBe(`  ${exact}`);
     expect(messageLine).not.toContain('...');
   });
 
@@ -67,6 +68,6 @@ describe('formatLLMError', () => {
       hint: 'Wait a few seconds.',
     });
 
-    expect(lines).toContain('    Hint: Wait a few seconds.');
+    expect(lines).toContain('  Hint: Wait a few seconds.');
   });
 });

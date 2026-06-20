@@ -78,9 +78,9 @@ export async function initCommand(deps: { fsFactory: (baseDir: string) => FileSy
     // Outer menu loop — lets option 2 / 3 return here via 'back'
     outer: while (true) {
       console.log('Configure LLM API:');
-      console.log('  1. Scan environment variables');
-      console.log('  2. Enter API key manually');
-      console.log('  3. Select provider');
+      console.log('1. Scan environment variables');
+      console.log('2. Enter API key manually');
+      console.log('3. Select provider');
       const configMethod = await question('\n> ', '1');
 
       if (configMethod === '1') {
@@ -92,7 +92,7 @@ export async function initCommand(deps: { fsFactory: (baseDir: string) => FileSy
 
         if (detected.length > 0) {
           console.log('\nDetected:');
-          detected.forEach((v, i) => console.log(`  ${i + 1}. ${v}`));
+          detected.forEach((v, i) => console.log(`${i + 1}. ${v}`));
           const pick = await question('\n> (number or variable name)');
           const idx = parseInt(pick, 10) - 1;
           let varName: string;
@@ -114,9 +114,9 @@ export async function initCommand(deps: { fsFactory: (baseDir: string) => FileSy
             model = await question(`Model (auto = ${matchedEntry[1].defaultModel ?? 'preset default'})`, 'auto');
           } else {
             console.log('\nCould not determine provider. Select API format:');
-            console.log('  1. Anthropic');
-            console.log('  2. OpenAI');
-            console.log('  3. Gemini');
+            console.log('1. Anthropic');
+            console.log('2. OpenAI');
+            console.log('3. Gemini');
             const fmt = await question('\n> ', '2');
             presetId = FORMAT_MAP[fmt] ?? 'custom-openai';
             baseUrl = await question('Base URL');
@@ -126,7 +126,7 @@ export async function initCommand(deps: { fsFactory: (baseDir: string) => FileSy
           }
 
         } else {
-          console.log('\n  No API key environment variables detected.');
+          console.log('\nNo API key environment variables detected.');
           const varName = await question('Enter environment variable name (e.g. MY_API_KEY)');
           if (!varName) { throw new CliError('Variable name is required'); }
 
@@ -135,9 +135,9 @@ export async function initCommand(deps: { fsFactory: (baseDir: string) => FileSy
           console.log(`✓ Will read from ${varName} at runtime`);
 
           console.log('\nSelect API format:');
-          console.log('  1. Anthropic');
-          console.log('  2. OpenAI');
-          console.log('  3. Gemini');
+          console.log('1. Anthropic');
+          console.log('2. OpenAI');
+          console.log('3. Gemini');
           const fmt = await question('\n> ', '2');
           presetId = FORMAT_MAP[fmt] ?? 'custom-openai';
           baseUrl = await question('Base URL');
@@ -164,9 +164,9 @@ export async function initCommand(deps: { fsFactory: (baseDir: string) => FileSy
         while (step !== 'done') {
           if (step === 'format') {
             console.log('\nAPI Format (b = back to menu):');
-            console.log('  1. Anthropic');
-            console.log('  2. OpenAI');
-            console.log('  3. Gemini');
+            console.log('1. Anthropic');
+            console.log('2. OpenAI');
+            console.log('3. Gemini');
             const fmt = await question('\n> ');
             if (fmt === 'b') { console.log(); continue outer; }
             manualFormat = FORMAT_MAP[fmt] ?? '';
@@ -222,7 +222,7 @@ export async function initCommand(deps: { fsFactory: (baseDir: string) => FileSy
           if (step === 'pick') {
             console.log('\nSelect provider (b = back to menu):');
             providers.forEach((p, i) =>
-              console.log(`  ${i + 1}. ${p.displayName}  (${p.defaultModel ?? 'custom model'})`)
+              console.log(`${i + 1}. ${p.displayName}  (${p.defaultModel ?? 'custom model'})`)
             );
             const raw = await question('\n> ');
             if (raw === 'b') { console.log(); continue outer; }
@@ -324,7 +324,7 @@ export async function initCommand(deps: { fsFactory: (baseDir: string) => FileSy
     const latencyMs = Date.now() - t0;
     if (probe.ok) {
       audit?.write(CLI_AUDIT_EVENTS.INIT_PROBE_SUCCEEDED, `preset=${presetId}`, `model=${probe.model}`, `latency_ms=${latencyMs}`);
-      console.log(`  ✓ ${probe.model} (${latencyMs}ms)`);
+      console.log(`✓ ${probe.model} (${latencyMs}ms)`);
     } else {
       audit?.write(
         CLI_AUDIT_EVENTS.INIT_PROBE_FAILED,
@@ -345,14 +345,14 @@ export async function initCommand(deps: { fsFactory: (baseDir: string) => FileSy
           audit?.write(CLI_AUDIT_EVENTS.INIT_PROBE_RECONFIGURED, `preset=${presetId}`);
         } else {
           audit?.write(CLI_AUDIT_EVENTS.INIT_PROBE_SKIPPED, `preset=${presetId}`, `reason=user_exit_reconfigure`);
-          console.log('  ⚠ LLM not verified. Run "chestnut config" later to fix.');
+          console.log('⚠ LLM not verified. Run "chestnut config" later to fix.');
         }
       } else {
         // network / rate_limit / unknown — 可能 transient、warn 不阻断
         // phase 324 H2: 不阻断流程（config 仍写）但设非 0 exit code、
         // 让 CI / 自动化能感知探测失败、避免静默 exit 0 制造假绿。
         audit?.write(CLI_AUDIT_EVENTS.INIT_PROBE_SKIPPED, `preset=${presetId}`, `reason=transient_${probe.errorType}`);
-        console.log('  ⚠ Continuing anyway — fix later with "chestnut config" if needed.');
+        console.log('⚠ Continuing anyway — fix later with "chestnut config" if needed.');
         process.exitCode = 2;
       }
     }
@@ -365,8 +365,8 @@ export async function initCommand(deps: { fsFactory: (baseDir: string) => FileSy
     }
     if (!silent) {
       console.log('\nNext steps:');
-      console.log('  1. Create a Claw: chestnut claw <name> create');
-      console.log('  2. Start chatting: chestnut claw <name> chat');
+      console.log('1. Create a Claw: chestnut claw <name> create');
+      console.log('2. Start chatting: chestnut claw <name> chat');
     }
 
   } catch (error) {
