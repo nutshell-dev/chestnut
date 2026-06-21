@@ -19,6 +19,7 @@
  */
 
 import { getWorkspaceRoot } from '../foundation/install-paths.js';
+import { makeAgentDirResolver } from '../core/claw-topology/index.js';
 import * as path from 'path';
 import { formatErr } from "../foundation/utils/index.js";
 import { setTimeout } from 'timers/promises';
@@ -221,7 +222,7 @@ export async function runWatchdogLoop(
   let stopped = false;
 
   // Create Motion ProcessManager (reused across loop iterations)
-  const pm = createProcessManagerForCLI({ fsFactory, motionClawId: MOTION_CLAW_ID });
+  const pm = createProcessManagerForCLI({ fsFactory, resolveAgentDir: makeAgentDirResolver() });
 
   // phase 1034: idempotent install / 防 test re-entry 或 production 异常 re-entry 累 listener (Node maxListeners warning)
   // mirror _resetShutdownGuard removeListener pattern (line 60-66) — install 前 cleanup prior

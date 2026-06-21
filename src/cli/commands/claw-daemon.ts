@@ -8,12 +8,12 @@
  */
 
 import { getWorkspaceRoot } from '../../foundation/install-paths.js';
+import { makeAgentDirResolver } from '../../core/claw-topology/index.js';
 import * as path from 'path';
 import { loadGlobalConfig, clawExists } from '../../assembly/config-load.js';
 import { getClawDir, getGlobalConfigPath, getClawConfigPath } from '../../foundation/config/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { createAgentProcessManager } from '../../foundation/process-manager/index.js';
-import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import { makeClawId } from '../../foundation/identity/index.js';
 import type { ProcessManager } from '../../foundation/process-manager/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
@@ -43,7 +43,7 @@ export async function clawDaemonCommand(
   const nodeFs = deps.fsFactory(baseDir);
   const systemAudit = createSystemAudit(nodeFs, baseDir);
   const pm: DaemonPM = deps.processManager
-    ?? createAgentProcessManager({ fsFactory: deps.fsFactory, motionClawId: MOTION_CLAW_ID }, systemAudit);
+    ?? createAgentProcessManager({ fsFactory: deps.fsFactory, resolveAgentDir: makeAgentDirResolver() }, systemAudit);
   if (pm.isAlive(makeClawId(name))) {
     console.warn(`⚠ Claw "${name}" is already running`);
     return;

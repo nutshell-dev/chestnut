@@ -7,6 +7,7 @@
  */
 
 import { getWorkspaceRoot } from '../../foundation/install-paths.js';
+import { makeAgentDirResolver } from '../../core/claw-topology/index.js';
 import * as path from 'path';
 import { loadGlobalConfig } from '../../assembly/config-load.js';
 import { getNamedSubrootDir } from '../../foundation/config/index.js';
@@ -32,7 +33,7 @@ export async function motionDaemonCommand(deps: MotionDaemonDeps): Promise<void>
   const nodeFs = deps.fsFactory(baseDir);
   const systemAudit = createSystemAudit(nodeFs, baseDir);
   const pm: DaemonPM = deps.processManager
-    ?? createAgentProcessManager({ fsFactory: deps.fsFactory, motionClawId: MOTION_CLAW_ID }, systemAudit);
+    ?? createAgentProcessManager({ fsFactory: deps.fsFactory, resolveAgentDir: makeAgentDirResolver() }, systemAudit);
   if (pm.isAlive(MOTION_CLAW_ID)) {
     console.warn('⚠ Motion is already running');
     return;

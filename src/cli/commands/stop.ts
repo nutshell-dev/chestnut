@@ -3,6 +3,7 @@
  */
 
 import * as path from 'path';
+import { makeAgentDirResolver } from '../../core/claw-topology/index.js';
 import { formatErr } from "../../foundation/utils/index.js";
 import { loadGlobalConfig } from '../../assembly/config-load.js';
 import { getGlobalConfigPath, getNamedSubrootDir } from '../../foundation/config/index.js';
@@ -68,7 +69,7 @@ export async function stopAllCommand(
 
   // 3. Stop all running claws
   const baseDir = path.dirname(getGlobalConfigPath());
-  const pm = createProcessManagerForCLI({ ...deps, motionClawId: MOTION_CLAW_ID });
+  const pm = createProcessManagerForCLI({ ...deps, resolveAgentDir: makeAgentDirResolver() });
 
   let clawNames: string[] = [];
   try {

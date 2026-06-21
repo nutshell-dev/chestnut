@@ -3,6 +3,7 @@
  */
 
 import * as path from 'path';
+import { makeAgentDirResolver } from '../../core/claw-topology/index.js';
 import * as readline from 'readline';
 import { Command } from 'commander';
 import { loadGlobalConfig, saveGlobalConfig } from '../../assembly/config-load.js';
@@ -34,7 +35,7 @@ import { checkLLMConnection, checkLLMConnectionFor, promptReconfigure, formatLLM
  * - notifyClaw 失败 silent（按现有 messaging 语义、不阻 CLI）
  */
 export function notifyRunningDaemons(deps: { fsFactory: (baseDir: string) => FileSystem }, source: string): void {
-  const pm = createProcessManagerForCLI({ ...deps, motionClawId: MOTION_CLAW_ID });
+  const pm = createProcessManagerForCLI({ ...deps, resolveAgentDir: makeAgentDirResolver() });
   const chestnutRoot = getChestnutRoot();
   const rootFs = deps.fsFactory(chestnutRoot);
   const audit = createSystemAudit(rootFs, chestnutRoot);

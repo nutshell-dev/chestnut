@@ -53,6 +53,10 @@ function walkTsFiles(dir: string, cb: (filePath: string) => void): void {
 const STEP_B_PENDING_ALLOW = new Set([
   'foundation/command-tool/exec.ts::chestnut stop',
   'core/status-service/forum-formatter.ts::chestnut status',
+  // phase 540: claw-status-hints 迁出 cli/commands/claw-shared、用于 motion-addons + cli/claw-send
+  // 'chestnut claw' 字面是 CLI 启动命令、属业务文案；M#5 严格扫由本 allowlist 承认 pure formatter
+  // 持 CLI literal 的 by-design 例外（cli/commands/claw-shared.ts 旧 owner 同型未触碰本 rule）
+  'foundation/utils/claw-status-hints.ts::chestnut claw',
 ]);
 
 const SCAN_DIRS = ['core', 'foundation'];

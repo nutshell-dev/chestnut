@@ -4,11 +4,11 @@
  */
 
 import * as path from 'path';
+import { makeAgentDirResolver } from '../../core/claw-topology/index.js';
 import { loadGlobalConfig } from '../../assembly/config-load.js';
 import { getGlobalConfigPath } from '../../foundation/config/index.js';
 import { createDirContext } from '../../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
-import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import { makeClawId } from '../../foundation/identity/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { CONTRACT_DIR, CONTRACT_ARCHIVE_DIR, CONTRACT_YAML_FILE } from '../../core/contract/index.js';
@@ -31,7 +31,7 @@ export async function listCommand(deps: { fsFactory: (baseDir: string) => FileSy
   const baseDir = path.dirname(globalConfigPath);
   const clawsDir = path.join(baseDir, CLAWS_DIR);
 
-  const processManager = createProcessManagerForCLI({ ...deps, motionClawId: MOTION_CLAW_ID });
+  const processManager = createProcessManagerForCLI({ ...deps, resolveAgentDir: makeAgentDirResolver() });
   const { audit: systemAudit } = createDirContext(deps, baseDir);
 
   // Helper: check contract status

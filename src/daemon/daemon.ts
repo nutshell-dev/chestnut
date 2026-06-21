@@ -9,6 +9,7 @@
  */
 
 import * as path from 'path';
+import { makeAgentDirResolver } from '../core/claw-topology/index.js';
 import { sha256ShortHex } from '../foundation/hash.js';
 import { formatErr } from '../foundation/utils/index.js';
 import { loadGlobalConfig, loadClawConfig } from '../assembly/config-load.js';
@@ -80,7 +81,7 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
     const preAssembleAudit: AuditLog = createSystemAudit(preAssembleFs, dir);
 
     // ProcessManager 接管 PID 文件
-    const processManager = createAgentProcessManager({ fsFactory: deps.fsFactory, motionClawId: MOTION_CLAW_ID }, preAssembleAudit);
+    const processManager = createAgentProcessManager({ fsFactory: deps.fsFactory, resolveAgentDir: makeAgentDirResolver() }, preAssembleAudit);
 
     // phase 521 (review-round4 CLI M): loadClawConfig 包入 try 显式归类 module=claw_config
     // YAML parse error 改前 escape 到 shim 无 ASSEMBLE_FAILED granularity

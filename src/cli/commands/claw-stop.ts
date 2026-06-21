@@ -4,11 +4,11 @@
  */
 
 import * as path from 'path';
+import { makeAgentDirResolver } from '../../core/claw-topology/index.js';
 import { loadGlobalConfig, clawExists } from '../../assembly/config-load.js';
 import { getClawConfigPath } from '../../foundation/config/index.js';
 import { CliError } from '../errors.js';
 import { createProcessManagerForCLI, signalCleanStop } from '../../foundation/process-manager/index.js';
-import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import { makeClawId } from '../../foundation/identity/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
@@ -25,7 +25,7 @@ export async function stopCommand(deps: { fsFactory: (baseDir: string) => FileSy
     throw new CliError(`Claw "${name}" does not exist`);
   }
 
-  const processManager = createProcessManagerForCLI({ ...deps, motionClawId: MOTION_CLAW_ID });
+  const processManager = createProcessManagerForCLI({ ...deps, resolveAgentDir: makeAgentDirResolver() });
 
   // Check if running
   if (!processManager.isAlive(makeClawId(name))) {

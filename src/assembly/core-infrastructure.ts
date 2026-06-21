@@ -1,4 +1,5 @@
 import path from 'path';
+import { makeAgentDirResolver } from '../core/claw-topology/index.js';
 import { formatErr } from '../foundation/utils/index.js';
 import { resolveChestnutRoot } from '../foundation/install-paths.js';
 // CLAWS_DIR removed: phase 263
@@ -124,7 +125,7 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
 
     // --- 2. ProcessManager + acquireLock (daemon.ts L107-108) ---
     try {
-      processManager = createAgentProcessManager({ fsFactory, motionClawId: MOTION_CLAW_ID }, auditWriter);
+      processManager = createAgentProcessManager({ fsFactory, resolveAgentDir: makeAgentDirResolver() }, auditWriter);
     } catch (e) {
       auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=process_manager`, `phase=construct`, `reason=${formatErr(e)}`);
       throw new Error(`Assembly: ProcessManager construct failed: ${formatErr(e)}`, { cause: e });

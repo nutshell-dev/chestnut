@@ -934,6 +934,14 @@ module.exports = {
       severity: 'error',
       from: { path: '^src' },
       to: { path: '^src/constants(\\.ts)?$' },
+      name: 'no-assembly-to-cli-shared-formatter',
+      comment: [
+        'phase 540: formatClawStatusHint + formatNoActiveContractHint 已迁出 cli/commands/claw-shared 至 foundation/utils/claw-status-hints。',
+        'assembly 反向 import cli 违 ML#5 依赖单向；这条 rule 守 phase 540 收益、防 future drift 再加新 assembly → cli/commands/claw-shared import。',
+      ].join(' '),
+      severity: 'error',
+      from: { path: '^src/assembly/' },
+      to: { path: '^src/cli/commands/claw-shared\\.ts$' },
     },
     {
       name: 'no-circular',

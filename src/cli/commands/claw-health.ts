@@ -4,12 +4,12 @@
  */
 
 import * as path from 'path';
+import { makeAgentDirResolver } from '../../core/claw-topology/index.js';
 import { loadGlobalConfig, clawExists } from '../../assembly/config-load.js';
 import { getClawDir, getGlobalConfigPath, getClawConfigPath } from '../../foundation/config/index.js';
 import { CliError } from '../errors.js';
 import { createDirContext } from '../../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
-import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import { makeClawId } from '../../foundation/identity/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { isFileNotFound } from '../../foundation/fs/types.js';
@@ -33,7 +33,7 @@ export async function healthCommand(deps: { fsFactory: (baseDir: string) => File
   const baseDir = path.dirname(globalConfigPath);
   const clawFs = deps.fsFactory(clawDir);
 
-  const processManager = createProcessManagerForCLI({ ...deps, motionClawId: MOTION_CLAW_ID });
+  const processManager = createProcessManagerForCLI({ ...deps, resolveAgentDir: makeAgentDirResolver() });
   const { audit: systemAudit } = createDirContext(deps, baseDir);
 
   const isRunning = processManager.isAlive(makeClawId(name));

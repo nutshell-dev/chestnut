@@ -22,33 +22,11 @@ export function formatRelativeTime(ms: number): string {
 export { LLM_OUTPUT_EVENTS };
 
 /**
- * Format a hint message for caller when target claw is not running.
- *
- * @returns hint string with restart instruction, or undefined if claw is alive.
- * @example
- *   formatClawStatusHint('my-claw', false)
- *     === 'Note: claw "my-claw" is not running. Start it with: chestnut claw my-claw daemon'
- *   formatClawStatusHint('my-claw', true) === undefined
+ * phase 540: formatClawStatusHint + formatNoActiveContractHint 迁出至 foundation/utils
+ * (assembly → cli 反向 import 消除 / pure formatter 归 L1 utils 叶子). 本文件 re-export
+ * 保 cli 内部 callsite 兼容、不动迁移期间的 cli 内部 import 路径.
  */
-export function formatClawStatusHint(clawName: string, isAlive: boolean): string | undefined {
-  if (isAlive) return undefined;
-  return `Note: claw "${clawName}" is not running. Start it with: chestnut claw ${clawName} daemon`;
-}
-
-/**
- * Format a hint message for caller when target claw has no active contract.
- *
- * Symmetric with `formatClawStatusHint`: accepts boolean param, returns undefined when contract exists.
- * @returns hint string asking to request reply via send tool, or undefined if there is an active contract.
- * @example
- *   formatNoActiveContractHint('my-claw', false)
- *     === 'No active contract for "my-claw". Ask claw to reply via send tool in message body.'
- *   formatNoActiveContractHint('my-claw', true) === undefined
- */
-export function formatNoActiveContractHint(clawName: string, hasActiveContract: boolean): string | undefined {
-  if (hasActiveContract) return undefined;
-  return `No active contract for "${clawName}". Ask claw to reply via send tool in message body.`;
-}
+export { formatClawStatusHint, formatNoActiveContractHint } from '../../foundation/utils/index.js';
 
 /**
  * 从 stream.jsonl 读取最后活跃时间（统一与 watchdog 指标）

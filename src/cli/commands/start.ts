@@ -8,6 +8,7 @@
  */
 
 import { getWorkspaceRoot, makeChestnutRoot } from '../../foundation/install-paths.js';
+import { makeAgentDirResolver } from '../../core/claw-topology/index.js';
 // CLAWS_DIR removed: phase 263
 import * as path from 'path';
 import { formatErr } from "../../foundation/utils/index.js";
@@ -151,7 +152,7 @@ async function _start(deps: { fsFactory: (baseDir: string) => FileSystem }, audi
 
   // onboarding 已完成 → 直接进 chat
   if (onboarding.state === 'complete') {
-    const pm = createProcessManagerForCLI({ ...deps, motionClawId: MOTION_CLAW_ID });
+    const pm = createProcessManagerForCLI({ ...deps, resolveAgentDir: makeAgentDirResolver() });
     if (!pm.isAlive(MOTION_CLAW_ID)) {
       await pm.spawn(MOTION_CLAW_ID, motionSpawnOptions);
     }
@@ -163,7 +164,7 @@ async function _start(deps: { fsFactory: (baseDir: string) => FileSystem }, audi
 
   if (wasFirstRun && onboarding.state === 'not_found') {
     // ★ 首次运行：后台启动 daemon，前台展示语言选择（并行）
-    const pm = createProcessManagerForCLI({ ...deps, motionClawId: MOTION_CLAW_ID });
+    const pm = createProcessManagerForCLI({ ...deps, resolveAgentDir: makeAgentDirResolver() });
     const daemonReady = (async () => {
       if (!pm.isAlive(MOTION_CLAW_ID)) {
         await pm.spawn(MOTION_CLAW_ID, motionSpawnOptions);
@@ -206,7 +207,7 @@ async function _start(deps: { fsFactory: (baseDir: string) => FileSystem }, audi
 
   } else {
     // 非首次但 not_found（极少），或 in_progress
-    const pm = createProcessManagerForCLI({ ...deps, motionClawId: MOTION_CLAW_ID });
+    const pm = createProcessManagerForCLI({ ...deps, resolveAgentDir: makeAgentDirResolver() });
     if (!pm.isAlive(MOTION_CLAW_ID)) {
       await pm.spawn(MOTION_CLAW_ID, motionSpawnOptions);
     }

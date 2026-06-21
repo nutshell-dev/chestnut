@@ -7,6 +7,7 @@
  */
 
 import * as path from 'path';
+import { makeAgentDirResolver } from '../../core/claw-topology/index.js';
 import { formatErr } from "../../foundation/utils/index.js";
 
 import { createDirContext } from '../../foundation/audit/index.js';
@@ -110,7 +111,7 @@ function tokenizeSlashArgs(s: string): string[] {
 }
 
 export async function runChatViewport(options: ChatViewportOptions): Promise<void> {
-  const pm = createProcessManagerForCLI({ fsFactory: options.fsFactory, motionClawId: MOTION_CLAW_ID });
+  const pm = createProcessManagerForCLI({ fsFactory: options.fsFactory, resolveAgentDir: makeAgentDirResolver() });
   // 确保 daemon 运行
   if (options.ensureDaemon) {
     await options.ensureDaemon();

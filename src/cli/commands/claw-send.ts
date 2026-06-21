@@ -4,6 +4,7 @@
  */
 
 import * as path from 'path';
+import { makeAgentDirResolver } from '../../core/claw-topology/index.js';
 
 import { loadGlobalConfig, clawExists } from '../../assembly/config-load.js';
 import { getGlobalConfigPath, getClawConfigPath } from '../../foundation/config/index.js';
@@ -45,7 +46,7 @@ export async function sendCommand(
 
   console.log(`Message sent to "${name}"`);
 
-  const processManager = createProcessManagerForCLI({ ...deps, motionClawId: MOTION_CLAW_ID });
+  const processManager = createProcessManagerForCLI({ ...deps, resolveAgentDir: makeAgentDirResolver() });
   const isAlive = processManager.isAlive(makeClawId(name));
   const statusHint = formatClawStatusHint(name, isAlive);
   if (statusHint) console.log(statusHint);
