@@ -123,11 +123,12 @@ export function emitInboxDeduped(
 }
 
 // ─── INBOX_MARK_DONE_FAILED ───────────────────────────────────────────────────
+// phase 578: 加 file forensic col、forensic 解析能定位是哪个 file mark-done 失败
 export function emitInboxMarkDoneFailed(
   audit: AuditLog,
-  opts: { reason: string },
+  opts: { file: string; reason: string },
 ): void {
-  audit.write(MESSAGING_AUDIT_EVENTS.INBOX_MARK_DONE_FAILED, `reason=${opts.reason}`);
+  audit.write(MESSAGING_AUDIT_EVENTS.INBOX_MARK_DONE_FAILED, `file=${opts.file}`, `reason=${opts.reason}`);
 }
 
 // ─── INBOX_DONE ───────────────────────────────────────────────────────────────

@@ -44,8 +44,10 @@ export class StreamWriter implements StreamLog {
             this.fs.writeAtomicSync(STREAM_FILE, content.substring(0, lastNewline + 1));
           }
         } catch (err) {
+          // phase 591: 加 path forensic col
           this.audit.write(
             STREAM_AUDIT_EVENTS.TRUNCATION_REPAIR_FAILED,
+            `path=${STREAM_FILE}`,
             `reason=${formatErr(err)}`,
             'archive_will_proceed=true',
           );
@@ -54,8 +56,10 @@ export class StreamWriter implements StreamLog {
         this.fs.moveSync(STREAM_FILE, `${ARCHIVE_DIR}/stream.${Date.now()}_${newShortUuid()}.jsonl`);
       } catch (err) {
         archiveFailed = true;
+        // phase 591: 加 path forensic col
         this.audit.write(
           STREAM_AUDIT_EVENTS.ARCHIVE_FAILED,
+          `path=${STREAM_FILE}`,
           `reason=${formatErr(err)}`,
         );
       }
@@ -111,8 +115,10 @@ export class StreamWriter implements StreamLog {
     if (!this.isOpen) {
       // cancel / disassemble 期间异步 cleanup 调 write 是预期 race
       // DP「中断可恢复」+ M#10 不合理停下 → graceful drop + audit
+      // phase 593: 加 path forensic col、与 APPEND_FAILED/TRUNCATION_REPAIR_FAILED/ARCHIVE_FAILED 对齐
       this.audit.write(
         STREAM_AUDIT_EVENTS.WRITE_AFTER_CLOSE,
+        `path=${STREAM_FILE}`,
         `type=${event.type}`,
         `reason=writer_closed`,
       );
@@ -122,8 +128,10 @@ export class StreamWriter implements StreamLog {
     try {
       this.fs.appendSync(STREAM_FILE, line);
     } catch (err) {
+      // phase 588: 加 path forensic col、与 per-resource-writer.ts APPEND_FAILED 对齐
       this.audit.write(
         STREAM_AUDIT_EVENTS.APPEND_FAILED,
+        `path=${STREAM_FILE}`,
         `type=${event.type}`,
         `reason=${formatErr(err)}`,
         `body=${line.trimEnd()}`,
@@ -182,6 +190,9 @@ export class StreamWriter implements StreamLog {
         }
       }
     } catch (err) {
+      // phase 591: outer catch（整 prune 块失败）by-design 不含 path col、
+      // 与 inner per-file ARCHIVE_PRUNE_FAILED (含 path=p) 形态区分；
+      // test 已固化此契约（stream-writer.test.ts: outer failure 不含 path）。
       this.audit.write(
         STREAM_AUDIT_EVENTS.ARCHIVE_PRUNE_FAILED,
         `reason=${formatErr(err)}`,

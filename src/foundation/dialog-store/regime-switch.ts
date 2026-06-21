@@ -127,7 +127,8 @@ export async function performRegimeSwitch(
     await currentStore.archive();
   } catch (e) {
     const msg = formatErr(e);
-    audit.write(auditEvents.REGIME_SWITCH_HARD_FAIL, `reason=${msg}`);
+    // phase 595: 加 phase=archive col、与 REGIME_SWITCH_FAILED L174 (phase=save) / L183 (phase=save_and_dump) 对齐
+    audit.write(auditEvents.REGIME_SWITCH_HARD_FAIL, `phase=archive`, `reason=${msg}`);
     throw e;
   }
 

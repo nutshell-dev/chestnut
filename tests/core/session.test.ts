@@ -388,9 +388,11 @@ describe('DialogStore unit tests', () => {
     audit.write.mockClear();
     const result = await smAudit.load();
     expect(result.source).toBe('archive');
+    // phase 597: RECOVERED 加 to=current.json col
     expect(audit.write).toHaveBeenCalledWith(
       'session_recovered',
       expect.stringMatching(/^from=.*\.json$/),
+      'to=current.json',
     );
   });
 
@@ -417,9 +419,11 @@ describe('DialogStore unit tests', () => {
       'file=3000_corrupted.json',
       expect.stringContaining('reason='),
     );
+    // phase 597: RECOVERED 加 to=current.json forensic col
     expect(audit.write).toHaveBeenCalledWith(
       DIALOG_AUDIT_EVENTS.RECOVERED,
       'from=2000_valid.json',
+      'to=current.json',
     );
   });
 

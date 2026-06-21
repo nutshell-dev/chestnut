@@ -63,9 +63,12 @@ export async function removePid(ctx: ProcessManagerContext, clawId: ClawId): Pro
     if (isFileNotFound(err)) {
       return;
     }
+    // phase 582: 加 context col、与 spawn.ts 内 2 sites (spawn_retry_overwrite / spawn_cleanup)
+    // 对齐、forensic 解析能区分 PID_REMOVE_FAILED 触发路径
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.PID_REMOVE_FAILED,
       `claw=${clawId}`,
+      `context=remove_pid`,
       `reason=${formatErr(err)}`,
     );
   }

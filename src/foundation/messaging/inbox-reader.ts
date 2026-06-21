@@ -212,7 +212,8 @@ export class InboxReader {
             await this.markDone(filePath);
           } catch (e) {
             if (!isFileNotFound(e)) {
-              emitInboxMarkDoneFailed(this.audit, { reason: (e as Error).message });
+              // phase 578: 加 file forensic col
+              emitInboxMarkDoneFailed(this.audit, { file: entry.name, reason: (e as Error).message });
             }
           }
           continue;

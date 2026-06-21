@@ -120,8 +120,10 @@ describe('watchdog-pid foreign workspace fail-loud', () => {
 
     try {
       expect(() => isWatchdogAlive(fsFactory)).toThrow();
+      // phase 580: 加 path forensic col
       expect(auditSpy).toHaveBeenCalledWith(
         WATCHDOG_AUDIT_EVENTS.PID_READ_FAILED,
+        expect.stringContaining('path='),
         expect.stringContaining('error='),
       );
     } finally {

@@ -88,8 +88,10 @@ describe('regime switch archive hard fail (phase 1373 sub-2)', () => {
       (runtime as any)._performRegimeSwitch('new system prompt'),
     ).rejects.toThrow('disk full');
 
+    // phase 595: emit 顺序变为 phase + reason、test 改全 arg 匹配
     expect(mockAudit.write).toHaveBeenCalledWith(
       'regime_switch_hard_fail',
+      'phase=archive',
       expect.stringContaining('disk full'),
     );
   });

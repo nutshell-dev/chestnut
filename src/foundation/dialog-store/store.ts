@@ -81,7 +81,8 @@ export class DialogStore {
     if (this.corruptedPoisoned) {
       const archived = await this.loadLatestArchive();
       if (archived) {
-        this.audit.write(DIALOG_AUDIT_EVENTS.RECOVERED, `from=${archived.name}`);
+        // phase 597: 加 to forensic col、明示 recover 目标（与 CORRUPTED 'file=current.json' 对齐）
+        this.audit.write(DIALOG_AUDIT_EVENTS.RECOVERED, `from=${archived.name}`, `to=current.json`);
         this.createdAt = archived.session.createdAt;
         this.prevMessagesLength = archived.session.messages.length;
         return { session: archived.session, source: 'archive' };
@@ -124,7 +125,8 @@ export class DialogStore {
       // Recovery from archive
       const archived = await this.loadLatestArchive();
       if (archived) {
-        this.audit.write(DIALOG_AUDIT_EVENTS.RECOVERED, `from=${archived.name}`);
+        // phase 597: 加 to forensic col、明示 recover 目标（与 CORRUPTED 'file=current.json' 对齐）
+        this.audit.write(DIALOG_AUDIT_EVENTS.RECOVERED, `from=${archived.name}`, `to=current.json`);
         this.createdAt = archived.session.createdAt;
         this.prevMessagesLength = archived.session.messages.length;
         return { session: archived.session, source: 'archive' };

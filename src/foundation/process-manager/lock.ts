@@ -12,8 +12,9 @@ export function readLockPid(
   ctx: ProcessManagerContext,
   clawId: ClawId,
 ): { pid: number; startTime?: ProcessStartTime } | null {
+  // phase 586: lockFile 提到 try 外、let catch path 内的 audit emit 引用
+  const lockFile = getLockFile(ctx, clawId);
   try {
-    const lockFile = getLockFile(ctx, clawId);
     const content = ctx.fs.readSync(lockFile).trim();
     // Try JSON first (same format as PID file)
     try {
@@ -43,9 +44,11 @@ export function readLockPid(
     return null;
   } catch (err) {
     if (!isFileNotFound(err)) {
+      // phase 586: 加 path forensic col、延续 phase 580 PID_READ_FAILED 模式
       ctx.audit.write(
         PROCESS_MANAGER_AUDIT_EVENTS.LOCKFILE_READ_FAILED,
         `claw=${clawId}`,
+        `path=${lockFile}`,
         `reason=${formatErr(err)}`,
       );
     }
@@ -58,7 +61,9 @@ export function acquireLock(ctx: ProcessManagerContext, clawId: ClawId): void {
   ctx.fs.ensureDirSync(path.dirname(lockFile));
   try {
     ctx.fs.writeExclusiveSync(lockFile, JSON.stringify({ pid: process.pid }));
-    ctx.audit.write(PROCESS_MANAGER_AUDIT_EVENTS.LOCK_ACQUIRED, `claw=${clawId}`, `pid=${process.pid}`);
+    // phase 584: 加 context=fresh col、与 L101 context=stale_retry 对齐
+    // forensic 解析能区分 LOCK_ACQUIRED 的 2 路径 (首次 acquire vs stale 后重试)
+    ctx.audit.write(PROCESS_MANAGER_AUDIT_EVENTS.LOCK_ACQUIRED, `claw=${clawId}`, `pid=${process.pid}`, `context=fresh`);
     return;
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;

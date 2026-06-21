@@ -134,8 +134,10 @@ export function isWatchdogAlive(fsFactory: (baseDir: string) => FileSystem): boo
     if (isFileNotFound(err)) return false;
     // 非 ENOENT IO 错 = silent 是反模式、必 audit + throw
     const auditWriter = getAuditWriter();
+    // phase 580: 加 path forensic col、forensic 解析定位是哪个 pid file 读失败
     auditWriter?.write(
       WATCHDOG_AUDIT_EVENTS.PID_READ_FAILED,
+      `path=watchdog.pid`,
       `error=${auditWriter?.message(formatErr(err)) ?? formatErr(err)}`,
     );
     throw err;
