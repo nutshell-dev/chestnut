@@ -32,7 +32,7 @@ import { TASKS_SYNC_WRITE_DIR } from '../../foundation/file-tool/index.js';
 import { SKILLS_DIR_DEFAULT, BUNDLED_SKILLS_DIR_NAME } from '../../foundation/skill-system/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 import { copyDir } from '../utils/copy-dir.js';
 
 // Get current file directory (ESM compatible)

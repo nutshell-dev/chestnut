@@ -16,8 +16,8 @@
 import * as path from 'path';
 import { formatErr, assertNever } from "../utils/index.js";
 import { newShortUuid } from '../uuid.js';
-import type { FileSystem } from '../fs/types.js';
-import { isFileNotFound } from '../fs/types.js';
+import type { FileSystem } from '../fs/index.js';
+import { isFileNotFound } from '../fs/index.js';
 import type { InboxMessage, InboxHandle } from '../messaging/types.js';
 import { PRIORITY_VALUES, type Priority } from '../messaging/types.js';
 import { decodeInbox } from './codec-inbox.js';

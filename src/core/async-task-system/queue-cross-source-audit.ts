@@ -10,7 +10,7 @@
  */
 
 import type { AuditLog } from '../../foundation/audit/index.js';
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 import { formatErr } from '../../foundation/utils/index.js';
 import { TASKS_QUEUES_PENDING_DIR, TASKS_QUEUES_RUNNING_DIR } from './dirs.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';

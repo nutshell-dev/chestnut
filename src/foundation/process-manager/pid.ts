@@ -4,7 +4,7 @@ import { formatErr } from "../utils/index.js";
 import { getProcessStartTime as defaultGetProcessStartTime, makeProcessStartTime, type ProcessStartTime } from '../process-exec/index.js';
 import type { ProcessManagerContext } from './types.js';
 import type { ClawId } from '../identity/index.js';
-import { isFileNotFound } from '../fs/types.js';
+import { isFileNotFound } from '../fs/index.js';
 
 
 export interface PidFileContent {

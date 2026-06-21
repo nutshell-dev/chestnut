@@ -10,7 +10,7 @@ import { getClawDir, getClawConfigPath } from '../../foundation/config/index.js'
 import { CLAWSPACE_DIR } from '../../foundation/claw-paths.js';
 import { resolveWorkspacePath } from '../../foundation/file-tool/index.js';
 import { CliError } from '../errors.js';
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 
 export async function readCommand(
   deps: { fsFactory: (baseDir: string) => FileSystem },
@@ -42,7 +42,7 @@ export async function readCommand(
   try {
     content = await fs.read(resolved);
   } catch (error) {
-    throw new CliError(`Error reading file: ${formatErr(error)}`);
+    throw new CliError(`Error reading file: ${formatErr(error)}`, { cause: error });
   }
 
   if (options?.offset !== undefined || options?.limit !== undefined) {

@@ -15,7 +15,7 @@ import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { createToolRegistry } from '../../foundation/tools/index.js';
 import { CliError } from '../errors.js';
 import { makeClawId } from '../../foundation/identity/index.js';
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 import { makeContractId } from '../../core/contract/types.js';
 // CLAWS_DIR and path removed: phase 263
 

@@ -33,8 +33,8 @@ import { formatErr } from "../utils/index.js";
 import type { TraceId } from './types.js';
 import * as nodeFs from 'node:fs';
 import { tmpdir } from 'node:os';
-import { FileNotFoundError } from '../fs/types.js';
-import type { FileSystem } from '../fs/types.js';
+import { FileNotFoundError } from '../fs/index.js';
+import type { FileSystem } from '../fs/index.js';
 import type { AuditLog } from './types.js';
 import { esc, clipPreview, clipMessage, clipSummary } from './_helpers.js';
 

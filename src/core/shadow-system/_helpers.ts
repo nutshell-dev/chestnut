@@ -5,7 +5,7 @@
  * phase 1142：stripIncompleteToolUse mv from tools/shadow.ts → _helpers.ts、升 public export 作 L4 consumers (SummonSystem) 复用 API。
  */
 
-import type { Message } from '../../foundation/llm-provider/types.js';
+import type { Message } from '../../foundation/llm-provider/index.js';
 import { SHADOW_TOOL_NAME } from './constants.js';
 import { buildShadowInstruction, type BuildShadowInstructionArgs } from '../../templates/prompts/index.js';
 

@@ -10,7 +10,7 @@ import { ContractCreatePolicyViolationError } from '../../core/contract/types.js
 import { getClawDir } from '../../foundation/config/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 import { makeContractId } from '../../core/contract/types.js';
 import { parseAndValidateContractYaml, notifyContractCreated } from './contract-helpers.js';
 import { CliError } from '../errors.js';

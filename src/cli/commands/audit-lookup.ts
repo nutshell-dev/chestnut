@@ -16,7 +16,7 @@ import {
   type LookupResult,
   type LookupOptions,
 } from '../../foundation/audit/index.js';
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 import { assertNever } from '../../foundation/utils/index.js';
 
 interface AuditLookupOpts {

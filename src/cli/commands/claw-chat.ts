@@ -14,7 +14,7 @@ import { createProcessManagerForCLI } from '../../foundation/process-manager/ind
 import { makeClawId } from '../../foundation/identity/index.js';
 import { resolveDaemonEntry } from '../../assembly/spawn-entry.js';
 import { DAEMON_LOG } from '../../daemon/constants.js';
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 
 export async function chatCommand(deps: { fsFactory: (baseDir: string) => FileSystem }, name: string): Promise<void> {
   loadGlobalConfig(deps);

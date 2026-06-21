@@ -15,9 +15,9 @@ import type { AsyncTaskSystem } from '../async-task-system/index.js';
 import { createSkillSystem as defaultCreateSkillSystem } from '../../foundation/skill-system/index.js';
 import { DISPATCH_SKILLS_PATH as DISPATCH_SKILLS_DIR } from '../summon-system/index.js';
 // phase 1490: 不再传 maxSteps、task.maxSteps optional / undefined 透传到 SubAgent boundary fallback。
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
-import type { Message } from '../../foundation/llm-provider/types.js';
+import type { Message } from '../../foundation/llm-provider/index.js';
 
 /** Default retro subagent timeout (ms); 10 min by design */
 /**

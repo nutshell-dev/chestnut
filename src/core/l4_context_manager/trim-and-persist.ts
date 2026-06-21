@@ -3,7 +3,7 @@
  * 事件性裁剪 + 持久化同源（phase 421 ratify、phase 440 实施）。
  */
 
-import type { Message, ToolDefinition } from '../../foundation/llm-provider/types.js';
+import type { Message, ToolDefinition } from '../../foundation/llm-provider/index.js';
 import type { DialogStore } from '../../foundation/dialog-store/index.js';
 import { estimateTextTokens, estimateToolsTokens } from '../../foundation/llm-provider/index.js';
 import { trimV2, type AuditWriter } from './trim-v2.js';

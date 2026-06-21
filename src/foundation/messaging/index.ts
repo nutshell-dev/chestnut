@@ -18,7 +18,8 @@ export type { InboxMessageOptionsBase } from './inbox-writer.js';
 
 export { InboxReader } from './inbox-reader.js';
 export type { InboxEntry, ScannedInboxLocation } from './inbox-reader.js';
-export type { InboxHandle, OutboxMessage } from './types.js';
+export type { InboxHandle, OutboxMessage, InboxMessage, Priority, HeartbeatEntry } from './types.js';
+export { PRIORITY_VALUES } from './types.js';
 export { InboxListFailed, InboxMoveFailed } from './errors.js';
 
 // phase 1423 F4: dirs path const re-export — 跨模块 (daemon / core) 路径合成走 barrel。
@@ -56,7 +57,7 @@ export {
   registerMessagingFormatters,
 } from './inbox-formatters.js';
 
-import type { FileSystem } from '../fs/types.js';
+import type { FileSystem } from '../fs/index.js';
 import type { AuditLog } from '../audit/index.js';
 import { InboxReader } from './inbox-reader.js';
 import type { ClawId } from '../identity/index.js';

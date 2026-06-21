@@ -9,10 +9,10 @@ import { getClawDir } from '../../foundation/config/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { notifyClaw } from '../../foundation/messaging/index.js';
 import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
-import { isFileNotFound } from '../../foundation/fs/types.js';
+import { isFileNotFound } from '../../foundation/fs/index.js';
 import { createToolRegistry } from '../../foundation/tools/index.js';
 import { CliError } from '../errors.js';
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 import { makeContractId } from '../../core/contract/types.js';
 import { makeClawId } from '../../foundation/identity/index.js';
 // CLAWS_DIR and path removed: phase 263

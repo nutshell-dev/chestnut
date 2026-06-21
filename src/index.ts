@@ -8,13 +8,13 @@
 export type {
   Role, TextBlock, ToolUseBlock, ToolResultBlock, ThinkingBlock, UnknownBlock,
   ContentBlock, Message, ToolDefinition, LLMResponse, JSONSchema7,
-} from './foundation/llm-provider/types.js';
+} from './foundation/llm-provider/index.js';
 export type {
   ContractStatus, SubtaskStatus, LastFailedFeedback,
   AcceptanceFailedNotification, SubTask, Contract,
 } from './core/contract/types.js';
-export type { InboxMessage, OutboxMessage, HeartbeatEntry, Priority } from './foundation/messaging/types.js';
-export { PRIORITY_VALUES } from './foundation/messaging/types.js';
+export type { InboxMessage, OutboxMessage, HeartbeatEntry, Priority } from './foundation/messaging/index.js';
+export { PRIORITY_VALUES } from './foundation/messaging/index.js';
 export type { ToolProfile } from './foundation/tool-protocol/index.js';
 export type { CallerType } from './core/caller-types.js';
 export type { ErrorCode, ErrorDetails } from './foundation/errors.js';
@@ -28,7 +28,7 @@ export {
   classifyLLMError, getUserActionHint,
 } from './foundation/llm-orchestrator/errors.js';
 export type { LLMErrorClass, UserActionHint } from './foundation/llm-orchestrator/errors.js';
-export { FileNotFoundError } from './foundation/fs/types.js';
+export { FileNotFoundError } from './foundation/fs/index.js';
 export {
   MaxStepsExceededError, ConsecutiveParseErrorsExceededError,
   ConsecutiveMaxTokensToolUseError, WallTimeExceededError,
@@ -42,7 +42,7 @@ export type { PermissionChecker } from './foundation/tool-protocol/permission.js
 export { Runtime, type RuntimeOptions } from './core/runtime/index.js';
 
 // Foundation modules (selective exports)
-export type { FileSystem, FileEntry, FileSystemOptions } from './foundation/fs/types.js';
+export type { FileSystem, FileEntry, FileSystemOptions } from './foundation/fs/index.js';
 export { NodeFileSystem } from './foundation/fs/index.js';
 
 export { Heartbeat, createHeartbeat } from './core/runtime/index.js';

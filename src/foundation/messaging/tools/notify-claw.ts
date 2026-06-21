@@ -11,7 +11,7 @@ import { formatErr } from "../../utils/index.js";
 import type { Tool, ExecContext, ToolPermissions } from '../../tools/index.js';
 
 import type { ToolResult } from '../../tool-protocol/index.js';
-import type { FileSystem } from '../../fs/types.js';
+import type { FileSystem } from '../../fs/index.js';
 import type { AuditLog } from '../../audit/index.js';
 import { notifyClaw } from '../notify.js';
 import { MESSAGING_AUDIT_EVENTS } from '../audit-events.js';

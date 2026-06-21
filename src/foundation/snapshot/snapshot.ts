@@ -13,7 +13,7 @@
 import * as path from 'path';
 import { formatErr } from "../utils/index.js";
 import { exec as defaultExec } from '../process-exec/index.js';
-import { isFileNotFound, type FileSystem } from '../fs/types.js';
+import { isFileNotFound, type FileSystem } from '../fs/index.js';
 import type { AuditLog } from '../audit/index.js';
 import {
   emitSnapshotCommitFailed,

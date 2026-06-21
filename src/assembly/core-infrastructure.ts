@@ -4,7 +4,7 @@ import { formatErr } from '../foundation/utils/index.js';
 import { resolveChestnutRoot } from '../foundation/install-paths.js';
 // CLAWS_DIR removed: phase 263
 
-import type { FileSystem } from '../foundation/fs/types.js';
+import type { FileSystem } from '../foundation/fs/index.js';
 import { NodeFileSystem } from '../foundation/fs/node-fs.js';
 
 import { createSystemAudit, type AuditLog } from '../foundation/audit/index.js';

@@ -1,4 +1,4 @@
-import type { FileSystem } from '../../../foundation/fs/types.js';
+import type { FileSystem } from '../../../foundation/fs/index.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
 import { RETENTION_CLEANUP_AUDIT_EVENTS } from './retention-cleanup-audit-events.js';
 import { cleanupRetention } from '../../../foundation/messaging/index.js';

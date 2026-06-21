@@ -1,5 +1,5 @@
 import * as path from 'path';
-import type { FileSystem } from '../../../foundation/fs/types.js';
+import type { FileSystem } from '../../../foundation/fs/index.js';
 import { type AuditLog, AUDIT_FILE } from '../../../foundation/audit/index.js';
 import { LLM_STATS_AUDIT_EVENTS } from './llm-stats-audit-events.js';
 import { MOTION_CLAW_ID } from '../../claw-topology/index.js';

@@ -6,7 +6,7 @@ export { DEFAULT_MAX_CONCURRENT_TASKS } from './constants.js';
  * Task system exports
  */
 
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 import { formatErr } from "../../foundation/utils/index.js";
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { AsyncTaskSystem } from './system.js';

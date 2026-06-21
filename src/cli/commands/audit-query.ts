@@ -17,7 +17,7 @@ import {
   type AuditRecord,
   type ReadOptions,
 } from '../../foundation/audit/index.js';
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 
 export interface AuditQueryOpts {
   claw: string;

@@ -4,7 +4,7 @@
  */
 
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 
 // phase 64: ContractId brand 迁回（自 foundation/identity 解散）— 注释 admit
 // 「物理迁自 core/contract/types.ts」(phase 1378)
@@ -14,7 +14,7 @@ export type ContractId = string & { readonly [ContractIdBrand]: true };
 export function makeContractId(s: string): ContractId { return s as ContractId; }
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { ToolRegistry } from '../../foundation/tools/index.js';
-import type { Priority } from '../../foundation/messaging/types.js';
+import type { Priority } from '../../foundation/messaging/index.js';
 import type { ClawId } from '../../foundation/identity/index.js';
 
 

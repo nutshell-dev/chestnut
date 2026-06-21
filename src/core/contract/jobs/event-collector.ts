@@ -1,7 +1,7 @@
 import * as path from 'path';
 import { formatErr, assertNever } from "../../../foundation/utils/index.js";
 import * as yaml from 'js-yaml';
-import { isFileNotFound, type FileSystem } from '../../../foundation/fs/types.js';
+import { isFileNotFound, type FileSystem } from '../../../foundation/fs/index.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
 import type { ProgressData } from '../manager.js';
 import type { ArchiveAllowedStatus } from '../types.js';

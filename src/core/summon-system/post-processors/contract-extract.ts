@@ -2,7 +2,7 @@ import type { PostProcessor } from '../../async-task-system/post-processors/type
 import { SUMMON_AUDIT_EVENTS } from '../audit-events.js';
 import { SUMMON_CALLER_TYPES } from '../caller-types.js';
 import { formatErr } from '../../../foundation/utils/index.js';
-import type { FileSystem } from '../../../foundation/fs/types.js';
+import type { FileSystem } from '../../../foundation/fs/index.js';
 
 /**
  * post-processor 失败 audit 时附带的 raw output 最大字符数（diagnostic 截断 cap）.

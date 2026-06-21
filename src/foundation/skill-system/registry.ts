@@ -6,7 +6,7 @@
  * - 调用 skill 工具时才加载完整内容
  */
 
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 import { formatErr, parseFrontmatterFrame } from "../utils/index.js";
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { ToolError } from '../errors.js';

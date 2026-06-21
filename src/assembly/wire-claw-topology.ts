@@ -17,7 +17,7 @@ import {
   type ClawTopology,
 } from '../core/claw-topology/index.js';
 import type { ToolRegistry } from '../foundation/tools/index.js';
-import type { FileSystem } from '../foundation/fs/types.js';
+import type { FileSystem } from '../foundation/fs/index.js';
 import type { AuditLog } from '../foundation/audit/index.js';
 
 /** phase 520: motionClawId DI 删（topology 自家持 MOTION_CLAW_ID const、不需 assembly 注入） */

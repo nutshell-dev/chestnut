@@ -9,7 +9,7 @@
 
 import { type ChestnutRoot } from '../install-paths.js';
 import * as path from 'path';
-import type { FileSystem } from '../fs/types.js';
+import type { FileSystem } from '../fs/index.js';
 import type { AuditLog } from '../audit/index.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
 

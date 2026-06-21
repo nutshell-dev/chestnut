@@ -12,7 +12,7 @@
  * 异常隔离归 cron runner（throw → cron_job_error / 详 l5_cron.md §1）.
  */
 
-import type { FileSystem } from '../../../../foundation/fs/types.js';
+import type { FileSystem } from '../../../../foundation/fs/index.js';
 import type { AuditLog } from '../../../../foundation/audit/index.js';
 import type { InboxReader, InboxWriter, OutboxReader } from '../../../../foundation/messaging/index.js';
 import type { ClawTopology } from '../../../../core/claw-topology/index.js';

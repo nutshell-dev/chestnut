@@ -10,7 +10,7 @@ import { CliError } from '../errors.js';
 import { buildAgentsMdTemplate } from '../../templates/prompts/index.js';
 import { CLAW_SPEC_FILE } from '../../foundation/claw-paths.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 
 export async function createCommand(deps: { fsFactory: (baseDir: string) => FileSystem }, name: string, opts?: { audit?: AuditLog }): Promise<void> {

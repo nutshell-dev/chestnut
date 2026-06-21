@@ -36,7 +36,7 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import { resolveDaemonEntry } from '../../assembly/spawn-entry.js';
 import { readOnboardingStatus, type OnboardingStatus } from '../../core/contract/index.js';
 import { DAEMON_LOG } from '../../daemon/constants.js';
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 
 export function buildOnboardingSubtasks(language: string): Array<{ id: string; description: string }> {
   let langInstruction: string;
@@ -121,7 +121,7 @@ export async function startCommand(deps: { fsFactory: (baseDir: string) => FileS
   try {
     await _start(deps, audit);
   } catch (error) {
-    throw new CliError('chestnut start failed: ' + (formatErr(error)));
+    throw new CliError('chestnut start failed: ' + (formatErr(error)), { cause: error });
   }
 }
 

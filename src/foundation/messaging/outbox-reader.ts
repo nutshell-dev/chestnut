@@ -12,8 +12,8 @@
 
 import * as path from 'path';
 import { formatErr } from '../utils/index.js';
-import type { FileSystem } from '../fs/types.js';
-import { isFileNotFound } from '../fs/types.js';
+import type { FileSystem } from '../fs/index.js';
+import { isFileNotFound } from '../fs/index.js';
 import type { AuditLog } from '../audit/index.js';
 import { emitOutboxListFailed, emitOutboxPeekFailed } from './audit-emit.js';
 import { decodeOutbox } from './codec-outbox.js';

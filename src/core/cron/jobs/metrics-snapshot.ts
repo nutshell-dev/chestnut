@@ -1,4 +1,4 @@
-import type { FileSystem } from '../../../foundation/fs/types.js';
+import type { FileSystem } from '../../../foundation/fs/index.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
 import { METRICS_SNAPSHOT_AUDIT_EVENTS } from './metrics-snapshot-audit-events.js';
 import type { CronJob } from '../runner.js';

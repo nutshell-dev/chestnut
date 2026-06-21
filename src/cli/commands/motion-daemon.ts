@@ -13,7 +13,7 @@ import { loadGlobalConfig } from '../../assembly/config-load.js';
 import { getNamedSubrootDir } from '../../foundation/config/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { createAgentProcessManager } from '../../foundation/process-manager/index.js';
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 import { resolveDaemonEntry } from '../../assembly/spawn-entry.js';
 import { DAEMON_LOG } from '../../daemon/constants.js';
 import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';

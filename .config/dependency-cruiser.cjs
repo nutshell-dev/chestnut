@@ -120,6 +120,23 @@ module.exports = {
       },
     },
     {
+      name: 'no-deep-into-fs-types',
+      comment: [
+        'ML#7 + ML#9 — FileSystem type 对外通道仅 barrel。',
+        '跨模块消费者只能 import src/foundation/fs/index.js、',
+        '不得深穿 src/foundation/fs/types.js。',
+        'phase 522 立、sister to phase 519 no-deep-into-audit-types。',
+        'barrel 已 re-export: FileSystem / FileEntry / FileSystemOptions / StatInfo /',
+        'FileNotFoundError / isFileNotFound。',
+        'fs 内部 sibling（node-fs.ts / atomic.ts）走 from "./types.js" 不在本规则范围。',
+        '与 audit/types 不同：fs barrel 内部不 reach 任何 foundation peer、',
+        '所以 foundation peer 也可走 barrel 不需 sibling-direct 例外。',
+      ].join(' '),
+      severity: 'error',
+      from: { path: '^src', pathNot: '^src/foundation/fs/' },
+      to: { path: '^src/foundation/fs/types\\.ts$' },
+    },
+    {
       name: 'no-deep-into-audit-types',
       comment: [
         'ML#7 + ML#9 — Audit type 对外通道仅 barrel（core/, assembly/, cli/, daemon/, watchdog/）。',

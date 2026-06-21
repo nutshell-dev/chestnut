@@ -9,8 +9,8 @@ import { newShortUuid } from '../../foundation/uuid.js';
 import { getClawDir } from '../../foundation/config/index.js';
 import { CliError } from '../errors.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
-import type { FileSystem } from '../../foundation/fs/types.js';
-import { isFileNotFound } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
+import { isFileNotFound } from '../../foundation/fs/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { MESSAGING_AUDIT_EVENTS, OUTBOX_PENDING_DIR, OUTBOX_PROCESSING_DIR, OUTBOX_DONE_DIR } from '../../foundation/messaging/index.js';
 

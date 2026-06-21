@@ -8,7 +8,7 @@ import * as path from 'path';
 import { InboxWriter, makeInboxPath } from './inbox-writer.js';
 import type { InboxMessageOptionsBase } from './inbox-writer.js';
 import type { InboxMessage } from './types.js';
-import type { FileSystem } from '../fs/types.js';
+import type { FileSystem } from '../fs/index.js';
 import type { AuditLog } from '../audit/index.js';
 import { INBOX_PENDING_DIR } from './dirs.js';
 import { CLAWS_DIR } from '../claw-paths.js';

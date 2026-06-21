@@ -21,7 +21,7 @@ export { clipPreview, clipMessage, clipSummary } from './_helpers.js';
 
 import { AuditWriter, AUDIT_FILE } from './writer.js';
 import * as path from 'path';
-import type { FileSystem } from '../fs/types.js';
+import type { FileSystem } from '../fs/index.js';
 
 export type { AuditLog, IdNamingEntry, ColSchemaEntry, TraceId } from './types.js';
 export { makeTraceId } from './types.js';

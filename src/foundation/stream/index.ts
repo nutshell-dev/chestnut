@@ -15,7 +15,7 @@ export { findRecentTurnStartOffset } from './turn-start-offset.js';
 export { LLM_OUTPUT_EVENTS } from './types.js';
 export { STREAM_AUDIT_EVENTS } from './audit-events.js';
 
-import type { FileSystem } from '../fs/types.js';
+import type { FileSystem } from '../fs/index.js';
 import type { AuditLog } from '../audit/index.js';
 import { StreamWriter } from './writer.js';
 import type { StreamRetentionOptions } from './writer.js';

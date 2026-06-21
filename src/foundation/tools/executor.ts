@@ -18,7 +18,16 @@ import type { ToolGroup } from './types.js';
 import type { PermissionChecker } from '../tool-protocol/index.js';
 import type { ToolResult } from '../tool-protocol/index.js';
 import type { ToolProfile } from '../tool-protocol/index.js';
-import type { FileSystem } from '../fs/types.js';
+import type { FileSystem } from '../fs/index.js';
+
+/**
+ * Default maxRetries for tools flagged idempotent when scheduled async.
+ * Derivation: 2 retries (= 3 total attempts) ≈ tolerate transient FS/network blip
+ * 不放大到 wider tail（idempotent ≠ 免费）/ 与 LLM orchestrator maxAttempts default 3 同量级。
+ * non-idempotent tools 用 0（DP「不重复影响外部状态」、必须 caller 显式重试）。
+ * phase 529: 抽 inline literal 为命名常量。
+ */
+const IDEMPOTENT_TOOL_DEFAULT_MAX_RETRIES = 2;
 import type { LLMOrchestrator } from '../llm-orchestrator/index.js';
 import type { AuditLog } from '../audit/index.js';
 import type { AbortReason } from '../llm-provider/index.js';
@@ -129,7 +138,7 @@ export class ToolExecutorImpl implements IToolExecutor {
         parentClawId: ctx.clawId,
         parentClawDir: ctx.clawDir,
         isIdempotent: tool.idempotent,
-        maxRetries: tool.idempotent ? 2 : 0,
+        maxRetries: tool.idempotent ? IDEMPOTENT_TOOL_DEFAULT_MAX_RETRIES : 0,
         retryCount: 0,
         callerLabel: ctx.callerLabel === 'claw' ? undefined : ctx.callerLabel,
         toolUseId: options.toolUseId,

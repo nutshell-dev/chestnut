@@ -1,5 +1,5 @@
 import * as path from 'path';
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 import type { MainTurnUIController } from './main-turn-ui.js';
 import type { TurnTracker } from './chat-viewport-types.js';
 

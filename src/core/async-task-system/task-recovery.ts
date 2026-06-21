@@ -1,4 +1,4 @@
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { SubAgentTask, ToolTask } from './types.js';
 import {
@@ -17,7 +17,7 @@ import {
 } from './audit-emit.js';
 
 import { validateTaskShape, backupCorruptTask } from './task-corrupt-helpers.js';
-import { isFileNotFound } from '../../foundation/fs/types.js';
+import { isFileNotFound } from '../../foundation/fs/index.js';
 import { sendFallbackError, sendResult, SENT_MARKER } from './result-delivery.js';
 import type { TaskId } from './types.js';
 

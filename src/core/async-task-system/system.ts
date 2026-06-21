@@ -12,8 +12,8 @@ import { CALLER_TYPE_TO_GROUPS } from '../caller-types.js';
 import * as path from 'path';
 
 import type { PermissionChecker } from '../../foundation/tool-protocol/index.js';
-import type { FileSystem } from '../../foundation/fs/types.js';
-import { isFileNotFound } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
+import { isFileNotFound } from '../../foundation/fs/index.js';
 
 import { DEFAULT_MAX_CONCURRENT_TASKS, SHUTDOWN_DRAIN_GRACE_MS, SHUTDOWN_DEFAULT_TIMEOUT_MS, DEFAULT_RETRY_BASE_DELAY_MS, PENDING_QUEUE_MAX } from './constants.js';
 import type { ToolRegistry } from '../../foundation/tools/index.js';
@@ -789,6 +789,8 @@ export class AsyncTaskSystem {
   }
 
   async shutdown(timeoutMs: number = SHUTDOWN_DEFAULT_TIMEOUT_MS): Promise<boolean> {
+    // phase 546: 幂等 guard — disassemble 链 / 异常路径可能重入、防 abort 二次 + drain 重跑
+    if (this._shuttingDown) return false;
     this._shuttingDown = true;
     // 顺序：先关 watcher（避免 shutdown 期间新事件进队）→ 旧 shutdown 流程
     await this.pendingWatcherHandle?.close();

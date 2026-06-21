@@ -4,7 +4,7 @@
  * OS-level advisory lock 保 atomic check-and-spawn (M#9)
  */
 import { makeChestnutRoot } from '../foundation/install-paths.js';
-import type { FileSystem } from '../foundation/fs/types.js';
+import type { FileSystem } from '../foundation/fs/index.js';
 import { getChestnutDir, getAuditWriter } from './watchdog-context.js';
 import { isWatchdogAlive } from './watchdog-pid.js';
 import { startCommand as rawStartCommand } from './watchdog-cli.js';

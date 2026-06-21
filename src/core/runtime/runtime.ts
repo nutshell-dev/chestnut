@@ -11,11 +11,11 @@ import { MOTION_CLAW_ID } from '../claw-topology/index.js';
 import { CALLER_TYPE_TO_GROUPS } from '../caller-types.js';
 
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
-import { type FileSystem } from '../../foundation/fs/types.js';
+import { type FileSystem } from '../../foundation/fs/index.js';
 import { AUDIT_FILE } from '../../foundation/audit/index.js';
 // phase 1414: isFileNotFound import removed — HEARTBEAT.md 读迁 Heartbeat 模块 inbox-formatter
-import type { Message } from '../../foundation/llm-provider/types.js';
-import type { InboxMessage } from '../../foundation/messaging/types.js';
+import type { Message } from '../../foundation/llm-provider/index.js';
+import type { InboxMessage } from '../../foundation/messaging/index.js';
 import { InboxListFailed, InboxMoveFailed } from '../../foundation/messaging/index.js';
 import type { MessageFormatterRegistry } from '../../foundation/messaging/index.js';
 
@@ -81,6 +81,8 @@ function auditError(
 export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
   protected options: RuntimeOptions;
   protected initialized = false;
+  /** phase 522 C2: 防 stop 二次调用重 await 120s task timeout / contract close 二度 */
+  private _stopped = false;
   private currentAbortController: AbortController | null = null;
   private turnCount = 0;
   protected auditWriter!: AuditLog;
@@ -326,6 +328,9 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
    * Graceful shutdown
    */
   async stop(): Promise<void> {
+    // phase 522 C2: 幂等 guard — disassemble 路径 + 测试/异常路径可能重入
+    if (this._stopped) return;
+    this._stopped = true;
     this.abort();
     const timedOut = await this.taskSystem.shutdown(120_000);
     if (timedOut) {

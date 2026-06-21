@@ -16,7 +16,7 @@ import { makeAgentDirResolver } from '../../core/claw-topology/index.js';
 import { loadGlobalConfig, clawExists } from '../../assembly/config-load.js';
 import { getGlobalConfigPath, getClawConfigPath } from '../../foundation/config/index.js';
 import { CliError } from '../errors.js';
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { CLAWS_DIR } from '../../foundation/claw-paths.js';
 import { createStreamReader, STREAM_FILE, findRecentTurnStartOffset } from '../../foundation/stream/index.js';
@@ -108,7 +108,7 @@ export async function streamCommand(
   try {
     reader.start(initialOffset);
   } catch (err) {
-    throw new CliError(`Failed to start stream reader for "${name}": ${formatErr(err)}`);
+    throw new CliError(`Failed to start stream reader for "${name}": ${formatErr(err)}`, { cause: err });
   }
 
   // shutdown 集中入口、防 double-shutdown / 保 reader.stop 顺序

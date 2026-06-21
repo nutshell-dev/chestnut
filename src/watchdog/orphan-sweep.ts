@@ -3,7 +3,7 @@
  * 恢复 commit ece0926c + 4b5bf0b7 的 orphan sweep / 按 workspace root 精确化
  * （commit 16ba139b 当年删此逻辑改 isWatchdogAlive 幂等、phase 1269 实证假设破）
  */
-import type { FileSystem } from '../foundation/fs/types.js';
+import type { FileSystem } from '../foundation/fs/index.js';
 import { makeAgentDirResolver } from '../core/claw-topology/index.js';
 import { formatErr } from "../foundation/utils/index.js";
 import { kill as defaultKill, isAlive as defaultIsAlive, isPidArgvMatching as realIsPidArgvMatching } from '../foundation/process-exec/index.js';

@@ -26,7 +26,7 @@ import {
   computeForumStatusView,
   formatForumStatusView,
 } from '../../core/status-service/index.js';
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 import { createClawTopology } from '../../core/claw-topology/index.js';
 
 export async function statusCommand(deps: { fsFactory: (baseDir: string) => FileSystem }): Promise<void> {

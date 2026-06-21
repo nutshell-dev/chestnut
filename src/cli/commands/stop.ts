@@ -21,7 +21,7 @@ import { makeClawId } from '../../foundation/identity/index.js';
 import { CLAWS_DIR } from '../../foundation/claw-paths.js';
 import { resolveDaemonEntry } from '../../assembly/spawn-entry.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
-import { isFileNotFound, type FileSystem } from '../../foundation/fs/types.js';
+import { isFileNotFound, type FileSystem } from '../../foundation/fs/index.js';
 import { CliError } from '../errors.js';
 
 export async function stopAllCommand(

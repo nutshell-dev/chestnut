@@ -5,8 +5,8 @@
 import type { Tool, ExecContext, ExecutionInfra } from '../../../foundation/tools/index.js';
 import { formatErr, parseFrontmatterFrame } from "../../../foundation/utils/index.js";
 import type { ToolResult } from '../../../foundation/tool-protocol/index.js';
-import type { FileEntry } from '../../../foundation/fs/types.js';
-import { isFileNotFound } from '../../../foundation/fs/types.js';
+import type { FileEntry } from '../../../foundation/fs/index.js';
+import { isFileNotFound } from '../../../foundation/fs/index.js';
 import { MEMORY_DIR } from '../memory-paths.js';
 export const MEMORY_SEARCH_TOOL_NAME = 'memory_search' as const;
 

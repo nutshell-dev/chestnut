@@ -20,7 +20,7 @@ import { EXEC_MAX_OUTPUT, EXEC_OVERFLOW_DIR_NAME, EXEC_COMMAND_PLACEHOLDER_CHARS
 import { exec } from '../process-exec/index.js';
 import { ProcessExecError } from '../process-exec/index.js';
 import { PROCESS_EXEC_DEFAULT_TIMEOUT_MS } from '../process-exec/index.js';
-import { formatErr, safeNumber } from '../utils/index.js';
+import { formatErr, safeNumber, truncateHeadTail } from '../utils/index.js';
 import { COMMAND_TOOL_AUDIT_EVENTS } from './audit-events.js';
 
 /**
@@ -45,29 +45,9 @@ function truncate(str: string, maxLen: number): string {
   return str.slice(0, maxLen) + '\n[truncated]';
 }
 
-/**
- * Head bytes preserved when exec tool output 超 EXEC_MAX_OUTPUT 触发 truncation.
- * Derivation: 600 byte ≈ 头部 stdout/stderr 起步行 + 提示符 / 配 TAIL_LIMIT=1400 共 2000B = EXEC_MAX_OUTPUT /
- * 同 file-tool/read.ts:53 file-private const 同值（业务 truncation 协议一致）.
- */
-const HEAD_LIMIT = 600;
-
-/**
- * Tail bytes preserved when exec tool output 超 EXEC_MAX_OUTPUT 触发 truncation.
- * Derivation: 1400 byte ≈ 尾部 exit + error trace / 配 HEAD_LIMIT=600 共 2000B = EXEC_MAX_OUTPUT /
- * 同 file-tool/read.ts:54 file-private const 同值（业务 truncation 协议一致）/
- * head:tail = 3:7 给 tail 更多空间因 error trace 偏 tail.
- */
-const TAIL_LIMIT = 1400;
-// EXEC_MAX_OUTPUT = 2000 (HEAD + TAIL = 2000)
-
-function truncateHeadTail(output: string, relPath: string): string {
-  if (output.length <= EXEC_MAX_OUTPUT) return output;
-  const head = output.slice(0, HEAD_LIMIT);
-  const tail = output.slice(-TAIL_LIMIT);
-  const truncatedBytes = output.length - HEAD_LIMIT - TAIL_LIMIT;
-  return `${head}\n[...truncated ${truncatedBytes} bytes...]\n${tail}\nFull output (${output.length} bytes) saved. Use \`read\` with offset/limit to view ranges (read is capped per call, paginate by offset):\n  read: { "path": "${relPath}", "offset": 1, "limit": 200 }`;
-}
+// phase 524: HEAD/TAIL 常量 + truncateHeadTail 抽 foundation/utils/truncate-head-tail.ts。
+// EXEC_MAX_OUTPUT === TRUNCATE_TOTAL_LIMIT === HEAD + TAIL = 2000B（业务 truncation 协议）。
+// caller 均在 `if (output.length > EXEC_MAX_OUTPUT)` 内调用、无需 helper 内重复阈值判。
 
 function formatNoOutput(command: string): string {
   const short = command.length > EXEC_COMMAND_PLACEHOLDER_CHARS

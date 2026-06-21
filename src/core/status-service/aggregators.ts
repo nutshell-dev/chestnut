@@ -10,8 +10,8 @@
  * - CLI 也用同一组 aggregator + format、只是把 fs 切到目标 claw 的 clawDir 根
  */
 
-import type { FileSystem } from '../../foundation/fs/types.js';
-import { isFileNotFound } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
+import { isFileNotFound } from '../../foundation/fs/index.js';
 import { formatErr, assertNever } from "../../foundation/utils/index.js";
 import type { ContractSystem } from '../contract/index.js';
 import { TASKS_QUEUES_PENDING_DIR, TASKS_QUEUES_RUNNING_DIR } from '../async-task-system/index.js';

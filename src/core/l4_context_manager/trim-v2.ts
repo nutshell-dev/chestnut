@@ -3,7 +3,7 @@
  * 新裁剪算法、phase 440 实施 phase 421 ratify 的 P1/P1b/P2/P3/P4 + 不动 8 件硬约束。
  */
 
-import type { Message, ContentBlock } from '../../foundation/llm-provider/types.js';
+import type { Message, ContentBlock } from '../../foundation/llm-provider/index.js';
 import { estimateMessagesTokens } from '../../foundation/llm-provider/index.js';
 import { ContextTrimExhaustedError } from './errors.js';
 import {

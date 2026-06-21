@@ -6,7 +6,7 @@
  * 历史：phase397 物理迁 src/foundation/fs/atomic.ts → src/assembly/cleanup.ts。
  */
 import * as path from 'node:path';
-import type { FileSystem } from '../foundation/fs/types.js';
+import type { FileSystem } from '../foundation/fs/index.js';
 import { IGNORE_PATTERN } from '../foundation/fs/atomic.js';
 
 export async function cleanupOrphanedTemp(fs: FileSystem, dirPath: string): Promise<string[]> {

@@ -1,8 +1,8 @@
 import * as path from 'path';
 import { formatErr } from "../../foundation/utils/index.js";
 import { MOTION_CLAW_ID } from '../claw-topology/index.js';
-import { FileNotFoundError, isFileNotFound } from '../../foundation/fs/types.js';
-import type { FileSystem } from '../../foundation/fs/types.js';
+import { FileNotFoundError, isFileNotFound } from '../../foundation/fs/index.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 import { MEMORY_AUDIT_EVENTS } from './audit-events.js';
 import { MEMORY_DREAM_OUTPUTS_DIR } from './memory-paths.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
@@ -87,7 +87,13 @@ interface PendingLateSettleEntry {
   expectedTimeoutAt: number; // scheduledAt + subagentTimeoutMs
 }
 
+/**
+ * phase 548: 加 schema_version（与 phase 547 deep-dream 同模式 / sister 一致性）。
+ */
+const RANDOM_DREAM_STATE_CURRENT_VERSION = 1;
+
 interface RandomDreamState {
+  schema_version?: number;                       // phase 548: 显式 schema 版本（缺即视 v1）
   lastProcessedRandomDreamAt: number;            // ms epoch 高水位线
   pendingLateSettle?: PendingLateSettleEntry[];  // NEW phase 170, optional for backward compat
 }
@@ -111,7 +117,7 @@ function loadRandomDreamState(fs: FileSystem, audit: AuditLog): RandomDreamState
         `site=load_state_shape_invalid`,
         `reason=state_not_object`,
         `actual=${typeof parsed}`);
-      return { lastProcessedRandomDreamAt: 0 };
+      return { schema_version: RANDOM_DREAM_STATE_CURRENT_VERSION, lastProcessedRandomDreamAt: 0 };
     }
     const r = parsed as Record<string, unknown>;
 
@@ -125,21 +131,21 @@ function loadRandomDreamState(fs: FileSystem, audit: AuditLog): RandomDreamState
       const pending = Array.isArray(r.pendingLateSettle)
         ? r.pendingLateSettle.filter(isValidPendingEntry)
         : [];
-      return { lastProcessedRandomDreamAt: 0, pendingLateSettle: pending };
+      return { schema_version: RANDOM_DREAM_STATE_CURRENT_VERSION, lastProcessedRandomDreamAt: 0, pendingLateSettle: pending };
     }
 
     return r as unknown as RandomDreamState;
   } catch (err) {
     // FileNotFoundError 首启良性 / silent
     if (err instanceof FileNotFoundError) {
-      return { lastProcessedRandomDreamAt: 0 };
+      return { schema_version: RANDOM_DREAM_STATE_CURRENT_VERSION, lastProcessedRandomDreamAt: 0 };
     }
     // 其他 IO 错（parse 损坏 / 权限 / 等）必 audit + 返空 resilient
     audit.write(MEMORY_AUDIT_EVENTS.RANDOM_DREAM_ERROR,
       `site=load_state`,
       `reason=${formatErr(err)}`,
     );
-    return { lastProcessedRandomDreamAt: 0 };
+    return { schema_version: RANDOM_DREAM_STATE_CURRENT_VERSION, lastProcessedRandomDreamAt: 0 };
   }
 }
 
@@ -155,9 +161,11 @@ function saveRandomDreamState(
   auditRandomDreamCrossSource(state, audit);
 
   try {
+    // phase 548: 总写 schema_version
+    const stateToSave = { schema_version: RANDOM_DREAM_STATE_CURRENT_VERSION, ...state };
     fs.writeAtomicSync(
       RANDOM_DREAM_STATE_FILE,
-      JSON.stringify(state, null, 2)
+      JSON.stringify(stateToSave, null, 2)
     );
   } catch (err) {
     audit.write(MEMORY_AUDIT_EVENTS.RANDOM_DREAM_ERROR,

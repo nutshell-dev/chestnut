@@ -12,7 +12,7 @@ import * as path from 'path';
 import { resolveWatchdogEntry } from '../assembly/spawn-entry.js';
 import { getNamedSubrootDir } from '../foundation/config/index.js';
 import { loadGlobalConfig } from '../assembly/config-load.js';
-import type { FileSystem } from '../foundation/fs/types.js';
+import type { FileSystem } from '../foundation/fs/index.js';
 import type { AuditLog } from '../foundation/audit/index.js';
 import { createDirContext } from '../foundation/audit/index.js';
 

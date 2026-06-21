@@ -8,8 +8,8 @@
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
-import { isFileNotFound } from '../../foundation/fs/types.js';
-import type { FileSystem } from '../../foundation/fs/types.js';
+import { isFileNotFound } from '../../foundation/fs/index.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { TurnTracker } from './chat-viewport-types.js';
 

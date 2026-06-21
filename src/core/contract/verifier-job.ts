@@ -6,7 +6,7 @@
  * phase 750: 改调 runSubagent helper、删 NoopWriter + audit/stream/workspace 自治模板
  */
 
-import { isFileNotFound } from '../../foundation/fs/types.js';
+import { isFileNotFound } from '../../foundation/fs/index.js';
 import { formatErr } from "../../foundation/utils/index.js";
 
 import { runSubagent as defaultRunSubagent } from '../subagent/index.js';

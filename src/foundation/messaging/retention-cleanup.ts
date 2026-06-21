@@ -5,7 +5,7 @@
 
 import * as path from 'path';
 import { formatErr } from "../utils/index.js";
-import type { FileSystem } from '../fs/types.js';
+import type { FileSystem } from '../fs/index.js';
 import type { AuditLog } from '../audit/index.js';
 import {
   INBOX_DONE_DIR, INBOX_FAILED_DIR,

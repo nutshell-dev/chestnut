@@ -13,6 +13,7 @@ import {
   LLMNetworkError,
 } from './errors.js';
 import { throwHttpErrorResponse } from './_helpers.js';
+import { isAbortError } from '../utils/index.js';
 import type {
   ProviderConfig,
   LLMCallOptions,
@@ -110,7 +111,7 @@ export class GeminiAdapter implements ProviderAdapter {
       const classified = classifyFetchAbortError(error, options.signal, timeout, this.name);
       if (classified) throw classified;
       if (error instanceof LLMError) throw error;
-      if (error instanceof Error && error.name === 'AbortError') throw error;
+      if (isAbortError(error)) throw error;
       throw new LLMNetworkError(
         this.name,
         error instanceof Error ? error : new Error(String(error)),
@@ -155,7 +156,7 @@ export class GeminiAdapter implements ProviderAdapter {
       const classified = classifyFetchAbortError(error, options.signal, timeout, this.name);
       if (classified) throw classified;
       if (error instanceof LLMError) throw error;
-      if (error instanceof Error && error.name === 'AbortError') throw error;
+      if (isAbortError(error)) throw error;
       throw new LLMNetworkError(
         this.name,
         error instanceof Error ? error : new Error(String(error)),

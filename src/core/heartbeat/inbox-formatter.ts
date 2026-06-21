@@ -15,8 +15,8 @@
 
 import type { MessageFormatter } from '../../foundation/messaging/index.js';
 import { formatErr } from "../../foundation/utils/index.js";
-import type { FileSystem } from '../../foundation/fs/types.js';
-import { isFileNotFound } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
+import { isFileNotFound } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { HEARTBEAT_AUDIT_EVENTS } from './audit-events.js';
 import { CLAW_HEARTBEAT_FILE } from '../../foundation/claw-paths.js';

@@ -8,8 +8,8 @@
  * （per-tick handler 异常隔离归 cron runner / 详 l5_cron.md §1）.
  */
 
-import type { FileSystem } from '../../../../foundation/fs/types.js';
-import { isFileNotFound } from '../../../../foundation/fs/types.js';
+import type { FileSystem } from '../../../../foundation/fs/index.js';
+import { isFileNotFound } from '../../../../foundation/fs/index.js';
 import type { OutboxReader } from '../../../../foundation/messaging/index.js';
 import { MOTION_CLAW_ID } from '../../../claw-topology/index.js';
 import type { ClawTopology } from '../../../../core/claw-topology/index.js';

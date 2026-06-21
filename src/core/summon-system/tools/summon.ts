@@ -10,7 +10,7 @@ import { buildSummonContractTask, buildMinerSystemPrompt, buildMiningUserMessage
 
 
 import { SUMMON_AUDIT_EVENTS, emitSummonDispatched, emitSummonRejectedShadow } from '../audit-events.js';
-import { isFileNotFound } from '../../../foundation/fs/types.js';
+import { isFileNotFound } from '../../../foundation/fs/index.js';
 import { SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME } from '../post-processors/contract-extract.js';
 import { SUMMON_CALLER_TYPES, type SummonCallerType } from '../caller-types.js';
 import { spawnShadowSubagent, stripIncompleteToolUse, SHADOW_CALLER_LABEL } from '../../shadow-system/index.js';

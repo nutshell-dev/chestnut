@@ -4,7 +4,7 @@ import { formatErr } from "../utils/index.js";
 import { spawnDetached as defaultSpawnDetached, kill as defaultKill } from '../process-exec/index.js';
 import { DAEMON_SHUTDOWN_GRACE_MS, SPAWN_POLL_INTERVAL_MS } from './constants.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
-import { isFileNotFound } from '../fs/types.js';
+import { isFileNotFound } from '../fs/index.js';
 import { ProcessListUnavailable } from './errors.js';
 import { isAliveByPidFile as checkAlive } from './alive.js';
 import { isReady as checkReady } from './ready.js';

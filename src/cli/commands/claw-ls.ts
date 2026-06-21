@@ -25,7 +25,7 @@ import { getClawDir, getClawConfigPath } from '../../foundation/config/index.js'
 import { CLAWSPACE_DIR } from '../../foundation/claw-paths.js';
 import { resolveWorkspacePath } from '../../foundation/file-tool/index.js';
 import { CliError } from '../errors.js';
-import type { FileSystem, FileEntry } from '../../foundation/fs/types.js';
+import type { FileSystem, FileEntry } from '../../foundation/fs/index.js';
 
 interface LsOptions {
   recursive?: boolean;
@@ -89,7 +89,7 @@ export async function lsCommand(
       includeDirs: true,
     });
   } catch (err) {
-    throw new CliError(`Error listing path: ${formatErr(err)}`);
+    throw new CliError(`Error listing path: ${formatErr(err)}`, { cause: err });
   }
 
   // Stable sort: directories first, then alphabetical.

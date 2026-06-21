@@ -5,7 +5,7 @@
 
 import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import { clawStepsCommand, clawStepCommand } from './claw-steps.js';
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 
 export async function motionStepsCommand(deps: { fsFactory: (baseDir: string) => FileSystem }, opts: { noHint?: boolean } = {}): Promise<void> {
   await clawStepsCommand(deps, MOTION_CLAW_ID, opts);

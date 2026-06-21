@@ -9,7 +9,7 @@
  */
 
 import * as path from 'path';
-import type { FileSystem } from '../foundation/fs/types.js';
+import type { FileSystem } from '../foundation/fs/index.js';
 import { CONTRACT_DIR } from '../core/contract/index.js';
 import { STATUS_SUBDIR } from '../foundation/process-manager/index.js';
 import { INBOX_PENDING_DIR } from '../foundation/messaging/index.js';

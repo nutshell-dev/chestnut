@@ -20,7 +20,7 @@ import {
   SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME,
   SUMMON_CALLER_TYPES,
 } from '../../core/summon-system/index.js';
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 import { type ContractId, makeContractId } from '../../core/contract/types.js';
 import { AUDIT_FILE } from '../../foundation/audit/index.js';
 

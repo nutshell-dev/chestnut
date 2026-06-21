@@ -9,7 +9,7 @@
  * - executeWriteCalls: 写工具串行
  */
 
-import type { ToolUseBlock, ToolResultBlock } from '../../foundation/llm-provider/types.js';
+import type { ToolUseBlock, ToolResultBlock } from '../../foundation/llm-provider/index.js';
 import { formatErr } from "../../foundation/utils/index.js";
 import type { ExecContext } from '../../foundation/tools/index.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';

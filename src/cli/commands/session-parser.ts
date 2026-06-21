@@ -4,8 +4,8 @@
  */
 
 import * as path from 'path';
-import type { FileSystem } from '../../foundation/fs/types.js';
-import type { Message, TextBlock, ToolUseBlock, ToolResultBlock, ThinkingBlock } from '../../foundation/llm-provider/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
+import type { Message, TextBlock, ToolUseBlock, ToolResultBlock, ThinkingBlock } from '../../foundation/llm-provider/index.js';
 import { CliError } from '../errors.js';
 import { migrateAndValidateSession, validateSessionData } from '../../foundation/dialog-store/index.js';
 

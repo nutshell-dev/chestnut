@@ -14,8 +14,8 @@ const CORRUPTED_SUBDIR = 'corrupted';
 
 import * as path from 'path';
 import { formatErr } from "../utils/index.js";
-import type { FileSystem } from '../fs/types.js';
-import { isFileNotFound } from '../fs/types.js';
+import type { FileSystem } from '../fs/index.js';
+import { isFileNotFound } from '../fs/index.js';
 
 import type { Message, ToolUseBlock, ToolResultBlock, ToolDefinition } from '../llm-provider/types.js';
 import type { SessionData, LoadResult, DialogMarker, RestoreResult } from './types.js';

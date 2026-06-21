@@ -3,7 +3,7 @@
  * fs watcher wrapper for chat-viewport / claw stream observation — 0 闭包依赖
  */
 
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { createWatcher } from '../../foundation/file-watcher/index.js';
 import type { Watcher } from '../../foundation/file-watcher/index.js';

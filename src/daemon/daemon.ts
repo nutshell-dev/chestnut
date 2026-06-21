@@ -20,9 +20,9 @@ import { startDaemonLoop } from './daemon-loop.js';
 import { createSystemAudit, type AuditLog } from '../foundation/audit/index.js';
 import { createAgentProcessManager } from '../foundation/process-manager/index.js';
 import { makeClawId } from '../foundation/identity/index.js';
-import { isFileNotFound } from '../foundation/fs/types.js';
+import { isFileNotFound } from '../foundation/fs/index.js';
 import { INBOX_PENDING_DIR } from '../foundation/messaging/index.js';
-import type { FileSystem } from '../foundation/fs/types.js';
+import type { FileSystem } from '../foundation/fs/index.js';
 
 import { LockConflictError } from '../foundation/process-manager/index.js';
 import { DAEMON_AUDIT_EVENTS } from './audit-events.js';

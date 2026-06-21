@@ -11,7 +11,7 @@
 import { ProcessManager } from './manager.js';
 import { getChestnutRoot } from '../config/index.js';
 import type { AuditLog } from '../audit/index.js';
-import type { FileSystem } from '../fs/types.js';
+import type { FileSystem } from '../fs/index.js';
 
 export function createAgentProcessManager(
   deps: {

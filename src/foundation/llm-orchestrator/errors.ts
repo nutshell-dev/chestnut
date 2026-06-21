@@ -18,6 +18,7 @@ import {
   LLMTimeoutError,
 } from '../llm-provider/errors.js';
 import type { ErrorCode } from '../errors.js';
+import { isAbortError } from '../utils/index.js';
 
 export { LLMError, LLMRateLimitError, LLMTimeoutError, LLMAuthError, LLMNetworkError, LLMEmptyResponseError, LLMModelNotFoundError } from '../llm-provider/errors.js';
 
@@ -49,7 +50,7 @@ export function classifyLLMError(err: unknown): LLMErrorClass {
   if (err instanceof LLMAuthError || err instanceof LLMModelNotFoundError) return 'permanent';
   if (err instanceof LLMRateLimitError) return 'rate_limit';
   if (err instanceof LLMNetworkError || err instanceof LLMTimeoutError) return 'transient';
-  if (err instanceof Error && err.name === 'AbortError') return 'abort';
+  if (isAbortError(err)) return 'abort';
   if (err instanceof LLMError) return 'transient';
   return 'unknown';
 }

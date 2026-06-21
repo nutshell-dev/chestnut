@@ -6,7 +6,7 @@
 import type { JSONSchema7 } from '../llm-provider/types.js';
 export type { JSONSchema7 };
 import type { ToolProfile } from '../tool-protocol/index.js';
-import type { FileSystem } from '../fs/types.js';
+import type { FileSystem } from '../fs/index.js';
 import type { LLMOrchestrator } from '../llm-orchestrator/index.js';
 import type { AuditLog } from '../audit/types.js';
 import type { DialogStore } from '../dialog-store/index.js';

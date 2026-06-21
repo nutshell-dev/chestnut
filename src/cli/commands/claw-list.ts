@@ -10,7 +10,7 @@ import { getGlobalConfigPath } from '../../foundation/config/index.js';
 import { createDirContext } from '../../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { makeClawId } from '../../foundation/identity/index.js';
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 import { CONTRACT_DIR, CONTRACT_ARCHIVE_DIR, CONTRACT_YAML_FILE } from '../../core/contract/index.js';
 import { CONFIG_YAML_FILE } from '../../foundation/install-paths.js';
 import { CLAWS_DIR } from '../../foundation/claw-paths.js';

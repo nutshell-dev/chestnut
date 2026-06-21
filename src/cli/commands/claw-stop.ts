@@ -12,7 +12,7 @@ import { createProcessManagerForCLI, signalCleanStop } from '../../foundation/pr
 import { makeClawId } from '../../foundation/identity/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 import { makeChestnutRoot, getChestnutRoot } from '../../foundation/install-paths.js';
 import { CLAWS_DIR } from '../../foundation/claw-paths.js';
 

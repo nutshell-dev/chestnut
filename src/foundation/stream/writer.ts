@@ -1,7 +1,7 @@
 /**
  * StreamWriter - 追加写 stream.jsonl
  */
-import type { FileSystem } from '../fs/types.js';
+import type { FileSystem } from '../fs/index.js';
 import { formatErr } from "../utils/index.js";
 import { STREAM_FILE, type StreamEvent, type StreamLog } from './types.js';
 import type { AuditLog } from '../audit/index.js';
@@ -131,8 +131,13 @@ export class StreamWriter implements StreamLog {
     }
   }
 
-  /** lifecycle dispose (caller-managed) */
+  /**
+   * lifecycle dispose (caller-managed).
+   * phase 522 C2: 显式幂等 guard、与 FileWatcher/UnixSocket/CronRunner/AsyncTaskSystem 模式对齐
+   * （audit 02_lifecycle_dispose 6/9 模块已有、3/9 缺、本处补齐）。
+   */
   close(): void {
+    if (!this.isOpen) return;
     this.isOpen = false;
   }
 

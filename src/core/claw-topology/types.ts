@@ -1,5 +1,5 @@
 import type { ClawId } from '../../foundation/identity/index.js';
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 
 /** claw 物理位置 discriminated union（单机 = local、未来分布式 = remote） */

@@ -1,5 +1,5 @@
 import { createAuditWriter, AUDIT_FILE } from '../foundation/audit/index.js';
-import type { FileSystem } from '../foundation/fs/types.js';
+import type { FileSystem } from '../foundation/fs/index.js';
 import { getChestnutFs, getGlobalConfig, getAuditWriter, setAuditWriter } from './watchdog-context.js';
 
 /**

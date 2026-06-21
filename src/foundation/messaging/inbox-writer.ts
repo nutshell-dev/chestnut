@@ -7,7 +7,7 @@
 
 import * as path from 'path';
 import { formatErr } from "../utils/index.js";
-import type { FileSystem } from '../fs/types.js';
+import type { FileSystem } from '../fs/index.js';
 import type { InboxMessage } from '../messaging/types.js';
 import { encodeInbox, parseFrontmatter } from './codec-inbox.js';
 import type { AuditLog } from '../audit/index.js';
@@ -21,7 +21,7 @@ import { assertMessageShape } from './invariants.js';
 import { SequenceCounter, formatSeq } from './sequence-counter.js';
 import { ok, err as errResult, type Result } from '../utils/index.js';
 import type { InboxMetaError } from './errors.js';
-import { isFileNotFound } from '../fs/types.js';
+import { isFileNotFound } from '../fs/index.js';
 
 // phase 429 Step A (review medium): inbox message body 硬上限、防 disk DoS / runaway bug
 // Derivation: 64 KiB = 65536 byte / 覆盖典型 inbox use case (大多 < 4KB) / LLM-generated

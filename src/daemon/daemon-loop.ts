@@ -15,8 +15,8 @@
 
 import * as path from 'path';
 import { formatErr } from "../foundation/utils/index.js";
-import type { FileSystem } from '../foundation/fs/types.js';
-import { isFileNotFound } from '../foundation/fs/types.js';
+import type { FileSystem } from '../foundation/fs/index.js';
+import { isFileNotFound } from '../foundation/fs/index.js';
 import type { IRuntimeDaemon } from '../core/runtime/index.js';
 import type { StreamWriter } from '../foundation/stream/index.js';
 import type { AuditLog } from '../foundation/audit/index.js';

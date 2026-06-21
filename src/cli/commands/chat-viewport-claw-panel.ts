@@ -10,7 +10,7 @@ import { formatErr } from "../../foundation/utils/index.js";
 import { getContractCreatedMs } from '../../core/contract/index.js';
 import { makeClawTrack, buildClawLine, type ClawTrack } from './chat-viewport-claw-line.js';
 import { STREAM_FILE } from '../../foundation/stream/index.js';
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { ClawTopology } from '../../core/claw-topology/index.js';
 import { makeClawId } from '../../foundation/identity/index.js';

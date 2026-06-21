@@ -15,10 +15,10 @@
 
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { formatErr } from "../../foundation/utils/index.js";
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { InboxWriter } from '../../foundation/messaging/index.js';
-import type { ContentBlock, TextBlock } from '../../foundation/llm-provider/types.js';
+import type { ContentBlock, TextBlock } from '../../foundation/llm-provider/index.js';
 import { buildAuditorPrompt } from './auditor-prompt.js';
 import { contractFootprint, type ContractFootprintOptions } from './contract-footprint.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';

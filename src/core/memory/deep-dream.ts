@@ -1,19 +1,19 @@
 import { formatErr } from "../../foundation/utils/index.js";
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 import { MEMORY_AUDIT_EVENTS } from './audit-events.js';
 import { MEMORY_DREAM_OUTPUTS_DIR } from './memory-paths.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/index.js';
-import type { Message, ContentBlock, TextBlock, LLMResponse } from '../../foundation/llm-provider/types.js';
+import type { Message, ContentBlock, TextBlock, LLMResponse } from '../../foundation/llm-provider/index.js';
 import { notifyInbox } from '../../foundation/messaging/index.js';
 import { estimateTextTokens } from '../../foundation/llm-provider/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { DialogStore, DIALOG_DIR, CURRENT_DIALOG_FILE } from '../../foundation/dialog-store/index.js';
-import type { SessionData } from '../../foundation/dialog-store/types.js';
+import type { SessionData } from '../../foundation/dialog-store/index.js';
 import { CLAWS_DIR } from '../../foundation/claw-paths.js';
 import { INBOX_PENDING_DIR } from '../../foundation/messaging/index.js';
-import { FileNotFoundError } from '../../foundation/fs/types.js';
+import { FileNotFoundError } from '../../foundation/fs/index.js';
 import { MOTION_CLAW_ID } from '../claw-topology/index.js';
 import type { ClawTopology } from '../../core/claw-topology/index.js';
 import { assertDreamStateShape } from './invariants.js';
@@ -34,7 +34,15 @@ import {
 
 // ─── 类型定义 ───────────────────────────────────────────────
 
+/**
+ * phase 547: 加 schema_version 字段（DP「持久化 schema 显式版本」+ 与 contract/progress.json / dialog/current.json 同模式）。
+ * v1 = 当前 schema；未来增/改字段时 ++version + 加 migration 路径。
+ * 与 phase 280 'processedArchives' legacy 实体共存（legacy 是字段名 hint、未来 v2 用版本号 cleaner）。
+ */
+const DEEP_DREAM_STATE_CURRENT_VERSION = 1;
+
 interface DreamStateData {
+  schema_version?: number;               // phase 547: 显式 schema 版本（默认 1、未写也视 v1）
   lastProcessedDeepDreamAt: number;      // ms epoch 高水位线：archivedAt ≤ 此值的视为已处理
   currentSessionDreamedDate: string;     // "YYYY-MM-DD"，当日 current.json 已处理
   currentSessionRetryCount?: number;     // Phase 1200: current.json 损坏重试计数器
@@ -101,14 +109,15 @@ function loadDreamState(clawFs: FileSystem, audit: AuditLog, clawId: string): Dr
         `legacy_field=processedArchives`,
         `legacy_count=${Array.isArray(raw.processedArchives) ? raw.processedArchives.length : 0}`,
       );
-      return { lastProcessedDeepDreamAt: 0, currentSessionDreamedDate: '', currentSessionRetryCount: 0 };
+      return { schema_version: DEEP_DREAM_STATE_CURRENT_VERSION, lastProcessedDeepDreamAt: 0, currentSessionDreamedDate: '', currentSessionRetryCount: 0 };
     }
 
+    // phase 547: 缺 schema_version 视 v1（兼容旧 state 文件、未触发 migration audit）
     return raw as unknown as DreamStateData;
   } catch (err) {
     // FileNotFoundError 首启良性 / silent
     if (err instanceof FileNotFoundError) {
-      return { lastProcessedDeepDreamAt: 0, currentSessionDreamedDate: '' };
+      return { schema_version: DEEP_DREAM_STATE_CURRENT_VERSION, lastProcessedDeepDreamAt: 0, currentSessionDreamedDate: '' };
     }
     // 其他 IO 错（parse 损坏 / 权限 / 等）必 audit + 返空 resilient
     audit.write(MEMORY_AUDIT_EVENTS.DEEP_DREAM_ERROR,
@@ -116,7 +125,7 @@ function loadDreamState(clawFs: FileSystem, audit: AuditLog, clawId: string): Dr
       `clawId=${clawId}`,
       `reason=${formatErr(err)}`,
     );
-    return { lastProcessedDeepDreamAt: 0, currentSessionDreamedDate: '' };
+    return { schema_version: DEEP_DREAM_STATE_CURRENT_VERSION, lastProcessedDeepDreamAt: 0, currentSessionDreamedDate: '' };
   }
 }
 
@@ -133,7 +142,9 @@ function saveDreamState(
   auditDeepDreamCrossSource(state, audit);
 
   try {
-    clawFs.writeAtomicSync(DEEP_DREAM_STATE_FILE, JSON.stringify(state, null, 2));
+    // phase 547: 总写 schema_version、迁老 state 文件升级
+    const stateToSave = { schema_version: DEEP_DREAM_STATE_CURRENT_VERSION, ...state };
+    clawFs.writeAtomicSync(DEEP_DREAM_STATE_FILE, JSON.stringify(stateToSave, null, 2));
   } catch (err) {
     audit.write(MEMORY_AUDIT_EVENTS.DEEP_DREAM_ERROR,
       `step=save_state`,

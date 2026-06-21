@@ -16,7 +16,7 @@
  */
 
 import * as path from 'node:path';
-import type { FileSystem } from '../fs/types.js';
+import type { FileSystem } from '../fs/index.js';
 import type { AuditLog } from '../audit/index.js';
 import type { Message, ToolDefinition } from '../llm-provider/types.js';
 import { formatErr, assertNever } from '../utils/index.js';

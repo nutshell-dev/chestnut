@@ -6,8 +6,8 @@
  */
 
 import * as path from 'path';
-import type { FileSystem } from '../../foundation/fs/types.js';
-import { isFileNotFound } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
+import { isFileNotFound } from '../../foundation/fs/index.js';
 import * as yaml from 'js-yaml';
 import { loadGlobalConfig, clawExists } from '../../assembly/config-load.js';
 import { getClawDir, getClawConfigPath } from '../../foundation/config/index.js';

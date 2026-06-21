@@ -1,6 +1,6 @@
 import * as path from 'path';
 import { STREAM_FILE } from '../../foundation/stream/index.js';
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 import type { ClawTopology } from '../../core/claw-topology/index.js';
 import { makeClawId } from '../../foundation/identity/index.js';
 import { type ClawTrack, makeClawTrack } from './chat-viewport-claw-line.js';

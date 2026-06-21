@@ -5,7 +5,7 @@
 
 import { makeChestnutRoot } from '../foundation/install-paths.js';
 import * as path from 'path';
-import type { FileSystem } from '../foundation/fs/types.js';
+import type { FileSystem } from '../foundation/fs/index.js';
 import { getChestnutFs, getAuditWriter, getMotionContext } from './watchdog-context.js';
 import { getNamedSubrootDir } from '../foundation/config/index.js';
 import { notifyClaw } from '../foundation/messaging/index.js';

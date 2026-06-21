@@ -33,7 +33,7 @@ import {
   formatTaskView,
   formatStorageView,
 } from '../../core/status-service/index.js';
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 
 interface ClawStatusOpts {
   json?: boolean;

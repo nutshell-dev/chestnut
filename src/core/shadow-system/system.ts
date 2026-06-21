@@ -8,7 +8,7 @@ import * as path from 'path';
 import { newShortUuid } from '../../foundation/uuid.js';
 import type { ExecContext } from '../../foundation/tools/index.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
-import type { Message } from '../../foundation/llm-provider/types.js';
+import type { Message } from '../../foundation/llm-provider/index.js';
 
 import { TASKS_SYNC_SHADOW_DIR, SHADOW_DEFAULT_TIMEOUT_MS } from './constants.js';
 import { runSubagent as defaultRunSubagent, createPerTaskRegistry, getDisplayResult, DONE_TOOL_NAME } from '../subagent/index.js';

@@ -1,6 +1,6 @@
 import { newShortUuid } from '../uuid.js';
 import { formatErr } from "../utils/index.js";
-import type { FileSystem } from '../fs/types.js';
+import type { FileSystem } from '../fs/index.js';
 import type { AuditLog } from './types.js';
 import { pushFallback } from './writer.js';
 import { esc, clipPreview, clipMessage, clipSummary } from './_helpers.js';

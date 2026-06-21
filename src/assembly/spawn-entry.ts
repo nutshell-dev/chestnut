@@ -22,7 +22,7 @@
 
 import * as path from 'path';
 import { fileURLToPath } from 'url';
-import type { FileSystem } from '../foundation/fs/types.js';
+import type { FileSystem } from '../foundation/fs/index.js';
 
 const PATHS_THIS_DIR = path.dirname(fileURLToPath(import.meta.url));
 // phase 72: basename 字面 'foundation' → 'assembly'（spawn entry 物理迁、unbundled

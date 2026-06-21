@@ -7,7 +7,7 @@
  * inbox 目录 watcher — 等待新文件或 timeout，daemon loop catch 路径后用以决定是否继续。
  */
 
-import type { FileSystem } from '../foundation/fs/types.js';
+import type { FileSystem } from '../foundation/fs/index.js';
 import type { AuditLog } from '../foundation/audit/index.js';
 import { createWatcher } from '../foundation/file-watcher/index.js';
 import type { Watcher } from '../foundation/file-watcher/index.js';

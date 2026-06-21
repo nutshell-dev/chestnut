@@ -26,7 +26,7 @@ import { DEFAULT_MAX_CONCURRENT_TASKS } from '../../core/async-task-system/index
 // phase 1485: chestnut init 生成的 config 不再写 max_steps 字段 — agent-executor 自持默认值、user 需覆盖时再加。
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 import { checkLLMConnection, promptReconfigure, formatLLMError, LLM_ERROR_HINTS } from '../llm-connection-check.js';
 
 // Known providers shown in "Select provider" list (excludes generic custom-* entries)
@@ -372,7 +372,8 @@ export async function initCommand(deps: { fsFactory: (baseDir: string) => FileSy
   } catch (error) {
     // phase 446 (review N3-H2): 内部已是 CliError 时直接重抛、不双包污染原文案
     if (error instanceof CliError) throw error;
-    throw new CliError(`Init failed: ${formatErr(error)}`);
+    // phase 526: 保 cause、事后可还原 root error stack
+    throw new CliError(`Init failed: ${formatErr(error)}`, { cause: error });
   } finally {
     rl.close();
   }

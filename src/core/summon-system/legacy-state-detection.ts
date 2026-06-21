@@ -7,7 +7,7 @@
  * 不删文件（独立 micro-phase 负责）。
  */
 
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { SUMMON_AUDIT_EVENTS } from './audit-events.js';
 

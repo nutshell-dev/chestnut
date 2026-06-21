@@ -1,7 +1,7 @@
 import { newUuid } from '../../foundation/uuid.js';
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
-import type { InboxMessage } from '../../foundation/messaging/types.js';
+import type { InboxMessage } from '../../foundation/messaging/index.js';
 import { writeInboxAsync } from '../../foundation/messaging/index.js';
 import { INBOX_PENDING_DIR } from '../../foundation/messaging/index.js';
 import { formatErr } from './_helpers.js';

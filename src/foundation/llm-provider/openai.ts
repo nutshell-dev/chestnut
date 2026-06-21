@@ -24,6 +24,7 @@ import type {
 } from './types.js';
 import { STREAM_MAX_DURATION_MS, STREAM_IDLE_MAX_MS } from './constants.js';
 import { withCombinedAbortSignal, classifyFetchAbortError } from './abort-helper.js';
+import { isAbortError } from '../utils/index.js';
 // NEW imports（sub-file）
 import { formatMessages, formatTools } from './openai-message-formatter.js';
 import { parseSSEStream } from './openai-sse-parser.js';
@@ -161,7 +162,7 @@ export class OpenAIAdapter implements ProviderAdapter {
       if (error instanceof LLMError) {
         throw error;
       }
-      if (error instanceof Error && error.name === 'AbortError') {
+      if (isAbortError(error)) {
         throw error;
       }
 
@@ -233,7 +234,7 @@ export class OpenAIAdapter implements ProviderAdapter {
       const classified = classifyFetchAbortError(error, signal, timeout, this.name);
       if (classified) throw classified;
       if (error instanceof LLMError) throw error;
-      if (error instanceof Error && error.name === 'AbortError') throw error;
+      if (isAbortError(error)) throw error;
       throw new LLMNetworkError(
         this.name,
         error instanceof Error ? error : new Error(String(error)),

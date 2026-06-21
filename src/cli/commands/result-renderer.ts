@@ -3,7 +3,7 @@
  * phase 31 P2.5: result rendering 函数集。
  */
 
-import type { ToolUseBlock, ToolResultBlock } from '../../foundation/llm-provider/types.js';
+import type { ToolUseBlock, ToolResultBlock } from '../../foundation/llm-provider/index.js';
 import { CliError } from '../errors.js';
 import { type Step } from './session-parser.js';
 import { renderArgs, renderArgsFull, truncateSingleLine } from './arg-renderer.js';

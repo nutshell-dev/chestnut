@@ -24,7 +24,7 @@ import * as yaml from 'js-yaml';
 import { formatErr } from "../../foundation/utils/index.js";
 import { newShortUuid } from '../../foundation/uuid.js';
 
-import { isFileNotFound, type FileSystem } from '../../foundation/fs/types.js';
+import { isFileNotFound, type FileSystem } from '../../foundation/fs/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { Contract, SubtaskStatus } from '../contract/types.js';
 import { ToolError, isProgrammingBug } from '../../foundation/errors.js';

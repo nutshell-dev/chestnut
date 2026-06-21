@@ -22,8 +22,8 @@ import {
 } from '../foundation/config/loader.js';
 import { getGlobalConfigPath } from '../foundation/config/global-config-path.js';
 import { toProviderConfig } from '../foundation/llm-orchestrator/config-adapter.js';
-import type { LLMOrchestratorConfig } from '../foundation/llm-orchestrator/types.js';
-import type { FileSystem } from '../foundation/fs/types.js';
+import type { LLMOrchestratorConfig } from '../foundation/llm-orchestrator/index.js';
+import type { FileSystem } from '../foundation/fs/index.js';
 
 export function loadGlobalConfig(deps: { fsFactory: (baseDir: string) => FileSystem }): ClawGlobalConfig {
   const configPath = getGlobalConfigPath();

@@ -114,6 +114,8 @@ const CANCELLING_STUCK_TICKS = 10;
  */
 export class CronRunner {
   private timer: ReturnType<typeof setInterval> | null = null;
+  /** phase 545: 防 stop 二次调用重 drain 30s（与 Runtime._stopped phase 522 同模式）*/
+  private _stopped = false;
   private lastRunKey = new Map<string, string>(); // jobName → runKey
   private running = new Set<string>();            // 防止同一 job 重叠执行
   private cancelling = new Set<string>();         // timeout 已发但 handler 真 settle 前的二态
@@ -144,6 +146,9 @@ export class CronRunner {
   // phase 793: sync → async + drain inflight handlers with cap timeout 30s
   // mirror runtime.stop 的 taskSystem.shutdown(30_000) cap 一致
   async stop(drainTimeoutMs = 30_000): Promise<void> {
+    // phase 545: 幂等 guard、防 stop 二次调用重 drain
+    if (this._stopped) return;
+    this._stopped = true;
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;

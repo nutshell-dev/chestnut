@@ -14,8 +14,8 @@ import { FORMAT_MAP } from '../foundation/llm-orchestrator/index.js';
 import { buildLLMConfig } from '../assembly/config-load.js';
 import { createLLMOrchestrator } from '../foundation/llm-orchestrator/index.js';
 import { passwordQuestion } from './utils/password-prompt.js';
-import type { FileSystem } from '../foundation/fs/types.js';
-import type { ProviderConfig } from '../foundation/llm-provider/types.js';
+import type { FileSystem } from '../foundation/fs/index.js';
+import type { ProviderConfig } from '../foundation/llm-provider/index.js';
 
 export type LLMErrorType = 'auth' | 'model' | 'network' | 'rate_limit' | 'quota' | 'unknown';
 

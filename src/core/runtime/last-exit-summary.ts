@@ -11,7 +11,7 @@
  * 同 phase455 bypass cluster 治理一致 / phase460 cluster 6/6 全闭里程碑。
  */
 
-import { isFileNotFound, type FileSystem } from '../../foundation/fs/types.js';
+import { isFileNotFound, type FileSystem } from '../../foundation/fs/index.js';
 
 /**
  * audit.tsv 尾部读字节数（用于 readBytesSync(start, end) tail read）.

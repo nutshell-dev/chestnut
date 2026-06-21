@@ -6,7 +6,7 @@
  */
 import { newUuid } from '../../../foundation/uuid.js';
 import { TASKS_QUEUES_PENDING_DIR } from '../dirs.js';
-import type { FileSystem } from '../../../foundation/fs/types.js';
+import type { FileSystem } from '../../../foundation/fs/index.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
 import type { AsyncToolTaskArgs } from '../../../foundation/tools/index.js';
 import { emitTaskScheduled } from '../audit-emit.js';

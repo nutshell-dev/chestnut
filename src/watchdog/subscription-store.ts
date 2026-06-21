@@ -14,8 +14,8 @@
  */
 
 import * as path from 'path';
-import type { FileSystem } from '../foundation/fs/types.js';
-import { isFileNotFound } from '../foundation/fs/types.js';
+import type { FileSystem } from '../foundation/fs/index.js';
+import { isFileNotFound } from '../foundation/fs/index.js';
 import type { AuditLog } from '../foundation/audit/index.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 import { formatErr } from '../foundation/utils/index.js';

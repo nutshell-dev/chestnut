@@ -5,7 +5,7 @@
 
 import { getClawDir, getNamedSubrootDir } from '../../foundation/install-paths.js';
 import * as path from 'path';
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 import { DIALOG_DIR, CURRENT_DIALOG_FILE } from '../../foundation/dialog-store/index.js';
 import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import { CliError } from '../errors.js';

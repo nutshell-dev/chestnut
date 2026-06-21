@@ -6,7 +6,7 @@
  */
 
 import * as path from 'path';
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 
 export interface CopyStats {
   dirs: number;

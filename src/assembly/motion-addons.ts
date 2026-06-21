@@ -138,7 +138,7 @@ export async function createMotionAddons(
 
     // phase155D：预制 chestnutFs，被 disk-monitor / dream-trigger 闭包共用（冻结 §6）
     // 失败语义：与既有模块（Snapshot / StreamWriter）一致 —— audit 写 assemble_failed 后上抛
-    let chestnutFs: import('../foundation/fs/types.js').FileSystem;
+    let chestnutFs: import('../foundation/fs/index.js').FileSystem;
     try {
       chestnutFs = fsFactory(chestnutRoot);
     } catch (e) {

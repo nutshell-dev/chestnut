@@ -15,7 +15,7 @@
 import * as path from 'path';
 import { tmpdir } from 'node:os';
 import * as nodeFs from 'node:fs';
-import type { FileSystem } from '../fs/types.js';
+import type { FileSystem } from '../fs/index.js';
 import {
   lookupContentByToolUseId,
   type LookupResult,

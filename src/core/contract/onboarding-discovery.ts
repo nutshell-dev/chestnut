@@ -4,7 +4,7 @@
  * Sibling of discovery.ts ctx-injected loadActiveContract/loadPausedContract.
  */
 import * as path from 'node:path';
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { formatErr } from '../../foundation/utils/index.js';
 import {

@@ -12,8 +12,8 @@ import { formatErr } from "../../../foundation/utils/index.js";
  * phase 8 reframe: motion inbox → viewport stream / dedup transition / 英文 self-contained.
  */
 
-import { isFileNotFound } from '../../../foundation/fs/types.js';
-import type { FileSystem } from '../../../foundation/fs/types.js';
+import { isFileNotFound } from '../../../foundation/fs/index.js';
+import type { FileSystem } from '../../../foundation/fs/index.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
 import type { StreamLog } from '../../../foundation/stream/index.js';
 import { AUDIT_SIZE_MONITOR_AUDIT_EVENTS } from './audit-size-monitor-audit-events.js';

@@ -1,4 +1,4 @@
-import type { FileSystem } from '../fs/types.js';
+import type { FileSystem } from '../fs/index.js';
 
 /**
  * Default scan window 字节数 - turn-start 位置 backward 搜寻预算.

@@ -6,7 +6,7 @@
 
 import * as path from 'path';
 import { formatErr } from "../utils/index.js";
-import type { FileSystem } from '../fs/types.js';
+import type { FileSystem } from '../fs/index.js';
 import type { OutboxMessage } from '../messaging/types.js';
 import type { AuditLog } from '../audit/index.js';
 import { encodeOutbox } from './codec-outbox.js';

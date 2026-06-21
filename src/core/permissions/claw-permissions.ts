@@ -24,7 +24,7 @@ import {
   WriteOperationForbiddenError,
 } from '../../foundation/errors.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 import { PERMISSION_AUDIT_EVENTS } from './audit-events.js';
 import {
   TASKS_QUEUES_PENDING_DIR,

@@ -11,7 +11,7 @@
  */
 
 import type { AuditLog } from '../../foundation/audit/index.js';
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 import type { DialogStore } from '../../foundation/dialog-store/index.js';
 import { formatErr } from '../../foundation/utils/index.js';
 import { SUBAGENT_AUDIT_EVENTS } from './audit-events.js';

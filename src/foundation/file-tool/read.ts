@@ -27,7 +27,7 @@ import {
 } from './constants.js';
 
 import { resolveWorkspacePath } from './resolve-path.js';
-import { safeNumber, formatErr } from '../utils/index.js';
+import { safeNumber, formatErr, truncateHeadTail } from '../utils/index.js';
 import { recordReadResult } from './file-state-manager.js';
 import { FILE_TOOL_AUDIT_EVENTS } from './audit-events.js';
 import { defineFileToolSchema } from './_zod-helper.js';
@@ -49,26 +49,8 @@ const ReadInputSchema = z.object({
 
 type ReadInput = z.infer<typeof ReadInputSchema>;
 
-/**
- * Head bytes preserved when read tool output 超 EXEC_MAX_OUTPUT 触发 truncation.
- * Derivation: 600 byte ≈ 头部足够看 file 起步 context（imports + 起点行）/ 配 TAIL_LIMIT=1400 共 2000B ≈ 同 exec.ts truncation budget /
- * 同 exec.ts:49 file-private const 同值 / 业务一致 head:tail = 3:7 给 tail 更多空间因 error trace 偏 tail.
- */
-const HEAD_LIMIT = 600;
-
-/**
- * Tail bytes preserved when read tool output 超 EXEC_MAX_OUTPUT 触发 truncation.
- * Derivation: 1400 byte ≈ 尾部足够看 file 结尾 + error trace / 配 HEAD_LIMIT=600 共 2000B /
- * 同 exec.ts:50 file-private const 同值（业务 truncation 协议一致）.
- */
-const TAIL_LIMIT = 1400;
-
-function truncateHeadTail(content: string, relPath: string): string {
-  const head = content.slice(0, HEAD_LIMIT);
-  const tail = content.slice(-TAIL_LIMIT);
-  const truncatedBytes = content.length - HEAD_LIMIT - TAIL_LIMIT;
-  return `${head}\n[...truncated ${truncatedBytes} bytes...]\n${tail}\nFull output (${content.length} bytes) saved. Use \`read\` with offset/limit to view ranges (read is capped per call, paginate by offset):\n  read: { "path": "${relPath}", "offset": 1, "limit": 200 }`;
-}
+// phase 524: HEAD/TAIL 常量 + truncateHeadTail 抽 foundation/utils/truncate-head-tail.ts、
+// 与 command-tool/exec.ts 共享同一业务 truncation 协议。
 
 async function persistOverflow(ctx: ExecContext, output: string): Promise<string | null> {
   try {

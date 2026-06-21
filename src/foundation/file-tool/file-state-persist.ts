@@ -14,8 +14,8 @@
  * Path: `read-state.json` relative to fs baseDir (Assembly wires baseDir = clawDir for main claw fs).
  */
 
-import type { FileSystem } from '../fs/types.js';
-import { isFileNotFound } from '../fs/types.js';
+import type { FileSystem } from '../fs/index.js';
+import { isFileNotFound } from '../fs/index.js';
 import type { AuditLog } from '../audit/index.js';
 
 import type { ExecContext, FileState } from '../tools/types.js';

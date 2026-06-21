@@ -23,7 +23,7 @@ import {
   listPendingFallbackDumps,
   type AuditFileInfo,
 } from '../../foundation/audit/index.js';
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 
 
 import _snapshotJson from '../../foundation/audit/audit-events.snapshot.json' with { type: 'json' };

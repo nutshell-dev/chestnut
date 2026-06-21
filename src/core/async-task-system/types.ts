@@ -4,7 +4,7 @@
  * Extracted in phase 1314 (cluster #3 of 5 cleanup roadmap).
  */
 
-import type { Message, ToolDefinition } from '../../foundation/llm-provider/types.js';
+import type { Message, ToolDefinition } from '../../foundation/llm-provider/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { OutboxWriter, InboxWriter } from '../../foundation/messaging/index.js';
 import type { ContractSystem } from '../contract/index.js';
@@ -12,7 +12,7 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import type { ToolRegistry } from '../../foundation/tools/index.js';
 import type { StreamLog } from '../../foundation/stream/index.js';
 import type { DialogStore } from '../../foundation/dialog-store/index.js';
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 import type { PermissionChecker } from '../../foundation/tool-protocol/index.js';
 import type { WatcherFactory } from '../../foundation/file-watcher/index.js';
 import type { CallerType } from '../caller-types.js';

@@ -10,7 +10,7 @@
  */
 
 import { newShortUuid } from '../../foundation/uuid.js';
-import type { Message } from '../../foundation/llm-provider/types.js';
+import type { Message } from '../../foundation/llm-provider/index.js';
 
 import { synthesizeFormB } from './_helpers.js';
 import { type BuildShadowInstructionArgs } from '../../templates/prompts/index.js';

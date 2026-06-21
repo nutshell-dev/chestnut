@@ -4,7 +4,7 @@
  */
 
 import * as path from 'path';
-import { isFileNotFound, type FileSystem } from '../../../foundation/fs/types.js';
+import { isFileNotFound, type FileSystem } from '../../../foundation/fs/index.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
 import { ACTIVE_STATUSES } from '../types.js';
 import { CONTRACT_ARCHIVE_DIR, PROGRESS_FILE } from '../dirs.js';

@@ -1,7 +1,7 @@
 import * as path from 'path';
 import { formatErr } from "../../../foundation/utils/index.js";
 import { exec } from '../../../foundation/process-exec/index.js';
-import type { FileSystem } from '../../../foundation/fs/types.js';
+import type { FileSystem } from '../../../foundation/fs/index.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
 import type { ClawTopology } from '../../../core/claw-topology/index.js';
 import { MOTION_CLAW_ID } from '../../claw-topology/index.js';

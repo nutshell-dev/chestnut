@@ -3,12 +3,12 @@
  * Watchdog state persistence — load/save 2 Map + crash log
  */
 
-import type { FileSystem } from '../foundation/fs/types.js';
+import type { FileSystem } from '../foundation/fs/index.js';
 import { formatErr } from "../foundation/utils/index.js";
 import { getChestnutFs, getAuditWriter, clawStateAPI } from './watchdog-context.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 
-import { isFileNotFound } from '../foundation/fs/types.js';
+import { isFileNotFound } from '../foundation/fs/index.js';
 
 const CURRENT_WATCHDOG_SCHEMA_VERSION = 2;
 

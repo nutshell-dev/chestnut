@@ -8,7 +8,7 @@
 
 import * as path from 'path';
 import { createWatcher, type Watcher } from '../foundation/file-watcher/index.js';
-import { isFileNotFound, type FileSystem } from '../foundation/fs/types.js';
+import { isFileNotFound, type FileSystem } from '../foundation/fs/index.js';
 
 export const INTERRUPT_FILE_NAME = 'interrupt';
 

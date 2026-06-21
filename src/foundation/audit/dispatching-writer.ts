@@ -15,7 +15,7 @@
  */
 
 import * as path from 'path';
-import type { FileSystem } from '../fs/types.js';
+import type { FileSystem } from '../fs/index.js';
 import type { AuditLog } from './types.js';
 import { AuditWriter } from './writer.js';
 import { clipPreview, clipMessage, clipSummary } from './_helpers.js';

@@ -9,7 +9,7 @@
  */
 
 import type { AuditLog } from '../foundation/audit/index.js';
-import type { FileSystem } from '../foundation/fs/types.js';
+import type { FileSystem } from '../foundation/fs/index.js';
 import { formatErr } from '../foundation/utils/index.js';
 import { waitForInbox } from './inbox-watcher.js';
 import { DAEMON_AUDIT_EVENTS, LOOP_INTERRUPT_CAUSES } from './audit-events.js';

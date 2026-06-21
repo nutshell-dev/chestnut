@@ -14,7 +14,7 @@
  * - 不管归档/轮转
  */
 
-import type { FileSystem } from '../fs/types.js';
+import type { FileSystem } from '../fs/index.js';
 import { formatErr } from "../utils/index.js";
 import type { StreamEvent } from './types.js';
 import type { AuditLog } from '../audit/index.js';

@@ -1,6 +1,6 @@
 import * as path from 'path';
 import { formatErr, assertNever } from "../../../foundation/utils/index.js";
-import { isFileNotFound, type FileSystem } from '../../../foundation/fs/types.js';
+import { isFileNotFound, type FileSystem } from '../../../foundation/fs/index.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
 import type { ClawTopology } from '../../../core/claw-topology/index.js';
 import type { InboxMessageOptionsBase } from '../../../foundation/messaging/index.js';

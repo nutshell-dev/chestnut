@@ -40,7 +40,7 @@ import { getClawDir } from '../../foundation/config/index.js';
 import { loadGlobalConfig } from '../../assembly/config-load.js';
 import { parseIntOption } from '../parse-int-option.js';
 import { makeContractId } from '../../core/contract/types.js';
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 import { clawStepsCommand, clawStepCommand } from './claw-steps.js';
 import {
   CLAW_VERB_FACTS,

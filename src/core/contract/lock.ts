@@ -6,10 +6,10 @@
 import * as path from 'path';
 import { z } from 'zod';
 import { formatErr } from "../../foundation/utils/index.js";
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 
 import type { AuditLog } from '../../foundation/audit/index.js';
-import { FileNotFoundError, isFileNotFound } from '../../foundation/fs/types.js';
+import { FileNotFoundError, isFileNotFound } from '../../foundation/fs/index.js';
 import { ToolError } from '../../foundation/errors.js';
 import { LOCK_MAX_RETRIES, LOCK_RETRY_DELAY_MS, LOCK_STALE_TIMEOUT_MS } from './constants.js';
 import { PROGRESS_LOCK_FILE } from './dirs.js';

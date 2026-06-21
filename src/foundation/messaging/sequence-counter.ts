@@ -10,8 +10,8 @@
  */
 
 import * as path from 'path';
-import type { FileSystem } from '../fs/types.js';
-import { isFileNotFound } from '../fs/types.js';
+import type { FileSystem } from '../fs/index.js';
+import { isFileNotFound } from '../fs/index.js';
 
 const SEQ_FILENAME = '.next-msg-seq';
 const SEQ_PAD_LEN = 10;

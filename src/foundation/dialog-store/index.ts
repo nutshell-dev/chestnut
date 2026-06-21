@@ -28,7 +28,7 @@ export type {
   LookupOptions,
 } from './lookup.js';
 
-import type { FileSystem } from '../fs/types.js';
+import type { FileSystem } from '../fs/index.js';
 import { formatErr } from "../utils/index.js";
 import type { AuditLog } from '../audit/index.js';
 import { DialogStore } from './store.js';

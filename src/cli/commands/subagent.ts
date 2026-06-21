@@ -6,7 +6,7 @@
 import { Command } from 'commander';
 import { subagentListCommand } from './subagent-list.js';
 import { subagentStepsCommand, subagentStepCommand } from './subagent-steps.js';
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 
 export function createSubagentCommand(deps: { fsFactory: (baseDir: string) => FileSystem }): Command {
   const cmd = new Command('subagent')

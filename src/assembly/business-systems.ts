@@ -21,7 +21,7 @@ import {
 } from '../core/async-task-system/dirs.js';
 import { validateTaskShape } from '../core/async-task-system/task-corrupt-helpers.js';
 import type { SubAgentTask, TaskId } from '../core/async-task-system/types.js';
-import { isFileNotFound } from '../foundation/fs/types.js';
+import { isFileNotFound } from '../foundation/fs/index.js';
 import { summonContractExtractPostProcessor, SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME, AskMotionTool, createSummonVerifyPolicy } from '../core/summon-system/index.js';
 import { createEvolutionSystem } from '../core/evolution-system/index.js';
 import type { EvolutionSystem } from '../core/evolution-system/index.js';

@@ -7,7 +7,7 @@ import { newShortUuid } from '../../foundation/uuid.js';
 import { EXEC_MAX_OUTPUT } from '../../foundation/command-tool/index.js';
 import { getChestnutRoot, makeChestnutRoot } from '../../foundation/install-paths.js';
 import * as path from 'path';
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 import { notifyClaw } from '../../foundation/messaging/index.js';
 import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import { createDirContext } from '../../foundation/audit/index.js';

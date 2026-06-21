@@ -3,7 +3,7 @@
  * Runtime interface types — 1:1 保 runtime.ts:47-126 body
  */
 
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { LLMOrchestratorConfig } from '../../foundation/llm-orchestrator/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
@@ -19,7 +19,7 @@ import type { ContractSystem } from '../contract/index.js';
 import type { AsyncTaskSystem } from '../async-task-system/index.js';
 import type { PermissionChecker } from '../../foundation/tool-protocol/index.js';
 
-import type { InboxMessage } from '../../foundation/messaging/types.js';
+import type { InboxMessage } from '../../foundation/messaging/index.js';
 import type { ToolProfile } from '../../foundation/tool-protocol/index.js';
 
 import type { ToolUseId } from '../../foundation/tool-protocol/index.js';

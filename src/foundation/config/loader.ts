@@ -10,7 +10,7 @@
 import * as path from 'path';
 import { formatErr } from "../utils/index.js";
 import * as yaml from 'js-yaml';
-import type { FileSystem } from '../fs/types.js';
+import type { FileSystem } from '../fs/index.js';
 
 // Expand ${ENV_VAR} syntax in config values
 function expandEnvVars(obj: unknown): unknown {

@@ -16,7 +16,7 @@ import { createSystemAudit } from '../../foundation/audit/index.js';
 import { createAgentProcessManager } from '../../foundation/process-manager/index.js';
 import { makeClawId } from '../../foundation/identity/index.js';
 import type { ProcessManager } from '../../foundation/process-manager/index.js';
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 import { CliError } from '../errors.js';
 import { resolveDaemonEntry } from '../../assembly/spawn-entry.js';
 import { DAEMON_LOG } from '../../daemon/constants.js';

@@ -7,7 +7,7 @@ import { getWorkspaceRoot } from '../foundation/install-paths.js';
 import { spawnDetached, kill as defaultKill } from '../foundation/process-exec/index.js';
 import type { WatchdogProcessDeps } from './types.js';
 import { setTimeout } from 'timers/promises';
-import type { FileSystem } from '../foundation/fs/types.js';
+import type { FileSystem } from '../foundation/fs/index.js';
 import {
   getWatchdogEntryPath,
 } from './watchdog-context.js';

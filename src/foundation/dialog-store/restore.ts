@@ -8,8 +8,8 @@
  */
 
 import * as path from 'path';
-import type { FileSystem } from '../fs/types.js';
-import { isFileNotFound } from '../fs/types.js';
+import type { FileSystem } from '../fs/index.js';
+import { isFileNotFound } from '../fs/index.js';
 import type { AuditLog } from '../audit/index.js';
 import type { Message } from '../llm-provider/types.js';
 import type { SessionData, DialogMarker, RestoreResult } from './types.js';

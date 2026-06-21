@@ -13,7 +13,7 @@
  * 「系统能自己做的就自己做好」同型真治模板)。
  */
 
-import type { FileSystem } from './fs/types.js';
+import type { FileSystem } from './fs/index.js';
 
 export const CLAWS_DIR = 'claws' as const;
 export const CLAWSPACE_DIR = 'clawspace' as const;

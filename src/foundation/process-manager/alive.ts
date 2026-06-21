@@ -3,7 +3,7 @@ import type { ClawId } from '../identity/index.js';
 import { isAlive as defaultL1IsAlive, makeProcessStartTime, type ProcessStartTime } from '../process-exec/index.js';
 import { formatErr } from "../utils/index.js";
 import type { ProcessManagerContext } from './types.js';
-import { isFileNotFound } from '../fs/types.js';
+import { isFileNotFound } from '../fs/index.js';
 
 
 /**

@@ -17,7 +17,7 @@ import { DEFAULT_TERMINAL_WIDTH } from '../utils/constants.js';
 import { DEFAULT_LLM_TIMEOUT_MS } from '../../foundation/llm-orchestrator/index.js';
 import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import { makeClawId } from '../../foundation/identity/index.js';
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 // phase 320: hot-reload — CLI 投递 reload_llm_config 给运行中 daemon
 import { notifyClaw } from '../../foundation/messaging/index.js';
 import { CLAWS_DIR, enumerateClaws } from '../../foundation/claw-paths.js';

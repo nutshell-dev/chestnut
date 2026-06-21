@@ -13,8 +13,8 @@
  *   方便测试 + 与 CLI 命令解耦
  */
 
-import type { FileSystem } from '../../foundation/fs/types.js';
-import { isFileNotFound } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
+import { isFileNotFound } from '../../foundation/fs/index.js';
 import { ProcessManager, ProcessListUnavailable } from '../../foundation/process-manager/index.js';
 import { makeClawId } from '../../foundation/identity/index.js';
 import { listAuditFiles } from '../../foundation/audit/index.js';

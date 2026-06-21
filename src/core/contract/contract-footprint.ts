@@ -10,8 +10,8 @@
  * 不动 AuditLog interface（仅 writes）。
  */
 
-import type { FileSystem } from '../../foundation/fs/types.js';
-import { FileNotFoundError } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
+import { FileNotFoundError } from '../../foundation/fs/index.js';
 import { AUDIT_FILE } from '../../foundation/audit/index.js';
 
 /**

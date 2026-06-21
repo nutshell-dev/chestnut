@@ -17,7 +17,7 @@ export {
   SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME,
 } from './post-processors/contract-extract.js';
 
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 import { formatErr } from "../../foundation/utils/index.js";
 import { CLAWSPACE_DIR } from '../../foundation/claw-paths.js';
 import type { AuditLog } from '../../foundation/audit/index.js';

@@ -14,8 +14,8 @@ import { createServer, connect, type Server, type Socket } from 'node:net';
 import { formatErr, clipText } from "../utils/index.js";
 // phase 398 Step B (review N5): path import removed — basename wrapper deleted, no other uses
 import { newUuid } from '../uuid.js';
-import type { FileSystem } from '../fs/types.js';
-import { isFileNotFound } from '../fs/types.js';
+import type { FileSystem } from '../fs/index.js';
+import { isFileNotFound } from '../fs/index.js';
 import type { Transport, TransportOptions, BroadcastFailure, TransportErrorEvent } from './types.js';
 import type { Connection } from './types.js';
 

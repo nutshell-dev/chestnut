@@ -159,7 +159,8 @@ describe('deep-dream pure helpers (phase 1467)', () => {
       const audit = makeMockAudit();
 
       const state = __test_loadDreamState(fs, audit, clawId);
-      expect(state).toEqual({ lastProcessedDeepDreamAt: 0, currentSessionDreamedDate: '' });
+      // phase 547: schema_version=1 默认填入 default state
+      expect(state).toEqual({ schema_version: 1, lastProcessedDeepDreamAt: 0, currentSessionDreamedDate: '' });
       expect(audit.write).not.toHaveBeenCalled();
     });
 
@@ -181,7 +182,7 @@ describe('deep-dream pure helpers (phase 1467)', () => {
       const audit = makeMockAudit();
 
       const state = __test_loadDreamState(fs, audit, clawId);
-      expect(state).toEqual({ lastProcessedDeepDreamAt: 0, currentSessionDreamedDate: '' });
+      expect(state).toEqual({ schema_version: 1, lastProcessedDeepDreamAt: 0, currentSessionDreamedDate: '' });
       expect(audit.write).toHaveBeenCalledTimes(1);
       const call = (audit.write as ReturnType<typeof vi.fn>).mock.calls[0];
       expect(call[0]).toBe(MEMORY_AUDIT_EVENTS.DEEP_DREAM_ERROR);
@@ -198,7 +199,7 @@ describe('deep-dream pure helpers (phase 1467)', () => {
       const audit = makeMockAudit();
 
       const state = __test_loadDreamState(fs, audit, clawId);
-      expect(state).toEqual({ lastProcessedDeepDreamAt: 0, currentSessionDreamedDate: '' });
+      expect(state).toEqual({ schema_version: 1, lastProcessedDeepDreamAt: 0, currentSessionDreamedDate: '' });
       expect(audit.write).toHaveBeenCalledTimes(1);
       const call = (audit.write as ReturnType<typeof vi.fn>).mock.calls[0];
       expect(call[0]).toBe(MEMORY_AUDIT_EVENTS.DEEP_DREAM_ERROR);
@@ -225,7 +226,8 @@ describe('deep-dream pure helpers (phase 1467)', () => {
 
       expect(writes).toHaveLength(1);
       expect(writes[0][0]).toBe('.deep-dream-state.json');
-      expect(JSON.parse(writes[0][1])).toEqual(state);
+      // phase 547: save 写入总带 schema_version
+      expect(JSON.parse(writes[0][1])).toEqual({ schema_version: 1, ...state });
       expect(audit.write).not.toHaveBeenCalled();
     });
 

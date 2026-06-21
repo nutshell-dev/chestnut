@@ -9,7 +9,7 @@
 import { newShortUuid } from '../uuid.js';
 import * as nodePath from 'path';
 import { z } from 'zod';
-import { isFileNotFound, type FileSystem } from '../fs/types.js';
+import { isFileNotFound, type FileSystem } from '../fs/index.js';
 import type { Tool, ExecContext } from '../tools/index.js';
 import type { ToolResult } from '../tool-protocol/index.js';
 

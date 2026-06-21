@@ -8,13 +8,13 @@
  */
 
 import * as path from 'path';
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 import { createAuditWriter } from '../../foundation/audit/index.js';
 import { STREAM_FILE, createPerResourceStreamWriter, type StreamEvent } from '../../foundation/stream/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import { ToolExecutor, type ToolRegistry } from '../../foundation/tools/index.js';
 // createToolRegistry removed — caller owns registry assembly (M#1 align)
-import type { Message, ToolDefinition } from '../../foundation/llm-provider/types.js';
+import type { Message, ToolDefinition } from '../../foundation/llm-provider/index.js';
 import type { CallerType } from '../caller-types.js';
 import { createDialogStore } from '../../foundation/dialog-store/index.js';
 import { CLAWSPACE_DIR } from '../../foundation/claw-paths.js';

@@ -17,9 +17,9 @@ import { createWatcher, type Watcher } from '../../foundation/file-watcher/index
 import { createDaemonLivenessMonitor } from './chat-viewport-daemon-liveness.js';
 import { DEFAULT_TERMINAL_WIDTH } from '../utils/constants.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
-import type { FileSystem } from '../../foundation/fs/types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
-import { isFileNotFound } from '../../foundation/fs/types.js';
+import { isFileNotFound } from '../../foundation/fs/index.js';
 import { createStreamReader, STREAM_FILE } from '../../foundation/stream/index.js';
 import { createViewportObservability } from './chat-viewport-observability.js';
 import { CLAWS_DIR } from '../../foundation/claw-paths.js';
