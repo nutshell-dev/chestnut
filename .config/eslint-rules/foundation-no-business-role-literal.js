@@ -82,6 +82,13 @@ const CORE_ALLOW_LIST_SUFFIXES = [
   'src/core/summon-system/post-processors/contract-extract.ts',
   'src/core/summon-system/tools/ask-motion.ts',
   'src/core/summon-system/tools/summon.ts',
+  // phase 553: claw-topology 子模块业主声明 motion claw 角色 + MOTION_CLAW_ID
+  // 单源定义、合理 caller boundary（同 core/runtime/runtime.ts 模式）
+  'src/core/claw-topology/agent-dir-resolver.ts',
+  'src/core/claw-topology/agent-tools.ts',
+  'src/core/claw-topology/index.ts',
+  'src/core/claw-topology/motion-claw-id.ts',
+  'src/core/claw-topology/topology.ts',
 ];
 
 const BANNED_REEXPORTS = ['CallerType', 'DispatchCallerType', 'callerTypeToProfile'];

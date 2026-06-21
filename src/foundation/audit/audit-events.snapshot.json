@@ -451,6 +451,7 @@
       "runtime_optional_section_read_failed",
       "runtime_process_batch_failed",
       "runtime_session_repair_failed",
+      "runtime_turn_contract_id_cache_failed",
       "session_loaded",
       "session_repaired",
       "snapshot_commit_failed",

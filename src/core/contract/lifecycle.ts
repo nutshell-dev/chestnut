@@ -119,9 +119,11 @@ export async function resumeContract(
   } catch (err) {
     try { await releaseSource(); } catch (releaseErr) {
       // phase 472 (review N3-L): 原注释承诺 "audit emit"、本 commit 落地
+      // phase 558: 加 context col
       ctx.audit.write(
         CONTRACT_AUDIT_EVENTS.RELEASE_SOURCE_FAILED,
         `contract_id=${contractId}`,
+        `context=resume`,
         `error=${formatErr(releaseErr)}`,
       );
     }
@@ -190,9 +192,11 @@ export async function cancelContract(
     );
     try { await releaseSource(); } catch (releaseErr) {
       // phase 472 (review N3-L): 原注释承诺 "audit emit"、本 commit 落地
+      // phase 558: 加 context col 区分 4 lifecycle 路径（resume/cancel/crash/archive）
       ctx.audit.write(
         CONTRACT_AUDIT_EVENTS.RELEASE_SOURCE_FAILED,
         `contract_id=${contractId}`,
+        `context=cancel`,
         `error=${formatErr(releaseErr)}`,
       );
     }
@@ -253,7 +257,9 @@ export async function markCrashed(
       // phase 66: progress.json 自身 schema corruption → fallback minimal progress
       ctx.audit.write(
         CONTRACT_AUDIT_EVENTS.MARK_CRASHED_GRACEFUL_FALLBACK,
-        `contractId=${contractId}`,
+        // phase 575: col 命名 contract_id 统一 snake_case
+        // （与同文件 CANCEL_PARTIAL_FAILED + CRASH_PARTIAL_FAILED + phase 140 id-naming + snapshot.json schema 一致）
+        `contract_id=${contractId}`,
         `reason=getProgress_failed`,
         `cause=${cause}`,
         `error=${formatErr(getProgressErr)}`,
@@ -291,9 +297,11 @@ export async function markCrashed(
     );
     try { await releaseSource(); } catch (releaseErr) {
       // phase 472 (review N3-L): observability — releaseSource 失败 audit emit
+      // phase 558: 加 context col
       ctx.audit.write(
         CONTRACT_AUDIT_EVENTS.RELEASE_SOURCE_FAILED,
         `contract_id=${contractId}`,
+        `context=crash`,
         `error=${formatErr(releaseErr)}`,
       );
     }
@@ -358,9 +366,11 @@ export async function moveContractToArchive(
   } catch (err) {
     try { await releaseSource(); } catch (releaseErr) {
       // phase 472 (review N3-L): 原注释承诺 "audit emit"、本 commit 落地
+      // phase 558: 加 context col
       ctx.audit.write(
         CONTRACT_AUDIT_EVENTS.RELEASE_SOURCE_FAILED,
         `contract_id=${contractId}`,
+        `context=archive`,
         `error=${formatErr(releaseErr)}`,
       );
     }

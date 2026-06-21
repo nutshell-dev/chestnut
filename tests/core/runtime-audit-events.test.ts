@@ -265,7 +265,8 @@ Test message
 
       const auditSpy = vi.spyOn((runtime as unknown as RuntimeTestInternals).auditWriter, 'write');
       await runtime.processBatch();
-      expect(auditSpy).toHaveBeenCalledWith('llm_call', 'test-model', expect.stringContaining('in='), expect.stringContaining('out='), expect.stringContaining('latency_ms='));
+      // phase 560: 加 trace_id forensic field 跨源 join 到 turn
+      expect(auditSpy).toHaveBeenCalledWith('llm_call', 'test-model', expect.stringContaining('trace_id='), expect.stringContaining('in='), expect.stringContaining('out='), expect.stringContaining('latency_ms='));
       auditSpy.mockRestore();
     });
 
@@ -301,7 +302,8 @@ Test message
 
       const auditSpy = vi.spyOn((runtime as unknown as RuntimeTestInternals).auditWriter, 'write');
       await expect(runtime.processBatch()).rejects.toThrow('LLM network error');
-      expect(auditSpy).toHaveBeenCalledWith('llm_error', 'failing-model', expect.stringContaining('error='), expect.stringContaining('latency_ms='));
+      // phase 560: 加 trace_id forensic field
+      expect(auditSpy).toHaveBeenCalledWith('llm_error', 'failing-model', expect.stringContaining('trace_id='), expect.stringContaining('error='), expect.stringContaining('latency_ms='));
       auditSpy.mockRestore();
     });
   });

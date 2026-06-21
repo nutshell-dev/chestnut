@@ -300,7 +300,8 @@ describe('phase 539: identity-only diff', () => {
 
     const failedCall = auditSpy.mock.calls.find(c => c[0] === 'regime_switch_failed');
     expect(failedCall).toBeDefined();
-    expect(failedCall![1]).toMatch(/reason=fac/);
+    // phase 573: 加 trace_id extras 后 reason col 不再固定在 index [1]、改用 find
+    expect(failedCall!.find((c: unknown) => typeof c === 'string' && c.startsWith('reason='))).toMatch(/reason=fac/);
   });
 
   it('switch failure auto-retries next turn', async () => {

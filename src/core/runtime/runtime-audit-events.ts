@@ -61,6 +61,9 @@ export const RUNTIME_AUDIT_EVENTS = {
   // 防 ack/nack 抛错 cascade 到 turn-level catch 触发 rollback + duplicate delivery
   INBOX_ACK_FAILED: 'runtime_inbox_ack_failed',
   INBOX_NACK_FAILED: 'runtime_inbox_nack_failed',
+  // phase 555: _runReact 入口 contractManager.loadActive() 失败 fallback emit；
+  // 拆 phase 544 misuse 的 MAYBE_AUDIT_STEP_FAILED（语义专属 onStepComplete maybeAuditStep）
+  TURN_CONTRACT_ID_CACHE_FAILED: 'runtime_turn_contract_id_cache_failed',
   // phase 1274: max_tokens stop handler prebuilt-only final path
   MAX_TOKENS_PREBUILT_ONLY_FINAL: 'max_tokens_prebuilt_only_final',
   // phase 1274: max_tokens stop handler empty assistant skipped
@@ -129,6 +132,11 @@ export const RUNTIME_ID_NAMING: Readonly<Record<string, IdNamingEntry>> = {
  */
 export const RUNTIME_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   guidance_composer_failed: 'audit',
+  // phase 553 (back-fill phase 521 / 446): 业主声明 file 归属
+  runtime_inbox_ack_failed: 'audit',
+  runtime_inbox_nack_failed: 'audit',
+  runtime_maybe_audit_step_failed: 'audit',
+  runtime_turn_contract_id_cache_failed: 'audit',
 } as const;
 
 export const RUNTIME_TOOL_EVENT_COLS: Readonly<Record<string, readonly ColSchemaEntry[]>> = {

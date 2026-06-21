@@ -522,10 +522,12 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
       return await this.inboxReader.drainAndDeliver();
     } catch (err) {
       if (err instanceof InboxListFailed || err instanceof InboxMoveFailed) {
+        // phase 567: 加 trace_id forensic field（optional chain 兜底 init 调用路径）
         this.auditWriter.write(
           RUNTIME_AUDIT_EVENTS.INBOX_DRAIN_FAILED,
           `error=${err.constructor.name}`,
           `reason=${formatErr(err)}`,
+          `trace_id=${String(this.execContext?.trace_id ?? '')}`,
         );
         return { entries: [], handles: [] };
       }
@@ -547,6 +549,9 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
         unaddressed.push(entry);
       }
     }
+    // phase 565: forensic 完整化、加 trace_id 跨源 join 到 turn
+    // （execContext 在 test 直接调用时可能未设 trace_id、optional chain 兜底）
+    const traceCol = `trace_id=${String(this.execContext?.trace_id ?? '')}`;
     for (const { message, filePath } of addressed) {
       this.auditWriter.write(
         RUNTIME_AUDIT_EVENTS.INBOX_INJECT,
@@ -555,6 +560,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
         `from=${message.from}`,
         `to=${message.to || this.options.clawId}`,
         `pri=${message.priority}`,
+        traceCol,
       );
     }
     for (const { message, filePath } of unaddressed) {
@@ -568,6 +574,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
         // — cross-source join with contract audit log when sender attached
         // metadata.contract_id; empty string when not present.
         `contract_id=${message.metadata?.contract_id ?? ''}`,
+        traceCol,
       );
     }
     return { addressed, unaddressed };
@@ -627,12 +634,12 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
       const active = await this.contractManager.loadActive();
       if (active) cachedTurnContractId = active.id;
     } catch (loadErr) {
-      // phase 544 (review-round4 + lint:no-silent-catch): 原 silent catch 升级
-      // 为 observability emit；contract loader 半态时 tool emit fallback ''、
-      // 不阻 turn execution、但 forensic 留痕（与 phase 446 maybeAuditStep 对称）。
+      // phase 555 (拆 phase 544 misuse): contract loader 半态时 tool emit fallback ''、
+      // 不阻 turn execution、forensic 留痕走专属 event TURN_CONTRACT_ID_CACHE_FAILED
+      // （phase 544 误用 MAYBE_AUDIT_STEP_FAILED 让 onStepComplete 路径 forensic 混淆）。
       this.auditWriter.write(
-        RUNTIME_AUDIT_EVENTS.MAYBE_AUDIT_STEP_FAILED,
-        `step=turn_contract_id_cache`,
+        RUNTIME_AUDIT_EVENTS.TURN_CONTRACT_ID_CACHE_FAILED,
+        `trace_id=${String(this.execContext.trace_id ?? '')}`,
         `error=${this.auditWriter.message(formatErr(loadErr))}`,
       );
     }
@@ -704,9 +711,11 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
             if (info.error) {
               // phase 525 (review-round4 Core L): error 走 auditWriter.message() sanitize、
               // 防长 stack / base64 灌 audit、与其他 catch 路径对齐
-              this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.LLM_ERROR, info.model, `error=${this.auditWriter.message(info.error)}`, `latency_ms=${info.latencyMs}`);
+              // phase 560: 加 trace_id forensic field 跨源 join（与 phase 557 模式对齐）
+              this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.LLM_ERROR, info.model, `trace_id=${String(this.execContext.trace_id ?? '')}`, `error=${this.auditWriter.message(info.error)}`, `latency_ms=${info.latencyMs}`);
             } else {
-              this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.LLM_CALL, info.model, `in=${info.inputTokens}`, `out=${info.outputTokens}`, `latency_ms=${info.latencyMs}`);
+              // phase 560: 同上
+              this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.LLM_CALL, info.model, `trace_id=${String(this.execContext.trace_id ?? '')}`, `in=${info.inputTokens}`, `out=${info.outputTokens}`, `latency_ms=${info.latencyMs}`);
             }
           },
           onStepComplete: async () => {
@@ -716,9 +725,11 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
             // phase 446 (review): 防御 .catch 兜底 unhandledRejection（内部已多层容错、本 catch 几乎不触发）
             void this.contractManager.maybeAuditStep(this.execContext.stepNumber)
               .catch(err => {
+                // phase 563: 加 trace_id forensic field（延续 phase 557/560 模式）
                 this.auditWriter.write(
                   RUNTIME_AUDIT_EVENTS.MAYBE_AUDIT_STEP_FAILED,
                   `step=${this.execContext.stepNumber}`,
+                  `trace_id=${String(this.execContext.trace_id ?? '')}`,
                   `error=${formatErr(err)}`,
                 );
               });
@@ -782,7 +793,8 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
               `errorMsg=${this.auditWriter.message(errorMsg)}`,
             ),
           onSafeCallbackError: (label, err) => {
-            this.auditWriter.write(RUNTIME_AUDIT_EVENTS.STEP_EXECUTOR_CALLBACK_FAILED, label, `error=${formatErr(err)}`);
+            // phase 563: 加 trace_id forensic field
+            this.auditWriter.write(RUNTIME_AUDIT_EVENTS.STEP_EXECUTOR_CALLBACK_FAILED, label, `trace_id=${String(this.execContext.trace_id ?? '')}`, `error=${formatErr(err)}`);
           },
           onMaxTokensPrebuiltOnlyFinal: (meta) => {
             this.auditWriter?.write(
@@ -817,14 +829,17 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
       this.turnCount++;
       const commitResult = await this.snapshot.commit(`turn-${this.turnCount} ${new Date().toISOString()}`).catch((err: unknown): null => {
         // 不可预期失败：audit 已在 snapshot 内写；此处仅暴露给诊断
-        auditError(this.auditWriter, RUNTIME_AUDIT_EVENTS.SNAPSHOT_COMMIT_FAILED, err, `context=turn-${this.turnCount}`);
+        // phase 567: 加 trace_id forensic field（turn 末路径 execContext.trace_id 已设）
+        auditError(this.auditWriter, RUNTIME_AUDIT_EVENTS.SNAPSHOT_COMMIT_FAILED, err, `context=turn-${this.turnCount}`, `trace_id=${String(this.execContext?.trace_id ?? '')}`);
         return null;
       });
       if (commitResult && !commitResult.ok) {
+        // phase 567: 加 trace_id forensic field
+        const traceCol = `trace_id=${String(this.execContext?.trace_id ?? '')}`;
         if (commitResult.error.kind === 'uncategorized') {
-          this.auditWriter.write(RUNTIME_AUDIT_EVENTS.SNAPSHOT_COMMIT_UNCATEGORIZED, `context=turn-${this.turnCount}`, `exitCode=${commitResult.error.exitCode}`);
+          this.auditWriter.write(RUNTIME_AUDIT_EVENTS.SNAPSHOT_COMMIT_UNCATEGORIZED, `context=turn-${this.turnCount}`, `exitCode=${commitResult.error.exitCode}`, traceCol);
         } else {
-          this.auditWriter.write(RUNTIME_AUDIT_EVENTS.SNAPSHOT_COMMIT_FAILED, `context=turn-${this.turnCount}`, `kind=${commitResult.error.kind}`);
+          this.auditWriter.write(RUNTIME_AUDIT_EVENTS.SNAPSHOT_COMMIT_FAILED, `context=turn-${this.turnCount}`, `kind=${commitResult.error.kind}`, traceCol);
         }
       }
 
@@ -888,7 +903,8 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
 
     // Turn start
     callbacks?.onTurnStart?.(sources);
-    this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_START);
+    // phase 569: 加 trace_id forensic field（turn 入口 trace_id 已设）
+    this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_START, `trace_id=${String(this.execContext?.trace_id ?? '')}`);
 
     // AbortController support (same as single-turn mode)
     const abortController = new AbortController();
@@ -909,7 +925,8 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
 
       // Turn completed normally
       callbacks?.onTurnEnd?.();
-      this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_END);
+      // phase 569: 加 trace_id forensic field
+      this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_END, `trace_id=${String(this.execContext?.trace_id ?? '')}`);
 
       await this.sessionManager.commitTurn();
       for (const h of addressedHandles) {
@@ -923,6 +940,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
             RUNTIME_AUDIT_EVENTS.INBOX_ACK_FAILED,
             `file=${h.originalFileName}`,
             `path=normal_turn_end`,
+            `trace_id=${String(this.execContext.trace_id ?? '')}`,
             `error=${formatErr(ackErr)}`,
           );
         }
@@ -930,7 +948,8 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
       return count;
     } catch (err) {
       // Turn-level error/interrupt event
-      handleTurnInterrupt(err, this.auditWriter, callbacks);
+      // phase 571: 透传 trace_id 让 TURN_INTERRUPTED/TURN_ERROR 含 forensic field
+      handleTurnInterrupt(err, this.auditWriter, callbacks, this.execContext?.trace_id ? String(this.execContext.trace_id) : undefined);
       if (err instanceof PriorityInboxInterrupt
           || err instanceof UserInterrupt
           || err instanceof IdleTimeoutSignal) {
@@ -958,6 +977,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
               isAckPath ? RUNTIME_AUDIT_EVENTS.INBOX_ACK_FAILED : RUNTIME_AUDIT_EVENTS.INBOX_NACK_FAILED,
               `file=${h.originalFileName}`,
               `path=graceful_interrupt`,
+              `trace_id=${String(this.execContext.trace_id ?? '')}`,
               `error=${formatErr(opErr)}`,
             );
           }
@@ -973,6 +993,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
               RUNTIME_AUDIT_EVENTS.INBOX_NACK_FAILED,
               `file=${h.originalFileName}`,
               `path=rollback`,
+              `trace_id=${String(this.execContext.trace_id ?? '')}`,
               `error=${formatErr(nackErr)}`,
             );
           }
@@ -999,17 +1020,21 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
                 `system: ${err.constructor.name.toLowerCase()}`,
               );
             } catch (markErr) {
+              // phase 569: 加 trace_id forensic field
+              const traceCol = `trace_id=${String(this.execContext?.trace_id ?? '')}`;
               this.auditWriter.write(
                 REACT_LOOP_AUDIT_EVENTS.MARK_CRASHED_FAILED,
                 `contractId=${contractId}`,
                 `err=${err.constructor.name}`,
                 `markErr=${formatErr(markErr)}`,
+                traceCol,
               );
               this.auditWriter.write(
                 RUNTIME_AUDIT_EVENTS.CATCH_UNHANDLED,
                 `path=mark_crashed_failed`,
                 `err=${err.constructor.name}`,
                 `reason=${formatErr(err)}`,
+                traceCol,
               );
             }
           } else {
@@ -1037,10 +1062,12 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
         !isAgentLoopCrash
       ) {
         const errorMsg = formatErr(err);
+        // phase 569: 加 trace_id forensic field
         this.auditWriter.write(
           RUNTIME_AUDIT_EVENTS.PROCESS_BATCH_FAILED,
           'context=Runtime.processBatch',
           `error=${errorMsg}`,
+          `trace_id=${String(this.execContext?.trace_id ?? '')}`,
         );
       }
       throw err;
@@ -1099,7 +1126,8 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
       trace_id: traceId,
     });
     callbacks?.onTurnStart?.([]);
-    this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_START);
+    // phase 569: 加 trace_id forensic field（turn 入口 trace_id 已设）
+    this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_START, `trace_id=${String(this.execContext?.trace_id ?? '')}`);
 
     const abortController = new AbortController();
     this.currentAbortController = abortController;
@@ -1107,10 +1135,12 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     try {
       await this._runReact(messages, callbacks);
 
-      this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_END);
+      // phase 569: 加 trace_id forensic field
+      this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_END, `trace_id=${String(this.execContext?.trace_id ?? '')}`);
     } catch (err) {
       // Note: do NOT save messages here - see processBatch catch block for explanation
-      handleTurnInterrupt(err, this.auditWriter, callbacks);
+      // phase 571: 透传 trace_id 让 TURN_INTERRUPTED/TURN_ERROR 含 forensic field
+      handleTurnInterrupt(err, this.auditWriter, callbacks, this.execContext?.trace_id ? String(this.execContext.trace_id) : undefined);
       throw err;
     } finally {
       this.currentAbortController = null;
@@ -1163,7 +1193,8 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
 
     // Retry is also a turn (tag it so stream consumers know it's a retry)
     callbacks?.onTurnStart?.([{ text: 'LLM retry', type: 'system_retry' }]);
-    this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_START);
+    // phase 569: 加 trace_id forensic field（turn 入口 trace_id 已设）
+    this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_START, `trace_id=${String(this.execContext?.trace_id ?? '')}`);
 
     const abortController = new AbortController();
     this.currentAbortController = abortController;
@@ -1172,9 +1203,11 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
       await this._runReact(retryMessages, callbacks);
 
       callbacks?.onTurnEnd?.();
-      this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_END);
+      // phase 569: 加 trace_id forensic field
+      this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_END, `trace_id=${String(this.execContext?.trace_id ?? '')}`);
     } catch (err) {
-      handleTurnInterrupt(err, this.auditWriter, callbacks);
+      // phase 571: 透传 trace_id 让 TURN_INTERRUPTED/TURN_ERROR 含 forensic field
+      handleTurnInterrupt(err, this.auditWriter, callbacks, this.execContext?.trace_id ? String(this.execContext.trace_id) : undefined);
       throw err;
     } finally {
       this.currentAbortController = null;
@@ -1285,7 +1318,8 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
         await this._performRegimeSwitch(newSystemPrompt);
         this.lastIdentityHash = identityContent;
       } catch (err) {
-        auditError(this.auditWriter, RUNTIME_AUDIT_EVENTS.REGIME_SWITCH_FAILED, err);
+        // phase 573: 加 trace_id forensic field（_checkRegimeSwitch 由 turn 末调、trace_id 已设）
+        auditError(this.auditWriter, RUNTIME_AUDIT_EVENTS.REGIME_SWITCH_FAILED, err, `trace_id=${String(this.execContext?.trace_id ?? '')}`);
         // lastIdentityHash 不更新 → 下 turn 重试自愈（D7）
       }
     } else {
@@ -1340,21 +1374,24 @@ export function handleTurnInterrupt(
   err: unknown,
   audit: AuditLog,
   callbacks?: StreamCallbacks,
+  traceId?: string,  // phase 571: forensic field、optional 兼容既有 test caller
 ): void {
+  // phase 571: trace_id col fallback ''、test 不传时为空 col 保 forensic 形态一致
+  const traceCol = `trace_id=${traceId ?? ''}`;
   if (err instanceof IdleTimeoutSignal) {
     const msg = `Interrupted (idle timeout: ${Math.round(err.timeoutMs / 1000)}s)`;
     callbacks?.onTurnInterrupted?.('idle_timeout', msg);
-    audit.write(REACT_LOOP_AUDIT_EVENTS.TURN_INTERRUPTED, 'cause=idle_timeout', `idle_timeout_ms=${err.timeoutMs}`);
+    audit.write(REACT_LOOP_AUDIT_EVENTS.TURN_INTERRUPTED, 'cause=idle_timeout', `idle_timeout_ms=${err.timeoutMs}`, traceCol);
   } else if (err instanceof PriorityInboxInterrupt) {
     callbacks?.onTurnInterrupted?.('priority_inbox', 'Interrupted (priority inbox)');
-    audit.write(REACT_LOOP_AUDIT_EVENTS.TURN_INTERRUPTED, 'cause=priority_inbox');
+    audit.write(REACT_LOOP_AUDIT_EVENTS.TURN_INTERRUPTED, 'cause=priority_inbox', traceCol);
   } else if (err instanceof UserInterrupt) {
     callbacks?.onTurnInterrupted?.('user_interrupt');
-    audit.write(REACT_LOOP_AUDIT_EVENTS.TURN_INTERRUPTED, 'cause=user_interrupt');
+    audit.write(REACT_LOOP_AUDIT_EVENTS.TURN_INTERRUPTED, 'cause=user_interrupt', traceCol);
   } else {
     const errorMsg = formatErr(err);
     callbacks?.onTurnError?.(errorMsg);
-    audit.write(REACT_LOOP_AUDIT_EVENTS.TURN_ERROR, `error=${errorMsg}`);
+    audit.write(REACT_LOOP_AUDIT_EVENTS.TURN_ERROR, `error=${errorMsg}`, traceCol);
   }
 }
 

@@ -40,6 +40,9 @@ const ALLOWLIST_LINE_PATTERNS = [
   /\/\/.*['"]motion['"]/,                      // bucket E line comment
   /\*.*['"]motion['"]/,                        // bucket E JSDoc + line comment
   /\/\/.*如 ['"]motion['"]/,                   // line comment 如 'motion'
+  // phase 553: MOTION_CLAW_ID const SoT 定义位置（core/claw-topology/motion-claw-id.ts:12）
+  // 与「caller 经 const」原则一致——这里就是 const 自身的源头
+  /makeClawId\(['"]motion['"]\)/,
 ];
 
 function isAllowedLine(line) {

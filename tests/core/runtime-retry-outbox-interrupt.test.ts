@@ -351,7 +351,8 @@ describe('Runtime RetryOutboxInterrupt', () => {
       handleTurnInterrupt(new IdleTimeoutSignal(30000), audit, { onTurnInterrupted, onTurnError });
       expect(onTurnInterrupted).toHaveBeenCalledWith('idle_timeout', expect.stringContaining('30s'));
       expect(onTurnError).not.toHaveBeenCalled();
-      expect(audit.write).toHaveBeenCalledWith('turn_interrupted', 'cause=idle_timeout', 'idle_timeout_ms=30000');
+      // phase 571: 加 trace_id col（test 不传 traceId、col 形态 trace_id=）
+      expect(audit.write).toHaveBeenCalledWith('turn_interrupted', 'cause=idle_timeout', 'idle_timeout_ms=30000', 'trace_id=');
     });
 
     it('PriorityInboxInterrupt → onTurnInterrupted("priority_inbox")', () => {
@@ -361,7 +362,7 @@ describe('Runtime RetryOutboxInterrupt', () => {
       handleTurnInterrupt(new PriorityInboxInterrupt(), audit, { onTurnInterrupted, onTurnError });
       expect(onTurnInterrupted).toHaveBeenCalledWith('priority_inbox', expect.any(String));
       expect(onTurnError).not.toHaveBeenCalled();
-      expect(audit.write).toHaveBeenCalledWith('turn_interrupted', 'cause=priority_inbox');
+      expect(audit.write).toHaveBeenCalledWith('turn_interrupted', 'cause=priority_inbox', 'trace_id=');
     });
 
     it('UserInterrupt → onTurnInterrupted("user_interrupt")', () => {
@@ -371,7 +372,7 @@ describe('Runtime RetryOutboxInterrupt', () => {
       handleTurnInterrupt(new UserInterrupt(), audit, { onTurnInterrupted, onTurnError });
       expect(onTurnInterrupted).toHaveBeenCalledWith('user_interrupt');  // 无 message，让 viewport 自行决定显示
       expect(onTurnError).not.toHaveBeenCalled();
-      expect(audit.write).toHaveBeenCalledWith('turn_interrupted', 'cause=user_interrupt');
+      expect(audit.write).toHaveBeenCalledWith('turn_interrupted', 'cause=user_interrupt', 'trace_id=');
     });
 
     it('Error → onTurnError with message', () => {
@@ -381,7 +382,7 @@ describe('Runtime RetryOutboxInterrupt', () => {
       handleTurnInterrupt(new Error('LLM failure'), audit, { onTurnInterrupted, onTurnError });
       expect(onTurnError).toHaveBeenCalledWith('LLM failure');
       expect(onTurnInterrupted).not.toHaveBeenCalled();
-      expect(audit.write).toHaveBeenCalledWith('turn_error', 'error=LLM failure');
+      expect(audit.write).toHaveBeenCalledWith('turn_error', 'error=LLM failure', 'trace_id=');
     });
 
     it('non-Error value → onTurnError with string', () => {

@@ -185,6 +185,9 @@ export const CONTRACT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   contract_move_archive_failed: 'audit',
   contract_verification_inbox_failed: 'audit',
   contract_verification_reset_failed: 'audit',
+  // phase 553 (back-fill phase 521 / 472): 业主声明 file 归属
+  contract_verification_stuck_in_progress: 'audit',
+  contract_release_source_failed: 'audit',
   contract_verification_background_failed: 'audit',
   contract_complete_on_cancelled: 'audit',
   contract_verification_background_done: 'audit',
