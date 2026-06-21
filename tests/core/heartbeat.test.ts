@@ -26,7 +26,7 @@ function createTestHeartbeat(tempDir: string, intervalSec: number = 1): Heartbea
     interval: intervalSec,
     audit,
     inboxReader,
-    notifyInbox: (msg) => notifyClaw(nodeFs, chestnutRoot, 'motion', msg, audit),
+    notifyInbox: (msg) => notifyClaw(nodeFs, chestnutRoot, 'motion', 'motion', msg, audit),
   });
 }
 

@@ -22,7 +22,8 @@ import { isFileNotFound } from '../../foundation/fs/types.js';
 import { createStreamReader, STREAM_FILE } from '../../foundation/stream/index.js';
 import { createViewportObservability } from './chat-viewport-observability.js';
 import { CLAWS_DIR } from '../../foundation/claw-paths.js';
-import { MOTION_CLAW_ID, makeClawId } from '../../constants.js';
+import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
+import { makeClawId } from '../../foundation/identity/index.js';
 import { createClawTopology } from '../../core/claw-topology/index.js';
 
 
@@ -109,7 +110,7 @@ function tokenizeSlashArgs(s: string): string[] {
 }
 
 export async function runChatViewport(options: ChatViewportOptions): Promise<void> {
-  const pm = createProcessManagerForCLI({ fsFactory: options.fsFactory });
+  const pm = createProcessManagerForCLI({ fsFactory: options.fsFactory, motionClawId: MOTION_CLAW_ID });
   // 确保 daemon 运行
   if (options.ensureDaemon) {
     await options.ensureDaemon();
@@ -190,7 +191,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   // claw:   agentDir=.chestnut/claws/<n> → ../.. =.chestnut
   // 改前非 motion 漏一层 → chestnutRoot = clawDir 自身 → clawTopology 误路由
   const chestnutRoot = isMotion ? path.join(options.agentDir, '..') : path.join(options.agentDir, '..', '..');
-  const clawTopology = createClawTopology({ fs: clawsFs, chestnutRoot, audit: options.audit, motionClawId: MOTION_CLAW_ID, motionDir: isMotion ? options.agentDir : String(MOTION_CLAW_ID) });
+  const clawTopology = createClawTopology({ fs: clawsFs, chestnutRoot, audit: options.audit, motionDir: isMotion ? options.agentDir : String(MOTION_CLAW_ID) });
   const clawTrackMap = new Map<string, ClawTrack>();
 
   const clawPanel = createClawPanel({ attachedClawBar });

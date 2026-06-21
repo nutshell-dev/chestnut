@@ -21,7 +21,8 @@ import { getContractCreatedMs } from '../core/contract/index.js';
 import { getNamedSubrootDir } from '../foundation/config/index.js';
 import { notifyClaw } from '../foundation/messaging/index.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
-import { MOTION_CLAW_ID, makeClawId } from '../constants.js';
+import { MOTION_CLAW_ID } from '../core/claw-topology/index.js';
+import { makeClawId } from '../foundation/identity/index.js';
 import { CLAWS_DIR } from '../foundation/claw-paths.js';
 
 /**
@@ -264,7 +265,7 @@ export function maybeCronClawCrash(pm: ProcessManager, audit: AuditLog, fsFactor
 
       const { fs: motionFs, audit: motionAudit } = getMotionContext(fsFactory);
       const chestnutRoot = makeChestnutRoot(path.dirname(getNamedSubrootDir('motion')));
-      notifyClaw(motionFs, chestnutRoot, MOTION_CLAW_ID, {
+      notifyClaw(motionFs, chestnutRoot, MOTION_CLAW_ID, MOTION_CLAW_ID, {
         type: 'crash_notification',
         source: rawClawId,
         priority: 'high',

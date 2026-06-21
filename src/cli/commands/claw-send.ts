@@ -14,7 +14,8 @@ import { formatClawStatusHint, formatNoActiveContractHint } from './claw-shared.
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { CLAWS_DIR } from '../../foundation/claw-paths.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
-import { makeClawId } from '../../constants.js';
+import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
+import { makeClawId } from '../../foundation/identity/index.js';
 
 export async function sendCommand(
   deps: { fsFactory: (baseDir: string) => FileSystem },
@@ -35,7 +36,7 @@ export async function sendCommand(
   const fileSystem = deps.fsFactory(baseDir);
   const audit = createSystemAudit(fileSystem, clawDir);
 
-  notifyClaw(fileSystem, baseDir, name, {
+  notifyClaw(fileSystem, baseDir, MOTION_CLAW_ID, name, {
     type: 'user_inbox_message',
     source: 'user',
     priority: options?.priority ?? 'normal',
@@ -44,7 +45,7 @@ export async function sendCommand(
 
   console.log(`Message sent to "${name}"`);
 
-  const processManager = createProcessManagerForCLI(deps);
+  const processManager = createProcessManagerForCLI({ ...deps, motionClawId: MOTION_CLAW_ID });
   const isAlive = processManager.isAlive(makeClawId(name));
   const statusHint = formatClawStatusHint(name, isAlive);
   if (statusHint) console.log(statusHint);

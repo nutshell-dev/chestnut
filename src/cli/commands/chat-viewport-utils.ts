@@ -9,6 +9,7 @@ import { getChestnutRoot, makeChestnutRoot } from '../../foundation/install-path
 import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { notifyClaw } from '../../foundation/messaging/index.js';
+import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import { createDirContext } from '../../foundation/audit/index.js';
 
 const ATTACHMENT_SUBDIR = 'inbox/attachments';
@@ -43,7 +44,7 @@ export function writeUserChat(
     body = message;
   }
 
-  notifyClaw(fs, chestnutRoot, clawId, {
+  notifyClaw(fs, chestnutRoot, MOTION_CLAW_ID, clawId, {
     type: 'user_chat',
     source: 'user',
     priority: 'high',

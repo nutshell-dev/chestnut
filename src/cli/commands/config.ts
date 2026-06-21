@@ -14,7 +14,8 @@ import { CliError } from '../errors.js';
 import { fitLine } from '../utils/string.js';
 import { DEFAULT_TERMINAL_WIDTH } from '../utils/constants.js';
 import { DEFAULT_LLM_TIMEOUT_MS } from '../../foundation/llm-orchestrator/index.js';
-import { MOTION_CLAW_ID, makeClawId } from '../../constants.js';
+import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
+import { makeClawId } from '../../foundation/identity/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 // phase 320: hot-reload — CLI 投递 reload_llm_config 给运行中 daemon
 import { notifyClaw } from '../../foundation/messaging/index.js';
@@ -33,7 +34,7 @@ import { checkLLMConnection, checkLLMConnectionFor, promptReconfigure, formatLLM
  * - notifyClaw 失败 silent（按现有 messaging 语义、不阻 CLI）
  */
 export function notifyRunningDaemons(deps: { fsFactory: (baseDir: string) => FileSystem }, source: string): void {
-  const pm = createProcessManagerForCLI(deps);
+  const pm = createProcessManagerForCLI({ ...deps, motionClawId: MOTION_CLAW_ID });
   const chestnutRoot = getChestnutRoot();
   const rootFs = deps.fsFactory(chestnutRoot);
   const audit = createSystemAudit(rootFs, chestnutRoot);
@@ -49,7 +50,7 @@ export function notifyRunningDaemons(deps: { fsFactory: (baseDir: string) => Fil
   for (const id of candidates) {
     const clawId = id === MOTION_CLAW_ID ? MOTION_CLAW_ID : makeClawId(id);
     if (!pm.isAlive(clawId)) continue;
-    notifyClaw(rootFs, chestnutRoot, id, {
+    notifyClaw(rootFs, chestnutRoot, MOTION_CLAW_ID, id, {
       type: RELOAD_LLM_CONFIG_MESSAGE_TYPE,
       // source must not contain '/'; it goes into the inbox file name
       source: `cli-${source}`,

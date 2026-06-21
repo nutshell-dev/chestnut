@@ -2,7 +2,7 @@ import { NodeFileSystem } from './foundation/fs/node-fs.js';
 import type { FileSystem } from './foundation/fs/types.js';
 import { createSystemAudit, type AuditLog } from './foundation/audit/index.js';
 import { getClawDir, getNamedSubrootDir } from './foundation/config/index.js';
-import { MOTION_CLAW_ID } from './constants.js';
+import { MOTION_CLAW_ID } from './core/claw-topology/index.js';
 import { DAEMON_AUDIT_EVENTS } from './daemon/audit-events.js';
 
 // shim 层：daemon-entry 启动早期的 audit sink + process handler 注册。

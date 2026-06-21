@@ -10,7 +10,8 @@ import { CliError } from '../errors.js';
 import { runChatViewport } from './chat-viewport.js';
 import { createDirContext } from '../../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
-import { makeClawId } from '../../constants.js';
+import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
+import { makeClawId } from '../../foundation/identity/index.js';
 import { resolveDaemonEntry } from '../../assembly/spawn-entry.js';
 import { DAEMON_LOG } from '../../daemon/constants.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
@@ -32,7 +33,7 @@ export async function chatCommand(deps: { fsFactory: (baseDir: string) => FileSy
     audit: systemAudit,
     fsFactory: deps.fsFactory,
     ensureDaemon: async () => {
-      const pm = createProcessManagerForCLI(deps);
+      const pm = createProcessManagerForCLI({ ...deps, motionClawId: MOTION_CLAW_ID });
       if (!pm.isAlive(makeClawId(name))) {
         console.log(`Starting Claw "${name}" daemon...`);
         const daemonEntryPath = resolveDaemonEntry(deps.fsFactory(clawDir));

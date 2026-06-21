@@ -41,7 +41,7 @@ import { getChestnutRoot } from '../config/index.js';
  *   - 构造失败（NodeFileSystem / createSystemAudit / createAgentProcessManager 任一抛错）→ 原样上抛
  *   - 不包装；调用方（CLI 命令）通常不 catch，让错误直接打印
  */
-export function createProcessManagerForCLI(deps: { fsFactory: (baseDir: string) => FileSystem }): ProcessManager {
+export function createProcessManagerForCLI(deps: { fsFactory: (baseDir: string) => FileSystem; motionClawId: string }): ProcessManager {
   const baseDir = getChestnutRoot();
   const fs = deps.fsFactory(baseDir);
   const systemAudit = createSystemAudit(fs, baseDir);

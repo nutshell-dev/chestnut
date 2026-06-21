@@ -16,7 +16,7 @@ import { findProcessesDetailed, commandContainsClawIdToken } from './find.js';
 import { isAlive as defaultL1IsAlive, getProcessStartTime as defaultGetProcessStartTime } from '../process-exec/index.js';
 import { LockConflictError, type ProcessManagerContext } from './types.js';
 import type { SpawnOptions } from './types.js';
-import type { ClawId } from '../../constants.js';
+import type { ClawId } from '../identity/index.js';
 
 
 const sleep = (ms: number): Promise<void> =>

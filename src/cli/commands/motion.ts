@@ -15,7 +15,7 @@ import { fileURLToPath } from 'url';
 import { loadGlobalConfig } from '../../assembly/config-load.js';
 import { getNamedSubrootDir } from '../../foundation/config/index.js';
 import { STATUS_SUBDIR } from '../../foundation/process-manager/index.js';
-import { MOTION_CLAW_ID } from '../../constants.js';
+import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 
 import { runChatViewport } from './chat-viewport.js';
 import { CliError } from '../errors.js';
@@ -204,7 +204,7 @@ export async function chatCommand(deps: { fsFactory: (baseDir: string) => FileSy
     audit: systemAudit,
     fsFactory: deps.fsFactory,
     ensureDaemon: async () => {
-      const pm = createProcessManagerForCLI(deps);
+      const pm = createProcessManagerForCLI({ ...deps, motionClawId: MOTION_CLAW_ID });
       if (!pm.isAlive(MOTION_CLAW_ID)) {
         console.log('Starting Motion daemon...');
         const daemonEntryPath = resolveDaemonEntry(deps.fsFactory(motionDir));
@@ -234,7 +234,7 @@ export async function chatCommand(deps: { fsFactory: (baseDir: string) => FileSy
 export async function stopCommand(deps: { fsFactory: (baseDir: string) => FileSystem }, extraDeps?: { audit?: AuditLog }): Promise<void> {
   const audit = extraDeps?.audit;
   loadGlobalConfig(deps);
-  const pm = createProcessManagerForCLI(deps);
+  const pm = createProcessManagerForCLI({ ...deps, motionClawId: MOTION_CLAW_ID });
 
   if (!pm.isAlive(MOTION_CLAW_ID)) {
     audit?.write(CLI_AUDIT_EVENTS.MOTION_STOP, `status=not_running`);

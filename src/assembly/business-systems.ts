@@ -32,6 +32,7 @@ import { composeStatusMotionGuidance } from './motion-guidance-composer.js';
 import { createSkillTool } from '../foundation/skill-system/tools/skill.js';
 import { CLAWS_DIR } from '../foundation/claw-paths.js';
 import { createSendTool } from '../foundation/messaging/tools/send.js';
+import { MOTION_CLAW_ID } from '../core/claw-topology/index.js';
 import { createToolExecutor } from '../foundation/tools/index.js';
 import type { IToolExecutor } from '../foundation/tools/index.js';
 import { writePendingToolTaskFile } from '../core/async-task-system/index.js';
@@ -199,7 +200,7 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
             fsFactory,
             // phase 104: pre-bound notifyClaw
             notifyClaw: (targetClawId, message) =>
-              notifyClawFn(fs, cr, targetClawId, message, perClawAudit),
+              notifyClawFn(fs, cr, MOTION_CLAW_ID, targetClawId, message, perClawAudit),
           });
         },
       };
@@ -217,7 +218,7 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
     createStatusTool(contractManager, isMotion ? composeStatusMotionGuidance() : undefined),
   );
   toolRegistry.register(createSkillTool(skillRegistry, isMotion ? { dispatchSkillsDir: DISPATCH_SKILLS_PATH } : {}));
-  toolRegistry.register(createSendTool(outboxWriter));
+  toolRegistry.register(createSendTool(outboxWriter, MOTION_CLAW_ID));
 
   let toolExecutor: IToolExecutor;
   try {

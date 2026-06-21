@@ -11,7 +11,7 @@ export interface ClawTopologyDeps {
   fs: FileSystem;
   chestnutRoot: string;
   audit?: AuditLog;
-  motionClawId: ClawId;
+  /** phase 520: motionClawId DI 删除、topology 直 import MOTION_CLAW_ID 自家 const */
   motionDir: string;
 }
 

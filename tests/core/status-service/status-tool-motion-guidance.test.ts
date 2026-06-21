@@ -16,7 +16,7 @@ import { createStatusTool } from '../../../src/core/status-service/status-tool.j
 import { composeStatusMotionGuidance } from '../../../src/assembly/motion-guidance-composer.js';
 import { ExecContextImpl } from '../../../src/foundation/tools/context.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
-import { MOTION_CLAW_ID } from '../../../src/constants.js';
+import { MOTION_CLAW_ID } from '../../../src/core/claw-topology/index.js';
 
 function mkCtx(clawId: string) {
   const mockFs = {

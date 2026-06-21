@@ -5,13 +5,15 @@
 
 import type { Tool, ExecContext } from '../../tools/index.js';
 import { formatErr } from "../../utils/index.js";
-import { MOTION_CLAW_ID } from '../../../constants.js';
 import type { ToolResult } from '../../tool-protocol/index.js';
 import type { OutboxWriter } from '../index.js';
 
 export const SEND_TOOL_NAME = 'send' as const;
 
-export function createSendTool(outboxWriter: OutboxWriter): Tool {
+/**
+ * phase 520: defaultTarget 由 caller 注入（foundation 不 import MOTION_CLAW_ID、owner=core/claw-topology）。
+ */
+export function createSendTool(outboxWriter: OutboxWriter, defaultTarget: string): Tool {
   return {
     name: SEND_TOOL_NAME,
     profiles: ['full'],
@@ -67,7 +69,7 @@ export function createSendTool(outboxWriter: OutboxWriter): Tool {
       try {
         await outboxWriter.write({
           type: type as 'report' | 'question' | 'result' | 'error',
-          to: MOTION_CLAW_ID,
+          to: defaultTarget,
           content,
           priority: priority as 'critical' | 'high' | 'normal' | 'low',
         });

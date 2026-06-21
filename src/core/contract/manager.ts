@@ -50,7 +50,7 @@ import {
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 import { isolateCorruptedFile } from './_isolation-helper.js';
 import { CONTRACT_ACTIVE_DIR, CONTRACT_PAUSED_DIR, CONTRACT_ARCHIVE_DIR, PROGRESS_FILE } from './dirs.js';
-import { type ClawId } from '../../constants.js';
+import { type ClawId } from '../../foundation/identity/index.js';
 
 import type {
   ContractYaml, ProgressData, VerificationResult, VerifierConfig, VerifierResult,

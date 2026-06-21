@@ -39,7 +39,7 @@ import {
   emitOutboxDelivered,
 } from './audit-emit.js';
 import { InboxWriter, type InboxMessageMeta } from './inbox-writer.js';
-import { makeClawId } from '../../constants.js';
+import { makeClawId } from '../identity/index.js';
 import { InboxListFailed, InboxMoveFailed } from './errors.js';
 
 

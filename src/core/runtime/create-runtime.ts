@@ -14,7 +14,7 @@
 
 import { Runtime } from './runtime.js';
 import { formatErr } from "../../foundation/utils/index.js";
-import { MOTION_CLAW_ID } from '../../constants.js';
+import { MOTION_CLAW_ID } from '../claw-topology/index.js';
 import type { RuntimeOptions } from './types.js';
 import type { ContextInjector } from '../dialog/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';

@@ -23,7 +23,8 @@ import * as path from 'path';
 import { formatErr } from "../foundation/utils/index.js";
 import { setTimeout } from 'timers/promises';
 import { getNamedSubrootDir } from '../foundation/config/index.js';
-import { MOTION_CLAW_ID, makeClawId } from '../constants.js';
+import { MOTION_CLAW_ID } from '../core/claw-topology/index.js';
+import { makeClawId } from '../foundation/identity/index.js';
 import type { FileSystem } from '../foundation/fs/types.js';
 import { isFileNotFound } from '../foundation/fs/types.js';
 import { type AuditLog, createAuditWriter, AUDIT_FILE } from '../foundation/audit/index.js';
@@ -220,7 +221,7 @@ export async function runWatchdogLoop(
   let stopped = false;
 
   // Create Motion ProcessManager (reused across loop iterations)
-  const pm = createProcessManagerForCLI({ fsFactory });
+  const pm = createProcessManagerForCLI({ fsFactory, motionClawId: MOTION_CLAW_ID });
 
   // phase 1034: idempotent install / 防 test re-entry 或 production 异常 re-entry 累 listener (Node maxListeners warning)
   // mirror _resetShutdownGuard removeListener pattern (line 60-66) — install 前 cleanup prior

@@ -26,7 +26,7 @@ import { getClawConfigPath } from '../foundation/config/index.js';
 import { TASKS_SYNC_EXEC_DIR } from '../foundation/command-tool/index.js';
 import { TASKS_SYNC_WRITE_DIR } from '../foundation/file-tool/index.js';
 import { createShadowTool } from '../core/shadow-system/index.js';
-import { MOTION_CLAW_ID } from '../constants.js';
+import { MOTION_CLAW_ID } from '../core/claw-topology/index.js';
 import { CLAW_SUBDIRS } from './claw-subdirs.js';
 import type { AssembleConfig } from './types.js';
 

@@ -6,7 +6,7 @@ import * as path from 'path';
 import { formatErr } from "../../foundation/utils/index.js";
 import { loadGlobalConfig } from '../../assembly/config-load.js';
 import { getGlobalConfigPath, getNamedSubrootDir } from '../../foundation/config/index.js';
-import { MOTION_CLAW_ID } from '../../constants.js';
+import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import { createAuditWriter, AUDIT_FILE } from '../../foundation/audit/index.js';
 import { getChestnutFs, getGlobalConfig, setAuditWriter as setWatchdogAuditWriter } from '../../watchdog/watchdog-context.js';
 import { stopCommand as watchdogStop } from '../../watchdog/watchdog.js';
@@ -16,7 +16,7 @@ import { kill, isPidArgvMatching } from '../../foundation/process-exec/index.js'
 import { createSystemAudit, type AuditLog } from '../../foundation/audit/index.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from '../../foundation/process-manager/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
-import { makeClawId } from '../../constants.js';
+import { makeClawId } from '../../foundation/identity/index.js';
 import { CLAWS_DIR } from '../../foundation/claw-paths.js';
 import { resolveDaemonEntry } from '../../assembly/spawn-entry.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
@@ -68,7 +68,7 @@ export async function stopAllCommand(
 
   // 3. Stop all running claws
   const baseDir = path.dirname(getGlobalConfigPath());
-  const pm = createProcessManagerForCLI(deps);
+  const pm = createProcessManagerForCLI({ ...deps, motionClawId: MOTION_CLAW_ID });
 
   let clawNames: string[] = [];
   try {

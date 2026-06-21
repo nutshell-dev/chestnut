@@ -3,7 +3,7 @@
  * motion steps + step commands (thin wrapper around claw-steps)
  */
 
-import { MOTION_CLAW_ID } from '../../constants.js';
+import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import { clawStepsCommand, clawStepCommand } from './claw-steps.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 

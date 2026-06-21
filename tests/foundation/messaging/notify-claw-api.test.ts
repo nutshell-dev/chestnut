@@ -41,7 +41,7 @@ describe('notifyClaw API', () => {
   });
 
   it("notifyClaw('motion', ...) writes to motion/inbox/pending with correct codec", () => {
-    notifyClaw(nodeFs, chestnutRoot, 'motion', {
+    notifyClaw(nodeFs, chestnutRoot, 'motion', 'motion', {
       type: 'heartbeat',
       source: 'system',
       priority: 'low',
@@ -64,7 +64,7 @@ describe('notifyClaw API', () => {
   it("notifyClaw('worker-1', ...) writes to claws/worker-1/inbox/pending", async () => {
     await fs.mkdir(path.join(chestnutRoot, 'claws', 'worker-1'), { recursive: true });
 
-    notifyClaw(nodeFs, chestnutRoot, 'worker-1', {
+    notifyClaw(nodeFs, chestnutRoot, 'motion', 'worker-1', {
       type: 'test_message',
       source: 'test',
       priority: 'normal',
@@ -82,7 +82,7 @@ describe('notifyClaw API', () => {
   });
 
   it('emits INBOX_WRITTEN audit on happy path', () => {
-    notifyClaw(nodeFs, chestnutRoot, 'motion', {
+    notifyClaw(nodeFs, chestnutRoot, 'motion', 'motion', {
       type: 'audit_test',
       source: 'system',
       body: 'audit me',
@@ -93,7 +93,7 @@ describe('notifyClaw API', () => {
   });
 
   it('uses priority + filename convention via InboxWriter codec', () => {
-    notifyClaw(nodeFs, chestnutRoot, 'motion', {
+    notifyClaw(nodeFs, chestnutRoot, 'motion', 'motion', {
       type: 'priority_test',
       source: 'priority_src',
       priority: 'high',
@@ -110,7 +110,7 @@ describe('notifyClaw API', () => {
 
   it('dedup: multiple calls produce multiple distinct files', () => {
     for (let i = 0; i < 3; i++) {
-      notifyClaw(nodeFs, chestnutRoot, 'motion', {
+      notifyClaw(nodeFs, chestnutRoot, 'motion', 'motion', {
         type: 'dedup_test',
         source: 'system',
         body: `msg ${i}`,

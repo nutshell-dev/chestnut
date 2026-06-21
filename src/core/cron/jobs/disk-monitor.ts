@@ -9,7 +9,7 @@ import type { CronJob } from '../runner.js';
 import { parseSchedule } from '../runner.js';
 import type { CronJobGlobalConfig } from '../runner.js';
 import type { ClawTopology } from '../../../core/claw-topology/index.js';
-import { MOTION_CLAW_ID } from '../../../constants.js';
+import { MOTION_CLAW_ID } from '../../claw-topology/index.js';
 
 /**
  * Cron job timeout (ms) / 防 stuck handler 占 cron tick.

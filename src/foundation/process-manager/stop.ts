@@ -3,7 +3,7 @@ import { DAEMON_SHUTDOWN_GRACE_MS, PROCESS_STOP_POLL_INTERVAL_MS, SIGKILL_DEAD_V
 import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
 import { readPid, removePid } from './pid.js';
 import type { ProcessManagerContext } from './types.js';
-import type { ClawId } from '../../constants.js';
+import type { ClawId } from '../identity/index.js';
 
 
 export async function stopProcess(ctx: ProcessManagerContext, clawId: ClawId): Promise<boolean> {

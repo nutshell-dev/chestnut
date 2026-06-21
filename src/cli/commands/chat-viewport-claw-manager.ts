@@ -9,7 +9,8 @@ import type { FileSystem } from '../../foundation/fs/types.js';
 import { isFileNotFound } from '../../foundation/fs/types.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
-import { MOTION_CLAW_ID, makeClawId } from '../../constants.js';
+import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
+import { makeClawId } from '../../foundation/identity/index.js';
 import type { ClawTopology } from '../../core/claw-topology/index.js';
 import { createChatViewportWatcher } from './chat-viewport-watcher.js';
 import { type ClawTrack, makeClawTrack } from './chat-viewport-claw-line.js';
@@ -17,7 +18,7 @@ import { type ClawTrack, makeClawTrack } from './chat-viewport-claw-line.js';
 
 export interface ClawManagerDeps {
   fs: FileSystem;
-  pm: { readPid: (label: import('../../constants.js').ClawId) => Promise<{ pid: number; startTime?: string } | null> };
+  pm: { readPid: (label: import('../../foundation/identity/index.js').ClawId) => Promise<{ pid: number; startTime?: string } | null> };
   audit: AuditLog;
   isMotion: boolean;
   clawTopology: ClawTopology;

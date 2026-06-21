@@ -3,7 +3,7 @@ import { formatErr } from "../utils/index.js";
 import { isAlive as defaultL1IsAlive, getProcessStartTime as defaultGetProcessStartTime, makeProcessStartTime, type ProcessStartTime } from '../process-exec/index.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
 import type { ProcessManagerContext } from './types.js';
-import type { ClawId } from '../../constants.js';
+import type { ClawId } from '../identity/index.js';
 import type { PidFileContent } from './pid.js';
 import { isFileNotFound } from '../fs/types.js';
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { MOTION_CLAW_ID } from '../../src/constants.js';
+import { MOTION_CLAW_ID } from '../../src/core/claw-topology/index.js';
 
 describe('phase 1235 B.2: motion claw name const', () => {
   it('reverse 1: MOTION_CLAW_ID === "motion"', () => {

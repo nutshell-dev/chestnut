@@ -5,7 +5,7 @@ import type { ToolRegistry } from '../../foundation/tools/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { ProgressData } from '../contract/index.js';
 import { createContractSystem } from '../contract/index.js';
-import { makeClawId } from '../../constants.js';
+import { makeClawId } from '../../foundation/identity/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import type { ContractSystem } from '../contract/index.js';
 import type { ClawTopology } from '../../core/claw-topology/index.js';

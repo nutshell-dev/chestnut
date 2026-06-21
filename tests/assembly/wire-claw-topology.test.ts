@@ -5,7 +5,7 @@ import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 import { createToolRegistry } from '../../src/foundation/tools/index.js';
 import { createFileTools } from '../../src/foundation/file-tool/index.js';
 import { wireClawTopology } from '../../src/assembly/wire-claw-topology.js';
-import { MOTION_CLAW_ID } from '../../src/constants.js';
+import { MOTION_CLAW_ID } from '../../src/core/claw-topology/index.js';
 import { CLAW_TOPOLOGY_AUDIT_EVENTS } from '../../src/core/claw-topology/audit-events.js';
 import type { ExecContext } from '../../src/foundation/tools/index.js';
 import type { AuditLog } from '../../src/foundation/audit/index.js';
@@ -46,7 +46,6 @@ describe('wireClawTopology', () => {
       fs,
       chestnutRoot: tempDir,
       toolRegistry,
-      motionClawId: MOTION_CLAW_ID,
     });
     return { toolRegistry, topology };
   }

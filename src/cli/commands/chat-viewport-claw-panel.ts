@@ -13,7 +13,7 @@ import { STREAM_FILE } from '../../foundation/stream/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { ClawTopology } from '../../core/claw-topology/index.js';
-import { makeClawId } from '../../constants.js';
+import { makeClawId } from '../../foundation/identity/index.js';
 import type { createClawManager } from './chat-viewport-claw-manager.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
 import { DEFAULT_TERMINAL_WIDTH } from '../utils/constants.js';

@@ -11,7 +11,7 @@
  */
 
 import type { ForumStatusView, SystemComponentView, ActiveClawView } from './forum-aggregators.js';
-import { MOTION_CLAW_ID } from '../../constants.js';
+import { MOTION_CLAW_ID } from '../claw-topology/index.js';
 
 /**
  * Claw name 列 padding 宽度（forum 列表对齐 col）.

@@ -39,6 +39,7 @@ describe('notify_claw tool status hint (phase 232)', () => {
     formatClawStatusHint,
     clawExists: () => true,
     hasActiveContract: () => false,
+    motionClawId: 'motion',
   };
 
   describe('status hint', () => {

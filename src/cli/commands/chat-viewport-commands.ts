@@ -2,7 +2,7 @@ import * as path from 'path';
 import { STREAM_FILE } from '../../foundation/stream/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import type { ClawTopology } from '../../core/claw-topology/index.js';
-import { makeClawId } from '../../constants.js';
+import { makeClawId } from '../../foundation/identity/index.js';
 import { type ClawTrack, makeClawTrack } from './chat-viewport-claw-line.js';
 import type { MainTurnUIController } from './main-turn-ui.js';
 import type { ClawManager } from './chat-viewport-claw-manager.js';

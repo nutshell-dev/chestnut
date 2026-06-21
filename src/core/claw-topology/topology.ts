@@ -5,18 +5,19 @@ import { makeClawId } from '../../foundation/identity/index.js';
 import type { ClawTopology, ClawTopologyDeps } from './types.js';
 import { ClawIdResolveError, CrossClawReadError } from './types.js';
 import { CLAW_TOPOLOGY_AUDIT_EVENTS } from './audit-events.js';
+import { MOTION_CLAW_ID } from './motion-claw-id.js';
 
 export function createClawTopology(deps: ClawTopologyDeps): ClawTopology {
-  const { fs, chestnutRoot, audit, motionClawId, motionDir } = deps;
+  const { fs, chestnutRoot, audit, motionDir } = deps;
   const clawsDir = path.join(chestnutRoot, CLAWS_DIR);
 
   return {
     enumerate() {
       const clawIds = enumerateClaws(fs, clawsDir).map(makeClawId);
-      return [motionClawId, ...clawIds];
+      return [MOTION_CLAW_ID, ...clawIds];
     },
     resolve(clawId) {
-      if (clawId === motionClawId) {
+      if (clawId === MOTION_CLAW_ID) {
         return { kind: 'local', clawDir: path.join(chestnutRoot, motionDir) };
       }
       const clawDir = path.join(clawsDir, clawId);

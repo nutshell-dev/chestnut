@@ -28,7 +28,7 @@ import { createToolRegistry } from '../../foundation/tools/index.js';
 import { createDirContext } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { notifyClaw } from '../../foundation/messaging/index.js';
-import { MOTION_CLAW_ID } from '../../constants.js';
+import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 
 import { CliError } from '../errors.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
@@ -151,7 +151,7 @@ async function _start(deps: { fsFactory: (baseDir: string) => FileSystem }, audi
 
   // onboarding 已完成 → 直接进 chat
   if (onboarding.state === 'complete') {
-    const pm = createProcessManagerForCLI(deps);
+    const pm = createProcessManagerForCLI({ ...deps, motionClawId: MOTION_CLAW_ID });
     if (!pm.isAlive(MOTION_CLAW_ID)) {
       await pm.spawn(MOTION_CLAW_ID, motionSpawnOptions);
     }
@@ -163,7 +163,7 @@ async function _start(deps: { fsFactory: (baseDir: string) => FileSystem }, audi
 
   if (wasFirstRun && onboarding.state === 'not_found') {
     // ★ 首次运行：后台启动 daemon，前台展示语言选择（并行）
-    const pm = createProcessManagerForCLI(deps);
+    const pm = createProcessManagerForCLI({ ...deps, motionClawId: MOTION_CLAW_ID });
     const daemonReady = (async () => {
       if (!pm.isAlive(MOTION_CLAW_ID)) {
         await pm.spawn(MOTION_CLAW_ID, motionSpawnOptions);
@@ -185,7 +185,7 @@ async function _start(deps: { fsFactory: (baseDir: string) => FileSystem }, audi
     const { ensureWatchdog } = await import('../../watchdog/ensure.js');
     await ensureWatchdog(deps.fsFactory);
 
-    const manager = new ContractSystem({ clawDir: motionDir, clawId: MOTION_CLAW_ID, fs: notifyFs, audit: notifyAudit, toolRegistry: createToolRegistry(), fsFactory: deps.fsFactory, notifyClaw: (targetClawId, message) => notifyClaw(notifyFs, makeChestnutRoot(path.dirname(motionDir)), targetClawId, message, notifyAudit) });
+    const manager = new ContractSystem({ clawDir: motionDir, clawId: MOTION_CLAW_ID, fs: notifyFs, audit: notifyAudit, toolRegistry: createToolRegistry(), fsFactory: deps.fsFactory, notifyClaw: (targetClawId, message) => notifyClaw(notifyFs, makeChestnutRoot(path.dirname(motionDir)), MOTION_CLAW_ID, targetClawId, message, notifyAudit) });
     const contractId = await manager.create({
       schema_version: 1,
       title: 'Onboarding',
@@ -196,7 +196,7 @@ async function _start(deps: { fsFactory: (baseDir: string) => FileSystem }, audi
 
     
     // Motion-only callsite: motionDir = <chestnutRoot>/motion → dirname 一层即 chestnutRoot
-    notifyClaw(notifyFs, makeChestnutRoot(path.dirname(motionDir)), MOTION_CLAW_ID, {
+    notifyClaw(notifyFs, makeChestnutRoot(path.dirname(motionDir)), MOTION_CLAW_ID, MOTION_CLAW_ID, {
       type: 'contract_created',
       source: 'system',
       priority: 'high',
@@ -206,7 +206,7 @@ async function _start(deps: { fsFactory: (baseDir: string) => FileSystem }, audi
 
   } else {
     // 非首次但 not_found（极少），或 in_progress
-    const pm = createProcessManagerForCLI(deps);
+    const pm = createProcessManagerForCLI({ ...deps, motionClawId: MOTION_CLAW_ID });
     if (!pm.isAlive(MOTION_CLAW_ID)) {
       await pm.spawn(MOTION_CLAW_ID, motionSpawnOptions);
     }
@@ -215,7 +215,7 @@ async function _start(deps: { fsFactory: (baseDir: string) => FileSystem }, audi
 
     
     if (onboarding.state === 'not_found') {
-      const manager = new ContractSystem({ clawDir: motionDir, clawId: MOTION_CLAW_ID, fs: notifyFs, audit: notifyAudit, toolRegistry: createToolRegistry(), fsFactory: deps.fsFactory, notifyClaw: (targetClawId, message) => notifyClaw(notifyFs, makeChestnutRoot(path.dirname(motionDir)), targetClawId, message, notifyAudit) });
+      const manager = new ContractSystem({ clawDir: motionDir, clawId: MOTION_CLAW_ID, fs: notifyFs, audit: notifyAudit, toolRegistry: createToolRegistry(), fsFactory: deps.fsFactory, notifyClaw: (targetClawId, message) => notifyClaw(notifyFs, makeChestnutRoot(path.dirname(motionDir)), MOTION_CLAW_ID, targetClawId, message, notifyAudit) });
       const contractId = await manager.create({
         schema_version: 1,
         title: 'Onboarding',
@@ -224,7 +224,7 @@ async function _start(deps: { fsFactory: (baseDir: string) => FileSystem }, audi
         verification: [],
       });
       // Motion-only callsite: motionDir = <chestnutRoot>/motion → dirname 一层即 chestnutRoot
-      notifyClaw(notifyFs, makeChestnutRoot(path.dirname(motionDir)), MOTION_CLAW_ID, {
+      notifyClaw(notifyFs, makeChestnutRoot(path.dirname(motionDir)), MOTION_CLAW_ID, MOTION_CLAW_ID, {
         type: 'contract_created', source: 'system', priority: 'high',
         body: `New contract created (${contractId}): Onboarding. Please begin execution.`,
         idPrefix: 'start',
@@ -232,7 +232,7 @@ async function _start(deps: { fsFactory: (baseDir: string) => FileSystem }, audi
     } else {
       const pendingList = onboarding.pending?.join(', ') ?? '';
       // Motion-only callsite: motionDir = <chestnutRoot>/motion → dirname 一层即 chestnutRoot
-      notifyClaw(notifyFs, makeChestnutRoot(path.dirname(motionDir)), MOTION_CLAW_ID, {
+      notifyClaw(notifyFs, makeChestnutRoot(path.dirname(motionDir)), MOTION_CLAW_ID, MOTION_CLAW_ID, {
         type: 'contract_resume', source: 'system', priority: 'high',
         body: `Resuming Onboarding contract (${onboarding.contractId}). Pending subtasks: ${pendingList}. Please continue.`,
         idPrefix: 'start',

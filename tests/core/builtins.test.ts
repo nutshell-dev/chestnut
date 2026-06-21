@@ -709,7 +709,7 @@ describe('Builtin Tools', () => {
   describe('send tool', () => {
     let sendTool: ReturnType<typeof createSendTool>;
     beforeEach(() => {
-      sendTool = createSendTool(outboxWriter);
+      sendTool = createSendTool(outboxWriter, 'motion');
     });
     afterEach(() => {
     });

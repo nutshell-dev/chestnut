@@ -302,6 +302,12 @@ export interface ToolExecutorOptions {
   clawDir: string;
   syncDir: string;
   workspaceDir?: string;
+  /**
+   * phase 520: foundation 不 import MOTION_CLAW_ID、caller 注入（owner=core/claw-topology）.
+   * Optional: production paths (subagent/run.ts) must inject; tests using ToolExecutor 0 触
+   * isMotionChain 的可省。
+   */
+  motionClawId?: string;
   fs: FileSystem;
   fsFactory?: (baseDir: string) => FileSystem;
   llm?: LLMOrchestrator;

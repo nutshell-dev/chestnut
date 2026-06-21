@@ -16,10 +16,10 @@
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { isFileNotFound } from '../../foundation/fs/types.js';
 import { ProcessManager, ProcessListUnavailable } from '../../foundation/process-manager/index.js';
-import { makeClawId } from '../../constants.js';
+import { makeClawId } from '../../foundation/identity/index.js';
 import { listAuditFiles } from '../../foundation/audit/index.js';
 import { INBOX_PENDING_DIR } from '../../foundation/messaging/index.js';
-import { MOTION_CLAW_ID } from '../../constants.js';
+import { MOTION_CLAW_ID } from '../claw-topology/index.js';
 import type { ClawTopology } from '../../core/claw-topology/index.js';
 
 // ── Views ───────────────────────────────────────────────────────────────────

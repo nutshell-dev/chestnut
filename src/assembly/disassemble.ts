@@ -1,7 +1,7 @@
 import type { Instances } from './types.js';
 import { formatErr } from "../foundation/utils/index.js";
 import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
-import { makeClawId } from '../constants.js';
+import { makeClawId } from '../foundation/identity/index.js';
 
 export async function disassemble(instances: Instances, signal: string): Promise<void> {
   const { gateway, runtime, streamWriter, processManager, auditWriter, cronRunner, clawId, disposeContractSystems } = instances;

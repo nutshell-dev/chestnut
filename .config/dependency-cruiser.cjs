@@ -925,6 +925,17 @@ module.exports = {
       to: { path: '^(node:)?(http|https|tls|dns|stream|worker_threads|cluster|process)$' },
     },
     {
+      name: 'no-root-constants-readd',
+      comment: [
+        'phase 520 删 src/constants.ts、MOTION_CLAW_ID 归位 core/claw-topology/motion-claw-id.ts、ClawId/makeClawId 走 foundation/identity、UUID_SHORT_LEN 内联 foundation/uuid.ts。',
+        'ML#3 资源唯一归属：root-level shared constants 桶违反「Domain-specific constants belong in their owner modules」。',
+        '本 rule 防 future drift 再加回 src/constants.ts。新常量应归各自语义 owner module。',
+      ].join(' '),
+      severity: 'error',
+      from: { path: '^src' },
+      to: { path: '^src/constants(\\.ts)?$' },
+    },
+    {
       name: 'no-circular',
       comment: [
         'ML#5 模块依赖单向、禁止双向/循环',

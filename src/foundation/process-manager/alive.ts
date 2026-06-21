@@ -1,5 +1,5 @@
 import { getPidFile } from './paths.js';
-import type { ClawId } from '../../constants.js';
+import type { ClawId } from '../identity/index.js';
 import { isAlive as defaultL1IsAlive, makeProcessStartTime, type ProcessStartTime } from '../process-exec/index.js';
 import { formatErr } from "../utils/index.js";
 import type { ProcessManagerContext } from './types.js';

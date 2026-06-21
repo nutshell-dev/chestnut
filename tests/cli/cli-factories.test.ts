@@ -68,7 +68,7 @@ describe('createProcessManagerForCLI', () => {
     process.env.CHESTNUT_ROOT = dir;
     // 手动路径
     const fs = new NodeFileSystem({ baseDir: dir });
-    const manual = createAgentProcessManager({ fsFactory }, createSystemAudit(fs, dir));
+    const manual = createAgentProcessManager({ fsFactory, motionClawId: 'motion' }, createSystemAudit(fs, dir));
     // 工厂路径
     const factory = createProcessManagerForCLI({ fsFactory });
     // 接口等价：同一 clawId 查询同一 PID（均为不存在）

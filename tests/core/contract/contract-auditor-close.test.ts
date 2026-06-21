@@ -17,7 +17,7 @@ import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import type { LLMOrchestrator, LLMResponse } from '../../../src/foundation/llm-orchestrator/index.js';
 import type { InboxWriter } from '../../../src/foundation/messaging/index.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
-import { makeClawId } from '../../../src/constants.js';
+import { makeClawId } from '../../../src/foundation/identity/index.js';
 
 function makeAuditMock(): AuditLog {
   return {

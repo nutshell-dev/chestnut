@@ -10,7 +10,7 @@ import type { AuditLog } from '../../../../foundation/audit/index.js';
 import type { InboxWriter } from '../../../../foundation/messaging/index.js';
 import type { InboxMessage } from '../../../../foundation/messaging/types.js';
 import { OUTBOX_SUMMARY_AUDIT_EVENTS } from './audit-events.js';
-import { MOTION_CLAW_ID } from '../../../../constants.js';
+import { MOTION_CLAW_ID } from '../../../claw-topology/index.js';
 import { SUMMARY_HASH_META_KEY } from './dedup.js';
 import { toExtraMeta } from './types.js';
 import type { OutboxSummaryState } from './types.js';

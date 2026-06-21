@@ -19,7 +19,7 @@ import {
   isWatchdogAlive,
   getWatchdogEntryPath,
 } from '../../watchdog/watchdog.js';
-import { MOTION_CLAW_ID } from '../../constants.js';
+import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import { getProcessStartTime } from '../../foundation/process-exec/index.js';
 import {
   computeForumStatusView,
@@ -33,7 +33,7 @@ export async function statusCommand(deps: { fsFactory: (baseDir: string) => File
 
   const motionDir = getNamedSubrootDir(MOTION_CLAW_ID);
   const baseDir = path.dirname(motionDir);
-  const pm = createProcessManagerForCLI(deps);
+  const pm = createProcessManagerForCLI({ ...deps, motionClawId: MOTION_CLAW_ID });
 
   const watchdogPid = getWatchdogPid(deps.fsFactory);
   const watchdog = {
@@ -48,7 +48,6 @@ export async function statusCommand(deps: { fsFactory: (baseDir: string) => File
   const topology = createClawTopology({
     fs: deps.fsFactory(baseDir),
     chestnutRoot: baseDir,
-    motionClawId: MOTION_CLAW_ID,
     motionDir,
   });
 

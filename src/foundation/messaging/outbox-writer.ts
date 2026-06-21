@@ -13,7 +13,7 @@ import { encodeOutbox } from './codec-outbox.js';
 import { emitOutboxSent, emitOutboxSendFailed, emitOutboxBodyOversize } from './audit-emit.js';
 import { assertMessageShape } from './invariants.js';
 import { SequenceCounter, formatSeq } from './sequence-counter.js';
-import type { ClawId } from '../../constants.js';
+import type { ClawId } from '../identity/index.js';
 
 
 /**

@@ -13,7 +13,8 @@ export type NotifyMotionFn = (message: InboxMessageOptionsBase) => void;
 import type { CronJob } from '../../cron/runner.js';
 import { parseSchedule } from '../../cron/runner.js';
 import type { CronJobGlobalConfig } from '../../cron/runner.js';
-import { makeClawId, MOTION_CLAW_ID } from '../../../constants.js';
+import { makeClawId } from '../../../foundation/identity/index.js';
+import { MOTION_CLAW_ID } from '../../claw-topology/index.js';
 
 
 /**

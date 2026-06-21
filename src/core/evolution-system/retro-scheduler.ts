@@ -10,7 +10,7 @@
 
 import { buildRetroPrompt } from '../../templates/prompts/index.js';
 import { formatErr } from "../../foundation/utils/index.js";
-import { MOTION_CLAW_ID } from '../../constants.js';
+import { MOTION_CLAW_ID } from '../claw-topology/index.js';
 import type { AsyncTaskSystem } from '../async-task-system/index.js';
 import { createSkillSystem as defaultCreateSkillSystem } from '../../foundation/skill-system/index.js';
 import { DISPATCH_SKILLS_PATH as DISPATCH_SKILLS_DIR } from '../summon-system/index.js';

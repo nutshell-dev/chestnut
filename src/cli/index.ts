@@ -43,7 +43,7 @@ import { resolveChestnutRoot } from '../foundation/install-paths.js';
 import { createSystemAudit } from '../foundation/audit/index.js';
 import { notifyClaw } from '../foundation/messaging/index.js';
 import { makeClawId } from '../foundation/identity/index.js';
-import { MOTION_CLAW_ID } from '../constants.js';
+import { MOTION_CLAW_ID } from '../core/claw-topology/index.js';
 import { createToolRegistry } from '../foundation/tools/index.js';
 import { createFileTools } from '../foundation/file-tool/index.js';
 import { parseIntOption } from './parse-int-option.js';
@@ -248,7 +248,6 @@ contractCmd
         chestnutRoot,
         audit: clawAudit,
         toolRegistry,
-        motionClawId: MOTION_CLAW_ID,
       });
 
       const contractSystem = createContractSystem({
@@ -258,7 +257,7 @@ contractCmd
         audit: clawAudit,
         toolRegistry,
         fsFactory,
-        notifyClaw: (targetClawId, message) => notifyClaw(clawFs, chestnutRoot, targetClawId, message, clawAudit),
+        notifyClaw: (targetClawId, message) => notifyClaw(clawFs, chestnutRoot, MOTION_CLAW_ID, targetClawId, message, clawAudit),
       });
       contractSystem.registerCreatePolicy('summon-verify', summonVerifyPolicy);
 

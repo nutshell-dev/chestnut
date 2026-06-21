@@ -9,7 +9,8 @@ import { getClawDir, getGlobalConfigPath, getClawConfigPath } from '../../founda
 import { CliError } from '../errors.js';
 import { createDirContext } from '../../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
-import { makeClawId } from '../../constants.js';
+import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
+import { makeClawId } from '../../foundation/identity/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { isFileNotFound } from '../../foundation/fs/types.js';
 import { CONTRACT_DIR } from '../../core/contract/index.js';
@@ -32,7 +33,7 @@ export async function healthCommand(deps: { fsFactory: (baseDir: string) => File
   const baseDir = path.dirname(globalConfigPath);
   const clawFs = deps.fsFactory(clawDir);
 
-  const processManager = createProcessManagerForCLI(deps);
+  const processManager = createProcessManagerForCLI({ ...deps, motionClawId: MOTION_CLAW_ID });
   const { audit: systemAudit } = createDirContext(deps, baseDir);
 
   const isRunning = processManager.isAlive(makeClawId(name));

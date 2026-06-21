@@ -10,7 +10,6 @@ import type { InboxMessageOptionsBase } from './inbox-writer.js';
 import type { InboxMessage } from './types.js';
 import type { FileSystem } from '../fs/types.js';
 import type { AuditLog } from '../audit/index.js';
-import { MOTION_CLAW_ID } from '../../constants.js';
 import { INBOX_PENDING_DIR } from './dirs.js';
 import { CLAWS_DIR } from '../claw-paths.js';
 import { emitUnknownDestinationDlq } from './audit-emit.js';
@@ -25,15 +24,16 @@ import { newShortUuid } from '../uuid.js';
 export function notifyClaw(
   fs: FileSystem,
   chestnutRoot: string,  // phase 90: 去 brand type-only import (M#5 单向守、messaging 0 知 L6 brand)
+  motionClawId: string,  // phase 520: foundation 不再 import MOTION_CLAW_ID、caller 注入
   targetClawId: string,
   message: InboxMessageOptionsBase,
   audit: AuditLog,
 ): void {
   // phase 1372 sub-4: DLQ for unknown destination — prevent silent orphan dir creation
-  if (targetClawId !== MOTION_CLAW_ID && typeof fs.existsSync === 'function') {
+  if (targetClawId !== motionClawId && typeof fs.existsSync === 'function') {
     const targetClawRoot = path.join(chestnutRoot, CLAWS_DIR, targetClawId);
     if (!fs.existsSync(targetClawRoot)) {
-      const dlqDir = path.join(chestnutRoot, MOTION_CLAW_ID, 'inbox', 'dead-letter');
+      const dlqDir = path.join(chestnutRoot, motionClawId, 'inbox', 'dead-letter');
       const fileName = `${Date.now()}_${newShortUuid()}_${targetClawId}.md`;
       try {
         fs.ensureDirSync(dlqDir);
@@ -53,8 +53,8 @@ export function notifyClaw(
     }
   }
 
-  const targetInboxDir = targetClawId === MOTION_CLAW_ID
-    ? path.join(chestnutRoot, MOTION_CLAW_ID, INBOX_PENDING_DIR)
+  const targetInboxDir = targetClawId === motionClawId
+    ? path.join(chestnutRoot, motionClawId, INBOX_PENDING_DIR)
     : path.join(chestnutRoot, CLAWS_DIR, targetClawId, INBOX_PENDING_DIR);
 
   try {
@@ -84,7 +84,7 @@ export async function writeInboxAsync(
  * Send an inbox notification with standardized error handling.
  * Logs warning on failure but does not throw.
  *
- * @deprecated since phase 1334 — use notifyClaw(fs, chestnutRoot, targetClawId, ...) instead.
+ * @deprecated since phase 1334 — use notifyClaw(fs, chestnutRoot, motionClawId, targetClawId, ...) instead.
  * Caller expressing fs path inboxDir is the wrong abstraction level;
  * cross-claw delivery destination = Messaging business semantics;
  * caller should express targetClawId.

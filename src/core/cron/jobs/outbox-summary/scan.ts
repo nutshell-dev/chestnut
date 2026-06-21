@@ -11,7 +11,7 @@
 import type { FileSystem } from '../../../../foundation/fs/types.js';
 import { isFileNotFound } from '../../../../foundation/fs/types.js';
 import type { OutboxReader } from '../../../../foundation/messaging/index.js';
-import { MOTION_CLAW_ID } from '../../../../constants.js';
+import { MOTION_CLAW_ID } from '../../../claw-topology/index.js';
 import type { ClawTopology } from '../../../../core/claw-topology/index.js';
 import type { ClawId } from '../../../../foundation/identity/index.js';
 import { computeHash } from './hash.js';

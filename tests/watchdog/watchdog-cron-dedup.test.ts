@@ -117,6 +117,7 @@ describe('watchdog crash_notification dedup (phase 1207 gap A)', () => {
       expect.anything(),
       expect.anything(),
       'motion',
+      'motion',
       expect.objectContaining({ type: 'crash_notification', source: clawId }),
       expect.anything(),
     );
@@ -184,6 +185,7 @@ describe('watchdog crash_notification dedup (phase 1207 gap A)', () => {
     expect(inboxWriteMock).toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),
+      'motion',
       'motion',
       expect.objectContaining({ type: 'crash_notification', source: clawId }),
       expect.anything(),

@@ -2,7 +2,7 @@ import type { FileSystem } from '../fs/types.js';
 import type { AuditLog } from '../audit/index.js';
 import type { ProcessStartTime } from '../process-exec/index.js';
 import type { isAlive as defaultL1IsAlive, spawnDetached as defaultSpawnDetached, getProcessStartTime as defaultGetProcessStartTime, kill as defaultKill } from '../process-exec/index.js';
-import type { ClawId } from '../../constants.js';
+import type { ClawId } from '../identity/index.js';
 
 
 export class LockConflictError extends Error {

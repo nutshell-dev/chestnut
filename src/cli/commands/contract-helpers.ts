@@ -7,6 +7,7 @@ import * as yaml from 'js-yaml';
 import type { ContractYaml } from '../../core/contract/index.js';
 import { createDirContext } from '../../foundation/audit/index.js';
 import { notifyClaw } from '../../foundation/messaging/index.js';
+import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import { STREAM_FILE, createPerResourceStreamWriter, type StreamEvent } from '../../foundation/stream/index.js';
 import { CliError } from '../errors.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
@@ -74,6 +75,7 @@ export function notifyContractCreated(deps: { fsFactory: (baseDir: string) => Fi
   notifyClaw(
     fs,
     chestnutRoot,
+    MOTION_CLAW_ID,
     clawId,
     { type: 'contract_created', source: 'system', priority: 'high', body, idPrefix: 'contract-new' },
     contractAudit,

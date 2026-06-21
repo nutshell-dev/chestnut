@@ -27,7 +27,7 @@ describe('sendTool', () => {
   beforeEach(() => {
     writeMock = vi.fn().mockResolvedValue('/tmp/test-claw/outbox/pending/msg.md');
     ctx = createMockCtx();
-    sendTool = createSendTool({ write: writeMock } as unknown as OutboxWriter);
+    sendTool = createSendTool({ write: writeMock } as unknown as OutboxWriter, 'motion');
   });
 
   it('rejects invalid type with ToolResult success=false', async () => {

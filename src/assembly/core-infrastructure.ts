@@ -22,7 +22,7 @@ import { createSkillSystem as defaultCreateSkillSystem, SkillSystem } from '../f
 import { SKILLS_DIR_DEFAULT } from '../foundation/skill-system/index.js';
 import { ContractSystem, createContractSystem } from '../core/contract/index.js';
 import { makeClawId } from '../foundation/identity/index.js';
-import { MOTION_CLAW_ID } from '../constants.js';
+import { MOTION_CLAW_ID } from '../core/claw-topology/index.js';
 import type { ClawTopology } from '../core/claw-topology/index.js';
 import { createOutboxWriter, type OutboxWriter, notifyClaw as notifyClawFn } from '../foundation/messaging/index.js';
 import { TASKS_SYNC_DIR } from '../core/async-task-system/index.js';
@@ -124,7 +124,7 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
 
     // --- 2. ProcessManager + acquireLock (daemon.ts L107-108) ---
     try {
-      processManager = createAgentProcessManager({ fsFactory }, auditWriter);
+      processManager = createAgentProcessManager({ fsFactory, motionClawId: MOTION_CLAW_ID }, auditWriter);
     } catch (e) {
       auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=process_manager`, `phase=construct`, `reason=${formatErr(e)}`);
       throw new Error(`Assembly: ProcessManager construct failed: ${formatErr(e)}`, { cause: e });
@@ -201,7 +201,6 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
         chestnutRoot,
         audit: auditWriter,
         toolRegistry,
-        motionClawId: MOTION_CLAW_ID,
       });
 
       // phase 1406: SummonTool 走标准注册路径（构造期 0 参 / accessesCaller=true /
@@ -246,7 +245,7 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
         // phase 104: pre-bound notifyClaw (bind fs + chestnutRoot + audit)
         // phase 324 H12: fs 改用 rootFs（chestnut-root-scoped）让绝对 inbox 路径能落。
         notifyClaw: (targetClawId, message) =>
-          notifyClawFn(rootFs, chestnutRoot, targetClawId, message, auditWriter!),
+          notifyClawFn(rootFs, chestnutRoot, MOTION_CLAW_ID, targetClawId, message, auditWriter!),
       });
     } catch (e) {
       auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=contract_manager`, `phase=construct`, `reason=${formatErr(e)}`);

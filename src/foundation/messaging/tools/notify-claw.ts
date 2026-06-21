@@ -9,7 +9,6 @@ import { formatErr } from "../../utils/index.js";
  */
 
 import type { Tool, ExecContext, ToolPermissions } from '../../tools/index.js';
-import { MOTION_CLAW_ID } from '../../../constants.js';
 
 import type { ToolResult } from '../../tool-protocol/index.js';
 import type { FileSystem } from '../../fs/types.js';
@@ -21,6 +20,8 @@ export const NOTIFY_CLAW_TOOL_NAME = 'notify_claw' as const;
 export interface NotifyClawDeps {
   fs: FileSystem;
   chestnutRoot: string;  // phase 90: 去 brand type-only import；motion dir 的父 dir、用于 resolve target claw dir
+  /** phase 520: caller 注入（foundation 不 import MOTION_CLAW_ID、owner=core/claw-topology） */
+  motionClawId: string;
   audit: AuditLog;        // motion audit（NOTIFY_CLAW_SENT/FAILED emit）
   isClawAlive: (clawId: string) => boolean; // phase 232: status hint callback
   formatClawStatusHint: (clawName: string, isAlive: boolean) => string | undefined; // phase 232: M#1 single source
@@ -64,7 +65,7 @@ export function createNotifyClawTool(deps: NotifyClawDeps): Tool {
       // phase 1459 α-5: notify_claw 真依赖仅 `ctx.callerLabel` → `ToolPermissions` 子接口 sufficient（motion 单向访问 gate / D11）。
       const perm: ToolPermissions = ctx;
       // Phase 1105: notify_claw is motion-only
-      if (perm.callerLabel !== MOTION_CLAW_ID) {
+      if (perm.callerLabel !== deps.motionClawId) {
         return { success: false, content: 'notify_claw is motion-only' };
       }
       const to = args.to as string;
@@ -95,9 +96,9 @@ export function createNotifyClawTool(deps: NotifyClawDeps): Tool {
       }
 
       try {
-        notifyClaw(deps.fs, deps.chestnutRoot, to, {
+        notifyClaw(deps.fs, deps.chestnutRoot, deps.motionClawId, to, {
           type,
-          source: MOTION_CLAW_ID,
+          source: deps.motionClawId,
           priority,
           body,
         }, deps.audit);

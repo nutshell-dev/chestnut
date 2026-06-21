@@ -19,14 +19,13 @@ import {
 import type { ToolRegistry } from '../foundation/tools/index.js';
 import type { FileSystem } from '../foundation/fs/types.js';
 import type { AuditLog } from '../foundation/audit/index.js';
-import type { ClawId } from '../foundation/identity/index.js';
 
+/** phase 520: motionClawId DI 删（topology 自家持 MOTION_CLAW_ID const、不需 assembly 注入） */
 export interface WireClawTopologyDeps {
   fs: FileSystem;
   chestnutRoot: string;
   audit?: AuditLog;
   toolRegistry: ToolRegistry;
-  motionClawId: ClawId;
   motionDir?: string;
 }
 
@@ -35,10 +34,9 @@ export function wireClawTopology(deps: WireClawTopologyDeps): ClawTopology {
     fs: deps.fs,
     chestnutRoot: deps.chestnutRoot,
     audit: deps.audit,
-    motionClawId: deps.motionClawId,
     motionDir: deps.motionDir ?? 'motion',
   });
-  const wrapDeps = { topology, motionClawId: deps.motionClawId };
+  const wrapDeps = { topology };
   deps.toolRegistry.register(createCrossClawReadTool(wrapDeps));
   deps.toolRegistry.register(createCrossClawLsTool(wrapDeps));
   deps.toolRegistry.register(createCrossClawSearchTool(wrapDeps));

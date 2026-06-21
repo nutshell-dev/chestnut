@@ -14,7 +14,7 @@ import { createClawPermissionChecker } from '../../src/core/permissions/claw-per
 import { ToolRegistryImpl } from '../../src/foundation/tools/registry.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { makeAudit } from '../helpers/audit.js';
-import { MOTION_CLAW_ID } from '../../src/constants.js';
+import { MOTION_CLAW_ID } from '../../src/core/claw-topology/index.js';
 import * as fsp from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';

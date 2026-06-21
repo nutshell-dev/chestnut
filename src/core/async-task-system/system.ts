@@ -6,7 +6,7 @@
  */
 
 import { newUuid } from '../../foundation/uuid.js';
-import { MOTION_CLAW_ID } from '../../constants.js';
+import { MOTION_CLAW_ID } from '../claw-topology/index.js';
 import { makeStepNumber } from '../../foundation/identity/index.js';
 import { CALLER_TYPE_TO_GROUPS } from '../caller-types.js';
 import * as path from 'path';

@@ -17,6 +17,7 @@ describe('phase 894 NEW.P0.1 — notify_claw profile advertise pipeline', () => 
     registry.register(createNotifyClawTool({
       fs: fakeFs,
       chestnutRoot: '/tmp/forum',
+      motionClawId: 'motion',
       audit: fakeAudit,
       isClawAlive: () => true,
       formatClawStatusHint: () => undefined,
@@ -38,6 +39,7 @@ describe('phase 894 NEW.P0.1 — notify_claw profile advertise pipeline', () => 
     registry.register(createNotifyClawTool({
       fs: fakeFs,
       chestnutRoot: '/tmp/forum',
+      motionClawId: 'motion',
       audit: fakeAudit,
       isClawAlive: () => true,
       formatClawStatusHint: () => undefined,

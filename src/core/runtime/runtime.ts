@@ -7,7 +7,7 @@
 
 import * as path from 'path';
 import { randomHex } from '../../foundation/uuid.js';
-import { MOTION_CLAW_ID } from '../../constants.js';
+import { MOTION_CLAW_ID } from '../claw-topology/index.js';
 import { CALLER_TYPE_TO_GROUPS } from '../caller-types.js';
 
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
@@ -210,6 +210,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     this.execContext = new ExecContextImpl({
       clawId: this.options.clawId,
       clawDir: this.options.clawDir,
+      motionClawId: MOTION_CLAW_ID,
       syncDir: path.join(this.options.clawDir, TASKS_SYNC_DIR),
       profile: this.options.toolProfile ?? 'full',
       allowedGroups: CALLER_TYPE_TO_GROUPS[this.options.systemPromptBuilder ? 'motion' : 'claw'], // caller='motion' index

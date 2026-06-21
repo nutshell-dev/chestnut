@@ -16,7 +16,7 @@ function makeMinimalCtx(clawDir: string, clawId: string, nodeFs: NodeFileSystem,
     clawId: clawId as any,
     audit,
     fs: nodeFs as any,
-    notifyClaw: (targetClawId, message) => notifyClaw(nodeFs, chestnutRoot, targetClawId, message, audit),
+    notifyClaw: (targetClawId, message) => notifyClaw(nodeFs, chestnutRoot, 'motion', targetClawId, message, audit),
     contractDir: vi.fn(async (id: string) => path.join(clawDir, 'contract', 'active', id)),
     loadContractYaml: vi.fn(async () => ({
       title: 'Test',

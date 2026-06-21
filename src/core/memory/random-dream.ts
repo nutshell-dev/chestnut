@@ -1,6 +1,6 @@
 import * as path from 'path';
 import { formatErr } from "../../foundation/utils/index.js";
-import { MOTION_CLAW_ID } from '../../constants.js';
+import { MOTION_CLAW_ID } from '../claw-topology/index.js';
 import { FileNotFoundError, isFileNotFound } from '../../foundation/fs/types.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { MEMORY_AUDIT_EVENTS } from './audit-events.js';

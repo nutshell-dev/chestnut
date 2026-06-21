@@ -13,12 +13,12 @@ import { sha256ShortHex } from '../foundation/hash.js';
 import { formatErr } from '../foundation/utils/index.js';
 import { loadGlobalConfig, loadClawConfig } from '../assembly/config-load.js';
 import { getClawDir, getNamedSubrootDir, getClawConfigPath } from '../foundation/config/index.js';
-import { MOTION_CLAW_ID } from '../constants.js';
+import { MOTION_CLAW_ID } from '../core/claw-topology/index.js';
 
 import { startDaemonLoop } from './daemon-loop.js';
 import { createSystemAudit, type AuditLog } from '../foundation/audit/index.js';
 import { createAgentProcessManager } from '../foundation/process-manager/index.js';
-import { makeClawId } from '../constants.js';
+import { makeClawId } from '../foundation/identity/index.js';
 import { isFileNotFound } from '../foundation/fs/types.js';
 import { INBOX_PENDING_DIR } from '../foundation/messaging/index.js';
 import type { FileSystem } from '../foundation/fs/types.js';
@@ -80,7 +80,7 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
     const preAssembleAudit: AuditLog = createSystemAudit(preAssembleFs, dir);
 
     // ProcessManager 接管 PID 文件
-    const processManager = createAgentProcessManager({ fsFactory: deps.fsFactory }, preAssembleAudit);
+    const processManager = createAgentProcessManager({ fsFactory: deps.fsFactory, motionClawId: MOTION_CLAW_ID }, preAssembleAudit);
 
     // phase 521 (review-round4 CLI M): loadClawConfig 包入 try 显式归类 module=claw_config
     // YAML parse error 改前 escape 到 shim 无 ASSEMBLE_FAILED granularity

@@ -23,7 +23,7 @@ describe('dead letter queue (phase 1372 sub-4)', () => {
 
   it('unknown targetClawId → writes to motion/inbox/dead-letter/ + emits UNKNOWN_DESTINATION_DLQ', () => {
     // Do NOT create claws/ghost-claw — simulate unknown destination
-    notifyClaw(fs, tempDir, 'ghost-claw', {
+    notifyClaw(fs, tempDir, 'motion', 'ghost-claw', {
       type: 'message',
       source: 'motion',
       priority: 'normal',
@@ -47,7 +47,7 @@ describe('dead letter queue (phase 1372 sub-4)', () => {
   });
 
   it('unknown targetClawId → 0 silent routing motion (no orphan claw dir created)', () => {
-    notifyClaw(fs, tempDir, 'nonexistent-claw', {
+    notifyClaw(fs, tempDir, 'motion', 'nonexistent-claw', {
       type: 'message',
       source: 'motion',
       priority: 'normal',
@@ -67,7 +67,7 @@ describe('dead letter queue (phase 1372 sub-4)', () => {
     // Pre-create target claw
     fs.ensureDirSync(path.join('claws', 'known-claw'));
 
-    notifyClaw(fs, tempDir, 'known-claw', {
+    notifyClaw(fs, tempDir, 'motion', 'known-claw', {
       type: 'message',
       source: 'motion',
       priority: 'normal',
@@ -87,7 +87,7 @@ describe('dead letter queue (phase 1372 sub-4)', () => {
   });
 
   it('motion targetClawId → normal motion inbox delivery, no DLQ', () => {
-    notifyClaw(fs, tempDir, 'motion', {
+    notifyClaw(fs, tempDir, 'motion', 'motion', {
       type: 'message',
       source: 'system',
       priority: 'high',

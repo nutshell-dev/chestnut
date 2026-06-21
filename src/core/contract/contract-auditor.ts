@@ -22,7 +22,7 @@ import type { ContentBlock, TextBlock } from '../../foundation/llm-provider/type
 import { buildAuditorPrompt } from './auditor-prompt.js';
 import { contractFootprint, type ContractFootprintOptions } from './contract-footprint.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
-import type { ClawId } from '../../constants.js';
+import type { ClawId } from '../../foundation/identity/index.js';
 
 /**
  * Default `maxOutputTokens` for contract auditor LLM verdict call.

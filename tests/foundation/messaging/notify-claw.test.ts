@@ -36,6 +36,7 @@ describe('notify_claw tool', () => {
     isClawAlive: () => true,
     clawExists: () => true,
     hasActiveContract: () => false,
+    motionClawId: 'motion',
   };
 
   describe('schema + identity', () => {

@@ -15,7 +15,7 @@ import { createAgentProcessManager } from '../../foundation/process-manager/inde
 import type { FileSystem } from '../../foundation/fs/types.js';
 import { resolveDaemonEntry } from '../../assembly/spawn-entry.js';
 import { DAEMON_LOG } from '../../daemon/constants.js';
-import { MOTION_CLAW_ID } from '../../constants.js';
+import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import type { DaemonPM } from './claw-daemon.js';
 
 interface MotionDaemonDeps {
@@ -32,7 +32,7 @@ export async function motionDaemonCommand(deps: MotionDaemonDeps): Promise<void>
   const nodeFs = deps.fsFactory(baseDir);
   const systemAudit = createSystemAudit(nodeFs, baseDir);
   const pm: DaemonPM = deps.processManager
-    ?? createAgentProcessManager({ fsFactory: deps.fsFactory }, systemAudit);
+    ?? createAgentProcessManager({ fsFactory: deps.fsFactory, motionClawId: MOTION_CLAW_ID }, systemAudit);
   if (pm.isAlive(MOTION_CLAW_ID)) {
     console.warn('⚠ Motion is already running');
     return;

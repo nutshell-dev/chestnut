@@ -17,7 +17,6 @@ import type { ToolUseId } from '../tool-protocol/index.js';
 import type { StepNumber } from '../identity/index.js';
 import { makeStepNumber } from '../identity/index.js';
 import path from 'path';
-import { MOTION_CLAW_ID } from '../../constants.js';
 import { CLAWSPACE_DIR } from '../claw-paths.js';
 
 
@@ -37,6 +36,15 @@ export interface ExecContextImplOptions {
 
   /** Claw workspace directory */
   clawDir: string;
+
+  /**
+   * Motion claw identity (phase 520).
+   * Assembly-injected; used by `isMotionChain` getter for permission elevation.
+   * foundation does not import MOTION_CLAW_ID — owner is core/claw-topology.
+   * Optional: production sites (runtime / subagent) must inject; test fixtures may omit
+   * when isMotionChain is not under test (defaults to false when missing).
+   */
+  motionClawId?: string;
 
   /** phase 509 / 可选 / 默认 fallback = path.join(clawDir, CLAWSPACE_DIR) */
   workspaceDir?: string;
@@ -154,6 +162,8 @@ export function cloneExecContext(
 export class ExecContextImpl implements ExecContext {
   clawId: string;
   clawDir: string;
+  /** phase 520: motion identity injected by assembly (foundation no longer imports MOTION_CLAW_ID) */
+  motionClawId?: string;
   workspaceDir: string;
   syncDir: string;
   profile: ToolProfile;
@@ -186,6 +196,7 @@ export class ExecContextImpl implements ExecContext {
   constructor(options: ExecContextImplOptions) {
     this.clawId = options.clawId;
     this.clawDir = options.clawDir;
+    this.motionClawId = options.motionClawId;
     this.workspaceDir = options.workspaceDir ?? path.join(options.clawDir, CLAWSPACE_DIR);
     this.syncDir = options.syncDir;
     this.profile = options.profile;
@@ -218,7 +229,8 @@ export class ExecContextImpl implements ExecContext {
    * 是否为 Motion 创建链路上的 agent（Motion 本体或其 subagent）
    */
   get isMotionChain(): boolean {
-    return this.clawId === MOTION_CLAW_ID || this.originClawId === MOTION_CLAW_ID;
+    if (!this.motionClawId) return false;
+    return this.clawId === this.motionClawId || this.originClawId === this.motionClawId;
   }
 
   /**

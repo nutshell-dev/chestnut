@@ -8,7 +8,8 @@ import { loadGlobalConfig, clawExists } from '../../assembly/config-load.js';
 import { getClawConfigPath } from '../../foundation/config/index.js';
 import { CliError } from '../errors.js';
 import { createProcessManagerForCLI, signalCleanStop } from '../../foundation/process-manager/index.js';
-import { makeClawId } from '../../constants.js';
+import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
+import { makeClawId } from '../../foundation/identity/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
@@ -24,7 +25,7 @@ export async function stopCommand(deps: { fsFactory: (baseDir: string) => FileSy
     throw new CliError(`Claw "${name}" does not exist`);
   }
 
-  const processManager = createProcessManagerForCLI(deps);
+  const processManager = createProcessManagerForCLI({ ...deps, motionClawId: MOTION_CLAW_ID });
 
   // Check if running
   if (!processManager.isAlive(makeClawId(name))) {

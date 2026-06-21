@@ -285,7 +285,7 @@ describe('ContractSystem Acceptance Flow', () => {
       fsFactory,
       runSubagent: mockRunSubagent,
       clawsDir: '/tmp/test/claws',
-      notifyClaw: (targetClawId, message) => notifyClawFn(nodeFs, path.resolve(clawDir, '..', '..'), targetClawId, message, mockAudit as any),
+      notifyClaw: (targetClawId, message) => notifyClawFn(nodeFs, path.resolve(clawDir, '..', '..'), 'motion', targetClawId, message, mockAudit as any),
     });
   });
 
@@ -511,7 +511,7 @@ describe('ContractSystem Acceptance Flow', () => {
         fsFactory,
         runSubagent: mockRunSubagent,
         clawsDir: '/tmp/test/claws',
-        notifyClaw: (targetClawId, message) => notifyClawFn(nodeFs, path.resolve(clawDir, '..', '..'), targetClawId, message, mockAudit as any),
+        notifyClaw: (targetClawId, message) => notifyClawFn(nodeFs, path.resolve(clawDir, '..', '..'), 'motion', targetClawId, message, mockAudit as any),
       });
 
       await setupContract(tempDir, contractId, makeContractYaml({

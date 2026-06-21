@@ -14,7 +14,7 @@ import type { SessionData } from '../../foundation/dialog-store/types.js';
 import { CLAWS_DIR } from '../../foundation/claw-paths.js';
 import { INBOX_PENDING_DIR } from '../../foundation/messaging/index.js';
 import { FileNotFoundError } from '../../foundation/fs/types.js';
-import { MOTION_CLAW_ID } from '../../constants.js';
+import { MOTION_CLAW_ID } from '../claw-topology/index.js';
 import type { ClawTopology } from '../../core/claw-topology/index.js';
 import { assertDreamStateShape } from './invariants.js';
 import { auditDeepDreamCrossSource } from './dream-cross-source-audit.js';

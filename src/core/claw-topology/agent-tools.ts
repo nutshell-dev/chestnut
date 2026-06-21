@@ -2,15 +2,15 @@ import * as path from 'path';
 import type { Tool, ExecContext } from '../../foundation/tools/index.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import { readTool, lsTool, searchTool } from '../../foundation/file-tool/index.js';
-import type { ClawId } from '../../foundation/identity/index.js';
 import { makeClawId } from '../../foundation/identity/index.js';
 import type { ClawTopology } from './types.js';
 import { CLAW_TOPOLOGY_AUDIT_EVENTS } from './audit-events.js';
 import { CLAWSPACE_DIR } from '../../foundation/claw-paths.js';
+import { MOTION_CLAW_ID } from './motion-claw-id.js';
 
+/** phase 520: motionClawId DI 删除（caller 不再传）、agent-tools 直 import 自家 const */
 interface CrossClawToolDeps {
   topology: ClawTopology;
-  motionClawId: ClawId;
 }
 
 function buildTargetCtx(baseCtx: ExecContext, targetClawDir: string): ExecContext {
@@ -201,7 +201,7 @@ export function createCrossClawSearchTool(deps: CrossClawToolDeps): Tool {
           };
         }
         // fan-out 所有 claws、聚合结果
-        const clawIds = deps.topology.enumerate().filter(id => id !== deps.motionClawId);
+        const clawIds = deps.topology.enumerate().filter(id => id !== MOTION_CLAW_ID);
         const results: { clawId: string; result: ToolResult }[] = [];
         const rawText = args.text as string;
         for (const clawId of clawIds) {

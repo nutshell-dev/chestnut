@@ -20,8 +20,9 @@ import { createSystemAudit } from '../../foundation/audit/index.js';
 import { CLAWS_DIR } from '../../foundation/claw-paths.js';
 import { createStreamReader, STREAM_FILE, findRecentTurnStartOffset } from '../../foundation/stream/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
+import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import { isAlive } from '../../foundation/process-exec/index.js';
-import { makeClawId } from '../../constants.js';
+import { makeClawId } from '../../foundation/identity/index.js';
 import { formatErr } from '../../foundation/utils/index.js';
 
 export type StreamStartMode =
@@ -75,7 +76,7 @@ export async function streamCommand(
 
   // initial daemon liveness probe — non-blocking warn; tail still proceeds
   // so that consumers can subscribe before daemon starts.
-  const pm = createProcessManagerForCLI(deps);
+  const pm = createProcessManagerForCLI({ ...deps, motionClawId: MOTION_CLAW_ID });
   let initialDaemonPid: number | null = null;
   try {
     const stored = await pm.readPid(makeClawId(name));

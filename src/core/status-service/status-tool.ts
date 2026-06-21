@@ -18,7 +18,7 @@ import {
   formatStorageView,
 } from './aggregators.js';
 import { type StatusMotionGuidance, formatMotionGuidance } from './motion-guidance.js';
-import { MOTION_CLAW_ID } from '../../constants.js';
+import { MOTION_CLAW_ID } from '../claw-topology/index.js';
 
 // merge note (phase 1472 ← main phase 1468)：
 // main side（phase 1468）re-export 3 内联 helper（getContractStatus / getTaskStatus /
