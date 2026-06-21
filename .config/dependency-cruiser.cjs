@@ -875,7 +875,7 @@ module.exports = {
       name: 'no-deep-into-identity-claw-id',
       comment: [
         'M#7 + M#9 — foundation/identity/claw-id.ts barrel-only。',
-        '跨模块 caller (cli/, core/, assembly/, src/constants.ts) 走 identity/index.ts barrel。',
+        '跨模块 caller (cli/, core/, assembly/) 走 identity/index.ts barrel。',
         'phase 489 立 + NEW identity/index.ts barrel + 15 caller sweep。',
         'allowlist: identity 自家 + src/index.ts SDK。',
       ].join(' '),

@@ -2,7 +2,7 @@
  * Custom ESLint rule: no-motion-literal-in-src
  *
  * 应然 (M#5 + phase 1265 r135 C fork 2026-05-25): src/ 5 dir 不持 'motion' /
- * "motion" Literal。caller 必经 MOTION_CLAW_ID const (src/constants.ts) SoT。
+ * "motion" Literal。caller 必经 MOTION_CLAW_ID const (phase 520 后 owner=core/claw-topology/motion-claw-id.ts) SoT。
  *
  * scope: src/cli/commands + src/daemon + src/watchdog + src/foundation + src/core
  *
@@ -25,7 +25,14 @@ const SCOPE_DIRS = [
   'src/core/',
 ];
 
+// phase 557: motion-claw-id 是 MOTION_CLAW_ID const definition file (phase 520 立)、
+// 是 owner、本就需含 makeClawId('motion') 字面、文件级 allowlist 豁免。
+const FILE_LEVEL_ALLOWLIST = [
+  'src/core/claw-topology/motion-claw-id.ts',
+];
+
 function inScope(filename) {
+  if (FILE_LEVEL_ALLOWLIST.some(f => filename.endsWith(f))) return false;
   return SCOPE_DIRS.some(d => filename.includes(d));
 }
 
@@ -61,7 +68,7 @@ export default {
     schema: [],
     messages: {
       motionLiteral:
-        '"motion" Literal detected in src/. Use MOTION_CLAW_ID const from src/constants.ts (M#5, phase 1265). Allowlist: fs path segments / type union / comments.',
+        '"motion" Literal detected in src/. Use MOTION_CLAW_ID const from core/claw-topology/motion-claw-id.ts (phase 520, M#5). Allowlist: fs path segments / type union / comments.',
     },
   },
 

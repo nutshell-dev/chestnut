@@ -6,8 +6,8 @@ import * as path from 'node:path';
  * phase 502: ratchet test ensuring no "L0" string appears in src/.
  *
  * phase 441 user clarified: L0 is a doc/spec-only concept, not allowed
- * in code. phase 441 removed the only L0 literal (src/constants.ts:4
- * "L0 shared constants only" comment).
+ * in code. phase 441 removed the only L0 literal (formerly in root constants
+ * file's "L0 shared constants only" comment、phase 520 整 file 删).
  *
  * This ratchet prevents regression.
  */

@@ -5,7 +5,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { composer } from '../../../src/assembly/guidance/composers/contract-events.js';
-import { CLAW_VERBS, CONTRACT_COMMANDS } from '../../../src/cli/commands/registry.js';
+import { CLAW_VERBS, CONTRACT_COMMANDS } from '../../../src/foundation/utils/index.js';
 
 describe('phase 205: contract-events composer', () => {
   it('A3 single path (source_claw + contract_id) → trace + show', () => {

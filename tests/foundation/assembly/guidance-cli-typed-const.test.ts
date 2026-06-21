@@ -100,7 +100,7 @@ describe('phase 1469: guidance composer must reference CLI via CLI_COMMANDS type
         .join('\n');
       throw new Error(
         `phase 1469 invariant failed — ${violations.length} bare 'chestnut X Y' literal(s) in composer files:\n${summary}\n` +
-          `Replace with clawCmd(id, CLAW_VERBS.X) helper or CONTRACT_COMMANDS.X typed const (from src/cli/commands/registry.ts).`,
+          `Replace with clawCmd(id, CLAW_VERBS.X) helper or CONTRACT_COMMANDS.X typed const (from src/foundation/utils/cli-commands.ts).`,
       );
     }
     expect(violations).toEqual([]);

@@ -7,8 +7,12 @@ import * as path from 'node:path';
  *
  * Lint rules and ratchet tests reference these paths. If anyone renames
  * or removes them without updating dependent rules, this catches it.
+ *
+ * phase 564 扩 (phase 520-554 follow-up): 加 5 entry 覆盖 motion-claw-id / agent-dir-resolver /
+ * claw-status-hints / claw-failure-classes / cli-commands。新 owner module 引入后未加 invariant、
+ * 误删不 fail-loud。
  */
-describe('resource owner modules physical presence (phase 504)', () => {
+describe('resource owner modules physical presence (phase 504 / phase 564 expanded)', () => {
   const srcRoot = path.join(__dirname, '..', '..', '..', 'src');
 
   const owners = [
@@ -17,6 +21,12 @@ describe('resource owner modules physical presence (phase 504)', () => {
     { name: 'foundation/hash (hash owner)', rel: 'foundation/hash.ts' },
     { name: 'foundation/process-exec (child_process owner)', rel: 'foundation/process-exec/exec.ts' },
     { name: 'foundation/transport (net owner)', rel: 'foundation/transport/unix-socket.ts' },
+    // phase 564: phase 520-554 引入的 5 个 owner module
+    { name: 'core/claw-topology/motion-claw-id (phase 520: MOTION_CLAW_ID owner)', rel: 'core/claw-topology/motion-claw-id.ts' },
+    { name: 'core/claw-topology/agent-dir-resolver (phase 535: motion-vs-claw dir resolver)', rel: 'core/claw-topology/agent-dir-resolver.ts' },
+    { name: 'foundation/utils/claw-status-hints (phase 540)', rel: 'foundation/utils/claw-status-hints.ts' },
+    { name: 'foundation/utils/claw-failure-classes (phase 552)', rel: 'foundation/utils/claw-failure-classes.ts' },
+    { name: 'foundation/utils/cli-commands (phase 554)', rel: 'foundation/utils/cli-commands.ts' },
   ];
 
   it.each(owners)('$name file exists at expected path: $rel', ({ rel }) => {
