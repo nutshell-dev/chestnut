@@ -2,14 +2,15 @@
  * Retrospective Prompt Builder
  *
  * Builds the prompt for contract retrospective subagent.
+ *
+ * phase 527: contractId 改 string（templates 是叶子数据层、不反向 import core brand、
+ * 消 asset/templates ↔ core/contract pkg 级双向）。
  */
-
-import type { ContractId } from '../../core/contract/types.js';
 
 
 export function buildRetroPrompt(
   clawId: string,
-  contractId: ContractId,
+  contractId: string,
   contractYaml: string,
   skillsSummary?: string,
 ): string {
