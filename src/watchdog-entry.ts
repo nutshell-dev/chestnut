@@ -2,6 +2,7 @@ import { NodeFileSystem } from './foundation/fs/node-fs.js';
 import type { FileSystem } from './foundation/fs/types.js';
 import { runWatchdogLoop, writeWatchdogCrash } from './watchdog/watchdog.js';
 import { DAEMON_LOG } from './daemon/constants.js';
+import { getAuditWriter } from './watchdog/watchdog-context.js';
 
 const errMsg = (reason: unknown): string =>
   reason instanceof Error ? `${reason.message}\n${reason.stack ?? ''}` : String(reason);
@@ -13,6 +14,8 @@ process.on('uncaughtException', (err) => {
     console.error('[watchdog] writeWatchdogCrash failed:', writeErr);
   }
   console.error('[watchdog] Uncaught exception:', err);
+  // phase 538 (review-round4 follow-up): exit 前 dispose audit、与 daemon-entry 对称
+  getAuditWriter()?.dispose?.();
   process.exit(1);
 });
 
@@ -23,6 +26,8 @@ process.on('unhandledRejection', (reason) => {
     console.error('[watchdog] writeWatchdogCrash failed:', writeErr);
   }
   console.error('[watchdog] Unhandled rejection:', reason);
+  // phase 538 (review-round4 follow-up): exit 前 dispose audit
+  getAuditWriter()?.dispose?.();
   process.exit(1);
 });
 

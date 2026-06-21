@@ -496,7 +496,19 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     }
 
     for (const h of reloadHandles) {
-      try { await this.inboxReader.ack(h); } catch { /* best-effort; InboxReader audits */ }
+      try {
+        await this.inboxReader.ack(h);
+      } catch (ackErr) {
+        // phase 525 (review-round4 Core L): observability、防 ack 失败时 reconcile
+        // 把 reload 消息移回 pending → 下次 drain 重复 reload。延续 phase 521
+        // INBOX_ACK_FAILED forensic 模式（path=reload_entries 区分）。
+        this.auditWriter.write(
+          RUNTIME_AUDIT_EVENTS.INBOX_ACK_FAILED,
+          `file=${h.originalFileName}`,
+          `path=reload_entries`,
+          `error=${formatErr(ackErr)}`,
+        );
+      }
     }
   }
 
@@ -609,7 +621,16 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     try {
       const active = await this.contractManager.loadActive();
       if (active) cachedTurnContractId = active.id;
-    } catch { /* silent: contract loader 半态、tool emit fallback ''、不阻 turn */ }
+    } catch (loadErr) {
+      // phase 544 (review-round4 + lint:no-silent-catch): 原 silent catch 升级
+      // 为 observability emit；contract loader 半态时 tool emit fallback ''、
+      // 不阻 turn execution、但 forensic 留痕（与 phase 446 maybeAuditStep 对称）。
+      this.auditWriter.write(
+        RUNTIME_AUDIT_EVENTS.MAYBE_AUDIT_STEP_FAILED,
+        `step=turn_contract_id_cache`,
+        `error=${this.auditWriter.message(formatErr(loadErr))}`,
+      );
+    }
 
     // 首个 LLM 输出 delta 时上报当前生效的 provider（确认 API 可用后才显示）
     let providerInfoEmitted = false;
@@ -676,7 +697,9 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
             // phase 453: 每次 LLM call 完成后更新、供下轮 turn 入口判顺手裁
             this.lastLLMCallAt = Date.now();
             if (info.error) {
-              this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.LLM_ERROR, info.model, `error=${info.error}`, `latency_ms=${info.latencyMs}`);
+              // phase 525 (review-round4 Core L): error 走 auditWriter.message() sanitize、
+              // 防长 stack / base64 灌 audit、与其他 catch 路径对齐
+              this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.LLM_ERROR, info.model, `error=${this.auditWriter.message(info.error)}`, `latency_ms=${info.latencyMs}`);
             } else {
               this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.LLM_CALL, info.model, `in=${info.inputTokens}`, `out=${info.outputTokens}`, `latency_ms=${info.latencyMs}`);
             }

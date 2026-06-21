@@ -143,7 +143,9 @@ export function createAuditReader(
 
     // Polling loop
     while (!closed) {
-      await sleep(100);
+      // phase 528 (review-round4 Foundation L): 拆成 5 段 20ms 让 close 后最多
+      // 20ms 即可 break、防原 sleep(100) 不可取消、close 后仍 wait full 100ms
+      for (let i = 0; i < 5 && !closed; i++) await sleep(20);
       if (closed) return;
 
       if (!fs.existsSync(currentPath)) {

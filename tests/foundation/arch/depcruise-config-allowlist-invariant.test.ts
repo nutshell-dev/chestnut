@@ -10,7 +10,7 @@ import config from '../../../.config/dependency-cruiser.cjs';
  *
  * 若 future 加新 bootstrap site / 新 design intent file → 必同时更新:
  *   1. 本 test allowlist 期望
- *   2. design row §7.A allowlist 列表
+ *   2. design row §3.1 (l1_filesystem.md「Bootstrap 与 design intent allowlist」) 列表
  *   3. .dependency-cruiser.cjs 配置
  */
 describe('dependency-cruiser config: allowlist sync (phase 1298)', () => {

@@ -39,8 +39,10 @@ export function withCombinedAbortSignal(
     controller.abort();
   }
 
+  // phase 528 (review-round4 Foundation L): externalSignal 已 aborted 时短路 timer
+  // 防 entry 就 abort 仍 schedule 一个无用 timer（unref 不能阻止 Node 计数）
   let activeTimeoutId: ReturnType<typeof setTimeout> | undefined =
-    setTimeout(() => controller.abort(), timeoutMs);
+    externalSignal?.aborted ? undefined : setTimeout(() => controller.abort(), timeoutMs);
 
   let onAbort: (() => void) | undefined;
   if (externalSignal && !externalSignal.aborted) {

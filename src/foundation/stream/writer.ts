@@ -145,11 +145,14 @@ export class StreamWriter implements StreamLog {
       // phase 324 H8: 归档名实际为 stream.<ts>_<uuid>.jsonl（writer.ts:55），
       // 旧 regex `^stream\.\d+\.jsonl$` 永不匹配 → maxFiles/maxDays 全为 no-op、
       // 长跑进程归档无界堆。修正正则匹配 ts_uuid 形。
+      // phase 533 (review-round4 Foundation L): regex group 提取替 split chain、
+      // 防 split returns undefined 致 .split('_') throw 中断整 prune 块；
+      // ts parse 失败 fallback 0、prune 仍可处理其他文件。
       const files = this.fs.listSync(ARCHIVE_DIR, { pattern: '^stream\\.\\d+_[A-Za-z0-9]+\\.jsonl$' })
-        .map(f => ({
-          path: f.path,
-          ts: parseInt(f.name.split('.')[1].split('_')[0], 10),
-        }))
+        .map(f => {
+          const m = f.name.match(/^stream\.(\d+)_/);
+          return { path: f.path, ts: m ? parseInt(m[1], 10) : 0 };
+        })
         .sort((a, b) => b.ts - a.ts);
 
       const toDelete = new Set<string>();

@@ -21,7 +21,7 @@ import { createSystemAudit } from '../../foundation/audit/index.js';
 import { CLAWS_DIR } from '../../foundation/claw-paths.js';
 import { createStreamReader, STREAM_FILE, findRecentTurnStartOffset } from '../../foundation/stream/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
-import { isAlive } from '../../foundation/process-exec/index.js';
+import { isAlive, isPidArgvMatching } from '../../foundation/process-exec/index.js';
 import { makeClawId } from '../../foundation/identity/index.js';
 import { formatErr } from '../../foundation/utils/index.js';
 
@@ -80,7 +80,8 @@ export async function streamCommand(
   let initialDaemonPid: number | null = null;
   try {
     const stored = await pm.readPid(makeClawId(name));
-    if (stored && isAlive(stored.pid)) initialDaemonPid = stored.pid;
+    // phase 523 (review-round4 CLI M): argv-verify + alive 双校验、PID-reuse 防 tail 错进程
+    if (stored && isAlive(stored.pid) && isPidArgvMatching(stored.pid, name)) initialDaemonPid = stored.pid;
     else process.stderr.write(`[stream] warning: daemon for "${name}" not running, tailing existing file only\n`);
   } catch {
     // silent: liveness probe failure is non-fatal; degrade to warn
@@ -130,7 +131,8 @@ export async function streamCommand(
   // daemon liveness polling — only when initial probe found a live daemon
   if (initialDaemonPid !== null) {
     const interval = setInterval(() => {
-      if (!isAlive(initialDaemonPid!)) {
+      // phase 523 (review-round4 CLI M): argv-verify 防 PID-reuse 让 stream tail 错进程
+      if (!isAlive(initialDaemonPid!) || !isPidArgvMatching(initialDaemonPid!, name)) {
         clearInterval(interval);
         void shutdown('daemon_dead');
       }

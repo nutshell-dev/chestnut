@@ -76,6 +76,13 @@ class ChokidarWatcher implements Watcher {
     return this.active;
   }
 
+  /** phase 530 (review-round4 Foundation L): watch error 路径 flip active=false、
+   * 防 fatal watch error 后 isActive() 谎报、caller 仍当 healthy 误用。
+   */
+  markDisabled(): void {
+    this.active = false;
+  }
+
   getPath(): string {
     return this.watchPath;
   }
@@ -155,6 +162,8 @@ export function createWatcher(
     fallbackPollMs?: number;
   }
 ): Watcher {
+  // phase 530 (review-round4 Foundation L): forward ref for watch-error markDisabled
+  let instance: ChokidarWatcher | null = null;
   const watcher = chokidarWatch(absolutePath, {
     persistent: options?.persistent ?? true,
     ignoreInitial: true,
@@ -208,6 +217,9 @@ export function createWatcher(
   // Error handling
   watcher.on('error', (raw) => {
     const e = raw instanceof Error ? raw : new Error(String(raw));
+    // phase 530 (review-round4 Foundation L): watch fatal error 时 flip active=false
+    // 让 isActive() 真实反映状态、防 caller 误用 disabled watcher。
+    instance?.markDisabled();
     try { options?.onError?.(e, 'watch'); } catch { /* silent: caller onError callback own audit responsibility / fail-soft 防 callback bug 破 watcher init */ }
   });
 
@@ -239,5 +251,6 @@ export function createWatcher(
     fallbackTimer.unref?.();
   }
 
-  return new ChokidarWatcher(watcher, absolutePath, fallbackTimer);
+  instance = new ChokidarWatcher(watcher, absolutePath, fallbackTimer);
+  return instance;
 }

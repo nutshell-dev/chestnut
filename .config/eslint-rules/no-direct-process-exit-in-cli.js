@@ -14,6 +14,10 @@ const ALLOW_LIST = [
   'src/cli/with-cli-error-handling.ts',
   'src/cli/commands/chat-viewport-init.ts',
   'src/cli/commands/subagent-steps.ts',
+  // phase 544 (lint:no-direct-process-exit): claw-stream 是长跑 stream tail CLI、
+  // SIGINT/SIGTERM 后 shutdown() 内 reader.stop() 完成后立即 process.exit；不依赖
+  // process.exitCode 自然 drain（防 stream 输出 race + 长跑期间 audit 写入卡 exit）。
+  'src/cli/commands/claw-stream.ts',
 ];
 
 /** @type {import('eslint').Rule.RuleModule} */

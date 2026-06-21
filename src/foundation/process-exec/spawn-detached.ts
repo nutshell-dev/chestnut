@@ -36,6 +36,10 @@ export function spawnDetached(
     if (!proc.pid) {
       throw new Error('spawnDetached: failed to spawn process (no pid)');
     }
+    // phase 523 (review-round4 Foundation L): unref 前加 'error' listener 兜底；
+    // detached + unref 后 child error 无 caller 监听会上升为 uncaughtException。
+    // optional chain 兜底 test mock 缺 on method。silent。
+    proc.on?.('error', () => { /* silent: detached child error 兜底防 uncaughtException、错由 exit code / 后续 isAlive 探测 */ });
     proc.unref();
     return { pid: proc.pid };
   } finally {
