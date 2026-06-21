@@ -10,7 +10,7 @@
  * - 工具 / 路径静态清单归 motion-side chestnut-guide skill
  */
 
-import { clawCmd, CLAW_VERBS, CONTRACT_COMMANDS } from '../../../cli/commands/registry.js';
+import { clawCmd, CLAW_VERBS, CONTRACT_COMMANDS } from '../../../foundation/utils/index.js';
 import type { GuidanceComposer, GuidanceEntry } from '../types.js';
 
 interface ContractCrashedState {

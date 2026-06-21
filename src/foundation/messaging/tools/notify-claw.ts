@@ -19,10 +19,18 @@ export const NOTIFY_CLAW_TOOL_NAME = 'notify_claw' as const;
 
 export interface NotifyClawDeps {
   fs: FileSystem;
-  chestnutRoot: string;  // phase 90: 去 brand type-only import；motion dir 的父 dir、用于 resolve target claw dir
-  /** phase 520: caller 注入（foundation 不 import MOTION_CLAW_ID、owner=core/claw-topology） */
-  motionClawId: string;
-  audit: AuditLog;        // motion audit（NOTIFY_CLAW_SENT/FAILED emit）
+  chestnutRoot: string;  // phase 90: 去 brand type-only import；用于 resolve target claw dir
+  /**
+   * phase 550: caller-provided source identity for outgoing notifications + 透传 notifyClaw 的源 arg。
+   * (e.g. MOTION_CLAW_ID).
+   */
+  defaultSource: string;
+  /**
+   * phase 550: caller-provided authorization gate (replaces inline `=== motionClawId` motion check).
+   * Returns true if `callerLabel` is allowed to invoke this tool.
+   */
+  isCallerAuthorized: (callerLabel: string) => boolean;
+  audit: AuditLog;        // NOTIFY_CLAW_SENT/FAILED emit
   isClawAlive: (clawId: string) => boolean; // phase 232: status hint callback
   formatClawStatusHint: (clawName: string, isAlive: boolean) => string | undefined; // phase 232: M#1 single source
   clawExists: (clawId: string) => boolean; // phase 241: exist check callback
@@ -62,10 +70,10 @@ export function createNotifyClawTool(deps: NotifyClawDeps): Tool {
     group: 'messaging',
 
     async execute(args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
-      // phase 1459 α-5: notify_claw 真依赖仅 `ctx.callerLabel` → `ToolPermissions` 子接口 sufficient（motion 单向访问 gate / D11）。
+      // phase 1459 α-5: notify_claw 真依赖仅 `ctx.callerLabel` → `ToolPermissions` 子接口 sufficient（caller gate / D11）。
       const perm: ToolPermissions = ctx;
-      // Phase 1105: notify_claw is motion-only
-      if (perm.callerLabel !== deps.motionClawId) {
+      // Phase 1105 / phase 550: authorization gate (caller-injected predicate replaces inline motion check)
+      if (!deps.isCallerAuthorized(perm.callerLabel)) {
         return { success: false, content: 'notify_claw is motion-only' };
       }
       const to = args.to as string;
@@ -96,9 +104,9 @@ export function createNotifyClawTool(deps: NotifyClawDeps): Tool {
       }
 
       try {
-        notifyClaw(deps.fs, deps.chestnutRoot, deps.motionClawId, to, {
+        notifyClaw(deps.fs, deps.chestnutRoot, deps.defaultSource, to, {
           type,
-          source: deps.motionClawId,
+          source: deps.defaultSource,
           priority,
           body,
         }, deps.audit);

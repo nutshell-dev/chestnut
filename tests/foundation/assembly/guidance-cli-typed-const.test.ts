@@ -57,6 +57,11 @@ const STEP_B_PENDING_ALLOW = new Set([
   // 'chestnut claw' 字面是 CLI 启动命令、属业务文案；M#5 严格扫由本 allowlist 承认 pure formatter
   // 持 CLI literal 的 by-design 例外（cli/commands/claw-shared.ts 旧 owner 同型未触碰本 rule）
   'foundation/utils/claw-status-hints.ts::chestnut claw',
+  // phase 554: cli/commands/registry 迁出至 foundation/utils/cli-commands、由 6 assembly guidance composer 共享
+  // 本 typed CLI command registry 是 phase 1469 invariant 的合法源 (composers MUST use this const + helper)
+  // 持 chestnut claw + chestnut contract 字面 by-design — registry 本就该有 CLI literal、否则失语义
+  'foundation/utils/cli-commands.ts::chestnut claw',
+  'foundation/utils/cli-commands.ts::chestnut contract',
 ]);
 
 const SCAN_DIRS = ['core', 'foundation'];

@@ -96,7 +96,8 @@ export async function createMotionAddons(
   toolRegistry.register(createNotifyClawTool({
     fs: parentFs,
     chestnutRoot,  // phase 1406: motion-only context (motion clawDir = <root>/motion → root)
-    motionClawId: MOTION_CLAW_ID,
+    defaultSource: MOTION_CLAW_ID,
+    isCallerAuthorized: (label) => label === MOTION_CLAW_ID,
     audit: auditWriter,
     isClawAlive: (clawId: string) => core.processManager.isAlive(makeClawId(clawId)), // phase 232
     formatClawStatusHint, // phase 232: M#1 single source
