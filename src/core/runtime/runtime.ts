@@ -210,7 +210,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     this.execContext = new ExecContextImpl({
       clawId: this.options.clawId,
       clawDir: this.options.clawDir,
-      motionClawId: MOTION_CLAW_ID,
+      isMotionChain: this.options.clawId === MOTION_CLAW_ID,
       syncDir: path.join(this.options.clawDir, TASKS_SYNC_DIR),
       profile: this.options.toolProfile ?? 'full',
       allowedGroups: CALLER_TYPE_TO_GROUPS[this.options.systemPromptBuilder ? 'motion' : 'claw'], // caller='motion' index

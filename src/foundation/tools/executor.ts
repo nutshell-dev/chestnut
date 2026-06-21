@@ -463,8 +463,6 @@ export class ToolExecutor extends ToolExecutorImpl {
   private clawDir: string;
   private syncDir: string;
   private workspaceDir: string;
-  /** phase 520: caller-injected motion identity (foundation no longer imports MOTION_CLAW_ID) */
-  private motionClawId?: string;
   private fs: FileSystem;
   private fsFactory?: (baseDir: string) => FileSystem;
   private llm?: LLMOrchestrator;
@@ -475,7 +473,6 @@ export class ToolExecutor extends ToolExecutorImpl {
     this.clawDir = options.clawDir;
     this.syncDir = options.syncDir;
     this.workspaceDir = options.workspaceDir ?? path.join(options.clawDir, CLAWSPACE_DIR);
-    this.motionClawId = options.motionClawId;
     this.fs = options.fs;
     this.fsFactory = options.fsFactory;
     this.llm = options.llm;
@@ -488,12 +485,12 @@ export class ToolExecutor extends ToolExecutorImpl {
    */
   getExecContext(
     profile: ToolProfile,
-    options: { clawId: string; maxSteps: number; signal?: AbortSignal; allowedGroups: ReadonlySet<ToolGroup>; callerLabel: string; originClawId?: string; permissionChecker?: PermissionChecker; subagentTaskId?: string }
+    options: { clawId: string; maxSteps: number; signal?: AbortSignal; allowedGroups: ReadonlySet<ToolGroup>; callerLabel: string; originClawId?: string; permissionChecker?: PermissionChecker; subagentTaskId?: string; isMotionChain?: boolean }
   ): ExecContextImpl {
     return new ExecContextImpl({
       clawId: options.clawId,
       clawDir: this.clawDir,
-      motionClawId: this.motionClawId,
+      isMotionChain: options.isMotionChain,
       workspaceDir: this.workspaceDir,
       syncDir: this.syncDir,
       profile,

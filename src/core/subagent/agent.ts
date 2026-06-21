@@ -5,6 +5,7 @@
  */
 
 import { runReact, DEFAULT_MAX_STEPS } from '../agent-executor/index.js';
+import { MOTION_CLAW_ID } from '../claw-topology/motion-claw-id.js';
 import { formatErr } from '../../foundation/utils/index.js';
 import type { ToolExecutor, ToolRegistry } from '../../foundation/tools/index.js';
 import type { FileSystem } from '../../foundation/fs/types.js';
@@ -229,6 +230,8 @@ export class SubAgent {
             allowedGroups: CALLER_TYPE_TO_GROUPS[callerType],
             callerLabel: callerType,
             originClawId: this.originClawId,
+            /** phase 531: subagent inherits motion-chain from origin (motion-rooted subagent stays in motion chain) */
+            isMotionChain: this.originClawId === MOTION_CLAW_ID,
             permissionChecker: this.permissionChecker,
             subagentTaskId: this.agentId,
           }),

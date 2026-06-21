@@ -74,8 +74,6 @@ export interface RunSubagentOptions {
   toolTimeoutMs?: number;
   permissionChecker?: PermissionChecker;
 
-  /** phase 520: caller-injected motion identity (ToolExecutor 不再从 src/constants.ts import) */
-  motionClawId?: string;
 }
 
 export interface RunSubagentResult {
@@ -112,7 +110,6 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
     registry: opts.registry,
     defaultTimeoutMs: opts.toolTimeoutMs,
     clawDir: opts.clawDir,
-    motionClawId: opts.motionClawId,
     syncDir: path.join(opts.clawDir, TASKS_SYNC_DIR),
     workspaceDir: sharedWorkspaceDir,
     fs: opts.fs,

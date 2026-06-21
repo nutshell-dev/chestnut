@@ -38,13 +38,12 @@ export interface ExecContextImplOptions {
   clawDir: string;
 
   /**
-   * Motion claw identity (phase 520).
-   * Assembly-injected; used by `isMotionChain` getter for permission elevation.
-   * foundation does not import MOTION_CLAW_ID — owner is core/claw-topology.
-   * Optional: production sites (runtime / subagent) must inject; test fixtures may omit
-   * when isMotionChain is not under test (defaults to false when missing).
+   * phase 531: caller-pre-computed motion-chain status.
+   * foundation no longer holds motion concept; caller computes
+   * `clawId === MOTION_CLAW_ID || originClawId === MOTION_CLAW_ID` and passes the boolean.
+   * Optional: defaults to false; production callers (runtime / subagent) must compute and pass.
    */
-  motionClawId?: string;
+  isMotionChain?: boolean;
 
   /** phase 509 / 可选 / 默认 fallback = path.join(clawDir, CLAWSPACE_DIR) */
   workspaceDir?: string;
@@ -162,8 +161,8 @@ export function cloneExecContext(
 export class ExecContextImpl implements ExecContext {
   clawId: string;
   clawDir: string;
-  /** phase 520: motion identity injected by assembly (foundation no longer imports MOTION_CLAW_ID) */
-  motionClawId?: string;
+  /** phase 531: caller-pre-computed motion-chain status (foundation 0 motion concept) */
+  isMotionChain: boolean;
   workspaceDir: string;
   syncDir: string;
   profile: ToolProfile;
@@ -196,7 +195,7 @@ export class ExecContextImpl implements ExecContext {
   constructor(options: ExecContextImplOptions) {
     this.clawId = options.clawId;
     this.clawDir = options.clawDir;
-    this.motionClawId = options.motionClawId;
+    this.isMotionChain = options.isMotionChain ?? false;
     this.workspaceDir = options.workspaceDir ?? path.join(options.clawDir, CLAWSPACE_DIR);
     this.syncDir = options.syncDir;
     this.profile = options.profile;
@@ -226,14 +225,7 @@ export class ExecContextImpl implements ExecContext {
   }
 
   /**
-   * 是否为 Motion 创建链路上的 agent（Motion 本体或其 subagent）
-   */
-  get isMotionChain(): boolean {
-    if (!this.motionClawId) return false;
-    return this.clawId === this.motionClawId || this.originClawId === this.motionClawId;
-  }
 
-  /**
    * Get elapsed time since context creation
    */
   getElapsedMs(): number {
