@@ -22,7 +22,7 @@ describe('child_process importer ratchet (phase 496 / phase 571 tightened)', () 
 
   it('node:child_process direct importer count is exactly 5 (foundation/process-exec/*)', () => {
     const srcRoot = path.join(__dirname, '..', '..', '..', 'src');
-    const cmd = `grep -rEln "from ['\\\"](?:node:)?child_process['\\\"]" ${srcRoot} --include='*.ts' || true`;
+    const cmd = `grep -rEln "from ['\\\"](node:)?child_process['\\\"]" ${srcRoot} --include='*.ts' || true`;
     const out = execSync(cmd, { encoding: 'utf8' });
     const files = out.trim().split('\n').filter(Boolean);
     expect(files.length).toBe(5);

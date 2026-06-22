@@ -20,7 +20,7 @@ describe('system module imports overview ratchet (phase 499)', () => {
   const srcRoot = path.join(__dirname, '..', '..', '..', 'src');
 
   function listImporters(moduleName: string): string[] {
-    const cmd = `grep -rEln "from ['\\\"](?:node:)?${moduleName}['\\\"]" ${srcRoot} --include='*.ts' || true`;
+    const cmd = `grep -rEln "from ['\\\"](node:)?${moduleName}['\\\"]" ${srcRoot} --include='*.ts' || true`;
     const out = execSync(cmd, { encoding: 'utf8' });
     return out.trim().split('\n').filter(Boolean);
   }

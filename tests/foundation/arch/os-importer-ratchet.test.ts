@@ -11,7 +11,7 @@ import * as path from 'node:path';
 describe('os importer ratchet (phase 498)', () => {
   it('node:os direct importer count is exactly 2 (foundation/audit/writer + reader)', () => {
     const srcRoot = path.join(__dirname, '..', '..', '..', 'src');
-    const cmd = `grep -rEln "from ['\\\"](?:node:)?os['\\\"]" ${srcRoot} --include='*.ts' || true`;
+    const cmd = `grep -rEln "from ['\\\"](node:)?os['\\\"]" ${srcRoot} --include='*.ts' || true`;
     const out = execSync(cmd, { encoding: 'utf8' });
     const files = out.trim().split('\n').filter(Boolean);
     expect(files.length).toBe(2);

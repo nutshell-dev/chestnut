@@ -13,7 +13,7 @@ import * as path from 'node:path';
 describe('net importer ratchet (phase 497 / phase 571 tightened)', () => {
   it('node:net direct importer count is exactly 1 (foundation/transport/unix-socket)', () => {
     const srcRoot = path.join(__dirname, '..', '..', '..', 'src');
-    const cmd = `grep -rEln "from ['\\\"](?:node:)?net['\\\"]" ${srcRoot} --include='*.ts' || true`;
+    const cmd = `grep -rEln "from ['\\\"](node:)?net['\\\"]" ${srcRoot} --include='*.ts' || true`;
     const out = execSync(cmd, { encoding: 'utf8' });
     const files = out.trim().split('\n').filter(Boolean);
     expect(files.length).toBe(1);

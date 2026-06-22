@@ -14,7 +14,7 @@ import * as path from 'node:path';
 describe('crypto importer ratchet (phase 492)', () => {
   it('node:crypto direct importer count is exactly 2 (foundation/uuid + foundation/hash)', () => {
     const srcRoot = path.join(__dirname, '..', '..', '..', 'src');
-    const cmd = `grep -rEln "from ['\\\"](?:node:)?crypto['\\\"]" ${srcRoot} --include='*.ts' || true`;
+    const cmd = `grep -rEln "from ['\\\"](node:)?crypto['\\\"]" ${srcRoot} --include='*.ts' || true`;
     const out = execSync(cmd, { encoding: 'utf8' });
     const files = out.trim().split('\n').filter(Boolean);
 
