@@ -7,12 +7,22 @@
 
 import type { ApiFormat } from './presets.js';
 import type { ToolUseId } from './tool-use-id.js';
-import type { AuditLog } from '../audit/types.js';
-export type { AuditLog } from '../audit/types.js';
 
-/** Minimal audit sink interface — L1 owns this duck-typed interface, L2b implements */
+// phase 692 Step A: 删 AuditLog import + re-export
+// L1 LLMProvider 收窄至 AuditSink (L1 owned duck-typed)、不知 L2a AuditLog 业务概念。
+// 实际 callsite 全用 .write() 单方法、AuditSink 足够覆盖、M#8 界面最小严守。
+
+/**
+ * Minimal audit sink interface — L1 owns this duck-typed interface, L2b implements.
+ * phase 692 Step A: 加 preview()、收 LLMProvider 4 callsite (custom-anthropic / gemini /
+ * openai / openai-message-formatter) 真用方法集（write + preview）。preview 是 string
+ * truncation 工具、非 audit business concept、L1 可 own。message/summary 是 audit 业务级
+ * 截断（reason / tool_result 长度配置），LLMProvider 不用、保留在 AuditLog L2a 不外露。
+ */
 export interface AuditSink {
   write(event: string, ...details: string[]): void;
+  /** Truncate s to a short preview length (caller-agnostic, L1 接口契约) */
+  preview(s: string): string;
 }
 
 // ============================================================================
@@ -158,7 +168,7 @@ export interface ProviderConfig {
   reasoningEffort?: 'low' | 'medium' | 'high';
 
   /** Optional audit sink for formatter guard events / SSE parse error clipping (L2b injects via config) */
-  auditLog?: AuditLog;
+  auditLog?: AuditSink;
 }
 
 /**

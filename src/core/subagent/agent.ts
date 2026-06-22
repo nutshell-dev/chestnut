@@ -5,7 +5,8 @@
  */
 
 import { runReact, DEFAULT_MAX_STEPS } from '../agent-executor/index.js';
-import { MOTION_CLAW_ID } from '../claw-topology/motion-claw-id.js';
+// phase 692 Step B: 删 MOTION_CLAW_ID import (L3 → L4 反向 import = M#5 违反)。
+// motion chain 判定改 caller 传 originIsMotion: boolean (caller L4 ↔ ClawTopology L4 同层、不违 M#5)。
 import { formatErr } from '../../foundation/utils/index.js';
 import type { ToolExecutor, ToolRegistry } from '../../foundation/tools/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
@@ -54,6 +55,8 @@ export interface SubAgentOptions {
   callerType?: CallerType;  // 默认 'subagent'
   messages?: Message[];                      // 若提供，直接用；否则从 prompt 构建
   originClawId?: string;                     // 创建链路源头，传给子 SubAgent
+  /** phase 692 Step B: caller 算 originClawId === MOTION_CLAW_ID 后传 boolean、SubAgent (L3) 不知 motion id 字面 (M#5) */
+  originIsMotion?: boolean;
   isShadow?: boolean;                         // phase 767：shadow 分身标记
   taskStreamWriter: StreamLog;
   auditWriter: AuditLog;          // tasks/queues/results/{id}/audit.tsv，step 11+ 写事件
@@ -83,6 +86,7 @@ export class SubAgent {
   private messages?: Message[];
   private _running = false;  // phase 464 (review N3-L): re-entry guard
   private originClawId?: string;
+  private originIsMotion: boolean = false;
   isShadow?: boolean;
   private taskStreamWriter: StreamLog;
   private auditWriter: AuditLog;
@@ -113,6 +117,7 @@ export class SubAgent {
     this.callerType = options.callerType;
     this.messages = options.messages;
     this.originClawId = options.originClawId;
+    this.originIsMotion = options.originIsMotion ?? false;
     this.isShadow = options.isShadow;
     this.taskStreamWriter = options.taskStreamWriter;
     this.auditWriter = options.auditWriter;
@@ -230,8 +235,9 @@ export class SubAgent {
             allowedGroups: CALLER_TYPE_TO_GROUPS[callerType],
             callerLabel: callerType,
             originClawId: this.originClawId,
-            /** phase 531: subagent inherits motion-chain from origin (motion-rooted subagent stays in motion chain) */
-            isMotionChain: this.originClawId === MOTION_CLAW_ID,
+            /** phase 531: subagent inherits motion-chain from origin (motion-rooted subagent stays in motion chain)
+             *  phase 692 Step B: caller 算 originIsMotion 后传、SubAgent 不知 motion id 字面 */
+            isMotionChain: this.originIsMotion,
             permissionChecker: this.permissionChecker,
             subagentTaskId: this.agentId,
           }),

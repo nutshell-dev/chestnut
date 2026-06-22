@@ -4,7 +4,7 @@
  * 0 this.X dep / 真 pure function
  */
 
-import type { AuditLog } from './types.js';
+import type { AuditSink } from './types.js';
 import { LLM_PROVIDER_AUDIT_EVENTS } from './audit-events.js';
 
 
@@ -31,7 +31,7 @@ interface OpenAITool {
 export function formatMessages(
   messages: Array<{ role: string; content: unknown }>,
   system?: string,
-  auditLog?: AuditLog,
+  auditLog?: AuditSink,
 ): OpenAIMessage[] {
   const result: OpenAIMessage[] = [];
 
