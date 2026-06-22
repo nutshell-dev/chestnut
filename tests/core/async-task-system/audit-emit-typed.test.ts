@@ -109,7 +109,8 @@ describe('async-task-system typed audit emit (phase 1130)', () => {
     const callArgs = audit.write.mock.calls[0] as unknown as string[];
     expect(callArgs[0]).toBe(TASK_AUDIT_EVENTS.TASK_COMPLETED);
     expect(callArgs).toContain('taskId=tk_1');
-    expect(callArgs).toContain('ok');
+    // phase 706: src raw 'ok' 加 'status=' prefix
+    expect(callArgs).toContain('status=ok');
     expect(callArgs).toContain('kind=tool');
     expect(callArgs).toContain('toolName=read');
     expect(callArgs).toContain('elapsed_ms=42');

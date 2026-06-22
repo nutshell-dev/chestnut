@@ -52,7 +52,8 @@ describe('createClawPermissionChecker', () => {
       const checker = createClawPermissionChecker({ clawDir: CLAW_DIR, strict: false, audit: audit as any });
       expect(() => checker.checkRead('/etc/shadow')).not.toThrow();
       expect(() => checker.checkRead('/root/.ssh/id_rsa')).not.toThrow();
-      expect(audit.write).toHaveBeenCalledWith('permission_strict_disabled', 'Non-strict mode active — all permission checks bypassed');
+      // phase 713: raw msg 改 'reason=' prefix
+      expect(audit.write).toHaveBeenCalledWith('permission_strict_disabled', 'reason=non_strict_mode_bypass');
     });
   });
 
@@ -117,7 +118,8 @@ describe('createClawPermissionChecker', () => {
       const checker = createClawPermissionChecker({ clawDir: CLAW_DIR, strict: false, audit: audit as any });
       expect(() => checker.checkWrite(`${CLAW_DIR}/dialog/session.json`)).not.toThrow();
       expect(() => checker.checkWrite('/etc/passwd')).not.toThrow();
-      expect(audit.write).toHaveBeenCalledWith('permission_strict_disabled', 'Non-strict mode active — all permission checks bypassed');
+      // phase 713: raw msg 改 'reason=' prefix
+      expect(audit.write).toHaveBeenCalledWith('permission_strict_disabled', 'reason=non_strict_mode_bypass');
     });
 
     it('自定义 systemPaths 覆盖默认值', () => {

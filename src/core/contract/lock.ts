@@ -133,9 +133,10 @@ export async function unlinkStaleLock(ctx: LockContext, lockPath: string, reason
     // phase 289 Step C: drop emitContractLockCleanupFailed to avoid dual emit;
     // keep only emitContractLockUnlinkFailed (symmetric with sibling callers
     // line 151/169/184) so a single failure produces a single audit row.
+    // phase 721: 加 path col、与 L163/L180/L195 其他 3 callers 形态对齐
     emitContractLockUnlinkFailed(
       ctx.audit,
-      { reason, error: formatErr(err) },
+      { path: lockPath, reason, error: formatErr(err) },
     );
     return false;
   }

@@ -386,12 +386,13 @@ describe('Task System + SubAgent', () => {
       await waitForAuditEvent(emitter, events, TASK_AUDIT_EVENTS.TASK_COMPLETED);
 
       // audit 中应有 task_completed err 事件
+      // phase 706: src raw 'err' 加 'status=' prefix
       expect(events).toEqual(
         expect.arrayContaining([
           expect.arrayContaining([
             'task_completed',
             expect.stringContaining('taskId='),
-            'err',
+            'status=err',
             expect.stringMatching(/^elapsed_ms=\d+$/),
           ]),
         ])

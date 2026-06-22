@@ -19,11 +19,13 @@
 import type { AuditLog } from '../audit/index.js';
 import { SNAPSHOT_AUDIT_EVENTS } from './audit-events.js';
 
-export function assertSnapshotStateShape(state: unknown, audit: AuditLog): void {
+// phase 701: 加 dir param、emit 加 dir col、延续 phase 699 STATE_CORRUPT + phase 700
+// STATE_CROSS_SOURCE_MISMATCH 形态、forensic multi-snapshot 场景 join dir 维度
+export function assertSnapshotStateShape(state: unknown, audit: AuditLog, dir: string): void {
   if (typeof state !== 'object' || state === null) {
     audit.write(
       SNAPSHOT_AUDIT_EVENTS.STATE_INVARIANT_VIOLATED,
-      `kind=state_not_object`, `actual=${typeof state}`,
+      `dir=${dir}`, `kind=state_not_object`, `actual=${typeof state}`,
     );
     return;
   }
@@ -34,31 +36,31 @@ export function assertSnapshotStateShape(state: unknown, audit: AuditLog): void 
   }
 
   if (s.kind === 'degraded') {
-    checkDegradedShape(state as { failures?: unknown; degradedAt?: unknown }, audit);
+    checkDegradedShape(state as { failures?: unknown; degradedAt?: unknown }, audit, dir);
     return;
   }
 
   audit.write(
     SNAPSHOT_AUDIT_EVENTS.STATE_INVARIANT_VIOLATED,
-    `kind=kind_invalid`, `actual=${String(s.kind)}`,
+    `dir=${dir}`, `kind=kind_invalid`, `actual=${String(s.kind)}`,
   );
 }
 
-function checkDegradedShape(s: { failures?: unknown; degradedAt?: unknown }, audit: AuditLog): void {
+function checkDegradedShape(s: { failures?: unknown; degradedAt?: unknown }, audit: AuditLog, dir: string): void {
   const failures = s.failures;
   const degradedAt = s.degradedAt;
 
   if (typeof failures !== 'number' || !Number.isFinite(failures) || !Number.isInteger(failures) || failures < 0) {
     audit.write(
       SNAPSHOT_AUDIT_EVENTS.STATE_INVARIANT_VIOLATED,
-      `kind=failures_invalid`, `actual=${String(failures)}`,
+      `dir=${dir}`, `kind=failures_invalid`, `actual=${String(failures)}`,
     );
   }
 
   if (typeof degradedAt !== 'number' || !Number.isFinite(degradedAt)) {
     audit.write(
       SNAPSHOT_AUDIT_EVENTS.STATE_INVARIANT_VIOLATED,
-      `kind=degradedAt_invalid`, `actual=${String(degradedAt)}`,
+      `dir=${dir}`, `kind=degradedAt_invalid`, `actual=${String(degradedAt)}`,
     );
   }
 }

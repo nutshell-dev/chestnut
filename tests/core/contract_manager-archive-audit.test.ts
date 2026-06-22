@@ -234,7 +234,8 @@ describe('ContractSystem - audit lifecycle + moveToArchive (phase 1347 split)', 
       await testManager.completeSubtask({ contractId, subtaskId: 't1', evidence: 'done' });
 
       expect(moveSpy).toHaveBeenCalledWith(contractId);
-      expect(mockAudit.write).toHaveBeenCalledWith(CONTRACT_AUDIT_EVENTS.COMPLETED, contractId, 'title=Test', expect.stringContaining('claw='));
+      // phase 705: contractId 加 key= prefix
+      expect(mockAudit.write).toHaveBeenCalledWith(CONTRACT_AUDIT_EVENTS.COMPLETED, `contractId=${contractId}`, 'title=Test', expect.stringContaining('claw='));
 
       moveSpy.mockRestore();
     });

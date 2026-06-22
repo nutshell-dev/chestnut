@@ -104,8 +104,10 @@ export async function restoreMessages(
       }
     }
   } catch (err) {
+    // phase 680: 加 dir forensic col、与 store.ts:586 ARCHIVE_READ_FAILED 形态对齐
     audit?.write?.(
       DIALOG_AUDIT_EVENTS.ARCHIVE_DIR_FAILED,
+      `dir=${archiveDir}`,
       `reason=${formatErr(err)}`,
     );
     // archive dir 失败 / 走最终抛错

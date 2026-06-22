@@ -176,9 +176,10 @@ describe('maybeCronClawInactivity — fix 4: per-claw error isolation', () => {
 
     const scanCall = calls.find(([type]) => type === WATCHDOG_AUDIT_EVENTS.CLAW_SCAN);
     expect(scanCall).toBeDefined();
-    expect(scanCall![1]).toContain('ctx=inactivity');
-    expect(scanCall![1]).toContain('claw-a');
-    expect(scanCall![1]).toContain('claw-b');
+    // phase 691: CLAW_SCAN 拆 ctx + present 为两 col、test 改 cols.some() 子集
+    expect(scanCall!.some(c => typeof c === 'string' && c.includes('ctx=inactivity'))).toBe(true);
+    expect(scanCall!.some(c => typeof c === 'string' && c.includes('claw-a'))).toBe(true);
+    expect(scanCall!.some(c => typeof c === 'string' && c.includes('claw-b'))).toBe(true);
   });
 });
 
@@ -721,8 +722,9 @@ describe('maybeCronClawCrash — crash audit', () => {
     const calls = vi.mocked(mockAudit.write).mock.calls;
     const scanCall = calls.find(([type]) => type === WATCHDOG_AUDIT_EVENTS.CLAW_SCAN);
     expect(scanCall).toBeDefined();
-    expect(scanCall![1]).toContain('ctx=crash');
-    expect(scanCall![1]).toContain(clawId);
+    // phase 691: CLAW_SCAN 拆 ctx + present 为两 col、test 改 cols.some() 子集
+    expect(scanCall!.some(c => typeof c === 'string' && c.includes('ctx=crash'))).toBe(true);
+    expect(scanCall!.some(c => typeof c === 'string' && c.includes(clawId))).toBe(true);
   });
 });
 

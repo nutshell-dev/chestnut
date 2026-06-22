@@ -338,9 +338,11 @@ export const searchTool: Tool = {
     try {
       args = SearchInputSchema.parse(rawArgs);
     } catch (err) {
+      // phase 692: 拆 tool + error 为两 col、与 phase 690/691 同模式
       ctx.auditWriter?.write(
         FILE_TOOL_AUDIT_EVENTS.INPUT_VALIDATION_FAILED,
-        `tool=search error=${formatErr(err)}`,
+        `tool=search`,
+        `error=${formatErr(err)}`,
       );
       return {
         success: false,

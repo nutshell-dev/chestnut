@@ -23,31 +23,35 @@ type SnapshotStateLike =
   | { kind: 'ok' }
   | { kind: 'degraded'; failures: number; degradedAt: number };
 
+// phase 700: 加 dir param、emit 加 dir col、与 phase 699 STATE_CORRUPT + 同模块其他 emit 形态对齐
 export function auditSnapshotStateCrossSource(
   state: SnapshotStateLike,
   audit: AuditLog,
   now: number,
+  dir: string,
 ): void {
   if (state.kind === 'ok') return;
 
-  checkSC1(state, audit);
-  checkSC3(state, audit, now);
+  checkSC1(state, audit, dir);
+  checkSC3(state, audit, now, dir);
 }
 
-function checkSC1(s: { failures: number }, audit: AuditLog): void {
+function checkSC1(s: { failures: number }, audit: AuditLog, dir: string): void {
   if (s.failures < 0 || !Number.isInteger(s.failures)) {
     audit.write(
       SNAPSHOT_AUDIT_EVENTS.STATE_CROSS_SOURCE_MISMATCH,
+      `dir=${dir}`,
       `kind=sc1_failures_invalid`,
       `actual=${s.failures}`,
     );
   }
 }
 
-function checkSC3(s: { degradedAt: number }, audit: AuditLog, now: number): void {
+function checkSC3(s: { degradedAt: number }, audit: AuditLog, now: number, dir: string): void {
   if (s.degradedAt > now) {
     audit.write(
       SNAPSHOT_AUDIT_EVENTS.STATE_CROSS_SOURCE_MISMATCH,
+      `dir=${dir}`,
       `kind=sc3_degradedAt_in_future`,
       `degradedAt=${s.degradedAt}`, `now=${now}`,
     );

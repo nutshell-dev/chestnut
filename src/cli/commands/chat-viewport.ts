@@ -258,9 +258,11 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
       if (idleMs > TASK_STALE_TIMEOUT_MS) {
         // task 已 stale: cleanup 而非 process event (phase 1401 Bug B: 5min 太短 → 30min)
         stopTaskWatch(makeTaskId(taskId)).catch(err =>
+          // phase 702: 拆 taskId + reason 为两 col、与 phase 690-695 同模式
           options.audit.write(
             VIEWPORT_AUDIT_EVENTS.TASK_WATCH_STOP_FAILED,
-            `taskId=${taskId} reason=${formatErr(err)}`,
+            `taskId=${taskId}`,
+            `reason=${formatErr(err)}`,
           )
         );
         try {

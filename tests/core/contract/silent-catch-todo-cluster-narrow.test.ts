@@ -78,7 +78,8 @@ describe('phase 1010 — silent X TODO cluster narrow', () => {
     expect(result.problemPairs).toEqual([]);
     expect(events).toHaveLength(1);
     expect(events[0][0]).toBe(CONTRACT_AUDIT_EVENTS.EVENT_COLLECTOR_SCAN_FAILED);
-    expect(events[0]).toContain('dir=archive');
+    // phase 717: src 改 dir col 为实际 archiveDir 路径、test 改子串 match
+    expect(events[0].join('|')).toMatch(/dir=.*archive/);
     expect(events[0]).toContain('code=EACCES');
   });
 

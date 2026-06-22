@@ -224,7 +224,8 @@ describe('ContractSystem - misc (LLM verification + escalation + phase239 audit)
 
       expect(mockAudit.write).toHaveBeenCalledWith(
         CONTRACT_AUDIT_EVENTS.CREATED,
-        contractId,
+        // phase 705: contractId 加 key= prefix
+        `contractId=${contractId}`,
         expect.stringContaining('subtasks=1'),
         expect.stringContaining('title=AuditLog Lifecycle Test'),
       );

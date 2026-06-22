@@ -101,16 +101,8 @@ export function emitContractLockRetry(
   );
 }
 
-// ─── LOCK_CLEANUP_FAILED ────────────────────────────────────────────────────
-export function emitContractLockCleanupFailed(
-  audit: AuditLog,
-  opts: { reason: string; code?: string; error?: string },
-): void {
-  const cols: string[] = [opts.reason];
-  if (opts.code !== undefined) cols.push(opts.code);
-  if (opts.error !== undefined) cols.push(opts.error);
-  audit.write(CONTRACT_AUDIT_EVENTS.LOCK_CLEANUP_FAILED, ...cols);
-}
+// phase 707: emitContractLockCleanupFailed 删除 (dead helper、0 caller、phase 289 Step C 已 drop)
+// LOCK_CLEANUP_FAILED const 保留（防其他遍历 / 间接用）。
 
 // ─── PROGRESS_SCHEMA_INVALID ────────────────────────────────────────────────
 export function emitContractProgressSchemaInvalid(
@@ -241,9 +233,10 @@ export function emitContractCreated(
   opts: { contractId: ContractId; subtasks: number; title: string },
 ): void {
   if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractCreated')) return;
+  // phase 705: contractId 加 key= prefix、与同模块其他 emit (PASSED/UPDATED 等) 形态对齐
   audit.write(
     CONTRACT_AUDIT_EVENTS.CREATED,
-    opts.contractId,
+    `contractId=${opts.contractId}`,
     `subtasks=${opts.subtasks}`,
     `title=${opts.title}`,
   );
@@ -333,7 +326,8 @@ export function emitContractVerificationResetFailed(
 ): void {
   if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractVerificationResetFailed')) return;
   const cols: string[] = [];
-  if (opts.contractId !== undefined) cols.push(opts.contractId);
+  // phase 704: 加 contractId= prefix、与同 fn cols 统一形态、forensic 解析可 join contractId 维度
+  if (opts.contractId !== undefined) cols.push(`contractId=${opts.contractId}`);
   if (opts.subtaskId !== undefined) cols.push(`subtaskId=${opts.subtaskId}`);
   if (opts.context !== undefined) cols.push(`context=${opts.context}`);
   if (opts.message !== undefined) cols.push(`message=${opts.message}`);
@@ -476,7 +470,8 @@ export function emitContractCancelled(
   opts: { contractId: ContractId; reason?: string; abortVerifierFailed?: string },
 ): void {
   if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractCancelled')) return;
-  const cols: string[] = [opts.contractId];
+  // phase 705: contractId 加 key= prefix、与同模块其他 emit 形态对齐
+  const cols: string[] = [`contractId=${opts.contractId}`];
   if (opts.reason !== undefined) cols.push(`reason=${opts.reason}`);
   if (opts.abortVerifierFailed !== undefined) cols.push(`abort_verifier_failed=${opts.abortVerifierFailed}`);
   audit.write(CONTRACT_AUDIT_EVENTS.CANCELLED, ...cols);
@@ -488,9 +483,10 @@ export function emitContractCompleted(
   opts: { contractId: ContractId; title: string; claw: string },
 ): void {
   if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractCompleted')) return;
+  // phase 705: contractId 加 key= prefix、与同模块其他 emit 形态对齐
   audit.write(
     CONTRACT_AUDIT_EVENTS.COMPLETED,
-    opts.contractId,
+    `contractId=${opts.contractId}`,
     `title=${opts.title}`,
     `claw=${opts.claw}`,
   );
@@ -502,9 +498,10 @@ export function emitContractPaused(
   opts: { contractId: ContractId; checkpoint: string },
 ): void {
   if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractPaused')) return;
+  // phase 705: contractId 加 key= prefix、与同模块其他 emit 形态对齐
   audit.write(
     CONTRACT_AUDIT_EVENTS.PAUSED,
-    opts.contractId,
+    `contractId=${opts.contractId}`,
     `checkpoint=${opts.checkpoint}`,
   );
 }
@@ -515,7 +512,8 @@ export function emitContractResumed(
   opts: { contractId: ContractId },
 ): void {
   if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractResumed')) return;
-  audit.write(CONTRACT_AUDIT_EVENTS.RESUMED, opts.contractId);
+  // phase 705: contractId 加 key= prefix、与同模块其他 emit 形态对齐
+  audit.write(CONTRACT_AUDIT_EVENTS.RESUMED, `contractId=${opts.contractId}`);
 }
 
 // ─── SUBTASK_COMPLETED (key-fix site: split ${contractId}/${subtaskId}) ─────

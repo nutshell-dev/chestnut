@@ -154,6 +154,8 @@ describe('ensureWatchdog singleton lock', () => {
       expect((err as Error).message).toContain('Failed to acquire watchdog lock');
       expect(auditSpy).toHaveBeenCalledWith(
         WATCHDOG_AUDIT_EVENTS.ENSURE_LOCK_TIMEOUT,
+        // phase 698: src 加 path col
+        expect.stringContaining('path='),
         expect.stringContaining('timeout_ms='),
       );
     } finally {

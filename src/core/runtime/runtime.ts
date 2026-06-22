@@ -794,7 +794,8 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
             ),
           onSafeCallbackError: (label, err) => {
             // phase 563: 加 trace_id forensic field
-            this.auditWriter.write(RUNTIME_AUDIT_EVENTS.STEP_EXECUTOR_CALLBACK_FAILED, label, `trace_id=${String(this.execContext.trace_id ?? '')}`, `error=${formatErr(err)}`);
+            // phase 714: raw label 加 key= prefix、与同 emit 其他 cols 形态对齐
+            this.auditWriter.write(RUNTIME_AUDIT_EVENTS.STEP_EXECUTOR_CALLBACK_FAILED, `label=${label}`, `trace_id=${String(this.execContext.trace_id ?? '')}`, `error=${formatErr(err)}`);
           },
           onMaxTokensPrebuiltOnlyFinal: (meta) => {
             this.auditWriter?.write(
@@ -904,7 +905,8 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     // Turn start
     callbacks?.onTurnStart?.(sources);
     // phase 569: 加 trace_id forensic field（turn 入口 trace_id 已设）
-    this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_START, `trace_id=${String(this.execContext?.trace_id ?? '')}`);
+    // phase 722: 加 caller col 区分 3 caller 路径 (batch / with_message / retry)
+    this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_START, `caller=batch`, `trace_id=${String(this.execContext?.trace_id ?? '')}`);
 
     // AbortController support (same as single-turn mode)
     const abortController = new AbortController();
@@ -926,7 +928,8 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
       // Turn completed normally
       callbacks?.onTurnEnd?.();
       // phase 569: 加 trace_id forensic field
-      this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_END, `trace_id=${String(this.execContext?.trace_id ?? '')}`);
+      // phase 722: 加 caller col 区分 batch caller 路径
+      this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_END, `caller=batch`, `trace_id=${String(this.execContext?.trace_id ?? '')}`);
 
       await this.sessionManager.commitTurn();
       for (const h of addressedHandles) {
@@ -1127,7 +1130,8 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     });
     callbacks?.onTurnStart?.([]);
     // phase 569: 加 trace_id forensic field（turn 入口 trace_id 已设）
-    this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_START, `trace_id=${String(this.execContext?.trace_id ?? '')}`);
+    // phase 722: 加 caller col 区分 with_message caller 路径
+    this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_START, `caller=with_message`, `trace_id=${String(this.execContext?.trace_id ?? '')}`);
 
     const abortController = new AbortController();
     this.currentAbortController = abortController;
@@ -1136,7 +1140,8 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
       await this._runReact(messages, callbacks);
 
       // phase 569: 加 trace_id forensic field
-      this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_END, `trace_id=${String(this.execContext?.trace_id ?? '')}`);
+      // phase 722: 加 caller col 区分 with_message caller 路径
+      this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_END, `caller=with_message`, `trace_id=${String(this.execContext?.trace_id ?? '')}`);
     } catch (err) {
       // Note: do NOT save messages here - see processBatch catch block for explanation
       // phase 571: 透传 trace_id 让 TURN_INTERRUPTED/TURN_ERROR 含 forensic field
@@ -1194,7 +1199,8 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     // Retry is also a turn (tag it so stream consumers know it's a retry)
     callbacks?.onTurnStart?.([{ text: 'LLM retry', type: 'system_retry' }]);
     // phase 569: 加 trace_id forensic field（turn 入口 trace_id 已设）
-    this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_START, `trace_id=${String(this.execContext?.trace_id ?? '')}`);
+    // phase 722: 加 caller col 区分 retry caller 路径
+    this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_START, `caller=retry`, `trace_id=${String(this.execContext?.trace_id ?? '')}`);
 
     const abortController = new AbortController();
     this.currentAbortController = abortController;
@@ -1204,7 +1210,8 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
 
       callbacks?.onTurnEnd?.();
       // phase 569: 加 trace_id forensic field
-      this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_END, `trace_id=${String(this.execContext?.trace_id ?? '')}`);
+      // phase 722: 加 caller col 区分 retry caller 路径
+      this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_END, `caller=retry`, `trace_id=${String(this.execContext?.trace_id ?? '')}`);
     } catch (err) {
       // phase 571: 透传 trace_id 让 TURN_INTERRUPTED/TURN_ERROR 含 forensic field
       handleTurnInterrupt(err, this.auditWriter, callbacks, this.execContext?.trace_id ? String(this.execContext.trace_id) : undefined);

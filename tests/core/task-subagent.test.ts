@@ -391,6 +391,8 @@ function createMockLLM(responses: LLMResponse[]): LLMOrchestrator {
       expect(mockAuditWriter.write).toHaveBeenCalledWith(
         SUBAGENT_AUDIT_EVENTS.LOG_APPEND_FAILED,
         expect.stringContaining('agentId='),
+        // phase 715: src 加 path col 第 2
+        expect.stringContaining('path='),
         expect.stringContaining('error='),
       );
     });

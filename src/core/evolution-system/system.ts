@@ -155,8 +155,10 @@ export class EvolutionSystem {
         // first run / silent（helper 内含 instanceof FileNotFoundError check）
         return;
       }
+      // phase 709: 加 path col、与 phase 580/586/684/685/688 path forensic 形态对齐
       this.deps.audit.write(
         RETRO_AUDIT_EVENTS.STATE_LOAD_FAILED,
+        `path=${STATE_FILE_PATH}`,
         `reason=${formatErr(e)}`,
       );
       throw e; // 由 _ensureStateLoaded 决定 sticky vs retry
@@ -175,8 +177,10 @@ export class EvolutionSystem {
       moveOk = false;
       moveErr = mErr;
     }
+    // phase 709: 加 path col、与上一 site 形态一致
     this.deps.audit.write(
       RETRO_AUDIT_EVENTS.STATE_LOAD_FAILED,
+      `path=${STATE_FILE_PATH}`,
       `backup=${backupPath}`,
       `move_ok=${moveOk}`,
       ...(moveOk ? [] : [`move_error=${formatErr(moveErr)}`]),
@@ -191,8 +195,10 @@ export class EvolutionSystem {
 
       await this.deps.fs.writeAtomic(STATE_FILE_PATH, JSON.stringify(this.state, null, 2));
     } catch (e) {
+      // phase 710: 加 path col、与 phase 709 STATE_LOAD_FAILED 同模块同 file path 形态对齐
       this.deps.audit.write(
         RETRO_AUDIT_EVENTS.STATE_SAVE_FAILED,
+        `path=${STATE_FILE_PATH}`,
         `reason=${formatErr(e)}`,
       );
       // best-effort: 不抛

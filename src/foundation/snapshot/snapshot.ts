@@ -64,9 +64,10 @@ function onCommitSuccess(): SnapshotState {
   return { kind: 'ok' };
 }
 
-function parseSnapshotState(raw: unknown, audit: AuditLog): SnapshotState | undefined {
+// phase 699: 加 dir param、forensic dir col 显式传递、与同模块其他 emit 形态对齐
+function parseSnapshotState(raw: unknown, audit: AuditLog, dir: string): SnapshotState | undefined {
   if (typeof raw !== 'object' || raw === null) {
-    emitSnapshotStateCorrupt(audit, { reason: 'state_schema_invalid' });
+    emitSnapshotStateCorrupt(audit, { dir, reason: 'state_schema_invalid' });
     return undefined;
   }
 
@@ -88,7 +89,7 @@ function parseSnapshotState(raw: unknown, audit: AuditLog): SnapshotState | unde
         return { kind: 'degraded', failures, degradedAt };
       }
     }
-    emitSnapshotStateCorrupt(audit, { reason: 'state_schema_invalid' });
+    emitSnapshotStateCorrupt(audit, { dir, reason: 'state_schema_invalid' });
     return undefined;
   }
 
@@ -97,7 +98,7 @@ function parseSnapshotState(raw: unknown, audit: AuditLog): SnapshotState | unde
     const legacy = raw as { consecutiveFailures?: unknown; degradedAt?: unknown };
     const failures = Number(legacy.consecutiveFailures);
     if (!Number.isFinite(failures) || !Number.isInteger(failures)) {
-      emitSnapshotStateCorrupt(audit, { reason: 'legacy_state_schema_invalid' });
+      emitSnapshotStateCorrupt(audit, { dir, reason: 'legacy_state_schema_invalid' });
       return undefined;
     }
     const degradedAt = legacy.degradedAt === undefined ? undefined : Number(legacy.degradedAt);
@@ -115,24 +116,25 @@ function parseSnapshotState(raw: unknown, audit: AuditLog): SnapshotState | unde
     return { kind: 'ok' };
   }
 
-  emitSnapshotStateCorrupt(audit, { reason: 'state_schema_invalid' });
+  emitSnapshotStateCorrupt(audit, { dir, reason: 'state_schema_invalid' });
   return undefined;
 }
 
 async function persistState(fs: FileSystem, dir: string, state: SnapshotState, audit?: AuditLog): Promise<void> {
   if (audit) {
     // phase 275 Step A: shape invariant
-    assertSnapshotStateShape(state, audit);
+    assertSnapshotStateShape(state, audit, dir);
     // phase 275 Step B: state-internal cross-source (sync、不阻 path、不 throw)
-    auditSnapshotStateCrossSource(state, audit, Date.now());
+    auditSnapshotStateCrossSource(state, audit, Date.now(), dir);
   }
 
   try {
     await fs.writeAtomic(STATE_FILE_REL, JSON.stringify(state));
-  } catch {
+  } catch (err) {
     // silent: persist fail 不抛，下轮 load 最多丢 1 inc
+    // phase 724: catch(err) 绑 err、emit reason=formatErr(err) 保留 err message forensic
     if (audit) {
-      emitSnapshotPersistFailed(audit, { dir, reason: 'writeAtomic failed' });
+      emitSnapshotPersistFailed(audit, { dir, reason: formatErr(err) });
     }
   }
 }
@@ -143,7 +145,8 @@ async function tryClearPersist(fs: FileSystem, dir: string, audit?: AuditLog): P
   } catch (e) {
     // phase 1154 r+ derive: 双码 narrow via foundation helper (FileSystem 抽象层抛 FS_NOT_FOUND)
     if (!isFileNotFound(e) && audit) {
-      emitSnapshotTryClearFailed(audit, { dir, reason: (e as Error).message });
+      // phase 725: 改 formatErr(e) 保 stack forensic、与同模块 L292/L408 形态对齐
+      emitSnapshotTryClearFailed(audit, { dir, reason: formatErr(e) });
     }
     // ENOENT expected; other errors don't affect function
     // (next init will load + overwrite anyway)
@@ -210,7 +213,7 @@ export class Snapshot {
       if (await this.fs.exists(STATE_FILE_REL)) {
         const raw = await this.fs.read(STATE_FILE_REL);
         const loaded: unknown = JSON.parse(raw);
-        const parsed = parseSnapshotState(loaded, this.audit);
+        const parsed = parseSnapshotState(loaded, this.audit, this.dir);
         if (parsed !== undefined) {
           this.state = parsed;
           if (this.state.kind === 'degraded') {
@@ -224,7 +227,8 @@ export class Snapshot {
         }
       }
     } catch (e) {
-      emitSnapshotStateCorrupt(this.audit, { reason: (e as Error).message });
+      // phase 725: 改 formatErr(e) 保 stack forensic
+      emitSnapshotStateCorrupt(this.audit, { dir: this.dir, reason: formatErr(e) });
     }
     let shouldResetCounter = false;
     if (await this.fs.exists('.git')) {
@@ -413,7 +417,8 @@ export class Snapshot {
       try {
         resolvedDir = await this.fs.realpath(this.dir);
       } catch (e) {
-        emitSnapshotRealpathFailed(this.audit, { dir: this.dir, reason: (e as Error).message });
+        // phase 725: 改 formatErr(e) 保 stack forensic
+        emitSnapshotRealpathFailed(this.audit, { dir: this.dir, reason: formatErr(e) });
         resolvedDir = this.dir;
       }
       const relResolved = path.relative(resolvedDir, resolved);

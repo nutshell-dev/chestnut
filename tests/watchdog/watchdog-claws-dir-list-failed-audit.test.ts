@@ -247,6 +247,8 @@ describe('watchdog claws dir listSync audit + recovery (phase 149)', () => {
       expect(mockAudit.write).toHaveBeenCalledWith(
         WATCHDOG_AUDIT_EVENTS.CLAWS_DIR_LIST_FAILED,
         'ctx=inactivity',
+        // phase 697: src 加 dir col
+        expect.stringContaining('dir='),
         expect.stringContaining('Permission denied'),
       );
       // early return: CLAW_SCAN 不该被 emit（listSync 在 scan 之前失败）
@@ -265,6 +267,8 @@ describe('watchdog claws dir listSync audit + recovery (phase 149)', () => {
       expect(mockAudit.write).toHaveBeenCalledWith(
         WATCHDOG_AUDIT_EVENTS.CLAWS_DIR_LIST_FAILED,
         'ctx=crash',
+        // phase 697: src 加 dir col
+        expect.stringContaining('dir='),
         expect.stringContaining('Permission denied'),
       );
       const scanCalls = vi.mocked(mockAudit.write).mock.calls.filter(

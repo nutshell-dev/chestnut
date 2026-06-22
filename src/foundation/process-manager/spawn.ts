@@ -180,9 +180,11 @@ async function cleanupLock(
     }
   } catch (err) {
     if (!isFileNotFound(err)) {
+      // phase 681: 加 path forensic col、与 lock.ts:49 同 event 形态对齐
       ctx.audit.write(
         PROCESS_MANAGER_AUDIT_EVENTS.LOCKFILE_READ_FAILED,
         `claw=${clawId}`,
+        `path=${lockFile}`,
         `reason=${(err as NodeJS.ErrnoException).code || formatErr(err)}`,
       );
     }
@@ -260,15 +262,19 @@ async function handlePidFileConflict(
   } catch (readErr) {
     if (isFileNotFound(readErr)) {
       // race: concurrent removePid deleted pidFile / benign
+      // phase 682: 加 path forensic col、与 watchdog-pid.ts:138 + lock.ts:49 同 event 形态对齐
       ctx.audit.write(
         PROCESS_MANAGER_AUDIT_EVENTS.PID_READ_FAILED,
         `claw=${clawId}`,
+        `path=${pidFile}`,
         `context=race_check`,
       );
     } else {
+      // phase 682: 加 path forensic col、与 watchdog-pid.ts:138 + lock.ts:49 同 event 形态对齐
       ctx.audit.write(
         PROCESS_MANAGER_AUDIT_EVENTS.PID_READ_FAILED,
         `claw=${clawId}`,
+        `path=${pidFile}`,
         `context=eexist_check`,
         `reason=${formatErr(readErr)}`,
       );
@@ -276,9 +282,11 @@ async function handlePidFileConflict(
   }
   if (readSucceeded && existingContent === '') {
     // true empty PID file (concurrent spawn symptom / not race)
+    // phase 683: 加 path forensic col、与同代码块 PID_READ_FAILED (phase 682) 形态一致
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.PID_EMPTY,
       `claw=${clawId}`,
+      `path=${pidFile}`,
     );
   }
   await removePid(ctx, clawId).catch((err) => {

@@ -394,9 +394,11 @@ export class SubAgent {
       await this.fs.append(this.logPath, text);
     } catch (e) {
       // Log failures are non-fatal
+      // phase 715: 加 path col、与 phase 580/586/684-688/709-711 path forensic 形态对齐
       this.auditWriter.write(
         SUBAGENT_AUDIT_EVENTS.LOG_APPEND_FAILED,
         `agentId=${this.agentId}`,
+        `path=${this.logPath}`,
         `error=${formatErr(e)}`,
       );
     }

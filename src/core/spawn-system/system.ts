@@ -37,7 +37,8 @@ export async function runSpawnSync(opts: RunSpawnSyncOptions): Promise<ToolResul
 
   const aw = opts.ctx.auditWriter;
   if (aw) {
-    aw.write(SPAWN_AUDIT_EVENTS.SYNC_STARTED, id, aw.preview(opts.intent));
+    // phase 708: raw id/intent 加 key= prefix、forensic 可 join spawnId/intent 维度
+    aw.write(SPAWN_AUDIT_EVENTS.SYNC_STARTED, `spawnId=${id}`, `intent=${aw.preview(opts.intent)}`);
   }
 
   try {
@@ -72,7 +73,8 @@ export async function runSpawnSync(opts: RunSpawnSyncOptions): Promise<ToolResul
     });
 
     const content = getDisplayResult(text, capturedResult);
-    opts.ctx.auditWriter?.write(SPAWN_AUDIT_EVENTS.SYNC_FINISHED, id);
+    // phase 708: raw id 加 key= prefix
+    opts.ctx.auditWriter?.write(SPAWN_AUDIT_EVENTS.SYNC_FINISHED, `spawnId=${id}`);
     return {
       success: true,
       content,
@@ -80,7 +82,8 @@ export async function runSpawnSync(opts: RunSpawnSyncOptions): Promise<ToolResul
     };
   } catch (err) {
     const errMsg = formatErr(err);
-    opts.ctx.auditWriter?.write(SPAWN_AUDIT_EVENTS.SYNC_FAILED, id, errMsg);
+    // phase 708: raw id/errMsg 加 key= prefix
+    opts.ctx.auditWriter?.write(SPAWN_AUDIT_EVENTS.SYNC_FAILED, `spawnId=${id}`, `error=${errMsg}`);
     return {
       success: false,
       content: `[chestnut spawn] sync execution failed: ${errMsg}`,

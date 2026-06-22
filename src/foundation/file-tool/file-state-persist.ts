@@ -47,9 +47,11 @@ async function _doPersistReadFileState(ctx: ExecContext): Promise<void> {
   try {
     await ctx.fs.writeAtomic(READ_STATE_FILE, JSON.stringify(payload, null, 2));
   } catch (err) {
+    // phase 693: 拆 op + reason 为两 col、与 phase 690-692 同模式
     ctx.auditWriter?.write(
       FILE_TOOL_AUDIT_EVENTS.READ_FILE_STATE_PERSIST_FAILED,
-      `op=write reason=${formatErr(err)}`,
+      `op=write`,
+      `reason=${formatErr(err)}`,
     );
   }
 }
@@ -111,9 +113,11 @@ export async function loadReadFileState(
     if (isFileNotFound(err)) {
       return new Map();
     }
+    // phase 693: 拆 result + reason 为两 col
     audit?.write(
       FILE_TOOL_AUDIT_EVENTS.READ_FILE_STATE_LOADED,
-      `result=failed reason=${formatErr(err)}`,
+      `result=failed`,
+      `reason=${formatErr(err)}`,
     );
     return new Map();
   }
@@ -122,17 +126,21 @@ export async function loadReadFileState(
     // phase 21: inline schema check 防 corrupt JSON 流入业务（playbook 静默失败 §8）
     // version 检与 shape 检分开：v!=1 是已知版本不匹配（forward-compat skip）、shape invalid 是 corrupt
     if (typeof parsed !== 'object' || parsed === null) {
+      // phase 693: 拆 result + raw 为两 col
       audit?.write(
         FILE_TOOL_AUDIT_EVENTS.READ_FILE_STATE_LOADED,
-        `result=skipped_schema_invalid raw=${audit?.message(raw) ?? raw}`,
+        `result=skipped_schema_invalid`,
+        `raw=${audit?.message(raw) ?? raw}`,
       );
       return new Map();
     }
     const obj = parsed as { version?: unknown; updated_at?: unknown; entries?: unknown };
     if (obj.version !== 1) {
+      // phase 693: 拆 result + version 为两 col
       audit?.write(
         FILE_TOOL_AUDIT_EVENTS.READ_FILE_STATE_LOADED,
-        `result=skipped_unknown_version version=${String(obj.version)}`,
+        `result=skipped_unknown_version`,
+        `version=${String(obj.version)}`,
       );
       return new Map();
     }
@@ -140,23 +148,29 @@ export async function loadReadFileState(
       typeof obj.updated_at === 'string' &&
       typeof obj.entries === 'object' && obj.entries !== null && !Array.isArray(obj.entries);
     if (!isValidShape) {
+      // phase 693: 拆 result + raw 为两 col
       audit?.write(
         FILE_TOOL_AUDIT_EVENTS.READ_FILE_STATE_LOADED,
-        `result=skipped_schema_invalid raw=${audit?.message(raw) ?? raw}`,
+        `result=skipped_schema_invalid`,
+        `raw=${audit?.message(raw) ?? raw}`,
       );
       return new Map();
     }
     const validParsed = parsed as PersistFormatV1;
     const map = new Map(Object.entries(validParsed.entries));
+    // phase 693: 拆 result + entry_count 为两 col
     audit?.write(
       FILE_TOOL_AUDIT_EVENTS.READ_FILE_STATE_LOADED,
-      `result=ok entry_count=${map.size}`,
+      `result=ok`,
+      `entry_count=${map.size}`,
     );
     return map;
   } catch (err) {
+    // phase 693: 拆 result + reason 为两 col
     audit?.write(
       FILE_TOOL_AUDIT_EVENTS.READ_FILE_STATE_LOADED,
-      `result=parse_failed reason=${formatErr(err)}`,
+      `result=parse_failed`,
+      `reason=${formatErr(err)}`,
     );
     return new Map();
   }
@@ -195,9 +209,11 @@ export async function clearReadFileState(ctx: ExecContext): Promise<void> {
     await ctx.fs.delete(READ_STATE_FILE);
   } catch (err) {
     if (isFileNotFound(err)) return;
+    // phase 693: 拆 op + reason 为两 col
     ctx.auditWriter?.write(
       FILE_TOOL_AUDIT_EVENTS.READ_FILE_STATE_PERSIST_FAILED,
-      `op=clear reason=${formatErr(err)}`,
+      `op=clear`,
+      `reason=${formatErr(err)}`,
     );
   }
 }

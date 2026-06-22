@@ -94,6 +94,8 @@ describe('EvolutionSystem _loadState corrupt path', () => {
 
     expect(auditSpy).toHaveBeenCalledWith(
       RETRO_AUDIT_EVENTS.STATE_LOAD_FAILED,
+      // phase 709: src 加 path col 第 1
+      expect.stringContaining('path='),
       expect.stringContaining('backup='),
       expect.stringContaining('move_ok=true'),
       expect.stringContaining('reason='),

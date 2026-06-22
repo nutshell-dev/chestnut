@@ -129,6 +129,8 @@ describe('watchdog A.8 final audit emit (phase 155)', () => {
     expect(result).toEqual([]);
     expect(mockAudit.write).toHaveBeenCalledWith(
       WATCHDOG_AUDIT_EVENTS.SUBSCRIPTION_DIR_LIST_FAILED,
+      // phase 696: src 加 dir col
+      expect.stringContaining('dir='),
       expect.stringContaining('error='),
     );
   });

@@ -110,15 +110,22 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
     try {
       await checkLegacySummonStateFiles(systemFs, auditWriter);
     } catch (err) {
-      auditWriter.write(ASSEMBLY_AUDIT_EVENTS.FALLBACK_RECONCILE_FAILED, `reason=${formatErr(err)}`);
+      // phase 703: 加 context col 区分 2 caller 路径、与 phase 582/584 context col 同模式
+      auditWriter.write(
+        ASSEMBLY_AUDIT_EVENTS.FALLBACK_RECONCILE_FAILED,
+        `context=legacy_summon_state`,
+        `reason=${formatErr(err)}`,
+      );
     }
 
     // Reconcile prior crash fallback dumps after audit writer is ready
     try {
       await reconcileFallbackDumps(systemFs);
     } catch (err) {
+      // phase 703: 加 context col 区分 2 caller 路径
       auditWriter.write(
         ASSEMBLY_AUDIT_EVENTS.FALLBACK_RECONCILE_FAILED,
+        `context=crash_fallback_dumps`,
         `reason=${formatErr(err)}`,
       );
     }

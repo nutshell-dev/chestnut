@@ -243,9 +243,10 @@ export function scanArchivedContracts(
     // phase 1154 r+ derive: 双码 narrow via foundation helper (FileSystem 抽象层抛 FS_NOT_FOUND)
     if (!isFileNotFound(err)) {
       const code = (err as NodeJS.ErrnoException)?.code;
+      // phase 717: dir col 改为实际 archiveDir 路径、与 phase 696/697 同语义 listing-failed 形态对齐
       audit?.write(
         CONTRACT_AUDIT_EVENTS.EVENT_COLLECTOR_SCAN_FAILED,
-        `dir=archive`,
+        `dir=${archiveDir}`,
         `code=${code ?? 'unknown'}`,
         `error=${formatErr(err)}`,
       );

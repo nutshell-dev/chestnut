@@ -9,9 +9,10 @@ import { isFileNotFound } from '../fs/index.js';
 
 
 export async function markReady(ctx: ProcessManagerContext, clawId: ClawId): Promise<void> {
+  // phase 688: readyFile 提到 try 外、catch 可 access、emit 加 path forensic col
+  const readyFile = getReadyFile(ctx, clawId);
   try {
     await ensureStatusDir(ctx, clawId);
-    const readyFile = getReadyFile(ctx, clawId);
     const startTime = (ctx.getProcessStartTime ?? defaultGetProcessStartTime)(process.pid);
     const payload: PidFileContent = { pid: process.pid, ...(startTime !== undefined ? { startTime } : {}) };
     await ctx.fs.writeAtomic(readyFile, JSON.stringify(payload));
@@ -26,6 +27,7 @@ export async function markReady(ctx: ProcessManagerContext, clawId: ClawId): Pro
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.READY_MARK_WROTE,
       `claw=${clawId}`,
+      `path=${readyFile}`,
       `context=write_failed`,
       `reason=${formatErr(e)}`,
     );
@@ -42,9 +44,11 @@ export async function markNotReady(ctx: ProcessManagerContext, clawId: ClawId): 
       // benign: marker 不存在 (boot crash before markReady / 已 markNotReady)
       return;
     }
+    // phase 684: 加 path forensic col、与同模块 lock.ts:172 LOCKFILE_CLEANUP_FAILED op=delete 对齐
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.READY_MARK_REMOVED,
       `claw=${clawId}`,
+      `path=${readyFile}`,
       `context=remove_failed`,
       `reason=${formatErr(err)}`,
     );
@@ -69,16 +73,29 @@ export function isReady(ctx: ProcessManagerContext, clawId: ClawId): boolean {
   const pidFile = getPidFile(ctx, clawId);
   let readyContent: string;
   let pidContent: string;
+  // phase 686: 拆 read try、emit 加 file= + path= forensic col 区分两 file 失败
   try {
     readyContent = ctx.fs.readSync(readyFile);
-    pidContent = ctx.fs.readSync(pidFile);
   } catch (err) {
-    if (isFileNotFound(err)) {
-      return false; // 任一缺则 not ready (normal)
-    }
+    if (isFileNotFound(err)) return false;
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.READY_CHECK_READ_FAILED,
       `claw=${clawId}`,
+      `file=ready`,
+      `path=${readyFile}`,
+      `reason=${formatErr(err)}`,
+    );
+    return false;
+  }
+  try {
+    pidContent = ctx.fs.readSync(pidFile);
+  } catch (err) {
+    if (isFileNotFound(err)) return false;
+    ctx.audit.write(
+      PROCESS_MANAGER_AUDIT_EVENTS.READY_CHECK_READ_FAILED,
+      `claw=${clawId}`,
+      `file=pid`,
+      `path=${pidFile}`,
       `reason=${formatErr(err)}`,
     );
     return false;
@@ -86,21 +103,37 @@ export function isReady(ctx: ProcessManagerContext, clawId: ClawId): boolean {
   let readyPid: number;
   let readyStartTime: ProcessStartTime | undefined;
   let pidFilePid: number;
+  // phase 687: 拆 parse try、emit 加 file= + path= forensic col 区分两 file 失败
+  let ready: { pid?: unknown; startTime?: unknown };
   try {
-    const ready = JSON.parse(readyContent.trim());
-    const pidData = JSON.parse(pidContent.trim());
-    if (typeof ready?.pid !== 'number' || typeof pidData?.pid !== 'number') return false;
-    readyPid = ready.pid;
-    readyStartTime = typeof ready.startTime === 'string' ? makeProcessStartTime(ready.startTime) : undefined;
-    pidFilePid = pidData.pid;
+    ready = JSON.parse(readyContent.trim());
   } catch (err) {
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.READY_CHECK_PARSE_FAILED,
       `claw=${clawId}`,
+      `file=ready`,
+      `path=${readyFile}`,
       `reason=${formatErr(err)}`,
     );
-    return false; // schema 不符 / legacy raw int (虽 readyMarker 永远写 JSON) → 视 not ready
+    return false;
   }
+  let pidData: { pid?: unknown };
+  try {
+    pidData = JSON.parse(pidContent.trim());
+  } catch (err) {
+    ctx.audit.write(
+      PROCESS_MANAGER_AUDIT_EVENTS.READY_CHECK_PARSE_FAILED,
+      `claw=${clawId}`,
+      `file=pid`,
+      `path=${pidFile}`,
+      `reason=${formatErr(err)}`,
+    );
+    return false;
+  }
+  if (typeof ready?.pid !== 'number' || typeof pidData?.pid !== 'number') return false;
+  readyPid = ready.pid;
+  readyStartTime = typeof ready.startTime === 'string' ? makeProcessStartTime(ready.startTime) : undefined;
+  pidFilePid = pidData.pid;
   if (readyPid !== pidFilePid) {
     // stale marker（前进程 PID） → emit audit 兜底 + 视 not ready
     ctx.audit.write(
@@ -112,9 +145,11 @@ export function isReady(ctx: ProcessManagerContext, clawId: ClawId): boolean {
     // r128 C fork C.1: narrow ENOENT only / non-ENOENT audit emit (mirror phase 1032 cleanup.ts)
     ctx.fs.delete(readyFile).catch((e) => {
       if (!isFileNotFound(e)) {
+        // phase 685: 加 path forensic col、与 ready.ts:45 (phase 684) + lock.ts:172 同模块对齐
         ctx.audit.write(
           PROCESS_MANAGER_AUDIT_EVENTS.READY_STALE_CLEANUP_FAILED,
           `claw=${clawId}`,
+          `path=${readyFile}`,
           `reason=${formatErr(e)}`,
         );
       }

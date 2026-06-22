@@ -52,7 +52,12 @@ export async function ensureWatchdog(
     // 别 caller 持锁中、等其 spawn 完
     if (isWatchdogAlive(fsFactory)) return;
     const auditWriter = getAuditWriter();
-    auditWriter?.write(WATCHDOG_AUDIT_EVENTS.ENSURE_LOCK_TIMEOUT, `timeout_ms=${LOCK_ACQUIRE_TIMEOUT_MS}`);
+    // phase 698: 加 path col、与同 fn ENSURE_LOCK_STALE_RECOVERED (L84 'path=relLockPath') 形态对齐
+    auditWriter?.write(
+      WATCHDOG_AUDIT_EVENTS.ENSURE_LOCK_TIMEOUT,
+      `path=${relLockPath}`,
+      `timeout_ms=${LOCK_ACQUIRE_TIMEOUT_MS}`,
+    );
     throw new Error(`Failed to acquire watchdog lock after ${LOCK_ACQUIRE_TIMEOUT_MS}ms`);
   }
   try {

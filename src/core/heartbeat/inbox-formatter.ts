@@ -39,8 +39,10 @@ export function createHeartbeatInboxFormatter(deps: HeartbeatInboxFormatterDeps)
       // phase 1154 r+ derive: 双码 narrow via foundation helper（FileSystem 抽象层抛 FS_NOT_FOUND）
       if (!isFileNotFound(e)) {
         const code = (e as NodeJS.ErrnoException)?.code;
+        // phase 711: 加 path col、与 phase 580/586/684-688/709/710 path forensic 形态对齐
         audit.write(
           HEARTBEAT_AUDIT_EVENTS.CHECKLIST_READ_FAILED,
+          `path=${CLAW_HEARTBEAT_FILE}`,
           `code=${code ?? 'unknown'}`,
           `error=${formatErr(e)}`,
         );

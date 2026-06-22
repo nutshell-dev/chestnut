@@ -106,10 +106,12 @@ export function emitSnapshotTryClearFailed(audit: AuditLog, opts: {
 }
 
 // === STATE_CORRUPT ===
+// phase 699: 加 dir col、与同模块其他 emit (INIT_FAILED 等) 'dir=' 起头形态对齐
 export function emitSnapshotStateCorrupt(audit: AuditLog, opts: {
+  dir: string;
   reason: string;
 }): void {
-  audit.write(SNAPSHOT_AUDIT_EVENTS.STATE_CORRUPT, `reason=${opts.reason}`);
+  audit.write(SNAPSHOT_AUDIT_EVENTS.STATE_CORRUPT, `dir=${opts.dir}`, `reason=${opts.reason}`);
 }
 
 // === REALPATH_FAILED ===

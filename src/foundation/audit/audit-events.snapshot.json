@@ -906,6 +906,7 @@
       "watchdog_claws_dir_list_failed",
       "watchdog_cleanup_failed",
       "watchdog_check",
+      "watchdog_circuit_reopened",
       "watchdog_contract_dir_scan_failed",
       "watchdog_crash",
       "watchdog_ensure_lock_stale_recovered",

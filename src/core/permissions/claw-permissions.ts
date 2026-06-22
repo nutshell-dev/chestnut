@@ -179,8 +179,8 @@ function checkReadPermission(
 
   // Non-strict mode allows everything
   if (!strict) {
-    audit?.write(PERMISSION_AUDIT_EVENTS.STRICT_DISABLED,
-      'Non-strict mode active — all permission checks bypassed');
+    // phase 713: raw msg 改 key= prefix、forensic 解析可 join reason 维度
+    audit?.write(PERMISSION_AUDIT_EVENTS.STRICT_DISABLED, 'reason=non_strict_mode_bypass');
     return;
   }
 
@@ -219,8 +219,8 @@ function checkWritePermission(
 
   // Non-strict mode allows everything
   if (!strict) {
-    audit?.write(PERMISSION_AUDIT_EVENTS.STRICT_DISABLED,
-      'Non-strict mode active — all permission checks bypassed');
+    // phase 713: raw msg 改 key= prefix、forensic 解析可 join reason 维度
+    audit?.write(PERMISSION_AUDIT_EVENTS.STRICT_DISABLED, 'reason=non_strict_mode_bypass');
     return;
   }
 

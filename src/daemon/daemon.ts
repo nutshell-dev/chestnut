@@ -157,7 +157,8 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
       const agentsContent = preAssembleFs.readSync(CLAW_SPEC_FILE);
       promptHash = sha256ShortHex(agentsContent, 6);
     } catch { /* silent: AGENTS.md is optional, missing is expected */ }
-    auditWriter.write(deps.auditEvents.daemonStart, `sha256:${promptHash}`);
+    // phase 719: 'sha256:' algo prefix 不是 audit col key= prefix、forensic 解析无法 join、改 'prompt_hash=' key
+    auditWriter.write(deps.auditEvents.daemonStart, `prompt_hash=sha256:${promptHash}`);
     await processManager.markReady(makeClawId(clawId));
 
     // daemon-start commit（不阻塞启动）
@@ -218,10 +219,12 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
         try {
           await processManager.selfRemovePid(makeClawId(clawId));
         } catch (e) {
-          instances.auditWriter.write(DAEMON_AUDIT_EVENTS.CLEANUP_PID_FAILED, `reason=${(e as Error).message}`);
+          // phase 720: 加 context col 区分 caller 路径、reason key 命名统一
+          instances.auditWriter.write(DAEMON_AUDIT_EVENTS.CLEANUP_PID_FAILED, `context=self_remove_pid`, `reason=${(e as Error).message}`);
         }
       })().catch((e) => {
-        instances.auditWriter.write(DAEMON_AUDIT_EVENTS.CLEANUP_PID_FAILED, `dispose_failed=${formatErr(e)}`);
+        // phase 720: 加 context col 区分 caller 路径、改 raw 'dispose_failed=' 为统一 'reason=' key
+        instances.auditWriter.write(DAEMON_AUDIT_EVENTS.CLEANUP_PID_FAILED, `context=dispose_failed_async`, `reason=${formatErr(e)}`);
       });
       await Promise.race([
         dispose,

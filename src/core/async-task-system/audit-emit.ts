@@ -61,9 +61,10 @@ export function emitTaskCompleted(
     errorCategory?: string;
   },
 ): void {
+  // phase 706: raw status 加 key= prefix、与同 fn 其他 cols 统一形态、forensic 可 join status 维度
   const cols: (string | number)[] = [
     `taskId=${opts.taskId}`,
-    opts.status,
+    `status=${opts.status}`,
     `kind=${opts.kind}`,
   ];
   if (opts.parent !== undefined) cols.push(`parent=${opts.parent}`);

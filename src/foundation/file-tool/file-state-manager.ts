@@ -43,14 +43,19 @@ export function recordReadResult(
     timestamp: mtime,
     isFullRead,
   });
+  // phase 694: 拆 op + path + isFullRead/reason 为各自 col、延续 phase 690-693
   ctx.auditWriter?.write(
     FILE_TOOL_AUDIT_EVENTS.READ_FILE_STATE_RECORDED,
-    `op=read path=${resolvedPath} isFullRead=${isFullRead}`,
+    `op=read`,
+    `path=${resolvedPath}`,
+    `isFullRead=${isFullRead}`,
   );
   persistReadFileState(ctx).catch(err =>
     ctx.auditWriter?.write(
       FILE_TOOL_AUDIT_EVENTS.READ_FILE_STATE_PERSIST_FAILED,
-      `op=read path=${resolvedPath} reason=${formatErr(err)}`,
+      `op=read`,
+      `path=${resolvedPath}`,
+      `reason=${formatErr(err)}`,
     )
   );
 }
@@ -72,14 +77,19 @@ export function recordWriteResult(
     timestamp: newMtime,
     isFullRead: true,
   });
+  // phase 694: 拆 op + path + isFullRead/reason 为各自 col、延续 phase 690-693
   ctx.auditWriter?.write(
     FILE_TOOL_AUDIT_EVENTS.READ_FILE_STATE_RECORDED,
-    `op=write path=${resolvedPath} isFullRead=true`,
+    `op=write`,
+    `path=${resolvedPath}`,
+    `isFullRead=true`,
   );
   persistReadFileState(ctx).catch(err =>
     ctx.auditWriter?.write(
       FILE_TOOL_AUDIT_EVENTS.READ_FILE_STATE_PERSIST_FAILED,
-      `op=write path=${resolvedPath} reason=${formatErr(err)}`,
+      `op=write`,
+      `path=${resolvedPath}`,
+      `reason=${formatErr(err)}`,
     )
   );
 }
@@ -106,14 +116,19 @@ export function recordEditResult(
     timestamp: newMtime,
     isFullRead,
   });
+  // phase 694: 拆 op + path + isFullRead/reason 为各自 col、延续 phase 690-693
   ctx.auditWriter?.write(
     FILE_TOOL_AUDIT_EVENTS.READ_FILE_STATE_RECORDED,
-    `op=edit path=${resolvedPath} isFullRead=${isFullRead}`,
+    `op=edit`,
+    `path=${resolvedPath}`,
+    `isFullRead=${isFullRead}`,
   );
   persistReadFileState(ctx).catch(err =>
     ctx.auditWriter?.write(
       FILE_TOOL_AUDIT_EVENTS.READ_FILE_STATE_PERSIST_FAILED,
-      `op=edit path=${resolvedPath} reason=${formatErr(err)}`,
+      `op=edit`,
+      `path=${resolvedPath}`,
+      `reason=${formatErr(err)}`,
     )
   );
 }

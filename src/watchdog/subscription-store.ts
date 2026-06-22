@@ -64,8 +64,11 @@ export function listSubscriptions(
       .filter(n => n.endsWith('.json'));
   } catch (err) {
     if (isFileNotFound(err)) return [];
+    // phase 696: 加 dir forensic col、与 store.ts:586 ARCHIVE_READ_FAILED + restore.ts:108
+    // ARCHIVE_DIR_FAILED (phase 680) 同 listing-failed 形态对齐、forensic 解析自包含
     audit?.write(
       WATCHDOG_AUDIT_EVENTS.SUBSCRIPTION_DIR_LIST_FAILED,
+      `dir=${SUBSCRIPTION_DIR}`,
       `error=${formatErr(err)}`,
     );
     return [];  // 非 ENOENT treat as empty + audit（recovery + observability、watchdog 不死）

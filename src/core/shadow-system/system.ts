@@ -108,10 +108,12 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
       mainMessagesBeforeMarker,
       instructionArgs,
     });
-    opts.ctx.auditWriter?.write(SHADOW_AUDIT_EVENTS.PREFIX_RESTORED, shadowId);
+    // phase 712: raw shadowId 加 key= prefix
+    opts.ctx.auditWriter?.write(SHADOW_AUDIT_EVENTS.PREFIX_RESTORED, `shadowId=${shadowId}`);
   } catch (err) {
     const errMsg = formatErr(err);
-    opts.ctx.auditWriter?.write(SHADOW_AUDIT_EVENTS.FAILED, shadowId, 'prefix_restore_failed', errMsg);
+    // phase 712: raw cols 加 key= prefix + phase= 标识失败阶段
+    opts.ctx.auditWriter?.write(SHADOW_AUDIT_EVENTS.FAILED, `shadowId=${shadowId}`, `phase=prefix_restore`, `error=${errMsg}`);
     return { success: false, content: `[chestnut shadow] prefix synthesis failed: ${errMsg}`, error: 'prefix_synthesis_failed' };
   }
 
@@ -151,7 +153,8 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
     });
 
     const finalResult = getDisplayResult(text, capturedResult);
-    opts.ctx.auditWriter?.write(SHADOW_AUDIT_EVENTS.FINISHED, shadowId);
+    // phase 712: raw shadowId 加 key= prefix
+    opts.ctx.auditWriter?.write(SHADOW_AUDIT_EVENTS.FINISHED, `shadowId=${shadowId}`);
     return {
       success: true,
       content: finalResult,
@@ -159,7 +162,8 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
     };
   } catch (err) {
     const errMsg = formatErr(err);
-    opts.ctx.auditWriter?.write(SHADOW_AUDIT_EVENTS.FAILED, shadowId, errMsg);
+    // phase 712: raw cols 加 key= prefix
+    opts.ctx.auditWriter?.write(SHADOW_AUDIT_EVENTS.FAILED, `shadowId=${shadowId}`, `error=${errMsg}`);
     return {
       success: false,
       content: `[chestnut shadow] execution failed: ${errMsg}`,

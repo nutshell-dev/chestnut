@@ -255,9 +255,11 @@ export function createStreamReader(
       // so caller catches up on existing events before tailing new appends.
       if (initialOffset !== undefined && fs.existsSync(streamPath) && fs.statSync(streamPath).size > offset) {
         readIncrement().catch(err =>
+          // phase 702: 拆 streamPath + reason 为两 col、与 phase 690-695 同模式
           audit.write(
             STREAM_AUDIT_EVENTS.READER_READ_FAILED,
-            `streamPath=${streamPath} reason=${formatErr(err)}`,
+            `streamPath=${streamPath}`,
+            `reason=${formatErr(err)}`,
           )
         );
       }

@@ -145,7 +145,8 @@ async function restartMotionIfDown(
   }
 
   log(fsFactory, `[watchdog] motion down (${status.reason}), restarting...`);
-  audit.write(WATCHDOG_AUDIT_EVENTS.WATCHDOG_RESTART_TRIGGERED, MOTION_CLAW_ID);
+  // phase 601: 裸 MOTION_CLAW_ID 改 key=value 形态 + 加 reason col、与其他 watchdog emit 对齐
+  audit.write(WATCHDOG_AUDIT_EVENTS.WATCHDOG_RESTART_TRIGGERED, `claw=${MOTION_CLAW_ID}`, `reason=${status.reason}`);
   // phase 430 Step B: 删除重复 log call (history merge artifact、motion-down 写两遍)
 
   try {
@@ -156,7 +157,8 @@ async function restartMotionIfDown(
     //   - cleanup 失败不阻塞 respawn / spawn 自身判 race / failure 仅 audit observability
     await pm.stop(MOTION_CLAW_ID).catch((e) => {
       const msg = `[watchdog] Failed to clean up motion before restart: ${formatErr(e)}`;
-      logWithAudit(fsFactory, msg, WATCHDOG_AUDIT_EVENTS.CLEANUP_FAILED, audit.message(msg));
+      // phase 718: payload 加 message= prefix、forensic 解析可 join message 维度
+      logWithAudit(fsFactory, msg, WATCHDOG_AUDIT_EVENTS.CLEANUP_FAILED, `message=${audit.message(msg)}`);
     });
     const daemonEntryPath = resolveDaemonEntry(fsFactory(process.cwd()));
     const pid = await pm.spawn(MOTION_CLAW_ID, {
@@ -172,7 +174,8 @@ async function restartMotionIfDown(
       cwd: getWorkspaceRoot(),
     });
     log(fsFactory, `[watchdog] motion restarted (PID=${pid})`);
-    audit.write(PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_SPAWNED, MOTION_CLAW_ID, `pid=${pid}`);
+    // phase 716: raw MOTION_CLAW_ID 加 claw= prefix、与 spawn.ts:351 同 event 形态对齐
+    audit.write(PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_SPAWNED, `claw=${MOTION_CLAW_ID}`, `pid=${pid}`);
     return { newBackoff: baseInterval, newFailures: 0 };
   } catch (err) {
     if (err instanceof LockConflictError) {
@@ -183,7 +186,8 @@ async function restartMotionIfDown(
     }
     const newFailures = failures + 1;
     const newBackoff = Math.min(baseInterval * Math.pow(2, newFailures - 1), maxBackoff);
-    audit.write(PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_SPAWN_FAILED, MOTION_CLAW_ID, `error=${formatErr(err)}`);
+    // phase 716: raw MOTION_CLAW_ID 加 claw= prefix、与 spawn.ts:370 同 event 形态对齐
+    audit.write(PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_SPAWN_FAILED, `claw=${MOTION_CLAW_ID}`, `error=${formatErr(err)}`);
     log(fsFactory, `[watchdog] FAILED to restart motion (failure #${newFailures}): ${err}`);
     return { newBackoff, newFailures };
   }
@@ -266,16 +270,24 @@ export async function runWatchdogLoop(
         }
       } catch (err) {
         if (!isFileNotFound(err)) {
+          // phase 697: 加 dir col、与 phase 696 SUBSCRIPTION_DIR_LIST_FAILED + ARCHIVE_DIR_FAILED 对齐
           auditWriter.write(
             WATCHDOG_AUDIT_EVENTS.CLAWS_DIR_LIST_FAILED,
             `ctx=watchdog_tick`,
+            `dir=${CLAWS_DIR}`,
             `error=${formatErr(err)}`,
           );
         }
         // ENOENT after existsSync = race（合法）/ 其他错 audit / treat as empty（下 tick 重试）
       }
     }
-    auditWriter.write(WATCHDOG_AUDIT_EVENTS.WATCHDOG_CHECK, `alive=${aliveIds.join(',')} present=${presentClawIds.join(',')}`);
+    // phase 690: 拆 alive + present 为两独立 col、修 audit.tsv tab-分隔下单 col 含两 key=value
+    // 解析失真（按 = 拆时第 2 key=value 被吞入首 col 的 value）
+    auditWriter.write(
+      WATCHDOG_AUDIT_EVENTS.WATCHDOG_CHECK,
+      `alive=${aliveIds.join(',')}`,
+      `present=${presentClawIds.join(',')}`,
+    );
 
     const intervalMs = getGlobalConfig(fsFactory).watchdog.interval_ms;
     let nextSleepMs: number;
@@ -285,6 +297,12 @@ export async function runWatchdogLoop(
       if (status.alive) {
         // motion 莫名活过来了（手动重启）→ 解 circuit-open、回 normal mode
         log(fsFactory, '[watchdog] motion is alive again, reopening circuit');
+        // phase 723: 加 audit emit 锚 GAVE_UP→reopen transition、forensic silent recovery
+        auditWriter.write(
+          WATCHDOG_AUDIT_EVENTS.WATCHDOG_CIRCUIT_REOPENED,
+          `reason=motion_alive_again`,
+          `prev_failures=${motionRestartFailures}`,
+        );
         gaveUpOnMotion = false;
         motionRestartFailures = 0;
         nextSleepMs = intervalMs;

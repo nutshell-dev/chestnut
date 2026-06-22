@@ -51,9 +51,11 @@ export const writeTool: Tool = {
     try {
       args = WriteInputSchema.parse(rawArgs);
     } catch (err) {
+      // phase 695: 拆 tool + error 为两 col、与 phase 692 file-tool 同模式（write.ts 漏补）
       ctx.auditWriter?.write(
         FILE_TOOL_AUDIT_EVENTS.INPUT_VALIDATION_FAILED,
-        `tool=write error=${formatErr(err)}`,
+        `tool=write`,
+        `error=${formatErr(err)}`,
       );
       return {
         success: false,
@@ -85,9 +87,11 @@ export const writeTool: Tool = {
       if (exists) {
         const gate = await enforceFullReadGate(ctx, resolved, filePath);
         if (!gate.ok) {
+          // phase 695: 拆 path + reason 为两 col、与 phase 690-694 同模式
           ctx.auditWriter?.write(
             FILE_TOOL_AUDIT_EVENTS.OVERWRITE_GATE_REJECTED,
-            `path=${resolved} reason=${gate.reason}`,
+            `path=${resolved}`,
+            `reason=${gate.reason}`,
           );
           return {
             success: false,

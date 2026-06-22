@@ -149,10 +149,11 @@ describe('ContractSystem - lock retry (phase 1351 split)', () => {
         (c: any[]) => c[0] === 'contract_lock_unlink_failed'
       );
       expect(unlinkFailedCalls.length).toBeGreaterThan(0); // at least 1; exact count is retry-dependent
-      // 参数：type, reason, error
-      expect(unlinkFailedCalls[0][1]).toBe(`reason=stale_pid_${deadPid}`);
-      expect(unlinkFailedCalls[0][2]).toContain('error=');
-      expect(unlinkFailedCalls[0][2]).toContain('permission denied');
+      // phase 721: src caller 加 path col、cols 顺序 [path, reason, error]
+      expect(String(unlinkFailedCalls[0][1])).toContain('path=');
+      expect(unlinkFailedCalls[0][2]).toBe(`reason=stale_pid_${deadPid}`);
+      expect(unlinkFailedCalls[0][3]).toContain('error=');
+      expect(unlinkFailedCalls[0][3]).toContain('permission denied');
     } finally {
       unlinkSpy.mockRestore();
     }

@@ -208,7 +208,8 @@ export async function reconcileFallbackDumps(fs: FileSystem): Promise<void> {
           }
           // phase 1380: drop metadata audit emit per origin
           if (dropMeta && dropMeta.since > 0) {
-            const dropLine = `audit_fallback_dropped\tdrop_count=${dropMeta.since}\tdrop_count_total=${dropMeta.total}\tfirst_drop_ts=${dropMeta.first}\tlast_drop_ts=${dropMeta.last}\n`;
+            // phase 689: 加 origin= 第 1 col、forensic 解析时无需依赖写入文件位置反推 origin
+            const dropLine = `audit_fallback_dropped\torigin=${origin}\tdrop_count=${dropMeta.since}\tdrop_count_total=${dropMeta.total}\tfirst_drop_ts=${dropMeta.first}\tlast_drop_ts=${dropMeta.last}\n`;
             try {
               await fs.appendSync(origin, dropLine);
               try { fs.syncSync(origin); } catch (_) { /* silent: fsync best-effort */ }

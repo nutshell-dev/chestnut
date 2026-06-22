@@ -103,16 +103,23 @@ export async function maybeCronClawInactivity(pm: ProcessManager, audit: AuditLo
     clawEntries = fs.listSync(CLAWS_DIR, { includeDirs: true }).filter(e => e.isDirectory);
   } catch (err) {
     if (!isFileNotFound(err)) {
+      // phase 697: 加 dir col、与 phase 696 SUBSCRIPTION_DIR_LIST_FAILED + ARCHIVE_DIR_FAILED 对齐
       audit.write(
         WATCHDOG_AUDIT_EVENTS.CLAWS_DIR_LIST_FAILED,
         `ctx=inactivity`,
+        `dir=${CLAWS_DIR}`,
         `error=${formatErr(err)}`,
       );
     }
     return;  // race / 其他错 = treat as no claws、下 tick 重试
   }
   const existingClawIds = new Set(clawEntries.map(entry => entry.name));
-  audit.write(WATCHDOG_AUDIT_EVENTS.CLAW_SCAN, `ctx=inactivity present=${[...existingClawIds].join(',')}`);
+  // phase 691: 拆 ctx + present 为两独立 col、与 phase 690 WATCHDOG_CHECK 同模式修正
+  audit.write(
+    WATCHDOG_AUDIT_EVENTS.CLAW_SCAN,
+    `ctx=inactivity`,
+    `present=${[...existingClawIds].join(',')}`,
+  );
   pruneStaleMapEntries(clawStateAPI.lastInactivityNotified, existingClawIds);
   pruneStaleMapEntries(clawStateAPI.inactivityNotifyCount, existingClawIds);
 
@@ -197,16 +204,23 @@ export function maybeCronClawCrash(pm: ProcessManager, audit: AuditLog, fsFactor
     clawEntries = fs.listSync(CLAWS_DIR, { includeDirs: true }).filter(e => e.isDirectory);
   } catch (err) {
     if (!isFileNotFound(err)) {
+      // phase 697: 加 dir col、与 phase 696 SUBSCRIPTION_DIR_LIST_FAILED + ARCHIVE_DIR_FAILED 对齐
       audit.write(
         WATCHDOG_AUDIT_EVENTS.CLAWS_DIR_LIST_FAILED,
         `ctx=crash`,
+        `dir=${CLAWS_DIR}`,
         `error=${formatErr(err)}`,
       );
     }
     return;  // race / 其他错 = treat as no claws、下 tick 重试
   }
   const existingClawIds = new Set(clawEntries.map(entry => entry.name));
-  audit.write(WATCHDOG_AUDIT_EVENTS.CLAW_SCAN, `ctx=crash present=${[...existingClawIds].join(',')}`);
+  // phase 691: 拆 ctx + present 为两独立 col、与 phase 690 WATCHDOG_CHECK 同模式修正
+  audit.write(
+    WATCHDOG_AUDIT_EVENTS.CLAW_SCAN,
+    `ctx=crash`,
+    `present=${[...existingClawIds].join(',')}`,
+  );
   pruneStaleMapEntries(clawStateAPI.clawPreviouslyAlive, existingClawIds);
   pruneStaleMapEntries(clawStateAPI.everSpawned, existingClawIds);
   pruneStaleMapEntries(clawStateAPI.clawPreviouslyNotified, existingClawIds);

@@ -196,6 +196,8 @@ describe('EvolutionSystem state file dedupe', () => {
     expect(mockSchedule).toHaveBeenCalled();
     expect(auditSpy).toHaveBeenCalledWith(
       RETRO_AUDIT_EVENTS.STATE_LOAD_FAILED,
+      // phase 709: src 加 path col 第 1
+      expect.stringContaining('path='),
       expect.stringContaining('backup='),
       expect.stringContaining('move_ok=true'),
       expect.stringContaining('reason='),
@@ -219,6 +221,8 @@ describe('EvolutionSystem state file dedupe', () => {
     expect(mockSchedule).toHaveBeenCalled();
     expect(auditSpy).toHaveBeenCalledWith(
       RETRO_AUDIT_EVENTS.STATE_SAVE_FAILED,
+      // phase 710: src 加 path col 第 1
+      expect.stringContaining('path='),
       expect.stringContaining('reason='),
     );
   });

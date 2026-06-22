@@ -41,6 +41,9 @@ export const WATCHDOG_AUDIT_EVENTS = {
   WATCHDOG_CHECK: 'watchdog_check',
   // phase 324 H3: motion 连续 restart 失败触顶 → circuit-open、停 spawn
   WATCHDOG_GAVE_UP: 'watchdog_gave_up',
+  // phase 723: GAVE_UP 后 motion 莫名恢复（外部 supervisor 拉起 / 手动重启）→ 解 circuit-open
+  // 与 WATCHDOG_GAVE_UP 配对的 transition 锚点、forensic silent recovery 关键
+  WATCHDOG_CIRCUIT_REOPENED: 'watchdog_circuit_reopened',
   // phase 346 B3 (review-2026-06-13): PID-reuse 探测 / argv 不匹配 skip kill
   ORPHAN_SWEEP_PID_REUSE_SKIPPED: 'watchdog_orphan_sweep_pid_reuse_skipped',
   PID_REUSE_DETECTED: 'watchdog_pid_reuse_detected',
