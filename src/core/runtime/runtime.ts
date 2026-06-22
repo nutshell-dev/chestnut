@@ -45,7 +45,7 @@ import type { InboxReader, InboxEntry, InboxHandle, OutboxWriter } from '../../f
 import { ExecContextImpl } from '../../foundation/tools/index.js';
 import type { ExecContext } from '../../foundation/tools/index.js';
 import type { ToolRegistry, IToolExecutor } from '../../foundation/tools/index.js';
-import { createContextInjector, type ContextInjector } from '../dialog/index.js';
+import { createContextInjector, type ContextInjector } from '../l4_context_manager/injector.js';
 import type { ContractSystem } from '../contract/index.js';
 import type { AsyncTaskSystem } from '../async-task-system/index.js';
 import {

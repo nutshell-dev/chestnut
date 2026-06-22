@@ -16,7 +16,7 @@ import { Runtime } from './runtime.js';
 import { formatErr } from "../../foundation/utils/index.js";
 import { MOTION_CLAW_ID } from '../claw-topology/index.js';
 import type { RuntimeOptions } from './types.js';
-import type { ContextInjector } from '../dialog/index.js';
+import type { ContextInjector } from '../l4_context_manager/injector.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';

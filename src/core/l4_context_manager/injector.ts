@@ -1,12 +1,16 @@
 /**
+ * @module L4.ContextManager.Injector
+ *
  * ContextInjector - Injects fixed prefixes into conversation context
- * 
+ *
  * Injects (in order):
  * 1. AGENTS.md (system prompt base)
  * 2. MEMORY.md (persistent memory)
  * 3. Active contract summaries (if any)
  * 4. Skill metadata (if any)
  * 5. Tool definitions (via ToolRegistry - Phase 1)
+ *
+ * phase 685: 合并自 core/dialog/injector.ts（dialog→ContextManager 子模块）
  */
 
 import type { FileSystem } from '../../foundation/fs/index.js';
@@ -176,7 +180,7 @@ export class ContextInjector {
   async buildSystemPrompt(): Promise<string> {
     const parts = await this.buildParts();
     const sections: string[] = [];
-    
+
     if (parts.agents) sections.push(parts.agents);
     if (parts.memory) sections.push(parts.memory);
     if (parts.skills) sections.push(parts.skills);
