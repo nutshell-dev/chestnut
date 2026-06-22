@@ -12,10 +12,11 @@ import { getNamedSubrootDir } from '../../foundation/install-paths.js';
 import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import { CliError } from '../errors.js';
 import {
-  createAuditReader,
+  lookupContentByToolUseId,
+  DIALOG_DIR,
   type LookupResult,
   type LookupOptions,
-} from '../../foundation/audit/index.js';
+} from '../../foundation/dialog-store/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { assertNever } from '../../foundation/utils/index.js';
 
@@ -31,6 +32,9 @@ export async function auditLookupCommand(
   toolUseId: string,
   opts: AuditLookupOpts,
 ): Promise<void> {
+  // phase 682: caller 直 reach dialog-store/lookupContentByToolUseId、不走 audit reader facade。
+  // opts.file 字段保留为 CLI 表面兼容（不再读 audit、但 --file 仍可接受不报错）。
+  void opts.file;
   loadGlobalConfig(deps);
 
   const isMotion = opts.claw === MOTION_CLAW_ID;
@@ -40,19 +44,18 @@ export async function auditLookupCommand(
 
   const clawDir = isMotion ? getNamedSubrootDir(MOTION_CLAW_ID) : getClawDir(opts.claw);
   const fs = deps.fsFactory(clawDir);
-  const auditPath = path.join(clawDir, `${opts.file}.tsv`);
+  const dialogDir = path.join(clawDir, DIALOG_DIR);
 
   // Validate contentHash format if provided (8-char hex)
   if (opts.contentHash && !/^[0-9a-fA-F]{8}$/.test(opts.contentHash)) {
     throw new CliError('--content-hash must be 8-character hex');
   }
 
-  const reader = createAuditReader(fs, auditPath);
   const lookupOpts: LookupOptions = {
     contentHash: opts.contentHash,
   };
 
-  const result = reader.lookupContent(toolUseId, lookupOpts);
+  const result = lookupContentByToolUseId(fs, dialogDir, toolUseId, lookupOpts);
   emit(result, toolUseId, opts.json ?? false);
 
   // exit code strict semantics: 3 for unavailable

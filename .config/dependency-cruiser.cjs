@@ -947,10 +947,14 @@ module.exports = {
         'phase 520 删 src/constants.ts、MOTION_CLAW_ID 归位 core/claw-topology/motion-claw-id.ts、ClawId/makeClawId 走 foundation/identity、UUID_SHORT_LEN 内联 foundation/uuid.ts。',
         'ML#3 资源唯一归属：root-level shared constants 桶违反「Domain-specific constants belong in their owner modules」。',
         '本 rule 防 future drift 再加回 src/constants.ts。新常量应归各自语义 owner module。',
+        'phase 682: 修配置 bug — 原 L944-L962 把本 rule 与 no-assembly-to-cli-shared-formatter 错揉同 object literal、',
+        '后者同名字段覆盖前者所有 from/to/severity、致本 rule 完全失效。phase 682 拆成 2 独立 object 恢复。',
       ].join(' '),
       severity: 'error',
       from: { path: '^src' },
       to: { path: '^src/constants(\\.ts)?$' },
+    },
+    {
       name: 'no-assembly-to-cli-shared-formatter',
       comment: [
         'phase 540: formatClawStatusHint + formatNoActiveContractHint 已迁出 cli/commands/claw-shared 至 foundation/utils/claw-status-hints。',
@@ -959,6 +963,20 @@ module.exports = {
       severity: 'error',
       from: { path: '^src/assembly/' },
       to: { path: '^src/cli/commands/claw-shared\\.ts$' },
+    },
+    {
+      name: 'no-audit-to-dialog-store',
+      comment: [
+        'M#5 + L2a-L2b 应然分层：foundation/audit (L2a 事件日志底层) 不得 import',
+        'foundation/dialog-store (L2b dialog 业务存储、audit 下游消费者)。',
+        'phase 682 立 + 根治 phase 397/phase 147 §5.D ratify 的 audit/reader → dialog-store 反向边。',
+        '历史 ratify 把 audit→dialog-store/{dirs,lookup} 解释为「叶子直 reach 避 file 级 cycle」、',
+        '属技术防环、但根因 = 「audit 不该 reach dialog-store」的应然违反。',
+        'phase 682 拆 AuditReader.lookupContent facade + deriveDialogDir、caller 直 reach dialog-store。',
+      ].join(' '),
+      severity: 'error',
+      from: { path: '^src/foundation/audit/' },
+      to: { path: '^src/foundation/dialog-store/' },
     },
     {
       name: 'no-circular',

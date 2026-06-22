@@ -16,15 +16,6 @@ import * as path from 'path';
 import { tmpdir } from 'node:os';
 import * as nodeFs from 'node:fs';
 import type { FileSystem } from '../fs/index.js';
-import {
-  lookupContentByToolUseId,
-  type LookupResult,
-  type LookupOptions,
-} from '../dialog-store/lookup.js';
-import { DIALOG_DIR } from '../dialog-store/dirs.js';
-
-/** Compile-time brand field — prevents structural matching of mocks. */
-export type { LookupResult, LookupOptions };
 
 export interface AuditReader {
   readonly __brand: 'AuditReader';
@@ -44,14 +35,6 @@ export interface AuditReader {
 
   /** Stop active follow watcher. Idempotent. */
   close(): void;
-
-  /**
-   * Lookup full tool content via tool_use_id (phase 147 §5.D 4 级降级路径).
-   *
-   * Wrapper that delegates to dialog-store `lookupContentByToolUseId`.
-   * Reader does not own dialog content; dialog-store is SoT (M#3 + M#5).
-   */
-  lookupContent(toolUseId: string, options?: LookupOptions): LookupResult;
 }
 
 export interface AuditRecord {
@@ -103,12 +86,9 @@ export interface PendingFallbackDump {
 export function createAuditReader(
   fs: FileSystem,
   filePath: string,
-  options?: { dialogDir?: string },
 ): AuditReader {
   let closed = false;
   let watcher: ReturnType<typeof setInterval> | null = null;
-
-  const dialogDir = options?.dialogDir ?? deriveDialogDir(filePath);
 
   async function *read(opts: ReadOptions = {}): AsyncIterableIterator<AuditRecord> {
     if (!fs.existsSync(filePath)) return;
@@ -237,15 +217,7 @@ export function createAuditReader(
     read,
     follow,
     close,
-    lookupContent(toolUseId: string, lookupOpts?: LookupOptions): LookupResult {
-      return lookupContentByToolUseId(fs, dialogDir, toolUseId, lookupOpts);
-    },
   };
-}
-
-function deriveDialogDir(auditFilePath: string): string {
-  // audit filePath: <baseDir>/audit.tsv → dialogDir = <baseDir>/dialog
-  return path.join(path.dirname(auditFilePath), DIALOG_DIR);
 }
 
 function sleep(ms: number): Promise<void> {

@@ -64,6 +64,4 @@ export type {
   AuditRecord,
   ReadOptions,
   AuditFileInfo,
-  LookupResult,
-  LookupOptions,
 } from './reader.js';
