@@ -71,6 +71,14 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
     isFallback: boolean;
   } | null = null;
 
+  // phase 686: 「正在流的 provider」/ stream 中首 chunk yield 时设、generator 出口（finally）清
+  // 修 getProviderInfo 滞后一轮的 bug（failover 转换轮内本字段反映本轮 provider、非上一轮）
+  private currentStreamingProvider: {
+    name: string;
+    model: string;
+    isFallback: boolean;
+  } | null = null;
+
   // Circuit breakers for each provider (primary + fallbacks)
   private breakers: CircuitBreaker[];
 
@@ -391,6 +399,11 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
     // phase 991 B.4: skipped (breaker-open) provider 不计入 totalAttempted 分母
     let skippedCount = 0;
 
+    // phase 686: 跟踪上个失败 provider / 下个 provider 成功首 chunk 时 emit fallback_switched
+    // call() 与 stream() 对称（call 在 line 262 已 emit、stream 路径之前缺、本 phase 补）
+    let lastFailedProviderName: string | null = null;
+
+    try {
     for (let pi = 0; pi < providers.length; pi++) {
       if (options.signal?.aborted) throw makeExternalAbortError(options.signal.reason as AbortReason | undefined);
       const { adapter, breakerIndex } = providers[pi];
@@ -403,8 +416,11 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
         skippedCount++;
         failures.push({ provider: adapter.name, error: new Error('Circuit breaker open') });
         yield { type: 'provider_failed' as const, provider: adapter.name, model: adapter.model, error: 'Circuit breaker open' };
+        lastFailedProviderName = adapter.name;  // phase 686
         continue;
       }
+
+      let firstChunkAnnounced = false;  // phase 686: 本 provider 内 fallback_switched + currentStreamingProvider 只首 chunk 一次
 
 
       // Retry loop (aligns with call())
@@ -436,6 +452,20 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
           resetIdleTimer();
           for await (const chunk of adapter.stream(providerOptions)) {
             resetIdleTimer();
+            // phase 686: 首 chunk yield 前 emit fallback_switched + set currentStreamingProvider
+            if (!firstChunkAnnounced) {
+              firstChunkAnnounced = true;
+              if (lastFailedProviderName !== null && lastFailedProviderName !== adapter.name) {
+                this.events.emit({
+                  type: 'fallback_switched',
+                  from: lastFailedProviderName,
+                  to: adapter.name,
+                  reason: 'failover_succeeded',
+                });
+                lastFailedProviderName = null;
+              }
+              this.currentStreamingProvider = { name: adapter.name, model: adapter.model, isFallback: pi !== 0 };
+            }
             hasYielded = true;
             if (chunk.type === 'done') {
               if (chunk.stopReason && CONTEXT_EXCEEDED_STOP_REASONS.has(chunk.stopReason)) {
@@ -456,6 +486,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
           if (contextExceeded) {
             contextExceededCount++;
             midStreamReset = true;
+            lastFailedProviderName = adapter.name;  // phase 686
             break; // exit retry loop → outer loop continues to next provider
           }
 
@@ -504,6 +535,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
             lastError = new Error(
               `Idle timeout after ${options.streamIdleTimeoutMs}ms (probe failed: ${probe.error.message})`,
             );
+            lastFailedProviderName = adapter.name;  // phase 686
             break; // exit retry loop → outer loop continues to next provider
           }
 
@@ -519,6 +551,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
               ...(err instanceof LLMTimeoutError ? { timeoutMs: err.timeoutMs } : {}),
             };
             midStreamReset = true;
+            lastFailedProviderName = adapter.name;  // phase 686
             break; // exit retry loop → outer loop continues to next provider
           }
 
@@ -561,6 +594,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
         });
         failures.push({ provider: adapter.name, error: err });
         yield { type: 'provider_failed' as const, provider: adapter.name, model: adapter.model, error: err.message };
+        lastFailedProviderName = adapter.name;  // phase 686
         // Continue to next provider
       } else if (!midStreamReset) {
         // Circuit breaker: record failure
@@ -580,8 +614,14 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
         });
         failures.push({ provider: adapter.name, error: err });
         yield { type: 'provider_failed' as const, provider: adapter.name, model: adapter.model, error: err.message };
+        lastFailedProviderName = adapter.name;  // phase 686
         // Continue to next provider
       }
+    }
+    } finally {
+      // phase 686: generator 出口（success return / throw / consumer abort）一定清 currentStreamingProvider
+      // getProviderInfo 回落到 lastSuccessProvider（既有语义）
+      this.currentStreamingProvider = null;
     }
 
     // All providers failed
@@ -619,7 +659,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
     model: string;
     isFallback: boolean;
   } | null {
-    return this.lastSuccessProvider;
+    return this.currentStreamingProvider ?? this.lastSuccessProvider;
   }
   
   /**
