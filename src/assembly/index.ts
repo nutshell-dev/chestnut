@@ -20,3 +20,7 @@ export { disassemble } from './disassemble.js';
 // Note: CONFIG_DEFAULTS removed in phase 10 Step D (config decentralize)
 export { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
 
+// phase 693: SNAPSHOT_IGNORE_PATTERNS 归 Assembly 装配组装、各 owner module 声明自家 *_SNAPSHOT_IGNORE。
+// 与 architecture §29 严格一致。lint `no-deep-into-assembly-snapshot-patterns` 守 barrel-only。
+export { SNAPSHOT_IGNORE_PATTERNS } from './snapshot-patterns.js';
+

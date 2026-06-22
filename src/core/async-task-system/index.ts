@@ -23,6 +23,7 @@ export {
   TASKS_QUEUES_FAILED_DIR,
   TASKS_QUEUES_RESULTS_DIR,
   TASKS_SUBAGENTS_DIR,
+  TASK_SNAPSHOT_IGNORE,  // phase 693 Step B
 } from './dirs.js';
 
 export { writePendingToolTaskFile } from './tools/_pending-tool-task-writer.js';

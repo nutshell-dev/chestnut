@@ -16,7 +16,7 @@ import { Runtime } from '../../../src/core/runtime/index.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { AuditWriter } from '../../../src/foundation/audit/writer.js';
 import { Snapshot } from '../../../src/foundation/snapshot/index.js';
-import { SNAPSHOT_IGNORE_PATTERNS } from '../../../src/foundation/snapshot/index.js';
+import { SNAPSHOT_IGNORE_PATTERNS } from '../../../src/assembly/index.js';
 import { InboxReader } from '../../../src/foundation/messaging/index.js';
 import { createOutboxWriter } from '../../../src/foundation/messaging/index.js';
 import { OutboxWriter } from '../../../src/foundation/messaging/index.js';

@@ -9,8 +9,10 @@
  * foundation 真 owner (path 是基础设施、与 fs/identity 同层、与 ClawId brand 同 owner、
  * L6 Assembly 仅 inject 不 own)。
  *
- * sister phase 157 SNAPSHOT_IGNORE_PATTERNS 归 snapshot module own (M#3 + Philosophy
- * 「系统能自己做的就自己做好」同型真治模板)。
+ * 注：phase 157 ratify「SNAPSHOT_IGNORE_PATTERNS 归 snapshot module own」已被 phase 693 revert。
+ * SNAPSHOT_IGNORE_PATTERNS 现归 Assembly 装配组装（per architecture §29）、各 owner module 自家
+ * 声明 *_SNAPSHOT_IGNORE。phase 157 原论证「M#1 patterns 是 snapshot 业务概念」错位——
+ * patterns 内容是各 owner ephemeral 资源声明、Snapshot 持有 = 预设上层语义违反 M#5。
  */
 
 import type { FileSystem } from './fs/index.js';

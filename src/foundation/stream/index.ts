@@ -8,6 +8,12 @@
 
 export type { StreamEvent, StreamLog } from './types.js';
 export { STREAM_FILE } from './types.js';
+
+// phase 693 Step A: stream 模块声明自家 ephemeral 资源 ignore list (M#3 single owner)
+// Assembly 装配期 aggregate 各 owner 声明、注入 Snapshot ctor (per architecture §29)
+import { STREAM_FILE as _STREAM_FILE } from './types.js';
+export const STREAM_SNAPSHOT_IGNORE: readonly string[] = [_STREAM_FILE];
+
 export { StreamWriter } from './writer.js';
 export type { StreamReader } from './reader.js';
 export { createStreamReader, readAll } from './reader.js';

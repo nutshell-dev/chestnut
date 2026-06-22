@@ -49,6 +49,10 @@ vi.mock('../../src/foundation/audit/writer.js', () => ({
 vi.mock('../../src/foundation/snapshot/index.js', () => ({
   Snapshot: vi.fn(() => mockSnapshot),
   createSnapshot: vi.fn(() => mockSnapshot),
+}));
+
+// phase 693 Step C: SNAPSHOT_IGNORE_PATTERNS 迁 assembly/snapshot-patterns
+vi.mock('../../src/assembly/snapshot-patterns.js', () => ({
   SNAPSHOT_IGNORE_PATTERNS: ['.git', 'node_modules'],
 }));
 

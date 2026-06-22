@@ -23,7 +23,8 @@ import { CliError } from '../errors.js';
 import { Snapshot } from '../../foundation/snapshot/index.js';
 import { createDirContext } from '../../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
-import { SNAPSHOT_IGNORE_PATTERNS } from '../../foundation/snapshot/index.js';
+// phase 693 Step C: SNAPSHOT_IGNORE_PATTERNS 归 Assembly 装配组装、走 assembly barrel (CLI L6 → Assembly L6 barrel)
+import { SNAPSHOT_IGNORE_PATTERNS } from '../../assembly/index.js';
 import { CLAWS_DIR, CLAW_SPEC_FILE, CLAW_SOUL_FILE, CLAW_AUTH_POLICY_FILE, CLAW_HEARTBEAT_FILE } from '../../foundation/claw-paths.js';
 import { resolveDaemonEntry } from '../../assembly/spawn-entry.js';
 import { DAEMON_LOG } from '../../daemon/constants.js';

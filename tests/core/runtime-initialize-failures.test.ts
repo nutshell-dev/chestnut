@@ -21,7 +21,7 @@ import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { AuditWriter } from '../../src/foundation/audit/writer.js';
 import { DialogStore } from '../../src/foundation/dialog-store/index.js';
 import { Snapshot } from '../../src/foundation/snapshot/index.js';
-import { SNAPSHOT_IGNORE_PATTERNS } from '../../src/foundation/snapshot/index.js';
+import { SNAPSHOT_IGNORE_PATTERNS } from '../../src/assembly/index.js';
 import { InboxReader } from '../../src/foundation/messaging/index.js';
 import { createOutboxWriter } from '../../src/foundation/messaging/index.js';
 

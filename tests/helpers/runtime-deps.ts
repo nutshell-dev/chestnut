@@ -3,7 +3,7 @@ import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { AuditWriter } from '../../src/foundation/audit/writer.js';
 import type { AuditLog } from '../../src/foundation/audit/types.js';
 import { Snapshot } from '../../src/foundation/snapshot/index.js';
-import { SNAPSHOT_IGNORE_PATTERNS } from '../../src/foundation/snapshot/index.js';
+import { SNAPSHOT_IGNORE_PATTERNS } from '../../src/assembly/index.js';
 
 import { DialogStore, createDialogStore } from '../../src/foundation/dialog-store/index.js';
 import { InboxReader, OutboxWriter } from '../../src/foundation/messaging/index.js';

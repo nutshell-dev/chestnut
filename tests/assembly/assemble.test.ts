@@ -70,6 +70,11 @@ vi.mock('../../src/foundation/audit/writer.js', () => ({
 vi.mock('../../src/foundation/snapshot/index.js', () => ({
   Snapshot: vi.fn(() => mockSnapshot),
   createSnapshot: vi.fn(() => mockSnapshot),
+}));
+
+// phase 693 Step C: SNAPSHOT_IGNORE_PATTERNS 迁出 foundation/snapshot、归 assembly/snapshot-patterns。
+// mock 直接覆盖 aggregator 文件、避免触发 stream/audit/async-task 各 owner *_SNAPSHOT_IGNORE 的解析链。
+vi.mock('../../src/assembly/snapshot-patterns.js', () => ({
   SNAPSHOT_IGNORE_PATTERNS: ['.git', 'node_modules'],
 }));
 

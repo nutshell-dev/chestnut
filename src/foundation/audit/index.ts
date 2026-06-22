@@ -28,6 +28,12 @@ export { makeTraceId } from './types.js';
 import type { AuditLog } from './types.js';
 
 export { AuditWriter, AUDIT_FILE, reconcileFallbackDumps } from './writer.js';
+
+// phase 693 Step A: audit 模块声明自家 ephemeral 资源 ignore list (M#3 single owner)
+// Assembly 装配期 aggregate 各 owner 声明、注入 Snapshot ctor (per architecture §29)
+import { AUDIT_FILE as _AUDIT_FILE } from './writer.js';
+export const AUDIT_SNAPSHOT_IGNORE: readonly string[] = [_AUDIT_FILE];
+
 export { createDirContext } from './dir-context.js';
 import { DispatchingAuditWriter } from './dispatching-writer.js';
 export { DispatchingAuditWriter };
