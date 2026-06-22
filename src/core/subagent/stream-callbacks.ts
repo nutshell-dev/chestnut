@@ -32,6 +32,8 @@ export interface PrimitiveStreamCallbacks {
   onTextEnd: () => void;
   onToolCall: (name: string, toolUseId: ToolUseId) => void;
   onToolCallInput: (name: string, toolUseId: ToolUseId, args: Record<string, unknown>) => void;
+  /** phase 688: stream.jsonl 落 args body（catch 路径 drain 时也走此回调、API 输入不静默丢） */
+  onToolUseInput: (name: string, toolUseId: ToolUseId, input: Record<string, unknown>) => void;
   onToolResult: (
     name: string,
     toolUseId: ToolUseId,
@@ -90,6 +92,12 @@ export function createStreamCallbacks(opts: StreamCallbacksOptions): StreamCallb
       // args body 0 入 audit / dialog/current.json 是全文权威源 / CLI 凭 tool_use_id join.
       const argsSize = JSON.stringify(args).length;
       emitToolCallInput(opts.auditWriter, { name, toolUseId, argsSize, step: 0 });
+    },
+    onToolUseInput: (name, toolUseId, input) => {
+      // phase 688: args body 落 stream.jsonl（流式产物全文契约）。
+      // 与 onToolCallInput(audit only size) 互补：audit 仍只 index、stream.jsonl 才存 body。
+      // catch 路径 drain 时也走此回调，确保 LLM 流中已 parse 的 input 不被静默丢弃。
+      safeSwWrite({ ts: Date.now(), type: AGENT_STREAM_EVENTS.TOOL_USE_INPUT, name, tool_use_id: toolUseId, input });
     },
     onToolResult: (name, toolUseId, result, step, maxSteps) => {
       const content = result.content ?? '';

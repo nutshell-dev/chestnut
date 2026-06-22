@@ -78,6 +78,10 @@ export const RUNTIME_AUDIT_EVENTS = {
   LLM_RELOADED: 'runtime_llm_reloaded',
   LLM_RELOAD_FAILED: 'runtime_llm_reload_failed',
   LLM_RELOAD_SKIPPED: 'runtime_llm_reload_skipped',
+  // phase 688: catch 路径 partial assistant content 丢弃决策。
+  // γ 同源复制 with src/core/subagent/audit-events.ts PARTIAL_ASSISTANT_DISCARDED / 0 漂移。
+  // args body 已由 stream.jsonl tool_use_input event 落盘、本 audit 仅记决策索引。
+  PARTIAL_ASSISTANT_DISCARDED: 'partial_assistant_discarded',
 } as const;
 
 // phase 320: re-export reload message type const for callers that already import from this file
@@ -137,6 +141,7 @@ export const RUNTIME_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   runtime_inbox_nack_failed: 'audit',
   runtime_maybe_audit_step_failed: 'audit',
   runtime_turn_contract_id_cache_failed: 'audit',
+  partial_assistant_discarded: 'audit',  // phase 688
 } as const;
 
 export const RUNTIME_TOOL_EVENT_COLS: Readonly<Record<string, readonly ColSchemaEntry[]>> = {

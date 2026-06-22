@@ -13,6 +13,8 @@ export const AGENT_STREAM_EVENTS = {
   THINKING_DELTA: 'thinking_delta',
   TEXT_END: 'text_end',
   TOOL_CALL: 'tool_call',
+  // phase 688: tool_use args body 落 stream.jsonl（补 stream 流式产物全文契约、API 发来的 input 不被静默丢弃）
+  TOOL_USE_INPUT: 'tool_use_input',
   TOOL_RESULT: 'tool_result',
   TURN_END: 'turn_end',
   TURN_INTERRUPTED: 'turn_interrupted',

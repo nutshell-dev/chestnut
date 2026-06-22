@@ -14,7 +14,7 @@ import type { ToolDefinition } from '../../foundation/llm-provider/index.js';
 import { SUBAGENT_TIMEOUT_MS } from './constants.js';
 import type { Message } from '../../foundation/llm-provider/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
-import { SUBAGENT_AUDIT_EVENTS, REACT_LOOP_AUDIT_EVENTS } from './audit-events.js';
+import { SUBAGENT_AUDIT_EVENTS, REACT_LOOP_AUDIT_EVENTS, emitPartialAssistantDiscarded } from './audit-events.js';
 import { AGENT_STREAM_EVENTS } from '../agent-executor/index.js';
 import type { StreamLog } from '../../foundation/stream/index.js';
 import { type CallerType, callerTypeToProfile, CALLER_TYPE_TO_GROUPS } from '../caller-types.js';
@@ -261,6 +261,11 @@ export class SubAgent {
             await this.appendToLog(`Tool called: ${name}\n`);
           },
           onToolCallInput: stream.callbacks.onToolCallInput,
+          onToolUseInput: stream.callbacks.onToolUseInput,  // phase 688: stream.jsonl 落 args body
+          onPartialAssistantDiscarded: (info) => {
+            // phase 688: catch 路径 partial 丢弃决策 → audit 落「partial_assistant_discarded」
+            emitPartialAssistantDiscarded(this.auditWriter, { ...info, agentId: this.agentId });
+          },
           onToolResult: (name, toolUseId, result, step, maxSteps) => {
             commitTurnEvent({ kind: 'tool_result', name, toolUseId, result, step, maxSteps }, emitDeps);
           },

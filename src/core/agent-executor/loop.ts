@@ -37,6 +37,18 @@ export interface ReactOptions {
   onToolCall?: (toolName: string, toolUseId: ToolUseId) => void | Promise<void>;
   /** phase 1411: fires when tool args fully parsed (post-stream, pre-execute). See StepCallbacks.onToolCallInput. */
   onToolCallInput?: (toolName: string, toolUseId: ToolUseId, args: Record<string, unknown>) => void;
+  /** phase 688: fires inside flushToolUse (stream + catch drain). See StepCallbacks.onToolUseInput. */
+  onToolUseInput?: (toolName: string, toolUseId: ToolUseId, input: Record<string, unknown>) => void;
+  /** phase 688: fires in collector catch path after drain; carries discard 决策摘要. */
+  onPartialAssistantDiscarded?: (info: {
+    cause: 'all_providers_failed' | 'idle_timeout' | 'unknown';
+    toolUseCount: number;
+    hasText: boolean;
+    hasThinking: boolean;
+    startTs: number;
+    endTs: number;
+    errMessage: string;
+  }) => void;
   onBeforeLLMCall?: () => void;
   onToolResult?: (toolName: string, toolUseId: ToolUseId, result: ToolResult, step: number, maxSteps: number) => void;
   onStepComplete?: () => Promise<void>;
@@ -82,7 +94,7 @@ export async function runReact(options: ReactOptions): Promise<ReactResult> {
     maxConsecutiveMaxTokensToolUse,
     idleTimeoutMs,
     wallTimeDeadlineMs,
-    onToolCall, onToolCallInput, onBeforeLLMCall, onToolResult, onStepComplete,
+    onToolCall, onToolCallInput, onToolUseInput, onPartialAssistantDiscarded, onBeforeLLMCall, onToolResult, onStepComplete,
     tools = [],
     registry,
     onTextDelta, onTextEnd, onThinkingDelta,
@@ -102,6 +114,8 @@ export async function runReact(options: ReactOptions): Promise<ReactResult> {
     onThinkingDelta,
     onToolCall,
     onToolCallInput,
+    onToolUseInput,
+    onPartialAssistantDiscarded,
     onToolResult: onToolResult
       ? (name, toolUseId, result) => onToolResult(name, toolUseId, result, stepCount, maxSteps)
       : undefined,

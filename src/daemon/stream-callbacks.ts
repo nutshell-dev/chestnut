@@ -44,6 +44,10 @@ export function createStreamCallbacks(
     onToolCall: (name: string, toolUseId: ToolUseId) => {
       checkWrite({ ts: Date.now(), type: AGENT_STREAM_EVENTS.TOOL_CALL, name, tool_use_id: toolUseId });
     },
+    onToolUseInput: (name: string, toolUseId: ToolUseId, input: Record<string, unknown>) => {
+      // phase 688: API 收到的 args body 必落 stream.jsonl（catch 路径 drain 时也走此回调）
+      checkWrite({ ts: Date.now(), type: AGENT_STREAM_EVENTS.TOOL_USE_INPUT, name, tool_use_id: toolUseId, input });
+    },
     onToolResult: (name: string, toolUseId: ToolUseId, result: { success: boolean; content: string }, step: number, maxSteps: number) => {
       const STREAM_SUMMARY_MAX_CHARS = 500;
       const summary = clipText(result.content, STREAM_SUMMARY_MAX_CHARS);

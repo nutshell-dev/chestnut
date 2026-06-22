@@ -548,6 +548,7 @@
       "turn_interrupted",
       "turn_start",
       "guidance_composer_failed",
+      "partial_assistant_discarded",
       "runtime_llm_reloaded",
       "runtime_llm_reload_failed",
       "runtime_llm_reload_skipped"
@@ -576,6 +577,7 @@
       "llm_call",
       "llm_error",
       "mark_crashed_failed",
+      "partial_assistant_discarded",
       "subagent_artifact_cross_source_mismatch",
       "subagent_artifact_cross_source_skipped",
       "subagent_done_tool_duplicate_call",

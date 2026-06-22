@@ -43,6 +43,30 @@ export interface StepCallbacks {
    * (amended-by phase 1411).
    */
   onToolCallInput?: (toolName: string, toolUseId: ToolUseId, args: Record<string, unknown>) => void;
+  /**
+   * phase 688: fires inside flushToolUse / finalizeContent when args parse succeeds.
+   * Distinct from onToolCallInput (post-stream, pre-execute, audit-only args_size index).
+   * onToolUseInput is the stream.jsonl emit point for the **args body**, restoring
+   * stream.jsonl 流式产物全文契约（既有 text_delta / thinking_delta 已落 body、tool_use 仍漏）。
+   * 失败 parse 分支不 fire（占位 tool_use input={} 已由 phase 1282 既有路径处理）。
+   * 正常成功路径 + 异常 catch 路径 drain 都走此回调（API 发来的 input 必落盘、不被静默丢弃）。
+   */
+  onToolUseInput?: (toolName: string, toolUseId: ToolUseId, input: Record<string, unknown>) => void;
+  /**
+   * phase 688: catch 路径丢弃 partial assistant content（含 in-flight tool_use + text + thinking）
+   * 这一**决策动作**的可观测点。args body 已由 onToolUseInput 落 stream.jsonl、本回调只载决策摘要。
+   * cause = 丢弃原因分类（与 classifyLLMError 互补、聚焦 collector catch 触发场景）。
+   * 不传 tool_use_id 列表（audit 不膨胀、CLI 凭 trace_id + ts_range join stream.jsonl）。
+   */
+  onPartialAssistantDiscarded?: (info: {
+    cause: 'all_providers_failed' | 'idle_timeout' | 'unknown';
+    toolUseCount: number;
+    hasText: boolean;
+    hasThinking: boolean;
+    startTs: number;
+    endTs: number;
+    errMessage: string;
+  }) => void;
   onToolResult?: (toolName: string, toolUseId: ToolUseId, result: ToolResult) => void;
   onReset?: (provider: string, timeoutMs: number) => void;
   onProviderFailed?: (provider: string, model: string, error: string) => void;

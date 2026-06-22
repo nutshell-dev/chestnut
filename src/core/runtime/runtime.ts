@@ -743,6 +743,23 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
           onThinkingDelta: (d) => { emitProviderInfoOnce(); callbacks?.onThinkingDelta?.(d); },
           onToolCall: (n, id) => commitTurnEvent({ kind: 'tool_call', name: n, toolUseId: id }, emitDeps),
           onToolCallInput: auditOnToolCallInput,
+          // phase 688: API 收到的 args body 落 stream.jsonl（daemon callback 已实现 onToolUseInput、此处仅透传）
+          // 与 onToolCallInput（audit-only size index）互补、不重复 audit。
+          onToolUseInput: callbacks?.onToolUseInput,
+          // phase 688: catch 路径 partial 丢弃决策 → runtime audit 落「partial_assistant_discarded」
+          onPartialAssistantDiscarded: (info) => {
+            this.auditWriter.write(
+              RUNTIME_AUDIT_EVENTS.PARTIAL_ASSISTANT_DISCARDED,
+              `cause=${info.cause}`,
+              `tool_use_count=${info.toolUseCount}`,
+              `has_text=${info.hasText}`,
+              `has_thinking=${info.hasThinking}`,
+              `ts_range=${info.startTs}-${info.endTs}`,
+              `trace_id=${String(this.execContext.trace_id ?? '')}`,
+              `contract_id=${cachedTurnContractId}`,
+              `err=${this.auditWriter.message(info.errMessage)}`,
+            );
+          },
           onToolResult: (name, toolUseId, result, step, maxSteps) => {
             const content = result.content ?? '';
             const preview = this.auditWriter.summary(content);

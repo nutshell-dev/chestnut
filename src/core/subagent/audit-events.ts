@@ -29,7 +29,37 @@ export const SUBAGENT_AUDIT_EVENTS = {
   SUBAGENT_ARTIFACT_CROSS_SOURCE_SKIPPED: 'subagent_artifact_cross_source_skipped',
   // phase 337 M5 (review-2026-06-13): done tool 二次调被拒、防 LLM 自相矛盾 result 静默覆盖。
   DONE_TOOL_DUPLICATE_CALL: 'subagent_done_tool_duplicate_call',
+  // phase 688: catch 路径 partial assistant content 丢弃决策可观测。
+  // args body 已由 stream.jsonl tool_use_input event 落盘、本 audit 仅记决策索引。
+  // 不入 tool_use_id 列表（CLI 凭 trace_id + ts 范围 join stream.jsonl）。
+  PARTIAL_ASSISTANT_DISCARDED: 'partial_assistant_discarded',
 } as const;
+
+export type PartialAssistantDiscardCause = 'all_providers_failed' | 'idle_timeout' | 'unknown';
+
+export interface PartialAssistantDiscardInfo {
+  cause: PartialAssistantDiscardCause;
+  toolUseCount: number;
+  hasText: boolean;
+  hasThinking: boolean;
+  startTs: number;
+  endTs: number;
+  errMessage: string;
+}
+
+export function emitPartialAssistantDiscarded(audit: AuditLog, opts: PartialAssistantDiscardInfo & { traceId?: string; agentId?: string }): void {
+  audit.write(
+    SUBAGENT_AUDIT_EVENTS.PARTIAL_ASSISTANT_DISCARDED,
+    `cause=${opts.cause}`,
+    `tool_use_count=${opts.toolUseCount}`,
+    `has_text=${opts.hasText}`,
+    `has_thinking=${opts.hasThinking}`,
+    `ts_range=${opts.startTs}-${opts.endTs}`,
+    `trace_id=${opts.traceId ?? ''}`,
+    `agent_id=${opts.agentId ?? ''}`,
+    `err=${audit.message(opts.errMessage)}`,
+  );
+}
 
 export function emitToolCallInput(audit: AuditLog, opts: {
   name: string;
@@ -90,4 +120,5 @@ export const SUBAGENT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   subagent_artifact_cross_source_mismatch: 'audit',
   subagent_artifact_cross_source_skipped: 'audit',
   mark_crashed_failed: 'audit',  // NEW (synced phase 272 Step E)
+  partial_assistant_discarded: 'audit',  // phase 688 NEW
 } as const;
