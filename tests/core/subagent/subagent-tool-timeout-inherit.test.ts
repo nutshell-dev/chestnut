@@ -66,6 +66,7 @@ function makeRunSubagentOpts(overrides: { toolTimeoutMs?: number } = {}) {
     prompt: 'test',
     systemPrompt: 'system',
     resultDir: '/tmp/test/result',
+    syncDir: '/tmp/test/tasks/sync',
     maxSteps: 5,
     ...overrides,
   };

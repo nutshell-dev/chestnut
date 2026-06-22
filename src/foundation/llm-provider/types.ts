@@ -6,7 +6,7 @@
  */
 
 import type { ApiFormat } from './presets.js';
-import type { ToolUseId } from '../tool-protocol/tool-use-id.js';
+import type { ToolUseId } from './tool-use-id.js';
 import type { AuditLog } from '../audit/types.js';
 export type { AuditLog } from '../audit/types.js';
 

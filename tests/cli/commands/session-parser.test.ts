@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { parseMessagesFromSession } from '../../../src/cli/commands/session-parser.js';
 import type { Message, TextBlock, ToolUseBlock, ToolResultBlock, ThinkingBlock } from '../../../src/foundation/llm-provider/types.js';
-import { makeToolUseId } from '../../../src/foundation/tool-protocol/tool-use-id.js';
+import { makeToolUseId } from '../../../src/foundation/llm-provider/tool-use-id.js';
 
 function text(text: string): TextBlock {
   return { type: 'text', text };

@@ -7,7 +7,7 @@ import {
   lookupContentByToolUseId,
   type LookupResult,
 } from '../../../src/foundation/dialog-store/lookup.js';
-import { makeToolUseId } from '../../../src/foundation/tool-protocol/tool-use-id.js';
+import { makeToolUseId } from '../../../src/foundation/llm-provider/tool-use-id.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 
 function makeFs(entries: Record<string, string | { size: number; isDirectory?: boolean }>): FileSystem {

@@ -16,7 +16,8 @@ import {
   emitHandlerFailed,
   emitResultDeliveryFailed,
 } from './audit-emit.js';
-import { TASKS_QUEUES_RESULTS_DIR, TASKS_SUBAGENTS_DIR } from './dirs.js';
+import { TASKS_QUEUES_RESULTS_DIR, TASKS_SUBAGENTS_DIR, TASKS_SYNC_DIR } from './dirs.js';
+import * as nodePath from 'path';
 
 import { buildSubagentSystemPrompt, DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../../templates/prompts/index.js';
 import { sendResult, sendFallbackError } from './result-delivery.js';
@@ -162,6 +163,7 @@ export async function executeSubAgentTask(
       prompt: task.mode === 'shadow' ? '' : task.intent,
       systemPrompt: task.shadowSystemPrompt ?? finalSystemPrompt,
       resultDir: taskResultDir,
+      syncDir: nodePath.join(clawDir, TASKS_SYNC_DIR),
       maxSteps: task.maxSteps,
       signal: compositeSignal,
       toolsForLLM,

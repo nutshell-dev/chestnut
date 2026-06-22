@@ -26,6 +26,8 @@ import { createToolRegistry } from '../../foundation/tools/index.js';
 import { ToolTimeoutError } from '../../foundation/errors.js';
 import { TASKS_SYNC_SUBAGENT_DIR } from '../subagent/index.js';
 import { TASKS_SUBAGENTS_DIR } from '../subagent/index.js';
+// phase 691 Step C: deep import dirs.ts leaf (避 barrel 触发 contract↔async-task 已有 type 链 cycle)
+import { TASKS_SYNC_DIR } from '../async-task-system/dirs.js';
 import { buildSubagentSystemPrompt, CONTRACT_VERIFIER_SYSTEM_PROMPT } from '../../templates/prompts/index.js';
 import type { VerifierConfig, VerifierResult } from './types.js';
 
@@ -144,6 +146,7 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
         systemPrompt: CONTRACT_VERIFIER_SYSTEM_PROMPT,
       }),
       resultDir: `${TASKS_SYNC_SUBAGENT_DIR}/${config.agentId}`,
+      syncDir: path.join(config.clawDir, TASKS_SYNC_DIR),
       maxSteps: config.maxSteps,
       idleTimeoutMs: config.idleTimeoutMs,
       onIdleTimeout: config.onIdleTimeout,

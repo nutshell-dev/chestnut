@@ -42,6 +42,11 @@ export {
 } from './token-estimator.js';
 export type { InputTokenEstimateOptions, InputTokenEstimate } from './token-estimator.js';
 
+// phase 691 Step A: ToolUseId 物理位置从 tool-protocol（L2b）迁回 L1 LLMProvider canonical owner
+// SoT: Anthropic LLM protocol (tool_use block id) — 与 L1 protocol primitive 同语义层
+export type { ToolUseId } from './tool-use-id.js';
+export { makeToolUseId } from './tool-use-id.js';
+
 /**
  * LLMProvider interface — single provider call primitive
  *

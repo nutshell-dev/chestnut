@@ -4,6 +4,52 @@
  * cross-ref: phase 1283 + 1291 + 1295 fs cluster
  */
 
+/**
+ * ============================================================
+ * Policy: forbidden rule + allowlist 治理 (phase 691 立)
+ * ============================================================
+ *
+ * 新增 `pathNot` allowlist 例外必须满足：
+ *   (a) PR / phase 号显式记录、design ratify 引用
+ *   (b) 归属下列合法分类之一：
+ *       - SDK 顶层 re-export（`src/index.ts`、公共 SDK 表面边界）
+ *       - Assembly bootstrap（`src/assembly/{assemble,core-infrastructure,...}.ts`、L6 装配胶水）
+ *       - Sister-direct（同 dir 内 _helpers / sibling、合法内部协作）
+ *   (c) **禁止「防 cycle 类」技术豁免**——
+ *       即「走 barrel 会形成 no-circular 违反、保 sibling-direct 避环」类理由。
+ *       这类 cycle 是 M#5 应然违反（模块依赖非单向、底层预设上层语义）、
+ *       应启 M#11 重构（拆分层、迁 const 归属、DI 反向 dep）
+ *       而不是在 allowlist 里 ratify「sibling-direct 永久可用」。
+ *
+ * **治理判例**：
+ *   - phase 682：撤「audit→dialog-store/{dirs,lookup} 防 cycle」allowlist、
+ *     立 `no-audit-to-dialog-store` 反向 forbid rule、彻底封反向边。
+ *   - phase 691：撤 3 处「防 cycle 类」allowlist 并 M#11 真治：
+ *       • `no-deep-into-tool-use-id` rule + allowlist 撤
+ *         → ToolUseId 物理 file 从 tool-protocol (L2b) 迁回 llm-provider (L1)
+ *           canonical owner、L2b→L1 单向、cycle 自然消。
+ *       • `no-deep-into-dialog-store-dirs` 撤 audit/reader allowlist
+ *         → 实测 audit/ 0 处 reference DIALOG_DIR、allowlist 是死项、
+ *           phase 682 反向 forbid rule 已彻底封。
+ *       • `no-deep-into-subagent-constants` 撤 async-task/dirs allowlist
+ *         → subagent/run 不再 import async-task (M#5 单向真守)、
+ *           syncDir 改 caller DI、cycle 在 M#5 根处治。
+ *
+ * **失败模式语义线索（attention 触发字面）**：
+ *   - 「走 barrel 会形成循环」
+ *   - 「保 sibling-direct 防环」
+ *   - 「叶子直 reach 避 file 级 cycle」
+ *   - 「技术防环」
+ *   - 「同型 audit←dialog-store 防环」
+ *   见以上字面 → 立动作 = 不加 allowlist、改起 M#11 重构 phase。
+ *
+ * **rule 增 / 改 / 删流程**：
+ *   - 增 rule：检查是否可由现有 rule 覆盖、避免规则碎片化
+ *   - 改 allowlist：附 phase 号 + 合法分类 justification、不依「防 cycle 类」理由
+ *   - 删 rule：file 物理迁移后 target path 失效则撤、保留治理日志
+ * ============================================================
+ */
+
 /** @type {import('dependency-cruiser').IConfiguration} */
 module.exports = {
   forbidden: [
@@ -303,10 +349,10 @@ module.exports = {
         'phase 1432 F6 立、treat finding F6 dialog-store/dirs ⏳ → ✅。',
         'allowlist (by-design):',
         '  - src/assembly/assemble.ts: 装配根 bootstrap、L6 装配胶水允许 deep import L2 internal。',
-        '  - src/foundation/audit/reader.ts: dialog-store/store.ts → validate.ts → audit/index.ts → reader.ts',
-        '    存在的 audit ← dialog-store 已有依赖链，若 reader 走 dialog-store/index.ts barrel 会形成',
-        '    no-circular 违反（reader → dialog-store/index → store → validate → audit）。仅需 DIALOG_DIR',
-        '    路径常量、直 import dirs.ts 叶子 const file 避免 import 环，phase 397 立。',
+        'phase 691 Step B 撤 src/foundation/audit/reader.ts allowlist：',
+        '原 allowlist 理由是「audit/reader 走 dialog-store/index barrel 会形成 no-circular 违反」、',
+        '属「防 cycle 类技术豁免」。实测 audit/ 0 处 reference DIALOG_DIR、allowlist 死。',
+        'phase 682 立 no-audit-to-dialog-store 已彻底封 audit→dialog-store 反向边、双 rule 形成闭环。',
       ].join(' '),
       severity: 'error',
       from: {
@@ -314,7 +360,6 @@ module.exports = {
         pathNot: [
           '^src/foundation/dialog-store/',
           '^src/assembly/assemble\\.ts$',
-          '^src/foundation/audit/reader\\.ts$',
         ],
       },
       to: { path: '^src/foundation/dialog-store/dirs\\.ts$' },
@@ -445,29 +490,10 @@ module.exports = {
       },
       to: { path: '^src/foundation/tool-protocol/permission\\.ts$' },
     },
-    {
-      name: 'no-deep-into-tool-use-id',
-      comment: [
-        'M#7 + M#9 — foundation/tool-protocol/tool-use-id.ts barrel-only。',
-        '跨模块 caller 走 tool-protocol/index.ts barrel、不深穿 tool-use-id.ts。',
-        'phase 459 立、F4 deep import target (3 caller、foundation sister direct) 收口。',
-        'allowlist:',
-        '  - tool-protocol 自家',
-        '  - src/index.ts SDK 顶层',
-        '  - foundation/llm-provider/types.ts: tool-protocol/index.ts import llm-provider/types',
-        '    走 barrel 会形成循环、保 sibling-direct（phase 1312 ratify 同型 audit←dialog-store 防环 phase 397）。',
-      ].join(' '),
-      severity: 'error',
-      from: {
-        path: '^src',
-        pathNot: [
-          '^src/foundation/tool-protocol/',
-          '^src/index\\.ts$',
-          '^src/foundation/llm-provider/types\\.ts$',
-        ],
-      },
-      to: { path: '^src/foundation/tool-protocol/tool-use-id\\.ts$' },
-    },
+    // phase 691 Step A: rule `no-deep-into-tool-use-id` 撤
+    // 理由：tool-use-id.ts 物理 file 已迁到 llm-provider/、target path 不存在、rule 失目标。
+    // 原 allowlist 是「llm-provider/types 走 barrel 形成循环」类防 cycle 豁免、
+    // 真治 = M#11 重构（迁 ToolUseId 归 L1 canonical owner）、不再需要 allowlist。
     {
       name: 'no-deep-into-identity-step-number',
       comment: [
@@ -510,10 +536,11 @@ module.exports = {
         'M#7 + M#9 — core/subagent/constants.ts barrel-only。',
         '跨模块 caller (cli/, core/) 走 subagent/index.ts barrel。',
         'phase 463 立、F4 deep import target (3 cross-module caller) 收口。',
-        'allowlist:',
-        '  - subagent 自家 + src/index.ts SDK',
-        '  - core/async-task-system/dirs.ts: 走 subagent barrel 会形成 dirs ↔ subagent/run 循环',
-        '    保 sibling-direct（同型 phase 397 audit←dialog-store 防环）。',
+        'phase 691 Step C 撤 async-task-system/dirs.ts allowlist：',
+        '原 allowlist 理由「走 subagent barrel 形成 dirs↔subagent/run 循环」是「防 cycle 类技术豁免」、',
+        '真治 = subagent/run 不再 import async-task (M#5 单向)、syncDir 改 caller DI、cycle 自然消、',
+        'async-task/dirs 改走 subagent/index barrel。',
+        'allowlist: subagent 自家 + src/index.ts SDK。',
       ].join(' '),
       severity: 'error',
       from: {
@@ -521,7 +548,6 @@ module.exports = {
         pathNot: [
           '^src/core/subagent/',
           '^src/index\\.ts$',
-          '^src/core/async-task-system/dirs\\.ts$',
         ],
       },
       to: { path: '^src/core/subagent/constants\\.ts$' },

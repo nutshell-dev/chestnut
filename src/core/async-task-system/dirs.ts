@@ -13,4 +13,5 @@ export const TASKS_QUEUES_DONE_DIR = 'tasks/queues/done' as const;
 export const TASKS_QUEUES_FAILED_DIR = 'tasks/queues/failed' as const;
 export const TASKS_QUEUES_RESULTS_DIR = 'tasks/queues/results' as const;
 export const TASKS_SYNC_DIR = 'tasks/sync' as const;
-export { TASKS_SUBAGENTS_DIR } from '../subagent/constants.js';
+// phase 691 Step C: 改走 subagent barrel（cycle 已治、L3 SubAgent 不再反向 import L4 AsyncTaskSystem）
+export { TASKS_SUBAGENTS_DIR } from '../subagent/index.js';

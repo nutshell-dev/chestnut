@@ -45,11 +45,13 @@ export interface ToolResult {
 }
 
 // ============================================================================
-// phase 1358: ToolUseId branded type (compile-time ID discrimination)
+// phase 1358 立、phase 691 Step A 迁源：ToolUseId 物理 file 从 tool-protocol/tool-use-id.ts
+// 迁到 llm-provider/tool-use-id.ts（canonical owner per declared SoT）、本 barrel re-export 保
+// backward compat 表面、外部 caller 0 改动。
 // ============================================================================
 
-export type { ToolUseId } from './tool-use-id.js';
-export { makeToolUseId } from './tool-use-id.js';
+export type { ToolUseId } from '../llm-provider/index.js';
+export { makeToolUseId } from '../llm-provider/index.js';
 
 // ============================================================================
 // phase 457: PermissionChecker barrel re-export (M#7 接口稳定 / barrel-only)

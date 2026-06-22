@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { makeToolUseId, type ToolUseId } from '../../../src/foundation/tool-protocol/tool-use-id.js';
+import { makeToolUseId, type ToolUseId } from '../../../src/foundation/llm-provider/tool-use-id.js';
 
 describe('ToolUseId brand (phase 140 Step B)', () => {
   it('makeToolUseId returns a branded string', () => {
