@@ -54,9 +54,11 @@ export async function contractCreateFromDirCommand(
     });
   } catch (err) {
     if (err instanceof ContractCreatePolicyViolationError) {
+      // phase 687 Step E (audit T3.11): err.details 传给 CliError ctor 是类型混淆 (ctor 只读 options.cause/code)、
+      // 真传 { cause: err }；details 通过 (cause as PolicyViolationError).details 仍可访问
       throw new CliError(
         `Contract create rejected by policy '${err.policyName}': ${err.cause}`,
-        err.details,
+        { cause: err },
       );
     }
     throw err;

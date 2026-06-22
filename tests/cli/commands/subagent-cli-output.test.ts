@@ -82,20 +82,22 @@ describe('subagent-list', () => {
     consoleErrSpy.mockRestore();
   });
 
+  // phase 687 Step B (audit T2.11): subagentListCommand 删 outer try/catch、CliError 让外层 withCliErrorHandling 接
+  // 测试名「throws CliError」原与 body 不符（旧行为内部 catch 转 console.error 输出）；新行为真 throw、断言改 rejects.toThrow 对齐名字
   it('--from garbage throws CliError (反向: NaN guard mirror --limit, phase 954)', async () => {
     vi.mocked(fs.existsSync).mockReturnValue(true);
 
-    await subagentListCommand({ fsFactory }, { claw: 'test-claw', from: 'garbage' });
-
-    expect(consoleErrSpy).toHaveBeenCalledWith(expect.stringContaining('--from must be a valid date'));
+    await expect(
+      subagentListCommand({ fsFactory }, { claw: 'test-claw', from: 'garbage' })
+    ).rejects.toThrow('--from must be a valid date');
   });
 
   it('--to garbage throws CliError (反向: NaN guard mirror --limit, phase 954)', async () => {
     vi.mocked(fs.existsSync).mockReturnValue(true);
 
-    await subagentListCommand({ fsFactory }, { claw: 'test-claw', to: 'not-a-date' });
-
-    expect(consoleErrSpy).toHaveBeenCalledWith(expect.stringContaining('--to must be a valid date'));
+    await expect(
+      subagentListCommand({ fsFactory }, { claw: 'test-claw', to: 'not-a-date' })
+    ).rejects.toThrow('--to must be a valid date');
   });
 });
 

@@ -6,6 +6,7 @@
 import { Command } from 'commander';
 import { subagentListCommand } from './subagent-list.js';
 import { subagentStepsCommand, subagentStepCommand } from './subagent-steps.js';
+import { withCliErrorHandling } from '../with-cli-error-handling.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 
 export function createSubagentCommand(deps: { fsFactory: (baseDir: string) => FileSystem }): Command {
@@ -23,9 +24,9 @@ export function createSubagentCommand(deps: { fsFactory: (baseDir: string) => Fi
     .option('--from <ts>', 'Filter started_at >= ts')
     .option('--to <ts>', 'Filter started_at <= ts')
     .option('--json', 'Output as JSON (machine-readable)')
-    .action(async (opts) => {
+    .action(withCliErrorHandling(async (opts) => {
       await subagentListCommand(deps, opts);
-    });
+    }));
 
   cmd
     .command('steps <id>')

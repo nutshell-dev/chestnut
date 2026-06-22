@@ -1,11 +1,12 @@
 import type { Tool, ExecContext } from '../../../foundation/tools/index.js';
 import type { ToolResult } from '../../../foundation/tool-protocol/index.js';
 import type { LLMOrchestrator } from '../../../foundation/llm-orchestrator/index.js';
+import { classifyLLMError } from '../../../foundation/llm-orchestrator/index.js';
 import type { Message } from '../../../foundation/llm-provider/index.js';
 import { buildAskMotionCloneFirstMessage } from '../../../templates/prompts/index.js';
 import { DialogStore } from '../../../foundation/dialog-store/index.js';
 
-import { formatErr } from '../../../foundation/utils/index.js';
+import { formatErr, isAbortError } from '../../../foundation/utils/index.js';
 export const ASK_MOTION_TOOL_NAME = 'ask_motion' as const;
 
 export const ASK_MOTION_TOOL_DESCRIPTION = `向 Motion 分身提问，获取 Motion 对用户意图、背景、偏好的判断。
@@ -79,9 +80,21 @@ export class AskMotionTool implements Tool {
       answer = texts.join('');
     } catch (err) {
       this.cloneHistory.pop();
+      // phase 687 (audit T1.7): abort 直接重抛、让 parent cancellation 走 normal 路径；
+      // 其余按 classifyLLMError 5 类分流、避免「网络断」「LLM 拒答」「配额耗尽」全压成同 fallback content
+      if (isAbortError(err)) {
+        throw err;
+      }
+      const cls = classifyLLMError(err);
+      const labelMap: Record<string, string> = {
+        rate_limit: '限速（可稍后重试）',
+        transient:  '网络/超时（可重试）',
+        permanent:  'API 不可用（需检查配置/配额）',
+        unknown:    '未知错误',
+      };
       return {
         success: false,
-        content: `Motion 分身调用失败：${formatErr(err)}`,
+        content: `Motion 分身调用失败 [${cls}/${labelMap[cls] ?? '未知错误'}]：${formatErr(err)}`,
       };
     }
 

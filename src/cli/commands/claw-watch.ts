@@ -50,7 +50,7 @@ export async function watchCommand(
   } catch (err) {
     const reason = err instanceof DurationParseError ? err.message : String(err);
     audit?.write(CLI_AUDIT_EVENTS.CLAW_WATCH_REJECTED, `name=${name}`, `input=${durationStr}`, `reason=parse_failed`);
-    throw new CliError(reason);
+    throw new CliError(reason, { cause: err });   // phase 687 Step E (audit T3.11): 保 cause、stack 可还原
   }
 
   if (thresholdMs > MAX_THRESHOLD_MS) {

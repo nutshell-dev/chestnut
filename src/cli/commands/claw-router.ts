@@ -168,7 +168,7 @@ export async function dispatchClawSubcommand(
     try {
       parser.parse(args, { from: 'user' });
     } catch (err) {
-      throw new CliError(`invalid 'claw list' options: ${(err as Error).message}`);
+      throw new CliError(`invalid 'claw list' options: ${(err as Error).message}`, { cause: err });
     }
     await listCommand(deps, parser.opts());
     return;
@@ -260,7 +260,7 @@ async function runHealth(deps: RouterDeps, name: string, args: string[]): Promis
   try {
     parser.parse(args, { from: 'user' });
   } catch (err) {
-    throw new CliError(`invalid 'claw <name> health' options: ${(err as Error).message}`);
+    throw new CliError(`invalid 'claw <name> health' options: ${(err as Error).message}`, { cause: err });
   }
   if (parser.args.length > 0) {
     throw new CliError(`'health' takes no positional arguments (got: ${parser.args.join(' ')})`);
@@ -275,7 +275,7 @@ async function runSend(deps: RouterDeps, name: string, args: string[]): Promise<
   try {
     parser.parse(args, { from: 'user' });
   } catch (err) {
-    throw new CliError(`invalid 'claw <name> send' args: ${(err as Error).message}`);
+    throw new CliError(`invalid 'claw <name> send' args: ${(err as Error).message}`, { cause: err });
   }
   const [message] = parser.processedArgs;
   const opts = parser.opts() as { priority: string };
@@ -294,7 +294,7 @@ async function runOutbox(deps: RouterDeps, name: string, args: string[]): Promis
   try {
     parser.parse(args, { from: 'user' });
   } catch (err) {
-    throw new CliError(`invalid 'claw <name> outbox' options: ${(err as Error).message}`);
+    throw new CliError(`invalid 'claw <name> outbox' options: ${(err as Error).message}`, { cause: err });
   }
   loadGlobalConfig(deps);
   const { audit } = createDirContext(deps, getClawDir(name));
@@ -310,7 +310,7 @@ async function runImport(deps: RouterDeps, name: string, args: string[]): Promis
   try {
     parser.parse(args, { from: 'user' });
   } catch (err) {
-    throw new CliError(`invalid 'claw <name> import' args: ${(err as Error).message}`);
+    throw new CliError(`invalid 'claw <name> import' args: ${(err as Error).message}`, { cause: err });
   }
   const [source] = parser.processedArgs;
   const opts = parser.opts() as { target?: string };
@@ -325,7 +325,7 @@ async function runRead(deps: RouterDeps, name: string, args: string[]): Promise<
   try {
     parser.parse(args, { from: 'user' });
   } catch (err) {
-    throw new CliError(`invalid 'claw <name> read' args: ${(err as Error).message}`);
+    throw new CliError(`invalid 'claw <name> read' args: ${(err as Error).message}`, { cause: err });
   }
   const [filePath] = parser.processedArgs;
   const opts = parser.opts() as { offset?: number; limit?: number };
@@ -340,7 +340,7 @@ async function runLs(deps: RouterDeps, name: string, args: string[]): Promise<vo
   try {
     parser.parse(args, { from: 'user' });
   } catch (err) {
-    throw new CliError(`invalid 'claw <name> ls' args: ${(err as Error).message}`);
+    throw new CliError(`invalid 'claw <name> ls' args: ${(err as Error).message}`, { cause: err });
   }
   const [subPath] = parser.processedArgs as [string | undefined];
   const opts = parser.opts() as { recursive?: boolean; json?: boolean };
@@ -354,7 +354,7 @@ async function runSteps(deps: RouterDeps, name: string, args: string[]): Promise
   try {
     parser.parse(args, { from: 'user' });
   } catch (err) {
-    throw new CliError(`invalid 'claw <name> steps' options: ${(err as Error).message}`);
+    throw new CliError(`invalid 'claw <name> steps' options: ${(err as Error).message}`, { cause: err });
   }
   if (parser.args.length > 0) {
     throw new CliError(`'steps' takes no extra arguments (got: ${parser.args.join(' ')})`);
@@ -387,7 +387,7 @@ async function runTrace(deps: RouterDeps, name: string, args: string[]): Promise
   try {
     parser.parse(args, { from: 'user' });
   } catch (err) {
-    throw new CliError(`invalid 'claw <name> trace' options: ${(err as Error).message}`);
+    throw new CliError(`invalid 'claw <name> trace' options: ${(err as Error).message}`, { cause: err });
   }
   const opts = parser.opts() as { contract: string; step?: string; hint?: boolean };
   const { clawTraceCommand } = await import('./claw.js');
@@ -400,7 +400,7 @@ async function runStatus(deps: RouterDeps, name: string, args: string[]): Promis
   try {
     parser.parse(args, { from: 'user' });
   } catch (err) {
-    throw new CliError(`invalid 'claw <name> status' options: ${(err as Error).message}`);
+    throw new CliError(`invalid 'claw <name> status' options: ${(err as Error).message}`, { cause: err });
   }
   if (parser.args.length > 0) {
     throw new CliError(`'status' takes no positional arguments (got: ${parser.args.join(' ')})`);
@@ -415,7 +415,7 @@ async function runWatch(deps: RouterDeps, name: string, args: string[]): Promise
   try {
     parser.parse(args, { from: 'user' });
   } catch (err) {
-    throw new CliError(`invalid 'claw <name> watch' options: ${(err as Error).message}`);
+    throw new CliError(`invalid 'claw <name> watch' options: ${(err as Error).message}`, { cause: err });
   }
   if (parser.args.length > 0) {
     throw new CliError(`'watch' takes no positional arguments (got: ${parser.args.join(' ')})`);

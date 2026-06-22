@@ -381,14 +381,16 @@ describe('commander --no-hint flag wire structure', () => {
     expect(routerSource).toContain("parser.option('--no-hint',");
     const stepsIdx = routerSource.indexOf("function runSteps(");
     expect(stepsIdx).toBeGreaterThan(-1);
-    const block = routerSource.slice(stepsIdx, stepsIdx + 600);
+    // phase 687 Step D: window 600 → 800、容纳 catch 块加 { cause: err } 后的字符增长（audit T3.11）
+    const block = routerSource.slice(stepsIdx, stepsIdx + 800);
     expect(block).toContain('opts.hint === false');
   });
 
   it('claw router runTrace registers --no-hint and translates opts.hint === false', () => {
     const traceIdx = routerSource.indexOf("function runTrace(");
     expect(traceIdx).toBeGreaterThan(-1);
-    const block = routerSource.slice(traceIdx, traceIdx + 900);
+    // phase 687 Step D: window 900 → 1100、容纳 catch 块加 { cause: err } 后的字符增长（audit T3.11）
+    const block = routerSource.slice(traceIdx, traceIdx + 1100);
     expect(block).toContain("parser.option('--no-hint',");
     expect(block).toContain('opts.hint === false');
   });

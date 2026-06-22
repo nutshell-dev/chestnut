@@ -15,7 +15,6 @@ import { CONTRACT_DIR, CONTRACT_ARCHIVE_DIR, CONTRACT_YAML_FILE } from '../../co
 import { CONFIG_YAML_FILE } from '../../foundation/install-paths.js';
 import { CLAWS_DIR } from '../../foundation/claw-paths.js';
 import { getLastActiveMs } from './claw-shared.js';
-import { handleCliError } from '../errors.js';
 import { OUTBOX_PENDING_DIR } from '../../foundation/messaging/index.js';
 
 /** claw-list title console 显示截断 cap（防 list 行过长）*/
@@ -90,100 +89,95 @@ export async function listCommand(deps: { fsFactory: (baseDir: string) => FileSy
     return '-';
   }
 
-  try {
-    const baseDirFs = deps.fsFactory(baseDir);
-    // Ensure claws directory exists
-    if (!baseDirFs.existsSync(CLAWS_DIR)) {
-      baseDirFs.ensureDirSync(CLAWS_DIR);
-    }
-    const clawsDirFs = deps.fsFactory(clawsDir);
-    const entries = clawsDirFs.listSync('.', { includeDirs: true }).map(e => e.name);
-    const claws: Array<{
-      name: string;
-      status: string;
-      pid?: number;
-      lastActiveIso: string | null;
-      contract: string;
-      outbox: number;
-      lastActive: string;
-      lastContract: string;
-    }> = [];
-
-    for (const entry of entries) {
-      const clawFs = deps.fsFactory(path.join(clawsDir, entry));
-      if (clawFs.existsSync(CONFIG_YAML_FILE)) {
-        const isRunning = processManager.isAlive(makeClawId(entry));
-        let pid: number | undefined;
-
-        if (isRunning) {
-          try {
-            const stored = await processManager.readPid(makeClawId(entry));
-            if (stored !== null) pid = stored.pid;
-          } catch { /* silent: ignore read errors */ }
-        }
-
-        const lastMs = await formatLastActiveMs(clawFs);
-        let lastActive = '-';
-        if (lastMs !== undefined) {
-          const age = Date.now() - lastMs;
-          const mins = Math.floor(age / 60000);
-          if (mins < 1) lastActive = '<1m';
-          else if (mins < 60) lastActive = `${mins}m`;
-          else lastActive = `${Math.floor(mins / 60)}h`;
-        }
-
-        claws.push({
-          name: entry,
-          status: isRunning ? 'running' : 'stopped',
-          pid,
-          contract: getContractStatus(clawFs),
-          outbox: getOutboxCount(clawFs),
-          lastActive,
-          lastActiveIso: lastMs !== undefined ? new Date(lastMs).toISOString() : null,
-          lastContract: getLatestContractTitle(clawFs),
-        });
-      }
-    }
-
-    if (opts?.json) {
-      const payload = {
-        claws: claws.map(c => ({
-          name: c.name,
-          status: c.status as 'running' | 'stopped',
-          pid: c.pid ?? null,
-          contract: c.contract,
-          outbox: c.outbox,
-          last_active: c.lastActiveIso,
-          last_contract: c.lastContract,
-        })),
-        total: claws.length,
-        running_count: claws.filter(c => c.status === 'running').length,
-        as_of: new Date().toISOString(),
-      };
-      console.log(JSON.stringify(payload, null, 2));
-      return;
-    }
-
-    if (claws.length === 0) {
-      console.log('No claws found. Create one with: chestnut claw <name> create');
-      return;
-    }
-
-    // Print table
-    console.log('\nClaw List:');
-    console.log('─'.repeat(112));
-    console.log(`${'Name'.padEnd(20)} ${'Status'.padEnd(12)} ${'PID'.padEnd(10)} ${'Contract'.padEnd(10)} ${'Outbox'.padEnd(8)} ${'LastActive'.padEnd(10)} ${'Last Contract'.padEnd(30)}`);
-    console.log('─'.repeat(112));
-
-    for (const claw of claws) {
-      const statusIcon = claw.status === 'running' ? '[running]' : '[stopped]';
-      const pidStr = claw.pid !== undefined ? String(claw.pid) : '-';
-      console.log(`${claw.name.padEnd(20)} ${statusIcon.padEnd(12)} ${pidStr.padEnd(10)} ${claw.contract.padEnd(10)} ${String(claw.outbox).padEnd(8)} ${claw.lastActive.padEnd(10)} ${claw.lastContract.padEnd(30)}`);
-    }
-
-    console.log('─'.repeat(112));
-    console.log(`\nTotal: ${claws.length} claws (${claws.filter(c => c.status === 'running').length} running)\n`);
-  } catch (error) {
-    process.exitCode = handleCliError(error);
+  // phase 687 (audit T2.11): 删 outer try/catch + handleCliError、外层 clawCommand (cli/index.ts:139) 已包 withCliErrorHandling
+  const baseDirFs = deps.fsFactory(baseDir);
+  if (!baseDirFs.existsSync(CLAWS_DIR)) {
+    baseDirFs.ensureDirSync(CLAWS_DIR);
   }
+  const clawsDirFs = deps.fsFactory(clawsDir);
+  const entries = clawsDirFs.listSync('.', { includeDirs: true }).map(e => e.name);
+  const claws: Array<{
+    name: string;
+    status: string;
+    pid?: number;
+    lastActiveIso: string | null;
+    contract: string;
+    outbox: number;
+    lastActive: string;
+    lastContract: string;
+  }> = [];
+
+  for (const entry of entries) {
+    const clawFs = deps.fsFactory(path.join(clawsDir, entry));
+    if (clawFs.existsSync(CONFIG_YAML_FILE)) {
+      const isRunning = processManager.isAlive(makeClawId(entry));
+      let pid: number | undefined;
+
+      if (isRunning) {
+        try {
+          const stored = await processManager.readPid(makeClawId(entry));
+          if (stored !== null) pid = stored.pid;
+        } catch { /* silent: ignore read errors */ }
+      }
+
+      const lastMs = await formatLastActiveMs(clawFs);
+      let lastActive = '-';
+      if (lastMs !== undefined) {
+        const age = Date.now() - lastMs;
+        const mins = Math.floor(age / 60000);
+        if (mins < 1) lastActive = '<1m';
+        else if (mins < 60) lastActive = `${mins}m`;
+        else lastActive = `${Math.floor(mins / 60)}h`;
+      }
+
+      claws.push({
+        name: entry,
+        status: isRunning ? 'running' : 'stopped',
+        pid,
+        contract: getContractStatus(clawFs),
+        outbox: getOutboxCount(clawFs),
+        lastActive,
+        lastActiveIso: lastMs !== undefined ? new Date(lastMs).toISOString() : null,
+        lastContract: getLatestContractTitle(clawFs),
+      });
+    }
+  }
+
+  if (opts?.json) {
+    const payload = {
+      claws: claws.map(c => ({
+        name: c.name,
+        status: c.status as 'running' | 'stopped',
+        pid: c.pid ?? null,
+        contract: c.contract,
+        outbox: c.outbox,
+        last_active: c.lastActiveIso,
+        last_contract: c.lastContract,
+      })),
+      total: claws.length,
+      running_count: claws.filter(c => c.status === 'running').length,
+      as_of: new Date().toISOString(),
+    };
+    console.log(JSON.stringify(payload, null, 2));
+    return;
+  }
+
+  if (claws.length === 0) {
+    console.log('No claws found. Create one with: chestnut claw <name> create');
+    return;
+  }
+
+  console.log('\nClaw List:');
+  console.log('─'.repeat(112));
+  console.log(`${'Name'.padEnd(20)} ${'Status'.padEnd(12)} ${'PID'.padEnd(10)} ${'Contract'.padEnd(10)} ${'Outbox'.padEnd(8)} ${'LastActive'.padEnd(10)} ${'Last Contract'.padEnd(30)}`);
+  console.log('─'.repeat(112));
+
+  for (const claw of claws) {
+    const statusIcon = claw.status === 'running' ? '[running]' : '[stopped]';
+    const pidStr = claw.pid !== undefined ? String(claw.pid) : '-';
+    console.log(`${claw.name.padEnd(20)} ${statusIcon.padEnd(12)} ${pidStr.padEnd(10)} ${claw.contract.padEnd(10)} ${String(claw.outbox).padEnd(8)} ${claw.lastActive.padEnd(10)} ${claw.lastContract.padEnd(30)}`);
+  }
+
+  console.log('─'.repeat(112));
+  console.log(`\nTotal: ${claws.length} claws (${claws.filter(c => c.status === 'running').length} running)\n`);
 }

@@ -154,6 +154,10 @@ export class ContractSystem {
    */
   private _activeContractControllers = new Map<string, Set<{ controller: AbortController; promise: Promise<unknown> }>>();
 
+  // phase 687 (audit T2.4): _closed 幂等 guard、与 Runtime._stopped / AsyncTaskSystem._shuttingDown / CronRunner._stopped 同模式
+  // 防 close() 双调时 duplicate CONTRACT_SYSTEM_CLOSED audit emit
+  private _closed = false;
+
   /**
    * phase 1465: per-ContractSystem instance verification mutex
    * 应然：mutex 资源归 ContractSystem 实例 (M#3 资源唯一归属)
@@ -1046,6 +1050,9 @@ export class ContractSystem {
    * phase 1335 (r138 F fork): async close / await verifier termination promises
    */
   async close(): Promise<void> {
+    // phase 687 (audit T2.4): 幂等 guard、防双调 duplicate CONTRACT_SYSTEM_CLOSED audit emit
+    if (this._closed) return;
+    this._closed = true;
     // phase 517 B3: auditor 先 close（防 dispose 期间 fire-and-forget maybeAudit 又产生新 LLM call）
     if (this.auditor) {
       try {

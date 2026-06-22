@@ -202,4 +202,13 @@ describe('phase 1217 (r131 C fork) B.1 — ContractSystem.close() true disposabl
     expect(closeEvent).toBeDefined();
     expect(closeEvent![1]).toEqual(expect.stringContaining('clawId='));
   });
+
+  // ───── phase 687 (audit T2.4): _closed 幂等 guard、防 duplicate CONTRACT_SYSTEM_CLOSED audit emit ─────
+  it('close() 二次调用幂等、CONTRACT_SYSTEM_CLOSED audit 只 emit 一次', async () => {
+    await manager.close();
+    await manager.close();
+
+    const closeEvents = events.filter(e => e[0] === CONTRACT_AUDIT_EVENTS.CONTRACT_SYSTEM_CLOSED);
+    expect(closeEvents.length).toBe(1);
+  });
 });
