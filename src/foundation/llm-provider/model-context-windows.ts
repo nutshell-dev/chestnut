@@ -1,35 +1,36 @@
 /**
  * @module L1.LLMProvider.ModelContextWindows
  *
- * Model context window (token) 查表 + fallback。
+ * Model context window (token) 上限解析。
  *
- * phase 440 在 step-executor 立、phase 453 runtime 第二消费 → 抽 L1 单源（M#3）。
+ * phase 440 在 step-executor 立、phase 453 抽 L1（M#3 model 字面与 LLM API 协议层同源）、
+ * phase 684 改为「默认 256K + 子串特判 1M」机制（替代精确 model 名映射、避免表 stale）。
  *
  * 注：本表是各 provider model 的 context window 字面值、不是裁剪相关业务字面；
- * 归 L1 LLMProvider（model 字面与 LLM API 协议层同源）、非 L4 ContextManager。
+ * 归 L1 LLMProvider、非 L4 ContextManager。
  */
 
-/** 默认 context window（model 未在表内时 fallback） */
-export const DEFAULT_MODEL_CONTEXT_WINDOW = 128_000;
+/** 默认 context window（model 名未命中 1M 特判时 fallback、phase 684 改 128K → 256K） */
+export const DEFAULT_MODEL_CONTEXT_WINDOW = 256_000;
 
-/** Model name → context window 字面值表 */
-export const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
-  'claude-3-7-sonnet-20250219': 200_000,
-  'gpt-4o': DEFAULT_MODEL_CONTEXT_WINDOW,
-  'deepseek-chat': 64_000,
-  'kimi-k2.5': 256_000,
-  'MiniMax-M1': 1_000_000,
-  'gemini-2.5-pro-preview-03-25': 1_000_000,
-  'llama3.1': DEFAULT_MODEL_CONTEXT_WINDOW,
-  'grok-4': DEFAULT_MODEL_CONTEXT_WINDOW,
-  'openai/gpt-4o': DEFAULT_MODEL_CONTEXT_WINDOW,
-  'anthropic/claude-sonnet-4-5': 200_000,
-  'glm-4.6': DEFAULT_MODEL_CONTEXT_WINDOW,
-  'qwen-coder-plus-latest': DEFAULT_MODEL_CONTEXT_WINDOW,
-};
+/**
+ * Model 名含以下任一子串即视为 1M context window。
+ * phase 684 立：用子串特判替代具体 model 名映射、避免表 stale（model 命名快速演进）。
+ * 大小写敏感（按用户拍板的字面值匹配）。
+ */
+const MILLION_TOKEN_PATTERNS: readonly string[] = [
+  'claude',
+  'gemini',
+  'deepseek-v4',
+  'glm-5',
+  'MiniMax-M3',
+] as const;
 
-/** 查表 + fallback */
+/** 解析 model 名对应的 context window 上限 */
 export function resolveContextWindow(modelName: string | undefined): number {
   if (!modelName) return DEFAULT_MODEL_CONTEXT_WINDOW;
-  return MODEL_CONTEXT_WINDOWS[modelName] ?? DEFAULT_MODEL_CONTEXT_WINDOW;
+  for (const pattern of MILLION_TOKEN_PATTERNS) {
+    if (modelName.includes(pattern)) return 1_000_000;
+  }
+  return DEFAULT_MODEL_CONTEXT_WINDOW;
 }
