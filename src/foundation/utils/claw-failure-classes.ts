@@ -1,5 +1,5 @@
 /**
- * @module L1.Utils.ClawFailureClasses
+ * @module L6.Watchdog.FailureClasses
  *
  * Type unions shared by watchdog (业主) + assembly guidance composers (consumer).
  *

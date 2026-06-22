@@ -1,5 +1,5 @@
 /**
- * @module L1.Utils.CliCommands
+ * @module L6.Cli.Commands.TypedConst
  *
  * Pure typed CLI command const + helper. Owned by foundation as a leaf shared surface.
  * phase 554: extracted from cli/commands/registry to break assembly → cli reverse import.
