@@ -82,3 +82,19 @@ export class LLMModelNotFoundError extends LLMError {
     super(base + detail, { provider, model, providerMessage });
   }
 }
+
+export class LLMContextExceededError extends LLMError {
+  readonly code: ErrorCode = 'LLM_CONTEXT_EXCEEDED';
+  readonly provider: string;
+  readonly status: number;
+  readonly providerMessage: string;
+  constructor(provider: string, status: number, providerMessage: string) {
+    super(
+      `LLM context exceeded for ${provider} (HTTP ${status}): ${providerMessage.slice(0, 200)}`,
+      { provider, status },
+    );
+    this.provider = provider;
+    this.status = status;
+    this.providerMessage = providerMessage;
+  }
+}

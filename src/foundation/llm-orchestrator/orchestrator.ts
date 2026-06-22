@@ -216,6 +216,13 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
             break;
           }
 
+          // phase 690: LLM 返 context-exceeded（400 + 字面识别）→ 不 retry / 不 failover
+          // 直接向上抛、Runtime 反应式 trim+retry 路径处理
+          if (classifyLLMError(lastError) === 'context_exceeded') {
+            this.events.emit({ type: 'context_exceeded_throwthrough', provider: this.primary.name });
+            throw lastError;
+          }
+
           this.events.emit({
             type: 'provider_attempt_failed',
             provider: this.primary.name,
@@ -323,6 +330,12 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
           if (fbLastError?.name === CONTEXT_TRIM_EXHAUSTED_ERROR_NAME) {
             this.events.emit({ type: 'context_exceeded_failover', provider: fb.name, stopReason: 'context_trim_exhausted' });
             break;
+          }
+
+          // phase 690: fallback 路径 context-exceeded 同 primary — 直接向上抛
+          if (classifyLLMError(fbLastError) === 'context_exceeded') {
+            this.events.emit({ type: 'context_exceeded_throwthrough', provider: fb.name });
+            throw fbLastError;
           }
 
           this.events.emit({
@@ -541,6 +554,13 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
 
           // Provider self-thrown AbortError when no signal fired
           if (err.name === 'AbortError') throw err;
+
+          // phase 690: stream 路径 context-exceeded（400 at handshake）→ 直接向上抛
+          // 不 failover、不 retry、不进 stream_reset partial-state 路径（context-exceeded 必 0 chunks yielded）
+          if (classifyLLMError(err) === 'context_exceeded') {
+            this.events.emit({ type: 'context_exceeded_throwthrough', provider: adapter.name });
+            throw err;
+          }
 
           // Mid-stream error: signal caller to discard partial state, then failover to next provider
           if (hasYielded) {

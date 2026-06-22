@@ -56,7 +56,14 @@ import {
   type IRuntimeDaemon,
 } from './types.js';
 import { TASKS_SYNC_DIR } from '../async-task-system/index.js';
-import { maybeTrimProactive } from '../l4_context_manager/index.js';
+import {
+  maybeTrimProactive,
+  trimAndPersist,
+  CONTEXT_TRIM_RECENT_WINDOW_MS,
+  CONTEXT_TRIM_TARGET_RATIO,
+  CONTEXT_TRIM_PREVIEW_BYTES,
+} from '../l4_context_manager/index.js';
+import { LLMContextExceededError } from '../../foundation/llm-orchestrator/index.js';
 
 import { formatTimeAgo } from './utils.js';
 import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
@@ -690,13 +697,19 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
       );
     };
 
+    // phase 690: Runtime 反应式 trim+retry 兜底——LLM 真返 400 context-exceeded 时
+    // trim + 同 turn 重试。Layer 2 turn 入口 maybeTrimProactive 已是前置防线、
+    // 本路径覆盖 turn 内 tool_result 单步突破 100% 的偶发场景。
+    const MAX_REACTIVE_TRIM_RETRIES = 2;
+    let reactiveRetries = 0;
+
     try {
+     reactive_loop: while (true) {
+      try {
       await runReact({
           messages,
           systemPrompt,
           llm: this.llm,
-          dialogStore: this.sessionManager,
-          contextManagerConfig: this.contextManagerConfig,
           executor: this.toolExecutor,
           ctx: this.execContext,
           tools,
@@ -841,6 +854,22 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
             }
           },
         });
+        break reactive_loop;
+      } catch (err) {
+        if (this._isContextExceededError(err) && reactiveRetries < MAX_REACTIVE_TRIM_RETRIES) {
+          reactiveRetries++;
+          await this._performReactiveTrim({
+            messages,
+            systemPrompt,
+            tools,
+            attempt: reactiveRetries,
+            err,
+          });
+          continue reactive_loop;
+        }
+        throw err;
+      }
+     }
       await this.sessionManager.save({ systemPrompt, messages, toolsForLLM: tools, trace_id: this.currentTraceId });
 
       // turn auto-commit
@@ -1310,6 +1339,73 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
    * - If systemPromptBuilder is configured, use full prompt as identityContent (U3 (a) / phase 521 兼容).
    * - Else, use contextInjector.buildSystemPromptForRegime() to get full + identityContent 分层。
    */
+  /**
+   * phase 690: 反应式 trim+retry — 识别 LLM 真返 context-exceeded 错。
+   * 双判：instanceof LLMContextExceededError（fetch 路径 by Step A）
+   *      + message regex 兜底 SDK 路径错（anthropic SDK adapter 抛错走 SDK 内部类型）。
+   */
+  private _isContextExceededError(err: unknown): boolean {
+    if (err instanceof LLMContextExceededError) return true;
+    if (err instanceof Error) {
+      const msg = err.message;
+      return /maximum context length|context.{0,30}exceed|prompt is too long|reduce the length of/i.test(msg);
+    }
+    return false;
+  }
+
+  /**
+   * phase 690: 反应式 trim+retry — LLM 返 context-exceeded 后调 trimAndPersist
+   * trim messages、in-place 替换、audit 触发记录。
+   * trim 失败（ContextTrimExhaustedError）→ audit REACTIVE_TRIM_EXHAUSTED 上抛、
+   * 不在本 helper 兜底（caller / outer turn-level catch 处理）。
+   */
+  private async _performReactiveTrim(params: {
+    messages: Message[];
+    systemPrompt: string;
+    tools: import('../../foundation/llm-provider/index.js').ToolDefinition[];
+    attempt: number;
+    err: unknown;
+  }): Promise<void> {
+    const { messages, systemPrompt, tools, attempt, err } = params;
+    const providerInfo = this.llm.getProviderInfo?.();
+    const contextWindow = resolveContextWindow(providerInfo?.model);
+    const providerName =
+      err instanceof LLMContextExceededError ? err.provider
+      : (providerInfo?.name ?? 'unknown');
+    this.auditWriter.write(
+      RUNTIME_AUDIT_EVENTS.REACTIVE_TRIM_TRIGGERED,
+      `provider=${providerName}`,
+      `attempt=${attempt}`,
+      `trace_id=${String(this.execContext?.trace_id ?? '')}`,
+    );
+    try {
+      const trimResult = await trimAndPersist({
+        messages,
+        systemPrompt,
+        toolsForLLM: tools,
+        contextWindow,
+        recentWindowMs: CONTEXT_TRIM_RECENT_WINDOW_MS,
+        targetRatio: CONTEXT_TRIM_TARGET_RATIO,
+        previewBytes: CONTEXT_TRIM_PREVIEW_BYTES,
+        filterSubtypes: this.contextManagerConfig?.filterSubtypes ?? new Set<string>(),
+        dialogStore: this.sessionManager,
+        audit: this.auditWriter,
+        triggerKind: 'reactive_overflow',
+      });
+      // in-place 替换 messages array、让上游 turn-level local var 见
+      messages.splice(0, messages.length, ...trimResult.newMessages);
+    } catch (trimErr) {
+      this.auditWriter.write(
+        RUNTIME_AUDIT_EVENTS.REACTIVE_TRIM_EXHAUSTED,
+        `provider=${providerName}`,
+        `attempt=${attempt}`,
+        `trace_id=${String(this.execContext?.trace_id ?? '')}`,
+        `error=${formatErr(trimErr)}`,
+      );
+      throw trimErr;
+    }
+  }
+
   private async _resolveSystemPromptForRun(): Promise<{
     systemPrompt: string;
     identityContent: string;

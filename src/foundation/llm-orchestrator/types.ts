@@ -61,6 +61,7 @@ export type LLMEvent =
   | { type: 'stream_idle_probe_attempted'; provider: string; timeoutMs: number }
   | { type: 'stream_idle_probe_succeeded'; provider: string }
   | { type: 'context_exceeded_failover'; provider: string; stopReason: string }
+  | { type: 'context_exceeded_throwthrough'; provider: string }
   | { type: 'permanent_skip_retry'; provider: string; attempt: number; errorClass: 'permanent' }
   | { type: 'hedge_started'; primary: string; fallbackChain: string[]; triggerErrorClass: LLMErrorClass }
   | { type: 'hedge_primary_recovered'; provider: string; cacheCreationInputTokens?: number; cacheReadInputTokens?: number }

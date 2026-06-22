@@ -12,9 +12,8 @@ import type { Message, ToolDefinition } from '../../foundation/llm-provider/inde
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { ExecContext } from '../../foundation/tools/index.js';
 import type { IToolExecutor, ToolRegistry } from '../../foundation/tools/index.js';
-import { executeStep, throwAbortError, type StepCallbacks, type StepMeta, type FinalStopReason, type ContextManagerRuntimeConfig } from '../step-executor/index.js';
+import { executeStep, throwAbortError, type StepCallbacks, type StepMeta, type FinalStopReason } from '../step-executor/index.js';
 import { asFinalStopReason } from '../step-executor/types.js';
-import type { DialogStore } from '../../foundation/dialog-store/index.js';
 import { MaxStepsExceededError, ConsecutiveParseErrorsExceededError, ConsecutiveMaxTokensToolUseError, WallTimeExceededError } from './errors.js';
 import { DEFAULT_MAX_STEPS } from './defaults.js';
 import { makeStepNumber } from '../../foundation/identity/index.js';
@@ -37,8 +36,8 @@ export interface AgentInput {
   wallTimeDeadlineMs?: number;         // 总 wall-time 上限（可选）
   stepCallbacks?: StepCallbacks;
   onAfterStep?: (meta: StepMeta) => void | Promise<void>;
-  dialogStore?: DialogStore;                          // phase 440：上下文裁剪持久化
-  contextManagerConfig?: ContextManagerRuntimeConfig; // phase 440：filterSubtypes 等
+  // phase 690: 撤 dialogStore + contextManagerConfig 透传 — proactive trim
+  // 已上提到 L5 Runtime 反应式 retry 路径、agent-executor 不再透传。
 }
 
 export interface AgentResult {
@@ -90,8 +89,6 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
       maxTokens,
       idleTimeoutMs: input.idleTimeoutMs,
       callbacks: stepCallbacks,
-      dialogStore: input.dialogStore,
-      contextManagerConfig: input.contextManagerConfig,
     });
 
     if (result.kind === 'final') {

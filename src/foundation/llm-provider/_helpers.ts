@@ -4,7 +4,27 @@
  */
 const HTTP_SERVER_ERROR_STATUS_MIN = 500;
 
-import { LLMError, LLMRateLimitError, LLMAuthError, LLMModelNotFoundError } from './errors.js';
+import { LLMError, LLMRateLimitError, LLMAuthError, LLMModelNotFoundError, LLMContextExceededError } from './errors.js';
+
+/**
+ * 400 context-exceeded message 字面族（phase 690）：
+ * - OpenAI:    "This model's maximum context length is X tokens" / "Please reduce the length of the messages" / "context_length_exceeded"
+ * - Anthropic: "prompt is too long: X tokens > Y maximum" / "input length and `max_tokens` exceed context limit"
+ * - Gemini:    "input token count" + "exceeds the maximum"
+ */
+const CONTEXT_EXCEEDED_PATTERNS: RegExp[] = [
+  /maximum context length/i,
+  /context.{0,30}(exceeded|exceed)/i,
+  /prompt is too long/i,
+  /input.{0,30}(too long|exceed)/i,
+  /reduce the length of/i,
+  /context_length_exceeded/i,
+  /token count.{0,30}exceed/i,
+];
+
+export function isContextExceededMessage(text: string): boolean {
+  return CONTEXT_EXCEEDED_PATTERNS.some(p => p.test(text));
+}
 
 /**
  * Parse HTTP error response and throw the appropriate LLMError subclass.
@@ -50,6 +70,11 @@ export async function throwHttpErrorResponse(
   if (status === 429) {
     const retryAfter = response.headers.get('retry-after');
     throw new LLMRateLimitError(provider, parseRetryAfter(retryAfter));
+  }
+
+  // phase 690: 400 context-exceeded → 类型化错、Runtime 反应式 trim+retry 路径处理
+  if (status === 400 && isContextExceededMessage(errorText)) {
+    throw new LLMContextExceededError(provider, status, errorText);
   }
 
   if (status >= HTTP_SERVER_ERROR_STATUS_MIN) {

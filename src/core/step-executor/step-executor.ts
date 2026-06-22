@@ -18,7 +18,7 @@
  * This file keeps executeStep entry point + runLLMCall LLM call layer
  */
 
-import type { LLMResponse, Message } from '../../foundation/llm-provider/index.js';
+import type { LLMResponse } from '../../foundation/llm-provider/index.js';
 import type { LLMOrchestrator, LLMCallOptions } from '../../foundation/llm-orchestrator/index.js';
 import type { StepInput, StepResult, LLMCallInfo } from './types.js';
 import { asFinalStopReason } from './types.js';
@@ -28,62 +28,21 @@ import { throwAbortError } from './abort-helpers.js';
 import { safeCallback, extractText, appendAssistantMessage } from './utils.js';
 import { collectStreamResponse } from './llm-stream-collector.js';
 import { handleToolUseStop, handleMaxTokensStop } from './stop-handlers.js';
-import {
-  trimAndPersist,
-  CONTEXT_TRIM_RECENT_WINDOW_MS,
-  CONTEXT_TRIM_TARGET_RATIO,
-  CONTEXT_TRIM_PREVIEW_BYTES,
-} from '../l4_context_manager/index.js';
-import { estimateTextTokens, estimateMessagesTokens, estimateToolsTokens } from '../../foundation/llm-provider/index.js';
-import { resolveContextWindow } from '../../foundation/llm-provider/model-context-windows.js';
 
-
+// phase 690: 撤 proactive trim — L3 → L4 反向 dep 消除。
+// reactive overflow trim 上提到 L5 Runtime 的 _runReact 反应式 retry 路径。
+// turn 入口 proactive trim 仍归 Runtime (L5 → L4 顺向)。
 
 export async function executeStep(input: StepInput): Promise<StepResult> {
-  const { messages, systemPrompt, llm, tools, ctx, callbacks, dialogStore, contextManagerConfig } = input;
+  const { messages, systemPrompt, llm, tools, ctx, callbacks } = input;
   const maxTokens = input.maxTokens;
 
   if (ctx.signal?.aborted) throwAbortError(ctx.signal);
   safeCallback('onBeforeLLMCall', () => callbacks?.onBeforeLLMCall?.(), callbacks);
 
-  // phase 440: reactive overflow context trim
-  let effectiveMessages = messages;
-  let newMessagesFromTrim: Message[] | undefined;
-  if (dialogStore && contextManagerConfig) {
-    const providerInfo = llm.getProviderInfo?.();
-    const providerContextWindow = resolveContextWindow(providerInfo?.model);
-
-    const targetMessagesTokens = Math.floor(providerContextWindow * CONTEXT_TRIM_TARGET_RATIO)
-      - estimateTextTokens(systemPrompt)
-      - estimateToolsTokens(tools ?? []);
-
-    const estimatedTokens = estimateMessagesTokens(messages);
-
-    if (estimatedTokens > targetMessagesTokens) {
-      const trimResult = await trimAndPersist({
-        messages,
-        systemPrompt,
-        toolsForLLM: tools ?? [],
-        contextWindow: providerContextWindow,
-        recentWindowMs: CONTEXT_TRIM_RECENT_WINDOW_MS,
-        targetRatio: CONTEXT_TRIM_TARGET_RATIO,
-        previewBytes: CONTEXT_TRIM_PREVIEW_BYTES,
-        filterSubtypes: contextManagerConfig.filterSubtypes,
-        dialogStore,
-        audit: ctx.auditWriter ?? { write: () => {} },
-        triggerKind: 'reactive_overflow',
-      });
-      // caller 引用替换：mutate in-place so all upstream references stay in sync,
-      // and surface explicit newMessages for callers that prefer explicit swap.
-      messages.splice(0, messages.length, ...trimResult.newMessages);
-      effectiveMessages = messages;
-      newMessagesFromTrim = trimResult.newMessages;
-    }
-  }
-
   const llmStartTime = Date.now();
   const callOptions: LLMCallOptions = {
-    messages: effectiveMessages,
+    messages,
     system: systemPrompt,
     tools,
     maxTokens,
@@ -95,33 +54,31 @@ export async function executeStep(input: StepInput): Promise<StepResult> {
     callbacks?.onEmptyResponse?.(response.stop_reason);
   }
 
-  if (response.stop_reason === 'tool_use') return { ...(await handleToolUseStop(response, input, llmInfo)), newMessages: newMessagesFromTrim };
+  if (response.stop_reason === 'tool_use') return await handleToolUseStop(response, input, llmInfo);
 
   if (response.stop_reason === 'end_turn' || response.stop_reason === 'stop') {
     const text = extractText(response.content);
-    appendAssistantMessage(effectiveMessages, response.content);
+    appendAssistantMessage(messages, response.content);
     callbacks?.onMessageAppended?.('assistant', response.content.length);
-    return { kind: 'final', stopReason: asFinalStopReason(response.stop_reason), finalText: text, newMessages: newMessagesFromTrim };
+    return { kind: 'final', stopReason: asFinalStopReason(response.stop_reason), finalText: text };
   }
 
-  if (response.stop_reason === 'max_tokens') return { ...handleMaxTokensStop(response, input, llmInfo, maxTokens), newMessages: newMessagesFromTrim };
+  if (response.stop_reason === 'max_tokens') return handleMaxTokensStop(response, input, llmInfo, maxTokens);
 
   // phase 324 C6: 显式 'content_filter' API 值 → 保留为 'content_filter'；
   // 其他未识别（refusal / safety / stop_sequence / 新出 SDK 值）→ 'unknown'。
-  // 旧码把全部未识别 stop_reason 都折叠到 'content_filter'，下游 loop.ts:138-146
-  // mapStopReason 期望两桶分立（phase 1483 / phase 788 锚）。
   if (response.stop_reason === 'content_filter') {
     const text = extractText(response.content);
-    appendAssistantMessage(effectiveMessages, response.content);
+    appendAssistantMessage(messages, response.content);
     callbacks?.onMessageAppended?.('assistant', response.content.length);
-    return { kind: 'final', stopReason: asFinalStopReason('content_filter'), finalText: text, newMessages: newMessagesFromTrim };
+    return { kind: 'final', stopReason: asFinalStopReason('content_filter'), finalText: text };
   }
 
   callbacks?.onUnknownStopReason?.(response.stop_reason);
   const text = extractText(response.content);
-  appendAssistantMessage(effectiveMessages, response.content);
+  appendAssistantMessage(messages, response.content);
   callbacks?.onMessageAppended?.('assistant', response.content.length);
-  return { kind: 'final', stopReason: asFinalStopReason('unknown'), finalText: text, newMessages: newMessagesFromTrim };
+  return { kind: 'final', stopReason: asFinalStopReason('unknown'), finalText: text };
 }
 
 async function runLLMCall(

@@ -8,7 +8,6 @@ import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js
 import type { ExecContext, IToolExecutor, ToolRegistry } from '../../foundation/tools/index.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
-import type { DialogStore } from '../../foundation/dialog-store/index.js';
 
 export interface LLMCallInfo {
   model: string;
@@ -20,6 +19,9 @@ export interface LLMCallInfo {
 
 /**
  * phase 440: ContextManager runtime config injected at assembly time.
+ *
+ * phase 690: StepExecutor 不再持 proactive trim、本 type 保留供 Runtime
+ * 反应式 trim+retry 路径用（runtime.contextManagerConfig 字段类型）。
  */
 export interface ContextManagerRuntimeConfig {
   filterSubtypes: ReadonlySet<string>;
@@ -97,8 +99,8 @@ export interface StepInput {
   maxTokens?: number;
   idleTimeoutMs?: number;
   callbacks?: StepCallbacks;
-  dialogStore?: DialogStore;                          // ← NEW phase 440：触底裁要 archive + save
-  contextManagerConfig?: ContextManagerRuntimeConfig; // ← NEW phase 440：filterSubtypes 等
+  // phase 690: 撤 dialogStore + contextManagerConfig — proactive trim
+  // 上提到 L5 Runtime 反应式 retry 路径、StepExecutor 不再持 trim 业务。
 }
 
 export interface StepMeta {
@@ -156,6 +158,6 @@ export function tryAsFinalStopReason(s: string): FinalStopReason | undefined {
 }
 
 export type StepResult =
-  | { kind: 'final'; stopReason: FinalStopReason; finalText: string; newMessages?: Message[] }
-  | { kind: 'continue'; meta: StepMeta; newMessages?: Message[] }
-  | { kind: 'max_tokens_tool_use'; meta: StepMeta; newMessages?: Message[] };
+  | { kind: 'final'; stopReason: FinalStopReason; finalText: string }
+  | { kind: 'continue'; meta: StepMeta }
+  | { kind: 'max_tokens_tool_use'; meta: StepMeta };

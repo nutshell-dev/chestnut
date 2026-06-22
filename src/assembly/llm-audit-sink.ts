@@ -102,6 +102,10 @@ export function createLLMAuditSink(audit: AuditLog): LLMEventSink {
             audit.write(LLM_AUDIT_EVENTS.CONTEXT_EXCEEDED_FAILOVER,
               `provider=${event.provider}`, `stopReason=${event.stopReason}`);
             break;
+          case 'context_exceeded_throwthrough':
+            audit.write(LLM_AUDIT_EVENTS.CONTEXT_EXCEEDED_THROWTHROUGH,
+              `provider=${event.provider}`);
+            break;
           case 'all_providers_context_exceeded':
             audit.write(LLM_AUDIT_EVENTS.ALL_PROVIDERS_CONTEXT_EXCEEDED,
               `totalAttempted=${event.totalAttempted}`, `skippedCount=${event.skippedCount}`);

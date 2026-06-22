@@ -18,8 +18,7 @@ import type { IToolExecutor, ToolRegistry } from '../../foundation/tools/index.j
 import { assertNever } from '../../foundation/utils/index.js';
 import { DEFAULT_MAX_STEPS } from './defaults.js';
 import { runAgent } from './agent-executor.js';
-import type { StepCallbacks, LLMCallInfo, FinalStopReason, ContextManagerRuntimeConfig } from '../step-executor/index.js';
-import type { DialogStore } from '../../foundation/dialog-store/index.js';
+import type { StepCallbacks, LLMCallInfo, FinalStopReason } from '../step-executor/index.js';
 import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
 
 
@@ -73,8 +72,8 @@ export interface ReactOptions {
     orphans: Array<{ tool_use_id: string; content: string; is_error: boolean }>;
     llm: LLMCallInfo;
   }): void;
-  dialogStore?: DialogStore;                          // phase 440：上下文裁剪持久化
-  contextManagerConfig?: ContextManagerRuntimeConfig; // phase 440：filterSubtypes 等
+  // phase 690: 撤 dialogStore + contextManagerConfig — proactive trim
+  // 上提到 L5 Runtime 反应式 retry 路径、loop.ts facade 不再透传。
 }
 
 export interface ReactResult {
@@ -143,8 +142,6 @@ export async function runReact(options: ReactOptions): Promise<ReactResult> {
       stepCount = ctx.stepNumber;  // incrementStep 已被 AgentExecutor 执行
       if (onStepComplete) await onStepComplete();
     },
-    dialogStore: options.dialogStore,
-    contextManagerConfig: options.contextManagerConfig,
   });
 
   return {

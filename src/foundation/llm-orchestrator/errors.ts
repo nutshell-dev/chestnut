@@ -16,11 +16,12 @@ import {
   LLMRateLimitError,
   LLMNetworkError,
   LLMTimeoutError,
+  LLMContextExceededError,
 } from '../llm-provider/errors.js';
 import type { ErrorCode } from '../errors.js';
 import { isAbortError } from '../utils/index.js';
 
-export { LLMError, LLMRateLimitError, LLMTimeoutError, LLMAuthError, LLMNetworkError, LLMEmptyResponseError, LLMModelNotFoundError } from '../llm-provider/errors.js';
+export { LLMError, LLMRateLimitError, LLMTimeoutError, LLMAuthError, LLMNetworkError, LLMEmptyResponseError, LLMModelNotFoundError, LLMContextExceededError } from '../llm-provider/errors.js';
 
 export class LLMAllProvidersFailedError extends LLMError {
   readonly code: ErrorCode = 'LLM_ALL_PROVIDERS_FAILED';
@@ -38,9 +39,11 @@ export class LLMAllProvidersFailedError extends LLMError {
   }
 }
 
-export type LLMErrorClass = 'permanent' | 'transient' | 'rate_limit' | 'abort' | 'unknown';
+export type LLMErrorClass = 'permanent' | 'transient' | 'rate_limit' | 'abort' | 'context_exceeded' | 'unknown';
 
 export function classifyLLMError(err: unknown): LLMErrorClass {
+  // phase 690: context_exceeded 必须先于 LLMError 通用判定（subclass 关系）
+  if (err instanceof LLMContextExceededError) return 'context_exceeded';
   if (err instanceof Error) {
     const msg = err.message.toLowerCase();
     if (msg.includes('quota') || msg.includes('insufficient') || msg.includes('credit') || msg.includes('billing')) {
