@@ -71,14 +71,32 @@ export function trimV2(messages: readonly Message[], opts: TrimV2Options): TrimV
   }
 
   // 1. 算 24h 边界
-  const thresholdMs = opts.now - opts.recentWindowMs;
+  //    anchor = max(addedAt) ?? opts.now（latest 活动时刻）
+  //    threshold = anchor - recentWindowMs
+  //
+  //    rationale (phase 757)：
+  //    - 频繁用户：latest_addedAt ≈ now、threshold ≈ now - 24h、行为同现行
+  //    - 几天没用回来：anchor = latest_addedAt（上次活动时刻）、threshold = 上次活动 - 24h
+  //      → 上次会话尾部 24h 完整保、用户回来连贯（DP6 不增加智能体负担）
+  //    - 无 addedAt（phase 436 之前老 dialog 升级前）→ 视为 24h 外可裁、archive 兜底（DP1 信息不丢）
+  let latestAddedAtMs = 0;
+  for (const m of messages) {
+    if (m.addedAt !== undefined) {
+      const ts = new Date(m.addedAt).getTime();
+      if (ts > latestAddedAtMs) latestAddedAtMs = ts;
+    }
+  }
+  const anchorMs = latestAddedAtMs > 0 ? latestAddedAtMs : opts.now;
+  const thresholdMs = anchorMs - opts.recentWindowMs;
+
   const olderIdx: number[] = [];
   const newerIdx: number[] = [];
 
   for (let i = 0; i < messages.length; i++) {
     const addedAt = messages[i].addedAt;
     if (addedAt === undefined) {
-      newerIdx.push(i);
+      // phase 757 改：无 addedAt 视为 24h 外可裁（不向后兼容、archive 兜底）
+      olderIdx.push(i);
     } else {
       const ts = new Date(addedAt).getTime();
       if (ts > thresholdMs) newerIdx.push(i);

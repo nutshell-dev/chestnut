@@ -132,7 +132,10 @@ describe('trimAndPersist', () => {
   it('8. now 注入 → newMessages 内 P4 摘要 addedAt 跟随 now', async () => {
     const inputs = baseInputs({
       contextWindow: 1_000,
-      messages: [{ role: 'user', origin: 'system', systemSubtype: 'task_result', content: '[system message] ' + '测'.repeat(500), addedAt: new Date(NOW - RECENT_WINDOW_MS - 1).toISOString() }],
+      messages: [
+        { role: 'user', origin: 'system', systemSubtype: 'task_result', content: '[system message] ' + '测'.repeat(500), addedAt: new Date(NOW - RECENT_WINDOW_MS - 1).toISOString() },
+        { role: 'user', content: '最近一条', addedAt: new Date(NOW).toISOString() },
+      ],
       now: NOW,
     });
     const result = await trimAndPersist(inputs);
