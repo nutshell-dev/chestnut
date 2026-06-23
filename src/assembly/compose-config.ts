@@ -15,9 +15,6 @@ import { cronConfigSchema } from '../foundation/cron/config-schema.js';
 import { viewportConfigSchema } from '../cli/commands/chat-viewport/config-schema.js';
 import { auditConfigSchema } from '../foundation/audit/config-schema.js';
 import { streamConfigSchema } from '../foundation/stream/config-schema.js';
-import { messagingRetentionConfigSchema } from '../foundation/messaging/config-schema.js';
-import { asyncTaskRetentionConfigSchema } from '../core/async-task-system/config-schema.js';
-import { dialogRetentionConfigSchema } from '../foundation/dialog-store/config-schema.js';
 import { agentExecutorConfigSchema } from '../core/agent-executor/config-schema.js';
 import { clawConfigSchema } from '../core/runtime/claw-config-schema.js';
 
@@ -33,11 +30,6 @@ export function createGlobalConfigSchema() {
     viewport: viewportConfigSchema.default({}),
     audit: auditConfigSchema.default({}),
     stream: streamConfigSchema.default({}),
-    retention: z.object({
-      ...messagingRetentionConfigSchema.shape,
-      ...asyncTaskRetentionConfigSchema.shape,
-      ...dialogRetentionConfigSchema.shape,
-    }).default({}),
     // Future cross-field validation hook (currently 0 cross-field constraint):
     //   .refine((cfg) => <constraint>, { message: '...' })
   });

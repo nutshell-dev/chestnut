@@ -254,7 +254,6 @@ vi.mock('../../src/foundation/messaging/index.js', async (importOriginal) => {
     makeInboxPath: vi.fn((dir: string) => dir),
     makeOutboxPath: vi.fn((_clawId: string, clawDir: string) => clawDir + '/outbox/pending'),
     readInboxFileMeta: vi.fn(),
-    cleanupRetention: vi.fn().mockResolvedValue(0),
     // phase 1414: formatter registry + Messaging 自家 formatter mock
     createMessageFormatterRegistry: vi.fn(() => {
       const map = new Map<string, unknown>();
@@ -272,7 +271,6 @@ vi.mock('../../src/foundation/messaging/index.js', async (importOriginal) => {
 vi.mock('../../src/foundation/dialog-store/index.js', () => ({
   DialogStore: vi.fn(() => ({ load: vi.fn(), save: vi.fn(), archive: vi.fn(), systemPrompt: '' })),
   createDialogStore: vi.fn(() => ({ load: vi.fn(), save: vi.fn(), archive: vi.fn(), restorePrefix: vi.fn() })),
-  cleanupArchives: vi.fn().mockResolvedValue(0),
   DIALOG_DIR: 'dialog',
   DIALOG_ARCHIVE_DIR: 'dialog/archive',
   CURRENT_DIALOG_FILE: 'current.json',

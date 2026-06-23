@@ -19,7 +19,6 @@ import { createDiskMonitorJob } from '../foundation/cron/jobs/disk-monitor.js';
 import { createLlmStatsJob } from '../foundation/cron/jobs/llm-stats.js';
 import { createMetricsSnapshotJob } from '../foundation/cron/jobs/metrics-snapshot.js';
 import { createGitGcWeeklyJob } from '../foundation/cron/jobs/git-gc-weekly.js';
-import { createRetentionCleanupJob } from '../foundation/cron/jobs/retention-cleanup.js';
 // phase 697 Step B: audit-size-monitor 迁 foundation/audit/jobs/ (audit module sister 归属)
 import { createAuditSizeMonitorJob } from '../foundation/audit/jobs/audit-size-monitor.js';
 import { createDreamTriggerJob } from '../core/memory/jobs/dream-trigger.js';
@@ -224,17 +223,6 @@ export async function createMotionAddons(
           clawTopology: core.topology,  // phase 259
           fs: chestnutFs,
           audit: auditWriter,
-        }, globalConfig),
-        createRetentionCleanupJob({
-          motionDir: clawDir,
-          fs: chestnutFs,
-          audit: auditWriter,
-          maxDays: {
-            inbox: globalConfig.retention.inbox_max_days,
-            outbox: globalConfig.retention.outbox_max_days,
-            tasks: globalConfig.retention.tasks_max_days,
-            dialog: globalConfig.retention.dialog_max_days,
-          },
         }, globalConfig),
         createAuditSizeMonitorJob({
           fs: chestnutFs,

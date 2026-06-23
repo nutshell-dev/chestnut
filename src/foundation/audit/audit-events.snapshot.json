@@ -92,7 +92,6 @@
       "task_cancel_promise_rejected",
       "task_cancel_race_lost_to_dispatch",
       "task_cancelled",
-      "task_cleanup_retention_delete_failed",
       "task_completed",
       "task_corrupt",
       "task_handler_failed",
@@ -623,7 +622,6 @@
     "foundation_dialog-store_audit-events": [
       "dialog_archive_all_corrupted",
       "dialog_archive_empty",
-      "dialog_cleanup_archives_delete_failed",
       "dialog_cold_start",
       "dialog_flush_chain_error",
       "dialog_invariant_failed",
@@ -681,7 +679,6 @@
       "inbox_written",
       "messaging_outbox_peek_failed",
       "messaging_message_invariant_violated",
-      "messaging_retention_cleanup_delete_failed",
       "messaging_unknown_destination_dlq",
       "notify_claw_failed",
       "notify_claw_sent",
@@ -935,9 +932,6 @@
     ],
     "foundation_cron_jobs_metrics-snapshot-audit-events": [
       "cron_metrics_snapshot"
-    ],
-    "foundation_cron_jobs_retention-cleanup-audit-events": [
-      "cron_retention_cleanup"
     ],
     "foundation_audit_jobs_audit-size-monitor-audit-events": [
       "cron_audit_size_check_failed",

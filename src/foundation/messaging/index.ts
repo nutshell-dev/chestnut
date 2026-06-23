@@ -99,4 +99,3 @@ export { notifyInbox, notifyClaw, writeInboxAsync } from './notify.js';
 // claw→claw 通信通道暂闭（claw 不知其他 claw 名字 / send tool to: 写死 motion）。
 // 详 design/modules/l2_messaging.md §7.A A.phase1476-drain-outboxes-removal-restore-pull-model.
 
-export { cleanupRetention } from './retention-cleanup.js';
