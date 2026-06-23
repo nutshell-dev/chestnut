@@ -74,7 +74,10 @@ const userInterruptHandler: ErrorHandler = {
       DAEMON_AUDIT_EVENTS.LOOP_INTERRUPT,
       `cause=${LOOP_INTERRUPT_CAUSES.USER_INTERRUPT}`,
     );
-    await waitForInbox(ctx.loopFs, ctx.audit, ctx.inboxPendingDir, ctx.fallbackTimeout);
+    // 不 waitForInbox — 直接返回让 while loop 下一轮立即调 processBatch，
+    // 把被中断 turn 期间到达、仍残留在 inbox/pending 里的消息正常 drain 出来。
+    // pending 真空时 processBatch 返回 0 自然走正常 waitForInbox。
+    // 与 priorityInboxHandler 保持一致。
   },
 };
 
