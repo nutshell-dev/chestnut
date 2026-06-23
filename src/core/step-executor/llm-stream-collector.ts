@@ -10,6 +10,7 @@ import type { LLMCallOptions } from '../../foundation/llm-orchestrator/index.js'
 import type { LLMResponse } from '../../foundation/llm-provider/index.js';
 import type { StepCallbacks } from './types.js';
 import { safeCallback, parseToolInput } from './utils.js';
+import { formatErr } from '../../foundation/utils/index.js';
 import { throwAbortError } from './abort-helpers.js';
 import { makeToolUseId } from '../../foundation/tool-protocol/index.js';
 import { LLMAllProvidersFailedError, LLMTimeoutError } from '../../foundation/llm-orchestrator/index.js';
@@ -257,9 +258,9 @@ export async function collectStreamResponse(
     // best-effort：drain 自身抛错不污染原 err（safeCallback 已守 callback throw）
     // 此处 contentBlocks 仍随作用域 GC（dialog 不持久 partial assistant message、不破 pair invariant）
     // 但 stream.jsonl 已记录每个 tool_use 的完整 input、事后凭 trace_id 可重建调用意图
-    try { flushThinking(state); } catch { /* drain best-effort */ }
-    try { flushText(state, callbacks); } catch { /* drain best-effort */ }
-    try { flushToolUse(state, callbacks); } catch { /* drain best-effort */ }
+    try { flushThinking(state); } catch { /* silent: drain best-effort, rethrow below preserves original error */ }
+    try { flushText(state, callbacks); } catch { /* silent: drain best-effort, rethrow below preserves original error */ }
+    try { flushToolUse(state, callbacks); } catch { /* silent: drain best-effort, rethrow below preserves original error */ }
     // phase 688: emit「丢弃 partial assistant content」决策事件（audit 可观测）
     // 决策动作本身的可观测点、与 stream.jsonl 的 tool_use_input 互补。
     if (state.startTs > 0) {
@@ -275,7 +276,7 @@ export async function collectStreamResponse(
           hasThinking,
           startTs: state.startTs,
           endTs: Date.now(),
-          errMessage: err instanceof Error ? err.message : String(err),
+          errMessage: formatErr(err),
         }),
         callbacks,
       );

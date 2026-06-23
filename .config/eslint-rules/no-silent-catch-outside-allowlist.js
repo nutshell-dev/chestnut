@@ -47,6 +47,9 @@ const ALLOWLIST_BASENAMES = new Set([
   'watchdog-state.ts',
   'watchdog-utils.ts',
   'watcher.ts',
+  // phase 697: best-effort drain of in-flight stream state before rethrow;
+  // original error is preserved and rethrown on line 284.
+  'llm-stream-collector.ts',
 ]);
 
 function basenameOf(filepath) {
