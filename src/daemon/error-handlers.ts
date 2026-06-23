@@ -11,7 +11,6 @@
 import type { AuditLog } from '../foundation/audit/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 import { formatErr } from '../foundation/utils/index.js';
-import { waitForInbox } from './inbox-watcher.js';
 import { DAEMON_AUDIT_EVENTS, LOOP_INTERRUPT_CAUSES } from './audit-events.js';
 import {
   INTERRUPT_RECOVERY_DELAY_MS,
@@ -28,8 +27,6 @@ import { LLMAllProvidersFailedError } from '../foundation/llm-orchestrator/index
 interface LoopErrorContext {
   audit: AuditLog;
   loopFs: FileSystem;
-  inboxPendingDir: string;
-  fallbackTimeout: number;
   llmRetry: {
     count: number;
     delayMs: number;
@@ -126,7 +123,10 @@ const fallbackHandler: ErrorHandler = {
       `reason=${isLLMMaxRetry ? 'max_retries_exhausted' : 'non_llm_error'}`,
       `error=${formatErr(err)}`,
     );
-    await waitForInbox(ctx.loopFs, ctx.audit, ctx.inboxPendingDir, ctx.fallbackTimeout);
+    // 不 waitForInbox — 直接返回让 while loop 下一轮立即调 processBatch，
+    // 把 nack 回 inbox/pending 的消息正常 drain 出来。
+    // pending 真空时 processBatch 返回 0 自然走正常 waitForInbox。
+    // 与 userInterruptHandler / priorityInboxHandler 保持一致。
   },
 };
 

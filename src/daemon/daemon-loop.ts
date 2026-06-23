@@ -345,8 +345,6 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
         await dispatchError(err, {
           audit: options.audit,
           loopFs,
-          inboxPendingDir,
-          fallbackTimeout,
           llmRetry: {
             get count() { return llmRetryCount; },
             set count(v) { llmRetryCount = v; },
