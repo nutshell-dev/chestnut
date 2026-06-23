@@ -913,6 +913,9 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     const { injected, sources, count, infos, addressedHandles } = await this._drainOwnInbox();
     if (count === 0) return 0;
 
+    // 新 turn 开始 → 重置 lastSuccessProvider，让本 turn 第一步从 primary 开始挑 model
+    this.llm.resetLastSuccessProvider?.();
+
     // Notify daemon-loop of inbox messages for review_request handling
     if (callbacks?.onInboxMessages && infos.length > 0) {
       try {
@@ -1182,6 +1185,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     const abortController = new AbortController();
     this.currentAbortController = abortController;
     this.execContext.signal = abortController.signal;
+    this.llm.resetLastSuccessProvider?.();
     try {
       await this._runReact(messages, callbacks);
 
@@ -1251,6 +1255,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     const abortController = new AbortController();
     this.currentAbortController = abortController;
     this.execContext.signal = abortController.signal;
+    this.llm.resetLastSuccessProvider?.();
     try {
       await this._runReact(retryMessages, callbacks);
 

@@ -421,6 +421,9 @@ describe('LLMOrchestratorImpl - stream failover', () => {
     for await (const chunk of service.stream({ messages: [] })) chunks1.push(chunk);
     expect(chunks1.some(c => 'delta' in c && c.delta === 'fallback ok')).toBe(true);
 
+    // Reset for new turn — primary should be tried again
+    service.resetLastSuccessProvider();
+
     // Second call: primary must be tried again (regression test for startIndex bug)
     const chunks2: StreamChunk[] = [];
     for await (const chunk of service.stream({ messages: [] })) chunks2.push(chunk);
@@ -566,6 +569,7 @@ describe('LLMOrchestratorImpl - circuit breaker', () => {
 
     // Calls 1 and 2: primary fails, fallback saves — breaker accumulates 2 failures
     await service.call({ messages: [] });
+    service.resetLastSuccessProvider();
     await service.call({ messages: [] });
     expect(primaryCallCount).toBe(2);
 
@@ -605,12 +609,14 @@ describe('LLMOrchestratorImpl - circuit breaker', () => {
 
     // Open the breaker
     await service.call({ messages: [] }); // failure 1
+    service.resetLastSuccessProvider();
     await service.call({ messages: [] }); // failure 2 → breaker opens
     expect(primaryFailCount).toBe(2);
 
     // Wait past resetTimeoutMs → transitions to half-open on next isOpen() check
     await vi.advanceTimersByTimeAsync(60);
     primaryShouldFail = false;
+    service.resetLastSuccessProvider();
 
     // Half-open probe: primary should be attempted and succeed → breaker closes
     await service.call({ messages: [] });
@@ -647,10 +653,12 @@ describe('LLMOrchestratorImpl - circuit breaker', () => {
 
     // Open the breaker
     await service.call({ messages: [] });
+    service.resetLastSuccessProvider();
     await service.call({ messages: [] });
 
     // Wait past resetTimeoutMs
     await vi.advanceTimersByTimeAsync(60);
+    service.resetLastSuccessProvider();
 
     // Next call triggers isOpen() → half-open transition
     await service.call({ messages: [] });
@@ -689,11 +697,13 @@ describe('LLMOrchestratorImpl - circuit breaker', () => {
 
     // Open the breaker
     await service.call({ messages: [] });
+    service.resetLastSuccessProvider();
     await service.call({ messages: [] });
 
     // Wait past resetTimeoutMs → half-open
     await vi.advanceTimersByTimeAsync(60);
     primaryShouldFail = false;
+    service.resetLastSuccessProvider();
 
     // Probe succeeds → half-open → closed
     await service.call({ messages: [] });

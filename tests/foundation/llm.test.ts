@@ -528,6 +528,8 @@ describe('LLM Service', () => {
       expect((response1.content[0] as { text: string }).text).toBe('Fallback');
       expect(service.getProviderInfo()!.isFallback).toBe(true);
 
+      service.resetLastSuccessProvider();
+
       // Second call - should use primary (fallback reset)
       const response2 = await service.call({
         messages: [{ role: 'user', content: 'Hi' }],

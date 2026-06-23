@@ -159,227 +159,148 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
   }
 
   /**
+   * Try a single provider with retries.
+   * Returns LLMResponse on success, throws lastError when all retries exhausted.
+   * Caller catches to proceed to next provider.
+   */
+  private async _tryCallProvider(
+    adapter: LLMProvider,
+    breakerIndex: number,
+    isFallback: boolean,
+    options: LLMCallOptions,
+  ): Promise<LLMResponse> {
+    let lastError: Error | undefined;
+
+    for (let attempt = 0; attempt < this.config.maxAttempts; attempt++) {
+      if (options.signal?.aborted) throw makeExternalAbortError(options.signal.reason as AbortReason | undefined);
+
+      const hardTimeoutMs = options.hardTimeoutMs;
+      let providerSignal: AbortSignal | undefined;
+      let cleanupSignal: () => void = () => {};
+      let hardSignal: AbortSignal | undefined;
+      if (hardTimeoutMs) {
+        const [handle, cleanup] = withCombinedAbortSignal(options.signal, hardTimeoutMs);
+        providerSignal = handle.signal;
+        cleanupSignal = cleanup;
+        hardSignal = handle.signal;
+      } else {
+        providerSignal = options.signal;
+      }
+      const providerOptions: LLMCallOptions = { ...options, signal: providerSignal, hardTimeoutMs: undefined, streamIdleTimeoutMs: undefined };
+
+      try {
+        const response = await adapter.call(providerOptions);
+        cleanupSignal();
+        this.breakers[breakerIndex]?.onSuccess();
+        this.updateLastSuccess(adapter, isFallback);
+        return response;
+      } catch (error) {
+        cleanupSignal();
+        lastError = error as Error;
+
+        if (options.signal?.aborted) throw lastError;
+        if (lastError.name === 'AbortError' && hardSignal?.aborted) throw lastError;
+        if (lastError.name === 'AbortError' && !hardSignal?.aborted) throw lastError;
+
+        if (lastError?.name === CONTEXT_TRIM_EXHAUSTED_ERROR_NAME) {
+          this.events.emit({ type: 'context_exceeded_failover', provider: adapter.name, stopReason: 'context_trim_exhausted' });
+          break;
+        }
+
+        if (classifyLLMError(lastError) === 'context_exceeded') {
+          this.events.emit({ type: 'context_exceeded_throwthrough', provider: adapter.name });
+          throw lastError;
+        }
+
+        this.events.emit({
+          type: 'provider_attempt_failed',
+          provider: adapter.name,
+          attempt,
+          error: lastError.message,
+          errorClass: classifyLLMError(lastError),
+          userActionHint: getUserActionHint(lastError),
+        });
+
+        const errClass = classifyLLMError(lastError);
+        if (errClass === 'permanent') {
+          this.events.emit({ type: 'permanent_skip_retry', provider: adapter.name, attempt, errorClass: errClass });
+          break;
+        }
+
+        if (attempt < this.config.maxAttempts - 1) {
+          const backoffMs = this.computeBackoffMs(attempt);
+          this.events.emit({ type: 'retry_scheduled', provider: adapter.name, attempt, backoffMs });
+          await delay(backoffMs, options.signal);
+        }
+      }
+    }
+
+    // All retries exhausted — record breaker failure and throw
+    const wasOpen = this.breakers[breakerIndex]?.isOpen();
+    this.breakers[breakerIndex]?.onFailure(classifyLLMError(lastError!));
+    if (!wasOpen && this.breakers[breakerIndex]?.isOpen()) {
+      this.events.emit({ type: 'breaker_opened', provider: adapter.name, consecutiveFailures: this.config.circuitBreaker?.failureThreshold ?? 0 });
+    }
+    this.events.emit({ type: 'provider_exhausted', provider: adapter.name, error: lastError!.message });
+    throw lastError;
+  }
+
+  /**
    * Make an LLM call with retry and failover
    */
   async call(options: LLMCallOptions): Promise<LLMResponse> {
-    // Helper to check circuit breaker
     const isBreakerOpen = (index: number): boolean => {
       const breaker = this.breakers[index];
       return breaker ? breaker.isOpen() : false;
     };
-    
-    // Try primary provider with retries
-    let lastError: Error | undefined;
-    if (!isBreakerOpen(0)) {
-      for (let attempt = 0; attempt < this.config.maxAttempts; attempt++) {
-        if (options.signal?.aborted) throw makeExternalAbortError(options.signal.reason as AbortReason | undefined);
 
-        const hardTimeoutMs = options.hardTimeoutMs;
-        let providerSignal: AbortSignal | undefined;
-        let cleanupSignal: () => void = () => {};
-        let hardSignal: AbortSignal | undefined;
-        if (hardTimeoutMs) {
-          const [handle, cleanup] = withCombinedAbortSignal(options.signal, hardTimeoutMs);
-          providerSignal = handle.signal;
-          cleanupSignal = cleanup;
-          hardSignal = handle.signal;
-        } else {
-          providerSignal = options.signal;
-        }
-        const providerOptions: LLMCallOptions = { ...options, signal: providerSignal, hardTimeoutMs: undefined, streamIdleTimeoutMs: undefined };
-
-        try {
-          const response = await this.primary.call(providerOptions);
-          cleanupSignal();
-
-          // Circuit breaker: record success
-          this.breakers[0]?.onSuccess();
-
-          // Reset to primary
-          this.updateLastSuccess(this.primary, false);
-          return response;
-
-        } catch (error) {
-          cleanupSignal();
-          lastError = error as Error;
-
-          // Don't retry on user abort (would add multi-second delay)
-          if (options.signal?.aborted) throw lastError;
-          // Hard timeout fired → fast failover, skip backoff
-          if (lastError.name === 'AbortError' && hardSignal?.aborted) throw lastError;
-          // Provider self-thrown AbortError when hard signal did not fire
-          if (lastError.name === 'AbortError' && !hardSignal?.aborted) throw lastError;
-
-          // ContextManager trim exhausted → failover to next provider
-          if (lastError?.name === CONTEXT_TRIM_EXHAUSTED_ERROR_NAME) {
-            this.events.emit({ type: 'context_exceeded_failover', provider: this.primary.name, stopReason: 'context_trim_exhausted' });
-            break;
-          }
-
-          // phase 690: LLM 返 context-exceeded（400 + 字面识别）→ 不 retry / 不 failover
-          // 直接向上抛、Runtime 反应式 trim+retry 路径处理
-          if (classifyLLMError(lastError) === 'context_exceeded') {
-            this.events.emit({ type: 'context_exceeded_throwthrough', provider: this.primary.name });
-            throw lastError;
-          }
-
-          this.events.emit({
-            type: 'provider_attempt_failed',
-            provider: this.primary.name,
-            attempt,
-            error: lastError.message,
-            errorClass: classifyLLMError(lastError),
-            userActionHint: getUserActionHint(lastError),
-          });
-
-          // phase 735 step 4: class-aware retry decision
-          const errClass = classifyLLMError(lastError);
-          if (errClass === 'permanent') {
-            // 401/403/404 → 直接 failover / 0 retry / 不浪费 backoff 时间
-            this.events.emit({
-              type: 'permanent_skip_retry',
-              provider: this.primary.name,
-              attempt,
-              errorClass: errClass,
-            });
-            break;  // 跳出 retry loop / 进入 fallback failover
-          }
-
-          // Wait before retry (exponential backoff with jitter, 30s max)
-          if (attempt < this.config.maxAttempts - 1) {
-            const backoffMs = this.computeBackoffMs(attempt);
-            this.events.emit({ type: 'retry_scheduled', provider: this.primary.name, attempt, backoffMs });
-            await delay(backoffMs, options.signal);
-          }
-        }
-      }
-      
-      // Circuit breaker: record failure
-      const wasOpen0 = this.breakers[0]?.isOpen();
-      this.breakers[0]?.onFailure(classifyLLMError(lastError!));
-      if (!wasOpen0 && this.breakers[0]?.isOpen()) {
-        this.events.emit({ type: 'breaker_opened', provider: this.primary.name, consecutiveFailures: this.config.circuitBreaker?.failureThreshold ?? 0 });
-      }
-
-      // Primary failed, continue to fallbacks
-    }
-
-    // Primary failed or breaker open, try fallbacks in order
     const failures: Array<{ provider: string; error: Error }> = [];
-    if (isBreakerOpen(0)) {
-      failures.push({ provider: this.primary.name, error: new Error('Circuit breaker open') });
-    } else if (lastError) {
-      this.events.emit({ type: 'provider_exhausted', provider: this.primary.name, error: lastError.message });
-      failures.push({ provider: this.primary.name, error: lastError });
+
+    // 上次成功的 fallback 排最前：同 turn 内后续 step 直接用、不反复 failover
+    if (this.lastSuccessProvider?.isFallback) {
+      const stickyFb = this.fallbacks.find(fb => fb.name === this.lastSuccessProvider!.name);
+      const stickyIdx = stickyFb ? this.fallbacks.indexOf(stickyFb) : -1;
+      if (stickyFb && stickyIdx >= 0 && !isBreakerOpen(stickyIdx + 1)) {
+        try {
+          return await this._tryCallProvider(stickyFb, stickyIdx + 1, true, options);
+        } catch (err) {
+          failures.push({ provider: stickyFb.name, error: err as Error });
+        }
+      }
     }
 
-    if (this.fallbacks.length > 0 && lastError) {
+    // Try primary
+    let primaryFailed = false;
+    if (!isBreakerOpen(0)) {
+      try {
+        return await this._tryCallProvider(this.primary, 0, false, options);
+      } catch (err) {
+        primaryFailed = true;
+        failures.push({ provider: this.primary.name, error: err as Error });
+      }
+    } else {
+      failures.push({ provider: this.primary.name, error: new Error('Circuit breaker open') });
+    }
+
+    // Primary exhausted — try remaining fallbacks
+    if (this.fallbacks.length > 0 && primaryFailed) {
       this.events.emit({ type: 'fallback_switched', from: this.primary.name, to: this.fallbacks[0].name, reason: 'primary_exhausted' });
     }
-    
+
     for (let i = 0; i < this.fallbacks.length; i++) {
       if (options.signal?.aborted) throw makeExternalAbortError(options.signal.reason as AbortReason | undefined);
-      // Skip if breaker is open
       if (isBreakerOpen(i + 1)) {
         failures.push({ provider: this.fallbacks[i].name, error: new Error('Circuit breaker open') });
         continue;
       }
 
-      const fb = this.fallbacks[i];
-      let fbLastError: Error | undefined;
-
-      // Retry loop for fallback provider (symmetric with primary and stream())
-      for (let attempt = 0; attempt < this.config.maxAttempts; attempt++) {
-        if (options.signal?.aborted) throw makeExternalAbortError(options.signal.reason as AbortReason | undefined);
-
-        const hardTimeoutMs = options.hardTimeoutMs;
-        let providerSignal: AbortSignal | undefined;
-        let cleanupSignal: () => void = () => {};
-        let hardSignal: AbortSignal | undefined;
-        if (hardTimeoutMs) {
-          const [handle, cleanup] = withCombinedAbortSignal(options.signal, hardTimeoutMs);
-          providerSignal = handle.signal;
-          cleanupSignal = cleanup;
-          hardSignal = handle.signal;
-        } else {
-          providerSignal = options.signal;
-        }
-        const providerOptions: LLMCallOptions = { ...options, signal: providerSignal, hardTimeoutMs: undefined, streamIdleTimeoutMs: undefined };
-
-        try {
-          const response = await fb.call(providerOptions);
-          cleanupSignal();
-
-          // Circuit breaker: record success
-          this.breakers[i + 1]?.onSuccess();
-
-          this.updateLastSuccess(fb, true);
-          return response;
-
-        } catch (fallbackError) {
-          cleanupSignal();
-          fbLastError = fallbackError as Error;
-
-          if (options.signal?.aborted) throw fbLastError;
-          // Hard timeout fired → fast failover, skip backoff
-          if (fbLastError.name === 'AbortError' && hardSignal?.aborted) throw fbLastError;
-          // Provider self-thrown AbortError when hard signal did not fire
-          if (fbLastError.name === 'AbortError' && !hardSignal?.aborted) throw fbLastError;
-
-          // ContextManager trim exhausted → failover to next provider
-          if (fbLastError?.name === CONTEXT_TRIM_EXHAUSTED_ERROR_NAME) {
-            this.events.emit({ type: 'context_exceeded_failover', provider: fb.name, stopReason: 'context_trim_exhausted' });
-            break;
-          }
-
-          // phase 690: fallback 路径 context-exceeded 同 primary — 直接向上抛
-          if (classifyLLMError(fbLastError) === 'context_exceeded') {
-            this.events.emit({ type: 'context_exceeded_throwthrough', provider: fb.name });
-            throw fbLastError;
-          }
-
-          this.events.emit({
-            type: 'provider_attempt_failed',
-            provider: fb.name,
-            attempt,
-            error: fbLastError.message,
-            errorClass: classifyLLMError(fbLastError),
-            userActionHint: getUserActionHint(fbLastError),
-          });
-
-          // class-aware retry decision (symmetric with primary)
-          const errClass = classifyLLMError(fbLastError);
-          if (errClass === 'permanent') {
-            this.events.emit({
-              type: 'permanent_skip_retry',
-              provider: fb.name,
-              attempt,
-              errorClass: errClass,
-            });
-            break; // 跳出 retry loop / 进入下一个 fallback
-          }
-
-          // Wait before retry (exponential backoff with jitter, 30s max)
-          if (attempt < this.config.maxAttempts - 1) {
-            const backoffMs = this.computeBackoffMs(attempt);
-            this.events.emit({ type: 'retry_scheduled', provider: fb.name, attempt, backoffMs });
-            await delay(backoffMs, options.signal);
-          }
-        }
+      try {
+        return await this._tryCallProvider(this.fallbacks[i], i + 1, true, options);
+      } catch (err) {
+        failures.push({ provider: this.fallbacks[i].name, error: err as Error });
       }
-
-      // Circuit breaker: record failure after all attempts exhausted
-      const wasOpen = this.breakers[i + 1]?.isOpen();
-      this.breakers[i + 1]?.onFailure(classifyLLMError(fbLastError!));
-      if (!wasOpen && this.breakers[i + 1]?.isOpen()) {
-        this.events.emit({ type: 'breaker_opened', provider: fb.name, consecutiveFailures: this.config.circuitBreaker?.failureThreshold ?? 0 });
-      }
-
-      this.events.emit({ type: 'provider_exhausted', provider: fb.name, error: fbLastError!.message });
-      failures.push({ provider: fb.name, error: fbLastError! });
     }
-    
-    // All providers failed
+
     throw new LLMAllProvidersFailedError(failures);
   }
   
@@ -404,6 +325,15 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
       { adapter: this.primary, breakerIndex: 0 },
       ...this.fallbacks.map((fb, i) => ({ adapter: fb, breakerIndex: i + 1 })),
     ];
+
+    // 上次成功的 fallback 排到最前：同 turn 内后续 step 直接用、不反复 failover
+    if (this.lastSuccessProvider?.isFallback) {
+      const stickyIdx = providers.findIndex(p => p.adapter.name === this.lastSuccessProvider!.name);
+      if (stickyIdx > 0) {
+        const [entry] = providers.splice(stickyIdx, 1);
+        providers.unshift(entry);
+      }
+    }
 
     const failures: Array<{ provider: string; error: Error }> = [];
 
@@ -681,7 +611,15 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
   } | null {
     return this.currentStreamingProvider ?? this.lastSuccessProvider;
   }
-  
+
+  /**
+   * 重置 lastSuccessProvider，下次 stream/call 从 primary 开始挑。
+   * Runtime 在每轮 turn 开始调。
+   */
+  resetLastSuccessProvider(): void {
+    this.lastSuccessProvider = null;
+  }
+
   /**
    * Minimal probe: single non-stream call with explicit timeout.
    * Distinguishes transient network/timeout errors from auth/model config issues.
