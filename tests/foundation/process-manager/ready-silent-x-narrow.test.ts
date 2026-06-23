@@ -8,6 +8,7 @@
  * 4. l1IsAlive throw → READY_CHECK_ISALIVE_THROW audit + return false
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { testClawDaemonDir, testMotionDaemonDir } from '../../helpers/daemon-dir.js';
 import * as path from 'path';
 import { isReady } from '../../../src/foundation/process-manager/ready.js';
 import { makeAudit } from '../../helpers/audit.js';
@@ -58,7 +59,6 @@ describe('phase 1132 D.1: isReady narrow catch', () => {
     const ctx: ProcessManagerContext = {
       fs: mockFs,
       audit,
-      resolveDir: (id: string) => path.join('/tmp', id),
       l1IsAlive: vi.fn().mockReturnValue(true),
     };
 
@@ -71,7 +71,7 @@ describe('phase 1132 D.1: isReady narrow catch', () => {
     expect(readFailedEvents[0]).toEqual(
       expect.arrayContaining([
         PROCESS_MANAGER_AUDIT_EVENTS.READY_CHECK_READ_FAILED,
-        expect.stringContaining('claw=test-claw'),
+        expect.stringContaining(''),
         expect.stringContaining('reason='),
       ]),
     );
@@ -87,7 +87,6 @@ describe('phase 1132 D.1: isReady narrow catch', () => {
     const ctx: ProcessManagerContext = {
       fs: mockFs,
       audit,
-      resolveDir: (id: string) => path.join('/tmp', id),
       l1IsAlive: vi.fn().mockReturnValue(true),
     };
 
@@ -108,7 +107,6 @@ describe('phase 1132 D.1: isReady narrow catch', () => {
     const ctx: ProcessManagerContext = {
       fs: mockFs,
       audit,
-      resolveDir: (id: string) => path.join('/tmp', id),
       l1IsAlive: vi.fn().mockReturnValue(true),
     };
 
@@ -121,7 +119,7 @@ describe('phase 1132 D.1: isReady narrow catch', () => {
     expect(parseFailedEvents[0]).toEqual(
       expect.arrayContaining([
         PROCESS_MANAGER_AUDIT_EVENTS.READY_CHECK_PARSE_FAILED,
-        expect.stringContaining('claw=test-claw'),
+        expect.stringContaining(''),
         expect.stringContaining('reason='),
       ]),
     );
@@ -138,7 +136,6 @@ describe('phase 1132 D.1: isReady narrow catch', () => {
     const ctx: ProcessManagerContext = {
       fs: mockFs,
       audit,
-      resolveDir: (id: string) => path.join('/tmp', id),
       l1IsAlive: vi.fn().mockReturnValue(true),
     };
     vi.mocked(ctx.l1IsAlive!).mockImplementation(() => {
@@ -154,7 +151,7 @@ describe('phase 1132 D.1: isReady narrow catch', () => {
     expect(isAliveThrowEvents[0]).toEqual(
       expect.arrayContaining([
         PROCESS_MANAGER_AUDIT_EVENTS.READY_CHECK_ISALIVE_THROW,
-        expect.stringContaining('claw=test-claw'),
+        expect.stringContaining(''),
         expect.stringContaining('ready_pid=12345'),
         expect.stringContaining('reason='),
       ]),

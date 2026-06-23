@@ -2,6 +2,7 @@
  * ProcessManager spawn 默认参数和环境变量测试
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { testClawDaemonDir, testMotionDaemonDir } from '../helpers/daemon-dir.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { createTempDir, cleanupTempDirSync } from '../utils/temp.js';
@@ -54,7 +55,7 @@ describe('ProcessManager - spawn defaults', () => {
   describe('spawn with SpawnOptions', () => {
     it('should use provided args for regular claw', async () => {
       const { audit } = makeAudit();
-      const pm = new ProcessManager(nodeFs, tempDir, audit);
+      const pm = new ProcessManager(nodeFs, audit);
       const clawDir = path.join(tempDir, 'claws', 'test-claw');
       const logFile = path.join(clawDir, 'logs', 'daemon.log');
       const customArgs = ['/path/to/daemon-entry.js', 'test-claw'];
@@ -62,7 +63,7 @@ describe('ProcessManager - spawn defaults', () => {
       // Pre-create logs dir to avoid ENOENT
       fs.mkdirSync(path.join(clawDir, 'logs'), { recursive: true });
 
-      await pm.spawn('test-claw', {
+      await pm.spawn(testClawDaemonDir(tempDir, 'test-claw'), {
         command: 'node',
         args: customArgs,
         logFile,
@@ -78,7 +79,7 @@ describe('ProcessManager - spawn defaults', () => {
 
     it('should use provided args for motion', async () => {
       const { audit } = makeAudit();
-      const pm = new ProcessManager(nodeFs, tempDir, audit);
+      const pm = new ProcessManager(nodeFs, audit);
       const motionDir = path.join(tempDir, 'motion');
       const logFile = path.join(motionDir, 'logs', 'daemon.log');
       const customArgs = ['/path/to/daemon-entry.js', 'motion'];
@@ -86,7 +87,7 @@ describe('ProcessManager - spawn defaults', () => {
       // Pre-create logs dir
       fs.mkdirSync(path.join(motionDir, 'logs'), { recursive: true });
 
-      await pm.spawn('motion', {
+      await pm.spawn(testClawDaemonDir(tempDir, 'motion'), {
         command: 'node',
         args: customArgs,
         logFile,
@@ -102,7 +103,7 @@ describe('ProcessManager - spawn defaults', () => {
 
     it('should pass custom args when provided', async () => {
       const { audit } = makeAudit();
-      const pm = new ProcessManager(nodeFs, tempDir, audit);
+      const pm = new ProcessManager(nodeFs, audit);
       const clawDir = path.join(tempDir, 'claws', 'custom-claw');
       const logFile = path.join(clawDir, 'logs', 'daemon.log');
       const customArgs = ['/custom/cli.js', 'custom', 'command'];
@@ -110,7 +111,7 @@ describe('ProcessManager - spawn defaults', () => {
       // Pre-create logs dir
       fs.mkdirSync(path.join(clawDir, 'logs'), { recursive: true });
 
-      await pm.spawn('custom-claw', {
+      await pm.spawn(testClawDaemonDir(tempDir, 'custom-claw'), {
         command: 'node',
         args: customArgs,
         logFile,
@@ -127,7 +128,7 @@ describe('ProcessManager - spawn defaults', () => {
   describe('spawn environment', () => {
     it('should pass env from SpawnOptions', async () => {
       const { audit } = makeAudit();
-      const pm = new ProcessManager(nodeFs, tempDir, audit);
+      const pm = new ProcessManager(nodeFs, audit);
       const clawDir = path.join(tempDir, 'claws', 'env-claw');
       const logFile = path.join(clawDir, 'logs', 'daemon.log');
 
@@ -139,7 +140,7 @@ describe('ProcessManager - spawn defaults', () => {
       // （在 prefix 允许集）测真透传。
       const customEnv = { ...process.env, CHESTNUT_TEST_VAR: 'custom-value' };
 
-      await pm.spawn('env-claw', {
+      await pm.spawn(testClawDaemonDir(tempDir, 'env-claw'), {
         command: 'node',
         args: ['/path/to/daemon-entry.js', 'env-claw'],
         logFile,
@@ -155,7 +156,7 @@ describe('ProcessManager - spawn defaults', () => {
 
     it('phase 346 B1: scrubs non-allowlist parent env vars when env not provided', async () => {
       const { audit } = makeAudit();
-      const pm = new ProcessManager(nodeFs, tempDir, audit);
+      const pm = new ProcessManager(nodeFs, audit);
       const clawDir = path.join(tempDir, 'claws', 'inherit-claw');
       const logFile = path.join(clawDir, 'logs', 'daemon.log');
 
@@ -167,7 +168,7 @@ describe('ProcessManager - spawn defaults', () => {
       const prevValue = process.env.TEST_INHERITANCE;
       process.env.TEST_INHERITANCE = 'test-value';
       try {
-        await pm.spawn('inherit-claw', {
+        await pm.spawn(testClawDaemonDir(tempDir, 'inherit-claw'), {
           command: 'node',
           args: ['/path/to/daemon-entry.js', 'inherit-claw'],
           logFile,

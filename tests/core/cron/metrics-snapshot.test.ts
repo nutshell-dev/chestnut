@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { runMetricsSnapshot, type MetricsSnapshotOptions } from '../../../src/core/cron/jobs/metrics-snapshot.js';
-import { METRICS_SNAPSHOT_AUDIT_EVENTS } from '../../../src/core/cron/jobs/metrics-snapshot-audit-events.js';
+import { runMetricsSnapshot, type MetricsSnapshotOptions } from '../../../src/foundation/cron/jobs/metrics-snapshot.js';
+import { METRICS_SNAPSHOT_AUDIT_EVENTS } from '../../../src/foundation/cron/jobs/metrics-snapshot-audit-events.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 

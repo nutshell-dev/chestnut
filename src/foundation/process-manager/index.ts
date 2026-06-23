@@ -2,15 +2,19 @@
 export { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
 
 /**
- * @module L2.ProcessManager
- * ProcessManager module (L2)
+ * @module L2a.ProcessManager
+ * ProcessManager module (L2a 通用基础设施)
  *
  * 进程生命周期管理。spawn、stop、存活检查、PID 文件管理。
- * 依赖：FileSystem
+ * 依赖：FileSystem、AuditLog
+ *
+ * phase 694: 撤 ClawId / CLAWS_DIR 业务依赖、API take daemonDir: DaemonDir brand。
  */
 
 export { ProcessManager, LockConflictError } from './manager.js';
 export type { SpawnOptions } from './manager.js';
+export type { DaemonDir } from './types.js';
+export { makeDaemonDir } from './types.js';
 export { ProcessListUnavailable } from './errors.js';
 export { DAEMON_SHUTDOWN_GRACE_MS } from './manager.js';
 export { createProcessManagerForCLI } from './factories.js';

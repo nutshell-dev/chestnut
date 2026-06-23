@@ -8,7 +8,6 @@
  */
 
 import { getWorkspaceRoot, makeChestnutRoot } from '../../foundation/install-paths.js';
-import { makeAgentDirResolver } from '../../core/claw-topology/index.js';
 // CLAWS_DIR removed: phase 263
 import * as path from 'path';
 import { formatErr } from "../../foundation/utils/index.js";
@@ -29,7 +28,7 @@ import { createToolRegistry } from '../../foundation/tools/index.js';
 import { createDirContext } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { notifyClaw } from '../../foundation/messaging/index.js';
-import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
+import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 
 import { CliError } from '../errors.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
@@ -152,9 +151,9 @@ async function _start(deps: { fsFactory: (baseDir: string) => FileSystem }, audi
 
   // onboarding 已完成 → 直接进 chat
   if (onboarding.state === 'complete') {
-    const pm = createProcessManagerForCLI({ ...deps, resolveAgentDir: makeAgentDirResolver() });
-    if (!pm.isAlive(MOTION_CLAW_ID)) {
-      await pm.spawn(MOTION_CLAW_ID, motionSpawnOptions);
+    const pm = createProcessManagerForCLI({ ...deps });
+    if (!pm.isAlive(resolveClawDaemonDir(MOTION_CLAW_ID))) {
+      await pm.spawn(resolveClawDaemonDir(MOTION_CLAW_ID), motionSpawnOptions);
     }
     const { ensureWatchdog } = await import('../../watchdog/ensure.js');
     await ensureWatchdog(deps.fsFactory);
@@ -164,10 +163,10 @@ async function _start(deps: { fsFactory: (baseDir: string) => FileSystem }, audi
 
   if (wasFirstRun && onboarding.state === 'not_found') {
     // ★ 首次运行：后台启动 daemon，前台展示语言选择（并行）
-    const pm = createProcessManagerForCLI({ ...deps, resolveAgentDir: makeAgentDirResolver() });
+    const pm = createProcessManagerForCLI({ ...deps });
     const daemonReady = (async () => {
-      if (!pm.isAlive(MOTION_CLAW_ID)) {
-        await pm.spawn(MOTION_CLAW_ID, motionSpawnOptions);
+      if (!pm.isAlive(resolveClawDaemonDir(MOTION_CLAW_ID))) {
+        await pm.spawn(resolveClawDaemonDir(MOTION_CLAW_ID), motionSpawnOptions);
       }
     })();
     daemonReady.catch((err: unknown) => {
@@ -207,9 +206,9 @@ async function _start(deps: { fsFactory: (baseDir: string) => FileSystem }, audi
 
   } else {
     // 非首次但 not_found（极少），或 in_progress
-    const pm = createProcessManagerForCLI({ ...deps, resolveAgentDir: makeAgentDirResolver() });
-    if (!pm.isAlive(MOTION_CLAW_ID)) {
-      await pm.spawn(MOTION_CLAW_ID, motionSpawnOptions);
+    const pm = createProcessManagerForCLI({ ...deps });
+    if (!pm.isAlive(resolveClawDaemonDir(MOTION_CLAW_ID))) {
+      await pm.spawn(resolveClawDaemonDir(MOTION_CLAW_ID), motionSpawnOptions);
     }
     const { ensureWatchdog } = await import('../../watchdog/ensure.js');
     await ensureWatchdog(deps.fsFactory);

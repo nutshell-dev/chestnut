@@ -3,7 +3,7 @@ import type { AuditLog } from '../../../foundation/audit/index.js';
 import { RETENTION_CLEANUP_AUDIT_EVENTS } from './retention-cleanup-audit-events.js';
 import { cleanupRetention } from '../../../foundation/messaging/index.js';
 // INBOX_DONE_DIR / INBOX_FAILED_DIR removed with DIRS (Phase 28 Step B)
-import { cleanupExpiredTaskFiles } from '../../async-task-system/index.js';
+import { cleanupExpiredTaskFiles } from '../../../core/async-task-system/index.js';
 import { cleanupArchives } from '../../../foundation/dialog-store/index.js';
 import type { CronJob } from '../runner.js';
 import { parseSchedule } from '../runner.js';

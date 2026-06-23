@@ -9,12 +9,11 @@
  */
 
 import * as path from 'path';
-import { makeAgentDirResolver } from '../core/claw-topology/index.js';
 import { sha256ShortHex } from '../foundation/hash.js';
 import { formatErr } from '../foundation/utils/index.js';
 import { loadGlobalConfig, loadClawConfig } from '../assembly/config-load.js';
 import { getClawDir, getNamedSubrootDir, getClawConfigPath } from '../foundation/config/index.js';
-import { MOTION_CLAW_ID } from '../core/claw-topology/index.js';
+import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../core/claw-topology/index.js';
 
 import { startDaemonLoop } from './daemon-loop.js';
 import { createSystemAudit, type AuditLog } from '../foundation/audit/index.js';
@@ -81,7 +80,7 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
     const preAssembleAudit: AuditLog = createSystemAudit(preAssembleFs, dir);
 
     // ProcessManager 接管 PID 文件
-    const processManager = createAgentProcessManager({ fsFactory: deps.fsFactory, resolveAgentDir: makeAgentDirResolver() }, preAssembleAudit);
+    const processManager = createAgentProcessManager({ fsFactory: deps.fsFactory }, preAssembleAudit);
 
     // phase 521 (review-round4 CLI M): loadClawConfig 包入 try 显式归类 module=claw_config
     // YAML parse error 改前 escape 到 shim 无 ASSEMBLE_FAILED granularity
@@ -123,7 +122,7 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
     }
 
     // 锁取成后写 PID 文件（兜底：无论启动方式都确保 PID 可查）
-    await processManager.selfWritePid(makeClawId(clawId));
+    await processManager.selfWritePid(resolveClawDaemonDir(makeClawId(clawId)));
 
     const { runtime, streamWriter, snapshot, auditWriter, heartbeat } = instances;
 
@@ -159,7 +158,7 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
     } catch { /* silent: AGENTS.md is optional, missing is expected */ }
     // phase 719: 'sha256:' algo prefix 不是 audit col key= prefix、forensic 解析无法 join、改 'prompt_hash=' key
     auditWriter.write(deps.auditEvents.daemonStart, `prompt_hash=sha256:${promptHash}`);
-    await processManager.markReady(makeClawId(clawId));
+    await processManager.markReady(resolveClawDaemonDir(makeClawId(clawId)));
 
     // daemon-start commit（不阻塞启动）
     snapshot.commit(`daemon-start ${new Date().toISOString()}`).then((result) => {
@@ -217,7 +216,7 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
       const dispose = (async () => {
         await deps.disassemble(instances, reason);
         try {
-          await processManager.selfRemovePid(makeClawId(clawId));
+          await processManager.selfRemovePid(resolveClawDaemonDir(makeClawId(clawId)));
         } catch (e) {
           // phase 720: 加 context col 区分 caller 路径、reason key 命名统一
           instances.auditWriter.write(DAEMON_AUDIT_EVENTS.CLEANUP_PID_FAILED, `context=self_remove_pid`, `reason=${(e as Error).message}`);

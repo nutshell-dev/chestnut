@@ -1,5 +1,5 @@
 /**
- * @module L4.OutboxSummary
+ * @module L4.ClawTopology.OutboxSummary
  * phase 1476: scan all claws/*\/outbox/pending → counts + fileSet.
  * phase 42: outbox/pending 列举改走 Messaging.OutboxReader（消 MLP-3 直访）。
  *
@@ -11,8 +11,8 @@
 import type { FileSystem } from '../../../../foundation/fs/index.js';
 import { isFileNotFound } from '../../../../foundation/fs/index.js';
 import type { OutboxReader } from '../../../../foundation/messaging/index.js';
-import { MOTION_CLAW_ID } from '../../../claw-topology/index.js';
-import type { ClawTopology } from '../../../../core/claw-topology/index.js';
+import { MOTION_CLAW_ID } from '../../index.js';
+import type { ClawTopology } from '../../index.js';
 import type { ClawId } from '../../../../foundation/identity/index.js';
 import { computeHash } from './hash.js';
 import { PREVIEW_MAX_CHARS } from './types.js';

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CRON_FILE_ROUTING } from '../../../src/core/cron/audit-events.js';
+import { CRON_FILE_ROUTING } from '../../../src/foundation/cron/audit-events.js';
 import { DAEMON_FILE_ROUTING } from '../../../src/daemon/audit-events.js';
 import { VIEWPORT_FILE_ROUTING } from '../../../src/cli/commands/viewport-audit-events.js';
 
@@ -238,7 +238,7 @@ describe('audit-events snapshot lock', () => {
       'foundation/tools/audit-events.ts',
       'watchdog/audit-events.ts',
       // phase 159 已有
-      'core/cron/audit-events.ts',
+      'foundation/cron/audit-events.ts',
       'daemon/audit-events.ts',
       'cli/commands/viewport-audit-events.ts',
     ];

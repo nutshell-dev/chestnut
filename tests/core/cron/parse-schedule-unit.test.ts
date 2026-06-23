@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
-import { CRON_AUDIT_EVENTS } from '../../../src/core/cron/audit-events.js';
-import { parseSchedule } from '../../../src/core/cron/runner.js';
+import { CRON_AUDIT_EVENTS } from '../../../src/foundation/cron/audit-events.js';
+import { parseSchedule } from '../../../src/foundation/cron/runner.js';
 
 function makeMockAudit() { return { write: vi.fn() }; }
 

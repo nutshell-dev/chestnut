@@ -9,14 +9,13 @@
  */
 
 import { getWorkspaceRoot } from '../../foundation/install-paths.js';
-import { makeAgentDirResolver } from '../../core/claw-topology/index.js';
 import * as path from 'path';
 import { formatErr } from "../../foundation/utils/index.js";
 import { fileURLToPath } from 'url';
 import { loadGlobalConfig } from '../../assembly/config-load.js';
 import { getNamedSubrootDir } from '../../foundation/config/index.js';
 import { STATUS_SUBDIR } from '../../foundation/process-manager/index.js';
-import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
+import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 
 import { runChatViewport } from './chat-viewport.js';
 import { CliError } from '../errors.js';
@@ -206,11 +205,11 @@ export async function chatCommand(deps: { fsFactory: (baseDir: string) => FileSy
     audit: systemAudit,
     fsFactory: deps.fsFactory,
     ensureDaemon: async () => {
-      const pm = createProcessManagerForCLI({ ...deps, resolveAgentDir: makeAgentDirResolver() });
-      if (!pm.isAlive(MOTION_CLAW_ID)) {
+      const pm = createProcessManagerForCLI({ ...deps });
+      if (!pm.isAlive(resolveClawDaemonDir(MOTION_CLAW_ID))) {
         console.log('Starting Motion daemon...');
         const daemonEntryPath = resolveDaemonEntry(deps.fsFactory(motionDir));
-        const pid = await pm.spawn(MOTION_CLAW_ID, {
+        const pid = await pm.spawn(resolveClawDaemonDir(MOTION_CLAW_ID), {
           command: 'node',
           args: [daemonEntryPath, MOTION_CLAW_ID],
           logFile: path.join(motionDir, DAEMON_LOG),
@@ -236,16 +235,16 @@ export async function chatCommand(deps: { fsFactory: (baseDir: string) => FileSy
 export async function stopCommand(deps: { fsFactory: (baseDir: string) => FileSystem }, extraDeps?: { audit?: AuditLog }): Promise<void> {
   const audit = extraDeps?.audit;
   loadGlobalConfig(deps);
-  const pm = createProcessManagerForCLI({ ...deps, resolveAgentDir: makeAgentDirResolver() });
+  const pm = createProcessManagerForCLI({ ...deps });
 
-  if (!pm.isAlive(MOTION_CLAW_ID)) {
+  if (!pm.isAlive(resolveClawDaemonDir(MOTION_CLAW_ID))) {
     audit?.write(CLI_AUDIT_EVENTS.MOTION_STOP, `status=not_running`);
     console.log('Motion is not running');
     return;
   }
 
   console.log('Stopping Motion daemon...');
-  const stopped = await pm.stop(MOTION_CLAW_ID);
+  const stopped = await pm.stop(resolveClawDaemonDir(MOTION_CLAW_ID));
   if (stopped) {
     audit?.write(CLI_AUDIT_EVENTS.MOTION_STOP, `status=success`);
     console.log('✓ Stopped Motion daemon');

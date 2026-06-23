@@ -10,7 +10,6 @@
  */
 
 import * as path from 'path';
-import { makeAgentDirResolver } from '../../core/claw-topology/index.js';
 import { loadGlobalConfig } from '../../assembly/config-load.js';
 import { getNamedSubrootDir } from '../../foundation/config/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
@@ -34,7 +33,7 @@ export async function statusCommand(deps: { fsFactory: (baseDir: string) => File
 
   const motionDir = getNamedSubrootDir(MOTION_CLAW_ID);
   const baseDir = path.dirname(motionDir);
-  const pm = createProcessManagerForCLI({ ...deps, resolveAgentDir: makeAgentDirResolver() });
+  const pm = createProcessManagerForCLI({ ...deps });
 
   const watchdogPid = getWatchdogPid(deps.fsFactory);
   const watchdog = {

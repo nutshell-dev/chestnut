@@ -8,6 +8,7 @@
  * 4. 反向 3：stale marker (PID mismatch) → isReady false + READY_MARK_STALE audit
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { testClawDaemonDir, testMotionDaemonDir } from '../../helpers/daemon-dir.js';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import { tmpdir } from 'os';
@@ -45,7 +46,6 @@ describe('isReady / markReady / markNotReady', () => {
     return {
       fs: nodeFs,
       audit,
-      resolveDir: (id: string) => path.join(tempDir, 'claws', id),
       l1IsAlive: vi.fn().mockReturnValue(true),
     };
   }
@@ -61,13 +61,13 @@ describe('isReady / markReady / markNotReady', () => {
     const clawId = 'test-claw';
     await writePidFile(clawId, process.pid);
 
-    expect(isReady(ctx, clawId)).toBe(false);
+    expect(isReady(ctx, testClawDaemonDir(tempDir, clawId))).toBe(false);
 
-    await markReady(ctx, clawId);
-    expect(isReady(ctx, clawId)).toBe(true);
+    await markReady(ctx, testClawDaemonDir(tempDir, clawId));
+    expect(isReady(ctx, testClawDaemonDir(tempDir, clawId))).toBe(true);
 
-    await markNotReady(ctx, clawId);
-    expect(isReady(ctx, clawId)).toBe(false);
+    await markNotReady(ctx, testClawDaemonDir(tempDir, clawId));
+    expect(isReady(ctx, testClawDaemonDir(tempDir, clawId))).toBe(false);
   });
 
   it('反向 1：mark 写完不 delete → isReady 持 true', async () => {
@@ -75,11 +75,11 @@ describe('isReady / markReady / markNotReady', () => {
     const clawId = 'test-claw';
     await writePidFile(clawId, process.pid);
 
-    await markReady(ctx, clawId);
-    expect(isReady(ctx, clawId)).toBe(true);
+    await markReady(ctx, testClawDaemonDir(tempDir, clawId));
+    expect(isReady(ctx, testClawDaemonDir(tempDir, clawId))).toBe(true);
 
     // 不调用 markNotReady，isReady 仍应为 true
-    expect(isReady(ctx, clawId)).toBe(true);
+    expect(isReady(ctx, testClawDaemonDir(tempDir, clawId))).toBe(true);
   });
 
   it('反向 2：corrupt JSON → isReady false', async () => {
@@ -91,7 +91,7 @@ describe('isReady / markReady / markNotReady', () => {
     await fs.mkdir(path.dirname(readyFile), { recursive: true });
     await fs.writeFile(readyFile, 'not-json', 'utf-8');
 
-    expect(isReady(ctx, clawId)).toBe(false);
+    expect(isReady(ctx, testClawDaemonDir(tempDir, clawId))).toBe(false);
   });
 
   it('反向 3：stale marker (PID mismatch) → isReady false + READY_MARK_STALE audit + self-cleanup', async () => {
@@ -101,7 +101,6 @@ describe('isReady / markReady / markNotReady', () => {
     const ctx: ProcessManagerContext = {
       fs: nodeFsLocal,
       audit,
-      resolveDir: (id: string) => path.join(tempDir, 'claws', id),
       l1IsAlive: vi.fn().mockReturnValue(true),
     };
 
@@ -113,7 +112,7 @@ describe('isReady / markReady / markNotReady', () => {
     await fs.mkdir(path.dirname(readyFile), { recursive: true });
     await fs.writeFile(readyFile, JSON.stringify({ pid: FAKE_LIVE_PID }), 'utf-8');
 
-    expect(isReady(ctx, clawId)).toBe(false);
+    expect(isReady(ctx, testClawDaemonDir(tempDir, clawId))).toBe(false);
 
     const staleEvents = events.filter(
       (e) => e[0] === PROCESS_MANAGER_AUDIT_EVENTS.READY_MARK_STALE,
@@ -122,7 +121,7 @@ describe('isReady / markReady / markNotReady', () => {
     expect(staleEvents[0]).toEqual(
       expect.arrayContaining([
         PROCESS_MANAGER_AUDIT_EVENTS.READY_MARK_STALE,
-        expect.stringContaining('claw='),
+        expect.stringContaining('daemon_dir='),
         expect.stringContaining(`ready_pid=${FAKE_LIVE_PID}`),
         expect.stringContaining(`pid_file_pid=${process.pid}`),
       ]),

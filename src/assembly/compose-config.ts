@@ -11,7 +11,7 @@ import { llmOrchestratorConfigSchema } from '../foundation/llm-orchestrator/conf
 import { runtimeMotionConfigSchema } from '../core/runtime/config-schema.js';
 import { toolsConfigSchema } from '../foundation/tools/config-schema.js';
 import { watchdogConfigSchema } from '../watchdog/config-schema.js';
-import { cronConfigSchema } from '../core/cron/config-schema.js';
+import { cronConfigSchema } from '../foundation/cron/config-schema.js';
 import { viewportConfigSchema } from '../cli/commands/chat-viewport/config-schema.js';
 import { auditConfigSchema } from '../foundation/audit/config-schema.js';
 import { streamConfigSchema } from '../foundation/stream/config-schema.js';

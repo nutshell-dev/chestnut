@@ -7,6 +7,7 @@
  * - stale 空 PID 文件 → 警告后继续
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { testClawDaemonDir, testMotionDaemonDir } from '../helpers/daemon-dir.js';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { tmpdir } from 'os';
@@ -61,7 +62,7 @@ afterEach(async () => {
 describe('ProcessManager.spawn() - Phase 19 daemon-entry.js', () => {
   it('should call spawnSync pgrep with options.args pattern', async () => {
     const { audit } = makeAudit();
-    const pm = new ProcessManager(nodeFs, tempDir, audit);
+    const pm = new ProcessManager(nodeFs, audit);
     const clawId = 'p19-claw';
     const clawDir = path.join(tempDir, 'claws', clawId);
     const logFile = path.join(clawDir, 'logs', 'daemon.log');
@@ -100,7 +101,7 @@ describe('ProcessManager.spawn() - Phase 19 daemon-entry.js', () => {
     const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
 
     const { audit } = makeAudit();
-    const pm = new ProcessManager(nodeFs, tempDir, audit);
+    const pm = new ProcessManager(nodeFs, audit);
     const clawDir = path.join(tempDir, 'claws', clawId);
     const logFile = path.join(clawDir, 'logs', 'daemon.log');
     await fs.mkdir(clawDir, { recursive: true });
@@ -126,16 +127,16 @@ describe('ProcessManager.spawn() - Phase 19 daemon-entry.js', () => {
     await fs.writeFile(path.join(statusDir, 'pid'), '', 'utf-8');
 
     const { audit, events } = makeAudit();
-    const pm = new ProcessManager(nodeFs, tempDir, audit);
+    const pm = new ProcessManager(nodeFs, audit);
     const clawDir = path.join(tempDir, 'claws', clawId);
     const logFile = path.join(clawDir, 'logs', 'daemon.log');
 
-    await expect(pm.spawn(clawId, {
+    await expect(pm.spawn(testClawDaemonDir(tempDir, clawId), {
       command: 'node',
       args: ['/fake/daemon-entry.js', clawId],
       logFile,
       env: { ...process.env },
     })).resolves.toBeDefined();
-    expect(events.some(e => e[0] === 'pid_empty' && e.some((c: string | number | boolean) => typeof c === 'string' && c.includes('claw=stale-empty-claw')))).toBe(true);
+    expect(events.some(e => e[0] === 'pid_empty' && e.some((c: string | number | boolean) => typeof c === 'string' && c.includes('stale-empty-claw')))).toBe(true);
   });
 });

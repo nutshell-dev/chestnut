@@ -7,6 +7,7 @@
  * 3. race-with-markReady：unlink 后 next markReady 重写 不丢 new marker
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { testClawDaemonDir, testMotionDaemonDir } from '../../helpers/daemon-dir.js';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import { tmpdir } from 'os';
@@ -40,7 +41,6 @@ describe('isReady stale marker self-cleanup（phase 1148 / C.1）', () => {
     return {
       fs: nodeFs,
       audit,
-      resolveDir: (id: string) => path.join(tempDir, 'claws', id),
       l1IsAlive: vi.fn().mockReturnValue(true),
     };
   }
@@ -58,7 +58,6 @@ describe('isReady stale marker self-cleanup（phase 1148 / C.1）', () => {
     const ctx: ProcessManagerContext = {
       fs: nodeFsLocal,
       audit,
-      resolveDir: (id: string) => path.join(tempDir, 'claws', id),
       l1IsAlive: vi.fn().mockReturnValue(true),
     };
 
@@ -69,7 +68,7 @@ describe('isReady stale marker self-cleanup（phase 1148 / C.1）', () => {
     await fs.writeFile(readyFile, JSON.stringify({ pid: FAKE_LIVE_PID }), 'utf-8');
 
     // phase 1310 α-1: diagnostic dump on assertion fail (mirror phase 1307/1309 模板)
-    const isReadyResult = isReady(ctx, clawId);
+    const isReadyResult = isReady(ctx, testClawDaemonDir(tempDir, clawId));
     if (isReadyResult !== false) {
       const readyFileExists = await fs.access(readyFile).then(() => true).catch(() => false);
       const readyFileContent = readyFileExists
@@ -126,7 +125,6 @@ describe('isReady stale marker self-cleanup（phase 1148 / C.1）', () => {
     const ctx: ProcessManagerContext = {
       fs: nodeFsLocal,
       audit,
-      resolveDir: (id: string) => path.join(tempDir, 'claws', id),
       l1IsAlive: vi.fn().mockReturnValue(true),
     };
 
@@ -137,7 +135,7 @@ describe('isReady stale marker self-cleanup（phase 1148 / C.1）', () => {
     await fs.writeFile(readyFile, JSON.stringify({ pid: FAKE_LIVE_PID }), 'utf-8');
 
     // should NOT throw despite delete rejecting ENOENT
-    const result = isReady(ctx, clawId);
+    const result = isReady(ctx, testClawDaemonDir(tempDir, clawId));
     expect(result).toBe(false);
 
     const staleEvents = events.filter(
@@ -158,13 +156,13 @@ describe('isReady stale marker self-cleanup（phase 1148 / C.1）', () => {
     await fs.writeFile(readyFile, JSON.stringify({ pid: FAKE_LIVE_PID }), 'utf-8');
 
     // trigger self-cleanup via isReady
-    expect(isReady(ctx, clawId)).toBe(false);
+    expect(isReady(ctx, testClawDaemonDir(tempDir, clawId))).toBe(false);
 
     // immediately markReady with current process pid
-    await markReady(ctx, clawId);
+    await markReady(ctx, testClawDaemonDir(tempDir, clawId));
 
     // next isReady should see fresh marker (not deleted by stale cleanup race)
-    expect(isReady(ctx, clawId)).toBe(true);
+    expect(isReady(ctx, testClawDaemonDir(tempDir, clawId))).toBe(true);
   });
 
   it('反向 4：happy path 不动', async () => {
@@ -172,12 +170,12 @@ describe('isReady stale marker self-cleanup（phase 1148 / C.1）', () => {
     const clawId = 'test-claw';
     await writePidFile(clawId, process.pid);
 
-    expect(isReady(ctx, clawId)).toBe(false);
+    expect(isReady(ctx, testClawDaemonDir(tempDir, clawId))).toBe(false);
 
-    await markReady(ctx, clawId);
-    expect(isReady(ctx, clawId)).toBe(true);
+    await markReady(ctx, testClawDaemonDir(tempDir, clawId));
+    expect(isReady(ctx, testClawDaemonDir(tempDir, clawId))).toBe(true);
 
-    await markNotReady(ctx, clawId);
-    expect(isReady(ctx, clawId)).toBe(false);
+    await markNotReady(ctx, testClawDaemonDir(tempDir, clawId));
+    expect(isReady(ctx, testClawDaemonDir(tempDir, clawId))).toBe(false);
   });
 });

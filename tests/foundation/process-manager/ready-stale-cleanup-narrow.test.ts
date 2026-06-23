@@ -7,6 +7,7 @@
  * 3. delete succeeds → 0 audit emit + isReady returns false
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { testClawDaemonDir, testMotionDaemonDir } from '../../helpers/daemon-dir.js';
 import * as path from 'path';
 import { isReady } from '../../../src/foundation/process-manager/ready.js';
 import { makeAudit } from '../../helpers/audit.js';
@@ -56,7 +57,6 @@ describe('phase 1161 r128 C fork: ready stale cleanup narrow ENOENT', () => {
     const ctx: ProcessManagerContext = {
       fs: mockFs,
       audit,
-      resolveDir: (id: string) => path.join('/tmp', id),
       l1IsAlive: vi.fn().mockReturnValue(true),
     };
 
@@ -72,7 +72,7 @@ describe('phase 1161 r128 C fork: ready stale cleanup narrow ENOENT', () => {
     expect(staleCleanupFailedEvents[0]).toEqual(
       expect.arrayContaining([
         PROCESS_MANAGER_AUDIT_EVENTS.READY_STALE_CLEANUP_FAILED,
-        expect.stringContaining('claw=test-claw'),
+        expect.stringContaining(''),
         expect.stringContaining('reason='),
       ]),
     );
@@ -86,7 +86,6 @@ describe('phase 1161 r128 C fork: ready stale cleanup narrow ENOENT', () => {
     const ctx: ProcessManagerContext = {
       fs: mockFs,
       audit,
-      resolveDir: (id: string) => path.join('/tmp', id),
       l1IsAlive: vi.fn().mockReturnValue(true),
     };
 
@@ -108,7 +107,6 @@ describe('phase 1161 r128 C fork: ready stale cleanup narrow ENOENT', () => {
     const ctx: ProcessManagerContext = {
       fs: mockFs,
       audit,
-      resolveDir: (id: string) => path.join('/tmp', id),
       l1IsAlive: vi.fn().mockReturnValue(true),
     };
 

@@ -21,7 +21,7 @@ import { getContractCreatedMs } from '../core/contract/index.js';
 import { getNamedSubrootDir } from '../foundation/config/index.js';
 import { notifyClaw } from '../foundation/messaging/index.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
-import { MOTION_CLAW_ID } from '../core/claw-topology/index.js';
+import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../core/claw-topology/index.js';
 import { makeClawId } from '../foundation/identity/index.js';
 import { CLAWS_DIR } from '../foundation/claw-paths.js';
 
@@ -133,7 +133,7 @@ export async function maybeCronClawInactivity(pm: ProcessManager, audit: AuditLo
       if (!clawHasActiveContract(clawDir, fsFactory, audit)) continue;
 
       // phase 2 γ4: inactivity 仅对 daemon ALIVE 触发 / daemon dead 归 crash_notification 覆盖（0 dedup 重叠）
-      if (!pm.isAlive(makeClawId(clawId))) continue;
+      if (!pm.isAlive(resolveClawDaemonDir(makeClawId(clawId)))) continue;
 
       // Parse stream.jsonl to get real progress
       const clawFs = fsFactory(clawDir);
@@ -228,7 +228,7 @@ export function maybeCronClawCrash(pm: ProcessManager, audit: AuditLog, fsFactor
   for (const rawClawId of clawEntries.map(e => e.name)) {
     const clawId = rawClawId;
     const clawDir = path.join(getChestnutDir(), CLAWS_DIR, rawClawId);
-    const currentlyAlive = pm.isAlive(makeClawId(clawId));
+    const currentlyAlive = pm.isAlive(resolveClawDaemonDir(makeClawId(clawId)));
 
     if (currentlyAlive) {
       clawStateAPI.everSpawned.add(rawClawId);

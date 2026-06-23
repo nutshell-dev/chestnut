@@ -6,7 +6,7 @@
  */
 
 // phase 159 立
-import { CRON_FILE_ROUTING } from '../core/cron/audit-events.js';
+import { CRON_FILE_ROUTING } from '../foundation/cron/audit-events.js';
 import { DAEMON_FILE_ROUTING } from '../daemon/audit-events.js';
 import { VIEWPORT_FILE_ROUTING } from '../cli/commands/viewport-audit-events.js';
 

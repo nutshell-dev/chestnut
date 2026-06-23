@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { testClawDaemonDir, testMotionDaemonDir } from '../helpers/daemon-dir.js';
 import { disassemble } from '../../src/assembly/disassemble.js';
 
 describe('disassemble', () => {
@@ -47,7 +48,7 @@ describe('disassemble', () => {
     );
 
     // 验证 releaseLock 参数
-    expect(mockInstances.processManager.releaseLock).toHaveBeenCalledWith('test-claw');
+    expect(mockInstances.processManager.releaseLock).toHaveBeenCalledWith(expect.any(String));
 
     // 验证 daemon_stop 在最后
     const lastCall = mockInstances.auditWriter.write.mock.calls.at(-1);

@@ -118,12 +118,12 @@ vi.mock('../../src/core/runtime/index.js', () => {
   };
 });
 
-vi.mock('../../src/core/cron/runner.js', () => ({
+vi.mock('../../src/foundation/cron/runner.js', () => ({
   CronRunner: vi.fn(() => mockCronRunner),
   parseSchedule: vi.fn((s: string) => s),
 }));
 
-vi.mock('../../src/core/cron/jobs/disk-monitor.js', () => {
+vi.mock('../../src/foundation/cron/jobs/disk-monitor.js', () => {
   const mockRunDiskMonitor = vi.fn();
   return {
     runDiskMonitor: mockRunDiskMonitor,
@@ -138,7 +138,7 @@ vi.mock('../../src/core/cron/jobs/disk-monitor.js', () => {
   };
 });
 
-vi.mock('../../src/core/cron/jobs/llm-stats.js', () => {
+vi.mock('../../src/foundation/cron/jobs/llm-stats.js', () => {
   const mockRunLlmStats = vi.fn();
   return {
     runLlmStats: mockRunLlmStats,
@@ -179,7 +179,7 @@ vi.mock('../../src/core/contract/jobs/contract-observer.js', () => {
   };
 });
 
-vi.mock('../../src/core/cron/jobs/git-gc-weekly.js', () => {
+vi.mock('../../src/foundation/cron/jobs/git-gc-weekly.js', () => {
   const mockRunGitGcWeekly = vi.fn();
   return {
     runGitGcWeekly: mockRunGitGcWeekly,
@@ -287,16 +287,16 @@ vi.mock('../../src/assembly/config-load.js', () => ({
 // modules (or real ones if not mocked) just as the per-test `await import`
 // did, without paying the per-invocation resolution cost.
 import { createStreamWriter } from '../../src/foundation/stream/index.js';
-import { CronRunner } from '../../src/core/cron/runner.js';
+import { CronRunner } from '../../src/foundation/cron/runner.js';
 import { buildLLMConfig } from '../../src/assembly/config-load.js';
 import { createAgentProcessManager } from '../../src/foundation/process-manager/agent-factory.js';
 import { createSnapshot } from '../../src/foundation/snapshot/index.js';
 import { createRuntime, Heartbeat } from '../../src/core/runtime/index.js';
-import { runDiskMonitor } from '../../src/core/cron/jobs/disk-monitor.js';
-import { runLlmStats } from '../../src/core/cron/jobs/llm-stats.js';
+import { runDiskMonitor } from '../../src/foundation/cron/jobs/disk-monitor.js';
+import { runLlmStats } from '../../src/foundation/cron/jobs/llm-stats.js';
 import { createMemorySystem } from '../../src/core/memory/index.js';
 import { runContractObserver } from '../../src/core/contract/jobs/contract-observer.js';
-import { runGitGcWeekly } from '../../src/core/cron/jobs/git-gc-weekly.js';
+import { runGitGcWeekly } from '../../src/foundation/cron/jobs/git-gc-weekly.js';
 
 
 // ============================================================================

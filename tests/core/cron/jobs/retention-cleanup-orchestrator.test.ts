@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { runRetentionCleanup } from '../../../../src/core/cron/jobs/retention-cleanup.js';
-import { RETENTION_CLEANUP_AUDIT_EVENTS } from '../../../../src/core/cron/jobs/retention-cleanup-audit-events.js';
+import { runRetentionCleanup } from '../../../../src/foundation/cron/jobs/retention-cleanup.js';
+import { RETENTION_CLEANUP_AUDIT_EVENTS } from '../../../../src/foundation/cron/jobs/retention-cleanup-audit-events.js';
 import * as messaging from '../../../../src/foundation/messaging/index.js';
 import * as taskSystem from '../../../../src/core/async-task-system/index.js';
 import * as dialogStore from '../../../../src/foundation/dialog-store/index.js';

@@ -4,7 +4,7 @@
  */
 
 import * as path from 'path';
-import { makeAgentDirResolver } from '../../core/claw-topology/index.js';
+import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
 import { loadGlobalConfig } from '../../assembly/config-load.js';
 import { getGlobalConfigPath } from '../../foundation/config/index.js';
 import { createDirContext } from '../../foundation/audit/index.js';
@@ -30,7 +30,7 @@ export async function listCommand(deps: { fsFactory: (baseDir: string) => FileSy
   const baseDir = path.dirname(globalConfigPath);
   const clawsDir = path.join(baseDir, CLAWS_DIR);
 
-  const processManager = createProcessManagerForCLI({ ...deps, resolveAgentDir: makeAgentDirResolver() });
+  const processManager = createProcessManagerForCLI({ ...deps });
   const { audit: systemAudit } = createDirContext(deps, baseDir);
 
   // Helper: check contract status
@@ -110,12 +110,12 @@ export async function listCommand(deps: { fsFactory: (baseDir: string) => FileSy
   for (const entry of entries) {
     const clawFs = deps.fsFactory(path.join(clawsDir, entry));
     if (clawFs.existsSync(CONFIG_YAML_FILE)) {
-      const isRunning = processManager.isAlive(makeClawId(entry));
+      const isRunning = processManager.isAlive(resolveClawDaemonDir(makeClawId(entry)));
       let pid: number | undefined;
 
       if (isRunning) {
         try {
-          const stored = await processManager.readPid(makeClawId(entry));
+          const stored = await processManager.readPid(resolveClawDaemonDir(makeClawId(entry)));
           if (stored !== null) pid = stored.pid;
         } catch { /* silent: ignore read errors */ }
       }

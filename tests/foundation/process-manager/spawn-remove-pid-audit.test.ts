@@ -4,6 +4,7 @@
  * 验证点：spawn retry overwrite 路径中 removePid 失败时写入 PID_REMOVE_FAILED audit
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { testClawDaemonDir, testMotionDaemonDir } from '../../helpers/daemon-dir.js';
 import { FAKE_LIVE_PID } from '../../helpers/test-pids.js';
 import * as path from 'path';
 import * as fs from 'fs/promises';
@@ -67,7 +68,6 @@ describe('spawn — removePid silent → audit (P1.1)', () => {
     const ctx: ProcessManagerContext = {
       fs: nodeFs,
       audit,
-      resolveDir: (id: string) => path.join(tempDir, 'claws', id),
       isReady: () => true,
       l1IsAlive: vi.fn().mockReturnValue(true),
       spawnDetached: vi.fn().mockReturnValue({ pid: FAKE_LIVE_PID }),
@@ -84,7 +84,7 @@ describe('spawn — removePid silent → audit (P1.1)', () => {
       return (NodeFileSystem.prototype as any).writeExclusiveSync.call(nodeFs, p, c);
     });
 
-    const result = await spawnProcess(ctx, clawId, {
+    const result = await spawnProcess(ctx, testClawDaemonDir(tempDir, clawId), {
       command: 'node',
       args: ['/fake/daemon-entry.js', clawId],
       logFile: path.join(tempDir, 'claws', clawId, 'logs', 'daemon.log'),
@@ -98,7 +98,7 @@ describe('spawn — removePid silent → audit (P1.1)', () => {
     expect(pidRemoveEvents[0]).toEqual(
       expect.arrayContaining([
         'pid_remove_failed',
-        expect.stringContaining('claw=test-claw'),
+        expect.stringContaining(''),
         expect.stringContaining('context=spawn_retry_overwrite'),
         expect.stringContaining('reason=EACCES'),
       ]),

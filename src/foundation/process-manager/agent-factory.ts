@@ -1,11 +1,11 @@
 /**
  * ProcessManager factory — unified construction for all CLI commands
  *
- * Eliminates repeated baseDir calculation + dirResolver assembly
- * across daemon / motion / watchdog / start / status / claw / stop / index.
+ * Eliminates repeated baseDir calculation across daemon / motion / watchdog /
+ * start / status / claw / stop / index.
  *
- * phase 535: caller pre-bakes resolveAgentDir (motion-vs-claw dir mapping is chestnut topology fact、
- * 归 core/claw-topology 或 caller 业务层；foundation 0 motion 知识).
+ * phase 694: 撤 resolveAgentDir 注入（phase 535 引入）；PM ctor 改 (fs, audit)
+ * 两参、caller 调 PM API 时 take 已 resolved daemonDir、不再注入 resolver。
  */
 
 import { ProcessManager } from './manager.js';
@@ -16,12 +16,10 @@ import type { FileSystem } from '../fs/index.js';
 export function createAgentProcessManager(
   deps: {
     fsFactory: (baseDir: string) => FileSystem;
-    /** caller-pre-baked clawId → fs dir resolver (knows motion-vs-claw mapping) */
-    resolveAgentDir: (id: string) => string;
   },
   audit: AuditLog,
 ): ProcessManager {
   const baseDir = getChestnutRoot();
   const fs = deps.fsFactory(baseDir);
-  return new ProcessManager(fs, baseDir, audit, deps.resolveAgentDir);
+  return new ProcessManager(fs, audit);
 }

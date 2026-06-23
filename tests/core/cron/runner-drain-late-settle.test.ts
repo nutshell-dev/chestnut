@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
-import { CRON_AUDIT_EVENTS } from '../../../src/core/cron/audit-events.js';
-import { CronRunner } from '../../../src/core/cron/runner.js';
+import { CRON_AUDIT_EVENTS } from '../../../src/foundation/cron/audit-events.js';
+import { CronRunner } from '../../../src/foundation/cron/runner.js';
 
 // mock helper (mirror runner-stop-drain.test.ts)
 function makeMockAudit(): { write: ReturnType<typeof vi.fn> } {

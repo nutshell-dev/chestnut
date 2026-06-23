@@ -22,12 +22,12 @@ describe('eslint custom rule: no-cron-handler-without-signal (phase 423)', () =>
       // in scope with signal param
       {
         code: 'const job = { handler: (signal) => null };',
-        filename: 'src/core/cron/jobs/dream-trigger.ts',
+        filename: 'src/foundation/cron/jobs/dream-trigger.ts',
       },
       // async with signal
       {
         code: 'const job = { handler: async (signal) => null };',
-        filename: 'src/core/cron/jobs/llm-stats.ts',
+        filename: 'src/foundation/cron/jobs/llm-stats.ts',
       },
       // contract jobs scope with signal
       {
@@ -37,25 +37,25 @@ describe('eslint custom rule: no-cron-handler-without-signal (phase 423)', () =>
       // unrelated property key
       {
         code: 'const job = { start: () => null };',
-        filename: 'src/core/cron/jobs/disk-monitor.ts',
+        filename: 'src/foundation/cron/jobs/disk-monitor.ts',
       },
       // handler is reference (no inline arrow)
       {
         code: 'const job = { handler: someFn };',
-        filename: 'src/core/cron/jobs/disk-monitor.ts',
+        filename: 'src/foundation/cron/jobs/disk-monitor.ts',
       },
     ],
     invalid: [
       // arrow no signal
       {
         code: 'const job = { handler: () => null };',
-        filename: 'src/core/cron/jobs/disk-monitor.ts',
+        filename: 'src/foundation/cron/jobs/disk-monitor.ts',
         errors: [{ messageId: 'cronHandlerNoSignal' }],
       },
       // async arrow no signal
       {
         code: 'const job = { handler: async () => null };',
-        filename: 'src/core/cron/jobs/llm-stats.ts',
+        filename: 'src/foundation/cron/jobs/llm-stats.ts',
         errors: [{ messageId: 'cronHandlerNoSignal' }],
       },
       // contract jobs scope

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { testClawDaemonDir, testMotionDaemonDir } from '../helpers/daemon-dir.js';
 import * as path from 'path';
 import * as os from 'os';
 import * as fsNative from 'fs';
@@ -16,7 +17,7 @@ describe('ProcessManager.acquireLock — fix 004: TOCTOU race protection', () =>
     fsNative.mkdirSync(tmpDir, { recursive: true });
     const fs = new NodeFileSystem({ baseDir: tmpDir });
     const audit = new AuditWriter(fs, 'audit.tsv');
-    pm = new TestProcessManager(fs, tmpDir, audit);
+    pm = new TestProcessManager(fs, audit);
   });
 
   afterEach(() => {
@@ -48,8 +49,8 @@ describe('ProcessManager.acquireLock — fix 004: TOCTOU race protection', () =>
       return origWriteExclusive(p, c);
     });
 
-    expect(() => pm.acquireLock('test-claw')).toThrow(
-      'Another "test-claw" daemon acquired the lock during retry',
+    expect(() => pm.acquireLock(testClawDaemonDir(tmpDir, 'test-claw'))).toThrow(
+      /acquired the lock during retry/,
     );
   });
 
@@ -59,7 +60,7 @@ describe('ProcessManager.acquireLock — fix 004: TOCTOU race protection', () =>
     fsNative.writeFileSync(path.join(statusDir, 'daemon.lock'), 'not-a-number');
 
     // 非数字 PID 被视为 stale lock，清理后成功获取
-    pm.acquireLock('test-claw');
+    pm.acquireLock(testClawDaemonDir(tmpDir, 'test-claw'));
     const content = fsNative.readFileSync(path.join(statusDir, 'daemon.lock'), 'utf-8');
     expect(content).toBe(JSON.stringify({ pid: process.pid }));
   });
@@ -79,8 +80,8 @@ describe('ProcessManager.acquireLock — fix 004: TOCTOU race protection', () =>
     });
 
     // isAlive(pid) returns true for EPERM → LockConflictError (generic message)
-    expect(() => pm.acquireLock('test-claw')).toThrow(
-      'Another "test-claw" daemon is running (PID: 12345)',
+    expect(() => pm.acquireLock(testClawDaemonDir(tmpDir, 'test-claw'))).toThrow(
+      /daemon is running \(PID: 12345\)/,
     );
   });
 
@@ -99,8 +100,8 @@ describe('ProcessManager.acquireLock — fix 004: TOCTOU race protection', () =>
     });
 
     // isAlive(pid) returns false for unknown errno → stale cleanup → retry → EEXIST
-    expect(() => pm.acquireLock('test-claw')).toThrow(
-      'Another "test-claw" daemon acquired the lock during retry',
+    expect(() => pm.acquireLock(testClawDaemonDir(tmpDir, 'test-claw'))).toThrow(
+      /acquired the lock during retry/,
     );
   });
 
@@ -109,14 +110,14 @@ describe('ProcessManager.acquireLock — fix 004: TOCTOU race protection', () =>
     fsNative.mkdirSync(statusDir, { recursive: true });
     fsNative.writeFileSync(path.join(statusDir, 'daemon.lock'), String(process.pid));
 
-    pm.releaseLock('test-claw');
+    pm.releaseLock(testClawDaemonDir(tmpDir, 'test-claw'));
 
     expect(fsNative.existsSync(path.join(statusDir, 'daemon.lock'))).toBe(false);
   });
 
   it('releaseLock is silent when lock file does not exist', () => {
     // 无锁文件，releaseLock 不应抛错
-    expect(() => pm.releaseLock('test-claw')).not.toThrow();
+    expect(() => pm.releaseLock(testClawDaemonDir(tmpDir, 'test-claw'))).not.toThrow();
   });
 
   it('releaseLock does nothing when lock is held by another process', () => {
@@ -124,22 +125,22 @@ describe('ProcessManager.acquireLock — fix 004: TOCTOU race protection', () =>
     fsNative.mkdirSync(statusDir, { recursive: true });
     fsNative.writeFileSync(path.join(statusDir, 'daemon.lock'), '99999');
 
-    pm.releaseLock('test-claw');
+    pm.releaseLock(testClawDaemonDir(tmpDir, 'test-claw'));
 
     const content = fsNative.readFileSync(path.join(statusDir, 'daemon.lock'), 'utf-8');
     expect(content).toBe('99999');
   });
 
   it('writes lock_acquired audit on successful acquire', () => {
-    pm.acquireLock('test-claw');
+    pm.acquireLock(testClawDaemonDir(tmpDir, 'test-claw'));
     const audit = fsNative.readFileSync(path.join(tmpDir, 'audit.tsv'), 'utf-8');
     expect(audit).toMatch(/lock_acquired/);
     expect(audit).toContain(`pid=${process.pid}`);
   });
 
   it('writes lock_released audit on successful release', () => {
-    pm.acquireLock('test-claw');
-    pm.releaseLock('test-claw');
+    pm.acquireLock(testClawDaemonDir(tmpDir, 'test-claw'));
+    pm.releaseLock(testClawDaemonDir(tmpDir, 'test-claw'));
     const audit = fsNative.readFileSync(path.join(tmpDir, 'audit.tsv'), 'utf-8');
     expect(audit).toMatch(/lock_released/);
   });

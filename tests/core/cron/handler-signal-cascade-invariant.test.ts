@@ -18,7 +18,8 @@ const repoRoot = path.resolve(__dirname, '../../..');
  */
 describe('cron handler signal cascade positive checks (phase 423 缩 vitest)', () => {
   it('all cron jobs runXxx fn must accept signal in opts type', () => {
-    const jobsDir = path.join(repoRoot, 'src', 'core', 'cron', 'jobs');
+    // phase 697 Step A: cron 物理迁 src/core/cron/ → src/foundation/cron/
+    const jobsDir = path.join(repoRoot, 'src', 'foundation', 'cron', 'jobs');
     const contractJobsDir = path.join(repoRoot, 'src', 'core', 'contract', 'jobs');
 
     const jobFiles = [

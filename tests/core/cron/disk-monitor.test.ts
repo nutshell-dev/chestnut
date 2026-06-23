@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { runDiskMonitor, __resetDiskMonitorState } from '../../../src/core/cron/jobs/disk-monitor.js';
+import { runDiskMonitor, __resetDiskMonitorState } from '../../../src/foundation/cron/jobs/disk-monitor.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import type { StreamLog } from '../../../src/foundation/stream/index.js';

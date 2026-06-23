@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { testClawDaemonDir, testMotionDaemonDir } from '../helpers/daemon-dir.js';
 import { createDaemonCommand, _resetDaemonSignalHandlers } from '../../src/daemon/daemon.js';
 
 let stopFn: (() => void) | null = null;
@@ -48,6 +49,7 @@ vi.mock('../../src/foundation/process-manager/index.js', () => ({
     markReady: vi.fn().mockResolvedValue(undefined),
     selfRemovePid: vi.fn().mockResolvedValue(undefined),
   })),
+  makeDaemonDir: (s: string) => s,
   LockConflictError: class LockConflictError extends Error {},
 }));
 

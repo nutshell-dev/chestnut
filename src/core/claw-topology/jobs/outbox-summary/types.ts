@@ -1,5 +1,5 @@
 /**
- * @module L4.OutboxSummary
+ * @module L4.ClawTopology.OutboxSummary
  * phase 1476: state schema for outbox unread summary scan.
  *
  * 业主 own facts + state schema (M#2 + M#5):

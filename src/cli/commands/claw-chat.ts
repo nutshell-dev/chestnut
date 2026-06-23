@@ -3,7 +3,7 @@
  */
 
 import { getWorkspaceRoot } from '../../foundation/install-paths.js';
-import { makeAgentDirResolver } from '../../core/claw-topology/index.js';
+import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
 import * as path from 'path';
 import { loadGlobalConfig, clawExists } from '../../assembly/config-load.js';
 import { getClawDir, getClawConfigPath } from '../../foundation/config/index.js';
@@ -33,11 +33,11 @@ export async function chatCommand(deps: { fsFactory: (baseDir: string) => FileSy
     audit: systemAudit,
     fsFactory: deps.fsFactory,
     ensureDaemon: async () => {
-      const pm = createProcessManagerForCLI({ ...deps, resolveAgentDir: makeAgentDirResolver() });
-      if (!pm.isAlive(makeClawId(name))) {
+      const pm = createProcessManagerForCLI({ ...deps });
+      if (!pm.isAlive(resolveClawDaemonDir(makeClawId(name)))) {
         console.log(`Starting Claw "${name}" daemon...`);
         const daemonEntryPath = resolveDaemonEntry(deps.fsFactory(clawDir));
-        const pid = await pm.spawn(makeClawId(name), {
+        const pid = await pm.spawn(resolveClawDaemonDir(makeClawId(name)), {
           command: 'node',
           args: [daemonEntryPath, name],
           logFile: path.join(clawDir, DAEMON_LOG),

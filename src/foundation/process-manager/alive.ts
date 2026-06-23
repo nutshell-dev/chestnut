@@ -1,5 +1,5 @@
 import { getPidFile } from './paths.js';
-import type { ClawId } from '../identity/index.js';
+import type { DaemonDir } from './types.js';
 import { isAlive as defaultL1IsAlive, makeProcessStartTime, type ProcessStartTime } from '../process-exec/index.js';
 import { formatErr } from "../utils/index.js";
 import type { ProcessManagerContext } from './types.js';
@@ -7,24 +7,24 @@ import { isFileNotFound } from '../fs/index.js';
 
 
 /**
- * Read the PID file for a claw and return its liveness verdict.
+ * Read the PID file at the given daemonDir and return its liveness verdict.
  *
  * Side-effect free probe (M#1): never deletes / repairs a stale pidfile —
  * cleanup is the responsibility of explicit stop/recovery paths.
  *
- * @param ctx       Process manager context (fs + audit + resolveDir)
- * @param clawId    Target claw
- * @returns         `alive`: liveness verdict; `reason`: human-readable cause;
- *                  `pid`: parsed PID when readable (regardless of liveness).
- *                  Unknown exceptions during the OS probe degrade to `alive=true`
- *                  to avoid killing a healthy process (PM-5).
+ * @param ctx        Process manager context (fs + audit)
+ * @param daemonDir  Target daemon's owner directory (PM puts status/ + pid file inside)
+ * @returns          `alive`: liveness verdict; `reason`: human-readable cause;
+ *                   `pid`: parsed PID when readable (regardless of liveness).
+ *                   Unknown exceptions during the OS probe degrade to `alive=true`
+ *                   to avoid killing a healthy process (PM-5).
  */
 export function getAliveStatus(
   ctx: ProcessManagerContext,
-  clawId: ClawId,
+  daemonDir: DaemonDir,
 ): { alive: boolean; reason: string; pid?: number } {
   try {
-    const pidFile = getPidFile(ctx, clawId);
+    const pidFile = getPidFile(ctx, daemonDir);
     const content = ctx.fs.readSync(pidFile);
     const trimmed = content.trim();
     if (trimmed === '') {
@@ -76,6 +76,6 @@ export function getAliveStatus(
   }
 }
 
-export function isAliveByPidFile(ctx: ProcessManagerContext, clawId: ClawId): boolean {
-  return getAliveStatus(ctx, clawId).alive;
+export function isAliveByPidFile(ctx: ProcessManagerContext, daemonDir: DaemonDir): boolean {
+  return getAliveStatus(ctx, daemonDir).alive;
 }

@@ -4,7 +4,7 @@
  */
 
 import * as path from 'path';
-import { makeAgentDirResolver } from '../../core/claw-topology/index.js';
+import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
 import { loadGlobalConfig, clawExists } from '../../assembly/config-load.js';
 import { getClawDir, getGlobalConfigPath, getClawConfigPath } from '../../foundation/config/index.js';
 import { CliError } from '../errors.js';
@@ -33,10 +33,10 @@ export async function healthCommand(deps: { fsFactory: (baseDir: string) => File
   const baseDir = path.dirname(globalConfigPath);
   const clawFs = deps.fsFactory(clawDir);
 
-  const processManager = createProcessManagerForCLI({ ...deps, resolveAgentDir: makeAgentDirResolver() });
+  const processManager = createProcessManagerForCLI({ ...deps });
   const { audit: systemAudit } = createDirContext(deps, baseDir);
 
-  const isRunning = processManager.isAlive(makeClawId(name));
+  const isRunning = processManager.isAlive(resolveClawDaemonDir(makeClawId(name)));
 
   // Read inbox/outbox pending counts in real time
   let inboxPending = 0;

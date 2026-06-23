@@ -3,11 +3,10 @@
  */
 
 import * as path from 'path';
-import { makeAgentDirResolver } from '../../core/claw-topology/index.js';
 import { formatErr } from "../../foundation/utils/index.js";
 import { loadGlobalConfig } from '../../assembly/config-load.js';
 import { getGlobalConfigPath, getNamedSubrootDir } from '../../foundation/config/index.js';
-import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
+import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import { createAuditWriter, AUDIT_FILE } from '../../foundation/audit/index.js';
 import { getChestnutFs, getGlobalConfig, setAuditWriter as setWatchdogAuditWriter } from '../../watchdog/watchdog-context.js';
 import { stopCommand as watchdogStop } from '../../watchdog/watchdog.js';
@@ -69,7 +68,7 @@ export async function stopAllCommand(
 
   // 3. Stop all running claws
   const baseDir = path.dirname(getGlobalConfigPath());
-  const pm = createProcessManagerForCLI({ ...deps, resolveAgentDir: makeAgentDirResolver() });
+  const pm = createProcessManagerForCLI({ ...deps });
 
   let clawNames: string[] = [];
   try {
@@ -86,11 +85,11 @@ export async function stopAllCommand(
   // phase 355 C2 (review-2026-06-13): partial-stop failure 在循环末
   // throw CliError、让 wrapper 真退非 0、不再 console.warn 静默 + 后续 return success。
   // 收集 failed 列表后延到 cleanup 之后 throw（保留 marker 写 / orphan cleanup 等业务）。
-  const running = clawNames.filter(name => pm.isAlive(makeClawId(name)));
+  const running = clawNames.filter(name => pm.isAlive(resolveClawDaemonDir(makeClawId(name))));
   let stopFailed: string[] = [];
   if (running.length > 0) {
     console.log(`Stopping ${running.length} claw(s): ${running.join(', ')}...`);
-    const results = await Promise.allSettled(running.map(name => pm.stop(makeClawId(name))));
+    const results = await Promise.allSettled(running.map(name => pm.stop(resolveClawDaemonDir(makeClawId(name)))));
     stopFailed = results
       .map((r, i) => (r.status === 'rejected' ? running[i] : null))
       .filter((n): n is string => n !== null);

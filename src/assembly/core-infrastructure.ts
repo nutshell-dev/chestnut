@@ -1,5 +1,4 @@
 import path from 'path';
-import { makeAgentDirResolver } from '../core/claw-topology/index.js';
 import { formatErr } from '../foundation/utils/index.js';
 import { resolveChestnutRoot } from '../foundation/install-paths.js';
 // CLAWS_DIR removed: phase 263
@@ -23,7 +22,7 @@ import { createSkillSystem as defaultCreateSkillSystem, SkillSystem } from '../f
 import { SKILLS_DIR_DEFAULT } from '../foundation/skill-system/index.js';
 import { ContractSystem, createContractSystem } from '../core/contract/index.js';
 import { makeClawId } from '../foundation/identity/index.js';
-import { MOTION_CLAW_ID } from '../core/claw-topology/index.js';
+import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../core/claw-topology/index.js';
 import type { ClawTopology } from '../core/claw-topology/index.js';
 import { createOutboxWriter, type OutboxWriter, notifyClaw as notifyClawFn } from '../foundation/messaging/index.js';
 import { TASKS_SYNC_DIR } from '../core/async-task-system/index.js';
@@ -132,14 +131,14 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
 
     // --- 2. ProcessManager + acquireLock (daemon.ts L107-108) ---
     try {
-      processManager = createAgentProcessManager({ fsFactory, resolveAgentDir: makeAgentDirResolver() }, auditWriter);
+      processManager = createAgentProcessManager({ fsFactory }, auditWriter);
     } catch (e) {
       auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=process_manager`, `phase=construct`, `reason=${formatErr(e)}`);
       throw new Error(`Assembly: ProcessManager construct failed: ${formatErr(e)}`, { cause: e });
     }
 
     try {
-      processManager.acquireLock(makeClawId(clawId));
+      processManager.acquireLock(resolveClawDaemonDir(makeClawId(clawId)));
       lockState.acquired = true;
     } catch (e) {
       auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_LOCK_CONFLICT, `clawId=${clawId}`);
@@ -305,7 +304,7 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
   } catch (e) {
     if (lockState.acquired && processManager) {
       try {
-        processManager.releaseLock(makeClawId(clawId));
+        processManager.releaseLock(resolveClawDaemonDir(makeClawId(clawId)));
         lockState.acquired = false;
       } catch (releaseErr) {
         auditWriter?.write(

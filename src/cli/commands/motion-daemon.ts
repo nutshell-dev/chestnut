@@ -7,7 +7,6 @@
  */
 
 import { getWorkspaceRoot } from '../../foundation/install-paths.js';
-import { makeAgentDirResolver } from '../../core/claw-topology/index.js';
 import * as path from 'path';
 import { loadGlobalConfig } from '../../assembly/config-load.js';
 import { getNamedSubrootDir } from '../../foundation/config/index.js';
@@ -16,7 +15,7 @@ import { createAgentProcessManager } from '../../foundation/process-manager/inde
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { resolveDaemonEntry } from '../../assembly/spawn-entry.js';
 import { DAEMON_LOG } from '../../daemon/constants.js';
-import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
+import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import type { DaemonPM } from './claw-daemon.js';
 
 interface MotionDaemonDeps {
@@ -33,13 +32,13 @@ export async function motionDaemonCommand(deps: MotionDaemonDeps): Promise<void>
   const nodeFs = deps.fsFactory(baseDir);
   const systemAudit = createSystemAudit(nodeFs, baseDir);
   const pm: DaemonPM = deps.processManager
-    ?? createAgentProcessManager({ fsFactory: deps.fsFactory, resolveAgentDir: makeAgentDirResolver() }, systemAudit);
-  if (pm.isAlive(MOTION_CLAW_ID)) {
+    ?? createAgentProcessManager({ fsFactory: deps.fsFactory }, systemAudit);
+  if (pm.isAlive(resolveClawDaemonDir(MOTION_CLAW_ID))) {
     console.warn('⚠ Motion is already running');
     return;
   }
   const daemonEntryPath = resolveDaemonEntry(nodeFs);
-  const pid = await pm.spawn(MOTION_CLAW_ID, {
+  const pid = await pm.spawn(resolveClawDaemonDir(MOTION_CLAW_ID), {
     command: 'node',
     args: [daemonEntryPath, MOTION_CLAW_ID],
     logFile: path.join(motionDir, DAEMON_LOG),

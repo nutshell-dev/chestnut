@@ -7,7 +7,6 @@
  */
 
 import * as path from 'path';
-import { makeAgentDirResolver } from '../../core/claw-topology/index.js';
 import { formatErr } from "../../foundation/utils/index.js";
 
 import { createDirContext } from '../../foundation/audit/index.js';
@@ -23,9 +22,8 @@ import { isFileNotFound } from '../../foundation/fs/index.js';
 import { createStreamReader, STREAM_FILE } from '../../foundation/stream/index.js';
 import { createViewportObservability } from './chat-viewport-observability.js';
 import { CLAWS_DIR } from '../../foundation/claw-paths.js';
-import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
+import { resolveClawDaemonDir, MOTION_CLAW_ID, createClawTopology } from '../../core/claw-topology/index.js';
 import { makeClawId } from '../../foundation/identity/index.js';
-import { createClawTopology } from '../../core/claw-topology/index.js';
 
 
 import { writeUserChat } from './chat-viewport-utils.js';
@@ -111,7 +109,7 @@ function tokenizeSlashArgs(s: string): string[] {
 }
 
 export async function runChatViewport(options: ChatViewportOptions): Promise<void> {
-  const pm = createProcessManagerForCLI({ fsFactory: options.fsFactory, resolveAgentDir: makeAgentDirResolver() });
+  const pm = createProcessManagerForCLI({ fsFactory: options.fsFactory });
   // 确保 daemon 运行
   if (options.ensureDaemon) {
     await options.ensureDaemon();
@@ -366,7 +364,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     observability.recordShutdown('daemon_dead');
   };
   const daemonLivenessWatcher = createDaemonLivenessMonitor({
-    pidFilePath: pm.getPidFilePath(makeClawId(options.label)),
+    pidFilePath: pm.getPidFilePath(resolveClawDaemonDir(makeClawId(options.label))),
     onDead: onDaemonDead,
     onError: (err) => process.stderr.write(`[viewport] daemon liveness watcher error: ${err.message}\n`),
   });
@@ -481,7 +479,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   // 重连状态校正：tracker 标 active 但 daemon 实际不存活 / forceReset 防误触 ESC 中断
   if (turnTracker.isActive()) {
     try {
-      const stored = await pm.readPid(makeClawId(options.label));
+      const stored = await pm.readPid(resolveClawDaemonDir(makeClawId(options.label)));
       if (stored === null) {
         turnTracker.forceReset();
       } else {

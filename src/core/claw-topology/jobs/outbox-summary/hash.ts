@@ -1,5 +1,5 @@
 /**
- * @module L4.OutboxSummary
+ * @module L4.ClawTopology.OutboxSummary
  * phase 1476: dedup hash 计算.
  *
  * `SHA256(sortedFileSet.join('\n')).slice(0, 12)`:

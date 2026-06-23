@@ -1,5 +1,5 @@
 /**
- * @module L5.Cron.Jobs.OutboxSummary
+ * @module L4.ClawTopology.OutboxSummary
  * phase 134: audit events 命名空间业主自治（从 CRON_AUDIT_EVENTS 迁出）.
  * 字符串值不变（wire 格式稳定）.
  */

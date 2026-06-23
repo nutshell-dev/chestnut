@@ -2,9 +2,9 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as os from 'os';
 import * as path from 'path';
 import * as fsSync from 'fs';
-import { runRetentionCleanup } from '../../../src/core/cron/jobs/retention-cleanup.js';
+import { runRetentionCleanup } from '../../../src/foundation/cron/jobs/retention-cleanup.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
-import { RETENTION_CLEANUP_AUDIT_EVENTS } from '../../../src/core/cron/jobs/retention-cleanup-audit-events.js';
+import { RETENTION_CLEANUP_AUDIT_EVENTS } from '../../../src/foundation/cron/jobs/retention-cleanup-audit-events.js';
 import { cleanupTempDirSync } from '../../utils/temp.js';
 
 describe('runRetentionCleanup > dialog/archive', () => {

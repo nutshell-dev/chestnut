@@ -8,8 +8,8 @@
  *   4. normal complete 后 controller map 也清干净
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { CronRunner, type CronJob } from '../../../src/core/cron/runner.js';
-import { CRON_AUDIT_EVENTS } from '../../../src/core/cron/audit-events.js';
+import { CronRunner, type CronJob } from '../../../src/foundation/cron/runner.js';
+import { CRON_AUDIT_EVENTS } from '../../../src/foundation/cron/audit-events.js';
 
 /**
  * Mock 慢 handler 超 timeoutMs 触发 abort: 500ms >> timeoutMs=50ms.

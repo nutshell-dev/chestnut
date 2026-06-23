@@ -47,12 +47,12 @@ export function findProcessesDetailed(ctx: ProcessManagerContext, pattern: strin
 
 /**
  * phase 346 B2: tokenize a ps cmdline string and check if the token set contains
- * the given clawId as a distinct token (not substring). Handles space-separated
+ * the given daemonDir as a distinct token (not substring). Handles space-separated
  * argv (POSIX `ps -o command`).
  */
-export function commandContainsClawIdToken(command: string, clawId: string): boolean {
+export function commandContainsDaemonDirToken(command: string, daemonDir: string): boolean {
   if (!command) return false;
-  // 简单按空白拆 argv 近似（ps 已 join、不还原 quoting 但 chestnut argv 无 spaces in clawId）
+  // 简单按空白拆 argv 近似（ps 已 join、不还原 quoting 但 chestnut argv 无 spaces in daemonDir）
   const tokens = command.split(/\s+/).filter(t => t.length > 0);
-  return tokens.includes(clawId);
+  return tokens.includes(daemonDir);
 }

@@ -30,7 +30,7 @@ describe('eslint custom rule: no-direct-fs-writeatomic-to-inbox (phase 315)', ()
       // template literal
       {
         code: 'fs.writeAtomic(`${dir}/inbox/${name}`, content);',
-        filename: 'src/core/cron/jobs/foo.ts',
+        filename: 'src/foundation/cron/jobs/foo.ts',
         errors: [{ messageId: 'directInboxWrite' }],
       },
       // memory/ dir

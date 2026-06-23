@@ -225,113 +225,6 @@
       "verification_pipeline_race_rejected",
       "verification_timeout"
     ],
-    "core_cron_audit-events": [
-      "cron_drain_late_settle",
-      "cron_drain_timeout",
-      "cron_handler_aborted",
-      "cron_handler_stuck",
-      "cron_handler_timeout",
-      "cron_job_error",
-      "cron_job_late_settled",
-      "cron_job_started",
-      "cron_parse_fallback",
-      "cron_parse_invalid",
-      "cron_runner_started",
-      "cron_runner_stopped"
-    ],
-    "core_cron_jobs_audit-size-monitor-audit-events": [
-      "cron_audit_size_check_failed",
-      "cron_audit_size_threshold_exceeded"
-    ],
-    "core_cron_jobs_disk-monitor-audit-events": [
-      "cron_disk_monitor_check",
-      "cron_disk_monitor_threshold_exceeded"
-    ],
-    "core_cron_jobs_git-gc-weekly-audit-events": [
-      {
-        "type": "cron_git_gc_weekly_claw_failed",
-        "cols": [
-          {
-            "name": "claw",
-            "type": "string",
-            "required": true
-          },
-          {
-            "name": "error",
-            "type": "string",
-            "required": true
-          }
-        ]
-      },
-      {
-        "type": "cron_git_gc_weekly_completed",
-        "cols": [
-          {
-            "name": "claws",
-            "type": "number",
-            "required": true
-          }
-        ]
-      }
-    ],
-    "core_cron_jobs_llm-stats-audit-events": [
-      {
-        "type": "cron_llm_stats_empty",
-        "cols": [
-          {
-            "name": "date",
-            "type": "string",
-            "required": true
-          }
-        ]
-      },
-      {
-        "type": "cron_llm_stats_reported",
-        "cols": [
-          {
-            "name": "date",
-            "type": "string",
-            "required": true
-          },
-          {
-            "name": "totalCalls",
-            "type": "number",
-            "required": true
-          },
-          {
-            "name": "successCalls",
-            "type": "number",
-            "required": true
-          },
-          {
-            "name": "failedCalls",
-            "type": "number",
-            "required": true
-          },
-          {
-            "name": "totalInputTokens",
-            "type": "number",
-            "required": true
-          },
-          {
-            "name": "totalOutputTokens",
-            "type": "number",
-            "required": true
-          },
-          {
-            "name": "avgLatencyMs",
-            "type": "number",
-            "required": true
-          }
-        ]
-      }
-    ],
-    "core_cron_jobs_metrics-snapshot-audit-events": [
-      "cron_metrics_snapshot"
-    ],
-    "core_cron_jobs_retention-cleanup-audit-events": [
-      "cron_retention_cleanup"
-    ],
     "core_evolution-system_retro-audit-events": [
       "contract_retro_cleanup_failed",
       "contract_retro_index_failed",
@@ -943,7 +836,114 @@
     "core_step-executor_audit-events": [
       "step_executor_invariant_violation"
     ],
-    "core_cron_jobs_outbox-summary_audit-events": [
+    "foundation_cron_audit-events": [
+      "cron_drain_late_settle",
+      "cron_drain_timeout",
+      "cron_handler_aborted",
+      "cron_handler_stuck",
+      "cron_handler_timeout",
+      "cron_job_error",
+      "cron_job_late_settled",
+      "cron_job_started",
+      "cron_parse_fallback",
+      "cron_parse_invalid",
+      "cron_runner_started",
+      "cron_runner_stopped"
+    ],
+    "foundation_cron_jobs_disk-monitor-audit-events": [
+      "cron_disk_monitor_check",
+      "cron_disk_monitor_threshold_exceeded"
+    ],
+    "foundation_cron_jobs_git-gc-weekly-audit-events": [
+      {
+        "type": "cron_git_gc_weekly_claw_failed",
+        "cols": [
+          {
+            "name": "claw",
+            "type": "string",
+            "required": true
+          },
+          {
+            "name": "error",
+            "type": "string",
+            "required": true
+          }
+        ]
+      },
+      {
+        "type": "cron_git_gc_weekly_completed",
+        "cols": [
+          {
+            "name": "claws",
+            "type": "number",
+            "required": true
+          }
+        ]
+      }
+    ],
+    "foundation_cron_jobs_llm-stats-audit-events": [
+      {
+        "type": "cron_llm_stats_empty",
+        "cols": [
+          {
+            "name": "date",
+            "type": "string",
+            "required": true
+          }
+        ]
+      },
+      {
+        "type": "cron_llm_stats_reported",
+        "cols": [
+          {
+            "name": "date",
+            "type": "string",
+            "required": true
+          },
+          {
+            "name": "totalCalls",
+            "type": "number",
+            "required": true
+          },
+          {
+            "name": "successCalls",
+            "type": "number",
+            "required": true
+          },
+          {
+            "name": "failedCalls",
+            "type": "number",
+            "required": true
+          },
+          {
+            "name": "totalInputTokens",
+            "type": "number",
+            "required": true
+          },
+          {
+            "name": "totalOutputTokens",
+            "type": "number",
+            "required": true
+          },
+          {
+            "name": "avgLatencyMs",
+            "type": "number",
+            "required": true
+          }
+        ]
+      }
+    ],
+    "foundation_cron_jobs_metrics-snapshot-audit-events": [
+      "cron_metrics_snapshot"
+    ],
+    "foundation_cron_jobs_retention-cleanup-audit-events": [
+      "cron_retention_cleanup"
+    ],
+    "foundation_audit_jobs_audit-size-monitor-audit-events": [
+      "cron_audit_size_check_failed",
+      "cron_audit_size_threshold_exceeded"
+    ],
+    "core_claw-topology_jobs_outbox-summary_audit-events": [
       "cron_outbox_summary_cleared",
       "cron_outbox_summary_failed",
       "cron_outbox_summary_skipped",

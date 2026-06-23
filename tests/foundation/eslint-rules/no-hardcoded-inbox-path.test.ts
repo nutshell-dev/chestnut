@@ -34,7 +34,7 @@ describe('eslint custom rule: no-hardcoded-inbox-path (phase 315)', () => {
       },
       {
         code: 'path.join(dir, "inbox", "pending", filename);',
-        filename: 'src/core/cron/jobs/foo.ts',
+        filename: 'src/foundation/cron/jobs/foo.ts',
         errors: [{ messageId: 'hardcodedInboxPath' }],
       },
     ],

@@ -1,15 +1,19 @@
 /**
- * @module L2.ProcessManager
+ * @module L2a.ProcessManager
  *
- * ProcessManager - Claw process manager (thin orchestrator / phase 497 splitter)
+ * ProcessManager - Daemon process manager (thin orchestrator / phase 497 splitter)
  *
  * Manages daemon process startup, shutdown, and status checks.
- * Class facade preserved (9 public method) over 8 sub-modules via ProcessManagerContext.
+ * Class facade preserved (14 public method) over 8 sub-modules via ProcessManagerContext.
+ *
+ * phase 694 L2a 真治：撤 ClawId / CLAWS_DIR import + ctor baseDir / dirResolver fallback。
+ * API take daemonDir: DaemonDir per call、caller 必经 L4 ClawTopology
+ * resolveClawDaemonDir(clawId) 算 daemonDir 再传入。PM 内部仅持 status/ 子目录
+ * 命名 + file 名约定 schema、0 chestnut 拓扑知识。
  */
 
-import * as path from 'path';
-
 import type { FileSystem } from '../fs/index.js';
+import type { DaemonDir } from './types.js';
 import type { AuditLog } from '../audit/index.js';
 import type { ProcessStartTime } from '../process-exec/index.js';
 import { isAlive as defaultL1IsAlive, spawnDetached as defaultSpawnDetached, getProcessStartTime as defaultGetProcessStartTime, kill as defaultKill } from '../process-exec/index.js';
@@ -22,9 +26,7 @@ import * as lockOps from './lock.js';
 import { spawnProcess } from './spawn.js';
 import { stopProcess } from './stop.js';
 import { findProcesses } from './find.js';
-import { CLAWS_DIR } from '../claw-paths.js';
 import type { ProcessManagerContext, SpawnOptions } from './types.js';
-import type { ClawId } from '../identity/index.js';
 
 
 export { LockConflictError } from './types.js';
@@ -37,9 +39,7 @@ export class ProcessManager {
 
   constructor(
     fs: FileSystem,
-    baseDir: string,
     audit: AuditLog,
-    dirResolver?: (id: string) => string,
     l1IsAlive?: typeof defaultL1IsAlive,
     spawnDetached?: typeof defaultSpawnDetached,
     getProcessStartTime?: typeof defaultGetProcessStartTime,
@@ -49,10 +49,9 @@ export class ProcessManager {
     this._ctx = {
       fs,
       audit,
-      resolveDir: dirResolver ?? ((id: string) => path.join(baseDir, CLAWS_DIR, id)),
-      isAlive: (clawId: ClawId) => this.isAlive(clawId),
-      isReady: (clawId: ClawId) => this.isReady(clawId),
-      readLockPid: (clawId: ClawId) => this.readLockPid(clawId),
+      isAlive: (daemonDir: DaemonDir) => this.isAlive(daemonDir),
+      isReady: (daemonDir: DaemonDir) => this.isReady(daemonDir),
+      readLockPid: (daemonDir: DaemonDir) => this.readLockPid(daemonDir),
       l1IsAlive,
       spawnDetached,
       getProcessStartTime,
@@ -61,35 +60,35 @@ export class ProcessManager {
   }
 
   // pid CRUD
-  readPid(clawId: ClawId): Promise<{ pid: number; startTime?: ProcessStartTime } | null> {
-    return pidOps.readPid(this._ctx, clawId);
+  readPid(daemonDir: DaemonDir): Promise<{ pid: number; startTime?: ProcessStartTime } | null> {
+    return pidOps.readPid(this._ctx, daemonDir);
   }
-  removePid(clawId: ClawId): Promise<void> { return pidOps.removePid(this._ctx, clawId); }
-  selfWritePid(clawId: ClawId): Promise<void> { return pidOps.selfWritePid(this._ctx, clawId); }
-  selfRemovePid(clawId: ClawId): Promise<void> { return pidOps.selfRemovePid(this._ctx, clawId); }
+  removePid(daemonDir: DaemonDir): Promise<void> { return pidOps.removePid(this._ctx, daemonDir); }
+  selfWritePid(daemonDir: DaemonDir): Promise<void> { return pidOps.selfWritePid(this._ctx, daemonDir); }
+  selfRemovePid(daemonDir: DaemonDir): Promise<void> { return pidOps.selfRemovePid(this._ctx, daemonDir); }
 
   /** PID file 绝对路径（用于 file-watcher 监听 daemon liveness 等场景）. */
-  getPidFilePath(clawId: ClawId): string { return getPidFile(this._ctx, clawId); }
+  getPidFilePath(daemonDir: DaemonDir): string { return getPidFile(this._ctx, daemonDir); }
 
   // alive
-  getAliveStatus(clawId: ClawId): { alive: boolean; reason: string; pid?: number } {
-    return aliveOps.getAliveStatus(this._ctx, clawId);
+  getAliveStatus(daemonDir: DaemonDir): { alive: boolean; reason: string; pid?: number } {
+    return aliveOps.getAliveStatus(this._ctx, daemonDir);
   }
-  isAlive(clawId: ClawId): boolean { return aliveOps.isAliveByPidFile(this._ctx, clawId); }
-  isReady(clawId: ClawId): boolean { return readyOps.isReady(this._ctx, clawId); }
-  markReady(clawId: ClawId): Promise<void> { return readyOps.markReady(this._ctx, clawId); }
-  markNotReady(clawId: ClawId): Promise<void> { return readyOps.markNotReady(this._ctx, clawId); }
+  isAlive(daemonDir: DaemonDir): boolean { return aliveOps.isAliveByPidFile(this._ctx, daemonDir); }
+  isReady(daemonDir: DaemonDir): boolean { return readyOps.isReady(this._ctx, daemonDir); }
+  markReady(daemonDir: DaemonDir): Promise<void> { return readyOps.markReady(this._ctx, daemonDir); }
+  markNotReady(daemonDir: DaemonDir): Promise<void> { return readyOps.markNotReady(this._ctx, daemonDir); }
 
   // lock
-  readLockPid(clawId: ClawId): { pid: number; startTime?: ProcessStartTime } | null { return lockOps.readLockPid(this._ctx, clawId); }
-  acquireLock(clawId: ClawId): void { lockOps.acquireLock(this._ctx, clawId); }
-  releaseLock(clawId: ClawId): void { lockOps.releaseLock(this._ctx, clawId); }
+  readLockPid(daemonDir: DaemonDir): { pid: number; startTime?: ProcessStartTime } | null { return lockOps.readLockPid(this._ctx, daemonDir); }
+  acquireLock(daemonDir: DaemonDir): void { lockOps.acquireLock(this._ctx, daemonDir); }
+  releaseLock(daemonDir: DaemonDir): void { lockOps.releaseLock(this._ctx, daemonDir); }
 
   // lifecycle
-  spawn(clawId: ClawId, options: SpawnOptions): Promise<number> {
-    return spawnProcess(this._ctx, clawId, options);
+  spawn(daemonDir: DaemonDir, options: SpawnOptions): Promise<number> {
+    return spawnProcess(this._ctx, daemonDir, options);
   }
-  stop(clawId: ClawId): Promise<boolean> { return stopProcess(this._ctx, clawId); }
+  stop(daemonDir: DaemonDir): Promise<boolean> { return stopProcess(this._ctx, daemonDir); }
 
   // query
   findProcesses(pattern: string): number[] { return findProcesses(this._ctx, pattern); }

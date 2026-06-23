@@ -7,6 +7,7 @@
  * 3. readSync 其他 IO 错（非 ENOENT）→ audit context=eexist_check + reason
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { testClawDaemonDir, testMotionDaemonDir } from '../../helpers/daemon-dir.js';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import { tmpdir } from 'os';
@@ -64,7 +65,6 @@ describe('spawn EEXIST race audit 归类（phase 591 / A.spawn-eexist-race-miscl
     const ctx: ProcessManagerContext = {
       fs: nodeFs,
       audit,
-      resolveDir: (id: string) => path.join(tempDir, 'claws', id),
       isReady: () => true,
       l1IsAlive: vi.fn().mockReturnValue(true),
       spawnDetached: vi.fn().mockReturnValue({ pid: FAKE_LIVE_PID }),
@@ -74,7 +74,7 @@ describe('spawn EEXIST race audit 归类（phase 591 / A.spawn-eexist-race-miscl
     // No readSync mock: pidFile does not exist, so readSync naturally throws
     // FileNotFoundError on the 3rd call (our code in the EEXIST branch).
 
-    const result = await spawnProcess(ctx, clawId, {
+    const result = await spawnProcess(ctx, testClawDaemonDir(tempDir, clawId), {
       command: 'node',
       args: ['/fake/daemon-entry.js', clawId],
       logFile: path.join(tempDir, 'claws', clawId, 'logs', 'daemon.log'),
@@ -89,7 +89,7 @@ describe('spawn EEXIST race audit 归类（phase 591 / A.spawn-eexist-race-miscl
     expect(pidReadFailedCalls[0]).toEqual(
       expect.arrayContaining([
         PROCESS_MANAGER_AUDIT_EVENTS.PID_READ_FAILED,
-        expect.stringContaining('claw='),
+        expect.stringContaining('daemon_dir='),
         'context=race_check',
       ]),
     );
@@ -107,7 +107,6 @@ describe('spawn EEXIST race audit 归类（phase 591 / A.spawn-eexist-race-miscl
     const ctx: ProcessManagerContext = {
       fs: nodeFs,
       audit,
-      resolveDir: (id: string) => path.join(tempDir, 'claws', id),
       isReady: () => true,
       l1IsAlive: vi.fn().mockReturnValue(true),
       spawnDetached: vi.fn().mockReturnValue({ pid: FAKE_LIVE_PID }),
@@ -120,7 +119,7 @@ describe('spawn EEXIST race audit 归类（phase 591 / A.spawn-eexist-race-miscl
 
     mockWriteExclusiveOnceEEXIST();
 
-    const result = await spawnProcess(ctx, clawId, {
+    const result = await spawnProcess(ctx, testClawDaemonDir(tempDir, clawId), {
       command: 'node',
       args: ['/fake/daemon-entry.js', clawId],
       logFile: path.join(tempDir, 'claws', clawId, 'logs', 'daemon.log'),
@@ -135,7 +134,7 @@ describe('spawn EEXIST race audit 归类（phase 591 / A.spawn-eexist-race-miscl
     expect(pidEmptyCalls[0]).toEqual(
       expect.arrayContaining([
         PROCESS_MANAGER_AUDIT_EVENTS.PID_EMPTY,
-        expect.stringContaining('claw='),
+        expect.stringContaining('daemon_dir='),
       ]),
     );
   });
@@ -147,7 +146,6 @@ describe('spawn EEXIST race audit 归类（phase 591 / A.spawn-eexist-race-miscl
     const ctx: ProcessManagerContext = {
       fs: nodeFs,
       audit,
-      resolveDir: (id: string) => path.join(tempDir, 'claws', id),
       isReady: () => true,
       l1IsAlive: vi.fn().mockReturnValue(true),
       spawnDetached: vi.fn().mockReturnValue({ pid: FAKE_LIVE_PID }),
@@ -169,7 +167,7 @@ describe('spawn EEXIST race audit 归类（phase 591 / A.spawn-eexist-race-miscl
       return (NodeFileSystem.prototype as any).readSync.call(nodeFs, p);
     });
 
-    const result = await spawnProcess(ctx, clawId, {
+    const result = await spawnProcess(ctx, testClawDaemonDir(tempDir, clawId), {
       command: 'node',
       args: ['/fake/daemon-entry.js', clawId],
       logFile: path.join(tempDir, 'claws', clawId, 'logs', 'daemon.log'),
@@ -184,7 +182,7 @@ describe('spawn EEXIST race audit 归类（phase 591 / A.spawn-eexist-race-miscl
     expect(pidReadFailedCalls[0]).toEqual(
       expect.arrayContaining([
         PROCESS_MANAGER_AUDIT_EVENTS.PID_READ_FAILED,
-        expect.stringContaining('claw='),
+        expect.stringContaining('daemon_dir='),
         'context=eexist_check',
         expect.stringContaining('reason='),
       ]),

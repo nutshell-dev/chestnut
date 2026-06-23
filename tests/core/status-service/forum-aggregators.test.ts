@@ -14,6 +14,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import { testClawDaemonDir, testMotionDaemonDir } from '../../helpers/daemon-dir.js';
 import * as path from 'path';
 import {
   computeProcessUptimeMs,
@@ -196,9 +197,14 @@ function makePm(
   orphanPids: number[] = [],
 ): ProcessManager {
   return {
-    getAliveStatus: (clawId: string) => {
-      const key = String(clawId);
-      return alive[key] ?? { alive: false, reason: 'no PID file' };
+    getAliveStatus: (daemonDir: string) => {
+      const s = String(daemonDir);
+      // phase 694: daemonDir is branded path; match by key or by trailing segment
+      if (alive[s]) return alive[s];
+      for (const [k, v] of Object.entries(alive)) {
+        if (s.endsWith(`/${k}`) || s.endsWith(k)) return v;
+      }
+      return { alive: false, reason: 'no PID file' };
     },
     findProcesses: () => orphanPids,
   } as unknown as ProcessManager;

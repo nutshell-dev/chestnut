@@ -14,19 +14,20 @@ import { formatErr } from '../foundation/utils/index.js';
 import type { StreamWriter } from '../foundation/stream/index.js';
 import { createHeartbeat, type Heartbeat } from '../core/runtime/index.js';
 import type { Runtime } from '../core/runtime/index.js';
-import { createCronRunner, type CronRunner } from '../core/cron/index.js';
-import { createDiskMonitorJob } from '../core/cron/jobs/disk-monitor.js';
-import { createLlmStatsJob } from '../core/cron/jobs/llm-stats.js';
-import { createMetricsSnapshotJob } from '../core/cron/jobs/metrics-snapshot.js';
-import { createGitGcWeeklyJob } from '../core/cron/jobs/git-gc-weekly.js';
-import { createRetentionCleanupJob } from '../core/cron/jobs/retention-cleanup.js';
-import { createAuditSizeMonitorJob } from '../core/cron/jobs/audit-size-monitor.js';
+import { createCronRunner, type CronRunner } from '../foundation/cron/index.js';
+import { createDiskMonitorJob } from '../foundation/cron/jobs/disk-monitor.js';
+import { createLlmStatsJob } from '../foundation/cron/jobs/llm-stats.js';
+import { createMetricsSnapshotJob } from '../foundation/cron/jobs/metrics-snapshot.js';
+import { createGitGcWeeklyJob } from '../foundation/cron/jobs/git-gc-weekly.js';
+import { createRetentionCleanupJob } from '../foundation/cron/jobs/retention-cleanup.js';
+// phase 697 Step B: audit-size-monitor 迁 foundation/audit/jobs/ (audit module sister 归属)
+import { createAuditSizeMonitorJob } from '../foundation/audit/jobs/audit-size-monitor.js';
 import { createDreamTriggerJob } from '../core/memory/jobs/dream-trigger.js';
 import { createMemorySystem, memorySearchTool } from '../core/memory/index.js';
 import type { MemorySystem } from '../core/memory/index.js';
 import { createClawContractBridge } from '../core/memory/claw-contract-bridge.js';
 import { createContractObserverJob } from '../core/contract/jobs/contract-observer.js';
-import { createOutboxSummaryJob } from '../core/cron/jobs/outbox-summary/index.js';
+import { createOutboxSummaryJob } from '../core/claw-topology/jobs/outbox-summary/index.js';
 import { createGateway } from '../core/gateway/index.js';
 import type { Gateway } from '../core/gateway/index.js';
 import { createAskUserTool } from '../core/gateway/index.js';
@@ -34,7 +35,7 @@ import { createStreamReader, STREAM_FILE, findRecentTurnStartOffset } from '../f
 import { createNotifyClawTool } from '../foundation/messaging/tools/notify-claw.js';
 import { formatClawStatusHint } from '../foundation/utils/index.js';
 import { notifyClaw, OutboxReader } from '../foundation/messaging/index.js';
-import { MOTION_CLAW_ID } from '../core/claw-topology/index.js';
+import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../core/claw-topology/index.js';
 import { makeClawId } from '../foundation/identity/index.js';
 import type { CoreInfraOutput } from './core-infrastructure.js';
 import type { BusinessSysOutput } from './business-systems.js';
@@ -99,7 +100,7 @@ export async function createMotionAddons(
     defaultSource: MOTION_CLAW_ID,
     isCallerAuthorized: (label) => label === MOTION_CLAW_ID,
     audit: auditWriter,
-    isClawAlive: (clawId: string) => core.processManager.isAlive(makeClawId(clawId)), // phase 232
+    isClawAlive: (clawId: string) => core.processManager.isAlive(resolveClawDaemonDir(makeClawId(clawId))), // phase 232
     formatClawStatusHint, // phase 232: M#1 single source
     clawExists: (clawId: string) => parentFs.existsSync(path.join(CLAWS_DIR, clawId)), // phase 241
     hasActiveContract: (clawId: string) => { // phase 241

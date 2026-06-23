@@ -1,8 +1,8 @@
-import { formatErr } from "../../../foundation/utils/index.js";
+import { formatErr } from "../../utils/index.js";
 /**
- * @module L5.Cron.AuditSizeMonitor
- * @layer L5
- * @depends L1.FileSystem, L2.AuditLog
+ * @module L2a.AuditLog.AuditSizeMonitor
+ * @layer L2a
+ * @depends L1.FileSystem, L2a.AuditLog, L2a.Cron (CronJob protocol)
  *
  * Cron job: 周期 stat motion/audit.tsv + .chestnut/audit.tsv 大小、超阈值 emit audit + viewport stream notify (phase 8).
  *
@@ -10,16 +10,19 @@ import { formatErr } from "../../../foundation/utils/index.js";
  *
  * phase 1154 derive (user 2026-05-23 Terminal SIGABRT 诊断追溯).
  * phase 8 reframe: motion inbox → viewport stream / dedup transition / 英文 self-contained.
+ * phase 697 Step B: 物理迁 src/foundation/cron/jobs/ → src/foundation/audit/jobs/
+ *   归属应然 = audit module sister 内 job (监控 audit file 自家 ephemeral 资源、M#1+M#3).
+ *   @module L5.Cron.AuditSizeMonitor → L2a.AuditLog.AuditSizeMonitor.
  */
 
-import { isFileNotFound } from '../../../foundation/fs/index.js';
-import type { FileSystem } from '../../../foundation/fs/index.js';
-import type { AuditLog } from '../../../foundation/audit/index.js';
-import type { StreamLog } from '../../../foundation/stream/index.js';
+import { isFileNotFound } from '../../fs/index.js';
+import type { FileSystem } from '../../fs/index.js';
+import type { AuditLog } from '../index.js';
+import type { StreamLog } from '../../stream/index.js';
 import { AUDIT_SIZE_MONITOR_AUDIT_EVENTS } from './audit-size-monitor-audit-events.js';
-import type { CronJob } from '../runner.js';
-import { parseSchedule } from '../runner.js';
-import type { CronJobGlobalConfig } from '../runner.js';
+import type { CronJob } from '../../cron/runner.js';
+import { parseSchedule } from '../../cron/runner.js';
+import type { CronJobGlobalConfig } from '../../cron/runner.js';
 
 /**
  * Cron job timeout (ms) / 防 stuck handler 占 cron tick.

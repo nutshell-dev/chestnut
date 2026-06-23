@@ -11,10 +11,10 @@
 import { describe, it, expect } from 'vitest';
 import * as path from 'path';
 import { promises as fs } from 'fs';
-import { runLlmStats, type LlmStatsOptions } from '../../../src/core/cron/jobs/llm-stats.js';
+import { runLlmStats, type LlmStatsOptions } from '../../../src/foundation/cron/jobs/llm-stats.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
-import { LLM_STATS_AUDIT_EVENTS } from '../../../src/core/cron/jobs/llm-stats-audit-events.js';
+import { LLM_STATS_AUDIT_EVENTS } from '../../../src/foundation/cron/jobs/llm-stats-audit-events.js';
 import { createClawTopology } from '../../../src/core/claw-topology/topology.js';
 import { makeClawId } from '../../../src/foundation/identity/claw-id.js';
 

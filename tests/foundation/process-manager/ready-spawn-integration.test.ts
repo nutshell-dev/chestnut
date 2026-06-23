@@ -7,6 +7,7 @@
  * 3. spawn 失败时 cleanup 路径走真 audit emit + 状态文件 0 残留
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { testClawDaemonDir, testMotionDaemonDir } from '../../helpers/daemon-dir.js';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import { tmpdir } from 'os';
@@ -49,7 +50,6 @@ describe('ready-spawn integration', () => {
     const ctx: ProcessManagerContext = {
       fs: nodeFs,
       audit,
-      resolveDir: (id: string) => path.join(tempDir, 'claws', id),
       spawnDetached: vi.fn().mockReturnValue({ pid: process.pid }),
     };
 
@@ -60,7 +60,7 @@ describe('ready-spawn integration', () => {
       await fs.writeFile(path.join(statusDir, 'ready'), JSON.stringify({ pid: process.pid }), 'utf-8');
     }, 50);
 
-    const result = await spawnProcess(ctx, clawId, {
+    const result = await spawnProcess(ctx, testClawDaemonDir(tempDir, clawId), {
       command: 'node',
       args: ['/fake/daemon-entry.js', clawId],
       logFile: path.join(tempDir, 'claws', clawId, 'logs', 'daemon.log'),
@@ -76,7 +76,6 @@ describe('ready-spawn integration', () => {
     const ctx: ProcessManagerContext = {
       fs: nodeFs,
       audit,
-      resolveDir: (id: string) => path.join(tempDir, 'claws', id),
       isAlive: () => {
         aliveCallCount++;
         if (aliveCallCount === 1) return false;
@@ -86,12 +85,12 @@ describe('ready-spawn integration', () => {
     };
 
     await expect(
-      spawnProcess(ctx, clawId, {
+      spawnProcess(ctx, testClawDaemonDir(tempDir, clawId), {
         command: 'node',
         args: ['/fake/daemon-entry.js', clawId],
         logFile: path.join(tempDir, 'claws', clawId, 'logs', 'daemon.log'),
       }),
-    ).rejects.toThrow(`Process "${clawId}" died during boot`);
+    ).rejects.toThrow(/died during boot/);
   });
 
   it('spawn 失败时 cleanup 路径走真 audit emit + 状态文件 0 残留', async () => {
@@ -101,7 +100,6 @@ describe('ready-spawn integration', () => {
     const ctx: ProcessManagerContext = {
       fs: nodeFs,
       audit,
-      resolveDir: (id: string) => path.join(tempDir, 'claws', id),
       isAlive: () => {
         aliveCallCount++;
         if (aliveCallCount === 1) return false;
@@ -111,7 +109,7 @@ describe('ready-spawn integration', () => {
     };
 
     await expect(
-      spawnProcess(ctx, clawId, {
+      spawnProcess(ctx, testClawDaemonDir(tempDir, clawId), {
         command: 'node',
         args: ['/fake/daemon-entry.js', clawId],
         logFile: path.join(tempDir, 'claws', clawId, 'logs', 'daemon.log'),

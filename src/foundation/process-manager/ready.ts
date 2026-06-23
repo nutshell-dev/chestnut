@@ -1,24 +1,25 @@
 import { getReadyFile, getPidFile, ensureStatusDir } from './paths.js';
+import type { DaemonDir } from './types.js';
 import { formatErr } from "../utils/index.js";
 import { isAlive as defaultL1IsAlive, getProcessStartTime as defaultGetProcessStartTime, makeProcessStartTime, type ProcessStartTime } from '../process-exec/index.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
 import type { ProcessManagerContext } from './types.js';
-import type { ClawId } from '../identity/index.js';
+
 import type { PidFileContent } from './pid.js';
 import { isFileNotFound } from '../fs/index.js';
 
 
-export async function markReady(ctx: ProcessManagerContext, clawId: ClawId): Promise<void> {
+export async function markReady(ctx: ProcessManagerContext, daemonDir: DaemonDir): Promise<void> {
   // phase 688: readyFile 提到 try 外、catch 可 access、emit 加 path forensic col
-  const readyFile = getReadyFile(ctx, clawId);
+  const readyFile = getReadyFile(ctx, daemonDir);
   try {
-    await ensureStatusDir(ctx, clawId);
+    await ensureStatusDir(ctx, daemonDir);
     const startTime = (ctx.getProcessStartTime ?? defaultGetProcessStartTime)(process.pid);
     const payload: PidFileContent = { pid: process.pid, ...(startTime !== undefined ? { startTime } : {}) };
     await ctx.fs.writeAtomic(readyFile, JSON.stringify(payload));
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.READY_MARK_WROTE,
-      `claw=${clawId}`,
+      `daemon_dir=${daemonDir}`,
       `pid=${process.pid}`,
       ...(startTime ? [`startTime=${startTime}`] : ['startTime_skipped']),
     );
@@ -26,7 +27,7 @@ export async function markReady(ctx: ProcessManagerContext, clawId: ClawId): Pro
     // audit failure but don't throw — caller (daemon boot) should continue, ready signal just absent
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.READY_MARK_WROTE,
-      `claw=${clawId}`,
+      `daemon_dir=${daemonDir}`,
       `path=${readyFile}`,
       `context=write_failed`,
       `reason=${formatErr(e)}`,
@@ -34,11 +35,11 @@ export async function markReady(ctx: ProcessManagerContext, clawId: ClawId): Pro
   }
 }
 
-export async function markNotReady(ctx: ProcessManagerContext, clawId: ClawId): Promise<void> {
-  const readyFile = getReadyFile(ctx, clawId);
+export async function markNotReady(ctx: ProcessManagerContext, daemonDir: DaemonDir): Promise<void> {
+  const readyFile = getReadyFile(ctx, daemonDir);
   try {
     await ctx.fs.delete(readyFile);
-    ctx.audit.write(PROCESS_MANAGER_AUDIT_EVENTS.READY_MARK_REMOVED, `claw=${clawId}`);
+    ctx.audit.write(PROCESS_MANAGER_AUDIT_EVENTS.READY_MARK_REMOVED, `daemon_dir=${daemonDir}`);
   } catch (err) {
     if (isFileNotFound(err)) {
       // benign: marker 不存在 (boot crash before markReady / 已 markNotReady)
@@ -47,7 +48,7 @@ export async function markNotReady(ctx: ProcessManagerContext, clawId: ClawId): 
     // phase 684: 加 path forensic col、与同模块 lock.ts:172 LOCKFILE_CLEANUP_FAILED op=delete 对齐
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.READY_MARK_REMOVED,
-      `claw=${clawId}`,
+      `daemon_dir=${daemonDir}`,
       `path=${readyFile}`,
       `context=remove_failed`,
       `reason=${formatErr(err)}`,
@@ -64,13 +65,13 @@ export async function markNotReady(ctx: ProcessManagerContext, clawId: ClawId): 
  * stale ready markers from a prior process recycled into the same PID.
  *
  * @param ctx     Process manager context
- * @param clawId  Target claw
+ * @param daemonDir  Target claw
  * @returns       true only when ready marker and PID file agree on identity
  *                and the OS confirms the process is still alive.
  */
-export function isReady(ctx: ProcessManagerContext, clawId: ClawId): boolean {
-  const readyFile = getReadyFile(ctx, clawId);
-  const pidFile = getPidFile(ctx, clawId);
+export function isReady(ctx: ProcessManagerContext, daemonDir: DaemonDir): boolean {
+  const readyFile = getReadyFile(ctx, daemonDir);
+  const pidFile = getPidFile(ctx, daemonDir);
   let readyContent: string;
   let pidContent: string;
   // phase 686: 拆 read try、emit 加 file= + path= forensic col 区分两 file 失败
@@ -80,7 +81,7 @@ export function isReady(ctx: ProcessManagerContext, clawId: ClawId): boolean {
     if (isFileNotFound(err)) return false;
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.READY_CHECK_READ_FAILED,
-      `claw=${clawId}`,
+      `daemon_dir=${daemonDir}`,
       `file=ready`,
       `path=${readyFile}`,
       `reason=${formatErr(err)}`,
@@ -93,7 +94,7 @@ export function isReady(ctx: ProcessManagerContext, clawId: ClawId): boolean {
     if (isFileNotFound(err)) return false;
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.READY_CHECK_READ_FAILED,
-      `claw=${clawId}`,
+      `daemon_dir=${daemonDir}`,
       `file=pid`,
       `path=${pidFile}`,
       `reason=${formatErr(err)}`,
@@ -110,7 +111,7 @@ export function isReady(ctx: ProcessManagerContext, clawId: ClawId): boolean {
   } catch (err) {
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.READY_CHECK_PARSE_FAILED,
-      `claw=${clawId}`,
+      `daemon_dir=${daemonDir}`,
       `file=ready`,
       `path=${readyFile}`,
       `reason=${formatErr(err)}`,
@@ -123,7 +124,7 @@ export function isReady(ctx: ProcessManagerContext, clawId: ClawId): boolean {
   } catch (err) {
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.READY_CHECK_PARSE_FAILED,
-      `claw=${clawId}`,
+      `daemon_dir=${daemonDir}`,
       `file=pid`,
       `path=${pidFile}`,
       `reason=${formatErr(err)}`,
@@ -138,7 +139,7 @@ export function isReady(ctx: ProcessManagerContext, clawId: ClawId): boolean {
     // stale marker（前进程 PID） → emit audit 兜底 + 视 not ready
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.READY_MARK_STALE,
-      `claw=${clawId}`,
+      `daemon_dir=${daemonDir}`,
       `ready_pid=${readyPid}`,
       `pid_file_pid=${pidFilePid}`,
     );
@@ -148,7 +149,7 @@ export function isReady(ctx: ProcessManagerContext, clawId: ClawId): boolean {
         // phase 685: 加 path forensic col、与 ready.ts:45 (phase 684) + lock.ts:172 同模块对齐
         ctx.audit.write(
           PROCESS_MANAGER_AUDIT_EVENTS.READY_STALE_CLEANUP_FAILED,
-          `claw=${clawId}`,
+          `daemon_dir=${daemonDir}`,
           `path=${readyFile}`,
           `reason=${formatErr(e)}`,
         );
@@ -162,7 +163,7 @@ export function isReady(ctx: ProcessManagerContext, clawId: ClawId): boolean {
   } catch (err) {
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.READY_CHECK_ISALIVE_THROW,
-      `claw=${clawId}`,
+      `daemon_dir=${daemonDir}`,
       `ready_pid=${readyPid}`,
       `reason=${formatErr(err)}`,
     );

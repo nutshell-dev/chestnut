@@ -19,8 +19,8 @@ import { ProcessManager, ProcessListUnavailable } from '../../foundation/process
 import { makeClawId } from '../../foundation/identity/index.js';
 import { listAuditFiles } from '../../foundation/audit/index.js';
 import { INBOX_PENDING_DIR } from '../../foundation/messaging/index.js';
-import { MOTION_CLAW_ID } from '../claw-topology/index.js';
-import type { ClawTopology } from '../../core/claw-topology/index.js';
+import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../claw-topology/index.js';
+import type { ClawTopology } from '../claw-topology/index.js';
 
 // ── Views ───────────────────────────────────────────────────────────────────
 
@@ -179,7 +179,7 @@ export function computeForumStatusView(deps: ForumStatusDeps): ForumStatusView {
   };
 
   // ── System: motion ──
-  const motionStatus = deps.pm.getAliveStatus(MOTION_CLAW_ID);
+  const motionStatus = deps.pm.getAliveStatus(resolveClawDaemonDir(MOTION_CLAW_ID));
   const motionFs = deps.fsFactory(deps.motionDir);
   const motion: SystemComponentView = {
     alive: motionStatus.alive,
@@ -202,7 +202,7 @@ export function computeForumStatusView(deps: ForumStatusDeps): ForumStatusView {
   totalClawCount = allClawIds.length;
 
   for (const clawId of allClawIds) {
-    const s = deps.pm.getAliveStatus(makeClawId(clawId));
+    const s = deps.pm.getAliveStatus(resolveClawDaemonDir(makeClawId(clawId)));
     if (!s.alive || s.pid === undefined) continue;
     trackedPids.push(s.pid);
     const location = deps.clawTopology.resolve(makeClawId(clawId));

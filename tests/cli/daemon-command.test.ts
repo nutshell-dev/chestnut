@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { testClawDaemonDir, testMotionDaemonDir } from '../helpers/daemon-dir.js';
 import type { AuditLog } from '../../src/foundation/audit/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 
@@ -433,7 +434,7 @@ describe('daemonCommand - A4d shutdown signal', () => {
       expect.objectContaining({ runtime: mockState.mockRuntime }),
       'SIGTERM',
     );
-    expect(selfRemovePidSpy).toHaveBeenCalledWith('test-claw');
+    expect(selfRemovePidSpy).toHaveBeenCalledWith(expect.stringContaining('test-claw'));
     selfRemovePidSpy.mockRestore();
 
     await cmdPromise.catch(() => { /* silent: expected-failure */ });

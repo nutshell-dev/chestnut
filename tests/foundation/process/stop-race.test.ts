@@ -7,6 +7,7 @@
  * 3. l1IsAlive(pid) 直读不受并发 pidfile 删除影响 (race window 消除)
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { testClawDaemonDir, testMotionDaemonDir } from '../../helpers/daemon-dir.js';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import { tmpdir } from 'os';
@@ -46,7 +47,6 @@ describe('stop.ts race + getAliveStatus probe single responsibility (phase 879)'
     return {
       fs: nodeFs,
       audit,
-      resolveDir: (id: string) => path.join(tempDir, 'claws', id),
       l1IsAlive: vi.fn().mockReturnValue(false),
       kill: vi.fn(),
     };
@@ -60,7 +60,7 @@ describe('stop.ts race + getAliveStatus probe single responsibility (phase 879)'
     await fs.writeFile(pidFile, String(DEAD_PID), 'utf-8');
 
     const ctx = makeCtx(makeAudit().audit);
-    const result = getAliveStatus(ctx, clawId);
+    const result = getAliveStatus(ctx, testClawDaemonDir(tempDir, clawId));
 
     expect(result.alive).toBe(false);
     expect(result.reason).toMatch(/not alive/i);
@@ -82,7 +82,7 @@ describe('stop.ts race + getAliveStatus probe single responsibility (phase 879)'
     // 第 1 次 l1IsAlive 检（STALE 分支前）→ true（进程 alive）
     // 第 2 次 l1IsAlive 检（SIGTERM grace 后）→ true（进程仍 alive）→ 触发 SIGKILL escalation
     vi.mocked(ctx.l1IsAlive!).mockReturnValueOnce(true).mockReturnValueOnce(true);
-    const result = await stopProcess(ctx, clawId);
+    const result = await stopProcess(ctx, testClawDaemonDir(tempDir, clawId));
 
     expect(result).toBe(true);
     // 不应走 STALE 分支（进程是 alive 的）
@@ -123,7 +123,7 @@ describe('stop.ts race + getAliveStatus probe single responsibility (phase 879)'
       return result;
     });
 
-    const result = await stopProcess(ctx, clawId);
+    const result = await stopProcess(ctx, testClawDaemonDir(tempDir, clawId));
 
     expect(result).toBe(true);
     // 应走 STALE 分支（因为 l1IsAlive(DEAD_PID)=false）
@@ -134,7 +134,7 @@ describe('stop.ts race + getAliveStatus probe single responsibility (phase 879)'
     expect(staleEvents[0]).toEqual(
       expect.arrayContaining([
         PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_STOP_STALE,
-        `claw=${clawId}`,
+        expect.stringContaining('daemon_dir='),
         `pid=${DEAD_PID}`,
       ]),
     );

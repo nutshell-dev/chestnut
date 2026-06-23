@@ -13,6 +13,7 @@
  */
 
 import type { ClawId } from '../../foundation/identity/index.js';
+import { type DaemonDir, makeDaemonDir } from '../../foundation/process-manager/index.js';
 import { MOTION_CLAW_ID } from './motion-claw-id.js';
 import { getNamedSubrootDir, getClawDir } from '../../foundation/config/index.js';
 
@@ -24,7 +25,10 @@ import { getNamedSubrootDir, getClawDir } from '../../foundation/config/index.js
  * - others        → `<chestnut-root>/claws/<id>/`（含 path traversal 校验、详 install-paths.ts assertSafeClawId）
  *
  * Throws：clawId 含 path traversal 字符或空（由 getClawDir 内部抛）。
+ *
+ * Returns DaemonDir branded string — PM API 强制 caller 必经此函数构造。
  */
-export function resolveClawDaemonDir(clawId: ClawId): string {
-  return clawId === MOTION_CLAW_ID ? getNamedSubrootDir('motion') : getClawDir(clawId);
+export function resolveClawDaemonDir(clawId: ClawId): DaemonDir {
+  const dir = clawId === MOTION_CLAW_ID ? getNamedSubrootDir('motion') : getClawDir(clawId);
+  return makeDaemonDir(dir);
 }

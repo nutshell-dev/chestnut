@@ -4,7 +4,7 @@
  * phase 208: signature 收窄 GuidanceEntry | null → GuidanceEntry
  *   (body 本就单一 return { text }、无 null path、type 收窄 hygiene 对齐已收窄 5 composer)
  *
- * 业主 (core/outbox-summary) own facts (counts / total_claws / total_msgs / hash).
+ * 业主 (core/claw-topology/jobs/outbox-summary, phase 697) own facts (counts / total_claws / total_msgs / hash).
  * Assembly 此处 own motion-side CLI 教学：拼 `chestnut claw <claw-id> outbox --limit N`.
  *
  * State 接 via Runtime extraMeta wire (toExtraMeta serializes fields to Record<string,string>).

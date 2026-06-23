@@ -7,6 +7,7 @@
  * 3. selfWritePid emits JSON with startTime on POSIX
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { testClawDaemonDir, testMotionDaemonDir } from '../../helpers/daemon-dir.js';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import { tmpdir } from 'os';
@@ -40,7 +41,6 @@ describe('PID file format migration (phase 1023)', () => {
     return {
       fs: nodeFs,
       audit,
-      resolveDir: (id: string) => path.join(tempDir, 'claws', id),
     };
   }
 
@@ -54,10 +54,9 @@ describe('PID file format migration (phase 1023)', () => {
     const ctx: ProcessManagerContext = {
       fs: nodeFs,
       audit,
-      resolveDir: (id: string) => path.join(tempDir, 'claws', id),
     };
 
-    const result = await readPid(ctx, clawId);
+    const result = await readPid(ctx, testClawDaemonDir(tempDir, clawId));
     expect(result).toEqual({ pid: FAKE_LIVE_PID, startTime: undefined });
 
     const legacyEvents = events.filter(
@@ -67,8 +66,7 @@ describe('PID file format migration (phase 1023)', () => {
     expect(legacyEvents[0]).toEqual(
       expect.arrayContaining([
         PROCESS_MANAGER_AUDIT_EVENTS.PID_FILE_LEGACY_FORMAT,
-        'claw=test-claw',
-        `pid=${FAKE_LIVE_PID}`,
+        expect.stringContaining('daemon_dir='),        `pid=${FAKE_LIVE_PID}`,
       ]),
     );
   });
@@ -80,7 +78,7 @@ describe('PID file format migration (phase 1023)', () => {
     await fs.mkdir(path.dirname(pidFile), { recursive: true });
     await fs.writeFile(pidFile, JSON.stringify({ pid: FAKE_LIVE_PID, startTime: 'Sat May 18 10:30:00 2026' }), 'utf-8');
 
-    const result = await readPid(ctx, clawId);
+    const result = await readPid(ctx, testClawDaemonDir(tempDir, clawId));
     expect(result).toEqual({ pid: FAKE_LIVE_PID, startTime: 'Sat May 18 10:30:00 2026' });
   });
 
@@ -91,7 +89,7 @@ describe('PID file format migration (phase 1023)', () => {
     await fs.mkdir(path.dirname(pidFile), { recursive: true });
     await fs.writeFile(pidFile, 'not-a-number', 'utf-8');
 
-    const result = await readPid(ctx, clawId);
+    const result = await readPid(ctx, testClawDaemonDir(tempDir, clawId));
     expect(result).toBeNull();
   });
 
@@ -105,10 +103,9 @@ describe('PID file format migration (phase 1023)', () => {
     const ctx: ProcessManagerContext = {
       fs: nodeFs,
       audit,
-      resolveDir: (id: string) => path.join(tempDir, 'claws', id),
     };
 
-    await selfWritePid(ctx, clawId);
+    await selfWritePid(ctx, testClawDaemonDir(tempDir, clawId));
 
     const pidFile = path.join(tempDir, 'claws', clawId, 'status', 'pid');
     const content = await fs.readFile(pidFile, 'utf-8');
@@ -120,8 +117,7 @@ describe('PID file format migration (phase 1023)', () => {
     expect(writeOkEvents[0]).toEqual(
       expect.arrayContaining([
         PROCESS_MANAGER_AUDIT_EVENTS.PID_WRITE_OK,
-        'claw=test-claw',
-        `pid=${process.pid}`,
+        expect.stringContaining('daemon_dir='),        `pid=${process.pid}`,
         'startTime=Sat May 18 10:30:00 2026',
       ]),
     );
@@ -137,10 +133,9 @@ describe('PID file format migration (phase 1023)', () => {
     const ctx: ProcessManagerContext = {
       fs: nodeFs,
       audit,
-      resolveDir: (id: string) => path.join(tempDir, 'claws', id),
     };
 
-    await selfWritePid(ctx, clawId);
+    await selfWritePid(ctx, testClawDaemonDir(tempDir, clawId));
 
     const pidFile = path.join(tempDir, 'claws', clawId, 'status', 'pid');
     const content = await fs.readFile(pidFile, 'utf-8');
@@ -152,8 +147,7 @@ describe('PID file format migration (phase 1023)', () => {
     expect(writeOkEvents[0]).toEqual(
       expect.arrayContaining([
         PROCESS_MANAGER_AUDIT_EVENTS.PID_WRITE_OK,
-        'claw=test-claw',
-        `pid=${process.pid}`,
+        expect.stringContaining('daemon_dir='),        `pid=${process.pid}`,
         'startTime_skipped',
       ]),
     );

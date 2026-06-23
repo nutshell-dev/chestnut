@@ -1,24 +1,28 @@
 /**
- * @module L5.Cron.Jobs.OutboxSummary
- * phase 134: demote 到 cron job helper（从 core/outbox-summary/ 物理迁、
- * phase 1476 立模、phase 42 走 Messaging 入口）.
+ * @module L4.ClawTopology.OutboxSummary
  *
  * 业务：每 cron tick 扫所有 claws/{*}/outbox/pending → 若 unread > 0 + 新版本 → 写
- * dedup 后的 summary 到 motion/inbox/pending.
+ * dedup 后的 summary 到 motion/inbox/pending. Cross-claw hub-and-spoke aggregator
+ * (motion 作为 hub 聚合 claws spoke outbox 状态)、归 ClawTopology business 衍生。
  *
- * Design：design/modules/l5_cron.md §5 + §1.3 outbox-summary row + §1.A phase 134 reframing log.
+ * phase 1476 立模、phase 42 走 Messaging 入口。
+ * phase 134 demote 到 cron job helper、phase 697 revert：核心业务是 cross-claw 聚合
+ * 而非 cron 的子能力、归 ClawTopology jobs/ sister 内 (M#1 + M#3、与 ClawTopology
+ * hub-spoke business 同根)。
+ *
+ * Design: design/architecture.md §27b ClawTopology + design/modules/l2a_cron.md (Cron protocol)
  */
 
 import type { AuditLog } from '../../../../foundation/audit/index.js';
 import { formatErr } from '../../../../foundation/utils/index.js';
 import type { FileSystem } from '../../../../foundation/fs/index.js';
 import type { InboxReader, InboxWriter, OutboxReader } from '../../../../foundation/messaging/index.js';
-import type { ClawTopology } from '../../../../core/claw-topology/index.js';
+import type { ClawTopology } from '../../index.js';
 import { OUTBOX_SUMMARY_AUDIT_EVENTS } from './audit-events.js';
 import { runOutboxSummaryTick } from './tick.js';
-import type { CronJob } from '../../runner.js';
-import { parseSchedule } from '../../runner.js';
-import type { CronJobGlobalConfig } from '../../runner.js';
+import type { CronJob } from '../../../../foundation/cron/runner.js';
+import { parseSchedule } from '../../../../foundation/cron/runner.js';
+import type { CronJobGlobalConfig } from '../../../../foundation/cron/runner.js';
 
 /** Cron job timeout per M#2 (per-module business decides). 5s 充裕：dedup scan = meta parse only. */
 export const OUTBOX_SUMMARY_CRON_TIMEOUT_MS = 5_000;

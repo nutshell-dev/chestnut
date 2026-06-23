@@ -11,9 +11,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   runAuditSizeMonitor,
   __resetAuditSizeMonitorState,
-} from '../../../../src/core/cron/jobs/audit-size-monitor.js';
+} from '../../../../src/foundation/audit/jobs/audit-size-monitor.js';
 import { FileNotFoundError } from '../../../../src/foundation/fs/types.js';
-import { AUDIT_SIZE_MONITOR_AUDIT_EVENTS } from '../../../../src/core/cron/jobs/audit-size-monitor-audit-events.js';
+import { AUDIT_SIZE_MONITOR_AUDIT_EVENTS } from '../../../../src/foundation/audit/jobs/audit-size-monitor-audit-events.js';
 import { makeAudit } from '../../../helpers/audit.js';
 import type { FileSystem } from '../../../../src/foundation/fs/types.js';
 import type { StreamLog } from '../../../../src/foundation/stream/index.js';

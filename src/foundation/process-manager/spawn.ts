@@ -1,4 +1,5 @@
 import { ensureStatusDir, getLockFile, getPidFile } from './paths.js';
+import type { DaemonDir } from './types.js';
 import * as path from 'path';
 import { formatErr } from "../utils/index.js";
 import { spawnDetached as defaultSpawnDetached, kill as defaultKill } from '../process-exec/index.js';
@@ -11,19 +12,19 @@ import { isReady as checkReady } from './ready.js';
 import { readLockPid } from './lock.js';
 import { readPid, removePid } from './pid.js';
 import type { PidFileContent } from './pid.js';
-import { findProcessesDetailed, commandContainsClawIdToken } from './find.js';
+import { findProcessesDetailed, commandContainsDaemonDirToken } from './find.js';
 
 import { isAlive as defaultL1IsAlive, getProcessStartTime as defaultGetProcessStartTime } from '../process-exec/index.js';
 import { LockConflictError, type ProcessManagerContext } from './types.js';
 import type { SpawnOptions } from './types.js';
-import type { ClawId } from '../identity/index.js';
+
 
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * Spawn the daemon process for `clawId` and resolve with its PID once the
+ * Spawn the daemon process for `daemonDir` and resolve with its PID once the
  * child has marked itself ready.
  *
  * Pipeline:
@@ -36,7 +37,7 @@ const sleep = (ms: number): Promise<void> =>
  *                       no wall-clock deadline — phase 1317)
  *
  * @param ctx       Process manager context (fs + audit + resolveDir + optional this-seam)
- * @param clawId    Target claw
+ * @param daemonDir    Target claw
  * @param options   Spawn options (command/args/env/cwd/logFile)
  * @returns         The spawned child's PID
  * @throws LockConflictError if a live process already owns the pidfile
@@ -45,25 +46,25 @@ const sleep = (ms: number): Promise<void> =>
  */
 export async function spawnProcess(
   ctx: ProcessManagerContext,
-  clawId: ClawId,
+  daemonDir: DaemonDir,
   options: SpawnOptions,
 ): Promise<number> {
   const startMs = Date.now();
-  const isAliveByPidFile = ctx.isAlive ?? ((id: ClawId) => checkAlive(ctx, id));
-  if (isAliveByPidFile(clawId)) {
+  const isAliveByPidFile = ctx.isAlive ?? ((id: DaemonDir) => checkAlive(ctx, id));
+  if (isAliveByPidFile(daemonDir)) {
     throw new LockConflictError(
-      clawId,
-      `Claw "${clawId}" is already running (PID file exists)`,
+      daemonDir,
+      `Claw "${daemonDir}" is already running (PID file exists)`,
     );
   }
 
-  await cleanupOrphans(ctx, clawId, options);
-  await cleanupLock(ctx, clawId);
-  await writePidExclusive(ctx, clawId);
+  await cleanupOrphans(ctx, daemonDir, options);
+  await cleanupLock(ctx, daemonDir);
+  await writePidExclusive(ctx, daemonDir);
 
   ctx.fs.ensureDirSync(path.dirname(options.logFile));
 
-  return await spawnAndAwaitReady(ctx, clawId, options, startMs, isAliveByPidFile);
+  return await spawnAndAwaitReady(ctx, daemonDir, options, startMs, isAliveByPidFile);
 }
 
 /**
@@ -73,13 +74,13 @@ export async function spawnProcess(
  */
 async function cleanupOrphans(
   ctx: ProcessManagerContext,
-  clawId: ClawId,
+  daemonDir: DaemonDir,
   options: SpawnOptions,
 ): Promise<void> {
   const pattern = options.args.join(' ');
   // phase 346 B2 (review-2026-06-13): pgrep -f 用 regex-substring 匹配，
   // claw-a 会匹配 claw-abc / claw-a-1 等 prefix-collision claw → 误杀 sibling
-  // daemon。先 detailed 列、再按 clawId token-match 二次过滤。
+  // daemon。先 detailed 列、再按 daemonDir token-match 二次过滤。
   let processes: Array<{ pid: number; command: string }> = [];
   try {
     processes = findProcessesDetailed(ctx, pattern);
@@ -95,13 +96,13 @@ async function cleanupOrphans(
   let orphanFailCount = 0;
   let skippedMismatch = 0;
   for (const proc of processes) {
-    // 二次过滤：command 必须含 clawId 作为独立 token、非 substring
+    // 二次过滤：command 必须含 daemonDir 作为独立 token、非 substring
     // command 为空（ps 失败 fallback）时保守 skip + audit、不 kill
-    if (!commandContainsClawIdToken(proc.command, clawId)) {
+    if (!commandContainsDaemonDirToken(proc.command, daemonDir)) {
       skippedMismatch++;
       ctx.audit.write(
         PROCESS_MANAGER_AUDIT_EVENTS.ORPHAN_MATCH_SKIPPED,
-        `claw=${clawId}`,
+        `daemon_dir=${daemonDir}`,
         `pid=${proc.pid}`,
         `reason=clawid_token_mismatch`,
       );
@@ -114,7 +115,7 @@ async function cleanupOrphans(
       orphanFailCount++;
       ctx.audit.write(
         PROCESS_MANAGER_AUDIT_EVENTS.ORPHAN_SIGTERM_FAILED,
-        `claw=${clawId}`,
+        `daemon_dir=${daemonDir}`,
         `pid=${proc.pid}`,
         `reason=${formatErr(err)}`,
       );
@@ -125,7 +126,7 @@ async function cleanupOrphans(
   if (orphanFailCount > 0) {
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.ORPHAN_CLEANUP_PARTIAL,
-      `claw=${clawId}`,
+      `daemon_dir=${daemonDir}`,
       `sent=${sentAny ? 'true' : 'false'}`,
       `failed=${orphanFailCount}`,
     );
@@ -143,11 +144,11 @@ async function cleanupOrphans(
  */
 async function cleanupLock(
   ctx: ProcessManagerContext,
-  clawId: ClawId,
+  daemonDir: DaemonDir,
 ): Promise<void> {
-  const lockFile = getLockFile(ctx, clawId);
+  const lockFile = getLockFile(ctx, daemonDir);
   try {
-    const lockHolder = readLockPid(ctx, clawId);
+    const lockHolder = readLockPid(ctx, daemonDir);
     if (lockHolder !== null) {
       const lockStartTime = lockHolder.startTime;
       if ((ctx.l1IsAlive ?? defaultL1IsAlive)(lockHolder.pid, lockStartTime)) {
@@ -157,7 +158,7 @@ async function cleanupLock(
         } catch (err) {
           ctx.audit.write(
             PROCESS_MANAGER_AUDIT_EVENTS.LOCKFILE_CLEANUP_FAILED,
-            `claw=${clawId}`,
+            `daemon_dir=${daemonDir}`,
             `op=sigterm`,
             `pid=${lockHolder.pid}`,
             `reason=${formatErr(err)}`,
@@ -171,7 +172,7 @@ async function cleanupLock(
       if (!isFileNotFound(err)) {
         ctx.audit.write(
           PROCESS_MANAGER_AUDIT_EVENTS.LOCKFILE_CLEANUP_FAILED,
-          `claw=${clawId}`,
+          `daemon_dir=${daemonDir}`,
           `op=delete`,
           `path=${lockFile}`,
           `reason=${formatErr(err)}`,
@@ -183,7 +184,7 @@ async function cleanupLock(
       // phase 681: 加 path forensic col、与 lock.ts:49 同 event 形态对齐
       ctx.audit.write(
         PROCESS_MANAGER_AUDIT_EVENTS.LOCKFILE_READ_FAILED,
-        `claw=${clawId}`,
+        `daemon_dir=${daemonDir}`,
         `path=${lockFile}`,
         `reason=${(err as NodeJS.ErrnoException).code || formatErr(err)}`,
       );
@@ -198,10 +199,10 @@ async function cleanupLock(
  */
 async function writePidExclusive(
   ctx: ProcessManagerContext,
-  clawId: ClawId,
+  daemonDir: DaemonDir,
 ): Promise<void> {
-  const pidFile = getPidFile(ctx, clawId);
-  await ensureStatusDir(ctx, clawId);
+  const pidFile = getPidFile(ctx, daemonDir);
+  await ensureStatusDir(ctx, daemonDir);
 
   try {
     // phase 458 (review N3-M): 写 pid=0 占位 sentinel 而非父进程 PID。
@@ -211,7 +212,7 @@ async function writePidExclusive(
     ctx.fs.writeExclusiveSync(pidFile, JSON.stringify({ pid: 0 }));
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
-    await handlePidFileConflict(ctx, clawId, pidFile);
+    await handlePidFileConflict(ctx, daemonDir, pidFile);
   }
 }
 
@@ -228,23 +229,23 @@ async function writePidExclusive(
  */
 async function handlePidFileConflict(
   ctx: ProcessManagerContext,
-  clawId: ClawId,
+  daemonDir: DaemonDir,
   pidFile: string,
 ): Promise<void> {
-  const stored = await readPid(ctx, clawId);
+  const stored = await readPid(ctx, daemonDir);
   if (stored !== null) {
     const startTimeForVerify = stored.startTime ?? (ctx.getProcessStartTime ?? defaultGetProcessStartTime)(stored.pid);
     if ((ctx.l1IsAlive ?? defaultL1IsAlive)(stored.pid, startTimeForVerify)) {
       throw new LockConflictError(
-        clawId,
-        `Claw "${clawId}" is already running (PID file exists)`,
+        daemonDir,
+        `Claw "${daemonDir}" is already running (PID file exists)`,
       );
     }
     // phase 182: PID-wrap detection emit (phase 1023 intent)
     if (stored.startTime !== undefined && stored.startTime !== startTimeForVerify) {
       ctx.audit.write(
         PROCESS_MANAGER_AUDIT_EVENTS.STARTTIME_MISMATCH,
-        `claw=${clawId}`,
+        `daemon_dir=${daemonDir}`,
         `stored_pid=${stored.pid}`,
         `stored_startTime=${stored.startTime}`,
         `verify_startTime=${startTimeForVerify ?? 'unavailable'}`,
@@ -265,7 +266,7 @@ async function handlePidFileConflict(
       // phase 682: 加 path forensic col、与 watchdog-pid.ts:138 + lock.ts:49 同 event 形态对齐
       ctx.audit.write(
         PROCESS_MANAGER_AUDIT_EVENTS.PID_READ_FAILED,
-        `claw=${clawId}`,
+        `daemon_dir=${daemonDir}`,
         `path=${pidFile}`,
         `context=race_check`,
       );
@@ -273,7 +274,7 @@ async function handlePidFileConflict(
       // phase 682: 加 path forensic col、与 watchdog-pid.ts:138 + lock.ts:49 同 event 形态对齐
       ctx.audit.write(
         PROCESS_MANAGER_AUDIT_EVENTS.PID_READ_FAILED,
-        `claw=${clawId}`,
+        `daemon_dir=${daemonDir}`,
         `path=${pidFile}`,
         `context=eexist_check`,
         `reason=${formatErr(readErr)}`,
@@ -285,14 +286,14 @@ async function handlePidFileConflict(
     // phase 683: 加 path forensic col、与同代码块 PID_READ_FAILED (phase 682) 形态一致
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.PID_EMPTY,
-      `claw=${clawId}`,
+      `daemon_dir=${daemonDir}`,
       `path=${pidFile}`,
     );
   }
-  await removePid(ctx, clawId).catch((err) => {
+  await removePid(ctx, daemonDir).catch((err) => {
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.PID_REMOVE_FAILED,
-      `claw=${clawId}`,
+      `daemon_dir=${daemonDir}`,
       `context=spawn_retry_overwrite`,
       `reason=${formatErr(err)}`,
     );
@@ -314,12 +315,12 @@ async function handlePidFileConflict(
  */
 async function spawnAndAwaitReady(
   ctx: ProcessManagerContext,
-  clawId: ClawId,
+  daemonDir: DaemonDir,
   options: SpawnOptions,
   startMs: number,
-  isAliveByPidFile: (id: ClawId) => boolean,
+  isAliveByPidFile: (id: DaemonDir) => boolean,
 ): Promise<number> {
-  const pidFile = getPidFile(ctx, clawId);
+  const pidFile = getPidFile(ctx, daemonDir);
   try {
     const { pid } = (ctx.spawnDetached ?? defaultSpawnDetached)(options.command, options.args, {
       cwd: options.cwd,
@@ -334,21 +335,21 @@ async function spawnAndAwaitReady(
     };
     await ctx.fs.writeAtomic(pidFile, JSON.stringify(pidPayload));
 
-    const isReady = ctx.isReady ?? ((id: ClawId) => checkReady(ctx, id));
-    let ready = isReady(clawId);
+    const isReady = ctx.isReady ?? ((id: DaemonDir) => checkReady(ctx, id));
+    let ready = isReady(daemonDir);
     while (!ready) {
-      if (!isAliveByPidFile(clawId)) {
+      if (!isAliveByPidFile(daemonDir)) {
         throw new Error(
-          `Process "${clawId}" died during boot. Check logs at: ${options.logFile}`,
+          `Process "${daemonDir}" died during boot. Check logs at: ${options.logFile}`,
         );
       }
       await sleep(SPAWN_POLL_INTERVAL_MS);
-      ready = isReady(clawId);
+      ready = isReady(daemonDir);
     }
 
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_SPAWNED,
-      `claw=${clawId}`,
+      `daemon_dir=${daemonDir}`,
       `pid=${pid}`,
       `command=${options.command}`,
       `args=${ctx.audit.message(options.args.join(' '))}`,
@@ -357,17 +358,17 @@ async function spawnAndAwaitReady(
 
     return pid;
   } catch (err) {
-    await removePid(ctx, clawId).catch((removeErr) => {
+    await removePid(ctx, daemonDir).catch((removeErr) => {
       ctx.audit.write(
         PROCESS_MANAGER_AUDIT_EVENTS.PID_REMOVE_FAILED,
-        `claw=${clawId}`,
+        `daemon_dir=${daemonDir}`,
         `context=spawn_cleanup`,
         `reason=${formatErr(removeErr)}`,
       );
     });
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_SPAWN_FAILED,
-      `claw=${clawId}`,
+      `daemon_dir=${daemonDir}`,
       `command=${options.command}`,
       `reason=${formatErr(err)}`,
       `code=${(err as NodeJS.ErrnoException).code ?? 'unknown'}`,

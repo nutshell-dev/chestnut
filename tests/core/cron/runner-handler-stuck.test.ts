@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
-import { CRON_AUDIT_EVENTS } from '../../../src/core/cron/audit-events.js';
-import { CronRunner, type CronJob } from '../../../src/core/cron/runner.js';
+import { CRON_AUDIT_EVENTS } from '../../../src/foundation/cron/audit-events.js';
+import { CronRunner, type CronJob } from '../../../src/foundation/cron/runner.js';
 import { SUBAGENT_SHORT_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
 
 class MockAudit {

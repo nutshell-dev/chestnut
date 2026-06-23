@@ -19,12 +19,11 @@
  */
 
 import { getWorkspaceRoot } from '../foundation/install-paths.js';
-import { makeAgentDirResolver } from '../core/claw-topology/index.js';
 import * as path from 'path';
 import { formatErr } from "../foundation/utils/index.js";
 import { setTimeout } from 'timers/promises';
 import { getNamedSubrootDir } from '../foundation/config/index.js';
-import { MOTION_CLAW_ID } from '../core/claw-topology/index.js';
+import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../core/claw-topology/index.js';
 import { makeClawId } from '../foundation/identity/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 import { isFileNotFound } from '../foundation/fs/index.js';
@@ -155,13 +154,13 @@ async function restartMotionIfDown(
     //     (a) 真 stale PID 文件 → safe to ignore (audit captures)
     //     (b) motion 仍活（race / 另 watchdog instance spawn 中）→ spawn 抛 LockConflictError、捕获后 reset 计数
     //   - cleanup 失败不阻塞 respawn / spawn 自身判 race / failure 仅 audit observability
-    await pm.stop(MOTION_CLAW_ID).catch((e) => {
+    await pm.stop(resolveClawDaemonDir(MOTION_CLAW_ID)).catch((e) => {
       const msg = `[watchdog] Failed to clean up motion before restart: ${formatErr(e)}`;
       // phase 718: payload 加 message= prefix、forensic 解析可 join message 维度
       logWithAudit(fsFactory, msg, WATCHDOG_AUDIT_EVENTS.CLEANUP_FAILED, `message=${audit.message(msg)}`);
     });
     const daemonEntryPath = resolveDaemonEntry(fsFactory(process.cwd()));
-    const pid = await pm.spawn(MOTION_CLAW_ID, {
+    const pid = await pm.spawn(resolveClawDaemonDir(MOTION_CLAW_ID), {
       command: 'node',
       args: [daemonEntryPath, MOTION_CLAW_ID],
       logFile: path.join(getNamedSubrootDir('motion'), daemonLogName),
@@ -226,7 +225,7 @@ export async function runWatchdogLoop(
   let stopped = false;
 
   // Create Motion ProcessManager (reused across loop iterations)
-  const pm = createProcessManagerForCLI({ fsFactory, resolveAgentDir: makeAgentDirResolver() });
+  const pm = createProcessManagerForCLI({ fsFactory });
 
   // phase 1034: idempotent install / 防 test re-entry 或 production 异常 re-entry 累 listener (Node maxListeners warning)
   // mirror _resetShutdownGuard removeListener pattern (line 60-66) — install 前 cleanup prior
@@ -252,7 +251,7 @@ export async function runWatchdogLoop(
 
   while (!stopped) {
     // 1. Check motion liveness
-    const status = pm.getAliveStatus(MOTION_CLAW_ID);
+    const status = pm.getAliveStatus(resolveClawDaemonDir(MOTION_CLAW_ID));
 
     // watchdog_check: 枚举所有存活进程
     const aliveIds: string[] = [];
@@ -265,7 +264,7 @@ export async function runWatchdogLoop(
           if (entry.isDirectory) {
             presentClawIds.push(entry.name);
             const clawId = entry.name;
-            if (pm.isAlive(makeClawId(clawId))) aliveIds.push(entry.name);
+            if (pm.isAlive(resolveClawDaemonDir(makeClawId(clawId)))) aliveIds.push(entry.name);
           }
         }
       } catch (err) {

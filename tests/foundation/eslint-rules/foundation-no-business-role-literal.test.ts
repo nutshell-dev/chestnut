@@ -20,7 +20,7 @@ describe('eslint custom rule: foundation-no-business-role-literal (phase 330 + p
       // core allow-list file
       { code: 'const x = "motion";', filename: 'src/core/runtime/runtime.ts' },
       // core allow-list file (with MOTION_CLAW_ID)
-      { code: 'const x = MOTION_CLAW_ID;', filename: 'src/core/cron/jobs/disk-monitor.ts' },
+      { code: 'const x = MOTION_CLAW_ID;', filename: 'src/foundation/cron/jobs/disk-monitor.ts' },
       // foundation/audit/ (not allow-list, no banned literal)
       { code: 'const x = "hello";', filename: 'src/foundation/audit/events.ts' },
       // foundation/audit/ + non-business word

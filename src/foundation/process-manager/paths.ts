@@ -1,26 +1,26 @@
 import * as path from 'path';
+import type { DaemonDir } from './types.js';
 import type { ProcessManagerContext } from './types.js';
-import type { ClawId } from '../identity/index.js';
 
 
 export const STATUS_SUBDIR = 'status';
 
-export function getStatusDir(ctx: ProcessManagerContext, clawId: ClawId): string {
-  return path.join(ctx.resolveDir(clawId), STATUS_SUBDIR);
+export function getStatusDir(_ctx: ProcessManagerContext, daemonDir: DaemonDir): string {
+  return path.join(daemonDir, STATUS_SUBDIR);
 }
 
-export function getPidFile(ctx: ProcessManagerContext, clawId: ClawId): string {
-  return path.join(getStatusDir(ctx, clawId), 'pid');
+export function getPidFile(ctx: ProcessManagerContext, daemonDir: DaemonDir): string {
+  return path.join(getStatusDir(ctx, daemonDir), 'pid');
 }
 
-export function getLockFile(ctx: ProcessManagerContext, clawId: ClawId): string {
-  return path.join(getStatusDir(ctx, clawId), 'daemon.lock');
+export function getLockFile(ctx: ProcessManagerContext, daemonDir: DaemonDir): string {
+  return path.join(getStatusDir(ctx, daemonDir), 'daemon.lock');
 }
 
-export function getReadyFile(ctx: ProcessManagerContext, clawId: ClawId): string {
-  return path.join(getStatusDir(ctx, clawId), 'ready');
+export function getReadyFile(ctx: ProcessManagerContext, daemonDir: DaemonDir): string {
+  return path.join(getStatusDir(ctx, daemonDir), 'ready');
 }
 
-export async function ensureStatusDir(ctx: ProcessManagerContext, clawId: ClawId): Promise<void> {
-  await ctx.fs.ensureDir(getStatusDir(ctx, clawId));
+export async function ensureStatusDir(ctx: ProcessManagerContext, daemonDir: DaemonDir): Promise<void> {
+  await ctx.fs.ensureDir(getStatusDir(ctx, daemonDir));
 }

@@ -5,7 +5,7 @@
  * `signal` 参 (cooperative abort)。否则 signal cascade 在长跑 handler 内丢、
  * stop/restart race 失稳。
  *
- * scope: src/core/cron/jobs/ + src/core/contract/jobs/ outside .d.ts
+ * scope: src/foundation/cron/jobs/ + src/core/contract/jobs/ outside .d.ts (phase 697 Step A: cron 迁 foundation)
  *
  * 匹配的 pattern:
  *   Property where key.name === 'handler', value is
@@ -15,8 +15,9 @@
  * phase 423: 45th src ESLint rule
  */
 
+// phase 697 Step A: cron 物理迁 src/core/cron/ → src/foundation/cron/
 const SCOPE_PREFIXES = [
-  'src/core/cron/jobs/',
+  'src/foundation/cron/jobs/',
   'src/core/contract/jobs/',
 ];
 

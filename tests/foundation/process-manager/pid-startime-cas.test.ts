@@ -11,6 +11,7 @@
  * 7. removePidIfMatch CAS accept matched pid + startTime
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { testClawDaemonDir, testMotionDaemonDir } from '../../helpers/daemon-dir.js';
 import { isAlive } from '../../../src/foundation/process-exec/process-control.js';
 import * as startTimeModule from '../../../src/foundation/process-exec/process-starttime.js';
 import { removePidIfMatch, readPid, selfWritePid } from '../../../src/foundation/process-manager/pid.js';
@@ -90,7 +91,6 @@ describe('removePidIfMatch CAS', () => {
     return {
       fs: nodeFs,
       audit,
-      resolveDir: (id: string) => path.join(tempDir, 'claws', id),
     };
   }
 
@@ -101,7 +101,7 @@ describe('removePidIfMatch CAS', () => {
     await fs.mkdir(path.dirname(pidFile), { recursive: true });
     await fs.writeFile(pidFile, JSON.stringify({ pid: FAKE_LIVE_PID_CAS }), 'utf-8');
 
-    const result = await removePidIfMatch(ctx, clawId, 22222);
+    const result = await removePidIfMatch(ctx, testClawDaemonDir(tempDir, clawId), 22222);
     expect(result).toBe(false);
 
     const stillExists = await fs.stat(pidFile).then(() => true).catch(() => false);
@@ -115,7 +115,7 @@ describe('removePidIfMatch CAS', () => {
     await fs.mkdir(path.dirname(pidFile), { recursive: true });
     await fs.writeFile(pidFile, JSON.stringify({ pid: FAKE_LIVE_PID_CAS, startTime: 'A' }), 'utf-8');
 
-    const result = await removePidIfMatch(ctx, clawId, 11111, 'B');
+    const result = await removePidIfMatch(ctx, testClawDaemonDir(tempDir, clawId), 11111, 'B');
     expect(result).toBe(false);
 
     const stillExists = await fs.stat(pidFile).then(() => true).catch(() => false);
@@ -129,7 +129,7 @@ describe('removePidIfMatch CAS', () => {
     await fs.mkdir(path.dirname(pidFile), { recursive: true });
     await fs.writeFile(pidFile, JSON.stringify({ pid: FAKE_LIVE_PID_CAS, startTime: 'A' }), 'utf-8');
 
-    const result = await removePidIfMatch(ctx, clawId, 11111, 'A');
+    const result = await removePidIfMatch(ctx, testClawDaemonDir(tempDir, clawId), 11111, 'A');
     expect(result).toBe(true);
 
     const stillExists = await fs.stat(pidFile).then(() => true).catch(() => false);
@@ -143,7 +143,7 @@ describe('removePidIfMatch CAS', () => {
     await fs.mkdir(path.dirname(pidFile), { recursive: true });
     await fs.writeFile(pidFile, JSON.stringify({ pid: FAKE_LIVE_PID_CAS }), 'utf-8');
 
-    const result = await removePidIfMatch(ctx, clawId, 11111);
+    const result = await removePidIfMatch(ctx, testClawDaemonDir(tempDir, clawId), 11111);
     expect(result).toBe(true);
 
     const stillExists = await fs.stat(pidFile).then(() => true).catch(() => false);

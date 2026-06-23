@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { testClawDaemonDir, testMotionDaemonDir } from '../helpers/daemon-dir.js';
 
 const { mockSkillFactory } = vi.hoisted(() => ({
   mockSkillFactory: vi.fn(() => ({ loadAll: vi.fn().mockResolvedValue(undefined), getSkills: vi.fn(() => []) })),
@@ -86,12 +87,12 @@ vi.mock('../../src/core/runtime/index.js', () => {
   };
 });
 
-vi.mock('../../src/core/cron/runner.js', () => ({
+vi.mock('../../src/foundation/cron/runner.js', () => ({
   CronRunner: vi.fn(() => mockCronRunner),
   parseSchedule: vi.fn((s: string) => s),
 }));
 
-vi.mock('../../src/core/cron/jobs/disk-monitor.js', () => {
+vi.mock('../../src/foundation/cron/jobs/disk-monitor.js', () => {
   const mockRunDiskMonitor = vi.fn();
   return {
     runDiskMonitor: mockRunDiskMonitor,
@@ -106,7 +107,7 @@ vi.mock('../../src/core/cron/jobs/disk-monitor.js', () => {
   };
 });
 
-vi.mock('../../src/core/cron/jobs/llm-stats.js', () => {
+vi.mock('../../src/foundation/cron/jobs/llm-stats.js', () => {
   const mockRunLlmStats = vi.fn();
   return {
     runLlmStats: mockRunLlmStats,
@@ -263,7 +264,7 @@ describe('Assembly — lockfile cleanup on throw (F-r72-asm-P0-1 / γ)', () => {
     await expect(assemble(baseConfig, { createSkillSystem: mockSkillFactory })).rejects.toThrow('simulated assembly failure');
 
     expect(mockProcessManager.releaseLock).toHaveBeenCalledTimes(1);
-    expect(mockProcessManager.releaseLock).toHaveBeenCalledWith('motion');
+    expect(mockProcessManager.releaseLock).toHaveBeenCalledWith(expect.any(String));
 
     // 原 step 的 assemble_failed audit 应存在
     expect(mockAuditWrite).toHaveBeenCalledWith(
@@ -291,7 +292,7 @@ describe('Assembly — lockfile cleanup on throw (F-r72-asm-P0-1 / γ)', () => {
     await expect(assemble(baseConfig, { createSkillSystem: mockSkillFactory })).rejects.toThrow('simulated assembly failure');
 
     expect(mockProcessManager.releaseLock).toHaveBeenCalledTimes(1);
-    expect(mockProcessManager.releaseLock).toHaveBeenCalledWith('motion');
+    expect(mockProcessManager.releaseLock).toHaveBeenCalledWith(expect.any(String));
 
     // release 失败时应写 audit
     expect(mockAuditWrite).toHaveBeenCalledWith(

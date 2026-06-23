@@ -5,6 +5,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { testClawDaemonDir, testMotionDaemonDir } from '../../helpers/daemon-dir.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { listCommand } from '../../../src/cli/commands/claw-list.js';
@@ -33,6 +34,9 @@ vi.mock('fs', async (importOriginal) => {
 vi.mock('../../../src/foundation/config/index.js', () => ({
   loadGlobalConfig: vi.fn(),
   getGlobalConfigPath: vi.fn(),
+  getClawDir: vi.fn((id: string) => `/tmp/test-root/claws/${id}`),
+  getNamedSubrootDir: vi.fn((name: string) => `/tmp/test-root/${name}`),
+  getClawConfigPath: vi.fn((id: string) => `/tmp/test-root/claws/${id}/config.yaml`),
 }));
 vi.mock('../../../src/assembly/config-load.js', async () => {
   const foundation = await import('../../../src/foundation/config/index.js');
@@ -90,7 +94,7 @@ describe('claw-list', () => {
 
   it('lists all claws with status', async () => {
     vi.mocked(createProcessManagerForCLI).mockReturnValue({
-      isAlive: vi.fn((name: string) => name === 'claw-a'),
+      isAlive: vi.fn((dir: string) => dir.includes('claw-a')),
       readPid: vi.fn().mockResolvedValue({ pid: FAKE_LIVE_PID }),
     } as any);
 
@@ -185,7 +189,7 @@ describe('claw-list', () => {
 
   it('outputs JSON when --json flag is passed', async () => {
     vi.mocked(createProcessManagerForCLI).mockReturnValue({
-      isAlive: vi.fn((name: string) => name === 'claw-a'),
+      isAlive: vi.fn((dir: string) => dir.includes('claw-a')),
       readPid: vi.fn().mockResolvedValue({ pid: FAKE_LIVE_PID }),
     } as any);
 

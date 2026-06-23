@@ -1,5 +1,5 @@
 /**
- * @module L4.OutboxSummary
+ * @module L4.ClawTopology.OutboxSummary
  * phase 42: write new summary 走 Messaging.InboxWriter（消 MLP-3 直访）。
  *
  * hash 放 InboxMessage.extraMeta（经 InboxWriter.write extraFields 落 frontmatter）、
@@ -10,7 +10,7 @@ import type { AuditLog } from '../../../../foundation/audit/index.js';
 import type { InboxWriter } from '../../../../foundation/messaging/index.js';
 import type { InboxMessage } from '../../../../foundation/messaging/index.js';
 import { OUTBOX_SUMMARY_AUDIT_EVENTS } from './audit-events.js';
-import { MOTION_CLAW_ID } from '../../../claw-topology/index.js';
+import { MOTION_CLAW_ID } from '../../index.js';
 import { SUMMARY_HASH_META_KEY } from './dedup.js';
 import { toExtraMeta } from './types.js';
 import type { OutboxSummaryState } from './types.js';

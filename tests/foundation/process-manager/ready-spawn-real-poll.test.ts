@@ -5,6 +5,7 @@
  * 此文件独立以避免外层 vi.mock(constants) 污染。
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { testClawDaemonDir, testMotionDaemonDir } from '../../helpers/daemon-dir.js';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import { tmpdir } from 'os';
@@ -41,7 +42,6 @@ describe('ready-spawn real-poll interval', () => {
     const ctx: ProcessManagerContext = {
       fs: nodeFs,
       audit,
-      resolveDir: (id: string) => path.join(tempDir, 'claws', id),
       spawnDetached: vi.fn().mockReturnValue({ pid: process.pid }),
     };
 
@@ -53,7 +53,7 @@ describe('ready-spawn real-poll interval', () => {
       await fs.writeFile(path.join(statusDir, 'ready'), JSON.stringify({ pid: process.pid }), 'utf-8');
     }, writeDelay);
 
-    const result = await spawnProcess(ctx, clawId, {
+    const result = await spawnProcess(ctx, testClawDaemonDir(tempDir, clawId), {
       command: 'node',
       args: ['/fake/daemon-entry.js', clawId],
       logFile: path.join(tempDir, 'claws', clawId, 'logs', 'daemon.log'),

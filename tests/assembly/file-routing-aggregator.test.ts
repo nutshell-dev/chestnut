@@ -5,7 +5,7 @@ import {
   getRoutedFileNames,
   DEFAULT_FILE,
 } from '../../src/assembly/file-routing-aggregator.js';
-import { CRON_FILE_ROUTING } from '../../src/core/cron/audit-events.js';
+import { CRON_FILE_ROUTING } from '../../src/foundation/cron/audit-events.js';
 import { DAEMON_FILE_ROUTING } from '../../src/daemon/audit-events.js';
 import { VIEWPORT_FILE_ROUTING } from '../../src/cli/commands/viewport-audit-events.js';
 

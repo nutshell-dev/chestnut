@@ -4,7 +4,6 @@
  */
 
 import * as path from 'path';
-import { makeAgentDirResolver } from '../../core/claw-topology/index.js';
 
 import { loadGlobalConfig, clawExists } from '../../assembly/config-load.js';
 import { getGlobalConfigPath, getClawConfigPath } from '../../foundation/config/index.js';
@@ -15,7 +14,7 @@ import { formatClawStatusHint, formatNoActiveContractHint } from './claw-shared.
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { CLAWS_DIR } from '../../foundation/claw-paths.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
-import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
+import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import { makeClawId } from '../../foundation/identity/index.js';
 
 export async function sendCommand(
@@ -46,8 +45,8 @@ export async function sendCommand(
 
   console.log(`Message sent to "${name}"`);
 
-  const processManager = createProcessManagerForCLI({ ...deps, resolveAgentDir: makeAgentDirResolver() });
-  const isAlive = processManager.isAlive(makeClawId(name));
+  const processManager = createProcessManagerForCLI({ ...deps });
+  const isAlive = processManager.isAlive(resolveClawDaemonDir(makeClawId(name)));
   const statusHint = formatClawStatusHint(name, isAlive);
   if (statusHint) console.log(statusHint);
 

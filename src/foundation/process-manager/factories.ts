@@ -43,8 +43,6 @@ import { getChestnutRoot } from '../config/index.js';
  */
 export function createProcessManagerForCLI(deps: {
   fsFactory: (baseDir: string) => FileSystem;
-  /** caller-pre-baked clawId → dir resolver (phase 535) */
-  resolveAgentDir: (id: string) => string;
 }): ProcessManager {
   const baseDir = getChestnutRoot();
   const fs = deps.fsFactory(baseDir);

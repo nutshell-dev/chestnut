@@ -7,7 +7,7 @@ import { assemble } from '../../src/assembly/assemble.js';
 import { buildTestGlobalConfig } from '../helpers/global-config.js';
 // phase 279: hoist 3 dyn imports
 import { createMemorySystem } from '../../src/core/memory/index.js';
-import { CronRunner } from '../../src/core/cron/runner.js';
+import { CronRunner } from '../../src/foundation/cron/runner.js';
 
 // ============================================================================
 // Shared mocks
@@ -92,12 +92,12 @@ vi.mock('../../src/core/runtime/index.js', () => {
   };
 });
 
-vi.mock('../../src/core/cron/runner.js', () => ({
+vi.mock('../../src/foundation/cron/runner.js', () => ({
   CronRunner: vi.fn(() => mockCronRunner),
   parseSchedule: vi.fn((s: string) => s),
 }));
 
-vi.mock('../../src/core/cron/jobs/disk-monitor.js', () => {
+vi.mock('../../src/foundation/cron/jobs/disk-monitor.js', () => {
   const mockRunDiskMonitor = vi.fn();
   return {
     runDiskMonitor: mockRunDiskMonitor,
@@ -112,7 +112,7 @@ vi.mock('../../src/core/cron/jobs/disk-monitor.js', () => {
   };
 });
 
-vi.mock('../../src/core/cron/jobs/llm-stats.js', () => {
+vi.mock('../../src/foundation/cron/jobs/llm-stats.js', () => {
   const mockRunLlmStats = vi.fn();
   return {
     runLlmStats: mockRunLlmStats,

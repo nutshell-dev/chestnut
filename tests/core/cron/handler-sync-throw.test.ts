@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { CronRunner, type CronJob } from '../../../src/core/cron/runner.js';
-import { CRON_AUDIT_EVENTS } from '../../../src/core/cron/audit-events.js';
+import { CronRunner, type CronJob } from '../../../src/foundation/cron/runner.js';
+import { CRON_AUDIT_EVENTS } from '../../../src/foundation/cron/audit-events.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 
 function makeMockAudit(): { write: ReturnType<typeof vi.fn> } {

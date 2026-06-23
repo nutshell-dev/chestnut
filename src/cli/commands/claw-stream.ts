@@ -11,7 +11,7 @@
  */
 
 import * as path from 'path';
-import { makeAgentDirResolver } from '../../core/claw-topology/index.js';
+import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
 
 import { loadGlobalConfig, clawExists } from '../../assembly/config-load.js';
 import { getGlobalConfigPath, getClawConfigPath } from '../../foundation/config/index.js';
@@ -76,10 +76,10 @@ export async function streamCommand(
 
   // initial daemon liveness probe — non-blocking warn; tail still proceeds
   // so that consumers can subscribe before daemon starts.
-  const pm = createProcessManagerForCLI({ ...deps, resolveAgentDir: makeAgentDirResolver() });
+  const pm = createProcessManagerForCLI({ ...deps });
   let initialDaemonPid: number | null = null;
   try {
-    const stored = await pm.readPid(makeClawId(name));
+    const stored = await pm.readPid(resolveClawDaemonDir(makeClawId(name)));
     // phase 523 (review-round4 CLI M): argv-verify + alive 双校验、PID-reuse 防 tail 错进程
     if (stored && isAlive(stored.pid) && isPidArgvMatching(stored.pid, name)) initialDaemonPid = stored.pid;
     else process.stderr.write(`[stream] warning: daemon for "${name}" not running, tailing existing file only\n`);

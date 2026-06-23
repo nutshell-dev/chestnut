@@ -1,13 +1,14 @@
 import { kill as defaultKill, isAlive as defaultL1IsAlive } from '../process-exec/index.js';
+import type { DaemonDir } from './types.js';
 import { DAEMON_SHUTDOWN_GRACE_MS, PROCESS_STOP_POLL_INTERVAL_MS, SIGKILL_DEAD_VERIFY_GRACE_MS } from './constants.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
 import { readPid, removePid } from './pid.js';
 import type { ProcessManagerContext } from './types.js';
-import type { ClawId } from '../identity/index.js';
 
 
-export async function stopProcess(ctx: ProcessManagerContext, clawId: ClawId): Promise<boolean> {
-  const stored = await readPid(ctx, clawId);
+
+export async function stopProcess(ctx: ProcessManagerContext, daemonDir: DaemonDir): Promise<boolean> {
+  const stored = await readPid(ctx, daemonDir);
   if (!stored) {
     return false;
   }
@@ -15,10 +16,10 @@ export async function stopProcess(ctx: ProcessManagerContext, clawId: ClawId): P
   // phase 879：直接 l1IsAlive(pid) authoritative check（pid 已 line 10 拿、不依赖 pidfile probe）
   // 消除 isAliveByPidFile 经 getAliveStatus.readSync(pidFile) → 并发 caller race window
   if (!(ctx.l1IsAlive ?? defaultL1IsAlive)(stored.pid, stored.startTime)) {
-    await removePid(ctx, clawId);
+    await removePid(ctx, daemonDir);
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_STOP_STALE,
-      `claw=${clawId}`,
+      `daemon_dir=${daemonDir}`,
       `pid=${stored.pid}`,
     );
     return true;
@@ -42,7 +43,7 @@ export async function stopProcess(ctx: ProcessManagerContext, clawId: ClawId): P
       via = 'sigkill';
       ctx.audit.write(
         PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_KILL_ESCALATED,
-        `claw=${clawId}`,
+        `daemon_dir=${daemonDir}`,
         `pid=${stored.pid}`,
       );
       // phase 355 C1 (review-2026-06-13): SIGKILL 是 async（kernel 异步 reap）、
@@ -56,17 +57,17 @@ export async function stopProcess(ctx: ProcessManagerContext, clawId: ClawId): P
       if ((ctx.l1IsAlive ?? defaultL1IsAlive)(stored.pid, stored.startTime)) {
         ctx.audit.write(
           PROCESS_MANAGER_AUDIT_EVENTS.STOP_PID_REMOVED_BEFORE_DEAD,
-          `claw=${clawId}`,
+          `daemon_dir=${daemonDir}`,
           `pid=${stored.pid}`,
           `grace_ms=${SIGKILL_DEAD_VERIFY_GRACE_MS}`,
         );
       }
     }
 
-    await removePid(ctx, clawId);
+    await removePid(ctx, daemonDir);
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_STOPPED,
-      `claw=${clawId}`,
+      `daemon_dir=${daemonDir}`,
       `pid=${stored.pid}`,
       `via=${via}`,
     );
@@ -74,7 +75,7 @@ export async function stopProcess(ctx: ProcessManagerContext, clawId: ClawId): P
   } catch (err) {
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_STOP_FAILED,
-      `claw=${clawId}`,
+      `daemon_dir=${daemonDir}`,
       `pid=${stored.pid}`,
       `via=${via}`,
       `reason=${(err as NodeJS.ErrnoException).code || (err as Error).message}`,

@@ -28,7 +28,7 @@
 //   两者真有 sender、不是 cron-written；scanner 弱点的 honest 标记（未来可加强 scan: const InboxMessage
 //   decl + inbox.write API）。
 const NON_SENDER_SCAN_TYPES = new Set([
-  'claw_outbox_summary',         // src/core/cron/jobs/outbox-summary/write.ts via fs.writeAtomic
+  'claw_outbox_summary',         // src/foundation/cron/jobs/outbox-summary/write.ts via fs.writeAtomic
   'task_result',                 // src/core/async-task-system/result-delivery.ts via const baseMsg
   'contract_audit_feedback',     // src/core/contract/contract-auditor.ts via this.deps.inbox.write
   // phase 19 Step C: verification-notify.ts uses `resolveNotify(ctx)(...)` wrapper for DIP

@@ -5,6 +5,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { testClawDaemonDir, testMotionDaemonDir } from '../helpers/daemon-dir.js';
 import { waitFor } from '../helpers/wait-for.js';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -31,7 +32,7 @@ describe('ProcessManager', () => {
       message: (s: string) => s,
       summary: (s: string) => s,
     };
-    processManager = new ProcessManager(fsInstance, tempDir, audit);
+    processManager = new ProcessManager(fsInstance, audit);
   });
 
   afterEach(async () => {
@@ -40,7 +41,7 @@ describe('ProcessManager', () => {
 
   describe('isAlive', () => {
     it('should return false when pid file does not exist', () => {
-      const result = processManager.isAlive('nonexistent-claw');
+      const result = processManager.isAlive(testClawDaemonDir(tempDir, 'nonexistent-claw'));
       expect(result).toBe(false);
     });
 
@@ -50,7 +51,7 @@ describe('ProcessManager', () => {
       fs.mkdirSync(statusDir, { recursive: true });
       fs.writeFileSync(path.join(statusDir, 'pid'), 'not-a-number');
 
-      const result = processManager.isAlive('test-claw');
+      const result = processManager.isAlive(testClawDaemonDir(tempDir, 'test-claw'));
       expect(result).toBe(false);
     });
 
@@ -59,7 +60,7 @@ describe('ProcessManager', () => {
       fs.mkdirSync(statusDir, { recursive: true });
       fs.writeFileSync(path.join(statusDir, 'pid'), '');
 
-      const result = processManager.isAlive('test-claw');
+      const result = processManager.isAlive(testClawDaemonDir(tempDir, 'test-claw'));
       expect(result).toBe(false);
     });
 
@@ -68,14 +69,14 @@ describe('ProcessManager', () => {
       fs.mkdirSync(statusDir, { recursive: true });
       fs.writeFileSync(path.join(statusDir, 'pid'), '   \n  ');
 
-      const result = processManager.isAlive('test-claw');
+      const result = processManager.isAlive(testClawDaemonDir(tempDir, 'test-claw'));
       expect(result).toBe(false);
     });
   });
 
   describe('stop', () => {
     it('should return false when pid file does not exist', async () => {
-      const result = await processManager.stop('nonexistent-claw');
+      const result = await processManager.stop(testClawDaemonDir(tempDir, 'nonexistent-claw'));
       expect(result).toBe(false);
     });
 
@@ -90,7 +91,7 @@ describe('ProcessManager', () => {
       fs.writeFileSync(pidFile, String(fakePid));
 
       // isAlive 应该返回 false（因为进程不存在）
-      expect(processManager.isAlive('test-claw')).toBe(false);
+      expect(processManager.isAlive(testClawDaemonDir(tempDir, 'test-claw'))).toBe(false);
 
       // pid 文件不应被 probe 清理（M#1 probe ≠ delete）
       expect(fs.existsSync(pidFile)).toBe(true);
@@ -107,7 +108,7 @@ describe('ProcessManager', () => {
 
       // 直接调用 stop（不先调用 isAlive）
       // stop 经 l1IsAlive(pid) 直读检测到进程不存在，清理 pid 文件，返回 true
-      const result = await processManager.stop('test-claw-2');
+      const result = await processManager.stop(testClawDaemonDir(tempDir, 'test-claw-2'));
       expect(result).toBe(true);
       
       // pid 文件应该被 stop 清理
@@ -123,42 +124,27 @@ describe('ProcessManager', () => {
       fs.writeFileSync(path.join(statusDir, 'pid'), '12345');
 
       // isAlive 应该读取 claws/test-claw/status/pid
-      const result = processManager.isAlive('test-claw');
+      const result = processManager.isAlive(testClawDaemonDir(tempDir, 'test-claw'));
       // 12345 进程大概率不存在，返回 false
       expect(result).toBe(false);
     });
 
-    it('should use custom resolver for motion path', () => {
-      // 创建带自定义 resolver 的 PM
-      const motionPM = new ProcessManager(fsInstance, tempDir, audit, (id) => {
-        if (id === 'motion') return path.join(tempDir, 'motion');
-        return path.join(tempDir, 'claws', id);
-      });
-
-      // 在 motion/status/pid 创建文件
+    it('should read motion daemonDir when caller resolves path', () => {
+      // phase 694: caller resolves daemonDir, PM no longer holds resolver
       const motionStatusDir = path.join(tempDir, 'motion', 'status');
       fs.mkdirSync(motionStatusDir, { recursive: true });
       fs.writeFileSync(path.join(motionStatusDir, 'pid'), '12345');
 
-      // isAlive 应该读取 motion/status/pid
-      const result = motionPM.isAlive('motion');
+      const result = processManager.isAlive(testMotionDaemonDir(tempDir));
       expect(result).toBe(false);
     });
 
-    it('should use custom resolver for regular claw when using motion resolver', () => {
-      // 创建带自定义 resolver 的 PM（motion 风格）
-      const motionPM = new ProcessManager(fsInstance, tempDir, audit, (id) => {
-        if (id === 'motion') return path.join(tempDir, 'motion');
-        return path.join(tempDir, 'claws', id);
-      });
-
-      // 在 claws/test-claw/status/pid 创建文件
+    it('should read claw daemonDir when caller resolves path', () => {
       const clawStatusDir = path.join(tempDir, 'claws', 'test-claw', 'status');
       fs.mkdirSync(clawStatusDir, { recursive: true });
       fs.writeFileSync(path.join(clawStatusDir, 'pid'), '12345');
 
-      // isAlive 应该正确解析到 claws/test-claw
-      const result = motionPM.isAlive('test-claw');
+      const result = processManager.isAlive(testClawDaemonDir(tempDir, 'test-claw'));
       expect(result).toBe(false);
     });
   });
@@ -169,7 +155,7 @@ describe('ProcessManager', () => {
       fs.mkdirSync(statusDir, { recursive: true });
       fs.writeFileSync(path.join(statusDir, 'pid'), '   ');  // 空白
 
-      const result = processManager.getAliveStatus('empty-pid-claw');
+      const result = processManager.getAliveStatus(testClawDaemonDir(tempDir, 'empty-pid-claw'));
       expect(result.alive).toBe(false);
       expect(result.reason).toMatch(/empty/i);
     });
@@ -179,13 +165,13 @@ describe('ProcessManager', () => {
       fs.mkdirSync(statusDir, { recursive: true });
       fs.writeFileSync(path.join(statusDir, 'pid'), 'not-a-number');
 
-      const result = processManager.getAliveStatus('bad-pid-claw');
+      const result = processManager.getAliveStatus(testClawDaemonDir(tempDir, 'bad-pid-claw'));
       expect(result.alive).toBe(false);
       expect(result.reason).toMatch(/invalid/i);
     });
 
     it('PID 文件不存在返回 alive:false，reason 含 "no PID file"', () => {
-      const result = processManager.getAliveStatus('no-pid-file-claw');
+      const result = processManager.getAliveStatus(testClawDaemonDir(tempDir, 'no-pid-file-claw'));
       expect(result.alive).toBe(false);
       expect(result.reason).toMatch(/no PID file/i);
     });
@@ -198,7 +184,7 @@ describe('ProcessManager', () => {
       fs.mkdirSync(statusDir, { recursive: true });
       fs.writeFileSync(path.join(statusDir, 'pid'), String(process.pid));
 
-      const result = processManager.isAlive('live-claw');
+      const result = processManager.isAlive(testClawDaemonDir(tempDir, 'live-claw'));
       expect(result).toBe(true);
     });
   });
@@ -212,7 +198,7 @@ describe('ProcessManager', () => {
 
       // spawn 应该抛出 already running 错误
       await expect(
-        processManager.spawn('existing-claw', {
+        processManager.spawn(testClawDaemonDir(tempDir, 'existing-claw'), {
           command: 'node',
           args: ['/fake/daemon-entry.js', 'existing-claw'],
           logFile: path.join(tempDir, 'claws', 'existing-claw', 'logs', 'daemon.log'),
@@ -228,7 +214,7 @@ describe('ProcessManager', () => {
       fs.writeFileSync(path.join(statusDir, 'pid'), String(process.pid));
 
       try {
-        await processManager.spawn('busy-claw', {
+        await processManager.spawn(testClawDaemonDir(tempDir, 'busy-claw'), {
           command: 'node',
           args: ['/fake/daemon-entry.js', 'busy-claw'],
           logFile: path.join(tempDir, 'claws', 'busy-claw', 'logs', 'daemon.log'),

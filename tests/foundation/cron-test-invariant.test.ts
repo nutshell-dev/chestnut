@@ -11,11 +11,12 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
  * Root cause fix for wall-clock + computeRunKey block boundary race
  * (phase 1232 dev-time interval:100ms race fix + 5 latent site refactor 同根 cluster)
  *
- * Pattern: tests/core/cron/runner*.test.ts + handler-*.test.ts (cron runtime test)
+ * Pattern: tests/foundation/cron/runner*.test.ts + handler-*.test.ts (cron runtime test)
  * Exception: parse-schedule-unit.test.ts (parser 不涉 wall-clock)
  */
 describe('phase 1238: cron unit test wall-clock race invariant', () => {
   it('all cron runtime test files 必含 vi.useFakeTimers (防 computeRunKey block boundary race)', () => {
+    // phase 697 Step A: cron runtime tests 仍在 tests/core/cron/ (src 迁 foundation、tests 跟 core)
     const cronTestDir = join(__dirname, '../core/cron');
     const allFiles = readdirSync(cronTestDir);
 
@@ -42,11 +43,11 @@ describe('phase 1238: cron unit test wall-clock race invariant', () => {
     if (violations.length > 0) {
       throw new Error(
         `cron unit test 必含 vi.useFakeTimers (phase 1238 invariant). Violators:\n` +
-        violations.map(f => `  - tests/core/cron/${f}`).join('\n') +
+        violations.map(f => `  - tests/foundation/cron/${f}`).join('\n') +
         `\n\nFix options:\n` +
         `  (a) Add vi.useFakeTimers + vi.useRealTimers cleanup\n` +
         `  (b) Add to EXCEPTIONS set if test 纯 unit/parser (justify in comment)\n` +
-        `\nWhy: computeRunKey (src/core/cron/runner.ts:361-382) interval block boundary\n` +
+        `\nWhy: computeRunKey (src/foundation/cron/runner.ts:361-382) interval block boundary\n` +
         `跨越时 runKey 变 → job 重起 race / wall-clock dependency 致 latent flaky\n` +
         `(mirror phase 1232 worktree dev-time interval:100ms fix + 5 latent site refactor)`
       );
@@ -57,7 +58,7 @@ describe('phase 1238: cron unit test wall-clock race invariant', () => {
     // synthetic test: 模拟 NEW cron test 文件内容 = 0 useFakeTimers
     const synthetic = `
       import { describe, it, expect } from 'vitest';
-      import { CronRunner } from '../../../src/core/cron/runner.js';
+      import { CronRunner } from '../../../src/foundation/cron/runner.js';
       describe('new test', () => {
         it('should test something', async () => {
           const runner = new CronRunner([], {} as any);

@@ -1,4 +1,5 @@
 import { formatErr } from '../foundation/utils/index.js';
+import { resolveClawDaemonDir } from '../core/claw-topology/index.js';
 
 import type { FileSystem } from '../foundation/fs/index.js';
 
@@ -108,7 +109,7 @@ export async function assemble(config: AssembleConfig, deps?: AssembleDeps): Pro
 
     let gateway: import('../core/gateway/index.js').Gateway | undefined;
     let heartbeat: import('../core/runtime/index.js').Heartbeat | undefined;
-    let cronRunner: import('../core/cron/index.js').CronRunner | undefined;
+    let cronRunner: import('../foundation/cron/index.js').CronRunner | undefined;
     if (isMotion) {
       const motionAddons = await createMotionAddons({ core, business, runtime, config, streamWriter: streamWriter! });
       gateway = motionAddons.gateway;
@@ -145,7 +146,7 @@ export async function assemble(config: AssembleConfig, deps?: AssembleDeps): Pro
     });
     if (lockState.acquired && core) {
       try {
-        core.processManager.releaseLock(makeClawId(clawId));
+        core.processManager.releaseLock(resolveClawDaemonDir(makeClawId(clawId)));
       } catch (releaseErr) {
         core.auditWriter.write(
           ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED,

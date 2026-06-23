@@ -8,7 +8,7 @@
  */
 
 import { getWorkspaceRoot } from '../../foundation/install-paths.js';
-import { makeAgentDirResolver } from '../../core/claw-topology/index.js';
+import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
 import * as path from 'path';
 import { loadGlobalConfig, clawExists } from '../../assembly/config-load.js';
 import { getClawDir, getGlobalConfigPath, getClawConfigPath } from '../../foundation/config/index.js';
@@ -43,13 +43,13 @@ export async function clawDaemonCommand(
   const nodeFs = deps.fsFactory(baseDir);
   const systemAudit = createSystemAudit(nodeFs, baseDir);
   const pm: DaemonPM = deps.processManager
-    ?? createAgentProcessManager({ fsFactory: deps.fsFactory, resolveAgentDir: makeAgentDirResolver() }, systemAudit);
-  if (pm.isAlive(makeClawId(name))) {
+    ?? createAgentProcessManager({ fsFactory: deps.fsFactory }, systemAudit);
+  if (pm.isAlive(resolveClawDaemonDir(makeClawId(name)))) {
     console.warn(`⚠ Claw "${name}" is already running`);
     return;
   }
   const daemonEntryPath = resolveDaemonEntry(nodeFs);
-  const pid = await pm.spawn(makeClawId(name), {
+  const pid = await pm.spawn(resolveClawDaemonDir(makeClawId(name)), {
     command: 'node',
     args: [daemonEntryPath, name],
     logFile: path.join(clawDir, DAEMON_LOG),
