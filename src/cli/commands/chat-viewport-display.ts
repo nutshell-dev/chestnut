@@ -120,12 +120,27 @@ export function createDisplay(deps: DisplayDeps) {
     },
   };
 
+  const resolvePending = (count: number) => {
+    if (count <= 0) return;
+    let remaining = count;
+    for (const line of outputLines) {
+      if (line.text.endsWith(' (pending)')) {
+        line.text = line.text.slice(0, -' (pending)'.length);
+        remaining--;
+        if (remaining === 0) break;
+      }
+    }
+    invalidateBodyCache();
+    updateDisplay();
+  };
+
   return {
     outputLines,
     invalidateBodyCache,
     updateDisplay,
     appendOutput,
     clearOutputLines,
+    resolvePending,
     onResize,
     descriptorSink,
   };

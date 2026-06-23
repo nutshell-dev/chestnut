@@ -280,6 +280,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     turnTracker,
     mainUI,
     sink: displayWithHolder.descriptorSink,
+    resolvePending: displayWithHolder.resolvePending,
     showSystemMessages,
     showContractEvents,
     agentDir: options.agentDir,
@@ -426,7 +427,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     }
 
     // 显示用户消息
-    displayWithHolder.appendOutput('\x1b[32m', `> ${trimmed}`, true);
+    displayWithHolder.appendOutput('\x1b[32m', `> ${trimmed} (pending)`, true);
     editor.setText('');
     editor.addToHistory(trimmed);
 

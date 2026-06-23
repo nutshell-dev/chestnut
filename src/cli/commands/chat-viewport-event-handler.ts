@@ -69,7 +69,11 @@ export interface ThinkingConfigRole {
   getThinkingMode: () => ThinkingMode;
 }
 
-export type EventHandlerDeps = TurnLifecycleRole & DisplayRenderRole & InboxFilterRole & TaskWatchRole & ObservabilityRole & ThinkingConfigRole;
+export interface PendingResolutionRole {
+  resolvePending: (count: number) => void;
+}
+
+export type EventHandlerDeps = TurnLifecycleRole & DisplayRenderRole & InboxFilterRole & TaskWatchRole & ObservabilityRole & ThinkingConfigRole & PendingResolutionRole;
 
 export function createEventHandler(deps: EventHandlerDeps) {
   return function handleEvent(event: { type: string; [key: string]: unknown }): void {
@@ -80,6 +84,8 @@ export function createEventHandler(deps: EventHandlerDeps) {
         deps.mainUI.flushThinking();
         deps.mainUI.flushStreaming();
         const srcs = event.sources as Array<{ text: string; type: string }> | undefined;
+        const userCount = srcs?.filter(s => s.type === 'user_chat' || s.type === 'user_inbox_message').length ?? 0;
+        deps.resolvePending(userCount);
         if (deps.showSystemMessages && srcs && srcs.length > 0) {
           // phase 436: user_chat + user_inbox_message 都属于用户意图来源；
           // 其余来源（heartbeat、task_result、contract_* 等）才作为系统消息展示。
