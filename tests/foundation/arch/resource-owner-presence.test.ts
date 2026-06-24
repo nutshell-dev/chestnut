@@ -24,9 +24,9 @@ describe('resource owner modules physical presence (phase 504 / phase 564 expand
     // phase 564: phase 520-554 引入的 5 个 owner module
     { name: 'core/claw-topology/motion-claw-id (phase 520: MOTION_CLAW_ID owner)', rel: 'core/claw-topology/motion-claw-id.ts' },
     { name: 'core/claw-topology/agent-dir-resolver (phase 535: motion-vs-claw dir resolver)', rel: 'core/claw-topology/agent-dir-resolver.ts' },
-    { name: 'foundation/utils/claw-status-hints (phase 540)', rel: 'foundation/utils/claw-status-hints.ts' },
-    { name: 'foundation/utils/claw-failure-classes (phase 552)', rel: 'foundation/utils/claw-failure-classes.ts' },
-    { name: 'foundation/utils/cli-commands (phase 554)', rel: 'foundation/utils/cli-commands.ts' },
+    { name: 'cli/utils/claw-status-hints (phase 540/708)', rel: 'cli/utils/claw-status-hints.ts' },
+    { name: 'watchdog/claw-failure-classes (phase 552/708)', rel: 'watchdog/claw-failure-classes.ts' },
+    { name: 'cli/utils/cli-commands (phase 554/708)', rel: 'cli/utils/cli-commands.ts' },
   ];
 
   it.each(owners)('$name file exists at expected path: $rel', ({ rel }) => {

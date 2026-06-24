@@ -196,7 +196,7 @@ export function createMainTurnUI(deps: MainTurnUIDeps): MainTurnUIController {
         startSpinner(label ?? 'Interrupting...');
         break;
       default:
-        { const _exhaustive: never = next; }
+        { const _exhaustive: never = next; void _exhaustive; }
     }
     deps.updateDisplay();
   };
