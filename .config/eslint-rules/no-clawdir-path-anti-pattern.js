@@ -83,7 +83,32 @@ export default {
   create(context) {
     const sourceCode = context.sourceCode || context.getSourceCode();
 
+    // Track whether we are inside the resolveChestnutRoot helper, where the
+    // motion branch intentionally uses a single-up path.join(clawDir, '..').
+    let resolveChestnutRootDepth = 0;
+
     return {
+      FunctionDeclaration(node) {
+        if (node.id && node.id.name === 'resolveChestnutRoot') {
+          resolveChestnutRootDepth++;
+        }
+      },
+      'FunctionDeclaration:exit'(node) {
+        if (node.id && node.id.name === 'resolveChestnutRoot') {
+          resolveChestnutRootDepth--;
+        }
+      },
+      FunctionExpression(node) {
+        if (node.id && node.id.name === 'resolveChestnutRoot') {
+          resolveChestnutRootDepth++;
+        }
+      },
+      'FunctionExpression:exit'(node) {
+        if (node.id && node.id.name === 'resolveChestnutRoot') {
+          resolveChestnutRootDepth--;
+        }
+      },
+
       // (1) resolve(*clawDir, '..', CLAWS_DIR)
       CallExpression(node) {
         // path.resolve(...) check
@@ -133,8 +158,9 @@ export default {
               // count '..' literals
               const dotDots = joinArgs.filter(a => isLiteralString(a, '..')).length;
               if (dotDots === 1) {
-                // single-up = anti-pattern (need double-up for chestnutRoot)
-                if (!hasMotionOnlyComment(node, sourceCode)) {
+                // single-up = anti-pattern (need double-up for chestnutRoot),
+                // unless inside resolveChestnutRoot where the motion branch is intentional.
+                if (!hasMotionOnlyComment(node, sourceCode) && resolveChestnutRootDepth === 0) {
                   const nameNode = joinArgs[0];
                   const name =
                     nameNode.type === 'Identifier'

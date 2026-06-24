@@ -14,7 +14,12 @@ describe('eslint custom rule: no-claws-enumeration-fanout (phase 357)', () => {
         code: 'fs.listSync(clawsDir, { includeDirs: true });',
         filename: 'tests/foo.test.ts',
       },
-      // allowlist: claw-instance-paths.ts
+      // allowlist: claw-paths.ts (phase 705 backward-compat)
+      {
+        code: 'fs.listSync(clawsDir, { includeDirs: true });',
+        filename: 'src/foundation/claw-paths.ts',
+      },
+      // allowlist: claw-instance-paths.ts (phase 707 canonical owner)
       {
         code: 'fs.listSync(clawsDir, { includeDirs: true });',
         filename: 'src/core/claw-topology/claw-instance-paths.ts',

@@ -268,6 +268,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
         try {
           return await this._tryCallProvider(stickyFb, stickyIdx + 1, true, options);
         } catch (err) {
+          // silent: collect sticky fallback failure for aggregate LLMAllProvidersFailedError
           failures.push({ provider: stickyFb.name, error: err as Error });
         }
       }
@@ -279,6 +280,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
       try {
         return await this._tryCallProvider(this.primary, 0, false, options);
       } catch (err) {
+        // silent: collect primary failure for aggregate LLMAllProvidersFailedError
         primaryFailed = true;
         failures.push({ provider: this.primary.name, error: err as Error });
       }
@@ -301,6 +303,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
       try {
         return await this._tryCallProvider(this.fallbacks[i], i + 1, true, options);
       } catch (err) {
+        // silent: collect fallback failure for aggregate LLMAllProvidersFailedError
         failures.push({ provider: this.fallbacks[i].name, error: err as Error });
       }
     }
