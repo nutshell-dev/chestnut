@@ -4,7 +4,7 @@
  */
 
 import type { LLMResponse, ContentBlock } from './types.js';
-import { LLMEmptyResponseError } from './errors.js';
+import { LLMEmptyResponseError, LLMError } from './errors.js';
 
 export interface AnthropicResponse {
   id: string;
@@ -21,7 +21,7 @@ export interface AnthropicResponse {
 
 export function parseAnthropicResponse(data: AnthropicResponse): LLMResponse {
   if (!Array.isArray(data.content)) {
-    throw new Error('Invalid response: content must be array');
+    throw new LLMError('Invalid response: content must be array', { provider: 'anthropic' });
   }
   const content = data.content as ContentBlock[];
 

@@ -4,7 +4,7 @@
  */
 
 import type { LLMResponse, ContentBlock } from './types.js';
-import { LLMEmptyResponseError } from './errors.js';
+import { LLMEmptyResponseError, LLMError } from './errors.js';
 
 export interface GeminiResponse {
   candidates: Array<{
@@ -44,7 +44,7 @@ export function parseGeminiResponse(data: GeminiResponse): LLMResponse {
       content.push({ type: 'text', text: part.text });
     } else if ('functionCall' in part) {
       const { name, args } = part.functionCall;
-      if (!name) throw new Error('Gemini returned functionCall without name');
+      if (!name) throw new LLMError('Gemini returned functionCall without name', { provider: 'gemini' });
       content.push({ type: 'tool_use', id: `gemini-${name}-${fcIndex++}`, name, input: args });
     }
   }

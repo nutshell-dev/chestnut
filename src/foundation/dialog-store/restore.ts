@@ -17,6 +17,7 @@ import { MarkerNotFoundError, detectAndMigrateVersion, validateSessionData } fro
 import { CURRENT_DIALOG_FILE } from './dirs.js';
 import { DIALOG_AUDIT_EVENTS } from './audit-events.js';
 import { formatErr } from '../utils/index.js';
+import { DialogStoreError } from './errors.js';
 
 /**
  * Restore messages up to (or excluding) the given marker.
@@ -43,7 +44,7 @@ export async function restoreMessages(
     const detected = detectAndMigrateVersion(parsed, CURRENT_DIALOG_FILE, audit);
     if (detected === null) {
       // version unknown — treat as corrupted and fall through to archive
-      throw new Error('session version unknown');
+      throw new DialogStoreError('session version unknown');
     }
     const data = validateSessionData(detected, audit);
     const sliced = sliceMessagesAtMarker(data.messages, marker.toolUseId, inclusive);

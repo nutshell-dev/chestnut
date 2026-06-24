@@ -26,6 +26,7 @@ export type ErrorCode =
   | 'LLM_CONTEXT_EXCEEDED'
   | 'LLM_CIRCUIT_BREAKER_OPEN'
   | 'LLM_STREAM_ABORTED'
+  | 'DIALOG_STORE_ERROR'
 
   // File system errors (5xx)
   | 'FS_NOT_FOUND'

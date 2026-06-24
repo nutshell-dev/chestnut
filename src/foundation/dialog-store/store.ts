@@ -23,6 +23,7 @@ import type { TraceId } from '../audit/types.js';
 import type { AuditLog } from '../audit/types.js';
 import { DIALOG_AUDIT_EVENTS } from './audit-events.js';
 import { newShortUuid } from '../uuid.js';
+import { DialogStoreError } from './errors.js';
 
 import { detectAndMigrateVersion, validateSessionData } from './validate.js';
 import { CURRENT_DIALOG_FILE } from './dirs.js';
@@ -97,7 +98,7 @@ export class DialogStore {
       const detected = detectAndMigrateVersion(parsed, CURRENT_DIALOG_FILE, this.audit);
       if (detected === null) {
         this.audit.write(DIALOG_AUDIT_EVENTS.CORRUPTED, 'file=current.json', `reason=version_unknown`);
-        throw new Error('session version unknown');
+        throw new DialogStoreError('session version unknown');
       }
       const data = this.validateSession(detected);
       // Cache createdAt for subsequent saves
@@ -513,7 +514,7 @@ export class DialogStore {
       const detected = detectAndMigrateVersion(parsed, filename, this.audit);
       if (detected === null) {
         this.audit.write(DIALOG_AUDIT_EVENTS.CORRUPTED, `file=${filename}`, `reason=version_unknown`);
-        throw new Error(`session version unknown in archive ${filename}`);
+        throw new DialogStoreError(`session version unknown in archive ${filename}`);
       }
       return this.validateSession(detected);
     } catch (err) {
