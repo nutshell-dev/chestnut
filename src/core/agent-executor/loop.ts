@@ -16,7 +16,7 @@ import type { ExecContext } from '../../foundation/tools/index.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { IToolExecutor, ToolRegistry } from '../../foundation/tools/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
-import { assertNever } from '../../foundation/utils/index.js';
+
 import { DEFAULT_MAX_STEPS } from './defaults.js';
 import { runAgent } from './agent-executor.js';
 import type { StepCallbacks, LLMCallInfo, FinalStopReason } from '../step-executor/index.js';
@@ -173,7 +173,9 @@ function mapStopReason(
     case 'end_turn':
     case 'stop':
       return 'end_turn';  // 'end_turn' 与 'stop' 均映射为 'end_turn'（向后兼容 shim）
-    default:
-      return assertNever(r);
+    default: {
+      const _exhaustive: never = r;
+      return _exhaustive;
+    }
   }
 }

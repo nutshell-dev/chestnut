@@ -17,7 +17,7 @@
 import stringWidth from 'string-width';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
-import { assertNever } from '../../foundation/utils/index.js';
+
 
 export type TurnUIPhase =
   | 'idle'
@@ -196,7 +196,7 @@ export function createMainTurnUI(deps: MainTurnUIDeps): MainTurnUIController {
         startSpinner(label ?? 'Interrupting...');
         break;
       default:
-        assertNever(next);
+        { const _exhaustive: never = next; }
     }
     deps.updateDisplay();
   };

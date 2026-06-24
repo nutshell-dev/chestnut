@@ -14,7 +14,7 @@
  */
 
 import * as path from 'path';
-import { formatErr, assertNever } from "../utils/index.js";
+import { formatErr } from "../utils/index.js";
 import { newShortUuid } from '../uuid.js';
 import type { FileSystem } from '../fs/index.js';
 import { isFileNotFound } from '../fs/index.js';
@@ -484,8 +484,10 @@ export class InboxReader {
         // 显式语义决策：failed/ 不扫、让 caller re-emit。本 case 不可改为扫描、
         // 否则 dedup 会屏蔽失败的通知、违反「失败需重新通知」契约。
         return null;
-      default:
-        return assertNever(location);
+      default: {
+        const _exhaustive: never = location;
+        return _exhaustive;
+      }
     }
   }
 

@@ -1,5 +1,5 @@
 import * as path from 'path';
-import { formatErr, assertNever } from "../../../foundation/utils/index.js";
+import { formatErr } from "../../../foundation/utils/index.js";
 import * as yaml from 'js-yaml';
 import { isFileNotFound, type FileSystem } from '../../../foundation/fs/index.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
@@ -57,9 +57,11 @@ function formatContractEvent(
     case 'paused':
       // active 态在 archive 是状态机断裂、不投 inbox、上层 emit audit
       return null;
-    default:
+    default: {
       // exhaustive check：未来加新 status 编译期失败
-      return assertNever(status);
+      const _exhaustive: never = status;
+      return _exhaustive;
+    }
   }
 }
 
