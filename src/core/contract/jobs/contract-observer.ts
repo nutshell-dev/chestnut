@@ -1,5 +1,5 @@
 import * as path from 'path';
-import { formatErr, assertNever } from "../../../foundation/utils/index.js";
+import { formatErr } from "../../../foundation/utils/index.js";
 import { isFileNotFound, type FileSystem } from '../../../foundation/fs/index.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
 import type { ClawTopology } from '../../../core/claw-topology/index.js';
@@ -210,8 +210,10 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
               });
               break;
             // phase 356: 'pending'/'running'/'paused' unreachable cases 删 (narrow ArchiveAllowedStatus 编译期 enforce 不可达)
-            default:
-              return assertNever(entry.status);
+            default: {
+              const _exhaustive: never = entry.status;
+              return _exhaustive;
+            }
           }
         }
       }

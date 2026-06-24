@@ -17,7 +17,7 @@
 import type { GuidanceComposer, GuidanceEntry } from '../types.js';
 import { clawCmd, CLAW_VERBS } from '../../../foundation/utils/index.js';
 import type { FailureClass } from '../../../foundation/utils/index.js';
-import { assertNever } from '../../../foundation/utils/index.js';
+
 
 interface ClawInactivityState {
   failure_class: string;       // serialized FailureClass enum
@@ -53,7 +53,9 @@ function renderKnownInspect(cls: FailureClass, id: string): string {
       return `To inspect what the agent is stuck on: ${clawCmd(id, CLAW_VERBS.STEPS)}`;
     case 'daemon_errored':
       return `To inspect: ${clawCmd(id, CLAW_VERBS.STEPS)}`;
-    default:
-      return assertNever(cls);
+    default: {
+      const _exhaustive: never = cls;
+      return _exhaustive;
+    }
   }
 }

@@ -19,7 +19,7 @@ import * as path from 'node:path';
 import type { FileSystem } from '../fs/index.js';
 import type { AuditLog } from '../audit/index.js';
 import type { Message, ToolDefinition } from '../llm-provider/types.js';
-import { formatErr, assertNever } from '../utils/index.js';
+import { formatErr } from '../utils/index.js';
 import { DialogStore } from './store.js';
 import { DIALOG_DIR } from './dirs.js';
 
@@ -138,8 +138,10 @@ export async function performRegimeSwitch(
     case 'none': inherited = []; break;
     case 'last-turn': inherited = extractLastTurn(oldMessages); break;
     case 'all': inherited = oldMessages; break;
-    default:
-      return assertNever(strategy);
+    default: {
+      const _exhaustive: never = strategy;
+      return _exhaustive;
+    }
   }
 
   // 4. tool_use 悬空 repair（per L5.G4）

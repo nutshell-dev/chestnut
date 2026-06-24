@@ -12,7 +12,7 @@
 
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
-import { formatErr, assertNever } from "../../foundation/utils/index.js";
+import { formatErr } from "../../foundation/utils/index.js";
 import type { ContractSystem } from '../contract/index.js';
 import { TASKS_QUEUES_PENDING_DIR, TASKS_QUEUES_RUNNING_DIR } from '../async-task-system/index.js';
 import { CLAWSPACE_DIR, CLAW_MEMORY_FILE } from '../../foundation/claw-identity/index.js';
@@ -149,7 +149,8 @@ export function formatContractView(v: ContractView): string {
     }
     return lines.join('\n');
   }
-  return assertNever(v);
+  const _exhaustive: never = v;
+  return _exhaustive;
 }
 
 export function formatTaskView(v: TaskView): string {
@@ -159,7 +160,8 @@ export function formatTaskView(v: TaskView): string {
     if (v.pending > 0) return `Tasks: ${v.pending} pending`;
     return 'Tasks: idle';
   }
-  return assertNever(v);
+  const _exhaustive: never = v;
+  return _exhaustive;
 }
 
 export function formatStorageView(v: StorageView): string[] {
@@ -172,7 +174,8 @@ export function formatStorageView(v: StorageView): string[] {
   } else if (md.type === 'error') {
     lines.push(`MEMORY.md: Error (${md.message})`);
   } else {
-    assertNever(md);
+    const _exhaustiveMd: never = md;
+    void _exhaustiveMd;
   }
 
   const cs = v.clawspace;
@@ -181,7 +184,8 @@ export function formatStorageView(v: StorageView): string[] {
   } else if (cs.type === 'error') {
     lines.push(`Clawspace: Error (${cs.message})`);
   } else {
-    assertNever(cs);
+    const _exhaustiveCs: never = cs;
+    void _exhaustiveCs;
   }
 
   return lines;

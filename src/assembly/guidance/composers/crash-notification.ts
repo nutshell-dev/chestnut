@@ -23,7 +23,7 @@
 import type { GuidanceComposer, GuidanceEntry } from '../types.js';
 import { clawCmd, CLAW_VERBS } from '../../../foundation/utils/index.js';
 import type { CrashClass } from '../../../foundation/utils/index.js';
-import { assertNever } from '../../../foundation/utils/index.js';
+
 
 interface CrashNotificationState {
   crash_class: string;        // serialized CrashClass enum
@@ -60,7 +60,9 @@ export const composer: GuidanceComposer<CrashNotificationState> = (state): Guida
       return {
         text: `To check current status: ${clawCmd(id, CLAW_VERBS.STATUS)}\nTo inspect what the claw was doing: ${clawCmd(id, CLAW_VERBS.STEPS)}`,
       };
-    default:
-      return assertNever(cls);
+    default: {
+      const _exhaustive: never = cls;
+      return _exhaustive;
+    }
   }
 };
