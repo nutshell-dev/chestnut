@@ -1,5 +1,5 @@
 /**
- * @module L6.Cli.ClawStatusHints
+ * @module L6.CLI.Utils.ClawStatusHint
  *
  * Pure string formatters for claw status hints.
  * Used by notify-claw tool deps + cli commands.

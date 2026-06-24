@@ -12,7 +12,7 @@
  */
 
 import type { GuidanceComposer, GuidanceEntry } from '../types.js';
-import { clawCmd, CLAW_VERBS, CONTRACT_COMMANDS } from '../../../foundation/utils/index.js';
+import { clawCmd, CLAW_VERBS, CONTRACT_COMMANDS } from '../../../cli/utils/cli-commands.js';
 
 interface ContractEventsState {
   source_claw?: string;
