@@ -1,5 +1,5 @@
 import * as path from 'path';
-import { formatErr } from "../../../foundation/utils/index.js";
+import { formatErr } from "../../../foundation/node-utils/index.js";
 import * as yaml from 'js-yaml';
 import { isFileNotFound, type FileSystem } from '../../../foundation/fs/index.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';

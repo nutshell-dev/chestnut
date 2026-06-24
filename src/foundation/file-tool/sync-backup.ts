@@ -5,8 +5,8 @@
  * 复用 phase 485 syncDir 装配协议 + Snapshot commit hook generic clean。
  */
 
-import { newShortUuid } from '../uuid.js';
-import { formatErr } from "../utils/index.js";
+import { newShortUuid } from  '../node-utils/index.js';
+import { formatErr } from "../node-utils/index.js";
 import * as path from 'path';
 import type { ExecContext } from '../tools/index.js';
 import { FILE_TOOL_AUDIT_EVENTS } from './audit-events.js';

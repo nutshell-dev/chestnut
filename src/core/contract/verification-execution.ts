@@ -10,7 +10,7 @@ import { exec as defaultExec } from '../../foundation/process-exec/index.js';
 import { ProcessExecError } from '../../foundation/process-exec/index.js';
 import { CONTRACT_SCRIPT_TIMEOUT_MS } from './constants.js';
 import { ToolTimeoutError } from '../../foundation/errors.js';
-import { formatErr } from '../../foundation/utils/index.js';
+import { formatErr } from '../../foundation/node-utils/index.js';
 import { DEFAULT_LLM_IDLE_TIMEOUT_MS } from '../../foundation/llm-orchestrator/index.js';
 import type { ContractId } from './types.js';
 // phase 1490: 不再传 maxSteps、VerifierConfig.maxSteps optional / undefined 透传到 SubAgent boundary fallback。

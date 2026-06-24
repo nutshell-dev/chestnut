@@ -3,7 +3,7 @@
  * Pure utility helpers for chat-viewport — 0 闭包依赖
  */
 
-import { newShortUuid } from '../../foundation/uuid.js';
+import { newShortUuid } from '../../foundation/node-utils/index.js';
 import { EXEC_MAX_OUTPUT } from '../../foundation/command-tool/index.js';
 import { getChestnutRoot } from '../../foundation/install-paths.js';
 import { makeChestnutRoot } from '../../core/claw-topology/claw-instance-paths.js';

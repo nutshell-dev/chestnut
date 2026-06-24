@@ -7,7 +7,7 @@
  * Foundation owns the type-only enum surface (assembly type-only import 不再反向 import watchdog).
  *
  * phase 552: extracted from watchdog/watchdog-utils to break assembly → watchdog reverse import.
- * Same pattern as phase 540 (formatClawStatusHint → foundation/utils).
+ * Same pattern as phase 540 (formatClawStatusHint → cli/utils).
  */
 
 /**

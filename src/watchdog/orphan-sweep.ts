@@ -4,7 +4,7 @@
  * （commit 16ba139b 当年删此逻辑改 isWatchdogAlive 幂等、phase 1269 实证假设破）
  */
 import type { FileSystem } from '../foundation/fs/index.js';
-import { formatErr } from "../foundation/utils/index.js";
+import { formatErr } from "../foundation/node-utils/index.js";
 import { kill as defaultKill, isAlive as defaultIsAlive, isPidArgvMatching as realIsPidArgvMatching } from '../foundation/process-exec/index.js';
 
 /**

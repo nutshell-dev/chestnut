@@ -6,7 +6,7 @@
  */
 
 import * as path from 'path';
-import { formatErr } from "../utils/index.js";
+import { formatErr } from "../node-utils/index.js";
 import { ExecContextImpl, cloneExecContext } from './context.js';
 
 import {
@@ -40,7 +40,7 @@ import type {
   IToolExecutor,
   ToolExecutorOptions,
 } from './types.js';
-import { safeNumber } from '../utils/index.js';
+
 
 
 // Re-export types from ./types.js for caller compat (18 caller 0 改)
@@ -50,6 +50,11 @@ export type {
   IToolExecutor,
   ToolExecutorOptions,
 } from './types.js';
+
+function toSafeNumber(v: unknown): number | undefined {
+  const n = typeof v === 'number' ? v : Number(String(v));
+  return Number.isNaN(n) || !Number.isFinite(n) ? undefined : n;
+}
 
 /**
  * Tool execution implementation
@@ -295,7 +300,7 @@ export class ToolExecutorImpl implements IToolExecutor {
         toolName,
         args,
         ctx,
-        timeoutMs: safeNumber((args as Record<string, unknown>)?.timeoutMs),
+        timeoutMs: toSafeNumber((args as Record<string, unknown>)?.timeoutMs),
       }).catch(err => ({
         success: false,
         content: formatErr(err),

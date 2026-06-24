@@ -1,10 +1,5 @@
 import { inspect } from 'node:util';
 
-export function clipText(s: string, maxChars: number): string {
-  const content = (s ?? '').trimStart();
-  return content.length <= maxChars ? content : content.slice(0, maxChars) + '…';
-}
-
 const INSPECT_OPTS = {
   depth: 2,
   breakLength: Infinity,
@@ -39,10 +34,4 @@ function formatErrWithDepth(err: unknown, depth: number): string {
 
 export function formatErr(err: unknown): string {
   return formatErrWithDepth(err, 0);
-}
-
-export function safeNumber(v: unknown, defaultVal?: number): number | undefined {
-  const n = typeof v === 'number' ? v : Number(String(v));
-  if (Number.isNaN(n) || !Number.isFinite(n)) return defaultVal;
-  return n;
 }

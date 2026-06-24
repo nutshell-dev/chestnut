@@ -7,7 +7,8 @@
  */
 
 import type { FileSystem } from '../../foundation/fs/index.js';
-import { formatErr, parseFrontmatterFrame } from "../utils/index.js";
+import { formatErr } from "../node-utils/index.js";
+import { parseFrontmatterFrame } from "../messaging/frontmatter-frame.js";
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { ToolError } from '../errors.js';
 import { SKILL_AUDIT_EVENTS } from './audit-events.js';

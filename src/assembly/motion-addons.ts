@@ -9,7 +9,7 @@
 import { resolveChestnutRoot, CLAWS_DIR, routeNotifyClaw } from '../core/claw-topology/claw-instance-paths.js';
 import { AUDIT_FILE } from '../foundation/audit/index.js';
 import path from 'path';
-import { formatErr } from '../foundation/utils/index.js';
+import { formatErr } from '../foundation/node-utils/index.js';
 import type { StreamWriter } from '../foundation/stream/index.js';
 import { createHeartbeat, type Heartbeat } from '../core/runtime/index.js';
 import type { Runtime } from '../core/runtime/index.js';

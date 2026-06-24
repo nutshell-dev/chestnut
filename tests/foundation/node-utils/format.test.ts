@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatErr } from '../../../src/foundation/utils/format.js';
+import { formatErr } from '../../../src/foundation/node-utils/format.js';
 
 /**
  * phase 13 — formatErr owner 治本 行为契约测试

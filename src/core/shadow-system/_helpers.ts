@@ -43,4 +43,4 @@ export function synthesizeFormB(args: {
   ];
 }
 
-export { formatErr } from '../../foundation/utils/format.js';
+export { formatErr } from '../../foundation/node-utils/format.js';

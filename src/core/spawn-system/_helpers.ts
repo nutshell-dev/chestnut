@@ -6,4 +6,4 @@
  * phase 835：promote 至 src/types/utils.ts，改 thin re-export（caller 0 cascade）。
  */
 
-export { formatErr } from '../../foundation/utils/format.js';
+export { formatErr } from '../../foundation/node-utils/format.js';

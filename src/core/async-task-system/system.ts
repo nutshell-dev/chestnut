@@ -5,7 +5,7 @@
  * Uses a pending queue + dispatcher pattern for concurrency control.
  */
 
-import { newUuid } from '../../foundation/uuid.js';
+import { newUuid } from '../../foundation/node-utils/index.js';
 import { MOTION_CLAW_ID } from '../claw-topology/index.js';
 
 import { CALLER_TYPE_TO_GROUPS } from '../caller-types.js';

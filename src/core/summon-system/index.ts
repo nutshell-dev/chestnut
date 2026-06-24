@@ -18,7 +18,7 @@ export {
 } from './post-processors/contract-extract.js';
 
 import type { FileSystem } from '../../foundation/fs/index.js';
-import { formatErr } from "../../foundation/utils/index.js";
+import { formatErr } from "../../foundation/node-utils/index.js";
 import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { SUMMON_AUDIT_EVENTS } from './audit-events.js';

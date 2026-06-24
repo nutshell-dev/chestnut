@@ -16,7 +16,7 @@
  */
 
 import * as nodePath from 'path';
-import { newShortUuid } from '../uuid.js';
+import { newShortUuid } from  '../node-utils/index.js';
 import { z } from 'zod';
 import type { Tool, ExecContext } from '../tools/index.js';
 import type { ToolResult } from '../tool-protocol/index.js';
@@ -27,11 +27,17 @@ import {
 } from './constants.js';
 
 import { resolveWorkspacePath } from './resolve-path.js';
-import { safeNumber, formatErr, truncateHeadTail } from '../utils/index.js';
+import { formatErr } from '../node-utils/index.js';
+import { truncateHeadTail } from './truncate-head-tail.js';
 import { recordReadResult } from './file-state-manager.js';
 import { FILE_TOOL_AUDIT_EVENTS } from './audit-events.js';
 import { defineFileToolSchema } from './_zod-helper.js';
 
+
+function toSafeNumber(v: unknown): number | undefined {
+  const n = typeof v === 'number' ? v : Number(String(v));
+  return Number.isNaN(n) || !Number.isFinite(n) ? undefined : n;
+}
 
 export const READ_TOOL_NAME = 'read' as const;
 
@@ -49,7 +55,7 @@ const ReadInputSchema = z.object({
 
 type ReadInput = z.infer<typeof ReadInputSchema>;
 
-// phase 524: HEAD/TAIL 常量 + truncateHeadTail 抽 foundation/utils/truncate-head-tail.ts、
+// phase 524: HEAD/TAIL 常量 + truncateHeadTail 抽 foundation/file-tool/truncate-head-tail.ts、
 // 与 command-tool/exec.ts 共享同一业务 truncation 协议。
 
 async function persistOverflow(ctx: ExecContext, output: string): Promise<string | null> {
@@ -103,8 +109,8 @@ export const readTool: Tool = {
     }
 
     const { path: filePath } = args;
-    const offset = safeNumber(args.offset);
-    const limit = safeNumber(args.limit);
+    const offset = toSafeNumber(args.offset);
+    const limit = toSafeNumber(args.limit);
 
     const resolved = resolveWorkspacePath(ctx, filePath);
     if (resolved.startsWith('..') || resolved.startsWith('/')) {

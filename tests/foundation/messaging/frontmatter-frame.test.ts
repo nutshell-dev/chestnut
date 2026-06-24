@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseFrontmatterFrame } from '../../../src/foundation/utils/frontmatter-frame.js';
+import { parseFrontmatterFrame } from '../../../src/foundation/messaging/frontmatter-frame.js';
 
 describe('parseFrontmatterFrame', () => {
   it('parses standard frontmatter', () => {

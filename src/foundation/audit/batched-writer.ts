@@ -1,5 +1,5 @@
-import { newShortUuid } from '../uuid.js';
-import { formatErr } from "../utils/index.js";
+import { newShortUuid } from  '../node-utils/index.js';
+import { formatErr } from "../node-utils/index.js";
 import type { FileSystem } from '../fs/index.js';
 import type { AuditLog } from './types.js';
 import { pushFallback } from './writer.js';

@@ -10,7 +10,7 @@
  */
 
 import type { ToolUseBlock, ToolResultBlock } from '../../foundation/llm-provider/index.js';
-import { formatErr } from "../../foundation/utils/index.js";
+import { formatErr } from "../../foundation/node-utils/index.js";
 import type { ExecContext } from '../../foundation/tools/index.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { IToolExecutor, ToolRegistry } from '../../foundation/tools/index.js';
@@ -18,10 +18,15 @@ import type { StepCallbacks } from './types.js';
 import { safeCallback, toToolResultBlock } from './utils.js';
 import { throwAbortError } from './abort-helpers.js';
 import { STEP_EXECUTOR_AUDIT_EVENTS } from './audit-events.js';
-import { safeNumber } from '../../foundation/utils/index.js';
+
 import { makeToolUseId } from '../../foundation/tool-protocol/index.js';
 
 
+
+function toSafeNumber(v: unknown): number | undefined {
+  const n = typeof v === 'number' ? v : Number(String(v));
+  return Number.isNaN(n) || !Number.isFinite(n) ? undefined : n;
+}
 
 interface CategorizedCalls {
   readonlyAsync: { call: ToolUseBlock; index: number }[];
@@ -222,7 +227,7 @@ export async function executeSingleTool(
       args: toolCall.input,
       ctx,
       toolUseId: makeToolUseId(toolCall.id),
-      timeoutMs: safeNumber(toolCall.input?.timeoutMs),
+      timeoutMs: toSafeNumber(toolCall.input?.timeoutMs),
     });
   } catch (err) {
     const errorType = err instanceof Error ? err.constructor.name : 'Error';

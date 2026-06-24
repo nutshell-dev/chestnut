@@ -4,8 +4,8 @@
  */
 
 import * as path from 'path';
-import { formatErr } from "../../foundation/utils/index.js";
-import { newShortUuid } from '../../foundation/uuid.js';
+import { formatErr } from "../../foundation/node-utils/index.js";
+import { newShortUuid } from '../../foundation/node-utils/index.js';
 import { getClawDir } from '../../foundation/config/index.js';
 import { CliError } from '../errors.js';
 import type { AuditLog } from '../../foundation/audit/index.js';

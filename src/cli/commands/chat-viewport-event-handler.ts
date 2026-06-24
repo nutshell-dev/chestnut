@@ -6,7 +6,7 @@
  */
 
 import * as path from 'path';
-import { formatErr } from "../../foundation/utils/index.js";
+import { formatErr } from "../../foundation/node-utils/index.js";
 import stringWidth from 'string-width';
 import { createDirContext } from '../../foundation/audit/index.js';
 import { createStreamReader, STREAM_FILE } from '../../foundation/stream/index.js';

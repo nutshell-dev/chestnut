@@ -10,7 +10,7 @@ import * as path from 'node:path';
  *   - fs / fs/promises -> foundation/fs/* + audit/{writer,reader} + process-exec/spawn-detached
  *   - child_process     -> foundation/process-exec/*
  *   - net               -> foundation/transport/*
- *   - crypto            -> foundation/uuid + foundation/hash
+ *   - crypto            -> foundation/node-utils/crypto + foundation/node-utils/id
  *   - os                -> foundation/audit/{writer,reader}
  *
  * Other system modules (http/https/tls/dns/stream/worker_threads/cluster/process)

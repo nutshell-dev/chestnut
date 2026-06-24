@@ -6,7 +6,7 @@
  * phase 1439: FileState type relocated to `tools/types.ts` (M#5 cross-layer fix); this file isolated to pure hash utility.
  */
 
-import { sha256Hex } from '../hash.js';
+import { sha256Hex } from  '../node-utils/index.js';
 
 /** Compute SHA-256 hex digest of UTF-8 content (used for overwrite gate equality + mtime FP guard). */
 export function computeContentHash(content: string): string {

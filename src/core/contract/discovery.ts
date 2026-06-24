@@ -4,7 +4,7 @@
  */
 
 import { type ContractId, makeContractId } from './types.js';
-import { formatErr } from "../../foundation/utils/index.js";
+import { formatErr } from "../../foundation/node-utils/index.js";
 import { isFileNotFound, type FileSystem } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { Contract } from '../contract/types.js';

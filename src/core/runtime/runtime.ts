@@ -6,7 +6,7 @@
  */
 
 import * as path from 'path';
-import { randomHex } from '../../foundation/uuid.js';
+import { randomHex } from '../../foundation/node-utils/index.js';
 import { MOTION_CLAW_ID } from '../claw-topology/index.js';
 import { CALLER_TYPE_TO_GROUPS } from '../caller-types.js';
 
@@ -32,7 +32,7 @@ import { RUNTIME_AUDIT_EVENTS, REACT_LOOP_AUDIT_EVENTS, RELOAD_LLM_CONFIG_MESSAG
 import { TASK_AUDIT_EVENTS } from '../async-task-system/index.js';
 // phase 1414: HEARTBEAT_AUDIT_EVENTS import removed — heartbeat 自家 inbox-formatter 持 audit
 // phase 1406: DIALOG_DIR no longer used here — regime-switch recovery path is owned by performRegimeSwitch helper
-import { formatErr } from '../../foundation/utils/index.js';
+import { formatErr } from '../../foundation/node-utils/index.js';
 
 import { MaxStepsExceededError, WallTimeExceededError, ConsecutiveParseErrorsExceededError, ConsecutiveMaxTokensToolUseError, makeStepNumber } from '../agent-executor/index.js';
 import { LockContentionExhaustedError } from '../contract/index.js';

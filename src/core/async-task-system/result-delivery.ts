@@ -1,4 +1,4 @@
-import { newUuid } from '../../foundation/uuid.js';
+import { newUuid } from '../../foundation/node-utils/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { InboxMessage } from '../../foundation/messaging/index.js';

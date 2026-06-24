@@ -6,7 +6,7 @@
  * 字段约定：error=（与 contract 一致 / vs runtime 用 reason=）。
  */
 
-import { formatErr } from '../../foundation/utils/format.js';
+import { formatErr } from '../../foundation/node-utils/format.js';
 export { formatErr };
 
 export function classifyTaskError(err: unknown): string {

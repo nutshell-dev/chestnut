@@ -19,7 +19,7 @@ import * as path from 'node:path';
 import type { FileSystem } from '../fs/index.js';
 import type { AuditLog } from '../audit/index.js';
 import type { Message, ToolDefinition } from '../llm-provider/types.js';
-import { formatErr } from '../utils/index.js';
+import { formatErr } from '../node-utils/index.js';
 import { DialogStore } from './store.js';
 import { DIALOG_DIR } from './dirs.js';
 

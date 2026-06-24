@@ -12,7 +12,7 @@ import type { AuditLog } from '../foundation/audit/index.js';
 import { createWatcher } from '../foundation/file-watcher/index.js';
 import type { Watcher } from '../foundation/file-watcher/index.js';
 import { MESSAGING_AUDIT_EVENTS } from '../foundation/messaging/index.js';
-import { formatErr } from '../foundation/utils/index.js';
+import { formatErr } from '../foundation/node-utils/index.js';
 
 /**
  * Wait for a new file to appear in the inbox directory, or until timeout.

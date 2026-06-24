@@ -4,7 +4,7 @@
  */
 
 import type { AuditLog } from '../../foundation/audit/index.js';
-import { formatErr } from "../../foundation/utils/index.js";
+import { formatErr } from "../../foundation/node-utils/index.js";
 import { CRON_AUDIT_EVENTS } from './audit-events.js';
 import { CRON_TICK_INTERVAL_MS } from './constants.js';
 

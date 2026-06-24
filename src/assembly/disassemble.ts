@@ -1,6 +1,6 @@
 import type { Instances } from './types.js';
 import { resolveClawDaemonDir } from '../core/claw-topology/index.js';
-import { formatErr } from "../foundation/utils/index.js";
+import { formatErr } from "../foundation/node-utils/index.js";
 import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
 import { makeClawId } from '../foundation/claw-identity/index.js';
 

@@ -1,4 +1,4 @@
-import { newUuid } from '../uuid.js';
+import { newUuid } from  '../node-utils/index.js';
 import type { OutboxMessage, Priority } from '../messaging/types.js';
 import { parseFrontmatter, yamlQuote } from './codec-inbox.js';
 import { validatePriority } from './codec-validation.js';

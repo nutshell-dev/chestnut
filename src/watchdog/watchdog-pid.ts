@@ -5,7 +5,7 @@
 
 import { getWorkspaceRoot } from '../foundation/install-paths.js';
 import type { FileSystem } from '../foundation/fs/index.js';
-import { formatErr } from "../foundation/utils/index.js";
+import { formatErr } from "../foundation/node-utils/index.js";
 import { getChestnutFs } from './watchdog-context.js';
 import { isAlive, isPidArgvMatching } from '../foundation/process-exec/index.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';

@@ -1,5 +1,5 @@
 import type { FileSystem } from '../fs/index.js';
-import { formatErr } from "../utils/index.js";
+import { formatErr } from "../node-utils/index.js";
 import type { StreamEvent, StreamLog } from './types.js';
 import type { AuditLog } from '../audit/index.js';
 import { STREAM_AUDIT_EVENTS } from './audit-events.js';

@@ -8,7 +8,7 @@
  * - 12 字符 16^12 ≈ 2.8e14 碰撞概率现实零
  */
 
-import { createSha256Hasher } from '../../../../foundation/hash.js';
+import { createSha256Hasher } from '../../../../foundation/node-utils/index.js';
 
 /**
  * Outbox summary dedup hash 长度（SHA256 前缀截取）.

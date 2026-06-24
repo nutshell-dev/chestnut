@@ -10,7 +10,7 @@ import { ARCHIVE_ALLOWED_STATUSES } from './types.js';
 import { PROGRESS_CURRENT_SCHEMA_VERSION } from './persistence.js';
 import { lockContract, releaseLock, type LockContext } from './lock.js';
 import { ToolError } from '../../foundation/errors.js';
-import { formatErr } from '../../foundation/utils/index.js';
+import { formatErr } from '../../foundation/node-utils/index.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 
 import {

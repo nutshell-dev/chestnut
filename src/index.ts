@@ -34,8 +34,7 @@ export {
   ConsecutiveMaxTokensToolUseError, WallTimeExceededError,
 } from './core/agent-executor/errors.js';
 export { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from './core/signals.js';
-export { formatErr, safeNumber, clipText } from './foundation/utils/format.js';
-export { ok, err, type Result } from './foundation/utils/result.js';
+export { formatErr } from './foundation/node-utils/format.js';
 export type { PermissionChecker } from './foundation/tool-protocol/permission.js';
 
 // Core runtime and modules

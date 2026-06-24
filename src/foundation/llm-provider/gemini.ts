@@ -13,7 +13,7 @@ import {
   LLMNetworkError,
 } from './errors.js';
 import { throwHttpErrorResponse } from './_helpers.js';
-import { isAbortError } from '../utils/index.js';
+import { isAbortError } from './is-abort-error.js';
 import type {
   ProviderConfig,
   LLMCallOptions,

@@ -21,8 +21,8 @@
  */
 
 import * as yaml from 'js-yaml';
-import { formatErr } from "../../foundation/utils/index.js";
-import { newShortUuid } from '../../foundation/uuid.js';
+import { formatErr } from "../../foundation/node-utils/index.js";
+import { newShortUuid } from '../../foundation/node-utils/index.js';
 
 import { isFileNotFound, type FileSystem } from '../../foundation/fs/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';

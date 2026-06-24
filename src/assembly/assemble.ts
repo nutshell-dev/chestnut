@@ -1,4 +1,4 @@
-import { formatErr } from '../foundation/utils/index.js';
+import { formatErr } from '../foundation/node-utils/index.js';
 import { resolveClawDaemonDir } from '../core/claw-topology/index.js';
 
 import type { FileSystem } from '../foundation/fs/index.js';

@@ -18,7 +18,7 @@ import type { FileSystem } from '../foundation/fs/index.js';
 import { isFileNotFound } from '../foundation/fs/index.js';
 import type { AuditLog } from '../foundation/audit/index.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
-import { formatErr } from '../foundation/utils/index.js';
+import { formatErr } from '../foundation/node-utils/index.js';
 
 export const SUBSCRIPTION_DIR = 'watchdog-subscriptions';
 export const MAX_THRESHOLD_MS = 24 * 60 * 60 * 1000;   // 24h

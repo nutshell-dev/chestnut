@@ -6,7 +6,7 @@
  */
 
 import * as path from 'path';
-import { newShortUuid } from '../../foundation/uuid.js';
+import { newShortUuid } from '../../foundation/node-utils/index.js';
 import type { ExecContext } from '../../foundation/tools/index.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 

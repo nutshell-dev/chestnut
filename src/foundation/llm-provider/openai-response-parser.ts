@@ -5,7 +5,7 @@
  */
 
 import type { LLMResponse, ContentBlock } from './types.js';
-import { formatErr } from "../utils/index.js";
+import { formatErr } from "../node-utils/index.js";
 import { LLMEmptyResponseError } from './errors.js';
 
 interface OpenAIResponse {

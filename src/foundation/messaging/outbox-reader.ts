@@ -11,7 +11,7 @@
  */
 
 import * as path from 'path';
-import { formatErr } from '../utils/index.js';
+import { formatErr } from '../node-utils/index.js';
 import type { FileSystem } from '../fs/index.js';
 import { isFileNotFound } from '../fs/index.js';
 import type { AuditLog } from '../audit/index.js';

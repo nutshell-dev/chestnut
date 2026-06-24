@@ -4,7 +4,7 @@
  * Direct file-based scheduling primitive for async tool tasks.
  * Watcher (AsyncTaskSystem._ingestPendingFile) consumes the file asynchronously.
  */
-import { newUuid } from '../../../foundation/uuid.js';
+import { newUuid } from '../../../foundation/node-utils/index.js';
 import { TASKS_QUEUES_PENDING_DIR } from '../dirs.js';
 import type { FileSystem } from '../../../foundation/fs/index.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';

@@ -10,7 +10,7 @@
 
 import { getWorkspaceRoot } from '../../foundation/install-paths.js';
 import * as path from 'path';
-import { formatErr } from "../../foundation/utils/index.js";
+import { formatErr } from "../../foundation/node-utils/index.js";
 import { fileURLToPath } from 'url';
 import { loadGlobalConfig } from '../../assembly/config-load.js';
 import { getNamedSubrootDir } from '../../foundation/config/index.js';

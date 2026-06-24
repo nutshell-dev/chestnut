@@ -4,7 +4,7 @@
  */
 
 import type { FileSystem } from '../foundation/fs/index.js';
-import { formatErr } from "../foundation/utils/index.js";
+import { formatErr } from "../foundation/node-utils/index.js";
 import { getChestnutFs, getAuditWriter, clawStateAPI } from './watchdog-context.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 

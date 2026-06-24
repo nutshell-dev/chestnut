@@ -13,7 +13,7 @@ const CORRUPTED_SUBDIR = 'corrupted';
 /** Sub-directory name for isolated corrupt dialog artifacts */
 
 import * as path from 'path';
-import { formatErr } from "../utils/index.js";
+import { formatErr } from "../node-utils/index.js";
 import type { FileSystem } from '../fs/index.js';
 import { isFileNotFound } from '../fs/index.js';
 
@@ -22,7 +22,7 @@ import type { SessionData, LoadResult, DialogMarker, RestoreResult } from './typ
 import type { TraceId } from '../audit/types.js';
 import type { AuditLog } from '../audit/types.js';
 import { DIALOG_AUDIT_EVENTS } from './audit-events.js';
-import { newShortUuid } from '../uuid.js';
+import { newShortUuid } from  '../node-utils/index.js';
 import { DialogStoreError } from './errors.js';
 
 import { detectAndMigrateVersion, validateSessionData } from './validate.js';

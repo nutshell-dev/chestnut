@@ -15,7 +15,7 @@
  */
 
 import type { FileSystem } from '../fs/index.js';
-import { formatErr } from "../utils/index.js";
+import { formatErr } from "../node-utils/index.js";
 import type { StreamEvent } from './types.js';
 import type { AuditLog } from '../audit/index.js';
 import { createWatcher, type Watcher } from '../file-watcher/index.js';

@@ -7,7 +7,7 @@
 
 import { promises as fs } from 'fs';
 import * as path from 'path';
-import { newUuid } from '../uuid.js';
+import { newUuid } from  '../node-utils/index.js';
 import type { StatInfo } from './types.js';
 
 export const IGNORE_PATTERN = '.tmp_';

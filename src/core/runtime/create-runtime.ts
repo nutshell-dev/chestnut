@@ -13,7 +13,7 @@
  */
 
 import { Runtime } from './runtime.js';
-import { formatErr } from "../../foundation/utils/index.js";
+import { formatErr } from "../../foundation/node-utils/index.js";
 import { MOTION_CLAW_ID } from '../claw-topology/index.js';
 import type { RuntimeOptions } from './types.js';
 import type { ContextInjector } from '../l4_context_manager/injector.js';

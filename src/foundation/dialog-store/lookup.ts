@@ -6,7 +6,7 @@
  * Owner: dialog-store (M#3: dialog content 归 dialog-store SoT).
  */
 
-import { sha256ShortHex } from '../hash.js';
+import { sha256ShortHex } from  '../node-utils/index.js';
 import type { FileSystem } from '../fs/index.js';
 import type { ToolUseId } from '../tool-protocol/index.js';
 

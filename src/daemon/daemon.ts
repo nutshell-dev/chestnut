@@ -9,8 +9,8 @@
  */
 
 import * as path from 'path';
-import { sha256ShortHex } from '../foundation/hash.js';
-import { formatErr } from '../foundation/utils/index.js';
+import { sha256ShortHex } from '../foundation/node-utils/index.js';
+import { formatErr } from '../foundation/node-utils/index.js';
 import { loadGlobalConfig, loadClawConfig } from '../assembly/config-load.js';
 import { getClawDir, getNamedSubrootDir, getClawConfigPath } from '../foundation/config/index.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../core/claw-topology/index.js';

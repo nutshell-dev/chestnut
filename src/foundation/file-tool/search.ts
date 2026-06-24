@@ -6,7 +6,7 @@
  * + default exclude + Q5 全英 + Q6 全扫 / overflow 落盘 / 预览 20 + Q7 cross-claw prefix）。
  */
 
-import { newShortUuid } from '../uuid.js';
+import { newShortUuid } from  '../node-utils/index.js';
 import * as nodePath from 'path';
 import { z } from 'zod';
 import { isFileNotFound, type FileSystem } from '../fs/index.js';
@@ -16,7 +16,7 @@ import type { ToolResult } from '../tool-protocol/index.js';
 import { resolveWorkspacePath } from './resolve-path.js';
 import { defineFileToolSchema } from './_zod-helper.js';
 
-import { formatErr } from '../utils/index.js';
+import { formatErr } from '../node-utils/index.js';
 import { FILE_TOOL_AUDIT_EVENTS } from './audit-events.js';
 import {
   TASKS_SYNC_SEARCH_DIR,

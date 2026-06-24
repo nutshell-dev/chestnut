@@ -14,7 +14,7 @@
 import { z } from 'zod';
 import type { Tool, ExecContext } from '../tools/index.js';
 import type { ToolResult } from '../tool-protocol/index.js';
-import { formatErr } from '../utils/index.js';
+import { formatErr } from '../node-utils/index.js';
 
 import { backupToSync } from './sync-backup.js';
 import { resolveWorkspacePath } from './resolve-path.js';
