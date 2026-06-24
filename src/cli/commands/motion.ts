@@ -13,7 +13,7 @@ import * as path from 'path';
 import { formatErr } from "../../foundation/node-utils/index.js";
 import { fileURLToPath } from 'url';
 import { loadGlobalConfig } from '../../assembly/config-load.js';
-import { getNamedSubrootDir } from '../../foundation/config/index.js';
+import { getNamedSubrootDir } from '../../core/claw-topology/claw-instance-paths.js';
 import { STATUS_SUBDIR } from '../../foundation/process-manager/index.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 

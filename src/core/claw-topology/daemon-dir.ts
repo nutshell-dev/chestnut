@@ -15,7 +15,7 @@
 import type { ClawId } from '../../foundation/claw-identity/index.js';
 import { type DaemonDir, makeDaemonDir } from '../../foundation/process-manager/index.js';
 import { MOTION_CLAW_ID } from './motion-claw-id.js';
-import { getNamedSubrootDir, getClawDir } from '../../foundation/config/index.js';
+import { getNamedSubrootDir, getClawDir } from '../claw-topology/claw-instance-paths.js';
 
 /**
  * Resolve daemonDir for one clawId.

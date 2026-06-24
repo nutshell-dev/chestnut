@@ -14,28 +14,29 @@ import * as os from 'node:os';
 import { clawStatusCommand } from '../../../src/cli/commands/claw-status.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { CliError } from '../../../src/cli/errors.js';
+import { loadGlobalConfig, clawExists } from '../../../src/assembly/config-load.js';
+import { getClawDir, getClawConfigPath } from '../../../src/core/claw-topology/claw-instance-paths.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
-vi.mock('../../../src/foundation/config/index.js', () => ({
-  loadGlobalConfig: vi.fn(),
-  clawExists: vi.fn(),
-  getClawDir: vi.fn(),
-  getClawConfigPath: vi.fn(),
-}));
-vi.mock('../../../src/assembly/config-load.js', async () => {
-  const foundation = await import('../../../src/foundation/config/index.js');
+vi.mock('../../../src/core/claw-topology/claw-instance-paths.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/core/claw-topology/claw-instance-paths.js')>();
   return {
-    loadGlobalConfig: foundation.loadGlobalConfig,
-    isInitialized: vi.fn(),
-    saveGlobalConfig: vi.fn(),
-    loadClawConfig: vi.fn(),
-    patchGlobalConfigPrimary: vi.fn(),
-    saveClawConfig: vi.fn(),
-    clawExists: foundation.clawExists,
-    buildLLMConfig: vi.fn(),
+    ...actual,
+    getClawDir: vi.fn(),
+    getClawConfigPath: vi.fn(),
   };
 });
+vi.mock('../../../src/assembly/config-load.js', async () => ({
+  loadGlobalConfig: vi.fn(),
+  isInitialized: vi.fn(),
+  saveGlobalConfig: vi.fn(),
+  loadClawConfig: vi.fn(),
+  patchGlobalConfigPrimary: vi.fn(),
+  saveClawConfig: vi.fn(),
+  clawExists: vi.fn(),
+  buildLLMConfig: vi.fn(),
+}));
 
 describe('claw-status (phase 1472 Step C)', () => {
   let consoleLogSpy: ReturnType<typeof vi.spyOn>;
@@ -48,9 +49,6 @@ describe('claw-status (phase 1472 Step C)', () => {
     clawDir = path.join(tmpRoot, '.chestnut', 'claws', 'foo');
     fs.mkdirSync(clawDir, { recursive: true });
 
-    const { loadGlobalConfig, clawExists, getClawDir, getClawConfigPath } = await import(
-      '../../../src/foundation/config/index.js'
-    );
     vi.mocked(loadGlobalConfig).mockReturnValue({} as any);
     vi.mocked(getClawConfigPath).mockImplementation((name: string) => path.join('/tmp/chestnut/claws', name, 'config.yaml'));
     vi.mocked(clawExists).mockImplementation((_: any, configPath: string) => configPath.includes('/claws/foo/'));

@@ -16,35 +16,36 @@ import { randomUUID } from 'crypto';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 // phase 266: hoist 17 dynamic imports of 5 unique modules below.
 import { sendCommand } from '../../src/cli/commands/claw-send.js';
-import { getGlobalConfigPath } from '../../src/foundation/config/index.js';
+import { getGlobalConfigPath } from '../../src/assembly/global-config-path.js';
 import { createProcessManagerForCLI } from '../../src/foundation/process-manager/index.js';
 import { formatClawStatusHint, formatNoActiveContractHint } from '../../src/cli/commands/claw-shared.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
 // Mock config
+vi.mock('../../src/assembly/global-config-path.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/assembly/global-config-path.js')>();
+  return {
+    ...actual,
+    getGlobalConfigPath: vi.fn(),
+  };
+});
 vi.mock('../../src/foundation/config/index.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/foundation/config/index.js')>();
   return {
     ...actual,
-    loadGlobalConfig: vi.fn(),
-    getGlobalConfigPath: vi.fn(),
-    clawExists: vi.fn(() => true),
   };
 });
-vi.mock('../../src/assembly/config-load.js', async () => {
-  const foundation = await import('../../src/foundation/config/index.js');
-  return {
-    loadGlobalConfig: foundation.loadGlobalConfig,
-    isInitialized: vi.fn(),
-    saveGlobalConfig: vi.fn(),
-    loadClawConfig: vi.fn(),
-    patchGlobalConfigPrimary: vi.fn(),
-    saveClawConfig: vi.fn(),
-    clawExists: foundation.clawExists,
-    buildLLMConfig: vi.fn(),
-  };
-});
+vi.mock('../../src/assembly/config-load.js', async () => ({
+  loadGlobalConfig: vi.fn(),
+  isInitialized: vi.fn(),
+  saveGlobalConfig: vi.fn(),
+  loadClawConfig: vi.fn(),
+  patchGlobalConfigPrimary: vi.fn(),
+  saveClawConfig: vi.fn(),
+  clawExists: vi.fn(() => true),
+  buildLLMConfig: vi.fn(),
+}));
 
 // Mock process manager
 vi.mock('../../src/foundation/process-manager/index.js', async (importOriginal) => {

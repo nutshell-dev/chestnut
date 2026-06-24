@@ -8,7 +8,7 @@ import { Command } from 'commander';
 import { loadGlobalConfig, saveGlobalConfig } from '../../assembly/config-load.js';
 import type { ClawGlobalConfig } from '../../assembly/compose-config.js';
 import type { LLMProviderConfig } from '../../foundation/llm-orchestrator/index.js';
-import { PRESETS } from '../../foundation/config/index.js';
+import { PRESETS } from '../../foundation/llm-provider/presets.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { CliError } from '../errors.js';
 import { fitLine } from '../utils/string.js';

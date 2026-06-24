@@ -7,7 +7,7 @@ import { resolveChestnutRoot } from '../../core/claw-topology/claw-instance-path
 import { CONTRACT_DIR, CONTRACT_YAML_FILE } from '../../core/contract/index.js';
 import type { ContractSystem } from '../../core/contract/index.js';
 import { ContractCreatePolicyViolationError } from '../../core/contract/types.js';
-import { getClawDir } from '../../foundation/config/index.js';
+import { getClawDir } from '../../core/claw-topology/claw-instance-paths.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import type { FileSystem } from '../../foundation/fs/index.js';

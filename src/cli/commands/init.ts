@@ -5,11 +5,11 @@
 import * as readline from 'readline';
 import { formatErr } from "../../foundation/node-utils/index.js";
 import { saveGlobalConfig, isInitialized } from '../../assembly/config-load.js';
-import { getWorkspaceRoot } from '../../foundation/config/index.js';
+import { getWorkspaceRoot } from '../../core/claw-topology/claw-instance-paths.js';
 import { FORMAT_MAP } from '../../foundation/llm-orchestrator/index.js';
 import { passwordQuestion } from '../utils/password-prompt.js';
 import { CliError } from '../errors.js';
-import { PRESETS } from '../../foundation/config/index.js';
+import { PRESETS } from '../../foundation/llm-provider/presets.js';
 import {
   DEFAULT_LLM_TIMEOUT_MS,
   DEFAULT_LLM_RETRY_ATTEMPTS,

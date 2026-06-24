@@ -34,7 +34,7 @@ import { statusCommand } from './commands/status.js';
 import { createSubagentCommand } from './commands/subagent.js';
 import { motionStepsCommand, motionStepCommand } from './commands/motion-steps.js';
 import { createDirContext } from '../foundation/audit/index.js';
-import { getChestnutRoot, getClawDir } from '../foundation/config/index.js';
+import { getChestnutRoot, getClawDir } from '../core/claw-topology/claw-instance-paths.js';
 import { loadGlobalConfig } from '../assembly/config-load.js';
 import { createSummonVerifyPolicy } from '../core/summon-system/index.js';
 import { createContractSystem } from '../core/contract/index.js';

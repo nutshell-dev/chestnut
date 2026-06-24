@@ -18,7 +18,7 @@ import { log, writeClawInactivityInbox } from './watchdog-log.js';
 import { clawHasActiveContract, getClawActivityInfo, gatherClawSnapshot, shouldResetNotifyCount, deriveFailureClass, formatInactivityBody, deriveCrashClass, formatCrashBody, hasCleanStopMarker } from './watchdog-utils.js';
 import { listSubscriptions, consumeSubscription } from './subscription-store.js';
 import { getContractCreatedMs } from '../core/contract/index.js';
-import { getNamedSubrootDir } from '../foundation/config/index.js';
+import { getNamedSubrootDir } from '../core/claw-topology/claw-instance-paths.js';
 import { routeNotifyClaw } from '../core/claw-topology/index.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../core/claw-topology/index.js';

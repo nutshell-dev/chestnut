@@ -9,25 +9,24 @@ import * as fsSync from 'fs';
 
 const shared = vi.hoisted(() => ({ baseDir: '' }));
 
-vi.mock('../../src/foundation/config/index.js', () => ({
-  loadGlobalConfig: vi.fn(),
-  clawExists: vi.fn((deps: any, p: string) => p.includes('test-claw') || p.includes('empty-claw')),
-  getClawDir: vi.fn((claw: string) => path.join(shared.baseDir, 'claws', claw)),
-  getClawConfigPath: vi.fn((claw: string) => path.join(shared.baseDir, 'claws', claw, 'config.yaml')),
-}));
-vi.mock('../../src/assembly/config-load.js', async () => {
-  const foundation = await import('../../src/foundation/config/index.js');
+vi.mock('../../src/core/claw-topology/claw-instance-paths.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/core/claw-topology/claw-instance-paths.js')>();
   return {
-    loadGlobalConfig: foundation.loadGlobalConfig,
-    isInitialized: vi.fn(),
-    saveGlobalConfig: vi.fn(),
-    loadClawConfig: vi.fn(),
-    patchGlobalConfigPrimary: vi.fn(),
-    saveClawConfig: vi.fn(),
-    clawExists: foundation.clawExists,
-    buildLLMConfig: vi.fn(),
+    ...actual,
+    getClawDir: vi.fn((claw: string) => path.join(shared.baseDir, 'claws', claw)),
+    getClawConfigPath: vi.fn((claw: string) => path.join(shared.baseDir, 'claws', claw, 'config.yaml')),
   };
 });
+vi.mock('../../src/assembly/config-load.js', async () => ({
+  loadGlobalConfig: vi.fn(),
+  isInitialized: vi.fn(),
+  saveGlobalConfig: vi.fn(),
+  loadClawConfig: vi.fn(),
+  patchGlobalConfigPrimary: vi.fn(),
+  saveClawConfig: vi.fn(),
+  clawExists: vi.fn((deps: any, p: string) => p.includes('test-claw') || p.includes('empty-claw')),
+  buildLLMConfig: vi.fn(),
+}));
 
 function makeMockFs(baseDir: string): FileSystem {
   return new NodeFileSystem({ baseDir }) as FileSystem;

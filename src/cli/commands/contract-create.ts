@@ -6,7 +6,7 @@ import { resolveChestnutRoot } from '../../core/claw-topology/claw-instance-path
 // CLAWS_DIR removed: phase 263
 import * as path from 'path';
 import { ContractSystem } from '../../core/contract/index.js';
-import { getClawDir } from '../../foundation/config/index.js';
+import { getClawDir } from '../../core/claw-topology/claw-instance-paths.js';
 import { createSystemAudit, type AuditLog } from '../../foundation/audit/index.js';
 import { routeNotifyClaw } from '../../core/claw-topology/index.js';
 import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';

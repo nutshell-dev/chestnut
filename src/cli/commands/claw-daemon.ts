@@ -11,7 +11,7 @@ import { getWorkspaceRoot } from '../../core/claw-topology/claw-instance-paths.j
 import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
 import * as path from 'path';
 import { loadGlobalConfig, clawExists } from '../../assembly/config-load.js';
-import { getClawDir, getClawConfigPath } from '../../foundation/config/index.js';
+import { getClawDir, getClawConfigPath } from '../../core/claw-topology/claw-instance-paths.js';
 import { getGlobalConfigPath } from '../../assembly/global-config-path.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { createAgentProcessManager } from '../../foundation/process-manager/index.js';

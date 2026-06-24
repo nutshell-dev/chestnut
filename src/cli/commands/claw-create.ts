@@ -3,7 +3,7 @@
  */
 
 import { loadGlobalConfig, saveClawConfig, clawExists } from '../../assembly/config-load.js';
-import { getClawDir, getClawConfigPath } from '../../foundation/config/index.js';
+import { getClawDir, getClawConfigPath } from '../../core/claw-topology/claw-instance-paths.js';
 import { CLAW_SUBDIRS } from '../../assembly/claw-subdirs.js';
 // path module intentionally not used in this file after refactor
 import { CliError } from '../errors.js';

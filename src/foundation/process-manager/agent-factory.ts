@@ -9,7 +9,7 @@
  */
 
 import { ProcessManager } from './manager.js';
-import { getChestnutRoot } from '../config/index.js';
+import { getChestnutRoot } from '../../core/claw-topology/claw-instance-paths.js';
 import type { AuditLog } from '../audit/index.js';
 import type { FileSystem } from '../fs/index.js';
 

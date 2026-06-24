@@ -9,25 +9,24 @@ import * as fsNative from 'fs';  // phase 283: hoist 8 require('fs') calls
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
-vi.mock('../../src/foundation/config/index.js', () => ({
-  loadGlobalConfig: vi.fn(),
-  clawExists: vi.fn((deps: any, p: string) => p.includes('test-claw')),
-  getClawDir: vi.fn((claw: string) => `/tmp/chestnut-test/claws/${claw}`),
-  getClawConfigPath: vi.fn((claw: string) => `/tmp/chestnut-test/claws/${claw}/config.yaml`),
-}));
-vi.mock('../../src/assembly/config-load.js', async () => {
-  const foundation = await import('../../src/foundation/config/index.js');
+vi.mock('../../src/core/claw-topology/claw-instance-paths.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/core/claw-topology/claw-instance-paths.js')>();
   return {
-    loadGlobalConfig: foundation.loadGlobalConfig,
-    isInitialized: vi.fn(),
-    saveGlobalConfig: vi.fn(),
-    loadClawConfig: vi.fn(),
-    patchGlobalConfigPrimary: vi.fn(),
-    saveClawConfig: vi.fn(),
-    clawExists: foundation.clawExists,
-    buildLLMConfig: vi.fn(),
+    ...actual,
+    getClawDir: vi.fn((claw: string) => `/tmp/chestnut-test/claws/${claw}`),
+    getClawConfigPath: vi.fn((claw: string) => `/tmp/chestnut-test/claws/${claw}/config.yaml`),
   };
 });
+vi.mock('../../src/assembly/config-load.js', async () => ({
+  loadGlobalConfig: vi.fn(),
+  isInitialized: vi.fn(),
+  saveGlobalConfig: vi.fn(),
+  loadClawConfig: vi.fn(),
+  patchGlobalConfigPrimary: vi.fn(),
+  saveClawConfig: vi.fn(),
+  clawExists: vi.fn((deps: any, p: string) => p.includes('test-claw')),
+  buildLLMConfig: vi.fn(),
+}));
 
 describe('audit CLI motion-aware adaptation (phase 167)', () => {
   let stdoutSpy: ReturnType<typeof vi.spyOn>;

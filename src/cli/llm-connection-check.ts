@@ -9,7 +9,7 @@ import * as readline from 'readline';
 import { formatErr } from "../foundation/node-utils/index.js";
 
 import { loadGlobalConfig, patchGlobalConfigPrimary } from '../assembly/config-load.js';
-import { PRESETS } from '../foundation/config/index.js';
+import { PRESETS } from '../foundation/llm-provider/presets.js';
 import { FORMAT_MAP } from '../foundation/llm-orchestrator/index.js';
 import { buildLLMConfig } from '../assembly/config-load.js';
 import { createLLMOrchestrator } from '../foundation/llm-orchestrator/index.js';

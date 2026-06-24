@@ -16,7 +16,7 @@ import * as readline from 'readline';
 
 import { isInitialized } from '../../assembly/config-load.js';
 import { CLAW_SPEC_FILE } from '../../foundation/claw-identity/index.js';
-import { getNamedSubrootDir } from '../../foundation/config/index.js';
+import { getNamedSubrootDir } from '../../core/claw-topology/claw-instance-paths.js';
 import { initCommand } from './init.js';
 import {
   initCommand as motionInitCommand,

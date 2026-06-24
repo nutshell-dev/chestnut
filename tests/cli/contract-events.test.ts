@@ -14,22 +14,23 @@ import * as os from 'os';
 
 const mockAuditWrite = vi.hoisted(() => vi.fn());
 
-vi.mock('../../src/foundation/config/index.js', () => ({
-  getClawDir: (name: string) => (globalThis as any).__TEST_CLAW_DIR__,
-}));
-vi.mock('../../src/assembly/config-load.js', async () => {
-  const foundation = await import('../../src/foundation/config/index.js');
+vi.mock('../../src/core/claw-topology/claw-instance-paths.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/core/claw-topology/claw-instance-paths.js')>();
   return {
-    loadGlobalConfig: vi.fn(),
-    isInitialized: vi.fn(),
-    saveGlobalConfig: vi.fn(),
-    loadClawConfig: vi.fn(),
-    patchGlobalConfigPrimary: vi.fn(),
-    saveClawConfig: vi.fn(),
-    clawExists: vi.fn(() => true),
-    buildLLMConfig: vi.fn(),
+    ...actual,
+    getClawDir: (name: string) => (globalThis as any).__TEST_CLAW_DIR__,
   };
 });
+vi.mock('../../src/assembly/config-load.js', async () => ({
+  loadGlobalConfig: vi.fn(),
+  isInitialized: vi.fn(),
+  saveGlobalConfig: vi.fn(),
+  loadClawConfig: vi.fn(),
+  patchGlobalConfigPrimary: vi.fn(),
+  saveClawConfig: vi.fn(),
+  clawExists: vi.fn(() => true),
+  buildLLMConfig: vi.fn(),
+}));
 
 vi.mock('../../src/foundation/audit/index.js', () => ({
   createSystemAudit: vi.fn(() => ({

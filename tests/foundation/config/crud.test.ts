@@ -5,7 +5,7 @@ import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
-import { getClawConfigPath } from '../../../src/foundation/config/index.js';
+import { getClawConfigPath } from '../../../src/core/claw-topology/claw-instance-paths.js';
 
 const { loadGlobalConfig, loadClawConfig, patchGlobalConfigPrimary } = await import('../../../src/assembly/config-load.js');
 

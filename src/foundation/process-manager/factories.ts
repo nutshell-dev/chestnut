@@ -19,7 +19,7 @@ import { createSystemAudit } from '../audit/index.js';
 import type { FileSystem } from '../fs/index.js';
 import type { ProcessManager } from './manager.js';
 import { createAgentProcessManager } from './agent-factory.js';
-import { getChestnutRoot } from '../config/index.js';
+import { getChestnutRoot } from '../../core/claw-topology/claw-instance-paths.js';
 
 /**
  * createProcessManagerForCLI

@@ -22,7 +22,7 @@ import { getWorkspaceRoot } from '../core/claw-topology/claw-instance-paths.js';
 import * as path from 'path';
 import { formatErr } from "../foundation/node-utils/index.js";
 import { setTimeout } from 'timers/promises';
-import { getNamedSubrootDir } from '../foundation/config/index.js';
+import { getNamedSubrootDir } from '../core/claw-topology/claw-instance-paths.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../core/claw-topology/index.js';
 import { makeClawId } from '../foundation/claw-identity/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
