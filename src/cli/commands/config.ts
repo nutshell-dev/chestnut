@@ -18,8 +18,8 @@ import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../../core/claw-topology/i
 import { makeClawId } from '../../foundation/identity/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 // phase 320: hot-reload — CLI 投递 reload_llm_config 给运行中 daemon
-import { notifyClaw } from '../../foundation/messaging/index.js';
-import { CLAWS_DIR, enumerateClaws } from '../../foundation/claw-paths.js';
+import { routeNotifyClaw } from '../../core/claw-topology/index.js';
+import { CLAWS_DIR, enumerateClaws } from '../../core/claw-topology/claw-instance-paths.js';
 import { getChestnutRoot } from '../../foundation/install-paths.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { RELOAD_LLM_CONFIG_MESSAGE_TYPE } from '../../core/runtime/index.js';
@@ -50,7 +50,7 @@ export function notifyRunningDaemons(deps: { fsFactory: (baseDir: string) => Fil
   for (const id of candidates) {
     const clawId = id === MOTION_CLAW_ID ? MOTION_CLAW_ID : makeClawId(id);
     if (!pm.isAlive(resolveClawDaemonDir(clawId))) continue;
-    notifyClaw(rootFs, chestnutRoot, MOTION_CLAW_ID, id, {
+    routeNotifyClaw(rootFs, chestnutRoot, MOTION_CLAW_ID, id, {
       type: RELOAD_LLM_CONFIG_MESSAGE_TYPE,
       // source must not contain '/'; it goes into the inbox file name
       source: `cli-${source}`,

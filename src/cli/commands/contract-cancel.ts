@@ -9,7 +9,7 @@ import { resolveChestnutRoot } from '../../core/claw-topology/claw-instance-path
 import { ContractSystem } from '../../core/contract/index.js';
 import { getClawDir } from '../../foundation/config/index.js';
 import { createSystemAudit, type AuditLog } from '../../foundation/audit/index.js';
-import { notifyClaw } from '../../foundation/messaging/index.js';
+import { routeNotifyClaw } from '../../core/claw-topology/index.js';
 import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { createToolRegistry } from '../../foundation/tools/index.js';
@@ -31,7 +31,7 @@ export async function contractCancelCommand(
   const clawFs = deps.fsFactory(clawDir);
   const chestnutRoot = resolveChestnutRoot(clawDir, /* isMotion */ false);
   const clawAudit = createSystemAudit(clawFs, clawDir);
-  const manager = new ContractSystem({ clawDir, clawId: makeClawId(clawId), fs: clawFs, audit: clawAudit, toolRegistry: createToolRegistry(), fsFactory: deps.fsFactory, notifyClaw: (targetClawId, message) => notifyClaw(clawFs, chestnutRoot, MOTION_CLAW_ID, targetClawId, message, clawAudit) });
+  const manager = new ContractSystem({ clawDir, clawId: makeClawId(clawId), fs: clawFs, audit: clawAudit, toolRegistry: createToolRegistry(), fsFactory: deps.fsFactory, notifyClaw: (targetClawId, message) => routeNotifyClaw(clawFs, chestnutRoot, MOTION_CLAW_ID, targetClawId, message, clawAudit) });
 
   let resolvedId = contractIdInput;
   if (!resolvedId) {

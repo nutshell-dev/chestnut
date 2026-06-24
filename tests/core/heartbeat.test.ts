@@ -13,7 +13,8 @@ import * as path from 'path';
 import { Heartbeat } from '../../src/core/runtime/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { createSystemAudit } from '../../src/foundation/audit/index.js';
-import { createInboxReader, notifyClaw } from '../../src/foundation/messaging/index.js';
+import { createInboxReader } from '../../src/foundation/messaging/index.js';
+import { routeNotifyClaw } from '../../src/core/claw-topology/index.js';
 import { createTempDir, cleanupTempDirSync } from '../utils/temp.js';
 
 function createTestHeartbeat(tempDir: string, intervalSec: number = 1): Heartbeat {
@@ -26,7 +27,7 @@ function createTestHeartbeat(tempDir: string, intervalSec: number = 1): Heartbea
     interval: intervalSec,
     audit,
     inboxReader,
-    notifyInbox: (msg) => notifyClaw(nodeFs, chestnutRoot, 'motion', 'motion', msg, audit),
+    notifyInbox: (msg) => routeNotifyClaw(nodeFs, chestnutRoot, 'motion', 'motion', msg, audit),
   });
 }
 

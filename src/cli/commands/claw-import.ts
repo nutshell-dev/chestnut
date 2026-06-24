@@ -10,7 +10,7 @@
 import * as path from 'path';
 import { loadGlobalConfig, clawExists } from '../../assembly/config-load.js';
 import { getClawDir, getClawConfigPath } from '../../foundation/config/index.js';
-import { CLAWSPACE_DIR } from '../../foundation/claw-paths.js';
+import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 import { CliError } from '../errors.js';
 import type { FileSystem, StatInfo } from '../../foundation/fs/index.js';
 import { copyDir, type CopyStats } from '../utils/copy-dir.js';

@@ -19,11 +19,11 @@ import { clawHasActiveContract, getClawActivityInfo, gatherClawSnapshot, shouldR
 import { listSubscriptions, consumeSubscription } from './subscription-store.js';
 import { getContractCreatedMs } from '../core/contract/index.js';
 import { getNamedSubrootDir } from '../foundation/config/index.js';
-import { notifyClaw } from '../foundation/messaging/index.js';
+import { routeNotifyClaw } from '../core/claw-topology/index.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../core/claw-topology/index.js';
 import { makeClawId } from '../foundation/identity/index.js';
-import { CLAWS_DIR } from '../foundation/claw-paths.js';
+import { CLAWS_DIR } from '../core/claw-topology/claw-instance-paths.js';
 
 /**
  * phase 138: watchdog-cron Map cleanup 全路径覆盖（audit.P1.wd-1）
@@ -279,7 +279,7 @@ export function maybeCronClawCrash(pm: ProcessManager, audit: AuditLog, fsFactor
 
       const { fs: motionFs, audit: motionAudit } = getMotionContext(fsFactory);
       const chestnutRoot = makeChestnutRoot(path.dirname(getNamedSubrootDir('motion')));
-      notifyClaw(motionFs, chestnutRoot, MOTION_CLAW_ID, MOTION_CLAW_ID, {
+      routeNotifyClaw(motionFs, chestnutRoot, MOTION_CLAW_ID, MOTION_CLAW_ID, {
         type: 'crash_notification',
         source: rawClawId,
         priority: 'high',

@@ -9,7 +9,7 @@ import { getChestnutRoot } from '../../foundation/install-paths.js';
 import { makeChestnutRoot } from '../../core/claw-topology/claw-instance-paths.js';
 import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/index.js';
-import { notifyClaw } from '../../foundation/messaging/index.js';
+import { routeNotifyClaw } from '../../core/claw-topology/index.js';
 import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import { createDirContext } from '../../foundation/audit/index.js';
 
@@ -45,7 +45,7 @@ export function writeUserChat(
     body = message;
   }
 
-  notifyClaw(fs, chestnutRoot, MOTION_CLAW_ID, clawId, {
+  routeNotifyClaw(fs, chestnutRoot, MOTION_CLAW_ID, clawId, {
     type: 'user_chat',
     source: 'user',
     priority: 'high',

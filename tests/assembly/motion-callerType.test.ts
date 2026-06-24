@@ -9,6 +9,7 @@ import { formatClawStatusHint } from '../../src/cli/commands/claw-shared.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { makeAudit } from '../helpers/audit.js';
 import { CALLER_TYPE_TO_GROUPS } from '../../src/core/caller-types.js';
+import { routeNotifyClaw } from '../../src/core/claw-topology/index.js';
 
 describe('motion callerType assemble fix (phase 1160 P0-1)', () => {
   let tempDir: string;
@@ -85,7 +86,7 @@ describe('motion callerType assemble fix (phase 1160 P0-1)', () => {
       hasActiveContract: () => false,
       defaultSource: 'motion', isCallerAuthorized: (label: string) => label === 'motion',
       fs,
-      chestnutRoot: chestnutDir,
+      notifyClaw: (targetClawId, message) => routeNotifyClaw(fs, chestnutDir, 'motion', targetClawId, message, audit.audit),
       audit: audit.audit,
     });
 
@@ -125,7 +126,7 @@ describe('motion callerType assemble fix (phase 1160 P0-1)', () => {
       hasActiveContract: () => false,
       defaultSource: 'motion', isCallerAuthorized: (label: string) => label === 'motion',
       fs,
-      chestnutRoot: chestnutDir,
+      notifyClaw: (targetClawId, message) => routeNotifyClaw(fs, chestnutDir, 'motion', targetClawId, message, audit.audit),
       audit: audit.audit,
     });
 

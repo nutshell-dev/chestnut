@@ -1,7 +1,11 @@
 /**
- * Notification utilities - Unified notification helpers
+ * @module L2.Messaging.Notify
  *
- * Standardizes error handling and formatting for inbox notifications.
+ * Unified notification helpers. Standardizes error handling and formatting for
+ * inbox notifications.
+ *
+ * phase 705: notifyClaw 不再持 chestnut 拓扑知识；target claw 根目录、inbox 目录、
+ * dead-letter 目录由 L4+ caller 注入。
  */
 
 import * as path from 'path';
@@ -10,30 +14,30 @@ import type { InboxMessageOptionsBase } from './inbox-writer.js';
 import type { InboxMessage } from './types.js';
 import type { FileSystem } from '../fs/index.js';
 import type { AuditLog } from '../audit/index.js';
-import { INBOX_PENDING_DIR } from './dirs.js';
-import { CLAWS_DIR } from '../claw-paths.js';
-import { emitUnknownDestinationDlq } from './audit-emit.js';
 import { newShortUuid } from '../uuid.js';
-
+import { emitUnknownDestinationDlq } from './audit-emit.js';
 
 /**
- * NEW: phase 1334 r138 E fork — abstract destination-level inbox notification.
- * Caller expresses targetClawId business semantics; Messaging internally resolves
- * inbox path + codec.
+ * Notify a target claw by writing a message to its inbox.
+ *
+ * @param targetClawRoot - caller-computed target claw root directory
+ * @param targetInboxDir - caller-computed target inbox pending directory
+ * @param dlqDir - optional dead-letter queue directory; when provided and
+ *   targetClawRoot does not exist, the message is routed to dlqDir instead of
+ *   creating an orphan claw directory.
  */
 export function notifyClaw(
   fs: FileSystem,
-  chestnutRoot: string,  // phase 90: 去 brand type-only import (M#5 单向守、messaging 0 知 L6 brand)
-  motionClawId: string,  // phase 520: foundation 不再 import MOTION_CLAW_ID、caller 注入
-  targetClawId: string,
+  targetClawRoot: string,
+  targetInboxDir: string,
+  dlqDir: string | undefined,
   message: InboxMessageOptionsBase,
   audit: AuditLog,
 ): void {
   // phase 1372 sub-4: DLQ for unknown destination — prevent silent orphan dir creation
-  if (targetClawId !== motionClawId && typeof fs.existsSync === 'function') {
-    const targetClawRoot = path.join(chestnutRoot, CLAWS_DIR, targetClawId);
+  if (dlqDir !== undefined && typeof fs.existsSync === 'function') {
     if (!fs.existsSync(targetClawRoot)) {
-      const dlqDir = path.join(chestnutRoot, motionClawId, 'inbox', 'dead-letter');
+      const targetClawId = path.basename(targetClawRoot);
       const fileName = `${Date.now()}_${newShortUuid()}_${targetClawId}.md`;
       try {
         fs.ensureDirSync(dlqDir);
@@ -52,10 +56,6 @@ export function notifyClaw(
       return;
     }
   }
-
-  const targetInboxDir = targetClawId === motionClawId
-    ? path.join(chestnutRoot, motionClawId, INBOX_PENDING_DIR)
-    : path.join(chestnutRoot, CLAWS_DIR, targetClawId, INBOX_PENDING_DIR);
 
   try {
     InboxWriter.__internal_create(fs, makeInboxPath(targetInboxDir), audit).writeSync(message);
@@ -84,7 +84,7 @@ export async function writeInboxAsync(
  * Send an inbox notification with standardized error handling.
  * Logs warning on failure but does not throw.
  *
- * @deprecated since phase 1334 — use notifyClaw(fs, chestnutRoot, motionClawId, targetClawId, ...) instead.
+ * @deprecated since phase 1334 — use notifyClaw(fs, targetClawRoot, targetInboxDir, dlqDir, ...) instead.
  * Caller expressing fs path inboxDir is the wrong abstraction level;
  * cross-claw delivery destination = Messaging business semantics;
  * caller should express targetClawId.
@@ -109,4 +109,3 @@ export function notifyInbox(
     // 不 rethrow — notify 是旁路通知，失败不影响主流程
   }
 }
-

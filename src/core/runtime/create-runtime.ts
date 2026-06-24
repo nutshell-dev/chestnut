@@ -21,7 +21,7 @@ import type { FileSystem } from '../../foundation/fs/index.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { RUNTIME_AUDIT_EVENTS } from './runtime-audit-events.js';
-import { CLAW_IDENTITY_FILE, CLAW_SOUL_FILE, CLAW_USER_FILE, CLAW_AUTH_POLICY_FILE } from '../../foundation/claw-paths.js';
+import { CLAW_IDENTITY_FILE, CLAW_SOUL_FILE, CLAW_USER_FILE, CLAW_AUTH_POLICY_FILE } from '../../foundation/claw-identity/index.js';
 
 export type CreateRuntimeOptions = RuntimeOptions & {
   identity: 'motion' | 'claw';

@@ -14,6 +14,7 @@ import { createNotifyClawTool } from '../../../src/foundation/messaging/tools/no
 import { formatClawStatusHint } from '../../../src/cli/commands/claw-shared.js';
 import { MESSAGING_AUDIT_EVENTS } from '../../../src/foundation/messaging/audit-events.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
+import { routeNotifyClaw } from '../../../src/core/claw-topology/index.js';
 import { makeAudit } from '../../helpers/audit.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 
@@ -45,7 +46,7 @@ describe('notify_claw production drift regression (phase 1021)', () => {
       hasActiveContract: () => false,
       defaultSource: 'motion', isCallerAuthorized: (label: string) => label === 'motion',
       fs: correctFs,
-      chestnutRoot: chestnutDir,
+      notifyClaw: (targetClawId, message) => routeNotifyClaw(correctFs, chestnutDir, 'motion', targetClawId, message, audit.audit),
       audit: audit.audit,
     });
 
@@ -68,7 +69,17 @@ describe('notify_claw production drift regression (phase 1021)', () => {
     const correctFs = new NodeFileSystem({ baseDir: chestnutDir });
     await correctFs.ensureDir('claws/worker-1');
 
-    const tool = createNotifyClawTool({ formatClawStatusHint, isClawAlive: () => true, clawExists: () => true, hasActiveContract: () => false, defaultSource: 'motion', isCallerAuthorized: (label: string) => label === 'motion', fs: correctFs, chestnutRoot: chestnutDir, audit: audit.audit });
+    const tool = createNotifyClawTool({
+      formatClawStatusHint,
+      isClawAlive: () => true,
+      clawExists: () => true,
+      hasActiveContract: () => false,
+      defaultSource: 'motion',
+      isCallerAuthorized: (label: string) => label === 'motion',
+      fs: correctFs,
+      notifyClaw: (targetClawId, message) => routeNotifyClaw(correctFs, chestnutDir, 'motion', targetClawId, message, audit.audit),
+      audit: audit.audit,
+    });
     const result = await tool.execute({ to: 'worker-1', body: 'hello' }, { callerLabel: 'motion' } as any);
 
     expect(result.success).toBe(true);
@@ -84,7 +95,17 @@ describe('notify_claw production drift regression (phase 1021)', () => {
     const correctFs = new NodeFileSystem({ baseDir: chestnutDir });
     await correctFs.ensureDir('claws');  // claws dir exists but no worker-1 subdir
 
-    const tool = createNotifyClawTool({ formatClawStatusHint, isClawAlive: () => true, clawExists: () => false, hasActiveContract: () => false, defaultSource: 'motion', isCallerAuthorized: (label: string) => label === 'motion', fs: correctFs, chestnutRoot: chestnutDir, audit: audit.audit });
+    const tool = createNotifyClawTool({
+      formatClawStatusHint,
+      isClawAlive: () => true,
+      clawExists: () => false,
+      hasActiveContract: () => false,
+      defaultSource: 'motion',
+      isCallerAuthorized: (label: string) => label === 'motion',
+      fs: correctFs,
+      notifyClaw: (targetClawId, message) => routeNotifyClaw(correctFs, chestnutDir, 'motion', targetClawId, message, audit.audit),
+      audit: audit.audit,
+    });
     const result = await tool.execute({ to: 'worker-1', body: 'hello' }, { callerLabel: 'motion' } as any);
 
     expect(result.success).toBe(false);

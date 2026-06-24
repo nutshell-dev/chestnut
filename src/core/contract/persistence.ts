@@ -184,7 +184,7 @@ export async function checkAllSubtasksCompleted(
 }
 
 import { CONTRACT_ARCHIVE_DIR } from './dirs.js';
-import { CLAWS_DIR } from '../../foundation/claw-paths.js';
+import { CLAWS_DIR } from '../../core/claw-topology/claw-instance-paths.js';
 import type { ArchiveContractRef } from './types.js';
 import { type ContractId, makeContractId } from './types.js';
 

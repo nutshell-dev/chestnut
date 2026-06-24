@@ -28,7 +28,7 @@ import {
   TASKS_QUEUES_RESULTS_DIR,
   TASKS_SYNC_DIR,
 } from './dirs.js';
-import { CLAWSPACE_DIR } from '../../foundation/claw-paths.js';
+import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 import type { StreamLog } from '../../foundation/stream/index.js';
 import type { DialogStore } from '../../foundation/dialog-store/index.js';
 import type { Tool } from '../../foundation/tools/index.js';

@@ -1,5 +1,5 @@
 /**
- * notifyClaw API tests (phase 1334 r138 E fork)
+ * notifyClaw API tests (phase 1334 r138 E fork, phase 705 signature update)
  *
  * Covers the src-to-src notifyClaw API, distinct from the motion LLM tool
  * notify_claw tests in notify-claw.test.ts.
@@ -12,8 +12,24 @@ import * as path from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { notifyClaw } from '../../../src/foundation/messaging/notify.js';
+import { INBOX_PENDING_DIR } from '../../../src/foundation/messaging/dirs.js';
+import { CLAWS_DIR } from '../../../src/core/claw-topology/claw-instance-paths.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { MESSAGING_AUDIT_EVENTS } from '../../../src/foundation/messaging/audit-events.js';
+
+const MOTION_CLAW_ID = 'motion';
+
+function makeNotifyArgs(chestnutRoot: string, targetClawId: string) {
+  const isMotion = targetClawId === MOTION_CLAW_ID;
+  const targetClawRoot = isMotion
+    ? path.join(chestnutRoot, MOTION_CLAW_ID)
+    : path.join(chestnutRoot, CLAWS_DIR, targetClawId);
+  return {
+    targetClawRoot,
+    targetInboxDir: path.join(targetClawRoot, INBOX_PENDING_DIR),
+    dlqDir: isMotion ? undefined : path.join(chestnutRoot, MOTION_CLAW_ID, 'inbox', 'dead-letter'),
+  };
+}
 
 describe('notifyClaw API', () => {
   let chestnutRoot: string;
@@ -41,7 +57,8 @@ describe('notifyClaw API', () => {
   });
 
   it("notifyClaw('motion', ...) writes to motion/inbox/pending with correct codec", () => {
-    notifyClaw(nodeFs, chestnutRoot, 'motion', 'motion', {
+    const { targetClawRoot, targetInboxDir, dlqDir } = makeNotifyArgs(chestnutRoot, MOTION_CLAW_ID);
+    notifyClaw(nodeFs, targetClawRoot, targetInboxDir, dlqDir, {
       type: 'heartbeat',
       source: 'system',
       priority: 'low',
@@ -64,25 +81,27 @@ describe('notifyClaw API', () => {
   it("notifyClaw('worker-1', ...) writes to claws/worker-1/inbox/pending", async () => {
     await fs.mkdir(path.join(chestnutRoot, 'claws', 'worker-1'), { recursive: true });
 
-    notifyClaw(nodeFs, chestnutRoot, 'motion', 'worker-1', {
+    const { targetClawRoot, targetInboxDir, dlqDir } = makeNotifyArgs(chestnutRoot, 'worker-1');
+    notifyClaw(nodeFs, targetClawRoot, targetInboxDir, dlqDir, {
       type: 'test_message',
       source: 'test',
       priority: 'normal',
       body: 'hello worker',
     }, audit);
 
-    const targetInboxDir = path.join(chestnutRoot, 'claws', 'worker-1', 'inbox', 'pending');
-    const files = fsSync.readdirSync(targetInboxDir);
+    const targetInboxDirExpected = path.join(chestnutRoot, 'claws', 'worker-1', 'inbox', 'pending');
+    const files = fsSync.readdirSync(targetInboxDirExpected);
     expect(files.length).toBe(1);
 
-    const content = fsSync.readFileSync(path.join(targetInboxDir, files[0]), 'utf8');
+    const content = fsSync.readFileSync(path.join(targetInboxDirExpected, files[0]), 'utf8');
     expect(content).toMatch(/type: test_message/);
     expect(content).toMatch(/from: "test"/);
     expect(content).toMatch(/hello worker/);
   });
 
   it('emits INBOX_WRITTEN audit on happy path', () => {
-    notifyClaw(nodeFs, chestnutRoot, 'motion', 'motion', {
+    const { targetClawRoot, targetInboxDir, dlqDir } = makeNotifyArgs(chestnutRoot, MOTION_CLAW_ID);
+    notifyClaw(nodeFs, targetClawRoot, targetInboxDir, dlqDir, {
       type: 'audit_test',
       source: 'system',
       body: 'audit me',
@@ -93,7 +112,8 @@ describe('notifyClaw API', () => {
   });
 
   it('uses priority + filename convention via InboxWriter codec', () => {
-    notifyClaw(nodeFs, chestnutRoot, 'motion', 'motion', {
+    const { targetClawRoot, targetInboxDir, dlqDir } = makeNotifyArgs(chestnutRoot, MOTION_CLAW_ID);
+    notifyClaw(nodeFs, targetClawRoot, targetInboxDir, dlqDir, {
       type: 'priority_test',
       source: 'priority_src',
       priority: 'high',
@@ -110,7 +130,8 @@ describe('notifyClaw API', () => {
 
   it('dedup: multiple calls produce multiple distinct files', () => {
     for (let i = 0; i < 3; i++) {
-      notifyClaw(nodeFs, chestnutRoot, 'motion', 'motion', {
+      const { targetClawRoot, targetInboxDir, dlqDir } = makeNotifyArgs(chestnutRoot, MOTION_CLAW_ID);
+      notifyClaw(nodeFs, targetClawRoot, targetInboxDir, dlqDir, {
         type: 'dedup_test',
         source: 'system',
         body: `msg ${i}`,

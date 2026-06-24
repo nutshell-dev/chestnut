@@ -13,7 +13,7 @@ import { WATCHDOG_AUDIT_EVENTS } from '../../src/watchdog/audit-events.js';
 import { getNamedSubrootDir } from '../../src/foundation/config/index.js';
 import { loadGlobalConfig } from '../../src/assembly/config-load.js';
 import { clawHasContract, gatherClawSnapshot } from '../../src/watchdog/watchdog-utils.js';
-import { notifyClaw } from '../../src/foundation/messaging/index.js';
+import { routeNotifyClaw } from '../../src/core/claw-topology/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import type { ProcessManager } from '../../src/foundation/process-manager/index.js';
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
@@ -50,11 +50,11 @@ vi.mock('../../src/watchdog/watchdog-utils.js', async (importOriginal) => {
   };
 });
 
-vi.mock('../../src/foundation/messaging/index.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/foundation/messaging/index.js')>();
+vi.mock('../../src/core/claw-topology/index.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/core/claw-topology/index.js')>();
   return {
     ...actual,
-    notifyClaw: vi.fn(),
+    routeNotifyClaw: vi.fn(),
   };
 });
 
@@ -88,7 +88,7 @@ describe('watchdog crash_notification dedup (phase 1207 gap A)', () => {
       summary: vi.fn((s: string) => s),
     };
     inboxWriteMock = vi.fn();
-    vi.mocked(notifyClaw).mockImplementation(inboxWriteMock);
+    vi.mocked(routeNotifyClaw).mockImplementation(inboxWriteMock);
 
     // Reset state
     clawStateAPI.clawPreviouslyAlive.clear();

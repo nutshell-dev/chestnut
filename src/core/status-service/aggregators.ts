@@ -15,7 +15,7 @@ import { isFileNotFound } from '../../foundation/fs/index.js';
 import { formatErr, assertNever } from "../../foundation/utils/index.js";
 import type { ContractSystem } from '../contract/index.js';
 import { TASKS_QUEUES_PENDING_DIR, TASKS_QUEUES_RUNNING_DIR } from '../async-task-system/index.js';
-import { CLAWSPACE_DIR, CLAW_MEMORY_FILE } from '../../foundation/claw-paths.js';
+import { CLAWSPACE_DIR, CLAW_MEMORY_FILE } from '../../foundation/claw-identity/index.js';
 
 // ── Views ───────────────────────────────────────────────────────────────────
 

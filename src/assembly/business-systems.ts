@@ -30,7 +30,7 @@ import { createDoneTool } from '../core/subagent/index.js';
 import { createStatusTool } from '../core/status-service/index.js';
 import { composeStatusMotionGuidance } from './motion-guidance-composer.js';
 import { createSkillTool } from '../foundation/skill-system/tools/skill.js';
-import { CLAWS_DIR } from '../foundation/claw-paths.js';
+import { CLAWS_DIR } from '../core/claw-topology/claw-instance-paths.js';
 import { createSendTool } from '../foundation/messaging/tools/send.js';
 import { MOTION_CLAW_ID } from '../core/claw-topology/index.js';
 import { createToolExecutor } from '../foundation/tools/index.js';
@@ -54,7 +54,7 @@ import type { MotionGuidanceRegistry, GuidanceEntry } from './guidance/index.js'
 import type { MessageFormatterRegistry } from '../foundation/messaging/index.js';
 import { createContractSystem } from '../core/contract/index.js';
 import { createSystemAudit } from '../foundation/audit/index.js';
-import { notifyClaw as notifyClawFn } from '../foundation/messaging/index.js';
+import { routeNotifyClaw as notifyClawFn } from '../core/claw-topology/index.js';
 import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
 import type { CoreInfraOutput } from './core-infrastructure.js';
 

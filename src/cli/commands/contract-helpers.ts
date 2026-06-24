@@ -6,7 +6,7 @@
 import * as yaml from 'js-yaml';
 import type { ContractYaml } from '../../core/contract/index.js';
 import { createDirContext } from '../../foundation/audit/index.js';
-import { notifyClaw } from '../../foundation/messaging/index.js';
+import { routeNotifyClaw } from '../../core/claw-topology/index.js';
 import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import { STREAM_FILE, createPerResourceStreamWriter, type StreamEvent } from '../../foundation/stream/index.js';
 import { CliError } from '../errors.js';
@@ -72,7 +72,7 @@ export function notifyContractCreated(deps: { fsFactory: (baseDir: string) => Fi
   lines.push(`After each subtask, submit verification via done:`);
   lines.push(`done: { "subtask": "<subtask-id>", "evidence": "<output path or completion summary>" }`);
   const body = lines.join('\n');
-  notifyClaw(
+  routeNotifyClaw(
     fs,
     chestnutRoot,
     MOTION_CLAW_ID,

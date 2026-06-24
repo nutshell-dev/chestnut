@@ -8,7 +8,7 @@ import * as path from 'path';
 import type { FileSystem } from '../foundation/fs/index.js';
 import { getChestnutFs, getAuditWriter, getMotionContext } from './watchdog-context.js';
 import { getNamedSubrootDir } from '../foundation/config/index.js';
-import { notifyClaw } from '../foundation/messaging/index.js';
+import { routeNotifyClaw } from '../core/claw-topology/index.js';
 import { WATCHDOG_LOG } from './constants.js';
 import { MOTION_CLAW_ID } from '../core/claw-topology/index.js';
 
@@ -64,7 +64,7 @@ export function writeClawInactivityInbox(
     extraFields[k] = typeof v === 'string' ? v : String(v);
   }
 
-  notifyClaw(fs, chestnutRoot, MOTION_CLAW_ID, MOTION_CLAW_ID, {
+  routeNotifyClaw(fs, chestnutRoot, MOTION_CLAW_ID, MOTION_CLAW_ID, {
     type: 'claw_inactivity',
     source: 'watchdog',
     priority: 'high',

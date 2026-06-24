@@ -20,7 +20,7 @@ import { getClawDir, getClawConfigPath } from '../../foundation/config/index.js'
 import { CliError } from '../errors.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 // CLAWS_DIR removed: phase 263
-import { notifyClaw } from '../../foundation/messaging/index.js';
+import { routeNotifyClaw } from '../../core/claw-topology/index.js';
 import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import { ContractSystem } from '../../core/contract/index.js';
 import { createToolRegistry } from '../../foundation/tools/index.js';
@@ -65,7 +65,7 @@ export async function clawStatusCommand(
     toolRegistry: createToolRegistry(),
     fsFactory: deps.fsFactory,
     // clawsDir removed: phase 263
-    notifyClaw: (targetClawId, message) => notifyClaw(clawFs, chestnutRoot, MOTION_CLAW_ID, targetClawId, message, audit),
+    notifyClaw: (targetClawId, message) => routeNotifyClaw(clawFs, chestnutRoot, MOTION_CLAW_ID, targetClawId, message, audit),
   });
 
   const [contractView, taskView, storageView] = await Promise.all([

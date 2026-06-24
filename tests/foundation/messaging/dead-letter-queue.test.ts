@@ -1,10 +1,26 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
 import { notifyClaw } from '../../../src/foundation/messaging/notify.js';
+import { INBOX_PENDING_DIR } from '../../../src/foundation/messaging/dirs.js';
+import { CLAWS_DIR } from '../../../src/core/claw-topology/claw-instance-paths.js';
 import { MESSAGING_AUDIT_EVENTS } from '../../../src/foundation/messaging/audit-events.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { makeAudit } from '../../helpers/audit.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
+
+const MOTION_CLAW_ID = 'motion';
+
+function makeNotifyArgs(tempDir: string, targetClawId: string) {
+  const isMotion = targetClawId === MOTION_CLAW_ID;
+  const targetClawRoot = isMotion
+    ? path.join(tempDir, MOTION_CLAW_ID)
+    : path.join(tempDir, CLAWS_DIR, targetClawId);
+  return {
+    targetClawRoot,
+    targetInboxDir: path.join(targetClawRoot, INBOX_PENDING_DIR),
+    dlqDir: isMotion ? undefined : path.join(tempDir, MOTION_CLAW_ID, 'inbox', 'dead-letter'),
+  };
+}
 
 describe('dead letter queue (phase 1372 sub-4)', () => {
   let tempDir: string;
@@ -23,7 +39,8 @@ describe('dead letter queue (phase 1372 sub-4)', () => {
 
   it('unknown targetClawId → writes to motion/inbox/dead-letter/ + emits UNKNOWN_DESTINATION_DLQ', () => {
     // Do NOT create claws/ghost-claw — simulate unknown destination
-    notifyClaw(fs, tempDir, 'motion', 'ghost-claw', {
+    const { targetClawRoot, targetInboxDir, dlqDir } = makeNotifyArgs(tempDir, 'ghost-claw');
+    notifyClaw(fs, targetClawRoot, targetInboxDir, dlqDir, {
       type: 'message',
       source: 'motion',
       priority: 'normal',
@@ -31,7 +48,7 @@ describe('dead letter queue (phase 1372 sub-4)', () => {
     }, audit.audit);
 
     // Verify DLQ dir created and file written
-    const dlqDir = path.join(tempDir, 'motion', 'inbox', 'dead-letter');
+    const dlqDirExpected = path.join(tempDir, 'motion', 'inbox', 'dead-letter');
     const dlqFiles = fs.listSync(path.join('motion', 'inbox', 'dead-letter'));
     expect(dlqFiles.length).toBe(1);
 
@@ -47,7 +64,8 @@ describe('dead letter queue (phase 1372 sub-4)', () => {
   });
 
   it('unknown targetClawId → 0 silent routing motion (no orphan claw dir created)', () => {
-    notifyClaw(fs, tempDir, 'motion', 'nonexistent-claw', {
+    const { targetClawRoot, targetInboxDir, dlqDir } = makeNotifyArgs(tempDir, 'nonexistent-claw');
+    notifyClaw(fs, targetClawRoot, targetInboxDir, dlqDir, {
       type: 'message',
       source: 'motion',
       priority: 'normal',
@@ -67,7 +85,8 @@ describe('dead letter queue (phase 1372 sub-4)', () => {
     // Pre-create target claw
     fs.ensureDirSync(path.join('claws', 'known-claw'));
 
-    notifyClaw(fs, tempDir, 'motion', 'known-claw', {
+    const { targetClawRoot, targetInboxDir, dlqDir } = makeNotifyArgs(tempDir, 'known-claw');
+    notifyClaw(fs, targetClawRoot, targetInboxDir, dlqDir, {
       type: 'message',
       source: 'motion',
       priority: 'normal',
@@ -87,7 +106,8 @@ describe('dead letter queue (phase 1372 sub-4)', () => {
   });
 
   it('motion targetClawId → normal motion inbox delivery, no DLQ', () => {
-    notifyClaw(fs, tempDir, 'motion', 'motion', {
+    const { targetClawRoot, targetInboxDir, dlqDir } = makeNotifyArgs(tempDir, MOTION_CLAW_ID);
+    notifyClaw(fs, targetClawRoot, targetInboxDir, dlqDir, {
       type: 'message',
       source: 'system',
       priority: 'high',

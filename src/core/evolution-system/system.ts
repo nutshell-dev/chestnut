@@ -10,7 +10,7 @@ import { RETRO_AUDIT_EVENTS } from './retro-audit-events.js';
 import { assertEvolutionStateShape } from './invariants.js';
 import * as path from 'path';
 
-import { CLAWSPACE_DIR } from '../../foundation/claw-paths.js';
+import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 import { CONTRACT_AUDIT_EVENTS } from '../contract/index.js';
 import type { Message } from '../../foundation/llm-provider/index.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';

@@ -24,7 +24,8 @@ import { createDirContext } from '../../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 // phase 693 Step C: SNAPSHOT_IGNORE_PATTERNS 归 Assembly 装配组装、走 assembly barrel (CLI L6 → Assembly L6 barrel)
 import { SNAPSHOT_IGNORE_PATTERNS } from '../../assembly/index.js';
-import { CLAWS_DIR, CLAW_SPEC_FILE, CLAW_SOUL_FILE, CLAW_AUTH_POLICY_FILE, CLAW_HEARTBEAT_FILE } from '../../foundation/claw-paths.js';
+import { CLAW_SPEC_FILE, CLAW_SOUL_FILE, CLAW_AUTH_POLICY_FILE, CLAW_HEARTBEAT_FILE } from '../../foundation/claw-identity/index.js';
+import { CLAWS_DIR } from '../../core/claw-topology/claw-instance-paths.js';
 import { resolveDaemonEntry } from '../../assembly/spawn-entry.js';
 import { DAEMON_LOG } from '../../daemon/constants.js';
 import { TASKS_SYNC_EXEC_DIR } from '../../foundation/command-tool/index.js';
