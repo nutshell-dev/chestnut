@@ -2,23 +2,23 @@
  * Custom ESLint rule: no-claws-enumeration-fanout
  *
  * 应然 (M#3 资源唯一归属): claws 目录的 enumeration 归属
- * `src/foundation/claw-paths.ts` 一个 owner。其他 caller 必须经此 helper、
+ * `src/core/claw-topology/claw-instance-paths.ts` 一个 owner。其他 caller 必须经此 helper、
  * 不能直接 listSync(<claws dir>, {includeDirs:true})。
  *
- * scope: src/ outside `claw-paths.ts`
+ * scope: src/ outside `claw-instance-paths.ts`
  *
  * 匹配的 pattern:
  *   - CallExpression where callee.property.name === 'listSync'
  *   - args[0] source text contains 'claws' or 'Claws' (covers clawsDir / clawsPath / CLAWS_DIR / ...)
  *   - args[1] is ObjectExpression with property `includeDirs: true`
  *
- * Allowlist: only `claw-paths.ts` basename。
+ * Allowlist: only `claw-instance-paths.ts` basename。
  *
  * phase 357: 21st src ESLint rule、共享 phase 309 ESLint infra
  */
 
 const ALLOWLIST_BASENAMES = new Set([
-  'claw-paths.ts',
+  'claw-instance-paths.ts',
 ]);
 
 function basenameOf(filepath) {
@@ -48,13 +48,13 @@ export default {
     type: 'problem',
     docs: {
       description:
-        'src/ forbids direct listSync over claws dir; only foundation/claw-paths.ts may enumerate claws (M#3)',
+        'src/ forbids direct listSync over claws dir; only core/claw-topology/claw-instance-paths.ts may enumerate claws (M#3)',
       category: 'Best Practices',
     },
     schema: [],
     messages: {
       clawsEnumerationFanout:
-        'claws enumeration fanout: `{{file}}` uses listSync over claws dir. Only `claw-paths.ts` is authorized to enumerate claws (M#3 resource ownership). Use claw-paths helper instead of direct listSync.',
+        'claws enumeration fanout: `{{file}}` uses listSync over claws dir. Only `claw-instance-paths.ts` is authorized to enumerate claws (M#3 resource ownership). Use claw-instance-paths helper instead of direct listSync.',
     },
   },
 

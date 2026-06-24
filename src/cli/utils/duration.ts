@@ -1,5 +1,5 @@
 /**
- * @module L2a.Duration
+ * @module L6.CLI.Utils.Duration
  * Generic duration parser shared by CLI commands.
  *
  * Format: `<number><unit>` where unit ∈ { s, m, h }

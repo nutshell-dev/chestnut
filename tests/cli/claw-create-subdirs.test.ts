@@ -4,7 +4,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { randomUUID } from 'crypto';
 import { CLAW_SUBDIRS } from '../../src/assembly/claw-subdirs.js';
-import { CLAWS_DIR } from '../../src/foundation/claw-paths.js';
+import { CLAWS_DIR } from '../../src/core/claw-topology/claw-instance-paths.js';
 import { TASKS_SYNC_SUBAGENT_DIR } from '../../src/core/subagent/constants.js';
 import { TASKS_SYNC_SPAWN_DIR } from '../../src/core/spawn-system/constants.js';
 import { TASKS_SYNC_SHADOW_DIR } from '../../src/core/shadow-system/constants.js';

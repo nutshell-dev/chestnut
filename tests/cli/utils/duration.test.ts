@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { parseDurationMs, DurationParseError } from '../../src/foundation/duration.js';
+import { parseDurationMs, DurationParseError } from '../../../src/cli/utils/duration.js';
 
 describe('parseDurationMs', () => {
   it('parses seconds', () => {

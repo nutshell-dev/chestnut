@@ -4,7 +4,7 @@ import type { FileSystem } from '../../../foundation/fs/index.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
 import { DISK_MONITOR_AUDIT_EVENTS } from './disk-monitor-audit-events.js';
 import type { StreamLog } from '../../../foundation/stream/index.js';
-import { CLAWSPACE_DIR } from '../../../foundation/claw-paths.js';
+import { CLAWSPACE_DIR } from '../../claw-identity/index.js';
 import type { CronJob } from '../runner.js';
 import { parseSchedule } from '../runner.js';
 import type { CronJobGlobalConfig } from '../runner.js';
