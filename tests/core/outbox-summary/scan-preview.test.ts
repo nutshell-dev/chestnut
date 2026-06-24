@@ -15,7 +15,7 @@ import { OutboxReader } from '../../../src/foundation/messaging/index.js';
 import { encodeOutbox } from '../../../src/foundation/messaging/codec-outbox.js';
 import type { OutboxMessage } from '../../../src/foundation/messaging/types.js';
 import { createClawTopology } from '../../../src/core/claw-topology/topology.js';
-import { makeClawId } from '../../../src/foundation/identity/claw-id.js';
+import { makeClawId } from '../../../src/foundation/claw-identity/claw-id.js';
 import type { ClawTopology } from '../../../src/core/claw-topology/types.js';
 
 function makeAudit() {

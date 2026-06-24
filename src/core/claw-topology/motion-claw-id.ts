@@ -6,7 +6,7 @@
  * phase 520 立、消 root_constants ↔ foundation 双向（前 owner src/constants.ts）。
  */
 
-import { makeClawId, type ClawId } from '../../foundation/identity/index.js';
+import { makeClawId, type ClawId } from '../../foundation/claw-identity/index.js';
 
 /** Motion claw identifier - the root orchestrator claw */
 export const MOTION_CLAW_ID: ClawId = makeClawId('motion');

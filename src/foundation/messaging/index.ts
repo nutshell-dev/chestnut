@@ -60,7 +60,7 @@ export {
 import type { FileSystem } from '../fs/index.js';
 import type { AuditLog } from '../audit/index.js';
 import { InboxReader } from './inbox-reader.js';
-import type { ClawId } from '../identity/index.js';
+import type { ClawId } from '../claw-identity/index.js';
 import { OutboxWriter, makeOutboxPath } from './outbox-writer.js';
 
 export function createInboxReader(

@@ -7,7 +7,7 @@ import {
 } from '../../../src/core/claw-topology/agent-tools.js';
 import { CLAW_TOPOLOGY_AUDIT_EVENTS } from '../../../src/core/claw-topology/audit-events.js';
 import { readTool, lsTool, searchTool } from '../../../src/foundation/file-tool/index.js';
-import { makeClawId } from '../../../src/foundation/identity/claw-id.js';
+import { makeClawId } from '../../../src/foundation/claw-identity/claw-id.js';
 import type { ExecContext } from '../../../src/foundation/tools/index.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 
