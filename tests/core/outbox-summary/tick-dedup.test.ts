@@ -12,7 +12,7 @@
  *  - all unread consumed + new tick → CLEARED, old summary stays pending
  */
 
-import { makeChestnutRoot } from '../../../src/foundation/install-paths.js';
+import { makeChestnutRoot } from '../../../src/core/claw-topology/claw-instance-paths.js';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fsAsync from 'fs/promises';
 import * as path from 'path';

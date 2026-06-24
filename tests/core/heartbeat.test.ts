@@ -6,7 +6,7 @@
  * 2. fire() - 向 motion/inbox/pending/ 写入 .md 消息
  */
 
-import { makeChestnutRoot } from '../../src/foundation/install-paths.js';
+import { makeChestnutRoot } from '../../src/core/claw-topology/claw-instance-paths.js';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';

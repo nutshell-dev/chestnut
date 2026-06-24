@@ -3,7 +3,7 @@
  * phase 42: scanOutboxes 改 async + 注入 OutboxReader。
  */
 
-import { makeChestnutRoot } from '../../../src/foundation/install-paths.js';
+import { makeChestnutRoot } from '../../../src/core/claw-topology/claw-instance-paths.js';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fsAsync from 'fs/promises';
 import * as path from 'path';
