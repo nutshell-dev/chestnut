@@ -18,7 +18,8 @@
  */
 
 const ALLOWLIST_BASENAMES = new Set([
-  'claw-instance-paths.ts',
+  'claw-paths.ts',             // phase 705 backward-compat barrel (deleted; kept for allowlist safety)
+  'claw-instance-paths.ts',    // phase 707: L4 ClawTopology canonical owner
 ]);
 
 function basenameOf(filepath) {

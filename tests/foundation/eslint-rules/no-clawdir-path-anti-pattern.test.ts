@@ -19,6 +19,12 @@ describe('eslint custom rule: no-clawdir-path-anti-pattern (phase 327)', () => {
       'makeChestnutRoot(getChestnutRoot());',
       // (2) dirname with Motion-only exemption (same line comment)
       'const root = path.dirname(clawDir); // Motion-only callsite',
+      // (3) single-up inside resolveChestnutRoot motion branch is intentional
+      `function resolveChestnutRoot(clawDir, isMotion) {
+        return isMotion
+          ? makeChestnutRoot(path.join(clawDir, ".."))
+          : makeChestnutRoot(path.join(clawDir, "..", ".."));
+      }`,
       // (1) resolve with non-CLAWS_DIR
       'path.resolve(clawDir, "..", "other");',
     ],
