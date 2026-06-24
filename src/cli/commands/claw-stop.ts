@@ -12,7 +12,7 @@ import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
-import { getChestnutRoot } from '../../foundation/install-paths.js';
+import { getChestnutRoot } from '../../core/claw-topology/claw-instance-paths.js';
 import { makeChestnutRoot } from '../../core/claw-topology/claw-instance-paths.js';
 
 export async function stopCommand(deps: { fsFactory: (baseDir: string) => FileSystem }, name: string, extraDeps?: { audit?: AuditLog }): Promise<void> {

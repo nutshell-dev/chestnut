@@ -20,7 +20,7 @@ import type { FileSystem } from '../../foundation/fs/index.js';
 // phase 320: hot-reload — CLI 投递 reload_llm_config 给运行中 daemon
 import { routeNotifyClaw } from '../../core/claw-topology/index.js';
 import { CLAWS_DIR, enumerateClaws } from '../../core/claw-topology/claw-instance-paths.js';
-import { getChestnutRoot } from '../../foundation/install-paths.js';
+import { getChestnutRoot } from '../../core/claw-topology/claw-instance-paths.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { RELOAD_LLM_CONFIG_MESSAGE_TYPE } from '../../core/runtime/index.js';
 import { toProviderConfig } from '../../foundation/llm-orchestrator/config-adapter.js';

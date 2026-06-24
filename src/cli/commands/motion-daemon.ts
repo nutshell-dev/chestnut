@@ -6,7 +6,7 @@
  * `clawDaemonCommand`. See phase1421 PHASE1421.md §3-4 for root cause + design.
  */
 
-import { getWorkspaceRoot } from '../../foundation/install-paths.js';
+import { getWorkspaceRoot } from '../../core/claw-topology/claw-instance-paths.js';
 import * as path from 'path';
 import { loadGlobalConfig } from '../../assembly/config-load.js';
 import { getNamedSubrootDir } from '../../foundation/config/index.js';

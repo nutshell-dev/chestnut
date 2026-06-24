@@ -22,7 +22,7 @@ import { getNamedSubrootDir, getClawDir } from '../../foundation/config/index.js
  *
  * 返：
  * - motion clawId → `<chestnut-root>/motion/`
- * - others        → `<chestnut-root>/claws/<id>/`（含 path traversal 校验、详 install-paths.ts assertSafeClawId）
+ * - others        → `<chestnut-root>/claws/<id>/`（含 path traversal 校验、详 claw-instance-paths.ts assertSafeClawId）
  *
  * Throws：clawId 含 path traversal 字符或空（由 getClawDir 内部抛）。
  *

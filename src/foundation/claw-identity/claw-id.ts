@@ -37,8 +37,8 @@ declare const ClawIdBrand: unique symbol;
 export type ClawId = string & { readonly [ClawIdBrand]: true };
 
 export function makeClawId(s: string): ClawId {
-  // phase 518 (review-round4 Foundation L): boundary 兜底 guard、与 install-paths
-  // assertSafeClawId 一致；防上游漏校验时无效 id 渗入 brand 类型。
+  // phase 518 (review-round4 Foundation L): boundary 兜底 guard、与
+  // claw-instance-paths.ts assertSafeClawId 一致；防上游漏校验时无效 id 渗入 brand 类型。
   if (
     typeof s !== 'string' ||
     s === '' ||

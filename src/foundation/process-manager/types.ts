@@ -10,7 +10,7 @@ import type { isAlive as defaultL1IsAlive, spawnDetached as defaultSpawnDetached
  * phase 694: PM API 入参强制 brand、防 structural typing 让 ClawId 当 daemonDir 误传。
  * caller 必经 L4 ClawTopology.resolveClawDaemonDir 或 PM.makeDaemonDir 构造。
  *
- * 同型 brand: ChestnutRoot (install-paths.ts) / ClawId (identity/) / StepNumber.
+ * 同型 brand: ChestnutRoot (core/claw-topology/claw-instance-paths.ts) / ClawId (identity/) / StepNumber.
  */
 declare const DaemonDirBrand: unique symbol;
 export type DaemonDir = string & { readonly [DaemonDirBrand]: true };

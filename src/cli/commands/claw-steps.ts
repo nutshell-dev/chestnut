@@ -3,7 +3,7 @@
  * claw steps + step commands for main-agent dialog observation
  */
 
-import { getNamedSubrootDir } from '../../foundation/install-paths.js';
+import { getNamedSubrootDir } from '../../core/claw-topology/claw-instance-paths.js';
 import { getClawDir } from '../../core/claw-topology/claw-instance-paths.js';
 import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/index.js';
