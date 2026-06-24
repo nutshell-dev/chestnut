@@ -5,15 +5,36 @@
  * architecture.md §31 ClawTopology：「chestnut 拓扑信息持有者 + 跨 claw 读取统一对外入口」。
  * phase 704 自 foundation/install-paths.ts claw 部分迁入（M#3 资源唯一归属）。
  * phase 705 自 foundation/claw-paths.ts 迁入 CLAWS_DIR / enumerateClaws。
+ * phase 713 自 foundation/install-paths.ts 迁入 workspace 路径原语（M#3 资源唯一归属）。
  */
 
 import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/index.js';
-import { getWorkspaceRoot, CONFIG_YAML_FILE } from '../../foundation/install-paths.js';
 import { INBOX_PENDING_DIR } from '../../foundation/messaging/dirs.js';
 import { notifyClaw } from '../../foundation/messaging/notify.js';
 import type { InboxMessageOptionsBase } from '../../foundation/messaging/inbox-writer.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
+
+/** Config YAML filename (per-claw + global config 同名). */
+export const CONFIG_YAML_FILE = 'config.yaml' as const;
+
+/** Workspace root — prefers CHESTNUT_ROOT env var (inherited by exec child processes). */
+export function getWorkspaceRoot(): string {
+  return process.env.CHESTNUT_ROOT ?? process.cwd();
+}
+
+export function getChestnutRoot(): string {
+  return path.join(getWorkspaceRoot(), '.chestnut');
+}
+
+/**
+ * Generic helper to get a named subroot dir under .chestnut/.
+ *
+ * @param name - subroot name (caller-owned, e.g., motion, claws)
+ */
+export function getNamedSubrootDir(name: string): string {
+  return path.join(getWorkspaceRoot(), '.chestnut', name);
+}
 
 function assertSafeClawId(name: string): void {
   if (

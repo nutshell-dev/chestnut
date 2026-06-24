@@ -3,7 +3,7 @@
  * Watchdog CLI subcommands — start + stop
  */
 
-import { getWorkspaceRoot } from '../foundation/install-paths.js';
+import { getWorkspaceRoot } from '../core/claw-topology/claw-instance-paths.js';
 import { spawnDetached, kill as defaultKill } from '../foundation/process-exec/index.js';
 import type { WatchdogProcessDeps } from './types.js';
 import { setTimeout } from 'timers/promises';

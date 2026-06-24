@@ -7,7 +7,7 @@
  *  - enable processManager DI for tests (no vi.mock on dynamic await import)
  */
 
-import { getWorkspaceRoot } from '../../foundation/install-paths.js';
+import { getWorkspaceRoot } from '../../core/claw-topology/claw-instance-paths.js';
 import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
 import * as path from 'path';
 import { loadGlobalConfig, clawExists } from '../../assembly/config-load.js';

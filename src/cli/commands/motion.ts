@@ -8,7 +8,7 @@
  * Motion is the manager; it manages other Claws by calling the CLI via exec and has no dedicated tools.
  */
 
-import { getWorkspaceRoot } from '../../foundation/install-paths.js';
+import { getWorkspaceRoot } from '../../core/claw-topology/claw-instance-paths.js';
 import * as path from 'path';
 import { formatErr } from "../../foundation/node-utils/index.js";
 import { fileURLToPath } from 'url';

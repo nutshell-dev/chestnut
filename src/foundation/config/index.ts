@@ -4,7 +4,7 @@
  * Sub-files:
  * - loader.ts (generic yaml CRUD, L2a)
  *
- * Workspace path primitives live in foundation/install-paths.ts.
+ * Workspace path primitives live in core/claw-topology/claw-instance-paths.ts.
  *
  * Phase 704 migration:
  * - getGlobalConfigPath → assembly/global-config-path.ts (canonical owner: L6 Assembly)
@@ -20,7 +20,7 @@ export {
   getWorkspaceRoot,
   getChestnutRoot,
   getNamedSubrootDir,
-} from '../install-paths.js';
+} from '../../core/claw-topology/claw-instance-paths.js';
 
 // ── Backward-compat（phase 704，后续 phase 清理）─────────
 export { getGlobalConfigPath } from '../../assembly/global-config-path.js';

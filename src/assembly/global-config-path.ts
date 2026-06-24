@@ -4,7 +4,7 @@
  * global config 路径解析（`.chestnut/config.yaml`）— Assembly own。
  * phase 704 自 foundation/config/ 迁入（M#3 资源唯一归属）。
  */
-import { getWorkspaceRoot, CONFIG_YAML_FILE } from '../foundation/install-paths.js';
+import { getWorkspaceRoot, CONFIG_YAML_FILE } from '../core/claw-topology/claw-instance-paths.js';
 import * as path from 'path';
 
 export function getGlobalConfigPath(): string {
