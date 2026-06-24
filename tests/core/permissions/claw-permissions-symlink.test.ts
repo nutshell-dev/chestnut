@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { tmpdir } from 'node:os';
 import { createClawPermissionChecker } from '../../../src/core/permissions/claw-permissions.js';
-import { PathNotInClawSpaceError } from '../../../src/foundation/errors.js';
+import { PathNotInClawSpaceError } from '../../../src/core/permissions/errors.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 
 describe('claw-permissions symlink escape (phase 951)', () => {

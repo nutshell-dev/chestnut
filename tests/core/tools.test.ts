@@ -15,7 +15,7 @@ import type { Tool, ToolResult } from '../../src/foundation/tool-protocol/index.
 import type { FileSystem } from '../../src/foundation/fs/types.js';
 import {
   ToolTimeoutError,
-} from '../../src/foundation/errors.js';
+} from '../../src/foundation/tools/errors.js';
 
 /**
  * Mock tool 短任务执行时长 / monotonic clock advance step.

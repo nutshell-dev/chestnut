@@ -9,7 +9,7 @@ import type { FileSystem } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
-import { ToolError } from '../../foundation/errors.js';
+import { ToolError } from '../../foundation/tools/errors.js';
 import type { Contract } from '../contract/types.js';
 import type { ContractYaml } from './types.js';
 import type { ProgressData } from './types.js';

@@ -15,7 +15,7 @@
 
 import type { StreamEvent } from '../../foundation/stream/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
-import { ToolTimeoutError } from '../../foundation/errors.js';
+import { ToolTimeoutError } from '../../foundation/tools/errors.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../signals.js';
 import type { AbortReason } from '../../foundation/llm-provider/index.js';

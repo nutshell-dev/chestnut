@@ -17,11 +17,12 @@ export type { InboxMessage, OutboxMessage, HeartbeatEntry, Priority } from './fo
 export { PRIORITY_VALUES } from './foundation/messaging/index.js';
 export type { ToolProfile } from './foundation/tool-protocol/index.js';
 export type { CallerType } from './core/caller-types.js';
-export type { ErrorCode, ErrorDetails } from './foundation/errors.js';
+export type { ErrorCode } from './foundation/errors.js';
+export { ClawError } from './foundation/errors.js';
 export {
-  ClawError, PermissionError, PathNotInClawSpaceError, WriteOperationForbiddenError,
-  ToolError, ToolTimeoutError, isProgrammingBug,
-} from './foundation/errors.js';
+  PermissionError, PathNotInClawSpaceError, WriteOperationForbiddenError,
+} from './core/permissions/errors.js';
+export { ToolError, ToolTimeoutError } from './foundation/tools/errors.js';
 export {
   LLMError, LLMRateLimitError, LLMTimeoutError, LLMAuthError, LLMNetworkError,
   LLMEmptyResponseError, LLMModelNotFoundError, LLMAllProvidersFailedError,

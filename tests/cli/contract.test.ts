@@ -140,7 +140,7 @@ describe('phase 906 Step B1: contract.ts cause chain + ENOENT narrow', () => {
   });
 
   it('CliError 类已 align 支持 { cause } 透传', () => {
-    const errPath = path.join(__dirname, '../../src/foundation/errors.ts');
+    const errPath = path.join(__dirname, '../../src/cli/errors.ts');
     const errCode = fs.readFileSync(errPath, 'utf-8');
     expect(errCode).toContain('cause?: unknown');
     expect(errCode).toContain('super(message, optionsOrCode)');

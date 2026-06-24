@@ -11,7 +11,7 @@ import { ExecContextImpl, cloneExecContext } from './context.js';
 
 import {
   ToolTimeoutError,
-} from '../errors.js';
+} from './errors.js';
 import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 import type { ExecContext } from './types.js';
 import type { ToolGroup } from './types.js';

@@ -22,7 +22,7 @@ import * as path from 'path';
 import {
   PathNotInClawSpaceError,
   WriteOperationForbiddenError,
-} from '../../foundation/errors.js';
+} from './errors.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { PERMISSION_AUDIT_EVENTS } from './audit-events.js';

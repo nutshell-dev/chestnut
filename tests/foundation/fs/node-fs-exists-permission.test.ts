@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import * as path from 'path';
 import * as os from 'os';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
-import { PermissionError } from '../../../src/foundation/errors.js';
+import { PermissionError } from '../../../src/core/permissions/errors.js';
 
 describe('NodeFileSystem — exists PermissionError signal (P1.5 phase 611)', () => {
   const fs = new NodeFileSystem({ baseDir: os.tmpdir() });

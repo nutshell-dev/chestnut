@@ -6,7 +6,7 @@
 
 import * as path from 'path';
 import type { AcceptanceFailedNotification, ContractYaml, VerificationResult, SubtaskId } from './types.js';
-import { ToolError, isProgrammingBug } from '../../foundation/errors.js';
+import { ToolError } from '../../foundation/tools/errors.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import { DEFAULT_VERIFICATION_ATTEMPTS } from './constants.js';
 import {
@@ -323,7 +323,7 @@ export async function runVerificationPipeline(
   // archiveAndEmit / rollback windows. Release in .finally() of the bg promise.
   runVerificationInBackground(ctx, params, contractYaml, verificationConfig)
     .catch(err => {
-      if (isProgrammingBug(err)) {
+      if ([TypeError, ReferenceError, SyntaxError, RangeError].some(T => err instanceof T)) {
         emitContractUnexpectedAsyncThrow(
           ctx.audit,
           {

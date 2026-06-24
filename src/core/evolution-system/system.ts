@@ -14,7 +14,7 @@ import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 import { CONTRACT_AUDIT_EVENTS } from '../contract/index.js';
 import type { Message } from '../../foundation/llm-provider/index.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
-import { isProgrammingBug } from '../../foundation/errors.js';
+const PROGRAMMING_BUG_TYPES = [TypeError, ReferenceError, SyntaxError, RangeError] as const;
 import { readPendingRetrospective, InvalidJSONError, UnexpectedFormatError, InvalidTargetClawError } from '../summon-system/index.js';
 import type { ContractId } from '../contract/types.js';
 
@@ -406,7 +406,7 @@ export class EvolutionSystem {
     // 3.3 调度成功后 cleanup by-contract 索引（best-effort）
     await ctx.motionFs.delete(byContractPath).catch(e => {
       // phase384/B.p347-retro-8: 区分编程 bug vs 业务 throw / 编程 bug 暴露 audit
-      if (isProgrammingBug(e)) {
+      if (PROGRAMMING_BUG_TYPES.some(T => e instanceof T)) {
         this.deps.audit.write(
           CONTRACT_AUDIT_EVENTS.UNEXPECTED_ASYNC_THROW,
           `context=EvolutionSystem.retroIndexCleanup`,

@@ -26,7 +26,7 @@ import { createMockTaskSystem } from '../../helpers/task-system.js';
 import type { DialogStore } from '../../../src/foundation/dialog-store/index.js';
 import { SHADOW_AUDIT_EVENTS } from '../../../src/core/shadow-system/audit-events.js';
 import { DONE_TOOL_NAME } from '../../../src/core/subagent/tools/done.js';
-import { ToolTimeoutError } from '../../../src/foundation/errors.js';  // phase 262: hoist
+import { ToolTimeoutError } from '../../../src/foundation/tools/errors.js';  // phase 262: hoist
 
 const { mockRunSubagent } = vi.hoisted(() => ({
   mockRunSubagent: vi.fn(),

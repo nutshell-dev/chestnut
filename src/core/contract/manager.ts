@@ -27,7 +27,7 @@ import { newShortUuid } from '../../foundation/node-utils/index.js';
 import { isFileNotFound, type FileSystem } from '../../foundation/fs/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { Contract, SubtaskStatus } from '../contract/types.js';
-import { ToolError, isProgrammingBug } from '../../foundation/errors.js';
+import { ToolError } from '../../foundation/tools/errors.js';
 import { type AuditLog } from '../../foundation/audit/index.js';
 import type { ToolRegistry } from '../../foundation/tools/index.js';
 
@@ -806,7 +806,7 @@ export class ContractSystem {
       );
     } catch (err) {
       await this.fs.removeDir(`${this.activeDir}/${contractId}`).catch((deleteErr) => {
-        if (isProgrammingBug(deleteErr)) {
+        if ([TypeError, ReferenceError, SyntaxError, RangeError].some(T => deleteErr instanceof T)) {
           emitContractUnexpectedAsyncThrow(
             this.audit,
             {
