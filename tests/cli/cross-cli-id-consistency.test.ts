@@ -17,8 +17,8 @@ vi.mock('../../src/core/claw-topology/claw-instance-paths.js', async (importOrig
     getClawConfigPath: vi.fn((claw: string) => `/tmp/chestnut-test/claws/${claw}/config.yaml`),
   };
 });
-vi.mock('../../src/foundation/config/index.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/foundation/config/index.js')>();
+vi.mock('../../src/assembly/config-loader.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/assembly/config-loader.js')>();
   return {
     ...actual,
   };

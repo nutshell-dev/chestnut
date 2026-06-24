@@ -3,7 +3,7 @@
  * phase 298: V12 (b) real-治、wrapper 反向迁 foundation → assembly
  *
  * Owns: root config wrapper (load/save/exists/patch) + LLM merge
- * Generic yaml CRUD remains in foundation/config/loader.ts
+ * Generic yaml CRUD remains in ./config-loader.ts (phase 717)
  * path primitive: getGlobalConfigPath in ./global-config-path.ts (phase 704)
  */
 import * as path from 'path';
@@ -19,7 +19,7 @@ import {
   writeYamlConfig,
   patchYamlConfig,
   configExists,
-} from '../foundation/config/loader.js';
+} from './config-loader.js';
 import { getGlobalConfigPath } from './global-config-path.js';
 import { toProviderConfig } from '../foundation/llm-orchestrator/config-adapter.js';
 import type { LLMOrchestratorConfig } from '../foundation/llm-orchestrator/index.js';

@@ -12,8 +12,8 @@ describe('assembly/config-load: uses FileSystem for atomic writes', () => {
 
   it('uses writeAtomicSync for config writes', () => {
     const configLoadSrc = readFileSync('src/assembly/config-load.ts', 'utf-8');
-    const loaderSrc = readFileSync('src/foundation/config/loader.ts', 'utf-8');
-    // Phase 10/298: write logic remains in loader.ts; config-load.ts delegates via writeYamlConfig
+    const loaderSrc = readFileSync('src/assembly/config-loader.ts', 'utf-8');
+    // Phase 10/298/717: write logic remains in config-loader.ts; config-load.ts delegates via writeYamlConfig
     expect(configLoadSrc + loaderSrc).toMatch(/writeAtomicSync\(/);
   });
 });

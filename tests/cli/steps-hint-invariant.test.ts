@@ -9,8 +9,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
-vi.mock('../../src/foundation/config/index.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/foundation/config/index.js')>();
+vi.mock('../../src/assembly/config-loader.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/assembly/config-loader.js')>();
   return {
     ...actual,
   };

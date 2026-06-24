@@ -49,8 +49,8 @@ vi.mock('../../src/assembly/global-config-path.js', async (importOriginal) => {
     getGlobalConfigPath: vi.fn(() => '/tmp/test/.chestnut/config.yaml'),
   };
 });
-vi.mock('../../src/foundation/config/index.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/foundation/config/index.js')>();
+vi.mock('../../src/assembly/config-loader.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/assembly/config-loader.js')>();
   return {
     ...actual,
   };

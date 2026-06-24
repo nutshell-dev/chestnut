@@ -1,4 +1,6 @@
 /**
+ * @module L6.Assembly
+ *
  * Phase 10 Step B: thin YAML config loader
  *
  * Generic YAML read/write + Zod parse、不持任何业务字段含义。
@@ -6,11 +8,13 @@
  *
  * 保留：env var expansion（`${ENV_VAR}` → process.env.X）、错误归类抛、atomic+fsync 写
  * Refs: coding plan/phase10/Step B.md §3.2
+ *
+ * Phase 717: 自 foundation/config/loader.ts 迁入 assembly/，归属 L6.Assembly。
  */
 import * as path from 'path';
-import { formatErr } from "../node-utils/index.js";
+import { formatErr } from "../foundation/node-utils/index.js";
 import * as yaml from 'js-yaml';
-import type { FileSystem } from '../fs/index.js';
+import type { FileSystem } from '../foundation/fs/index.js';
 
 // Expand ${ENV_VAR} syntax in config values
 function expandEnvVars(obj: unknown): unknown {

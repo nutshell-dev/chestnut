@@ -32,6 +32,7 @@ import execContextFieldBudget from './eslint-rules/exec-context-field-budget.js'
 import noEntryLiteralOutsideAllowlist from './eslint-rules/no-entry-literal-outside-allowlist.js';
 import noCronHandlerWithoutSignal from './eslint-rules/no-cron-handler-without-signal.js';
 import typedEmitCascadeFirstLineGuard from './eslint-rules/typed-emit-cascade-first-line-guard.js';
+import foundationDirectoryModule from './eslint-rules/foundation-directory-module.js';
 
 /** @type {import('eslint').Linter.Config[]} */
 export default [
@@ -81,6 +82,7 @@ export default [
           'no-entry-literal-outside-allowlist': noEntryLiteralOutsideAllowlist,
           'no-cron-handler-without-signal': noCronHandlerWithoutSignal,
           'typed-emit-cascade-first-line-guard': typedEmitCascadeFirstLineGuard,
+          'foundation-directory-module': foundationDirectoryModule,
         },
       },
     },
@@ -120,6 +122,7 @@ export default [
       'chestnut-custom/no-entry-literal-outside-allowlist': 'error',
       'chestnut-custom/no-cron-handler-without-signal': 'error',
       'chestnut-custom/typed-emit-cascade-first-line-guard': 'error',
+      'chestnut-custom/foundation-directory-module': 'error',
     },
   },
 ];
