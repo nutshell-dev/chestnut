@@ -1,6 +1,6 @@
 import { getReadyFile, getPidFile, ensureStatusDir } from './paths.js';
 import type { DaemonDir } from './types.js';
-import { formatErr } from "../utils/index.js";
+import { formatErr } from "../node-utils/index.js";
 import { isAlive as defaultL1IsAlive, getProcessStartTime as defaultGetProcessStartTime, makeProcessStartTime, type ProcessStartTime } from '../process-exec/index.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from './audit-events.js';
 import type { ProcessManagerContext } from './types.js';

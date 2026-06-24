@@ -13,8 +13,8 @@ import { describe, it, expect } from 'vitest';
  *   - cli/utils/cli-commands: CLAW_VERBS + clawCmd + CONTRACT_COMMANDS
  */
 describe('owner modules API presence (phase 503 / phase 574 expanded)', () => {
-  it('foundation/uuid exposes newUuid, newShortUuid, randomHex', async () => {
-    const uuidMod = await import('../../../src/foundation/uuid.js');
+  it('foundation/node-utils/id exposes newUuid, newShortUuid, randomHex', async () => {
+    const uuidMod = await import('../../../src/foundation/node-utils/id.js');
     expect(typeof uuidMod.newUuid).toBe('function');
     expect(typeof uuidMod.newShortUuid).toBe('function');
     expect(typeof uuidMod.randomHex).toBe('function');
@@ -26,8 +26,8 @@ describe('owner modules API presence (phase 503 / phase 574 expanded)', () => {
     expect(uuidMod.randomHex(8).length).toBe(16);
   });
 
-  it('foundation/hash exposes sha256Hex, sha256ShortHex, createSha256Hasher', async () => {
-    const hashMod = await import('../../../src/foundation/hash.js');
+  it('foundation/node-utils/crypto exposes sha256Hex, sha256ShortHex, createSha256Hasher', async () => {
+    const hashMod = await import('../../../src/foundation/node-utils/crypto.js');
     expect(typeof hashMod.sha256Hex).toBe('function');
     expect(typeof hashMod.sha256ShortHex).toBe('function');
     expect(typeof hashMod.createSha256Hasher).toBe('function');

@@ -6,7 +6,7 @@
  */
 
 import * as readline from 'readline';
-import { formatErr } from "../foundation/utils/index.js";
+import { formatErr } from "../foundation/node-utils/index.js";
 
 import { loadGlobalConfig, patchGlobalConfigPrimary } from '../assembly/config-load.js';
 import { PRESETS } from '../foundation/config/index.js';

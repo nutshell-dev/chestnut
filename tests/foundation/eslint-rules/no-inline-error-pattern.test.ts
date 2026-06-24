@@ -15,7 +15,7 @@ describe('eslint custom rule: no-inline-error-pattern (phase 309)', () => {
   ruleTester.run('no-inline-error-pattern', noInlineErrorPattern, {
     valid: [
       // canonical: use formatErr
-      'import { formatErr } from "../utils/index.js"; const msg = formatErr(e);',
+      'import { formatErr } from "../node-utils/index.js"; const msg = formatErr(e);',
       // form 2/3 containing `:` / not matched
       '`${err.name}: ${err.message}`',
       '`${err.message}\\n${err.stack}`',

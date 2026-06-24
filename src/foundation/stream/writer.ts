@@ -2,11 +2,11 @@
  * StreamWriter - 追加写 stream.jsonl
  */
 import type { FileSystem } from '../fs/index.js';
-import { formatErr } from "../utils/index.js";
+import { formatErr } from "../node-utils/index.js";
 import { STREAM_FILE, type StreamEvent, type StreamLog } from './types.js';
 import type { AuditLog } from '../audit/index.js';
 import { STREAM_AUDIT_EVENTS } from './audit-events.js';
-import { newShortUuid } from '../uuid.js';
+import { newShortUuid } from  '../node-utils/index.js';
 
 export interface StreamRetentionOptions {
   maxFiles?: number | null;

@@ -6,7 +6,7 @@
  *
  * phase 540: extracted from cli/commands/claw-shared to break the
  * assembly → cli reverse import that the original location forced.
- * Lives in foundation/utils as a leaf string-formatter helper.
+ * Lives in cli/utils as a leaf string-formatter helper.
  */
 
 /**

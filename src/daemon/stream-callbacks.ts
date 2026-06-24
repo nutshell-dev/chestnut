@@ -11,7 +11,7 @@ import type { StreamLog } from '../foundation/stream/index.js';
 import type { StreamCallbacks, Runtime } from '../core/runtime/index.js';
 import type { ToolUseId } from '../foundation/tool-protocol/index.js';
 import { AGENT_STREAM_EVENTS } from '../core/agent-executor/index.js';
-import { clipText } from '../foundation/utils/index.js';
+
 
 /**
  * 创建 StreamCallbacks 实现，将业务事件转为 StreamEvent 写入 StreamLog。
@@ -50,7 +50,8 @@ export function createStreamCallbacks(
     },
     onToolResult: (name: string, toolUseId: ToolUseId, result: { success: boolean; content: string }, step: number, maxSteps: number) => {
       const STREAM_SUMMARY_MAX_CHARS = 500;
-      const summary = clipText(result.content, STREAM_SUMMARY_MAX_CHARS);
+      const content = (result.content ?? '').trimStart();
+      const summary = content.length <= STREAM_SUMMARY_MAX_CHARS ? content : content.slice(0, STREAM_SUMMARY_MAX_CHARS) + '…';
       checkWrite({
         ts: Date.now(),
         type: AGENT_STREAM_EVENTS.TOOL_RESULT,

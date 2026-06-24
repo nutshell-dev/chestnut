@@ -14,8 +14,8 @@
  */
 
 import * as path from 'path';
-import { formatErr } from "../utils/index.js";
-import { newShortUuid } from '../uuid.js';
+import { formatErr } from "../node-utils/index.js";
+import { newShortUuid } from  '../node-utils/index.js';
 import type { FileSystem } from '../fs/index.js';
 import { isFileNotFound } from '../fs/index.js';
 import type { InboxMessage, InboxHandle } from '../messaging/types.js';

@@ -1,6 +1,6 @@
 // src/core/evolution-system/system.ts
 import type { AuditLog } from '../../foundation/audit/index.js';
-import { formatErr } from "../../foundation/utils/index.js";
+import { formatErr } from "../../foundation/node-utils/index.js";
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { AsyncTaskSystem } from '../async-task-system/index.js';
 import { ContractSystem } from '../contract/index.js';

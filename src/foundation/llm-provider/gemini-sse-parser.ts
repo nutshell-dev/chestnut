@@ -5,7 +5,7 @@
  */
 
 import type { StreamChunk } from './types.js';
-import { formatErr } from "../utils/index.js";
+import { formatErr } from "../node-utils/index.js";
 import type { CombinedAbortHandle } from './abort-helper.js';
 import { LLMError, LLMRateLimitError } from './errors.js';
 

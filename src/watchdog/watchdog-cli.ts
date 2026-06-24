@@ -17,7 +17,7 @@ import {
 import { CliError } from '../foundation/errors.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 import { getAuditWriter } from './watchdog-context.js';
-import { formatErr } from '../foundation/utils/index.js';
+import { formatErr } from '../foundation/node-utils/index.js';
 
 // Watchdog lifecycle poll：通用 100ms 间隔
 const WATCHDOG_POLL_INTERVAL_MS = 100;

@@ -11,7 +11,7 @@
  */
 
 import * as path from 'path';
-import { formatErr } from "../utils/index.js";
+import { formatErr } from "../node-utils/index.js";
 import { exec as defaultExec } from '../process-exec/index.js';
 import { isFileNotFound, type FileSystem } from '../fs/index.js';
 import type { AuditLog } from '../audit/index.js';
@@ -32,7 +32,9 @@ import {
 } from './audit-emit.js';
 import { assertSnapshotStateShape } from './invariants.js';
 import { auditSnapshotStateCrossSource } from './state-cross-source-audit.js';
-import { ok, err as errResult, type Result } from '../utils/index.js';
+type Result<T, E> =
+  | { ok: true; value: T }
+  | { ok: false; error: E };
 import { classifyGitError, type ExpectedGitFailure, type GitExecError } from './git-errors.js';
 
 
@@ -239,7 +241,7 @@ export class Snapshot {
         const head = await this.git(['rev-parse', 'HEAD']);
         if (head.stdout) {
           // idempotent: do NOT reset counter (preserve cross-reassemble failure history)
-          return ok(undefined);
+          return { ok: true as const, value: undefined };
         }
       } catch {
         // silent: rev-parse failure means incomplete repo — handled by re-init below
@@ -265,7 +267,7 @@ export class Snapshot {
       if (shouldResetCounter) {
         this.state = onCommitSuccess();
       }
-      return ok(undefined);
+      return { ok: true as const, value: undefined };
     } catch (rawErr) {
       const failure = this.classifyOrThrow(rawErr);
       await this.tryCleanupGit(failure);
@@ -273,7 +275,7 @@ export class Snapshot {
         dir: this.dir,
         kind: failure.kind,
       });
-      return errResult(failure);
+      return { ok: false as const, error: failure };
     }
   }
 
@@ -316,7 +318,7 @@ export class Snapshot {
         this.state = onCommitSuccess();
         await tryClearPersist(this.fs, this.dir, this.audit);
       }
-      return ok(undefined);
+      return { ok: true as const, value: undefined };
     }
 
     try {
@@ -329,7 +331,7 @@ export class Snapshot {
       }
       if (!status.stdout) {
         this.state = onCommitSuccess();
-        return ok(undefined);
+        return { ok: true as const, value: undefined };
       }
       await this.git(['add', '.']);
       // phase 429 Step C (review low defensive): -- 声明 end-of-options、message 含
@@ -346,7 +348,7 @@ export class Snapshot {
       // whitelist cleanup of specified sync scratch subdirs on commit success (§P1 SRP 抽出)
       await this.cleanupSyncDirs();
 
-      return ok(undefined);
+      return { ok: true as const, value: undefined };
     } catch (rawErr) {
       const failure = this.classifyOrThrow(rawErr);
       this.state = onCommitFailure(this.state, Date.now());
@@ -363,7 +365,7 @@ export class Snapshot {
           consecutive: this.state.failures,
         });
       }
-      return errResult(failure);
+      return { ok: false as const, error: failure };
     }
   }
 

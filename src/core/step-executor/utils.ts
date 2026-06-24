@@ -4,7 +4,7 @@
  */
 
 import type { Message, ContentBlock, ToolUseBlock, ToolResultBlock } from '../../foundation/llm-provider/index.js';
-import { formatErr } from "../../foundation/utils/index.js";
+import { formatErr } from "../../foundation/node-utils/index.js";
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
 

@@ -3,7 +3,7 @@
  */
 
 import * as readline from 'readline';
-import { formatErr } from "../../foundation/utils/index.js";
+import { formatErr } from "../../foundation/node-utils/index.js";
 import { saveGlobalConfig, isInitialized } from '../../assembly/config-load.js';
 import { getWorkspaceRoot } from '../../foundation/config/index.js';
 import { FORMAT_MAP } from '../../foundation/llm-orchestrator/index.js';

@@ -17,8 +17,8 @@ describe('resource owner modules physical presence (phase 504 / phase 564 expand
 
   const owners = [
     { name: 'foundation/fs (L1 owner)', rel: 'foundation/fs/node-fs.ts' },
-    { name: 'foundation/uuid (entropy owner)', rel: 'foundation/uuid.ts' },
-    { name: 'foundation/hash (hash owner)', rel: 'foundation/hash.ts' },
+    { name: 'foundation/node-utils/id (entropy owner)', rel: 'foundation/node-utils/id.ts' },
+    { name: 'foundation/node-utils/crypto (hash owner)', rel: 'foundation/node-utils/crypto.ts' },
     { name: 'foundation/process-exec (child_process owner)', rel: 'foundation/process-exec/exec.ts' },
     { name: 'foundation/transport (net owner)', rel: 'foundation/transport/unix-socket.ts' },
     // phase 564: phase 520-554 引入的 5 个 owner module

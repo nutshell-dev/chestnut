@@ -7,7 +7,7 @@
  */
 
 import type { Tool, ExecContext, ExecutionInfra, ExecutionAudit } from '../../tools/index.js';
-import { formatErr } from "../../utils/index.js";
+import { formatErr } from "../../node-utils/index.js";
 import type { ToolResult } from '../../tool-protocol/index.js';
 import { createSkillSystem, type SkillSystem } from '../index.js';
 

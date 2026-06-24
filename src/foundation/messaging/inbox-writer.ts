@@ -6,7 +6,7 @@
  */
 
 import * as path from 'path';
-import { formatErr } from "../utils/index.js";
+import { formatErr } from "../node-utils/index.js";
 import type { FileSystem } from '../fs/index.js';
 import type { InboxMessage } from '../messaging/types.js';
 import { encodeInbox, parseFrontmatter } from './codec-inbox.js';
@@ -19,7 +19,9 @@ import {
 } from './audit-emit.js';
 import { assertMessageShape } from './invariants.js';
 import { SequenceCounter, formatSeq } from './sequence-counter.js';
-import { ok, err as errResult, type Result } from '../utils/index.js';
+type Result<T, E> =
+  | { ok: true; value: T }
+  | { ok: false; error: E };
 import type { InboxMetaError } from './errors.js';
 import { isFileNotFound } from '../fs/index.js';
 
@@ -189,20 +191,20 @@ export class InboxWriter {
       content = fs.readSync(filePath);
     } catch (e) {
       if (isFileNotFound(e)) {
-        return errResult({ kind: 'not_found', cause: e });
+        return { ok: false as const, error: { kind: 'not_found', cause: e } };
       }
       if ((e as NodeJS.ErrnoException).code === 'EACCES' || (e as NodeJS.ErrnoException).code === 'EPERM') {
-        return errResult({ kind: 'permission_denied', cause: e });
+        return { ok: false as const, error: { kind: 'permission_denied', cause: e } };
       }
       if ((e as NodeJS.ErrnoException).code === 'EIO' || (e as NodeJS.ErrnoException).code === 'EBUSY' || (e as NodeJS.ErrnoException).code === 'ENOSPC') {
-        return errResult({ kind: 'io_failed', cause: e });
+        return { ok: false as const, error: { kind: 'io_failed', cause: e } };
       }
-      return errResult({ kind: 'read_failed', cause: e });
+        return { ok: false as const, error: { kind: 'read_failed', cause: e } };
     }
     try {
-      return ok(parseFrontmatter(content).meta);
+        return { ok: true as const, value: parseFrontmatter(content).meta };
     } catch (e) {
-      return errResult({ kind: 'parse_failed', cause: e });
+        return { ok: false as const, error: { kind: 'parse_failed', cause: e } };
     }
   }
 }

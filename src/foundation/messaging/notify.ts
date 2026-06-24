@@ -14,7 +14,7 @@ import type { InboxMessageOptionsBase } from './inbox-writer.js';
 import type { InboxMessage } from './types.js';
 import type { FileSystem } from '../fs/index.js';
 import type { AuditLog } from '../audit/index.js';
-import { newShortUuid } from '../uuid.js';
+import { newShortUuid } from  '../node-utils/index.js';
 import { emitUnknownDestinationDlq } from './audit-emit.js';
 
 /**

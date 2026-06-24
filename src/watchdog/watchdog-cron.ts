@@ -5,7 +5,7 @@
 
 import { makeChestnutRoot } from '../core/claw-topology/claw-instance-paths.js';
 import * as path from 'path';
-import { formatErr } from "../foundation/utils/index.js";
+import { formatErr } from "../foundation/node-utils/index.js";
 import type { FileSystem } from '../foundation/fs/index.js';
 import { isFileNotFound } from '../foundation/fs/index.js';
 import type { ProcessManager } from '../foundation/process-manager/index.js';

@@ -8,7 +8,7 @@
  * Refs: coding plan/phase10/Step B.md §3.2
  */
 import * as path from 'path';
-import { formatErr } from "../utils/index.js";
+import { formatErr } from "../node-utils/index.js";
 import * as yaml from 'js-yaml';
 import type { FileSystem } from '../fs/index.js';
 

@@ -142,9 +142,8 @@ module.exports = {
     {
       name: 'crypto-only-from-foundation',
       comment: [
-        'M#3 资源唯一归属：node:crypto 直 import 仅 foundation/uuid + foundation/hash owner module。',
-        '其他 src 必经 foundation/uuid (newUuid / newShortUuid / randomHex) 或',
-        'foundation/hash (sha256Hex / sha256ShortHex / createSha256Hasher)。',
+        'M#3 资源唯一归属：node:crypto 直 import 仅 L1.NodeUtils owner module。',
+        '其他 src 必经 foundation/node-utils (newUuid / newShortUuid / randomHex / sha256Hex / sha256ShortHex / createSha256Hasher)。',
         'phase 449 立 foundation/uuid owner + sweep 25 randomUUID importer。',
         'phase 452 立 foundation/hash owner + sweep 4 createHash importer。',
         'phase 455 立 lint rule 防 future drift（同型 fs-only-via-foundation-filesystem phase 1298）。',
@@ -153,8 +152,8 @@ module.exports = {
       from: {
         path: '^src',
         pathNot: [
-          '^src/foundation/uuid\\.ts$',
-          '^src/foundation/hash\\.ts$',
+          '^src/foundation/node-utils/crypto\\.ts$',
+          '^src/foundation/node-utils/id\\.ts$',
         ],
       },
       to: {

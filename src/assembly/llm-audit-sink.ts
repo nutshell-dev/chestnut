@@ -1,5 +1,5 @@
 import { LLM_AUDIT_EVENTS } from './llm-audit-events.js';
-import { formatErr } from "../foundation/utils/index.js";
+import { formatErr } from "../foundation/node-utils/index.js";
 import type { LLMEventSink, LLMEvent } from '../foundation/llm-orchestrator/index.js';
 import type { AuditLog } from '../foundation/audit/index.js';
 

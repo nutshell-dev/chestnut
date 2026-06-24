@@ -16,7 +16,7 @@ import type { SessionData, DialogMarker, RestoreResult } from './types.js';
 import { MarkerNotFoundError, detectAndMigrateVersion, validateSessionData } from './validate.js';
 import { CURRENT_DIALOG_FILE } from './dirs.js';
 import { DIALOG_AUDIT_EVENTS } from './audit-events.js';
-import { formatErr } from '../utils/index.js';
+import { formatErr } from '../node-utils/index.js';
 import { DialogStoreError } from './errors.js';
 
 /**

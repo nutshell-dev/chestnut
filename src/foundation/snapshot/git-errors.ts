@@ -1,4 +1,6 @@
-import { ok, type Result } from '../utils/index.js';
+type Result<T, E> =
+  | { ok: true; value: T }
+  | { ok: false; error: E };
 
 /** 预期失败：git 语义上的可识别状态，降级不抛 */
 export type ExpectedGitFailure =
@@ -45,12 +47,12 @@ export function classifyGitError(e: GitExecError): Result<ExpectedGitFailure, ne
   // 3) 预期：output match 白名单
   for (const { kind, re } of EXPECTED_PATTERNS) {
     if (re.test(output)) {
-      return ok({ kind, output } as ExpectedGitFailure);
+      return { ok: true as const, value: { kind, output } as ExpectedGitFailure };
     }
   }
   // 4) 守恒：exit 非 0 但无 match → 视为预期 uncategorized
   if (typeof e.exitCode === 'number' && e.exitCode > 0) {
-    return ok({ kind: 'uncategorized', exitCode: e.exitCode, output } as ExpectedGitFailure);
+    return { ok: true as const, value: { kind: 'uncategorized', exitCode: e.exitCode, output } as ExpectedGitFailure };
   }
   // 5) 其他（exitCode 缺失 / stderr 空且无 code）→ 不可预期
   throw e;

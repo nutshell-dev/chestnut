@@ -9,7 +9,7 @@
  */
 
 import { buildRetroPrompt } from '../../templates/prompts/index.js';
-import { formatErr } from "../../foundation/utils/index.js";
+import { formatErr } from "../../foundation/node-utils/index.js";
 import { MOTION_CLAW_ID } from '../claw-topology/index.js';
 import type { AsyncTaskSystem } from '../async-task-system/index.js';
 import { createSkillSystem as defaultCreateSkillSystem } from '../../foundation/skill-system/index.js';

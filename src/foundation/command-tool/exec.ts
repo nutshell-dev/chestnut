@@ -13,14 +13,15 @@
 import type { ExecContext } from '../tools/index.js';
 import type { ToolResult } from '../tool-protocol/index.js';
 import type { Tool } from '../tools/index.js';
-import { newShortUuid } from '../uuid.js';
+import { newShortUuid } from  '../node-utils/index.js';
 import * as path from 'path';
 import { EXEC_MAX_OUTPUT, EXEC_OVERFLOW_DIR_NAME, EXEC_COMMAND_PLACEHOLDER_CHARS } from './constants.js';
 
 import { exec } from '../process-exec/index.js';
 import { ProcessExecError } from '../process-exec/index.js';
 import { PROCESS_EXEC_DEFAULT_TIMEOUT_MS } from '../process-exec/index.js';
-import { formatErr, safeNumber, truncateHeadTail } from '../utils/index.js';
+import { formatErr } from '../node-utils/index.js';
+import { truncateHeadTail } from '../file-tool/truncate-head-tail.js';
 import { COMMAND_TOOL_AUDIT_EVENTS } from './audit-events.js';
 
 /**
@@ -36,6 +37,11 @@ import { COMMAND_TOOL_AUDIT_EVENTS } from './audit-events.js';
  * Threat model is well-meaning agent, not adversary — shell evasion
  * (eval, env-var splicing, path tricks) is out of scope.
  */
+function toSafeNumber(v: unknown): number | undefined {
+  const n = typeof v === 'number' ? v : Number(String(v));
+  return Number.isNaN(n) || !Number.isFinite(n) ? undefined : n;
+}
+
 function looksLikeChestnutSelfKill(command: string): boolean {
   return /\bchestnut\s+(motion\s+)?stop\b/i.test(command);
 }
@@ -45,7 +51,7 @@ function truncate(str: string, maxLen: number): string {
   return str.slice(0, maxLen) + '\n[truncated]';
 }
 
-// phase 524: HEAD/TAIL 常量 + truncateHeadTail 抽 foundation/utils/truncate-head-tail.ts。
+// phase 524: HEAD/TAIL 常量 + truncateHeadTail 抽 foundation/file-tool/truncate-head-tail.ts。
 // EXEC_MAX_OUTPUT === TRUNCATE_TOTAL_LIMIT === HEAD + TAIL = 2000B（业务 truncation 协议）。
 // caller 均在 `if (output.length > EXEC_MAX_OUTPUT)` 内调用、无需 helper 内重复阈值判。
 
@@ -138,7 +144,7 @@ export function createExecTool(): Tool {
       const cwd = cwdArg
         ? (path.isAbsolute(cwdArg) ? cwdArg : path.resolve(ctx.workspaceDir, cwdArg))   // phase 519: workspace-relative
         : ctx.workspaceDir;            // phase 512 / per-callerType: 主代理=clawspace / 子代理=tasks/subagents/<id>
-      const timeoutMs = safeNumber(args.timeoutMs);
+      const timeoutMs = toSafeNumber(args.timeoutMs);
 
       try {
         const env = ctx.subagentTaskId

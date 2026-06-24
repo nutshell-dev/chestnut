@@ -24,7 +24,7 @@ import type {
 } from './types.js';
 import { STREAM_MAX_DURATION_MS, STREAM_IDLE_MAX_MS } from './constants.js';
 import { withCombinedAbortSignal, classifyFetchAbortError } from './abort-helper.js';
-import { isAbortError } from '../utils/index.js';
+import { isAbortError } from './is-abort-error.js';
 // NEW imports（sub-file）
 import { formatMessages, formatTools } from './openai-message-formatter.js';
 import { parseSSEStream } from './openai-sse-parser.js';

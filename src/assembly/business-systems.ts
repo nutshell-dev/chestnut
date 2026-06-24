@@ -1,5 +1,5 @@
 import path from 'path';
-import { formatErr } from '../foundation/utils/index.js';
+import { formatErr } from '../foundation/node-utils/index.js';
 import { resolveChestnutRoot } from '../core/claw-topology/claw-instance-paths.js';
 import { DISPATCH_SKILLS_PATH } from '../core/summon-system/dispatch-skills-paths.js';
 import { makeClawId } from '../foundation/claw-identity/index.js';

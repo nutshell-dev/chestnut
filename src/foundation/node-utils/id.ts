@@ -1,11 +1,10 @@
 /**
- * @module L1.Uuid
+ * @module L1.NodeUtils
  *
  * 熵源资源 owner（M#3 资源唯一归属）：`randomUUID` + `randomBytes` 唯一封装。
  * 其他模块经本模块 API 取唯一 ID / 熵字节、不直 import node:crypto。
  *
- * phase 449 立、F3 partial randomUUID 资源归一。
- * createHash 计算函数留 F3 余（性质不同、单独 phase 评归 foundation/hash）。
+ * phase 712 并入 L1.NodeUtils。
  */
 
 import { randomUUID, randomBytes } from 'node:crypto';

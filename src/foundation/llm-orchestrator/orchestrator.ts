@@ -35,7 +35,7 @@ import { CircuitBreaker } from './circuit-breaker.js';
 import { createLLMProvider, type LLMProvider } from '../llm-provider/index.js';
 import { makeExternalAbortError, withCombinedAbortSignal, type AbortReason } from '../llm-provider/index.js';
 import { delay, isContentChunk, wrapResponseAsStream, mergeSignals } from './utils.js';
-import { sha256ShortHex } from '../hash.js';  // phase 450 (review): cache key apiKey hash
+import { sha256ShortHex } from  '../node-utils/index.js';  // phase 450 (review): cache key apiKey hash
 
 /**
  * Maximum exponential backoff delay (ms).

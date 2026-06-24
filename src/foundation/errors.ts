@@ -1,4 +1,4 @@
-import { formatErr } from './utils/index.js';
+import { formatErr } from './node-utils/index.js';
 
 export type WriteForbiddenReason = 'system_readonly' | 'outside_allowlist';
 

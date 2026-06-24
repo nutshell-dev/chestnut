@@ -10,7 +10,7 @@
 
 import type { AuditLog } from '../foundation/audit/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
-import { formatErr } from '../foundation/utils/index.js';
+import { formatErr } from '../foundation/node-utils/index.js';
 import { DAEMON_AUDIT_EVENTS, LOOP_INTERRUPT_CAUSES } from './audit-events.js';
 import {
   INTERRUPT_RECOVERY_DELAY_MS,

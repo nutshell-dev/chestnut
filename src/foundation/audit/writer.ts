@@ -28,8 +28,8 @@
  * （依赖 AuditLog 的其他 L2 模块不得效仿）。
  */
 
-import { newShortUuid } from '../uuid.js';
-import { formatErr } from "../utils/index.js";
+import { newShortUuid } from  '../node-utils/index.js';
+import { formatErr } from "../node-utils/index.js";
 import type { TraceId } from './types.js';
 import * as nodeFs from 'node:fs';
 import { tmpdir } from 'node:os';

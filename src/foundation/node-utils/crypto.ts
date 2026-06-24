@@ -1,10 +1,10 @@
 /**
- * @module L1.Hash
+ * @module L1.NodeUtils
  *
  * 哈希计算 owner（M#3 资源归一、M#7 接口最小）：sha256 唯一封装。
  * 其他模块经本模块 API 计算 sha256、不直 import node:crypto。
  *
- * phase 452 立、F3 余 createHash 资源归一（与 phase 449 foundation/uuid sister）。
+ * phase 712 并入 L1.NodeUtils。
  */
 
 import { createHash } from 'node:crypto';

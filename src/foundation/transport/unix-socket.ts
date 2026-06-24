@@ -11,9 +11,9 @@
  * + phase 1118 in-file marker補 (`coding plan/phase1118/`).
  */
 import { createServer, connect, type Server, type Socket } from 'node:net';
-import { formatErr, clipText } from "../utils/index.js";
+import { formatErr } from "../node-utils/index.js";
 // phase 398 Step B (review N5): path import removed — basename wrapper deleted, no other uses
-import { newUuid } from '../uuid.js';
+import { newUuid } from '../node-utils/index.js';
 import type { FileSystem } from '../fs/index.js';
 import { isFileNotFound } from '../fs/index.js';
 import type { Transport, TransportOptions, BroadcastFailure, TransportErrorEvent } from './types.js';
@@ -27,6 +27,11 @@ interface ConnectionEntry {
 
 /** Transport debug preview cap — convergent choice with audit preview cap but owned locally (phase 213 Step D). */
 const BUFFER_PREVIEW_MAX_CHARS = 100;
+
+function clipBuffer(s: string, maxChars: number): string {
+  const content = (s ?? '').trimStart();
+  return content.length <= maxChars ? content : content.slice(0, maxChars) + '…';
+}
 
 /** Latent advertise — see file header. Future wire site: `assemble.ts:538` */
 export class UnixDomainSocketTransport implements Transport {
@@ -147,7 +152,7 @@ export class UnixDomainSocketTransport implements Transport {
           kind: 'partial_message_lost',
           connectionId: id,
           bufferedBytes: entry.buf.length,
-          bufferPreview: clipText(entry.buf, BUFFER_PREVIEW_MAX_CHARS),
+          bufferPreview: clipBuffer(entry.buf, BUFFER_PREVIEW_MAX_CHARS),
         });
       }
       this.connections.delete(id);

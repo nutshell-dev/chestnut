@@ -1,5 +1,5 @@
 import * as path from 'path';
-import { formatErr } from "../../../foundation/utils/index.js";
+import { formatErr } from "../../../foundation/node-utils/index.js";
 import type { FileSystem } from '../../../foundation/fs/index.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
 import { DISK_MONITOR_AUDIT_EVENTS } from './disk-monitor-audit-events.js';

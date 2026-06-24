@@ -19,7 +19,7 @@
  */
 
 import * as path from 'path';
-import { formatErr } from "../../foundation/utils/index.js";
+import { formatErr } from "../../foundation/node-utils/index.js";
 import { loadGlobalConfig, clawExists } from '../../assembly/config-load.js';
 import { getClawDir, getClawConfigPath } from '../../foundation/config/index.js';
 import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';

@@ -10,7 +10,7 @@ import type { LLMCallOptions } from '../../foundation/llm-orchestrator/index.js'
 import type { LLMResponse } from '../../foundation/llm-provider/index.js';
 import type { StepCallbacks } from './types.js';
 import { safeCallback, parseToolInput } from './utils.js';
-import { formatErr } from '../../foundation/utils/index.js';
+import { formatErr } from '../../foundation/node-utils/index.js';
 import { throwAbortError } from './abort-helpers.js';
 import { makeToolUseId } from '../../foundation/tool-protocol/index.js';
 import { LLMAllProvidersFailedError, LLMTimeoutError } from '../../foundation/llm-orchestrator/index.js';

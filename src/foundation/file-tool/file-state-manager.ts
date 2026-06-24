@@ -20,7 +20,7 @@ import type { ExecContext } from '../tools/types.js';
 import { computeContentHash } from './file-hash.js';
 import { persistReadFileState } from './file-state-persist.js';
 import { FILE_TOOL_AUDIT_EVENTS } from './audit-events.js';
-import { formatErr } from '../utils/index.js';
+import { formatErr } from '../node-utils/index.js';
 
 /**
  * Record a `read` tool invocation result into the gate state map.

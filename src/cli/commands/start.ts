@@ -11,7 +11,7 @@ import { getWorkspaceRoot } from '../../foundation/install-paths.js';
 import { makeChestnutRoot } from '../../core/claw-topology/claw-instance-paths.js';
 // CLAWS_DIR removed: phase 263
 import * as path from 'path';
-import { formatErr } from "../../foundation/utils/index.js";
+import { formatErr } from "../../foundation/node-utils/index.js";
 import * as readline from 'readline';
 
 import { isInitialized } from '../../assembly/config-load.js';

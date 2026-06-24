@@ -19,7 +19,7 @@ import {
   LLMContextExceededError,
 } from '../llm-provider/errors.js';
 import type { ErrorCode } from '../errors.js';
-import { isAbortError } from '../utils/index.js';
+import { isAbortError } from '../llm-provider/is-abort-error.js';
 
 export { LLMError, LLMRateLimitError, LLMTimeoutError, LLMAuthError, LLMNetworkError, LLMEmptyResponseError, LLMModelNotFoundError, LLMContextExceededError, LLMCircuitBreakerOpenError, LLMStreamAbortedError } from '../llm-provider/errors.js';
 

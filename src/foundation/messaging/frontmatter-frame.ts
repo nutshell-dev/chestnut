@@ -1,4 +1,6 @@
 /**
+ * @module L2c.Messaging
+ *
  * Parse YAML frontmatter frame syntax (industry standard `---\n` delim + `:` split).
  *
  * Returns raw meta values (trimmed but NOT unquoted) + body. Callers apply own unquote variant
@@ -19,6 +21,8 @@
  * @param raw input string
  * @param opts.eofTolerant accept `\n---` EOF without trailing newline as valid closer (phase 953 / r118 H fork)
  * @throws Error if frontmatter opener found but malformed (missing closing ---)
+ *
+ * phase 712 从 utils/ 迁入 messaging/。
  */
 export function parseFrontmatterFrame(
   raw: string,

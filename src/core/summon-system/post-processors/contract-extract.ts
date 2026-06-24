@@ -1,7 +1,7 @@
 import type { PostProcessor } from '../../async-task-system/post-processors/types.js';
 import { SUMMON_AUDIT_EVENTS } from '../audit-events.js';
 import { SUMMON_CALLER_TYPES } from '../caller-types.js';
-import { formatErr } from '../../../foundation/utils/index.js';
+import { formatErr } from '../../../foundation/node-utils/index.js';
 import type { FileSystem } from '../../../foundation/fs/index.js';
 
 /**

@@ -1,5 +1,5 @@
 import * as path from 'path';
-import { formatErr } from "../../foundation/utils/index.js";
+import { formatErr } from "../../foundation/node-utils/index.js";
 import { isAlive } from '../../foundation/process-exec/index.js';
 import { getContractCreatedMs } from '../../core/contract/index.js';
 import { LLM_OUTPUT_EVENTS } from '../../foundation/stream/index.js';

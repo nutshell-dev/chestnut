@@ -5,7 +5,7 @@
 
 import * as path from 'path';
 import { z } from 'zod';
-import { formatErr } from "../../foundation/utils/index.js";
+import { formatErr } from "../../foundation/node-utils/index.js";
 import type { FileSystem } from '../../foundation/fs/index.js';
 
 import type { AuditLog } from '../../foundation/audit/index.js';

@@ -20,7 +20,7 @@
 
 import { getWorkspaceRoot } from '../foundation/install-paths.js';
 import * as path from 'path';
-import { formatErr } from "../foundation/utils/index.js";
+import { formatErr } from "../foundation/node-utils/index.js";
 import { setTimeout } from 'timers/promises';
 import { getNamedSubrootDir } from '../foundation/config/index.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../core/claw-topology/index.js';

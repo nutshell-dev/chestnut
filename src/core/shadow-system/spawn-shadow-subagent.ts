@@ -9,7 +9,7 @@
  * 真 production 双 push bug 实证、M#11「停下来重构」兑现。
  */
 
-import { newShortUuid } from '../../foundation/uuid.js';
+import { newShortUuid } from '../../foundation/node-utils/index.js';
 import type { Message } from '../../foundation/llm-provider/index.js';
 
 import { synthesizeFormB } from './_helpers.js';

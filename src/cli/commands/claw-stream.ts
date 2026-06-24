@@ -24,7 +24,7 @@ import { createStreamReader, STREAM_FILE, findRecentTurnStartOffset } from '../.
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { isAlive, isPidArgvMatching } from '../../foundation/process-exec/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
-import { formatErr } from '../../foundation/utils/index.js';
+import { formatErr } from '../../foundation/node-utils/index.js';
 
 export type StreamStartMode =
   | { kind: 'recent-turn' }

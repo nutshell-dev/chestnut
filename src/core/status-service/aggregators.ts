@@ -12,7 +12,7 @@
 
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
-import { formatErr } from "../../foundation/utils/index.js";
+import { formatErr } from "../../foundation/node-utils/index.js";
 import type { ContractSystem } from '../contract/index.js';
 import { TASKS_QUEUES_PENDING_DIR, TASKS_QUEUES_RUNNING_DIR } from '../async-task-system/index.js';
 import { CLAWSPACE_DIR, CLAW_MEMORY_FILE } from '../../foundation/claw-identity/index.js';

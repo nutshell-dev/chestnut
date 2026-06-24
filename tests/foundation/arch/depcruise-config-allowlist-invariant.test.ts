@@ -48,15 +48,15 @@ describe('dependency-cruiser config: allowlist sync (phase 1298 / phase 572 exte
   // phase 572 扩: 加 3 sister rule (crypto/child_process/net) allowlist sync invariant
   // 同型 phase 455/490/491 立 (sister to fs-only / nodefilesystem-only pattern)
 
-  it('crypto-only-from-foundation allowlist matches 2 owner module (foundation/uuid + foundation/hash)', () => {
+  it('crypto-only-from-foundation allowlist matches 2 owner module (node-utils/crypto + node-utils/id)', () => {
     const rule = config.forbidden.find(
       (r: { name: string }) => r.name === 'crypto-only-from-foundation',
     );
     expect(rule).toBeDefined();
     expect(rule.severity).toBe('error');
     expect(rule.from.pathNot).toEqual([
-      '^src/foundation/uuid\\.ts$',
-      '^src/foundation/hash\\.ts$',
+      '^src/foundation/node-utils/crypto\\.ts$',
+      '^src/foundation/node-utils/id\\.ts$',
     ]);
   });
 

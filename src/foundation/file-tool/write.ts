@@ -13,7 +13,7 @@
 
 import { z } from 'zod';
 import type { Tool, ExecContext } from '../tools/index.js';
-import { formatErr } from "../utils/index.js";
+import { formatErr } from "../node-utils/index.js";
 import type { ToolResult } from '../tool-protocol/index.js';
 import { defineFileToolSchema } from './_zod-helper.js';
 

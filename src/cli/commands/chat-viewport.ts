@@ -7,7 +7,7 @@
  */
 
 import * as path from 'path';
-import { formatErr } from "../../foundation/utils/index.js";
+import { formatErr } from "../../foundation/node-utils/index.js";
 
 import { createDirContext } from '../../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';

@@ -8,7 +8,7 @@
 
 // resolveChestnutRoot and CLAWS_DIR removed: phase 263
 import path from 'path';
-import { formatErr } from '../foundation/utils/index.js';
+import { formatErr } from '../foundation/node-utils/index.js';
 import { createSnapshot } from '../foundation/snapshot/index.js';
 // phase 693 Step C: SNAPSHOT_IGNORE_PATTERNS 归 Assembly 装配组装、走 sibling-direct (合法 assembly 自家)
 import { SNAPSHOT_IGNORE_PATTERNS } from './snapshot-patterns.js';

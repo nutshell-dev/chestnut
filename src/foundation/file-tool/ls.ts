@@ -5,7 +5,7 @@
 
 import * as nodePath from 'path';
 import { z } from 'zod';
-import { formatErr } from "../utils/index.js";
+import { formatErr } from "../node-utils/index.js";
 import type { Tool, ExecContext } from '../tools/index.js';
 import type { ToolResult } from '../tool-protocol/index.js';
 import { LS_MAX_ENTRIES } from './constants.js';
