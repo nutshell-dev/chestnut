@@ -1,26 +1,37 @@
 /**
- * Configuration barrel re-export / phase 500 A.3 functional split
+ * Configuration barrel re-export.
  *
- * 3 sub-file:
- * - loader.ts (generic yaml CRUD)
- * - global-config-path.ts (getGlobalConfigPath path primitive)
- * - (crud.ts removed in phase 298: business wrappers moved to assembly/config-load.ts)
+ * Sub-files:
+ * - loader.ts (generic yaml CRUD, L2a)
  *
- * Path getters live in foundation/install-paths.ts; getGlobalConfigPath own here (phase 73).
- * Specific root-config business wrappers now live in assembly/config-load.ts (phase 298).
+ * Workspace path primitives live in foundation/install-paths.ts.
+ *
+ * Phase 704 migration:
+ * - getGlobalConfigPath → assembly/global-config-path.ts (canonical owner: L6 Assembly)
+ * - getClawDir / getClawConfigPath / makeChestnutRoot / resolveChestnutRoot
+ *   → core/claw-topology/claw-instance-paths.ts (canonical owner: L4 ClawTopology)
+ *
+ * ⚠️ Backward-compat re-exports below keep existing test mocks working.
+ *   Remove when all consumers import from canonical paths directly.
  */
 
-// Path getters + shared constants (canonical owner: L6 Assembly)
+// ── Workspace path primitives (L2a) ──────────────────────
 export {
   getWorkspaceRoot,
-  getClawDir,
-  getClawConfigPath,
   getChestnutRoot,
   getNamedSubrootDir,
 } from '../install-paths.js';
-export { getGlobalConfigPath } from './global-config-path.js';
 
-// Phase 10 Step B: new thin loader (generic L2a API)
+// ── Backward-compat（phase 704，后续 phase 清理）─────────
+export { getGlobalConfigPath } from '../../assembly/global-config-path.js';
+export {
+  getClawDir,
+  getClawConfigPath,
+  makeChestnutRoot,
+  resolveChestnutRoot,
+} from '../../core/claw-topology/claw-instance-paths.js';
+
+// ── Generic YAML config loader (L2a) ─────────────────────
 export {
   loadYamlConfig,
   writeYamlConfig,
@@ -29,5 +40,5 @@ export {
 } from './loader.js';
 export type { LoaderDeps } from './loader.js';
 
-// LLM Provider presets (re-export to avoid CLI bypassing L2 config, phase1101)
+// ── LLM Provider presets ─────────────────────────────────
 export { PRESETS } from '../llm-provider/presets.js';

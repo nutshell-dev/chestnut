@@ -4,7 +4,7 @@
  *
  * Owns: root config wrapper (load/save/exists/patch) + LLM merge
  * Generic yaml CRUD remains in foundation/config/loader.ts
- * path primitive remains in foundation/config/global-config-path.ts
+ * path primitive: getGlobalConfigPath in ./global-config-path.ts (phase 704)
  */
 import * as path from 'path';
 import {
@@ -20,7 +20,7 @@ import {
   patchYamlConfig,
   configExists,
 } from '../foundation/config/loader.js';
-import { getGlobalConfigPath } from '../foundation/config/global-config-path.js';
+import { getGlobalConfigPath } from './global-config-path.js';
 import { toProviderConfig } from '../foundation/llm-orchestrator/config-adapter.js';
 import type { LLMOrchestratorConfig } from '../foundation/llm-orchestrator/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
