@@ -1,5 +1,5 @@
 /**
- * @module L2.FileTool
+ * @module L2c.FileTool
  * fullread-gate — shared L1+L2 gate for destructive file operations.
  *
  * Used by:

@@ -1,5 +1,5 @@
 /**
- * @module L2.DialogStore.Validate
+ * @module L2b.DialogStore.Validate
  * 校验 / 迁移 / Marker 错误。
  *
  * 抽出自 store.ts、dialogstore-auditor §M-01 follow-up（SRP 拆分）。

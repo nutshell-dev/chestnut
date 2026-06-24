@@ -1,5 +1,5 @@
 /**
- * @module L2.AuditLog
+ * @module L2a.AuditLog
  * AuditLog reader API (L2)
  *
  * 审计日志只读接口。与 writer.ts 解耦、独立文件。

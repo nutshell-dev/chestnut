@@ -1,5 +1,5 @@
 /**
- * @module L2.AuditLog.DirContext
+ * @module L2a.AuditLog.DirContext
  *
  * Generic `{ fs, audit }` pair factory.
  *

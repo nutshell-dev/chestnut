@@ -1,5 +1,5 @@
 /**
- * @module L2.DialogStore
+ * @module L2b.DialogStore
  *
  * phase 1406: regime switch 实质逻辑迁入（per design row
  * A.phase1406-dialogstore-receive-switchregime）。

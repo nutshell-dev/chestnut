@@ -1,5 +1,5 @@
 /**
- * @module L2.FileTool
+ * @module L2c.FileTool
  * SHA-256 content hash helper for overwrite gate.
  *
  * phase 1430: introduced alongside FileState type for write/edit/multi_edit gate equality + mtime false-positive guard.

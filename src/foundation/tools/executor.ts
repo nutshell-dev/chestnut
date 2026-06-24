@@ -1,5 +1,5 @@
 /**
- * @module L2.Tools
+ * @module L2c.Tools
  * Tool Executor - Implementation
  *
  * phase 501: 4 interface 抽 to types.ts (C-α 极保守整理性)

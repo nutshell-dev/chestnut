@@ -1,5 +1,5 @@
 /**
- * @module L2.Tools
+ * @module L2c.Tools
  * Tools module
  * Phase 1: Tool registry and executor framework
  */

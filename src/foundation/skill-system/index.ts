@@ -1,5 +1,5 @@
 /**
- * @module L2.SkillSystem
+ * @module L2c.SkillSystem
  * Skill module exports
  */
 

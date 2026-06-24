@@ -1,5 +1,5 @@
 /**
- * @module L2.FileTool
+ * @module L2c.FileTool
  * multi_edit tool - Apply multiple edits to a file atomically
  *
  * Features:

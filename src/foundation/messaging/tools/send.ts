@@ -1,5 +1,5 @@
 /**
- * @module L2.Messaging
+ * @module L2c.Messaging
  * send tool - Send message to outbox
  */
 

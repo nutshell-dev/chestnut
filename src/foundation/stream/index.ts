@@ -1,5 +1,5 @@
 /**
- * @module L2.Stream
+ * @module L2b.Stream
  * Stream module (L2)
  *
  * 执行过程的实时观察窗口。写入、读取、归档、裁剪。

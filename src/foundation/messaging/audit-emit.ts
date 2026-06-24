@@ -1,5 +1,5 @@
 /**
- * @module L2.Messaging.AuditEmit
+ * @module L2c.Messaging.AuditEmit
  * Typed audit emit functions for messaging module (phase 1163 r128 E fork β-2,
  * phase 1210 cascade closure inbox-writer/reader).
  *

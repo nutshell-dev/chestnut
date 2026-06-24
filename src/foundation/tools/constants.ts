@@ -1,5 +1,5 @@
 /**
- * @module L2.Tools
+ * @module L2c.Tools
  * Tool execution constants.
  *
  * `DEFAULT_TOOL_TIMEOUT_MS` — executor 内部兜底安全网，防无限卡死，不替上层做策略判断。

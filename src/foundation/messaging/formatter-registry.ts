@@ -1,5 +1,5 @@
 /**
- * @module L2.Messaging
+ * @module L2c.Messaging
  * phase 1414: inbox 消息格式化协议
  *
  * 业务语义 = inbox 消息格式化时机/接口、归 Messaging L2 own。

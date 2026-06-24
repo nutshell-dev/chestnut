@@ -1,5 +1,5 @@
 /**
- * @module L2.FileTool
+ * @module L2c.FileTool
  * edit / multi_edit shared text-scanning + format utilities.
  *
  * Cluster:

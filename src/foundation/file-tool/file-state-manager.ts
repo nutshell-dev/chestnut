@@ -1,5 +1,5 @@
 /**
- * @module L2.FileTool
+ * @module L2c.FileTool
  * FileState manager — single authority for mutating `ctx.readFileState` Map (phase 1439 V3).
  *
  * Centralizes the overwrite-gate state mutations that were previously scattered across

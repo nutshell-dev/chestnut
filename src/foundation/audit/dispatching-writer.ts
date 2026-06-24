@@ -1,5 +1,5 @@
 /**
- * @module L2.AuditLog
+ * @module L2a.AuditLog
  * DispatchingAuditWriter (phase 159、phase 122 §5.A impl).
  *
  * α + β 混合形态：

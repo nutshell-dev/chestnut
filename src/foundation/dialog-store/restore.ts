@@ -1,5 +1,5 @@
 /**
- * @module L2.DialogStore.Restore
+ * @module L2b.DialogStore.Restore
  * 从 marker 恢复消息历史（current.json + archive 扫描）。
  *
  * 抽出自 store.ts、dialogstore-auditor §M-01 + §M-03 follow-up：

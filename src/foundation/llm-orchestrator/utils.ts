@@ -1,5 +1,5 @@
 /**
- * @module L2.LLMOrchestrator.Utils
+ * @module L2b.LLMOrchestrator.Utils
  * Pure utility functions extracted from orchestrator.ts
  *
  * 抽出动机：orchestrator.ts SRP 治理（llmorchestrator-auditor §4.1 follow-up）。

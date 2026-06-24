@@ -2,7 +2,7 @@
 export { clipPreview, clipMessage, clipSummary } from './_helpers.js';
 
 /**
- * @module L2.AuditLog
+ * @module L2a.AuditLog
  * AuditLog module (L2)
  *
  * 状态迁移审计记录。纯追加写。

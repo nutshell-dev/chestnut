@@ -1,5 +1,5 @@
 /**
- * @module L2.FileTool
+ * @module L2c.FileTool
  * Shared sync backup helper（write / edit / multi_edit / exec_overflow 共用）
  *
  * 复用 phase 485 syncDir 装配协议 + Snapshot commit hook generic clean。

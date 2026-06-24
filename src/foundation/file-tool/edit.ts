@@ -1,5 +1,5 @@
 /**
- * @module L2.FileTool
+ * @module L2c.FileTool
  * edit tool - Replace exact string in a file
  *
  * Features:
