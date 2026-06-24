@@ -21,7 +21,7 @@ import { SummonTool, checkLegacySummonStateFiles } from '../core/summon-system/i
 import { createSkillSystem as defaultCreateSkillSystem, SkillSystem } from '../foundation/skill-system/index.js';
 import { SKILLS_DIR_DEFAULT } from '../foundation/skill-system/index.js';
 import { ContractSystem, createContractSystem } from '../core/contract/index.js';
-import { makeClawId } from '../foundation/identity/index.js';
+import { makeClawId } from '../foundation/claw-identity/index.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../core/claw-topology/index.js';
 import type { ClawTopology } from '../core/claw-topology/index.js';
 import { createOutboxWriter, type OutboxWriter } from '../foundation/messaging/index.js';

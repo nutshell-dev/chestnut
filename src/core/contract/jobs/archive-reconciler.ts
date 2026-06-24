@@ -8,7 +8,7 @@ import { isFileNotFound, type FileSystem } from '../../../foundation/fs/index.js
 import type { AuditLog } from '../../../foundation/audit/index.js';
 import { ACTIVE_STATUSES } from '../types.js';
 import { CONTRACT_ARCHIVE_DIR, PROGRESS_FILE } from '../dirs.js';
-import type { ClawId } from '../../../foundation/identity/index.js';
+import type { ClawId } from '../../../foundation/claw-identity/index.js';
 import {
   emitContractArchiveReconcileStale,
   emitContractArchiveReconcileFailed,

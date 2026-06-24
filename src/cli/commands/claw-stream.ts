@@ -23,7 +23,7 @@ import { CLAWS_DIR } from '../../core/claw-topology/claw-instance-paths.js';
 import { createStreamReader, STREAM_FILE, findRecentTurnStartOffset } from '../../foundation/stream/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { isAlive, isPidArgvMatching } from '../../foundation/process-exec/index.js';
-import { makeClawId } from '../../foundation/identity/index.js';
+import { makeClawId } from '../../foundation/claw-identity/index.js';
 import { formatErr } from '../../foundation/utils/index.js';
 
 export type StreamStartMode =

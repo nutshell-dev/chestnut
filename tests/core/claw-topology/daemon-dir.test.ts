@@ -5,7 +5,7 @@ import { describe, it, expect } from 'vitest';
 import * as path from 'path';
 import { resolveClawDaemonDir } from '../../../src/core/claw-topology/daemon-dir.js';
 import { MOTION_CLAW_ID } from '../../../src/core/claw-topology/motion-claw-id.js';
-import { makeClawId } from '../../../src/foundation/identity/index.js';
+import { makeClawId } from '../../../src/foundation/claw-identity/index.js';
 
 describe('resolveClawDaemonDir', () => {
   it('motion clawId → motion subroot', () => {

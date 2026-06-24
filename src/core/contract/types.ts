@@ -15,7 +15,7 @@ export function makeContractId(s: string): ContractId { return s as ContractId; 
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { ToolRegistry } from '../../foundation/tools/index.js';
 import type { Priority } from '../../foundation/messaging/index.js';
-import type { ClawId } from '../../foundation/identity/index.js';
+import type { ClawId } from '../../foundation/claw-identity/index.js';
 
 
 

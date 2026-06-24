@@ -24,7 +24,7 @@ import { formatErr } from "../foundation/utils/index.js";
 import { setTimeout } from 'timers/promises';
 import { getNamedSubrootDir } from '../foundation/config/index.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../core/claw-topology/index.js';
-import { makeClawId } from '../foundation/identity/index.js';
+import { makeClawId } from '../foundation/claw-identity/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 import { isFileNotFound } from '../foundation/fs/index.js';
 import { type AuditLog, createAuditWriter, AUDIT_FILE } from '../foundation/audit/index.js';

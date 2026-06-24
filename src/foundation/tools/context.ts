@@ -14,8 +14,8 @@ import type { ToolProfile } from '../tool-protocol/index.js';
 import type { ExecContext, ToolGroup, FileState } from './types.js';
 import type { TraceId } from '../audit/types.js';
 import type { ToolUseId } from '../tool-protocol/index.js';
-import type { StepNumber } from '../identity/index.js';
-import { makeStepNumber } from '../identity/index.js';
+import type { StepNumber } from '../../core/agent-executor/step-number.js';
+import { makeStepNumber } from '../../core/agent-executor/step-number.js';
 import path from 'path';
 import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 

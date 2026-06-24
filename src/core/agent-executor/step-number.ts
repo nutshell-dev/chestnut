@@ -1,7 +1,9 @@
 /**
+ * @module L3.AgentExecutor
+ *
  * StepNumber brand type (phase 216 立、phase 136 §5.B invariants 第 6 条).
  *
- * SoT: agent-executor (`agent-executor.ts:56,68,75`、let stepCount counter + ctx.stepNumber assign)
+ * SoT: AgentExecutor (`agent-executor.ts` stepCount counter).
  * 形态: integer ≥ 0（agent loop step counter、ReAct 步数）
  *
  * Invariants:

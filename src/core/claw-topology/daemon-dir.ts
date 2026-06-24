@@ -12,7 +12,7 @@
  * dirResolver 注入后 caller 改用本 helper 直算 daemonDir 再传 PM API。
  */
 
-import type { ClawId } from '../../foundation/identity/index.js';
+import type { ClawId } from '../../foundation/claw-identity/index.js';
 import { type DaemonDir, makeDaemonDir } from '../../foundation/process-manager/index.js';
 import { MOTION_CLAW_ID } from './motion-claw-id.js';
 import { getNamedSubrootDir, getClawDir } from '../../foundation/config/index.js';

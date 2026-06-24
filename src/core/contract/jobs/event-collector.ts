@@ -9,7 +9,7 @@ import { CONTRACT_AUDIT_EVENTS } from '../audit-events.js';
 import { emitContractArchiveNonTerminalDetected } from '../audit-emit.js';
 import { CONTRACT_ARCHIVE_DIR, PROGRESS_FILE, CONTRACT_YAML_FILE } from '../dirs.js';
 import { ContractProgressArchiveLooseSchema } from '../schemas.js';
-import type { ClawId } from '../../../foundation/identity/index.js';
+import type { ClawId } from '../../../foundation/claw-identity/index.js';
 
 function readContractMeta(
   fs: FileSystem,

@@ -23,7 +23,7 @@ import { createStreamReader, STREAM_FILE } from '../../foundation/stream/index.j
 import { createViewportObservability } from './chat-viewport-observability.js';
 import { CLAWS_DIR } from '../../core/claw-topology/claw-instance-paths.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID, createClawTopology } from '../../core/claw-topology/index.js';
-import { makeClawId } from '../../foundation/identity/index.js';
+import { makeClawId } from '../../foundation/claw-identity/index.js';
 
 
 import { writeUserChat } from './chat-viewport-utils.js';

@@ -22,7 +22,7 @@ import { getNamedSubrootDir } from '../foundation/config/index.js';
 import { routeNotifyClaw } from '../core/claw-topology/index.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../core/claw-topology/index.js';
-import { makeClawId } from '../foundation/identity/index.js';
+import { makeClawId } from '../foundation/claw-identity/index.js';
 import { CLAWS_DIR } from '../core/claw-topology/claw-instance-paths.js';
 
 /**

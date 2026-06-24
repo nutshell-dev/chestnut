@@ -34,7 +34,7 @@ import { createNotifyClawTool } from '../foundation/messaging/tools/notify-claw.
 import { formatClawStatusHint } from '../foundation/utils/index.js';
 import { OutboxReader } from '../foundation/messaging/index.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../core/claw-topology/index.js';
-import { makeClawId } from '../foundation/identity/index.js';
+import { makeClawId } from '../foundation/claw-identity/index.js';
 import type { CoreInfraOutput } from './core-infrastructure.js';
 import type { BusinessSysOutput } from './business-systems.js';
 import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';

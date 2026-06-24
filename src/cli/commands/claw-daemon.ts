@@ -15,7 +15,7 @@ import { getClawDir, getClawConfigPath } from '../../foundation/config/index.js'
 import { getGlobalConfigPath } from '../../assembly/global-config-path.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { createAgentProcessManager } from '../../foundation/process-manager/index.js';
-import { makeClawId } from '../../foundation/identity/index.js';
+import { makeClawId } from '../../foundation/claw-identity/index.js';
 import type { ProcessManager } from '../../foundation/process-manager/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { CliError } from '../errors.js';

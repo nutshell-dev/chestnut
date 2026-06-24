@@ -16,7 +16,7 @@ import { createSystemAudit } from '../../foundation/audit/index.js';
 import { CLAWS_DIR } from '../../core/claw-topology/claw-instance-paths.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
-import { makeClawId } from '../../foundation/identity/index.js';
+import { makeClawId } from '../../foundation/claw-identity/index.js';
 
 export async function sendCommand(
   deps: { fsFactory: (baseDir: string) => FileSystem },

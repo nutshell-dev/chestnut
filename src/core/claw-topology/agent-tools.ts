@@ -2,7 +2,7 @@ import * as path from 'path';
 import type { Tool, ExecContext } from '../../foundation/tools/index.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import { readTool, lsTool, searchTool } from '../../foundation/file-tool/index.js';
-import { makeClawId } from '../../foundation/identity/index.js';
+import { makeClawId } from '../../foundation/claw-identity/index.js';
 import type { ClawTopology } from './types.js';
 import { CLAW_TOPOLOGY_AUDIT_EVENTS } from './audit-events.js';
 import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
