@@ -7,8 +7,8 @@ describe('makeExecContext', () => {
     expect(ctx.clawId).toBe('test-claw');
     expect(ctx.maxSteps).toBe(20);
     expect(typeof ctx.getElapsedMs).toBe('function');
-    expect(typeof ctx.incrementStep).toBe('function');
     expect(typeof ctx.requestStop).toBe('function');
+    expect(typeof ctx.getElapsedMs).toBe('function');
     expect(ctx.stopRequested).toBe(false);
     expect(ctx.isMotionChain).toBe(false);
   });
@@ -18,7 +18,7 @@ describe('makeExecContext', () => {
     expect(ctx.maxSteps).toBe(50);
     expect(ctx.clawId).toBe('foo');
     // defaults untouched
-    expect(ctx.stepNumber).toBe(0);
+    expect(ctx.stopRequested).toBe(false);
   });
 
   it('signal override threads through', () => {

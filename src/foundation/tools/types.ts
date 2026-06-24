@@ -17,7 +17,7 @@ import type { ScheduleAsyncTool } from './async-dispatch.js';
 import type { PermissionChecker } from '../tool-protocol/index.js';
 import type { ToolUseId } from '../tool-protocol/index.js';
 import type { TraceId } from '../audit/types.js';
-import type { StepNumber } from '../../core/agent-executor/step-number.js';
+
 
 
 
@@ -130,9 +130,8 @@ export interface ExecutionInfra {
   taskSystem?: TaskScheduler;
 }
 
-/** 执行控制维度（D4）：stepNumber / maxSteps / signal / subagentMaxSteps / toolTimeoutMs / stopRequested + requestStop / getElapsedMs / incrementStep */
+/** 执行控制维度（D4）：maxSteps / signal / subagentMaxSteps / toolTimeoutMs / stopRequested + requestStop / getElapsedMs */
 export interface ExecutionControl {
-  stepNumber: StepNumber;
   maxSteps: number;
   signal?: AbortSignal;
   /** Max steps for subagents created via spawn tool */
@@ -144,7 +143,6 @@ export interface ExecutionControl {
   /** phase 777: mutator called by result-capture tools after storing capturedResult */
   requestStop(): void;
   getElapsedMs(): number;
-  incrementStep(): void;
 }
 
 /** 审计 + 状态维度（D5）：auditWriter / currentToolUseId / trace_id / readFileState / persistReadFileState / getCallerSnapshot */

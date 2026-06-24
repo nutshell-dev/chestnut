@@ -66,11 +66,9 @@ describe('phase 1459 ExecContext ISP α-1 decomposition', () => {
   it('(4) ExecContextImpl is assignable to ExecutionControl', async () => {
     const ctx = await makeCtx();
     const ctrl: ExecutionControl = ctx;
-    expect(ctrl.stepNumber).toBe(0);
     expect(ctrl.maxSteps).toBe(10);
     expect(ctrl.stopRequested).toBe(false);
-    ctrl.incrementStep();
-    expect(ctrl.stepNumber).toBe(1);
+    expect(ctrl.getElapsedMs()).toBeGreaterThanOrEqual(0);
   });
 
   it('(5) ExecContextImpl is assignable to ExecutionAudit', async () => {
@@ -90,8 +88,8 @@ describe('phase 1459 ExecContext ISP α-1 decomposition', () => {
 
   it('(7) cloneExecContext partial override still works (regression / 反向 3)', async () => {
     const ctx = await makeCtx();
-    const clone = cloneExecContext(ctx, { stepNumber: 42 });
-    expect(clone.stepNumber).toBe(42);
+    const clone = cloneExecContext(ctx, { stopRequested: false });
+    expect(clone.stopRequested).toBe(false);
     expect(clone.clawId).toBe('test-claw');
     expect(clone.isMotionChain).toBe(ctx.isMotionChain);
     clone.requestStop();

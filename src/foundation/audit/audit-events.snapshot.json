@@ -82,6 +82,43 @@
       "viewport_ui_cross_pollution",
       "viewport_unknown_event"
     ],
+    "core_agent-executor_audit-events": [
+      {
+        "type": "agent_tool_call_input",
+        "cols": [
+          {
+            "name": "tool_name",
+            "type": "string",
+            "required": true
+          },
+          {
+            "name": "tool_use_id",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "step",
+            "type": "number",
+            "required": false
+          },
+          {
+            "name": "contract_id",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "args_size",
+            "type": "number",
+            "required": true
+          },
+          {
+            "name": "trace_id",
+            "type": "string",
+            "required": false
+          }
+        ]
+      }
+    ],
     "core_async-task-system_audit-events": [
       "async_task_invariant_violated",
       "async_task_invariant_violation",
@@ -960,9 +997,9 @@
   },
   "schema_version": "2.0.0",
   "stepColOwner": {
-    "file": "src/core/runtime/runtime.ts",
-    "eventType": "tool_call_input",
+    "file": "src/core/agent-executor/agent-executor.ts",
+    "eventType": "agent_tool_call_input",
     "valueType": "StepNumber",
-    "_comment": "phase 216 立、white-list SoT 单源、跨业主 ctx 字段 stepNumber 由 agent-executor 产生 / runtime emit"
+    "_comment": "phase 706: AgentExecutor owns step count and TOOL_CALL_INPUT audit"
   }
 }

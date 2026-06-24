@@ -27,8 +27,8 @@ const D3_FIELDS = new Set([
 ]);
 /** D4 ExecutionControl */
 const D4_FIELDS = new Set([
-  'stepNumber', 'maxSteps', 'signal', 'subagentMaxSteps', 'toolTimeoutMs',
-  'stopRequested', 'requestStop', 'getElapsedMs', 'incrementStep',
+  'maxSteps', 'signal', 'subagentMaxSteps', 'toolTimeoutMs',
+  'stopRequested', 'requestStop', 'getElapsedMs',
 ]);
 /** D5 ExecutionAudit */
 const D5_FIELDS = new Set([
