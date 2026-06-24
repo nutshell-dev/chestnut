@@ -15,7 +15,7 @@ import { randomUUID } from 'crypto';
 import { maybeCronClawCrash } from '../../src/watchdog/watchdog-cron.js';
 import { clawStateAPI, _resetWatchdogContextForTest } from '../../src/watchdog/watchdog-context.js';
 import { WATCHDOG_AUDIT_EVENTS } from '../../src/watchdog/audit-events.js';
-import { getNamedSubrootDir } from '../../src/foundation/config/index.js';
+import { getNamedSubrootDir } from '../../src/core/claw-topology/claw-instance-paths.js';
 import { loadGlobalConfig } from '../../src/assembly/config-load.js';
 import { clawHasContract, clawHasActiveContract, gatherClawSnapshot } from '../../src/watchdog/watchdog-utils.js';
 import { routeNotifyClaw } from '../../src/core/claw-topology/index.js';
@@ -24,27 +24,29 @@ import type { ProcessManager } from '../../src/foundation/process-manager/index.
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
+vi.mock('../../src/core/claw-topology/claw-instance-paths.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/core/claw-topology/claw-instance-paths.js')>();
+  return {
+    ...actual,
+    getNamedSubrootDir: vi.fn(),
+  };
+});
 vi.mock('../../src/foundation/config/index.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/foundation/config/index.js')>();
   return {
     ...actual,
-    getNamedSubrootDir: vi.fn(),
-    loadGlobalConfig: vi.fn(),
   };
 });
-vi.mock('../../src/assembly/config-load.js', async () => {
-  const foundation = await import('../../src/foundation/config/index.js');
-  return {
-    loadGlobalConfig: foundation.loadGlobalConfig,
-    isInitialized: vi.fn(),
-    saveGlobalConfig: vi.fn(),
-    loadClawConfig: vi.fn(),
-    patchGlobalConfigPrimary: vi.fn(),
-    saveClawConfig: vi.fn(),
-    clawExists: vi.fn(() => true),
-    buildLLMConfig: vi.fn(),
-  };
-});
+vi.mock('../../src/assembly/config-load.js', async () => ({
+  loadGlobalConfig: vi.fn(),
+  isInitialized: vi.fn(),
+  saveGlobalConfig: vi.fn(),
+  loadClawConfig: vi.fn(),
+  patchGlobalConfigPrimary: vi.fn(),
+  saveClawConfig: vi.fn(),
+  clawExists: vi.fn(() => true),
+  buildLLMConfig: vi.fn(),
+}));
 
 vi.mock('../../src/watchdog/watchdog-utils.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/watchdog/watchdog-utils.js')>();

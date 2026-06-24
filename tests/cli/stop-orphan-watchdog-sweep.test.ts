@@ -22,28 +22,36 @@ const mockCreateSystemAudit = vi.hoisted(() => vi.fn(() => ({
 // ============================================================================
 // Module mocks
 // ============================================================================
+vi.mock('../../src/core/claw-topology/claw-instance-paths.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/core/claw-topology/claw-instance-paths.js')>();
+  return {
+    ...actual,
+    getNamedSubrootDir: vi.fn(() => '/tmp/test/.chestnut/motion'),
+  };
+});
+vi.mock('../../src/assembly/global-config-path.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/assembly/global-config-path.js')>();
+  return {
+    ...actual,
+    getGlobalConfigPath: vi.fn(() => '/tmp/test/.chestnut/config.yaml'),
+  };
+});
 vi.mock('../../src/foundation/config/index.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/foundation/config/index.js')>();
   return {
     ...actual,
-    loadGlobalConfig: vi.fn(),
-    getGlobalConfigPath: vi.fn(() => '/tmp/test/.chestnut/config.yaml'),
-    getNamedSubrootDir: vi.fn(() => '/tmp/test/.chestnut/motion'),
   };
 });
-vi.mock('../../src/assembly/config-load.js', async () => {
-  const foundation = await import('../../src/foundation/config/index.js');
-  return {
-    loadGlobalConfig: foundation.loadGlobalConfig,
-    isInitialized: vi.fn(),
-    saveGlobalConfig: vi.fn(),
-    loadClawConfig: vi.fn(),
-    patchGlobalConfigPrimary: vi.fn(),
-    saveClawConfig: vi.fn(),
-    clawExists: vi.fn(() => true),
-    buildLLMConfig: vi.fn(),
-  };
-});
+vi.mock('../../src/assembly/config-load.js', async () => ({
+  loadGlobalConfig: vi.fn(),
+  isInitialized: vi.fn(),
+  saveGlobalConfig: vi.fn(),
+  loadClawConfig: vi.fn(),
+  patchGlobalConfigPrimary: vi.fn(),
+  saveClawConfig: vi.fn(),
+  clawExists: vi.fn(() => true),
+  buildLLMConfig: vi.fn(),
+}));
 
 vi.mock('../../src/watchdog/watchdog.js', () => ({
   stopCommand: vi.fn().mockResolvedValue(undefined),

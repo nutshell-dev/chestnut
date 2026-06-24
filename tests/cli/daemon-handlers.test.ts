@@ -16,10 +16,14 @@ vi.mock('../../src/foundation/audit/index.js', () => ({
   AUDIT_FILE: 'audit.tsv',
 }));
 
-vi.mock('../../src/foundation/config/index.js', () => ({
-  getClawDir: vi.fn(() => '/tmp/test-claw'),
-  getNamedSubrootDir: vi.fn(() => '/tmp/test-motion'),
-}));
+vi.mock('../../src/core/claw-topology/claw-instance-paths.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/core/claw-topology/claw-instance-paths.js')>();
+  return {
+    ...actual,
+    getClawDir: vi.fn(() => '/tmp/test-claw'),
+    getNamedSubrootDir: vi.fn(() => '/tmp/test-motion'),
+  };
+});
 
 // 注：phase 375 后不再需 mock assembly/config-load + daemon/daemon
 // （daemon-handlers 不引这两条 heavy 链）

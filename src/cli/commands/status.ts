@@ -11,7 +11,7 @@
 
 import * as path from 'path';
 import { loadGlobalConfig } from '../../assembly/config-load.js';
-import { getNamedSubrootDir } from '../../foundation/config/index.js';
+import { getNamedSubrootDir } from '../../core/claw-topology/claw-instance-paths.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { resolveDaemonEntry } from '../../assembly/spawn-entry.js';
 import {

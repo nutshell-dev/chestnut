@@ -5,7 +5,7 @@
 import * as path from 'path';
 import { formatErr } from "../../foundation/node-utils/index.js";
 import { loadGlobalConfig } from '../../assembly/config-load.js';
-import { getNamedSubrootDir } from '../../foundation/config/index.js';
+import { getNamedSubrootDir } from '../../core/claw-topology/claw-instance-paths.js';
 import { getGlobalConfigPath } from '../../assembly/global-config-path.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import { createAuditWriter, AUDIT_FILE } from '../../foundation/audit/index.js';

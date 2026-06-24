@@ -10,7 +10,7 @@ import { getWorkspaceRoot } from '../../core/claw-topology/claw-instance-paths.j
 import * as path from 'path';
 import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 import { SKILLS_DIR_DEFAULT } from '../../foundation/skill-system/index.js';
-import { getClawDir } from '../../foundation/config/index.js';
+import { getClawDir } from '../../core/claw-topology/claw-instance-paths.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { CliError } from '../errors.js';

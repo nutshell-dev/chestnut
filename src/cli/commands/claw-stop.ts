@@ -4,7 +4,7 @@
  */
 
 import { loadGlobalConfig, clawExists } from '../../assembly/config-load.js';
-import { getClawConfigPath } from '../../foundation/config/index.js';
+import { getClawConfigPath } from '../../core/claw-topology/claw-instance-paths.js';
 import { CliError } from '../errors.js';
 import { createProcessManagerForCLI, signalCleanStop } from '../../foundation/process-manager/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';

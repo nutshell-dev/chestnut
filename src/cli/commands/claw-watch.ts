@@ -15,7 +15,7 @@
  */
 
 import { loadGlobalConfig, clawExists } from '../../assembly/config-load.js';
-import { getChestnutRoot, getClawConfigPath } from '../../foundation/config/index.js';
+import { getChestnutRoot, getClawConfigPath } from '../../core/claw-topology/claw-instance-paths.js';
 import { CliError } from '../errors.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';

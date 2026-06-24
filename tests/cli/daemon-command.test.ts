@@ -83,28 +83,27 @@ vi.mock('../../src/foundation/audit/index.js', () => ({
   })),
 }));
 
-vi.mock('../../src/foundation/config/index.js', () => ({
-  loadGlobalConfig: vi.fn(() => ({})),
-  loadClawConfig: vi.fn(() => ({})),
-  getChestnutRoot: vi.fn(() => '/tmp/test-root'),
-  getClawDir: vi.fn((name: string) => `/tmp/test-root/claws/${name}`),
-  getNamedSubrootDir: vi.fn((name: string) => `/tmp/test-root/${name}`),
-  getClawConfigPath: vi.fn((name: string) => `/tmp/test-root/claws/${name}/config.yaml`),
-  resolveAgentDir: vi.fn((id: string) => id === 'motion' ? '/tmp/test-root/motion' : `/tmp/test-root/claws/${id}`),
-}));
-vi.mock('../../src/assembly/config-load.js', async () => {
-  const foundation = await import('../../src/foundation/config/index.js');
+vi.mock('../../src/core/claw-topology/claw-instance-paths.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/core/claw-topology/claw-instance-paths.js')>();
   return {
-    loadGlobalConfig: foundation.loadGlobalConfig,
-    isInitialized: vi.fn(),
-    saveGlobalConfig: vi.fn(),
-    loadClawConfig: foundation.loadClawConfig,
-    patchGlobalConfigPrimary: vi.fn(),
-    saveClawConfig: vi.fn(),
-    clawExists: vi.fn(() => true),
-    buildLLMConfig: vi.fn(),
+    ...actual,
+    getChestnutRoot: vi.fn(() => '/tmp/test-root'),
+    getClawDir: vi.fn((name: string) => `/tmp/test-root/claws/${name}`),
+    getNamedSubrootDir: vi.fn((name: string) => `/tmp/test-root/${name}`),
+    getClawConfigPath: vi.fn((name: string) => `/tmp/test-root/claws/${name}/config.yaml`),
+    resolveAgentDir: vi.fn((id: string) => id === 'motion' ? '/tmp/test-root/motion' : `/tmp/test-root/claws/${id}`),
   };
 });
+vi.mock('../../src/assembly/config-load.js', async () => ({
+  loadGlobalConfig: vi.fn(() => ({})),
+  isInitialized: vi.fn(),
+  saveGlobalConfig: vi.fn(),
+  loadClawConfig: vi.fn(() => ({})),
+  patchGlobalConfigPrimary: vi.fn(),
+  saveClawConfig: vi.fn(),
+  clawExists: vi.fn(() => true),
+  buildLLMConfig: vi.fn(),
+}));
 
 // node 内置 mock
 vi.mock('fs', async () => {

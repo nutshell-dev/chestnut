@@ -22,26 +22,25 @@ vi.mock('../../src/foundation/audit/index.js', () => ({
   })),
 }));
 
-vi.mock('../../src/foundation/config/index.js', () => ({
-  loadGlobalConfig: vi.fn(() => ({})),
-  loadClawConfig: vi.fn(() => ({})),
-  getClawDir: vi.fn(() => '/tmp/test-claw'),
-  getNamedSubrootDir: vi.fn(() => '/tmp/test-motion'),
-  getClawConfigPath: vi.fn(() => '/tmp/test-claw/config.yaml'),
-}));
-vi.mock('../../src/assembly/config-load.js', async () => {
-  const foundation = await import('../../src/foundation/config/index.js');
+vi.mock('../../src/core/claw-topology/claw-instance-paths.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/core/claw-topology/claw-instance-paths.js')>();
   return {
-    loadGlobalConfig: foundation.loadGlobalConfig,
-    isInitialized: vi.fn(),
-    saveGlobalConfig: vi.fn(),
-    loadClawConfig: foundation.loadClawConfig,
-    patchGlobalConfigPrimary: vi.fn(),
-    saveClawConfig: vi.fn(),
-    clawExists: vi.fn(() => true),
-    buildLLMConfig: vi.fn(),
+    ...actual,
+    getClawDir: vi.fn(() => '/tmp/test-claw'),
+    getNamedSubrootDir: vi.fn(() => '/tmp/test-motion'),
+    getClawConfigPath: vi.fn(() => '/tmp/test-claw/config.yaml'),
   };
 });
+vi.mock('../../src/assembly/config-load.js', async () => ({
+  loadGlobalConfig: vi.fn(() => ({})),
+  isInitialized: vi.fn(),
+  saveGlobalConfig: vi.fn(),
+  loadClawConfig: vi.fn(() => ({})),
+  patchGlobalConfigPrimary: vi.fn(),
+  saveClawConfig: vi.fn(),
+  clawExists: vi.fn(() => true),
+  buildLLMConfig: vi.fn(),
+}));
 
 vi.mock('../../src/foundation/process-manager/index.js', () => ({
   createAgentProcessManager: vi.fn(() => ({

@@ -6,7 +6,7 @@
 import * as path from 'path';
 import { formatErr } from "../../foundation/node-utils/index.js";
 import { newShortUuid } from '../../foundation/node-utils/index.js';
-import { getClawDir } from '../../foundation/config/index.js';
+import { getClawDir } from '../../core/claw-topology/claw-instance-paths.js';
 import { CliError } from '../errors.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
