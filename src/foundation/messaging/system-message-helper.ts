@@ -1,5 +1,5 @@
 /**
- * @module L2.Messaging.SystemMessageHelper
+ * @module L2c.Messaging.SystemMessageHelper
  * phase 436 立（phase 421 ratify）：基于 Message.origin 字段的 system/user 消息识别 helper。
  *
  * 与字面前缀的关系：

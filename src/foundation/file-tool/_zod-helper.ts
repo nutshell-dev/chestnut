@@ -1,5 +1,5 @@
 /**
- * @module L2.FileTool.ZodHelper
+ * @module L2c.FileTool.ZodHelper
  * file-tool 内部 helper：把 Zod schema 转 JSONSchema7 给 ToolDescriptor.schema。
  *
  * 使用 zodToJsonSchema 的 `target: 'jsonSchema7'` 选项确保兼容 ToolProtocol。

@@ -1,5 +1,5 @@
 /**
- * @module L2.Tools
+ * @module L2c.Tools
  * Tool framework types / phase 501 extracted from executor.ts (C-α 极保守整理性)
  */
 

@@ -1,5 +1,5 @@
 /**
- * @module L2.Messaging
+ * @module L2c.Messaging
  * phase 1414: Messaging 自家通用 inbox formatter (user_inbox_message).
  * phase 9: 'message' catch-all formatter 移除 / 拆 4 typed event 各业主 own.
  *

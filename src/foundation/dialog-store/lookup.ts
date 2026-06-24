@@ -1,5 +1,5 @@
 /**
- * @module L2.DialogStore
+ * @module L2b.DialogStore
  * DialogStore lookup helper (phase 147 Step B)
  *
  * 4 级降级路径查找 tool_use_id 对应的 content.

@@ -1,6 +1,6 @@
 import { formatErr } from "../../utils/index.js";
 /**
- * @module L2.Messaging
+ * @module L2c.Messaging
  * notify_claw tool - motion 视角、向 target claw inbox 直接发消息（指挥型 push 模型）
  *
  * design：l2_messaging.md §10.2、phase 477 sharpen、phase 822 实施

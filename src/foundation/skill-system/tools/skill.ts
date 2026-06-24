@@ -1,5 +1,5 @@
 /**
- * @module L2.SkillSystem
+ * @module L2c.SkillSystem
  * skill tool - Load and use skills from SKILL.md files
  *
  * Skills provide domain-specific knowledge and guidelines to Claws.

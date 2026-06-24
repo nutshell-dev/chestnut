@@ -4,7 +4,7 @@ export { resolveWorkspacePath } from './resolve-path.js';
 export { loadReadFileState, clearReadFileState } from './file-state-persist.js';
 
 /**
- * @module L2.FileTool
+ * @module L2c.FileTool
  * FileTool module (L2)
  *
  * agent 文件工具：read / write / search / ls

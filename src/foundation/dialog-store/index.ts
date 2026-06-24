@@ -1,5 +1,5 @@
 /**
- * @module L2.DialogStore
+ * @module L2b.DialogStore
  * DialogStore module (L2)
  *
  * Messages array persistence. Serves crash-recoverable sessions.

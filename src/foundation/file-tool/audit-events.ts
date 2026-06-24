@@ -1,5 +1,5 @@
 /**
- * @module L2.FileTool.AuditEvents
+ * @module L2c.FileTool.AuditEvents
  * NEW phase 684 / silent_x_audit_kit §2 audit 注入 α 模板（mirror phase 669）
  * phase 1443: NEW 5 events (4 new + 1 migrated from string-literal) for readFileState persistence
  * + overwrite gate decisions.

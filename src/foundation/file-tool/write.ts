@@ -1,5 +1,5 @@
 /**
- * @module L2.FileTool
+ * @module L2c.FileTool
  * write tool - Write or append to file.
  *
  * Features (MVP aligned):

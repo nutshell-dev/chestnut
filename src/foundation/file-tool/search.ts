@@ -1,5 +1,5 @@
 /**
- * @module L2.FileTool
+ * @module L2c.FileTool
  * search tool — unified filename + content substring search.
  *
  * phase 1422: design 落地（Q1 pattern + Q2 unified + Q3 skip 分类 + Q4 binary detect

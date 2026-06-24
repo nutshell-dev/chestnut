@@ -1,5 +1,5 @@
 /**
- * @module L2.LLMOrchestrator
+ * @module L2b.LLMOrchestrator
  * LLM Orchestrator module (L2) — multi-provider fault-tolerant orchestration
  *
  * Exports: LLMOrchestrator interface, LLMOrchestratorImpl implementation,

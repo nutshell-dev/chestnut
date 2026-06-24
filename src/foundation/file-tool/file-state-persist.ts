@@ -1,5 +1,5 @@
 /**
- * @module L2.FileTool
+ * @module L2c.FileTool
  * readFileState persistence — atomic write + load + clear for `<clawDir>/read-state.json`.
  *
  * phase 1443 introduction:

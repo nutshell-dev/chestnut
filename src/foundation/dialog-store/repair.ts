@@ -1,5 +1,5 @@
 /**
- * @module L2.DialogStore.Repair
+ * @module L2b.DialogStore.Repair
  * 消息修复 — 修剪 trailing unpaired tool_use 等场景。
  *
  * 抽出自 store.ts、dialogstore-auditor §M-01 follow-up（SRP 拆分）。

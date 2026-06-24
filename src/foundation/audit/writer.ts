@@ -1,5 +1,5 @@
 /**
- * @module L2.AuditLog
+ * @module L2a.AuditLog
  * @layer L2 基础层
  *
  * 审计日志追加写、模块级 fallback 池兜底崩溃路径。

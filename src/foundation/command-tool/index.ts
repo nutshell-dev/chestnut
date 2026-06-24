@@ -1,5 +1,5 @@
 /**
- * @module L2.CommandTool
+ * @module L2c.CommandTool
  *
  * CommandTool 工厂 / 把 L1 ProcessExec 包装成 1 个 Tool 协议对象。
  * 应然单源：design/modules/l2_command_tool.md

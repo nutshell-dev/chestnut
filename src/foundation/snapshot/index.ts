@@ -1,5 +1,5 @@
 /**
- * @module L2.Snapshot
+ * @module L2a.Snapshot
  * 代码快照生成与管理。
  */
 

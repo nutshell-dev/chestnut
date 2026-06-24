@@ -1,5 +1,5 @@
 /**
- * @module L2.Messaging.Notify
+ * @module L2c.Messaging.Notify
  *
  * Unified notification helpers. Standardizes error handling and formatting for
  * inbox notifications.

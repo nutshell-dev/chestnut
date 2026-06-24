@@ -1,5 +1,5 @@
 /**
- * @module L2.SkillSystem
+ * @module L2c.SkillSystem
  * SKILL_AUDIT_EVENTS — SkillSystem audit events const namespace（phase355 / phase345 模板）
  */
 
