@@ -9,7 +9,7 @@ import type { ToolRegistry } from '../../foundation/tools/index.js';
 import type { ContractYaml, ProgressData, VerificationResult, VerifierConfig, VerifierResult, SubtaskId } from './types.js';
 import { type LockContext } from './lock.js';
 import type { ContractId } from './types.js';
-import type { ClawId } from '../../foundation/identity/index.js';
+import type { ClawId } from '../../foundation/claw-identity/index.js';
 import type { VerificationMutex } from './verification-mutex.js';
 import type { InboxMessageOptionsBase } from '../../foundation/messaging/index.js';
 

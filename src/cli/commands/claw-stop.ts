@@ -7,7 +7,7 @@ import { loadGlobalConfig, clawExists } from '../../assembly/config-load.js';
 import { getClawConfigPath } from '../../foundation/config/index.js';
 import { CliError } from '../errors.js';
 import { createProcessManagerForCLI, signalCleanStop } from '../../foundation/process-manager/index.js';
-import { makeClawId } from '../../foundation/identity/index.js';
+import { makeClawId } from '../../foundation/claw-identity/index.js';
 import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';

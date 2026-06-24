@@ -10,7 +10,7 @@ import { isFileNotFound } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
 import { MOTION_CLAW_ID, resolveClawDaemonDir } from '../../core/claw-topology/index.js';
-import { makeClawId } from '../../foundation/identity/index.js';
+import { makeClawId } from '../../foundation/claw-identity/index.js';
 import type { ClawTopology } from '../../core/claw-topology/index.js';
 import type { DaemonDir } from '../../foundation/process-manager/index.js';
 import { createChatViewportWatcher } from './chat-viewport-watcher.js';

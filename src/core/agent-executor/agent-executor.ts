@@ -16,7 +16,7 @@ import { executeStep, throwAbortError, type StepCallbacks, type StepMeta, type F
 import { asFinalStopReason } from '../step-executor/types.js';
 import { MaxStepsExceededError, ConsecutiveParseErrorsExceededError, ConsecutiveMaxTokensToolUseError, WallTimeExceededError } from './errors.js';
 import { DEFAULT_MAX_STEPS } from './defaults.js';
-import { makeStepNumber } from '../../foundation/identity/index.js';
+import { makeStepNumber } from './step-number.js';
 import { MAX_CONSECUTIVE_PARSE_ERRORS, MAX_CONSECUTIVE_MAX_TOKENS_TOOL_USE } from './constants.js';
 
 export interface AgentInput {

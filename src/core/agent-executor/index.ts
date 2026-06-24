@@ -21,3 +21,5 @@ export {
   ConsecutiveMaxTokensToolUseError,
   WallTimeExceededError,
 } from './errors.js';
+export type { StepNumber } from './step-number.js';
+export { makeStepNumber } from './step-number.js';

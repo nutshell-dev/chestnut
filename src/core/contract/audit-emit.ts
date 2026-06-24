@@ -13,7 +13,7 @@ import { formatErr } from '../../foundation/utils/index.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 import type { ContractId } from './types.js';
 import type { SubtaskId } from './types.js';
-import type { ClawId } from '../../foundation/identity/index.js';
+import type { ClawId } from '../../foundation/claw-identity/index.js';
 
 
 

@@ -42,7 +42,7 @@ import { resolveChestnutRoot } from '../core/claw-topology/claw-instance-paths.j
 // CLAWS_DIR removed: phase 263
 import { createSystemAudit } from '../foundation/audit/index.js';
 import { routeNotifyClaw } from '../core/claw-topology/index.js';
-import { makeClawId } from '../foundation/identity/index.js';
+import { makeClawId } from '../foundation/claw-identity/index.js';
 import { MOTION_CLAW_ID } from '../core/claw-topology/index.js';
 import { createToolRegistry } from '../foundation/tools/index.js';
 import { createFileTools } from '../foundation/file-tool/index.js';

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { makeStepNumber } from '../../../src/foundation/identity/step-number.js';
+import { makeStepNumber } from '../../../src/core/agent-executor/step-number.js';
 
 describe('StepNumber brand (phase 216 Step A)', () => {
   it('makeStepNumber(0) returns brand value', () => {

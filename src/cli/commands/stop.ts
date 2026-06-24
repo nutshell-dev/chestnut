@@ -17,7 +17,7 @@ import { kill, isPidArgvMatching } from '../../foundation/process-exec/index.js'
 import { createSystemAudit, type AuditLog } from '../../foundation/audit/index.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from '../../foundation/process-manager/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
-import { makeClawId } from '../../foundation/identity/index.js';
+import { makeClawId } from '../../foundation/claw-identity/index.js';
 import { CLAWS_DIR } from '../../core/claw-topology/claw-instance-paths.js';
 import { resolveDaemonEntry } from '../../assembly/spawn-entry.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';

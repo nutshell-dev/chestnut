@@ -14,7 +14,7 @@ import { isFileNotFound } from '../foundation/fs/index.js';
 import type { CoreInfraOutput } from './core-infrastructure.js';
 
 import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
-import { makeClawId } from '../foundation/identity/index.js';
+import { makeClawId } from '../foundation/claw-identity/index.js';
 
 
 
