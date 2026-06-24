@@ -14,7 +14,7 @@ import { writeForceAcceptInbox } from '../../../src/core/contract/verification-n
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import type { VerificationContext } from '../../../src/core/contract/verification-types.js';
 import { createToolRegistry } from '../../../src/foundation/tools/index.js';
-import { notifyClaw } from '../../../src/foundation/messaging/index.js';
+import { routeNotifyClaw } from '../../../src/core/claw-topology/index.js';
 import * as verificationNotifyMod from '../../../src/core/contract/verification-notify.js';  // phase 263: hoist
 
 function makeMinimalCtx(clawDir: string, clawId: string, nodeFs: NodeFileSystem, chestnutRoot: string): VerificationContext {
@@ -24,7 +24,7 @@ function makeMinimalCtx(clawDir: string, clawId: string, nodeFs: NodeFileSystem,
     clawId: clawId as any,
     audit,
     fs: nodeFs as any,
-    notifyClaw: (targetClawId, message) => notifyClaw(nodeFs, chestnutRoot, 'motion', targetClawId, message, audit),
+    notifyClaw: (targetClawId, message) => routeNotifyClaw(nodeFs, chestnutRoot, 'motion', targetClawId, message, audit),
     contractDir: vi.fn(async (id: string) => path.join(clawDir, 'contract', 'active', id)),
     loadContractYaml: vi.fn(async () => ({
       title: 'Test', goal: 'Test',

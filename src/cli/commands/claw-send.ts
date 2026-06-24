@@ -10,10 +10,10 @@ import { getClawConfigPath } from '../../foundation/config/index.js';
 import { getGlobalConfigPath } from '../../assembly/global-config-path.js';
 import { CliError } from '../errors.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
-import { notifyClaw } from '../../foundation/messaging/index.js';
+import { routeNotifyClaw } from '../../core/claw-topology/index.js';
 import { formatClawStatusHint, formatNoActiveContractHint } from './claw-shared.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
-import { CLAWS_DIR } from '../../foundation/claw-paths.js';
+import { CLAWS_DIR } from '../../core/claw-topology/claw-instance-paths.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import { makeClawId } from '../../foundation/identity/index.js';
@@ -37,7 +37,7 @@ export async function sendCommand(
   const fileSystem = deps.fsFactory(baseDir);
   const audit = createSystemAudit(fileSystem, clawDir);
 
-  notifyClaw(fileSystem, baseDir, MOTION_CLAW_ID, name, {
+  routeNotifyClaw(fileSystem, baseDir, MOTION_CLAW_ID, name, {
     type: 'user_inbox_message',
     source: 'user',
     priority: options?.priority ?? 'normal',

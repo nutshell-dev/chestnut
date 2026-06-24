@@ -31,7 +31,7 @@ import { TASKS_SYNC_SUBAGENT_DIR } from '../core/subagent/index.js';
 import { TASKS_SYNC_SPAWN_DIR } from '../core/spawn-system/index.js';
 import { TASKS_SYNC_SHADOW_DIR } from '../core/shadow-system/index.js';
 import { MEMORY_DIR } from '../core/memory/index.js';
-import { CLAWSPACE_DIR } from '../foundation/claw-paths.js';
+import { CLAWSPACE_DIR } from '../foundation/claw-identity/index.js';
 
 export const CLAW_SUBDIRS = [
   // L2b DialogStore

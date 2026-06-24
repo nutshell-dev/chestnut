@@ -17,7 +17,7 @@ import { ToolExecutor, type ToolRegistry } from '../../foundation/tools/index.js
 import type { Message, ToolDefinition } from '../../foundation/llm-provider/index.js';
 import type { CallerType } from '../caller-types.js';
 import { createDialogStore } from '../../foundation/dialog-store/index.js';
-import { CLAWSPACE_DIR } from '../../foundation/claw-paths.js';
+import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 // phase 691 Step C: removed import of TASKS_SYNC_DIR from async-task-system
 // — L3 SubAgent must not depend on L4 AsyncTaskSystem (M#5). syncDir 现 caller DI、见 RunSubagentOptions.
 import type { PermissionChecker } from '../../foundation/tool-protocol/index.js';

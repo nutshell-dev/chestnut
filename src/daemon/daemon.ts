@@ -26,7 +26,7 @@ import type { FileSystem } from '../foundation/fs/index.js';
 import { LockConflictError } from '../foundation/process-manager/index.js';
 import { DAEMON_AUDIT_EVENTS } from './audit-events.js';
 import type { DaemonInstances } from './types.js';
-import { CLAW_SPEC_FILE } from '../foundation/claw-paths.js';
+import { CLAW_SPEC_FILE } from '../foundation/claw-identity/index.js';
 import type { AssembleConfig } from '../assembly/types.js';
 
 // phase 175: idempotent signal handler refs（mirror watchdog.ts:60-61 pattern、防 test re-entry 累 listener）

@@ -24,7 +24,8 @@ import { ContractSystem, createContractSystem } from '../core/contract/index.js'
 import { makeClawId } from '../foundation/identity/index.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../core/claw-topology/index.js';
 import type { ClawTopology } from '../core/claw-topology/index.js';
-import { createOutboxWriter, type OutboxWriter, notifyClaw as notifyClawFn } from '../foundation/messaging/index.js';
+import { createOutboxWriter, type OutboxWriter } from '../foundation/messaging/index.js';
+import { routeNotifyClaw as notifyClawFn } from '../core/claw-topology/index.js';
 import { TASKS_SYNC_DIR } from '../core/async-task-system/index.js';
 import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
 import { AggregatedFileRouting } from './file-routing-aggregator.js';

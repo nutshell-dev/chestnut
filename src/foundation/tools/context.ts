@@ -17,7 +17,7 @@ import type { ToolUseId } from '../tool-protocol/index.js';
 import type { StepNumber } from '../identity/index.js';
 import { makeStepNumber } from '../identity/index.js';
 import path from 'path';
-import { CLAWSPACE_DIR } from '../claw-paths.js';
+import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 
 
 import type { AuditLog } from '../audit/types.js';

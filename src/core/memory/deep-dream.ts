@@ -11,7 +11,7 @@ import { estimateTextTokens } from '../../foundation/llm-provider/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { DialogStore, DIALOG_DIR, CURRENT_DIALOG_FILE } from '../../foundation/dialog-store/index.js';
 import type { SessionData } from '../../foundation/dialog-store/index.js';
-import { CLAWS_DIR } from '../../foundation/claw-paths.js';
+import { CLAWS_DIR } from '../../core/claw-topology/claw-instance-paths.js';
 import { INBOX_PENDING_DIR } from '../../foundation/messaging/index.js';
 import { FileNotFoundError } from '../../foundation/fs/index.js';
 import { MOTION_CLAW_ID } from '../claw-topology/index.js';

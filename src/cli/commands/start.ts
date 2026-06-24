@@ -15,7 +15,7 @@ import { formatErr } from "../../foundation/utils/index.js";
 import * as readline from 'readline';
 
 import { isInitialized } from '../../assembly/config-load.js';
-import { CLAW_SPEC_FILE } from '../../foundation/claw-paths.js';
+import { CLAW_SPEC_FILE } from '../../foundation/claw-identity/index.js';
 import { getNamedSubrootDir } from '../../foundation/config/index.js';
 import { initCommand } from './init.js';
 import {
@@ -28,7 +28,7 @@ import { ContractSystem } from '../../core/contract/index.js';
 import { createToolRegistry } from '../../foundation/tools/index.js';
 import { createDirContext } from '../../foundation/audit/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
-import { notifyClaw } from '../../foundation/messaging/index.js';
+import { routeNotifyClaw } from '../../core/claw-topology/index.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 
 import { CliError } from '../errors.js';
@@ -186,7 +186,7 @@ async function _start(deps: { fsFactory: (baseDir: string) => FileSystem }, audi
     const { ensureWatchdog } = await import('../../watchdog/ensure.js');
     await ensureWatchdog(deps.fsFactory);
 
-    const manager = new ContractSystem({ clawDir: motionDir, clawId: MOTION_CLAW_ID, fs: notifyFs, audit: notifyAudit, toolRegistry: createToolRegistry(), fsFactory: deps.fsFactory, notifyClaw: (targetClawId, message) => notifyClaw(notifyFs, makeChestnutRoot(path.dirname(motionDir)), MOTION_CLAW_ID, targetClawId, message, notifyAudit) });
+    const manager = new ContractSystem({ clawDir: motionDir, clawId: MOTION_CLAW_ID, fs: notifyFs, audit: notifyAudit, toolRegistry: createToolRegistry(), fsFactory: deps.fsFactory, notifyClaw: (targetClawId, message) => routeNotifyClaw(notifyFs, makeChestnutRoot(path.dirname(motionDir)), MOTION_CLAW_ID, targetClawId, message, notifyAudit) });
     const contractId = await manager.create({
       schema_version: 1,
       title: 'Onboarding',
@@ -197,7 +197,7 @@ async function _start(deps: { fsFactory: (baseDir: string) => FileSystem }, audi
 
     
     // Motion-only callsite: motionDir = <chestnutRoot>/motion → dirname 一层即 chestnutRoot
-    notifyClaw(notifyFs, makeChestnutRoot(path.dirname(motionDir)), MOTION_CLAW_ID, MOTION_CLAW_ID, {
+    routeNotifyClaw(notifyFs, makeChestnutRoot(path.dirname(motionDir)), MOTION_CLAW_ID, MOTION_CLAW_ID, {
       type: 'contract_created',
       source: 'system',
       priority: 'high',
@@ -216,7 +216,7 @@ async function _start(deps: { fsFactory: (baseDir: string) => FileSystem }, audi
 
     
     if (onboarding.state === 'not_found') {
-      const manager = new ContractSystem({ clawDir: motionDir, clawId: MOTION_CLAW_ID, fs: notifyFs, audit: notifyAudit, toolRegistry: createToolRegistry(), fsFactory: deps.fsFactory, notifyClaw: (targetClawId, message) => notifyClaw(notifyFs, makeChestnutRoot(path.dirname(motionDir)), MOTION_CLAW_ID, targetClawId, message, notifyAudit) });
+      const manager = new ContractSystem({ clawDir: motionDir, clawId: MOTION_CLAW_ID, fs: notifyFs, audit: notifyAudit, toolRegistry: createToolRegistry(), fsFactory: deps.fsFactory, notifyClaw: (targetClawId, message) => routeNotifyClaw(notifyFs, makeChestnutRoot(path.dirname(motionDir)), MOTION_CLAW_ID, targetClawId, message, notifyAudit) });
       const contractId = await manager.create({
         schema_version: 1,
         title: 'Onboarding',
@@ -225,7 +225,7 @@ async function _start(deps: { fsFactory: (baseDir: string) => FileSystem }, audi
         verification: [],
       });
       // Motion-only callsite: motionDir = <chestnutRoot>/motion → dirname 一层即 chestnutRoot
-      notifyClaw(notifyFs, makeChestnutRoot(path.dirname(motionDir)), MOTION_CLAW_ID, MOTION_CLAW_ID, {
+      routeNotifyClaw(notifyFs, makeChestnutRoot(path.dirname(motionDir)), MOTION_CLAW_ID, MOTION_CLAW_ID, {
         type: 'contract_created', source: 'system', priority: 'high',
         body: `New contract created (${contractId}): Onboarding. Please begin execution.`,
         idPrefix: 'start',
@@ -233,7 +233,7 @@ async function _start(deps: { fsFactory: (baseDir: string) => FileSystem }, audi
     } else {
       const pendingList = onboarding.pending?.join(', ') ?? '';
       // Motion-only callsite: motionDir = <chestnutRoot>/motion → dirname 一层即 chestnutRoot
-      notifyClaw(notifyFs, makeChestnutRoot(path.dirname(motionDir)), MOTION_CLAW_ID, MOTION_CLAW_ID, {
+      routeNotifyClaw(notifyFs, makeChestnutRoot(path.dirname(motionDir)), MOTION_CLAW_ID, MOTION_CLAW_ID, {
         type: 'contract_resume', source: 'system', priority: 'high',
         body: `Resuming Onboarding contract (${onboarding.contractId}). Pending subtasks: ${pendingList}. Please continue.`,
         idPrefix: 'start',

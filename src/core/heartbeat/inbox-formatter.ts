@@ -19,7 +19,7 @@ import type { FileSystem } from '../../foundation/fs/index.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { HEARTBEAT_AUDIT_EVENTS } from './audit-events.js';
-import { CLAW_HEARTBEAT_FILE } from '../../foundation/claw-paths.js';
+import { CLAW_HEARTBEAT_FILE } from '../../foundation/claw-identity/index.js';
 
 export interface HeartbeatInboxFormatterDeps {
   /** Heartbeat 模块所在 claw 的 systemFs（HEARTBEAT.md 在 claw 根下）*/

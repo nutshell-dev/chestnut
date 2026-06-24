@@ -1,5 +1,6 @@
 export { createClawTopology } from './topology.js';
 export { MOTION_CLAW_ID } from './motion-claw-id.js';
+export { routeNotifyClaw, CLAWS_DIR, enumerateClaws } from './claw-instance-paths.js';
 export { makeAgentDirResolver } from './agent-dir-resolver.js';
 export { resolveClawDaemonDir } from './daemon-dir.js';
 export {

@@ -19,7 +19,7 @@ export {
 
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { formatErr } from "../../foundation/utils/index.js";
-import { CLAWSPACE_DIR } from '../../foundation/claw-paths.js';
+import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { SUMMON_AUDIT_EVENTS } from './audit-events.js';
 import { type ContractId, makeContractId } from '../contract/types.js';

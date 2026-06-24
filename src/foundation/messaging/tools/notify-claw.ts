@@ -13,13 +13,16 @@ import type { Tool, ExecContext, ToolPermissions } from '../../tools/index.js';
 import type { ToolResult } from '../../tool-protocol/index.js';
 import type { FileSystem } from '../../fs/index.js';
 import type { AuditLog } from '../../audit/index.js';
-import { notifyClaw } from '../notify.js';
+import type { InboxMessageOptionsBase } from '../inbox-writer.js';
 import { MESSAGING_AUDIT_EVENTS } from '../audit-events.js';
 export const NOTIFY_CLAW_TOOL_NAME = 'notify_claw' as const;
 
 export interface NotifyClawDeps {
   fs: FileSystem;
-  chestnutRoot: string;  // phase 90: 去 brand type-only import；用于 resolve target claw dir
+  /**
+   * phase 705: caller-provided delivery callback；L4+ caller 负责解析 chestnut 拓扑路径。
+   */
+  notifyClaw: (targetClawId: string, message: InboxMessageOptionsBase) => void;
   /**
    * phase 550: caller-provided source identity for outgoing notifications + 透传 notifyClaw 的源 arg。
    * (e.g. MOTION_CLAW_ID).
@@ -104,12 +107,12 @@ export function createNotifyClawTool(deps: NotifyClawDeps): Tool {
       }
 
       try {
-        notifyClaw(deps.fs, deps.chestnutRoot, deps.defaultSource, to, {
+        deps.notifyClaw(to, {
           type,
           source: deps.defaultSource,
           priority,
           body,
-        }, deps.audit);
+        });
         deps.audit.write(
           MESSAGING_AUDIT_EVENTS.NOTIFY_CLAW_SENT,
           `claw=${to}`,

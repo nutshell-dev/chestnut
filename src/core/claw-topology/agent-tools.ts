@@ -5,7 +5,7 @@ import { readTool, lsTool, searchTool } from '../../foundation/file-tool/index.j
 import { makeClawId } from '../../foundation/identity/index.js';
 import type { ClawTopology } from './types.js';
 import { CLAW_TOPOLOGY_AUDIT_EVENTS } from './audit-events.js';
-import { CLAWSPACE_DIR } from '../../foundation/claw-paths.js';
+import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 import { MOTION_CLAW_ID } from './motion-claw-id.js';
 
 /** phase 520: motionClawId DI 删除（caller 不再传）、agent-tools 直 import 自家 const */

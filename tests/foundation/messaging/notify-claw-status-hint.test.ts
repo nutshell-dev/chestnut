@@ -14,6 +14,7 @@ import { createNotifyClawTool } from '../../../src/foundation/messaging/tools/no
 import { formatClawStatusHint } from '../../../src/cli/commands/claw-shared.js';
 import { MESSAGING_AUDIT_EVENTS } from '../../../src/foundation/messaging/audit-events.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
+import { routeNotifyClaw } from '../../../src/core/claw-topology/index.js';
 import { makeAudit } from '../../helpers/audit.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 
@@ -42,13 +43,21 @@ describe('notify_claw tool status hint (phase 232)', () => {
     defaultSource: 'motion', isCallerAuthorized: (label: string) => label === 'motion',
   };
 
+  function makeTool(auditLog: any, overrides: Record<string, unknown> = {}) {
+    return createNotifyClawTool({
+      ...defaultDeps,
+      fs,
+      notifyClaw: (targetClawId: string, message: any) =>
+        routeNotifyClaw(fs, tempDir, 'motion', targetClawId, message, auditLog),
+      audit: auditLog,
+      ...overrides,
+    });
+  }
+
   describe('status hint', () => {
     it('return content 含 hint when target claw not alive', async () => {
-      const tool = createNotifyClawTool({ ...defaultDeps,
+      const tool = makeTool(audit.audit, {
         isClawAlive: () => false,
-        fs,
-        chestnutRoot: tempDir,
-        audit: audit.audit,
       });
       const result = await tool.execute(
         { to: targetClaw, body: 'hello worker' },
@@ -62,11 +71,8 @@ describe('notify_claw tool status hint (phase 232)', () => {
     });
 
     it('return content 不含 hint when target claw alive', async () => {
-      const tool = createNotifyClawTool({ ...defaultDeps,
+      const tool = makeTool(audit.audit, {
         isClawAlive: () => true,
-        fs,
-        chestnutRoot: tempDir,
-        audit: audit.audit,
       });
       const result = await tool.execute(
         { to: targetClaw, body: 'hello worker' },
@@ -80,11 +86,8 @@ describe('notify_claw tool status hint (phase 232)', () => {
 
   describe('wrapper migration (M#3)', () => {
     it('calls notifyClaw wrapper — file written to target inbox', async () => {
-      const tool = createNotifyClawTool({ ...defaultDeps,
+      const tool = makeTool(audit.audit, {
         isClawAlive: () => true,
-        fs,
-        chestnutRoot: tempDir,
-        audit: audit.audit,
       });
       const result = await tool.execute(
         { to: targetClaw, body: 'wrapper msg' },
@@ -99,11 +102,8 @@ describe('notify_claw tool status hint (phase 232)', () => {
     });
 
     it('NOTIFY_CLAW_SENT audit emit preserved after wrapper migration', async () => {
-      const tool = createNotifyClawTool({ ...defaultDeps,
+      const tool = makeTool(audit.audit, {
         isClawAlive: () => true,
-        fs,
-        chestnutRoot: tempDir,
-        audit: audit.audit,
       });
       await tool.execute(
         { to: targetClaw, body: 'audit check' },
@@ -115,12 +115,9 @@ describe('notify_claw tool status hint (phase 232)', () => {
     });
 
     it('DLQ for unknown destination preserved via clawExists callback (phase 241)', async () => {
-      const tool = createNotifyClawTool({ ...defaultDeps,
+      const tool = makeTool(audit.audit, {
         clawExists: () => false,
         isClawAlive: () => true,
-        fs,
-        chestnutRoot: tempDir,
-        audit: audit.audit,
       });
       const result = await tool.execute(
         { to: 'ghost-claw', body: 'orphan' },
@@ -135,12 +132,9 @@ describe('notify_claw tool status hint (phase 232)', () => {
 
   describe('phase 241: active contract hint', () => {
     it('return content 含 contract hint when alive but no active contract', async () => {
-      const tool = createNotifyClawTool({ ...defaultDeps,
+      const tool = makeTool(audit.audit, {
         isClawAlive: () => true,
         hasActiveContract: () => false,
-        fs,
-        chestnutRoot: tempDir,
-        audit: audit.audit,
       });
       const result = await tool.execute(
         { to: targetClaw, body: 'hello worker' },
@@ -154,12 +148,9 @@ describe('notify_claw tool status hint (phase 232)', () => {
     });
 
     it('return content 不含 contract hint when alive + has active contract', async () => {
-      const tool = createNotifyClawTool({ ...defaultDeps,
+      const tool = makeTool(audit.audit, {
         isClawAlive: () => true,
         hasActiveContract: () => true,
-        fs,
-        chestnutRoot: tempDir,
-        audit: audit.audit,
       });
       const result = await tool.execute(
         { to: targetClaw, body: 'hello worker' },
@@ -171,12 +162,9 @@ describe('notify_claw tool status hint (phase 232)', () => {
     });
 
     it('return content 含 status hint but not contract hint when stopped (not alive)', async () => {
-      const tool = createNotifyClawTool({ ...defaultDeps,
+      const tool = makeTool(audit.audit, {
         isClawAlive: () => false,
         hasActiveContract: () => false,
-        fs,
-        chestnutRoot: tempDir,
-        audit: audit.audit,
       });
       const result = await tool.execute(
         { to: targetClaw, body: 'hello worker' },

@@ -22,7 +22,7 @@ import * as path from 'path';
 import { formatErr } from "../../foundation/utils/index.js";
 import { loadGlobalConfig, clawExists } from '../../assembly/config-load.js';
 import { getClawDir, getClawConfigPath } from '../../foundation/config/index.js';
-import { CLAWSPACE_DIR } from '../../foundation/claw-paths.js';
+import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 import { resolveWorkspacePath } from '../../foundation/file-tool/index.js';
 import { CliError } from '../errors.js';
 import type { FileSystem, FileEntry } from '../../foundation/fs/index.js';

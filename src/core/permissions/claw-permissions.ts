@@ -34,7 +34,7 @@ import {
   TASKS_QUEUES_RESULTS_DIR,
   TASKS_SUBAGENTS_DIR,
 } from '../async-task-system/index.js';
-import { CLAWSPACE_DIR, CLAW_SPEC_FILE, CLAW_MEMORY_FILE, CLAW_IDENTITY_FILE, CLAW_USER_FILE, CLAW_SOUL_FILE } from '../../foundation/claw-paths.js';
+import { CLAWSPACE_DIR, CLAW_SPEC_FILE, CLAW_MEMORY_FILE, CLAW_IDENTITY_FILE, CLAW_USER_FILE, CLAW_SOUL_FILE } from '../../foundation/claw-identity/index.js';
 import { CONFIG_YAML_FILE } from '../../foundation/install-paths.js';
 import { DIALOG_DIR } from '../../foundation/dialog-store/index.js';
 import type { PermissionChecker } from '../../foundation/tool-protocol/index.js';

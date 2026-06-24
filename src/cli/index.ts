@@ -41,7 +41,7 @@ import { createContractSystem } from '../core/contract/index.js';
 import { resolveChestnutRoot } from '../core/claw-topology/claw-instance-paths.js';
 // CLAWS_DIR removed: phase 263
 import { createSystemAudit } from '../foundation/audit/index.js';
-import { notifyClaw } from '../foundation/messaging/index.js';
+import { routeNotifyClaw } from '../core/claw-topology/index.js';
 import { makeClawId } from '../foundation/identity/index.js';
 import { MOTION_CLAW_ID } from '../core/claw-topology/index.js';
 import { createToolRegistry } from '../foundation/tools/index.js';
@@ -257,7 +257,7 @@ contractCmd
         audit: clawAudit,
         toolRegistry,
         fsFactory,
-        notifyClaw: (targetClawId, message) => notifyClaw(clawFs, chestnutRoot, MOTION_CLAW_ID, targetClawId, message, clawAudit),
+        notifyClaw: (targetClawId, message) => routeNotifyClaw(clawFs, chestnutRoot, MOTION_CLAW_ID, targetClawId, message, clawAudit),
       });
       contractSystem.registerCreatePolicy('summon-verify', summonVerifyPolicy);
 

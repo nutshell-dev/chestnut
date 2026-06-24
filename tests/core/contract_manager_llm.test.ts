@@ -5,7 +5,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as path from 'path';
 import { promises as fs } from 'fs';
-import { notifyClaw as notifyClawFn } from '../../src/foundation/messaging/index.js';
+import { routeNotifyClaw as notifyClawFn } from '../../src/core/claw-topology/index.js';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { EventEmitter, once } from 'events';

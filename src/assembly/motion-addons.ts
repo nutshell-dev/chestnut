@@ -6,8 +6,7 @@
  * phase 34 Step D：从 assemble() 抽出步骤 16-17（motion-only addons）。
  */
 
-import { resolveChestnutRoot } from '../core/claw-topology/claw-instance-paths.js';
-import { CLAWS_DIR } from '../foundation/claw-paths.js';
+import { resolveChestnutRoot, CLAWS_DIR, routeNotifyClaw } from '../core/claw-topology/claw-instance-paths.js';
 import { AUDIT_FILE } from '../foundation/audit/index.js';
 import path from 'path';
 import { formatErr } from '../foundation/utils/index.js';
@@ -33,7 +32,7 @@ import { createAskUserTool } from '../core/gateway/index.js';
 import { createStreamReader, STREAM_FILE, findRecentTurnStartOffset } from '../foundation/stream/index.js';
 import { createNotifyClawTool } from '../foundation/messaging/tools/notify-claw.js';
 import { formatClawStatusHint } from '../foundation/utils/index.js';
-import { notifyClaw, OutboxReader } from '../foundation/messaging/index.js';
+import { OutboxReader } from '../foundation/messaging/index.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../core/claw-topology/index.js';
 import { makeClawId } from '../foundation/identity/index.js';
 import type { CoreInfraOutput } from './core-infrastructure.js';
@@ -95,7 +94,8 @@ export async function createMotionAddons(
   const chestnutRoot = resolveChestnutRoot(clawDir, true);  // phase 241: hoist for callbacks
   toolRegistry.register(createNotifyClawTool({
     fs: parentFs,
-    chestnutRoot,  // phase 1406: motion-only context (motion clawDir = <root>/motion → root)
+    notifyClaw: (targetClawId, message) =>
+      routeNotifyClaw(parentFs, chestnutRoot, MOTION_CLAW_ID, targetClawId, message, auditWriter),
     defaultSource: MOTION_CLAW_ID,
     isCallerAuthorized: (label) => label === MOTION_CLAW_ID,
     audit: auditWriter,
@@ -122,7 +122,7 @@ export async function createMotionAddons(
         interval: heartbeatIntervalMs / 1000,
         audit: auditWriter,
         inboxReader,
-        notifyInbox: (msg) => notifyClaw(parentFs, chestnutRoot, MOTION_CLAW_ID, MOTION_CLAW_ID, msg, auditWriter),
+        notifyInbox: (msg) => routeNotifyClaw(parentFs, chestnutRoot, MOTION_CLAW_ID, MOTION_CLAW_ID, msg, auditWriter),
       });
     } catch (e) {
       auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=heartbeat`, `phase=construct`, `reason=${formatErr(e)}`);
@@ -155,7 +155,7 @@ export async function createMotionAddons(
         clawTopology: core.topology,  // phase 259
         // phase 104: pre-bound notifyClaw
         notifyClaw: (targetClawId, message) =>
-          notifyClaw(parentFs, chestnutRoot, MOTION_CLAW_ID, targetClawId, message, auditWriter),
+          routeNotifyClaw(parentFs, chestnutRoot, MOTION_CLAW_ID, targetClawId, message, auditWriter),
         llm,
         toolRegistry,
         toolTimeoutMs,
@@ -178,7 +178,7 @@ export async function createMotionAddons(
           clawFsFactory: fsFactory,
           getContractProgress: clawContractBridge.getContractProgress,
           // phase 92: DI callback for random-dream notify motion inbox
-          notifyMotion: (msg) => notifyClaw(parentFs, chestnutRoot, MOTION_CLAW_ID, MOTION_CLAW_ID, msg, auditWriter),
+          notifyMotion: (msg) => routeNotifyClaw(parentFs, chestnutRoot, MOTION_CLAW_ID, MOTION_CLAW_ID, msg, auditWriter),
         });
       } catch (e) {
         auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=memory_system`, `phase=construct`, `reason=${formatErr(e)}`);
@@ -217,7 +217,7 @@ export async function createMotionAddons(
           motionDir: path.join(chestnutRoot, 'motion'),  // phase 101
           fs: chestnutFs,
           motionAudit: auditWriter,  // phase 724 α：主 auditWriter 单 instance 复用
-          notifyMotion: (msg) => notifyClaw(chestnutFs, chestnutRoot, MOTION_CLAW_ID, MOTION_CLAW_ID, msg, auditWriter),
+          notifyMotion: (msg) => routeNotifyClaw(chestnutFs, chestnutRoot, MOTION_CLAW_ID, MOTION_CLAW_ID, msg, auditWriter),
         }, globalConfig),
         createGitGcWeeklyJob({
           clawTopology: core.topology,  // phase 259
