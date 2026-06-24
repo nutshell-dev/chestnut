@@ -31,7 +31,7 @@ import type { Gateway } from '../core/gateway/index.js';
 import { createAskUserTool } from '../core/gateway/index.js';
 import { createStreamReader, STREAM_FILE, findRecentTurnStartOffset } from '../foundation/stream/index.js';
 import { createNotifyClawTool } from '../foundation/messaging/tools/notify-claw.js';
-import { formatClawStatusHint } from '../foundation/utils/index.js';
+import { formatClawStatusHint } from '../cli/utils/claw-status-hints.js';
 import { OutboxReader } from '../foundation/messaging/index.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../core/claw-topology/index.js';
 import { makeClawId } from '../foundation/claw-identity/index.js';

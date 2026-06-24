@@ -15,7 +15,7 @@
  */
 
 import type { GuidanceComposer, GuidanceEntry } from '../types.js';
-import { clawCmd, CLAW_VERBS } from '../../../foundation/utils/index.js';
+import { clawCmd, CLAW_VERBS } from '../../../cli/utils/cli-commands.js';
 
 interface ClawOutboxSummaryState {
   hash: string;
