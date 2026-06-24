@@ -1,5 +1,5 @@
 /**
- * @module L3.ClawTopology.AgentDirResolver
+ * @module L4.ClawTopology
  *
  * Topology helper: maps clawId → fs dir.
  * Motion claw → subroot dir; other claws → claws/<id>.

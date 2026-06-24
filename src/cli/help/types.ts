@@ -1,5 +1,5 @@
 /**
- * @module L6.Cli.Help.Types
+ * @module L6.CLI.Help.Types
  *
  * Phase 1477 立 / phase 1479 layering fix（从 L1 foundation 挪到 L6 cli）。
  *

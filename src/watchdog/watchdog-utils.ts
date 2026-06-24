@@ -1,5 +1,5 @@
 /**
- * @module L6.WatchdogUtils
+ * @module L6.Watchdog
  * @layer L6 进程边界（Watchdog 工具函数）
  * @depends L1.FileSystem, L2.AuditLog, L2.Stream
  * @consumers L6.Watchdog

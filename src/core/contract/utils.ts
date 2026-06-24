@@ -1,5 +1,5 @@
 /**
- * @module L4.ContractUtils
+ * @module L4.ContractSystem
  * @layer L4 业务层（Contract 工具函数）
  * @depends L1.FileSystem
  * @consumers L6.Watchdog, L6.ChatViewport

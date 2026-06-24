@@ -1,5 +1,5 @@
 /**
- * @module L6.DaemonLoop
+ * @module L6.Daemon
  * @layer L6 进程边界（Daemon 事件循环）
  * @depends L1.FileSystem, L2.AuditLog, L2.FileWatcher, L2.Stream, L2.Messaging, L5.Runtime
  * @consumers L6.Daemon
