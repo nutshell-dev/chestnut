@@ -27,10 +27,11 @@ describe('inbox write-side encap invariant (phase 1334 r138 E fork)', () => {
 
   // phase 315 Step A: path.join inbox+pending hardcoded ratchet 已迁移为
   // ESLint custom rule `no-hardcoded-inbox-path`。本 grep invariant 删除。
+  // phase 705: L4 ClawTopology 提供 routeNotifyClaw 包装器，等价于 notifyClaw 调用站点。
 
   it('non-deprecated callers use notifyClaw or writeInboxAsync (deep-dream = notifyInbox self-notify exception)', () => {
     const outNotify = execSync(
-      `grep -rn 'notifyClaw\\|writeInboxAsync' src/core src/watchdog src/core/memory src/core/contract --include='*.ts' | grep -v test`,
+      `grep -rn 'notifyClaw\\|routeNotifyClaw\\|writeInboxAsync' src/core src/watchdog src/core/memory src/core/contract --include='*.ts' | grep -v test`,
       { encoding: 'utf8', cwd: REPO_CWD },
     );
     expect(outNotify).toContain('heartbeat.ts');

@@ -1,5 +1,5 @@
 /**
- * @module L3.ClawTopology.MotionClawId
+ * @module L4.ClawTopology
  * MOTION_CLAW_ID — motion claw identifier、chestnut 拓扑根 claw。
  *
  * 应然 owner：core/claw-topology（motion 是 topology root、非 foundation 概念）。
