@@ -22,7 +22,7 @@
 
 import type { GuidanceComposer, GuidanceEntry } from '../types.js';
 import { clawCmd, CLAW_VERBS } from '../../../foundation/utils/index.js';
-import type { CrashClass } from '../../../foundation/utils/index.js';
+import type { CrashClass } from '../../../watchdog/claw-failure-classes.js';
 
 
 interface CrashNotificationState {

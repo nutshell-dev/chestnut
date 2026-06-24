@@ -1,5 +1,5 @@
 /**
- * @module L6.Watchdog.FailureClasses
+ * @module L6.Watchdog
  *
  * Type unions shared by watchdog (业主) + assembly guidance composers (consumer).
  *
