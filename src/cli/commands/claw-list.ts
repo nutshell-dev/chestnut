@@ -6,7 +6,7 @@
 import * as path from 'path';
 import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
 import { loadGlobalConfig } from '../../assembly/config-load.js';
-import { getGlobalConfigPath } from '../../foundation/config/index.js';
+import { getGlobalConfigPath } from '../../assembly/global-config-path.js';
 import { createDirContext } from '../../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { makeClawId } from '../../foundation/identity/index.js';

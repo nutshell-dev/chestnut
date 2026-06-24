@@ -8,7 +8,7 @@
  *
  * mock fs in-memory、不依赖 real time。
  */
-import { makeChestnutRoot } from '../../../src/foundation/install-paths.js';
+import { makeChestnutRoot } from '../../../src/core/claw-topology/claw-instance-paths.js';
 import { describe, it, expect, vi } from 'vitest';
 import { runContractObserver } from '../../../src/core/contract/jobs/contract-observer.js';
 import type { FileSystem, FileEntry } from '../../../src/foundation/fs/types.js';

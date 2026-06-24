@@ -2,7 +2,7 @@
  * Show contract state snapshot for a claw
  */
 
-import { resolveChestnutRoot } from '../../foundation/install-paths.js';
+import { resolveChestnutRoot } from '../../core/claw-topology/claw-instance-paths.js';
 import * as yaml from 'js-yaml';
 import { ContractSystem, type ContractYaml, type ProgressData } from '../../core/contract/index.js';
 import { getClawDir } from '../../foundation/config/index.js';

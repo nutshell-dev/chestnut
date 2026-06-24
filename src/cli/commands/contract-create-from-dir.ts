@@ -3,7 +3,7 @@
  */
 
 import * as path from 'path';
-import { resolveChestnutRoot } from '../../foundation/install-paths.js';
+import { resolveChestnutRoot } from '../../core/claw-topology/claw-instance-paths.js';
 import { CONTRACT_DIR, CONTRACT_YAML_FILE } from '../../core/contract/index.js';
 import type { ContractSystem } from '../../core/contract/index.js';
 import { ContractCreatePolicyViolationError } from '../../core/contract/types.js';

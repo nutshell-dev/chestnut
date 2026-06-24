@@ -2,7 +2,7 @@
  * Create a contract for a claw
  */
 
-import { resolveChestnutRoot } from '../../foundation/install-paths.js';
+import { resolveChestnutRoot } from '../../core/claw-topology/claw-instance-paths.js';
 // CLAWS_DIR removed: phase 263
 import * as path from 'path';
 import { ContractSystem } from '../../core/contract/index.js';

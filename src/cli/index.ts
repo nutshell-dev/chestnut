@@ -38,7 +38,7 @@ import { getChestnutRoot, getClawDir } from '../foundation/config/index.js';
 import { loadGlobalConfig } from '../assembly/config-load.js';
 import { createSummonVerifyPolicy } from '../core/summon-system/index.js';
 import { createContractSystem } from '../core/contract/index.js';
-import { resolveChestnutRoot } from '../foundation/install-paths.js';
+import { resolveChestnutRoot } from '../core/claw-topology/claw-instance-paths.js';
 // CLAWS_DIR removed: phase 263
 import { createSystemAudit } from '../foundation/audit/index.js';
 import { notifyClaw } from '../foundation/messaging/index.js';

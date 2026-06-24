@@ -5,7 +5,8 @@
 
 import { newShortUuid } from '../../foundation/uuid.js';
 import { EXEC_MAX_OUTPUT } from '../../foundation/command-tool/index.js';
-import { getChestnutRoot, makeChestnutRoot } from '../../foundation/install-paths.js';
+import { getChestnutRoot } from '../../foundation/install-paths.js';
+import { makeChestnutRoot } from '../../core/claw-topology/claw-instance-paths.js';
 import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { notifyClaw } from '../../foundation/messaging/index.js';

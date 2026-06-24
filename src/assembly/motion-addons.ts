@@ -6,7 +6,7 @@
  * phase 34 Step D：从 assemble() 抽出步骤 16-17（motion-only addons）。
  */
 
-import { resolveChestnutRoot } from '../foundation/install-paths.js';
+import { resolveChestnutRoot } from '../core/claw-topology/claw-instance-paths.js';
 import { CLAWS_DIR } from '../foundation/claw-paths.js';
 import { AUDIT_FILE } from '../foundation/audit/index.js';
 import path from 'path';

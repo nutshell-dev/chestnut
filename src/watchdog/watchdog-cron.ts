@@ -3,7 +3,7 @@
  * Watchdog cron jobs — claw inactivity timeout + crash detection
  */
 
-import { makeChestnutRoot } from '../foundation/install-paths.js';
+import { makeChestnutRoot } from '../core/claw-topology/claw-instance-paths.js';
 import * as path from 'path';
 import { formatErr } from "../foundation/utils/index.js";
 import type { FileSystem } from '../foundation/fs/index.js';
