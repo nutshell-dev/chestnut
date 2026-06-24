@@ -10,8 +10,12 @@
 import type { LLMResponse } from '../llm-provider/types.js';
 import {
   LLMAllProvidersFailedError,
+  LLMError,
   LLMTimeoutError,
   LLMRateLimitError,
+  LLMEmptyResponseError,
+  LLMCircuitBreakerOpenError,
+  LLMStreamAbortedError,
   classifyLLMError,
   getUserActionHint,
 } from './errors.js';
@@ -279,7 +283,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
         failures.push({ provider: this.primary.name, error: err as Error });
       }
     } else {
-      failures.push({ provider: this.primary.name, error: new Error('Circuit breaker open') });
+      failures.push({ provider: this.primary.name, error: new LLMCircuitBreakerOpenError(this.primary.name) });
     }
 
     // Primary exhausted — try remaining fallbacks
@@ -290,7 +294,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
     for (let i = 0; i < this.fallbacks.length; i++) {
       if (options.signal?.aborted) throw makeExternalAbortError(options.signal.reason as AbortReason | undefined);
       if (isBreakerOpen(i + 1)) {
-        failures.push({ provider: this.fallbacks[i].name, error: new Error('Circuit breaker open') });
+        failures.push({ provider: this.fallbacks[i].name, error: new LLMCircuitBreakerOpenError(this.fallbacks[i].name) });
         continue;
       }
 
@@ -357,7 +361,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
       const breaker = this.breakers[breakerIndex];
       if (breaker?.isOpen()) {
         skippedCount++;
-        failures.push({ provider: adapter.name, error: new Error('Circuit breaker open') });
+        failures.push({ provider: adapter.name, error: new LLMCircuitBreakerOpenError(adapter.name) });
         yield { type: 'provider_failed' as const, provider: adapter.name, model: adapter.model, error: 'Circuit breaker open' };
         lastFailedProviderName = adapter.name;  // phase 686
         continue;
@@ -475,9 +479,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
               provider: adapter.name,
               ms: options.streamIdleTimeoutMs!,
             });
-            lastError = new Error(
-              `Idle timeout after ${options.streamIdleTimeoutMs}ms (probe failed: ${probe.error.message})`,
-            );
+            lastError = new LLMTimeoutError(adapter.name, options.streamIdleTimeoutMs!);
             lastFailedProviderName = adapter.name;  // phase 686
             break; // exit retry loop → outer loop continues to next provider
           }
@@ -533,7 +535,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
         if (!wasOpen && breaker?.isOpen()) {
           this.events.emit({ type: 'breaker_opened', provider: adapter.name, consecutiveFailures: this.config.circuitBreaker?.failureThreshold ?? 0 });
         }
-        const err = new Error('LLM returned empty response (0 chunks)');
+        const err = new LLMEmptyResponseError(adapter.name);
         this.events.emit({
           type: 'provider_attempt_failed',
           provider: adapter.name,
@@ -549,11 +551,11 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
       } else if (!midStreamReset) {
         // Circuit breaker: record failure
         const wasOpen = breaker?.isOpen();
-        breaker?.onFailure(classifyLLMError(lastError ?? new Error('Unknown stream error')));
+        breaker?.onFailure(classifyLLMError(lastError ?? new LLMStreamAbortedError(adapter.name, 'no error captured')));
         if (!wasOpen && breaker?.isOpen()) {
           this.events.emit({ type: 'breaker_opened', provider: adapter.name, consecutiveFailures: this.config.circuitBreaker?.failureThreshold ?? 0 });
         }
-        const err = lastError ?? new Error('Unknown stream error');
+        const err = lastError ?? new LLMStreamAbortedError(adapter.name, 'no error captured');
         this.events.emit({
           type: 'provider_attempt_failed',
           provider: adapter.name,
@@ -584,9 +586,10 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
         totalAttempted,
         skippedCount,
       });
-      throw new Error(
+      throw new LLMError(
         `All ${totalAttempted} providers exhausted with context_window_exceeded. ` +
-        `Reduce system prompt, tool definitions, or conversation history.`
+        `Reduce system prompt, tool definitions, or conversation history.`,
+        { totalAttempted, skippedCount },
       );
     }
 
@@ -718,7 +721,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
           if (isContentChunk(chunk)) return { winner: 'A', chunk };
           // skip metadata chunks (done/reset/thinking_signature/etc.)
         }
-        return { winner: 'A-error', error: new Error('primary stream ended without content chunk') };
+        return { winner: 'A-error', error: new LLMStreamAbortedError(this.primary.name, 'stream ended without content chunk') };
       } catch (e) {
         return { winner: 'A-error', error: e as Error };
       }
@@ -735,7 +738,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
         if (trackBCtrl.signal.aborted) return { winner: 'B-error', failures };
         const fb = this.fallbacks[i];
         if (this.breakers[i + 1]?.isOpen()) {
-          failures.push({ provider: fb.name, error: new Error('Circuit breaker open') });
+          failures.push({ provider: fb.name, error: new LLMCircuitBreakerOpenError(fb.name) });
           continue;
         }
         const fbMerged = mergeSignals(options.signal, trackBCtrl.signal);

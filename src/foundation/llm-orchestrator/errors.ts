@@ -21,7 +21,7 @@ import {
 import type { ErrorCode } from '../errors.js';
 import { isAbortError } from '../utils/index.js';
 
-export { LLMError, LLMRateLimitError, LLMTimeoutError, LLMAuthError, LLMNetworkError, LLMEmptyResponseError, LLMModelNotFoundError, LLMContextExceededError } from '../llm-provider/errors.js';
+export { LLMError, LLMRateLimitError, LLMTimeoutError, LLMAuthError, LLMNetworkError, LLMEmptyResponseError, LLMModelNotFoundError, LLMContextExceededError, LLMCircuitBreakerOpenError, LLMStreamAbortedError } from '../llm-provider/errors.js';
 
 export class LLMAllProvidersFailedError extends LLMError {
   readonly code: ErrorCode = 'LLM_ALL_PROVIDERS_FAILED';

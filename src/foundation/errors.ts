@@ -24,6 +24,8 @@ export type ErrorCode =
   | 'LLM_EMPTY_RESPONSE'
   | 'LLM_ALL_PROVIDERS_FAILED'
   | 'LLM_CONTEXT_EXCEEDED'
+  | 'LLM_CIRCUIT_BREAKER_OPEN'
+  | 'LLM_STREAM_ABORTED'
 
   // File system errors (5xx)
   | 'FS_NOT_FOUND'

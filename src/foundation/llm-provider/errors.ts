@@ -98,3 +98,20 @@ export class LLMContextExceededError extends LLMError {
     this.providerMessage = providerMessage;
   }
 }
+
+export class LLMCircuitBreakerOpenError extends LLMError {
+  readonly code: ErrorCode = 'LLM_CIRCUIT_BREAKER_OPEN';
+  constructor(provider: string) {
+    super(`Circuit breaker open for ${provider}`, { provider });
+  }
+}
+
+export class LLMStreamAbortedError extends LLMError {
+  readonly code: ErrorCode = 'LLM_STREAM_ABORTED';
+  constructor(provider: string, reason?: string) {
+    super(
+      `LLM stream aborted for ${provider}${reason ? `: ${reason}` : ''}`,
+      { provider, reason },
+    );
+  }
+}
