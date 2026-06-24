@@ -5,13 +5,28 @@
  * Atomic writes, path guarding.
  */
 
-import { ClawError, type ErrorCode } from '../errors.js';
+import { formatErr } from '../node-utils/index.js';
 
-export class FileNotFoundError extends ClawError {
-  readonly code: ErrorCode = 'FS_NOT_FOUND';
+export type FSErrorCode = 'FS_NOT_FOUND';
+
+export class FileNotFoundError extends Error {
+  readonly code: FSErrorCode = 'FS_NOT_FOUND';
+  readonly context?: Record<string, unknown>;
+  readonly timestamp: string = new Date().toISOString();
 
   constructor(path: string) {
-    super(`File not found: "${path}"`, { path });
+    super(`File not found: "${path}"`);
+    this.name = this.constructor.name;
+    this.context = { path };
+  }
+
+  toJSON() {
+    return {
+      code: this.code,
+      message: this.message,
+      context: this.context,
+      ...(this.cause !== undefined && { cause: formatErr(this.cause) }),
+    };
   }
 }
 

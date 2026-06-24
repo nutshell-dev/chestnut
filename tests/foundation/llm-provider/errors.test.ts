@@ -13,7 +13,6 @@ import {
   LLMEmptyResponseError,
   LLMModelNotFoundError,
 } from '../../../src/foundation/llm-provider/errors.js';
-import { ClawError } from '../../../src/foundation/errors.js';
 
 describe('llm-provider/errors — LLM error class hierarchy (phase 1157)', () => {
   describe('LLMError (base)', () => {
@@ -22,9 +21,8 @@ describe('llm-provider/errors — LLM error class hierarchy (phase 1157)', () =>
       expect(e.code).toBe('LLM_CALL_FAILED');
     });
 
-    it('inherits ClawError and Error', () => {
+    it('inherits Error', () => {
       const e = new LLMError('test');
-      expect(e).toBeInstanceOf(ClawError);
       expect(e).toBeInstanceOf(Error);
     });
   });
@@ -37,7 +35,7 @@ describe('llm-provider/errors — LLM error class hierarchy (phase 1157)', () =>
       expect(e.message).toContain('openai');
       expect(e.message).toContain('Rate limited');
       expect(e).toBeInstanceOf(LLMError);
-      expect(e).toBeInstanceOf(ClawError);
+      expect(e).toBeInstanceOf(Error);
     });
 
     it('retryAfter undefined when omitted', () => {
@@ -63,7 +61,7 @@ describe('llm-provider/errors — LLM error class hierarchy (phase 1157)', () =>
       expect(e.message).toContain('gemini');
       expect(e.message).toContain('30000ms');
       expect(e).toBeInstanceOf(LLMError);
-      expect(e).toBeInstanceOf(ClawError);
+      expect(e).toBeInstanceOf(Error);
     });
   });
 
@@ -74,7 +72,7 @@ describe('llm-provider/errors — LLM error class hierarchy (phase 1157)', () =>
       expect(e.message).toContain('openai');
       expect(e.message).toContain('401');
       expect(e).toBeInstanceOf(LLMError);
-      expect(e).toBeInstanceOf(ClawError);
+      expect(e).toBeInstanceOf(Error);
     });
 
     it('custom message overrides default', () => {
@@ -93,7 +91,7 @@ describe('llm-provider/errors — LLM error class hierarchy (phase 1157)', () =>
       expect(e.message).toContain('ECONNRESET');
       expect(e.cause).toBe(cause);
       expect(e).toBeInstanceOf(LLMError);
-      expect(e).toBeInstanceOf(ClawError);
+      expect(e).toBeInstanceOf(Error);
     });
 
     it('toJSON includes cause format', () => {
@@ -120,7 +118,7 @@ describe('llm-provider/errors — LLM error class hierarchy (phase 1157)', () =>
       expect(e.message).toContain('anthropic');
       expect(e.message).toContain('empty response');
       expect(e).toBeInstanceOf(LLMError);
-      expect(e).toBeInstanceOf(ClawError);
+      expect(e).toBeInstanceOf(Error);
     });
 
     it('toJSON includes provider in context', () => {
@@ -139,7 +137,7 @@ describe('llm-provider/errors — LLM error class hierarchy (phase 1157)', () =>
       expect(e.message).toContain('gpt-99');
       expect(e.message).toContain('404');
       expect(e).toBeInstanceOf(LLMError);
-      expect(e).toBeInstanceOf(ClawError);
+      expect(e).toBeInstanceOf(Error);
     });
   });
 });

@@ -9,14 +9,44 @@
  * llm-orchestrator/errors.ts, importing base classes from here.
  */
 
-import { ClawError, type ErrorCode } from '../errors.js';
+import { formatErr } from '../node-utils/index.js';
 
-export class LLMError extends ClawError {
-  readonly code: ErrorCode = 'LLM_CALL_FAILED';
+export type LLMErrorCode =
+  | 'LLM_CALL_FAILED'
+  | 'LLM_RATE_LIMITED'
+  | 'LLM_TIMEOUT'
+  | 'LLM_AUTH_FAILED'
+  | 'LLM_NETWORK_FAILED'
+  | 'LLM_EMPTY_RESPONSE'
+  | 'LLM_MODEL_NOT_FOUND'
+  | 'LLM_CONTEXT_EXCEEDED'
+  | 'LLM_CIRCUIT_BREAKER_OPEN'
+  | 'LLM_STREAM_ABORTED';
+
+export class LLMError extends Error {
+  readonly code: LLMErrorCode = 'LLM_CALL_FAILED';
+  readonly context?: Record<string, unknown>;
+  readonly timestamp: string = new Date().toISOString();
+
+  constructor(message: string, context?: Record<string, unknown>, cause?: unknown) {
+    super(message);
+    this.name = this.constructor.name;
+    this.context = context;
+    if (cause) this.cause = cause;
+  }
+
+  toJSON() {
+    return {
+      code: this.code,
+      message: this.message,
+      context: this.context,
+      ...(this.cause !== undefined && { cause: formatErr(this.cause) }),
+    };
+  }
 }
 
 export class LLMRateLimitError extends LLMError {
-  readonly code: ErrorCode = 'LLM_RATE_LIMITED';
+  readonly code: LLMErrorCode = 'LLM_RATE_LIMITED';
   readonly retryAfter?: number;
 
   constructor(provider: string, retryAfter?: number) {
@@ -29,7 +59,7 @@ export class LLMRateLimitError extends LLMError {
 }
 
 export class LLMTimeoutError extends LLMError {
-  readonly code: ErrorCode = 'LLM_TIMEOUT';
+  readonly code: LLMErrorCode = 'LLM_TIMEOUT';
   readonly timeoutMs: number;
 
   constructor(provider: string, timeoutMs: number) {
@@ -42,7 +72,7 @@ export class LLMTimeoutError extends LLMError {
 }
 
 export class LLMAuthError extends LLMError {
-  readonly code: ErrorCode = 'LLM_AUTH_FAILED';
+  readonly code: LLMErrorCode = 'LLM_AUTH_FAILED';
   constructor(provider: string, statusCode: number, message?: string) {
     super(
       message ?? `LLM auth failed for ${provider} (HTTP ${statusCode})`,
@@ -52,7 +82,7 @@ export class LLMAuthError extends LLMError {
 }
 
 export class LLMNetworkError extends LLMError {
-  readonly code: ErrorCode = 'LLM_NETWORK_FAILED';
+  readonly code: LLMErrorCode = 'LLM_NETWORK_FAILED';
   constructor(provider: string, cause?: Error) {
     super(
       `LLM network failure for ${provider}${cause ? `: ${cause.message}` : ''}`,
@@ -63,7 +93,7 @@ export class LLMNetworkError extends LLMError {
 }
 
 export class LLMEmptyResponseError extends LLMError {
-  readonly code: ErrorCode = 'LLM_EMPTY_RESPONSE';
+  readonly code: LLMErrorCode = 'LLM_EMPTY_RESPONSE';
   constructor(provider: string) {
     super(
       `LLM returned empty response from ${provider}`,
@@ -73,7 +103,7 @@ export class LLMEmptyResponseError extends LLMError {
 }
 
 export class LLMModelNotFoundError extends LLMError {
-  readonly code: ErrorCode = 'LLM_MODEL_NOT_FOUND';
+  readonly code: LLMErrorCode = 'LLM_MODEL_NOT_FOUND';
   constructor(provider: string, model: string, providerMessage?: string) {
     const base = `LLM model not found: provider "${provider}" rejected model "${model}" (HTTP 404)`;
     const detail = providerMessage
@@ -84,7 +114,7 @@ export class LLMModelNotFoundError extends LLMError {
 }
 
 export class LLMContextExceededError extends LLMError {
-  readonly code: ErrorCode = 'LLM_CONTEXT_EXCEEDED';
+  readonly code: LLMErrorCode = 'LLM_CONTEXT_EXCEEDED';
   readonly provider: string;
   readonly status: number;
   readonly providerMessage: string;
@@ -100,14 +130,14 @@ export class LLMContextExceededError extends LLMError {
 }
 
 export class LLMCircuitBreakerOpenError extends LLMError {
-  readonly code: ErrorCode = 'LLM_CIRCUIT_BREAKER_OPEN';
+  readonly code: LLMErrorCode = 'LLM_CIRCUIT_BREAKER_OPEN';
   constructor(provider: string) {
     super(`Circuit breaker open for ${provider}`, { provider });
   }
 }
 
 export class LLMStreamAbortedError extends LLMError {
-  readonly code: ErrorCode = 'LLM_STREAM_ABORTED';
+  readonly code: LLMErrorCode = 'LLM_STREAM_ABORTED';
   constructor(provider: string, reason?: string) {
     super(
       `LLM stream aborted for ${provider}${reason ? `: ${reason}` : ''}`,

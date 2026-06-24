@@ -1,13 +1,36 @@
-import { ClawError, type ErrorCode } from '../../foundation/errors.js';
+import { formatErr } from '../../foundation/node-utils/index.js';
+
+export type PermissionErrorCode =
+  | 'PERMISSION_DENIED'
+  | 'PATH_NOT_IN_CLAW_SPACE'
+  | 'WRITE_OPERATION_FORBIDDEN';
+
+export class PermissionError extends Error {
+  readonly code: PermissionErrorCode = 'PERMISSION_DENIED';
+  readonly context?: Record<string, unknown>;
+  readonly timestamp: string = new Date().toISOString();
+
+  constructor(message: string, context?: Record<string, unknown>, cause?: unknown) {
+    super(message);
+    this.name = this.constructor.name;
+    this.context = context;
+    if (cause) this.cause = cause;
+  }
+
+  toJSON() {
+    return {
+      code: this.code,
+      message: this.message,
+      context: this.context,
+      ...(this.cause !== undefined && { cause: formatErr(this.cause) }),
+    };
+  }
+}
 
 export type WriteForbiddenReason = 'system_readonly' | 'outside_allowlist';
 
-export class PermissionError extends ClawError {
-  readonly code: ErrorCode = 'PERMISSION_DENIED';
-}
-
 export class PathNotInClawSpaceError extends PermissionError {
-  readonly code: ErrorCode = 'PATH_NOT_IN_CLAW_SPACE';
+  readonly code: PermissionErrorCode = 'PATH_NOT_IN_CLAW_SPACE';
 
   constructor(path: string, clawDir: string) {
     super(
@@ -40,7 +63,7 @@ function formatWriteForbiddenMessage(
 }
 
 export class WriteOperationForbiddenError extends PermissionError {
-  readonly code: ErrorCode = 'WRITE_OPERATION_FORBIDDEN';
+  readonly code: PermissionErrorCode = 'WRITE_OPERATION_FORBIDDEN';
 
   constructor(targetPath: string, reason: WriteForbiddenReason) {
     super(
