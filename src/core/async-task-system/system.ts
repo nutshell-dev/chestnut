@@ -7,7 +7,7 @@
 
 import { newUuid } from '../../foundation/uuid.js';
 import { MOTION_CLAW_ID } from '../claw-topology/index.js';
-import { makeStepNumber } from '../agent-executor/step-number.js';
+
 import { CALLER_TYPE_TO_GROUPS } from '../caller-types.js';
 import * as path from 'path';
 
@@ -765,13 +765,11 @@ export class AsyncTaskSystem {
       fs: this.fs,
       fsFactory: this.fsFactory,
       profile: 'full',
-      stepNumber: makeStepNumber(0),
       maxSteps: 1,
       signal,
       isMotionChain: task.parentClawId === MOTION_CLAW_ID,
       auditWriter: this.auditWriter,
       getElapsedMs: () => 0,
-      incrementStep: () => { /* no-op */ },
       readFileState: new Map(),
       stopRequested: false,
       requestStop: () => { /* no-op (async tool tasks run a single tool, not a ReAct loop) */ },

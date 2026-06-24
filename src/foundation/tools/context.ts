@@ -5,7 +5,7 @@
  * - Identity (clawId, clawDir)
  * - Permissions based on tool profile
  * - Dependencies (fs, llm)
- * - Execution tracking (stepNumber, elapsed time)
+ * - Execution tracking (elapsed time)
  */
 
 import type { FileSystem } from '../fs/index.js';
@@ -14,8 +14,7 @@ import type { ToolProfile } from '../tool-protocol/index.js';
 import type { ExecContext, ToolGroup, FileState } from './types.js';
 import type { TraceId } from '../audit/types.js';
 import type { ToolUseId } from '../tool-protocol/index.js';
-import type { StepNumber } from '../../core/agent-executor/step-number.js';
-import { makeStepNumber } from '../../core/agent-executor/step-number.js';
+
 import path from 'path';
 import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 
@@ -122,7 +121,7 @@ export interface ExecContextImplOptions {
  *
  * Object spread `{ ...ctx, ... }` only copies own enumerable properties,
  * losing class methods/getters from ExecContextImpl (`isMotionChain`,
- * `getElapsedMs`, `incrementStep`). This helper preserves them.
+ * `getElapsedMs`). This helper preserves them.
  *
  * Works for both class instances (ExecContextImpl) and plain object mocks
  * (test fixtures) — falls back to Object.prototype when `ctx` has no class.
@@ -171,7 +170,6 @@ export class ExecContextImpl implements ExecContext {
   fs: FileSystem;
   fsFactory?: (baseDir: string) => FileSystem;
   llm?: LLMOrchestrator;
-  stepNumber: StepNumber;
   maxSteps: number;
   signal?: AbortSignal;
   subagentMaxSteps: number;
@@ -220,7 +218,6 @@ export class ExecContextImpl implements ExecContext {
     this.trace_id = options.trace_id;
     this.getCallerSnapshot = options.getCallerSnapshot;
     this.subagentTaskId = options.subagentTaskId;
-    this.stepNumber = makeStepNumber(0);
     this.startTime = Date.now();
   }
 
@@ -233,21 +230,13 @@ export class ExecContextImpl implements ExecContext {
   }
 
   /**
-   * Increment step counter
-   * Called by ReAct loop before each step
-   */
-  incrementStep(): void {
-    this.stepNumber = makeStepNumber(this.stepNumber + 1);
-  }
-
-  /**
    * phase 777: called by result-capture tools (done) after storing capturedResult.
    * AgentExecutor reads stopRequested at the top of its loop and exits cleanly, saving the
    * next LLM round-trip.
    */
   requestStop(): void {
     this.stopRequested = true;
-    this.auditWriter?.write(TOOL_AUDIT_EVENTS.STOP_REQUESTED, `clawId=${this.clawId}`, `step=${this.stepNumber}`);
+    this.auditWriter?.write(TOOL_AUDIT_EVENTS.STOP_REQUESTED, `clawId=${this.clawId}`, `step_count=-`);
   }
 
 }

@@ -15,6 +15,7 @@ import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js
 import type { ExecContext } from '../../foundation/tools/index.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { IToolExecutor, ToolRegistry } from '../../foundation/tools/index.js';
+import type { AuditLog } from '../../foundation/audit/index.js';
 import { assertNever } from '../../foundation/utils/index.js';
 import { DEFAULT_MAX_STEPS } from './defaults.js';
 import { runAgent } from './agent-executor.js';
@@ -50,7 +51,8 @@ export interface ReactOptions {
   }) => void;
   onBeforeLLMCall?: () => void;
   onToolResult?: (toolName: string, toolUseId: ToolUseId, result: ToolResult, step: number, maxSteps: number) => void;
-  onStepComplete?: () => Promise<void>;
+  /** phase 706: receives the step count after a successful step for caller persistence/audit. */
+  onStepComplete?: (stepCount: number) => Promise<void>;
   tools?: ToolDefinition[];
   registry?: ToolRegistry;
   onTextDelta?: (delta: string) => void;
@@ -72,6 +74,9 @@ export interface ReactOptions {
     orphans: Array<{ tool_use_id: string; content: string; is_error: boolean }>;
     llm: LLMCallInfo;
   }): void;
+  // phase 706: AgentExecutor needs audit writer + per-turn contract id for tool_call_input.
+  auditWriter?: AuditLog;
+  currentContractId?: string;
   // phase 690: 撤 dialogStore + contextManagerConfig — proactive trim
   // 上提到 L5 Runtime 反应式 retry 路径、loop.ts facade 不再透传。
 }
@@ -100,6 +105,8 @@ export async function runReact(options: ReactOptions): Promise<ReactResult> {
     onReset, onProviderFailed, onLLMResult,
     onEmptyResponse, onUnknownStopReason, onUnparseableToolUse, onToolInputParseError, onToolExecutionFailed, onSafeCallbackError,
     onMaxTokensPrebuiltOnlyFinal, onMaxTokensAssistantEmptySkipped,
+    auditWriter,
+    currentContractId,
   } = options;
 
   // 用闭包捕获 stepCount（适配旧 onToolResult 签名的 step/maxSteps 参数）
@@ -138,9 +145,11 @@ export async function runReact(options: ReactOptions): Promise<ReactResult> {
     idleTimeoutMs,
     wallTimeDeadlineMs,
     stepCallbacks,
-    onAfterStep: async () => {
-      stepCount = ctx.stepNumber;  // incrementStep 已被 AgentExecutor 执行
-      if (onStepComplete) await onStepComplete();
+    auditWriter,
+    currentContractId,
+    onAfterStep: async (_meta, newStepCount) => {
+      stepCount = newStepCount;  // AgentExecutor 已执行步进
+      if (onStepComplete) await onStepComplete(stepCount);
     },
   });
 

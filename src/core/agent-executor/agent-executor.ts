@@ -3,7 +3,7 @@
  *
  * Repeatedly calls StepExecutor (executeStep) until a final result or exception.
  * Maintains cross-step counters (stepCount, consecutiveParseErrors,
- * consecutiveMaxTokensToolUse). Calls onStepComplete callback after each
+ * consecutiveMaxTokensToolUse). Calls onAfterStep callback after each
  * successful step for caller to persist (see loop.ts shim + design
  * l3_agent_executor.md §A.invariant-2; SessionStore 落盘 phase409 已迁 caller).
  */
@@ -12,12 +12,15 @@ import type { Message, ToolDefinition } from '../../foundation/llm-provider/inde
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { ExecContext } from '../../foundation/tools/index.js';
 import type { IToolExecutor, ToolRegistry } from '../../foundation/tools/index.js';
+import type { AuditLog } from '../../foundation/audit/index.js';
+import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
 import { executeStep, throwAbortError, type StepCallbacks, type StepMeta, type FinalStopReason } from '../step-executor/index.js';
 import { asFinalStopReason } from '../step-executor/types.js';
 import { MaxStepsExceededError, ConsecutiveParseErrorsExceededError, ConsecutiveMaxTokensToolUseError, WallTimeExceededError } from './errors.js';
 import { DEFAULT_MAX_STEPS } from './defaults.js';
-import { makeStepNumber } from './step-number.js';
+
 import { MAX_CONSECUTIVE_PARSE_ERRORS, MAX_CONSECUTIVE_MAX_TOKENS_TOOL_USE } from './constants.js';
+import { AGENT_EXECUTOR_AUDIT_EVENTS } from './audit-events.js';
 
 export interface AgentInput {
   messages: Message[];
@@ -35,7 +38,11 @@ export interface AgentInput {
   idleTimeoutMs?: number;              // 透传给 StepInput
   wallTimeDeadlineMs?: number;         // 总 wall-time 上限（可选）
   stepCallbacks?: StepCallbacks;
-  onAfterStep?: (meta: StepMeta) => void | Promise<void>;
+  /** phase 706: stepCount is maintained internally; caller receives it for persistence/audit. */
+  onAfterStep?: (meta: StepMeta, stepCount: number) => void | Promise<void>;
+  // phase 706: audit writer + per-turn contract id for tool_call_input emit.
+  auditWriter?: AuditLog;
+  currentContractId?: string;
   // phase 690: 撤 dialogStore + contextManagerConfig 透传 — proactive trim
   // 已上提到 L5 Runtime 反应式 retry 路径、agent-executor 不再透传。
 }
@@ -52,6 +59,8 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
     maxTokens,
     stepCallbacks,
     onAfterStep,
+    auditWriter,
+    currentContractId,
   } = input;
   const maxSteps = input.maxSteps ?? DEFAULT_MAX_STEPS;
   const maxConsecutiveParseErrors = input.maxConsecutiveParseErrors ?? MAX_CONSECUTIVE_PARSE_ERRORS;
@@ -69,6 +78,28 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
   const startMs = Date.now();
   const deadline = input.wallTimeDeadlineMs;
 
+  // phase 706: AgentExecutor owns TOOL_CALL_INPUT audit (per-step owner).
+  const callbacks: StepCallbacks = {
+    ...stepCallbacks,
+    onUnparseableToolUse: stepCallbacks?.onUnparseableToolUse ?? (() => {}),
+  };
+  if (auditWriter) {
+    const existingOnToolCallInput = stepCallbacks?.onToolCallInput;
+    callbacks.onToolCallInput = (toolName: string, toolUseId: ToolUseId, args: Record<string, unknown>) => {
+      existingOnToolCallInput?.(toolName, toolUseId, args);
+      const argsSize = JSON.stringify(args).length;
+      auditWriter.write(
+        AGENT_EXECUTOR_AUDIT_EVENTS.TOOL_CALL_INPUT,
+        toolName,
+        `tool_use_id=${String(toolUseId)}`,
+        `step=${stepCount}`,
+        `contract_id=${currentContractId ?? ''}`,
+        `trace_id=${String(ctx.trace_id ?? '')}`,
+        `args_size=${argsSize}`,
+      );
+    };
+  }
+
   while (stepCount < maxSteps) {
     if (deadline !== undefined) {
       const elapsed = Date.now() - startMs;
@@ -76,7 +107,6 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
         throw new WallTimeExceededError(deadline, elapsed);
       }
     }
-    ctx.stepNumber = makeStepNumber(stepCount);
     if (ctx.signal?.aborted) throwAbortError(ctx.signal);
     // phase 777: result-capture tools (done) request early stop.
     // capturedResult is read by runSubagent regardless of finalText.
@@ -88,7 +118,7 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
       messages, systemPrompt, llm, tools, executor, registry, ctx,
       maxTokens,
       idleTimeoutMs: input.idleTimeoutMs,
-      callbacks: stepCallbacks,
+      callbacks,
     });
 
     if (result.kind === 'final') {
@@ -100,9 +130,8 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
     }
 
     if (result.kind === 'continue') {
-      // 1. 步进（落盘归 caller 经 onStepComplete callback / phase409 align M#1+M#3）
-      ctx.incrementStep();
-      stepCount = ctx.stepNumber;
+      // 1. 步进（落盘归 caller 经 onAfterStep callback / phase409 align M#1+M#3）
+      stepCount++;
 
       // 2. 熔断判定（parse errors）
       if (result.meta.allParseErrors) {
@@ -137,7 +166,7 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
 
       // 3. onAfterStep（步进之后、熔断检查之后）
       if (onAfterStep) {
-        await onAfterStep(result.meta);
+        await onAfterStep(result.meta, stepCount);
       }
 
       continue;
@@ -155,14 +184,13 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
       if (consecutiveMaxTokensToolUse >= maxConsecutiveMaxTokensToolUse) {
         throw new ConsecutiveMaxTokensToolUseError(maxConsecutiveMaxTokensToolUse);
       }
-      ctx.incrementStep();
-      stepCount = ctx.stepNumber;
+      stepCount++;
 
       // phase 337 M4 (review-2026-06-13): max_tokens_tool_use 分支也调 onAfterStep
       // 与 'continue' 分支对齐。否则该步 session save / contract auditor maybeAuditStep
       // / inbox check 全跳、违 DP「运行中信息不丢弃」。
       if (onAfterStep) {
-        await onAfterStep(result.meta);
+        await onAfterStep(result.meta, stepCount);
       }
 
       continue;

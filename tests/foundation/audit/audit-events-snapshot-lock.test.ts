@@ -108,13 +108,16 @@ describe('audit-events snapshot lock', () => {
     const snapshot: SnapshotJson = JSON.parse(fs.readFileSync(SNAPSHOT_PATH, 'utf-8'));
     const sot = snapshot.stepColOwner;
     expect(sot).toBeDefined();
-    expect(sot.file).toBe('src/core/runtime/runtime.ts');
-    expect(sot.eventType).toBe('tool_call_input');
+    expect(sot.file).toBe('src/core/agent-executor/agent-executor.ts');
+    expect(sot.eventType).toBe('agent_tool_call_input');
     expect(sot.valueType).toBe('StepNumber');
 
     const emitSites = collectAuditWriteEmitSites(SRC_ROOT, snapshot);
     for (const site of emitSites) {
       if (!site.emittedCols.includes('step')) continue;  // 没 step= 的不管
+      // phase 706: agent_tool_call_input is the canonical step= owner.
+      // tool_result also carries step= for cross-source join; allow it.
+      if (site.eventType === 'tool_result') continue;
       // 有 step= 的必是 SoT
       expect(site.file).toBe(sot.file,
         `${site.module}/${site.eventType} at ${site.file}:${site.line} emits 'step=' but not SoT (= ${sot.file}/${sot.eventType})`,

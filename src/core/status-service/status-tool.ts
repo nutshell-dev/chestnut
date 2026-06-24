@@ -63,7 +63,7 @@ export function createStatusTool(
       const lines = [
         `Claw ID: ${ctx.clawId}`,
         `Profile: ${ctx.profile}`,
-        `Step: ${ctx.stepNumber}/${ctx.maxSteps}`,
+        `Step: -/${ctx.maxSteps}`,
         `Elapsed: ${ctx.getElapsedMs()}ms`,
       ];
 

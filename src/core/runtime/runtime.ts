@@ -34,7 +34,7 @@ import { TASK_AUDIT_EVENTS } from '../async-task-system/index.js';
 // phase 1406: DIALOG_DIR no longer used here — regime-switch recovery path is owned by performRegimeSwitch helper
 import { formatErr } from '../../foundation/utils/index.js';
 
-import { MaxStepsExceededError, WallTimeExceededError, ConsecutiveParseErrorsExceededError, ConsecutiveMaxTokensToolUseError } from '../agent-executor/index.js';
+import { MaxStepsExceededError, WallTimeExceededError, ConsecutiveParseErrorsExceededError, ConsecutiveMaxTokensToolUseError, makeStepNumber } from '../agent-executor/index.js';
 import { LockContentionExhaustedError } from '../contract/index.js';
 import { DEFAULT_MAX_STEPS } from '../agent-executor/index.js';
 import { LLMAllProvidersFailedError } from '../../foundation/llm-orchestrator/index.js';
@@ -66,7 +66,7 @@ import {
 import { LLMContextExceededError } from '../../foundation/llm-orchestrator/index.js';
 
 import { formatTimeAgo } from './utils.js';
-import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
+import type { StepNumber } from '../agent-executor/index.js';
 import type { TraceId } from './types/trace-id.js';
 import { makeTraceId } from './types/trace-id.js';
 import { commitTurnEvent, type TurnEventCommitDeps } from '../turn-event-commit.js';
@@ -132,6 +132,8 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
   private snapshot!: Snapshot;
   // phase 1414: inbox 消息 formatter 注册表（Assembly 装配期填、各业主自家）
   private formatterRegistry!: MessageFormatterRegistry;
+  // phase 706: current step count mirrored from AgentExecutor onStepComplete (ExecContext no longer owns stepNumber).
+  private currentStepNumber?: StepNumber;
   // phase 27 Step D P5: guidance compose callback hook
   private guidanceCompose?: import('./types.js').GuidanceCompose;
 
@@ -679,24 +681,6 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
       };
     }
 
-    // phase 1411 (reframe of phase 1409): emit `tool_call_input` index row
-    // (name + tool_use_id + args_size). args body 0 入 audit / dialog 是权威源 /
-    // CLI 凭 tool_use_id 跨源 join.
-    const auditOnToolCallInput = (
-      name: string, toolUseId: ToolUseId, args: Record<string, unknown>
-    ) => {
-      const argsSize = JSON.stringify(args).length;
-      this.auditWriter.write(
-        RUNTIME_AUDIT_EVENTS.TOOL_CALL_INPUT,
-        name,
-        `tool_use_id=${String(toolUseId)}`,
-        `step=${this.execContext.stepNumber}`,
-        `contract_id=${cachedTurnContractId}`,
-        `trace_id=${String(this.execContext.trace_id ?? '')}`,
-        `args_size=${argsSize}`,
-      );
-    };
-
     // phase 690: Runtime 反应式 trim+retry 兜底——LLM 真返 400 context-exceeded 时
     // trim + 同 turn 重试。Layer 2 turn 入口 maybeTrimProactive 已是前置防线、
     // 本路径覆盖 turn 内 tool_result 单步突破 100% 的偶发场景。
@@ -718,6 +702,8 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
           maxConsecutiveParseErrors: this.options.maxConsecutiveParseErrors,
           maxConsecutiveMaxTokensToolUse: this.options.maxConsecutiveMaxTokensToolUse,
           idleTimeoutMs: this.options.idleTimeoutMs,
+          auditWriter: this.auditWriter,
+          currentContractId: cachedTurnContractId,
           onLLMResult: (info) => {
             // phase 453: 每次 LLM call 完成后更新、供下轮 turn 入口判顺手裁
             this.lastLLMCallAt = Date.now();
@@ -731,17 +717,18 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
               this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.LLM_CALL, info.model, `trace_id=${String(this.execContext.trace_id ?? '')}`, `in=${info.inputTokens}`, `out=${info.outputTokens}`, `latency_ms=${info.latencyMs}`);
             }
           },
-          onStepComplete: async () => {
+          onStepComplete: async (stepCount) => {
+            this.currentStepNumber = makeStepNumber(stepCount);
             await this.sessionManager.save({ systemPrompt, messages, toolsForLLM: tools, trace_id: this.currentTraceId });
             // phase 1424: contract auditor 周期 LLM 对照 expectations 检查
             // fire-and-forget（不阻塞 Runtime step / 反馈走 inbox high priority 下轮 step 起 PriorityInboxInterrupt 中断）
             // phase 446 (review): 防御 .catch 兜底 unhandledRejection（内部已多层容错、本 catch 几乎不触发）
-            void this.contractManager.maybeAuditStep(this.execContext.stepNumber)
+            void this.contractManager.maybeAuditStep(this.currentStepNumber)
               .catch(err => {
                 // phase 563: 加 trace_id forensic field（延续 phase 557/560 模式）
                 this.auditWriter.write(
                   RUNTIME_AUDIT_EVENTS.MAYBE_AUDIT_STEP_FAILED,
-                  `step=${this.execContext.stepNumber}`,
+                  `step_count=${this.currentStepNumber}`,
                   `trace_id=${String(this.execContext.trace_id ?? '')}`,
                   `error=${formatErr(err)}`,
                 );
@@ -755,7 +742,6 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
           onTextEnd: () => commitTurnEvent({ kind: 'text_end' }, emitDeps),
           onThinkingDelta: (d) => { emitProviderInfoOnce(); callbacks?.onThinkingDelta?.(d); },
           onToolCall: (n, id) => commitTurnEvent({ kind: 'tool_call', name: n, toolUseId: id }, emitDeps),
-          onToolCallInput: auditOnToolCallInput,
           // phase 688: API 收到的 args body 落 stream.jsonl（daemon callback 已实现 onToolUseInput、此处仅透传）
           // 与 onToolCallInput（audit-only size index）互补、不重复 audit。
           onToolUseInput: callbacks?.onToolUseInput,
