@@ -53,15 +53,15 @@ function walkTsFiles(dir: string, cb: (filePath: string) => void): void {
 const STEP_B_PENDING_ALLOW = new Set([
   'foundation/command-tool/exec.ts::chestnut stop',
   'core/status-service/forum-formatter.ts::chestnut status',
-  // phase 540: claw-status-hints 迁出 cli/commands/claw-shared、用于 motion-addons + cli/claw-send
+  // phase 540 / phase 708: claw-status-hints 迁 cli/utils、用于 motion-addons + cli/claw-send
   // 'chestnut claw' 字面是 CLI 启动命令、属业务文案；M#5 严格扫由本 allowlist 承认 pure formatter
   // 持 CLI literal 的 by-design 例外（cli/commands/claw-shared.ts 旧 owner 同型未触碰本 rule）
-  'foundation/utils/claw-status-hints.ts::chestnut claw',
-  // phase 554: cli/commands/registry 迁出至 foundation/utils/cli-commands、由 6 assembly guidance composer 共享
+  'cli/utils/claw-status-hints.ts::chestnut claw',
+  // phase 554 / phase 708: cli/commands/registry 迁 cli/utils、由 assembly guidance composer 共享
   // 本 typed CLI command registry 是 phase 1469 invariant 的合法源 (composers MUST use this const + helper)
   // 持 chestnut claw + chestnut contract 字面 by-design — registry 本就该有 CLI literal、否则失语义
-  'foundation/utils/cli-commands.ts::chestnut claw',
-  'foundation/utils/cli-commands.ts::chestnut contract',
+  'cli/utils/cli-commands.ts::chestnut claw',
+  'cli/utils/cli-commands.ts::chestnut contract',
 ]);
 
 const SCAN_DIRS = ['core', 'foundation'];
@@ -100,7 +100,7 @@ describe('phase 1469: guidance composer must reference CLI via CLI_COMMANDS type
         .join('\n');
       throw new Error(
         `phase 1469 invariant failed — ${violations.length} bare 'chestnut X Y' literal(s) in composer files:\n${summary}\n` +
-          `Replace with clawCmd(id, CLAW_VERBS.X) helper or CONTRACT_COMMANDS.X typed const (from src/foundation/utils/cli-commands.ts).`,
+          `Replace with clawCmd(id, CLAW_VERBS.X) helper or CONTRACT_COMMANDS.X typed const (from src/cli/utils/cli-commands.ts).`,
       );
     }
     expect(violations).toEqual([]);

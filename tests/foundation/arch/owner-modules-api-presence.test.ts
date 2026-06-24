@@ -9,8 +9,8 @@ import { describe, it, expect } from 'vitest';
  *
  * phase 574 扩 (phase 520-554 follow-up): 加 3 it block 覆盖新 owner module API:
  *   - core/claw-topology: MOTION_CLAW_ID + makeAgentDirResolver
- *   - foundation/utils/claw-status-hints: 2 formatter
- *   - foundation/utils/cli-commands: CLAW_VERBS + clawCmd + CONTRACT_COMMANDS
+ *   - cli/utils/claw-status-hints: 2 formatter
+ *   - cli/utils/cli-commands: CLAW_VERBS + clawCmd + CONTRACT_COMMANDS
  */
 describe('owner modules API presence (phase 503 / phase 574 expanded)', () => {
   it('foundation/uuid exposes newUuid, newShortUuid, randomHex', async () => {
@@ -58,8 +58,8 @@ describe('owner modules API presence (phase 503 / phase 574 expanded)', () => {
     expect(typeof resolver('other-claw')).toBe('string');
   });
 
-  it('foundation/utils/claw-status-hints exposes 2 formatter (phase 540)', async () => {
-    const hintsMod = await import('../../../src/foundation/utils/claw-status-hints.js');
+  it('cli/utils/claw-status-hints exposes 2 formatter (phase 540/708)', async () => {
+    const hintsMod = await import('../../../src/cli/utils/claw-status-hints.js');
     expect(typeof hintsMod.formatClawStatusHint).toBe('function');
     expect(typeof hintsMod.formatNoActiveContractHint).toBe('function');
     expect(hintsMod.formatClawStatusHint('x', true)).toBeUndefined();
@@ -68,8 +68,8 @@ describe('owner modules API presence (phase 503 / phase 574 expanded)', () => {
     expect(hintsMod.formatNoActiveContractHint('x', false)).toMatch(/No active contract for "x"/);
   });
 
-  it('foundation/utils/cli-commands exposes CLAW_VERBS + clawCmd + CONTRACT_COMMANDS (phase 554)', async () => {
-    const cmdMod = await import('../../../src/foundation/utils/cli-commands.js');
+  it('cli/utils/cli-commands exposes CLAW_VERBS + clawCmd + CONTRACT_COMMANDS (phase 554/708)', async () => {
+    const cmdMod = await import('../../../src/cli/utils/cli-commands.js');
     expect(typeof cmdMod.CLAW_VERBS).toBe('object');
     expect(cmdMod.CLAW_VERBS.CHAT).toBe('chat');
     expect(cmdMod.CLAW_VERBS.STOP).toBe('stop');
