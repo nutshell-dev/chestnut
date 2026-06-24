@@ -14,10 +14,10 @@ describe('eslint custom rule: no-claws-enumeration-fanout (phase 357)', () => {
         code: 'fs.listSync(clawsDir, { includeDirs: true });',
         filename: 'tests/foo.test.ts',
       },
-      // allowlist: claw-paths.ts
+      // allowlist: claw-instance-paths.ts
       {
         code: 'fs.listSync(clawsDir, { includeDirs: true });',
-        filename: 'src/foundation/claw-paths.ts',
+        filename: 'src/core/claw-topology/claw-instance-paths.ts',
       },
       // listSync over non-claws path
       {
