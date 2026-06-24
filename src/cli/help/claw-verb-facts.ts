@@ -1,5 +1,5 @@
 /**
- * @module L6.Cli.Help.ClawVerbFacts
+ * @module L6.CLI.Help.ClawVerbFacts
  *
  * Phase 1477 立 / phase 1479 layering fix（从 foundation/cli-help 挪 cli/help）。
  *
