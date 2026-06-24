@@ -124,8 +124,8 @@ function clawHasContractSub(
  * 1 primary action（DP「相关」derive / 1 primary action per sub-state）.
  */
 // phase 552: type definition 迁 foundation/utils/claw-failure-classes (assembly type-only import 不再反向 import watchdog)
-export type { FailureClass } from '../foundation/utils/index.js';
-import type { FailureClass } from '../foundation/utils/index.js';
+export type { FailureClass } from './claw-failure-classes.js';
+import type { FailureClass } from './claw-failure-classes.js';
 
 export interface DeriveFailureClassInput {
   /** Must be true — inactivity 仅在 daemon alive 时调（caller guard 见 maybeCronClawInactivity） */
@@ -177,8 +177,8 @@ export function formatInactivityBody(opts: {
  * Assembly motion guidance composer type-only import 此 enum、按 class switch.
  */
 // phase 552: type definition 迁 foundation/utils/claw-failure-classes
-export type { CrashClass } from '../foundation/utils/index.js';
-import type { CrashClass } from '../foundation/utils/index.js';
+export type { CrashClass } from './claw-failure-classes.js';
+import type { CrashClass } from './claw-failure-classes.js';
 
 export interface DeriveCrashClassInput {
   hasCleanStopMarker: boolean;

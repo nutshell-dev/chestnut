@@ -16,7 +16,7 @@
 
 import type { GuidanceComposer, GuidanceEntry } from '../types.js';
 import { clawCmd, CLAW_VERBS } from '../../../foundation/utils/index.js';
-import type { FailureClass } from '../../../foundation/utils/index.js';
+import type { FailureClass } from '../../../watchdog/claw-failure-classes.js';
 
 
 interface ClawInactivityState {
