@@ -9,7 +9,7 @@ import type { VerificationResult, SubtaskId } from './types.js';
 import { exec as defaultExec } from '../../foundation/process-exec/index.js';
 import { ProcessExecError } from '../../foundation/process-exec/index.js';
 import { CONTRACT_SCRIPT_TIMEOUT_MS } from './constants.js';
-import { ToolTimeoutError } from '../../foundation/errors.js';
+import { ToolTimeoutError } from '../../foundation/tools/errors.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import { DEFAULT_LLM_IDLE_TIMEOUT_MS } from '../../foundation/llm-orchestrator/index.js';
 import type { ContractId } from './types.js';

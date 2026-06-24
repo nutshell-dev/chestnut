@@ -7,7 +7,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { runContractVerifier } from '../../../src/core/contract/verifier-job.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
-import { ToolTimeoutError } from '../../../src/foundation/errors.js';
+import { ToolTimeoutError } from '../../../src/foundation/tools/errors.js';
 import { makeAudit } from '../../helpers/audit.js';
 import type { VerifierConfig } from '../../../src/core/contract/types.js';
 

@@ -14,7 +14,7 @@ import { createClawPermissionChecker } from '../../../src/core/permissions/claw-
 import {
   PathNotInClawSpaceError,
   WriteOperationForbiddenError,
-} from '../../../src/foundation/errors.js';
+} from '../../../src/core/permissions/errors.js';
 
 const CLAW_DIR = '/tmp/test-claw';
 

@@ -8,7 +8,7 @@ import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { makeContractYaml } from '../../helpers/contract-yaml.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
-import { ToolError } from '../../../src/foundation/errors.js';
+import { ToolError } from '../../../src/foundation/tools/errors.js';
 import { moveContractToArchive, type LifecycleContext } from '../../../src/core/contract/lifecycle.js';
 import type { Contract, ProgressData } from '../../../src/core/contract/types.js';
 

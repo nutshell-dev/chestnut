@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { SkillSystem, SkillDuplicateError } from '../../../src/foundation/skill-system/registry.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
-import { ToolError } from '../../../src/foundation/errors.js';
+import { ToolError } from '../../../src/foundation/tools/errors.js';
 
 function createMockFs(partial: Partial<FileSystem> = {}): FileSystem {
   return {

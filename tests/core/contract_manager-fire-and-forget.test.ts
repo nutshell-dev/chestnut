@@ -12,7 +12,7 @@ import * as path from 'path';
 import { ContractSystem } from '../../src/core/contract/manager.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../src/core/contract/audit-events.js';
-import { ToolTimeoutError } from '../../src/foundation/errors.js';  // phase 261: hoist (no vi.mock in this file)
+import { ToolTimeoutError } from '../../src/foundation/tools/errors.js';  // phase 261: hoist (no vi.mock in this file)
 import { makeContractYaml } from '../helpers/contract-yaml.js';
 import { createToolRegistry } from '../../src/foundation/tools/index.js';
 import { makeAudit, makeMockAudit, waitForAuditEvent, waitForNextAuditEvent } from '../helpers/audit.js';

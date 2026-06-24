@@ -12,7 +12,7 @@
 
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { formatErr } from "../../foundation/node-utils/index.js";
-import { ToolTimeoutError } from '../../foundation/errors.js';
+import { ToolTimeoutError } from '../../foundation/tools/errors.js';
 import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../signals.js';
 import type { AbortReason } from '../../foundation/llm-provider/index.js';
 import { makeExternalAbortError } from '../../foundation/llm-provider/index.js';

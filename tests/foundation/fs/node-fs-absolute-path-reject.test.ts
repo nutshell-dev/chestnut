@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { randomUUID } from 'crypto';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
-import { PermissionError } from '../../../src/foundation/errors.js';
+import { PermissionError } from '../../../src/core/permissions/errors.js';
 
 describe('NodeFileSystem — absolute path reject (P0.1 phase 611)', () => {
   // baseDir 用唯一子目录、保所有平台 /tmp/escape /etc/passwd /nonexistent/sensitive 都在 baseDir 外

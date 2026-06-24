@@ -10,7 +10,7 @@ import type { FileSystem } from '../../foundation/fs/index.js';
 import { formatErr } from "../node-utils/index.js";
 import { parseFrontmatterFrame } from "../messaging/frontmatter-frame.js";
 import type { AuditLog } from '../../foundation/audit/index.js';
-import { ToolError } from '../errors.js';
+import { ToolError } from '../tools/errors.js';
 import { SKILL_AUDIT_EVENTS } from './audit-events.js';
 
 // phase 1235 B.1: namespace pattern + duplicate reject

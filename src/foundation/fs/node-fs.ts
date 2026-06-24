@@ -29,7 +29,7 @@ import {
   IGNORE_PATTERN,
 } from './atomic.js';
 import { FileNotFoundError } from './types.js';
-import { PermissionError } from '../errors.js';
+import { PermissionError } from '../../core/permissions/errors.js';
 
 async function wrapENOENT<T>(
   relativePath: string,

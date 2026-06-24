@@ -7,7 +7,7 @@ import type { VerificationContext } from './verification-types.js';
 import type { VerificationResult, SubtaskId } from './types.js';
 import { safeNotify } from './verification-notify.js';
 import { formatValidIds } from './verification-format.js';
-import { ToolError } from '../../foundation/errors.js';
+import { ToolError } from '../../foundation/tools/errors.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import type { ContractId, ContractYaml } from './types.js';
 import {

@@ -23,7 +23,7 @@ import { CONTRACT_ACTIVE_DIR, PROGRESS_FILE } from './dirs.js';
 import * as path from 'path';
 import { createDoneTool, DONE_TOOL_NAME } from '../subagent/index.js';
 import { createToolRegistry } from '../../foundation/tools/index.js';
-import { ToolTimeoutError } from '../../foundation/errors.js';
+import { ToolTimeoutError } from '../../foundation/tools/errors.js';
 import { TASKS_SYNC_SUBAGENT_DIR } from '../subagent/index.js';
 import { TASKS_SUBAGENTS_DIR } from '../subagent/index.js';
 // phase 691 Step C: deep import dirs.ts leaf (避 barrel 触发 contract↔async-task 已有 type 链 cycle)

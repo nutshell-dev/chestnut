@@ -14,7 +14,7 @@ import {
 import {
   getWatchdogPid, isWatchdogAlive, removeWatchdogPid, WatchdogPidForeignWorkspaceError,
 } from './watchdog-pid.js';
-import { CliError } from '../foundation/errors.js';
+import { CliError } from '../cli/errors.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 import { getAuditWriter } from './watchdog-context.js';
 import { formatErr } from '../foundation/node-utils/index.js';
