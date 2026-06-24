@@ -3,7 +3,7 @@
  * guidanceRegistry register（含 NO_GUIDANCE sentinel 表态）。
  *
  * Sender 站点（balanced-paren scan）：
- *   - notifyClaw(...) / notifyInbox(...) call body 内 type: 'X' 字面量
+ *   - notifyClaw(...) / routeNotifyClaw(...) / notifyInbox(...) call body 内 type: 'X' 字面量
  *   - InboxWriter.writeSync({ type: 'X', ... }) 直调
  *   - writeInboxAsync(...) call body 内 type: 'X' 字面量
  *   - 三元 `type: cond ? 'X' : 'Y'` 表达式中两 branch 字面量（如 verification_result/rejection）
@@ -66,7 +66,7 @@ function extractRegisteredTypes(): Set<string> {
 function extractSenderTypes(): Map<string, string[]> {
   const byType = new Map<string, string[]>();
   const callRes = [
-    /\bnotify(?:Claw|Inbox|System)\s*\(/g,
+    /\b(?:notify(?:Claw|Inbox|System)|routeNotifyClaw)\s*\(/g,
     /\.\s*writeSync\s*\(/g,
     /\bwriteInboxAsync\s*\(/g,
   ];
