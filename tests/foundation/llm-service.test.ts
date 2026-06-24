@@ -315,7 +315,8 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       caughtError = err as Error;
     }
 
-    expect(caughtError).toBeInstanceOf(LLMError);
+    expect(caughtError).toBeInstanceOf(LLMAllProvidersFailedError);
+    expect(caughtError).toBeInstanceOf(Error);
     expect(caughtError!.message).toContain('All LLM providers failed');
   });
 

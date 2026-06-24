@@ -9,6 +9,8 @@
  * operate on L1 error classes; they belong to L2b where retry logic lives.
  */
 
+import { formatErr } from '../node-utils/index.js';
+import { isAbortError } from '../llm-provider/is-abort-error.js';
 import {
   LLMError,
   LLMAuthError,
@@ -18,13 +20,15 @@ import {
   LLMTimeoutError,
   LLMContextExceededError,
 } from '../llm-provider/errors.js';
-import type { ErrorCode } from '../errors.js';
-import { isAbortError } from '../llm-provider/is-abort-error.js';
 
 export { LLMError, LLMRateLimitError, LLMTimeoutError, LLMAuthError, LLMNetworkError, LLMEmptyResponseError, LLMModelNotFoundError, LLMContextExceededError, LLMCircuitBreakerOpenError, LLMStreamAbortedError } from '../llm-provider/errors.js';
 
-export class LLMAllProvidersFailedError extends LLMError {
-  readonly code: ErrorCode = 'LLM_ALL_PROVIDERS_FAILED';
+export type OrchestratorErrorCode = 'LLM_ALL_PROVIDERS_FAILED';
+
+export class LLMAllProvidersFailedError extends Error {
+  readonly code: OrchestratorErrorCode = 'LLM_ALL_PROVIDERS_FAILED';
+  readonly context?: Record<string, unknown>;
+  readonly timestamp: string = new Date().toISOString();
   readonly failures: Array<{ provider: string; error: Error }>;
 
   constructor(failures: Array<{ provider: string; error: Error }>) {
@@ -33,9 +37,19 @@ export class LLMAllProvidersFailedError extends LLMError {
       .join(', ');
     super(
       `All LLM providers failed: ${summary}`,
-      { failures: failures.map(f => ({ provider: f.provider, error: f.error.message })) }
     );
+    this.name = this.constructor.name;
     this.failures = failures;
+    this.context = { failures: failures.map(f => ({ provider: f.provider, error: f.error.message })) };
+  }
+
+  toJSON() {
+    return {
+      code: this.code,
+      message: this.message,
+      context: this.context,
+      ...(this.cause !== undefined && { cause: formatErr(this.cause) }),
+    };
   }
 }
 
