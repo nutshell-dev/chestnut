@@ -1,3 +1,4 @@
+import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { ClawTopology } from '../../core/claw-topology/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
@@ -6,6 +7,7 @@ import type { MainTurnUIController } from './main-turn-ui.js';
 import type { ClawManager } from './chat-viewport-claw-manager.js';
 import type { CommandResult } from './viewport-command-result.js';
 import type { RenderDescriptor } from './viewport-render-descriptor.js';
+import { STREAM_FILE } from '../../foundation/stream/index.js';
 
 export type ThinkingMode = 'compact' | 'full' | 'off';
 
@@ -90,7 +92,7 @@ export const createViewportCommands = (deps: CommandsDeps): ViewportCommand[] =>
       const t = makeClawTrack();
       t.referenceMs = Date.now();
       deps.clawTrackMap.set(clawId, t);
-      deps.clawManager.refreshClawStatus(clawId);
+      deps.clawManager.attachClawWatcher(clawId, path.join(clawDir, STREAM_FILE));
       return {
         descriptors: [
           { kind: 'claw-panel-update' },

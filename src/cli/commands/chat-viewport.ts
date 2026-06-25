@@ -332,37 +332,26 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
       tui.requestRender();
     }
   };
-  let rescanClawsDirFn: (() => void) | null = null;
+  let rescanClawsDirFn: (() => Promise<void>) | null = null;
   if (isMotion && clawsDir) {
     rescanClawsDirFn = createRescanClawsDir({
       clawsFs, clawTopology, clawTrackMap, clawManager,
       audit: options.audit, agentDir: options.agentDir, updateClawPanel: clawPanel.updateClawPanel,
+      pm,
     });
     // initial 同步
     clawManager.refreshAllClawStatus();
-    rescanClawsDirFn();
+    await rescanClawsDirFn();
     clawsWatcher = createWatcher(
       clawsDir,
       (event) => {
         if (event.type === 'add' || event.type === 'unlink' || event.type === 'addDir' || event.type === 'unlinkDir') {
           clawManager.refreshAllClawStatus();
-          rescanClawsDirFn?.();
+          void rescanClawsDirFn?.();
           scheduleClawPanelUpdate();
         }
-        if (event.type === 'change') {
-          // 从 path 解析 claw 名：claws/<clawId>/stream.jsonl → clawId
-          const parts = event.path.split(path.sep);
-          const clawIdx = parts.indexOf(CLAWS_DIR);
-          if (clawIdx >= 0 && clawIdx + 1 < parts.length) {
-            const clawId = parts[clawIdx + 1];
-            if (clawTrackMap.has(clawId)) {
-              clawManager.refreshClawStatus(clawId);
-              scheduleClawPanelUpdate();
-            }
-          }
-        }
       },
-      { persistent: false, stability: 'stable', recursive: true },
+      { persistent: false, stability: 'stable' },
     );
   }
 

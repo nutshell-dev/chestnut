@@ -13,6 +13,7 @@ import { makeClawId } from '../../foundation/claw-identity/index.js';
 import type { ClawTopology } from '../../core/claw-topology/index.js';
 import type { DaemonDir } from '../../foundation/process-manager/index.js';
 import { type ClawTrack, makeClawTrack } from './chat-viewport-claw-line.js';
+import { createChatViewportWatcher, type Watcher } from './chat-viewport-watcher.js';
 
 
 export interface ClawManagerDeps {
@@ -58,8 +59,29 @@ const appendCappedBuffer = (track: ClawTrack, delta: string) => {
 
 export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
   const { fs, pm, audit, isMotion, clawTopology, clawTrackMap, updateClawPanel, requestRender } = deps;
-  const attachClawWatcher = (_clawId: string, _streamFile: string): void => {
-    // no-op: per-claw watchers removed in phase 738
+  const clawWatchers = new Map<string, Watcher>();
+  const clawWatcherVersions = new Map<string, number>();
+
+  const attachClawWatcher = (clawId: string, streamFile: string) => {
+    const ver = (clawWatcherVersions.get(clawId) ?? 0) + 1;
+    clawWatcherVersions.set(clawId, ver);
+    try {
+      const w = createChatViewportWatcher(
+        fs, clawId, streamFile,
+        () => {
+          if (clawWatcherVersions.get(clawId) !== ver) return;
+          refreshClawStatus(clawId);
+        },
+        audit,
+        () => {
+          if (clawWatcherVersions.get(clawId) === ver) clawWatchers.delete(clawId);
+        },
+        false,
+      );
+      clawWatchers.set(clawId, w);
+    } catch {
+      // silent: fs.watch unsupported / ENOENT — caller already armed polling refresh as fallback, no degradation
+    }
   };
 
   const refreshClawStatus = (clawId: string): void => {
@@ -199,7 +221,6 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
         track.referenceMs = contractMs;
         clawTrackMap.set(clawId, track);
       }
-      // stream 变化由递归 clawsWatcher 检测，不再创建 per-claw watcher
       const track = clawTrackMap.get(clawId)!;
       try {
         const stored = await pm.readPid(resolveClawDaemonDir(makeClawId(clawId)));
@@ -213,20 +234,38 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
       const loc2 = clawTopology.resolve(makeClawId(clawId));
       if (loc2.kind !== 'local') continue;
       track.hasContract = getContractCreatedMs(fs, loc2.clawDir, audit) !== null;
+      if (track.isAlive && !clawWatchers.has(clawId)) {
+        const streamFile = path.join(loc2.clawDir, STREAM_FILE);
+        attachClawWatcher(clawId, streamFile);
+      }
       refreshClawStatus(clawId);
     }
   };
 
-  const detachWatcher = async (_clawId: string): Promise<void> => {
-    // no-op: per-claw watchers removed in phase 738
+  const detachWatcher = async (clawId: string): Promise<void> => {
+    await clawWatchers.get(clawId)?.close();
+    clawWatchers.delete(clawId);
   };
 
   const detachAllWatchers = async (): Promise<void> => {
-    // no-op: per-claw watchers removed in phase 738
+    for (const [id] of Array.from(clawWatchers.keys())) {
+      await clawWatchers.get(id)?.close();
+      clawWatchers.delete(id);
+    }
   };
 
   const closeAll = async (): Promise<void> => {
-    // no-op: recursive clawsWatcher 统一关闭
+    const entries = Array.from(clawWatchers.entries());
+    const results = await Promise.allSettled(entries.map(([, w]) => w.close()));
+    results.forEach((r, i) => {
+      if (r.status === 'rejected') {
+        const [id] = entries[i];
+        // best-effort finalizer / log 仅 / 不抛
+        console.warn(`[chat-viewport] failed to close claw watcher ${id}: ${String(r.reason)}`);
+      }
+    });
+    clawWatchers.clear();
+    clawWatcherVersions.clear();
   };
 
   return { attachClawWatcher, refreshClawStatus, refreshAllClawStatus, detachWatcher, detachAllWatchers, closeAll };

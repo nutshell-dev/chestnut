@@ -5,6 +5,7 @@
  * Why: claw display strategy and rescan logic evolve independently of event stream handling
  */
 
+import * as path from 'path';
 import { formatErr } from "../../foundation/node-utils/index.js";
 import { getContractCreatedMs } from '../../core/contract/index.js';
 import { makeClawTrack, buildClawLine, type ClawTrack } from './chat-viewport-claw-line.js';
@@ -15,6 +16,9 @@ import { makeClawId } from '../../foundation/claw-identity/index.js';
 import type { createClawManager } from './chat-viewport-claw-manager.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
 import { DEFAULT_TERMINAL_WIDTH } from '../utils/constants.js';
+import { isAlive } from '../../foundation/process-exec/index.js';
+import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
+import { STREAM_FILE } from '../../foundation/stream/index.js';
 
 export interface ClawPanelDeps {
   attachedClawBar: { setText(text: string): void };
@@ -56,10 +60,11 @@ export interface RescanClawsDirDeps {
   audit: AuditLog;
   agentDir: string;
   updateClawPanel: (clawTrackMap: Map<string, ClawTrack>) => void;
+  pm: { readPid: (daemonDir: import('../../foundation/process-manager/index.js').DaemonDir) => Promise<{ pid: number; startTime?: string } | null> };
 }
 
 export function createRescanClawsDir(deps: RescanClawsDirDeps) {
-  return function rescanClawsDir() {
+  return async function rescanClawsDir() {
     try {
       // clawsFs baseDir = clawsDir / 用相对路径 '.' 列 clawsDir 自身
       const entries = deps.clawsFs.listSync('.', { includeDirs: true });
@@ -77,8 +82,16 @@ export function createRescanClawsDir(deps: RescanClawsDirDeps) {
           t.hasContract = true;
           t.referenceMs = contractMs;
           deps.clawTrackMap.set(clawId, t);
-          // 初始 stream 读取（stream 变化由递归 clawsWatcher 检测）
-          deps.clawManager.refreshClawStatus(clawId);
+          let alive = false;
+          try {
+            const stored = await deps.pm.readPid(resolveClawDaemonDir(makeClawId(clawId)));
+            alive = stored !== null && isAlive(stored.pid);
+          } catch { /* alive = false */ }
+          if (alive) {
+            deps.clawManager.attachClawWatcher(clawId, path.join(clawDir, STREAM_FILE));
+          } else {
+            deps.clawManager.refreshClawStatus(clawId);
+          }
         }
       }
       if (deps.clawTrackMap.size > 0) {
