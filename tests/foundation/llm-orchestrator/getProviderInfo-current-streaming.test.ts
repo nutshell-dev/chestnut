@@ -54,8 +54,8 @@ describe('phase 686 Step B: getProviderInfo current-streaming-provider', () => {
     };
     const orchestrator = buildOrchestrator(primary, []);
 
-    // 起步前 getProviderInfo 应为 null
-    expect(orchestrator.getProviderInfo()).toBeNull();
+    // 起步前尚无 currentStreaming / lastSuccess，getProviderInfo fallback 到 primary
+    expect(orchestrator.getProviderInfo()).toEqual({ name: 'primary', model: 'primary-model', isFallback: false });
 
     const gen = orchestrator.stream({});
     const first = await gen.next();
@@ -129,7 +129,7 @@ describe('phase 686 Step B: getProviderInfo current-streaming-provider', () => {
     while (!(await gen.next()).done) {}
   });
 
-  it('全失败时 finally 清 currentStreamingProvider → getProviderInfo 回 lastSuccess（既有语义）', async () => {
+  it('全失败时 finally 清 currentStreamingProvider → getProviderInfo fallback 到 primary', async () => {
     const primary: ProviderAdapter = {
       name: 'primary',
       model: 'primary-model',
@@ -144,14 +144,14 @@ describe('phase 686 Step B: getProviderInfo current-streaming-provider', () => {
     };
     const orchestrator = buildOrchestrator(primary, [fallback]);
 
-    // before: no success → lastSuccess null
-    expect(orchestrator.getProviderInfo()).toBeNull();
+    // before: no success → getProviderInfo fallback 到 primary
+    expect(orchestrator.getProviderInfo()).toEqual({ name: 'primary', model: 'primary-model', isFallback: false });
 
     await expect(async () => {
       for await (const _ of orchestrator.stream({})) { /* drain */ }
     }).rejects.toThrow();
 
-    // 全失败后 currentStreamingProvider null + lastSuccessProvider 仍 null
-    expect(orchestrator.getProviderInfo()).toBeNull();
+    // 全失败后 currentStreamingProvider null + lastSuccessProvider 仍 null，但 getProviderInfo 永远有效
+    expect(orchestrator.getProviderInfo()).toEqual({ name: 'primary', model: 'primary-model', isFallback: false });
   });
 });

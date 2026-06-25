@@ -614,8 +614,12 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
     name: string;
     model: string;
     isFallback: boolean;
-  } | null {
-    return this.currentStreamingProvider ?? this.lastSuccessProvider;
+  } {
+    return (
+      this.currentStreamingProvider
+      ?? this.lastSuccessProvider
+      ?? { name: this.primary.name, model: this.primary.model, isFallback: false }
+    );
   }
 
   /**

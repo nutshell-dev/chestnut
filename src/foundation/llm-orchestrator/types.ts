@@ -90,7 +90,7 @@ export interface LLMOrchestrator {
   call(options: LLMCallOptions): Promise<LLMResponse>;
   stream(options: LLMCallOptions): AsyncIterableIterator<StreamChunk>;
   healthCheck(): Promise<boolean>;
-  getProviderInfo(): { name: string; model: string; isFallback: boolean } | null;
+  getProviderInfo(): { name: string; model: string; isFallback: boolean };
   /** 重置 lastSuccessProvider，下次 stream/call 从 primary 开始挑。Runtime 在每轮 turn 开始调。 */
   resetLastSuccessProvider(): void;
   close(): Promise<void>;
