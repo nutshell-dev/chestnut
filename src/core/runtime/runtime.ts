@@ -66,7 +66,7 @@ import {
 import { LLMContextExceededError } from '../../foundation/llm-orchestrator/index.js';
 
 import { formatTimeAgo } from './utils.js';
-import type { StepNumber } from '../agent-executor/index.js';
+
 import type { TraceId } from './types/trace-id.js';
 import { makeTraceId } from './types/trace-id.js';
 
@@ -131,8 +131,6 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
   private snapshot!: Snapshot;
   // phase 1414: inbox 消息 formatter 注册表（Assembly 装配期填、各业主自家）
   private formatterRegistry!: MessageFormatterRegistry;
-  // phase 706: current step count mirrored from AgentExecutor onStepComplete (ExecContext no longer owns stepNumber).
-  private currentStepNumber?: StepNumber;
   // phase 27 Step D P5: guidance compose callback hook
   private guidanceCompose?: import('./types.js').GuidanceCompose;
 
@@ -702,17 +700,16 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
             }
           },
           onStepComplete: async (stepCount) => {
-            this.currentStepNumber = makeStepNumber(stepCount);
             await this.sessionManager.save({ systemPrompt, messages, toolsForLLM: tools, trace_id: this.currentTraceId });
             // phase 1424: contract auditor 周期 LLM 对照 expectations 检查
             // fire-and-forget（不阻塞 Runtime step / 反馈走 inbox high priority 下轮 step 起 PriorityInboxInterrupt 中断）
             // phase 446 (review): 防御 .catch 兜底 unhandledRejection（内部已多层容错、本 catch 几乎不触发）
-            void this.contractManager.maybeAuditStep(this.currentStepNumber)
+            void this.contractManager.maybeAuditStep(makeStepNumber(stepCount))
               .catch(err => {
                 // phase 563: 加 trace_id forensic field（延续 phase 557/560 模式）
                 this.auditWriter.write(
                   RUNTIME_AUDIT_EVENTS.MAYBE_AUDIT_STEP_FAILED,
-                  `step_count=${this.currentStepNumber}`,
+                  `step_count=${stepCount}`,
                   `trace_id=${String(this.execContext.trace_id ?? '')}`,
                   `error=${formatErr(err)}`,
                 );
@@ -743,22 +740,8 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
               `err=${this.auditWriter.message(info.errMessage)}`,
             );
           },
-          onToolResult: (name, toolUseId, result, step) => {
-            const content = result.content ?? '';
-            const preview = this.auditWriter.summary(content);
-            this.auditWriter.write(
-              RUNTIME_AUDIT_EVENTS.TOOL_RESULT,
-              name,
-              `tool_use_id=${String(toolUseId)}`,
-              `step=${step}`,
-              `contract_id=${cachedTurnContractId}`,
-              `trace_id=${String(this.execContext.trace_id ?? '')}`,
-              `status=${result.success ? 'ok' : 'err'}`,
-              `content_size=${Buffer.byteLength(content, 'utf-8')}`,
-              `summary=${preview}`,
-            );
-            // phase 729: stream emit moved to AgentExecutor; Runtime only owns TOOL_RESULT audit.
-          },
+          // phase 730: TOOL_RESULT audit moved to AgentExecutor; Runtime only passes through callback.
+          onToolResult: callbacks?.onToolResult,
           onBeforeLLMCall: () => { callbacks?.onBeforeLLMCall?.(); },
           onReset: (provider, timeoutMs) => {
             providerInfoEmitted = false;
