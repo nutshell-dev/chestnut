@@ -884,89 +884,6 @@
       "cron_runner_started",
       "cron_runner_stopped"
     ],
-    "foundation_cron_jobs_disk-monitor-audit-events": [
-      "cron_disk_monitor_check",
-      "cron_disk_monitor_threshold_exceeded"
-    ],
-    "foundation_cron_jobs_git-gc-weekly-audit-events": [
-      {
-        "type": "cron_git_gc_weekly_claw_failed",
-        "cols": [
-          {
-            "name": "claw",
-            "type": "string",
-            "required": true
-          },
-          {
-            "name": "error",
-            "type": "string",
-            "required": true
-          }
-        ]
-      },
-      {
-        "type": "cron_git_gc_weekly_completed",
-        "cols": [
-          {
-            "name": "claws",
-            "type": "number",
-            "required": true
-          }
-        ]
-      }
-    ],
-    "foundation_cron_jobs_llm-stats-audit-events": [
-      {
-        "type": "cron_llm_stats_empty",
-        "cols": [
-          {
-            "name": "date",
-            "type": "string",
-            "required": true
-          }
-        ]
-      },
-      {
-        "type": "cron_llm_stats_reported",
-        "cols": [
-          {
-            "name": "date",
-            "type": "string",
-            "required": true
-          },
-          {
-            "name": "totalCalls",
-            "type": "number",
-            "required": true
-          },
-          {
-            "name": "successCalls",
-            "type": "number",
-            "required": true
-          },
-          {
-            "name": "failedCalls",
-            "type": "number",
-            "required": true
-          },
-          {
-            "name": "totalInputTokens",
-            "type": "number",
-            "required": true
-          },
-          {
-            "name": "totalOutputTokens",
-            "type": "number",
-            "required": true
-          },
-          {
-            "name": "avgLatencyMs",
-            "type": "number",
-            "required": true
-          }
-        ]
-      }
-    ],
     "foundation_cron_jobs_metrics-snapshot-audit-events": [
       "cron_metrics_snapshot"
     ],
@@ -985,7 +902,6 @@
     "cron_job_started": "tick",
     "cron_outbox_summary_skipped": "tick",
     "cron_metrics_snapshot": "tick",
-    "cron_disk_monitor_check": "tick",
     "daemon_liveness_heartbeat": "tick",
     "daemon_loop_iteration": "tick",
     "viewport_render_batch": "viewport",

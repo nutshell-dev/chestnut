@@ -43,12 +43,12 @@ describe('DispatchingAuditWriter (phase 159)', () => {
     const fs = new NodeFileSystem({ baseDir: tmpDir });
     const dw = new DispatchingAuditWriter(fs, tmpDir, makeTypeToFile());
 
-    dw.write('cron_job_started', 'job=disk-monitor');
+    dw.write('cron_job_started', 'job=dream-trigger');
 
     expect(existsSync(join(tmpDir, 'tick.tsv'))).toBe(true);
     const tickContent = readFileSync(join(tmpDir, 'tick.tsv'), 'utf-8');
     expect(tickContent).toContain('cron_job_started');
-    expect(tickContent).toContain('job=disk-monitor');
+    expect(tickContent).toContain('job=dream-trigger');
   });
 
   it('emits unregistered type to default audit file', () => {
