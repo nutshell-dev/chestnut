@@ -12,8 +12,6 @@ const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
 // Track all temp dirs created via freshDir() for cleanup
 const tempDirs: string[] = [];
-// Track env state for restore (per-test capture)
-let envSnapshot: { CHESTNUT_ROOT: string | undefined } | null = null;
 
 afterEach(() => {
   // Cleanup tempDirs (assertion fail 也保 cleanup)
@@ -23,15 +21,6 @@ afterEach(() => {
       try { rmSync(d, { recursive: true, force: true }); } catch { /* silent: cleanup */ }
     }
   }
-  // Restore env (assertion fail 也保 restore)
-  if (envSnapshot) {
-    if (envSnapshot.CHESTNUT_ROOT === undefined) {
-      delete process.env.CHESTNUT_ROOT;
-    } else {
-      process.env.CHESTNUT_ROOT = envSnapshot.CHESTNUT_ROOT;
-    }
-    envSnapshot = null;
-  }
 });
 
 function freshDir(): string {
@@ -40,37 +29,26 @@ function freshDir(): string {
   return d;
 }
 
-// Snapshot env before mutation (call once per it before mutating)
-function captureEnv(): void {
-  if (!envSnapshot) {
-    envSnapshot = { CHESTNUT_ROOT: process.env.CHESTNUT_ROOT };
-  }
-}
-
 describe('createProcessManagerForCLI', () => {
   it('返回值实现 ProcessManager 接口', () => {
-    captureEnv();
-    process.env.CHESTNUT_ROOT = freshDir();
-    const pm = createProcessManagerForCLI({ fsFactory });
+    const baseDir = freshDir();
+    const pm = createProcessManagerForCLI({ fsFactory, baseDir });
     expect(typeof pm.isAlive).toBe('function');
     expect(typeof pm.acquireLock).toBe('function');
   });
 
   it('每次调用返回新实例（无缓存）', () => {
-    captureEnv();
-    process.env.CHESTNUT_ROOT = freshDir();
-    expect(createProcessManagerForCLI({ fsFactory })).not.toBe(createProcessManagerForCLI({ fsFactory }));
+    const baseDir = freshDir();
+    expect(createProcessManagerForCLI({ fsFactory, baseDir })).not.toBe(createProcessManagerForCLI({ fsFactory, baseDir }));
   });
 
   it('等价性：与手动 createAgentProcessManager(createSystemAudit(...)) 行为一致', () => {
     const dir = freshDir();
-    captureEnv();
-    process.env.CHESTNUT_ROOT = dir;
     // 手动路径
     const fs = new NodeFileSystem({ baseDir: dir });
-    const manual = createAgentProcessManager({ fsFactory, motionClawId: 'motion' }, createSystemAudit(fs, dir));
+    const manual = createAgentProcessManager({ fsFactory, baseDir: dir }, createSystemAudit(fs, dir));
     // 工厂路径
-    const factory = createProcessManagerForCLI({ fsFactory });
+    const factory = createProcessManagerForCLI({ fsFactory, baseDir: dir });
     // 接口等价：同一 clawId 查询同一 PID（均为不存在）
     expect(manual.isAlive('nonexistent')).toBe(factory.isAlive('nonexistent'));
   });
