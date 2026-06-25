@@ -16,7 +16,7 @@ const maxThreads = Number.isFinite(envMaxThreads) && envMaxThreads > 0
  * 维护: NEW test 用 vi.mock 需加此列表
  *
  * 生成: find tests -name "*.test.ts" -exec grep -lE "^vi\.mock\(|^\s*vi\.mock\(" {} \; | sort
- * 数量: 117 file (sync 2026-06-19 / phase 451 Step C)
+ * 数量: 116 file (sync 2026-06-25 / phase 740 removed chat-viewport-watcher mock)
  * Invariant test: tests/design/vi-mock-list-consistency-invariant.test.ts 守 list ↔ 真 use site 一致性
  *   (phase 316 V53 a 真治、撤回 phase 306 ratify「推 §10」、详 `coding plan/phase316/`)
  */
@@ -210,7 +210,6 @@ const VI_MOCK_FILES = [
   'tests/cli/audit-lookup.test.ts',
   'tests/cli/audit-motion-aware.test.ts',
   'tests/cli/audit-query-zero-result-hint.test.ts',
-  'tests/cli/chat-viewport-claw-manager-tool-call-buffer-rotation.test.ts',
   'tests/cli/claw-send-status-hint.test.ts',
   'tests/cli/commands/claw-ls.test.ts',
   'tests/cli/commands/claw-status.test.ts',
