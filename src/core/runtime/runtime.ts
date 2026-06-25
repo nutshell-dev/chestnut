@@ -69,7 +69,7 @@ import { formatTimeAgo } from './utils.js';
 import type { StepNumber } from '../agent-executor/index.js';
 import type { TraceId } from './types/trace-id.js';
 import { makeTraceId } from './types/trace-id.js';
-import { commitTurnEvent, type TurnEventCommitDeps } from '../turn-event-commit.js';
+import { commitTurnEvent, type TurnEventCommitDeps } from '../agent-executor/index.js';
 
 function auditError(
   audit: AuditLog,

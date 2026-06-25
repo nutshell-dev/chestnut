@@ -15,6 +15,8 @@ export { runReact } from './loop.js';
 export type { ReactOptions, ReactResult } from './loop.js';
 export { DEFAULT_MAX_STEPS } from './defaults.js';
 export { AGENT_STREAM_EVENTS } from './stream-events.js';
+export { commitTurnEvent } from './turn-event-commit.js';
+export type { TurnEvent, TurnEventCommitDeps } from './turn-event-commit.js';
 export { AGENT_EXECUTOR_AUDIT_EVENTS } from './audit-events.js';
 export {
   MaxStepsExceededError,
