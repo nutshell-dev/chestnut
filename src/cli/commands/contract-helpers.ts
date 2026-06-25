@@ -4,6 +4,7 @@
  */
 
 import * as yaml from 'js-yaml';
+import { ContractYamlSchema } from '../../core/contract/index.js';
 import type { ContractYaml } from '../../core/contract/index.js';
 import { createDirContext } from '../../foundation/audit/index.js';
 import { routeNotifyClaw } from '../../core/claw-topology/index.js';
@@ -19,13 +20,14 @@ export function parseAndValidateContractYaml(yamlContent: string): ContractYaml 
   if (typeof parsed !== 'object' || parsed === null) {
     throw new CliError('Contract YAML must be an object');
   }
-  const contract = parsed as ContractYaml;
-  if (!contract.title) { throw new CliError('Contract YAML missing required field: title'); }
-  if (!contract.goal) { throw new CliError('Contract YAML missing required field: goal'); }
-  if (!Array.isArray(contract.subtasks)) {
-    throw new CliError(`Contract YAML "subtasks" must be an array (use "- id: ..." list syntax), got: ${typeof contract.subtasks}`);
+  const result = ContractYamlSchema.safeParse(parsed);
+  if (!result.success) {
+    const issues = result.error.issues.map(i =>
+      `${i.path.join('.') || '(root)'}: ${i.message}`,
+    ).join('; ');
+    throw new CliError(`Contract YAML validation failed: ${issues}`);
   }
-  return contract;
+  return result.data;
 }
 
 export function formatContractValidationError(err: ContractValidationError): void {

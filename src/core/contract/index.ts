@@ -32,6 +32,9 @@ export {
   ContractProgressInvariantViolatedError,
 } from './types.js';
 
+// Phase 724: expose runtime Zod schema so CLI YAML validation uses the same source of truth
+export { ContractYamlSchema } from './schemas.js';
+
 export { createSubmitSubtaskTool, SUBMIT_SUBTASK_TOOL_NAME } from './tools/submit-subtask.js';
 
 export { getContractCreatedMs } from './utils.js';
