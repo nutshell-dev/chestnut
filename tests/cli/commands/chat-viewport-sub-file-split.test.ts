@@ -17,7 +17,6 @@ const SUB_FILES = [
   'chat-viewport-turn-tracker.ts',
   'chat-viewport-types.ts',
   'chat-viewport-utils.ts',
-  'chat-viewport-watcher.ts',
 ];
 
 describe('phase 1209 + 1228 chat-viewport sub-file cluster DAG', () => {

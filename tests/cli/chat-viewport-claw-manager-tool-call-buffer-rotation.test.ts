@@ -16,10 +16,6 @@ import type { ClawTopology } from '../../src/core/claw-topology/index.js';
 
 // isAlive not mocked — createClawManager tests use readPid=null path so isAlive is never called (phase 106 DI hygiene)
 
-vi.mock('../../src/cli/commands/chat-viewport-watcher.js', () => ({
-  createChatViewportWatcher: vi.fn().mockReturnValue({ close: vi.fn().mockResolvedValue(undefined) }),
-}));
-
 function makeMockTopology(clawsDir: string): ClawTopology {
   return {
     enumerate: vi.fn().mockReturnValue([]),
