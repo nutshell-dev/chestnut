@@ -18,7 +18,7 @@ import {
   LLM_RETRY_INITIAL_DELAY_MS,
   LLM_RETRY_MAX_DELAY_MS,
 } from './constants.js';
-import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../core/signals.js';
+import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../core/step-executor/signals.js';
 import { LLMAllProvidersFailedError } from '../foundation/llm-orchestrator/index.js';
 
 /**

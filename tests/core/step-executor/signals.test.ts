@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../../src/core/signals.js';
+import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../../../src/core/step-executor/signals.js';
 
 describe('IdleTimeoutSignal', () => {
   it('is NOT an instance of Error', () => {

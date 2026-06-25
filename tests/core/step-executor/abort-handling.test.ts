@@ -5,7 +5,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { executeStep } from '../../../src/core/step-executor/index.js';
-import { IdleTimeoutSignal } from '../../../src/core/signals.js';
+import { IdleTimeoutSignal } from '../../../src/core/step-executor/signals.js';
 import { INIT_LLM_IDLE_TIMEOUT_MS } from '../../../src/foundation/llm-orchestrator/index.js';
 import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/index.js';
 import type { StreamChunk } from '../../../src/foundation/llm-orchestrator/types.js';

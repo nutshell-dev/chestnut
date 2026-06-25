@@ -16,7 +16,7 @@ import type { AuditLog } from '../../src/foundation/audit/index.js';
 import type { Watcher } from '../../src/foundation/file-watcher/types.js';
 import type { FileSystem } from '../../src/foundation/fs/types.js';
 import { createWatcher } from '../../src/foundation/file-watcher/index.js';
-import { IdleTimeoutSignal, UserInterrupt, PriorityInboxInterrupt } from '../../src/core/signals.js';
+import { IdleTimeoutSignal, UserInterrupt, PriorityInboxInterrupt } from '../../src/core/step-executor/signals.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });

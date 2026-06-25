@@ -23,7 +23,7 @@ import type { InboxMessage } from '../../src/foundation/messaging/types.js';
 import type { Message } from '../../src/foundation/llm-provider/types.js';
 import type { RuntimeTestInternals } from '../helpers/runtime-test-internals.js';
 import type { AuditLog } from '../../src/foundation/audit/types.js';
-import { UserInterrupt } from '../../src/core/signals.js';
+import { UserInterrupt } from '../../src/core/step-executor/signals.js';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 import { createTestRuntime, createMockLLMConfig, createMockLLM } from './_runtime-test-helpers.js';
 
