@@ -25,7 +25,7 @@ import { loadReadFileState, clearReadFileState } from '../../foundation/file-too
 // phase 1406: SummonTool import removed — Assembly 标准注册路径，G→F 单向依赖恢复
 import { runReact } from '../agent-executor/index.js';
 import { summarizeLastExit } from './last-exit-summary.js';
-import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../signals.js';
+import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../step-executor/signals.js';
 import type { CallerSnapshot } from '../../foundation/tool-protocol/index.js';
 import { RUNTIME_AUDIT_EVENTS, REACT_LOOP_AUDIT_EVENTS, RELOAD_LLM_CONFIG_MESSAGE_TYPE } from './runtime-audit-events.js';
 // phase 71: writeErrorResponse 消（error-response.ts 整删）

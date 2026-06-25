@@ -2,7 +2,7 @@
  * Abort signal handling utilities for the React loop.
  */
 
-import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../signals.js';
+import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from './signals.js';
 import { STEP_EXECUTOR_AUDIT_EVENTS } from './audit-events.js';
 
 export function throwAbortError(signal: AbortSignal, auditWriter?: { write: (...args: string[]) => void }): never {

@@ -21,7 +21,7 @@ import { Runtime } from '../../../src/core/runtime/index.js';
 import { makeRuntimeDeps } from '../../helpers/runtime-deps.js';
 import type { InboxMessage } from '../../../src/foundation/messaging/types.js';
 import type { Message } from '../../../src/foundation/llm-provider/types.js';
-import { UserInterrupt } from '../../../src/core/signals.js';
+import { UserInterrupt } from '../../../src/core/step-executor/signals.js';
 import type { LLMOrchestratorConfig } from '../../../src/foundation/llm-orchestrator/types.js';
 
 function createMockLLMConfig(): LLMOrchestratorConfig {

@@ -13,7 +13,7 @@ import { makeRuntimeDeps } from '../helpers/runtime-deps.js';
 import { writeSessionWithIncompleteToolUse } from '../helpers/session-fixtures.js';
 import type { InboxMessage } from '../../src/foundation/messaging/types.js';
 import type { Message } from '../../src/foundation/llm-provider/types.js';
-import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../../src/core/signals.js';
+import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../../src/core/step-executor/signals.js';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 import { createTestRuntime, createMockLLMConfig, createMockLLM } from './_runtime-test-helpers.js';
 

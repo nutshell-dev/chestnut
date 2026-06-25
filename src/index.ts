@@ -32,7 +32,7 @@ export {
   MaxStepsExceededError, ConsecutiveParseErrorsExceededError,
   ConsecutiveMaxTokensToolUseError, WallTimeExceededError,
 } from './core/agent-executor/errors.js';
-export { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from './core/signals.js';
+export { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from './core/step-executor/signals.js';
 export { formatErr } from './foundation/node-utils/format.js';
 export type { PermissionChecker } from './foundation/tool-protocol/permission.js';
 
