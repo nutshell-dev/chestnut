@@ -7,6 +7,8 @@ import type { Message, ContentBlock, ToolUseBlock, ToolResultBlock } from '../..
 import { formatErr } from "../../foundation/node-utils/index.js";
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
+import type { AuditLog } from '../../foundation/audit/index.js';
+import { STEP_EXECUTOR_AUDIT_EVENTS } from './audit-events.js';
 
 
 /**
@@ -18,11 +20,17 @@ export function safeCallback(
   label: string,
   fn: () => void,
   callbacks?: { onSafeCallbackError?: (label: string, err: unknown) => void },
+  auditWriter?: AuditLog,
 ): void {
   try { fn(); }
   catch (err) {
     // silent: error forwarded via onSafeCallbackError callback (caller lifecycle audit)
     callbacks?.onSafeCallbackError?.(label, err);
+    auditWriter?.write(
+      STEP_EXECUTOR_AUDIT_EVENTS.STEP_EXECUTOR_CALLBACK_FAILED,
+      `label=${label}`,
+      `error=${formatErr(err)}`,
+    );
   }
 }
 

@@ -161,6 +161,8 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
       maxTokens,
       idleTimeoutMs: input.idleTimeoutMs,
       callbacks,
+      auditWriter,
+      currentContractId,
     });
 
     if (result.kind === 'final') {

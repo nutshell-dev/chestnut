@@ -635,10 +635,10 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     // phase 518 (review-round4 N4-Core-H3): per-turn cache contract_id for tool event audit
     // forensic join 路径（与 phase 434 messaging path 对称）。loadActive 抛错 silent +
     // fallback ''、防 contract loader corruption 拦 turn execution。
-    let cachedTurnContractId = '';
+    let currentContractId = '';
     try {
       const active = await this.contractManager.loadActive();
-      if (active) cachedTurnContractId = active.id;
+      if (active) currentContractId = active.id;
     } catch (loadErr) {
       // phase 555 (拆 phase 544 misuse): contract loader 半态时 tool emit fallback ''、
       // 不阻 turn execution、forensic 留痕走专属 event TURN_CONTRACT_ID_CACHE_FAILED
@@ -685,7 +685,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
           maxConsecutiveMaxTokensToolUse: this.options.maxConsecutiveMaxTokensToolUse,
           idleTimeoutMs: this.options.idleTimeoutMs,
           auditWriter: this.auditWriter,
-          currentContractId: cachedTurnContractId,
+          currentContractId,
           onLLMResult: (info) => {
             // phase 453: 每次 LLM call 完成后更新、供下轮 turn 入口判顺手裁
             this.lastLLMCallAt = Date.now();
@@ -726,20 +726,6 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
           // phase 688: API 收到的 args body 落 stream.jsonl（daemon callback 已实现 onToolUseInput、此处仅透传）
           // 与 onToolCallInput（audit-only size index）互补、不重复 audit。
           onToolUseInput: callbacks?.onToolUseInput,
-          // phase 688: catch 路径 partial 丢弃决策 → runtime audit 落「partial_assistant_discarded」
-          onPartialAssistantDiscarded: (info) => {
-            this.auditWriter.write(
-              RUNTIME_AUDIT_EVENTS.PARTIAL_ASSISTANT_DISCARDED,
-              `cause=${info.cause}`,
-              `tool_use_count=${info.toolUseCount}`,
-              `has_text=${info.hasText}`,
-              `has_thinking=${info.hasThinking}`,
-              `ts_range=${info.startTs}-${info.endTs}`,
-              `trace_id=${String(this.execContext.trace_id ?? '')}`,
-              `contract_id=${cachedTurnContractId}`,
-              `err=${this.auditWriter.message(info.errMessage)}`,
-            );
-          },
           // phase 730: TOOL_RESULT audit moved to AgentExecutor; Runtime only passes through callback.
           onToolResult: callbacks?.onToolResult,
           onBeforeLLMCall: () => { callbacks?.onBeforeLLMCall?.(); },
@@ -750,62 +736,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
           onProviderFailed: (provider, model, error) => {
             callbacks?.onProviderFailed?.({ provider, model, error });
           },
-          onEmptyResponse: (stopReason) => {
-            this.auditWriter.write(RUNTIME_AUDIT_EVENTS.LLM_EMPTY_RESPONSE, `stop_reason=${stopReason}`);
-          },
-          onUnknownStopReason: (stopReason) => {
-            this.auditWriter.write(RUNTIME_AUDIT_EVENTS.LLM_UNKNOWN_STOP_REASON, `stop_reason=${stopReason}`);
-          },
-          onUnparseableToolUse: (stopReason) => {
-            this.auditWriter.write(RUNTIME_AUDIT_EVENTS.LLM_UNPARSEABLE_TOOL_USE, `stop_reason=${stopReason}`);
-          },
-          onToolInputParseError: (toolName, toolUseId, rawInput) =>
-            this.auditWriter.write(
-              RUNTIME_AUDIT_EVENTS.TOOL_INPUT_PARSE_FAILED,
-              toolName,
-              toolUseId,
-              `reason=parse_error`,
-              `summary=${this.auditWriter.message(rawInput)}`,
-            ),
-          onToolExecutionFailed: (toolName, toolUseId, errorType, errorMsg) =>
-            this.auditWriter.write(
-              RUNTIME_AUDIT_EVENTS.TOOL_EXECUTION_FAILED,
-              toolName,
-              toolUseId,
-              `errorType=${errorType}`,
-              `errorMsg=${this.auditWriter.message(errorMsg)}`,
-            ),
-          onSafeCallbackError: (label, err) => {
-            // phase 563: 加 trace_id forensic field
-            // phase 714: raw label 加 key= prefix、与同 emit 其他 cols 形态对齐
-            this.auditWriter.write(RUNTIME_AUDIT_EVENTS.STEP_EXECUTOR_CALLBACK_FAILED, `label=${label}`, `trace_id=${String(this.execContext.trace_id ?? '')}`, `error=${formatErr(err)}`);
-          },
-          onMaxTokensPrebuiltOnlyFinal: (meta) => {
-            this.auditWriter?.write(
-              RUNTIME_AUDIT_EVENTS.MAX_TOKENS_PREBUILT_ONLY_FINAL,
-              `prebuilt_count=${meta.prebuiltCount}`,
-              `model=${meta.llm.model}`,
-            );
-          },
-          onMaxTokensAssistantEmptySkipped: (meta) => {
-            this.auditWriter?.write(
-              RUNTIME_AUDIT_EVENTS.MAX_TOKENS_ASSISTANT_EMPTY_SKIPPED,
-              `model=${meta.llm.model}`,
-            );
-          },
-          onMaxTokensStateAOrphanDrop: (args) => {
-            for (const orphan of args.orphans) {
-              this.auditWriter?.write(
-                RUNTIME_AUDIT_EVENTS.MAX_TOKENS_STATE_A_ORPHAN_DROP,
-                `tool_use_id=${orphan.tool_use_id}`,
-                `is_error=${orphan.is_error}`,
-                // phase 218: TS field renamed orphan.content_preview → orphan.content
-                // audit col literal `content_preview=` 保留跨进程 schema 稳定
-                `content_preview=${this.auditWriter?.preview(orphan.content) ?? orphan.content}`,
-                `model=${args.llm.model}`,
-              );
-            }
-          },
+
           streamCallbacks: callbacks,
         });
         break reactive_loop;

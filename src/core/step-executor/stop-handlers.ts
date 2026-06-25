@@ -9,6 +9,7 @@ import type { StepInput, StepResult, LLMCallInfo } from './types.js';
 import { asFinalStopReason } from './types.js';
 import { extractText, extractToolCalls, appendAssistantMessage, appendToolResults } from './utils.js';
 import { executeToolCalls } from './tool-execution.js';
+import { STEP_EXECUTOR_AUDIT_EVENTS } from './audit-events.js';
 import { throwAbortError } from './abort-helpers.js';
 
 
@@ -28,6 +29,10 @@ export async function handleToolUseStop(
     appendAssistantMessage(messages, response.content);
     callbacks?.onMessageAppended?.('assistant', response.content.length);
     callbacks?.onUnparseableToolUse?.(response.stop_reason);
+    input.auditWriter?.write(
+      STEP_EXECUTOR_AUDIT_EVENTS.LLM_UNPARSEABLE_TOOL_USE,
+      `stop_reason=${response.stop_reason}`,
+    );
     return { kind: 'final', stopReason: asFinalStopReason('no_tool'), finalText: text };
   }
   appendAssistantMessage(messages, response.content.filter(b => b.type !== 'tool_result'));
@@ -46,7 +51,7 @@ export async function handleToolUseStop(
   const prebuiltIds = new Set(prebuiltResults.map(r => r.tool_use_id));
   const toolCallsToExecute = toolCalls.filter(tc => !prebuiltIds.has(tc.id));
   // abort 期不剥 signal / 工具自治响应 / 已 abort-aware 工具 throw / 不 aware 工具忽略
-  const toolResults = await executeToolCalls(toolCallsToExecute, executor, ctx, registry, trackingCallbacks);
+  const toolResults = await executeToolCalls(toolCallsToExecute, executor, ctx, registry, trackingCallbacks, input.auditWriter);
 
   if (ctx.signal?.aborted) throwAbortError(ctx.signal);
   appendToolResults(messages, [...prebuiltResults, ...toolResults]);
@@ -97,6 +102,10 @@ export function handleMaxTokensStop(
       input.callbacks?.onMessageAppended?.('assistant', assistantBlocks.length);
     } else {
       input.callbacks?.onMaxTokensAssistantEmptySkipped?.({ llm: llmInfo });
+      input.auditWriter?.write(
+        STEP_EXECUTOR_AUDIT_EVENTS.MAX_TOKENS_ASSISTANT_EMPTY_SKIPPED,
+        `model=${llmInfo.model}`,
+      );
     }
     // phase 1282: prebuilt 已 cover 的 tool_use id 不再 synthesize [TRUNCATED] / 防 duplicate tool_result 同 id
     // 仅透传 stream-side parseError 结果（M#9「不丢弃静默」），historical/orphan tool_result 仍丢弃
@@ -123,6 +132,15 @@ export function handleMaxTokensStop(
         })),
         llm: llmInfo,
       });
+      for (const orphan of orphanPrebuilt) {
+        input.auditWriter?.write(
+          STEP_EXECUTOR_AUDIT_EVENTS.MAX_TOKENS_STATE_A_ORPHAN_DROP,
+          `tool_use_id=${orphan.tool_use_id}`,
+          `is_error=${orphan.is_error === true}`,
+          `content_preview=${input.auditWriter?.preview(orphan.content) ?? orphan.content}`,
+          `model=${llmInfo.model}`,
+        );
+      }
     }
 
     const truncatedResults: ToolResultBlock[] = newToolCallIds.map(id => ({
@@ -155,6 +173,11 @@ export function handleMaxTokensStop(
       prebuiltCount: prebuiltResults.length,
       llm: llmInfo,
     });
+    input.auditWriter?.write(
+      STEP_EXECUTOR_AUDIT_EVENTS.MAX_TOKENS_PREBUILT_ONLY_FINAL,
+      `prebuilt_count=${prebuiltResults.length}`,
+      `model=${llmInfo.model}`,
+    );
     return {
       kind: 'final',
       stopReason: asFinalStopReason('max_tokens_text'),
