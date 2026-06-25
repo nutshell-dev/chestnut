@@ -132,7 +132,7 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
 
     // --- 2. ProcessManager + acquireLock (daemon.ts L107-108) ---
     try {
-      processManager = createAgentProcessManager({ fsFactory }, auditWriter);
+      processManager = createAgentProcessManager({ fsFactory, baseDir: resolveChestnutRoot(clawDir, isMotion) }, auditWriter);
     } catch (e) {
       auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=process_manager`, `phase=construct`, `reason=${formatErr(e)}`);
       throw new Error(`Assembly: ProcessManager construct failed: ${formatErr(e)}`, { cause: e });

@@ -9,17 +9,17 @@
  */
 
 import { ProcessManager } from './manager.js';
-import { getChestnutRoot } from '../../core/claw-topology/claw-instance-paths.js';
 import type { AuditLog } from '../audit/index.js';
 import type { FileSystem } from '../fs/index.js';
 
 export function createAgentProcessManager(
   deps: {
     fsFactory: (baseDir: string) => FileSystem;
+    baseDir: string;
   },
   audit: AuditLog,
 ): ProcessManager {
-  const baseDir = getChestnutRoot();
+  const baseDir = deps.baseDir;
   const fs = deps.fsFactory(baseDir);
   return new ProcessManager(fs, audit);
 }

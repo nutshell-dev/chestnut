@@ -47,5 +47,5 @@ export function createProcessManagerForCLI(deps: {
   const baseDir = getChestnutRoot();
   const fs = deps.fsFactory(baseDir);
   const systemAudit = createSystemAudit(fs, baseDir);
-  return createAgentProcessManager(deps, systemAudit);
+  return createAgentProcessManager({ ...deps, baseDir }, systemAudit);
 }

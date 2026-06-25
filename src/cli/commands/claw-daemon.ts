@@ -44,7 +44,7 @@ export async function clawDaemonCommand(
   const nodeFs = deps.fsFactory(baseDir);
   const systemAudit = createSystemAudit(nodeFs, baseDir);
   const pm: DaemonPM = deps.processManager
-    ?? createAgentProcessManager({ fsFactory: deps.fsFactory }, systemAudit);
+    ?? createAgentProcessManager({ fsFactory: deps.fsFactory, baseDir }, systemAudit);
   if (pm.isAlive(resolveClawDaemonDir(makeClawId(name)))) {
     console.warn(`⚠ Claw "${name}" is already running`);
     return;

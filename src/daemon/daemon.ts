@@ -12,7 +12,7 @@ import * as path from 'path';
 import { sha256ShortHex } from '../foundation/node-utils/index.js';
 import { formatErr } from '../foundation/node-utils/index.js';
 import { loadGlobalConfig, loadClawConfig } from '../assembly/config-load.js';
-import { getClawDir, getNamedSubrootDir, getClawConfigPath } from '../core/claw-topology/claw-instance-paths.js';
+import { getClawDir, getNamedSubrootDir, getClawConfigPath, getChestnutRoot } from '../core/claw-topology/claw-instance-paths.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../core/claw-topology/index.js';
 
 import { startDaemonLoop } from './daemon-loop.js';
@@ -80,7 +80,7 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
     const preAssembleAudit: AuditLog = createSystemAudit(preAssembleFs, dir);
 
     // ProcessManager 接管 PID 文件
-    const processManager = createAgentProcessManager({ fsFactory: deps.fsFactory }, preAssembleAudit);
+    const processManager = createAgentProcessManager({ fsFactory: deps.fsFactory, baseDir: getChestnutRoot() }, preAssembleAudit);
 
     // phase 521 (review-round4 CLI M): loadClawConfig 包入 try 显式归类 module=claw_config
     // YAML parse error 改前 escape 到 shim 无 ASSEMBLE_FAILED granularity
