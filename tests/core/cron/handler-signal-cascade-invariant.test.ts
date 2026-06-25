@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import * as path from 'path';
 import { fileURLToPath } from 'node:url';
 
@@ -23,7 +23,7 @@ describe('cron handler signal cascade positive checks (phase 423 缩 vitest)', (
     const contractJobsDir = path.join(repoRoot, 'src', 'core', 'contract', 'jobs');
 
     const jobFiles = [
-      ...readdirSync(jobsDir)
+      ...(existsSync(jobsDir) ? readdirSync(jobsDir) : [])
         .filter(f => f.endsWith('.ts') && !f.endsWith('.test.ts'))
         .map(f => path.join(jobsDir, f)),
       ...readdirSync(contractJobsDir)
