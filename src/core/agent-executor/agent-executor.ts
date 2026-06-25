@@ -111,7 +111,6 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
       onToolCall: input.streamCallbacks.onToolCall,
       onToolResult: input.streamCallbacks.onToolResult,
     };
-    const origOnToolResult = callbacks.onToolResult;
     callbacks.onTextEnd = () => {
       commitTurnEvent({ kind: 'text_end' }, streamDeps);
     };
@@ -120,7 +119,6 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
     };
     callbacks.onToolResult = (name, toolUseId, result) => {
       // phase 730: AgentExecutor owns TOOL_RESULT audit write + stream emit.
-      origOnToolResult?.(name, toolUseId, result);
       commitTurnEvent(
         { kind: 'tool_result', name, toolUseId, result, step: stepCount, maxSteps },
         streamDeps,
