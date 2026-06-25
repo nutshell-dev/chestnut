@@ -1,5 +1,5 @@
 /**
- * @module Core.StreamCallbacks
+ * @module L3.StreamCallbacks
  * Cross-cutting stream callback types used by Runtime, AgentExecutor and Daemon.
  *
  * phase 729: moved out of runtime/types.ts so L3 AgentExecutor can reference
