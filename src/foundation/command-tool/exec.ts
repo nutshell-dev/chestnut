@@ -209,10 +209,10 @@ export function createExecTool(): Tool {
             const truncated = relPath
               ? truncateHeadTail(error.output, relPath)
               : truncate(error.output, EXEC_MAX_OUTPUT);
-            return { success: false, content: `Error: ${error.message}\n[output]: ${truncated}` };
+            return { success: false, content: `Error: ${error.message}\n[command]: ${command}\n[output]: ${truncated}` };
           }
           const output = error.output ? `\n[output]: ${truncate(error.output, EXEC_MAX_OUTPUT)}` : '';
-          return { success: false, content: `Error: ${error.message}${output}` };
+          return { success: false, content: `Error: ${error.message}\n[command]: ${command}${output}` };
         }
 
         // 纯非零退出码：command 自己语义信号、tool 已完成契约

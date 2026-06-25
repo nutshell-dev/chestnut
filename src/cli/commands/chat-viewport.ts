@@ -350,7 +350,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
           scheduleClawPanelUpdate();
         }
       },
-      { persistent: false, stability: 'stable' },
+      { persistent: false, stability: 'stable', recursive: true },
     );
   }
 
