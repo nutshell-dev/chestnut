@@ -23,7 +23,7 @@ describe('multi-file emit E2E (phase 159)', () => {
     const fs = new NodeFileSystem({ baseDir: tmpDir });
     const audit: AuditLog = createSystemAudit(fs, tmpDir, { typeToFile: AggregatedFileRouting });
 
-    audit.write('cron_job_started', 'job=disk-monitor');
+    audit.write('cron_job_started', 'job=dream-trigger');
     audit.write('cron_outbox_summary_skipped', 'reason=empty');
 
     expect(existsSync(join(tmpDir, 'tick.tsv'))).toBe(true);

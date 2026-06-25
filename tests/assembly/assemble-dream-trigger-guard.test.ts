@@ -97,36 +97,6 @@ vi.mock('../../src/foundation/cron/runner.js', () => ({
   parseSchedule: vi.fn((s: string) => s),
 }));
 
-vi.mock('../../src/foundation/cron/jobs/disk-monitor.js', () => {
-  const mockRunDiskMonitor = vi.fn();
-  return {
-    runDiskMonitor: mockRunDiskMonitor,
-    DISK_MONITOR_CRON_TIMEOUT_MS: 60_000,
-    createDiskMonitorJob: vi.fn((deps, globalConfig) => ({
-      name: 'disk-monitor',
-      enabled: globalConfig.cron.jobs.disk_monitor.enabled,
-      schedule: globalConfig.cron.jobs.disk_monitor.schedule,
-      handler: (signal: AbortSignal) => mockRunDiskMonitor({ ...deps, signal }),
-      timeoutMs: 60_000,
-    })),
-  };
-});
-
-vi.mock('../../src/foundation/cron/jobs/llm-stats.js', () => {
-  const mockRunLlmStats = vi.fn();
-  return {
-    runLlmStats: mockRunLlmStats,
-    LLM_STATS_CRON_TIMEOUT_MS: 60_000,
-    createLlmStatsJob: vi.fn((deps, globalConfig) => ({
-      name: 'llm-stats',
-      enabled: globalConfig.cron.jobs.llm_stats.enabled,
-      schedule: globalConfig.cron.jobs.llm_stats.schedule,
-      handler: (signal: AbortSignal) => mockRunLlmStats({ ...deps, signal }),
-      timeoutMs: 60_000,
-    })),
-  };
-});
-
 const mockMemorySystem = {
   runDeepDream: vi.fn(),
   runRandomDream: vi.fn(),

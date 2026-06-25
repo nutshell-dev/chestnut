@@ -123,36 +123,6 @@ vi.mock('../../src/foundation/cron/runner.js', () => ({
   parseSchedule: vi.fn((s: string) => s),
 }));
 
-vi.mock('../../src/foundation/cron/jobs/disk-monitor.js', () => {
-  const mockRunDiskMonitor = vi.fn();
-  return {
-    runDiskMonitor: mockRunDiskMonitor,
-    DISK_MONITOR_CRON_TIMEOUT_MS: 60_000,
-    createDiskMonitorJob: vi.fn((deps, globalConfig) => ({
-      name: 'disk-monitor',
-      enabled: globalConfig.cron.jobs.disk_monitor.enabled,
-      schedule: globalConfig.cron.jobs.disk_monitor.schedule,
-      handler: (signal: AbortSignal) => mockRunDiskMonitor({ ...deps, signal }),
-      timeoutMs: 60_000,
-    })),
-  };
-});
-
-vi.mock('../../src/foundation/cron/jobs/llm-stats.js', () => {
-  const mockRunLlmStats = vi.fn();
-  return {
-    runLlmStats: mockRunLlmStats,
-    LLM_STATS_CRON_TIMEOUT_MS: 60_000,
-    createLlmStatsJob: vi.fn((deps, globalConfig) => ({
-      name: 'llm-stats',
-      enabled: globalConfig.cron.jobs.llm_stats.enabled,
-      schedule: globalConfig.cron.jobs.llm_stats.schedule,
-      handler: (signal: AbortSignal) => mockRunLlmStats({ ...deps, signal }),
-      timeoutMs: 60_000,
-    })),
-  };
-});
-
 const mockMemorySystem = {
   runDeepDream: vi.fn(),
   runRandomDream: vi.fn(),
@@ -175,21 +145,6 @@ vi.mock('../../src/core/contract/jobs/contract-observer.js', () => {
       schedule: globalConfig.cron.jobs.contract_observer.schedule,
       handler: (signal: AbortSignal) => mockRunContractObserver({ ...deps, signal }),
       timeoutMs: 5 * 60_000,
-    })),
-  };
-});
-
-vi.mock('../../src/foundation/cron/jobs/git-gc-weekly.js', () => {
-  const mockRunGitGcWeekly = vi.fn();
-  return {
-    runGitGcWeekly: mockRunGitGcWeekly,
-    GIT_GC_WEEKLY_CRON_TIMEOUT_MS: 120_000,
-    createGitGcWeeklyJob: vi.fn((deps, globalConfig) => ({
-      name: 'git-gc-weekly',
-      enabled: globalConfig.cron.jobs.git_gc_weekly.enabled,
-      schedule: globalConfig.cron.jobs.git_gc_weekly.schedule,
-      handler: (signal: AbortSignal) => mockRunGitGcWeekly({ ...deps, signal }),
-      timeoutMs: 120_000,
     })),
   };
 });
@@ -290,11 +245,8 @@ import { buildLLMConfig } from '../../src/assembly/config-load.js';
 import { createAgentProcessManager } from '../../src/foundation/process-manager/agent-factory.js';
 import { createSnapshot } from '../../src/foundation/snapshot/index.js';
 import { createRuntime, Heartbeat } from '../../src/core/runtime/index.js';
-import { runDiskMonitor } from '../../src/foundation/cron/jobs/disk-monitor.js';
-import { runLlmStats } from '../../src/foundation/cron/jobs/llm-stats.js';
 import { createMemorySystem } from '../../src/core/memory/index.js';
 import { runContractObserver } from '../../src/core/contract/jobs/contract-observer.js';
-import { runGitGcWeekly } from '../../src/foundation/cron/jobs/git-gc-weekly.js';
 
 
 // ============================================================================
@@ -615,13 +567,10 @@ describe('assemble', () => {
     }
 
 
-    expect(runDiskMonitor).toHaveBeenCalled();
-    expect(runLlmStats).toHaveBeenCalled();
     expect(createMemorySystem).toHaveBeenCalled();
     expect(mockMemorySystem.runDeepDream).toHaveBeenCalled();
     expect(mockMemorySystem.runRandomDream).toHaveBeenCalled();
     expect(runContractObserver).toHaveBeenCalled();
-    expect(runGitGcWeekly).toHaveBeenCalled();
   });
 
   // ==========================================================================

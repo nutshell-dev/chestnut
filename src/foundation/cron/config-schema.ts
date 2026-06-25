@@ -15,17 +15,9 @@ const SCHEDULE_REGEX = /^(?:hourly|daily:\d{1,2}:\d{2}|interval:\d+[smh])$/;
 export const cronJobScheduleField = z.string().regex(SCHEDULE_REGEX);
 
 // 各 job 子 schema 内联（Step A 阶段集中、Step B/C 可决定是否进一步迁到各 job owner）
-// 注：cron jobs 子字段实际 own 应归各 job owner（disk_monitor → watchdog、dream_trigger → memory-system 等）
+// 注：cron jobs 子字段实际 own 应归各 job owner（dream_trigger → memory-system 等）
 // Step A 先内联在 cron 本 file、Step B composer 立后评估是否进一步拆。
 export const cronJobsConfigSchema = z.object({
-  disk_monitor: z.object({
-    enabled: z.boolean().default(true),
-    schedule: cronJobScheduleField.default('hourly'),
-  }).default({}),
-  llm_stats: z.object({
-    enabled: z.boolean().default(true),
-    schedule: cronJobScheduleField.default('daily:06:00'),
-  }).default({}),
   dream_trigger: z.object({
     enabled: z.boolean().default(false),
     schedule: cronJobScheduleField.default('daily:04:00'),
@@ -38,10 +30,6 @@ export const cronJobsConfigSchema = z.object({
   metrics_snapshot: z.object({
     enabled: z.boolean().default(true),
     schedule: cronJobScheduleField.default('interval:5m'),
-  }).default({}),
-  git_gc_weekly: z.object({
-    enabled: z.boolean().default(true),
-    schedule: cronJobScheduleField.default('daily:03:00'),
   }).default({}),
   audit_size_monitor: z.object({
     enabled: z.boolean().default(true),
