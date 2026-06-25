@@ -30,6 +30,23 @@ export class FileNotFoundError extends Error {
   }
 }
 
+/**
+ * Error thrown when a path fails the OS-level base-dir guard.
+ *
+ * This is intentionally an L1 primitive error: it carries no claw-space or
+ * write-policy business semantics. Callers that need L4 semantics should catch
+ * and wrap this error at the policy layer.
+ */
+export class PathGuardError extends Error {
+  readonly path: string;
+
+  constructor(message: string, path: string) {
+    super(message);
+    this.name = 'PathGuardError';
+    this.path = path;
+  }
+}
+
 export interface FileEntry {
   name: string;
   path: string;
@@ -87,7 +104,7 @@ export interface FileSystem {
    * Write file atomically (write-to-temp + rename)
    * @param path - Relative path within configured baseDir
    * @param content - Content to write
-   * @throws PathNotInClawSpaceError if path is outside configured baseDir
+   * @throws PathGuardError if path is outside configured baseDir
    */
   writeAtomic(path: string, content: string): Promise<void>;
   
@@ -316,7 +333,7 @@ export interface FileSystem {
    * Validates path is within allowed bounds (traversal protection, symlink check).
    * @param relativePath - Relative path within baseDir
    * @returns Absolute path
-   * @throws PermissionError if path escapes base directory
+   * @throws PathGuardError if path escapes base directory
    */
   resolve(relativePath: string): string;
 }

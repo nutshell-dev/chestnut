@@ -28,8 +28,7 @@ import {
   isDirectory,
   IGNORE_PATTERN,
 } from './atomic.js';
-import { FileNotFoundError } from './types.js';
-import { PermissionError } from '../../core/permissions/errors.js';
+import { FileNotFoundError, PathGuardError } from './types.js';
 
 async function wrapENOENT<T>(
   relativePath: string,
@@ -94,9 +93,9 @@ export class NodeFileSystem implements FileSystem {
         resolved === resolvedBase ||
         resolved.startsWith(basePrefix);
       if (!withinBase) {
-        throw new PermissionError(
+        throw new PathGuardError(
           `Path "${relativePath}" is absolute; paths must be relative to base directory`,
-          { path: relativePath }
+          relativePath
         );
       }
       // Absolute path within baseDir: convert to relative for consistent resolution
@@ -110,9 +109,9 @@ export class NodeFileSystem implements FileSystem {
     // phase 521 (review-round4 Foundation M): startsWith('..') 误拒 `..foo` `..config` 合法名
     // 改用 exact `..` 匹配或 `'..' + sep` 前缀、严格只拦目录穿越
     if (normalized === '..' || normalized.startsWith('..' + path.sep) || normalized.startsWith('../')) {
-      throw new PermissionError(
+      throw new PathGuardError(
         `Path "${relativePath}" attempts to escape base root`,
-        { path: relativePath }
+        relativePath
       );
     }
     
@@ -152,9 +151,9 @@ export class NodeFileSystem implements FileSystem {
         realTarget === realBase ||
         realTarget.startsWith(basePrefix);
       if (!withinBase) {
-        throw new PermissionError(
+        throw new PathGuardError(
           `Symlink traversal detected: "${relativePath}" resolves outside base root`,
-          { path: relativePath }
+          relativePath
         );
       }
     }
@@ -289,8 +288,8 @@ export class NodeFileSystem implements FileSystem {
     try {
       absolute = this.resolveAndCheck(relativePath);
     } catch (err) {
-      if (err instanceof PermissionError) {
-        throw err;  // P1.5 hardening: 安全 signal 不静默 / D2+D11 align
+      if (err instanceof PathGuardError) {
+        throw err;  // 安全 signal 不静默 / D2+D11 align
       }
       return false;  // 其他（normalize 错等）视为不存在
     }
