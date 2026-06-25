@@ -934,7 +934,17 @@
       "watchdog_subscription_process_failed"
     ],
     "core_step-executor_audit-events": [
-      "step_executor_invariant_violation"
+      "llm_empty_response",
+      "llm_unknown_stop_reason",
+      "llm_unparseable_tool_use",
+      "max_tokens_assistant_empty_skipped",
+      "max_tokens_prebuilt_only_final",
+      "max_tokens_state_a_orphan_drop",
+      "partial_assistant_discarded",
+      "step_executor_callback_failed",
+      "step_executor_invariant_violation",
+      "tool_execution_failed",
+      "tool_input_parse_failed"
     ],
     "foundation_cron_audit-events": [
       "cron_drain_late_settle",
