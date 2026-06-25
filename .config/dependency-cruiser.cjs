@@ -231,6 +231,17 @@ module.exports = {
       from: { path: '^src' },
       to: { path: '^src/constants(\\.ts)?$' },
     },
+    {
+      name: 'no-foundation-to-outside',
+      comment: [
+        'M#5 单向依赖：foundation 层不依赖任何上层模块。',
+        'foundation 内部子层依赖方向由 code review 守（M#5 应然方向、不靠物理路径 lint）。',
+        'phase 725 立：718-725 六 phase 治理后 foundation→outside 已 0 违反、lint 守 invariant 防回退。',
+      ].join(' '),
+      severity: 'error',
+      from: { path: '^src/foundation/' },
+      to: { path: '^src/(?!foundation/)' },
+    },
     // phase 696 Step A 撤 2 layer rule (no-assembly-to-cli-shared-formatter / no-audit-to-dialog-store)
     // 由 code review 守、no-circular 守 cycle 类违反。
     {
