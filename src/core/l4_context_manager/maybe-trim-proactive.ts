@@ -17,6 +17,8 @@ import {
   CONTEXT_TRIM_TARGET_RATIO,
   CONTEXT_TRIM_PREVIEW_BYTES,
 } from './constants.js';
+import { ContextTrimExhaustedError } from './errors.js';
+import { CONTEXT_TRIM_EXHAUSTED } from './audit-events.js';
 import type { AuditWriter } from './trim-v2.js';
 
 export interface MaybeTrimProactiveInputs {
@@ -68,18 +70,29 @@ export async function maybeTrimProactive(
   if (estimatedTokens < targetMessagesTokens) return null;
 
   // 5. 触发顺手裁
-  return await trimAndPersist({
-    messages: inputs.messages,
-    systemPrompt: inputs.systemPrompt,
-    toolsForLLM: inputs.toolsForLLM,
-    contextWindow: inputs.contextWindow,
-    recentWindowMs: CONTEXT_TRIM_RECENT_WINDOW_MS,
-    targetRatio: CONTEXT_TRIM_TARGET_RATIO,
-    previewBytes: CONTEXT_TRIM_PREVIEW_BYTES,
-    filterSubtypes: inputs.filterSubtypes,
-    dialogStore: inputs.dialogStore,
-    audit: inputs.audit,
-    triggerKind: 'proactive_cache_idle',
-    now,
-  });
+  try {
+    return await trimAndPersist({
+      messages: inputs.messages,
+      systemPrompt: inputs.systemPrompt,
+      toolsForLLM: inputs.toolsForLLM,
+      contextWindow: inputs.contextWindow,
+      recentWindowMs: CONTEXT_TRIM_RECENT_WINDOW_MS,
+      targetRatio: CONTEXT_TRIM_TARGET_RATIO,
+      previewBytes: CONTEXT_TRIM_PREVIEW_BYTES,
+      filterSubtypes: inputs.filterSubtypes,
+      dialogStore: inputs.dialogStore,
+      audit: inputs.audit,
+      triggerKind: 'proactive_cache_idle',
+      now,
+    });
+  } catch (err) {
+    if (err instanceof ContextTrimExhaustedError) {
+      inputs.audit.write(CONTEXT_TRIM_EXHAUSTED,
+        `trigger=proactive`,
+        `reason=${err.message}`,
+      );
+      return null;
+    }
+    throw err;
+  }
 }
