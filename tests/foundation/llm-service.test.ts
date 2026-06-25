@@ -433,7 +433,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
   });
 
   describe('Orchestrator getProviderInfo + healthCheck (phase 616)', () => {
-    it('全失败 throw 后 getProviderInfo 返 null（lastSuccessProvider 不更新）', async () => {
+    it('全失败 throw 后 getProviderInfo fallback 到 primary（lastSuccessProvider 不更新）', async () => {
       const badPrimary = createMockProvider('p');
       (badPrimary as any).call = async () => { throw new Error('primary failed'); };
 
@@ -447,7 +447,7 @@ describe('LLMOrchestratorImpl - stream failover', () => {
       (service as any).primary = badPrimary;
 
       await expect(service.call({ messages: [] })).rejects.toThrow();
-      expect(service.getProviderInfo()).toBeNull();
+      expect(service.getProviderInfo()).toEqual({ name: 'p', model: 'mock-model', isFallback: false });
     });
 
     it('成功 call 后 getProviderInfo 返成功 adapter info', async () => {
