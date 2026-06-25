@@ -217,7 +217,6 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
       const clawId = rawClawId;
       const loc = clawTopology.resolve(makeClawId(clawId));
       if (loc.kind !== 'local') continue;
-      const streamFile = path.join(loc.clawDir, STREAM_FILE);
       if (!clawTrackMap.has(clawId)) {
         const clawDir = loc.clawDir;
         const contractMs = getContractCreatedMs(fs, clawDir, audit);
@@ -227,9 +226,7 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
         track.referenceMs = contractMs;
         clawTrackMap.set(clawId, track);
       }
-      if (!clawWatchers.has(clawId)) {
-        attachClawWatcher(clawId, streamFile);
-      }
+      // stream 变化由递归 clawsWatcher 检测，不再创建 per-claw watcher
       const track = clawTrackMap.get(clawId)!;
       try {
         const stored = await pm.readPid(resolveClawDaemonDir(makeClawId(clawId)));

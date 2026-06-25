@@ -1,5 +1,3 @@
-import * as path from 'path';
-import { STREAM_FILE } from '../../foundation/stream/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { ClawTopology } from '../../core/claw-topology/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
@@ -92,7 +90,7 @@ export const createViewportCommands = (deps: CommandsDeps): ViewportCommand[] =>
       const t = makeClawTrack();
       t.referenceMs = Date.now();
       deps.clawTrackMap.set(clawId, t);
-      deps.clawManager.attachClawWatcher(clawId, path.join(clawDir, STREAM_FILE));
+      deps.clawManager.refreshClawStatus(clawId);
       return {
         descriptors: [
           { kind: 'claw-panel-update' },

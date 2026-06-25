@@ -349,6 +349,18 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
           rescanClawsDirFn?.();
           scheduleClawPanelUpdate();
         }
+        if (event.type === 'change') {
+          // 从 path 解析 claw 名：claws/<clawId>/stream.jsonl → clawId
+          const parts = event.path.split(path.sep);
+          const clawIdx = parts.indexOf(CLAWS_DIR);
+          if (clawIdx >= 0 && clawIdx + 1 < parts.length) {
+            const clawId = parts[clawIdx + 1];
+            if (clawTrackMap.has(clawId)) {
+              clawManager.refreshClawStatus(clawId);
+              scheduleClawPanelUpdate();
+            }
+          }
+        }
       },
       { persistent: false, stability: 'stable', recursive: true },
     );

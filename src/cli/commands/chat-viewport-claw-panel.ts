@@ -5,11 +5,9 @@
  * Why: claw display strategy and rescan logic evolve independently of event stream handling
  */
 
-import * as path from 'path';
 import { formatErr } from "../../foundation/node-utils/index.js";
 import { getContractCreatedMs } from '../../core/contract/index.js';
 import { makeClawTrack, buildClawLine, type ClawTrack } from './chat-viewport-claw-line.js';
-import { STREAM_FILE } from '../../foundation/stream/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { ClawTopology } from '../../core/claw-topology/index.js';
@@ -79,8 +77,8 @@ export function createRescanClawsDir(deps: RescanClawsDirDeps) {
           t.hasContract = true;
           t.referenceMs = contractMs;
           deps.clawTrackMap.set(clawId, t);
-          // 开 watcher
-          deps.clawManager.attachClawWatcher(clawId, path.join(clawDir, STREAM_FILE));
+          // 初始 stream 读取（stream 变化由递归 clawsWatcher 检测）
+          deps.clawManager.refreshClawStatus(clawId);
         }
       }
       if (deps.clawTrackMap.size > 0) {
