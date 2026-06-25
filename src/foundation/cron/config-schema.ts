@@ -27,10 +27,6 @@ export const cronJobsConfigSchema = z.object({
     enabled: z.boolean().default(true),
     schedule: cronJobScheduleField.default('interval:1s'),
   }).default({}),
-  metrics_snapshot: z.object({
-    enabled: z.boolean().default(true),
-    schedule: cronJobScheduleField.default('interval:5m'),
-  }).default({}),
   audit_size_monitor: z.object({
     enabled: z.boolean().default(true),
     schedule: cronJobScheduleField.default('interval:1h'),

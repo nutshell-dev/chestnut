@@ -884,9 +884,6 @@
       "cron_runner_started",
       "cron_runner_stopped"
     ],
-    "foundation_cron_jobs_metrics-snapshot-audit-events": [
-      "cron_metrics_snapshot"
-    ],
     "foundation_audit_jobs_audit-size-monitor-audit-events": [
       "cron_audit_size_check_failed",
       "cron_audit_size_threshold_exceeded"
@@ -901,7 +898,6 @@
   "fileRouting": {
     "cron_job_started": "tick",
     "cron_outbox_summary_skipped": "tick",
-    "cron_metrics_snapshot": "tick",
     "daemon_liveness_heartbeat": "tick",
     "daemon_loop_iteration": "tick",
     "viewport_render_batch": "viewport",

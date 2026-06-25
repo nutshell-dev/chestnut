@@ -14,7 +14,6 @@ import type { StreamWriter } from '../foundation/stream/index.js';
 import { createHeartbeat, type Heartbeat } from '../core/runtime/index.js';
 import type { Runtime } from '../core/runtime/index.js';
 import { createCronRunner, type CronRunner } from '../foundation/cron/index.js';
-import { createMetricsSnapshotJob } from '../foundation/cron/jobs/metrics-snapshot.js';
 // phase 697 Step B: audit-size-monitor 迁 foundation/audit/jobs/ (audit module sister 归属)
 import { createAuditSizeMonitorJob } from '../foundation/audit/jobs/audit-size-monitor.js';
 import { createDreamTriggerJob } from '../core/memory/jobs/dream-trigger.js';
@@ -186,11 +185,6 @@ export async function createMotionAddons(
     try {
       const cronJobs = [
         createDreamTriggerJob({ memorySystem: memorySystem! }, globalConfig),
-        createMetricsSnapshotJob({
-          motionDir: path.join(chestnutRoot, 'motion'),
-          fs: chestnutFs,
-          audit: auditWriter,
-        }, globalConfig),
         createContractObserverJob({
           clawTopology: core.topology,  // phase 259
           motionDir: path.join(chestnutRoot, 'motion'),  // phase 101
