@@ -205,7 +205,7 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
       // phase 257: wire ClawTopology（替换 read/ls/search via Map.set 同名替换）
       const { wireClawTopology } = await import('./wire-claw-topology.js');
       topology = wireClawTopology({
-        fs: systemFs,
+        fs: parentFs,
         chestnutRoot,
         audit: auditWriter,
         toolRegistry,
