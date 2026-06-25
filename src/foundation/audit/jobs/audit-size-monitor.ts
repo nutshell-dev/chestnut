@@ -18,7 +18,7 @@ import { formatErr } from "../../node-utils/index.js";
 import { isFileNotFound } from '../../fs/index.js';
 import type { FileSystem } from '../../fs/index.js';
 import type { AuditLog } from '../index.js';
-import type { StreamLog } from '../../stream/index.js';
+type NotifySink = { write(event: Record<string, unknown>): void };
 import { AUDIT_SIZE_MONITOR_AUDIT_EVENTS } from './audit-size-monitor-audit-events.js';
 import type { CronJob } from '../../cron/runner.js';
 import { parseSchedule } from '../../cron/runner.js';
@@ -54,7 +54,7 @@ export interface AuditSizeMonitorOptions {
   rootAuditPath: string;        // pre-computed root audit path (装配期 算)
   warnBytes?: number;
   criticalBytes?: number;
-  streamLog?: StreamLog;   // phase 8: motion streamWriter / 警告改 viewport user_notify 注入
+  streamLog?: NotifySink;   // phase 8: motion streamWriter / 警告改 viewport user_notify 注入
   signal?: AbortSignal;
 }
 
@@ -65,7 +65,7 @@ export interface AuditSizeMonitorJobDeps {
   rootAuditPath: string;
   warnBytes?: number;
   criticalBytes?: number;
-  streamLog?: StreamLog;
+  streamLog?: NotifySink;
 }
 
 export async function runAuditSizeMonitor(opts: AuditSizeMonitorOptions): Promise<void> {
