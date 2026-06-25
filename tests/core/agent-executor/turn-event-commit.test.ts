@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { commitTurnEvent } from '../../src/core/turn-event-commit.js';
+import { commitTurnEvent } from '../../../src/core/agent-executor/turn-event-commit.js';
 
 describe('commitTurnEvent', () => {
   it('text_end 调用 onTextEnd', () => {

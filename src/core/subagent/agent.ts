@@ -28,7 +28,7 @@ import { createStreamCallbacks } from './stream-callbacks.js';
 import { classifyAndAuditError } from './error-classifier.js';
 import { assertStepsEntryShape } from './invariants.js';
 import { auditSubagentArtifactCompleteness } from './artifact-cross-source-audit.js';
-import { commitTurnEvent, type TurnEventCommitDeps } from '../turn-event-commit.js';
+import { commitTurnEvent, type TurnEventCommitDeps } from '../agent-executor/index.js';
 
 
 
