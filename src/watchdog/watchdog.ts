@@ -18,7 +18,7 @@
  * 本 file 保：runWatchdogLoop（main loop）+ shutdownWatchdog（graceful stop）+ barrel re-export
  */
 
-import { getWorkspaceRoot } from '../core/claw-topology/claw-instance-paths.js';
+import { getWorkspaceRoot, getChestnutRoot } from '../core/claw-topology/claw-instance-paths.js';
 import * as path from 'path';
 import { formatErr } from "../foundation/node-utils/index.js";
 import { setTimeout } from 'timers/promises';
@@ -225,7 +225,8 @@ export async function runWatchdogLoop(
   let stopped = false;
 
   // Create Motion ProcessManager (reused across loop iterations)
-  const pm = createProcessManagerForCLI({ fsFactory });
+  const baseDir = getChestnutRoot();
+  const pm = createProcessManagerForCLI({ fsFactory, baseDir });
 
   // phase 1034: idempotent install / 防 test re-entry 或 production 异常 re-entry 累 listener (Node maxListeners warning)
   // mirror _resetShutdownGuard removeListener pattern (line 60-66) — install 前 cleanup prior

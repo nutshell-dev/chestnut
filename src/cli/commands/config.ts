@@ -34,8 +34,8 @@ import { checkLLMConnection, checkLLMConnectionFor, promptReconfigure, formatLLM
  * - notifyClaw 失败 silent（按现有 messaging 语义、不阻 CLI）
  */
 export function notifyRunningDaemons(deps: { fsFactory: (baseDir: string) => FileSystem }, source: string): void {
-  const pm = createProcessManagerForCLI({ ...deps });
   const chestnutRoot = getChestnutRoot();
+  const pm = createProcessManagerForCLI({ ...deps, baseDir: chestnutRoot });
   const rootFs = deps.fsFactory(chestnutRoot);
   const audit = createSystemAudit(rootFs, chestnutRoot);
 

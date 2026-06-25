@@ -30,7 +30,7 @@ export async function listCommand(deps: { fsFactory: (baseDir: string) => FileSy
   const baseDir = path.dirname(globalConfigPath);
   const clawsDir = path.join(baseDir, CLAWS_DIR);
 
-  const processManager = createProcessManagerForCLI({ ...deps });
+  const processManager = createProcessManagerForCLI({ ...deps, baseDir });
   const { audit: systemAudit } = createDirContext(deps, baseDir);
 
   // Helper: check contract status

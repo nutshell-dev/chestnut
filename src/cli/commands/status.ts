@@ -33,7 +33,7 @@ export async function statusCommand(deps: { fsFactory: (baseDir: string) => File
 
   const motionDir = getNamedSubrootDir(MOTION_CLAW_ID);
   const baseDir = path.dirname(motionDir);
-  const pm = createProcessManagerForCLI({ ...deps });
+  const pm = createProcessManagerForCLI({ ...deps, baseDir });
 
   const watchdogPid = getWatchdogPid(deps.fsFactory);
   const watchdog = {

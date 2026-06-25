@@ -24,7 +24,7 @@ export async function stopCommand(deps: { fsFactory: (baseDir: string) => FileSy
     throw new CliError(`Claw "${name}" does not exist`);
   }
 
-  const processManager = createProcessManagerForCLI({ ...deps });
+  const processManager = createProcessManagerForCLI({ ...deps, baseDir: getChestnutRoot() });
   const daemonDir = resolveClawDaemonDir(makeClawId(name));
 
   // Check if running

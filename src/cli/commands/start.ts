@@ -7,7 +7,7 @@
  * - Partial onboarding: resumes with a reminder
  */
 
-import { getWorkspaceRoot } from '../../core/claw-topology/claw-instance-paths.js';
+import { getWorkspaceRoot, getChestnutRoot } from '../../core/claw-topology/claw-instance-paths.js';
 import { makeChestnutRoot } from '../../core/claw-topology/claw-instance-paths.js';
 // CLAWS_DIR removed: phase 263
 import * as path from 'path';
@@ -152,7 +152,7 @@ async function _start(deps: { fsFactory: (baseDir: string) => FileSystem }, audi
 
   // onboarding 已完成 → 直接进 chat
   if (onboarding.state === 'complete') {
-    const pm = createProcessManagerForCLI({ ...deps });
+    const pm = createProcessManagerForCLI({ ...deps, baseDir: getChestnutRoot() });
     if (!pm.isAlive(resolveClawDaemonDir(MOTION_CLAW_ID))) {
       await pm.spawn(resolveClawDaemonDir(MOTION_CLAW_ID), motionSpawnOptions);
     }
@@ -164,7 +164,7 @@ async function _start(deps: { fsFactory: (baseDir: string) => FileSystem }, audi
 
   if (wasFirstRun && onboarding.state === 'not_found') {
     // ★ 首次运行：后台启动 daemon，前台展示语言选择（并行）
-    const pm = createProcessManagerForCLI({ ...deps });
+    const pm = createProcessManagerForCLI({ ...deps, baseDir: getChestnutRoot() });
     const daemonReady = (async () => {
       if (!pm.isAlive(resolveClawDaemonDir(MOTION_CLAW_ID))) {
         await pm.spawn(resolveClawDaemonDir(MOTION_CLAW_ID), motionSpawnOptions);
@@ -207,7 +207,7 @@ async function _start(deps: { fsFactory: (baseDir: string) => FileSystem }, audi
 
   } else {
     // 非首次但 not_found（极少），或 in_progress
-    const pm = createProcessManagerForCLI({ ...deps });
+    const pm = createProcessManagerForCLI({ ...deps, baseDir: getChestnutRoot() });
     if (!pm.isAlive(resolveClawDaemonDir(MOTION_CLAW_ID))) {
       await pm.spawn(resolveClawDaemonDir(MOTION_CLAW_ID), motionSpawnOptions);
     }

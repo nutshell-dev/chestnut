@@ -6,9 +6,9 @@
  *   - 消费者：CLI 命令、Watchdog、其他 L2+ 非 daemon 装配场景
  *   - 非职责：不装配 Runtime / Snapshot / Stream 等 L2+ 对象（由 Assembly 负责）
  *
- * §5 隐式依赖：
- *   - getChestnutRoot()（config.ts）：createProcessManagerForCLI 的 PM / audit 根
+ * §5 依赖：
  *   - NodeFileSystem 构造签名（foundation/fs）、AuditWriter 构造签名、createAgentProcessManager 签名
+ *   - baseDir 由 caller（L6）注入，本模块不再依赖 L4 claw-topology
  *
  * §6 历史：
  *   - phase 1397: `createDirContext` 迁出至 `foundation/audit/dir-context.ts`
@@ -19,13 +19,13 @@ import { createSystemAudit } from '../audit/index.js';
 import type { FileSystem } from '../fs/index.js';
 import type { ProcessManager } from './manager.js';
 import { createAgentProcessManager } from './agent-factory.js';
-import { getChestnutRoot } from '../../core/claw-topology/claw-instance-paths.js';
 
 /**
  * createProcessManagerForCLI
  *
  * 输入：
- *   - 无参数（内部固定 getChestnutRoot()）
+ *   - deps.fsFactory: 文件系统工厂
+ *   - deps.baseDir: chestnut 根目录（由 caller 注入）
  *
  * 输出：
  *   - ProcessManager 实例；每次调用返回新对象（无缓存、无单例）
@@ -43,8 +43,9 @@ import { getChestnutRoot } from '../../core/claw-topology/claw-instance-paths.js
  */
 export function createProcessManagerForCLI(deps: {
   fsFactory: (baseDir: string) => FileSystem;
+  baseDir: string;
 }): ProcessManager {
-  const baseDir = getChestnutRoot();
+  const baseDir = deps.baseDir;
   const fs = deps.fsFactory(baseDir);
   const systemAudit = createSystemAudit(fs, baseDir);
   return createAgentProcessManager({ ...deps, baseDir }, systemAudit);

@@ -8,7 +8,7 @@
  * Motion is the manager; it manages other Claws by calling the CLI via exec and has no dedicated tools.
  */
 
-import { getWorkspaceRoot } from '../../core/claw-topology/claw-instance-paths.js';
+import { getWorkspaceRoot, getChestnutRoot } from '../../core/claw-topology/claw-instance-paths.js';
 import * as path from 'path';
 import { formatErr } from "../../foundation/node-utils/index.js";
 import { fileURLToPath } from 'url';
@@ -206,7 +206,7 @@ export async function chatCommand(deps: { fsFactory: (baseDir: string) => FileSy
     audit: systemAudit,
     fsFactory: deps.fsFactory,
     ensureDaemon: async () => {
-      const pm = createProcessManagerForCLI({ ...deps });
+      const pm = createProcessManagerForCLI({ ...deps, baseDir: getChestnutRoot() });
       if (!pm.isAlive(resolveClawDaemonDir(MOTION_CLAW_ID))) {
         console.log('Starting Motion daemon...');
         const daemonEntryPath = resolveDaemonEntry(deps.fsFactory(motionDir));
@@ -236,7 +236,7 @@ export async function chatCommand(deps: { fsFactory: (baseDir: string) => FileSy
 export async function stopCommand(deps: { fsFactory: (baseDir: string) => FileSystem }, extraDeps?: { audit?: AuditLog }): Promise<void> {
   const audit = extraDeps?.audit;
   loadGlobalConfig(deps);
-  const pm = createProcessManagerForCLI({ ...deps });
+  const pm = createProcessManagerForCLI({ ...deps, baseDir: getChestnutRoot() });
 
   if (!pm.isAlive(resolveClawDaemonDir(MOTION_CLAW_ID))) {
     audit?.write(CLI_AUDIT_EVENTS.MOTION_STOP, `status=not_running`);

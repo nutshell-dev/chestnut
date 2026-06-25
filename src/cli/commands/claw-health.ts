@@ -34,7 +34,7 @@ export async function healthCommand(deps: { fsFactory: (baseDir: string) => File
   const baseDir = path.dirname(globalConfigPath);
   const clawFs = deps.fsFactory(clawDir);
 
-  const processManager = createProcessManagerForCLI({ ...deps });
+  const processManager = createProcessManagerForCLI({ ...deps, baseDir });
   const { audit: systemAudit } = createDirContext(deps, baseDir);
 
   const isRunning = processManager.isAlive(resolveClawDaemonDir(makeClawId(name)));

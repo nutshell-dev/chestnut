@@ -69,7 +69,7 @@ export async function stopAllCommand(
 
   // 3. Stop all running claws
   const baseDir = path.dirname(getGlobalConfigPath());
-  const pm = createProcessManagerForCLI({ ...deps });
+  const pm = createProcessManagerForCLI({ ...deps, baseDir });
 
   let clawNames: string[] = [];
   try {

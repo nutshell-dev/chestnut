@@ -17,6 +17,7 @@ function defaultIsPidArgvMatching(pid: number, token: string): boolean {
 }
 import type { WatchdogProcessDeps } from './types.js';
 import { createProcessManagerForCLI } from '../foundation/process-manager/index.js';
+import { getChestnutRoot } from '../core/claw-topology/claw-instance-paths.js';
 import { getWatchdogEntryPath } from './watchdog-context.js';
 import { getWatchdogPid } from './watchdog-pid.js';
 import { getAuditWriter } from './watchdog-context.js';
@@ -41,7 +42,8 @@ export async function sweepOrphanWatchdogs(
   deps?: WatchdogProcessDeps,
 ): Promise<number[]> {
   ensureAuditWired(fsFactory);
-  const pm = createProcessManagerForCLI({ fsFactory });
+  const baseDir = getChestnutRoot();
+  const pm = createProcessManagerForCLI({ fsFactory, baseDir });
   const wdPath = getWatchdogEntryPath(fsFactory);
   // phase 220 Step C: distinguish `null` (explicit "no exclusion, kill all" — used by `stop`)
   // from `undefined` (omitted — fallback to pid-file owner). The previous `??` collapsed both

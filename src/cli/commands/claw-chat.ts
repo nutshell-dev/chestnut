@@ -2,7 +2,7 @@
  * @module L6.CLI.Claw.Chat
  */
 
-import { getWorkspaceRoot } from '../../core/claw-topology/claw-instance-paths.js';
+import { getWorkspaceRoot, getChestnutRoot } from '../../core/claw-topology/claw-instance-paths.js';
 import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
 import * as path from 'path';
 import { loadGlobalConfig, clawExists } from '../../assembly/config-load.js';
@@ -33,7 +33,8 @@ export async function chatCommand(deps: { fsFactory: (baseDir: string) => FileSy
     audit: systemAudit,
     fsFactory: deps.fsFactory,
     ensureDaemon: async () => {
-      const pm = createProcessManagerForCLI({ ...deps });
+      const baseDir = getChestnutRoot();
+      const pm = createProcessManagerForCLI({ ...deps, baseDir });
       if (!pm.isAlive(resolveClawDaemonDir(makeClawId(name)))) {
         console.log(`Starting Claw "${name}" daemon...`);
         const daemonEntryPath = resolveDaemonEntry(deps.fsFactory(clawDir));

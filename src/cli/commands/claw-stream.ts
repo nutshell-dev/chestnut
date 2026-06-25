@@ -77,7 +77,7 @@ export async function streamCommand(
 
   // initial daemon liveness probe — non-blocking warn; tail still proceeds
   // so that consumers can subscribe before daemon starts.
-  const pm = createProcessManagerForCLI({ ...deps });
+  const pm = createProcessManagerForCLI({ ...deps, baseDir });
   let initialDaemonPid: number | null = null;
   try {
     const stored = await pm.readPid(resolveClawDaemonDir(makeClawId(name)));
