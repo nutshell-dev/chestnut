@@ -4,7 +4,7 @@
  * Module-owned event namespace per H1 design (phase345 / B.p336-1 治理).
  * 字符串值与起步态等价 / 0 漂移。
  *
- * 多子资源（runner + jobs / llm_stats + disk_monitor）保留 prefix。
+ * 多子资源（runner + jobs）保留 prefix。
  */
 export const CRON_AUDIT_EVENTS = {
   RUNNER_STARTED: 'cron_runner_started',
@@ -35,7 +35,6 @@ export const CRON_FILE_ROUTING: Readonly<Record<string, 'audit' | 'tick'>> = {
   cron_job_started: 'tick',
   cron_outbox_summary_skipped: 'tick',
   cron_metrics_snapshot: 'tick',
-  cron_disk_monitor_check: 'tick',
   // 异常类留 audit
   cron_handler_aborted: 'audit',
   cron_handler_timeout: 'audit',

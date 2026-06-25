@@ -14,10 +14,7 @@ import type { StreamWriter } from '../foundation/stream/index.js';
 import { createHeartbeat, type Heartbeat } from '../core/runtime/index.js';
 import type { Runtime } from '../core/runtime/index.js';
 import { createCronRunner, type CronRunner } from '../foundation/cron/index.js';
-import { createDiskMonitorJob } from '../foundation/cron/jobs/disk-monitor.js';
-import { createLlmStatsJob } from '../foundation/cron/jobs/llm-stats.js';
 import { createMetricsSnapshotJob } from '../foundation/cron/jobs/metrics-snapshot.js';
-import { createGitGcWeeklyJob } from '../foundation/cron/jobs/git-gc-weekly.js';
 // phase 697 Step B: audit-size-monitor 迁 foundation/audit/jobs/ (audit module sister 归属)
 import { createAuditSizeMonitorJob } from '../foundation/audit/jobs/audit-size-monitor.js';
 import { createDreamTriggerJob } from '../core/memory/jobs/dream-trigger.js';
@@ -134,9 +131,8 @@ export async function createMotionAddons(
   if (globalConfig.cron.enabled) {
     const chestnutRoot = resolveChestnutRoot(clawDir, true);  // phase 1406: motion-only context (isMotion+cron guard)
     const tickMs = globalConfig.cron.tick_interval_ms;
-    const diskLimitMB = globalConfig.watchdog.disk_warning_mb;
 
-    // phase155D：预制 chestnutFs，被 disk-monitor / dream-trigger 闭包共用（冻结 §6）
+    // phase155D：预制 chestnutFs，被 dream-trigger 闭包共用（冻结 §6）
     // 失败语义：与既有模块（Snapshot / StreamWriter）一致 —— audit 写 assemble_failed 后上抛
     let chestnutFs: import('../foundation/fs/index.js').FileSystem;
     try {
@@ -187,25 +183,8 @@ export async function createMotionAddons(
       toolRegistry.register(memorySearchTool);
     }
 
-    // phase 8: diskMonitorInbox 移除 — disk + audit-size 警告改 viewport stream（移出 motion inbox / dev_warning subtype）
-
     try {
       const cronJobs = [
-        createDiskMonitorJob({
-          clawTopology: core.topology,  // phase 259
-          limitMB: diskLimitMB,
-          fs: chestnutFs,
-          audit: auditWriter,
-          motionAudit: auditWriter,  // phase 724 α：主 auditWriter 单 instance 复用
-          streamLog: streamWriter,   // phase 8: viewport stream (取代 motionInbox)
-        }, globalConfig),
-        createLlmStatsJob({
-          motionDir: clawDir,
-          chestnutFs,
-          motionFs: systemFs,
-          clawTopology: core.topology,  // phase 259
-          audit: auditWriter,
-        }, globalConfig),
         createDreamTriggerJob({ memorySystem: memorySystem! }, globalConfig),
         createMetricsSnapshotJob({
           motionDir: path.join(chestnutRoot, 'motion'),
@@ -218,11 +197,6 @@ export async function createMotionAddons(
           fs: chestnutFs,
           motionAudit: auditWriter,  // phase 724 α：主 auditWriter 单 instance 复用
           notifyMotion: (msg) => routeNotifyClaw(chestnutFs, chestnutRoot, MOTION_CLAW_ID, MOTION_CLAW_ID, msg, auditWriter),
-        }, globalConfig),
-        createGitGcWeeklyJob({
-          clawTopology: core.topology,  // phase 259
-          fs: chestnutFs,
-          audit: auditWriter,
         }, globalConfig),
         createAuditSizeMonitorJob({
           fs: chestnutFs,

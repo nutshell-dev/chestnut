@@ -289,7 +289,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
           deps.sink.emit({ kind: 'text-line', color: '\x1b[31m', text: `  ✗ [llm] ${errMsg}${forClaw}` });
         } else if (sub === 'dev_warning') {
           // phase 8: dev-attention 阈值警告（informational only / 不可 motion action / 供 developer 参考）
-          // 来源：cron disk-monitor / audit-size-monitor / 等
+          // 来源：cron audit-size-monitor / 等
           const msg = (event.message as string) ?? '';
           deps.sink.emit({ kind: 'text-line', color: '\x1b[33m', text: `  ⚠ [dev] ${msg} (informational only, no action)` });
         }

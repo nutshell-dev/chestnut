@@ -70,7 +70,6 @@ export const CLAW_SUBDIRS = [
   // logs/ 顶级是 multi-owner subdir composition、各 sub-owner own 自己子树：
   //   - logs/stream/         ← L2 Stream (foundation/stream/writer.ts:18 ARCHIVE_DIR)
   //   - logs/watchdog.log    ← L6 Watchdog (watchdog/constants.ts:11 WATCHDOG_LOG)
-  //   - logs/llm-stats.jsonl ← L5 Cron llm-stats (foundation/cron/jobs/llm-stats.ts:18 LLM_STATS_FILE)
   //   - logs/chat-crash.log  ← L6 cli/chat-viewport (cli/commands/chat-viewport.ts CHAT_CRASH_LOG_FILE、phase 125 立)
   // 顶级 'logs' mkdir 是 assembly 装配 concern、inline by-design（不立 LOGS_DIR 顶级 const、因跨 L 层 use 无 single owner module）
   'logs',
