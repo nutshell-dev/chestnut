@@ -69,7 +69,6 @@ import { formatTimeAgo } from './utils.js';
 import type { StepNumber } from '../agent-executor/index.js';
 import type { TraceId } from './types/trace-id.js';
 import { makeTraceId } from './types/trace-id.js';
-import { commitTurnEvent, type TurnEventCommitDeps } from '../agent-executor/index.js';
 
 function auditError(
   audit: AuditLog,
@@ -665,21 +664,6 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
       }
     };
 
-    // Phase 283: turn event commit deps (stream emit unified entry)
-    const emitDeps = adaptRuntimeCallbacks(callbacks);
-
-    /** Adapter: runtime StreamCallbacks → TurnEventCommitDeps. */
-    function adaptRuntimeCallbacks(callbacks?: StreamCallbacks): TurnEventCommitDeps {
-      return {
-        onTextEnd: callbacks?.onTextEnd,
-        onToolCall: callbacks?.onToolCall,
-        onToolResult: callbacks?.onToolResult
-          ? (name, toolUseId, result, step, maxSteps) => {
-              callbacks.onToolResult!(name, toolUseId, result, step, maxSteps);
-            }
-          : undefined,
-      };
-    }
 
     // phase 690: Runtime 反应式 trim+retry 兜底——LLM 真返 400 context-exceeded 时
     // trim + 同 turn 重试。Layer 2 turn 入口 maybeTrimProactive 已是前置防线、
@@ -739,9 +723,9 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
             }
           },
           onTextDelta: (d) => { emitProviderInfoOnce(); callbacks?.onTextDelta?.(d); },
-          onTextEnd: () => commitTurnEvent({ kind: 'text_end' }, emitDeps),
+          onTextEnd: callbacks?.onTextEnd,
           onThinkingDelta: (d) => { emitProviderInfoOnce(); callbacks?.onThinkingDelta?.(d); },
-          onToolCall: (n, id) => commitTurnEvent({ kind: 'tool_call', name: n, toolUseId: id }, emitDeps),
+          onToolCall: callbacks?.onToolCall,
           // phase 688: API 收到的 args body 落 stream.jsonl（daemon callback 已实现 onToolUseInput、此处仅透传）
           // 与 onToolCallInput（audit-only size index）互补、不重复 audit。
           onToolUseInput: callbacks?.onToolUseInput,
@@ -759,7 +743,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
               `err=${this.auditWriter.message(info.errMessage)}`,
             );
           },
-          onToolResult: (name, toolUseId, result, step, maxSteps) => {
+          onToolResult: (name, toolUseId, result, step) => {
             const content = result.content ?? '';
             const preview = this.auditWriter.summary(content);
             this.auditWriter.write(
@@ -773,7 +757,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
               `content_size=${Buffer.byteLength(content, 'utf-8')}`,
               `summary=${preview}`,
             );
-            commitTurnEvent({ kind: 'tool_result', name, toolUseId, result, step, maxSteps }, emitDeps);
+            // phase 729: stream emit moved to AgentExecutor; Runtime only owns TOOL_RESULT audit.
           },
           onBeforeLLMCall: () => { callbacks?.onBeforeLLMCall?.(); },
           onReset: (provider, timeoutMs) => {
@@ -839,6 +823,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
               );
             }
           },
+          streamCallbacks: callbacks,
         });
         break reactive_loop;
       } catch (err) {

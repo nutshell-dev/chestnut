@@ -21,6 +21,7 @@ import { DEFAULT_MAX_STEPS } from './defaults.js';
 import { runAgent } from './agent-executor.js';
 import type { StepCallbacks, LLMCallInfo, FinalStopReason } from '../step-executor/index.js';
 import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
+import type { StreamCallbacks } from '../stream-callbacks.js';
 
 
 export interface ReactOptions {
@@ -77,6 +78,8 @@ export interface ReactOptions {
   // phase 706: AgentExecutor needs audit writer + per-turn contract id for tool_call_input.
   auditWriter?: AuditLog;
   currentContractId?: string;
+  /** Stream callbacks from Daemon for turn event emission (L6→L3 via Runtime). */
+  streamCallbacks?: StreamCallbacks;
   // phase 690: 撤 dialogStore + contextManagerConfig — proactive trim
   // 上提到 L5 Runtime 反应式 retry 路径、loop.ts facade 不再透传。
 }
@@ -147,6 +150,7 @@ export async function runReact(options: ReactOptions): Promise<ReactResult> {
     stepCallbacks,
     auditWriter,
     currentContractId,
+    streamCallbacks: options.streamCallbacks,
     onAfterStep: async (_meta, newStepCount) => {
       stepCount = newStepCount;  // AgentExecutor 已执行步进
       if (onStepComplete) await onStepComplete(stepCount);

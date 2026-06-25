@@ -19,11 +19,10 @@ import type { ContractSystem } from '../contract/index.js';
 import type { AsyncTaskSystem } from '../async-task-system/index.js';
 import type { PermissionChecker } from '../../foundation/tool-protocol/index.js';
 
-import type { InboxMessage } from '../../foundation/messaging/index.js';
 import type { ToolProfile } from '../../foundation/tool-protocol/index.js';
 
-import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
 import type { ContextManagerRuntimeConfig } from '../step-executor/index.js';
+import type { StreamCallbacks, DaemonStreamCallbacks } from '../stream-callbacks.js';
 
 
 
@@ -114,31 +113,7 @@ export interface RuntimeOptions {
   contextManagerConfig?: ContextManagerRuntimeConfig;
 }
 
-/** 1:1 保 runtime.ts:102-120 body */
-export interface StreamCallbacks {
-  onBeforeLLMCall?: () => void;
-  onTextDelta?: (delta: string) => void;
-  onTextEnd?: () => void;
-  onThinkingDelta?: (delta: string) => void;
-  onToolCall?: (toolName: string, toolUseId: ToolUseId) => void;
-  /** phase 688: tool_use args body 落 stream.jsonl（flushToolUse 成功 parse 后 fire） */
-  onToolUseInput?: (toolName: string, toolUseId: ToolUseId, input: Record<string, unknown>) => void;
-  onToolResult?: (toolName: string, toolUseId: ToolUseId, result: { success: boolean; content: string }, step: number, maxSteps: number) => void;
-  onTurnStart?: (sources: Array<{ text: string; type: string }>) => void;
-  onTurnEnd?: () => void;
-  onTurnError?: (error: string) => void;
-  onTurnInterrupted?: (cause: string, message?: string) => void;
-  onProviderInfo?: (info: { name: string; model: string; isFallback: boolean }) => void;
-  /** Provider timed out mid-stream, failover starting */
-  onProviderFailover?: (info: { from: string; timeoutMs: number }) => void;
-  /** Provider failed, failover continuing to next provider */
-  onProviderFailed?: (info: { provider: string; model: string; error: string }) => void;
-}
-
-/** 1:1 保 runtime.ts:121-126 body */
-export interface DaemonStreamCallbacks extends StreamCallbacks {
-  onInboxMessages?: (messages: InboxMessage[]) => Promise<void>;
-}
+export type { StreamCallbacks, DaemonStreamCallbacks } from '../stream-callbacks.js';
 
 /**
  * phase 27 Step E (P2): Runtime API 按消费者拆 3 子接口、I/SP align。
