@@ -16,7 +16,7 @@ import { CLAW_SUBDIRS } from '../../src/assembly/claw-subdirs.js';
 import { createClawPermissionChecker } from '../../src/core/permissions/claw-permissions.js';
 import { ContractSystem } from '../../src/core/contract/manager.js';
 import { AsyncTaskSystem } from '../../src/core/async-task-system/system.js';
-import { ContextInjector } from '../../src/core/l4_context_manager/injector.js';
+import { ContextInjector } from '../../src/core/context_manager/injector.js';
 import { ExecContextImpl } from '../../src/foundation/tools/context.js';
 import type { RuntimeDependencies } from '../../src/core/runtime/index.js';
 import type { LLMOrchestratorConfig } from '../../src/foundation/llm-orchestrator/types.js';

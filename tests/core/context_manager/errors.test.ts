@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ContextTrimExhaustedError } from '../../../src/core/l4_context_manager/errors.js';
+import { ContextTrimExhaustedError } from '../../../src/core/context_manager/errors.js';
 
 describe('ContextManager typed errors', () => {
   it('ContextTrimExhaustedError name + instanceof', () => {

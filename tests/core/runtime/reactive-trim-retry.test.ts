@@ -14,8 +14,8 @@ import { makeRuntimeDeps } from '../../helpers/runtime-deps.js';
 import type { Message } from '../../../src/foundation/llm-provider/types.js';
 import type { InboxMessage } from '../../../src/foundation/messaging/types.js';
 import { LLMContextExceededError } from '../../../src/foundation/llm-provider/errors.js';
-import * as trimAndPersistModule from '../../../src/core/l4_context_manager/trim-and-persist.js';
-import * as maybeTrimModule from '../../../src/core/l4_context_manager/maybe-trim-proactive.js';
+import * as trimAndPersistModule from '../../../src/core/context_manager/trim-and-persist.js';
+import * as maybeTrimModule from '../../../src/core/context_manager/maybe-trim-proactive.js';
 import * as loopModule from '../../../src/core/agent-executor/loop.js';
 import type { ReactResult } from '../../../src/core/agent-executor/loop.js';
 

@@ -20,5 +20,5 @@ export {
 
 // phase 685: ContextInjector 合并自 core/dialog 成为 ContextManager 子模块（physical merge）、
 // 但 barrel 不 re-export — 走 barrel 会拉 injector → contract barrel → ... → step-executor →
-// l4_context_manager/index → injector 闭环（depcruise no-circular 触发）。
+// context_manager/index → injector 闭环（depcruise no-circular 触发）。
 // caller 走 deep import from './injector.js' 叶子（同型 phase 397/phase 1312 防环 ratify）。

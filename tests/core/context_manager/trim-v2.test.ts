@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import { trimV2, type TrimV2Options, type AuditWriter } from '../../../src/core/l4_context_manager/trim-v2.js';
-import { CONTEXT_TRIM_EXHAUSTED } from '../../../src/core/l4_context_manager/audit-events.js';
-import { ContextTrimExhaustedError } from '../../../src/core/l4_context_manager/errors.js';
+import { trimV2, type TrimV2Options, type AuditWriter } from '../../../src/core/context_manager/trim-v2.js';
+import { CONTEXT_TRIM_EXHAUSTED } from '../../../src/core/context_manager/audit-events.js';
+import { ContextTrimExhaustedError } from '../../../src/core/context_manager/errors.js';
 import { estimateMessagesTokens } from '../../../src/foundation/llm-provider/token-estimator.js';
 import type { Message } from '../../../src/foundation/llm-provider/types.js';
 

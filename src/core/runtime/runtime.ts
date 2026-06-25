@@ -45,7 +45,7 @@ import type { InboxReader, InboxEntry, InboxHandle, OutboxWriter } from '../../f
 import { ExecContextImpl } from '../../foundation/tools/index.js';
 import type { ExecContext } from '../../foundation/tools/index.js';
 import type { ToolRegistry, IToolExecutor } from '../../foundation/tools/index.js';
-import { createContextInjector, type ContextInjector } from '../l4_context_manager/injector.js';
+import { createContextInjector, type ContextInjector } from '../context_manager/injector.js';
 import type { ContractSystem } from '../contract/index.js';
 import type { AsyncTaskSystem } from '../async-task-system/index.js';
 import {
@@ -61,8 +61,8 @@ import {
   CONTEXT_TRIM_RECENT_WINDOW_MS,
   CONTEXT_TRIM_TARGET_RATIO,
   CONTEXT_TRIM_PREVIEW_BYTES,
-} from '../l4_context_manager/index.js';
-import { trimAndPersist } from '../l4_context_manager/trim-and-persist.js';
+} from '../context_manager/index.js';
+import { trimAndPersist } from '../context_manager/trim-and-persist.js';
 import { LLMContextExceededError } from '../../foundation/llm-orchestrator/index.js';
 
 import { formatTimeAgo } from './utils.js';

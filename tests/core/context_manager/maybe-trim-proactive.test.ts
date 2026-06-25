@@ -4,10 +4,10 @@ import type { DialogStore } from '../../../src/foundation/dialog-store/index.js'
 import {
   maybeTrimProactive,
   type MaybeTrimProactiveInputs,
-} from '../../../src/core/l4_context_manager/maybe-trim-proactive.js';
+} from '../../../src/core/context_manager/maybe-trim-proactive.js';
 import * as tokenEstimator from '../../../src/foundation/llm-provider/token-estimator.js';
-import * as trimAndPersistModule from '../../../src/core/l4_context_manager/trim-and-persist.js';
-import { CACHE_TTL_MS } from '../../../src/core/l4_context_manager/constants.js';
+import * as trimAndPersistModule from '../../../src/core/context_manager/trim-and-persist.js';
+import { CACHE_TTL_MS } from '../../../src/core/context_manager/constants.js';
 
 const NOW = 1_700_000_000_000;
 

@@ -13,7 +13,7 @@ import type { InboxReader, OutboxWriter, MessageFormatterRegistry } from '../../
 
 import type { ToolRegistry } from '../../foundation/tools/index.js';
 import type { IToolExecutor } from '../../foundation/tools/index.js';
-import type { ContextInjector } from '../l4_context_manager/injector.js';
+import type { ContextInjector } from '../context_manager/injector.js';
 import type { SkillSystem } from '../../foundation/skill-system/index.js';
 import type { ContractSystem } from '../contract/index.js';
 import type { AsyncTaskSystem } from '../async-task-system/index.js';

@@ -14,7 +14,7 @@ import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 
 import { DialogStore } from '../../src/foundation/dialog-store/index.js';
-import { ContextInjector } from '../../src/core/l4_context_manager/injector.js';
+import { ContextInjector } from '../../src/core/context_manager/injector.js';
 import { createSkillSystem } from '../../src/foundation/skill-system/index.js';
 import type { Message } from '../../src/foundation/llm-provider/types.js';
 import { makeSession } from '../helpers/session-fixtures.js';

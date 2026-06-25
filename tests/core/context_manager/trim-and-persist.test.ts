@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import { trimAndPersist, type TriggerKind } from '../../../src/core/l4_context_manager/trim-and-persist.js';
-import { CONTEXT_TRIM_ARCHIVED } from '../../../src/core/l4_context_manager/audit-events.js';
-import { ContextTrimExhaustedError } from '../../../src/core/l4_context_manager/errors.js';
+import { trimAndPersist, type TriggerKind } from '../../../src/core/context_manager/trim-and-persist.js';
+import { CONTEXT_TRIM_ARCHIVED } from '../../../src/core/context_manager/audit-events.js';
+import { ContextTrimExhaustedError } from '../../../src/core/context_manager/errors.js';
 import type { Message, ToolDefinition } from '../../../src/foundation/llm-provider/types.js';
 import type { DialogStore } from '../../../src/foundation/dialog-store/index.js';
 

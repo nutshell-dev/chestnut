@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { LLMOrchestratorImpl } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
-import { ContextTrimExhaustedError } from '../../../src/core/l4_context_manager/errors.js';
+import { ContextTrimExhaustedError } from '../../../src/core/context_manager/errors.js';
 import type { LLMEventSink } from '../../../src/foundation/llm-orchestrator/types.js';
 
 function createMockProvider(name: string, apiKey: string) {
