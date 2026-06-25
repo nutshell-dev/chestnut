@@ -17,11 +17,18 @@ describe('foundation + core barrel index.ts presence (phase 507 / phase 567 expa
   const foundationDir = path.join(srcRoot, 'foundation');
   const coreDir = path.join(srcRoot, 'core');
 
-  function scanForMissingBarrels(rootDir: string): string[] {
+  // phase 740: core/permissions barrel removed as dead code (0 imports).
+  // The directory still contains implementation files, so it is intentionally
+  // exempt from the barrel-presence ratchet until it is re-barreled or folded
+  // into another module.
+  const CORE_BARREL_EXCEPTIONS = new Set(['permissions']);
+
+  function scanForMissingBarrels(rootDir: string, exceptions?: Set<string>): string[] {
     const entries = fs.readdirSync(rootDir, { withFileTypes: true });
     const missing: string[] = [];
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
+      if (exceptions?.has(entry.name)) continue;
       const indexPath = path.join(rootDir, entry.name, 'index.ts');
       if (!fs.existsSync(indexPath)) {
         missing.push(entry.name);
@@ -35,6 +42,6 @@ describe('foundation + core barrel index.ts presence (phase 507 / phase 567 expa
   });
 
   it('each core/<module>/ directory has an index.ts barrel (phase 567)', () => {
-    expect(scanForMissingBarrels(coreDir)).toEqual([]);
+    expect(scanForMissingBarrels(coreDir, CORE_BARREL_EXCEPTIONS)).toEqual([]);
   });
 });
