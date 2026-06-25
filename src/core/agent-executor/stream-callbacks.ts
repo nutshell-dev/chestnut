@@ -6,7 +6,7 @@
  * StreamCallbacks without creating a circular dependency with L5 Runtime.
  */
 
-import type { ToolUseId } from '../foundation/tool-protocol/index.js';
+import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
 
 export interface StreamCallbacks {
   onBeforeLLMCall?: () => void;
@@ -29,5 +29,5 @@ export interface StreamCallbacks {
 }
 
 export interface DaemonStreamCallbacks extends StreamCallbacks {
-  onInboxMessages?: (messages: import('../foundation/messaging/index.js').InboxMessage[]) => Promise<void>;
+  onInboxMessages?: (messages: import('../../foundation/messaging/index.js').InboxMessage[]) => Promise<void>;
 }

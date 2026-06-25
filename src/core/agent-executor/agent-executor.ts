@@ -17,7 +17,7 @@ import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
 import { executeStep, throwAbortError, type StepCallbacks, type StepMeta, type FinalStopReason } from '../step-executor/index.js';
 import { asFinalStopReason } from '../step-executor/types.js';
 import { commitTurnEvent, type TurnEventCommitDeps } from './turn-event-commit.js';
-import type { StreamCallbacks } from '../stream-callbacks.js';
+import type { StreamCallbacks } from './stream-callbacks.js';
 import { MaxStepsExceededError, ConsecutiveParseErrorsExceededError, ConsecutiveMaxTokensToolUseError, WallTimeExceededError } from './errors.js';
 import { DEFAULT_MAX_STEPS } from './defaults.js';
 

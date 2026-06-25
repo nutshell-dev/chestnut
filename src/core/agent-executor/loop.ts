@@ -21,7 +21,7 @@ import { DEFAULT_MAX_STEPS } from './defaults.js';
 import { runAgent } from './agent-executor.js';
 import type { StepCallbacks, LLMCallInfo, FinalStopReason } from '../step-executor/index.js';
 import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
-import type { StreamCallbacks } from '../stream-callbacks.js';
+import type { StreamCallbacks } from './stream-callbacks.js';
 
 
 export interface ReactOptions {

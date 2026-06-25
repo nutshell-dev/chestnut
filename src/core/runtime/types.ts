@@ -22,7 +22,7 @@ import type { PermissionChecker } from '../../foundation/tool-protocol/index.js'
 import type { ToolProfile } from '../../foundation/tool-protocol/index.js';
 
 import type { ContextManagerRuntimeConfig } from '../step-executor/index.js';
-import type { StreamCallbacks, DaemonStreamCallbacks } from '../stream-callbacks.js';
+import type { StreamCallbacks, DaemonStreamCallbacks } from '../agent-executor/stream-callbacks.js';
 
 
 
@@ -113,7 +113,7 @@ export interface RuntimeOptions {
   contextManagerConfig?: ContextManagerRuntimeConfig;
 }
 
-export type { StreamCallbacks, DaemonStreamCallbacks } from '../stream-callbacks.js';
+export type { StreamCallbacks, DaemonStreamCallbacks } from '../agent-executor/stream-callbacks.js';
 
 /**
  * phase 27 Step E (P2): Runtime API 按消费者拆 3 子接口、I/SP align。
