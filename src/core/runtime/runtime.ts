@@ -620,6 +620,67 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
   }
 
   /**
+   * 装配 turn 上下文：traceId + abort controller。
+   * 返回 cleanup 函数 + traceId 供 finally 块调用。
+   */
+  private _setupTurnContext(): {
+    traceId: TraceId;
+    abortController: AbortController;
+    cleanup: () => void;
+  } {
+    const traceId = makeTraceId(randomHex(8));
+    this.setTraceId(traceId);
+    this.execContext.trace_id = traceId;
+    const abortController = new AbortController();
+    this.currentAbortController = abortController;
+    this.execContext.signal = abortController.signal;
+    return {
+      traceId,
+      abortController,
+      cleanup: () => {
+        this.currentAbortController = null;
+        this.execContext.signal = undefined;
+        this.setTraceId(undefined);
+        this.execContext.trace_id = undefined;
+      },
+    };
+  }
+
+  /** per-handle ack with atomic audit on failure. */
+  private async _ackHandles(handles: InboxHandle[], path: string): Promise<void> {
+    for (const h of handles) {
+      try {
+        await this.inboxReader.ack(h);
+      } catch (ackErr) {
+        this.auditWriter.write(
+          RUNTIME_AUDIT_EVENTS.INBOX_ACK_FAILED,
+          `file=${h.originalFileName}`,
+          `path=${path}`,
+          `trace_id=${String(this.execContext.trace_id ?? '')}`,
+          `error=${formatErr(ackErr)}`,
+        );
+      }
+    }
+  }
+
+  /** per-handle nack with atomic audit on failure. */
+  private async _nackHandles(handles: InboxHandle[], reason: string, path: string): Promise<void> {
+    for (const h of handles) {
+      try {
+        await this.inboxReader.nack(h, reason);
+      } catch (nackErr) {
+        this.auditWriter.write(
+          RUNTIME_AUDIT_EVENTS.INBOX_NACK_FAILED,
+          `file=${h.originalFileName}`,
+          `path=${path}`,
+          `trace_id=${String(this.execContext.trace_id ?? '')}`,
+          `error=${formatErr(nackErr)}`,
+        );
+      }
+    }
+  }
+
+  /**
    * Run the LLM ReAct loop over the given messages and save the session.
    * @protected available for create-runtime helper reuse (phase 266 reframed MotionRuntime subclass to identity-based dispatch)
    */
@@ -791,9 +852,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
       await this.initialize();
     }
 
-    const traceId = makeTraceId(randomHex(8));
-    this.setTraceId(traceId);
-    this.execContext.trace_id = traceId;
+    const { traceId, cleanup } = this._setupTurnContext();
     try {
     const { injected, sources, count, infos, addressedHandles } = await this._drainOwnInbox();
     if (count === 0) return 0;
@@ -842,11 +901,6 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     // phase 722: 加 caller col 区分 3 caller 路径 (batch / with_message / retry)
     this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_START, `caller=batch`, `trace_id=${String(this.execContext?.trace_id ?? '')}`);
 
-    // AbortController support (same as single-turn mode)
-    const abortController = new AbortController();
-    this.currentAbortController = abortController;
-    this.execContext.signal = abortController.signal;
-
     await this.sessionManager.beginTurn();
     try {
       // Save injected messages inside transaction
@@ -866,22 +920,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
       this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_END, `caller=batch`, `trace_id=${String(this.execContext?.trace_id ?? '')}`);
 
       await this.sessionManager.commitTurn();
-      for (const h of addressedHandles) {
-        try {
-          await this.inboxReader.ack(h);
-        } catch (ackErr) {
-          // phase 521 (review-round4 N4-Core-H2): per-ack atomicity、防 ack 失败
-          // cascade 到 turn-level catch 触发 rollback + duplicate delivery。
-          // InboxReader.init reconcile 兜底 inflight→pending 自然 redrive。
-          this.auditWriter.write(
-            RUNTIME_AUDIT_EVENTS.INBOX_ACK_FAILED,
-            `file=${h.originalFileName}`,
-            `path=normal_turn_end`,
-            `trace_id=${String(this.execContext.trace_id ?? '')}`,
-            `error=${formatErr(ackErr)}`,
-          );
-        }
-      }
+      await this._ackHandles(addressedHandles, 'normal_turn_end');
       return count;
     } catch (err) {
       // Turn-level error/interrupt event
@@ -899,42 +938,14 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
         // 判据是「inject 已落 dialog」（save + commitTurn 双道落盘已完成）、非消息来源。
         // crash recovery（drain 后 save 前）由 InboxReader.init() reconcile 兜底。
         // IdleTimeoutSignal: nack 让下轮 redrive（dialog 未 commit 新增内容、消息真未消费）。
-        for (const h of addressedHandles) {
-          const isAckPath = err instanceof PriorityInboxInterrupt || err instanceof UserInterrupt;
-          try {
-            if (isAckPath) {
-              await this.inboxReader.ack(h);
-            } else {
-              await this.inboxReader.nack(h, formatErr(err));
-            }
-          } catch (opErr) {
-            // phase 521 (review-round4 N4-Core-H2): per-handle atomicity、防 ack/nack
-            // 失败 cascade 出本 catch 引复合 catch path、duplicate delivery。
-            this.auditWriter.write(
-              isAckPath ? RUNTIME_AUDIT_EVENTS.INBOX_ACK_FAILED : RUNTIME_AUDIT_EVENTS.INBOX_NACK_FAILED,
-              `file=${h.originalFileName}`,
-              `path=graceful_interrupt`,
-              `trace_id=${String(this.execContext.trace_id ?? '')}`,
-              `error=${formatErr(opErr)}`,
-            );
-          }
+        if (err instanceof PriorityInboxInterrupt || err instanceof UserInterrupt) {
+          await this._ackHandles(addressedHandles, 'graceful_interrupt');
+        } else {
+          await this._nackHandles(addressedHandles, formatErr(err), 'graceful_interrupt');
         }
       } else {
         await this.sessionManager.rollbackTurn(formatErr(err));
-        for (const h of addressedHandles) {
-          try {
-            await this.inboxReader.nack(h, formatErr(err));
-          } catch (nackErr) {
-            // phase 521 (review-round4 N4-Core-H2): per-nack atomicity
-            this.auditWriter.write(
-              RUNTIME_AUDIT_EVENTS.INBOX_NACK_FAILED,
-              `file=${h.originalFileName}`,
-              `path=rollback`,
-              `trace_id=${String(this.execContext.trace_id ?? '')}`,
-              `error=${formatErr(nackErr)}`,
-            );
-          }
-        }
+        await this._nackHandles(addressedHandles, formatErr(err), 'rollback');
       }
       // phase 63 NEW: 5 typed Error → ContractSystem.markCrashed 映射 contract_crashed 通道
       const isAgentLoopCrash =
@@ -1008,13 +1019,9 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
         );
       }
       throw err;
-    } finally {
-      this.currentAbortController = null;
-      this.execContext.signal = undefined;
     }
     } finally {
-      this.setTraceId(undefined);
-      this.execContext.trace_id = undefined;
+      cleanup();
     }
   }
 
@@ -1026,9 +1033,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     if (!this.initialized) {
       await this.initialize();
     }
-    const traceId = makeTraceId(randomHex(8));
-    this.setTraceId(traceId);
-    this.execContext.trace_id = traceId;
+    const { traceId, cleanup } = this._setupTurnContext();
     try {
     const { session } = await this.sessionManager.load();
     const enrichedMsg = msg.addedAt ? msg : { ...msg, addedAt: new Date().toISOString() };
@@ -1067,9 +1072,6 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     // phase 722: 加 caller col 区分 with_message caller 路径
     this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_START, `caller=with_message`, `trace_id=${String(this.execContext?.trace_id ?? '')}`);
 
-    const abortController = new AbortController();
-    this.currentAbortController = abortController;
-    this.execContext.signal = abortController.signal;
     this.llm.resetLastSuccessProvider?.();
     try {
       await this._runReact(messages, callbacks);
@@ -1082,13 +1084,9 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
       // phase 571: 透传 trace_id 让 TURN_INTERRUPTED/TURN_ERROR 含 forensic field
       handleTurnInterrupt(err, this.auditWriter, callbacks, this.execContext?.trace_id ? String(this.execContext.trace_id) : undefined);
       throw err;
-    } finally {
-      this.currentAbortController = null;
-      this.execContext.signal = undefined;
     }
     } finally {
-      this.setTraceId(undefined);
-      this.execContext.trace_id = undefined;
+      cleanup();
     }
   }
 
@@ -1100,9 +1098,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     if (!this.initialized) {
       await this.initialize();
     }
-    const traceId = makeTraceId(randomHex(8));
-    this.setTraceId(traceId);
-    this.execContext.trace_id = traceId;
+    const { cleanup } = this._setupTurnContext();
     try {
     const { session } = await this.sessionManager.load();
     if (session.messages.length === 0) return;
@@ -1137,9 +1133,6 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     // phase 722: 加 caller col 区分 retry caller 路径
     this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_START, `caller=retry`, `trace_id=${String(this.execContext?.trace_id ?? '')}`);
 
-    const abortController = new AbortController();
-    this.currentAbortController = abortController;
-    this.execContext.signal = abortController.signal;
     this.llm.resetLastSuccessProvider?.();
     try {
       await this._runReact(retryMessages, callbacks);
@@ -1152,13 +1145,9 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
       // phase 571: 透传 trace_id 让 TURN_INTERRUPTED/TURN_ERROR 含 forensic field
       handleTurnInterrupt(err, this.auditWriter, callbacks, this.execContext?.trace_id ? String(this.execContext.trace_id) : undefined);
       throw err;
-    } finally {
-      this.currentAbortController = null;
-      this.execContext.signal = undefined;
     }
     } finally {
-      this.setTraceId(undefined);
-      this.execContext.trace_id = undefined;
+      cleanup();
     }
   }
 
