@@ -117,6 +117,72 @@
             "required": false
           }
         ]
+      },
+      {
+        "type": "agent_step_completed",
+        "cols": [
+          {
+            "name": "step",
+            "type": "number",
+            "required": true
+          },
+          {
+            "name": "contract_id",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "trace_id",
+            "type": "string",
+            "required": false
+          }
+        ]
+      },
+      {
+        "type": "agent_tool_result",
+        "cols": [
+          {
+            "name": "tool_name",
+            "type": "string",
+            "required": true
+          },
+          {
+            "name": "tool_use_id",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "step",
+            "type": "number",
+            "required": false
+          },
+          {
+            "name": "contract_id",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "trace_id",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "status",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "summary",
+            "type": "string",
+            "required": false,
+            "max_chars": 200
+          },
+          {
+            "name": "content_size",
+            "type": "number",
+            "required": false
+          }
+        ]
       }
     ],
     "core_async-task-system_audit-events": [

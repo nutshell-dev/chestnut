@@ -117,7 +117,9 @@ describe('audit-events snapshot lock', () => {
       if (!site.emittedCols.includes('step')) continue;  // 没 step= 的不管
       // phase 706: agent_tool_call_input is the canonical step= owner.
       // tool_result also carries step= for cross-source join; allow it.
+      // phase 730: agent_step_completed also carries step= as the same module owner.
       if (site.eventType === 'tool_result') continue;
+      if (site.file === sot.file && site.eventType === 'agent_step_completed') continue;
       // 有 step= 的必是 SoT
       expect(site.file).toBe(sot.file,
         `${site.module}/${site.eventType} at ${site.file}:${site.line} emits 'step=' but not SoT (= ${sot.file}/${sot.eventType})`,
