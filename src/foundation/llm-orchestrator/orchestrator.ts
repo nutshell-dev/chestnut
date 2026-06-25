@@ -193,6 +193,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
       const providerOptions: LLMCallOptions = { ...options, signal: providerSignal, hardTimeoutMs: undefined, streamIdleTimeoutMs: undefined };
 
       try {
+        this.currentStreamingProvider = { name: adapter.name, model: adapter.model, isFallback };
         const response = await adapter.call(providerOptions);
         cleanupSignal();
         this.breakers[breakerIndex]?.onSuccess();
@@ -260,55 +261,59 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
 
     const failures: Array<{ provider: string; error: Error }> = [];
 
-    // 上次成功的 fallback 排最前：同 turn 内后续 step 直接用、不反复 failover
-    if (this.lastSuccessProvider?.isFallback) {
-      const stickyFb = this.fallbacks.find(fb => fb.name === this.lastSuccessProvider!.name);
-      const stickyIdx = stickyFb ? this.fallbacks.indexOf(stickyFb) : -1;
-      if (stickyFb && stickyIdx >= 0 && !isBreakerOpen(stickyIdx + 1)) {
-        try {
-          return await this._tryCallProvider(stickyFb, stickyIdx + 1, true, options);
-        } catch (err) {
-          // silent: collect sticky fallback failure for aggregate LLMAllProvidersFailedError
-          failures.push({ provider: stickyFb.name, error: err as Error });
+    try {
+      // 上次成功的 fallback 排最前：同 turn 内后续 step 直接用、不反复 failover
+      if (this.lastSuccessProvider?.isFallback) {
+        const stickyFb = this.fallbacks.find(fb => fb.name === this.lastSuccessProvider!.name);
+        const stickyIdx = stickyFb ? this.fallbacks.indexOf(stickyFb) : -1;
+        if (stickyFb && stickyIdx >= 0 && !isBreakerOpen(stickyIdx + 1)) {
+          try {
+            return await this._tryCallProvider(stickyFb, stickyIdx + 1, true, options);
+          } catch (err) {
+            // silent: collect sticky fallback failure for aggregate LLMAllProvidersFailedError
+            failures.push({ provider: stickyFb.name, error: err as Error });
+          }
         }
       }
-    }
 
-    // Try primary
-    let primaryFailed = false;
-    if (!isBreakerOpen(0)) {
-      try {
-        return await this._tryCallProvider(this.primary, 0, false, options);
-      } catch (err) {
-        // silent: collect primary failure for aggregate LLMAllProvidersFailedError
-        primaryFailed = true;
-        failures.push({ provider: this.primary.name, error: err as Error });
-      }
-    } else {
-      failures.push({ provider: this.primary.name, error: new LLMCircuitBreakerOpenError(this.primary.name) });
-    }
-
-    // Primary exhausted — try remaining fallbacks
-    if (this.fallbacks.length > 0 && primaryFailed) {
-      this.events.emit({ type: 'fallback_switched', from: this.primary.name, to: this.fallbacks[0].name, reason: 'primary_exhausted' });
-    }
-
-    for (let i = 0; i < this.fallbacks.length; i++) {
-      if (options.signal?.aborted) throw makeExternalAbortError(options.signal.reason as AbortReason | undefined);
-      if (isBreakerOpen(i + 1)) {
-        failures.push({ provider: this.fallbacks[i].name, error: new LLMCircuitBreakerOpenError(this.fallbacks[i].name) });
-        continue;
+      // Try primary
+      let primaryFailed = false;
+      if (!isBreakerOpen(0)) {
+        try {
+          return await this._tryCallProvider(this.primary, 0, false, options);
+        } catch (err) {
+          // silent: collect primary failure for aggregate LLMAllProvidersFailedError
+          primaryFailed = true;
+          failures.push({ provider: this.primary.name, error: err as Error });
+        }
+      } else {
+        failures.push({ provider: this.primary.name, error: new LLMCircuitBreakerOpenError(this.primary.name) });
       }
 
-      try {
-        return await this._tryCallProvider(this.fallbacks[i], i + 1, true, options);
-      } catch (err) {
-        // silent: collect fallback failure for aggregate LLMAllProvidersFailedError
-        failures.push({ provider: this.fallbacks[i].name, error: err as Error });
+      // Primary exhausted — try remaining fallbacks
+      if (this.fallbacks.length > 0 && primaryFailed) {
+        this.events.emit({ type: 'fallback_switched', from: this.primary.name, to: this.fallbacks[0].name, reason: 'primary_exhausted' });
       }
-    }
 
-    throw new LLMAllProvidersFailedError(failures);
+      for (let i = 0; i < this.fallbacks.length; i++) {
+        if (options.signal?.aborted) throw makeExternalAbortError(options.signal.reason as AbortReason | undefined);
+        if (isBreakerOpen(i + 1)) {
+          failures.push({ provider: this.fallbacks[i].name, error: new LLMCircuitBreakerOpenError(this.fallbacks[i].name) });
+          continue;
+        }
+
+        try {
+          return await this._tryCallProvider(this.fallbacks[i], i + 1, true, options);
+        } catch (err) {
+          // silent: collect fallback failure for aggregate LLMAllProvidersFailedError
+          failures.push({ provider: this.fallbacks[i].name, error: err as Error });
+        }
+      }
+
+      throw new LLMAllProvidersFailedError(failures);
+    } finally {
+      this.currentStreamingProvider = null;
+    }
   }
   
   /**
@@ -943,7 +948,9 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
    * phase 320: 原地替换 primary/fallbacks/breakers，对象引用不变。
    * 同 ctor L98-131 同构（改 ctor 需同步改本方法、否则 reload 与起步态漂移）。
    * sdkClientCache 不清（旧 key 残留无害；切回旧 provider 时 cache hit、性能更好）。
-   * events / lastSuccessProvider 不动（events 装配期注入、lastSuccess 下次 call 自然刷新）。
+   * events 不动（装配期注入）。
+   * lastSuccessProvider 重置：配置已变，上次成功的 provider 信息应失效。
+   * currentStreamingProvider 不动（如有活跃 stream，配置替换不影响当前流）。
    */
   reloadConfig(newConfig: LLMOrchestratorConfig): void {
     this.config = newConfig;
@@ -975,6 +982,9 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
       this.events.emit({ type: 'tool_arg_parse_error', ...e });
     this.primary.onToolArgParseError = toolArgErrHandler;
     this.fallbacks.forEach(fb => { fb.onToolArgParseError = toolArgErrHandler; });
+
+    // 配置已替换 → 上次成功的 provider 信息不再有效
+    this.lastSuccessProvider = null;
   }
 }
 
