@@ -27,16 +27,6 @@ import type { CronJobGlobalConfig } from '../../../../foundation/cron/runner.js'
 /** Cron job timeout per M#2 (per-module business decides). 5s 充裕：dedup scan = meta parse only. */
 export const OUTBOX_SUMMARY_CRON_TIMEOUT_MS = 5_000;
 
-// business re-export
-export { runOutboxSummaryTick } from './tick.js';
-
-export type { OutboxSummaryState } from './types.js';
-export { toExtraMeta } from './types.js';
-export { computeHash, HASH_LEN } from './hash.js';
-export { scanOutboxes } from './scan.js';
-export { findExistingSummaryByHash, DEDUP_DONE_WINDOW_MS, SUMMARY_HASH_META_KEY } from './dedup.js';
-export { writeNewSummary, SUMMARY_INBOX_TYPE } from './write.js';
-export { OUTBOX_SUMMARY_AUDIT_EVENTS };
 
 // cron wrapper
 export interface OutboxSummaryJobOptions {

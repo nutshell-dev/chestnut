@@ -58,11 +58,11 @@ import {
 import { TASKS_SYNC_DIR } from '../async-task-system/index.js';
 import {
   maybeTrimProactive,
-  trimAndPersist,
   CONTEXT_TRIM_RECENT_WINDOW_MS,
   CONTEXT_TRIM_TARGET_RATIO,
   CONTEXT_TRIM_PREVIEW_BYTES,
 } from '../l4_context_manager/index.js';
+import { trimAndPersist } from '../l4_context_manager/trim-and-persist.js';
 import { LLMContextExceededError } from '../../foundation/llm-orchestrator/index.js';
 
 import { formatTimeAgo } from './utils.js';

@@ -9,23 +9,14 @@
  */
 
 export {
-  trimAndPersist,
-  type TrimAndPersistInputs,
-  type TrimAndPersistResult,
-} from './trim-and-persist.js';
-export {
   maybeTrimProactive,
   type MaybeTrimProactiveInputs,
 } from './maybe-trim-proactive.js';
-export { trimV2, type TrimV2Options, type TrimV2Result } from './trim-v2.js';
-export { ContextTrimExhaustedError } from './errors.js';
 export {
-  CACHE_TTL_MS,
   CONTEXT_TRIM_RECENT_WINDOW_MS,
   CONTEXT_TRIM_TARGET_RATIO,
   CONTEXT_TRIM_PREVIEW_BYTES,
 } from './constants.js';
-export * as AUDIT from './audit-events.js';
 
 // phase 685: ContextInjector 合并自 core/dialog 成为 ContextManager 子模块（physical merge）、
 // 但 barrel 不 re-export — 走 barrel 会拉 injector → contract barrel → ... → step-executor →

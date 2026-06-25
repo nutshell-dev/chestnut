@@ -6,10 +6,7 @@
  * motion 独占装配（Philosophy "motion 主动整合多个智能体的持久化记忆充分提取信息"）。
  */
 
-export { MEMORY_DIR, MEMORY_DREAM_OUTPUTS_DIR } from './memory-paths.js';
+export { MEMORY_DIR } from './memory-paths.js';
 export { MemorySystem } from './system.js';
-export type { MemorySystemOptions } from './system.js';
 export { createMemorySystem } from './system.js';
-export { memorySearchTool, MEMORY_SEARCH_TOOL_NAME } from './tools/memory_search.js';
-export { createClawContractBridge } from './claw-contract-bridge.js';
-export type { ClawContractBridge, ClawContractBridgeDeps } from './claw-contract-bridge.js';
+export { memorySearchTool } from './tools/memory_search.js';
