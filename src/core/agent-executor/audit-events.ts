@@ -8,4 +8,6 @@
 
 export const AGENT_EXECUTOR_AUDIT_EVENTS = {
   TOOL_CALL_INPUT: 'agent_tool_call_input',
+  STEP_COMPLETED: 'agent_step_completed',    // NEW phase 730
+  TOOL_RESULT: 'agent_tool_result',          // NEW phase 730
 } as const;

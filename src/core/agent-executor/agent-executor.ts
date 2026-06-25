@@ -119,12 +119,26 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
       commitTurnEvent({ kind: 'tool_call', name: n, toolUseId: id }, streamDeps);
     };
     callbacks.onToolResult = (name, toolUseId, result) => {
-      // Runtime still owns TOOL_RESULT audit write; AgentExecutor owns stream emit.
+      // phase 730: AgentExecutor owns TOOL_RESULT audit write + stream emit.
       origOnToolResult?.(name, toolUseId, result);
       commitTurnEvent(
         { kind: 'tool_result', name, toolUseId, result, step: stepCount, maxSteps },
         streamDeps,
       );
+      if (auditWriter) {
+        const content = result.content ?? '';
+        auditWriter.write(
+          AGENT_EXECUTOR_AUDIT_EVENTS.TOOL_RESULT,
+          name,
+          `tool_use_id=${String(toolUseId)}`,
+          `step=${stepCount}`,
+          `contract_id=${currentContractId ?? ''}`,
+          `trace_id=${String(ctx.trace_id ?? '')}`,
+          `status=${result.success ? 'ok' : 'err'}`,
+          `content_size=${Buffer.byteLength(content, 'utf-8')}`,
+          `summary=${auditWriter.summary(content)}`,
+        );
+      }
     };
   }
 
@@ -192,7 +206,17 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
         consecutiveMaxTokensToolUse = 0;
       }
 
-      // 3. onAfterStep（步进之后、熔断检查之后）
+      // 3. step audit (phase 730: AgentExecutor owns step completion audit)
+      if (auditWriter) {
+        auditWriter.write(
+          AGENT_EXECUTOR_AUDIT_EVENTS.STEP_COMPLETED,
+          `step=${stepCount}`,
+          `contract_id=${currentContractId ?? ''}`,
+          `trace_id=${String(ctx.trace_id ?? '')}`,
+        );
+      }
+
+      // 4. onAfterStep（步进之后、熔断检查之后）
       if (onAfterStep) {
         await onAfterStep(result.meta, stepCount);
       }
@@ -213,6 +237,16 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
         throw new ConsecutiveMaxTokensToolUseError(maxConsecutiveMaxTokensToolUse);
       }
       stepCount++;
+
+      // phase 730: step completion audit in max_tokens_tool_use path too
+      if (auditWriter) {
+        auditWriter.write(
+          AGENT_EXECUTOR_AUDIT_EVENTS.STEP_COMPLETED,
+          `step=${stepCount}`,
+          `contract_id=${currentContractId ?? ''}`,
+          `trace_id=${String(ctx.trace_id ?? '')}`,
+        );
+      }
 
       // phase 337 M4 (review-2026-06-13): max_tokens_tool_use 分支也调 onAfterStep
       // 与 'continue' 分支对齐。否则该步 session save / contract auditor maybeAuditStep
