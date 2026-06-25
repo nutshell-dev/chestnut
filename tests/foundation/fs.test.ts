@@ -25,7 +25,7 @@ import {
   NodeFileSystem,
   writeAtomic,
 } from '../../src/foundation/fs/index.js';
-import { PermissionError } from '../../src/core/permissions/errors.js';
+import { PathGuardError } from '../../src/foundation/fs/types.js';
 import { FileNotFoundError } from '../../src/foundation/fs/types.js';
 
 describe('FileSystem', () => {
@@ -163,14 +163,14 @@ describe('FileSystem', () => {
       expect(content).toBe('test');
     });
 
-    it('should throw PermissionError for path traversal attempts', async () => {
-      await expect(fs.read('../etc/passwd')).rejects.toThrow(PermissionError);
+    it('should throw PathGuardError for path traversal attempts', async () => {
+      await expect(fs.read('../etc/passwd')).rejects.toThrow(PathGuardError);
     });
 
-    it('should throw PermissionError for paths outside baseDir', async () => {
+    it('should throw PathGuardError for paths outside baseDir', async () => {
       const outsidePath = path.join(tempDir, '..', 'outside.txt');
       const relativeOutside = path.relative(tempDir, outsidePath);
-      await expect(fs.read(relativeOutside)).rejects.toThrow(PermissionError);
+      await expect(fs.read(relativeOutside)).rejects.toThrow(PathGuardError);
     });
   });
   
@@ -221,7 +221,7 @@ describe('FileSystem', () => {
 
       const nodeFs = new NodeFileSystem({ baseDir: clawDir });
 
-      await expect(nodeFs.read('evil-link.txt')).rejects.toThrow(PermissionError);
+      await expect(nodeFs.read('evil-link.txt')).rejects.toThrow(PathGuardError);
     });
 
     it('should allow reads of normal files within baseDir', async () => {
@@ -259,7 +259,7 @@ describe('FileSystem', () => {
 
       const nodeFs = new NodeFileSystem({ baseDir: clawDir });
 
-      await expect(nodeFs.writeAtomic('evil-write-link.txt', 'pwned')).rejects.toThrow(PermissionError);
+      await expect(nodeFs.writeAtomic('evil-write-link.txt', 'pwned')).rejects.toThrow(PathGuardError);
 
       // Original file should be untouched
       const original = await nativeFs.readFile(targetFile, 'utf-8');
