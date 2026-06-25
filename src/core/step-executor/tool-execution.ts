@@ -14,7 +14,8 @@ import { formatErr } from "../../foundation/node-utils/index.js";
 import type { ExecContext } from '../../foundation/tools/index.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { IToolExecutor, ToolRegistry } from '../../foundation/tools/index.js';
-import type { StepCallbacks } from './types.js';
+import type { StepInput, StepCallbacks } from './types.js';
+import type { AuditLog } from '../../foundation/audit/index.js';
 import { safeCallback, toToolResultBlock } from './utils.js';
 import { throwAbortError } from './abort-helpers.js';
 import { STEP_EXECUTOR_AUDIT_EVENTS } from './audit-events.js';
@@ -56,18 +57,34 @@ function categorizeToolCalls(
   return { readonlyAsync, readonlySync, write };
 }
 
+function isStepInput(value: StepCallbacks | StepInput): value is StepInput {
+  return 'messages' in value;
+}
+
+function resolveCallbacksAndAudit(
+  callbacksOrInput?: StepCallbacks | StepInput,
+  auditWriter?: AuditLog,
+): { callbacks?: StepCallbacks; auditWriter?: AuditLog } {
+  if (callbacksOrInput && isStepInput(callbacksOrInput)) {
+    return { callbacks: callbacksOrInput.callbacks, auditWriter: callbacksOrInput.auditWriter ?? auditWriter };
+  }
+  return { callbacks: callbacksOrInput, auditWriter };
+}
+
 async function executeSequential(
   toolCalls: ToolUseBlock[],
   executor: IToolExecutor,
   ctx: ExecContext,
-  callbacks?: StepCallbacks,
+  callbacksOrInput?: StepCallbacks | StepInput,
+  auditWriter?: AuditLog,
 ): Promise<ToolResultBlock[]> {
+  const { callbacks, auditWriter: aw } = resolveCallbacksAndAudit(callbacksOrInput, auditWriter);
   // 注：onToolCall 已在 stream.ts:tool_use_start 时调（流式提前 emit / 不等 execute）
   const results: ToolResultBlock[] = [];
   for (const call of toolCalls) {
     if (ctx.signal?.aborted) throwAbortError(ctx.signal);
-    const result = await executeSingleTool(call, executor, ctx, callbacks);
-    safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, makeToolUseId(call.id), result), callbacks);
+    const result = await executeSingleTool(call, executor, ctx, callbacksOrInput, auditWriter);
+    safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, makeToolUseId(call.id), result), callbacks, aw);
     results.push(toToolResultBlock(makeToolUseId(call.id), result));
   }
   return results;
@@ -78,9 +95,12 @@ async function executeReadonlyAsync(
   executor: IToolExecutor,
   ctx: ExecContext,
   results: Map<number, ToolResultBlock>,
-  callbacks?: StepCallbacks,
+  callbacksOrInput?: StepCallbacks | StepInput,
+  auditWriter?: AuditLog,
 ): Promise<void> {
   if (group.length === 0) return;
+
+  const { callbacks, auditWriter: aw } = resolveCallbacksAndAudit(callbacksOrInput, auditWriter);
 
   const batch = group.map(({ call }) => {
     const { async: _asyncMode, ...toolArgs } = call.input;
@@ -93,12 +113,12 @@ async function executeReadonlyAsync(
     const { call, index } = group[i];
     const result = parallelResults[i];
     if (!result) {
-      const singleResult = await executeSingleTool(call, executor, ctx, callbacks);
-      safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, makeToolUseId(call.id), singleResult), callbacks);
+      const singleResult = await executeSingleTool(call, executor, ctx, callbacksOrInput, auditWriter);
+      safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, makeToolUseId(call.id), singleResult), callbacks, aw);
       results.set(index, toToolResultBlock(makeToolUseId(call.id), singleResult));
       continue;
     }
-    safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, makeToolUseId(call.id), result), callbacks);
+    safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, makeToolUseId(call.id), result), callbacks, aw);
     results.set(index, toToolResultBlock(makeToolUseId(call.id), result));
   }
 }
@@ -108,9 +128,12 @@ async function executeReadonlySync(
   executor: IToolExecutor,
   ctx: ExecContext,
   results: Map<number, ToolResultBlock>,
-  callbacks?: StepCallbacks,
+  callbacksOrInput?: StepCallbacks | StepInput,
+  auditWriter?: AuditLog,
 ): Promise<void> {
   if (group.length === 0) return;
+
+  const { callbacks, auditWriter: aw } = resolveCallbacksAndAudit(callbacksOrInput, auditWriter);
 
   const batch = group.map(({ call }) => {
     const { async: _asyncMode, ...toolArgs } = call.input;
@@ -123,12 +146,12 @@ async function executeReadonlySync(
     const { call, index } = group[i];
     const result = parallelResults[i];
     if (!result) {
-      const singleResult = await executeSingleTool(call, executor, ctx, callbacks);
-      safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, makeToolUseId(call.id), singleResult), callbacks);
+      const singleResult = await executeSingleTool(call, executor, ctx, callbacksOrInput, auditWriter);
+      safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, makeToolUseId(call.id), singleResult), callbacks, aw);
       results.set(index, toToolResultBlock(makeToolUseId(call.id), singleResult));
       continue;
     }
-    safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, makeToolUseId(call.id), result), callbacks);
+    safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, makeToolUseId(call.id), result), callbacks, aw);
     results.set(index, toToolResultBlock(makeToolUseId(call.id), result));
   }
 }
@@ -138,13 +161,15 @@ async function executeWriteCalls(
   executor: IToolExecutor,
   ctx: ExecContext,
   results: Map<number, ToolResultBlock>,
-  callbacks?: StepCallbacks,
+  callbacksOrInput?: StepCallbacks | StepInput,
+  auditWriter?: AuditLog,
 ): Promise<void> {
+  const { callbacks, auditWriter: aw } = resolveCallbacksAndAudit(callbacksOrInput, auditWriter);
   // 注：onToolCall 已在 stream.ts:tool_use_start 时调
   for (const { call, index } of group) {
     if (ctx.signal?.aborted) throwAbortError(ctx.signal);
-    const result = await executeSingleTool(call, executor, ctx, callbacks);
-    safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, makeToolUseId(call.id), result), callbacks);
+    const result = await executeSingleTool(call, executor, ctx, callbacksOrInput, auditWriter);
+    safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, makeToolUseId(call.id), result), callbacks, aw);
     results.set(index, toToolResultBlock(makeToolUseId(call.id), result));
   }
 }
@@ -154,22 +179,24 @@ export async function executeToolCalls(
   executor: IToolExecutor,
   ctx: ExecContext,
   registry: ToolRegistry | undefined,
-  callbacks?: StepCallbacks,
+  callbacksOrInput?: StepCallbacks | StepInput,
+  auditWriter?: AuditLog,
 ): Promise<ToolResultBlock[]> {
-  if (!registry) return executeSequential(toolCalls, executor, ctx, callbacks);
+  if (!registry) return executeSequential(toolCalls, executor, ctx, callbacksOrInput, auditWriter);
 
   const { readonlyAsync, readonlySync, write } = categorizeToolCalls(toolCalls, registry);
   const results = new Map<number, ToolResultBlock>();
 
-  await executeReadonlyAsync(readonlyAsync, executor, ctx, results, callbacks);
-  await executeReadonlySync(readonlySync, executor, ctx, results, callbacks);
-  await executeWriteCalls(write, executor, ctx, results, callbacks);
+  await executeReadonlyAsync(readonlyAsync, executor, ctx, results, callbacksOrInput, auditWriter);
+  await executeReadonlySync(readonlySync, executor, ctx, results, callbacksOrInput, auditWriter);
+  await executeWriteCalls(write, executor, ctx, results, callbacksOrInput, auditWriter);
 
   return toolCalls.map((_, i) => {
     const r = results.get(i);
     if (!r) {
       const violationMsg = `Missing result for tool call at index ${i}`;
-      ctx.auditWriter?.write(
+      const aw = resolveCallbacksAndAudit(callbacksOrInput, auditWriter).auditWriter;
+      aw?.write(
         STEP_EXECUTOR_AUDIT_EVENTS.INVARIANT_VIOLATION,
         `site=tool-execution.ts:164`,
         `kind=missing_tool_result`,
@@ -186,22 +213,33 @@ export async function executeSingleTool(
   toolCall: ToolUseBlock,
   executor: IToolExecutor,
   ctx: ExecContext,
-  callbacks?: StepCallbacks,
+  callbacksOrInput?: StepCallbacks | StepInput,
+  auditWriter?: AuditLog,
 ): Promise<ToolResult> {
+  const { callbacks, auditWriter: aw } = resolveCallbacksAndAudit(callbacksOrInput, auditWriter);
   // 前置守卫：流中断时 toolCall.input 可能不完整（required 字段缺失）
   // 同步校验，不进入 async execute，避免与 abort 竞态导致 tool_result 丢失
   const schema = executor.getToolSchema?.(toolCall.name);
   if (schema?.required && Array.isArray(schema.required)) {
     const missing = schema.required.filter(f => !(f in (toolCall.input || {})));
     if (missing.length > 0) {
+      const missingMsg = `incomplete tool_use: missing required [${missing.join(', ')}] (stream aborted mid-tool_use)`;
       safeCallback(
         'onToolInputParseError',
         () => callbacks?.onToolInputParseError?.(
           toolCall.name,
           makeToolUseId(toolCall.id),
-          `incomplete tool_use: missing required [${missing.join(', ')}] (stream aborted mid-tool_use)`,
+          missingMsg,
         ),
         callbacks,
+        aw,
+      );
+      aw?.write(
+        STEP_EXECUTOR_AUDIT_EVENTS.TOOL_INPUT_PARSE_FAILED,
+        toolCall.name,
+        makeToolUseId(toolCall.id),
+        `reason=parse_error`,
+        `summary=${aw?.message(missingMsg) ?? missingMsg}`,
       );
       return {
         success: false,
@@ -216,6 +254,7 @@ export async function executeSingleTool(
     'onToolCallInput',
     () => callbacks?.onToolCallInput?.(toolCall.name, makeToolUseId(toolCall.id), toolCall.input),
     callbacks,
+    aw,
   );
 
   try {
@@ -236,6 +275,14 @@ export async function executeSingleTool(
       'onToolExecutionFailed',
       () => callbacks?.onToolExecutionFailed?.(toolCall.name, makeToolUseId(toolCall.id), errorType, errorMsg),
       callbacks,
+      aw,
+    );
+    aw?.write(
+      STEP_EXECUTOR_AUDIT_EVENTS.TOOL_EXECUTION_FAILED,
+      toolCall.name,
+      makeToolUseId(toolCall.id),
+      `errorType=${errorType}`,
+      `errorMsg=${aw?.message(errorMsg) ?? errorMsg}`,
     );
     return {
       success: false,

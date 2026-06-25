@@ -23,7 +23,7 @@ import type { LLMOrchestrator, LLMCallOptions } from '../../foundation/llm-orche
 import type { StepInput, StepResult, LLMCallInfo } from './types.js';
 import { asFinalStopReason } from './types.js';
 
-import type { StepCallbacks } from './types.js';
+import { STEP_EXECUTOR_AUDIT_EVENTS } from './audit-events.js';
 import { throwAbortError } from './abort-helpers.js';
 import { safeCallback, extractText, appendAssistantMessage } from './utils.js';
 import { collectStreamResponse } from './llm-stream-collector.js';
@@ -38,7 +38,7 @@ export async function executeStep(input: StepInput): Promise<StepResult> {
   const maxTokens = input.maxTokens;
 
   if (ctx.signal?.aborted) throwAbortError(ctx.signal);
-  safeCallback('onBeforeLLMCall', () => callbacks?.onBeforeLLMCall?.(), callbacks);
+  safeCallback('onBeforeLLMCall', () => callbacks?.onBeforeLLMCall?.(), callbacks, input.auditWriter);
 
   const llmStartTime = Date.now();
   const callOptions: LLMCallOptions = {
@@ -48,10 +48,14 @@ export async function executeStep(input: StepInput): Promise<StepResult> {
     maxTokens,
     signal: ctx.signal, streamIdleTimeoutMs: input.idleTimeoutMs,
   };
-  const { response, llmInfo } = await runLLMCall(llm, callOptions, llmStartTime, callbacks);
+  const { response, llmInfo } = await runLLMCall(llm, callOptions, llmStartTime, input);
 
   if (response.content.length === 0) {
     callbacks?.onEmptyResponse?.(response.stop_reason);
+    input.auditWriter?.write(
+      STEP_EXECUTOR_AUDIT_EVENTS.LLM_EMPTY_RESPONSE,
+      `stop_reason=${response.stop_reason}`,
+    );
   }
 
   if (response.stop_reason === 'tool_use') return await handleToolUseStop(response, input, llmInfo);
@@ -75,6 +79,10 @@ export async function executeStep(input: StepInput): Promise<StepResult> {
   }
 
   callbacks?.onUnknownStopReason?.(response.stop_reason);
+  input.auditWriter?.write(
+    STEP_EXECUTOR_AUDIT_EVENTS.LLM_UNKNOWN_STOP_REASON,
+    `stop_reason=${response.stop_reason}`,
+  );
   const text = extractText(response.content);
   appendAssistantMessage(messages, response.content);
   callbacks?.onMessageAppended?.('assistant', response.content.length);
@@ -85,11 +93,12 @@ async function runLLMCall(
   llm: LLMOrchestrator,
   callOptions: LLMCallOptions,
   llmStartTime: number,
-  callbacks?: StepCallbacks,
+  input: StepInput,
 ): Promise<{ response: LLMResponse; llmInfo: LLMCallInfo }> {
+  const { callbacks } = input;
   let response: LLMResponse;
   try {
-    response = await collectStreamResponse(llm, callOptions, callbacks);
+    response = await collectStreamResponse(llm, callOptions, callbacks, input.auditWriter, input.currentContractId, String(input.ctx.trace_id ?? ''));
   } catch (err) {
     const info: LLMCallInfo = {
       model: llm.getProviderInfo?.()?.model ?? 'unknown',

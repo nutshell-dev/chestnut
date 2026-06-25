@@ -8,6 +8,7 @@ import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js
 import type { ExecContext, IToolExecutor, ToolRegistry } from '../../foundation/tools/index.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
+import type { AuditLog } from '../../foundation/audit/index.js';
 
 export interface LLMCallInfo {
   model: string;
@@ -74,7 +75,7 @@ export interface StepCallbacks {
   onProviderFailed?: (provider: string, model: string, error: string) => void;
   onEmptyResponse?: (stopReason: string) => void;
   onUnknownStopReason?: (stopReason: string) => void;
-  onUnparseableToolUse: (stopReason: string) => void;
+  onUnparseableToolUse?: (stopReason: string) => void;
   onToolInputParseError?: (toolName: string, toolUseId: ToolUseId, rawInput: string) => void;
   onToolExecutionFailed?: (toolName: string, toolUseId: ToolUseId, errorType: string, errorMsg: string) => void;
   onSafeCallbackError?: (label: string, err: unknown) => void;
@@ -99,6 +100,10 @@ export interface StepInput {
   maxTokens?: number;
   idleTimeoutMs?: number;
   callbacks?: StepCallbacks;
+  /** phase 732: injected by AgentExecutor for internal audit writes. */
+  auditWriter?: AuditLog;
+  /** phase 732: contract id for audit context. */
+  currentContractId?: string;
   // phase 690: 撤 dialogStore + contextManagerConfig — proactive trim
   // 上提到 L5 Runtime 反应式 retry 路径、StepExecutor 不再持 trim 业务。
 }

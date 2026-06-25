@@ -8,8 +8,10 @@ import type { ContentBlock } from '../../foundation/llm-provider/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import type { LLMCallOptions } from '../../foundation/llm-orchestrator/index.js';
 import type { LLMResponse } from '../../foundation/llm-provider/index.js';
+import type { AuditLog } from '../../foundation/audit/index.js';
 import type { StepCallbacks } from './types.js';
 import { safeCallback, parseToolInput } from './utils.js';
+import { STEP_EXECUTOR_AUDIT_EVENTS } from './audit-events.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import { throwAbortError } from './abort-helpers.js';
 import { makeToolUseId } from '../../foundation/tool-protocol/index.js';
@@ -68,14 +70,25 @@ export function flushText(state: StreamState, callbacks?: StepCallbacks): void {
   }
 }
 
-export function flushToolUse(state: StreamState, callbacks?: StepCallbacks): void {
+export function flushToolUse(state: StreamState, callbacks?: StepCallbacks, auditWriter?: AuditLog): void {
   if (state.currentToolUse) {
-    const parsed = parseToolInput(state.currentToolUse.input, state.currentToolUse.name);
+    const toolName = state.currentToolUse.name;
+    const toolUseId = makeToolUseId(state.currentToolUse.id);
+    const rawInput = state.currentToolUse.input;
+    const parsed = parseToolInput(rawInput, toolName);
     if (!parsed.ok) {
       safeCallback(
         'onToolInputParseError',
-        () => callbacks?.onToolInputParseError?.(state.currentToolUse!.name, makeToolUseId(state.currentToolUse!.id), parsed.raw),
+        () => callbacks?.onToolInputParseError?.(toolName, toolUseId, parsed.raw),
         callbacks,
+        auditWriter,
+      );
+      auditWriter?.write(
+        STEP_EXECUTOR_AUDIT_EVENTS.TOOL_INPUT_PARSE_FAILED,
+        toolName,
+        toolUseId,
+        `reason=parse_error`,
+        `summary=${auditWriter?.message(rawInput) ?? rawInput}`,
       );
       // phase 1282: emit tool_use 占位块满足 pair invariant（M#9 + M#5 stream 自验合法）
       //            input={} 占位 / 下游 handleToolUseStop + handleMaxTokensStop State A 经 prebuiltIds dedup 不 execute / 不再 synthesize
@@ -106,6 +119,7 @@ export function flushToolUse(state: StreamState, callbacks?: StepCallbacks): voi
         'onToolUseInput',
         () => callbacks?.onToolUseInput?.(toolName, makeToolUseId(toolId), inputData),
         callbacks,
+        auditWriter,
       );
     }
     // phase 688: 与 finalizeContent 对齐，flush 后清 currentToolUse 防 catch 路径 drain 时重复 emit
@@ -124,7 +138,7 @@ export function resetState(state: StreamState): void {
   state.startTs = 0;
 }
 
-export function finalizeContent(state: StreamState, callbacks?: StepCallbacks): void {
+export function finalizeContent(state: StreamState, callbacks?: StepCallbacks, auditWriter?: AuditLog): void {
   if (state.currentThinking) {
     state.contentBlocks.push({
       type: 'thinking',
@@ -137,24 +151,35 @@ export function finalizeContent(state: StreamState, callbacks?: StepCallbacks): 
     callbacks?.onTextEnd?.();
   }
   if (state.currentToolUse) {
-    const parsed = parseToolInput(state.currentToolUse.input, state.currentToolUse.name);
+    const toolName = state.currentToolUse.name;
+    const toolUseId = makeToolUseId(state.currentToolUse.id);
+    const rawInput = state.currentToolUse.input;
+    const parsed = parseToolInput(rawInput, toolName);
     if (!parsed.ok) {
       safeCallback(
         'onToolInputParseError',
-        () => callbacks?.onToolInputParseError?.(state.currentToolUse!.name, makeToolUseId(state.currentToolUse!.id), parsed.raw),
+        () => callbacks?.onToolInputParseError?.(toolName, toolUseId, parsed.raw),
         callbacks,
+        auditWriter,
+      );
+      auditWriter?.write(
+        STEP_EXECUTOR_AUDIT_EVENTS.TOOL_INPUT_PARSE_FAILED,
+        toolName,
+        toolUseId,
+        `reason=parse_error`,
+        `summary=${auditWriter?.message(rawInput) ?? rawInput}`,
       );
       // phase 1282: emit tool_use 占位块满足 pair invariant（M#9 + M#5 stream 自验合法）
       state.contentBlocks.push({
         type: 'tool_use',
-        id: state.currentToolUse.id,
-        name: state.currentToolUse.name,
+        id: toolUseId,
+        name: toolName,
         input: {},
       } as ContentBlock);
       state.contentBlocks.push({
         type: 'tool_result',
         tool_use_id: state.currentToolUse.id,
-        content: `Tool input JSON parse failed for "${state.currentToolUse.name}". Raw: ${parsed.raw}`,
+        content: `Tool input JSON parse failed for "${toolName}". Raw: ${parsed.raw}`,
         is_error: true,
       } as ContentBlock);
     } else {
@@ -172,6 +197,7 @@ export function finalizeContent(state: StreamState, callbacks?: StepCallbacks): 
         'onToolUseInput',
         () => callbacks?.onToolUseInput?.(toolName, makeToolUseId(toolId), inputData),
         callbacks,
+        auditWriter,
       );
     }
     state.currentToolUse = null;
@@ -182,6 +208,9 @@ export async function collectStreamResponse(
   llm: LLMOrchestrator,
   callOptions: LLMCallOptions,
   callbacks?: StepCallbacks,
+  auditWriter?: AuditLog,
+  currentContractId?: string,
+  traceId?: string,
 ): Promise<LLMResponse> {
   const state = createStreamState();
 
@@ -210,7 +239,7 @@ export async function collectStreamResponse(
         case 'tool_use_start':
           flushThinking(state);
           flushText(state, callbacks);
-          flushToolUse(state, callbacks);
+          flushToolUse(state, callbacks, auditWriter);
           state.currentToolUse = { id: chunk.toolUse!.id, name: chunk.toolUse!.name, input: '' };
           state.stopReason = 'tool_use';
           // 流式 tool_use_start 来时立即 emit onToolCall（chat-viewport 实时显示 tool icon / 不等 stream end + execute phase）
@@ -218,7 +247,7 @@ export async function collectStreamResponse(
           // 用 safeCallback 守护：callback throw 不中断 stream loop（保 stream chunk 完整收 / tool_use_delta 等不丢）
           {
             const toolUseStart = chunk.toolUse!;
-            safeCallback('onToolCall', () => callbacks?.onToolCall?.(toolUseStart.name, makeToolUseId(toolUseStart.id)), callbacks);
+            safeCallback('onToolCall', () => callbacks?.onToolCall?.(toolUseStart.name, makeToolUseId(toolUseStart.id)), callbacks, auditWriter);
           }
           break;
         case 'tool_use_delta':
@@ -260,7 +289,7 @@ export async function collectStreamResponse(
     // 但 stream.jsonl 已记录每个 tool_use 的完整 input、事后凭 trace_id 可重建调用意图
     try { flushThinking(state); } catch { /* silent: drain best-effort, rethrow below preserves original error */ }
     try { flushText(state, callbacks); } catch { /* silent: drain best-effort, rethrow below preserves original error */ }
-    try { flushToolUse(state, callbacks); } catch { /* silent: drain best-effort, rethrow below preserves original error */ }
+    try { flushToolUse(state, callbacks, auditWriter); } catch { /* silent: drain best-effort, rethrow below preserves original error */ }
     // phase 688: emit「丢弃 partial assistant content」决策事件（audit 可观测）
     // 决策动作本身的可观测点、与 stream.jsonl 的 tool_use_input 互补。
     if (state.startTs > 0) {
@@ -279,12 +308,24 @@ export async function collectStreamResponse(
           errMessage: formatErr(err),
         }),
         callbacks,
+        auditWriter,
+      );
+      auditWriter?.write(
+        STEP_EXECUTOR_AUDIT_EVENTS.PARTIAL_ASSISTANT_DISCARDED,
+        `cause=${classifyDiscardCause(err)}`,
+        `tool_use_count=${toolUseCount}`,
+        `has_text=${hasText}`,
+        `has_thinking=${hasThinking}`,
+        `ts_range=${state.startTs}-${Date.now()}`,
+        `trace_id=${String(traceId ?? '')}`,
+        `contract_id=${currentContractId ?? ''}`,
+        `err=${auditWriter.message(formatErr(err))}`,
       );
     }
     throw err;
   }
 
-  finalizeContent(state, callbacks);
+  finalizeContent(state, callbacks, auditWriter);
 
   return {
     content: state.contentBlocks,
