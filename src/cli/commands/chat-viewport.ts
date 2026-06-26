@@ -12,7 +12,7 @@ import { formatErr } from "../../foundation/node-utils/index.js";
 import { createDirContext } from '../../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { isAlive } from '../../foundation/process-exec/index.js';
-import { createWatcher, type Watcher } from '../../foundation/file-watcher/index.js';
+
 import { createDaemonLivenessMonitor } from './chat-viewport-daemon-liveness.js';
 import { DEFAULT_TERMINAL_WIDTH } from '../utils/constants.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
@@ -320,12 +320,14 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     requestRender: () => tui.requestRender(),
   });
 
-  // 事件驱动：claws/ dir add/unlink 触发 refresh + rescan + panel re-render（替原 3 setInterval polling、phase 361）
-  // 替代:
-  //   - clawRefreshInterval (2s) → refreshAllClawStatus
-  //   - clawPanelTickInterval (1s) → updateClawPanel + requestRender
-  //   - clawScanInterval → rescanClawsDir
-  let clawsWatcher: Watcher | null = null;
+  // 周期性 rescan clawsDir — 检测新 claw 创建 + 已存在 claw 内 contract 创建
+  // 为什么不用 chokidar recursive watcher（per c39d3273 / phase 742）：
+  //   - macOS FSEvents 对 nested newly-created dirs (深 3 层) 不稳定
+  //   - chokidar awaitWriteFinish 对 dir events 行为 inconsistent
+  //   - polling 每 2s 重扫 / 简洁可靠 / 与 viewport TUI 业务节奏 align（user 不期待 < 2s 响应）
+  // 历史：phase 361 改事件驱动 depth=0 watcher → 漏 nested contract addDir → clawBar 不显示新 claw
+  //       phase 738 加 recursive: true → phase 739 因 EMFILE 退回 → phase 742 反向回归 polling
+  let clawScanInterval: NodeJS.Timeout | null = null;
   const scheduleClawPanelUpdate = (): void => {
     if (clawTrackMap.size > 0) {
       clawPanel.updateClawPanel(clawTrackMap);
@@ -342,17 +344,11 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     // initial 同步
     clawManager.refreshAllClawStatus();
     await rescanClawsDirFn();
-    clawsWatcher = createWatcher(
-      clawsDir,
-      (event) => {
-        if (event.type === 'add' || event.type === 'unlink' || event.type === 'addDir' || event.type === 'unlinkDir') {
-          clawManager.refreshAllClawStatus();
-          void rescanClawsDirFn?.();
-          scheduleClawPanelUpdate();
-        }
-      },
-      { persistent: false, stability: 'stable' },
-    );
+    clawScanInterval = setInterval(() => {
+      clawManager.refreshAllClawStatus();
+      void rescanClawsDirFn?.();
+      scheduleClawPanelUpdate();
+    }, 2000);
   }
 
   // Daemon 存活检测（事件驱动：PID file unlink 触发、phase 361 替原 setInterval polling）
@@ -524,7 +520,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   };
   tui.addInputListener(focusListener);
 
-  // clawsDir rescan + refreshAllClawStatus 已合并到 clawsWatcher 事件驱动路径上方（phase 361）
+  // clawsDir rescan + refreshAllClawStatus 由上方 clawScanInterval 2s polling 驱动（phase 742）
 
   // 兜底：SIGINT 退出（终端未进 raw mode 时 Ctrl+C 转为 SIGINT）
   const sigintHandler = () => resolveExit();
@@ -545,13 +541,11 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     process.removeListener('unhandledRejection', uncaughtHandler);
     mainUI.enterPhase('idle');
     observability.recordShutdown(shutdownReason);
-    // silent: cleanup path; watcher close 失败不影响 viewport 退出 / shutdown observability 已 record
-    if (clawsWatcher) await clawsWatcher.close().catch(() => { /* silent: cleanup */ });
+    if (clawScanInterval) clearInterval(clawScanInterval);
     await daemonLivenessWatcher.close().catch(() => { /* silent: cleanup */ });
     // phase 367: taskSweepInterval 删、改 per-task lazy check (handleTaskEvent inline)
     await streamReader.stop();
     await clawManager.closeAll();
-    // clawScanInterval 已删 → clawsWatcher 替（cleanup 在上方 await clawsWatcher.close()）
     await Promise.all(
       Array.from(taskWatchMap.values())
         .map(tw => tw.streamReader?.stop())
