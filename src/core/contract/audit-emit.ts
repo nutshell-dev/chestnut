@@ -847,26 +847,6 @@ export function emitContractArchivePreconditionViolated(
   audit.write(CONTRACT_AUDIT_EVENTS.CONTRACT_ARCHIVE_PRECONDITION_VIOLATED, ...cols);
 }
 
-// ─── ARCHIVE_NONTERMINAL_DETECTED ───────────────────────────────────────────
-export function emitContractArchiveNonTerminalDetected(
-  audit: AuditLog,
-  opts: {
-    clawId: ClawId;
-    contractId: string;
-    status: string;
-    context?: string;
-  },
-): void {
-  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractArchiveNonTerminalDetected')) return;
-  const cols: string[] = [
-    `clawId=${opts.clawId}`,
-    `contractId=${opts.contractId}`,
-    `status=${opts.status}`,
-  ];
-  if (opts.context !== undefined) cols.push(`context=${opts.context}`);
-  audit.write(CONTRACT_AUDIT_EVENTS.CONTRACT_ARCHIVE_NONTERMINAL_DETECTED, ...cols);
-}
-
 // ─── ARCHIVE_RECONCILE_STALE ────────────────────────────────────────────────
 export function emitContractArchiveReconcileStale(
   audit: AuditLog,

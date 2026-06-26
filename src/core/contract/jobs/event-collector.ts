@@ -6,7 +6,6 @@ import type { AuditLog } from '../../../foundation/audit/index.js';
 import type { ProgressData } from '../manager.js';
 import type { ArchiveAllowedStatus } from '../types.js';
 import { CONTRACT_AUDIT_EVENTS } from '../audit-events.js';
-import { emitContractArchiveNonTerminalDetected } from '../audit-emit.js';
 import { CONTRACT_ARCHIVE_DIR, PROGRESS_FILE, CONTRACT_YAML_FILE } from '../dirs.js';
 import { ContractProgressArchiveLooseSchema } from '../schemas.js';
 import type { ClawId } from '../../../foundation/claw-identity/index.js';
@@ -187,15 +186,7 @@ export function scanArchivedContracts(
         const obj = rawParsed as Record<string, unknown>;
         delete obj.contract_id;
         const result = ContractProgressArchiveLooseSchema.safeParse(obj);
-        if (!result.success) {
-          audit?.write(
-            CONTRACT_AUDIT_EVENTS.PROGRESS_SCHEMA_INVALID,
-            `clawId=${clawId}`,
-            `contract=${d.name}`,
-            `context=event_collector_archive`,
-          );
-          continue;
-        }
+        if (!result.success) continue;
         const progress = {
           ...result.data,
           contract_id: d.name,
@@ -209,13 +200,7 @@ export function scanArchivedContracts(
           }, 0);
         const meta = readContractMeta(fs, path.join(archiveDir, d.name));
         const formatted = formatContractEvent(clawId, d.name, meta, progress);
-        if (formatted === null) {
-          emitContractArchiveNonTerminalDetected(
-            audit,
-            { clawId, contractId: d.name, status: progress.status, context: 'scanArchivedContracts' },
-          );
-          continue;
-        }
+        if (formatted === null) continue;
         entries.push({
           contractId: d.name,
           body: formatted.body,
