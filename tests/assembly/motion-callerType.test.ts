@@ -4,7 +4,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { randomUUID } from 'crypto';
 import { ExecContextImpl } from '../../src/foundation/tools/context.js';
-import { createNotifyClawTool } from '../../src/foundation/messaging/tools/notify-claw.js';
+import { createNotifyClawTool } from '../../src/core/claw-topology/tools/notify-claw.js';
 import { formatClawStatusHint } from '../../src/cli/commands/claw-shared.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { makeAudit } from '../helpers/audit.js';

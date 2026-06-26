@@ -4,7 +4,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as path from 'node:path';
-import { createNotifyClawTool, NOTIFY_CLAW_TOOL_NAME } from '../../../src/foundation/messaging/tools/notify-claw.js';
+import { createNotifyClawTool, NOTIFY_CLAW_TOOL_NAME } from '../../../src/core/claw-topology/tools/notify-claw.js';
 import { routeNotifyClaw } from '../../../src/core/claw-topology/index.js';
 import { formatClawStatusHint } from '../../../src/cli/commands/claw-shared.js';
 import { MESSAGING_AUDIT_EVENTS } from '../../../src/foundation/messaging/audit-events.js';
