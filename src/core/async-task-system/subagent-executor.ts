@@ -18,7 +18,6 @@ import {
 } from './audit-emit.js';
 import { TASKS_QUEUES_RESULTS_DIR, TASKS_SUBAGENTS_DIR, TASKS_SYNC_DIR } from './dirs.js';
 import * as nodePath from 'path';
-// phase 692 Step B: L4 caller 算 originIsMotion 后传 SubAgent (L3)、SubAgent 不知 motion id 字面 (M#5)
 import { MOTION_CLAW_ID } from '../claw-topology/motion-claw-id.js';
 
 import { buildSubagentSystemPrompt, DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../../templates/prompts/index.js';
@@ -171,7 +170,6 @@ export async function executeSubAgentTask(
       toolsForLLM,
       timeoutMs: task.timeoutMs,
       originClawId: task.originClawId,
-      originIsMotion: task.originClawId === MOTION_CLAW_ID,
       toolTimeoutMs: deps.toolTimeoutMs,
       permissionChecker: deps.permissionChecker,
       messages: task.shadowMessages,
