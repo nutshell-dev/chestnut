@@ -3,16 +3,13 @@
  * Read and consume Claw outbox messages
  */
 
-import * as path from 'path';
 import { formatErr } from "../../foundation/node-utils/index.js";
-import { newShortUuid } from '../../foundation/node-utils/index.js';
 import { getClawDir } from '../../core/claw-topology/claw-instance-paths.js';
 import { CliError } from '../errors.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
-import { isFileNotFound } from '../../foundation/fs/index.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
-import { MESSAGING_AUDIT_EVENTS, OUTBOX_PENDING_DIR, OUTBOX_PROCESSING_DIR, OUTBOX_DONE_DIR } from '../../foundation/messaging/index.js';
+import { OutboxReader } from '../../foundation/messaging/index.js';
 
 export async function outboxCommand(
   deps: { fsFactory: (baseDir: string) => FileSystem },
@@ -34,21 +31,19 @@ export async function outboxCommand(
     );
   }
 
-  // Read pending files
-  let files: string[] = [];
+  const outboxReader = new OutboxReader(clawFs, audit ?? { write: () => {} } as unknown as AuditLog);
+
+  // Peek initial pending count for empty-check + remaining counter.
+  // claimNext handles races internally; this list is best-effort.
+  let initialFiles: string[] = [];
   try {
-    const allFiles = (await clawFs.list(OUTBOX_PENDING_DIR)).map(e => e.name);
-    files = allFiles.filter(f => f.endsWith('.md')).sort();
+    initialFiles = await outboxReader.listClawOutboxPending('.');
   } catch (e) {
-    // phase 517: isFileNotFound 兼容 FileSystem 包装层（FS_NOT_FOUND）+ 原生 fs（ENOENT）
-    if (!isFileNotFound(e)) {
-      process.stderr.write(`[claw-outbox] readdir failed: ${(e as Error).message}\n`);
-    }
-    console.log('outbox is empty');
-    return;
+    // listClawOutboxPending swallows non-fatal errors; this catch is defensive.
+    process.stderr.write(`[claw-outbox] list pending failed: ${formatErr(e)}\n`);
   }
 
-  if (files.length === 0) {
+  if (initialFiles.length === 0) {
     audit?.write(CLI_AUDIT_EVENTS.CLAW_OUTBOX_DRAIN_DONE, `claw=${name}`, `count=0`);
     console.log('outbox is empty');
     return;
@@ -56,61 +51,18 @@ export async function outboxCommand(
 
   // Limit number of messages read (default 1)
   const limit = options?.limit ?? 1;
-  const toRead = files.slice(0, limit);
-  const remaining = files.length - toRead.length;
+  const remaining = Math.max(0, initialFiles.length - limit);
 
   audit?.write(CLI_AUDIT_EVENTS.CLAW_OUTBOX_DRAIN_START, `claw=${name}`, `limit=${limit}`);
 
-  await clawFs.ensureDir(OUTBOX_PROCESSING_DIR);
-
   // Read and output
   const results: string[] = [];
-  for (const fileName of toRead) {
-    const relPendingPath = path.join(OUTBOX_PENDING_DIR, fileName);
-    const claimToken = `cli_${process.pid}_${Date.now()}_${newShortUuid()}`;
-    const relClaimedPath = path.join(OUTBOX_PROCESSING_DIR, `${claimToken}_${fileName}`);
+  for (let i = 0; i < limit; i++) {
+    const claimed = await outboxReader.claimNext('.');
+    if (!claimed) break;
 
-    try {
-      // ATOMIC CLAIM: winner-takes-all via OS rename
-      await clawFs.move(relPendingPath, relClaimedPath);
-    } catch (err) {
-      // phase 517: race-lost = 文件已被 winner 抢走（move 抛 FileNotFoundError / FS_NOT_FOUND 或原生 ENOENT）
-      if (isFileNotFound(err)) {
-        audit?.write(CLI_AUDIT_EVENTS.CLAW_OUTBOX_DRAIN_RACE_LOST,
-          `claw=${name}`, `file=${fileName}`);
-        continue;
-      }
-      console.warn(`[outbox] Failed to claim ${fileName}: ${formatErr(err)}`);
-      continue;
-    }
-
-    try {
-      const content = await clawFs.read(relClaimedPath);
-      results.push(content);
-
-      // Move to done/
-      try {
-        await clawFs.ensureDir(OUTBOX_DONE_DIR);
-        const relDonePath = path.join(OUTBOX_DONE_DIR, `${Date.now()}_${fileName}`);
-        await clawFs.move(relClaimedPath, relDonePath);
-        audit?.write(
-          MESSAGING_AUDIT_EVENTS.OUTBOX_DELIVERED,
-          `claw=${name}`,
-          `file=${fileName}`,
-          `deliveredAt=${Date.now()}`,
-        );
-      } catch (err) {
-        audit?.write(
-          MESSAGING_AUDIT_EVENTS.OUTBOX_DELIVERED,
-          `claw=${name}`,
-          `file=${fileName}`,
-          `error=${formatErr(err)}`,
-        );
-        console.warn(`[outbox] Failed to move ${fileName} to done: ${formatErr(err)}`);
-      }
-    } catch (err) {
-      console.warn(`[outbox] Failed to read ${fileName}: ${formatErr(err)}`);
-    }
+    results.push(claimed.content);
+    await outboxReader.markDone('.', claimed.claimPath, claimed.filename);
   }
 
   // Output
