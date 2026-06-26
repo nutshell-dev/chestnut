@@ -23,7 +23,7 @@ import {
 } from '../../core/summon-system/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { type ContractId, makeContractId } from '../../core/contract/types.js';
-import { AUDIT_FILE } from '../../foundation/audit/index.js';
+import { AUDIT_FILE, auditFileContains, auditFileGetMtime } from '../../foundation/audit/index.js';
 
 
 
@@ -77,12 +77,7 @@ export function inferKind(deps: { fsFactory: (baseDir: string) => FileSystem }, 
 
   // Fallback: check audit.tsv for random_dream signals
   const auditRel = path.join(TASKS_QUEUES_RESULTS_DIR, id, AUDIT_FILE);
-  if (clawFs.existsSync(auditRel)) {
-    try {
-      const audit = clawFs.readSync(auditRel);
-      if (audit.includes('cron_random_dream_job')) return 'random_dream';
-    } catch { /* silent: ignore */ }
-  }
+  if (auditFileContains(clawFs, auditRel, 'cron_random_dream_job')) return 'random_dream';
 
   return 'spawn';
 }
@@ -92,17 +87,10 @@ export function inferStatus(deps: { fsFactory: (baseDir: string) => FileSystem }
   if (resultFs.existsSync('result.txt')) return 'completed';
 
   const auditRel = path.join(resultDir, AUDIT_FILE);
-  if (resultFs.existsSync(auditRel)) {
-    try {
-      const content = resultFs.readSync(auditRel);
-      const lines = content.split('\n').filter(l => l.trim());
-      for (let i = lines.length - 1; i >= 0; i--) {
-        const line = lines[i];
-        if (line.includes('task_failed') || line.includes('task_handler_failed') || line.includes('task_start_failed')) return 'failed';
-        if (line.includes('task_completed')) return 'completed';
-      }
-    } catch { /* silent: ignore */ }
-  }
+  if (auditFileContains(resultFs, auditRel, 'task_failed') ||
+      auditFileContains(resultFs, auditRel, 'task_handler_failed') ||
+      auditFileContains(resultFs, auditRel, 'task_start_failed')) return 'failed';
+  if (auditFileContains(resultFs, auditRel, 'task_completed')) return 'completed';
 
   return 'running';
 }
@@ -195,8 +183,9 @@ export function scanSubagentResults(deps: { fsFactory: (baseDir: string) => File
           durationMs = clawFs.statSync(resultTxtRel).mtime.getTime() - startedAt.getTime();
         } else {
           const auditRel = path.join(asyncRel, id, AUDIT_FILE);
-          if (clawFs.existsSync(auditRel)) {
-            durationMs = clawFs.statSync(auditRel).mtime.getTime() - startedAt.getTime();
+          const mtime = auditFileGetMtime(clawFs, auditRel);
+          if (mtime !== null) {
+            durationMs = mtime - startedAt.getTime();
           }
         }
       }
@@ -236,8 +225,9 @@ function scanSyncDir(
     let durationMs: number | undefined;
     if (startedAt) {
       const auditRel = path.join(dirRel, id, AUDIT_FILE);
-      if (clawFs.existsSync(auditRel)) {
-        durationMs = clawFs.statSync(auditRel).mtime.getTime() - startedAt.getTime();
+      const mtime = auditFileGetMtime(clawFs, auditRel);
+      if (mtime !== null) {
+        durationMs = mtime - startedAt.getTime();
       }
     }
     // contractId only meaningful for verifier-<contractId>-<subtaskId>

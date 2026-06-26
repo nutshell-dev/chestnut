@@ -1,6 +1,9 @@
 // phase 478: _helpers clip functions barrel re-export
 export { clipPreview, clipMessage, clipSummary } from './_helpers.js';
 
+// phase 753: lightweight diagnostic read helpers
+export { auditFileContains, auditFileGetMtime } from './lightweight-read.js';
+
 /**
  * @module L2a.AuditLog
  * AuditLog module (L2)
