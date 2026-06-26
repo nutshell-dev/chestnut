@@ -11,7 +11,7 @@ import * as path from 'path';
 import { streamCommand, parseStartMode } from '../../../src/cli/commands/claw-stream.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { loadGlobalConfig, clawExists } from '../../../src/assembly/config-load.js';
-import { getClawDir, getClawConfigPath } from '../../../src/core/claw-topology/claw-instance-paths.js';
+import { getRelativeClawDir, getClawConfigPath } from '../../../src/core/claw-topology/index.js';
 import { getGlobalConfigPath } from '../../../src/assembly/global-config-path.js';
 import { CliError } from '../../../src/cli/errors.js';
 
@@ -21,7 +21,7 @@ vi.mock('../../../src/core/claw-topology/claw-instance-paths.js', async (importO
   const actual = await importOriginal<typeof import('../../../src/core/claw-topology/claw-instance-paths.js')>();
   return {
     ...actual,
-    getClawDir: vi.fn(),
+    getRelativeClawDir: vi.fn(),
     getClawConfigPath: vi.fn(),
   };
 });
@@ -90,7 +90,7 @@ describe('streamCommand', () => {
   beforeEach(() => {
     vi.mocked(loadGlobalConfig).mockReturnValue({} as any);
     vi.mocked(clawExists).mockReturnValue(true);
-    vi.mocked(getClawDir).mockImplementation((name: string) => path.join('/tmp/chestnut/claws', name));
+    vi.mocked(getRelativeClawDir).mockImplementation((name: string) => path.join('claws', name));
     vi.mocked(getGlobalConfigPath).mockReturnValue('/tmp/chestnut/config.yaml');
     vi.mocked(getClawConfigPath).mockImplementation((name: string) => path.join('/tmp/chestnut/claws', name, 'config.yaml'));
   });
