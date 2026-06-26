@@ -65,14 +65,14 @@ describe(
         fs,
         tmpDir,
         new Map([
-          ['cron_job_started', 'tick'],
+          ['daemon_liveness_heartbeat', 'tick'],
           ['turn_start', 'audit'],
         ]),
       );
 
-      dw.write('cron_job_started', 'job=a');
-      dw.write('cron_job_started', 'job=b');
-      dw.write('cron_job_started', 'job=c');
+      dw.write('daemon_liveness_heartbeat', 'job=a');
+      dw.write('daemon_liveness_heartbeat', 'job=b');
+      dw.write('daemon_liveness_heartbeat', 'job=c');
       dw.write('turn_start', 'trace_id=t1');
       dw.write('turn_end', 'trace_id=t1');
 
@@ -91,10 +91,10 @@ describe(
       const dw = new DispatchingAuditWriter(
         fs,
         tmpDir,
-        new Map([['cron_job_started', 'tick']]),
+        new Map([['daemon_liveness_heartbeat', 'tick']]),
       );
 
-      dw.write('cron_job_started', 'job=a');
+      dw.write('daemon_liveness_heartbeat', 'job=a');
       dw.dispose();
 
       expect(nodeFs.writeFileSync).toHaveBeenCalled();
@@ -116,12 +116,12 @@ describe(
         fs,
         tmpDir,
         new Map([
-          ['cron_job_started', 'tick'],
+          ['daemon_liveness_heartbeat', 'tick'],
           ['turn_start', 'audit'],
         ]),
       );
 
-      dw.write('cron_job_started', 'job=a');
+      dw.write('daemon_liveness_heartbeat', 'job=a');
       dw.write('turn_start', 'trace_id=t1');
       dw.dispose();
 
@@ -142,7 +142,7 @@ describe(
       );
       expect(tickOrigin.length).toBe(1);
       expect(auditOrigin.length).toBe(1);
-      expect(tickOrigin[0]).toContain('cron_job_started');
+      expect(tickOrigin[0]).toContain('daemon_liveness_heartbeat');
       expect(auditOrigin[0]).toContain('turn_start');
     });
 
@@ -162,8 +162,8 @@ describe(
         read: vi.fn(async () => {
           // synthetic dump: origin\tline\n format
           return (
-            `${join(tmpDir, 'tick.tsv')}\t2026-06-07T10:00:00.000Z\tseq=1\tcron_job_started\tjob=a\n` +
-            `${join(tmpDir, 'tick.tsv')}\t2026-06-07T10:00:01.000Z\tseq=2\tcron_job_started\tjob=b\n` +
+            `${join(tmpDir, 'tick.tsv')}\t2026-06-07T10:00:00.000Z\tseq=1\tdaemon_liveness_heartbeat\tjob=a\n` +
+            `${join(tmpDir, 'tick.tsv')}\t2026-06-07T10:00:01.000Z\tseq=2\tdaemon_liveness_heartbeat\tjob=b\n` +
             `${join(tmpDir, 'audit.tsv')}\t2026-06-07T10:00:02.000Z\tseq=1\tturn_start\ttrace_id=t1\n`
           );
         }),
@@ -184,13 +184,13 @@ describe(
       const tickAppended = appended.get(join(tmpDir, 'tick.tsv'))!;
       const auditAppended = appended.get(join(tmpDir, 'audit.tsv'))!;
 
-      expect(tickAppended).toContain('cron_job_started');
+      expect(tickAppended).toContain('daemon_liveness_heartbeat');
       expect(tickAppended).toContain('job=a');
       expect(tickAppended).toContain('job=b');
       expect(tickAppended).not.toContain('turn_start');
 
       expect(auditAppended).toContain('turn_start');
-      expect(auditAppended).not.toContain('cron_job_started');
+      expect(auditAppended).not.toContain('daemon_liveness_heartbeat');
 
       expect(synced).toContain(join(tmpDir, 'tick.tsv'));
       expect(synced).toContain(join(tmpDir, 'audit.tsv'));
@@ -202,7 +202,7 @@ describe(
         fs,
         tmpDir,
         new Map([
-          ['cron_job_started', 'tick'],
+          ['daemon_liveness_heartbeat', 'tick'],
           ['turn_start', 'audit'],
         ]),
       );
@@ -210,7 +210,7 @@ describe(
       // overflow fallback buffer: write 1002 entries (cap=1000 → 2 dropped)
       for (let i = 0; i < 1002; i++) {
         if (i % 2 === 0) {
-          dw.write('cron_job_started', `job=${i}`);
+          dw.write('daemon_liveness_heartbeat', `job=${i}`);
         } else {
           dw.write('turn_start', `trace_id=t${i}`);
         }
@@ -237,7 +237,7 @@ describe(
       const dw = new DispatchingAuditWriter(
         fs,
         tmpDir,
-        new Map([['cron_job_started', 'tick']]),
+        new Map([['daemon_liveness_heartbeat', 'tick']]),
       );
 
       dw.write('turn_start', 'trace_id=t1');
@@ -260,12 +260,12 @@ describe(
         fs,
         tmpDir,
         new Map([
-          ['cron_job_started', 'tick'],
+          ['daemon_liveness_heartbeat', 'tick'],
           ['turn_start', 'audit'],
         ]),
       );
 
-      dw.write('cron_job_started', 'job=a');
+      dw.write('daemon_liveness_heartbeat', 'job=a');
 
       // dispose should not throw and should trigger dumpFallback
       expect(() => dw.dispose()).not.toThrow();
@@ -282,12 +282,12 @@ describe(
         fs,
         tmpDir,
         new Map([
-          ['cron_job_started', 'tick'],
+          ['daemon_liveness_heartbeat', 'tick'],
           ['turn_start', 'audit'],
         ]),
       );
 
-      dw.write('cron_job_started', 'job=a');
+      dw.write('daemon_liveness_heartbeat', 'job=a');
       dw.write('turn_start', 'trace_id=t1');
 
       // only one exit listener despite two internal writers + fallback pushes

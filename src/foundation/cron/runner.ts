@@ -263,8 +263,6 @@ export class CronRunner {
       this.lastRunKey.set(job.name, key);
       this.running.add(job.name);
 
-      this.audit.write(CRON_AUDIT_EVENTS.JOB_STARTED, `job=${job.name}`, `run_key=${key}`);
-
       let handlerPromise: Promise<void>;
       try {
         const jobController = new AbortController();
