@@ -19,6 +19,9 @@ export type { PerformRegimeSwitchOpts } from './regime-switch.js';
 // allowlist: assembly/assemble.ts (装配根 bootstrap by-design)。
 export { DIALOG_DIR, DIALOG_ARCHIVE_DIR, CURRENT_DIALOG_FILE } from './dirs.js';
 
+// phase 751: lightweight archive listing
+export { listArchiveDialogFiles } from './list-archive.js';
+
 // phase 147 Step B: lookup helper + 4 级降级路径
 export {
   lookupContentByToolUseId,
