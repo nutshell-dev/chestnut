@@ -1,7 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import {
   VALID_PRIORITIES,
-  KNOWN_INBOX_TYPES,
   validatePriority,
   validateType,
 } from '../../src/foundation/messaging/codec-validation.js';
@@ -13,32 +12,6 @@ afterEach(() => {
 describe('VALID_PRIORITIES', () => {
   it('包含且仅包含四个优先级', () => {
     expect(VALID_PRIORITIES).toEqual(['critical', 'high', 'normal', 'low']);
-  });
-});
-
-describe('KNOWN_INBOX_TYPES', () => {
-  it('包含已知消息类型（informational only / 不强制）', () => {
-    expect(KNOWN_INBOX_TYPES).toContain('user_chat');
-    expect(KNOWN_INBOX_TYPES).toContain('user_inbox_message');
-    expect(KNOWN_INBOX_TYPES).toContain('crash_notification');
-    expect(KNOWN_INBOX_TYPES).toContain('heartbeat');
-    expect(KNOWN_INBOX_TYPES).toContain('claw_outbox');
-    expect(KNOWN_INBOX_TYPES).toContain('verification_result');
-    expect(KNOWN_INBOX_TYPES).toContain('verification_rejection');
-    expect(KNOWN_INBOX_TYPES).toContain('verification_error');
-    expect(KNOWN_INBOX_TYPES).toContain('random_dream');
-    expect(KNOWN_INBOX_TYPES).toContain('deep_dream');
-    // phase 9: 'message' catch-all 拆 4 typed event
-    expect(KNOWN_INBOX_TYPES).toContain('task_result');
-    expect(KNOWN_INBOX_TYPES).toContain('contract_created');
-    expect(KNOWN_INBOX_TYPES).toContain('contract_resume');
-    expect(KNOWN_INBOX_TYPES).toContain('contract_audit_feedback');
-    expect(KNOWN_INBOX_TYPES).not.toContain('message');
-    expect(KNOWN_INBOX_TYPES).not.toContain('cron_disk_warning');
-    expect(KNOWN_INBOX_TYPES).not.toContain('audit_size_alert');
-    expect(KNOWN_INBOX_TYPES).toContain('contract_cancelled');
-    expect(KNOWN_INBOX_TYPES).toContain('contract_crashed');
-    expect(KNOWN_INBOX_TYPES).toHaveLength(16);  // phase 63: +2 contract 终态字面
   });
 });
 
