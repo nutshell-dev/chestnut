@@ -12,7 +12,6 @@ export const CRON_AUDIT_EVENTS = {
   PARSE_INVALID: 'cron_parse_invalid',
   PARSE_FALLBACK: 'cron_parse_fallback',
   JOB_ERROR: 'cron_job_error',
-  JOB_STARTED: 'cron_job_started',        // NEW phase1108: tick dispatch
   HANDLER_TIMEOUT: 'cron_handler_timeout',
   HANDLER_ABORTED: 'cron_handler_aborted',  // NEW phase 1232 r132 C
   HANDLER_STUCK: 'cron_handler_stuck',
@@ -32,8 +31,6 @@ export const CRON_AUDIT_EVENTS = {
  * 异常 / 业务 event 留 'audit' file（业务事件主 file）.
  */
 export const CRON_FILE_ROUTING: Readonly<Record<string, 'audit' | 'tick'>> = {
-  cron_job_started: 'tick',
-  cron_outbox_summary_skipped: 'tick',
   // 异常类留 audit
   cron_handler_aborted: 'audit',
   cron_handler_timeout: 'audit',

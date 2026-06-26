@@ -23,8 +23,6 @@ describe('file-routing-aggregator (phase 159)', () => {
   });
 
   it('lookupFileForType returns correct file for known types', () => {
-    expect(lookupFileForType('cron_job_started')).toBe('tick');
-    expect(lookupFileForType('cron_outbox_summary_skipped')).toBe('tick');
     expect(lookupFileForType('daemon_liveness_heartbeat')).toBe('tick');
     expect(lookupFileForType('daemon_loop_iteration')).toBe('tick');
     expect(lookupFileForType('viewport_render_batch')).toBe('viewport');
