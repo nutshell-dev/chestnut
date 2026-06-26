@@ -247,7 +247,6 @@
       "context_trim_started"
     ],
     "core_contract_audit-events": [
-      "contract_archive_nonterminal_detected",
       "contract_archive_partial_recovery_failed",
       "contract_archive_precondition_violated",
       "contract_archive_progress_read_failed",

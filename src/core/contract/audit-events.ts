@@ -117,8 +117,6 @@ export const CONTRACT_AUDIT_EVENTS = {
   CONTRACT_AUDIT_FEEDBACK_DELIVERED: 'contract_audit_feedback_delivered',
   // phase 188 Step A: archive 入口 status precondition violation
   CONTRACT_ARCHIVE_PRECONDITION_VIOLATED: 'contract_archive_precondition_violated',
-  // phase 188 Step B: archive 内发现 non-terminal status entry
-  CONTRACT_ARCHIVE_NONTERMINAL_DETECTED: 'contract_archive_nonterminal_detected',
   // phase 188 Step C: archive stale active 态 boot reconcile sweep
   CONTRACT_ARCHIVE_RECONCILE_STALE: 'contract_archive_reconcile_stale',
   CONTRACT_ARCHIVE_RECONCILE_FAILED: 'contract_archive_reconcile_failed',
@@ -234,7 +232,6 @@ export const CONTRACT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   contract_audit_drift_detected: 'audit',
   contract_audit_feedback_delivered: 'audit',
   contract_archive_precondition_violated: 'audit',
-  contract_archive_nonterminal_detected: 'audit',
   contract_archive_reconcile_stale: 'audit',
   contract_archive_reconcile_failed: 'audit',
   contract_archive_reconcile_summary: 'audit',
