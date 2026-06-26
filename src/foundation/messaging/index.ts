@@ -33,8 +33,10 @@ export {
   OUTBOX_DONE_DIR,
   OUTBOX_FAILED_DIR,
   OUTBOX_PROCESSING_DIR,
-  DEAD_LETTER_DIR,
 } from './dirs.js';
+
+import { resolveDlqDir } from './dirs.js';
+export { resolveDlqDir };
 
 // phase 1435 F8: audit events const re-export — 跨模块 (cli / daemon) 引用走 barrel。
 export { MESSAGING_AUDIT_EVENTS, MESSAGING_FILE_ROUTING } from './audit-events.js';
