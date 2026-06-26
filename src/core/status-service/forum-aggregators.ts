@@ -14,7 +14,7 @@
  */
 
 import type { FileSystem } from '../../foundation/fs/index.js';
-import { isFileNotFound } from '../../foundation/fs/index.js';
+
 import { ProcessManager, ProcessListUnavailable } from '../../foundation/process-manager/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
 import { listAuditFiles } from '../../foundation/audit/index.js';
@@ -82,7 +82,7 @@ export function computeProcessUptimeMs(
  * Returns 0 when inbox dir does not exist.
  */
 export async function computeClawInboxUnread(clawFs: FileSystem): Promise<number> {
-  const inboxReader = createInboxReader(clawFs, { write: () => {} } as AuditLog, 'inbox');
+  const inboxReader = createInboxReader(clawFs, { write: () => {} } as unknown as AuditLog, 'inbox');
   return await inboxReader.peekPendingCount();
 }
 
