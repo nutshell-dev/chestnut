@@ -191,6 +191,7 @@ export async function createRuntimeAssembly(
     toolRegistry.register(createShadowTool({
       getTurnSnapshot: () => runtime.getCallerSnapshot(),
       taskSystem,
+      subagentMaxSteps: maxSteps,
     }));
 
     return { snapshot, streamWriter, runtime };

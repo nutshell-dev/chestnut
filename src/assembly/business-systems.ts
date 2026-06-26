@@ -91,7 +91,7 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
   const {
     fsFactory, systemFs, clawFs, clawDir, clawId, isMotion,
     auditWriter, llm, contractManager, toolRegistry, skillRegistry,
-    toolTimeoutMs, maxConcurrent, outboxWriter,
+    toolTimeoutMs, maxConcurrent, outboxWriter, maxSteps,
   } = core;
 
   // A.6 selfInboxDir 提前到 taskSystem / callback 定义前（双链路保险 / cron job 注册块同步引用）
@@ -222,8 +222,8 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
 
   // phase 757: spawn/summon 工具改由 DI 注入 taskSystem，不再从 ExecContext 读取。
   // 注册放在 AsyncTaskSystem 构造完成后，确保 taskSystem 可用。
-  toolRegistry.register(createSpawnTool({ taskSystem, originClawId: clawId }));
-  toolRegistry.register(new SummonTool(taskSystem, clawId));
+  toolRegistry.register(createSpawnTool({ taskSystem, originClawId: clawId, subagentMaxSteps: maxSteps }));
+  toolRegistry.register(new SummonTool(taskSystem, clawId, maxSteps));
 
   let toolExecutor: IToolExecutor;
   try {

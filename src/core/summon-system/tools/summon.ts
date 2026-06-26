@@ -28,6 +28,7 @@ export const SUMMON_TOOL_NAME = 'summon' as const;
 export class SummonTool implements Tool {
   private readonly taskSystem?: { schedule(kind: string, payload: Record<string, unknown>): Promise<string> };
   private readonly originClawId?: string;
+  private readonly subagentMaxSteps?: number;
 
   readonly name = SUMMON_TOOL_NAME;
   readonly description = `创建子代理来给 claw 创建契约。支持两种模式（**按场景选**）：
@@ -58,9 +59,11 @@ export class SummonTool implements Tool {
   constructor(
     taskSystem?: { schedule(kind: string, payload: Record<string, unknown>): Promise<string> },
     originClawId?: string,
+    subagentMaxSteps?: number,
   ) {
     this.taskSystem = taskSystem;
     this.originClawId = originClawId;
+    this.subagentMaxSteps = subagentMaxSteps;
   }
 
   schema = {
@@ -261,7 +264,7 @@ export class SummonTool implements Tool {
       mode: 'standard',
       intent: userMessage,
       timeoutMs: SUMMON_SUBAGENT_TIMEOUT_MS,
-      maxSteps: maxSteps ?? ctx.subagentMaxSteps ?? ctx.maxSteps,
+      maxSteps: maxSteps ?? this.subagentMaxSteps ?? ctx.maxSteps,
       parentClawId: ctx.clawId,
       originClawId: this.originClawId ?? ctx.clawId,
       callerType,

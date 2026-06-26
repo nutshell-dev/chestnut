@@ -67,7 +67,7 @@ export async function runSpawnSync(opts: RunSpawnSyncOptions): Promise<ToolResul
       systemPrompt: opts.systemPrompt,
       resultDir,
       syncDir: path.join(opts.ctx.clawDir, TASKS_SYNC_DIR),
-      maxSteps: opts.maxSteps ?? opts.ctx.subagentMaxSteps ?? opts.ctx.maxSteps,
+      maxSteps: opts.maxSteps ?? opts.ctx.maxSteps,
       timeoutMs: opts.timeoutMs,
       isShadow: opts.ctx.callerLabel === SHADOW_CALLER_LABEL,
       signal: opts.ctx.signal,

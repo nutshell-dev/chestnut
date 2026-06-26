@@ -34,6 +34,8 @@ export interface SpawnToolDeps {
   taskSystem?: { schedule(kind: string, payload: Record<string, unknown>): Promise<string> };
   /** 创建链路的源头 clawId，同 daemon 内恒定（motion='motion'，clawA='clawA'） */
   originClawId?: string;
+  /** 同 daemon 内恒定的子代理步数上限（Assembly 从 config 注入） */
+  subagentMaxSteps?: number;
 }
 
 export function createSpawnTool(deps: SpawnToolDeps = {}): Tool {
@@ -80,7 +82,7 @@ export function createSpawnTool(deps: SpawnToolDeps = {}): Tool {
       const timeoutMs = typeof args.timeoutMs === 'number' ? args.timeoutMs : SPAWN_DEFAULT_TIMEOUT_MS;
       const maxSteps = typeof args.maxSteps === 'number'
         ? args.maxSteps
-        : (ctx.subagentMaxSteps ?? ctx.maxSteps);
+        : (deps.subagentMaxSteps ?? ctx.maxSteps);
       const asyncMode = args.async === undefined ? true : Boolean(args.async);
       const templateName = typeof args.template === 'string' ? args.template : DEFAULT_SPAWN_TEMPLATE;
 

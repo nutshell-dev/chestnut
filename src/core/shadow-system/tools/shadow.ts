@@ -30,6 +30,8 @@ export function createShadowTool(deps: {
   /** DI seam: optional runSubagent override (replaces vi.mock pattern) */
   runSubagent?: typeof defaultRunSubagent;
   taskSystem?: { schedule(kind: string, payload: Record<string, unknown>): Promise<string> };
+  /** 同 daemon 内恒定的子代理步数上限（Assembly 从 config 注入） */
+  subagentMaxSteps?: number;
 }): Tool {
   return {
     name: SHADOW_TOOL_NAME,
@@ -83,7 +85,7 @@ export function createShadowTool(deps: {
       if (!task) return { success: false, content: 'shadow: task is required', error: 'missing_task' };
 
       const timeoutMs = typeof args.timeoutMs === 'number' ? args.timeoutMs : SHADOW_DEFAULT_TIMEOUT_MS;
-      const maxSteps = typeof args.maxSteps === 'number' ? args.maxSteps : (ctx.subagentMaxSteps ?? ctx.maxSteps);
+      const maxSteps = typeof args.maxSteps === 'number' ? args.maxSteps : (deps.subagentMaxSteps ?? ctx.maxSteps);
       const asyncMode = args.async === undefined ? true : Boolean(args.async);
 
       const { systemPrompt, tools, messages } = await deps.getTurnSnapshot();
