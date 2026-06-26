@@ -20,7 +20,6 @@ import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 
 
 import type { AuditLog } from '../audit/types.js';
-import type { DialogStore } from '../dialog-store/index.js';
 
 import type { ToolRegistry } from './types.js';
 import type { PermissionChecker } from '../tool-protocol/index.js';
@@ -65,11 +64,6 @@ export interface ExecContextImplOptions {
   signal?: AbortSignal;
   
   
-  
-  /** Max steps for subagents created via spawn tool */
-  subagentMaxSteps?: number;
-  
-  
   /** AuditLog writer for tool events */
   auditWriter?: AuditLog;
   /** Current tool_use block id (set by ToolExecutor before tool.execute) */
@@ -83,8 +77,6 @@ export interface ExecContextImplOptions {
   persistReadFileState?: boolean;
   /** Tool registry reference for sync spawn path (phase 766) */
   registry?: ToolRegistry;
-  /** phase 27: main dialog store injection (was as { mainDialogStore } cast, phase 768) */
-  mainDialogStore?: DialogStore;
   /** Assembly-injected per-claw permission checker (replaces module-level factory pattern, phase 1006) */
   permissionChecker?: PermissionChecker;
   /** Tool-level wall-clock timeout, inherited from globalConfig.tool_timeout_ms / Assembly 装配期注入 (phase 1029 / F-2) */
@@ -158,13 +150,11 @@ export class ExecContextImpl implements ExecContext {
   llm?: LLMOrchestrator;
   maxSteps: number;
   signal?: AbortSignal;
-  subagentMaxSteps: number;
   auditWriter?: AuditLog;
   currentToolUseId?: ToolUseId;
   readFileState: Map<string, FileState>;
   persistReadFileState?: boolean;
   registry?: ToolRegistry;
-  mainDialogStore?: DialogStore;
   permissionChecker?: PermissionChecker;
   toolTimeoutMs?: number;
   trace_id?: TraceId;
@@ -187,13 +177,11 @@ export class ExecContextImpl implements ExecContext {
     this.llm = options.llm;
     this.maxSteps = options.maxSteps;
     this.signal = options.signal;
-    this.subagentMaxSteps = options.subagentMaxSteps ?? options.maxSteps;
     this.auditWriter = options.auditWriter;
     this.currentToolUseId = options.currentToolUseId;
     this.readFileState = options.readFileState ?? new Map();
     this.persistReadFileState = options.persistReadFileState;
     this.registry = options.registry;
-    this.mainDialogStore = options.mainDialogStore;
     this.permissionChecker = options.permissionChecker;
     this.toolTimeoutMs = options.toolTimeoutMs;
     this.trace_id = options.trace_id;

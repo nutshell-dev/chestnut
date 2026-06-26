@@ -17,7 +17,7 @@ import { makeAudit } from '../../helpers/audit.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { ToolRegistryImpl } from '../../../src/foundation/tools/registry.js';
 import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/index.js';
-import type { DialogStore } from '../../../src/foundation/dialog-store/index.js';
+
 import { createMockTaskSystem } from '../../helpers/task-system.js';
 
 const { mockSchedule } = vi.hoisted(() => ({
@@ -67,20 +67,6 @@ describe('shadow tool async (phase 1087)', () => {
     } as unknown as LLMOrchestrator;
   }
 
-  function makeMockDialogStore(): DialogStore {
-    return {
-      restorePrefix: vi.fn().mockResolvedValue({
-        messages: [
-          { role: 'user', content: 'hi' },
-          { role: 'assistant', content: [{ type: 'tool_use', id: 'tu-1', name: 'shadow', input: {} }] },
-        ],
-        systemPrompt: 'sp',
-        toolsForLLM: [],
-        meta: { foundIn: 'current' },
-      }),
-    } as unknown as DialogStore;
-  }
-
   beforeEach(async () => {
     tempDir = await createTempDir();
     fs = new NodeFileSystem({ baseDir: tempDir });
@@ -100,7 +86,6 @@ describe('shadow tool async (phase 1087)', () => {
       auditWriter: audit.audit,
       llm: makeLLM(),
       registry: makeRegistry(),
-      mainDialogStore: makeMockDialogStore(),
       currentToolUseId: 'tu-1',
     });
     shadowTool = createShadowTool({

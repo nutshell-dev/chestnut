@@ -4,7 +4,7 @@
  * Coverage:
  * - missing task validation
  * - recursion rejection (ctx.callerLabel === 'shadow')
- * - missing main context (no mainDialogStore)
+ * - missing main context (no in-memory dialog state)
  * - shadow path via runShadow
  * - spawn async=true rejected from within shadow (phase 766 defense)
  * - summon rejected from within shadow (phase 767 defense、phase 1119 renamed dispatch → summon)
@@ -23,7 +23,7 @@ import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { ToolRegistryImpl } from '../../../src/foundation/tools/registry.js';
 import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/index.js';
 import { createMockTaskSystem } from '../../helpers/task-system.js';
-import type { DialogStore } from '../../../src/foundation/dialog-store/index.js';
+
 import { SHADOW_AUDIT_EVENTS } from '../../../src/core/shadow-system/audit-events.js';
 import { DONE_TOOL_NAME } from '../../../src/core/subagent/tools/done.js';
 import { ToolTimeoutError } from '../../../src/foundation/tools/errors.js';  // phase 262: hoist
@@ -71,20 +71,6 @@ describe('shadow tool (phase 767)', () => {
     } as unknown as LLMOrchestrator;
   }
 
-  function makeMockDialogStore(): DialogStore {
-    return {
-      restorePrefix: vi.fn().mockResolvedValue({
-        messages: [
-          { role: 'user', content: 'hi' },
-          { role: 'assistant', content: [{ type: 'tool_use', id: 'tu-1', name: 'shadow', input: {} }] },
-        ],
-        systemPrompt: 'sp',
-        toolsForLLM: [],
-        meta: { foundIn: 'current' },
-      }),
-    } as unknown as DialogStore;
-  }
-
   beforeEach(async () => {
     tempDir = await createTempDir();
     fs = new NodeFileSystem({ baseDir: tempDir });
@@ -103,7 +89,6 @@ describe('shadow tool (phase 767)', () => {
       auditWriter: audit.audit,
       llm: makeLLM(),
       registry: makeRegistry(),
-      mainDialogStore: makeMockDialogStore(),
       currentToolUseId: 'tu-1',
     });
     shadowTool = createShadowTool({
@@ -188,7 +173,6 @@ describe('shadow tool (phase 767)', () => {
         auditWriter: audit.audit,
         llm: makeLLM(),
         registry: makeRegistry(),
-        mainDialogStore: makeMockDialogStore(),
       });
       const shadowToolNoToolUseId = createShadowTool({
         getTurnSnapshot: () => ({

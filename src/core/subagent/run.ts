@@ -120,7 +120,6 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
     fs: opts.fs,
     fsFactory: opts.fsFactory,
     llm: opts.llm,
-    subagentMaxSteps: opts.maxSteps,  // mirror 原 agent.ts: subagentMaxSteps ?? maxSteps 默认（runSubagent 不暴露 subagentMaxSteps、默 maxSteps）
     auditWriter,
   });
 
