@@ -16,6 +16,7 @@ import { buildLLMConfig } from './config-load.js';
 import { createToolRegistry, type ToolRegistry } from '../foundation/tools/index.js';
 import { createFileTools } from '../foundation/file-tool/index.js';
 import { createCommandTools } from '../foundation/command-tool/index.js';
+import { createAntiSelfKillGuard } from './anti-self-kill.js';
 import { checkLegacySummonStateFiles } from '../core/summon-system/index.js';
 import { createSkillSystem as defaultCreateSkillSystem, SkillSystem } from '../foundation/skill-system/index.js';
 import { SKILLS_DIR_DEFAULT } from '../foundation/skill-system/index.js';
@@ -210,7 +211,8 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
       });
 
       // phase378 后 exec 业务归 CommandTool L2 / 不再经 registerBuiltinTools / Assembly 显式注册
-      const commandTools = createCommandTools();
+      // phase758: motion-chain self-kill guard 由 L6 Assembly 注入
+      const commandTools = createCommandTools(isMotion ? createAntiSelfKillGuard() : undefined);
       toolRegistry.register(commandTools.exec);
     } catch (e) {
       auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=tool_registry`, `phase=construct`, `reason=${formatErr(e)}`);
