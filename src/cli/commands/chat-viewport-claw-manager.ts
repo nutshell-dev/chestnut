@@ -1,7 +1,7 @@
 import * as path from 'path';
 import { formatErr } from "../../foundation/node-utils/index.js";
 import { isAlive } from '../../foundation/process-exec/index.js';
-import { getContractCreatedMs } from '../../core/contract/index.js';
+import { getActiveContractTimestamp } from '../../core/contract/index.js';
 import { LLM_OUTPUT_EVENTS } from '../../foundation/stream/index.js';
 import { STREAM_FILE } from '../../foundation/stream/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
@@ -214,7 +214,7 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
       if (loc.kind !== 'local') continue;
       if (!clawTrackMap.has(clawId)) {
         const clawDir = loc.clawDir;
-        const contractMs = getContractCreatedMs(fs, clawDir, audit);
+        const contractMs = getActiveContractTimestamp(fs, clawDir);
         if (contractMs === null) continue;
         const track = makeClawTrack();
         track.hasContract = true;
@@ -233,7 +233,7 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
       }
       const loc2 = clawTopology.resolve(makeClawId(clawId));
       if (loc2.kind !== 'local') continue;
-      track.hasContract = getContractCreatedMs(fs, loc2.clawDir, audit) !== null;
+      track.hasContract = getActiveContractTimestamp(fs, loc2.clawDir) !== null;
       if (track.isAlive && !clawWatchers.has(clawId)) {
         const streamFile = path.join(loc2.clawDir, STREAM_FILE);
         attachClawWatcher(clawId, streamFile);

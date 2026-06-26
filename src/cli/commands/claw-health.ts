@@ -14,7 +14,7 @@ import { createProcessManagerForCLI } from '../../foundation/process-manager/ind
 import { makeClawId } from '../../foundation/claw-identity/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
-import { CONTRACT_DIR } from '../../core/contract/index.js';
+import { hasActiveContract } from '../../core/contract/index.js';
 import { INBOX_PENDING_DIR, OUTBOX_PENDING_DIR } from '../../foundation/messaging/index.js';
 import { formatRelativeTime, getLastActiveMs } from './claw-shared.js';
 
@@ -59,16 +59,8 @@ export async function healthCommand(deps: { fsFactory: (baseDir: string) => File
 
   // Check contract status
   let contractStatus = 'none';
-  for (const sub of ['active', 'paused']) {
-    try {
-      const entries = clawFs.listSync(path.join(CONTRACT_DIR, sub), { includeDirs: true });
-      if (entries.some(e => e.isDirectory)) {
-        contractStatus = sub;
-        break;
-      }
-    } catch (err) {
-      if (!isFileNotFound(err)) throw err;
-    }
+  if (hasActiveContract(clawFs, '.')) {
+    contractStatus = 'active';
   }
 
   // Last active time（统一使用 stream.jsonl 指标）

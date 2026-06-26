@@ -29,6 +29,7 @@ import { createStreamReader, STREAM_FILE, findRecentTurnStartOffset } from '../f
 import { createNotifyClawTool } from '../foundation/messaging/tools/notify-claw.js';
 import { formatClawStatusHint } from '../cli/utils/claw-status-hints.js';
 import { OutboxReader } from '../foundation/messaging/index.js';
+import { hasActiveContract } from '../core/contract/index.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../core/claw-topology/index.js';
 import { makeClawId } from '../foundation/claw-identity/index.js';
 import type { CoreInfraOutput } from './core-infrastructure.js';
@@ -101,8 +102,7 @@ export async function createMotionAddons(
     hasActiveContract: (clawId: string) => { // phase 241
       try {
         const clawFs = fsFactory(path.join(chestnutRoot, CLAWS_DIR, clawId));
-        const entries = clawFs.listSync(path.join('contract', 'active'), { includeDirs: true });
-        return entries.some(e => e.isDirectory);
+        return hasActiveContract(clawFs, '.');
       } catch {
         return false;
       }

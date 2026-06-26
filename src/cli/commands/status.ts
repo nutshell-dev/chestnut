@@ -51,7 +51,7 @@ export async function statusCommand(deps: { fsFactory: (baseDir: string) => File
     motionDir,
   });
 
-  const view = computeForumStatusView({
+  const view = await computeForumStatusView({
     fsFactory: deps.fsFactory,
     baseDir,
     clawTopology: topology,
