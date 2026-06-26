@@ -195,8 +195,8 @@ export async function createMotionAddons(
         createAuditSizeMonitorJob({
           fs: chestnutFs,
           audit: auditWriter,
-          motionAuditPath: path.join(chestnutRoot, 'motion', AUDIT_FILE),
-          rootAuditPath: path.join(chestnutRoot, AUDIT_FILE),
+          primaryAuditPath: path.join(chestnutRoot, 'motion', AUDIT_FILE),
+          secondaryAuditPath: path.join(chestnutRoot, AUDIT_FILE),
           streamLog: streamWriter,   // phase 8: viewport stream (取代 motionInbox)
         }, globalConfig),
         createOutboxSummaryJob({

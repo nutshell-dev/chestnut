@@ -25,19 +25,7 @@ import type { TraceId } from '../audit/types.js';
  * phase 1337 r138 D fork: L2c capability-tag enum.
  * Framework-level capability dimension, decoupled from L3 business CallerType.
  */
-export type ToolGroup =
-  | 'fs-read'
-  | 'fs-write'
-  | 'spawn'
-  | 'audit'
-  | 'llm'
-  | 'cron'
-  | 'skill'
-  | 'messaging'
-  | 'memory'
-  | 'status'
-  | 'shadow'
-  | 'subagent-protocol';
+export type ToolGroup = string;
 
 /**
  * File overwrite gate state per file path.

@@ -6,7 +6,6 @@
  */
 
 import type { ToolProfile } from '../foundation/tool-protocol/index.js';
-import type { ToolGroup } from '../foundation/tools/types.js';
 
 export type DispatchCallerType = 'shadow' | 'miner';
 export type CallerType = 'motion' | 'claw' | 'subagent' | 'verifier' | 'shadow' | 'miner';
@@ -28,11 +27,11 @@ export function callerTypeToProfile(callerType: string): ToolProfile {
  * L2c tools 框架不知 CallerType / 通过 ToolContext.allowedGroups 接收 group set。
  * Record<CallerType, ...> 编译期 exhaustive enforce 6 CallerType 全 cover.
  */
-export const CALLER_TYPE_TO_GROUPS: Readonly<Record<CallerType, ReadonlySet<ToolGroup>>> = Object.freeze({
-  motion: new Set<ToolGroup>(['fs-read', 'fs-write', 'spawn', 'audit', 'llm', 'cron', 'skill', 'messaging', 'memory', 'status', 'shadow', 'subagent-protocol']),
-  claw:   new Set<ToolGroup>(['fs-read', 'fs-write', 'spawn', 'audit', 'llm', 'cron', 'skill', 'messaging', 'memory', 'status', 'shadow', 'subagent-protocol']),
-  subagent: new Set<ToolGroup>(['fs-read', 'fs-write', 'audit', 'llm', 'skill', 'messaging', 'memory', 'status', 'subagent-protocol']),
-  shadow: new Set<ToolGroup>(['fs-read', 'fs-write', 'audit', 'llm', 'skill', 'memory', 'status', 'subagent-protocol']),
-  miner:  new Set<ToolGroup>(['fs-read', 'audit', 'llm', 'memory', 'subagent-protocol']),
-  verifier: new Set<ToolGroup>(['fs-read', 'audit', 'llm', 'memory', 'subagent-protocol']),
+export const CALLER_TYPE_TO_GROUPS: Readonly<Record<CallerType, ReadonlySet<string>>> = Object.freeze({
+  motion: new Set(['fs-read', 'fs-write', 'spawn', 'audit', 'llm', 'cron', 'skill', 'messaging', 'memory', 'status', 'shadow', 'subagent-protocol']),
+  claw:   new Set(['fs-read', 'fs-write', 'spawn', 'audit', 'llm', 'cron', 'skill', 'messaging', 'memory', 'status', 'shadow', 'subagent-protocol']),
+  subagent: new Set(['fs-read', 'fs-write', 'audit', 'llm', 'skill', 'messaging', 'memory', 'status', 'subagent-protocol']),
+  shadow: new Set(['fs-read', 'fs-write', 'audit', 'llm', 'skill', 'memory', 'status', 'subagent-protocol']),
+  miner:  new Set(['fs-read', 'audit', 'llm', 'memory', 'subagent-protocol']),
+  verifier: new Set(['fs-read', 'audit', 'llm', 'memory', 'subagent-protocol']),
 });
