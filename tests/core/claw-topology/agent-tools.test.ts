@@ -33,7 +33,7 @@ describe('createCrossClawReadTool', () => {
       clawsDir: '/chestnut/claws',
       workspaceDir: '/chestnut/motion/clawspace',
       syncDir: '/chestnut/motion/sync',
-      isMotionChain: true,
+
       profile: 'full',
       allowedGroups: new Set(['fs-read']),
       callerLabel: 'motion',
@@ -66,14 +66,14 @@ describe('createCrossClawReadTool', () => {
   });
 
   it('schema 含 claw 属性', () => {
-    const tool = createCrossClawReadTool({ topology: mockTopology, motionClawId: makeClawId('motion') });
+    const tool = createCrossClawReadTool({ topology: mockTopology, allowed: true });
     expect(tool.schema.properties).toHaveProperty('claw');
     expect(tool.name).toBe(readTool.name);
   });
 
   it('args.claw === undefined → delegate base tool（同 claw fallback）', async () => {
     const spy = vi.spyOn(readTool, 'execute').mockResolvedValue({ success: true, content: 'hello' });
-    const tool = createCrossClawReadTool({ topology: mockTopology, motionClawId: makeClawId('motion') });
+    const tool = createCrossClawReadTool({ topology: mockTopology, allowed: true });
     const ctx = makeBaseCtx();
     const result = await tool.execute({ path: 'test.txt' }, ctx);
     expect(result).toEqual({ success: true, content: 'hello' });
@@ -89,7 +89,7 @@ describe('createCrossClawReadTool', () => {
       expect(passedCtx.fs).toBeDefined();
       return { success: true, content: 'cross-claw content' };
     });
-    const tool = createCrossClawReadTool({ topology: mockTopology, motionClawId: makeClawId('motion') });
+    const tool = createCrossClawReadTool({ topology: mockTopology, allowed: true });
     const ctx = makeBaseCtx({ readFileState: callerReadFileState });
     const result = await tool.execute({ path: 'test.txt', claw: 'claw1' }, ctx);
     expect(result.success).toBe(true);
@@ -102,7 +102,7 @@ describe('createCrossClawReadTool', () => {
   });
 
   it('args.claw === "*" → 拒（read 不支持 broadcast）', async () => {
-    const tool = createCrossClawReadTool({ topology: mockTopology, motionClawId: makeClawId('motion') });
+    const tool = createCrossClawReadTool({ topology: mockTopology, allowed: true });
     const ctx = makeBaseCtx();
     const result = await tool.execute({ path: 'test.txt', claw: '*' }, ctx);
     expect(result.success).toBe(false);
@@ -110,7 +110,7 @@ describe('createCrossClawReadTool', () => {
   });
 
   it('args.claw 无效 → 返回错误', async () => {
-    const tool = createCrossClawReadTool({ topology: mockTopology, motionClawId: makeClawId('motion') });
+    const tool = createCrossClawReadTool({ topology: mockTopology, allowed: true });
     const ctx = makeBaseCtx();
     const result = await tool.execute({ path: 'test.txt', claw: '../bad' }, ctx);
     expect(result.success).toBe(false);
@@ -125,7 +125,7 @@ describe('createCrossClawReadTool', () => {
       }),
     };
     const auditSpy = vi.fn();
-    const tool = createCrossClawReadTool({ topology: failingTopology });
+    const tool = createCrossClawReadTool({ topology: failingTopology, allowed: true });
     const ctx = makeBaseCtx({
       auditWriter: { write: auditSpy, preview: vi.fn(), message: vi.fn(), summary: vi.fn(), __brand: 'AuditLog' } as unknown as AuditLog,
     });
@@ -156,7 +156,7 @@ describe('createCrossClawLsTool', () => {
       clawsDir: '/chestnut/claws',
       workspaceDir: '/chestnut/motion/clawspace',
       syncDir: '/chestnut/motion/sync',
-      isMotionChain: true,
+
       profile: 'full',
       allowedGroups: new Set(['fs-read']),
       callerLabel: 'motion',
@@ -179,7 +179,7 @@ describe('createCrossClawLsTool', () => {
 
   it('无 claw → delegate base', async () => {
     const spy = vi.spyOn(lsTool, 'execute').mockResolvedValue({ success: true, content: 'dir' });
-    const tool = createCrossClawLsTool({ topology: mockTopology, motionClawId: makeClawId('motion') });
+    const tool = createCrossClawLsTool({ topology: mockTopology, allowed: true });
     const ctx = makeBaseCtx();
     const result = await tool.execute({ path: '.' }, ctx);
     expect(result).toEqual({ success: true, content: 'dir' });
@@ -187,7 +187,7 @@ describe('createCrossClawLsTool', () => {
   });
 
   it('claw "*" → 拒', async () => {
-    const tool = createCrossClawLsTool({ topology: mockTopology, motionClawId: makeClawId('motion') });
+    const tool = createCrossClawLsTool({ topology: mockTopology, allowed: true });
     const ctx = makeBaseCtx();
     const result = await tool.execute({ path: '.', claw: '*' }, ctx);
     expect(result.success).toBe(false);
@@ -213,7 +213,7 @@ describe('createCrossClawSearchTool broadcast', () => {
       clawsDir: '/chestnut/claws',
       workspaceDir: '/chestnut/motion/clawspace',
       syncDir: '/chestnut/motion/sync',
-      isMotionChain: true,
+
       profile: 'full',
       allowedGroups: new Set(['fs-read']),
       callerLabel: 'motion',
@@ -239,7 +239,7 @@ describe('createCrossClawSearchTool broadcast', () => {
     const spy = vi.spyOn(searchTool, 'execute').mockImplementation(async (_args, passedCtx) => {
       return { success: true, content: `found in ${path.basename(passedCtx.clawDir)}` };
     });
-    const tool = createCrossClawSearchTool({ topology: mockTopology, motionClawId: makeClawId('motion') });
+    const tool = createCrossClawSearchTool({ topology: mockTopology, allowed: true });
     const ctx = makeBaseCtx();
     const result = await tool.execute({ text: 'foo', claw: '*' }, ctx);
     expect(result.success).toBe(true);
@@ -250,9 +250,8 @@ describe('createCrossClawSearchTool broadcast', () => {
 
   it('非 motion 调 claw: "*" → 拒 + emit cross_claw_broadcast_motion_only_violation', async () => {
     const auditSpy = vi.fn();
-    const tool = createCrossClawSearchTool({ topology: mockTopology, motionClawId: makeClawId('motion') });
+    const tool = createCrossClawSearchTool({ topology: mockTopology, allowed: false });
     const ctx = makeBaseCtx({
-      isMotionChain: false,
       clawId: 'claw1',
       auditWriter: { write: auditSpy, preview: vi.fn(), message: vi.fn(), summary: vi.fn(), __brand: 'AuditLog' } as unknown as AuditLog,
     });
@@ -276,7 +275,7 @@ describe('createCrossClawSearchTool broadcast', () => {
     };
     const auditSpy = vi.fn();
     const spy = vi.spyOn(searchTool, 'execute').mockResolvedValue({ success: true, content: 'found' });
-    const tool = createCrossClawSearchTool({ topology: failingTopology, motionClawId: makeClawId('motion') });
+    const tool = createCrossClawSearchTool({ topology: failingTopology, allowed: true });
     const ctx = makeBaseCtx({
       auditWriter: { write: auditSpy, preview: vi.fn(), message: vi.fn(), summary: vi.fn(), __brand: 'AuditLog' } as unknown as AuditLog,
     });
@@ -292,7 +291,7 @@ describe('createCrossClawSearchTool broadcast', () => {
 
   it('无 claw → delegate base tool', async () => {
     const spy = vi.spyOn(searchTool, 'execute').mockResolvedValue({ success: true, content: 'ok' });
-    const tool = createCrossClawSearchTool({ topology: mockTopology, motionClawId: makeClawId('motion') });
+    const tool = createCrossClawSearchTool({ topology: mockTopology, allowed: true });
     const ctx = makeBaseCtx();
     const result = await tool.execute({ text: 'foo' }, ctx);
     expect(result).toEqual({ success: true, content: 'ok' });
@@ -303,7 +302,7 @@ describe('createCrossClawSearchTool broadcast', () => {
     const abortedSignal = new AbortController();
     abortedSignal.abort();
     const spy = vi.spyOn(searchTool, 'execute').mockResolvedValue({ success: true, content: 'found' });
-    const tool = createCrossClawSearchTool({ topology: mockTopology, motionClawId: makeClawId('motion') });
+    const tool = createCrossClawSearchTool({ topology: mockTopology, allowed: true });
     const ctx = makeBaseCtx({ signal: abortedSignal.signal });
     const result = await tool.execute({ text: 'foo', claw: '*' }, ctx);
     expect(result.success).toBe(true);

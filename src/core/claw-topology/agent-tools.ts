@@ -11,6 +11,7 @@ import { MOTION_CLAW_ID } from './motion-claw-id.js';
 /** phase 520: motionClawId DI 删除（caller 不再传）、agent-tools 直 import 自家 const */
 interface CrossClawToolDeps {
   topology: ClawTopology;
+  allowed: boolean;
 }
 
 function buildTargetCtx(baseCtx: ExecContext, targetClawDir: string): ExecContext {
@@ -189,7 +190,7 @@ export function createCrossClawSearchTool(deps: CrossClawToolDeps): Tool {
       }
       if (clawParam === '*') {
         // DP11 enforce: Motion-only
-        if (!ctx.isMotionChain) {
+        if (!deps.allowed) {
           ctx.auditWriter?.write(
             CLAW_TOPOLOGY_AUDIT_EVENTS.CROSS_CLAW_BROADCAST_MOTION_ONLY_VIOLATION,
             `callerClawId=${ctx.clawId}`,

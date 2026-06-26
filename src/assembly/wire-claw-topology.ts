@@ -27,6 +27,7 @@ export interface WireClawTopologyDeps {
   audit?: AuditLog;
   toolRegistry: ToolRegistry;
   motionDir?: string;
+  isMotion: boolean;
 }
 
 export function wireClawTopology(deps: WireClawTopologyDeps): ClawTopology {
@@ -36,7 +37,7 @@ export function wireClawTopology(deps: WireClawTopologyDeps): ClawTopology {
     audit: deps.audit,
     motionDir: deps.motionDir ?? 'motion',
   });
-  const wrapDeps = { topology };
+  const wrapDeps = { topology, allowed: deps.isMotion };
   deps.toolRegistry.register(createCrossClawReadTool(wrapDeps));
   deps.toolRegistry.register(createCrossClawLsTool(wrapDeps));
   deps.toolRegistry.register(createCrossClawSearchTool(wrapDeps));
