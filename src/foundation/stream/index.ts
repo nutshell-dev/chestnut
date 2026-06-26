@@ -19,6 +19,10 @@ export type { StreamReader } from './reader.js';
 export { createStreamReader, readAll } from './reader.js';
 export { findRecentTurnStartOffset } from './turn-start-offset.js';
 export { LLM_OUTPUT_EVENTS } from './types.js';
+
+// phase 749: sync NDJSON line parser for incremental stream readers
+export { parseStreamLines } from './parse-stream-lines.js';
+
 export { STREAM_AUDIT_EVENTS } from './audit-events.js';
 
 import type { FileSystem } from '../fs/index.js';
