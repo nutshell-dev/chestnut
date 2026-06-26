@@ -499,12 +499,11 @@ export class ToolExecutor extends ToolExecutorImpl {
    */
   getExecContext(
     profile: ToolProfile,
-    options: { clawId: string; maxSteps: number; signal?: AbortSignal; allowedGroups: ReadonlySet<ToolGroup>; callerLabel: string; originClawId?: string; permissionChecker?: PermissionChecker; subagentTaskId?: string; isMotionChain?: boolean }
+    options: { clawId: string; maxSteps: number; signal?: AbortSignal; allowedGroups: ReadonlySet<ToolGroup>; callerLabel: string; originClawId?: string; permissionChecker?: PermissionChecker; subagentTaskId?: string }
   ): ExecContextImpl {
     return new ExecContextImpl({
       clawId: options.clawId,
       clawDir: this.clawDir,
-      isMotionChain: options.isMotionChain,
       workspaceDir: this.workspaceDir,
       syncDir: this.syncDir,
       profile,

@@ -36,14 +36,6 @@ export interface ExecContextImplOptions {
   /** Claw workspace directory */
   clawDir: string;
 
-  /**
-   * phase 531: caller-pre-computed motion-chain status.
-   * foundation no longer holds motion concept; caller computes
-   * `clawId === MOTION_CLAW_ID || originClawId === MOTION_CLAW_ID` and passes the boolean.
-   * Optional: defaults to false; production callers (runtime / subagent) must compute and pass.
-   */
-  isMotionChain?: boolean;
-
   /** phase 509 / 可选 / 默认 fallback = path.join(clawDir, CLAWSPACE_DIR) */
   workspaceDir?: string;
 
@@ -118,8 +110,8 @@ export interface ExecContextImplOptions {
  * Clone an ExecContext while preserving prototype chain.
  *
  * Object spread `{ ...ctx, ... }` only copies own enumerable properties,
- * losing class methods/getters from ExecContextImpl (`isMotionChain`,
- * `getElapsedMs`). This helper preserves them.
+ * losing class methods/getters from ExecContextImpl (`getElapsedMs`).
+ * This helper preserves them.
  *
  * Works for both class instances (ExecContextImpl) and plain object mocks
  * (test fixtures) — falls back to Object.prototype when `ctx` has no class.
@@ -158,8 +150,6 @@ export function cloneExecContext(
 export class ExecContextImpl implements ExecContext {
   clawId: string;
   clawDir: string;
-  /** phase 531: caller-pre-computed motion-chain status (foundation 0 motion concept) */
-  isMotionChain: boolean;
   workspaceDir: string;
   syncDir: string;
   profile: ToolProfile;
@@ -190,7 +180,6 @@ export class ExecContextImpl implements ExecContext {
   constructor(options: ExecContextImplOptions) {
     this.clawId = options.clawId;
     this.clawDir = options.clawDir;
-    this.isMotionChain = options.isMotionChain ?? false;
     this.workspaceDir = options.workspaceDir ?? path.join(options.clawDir, CLAWSPACE_DIR);
     this.syncDir = options.syncDir;
     this.profile = options.profile;

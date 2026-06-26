@@ -46,7 +46,6 @@ describe('phase 1459 ExecContext ISP α-1 decomposition', () => {
     const ctx = await makeCtx();
     const id: ClawIdentity = ctx;
     expect(id.clawId).toBe('test-claw');
-    expect(typeof id.isMotionChain).toBe('boolean');
   });
 
   it('(2) ExecContextImpl is assignable to ToolPermissions', async () => {
@@ -91,7 +90,6 @@ describe('phase 1459 ExecContext ISP α-1 decomposition', () => {
     const clone = cloneExecContext(ctx, { stopRequested: false });
     expect(clone.stopRequested).toBe(false);
     expect(clone.clawId).toBe('test-claw');
-    expect(clone.isMotionChain).toBe(ctx.isMotionChain);
     clone.requestStop();
     expect(ctx.stopRequested).toBe(true);
   });

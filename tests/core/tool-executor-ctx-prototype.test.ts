@@ -61,7 +61,7 @@ describe('ToolExecutor: ctx prototype preservation across spread', () => {
     expect(result.content).toMatch(/Elapsed:\s*\d+ms/);
   });
 
-  it('read (motion chain): ctx.isMotionChain survives spread / same-claw read works', async () => {
+  it('read: same-claw read works after ExecContext spread', async () => {
     await fsp.mkdir(path.join(tmpDir, 'clawspace'), { recursive: true });
     await fsp.writeFile(path.join(tmpDir, 'clawspace', 'note.md'), 'same-claw content');
 
@@ -75,7 +75,7 @@ describe('ToolExecutor: ctx prototype preservation across spread', () => {
     expect(result.content).toBe('same-claw content');
   });
 
-  it('ls (motion chain): isMotionChain check passes (not rejected)', async () => {
+  it('ls: same-claw ls works after ExecContext spread', async () => {
     await fsp.mkdir(path.join(tmpDir, 'clawspace'), { recursive: true });
     await fsp.writeFile(path.join(tmpDir, 'clawspace', 'file1.txt'), 'a');
 
@@ -89,7 +89,7 @@ describe('ToolExecutor: ctx prototype preservation across spread', () => {
     expect(result.content).toContain('file1.txt');
   });
 
-  it('search (motion chain): isMotionChain check passes', async () => {
+  it('search: same-claw search works after ExecContext spread', async () => {
     await fsp.mkdir(path.join(tmpDir, 'clawspace'), { recursive: true });
     await fsp.writeFile(path.join(tmpDir, 'clawspace', 'a.txt'), 'hello world');
 

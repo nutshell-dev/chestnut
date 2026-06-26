@@ -86,7 +86,6 @@ export class SubAgent {
   private messages?: Message[];
   private _running = false;  // phase 464 (review N3-L): re-entry guard
   private originClawId?: string;
-  private originIsMotion: boolean = false;
   isShadow?: boolean;
   private taskStreamWriter: StreamLog;
   private auditWriter: AuditLog;
@@ -117,7 +116,6 @@ export class SubAgent {
     this.callerType = options.callerType;
     this.messages = options.messages;
     this.originClawId = options.originClawId;
-    this.originIsMotion = options.originIsMotion ?? false;
     this.isShadow = options.isShadow;
     this.taskStreamWriter = options.taskStreamWriter;
     this.auditWriter = options.auditWriter;
@@ -235,9 +233,6 @@ export class SubAgent {
             allowedGroups: CALLER_TYPE_TO_GROUPS[callerType],
             callerLabel: callerType,
             originClawId: this.originClawId,
-            /** phase 531: subagent inherits motion-chain from origin (motion-rooted subagent stays in motion chain)
-             *  phase 692 Step B: caller 算 originIsMotion 后传、SubAgent 不知 motion id 字面 */
-            isMotionChain: this.originIsMotion,
             permissionChecker: this.permissionChecker,
             subagentTaskId: this.agentId,
           }),
