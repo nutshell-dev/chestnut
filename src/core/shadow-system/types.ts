@@ -10,6 +10,7 @@ export interface SpawnShadowSubagentOptions {
   /** caller 已 strip incomplete tool_use 后的 motion dialog */
   mainMessages: Message[];
   ctx: ExecContext;
+  taskSystem?: { schedule(kind: string, payload: Record<string, unknown>): Promise<string> };
   /** motion 当前 turn 快照 system prompt（shadow KV cache 命中） */
   systemPrompt: string;
   /** motion 完整工具列表（shadow 继承全工具集） */

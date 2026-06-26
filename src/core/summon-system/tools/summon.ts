@@ -26,6 +26,8 @@ const SUMMON_SUBAGENT_TIMEOUT_MS = 3600 * 1000;
 export const SUMMON_TOOL_NAME = 'summon' as const;
 
 export class SummonTool implements Tool {
+  private readonly taskSystem?: { schedule(kind: string, payload: Record<string, unknown>): Promise<string> };
+
   readonly name = SUMMON_TOOL_NAME;
   readonly description = `创建子代理来给 claw 创建契约。支持两种模式（**按场景选**）：
 
@@ -52,7 +54,9 @@ export class SummonTool implements Tool {
   readonly accessesCaller = true;
 
   // phase 281 Step B: SummonStateStore 已删；decision 内嵌 SubAgentTask metadata。
-  constructor() {}
+  constructor(taskSystem?: { schedule(kind: string, payload: Record<string, unknown>): Promise<string> }) {
+    this.taskSystem = taskSystem;
+  }
 
   schema = {
     type: 'object',
@@ -149,7 +153,7 @@ export class SummonTool implements Tool {
             mainContextSnapshot,
             verify,
             targetClaw: args.targetClaw as string | undefined,
-          });
+          }, this.taskSystem);
 
       if (!('taskId' in result)) return result;
 
@@ -174,14 +178,17 @@ export class SummonTool implements Tool {
     }
   }
 
-  private async executeShadow(opts: {
-    userMessage: string;
-    idleTimeoutMs: number;
-    ctx: ExecContext;
-    mainContextSnapshot: { clawId: string; toolUseId: string } | undefined;
-    verify: boolean;
-    targetClaw?: string;
-  }): Promise<{ taskId: TaskId } | { success: false; content: string; error?: string }> {
+  private async executeShadow(
+    opts: {
+      userMessage: string;
+      idleTimeoutMs: number;
+      ctx: ExecContext;
+      mainContextSnapshot: { clawId: string; toolUseId: string } | undefined;
+      verify: boolean;
+      targetClaw?: string;
+    },
+    taskSystem?: { schedule(kind: string, payload: Record<string, unknown>): Promise<string> },
+  ): Promise<{ taskId: TaskId } | { success: false; content: string; error?: string }> {
     const { userMessage, idleTimeoutMs, ctx, verify, targetClaw } = opts;
     if (!ctx.getCallerSnapshot) {
       return {
@@ -199,6 +206,7 @@ export class SummonTool implements Tool {
       task: userMessage,
       mainMessages: stripped,
       ctx,
+      taskSystem,
       systemPrompt: snap.systemPrompt ?? '',
       toolsForLLM: snap.tools ?? [],
       timeoutMs: SUMMON_SUBAGENT_TIMEOUT_MS,
@@ -235,14 +243,14 @@ export class SummonTool implements Tool {
     // doesn't pass tools (mining branch reads ctx.registry on subagent boot per phase 1406).
     // Kept as documentation of intent; if AsyncTask schedule grows tools param later, plumb through.
 
-    if (!ctx.taskSystem) {
+    if (!this.taskSystem) {
       return {
         success: false,
         content: '[summon mining] task_system not available in execution context — async path requires AsyncTaskSystem injection',
       };
     }
 
-    const taskId = makeTaskId(await ctx.taskSystem.schedule('subagent', {
+    const taskId = makeTaskId(await this.taskSystem.schedule('subagent', {
       kind: 'subagent',
       mode: 'standard',
       intent: userMessage,

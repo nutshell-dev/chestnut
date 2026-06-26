@@ -31,7 +31,7 @@ import { SHADOW_DEFAULT_TIMEOUT_MS } from './constants.js';
 export async function spawnShadowSubagent(
   opts: SpawnShadowSubagentOptions,
 ): Promise<SpawnShadowSubagentResult> {
-  if (!opts.ctx.taskSystem) {
+  if (!opts.taskSystem) {
     return {
       success: false,
       content: '[shadow spawn] task_system not available in execution context — shadow path requires AsyncTaskSystem injection',
@@ -60,7 +60,7 @@ export async function spawnShadowSubagent(
   // phase 1373 anchor: shadow-mode subagent 不继承 caller signal by-design
   // (shadow 是异步 detach / caller abort 不应级联 abort shadow / 业务语义 mutually exclusive lifecycle)
   // 若 future shadow abort 需求 N≥1 → 加 NEW shadowSignal parameter + propagate
-  const taskId = await opts.ctx.taskSystem.schedule('subagent', {
+  const taskId = await opts.taskSystem.schedule('subagent', {
     kind: 'subagent',
     mode: 'shadow',                            // δ discriminated union 新字段
     shadowMessages,                            // shadow path 真信息源
