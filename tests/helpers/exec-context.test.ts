@@ -5,7 +5,6 @@ describe('makeExecContext', () => {
   it('returns sound default ExecContext', () => {
     const ctx = makeExecContext();
     expect(ctx.clawId).toBe('test-claw');
-    expect(ctx.maxSteps).toBe(20);
     expect(typeof ctx.getElapsedMs).toBe('function');
     expect(typeof ctx.requestStop).toBe('function');
     expect(typeof ctx.getElapsedMs).toBe('function');
@@ -13,9 +12,9 @@ describe('makeExecContext', () => {
   });
 
   it('overrides shallow-merge', () => {
-    const ctx = makeExecContext({ maxSteps: 50, clawId: 'foo' });
-    expect(ctx.maxSteps).toBe(50);
+    const ctx = makeExecContext({ clawId: 'foo', callerType: 'shadow' });
     expect(ctx.clawId).toBe('foo');
+    expect(ctx.callerType).toBe('shadow');
     // defaults untouched
     expect(ctx.stopRequested).toBe(false);
   });

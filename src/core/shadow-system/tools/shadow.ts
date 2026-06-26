@@ -85,7 +85,7 @@ export function createShadowTool(deps: {
       if (!task) return { success: false, content: 'shadow: task is required', error: 'missing_task' };
 
       const timeoutMs = typeof args.timeoutMs === 'number' ? args.timeoutMs : SHADOW_DEFAULT_TIMEOUT_MS;
-      const maxSteps = typeof args.maxSteps === 'number' ? args.maxSteps : (deps.subagentMaxSteps ?? ctx.maxSteps);
+      const maxSteps = typeof args.maxSteps === 'number' ? args.maxSteps : deps.subagentMaxSteps;
       const asyncMode = args.async === undefined ? true : Boolean(args.async);
 
       const { systemPrompt, tools, messages } = await deps.getTurnSnapshot();

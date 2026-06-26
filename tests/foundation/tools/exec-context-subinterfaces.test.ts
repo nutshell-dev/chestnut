@@ -38,7 +38,6 @@ describe('phase 1459 ExecContext ISP α-1 decomposition', () => {
       allowedGroups: new Set(['audit']),
       callerLabel: 'test',
       fs: mockFs,
-      maxSteps: 10,
     });
   }
 
@@ -65,7 +64,6 @@ describe('phase 1459 ExecContext ISP α-1 decomposition', () => {
   it('(4) ExecContextImpl is assignable to ExecutionControl', async () => {
     const ctx = await makeCtx();
     const ctrl: ExecutionControl = ctx;
-    expect(ctrl.maxSteps).toBe(10);
     expect(ctrl.stopRequested).toBe(false);
     expect(ctrl.getElapsedMs()).toBeGreaterThanOrEqual(0);
   });

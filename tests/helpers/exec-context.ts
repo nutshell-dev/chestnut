@@ -21,7 +21,6 @@ export function makeExecContext(overrides: Partial<ExecContext> = {}): ExecConte
     callerType: 'claw',
     fs: noopFs,
     profile: 'full',
-    maxSteps: 20,
     getElapsedMs: () => 0,
     stopRequested: false,
     requestStop: vi.fn(),

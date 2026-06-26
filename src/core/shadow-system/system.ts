@@ -144,7 +144,7 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
       messages: synthesizedMessages,
       resultDir,
       syncDir: path.join(opts.ctx.clawDir, TASKS_SYNC_DIR),
-      maxSteps: opts.maxSteps ?? opts.ctx.maxSteps,
+      maxSteps: opts.maxSteps,
       timeoutMs: opts.timeoutMs ?? SHADOW_DEFAULT_TIMEOUT_MS,
       // phase 369 §4 (review-2026-06-13): 用 const、tool 重命名时 shadow-system 跟住
       resultTool: DONE_TOOL_NAME,

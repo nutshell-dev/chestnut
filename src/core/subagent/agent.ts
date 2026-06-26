@@ -4,7 +4,7 @@
  * SubAgent runs with restricted permissions and cannot spawn other agents.
  */
 
-import { runReact, DEFAULT_MAX_STEPS } from '../agent-executor/index.js';
+import { runReact } from '../agent-executor/index.js';
 // phase 692 Step B: 删 MOTION_CLAW_ID import (L3 → L4 反向 import = M#5 违反)。
 import { formatErr } from '../../foundation/node-utils/index.js';
 import type { ToolExecutor, ToolRegistry } from '../../foundation/tools/index.js';
@@ -41,7 +41,7 @@ export interface SubAgentOptions {
   llm: LLMOrchestrator;
   registry: ToolRegistry;
   fs: FileSystem;
-  // phase 1490: maxSteps optional / undefined → boundary fallback to DEFAULT_MAX_STEPS at ExecContext 构造点
+  // phase 1490: maxSteps optional / undefined → boundary fallback to DEFAULT_MAX_STEPS in runReact
   maxSteps?: number;
   timeoutMs?: number;
   signal?: AbortSignal;
@@ -221,8 +221,6 @@ export class SubAgent {
           executor,
           ctx: executor.getExecContext(executorProfile, {
             clawId: this.agentId,
-            // phase 1490: SubAgent boundary resolve ExecContext.maxSteps（mirror runtime.ts:212 / runtime-boundary owns single resolve point）
-            maxSteps: this.maxSteps ?? DEFAULT_MAX_STEPS,
             signal: timeout.signal,
             allowedGroups: CALLER_TYPE_TO_GROUPS[callerType],
             callerLabel: callerType,
