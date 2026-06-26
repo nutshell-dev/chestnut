@@ -2,7 +2,7 @@ import * as path from 'path';
 import { formatErr } from "../../foundation/node-utils/index.js";
 import { isAlive } from '../../foundation/process-exec/index.js';
 import { getActiveContractTimestamp } from '../../core/contract/index.js';
-import { LLM_OUTPUT_EVENTS } from '../../foundation/stream/index.js';
+import { LLM_OUTPUT_EVENTS, parseStreamLines } from '../../foundation/stream/index.js';
 import { STREAM_FILE } from '../../foundation/stream/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
@@ -104,17 +104,10 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
       if (stat.size > track.fileSize) {
         const buf = fs.readBytesSync(streamFile, track.fileSize, stat.size);
         track.fileSize += buf.length;
-        const chunk = track.leftover + buf.toString('utf-8');
-        const lines = chunk.split('\n');
-        track.leftover = lines.pop() ?? '';
-        for (const line of lines) {
-          if (!line.trim()) continue;
+        const { events, leftover } = parseStreamLines(buf.toString('utf-8'), track.leftover);
+        track.leftover = leftover;
+        for (const ev of events as Array<Record<string, unknown> & { type: string }>) {
           try {
-            // phase 355 C3 (review-2026-06-13): JSON.parse 返非对象会让 ev.type 等 NPE。先验对象 shape、否则 skip 行。
-            const parsed: unknown = JSON.parse(line);
-            if (typeof parsed !== 'object' || parsed === null) continue;
-            const ev = parsed as Record<string, unknown> & { type?: string };
-            if (typeof ev.type !== 'string') continue;
             if (ev.type === 'turn_start') { track.turnCount++; track.step = 0; track.active = true; }
             else if (ev.type === 'tool_result') { track.step = (ev.step as number) ?? track.step; track.maxSteps = (ev.maxSteps as number) ?? track.maxSteps; }
             else if (ev.type === 'turn_error') { track.active = false; track.lastError = (ev.error as string) ?? 'error'; }
