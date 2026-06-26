@@ -10,7 +10,7 @@ describe('eslint custom rule: foundation-directory-module (phase 717)', () => {
   ruleTester.run('foundation-directory-module', foundationDirectoryModule, {
     valid: [
       // out of scope
-      { code: '// no op', filename: '/project/src/assembly/config-load.ts' },
+      { code: '// no op', filename: '/project/src/assembly/config/config-load.ts' },
       // registered directory, matching @module
       {
         code: '/**\n * @module L1.ProcessExec\n */\nexport const a = 1;',

@@ -27,13 +27,13 @@ const mockPmState = vi.hoisted(() => ({
 // ============================================================================
 // Module mocks
 // ============================================================================
-vi.mock('../../src/assembly/config-loader.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/assembly/config-loader.js')>();
+vi.mock('../../src/assembly/config/config-loader.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/assembly/config/config-loader.js')>();
   return {
     ...actual,
   };
 });
-vi.mock('../../src/assembly/config-load.js', async () => ({
+vi.mock('../../src/assembly/config/config-load.js', async () => ({
   loadGlobalConfig: vi.fn(),
   isInitialized: vi.fn(),
   saveGlobalConfig: vi.fn(),

@@ -3,7 +3,7 @@
  * Stop the Claw daemon process
  */
 
-import { loadGlobalConfig, clawExists } from '../../assembly/config-load.js';
+import { loadGlobalConfig, clawExists } from '../../assembly/config/config-load.js';
 import { getClawConfigPath } from '../../core/claw-topology/index.js';
 import { CliError } from '../errors.js';
 import { createProcessManagerForCLI, signalCleanStop } from '../../foundation/process-manager/index.js';

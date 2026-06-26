@@ -58,7 +58,7 @@ afterEach(() => {
 });
 
 const { initCommand } = await import('../../src/cli/commands/init.js');
-const { loadGlobalConfig } = await import('../../src/assembly/config-load.js');
+const { loadGlobalConfig } = await import('../../src/assembly/config/config-load.js');
 
 // ── helpers ────────────────────────────────────────────────────────────────────
 

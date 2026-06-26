@@ -15,7 +15,7 @@
 
 import { resolveChestnutRoot } from '../../core/claw-topology/index.js';
 import * as path from 'path';
-import { loadGlobalConfig, clawExists } from '../../assembly/config-load.js';
+import { loadGlobalConfig, clawExists } from '../../assembly/config/config-load.js';
 import { getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js';
 import { CliError } from '../errors.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';

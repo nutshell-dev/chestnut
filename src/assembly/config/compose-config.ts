@@ -7,16 +7,16 @@
  * Refs: coding plan/phase10/Phase 10 总览.md + Step A.md + Step B.md
  */
 import { z } from 'zod';
-import { llmOrchestratorConfigSchema } from '../foundation/llm-orchestrator/config-schema.js';
-import { runtimeMotionConfigSchema } from '../core/runtime/config-schema.js';
-import { toolsConfigSchema } from '../foundation/tools/config-schema.js';
-import { watchdogConfigSchema } from '../watchdog/config-schema.js';
-import { cronConfigSchema } from '../foundation/cron/config-schema.js';
-import { viewportConfigSchema } from '../cli/commands/chat-viewport/config-schema.js';
-import { auditConfigSchema } from '../foundation/audit/config-schema.js';
-import { streamConfigSchema } from '../foundation/stream/config-schema.js';
-import { agentExecutorConfigSchema } from '../core/agent-executor/config-schema.js';
-import { clawConfigSchema } from '../core/runtime/claw-config-schema.js';
+import { llmOrchestratorConfigSchema } from '../../foundation/llm-orchestrator/config-schema.js';
+import { runtimeMotionConfigSchema } from '../../core/runtime/config-schema.js';
+import { toolsConfigSchema } from '../../foundation/tools/config-schema.js';
+import { watchdogConfigSchema } from '../../watchdog/config-schema.js';
+import { cronConfigSchema } from '../../foundation/cron/config-schema.js';
+import { viewportConfigSchema } from '../../cli/commands/chat-viewport/config-schema.js';
+import { auditConfigSchema } from '../../foundation/audit/config-schema.js';
+import { streamConfigSchema } from '../../foundation/stream/config-schema.js';
+import { agentExecutorConfigSchema } from '../../core/agent-executor/config-schema.js';
+import { clawConfigSchema } from '../../core/runtime/claw-config-schema.js';
 
 export function createGlobalConfigSchema() {
   return z.object({

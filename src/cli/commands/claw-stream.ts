@@ -13,9 +13,9 @@
 import * as path from 'path';
 import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
 
-import { loadGlobalConfig, clawExists } from '../../assembly/config-load.js';
+import { loadGlobalConfig, clawExists } from '../../assembly/config/config-load.js';
 import { getClawConfigPath, getRelativeClawDir } from '../../core/claw-topology/index.js';
-import { getGlobalConfigPath } from '../../assembly/global-config-path.js';
+import { getGlobalConfigPath } from '../../assembly/config/global-config-path.js';
 import { CliError } from '../errors.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';

@@ -31,7 +31,7 @@ vi.mock('../../src/core/claw-topology/claw-instance-paths.js', async (importOrig
     getClawConfigPath: vi.fn(() => '/tmp/test-claw/config.yaml'),
   };
 });
-vi.mock('../../src/assembly/config-load.js', async () => ({
+vi.mock('../../src/assembly/config/config-load.js', async () => ({
   loadGlobalConfig: vi.fn(() => ({})),
   isInitialized: vi.fn(),
   saveGlobalConfig: vi.fn(),

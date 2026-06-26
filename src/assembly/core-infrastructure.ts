@@ -12,7 +12,7 @@ import type { ProcessManager } from '../foundation/process-manager/index.js';
 import { createAgentProcessManager } from '../foundation/process-manager/agent-factory.js';
 import { createLLMOrchestrator, type LLMOrchestrator } from '../foundation/llm-orchestrator/index.js';
 import { createLLMAuditSink } from './llm-audit-sink.js';
-import { buildLLMConfig } from './config-load.js';
+import { buildLLMConfig } from './config/config-load.js';
 import { createToolRegistry, type ToolRegistry } from '../foundation/tools/index.js';
 import { createFileTools } from '../foundation/file-tool/index.js';
 import { createCommandTools } from '../foundation/command-tool/index.js';

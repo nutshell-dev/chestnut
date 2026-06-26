@@ -94,7 +94,7 @@ vi.mock('../../src/core/claw-topology/claw-instance-paths.js', async (importOrig
     resolveAgentDir: vi.fn((id: string) => id === 'motion' ? '/tmp/test-root/motion' : `/tmp/test-root/claws/${id}`),
   };
 });
-vi.mock('../../src/assembly/config-load.js', async () => ({
+vi.mock('../../src/assembly/config/config-load.js', async () => ({
   loadGlobalConfig: vi.fn(() => ({})),
   isInitialized: vi.fn(),
   saveGlobalConfig: vi.fn(),

@@ -37,7 +37,7 @@ describe('daemon-watchdog cross-module baseline ratchet (phase 500)', () => {
     // phase 708 update: claw-failure-classes 迁 watchdog/、2 guidance composers 恢复 type-only import from watchdog。
     const expected = [
       'assembly/business-systems.ts',
-      'assembly/compose-config.ts',
+      'assembly/config/compose-config.ts',
       'assembly/file-routing-aggregator.ts',
       'assembly/guidance/composers/claw-inactivity.ts',
       'assembly/guidance/composers/crash-notification.ts',

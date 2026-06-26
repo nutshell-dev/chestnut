@@ -56,7 +56,7 @@ vi.mock('../../src/cli/llm-connection-check.js', () => ({
 vi.mock('../../src/cli/commands/config.js?notify', () => ({}));
 
 const { createConfigCommand } = await import('../../src/cli/commands/config.js');
-const { loadGlobalConfig } = await import('../../src/assembly/config-load.js');
+const { loadGlobalConfig } = await import('../../src/assembly/config/config-load.js');
 
 let tempDir: string;
 

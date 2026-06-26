@@ -10,9 +10,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'path';
 import { streamCommand, parseStartMode } from '../../../src/cli/commands/claw-stream.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
-import { loadGlobalConfig, clawExists } from '../../../src/assembly/config-load.js';
+import { loadGlobalConfig, clawExists } from '../../../src/assembly/config/config-load.js';
 import { getRelativeClawDir, getClawConfigPath } from '../../../src/core/claw-topology/index.js';
-import { getGlobalConfigPath } from '../../../src/assembly/global-config-path.js';
+import { getGlobalConfigPath } from '../../../src/assembly/config/global-config-path.js';
 import { CliError } from '../../../src/cli/errors.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
@@ -25,14 +25,14 @@ vi.mock('../../../src/core/claw-topology/claw-instance-paths.js', async (importO
     getClawConfigPath: vi.fn(),
   };
 });
-vi.mock('../../../src/assembly/global-config-path.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../src/assembly/global-config-path.js')>();
+vi.mock('../../../src/assembly/config/global-config-path.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/assembly/config/global-config-path.js')>();
   return {
     ...actual,
     getGlobalConfigPath: vi.fn(),
   };
 });
-vi.mock('../../../src/assembly/config-load.js', async () => ({
+vi.mock('../../../src/assembly/config/config-load.js', async () => ({
   loadGlobalConfig: vi.fn(),
   clawExists: vi.fn(),
   isInitialized: vi.fn(),

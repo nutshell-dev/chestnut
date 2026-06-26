@@ -8,10 +8,10 @@
 import * as readline from 'readline';
 import { formatErr } from "../foundation/node-utils/index.js";
 
-import { loadGlobalConfig, patchGlobalConfigPrimary } from '../assembly/config-load.js';
+import { loadGlobalConfig, patchGlobalConfigPrimary } from '../assembly/config/config-load.js';
 import { PRESETS } from '../foundation/llm-provider/presets.js';
 import { FORMAT_MAP } from '../foundation/llm-orchestrator/index.js';
-import { buildLLMConfig } from '../assembly/config-load.js';
+import { buildLLMConfig } from '../assembly/config/config-load.js';
 import { createLLMOrchestrator } from '../foundation/llm-orchestrator/index.js';
 import { passwordQuestion } from './utils/password-prompt.js';
 import type { FileSystem } from '../foundation/fs/index.js';

@@ -24,20 +24,20 @@ import { CliError } from '../../../src/cli/errors.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
-vi.mock('../../../src/assembly/global-config-path.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../src/assembly/global-config-path.js')>();
+vi.mock('../../../src/assembly/config/global-config-path.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/assembly/config/global-config-path.js')>();
   return {
     ...actual,
     getGlobalConfigPath: vi.fn(),
   };
 });
-vi.mock('../../../src/assembly/config-loader.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../src/assembly/config-loader.js')>();
+vi.mock('../../../src/assembly/config/config-loader.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/assembly/config/config-loader.js')>();
   return {
     ...actual,
   };
 });
-vi.mock('../../../src/assembly/config-load.js', async () => ({
+vi.mock('../../../src/assembly/config/config-load.js', async () => ({
   loadGlobalConfig: vi.fn(),
   isInitialized: vi.fn(),
   saveGlobalConfig: vi.fn(),
@@ -128,7 +128,7 @@ describe('claw-ls (phase 1480)', () => {
   });
 
   it('unknown claw throws CliError', async () => {
-    const { clawExists } = await import('../../../src/assembly/config-load.js');
+    const { clawExists } = await import('../../../src/assembly/config/config-load.js');
     vi.mocked(clawExists).mockReturnValueOnce(false);
     await expect(
       lsCommand({ fsFactory }, 'no-such-claw', undefined, {}),

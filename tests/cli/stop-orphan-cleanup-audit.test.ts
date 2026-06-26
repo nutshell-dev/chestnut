@@ -42,20 +42,20 @@ vi.mock('../../src/core/claw-topology/claw-instance-paths.js', async (importOrig
     getNamedSubrootDir: vi.fn(() => '/tmp/test/.chestnut/motion'),
   };
 });
-vi.mock('../../src/assembly/global-config-path.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/assembly/global-config-path.js')>();
+vi.mock('../../src/assembly/config/global-config-path.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/assembly/config/global-config-path.js')>();
   return {
     ...actual,
     getGlobalConfigPath: vi.fn(() => '/tmp/test/.chestnut/config.yaml'),
   };
 });
-vi.mock('../../src/assembly/config-loader.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/assembly/config-loader.js')>();
+vi.mock('../../src/assembly/config/config-loader.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/assembly/config/config-loader.js')>();
   return {
     ...actual,
   };
 });
-vi.mock('../../src/assembly/config-load.js', async () => ({
+vi.mock('../../src/assembly/config/config-load.js', async () => ({
   loadGlobalConfig: vi.fn(),
   isInitialized: vi.fn(),
   saveGlobalConfig: vi.fn(),

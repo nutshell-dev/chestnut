@@ -9,13 +9,13 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
-vi.mock('../../src/assembly/config-loader.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/assembly/config-loader.js')>();
+vi.mock('../../src/assembly/config/config-loader.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/assembly/config/config-loader.js')>();
   return {
     ...actual,
   };
 });
-vi.mock('../../src/assembly/config-load.js', async () => ({
+vi.mock('../../src/assembly/config/config-load.js', async () => ({
   loadGlobalConfig: vi.fn(),
   isInitialized: vi.fn(),
   saveGlobalConfig: vi.fn(),

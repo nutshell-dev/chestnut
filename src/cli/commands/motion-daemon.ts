@@ -8,7 +8,7 @@
 
 import { getWorkspaceRoot } from '../../core/claw-topology/index.js';
 import * as path from 'path';
-import { loadGlobalConfig } from '../../assembly/config-load.js';
+import { loadGlobalConfig } from '../../assembly/config/config-load.js';
 import { getNamedSubrootDir } from '../../core/claw-topology/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
 import { createAgentProcessManager } from '../../foundation/process-manager/index.js';

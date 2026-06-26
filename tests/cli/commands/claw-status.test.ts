@@ -14,7 +14,7 @@ import * as os from 'node:os';
 import { clawStatusCommand } from '../../../src/cli/commands/claw-status.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { CliError } from '../../../src/cli/errors.js';
-import { loadGlobalConfig, clawExists } from '../../../src/assembly/config-load.js';
+import { loadGlobalConfig, clawExists } from '../../../src/assembly/config/config-load.js';
 import { getClawDir, getClawConfigPath } from '../../../src/core/claw-topology/claw-instance-paths.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
@@ -27,7 +27,7 @@ vi.mock('../../../src/core/claw-topology/claw-instance-paths.js', async (importO
     getClawConfigPath: vi.fn(),
   };
 });
-vi.mock('../../../src/assembly/config-load.js', async () => ({
+vi.mock('../../../src/assembly/config/config-load.js', async () => ({
   loadGlobalConfig: vi.fn(),
   isInitialized: vi.fn(),
   saveGlobalConfig: vi.fn(),

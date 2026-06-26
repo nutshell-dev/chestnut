@@ -11,7 +11,7 @@
 import * as path from 'path';
 import { resolveWatchdogEntry } from '../assembly/spawn-entry.js';
 import { getNamedSubrootDir } from '../core/claw-topology/index.js';
-import { loadGlobalConfig } from '../assembly/config-load.js';
+import { loadGlobalConfig } from '../assembly/config/config-load.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 import type { AuditLog } from '../foundation/audit/index.js';
 import { createDirContext } from '../foundation/audit/index.js';

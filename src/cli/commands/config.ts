@@ -5,8 +5,8 @@
 import * as path from 'path';
 import * as readline from 'readline';
 import { Command } from 'commander';
-import { loadGlobalConfig, saveGlobalConfig } from '../../assembly/config-load.js';
-import type { ClawGlobalConfig } from '../../assembly/compose-config.js';
+import { loadGlobalConfig, saveGlobalConfig } from '../../assembly/config/config-load.js';
+import type { ClawGlobalConfig } from '../../assembly/config/compose-config.js';
 import type { LLMProviderConfig } from '../../foundation/llm-orchestrator/index.js';
 import { PRESETS } from '../../foundation/llm-provider/presets.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';

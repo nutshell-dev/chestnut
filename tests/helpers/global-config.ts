@@ -9,7 +9,7 @@ import {
   createGlobalConfigSchema,
   type ClawGlobalConfig,
   type ClawGlobalConfigInput,
-} from '../../src/assembly/compose-config.js';
+} from '../../src/assembly/config/compose-config.js';
 
 export function buildTestGlobalConfig(partial: Partial<ClawGlobalConfigInput> = {}): ClawGlobalConfig {
   const llmDefault = {
