@@ -50,8 +50,8 @@ const auditOverThreshold = new Map<string, 'warn' | 'critical'>();
 export interface AuditSizeMonitorOptions {
   fs: FileSystem;
   audit: AuditLog;
-  motionAuditPath: string;     // pre-computed motion audit path (装配期 算)
-  rootAuditPath: string;        // pre-computed root audit path (装配期 算)
+  primaryAuditPath: string;
+  secondaryAuditPath: string;
   warnBytes?: number;
   criticalBytes?: number;
   streamLog?: NotifySink;   // phase 8: motion streamWriter / 警告改 viewport user_notify 注入
@@ -61,8 +61,8 @@ export interface AuditSizeMonitorOptions {
 export interface AuditSizeMonitorJobDeps {
   fs: FileSystem;
   audit: AuditLog;
-  motionAuditPath: string;
-  rootAuditPath: string;
+  primaryAuditPath: string;
+  secondaryAuditPath: string;
   warnBytes?: number;
   criticalBytes?: number;
   streamLog?: NotifySink;
@@ -71,7 +71,7 @@ export interface AuditSizeMonitorJobDeps {
 export async function runAuditSizeMonitor(opts: AuditSizeMonitorOptions): Promise<void> {
   const warn = opts.warnBytes ?? AUDIT_SIZE_WARN_BYTES;
   const critical = opts.criticalBytes ?? AUDIT_SIZE_CRITICAL_BYTES;
-  for (const p of [opts.motionAuditPath, opts.rootAuditPath]) {
+  for (const p of [opts.primaryAuditPath, opts.secondaryAuditPath]) {
     if (opts.signal?.aborted) return;
     try {
       const stat = opts.fs.statSync(p);

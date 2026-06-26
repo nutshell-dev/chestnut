@@ -39,8 +39,8 @@ describe('phase 8 — audit-size-monitor viewport stream', () => {
     await runAuditSizeMonitor({
       fs, audit,
       chestnutRoot: '/tmp/test',
-      motionAuditPath: '/tmp/test/motion/audit.tsv',
-      rootAuditPath: '/tmp/test/audit.tsv',
+      primaryAuditPath: '/tmp/test/motion/audit.tsv',
+      secondaryAuditPath: '/tmp/test/audit.tsv',
       streamLog,
     });
     expect(events).toHaveLength(0);
@@ -54,8 +54,8 @@ describe('phase 8 — audit-size-monitor viewport stream', () => {
     await runAuditSizeMonitor({
       fs, audit,
       chestnutRoot: '/tmp/test',
-      motionAuditPath: '/tmp/test/motion/audit.tsv',
-      rootAuditPath: '/tmp/test/audit.tsv',
+      primaryAuditPath: '/tmp/test/motion/audit.tsv',
+      secondaryAuditPath: '/tmp/test/audit.tsv',
       streamLog,
     });
     expect(events).toHaveLength(2);
@@ -77,8 +77,8 @@ describe('phase 8 — audit-size-monitor viewport stream', () => {
     await runAuditSizeMonitor({
       fs, audit,
       chestnutRoot: '/tmp/test',
-      motionAuditPath: '/tmp/test/motion/audit.tsv',
-      rootAuditPath: '/tmp/test/audit.tsv',
+      primaryAuditPath: '/tmp/test/motion/audit.tsv',
+      secondaryAuditPath: '/tmp/test/audit.tsv',
       streamLog,
     });
     expect(events).toHaveLength(2);
@@ -95,8 +95,8 @@ describe('phase 8 — audit-size-monitor viewport stream', () => {
     await runAuditSizeMonitor({
       fs, audit,
       chestnutRoot: '/tmp/test',
-      motionAuditPath: '/tmp/test/motion/audit.tsv',
-      rootAuditPath: '/tmp/test/audit.tsv',
+      primaryAuditPath: '/tmp/test/motion/audit.tsv',
+      secondaryAuditPath: '/tmp/test/audit.tsv',
     });
     expect(events).toHaveLength(0);
   });
@@ -108,18 +108,18 @@ describe('phase 8 — audit-size-monitor viewport stream', () => {
     await runAuditSizeMonitor({
       fs: fsWarn, audit,
       chestnutRoot: '/tmp/test',
-      motionAuditPath: '/tmp/test/motion/audit.tsv',
-      rootAuditPath: '/tmp/test/audit.tsv',
+      primaryAuditPath: '/tmp/test/motion/audit.tsv',
+      secondaryAuditPath: '/tmp/test/audit.tsv',
       streamLog,
     });
-    expect(streamLog.write).toHaveBeenCalledTimes(2); // motion + root warn
+    expect(streamLog.write).toHaveBeenCalledTimes(2); // primary + secondary warn
 
     // 同 level 二次跑 → 0 新 write
     await runAuditSizeMonitor({
       fs: fsWarn, audit,
       chestnutRoot: '/tmp/test',
-      motionAuditPath: '/tmp/test/motion/audit.tsv',
-      rootAuditPath: '/tmp/test/audit.tsv',
+      primaryAuditPath: '/tmp/test/motion/audit.tsv',
+      secondaryAuditPath: '/tmp/test/audit.tsv',
       streamLog,
     });
     expect(streamLog.write).toHaveBeenCalledTimes(2);
@@ -129,8 +129,8 @@ describe('phase 8 — audit-size-monitor viewport stream', () => {
     await runAuditSizeMonitor({
       fs: fsCritical, audit,
       chestnutRoot: '/tmp/test',
-      motionAuditPath: '/tmp/test/motion/audit.tsv',
-      rootAuditPath: '/tmp/test/audit.tsv',
+      primaryAuditPath: '/tmp/test/motion/audit.tsv',
+      secondaryAuditPath: '/tmp/test/audit.tsv',
       streamLog,
     });
     expect(streamLog.write).toHaveBeenCalledTimes(4); // +2 critical
