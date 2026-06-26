@@ -33,6 +33,7 @@ export {
   OUTBOX_DONE_DIR,
   OUTBOX_FAILED_DIR,
   OUTBOX_PROCESSING_DIR,
+  DEAD_LETTER_DIR,
 } from './dirs.js';
 
 // phase 1435 F8: audit events const re-export — 跨模块 (cli / daemon) 引用走 barrel。
@@ -47,6 +48,9 @@ export {
   isSystemMessage,
   isUserMessage,
 } from './system-message-helper.js';
+
+// phase 743: parseFrontmatterFrame barrel 导出，SkillSystem 等消费者不再 deep import
+export { parseFrontmatterFrame } from './frontmatter-frame.js';
 export type {
   MessageFormatter,
   MessageFormatterRegistry,

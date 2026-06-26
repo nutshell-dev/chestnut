@@ -375,6 +375,31 @@ export class InboxReader {
   }
 
   /**
+   * Lightweight pending message count — no file reads, directory list only.
+   *
+   * Use case: health checks, watchdog, status views that only need "how many pending"
+   * without the metadata parse cost of peekMetas().
+   *
+   * @returns number of .md files in pending/ (0 if dir missing/empty)
+   */
+  async peekPendingCount(): Promise<number> {
+    try {
+      const entries = await this.fs.list(this.pendingDir, { includeDirs: false });
+      return entries.filter(e => e.name.endsWith('.md')).length;
+    } catch (err) {
+      if (isFileNotFound(err)) return 0;
+      const reason = formatErr(err);
+      emitInboxListFailed(this.audit, {
+        dir: this.pendingDir,
+        op: 'peek_count',
+        errorCode: classifyErrno(err),
+        reason,
+      });
+      return 0;
+    }
+  }
+
+  /**
    * Non-consuming peek of inbox meta entries (no file move, no delete).
    */
   async peekMetas(filter?: { priority?: Priority[] }): Promise<InboxMessageMeta[]> {

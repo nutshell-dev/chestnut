@@ -18,7 +18,13 @@ import type { AuditLog } from '../audit/index.js';
 import { emitOutboxListFailed, emitOutboxPeekFailed } from './audit-emit.js';
 import { decodeOutbox } from './codec-outbox.js';
 import type { OutboxMessage } from './types.js';
-import { OUTBOX_PENDING_DIR } from './dirs.js';
+import {
+  OUTBOX_PENDING_DIR,
+  OUTBOX_PROCESSING_DIR,
+  OUTBOX_DONE_DIR,
+} from './dirs.js';
+import { newShortUuid } from '../node-utils/index.js';
+import { emitOutboxDelivered } from './audit-emit.js';
 
 export class OutboxReader {
   constructor(
@@ -51,6 +57,78 @@ export class OutboxReader {
       });
       return [];
     }
+  }
+
+  /**
+   * Atomically claim the next pending outbox message.
+   *
+   * Steps:
+   *   1. List pending/, take first .md file (filename-sorted)
+   *   2. Move pending/<filename> → processing/<claimToken>_<filename> (atomic claim)
+   *   3. Read content from claimed path
+   *   4. Return { claimPath, filename, content }
+   *
+   * Returns null if pending empty, race lost (file disappeared before move), or IO error.
+   *
+   * The returned `claimPath` is relative to clawDir; caller passes it to markDone()/markFailed().
+   *
+   * @param clawDir absolute path to a claw root
+   * @returns null if nothing to claim, else the claimed message
+   */
+  async claimNext(clawDir: string): Promise<{
+    claimPath: string;
+    filename: string;
+    content: string;
+  } | null> {
+    const filenames = await this.listClawOutboxPending(clawDir);
+    if (filenames.length === 0) return null;
+
+    const fileName = filenames[0]; // oldest first
+    const pendingDir = path.join(clawDir, OUTBOX_PENDING_DIR);
+    const processingDir = path.join(clawDir, OUTBOX_PROCESSING_DIR);
+    const claimToken = `cli_${newShortUuid()}`;
+    const relPendingPath = path.join(pendingDir, fileName);
+    const relClaimedPath = path.join(processingDir, `${claimToken}_${fileName}`);
+
+    // Atomic claim
+    try {
+      await this.fs.move(relPendingPath, relClaimedPath);
+    } catch (err) {
+      if (isFileNotFound(err)) return null; // race lost
+      return null;
+    }
+
+    // Read
+    let content: string;
+    try {
+      content = await this.fs.read(relClaimedPath);
+    } catch (err) {
+      return null;
+    }
+
+    // Build claimPath relative to clawDir (for markDone/markFailed to use)
+    const claimPath = path.join(OUTBOX_PROCESSING_DIR, `${claimToken}_${fileName}`);
+
+    return { claimPath, filename: fileName, content };
+  }
+
+  /**
+   * Mark a claimed outbox message as done — move processing/ → done/.
+   *
+   * @param clawDir absolute path to a claw root
+   * @param claimPath relative path within clawDir (returned by claimNext)
+   * @param originalFilename original pending filename (for audit trail)
+   */
+  async markDone(clawDir: string, claimPath: string, originalFilename: string): Promise<void> {
+    const processingFullPath = path.join(clawDir, claimPath);
+    const doneDir = path.join(clawDir, OUTBOX_DONE_DIR);
+    await this.fs.ensureDir(doneDir);
+    const donePath = path.join(doneDir, `${Date.now()}_${originalFilename}`);
+    await this.fs.move(processingFullPath, donePath);
+    emitOutboxDelivered(this.audit, {
+      file: originalFilename,
+      deliveredAt: Date.now(),
+    } as any);
   }
 
   /**
