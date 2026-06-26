@@ -75,7 +75,7 @@ export function createRescanClawsDir(deps: RescanClawsDirDeps) {
         const location = deps.clawTopology.resolve(makeClawId(clawId));
         if (location.kind !== 'local') continue;
         const clawDir = location.clawDir;
-        // getContractCreatedMs 用 clawsFs (baseDir=clawsDir) / 传相对路径 clawId
+        // getActiveContractTimestamp 用 clawsFs (baseDir=clawsDir) / 传相对路径 clawId
         const contractMs = getActiveContractTimestamp(deps.clawsFs, clawDir);
         if (contractMs !== null) {
           const t = makeClawTrack();
