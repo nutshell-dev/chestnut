@@ -42,7 +42,6 @@ export interface HeartbeatEntry {
   claw_id: string;
   timestamp: string;
   status: 'idle' | 'working' | 'error';
-  current_contract?: string;
   message_count: number;
   memory_usage?: number;
 }
