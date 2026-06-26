@@ -10,7 +10,7 @@ import type { FileSystem } from '../../foundation/fs/index.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
 import * as yaml from 'js-yaml';
 import { loadGlobalConfig, clawExists } from '../../assembly/config-load.js';
-import { getClawDir, getClawConfigPath } from '../../core/claw-topology/claw-instance-paths.js';
+import { getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js';
 import { CliError } from '../errors.js';
 import { CONTRACT_DIR, CONTRACT_ARCHIVE_DIR, PROGRESS_FILE, CONTRACT_YAML_FILE } from '../../core/contract/index.js';
 import { DIALOG_DIR, DIALOG_ARCHIVE_DIR, CURRENT_DIALOG_FILE } from '../../foundation/dialog-store/index.js';

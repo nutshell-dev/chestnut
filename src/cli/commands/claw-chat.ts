@@ -2,11 +2,11 @@
  * @module L6.CLI.Claw.Chat
  */
 
-import { getWorkspaceRoot, getChestnutRoot } from '../../core/claw-topology/claw-instance-paths.js';
+import { getWorkspaceRoot, getChestnutRoot } from '../../core/claw-topology/index.js';
 import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
 import * as path from 'path';
 import { loadGlobalConfig, clawExists } from '../../assembly/config-load.js';
-import { getClawDir, getClawConfigPath } from '../../core/claw-topology/claw-instance-paths.js';
+import { getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js';
 import { CliError } from '../errors.js';
 import { runChatViewport } from './chat-viewport.js';
 import { createDirContext } from '../../foundation/audit/index.js';

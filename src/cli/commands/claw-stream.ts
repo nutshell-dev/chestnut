@@ -14,12 +14,12 @@ import * as path from 'path';
 import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
 
 import { loadGlobalConfig, clawExists } from '../../assembly/config-load.js';
-import { getClawConfigPath } from '../../core/claw-topology/claw-instance-paths.js';
+import { getClawConfigPath, getRelativeClawDir } from '../../core/claw-topology/index.js';
 import { getGlobalConfigPath } from '../../assembly/global-config-path.js';
 import { CliError } from '../errors.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
-import { CLAWS_DIR } from '../../core/claw-topology/claw-instance-paths.js';
+
 import { createStreamReader, STREAM_FILE, findRecentTurnStartOffset } from '../../foundation/stream/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { isAlive, isPidArgvMatching } from '../../foundation/process-exec/index.js';
@@ -70,7 +70,7 @@ export async function streamCommand(
   }
 
   const baseDir = path.dirname(getGlobalConfigPath());
-  const clawDir = path.join(baseDir, CLAWS_DIR, name);
+  const clawDir = path.join(baseDir, getRelativeClawDir(name));
   const fs = deps.fsFactory(clawDir);
   // audit reused for stream reader internal failure logging; stream session itself does not emit
   const audit = createSystemAudit(deps.fsFactory(baseDir), clawDir);

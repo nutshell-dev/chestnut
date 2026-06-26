@@ -3,7 +3,7 @@
  * 「确保 watchdog 在运行」职责唯一入口 (M#1)
  * OS-level advisory lock 保 atomic check-and-spawn (M#9)
  */
-import { makeChestnutRoot } from '../core/claw-topology/claw-instance-paths.js';
+import { makeChestnutRoot } from '../core/claw-topology/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 import { getChestnutDir, getAuditWriter } from './watchdog-context.js';
 import { isWatchdogAlive } from './watchdog-pid.js';

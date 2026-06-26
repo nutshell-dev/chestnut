@@ -5,9 +5,9 @@
  * saveProgress / abort verifier / fs.move) lives in core/contract/lifecycle.ts.
  */
 
-import { resolveChestnutRoot } from '../../core/claw-topology/claw-instance-paths.js';
+import { resolveChestnutRoot } from '../../core/claw-topology/index.js';
 import { ContractSystem } from '../../core/contract/index.js';
-import { getClawDir } from '../../core/claw-topology/claw-instance-paths.js';
+import { getClawDir } from '../../core/claw-topology/index.js';
 import { createSystemAudit, type AuditLog } from '../../foundation/audit/index.js';
 import { routeNotifyClaw } from '../../core/claw-topology/index.js';
 import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';

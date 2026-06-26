@@ -3,8 +3,8 @@
  * Shared helpers for subagent CLI commands
  */
 
-import { getNamedSubrootDir } from '../../core/claw-topology/claw-instance-paths.js';
-import { getClawDir } from '../../core/claw-topology/claw-instance-paths.js';
+import { getNamedSubrootDir } from '../../core/claw-topology/index.js';
+import { getClawDir } from '../../core/claw-topology/index.js';
 import * as path from 'path';
 import {
   TASKS_QUEUES_DONE_DIR,

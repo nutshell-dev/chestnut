@@ -6,7 +6,7 @@
  * phase 34 Step D：从 assemble() 抽出步骤 16-17（motion-only addons）。
  */
 
-import { resolveChestnutRoot, CLAWS_DIR, routeNotifyClaw } from '../core/claw-topology/claw-instance-paths.js';
+import { resolveChestnutRoot, CLAWS_DIR, routeNotifyClaw, getRelativeClawDir } from '../core/claw-topology/index.js';
 import { AUDIT_FILE } from '../foundation/audit/index.js';
 import path from 'path';
 import { formatErr } from '../foundation/node-utils/index.js';
@@ -98,10 +98,10 @@ export async function createMotionAddons(
     audit: auditWriter,
     isClawAlive: (clawId: string) => core.processManager.isAlive(resolveClawDaemonDir(makeClawId(clawId))), // phase 232
     formatClawStatusHint, // phase 232: M#1 single source
-    clawExists: (clawId: string) => parentFs.existsSync(path.join(CLAWS_DIR, clawId)), // phase 241
+    clawExists: (clawId: string) => parentFs.existsSync(getRelativeClawDir(clawId)), // phase 241
     hasActiveContract: (clawId: string) => { // phase 241
       try {
-        const clawFs = fsFactory(path.join(chestnutRoot, CLAWS_DIR, clawId));
+        const clawFs = fsFactory(path.join(chestnutRoot, getRelativeClawDir(clawId)));
         return hasActiveContract(clawFs, '.');
       } catch {
         return false;
