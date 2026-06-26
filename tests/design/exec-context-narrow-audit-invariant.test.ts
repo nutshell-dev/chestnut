@@ -15,7 +15,7 @@ import * as path from 'path';
 
 /** D1 ClawIdentity */
 const D1_FIELDS = new Set([
-  'clawId', 'clawDir', 'clawsDir', 'workspaceDir', 'syncDir', 'originClawId',
+  'clawId', 'clawDir', 'clawsDir', 'workspaceDir', 'syncDir',
 ]);
 /** D2 ToolPermissions */
 const D2_FIELDS = new Set([
