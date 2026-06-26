@@ -17,7 +17,7 @@ import { createStreamWriter } from '../foundation/stream/index.js';
 import type { StreamWriter } from '../foundation/stream/index.js';
 import { type Runtime, type RuntimeDependencies } from '../core/runtime/index.js';
 import { createRuntime } from '../core/runtime/index.js';
-import { createContractNotifyCallback } from './contract-notify-callback.js';
+import { createContractNotifyCallback } from '../core/contract/index.js';
 import type { CoreInfraOutput } from './core-infrastructure.js';
 import type { BusinessSysOutput } from './business-systems.js';
 import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
