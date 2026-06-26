@@ -15,7 +15,7 @@ import { hasActiveContract, listActiveContracts, CONTRACT_ARCHIVE_DIR, CONTRACT_
 import { CONFIG_YAML_FILE } from '../../core/claw-topology/claw-instance-paths.js';
 import { CLAWS_DIR } from '../../core/claw-topology/claw-instance-paths.js';
 import { getLastActiveMs } from './claw-shared.js';
-import { OUTBOX_PENDING_DIR } from '../../foundation/messaging/index.js';
+import { listOutboxPendingSync } from '../../foundation/messaging/index.js';
 
 /** claw-list title console 显示截断 cap（防 list 行过长）*/
 const CLAW_TITLE_DISPLAY_CHARS = 28;
@@ -41,10 +41,9 @@ export async function listCommand(deps: { fsFactory: (baseDir: string) => FileSy
   }
 
   // Helper: count unread outbox messages
+  // phase 746: use Messaging lightweight query helper
   function getOutboxCount(clawFs: FileSystem): number {
-    try {
-      return clawFs.listSync(OUTBOX_PENDING_DIR).map(e => e.name).length;
-    } catch { return 0; }
+    return listOutboxPendingSync(clawFs, '.').length;
   }
 
   async function formatLastActiveMs(clawFs: FileSystem): Promise<number | undefined> {

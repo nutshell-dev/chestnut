@@ -35,7 +35,10 @@ function makeFs(opts: {
       return [];
     }),
     readSync: vi.fn(() => ''),
-    existsSync: vi.fn(() => false),
+    existsSync: vi.fn((dir: string) => {
+      if (typeof dir === 'string' && (dir.includes('inbox') || dir.includes('outbox'))) return true;
+      return false;
+    }),
   };
 }
 
@@ -79,7 +82,7 @@ describe('gatherClawSnapshot audit emit (phase 143)', () => {
     expect(mockAudit.write).not.toHaveBeenCalled();
   });
 
-  it('反向 3: inbox dir EIO → emit CLAW_DIR_LIST_FAILED + return 0', () => {
+  it('反向 3: inbox dir EIO → silent (lightweight helper swallows) + return 0', () => {
     const fs = makeFs({
       inboxDirError: Object.assign(new Error('I/O error'), { code: 'EIO' }),
     });
@@ -88,12 +91,8 @@ describe('gatherClawSnapshot audit emit (phase 143)', () => {
     const snap = gatherClawSnapshot('/claw-X', fsFactory, mockPm, 'claw-X', mockAudit as unknown as import('../../src/foundation/audit/index.js').AuditLog);
 
     expect(snap.inboxPending).toBe(0);
-    expect(mockAudit.write).toHaveBeenCalledWith(
-      WATCHDOG_AUDIT_EVENTS.CLAW_DIR_LIST_FAILED,
-      expect.stringContaining('claw=claw-X'),
-      expect.stringContaining('dir='),
-      expect.stringContaining('error='),
-    );
+    // phase 746: peekPendingCount swallows read errors, no CLAW_DIR_LIST_FAILED audit
+    expect(mockAudit.write).not.toHaveBeenCalled();
   });
 
   it('反向 4: inbox dir ENOENT → 0 audit + return 0', () => {
