@@ -26,7 +26,7 @@ describe('DispatchingAuditWriter (phase 159)', () => {
   const makeTypeToFile = () =>
     new Map([
       ['cron_job_started', 'tick'],
-      ['cron_outbox_summary_skipped', 'tick'],
+      ['daemon_loop_iteration', 'tick'],
       ['viewport_render_batch', 'viewport'],
     ]);
 

@@ -2,14 +2,14 @@
  * phase 1476 / phase 42: tick orchestration + dedup integration tests.
  *
  * Covers:
- *  - 0 unread → CLEARED audit
+ *  - 0 unread → no write, no audit
  *  - first tick with unread → write new summary
- *  - re-tick same state → skip (pending hit dedup)
- *  - re-tick after motion drain/ack (done with prefix) → skip (done hit dedup within 24h)
- *  - re-tick after markDone prefix regression → skip via extraMeta (not filename pattern)
+ *  - re-tick same state → skip silently (pending hit dedup)
+ *  - re-tick after motion drain/ack (done with prefix) → skip silently (done hit dedup within 24h)
+ *  - re-tick after markDone prefix regression → skip silently via extraMeta (not filename pattern)
  *  - re-tick after done file aged > 24h → write new (mtime window expired)
  *  - state change (new msg) → write new summary, old stays pending
- *  - all unread consumed + new tick → CLEARED, old summary stays pending
+ *  - all unread consumed + new tick → no write, no audit, old summary stays pending
  */
 
 import { makeChestnutRoot } from '../../../src/core/claw-topology/claw-instance-paths.js';
@@ -102,7 +102,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
     await fsAsync.rm(root, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
-  it('0 unread + no existing summary → no write, CLEARED audit', async () => {
+  it('0 unread + no existing summary → no write, no audit', async () => {
     await runOutboxSummaryTick({
       clawsDir: `${root}/claws`,
       clawTopology: topology,
@@ -113,7 +113,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
       audit,
     });
     expect(await listSummaries(root, 'pending', fs)).toEqual([]);
-    expect(events.some(e => e[0] === 'cron_outbox_summary_cleared')).toBe(true);
+    expect(events.some(e => e[0] === 'cron_outbox_summary_skipped' || e[0] === 'cron_outbox_summary_cleared')).toBe(false);
   });
 
   it('first tick with unread → writes new summary + emits WRITTEN', async () => {
@@ -133,7 +133,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
     expect(events.some(e => e[0] === 'cron_outbox_summary_written')).toBe(true);
   });
 
-  it('re-tick same state → SKIPPED (pending hit)', async () => {
+  it('re-tick same state → skip silently (pending hit)', async () => {
     await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
     await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m1.md'), 'x');
     await runOutboxSummaryTick({
@@ -157,10 +157,10 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
       audit,
     });
     expect((await listSummaries(root, 'pending', fs))[0]).toBe(firstSummary);
-    expect(events.some(e => e[0] === 'cron_outbox_summary_skipped' && e.includes('reason=pending'))).toBe(true);
+    expect(events.some(e => e[0] === 'cron_outbox_summary_skipped' || e[0] === 'cron_outbox_summary_cleared')).toBe(false);
   });
 
-  it('after motion drain/ack re-tick → SKIPPED (done hit within 24h)', async () => {
+  it('after motion drain/ack re-tick → skip silently (done hit within 24h)', async () => {
     await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
     await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m1.md'), 'x');
     await runOutboxSummaryTick({
@@ -187,10 +187,10 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
       audit,
     });
     expect(await listSummaries(root, 'pending', fs)).toEqual([]);
-    expect(events.some(e => e[0] === 'cron_outbox_summary_skipped' && e.includes('reason=done'))).toBe(true);
+    expect(events.some(e => e[0] === 'cron_outbox_summary_skipped' || e[0] === 'cron_outbox_summary_cleared')).toBe(false);
   });
 
-  it('re-tick after markDone prefix → SKIPPED via extraMeta (not filename pattern)', async () => {
+  it('re-tick after markDone prefix → skip silently via extraMeta (not filename pattern)', async () => {
     await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
     await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m1.md'), 'x');
     await runOutboxSummaryTick({
@@ -218,7 +218,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
       outboxReader,
       audit,
     });
-    expect(events.some(e => e[0] === 'cron_outbox_summary_skipped')).toBe(true);
+    expect(events.some(e => e[0] === 'cron_outbox_summary_skipped' || e[0] === 'cron_outbox_summary_cleared')).toBe(false);
   });
 
   it('done file aged > 24h → write new (mtime window expired)', async () => {
@@ -284,7 +284,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
     expect(events.some(e => e[0] === 'cron_outbox_summary_written')).toBe(true);
   });
 
-  it('all unread consumed + new tick → CLEARED, old summary stays pending', async () => {
+  it('all unread consumed + new tick → no write, no audit, old summary stays pending', async () => {
     await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
     await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m1.md'), 'x');
     await runOutboxSummaryTick({
@@ -310,6 +310,6 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
       audit,
     });
     expect(await listSummaries(root, 'pending', fs)).toContain(summary);
-    expect(events.some(e => e[0] === 'cron_outbox_summary_cleared')).toBe(true);
+    expect(events.some(e => e[0] === 'cron_outbox_summary_skipped' || e[0] === 'cron_outbox_summary_cleared')).toBe(false);
   });
 });
