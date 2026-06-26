@@ -18,7 +18,7 @@ import { isFileNotFound } from '../foundation/fs/index.js';
 import { type AuditLog, AUDIT_FILE } from '../foundation/audit/index.js';
 import { readAll, STREAM_FILE } from '../foundation/stream/index.js';
 import { LLM_OUTPUT_EVENTS } from '../foundation/stream/index.js';
-import { INBOX_PENDING_DIR, OUTBOX_PENDING_DIR } from '../foundation/messaging/index.js';
+import { peekPendingCount, listOutboxPendingSync } from '../foundation/messaging/index.js';
 import { hasActiveContract, listActiveContracts } from '../core/contract/index.js';
 // NOTE: turn_start/turn_end/turn_error NOT included — only LLM output counts as activity
 // If new stream event types are added, this set must be evaluated for inclusion
@@ -268,23 +268,9 @@ export function gatherClawSnapshot(
     }
   }
 
-  const countMd = (dir: string) => {
-    try {
-      return fs.listSync(dir).filter(f => f.name.endsWith('.md')).length;
-    } catch (err) {
-      if (!isFileNotFound(err)) {
-        audit?.write(
-          WATCHDOG_AUDIT_EVENTS.CLAW_DIR_LIST_FAILED,
-          `claw=${clawId}`,
-          `dir=${dir}`,
-          `error=${formatErr(err)}`,
-        );
-      }
-      return 0;
-    }
-  };
-  const inboxPending = countMd(INBOX_PENDING_DIR);
-  const outboxPending = countMd(OUTBOX_PENDING_DIR);
+  // phase 746: use Messaging lightweight query helpers (swallow read errors → 0)
+  const inboxPending = peekPendingCount(fs, '.');
+  const outboxPending = listOutboxPendingSync(fs, '.').length;
 
   // NEW: read claw audit.tsv tail for forensic context (phase 1207 gap B)
   let lastAuditEvents: string[] | undefined;

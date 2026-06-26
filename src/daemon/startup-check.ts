@@ -12,16 +12,12 @@ import * as path from 'path';
 import type { FileSystem } from '../foundation/fs/index.js';
 import { hasActiveContract } from '../core/contract/index.js';
 import { STATUS_SUBDIR } from '../foundation/process-manager/index.js';
-import { INBOX_PENDING_DIR } from '../foundation/messaging/index.js';
+import { peekPendingCount, peekPendingFilenames } from '../foundation/messaging/index.js';
 import { STARTUP_CHECK_COOLDOWN_MS } from './constants.js';
 
 /** inbox 目录是否 0 个 .md 文件。读失败默 true（保守假定非空）。*/
 export function isInboxEmpty(fs: FileSystem): boolean {
-  try {
-    return fs.listSync(INBOX_PENDING_DIR).filter(e => e.name.endsWith('.md')).length === 0;
-  } catch {
-    return true;
-  }
+  return peekPendingCount(fs, '.') === 0;
 }
 
 /** 是否有活跃 contract（contracts/active 目录下有子目录）。读失败默 false（保守假定无活跃）。*/
@@ -35,11 +31,7 @@ export function hasActiveContracts(fs: FileSystem): boolean {
 
 /** inbox 是否已有 pending 的 _startup_check_ 文件（dedup 用）。读失败默 false。*/
 export function hasPendingStartupCheck(fs: FileSystem): boolean {
-  try {
-    return fs.listSync(INBOX_PENDING_DIR).map(e => e.name).some(f => f.includes('_startup_check_'));
-  } catch {
-    return false;
-  }
+  return peekPendingFilenames(fs, '.').some(f => f.includes('_startup_check_'));
 }
 
 /** startup_check_ts 文件是否过 cooldown。读失败 / 解析失败 / 负值 → 默 true（无 cooldown）。*/
