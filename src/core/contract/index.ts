@@ -38,6 +38,15 @@ export { ContractYamlSchema } from './schemas.js';
 export { createSubmitSubtaskTool, SUBMIT_SUBTASK_TOOL_NAME } from './tools/submit-subtask.js';
 
 export { getContractCreatedMs } from './utils.js';
+
+// phase 744: lightweight read-only query helpers (0-instance-dep)
+export {
+  hasActiveContract,
+  getActiveContractTimestamp,
+  listActiveContracts,
+} from './lightweight-query.js';
+export type { ContractSummary } from './lightweight-query.js';
+
 export { collectContractEvents } from './jobs/event-collector.js';
 
 export {

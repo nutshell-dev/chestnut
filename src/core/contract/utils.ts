@@ -24,7 +24,10 @@ import { emitContractContractDirScanFailed } from './audit-emit.js';
  */
 const EPOCH_2020_01_01_MS = 1_577_836_800_000;
 
-/** 返回当前活跃/暂停契约的创建时间（毫秒），无契约时返回 null */
+/**
+ * 返回当前活跃/暂停契约的创建时间（毫秒），无契约时返回 null
+ * @deprecated Use getActiveContractTimestamp from lightweight-query.ts instead.
+ */
 export function getContractCreatedMs(
   fs: FileSystem,
   clawDir: string,
