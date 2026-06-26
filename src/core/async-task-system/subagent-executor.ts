@@ -18,7 +18,6 @@ import {
 } from './audit-emit.js';
 import { TASKS_QUEUES_RESULTS_DIR, TASKS_SUBAGENTS_DIR, TASKS_SYNC_DIR } from './dirs.js';
 import * as nodePath from 'path';
-import { MOTION_CLAW_ID } from '../claw-topology/motion-claw-id.js';
 
 import { buildSubagentSystemPrompt, DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../../templates/prompts/index.js';
 import { sendResult, sendFallbackError } from './result-delivery.js';

@@ -53,7 +53,6 @@ describe('spawnShadowSubagent (phase 1185)', () => {
       llm: {} as unknown as LLMOrchestrator,
       auditWriter: audit.audit,
       currentToolUseId: 'tu-1',
-      originClawId: 'motion',
     });
   });
 

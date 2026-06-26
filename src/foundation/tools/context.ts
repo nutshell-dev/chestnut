@@ -70,8 +70,6 @@ export interface ExecContextImplOptions {
   subagentMaxSteps?: number;
   
   
-  /** 创建链路的源头 clawId，由 summon/spawn 传播 */
-  originClawId?: string;
   /** AuditLog writer for tool events */
   auditWriter?: AuditLog;
   /** Current tool_use block id (set by ToolExecutor before tool.execute) */
@@ -161,7 +159,6 @@ export class ExecContextImpl implements ExecContext {
   maxSteps: number;
   signal?: AbortSignal;
   subagentMaxSteps: number;
-  originClawId?: string;
   auditWriter?: AuditLog;
   currentToolUseId?: ToolUseId;
   readFileState: Map<string, FileState>;
@@ -191,7 +188,6 @@ export class ExecContextImpl implements ExecContext {
     this.maxSteps = options.maxSteps;
     this.signal = options.signal;
     this.subagentMaxSteps = options.subagentMaxSteps ?? options.maxSteps;
-    this.originClawId = options.originClawId;
     this.auditWriter = options.auditWriter;
     this.currentToolUseId = options.currentToolUseId;
     this.readFileState = options.readFileState ?? new Map();
