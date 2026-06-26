@@ -38,6 +38,13 @@ export {
 import { resolveDlqDir } from './dirs.js';
 export { resolveDlqDir };
 
+// phase 746: lightweight standalone query helpers (0-instance-dep)
+export {
+  peekPendingCount,
+  peekPendingFilenames,
+  listOutboxPendingSync,
+} from './lightweight-query.js';
+
 // phase 1435 F8: audit events const re-export — 跨模块 (cli / daemon) 引用走 barrel。
 export { MESSAGING_AUDIT_EVENTS, MESSAGING_FILE_ROUTING } from './audit-events.js';
 

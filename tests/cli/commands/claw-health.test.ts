@@ -78,7 +78,7 @@ describe('claw-health', () => {
     vi.mocked(getClawConfigPath).mockImplementation((name: string) => path.join('/tmp/chestnut/claws', name, 'config.yaml'));
     vi.mocked(fs.existsSync).mockImplementation((p: fs.PathLike) => {
       const sp = String(p);
-      return sp.includes('contract/active');
+      return sp.includes('contract/active') || sp.includes('inbox/pending') || sp.includes('outbox/pending');
     });
   });
 
@@ -206,7 +206,7 @@ describe('claw-health', () => {
       await expect(healthCommand({ fsFactory }, 'test-claw')).resolves.toBeUndefined();
     });
 
-    it('inbox EACCES → throw (bubble to handleCliError)', async () => {
+    it('inbox EACCES → silent (lightweight query helper swallows)', async () => {
       vi.mocked(createProcessManagerForCLI).mockReturnValue({
         isAlive: vi.fn().mockReturnValue(false),
       } as any);
@@ -220,10 +220,11 @@ describe('claw-health', () => {
         throw new Error(`Unexpected readdirSync: ${String(p)}`);
       });
 
-      await expect(healthCommand({ fsFactory }, 'test-claw')).rejects.toThrow();
+      // phase 746: peekPendingCount swallows read errors → inboxPending=0
+      await expect(healthCommand({ fsFactory }, 'test-claw')).resolves.toBeUndefined();
     });
 
-    it('outbox EACCES → throw', async () => {
+    it('outbox EACCES → silent (lightweight query helper swallows)', async () => {
       vi.mocked(createProcessManagerForCLI).mockReturnValue({
         isAlive: vi.fn().mockReturnValue(false),
       } as any);
@@ -239,7 +240,8 @@ describe('claw-health', () => {
         throw new Error(`Unexpected readdirSync: ${sp}`);
       });
 
-      await expect(healthCommand({ fsFactory }, 'test-claw')).rejects.toThrow();
+      // phase 746: listOutboxPendingSync swallows read errors → outboxPending=0
+      await expect(healthCommand({ fsFactory }, 'test-claw')).resolves.toBeUndefined();
     });
 
     it('contract sub-dir EACCES → silent (hasActiveContract swallows)', async () => {

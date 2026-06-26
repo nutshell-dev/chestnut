@@ -13,9 +13,8 @@ import { createDirContext } from '../../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
-import { isFileNotFound } from '../../foundation/fs/index.js';
 import { hasActiveContract } from '../../core/contract/index.js';
-import { INBOX_PENDING_DIR, OUTBOX_PENDING_DIR } from '../../foundation/messaging/index.js';
+import { peekPendingCount, listOutboxPendingSync } from '../../foundation/messaging/index.js';
 import { formatRelativeTime, getLastActiveMs } from './claw-shared.js';
 
 /**
@@ -40,22 +39,9 @@ export async function healthCommand(deps: { fsFactory: (baseDir: string) => File
   const isRunning = processManager.isAlive(resolveClawDaemonDir(makeClawId(name)));
 
   // Read inbox/outbox pending counts in real time
-  let inboxPending = 0;
-  let outboxPending = 0;
-  try {
-    const entries = clawFs.listSync(INBOX_PENDING_DIR).map(e => e.name);
-    inboxPending = entries.length;
-  } catch (err) {
-    // phase 517: 用 isFileNotFound 兼容 FileSystem 包装层（FS_NOT_FOUND）+ 原生 fs（ENOENT）
-    // phase 906 narrow 单码漏判 FS_NOT_FOUND → stopped claw 无 inbox dir 时崩
-    if (!isFileNotFound(err)) throw err;
-  }
-  try {
-    const entries = clawFs.listSync(OUTBOX_PENDING_DIR).map(e => e.name);
-    outboxPending = entries.length;
-  } catch (err) {
-    if (!isFileNotFound(err)) throw err;
-  }
+  // phase 746: use Messaging lightweight query helpers (swallow read errors → 0)
+  const inboxPending = peekPendingCount(clawFs, '.');
+  const outboxPending = listOutboxPendingSync(clawFs, '.').length;
 
   // Check contract status
   let contractStatus = 'none';
