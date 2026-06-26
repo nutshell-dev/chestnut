@@ -16,7 +16,6 @@ import type { FileSystem } from '../../../../foundation/fs/index.js';
 import type { AuditLog } from '../../../../foundation/audit/index.js';
 import type { InboxReader, InboxWriter, OutboxReader } from '../../../../foundation/messaging/index.js';
 import type { ClawTopology } from '../../index.js';
-import { OUTBOX_SUMMARY_AUDIT_EVENTS } from './audit-events.js';
 import { scanOutboxes } from './scan.js';
 import { findExistingSummaryByHash } from './dedup.js';
 import { writeNewSummary } from './write.js';
