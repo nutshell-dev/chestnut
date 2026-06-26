@@ -39,13 +39,16 @@ export { createSubmitSubtaskTool, SUBMIT_SUBTASK_TOOL_NAME } from './tools/submi
 
 export { getContractCreatedMs } from './utils.js';
 
-// phase 744: lightweight read-only query helpers (0-instance-dep)
+// phase 744 + 752: lightweight read-only query helpers (0-instance-dep)
 export {
   hasActiveContract,
   getActiveContractTimestamp,
   listActiveContracts,
+  getContractMetadata,
+  readContractYamlLightweight,
+  readArchiveProgress,
 } from './lightweight-query.js';
-export type { ContractSummary } from './lightweight-query.js';
+export type { ContractSummary, ContractMetadata } from './lightweight-query.js';
 
 export { collectContractEvents } from './jobs/event-collector.js';
 

@@ -12,8 +12,8 @@ import * as yaml from 'js-yaml';
 import { loadGlobalConfig, clawExists } from '../../assembly/config-load.js';
 import { getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js';
 import { CliError } from '../errors.js';
-import { CONTRACT_DIR, CONTRACT_ARCHIVE_DIR, PROGRESS_FILE, CONTRACT_YAML_FILE } from '../../core/contract/index.js';
-import { DIALOG_DIR, DIALOG_ARCHIVE_DIR, CURRENT_DIALOG_FILE, listArchiveDialogFiles } from '../../foundation/dialog-store/index.js';
+import { getContractMetadata, readContractYamlLightweight } from '../../core/contract/index.js';
+import { DIALOG_DIR, CURRENT_DIALOG_FILE, listArchiveDialogFiles } from '../../foundation/dialog-store/index.js';
 import { migrateAndValidateSession, validateSessionData } from '../../foundation/dialog-store/index.js';
 import type { ContractId } from '../../core/contract/types.js';
 
@@ -123,52 +123,22 @@ function slotLetter(idx: number): string {
  * 读取契约开始时间
  */
 async function readContractStartedAt(fileSystem: FileSystem, contractId: ContractId): Promise<string | null> {
-  // 先尝试 archive
-  const archivePath = path.join(CONTRACT_ARCHIVE_DIR, contractId, PROGRESS_FILE);
-  const activePath = path.join(CONTRACT_DIR, 'active', contractId, PROGRESS_FILE);
-
-  for (const p of [archivePath, activePath]) {
-    try {
-      const content = await fileSystem.read(p);
-      // phase 355 C3 (review-2026-06-13): 验对象 shape + started_at 字符串、否则 skip
-      const raw: unknown = JSON.parse(content);
-      if (typeof raw !== 'object' || raw === null) continue;
-      const data = raw as { started_at?: unknown };
-      if (typeof data.started_at === 'string') return data.started_at;
-    } catch { /* silent: parse 失败 / 文件不存 → 尝试下一路径 */ }
-  }
-  return null;
+  const meta = getContractMetadata(fileSystem, '.', contractId);
+  return meta?.started_at ?? null;
 }
 
 /**
  * 读取契约标题
  */
 async function readContractTitle(fileSystem: FileSystem, contractId: ContractId): Promise<string | undefined> {
-  // 从 progress.json 读取
-  const archivePath = path.join(CONTRACT_ARCHIVE_DIR, contractId, PROGRESS_FILE);
-  const activePath = path.join(CONTRACT_DIR, 'active', contractId, PROGRESS_FILE);
+  const meta = getContractMetadata(fileSystem, '.', contractId);
+  if (meta?.title) return meta.title;
 
-  for (const p of [archivePath, activePath]) {
-    try {
-      const content = await fileSystem.read(p);
-      // phase 355 C3: 同型守
-      const raw: unknown = JSON.parse(content);
-      if (typeof raw !== 'object' || raw === null) continue;
-      const data = raw as { title?: unknown };
-      if (typeof data.title === 'string') return data.title;
-    } catch { /* silent: parse 失败 → 尝试下一路径或 yaml fallback */ }
-  }
-
-  // 从 contract.yaml 读取
-  const yamlPath = path.join(CONTRACT_ARCHIVE_DIR, contractId, CONTRACT_YAML_FILE);
-  const activeYamlPath = path.join(CONTRACT_DIR, 'active', contractId, CONTRACT_YAML_FILE);
-
-  for (const p of [yamlPath, activeYamlPath]) {
-    try {
-      const content = await fileSystem.read(p);
-      const data = yaml.load(content) as { title?: string };
-      if (data.title) return data.title;
-    } catch { /* silent: skip */ }
+  // contract.yaml fallback
+  const rawYaml = readContractYamlLightweight(fileSystem, '.', contractId);
+  if (rawYaml) {
+    const data = yaml.load(rawYaml) as { title?: string };
+    if (data.title) return data.title;
   }
 
   return undefined;
@@ -379,11 +349,9 @@ async function showStepDetail(
   // 收集所有 dialog 文件（archive 先，current 最后）
   const dialogFiles: Array<{ relPath: string; mtime: number }> = [];
   try {
-    const archiveNames = await listArchiveDialogFiles(fileSystem, '.');
-    for (const name of archiveNames) {
-      const relPath = path.join(DIALOG_ARCHIVE_DIR, name);
-      const stat = await fileSystem.stat(relPath);
-      dialogFiles.push({ relPath, mtime: stat.mtime.getTime() });
+    const archiveRefs = await listArchiveDialogFiles(fileSystem, '.');
+    for (const ref of archiveRefs) {
+      dialogFiles.push({ relPath: ref.relPath, mtime: ref.mtime });
     }
   } catch { /* silent: no archive dir */ }
 

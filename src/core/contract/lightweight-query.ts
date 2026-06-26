@@ -11,7 +11,9 @@ import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import {
   CONTRACT_ACTIVE_DIR,
+  CONTRACT_ARCHIVE_DIR,
   CONTRACT_YAML_FILE,
+  PROGRESS_FILE,
 } from './dirs.js';
 import { getContractCreatedMs } from './utils.js';
 
@@ -91,4 +93,85 @@ export function listActiveContracts(
     results.push({ contractId, title, state: 'active' });
   }
   return results.sort((a, b) => a.contractId.localeCompare(b.contractId));
+}
+
+/**
+ * Contract metadata (started_at + title) from progress.json.
+ */
+export interface ContractMetadata {
+  started_at?: string;
+  title?: string;
+}
+
+/**
+ * Get contract metadata (started_at, title) by contractId.
+ * Scans archive first, then active — encapsulates the "where is contract data" knowledge.
+ *
+ * @returns null if contract not found in either location or data unreadable
+ */
+export function getContractMetadata(
+  fs: FileSystem,
+  clawDir: string,
+  contractId: string,
+): ContractMetadata | null {
+  const archivePath = path.join(clawDir, CONTRACT_ARCHIVE_DIR, contractId, PROGRESS_FILE);
+  const activePath = path.join(clawDir, CONTRACT_ACTIVE_DIR, contractId, PROGRESS_FILE);
+
+  for (const p of [archivePath, activePath]) {
+    if (!fs.existsSync(p)) continue;
+    try {
+      const raw: unknown = JSON.parse(fs.readSync(p));
+      if (typeof raw !== 'object' || raw === null) continue;
+      const data = raw as Record<string, unknown>;
+      const meta: ContractMetadata = {};
+      if (typeof data.started_at === 'string') meta.started_at = data.started_at;
+      if (typeof data.title === 'string') meta.title = data.title;
+      if (meta.started_at || meta.title) return meta;
+    } catch { /* silent: unreadable path — continue to next location */ }
+  }
+  return null;
+}
+
+/**
+ * Read contract.yaml raw content by contractId (archive → active scan).
+ * Lightweight equivalent of ContractSystem.readContractYamlRaw() — no instance required.
+ *
+ * @returns raw YAML string, or null if not found
+ */
+export function readContractYamlLightweight(
+  fs: FileSystem,
+  clawDir: string,
+  contractId: string,
+): string | null {
+  const archivePath = path.join(clawDir, CONTRACT_ARCHIVE_DIR, contractId, CONTRACT_YAML_FILE);
+  const activePath = path.join(clawDir, CONTRACT_ACTIVE_DIR, contractId, CONTRACT_YAML_FILE);
+
+  for (const p of [archivePath, activePath]) {
+    if (!fs.existsSync(p)) continue;
+    try {
+      return fs.readSync(p);
+    } catch { /* silent: unreadable path — continue to next location */ }
+  }
+  return null;
+}
+
+/**
+ * Read progress.json from an archive contract reference.
+ * For consumers of listArchiveContracts() who need progress data.
+ *
+ * @param ref - from listArchiveContracts() (provides contractDir)
+ * @returns null if unreadable
+ */
+export function readArchiveProgress(
+  fs: FileSystem,
+  ref: { contractDir: string },
+): Record<string, unknown> | null {
+  const progressPath = path.join(ref.contractDir, PROGRESS_FILE);
+  try {
+    const raw: unknown = JSON.parse(fs.readSync(progressPath));
+    if (typeof raw !== 'object' || raw === null) return null;
+    return raw as Record<string, unknown>;
+  } catch {
+    return null;
+  }
 }

@@ -11,7 +11,7 @@ import type { InboxMessageOptionsBase } from '../../foundation/messaging/index.j
 import type { ProgressData } from '../contract/index.js';
 import type { ContractId } from '../contract/types.js';
 import { type TaskId, makeTaskId } from '../async-task-system/types.js';
-import { listArchiveContracts, PROGRESS_FILE } from '../contract/index.js';
+import { listArchiveContracts, readArchiveProgress } from '../contract/index.js';
 import { assertDreamStateShape } from './invariants.js';
 
 /**
@@ -250,16 +250,15 @@ async function computeWeight(
       // best-effort：API 失败、跳过 recency/difficulty 加权
     }
   } else {
-    // fallback：直接读 progress.json（backward compatible / 未注入 ContractSystem 时）
-    const progressPath = path.join(contractDir, PROGRESS_FILE);
+    // fallback：通过轻量 API 读 progress.json（backward compatible / 未注入 ContractSystem 时）
     try {
-      const parsed: unknown = JSON.parse(fs.readSync(progressPath));
-      if (typeof parsed !== 'object' || parsed === null || typeof (parsed as Record<string, unknown>).subtasks !== 'object') {
+      const raw = readArchiveProgress(fs, { contractDir });
+      if (!raw || typeof raw.subtasks !== 'object') {
         audit.write(MEMORY_AUDIT_EVENTS.RANDOM_DREAM_ERROR,
-          'site=load_progress', 'reason=shape_mismatch', `got=${typeof parsed}`);
+          'site=load_progress', 'reason=shape_mismatch', `got=${typeof raw}`);
         return { weight, hint: hints.join('、') || '正常' };
       }
-      const progress = parsed as ProgressData;
+      const progress = raw as unknown as ProgressData;
       const subtasks = Object.values(progress.subtasks ?? {});
       const factors = calculateWeightFactors(subtasks);
       weight += factors.recencyBonus + factors.difficultyBonus;

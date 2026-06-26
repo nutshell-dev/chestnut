@@ -50,6 +50,10 @@ const ALLOWLIST_BASENAMES = new Set([
   // phase 697: best-effort drain of in-flight stream state before rethrow;
   // original error is preserved and rethrown on line 284.
   'llm-stream-collector.ts',
+  // phase 752: lightweight read-only query helpers are intentionally fail-soft;
+  // unreadable/race paths return null / degraded result to callers without audit dependency.
+  'lightweight-query.ts',
+  'list-archive.ts',
 ]);
 
 function basenameOf(filepath) {
