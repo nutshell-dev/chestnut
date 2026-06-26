@@ -6,7 +6,6 @@
  */
 
 import { newUuid } from '../../foundation/node-utils/index.js';
-import { MOTION_CLAW_ID } from '../claw-topology/index.js';
 
 import { CALLER_TYPE_TO_GROUPS } from '../caller-types.js';
 import * as path from 'path';
@@ -767,7 +766,6 @@ export class AsyncTaskSystem {
       profile: 'full',
       maxSteps: 1,
       signal,
-      isMotionChain: task.parentClawId === MOTION_CLAW_ID,
       auditWriter: this.auditWriter,
       getElapsedMs: () => 0,
       readFileState: new Map(),

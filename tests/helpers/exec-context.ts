@@ -22,7 +22,6 @@ export function makeExecContext(overrides: Partial<ExecContext> = {}): ExecConte
     fs: noopFs,
     profile: 'full',
     maxSteps: 20,
-    isMotionChain: false,
     getElapsedMs: () => 0,
     stopRequested: false,
     requestStop: vi.fn(),

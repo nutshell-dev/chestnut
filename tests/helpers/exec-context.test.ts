@@ -10,7 +10,6 @@ describe('makeExecContext', () => {
     expect(typeof ctx.requestStop).toBe('function');
     expect(typeof ctx.getElapsedMs).toBe('function');
     expect(ctx.stopRequested).toBe(false);
-    expect(ctx.isMotionChain).toBe(false);
   });
 
   it('overrides shallow-merge', () => {

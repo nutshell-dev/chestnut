@@ -74,7 +74,7 @@ export interface FileState {
  * 详 `coding plan/phase1455/Step B — design ExecContext ISP.md` §2.1 字段→子接口完整 mapping。
  */
 
-/** 身份维度（D1）：clawId / clawDir / chestnutRoot / workspaceDir / syncDir / originClawId / isMotionChain */
+/** 身份维度（D1）：clawId / clawDir / chestnutRoot / workspaceDir / syncDir / originClawId */
 export interface ClawIdentity {
   clawId: string;
   clawDir: string;
@@ -84,8 +84,6 @@ export interface ClawIdentity {
   syncDir: string;
   /** 创建链路的源头 clawId，由 summon/spawn 传播。Motion 直接创建时为 'motion' */
   originClawId?: string;
-  /** 是否为 Motion 创建链路上的 agent（Motion 本体或其 subagent） */
-  readonly isMotionChain: boolean;
 }
 
 /** 权限维度（D2）：profile / allowedGroups / callerLabel / permissionChecker */
