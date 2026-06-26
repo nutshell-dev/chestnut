@@ -84,6 +84,9 @@ function makeFs(files: Record<string, string | Buffer>, dirs: Record<string, str
       // (sufficient for CLAWS_DIR scan + inbox/pending count which ignores kind).
       return list.map(n => ({ name: n, isDirectory: true, isFile: false }));
     },
+    list: (p: string, _opts?: unknown) => {
+      return Promise.resolve(makeFs(files, dirs).listSync(p, _opts));
+    },
   } as unknown as FileSystem;
 }
 
@@ -118,19 +121,19 @@ describe('computeProcessUptimeMs', () => {
 // ── computeClawInboxUnread ──────────────────────────────────────────────────
 
 describe('computeClawInboxUnread', () => {
-  it('returns 0 when inbox/pending dir does not exist', () => {
+  it('returns 0 when inbox/pending dir does not exist', async () => {
     const fs = makeFs({}, {});
-    expect(computeClawInboxUnread(fs)).toBe(0);
+    expect(await computeClawInboxUnread(fs)).toBe(0);
   });
 
-  it('returns number of files in inbox/pending', () => {
+  it('returns number of files in inbox/pending', async () => {
     const fs = makeFs({}, { 'inbox/pending': ['msg-1.md', 'msg-2.md', 'msg-3.md'] });
-    expect(computeClawInboxUnread(fs)).toBe(3);
+    expect(await computeClawInboxUnread(fs)).toBe(3);
   });
 
-  it('returns 0 when inbox/pending is empty', () => {
+  it('returns 0 when inbox/pending is empty', async () => {
     const fs = makeFs({}, { 'inbox/pending': [] });
-    expect(computeClawInboxUnread(fs)).toBe(0);
+    expect(await computeClawInboxUnread(fs)).toBe(0);
   });
 });
 
@@ -262,9 +265,9 @@ describe('computeForumStatusView', () => {
     };
   }
 
-  it('all-stopped baseline: 0 active claws + N/M counts + system stopped', () => {
+  it('all-stopped baseline: 0 active claws + N/M counts + system stopped', async () => {
     const deps = makeDeps({ claws: ['a', 'b', 'c'] });
-    const v = computeForumStatusView(deps);
+    const v = await computeForumStatusView(deps);
     expect(v.system.watchdog.alive).toBe(false);
     expect(v.system.motion.alive).toBe(false);
     expect(v.activeClaws).toEqual([]);
@@ -272,7 +275,7 @@ describe('computeForumStatusView', () => {
     expect(v.orphans).toEqual({ watchdog: [], daemon: [] });
   });
 
-  it('watchdog + motion + 1 claw running: full happy path', () => {
+  it('watchdog + motion + 1 claw running: full happy path', async () => {
     const fourHoursAgo = '2026-05-30T10:11:00Z';
     const motionFs = makeFs({}, { 'inbox/pending': ['m1.md', 'm2.md'] });
     const clawAuditTs = '2026-05-30T14:21:00Z';
@@ -301,7 +304,7 @@ describe('computeForumStatusView', () => {
         };
       })(),
     });
-    const v = computeForumStatusView(deps);
+    const v = await computeForumStatusView(deps);
     expect(v.system.watchdog.alive).toBe(true);
     expect(v.system.watchdog.pid).toBe(52933);
     expect(v.system.motion.alive).toBe(true);
@@ -314,7 +317,7 @@ describe('computeForumStatusView', () => {
     expect(v.totalClawCount).toBe(1);
   });
 
-  it('ProcessListUnavailable in findProcesses degrades to empty orphan list', () => {
+  it('ProcessListUnavailable in findProcesses degrades to empty orphan list', async () => {
     const deps = makeDeps({
       pm: {
         getAliveStatus: () => ({ alive: false, reason: 'no PID file' }),
@@ -323,7 +326,7 @@ describe('computeForumStatusView', () => {
         },
       } as unknown as ProcessManager,
     });
-    const v = computeForumStatusView(deps);
+    const v = await computeForumStatusView(deps);
     expect(v.orphans).toEqual({ watchdog: [], daemon: [] });
   });
 });

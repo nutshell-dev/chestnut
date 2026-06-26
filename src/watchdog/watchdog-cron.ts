@@ -17,7 +17,7 @@ import {
 import { log, writeClawInactivityInbox } from './watchdog-log.js';
 import { clawHasActiveContract, getClawActivityInfo, gatherClawSnapshot, shouldResetNotifyCount, deriveFailureClass, formatInactivityBody, deriveCrashClass, formatCrashBody, hasCleanStopMarker } from './watchdog-utils.js';
 import { listSubscriptions, consumeSubscription } from './subscription-store.js';
-import { getContractCreatedMs } from '../core/contract/index.js';
+import { getActiveContractTimestamp } from '../core/contract/index.js';
 import { getNamedSubrootDir } from '../core/claw-topology/claw-instance-paths.js';
 import { routeNotifyClaw } from '../core/claw-topology/index.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
@@ -140,7 +140,7 @@ export async function maybeCronClawInactivity(pm: ProcessManager, audit: AuditLo
       const { lastEventMs, lastError } = await getClawActivityInfo(clawFs, audit);
 
       // Merge with contract creation time to handle contract recreation scenario
-      const contractCreatedMs = getContractCreatedMs(clawFs, clawDir, audit);
+      const contractCreatedMs = getActiveContractTimestamp(clawFs, clawDir);
       const referenceMs = Math.max(lastEventMs ?? 0, contractCreatedMs ?? 0) || null;
       if (referenceMs === null) continue;
 

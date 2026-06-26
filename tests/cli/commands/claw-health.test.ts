@@ -76,6 +76,10 @@ describe('claw-health', () => {
     vi.mocked(getClawDir).mockImplementation((name: string) => path.join('/tmp/chestnut/claws', name));
     vi.mocked(getGlobalConfigPath).mockReturnValue('/tmp/chestnut/config.yaml');
     vi.mocked(getClawConfigPath).mockImplementation((name: string) => path.join('/tmp/chestnut/claws', name, 'config.yaml'));
+    vi.mocked(fs.existsSync).mockImplementation((p: fs.PathLike) => {
+      const sp = String(p);
+      return sp.includes('contract/active');
+    });
   });
 
   afterEach(() => {
@@ -238,7 +242,7 @@ describe('claw-health', () => {
       await expect(healthCommand({ fsFactory }, 'test-claw')).rejects.toThrow();
     });
 
-    it('contract sub-dir EACCES → throw', async () => {
+    it('contract sub-dir EACCES → silent (hasActiveContract swallows)', async () => {
       vi.mocked(createProcessManagerForCLI).mockReturnValue({
         isAlive: vi.fn().mockReturnValue(false),
       } as any);
@@ -256,7 +260,7 @@ describe('claw-health', () => {
         throw new Error(`Unexpected readdirSync: ${sp}`);
       });
 
-      await expect(healthCommand({ fsFactory }, 'test-claw')).rejects.toThrow();
+      await expect(healthCommand({ fsFactory }, 'test-claw')).resolves.toBeUndefined();
     });
 
     it('contract scan ENOENT silent — 0 throw', async () => {

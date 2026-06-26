@@ -67,7 +67,7 @@ describe('clawHasContract dual-code narrow (phase 1215)', () => {
     const result = clawHasContract(testDir, fsFactory, audit as any);
 
     expect(result).toBe(false);
-    expect(audit.write).toHaveBeenCalledTimes(2); // active + paused both throw
+    expect(audit.write).toHaveBeenCalledTimes(1); // paused fallback scan emits
     expect(audit.write).toHaveBeenCalledWith(
       WATCHDOG_AUDIT_EVENTS.CLAW_HAS_CONTRACT_CHECK_FAILED,
       expect.stringContaining(testDir),

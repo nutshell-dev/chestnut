@@ -10,7 +10,7 @@
 
 import * as path from 'path';
 import type { FileSystem } from '../foundation/fs/index.js';
-import { CONTRACT_DIR } from '../core/contract/index.js';
+import { hasActiveContract } from '../core/contract/index.js';
 import { STATUS_SUBDIR } from '../foundation/process-manager/index.js';
 import { INBOX_PENDING_DIR } from '../foundation/messaging/index.js';
 import { STARTUP_CHECK_COOLDOWN_MS } from './constants.js';
@@ -27,7 +27,7 @@ export function isInboxEmpty(fs: FileSystem): boolean {
 /** 是否有活跃 contract（contracts/active 目录下有子目录）。读失败默 false（保守假定无活跃）。*/
 export function hasActiveContracts(fs: FileSystem): boolean {
   try {
-    return fs.listSync(path.join(CONTRACT_DIR, 'active'), { includeDirs: true }).some(e => e.isDirectory);
+    return hasActiveContract(fs, '.');
   } catch {
     return false;
   }
