@@ -6,7 +6,6 @@
 
 import { runReact, DEFAULT_MAX_STEPS } from '../agent-executor/index.js';
 // phase 692 Step B: 删 MOTION_CLAW_ID import (L3 → L4 反向 import = M#5 违反)。
-// motion chain 判定改 caller 传 originIsMotion: boolean (caller L4 ↔ ClawTopology L4 同层、不违 M#5)。
 import { formatErr } from '../../foundation/node-utils/index.js';
 import type { ToolExecutor, ToolRegistry } from '../../foundation/tools/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
@@ -55,8 +54,6 @@ export interface SubAgentOptions {
   callerType?: CallerType;  // 默认 'subagent'
   messages?: Message[];                      // 若提供，直接用；否则从 prompt 构建
   originClawId?: string;                     // 创建链路源头，传给子 SubAgent
-  /** phase 692 Step B: caller 算 originClawId === MOTION_CLAW_ID 后传 boolean、SubAgent (L3) 不知 motion id 字面 (M#5) */
-  originIsMotion?: boolean;
   isShadow?: boolean;                         // phase 767：shadow 分身标记
   taskStreamWriter: StreamLog;
   auditWriter: AuditLog;          // tasks/queues/results/{id}/audit.tsv，step 11+ 写事件

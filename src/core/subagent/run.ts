@@ -66,8 +66,6 @@ export interface RunSubagentOptions {
   signal?: AbortSignal;
   timeoutMs?: number;           // whole-task timeout（async caller 用、verifier 用 idleTimeoutMs only）
   originClawId?: string;        // summon chain trace（async caller 用）
-  /** phase 692 Step B: caller 算 originClawId === MOTION_CLAW_ID 后传 boolean、SubAgent (L3) 不知 motion id 字面 (M#5) */
-  originIsMotion?: boolean;
   toolsForLLM?: ToolDefinition[];
   onIdleTimeout?: () => void;
 
@@ -144,7 +142,6 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
     toolsForLLM,
     callerType: opts.callerType,
     originClawId: opts.originClawId,
-    originIsMotion: opts.originIsMotion,
     onIdleTimeout: opts.onIdleTimeout,
     taskStreamWriter,
     auditWriter,
