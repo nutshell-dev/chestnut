@@ -5,9 +5,9 @@
 import * as path from 'path';
 import { formatErr } from "../../foundation/node-utils/index.js";
 import { loadGlobalConfig } from '../../assembly/config-load.js';
-import { getNamedSubrootDir } from '../../core/claw-topology/claw-instance-paths.js';
+import { getNamedSubrootDir } from '../../core/claw-topology/index.js';
 import { getGlobalConfigPath } from '../../assembly/global-config-path.js';
-import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
+import { resolveClawDaemonDir, MOTION_CLAW_ID, enumerateClaws, getRelativeClawDir } from '../../core/claw-topology/index.js';
 import { createAuditWriter, AUDIT_FILE } from '../../foundation/audit/index.js';
 import { getChestnutFs, getGlobalConfig, setAuditWriter as setWatchdogAuditWriter } from '../../watchdog/watchdog-context.js';
 import { stopCommand as watchdogStop } from '../../watchdog/watchdog.js';
@@ -18,7 +18,7 @@ import { createSystemAudit, type AuditLog } from '../../foundation/audit/index.j
 import { PROCESS_MANAGER_AUDIT_EVENTS } from '../../foundation/process-manager/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
-import { CLAWS_DIR } from '../../core/claw-topology/claw-instance-paths.js';
+
 import { resolveDaemonEntry } from '../../assembly/spawn-entry.js';
 import { CLI_AUDIT_EVENTS } from '../audit-events.js';
 import { isFileNotFound, type FileSystem } from '../../foundation/fs/index.js';
@@ -74,9 +74,7 @@ export async function stopAllCommand(
   let clawNames: string[] = [];
   try {
     const baseFs = deps.fsFactory(baseDir);
-    clawNames = baseFs.listSync(CLAWS_DIR, { includeDirs: true })
-      .filter(e => e.isDirectory)
-      .map(e => e.name);
+    clawNames = enumerateClaws(baseFs, 'claws');
   } catch (e) {
     if (!isFileNotFound(e)) {
       console.error(`[stop] readdirSync claws dir failed: ${(e as Error).message}`);
@@ -121,7 +119,7 @@ export async function stopAllCommand(
     try {
       // phase 521 (review-round4 CLI M): 同 baseDir marker 路径、writeAtomicSync 已内置
       // tmp+rename、外层 wrap 去除、防 .tmp 孤儿累积 in .chestnut/claws/<name>/。
-      const clawFs = deps.fsFactory(path.join(baseDir, CLAWS_DIR, name));
+      const clawFs = deps.fsFactory(path.join(baseDir, getRelativeClawDir(name)));
       clawFs.writeAtomicSync('clean-stop', String(Date.now()));
     } catch {
       // silent: per-claw marker 写失败 best-effort（同全局 marker 处理）

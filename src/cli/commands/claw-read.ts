@@ -6,7 +6,7 @@
 import * as path from 'path';
 import { formatErr } from "../../foundation/node-utils/index.js";
 import { loadGlobalConfig, clawExists } from '../../assembly/config-load.js';
-import { getClawDir, getClawConfigPath } from '../../core/claw-topology/claw-instance-paths.js';
+import { getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js';
 import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 import { resolveWorkspacePath } from '../../foundation/file-tool/index.js';
 import { CliError } from '../errors.js';

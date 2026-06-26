@@ -3,7 +3,7 @@
  * Watchdog cron jobs — claw inactivity timeout + crash detection
  */
 
-import { makeChestnutRoot } from '../core/claw-topology/claw-instance-paths.js';
+
 import * as path from 'path';
 import { formatErr } from "../foundation/node-utils/index.js";
 import type { FileSystem } from '../foundation/fs/index.js';
@@ -18,12 +18,18 @@ import { log, writeClawInactivityInbox } from './watchdog-log.js';
 import { clawHasActiveContract, getClawActivityInfo, gatherClawSnapshot, shouldResetNotifyCount, deriveFailureClass, formatInactivityBody, deriveCrashClass, formatCrashBody, hasCleanStopMarker } from './watchdog-utils.js';
 import { listSubscriptions, consumeSubscription } from './subscription-store.js';
 import { getActiveContractTimestamp } from '../core/contract/index.js';
-import { getNamedSubrootDir } from '../core/claw-topology/claw-instance-paths.js';
-import { routeNotifyClaw } from '../core/claw-topology/index.js';
+
+import {
+  routeNotifyClaw,
+  enumerateClaws,
+  getRelativeClawDir,
+  makeChestnutRoot,
+  getNamedSubrootDir,
+} from '../core/claw-topology/index.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../core/claw-topology/index.js';
 import { makeClawId } from '../foundation/claw-identity/index.js';
-import { CLAWS_DIR } from '../core/claw-topology/claw-instance-paths.js';
+
 
 /**
  * phase 138: watchdog-cron Map cleanup 全路径覆盖（audit.P1.wd-1）
@@ -89,31 +95,28 @@ function fireInactivityNotification(opts: FireInactivityOpts): { failureClass: s
 export async function maybeCronClawInactivity(pm: ProcessManager, audit: AuditLog, fsFactory: (baseDir: string) => FileSystem): Promise<void> {
   const timeoutMs = getGlobalConfig(fsFactory).watchdog.claw_inactivity_timeout_ms;
   const fs = getChestnutFs(fsFactory);
-  if (!fs.existsSync(CLAWS_DIR)) {
-    // phase 138: existsSync false = no claws present、cleanup 全部 stale entries（audit.P1.wd-1 真治）
-    const emptyExisting = new Set<string>();
-    pruneStaleMapEntries(clawStateAPI.lastInactivityNotified, emptyExisting);
-    pruneStaleMapEntries(clawStateAPI.inactivityNotifyCount, emptyExisting);
-    return;
-  }
-
-  // 清理已不存在的 claw 的 Map 条目
-  let clawEntries: ReturnType<typeof fs.listSync>;
+  // 枚举 claws 并清理已不存在的 claw 的 Map 条目
+  let clawNames: string[];
   try {
-    clawEntries = fs.listSync(CLAWS_DIR, { includeDirs: true }).filter(e => e.isDirectory);
+    clawNames = enumerateClaws(fs, 'claws');
   } catch (err) {
-    if (!isFileNotFound(err)) {
-      // phase 697: 加 dir col、与 phase 696 SUBSCRIPTION_DIR_LIST_FAILED + ARCHIVE_DIR_FAILED 对齐
-      audit.write(
-        WATCHDOG_AUDIT_EVENTS.CLAWS_DIR_LIST_FAILED,
-        `ctx=inactivity`,
-        `dir=${CLAWS_DIR}`,
-        `error=${formatErr(err)}`,
-      );
+    if (isFileNotFound(err)) {
+      // phase 138: claws dir 不存在 = no claws present、cleanup 全部 stale entries（audit.P1.wd-1 真治）
+      const emptyExisting = new Set<string>();
+      pruneStaleMapEntries(clawStateAPI.lastInactivityNotified, emptyExisting);
+      pruneStaleMapEntries(clawStateAPI.inactivityNotifyCount, emptyExisting);
+      return;
     }
-    return;  // race / 其他错 = treat as no claws、下 tick 重试
+    // phase 697: 加 dir col、与 phase 696 SUBSCRIPTION_DIR_LIST_FAILED + ARCHIVE_DIR_FAILED 对齐
+    audit.write(
+      WATCHDOG_AUDIT_EVENTS.CLAWS_DIR_LIST_FAILED,
+      `ctx=inactivity`,
+      `dir=claws`,
+      `error=${formatErr(err)}`,
+    );
+    return;  // 其他错 = treat as no claws、下 tick 重试
   }
-  const existingClawIds = new Set(clawEntries.map(entry => entry.name));
+  const existingClawIds = new Set(clawNames);
   // phase 691: 拆 ctx + present 为两独立 col、与 phase 690 WATCHDOG_CHECK 同模式修正
   audit.write(
     WATCHDOG_AUDIT_EVENTS.CLAW_SCAN,
@@ -124,10 +127,10 @@ export async function maybeCronClawInactivity(pm: ProcessManager, audit: AuditLo
   pruneStaleMapEntries(clawStateAPI.inactivityNotifyCount, existingClawIds);
 
   const now = Date.now();
-  for (const rawClawId of clawEntries.map(e => e.name)) {
+  for (const rawClawId of clawNames) {
     const clawId = rawClawId;
     try {
-      const clawDir = path.join(getChestnutDir(), CLAWS_DIR, rawClawId);
+      const clawDir = path.join(getChestnutDir(), getRelativeClawDir(rawClawId));
 
       // phase 1482: inactivity 仅对 ACTIVE contract 触发 / paused 本就该停（不算 inactivity / D 类 root cause fix）
       if (!clawHasActiveContract(clawDir, fsFactory, audit)) continue;
@@ -189,32 +192,29 @@ export async function maybeCronClawInactivity(pm: ProcessManager, audit: AuditLo
 //   - extraFields 透传 crash_class + 上下文 to motion guidance composer
 export function maybeCronClawCrash(pm: ProcessManager, audit: AuditLog, fsFactory: (baseDir: string) => FileSystem): void {
   const fs = getChestnutFs(fsFactory);
-  if (!fs.existsSync(CLAWS_DIR)) {
-    // phase 138: existsSync false = no claws present、cleanup 全部 stale entries（audit.P1.wd-1 真治）
-    const emptyExisting = new Set<string>();
-    pruneStaleMapEntries(clawStateAPI.clawPreviouslyAlive, emptyExisting);
-    pruneStaleMapEntries(clawStateAPI.everSpawned, emptyExisting);
-    pruneStaleMapEntries(clawStateAPI.clawPreviouslyNotified, emptyExisting);
-    return;
-  }
-
-  // 清理已不存在的 claw 的 Map 条目
-  let clawEntries: ReturnType<typeof fs.listSync>;
+  // 枚举 claws 并清理已不存在的 claw 的 Map 条目
+  let clawNames: string[];
   try {
-    clawEntries = fs.listSync(CLAWS_DIR, { includeDirs: true }).filter(e => e.isDirectory);
+    clawNames = enumerateClaws(fs, 'claws');
   } catch (err) {
-    if (!isFileNotFound(err)) {
-      // phase 697: 加 dir col、与 phase 696 SUBSCRIPTION_DIR_LIST_FAILED + ARCHIVE_DIR_FAILED 对齐
-      audit.write(
-        WATCHDOG_AUDIT_EVENTS.CLAWS_DIR_LIST_FAILED,
-        `ctx=crash`,
-        `dir=${CLAWS_DIR}`,
-        `error=${formatErr(err)}`,
-      );
+    if (isFileNotFound(err)) {
+      // phase 138: claws dir 不存在 = no claws present、cleanup 全部 stale entries（audit.P1.wd-1 真治）
+      const emptyExisting = new Set<string>();
+      pruneStaleMapEntries(clawStateAPI.clawPreviouslyAlive, emptyExisting);
+      pruneStaleMapEntries(clawStateAPI.everSpawned, emptyExisting);
+      pruneStaleMapEntries(clawStateAPI.clawPreviouslyNotified, emptyExisting);
+      return;
     }
-    return;  // race / 其他错 = treat as no claws、下 tick 重试
+    // phase 697: 加 dir col、与 phase 696 SUBSCRIPTION_DIR_LIST_FAILED + ARCHIVE_DIR_FAILED 对齐
+    audit.write(
+      WATCHDOG_AUDIT_EVENTS.CLAWS_DIR_LIST_FAILED,
+      `ctx=crash`,
+      `dir=claws`,
+      `error=${formatErr(err)}`,
+    );
+    return;  // 其他错 = treat as no claws、下 tick 重试
   }
-  const existingClawIds = new Set(clawEntries.map(entry => entry.name));
+  const existingClawIds = new Set(clawNames);
   // phase 691: 拆 ctx + present 为两独立 col、与 phase 690 WATCHDOG_CHECK 同模式修正
   audit.write(
     WATCHDOG_AUDIT_EVENTS.CLAW_SCAN,
@@ -225,9 +225,9 @@ export function maybeCronClawCrash(pm: ProcessManager, audit: AuditLog, fsFactor
   pruneStaleMapEntries(clawStateAPI.everSpawned, existingClawIds);
   pruneStaleMapEntries(clawStateAPI.clawPreviouslyNotified, existingClawIds);
 
-  for (const rawClawId of clawEntries.map(e => e.name)) {
+  for (const rawClawId of clawNames) {
     const clawId = rawClawId;
-    const clawDir = path.join(getChestnutDir(), CLAWS_DIR, rawClawId);
+    const clawDir = path.join(getChestnutDir(), getRelativeClawDir(rawClawId));
     const currentlyAlive = pm.isAlive(resolveClawDaemonDir(makeClawId(clawId)));
 
     if (currentlyAlive) {
@@ -327,7 +327,7 @@ export async function maybeCronCheckSubscriptions(pm: ProcessManager, audit: Aud
   for (const sub of subs) {
     const rawClawId = sub.clawId;
     const clawId = rawClawId;
-    const clawDir = path.join(getChestnutDir(), CLAWS_DIR, rawClawId);
+    const clawDir = path.join(getChestnutDir(), getRelativeClawDir(rawClawId));
 
     try {
       // (a) claw missing or no active contract → consume

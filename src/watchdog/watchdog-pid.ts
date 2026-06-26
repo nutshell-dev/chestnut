@@ -3,7 +3,7 @@
  * PID file management — 0 module state 依赖（仅 fs）
  */
 
-import { getWorkspaceRoot } from '../core/claw-topology/claw-instance-paths.js';
+import { getWorkspaceRoot } from '../core/claw-topology/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 import { formatErr } from "../foundation/node-utils/index.js";
 import { getChestnutFs } from './watchdog-context.js';

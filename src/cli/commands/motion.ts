@@ -8,12 +8,12 @@
  * Motion is the manager; it manages other Claws by calling the CLI via exec and has no dedicated tools.
  */
 
-import { getWorkspaceRoot, getChestnutRoot } from '../../core/claw-topology/claw-instance-paths.js';
+import { getWorkspaceRoot, getChestnutRoot } from '../../core/claw-topology/index.js';
 import * as path from 'path';
 import { formatErr } from "../../foundation/node-utils/index.js";
 import { fileURLToPath } from 'url';
 import { loadGlobalConfig } from '../../assembly/config-load.js';
-import { getNamedSubrootDir } from '../../core/claw-topology/claw-instance-paths.js';
+import { getNamedSubrootDir } from '../../core/claw-topology/index.js';
 import { STATUS_SUBDIR } from '../../foundation/process-manager/index.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 
@@ -25,7 +25,7 @@ import { createProcessManagerForCLI } from '../../foundation/process-manager/ind
 // phase 693 Step C: SNAPSHOT_IGNORE_PATTERNS 归 Assembly 装配组装、走 assembly barrel (CLI L6 → Assembly L6 barrel)
 import { SNAPSHOT_IGNORE_PATTERNS } from '../../assembly/index.js';
 import { CLAW_SPEC_FILE, CLAW_SOUL_FILE, CLAW_AUTH_POLICY_FILE, CLAW_HEARTBEAT_FILE } from '../../foundation/claw-identity/index.js';
-import { CLAWS_DIR } from '../../core/claw-topology/claw-instance-paths.js';
+import { CLAWS_DIR } from '../../core/claw-topology/index.js';
 import { resolveDaemonEntry } from '../../assembly/spawn-entry.js';
 import { DAEMON_LOG } from '../../daemon/constants.js';
 import { TASKS_SYNC_EXEC_DIR } from '../../foundation/command-tool/index.js';

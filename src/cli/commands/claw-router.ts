@@ -36,7 +36,7 @@ import {
 } from './claw.js';
 import { CliError } from '../errors.js';
 import { createDirContext } from '../../foundation/audit/index.js';
-import { getClawDir } from '../../core/claw-topology/claw-instance-paths.js';
+import { getClawDir } from '../../core/claw-topology/index.js';
 import { loadGlobalConfig } from '../../assembly/config-load.js';
 import { parseIntOption } from '../parse-int-option.js';
 import { makeContractId } from '../../core/contract/types.js';

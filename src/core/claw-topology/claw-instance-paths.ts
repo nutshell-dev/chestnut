@@ -56,6 +56,15 @@ export function getClawDir(name: string): string {
   return path.join(getWorkspaceRoot(), '.chestnut', 'claws', name);
 }
 
+/**
+ * Relative claw directory path from the chestnut root.
+ * For callers that already have a chroot/baseDir and need `claws/<name>`.
+ */
+export function getRelativeClawDir(name: string): string {
+  assertSafeClawId(name);
+  return path.join(CLAWS_DIR, name);
+}
+
 export function getClawConfigPath(name: string): string {
   return path.join(getClawDir(name), CONFIG_YAML_FILE);
 }

@@ -21,7 +21,7 @@ import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
 import { createStreamReader, STREAM_FILE } from '../../foundation/stream/index.js';
 import { createViewportObservability } from './chat-viewport-observability.js';
-import { CLAWS_DIR, getChestnutRoot } from '../../core/claw-topology/claw-instance-paths.js';
+import { CLAWS_DIR, getChestnutRoot } from '../../core/claw-topology/index.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID, createClawTopology } from '../../core/claw-topology/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
 

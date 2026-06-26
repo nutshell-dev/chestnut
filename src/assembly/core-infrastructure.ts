@@ -1,6 +1,6 @@
 import path from 'path';
 import { formatErr } from '../foundation/node-utils/index.js';
-import { resolveChestnutRoot } from '../core/claw-topology/claw-instance-paths.js';
+import { resolveChestnutRoot } from '../core/claw-topology/index.js';
 // CLAWS_DIR removed: phase 263
 
 import type { FileSystem } from '../foundation/fs/index.js';
