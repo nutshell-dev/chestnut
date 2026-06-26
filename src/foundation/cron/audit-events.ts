@@ -33,7 +33,6 @@ export const CRON_AUDIT_EVENTS = {
  */
 export const CRON_FILE_ROUTING: Readonly<Record<string, 'audit' | 'tick'>> = {
   cron_job_started: 'tick',
-  cron_outbox_summary_skipped: 'tick',
   // 异常类留 audit
   cron_handler_aborted: 'audit',
   cron_handler_timeout: 'audit',
