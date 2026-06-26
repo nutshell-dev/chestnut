@@ -7,6 +7,10 @@ import { ContractSystem, type ContractSystemDeps } from './manager.js';
 
 export { ContractSystem, type ContractSystemDeps } from './manager.js';
 
+// phase 767: contract event notification callback (moved from L6 Assembly)
+export { createContractNotifyCallback } from './contract-notify-callback.js';
+export type { ContractNotifyDeps, ContractNotifyCallback } from './contract-notify-callback.js';
+
 // phase 1424: contract auditor exports
 export { ContractAuditor, type ContractAuditorDeps, type AuditorVerdict, type AuditorDrift, type AuditRequest, type AuditOutcome, parseVerdict } from './contract-auditor.js';
 

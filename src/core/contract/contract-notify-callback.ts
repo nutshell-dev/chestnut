@@ -9,10 +9,10 @@
  * phase 37：variable `motionInboxDir` → `selfInboxDir` 命名 hygiene + 注释 calibration（详 §A.6）。
  */
 
-import type { StreamWriter } from '../foundation/stream/index.js';
-import type { AuditLog } from '../foundation/audit/index.js';
-import type { FileSystem } from '../foundation/fs/index.js';
-import { notifyInbox } from '../foundation/messaging/index.js';
+import type { StreamWriter } from '../../foundation/stream/index.js';
+import type { AuditLog } from '../../foundation/audit/index.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
+import { notifyInbox } from '../../foundation/messaging/index.js';
 
 export interface ContractNotifyDeps {
   streamWriter: StreamWriter;
