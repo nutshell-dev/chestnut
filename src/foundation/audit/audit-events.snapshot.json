@@ -953,7 +953,6 @@
       "cron_handler_timeout",
       "cron_job_error",
       "cron_job_late_settled",
-      "cron_job_started",
       "cron_parse_fallback",
       "cron_parse_invalid",
       "cron_runner_started",
@@ -969,7 +968,6 @@
     ]
   },
   "fileRouting": {
-    "cron_job_started": "tick",
     "daemon_liveness_heartbeat": "tick",
     "daemon_loop_iteration": "tick",
     "viewport_render_batch": "viewport",

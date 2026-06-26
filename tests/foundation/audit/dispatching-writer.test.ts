@@ -25,7 +25,7 @@ describe('DispatchingAuditWriter (phase 159)', () => {
 
   const makeTypeToFile = () =>
     new Map([
-      ['cron_job_started', 'tick'],
+      ['daemon_liveness_heartbeat', 'tick'],
       ['daemon_loop_iteration', 'tick'],
       ['viewport_render_batch', 'viewport'],
     ]);
@@ -43,11 +43,11 @@ describe('DispatchingAuditWriter (phase 159)', () => {
     const fs = new NodeFileSystem({ baseDir: tmpDir });
     const dw = new DispatchingAuditWriter(fs, tmpDir, makeTypeToFile());
 
-    dw.write('cron_job_started', 'job=dream-trigger');
+    dw.write('daemon_liveness_heartbeat', 'job=dream-trigger');
 
     expect(existsSync(join(tmpDir, 'tick.tsv'))).toBe(true);
     const tickContent = readFileSync(join(tmpDir, 'tick.tsv'), 'utf-8');
-    expect(tickContent).toContain('cron_job_started');
+    expect(tickContent).toContain('daemon_liveness_heartbeat');
     expect(tickContent).toContain('job=dream-trigger');
   });
 
@@ -67,9 +67,9 @@ describe('DispatchingAuditWriter (phase 159)', () => {
     const fs = new NodeFileSystem({ baseDir: tmpDir });
     const dw = new DispatchingAuditWriter(fs, tmpDir, makeTypeToFile());
 
-    dw.write('cron_job_started', 'job=a');
+    dw.write('daemon_liveness_heartbeat', 'job=a');
     dw.write('turn_start', 'trace_id=t1');
-    dw.write('cron_job_started', 'job=b');
+    dw.write('daemon_liveness_heartbeat', 'job=b');
     dw.write('turn_end', 'trace_id=t1');
 
     const tickContent = readFileSync(join(tmpDir, 'tick.tsv'), 'utf-8');
@@ -84,7 +84,7 @@ describe('DispatchingAuditWriter (phase 159)', () => {
   it('dispose cascades to all internal writers', () => {
     const fs = new NodeFileSystem({ baseDir: tmpDir });
     const dw = new DispatchingAuditWriter(fs, tmpDir, makeTypeToFile());
-    dw.write('cron_job_started', 'job=x');
+    dw.write('daemon_liveness_heartbeat', 'job=x');
     expect(() => dw.dispose()).not.toThrow();
   });
 
@@ -93,21 +93,21 @@ describe('DispatchingAuditWriter (phase 159)', () => {
     const audit = createSystemAudit(fs, tmpDir);
 
     audit.write('turn_start', 'trace_id=t1');
-    audit.write('cron_job_started', 'job=x');
+    audit.write('daemon_liveness_heartbeat', 'job=x');
 
     expect(existsSync(join(tmpDir, 'audit.tsv'))).toBe(true);
     expect(existsSync(join(tmpDir, 'tick.tsv'))).toBe(false);
 
     const auditContent = readFileSync(join(tmpDir, 'audit.tsv'), 'utf-8');
     expect(auditContent).toContain('turn_start');
-    expect(auditContent).toContain('cron_job_started');
+    expect(auditContent).toContain('daemon_liveness_heartbeat');
   });
 
   it('createSystemAudit with empty typeToFile Map returns single AuditWriter', () => {
     const fs = new NodeFileSystem({ baseDir: tmpDir });
     const audit = createSystemAudit(fs, tmpDir, { typeToFile: new Map() });
 
-    audit.write('cron_job_started', 'job=x');
+    audit.write('daemon_liveness_heartbeat', 'job=x');
 
     expect(existsSync(join(tmpDir, 'audit.tsv'))).toBe(true);
     expect(existsSync(join(tmpDir, 'tick.tsv'))).toBe(false);
@@ -119,7 +119,7 @@ describe('DispatchingAuditWriter (phase 159)', () => {
       typeToFile: makeTypeToFile(),
     });
 
-    audit.write('cron_job_started', 'job=x');
+    audit.write('daemon_liveness_heartbeat', 'job=x');
 
     expect(existsSync(join(tmpDir, 'tick.tsv'))).toBe(true);
   });
@@ -140,7 +140,7 @@ describe('DispatchingAuditWriter (phase 159)', () => {
     // write a large payload to tick to trigger rotation
     const big = 'x'.repeat(300);
     for (let i = 0; i < 20; i++) {
-      dw.write('cron_job_started', `padding=${big}`);
+      dw.write('daemon_liveness_heartbeat', `padding=${big}`);
     }
 
     // tick should have rotated (original + .bak), audit should not

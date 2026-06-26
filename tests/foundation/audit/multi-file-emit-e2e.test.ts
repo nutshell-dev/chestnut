@@ -23,18 +23,18 @@ describe('multi-file emit E2E (phase 159)', () => {
     const fs = new NodeFileSystem({ baseDir: tmpDir });
     const audit: AuditLog = createSystemAudit(fs, tmpDir, { typeToFile: AggregatedFileRouting });
 
-    audit.write('cron_job_started', 'job=dream-trigger');
+    audit.write('daemon_liveness_heartbeat', 'job=dream-trigger');
     audit.write('daemon_loop_iteration', 'reason=empty');
 
     expect(existsSync(join(tmpDir, 'tick.tsv'))).toBe(true);
     const tickContent = readFileSync(join(tmpDir, 'tick.tsv'), 'utf-8');
-    expect(tickContent).toContain('cron_job_started');
+    expect(tickContent).toContain('daemon_liveness_heartbeat');
     expect(tickContent).toContain('daemon_loop_iteration');
 
     // audit.tsv 不含 tick 类 event
     if (existsSync(join(tmpDir, 'audit.tsv'))) {
       const auditContent = readFileSync(join(tmpDir, 'audit.tsv'), 'utf-8');
-      expect(auditContent).not.toContain('cron_job_started');
+      expect(auditContent).not.toContain('daemon_liveness_heartbeat');
     }
   });
 
@@ -67,15 +67,15 @@ describe('multi-file emit E2E (phase 159)', () => {
     const audit: AuditLog = createSystemAudit(fs, tmpDir, { typeToFile: AggregatedFileRouting });
 
     // 交叉 emit：tick + audit + tick + audit
-    audit.write('cron_job_started', 'job=a');
+    audit.write('daemon_liveness_heartbeat', 'job=a');
     audit.write('turn_start', 'trace_id=t1');
-    audit.write('cron_job_started', 'job=b');
+    audit.write('daemon_liveness_heartbeat', 'job=b');
     audit.write('turn_end', 'trace_id=t1');
 
     const tickContent = readFileSync(join(tmpDir, 'tick.tsv'), 'utf-8');
     const auditContent = readFileSync(join(tmpDir, 'audit.tsv'), 'utf-8');
 
-    // tick.tsv: seq=1 (cron_job_started a), seq=2 (cron_job_started b)
+    // tick.tsv: seq=1 (daemon_liveness_heartbeat a), seq=2 (daemon_liveness_heartbeat b)
     expect(tickContent).toContain('seq=1');
     expect(tickContent).toContain('seq=2');
 
@@ -88,7 +88,7 @@ describe('multi-file emit E2E (phase 159)', () => {
     const fs = new NodeFileSystem({ baseDir: tmpDir });
     const audit: AuditLog = createSystemAudit(fs, tmpDir); // 无 options
 
-    audit.write('cron_job_started', 'job=x');
+    audit.write('daemon_liveness_heartbeat', 'job=x');
     audit.write('turn_start', 'trace_id=t1');
 
     // 全 emit 到 audit.tsv
@@ -96,7 +96,7 @@ describe('multi-file emit E2E (phase 159)', () => {
     expect(existsSync(join(tmpDir, 'tick.tsv'))).toBe(false);
 
     const auditContent = readFileSync(join(tmpDir, 'audit.tsv'), 'utf-8');
-    expect(auditContent).toContain('cron_job_started');
+    expect(auditContent).toContain('daemon_liveness_heartbeat');
     expect(auditContent).toContain('turn_start');
   });
 
