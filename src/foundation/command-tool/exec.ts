@@ -4,10 +4,8 @@
  * Thin wrapper over ProcessExec.
  * Responsible for: argument extraction, context injection, output truncation, ToolResult formatting.
  *
- * phase 1473 exception: 见下方 §guard — motion-chain self-kill 拒绝路径
- * （`looksLikeChestnutSelfKill` + `ctx.isMotionChain`）。范畴属「存活语义」
- * 而非 application-level 权限管理，与 phase 1280 REFRAMED-OUT 不冲突。
- * 详 ../index.ts 顶 docblock phase 1473 豁免说明段。
+ * phase 758: motion-chain self-kill guard 已从 L2c 移除，改为通过可选的
+ * `preExecGuard` 回调注入。具体 guard 实现见 L6 assembly/anti-self-kill.ts。
  */
 
 import type { ExecContext } from '../tools/index.js';
@@ -24,26 +22,13 @@ import { formatErr } from '../node-utils/index.js';
 import { truncateHeadTail } from '../file-tool/truncate-head-tail.js';
 import { COMMAND_TOOL_AUDIT_EVENTS } from './audit-events.js';
 
-/**
- * Detect commands that would kill the motion daemon process itself.
- *
- * Matches:
- *   - `chestnut stop`        (kills watchdog → motion → claws)
- *   - `chestnut motion stop` (kills motion only)
- *
- * Does NOT match `chestnut watchdog stop` (doesn't directly kill motion).
- *
- * Accepted false positive: `echo "chestnut stop"` is also blocked.
- * Threat model is well-meaning agent, not adversary — shell evasion
- * (eval, env-var splicing, path tricks) is out of scope.
- */
 function toSafeNumber(v: unknown): number | undefined {
   const n = typeof v === 'number' ? v : Number(String(v));
   return Number.isNaN(n) || !Number.isFinite(n) ? undefined : n;
 }
 
-function looksLikeChestnutSelfKill(command: string): boolean {
-  return /\bchestnut\s+(motion\s+)?stop\b/i.test(command);
+export interface PreExecGuard {
+  (command: string): { allow: true } | { allow: false; reason: string };
 }
 
 function truncate(str: string, maxLen: number): string {
@@ -81,7 +66,7 @@ async function persistOverflow(
 
 export const EXEC_TOOL_NAME = 'exec' as const;
 
-export function createExecTool(): Tool {
+export function createExecTool(preExecGuard?: PreExecGuard): Tool {
   return {
     name: EXEC_TOOL_NAME,
     profiles: ['full', 'subagent', 'miner'],
@@ -116,25 +101,16 @@ export function createExecTool(): Tool {
     async execute(args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
       const command = args.command as string;
 
-      // phase 1473: motion-chain self-kill guard
-      //   motion 调 `chestnut stop` / `chestnut motion stop` → SIGTERM 自身进程
-      //   → in-flight tool_use_result 丢失 → motion 重启回到悬挂 tool_use
-      //   → LLM 再次发起 stop → 死循环
-      if (ctx.isMotionChain && looksLikeChestnutSelfKill(command)) {
-        ctx.auditWriter?.write(
-          COMMAND_TOOL_AUDIT_EVENTS.EXEC_MOTION_SELF_KILL_BLOCKED,
-          `clawId=${ctx.clawId}`,
-          `command=${ctx.auditWriter?.message(command) ?? command}`,
-        );
-        return {
-          success: false,
-          content:
-            'Error: motion-chain cannot exec `chestnut stop` / `chestnut motion stop` ' +
-            'via shell. The command SIGTERMs motion itself; the in-flight tool result ' +
-            'is lost, and after restart motion re-issues the same command (infinite ' +
-            'loop). To stop motion, ask the user or use an external CLI process. ' +
-            '(phase 1473 guard)',
-        };
+      if (preExecGuard) {
+        const result = preExecGuard(command);
+        if (!result.allow) {
+          ctx.auditWriter?.write(
+            COMMAND_TOOL_AUDIT_EVENTS.EXEC_MOTION_SELF_KILL_BLOCKED,
+            `clawId=${ctx.clawId}`,
+            `reason=${result.reason}`,
+          );
+          return { success: false, content: result.reason };
+        }
       }
 
       // phase 1280: allow/deny reject 路径已 REFRAMED-OUT by-design 2026-05-25 user ratify
