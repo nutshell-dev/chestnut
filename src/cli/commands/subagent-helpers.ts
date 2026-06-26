@@ -23,7 +23,7 @@ import {
 } from '../../core/summon-system/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { type ContractId, makeContractId } from '../../core/contract/types.js';
-import { AUDIT_FILE, auditFileContains, auditFileGetMtime } from '../../foundation/audit/index.js';
+import { AUDIT_FILE, auditFileContains, auditFileGetMtime, auditFirstTimestamp } from '../../foundation/audit/index.js';
 
 
 
@@ -116,16 +116,8 @@ export function getStartedAt(deps: { fsFactory: (baseDir: string) => FileSystem 
   // Fallback to audit.tsv first line timestamp
   const resultFs = deps.fsFactory(resultDir);
   const auditRel = path.join(resultDir, AUDIT_FILE);
-  if (resultFs.existsSync(auditRel)) {
-    try {
-      const content = resultFs.readSync(auditRel);
-      const firstLine = content.split('\n').find(l => l.trim());
-      if (firstLine) {
-        const ts = firstLine.split('\t')[0];
-        if (ts) return new Date(ts);
-      }
-    } catch { /* silent: ignore */ }
-  }
+  const ts = auditFirstTimestamp(resultFs, auditRel);
+  if (ts) return new Date(ts);
 
   return undefined;
 }

@@ -43,6 +43,7 @@ export { getContractCreatedMs } from './utils.js';
 export {
   hasActiveContract,
   getActiveContractTimestamp,
+  getContractVerificationDir,
   listActiveContracts,
   getContractMetadata,
   readContractYamlLightweight,

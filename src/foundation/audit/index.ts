@@ -2,7 +2,7 @@
 export { clipPreview, clipMessage, clipSummary } from './_helpers.js';
 
 // phase 753: lightweight diagnostic read helpers
-export { auditFileContains, auditFileGetMtime } from './lightweight-read.js';
+export { auditFileContains, auditFileGetMtime, auditFirstTimestamp } from './lightweight-read.js';
 
 /**
  * @module L2a.AuditLog

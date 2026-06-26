@@ -4,7 +4,7 @@
 
 import * as path from 'path';
 import { resolveChestnutRoot } from '../../core/claw-topology/index.js';
-import { CONTRACT_DIR, CONTRACT_YAML_FILE } from '../../core/contract/index.js';
+import { CONTRACT_YAML_FILE, getContractVerificationDir } from '../../core/contract/index.js';
 import type { ContractSystem } from '../../core/contract/index.js';
 import { ContractCreatePolicyViolationError } from '../../core/contract/types.js';
 import { getClawDir } from '../../core/claw-topology/index.js';
@@ -78,7 +78,7 @@ export async function contractCreateFromDirCommand(
   if (srcDir) {
     const clawDir = getClawDir(clawId);
     const clawFs = deps.fsFactory(clawDir);
-    const destRel = path.join(CONTRACT_DIR, 'active', contractId, 'verification');
+    const destRel = getContractVerificationDir('.', contractId);
     await clawFs.ensureDir(destRel);
     const realAbsDir = await srcFs.realpath('.').catch(() => absDir);
     const maxFileBytes = getCopyMaxFileBytes();
