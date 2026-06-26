@@ -31,9 +31,11 @@ export const SPAWN_TOOL_NAME = 'spawn' as const;
 
 export interface SpawnToolDeps {
   runSubagent?: RunSpawnSyncOptions['runSubagent'];
+  taskSystem?: { schedule(kind: string, payload: Record<string, unknown>): Promise<string> };
 }
 
 export function createSpawnTool(deps: SpawnToolDeps = {}): Tool {
+  const { runSubagent, taskSystem } = deps;
   return {
     name: SPAWN_TOOL_NAME,
     profiles: ['full'],
@@ -107,7 +109,7 @@ export function createSpawnTool(deps: SpawnToolDeps = {}): Tool {
       }
 
       if (asyncMode) {
-        if (!ctx.taskSystem) {
+        if (!taskSystem) {
           return {
             success: false,
             content: '[chestnut spawn] task_system not available in execution context — async path requires AsyncTaskSystem injection',
@@ -118,7 +120,7 @@ export function createSpawnTool(deps: SpawnToolDeps = {}): Tool {
           ? { clawId: ctx.clawId, toolUseId: ctx.currentToolUseId }
           : undefined;
         try {
-          const taskId = await ctx.taskSystem.schedule('subagent', {
+          const taskId = await taskSystem.schedule('subagent', {
             kind: 'subagent',
             mode: 'standard',
             intent,
@@ -148,7 +150,7 @@ export function createSpawnTool(deps: SpawnToolDeps = {}): Tool {
         }
       }
 
-      return runSpawnSync({ intent, timeoutMs, maxSteps, systemPrompt, ctx, runSubagent: deps.runSubagent });
+      return runSpawnSync({ intent, timeoutMs, maxSteps, systemPrompt, ctx, runSubagent });
     },
   };
 }

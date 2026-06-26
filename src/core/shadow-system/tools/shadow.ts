@@ -29,6 +29,7 @@ export function createShadowTool(deps: {
   }>;
   /** DI seam: optional runSubagent override (replaces vi.mock pattern) */
   runSubagent?: typeof defaultRunSubagent;
+  taskSystem?: { schedule(kind: string, payload: Record<string, unknown>): Promise<string> };
 }): Tool {
   return {
     name: SHADOW_TOOL_NAME,
@@ -95,6 +96,7 @@ export function createShadowTool(deps: {
           task,
           mainMessages: mainMessages ?? [],
           ctx,
+          taskSystem: deps.taskSystem,
           systemPrompt: systemPrompt ?? '',
           toolsForLLM: tools ?? [],
           timeoutMs,
