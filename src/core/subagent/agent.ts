@@ -53,7 +53,6 @@ export interface SubAgentOptions {
   systemPrompt?: string;                    // 替换 run() 里硬编码的默认 system prompt
   callerType?: CallerType;  // 默认 'subagent'
   messages?: Message[];                      // 若提供，直接用；否则从 prompt 构建
-  originClawId?: string;                     // 创建链路源头，传给子 SubAgent
   isShadow?: boolean;                         // phase 767：shadow 分身标记
   taskStreamWriter: StreamLog;
   auditWriter: AuditLog;          // tasks/queues/results/{id}/audit.tsv，step 11+ 写事件
@@ -82,7 +81,6 @@ export class SubAgent {
   private callerType?: CallerType;
   private messages?: Message[];
   private _running = false;  // phase 464 (review N3-L): re-entry guard
-  private originClawId?: string;
   isShadow?: boolean;
   private taskStreamWriter: StreamLog;
   private auditWriter: AuditLog;
@@ -112,7 +110,6 @@ export class SubAgent {
     this.systemPrompt = options.systemPrompt;
     this.callerType = options.callerType;
     this.messages = options.messages;
-    this.originClawId = options.originClawId;
     this.isShadow = options.isShadow;
     this.taskStreamWriter = options.taskStreamWriter;
     this.auditWriter = options.auditWriter;
@@ -229,7 +226,6 @@ export class SubAgent {
             signal: timeout.signal,
             allowedGroups: CALLER_TYPE_TO_GROUPS[callerType],
             callerLabel: callerType,
-            originClawId: this.originClawId,
             permissionChecker: this.permissionChecker,
             subagentTaskId: this.agentId,
           }),

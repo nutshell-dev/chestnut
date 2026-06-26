@@ -27,6 +27,7 @@ export const SUMMON_TOOL_NAME = 'summon' as const;
 
 export class SummonTool implements Tool {
   private readonly taskSystem?: { schedule(kind: string, payload: Record<string, unknown>): Promise<string> };
+  private readonly originClawId?: string;
 
   readonly name = SUMMON_TOOL_NAME;
   readonly description = `创建子代理来给 claw 创建契约。支持两种模式（**按场景选**）：
@@ -54,8 +55,12 @@ export class SummonTool implements Tool {
   readonly accessesCaller = true;
 
   // phase 281 Step B: SummonStateStore 已删；decision 内嵌 SubAgentTask metadata。
-  constructor(taskSystem?: { schedule(kind: string, payload: Record<string, unknown>): Promise<string> }) {
+  constructor(
+    taskSystem?: { schedule(kind: string, payload: Record<string, unknown>): Promise<string> },
+    originClawId?: string,
+  ) {
     this.taskSystem = taskSystem;
+    this.originClawId = originClawId;
   }
 
   schema = {
@@ -207,6 +212,7 @@ export class SummonTool implements Tool {
       mainMessages: stripped,
       ctx,
       taskSystem,
+      originClawId: this.originClawId ?? ctx.clawId,
       systemPrompt: snap.systemPrompt ?? '',
       toolsForLLM: snap.tools ?? [],
       timeoutMs: SUMMON_SUBAGENT_TIMEOUT_MS,
@@ -257,7 +263,7 @@ export class SummonTool implements Tool {
       timeoutMs: SUMMON_SUBAGENT_TIMEOUT_MS,
       maxSteps: maxSteps ?? ctx.subagentMaxSteps ?? ctx.maxSteps,
       parentClawId: ctx.clawId,
-      originClawId: ctx.originClawId ?? ctx.clawId,
+      originClawId: this.originClawId ?? ctx.clawId,
       callerType,
       motionClawDir,
       postProcessor: SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME,

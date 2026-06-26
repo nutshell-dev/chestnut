@@ -222,8 +222,8 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
 
   // phase 757: spawn/summon 工具改由 DI 注入 taskSystem，不再从 ExecContext 读取。
   // 注册放在 AsyncTaskSystem 构造完成后，确保 taskSystem 可用。
-  toolRegistry.register(createSpawnTool({ taskSystem }));
-  toolRegistry.register(new SummonTool(taskSystem));
+  toolRegistry.register(createSpawnTool({ taskSystem, originClawId: clawId }));
+  toolRegistry.register(new SummonTool(taskSystem, clawId));
 
   let toolExecutor: IToolExecutor;
   try {

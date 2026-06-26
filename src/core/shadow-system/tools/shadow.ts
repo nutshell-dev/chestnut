@@ -97,6 +97,7 @@ export function createShadowTool(deps: {
           mainMessages: mainMessages ?? [],
           ctx,
           taskSystem: deps.taskSystem,
+          originClawId: ctx.clawId,
           systemPrompt: systemPrompt ?? '',
           toolsForLLM: tools ?? [],
           timeoutMs,

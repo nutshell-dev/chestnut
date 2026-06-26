@@ -11,6 +11,8 @@ export interface SpawnShadowSubagentOptions {
   mainMessages: Message[];
   ctx: ExecContext;
   taskSystem?: { schedule(kind: string, payload: Record<string, unknown>): Promise<string> };
+  /** 创建链路的源头 clawId，同 daemon 内恒定 */
+  originClawId?: string;
   /** motion 当前 turn 快照 system prompt（shadow KV cache 命中） */
   systemPrompt: string;
   /** motion 完整工具列表（shadow 继承全工具集） */

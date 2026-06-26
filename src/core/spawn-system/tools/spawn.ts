@@ -32,6 +32,8 @@ export const SPAWN_TOOL_NAME = 'spawn' as const;
 export interface SpawnToolDeps {
   runSubagent?: RunSpawnSyncOptions['runSubagent'];
   taskSystem?: { schedule(kind: string, payload: Record<string, unknown>): Promise<string> };
+  /** 创建链路的源头 clawId，同 daemon 内恒定（motion='motion'，clawA='clawA'） */
+  originClawId?: string;
 }
 
 export function createSpawnTool(deps: SpawnToolDeps = {}): Tool {
@@ -128,7 +130,7 @@ export function createSpawnTool(deps: SpawnToolDeps = {}): Tool {
             maxSteps,
             systemPrompt,
             parentClawId: ctx.clawId,
-            originClawId: ctx.originClawId ?? ctx.clawId,
+            originClawId: deps.originClawId ?? ctx.clawId,
             callerType: 'subagent',
             mainContextSnapshot,
           });
