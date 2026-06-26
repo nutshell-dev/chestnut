@@ -26,7 +26,7 @@ import { createGateway } from '../core/gateway/index.js';
 import type { Gateway } from '../core/gateway/index.js';
 import { createAskUserTool } from '../core/gateway/index.js';
 import { createStreamReader, STREAM_FILE, findRecentTurnStartOffset } from '../foundation/stream/index.js';
-import { createNotifyClawTool } from '../foundation/messaging/tools/notify-claw.js';
+import { createNotifyClawTool } from '../core/claw-topology/index.js';
 import { formatClawStatusHint } from '../cli/utils/claw-status-hints.js';
 import { OutboxReader } from '../foundation/messaging/index.js';
 import { hasActiveContract } from '../core/contract/index.js';

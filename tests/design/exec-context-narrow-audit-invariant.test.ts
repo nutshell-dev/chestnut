@@ -58,6 +58,7 @@ function listToolFiles(): string[] {
     'src/core/subagent/tools',
     'src/core/memory/tools',
     'src/core/async-task-system/tools',
+    'src/core/claw-topology/tools',
     'src/core/gateway',
     'src/core/status-service',
   ];
@@ -109,7 +110,7 @@ describe('phase 1459 α-6 ExecContext narrow opportunity audit', () => {
       'src/core/subagent/tools/done.ts',
       'src/core/memory/tools/memory_search.ts',
       'src/foundation/skill-system/tools/skill.ts',
-      'src/foundation/messaging/tools/notify-claw.ts',
+      'src/core/claw-topology/tools/notify-claw.ts',
     ];
     for (const demo of narrowDemos) {
       const dims = report[demo];

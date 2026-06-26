@@ -1,4 +1,4 @@
-import { formatErr } from "../../node-utils/index.js";
+import { formatErr } from "../../../foundation/node-utils/index.js";
 /**
  * @module L2c.Messaging
  * notify_claw tool - motion 视角、向 target claw inbox 直接发消息（指挥型 push 模型）
@@ -8,13 +8,13 @@ import { formatErr } from "../../node-utils/index.js";
  * vs send：send 写自己 outbox（claw → motion 汇报 pull）/ notify_claw 写他人 inbox（motion → claw 指挥 push）/ 物理操作不同、§10.3 不对称设计登记
  */
 
-import type { Tool, ExecContext, ToolPermissions } from '../../tools/index.js';
+import type { Tool, ExecContext, ToolPermissions } from '../../../foundation/tools/index.js';
 
-import type { ToolResult } from '../../tool-protocol/index.js';
-import type { FileSystem } from '../../fs/index.js';
-import type { AuditLog } from '../../audit/index.js';
-import type { InboxMessageOptionsBase } from '../inbox-writer.js';
-import { MESSAGING_AUDIT_EVENTS } from '../audit-events.js';
+import type { ToolResult } from '../../../foundation/tool-protocol/index.js';
+import type { FileSystem } from '../../../foundation/fs/index.js';
+import type { AuditLog } from '../../../foundation/audit/index.js';
+import type { InboxMessageOptionsBase } from '../../../foundation/messaging/inbox-writer.js';
+import { MESSAGING_AUDIT_EVENTS } from '../../../foundation/messaging/audit-events.js';
 export const NOTIFY_CLAW_TOOL_NAME = 'notify_claw' as const;
 
 export interface NotifyClawDeps {

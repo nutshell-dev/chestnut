@@ -6,7 +6,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { ToolRegistryImpl } from '../../../src/foundation/tools/registry.js';
-import { createNotifyClawTool } from '../../../src/foundation/messaging/tools/notify-claw.js';
+import { createNotifyClawTool } from '../../../src/core/claw-topology/tools/notify-claw.js';
 
 describe('phase 894 NEW.P0.1 — notify_claw profile advertise pipeline', () => {
   it('motion runtime (profile=full) gets notify_claw in LLM tools array', async () => {

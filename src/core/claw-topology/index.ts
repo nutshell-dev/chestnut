@@ -21,6 +21,9 @@ export {
   createCrossClawLsTool,
   createCrossClawSearchTool,
 } from './agent-tools.js';
+// phase 765: notify_claw tool (moved from L2c Messaging)
+export { createNotifyClawTool, NOTIFY_CLAW_TOOL_NAME } from './tools/notify-claw.js';
+export type { NotifyClawDeps } from './tools/notify-claw.js';
 export { CLAW_TOPOLOGY_AUDIT_EVENTS } from './audit-events.js';
 export type {
   ClawTopology,
