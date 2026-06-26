@@ -23,7 +23,7 @@ import type { BusinessSysOutput } from './business-systems.js';
 import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
 // phase 320: LLM hot-reload — reloader 每次调时重读磁盘
 import { loadGlobalConfig, loadClawConfig, buildLLMConfig } from './config-load.js';
-import { getClawConfigPath } from '../core/claw-topology/claw-instance-paths.js';
+import { getClawConfigPath } from '../core/claw-topology/index.js';
 import { TASKS_SYNC_EXEC_DIR } from '../foundation/command-tool/index.js';
 import { TASKS_SYNC_WRITE_DIR } from '../foundation/file-tool/index.js';
 import { createShadowTool } from '../core/shadow-system/index.js';

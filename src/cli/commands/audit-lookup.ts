@@ -7,8 +7,8 @@
 
 import * as path from 'path';
 import { loadGlobalConfig, clawExists } from '../../assembly/config-load.js';
-import { getClawDir, getClawConfigPath } from '../../core/claw-topology/claw-instance-paths.js';
-import { getNamedSubrootDir } from '../../core/claw-topology/claw-instance-paths.js';
+import { getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js';
+import { getNamedSubrootDir } from '../../core/claw-topology/index.js';
 import { MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import { CliError } from '../errors.js';
 import {

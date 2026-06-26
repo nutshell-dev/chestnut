@@ -18,12 +18,19 @@
  * 本 file 保：runWatchdogLoop（main loop）+ shutdownWatchdog（graceful stop）+ barrel re-export
  */
 
-import { getWorkspaceRoot, getChestnutRoot } from '../core/claw-topology/claw-instance-paths.js';
+
 import * as path from 'path';
 import { formatErr } from "../foundation/node-utils/index.js";
 import { setTimeout } from 'timers/promises';
-import { getNamedSubrootDir } from '../core/claw-topology/claw-instance-paths.js';
-import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../core/claw-topology/index.js';
+
+import {
+  resolveClawDaemonDir,
+  MOTION_CLAW_ID,
+  enumerateClaws,
+  getWorkspaceRoot,
+  getChestnutRoot,
+  getNamedSubrootDir,
+} from '../core/claw-topology/index.js';
 import { makeClawId } from '../foundation/claw-identity/index.js';
 import type { FileSystem } from '../foundation/fs/index.js';
 import { isFileNotFound } from '../foundation/fs/index.js';
@@ -32,7 +39,7 @@ import { createProcessManagerForCLI } from '../foundation/process-manager/index.
 import { LockConflictError } from '../foundation/process-manager/index.js';
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 import { PROCESS_MANAGER_AUDIT_EVENTS } from '../foundation/process-manager/index.js';
-import { CLAWS_DIR } from '../core/claw-topology/claw-instance-paths.js';
+
 import { resolveDaemonEntry } from '../assembly/spawn-entry.js';
 
 
@@ -259,27 +266,22 @@ export async function runWatchdogLoop(
     const presentClawIds: string[] = [];
     if (status.alive) aliveIds.push(MOTION_CLAW_ID);
     const fs = getChestnutFs(fsFactory);
-    if (fs.existsSync(CLAWS_DIR)) {
-      try {
-        for (const entry of fs.listSync(CLAWS_DIR, { includeDirs: true })) {
-          if (entry.isDirectory) {
-            presentClawIds.push(entry.name);
-            const clawId = entry.name;
-            if (pm.isAlive(resolveClawDaemonDir(makeClawId(clawId)))) aliveIds.push(entry.name);
-          }
-        }
-      } catch (err) {
-        if (!isFileNotFound(err)) {
-          // phase 697: 加 dir col、与 phase 696 SUBSCRIPTION_DIR_LIST_FAILED + ARCHIVE_DIR_FAILED 对齐
-          auditWriter.write(
-            WATCHDOG_AUDIT_EVENTS.CLAWS_DIR_LIST_FAILED,
-            `ctx=watchdog_tick`,
-            `dir=${CLAWS_DIR}`,
-            `error=${formatErr(err)}`,
-          );
-        }
-        // ENOENT after existsSync = race（合法）/ 其他错 audit / treat as empty（下 tick 重试）
+    try {
+      for (const rawClawId of enumerateClaws(fs, 'claws')) {
+        presentClawIds.push(rawClawId);
+        if (pm.isAlive(resolveClawDaemonDir(makeClawId(rawClawId)))) aliveIds.push(rawClawId);
       }
+    } catch (err) {
+      if (!isFileNotFound(err)) {
+        // phase 697: 加 dir col、与 phase 696 SUBSCRIPTION_DIR_LIST_FAILED + ARCHIVE_DIR_FAILED 对齐
+        auditWriter.write(
+          WATCHDOG_AUDIT_EVENTS.CLAWS_DIR_LIST_FAILED,
+          `ctx=watchdog_tick`,
+          `dir=claws`,
+          `error=${formatErr(err)}`,
+        );
+      }
+      // ENOENT = no claws present / 其他错 audit / treat as empty（下 tick 重试）
     }
     // phase 690: 拆 alive + present 为两独立 col、修 audit.tsv tab-分隔下单 col 含两 key=value
     // 解析失真（按 = 拆时第 2 key=value 被吞入首 col 的 value）

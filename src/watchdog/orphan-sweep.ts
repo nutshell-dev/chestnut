@@ -17,7 +17,7 @@ function defaultIsPidArgvMatching(pid: number, token: string): boolean {
 }
 import type { WatchdogProcessDeps } from './types.js';
 import { createProcessManagerForCLI } from '../foundation/process-manager/index.js';
-import { getChestnutRoot } from '../core/claw-topology/claw-instance-paths.js';
+import { getChestnutRoot } from '../core/claw-topology/index.js';
 import { getWatchdogEntryPath } from './watchdog-context.js';
 import { getWatchdogPid } from './watchdog-pid.js';
 import { getAuditWriter } from './watchdog-context.js';

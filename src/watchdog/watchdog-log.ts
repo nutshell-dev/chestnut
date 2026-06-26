@@ -3,11 +3,11 @@
  * Watchdog logging + audit + inbox message
  */
 
-import { makeChestnutRoot } from '../core/claw-topology/claw-instance-paths.js';
+import { makeChestnutRoot } from '../core/claw-topology/index.js';
 import * as path from 'path';
 import type { FileSystem } from '../foundation/fs/index.js';
 import { getChestnutFs, getAuditWriter, getMotionContext } from './watchdog-context.js';
-import { getNamedSubrootDir } from '../core/claw-topology/claw-instance-paths.js';
+import { getNamedSubrootDir } from '../core/claw-topology/index.js';
 import { routeNotifyClaw } from '../core/claw-topology/index.js';
 import { WATCHDOG_LOG } from './constants.js';
 import { MOTION_CLAW_ID } from '../core/claw-topology/index.js';

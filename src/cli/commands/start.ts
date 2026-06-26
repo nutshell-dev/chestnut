@@ -7,8 +7,8 @@
  * - Partial onboarding: resumes with a reminder
  */
 
-import { getWorkspaceRoot, getChestnutRoot } from '../../core/claw-topology/claw-instance-paths.js';
-import { makeChestnutRoot } from '../../core/claw-topology/claw-instance-paths.js';
+import { getWorkspaceRoot, getChestnutRoot } from '../../core/claw-topology/index.js';
+import { makeChestnutRoot } from '../../core/claw-topology/index.js';
 // CLAWS_DIR removed: phase 263
 import * as path from 'path';
 import { formatErr } from "../../foundation/node-utils/index.js";
@@ -16,7 +16,7 @@ import * as readline from 'readline';
 
 import { isInitialized } from '../../assembly/config-load.js';
 import { CLAW_SPEC_FILE } from '../../foundation/claw-identity/index.js';
-import { getNamedSubrootDir } from '../../core/claw-topology/claw-instance-paths.js';
+import { getNamedSubrootDir } from '../../core/claw-topology/index.js';
 import { initCommand } from './init.js';
 import {
   initCommand as motionInitCommand,

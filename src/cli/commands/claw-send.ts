@@ -6,14 +6,14 @@
 import * as path from 'path';
 
 import { loadGlobalConfig, clawExists } from '../../assembly/config-load.js';
-import { getClawConfigPath } from '../../core/claw-topology/claw-instance-paths.js';
+import { getClawConfigPath, getRelativeClawDir } from '../../core/claw-topology/index.js';
 import { getGlobalConfigPath } from '../../assembly/global-config-path.js';
 import { CliError } from '../errors.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { routeNotifyClaw } from '../../core/claw-topology/index.js';
 import { formatClawStatusHint, formatNoActiveContractHint } from './claw-shared.js';
 import { createSystemAudit } from '../../foundation/audit/index.js';
-import { CLAWS_DIR } from '../../core/claw-topology/claw-instance-paths.js';
+
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
@@ -34,7 +34,7 @@ export async function sendCommand(
 
   const globalConfigPath = getGlobalConfigPath();
   const baseDir = path.dirname(globalConfigPath);
-  const clawDir = path.join(baseDir, CLAWS_DIR, name);
+  const clawDir = path.join(baseDir, getRelativeClawDir(name));
   const fileSystem = deps.fsFactory(baseDir);
   const audit = createSystemAudit(fileSystem, clawDir);
 

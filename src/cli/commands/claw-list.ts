@@ -12,8 +12,7 @@ import { createProcessManagerForCLI } from '../../foundation/process-manager/ind
 import { makeClawId } from '../../foundation/claw-identity/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { hasActiveContract, listActiveContracts, CONTRACT_ARCHIVE_DIR, CONTRACT_YAML_FILE } from '../../core/contract/index.js';
-import { CONFIG_YAML_FILE } from '../../core/claw-topology/claw-instance-paths.js';
-import { CLAWS_DIR } from '../../core/claw-topology/claw-instance-paths.js';
+import { CONFIG_YAML_FILE } from '../../core/claw-topology/index.js';
 import { getLastActiveMs } from './claw-shared.js';
 import { listOutboxPendingSync } from '../../foundation/messaging/index.js';
 
@@ -28,7 +27,7 @@ export async function listCommand(deps: { fsFactory: (baseDir: string) => FileSy
 
   const globalConfigPath = getGlobalConfigPath();
   const baseDir = path.dirname(globalConfigPath);
-  const clawsDir = path.join(baseDir, CLAWS_DIR);
+  const clawsDir = path.join(baseDir, 'claws');
 
   const processManager = createProcessManagerForCLI({ ...deps, baseDir });
   const { audit: systemAudit } = createDirContext(deps, baseDir);
@@ -76,8 +75,9 @@ export async function listCommand(deps: { fsFactory: (baseDir: string) => FileSy
 
   // phase 687 (audit T2.11): 删 outer try/catch + handleCliError、外层 clawCommand (cli/index.ts:139) 已包 withCliErrorHandling
   const baseDirFs = deps.fsFactory(baseDir);
-  if (!baseDirFs.existsSync(CLAWS_DIR)) {
-    baseDirFs.ensureDirSync(CLAWS_DIR);
+  const clawsDirName = 'claws';
+  if (!baseDirFs.existsSync(clawsDirName)) {
+    baseDirFs.ensureDirSync(clawsDirName);
   }
   const clawsDirFs = deps.fsFactory(clawsDir);
   const entries = clawsDirFs.listSync('.', { includeDirs: true }).map(e => e.name);

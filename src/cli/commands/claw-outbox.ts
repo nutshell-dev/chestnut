@@ -4,7 +4,7 @@
  */
 
 import { formatErr } from "../../foundation/node-utils/index.js";
-import { getClawDir } from '../../core/claw-topology/claw-instance-paths.js';
+import { getClawDir } from '../../core/claw-topology/index.js';
 import { CliError } from '../errors.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
