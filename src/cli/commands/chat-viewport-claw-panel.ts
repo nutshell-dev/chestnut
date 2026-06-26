@@ -86,7 +86,9 @@ export function createRescanClawsDir(deps: RescanClawsDirDeps) {
           try {
             const stored = await deps.pm.readPid(resolveClawDaemonDir(makeClawId(clawId)));
             alive = stored !== null && isAlive(stored.pid);
-          } catch { /* alive = false */ }
+          } catch {
+            // silent: pid read failure → treat as not alive (fail-soft)
+          }
           if (alive) {
             deps.clawManager.attachClawWatcher(clawId, path.join(clawDir, STREAM_FILE));
           } else {
