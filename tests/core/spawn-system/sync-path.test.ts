@@ -14,7 +14,6 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'path';
-import { spawnTool } from '../../../src/core/spawn-system/index.js';
 import { createSpawnTool } from '../../../src/core/spawn-system/tools/spawn.js';
 import { ExecContextImpl } from '../../../src/foundation/tools/context.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
@@ -38,6 +37,8 @@ describe('spawn tool sync path (phase 766)', () => {
   let fs: NodeFileSystem;
   let baseCtx: ExecContextImpl;
   let audit: ReturnType<typeof makeAudit>;
+  let taskSystem: ReturnType<typeof createMockTaskSystem>;
+  let spawnToolWithTaskSystem: ReturnType<typeof createSpawnTool>;
   const testSpawnTool = createSpawnTool({ runSubagent: mockRunSubagent });
 
   function makeRegistry(): ToolRegistryImpl {
@@ -76,8 +77,9 @@ describe('spawn tool sync path (phase 766)', () => {
     tempDir = await createTempDir();
     fs = new NodeFileSystem({ baseDir: tempDir });
     audit = makeAudit();
-    const taskSystem = createMockTaskSystem(fs, audit.audit);
+    taskSystem = createMockTaskSystem(fs, audit.audit);
     taskSystem.schedule = mockSchedule;
+    spawnToolWithTaskSystem = createSpawnTool({ taskSystem });
     baseCtx = new ExecContextImpl({
       clawId: 'test-claw',
       clawDir: tempDir,
@@ -87,7 +89,6 @@ describe('spawn tool sync path (phase 766)', () => {
       auditWriter: audit.audit,
       llm: makeLLM(),
       registry: makeRegistry(),
-      taskSystem,
     });
     mockSchedule.mockClear();
     mockRunSubagent.mockClear();
@@ -101,7 +102,7 @@ describe('spawn tool sync path (phase 766)', () => {
     it('default async=true when args.async is undefined', async () => {
       mockSchedule.mockResolvedValue('task-xxx');
 
-      const result = await spawnTool.execute({ intent: 'test task' }, baseCtx);
+      const result = await spawnToolWithTaskSystem.execute({ intent: 'test task' }, baseCtx);
 
       expect(result.success).toBe(true);
       expect(mockSchedule).toHaveBeenCalledWith(
@@ -113,7 +114,7 @@ describe('spawn tool sync path (phase 766)', () => {
     it('async=true explicit takes async path', async () => {
       mockSchedule.mockResolvedValue('task-yyy');
 
-      const result = await spawnTool.execute({ intent: 'test task', async: true }, baseCtx);
+      const result = await spawnToolWithTaskSystem.execute({ intent: 'test task', async: true }, baseCtx);
 
       expect(result.success).toBe(true);
       expect(mockSchedule).toHaveBeenCalledWith(
@@ -225,7 +226,7 @@ describe('spawn tool sync path (phase 766)', () => {
         callerLabel: 'shadow',
       });
 
-      const result = await spawnTool.execute({ intent: 'test', async: true }, shadowCtx);
+      const result = await spawnToolWithTaskSystem.execute({ intent: 'test', async: true }, shadowCtx);
 
       expect(result.success).toBe(false);
       expect(result.error).toBe('shadow_async_spawn_rejected');
@@ -246,7 +247,6 @@ describe('spawn tool sync path (phase 766)', () => {
         llm: makeLLM(),
         registry: makeRegistry(),
         callerLabel: 'shadow',
-        taskSystem: createMockTaskSystem(fs, audit.audit),
       });
 
       const result = await testSpawnTool.execute({ intent: 'test', async: false }, shadowCtx);
@@ -259,7 +259,7 @@ describe('spawn tool sync path (phase 766)', () => {
     it('allows normal spawn (non-shadow) with async=true', async () => {
       mockSchedule.mockResolvedValue('task-zzz');
 
-      const result = await spawnTool.execute({ intent: 'test', async: true }, baseCtx);
+      const result = await spawnToolWithTaskSystem.execute({ intent: 'test', async: true }, baseCtx);
 
       expect(result.success).toBe(true);
       expect(result.error).toBeUndefined();

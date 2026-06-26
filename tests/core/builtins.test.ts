@@ -16,7 +16,7 @@ import { readTool, writeTool, lsTool, searchTool, editTool, multiEditTool } from
 import { createClawPermissionChecker } from '../../src/core/permissions/claw-permissions.js';
 import { memorySearchTool } from '../../src/core/memory/tools/memory_search.js';
 import { execTool } from '../../src/foundation/command-tool/index.js';
-import { spawnTool } from '../../src/core/spawn-system/index.js';
+import { createSpawnTool } from '../../src/core/spawn-system/index.js';
 import { ExecContextImpl } from '../../src/foundation/tools/context.js';
 
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
@@ -1074,11 +1074,11 @@ describe('Builtin Tools', () => {
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
         outboxWriter,
         maxSteps: 42,
-        taskSystem: { schedule: mockSchedule } as any,
         permissionChecker: createClawPermissionChecker({ clawDir: tempDir, strict: true }),
       });
 
-      const result = await spawnTool.execute({
+      const spawnToolWithTaskSystem = createSpawnTool({ taskSystem: { schedule: mockSchedule } });
+      const result = await spawnToolWithTaskSystem.execute({
         intent: 'test task',
       }, ctxWithMaxSteps);
 

@@ -38,14 +38,12 @@ describe('SummonTool', () => {
   let tempDir: string;
   let mockFs: NodeFileSystem;
   let auditEvents: Array<{ type: string; args: unknown[] }>;
-  let tool: SummonTool;
 
   beforeEach(async () => {
     vi.restoreAllMocks();
     tempDir = await createTempDir();
     mockFs = new NodeFileSystem({ baseDir: tempDir });
     auditEvents = [];
-    tool = new SummonTool();
   });
 
   afterEach(async () => {
@@ -80,7 +78,6 @@ describe('SummonTool', () => {
       llm: {} as unknown as LLMOrchestrator,
       originClawId: options?.originClawId,
       auditWriter,
-      taskSystem: createMockTaskSystem(mockFs, auditWriter),
       getCallerSnapshot: async () => ({
         systemPrompt: options?.snapshot?.systemPrompt ?? 'mock system prompt',
         tools: (options?.snapshot?.tools ?? [
@@ -89,11 +86,12 @@ describe('SummonTool', () => {
         messages: options?.snapshot?.messages ?? [],
       }),
     } as any);
-    return ctx;
+    const tool = new SummonTool(createMockTaskSystem(mockFs, auditWriter));
+    return { ctx, tool };
   }
 
   it('should allow summon when callerType is claw', async () => {
-    const ctx = makeCtx('claw');
+    const { ctx, tool } = makeCtx('claw');
     const result = await tool.execute({ goal: 'do something' }, ctx);
 
     expect(result.success).toBe(true);
@@ -109,7 +107,7 @@ describe('SummonTool', () => {
   });
 
   it('phase 124: success content includes "dispatched to create contract"', async () => {
-    const ctx = makeCtx('claw');
+    const { ctx, tool } = makeCtx('claw');
     const result = await tool.execute({ goal: 'do something' }, ctx);
 
     expect(result.success).toBe(true);
@@ -119,7 +117,7 @@ describe('SummonTool', () => {
   });
 
   it('should pass postProcessor field to scheduleSubAgent', async () => {
-    const ctx = makeCtx('claw');
+    const { ctx, tool } = makeCtx('claw');
     await tool.execute({ goal: 'test postProcessor' }, ctx);
 
     const tasks = await readPendingTasks(tempDir);
@@ -141,7 +139,7 @@ Content.
 `
     );
 
-    const ctx = makeCtx('claw');
+    const { ctx, tool } = makeCtx('claw');
     const result = await tool.execute({ goal: 'generate report' }, ctx);
 
     expect(result.success).toBe(true);
@@ -152,7 +150,7 @@ Content.
   });
 
   it('should succeed without dispatch-skills directory', async () => {
-    const ctx = makeCtx('claw');
+    const { ctx, tool } = makeCtx('claw');
     const result = await tool.execute({ goal: 'some task' }, ctx);
 
     expect(result.success).toBe(true);
@@ -173,8 +171,8 @@ Content.
           ] as unknown as string,
         },
       ];
-      const ctx = makeCtx('claw', { snapshot: { messages: motionDialog } });
-      const customTool = new SummonTool();
+      const { ctx, tool } = makeCtx('claw', { snapshot: { messages: motionDialog } });
+      const customTool = new SummonTool(createMockTaskSystem(mockFs, (ctx as any).auditWriter));
 
       await customTool.execute({ goal: 'audit L1 FileSystem', mode: 'shadow' }, ctx);
 
@@ -202,8 +200,8 @@ Content.
           ] as unknown as string,
         },
       ];
-      const ctx = makeCtx('claw', { snapshot: { messages: motionDialog } });
-      const customTool = new SummonTool();
+      const { ctx, tool } = makeCtx('claw', { snapshot: { messages: motionDialog } });
+      const customTool = new SummonTool(createMockTaskSystem(mockFs, (ctx as any).auditWriter));
 
       await customTool.execute({ goal: 'create foo contract', mode: 'shadow' }, ctx);
 
@@ -223,8 +221,8 @@ Content.
         { role: 'user', content: 'hi' },
         { role: 'assistant', content: 'hello' },
       ];
-      const ctx = makeCtx('claw', { snapshot: { messages: motionDialog } });
-      const customTool = new SummonTool();
+      const { ctx, tool } = makeCtx('claw', { snapshot: { messages: motionDialog } });
+      const customTool = new SummonTool(createMockTaskSystem(mockFs, (ctx as any).auditWriter));
 
       await customTool.execute({ goal: 'follow up', mode: 'shadow' }, ctx);
 
@@ -239,7 +237,7 @@ Content.
     });
 
     it('shadow mode: dialogMessages 为空时 shadowMessages = [SHADOW INSTRUCTION]', async () => {
-      const ctx = makeCtx('claw');
+      const { ctx, tool } = makeCtx('claw');
 
       await tool.execute({ goal: 'empty dialog', mode: 'shadow' }, ctx);
 
@@ -251,7 +249,7 @@ Content.
     });
 
     it('mining mode: shadowMessages = undefined（保 mining 不动 + AskMotionTool 主导 context）', async () => {
-      const ctx = makeCtx('claw');
+      const { ctx, tool } = makeCtx('claw');
 
       await tool.execute({ goal: 'mine intent', mode: 'mining' }, ctx);
 
@@ -266,8 +264,8 @@ Content.
       const motionDialog: Message[] = [
         { role: 'user', content: 'test' },
       ];
-      const customTool = new SummonTool();
-      const ctx = makeCtx('claw', { snapshot: { systemPrompt: mockMotionPrompt, messages: motionDialog } });
+      const { ctx, tool } = makeCtx('claw', { snapshot: { systemPrompt: mockMotionPrompt, messages: motionDialog } });
+      const customTool = new SummonTool(createMockTaskSystem(mockFs, (ctx as any).auditWriter));
 
       await customTool.execute({ goal: 'describe intent', mode: 'shadow' }, ctx);
 
@@ -281,7 +279,7 @@ Content.
 
   describe('Phase 546 — summon systemPrompt 透传', () => {
     it('mining mode passes buildMinerSystemPrompt output to writePending', async () => {
-      const ctx = makeCtx('claw');
+      const { ctx, tool } = makeCtx('claw');
       await tool.execute({ goal: 'mine intent', mode: 'mining' }, ctx);
 
       const tasks = await readPendingTasks(tempDir);
@@ -291,8 +289,8 @@ Content.
 
     it('shadow mode passes Motion getSystemPrompt output', async () => {
       const mockMotionPrompt = 'MOTION_SYSTEM_PROMPT_FIXTURE';
-      const customTool = new SummonTool();
-      const ctx = makeCtx('claw', { snapshot: { systemPrompt: mockMotionPrompt } });
+      const { ctx, tool } = makeCtx('claw', { snapshot: { systemPrompt: mockMotionPrompt } });
+      const customTool = new SummonTool(createMockTaskSystem(mockFs, (ctx as any).auditWriter));
       await customTool.execute({ goal: 'describe intent', mode: 'shadow' }, ctx);
 
       const tasks = await readPendingTasks(tempDir);
@@ -304,7 +302,7 @@ Content.
   describe('originClawId propagation', () => {
     it('should pass originClawId=motion when Motion calls summon', async () => {
       // Motion 调用：clawId='motion', originClawId=undefined
-      const ctx = makeCtx('claw', { clawId: 'motion' });
+      const { ctx, tool } = makeCtx('claw', { clawId: 'motion' });
 
       await tool.execute({ goal: 'do something' }, ctx);
 
@@ -317,7 +315,7 @@ Content.
 
     it('should inherit originClawId when originClawId already set', async () => {
       // 模拟 subagent with full profile，已有 originClawId='motion'
-      const ctx = makeCtx('claw', {
+      const { ctx, tool } = makeCtx('claw', {
         clawId: 'task-uuid',
         originClawId: 'motion',
       });
@@ -334,7 +332,7 @@ Content.
 
     it('should use clawId as originClawId when originClawId not set', async () => {
       // claw 调用：clawId='claw1', originClawId=undefined
-      const ctx = makeCtx('claw', { clawId: 'claw1' });
+      const { ctx, tool } = makeCtx('claw', { clawId: 'claw1' });
 
       await tool.execute({ goal: 'claw task' }, ctx);
 
@@ -531,10 +529,10 @@ Content.
         fs: mockFs,
         llm: {} as unknown as LLMOrchestrator,
         auditWriter: auditWriter as any,
-        taskSystem: createMockTaskSystem(mockFs, auditWriter as any),
       });
+      const testTool = new SummonTool(createMockTaskSystem(mockFs, auditWriter as any));
 
-      await tool.execute({ goal: 'test task' }, ctx);
+      await testTool.execute({ goal: 'test task' }, ctx);
 
       expect(auditWriter.write).toHaveBeenCalledWith(
         'summon_load_skills_failed',
@@ -554,7 +552,6 @@ Content.
         fs: mockFs,
         llm: {} as unknown as LLMOrchestrator,
         auditWriter: auditWriter as any,
-        taskSystem: createMockTaskSystem(mockFs, auditWriter as any),
         // phase 1406: caller snapshot fixture with empty messages — verify
         // shadow path still emits no-dialog-context audit when caller messages=[].
         getCallerSnapshot: async () => ({
@@ -564,7 +561,8 @@ Content.
         }),
       } as any);
 
-      await tool.execute({ goal: 'test task' }, ctx);
+      const testTool = new SummonTool(createMockTaskSystem(mockFs, auditWriter as any));
+      await testTool.execute({ goal: 'test task' }, ctx);
 
       expect(auditWriter.write).toHaveBeenCalledWith(
         'summon_no_dialog_context',

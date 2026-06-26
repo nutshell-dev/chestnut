@@ -16,8 +16,7 @@ import { buildLLMConfig } from './config-load.js';
 import { createToolRegistry, type ToolRegistry } from '../foundation/tools/index.js';
 import { createFileTools } from '../foundation/file-tool/index.js';
 import { createCommandTools } from '../foundation/command-tool/index.js';
-import { spawnTool } from '../core/spawn-system/index.js';
-import { SummonTool, checkLegacySummonStateFiles } from '../core/summon-system/index.js';
+import { checkLegacySummonStateFiles } from '../core/summon-system/index.js';
 import { createSkillSystem as defaultCreateSkillSystem, SkillSystem } from '../foundation/skill-system/index.js';
 import { SKILLS_DIR_DEFAULT } from '../foundation/skill-system/index.js';
 import { ContractSystem, createContractSystem } from '../core/contract/index.js';
@@ -199,7 +198,6 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
         toolRegistry.register(tool);
       }
 
-      toolRegistry.register(spawnTool);
       // shadowTool 改为 post-runtime 注册（需要 Runtime.getTurnSnapshot）
 
       // phase 257: wire ClawTopology（替换 read/ls/search via Map.set 同名替换）
@@ -210,13 +208,6 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
         audit: auditWriter,
         toolRegistry,
       });
-
-      // phase 1406: SummonTool 走标准注册路径（构造期 0 参 / accessesCaller=true /
-      // shadow path 通过 ExecContext.getCallerSnapshot() 读 caller 深度态、
-      // mining path 用 ctx.registry 取 miner profile 工具）。不再走 Runtime
-      // initialize() 内反向 import + new + register「结构性循环依赖妥协」。
-      // phase 281 Step B: SummonStateStore 已删；SummonTool 构造期 0 参。
-      toolRegistry.register(new SummonTool());
 
       // phase378 后 exec 业务归 CommandTool L2 / 不再经 registerBuiltinTools / Assembly 显式注册
       const commandTools = createCommandTools();

@@ -190,6 +190,7 @@ export async function createRuntimeAssembly(
     // 必须在 runtime 创建后注册，不能提前（runtime 尚未存在）
     toolRegistry.register(createShadowTool({
       getTurnSnapshot: () => runtime.getCallerSnapshot(),
+      taskSystem,
     }));
 
     return { snapshot, streamWriter, runtime };

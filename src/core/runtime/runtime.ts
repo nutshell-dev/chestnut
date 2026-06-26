@@ -229,7 +229,6 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
       llm: this.llm,
       maxSteps: this.options.maxSteps ?? DEFAULT_MAX_STEPS,
       auditWriter: this.auditWriter,
-      taskSystem: this.taskSystem,
       persistReadFileState: true,  // phase 1443: main claw ctx persists readFileState to <clawDir>/read-state.json
       // phase 146: M#3 资源唯一归属真治、直接 read 真 owner、不经 Runtime mirror state
       getCallerSnapshot: async () => {

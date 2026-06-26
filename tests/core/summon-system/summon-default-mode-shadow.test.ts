@@ -40,7 +40,13 @@ describe('Phase 1166 — default mode shadow', () => {
     vi.restoreAllMocks();
     tempDir = await createTempDir();
     mockFs = new NodeFileSystem({ baseDir: tempDir });
-    tool = new SummonTool({ write: vi.fn().mockResolvedValue(undefined), read: vi.fn().mockResolvedValue(undefined) });
+    const defaultAuditWriter = {
+      write: vi.fn(),
+      preview: vi.fn((s: string) => s),
+      message: vi.fn((s: string) => s),
+      summary: vi.fn((s: string) => s),
+    } as any;
+    tool = new SummonTool(createMockTaskSystem(mockFs, defaultAuditWriter));
   });
 
   afterEach(async () => {
@@ -49,7 +55,7 @@ describe('Phase 1166 — default mode shadow', () => {
 
   function makeCtx(snapshotMessages: Message[] = []) {
     const auditWriter = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)} as any;
-    return new ExecContextImpl({
+    const ctx = new ExecContextImpl({
       clawId: 'test-claw',
       clawDir: tempDir,
       profile: 'full',
@@ -57,7 +63,6 @@ describe('Phase 1166 — default mode shadow', () => {
       fs: mockFs,
       llm: {} as unknown as LLMOrchestrator,
       auditWriter,
-      taskSystem: createMockTaskSystem(mockFs, auditWriter),
       getCallerSnapshot: async () => ({
         systemPrompt: 'mock system prompt',
         tools: [
@@ -66,11 +71,13 @@ describe('Phase 1166 — default mode shadow', () => {
         messages: snapshotMessages,
       }),
     } as any);
+    const tool = new SummonTool(createMockTaskSystem(mockFs, auditWriter));
+    return { ctx, tool };
   }
 
   it('reverse 1 — 默认 mode 不传 mode 走 shadow 路径', async () => {
-    const customTool = new SummonTool({ write: vi.fn().mockResolvedValue(undefined), read: vi.fn().mockResolvedValue(undefined) });
-    const ctx = makeCtx([{ role: 'user', content: 'test' }]);
+    const { ctx } = makeCtx([{ role: 'user', content: 'test' }]);
+    const customTool = new SummonTool(createMockTaskSystem(mockFs, (ctx as any).auditWriter));
     const result = await customTool.execute({ goal: 'test goal' }, ctx);
 
     expect(result.success).toBe(true);
@@ -83,8 +90,8 @@ describe('Phase 1166 — default mode shadow', () => {
   });
 
   it('reverse 2 — 显式 mode: mining 仍走 mining 路径', async () => {
-    const ctx = makeCtx();
-    const result = await tool.execute({ goal: 'test goal', mode: 'mining' }, ctx);
+    const { ctx, tool: testTool } = makeCtx();
+    const result = await testTool.execute({ goal: 'test goal', mode: 'mining' }, ctx);
 
     expect(result.success).toBe(true);
     const tasks = await readPendingTasks(tempDir);
@@ -95,8 +102,8 @@ describe('Phase 1166 — default mode shadow', () => {
   });
 
   it('reverse 3 — 显式 mode: shadow 仍走 shadow 路径', async () => {
-    const customTool = new SummonTool({ write: vi.fn().mockResolvedValue(undefined), read: vi.fn().mockResolvedValue(undefined) });
-    const ctx = makeCtx([{ role: 'user', content: 'test' }]);
+    const { ctx } = makeCtx([{ role: 'user', content: 'test' }]);
+    const customTool = new SummonTool(createMockTaskSystem(mockFs, (ctx as any).auditWriter));
     const result = await customTool.execute({ goal: 'test goal', mode: 'shadow' }, ctx);
 
     expect(result.success).toBe(true);
