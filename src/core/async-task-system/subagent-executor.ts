@@ -169,7 +169,6 @@ export async function executeSubAgentTask(
       signal: compositeSignal,
       toolsForLLM,
       timeoutMs: task.timeoutMs,
-      originClawId: task.originClawId,
       toolTimeoutMs: deps.toolTimeoutMs,
       permissionChecker: deps.permissionChecker,
       messages: task.shadowMessages,

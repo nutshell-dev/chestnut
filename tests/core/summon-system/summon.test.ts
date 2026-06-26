@@ -53,8 +53,9 @@ describe('SummonTool', () => {
   function makeCtx(
     callerType: 'claw' | 'subagent' | 'dispatcher',
     options?: {
-      originClawId?: string;
       clawId?: string;
+      /** phase 761: SummonTool originClawId DI */
+      toolOriginClawId?: string;
       /** phase 1406: shadow snapshot fixture (caller deep state). */
       snapshot?: {
         systemPrompt?: string;
@@ -76,7 +77,6 @@ describe('SummonTool', () => {
       callerType,
       fs: mockFs,
       llm: {} as unknown as LLMOrchestrator,
-      originClawId: options?.originClawId,
       auditWriter,
       getCallerSnapshot: async () => ({
         systemPrompt: options?.snapshot?.systemPrompt ?? 'mock system prompt',
@@ -86,7 +86,7 @@ describe('SummonTool', () => {
         messages: options?.snapshot?.messages ?? [],
       }),
     } as any);
-    const tool = new SummonTool(createMockTaskSystem(mockFs, auditWriter));
+    const tool = new SummonTool(createMockTaskSystem(mockFs, auditWriter), options?.toolOriginClawId);
     return { ctx, tool };
   }
 
@@ -299,10 +299,10 @@ Content.
     });
   });
 
-  describe('originClawId propagation', () => {
+  describe('originClawId propagation (phase 761: via SummonTool DI)', () => {
     it('should pass originClawId=motion when Motion calls summon', async () => {
-      // Motion 调用：clawId='motion', originClawId=undefined
-      const { ctx, tool } = makeCtx('claw', { clawId: 'motion' });
+      // Motion 调用：clawId='motion'，SummonTool DI 注入 originClawId='motion'
+      const { ctx, tool } = makeCtx('claw', { clawId: 'motion', toolOriginClawId: 'motion' });
 
       await tool.execute({ goal: 'do something' }, ctx);
 
@@ -313,32 +313,32 @@ Content.
       });
     });
 
-    it('should inherit originClawId when originClawId already set', async () => {
-      // 模拟 subagent with full profile，已有 originClawId='motion'
+    it('should use DI originClawId even when clawId differs', async () => {
+      // 模拟子代理 clawId='task-uuid'，但 SummonTool DI 指定源头为 'motion'
       const { ctx, tool } = makeCtx('claw', {
         clawId: 'task-uuid',
-        originClawId: 'motion',
+        toolOriginClawId: 'motion',
       });
 
       await tool.execute({ goal: 'nested summon' }, ctx);
 
       const tasks = await readPendingTasks(tempDir);
       expect(tasks).toHaveLength(1);
-      // 应该继承，不被覆盖
+      // DI 指定的 originClawId 优先，不被 clawId 覆盖
       expect(tasks[0]).toMatchObject({
         originClawId: 'motion',
       });
     });
 
-    it('should use clawId as originClawId when originClawId not set', async () => {
-      // claw 调用：clawId='claw1', originClawId=undefined
+    it('should use clawId as originClawId when DI originClawId not set', async () => {
+      // claw 调用：clawId='claw1'，SummonTool 未注入 originClawId
       const { ctx, tool } = makeCtx('claw', { clawId: 'claw1' });
 
       await tool.execute({ goal: 'claw task' }, ctx);
 
       const tasks = await readPendingTasks(tempDir);
       expect(tasks).toHaveLength(1);
-      // 应该使用 clawId 作为 originClawId
+      // 无 DI 时回退到 ctx.clawId
       expect(tasks[0]).toMatchObject({
         originClawId: 'claw1',
       });

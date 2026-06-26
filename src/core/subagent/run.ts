@@ -65,7 +65,6 @@ export interface RunSubagentOptions {
   // optional
   signal?: AbortSignal;
   timeoutMs?: number;           // whole-task timeout（async caller 用、verifier 用 idleTimeoutMs only）
-  originClawId?: string;        // summon chain trace（async caller 用）
   toolsForLLM?: ToolDefinition[];
   onIdleTimeout?: () => void;
 
@@ -141,7 +140,6 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
     timeoutMs: opts.timeoutMs,
     toolsForLLM,
     callerType: opts.callerType,
-    originClawId: opts.originClawId,
     onIdleTimeout: opts.onIdleTimeout,
     taskStreamWriter,
     auditWriter,
