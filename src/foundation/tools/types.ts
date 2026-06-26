@@ -105,7 +105,7 @@ export interface ToolPermissions {
   permissionChecker?: PermissionChecker;
 }
 
-/** 基础设施维度（D3）：fs / fsFactory / llm / registry / taskSystem */
+/** 基础设施维度（D3）：fs / fsFactory / llm / registry */
 export interface ExecutionInfra {
   fs: FileSystem;
   fsFactory?: (baseDir: string) => FileSystem;
@@ -114,8 +114,6 @@ export interface ExecutionInfra {
   registry?: ToolRegistry;
   /** phase 27: main dialog store injection (was as { mainDialogStore } cast, phase 768) */
   mainDialogStore?: DialogStore;
-  /** phase 1332: injected task scheduler for subagent scheduling (N2 cross-L4 leak fix) */
-  taskSystem?: TaskScheduler;
 }
 
 /** 执行控制维度（D4）：maxSteps / signal / subagentMaxSteps / toolTimeoutMs / stopRequested + requestStop / getElapsedMs */
@@ -195,14 +193,6 @@ export interface ExecContext extends
   ExecutionControl,
   ExecutionAudit
 {}
-
-/**
- * Minimal task scheduler interface injected into ExecContext.
- * Mirrors AsyncTaskSystem.schedule() without introducing L2→L4 dependency.
- */
-export interface TaskScheduler {
-  schedule(kind: 'subagent', payload: Record<string, unknown>): Promise<string>;
-}
 
 /**
  * Tool interface — all tools implement this.

@@ -99,8 +99,6 @@ export interface ExecContextImplOptions {
   permissionChecker?: PermissionChecker;
   /** Tool-level wall-clock timeout, inherited from globalConfig.tool_timeout_ms / Assembly 装配期注入 (phase 1029 / F-2) */
   toolTimeoutMs?: number;
-  /** phase 1332: injected task scheduler for subagent scheduling (N2 cross-L4 leak fix) */
-  taskSystem?: import('./types.js').TaskScheduler;
   /** phase 1343 α-6: turn-level trace id for cross-module audit correlation */
   trace_id?: TraceId;
   /**
@@ -182,7 +180,6 @@ export class ExecContextImpl implements ExecContext {
   mainDialogStore?: DialogStore;
   permissionChecker?: PermissionChecker;
   toolTimeoutMs?: number;
-  taskSystem?: import('./types.js').TaskScheduler;
   trace_id?: TraceId;
   getCallerSnapshot?: import('./types.js').ExecContext['getCallerSnapshot'];
   subagentTaskId?: string;
@@ -214,7 +211,6 @@ export class ExecContextImpl implements ExecContext {
     this.mainDialogStore = options.mainDialogStore;
     this.permissionChecker = options.permissionChecker;
     this.toolTimeoutMs = options.toolTimeoutMs;
-    this.taskSystem = options.taskSystem;
     this.trace_id = options.trace_id;
     this.getCallerSnapshot = options.getCallerSnapshot;
     this.subagentTaskId = options.subagentTaskId;
