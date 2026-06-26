@@ -26,14 +26,12 @@ async function createTempDir(): Promise<string> {
 describe('Phase 1411 — summon_rejected_shadow audit emit', () => {
   let tempDir: string;
   let mockFs: NodeFileSystem;
-  let tool: SummonTool;
   let auditWrite: ReturnType<typeof vi.fn>;
 
   beforeEach(async () => {
     vi.restoreAllMocks();
     tempDir = await createTempDir();
     mockFs = new NodeFileSystem({ baseDir: tempDir });
-    tool = new SummonTool({ write: vi.fn().mockResolvedValue(undefined), read: vi.fn().mockResolvedValue(undefined) });
     auditWrite = vi.fn();
   });
 
@@ -43,7 +41,7 @@ describe('Phase 1411 — summon_rejected_shadow audit emit', () => {
 
   function makeCtx(opts: { callerLabel: string; toolUseId?: string }): any {
     const auditWriter = { write: auditWrite , preview: (s: string) => s, message: (s: string) => s, summary: (s: string) => s} as any;
-    return new ExecContextImpl({
+    const ctx = new ExecContextImpl({
       clawId: 'test-claw',
       clawDir: tempDir,
       profile: 'full',
@@ -53,17 +51,18 @@ describe('Phase 1411 — summon_rejected_shadow audit emit', () => {
       auditWriter,
       currentToolUseId: opts.toolUseId ?? 'toolu_reject_test',
       callerLabel: opts.callerLabel,
-      taskSystem: createMockTaskSystem(mockFs, auditWriter),
       getCallerSnapshot: async () => ({
         systemPrompt: 'p',
         tools: [],
         messages: [{ role: 'user', content: 'test' }],
       }),
     } as any);
+    const tool = new SummonTool(createMockTaskSystem(mockFs, auditWriter));
+    return { ctx, tool };
   }
 
   it('reverse 1 — ctx.callerLabel=shadow emits REJECTED_SHADOW + returns success:false', async () => {
-    const ctx = makeCtx({ callerLabel: 'shadow' });
+    const { ctx, tool } = makeCtx({ callerLabel: 'shadow' });
     const result = await tool.execute({ goal: 'test' }, ctx);
 
     expect(result.success).toBe(false);
@@ -80,7 +79,7 @@ describe('Phase 1411 — summon_rejected_shadow audit emit', () => {
   });
 
   it('reverse 2 — ctx.callerLabel=claw → no REJECTED_SHADOW emit', async () => {
-    const ctx = makeCtx({ callerLabel: 'claw' });
+    const { ctx, tool } = makeCtx({ callerLabel: 'claw' });
     const result = await tool.execute({ goal: 'test' }, ctx);
 
     expect(result.success).toBe(true);

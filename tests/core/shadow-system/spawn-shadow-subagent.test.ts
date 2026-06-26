@@ -37,11 +37,13 @@ describe('spawnShadowSubagent (phase 1185)', () => {
   let nodeFs: NodeFileSystem;
   let audit: ReturnType<typeof makeAudit>;
   let ctx: ExecContextImpl;
+  let taskSystem: ReturnType<typeof createMockTaskSystem>;
 
   beforeEach(async () => {
     tempDir = await createTempDir();
     nodeFs = new NodeFileSystem({ baseDir: tempDir });
     audit = makeAudit();
+    taskSystem = createMockTaskSystem(nodeFs, audit.audit);
     ctx = new ExecContextImpl({
       clawId: 'test-claw',
       clawDir: tempDir,
@@ -52,7 +54,6 @@ describe('spawnShadowSubagent (phase 1185)', () => {
       auditWriter: audit.audit,
       currentToolUseId: 'tu-1',
       originClawId: 'motion',
-      taskSystem: createMockTaskSystem(nodeFs, audit.audit),
     });
   });
 
@@ -68,6 +69,7 @@ describe('spawnShadowSubagent (phase 1185)', () => {
       task: 'do X',
       mainMessages,
       ctx,
+      taskSystem,
       systemPrompt: 'sp',
       toolsForLLM,
     });
@@ -94,6 +96,7 @@ describe('spawnShadowSubagent (phase 1185)', () => {
       task: 'unique-task-body-42',
       mainMessages,
       ctx,
+      taskSystem,
       systemPrompt: 'sp',
       toolsForLLM: [],
     });
@@ -115,6 +118,7 @@ describe('spawnShadowSubagent (phase 1185)', () => {
       task: 't1',
       mainMessages: [],
       ctx,
+      taskSystem,
       systemPrompt: 'sp',
       toolsForLLM: [],
     });
@@ -124,6 +128,7 @@ describe('spawnShadowSubagent (phase 1185)', () => {
       task: 't2',
       mainMessages: [],
       ctx,
+      taskSystem,
       systemPrompt: 'sp',
       toolsForLLM: [],
       shadowIdPrefix: 'summon',
@@ -136,6 +141,7 @@ describe('spawnShadowSubagent (phase 1185)', () => {
       task: 't3',
       mainMessages: [],
       ctx,
+      taskSystem,
       systemPrompt: 'sp',
       toolsForLLM: [],
       postProcessor: 'summon-contract-extract',
@@ -149,6 +155,7 @@ describe('spawnShadowSubagent (phase 1185)', () => {
       task: 't4',
       mainMessages: [],
       ctx,
+      taskSystem,
       systemPrompt: 'sp',
       toolsForLLM: [],
     });

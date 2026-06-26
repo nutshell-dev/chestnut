@@ -45,13 +45,11 @@ function getTaskContent(task: Record<string, unknown>): string {
 describe('SummonTool verify parameter', () => {
   let tempDir: string;
   let mockFs: NodeFileSystem;
-  let tool: SummonTool;
 
   beforeEach(async () => {
     vi.restoreAllMocks();
     tempDir = await createTempDir();
     mockFs = new NodeFileSystem({ baseDir: tempDir });
-    tool = new SummonTool({ write: vi.fn().mockResolvedValue(undefined), read: vi.fn().mockResolvedValue(undefined) });
   });
 
   afterEach(async () => {
@@ -65,7 +63,7 @@ describe('SummonTool verify parameter', () => {
       message: (s: string) => s,
       summary: (s: string) => s,
     } as any;
-    return new ExecContextImpl({
+    const ctx = new ExecContextImpl({
       clawId: 'test-claw',
       clawDir: tempDir,
       profile: 'full',
@@ -73,7 +71,6 @@ describe('SummonTool verify parameter', () => {
       fs: mockFs,
       llm: {} as unknown as LLMOrchestrator,
       auditWriter,
-      taskSystem: createMockTaskSystem(mockFs, auditWriter),
       // phase 1406: caller snapshot fixture (shadow path).
       getCallerSnapshot: async () => ({
         systemPrompt: 'mock system prompt',
@@ -83,10 +80,12 @@ describe('SummonTool verify parameter', () => {
         messages: [],
       }),
     } as any);
+    const tool = new SummonTool(createMockTaskSystem(mockFs, auditWriter));
+    return { ctx, tool };
   }
 
   it('default verify=false: prompt does NOT contain verification section', async () => {
-    const ctx = makeCtx();
+    const { ctx, tool } = makeCtx();
     const result = await tool.execute({ goal: 'test' }, ctx);
 
     expect(result.success).toBe(true);
@@ -103,7 +102,7 @@ describe('SummonTool verify parameter', () => {
   });
 
   it('explicit verify=true: prompt contains verification section', async () => {
-    const ctx = makeCtx();
+    const { ctx, tool } = makeCtx();
     const result = await tool.execute({ goal: 'test', verify: true }, ctx);
 
     expect(result.success).toBe(true);
@@ -117,7 +116,7 @@ describe('SummonTool verify parameter', () => {
   });
 
   it('explicit verify=false behaves same as default', async () => {
-    const ctx = makeCtx();
+    const { ctx, tool } = makeCtx();
     const result = await tool.execute({ goal: 'test', verify: false }, ctx);
 
     expect(result.success).toBe(true);

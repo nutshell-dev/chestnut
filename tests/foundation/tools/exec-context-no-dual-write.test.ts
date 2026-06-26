@@ -28,7 +28,7 @@ describe('phase 1174 ExecContext 7-site dual-write eviction', () => {
     const tempDir = path.join(tmpdir(), `ec-ndw-${randomUUID()}`);
     await fs.mkdir(tempDir, { recursive: true });
     const mockFs = new NodeFileSystem({ baseDir: tempDir });
-    const tool = new SummonTool({ write: vi.fn().mockResolvedValue(undefined), read: vi.fn().mockResolvedValue(undefined) });
+    const tool = new SummonTool({ schedule: vi.fn().mockResolvedValue('task-xxx') });
     const auditWriter = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
     const ctx = new ExecContextImpl({
       clawId: 'test-claw',
@@ -37,7 +37,6 @@ describe('phase 1174 ExecContext 7-site dual-write eviction', () => {
       callerType: 'claw',
       fs: mockFs,
       auditWriter: auditWriter as any,
-      taskSystem: { schedule: vi.fn().mockResolvedValue('task-xxx') } as any,
       // phase 1406: caller snapshot provider — empty messages fixture.
       getCallerSnapshot: async () => ({
         systemPrompt: 'mock system prompt',
@@ -90,7 +89,6 @@ describe('phase 1174 ExecContext 7-site dual-write eviction', () => {
       syncDir: path.join(tempDir, 'tasks', 'sync'),
       profile: 'full',
       fs: mockFs,
-      taskSystem: { schedule: vi.fn().mockResolvedValue('task-xxx') } as any,
     });
 
     // execute with async=false triggers sync path; async path also calls getTurnSnapshot

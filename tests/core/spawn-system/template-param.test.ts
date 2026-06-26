@@ -10,7 +10,6 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'path';
-import { spawnTool } from '../../../src/core/spawn-system/index.js';
 import { createSpawnTool } from '../../../src/core/spawn-system/tools/spawn.js';
 import { SPAWN_AUDIT_EVENTS } from '../../../src/core/spawn-system/audit-events.js';
 import { DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../../../src/templates/prompts/index.js';
@@ -35,6 +34,8 @@ describe('spawn tool template param (phase 11)', () => {
   let fs: NodeFileSystem;
   let baseCtx: ExecContextImpl;
   let audit: ReturnType<typeof makeAudit>;
+  let taskSystem: ReturnType<typeof createMockTaskSystem>;
+  let spawnToolWithTaskSystem: ReturnType<typeof createSpawnTool>;
   const testSpawnTool = createSpawnTool({ runSubagent: mockRunSubagent });
 
   function makeRegistry(): ToolRegistryImpl {
@@ -72,8 +73,9 @@ describe('spawn tool template param (phase 11)', () => {
     tempDir = await createTempDir();
     fs = new NodeFileSystem({ baseDir: tempDir });
     audit = makeAudit();
-    const taskSystem = createMockTaskSystem(fs, audit.audit);
+    taskSystem = createMockTaskSystem(fs, audit.audit);
     taskSystem.schedule = mockSchedule;
+    spawnToolWithTaskSystem = createSpawnTool({ taskSystem });
     baseCtx = new ExecContextImpl({
       clawId: 'test-claw',
       clawDir: tempDir,
@@ -83,7 +85,6 @@ describe('spawn tool template param (phase 11)', () => {
       auditWriter: audit.audit,
       llm: makeLLM(),
       registry: makeRegistry(),
-      taskSystem,
     });
     mockSchedule.mockClear();
     mockRunSubagent.mockClear();
@@ -97,7 +98,7 @@ describe('spawn tool template param (phase 11)', () => {
     it("caller 不传 template → schedule params.systemPrompt = DEFAULT_SUBAGENT_SYSTEM_PROMPT", async () => {
       mockSchedule.mockResolvedValue('task-aaa');
 
-      const result = await spawnTool.execute({ intent: 'test task' }, baseCtx);
+      const result = await spawnToolWithTaskSystem.execute({ intent: 'test task' }, baseCtx);
 
       expect(result.success).toBe(true);
       expect(mockSchedule).toHaveBeenCalledOnce();
@@ -109,7 +110,7 @@ describe('spawn tool template param (phase 11)', () => {
     it("caller 传 template:'default' → 行为同不传", async () => {
       mockSchedule.mockResolvedValue('task-bbb');
 
-      const result = await spawnTool.execute(
+      const result = await spawnToolWithTaskSystem.execute(
         { intent: 'test task', template: 'default' },
         baseCtx,
       );
@@ -135,7 +136,7 @@ describe('spawn tool template param (phase 11)', () => {
 
   describe('unknown template reject', () => {
     it("async 模式 unknown template → reject + audit + 不调 schedule", async () => {
-      const result = await spawnTool.execute(
+      const result = await spawnToolWithTaskSystem.execute(
         { intent: 'test', template: 'nonexistent' },
         baseCtx,
       );
@@ -187,7 +188,7 @@ describe('spawn tool template param (phase 11)', () => {
         callerLabel: 'shadow',
       });
 
-      const result = await spawnTool.execute(
+      const result = await spawnToolWithTaskSystem.execute(
         { intent: 'test', async: true, template: 'nonexistent' },
         shadowCtx,
       );

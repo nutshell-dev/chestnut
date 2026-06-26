@@ -38,6 +38,7 @@ describe('shadow tool (phase 767)', () => {
   let baseCtx: ExecContextImpl;
   let audit: ReturnType<typeof makeAudit>;
   let shadowTool: ReturnType<typeof createShadowTool>;
+  let taskSystem: ReturnType<typeof createMockTaskSystem>;
 
   function makeRegistry(): ToolRegistryImpl {
     const registry = new ToolRegistryImpl();
@@ -92,6 +93,7 @@ describe('shadow tool (phase 767)', () => {
       { role: 'user', content: 'hi' },
       { role: 'assistant', content: [{ type: 'tool_use', id: 'tu-1', name: 'shadow', input: {} }] },
     ];
+    taskSystem = createMockTaskSystem(fs, audit.audit);
     baseCtx = new ExecContextImpl({
       clawId: 'test-claw',
       clawDir: tempDir,
@@ -103,7 +105,6 @@ describe('shadow tool (phase 767)', () => {
       registry: makeRegistry(),
       mainDialogStore: makeMockDialogStore(),
       currentToolUseId: 'tu-1',
-      taskSystem: createMockTaskSystem(fs, audit.audit),
     });
     shadowTool = createShadowTool({
       getTurnSnapshot: () => ({
@@ -112,6 +113,7 @@ describe('shadow tool (phase 767)', () => {
         messages: dialogMessages,
       }),
       runSubagent: mockRunSubagent,
+      taskSystem,
     });
     mockRunSubagent.mockClear();
   });
@@ -265,11 +267,7 @@ describe('shadow tool (phase 767)', () => {
 
   describe('summon-from-shadow defense (phase 767)', () => {
     it('rejects summon when ctx.callerLabel is shadow', async () => {
-      const summonTool = new SummonTool(
-        async () => 'system prompt',
-        () => [],
-        () => [],
-      );
+      const summonTool = new SummonTool();
       const shadowCtx = new ExecContextImpl({
         clawId: 'shadow-claw',
         clawDir: tempDir,
@@ -278,7 +276,6 @@ describe('shadow tool (phase 767)', () => {
         fs,
         auditWriter: audit.audit,
         callerLabel: 'shadow',
-        taskSystem: createMockTaskSystem(fs, audit.audit),
       });
 
       const result = await summonTool.execute({ goal: 'test' }, shadowCtx);

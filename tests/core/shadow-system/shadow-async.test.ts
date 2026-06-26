@@ -34,6 +34,7 @@ describe('shadow tool async (phase 1087)', () => {
   let baseCtx: ExecContextImpl;
   let audit: ReturnType<typeof makeAudit>;
   let shadowTool: ReturnType<typeof createShadowTool>;
+  let taskSystem: ReturnType<typeof createMockTaskSystem>;
 
   function makeRegistry(): ToolRegistryImpl {
     const registry = new ToolRegistryImpl();
@@ -88,6 +89,8 @@ describe('shadow tool async (phase 1087)', () => {
       { role: 'user', content: 'hi' },
       { role: 'assistant', content: [{ type: 'tool_use', id: 'tu-1', name: 'shadow', input: {} }] },
     ];
+    taskSystem = createMockTaskSystem(fs, audit.audit);
+    (taskSystem as any).schedule = mockSchedule;
     baseCtx = new ExecContextImpl({
       clawId: 'test-claw',
       clawDir: tempDir,
@@ -99,7 +102,6 @@ describe('shadow tool async (phase 1087)', () => {
       registry: makeRegistry(),
       mainDialogStore: makeMockDialogStore(),
       currentToolUseId: 'tu-1',
-      taskSystem: createMockTaskSystem(fs, audit.audit),
     });
     shadowTool = createShadowTool({
       getTurnSnapshot: () => ({
@@ -108,9 +110,8 @@ describe('shadow tool async (phase 1087)', () => {
         messages: dialogMessages,
       }),
       runSubagent: mockRunSubagent,
+      taskSystem,
     });
-    baseCtx.taskSystem = createMockTaskSystem(fs, audit.audit);
-    (baseCtx.taskSystem as any).schedule = mockSchedule;
     mockSchedule.mockClear();
     mockRunSubagent.mockClear();
   });

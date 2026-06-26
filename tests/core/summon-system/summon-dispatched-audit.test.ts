@@ -29,14 +29,12 @@ async function createTempDir(): Promise<string> {
 describe('Phase 1411 — summon_dispatched audit emit', () => {
   let tempDir: string;
   let mockFs: NodeFileSystem;
-  let tool: SummonTool;
   let auditWrite: ReturnType<typeof vi.fn>;
 
   beforeEach(async () => {
     vi.restoreAllMocks();
     tempDir = await createTempDir();
     mockFs = new NodeFileSystem({ baseDir: tempDir });
-    tool = new SummonTool({ write: vi.fn().mockResolvedValue(undefined), read: vi.fn().mockResolvedValue(undefined) });
     auditWrite = vi.fn();
   });
 
@@ -46,7 +44,7 @@ describe('Phase 1411 — summon_dispatched audit emit', () => {
 
   function makeCtx(snapshotMessages: Message[] = [], toolUseId = 'toolu_test_abc'): any {
     const auditWriter = { write: auditWrite , preview: (s: string) => s, message: (s: string) => s, summary: (s: string) => s} as any;
-    return new ExecContextImpl({
+    const ctx = new ExecContextImpl({
       clawId: 'test-claw',
       clawDir: tempDir,
       profile: 'full',
@@ -55,17 +53,18 @@ describe('Phase 1411 — summon_dispatched audit emit', () => {
       llm: {} as unknown as LLMOrchestrator,
       auditWriter,
       currentToolUseId: toolUseId,
-      taskSystem: createMockTaskSystem(mockFs, auditWriter),
       getCallerSnapshot: async () => ({
         systemPrompt: 'mock system prompt',
         tools: [],
         messages: snapshotMessages,
       }),
     } as any);
+    const tool = new SummonTool(createMockTaskSystem(mockFs, auditWriter));
+    return { ctx, tool };
   }
 
   it('reverse 1 — shadow mode dispatch emits summon_dispatched with typed cols', async () => {
-    const ctx = makeCtx([{ role: 'user', content: 'test' }]);
+    const { ctx, tool } = makeCtx([{ role: 'user', content: 'test' }]);
     const result = await tool.execute(
       { goal: 'test goal text', targetClaw: 'my-claw', verify: false },
       ctx,
@@ -91,7 +90,7 @@ describe('Phase 1411 — summon_dispatched audit emit', () => {
   });
 
   it('reverse 2 — mining mode dispatch emits summon_dispatched mode=mining', async () => {
-    const ctx = makeCtx();
+    const { ctx, tool } = makeCtx();
     const result = await tool.execute(
       { goal: 'mining goal', mode: 'mining', verify: true },
       ctx,
@@ -110,7 +109,7 @@ describe('Phase 1411 — summon_dispatched audit emit', () => {
   });
 
   it('reverse 3 — targetClaw absent → no target_claw= col', async () => {
-    const ctx = makeCtx([{ role: 'user', content: 'test' }]);
+    const { ctx, tool } = makeCtx([{ role: 'user', content: 'test' }]);
     const result = await tool.execute({ goal: 'test', verify: false }, ctx);
 
     expect(result.success).toBe(true);

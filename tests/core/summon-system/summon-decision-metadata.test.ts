@@ -42,19 +42,18 @@ describe('summon decision metadata embed (phase 281 Step A)', () => {
   let auditEvents: Array<{ type: string; args: unknown[] }>;
   let tool: SummonTool;
 
-  function createMockStateStore() {
-    return {
-      write: vi.fn().mockResolvedValue(undefined),
-      read: vi.fn().mockResolvedValue(undefined),
-    };
-  }
-
   beforeEach(async () => {
     vi.restoreAllMocks();
     tempDir = await createTempDir();
     mockFs = new NodeFileSystem({ baseDir: tempDir });
     auditEvents = [];
-    tool = new SummonTool(createMockStateStore());
+    const auditWriter = {
+      write: (type: string, ...args: unknown[]) => { auditEvents.push({ type, args }); },
+      preview: (s: string) => s,
+      message: (s: string) => s,
+      summary: (s: string) => s,
+    } as any;
+    tool = new SummonTool(createMockTaskSystem(mockFs, auditWriter));
   });
 
   afterEach(async () => {
@@ -77,7 +76,7 @@ describe('summon decision metadata embed (phase 281 Step A)', () => {
       message: (s: string) => s,
       summary: (s: string) => s,
     } as any;
-    return new ExecContextImpl({
+    const ctx = new ExecContextImpl({
       clawId: 'test-claw',
       clawDir: tempDir,
       profile: 'full',
@@ -85,17 +84,18 @@ describe('summon decision metadata embed (phase 281 Step A)', () => {
       fs: mockFs,
       llm: {} as unknown as LLMOrchestrator,
       auditWriter,
-      taskSystem: createMockTaskSystem(mockFs, auditWriter),
       getCallerSnapshot: async () => ({
         systemPrompt: options?.snapshot?.systemPrompt ?? 'mock system prompt',
         tools: (options?.snapshot?.tools ?? [{ name: 'mock_tool', description: 'Mock tool', input_schema: { type: 'object' } }]) as any,
         messages: options?.snapshot?.messages ?? [],
       }),
     } as any);
+    const tool = new SummonTool(createMockTaskSystem(mockFs, auditWriter));
+    return { ctx, tool };
   }
 
   it('shadow summon schedule → task file含 summonDecision metadata', async () => {
-    const ctx = makeCtx('claw');
+    const { ctx, tool } = makeCtx('claw');
     const result = await tool.execute({ goal: 'shadow task', verify: true, targetClaw: 'target-claw' }, ctx);
 
     expect(result.success).toBe(true);
@@ -111,7 +111,7 @@ describe('summon decision metadata embed (phase 281 Step A)', () => {
   });
 
   it('mining summon schedule → task file含 summonDecision metadata', async () => {
-    const ctx = makeCtx('claw');
+    const { ctx, tool } = makeCtx('claw');
     const result = await tool.execute({ goal: 'mining task', mode: 'mining', verify: false, targetClaw: 'miner-claw' }, ctx);
 
     expect(result.success).toBe(true);
@@ -175,23 +175,5 @@ describe('summon decision metadata embed (phase 281 Step A)', () => {
     expect(invalidParsed.success).toBe(false);
   });
 
-  it('shadow schedule 不再调 stateStore.write（写入路径已迁移）', async () => {
-    const stateStore = createMockStateStore();
-    const customTool = new SummonTool(stateStore);
-    const ctx = makeCtx('claw');
 
-    await customTool.execute({ goal: 'no state store write' }, ctx);
-
-    expect(stateStore.write).not.toHaveBeenCalled();
-  });
-
-  it('mining schedule 不再调 stateStore.write（写入路径已迁移）', async () => {
-    const stateStore = createMockStateStore();
-    const customTool = new SummonTool(stateStore);
-    const ctx = makeCtx('claw');
-
-    await customTool.execute({ goal: 'no state store write', mode: 'mining' }, ctx);
-
-    expect(stateStore.write).not.toHaveBeenCalled();
-  });
 });
