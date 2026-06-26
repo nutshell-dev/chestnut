@@ -11,7 +11,7 @@ import { createDirContext } from '../../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
-import { CONTRACT_DIR, CONTRACT_ARCHIVE_DIR, CONTRACT_YAML_FILE } from '../../core/contract/index.js';
+import { hasActiveContract, listActiveContracts, CONTRACT_ARCHIVE_DIR, CONTRACT_YAML_FILE } from '../../core/contract/index.js';
 import { CONFIG_YAML_FILE } from '../../core/claw-topology/claw-instance-paths.js';
 import { CLAWS_DIR } from '../../core/claw-topology/claw-instance-paths.js';
 import { getLastActiveMs } from './claw-shared.js';
@@ -35,12 +35,8 @@ export async function listCommand(deps: { fsFactory: (baseDir: string) => FileSy
 
   // Helper: check contract status
   function getContractStatus(clawFs: FileSystem): string {
-    for (const sub of ['active', 'paused']) {
-      try {
-        const entries = clawFs.listSync(path.join(CONTRACT_DIR, sub), { includeDirs: true });
-        if (entries.some(e => e.isDirectory)) return sub;
-      } catch { /* silent: skip */ }
-    }
+    if (hasActiveContract(clawFs, '.')) return 'active';
+    // paused 暂无轻量 API；后续按需补
     return '-';
   }
 
@@ -57,19 +53,9 @@ export async function listCommand(deps: { fsFactory: (baseDir: string) => FileSy
 
   // Helper: get latest contract title (active > paused > most recent archive)
   function getLatestContractTitle(clawFs: FileSystem): string {
-    for (const sub of ['active', 'paused']) {
-      try {
-        const dirs = clawFs.listSync(path.join(CONTRACT_DIR, sub), { includeDirs: true }).map(e => e.name);
-        for (const dir of dirs) {
-          const relYamlPath = path.join('contract', sub, dir, CONTRACT_YAML_FILE);
-          if (clawFs.existsSync(relYamlPath)) {
-            const content = clawFs.readSync(relYamlPath);
-            const match = content.match(/^title:\s*["']?(.+?)["']?\s*$/m);
-            if (match) return match[1].slice(0, CLAW_TITLE_DISPLAY_CHARS);
-          }
-        }
-      } catch { /* silent: skip */ }
-    }
+    const active = listActiveContracts(clawFs, '.');
+    if (active.length > 0) return active[0].title.slice(0, CLAW_TITLE_DISPLAY_CHARS);
+
     try {
       const dirs = clawFs.listSync(CONTRACT_ARCHIVE_DIR, { includeDirs: true }).map(e => e.name);
       let latest = { mtime: 0, title: '' };

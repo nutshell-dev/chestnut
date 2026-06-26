@@ -160,7 +160,8 @@ describe('claw-list', () => {
       if (sp.includes('contract.yaml')) {
         return sp.includes('active/c1');
       }
-      if (sp.includes('contract/active') || sp.includes('contract/paused')) return false;
+      if (sp.includes('contract/active')) return true;
+      if (sp.includes('contract/paused')) return false;
       return true;
     });
 
