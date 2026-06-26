@@ -27,7 +27,7 @@ const D3_FIELDS = new Set([
 ]);
 /** D4 ExecutionControl */
 const D4_FIELDS = new Set([
-  'maxSteps', 'signal', 'subagentMaxSteps', 'toolTimeoutMs',
+  'maxSteps', 'signal', 'toolTimeoutMs',
   'stopRequested', 'requestStop', 'getElapsedMs',
 ]);
 /** D5 ExecutionAudit */

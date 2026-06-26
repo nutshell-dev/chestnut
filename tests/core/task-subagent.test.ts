@@ -49,7 +49,6 @@ function makeSubAgentToolExecutor(opts: {
     workspaceDir: path.join(opts.clawDir, 'clawspace'),
     fs: opts.fs,
     llm: opts.llm,
-    subagentMaxSteps: opts.maxSteps ?? 20,
     auditWriter: opts.auditWriter,
   });
 }

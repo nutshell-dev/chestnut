@@ -4,7 +4,7 @@
  * Covers:
  * - Runtime.initialize() self-constructs ContextInjector from deps.skillRegistry + deps.contractManager + systemFs + auditWriter
  * - Runtime.initialize() self-constructs ExecContext with correct clawId/clawDir/profile/fs/llm/maxSteps
- * - Registry + mainDialogStore lazy-injected into execContext (phase 766/768 regression guard)
+ * - Registry lazy-injected into execContext (phase 766 regression guard)
  * - No external inject required for contextInjector / execContext
  */
 
@@ -93,7 +93,7 @@ describe('Runtime internal ContextInjector + ExecContext self-construction (phas
     expect(execCtx.maxSteps).toBe(DEFAULT_MAX_STEPS);
   });
 
-  it('lazy-injects registry and mainDialogStore into execContext after initialize (phase 766/768)', async () => {
+  it('lazy-injects registry into execContext after initialize (phase 766)', async () => {
     const deps = await makeRuntimeDeps({ clawDir, clawId: 'test-claw' });
     const runtime = new Runtime({
       clawId: 'test-claw',
@@ -105,9 +105,8 @@ describe('Runtime internal ContextInjector + ExecContext self-construction (phas
 
     await runtime.initialize();
 
-    const execCtx = (runtime as unknown as { execContext: { registry?: unknown; mainDialogStore?: unknown } }).execContext;
+    const execCtx = (runtime as unknown as { execContext: { registry?: unknown } }).execContext;
     expect(execCtx.registry).toBeDefined();
-    expect(execCtx.mainDialogStore).toBeDefined();
   });
 
   it('does not require contextInjector or execContext in RuntimeDependencies (phase 1211 wire cleanup)', async () => {

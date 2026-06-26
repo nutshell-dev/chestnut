@@ -16,7 +16,7 @@ import { makeAudit } from '../../helpers/audit.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { ToolRegistryImpl } from '../../../src/foundation/tools/registry.js';
 import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/index.js';
-import type { DialogStore } from '../../../src/foundation/dialog-store/index.js';
+
 
 const { mockRunSubagent } = vi.hoisted(() => ({
   mockRunSubagent: vi.fn(),
@@ -59,20 +59,6 @@ describe('shadow signal propagation (phase 874)', () => {
     } as unknown as LLMOrchestrator;
   }
 
-  function makeMockDialogStore(): DialogStore {
-    return {
-      restorePrefix: vi.fn().mockResolvedValue({
-        messages: [
-          { role: 'user', content: 'hi' },
-          { role: 'assistant', content: [{ type: 'tool_use', id: 'tu-1', name: 'shadow', input: {} }] },
-        ],
-        systemPrompt: 'sp',
-        toolsForLLM: [],
-        meta: { foundIn: 'current' },
-      }),
-    } as unknown as DialogStore;
-  }
-
   function makeBaseCtx(signal?: AbortSignal): ExecContextImpl {
     return new ExecContextImpl({
       clawId: 'test-claw',
@@ -83,7 +69,6 @@ describe('shadow signal propagation (phase 874)', () => {
       auditWriter: audit.audit,
       llm: makeLLM(),
       registry: makeRegistry(),
-      mainDialogStore: makeMockDialogStore(),
       currentToolUseId: 'tu-1',
       signal,
     });

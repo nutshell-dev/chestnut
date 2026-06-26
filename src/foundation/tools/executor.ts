@@ -480,7 +480,6 @@ export class ToolExecutor extends ToolExecutorImpl {
   private fs: FileSystem;
   private fsFactory?: (baseDir: string) => FileSystem;
   private llm?: LLMOrchestrator;
-  private subagentMaxSteps?: number;
   private auditWriter?: AuditLog;
   constructor(options: ToolExecutorOptions) {
     super(options.registry, options.defaultTimeoutMs, options.scheduleAsyncTool);
@@ -490,7 +489,6 @@ export class ToolExecutor extends ToolExecutorImpl {
     this.fs = options.fs;
     this.fsFactory = options.fsFactory;
     this.llm = options.llm;
-    this.subagentMaxSteps = options.subagentMaxSteps;
     this.auditWriter = options.auditWriter;
   }
 
@@ -515,7 +513,6 @@ export class ToolExecutor extends ToolExecutorImpl {
       llm: this.llm,
       maxSteps: options.maxSteps,
       signal: options.signal,
-      subagentMaxSteps: this.subagentMaxSteps,
       auditWriter: this.auditWriter,
       registry: this.registry,
       subagentTaskId: options.subagentTaskId,

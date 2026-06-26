@@ -9,7 +9,6 @@ import type { ToolProfile } from '../tool-protocol/index.js';
 import type { FileSystem } from '../fs/index.js';
 import type { LLMOrchestrator } from '../llm-orchestrator/index.js';
 import type { AuditLog } from '../audit/types.js';
-import type { DialogStore } from '../dialog-store/index.js';
 import type { ToolDescriptor, ToolResult, CallerSnapshot } from '../tool-protocol/index.js';
 export type { CallerSnapshot };
 
@@ -108,16 +107,12 @@ export interface ExecutionInfra {
   llm?: LLMOrchestrator;
   /** Tool registry reference for sync spawn path (phase 766) */
   registry?: ToolRegistry;
-  /** phase 27: main dialog store injection (was as { mainDialogStore } cast, phase 768) */
-  mainDialogStore?: DialogStore;
 }
 
-/** 执行控制维度（D4）：maxSteps / signal / subagentMaxSteps / toolTimeoutMs / stopRequested + requestStop / getElapsedMs */
+/** 执行控制维度（D4）：maxSteps / signal / toolTimeoutMs / stopRequested + requestStop / getElapsedMs */
 export interface ExecutionControl {
   maxSteps: number;
   signal?: AbortSignal;
-  /** Max steps for subagents created via spawn tool */
-  subagentMaxSteps?: number;
   /** Tool-level wall-clock timeout, inherited from globalConfig.tool_timeout_ms / Assembly 装配期注入 (phase 1029 / F-2) */
   toolTimeoutMs?: number;
   /** phase 777: result-capture tools (done) set this to break the agent loop early */
@@ -277,7 +272,6 @@ export interface ToolExecutorOptions {
   fs: FileSystem;
   fsFactory?: (baseDir: string) => FileSystem;
   llm?: LLMOrchestrator;
-  subagentMaxSteps?: number;
   auditWriter?: AuditLog;
   scheduleAsyncTool?: ScheduleAsyncTool;
   /** Tool-level default timeout (phase 1029 / F-2 / inherits from caller ExecContext / 0 传维持 ToolExecutor fallback 60s) */
