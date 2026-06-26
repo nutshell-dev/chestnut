@@ -208,6 +208,7 @@ export async function createCoreInfrastructure(input: CoreInfraInput): Promise<C
         chestnutRoot,
         audit: auditWriter,
         toolRegistry,
+        isMotion,
       });
 
       // phase378 后 exec 业务归 CommandTool L2 / 不再经 registerBuiltinTools / Assembly 显式注册

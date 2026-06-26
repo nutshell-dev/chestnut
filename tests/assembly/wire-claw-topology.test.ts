@@ -37,7 +37,7 @@ describe('wireClawTopology', () => {
     } as unknown as AuditLog;
   }
 
-  function setup() {
+  function setup(isMotion = true) {
     const toolRegistry = createToolRegistry();
     for (const tool of createFileTools()) {
       toolRegistry.register(tool);
@@ -46,6 +46,7 @@ describe('wireClawTopology', () => {
       fs,
       chestnutRoot: tempDir,
       toolRegistry,
+      isMotion,
     });
     return { toolRegistry, topology };
   }
@@ -59,7 +60,7 @@ describe('wireClawTopology', () => {
       clawsDir: path.join(tempDir, 'claws'),
       workspaceDir,
       syncDir: path.join(motionDir, 'sync'),
-      isMotionChain: true,
+
       profile: 'full',
       allowedGroups: new Set(['fs-read']),
       callerLabel: 'motion',
@@ -133,11 +134,11 @@ describe('wireClawTopology', () => {
   });
 
   it('wire 后调 search 传 claw="*"、非 motion caller → 拒 + audit', async () => {
-    const { toolRegistry } = setup();
+    const { toolRegistry } = setup(false);
     const audit = makeAudit();
     const ctx = makeCtx({
       clawId: 'claw1',
-      isMotionChain: false,
+
       auditWriter: audit,
     });
     const result = await toolRegistry.get('search')!.execute({ query: 'foo', claw: '*' }, ctx);

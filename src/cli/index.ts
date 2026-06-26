@@ -248,6 +248,7 @@ contractCmd
         chestnutRoot,
         audit: clawAudit,
         toolRegistry,
+        isMotion: false,
       });
 
       const contractSystem = createContractSystem({
