@@ -14,11 +14,12 @@
  */
 
 import type { FileSystem } from '../../foundation/fs/index.js';
-import { isFileNotFound } from '../../foundation/fs/index.js';
+
 import { ProcessManager, ProcessListUnavailable } from '../../foundation/process-manager/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
 import { listAuditFiles } from '../../foundation/audit/index.js';
-import { INBOX_PENDING_DIR } from '../../foundation/messaging/index.js';
+import type { AuditLog } from '../../foundation/audit/index.js';
+import { createInboxReader } from '../../foundation/messaging/index.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../claw-topology/index.js';
 import type { ClawTopology } from '../claw-topology/index.js';
 
@@ -80,14 +81,9 @@ export function computeProcessUptimeMs(
  * Count unread inbox messages for a claw (files in inbox/pending/).
  * Returns 0 when inbox dir does not exist.
  */
-export function computeClawInboxUnread(clawFs: FileSystem): number {
-  try {
-    if (!clawFs.existsSync(INBOX_PENDING_DIR)) return 0;
-    return clawFs.listSync(INBOX_PENDING_DIR, { includeDirs: false }).length;
-  } catch (err) {
-    if (isFileNotFound(err)) return 0;
-    throw err;
-  }
+export async function computeClawInboxUnread(clawFs: FileSystem): Promise<number> {
+  const inboxReader = createInboxReader(clawFs, { write: () => {} } as unknown as AuditLog, 'inbox');
+  return await inboxReader.peekPendingCount();
 }
 
 /**
@@ -163,7 +159,7 @@ export interface ForumStatusDeps {
   daemonEntryPath: string;
 }
 
-export function computeForumStatusView(deps: ForumStatusDeps): ForumStatusView {
+export async function computeForumStatusView(deps: ForumStatusDeps): Promise<ForumStatusView> {
   const nowMs = deps.now();
   const timestamp = new Date(nowMs).toISOString();
 
@@ -189,7 +185,7 @@ export function computeForumStatusView(deps: ForumStatusDeps): ForumStatusView {
       motionStatus.alive && motionStatus.pid !== undefined
         ? computeProcessUptimeMs(motionStatus.pid, nowMs, deps.getStartTime)
         : undefined,
-    inboxUnread: motionStatus.alive ? computeClawInboxUnread(motionFs) : undefined,
+    inboxUnread: motionStatus.alive ? await computeClawInboxUnread(motionFs) : undefined,
   };
 
   // ── Active claws ──
@@ -213,7 +209,7 @@ export function computeForumStatusView(deps: ForumStatusDeps): ForumStatusView {
       pid: s.pid,
       uptimeMs: computeProcessUptimeMs(s.pid, nowMs, deps.getStartTime),
       lastActivityAgoMs: computeClawLastActivityAgoMs(clawFs, nowMs),
-      inboxUnread: computeClawInboxUnread(clawFs),
+      inboxUnread: await computeClawInboxUnread(clawFs),
     });
   }
 

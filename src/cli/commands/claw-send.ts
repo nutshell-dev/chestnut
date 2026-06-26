@@ -17,6 +17,7 @@ import { CLAWS_DIR } from '../../core/claw-topology/claw-instance-paths.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../../core/claw-topology/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
+import { hasActiveContract } from '../../core/contract/index.js';
 
 export async function sendCommand(
   deps: { fsFactory: (baseDir: string) => FileSystem },
@@ -55,8 +56,7 @@ export async function sendCommand(
   const clawFs = deps.fsFactory(clawDir);
   let hasContract = false;
   try {
-    const entries = clawFs.listSync(path.join('contract', 'active'), { includeDirs: true });
-    hasContract = entries.some(e => e.isDirectory);
+    hasContract = hasActiveContract(clawFs, '.');
   } catch {
     // silent: contract dir scan failure is legitimate → treat as no active contract
     hasContract = false;

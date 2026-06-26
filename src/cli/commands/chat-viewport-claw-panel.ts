@@ -7,7 +7,7 @@
 
 import * as path from 'path';
 import { formatErr } from "../../foundation/node-utils/index.js";
-import { getContractCreatedMs } from '../../core/contract/index.js';
+import { getActiveContractTimestamp } from '../../core/contract/index.js';
 import { makeClawTrack, buildClawLine, type ClawTrack } from './chat-viewport-claw-line.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
@@ -75,8 +75,8 @@ export function createRescanClawsDir(deps: RescanClawsDirDeps) {
         const location = deps.clawTopology.resolve(makeClawId(clawId));
         if (location.kind !== 'local') continue;
         const clawDir = location.clawDir;
-        // getContractCreatedMs 用 clawsFs (baseDir=clawsDir) / 传相对路径 clawId
-        const contractMs = getContractCreatedMs(deps.clawsFs, clawDir, deps.audit);
+        // getActiveContractTimestamp 用 clawsFs (baseDir=clawsDir) / 传相对路径 clawId
+        const contractMs = getActiveContractTimestamp(deps.clawsFs, clawDir);
         if (contractMs !== null) {
           const t = makeClawTrack();
           t.hasContract = true;

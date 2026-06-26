@@ -10,7 +10,7 @@
 
 import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/index.js';
-import { INBOX_PENDING_DIR } from '../../foundation/messaging/dirs.js';
+import { INBOX_PENDING_DIR, resolveDlqDir } from '../../foundation/messaging/index.js';
 import { notifyClaw } from '../../foundation/messaging/notify.js';
 import type { InboxMessageOptionsBase } from '../../foundation/messaging/inbox-writer.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
@@ -103,6 +103,6 @@ export function routeNotifyClaw(
     ? path.join(chestnutRoot, motionClawId)
     : path.join(chestnutRoot, CLAWS_DIR, targetClawId);
   const targetInboxDir = path.join(targetClawRoot, INBOX_PENDING_DIR);
-  const dlqDir = isMotion ? undefined : path.join(chestnutRoot, motionClawId, 'inbox', 'dead-letter');
+  const dlqDir = isMotion ? undefined : resolveDlqDir(path.join(chestnutRoot, motionClawId, 'inbox'));
   notifyClaw(fs, targetClawRoot, targetInboxDir, dlqDir, message, audit);
 }

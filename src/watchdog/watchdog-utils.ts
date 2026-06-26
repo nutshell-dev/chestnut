@@ -19,9 +19,10 @@ import { type AuditLog, AUDIT_FILE } from '../foundation/audit/index.js';
 import { readAll, STREAM_FILE } from '../foundation/stream/index.js';
 import { LLM_OUTPUT_EVENTS } from '../foundation/stream/index.js';
 import { INBOX_PENDING_DIR, OUTBOX_PENDING_DIR } from '../foundation/messaging/index.js';
+import { hasActiveContract, listActiveContracts } from '../core/contract/index.js';
 // NOTE: turn_start/turn_end/turn_error NOT included — only LLM output counts as activity
 // If new stream event types are added, this set must be evaluated for inclusion
-import { CONTRACT_DIR } from '../core/contract/index.js';
+
 import { WATCHDOG_AUDIT_EVENTS } from './audit-events.js';
 import { formatErr } from '../foundation/node-utils/index.js';
 
@@ -91,19 +92,20 @@ function clawHasContractSub(
   audit?: AuditLog,
 ): boolean {
   const fs = fsFactory(clawDir);
-  for (const sub of subs) {
-    try {
-      const entries = fs.listSync(path.join(CONTRACT_DIR, sub), { includeDirs: true });
-      if (entries.some(e => e.isDirectory)) return true;
-    } catch (err) {
-      if (isFileNotFound(err)) continue; // legitimate: contract dir not created yet
-      audit?.write(
-        WATCHDOG_AUDIT_EVENTS.CLAW_HAS_CONTRACT_CHECK_FAILED,
-        `clawDir=${clawDir}`,
-        `sub=${sub}`,
-        `error=${formatErr(err)}`,
-      );
-    }
+  if (subs.includes('active') && hasActiveContract(fs, '.')) return true;
+  if (!subs.includes('paused')) return false;
+  // paused fallback: legacy scan until paused API is available
+  try {
+    const entries = fs.listSync(path.join('contract', 'paused'), { includeDirs: true });
+    if (entries.some(e => e.isDirectory)) return true;
+  } catch (err) {
+    if (isFileNotFound(err)) return false; // legitimate: contract dir not created yet
+    audit?.write(
+      WATCHDOG_AUDIT_EVENTS.CLAW_HAS_CONTRACT_CHECK_FAILED,
+      `clawDir=${clawDir}`,
+      `sub=paused`,
+      `error=${formatErr(err)}`,
+    );
   }
   return false;
 }
@@ -245,21 +247,24 @@ export function gatherClawSnapshot(
 
   const fs = fsFactory(clawDir);
   let contract = 'none';
-  for (const sub of ['active', 'paused']) {
+  const activeContracts = listActiveContracts(fs, '.');
+  if (activeContracts.length > 0) {
+    contract = `active:${activeContracts[0].contractId}`;
+  } else {
+    // paused fallback: legacy scan until paused API is available
     try {
-      const entries = fs.listSync(path.join(CONTRACT_DIR, sub), { includeDirs: true });
+      const entries = fs.listSync(path.join('contract', 'paused'), { includeDirs: true });
       const dir = entries.find(e => e.isDirectory);
-      if (dir) { contract = `${sub}:${dir.name}`; break; }
+      if (dir) contract = `paused:${dir.name}`;
     } catch (err) {
       if (!isFileNotFound(err)) {
         audit?.write(
           WATCHDOG_AUDIT_EVENTS.CONTRACT_DIR_SCAN_FAILED,
           `claw=${clawId}`,
-          `sub=${sub}`,
+          `sub=paused`,
           `error=${formatErr(err)}`,
         );
       }
-      // ENOENT 合法、其他错误 audit emit 留痕
     }
   }
 

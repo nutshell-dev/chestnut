@@ -16,6 +16,8 @@ vi.mock('../../src/foundation/audit/index.js', async (importOriginal) => ({
 
 vi.mock('../../src/foundation/messaging/index.js', () => ({
   notifyClaw: vi.fn(),
+  INBOX_PENDING_DIR: 'inbox/pending',
+  resolveDlqDir: (inboxDir: string) => `${inboxDir}/dead-letter`,
 }));
 
 import { notifyContractCreated } from '../../src/cli/commands/contract.js';
