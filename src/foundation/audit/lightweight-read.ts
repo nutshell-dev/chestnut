@@ -27,6 +27,25 @@ export function auditFileContains(
 }
 
 /**
+ * Read the first line's timestamp (first TSV field) from an audit file.
+ * TSV format: <timestamp>\t<seq>\t<event>\t...
+ */
+export function auditFirstTimestamp(
+  fs: FileSystem,
+  auditPath: string,
+): string | null {
+  if (!fs.existsSync(auditPath)) return null;
+  try {
+    const content = fs.readSync(auditPath);
+    const firstLine = content.split('\n').find(l => l.trim());
+    if (!firstLine) return null;
+    return firstLine.split('\t')[0] || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Get audit file modification time (epoch ms).
  * For duration estimation when no explicit timestamp is available.
  */

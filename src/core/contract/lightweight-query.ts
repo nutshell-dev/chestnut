@@ -44,6 +44,17 @@ export function hasActiveContract(fs: FileSystem, clawDir: string): boolean {
 }
 
 /**
+ * Get the verification directory path for a contract.
+ * Encapsulates contract/active/<id>/verification path construction.
+ */
+export function getContractVerificationDir(
+  clawDir: string,
+  contractId: string,
+): string {
+  return path.join(clawDir, CONTRACT_ACTIVE_DIR, contractId, 'verification');
+}
+
+/**
  * Get the creation timestamp (epoch ms) of the first active contract.
  * Equivalent to getContractCreatedMs — prefer this for clearer business semantics.
  *
