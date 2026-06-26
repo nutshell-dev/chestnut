@@ -11,7 +11,7 @@ import path from 'path';
 import { formatErr } from '../foundation/node-utils/index.js';
 import { createSnapshot } from '../foundation/snapshot/index.js';
 // phase 693 Step C: SNAPSHOT_IGNORE_PATTERNS 归 Assembly 装配组装、走 sibling-direct (合法 assembly 自家)
-import { SNAPSHOT_IGNORE_PATTERNS } from './snapshot-patterns.js';
+import { SNAPSHOT_IGNORE_PATTERNS } from './config/snapshot-patterns.js';
 import type { Snapshot } from '../foundation/snapshot/index.js';
 import { createStreamWriter } from '../foundation/stream/index.js';
 import type { StreamWriter } from '../foundation/stream/index.js';
@@ -22,7 +22,7 @@ import type { CoreInfraOutput } from './core-infrastructure.js';
 import type { BusinessSysOutput } from './business-systems.js';
 import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
 // phase 320: LLM hot-reload — reloader 每次调时重读磁盘
-import { loadGlobalConfig, loadClawConfig, buildLLMConfig } from './config-load.js';
+import { loadGlobalConfig, loadClawConfig, buildLLMConfig } from './config/config-load.js';
 import { getClawConfigPath } from '../core/claw-topology/index.js';
 import { TASKS_SYNC_EXEC_DIR } from '../foundation/command-tool/index.js';
 import { TASKS_SYNC_WRITE_DIR } from '../foundation/file-tool/index.js';

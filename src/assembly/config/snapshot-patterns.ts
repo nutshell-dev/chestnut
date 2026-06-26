@@ -15,9 +15,9 @@
  * - foundation/audit → AUDIT_SNAPSHOT_IGNORE
  * - core/async-task-system → TASK_SNAPSHOT_IGNORE
  */
-import { STREAM_SNAPSHOT_IGNORE } from '../foundation/stream/index.js';
-import { AUDIT_SNAPSHOT_IGNORE } from '../foundation/audit/index.js';
-import { TASK_SNAPSHOT_IGNORE } from '../core/async-task-system/index.js';
+import { STREAM_SNAPSHOT_IGNORE } from '../../foundation/stream/index.js';
+import { AUDIT_SNAPSHOT_IGNORE } from '../../foundation/audit/index.js';
+import { TASK_SNAPSHOT_IGNORE } from '../../core/async-task-system/index.js';
 
 export const SNAPSHOT_IGNORE_PATTERNS: readonly string[] = [
   ...STREAM_SNAPSHOT_IGNORE,

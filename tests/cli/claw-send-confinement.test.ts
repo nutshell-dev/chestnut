@@ -6,7 +6,7 @@ import { randomUUID } from 'crypto';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 // phase 278: hoist 3 dyn imports
 import { sendCommand } from '../../src/cli/commands/claw-send.js';
-import { getGlobalConfigPath } from '../../src/assembly/global-config-path.js';
+import { getGlobalConfigPath } from '../../src/assembly/config/global-config-path.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
@@ -20,20 +20,20 @@ vi.mock('../../src/foundation/fs/node-fs.js', async (importOriginal) => {
 });
 
 // Mock config
-vi.mock('../../src/assembly/global-config-path.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/assembly/global-config-path.js')>();
+vi.mock('../../src/assembly/config/global-config-path.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/assembly/config/global-config-path.js')>();
   return {
     ...actual,
     getGlobalConfigPath: vi.fn(),
   };
 });
-vi.mock('../../src/assembly/config-loader.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/assembly/config-loader.js')>();
+vi.mock('../../src/assembly/config/config-loader.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/assembly/config/config-loader.js')>();
   return {
     ...actual,
   };
 });
-vi.mock('../../src/assembly/config-load.js', async () => ({
+vi.mock('../../src/assembly/config/config-load.js', async () => ({
   loadGlobalConfig: vi.fn(),
   isInitialized: vi.fn(),
   saveGlobalConfig: vi.fn(),

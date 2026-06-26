@@ -16,27 +16,27 @@ import { randomUUID } from 'crypto';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 // phase 266: hoist 17 dynamic imports of 5 unique modules below.
 import { sendCommand } from '../../src/cli/commands/claw-send.js';
-import { getGlobalConfigPath } from '../../src/assembly/global-config-path.js';
+import { getGlobalConfigPath } from '../../src/assembly/config/global-config-path.js';
 import { createProcessManagerForCLI } from '../../src/foundation/process-manager/index.js';
 import { formatClawStatusHint, formatNoActiveContractHint } from '../../src/cli/commands/claw-shared.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
 // Mock config
-vi.mock('../../src/assembly/global-config-path.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/assembly/global-config-path.js')>();
+vi.mock('../../src/assembly/config/global-config-path.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/assembly/config/global-config-path.js')>();
   return {
     ...actual,
     getGlobalConfigPath: vi.fn(),
   };
 });
-vi.mock('../../src/assembly/config-loader.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/assembly/config-loader.js')>();
+vi.mock('../../src/assembly/config/config-loader.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/assembly/config/config-loader.js')>();
   return {
     ...actual,
   };
 });
-vi.mock('../../src/assembly/config-load.js', async () => ({
+vi.mock('../../src/assembly/config/config-load.js', async () => ({
   loadGlobalConfig: vi.fn(),
   isInitialized: vi.fn(),
   saveGlobalConfig: vi.fn(),

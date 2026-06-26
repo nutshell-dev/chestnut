@@ -12,9 +12,9 @@
  * Phase 717: 自 foundation/config/loader.ts 迁入 assembly/，归属 L6.Assembly。
  */
 import * as path from 'path';
-import { formatErr } from "../foundation/node-utils/index.js";
+import { formatErr } from "../../foundation/node-utils/index.js";
 import * as yaml from 'js-yaml';
-import type { FileSystem } from '../foundation/fs/index.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 
 // Expand ${ENV_VAR} syntax in config values
 function expandEnvVars(obj: unknown): unknown {

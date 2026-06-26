@@ -6,13 +6,13 @@ describe('assembly/config-load: uses FileSystem for atomic writes', () => {
   // (blocks `import from 'fs' | 'node:fs'` → callsite impossible) (phase 363)
 
   it('contains no Date.now() tmp naming', () => {
-    const src = readFileSync('src/assembly/config-load.ts', 'utf-8');
+    const src = readFileSync('src/assembly/config/config-load.ts', 'utf-8');
     expect(src).not.toMatch(/\$\{Date\.now\(\)\}/);
   });
 
   it('uses writeAtomicSync for config writes', () => {
-    const configLoadSrc = readFileSync('src/assembly/config-load.ts', 'utf-8');
-    const loaderSrc = readFileSync('src/assembly/config-loader.ts', 'utf-8');
+    const configLoadSrc = readFileSync('src/assembly/config/config-load.ts', 'utf-8');
+    const loaderSrc = readFileSync('src/assembly/config/config-loader.ts', 'utf-8');
     // Phase 10/298/717: write logic remains in config-loader.ts; config-load.ts delegates via writeYamlConfig
     expect(configLoadSrc + loaderSrc).toMatch(/writeAtomicSync\(/);
   });

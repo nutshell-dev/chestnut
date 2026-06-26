@@ -2,7 +2,7 @@
  * @module L6.CLI.Claw.Create
  */
 
-import { loadGlobalConfig, saveClawConfig, clawExists } from '../../assembly/config-load.js';
+import { loadGlobalConfig, saveClawConfig, clawExists } from '../../assembly/config/config-load.js';
 import { getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js';
 import { CLAW_SUBDIRS } from '../../assembly/claw-subdirs.js';
 // path module intentionally not used in this file after refactor

@@ -4,7 +4,7 @@
 
 import * as readline from 'readline';
 import { formatErr } from "../../foundation/node-utils/index.js";
-import { saveGlobalConfig, isInitialized } from '../../assembly/config-load.js';
+import { saveGlobalConfig, isInitialized } from '../../assembly/config/config-load.js';
 import { getWorkspaceRoot } from '../../core/claw-topology/index.js';
 import { FORMAT_MAP } from '../../foundation/llm-orchestrator/index.js';
 import { passwordQuestion } from '../utils/password-prompt.js';

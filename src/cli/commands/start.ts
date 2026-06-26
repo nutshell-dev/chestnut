@@ -14,7 +14,7 @@ import * as path from 'path';
 import { formatErr } from "../../foundation/node-utils/index.js";
 import * as readline from 'readline';
 
-import { isInitialized } from '../../assembly/config-load.js';
+import { isInitialized } from '../../assembly/config/config-load.js';
 import { CLAW_SPEC_FILE } from '../../foundation/claw-identity/index.js';
 import { getNamedSubrootDir } from '../../core/claw-topology/index.js';
 import { initCommand } from './init.js';

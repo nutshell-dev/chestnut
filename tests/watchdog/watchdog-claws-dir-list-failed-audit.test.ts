@@ -17,7 +17,7 @@ import { runWatchdogLoop, _resetShutdownGuard } from '../../src/watchdog/watchdo
 import { maybeCronClawInactivity, maybeCronClawCrash } from '../../src/watchdog/watchdog-cron.js';
 import { createProcessManagerForCLI } from '../../src/foundation/process-manager/factories.js';
 import { getNamedSubrootDir } from '../../src/core/claw-topology/claw-instance-paths.js';
-import { loadGlobalConfig } from '../../src/assembly/config-load.js';
+import { loadGlobalConfig } from '../../src/assembly/config/config-load.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { WATCHDOG_AUDIT_EVENTS } from '../../src/watchdog/audit-events.js';
 import { makeMockAudit } from '../helpers/audit.js';
@@ -34,13 +34,13 @@ vi.mock('../../src/core/claw-topology/claw-instance-paths.js', async (importOrig
     getNamedSubrootDir: vi.fn(),
   };
 });
-vi.mock('../../src/assembly/config-loader.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/assembly/config-loader.js')>();
+vi.mock('../../src/assembly/config/config-loader.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/assembly/config/config-loader.js')>();
   return {
     ...actual,
   };
 });
-vi.mock('../../src/assembly/config-load.js', async () => ({
+vi.mock('../../src/assembly/config/config-load.js', async () => ({
   loadGlobalConfig: vi.fn(),
   isInitialized: vi.fn(),
   saveGlobalConfig: vi.fn(),
@@ -74,7 +74,7 @@ vi.mock('../../src/watchdog/watchdog-context.js', async (importOriginal) => {
 
 import { createProcessManagerForCLI } from '../../src/foundation/process-manager/factories.js';
 import { getNamedSubrootDir } from '../../src/core/claw-topology/claw-instance-paths.js';
-import { loadGlobalConfig } from '../../src/assembly/config-load.js';
+import { loadGlobalConfig } from '../../src/assembly/config/config-load.js';
 import { getChestnutFs, getGlobalConfig, clawStateAPI } from '../../src/watchdog/watchdog-context.js';
 
 describe('watchdog claws dir listSync audit + recovery (phase 149)', () => {

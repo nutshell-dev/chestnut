@@ -12,7 +12,7 @@ import { getWorkspaceRoot, getChestnutRoot } from '../../core/claw-topology/inde
 import * as path from 'path';
 import { formatErr } from "../../foundation/node-utils/index.js";
 import { fileURLToPath } from 'url';
-import { loadGlobalConfig } from '../../assembly/config-load.js';
+import { loadGlobalConfig } from '../../assembly/config/config-load.js';
 import { getNamedSubrootDir } from '../../core/claw-topology/index.js';
 import { STATUS_SUBDIR } from '../../foundation/process-manager/index.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../../core/claw-topology/index.js';

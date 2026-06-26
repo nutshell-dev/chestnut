@@ -11,7 +11,7 @@
 import * as path from 'path';
 import { sha256ShortHex } from '../foundation/node-utils/index.js';
 import { formatErr } from '../foundation/node-utils/index.js';
-import { loadGlobalConfig, loadClawConfig } from '../assembly/config-load.js';
+import { loadGlobalConfig, loadClawConfig } from '../assembly/config/config-load.js';
 import { getClawDir, getNamedSubrootDir, getClawConfigPath, getChestnutRoot } from '../core/claw-topology/claw-instance-paths.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../core/claw-topology/index.js';
 

@@ -74,7 +74,7 @@ vi.mock('../../src/foundation/snapshot/index.js', () => ({
 
 // phase 693 Step C: SNAPSHOT_IGNORE_PATTERNS 迁出 foundation/snapshot、归 assembly/snapshot-patterns。
 // mock 直接覆盖 aggregator 文件、避免触发 stream/audit/async-task 各 owner *_SNAPSHOT_IGNORE 的解析链。
-vi.mock('../../src/assembly/snapshot-patterns.js', () => ({
+vi.mock('../../src/assembly/config/snapshot-patterns.js', () => ({
   SNAPSHOT_IGNORE_PATTERNS: ['.git', 'node_modules'],
 }));
 
@@ -231,7 +231,7 @@ vi.mock('../../src/foundation/dialog-store/index.js', () => ({
   CURRENT_DIALOG_FILE: 'current.json',
 }));
 
-vi.mock('../../src/assembly/config-load.js', () => ({
+vi.mock('../../src/assembly/config/config-load.js', () => ({
   buildLLMConfig: vi.fn(() => ({ provider: 'mock' })),
 }));
 
@@ -241,7 +241,7 @@ vi.mock('../../src/assembly/config-load.js', () => ({
 // did, without paying the per-invocation resolution cost.
 import { createStreamWriter } from '../../src/foundation/stream/index.js';
 import { CronRunner } from '../../src/foundation/cron/runner.js';
-import { buildLLMConfig } from '../../src/assembly/config-load.js';
+import { buildLLMConfig } from '../../src/assembly/config/config-load.js';
 import { createAgentProcessManager } from '../../src/foundation/process-manager/agent-factory.js';
 import { createSnapshot } from '../../src/foundation/snapshot/index.js';
 import { createRuntime, Heartbeat } from '../../src/core/runtime/index.js';

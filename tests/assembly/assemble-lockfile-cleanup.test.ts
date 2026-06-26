@@ -7,7 +7,7 @@ const { mockSkillFactory } = vi.hoisted(() => ({
 import { assemble } from '../../src/assembly/assemble.js';
 import { LockConflictError } from '../../src/assembly/index.js';
 import { buildTestGlobalConfig } from '../helpers/global-config.js';
-import { buildLLMConfig } from '../../src/assembly/config-load.js';  // phase 280: hoist 2 dyn
+import { buildLLMConfig } from '../../src/assembly/config/config-load.js';  // phase 280: hoist 2 dyn
 
 // ============================================================================
 // Shared mocks
@@ -52,7 +52,7 @@ vi.mock('../../src/foundation/snapshot/index.js', () => ({
 }));
 
 // phase 693 Step C: SNAPSHOT_IGNORE_PATTERNS 迁 assembly/snapshot-patterns
-vi.mock('../../src/assembly/snapshot-patterns.js', () => ({
+vi.mock('../../src/assembly/config/snapshot-patterns.js', () => ({
   SNAPSHOT_IGNORE_PATTERNS: ['.git', 'node_modules'],
 }));
 
@@ -191,7 +191,7 @@ vi.mock('../../src/foundation/dialog-store/index.js', () => ({
   CURRENT_DIALOG_FILE: 'current.json',
 }));
 
-vi.mock('../../src/assembly/config-load.js', () => ({
+vi.mock('../../src/assembly/config/config-load.js', () => ({
   buildLLMConfig: vi.fn(() => ({ provider: 'mock' })),
 }));
 

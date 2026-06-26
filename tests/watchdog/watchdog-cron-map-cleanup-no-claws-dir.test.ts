@@ -16,7 +16,7 @@ import { maybeCronClawInactivity, maybeCronClawCrash } from '../../src/watchdog/
 import { clawStateAPI, _resetWatchdogContextForTest } from '../../src/watchdog/watchdog-context.js';
 import { WATCHDOG_AUDIT_EVENTS } from '../../src/watchdog/audit-events.js';
 import { getNamedSubrootDir } from '../../src/core/claw-topology/claw-instance-paths.js';
-import { loadGlobalConfig } from '../../src/assembly/config-load.js';
+import { loadGlobalConfig } from '../../src/assembly/config/config-load.js';
 import { clawHasContract, gatherClawSnapshot, clawHasActiveContract } from '../../src/watchdog/watchdog-utils.js';
 import { notifyClaw } from '../../src/foundation/messaging/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
@@ -31,13 +31,13 @@ vi.mock('../../src/core/claw-topology/claw-instance-paths.js', async (importOrig
     getNamedSubrootDir: vi.fn(),
   };
 });
-vi.mock('../../src/assembly/config-loader.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/assembly/config-loader.js')>();
+vi.mock('../../src/assembly/config/config-loader.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/assembly/config/config-loader.js')>();
   return {
     ...actual,
   };
 });
-vi.mock('../../src/assembly/config-load.js', async () => ({
+vi.mock('../../src/assembly/config/config-load.js', async () => ({
   loadGlobalConfig: vi.fn(),
   isInitialized: vi.fn(),
   saveGlobalConfig: vi.fn(),

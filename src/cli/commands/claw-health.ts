@@ -5,9 +5,9 @@
 
 import * as path from 'path';
 import { resolveClawDaemonDir } from '../../core/claw-topology/index.js';
-import { loadGlobalConfig, clawExists } from '../../assembly/config-load.js';
+import { loadGlobalConfig, clawExists } from '../../assembly/config/config-load.js';
 import { getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js';
-import { getGlobalConfigPath } from '../../assembly/global-config-path.js';
+import { getGlobalConfigPath } from '../../assembly/config/global-config-path.js';
 import { CliError } from '../errors.js';
 import { createDirContext } from '../../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';

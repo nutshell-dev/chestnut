@@ -12,8 +12,8 @@ import { listCommand } from '../../../src/cli/commands/claw-list.js';
 import { FAKE_LIVE_PID } from '../../helpers/test-pids.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 // phase 270: hoist 7 dynamic imports of 3 unique modules
-import { loadGlobalConfig } from '../../../src/assembly/config-load.js';
-import { getGlobalConfigPath } from '../../../src/assembly/global-config-path.js';
+import { loadGlobalConfig } from '../../../src/assembly/config/config-load.js';
+import { getGlobalConfigPath } from '../../../src/assembly/config/global-config-path.js';
 import { createProcessManagerForCLI } from '../../../src/foundation/process-manager/factories.js';
 import { formatRelativeTime, getLastActiveMs } from '../../../src/cli/commands/claw-shared.js';
 
@@ -40,14 +40,14 @@ vi.mock('../../../src/core/claw-topology/claw-instance-paths.js', async (importO
     getClawConfigPath: vi.fn((id: string) => `/tmp/test-root/claws/${id}/config.yaml`),
   };
 });
-vi.mock('../../../src/assembly/global-config-path.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../src/assembly/global-config-path.js')>();
+vi.mock('../../../src/assembly/config/global-config-path.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/assembly/config/global-config-path.js')>();
   return {
     ...actual,
     getGlobalConfigPath: vi.fn(),
   };
 });
-vi.mock('../../../src/assembly/config-load.js', async () => ({
+vi.mock('../../../src/assembly/config/config-load.js', async () => ({
   loadGlobalConfig: vi.fn(),
   isInitialized: vi.fn(),
   saveGlobalConfig: vi.fn(),

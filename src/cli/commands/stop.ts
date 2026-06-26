@@ -4,9 +4,9 @@
 
 import * as path from 'path';
 import { formatErr } from "../../foundation/node-utils/index.js";
-import { loadGlobalConfig } from '../../assembly/config-load.js';
+import { loadGlobalConfig } from '../../assembly/config/config-load.js';
 import { getNamedSubrootDir } from '../../core/claw-topology/index.js';
-import { getGlobalConfigPath } from '../../assembly/global-config-path.js';
+import { getGlobalConfigPath } from '../../assembly/config/global-config-path.js';
 import { resolveClawDaemonDir, MOTION_CLAW_ID, enumerateClaws, getRelativeClawDir } from '../../core/claw-topology/index.js';
 import { createAuditWriter, AUDIT_FILE } from '../../foundation/audit/index.js';
 import { getChestnutFs, getGlobalConfig, setAuditWriter as setWatchdogAuditWriter } from '../../watchdog/watchdog-context.js';

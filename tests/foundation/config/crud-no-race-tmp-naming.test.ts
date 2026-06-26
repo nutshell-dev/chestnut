@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
-import { saveGlobalConfig, loadGlobalConfig } from '../../../src/assembly/config-load.js';
+import { saveGlobalConfig, loadGlobalConfig } from '../../../src/assembly/config/config-load.js';
 
 describe('assembly/config-load: no race tmp naming', () => {
   it('concurrent saveGlobalConfig does not produce .tmp.<ms> orphan files', async () => {

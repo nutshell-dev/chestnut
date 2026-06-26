@@ -31,13 +31,13 @@ vi.mock('../../src/core/claw-topology/claw-instance-paths.js', async (importOrig
     getNamedSubrootDir: vi.fn(),
   };
 });
-vi.mock('../../src/assembly/config-loader.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/assembly/config-loader.js')>();
+vi.mock('../../src/assembly/config/config-loader.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/assembly/config/config-loader.js')>();
   return {
     ...actual,
   };
 });
-vi.mock('../../src/assembly/config-load.js', async () => ({
+vi.mock('../../src/assembly/config/config-load.js', async () => ({
   loadGlobalConfig: vi.fn(),
   isInitialized: vi.fn(),
   saveGlobalConfig: vi.fn(),
@@ -68,7 +68,7 @@ vi.mock('../../src/watchdog/watchdog-utils.js', async (importOriginal) => {
 });
 
 import { getNamedSubrootDir } from '../../src/core/claw-topology/claw-instance-paths.js';
-import { loadGlobalConfig } from '../../src/assembly/config-load.js';
+import { loadGlobalConfig } from '../../src/assembly/config/config-load.js';
 import { getChestnutFs, getGlobalConfig, clawStateAPI, _resetWatchdogContextForTest } from '../../src/watchdog/watchdog-context.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
