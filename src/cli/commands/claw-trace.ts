@@ -13,7 +13,7 @@ import { loadGlobalConfig, clawExists } from '../../assembly/config-load.js';
 import { getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js';
 import { CliError } from '../errors.js';
 import { CONTRACT_DIR, CONTRACT_ARCHIVE_DIR, PROGRESS_FILE, CONTRACT_YAML_FILE } from '../../core/contract/index.js';
-import { DIALOG_DIR, DIALOG_ARCHIVE_DIR, CURRENT_DIALOG_FILE } from '../../foundation/dialog-store/index.js';
+import { DIALOG_DIR, DIALOG_ARCHIVE_DIR, CURRENT_DIALOG_FILE, listArchiveDialogFiles } from '../../foundation/dialog-store/index.js';
 import { migrateAndValidateSession, validateSessionData } from '../../foundation/dialog-store/index.js';
 import type { ContractId } from '../../core/contract/types.js';
 
@@ -379,10 +379,9 @@ async function showStepDetail(
   // 收集所有 dialog 文件（archive 先，current 最后）
   const dialogFiles: Array<{ relPath: string; mtime: number }> = [];
   try {
-    const archiveEntries = await fileSystem.list(path.join(DIALOG_ARCHIVE_DIR));
-    for (const entry of archiveEntries) {
-      if (!entry.isFile || !entry.name.endsWith('.json')) continue;
-      const relPath = path.join(DIALOG_ARCHIVE_DIR, entry.name);
+    const archiveNames = await listArchiveDialogFiles(fileSystem, '.');
+    for (const name of archiveNames) {
+      const relPath = path.join(DIALOG_ARCHIVE_DIR, name);
       const stat = await fileSystem.stat(relPath);
       dialogFiles.push({ relPath, mtime: stat.mtime.getTime() });
     }
