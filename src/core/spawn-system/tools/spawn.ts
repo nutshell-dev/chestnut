@@ -82,7 +82,7 @@ export function createSpawnTool(deps: SpawnToolDeps = {}): Tool {
       const timeoutMs = typeof args.timeoutMs === 'number' ? args.timeoutMs : SPAWN_DEFAULT_TIMEOUT_MS;
       const maxSteps = typeof args.maxSteps === 'number'
         ? args.maxSteps
-        : (deps.subagentMaxSteps ?? ctx.maxSteps);
+        : deps.subagentMaxSteps;
       const asyncMode = args.async === undefined ? true : Boolean(args.async);
       const templateName = typeof args.template === 'string' ? args.template : DEFAULT_SPAWN_TEMPLATE;
 

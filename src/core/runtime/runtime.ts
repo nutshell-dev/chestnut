@@ -36,7 +36,6 @@ import { formatErr } from '../../foundation/node-utils/index.js';
 
 import { MaxStepsExceededError, WallTimeExceededError, ConsecutiveParseErrorsExceededError, ConsecutiveMaxTokensToolUseError, makeStepNumber } from '../agent-executor/index.js';
 import { LockContentionExhaustedError } from '../contract/index.js';
-import { DEFAULT_MAX_STEPS } from '../agent-executor/index.js';
 import { LLMAllProvidersFailedError } from '../../foundation/llm-orchestrator/index.js';
 import { makeContractId } from '../contract/types.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
@@ -146,7 +145,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
 
   constructor(options: RuntimeOptions) {
     // phase 1485: ctor 不再 fallback DEFAULT_MAX_STEPS — assemble 层 undefined 直传、
-    // runReact 接口接受 maxSteps?: number 并内部 fallback / ExecContext.maxSteps 在 :211 resolve（运行时不变量 boundary）。
+    // runReact 接口接受 maxSteps?: number 并内部 fallback（运行时不变量 boundary）。
     this.options = {
       toolProfile: 'full',
       ...options,
@@ -226,7 +225,6 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
       fs: this.systemFs,
       fsFactory: this.options.dependencies.fsFactory,
       llm: this.llm,
-      maxSteps: this.options.maxSteps ?? DEFAULT_MAX_STEPS,
       auditWriter: this.auditWriter,
       persistReadFileState: true,  // phase 1443: main claw ctx persists readFileState to <clawDir>/read-state.json
       // phase 146: M#3 资源唯一归属真治、直接 read 真 owner、不经 Runtime mirror state

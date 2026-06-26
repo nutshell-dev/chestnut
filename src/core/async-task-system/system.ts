@@ -764,7 +764,6 @@ export class AsyncTaskSystem {
       fs: this.fs,
       fsFactory: this.fsFactory,
       profile: 'full',
-      maxSteps: 1,
       signal,
       auditWriter: this.auditWriter,
       getElapsedMs: () => 0,

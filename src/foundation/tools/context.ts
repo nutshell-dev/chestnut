@@ -57,9 +57,6 @@ export interface ExecContextImplOptions {
   /** Optional LLM service */
   llm?: LLMOrchestrator;
   
-  /** Maximum allowed steps (ReAct loop limit) */
-  maxSteps: number;
-  
   /** Optional abort signal */
   signal?: AbortSignal;
   
@@ -148,7 +145,6 @@ export class ExecContextImpl implements ExecContext {
   fs: FileSystem;
   fsFactory?: (baseDir: string) => FileSystem;
   llm?: LLMOrchestrator;
-  maxSteps: number;
   signal?: AbortSignal;
   auditWriter?: AuditLog;
   currentToolUseId?: ToolUseId;
@@ -175,7 +171,6 @@ export class ExecContextImpl implements ExecContext {
     this.fs = options.fs;
     this.fsFactory = options.fsFactory;
     this.llm = options.llm;
-    this.maxSteps = options.maxSteps;
     this.signal = options.signal;
     this.auditWriter = options.auditWriter;
     this.currentToolUseId = options.currentToolUseId;

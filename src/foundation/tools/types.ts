@@ -109,9 +109,8 @@ export interface ExecutionInfra {
   registry?: ToolRegistry;
 }
 
-/** 执行控制维度（D4）：maxSteps / signal / toolTimeoutMs / stopRequested + requestStop / getElapsedMs */
+/** 执行控制维度（D4）：signal / toolTimeoutMs / stopRequested + requestStop / getElapsedMs */
 export interface ExecutionControl {
-  maxSteps: number;
   signal?: AbortSignal;
   /** Tool-level wall-clock timeout, inherited from globalConfig.tool_timeout_ms / Assembly 装配期注入 (phase 1029 / F-2) */
   toolTimeoutMs?: number;

@@ -3,7 +3,7 @@
  *
  * Covers:
  * - Runtime.initialize() self-constructs ContextInjector from deps.skillRegistry + deps.contractManager + systemFs + auditWriter
- * - Runtime.initialize() self-constructs ExecContext with correct clawId/clawDir/profile/fs/llm/maxSteps
+ * - Runtime.initialize() self-constructs ExecContext with correct clawId/clawDir/profile/fs/llm
  * - Registry lazy-injected into execContext (phase 766 regression guard)
  * - No external inject required for contextInjector / execContext
  */
@@ -14,7 +14,7 @@ import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { promises as fs } from 'fs';
 import { Runtime } from '../../../src/core/runtime/runtime.js';
-import { DEFAULT_MAX_STEPS } from '../../../src/core/agent-executor/defaults.js';
+
 import { makeRuntimeDeps } from '../../helpers/runtime-deps.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 import type { LLMOrchestratorConfig } from '../../../../src/foundation/llm-orchestrator/types.js';
@@ -74,7 +74,7 @@ describe('Runtime internal ContextInjector + ExecContext self-construction (phas
     expect(typeof result.identityContent).toBe('string');
   });
 
-  it('initializes execContext internally with correct clawId / clawDir / profile / maxSteps', async () => {
+  it('initializes execContext internally with correct clawId / clawDir / profile', async () => {
     const deps = await makeRuntimeDeps({ clawDir, clawId: 'test-claw' });
     const runtime = new Runtime({
       clawId: 'test-claw',
@@ -86,11 +86,10 @@ describe('Runtime internal ContextInjector + ExecContext self-construction (phas
 
     await runtime.initialize();
 
-    const execCtx = (runtime as unknown as { execContext: { clawId: string; clawDir: string; profile: string; maxSteps: number } }).execContext;
+    const execCtx = (runtime as unknown as { execContext: { clawId: string; clawDir: string; profile: string } }).execContext;
     expect(execCtx.clawId).toBe('test-claw');
     expect(execCtx.clawDir).toBe(clawDir);
     expect(execCtx.profile).toBe('full');
-    expect(execCtx.maxSteps).toBe(DEFAULT_MAX_STEPS);
   });
 
   it('lazy-injects registry into execContext after initialize (phase 766)', async () => {

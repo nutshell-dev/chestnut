@@ -264,7 +264,7 @@ export class SummonTool implements Tool {
       mode: 'standard',
       intent: userMessage,
       timeoutMs: SUMMON_SUBAGENT_TIMEOUT_MS,
-      maxSteps: maxSteps ?? this.subagentMaxSteps ?? ctx.maxSteps,
+      maxSteps: maxSteps ?? this.subagentMaxSteps,
       parentClawId: ctx.clawId,
       originClawId: this.originClawId ?? ctx.clawId,
       callerType,

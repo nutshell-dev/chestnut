@@ -1062,25 +1062,24 @@ describe('Builtin Tools', () => {
       mockSchedule.mockClear();
     });
 
-    it('should pass maxSteps from context', async () => {
+    it('should pass subagentMaxSteps from deps', async () => {
       mockSchedule.mockResolvedValue('task-xxx');
 
-      const ctxWithMaxSteps = new ExecContextImpl({
+      const ctx = new ExecContextImpl({
         clawsDir: path.join(tempDir, 'claws'),
         clawId: 'test-claw',
         clawDir: tempDir,
         profile: 'full',
         fs: mockFs,
-      fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
+        fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
         outboxWriter,
-        maxSteps: 42,
         permissionChecker: createClawPermissionChecker({ clawDir: tempDir, strict: true }),
       });
 
-      const spawnToolWithTaskSystem = createSpawnTool({ taskSystem: { schedule: mockSchedule } });
+      const spawnToolWithTaskSystem = createSpawnTool({ taskSystem: { schedule: mockSchedule }, subagentMaxSteps: 42 });
       const result = await spawnToolWithTaskSystem.execute({
         intent: 'test task',
-      }, ctxWithMaxSteps);
+      }, ctx);
 
       expect(result.success).toBe(true);
       expect(mockSchedule).toHaveBeenCalled();
