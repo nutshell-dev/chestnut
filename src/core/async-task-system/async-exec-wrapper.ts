@@ -181,16 +181,39 @@ export function createAsyncExecWrapper(
     async execute(args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
       const command = args.command as string;
 
-      // 1. Start the process via the low-level handle factory.
-      const handle = await execWithHandle(
-        {
-          command,
-          cwd: args.cwd as string | undefined,
-          timeoutMs: args.timeoutMs as number | undefined,
-          stdin: args.stdin as string | undefined,
-        },
-        ctx,
-      );
+      // Create a proxy AbortController linked to the original signal. Before
+      // migration we forward abort events so the spawned process is killed as
+      // usual. During migration we detach the listener (and unref the child) so
+      // the process survives the original turn's AbortSignal.
+      const originalSignal = ctx.signal;
+      const proxyController = new AbortController();
+      const onOriginalAbort = (): void => proxyController.abort();
+      if (originalSignal) {
+        if (originalSignal.aborted) {
+          proxyController.abort();
+        } else {
+          originalSignal.addEventListener('abort', onOriginalAbort, { once: true });
+        }
+      }
+      const proxyCtx = { ...ctx, signal: proxyController.signal };
+
+      // 1. Start the process via the low-level handle factory using the proxy
+      //    context. If spawning fails, detach the listener before rethrowing.
+      let handle: ExecHandle;
+      try {
+        handle = await execWithHandle(
+          {
+            command,
+            cwd: args.cwd as string | undefined,
+            timeoutMs: args.timeoutMs as number | undefined,
+            stdin: args.stdin as string | undefined,
+          },
+          proxyCtx,
+        );
+      } catch (err) {
+        originalSignal?.removeEventListener('abort', onOriginalAbort);
+        throw err;
+      }
 
       // 2. Collect partial output so the migrated monitor can deliver it.
       let partialOutput = '';
@@ -200,11 +223,12 @@ export function createAsyncExecWrapper(
       handle.child.stdout?.on('data', collect);
       handle.child.stderr?.on('data', collect);
 
-      // 3. Race process completion against soft timeout / abort.
+      // 3. Race process completion against soft timeout / original abort signal.
       const winner = await raceHandle(handle, timeout, ctx.signal);
 
       // 4. Sync completion: return result directly.
       if (winner.type === 'result') {
+        originalSignal?.removeEventListener('abort', onOriginalAbort);
         const result = winner.value;
         return {
           success: true,
@@ -214,6 +238,7 @@ export function createAsyncExecWrapper(
 
       // 5. Abort: kill the child and return an error.
       if (winner.type === 'abort') {
+        originalSignal?.removeEventListener('abort', onOriginalAbort);
         handle.child.kill('SIGTERM');
         return {
           success: false,
@@ -222,6 +247,10 @@ export function createAsyncExecWrapper(
       }
 
       // 6. Soft timeout: migrate to background async execution.
+      //    Detach from the original signal and unref the child so it can outlive
+      //    the caller's turn.
+      originalSignal?.removeEventListener('abort', onOriginalAbort);
+      handle.child.unref();
       const taskId = makeTaskId(newUuid());
       const task = buildMigratedToolTask(taskId, command, ctx, handle);
 

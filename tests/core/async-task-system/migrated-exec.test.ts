@@ -23,7 +23,7 @@ import { makeExecContext } from '../../helpers/exec-context.js';
 import { makeTaskSystemDeps } from '../../helpers/task-system.js';
 import { TASKS_QUEUES_RESULTS_DIR, TASKS_QUEUES_RUNNING_DIR, TASKS_QUEUES_DONE_DIR, TASKS_QUEUES_FAILED_DIR } from '../../../src/core/async-task-system/dirs.js';
 import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-events.js';
-import { getProcessStartTime } from '../../../src/foundation/process-exec/index.js';
+import { getProcessStartTime, isAlive } from '../../../src/foundation/process-exec/index.js';
 import * as startTimeModule from '../../../src/foundation/process-exec/process-starttime.js';
 import type { ToolTask, TaskId } from '../../../src/core/async-task-system/types.js';
 import { makeTaskId } from '../../../src/core/async-task-system/types.js';
@@ -358,6 +358,61 @@ describe('createAsyncExecWrapper', () => {
 
     // Start a long command and abort immediately.
     const execPromise = tool.execute({ command: 'sleep 5' }, ctx);
+    controller.abort();
+
+    const result = await execPromise;
+    expect(result.success).toBe(false);
+    expect(result.content).toMatch(/aborted/i);
+  });
+
+  it('should not kill process when original signal aborts after migration', async () => {
+    const execWithHandle = createExecWithHandle();
+    const tool = system.createAsyncExecWrapper({
+      execWithHandle: (args, ctx) => execWithHandle(args, ctx),
+      softTimeoutMs: 100,
+    });
+
+    const controller = new AbortController();
+    const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir, callerLabel: 'claw', signal: controller.signal });
+
+    const result = await tool.execute({ command: 'sleep 0.8 && echo survived' }, ctx);
+    expect(result.success).toBe(true);
+    expect(result.content).toMatch(/moved to async execution/);
+
+    const taskId = result.metadata?.taskId as string;
+    const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${taskId}.json`);
+    const task = JSON.parse(await fs.readFile(runningFile, 'utf-8'));
+    const pid = task.migratedPid as number;
+    expect(pid).toBeGreaterThan(0);
+
+    // Abort the original turn signal after migration.
+    controller.abort();
+    await sleepMs(150);
+
+    // The process must still be alive because we detached the proxy signal.
+    expect(isAlive(pid)).toBe(true);
+
+    // Wait for the process to finish naturally and the background chain to deliver output.
+    await waitUntilGone(runningFile, 5000);
+
+    const resultFile = path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, taskId, 'result.txt');
+    const output = await fs.readFile(resultFile, 'utf-8');
+    expect(output).toContain('survived');
+  });
+
+  it('should still kill process when signal aborts before migration', async () => {
+    const execWithHandle = createExecWithHandle();
+    const tool = system.createAsyncExecWrapper({
+      execWithHandle: (args, ctx) => execWithHandle(args, ctx),
+      softTimeoutMs: 10_000,
+    });
+
+    const controller = new AbortController();
+    const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir, callerLabel: 'claw', signal: controller.signal });
+
+    const execPromise = tool.execute({ command: 'sleep 5' }, ctx);
+    // Give spawn a moment to start before aborting.
+    await sleepMs(100);
     controller.abort();
 
     const result = await execPromise;
