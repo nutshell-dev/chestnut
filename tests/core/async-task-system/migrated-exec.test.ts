@@ -248,24 +248,51 @@ describe('createAsyncExecWrapper', () => {
 
     const taskId = result.metadata?.taskId as string;
 
-    // Running task file should exist.
+    // Running task file should exist immediately after migration.
     const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${taskId}.json`);
     expect(await fs.stat(runningFile).then(() => true).catch(() => false)).toBe(true);
-
-    // Result file should contain partial output (empty for this command before migration).
-    const resultFile = path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, taskId, 'result.txt');
-    expect(await fs.stat(resultFile).then(() => true).catch(() => false)).toBe(true);
 
     // Migrated audit should have been emitted.
     expect(auditEvents.some(e => e[0] === TASK_AUDIT_EVENTS.TASK_MIGRATED_REGISTERED)).toBe(true);
 
-    // Wait for the background monitor to move the running file to done.
+    // Wait for the background chain to finish and move the running file to done.
     await waitUntilGone(runningFile, 5000);
+
+    // Result file is written by the background chain once the process exits.
+    const resultFile = path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, taskId, 'result.txt');
+    expect(await fs.stat(resultFile).then(() => true).catch(() => false)).toBe(true);
+
     const doneFile = path.join(tmpDir, TASKS_QUEUES_DONE_DIR, `${taskId}.json`);
     expect(await fs.stat(doneFile).then(() => true).catch(() => false)).toBe(true);
   });
 
-  it('should collect partial output before migration', async () => {
+  it('should deliver full output after migration', async () => {
+    const execWithHandle = createExecWithHandle();
+    const tool = system.createAsyncExecWrapper({
+      execWithHandle: (args, ctx) => execWithHandle(args, ctx),
+      softTimeoutMs: 500,
+    });
+
+    // Produce 20 lines over ~2s; migration should fire around line 5.
+    const command = 'for i in $(seq 1 20); do echo "line $i"; sleep 0.1; done';
+    const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir, callerLabel: 'claw' });
+    const result = await tool.execute({ command }, ctx);
+
+    expect(result.success).toBe(true);
+    const taskId = result.metadata?.taskId as string;
+    const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${taskId}.json`);
+    const resultFile = path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, taskId, 'result.txt');
+
+    // Wait for the background chain to finish and move the task to done.
+    await waitUntilGone(runningFile, 5000);
+
+    const output = await fs.readFile(resultFile, 'utf-8');
+    for (let i = 1; i <= 20; i += 1) {
+      expect(output).toContain(`line ${i}`);
+    }
+  });
+
+  it('should include post-migration output', async () => {
     const execWithHandle = createExecWithHandle();
     const tool = system.createAsyncExecWrapper({
       execWithHandle: (args, ctx) => execWithHandle(args, ctx),
@@ -277,10 +304,36 @@ describe('createAsyncExecWrapper', () => {
 
     expect(result.success).toBe(true);
     const taskId = result.metadata?.taskId as string;
+    const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${taskId}.json`);
     const resultFile = path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, taskId, 'result.txt');
-    const partial = await fs.readFile(resultFile, 'utf-8');
-    expect(partial).toContain('before');
-    expect(partial).not.toContain('after');
+
+    await waitUntilGone(runningFile, 5000);
+
+    const output = await fs.readFile(resultFile, 'utf-8');
+    expect(output).toContain('before');
+    expect(output).toContain('after');
+  });
+
+  it('should deliver output when process exits with error', async () => {
+    const execWithHandle = createExecWithHandle();
+    const tool = system.createAsyncExecWrapper({
+      execWithHandle: (args, ctx) => execWithHandle(args, ctx),
+      softTimeoutMs: 100,
+    });
+
+    const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir, callerLabel: 'claw' });
+    const result = await tool.execute({ command: 'echo partial && sleep 0.3 && exit 1' }, ctx);
+
+    expect(result.success).toBe(true);
+    const taskId = result.metadata?.taskId as string;
+    const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${taskId}.json`);
+    const resultFile = path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, taskId, 'result.txt');
+
+    await waitUntilGone(runningFile, 5000);
+
+    const output = await fs.readFile(resultFile, 'utf-8');
+    expect(output).toContain('partial');
+    expect(output).toMatch(/Process exited with error/i);
   });
 
   it('should handle execWithHandle throwing', async () => {
