@@ -149,7 +149,7 @@ export function createAsyncExecWrapper(
 
   return {
     name: EXEC_TOOL_NAME,
-    profiles: ['full', 'subagent', 'miner'],
+    profiles: ['full'],  // Phase 773: wrapper is only for the main agent; subagents use plain sync exec.
     group: 'llm',
     description: 'Execute a shell command in your clawspace. Runs via `sh -c`, so shell features (pipes, redirects, quotes) work normally. Relative paths resolve against your clawspace. Long-running commands are automatically moved to async execution.',
     schema: {

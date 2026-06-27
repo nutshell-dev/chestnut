@@ -60,11 +60,16 @@ function toSafeNumber(v: unknown): number | undefined {
  * Tool execution implementation
  */
 export class ToolExecutorImpl implements IToolExecutor {
+  protected baseRegistry?: ToolRegistry;
+
   constructor(
     protected registry: ToolRegistry,
     private defaultTimeoutMs = DEFAULT_TOOL_TIMEOUT_MS,
     private scheduleAsyncTool?: ScheduleAsyncTool,
-  ) {}
+    baseRegistry?: ToolRegistry,
+  ) {
+    this.baseRegistry = baseRegistry;
+  }
 
   /**
    * Execute a single tool
@@ -482,7 +487,7 @@ export class ToolExecutor extends ToolExecutorImpl {
   private llm?: LLMOrchestrator;
   private auditWriter?: AuditLog;
   constructor(options: ToolExecutorOptions) {
-    super(options.registry, options.defaultTimeoutMs, options.scheduleAsyncTool);
+    super(options.registry, options.defaultTimeoutMs, options.scheduleAsyncTool, options.baseRegistry);
     this.clawDir = options.clawDir;
     this.syncDir = options.syncDir;
     this.workspaceDir = options.workspaceDir ?? path.join(options.clawDir, CLAWSPACE_DIR);
@@ -514,6 +519,7 @@ export class ToolExecutor extends ToolExecutorImpl {
       signal: options.signal,
       auditWriter: this.auditWriter,
       registry: this.registry,
+      baseRegistry: this.baseRegistry,
       subagentTaskId: options.subagentTaskId,
     });
   }

@@ -18,7 +18,9 @@ import { spawn } from 'child_process';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { executeToolTask } from '../../../src/core/async-task-system/tool-executor.js';
 import { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
-import { createExecWithHandle } from '../../../src/foundation/command-tool/exec.js';
+import { createExecWithHandle, createExecTool, EXEC_TOOL_NAME } from '../../../src/foundation/command-tool/exec.js';
+import { createToolRegistry } from '../../../src/foundation/tools/index.js';
+import { createPerTaskRegistry } from '../../../src/core/subagent/registry-helper.js';
 import { makeExecContext } from '../../helpers/exec-context.js';
 import { makeTaskSystemDeps } from '../../helpers/task-system.js';
 import { TASKS_QUEUES_RESULTS_DIR, TASKS_QUEUES_RUNNING_DIR, TASKS_QUEUES_DONE_DIR, TASKS_QUEUES_FAILED_DIR } from '../../../src/core/async-task-system/dirs.js';
@@ -336,6 +338,16 @@ describe('createAsyncExecWrapper', () => {
     expect(output).toMatch(/Process exited with error/i);
   });
 
+  it('should only expose async wrapper in full profile', () => {
+    const execWithHandle = createExecWithHandle();
+    const tool = system.createAsyncExecWrapper({
+      execWithHandle: (args, ctx) => execWithHandle(args, ctx),
+      softTimeoutMs: 100,
+    });
+
+    expect(tool.profiles).toEqual(['full']);
+  });
+
   it('should handle execWithHandle throwing', async () => {
     const tool = system.createAsyncExecWrapper({
       execWithHandle: async () => { throw new Error('spawn denied'); },
@@ -418,5 +430,56 @@ describe('createAsyncExecWrapper', () => {
     const result = await execPromise;
     expect(result.success).toBe(false);
     expect(result.content).toMatch(/aborted/i);
+  });
+});
+
+
+describe('subagent exec registry (Phase 773)', () => {
+  let tmpDir: string;
+  let nodeFs: NodeFileSystem;
+
+  beforeEach(async () => {
+    tmpDir = path.join(os.tmpdir(), `subagent-exec-${randomUUID()}`);
+    await fs.mkdir(tmpDir, { recursive: true });
+    nodeFs = new NodeFileSystem({ baseDir: tmpDir });
+  });
+
+  afterEach(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => { /* silent cleanup */ });
+  });
+
+  it('should use plain sync exec in subagent profile and not migrate', async () => {
+    const plainExec = createExecTool();
+    const baseRegistry = createToolRegistry();
+    baseRegistry.register(plainExec);
+
+    // Subagent registry mirrors what spawn-system creates from the base registry.
+    const subagentRegistry = createPerTaskRegistry(baseRegistry, 'subagent');
+    const execTool = subagentRegistry.get(EXEC_TOOL_NAME);
+
+    expect(execTool).toBeDefined();
+    expect(execTool!.profiles).toContain('subagent');
+    // The async wrapper has supportsAsync=true; plain exec should not be the wrapper.
+    expect(execTool!.supportsAsync).toBe(true);
+
+    const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir, profile: 'subagent' });
+    const result = await execTool!.execute({ command: 'sleep 0.15 && echo subagent-sync' }, ctx);
+
+    expect(result.success).toBe(true);
+    expect(result.content).toContain('subagent-sync');
+    expect(result.metadata).toBeUndefined();
+  });
+
+  it('should exclude async wrapper from subagent profile', async () => {
+    const plainExec = createExecTool();
+    const baseRegistry = createToolRegistry();
+    baseRegistry.register(plainExec);
+
+    const subagentTools = baseRegistry.getForProfile('subagent');
+    const execTool = subagentTools.find(t => t.name === EXEC_TOOL_NAME);
+
+    expect(execTool).toBeDefined();
+    // The async wrapper only declares 'full', so the subagent profile must keep the plain tool.
+    expect(execTool!.profiles).toContain('subagent');
   });
 });
