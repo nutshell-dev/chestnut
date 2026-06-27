@@ -4,14 +4,17 @@ import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { ToolTask } from './types.js';
 import { sendToolResult, sendFallbackError } from './result-delivery.js';
 import { formatErr, classifyTaskError } from './_helpers.js';
+import { isFileNotFound } from '../../foundation/fs/index.js';
+import { isAlive, getProcessStartTime, type ProcessStartTime } from '../../foundation/process-exec/index.js';
 import {
   emitTaskCompleted,
   emitHandlerFailed,
   emitToolRetry,
   emitToolAsyncResult,
 } from './audit-emit.js';
-import { TASKS_QUEUES_RUNNING_DIR } from './dirs.js';
+import { TASKS_QUEUES_RUNNING_DIR, TASKS_QUEUES_RESULTS_DIR } from './dirs.js';
 import type { TaskId } from './types.js';
+import { TASK_AUDIT_EVENTS } from './audit-events.js';
 
 
 interface ExecuteToolTaskDeps {
@@ -20,6 +23,152 @@ interface ExecuteToolTaskDeps {
   retryBaseDelayMs: number;
   moveTaskToDone: (taskId: TaskId) => Promise<void>;
   moveTaskToFailed: (taskId: TaskId) => Promise<void>;
+}
+
+/**
+ * Poll until a process is no longer alive, honoring the abort signal.
+ * Uses a short interval to balance responsiveness with CPU usage.
+ */
+function waitForProcessExit(pid: number, signal: AbortSignal, intervalMs = 500): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new Error('Execution aborted'));
+      return;
+    }
+
+    const check = (): void => {
+      if (!isAlive(pid)) {
+        cleanup();
+        resolve();
+        return;
+      }
+      if (signal.aborted) {
+        cleanup();
+        reject(new Error('Execution aborted'));
+      }
+    };
+
+    const timer = setInterval(check, intervalMs);
+    const abortHandler = (): void => {
+      cleanup();
+      reject(new Error('Execution aborted'));
+    };
+
+    const cleanup = (): void => {
+      clearInterval(timer);
+      signal.removeEventListener('abort', abortHandler);
+    };
+
+    signal.addEventListener('abort', abortHandler);
+    check();
+  });
+}
+
+/**
+ * Read persisted migrated result from disk.
+ * Returns a fallback message if the file is missing.
+ */
+async function readMigratedResult(fs: FileSystem, taskId: TaskId): Promise<string> {
+  try {
+    return await fs.read(`${TASKS_QUEUES_RESULTS_DIR}/${taskId}/result.txt`);
+  } catch (err) {
+    if (isFileNotFound(err)) {
+      return '(no output)';
+    }
+    throw err;
+  }
+}
+
+/**
+ * Execute a migrated tool task: monitor an already-running process and deliver
+ * its result once it exits. This path does not spawn a new process.
+ */
+async function executeMigratedToolTask(
+  task: ToolTask,
+  signal: AbortSignal,
+  deps: ExecuteToolTaskDeps,
+): Promise<void> {
+  const { fs, auditWriter, moveTaskToDone, moveTaskToFailed } = deps;
+  const taskStartTime = Date.now();
+
+  const pid = task.migratedPid!;
+
+  // PID reuse defense: verify the running process has the expected start time.
+  if (task.migratedStartTime !== undefined) {
+    const actualStartTime = getProcessStartTime(pid);
+    if (actualStartTime !== undefined && actualStartTime !== task.migratedStartTime) {
+      auditWriter.write(
+        TASK_AUDIT_EVENTS.TASK_MIGRATED_PID_REUSED,
+        `taskId=${task.id}`,
+        `pid=${pid}`,
+        `expected=${task.migratedStartTime}`,
+        `actual=${actualStartTime}`,
+      );
+      const errorMsg = 'Migrated process PID reused';
+      await sendToolResult(fs, auditWriter, task, errorMsg, true).catch((sendErr) => {
+        emitHandlerFailed(auditWriter, {
+          taskId: task.id,
+          context: 'sendFallbackError_migrated_pid_reused',
+          error: formatErr(sendErr),
+        });
+      });
+      emitTaskCompleted(auditWriter, {
+        taskId: task.id,
+        status: 'err',
+        kind: 'tool',
+        toolName: task.toolName,
+        errorCategory: classifyTaskError(errorMsg),
+        elapsedMs: Date.now() - taskStartTime,
+      });
+      await moveTaskToFailed(task.id);
+      return;
+    }
+  }
+
+  // Wait for the migrated process to exit.
+  if (isAlive(pid, task.migratedStartTime as ProcessStartTime | undefined)) {
+    await waitForProcessExit(pid, signal);
+  }
+
+  // Process has exited; read persisted result and deliver it.
+  const resultContent = await readMigratedResult(fs, task.id);
+  const result: ToolResult = { success: true, content: resultContent };
+
+  try {
+    await sendToolResult(fs, auditWriter, task, result, false);
+  } catch (sendErr) {
+    await sendFallbackError(fs, auditWriter, task, 'Failed to send migrated result').catch((e) => {
+      emitHandlerFailed(auditWriter, {
+        taskId: task.id,
+        context: 'sendFallbackError_migrated_result',
+        error: formatErr(e),
+      });
+    });
+  }
+
+  emitTaskCompleted(auditWriter, {
+    taskId: task.id,
+    status: 'ok',
+    kind: 'tool',
+    toolName: task.toolName,
+    elapsedMs: Date.now() - taskStartTime,
+  });
+
+  if (task.toolUseId) {
+    emitToolAsyncResult(auditWriter, {
+      taskId: task.id,
+      toolName: task.toolName,
+      toolUseId: task.toolUseId,
+    });
+  }
+
+  auditWriter.write(
+    TASK_AUDIT_EVENTS.TASK_MIGRATED_COMPLETED,
+    `taskId=${task.id}`,
+    `pid=${pid}`,
+  );
+
+  await moveTaskToDone(task.id);
 }
 
 /**
@@ -32,6 +181,12 @@ export async function executeToolTask(
   signal: AbortSignal,
   deps: ExecuteToolTaskDeps,
 ): Promise<void> {
+  // Phase 770: migrated path monitors an already-running process.
+  if (task.mode === 'migrated') {
+    await executeMigratedToolTask(task, signal, deps);
+    return;
+  }
+
   const { fs, auditWriter, retryBaseDelayMs, moveTaskToDone, moveTaskToFailed } = deps;
   const taskStartTime = Date.now();
   let lastError: string | undefined;

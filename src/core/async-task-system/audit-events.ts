@@ -39,4 +39,7 @@ export const TASK_AUDIT_EVENTS = {
   ASYNC_TASK_INVARIANT_VIOLATED: 'async_task_invariant_violated', // phase 239 Step A
   ASYNC_TASK_QUEUE_CROSS_SOURCE_MISMATCH: 'async_task_queue_cross_source_mismatch', // phase 239 Step B
   ASYNC_TASK_QUEUE_CROSS_SOURCE_SKIPPED: 'async_task_queue_cross_source_skipped', // phase 239 Step B
+  TASK_MIGRATED_REGISTERED: 'task_migrated_registered', // phase 770 Step B
+  TASK_MIGRATED_COMPLETED: 'task_migrated_completed', // phase 770 Step A
+  TASK_MIGRATED_PID_REUSED: 'task_migrated_pid_reused', // phase 770 Step A
 } as const;

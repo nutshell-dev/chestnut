@@ -122,5 +122,18 @@ export interface ToolTask {
   toolUseId?: ToolUseId;   // 对应 LLM tool_use block id，用于 tool_async_result
   /** phase 858：sourced from ExecContext.isShadow at schedule time */
   isShadow?: boolean;
+  /**
+   * Phase 770: async exec migration mode.
+   * 'fresh' = spawn new process via tool execute callback (default).
+   * 'migrated' = monitor an already-running process identified by migratedPid.
+   */
+  mode?: 'fresh' | 'migrated';
+  /** Phase 770: PID to monitor when mode='migrated'. */
+  migratedPid?: number;
+  /**
+   * Phase 770: process start time when mode='migrated'.
+   * Format matches ProcessStartTime (ps lstart string) for PID reuse defense.
+   */
+  migratedStartTime?: string;
 }
 
