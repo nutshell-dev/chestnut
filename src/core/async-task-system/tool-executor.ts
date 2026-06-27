@@ -5,7 +5,7 @@ import type { ToolTask } from './types.js';
 import { sendToolResult, sendFallbackError } from './result-delivery.js';
 import { formatErr, classifyTaskError } from './_helpers.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
-import { isAlive, getProcessStartTime, type ProcessStartTime } from '../../foundation/process-exec/index.js';
+import { getProcessStartTime } from '../../foundation/process-exec/index.js';
 import {
   emitTaskCompleted,
   emitHandlerFailed,
@@ -25,44 +25,6 @@ interface ExecuteToolTaskDeps {
   moveTaskToFailed: (taskId: TaskId) => Promise<void>;
 }
 
-/**
- * Poll until a process is no longer alive, honoring the abort signal.
- * Uses a short interval to balance responsiveness with CPU usage.
- */
-function waitForProcessExit(pid: number, signal: AbortSignal, intervalMs = 500): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (signal.aborted) {
-      reject(new Error('Execution aborted'));
-      return;
-    }
-
-    const check = (): void => {
-      if (!isAlive(pid)) {
-        cleanup();
-        resolve();
-        return;
-      }
-      if (signal.aborted) {
-        cleanup();
-        reject(new Error('Execution aborted'));
-      }
-    };
-
-    const timer = setInterval(check, intervalMs);
-    const abortHandler = (): void => {
-      cleanup();
-      reject(new Error('Execution aborted'));
-    };
-
-    const cleanup = (): void => {
-      clearInterval(timer);
-      signal.removeEventListener('abort', abortHandler);
-    };
-
-    signal.addEventListener('abort', abortHandler);
-    check();
-  });
-}
 
 /**
  * Read persisted migrated result from disk.
@@ -85,22 +47,22 @@ async function readMigratedResult(fs: FileSystem, taskId: TaskId): Promise<strin
  */
 async function executeMigratedToolTask(
   task: ToolTask,
-  signal: AbortSignal,
+  _signal: AbortSignal,
   deps: ExecuteToolTaskDeps,
 ): Promise<void> {
   const { fs, auditWriter, moveTaskToDone, moveTaskToFailed } = deps;
   const taskStartTime = Date.now();
 
-  const pid = task.migratedPid!;
-
   // PID reuse defense: verify the running process has the expected start time.
-  if (task.migratedStartTime !== undefined) {
-    const actualStartTime = getProcessStartTime(pid);
+  // The wrapper guarantees the process has exited before calling executeToolTask,
+  // but we keep the check to defend against an extremely unlikely PID reuse race.
+  if (task.migratedStartTime !== undefined && task.migratedPid !== undefined) {
+    const actualStartTime = getProcessStartTime(task.migratedPid);
     if (actualStartTime !== undefined && actualStartTime !== task.migratedStartTime) {
       auditWriter.write(
         TASK_AUDIT_EVENTS.TASK_MIGRATED_PID_REUSED,
         `taskId=${task.id}`,
-        `pid=${pid}`,
+        `pid=${task.migratedPid}`,
         `expected=${task.migratedStartTime}`,
         `actual=${actualStartTime}`,
       );
@@ -125,12 +87,8 @@ async function executeMigratedToolTask(
     }
   }
 
-  // Wait for the migrated process to exit.
-  if (isAlive(pid, task.migratedStartTime as ProcessStartTime | undefined)) {
-    await waitForProcessExit(pid, signal);
-  }
-
-  // Process has exited; read persisted result and deliver it.
+  // The wrapper already waited for the process to exit and wrote the full
+  // result.txt; just read and deliver it.
   const resultContent = await readMigratedResult(fs, task.id);
   const result: ToolResult = { success: true, content: resultContent };
 
@@ -165,7 +123,7 @@ async function executeMigratedToolTask(
   auditWriter.write(
     TASK_AUDIT_EVENTS.TASK_MIGRATED_COMPLETED,
     `taskId=${task.id}`,
-    `pid=${pid}`,
+    `pid=${task.migratedPid}`,
   );
 
   await moveTaskToDone(task.id);

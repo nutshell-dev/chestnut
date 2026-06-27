@@ -226,32 +226,74 @@ export function createAsyncExecWrapper(
       const task = buildMigratedToolTask(taskId, command, ctx, handle);
 
       try {
-        await persistPartialOutput(fs, taskId, partialOutput);
         await persistRunningTask(fs, task);
       } catch (persistErr) {
         // Migration persistence failed: kill the child and report error.
         handle.child.kill('SIGTERM');
-        const errorMsg = `Failed to persist migrated exec task: ${formatErr(persistErr)}`;
         auditWriter.write(
           TASK_AUDIT_EVENTS.HANDLER_FAILED,
           `taskId=${taskId}`,
           `context=async_exec_wrapper_persist_failed`,
-          `error=${errorMsg}`,
+          `error=${formatErr(persistErr)}`,
         );
-        return { success: false, content: errorMsg };
+        return { success: false, content: `Failed to persist migrated exec task: ${formatErr(persistErr)}` };
       }
 
-      // Fire-and-forget monitoring. Errors are audit-logged, not thrown to caller.
-      executeToolTask(
-        task,
-        () => Promise.resolve({ success: true, content: '' }),
-        new AbortController().signal,
-        { fs, auditWriter, retryBaseDelayMs, moveTaskToDone, moveTaskToFailed },
-      ).catch((monitorErr) => {
+      // Background chain: collect full output, persist it, then ask the async
+      // task system to deliver the result. By the time executeToolTask reads
+      // result.txt the process has already exited and the file contains the
+      // complete output.
+      const backgroundMonitor = (async (): Promise<void> => {
+        try {
+          const result = await handle.promise;
+          const fullOutput = result.output || partialOutput;
+
+          await persistPartialOutput(fs, taskId, fullOutput);
+
+          await executeToolTask(
+            task,
+            () => Promise.resolve({ success: true, content: '' }),
+            new AbortController().signal,
+            { fs, auditWriter, retryBaseDelayMs, moveTaskToDone, moveTaskToFailed },
+          );
+        } catch (monitorErr) {
+          // Process exited with an error: persist whatever we collected plus an
+          // error marker, then still try to deliver the result.
+          try {
+            const errorOutput = partialOutput +
+              `\n[Process exited with error: ${formatErr(monitorErr)}]`;
+            await persistPartialOutput(fs, taskId, errorOutput);
+          } catch (persistErr) {
+            emitHandlerFailed(auditWriter, {
+              taskId,
+              context: 'async_exec_wrapper_persist_error_output',
+              error: formatErr(persistErr),
+            });
+          }
+
+          try {
+            await executeToolTask(
+              task,
+              () => Promise.resolve({ success: true, content: '' }),
+              new AbortController().signal,
+              { fs, auditWriter, retryBaseDelayMs, moveTaskToDone, moveTaskToFailed },
+            );
+          } catch (execErr) {
+            emitHandlerFailed(auditWriter, {
+              taskId,
+              context: 'async_exec_wrapper_monitor',
+              error: formatErr(execErr),
+            });
+          }
+        }
+      })();
+
+      // Fire-and-forget: do not await the background chain in the caller path.
+      backgroundMonitor.catch((err) => {
         emitHandlerFailed(auditWriter, {
           taskId,
-          context: 'async_exec_wrapper_monitor',
-          error: formatErr(monitorErr),
+          context: 'async_exec_wrapper_background',
+          error: formatErr(err),
         });
       });
 
