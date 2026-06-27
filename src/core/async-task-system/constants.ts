@@ -32,4 +32,11 @@ export const SHUTDOWN_DEFAULT_TIMEOUT_MS = 30_000;
  */
 export const PENDING_QUEUE_MAX = 1000;
 
+/**
+ * Phase 770: default soft timeout for async exec wrapper.
+ * Commands running longer than this are migrated to background async execution
+ * instead of blocking the agent turn.
+ */
+export const ASYNC_EXEC_SOFT_TIMEOUT_MS = 10_000;
+
 

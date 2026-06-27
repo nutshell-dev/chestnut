@@ -1,5 +1,8 @@
 // phase 471: constants barrel re-export
-export { DEFAULT_MAX_CONCURRENT_TASKS } from './constants.js';
+export {
+  DEFAULT_MAX_CONCURRENT_TASKS,
+  ASYNC_EXEC_SOFT_TIMEOUT_MS,
+} from './constants.js';
 
 /**
  * @module L4.AsyncTaskSystem
@@ -12,6 +15,7 @@ import type { AsyncTaskSystemOptions } from './types.js';
 
 export { AsyncTaskSystem } from './system.js';
 export type { AsyncTaskSystemOptions, SubAgentTask } from './types.js';
+export type { AsyncExecWrapperParams } from './async-exec-wrapper.js';
 
 export {
   TASKS_SYNC_DIR,

@@ -36,6 +36,7 @@ import { recoverTasks } from './task-recovery.js';
 import { validateTaskShape, backupCorruptTask } from './task-corrupt-helpers.js';
 import { executeSubAgentTask } from './subagent-executor.js';
 import { executeToolTask } from './tool-executor.js';
+import { createAsyncExecWrapper, type AsyncExecWrapperParams } from './async-exec-wrapper.js';
 import { createPendingWatcher, type PendingWatcherHandle } from './pending-watcher.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
 import { STREAM_TASK_EVENTS } from './stream-events.js';
@@ -110,7 +111,23 @@ export class AsyncTaskSystem {
   setMainDialogStore(store: DialogStore): void {
     this.mainDialogStore = store;
   }
-  
+
+  /**
+   * Phase 770: create an async-aware `exec` Tool.
+   *
+   * The returned Tool shares the same name/schema/profiles as the sync exec Tool,
+   * but migrates commands that exceed the soft timeout to background execution.
+   */
+  createAsyncExecWrapper(params: AsyncExecWrapperParams): Tool {
+    return createAsyncExecWrapper(params, {
+      fs: this.fs,
+      auditWriter: this.auditWriter,
+      retryBaseDelayMs: this.retryBaseDelayMs,
+      moveTaskToDone: this.moveTaskToDone.bind(this),
+      moveTaskToFailed: this.moveTaskToFailed.bind(this),
+    });
+  }
+
   private readonly retryBaseDelayMs: number;
   private readonly executors: Record<TaskKind, TaskExecutor>;
 
