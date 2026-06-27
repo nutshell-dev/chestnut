@@ -4,8 +4,6 @@
  * Interface types only. Constants live in `constants.ts`; error classes in `errors.ts`.
  */
 
-import type { ChildProcess } from 'child_process';
-
 export interface ExecOptions {
   /** Working directory (required) */
   cwd: string;
@@ -56,7 +54,7 @@ export interface ExecResult {
  */
 export interface ExecHandle {
   promise: Promise<ExecResult>;
-  child: ChildProcess;
+  child: import('child_process').ChildProcess;
 }
 
 export interface ProcessInfo {
