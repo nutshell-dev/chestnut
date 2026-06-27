@@ -114,8 +114,20 @@ async function raceHandle(
       })
     : new Promise<'abort'>(() => { /* never */ });
 
+  const resultPromise = handle.promise.then(
+    (value) => ({ type: 'result' as const, value }),
+    (err: unknown) => {
+      // If the signal aborted the process, prefer the abort path over surfacing
+      // the ProcessExecError to the caller.
+      if (signal?.aborted) {
+        return { type: 'abort' as const };
+      }
+      throw err;
+    },
+  );
+
   const winner = await Promise.race([
-    handle.promise.then((value) => ({ type: 'result' as const, value })),
+    resultPromise,
     softTimeout.then(() => ({ type: 'migrate' as const })),
     abort.then(() => ({ type: 'abort' as const })),
   ]);
