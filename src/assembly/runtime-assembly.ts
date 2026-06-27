@@ -30,6 +30,9 @@ import { createShadowTool } from '../core/shadow-system/index.js';
 import { MOTION_CLAW_ID } from '../core/claw-topology/index.js';
 import { CLAW_SUBDIRS } from './claw-subdirs.js';
 import type { AssembleConfig } from './types.js';
+import { createExecWithHandle } from '../foundation/command-tool/index.js';
+import { ASYNC_EXEC_SOFT_TIMEOUT_MS } from '../core/async-task-system/index.js';
+import { createAntiSelfKillGuard } from './anti-self-kill.js';
 
 /** phase 440：默认被过滤的 systemSubtype（claw_outbox_summary / heartbeat / claw_inactivity） */
 const DEFAULT_FILTER_SUBTYPES: ReadonlySet<string> = new Set([
@@ -184,6 +187,18 @@ export async function createRuntimeAssembly(
     } catch (e) {
       auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=runtime`, `phase=construct`, `reason=${formatErr(e)}`);
       throw new Error(`Assembly: Runtime construct failed: ${formatErr(e)}`, { cause: e });
+    }
+
+    // Phase 770: replace sync exec Tool with async-aware wrapper.
+    // The wrapper relies on AsyncTaskSystem (already constructed) and shares the
+    // same preExecGuard as the original exec Tool.
+    if (typeof taskSystem.createAsyncExecWrapper === 'function') {
+      const execWithHandle = createExecWithHandle(isMotion ? createAntiSelfKillGuard() : undefined);
+      const asyncExecTool = taskSystem.createAsyncExecWrapper({
+        execWithHandle: (args, ctx) => execWithHandle(args, ctx),
+        softTimeoutMs: ASYNC_EXEC_SOFT_TIMEOUT_MS,
+      });
+      toolRegistry.register(asyncExecTool);
     }
 
     // shadow tool — 依赖 Runtime.getCallerSnapshot（L4 turn state 快照）
