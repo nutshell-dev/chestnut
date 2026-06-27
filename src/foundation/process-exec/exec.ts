@@ -17,7 +17,7 @@ import {
   PROCESS_EXEC_DEFAULT_MAX_BUFFER,
   PROCESS_EXEC_SIGKILL_GRACE_MS,
 } from './constants.js';
-import type { ExecOptions, ExecResult } from './types.js';
+import type { ExecOptions, ExecResult, ExecHandle } from './types.js';
 import { ProcessExecError } from './errors.js';
 
 /**
@@ -142,34 +142,35 @@ class KillEscalator {
 }
 
 /**
- * Internal: run a process with shared cross-cutting concerns.
- * Uses spawn for stdout+stderr interleaved capture (preserves timing order).
+ * Spawn a process and return a handle exposing both the settled promise and the
+ * live ChildProcess. Caller owns the child lifecycle; the returned promise
+ * settles once the process exits.
  */
-async function runProcess(
-  file: string,
+export function execWithHandle(
+  command: string,
   args: string[],
   options: ExecOptions,
-): Promise<ExecResult> {
+): ExecHandle {
   const timeout = clampTimeout(options.timeout ?? PROCESS_EXEC_DEFAULT_TIMEOUT_MS, options.__testMinTimeoutMs);
   const maxBuffer = Math.max(1, options.maxBuffer ?? PROCESS_EXEC_DEFAULT_MAX_BUFFER);
   const env = buildChildEnv(options);
 
-  return new Promise((resolve, reject) => {
-    const proc = spawn(file, args, {
-      cwd: options.cwd,
-      signal: options.signal,
-      env,
-    });
+  const proc = spawn(command, args, {
+    cwd: options.cwd,
+    signal: options.signal,
+    env,
+  });
 
-    if (options.stdin !== undefined) {
-      // phase 518 (review-round4 Foundation M、crash hazard): 加 stdin 'error' listener
-      // 防 child 提前退出致 EPIPE 上升为 uncaughtException。silent: stdin 写失败的
-      // 业务影响由后续 proc.on('exit') / 'error' 兜底（exitCode + 错误捕获）。
-      proc.stdin.on('error', () => { /* silent: EPIPE 兜底防 uncaughtException、业务层走 exit code */ });
-      proc.stdin.write(options.stdin);
-      proc.stdin.end();
-    }
+  if (options.stdin !== undefined) {
+    // phase 518 (review-round4 Foundation M、crash hazard): 加 stdin 'error' listener
+    // 防 child 提前退出致 EPIPE 上升为 uncaughtException。silent: stdin 写失败的
+    // 业务影响由后续 proc.on('exit') / 'error' 兜底（exitCode + 错误捕获）。
+    proc.stdin.on('error', () => { /* silent: EPIPE 兜底防 uncaughtException、业务层走 exit code */ });
+    proc.stdin.write(options.stdin);
+    proc.stdin.end();
+  }
 
+  const promise = new Promise<ExecResult>((resolve, reject) => {
     let timedOut = false;
     let settled = false;
     const isSettled = () => settled;
@@ -256,6 +257,8 @@ async function runProcess(
       }));
     });
   });
+
+  return { promise, child: proc };
 }
 
 /**
@@ -267,5 +270,5 @@ export async function exec(
   args: string[],
   options: ExecOptions,
 ): Promise<ExecResult> {
-  return runProcess(command, args, options);
+  return execWithHandle(command, args, options).promise;
 }

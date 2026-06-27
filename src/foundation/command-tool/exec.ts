@@ -15,9 +15,10 @@ import { newShortUuid } from  '../node-utils/index.js';
 import * as path from 'path';
 import { EXEC_MAX_OUTPUT, EXEC_OVERFLOW_DIR_NAME, EXEC_COMMAND_PLACEHOLDER_CHARS } from './constants.js';
 
-import { exec } from '../process-exec/index.js';
+import { exec, execWithHandle } from '../process-exec/index.js';
 import { ProcessExecError } from '../process-exec/index.js';
 import { PROCESS_EXEC_DEFAULT_TIMEOUT_MS } from '../process-exec/index.js';
+import type { ExecHandle } from '../process-exec/index.js';
 import { formatErr } from '../node-utils/index.js';
 import { truncateHeadTail } from '../file-tool/truncate-head-tail.js';
 import { COMMAND_TOOL_AUDIT_EVENTS } from './audit-events.js';
@@ -29,6 +30,41 @@ function toSafeNumber(v: unknown): number | undefined {
 
 export interface PreExecGuard {
   (command: string): { allow: true } | { allow: false; reason: string };
+}
+
+export interface ExecWithHandleArgs {
+  command: string;
+  cwd?: string;
+  timeoutMs?: number;
+  stdin?: string;
+}
+
+interface ResolvedExecArgs {
+  command: string;
+  cwd: string;
+  timeoutMs: number | undefined;
+  env: Record<string, string> | undefined;
+  stdin: string | undefined;
+}
+
+function resolveExecArgs(
+  args: { command: string; cwd?: string; timeoutMs?: number; stdin?: string },
+  ctx: ExecContext,
+): ResolvedExecArgs {
+  const cwd = args.cwd
+    ? (path.isAbsolute(args.cwd) ? args.cwd : path.resolve(ctx.workspaceDir, args.cwd))
+    : ctx.workspaceDir;
+  const timeoutMs = toSafeNumber(args.timeoutMs);
+  const env = ctx.subagentTaskId
+    ? { ...process.env, CHESTNUT_SUBAGENT_TASK_ID: ctx.subagentTaskId }
+    : undefined;
+  return {
+    command: args.command,
+    cwd,
+    timeoutMs,
+    env,
+    stdin: args.stdin,
+  };
 }
 
 function truncate(str: string, maxLen: number): string {
@@ -99,7 +135,12 @@ export function createExecTool(preExecGuard?: PreExecGuard): Tool {
     supportsAsync: true,
 
     async execute(args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
-      const command = args.command as string;
+      const { command, cwd, timeoutMs, env, stdin } = resolveExecArgs({
+        command: args.command as string,
+        cwd: args.cwd as string | undefined,
+        timeoutMs: args.timeoutMs as number | undefined,
+        stdin: args.stdin as string | undefined,
+      }, ctx);
 
       if (preExecGuard) {
         const result = preExecGuard(command);
@@ -116,22 +157,12 @@ export function createExecTool(preExecGuard?: PreExecGuard): Tool {
       // phase 1280: allow/deny reject 路径已 REFRAMED-OUT by-design 2026-05-25 user ratify
       // 未来 restriction 走 OS-level sandbox / 详 design §A.r136-cmd-tool-no-perm-mgmt-cleanup
 
-      const cwdArg = args.cwd as string | undefined;
-      const cwd = cwdArg
-        ? (path.isAbsolute(cwdArg) ? cwdArg : path.resolve(ctx.workspaceDir, cwdArg))   // phase 519: workspace-relative
-        : ctx.workspaceDir;            // phase 512 / per-callerType: 主代理=clawspace / 子代理=tasks/subagents/<id>
-      const timeoutMs = toSafeNumber(args.timeoutMs);
-
       try {
-        const env = ctx.subagentTaskId
-          ? { ...process.env, CHESTNUT_SUBAGENT_TASK_ID: ctx.subagentTaskId }
-          : undefined;   // 不设 = 走 process-exec 默认继承 process.env、维持现状
-
         const result = await exec('sh', ['-c', command], {
           cwd,
           timeout: timeoutMs,
           signal: ctx.signal,
-          stdin: args.stdin as string | undefined,
+          stdin,
           env,
         });
 
@@ -204,6 +235,36 @@ export function createExecTool(preExecGuard?: PreExecGuard): Tool {
         return { success: true, content: `${exitLine}\n${body}` };
       }
     },
+  };
+}
+
+/**
+ * Factory for a low-level exec helper that returns an ExecHandle instead of a
+ * ToolResult. Reuses the same argument resolution (cwd, env, timeout) as
+ * createExecTool, but surfaces exceptions directly so L4 callers can manage the
+ * ChildProcess lifecycle.
+ */
+export function createExecWithHandle(preExecGuard?: PreExecGuard) {
+  return async function execWithHandleFn(
+    args: ExecWithHandleArgs,
+    ctx: ExecContext,
+  ): Promise<ExecHandle> {
+    const { command, cwd, timeoutMs, env, stdin } = resolveExecArgs(args, ctx);
+
+    if (preExecGuard) {
+      const result = preExecGuard(command);
+      if (!result.allow) {
+        throw new Error(result.reason);
+      }
+    }
+
+    return execWithHandle('sh', ['-c', command], {
+      cwd,
+      timeout: timeoutMs,
+      signal: ctx.signal,
+      stdin,
+      env,
+    });
   };
 }
 

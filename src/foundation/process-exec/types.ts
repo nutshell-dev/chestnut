@@ -4,6 +4,8 @@
  * Interface types only. Constants live in `constants.ts`; error classes in `errors.ts`.
  */
 
+import type { ChildProcess } from 'child_process';
+
 export interface ExecOptions {
   /** Working directory (required) */
   cwd: string;
@@ -46,6 +48,15 @@ export interface ExecResult {
   exitCode: number;
   /** Separated stderr when available (snapshot layer defense, backward-compatible) */
   stderr?: string;
+}
+
+/**
+ * Handle returned by execWithHandle: exposes both the settled promise and the
+ * live ChildProcess. Callers own the child lifecycle (kill / detach / wait).
+ */
+export interface ExecHandle {
+  promise: Promise<ExecResult>;
+  child: ChildProcess;
 }
 
 export interface ProcessInfo {

@@ -8,7 +8,8 @@
  * No dependencies.
  */
 
-export { exec } from './exec.js';
+export { exec, execWithHandle } from './exec.js';
+export type { ExecHandle } from './types.js';
 export { spawnDetached } from './spawn-detached.js';
 export { kill, isAlive } from './process-control.js';
 export type { Signal } from './process-control.js';
