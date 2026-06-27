@@ -59,7 +59,7 @@ function buildMigratedToolTask(
     isIdempotent: false,
     maxRetries: 0,
     retryCount: 0,
-    callerType: ctx.callerLabel === 'claw' ? undefined : ctx.callerLabel as CallerType,
+    callerType: ctx.callerLabel as CallerType,
     toolUseId: ctx.currentToolUseId,
     mode: 'migrated',
     migratedPid: pid,
@@ -242,7 +242,7 @@ export function createAsyncExecWrapper(
       }
 
       // Fire-and-forget monitoring. Errors are audit-logged, not thrown to caller.
-      const monitorPromise = executeToolTask(
+      executeToolTask(
         task,
         () => Promise.resolve({ success: true, content: '' }),
         new AbortController().signal,
@@ -254,9 +254,6 @@ export function createAsyncExecWrapper(
           error: formatErr(monitorErr),
         });
       });
-
-      // Unref the monitor promise so it does not keep the process alive.
-      monitorPromise.then(() => { /* noop */ }).catch(() => { /* noop */ });
 
       auditWriter.write(
         TASK_AUDIT_EVENTS.TASK_MIGRATED_REGISTERED,
