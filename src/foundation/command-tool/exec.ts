@@ -224,14 +224,19 @@ export function createExecTool(preExecGuard?: PreExecGuard): Tool {
 
         // 纯非零退出码：command 自己语义信号、tool 已完成契约
         const exitLine = `[exit ${error.exitCode}]`;
+        const short = command.length > EXEC_COMMAND_PLACEHOLDER_CHARS
+          ? command.slice(0, EXEC_COMMAND_PLACEHOLDER_CHARS) + '[truncated]'
+          : command;
         if (error.output.length > EXEC_MAX_OUTPUT) {
           const relPath = await persistOverflow(ctx, error.output);
           const truncated = relPath
             ? truncateHeadTail(error.output, relPath)
             : truncate(error.output, EXEC_MAX_OUTPUT);
-          return { success: true, content: `${exitLine}\n${truncated}` };
+          return { success: true, content: `${exitLine}\n[command]: ${short}\n${truncated}` };
         }
-        const body = error.output || formatNoOutput(command);
+        const body = error.output
+          ? `[command]: ${short}\n${truncate(error.output, EXEC_MAX_OUTPUT)}`
+          : formatNoOutput(command);
         return { success: true, content: `${exitLine}\n${body}` };
       }
     },
