@@ -10,7 +10,7 @@ import type { ExecContext, Tool, ToolResult } from '../../foundation/tools/index
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { ExecHandle } from '../../foundation/process-exec/index.js';
-import { getProcessStartTime } from '../../foundation/process-exec/index.js';
+import { getProcessStartTime, ProcessExecError } from '../../foundation/process-exec/index.js';
 import type { ExecWithHandleArgs } from '../../foundation/command-tool/index.js';
 import { newUuid } from '../../foundation/node-utils/index.js';
 import { EXEC_TOOL_NAME } from '../../foundation/command-tool/index.js';
@@ -197,9 +197,13 @@ export function createAsyncExecWrapper(
       }
       const proxyCtx = { ...ctx, signal: proxyController.signal };
 
-      // 1. Start the process via the low-level handle factory using the proxy
-      //    context. If spawning fails, detach the listener before rethrowing.
+      // 1-3. Start the process, collect partial output, and race completion
+      //    against soft timeout / original abort signal. Catch ProcessExecError
+      //    here so the ToolResult includes [command] instead of falling through
+      //    to ToolExecutor's generic timeout formatting.
       let handle: ExecHandle;
+      let partialOutput = '';
+      let winner: Awaited<ReturnType<typeof raceHandle>>;
       try {
         handle = await execWithHandle(
           {
@@ -210,21 +214,27 @@ export function createAsyncExecWrapper(
           },
           proxyCtx,
         );
+
+        const collect = (chunk: Buffer): void => {
+          partialOutput += chunk.toString();
+        };
+        handle.child.stdout?.on('data', collect);
+        handle.child.stderr?.on('data', collect);
+
+        winner = await raceHandle(handle, timeout, ctx.signal);
       } catch (err) {
         originalSignal?.removeEventListener('abort', onOriginalAbort);
+        if (err instanceof ProcessExecError) {
+          const short = command.length > 80
+            ? command.slice(0, 80) + '[truncated]'
+            : command;
+          return {
+            success: false,
+            content: `Error: ${err.message}\n[command]: ${short}`,
+          };
+        }
         throw err;
       }
-
-      // 2. Collect partial output so the migrated monitor can deliver it.
-      let partialOutput = '';
-      const collect = (chunk: Buffer): void => {
-        partialOutput += chunk.toString();
-      };
-      handle.child.stdout?.on('data', collect);
-      handle.child.stderr?.on('data', collect);
-
-      // 3. Race process completion against soft timeout / original abort signal.
-      const winner = await raceHandle(handle, timeout, ctx.signal);
 
       // 4. Sync completion: return result directly.
       if (winner.type === 'result') {
