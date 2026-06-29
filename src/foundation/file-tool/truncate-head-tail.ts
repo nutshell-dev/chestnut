@@ -14,10 +14,14 @@ export const TRUNCATE_TOTAL_LIMIT = TRUNCATE_HEAD_LIMIT + TRUNCATE_TAIL_LIMIT;
 /**
  * 截断 content head+tail、中间替「[...truncated N bytes...]」+ 「Full output 提示」。
  * 不做阈值判 — caller 自己决定何时调。
+ * relPath 可选：不提供时不附加 read 提示（用于无文件路径的场景，如 async exec partial output）。
  */
-export function truncateHeadTail(content: string, relPath: string): string {
+export function truncateHeadTail(content: string, relPath?: string): string {
   const head = content.slice(0, TRUNCATE_HEAD_LIMIT);
   const tail = content.slice(-TRUNCATE_TAIL_LIMIT);
   const truncatedBytes = content.length - TRUNCATE_HEAD_LIMIT - TRUNCATE_TAIL_LIMIT;
-  return `${head}\n[...truncated ${truncatedBytes} bytes...]\n${tail}\nFull output (${content.length} bytes) saved. Use \`read\` with offset/limit to view ranges (read is capped per call, paginate by offset):\n  read: { "path": "${relPath}", "offset": 1, "limit": 200 }`;
+  const readHint = relPath
+    ? `\nFull output (${content.length} bytes) saved. Use \`read\` with offset/limit to view ranges (read is capped per call, paginate by offset):\n  read: { "path": "${relPath}", "offset": 1, "limit": 200 }`
+    : '';
+  return `${head}\n[...truncated ${truncatedBytes} bytes...]\n${tail}${readHint}`;
 }

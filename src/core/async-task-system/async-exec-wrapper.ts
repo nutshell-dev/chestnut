@@ -14,6 +14,8 @@ import { getProcessStartTime, ProcessExecError } from '../../foundation/process-
 import type { ExecWithHandleArgs } from '../../foundation/command-tool/index.js';
 import { newUuid } from '../../foundation/node-utils/index.js';
 import { EXEC_TOOL_NAME } from '../../foundation/command-tool/index.js';
+import { EXEC_MAX_OUTPUT } from '../../foundation/command-tool/constants.js';
+import { truncateHeadTail } from '../../foundation/file-tool/truncate-head-tail.js';
 import type { CallerType } from '../../core/caller-types.js';
 import { executeToolTask } from './tool-executor.js';
 import { TASKS_QUEUES_RESULTS_DIR, TASKS_QUEUES_RUNNING_DIR } from './dirs.js';
@@ -409,9 +411,13 @@ export function createAsyncExecWrapper(
         `command=${command}`,
       );
 
+      const partialSegment = partialOutput
+        ? `\n\n[partial output so far]:\n${partialOutput.length > EXEC_MAX_OUTPUT ? truncateHeadTail(partialOutput) : partialOutput}`
+        : '';
+
       return {
         success: true,
-        content: `Command is taking longer than expected, moved to async execution. Task ID: ${taskId}. Result will be delivered when complete.`,
+        content: `Execution moved to async. Task ID: ${taskId}. Result will be delivered when complete.${partialSegment}`,
         metadata: { taskId, async: true, migrated: true },
       };
     },
