@@ -202,6 +202,7 @@
       "task_migrated_completed",
       "task_migrated_pid_reused",
       "task_migrated_registered",
+      "task_migrated_timed_out",
       "task_move_failed",
       "task_parse_failed",
       "task_pending_queue_overflow",
