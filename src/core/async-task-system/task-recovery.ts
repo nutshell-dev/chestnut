@@ -18,7 +18,8 @@ import {
 
 import { validateTaskShape, backupCorruptTask } from './task-corrupt-helpers.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
-import { sendFallbackError, sendResult, SENT_MARKER } from './result-delivery.js';
+import { isAlive, getProcessStartTime } from '../../foundation/process-exec/index.js';
+import { sendFallbackError, sendResult, sendToolResult, SENT_MARKER } from './result-delivery.js';
 import type { TaskId } from './types.js';
 
 
@@ -78,6 +79,11 @@ async function _recoverRunningTasks(deps: RecoverTasksDeps): Promise<number> {
 async function _recoverToolTask(
   deps: RecoverTasksDeps, filePath: string, task: ToolTask,
 ): Promise<number> {
+  if (task.mode === 'migrated' && task.migratedPid !== undefined) {
+    return _recoverMigratedToolTask(deps, filePath, task);
+  }
+
+  // Fresh task: move back to pending and re-execute.
   const pendingPath = `${TASKS_QUEUES_PENDING_DIR}/${task.id}.json`;
   await deps.fs.move(filePath, pendingPath);
   emitRecovered(deps.auditWriter, {
@@ -87,6 +93,103 @@ async function _recoverToolTask(
     to: 'pending',
   });
   return 1;
+}
+
+async function _recoverMigratedToolTask(
+  deps: RecoverTasksDeps, filePath: string, task: ToolTask,
+): Promise<number> {
+  const { fs, auditWriter } = deps;
+  const pid = task.migratedPid!;
+
+  // 1. Check whether the migrated process is still alive.
+  let processAlive = isAlive(pid);
+  if (processAlive && task.migratedStartTime !== undefined) {
+    const actualStartTime = getProcessStartTime(pid);
+    if (actualStartTime !== undefined && actualStartTime !== task.migratedStartTime) {
+      processAlive = false; // PID reused by a different process.
+    }
+  }
+
+  if (processAlive) {
+    // Cannot reconstruct the monitor (ChildProcess reference is lost across
+    // restarts), but leave the task in running/ so we do not spawn a duplicate.
+    // The process will eventually exit or be killed by the hard timeout.
+    emitRecovered(auditWriter, {
+      taskId: task.id,
+      kind: task.kind,
+      from: 'running',
+      to: 'running',
+      reason: 'migrated_process_still_alive',
+    });
+    return 0;
+  }
+
+  // 2. Process is dead — check whether the wrapper already wrote the result.
+  const resultPath = `${TASKS_QUEUES_RESULTS_DIR}/${task.id}/result.txt`;
+  const resultExists = await fs.exists(resultPath).catch(() => false);
+
+  if (resultExists) {
+    const resultContent = await fs.read(resultPath).catch(() => '(output unavailable)');
+    const sent = await sendToolResult(fs, auditWriter, task, resultContent, false)
+      .then(() => true)
+      .catch(() => false);
+
+    if (sent) {
+      await fs.move(filePath, `${TASKS_QUEUES_DONE_DIR}/${task.id}.json`).catch(async (e) => {
+        emitRecoveryFailed(auditWriter, {
+          taskId: task.id,
+          context: 'migrated_done_move_failed',
+          error: formatErr(e),
+        });
+        await fs.delete(filePath).catch((delErr) => {
+          emitRecoveryFailed(auditWriter, {
+            taskId: task.id,
+            context: 'migrated_done_delete_failed',
+            error: formatErr(delErr),
+          });
+        });
+      });
+      emitRecovered(auditWriter, {
+        taskId: task.id,
+        kind: task.kind,
+        from: 'running',
+        to: 'done',
+        reason: 'migrated_result_delivered',
+      });
+      return 0;
+    }
+
+    // Delivery failed: leave in running/ and retry on next startup.
+    emitRecoveryFailed(auditWriter, {
+      taskId: task.id,
+      context: 'migrated_result_delivery_failed',
+    });
+    return 0;
+  }
+
+  // 3. Process is dead and no result exists: output is unrecoverable.
+  await fs.move(filePath, `${TASKS_QUEUES_FAILED_DIR}/${task.id}.json`).catch(async (e) => {
+    emitRecoveryFailed(auditWriter, {
+      taskId: task.id,
+      context: 'migrated_failed_move_failed',
+      error: formatErr(e),
+    });
+    await fs.delete(filePath).catch((delErr) => {
+      emitRecoveryFailed(auditWriter, {
+        taskId: task.id,
+        context: 'migrated_failed_delete_failed',
+        error: formatErr(delErr),
+      });
+    });
+  });
+  emitRecovered(auditWriter, {
+    taskId: task.id,
+    kind: task.kind,
+    from: 'running',
+    to: 'failed',
+    reason: 'migrated_process_dead_no_result',
+  });
+  return 0;
 }
 
 async function _recoverSubAgentTask(
