@@ -241,6 +241,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
         };
       },
       registry: this.toolRegistry,
+      baseRegistry: deps.baseToolRegistry,
     });
 
     // 3. Session repair（业务链路）

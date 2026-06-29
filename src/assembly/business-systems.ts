@@ -57,6 +57,7 @@ import { createSystemAudit } from '../foundation/audit/index.js';
 import { routeNotifyClaw as notifyClawFn } from '../core/claw-topology/index.js';
 import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
 import type { CoreInfraOutput } from './core-infrastructure.js';
+import type { ToolRegistry } from '../foundation/tools/index.js';
 
 export interface BusinessSysInput {
   core: CoreInfraOutput;
@@ -69,6 +70,8 @@ export interface BusinessSysOutput {
   selfInboxDir: string;
   selfInbox: ReturnType<typeof InboxWriter.__internal_create>;
   toolExecutor: IToolExecutor;
+  /** Phase 773: shared base registry with plain sync exec (used by subagents). */
+  baseToolRegistry: ToolRegistry;
   sessionManager: DialogStore;
   makeDialogStore: () => DialogStore;
   inboxReader: InboxReader;
@@ -308,6 +311,7 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
     selfInboxDir,
     selfInbox,
     toolExecutor,
+    baseToolRegistry: toolRegistry,
     sessionManager,
     makeDialogStore,
     inboxReader,

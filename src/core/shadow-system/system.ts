@@ -122,14 +122,15 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
   // shadow ctx 注入 isShadow=true（透传到所有工具 execute()）
   // shadow 用 full profile（C2 cache prefix 保护，mirror main agent 字节相同）
   try {
-    if (!opts.ctx.registry) {
+    const baseRegistry = opts.ctx.baseRegistry ?? opts.ctx.registry;
+    if (!baseRegistry) {
       throw new Error('Tool registry not available in execution context');
     }
     if (!opts.ctx.llm) {
       throw new Error('LLM not available in execution context');
     }
 
-    const shadowRegistry = createPerTaskRegistry(opts.ctx.registry, 'full');
+    const shadowRegistry = createPerTaskRegistry(baseRegistry, 'full');
 
     const { text, capturedResult } = await (opts.runSubagent ?? defaultRunSubagent)({
       agentId: shadowId,

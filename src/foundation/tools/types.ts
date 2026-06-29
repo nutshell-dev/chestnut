@@ -107,6 +107,12 @@ export interface ExecutionInfra {
   llm?: LLMOrchestrator;
   /** Tool registry reference for sync spawn path (phase 766) */
   registry?: ToolRegistry;
+  /**
+   * Phase 773: base registry containing the plain sync exec Tool.
+   * Used by spawn/shadow subagent creation paths so subagents do not
+   * inherit the main-agent async wrapper exec.
+   */
+  baseRegistry?: ToolRegistry;
 }
 
 /** 执行控制维度（D4）：signal / toolTimeoutMs / stopRequested + requestStop / getElapsedMs */
@@ -275,4 +281,9 @@ export interface ToolExecutorOptions {
   scheduleAsyncTool?: ScheduleAsyncTool;
   /** Tool-level default timeout (phase 1029 / F-2 / inherits from caller ExecContext / 0 传维持 ToolExecutor fallback 60s) */
   defaultTimeoutMs?: number;
+  /**
+   * Phase 773: base registry containing the plain sync exec Tool.
+   * Passed through to constructed ExecContext instances for subagent spawn paths.
+   */
+  baseRegistry?: ToolRegistry;
 }

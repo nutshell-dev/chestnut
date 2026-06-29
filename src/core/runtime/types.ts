@@ -48,6 +48,8 @@ export interface RuntimeDependencies {
   readonly llm: LLMOrchestrator;
   readonly toolRegistry: ToolRegistry;
   readonly toolExecutor: IToolExecutor;
+  /** Phase 773: base registry with plain sync exec for subagent spawn paths. */
+  readonly baseToolRegistry?: ToolRegistry;
   readonly contractManager: ContractSystem;
   readonly taskSystem: AsyncTaskSystem;
   readonly skillRegistry: SkillSystem;

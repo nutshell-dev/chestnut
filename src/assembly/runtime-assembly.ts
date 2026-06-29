@@ -30,7 +30,8 @@ import { createShadowTool } from '../core/shadow-system/index.js';
 import { MOTION_CLAW_ID } from '../core/claw-topology/index.js';
 import { CLAW_SUBDIRS } from './claw-subdirs.js';
 import type { AssembleConfig } from './types.js';
-import { createExecWithHandle } from '../foundation/command-tool/index.js';
+import { createExecWithHandle, EXEC_TOOL_NAME } from '../foundation/command-tool/index.js';
+import { createToolExecutor, createToolRegistry } from '../foundation/tools/index.js';
 import { ASYNC_EXEC_SOFT_TIMEOUT_MS } from '../core/async-task-system/index.js';
 import { createAntiSelfKillGuard } from './anti-self-kill.js';
 
@@ -61,8 +62,8 @@ export async function createRuntimeAssembly(
   const isMotion = identity === 'motion';
   const {
     systemFs, auditWriter, llm, llmConfig,
-    maxSteps, toolProfile, idleTimeoutMs,
-    toolRegistry, skillRegistry, contractManager, fsFactory, outboxWriter,
+    maxSteps, toolProfile, idleTimeoutMs, toolTimeoutMs,
+    skillRegistry, contractManager, fsFactory, outboxWriter,
   } = core;
   const {
     taskSystem, permissionChecker, sessionManager, makeDialogStore,
@@ -123,9 +124,32 @@ export async function createRuntimeAssembly(
       parentStreamLog: streamWriter,
     };
 
+    // Phase 773: build a main-agent registry where exec is replaced by the async wrapper.
+    // The shared base registry (business.baseToolRegistry) keeps the plain sync exec Tool
+    // for subagent spawn paths.
+    const mainRegistry = createToolRegistry();
+    for (const tool of business.baseToolRegistry.getAll()) {
+      if (tool.name !== EXEC_TOOL_NAME) {
+        mainRegistry.register(tool);
+      }
+    }
+
+    let mainToolExecutor: ReturnType<typeof createToolExecutor>;
+    if (typeof taskSystem.createAsyncExecWrapper === 'function') {
+      const execWithHandle = createExecWithHandle(isMotion ? createAntiSelfKillGuard() : undefined);
+      const asyncExecTool = taskSystem.createAsyncExecWrapper({
+        execWithHandle: (args, ctx) => execWithHandle(args, ctx),
+        softTimeoutMs: ASYNC_EXEC_SOFT_TIMEOUT_MS,
+      });
+      mainRegistry.register(asyncExecTool);
+      mainToolExecutor = createToolExecutor(mainRegistry, toolTimeoutMs);
+    } else {
+      mainToolExecutor = createToolExecutor(mainRegistry, toolTimeoutMs);
+    }
+
     const toolingDeps = {
-      toolRegistry,
-      toolExecutor: business.toolExecutor,
+      toolRegistry: mainRegistry,
+      toolExecutor: mainToolExecutor,
       skillRegistry,
       formatterRegistry,
       // phase 27 Step D P5: guidance compose callback hook（motion-only / claw 装配 undefined）
@@ -152,6 +176,8 @@ export async function createRuntimeAssembly(
       dialogStoreFactory: makeDialogStore,
       // phase 69: L6 Assembly 装配期注入 claw 子目录列表
       clawSubdirs: CLAW_SUBDIRS,
+      // Phase 773: plain sync exec registry for subagent spawn paths.
+      baseToolRegistry: business.baseToolRegistry,
       ...messagingDeps,
       ...toolingDeps,
       ...lifecycleDeps,
@@ -189,21 +215,9 @@ export async function createRuntimeAssembly(
       throw new Error(`Assembly: Runtime construct failed: ${formatErr(e)}`, { cause: e });
     }
 
-    // Phase 770: replace sync exec Tool with async-aware wrapper.
-    // The wrapper relies on AsyncTaskSystem (already constructed) and shares the
-    // same preExecGuard as the original exec Tool.
-    if (typeof taskSystem.createAsyncExecWrapper === 'function') {
-      const execWithHandle = createExecWithHandle(isMotion ? createAntiSelfKillGuard() : undefined);
-      const asyncExecTool = taskSystem.createAsyncExecWrapper({
-        execWithHandle: (args, ctx) => execWithHandle(args, ctx),
-        softTimeoutMs: ASYNC_EXEC_SOFT_TIMEOUT_MS,
-      });
-      toolRegistry.register(asyncExecTool);
-    }
-
     // shadow tool — 依赖 Runtime.getCallerSnapshot（L4 turn state 快照）
     // 必须在 runtime 创建后注册，不能提前（runtime 尚未存在）
-    toolRegistry.register(createShadowTool({
+    mainRegistry.register(createShadowTool({
       getTurnSnapshot: () => runtime.getCallerSnapshot(),
       taskSystem,
       subagentMaxSteps: maxSteps,

@@ -74,6 +74,12 @@ export interface ExecContextImplOptions {
   persistReadFileState?: boolean;
   /** Tool registry reference for sync spawn path (phase 766) */
   registry?: ToolRegistry;
+  /**
+   * Phase 773: base registry containing the plain sync exec Tool.
+   * Used by spawn/shadow subagent creation paths so subagents do not
+   * inherit the main-agent async wrapper exec.
+   */
+  baseRegistry?: ToolRegistry;
   /** Assembly-injected per-claw permission checker (replaces module-level factory pattern, phase 1006) */
   permissionChecker?: PermissionChecker;
   /** Tool-level wall-clock timeout, inherited from globalConfig.tool_timeout_ms / Assembly 装配期注入 (phase 1029 / F-2) */
@@ -151,6 +157,7 @@ export class ExecContextImpl implements ExecContext {
   readFileState: Map<string, FileState>;
   persistReadFileState?: boolean;
   registry?: ToolRegistry;
+  baseRegistry?: ToolRegistry;
   permissionChecker?: PermissionChecker;
   toolTimeoutMs?: number;
   trace_id?: TraceId;
@@ -177,6 +184,7 @@ export class ExecContextImpl implements ExecContext {
     this.readFileState = options.readFileState ?? new Map();
     this.persistReadFileState = options.persistReadFileState;
     this.registry = options.registry;
+    this.baseRegistry = options.baseRegistry;
     this.permissionChecker = options.permissionChecker;
     this.toolTimeoutMs = options.toolTimeoutMs;
     this.trace_id = options.trace_id;

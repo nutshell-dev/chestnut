@@ -44,15 +44,16 @@ export async function runSpawnSync(opts: RunSpawnSyncOptions): Promise<ToolResul
   }
 
   try {
-    if (!opts.ctx.registry) {
+    const baseRegistry = opts.ctx.baseRegistry ?? opts.ctx.registry;
+    if (!baseRegistry) {
       throw new Error('Tool registry not available in execution context');
     }
     if (!opts.ctx.llm) {
       throw new Error('LLM not available in execution context');
     }
 
-    // mirror verifier-job 既有调用模板：从 caller registry 取 subagent profile 工具
-    const subagentRegistry = createPerTaskRegistry(opts.ctx.registry, 'subagent');
+    // mirror verifier-job 既有调用模板：从 caller base registry 取 subagent profile 工具
+    const subagentRegistry = createPerTaskRegistry(baseRegistry, 'subagent');
 
     const subagentImpl = opts.runSubagent ?? defaultRunSubagent;
     const { text, capturedResult } = await subagentImpl({
