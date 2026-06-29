@@ -165,7 +165,12 @@ export function createAsyncExecWrapper(
         },
         timeoutMs: {
           type: 'number',
-          description: 'Timeout in milliseconds (default 30000)',
+          description:
+            `When set: pure sync mode — the command runs synchronously and is killed ` +
+            `after this many milliseconds if it hasn't completed. ` +
+            `When not set (default): sync→async mode — the command runs synchronously ` +
+            `for up to 10 seconds, then automatically moves to background async execution ` +
+            `and the result is delivered via inbox.`,
         },
         stdin: {
           type: 'string',
@@ -181,6 +186,42 @@ export function createAsyncExecWrapper(
     async execute(args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
       const command = args.command as string;
 
+      // --- pure sync mode: caller set an explicit timeout --------------------
+      if (args.timeoutMs !== undefined) {
+        try {
+          const handle = await execWithHandle(
+            {
+              command,
+              cwd: args.cwd as string | undefined,
+              timeoutMs: args.timeoutMs as number | undefined,
+              stdin: args.stdin as string | undefined,
+            },
+            ctx,
+          );
+
+          const result = await handle.promise;
+          return {
+            success: true,
+            content: result.output || `(no output)\n[command]: ${command}`,
+          };
+        } catch (err) {
+          if (err instanceof ProcessExecError) {
+            const short = command.length > 80
+              ? command.slice(0, 80) + '[truncated]'
+              : command;
+            const outputSuffix = err.output
+              ? `\n[output]: ${err.output.slice(0, 2000)}`
+              : '';
+            return {
+              success: false,
+              content: `Error: ${err.message}\n[command]: ${short}${outputSuffix}`,
+            };
+          }
+          throw err;
+        }
+      }
+
+      // --- sync→async mode: no explicit timeout, use soft timeout + migration -
       // Create a proxy AbortController linked to the original signal. Before
       // migration we forward abort events so the spawned process is killed as
       // usual. During migration we detach the listener (and unref the child) so
