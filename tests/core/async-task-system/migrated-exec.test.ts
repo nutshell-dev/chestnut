@@ -577,3 +577,112 @@ describe('subagent exec registry (Phase 773)', () => {
     expect(execTool!.profiles).toContain('subagent');
   });
 });
+
+
+describe('migrated process hard timeout (Phase 777)', () => {
+  let tmpDir: string;
+  let nodeFs: NodeFileSystem;
+  let audit: AuditLog;
+  let auditEvents: Array<[string, ...(string | number)[]]>;
+  let system: AsyncTaskSystem;
+
+  beforeEach(async () => {
+    tmpDir = path.join(os.tmpdir(), `migrated-hard-timeout-${randomUUID()}`);
+    await fs.mkdir(tmpDir, { recursive: true });
+    nodeFs = new NodeFileSystem({ baseDir: tmpDir });
+    const mockAudit = makeMockAudit();
+    audit = mockAudit.audit;
+    auditEvents = mockAudit.events;
+
+    system = new AsyncTaskSystem(tmpDir, nodeFs, {
+      auditWriter: audit,
+      ...makeTaskSystemDeps(),
+    });
+    await system.initialize();
+  });
+
+  afterEach(async () => {
+    await system.shutdown(1000).catch(() => { /* silent */ });
+    await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => { /* silent cleanup */ });
+  });
+
+  it('should kill process and deliver partial output after hard timeout', async () => {
+    const execWithHandle = createExecWithHandle();
+    const tool = system.createAsyncExecWrapper({
+      execWithHandle: (args, ctx) => execWithHandle(args, ctx),
+      softTimeoutMs: 100,
+      migratedHardTimeoutMs: 500,
+    });
+
+    const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir, callerLabel: 'claw' });
+    const result = await tool.execute({ command: 'while true; do echo tick; sleep 0.05; done' }, ctx);
+
+    expect(result.success).toBe(true);
+    expect(result.content).toMatch(/moved to async execution.*Task ID:/);
+    const taskId = result.metadata?.taskId as string;
+
+    const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${taskId}.json`);
+    await waitUntilGone(runningFile, 5000);
+
+    const resultFile = path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, taskId, 'result.txt');
+    const output = await fs.readFile(resultFile, 'utf-8');
+    expect(output).toContain('tick');
+    expect(output).toMatch(/\[Process timed out: Migrated process timed out after 500ms\]/);
+
+    const doneFile = path.join(tmpDir, TASKS_QUEUES_DONE_DIR, `${taskId}.json`);
+    expect(await fs.stat(doneFile).then(() => true).catch(() => false)).toBe(true);
+
+    expect(auditEvents.some(e => e[0] === TASK_AUDIT_EVENTS.TASK_MIGRATED_TIMED_OUT)).toBe(true);
+
+    // Process should have been killed.
+    const runningTask = JSON.parse(await fs.readFile(doneFile, 'utf-8'));
+    expect(isAlive(runningTask.migratedPid as number)).toBe(false);
+  });
+
+  it('should deliver full output when process exits before hard timeout', async () => {
+    const execWithHandle = createExecWithHandle();
+    const tool = system.createAsyncExecWrapper({
+      execWithHandle: (args, ctx) => execWithHandle(args, ctx),
+      softTimeoutMs: 100,
+      migratedHardTimeoutMs: 5000,
+    });
+
+    const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir, callerLabel: 'claw' });
+    const result = await tool.execute({ command: 'sleep 0.2 && echo done' }, ctx);
+
+    expect(result.success).toBe(true);
+    const taskId = result.metadata?.taskId as string;
+    const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${taskId}.json`);
+    const resultFile = path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, taskId, 'result.txt');
+
+    await waitUntilGone(runningFile, 5000);
+
+    const output = await fs.readFile(resultFile, 'utf-8');
+    expect(output).toContain('done');
+    expect(output).not.toMatch(/\[Process timed out:/);
+    expect(auditEvents.some(e => e[0] === TASK_AUDIT_EVENTS.TASK_MIGRATED_TIMED_OUT)).toBe(false);
+  });
+
+  it('should not trigger hard timeout when process exits quickly after migration', async () => {
+    const execWithHandle = createExecWithHandle();
+    const tool = system.createAsyncExecWrapper({
+      execWithHandle: (args, ctx) => execWithHandle(args, ctx),
+      softTimeoutMs: 100,
+      migratedHardTimeoutMs: 5000,
+    });
+
+    const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir, callerLabel: 'claw' });
+    const result = await tool.execute({ command: 'sleep 0.12 && echo quick' }, ctx);
+
+    expect(result.success).toBe(true);
+    const taskId = result.metadata?.taskId as string;
+    const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${taskId}.json`);
+    const resultFile = path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, taskId, 'result.txt');
+
+    await waitUntilGone(runningFile, 5000);
+
+    const output = await fs.readFile(resultFile, 'utf-8');
+    expect(output).toContain('quick');
+    expect(output).not.toMatch(/\[Process timed out:/);
+  });
+});

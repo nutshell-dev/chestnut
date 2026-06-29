@@ -42,4 +42,5 @@ export const TASK_AUDIT_EVENTS = {
   TASK_MIGRATED_REGISTERED: 'task_migrated_registered', // phase 770 Step B
   TASK_MIGRATED_COMPLETED: 'task_migrated_completed', // phase 770 Step A
   TASK_MIGRATED_PID_REUSED: 'task_migrated_pid_reused', // phase 770 Step A
+  TASK_MIGRATED_TIMED_OUT: 'task_migrated_timed_out', // phase 777 Step A
 } as const;

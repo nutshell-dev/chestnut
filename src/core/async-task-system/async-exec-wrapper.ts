@@ -26,6 +26,8 @@ import { makeTaskId } from './types.js';
 export interface AsyncExecWrapperParams {
   execWithHandle: (args: ExecWithHandleArgs, ctx: ExecContext) => Promise<ExecHandle>;
   softTimeoutMs?: number;
+  /** Optional override for the migrated hard timeout (ms). Primarily for tests. */
+  migratedHardTimeoutMs?: number;
 }
 
 interface AsyncExecWrapperDeps {
@@ -37,6 +39,9 @@ interface AsyncExecWrapperDeps {
 }
 
 const ASYNC_EXEC_SOFT_TIMEOUT_MS = 10_000;
+
+/** Migrated process hard timeout (ms). Process will be killed after this time. */
+const ASYNC_EXEC_MIGRATED_HARD_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 
 /**
  * Build a synthetic ToolTask for a migrated exec command.
@@ -145,6 +150,7 @@ export function createAsyncExecWrapper(
 ): Tool {
   const { execWithHandle, softTimeoutMs } = params;
   const timeout = softTimeoutMs ?? ASYNC_EXEC_SOFT_TIMEOUT_MS;
+  const migratedHardTimeoutMs = params.migratedHardTimeoutMs ?? ASYNC_EXEC_MIGRATED_HARD_TIMEOUT_MS;
   const { fs, auditWriter, retryBaseDelayMs, moveTaskToDone, moveTaskToFailed } = deps;
 
   return {
@@ -324,8 +330,17 @@ export function createAsyncExecWrapper(
       // result.txt the process has already exited and the file contains the
       // complete output.
       const backgroundMonitor = (async (): Promise<void> => {
+        let timedOut = false;
         try {
-          const result = await handle.promise;
+          const hardTimeout = new Promise<never>((_, reject) => {
+            const timer = setTimeout(() => {
+              timedOut = true;
+              reject(new Error(`Migrated process timed out after ${migratedHardTimeoutMs}ms`));
+            }, migratedHardTimeoutMs);
+            timer.unref?.();
+          });
+
+          const result = await Promise.race([handle.promise, hardTimeout]);
           const fullOutput = result.output || partialOutput;
 
           await persistPartialOutput(fs, taskId, fullOutput);
@@ -337,11 +352,21 @@ export function createAsyncExecWrapper(
             { fs, auditWriter, retryBaseDelayMs, moveTaskToDone, moveTaskToFailed },
           );
         } catch (monitorErr) {
-          // Process exited with an error: persist whatever we collected plus an
-          // error marker, then still try to deliver the result.
+          // Hard timeout or process exited with an error: kill if we timed out,
+          // persist whatever we collected plus an error marker, then still try
+          // to deliver the result.
+          if (timedOut) {
+            handle.child.kill('SIGTERM');
+            auditWriter.write(
+              TASK_AUDIT_EVENTS.TASK_MIGRATED_TIMED_OUT,
+              `taskId=${taskId}`,
+              `pid=${handle.child.pid}`,
+            );
+          }
+
           try {
             const errorOutput = partialOutput +
-              `\n[Process exited with error: ${formatErr(monitorErr)}]`;
+              `\n[Process ${timedOut ? 'timed out' : 'exited with error'}: ${formatErr(monitorErr)}]`;
             await persistPartialOutput(fs, taskId, errorOutput);
           } catch (persistErr) {
             emitHandlerFailed(auditWriter, {
