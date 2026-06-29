@@ -433,6 +433,97 @@ describe('createAsyncExecWrapper', () => {
   });
 });
 
+describe('timeoutMs dual-mode (Phase 776)', () => {
+  let tmpDir: string;
+  let nodeFs: NodeFileSystem;
+  let system: AsyncTaskSystem;
+  let audit: AuditLog;
+
+  beforeEach(async () => {
+    tmpDir = path.join(os.tmpdir(), `timeout-dual-mode-${randomUUID()}`);
+    await fs.mkdir(tmpDir, { recursive: true });
+    nodeFs = new NodeFileSystem({ baseDir: tmpDir });
+    const mockAudit = makeMockAudit();
+    audit = mockAudit.audit;
+
+    system = new AsyncTaskSystem(tmpDir, nodeFs, {
+      auditWriter: audit,
+      ...makeTaskSystemDeps(),
+    });
+    await system.initialize();
+  });
+
+  afterEach(async () => {
+    await system.shutdown(1000).catch(() => { /* silent */ });
+    await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => { /* silent cleanup */ });
+  });
+
+  it('should return sync result when timeoutMs is set and command completes in time', async () => {
+    const execWithHandle = createExecWithHandle();
+    const tool = system.createAsyncExecWrapper({
+      execWithHandle: (args, ctx) => execWithHandle(args, ctx),
+      softTimeoutMs: 10_000,
+    });
+
+    const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
+    const result = await tool.execute({ command: 'echo hello', timeoutMs: 5000 }, ctx);
+
+    expect(result.success).toBe(true);
+    expect(result.content).toContain('hello');
+    expect(result.metadata).toBeUndefined();
+  });
+
+  it('should kill process and return error when timeoutMs is set and exceeded', async () => {
+    const execWithHandle = createExecWithHandle();
+    const tool = system.createAsyncExecWrapper({
+      execWithHandle: (args, ctx) => execWithHandle(args, ctx),
+      softTimeoutMs: 10_000,
+    });
+
+    const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
+    const start = Date.now();
+    // processExec clamps short timeouts to 1000ms, so expect a 1s hard timeout.
+    const result = await tool.execute({ command: 'sleep 5', timeoutMs: 1000 }, ctx);
+    const elapsed = Date.now() - start;
+
+    expect(result.success).toBe(false);
+    expect(result.content).toMatch(/Error: Command timed out after 1000ms/);
+    expect(result.content).toContain('[command]: sleep 5');
+    expect(elapsed).toBeLessThan(3000);
+  });
+
+  it('should auto-migrate when timeoutMs is not set and command runs long', async () => {
+    const execWithHandle = createExecWithHandle();
+    const tool = system.createAsyncExecWrapper({
+      execWithHandle: (args, ctx) => execWithHandle(args, ctx),
+      softTimeoutMs: 100,
+    });
+
+    const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir, callerLabel: 'claw' });
+    const result = await tool.execute({ command: 'sleep 0.5 && echo done' }, ctx);
+
+    expect(result.success).toBe(true);
+    expect(result.content).toMatch(/moved to async execution.*Task ID:/);
+    expect(result.metadata).toMatchObject({ async: true, migrated: true });
+    expect(typeof result.metadata?.taskId).toBe('string');
+  });
+
+  it('should return sync result when timeoutMs is not set and command is fast', async () => {
+    const execWithHandle = createExecWithHandle();
+    const tool = system.createAsyncExecWrapper({
+      execWithHandle: (args, ctx) => execWithHandle(args, ctx),
+      softTimeoutMs: 10_000,
+    });
+
+    const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
+    const result = await tool.execute({ command: 'echo fast' }, ctx);
+
+    expect(result.success).toBe(true);
+    expect(result.content).toContain('fast');
+    expect(result.metadata).toBeUndefined();
+  });
+});
+
 
 describe('subagent exec registry (Phase 773)', () => {
   let tmpDir: string;
