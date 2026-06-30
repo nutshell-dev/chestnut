@@ -40,8 +40,20 @@ describe('InboxReader.findByExtraMeta', () => {
     writer = InboxWriter.__internal_create(fs, makeInboxPath(pendingDir), audit);
   });
 
+  /**
+   * afterEach cleanup timeout: macOS rm 在 watcher/fd 未释放时可能阻塞（phase 233）。
+   * 2s 是经验上限——正常 rm 在 ms 级完成、超时仅在极端并发场景触发。
+   * Derivation: > AfterEach default timeout 10s / 5 safety margin.
+   */
+  const CLEANUP_TIMEOUT_MS = 2000;
+
   afterEach(async () => {
-    await fsAsync.rm(root, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
+    // phase 779 Step E: wrap rm in race with timeout — 高并发下 InboxReader/Writer
+    // 可能持 watcher/fd 导致 macOS rm 阻塞（phase 233 观察）。超时兜底、不等。
+    await Promise.race([
+      fsAsync.rm(root, { recursive: true, force: true }),
+      new Promise(r => setTimeout(r, CLEANUP_TIMEOUT_MS)),
+    ]).catch(() => { /* silent: cleanup timeout or fs error */ });
   });
 
   it('returns null when pending + done both empty', async () => {

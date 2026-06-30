@@ -461,8 +461,13 @@ describe('AsyncTaskSystem Tool Tasks', () => {
 
       await fourthScheduledP;
 
-      // Should be in pending, not running (slows held → no slot free)
-      expect(await taskSystem.listPending()).toContain(fourthId);
+      // phase 779 Step C: waitFor 替即时 assertion。高并发下 _ingestPendingFile → _dispatch
+      // 可能在 TASK_SCHEDULED emit 后异步触发、需给 event-loop 一个 tick 让 pendingQueue settle。
+      // 3 slow task 全 held by barrier、4th 必留 pending（无空槽）。
+      await waitFor(
+        async () => (await taskSystem.listPending()).includes(fourthId),
+        5000,
+      );
       expect(taskSystem.listRunning()).not.toContain(fourthId);
 
       // phase 403: 订阅 4 TASK_COMPLETED 在 release 之前（3 slow + 1 fourth 全完成）
@@ -471,15 +476,11 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       for (const release of slowReleases) release();
 
       await fourCompletedP;
-      // phase 403: emit TASK_COMPLETED 早于 _startTask finally 的 executingTasks.delete。
-      // 4 个并发 task 各有自己的 microtask 续链、第 4 个 TASK_COMPLETED 后还需排干其他 task 的
-      // finally 续链。轮询 listRunning 空、event-driven 不行只能 yield。多次 setImmediate yield。
-      // value=0：仅 macrotask yield、不真等 wall-clock、derive = next-tick semantics
-      const FINALLY_DRAIN_YIELD_MS = 0;
-      for (let i = 0; i < 4 && taskSystem.listRunning().length > 0; i++) {
-        await new Promise(r => setTimeout(r, FINALLY_DRAIN_YIELD_MS));
-      }
-      
+      // phase 779 Step C: waitFor drain 替固定次 setTimeout(0) loop。
+      // phase 403 的 FINALLY_DRAIN_YIELD_MS=0 × 4 次在极高并发下不够排干 executingTasks.delete
+      // finally 续链（phase 557/580/755/766 复发）。waitFor poll 到 listRunning 空为止。
+      await waitFor(() => taskSystem.listRunning().length === 0, 5000);
+
       // Now fourth should be dispatched and completed
       expect(taskSystem.listRunning()).not.toContain(fourthId); // Should be done now
       expect(await taskSystem.listPending()).not.toContain(fourthId);
@@ -1017,17 +1018,14 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       const executeCallback = vi.fn().mockResolvedValue({ success: true, content: longContent });
 
       const taskId = await scheduleToolCompat(taskSystem, 'testTool', executeCallback, 'parent-claw');
-      await waitForAnyFile(path.join(testClawDir, 'inbox', 'pending'), (f) => f.endsWith('.md'));
 
-      // Check inbox/pending/ for the result message
-      const inboxFiles = await fs.readdir(path.join(testClawDir, 'inbox', 'pending'));
-      expect(inboxFiles.length).toBeGreaterThan(0);
-      
-      const inboxFile = await fs.readFile(
-        path.join(testClawDir, 'inbox', 'pending', inboxFiles[0]),
-        'utf-8'
-      );
-      
+      // phase 779 Step C: two-step wait 替裸 waitForAnyFile。高并发下 inbox file 可能被
+      // watcher 在 content 写完前拾起（endsWith('.md') 弱信号）→ 后续 readFile + regex match
+      // 拿半成品 content → flaky（phase 776）。两步：先找文件、再等 frontmatter 完整。
+      const inboxDir = path.join(testClawDir, 'inbox', 'pending');
+      const inboxName = await waitForAnyFile(inboxDir, (f) => f.endsWith('.md'), 15000);
+      const inboxFile = await waitForCompleteFile(path.join(inboxDir, inboxName), /^---[\s\S]+---\n\n/);
+
       const match = inboxFile.match(/---\n([\s\S]*?)\n---\n\n([\s\S]*)/);
       expect(match).not.toBeNull();
       const content = JSON.parse(match![2]);
@@ -1236,20 +1234,22 @@ describe('AsyncTaskSystem Tool Tasks', () => {
         isIdempotent: false,
       });
 
-      await waitForAnyFile(path.join(testClawDir, 'inbox', 'pending'), (f) => f.endsWith('.md'));
+      // phase 779 Step C: two-step wait 替裸 waitForAnyFile（同 C5 根因——高并发下
+      // endsWith('.md') 弱信号可能在 content 写完整前触发 → 后续 regex match 拿半成品）。
+      const inboxDir = path.join(testClawDir, 'inbox', 'pending');
+      const inboxName = await waitForAnyFile(inboxDir, (f) => f.endsWith('.md'), 15000);
+      await waitForCompleteFile(path.join(inboxDir, inboxName), /^---[\s\S]+---\n\n/);
       await completedP;
 
       // Called exactly once, no retry
       expect(failCallback).toHaveBeenCalledTimes(1);
 
-      // Check inbox/pending/ for the error message
-      const inboxFiles = await fs.readdir(path.join(testClawDir, 'inbox', 'pending'));
-      
+      // Read the already-verified inbox file
       const inboxFile = await fs.readFile(
-        path.join(testClawDir, 'inbox', 'pending', inboxFiles[0]),
+        path.join(inboxDir, inboxName),
         'utf-8'
       );
-      
+
       const match = inboxFile.match(/---\n([\s\S]*?)\n---\n\n([\s\S]*)/);
       expect(match).not.toBeNull();
       const content = JSON.parse(match![2]);

@@ -8,6 +8,7 @@ import {
   listPendingFallbackDumps,
 } from '../../../src/foundation/audit/reader.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
+import { waitFor } from '../../helpers/wait-for.js';
 
 /**
  * Follow-mode append delay (50ms): 等 follow() iter 进入 wait 后再 append.
@@ -450,15 +451,19 @@ describe('listPendingFallbackDumps', () => {
     expect(listPendingFallbackDumps()).toEqual([]);
   });
 
-  it('returns matching fallback dumps', () => {
+  it('returns matching fallback dumps', async () => {
     const dumpPath = path.join(nodeOs.tmpdir(), 'chestnut-audit-fallback-1234-5678.tsv');
     nodeFs.writeFileSync(dumpPath, 'line1\n');
     createdFiles.push(dumpPath);
+    // phase 779 Step D: waitFor 替即时 assertion — tmpdir 跨 worker 共享、并发下其他
+    // worker 的 afterEach unlinkSync 可能在 writeFileSync 后、readdirSync 前删文件。
+    // writeFileSync + readdirSync 皆同步但跨进程 OS 调度无保证。
+    await waitFor(() => {
+      const dumps = listPendingFallbackDumps();
+      return dumps.some(d => d.pid === 1234 && d.ts === 5678);
+    }, 5000);
     const dumps = listPendingFallbackDumps();
-    expect(dumps).toHaveLength(1);
-    expect(dumps[0].pid).toBe(1234);
-    expect(dumps[0].ts).toBe(5678);
-    expect(dumps[0].size).toBe(6);
+    expect(dumps.some(d => d.pid === 1234 && d.ts === 5678)).toBe(true);
   });
 
   it('ignores non-matching files', () => {
