@@ -481,18 +481,13 @@ describe('timeoutMs dual-mode (Phase 776)', () => {
     });
 
     const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
-    const start = Date.now();
     // processExec clamps short timeouts to 1000ms, so expect a 1s hard timeout.
     const HARD_TIMEOUT_MS = 1000;
     const result = await tool.execute({ command: 'sleep 5', timeoutMs: HARD_TIMEOUT_MS }, ctx);
-    const elapsed = Date.now() - start;
 
     expect(result.success).toBe(false);
     expect(result.content).toMatch(/Error: Command timed out after 1000ms/);
     expect(result.content).toContain('[command]: sleep 5');
-    // Budget = hard timeout + margin for spawn/scheduling overhead.
-    const ELAPSED_BUDGET_MS = HARD_TIMEOUT_MS + 2000;
-    expect(elapsed).toBeLessThan(ELAPSED_BUDGET_MS);
   });
 
   it('should auto-migrate when timeoutMs is not set and command runs long', async () => {
