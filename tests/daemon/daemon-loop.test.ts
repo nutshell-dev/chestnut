@@ -287,6 +287,7 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
       });
 
       // 等待 fatal audit 出现（cooldown 前写入），出现后 stop
+      const FATAL_AUDIT_POLL_INTERVAL_MS = 5; // 5ms poll 间隔，LLM_RETRY_MAX_DELAY_MS mock 为 50ms、足够 detect
       const start = Date.now();
       while (Date.now() - start < 2000) {
         const fatalEntries = audit.entries.filter(
@@ -296,7 +297,7 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
         if (fatalEntries.length > 0) {
           break;
         }
-        await new Promise(r => setTimeout(r, 5));
+        await new Promise(r => setTimeout(r, FATAL_AUDIT_POLL_INTERVAL_MS));
       }
 
       stop();

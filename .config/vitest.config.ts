@@ -136,6 +136,7 @@ const VI_MOCK_FILES = [
   'tests/core/subagent/agent-race-ghost.test.ts',
   'tests/core/subagent/subagent-tool-timeout-inherit.test.ts',
   'tests/daemon/daemon-loop-atomic-retry-state.test.ts',
+  'tests/daemon/daemon-loop.test.ts',  // phase 780: vi.mock constants (LLM retry delay)
   'tests/daemon/startup-check-atomic-write.test.ts',
   'tests/e2e/contract-motion-full-chain.test.ts',
   'tests/foundation/anthropic-cache.test.ts',
