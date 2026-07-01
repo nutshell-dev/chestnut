@@ -16,6 +16,7 @@ import { getClawDir, getNamedSubrootDir, getClawConfigPath, getChestnutRoot } fr
 import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../core/claw-topology/index.js';
 
 import { startDaemonLoop } from './daemon-loop.js';
+import { EventLoop } from '../core/event-loop/index.js';
 import { createSystemAudit, type AuditLog } from '../foundation/audit/index.js';
 import { createAgentProcessManager } from '../foundation/process-manager/index.js';
 import { makeClawId } from '../foundation/claw-identity/index.js';
@@ -126,6 +127,19 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
 
     const { runtime, streamWriter, snapshot, auditWriter, heartbeat } = instances;
 
+    const inboxPendingDir = path.join(dir, INBOX_PENDING_DIR);
+
+    const eventLoop = new EventLoop({
+      runtime,
+      fsFactory: deps.fsFactory,
+      agentDir: dir,
+      clawId: clawId,
+      audit: auditWriter,
+      inbox: { pendingDir: inboxPendingDir },
+      streamWriter,
+    });
+    await eventLoop.initialize();
+
     try {
       await runtime.initialize();
     } catch (e) {
@@ -174,8 +188,6 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
       auditWriter.write(DAEMON_AUDIT_EVENTS.SNAPSHOT_COMMIT_FAILED, `context=daemon-start`, `reason=${formatErr(err)}`);
     });
 
-    const inboxPendingDir = path.join(dir, INBOX_PENDING_DIR);
-
 
     // 注册 uncaughtException / unhandledRejection 处理程序
     const writeCrash = (reason: unknown): void => {
@@ -187,12 +199,11 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
 
     const { promise, stop } = startDaemonLoop({
       fsFactory: deps.fsFactory,
-      runtime,
+      eventLoop,
       agentDir: dir,
       clawId: clawId,
       label: isMotion ? '[motion daemon]' : '[daemon]',
       audit: auditWriter,
-      inbox: { pendingDir: inboxPendingDir },
       motion: isMotion
         ? (() => {
             // phase 521 (review-round4 CLI M): 非空断言改显式 throw、防 test 构造缺 probe + motion 分支致 undefined() crash
@@ -202,7 +213,6 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
             return { heartbeat: heartbeat ?? undefined, watchdogAliveProbe: deps.watchdogAliveProbe };
           })()
         : undefined,
-      streamWriter,
     });
 
     /**

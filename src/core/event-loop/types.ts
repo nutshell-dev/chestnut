@@ -18,6 +18,7 @@ export interface LoopErrorContext {
 
 export interface EventLoopOptions {
   runtime: Runtime;
+  fsFactory: (baseDir: string) => FileSystem;
   agentDir: string;
   clawId: string;
   audit: AuditLog;

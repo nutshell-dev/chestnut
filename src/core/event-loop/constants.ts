@@ -16,3 +16,9 @@ export const LLM_RETRY_MAX_DELAY_MS = 300_000;
 
 /** LLM retry state 持久化文件名 */
 export const LLM_RETRY_STATE_FILE = 'llm-retry-state.json' as const;
+
+/**
+ * ReAct chain 单 tick 内 batch 最大轮数 / 防 runaway 安全闸.
+ * 达 cap 时 emit LOOP_ITERATION_TYPES.CHAIN_LIMITED audit / chain 强制结束本 tick.
+ */
+export const REACT_CHAIN_MAX_ITERATIONS = 100;

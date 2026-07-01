@@ -9,15 +9,6 @@ export const DAEMON_LOG = 'logs/daemon.log';
  */
 export const DAEMON_FALLBACK_TIMEOUT_MS = 30000;
 
-// LLM retry / interrupt recovery 常量已迁入 L5 EventLoop。re-export 保持向后兼容。
-export {
-  INTERRUPT_RECOVERY_DELAY_MS,
-  LLM_MAX_RETRIES,
-  LLM_RETRY_INITIAL_DELAY_MS,
-  LLM_RETRY_MAX_DELAY_MS,
-  LLM_RETRY_STATE_FILE,
-} from '../core/event-loop/constants.js';
-
 /**
  * Cooldown between startup_check notifications to prevent spam from rapid daemon restarts (ms).
  * Derivation: 10 * 60 * 1000 = 10 min / 给 daemon 真异常 restart loop 足够 cooldown 不灌爆 /
@@ -54,8 +45,3 @@ export const INTERRUPT_POLL_MAX_ERRORS = 20;
  */
 export const INTERRUPT_POLL_RECOVERY_BACKOFF_MS = 30_000;
 
-/**
- * ReAct chain 单 tick 内 batch 最大轮数 / 防 runaway 安全闸.
- * 达 cap 时 emit LOOP_ITERATION_TYPES.CHAIN_LIMITED audit / chain 强制结束本 tick.
- */
-export const REACT_CHAIN_MAX_ITERATIONS = 100;
