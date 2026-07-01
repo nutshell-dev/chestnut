@@ -137,7 +137,7 @@ export interface TurnResult {
  */
 
 export interface IRuntimeLifecycle {
-  initialize(): Promise<void>;
+  initialize(opts?: { interruptionMessage?: string }): Promise<void>;
   stop(): Promise<void>;
   getStatus(): { initialized: boolean; clawId: string };
   getTurnCount(): number;

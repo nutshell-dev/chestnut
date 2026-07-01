@@ -12,8 +12,6 @@ export type { CreateRuntimeOptions } from './create-runtime.js';
 // 此处保留 re-export 桥（backward compat）；新代码请直接 import from '../heartbeat/index.js'。
 export { Heartbeat, createHeartbeat, HEARTBEAT_AUDIT_EVENTS } from '../heartbeat/index.js';
 export type { HeartbeatOptions } from '../heartbeat/index.js';
-export { summarizeLastExit, readLastExitEvent } from './last-exit-summary.js';
-
 // phase 488: runtime-audit-events barrel re-export (cli/config caller)
 export { RELOAD_LLM_CONFIG_MESSAGE_TYPE } from './runtime-audit-events.js';
 

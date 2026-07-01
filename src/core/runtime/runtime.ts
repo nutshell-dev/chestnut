@@ -12,7 +12,6 @@ import { CALLER_TYPE_TO_GROUPS } from '../caller-types.js';
 
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import { type FileSystem } from '../../foundation/fs/index.js';
-import { AUDIT_FILE } from '../../foundation/audit/index.js';
 // phase 1414: isFileNotFound import removed — HEARTBEAT.md 读迁 Heartbeat 模块 inbox-formatter
 import type { Message, ToolDefinition } from '../../foundation/llm-provider/index.js';
 import type { InboxMessage } from '../../foundation/messaging/index.js';
@@ -24,7 +23,6 @@ import { resolveContextWindow } from '../../foundation/llm-provider/model-contex
 import { loadReadFileState, clearReadFileState } from '../../foundation/file-tool/index.js';
 // phase 1406: SummonTool import removed — Assembly 标准注册路径，G→F 单向依赖恢复
 import { runReact } from '../agent-executor/index.js';
-import { summarizeLastExit } from './last-exit-summary.js';
 import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../step-executor/signals.js';
 import type { CallerSnapshot } from '../../foundation/tool-protocol/index.js';
 import { RUNTIME_AUDIT_EVENTS, REACT_LOOP_AUDIT_EVENTS, RELOAD_LLM_CONFIG_MESSAGE_TYPE } from './runtime-audit-events.js';
@@ -173,7 +171,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
   /**
    * Initialize all modules
    */
-  async initialize(): Promise<void> {
+  async initialize(opts?: { interruptionMessage?: string }): Promise<void> {
     if (this.initialized) return;
 
     const { clawDir } = this.options;
@@ -245,7 +243,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     //    load 后 in-memory recovery 即完成、current.json 不动。
     //    phase 405: 撤启动归档（archive() 不防长度增长、对 session 物理长度零控制效果；
     //    archive 入口保留在 regime-switch 真有 session 实体断裂语义的场景）。
-    await this.repairSessionIfNeeded();
+    await this.repairSessionIfNeeded(opts?.interruptionMessage);
 
     // 4. AsyncTaskSystem 业务动作（M#2 归属消费者 / Assembly 只构造不调）
     try {
@@ -276,7 +274,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     this.initialized = true;
   }
 
-  private async repairSessionIfNeeded(): Promise<void> {
+  private async repairSessionIfNeeded(interruptionMessage?: string): Promise<void> {
     const loadResult = await this.sessionManager.load().catch((err) => {
       this.auditWriter.write(
         RUNTIME_AUDIT_EVENTS.SESSION_REPAIR_FAILED,
@@ -287,8 +285,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     });
     if (!loadResult) return;
     const { session, source } = loadResult;
-    const auditAbsPath = this.systemFs.resolve(AUDIT_FILE);
-    const interruptionMessage = summarizeLastExit(this.systemFs, auditAbsPath);
+    // interruptionMessage 由 caller（daemon）传入，runtime 不再直读 audit 文件
     this.auditWriter.write(RUNTIME_AUDIT_EVENTS.SESSION_LOADED, `source=${source}`);
     const { repaired, toolCount } = DialogStore.repair(
       session.messages,

@@ -1,17 +1,17 @@
 /**
- * Last-exit summary (Runtime startup helper)
+ * Last-exit summary (Daemon startup helper)
  *
  * 读 audit.tsv 最后一行，把上次进程退出状态翻译成给 LLM 看的人话，
  * 用作 DialogStore.repair 的 interruptionMessage。
  *
- * 模块归属：业务层（src/core）—— 文本解读包含 daemon_stop / daemon_crash /
+ * 模块归属：L6.Daemon —— 文本解读包含 daemon_stop / daemon_crash /
  * daemon_unclean_exit 等业务事件语义，不归 L2 audit foundation。
  *
  * 设计：经 L1 FileSystem 抽象 / 用 readBytesSync(start, end) 实现 tail bytes 读 /
  * 同 phase455 bypass cluster 治理一致 / phase460 cluster 6/6 全闭里程碑。
  */
 
-import { isFileNotFound, type FileSystem } from '../../foundation/fs/index.js';
+import { isFileNotFound, type FileSystem } from '../foundation/fs/index.js';
 
 /**
  * audit.tsv 尾部读字节数（用于 readBytesSync(start, end) tail read）.

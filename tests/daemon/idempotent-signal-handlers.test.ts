@@ -14,6 +14,7 @@ vi.mock('../../src/daemon/daemon-loop.js', () => ({
 }));
 
 vi.mock('../../src/foundation/audit/index.js', () => ({
+  AUDIT_FILE: 'audit.tsv',
   createSystemAudit: vi.fn(() => ({
     write: vi.fn(),
     preview: vi.fn((s: string) => s),
@@ -56,6 +57,10 @@ const mockFs = {
   list: vi.fn().mockResolvedValue([]),
   readSync: vi.fn().mockReturnValue('test-agents-md'),
   delete: vi.fn().mockResolvedValue(undefined),
+  resolve: vi.fn((...parts: string[]) => parts.join('/')),
+  existsSync: vi.fn().mockReturnValue(false),
+  statSync: vi.fn().mockReturnValue({ size: 0 }),
+  readBytesSync: vi.fn().mockReturnValue(Buffer.from('')),
 };
 
 const daemonCommand = createDaemonCommand({
