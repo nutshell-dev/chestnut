@@ -4,6 +4,7 @@ import { promises as fs } from 'fs';
 import { Runtime } from '../../../src/core/runtime/index.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { createTestRuntime, createMockLLMConfig, createMockLLM } from '../_runtime-test-helpers.js';
+import { runLegacyBatch } from '../../helpers/legacy-process-batch.js';
 
 describe('Runtime DrainInbox metadata (phase 436)', () => {
   let tempDir: string;
@@ -60,7 +61,7 @@ ${body}
     }]);
     (runtime as unknown as { llm: typeof mockLLM }).llm = mockLLM;
 
-    const count = await runtime.processBatch();
+    const count = await runLegacyBatch(runtime);
     expect(count).toBe(3);
 
     const callArgs = mockLLM.call.mock.calls[0][0];
@@ -107,7 +108,7 @@ ${body}
     }]);
     (runtime as unknown as { llm: typeof mockLLM }).llm = mockLLM;
 
-    await runtime.processBatch();
+    await runLegacyBatch(runtime);
 
     const callArgs = mockLLM.call.mock.calls[0][0];
     const userMessages = callArgs.messages.filter((m: { role: string }) => m.role === 'user');

@@ -23,6 +23,7 @@ import { makeRuntimeDeps } from '../helpers/runtime-deps.js';
 import { writeSessionWithIncompleteToolUse } from '../helpers/session-fixtures.js';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 import { createTestRuntime, createMockLLMConfig, createMockLLM } from './_runtime-test-helpers.js';
+import { runLegacyBatch } from '../helpers/legacy-process-batch.js';
 
 describe('Runtime audit events', () => {
   let tempDir: string;
@@ -181,7 +182,7 @@ Test message
       (runtime as unknown as RuntimeTestInternals).llm = mockLLM;
 
       const auditSpy = vi.spyOn((runtime as unknown as RuntimeTestInternals).auditWriter, 'write');
-      await runtime.processBatch();
+      await runLegacyBatch(runtime);
       const calls = auditSpy.mock.calls.map((c: any[]) => c[0]);
       expect(calls).toContain('turn_start');
       expect(calls).toContain('turn_end');
@@ -264,7 +265,7 @@ Test message
       (runtime as unknown as RuntimeTestInternals).llm = mockLLM;
 
       const auditSpy = vi.spyOn((runtime as unknown as RuntimeTestInternals).auditWriter, 'write');
-      await runtime.processBatch();
+      await runLegacyBatch(runtime);
       // phase 560: 加 trace_id forensic field 跨源 join 到 turn
       expect(auditSpy).toHaveBeenCalledWith('llm_call', 'test-model', expect.stringContaining('trace_id='), expect.stringContaining('in='), expect.stringContaining('out='), expect.stringContaining('latency_ms='));
       auditSpy.mockRestore();
@@ -301,7 +302,7 @@ Test message
       (runtime as unknown as RuntimeTestInternals).llm = failingLLM;
 
       const auditSpy = vi.spyOn((runtime as unknown as RuntimeTestInternals).auditWriter, 'write');
-      await expect(runtime.processBatch()).rejects.toThrow('LLM network error');
+      await expect(runLegacyBatch(runtime)).rejects.toThrow('LLM network error');
       // phase 560: 加 trace_id forensic field
       expect(auditSpy).toHaveBeenCalledWith('llm_error', 'failing-model', expect.stringContaining('trace_id='), expect.stringContaining('error='), expect.stringContaining('latency_ms='));
       auditSpy.mockRestore();

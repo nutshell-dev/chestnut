@@ -71,9 +71,9 @@ const userInterruptHandler: ErrorHandler = {
       EVENTLOOP_AUDIT_EVENTS.ITERATION,
       `cause=${LOOP_INTERRUPT_CAUSES.user_interrupt}`,
     );
-    // 不 waitForInbox — 直接返回让 while loop 下一轮立即调 processBatch，
+    // 不 waitForInbox — 直接返回让 while loop 下一轮立即调 drainInbox + processTurn，
     // 把被中断 turn 期间到达、仍残留在 inbox/pending 里的消息正常 drain 出来。
-    // pending 真空时 processBatch 返回 0 自然走正常 waitForInbox。
+    // pending 真空时 drainInbox 返回 0 自然走正常 waitForInbox。
     // 与 priorityInboxHandler 保持一致。
   },
 };
@@ -140,9 +140,9 @@ const fallbackHandler: ErrorHandler = {
       `reason=${isLLMMaxRetry ? 'max_retries_exhausted' : 'non_llm_error'}`,
       `error=${formatErr(err)}`,
     );
-    // 不 waitForInbox — 直接返回让 while loop 下一轮立即调 processBatch，
+    // 不 waitForInbox — 直接返回让 while loop 下一轮立即调 drainInbox + processTurn，
     // 把 nack 回 inbox/pending 的消息正常 drain 出来。
-    // pending 真空时 processBatch 返回 0 自然走正常 waitForInbox。
+    // pending 真空时 drainInbox 返回 0 自然走正常 waitForInbox。
     // 与 userInterruptHandler / priorityInboxHandler 保持一致。
   },
 };

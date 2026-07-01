@@ -11,6 +11,7 @@ import { makeRuntimeDeps } from '../helpers/runtime-deps.js';
 import type { InboxMessage } from '../../src/foundation/messaging/types.js';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 import { createTestRuntime, createMockLLMConfig, createMockLLM } from './_runtime-test-helpers.js';
+import { runLegacyBatch } from '../helpers/legacy-process-batch.js';
 
 
 describe('Runtime ProcessBatch', () => {
@@ -45,7 +46,7 @@ describe('Runtime ProcessBatch', () => {
       }));
       await runtime.initialize();
 
-      const count = await runtime.processBatch();
+      const count = await runLegacyBatch(runtime);
       expect(count).toBe(0);
     });
 
@@ -87,7 +88,7 @@ ${msg.content}
       (runtime as unknown as { llm: typeof mockLLM }).llm = mockLLM;
 
       // Process batch
-      const count = await runtime.processBatch();
+      const count = await runLegacyBatch(runtime);
       expect(count).toBe(3);
 
       // Verify messages moved to done/
@@ -148,7 +149,7 @@ Test message
       }]);
       (runtime as unknown as { llm: typeof mockLLM }).llm = mockLLM;
 
-      await runtime.processBatch();
+      await runLegacyBatch(runtime);
 
       // Pending should be empty
       const pendingFiles = await fs.readdir(pendingDir);
@@ -198,7 +199,7 @@ Test message
         onInboxMessages: vi.fn().mockRejectedValue(new Error('handler boom')),
       };
 
-      await runtime.processBatch(callbacks);
+      await runLegacyBatch(runtime, callbacks);
 
       expect(audit.some(e => /^inbox_handler_failed\thandler=onInboxMessages\treason=handler boom$/.test(e))).toBe(true);
       expect(callbacks.onInboxMessages).toHaveBeenCalled();

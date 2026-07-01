@@ -20,6 +20,7 @@ import { LockContentionExhaustedError } from '../../../src/core/contract/errors.
 import type { InboxMessage } from '../../../src/foundation/messaging/types.js';
 import type { Message } from '../../../src/foundation/llm-provider/types.js';
 import type { LLMOrchestratorConfig } from '../../../src/foundation/llm-orchestrator/types.js';
+import { runLegacyBatch } from '../../helpers/legacy-process-batch.js';
 
 function createMockLLMConfig(): LLMOrchestratorConfig {
   return {
@@ -107,7 +108,7 @@ describe('Runtime catch → markCrashed (phase 63)', () => {
       };
       runtime.reactThrow = new (Cls as any)(...args);
 
-      await expect(runtime.processBatch()).rejects.toBeInstanceOf(Cls);
+      await expect(runLegacyBatch(runtime)).rejects.toBeInstanceOf(Cls);
 
       expect(markSpy).toHaveBeenCalledWith('test-contract', `system: ${Cls.name.toLowerCase()}`);
       markSpy.mockRestore();
@@ -134,7 +135,7 @@ describe('Runtime catch → markCrashed (phase 63)', () => {
     };
     runtime.reactThrow = new MaxStepsExceededError(10);
 
-    await expect(runtime.processBatch()).rejects.toBeInstanceOf(MaxStepsExceededError);
+    await expect(runLegacyBatch(runtime)).rejects.toBeInstanceOf(MaxStepsExceededError);
 
     expect(markSpy).not.toHaveBeenCalled();
     expect(auditWrites.some(a => a[0] === 'runtime_catch_unhandled')).toBe(true);
@@ -162,7 +163,7 @@ describe('Runtime catch → markCrashed (phase 63)', () => {
     };
     runtime.reactThrow = new MaxStepsExceededError(10);
 
-    await expect(runtime.processBatch()).rejects.toBeInstanceOf(MaxStepsExceededError);
+    await expect(runLegacyBatch(runtime)).rejects.toBeInstanceOf(MaxStepsExceededError);
 
     expect(markSpy).toHaveBeenCalled();
     expect(auditWrites.some(a => a[0] === 'mark_crashed_failed')).toBe(true);
@@ -187,7 +188,7 @@ describe('Runtime catch → markCrashed (phase 63)', () => {
     };
     runtime.reactThrow = new LockContentionExhaustedError('lock-test-id', 5);
 
-    await expect(runtime.processBatch()).rejects.toBeInstanceOf(LockContentionExhaustedError);
+    await expect(runLegacyBatch(runtime)).rejects.toBeInstanceOf(LockContentionExhaustedError);
 
     expect(markSpy).toHaveBeenCalledWith('lock-test-id', 'system: lockcontentionexhaustederror');
     markSpy.mockRestore();

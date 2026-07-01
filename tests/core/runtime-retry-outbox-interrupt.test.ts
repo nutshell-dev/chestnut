@@ -17,6 +17,7 @@ import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../../
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 import { createTestRuntime, createMockLLMConfig, createMockLLM } from './_runtime-test-helpers.js';
 import { handleTurnInterrupt } from '../../src/core/runtime/runtime.js';
+import { runLegacyBatch } from '../helpers/legacy-process-batch.js';
 
 
 describe('Runtime RetryOutboxInterrupt', () => {
@@ -228,7 +229,7 @@ describe('Runtime RetryOutboxInterrupt', () => {
       const markSpy = vi.spyOn((runtime as any).contractManager, 'markCrashed').mockResolvedValue(undefined);
 
       // 错误应被重抛
-      await expect(runtime.processBatch()).rejects.toThrow(MaxStepsExceededError);
+      await expect(runLegacyBatch(runtime)).rejects.toThrow(MaxStepsExceededError);
 
       // phase 71: markCrashed 替代 writeErrorResponse
       expect(markSpy).toHaveBeenCalledWith('c-1', 'system: maxstepsexceedederror');
@@ -264,7 +265,7 @@ describe('Runtime RetryOutboxInterrupt', () => {
       };
 
       // 应抛出原始错误，而非 outbox 错误
-      const err = await runtime.processBatch().catch(e => e);
+      const err = await runLegacyBatch(runtime).catch(e => e);
       expect(err).toBe(originalError);
       expect(err.message).toBe('LLM exploded');
     });
@@ -296,7 +297,7 @@ describe('Runtime RetryOutboxInterrupt', () => {
         audit.push([type, ...args].join('\t'));
       });
 
-      await expect(runtime.processBatch()).rejects.toThrow(MaxStepsExceededError);
+      await expect(runLegacyBatch(runtime)).rejects.toThrow(MaxStepsExceededError);
 
       expect(audit.some(e => /^runtime_catch_unhandled\tpath=agent_loop_crash_no_contract/.test(e))).toBe(true);
     });
@@ -330,7 +331,7 @@ describe('Runtime RetryOutboxInterrupt', () => {
         audit.push([type, ...args].join('\t'));
       });
 
-      const err = await runtime.processBatch().catch(e => e);
+      const err = await runLegacyBatch(runtime).catch(e => e);
       expect(err).toBe(originalError);
 
       expect(audit.some(e => /^runtime_catch_unhandled\tpath=non_interrupt_error/.test(e))).toBe(true);

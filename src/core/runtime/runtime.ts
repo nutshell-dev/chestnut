@@ -11,7 +11,6 @@ import { MOTION_CLAW_ID } from '../claw-topology/index.js';
 import { CALLER_TYPE_TO_GROUPS } from '../caller-types.js';
 
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
-import { isContextExceededError } from '../../foundation/llm-orchestrator/index.js';
 import { type FileSystem } from '../../foundation/fs/index.js';
 import { AUDIT_FILE } from '../../foundation/audit/index.js';
 // phase 1414: isFileNotFound import removed — HEARTBEAT.md 读迁 Heartbeat 模块 inbox-formatter
@@ -27,15 +26,6 @@ import { loadReadFileState, clearReadFileState } from '../../foundation/file-too
 import { runReact } from '../agent-executor/index.js';
 import { summarizeLastExit } from './last-exit-summary.js';
 import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../step-executor/signals.js';
-import {
-  MaxStepsExceededError,
-  WallTimeExceededError,
-  ConsecutiveParseErrorsExceededError,
-  ConsecutiveMaxTokensToolUseError,
-} from '../agent-executor/errors.js';
-import { LLMAllProvidersFailedError } from '../../foundation/llm-orchestrator/errors.js';
-import { LockContentionExhaustedError } from '../contract/errors.js';
-import { makeContractId } from '../contract/types.js';
 import type { CallerSnapshot } from '../../foundation/tool-protocol/index.js';
 import { RUNTIME_AUDIT_EVENTS, REACT_LOOP_AUDIT_EVENTS, RELOAD_LLM_CONFIG_MESSAGE_TYPE } from './runtime-audit-events.js';
 // phase 71: writeErrorResponse 消（error-response.ts 整删）
@@ -57,7 +47,6 @@ import type { AsyncTaskSystem } from '../async-task-system/index.js';
 import {
   type RuntimeOptions,
   type StreamCallbacks,
-  type DaemonStreamCallbacks,
   type IRuntimeLifecycle,
   type IRuntimeDaemon,
   type TurnResult,
@@ -892,141 +881,6 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     }
   }
 
-  /**
-   * MVP alignment: batch-process inbox messages (polling-based batch instead of event-driven)
-   * @deprecated Use drainInbox + proactiveTrimIfNeeded + processTurn + ack/nack instead.
-   * @returns number of injected messages (0 = nothing pending)
-   */
-  async processBatch(callbacks?: DaemonStreamCallbacks): Promise<number> {
-    if (!this.initialized) {
-      await this.initialize();
-    }
-
-    const { traceId, cleanup } = this._setupTurnContext();
-    try {
-      const { injected, sources, count, infos, addressedHandles } = await this.drainInbox();
-      if (count === 0) return 0;
-
-      // Notify daemon-loop of inbox messages for review_request handling
-      if (callbacks?.onInboxMessages && infos.length > 0) {
-        try {
-          await callbacks.onInboxMessages(infos);
-        } catch (e) {
-          const reason = formatErr(e);
-          this.auditWriter.write(RUNTIME_AUDIT_EVENTS.INBOX_HANDLER_FAILED, 'handler=onInboxMessages', `reason=${reason}`);
-        }
-      }
-
-      const { session } = await this.sessionManager.load();
-      const tools = this.getToolsForLLM();
-      let messages = [...session.messages, ...injected];
-      messages = await this.proactiveTrimIfNeeded(messages, session.systemPrompt, tools);
-
-      // Turn start
-      callbacks?.onTurnStart?.(sources);
-      // phase 569: 加 trace_id forensic field（turn 入口 trace_id 已设）
-      // phase 722: 加 caller col 区分 3 caller 路径 (batch / with_message / retry)
-      this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_START, `caller=batch`, `trace_id=${String(this.execContext?.trace_id ?? '')}`);
-
-      // phase 690: 保留 processBatch 旧路径的反应式 trim+retry 行为（EventLoop 新路径不依赖此壳）
-      const MAX_REACTIVE_TRIM_RETRIES = 2;
-      let reactiveRetries = 0;
-      let result: TurnResult;
-      while (true) {
-        result = await this.processTurn(messages, session.systemPrompt, tools, callbacks, traceId);
-        if (
-          result.status !== 'failed' ||
-          !isContextExceededError(result.error) ||
-          reactiveRetries >= MAX_REACTIVE_TRIM_RETRIES
-        ) {
-          break;
-        }
-        reactiveRetries++;
-        await this.reactiveTrim();
-        const { session: trimmedSession } = await this.sessionManager.load();
-        messages = trimmedSession.messages;
-      }
-
-      // Route ack/nack based on turn result; preserve legacy throw behavior.
-      if (result.status === 'success') {
-        await this.ackHandles(addressedHandles, 'normal_turn_end');
-      } else if (result.status === 'interrupted') {
-        if (result.cause === 'idle_timeout') {
-          await this.nackHandles(addressedHandles, result.cause ?? 'idle_timeout', 'graceful_interrupt');
-        } else {
-          await this.ackHandles(addressedHandles, 'graceful_interrupt');
-        }
-      } else {
-        await this.nackHandles(addressedHandles, formatErr(result.error) ?? 'failed', 'rollback');
-
-        const err = result.error;
-        // phase 63: 5 typed Error / LockContentionExhaustedError → ContractSystem.markCrashed
-        const isAgentLoopCrash =
-          err instanceof MaxStepsExceededError ||
-          err instanceof WallTimeExceededError ||
-          err instanceof ConsecutiveParseErrorsExceededError ||
-          err instanceof ConsecutiveMaxTokensToolUseError ||
-          err instanceof LLMAllProvidersFailedError ||
-          err instanceof LockContentionExhaustedError;
-
-        if (isAgentLoopCrash) {
-          for (const info of infos) {
-            const contractId = err instanceof LockContentionExhaustedError
-              ? err.contractId
-              : info.metadata?.contract_id;
-            if (contractId) {
-              try {
-                await this.contractManager.markCrashed(
-                  makeContractId(String(contractId)),
-                  `system: ${(err as Error).constructor.name.toLowerCase()}`,
-                );
-              } catch (markErr) {
-                const traceCol = `trace_id=${String(this.execContext?.trace_id ?? '')}`;
-                this.auditWriter.write(
-                  REACT_LOOP_AUDIT_EVENTS.MARK_CRASHED_FAILED,
-                  `contractId=${contractId}`,
-                  `err=${(err as Error).constructor.name}`,
-                  `markErr=${formatErr(markErr)}`,
-                  traceCol,
-                );
-                this.auditWriter.write(
-                  RUNTIME_AUDIT_EVENTS.CATCH_UNHANDLED,
-                  `path=mark_crashed_failed`,
-                  `err=${(err as Error).constructor.name}`,
-                  `reason=${formatErr(err)}`,
-                  traceCol,
-                );
-              }
-            } else {
-              // phase 71: contract_id 缺失 → audit-only、motion 业务不打扰
-              this.auditWriter.write(
-                RUNTIME_AUDIT_EVENTS.CATCH_UNHANDLED,
-                `path=agent_loop_crash_no_contract`,
-                `err=${(err as Error).constructor.name}`,
-                `reason=${formatErr(err)}`,
-              );
-            }
-          }
-        } else if (!(err instanceof PriorityInboxInterrupt || err instanceof UserInterrupt || err instanceof IdleTimeoutSignal)) {
-          // phase 71: catch-all fallback → audit-only、motion 业务不打扰
-          this.auditWriter.write(
-            RUNTIME_AUDIT_EVENTS.CATCH_UNHANDLED,
-            `path=non_interrupt_error`,
-            `err=${(err as Error).constructor.name ?? 'Error'}`,
-            `reason=${formatErr(err)}`,
-          );
-        }
-      }
-
-      if (result.status !== 'success' && result.error) {
-        throw result.error;
-      }
-
-      return count;
-    } finally {
-      cleanup();
-    }
-  }
 
   /**
    * Process a single synthetic message directly (without draining inbox).

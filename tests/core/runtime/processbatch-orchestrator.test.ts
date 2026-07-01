@@ -15,6 +15,7 @@ import type { InboxMessage } from '../../../src/foundation/messaging/types.js';
 import type { Message } from '../../../src/foundation/llm-provider/types.js';
 import { UserInterrupt } from '../../../src/core/step-executor/signals.js';
 import type { LLMOrchestratorConfig } from '../../../src/foundation/llm-orchestrator/types.js';
+import { runLegacyBatch } from '../../helpers/legacy-process-batch.js';
 
 function createMockLLMConfig(): LLMOrchestratorConfig {
   return {
@@ -107,7 +108,7 @@ describe('Runtime processBatch orchestrator (phase 1285)', () => {
     };
     runtime.reactThrow = new UserInterrupt();
 
-    await expect(runtime.processBatch()).rejects.toBeInstanceOf(UserInterrupt);
+    await expect(runLegacyBatch(runtime)).rejects.toBeInstanceOf(UserInterrupt);
 
     expect(commitSpy).toHaveBeenCalledWith('user_interrupt');
     expect(ackSpy).toHaveBeenCalled();
@@ -134,7 +135,7 @@ describe('Runtime processBatch orchestrator (phase 1285)', () => {
     };
     runtime.reactThrow = new UserInterrupt();
 
-    await expect(runtime.processBatch()).rejects.toBeInstanceOf(UserInterrupt);
+    await expect(runLegacyBatch(runtime)).rejects.toBeInstanceOf(UserInterrupt);
 
     expect(commitSpy).toHaveBeenCalledWith('user_interrupt');
     expect(ackSpy).toHaveBeenCalledWith(
@@ -174,7 +175,7 @@ describe('Runtime processBatch orchestrator (phase 1285)', () => {
     };
     runtime.reactThrow = new UserInterrupt();
 
-    await expect(runtime.processBatch()).rejects.toBeInstanceOf(UserInterrupt);
+    await expect(runLegacyBatch(runtime)).rejects.toBeInstanceOf(UserInterrupt);
 
     expect(commitSpy).toHaveBeenCalledWith('user_interrupt');
     expect(ackSpy).toHaveBeenCalledWith(expect.objectContaining({ filePath: 'inflight/msg1.md' }));
@@ -201,7 +202,7 @@ describe('Runtime processBatch orchestrator (phase 1285)', () => {
     };
     runtime.reactThrow = null;
 
-    await runtime.processBatch();
+    await runLegacyBatch(runtime);
 
     expect(commitSpy).toHaveBeenCalled();
     expect(ackSpy).toHaveBeenCalledWith({ filePath: 'inflight/msg1.md', originalFileName: 'msg1.md' });
@@ -225,7 +226,7 @@ describe('Runtime processBatch orchestrator (phase 1285)', () => {
     };
     runtime.reactThrow = new MaxStepsExceededError(10);
 
-    await expect(runtime.processBatch()).rejects.toThrow(MaxStepsExceededError);
+    await expect(runLegacyBatch(runtime)).rejects.toThrow(MaxStepsExceededError);
 
     expect(rollbackSpy).toHaveBeenCalled();
     expect(nackSpy).toHaveBeenCalled();
@@ -247,7 +248,7 @@ describe('Runtime processBatch orchestrator (phase 1285)', () => {
       addressedHandles: [],
     };
 
-    await runtime.processBatch();
+    await runLegacyBatch(runtime);
     expect(beginSpy).toHaveBeenCalled();
     expect(commitSpy).toHaveBeenCalled();
   });

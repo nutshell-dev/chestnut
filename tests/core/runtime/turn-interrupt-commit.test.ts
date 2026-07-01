@@ -15,6 +15,7 @@ import type { InboxMessage } from '../../../src/foundation/messaging/types.js';
 import type { Message } from '../../../src/foundation/llm-provider/types.js';
 import type { LLMOrchestratorConfig } from '../../../src/foundation/llm-orchestrator/types.js';
 import { DIALOG_AUDIT_EVENTS } from '../../../src/foundation/dialog-store/audit-events.js';
+import { runLegacyBatch } from '../../helpers/legacy-process-batch.js';
 
 function createMockLLMConfig(): LLMOrchestratorConfig {
   return {
@@ -121,7 +122,7 @@ describe('turn interrupt: graceful → commit (phase 1375)', () => {
     runtime.midTurnSaves = 3;
     runtime.reactThrow = new UserInterrupt();
 
-    await expect(runtime.processBatch()).rejects.toBeInstanceOf(UserInterrupt);
+    await expect(runLegacyBatch(runtime)).rejects.toBeInstanceOf(UserInterrupt);
 
     expect(commitCallSpy).toHaveBeenCalledWith('user_interrupt');
     expect(ackSpy).toHaveBeenCalled();
@@ -173,7 +174,7 @@ describe('turn interrupt: graceful → commit (phase 1375)', () => {
     runtime.midTurnSaves = 1;
     runtime.reactThrow = new UserInterrupt();
 
-    await expect(runtime.processBatch()).rejects.toBeInstanceOf(UserInterrupt);
+    await expect(runLegacyBatch(runtime)).rejects.toBeInstanceOf(UserInterrupt);
 
     expect(commitCallSpy).toHaveBeenCalledWith('user_interrupt');
     expect(ackSpy).toHaveBeenCalledWith(
@@ -226,7 +227,7 @@ describe('turn interrupt: graceful → commit (phase 1375)', () => {
     runtime.midTurnSaves = 2;
     runtime.reactThrow = new IdleTimeoutSignal(30000);
 
-    await expect(runtime.processBatch()).rejects.toBeInstanceOf(IdleTimeoutSignal);
+    await expect(runLegacyBatch(runtime)).rejects.toBeInstanceOf(IdleTimeoutSignal);
 
     expect(commitCallSpy).toHaveBeenCalledWith('idle_timeout');
     expect(nackSpy).toHaveBeenCalled();
@@ -275,7 +276,7 @@ describe('turn interrupt: graceful → commit (phase 1375)', () => {
     runtime.midTurnSaves = 2;
     runtime.reactThrow = new Error('tool crash');
 
-    await expect(runtime.processBatch()).rejects.toThrow('tool crash');
+    await expect(runLegacyBatch(runtime)).rejects.toThrow('tool crash');
 
     expect(rollbackCallSpy).toHaveBeenCalled();
     expect(nackSpy).toHaveBeenCalled();
