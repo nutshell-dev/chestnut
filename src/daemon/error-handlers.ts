@@ -19,7 +19,7 @@ import {
   LLM_RETRY_MAX_DELAY_MS,
 } from './constants.js';
 import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../core/step-executor/signals.js';
-import { LLMAllProvidersFailedError } from '../foundation/llm-orchestrator/index.js';
+import { LLMAllProvidersFailedError, isContextExceededError } from '../foundation/llm-orchestrator/index.js';
 
 /**
  * Daemon loop catch 块状态、handler 可读写以驱动 retry 状态机
@@ -93,7 +93,8 @@ const priorityInboxHandler: ErrorHandler = {
 const llmRetryHandler: ErrorHandler = {
   name: 'llm_retry',
   match: (err, ctx) =>
-    err instanceof LLMAllProvidersFailedError && ctx.llmRetry.count < LLM_MAX_RETRIES,
+    (err instanceof LLMAllProvidersFailedError || isContextExceededError(err)) &&
+    ctx.llmRetry.count < LLM_MAX_RETRIES,
   handle: async (err, ctx) => {
     ctx.llmRetry.count++;
     ctx.audit.write(
@@ -107,6 +108,22 @@ const llmRetryHandler: ErrorHandler = {
     ctx.llmRetry.delayMs = Math.min(ctx.llmRetry.delayMs * 2, LLM_RETRY_MAX_DELAY_MS);
     ctx.llmRetry.pending = true;
     ctx.saveLlmRetryState();
+  },
+};
+
+const contextExceededExhaustedHandler: ErrorHandler = {
+  name: 'context_exceeded_exhausted',
+  match: (err) => isContextExceededError(err),
+  handle: async (_err, ctx) => {
+    ctx.llmRetry.count = 0;
+    ctx.llmRetry.delayMs = LLM_RETRY_INITIAL_DELAY_MS;
+    ctx.saveLlmRetryState();
+    ctx.audit.write(
+      DAEMON_AUDIT_EVENTS.LOOP_FATAL,
+      `reason=context_exceeded_exhausted`,
+      `cooldown_ms=${LLM_RETRY_MAX_DELAY_MS}`,
+    );
+    await new Promise(resolve => setTimeout(resolve, LLM_RETRY_MAX_DELAY_MS));
   },
 };
 
@@ -135,6 +152,7 @@ const ERROR_HANDLERS: ReadonlyArray<ErrorHandler> = [
   userInterruptHandler,
   priorityInboxHandler,
   llmRetryHandler,
+  contextExceededExhaustedHandler,
   fallbackHandler,
 ];
 

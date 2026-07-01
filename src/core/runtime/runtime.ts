@@ -62,7 +62,7 @@ import {
   CONTEXT_TRIM_PREVIEW_BYTES,
 } from '../context_manager/index.js';
 import { trimAndPersist } from '../context_manager/trim-and-persist.js';
-import { LLMContextExceededError } from '../../foundation/llm-orchestrator/index.js';
+import { isContextExceededError, LLMContextExceededError } from '../../foundation/llm-orchestrator/index.js';
 
 import { formatTimeAgo } from './utils.js';
 
@@ -1220,12 +1220,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
    *      + message regex 兜底 SDK 路径错（anthropic SDK adapter 抛错走 SDK 内部类型）。
    */
   private _isContextExceededError(err: unknown): boolean {
-    if (err instanceof LLMContextExceededError) return true;
-    if (err instanceof Error) {
-      const msg = err.message;
-      return /maximum context length|context.{0,30}exceed|prompt is too long|reduce the length of/i.test(msg);
-    }
-    return false;
+    return isContextExceededError(err);
   }
 
   /**

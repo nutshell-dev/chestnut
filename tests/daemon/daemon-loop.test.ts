@@ -18,6 +18,17 @@ import type { AuditLog } from '../../src/foundation/audit/index.js';
 import type { Runtime } from '../../src/core/runtime/index.js';
 import type { StreamLog } from '../../src/foundation/stream/types.js';
 import { MESSAGING_AUDIT_EVENTS } from '../../src/foundation/messaging/audit-events.js';
+import { LLMContextExceededError } from '../../src/foundation/llm-orchestrator/index.js';
+import { DAEMON_AUDIT_EVENTS } from '../../src/daemon/audit-events.js';
+
+vi.mock('../../src/daemon/constants.js', async () => {
+  const actual = await vi.importActual('../../src/daemon/constants.js');
+  return {
+    ...actual,
+    LLM_RETRY_INITIAL_DELAY_MS: 10,
+    LLM_RETRY_MAX_DELAY_MS: 50,
+  };
+});
 
 /**
  * 给 chokidar watcher 完成内部 fs.watch 注册 / ready 触发的 budget.
@@ -244,6 +255,64 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
       expect(turnStart).toBeDefined();
       expect(turnEnd).toBeDefined();
       expect(turnStart?.sources).toEqual([{ text: 'hello', type: 'user' }]);
+    });
+
+    it('context_exceeded 错误走 llmRetryHandler + 耗尽后走 cooldown', async () => {
+      const audit = createMockAudit();
+
+      const processBatch = vi.fn().mockImplementation(async () => {
+        throw new LLMContextExceededError('test-provider', 400, 'context length exceeded');
+      });
+
+      const retryLastTurn = vi.fn().mockImplementation(async () => {
+        throw new LLMContextExceededError('test-provider', 400, 'context length exceeded');
+      });
+
+      const abort = vi.fn();
+
+      const mockRuntime = {
+        processBatch,
+        retryLastTurn,
+        abort,
+      } as unknown as Runtime;
+
+      const { promise, stop } = startDaemonLoop({
+        runtime: mockRuntime,
+        agentDir,
+        clawId: 'test-claw',
+        label: '[test daemon]',
+        audit,
+        inbox: { pendingDir: inboxPendingDir, fallbackTimeoutMs: 50 },
+        fsFactory,
+      });
+
+      // 等待 fatal audit 出现（cooldown 前写入），出现后 stop
+      const start = Date.now();
+      while (Date.now() - start < 2000) {
+        const fatalEntries = audit.entries.filter(
+          e => e[0] === DAEMON_AUDIT_EVENTS.LOOP_FATAL &&
+            e.some(c => String(c).includes('context_exceeded_exhausted')),
+        );
+        if (fatalEntries.length > 0) {
+          break;
+        }
+        await new Promise(r => setTimeout(r, 5));
+      }
+
+      stop();
+      await promise;
+
+      expect(processBatch).toHaveBeenCalled();
+      expect(retryLastTurn).toHaveBeenCalledTimes(3);
+
+      const retryEntries = audit.entries.filter(e => e[0] === DAEMON_AUDIT_EVENTS.LOOP_LLM_RETRY);
+      expect(retryEntries.length).toBe(3);
+
+      const fatalEntries = audit.entries.filter(
+        e => e[0] === DAEMON_AUDIT_EVENTS.LOOP_FATAL &&
+          e.some(c => String(c).includes('context_exceeded_exhausted')),
+      );
+      expect(fatalEntries.length).toBeGreaterThan(0);
     });
   });
 });

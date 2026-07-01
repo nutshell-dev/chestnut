@@ -72,6 +72,24 @@ export function classifyLLMError(err: unknown): LLMErrorClass {
   return 'unknown';
 }
 
+/**
+ * Broad context-exceeded detection. Handles three paths from the orchestrator:
+ *   1. Single-provider LLMContextExceededError (orchestrator throw-through, instanceof)
+ *   2. All-providers LLMError("...context_window_exceeded...") (streaming generator, regex)
+ *   3. SDK-adapter non-standard error messages matching Anthropic/OpenAI context patterns (regex)
+ *
+ * Regex mirrors Runtime._isContextExceededError (src/core/runtime/runtime.ts:1226);
+ * after this extraction, Runtime._isContextExceededError will delegate here.
+ */
+export function isContextExceededError(err: unknown): boolean {
+  if (err instanceof LLMContextExceededError) return true;
+  if (err instanceof Error) {
+    const msg = err.message;
+    return /maximum context length|context.{0,30}exceed|prompt is too long|reduce the length of/i.test(msg);
+  }
+  return false;
+}
+
 export type UserActionHint =
   | 'rotate_api_key'
   | 'switch_primary'
