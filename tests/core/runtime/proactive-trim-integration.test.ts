@@ -10,6 +10,7 @@ import type { InboxMessage } from '../../../src/foundation/messaging/types.js';
 import * as maybeTrimModule from '../../../src/core/context_manager/maybe-trim-proactive.js';
 import * as loopModule from '../../../src/core/agent-executor/loop.js';
 import type { ReactResult } from '../../../src/core/agent-executor/loop.js';
+import { runLegacyBatch } from '../../helpers/legacy-process-batch.js';
 
 function createMockLLMConfig() {
   return {
@@ -92,7 +93,7 @@ describe('runtime proactive trim integration', () => {
     const msg = { role: 'user', content: 'hi' } as Message;
     runtime.drainResult = makeDrainResult([msg]);
 
-    await runtime.processBatch();
+    await runLegacyBatch(runtime);
 
     expect(spy).toHaveBeenCalledTimes(1);
     expect(spy).toHaveBeenCalledWith(expect.objectContaining({ lastLLMCallAt: 0 }));
@@ -110,7 +111,7 @@ describe('runtime proactive trim integration', () => {
     const runtime = await makeRuntime({ filterSubtypes: new Set() });
     runtime.drainResult = makeDrainResult([original]);
 
-    await runtime.processBatch();
+    await runLegacyBatch(runtime);
 
     expect(runtime.runReactMessages).toEqual([trimmed]);
   });
@@ -165,7 +166,7 @@ describe('runtime proactive trim integration', () => {
     const runtime = await makeRuntime();
     runtime.drainResult = makeDrainResult([{ role: 'user', content: 'hi' } as Message]);
 
-    await runtime.processBatch();
+    await runLegacyBatch(runtime);
 
     expect(spy).not.toHaveBeenCalled();
   });

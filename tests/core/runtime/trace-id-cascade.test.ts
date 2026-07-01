@@ -18,6 +18,7 @@ import { makeRuntimeDeps } from '../../helpers/runtime-deps.js';
 import type { Message } from '../../../src/foundation/llm-provider/types.js';
 import type { InboxMessage } from '../../../src/foundation/messaging/types.js';
 import type { LLMOrchestratorConfig } from '../../../src/foundation/llm-orchestrator/types.js';
+import { runLegacyBatch } from '../../helpers/legacy-process-batch.js';
 
 function createMockLLMConfig(): LLMOrchestratorConfig {
   return {
@@ -94,7 +95,7 @@ describe('Runtime trace-id cascade (phase 1343 α-6)', () => {
     const execCtx = (runtime as any).execContext;
     expect(execCtx.trace_id).toBeUndefined();
 
-    await runtime.processBatch();
+    await runLegacyBatch(runtime);
 
     expect(runtime.capturedTraceIds.length).toBe(1);
     const traceId = runtime.capturedTraceIds[0];
@@ -116,7 +117,7 @@ describe('Runtime trace-id cascade (phase 1343 α-6)', () => {
     };
 
     for (let i = 0; i < 10; i++) {
-      await runtime.processBatch();
+      await runLegacyBatch(runtime);
     }
 
     const seen = new Set(runtime.capturedTraceIds);
@@ -145,7 +146,7 @@ describe('Runtime trace-id cascade (phase 1343 α-6)', () => {
       addressedHandles: [],
     };
 
-    await runtime.processBatch();
+    await runLegacyBatch(runtime);
 
     // At least TURN_START audit row was captured
     const turnStartRow = captured.find(c => c.args[0] === 'turn_start');
@@ -172,7 +173,7 @@ describe('Runtime trace-id cascade (phase 1343 α-6)', () => {
       addressedHandles: [],
     };
 
-    await runtime.processBatch();
+    await runLegacyBatch(runtime);
 
     // First save (injected messages) should have trace_id
     const firstSave = saveSpy.mock.calls[0][0];
@@ -194,7 +195,7 @@ describe('Runtime trace-id cascade (phase 1343 α-6)', () => {
       addressedHandles: [],
     };
 
-    await runtime.processBatch();
+    await runLegacyBatch(runtime);
 
     expect(commitSpy).toHaveBeenCalled();
     const execCtx = (runtime as any).execContext;

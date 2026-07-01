@@ -18,6 +18,7 @@ import * as trimAndPersistModule from '../../../src/core/context_manager/trim-an
 import * as maybeTrimModule from '../../../src/core/context_manager/maybe-trim-proactive.js';
 import * as loopModule from '../../../src/core/agent-executor/loop.js';
 import type { ReactResult } from '../../../src/core/agent-executor/loop.js';
+import { runLegacyBatch } from '../../helpers/legacy-process-batch.js';
 
 function createMockLLMConfig() {
   return {
@@ -103,7 +104,7 @@ describe('runtime reactive trim+retry path', () => {
     const runtime = await makeRuntime();
     runtime.drainResult = makeDrainResult([{ role: 'user', content: 'hi' } as Message]);
 
-    await runtime.processBatch();
+    await runLegacyBatch(runtime);
 
     expect(runReactCalls).toBe(2);
     expect(trimSpy).toHaveBeenCalledTimes(1);
@@ -132,7 +133,7 @@ describe('runtime reactive trim+retry path', () => {
     // MAX_REACTIVE_TRIM_RETRIES = 2、总共 3 次 runReact（1 原始 + 2 retry）
     // 第 3 次仍抛、超 retry 上限、err 冒泡到 processBatch 的 turn-level catch、
     // 走 rollback 后再 throw 出 processBatch。
-    await expect(runtime.processBatch()).rejects.toBeInstanceOf(LLMContextExceededError);
+    await expect(runLegacyBatch(runtime)).rejects.toBeInstanceOf(LLMContextExceededError);
 
     expect(runReactCalls).toBe(3);
   });
@@ -155,7 +156,7 @@ describe('runtime reactive trim+retry path', () => {
     runtime.drainResult = makeDrainResult([{ role: 'user', content: 'hi' } as Message]);
 
     // 非 context-exceeded 错冒泡、不进 retry path
-    await expect(runtime.processBatch()).rejects.toThrow('Some other error');
+    await expect(runLegacyBatch(runtime)).rejects.toThrow('Some other error');
 
     // 仅一次 runReact、trim 未触发
     expect(runReactCalls).toBe(1);
@@ -183,7 +184,7 @@ describe('runtime reactive trim+retry path', () => {
     const runtime = await makeRuntime();
     runtime.drainResult = makeDrainResult([{ role: 'user', content: 'hi' } as Message]);
 
-    await runtime.processBatch();
+    await runLegacyBatch(runtime);
 
     expect(runReactCalls).toBe(2);
     expect(trimSpy).toHaveBeenCalledTimes(1);

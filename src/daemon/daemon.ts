@@ -17,7 +17,8 @@ import { resolveClawDaemonDir, MOTION_CLAW_ID } from '../core/claw-topology/inde
 
 import { startDaemonLoop } from './daemon-loop.js';
 import { EventLoop } from '../core/event-loop/index.js';
-import { createSystemAudit, type AuditLog } from '../foundation/audit/index.js';
+import { createSystemAudit, type AuditLog, AUDIT_FILE } from '../foundation/audit/index.js';
+import { summarizeLastExit } from './last-exit-summary.js';
 import { createAgentProcessManager } from '../foundation/process-manager/index.js';
 import { makeClawId } from '../foundation/claw-identity/index.js';
 import { isFileNotFound } from '../foundation/fs/index.js';
@@ -140,8 +141,11 @@ export function createDaemonCommand(deps: DaemonCommandDeps) {
     });
     await eventLoop.initialize();
 
+    const auditAbsPath = preAssembleFs.resolve(AUDIT_FILE);
+    const interruptionMessage = summarizeLastExit(preAssembleFs, auditAbsPath) ?? undefined;
+
     try {
-      await runtime.initialize();
+      await runtime.initialize({ interruptionMessage });
     } catch (e) {
       // 兜底：Runtime 侧若已精确 audit（如 inboxReader.init / sessionManager.save）此行幂等重复；
       // Runtime 侧漏网的失败由此行唯一覆盖，postmortem 信号"需补精确 audit"

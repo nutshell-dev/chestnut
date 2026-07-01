@@ -116,7 +116,7 @@ export interface RuntimeOptions {
   contextManagerConfig?: ContextManagerRuntimeConfig;
 }
 
-export type { StreamCallbacks, DaemonStreamCallbacks } from '../agent-executor/stream-callbacks.js';
+export type { StreamCallbacks } from '../agent-executor/stream-callbacks.js';
 
 export interface TurnResult {
   status: 'success' | 'failed' | 'interrupted';
@@ -137,7 +137,7 @@ export interface TurnResult {
  */
 
 export interface IRuntimeLifecycle {
-  initialize(): Promise<void>;
+  initialize(opts?: { interruptionMessage?: string }): Promise<void>;
   stop(): Promise<void>;
   getStatus(): { initialized: boolean; clawId: string };
   getTurnCount(): number;

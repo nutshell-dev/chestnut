@@ -23,6 +23,7 @@ import type { InboxMessage } from '../../../src/foundation/messaging/types.js';
 import type { Message } from '../../../src/foundation/llm-provider/types.js';
 import { UserInterrupt } from '../../../src/core/step-executor/signals.js';
 import type { LLMOrchestratorConfig } from '../../../src/foundation/llm-orchestrator/types.js';
+import { runLegacyBatch } from '../../helpers/legacy-process-batch.js';
 
 function createMockLLMConfig(): LLMOrchestratorConfig {
   return {
@@ -113,7 +114,7 @@ describe('phase 1415: UserInterrupt → system-typed inbox no-redrive invariant'
       };
       runtime.reactThrow = new UserInterrupt();
 
-      await expect(runtime.processBatch()).rejects.toBeInstanceOf(UserInterrupt);
+      await expect(runLegacyBatch(runtime)).rejects.toBeInstanceOf(UserInterrupt);
 
       expect(commitSpy).toHaveBeenCalledWith('user_interrupt');
       expect(ackSpy).toHaveBeenCalledTimes(1);
@@ -149,7 +150,7 @@ describe('phase 1415: UserInterrupt → system-typed inbox no-redrive invariant'
     };
     runtime.reactThrow = new UserInterrupt();
 
-    await expect(runtime.processBatch()).rejects.toBeInstanceOf(UserInterrupt);
+    await expect(runLegacyBatch(runtime)).rejects.toBeInstanceOf(UserInterrupt);
 
     expect(commitSpy).toHaveBeenCalledWith('user_interrupt');
     expect(ackSpy).toHaveBeenCalledTimes(3);
@@ -171,7 +172,7 @@ describe('phase 1415: UserInterrupt → system-typed inbox no-redrive invariant'
     };
     runtime.reactThrow = new UserInterrupt();
 
-    await expect(runtime.processBatch()).rejects.toBeInstanceOf(UserInterrupt);
+    await expect(runLegacyBatch(runtime)).rejects.toBeInstanceOf(UserInterrupt);
 
     // 反向守：若 UserInterrupt 分支被回退到 phase 1403 形态、nack 会被调用 → 本测 fail
     expect(nackSpy).toHaveBeenCalledTimes(0);

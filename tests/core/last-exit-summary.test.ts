@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { summarizeLastExit, readLastExitEvent } from '../../src/core/runtime/index.js';
+import { summarizeLastExit, readLastExitEvent } from '../../src/daemon/last-exit-summary.js';
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
 import type { FileSystem } from '../../src/foundation/fs/index.js';
 

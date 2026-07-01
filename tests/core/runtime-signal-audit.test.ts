@@ -16,6 +16,7 @@ import type { Message } from '../../src/foundation/llm-provider/types.js';
 import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../../src/core/step-executor/signals.js';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 import { createTestRuntime, createMockLLMConfig, createMockLLM } from './_runtime-test-helpers.js';
+import { runLegacyBatch } from '../helpers/legacy-process-batch.js';
 
 
 describe('Runtime SignalAudit', () => {
@@ -114,21 +115,21 @@ describe('Runtime SignalAudit', () => {
     it('IdleTimeoutSignal — no outbox notification sent', async () => {
       const r = await makeSignalRuntime();
       r.reactThrow = new IdleTimeoutSignal(30000);
-      await expect(r.processBatch()).rejects.toBeInstanceOf(IdleTimeoutSignal);
+      await expect(runLegacyBatch(r)).rejects.toBeInstanceOf(IdleTimeoutSignal);
       expect(await outboxFiles()).toHaveLength(0);
     });
 
     it('PriorityInboxInterrupt — no outbox notification sent', async () => {
       const r = await makeSignalRuntime();
       r.reactThrow = new PriorityInboxInterrupt();
-      await expect(r.processBatch()).rejects.toBeInstanceOf(PriorityInboxInterrupt);
+      await expect(runLegacyBatch(r)).rejects.toBeInstanceOf(PriorityInboxInterrupt);
       expect(await outboxFiles()).toHaveLength(0);
     });
 
     it('UserInterrupt — no outbox notification sent', async () => {
       const r = await makeSignalRuntime();
       r.reactThrow = new UserInterrupt();
-      await expect(r.processBatch()).rejects.toBeInstanceOf(UserInterrupt);
+      await expect(runLegacyBatch(r)).rejects.toBeInstanceOf(UserInterrupt);
       expect(await outboxFiles()).toHaveLength(0);
     });
 
@@ -139,7 +140,7 @@ describe('Runtime SignalAudit', () => {
       vi.spyOn((r as unknown as RuntimeTestInternals).auditWriter, 'write').mockImplementation((type: string, ...args: string[]) => {
         auditWrites.push([type, ...args]);
       });
-      await expect(r.processBatch()).rejects.toThrow('unexpected crash');
+      await expect(runLegacyBatch(r)).rejects.toThrow('unexpected crash');
       expect(auditWrites.some(a => a[0] === 'runtime_catch_unhandled')).toBe(true);
     });
   });

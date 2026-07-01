@@ -26,6 +26,7 @@ import type { AuditLog } from '../../src/foundation/audit/types.js';
 import { UserInterrupt } from '../../src/core/step-executor/signals.js';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 import { createTestRuntime, createMockLLMConfig, createMockLLM } from './_runtime-test-helpers.js';
+import { runLegacyBatch } from '../helpers/legacy-process-batch.js';
 
 
 describe('Runtime DrainInbox', () => {
@@ -103,7 +104,7 @@ describe('Runtime DrainInbox', () => {
       }]);
       (sharedRuntime as unknown as { llm: typeof mockLLM }).llm = mockLLM;
 
-      const count = await sharedRuntime.processBatch();
+      const count = await runLegacyBatch(sharedRuntime);
 
       // The .tmp file is skipped but the .md is processed
       expect(count).toBe(1);
@@ -124,7 +125,7 @@ describe('Runtime DrainInbox', () => {
       (sharedRuntime as unknown as { llm: typeof mockLLM }).llm = mockLLM;
 
       // Should not throw; only the good message is processed
-      await expect(sharedRuntime.processBatch()).resolves.toBe(1);
+      await expect(runLegacyBatch(sharedRuntime)).resolves.toBe(1);
 
       // Broken file should end up in failed/
       const failedFiles = await fs.readdir(failedDir);
@@ -141,7 +142,7 @@ describe('Runtime DrainInbox', () => {
       }]);
       (sharedRuntime as unknown as { llm: typeof mockLLM }).llm = mockLLM;
 
-      await sharedRuntime.processBatch();
+      await runLegacyBatch(sharedRuntime);
 
       const callArgs = mockLLM.call.mock.calls[0][0];
       const userMsg = callArgs.messages.find((m: { role: string }) => m.role === 'user');
@@ -162,7 +163,7 @@ describe('Runtime DrainInbox', () => {
       }]);
       (sharedRuntime as unknown as { llm: typeof mockLLM }).llm = mockLLM;
 
-      await sharedRuntime.processBatch();
+      await runLegacyBatch(sharedRuntime);
 
       const callArgs = mockLLM.call.mock.calls[0][0];
       const userMsg = callArgs.messages.find((m: { role: string }) => m.role === 'user');
@@ -191,7 +192,7 @@ describe('Runtime DrainInbox', () => {
       (sharedRuntime as unknown as { llm: typeof mockLLM }).llm = mockLLM;
 
       // processBatch drains inbox (addressed → done/, unaddressed → misrouted/ phase 442)
-      await sharedRuntime.processBatch();
+      await runLegacyBatch(sharedRuntime);
 
       // Only the message addressed to test-claw should be injected into LLM context
       const callArgs = mockLLM.call.mock.calls[0][0];
@@ -227,7 +228,7 @@ describe('Runtime DrainInbox', () => {
       const mockLLM = createMockLLM([]);
       (sharedRuntime as unknown as { llm: typeof mockLLM }).llm = mockLLM;
 
-      const count = await sharedRuntime.processBatch();
+      const count = await runLegacyBatch(sharedRuntime);
 
       // count fix: returns injectedInfos.length (0), not fileInfos.length (2)
       expect(count).toBe(0);
@@ -244,7 +245,7 @@ describe('Runtime DrainInbox', () => {
       const mockLLM = createMockLLM([]);
       (sharedRuntime as unknown as { llm: typeof mockLLM }).llm = mockLLM;
 
-      await sharedRuntime.processBatch();
+      await runLegacyBatch(sharedRuntime);
 
       // phase 379: mock-call assertion
       const entry = mockAuditWrite.mock.calls.find(c => c[0] === 'inbox_unaddressed');
@@ -262,7 +263,7 @@ describe('Runtime DrainInbox', () => {
       }]);
       (sharedRuntime as unknown as { llm: typeof mockLLM }).llm = mockLLM;
 
-      await sharedRuntime.processBatch();
+      await runLegacyBatch(sharedRuntime);
 
       // phase 379: mock-call count assertion
       const doneCalls = mockAuditWrite.mock.calls.filter(c => c[0] === 'inbox_done');
@@ -279,7 +280,7 @@ describe('Runtime DrainInbox', () => {
       }]);
       (sharedRuntime as unknown as { llm: typeof mockLLM }).llm = mockLLM;
 
-      await sharedRuntime.processBatch();
+      await runLegacyBatch(sharedRuntime);
 
       // phase 379: mock-call assertion
       const failedEntry = mockAuditWrite.mock.calls.find(c => c[0] === 'inbox_failed');
@@ -328,7 +329,7 @@ Test message`;
       });
 
       // Should throw the error
-      await expect(runtime.processBatch()).rejects.toThrow('LLM API crashed');
+      await expect(runLegacyBatch(runtime)).rejects.toThrow('LLM API crashed');
 
       // phase 71: audit-only fallback、0 outbox transmit
       expect(auditWrites.some(a => a[0] === 'runtime_catch_unhandled')).toBe(true);
@@ -371,7 +372,7 @@ Test message`;
       }));
       await runtime.initialize();
 
-      await expect(runtime.processBatch()).rejects.toBeInstanceOf(UserInterrupt);
+      await expect(runLegacyBatch(runtime)).rejects.toBeInstanceOf(UserInterrupt);
 
       // Verify NO error response was written to outbox
       const outboxDir = path.join(clawDir, 'outbox', 'pending');
@@ -390,7 +391,7 @@ Test message`;
 
       const mockLLM = createMockLLM([{ content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' }]);
       (sharedRuntime as unknown as RuntimeTestInternals).llm = mockLLM;
-      await sharedRuntime.processBatch();
+      await runLegacyBatch(sharedRuntime);
 
       const userMsg = mockLLM.call.mock.calls[0][0].messages.find((m: any) => m.role === 'user');
       expect(userMsg?.content).toContain('15m ago');
@@ -406,7 +407,7 @@ Test message`;
 
       const mockLLM = createMockLLM([{ content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' }]);
       (sharedRuntime as unknown as RuntimeTestInternals).llm = mockLLM;
-      await sharedRuntime.processBatch();
+      await runLegacyBatch(sharedRuntime);
 
       const userMsg = mockLLM.call.mock.calls[0][0].messages.find((m: any) => m.role === 'user');
       expect(userMsg?.content).toMatch(/\ds ago/);
@@ -421,7 +422,7 @@ Test message`;
 
       const mockLLM = createMockLLM([{ content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn' }]);
       (sharedRuntime as unknown as RuntimeTestInternals).llm = mockLLM;
-      await sharedRuntime.processBatch();
+      await runLegacyBatch(sharedRuntime);
 
       const userMsg = mockLLM.call.mock.calls[0][0].messages.find((m: any) => m.role === 'user');
       expect(userMsg?.content).toContain('2h ago');
@@ -449,7 +450,7 @@ Test message`;
       const mockLLM = createMockLLM([{ role: 'assistant', content: 'ok' }]);
       (sharedRuntime as unknown as { llm: typeof mockLLM }).llm = mockLLM;
 
-      await sharedRuntime.processBatch();
+      await runLegacyBatch(sharedRuntime);
 
       // phase 379: mock-call assertion
       const injectEntry = mockAuditWrite.mock.calls.find(c => c[0] === 'inbox_inject');
