@@ -13,11 +13,12 @@ import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
-import type { Runtime } from '../runtime/index.js';
+import type { Runtime, StreamCallbacks, TurnResult } from '../runtime/index.js';
 import type { StreamWriter } from '../../foundation/stream/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { STATUS_SUBDIR } from '../../foundation/process-manager/index.js';
 import {
+  LLM_MAX_RETRIES,
   LLM_RETRY_INITIAL_DELAY_MS,
   LLM_RETRY_STATE_FILE,
   REACT_CHAIN_MAX_ITERATIONS,
@@ -26,6 +27,8 @@ import { EVENTLOOP_AUDIT_EVENTS, LOOP_ITERATION_TYPES } from './audit-events.js'
 import { dispatchError } from './error-handlers.js';
 import { createStreamCallbacks } from './stream-callbacks.js';
 import { waitForInbox } from './inbox-watcher.js';
+import { isContextExceededError } from '../../foundation/llm-orchestrator/index.js';
+import type { InboxHandle } from '../../foundation/messaging/index.js';
 import type { EventLoopOptions } from './types.js';
 
 export class EventLoop {
@@ -89,54 +92,80 @@ export class EventLoop {
     try {
       if (this.llmRetryPending) {
         this.llmRetryPending = false;
-        await this.runtime.retryLastTurn(wrappedCallbacks);
-        this._resetLlmRetryState();
-        this._saveLlmRetryState();
-        await this.onBatchComplete?.();
-      } else {
-        const injected = await this.runtime.processBatch(wrappedCallbacks);
-        if (injected > 0) {
-          let more = injected;
-          let chainTotal = injected;
-          let chainIters = 0;
-          while (more > 0 && !this.stopped && chainIters < REACT_CHAIN_MAX_ITERATIONS) {
-            more = await this.runtime.processBatch(wrappedCallbacks);
-            chainTotal += more;
-            chainIters++;
-          }
+        const result = await this.runtime.retryLastTurn(wrappedCallbacks);
+        await this._handleTurnResult(result, [], wrappedCallbacks);
+        return;
+      }
 
-          const chainType = chainIters >= REACT_CHAIN_MAX_ITERATIONS
-            ? LOOP_ITERATION_TYPES.CHAIN_LIMITED
-            : LOOP_ITERATION_TYPES.CHAIN;
-          this.audit.write(
-            EVENTLOOP_AUDIT_EVENTS.ITERATION,
-            `type=${chainType}`,
-            `injected=${injected}`,
-            `chain_total=${chainTotal}`,
-          );
+      // drain and process, with internal chaining
+      let chainIters = 0;
+      let chainTotal = 0;
+      let firstInjected = 0;
 
+      while (!this.stopped) {
+        const { injected, sources, count, addressedHandles } = await this.runtime.drainInbox();
+        if (count === 0) break;
+
+        if (chainIters === 0) {
+          firstInjected = count;
+        }
+        chainTotal += count;
+        chainIters++;
+
+        const systemPrompt = await this.runtime.getSystemPrompt();
+        const tools = this.runtime.getToolsForLLM();
+        const sessionMessages = await this.runtime.getMessages();
+        let messages = [...sessionMessages, ...injected];
+        messages = await this.runtime.proactiveTrimIfNeeded(messages, systemPrompt, tools);
+
+        wrappedCallbacks?.onTurnStart?.(sources);
+        const result = await this.runtime.processTurn(messages, systemPrompt, tools, wrappedCallbacks);
+
+        if (result.status === 'success') {
+          await this.runtime.ackHandles(addressedHandles, 'normal_turn_end');
           this._resetLlmRetryState();
           this._saveLlmRetryState();
-          await this.onBatchComplete?.();
+
+          if (chainIters >= REACT_CHAIN_MAX_ITERATIONS) {
+            this.audit.write(
+              EVENTLOOP_AUDIT_EVENTS.ITERATION,
+              `type=${LOOP_ITERATION_TYPES.CHAIN_LIMITED}`,
+              `injected=${firstInjected}`,
+              `chain_total=${chainTotal}`,
+            );
+            break;
+          }
+          // continue chain loop
+        } else if (result.status === 'interrupted') {
+          if (result.cause === 'idle_timeout') {
+            await this.runtime.nackHandles(addressedHandles, result.cause, 'graceful_interrupt');
+          } else {
+            await this.runtime.ackHandles(addressedHandles, 'graceful_interrupt');
+          }
+          break;
         } else {
-          await waitForInbox(this.loopFs, this.audit, this.inboxPendingDir, this.fallbackTimeoutMs);
+          await this.runtime.nackHandles(addressedHandles, formatErr(result.error) ?? 'failed', 'rollback');
+          await this._handleFailedTurn(result);
+          break;
         }
       }
+
+      if (chainIters > 0) {
+        if (chainIters < REACT_CHAIN_MAX_ITERATIONS) {
+          this.audit.write(
+            EVENTLOOP_AUDIT_EVENTS.ITERATION,
+            `type=${LOOP_ITERATION_TYPES.CHAIN}`,
+            `injected=${firstInjected}`,
+            `chain_total=${chainTotal}`,
+          );
+        }
+        await this.onBatchComplete?.();
+      } else {
+        await waitForInbox(this.loopFs, this.audit, this.inboxPendingDir, this.fallbackTimeoutMs);
+      }
     } catch (err) {
-      const self = this;
-      await dispatchError(err, {
-        audit: this.audit,
-        loopFs: this.loopFs,
-        llmRetry: {
-          get count() { return self.llmRetryCount; },
-          set count(v) { self.llmRetryCount = v; },
-          get delayMs() { return self.llmRetryDelayMs; },
-          set delayMs(v) { self.llmRetryDelayMs = v; },
-          get pending() { return self.llmRetryPending; },
-          set pending(v) { self.llmRetryPending = v; },
-        },
-        saveLlmRetryState: () => this._saveLlmRetryState(),
-      });
+      // EventLoop-level unexpected error
+      await this._dispatchError(err);
     }
   }
 
@@ -146,6 +175,51 @@ export class EventLoop {
   abort(): void {
     this.stopped = true;
     this.runtime.abort();
+  }
+
+  private async _handleTurnResult(
+    result: TurnResult,
+    _addressedHandles: InboxHandle[],
+    _callbacks?: StreamCallbacks,
+  ): Promise<void> {
+    if (result.status === 'success') {
+      this._resetLlmRetryState();
+      this._saveLlmRetryState();
+      await this.onBatchComplete?.();
+    } else if (result.status === 'interrupted') {
+      // graceful interrupt during retry: no ack/nack, continue
+    } else {
+      await this._handleFailedTurn(result);
+    }
+  }
+
+  private async _handleFailedTurn(result: TurnResult): Promise<void> {
+    if (result.status !== 'failed') return;
+    if (isContextExceededError(result.error) && this.llmRetryCount < LLM_MAX_RETRIES) {
+      try {
+        await this.runtime.reactiveTrim();
+      } catch {
+        // reactive trim exhausted — dispatchError below will cooldown
+      }
+    }
+    await this._dispatchError(result.error);
+  }
+
+  private async _dispatchError(err: unknown): Promise<void> {
+    const self = this;
+    await dispatchError(err, {
+      audit: this.audit,
+      loopFs: this.loopFs,
+      llmRetry: {
+        get count() { return self.llmRetryCount; },
+        set count(v) { self.llmRetryCount = v; },
+        get delayMs() { return self.llmRetryDelayMs; },
+        set delayMs(v) { self.llmRetryDelayMs = v; },
+        get pending() { return self.llmRetryPending; },
+        set pending(v) { self.llmRetryPending = v; },
+      },
+      saveLlmRetryState: () => this._saveLlmRetryState(),
+    });
   }
 
   private _resetLlmRetryState(): void {

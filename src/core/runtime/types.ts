@@ -22,7 +22,8 @@ import type { PermissionChecker } from '../../foundation/tool-protocol/index.js'
 import type { ToolProfile } from '../../foundation/tool-protocol/index.js';
 
 import type { ContextManagerRuntimeConfig } from '../step-executor/index.js';
-import type { StreamCallbacks, DaemonStreamCallbacks } from '../agent-executor/stream-callbacks.js';
+import type { StreamCallbacks } from '../agent-executor/stream-callbacks.js';
+import type { Message, ToolDefinition } from '../../foundation/llm-provider/index.js';
 
 
 
@@ -93,7 +94,7 @@ export interface RuntimeOptions {
 
   /**
    * phase 320: LLM 配置热更新 reloader。Assembly 装配期注入；调时**重读磁盘**拿最新配置。
-   * inbox 收到 `reload_llm_config` 消息时由 _drainOwnInbox 拦截路径调用、传给 llm.reloadConfig。
+   * inbox 收到 `reload_llm_config` 消息时由 drainInbox 拦截路径调用、传给 llm.reloadConfig。
    * undefined → 拦截路径 silent skip + audit LLM_RELOAD_SKIPPED。
    */
   configReloader?: () => LLMOrchestratorConfig;
@@ -117,12 +118,18 @@ export interface RuntimeOptions {
 
 export type { StreamCallbacks, DaemonStreamCallbacks } from '../agent-executor/stream-callbacks.js';
 
+export interface TurnResult {
+  status: 'success' | 'failed' | 'interrupted';
+  error?: unknown;
+  cause?: string;
+}
+
 /**
  * phase 27 Step E (P2): Runtime API 按消费者拆 3 子接口、I/SP align。
  *
  * 消费者依赖只暴露所需子集：
  * - Assembly: lifecycle (initialize/stop/getters)
- * - Daemon-loop: 消息处理 (processBatch/processWithMessage/retryLastTurn) + abort
+ * - Daemon-loop: 消息处理 (processTurn/processWithMessage/retryLastTurn) + abort
  * - CLI: 交互 (chat/abort)
  *
  * 4 个 diagnostic getter (getCurrentTraceId/SystemPrompt/Tools/Messages) 不入
@@ -139,9 +146,14 @@ export interface IRuntimeLifecycle {
 }
 
 export interface IRuntimeDaemon {
-  processBatch(callbacks?: DaemonStreamCallbacks): Promise<number>;
-  processWithMessage(msg: import('../../foundation/llm-provider/types.js').Message, callbacks?: StreamCallbacks): Promise<void>;
-  retryLastTurn(callbacks?: StreamCallbacks): Promise<void>;
+  processTurn(
+    messages: Message[],
+    systemPrompt: string,
+    toolsForLLM: ToolDefinition[],
+    callbacks?: StreamCallbacks,
+  ): Promise<TurnResult>;
+  processWithMessage(msg: Message, callbacks?: StreamCallbacks): Promise<TurnResult>;
+  retryLastTurn(callbacks?: StreamCallbacks): Promise<TurnResult>;
   abort(): void;
 }
 

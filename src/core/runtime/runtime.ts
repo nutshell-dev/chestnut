@@ -14,7 +14,7 @@ import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js
 import { type FileSystem } from '../../foundation/fs/index.js';
 import { AUDIT_FILE } from '../../foundation/audit/index.js';
 // phase 1414: isFileNotFound import removed — HEARTBEAT.md 读迁 Heartbeat 模块 inbox-formatter
-import type { Message } from '../../foundation/llm-provider/index.js';
+import type { Message, ToolDefinition } from '../../foundation/llm-provider/index.js';
 import type { InboxMessage } from '../../foundation/messaging/index.js';
 import { InboxListFailed, InboxMoveFailed } from '../../foundation/messaging/index.js';
 import type { MessageFormatterRegistry } from '../../foundation/messaging/index.js';
@@ -34,10 +34,7 @@ import { TASK_AUDIT_EVENTS } from '../async-task-system/index.js';
 // phase 1406: DIALOG_DIR no longer used here — regime-switch recovery path is owned by performRegimeSwitch helper
 import { formatErr } from '../../foundation/node-utils/index.js';
 
-import { MaxStepsExceededError, WallTimeExceededError, ConsecutiveParseErrorsExceededError, ConsecutiveMaxTokensToolUseError, makeStepNumber } from '../agent-executor/index.js';
-import { LockContentionExhaustedError } from '../contract/index.js';
-import { LLMAllProvidersFailedError } from '../../foundation/llm-orchestrator/index.js';
-import { makeContractId } from '../contract/types.js';
+import { makeStepNumber } from '../agent-executor/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { Snapshot } from '../../foundation/snapshot/index.js';
 import type { InboxReader, InboxEntry, InboxHandle, OutboxWriter } from '../../foundation/messaging/index.js';
@@ -53,6 +50,7 @@ import {
   type DaemonStreamCallbacks,
   type IRuntimeLifecycle,
   type IRuntimeDaemon,
+  type TurnResult,
 } from './types.js';
 import { TASKS_SYNC_DIR } from '../async-task-system/index.js';
 import {
@@ -62,7 +60,7 @@ import {
   CONTEXT_TRIM_PREVIEW_BYTES,
 } from '../context_manager/index.js';
 import { trimAndPersist } from '../context_manager/trim-and-persist.js';
-import { isContextExceededError, LLMContextExceededError } from '../../foundation/llm-orchestrator/index.js';
+
 
 import { formatTimeAgo } from './utils.js';
 
@@ -417,6 +415,16 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
    * Unaddressed messages are immediately acked; addressed handles returned for turn-end ack.
    * @protected available for create-runtime helper reuse (phase 266 reframed MotionRuntime subclass to identity-based dispatch)
    */
+  async drainInbox(): Promise<{
+    injected: Message[];
+    sources: Array<{ text: string; type: string }>;
+    count: number;
+    infos: InboxMessage[];
+    addressedHandles: InboxHandle[];
+  }> {
+    return this._drainOwnInbox();
+  }
+
   protected async _drainOwnInbox(): Promise<{
     injected: Message[];
     sources: Array<{ text: string; type: string }>;
@@ -643,7 +651,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
   }
 
   /** per-handle ack with atomic audit on failure. */
-  private async _ackHandles(handles: InboxHandle[], path: string): Promise<void> {
+  async ackHandles(handles: InboxHandle[], path: string): Promise<void> {
     for (const h of handles) {
       try {
         await this.inboxReader.ack(h);
@@ -660,7 +668,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
   }
 
   /** per-handle nack with atomic audit on failure. */
-  private async _nackHandles(handles: InboxHandle[], reason: string, path: string): Promise<void> {
+  async nackHandles(handles: InboxHandle[], reason: string, path: string): Promise<void> {
     for (const h of handles) {
       try {
         await this.inboxReader.nack(h, reason);
@@ -680,14 +688,11 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
    * Run the LLM ReAct loop over the given messages and save the session.
    * @protected available for create-runtime helper reuse (phase 266 reframed MotionRuntime subclass to identity-based dispatch)
    */
-  protected async _runReact(messages: Message[], callbacks?: StreamCallbacks): Promise<void> {
+  protected async _runReact(messages: Message[], systemPrompt: string, tools: ToolDefinition[], callbacks?: StreamCallbacks): Promise<void> {
     // phase 786: stopRequested 是 per-turn flag，每 turn 起首 reset
     // 防 P0.14 跨 turn sticky bug（done 工具误调后下 turn silent empty）
     this.execContext.stopRequested = false;
-    const tools = this.toolRegistry.formatForLLM(
-      this.toolRegistry.getForProfile(this.options.toolProfile ?? 'full')
-    );
-    const { systemPrompt, identityContent } = await this._resolveSystemPromptForRun();
+    const { identityContent } = await this._resolveSystemPromptForRun();
 
     // phase 518 (review-round4 N4-Core-H3): per-turn cache contract_id for tool event audit
     // forensic join 路径（与 phase 434 messaging path 对称）。loadActive 抛错 silent +
@@ -720,98 +725,74 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     };
 
 
-    // phase 690: Runtime 反应式 trim+retry 兜底——LLM 真返 400 context-exceeded 时
-    // trim + 同 turn 重试。Layer 2 turn 入口 maybeTrimProactive 已是前置防线、
-    // 本路径覆盖 turn 内 tool_result 单步突破 100% 的偶发场景。
-    const MAX_REACTIVE_TRIM_RETRIES = 2;
-    let reactiveRetries = 0;
-
     try {
-     reactive_loop: while (true) {
-      try {
       await runReact({
-          messages,
-          systemPrompt,
-          llm: this.llm,
-          executor: this.toolExecutor,
-          ctx: this.execContext,
-          tools,
-          registry: this.toolRegistry,  // Enable parallel execution for readonly tools
-          maxSteps: this.options.maxSteps,
-          maxConsecutiveParseErrors: this.options.maxConsecutiveParseErrors,
-          maxConsecutiveMaxTokensToolUse: this.options.maxConsecutiveMaxTokensToolUse,
-          idleTimeoutMs: this.options.idleTimeoutMs,
-          auditWriter: this.auditWriter,
-          currentContractId,
-          onLLMResult: (info) => {
-            // phase 453: 每次 LLM call 完成后更新、供下轮 turn 入口判顺手裁
-            this.lastLLMCallAt = Date.now();
-            if (info.error) {
-              // phase 525 (review-round4 Core L): error 走 auditWriter.message() sanitize、
-              // 防长 stack / base64 灌 audit、与其他 catch 路径对齐
-              // phase 560: 加 trace_id forensic field 跨源 join（与 phase 557 模式对齐）
-              this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.LLM_ERROR, info.model, `trace_id=${String(this.execContext.trace_id ?? '')}`, `error=${this.auditWriter.message(info.error)}`, `latency_ms=${info.latencyMs}`);
-            } else {
-              // phase 560: 同上
-              this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.LLM_CALL, info.model, `trace_id=${String(this.execContext.trace_id ?? '')}`, `in=${info.inputTokens}`, `out=${info.outputTokens}`, `latency_ms=${info.latencyMs}`);
-            }
-          },
-          onStepComplete: async (stepCount) => {
-            await this.sessionManager.save({ systemPrompt, messages, toolsForLLM: tools, trace_id: this.currentTraceId });
-            // phase 1424: contract auditor 周期 LLM 对照 expectations 检查
-            // fire-and-forget（不阻塞 Runtime step / 反馈走 inbox high priority 下轮 step 起 PriorityInboxInterrupt 中断）
-            // phase 446 (review): 防御 .catch 兜底 unhandledRejection（内部已多层容错、本 catch 几乎不触发）
-            void this.contractManager.maybeAuditStep(makeStepNumber(stepCount))
-              .catch(err => {
-                // phase 563: 加 trace_id forensic field（延续 phase 557/560 模式）
-                this.auditWriter.write(
-                  RUNTIME_AUDIT_EVENTS.MAYBE_AUDIT_STEP_FAILED,
-                  `step_count=${stepCount}`,
-                  `trace_id=${String(this.execContext.trace_id ?? '')}`,
-                  `error=${formatErr(err)}`,
-                );
-              });
-            // 步间检查：高优先级消息到达时提前结束本轮
-            if (await this._hasHighPriorityInbox()) {
-              this.currentAbortController?.abort({ type: 'step_yield' });
-            }
-          },
-          onTextDelta: (d) => { emitProviderInfoOnce(); callbacks?.onTextDelta?.(d); },
-          onTextEnd: callbacks?.onTextEnd,
-          onThinkingDelta: (d) => { emitProviderInfoOnce(); callbacks?.onThinkingDelta?.(d); },
-          onToolCall: callbacks?.onToolCall,
-          // phase 688: API 收到的 args body 落 stream.jsonl（daemon callback 已实现 onToolUseInput、此处仅透传）
-          // 与 onToolCallInput（audit-only size index）互补、不重复 audit。
-          onToolUseInput: callbacks?.onToolUseInput,
-          // phase 730: TOOL_RESULT audit moved to AgentExecutor; Runtime only passes through callback.
-          onToolResult: callbacks?.onToolResult,
-          onBeforeLLMCall: () => { callbacks?.onBeforeLLMCall?.(); },
-          onReset: (provider, timeoutMs) => {
-            providerInfoEmitted = false;
-            callbacks?.onProviderFailover?.({ from: provider, timeoutMs });
-          },
-          onProviderFailed: (provider, model, error) => {
-            callbacks?.onProviderFailed?.({ provider, model, error });
-          },
+        messages,
+        systemPrompt,
+        llm: this.llm,
+        executor: this.toolExecutor,
+        ctx: this.execContext,
+        tools,
+        registry: this.toolRegistry,  // Enable parallel execution for readonly tools
+        maxSteps: this.options.maxSteps,
+        maxConsecutiveParseErrors: this.options.maxConsecutiveParseErrors,
+        maxConsecutiveMaxTokensToolUse: this.options.maxConsecutiveMaxTokensToolUse,
+        idleTimeoutMs: this.options.idleTimeoutMs,
+        auditWriter: this.auditWriter,
+        currentContractId,
+        onLLMResult: (info) => {
+          // phase 453: 每次 LLM call 完成后更新、供下轮 turn 入口判顺手裁
+          this.lastLLMCallAt = Date.now();
+          if (info.error) {
+            // phase 525 (review-round4 Core L): error 走 auditWriter.message() sanitize、
+            // 防长 stack / base64 灌 audit、与其他 catch 路径对齐
+            // phase 560: 加 trace_id forensic field 跨源 join（与 phase 557 模式对齐）
+            this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.LLM_ERROR, info.model, `trace_id=${String(this.execContext.trace_id ?? '')}`, `error=${this.auditWriter.message(info.error)}`, `latency_ms=${info.latencyMs}`);
+          } else {
+            // phase 560: 同上
+            this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.LLM_CALL, info.model, `trace_id=${String(this.execContext.trace_id ?? '')}`, `in=${info.inputTokens}`, `out=${info.outputTokens}`, `latency_ms=${info.latencyMs}`);
+          }
+        },
+        onStepComplete: async (stepCount) => {
+          await this.sessionManager.save({ systemPrompt, messages, toolsForLLM: tools, trace_id: this.currentTraceId });
+          // phase 1424: contract auditor 周期 LLM 对照 expectations 检查
+          // fire-and-forget（不阻塞 Runtime step / 反馈走 inbox high priority 下轮 step 起 PriorityInboxInterrupt 中断）
+          // phase 446 (review): 防御 .catch 兜底 unhandledRejection（内部已多层容错、本 catch 几乎不触发）
+          void this.contractManager.maybeAuditStep(makeStepNumber(stepCount))
+            .catch(err => {
+              // phase 563: 加 trace_id forensic field（延续 phase 557/560 模式）
+              this.auditWriter.write(
+                RUNTIME_AUDIT_EVENTS.MAYBE_AUDIT_STEP_FAILED,
+                `step_count=${stepCount}`,
+                `trace_id=${String(this.execContext.trace_id ?? '')}`,
+                `error=${formatErr(err)}`,
+              );
+            });
+          // 步间检查：高优先级消息到达时提前结束本轮
+          if (await this._hasHighPriorityInbox()) {
+            this.currentAbortController?.abort({ type: 'step_yield' });
+          }
+        },
+        onTextDelta: (d) => { emitProviderInfoOnce(); callbacks?.onTextDelta?.(d); },
+        onTextEnd: callbacks?.onTextEnd,
+        onThinkingDelta: (d) => { emitProviderInfoOnce(); callbacks?.onThinkingDelta?.(d); },
+        onToolCall: callbacks?.onToolCall,
+        // phase 688: API 收到的 args body 落 stream.jsonl（daemon callback 已实现 onToolUseInput、此处仅透传）
+        // 与 onToolCallInput（audit-only size index）互补、不重复 audit。
+        onToolUseInput: callbacks?.onToolUseInput,
+        // phase 730: TOOL_RESULT audit moved to AgentExecutor; Runtime only passes through callback.
+        onToolResult: callbacks?.onToolResult,
+        onBeforeLLMCall: () => { callbacks?.onBeforeLLMCall?.(); },
+        onReset: (provider, timeoutMs) => {
+          providerInfoEmitted = false;
+          callbacks?.onProviderFailover?.({ from: provider, timeoutMs });
+        },
+        onProviderFailed: (provider, model, error) => {
+          callbacks?.onProviderFailed?.({ provider, model, error });
+        },
 
-          streamCallbacks: callbacks,
-        });
-        break reactive_loop;
-      } catch (err) {
-        if (this._isContextExceededError(err) && reactiveRetries < MAX_REACTIVE_TRIM_RETRIES) {
-          reactiveRetries++;
-          await this._performReactiveTrim({
-            messages,
-            systemPrompt,
-            tools,
-            attempt: reactiveRetries,
-            err,
-          });
-          continue reactive_loop;
-        }
-        throw err;
-      }
-     }
+        streamCallbacks: callbacks,
+      });
       await this.sessionManager.save({ systemPrompt, messages, toolsForLLM: tools, trace_id: this.currentTraceId });
 
       // turn auto-commit
@@ -840,7 +821,68 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
   }
 
   /**
+   * Execute a single ReAct turn for the given messages.
+   * Orchestration-free: callers decide drain/trim/ack/nack/retry policy.
+   */
+  async processTurn(
+    messages: Message[],
+    systemPrompt: string,
+    toolsForLLM: ToolDefinition[],
+    callbacks?: StreamCallbacks,
+  ): Promise<TurnResult> {
+    if (!this.initialized) {
+      await this.initialize();
+    }
+
+    const { cleanup } = this._setupTurnContext();
+    try {
+      // phase 569: 加 trace_id forensic field（turn 入口 trace_id 已设）
+      // phase 722: 加 caller col 区分 processTurn caller 路径
+      this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_START, `caller=processTurn`, `trace_id=${String(this.execContext?.trace_id ?? '')}`);
+
+      await this.sessionManager.beginTurn();
+      await this.sessionManager.save({
+        systemPrompt,
+        messages,
+        toolsForLLM,
+        trace_id: this.currentTraceId,
+      });
+
+      // 新 turn 开始 → 重置 lastSuccessProvider，让本 turn 第一步从 primary 开始挑 model
+      this.llm.resetLastSuccessProvider?.();
+
+      try {
+        await this._runReact(messages, systemPrompt, toolsForLLM, callbacks);
+
+        callbacks?.onTurnEnd?.();
+        // phase 569: 加 trace_id forensic field
+        // phase 722: 加 caller col 区分 processTurn caller 路径
+        this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_END, `caller=processTurn`, `trace_id=${String(this.execContext?.trace_id ?? '')}`);
+        await this.sessionManager.commitTurn();
+        return { status: 'success' };
+      } catch (err) {
+        handleTurnInterrupt(err, this.auditWriter, callbacks, this.execContext?.trace_id ? String(this.execContext.trace_id) : undefined);
+        if (err instanceof PriorityInboxInterrupt
+            || err instanceof UserInterrupt
+            || err instanceof IdleTimeoutSignal) {
+          const cause = err instanceof PriorityInboxInterrupt ? 'priority_inbox'
+                       : err instanceof UserInterrupt          ? 'user_interrupt'
+                       :                                         'idle_timeout';
+          await this.sessionManager.commitTurn(cause);
+          return { status: 'interrupted', error: err, cause };
+        } else {
+          await this.sessionManager.rollbackTurn(formatErr(err));
+          return { status: 'failed', error: err };
+        }
+      }
+    } finally {
+      cleanup();
+    }
+  }
+
+  /**
    * MVP alignment: batch-process inbox messages (polling-based batch instead of event-driven)
+   * @deprecated Use drainInbox + proactiveTrimIfNeeded + processTurn + ack/nack instead.
    * @returns number of injected messages (0 = nothing pending)
    */
   async processBatch(callbacks?: DaemonStreamCallbacks): Promise<number> {
@@ -848,174 +890,59 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
       await this.initialize();
     }
 
-    const { traceId, cleanup } = this._setupTurnContext();
+    const { cleanup } = this._setupTurnContext();
     try {
-    const { injected, sources, count, infos, addressedHandles } = await this._drainOwnInbox();
-    if (count === 0) return 0;
+      const { injected, sources, count, infos, addressedHandles } = await this.drainInbox();
+      if (count === 0) return 0;
 
-    // 新 turn 开始 → 重置 lastSuccessProvider，让本 turn 第一步从 primary 开始挑 model
-    this.llm.resetLastSuccessProvider?.();
-
-    // Notify daemon-loop of inbox messages for review_request handling
-    if (callbacks?.onInboxMessages && infos.length > 0) {
-      try {
-        await callbacks.onInboxMessages(infos);
-      } catch (e) {
-        const reason = formatErr(e);
-        this.auditWriter.write(RUNTIME_AUDIT_EVENTS.INBOX_HANDLER_FAILED, 'handler=onInboxMessages', `reason=${reason}`);
+      // Notify daemon-loop of inbox messages for review_request handling
+      if (callbacks?.onInboxMessages && infos.length > 0) {
+        try {
+          await callbacks.onInboxMessages(infos);
+        } catch (e) {
+          const reason = formatErr(e);
+          this.auditWriter.write(RUNTIME_AUDIT_EVENTS.INBOX_HANDLER_FAILED, 'handler=onInboxMessages', `reason=${reason}`);
+        }
       }
-    }
 
-    const { session } = await this.sessionManager.load();
-    let messages = [...session.messages, ...injected];
-    const injectTools = this.toolRegistry.formatForLLM(
-      this.toolRegistry.getForProfile(this.options.toolProfile ?? 'full')
-    );
+      const { session } = await this.sessionManager.load();
+      const tools = this.getToolsForLLM();
+      let messages = [...session.messages, ...injected];
+      messages = await this.proactiveTrimIfNeeded(messages, session.systemPrompt, tools);
 
-    // phase 453: 顺手裁触发（进 turn 前判断）
-    if (this.contextManagerConfig && this.sessionManager) {
-      const providerInfo = this.llm.getProviderInfo?.();
-      const contextWindow = resolveContextWindow(providerInfo?.model);
-      const trimResult = await maybeTrimProactive({
-        messages,
-        systemPrompt: session.systemPrompt,
-        toolsForLLM: injectTools,
-        contextWindow,
-        lastLLMCallAt: this.lastLLMCallAt,
-        filterSubtypes: this.contextManagerConfig.filterSubtypes,
-        dialogStore: this.sessionManager,
-        audit: this.auditWriter,
-      });
-      if (trimResult) {
-        messages = trimResult.newMessages;
-      }
-    }
+      // Turn start
+      callbacks?.onTurnStart?.(sources);
+      // phase 569: 加 trace_id forensic field（turn 入口 trace_id 已设）
+      // phase 722: 加 caller col 区分 3 caller 路径 (batch / with_message / retry)
+      this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_START, `caller=batch`, `trace_id=${String(this.execContext?.trace_id ?? '')}`);
 
-    // Turn start
-    callbacks?.onTurnStart?.(sources);
-    // phase 569: 加 trace_id forensic field（turn 入口 trace_id 已设）
-    // phase 722: 加 caller col 区分 3 caller 路径 (batch / with_message / retry)
-    this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_START, `caller=batch`, `trace_id=${String(this.execContext?.trace_id ?? '')}`);
+      const result = await this.processTurn(messages, session.systemPrompt, tools, callbacks);
 
-    await this.sessionManager.beginTurn();
-    try {
-      // Save injected messages inside transaction
-      await this.sessionManager.save({
-        systemPrompt: session.systemPrompt,
-        messages,
-        toolsForLLM: injectTools,
-        trace_id: traceId,
-      });
-
-      await this._runReact(messages, callbacks);
-
-      // Turn completed normally
-      callbacks?.onTurnEnd?.();
-      // phase 569: 加 trace_id forensic field
-      // phase 722: 加 caller col 区分 batch caller 路径
-      this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_END, `caller=batch`, `trace_id=${String(this.execContext?.trace_id ?? '')}`);
-
-      await this.sessionManager.commitTurn();
-      await this._ackHandles(addressedHandles, 'normal_turn_end');
-      return count;
-    } catch (err) {
-      // Turn-level error/interrupt event
-      // phase 571: 透传 trace_id 让 TURN_INTERRUPTED/TURN_ERROR 含 forensic field
-      handleTurnInterrupt(err, this.auditWriter, callbacks, this.execContext?.trace_id ? String(this.execContext.trace_id) : undefined);
-      if (err instanceof PriorityInboxInterrupt
-          || err instanceof UserInterrupt
-          || err instanceof IdleTimeoutSignal) {
-        // graceful interrupt：保留已完成 step 工作（dialog repair 在下次 load 处理悬空 tool_use）
-        const reason = err instanceof PriorityInboxInterrupt ? 'priority_inbox'
-                     : err instanceof UserInterrupt          ? 'user_interrupt'
-                     :                                         'idle_timeout';
-        await this.sessionManager.commitTurn(reason);
-        // phase 1415: UserInterrupt + PriorityInboxInterrupt 路径 inbox 文件一律 ack —
-        // 判据是「inject 已落 dialog」（save + commitTurn 双道落盘已完成）、非消息来源。
-        // crash recovery（drain 后 save 前）由 InboxReader.init() reconcile 兜底。
-        // IdleTimeoutSignal: nack 让下轮 redrive（dialog 未 commit 新增内容、消息真未消费）。
-        if (err instanceof PriorityInboxInterrupt || err instanceof UserInterrupt) {
-          await this._ackHandles(addressedHandles, 'graceful_interrupt');
+      // Route ack/nack based on turn result; preserve legacy throw behavior.
+      if (result.status === 'success') {
+        await this.ackHandles(addressedHandles, 'normal_turn_end');
+      } else if (result.status === 'interrupted') {
+        if (result.cause === 'idle_timeout') {
+          await this.nackHandles(addressedHandles, result.cause ?? 'idle_timeout', 'graceful_interrupt');
         } else {
-          await this._nackHandles(addressedHandles, formatErr(err), 'graceful_interrupt');
+          await this.ackHandles(addressedHandles, 'graceful_interrupt');
         }
       } else {
-        await this.sessionManager.rollbackTurn(formatErr(err));
-        await this._nackHandles(addressedHandles, formatErr(err), 'rollback');
-      }
-      // phase 63 NEW: 5 typed Error → ContractSystem.markCrashed 映射 contract_crashed 通道
-      const isAgentLoopCrash =
-        err instanceof MaxStepsExceededError ||
-        err instanceof WallTimeExceededError ||
-        err instanceof ConsecutiveParseErrorsExceededError ||
-        err instanceof ConsecutiveMaxTokensToolUseError ||
-        err instanceof LLMAllProvidersFailedError ||
-        err instanceof LockContentionExhaustedError;
-
-      if (isAgentLoopCrash) {
-        for (const info of infos) {
-          const contractId = err instanceof LockContentionExhaustedError
-            ? err.contractId
-            : info.metadata?.contract_id;
-          if (contractId) {
-            try {
-              await this.contractManager.markCrashed(
-                makeContractId(contractId),
-                `system: ${err.constructor.name.toLowerCase()}`,
-              );
-            } catch (markErr) {
-              // phase 569: 加 trace_id forensic field
-              const traceCol = `trace_id=${String(this.execContext?.trace_id ?? '')}`;
-              this.auditWriter.write(
-                REACT_LOOP_AUDIT_EVENTS.MARK_CRASHED_FAILED,
-                `contractId=${contractId}`,
-                `err=${err.constructor.name}`,
-                `markErr=${formatErr(markErr)}`,
-                traceCol,
-              );
-              this.auditWriter.write(
-                RUNTIME_AUDIT_EVENTS.CATCH_UNHANDLED,
-                `path=mark_crashed_failed`,
-                `err=${err.constructor.name}`,
-                `reason=${formatErr(err)}`,
-                traceCol,
-              );
-            }
-          } else {
-            // phase 71: contract_id 缺失 → audit-only、motion 业务不打扰
-            this.auditWriter.write(
-              RUNTIME_AUDIT_EVENTS.CATCH_UNHANDLED,
-              `path=agent_loop_crash_no_contract`,
-              `err=${(err as Error).constructor.name}`,
-              `reason=${formatErr(err)}`,
-            );
-          }
-        }
-      } else if (!(err instanceof PriorityInboxInterrupt || err instanceof UserInterrupt || err instanceof IdleTimeoutSignal)) {
-        // phase 71: catch-all fallback → audit-only、motion 业务不打扰
+        await this.nackHandles(addressedHandles, formatErr(result.error) ?? 'failed', 'rollback');
+        // phase 71: catch-all fallback audit for non-interrupt errors (processBatch legacy compat)
         this.auditWriter.write(
           RUNTIME_AUDIT_EVENTS.CATCH_UNHANDLED,
           `path=non_interrupt_error`,
-          `err=${(err as Error).constructor.name}`,
-          `reason=${formatErr(err)}`,
+          `err=${(result.error as Error | undefined)?.constructor?.name ?? 'Error'}`,
+          `reason=${formatErr(result.error)}`,
         );
       }
-      // Log unexpected errors to audit (aborts and 5 agent-loop crashes are expected control flow)
-      if (
-        !(err instanceof PriorityInboxInterrupt || err instanceof UserInterrupt || err instanceof IdleTimeoutSignal) &&
-        !isAgentLoopCrash
-      ) {
-        const errorMsg = formatErr(err);
-        // phase 569: 加 trace_id forensic field
-        this.auditWriter.write(
-          RUNTIME_AUDIT_EVENTS.PROCESS_BATCH_FAILED,
-          'context=Runtime.processBatch',
-          `error=${errorMsg}`,
-          `trace_id=${String(this.execContext?.trace_id ?? '')}`,
-        );
+
+      if (result.status !== 'success' && result.error) {
+        throw result.error;
       }
-      throw err;
-    }
+
+      return count;
     } finally {
       cleanup();
     }
@@ -1025,62 +952,23 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
    * Process a single synthetic message directly (without draining inbox).
    * Used by daemon-loop for in-process startup trigger — message is never persisted to disk.
    */
-  async processWithMessage(msg: Message, callbacks?: StreamCallbacks): Promise<void> {
+  async processWithMessage(msg: Message, callbacks?: StreamCallbacks): Promise<TurnResult> {
     if (!this.initialized) {
       await this.initialize();
     }
-    const { traceId, cleanup } = this._setupTurnContext();
+    const { cleanup } = this._setupTurnContext();
     try {
-    const { session } = await this.sessionManager.load();
-    const enrichedMsg = msg.addedAt ? msg : { ...msg, addedAt: new Date().toISOString() };
-    let messages = [...session.messages, enrichedMsg];
-    const procTools = this.toolRegistry.formatForLLM(
-      this.toolRegistry.getForProfile(this.options.toolProfile ?? 'full')
-    );
+      const { session } = await this.sessionManager.load();
+      const enrichedMsg = msg.addedAt ? msg : { ...msg, addedAt: new Date().toISOString() };
+      const messages = [...session.messages, enrichedMsg];
+      const tools = this.getToolsForLLM();
 
-    // phase 453: 顺手裁触发（进 turn 前判断）
-    if (this.contextManagerConfig && this.sessionManager) {
-      const providerInfo = this.llm.getProviderInfo?.();
-      const contextWindow = resolveContextWindow(providerInfo?.model);
-      const trimResult = await maybeTrimProactive({
-        messages,
-        systemPrompt: session.systemPrompt,
-        toolsForLLM: procTools,
-        contextWindow,
-        lastLLMCallAt: this.lastLLMCallAt,
-        filterSubtypes: this.contextManagerConfig.filterSubtypes,
-        dialogStore: this.sessionManager,
-        audit: this.auditWriter,
-      });
-      if (trimResult) {
-        messages = trimResult.newMessages;
-      }
-    }
-
-    await this.sessionManager.save({
-      systemPrompt: session.systemPrompt,
-      messages,
-      toolsForLLM: procTools,
-      trace_id: traceId,
-    });
-    callbacks?.onTurnStart?.([]);
-    // phase 569: 加 trace_id forensic field（turn 入口 trace_id 已设）
-    // phase 722: 加 caller col 区分 with_message caller 路径
-    this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_START, `caller=with_message`, `trace_id=${String(this.execContext?.trace_id ?? '')}`);
-
-    this.llm.resetLastSuccessProvider?.();
-    try {
-      await this._runReact(messages, callbacks);
-
-      // phase 569: 加 trace_id forensic field
+      callbacks?.onTurnStart?.([]);
+      // phase 569: 加 trace_id forensic field（turn 入口 trace_id 已设）
       // phase 722: 加 caller col 区分 with_message caller 路径
-      this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_END, `caller=with_message`, `trace_id=${String(this.execContext?.trace_id ?? '')}`);
-    } catch (err) {
-      // Note: do NOT save messages here - see processBatch catch block for explanation
-      // phase 571: 透传 trace_id 让 TURN_INTERRUPTED/TURN_ERROR 含 forensic field
-      handleTurnInterrupt(err, this.auditWriter, callbacks, this.execContext?.trace_id ? String(this.execContext.trace_id) : undefined);
-      throw err;
-    }
+      this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_START, `caller=with_message`, `trace_id=${String(this.execContext?.trace_id ?? '')}`);
+
+      return await this.processTurn(messages, session.systemPrompt, tools, callbacks);
     } finally {
       cleanup();
     }
@@ -1090,58 +978,45 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
    * Retry the last turn without draining inbox.
    * Used by daemon-loop to recover from transient LLM errors.
    */
-  async retryLastTurn(callbacks?: StreamCallbacks): Promise<void> {
+  async retryLastTurn(callbacks?: StreamCallbacks): Promise<TurnResult> {
     if (!this.initialized) {
       await this.initialize();
     }
     const { cleanup } = this._setupTurnContext();
     try {
-    const { session } = await this.sessionManager.load();
-    if (session.messages.length === 0) return;
+      const { session } = await this.sessionManager.load();
+      if (session.messages.length === 0) {
+        return { status: 'failed', error: 'no messages to retry' };
+      }
 
-    // Find the last user message boundary for safe retry.
-    // If messages end after assistant/tool_result steps, truncate back to the last
-    // user message so we don't re-run from a partial state that could re-execute
-    // non-idempotent tools.
-    let retryMessages = session.messages;
-    const lastUserIdx = [...session.messages].map(m => m.role).lastIndexOf('user');
-    if (lastUserIdx === -1) {
-      // No user message at all — nothing to retry
-      return;
-    }
-    if (lastUserIdx < session.messages.length - 1) {
-      // Messages have assistant/tool content after the last user message.
-      // Truncate so the retry starts from a clean user turn boundary.
-      retryMessages = session.messages.slice(0, lastUserIdx + 1);
-      const retryTools = this.toolRegistry.formatForLLM(
-        this.toolRegistry.getForProfile(this.options.toolProfile ?? 'full')
-      );
-      await this.sessionManager.save({
-        systemPrompt: session.systemPrompt,
-        messages: retryMessages,
-        toolsForLLM: retryTools,
-      });
-    }
+      // Find the last user message boundary for safe retry.
+      // If messages end after assistant/tool_result steps, truncate back to the last
+      // user message so we don't re-run from a partial state that could re-execute
+      // non-idempotent tools.
+      let retryMessages = session.messages;
+      const lastUserIdx = [...session.messages].map(m => m.role).lastIndexOf('user');
+      if (lastUserIdx === -1) {
+        // No user message at all — nothing to retry
+        return { status: 'failed', error: 'no user message to retry' };
+      }
+      if (lastUserIdx < session.messages.length - 1) {
+        // Messages have assistant/tool content after the last user message.
+        // Truncate so the retry starts from a clean user turn boundary.
+        retryMessages = session.messages.slice(0, lastUserIdx + 1);
+        await this.sessionManager.save({
+          systemPrompt: session.systemPrompt,
+          messages: retryMessages,
+          toolsForLLM: this.getToolsForLLM(),
+        });
+      }
 
-    // Retry is also a turn (tag it so stream consumers know it's a retry)
-    callbacks?.onTurnStart?.([{ text: 'LLM retry', type: 'system_retry' }]);
-    // phase 569: 加 trace_id forensic field（turn 入口 trace_id 已设）
-    // phase 722: 加 caller col 区分 retry caller 路径
-    this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_START, `caller=retry`, `trace_id=${String(this.execContext?.trace_id ?? '')}`);
-
-    this.llm.resetLastSuccessProvider?.();
-    try {
-      await this._runReact(retryMessages, callbacks);
-
-      callbacks?.onTurnEnd?.();
-      // phase 569: 加 trace_id forensic field
+      // Retry is also a turn (tag it so stream consumers know it's a retry)
+      callbacks?.onTurnStart?.([{ text: 'LLM retry', type: 'system_retry' }]);
+      // phase 569: 加 trace_id forensic field（turn 入口 trace_id 已设）
       // phase 722: 加 caller col 区分 retry caller 路径
-      this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_END, `caller=retry`, `trace_id=${String(this.execContext?.trace_id ?? '')}`);
-    } catch (err) {
-      // phase 571: 透传 trace_id 让 TURN_INTERRUPTED/TURN_ERROR 含 forensic field
-      handleTurnInterrupt(err, this.auditWriter, callbacks, this.execContext?.trace_id ? String(this.execContext.trace_id) : undefined);
-      throw err;
-    }
+      this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_START, `caller=retry`, `trace_id=${String(this.execContext?.trace_id ?? '')}`);
+
+      return await this.processTurn(retryMessages, session.systemPrompt, this.getToolsForLLM(), callbacks);
     } finally {
       cleanup();
     }
@@ -1154,7 +1029,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     this.currentAbortController?.abort({ type: 'user' });
   }
 
-/**
+  /**
    * Check if inbox has high/critical priority messages
    */
   private async _hasHighPriorityInbox(): Promise<boolean> {
@@ -1214,68 +1089,6 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
    * - If systemPromptBuilder is configured, use full prompt as identityContent (U3 (a) / phase 521 兼容).
    * - Else, use contextInjector.buildSystemPromptForRegime() to get full + identityContent 分层。
    */
-  /**
-   * phase 690: 反应式 trim+retry — 识别 LLM 真返 context-exceeded 错。
-   * 双判：instanceof LLMContextExceededError（fetch 路径 by Step A）
-   *      + message regex 兜底 SDK 路径错（anthropic SDK adapter 抛错走 SDK 内部类型）。
-   */
-  private _isContextExceededError(err: unknown): boolean {
-    return isContextExceededError(err);
-  }
-
-  /**
-   * phase 690: 反应式 trim+retry — LLM 返 context-exceeded 后调 trimAndPersist
-   * trim messages、in-place 替换、audit 触发记录。
-   * trim 失败（ContextTrimExhaustedError）→ audit REACTIVE_TRIM_EXHAUSTED 上抛、
-   * 不在本 helper 兜底（caller / outer turn-level catch 处理）。
-   */
-  private async _performReactiveTrim(params: {
-    messages: Message[];
-    systemPrompt: string;
-    tools: import('../../foundation/llm-provider/index.js').ToolDefinition[];
-    attempt: number;
-    err: unknown;
-  }): Promise<void> {
-    const { messages, systemPrompt, tools, attempt, err } = params;
-    const providerInfo = this.llm.getProviderInfo?.();
-    const contextWindow = resolveContextWindow(providerInfo?.model);
-    const providerName =
-      err instanceof LLMContextExceededError ? err.provider
-      : (providerInfo?.name ?? 'unknown');
-    this.auditWriter.write(
-      RUNTIME_AUDIT_EVENTS.REACTIVE_TRIM_TRIGGERED,
-      `provider=${providerName}`,
-      `attempt=${attempt}`,
-      `trace_id=${String(this.execContext?.trace_id ?? '')}`,
-    );
-    try {
-      const trimResult = await trimAndPersist({
-        messages,
-        systemPrompt,
-        toolsForLLM: tools,
-        contextWindow,
-        recentWindowMs: CONTEXT_TRIM_RECENT_WINDOW_MS,
-        targetRatio: CONTEXT_TRIM_TARGET_RATIO,
-        previewBytes: CONTEXT_TRIM_PREVIEW_BYTES,
-        filterSubtypes: this.contextManagerConfig?.filterSubtypes ?? new Set<string>(),
-        dialogStore: this.sessionManager,
-        audit: this.auditWriter,
-        triggerKind: 'reactive_overflow',
-      });
-      // in-place 替换 messages array、让上游 turn-level local var 见
-      messages.splice(0, messages.length, ...trimResult.newMessages);
-    } catch (trimErr) {
-      this.auditWriter.write(
-        RUNTIME_AUDIT_EVENTS.REACTIVE_TRIM_EXHAUSTED,
-        `provider=${providerName}`,
-        `attempt=${attempt}`,
-        `trace_id=${String(this.execContext?.trace_id ?? '')}`,
-        `error=${formatErr(trimErr)}`,
-      );
-      throw trimErr;
-    }
-  }
-
   private async _resolveSystemPromptForRun(): Promise<{
     systemPrompt: string;
     identityContent: string;
@@ -1286,6 +1099,88 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     }
     const r = await this.contextInjector.buildSystemPromptForRegime();
     return { systemPrompt: r.full, identityContent: r.identityContent };
+  }
+
+  /** Resolve the system prompt for an upcoming turn. */
+  async getSystemPrompt(): Promise<string> {
+    const { systemPrompt } = await this._resolveSystemPromptForRun();
+    return systemPrompt;
+  }
+
+  /** Format tools for the current tool profile. */
+  getToolsForLLM(): ToolDefinition[] {
+    return this.toolRegistry.formatForLLM(
+      this.toolRegistry.getForProfile(this.options.toolProfile ?? 'full')
+    );
+  }
+
+  /** Load current session messages for turn construction. */
+  async getMessages(): Promise<Message[]> {
+    const { session } = await this.sessionManager.load();
+    return session.messages;
+  }
+
+  /** Proactive context trim before a turn; returns the (possibly trimmed) messages. */
+  async proactiveTrimIfNeeded(
+    messages: Message[],
+    systemPrompt: string,
+    toolsForLLM: ToolDefinition[],
+  ): Promise<Message[]> {
+    if (!this.contextManagerConfig || !this.sessionManager) {
+      return messages;
+    }
+    const providerInfo = this.llm.getProviderInfo?.();
+    const contextWindow = resolveContextWindow(providerInfo?.model);
+    const trimResult = await maybeTrimProactive({
+      messages,
+      systemPrompt,
+      toolsForLLM,
+      contextWindow,
+      lastLLMCallAt: this.lastLLMCallAt,
+      filterSubtypes: this.contextManagerConfig.filterSubtypes,
+      dialogStore: this.sessionManager,
+      audit: this.auditWriter,
+    });
+    return trimResult ? trimResult.newMessages : messages;
+  }
+
+  /** Reactive context trim for the current session (in-place). */
+  async reactiveTrim(): Promise<void> {
+    if (!this.contextManagerConfig || !this.sessionManager) {
+      return;
+    }
+    const { session } = await this.sessionManager.load();
+    const tools = this.getToolsForLLM();
+    const providerInfo = this.llm.getProviderInfo?.();
+    const contextWindow = resolveContextWindow(providerInfo?.model);
+    this.auditWriter.write(
+      RUNTIME_AUDIT_EVENTS.REACTIVE_TRIM_TRIGGERED,
+      `provider=${providerInfo?.name ?? 'unknown'}`,
+      `trace_id=${String(this.execContext?.trace_id ?? '')}`,
+    );
+    try {
+      await trimAndPersist({
+        messages: session.messages,
+        systemPrompt: session.systemPrompt,
+        toolsForLLM: tools,
+        contextWindow,
+        recentWindowMs: CONTEXT_TRIM_RECENT_WINDOW_MS,
+        targetRatio: CONTEXT_TRIM_TARGET_RATIO,
+        previewBytes: CONTEXT_TRIM_PREVIEW_BYTES,
+        filterSubtypes: this.contextManagerConfig.filterSubtypes,
+        dialogStore: this.sessionManager,
+        audit: this.auditWriter,
+        triggerKind: 'reactive_overflow',
+      });
+    } catch (trimErr) {
+      this.auditWriter.write(
+        RUNTIME_AUDIT_EVENTS.REACTIVE_TRIM_EXHAUSTED,
+        `provider=${providerInfo?.name ?? 'unknown'}`,
+        `trace_id=${String(this.execContext?.trace_id ?? '')}`,
+        `error=${formatErr(trimErr)}`,
+      );
+      throw trimErr;
+    }
   }
 
   private async ensureDirectories(_clawDir: string): Promise<void> {

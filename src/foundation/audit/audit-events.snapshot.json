@@ -687,9 +687,19 @@
       "summon_verify_false_violation",
       "summon_write_by_contract_failed"
     ],
-    "daemon_audit-events": [
+    "core_event-loop_audit-events": [
       "chain",
       "chain_limited",
+      "eventloop_cooldown",
+      "eventloop_fatal",
+      "eventloop_iteration",
+      "eventloop_llm_retry",
+      "idle_timeout",
+      "priority_inbox",
+      "user_interrupt",
+      "wait"
+    ],
+    "daemon_audit-events": [
       "contract_cancelled",
       "crash_notification",
       "daemon_cleanup_heartbeat_failed",
@@ -702,13 +712,10 @@
       "daemon_llm_retry_state_invariant_violated",
       "daemon_llm_retry_state_load_failed",
       "daemon_loop_fatal",
-      "daemon_loop_interrupt",
       "daemon_loop_interrupt_poller_disabled",
       "daemon_loop_interrupt_poller_error",
       "daemon_loop_interrupt_poller_recovered",
       "daemon_loop_interrupt_poller_recovery_attempt",
-      "daemon_loop_iteration",
-      "daemon_loop_llm_retry",
       "daemon_spawn_attempt",
       "daemon_spawn_failed",
       "daemon_spawn_success",
@@ -717,12 +724,8 @@
       "daemon_stop_success",
       "daemon_uncaught_exception",
       "daemon_unhandled_rejection",
-      "idle_timeout",
-      "priority_inbox",
       "snapshot_commit_failed",
       "snapshot_commit_uncategorized",
-      "user_interrupt",
-      "wait",
       "watchdog_missing"
     ],
     "foundation_dialog-store_audit-events": [
@@ -973,7 +976,6 @@
   },
   "fileRouting": {
     "daemon_liveness_heartbeat": "tick",
-    "daemon_loop_iteration": "tick",
     "viewport_render_batch": "viewport",
     "viewport_event_ingest": "viewport",
     "viewport_spinner_lifecycle": "viewport",

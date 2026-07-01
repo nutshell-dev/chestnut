@@ -5,7 +5,7 @@
  */
 
 export { Runtime } from './runtime.js';
-export type { RuntimeOptions, RuntimeDependencies, StreamCallbacks, DaemonStreamCallbacks, IRuntimeLifecycle, IRuntimeDaemon } from './types.js';
+export type { RuntimeOptions, RuntimeDependencies, StreamCallbacks, DaemonStreamCallbacks, IRuntimeLifecycle, IRuntimeDaemon, TurnResult } from './types.js';
 export { createRuntime, buildMotionSystemPrompt } from './create-runtime.js';
 export type { CreateRuntimeOptions } from './create-runtime.js';
 // phase 1406: Heartbeat 迁出 → src/core/heartbeat/（独立 L5 服务）。
