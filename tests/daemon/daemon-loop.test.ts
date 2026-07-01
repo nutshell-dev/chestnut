@@ -20,9 +20,10 @@ import type { StreamLog } from '../../src/foundation/stream/types.js';
 import { MESSAGING_AUDIT_EVENTS } from '../../src/foundation/messaging/audit-events.js';
 import { LLMContextExceededError } from '../../src/foundation/llm-orchestrator/index.js';
 import { DAEMON_AUDIT_EVENTS } from '../../src/daemon/audit-events.js';
+import { EVENTLOOP_AUDIT_EVENTS } from '../../src/core/event-loop/audit-events.js';
 
-vi.mock('../../src/daemon/constants.js', async () => {
-  const actual = await vi.importActual('../../src/daemon/constants.js');
+vi.mock('../../src/core/event-loop/constants.js', async () => {
+  const actual = await vi.importActual('../../src/core/event-loop/constants.js');
   return {
     ...actual,
     LLM_RETRY_INITIAL_DELAY_MS: 10,
@@ -286,18 +287,18 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
         fsFactory,
       });
 
-      // 等待 fatal audit 出现（cooldown 前写入），出现后 stop
-      const FATAL_AUDIT_POLL_INTERVAL_MS = 5; // 5ms poll 间隔，LLM_RETRY_MAX_DELAY_MS mock 为 50ms、足够 detect
+      // 等待 cooldown audit 出现，出现后 stop
+      const COOLDOWN_AUDIT_POLL_INTERVAL_MS = 5; // 5ms poll 间隔，LLM_RETRY_MAX_DELAY_MS mock 为 50ms、足够 detect
       const start = Date.now();
       while (Date.now() - start < 2000) {
-        const fatalEntries = audit.entries.filter(
-          e => e[0] === DAEMON_AUDIT_EVENTS.LOOP_FATAL &&
+        const cooldownEntries = audit.entries.filter(
+          e => e[0] === EVENTLOOP_AUDIT_EVENTS.COOLDOWN &&
             e.some(c => String(c).includes('context_exceeded_exhausted')),
         );
-        if (fatalEntries.length > 0) {
+        if (cooldownEntries.length > 0) {
           break;
         }
-        await new Promise(r => setTimeout(r, FATAL_AUDIT_POLL_INTERVAL_MS));
+        await new Promise(r => setTimeout(r, COOLDOWN_AUDIT_POLL_INTERVAL_MS));
       }
 
       stop();
@@ -306,14 +307,14 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
       expect(processBatch).toHaveBeenCalled();
       expect(retryLastTurn).toHaveBeenCalledTimes(3);
 
-      const retryEntries = audit.entries.filter(e => e[0] === DAEMON_AUDIT_EVENTS.LOOP_LLM_RETRY);
+      const retryEntries = audit.entries.filter(e => e[0] === EVENTLOOP_AUDIT_EVENTS.LLM_RETRY);
       expect(retryEntries.length).toBe(3);
 
-      const fatalEntries = audit.entries.filter(
-        e => e[0] === DAEMON_AUDIT_EVENTS.LOOP_FATAL &&
+      const cooldownEntries = audit.entries.filter(
+        e => e[0] === EVENTLOOP_AUDIT_EVENTS.COOLDOWN &&
           e.some(c => String(c).includes('context_exceeded_exhausted')),
       );
-      expect(fatalEntries.length).toBeGreaterThan(0);
+      expect(cooldownEntries.length).toBeGreaterThan(0);
     });
   });
 });

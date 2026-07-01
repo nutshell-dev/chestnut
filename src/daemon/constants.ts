@@ -9,12 +9,14 @@ export const DAEMON_LOG = 'logs/daemon.log';
  */
 export const DAEMON_FALLBACK_TIMEOUT_MS = 30000;
 
-/**
- * Delay after interrupt recovery before processing next message (ms).
- * Derivation: 1000ms = 1s 给 interrupt cleanup completion 后 settle 时间 /
- * 配 INTERRUPT_POLL_INTERVAL_MS=200ms 即 ≈ 5 个 poll cycle / 防 cleanup→next msg 紧贴致竞态.
- */
-export const INTERRUPT_RECOVERY_DELAY_MS = 1000;
+// LLM retry / interrupt recovery 常量已迁入 L5 EventLoop。re-export 保持向后兼容。
+export {
+  INTERRUPT_RECOVERY_DELAY_MS,
+  LLM_MAX_RETRIES,
+  LLM_RETRY_INITIAL_DELAY_MS,
+  LLM_RETRY_MAX_DELAY_MS,
+  LLM_RETRY_STATE_FILE,
+} from '../core/event-loop/constants.js';
 
 /**
  * Cooldown between startup_check notifications to prevent spam from rapid daemon restarts (ms).
@@ -22,28 +24,6 @@ export const INTERRUPT_RECOVERY_DELAY_MS = 1000;
  * 比 HEARTBEAT_INTERVAL_SEC_DEFAULT (300s = 5 min) 长 2× 故 1 次 cooldown 内必有 1+ heartbeat.
  */
 export const STARTUP_CHECK_COOLDOWN_MS = 10 * 60 * 1000;
-
-/**
- * Maximum retries for transient LLM failures in daemon loop.
- * Derivation: 3 = 经验值 / 1-2 retry 化解 transient API/network 抖动 / ≥ 3 视为 provider/quota
- * 真问题 fail-loud / 配 DEFAULT_VERIFICATION_ATTEMPTS=3 同型经验值.
- */
-export const LLM_MAX_RETRIES = 3;
-
-/**
- * Initial retry delay for LLM failures (ms) — doubles each retry up to max.
- * Derivation: 30_000ms = 30s / 比 typical API rate-limit window (60s) 短一半给 server 缓和 /
- * 配 LLM_MAX_RETRIES=3 exponential backoff: 30s → 60s → 120s 总 ≈ 3.5 min budget /
- * 配 LLM_RETRY_MAX_DELAY_MS=300s 即 5min cap.
- */
-export const LLM_RETRY_INITIAL_DELAY_MS = 30_000;
-
-/**
- * Maximum retry delay for LLM failures (ms) — caps exponential backoff.
- * Derivation: 300_000ms = 5 min / exponential 系列从 LLM_RETRY_INITIAL_DELAY_MS=30s 走 10×
- * cap 即足以化解长 rate-limit / 同 SUBAGENT_TIMEOUT_MS=5min 同 budget.
- */
-export const LLM_RETRY_MAX_DELAY_MS = 300_000;
 
 /**
  * Interrupt poller 轮询间隔（ms）/ daemon 内 inbox.priority queue 检测频率.
@@ -79,10 +59,3 @@ export const INTERRUPT_POLL_RECOVERY_BACKOFF_MS = 30_000;
  * 达 cap 时 emit LOOP_ITERATION_TYPES.CHAIN_LIMITED audit / chain 强制结束本 tick.
  */
 export const REACT_CHAIN_MAX_ITERATIONS = 100;
-
-/**
- * LLM retry state persistence file (daemon-loop atomic + fsync write).
- * 持 LLM retry attempt count 跨进程重启（DP「中断可恢复」derive、phase 1024 G.1 + phase 1214 ratify）.
- * phase 393: 抽 2 site inline 'llm-retry-state.json' literal 为 const (M#1 + ML#9)。
- */
-export const LLM_RETRY_STATE_FILE = 'llm-retry-state.json' as const;

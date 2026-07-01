@@ -60,8 +60,3 @@ export const LOOP_ITERATION_TYPES = {
   WAIT: 'wait',
 } as const;
 
-export const LOOP_INTERRUPT_CAUSES = {
-  IDLE_TIMEOUT: 'idle_timeout',
-  USER_INTERRUPT: 'user_interrupt',
-  PRIORITY_INBOX: 'priority_inbox',
-} as const;
