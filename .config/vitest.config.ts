@@ -299,6 +299,7 @@ export default defineConfig({
           poolOptions: { threads: { maxThreads, isolate: false } },
           testTimeout: 15000,
           hookTimeout: 10000,
+          teardownTimeout: 5000, // phase 781: force worker teardown after 5s to prevent orphan vitest processes
           maxConcurrency: 20, // phase 300: lift default 5 → 20 for describe.concurrent blocks
         },
       },
@@ -321,6 +322,7 @@ export default defineConfig({
           poolOptions: { threads: { maxThreads, isolate: true } },
           testTimeout: 15000,
           hookTimeout: 10000,
+          teardownTimeout: 5000, // phase 781: force worker teardown after 5s to prevent orphan vitest processes
         },
       },
     ],
