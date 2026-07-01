@@ -129,7 +129,7 @@ export class EventLoop {
           if (chainIters >= REACT_CHAIN_MAX_ITERATIONS) {
             this.audit.write(
               EVENTLOOP_AUDIT_EVENTS.ITERATION,
-              `type=${LOOP_ITERATION_TYPES.CHAIN_LIMITED}`,
+              `type=${LOOP_ITERATION_TYPES.chain_limited}`,
               `injected=${firstInjected}`,
               `chain_total=${chainTotal}`,
             );
@@ -154,7 +154,7 @@ export class EventLoop {
         if (chainIters < REACT_CHAIN_MAX_ITERATIONS) {
           this.audit.write(
             EVENTLOOP_AUDIT_EVENTS.ITERATION,
-            `type=${LOOP_ITERATION_TYPES.CHAIN}`,
+            `type=${LOOP_ITERATION_TYPES.chain}`,
             `injected=${firstInjected}`,
             `chain_total=${chainTotal}`,
           );
@@ -199,7 +199,7 @@ export class EventLoop {
       try {
         await this.runtime.reactiveTrim();
       } catch {
-        // reactive trim exhausted — dispatchError below will cooldown
+        // silent: reactive trim is best-effort; dispatchError below will emit cooldown/retry audit
       }
     }
     await this._dispatchError(result.error);

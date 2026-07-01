@@ -8,6 +8,7 @@
 // phase 159 立
 import { CRON_FILE_ROUTING } from '../foundation/cron/audit-events.js';
 import { DAEMON_FILE_ROUTING } from '../daemon/audit-events.js';
+import { EVENTLOOP_FILE_ROUTING } from '../core/event-loop/audit-events.js';
 import { VIEWPORT_FILE_ROUTING } from '../cli/commands/viewport-audit-events.js';
 
 // phase 163 新加 14 业主
@@ -34,6 +35,7 @@ export const AggregatedFileRouting: ReadonlyMap<string, FileName> = new Map([
   // phase 159 立
   ...Object.entries(CRON_FILE_ROUTING),
   ...Object.entries(DAEMON_FILE_ROUTING),
+  ...Object.entries(EVENTLOOP_FILE_ROUTING),
   ...Object.entries(VIEWPORT_FILE_ROUTING),
   // phase 163 新加
   ...Object.entries(ASSEMBLY_FILE_ROUTING),

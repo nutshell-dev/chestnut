@@ -24,7 +24,7 @@ describe('file-routing-aggregator (phase 159)', () => {
 
   it('lookupFileForType returns correct file for known types', () => {
     expect(lookupFileForType('daemon_liveness_heartbeat')).toBe('tick');
-    expect(lookupFileForType('daemon_loop_iteration')).toBe('tick');
+    expect(lookupFileForType('eventloop_iteration')).toBe('tick');
     expect(lookupFileForType('viewport_render_batch')).toBe('viewport');
     expect(lookupFileForType('viewport_event_ingest')).toBe('viewport');
     expect(lookupFileForType('viewport_spinner_lifecycle')).toBe('viewport');

@@ -56,7 +56,7 @@ const idleTimeoutHandler: ErrorHandler = {
   handle: async (_err, ctx) => {
     ctx.audit.write(
       EVENTLOOP_AUDIT_EVENTS.ITERATION,
-      `cause=${LOOP_INTERRUPT_CAUSES.IDLE_TIMEOUT}`,
+      `cause=${LOOP_INTERRUPT_CAUSES.idle_timeout}`,
       `recovery_delay_ms=${INTERRUPT_RECOVERY_DELAY_MS}`,
     );
     await new Promise(resolve => setTimeout(resolve, INTERRUPT_RECOVERY_DELAY_MS));
@@ -69,7 +69,7 @@ const userInterruptHandler: ErrorHandler = {
   handle: async (_err, ctx) => {
     ctx.audit.write(
       EVENTLOOP_AUDIT_EVENTS.ITERATION,
-      `cause=${LOOP_INTERRUPT_CAUSES.USER_INTERRUPT}`,
+      `cause=${LOOP_INTERRUPT_CAUSES.user_interrupt}`,
     );
     // 不 waitForInbox — 直接返回让 while loop 下一轮立即调 processBatch，
     // 把被中断 turn 期间到达、仍残留在 inbox/pending 里的消息正常 drain 出来。
@@ -84,7 +84,7 @@ const priorityInboxHandler: ErrorHandler = {
   handle: async (_err, ctx) => {
     ctx.audit.write(
       EVENTLOOP_AUDIT_EVENTS.ITERATION,
-      `cause=${LOOP_INTERRUPT_CAUSES.PRIORITY_INBOX}`,
+      `cause=${LOOP_INTERRUPT_CAUSES.priority_inbox}`,
       `recovery_delay_ms=0`,
     );
   },

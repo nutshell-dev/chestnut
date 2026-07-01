@@ -10,13 +10,20 @@ export const EVENTLOOP_AUDIT_EVENTS = {
 } as const;
 
 export const LOOP_ITERATION_TYPES = {
-  CHAIN: 'chain',
-  CHAIN_LIMITED: 'chain_limited',
-  WAIT: 'wait',
+  chain: 'chain',
+  chain_limited: 'chain_limited',
+  wait: 'wait',
 } as const;
 
 export const LOOP_INTERRUPT_CAUSES = {
-  IDLE_TIMEOUT: 'idle_timeout',
-  USER_INTERRUPT: 'user_interrupt',
-  PRIORITY_INBOX: 'priority_inbox',
+  idle_timeout: 'idle_timeout',
+  user_interrupt: 'user_interrupt',
+  priority_inbox: 'priority_inbox',
+} as const;
+
+/**
+ * Phase 159 业主声明 file 归属：eventloop_iteration 高频 tick 其余默认 audit.
+ */
+export const EVENTLOOP_FILE_ROUTING: Readonly<Record<string, 'audit' | 'tick'>> = {
+  eventloop_iteration: 'tick',
 } as const;

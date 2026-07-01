@@ -11,6 +11,7 @@ import { MOTION_CLAW_ID } from '../claw-topology/index.js';
 import { CALLER_TYPE_TO_GROUPS } from '../caller-types.js';
 
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
+import { isContextExceededError } from '../../foundation/llm-orchestrator/index.js';
 import { type FileSystem } from '../../foundation/fs/index.js';
 import { AUDIT_FILE } from '../../foundation/audit/index.js';
 // phase 1414: isFileNotFound import removed — HEARTBEAT.md 读迁 Heartbeat 模块 inbox-formatter
@@ -26,6 +27,15 @@ import { loadReadFileState, clearReadFileState } from '../../foundation/file-too
 import { runReact } from '../agent-executor/index.js';
 import { summarizeLastExit } from './last-exit-summary.js';
 import { IdleTimeoutSignal, PriorityInboxInterrupt, UserInterrupt } from '../step-executor/signals.js';
+import {
+  MaxStepsExceededError,
+  WallTimeExceededError,
+  ConsecutiveParseErrorsExceededError,
+  ConsecutiveMaxTokensToolUseError,
+} from '../agent-executor/errors.js';
+import { LLMAllProvidersFailedError } from '../../foundation/llm-orchestrator/errors.js';
+import { LockContentionExhaustedError } from '../contract/errors.js';
+import { makeContractId } from '../contract/types.js';
 import type { CallerSnapshot } from '../../foundation/tool-protocol/index.js';
 import { RUNTIME_AUDIT_EVENTS, REACT_LOOP_AUDIT_EVENTS, RELOAD_LLM_CONFIG_MESSAGE_TYPE } from './runtime-audit-events.js';
 // phase 71: writeErrorResponse 消（error-response.ts 整删）
@@ -627,12 +637,12 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
    * 装配 turn 上下文：traceId + abort controller。
    * 返回 cleanup 函数 + traceId 供 finally 块调用。
    */
-  private _setupTurnContext(): {
+  private _setupTurnContext(reuseTraceId?: TraceId): {
     traceId: TraceId;
     abortController: AbortController;
     cleanup: () => void;
   } {
-    const traceId = makeTraceId(randomHex(8));
+    const traceId = reuseTraceId ?? makeTraceId(randomHex(8));
     this.setTraceId(traceId);
     this.execContext.trace_id = traceId;
     const abortController = new AbortController();
@@ -692,7 +702,8 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     // phase 786: stopRequested 是 per-turn flag，每 turn 起首 reset
     // 防 P0.14 跨 turn sticky bug（done 工具误调后下 turn silent empty）
     this.execContext.stopRequested = false;
-    const { identityContent } = await this._resolveSystemPromptForRun();
+    // 解析一次 regime/identity 信息；LLM 仍使用 caller 传入的 systemPrompt（兼容 processWithMessage 等旧入口）
+    const { systemPrompt: resolvedSystemPrompt, identityContent } = await this._resolveSystemPromptForRun();
 
     // phase 518 (review-round4 N4-Core-H3): per-turn cache contract_id for tool event audit
     // forensic join 路径（与 phase 434 messaging path 对称）。loadActive 抛错 silent +
@@ -814,7 +825,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
       }
 
       // phase 521: turn 末 regime change 检测（per L5.G3 (a) 自动检测）
-      await this._checkRegimeSwitch(systemPrompt, identityContent);
+      await this._checkRegimeSwitch(resolvedSystemPrompt, identityContent);
     } finally {
       // phase 146: mirror state removed — no reset needed
     }
@@ -829,12 +840,13 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     systemPrompt: string,
     toolsForLLM: ToolDefinition[],
     callbacks?: StreamCallbacks,
+    reuseTraceId?: TraceId,
   ): Promise<TurnResult> {
     if (!this.initialized) {
       await this.initialize();
     }
 
-    const { cleanup } = this._setupTurnContext();
+    const { cleanup } = this._setupTurnContext(reuseTraceId);
     try {
       // phase 569: 加 trace_id forensic field（turn 入口 trace_id 已设）
       // phase 722: 加 caller col 区分 processTurn caller 路径
@@ -890,7 +902,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
       await this.initialize();
     }
 
-    const { cleanup } = this._setupTurnContext();
+    const { traceId, cleanup } = this._setupTurnContext();
     try {
       const { injected, sources, count, infos, addressedHandles } = await this.drainInbox();
       if (count === 0) return 0;
@@ -916,7 +928,24 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
       // phase 722: 加 caller col 区分 3 caller 路径 (batch / with_message / retry)
       this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_START, `caller=batch`, `trace_id=${String(this.execContext?.trace_id ?? '')}`);
 
-      const result = await this.processTurn(messages, session.systemPrompt, tools, callbacks);
+      // phase 690: 保留 processBatch 旧路径的反应式 trim+retry 行为（EventLoop 新路径不依赖此壳）
+      const MAX_REACTIVE_TRIM_RETRIES = 2;
+      let reactiveRetries = 0;
+      let result: TurnResult;
+      while (true) {
+        result = await this.processTurn(messages, session.systemPrompt, tools, callbacks, traceId);
+        if (
+          result.status !== 'failed' ||
+          !isContextExceededError(result.error) ||
+          reactiveRetries >= MAX_REACTIVE_TRIM_RETRIES
+        ) {
+          break;
+        }
+        reactiveRetries++;
+        await this.reactiveTrim();
+        const { session: trimmedSession } = await this.sessionManager.load();
+        messages = trimmedSession.messages;
+      }
 
       // Route ack/nack based on turn result; preserve legacy throw behavior.
       if (result.status === 'success') {
@@ -929,13 +958,64 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
         }
       } else {
         await this.nackHandles(addressedHandles, formatErr(result.error) ?? 'failed', 'rollback');
-        // phase 71: catch-all fallback audit for non-interrupt errors (processBatch legacy compat)
-        this.auditWriter.write(
-          RUNTIME_AUDIT_EVENTS.CATCH_UNHANDLED,
-          `path=non_interrupt_error`,
-          `err=${(result.error as Error | undefined)?.constructor?.name ?? 'Error'}`,
-          `reason=${formatErr(result.error)}`,
-        );
+
+        const err = result.error;
+        // phase 63: 5 typed Error / LockContentionExhaustedError → ContractSystem.markCrashed
+        const isAgentLoopCrash =
+          err instanceof MaxStepsExceededError ||
+          err instanceof WallTimeExceededError ||
+          err instanceof ConsecutiveParseErrorsExceededError ||
+          err instanceof ConsecutiveMaxTokensToolUseError ||
+          err instanceof LLMAllProvidersFailedError ||
+          err instanceof LockContentionExhaustedError;
+
+        if (isAgentLoopCrash) {
+          for (const info of infos) {
+            const contractId = err instanceof LockContentionExhaustedError
+              ? err.contractId
+              : info.metadata?.contract_id;
+            if (contractId) {
+              try {
+                await this.contractManager.markCrashed(
+                  makeContractId(String(contractId)),
+                  `system: ${(err as Error).constructor.name.toLowerCase()}`,
+                );
+              } catch (markErr) {
+                const traceCol = `trace_id=${String(this.execContext?.trace_id ?? '')}`;
+                this.auditWriter.write(
+                  REACT_LOOP_AUDIT_EVENTS.MARK_CRASHED_FAILED,
+                  `contractId=${contractId}`,
+                  `err=${(err as Error).constructor.name}`,
+                  `markErr=${formatErr(markErr)}`,
+                  traceCol,
+                );
+                this.auditWriter.write(
+                  RUNTIME_AUDIT_EVENTS.CATCH_UNHANDLED,
+                  `path=mark_crashed_failed`,
+                  `err=${(err as Error).constructor.name}`,
+                  `reason=${formatErr(err)}`,
+                  traceCol,
+                );
+              }
+            } else {
+              // phase 71: contract_id 缺失 → audit-only、motion 业务不打扰
+              this.auditWriter.write(
+                RUNTIME_AUDIT_EVENTS.CATCH_UNHANDLED,
+                `path=agent_loop_crash_no_contract`,
+                `err=${(err as Error).constructor.name}`,
+                `reason=${formatErr(err)}`,
+              );
+            }
+          }
+        } else if (!(err instanceof PriorityInboxInterrupt || err instanceof UserInterrupt || err instanceof IdleTimeoutSignal)) {
+          // phase 71: catch-all fallback → audit-only、motion 业务不打扰
+          this.auditWriter.write(
+            RUNTIME_AUDIT_EVENTS.CATCH_UNHANDLED,
+            `path=non_interrupt_error`,
+            `err=${(err as Error).constructor.name ?? 'Error'}`,
+            `reason=${formatErr(err)}`,
+          );
+        }
       }
 
       if (result.status !== 'success' && result.error) {
@@ -956,19 +1036,21 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     if (!this.initialized) {
       await this.initialize();
     }
-    const { cleanup } = this._setupTurnContext();
+    const { traceId, cleanup } = this._setupTurnContext();
     try {
       const { session } = await this.sessionManager.load();
       const enrichedMsg = msg.addedAt ? msg : { ...msg, addedAt: new Date().toISOString() };
-      const messages = [...session.messages, enrichedMsg];
       const tools = this.getToolsForLLM();
+      const systemPrompt = session.systemPrompt;
+      let messages = [...session.messages, enrichedMsg];
+      messages = await this.proactiveTrimIfNeeded(messages, systemPrompt, tools);
 
       callbacks?.onTurnStart?.([]);
       // phase 569: 加 trace_id forensic field（turn 入口 trace_id 已设）
       // phase 722: 加 caller col 区分 with_message caller 路径
       this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_START, `caller=with_message`, `trace_id=${String(this.execContext?.trace_id ?? '')}`);
 
-      return await this.processTurn(messages, session.systemPrompt, tools, callbacks);
+      return await this.processTurn(messages, systemPrompt, tools, callbacks, traceId);
     } finally {
       cleanup();
     }
@@ -982,7 +1064,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
     if (!this.initialized) {
       await this.initialize();
     }
-    const { cleanup } = this._setupTurnContext();
+    const { traceId, cleanup } = this._setupTurnContext();
     try {
       const { session } = await this.sessionManager.load();
       if (session.messages.length === 0) {
@@ -1016,7 +1098,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
       // phase 722: 加 caller col 区分 retry caller 路径
       this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_START, `caller=retry`, `trace_id=${String(this.execContext?.trace_id ?? '')}`);
 
-      return await this.processTurn(retryMessages, session.systemPrompt, this.getToolsForLLM(), callbacks);
+      return await this.processTurn(retryMessages, session.systemPrompt, this.getToolsForLLM(), callbacks, traceId);
     } finally {
       cleanup();
     }

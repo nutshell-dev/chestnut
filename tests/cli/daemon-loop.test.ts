@@ -6,21 +6,22 @@
  * Note (phase 361): fix 9 (interrupt poller circuit breaker test) 已删 —
  * polling-specific test (vi.advanceTimersByTime 200ms × 21) 不再适用 event-driven
  * file-watcher 架构. circuit breaker 契约现由 tests/daemon/interrupt-watcher.test.ts 覆盖.
+ *
+ * Phase 783: startDaemonLoop 改为接收 EventLoop 实例；本文件只测 daemon 进程级
+ * 生命周期，LLM retry / chain iteration 等调度语义迁至 tests/core/event-loop。
  */
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { startDaemonLoop } from '../../src/daemon/daemon-loop.js';
-import { waitForInbox } from '../../src/daemon/inbox-watcher.js';
-import type { Runtime } from '../../src/core/runtime/index.js';
+import { waitForInbox } from '../../src/core/event-loop/inbox-watcher.js';
 import type { AuditLog } from '../../src/foundation/audit/index.js';
 import type { Watcher } from '../../src/foundation/file-watcher/types.js';
 import type { FileSystem } from '../../src/foundation/fs/types.js';
 import { createWatcher } from '../../src/foundation/file-watcher/index.js';
-import { IdleTimeoutSignal, UserInterrupt, PriorityInboxInterrupt } from '../../src/core/step-executor/signals.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
+import type { EventLoop } from '../../src/core/event-loop/index.js';
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
-import { LLMAllProvidersFailedError } from '../../src/foundation/llm-orchestrator/errors.js';
 
 // Module-level mock so ESM named exports are replaceable
 vi.mock('fs', async (importOriginal) => {
@@ -32,310 +33,36 @@ vi.mock('../../src/foundation/file-watcher/index.js', () => ({
   createWatcher: vi.fn(),
 }));
 
-// ─── LLM retry ────────────────────────────────────────────────────────────────
+// ─── daemon-loop lifecycle ────────────────────────────────────────────────────
 
-/** Flush the microtask queue n times to let async code advance */
-async function flushMicrotasks(n = 6) {
-  for (let i = 0; i < n; i++) await Promise.resolve();
-}
-
-describe('startDaemonLoop - LLM retry', () => {
+describe('startDaemonLoop - EventLoop delegation', () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.clearAllMocks();
   });
 
-  it('LLM error triggers retryLastTurn after exponential delay', async () => {
-    vi.useFakeTimers();
-    const mockAudit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
-    const retryLastTurn = vi.fn().mockResolvedValue(undefined);
-    const processBatch = vi.fn()
-      .mockRejectedValueOnce(new LLMAllProvidersFailedError([{ provider: 'test', error: new Error('network unreachable') }]))
-      .mockResolvedValue(0);
-
-    const mockRuntime = { processBatch, retryLastTurn, abort: vi.fn() } as unknown as Runtime;
+  it('delegates each tick to eventLoop.run() and stops cleanly', async () => {
+    const mockAudit = { write: vi.fn(), preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s) };
+    const run = vi.fn().mockImplementation(async () => {
+      await new Promise(r => setTimeout(r, 30));
+    });
+    const abort = vi.fn();
+    const eventLoop = { run, abort } as unknown as EventLoop;
 
     const { stop } = startDaemonLoop({
       fsFactory,
-      runtime: mockRuntime,
-      agentDir: '/tmp/daemon-llm-retry-test',
-      clawId: 'daemon-llm-retry-test',
-      label: '[retry-test]',
+      eventLoop,
+      agentDir: '/tmp/daemon-delegation-test',
+      clawId: 'daemon-delegation-test',
+      label: '[delegation-test]',
       audit: mockAudit as unknown as AuditLog,
-      inbox: { pendingDir: '/tmp/daemon-llm-retry-test/inbox/pending', fallbackTimeoutMs: 1_000 },
     });
 
-    // Let processBatch throw and catch block reach the 30s setTimeout
-    await flushMicrotasks();
-
-    // Advance past the retry delay
-    vi.advanceTimersByTime(30_001);
-    await flushMicrotasks();
-
-    // retryLastTurn must have been called
-    expect(retryLastTurn).toHaveBeenCalledTimes(1);
-
-    // AuditLog: llm_retry attempt=1
-    expect(mockAudit.write).toHaveBeenCalledWith(
-      'daemon_loop_llm_retry',
-      'attempt=1',
-      'max=3',
-      'delay_ms=30000',
-      expect.stringContaining('error=All LLM providers failed'),
-    );
-
+    await new Promise(r => setTimeout(r, 10));
     stop();
-    vi.advanceTimersByTime(1_001);
-    await flushMicrotasks();
-  });
 
-  it('LLM max retries exhausted logs error to console', async () => {
-    vi.useFakeTimers();
-    const mockAudit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
-    // processBatch throws once; retryLastTurn always throws → 3 retries → max exceeded
-    const processBatch  = vi.fn().mockRejectedValueOnce(new LLMAllProvidersFailedError([{ provider: 'test', error: new Error('network unreachable') }]));
-    const retryLastTurn = vi.fn().mockRejectedValue(new LLMAllProvidersFailedError([{ provider: 'test', error: new Error('network unreachable on retry') }]));
-    const mockRuntime = { processBatch, retryLastTurn, abort: vi.fn() } as unknown as Runtime;
-
-    const { stop } = startDaemonLoop({
-      fsFactory,
-      runtime: mockRuntime,
-      agentDir: '/tmp/agent-max-retry',
-      clawId: 'agent-max-retry',
-      label: '[max-retry-test]',
-      audit: mockAudit as unknown as AuditLog,
-      inbox: { pendingDir: '/tmp/agent-max-retry/inbox/pending', fallbackTimeoutMs: 100 },
-    });
-
-    // Iteration 1: processBatch throws → wait 30 s
-    await flushMicrotasks();
-    vi.advanceTimersByTime(30_001);
-    await flushMicrotasks();
-
-    // Iteration 2: retryLastTurn throws → wait 60 s
-    vi.advanceTimersByTime(60_001);
-    await flushMicrotasks();
-
-    // Iteration 3: retryLastTurn throws → wait 120 s
-    vi.advanceTimersByTime(120_001);
-    await flushMicrotasks();
-
-    // Iteration 4: retryLastTurn throws → llmRetryCount=3 >= MAX → else branch → audit fatal
-    // AuditLog: llm_retry × 3 + fatal
-    expect(mockAudit.write).toHaveBeenCalledWith(
-      'daemon_loop_llm_retry',
-      'attempt=1',
-      'max=3',
-      'delay_ms=30000',
-      expect.stringContaining('error=All LLM providers failed'),
-    );
-    expect(mockAudit.write).toHaveBeenCalledWith(
-      'daemon_loop_llm_retry',
-      'attempt=2',
-      'max=3',
-      'delay_ms=60000',
-      expect.stringContaining('error=All LLM providers failed'),
-    );
-    expect(mockAudit.write).toHaveBeenCalledWith(
-      'daemon_loop_llm_retry',
-      'attempt=3',
-      'max=3',
-      'delay_ms=120000',
-      expect.stringContaining('error=All LLM providers failed'),
-    );
-    expect(mockAudit.write).toHaveBeenCalledWith(
-      'daemon_loop_fatal',
-      'reason=max_retries_exhausted',
-      expect.stringContaining('error=All LLM providers failed'),
-    );
-
-    stop();
-    vi.advanceTimersByTime(200);
-    await flushMicrotasks();
-  });
-
-  it('non-LLM error does not set llmRetryPending and skips retryLastTurn', async () => {
-    vi.useFakeTimers();
-    const mockAudit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
-
-    const retryLastTurn = vi.fn();
-    const processBatch  = vi.fn()
-      .mockRejectedValueOnce(new Error('Unexpected disk I/O failure'))
-      .mockResolvedValue(0);
-    const mockRuntime = { processBatch, retryLastTurn, abort: vi.fn() } as unknown as Runtime;
-
-    const { stop } = startDaemonLoop({
-      fsFactory,
-      runtime: mockRuntime,
-      agentDir: '/tmp/non-llm-error-test',
-      clawId: 'non-llm-error-test',
-      label: '[non-llm-test]',
-      audit: mockAudit as unknown as AuditLog,
-      inbox: { pendingDir: '/tmp/non-llm-error-test/inbox/pending', fallbackTimeoutMs: 500 },
-    });
-
-    await flushMicrotasks();
-
-    // Non-LLM error goes straight to waitForInbox (no retry delay)
-    // retryLastTurn must never be called
-    expect(retryLastTurn).not.toHaveBeenCalled();
-
-    // AuditLog: fatal non_llm_error
-    expect(mockAudit.write).toHaveBeenCalledWith(
-      'daemon_loop_fatal',
-      'reason=non_llm_error',
-      expect.stringContaining('error=Unexpected disk I/O failure'),
-    );
-
-    stop();
-    vi.advanceTimersByTime(600);
-    await flushMicrotasks();
-  });
-});
-
-// ─── interrupt audit ───────────────────────────────────────────────────────────
-
-describe('startDaemonLoop - interrupt audit', () => {
-  afterEach(() => {
-    vi.useRealTimers();
-    vi.clearAllMocks();
-  });
-
-  it('IdleTimeoutSignal triggers daemon_loop_interrupt cause=idle_timeout', async () => {
-    vi.useFakeTimers();
-    const mockAudit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
-    const processBatch = vi.fn().mockRejectedValueOnce(new IdleTimeoutSignal(1000));
-
-    const mockRuntime = { processBatch, retryLastTurn: vi.fn(), abort: vi.fn() } as unknown as Runtime;
-
-    const { stop } = startDaemonLoop({
-      fsFactory,
-      runtime: mockRuntime,
-      agentDir: '/tmp/idle-test',
-      clawId: 'idle-test',
-      label: '[idle-test]',
-      audit: mockAudit as unknown as AuditLog,
-      inbox: { pendingDir: '/tmp/idle-test/inbox/pending', fallbackTimeoutMs: 1_000 },
-    });
-
-    await flushMicrotasks();
-    vi.advanceTimersByTime(1_001);
-    await flushMicrotasks();
-
-    expect(mockAudit.write).toHaveBeenCalledWith(
-      'daemon_loop_interrupt',
-      'cause=idle_timeout',
-      'recovery_delay_ms=1000',
-    );
-
-    stop();
-    vi.advanceTimersByTime(1_001);
-    await flushMicrotasks();
-  });
-
-  it('UserInterrupt triggers daemon_loop_interrupt cause=user_interrupt', async () => {
-    vi.useFakeTimers();
-    const mockAudit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
-    const processBatch = vi.fn().mockRejectedValueOnce(new UserInterrupt());
-
-    const mockRuntime = { processBatch, retryLastTurn: vi.fn(), abort: vi.fn() } as unknown as Runtime;
-
-    const { stop } = startDaemonLoop({
-      fsFactory,
-      runtime: mockRuntime,
-      agentDir: '/tmp/user-test',
-      clawId: 'user-test',
-      label: '[user-test]',
-      audit: mockAudit as unknown as AuditLog,
-      inbox: { pendingDir: '/tmp/user-test/inbox/pending', fallbackTimeoutMs: 1_000 },
-    });
-
-    await flushMicrotasks();
-    vi.advanceTimersByTime(1_001);
-    await flushMicrotasks();
-
-    expect(mockAudit.write).toHaveBeenCalledWith(
-      'daemon_loop_interrupt',
-      'cause=user_interrupt',
-    );
-
-    stop();
-    vi.advanceTimersByTime(1_001);
-    await flushMicrotasks();
-  });
-
-  it('PriorityInboxInterrupt triggers daemon_loop_interrupt cause=priority_inbox', async () => {
-    vi.useFakeTimers();
-    const mockAudit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
-    const processBatch = vi.fn().mockRejectedValueOnce(new PriorityInboxInterrupt());
-
-    const mockRuntime = { processBatch, retryLastTurn: vi.fn(), abort: vi.fn() } as unknown as Runtime;
-
-    const { stop } = startDaemonLoop({
-      fsFactory,
-      runtime: mockRuntime,
-      agentDir: '/tmp/priority-test',
-      clawId: 'priority-test',
-      label: '[priority-test]',
-      audit: mockAudit as unknown as AuditLog,
-      inbox: { pendingDir: '/tmp/priority-test/inbox/pending', fallbackTimeoutMs: 1_000 },
-    });
-
-    await flushMicrotasks();
-
-    expect(mockAudit.write).toHaveBeenCalledWith(
-      'daemon_loop_interrupt',
-      'cause=priority_inbox',
-      'recovery_delay_ms=0',
-    );
-
-    stop();
-    vi.advanceTimersByTime(1_001);
-    await flushMicrotasks();
-  });
-});
-
-// ─── iteration audit ───────────────────────────────────────────────────────────
-
-describe('startDaemonLoop - iteration audit', () => {
-  afterEach(() => {
-    vi.useRealTimers();
-    vi.restoreAllMocks();
-  });
-
-  it('chain reaction triggers daemon_loop_iteration type=chain with chain_total', async () => {
-    vi.useFakeTimers();
-    const mockAudit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
-    // First call injects 2 → chain loop → 1 → 0 (terminate)
-    const processBatch = vi.fn()
-      .mockResolvedValueOnce(2)
-      .mockResolvedValueOnce(1)
-      .mockResolvedValueOnce(0);
-
-    const mockRuntime = { processBatch, retryLastTurn: vi.fn(), abort: vi.fn() } as unknown as Runtime;
-
-    const { stop } = startDaemonLoop({
-      fsFactory,
-      runtime: mockRuntime,
-      agentDir: '/tmp/chain-test',
-      clawId: 'chain-test',
-      label: '[chain-test]',
-      audit: mockAudit as unknown as AuditLog,
-      inbox: { pendingDir: '/tmp/chain-test/inbox/pending', fallbackTimeoutMs: 1_000 },
-    });
-
-    await flushMicrotasks();
-
-    expect(mockAudit.write).toHaveBeenCalledWith(
-      'daemon_loop_iteration',
-      'type=chain',
-      'injected=2',
-      'chain_total=3',
-    );
-
-    stop();
-    vi.advanceTimersByTime(1_001);
-    await flushMicrotasks();
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(abort).not.toHaveBeenCalled();
   });
 });
 
@@ -350,7 +77,6 @@ describe('waitForInbox', () => {
   it('resolves when createWatcher callback fires (new file)', async () => {
     vi.useFakeTimers();
 
-    // mock createWatcher 捕获 callback 供手动触发
     let capturedCallback: (() => void) | null = null;
     const mockWatcher = { close: vi.fn().mockResolvedValue(undefined) };
     vi.mocked(createWatcher).mockImplementation((_absPath, cb) => {
@@ -364,18 +90,16 @@ describe('waitForInbox', () => {
       resolve: vi.fn((p: string) => p),
       listSync: vi.fn(() => {
         listCallCount++;
-        // snapshot + post-setup re-check: empty; callback onwards: new file
         return listCallCount <= 2 ? [] : [{ name: 'msg1.md', isDirectory: false }];
       }),
     } as unknown as FileSystem;
-    const mockAudit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)} as unknown as AuditLog;
+    const mockAudit = { write: vi.fn(), preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s) } as unknown as AuditLog;
 
     const promise = waitForInbox(mockFs, mockAudit, '/tmp/inbox', 60_000);
 
     await Promise.resolve();
     expect(capturedCallback).not.toBeNull();
 
-    // 手动触发 callback 模拟新文件到达
     capturedCallback!();
 
     await expect(promise).resolves.toBeUndefined();
@@ -393,7 +117,7 @@ describe('waitForInbox', () => {
       resolve: vi.fn((p: string) => p),
       listSync: vi.fn().mockReturnValue([]),
     } as unknown as FileSystem;
-    const mockAudit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)} as unknown as AuditLog;
+    const mockAudit = { write: vi.fn(), preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s) } as unknown as AuditLog;
 
     const promise = waitForInbox(mockFs, mockAudit, '/tmp/inbox', 1_000);
 
@@ -410,16 +134,14 @@ describe('waitForInbox', () => {
       ensureDirSync: vi.fn(() => { throw new Error('EACCES'); }),
       resolve: vi.fn((p: string) => p),
     } as unknown as FileSystem;
-    const mockAudit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)} as unknown as AuditLog;
+    const mockAudit = { write: vi.fn(), preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s) } as unknown as AuditLog;
 
     const promise = waitForInbox(mockFs, mockAudit, '/tmp/inbox', 60_000);
 
-    // catch 块 void done() 应立即 resolve（不需 advance timer）
     await expect(promise).resolves.toBeUndefined();
   });
 
   it('settled guard: multiple done() triggers only one resolve', async () => {
-    // 可选 4 it：验证 fix 7
     vi.useFakeTimers();
 
     let capturedCallback: (() => void) | null = null;
@@ -435,21 +157,18 @@ describe('waitForInbox', () => {
       resolve: vi.fn((p: string) => p),
       listSync: vi.fn(() => {
         listCallCount2++;
-        // snapshot + post-setup re-check: empty; callback onwards: new file
         return listCallCount2 <= 2 ? [] : [{ name: 'new.md', isDirectory: false }];
       }),
     } as unknown as FileSystem;
-    const mockAudit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)} as unknown as AuditLog;
+    const mockAudit = { write: vi.fn(), preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s) } as unknown as AuditLog;
 
     const promise = waitForInbox(mockFs, mockAudit, '/tmp/inbox', 1_000);
     await Promise.resolve();
 
-    // 同时触发 callback + timeout
     capturedCallback!();
     vi.advanceTimersByTime(1_001);
 
     await expect(promise).resolves.toBeUndefined();
-    // close 只调用一次
     expect(mockWatcher.close).toHaveBeenCalledTimes(1);
   });
 });

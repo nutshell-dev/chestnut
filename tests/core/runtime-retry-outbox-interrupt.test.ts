@@ -55,7 +55,8 @@ describe('Runtime RetryOutboxInterrupt', () => {
       (runtime as unknown as { llm: typeof mockLLM }).llm = mockLLM;
 
       // No messages have been exchanged — session is empty
-      await expect(runtime.retryLastTurn()).resolves.toBeUndefined();
+      const result = await runtime.retryLastTurn();
+      expect(result.status).toBe('failed');
 
       // LLM must NOT have been called
       expect(mockLLM.call).not.toHaveBeenCalled();
@@ -117,7 +118,9 @@ describe('Runtime RetryOutboxInterrupt', () => {
       };
       (runtime as unknown as { llm: typeof failingLLM }).llm = failingLLM;
 
-      await expect(runtime.retryLastTurn()).rejects.toThrow('LLM network error');
+      const result = await runtime.retryLastTurn();
+      expect(result.status).toBe('failed');
+      expect(result.error).toEqual(expect.objectContaining({ message: 'LLM network error' }));
 
       // finally block must have cleared the AbortController
       expect((runtime as unknown as { currentAbortController: unknown }).currentAbortController).toBeNull();

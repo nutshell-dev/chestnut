@@ -688,16 +688,10 @@
       "summon_write_by_contract_failed"
     ],
     "core_event-loop_audit-events": [
-      "chain",
-      "chain_limited",
       "eventloop_cooldown",
       "eventloop_fatal",
       "eventloop_iteration",
-      "eventloop_llm_retry",
-      "idle_timeout",
-      "priority_inbox",
-      "user_interrupt",
-      "wait"
+      "eventloop_llm_retry"
     ],
     "daemon_audit-events": [
       "contract_cancelled",
@@ -976,6 +970,7 @@
   },
   "fileRouting": {
     "daemon_liveness_heartbeat": "tick",
+    "eventloop_iteration": "tick",
     "viewport_render_batch": "viewport",
     "viewport_event_ingest": "viewport",
     "viewport_spinner_lifecycle": "viewport",

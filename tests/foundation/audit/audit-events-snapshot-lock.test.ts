@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CRON_FILE_ROUTING } from '../../../src/foundation/cron/audit-events.js';
 import { DAEMON_FILE_ROUTING } from '../../../src/daemon/audit-events.js';
+import { EVENTLOOP_FILE_ROUTING } from '../../../src/core/event-loop/audit-events.js';
 import { VIEWPORT_FILE_ROUTING } from '../../../src/cli/commands/viewport-audit-events.js';
 
 // phase 163 新加 14 业主
@@ -136,6 +137,7 @@ describe('audit-events snapshot lock', () => {
     const ownerRoutings = {
       ...CRON_FILE_ROUTING,
       ...DAEMON_FILE_ROUTING,
+      ...EVENTLOOP_FILE_ROUTING,
       ...VIEWPORT_FILE_ROUTING,
       ...ASSEMBLY_FILE_ROUTING,
       ...ASSEMBLY_LLM_FILE_ROUTING,
@@ -166,6 +168,7 @@ describe('audit-events snapshot lock', () => {
     const ownerRoutings = {
       ...CRON_FILE_ROUTING,
       ...DAEMON_FILE_ROUTING,
+      ...EVENTLOOP_FILE_ROUTING,
       ...VIEWPORT_FILE_ROUTING,
       ...ASSEMBLY_FILE_ROUTING,
       ...ASSEMBLY_LLM_FILE_ROUTING,
@@ -201,6 +204,7 @@ describe('audit-events snapshot lock', () => {
     const ownerRoutings = {
       ...CRON_FILE_ROUTING,
       ...DAEMON_FILE_ROUTING,
+      ...EVENTLOOP_FILE_ROUTING,
       ...VIEWPORT_FILE_ROUTING,
       ...ASSEMBLY_FILE_ROUTING,
       ...ASSEMBLY_LLM_FILE_ROUTING,
@@ -245,6 +249,7 @@ describe('audit-events snapshot lock', () => {
       // phase 159 已有
       'foundation/cron/audit-events.ts',
       'daemon/audit-events.ts',
+      'core/event-loop/audit-events.ts',
       'cli/commands/viewport-audit-events.ts',
     ];
 

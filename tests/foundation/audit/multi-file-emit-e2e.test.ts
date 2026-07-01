@@ -24,12 +24,12 @@ describe('multi-file emit E2E (phase 159)', () => {
     const audit: AuditLog = createSystemAudit(fs, tmpDir, { typeToFile: AggregatedFileRouting });
 
     audit.write('daemon_liveness_heartbeat', 'job=dream-trigger');
-    audit.write('daemon_loop_iteration', 'reason=empty');
+    audit.write('eventloop_iteration', 'reason=empty');
 
     expect(existsSync(join(tmpDir, 'tick.tsv'))).toBe(true);
     const tickContent = readFileSync(join(tmpDir, 'tick.tsv'), 'utf-8');
     expect(tickContent).toContain('daemon_liveness_heartbeat');
-    expect(tickContent).toContain('daemon_loop_iteration');
+    expect(tickContent).toContain('eventloop_iteration');
 
     // audit.tsv 不含 tick 类 event
     if (existsSync(join(tmpDir, 'audit.tsv'))) {
