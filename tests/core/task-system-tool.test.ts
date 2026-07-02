@@ -1033,10 +1033,16 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       const executeCallback = vi.fn().mockResolvedValue({ success: true, content: 'direct result' });
 
       await scheduleToolCompat(taskSystem, 'testTool', executeCallback, 'parent-claw');
-      await waitForAnyFile(path.join(testClawDir, 'inbox', 'pending'), (f) => f.endsWith('.md'));
+
+      // phase 793 Step A: two-step wait 替裸 waitForAnyFile。高并发下 inbox file 可能被
+      // watcher 在 content 写完前拾起（endsWith('.md') 弱信号）→ 后续 readdir / expect
+      // 拿到半成品文件或空目录 → flaky（phase 786 #7）。两步：先找文件、再等 frontmatter 完整。
+      const inboxDir = path.join(testClawDir, 'inbox', 'pending');
+      const inboxName = await waitForAnyFile(inboxDir, (f) => f.endsWith('.md'), 15000);
+      await waitForCompleteFile(path.join(inboxDir, inboxName), /^---[\s\S]+---\n\n/);
 
       // Inbox file must be .md (not .json or other)
-      const inboxFiles = await fs.readdir(path.join(testClawDir, 'inbox', 'pending'));
+      const inboxFiles = await fs.readdir(inboxDir);
       expect(inboxFiles.length).toBeGreaterThan(0);
       expect(inboxFiles.every(f => f.endsWith('.md'))).toBe(true);
     });
