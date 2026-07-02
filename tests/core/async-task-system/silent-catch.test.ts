@@ -11,12 +11,8 @@ import { makeTaskSystemDeps } from '../../helpers/task-system.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import { SUBAGENT_SHORT_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
+import { waitFor } from '../../helpers/wait-for.js';
 
-/**
- * Fire-and-forget audit microtask settle (10ms): 等 catch 内 audit.write 落定.
- * Derivation: > microtask flush 1 turn / 给 audit 排队事件 land 的窗口.
- */
-const AUDIT_MICROTASK_SETTLE_MS = 10;
 
 // ─── S1 helpers ───────────────────────────────────────────────────────────────
 
@@ -239,8 +235,10 @@ describe('phase 541: silent catch fixes', () => {
       expect(capturedWatcherCallback).toBeDefined();
       capturedWatcherCallback!({ type: 'add', path: 'tasks/queues/pending/task-watcher.json' });
 
-      // 等待 microtask 完成
-      await new Promise((r) => setTimeout(r, AUDIT_MICROTASK_SETTLE_MS));
+      // phase 789: waitFor poll until PENDING_INGEST_FAILED (context=watcher_async) lands
+      await waitFor(() => auditEvents.some(
+        (e) => e[0] === TASK_AUDIT_EVENTS.PENDING_INGEST_FAILED && e.some((c) => typeof c === 'string' && c.includes('context=watcher_async')),
+      ), 5000);
 
       const watcherAsyncEvents = auditEvents.filter(
         (e) => e[0] === TASK_AUDIT_EVENTS.PENDING_INGEST_FAILED && e.some((c) => typeof c === 'string' && c.includes('context=watcher_async')),

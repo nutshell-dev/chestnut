@@ -11,12 +11,8 @@ import { makeTaskSystemDeps } from '../../helpers/task-system.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import { SUBAGENT_SHORT_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
+import { waitFor } from '../../helpers/wait-for.js';
 
-/**
- * Concurrent read 双 await 落 pending 后才断言 defers.length=2 的 settle 间隔.
- * Derivation: > microtask flush（两 spy.mock fs.read 都进 await 队列）/ < 任意路径 deadline.
- */
-const PENDING_READ_SETTLE_MS = 10;
 
 vi.mock('../../../src/core/async-task-system/result-delivery.js', () => ({
   sendResult: vi.fn(),
@@ -329,8 +325,8 @@ describe('phase 556: race + dead-letter cluster fix', () => {
       const p1 = (system as any)._ingestPendingFile(filePath);
       const p2 = (system as any)._ingestPendingFile(filePath);
 
-      // 等待两个 read 都被挂起
-      await new Promise((r) => setTimeout(r, PENDING_READ_SETTLE_MS));
+      // phase 789: waitFor poll until both reads are suspended on the deferred loader
+      await waitFor(() => defers.length === 2, 5000);
       expect(defers.length).toBe(2);
 
       // 同时 resolve 两个 read
