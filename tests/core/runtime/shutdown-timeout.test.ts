@@ -47,6 +47,7 @@ describe('runtime.stop shutdown timeout (phase 1332 N4)', () => {
 
     const runtime = new Runtime({
         allowedGroups: TEST_ALLOWED_GROUPS,
+        callerLabel: 'claw',
       clawId: 'test-claw',
       clawDir: '/tmp/test',
       llmConfig: {} as any,

@@ -24,7 +24,7 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import { RUNTIME_AUDIT_EVENTS } from './runtime-audit-events.js';
 import { CLAW_IDENTITY_FILE, CLAW_SOUL_FILE, CLAW_USER_FILE, CLAW_AUTH_POLICY_FILE } from '../../foundation/claw-identity/index.js';
 
-export type CreateRuntimeOptions = Omit<RuntimeOptions, 'allowedGroups'> & {
+export type CreateRuntimeOptions = Omit<RuntimeOptions, 'allowedGroups' | 'callerLabel'> & {
   identity: 'motion' | 'claw';
 };
 
@@ -108,13 +108,16 @@ export function createRuntime(
 ): Runtime {
   const { identity, ...runtimeOptions } = options;
   const allowedGroups = CALLER_TYPE_TO_GROUPS[identity];
+  // phase 797: callerLabel injected by Assembly (clawId already carries the correct identity label)
+  const callerLabel = runtimeOptions.clawId;
   if (identity === MOTION_CLAW_ID) {
     return new Runtime({
       ...runtimeOptions,
       allowedGroups,
+      callerLabel,
       systemPromptBuilder: buildMotionSystemPrompt,
       identityToolFilter: (registry) => registry.unregister('send'),
     });
   }
-  return new Runtime({ ...runtimeOptions, allowedGroups });
+  return new Runtime({ ...runtimeOptions, allowedGroups, callerLabel });
 }

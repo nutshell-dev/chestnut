@@ -108,6 +108,7 @@ describe('Runtime.initialize() failure audits', () => {
     const mocks = minimalMocks();
     const runtime = new Runtime({
         allowedGroups: TEST_ALLOWED_GROUPS,
+        callerLabel: 'claw',
       clawId: 'test-claw',
       clawDir,
       llmConfig: { primary: { name: 'mock', apiKey: 'k', model: 'm', maxTokens: 1, temperature: 0, timeoutMs: 1, apiFormat: 'anthropic' }, maxAttempts: 1, retryDelayMs: 0 },
@@ -138,6 +139,7 @@ describe('Runtime.initialize() failure audits', () => {
     const mocks = minimalMocks();
     const runtime = new Runtime({
         allowedGroups: TEST_ALLOWED_GROUPS,
+        callerLabel: 'claw',
       clawId: 'test-claw',
       clawDir,
       llmConfig: { primary: { name: 'mock', apiKey: 'k', model: 'm', maxTokens: 1, temperature: 0, timeoutMs: 1, apiFormat: 'anthropic' }, maxAttempts: 1, retryDelayMs: 0 },
@@ -181,6 +183,7 @@ describe('Runtime.initialize() failure audits', () => {
     const mocks = minimalMocks();
     const runtime = new Runtime({
         allowedGroups: TEST_ALLOWED_GROUPS,
+        callerLabel: 'claw',
       clawId: 'test-claw',
       clawDir,
       llmConfig: { primary: { name: 'mock', apiKey: 'k', model: 'm', maxTokens: 1, temperature: 0, timeoutMs: 1, apiFormat: 'anthropic' }, maxAttempts: 1, retryDelayMs: 0 },

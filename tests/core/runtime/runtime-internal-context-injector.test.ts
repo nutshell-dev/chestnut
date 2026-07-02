@@ -59,6 +59,7 @@ describe('Runtime internal ContextInjector + ExecContext self-construction (phas
     const deps = await makeRuntimeDeps({ clawDir, clawId: 'test-claw' });
     const runtime = new Runtime({
         allowedGroups: TEST_ALLOWED_GROUPS,
+        callerLabel: 'claw',
       clawId: 'test-claw',
       clawDir,
       llmConfig: createMockLLMConfig(),
@@ -80,6 +81,7 @@ describe('Runtime internal ContextInjector + ExecContext self-construction (phas
     const deps = await makeRuntimeDeps({ clawDir, clawId: 'test-claw' });
     const runtime = new Runtime({
         allowedGroups: TEST_ALLOWED_GROUPS,
+        callerLabel: 'claw',
       clawId: 'test-claw',
       clawDir,
       llmConfig: createMockLLMConfig(),
@@ -99,6 +101,7 @@ describe('Runtime internal ContextInjector + ExecContext self-construction (phas
     const deps = await makeRuntimeDeps({ clawDir, clawId: 'test-claw' });
     const runtime = new Runtime({
         allowedGroups: TEST_ALLOWED_GROUPS,
+        callerLabel: 'claw',
       clawId: 'test-claw',
       clawDir,
       llmConfig: createMockLLMConfig(),
@@ -122,6 +125,7 @@ describe('Runtime internal ContextInjector + ExecContext self-construction (phas
     // Runtime should still initialize fine
     const runtime = new Runtime({
         allowedGroups: TEST_ALLOWED_GROUPS,
+        callerLabel: 'claw',
       clawId: 'test-claw',
       clawDir,
       llmConfig: createMockLLMConfig(),

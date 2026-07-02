@@ -86,6 +86,7 @@ describe('Runtime Init', () => {
       (deps as any).parentStreamLog = mockStreamLog;
       const runtime = trackRuntime(new Runtime({
         allowedGroups: TEST_ALLOWED_GROUPS,
+        callerLabel: 'claw',
         clawId: 'test-claw',
         clawDir,
         llmConfig: createMockLLMConfig(),
@@ -101,6 +102,7 @@ describe('Runtime Init', () => {
       (deps as any).contractNotifyCallback = cb;
       const runtime = trackRuntime(new Runtime({
         allowedGroups: TEST_ALLOWED_GROUPS,
+        callerLabel: 'claw',
         clawId: 'test-claw',
         clawDir,
         llmConfig: createMockLLMConfig(),
@@ -115,6 +117,7 @@ describe('Runtime Init', () => {
       const deps = await makeRuntimeDeps({ clawDir, clawId: 'test-claw' });
       const runtime = trackRuntime(new Runtime({
         allowedGroups: TEST_ALLOWED_GROUPS,
+        callerLabel: 'claw',
         clawId: 'test-claw',
         clawDir,
         llmConfig: createMockLLMConfig(),
@@ -134,6 +137,7 @@ describe('Runtime Init', () => {
       const deps = await makeRuntimeDeps({ clawDir, clawId: 'test-claw' });
       const runtime = trackRuntime(new Runtime({
         allowedGroups: TEST_ALLOWED_GROUPS,
+        callerLabel: 'claw',
         clawId: 'test-claw',
         clawDir,
         llmConfig: createMockLLMConfig(),
@@ -155,6 +159,7 @@ describe('Runtime Init', () => {
       const deps = await makeRuntimeDeps({ clawDir, clawId: 'test-claw' });
       const runtime = trackRuntime(new Runtime({
         allowedGroups: TEST_ALLOWED_GROUPS,
+        callerLabel: 'claw',
         clawId: 'test-claw',
         clawDir,
         llmConfig: createMockLLMConfig(),
@@ -171,6 +176,7 @@ describe('Runtime Init', () => {
       const deps = await makeRuntimeDeps({ clawDir, clawId: 'test-claw' });
       const runtime = trackRuntime(new Runtime({
         allowedGroups: TEST_ALLOWED_GROUPS,
+        callerLabel: 'claw',
         clawId: 'test-claw',
         clawDir,
         llmConfig: createMockLLMConfig(),
@@ -192,6 +198,7 @@ describe('Runtime Init', () => {
       const deps = await makeRuntimeDeps({ clawDir, clawId: 'test-claw' });
       const runtime = trackRuntime(new Runtime({
         allowedGroups: TEST_ALLOWED_GROUPS,
+        callerLabel: 'claw',
         clawId: 'test-claw',
         clawDir,
         llmConfig: createMockLLMConfig(),

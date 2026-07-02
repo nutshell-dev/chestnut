@@ -49,6 +49,7 @@ describe('Runtime processBatch orchestrator (phase 1285)', () => {
     const deps = await makeRuntimeDeps({ clawDir: testClawDir, clawId: 'edge-claw' });
     const runtime = new Runtime({
         allowedGroups: TEST_ALLOWED_GROUPS,
+        callerLabel: 'claw',
       clawId: 'edge-claw',
       clawDir: testClawDir,
       llmConfig: createMockLLMConfig(),

@@ -103,6 +103,7 @@ describe('runtime stopRequested per-turn reset (phase 786 / P0.14)', () => {
     const deps = await makeRuntimeDeps({ clawDir, clawId: 'test-claw' });
     const runtime = new Runtime({
         allowedGroups: TEST_ALLOWED_GROUPS,
+        callerLabel: 'claw',
       clawId: 'test-claw',
       clawDir,
       llmConfig: createMockLLMConfig(),
@@ -140,6 +141,7 @@ describe('runtime stopRequested per-turn reset (phase 786 / P0.14)', () => {
     const deps = await makeRuntimeDeps({ clawDir, clawId: 'test-claw' });
     const runtime = new Runtime({
         allowedGroups: TEST_ALLOWED_GROUPS,
+        callerLabel: 'claw',
       clawId: 'test-claw',
       clawDir,
       llmConfig: createMockLLMConfig(),

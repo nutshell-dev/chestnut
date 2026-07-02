@@ -117,6 +117,9 @@ export interface RuntimeOptions {
 
   /** phase 785: tool permission groups for this claw identity. Injected by Assembly. */
   allowedGroups: ReadonlySet<string>;
+
+  /** phase 797: opaque audit label for tool execution context. Injected by Assembly. */
+  callerLabel: string;
 }
 
 export type { StreamCallbacks } from '../agent-executor/stream-callbacks.js';

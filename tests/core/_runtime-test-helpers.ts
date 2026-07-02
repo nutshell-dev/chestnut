@@ -48,7 +48,12 @@ export async function createTestRuntime(options: {
     llmConfig: options.llmConfig,
     auditOverride: options.auditOverride,
   });
-  return new Runtime({ ...options, allowedGroups: options.allowedGroups ?? TEST_ALLOWED_GROUPS, dependencies: deps });
+  return new Runtime({
+    ...options,
+    allowedGroups: options.allowedGroups ?? TEST_ALLOWED_GROUPS,
+    callerLabel: options.callerLabel ?? options.clawId ?? 'claw',
+    dependencies: deps,
+  });
 }
 
 export function createMockLLMConfig(): LLMOrchestratorConfig {

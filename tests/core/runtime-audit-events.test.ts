@@ -102,6 +102,7 @@ describe('Runtime audit events', () => {
 
       const runtime = new Runtime({
         allowedGroups: TEST_ALLOWED_GROUPS,
+        callerLabel: 'claw',
         clawId: 'repair-claw',
         clawDir: clawSubDir,
         llmConfig: createMockLLMConfig(),
@@ -138,6 +139,7 @@ describe('Runtime audit events', () => {
 
       const runtime = new Runtime({
         allowedGroups: TEST_ALLOWED_GROUPS,
+        callerLabel: 'claw',
         clawId: 'repair-claw',
         clawDir: clawSubDir,
         llmConfig: createMockLLMConfig(),

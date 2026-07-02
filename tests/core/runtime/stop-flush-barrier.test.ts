@@ -30,6 +30,7 @@ describe('runtime.stop flush barrier (phase 1024 G.3)', () => {
     const { audit } = makeAudit();
     const runtime = new Runtime({
         allowedGroups: TEST_ALLOWED_GROUPS,
+        callerLabel: 'claw',
       clawId: 'test-claw',
       clawDir: '/tmp/test',
       llmConfig: {} as any,
