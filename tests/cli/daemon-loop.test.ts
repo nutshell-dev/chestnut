@@ -36,6 +36,9 @@ vi.mock('../../src/foundation/file-watcher/index.js', () => ({
 // ─── daemon-loop lifecycle ────────────────────────────────────────────────────
 
 describe('startDaemonLoop - EventLoop delegation', () => {
+  const EVENTLOOP_TICK_MS = 30;   // mock run wall time budget
+  const EVENTLOOP_STARTUP_MS = 10; // daemon-loop startup settle budget
+
   afterEach(() => {
     vi.useRealTimers();
     vi.clearAllMocks();
@@ -44,7 +47,7 @@ describe('startDaemonLoop - EventLoop delegation', () => {
   it('delegates each tick to eventLoop.run() and stops cleanly', async () => {
     const mockAudit = { write: vi.fn(), preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s) };
     const run = vi.fn().mockImplementation(async () => {
-      await new Promise(r => setTimeout(r, 30));
+      await new Promise(r => setTimeout(r, EVENTLOOP_TICK_MS));
     });
     const abort = vi.fn();
     const eventLoop = { run, abort } as unknown as EventLoop;
@@ -58,7 +61,7 @@ describe('startDaemonLoop - EventLoop delegation', () => {
       audit: mockAudit as unknown as AuditLog,
     });
 
-    await new Promise(r => setTimeout(r, 10));
+    await new Promise(r => setTimeout(r, EVENTLOOP_STARTUP_MS));
     stop();
 
     expect(run).toHaveBeenCalledTimes(1);

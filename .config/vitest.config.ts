@@ -83,6 +83,7 @@ const VI_MOCK_FILES = [
   'tests/core/contract/lifecycle-race.test.ts',
   'tests/core/contract/lock.test.ts',
   'tests/core/contract/pause-abort-verifier.test.ts',
+  'tests/core/event-loop/event-loop.test.ts',  // phase 783: vi.mock constants (LLM retry delay)
   // phase 102 (SHA fb9764d0): LockContext + VerificationContext DI 替 vi.mock pattern。
   // 'tests/core/contract/verification.test.ts',
   // phase 91: verifier-job VerifierRuntimeConfig 加 runSubagent? DI 替 vi.mock pattern、

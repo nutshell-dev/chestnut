@@ -119,11 +119,17 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
   // --------------------------------------------------------------------------
 
   describe('startDaemonLoop', () => {
+    // phase 783: mock eventLoop.run() wall time budget、防止 while 循环空转导致 watcher 堆积
+    const EVENTLOOP_TICK_MS = 30;
+    // daemon-loop startup settle budget / stop() 前给 while tick 足够启动
+    const EVENTLOOP_STARTUP_MS = 10;
+    // abort 测试：mock run 长期阻塞验证 abort 可达
+    const EVENTLOOP_ABORT_BLOCK_MS = 500;
+
     it('stop() 后 promise resolve + 不再起新 tick', async () => {
       const audit = createMockAudit();
       const run = vi.fn().mockImplementation(async () => {
-        // 模拟一轮 eventLoop.run() 需要一点 wall time，防止 while 循环空转导致 watcher 堆积
-        await new Promise(r => setTimeout(r, 30));
+        await new Promise(r => setTimeout(r, EVENTLOOP_TICK_MS));
       });
       const abort = vi.fn();
       const eventLoop = { run, abort } as unknown as EventLoop;
@@ -137,7 +143,7 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
         audit,
       });
 
-      await new Promise(r => setTimeout(r, 10));
+      await new Promise(r => setTimeout(r, EVENTLOOP_STARTUP_MS));
       stop();
       await promise;
 
@@ -148,8 +154,7 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
     it('interrupt watcher 触发时调用 eventLoop.abort()', async () => {
       const audit = createMockAudit();
       const run = vi.fn().mockImplementation(async () => {
-        // 模拟 eventLoop.run 内部长期阻塞，验证 abort 可被调用
-        await new Promise(r => setTimeout(r, 500));
+        await new Promise(r => setTimeout(r, EVENTLOOP_ABORT_BLOCK_MS));
       });
       const abort = vi.fn();
       const eventLoop = { run, abort } as unknown as EventLoop;
@@ -163,7 +168,7 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
         audit,
       });
 
-      await new Promise(r => setTimeout(r, 30));
+      await new Promise(r => setTimeout(r, EVENTLOOP_TICK_MS));
       stop();
     });
   });

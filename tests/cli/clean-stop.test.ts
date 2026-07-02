@@ -18,6 +18,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const watchdogDir = path.join(__dirname, '../../src/watchdog');
 const stopPath = path.join(__dirname, '../../src/cli/commands/stop.ts');
 const daemonLoopPath = path.join(__dirname, '../../src/daemon/daemon-loop.ts');
+const eventLoopPath = path.join(__dirname, '../../src/core/event-loop/event-loop.ts');
 
 describe('Phase 86: clean stop 生命周期修复', () => {
   // 合并所有 watchdog 子文件源码（重构后代码分散在多个 sub-file）
@@ -35,6 +36,7 @@ describe('Phase 86: clean stop 生命周期修复', () => {
     .join('\n');
   const stopSource = fs.readFileSync(stopPath, 'utf-8');
   const daemonLoopSource = fs.readFileSync(daemonLoopPath, 'utf-8');
+  const eventLoopSource = fs.readFileSync(eventLoopPath, 'utf-8');
 
   // ==========================================================================
   // Step 1: clawPreviouslyAlive + everSpawned 持久化 (phase 1072)
@@ -114,16 +116,16 @@ describe('Phase 86: clean stop 生命周期修复', () => {
   });
 
   // ==========================================================================
-  // Step 3 + 4: daemon-loop.ts 仅对 motion 检查 clean-stop
+  // Step 3 + 4: EventLoop 加载 clean-stop / llm-retry-state（phase 783 从 daemon-loop 迁入）
   // ==========================================================================
-  describe('Step 3+4: daemon-loop clean-stop 检测', () => {
-    it('daemon-loop 应包含 clean-stop 标记检测逻辑', () => {
-      const cleanStopIdx = daemonLoopSource.indexOf("'clean-stop'");
+  describe('Step 3+4: EventLoop clean-stop / llm-retry-state 加载', () => {
+    it('EventLoop 应包含 clean-stop 标记检测逻辑', () => {
+      const cleanStopIdx = eventLoopSource.indexOf("'clean-stop'");
       expect(cleanStopIdx).toBeGreaterThan(-1);
     });
 
     it('clean-stop 检测应消费标记文件', () => {
-      const isCleanStopMatch = daemonLoopSource.match(
+      const isCleanStopMatch = eventLoopSource.match(
         /const isCleanStop = \(\(\) => \{[\s\S]{0,400}?\}\)\(\)/
       );
       expect(isCleanStopMatch).toBeTruthy();
@@ -135,19 +137,19 @@ describe('Phase 86: clean stop 生命周期修复', () => {
 
     it('clean stop 后应跳过 llm-retry-state 加载', () => {
       // 找到 !isCleanStop 条件块
-      const condIdx = daemonLoopSource.indexOf('!isCleanStop');
+      const condIdx = eventLoopSource.indexOf('!isCleanStop');
       expect(condIdx).toBeGreaterThan(-1);
-      const condBlock = daemonLoopSource.slice(condIdx, condIdx + 300);
-      // phase 393 把 'llm-retry-state.json' literal 抽到 LLM_RETRY_STATE_FILE const、断言跟改
-      expect(condBlock).toContain('LLM_RETRY_STATE_FILE');
+      const condBlock = eventLoopSource.slice(condIdx, condIdx + 300);
+      // phase 783: _loadLlmRetryState 被调于 !isCleanStop 块内，LLM_RETRY_STATE_FILE 在其方法体内
+      expect(condBlock).toContain('_loadLlmRetryState');
     });
 
     it('标记文件应被一次性消费（deleteSync）', () => {
       // 找到 clean-stop 附近 deleteSync 调用
-      const cleanStopIdx = daemonLoopSource.indexOf("'clean-stop'");
+      const cleanStopIdx = eventLoopSource.indexOf("'clean-stop'");
       expect(cleanStopIdx).toBeGreaterThan(-1);
       // deleteSync 应在 clean-stop 附近（±300字符内）
-      const surroundingCode = daemonLoopSource.slice(
+      const surroundingCode = eventLoopSource.slice(
         cleanStopIdx - 50,
         cleanStopIdx + 300
       );

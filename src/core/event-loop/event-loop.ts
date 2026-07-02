@@ -18,6 +18,7 @@ import type { StreamWriter } from '../../foundation/stream/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { STATUS_SUBDIR } from '../../foundation/process-manager/index.js';
 import {
+  INBOX_FALLBACK_TIMEOUT_MS_DEFAULT,
   LLM_MAX_RETRIES,
   LLM_RETRY_INITIAL_DELAY_MS,
   LLM_RETRY_STATE_FILE,
@@ -56,7 +57,7 @@ export class EventLoop {
     this.loopFs = options.fsFactory(path.join(options.agentDir, '..'));
     this.agentFs = options.fsFactory(options.agentDir);
     this.inboxPendingDir = options.inbox.pendingDir;
-    this.fallbackTimeoutMs = options.inbox.fallbackTimeoutMs ?? 30000;
+    this.fallbackTimeoutMs = options.inbox.fallbackTimeoutMs ?? INBOX_FALLBACK_TIMEOUT_MS_DEFAULT;
     this.streamWriter = options.streamWriter;
     this.onBatchComplete = options.onBatchComplete;
   }

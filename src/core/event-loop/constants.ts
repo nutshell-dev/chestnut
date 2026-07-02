@@ -5,6 +5,13 @@
  */
 export const INTERRUPT_RECOVERY_DELAY_MS = 1000;
 
+/**
+ * Default fallback timeout for inbox wait operations (ms).
+ * Derivation: 30000ms = 30s 给 inbox 真故障 cooldown 时间 / 与
+ * DAEMON_FALLBACK_TIMEOUT_MS (daemon/constants.ts) 同型经验值.
+ */
+export const INBOX_FALLBACK_TIMEOUT_MS_DEFAULT = 30000;
+
 /** LLM 重试最大次数 */
 export const LLM_MAX_RETRIES = 3;
 
