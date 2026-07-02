@@ -12,16 +12,11 @@ import { CronRunner, type CronJob } from '../../../src/foundation/cron/runner.js
 import { CRON_AUDIT_EVENTS } from '../../../src/foundation/cron/audit-events.js';
 
 /**
- * Mock 慢 handler 超 timeoutMs 触发 abort: 500ms >> timeoutMs=50ms.
- * Derivation: ×10 timeoutMs 保 timeout fire 先于 handler settle.
+ * Promise barrier releases for mock handler delays under fake timers.
+ * Released explicitly by tests, removing wall-clock dependency.
  */
-const MOCK_OVER_TIMEOUT_HANDLER_MS = 500;
-
-/**
- * Mock 快 handler 正常 complete (10ms): cleanup 路径无 leak verify.
- * Derivation: > microtask flush / 给 fake timer advanceTimersByTimeAsync 推进 50ms 足以 settle.
- */
-const MOCK_FAST_HANDLER_MS = 10;
+let overTimeoutRelease: (() => void) | undefined;
+let fastHandlerRelease: (() => void) | undefined;
 
 function makeMockAudit() {
   const events: Array<[string, ...string[]]> = [];
@@ -51,13 +46,14 @@ describe('cron handler real abort (phase 1232 r132 C)', () => {
       timeoutMs: 50,
       handler: async (signal?: AbortSignal) => {
         capturedSignal = signal;
-        await new Promise(r => setTimeout(r, MOCK_OVER_TIMEOUT_HANDLER_MS));  // 超 timeoutMs
+        await new Promise<void>(r => { overTimeoutRelease = r; });  // barrier: outlive timeoutMs
       },
     };
     const runner = new CronRunner([job], audit as any);
     runner.tick();
     await vi.advanceTimersByTimeAsync(100);  // 等 timeout fire
     expect(capturedSignal?.aborted).toBe(true);
+    overTimeoutRelease!();
     expect(
       audit.events.find(
         e => e[0] === CRON_AUDIT_EVENTS.HANDLER_ABORTED && e.some(c => c.includes('context=timeout'))
@@ -128,11 +124,12 @@ describe('cron handler real abort (phase 1232 r132 C)', () => {
       schedule: { type: 'hourly' },
       handler: async () => {
         handlerRan = true;
-        await new Promise(r => setTimeout(r, MOCK_FAST_HANDLER_MS));
+        await new Promise<void>(r => { fastHandlerRelease = r; });
       },
     };
     const runner = new CronRunner([job], audit as any);
     runner.tick();
+    fastHandlerRelease!();
     await vi.advanceTimersByTimeAsync(50);  // 等 handler 完成
     expect(handlerRan).toBe(true);
     expect((runner as any)._activeAbortControllers.has('fast-job')).toBe(false);

@@ -14,10 +14,10 @@ import { SUBAGENT_AUDIT_EVENTS } from '../../../src/core/subagent/audit-events.j
 import type { StreamEvent } from '../../../src/foundation/stream/types.js';
 
 /**
- * Mock runReact 超 timeout 延迟 (200ms): > timeoutMs=50 触发 ghost callback 后窗口.
- * Derivation: phase 294 收紧 500→200 / × timeoutMs 4 倍保 timeout 严格先 fire.
+ * Promise barrier release for mock runReact ghost-callback delay.
+ * Released after agent.run() rejects with timeout, removing wall-clock dependency.
  */
-const MOCK_RUN_REACT_OVERSHOOT_MS = 200;
+let runReactRelease: (() => void) | undefined;
 
 vi.mock('../../../src/core/agent-executor/loop.js', () => ({
   runReact: vi.fn(),
@@ -120,13 +120,13 @@ describe('SubAgent race ghost callback (Phase 538)', () => {
       if (event === SUBAGENT_AUDIT_EVENTS.GHOST_CALLBACK_AFTER_TURN_END) ghostAuditResolve();
     });
 
-    // runReact 在 200ms 后才调 callback（timeout 已触发）
+    // runReact 在 timeout 后才调 callback（timeout 已触发）
     (runReact as ReturnType<typeof vi.fn>).mockImplementation(
       async (opts: {
         onTextDelta?: (delta: string) => void;
         onToolCall?: (name: string, toolUseId: string) => void;
       }) => {
-        await new Promise((resolve) => setTimeout(resolve, MOCK_RUN_REACT_OVERSHOOT_MS)); // sleep: mock runReact timeout delay (phase 294: 500→200; timeoutMs=50)
+        await new Promise<void>(resolve => { runReactRelease = resolve; }); // barrier: mock runReact ghost-callback delay
         // timeout 后这些 callback 是 "ghost"
         opts.onTextDelta?.('ghost text');
         opts.onToolCall?.('ghost_tool', 'gt1');
@@ -135,6 +135,7 @@ describe('SubAgent race ghost callback (Phase 538)', () => {
     );
 
     await expect(agent.run()).rejects.toThrow();
+    runReactRelease!();
     await ghostAudited;
     // turn_interrupted 应在 ghost callback 前已 emit（agent run reject 时）
     const interruptedCount = sw.events.filter((e) => e.type === 'turn_interrupted').length;

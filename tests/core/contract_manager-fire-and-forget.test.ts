@@ -19,10 +19,10 @@ import { makeAudit, makeMockAudit, waitForAuditEvent, waitForNextAuditEvent } fr
 // phase 1465: _resetVerificationMutexForTest import removed — mutex now instance-bound, per-test fresh ContractSystem 自然提供 fresh mutex
 
 /**
- * Retry exponential backoff base delay (50ms): backoff = base × 2^attempt.
- * Derivation: > microtask flush / 第 1 retry = 50ms / 第 5 retry = 800ms / 总 < 2s budget.
+ * Retry exponential backoff base delay: set to 0 in tests because the retry
+ * count assertions do not depend on real wall-clock backoff delays.
  */
-const RETRY_BASE_DELAY_MS = 50;
+const RETRY_BASE_DELAY_MS = 0;
 
 let testDir: string;
 let clawDir: string;

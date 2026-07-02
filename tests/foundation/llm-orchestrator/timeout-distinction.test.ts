@@ -8,10 +8,10 @@ import { LLMOrchestratorImpl } from '../../../src/foundation/llm-orchestrator/or
 import type { ProviderAdapter, StreamChunk, LLMEventSink, LLMEvent } from '../../../src/foundation/llm-orchestrator/types.js';
 
 /**
- * Mock chunk 间间隔 (40ms): < streamIdleTimeoutMs（it 内设 50ms+）保 reset 不触错杀.
- * Derivation: < streamIdleTimeoutMs / > microtask flush 保 idle timer 实际跑过.
+ * Mock chunk gap: set to 0 because the test does not depend on real wall-clock
+ * intervals between chunks; only the arrival order matters for idle-timer reset.
  */
-const MOCK_CHUNK_GAP_MS = 40;
+const MOCK_CHUNK_GAP_MS = 0;
 
 const noopSink: LLMEventSink = { emit: () => {} };
 

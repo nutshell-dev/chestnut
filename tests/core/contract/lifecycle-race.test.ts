@@ -13,10 +13,10 @@ import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.j
 import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/index.js';
 
 /**
- * Mock 慢 background verification 延迟 (150ms): 给 cancel race 留 in_progress 窗口.
- * Derivation: > microtask flush / 保 completeSubtask 返后 verification 仍 in-flight.
+ * Promise barrier release for mock background verification.
+ * Keeps verification in-flight until the test explicitly releases it.
  */
-const MOCK_SLOW_VERIFICATION_MS = 150;
+let verificationRelease: (() => void) | undefined;
 
 vi.mock('../../../src/core/contract/constants.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../src/core/contract/constants.js')>();
@@ -140,9 +140,9 @@ describe('ContractSystem lifecycle race (phase 791 / P0.16 + P0.18)', () => {
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
 
-    // Mock runLLMVerification to delay, simulating slow background verification
+    // Mock runLLMVerification to block on a barrier, simulating slow background verification
     vi.spyOn(testManager as any, 'runLLMVerification').mockImplementation(async () => {
-      await new Promise(r => setTimeout(r, MOCK_SLOW_VERIFICATION_MS)); // sleep: mock slow background verification
+      await new Promise<void>(r => { verificationRelease = r; });
       return { passed: true, feedback: 'mocked' };
     });
 
@@ -151,6 +151,8 @@ describe('ContractSystem lifecycle race (phase 791 / P0.16 + P0.18)', () => {
 
     // Immediately cancel while background is still running
     await testManager.cancel(contractId, 'user cancelled');
+
+    verificationRelease!();
 
     await vi.waitUntil(async () => {
       const progress = await testManager.getProgress(contractId);

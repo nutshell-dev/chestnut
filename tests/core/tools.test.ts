@@ -18,16 +18,10 @@ import {
 } from '../../src/foundation/tools/errors.js';
 
 /**
- * Mock tool 短任务执行时长 / monotonic clock advance step.
+ * Monotonic clock probe delay for getElapsedMs() test: real time must elapse.
  * Derivation: > 1ms 跨 microtask flush / < typical vitest tick 不显著拖慢.
  */
-const MOCK_TOOL_QUICK_MS = 10;
-
-/**
- * Mock 慢任务执行时长（设 > 配套 timeoutMs=50 触发 ToolTimeoutError）.
- * Derivation: phase 293 调 500→200，保 > timeoutMs ×4 触发 timeout 路径稳定.
- */
-const MOCK_TOOL_SLOW_MS = 200;
+const ELAPSED_MS_PROBE_DELAY_MS = 10;
 
 describe('Tools', () => {
   describe('ToolRegistryImpl', () => {
@@ -207,7 +201,7 @@ describe('Tools', () => {
       });
 
       const elapsed1 = ctx.getElapsedMs();
-      await new Promise(r => setTimeout(r, MOCK_TOOL_QUICK_MS));
+      await new Promise(r => setTimeout(r, ELAPSED_MS_PROBE_DELAY_MS));
       const elapsed2 = ctx.getElapsedMs();
 
       expect(elapsed1).toBeGreaterThanOrEqual(0);
@@ -219,6 +213,7 @@ describe('Tools', () => {
     let registry: ToolRegistryImpl;
     let executor: ToolExecutorImpl;
     let mockFs: FileSystem;
+    let slowToolRelease: (() => void) | undefined;
 
     beforeEach(() => {
       registry = new ToolRegistryImpl();
@@ -288,8 +283,11 @@ describe('Tools', () => {
         schema: { type: 'object' },
         profiles: ['full'],
         readonly: true,
-        execute: async () => {
-          await new Promise(r => setTimeout(r, MOCK_TOOL_SLOW_MS)); // mock slow tool execution; > timeoutMs=50 → ToolTimeoutError
+        execute: async (_args: Record<string, unknown>, toolCtx: any) => {
+          await new Promise<void>(r => {
+            slowToolRelease = r;
+            toolCtx.signal?.addEventListener('abort', () => r(), { once: true });
+          }); // barrier: mock slow tool execution, auto-release on timeout signal
           return { success: true, content: '' };
         },
       });
@@ -303,14 +301,12 @@ describe('Tools', () => {
         fs: mockFs,
       });
 
-      const promise = executor.execute({
+      const result = await executor.execute({
         toolName: 'slow',
         args: {},
         ctx,
         timeoutMs: 50,
       });
-
-      const result = await promise;
       expect(result.success).toBe(false);
       expect(result.content).toContain('timed out');
     });
@@ -348,6 +344,7 @@ describe('Tools', () => {
 
     it('should execute readonly tools in parallel', async () => {
       const executionOrder: number[] = [];
+      const parallelReleases: Array<() => void> = [];
 
       registry.register({
         name: 'tool1',
@@ -357,7 +354,7 @@ describe('Tools', () => {
         readonly: true,
         execute: async () => {
           executionOrder.push(1);
-          await new Promise(r => setTimeout(r, MOCK_TOOL_QUICK_MS));
+          await new Promise<void>(r => parallelReleases.push(r));
           executionOrder.push(-1);
           return { success: true, content: '1' };
         },
@@ -371,7 +368,7 @@ describe('Tools', () => {
         readonly: true,
         execute: async () => {
           executionOrder.push(2);
-          await new Promise(r => setTimeout(r, MOCK_TOOL_QUICK_MS));
+          await new Promise<void>(r => parallelReleases.push(r));
           executionOrder.push(-2);
           return { success: true, content: '2' };
         },
@@ -385,7 +382,7 @@ describe('Tools', () => {
         readonly: true,
         execute: async () => {
           executionOrder.push(3);
-          await new Promise(r => setTimeout(r, MOCK_TOOL_QUICK_MS));
+          await new Promise<void>(r => parallelReleases.push(r));
           executionOrder.push(-3);
           return { success: true, content: '3' };
         },
@@ -400,7 +397,7 @@ describe('Tools', () => {
         fs: mockFs,
       });
 
-      const results = await executor.executeParallel(
+      const resultsPromise = executor.executeParallel(
         [
           { toolName: 'tool1', args: {} },
           { toolName: 'tool2', args: {} },
@@ -408,6 +405,8 @@ describe('Tools', () => {
         ],
         ctx
       );
+      parallelReleases.forEach(release => release());
+      const results = await resultsPromise;
 
       expect(results).toHaveLength(3);
       expect(results.every(r => r.success)).toBe(true);

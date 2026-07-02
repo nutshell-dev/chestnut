@@ -25,10 +25,10 @@ import type { ToolRegistryImpl } from '../../src/foundation/tools/registry.js';
 import type { AuditLog } from '../../src/foundation/audit/index.js';
 
 /**
- * Mock abort-check tick interval (50ms): 20 iterations 累 ≈ 1000ms 长任务.
- * Derivation: × 20 = 1000ms 总长 / 每 tick 给 abort signal 检测窗口.
+ * Promise barrier release for mock abort-check loop.
+ * Auto-released when the abort signal fires, removing wall-clock dependency.
  */
-const MOCK_ABORT_CHECK_TICK_MS = 50;
+let abortCheckRelease: (() => void) | undefined;
 
 /** phase 1489: 测试 helper / 替原 SubAgent 内 new ToolExecutor 装配语义 */
 function makeSubAgentToolExecutor(opts: {
@@ -248,14 +248,14 @@ function createMockLLM(responses: LLMResponse[]): LLMOrchestrator {
         },
       ]);
 
-      // Mock LLM to delay but check for abort
+      // Mock LLM to delay until abort signal fires (or explicit release)
       (mockLLM.call as ReturnType<typeof vi.fn>).mockImplementation(async (options: { signal?: AbortSignal }) => {
-        // Wait 1000ms but check for abort every 50ms
-        for (let i = 0; i < 20; i++) {
-          if (options.signal?.aborted) {
-            throw new Error('Aborted');
-          }
-          await new Promise(r => setTimeout(r, MOCK_ABORT_CHECK_TICK_MS));
+        await new Promise<void>(r => {
+          abortCheckRelease = r;
+          options.signal?.addEventListener('abort', () => r(), { once: true });
+        });
+        if (options.signal?.aborted) {
+          throw new Error('Aborted');
         }
         return {
           content: [{ type: 'text', text: 'Done' }],

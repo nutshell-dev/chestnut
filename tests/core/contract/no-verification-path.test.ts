@@ -16,10 +16,10 @@ import { createToolRegistry } from '../../../src/foundation/tools/index.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
 
 /**
- * Mock 慢 verification 延迟 (150ms): 保 subtask 留 in_progress 长到同步断言完成.
- * Derivation: > 同步断言总 budget / 给 mock LLM call 真延迟而非 instant resolve.
+ * Promise barrier release for mock background verification.
+ * Keeps the subtask in_progress until the test explicitly releases it.
  */
-const MOCK_SLOW_VERIFICATION_MS = 150;
+let verificationRelease: (() => void) | undefined;
 
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
@@ -118,11 +118,10 @@ describe('no verification path', () => {
       'utf-8',
     );
 
-    // Mock runLLMVerification to delay, keeping the subtask in_progress for the
+    // Mock runLLMVerification to block on a barrier, keeping the subtask in_progress for the
     // duration of this test so assertions are deterministic.
     vi.spyOn(manager as any, 'runLLMVerification').mockImplementation(async () => {
-      // sleep: keep subtask in_progress long enough for synchronous assertions above
-      await new Promise((r) => setTimeout(r, MOCK_SLOW_VERIFICATION_MS));
+      await new Promise<void>(r => { verificationRelease = r; });
       return { passed: true, feedback: 'mocked' };
     });
 
@@ -143,6 +142,9 @@ describe('no verification path', () => {
     // Assert verification_started audit event was emitted
     await waitForAuditEvent(emitter, events, CONTRACT_AUDIT_EVENTS.VERIFICATION_STARTED);
     expect(events.some((e) => e[0] === CONTRACT_AUDIT_EVENTS.VERIFICATION_STARTED)).toBe(true);
+
+    // Release the barrier so the mock verification can settle and cleanup.
+    verificationRelease!();
   });
 
   it('submit with no verification notifies caller', async () => {

@@ -16,10 +16,10 @@ import { AGENT_STREAM_EVENTS } from '../../../src/core/agent-executor/index.js';
 import type { StreamEvent } from '../../../src/foundation/stream/types.js';
 
 /**
- * Mock runReact 超 timeout 延迟 (200ms): > timeoutMs=50 触发 ghost onToolResult 路径.
- * Derivation: phase 294 收紧 500→200 / × timeoutMs 4 倍保 timeout 严格先 fire.
+ * Promise barrier release for mock runReact ghost-callback delay.
+ * Released after agent.run() rejects with timeout, removing wall-clock dependency.
  */
-const MOCK_RUN_REACT_OVERSHOOT_MS = 200;
+let runReactRelease: (() => void) | undefined;
 
 vi.mock('../../../src/core/agent-executor/loop.js', () => ({
   runReact: vi.fn(),
@@ -237,13 +237,14 @@ describe('subagent onToolResult emit ordering (phase 1122 audit-first)', () => {
       async (opts: {
         onToolResult?: (name: string, toolUseId: string, result: any, step: number, maxSteps: number) => void;
       }) => {
-        await new Promise((resolve) => setTimeout(resolve, MOCK_RUN_REACT_OVERSHOOT_MS)); // sleep: mock runReact timeout delay (phase 294: 500→200; timeoutMs=50)
+        await new Promise<void>(resolve => { runReactRelease = resolve; }); // barrier: mock runReact ghost-callback delay
         opts.onToolResult?.('ghost_tool', 'gt1', { success: true, content: 'ghost' }, 0, 5);
         return { finalText: 'done', stopReason: 'end_turn' };
       },
     );
 
     await expect(agent.run()).rejects.toThrow();
+    runReactRelease!();
     await toolResultAudited;
 
     // audit 对 tool_result 仍写一次

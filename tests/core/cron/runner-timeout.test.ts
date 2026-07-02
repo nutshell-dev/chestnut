@@ -4,10 +4,10 @@ import { CRON_AUDIT_EVENTS } from '../../../src/foundation/cron/audit-events.js'
 import { CronRunner, type CronJob } from '../../../src/foundation/cron/runner.js';
 
 /**
- * Mock 快 handler 执行时长 (50ms): < timeoutMs=200 保 settle 不被误杀.
- * Derivation: < timeoutMs / 4 / handler 在 vi.useFakeTimers 下也保持 magnitude.
+ * Promise barrier release for the quick handler under fake timers.
+ * Released explicitly by the test once the handler has been invoked.
  */
-const MOCK_QUICK_HANDLER_MS = 50;
+let handlerRelease: (() => void) | undefined;
 
 // mock helper
 function makeMockAudit(): { write: ReturnType<typeof vi.fn> } {
@@ -60,7 +60,7 @@ describe('CronRunner timeout escalation', () => {
 
   it('handler 正常 settle 不误杀', async () => {
     const handler = vi.fn(async () => {
-      await new Promise(r => setTimeout(r, MOCK_QUICK_HANDLER_MS));
+      await new Promise<void>(r => { handlerRelease = r; });
     });
     const job: CronJob = {
       name: 'fast',
@@ -71,6 +71,7 @@ describe('CronRunner timeout escalation', () => {
     };
     const runner = new CronRunner([job], audit as unknown as AuditLog);
     runner.tick();
+    handlerRelease!();
     await vi.advanceTimersByTimeAsync(100);
 
     expect(audit.write).not.toHaveBeenCalledWith(
@@ -114,7 +115,7 @@ describe('CronRunner timeout escalation', () => {
 
   it('undefined timeoutMs 走原路径 regression', async () => {
     const handler = vi.fn(async () => {
-      await new Promise(r => setTimeout(r, MOCK_QUICK_HANDLER_MS));
+      await new Promise<void>(r => { handlerRelease = r; });
     });
     const job: CronJob = {
       name: 'legacy',
@@ -125,6 +126,7 @@ describe('CronRunner timeout escalation', () => {
     };
     const runner = new CronRunner([job], audit as unknown as AuditLog);
     runner.tick();
+    handlerRelease!();
 
     // 若误走 race 路径，setTimeout(undefined) → 0ms 立即触发 timeout audit
     await vi.advanceTimersByTimeAsync(10);

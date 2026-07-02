@@ -16,12 +16,6 @@ import { AuditWriter } from '../../src/foundation/audit/writer.js';
 import { createTempDir, cleanupTempDir } from '../utils/temp.js';
 import { waitFor } from '../helpers/wait-for.js';
 
-/**
- * Mock 慢 tool 执行时长 (200ms): > timeoutMs=50 触发 ToolTimeoutError 路径.
- * Derivation: > timeoutMs ×4 / 保 race winner = timeout side / phase 293 起 200ms 稳定.
- */
-const MOCK_SLOW_TOOL_MS = 200;
-
 
 describe('executor race-loser audit (phase 816 B2)', () => {
   let tempDir: string;
@@ -30,6 +24,7 @@ describe('executor race-loser audit (phase 816 B2)', () => {
   let registry: ToolRegistryImpl;
   let executor: ToolExecutorImpl;
   let auditWriter: AuditWriter;
+  let slowToolRelease: (() => void) | undefined;
 
   beforeEach(async () => {
     tempDir = await createTempDir();
@@ -56,8 +51,11 @@ describe('executor race-loser audit (phase 816 B2)', () => {
       description: 'slow then throw',
       schema: { type: 'object', properties: {}, required: [] },
       readonly: true,
-      async execute() {
-        await new Promise(r => setTimeout(r, MOCK_SLOW_TOOL_MS)); // sleep: mock slow tool execution
+      async execute(_args: Record<string, unknown>, toolCtx: any) {
+        await new Promise<void>(r => {
+          slowToolRelease = r;
+          toolCtx.signal?.addEventListener('abort', () => r(), { once: true });
+        }); // barrier: mock slow tool execution, auto-release on timeout signal
         throw new Error('real root cause');
       },
     });

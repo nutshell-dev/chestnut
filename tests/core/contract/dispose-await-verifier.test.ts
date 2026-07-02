@@ -13,18 +13,14 @@ import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.j
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { createToolRegistry } from '../../../src/foundation/tools/index.js';
 import { makeAudit, makeMockAudit, waitForNextAuditEvent } from '../../helpers/audit.js';
+import { waitFor } from '../../helpers/wait-for.js';
 
 /**
- * Mock cs1.close 慢 dispose 时长 (10ms): 与 cs2 5ms 形成 close 顺序 race.
- * Derivation: 2 × MOCK_CS2_CLOSE_MS 保 cs1 严格 > cs2 / 序断言依赖此差值.
+ * Promise barrier releases for ordered close() simulation.
+ * cs1 must complete after cs2; release order is controlled explicitly below.
  */
-const MOCK_CS1_CLOSE_MS = 10;
-
-/**
- * Mock cs2.close 较快 dispose 时长 (5ms).
- * Derivation: < MOCK_CS1_CLOSE_MS / 给 closeOrder 排列 race 端口.
- */
-const MOCK_CS2_CLOSE_MS = 5;
+let cs1Release: (() => void) | undefined;
+let cs2Release: (() => void) | undefined;
 
 const { mockRunContractVerifier } = vi.hoisted(() => ({
   mockRunContractVerifier: vi.fn(),
@@ -142,12 +138,12 @@ describe('ContractSystem.close() async await verifier termination', () => {
 
     vi.spyOn(cs1, 'close').mockImplementation(async () => {
       closeOrder.push('cs1-start');
-      await new Promise(r => setTimeout(r, MOCK_CS1_CLOSE_MS));
+      await new Promise<void>(r => { cs1Release = r; });
       closeOrder.push('cs1-end');
     });
     vi.spyOn(cs2, 'close').mockImplementation(async () => {
       closeOrder.push('cs2-start');
-      await new Promise(r => setTimeout(r, MOCK_CS2_CLOSE_MS));
+      await new Promise<void>(r => { cs2Release = r; });
       closeOrder.push('cs2-end');
     });
 
@@ -155,10 +151,22 @@ describe('ContractSystem.close() async await verifier termination', () => {
     cache.set('claw-1', cs1);
     cache.set('claw-2', cs2);
 
-    for (const cs of cache.values()) {
-      await cs.close();
-    }
-    cache.clear();
+    const closePromise = (async () => {
+      for (const cs of cache.values()) {
+        await cs.close();
+      }
+      cache.clear();
+    })();
+
+    // cs1 is called first by the loop; release it so cs1-end is recorded and the loop proceeds to cs2.
+    await waitFor(() => closeOrder.includes('cs1-start'), 1000);
+    cs1Release!();
+
+    // cs2 is now called; release it so cs2-end is recorded.
+    await waitFor(() => closeOrder.includes('cs2-start'), 1000);
+    cs2Release!();
+
+    await closePromise;
 
     expect(closeOrder).toEqual(['cs1-start', 'cs1-end', 'cs2-start', 'cs2-end']);
   });
