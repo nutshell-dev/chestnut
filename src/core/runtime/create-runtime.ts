@@ -9,7 +9,7 @@
  * 边界：identity='motion' 时 clawId 由调用方传 MOTION_CLAW_ID（工厂不覆盖）
  * 失败：构造期同步抛出 Runtime 构造器抛出的任何错
  *
- * 见 design/modules/l5_runtime.md §2.1
+ * 见 design/modules/l4_runtime.md §2.1
  */
 
 import { Runtime } from './runtime.js';

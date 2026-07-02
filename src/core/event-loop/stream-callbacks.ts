@@ -1,7 +1,7 @@
 /**
  * @module L5.EventLoop.StreamCallbacks
  * @layer L5 服务层
- * @depends L2.AuditLog, L2.Stream, L5.Runtime
+ * @depends L2.AuditLog, L2.Stream, L4.Runtime
  * @consumers L5.EventLoop
  *
  * 装配层：将 ReAct 循环业务事件名映射为 stream.jsonl 的 StreamEvent 记录。

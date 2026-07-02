@@ -1,7 +1,7 @@
 /**
  * @module L5.EventLoop.ErrorHandlers
  * @layer L5 服务层
- * @depends L2.AuditLog, L1.FileSystem, L2.Messaging, L5.Runtime
+ * @depends L2.AuditLog, L1.FileSystem, L2.Messaging, L4.Runtime
  * @consumers L5.EventLoop
  *
  * EventLoop catch 块错误分类 handler 注册表。

@@ -1,5 +1,5 @@
 /**
- * @module L5.Runtime.Types
+ * @module L4.Runtime.Types
  * Runtime interface types — 1:1 保 runtime.ts:47-126 body
  */
 

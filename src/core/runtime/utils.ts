@@ -1,5 +1,5 @@
 /**
- * @module L5.Runtime.Utils
+ * @module L4.Runtime.Utils
  * Pure utility helpers for Runtime — 0 this.* / 0 class state 依赖
  */
 

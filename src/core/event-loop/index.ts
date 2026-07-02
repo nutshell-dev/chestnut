@@ -1,7 +1,7 @@
 /**
  * @module L5.EventLoop
  * @layer L5 服务层
- * @depends L2.AuditLog, L2.Stream, L2.Messaging, L4.ContextManager, L5.Runtime
+ * @depends L2.AuditLog, L2.Stream, L2.Messaging, L4.ContextManager, L4.Runtime
  * @consumers L6.Daemon
  *
  * 事件驱动的轮次调度服务。在 daemon（进程生命周期）和 runtime（轮次执行）之间

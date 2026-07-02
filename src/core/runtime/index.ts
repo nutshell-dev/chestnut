@@ -1,5 +1,5 @@
 /**
- * @module L5.Runtime
+ * @module L4.Runtime
  * phase 488: barrel re-export RELOAD_LLM_CONFIG_MESSAGE_TYPE for cli/config
  * Runtime — 核心运行时编排器。
  */

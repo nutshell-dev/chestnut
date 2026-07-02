@@ -2,7 +2,7 @@
  * Runtime - assembles all modules into a runnable Claw instance
  *
  * Final assembly layer integrating L1-L4 modules into runnable Claw instance.
- * 详 design/architecture.md + design/modules/l5_runtime.md。
+ * 详 design/architecture.md + design/modules/l4_runtime.md。
  */
 
 import * as path from 'path';
