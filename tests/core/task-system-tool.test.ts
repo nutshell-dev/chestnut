@@ -684,10 +684,11 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       // 注：此处为负向稳定窗口断言，用 waitFor poll + 时间上限替代固定 sleep。
       const pollStart = Date.now();
       const POLL_TIMEOUT_MS = 200; // 留足安全余量
+      const POLL_INTERVAL_MS = 10; // poll 间隔 / 配 waitFor 默认轮询间隔同值
       let moved = false;
       while (Date.now() - pollStart < POLL_TIMEOUT_MS) {
         if (!(await exists())) { moved = true; break; }
-        await new Promise(r => setTimeout(r, 10)); // poll interval
+        await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
       }
       if (moved) {
         console.error('[phase1226-γ] FAIL: async move detected before startDispatch');
