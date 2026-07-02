@@ -15,12 +15,11 @@ import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js
 import { ToolExecutor, type ToolRegistry } from '../../foundation/tools/index.js';
 // createToolRegistry removed — caller owns registry assembly (M#1 align)
 import type { Message, ToolDefinition } from '../../foundation/llm-provider/index.js';
-import type { CallerType } from '../permissions/caller-types.js';
 import { createDialogStore } from '../../foundation/dialog-store/index.js';
 import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 // phase 691 Step C: removed import of TASKS_SYNC_DIR from async-task-system
 // — L3 SubAgent must not depend on L4 AsyncTaskSystem (M#5). syncDir 现 caller DI、见 RunSubagentOptions.
-import type { PermissionChecker } from '../../foundation/tool-protocol/index.js';
+import type { PermissionChecker, ToolProfile } from '../../foundation/tool-protocol/index.js';
 import { SubAgent } from './agent.js';
 import { DONE_TOOL_NAME, type CapturableTool } from './tools/done.js';
 
@@ -36,7 +35,11 @@ export interface MainContextSnapshot {
 export interface RunSubagentOptions {
   // 标识
   agentId: string;
-  callerType?: CallerType;
+
+  // 权限注入（caller 从 permissions 查表后传入）
+  allowedGroups?: ReadonlySet<string>;
+  toolProfile?: ToolProfile;
+  callerLabel?: string;
 
   // 基础设施依赖（caller 注入）
   clawDir: string;
@@ -138,7 +141,9 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
     signal: opts.signal,
     timeoutMs: opts.timeoutMs,
     toolsForLLM,
-    callerType: opts.callerType,
+    allowedGroups: opts.allowedGroups,
+    toolProfile: opts.toolProfile,
+    callerLabel: opts.callerLabel,
     onIdleTimeout: opts.onIdleTimeout,
     taskStreamWriter,
     auditWriter,
