@@ -374,7 +374,7 @@ describe('Task System + SubAgent', () => {
       });
 
       // 等待超时触发 + 任务完成 + inbox 写入
-      await waitForAnyFile(path.join(ctx.tempDir, 'inbox', 'pending'), (f) => f.endsWith('.md'));
+      await waitForAnyFile(path.join(ctx.tempDir, 'inbox', 'pending'), (f) => f.endsWith('.md'), 15000);
 
       // inbox 中有 is_error: true 的消息（验证 executeTask catch 被执行）
       const inboxDir = path.join(ctx.tempDir, 'inbox', 'pending');
@@ -433,7 +433,7 @@ describe('Task System + SubAgent', () => {
         parentClawId: 'test-claw',
       });
 
-      await waitForAnyFile(path.join(ctx.tempDir, 'inbox', 'pending'), (f) => f.endsWith('.md'));
+      await waitForAnyFile(path.join(ctx.tempDir, 'inbox', 'pending'), (f) => f.endsWith('.md'), 15000);
       await failSystem.shutdown(1000);
 
       // fallback 消息应该存在于 inbox

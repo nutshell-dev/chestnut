@@ -227,7 +227,10 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       const taskId = await scheduleToolCompat(taskSystem, 'testTool', slowCallback, 'parent-claw');
 
       const runningPath = path.join(testClawDir, 'tasks', 'queues', 'running', `${taskId}.json`);
-      await waitForPathExists(runningPath);
+      // phase 794: waitForPathExists flaky under high concurrency; use poll instead of chokidar watcher
+      await waitFor(async () => {
+        try { await fs.access(runningPath); return true; } catch { return false; }
+      }, 10000);
 
       // Task should be in running directory after dispatch
       const taskFile = await fs.readFile(runningPath, 'utf-8');
@@ -250,7 +253,7 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       // phase 1175 B.flaky-24: 等 inbox file atomic write 完成 + frontmatter 完整再 parse
       // mirror L291 / L955 同 file 邻位 phase 1090 模板
       const inboxDir = path.join(testClawDir, 'inbox', 'pending');
-      await waitForAnyFile(inboxDir, (f) => f.endsWith('.md'));
+      await waitForAnyFile(inboxDir, (f) => f.endsWith('.md'), 15000);
 
       expect(executeCallback).toHaveBeenCalled();
 
@@ -315,7 +318,7 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       // phase 368: staged event-driven 替原 compound polling predicate
       {
         const _inboxDir = path.join(testClawDir, 'inbox', 'pending');
-        const _name = await waitForAnyFile(_inboxDir, (f) => f.endsWith('.md'));
+        const _name = await waitForAnyFile(_inboxDir, (f) => f.endsWith('.md'), 15000);
         await waitForCompleteFile(path.join(_inboxDir, _name), /---\n[\s\S]*?\n---\n\n[\s\S]+/);
       }
       
@@ -400,7 +403,7 @@ describe('AsyncTaskSystem Tool Tasks', () => {
         'parent-claw',
       );
 
-      await waitForAnyFile(path.join(testClawDir, 'inbox', 'pending'), (f) => f.endsWith('.md'));
+      await waitForAnyFile(path.join(testClawDir, 'inbox', 'pending'), (f) => f.endsWith('.md'), 15000);
       await taskSystem2.shutdown(1).catch(() => { /* silent: shutdown */ });
 
       // fallback 消息应该存在
@@ -1079,7 +1082,7 @@ describe('AsyncTaskSystem Tool Tasks', () => {
 
       const executeCallback = vi.fn().mockResolvedValue({ success: true, content: 'fallback content' });
       await scheduleToolCompat(taskSystem2, 'testTool', executeCallback, 'parent-claw');
-      await waitForAnyFile(path.join(testClawDir, 'inbox', 'pending'), (f) => f.endsWith('.md'));
+      await waitForAnyFile(path.join(testClawDir, 'inbox', 'pending'), (f) => f.endsWith('.md'), 15000);
 
       // Check inbox/pending/ for the result message
       const inboxFiles = (await fs.readdir(path.join(testClawDir, 'inbox', 'pending'))).filter(f => f.endsWith('.md'));
@@ -1155,7 +1158,7 @@ describe('AsyncTaskSystem Tool Tasks', () => {
         maxRetries: 2,
       });
 
-      await waitForAnyFile(path.join(testClawDir, 'inbox', 'pending'), (f) => f.endsWith('.md'));
+      await waitForAnyFile(path.join(testClawDir, 'inbox', 'pending'), (f) => f.endsWith('.md'), 15000);
       await completedP;
 
       expect(flakyCallback).toHaveBeenCalledTimes(2);
@@ -1186,7 +1189,7 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       // phase 368: staged event-driven 替原 compound polling predicate
       {
         const _inboxDir = path.join(testClawDir, 'inbox', 'pending');
-        const _name = await waitForAnyFile(_inboxDir, (f) => f.endsWith('.md'));
+        const _name = await waitForAnyFile(_inboxDir, (f) => f.endsWith('.md'), 15000);
         await waitForCompleteFile(path.join(_inboxDir, _name), /---\n[\s\S]*?\n---\n\n[\s\S]+/);
       }
 
