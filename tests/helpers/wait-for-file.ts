@@ -116,6 +116,11 @@ export async function waitForPathExists(
           if (path.basename(event.path) === targetName || event.path === targetPath) {
             void tryAccess();
           }
+          // Fallback poller event: event.path is parentDir, bypass filename filter
+          // because the whole point of fallback is to catch missed native events.
+          else if (event.type === 'change' && event.path === parentDir) {
+            void tryAccess();
+          }
         }
       },
       {
@@ -180,6 +185,11 @@ export async function waitForPathGone(
           if (path.basename(event.path) === targetName || event.path === targetPath) {
             void tryCheck();
           }
+        }
+        // Fallback poller event: event.path is parentDir, bypass filename filter
+        // because the whole point of fallback is to catch missed native events.
+        else if (event.type === 'change' && event.path === parentDir) {
+          void tryCheck();
         }
       },
       {
