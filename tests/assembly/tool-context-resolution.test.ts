@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { CALLER_TYPE_TO_GROUPS } from '../../src/core/caller-types.js';
+import { CALLER_TYPE_TO_GROUPS } from '../../src/core/permissions/caller-types.js';
 import { ExecContextImpl } from '../../src/foundation/tools/context.js';
 import type { ToolGroup } from '../../src/foundation/tools/types.js';
 

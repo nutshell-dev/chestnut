@@ -114,6 +114,9 @@ export interface RuntimeOptions {
 
   /** phase 440：上下文管理器运行时配置（filterSubtypes 等） */
   contextManagerConfig?: ContextManagerRuntimeConfig;
+
+  /** phase 785: tool permission groups for this claw identity. Injected by Assembly. */
+  allowedGroups: ReadonlySet<string>;
 }
 
 export type { StreamCallbacks } from '../agent-executor/stream-callbacks.js';

@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { CALLER_TYPE_TO_GROUPS } from '../../../src/core/caller-types.js';
+import { CALLER_TYPE_TO_GROUPS } from '../../../src/core/permissions/caller-types.js';
 
 describe('CALLER_TYPE_TO_GROUPS mapping', () => {
   it('(a) covers all 6 CallerType entries (exhaustive)', () => {

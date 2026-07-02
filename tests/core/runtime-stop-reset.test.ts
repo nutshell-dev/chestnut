@@ -6,6 +6,7 @@
  * - regression: turn N done call does not silence turn N+1
  */
 
+import { TEST_ALLOWED_GROUPS } from '../helpers/test-allowed-groups.js';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'path';
 import { tmpdir } from 'os';
@@ -101,6 +102,7 @@ describe('runtime stopRequested per-turn reset (phase 786 / P0.14)', () => {
   it('resets stopRequested to false at the start of each _runReact turn', async () => {
     const deps = await makeRuntimeDeps({ clawDir, clawId: 'test-claw' });
     const runtime = new Runtime({
+        allowedGroups: TEST_ALLOWED_GROUPS,
       clawId: 'test-claw',
       clawDir,
       llmConfig: createMockLLMConfig(),
@@ -137,6 +139,7 @@ describe('runtime stopRequested per-turn reset (phase 786 / P0.14)', () => {
   it('regression: turn N done call does not silence turn N+1', async () => {
     const deps = await makeRuntimeDeps({ clawDir, clawId: 'test-claw' });
     const runtime = new Runtime({
+        allowedGroups: TEST_ALLOWED_GROUPS,
       clawId: 'test-claw',
       clawDir,
       llmConfig: createMockLLMConfig(),

@@ -7,6 +7,7 @@
  * - TASK_SHUTDOWN_TIMEOUT_HIT audit emitted on timeout
  * - llm.close always called after shutdown (order invariant)
  */
+import { TEST_ALLOWED_GROUPS } from '../../helpers/test-allowed-groups.js';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Runtime } from '../../../src/core/runtime/runtime.js';
 import type { DialogStore } from '../../../src/foundation/dialog-store/index.js';
@@ -45,6 +46,7 @@ describe('runtime.stop shutdown timeout (phase 1332 N4)', () => {
     } as unknown as DialogStore;
 
     const runtime = new Runtime({
+        allowedGroups: TEST_ALLOWED_GROUPS,
       clawId: 'test-claw',
       clawDir: '/tmp/test',
       llmConfig: {} as any,

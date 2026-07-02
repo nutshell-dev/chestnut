@@ -16,7 +16,7 @@ import { newUuid } from '../../foundation/node-utils/index.js';
 import { EXEC_TOOL_NAME } from '../../foundation/command-tool/index.js';
 import { EXEC_MAX_OUTPUT } from '../../foundation/command-tool/constants.js';
 import { truncateHeadTail } from '../../foundation/file-tool/truncate-head-tail.js';
-import type { CallerType } from '../../core/caller-types.js';
+import type { CallerType } from '../../core/permissions/caller-types.js';
 import { executeToolTask } from './tool-executor.js';
 import { TASKS_QUEUES_RESULTS_DIR, TASKS_QUEUES_RUNNING_DIR } from './dirs.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';

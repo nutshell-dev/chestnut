@@ -7,7 +7,7 @@
 
 import { newUuid } from '../../foundation/node-utils/index.js';
 
-import { CALLER_TYPE_TO_GROUPS } from '../caller-types.js';
+import { CALLER_TYPE_TO_GROUPS } from '../permissions/caller-types.js';
 import * as path from 'path';
 
 import type { PermissionChecker } from '../../foundation/tool-protocol/index.js';

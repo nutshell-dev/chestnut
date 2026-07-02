@@ -1,6 +1,7 @@
 /**
  * regime switch archive fail-fast (phase 1373 sub-2)
  */
+import { TEST_ALLOWED_GROUPS } from '../../helpers/test-allowed-groups.js';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Runtime } from '../../../src/core/runtime/runtime.js';
 import type { DialogStore } from '../../../src/foundation/dialog-store/index.js';
@@ -32,6 +33,7 @@ describe('regime switch archive hard fail (phase 1373 sub-2)', () => {
 
   function makeRuntime(): Runtime {
     return new Runtime({
+        allowedGroups: TEST_ALLOWED_GROUPS,
       clawId: 'test-claw',
       clawDir: '/tmp/test',
       llmConfig: {} as any,

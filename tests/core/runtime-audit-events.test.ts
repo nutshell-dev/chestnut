@@ -12,6 +12,7 @@
  * Estimated wall: ~1.8s (vs original file mean 3.6s / -49% combined parallel).
  */
 
+import { TEST_ALLOWED_GROUPS } from '../helpers/test-allowed-groups.js';
 import type { RuntimeTestInternals } from '../helpers/runtime-test-internals.js';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as path from 'path';
@@ -100,6 +101,7 @@ describe('Runtime audit events', () => {
       vi.spyOn(deps.snapshot, 'commit').mockRejectedValue(new Error('injected fs error'));
 
       const runtime = new Runtime({
+        allowedGroups: TEST_ALLOWED_GROUPS,
         clawId: 'repair-claw',
         clawDir: clawSubDir,
         llmConfig: createMockLLMConfig(),
@@ -135,6 +137,7 @@ describe('Runtime audit events', () => {
       } as any);
 
       const runtime = new Runtime({
+        allowedGroups: TEST_ALLOWED_GROUPS,
         clawId: 'repair-claw',
         clawDir: clawSubDir,
         llmConfig: createMockLLMConfig(),

@@ -7,6 +7,7 @@
  * 3. RuntimeDependencies 缺 permissionChecker 时 tsc compile fail (type-level)
  */
 
+import { TEST_ALLOWED_GROUPS } from '../../helpers/test-allowed-groups.js';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -37,6 +38,7 @@ describe('phase 1273: permissionChecker injected into main runtime ExecContext',
       llmConfig: createMockLLMConfig(),
     });
     const runtime = new Runtime({
+        allowedGroups: TEST_ALLOWED_GROUPS,
       clawId: 'test-claw',
       clawDir,
       llmConfig: createMockLLMConfig(),
@@ -60,6 +62,7 @@ describe('phase 1273: permissionChecker injected into main runtime ExecContext',
       llmConfig: createMockLLMConfig(),
     });
     const runtime = new Runtime({
+        allowedGroups: TEST_ALLOWED_GROUPS,
       clawId: 'test-claw',
       clawDir,
       llmConfig: createMockLLMConfig(),

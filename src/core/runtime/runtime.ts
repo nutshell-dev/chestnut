@@ -8,7 +8,6 @@
 import * as path from 'path';
 import { randomHex } from '../../foundation/node-utils/index.js';
 import { MOTION_CLAW_ID } from '../claw-topology/index.js';
-import { CALLER_TYPE_TO_GROUPS } from '../caller-types.js';
 
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import { type FileSystem } from '../../foundation/fs/index.js';
@@ -214,7 +213,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
       clawDir: this.options.clawDir,
       syncDir: path.join(this.options.clawDir, TASKS_SYNC_DIR),
       profile: this.options.toolProfile ?? 'full',
-      allowedGroups: CALLER_TYPE_TO_GROUPS[this.options.systemPromptBuilder ? 'motion' : 'claw'], // caller='motion' index
+      allowedGroups: this.options.allowedGroups, // phase 785: injected by Assembly
       callerLabel: this.options.systemPromptBuilder ? MOTION_CLAW_ID : 'claw',
       permissionChecker: deps.permissionChecker,  // NEW phase 1273
       fs: this.systemFs,

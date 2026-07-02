@@ -11,6 +11,7 @@
  *（tests/helpers/runtime-deps.ts）消除类型绕过。独立 phase 处理。
  */
 
+import { TEST_ALLOWED_GROUPS } from '../helpers/test-allowed-groups.js';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import * as path from 'path';
 import { tmpdir } from 'os';
@@ -106,6 +107,7 @@ describe('Runtime.initialize() failure audits', () => {
 
     const mocks = minimalMocks();
     const runtime = new Runtime({
+        allowedGroups: TEST_ALLOWED_GROUPS,
       clawId: 'test-claw',
       clawDir,
       llmConfig: { primary: { name: 'mock', apiKey: 'k', model: 'm', maxTokens: 1, temperature: 0, timeoutMs: 1, apiFormat: 'anthropic' }, maxAttempts: 1, retryDelayMs: 0 },
@@ -135,6 +137,7 @@ describe('Runtime.initialize() failure audits', () => {
 
     const mocks = minimalMocks();
     const runtime = new Runtime({
+        allowedGroups: TEST_ALLOWED_GROUPS,
       clawId: 'test-claw',
       clawDir,
       llmConfig: { primary: { name: 'mock', apiKey: 'k', model: 'm', maxTokens: 1, temperature: 0, timeoutMs: 1, apiFormat: 'anthropic' }, maxAttempts: 1, retryDelayMs: 0 },
@@ -177,6 +180,7 @@ describe('Runtime.initialize() failure audits', () => {
 
     const mocks = minimalMocks();
     const runtime = new Runtime({
+        allowedGroups: TEST_ALLOWED_GROUPS,
       clawId: 'test-claw',
       clawDir,
       llmConfig: { primary: { name: 'mock', apiKey: 'k', model: 'm', maxTokens: 1, temperature: 0, timeoutMs: 1, apiFormat: 'anthropic' }, maxAttempts: 1, retryDelayMs: 0 },

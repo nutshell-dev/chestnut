@@ -30,7 +30,7 @@ import { FILE_TOOL_AUDIT_EVENTS } from '../../../src/foundation/file-tool/audit-
 import { performRegimeSwitch } from '../../../src/foundation/dialog-store/index.js';
 import type { DialogStore } from '../../../src/foundation/dialog-store/index.js';
 import { createClawPermissionChecker } from '../../../src/core/permissions/claw-permissions.js';
-import { CALLER_TYPE_TO_GROUPS } from '../../../src/core/caller-types.js';
+import { CALLER_TYPE_TO_GROUPS } from '../../../src/core/permissions/caller-types.js';
 
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { makeAudit } from '../../helpers/audit.js';

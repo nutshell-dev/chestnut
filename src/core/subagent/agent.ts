@@ -17,7 +17,7 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import { SUBAGENT_AUDIT_EVENTS, REACT_LOOP_AUDIT_EVENTS, emitPartialAssistantDiscarded } from './audit-events.js';
 import { AGENT_STREAM_EVENTS } from '../agent-executor/index.js';
 import type { StreamLog } from '../../foundation/stream/index.js';
-import { type CallerType, callerTypeToProfile, CALLER_TYPE_TO_GROUPS } from '../caller-types.js';
+import { type CallerType, callerTypeToProfile, CALLER_TYPE_TO_GROUPS } from '../permissions/caller-types.js';
 import type { DialogStore } from '../../foundation/dialog-store/index.js';
 import { DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../../templates/prompts/index.js';
 import type { PermissionChecker } from '../../foundation/tool-protocol/index.js';

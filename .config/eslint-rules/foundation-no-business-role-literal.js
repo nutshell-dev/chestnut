@@ -51,6 +51,7 @@ const CORE_ALLOW_LIST_SUFFIXES = [
   // phase 770: async exec wrapper mirrors the exec Tool profiles from L2c command-tool/exec.ts
   'src/core/async-task-system/async-exec-wrapper.ts',
   'src/core/caller-types.ts',
+  'src/core/permissions/caller-types.ts',
   'src/core/contract/jobs/contract-observer.ts',
   'src/core/contract/verifier-job.ts',
   'src/foundation/cron/jobs/llm-stats.ts',
