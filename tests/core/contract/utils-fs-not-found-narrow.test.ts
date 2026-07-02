@@ -8,19 +8,20 @@
  *   (4) happy path 不动：mock fs.listSync 返合法 entries → audit 0 emit + 返 first timestamp
  */
 import { describe, it, expect } from 'vitest';
-import { getContractCreatedMs } from '../../../src/core/contract/utils.js';
+import { getActiveContractTimestamp } from '../../../src/core/contract/lightweight-query.js';
 import { FileNotFoundError } from '../../../src/foundation/fs/types.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
 import { makeAudit } from '../../helpers/audit.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 
-describe('phase 1154 — utils.ts getContractCreatedMs FS_NOT_FOUND narrow', () => {
+describe('phase 1154 — getActiveContractTimestamp FS_NOT_FOUND narrow', () => {
   it('silent for FileNotFoundError (FileSystem abstract layer)', () => {
     const { audit, events } = makeAudit();
     const fs = {
       listSync: () => { throw new FileNotFoundError('/tmp/claw/contract/active'); },
+      existsSync: () => true,
     } as unknown as FileSystem;
-    const result = getContractCreatedMs(fs, '/tmp/claw', audit);
+    const result = getActiveContractTimestamp(fs, '/tmp/claw', audit);
     expect(result).toBeNull();
     expect(events).toHaveLength(0);
   });
@@ -33,10 +34,11 @@ describe('phase 1154 — utils.ts getContractCreatedMs FS_NOT_FOUND narrow', () 
         err.code = 'EACCES';
         throw err;
       },
+      existsSync: () => true,
     } as unknown as FileSystem;
-    const result = getContractCreatedMs(fs, '/tmp/claw', audit);
+    const result = getActiveContractTimestamp(fs, '/tmp/claw', audit);
     expect(result).toBeNull();
-    expect(events).toHaveLength(2); // active + paused
+    expect(events).toHaveLength(1); // active only
     expect(events[0][0]).toBe(CONTRACT_AUDIT_EVENTS.CONTRACT_DIR_SCAN_FAILED);
     expect(events[0]).toContain('code=EACCES');
   });
@@ -49,8 +51,9 @@ describe('phase 1154 — utils.ts getContractCreatedMs FS_NOT_FOUND narrow', () 
         err.code = 'ENOENT';
         throw err;
       },
+      existsSync: () => true,
     } as unknown as FileSystem;
-    const result = getContractCreatedMs(fs, '/tmp/claw', audit);
+    const result = getActiveContractTimestamp(fs, '/tmp/claw', audit);
     expect(result).toBeNull();
     expect(events).toHaveLength(0);
   });
@@ -63,8 +66,9 @@ describe('phase 1154 — utils.ts getContractCreatedMs FS_NOT_FOUND narrow', () 
         { name: `${ts}-contract1`, isDirectory: true, isFile: false, size: 0, mtime: new Date(), path: '' },
         { name: `${ts + 1000}-contract2`, isDirectory: true, isFile: false, size: 0, mtime: new Date(), path: '' },
       ],
+      existsSync: () => true,
     } as unknown as FileSystem;
-    const result = getContractCreatedMs(fs, '/tmp/claw', audit);
+    const result = getActiveContractTimestamp(fs, '/tmp/claw', audit);
     expect(result).toBe(ts);
     expect(events).toHaveLength(0);
   });

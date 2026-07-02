@@ -9,7 +9,7 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { collectContractEvents } from '../../../src/core/contract/jobs/event-collector.js';
-import { getContractCreatedMs } from '../../../src/core/contract/utils.js';
+import { getActiveContractTimestamp } from '../../../src/core/contract/lightweight-query.js';
 import { runContractObserver } from '../../../src/core/contract/jobs/contract-observer.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
 import { makeAudit } from '../../helpers/audit.js';
@@ -83,15 +83,18 @@ describe('phase 1010 — silent X TODO cluster narrow', () => {
     expect(events[0]).toContain('code=EACCES');
   });
 
-  it('utils.ts getContractCreatedMs ENOENT silent', () => {
+  it('lightweight-query.ts getActiveContractTimestamp ENOENT silent', () => {
     const { audit, events } = makeAudit();
-    const fs = makeFsThrow('ENOENT');
-    const result = getContractCreatedMs(fs, '/tmp/claw', audit);
+    const fs = {
+      ...makeFsThrow('ENOENT'),
+      existsSync: () => true,
+    };
+    const result = getActiveContractTimestamp(fs, '/tmp/claw', audit);
     expect(result).toBeNull();
     expect(events).toHaveLength(0);
   });
 
-  it('utils.ts getContractCreatedMs EACCES → CONTRACT_DIR_SCAN_FAILED audit (when audit param 注入)', () => {
+  it('lightweight-query.ts getActiveContractTimestamp EACCES → CONTRACT_DIR_SCAN_FAILED audit (when audit param 注入)', () => {
     const { audit, events } = makeAudit();
     const fs = {
       listSync: () => {
@@ -99,18 +102,22 @@ describe('phase 1010 — silent X TODO cluster narrow', () => {
         err.code = 'EACCES';
         throw err;
       },
+      existsSync: () => true,
     } as unknown as FileSystem;
-    const result = getContractCreatedMs(fs, '/tmp/claw', audit);
+    const result = getActiveContractTimestamp(fs, '/tmp/claw', audit);
     expect(result).toBeNull();
-    // getContractCreatedMs 循环 ['active', 'paused'] 两个子目录，各触发 1 次 audit
-    expect(events).toHaveLength(2);
+    // getActiveContractTimestamp 仅扫描 active 目录，触发 1 次 audit
+    expect(events).toHaveLength(1);
     expect(events[0][0]).toBe(CONTRACT_AUDIT_EVENTS.CONTRACT_DIR_SCAN_FAILED);
     expect(events[0]).toContain('code=EACCES');
   });
 
-  it('utils.ts getContractCreatedMs EACCES 无 audit param → silent (兼容旧 caller)', () => {
-    const fs = makeFsThrow('EACCES');
-    const result = getContractCreatedMs(fs, '/tmp/claw');
+  it('lightweight-query.ts getActiveContractTimestamp EACCES 无 audit param → silent (兼容旧 caller)', () => {
+    const fs = {
+      ...makeFsThrow('EACCES'),
+      existsSync: () => true,
+    };
+    const result = getActiveContractTimestamp(fs, '/tmp/claw');
     expect(result).toBeNull();
     // 无 audit param、不抛、不 audit、行为兼容
   });

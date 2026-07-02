@@ -2,20 +2,22 @@
  * @module L4.ContractSystem.LightweightQuery
  * 0-dep read-only contract query helpers for CLI/watchdog lightweight scenarios.
  * No ContractSystem instance required — encapsulates contract directory structure knowledge.
- * Sibling of onboarding-discovery.ts (readOnboardingStatus) and utils.ts (getContractCreatedMs).
+ * Sibling of onboarding-discovery.ts (readOnboardingStatus).
  *
  * @phase 744
  */
 
 import * as path from 'path';
-import type { FileSystem } from '../../foundation/fs/index.js';
+import { formatErr } from '../../foundation/node-utils/index.js';
+import { isFileNotFound, type FileSystem } from '../../foundation/fs/index.js';
+import type { AuditLog } from '../../foundation/audit/index.js';
+import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 import {
   CONTRACT_ACTIVE_DIR,
   CONTRACT_ARCHIVE_DIR,
   CONTRACT_YAML_FILE,
   PROGRESS_FILE,
 } from './dirs.js';
-import { getContractCreatedMs } from './utils.js';
 
 /** Lightweight contract summary for enumeration (CLI list / health check scenarios). */
 export interface ContractSummary {
@@ -55,18 +57,45 @@ export function getContractVerificationDir(
 }
 
 /**
+ * UTC epoch ms for 2020-01-01T00:00:00Z（contract ID 生成 base 时间锚）.
+ * Derivation: Date.UTC(2020, 0, 1) = 1_577_836_800_000.
+ */
+const EPOCH_2020_01_01_MS = 1_577_836_800_000;
+
+/**
  * Get the creation timestamp (epoch ms) of the first active contract.
- * Equivalent to getContractCreatedMs — prefer this for clearer business semantics.
+ * Inlined from the deprecated getContractCreatedMs — prefer this for clearer business semantics.
  *
  * @returns epoch ms, or null if no active contract
  */
 export function getActiveContractTimestamp(
   fs: FileSystem,
   clawDir: string,
+  audit?: AuditLog,
 ): number | null {
-  // Delegate to existing implementation; the deprecated alias is the canonical impl for now.
-  // Once all callers migrate, the impl can move here.
-  return getContractCreatedMs(fs, clawDir);
+  const activeDir = path.join(clawDir, CONTRACT_ACTIVE_DIR);
+  if (!fs.existsSync(activeDir)) return null;
+  try {
+    const entries = fs.listSync(activeDir, { includeDirs: true });
+    const contractDirs = entries.filter(e => e.isDirectory).sort();
+    if (contractDirs.length === 0) return null;
+    const first = contractDirs[0].name;
+    // contractId format: <epochMs>-<hash>
+    const ts = parseInt(first.split('-')[0], 10);
+    if (isNaN(ts) || ts <= EPOCH_2020_01_01_MS) return null;
+    return ts;
+  } catch (err) {
+    if (!isFileNotFound(err) && audit) {
+      const code = (err as NodeJS.ErrnoException)?.code;
+      audit.write(
+        CONTRACT_AUDIT_EVENTS.CONTRACT_DIR_SCAN_FAILED,
+        `dir=${activeDir}`,
+        `code=${code ?? 'unknown'}`,
+        `error=${formatErr(err)}`,
+      );
+    }
+    return null;
+  }
 }
 
 /**

@@ -6,59 +6,7 @@
  * @contract design/modules/l4_contract_system.md
  *
  * Contract directory inspection utilities (read-only).
+ *
+ * Phase 792: getContractCreatedMs 已内联进 lightweight-query.ts 的 getActiveContractTimestamp，
+ * 本文件暂留作未来 contract 只读工具函数的统一入口。
  */
-
-import * as path from 'path';
-import { formatErr } from "../../foundation/node-utils/index.js";
-import { isFileNotFound, type FileSystem } from '../../foundation/fs/index.js';
-import type { AuditLog } from '../../foundation/audit/index.js';
-import { CONTRACT_DIR } from './dirs.js';
-
-import { emitContractContractDirScanFailed } from './audit-emit.js';
-
-/**
- * UTC epoch ms for 2020-01-01T00:00:00Z（contract ID 生成 base 时间锚）.
- * Derivation: Date.UTC(2020, 0, 1) = 1_577_836_800_000.
- * 用于将「since 2020 elapsed ms」嵌入 contract ID、避免裸 epoch ms 大数 + 选 2020
- * 因 chestnut 项目开发起步年份接近、ID 字符串短小且有人类可读语义.
- */
-const EPOCH_2020_01_01_MS = 1_577_836_800_000;
-
-/**
- * 返回当前活跃/暂停契约的创建时间（毫秒），无契约时返回 null
- * @deprecated Use getActiveContractTimestamp from lightweight-query.ts instead.
- */
-export function getContractCreatedMs(
-  fs: FileSystem,
-  clawDir: string,
-  audit?: AuditLog,
-): number | null {
-  for (const sub of ['active', 'paused']) {
-    try {
-      const entries = fs.listSync(
-        path.join(clawDir, CONTRACT_DIR, sub),
-        { includeDirs: true },
-      );
-      for (const e of entries) {
-        if (!e.isDirectory) continue;
-        const ts = parseInt(e.name.split('-')[0], 10);
-        // 合理的毫秒时间戳：> 2020-01-01
-        if (!isNaN(ts) && ts > EPOCH_2020_01_01_MS) return ts;
-      }
-    } catch (err) {
-      // phase 1154 r+ derive: 双码 narrow via foundation helper (FileSystem 抽象层抛 FS_NOT_FOUND)
-      if (!isFileNotFound(err) && audit) {
-        const code = (err as NodeJS.ErrnoException)?.code;
-        emitContractContractDirScanFailed(
-          audit,
-          {
-            dir: sub,
-            code: code ?? 'unknown',
-            error: formatErr(err),
-          },
-        );
-      }
-    }
-  }
-  return null;
-}
