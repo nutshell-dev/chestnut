@@ -594,6 +594,12 @@ export class AsyncTaskSystem {
         `${TASKS_QUEUES_RUNNING_DIR}/${taskId}.json`,
         `${TASKS_QUEUES_DONE_DIR}/${taskId}.json`
       );
+      this.auditWriter.write(
+        TASK_AUDIT_EVENTS.TASK_MOVED,
+        `taskId=${taskId}`,
+        `from=running`,
+        `to=done`,
+      );
     } catch (err) {
       emitMoveFailed(this.auditWriter, {
         taskId,
@@ -616,6 +622,12 @@ export class AsyncTaskSystem {
       await this.fs.move(
         `${TASKS_QUEUES_RUNNING_DIR}/${taskId}.json`,
         `${TASKS_QUEUES_FAILED_DIR}/${taskId}.json`
+      );
+      this.auditWriter.write(
+        TASK_AUDIT_EVENTS.TASK_MOVED,
+        `taskId=${taskId}`,
+        `from=running`,
+        `to=failed`,
       );
     } catch (err) {
       emitMoveFailed(this.auditWriter, {

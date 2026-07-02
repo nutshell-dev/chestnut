@@ -26,7 +26,7 @@ import { searchTool } from '../../src/foundation/file-tool/search.js';
 import { EventEmitter } from 'events';
 import { makeAudit, waitForAuditEvent, waitForNextAuditEvent, waitForNthAuditEvent } from '../helpers/audit.js';
 import { TASK_AUDIT_EVENTS } from '../../src/core/async-task-system/audit-events.js';
-import { waitForCompleteFile, waitForPathExists, waitForAnyFile } from '../helpers/wait-for-file.js';
+import { waitForCompleteFile, waitForAnyFile } from '../helpers/wait-for-file.js';
 import { makeTaskSystemDeps } from '../helpers/task-system.js';
 import { waitFor } from '../helpers/wait-for.js';
 import { writePendingToolTaskFile } from '../../src/core/async-task-system/tools/_pending-tool-task-writer.js';
@@ -229,10 +229,7 @@ describe('AsyncTaskSystem Tool Tasks', () => {
 
       const runningPath = path.join(testClawDir, 'tasks', 'queues', 'running', `${taskId}.json`);
       await runningP;
-      // TASK_STARTED 后 running 文件已创建；轮询确保 fs.move 完成
-      await waitFor(async () => {
-        try { await fs.access(runningPath); return true; } catch { return false; }
-      });
+      // TASK_STARTED 在 fs.move 完成后 emit，running 文件已存在
 
       // Task should be in running directory after dispatch
       const taskFile = await fs.readFile(runningPath, 'utf-8');
@@ -346,15 +343,12 @@ describe('AsyncTaskSystem Tool Tasks', () => {
     it('should move task to done after completion', async () => {
       const executeCallback = vi.fn().mockResolvedValue({ success: true, content: 'ok' });
       
-      const completedP = waitForNextAuditEvent(taskAuditEmitter, TASK_AUDIT_EVENTS.TASK_COMPLETED);
+      const movedP = waitForNextAuditEvent(taskAuditEmitter, TASK_AUDIT_EVENTS.TASK_MOVED);
       const taskId = await scheduleToolCompat(taskSystem, 'testTool', executeCallback, 'parent-claw');
 
-      await completedP;
-      // moveTaskToDone 在 TASK_COMPLETED 之后；轮询到 done 文件存在
-      await waitFor(async () => {
-        try { await fs.access(path.join(testClawDir, 'tasks', 'queues', 'done', `${taskId}.json`)); return true; } catch { return false; }
-      });
-      
+      await movedP;
+      // TASK_MOVED 在 fs.move 完成后 emit，done 文件已存在
+
       // Task should be in done directory
       const doneFile = await fs.readFile(
         path.join(testClawDir, 'tasks', 'queues', 'done', `${taskId}.json`),
@@ -766,12 +760,9 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       taskSystem2.startDispatch();
 
       // phase432: running tool task 移回 pending，再被 ingest 执行
-      const completedP = waitForNextAuditEvent(taskSystem2Audit.emitter, TASK_AUDIT_EVENTS.TASK_COMPLETED);
-      await completedP;
-      // moveTaskToDone 在 TASK_COMPLETED 之后；轮询到 done 文件存在
-      await waitFor(async () => {
-        try { await fs.access(path.join(testClawDir, 'tasks', 'queues', 'done', `${taskId}.json`)); return true; } catch { return false; }
-      });
+      const movedP = waitForNextAuditEvent(taskSystem2Audit.emitter, TASK_AUDIT_EVENTS.TASK_MOVED);
+      await movedP;
+      // TASK_MOVED 在 fs.move 完成后 emit，done 文件已存在
 
       const runningExists = await fs.access(path.join(testClawDir, 'tasks', 'queues', 'running', `${taskId}.json`)).then(() => true).catch(() => false);
       expect(runningExists).toBe(false);
@@ -870,13 +861,10 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       taskSystem2.startDispatch();
 
       // phase432: pending tool task 被 ingest 并执行 / phase 1309 α-1: timeout dump diagnostic
-      const completedP = waitForNextAuditEvent(taskSystem2Audit.emitter, TASK_AUDIT_EVENTS.TASK_COMPLETED);
+      const movedP = waitForNextAuditEvent(taskSystem2Audit.emitter, TASK_AUDIT_EVENTS.TASK_MOVED);
       try {
-        await completedP;
-        // moveTaskToDone 在 TASK_COMPLETED 之后；轮询到 done 文件存在
-        await waitFor(async () => {
-          try { await fs.access(path.join(testClawDir, 'tasks', 'queues', 'done', `${taskId}.json`)); return true; } catch { return false; }
-        });
+        await movedP;
+        // TASK_MOVED 在 fs.move 完成后 emit，done 文件已存在
       } catch (waitForErr) {
         const failedEvents = auditEvents.filter(e =>
           e.type === TASK_AUDIT_EVENTS.TASK_FAILED ||
@@ -1195,6 +1183,7 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       const alwaysFailCallback = vi.fn().mockRejectedValue(new Error('Permanent error'));
 
       const completedP = waitForNextAuditEvent(taskAuditEmitter, TASK_AUDIT_EVENTS.TASK_COMPLETED);
+      const movedP = waitForNextAuditEvent(taskAuditEmitter, TASK_AUDIT_EVENTS.TASK_MOVED);
       const taskId = await scheduleToolCompat(taskSystem, 'failTool', alwaysFailCallback, 'parent-claw', {
         isIdempotent: true,
         maxRetries: 2,
@@ -1228,10 +1217,7 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       expect(content.summary).toContain('retries');
 
       // Task should be in failed directory (retries exhausted)
-      await waitForPathExists(
-        path.join(testClawDir, 'tasks', 'queues', 'failed', `${taskId}.json`),
-        10000,
-      );
+      await movedP;
 
       const failedFile = await fs.readFile(
         path.join(testClawDir, 'tasks', 'queues', 'failed', `${taskId}.json`),
@@ -1299,14 +1285,11 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       taskSystem2.startDispatch();
 
       const failCallback = vi.fn().mockRejectedValue(new Error('Tool error'));
-      const completedP = waitForNextAuditEvent(taskSystem2Audit.emitter, TASK_AUDIT_EVENTS.TASK_COMPLETED);
+      const movedP = waitForNextAuditEvent(taskSystem2Audit.emitter, TASK_AUDIT_EVENTS.TASK_MOVED);
       const taskId = await scheduleToolCompat(taskSystem2, 'tool', failCallback, 'parent', { isIdempotent: false });
 
-      await completedP;
-      // moveTaskToFailed 在 TASK_COMPLETED 之后；轮询到 failed 文件存在
-      await waitFor(async () => {
-        try { await fs.access(path.join(testClawDir, 'tasks', 'queues', 'failed', `${taskId}.json`)); return true; } catch { return false; }
-      });
+      await movedP;
+      // TASK_MOVED 在 fs.move 完成后 emit，failed 文件已存在
 
       // Task should end up in failed (tool execution failed, retries exhausted)
       const failedExists = await fs.access(
@@ -1436,12 +1419,9 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       freshSystem.startDispatch();
 
       // phase432: Tool task 被恢复执行并最终移到 done/
-      const completedP = waitForNextAuditEvent(freshAudit.emitter, TASK_AUDIT_EVENTS.TASK_COMPLETED);
-      await completedP;
-      // moveTaskToDone 在 TASK_COMPLETED 之后；轮询到 done 文件存在
-      await waitFor(async () => {
-        try { await fs.access(path.join(freshDir, 'tasks', 'queues', 'done', `${taskId}.json`)); return true; } catch { return false; }
-      });
+      const movedP = waitForNextAuditEvent(freshAudit.emitter, TASK_AUDIT_EVENTS.TASK_MOVED);
+      await movedP;
+      // TASK_MOVED 在 fs.move 完成后 emit，done 文件已存在
 
       const doneExists = await fs.access(path.join(freshDir, 'tasks', 'queues', 'done', `${taskId}.json`)).then(() => true).catch(() => false);
       expect(doneExists).toBe(true);

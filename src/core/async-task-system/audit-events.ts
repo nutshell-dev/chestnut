@@ -23,6 +23,7 @@ export const TASK_AUDIT_EVENTS = {
   INBOX_WRITE_FAILED: 'task_inbox_write_failed',
   SHUTDOWN_TIMEOUT: 'task_shutdown_timeout',
   MOVE_FAILED: 'task_move_failed',
+  TASK_MOVED: 'task_moved',
   TASK_CANCEL_RACE_LOST_TO_DISPATCH: 'task_cancel_race_lost_to_dispatch',
   CANCELLED: 'task_cancelled',
   TOOL_RETRY: 'tool_task_retry',

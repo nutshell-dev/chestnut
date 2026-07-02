@@ -204,6 +204,7 @@
       "task_migrated_registered",
       "task_migrated_timed_out",
       "task_move_failed",
+      "task_moved",
       "task_parse_failed",
       "task_pending_queue_overflow",
       "task_pending_queue_overflow_notified",
