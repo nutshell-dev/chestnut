@@ -224,13 +224,15 @@ describe('AsyncTaskSystem Tool Tasks', () => {
         return { success: true, content: 'slow' };
       };
       
+      const runningP = waitForNextAuditEvent(taskAuditEmitter, TASK_AUDIT_EVENTS.TASK_STARTED);
       const taskId = await scheduleToolCompat(taskSystem, 'testTool', slowCallback, 'parent-claw');
 
       const runningPath = path.join(testClawDir, 'tasks', 'queues', 'running', `${taskId}.json`);
-      // phase 794: waitForPathExists flaky under high concurrency; use poll instead of chokidar watcher
+      await runningP;
+      // TASK_STARTED 后 running 文件已创建；轮询确保 fs.move 完成
       await waitFor(async () => {
         try { await fs.access(runningPath); return true; } catch { return false; }
-      }, 10000);
+      });
 
       // Task should be in running directory after dispatch
       const taskFile = await fs.readFile(runningPath, 'utf-8');
@@ -248,19 +250,18 @@ describe('AsyncTaskSystem Tool Tasks', () => {
     it('should execute callback and send summary + resultRef to inbox', async () => {
       const executeCallback = vi.fn().mockResolvedValue({ success: true, content: 'async result' });
       
-      const taskId = await scheduleToolCompat(taskSystem, 'testTool', executeCallback, 'parent-claw');
-      
-      // phase 1175 B.flaky-24: 等 inbox file atomic write 完成 + frontmatter 完整再 parse
-      // mirror L291 / L955 同 file 邻位 phase 1090 模板
       const inboxDir = path.join(testClawDir, 'inbox', 'pending');
-      await waitForAnyFile(inboxDir, (f) => f.endsWith('.md'), 15000);
+      const completedP = waitForNextAuditEvent(taskAuditEmitter, TASK_AUDIT_EVENTS.TASK_COMPLETED);
+      const taskId = await scheduleToolCompat(taskSystem, 'testTool', executeCallback, 'parent-claw');
 
-      expect(executeCallback).toHaveBeenCalled();
-
+      await completedP;
+      // TASK_COMPLETED emit 时 sendToolResult 已完成 → inbox 已写入
       const inboxFiles = await fs.readdir(inboxDir);
       expect(inboxFiles.length).toBeGreaterThan(0);
       const inboxPath = path.join(inboxDir, inboxFiles[0]);
-      const inboxFile = await waitForCompleteFile(inboxPath, /^---[\s\S]+---\n\n/);
+      const inboxFile = await fs.readFile(inboxPath, 'utf-8');
+
+      expect(executeCallback).toHaveBeenCalled();
 
       // Parse frontmatter + content
       const match = inboxFile.match(/---\n([\s\S]*?)\n---\n\n([\s\S]*)/);
@@ -283,23 +284,19 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       const longResult = 'x'.repeat(1000); // Long result to test full content
       const executeCallback = vi.fn().mockResolvedValue({ success: true, content: longResult });
       
+      const completedP = waitForNextAuditEvent(taskAuditEmitter, TASK_AUDIT_EVENTS.TASK_COMPLETED);
       const taskId = await scheduleToolCompat(taskSystem, 'testTool', executeCallback, 'parent-claw');
 
-      // Wait for the full completion: result.txt exists AND inbox has a complete .md file.
-      // Original test waited only on result.txt, then assumed inbox was ready — flaky under
-      // full-suite concurrency when inbox write lagged result.txt write or vice versa.
-      // (l4_async_task_system test-coverage §9 open flake / phase 305/312/343)
       const resultPath = path.join(testClawDir, 'tasks', 'queues', 'results', taskId, 'result.txt');
       const inboxDir = path.join(testClawDir, 'inbox', 'pending');
-      // phase 368: staged event-driven 替原 compound polling predicate
-      await waitForPathExists(resultPath);
-      const inboxName = await waitForAnyFile(inboxDir, (f) => f.endsWith('.md'));
-      const inboxPath = path.join(inboxDir, inboxName);
+      await completedP;
+      // TASK_COMPLETED emit 时 sendToolResult 已完成 → inbox 与 result.txt 均已写入
+      const inboxFiles = await fs.readdir(inboxDir);
+      const inboxPath = path.join(inboxDir, inboxFiles[0]);
+      const inboxFile = await fs.readFile(inboxPath, 'utf-8');
 
       const resultFile = await fs.readFile(resultPath, 'utf-8');
       expect(resultFile).toContain(longResult);
-
-      const inboxFile = await waitForCompleteFile(inboxPath, /^---[\s\S]+---\n\n/);
       
       const match = inboxFile.match(/---\n([\s\S]*?)\n---\n\n([\s\S]*)/);
       expect(match).not.toBeNull();
@@ -313,13 +310,15 @@ describe('AsyncTaskSystem Tool Tasks', () => {
     it('should send error result with summary + resultRef', async () => {
       const executeCallback = vi.fn().mockRejectedValue(new Error('Execution failed'));
       
+      const completedP = waitForNextAuditEvent(taskAuditEmitter, TASK_AUDIT_EVENTS.TASK_COMPLETED);
       const taskId = await scheduleToolCompat(taskSystem, 'testTool', executeCallback, 'parent-claw');
-      
-      // phase 368: staged event-driven 替原 compound polling predicate
+
+      await completedP;
+      // TASK_COMPLETED emit 时 sendToolResult 已完成 → inbox 已写入
       {
         const _inboxDir = path.join(testClawDir, 'inbox', 'pending');
-        const _name = await waitForAnyFile(_inboxDir, (f) => f.endsWith('.md'), 15000);
-        await waitForCompleteFile(path.join(_inboxDir, _name), /---\n[\s\S]*?\n---\n\n[\s\S]+/);
+        const _inboxFiles = await fs.readdir(_inboxDir);
+        const _inboxFile = await fs.readFile(path.join(_inboxDir, _inboxFiles[0]), 'utf-8');
       }
       
       // Check inbox/pending/ for the error result message
@@ -347,9 +346,14 @@ describe('AsyncTaskSystem Tool Tasks', () => {
     it('should move task to done after completion', async () => {
       const executeCallback = vi.fn().mockResolvedValue({ success: true, content: 'ok' });
       
+      const completedP = waitForNextAuditEvent(taskAuditEmitter, TASK_AUDIT_EVENTS.TASK_COMPLETED);
       const taskId = await scheduleToolCompat(taskSystem, 'testTool', executeCallback, 'parent-claw');
-      
-      await waitForPathExists(path.join(testClawDir, 'tasks', 'queues', 'done', `${taskId}.json`));
+
+      await completedP;
+      // moveTaskToDone 在 TASK_COMPLETED 之后；轮询到 done 文件存在
+      await waitFor(async () => {
+        try { await fs.access(path.join(testClawDir, 'tasks', 'queues', 'done', `${taskId}.json`)); return true; } catch { return false; }
+      });
       
       // Task should be in done directory
       const doneFile = await fs.readFile(
@@ -723,6 +727,7 @@ describe('AsyncTaskSystem Tool Tasks', () => {
         JSON.stringify(task)
       );
 
+      const taskSystem2Audit = makeAudit();
       const taskSystem2 = new AsyncTaskSystem(
         testClawDir,
         {
@@ -745,7 +750,7 @@ describe('AsyncTaskSystem Tool Tasks', () => {
         },
         moveSync: (from: string, to: string) => fsSync.renameSync(path.join(testClawDir, from), path.join(testClawDir, to)),
         } as any,
-        { maxConcurrent: TEST_MAX_CONCURRENT, retryBaseDelayMs: TEST_RETRY_BASE_DELAY_MS, auditWriter: makeAudit().audit, ...makeTaskSystemDeps() }
+        { maxConcurrent: TEST_MAX_CONCURRENT, retryBaseDelayMs: TEST_RETRY_BASE_DELAY_MS, auditWriter: taskSystem2Audit.audit, ...makeTaskSystemDeps() }
       );
       // 注册工具使恢复后可执行
       (taskSystem2 as any).registry.register({
@@ -761,7 +766,12 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       taskSystem2.startDispatch();
 
       // phase432: running tool task 移回 pending，再被 ingest 执行
-      await waitForPathExists(path.join(testClawDir, 'tasks', 'queues', 'done', `${taskId}.json`));
+      const completedP = waitForNextAuditEvent(taskSystem2Audit.emitter, TASK_AUDIT_EVENTS.TASK_COMPLETED);
+      await completedP;
+      // moveTaskToDone 在 TASK_COMPLETED 之后；轮询到 done 文件存在
+      await waitFor(async () => {
+        try { await fs.access(path.join(testClawDir, 'tasks', 'queues', 'done', `${taskId}.json`)); return true; } catch { return false; }
+      });
 
       const runningExists = await fs.access(path.join(testClawDir, 'tasks', 'queues', 'running', `${taskId}.json`)).then(() => true).catch(() => false);
       expect(runningExists).toBe(false);
@@ -796,11 +806,11 @@ describe('AsyncTaskSystem Tool Tasks', () => {
 
       // phase 1309 α-1: capture audit events for diagnostic + positive assertion (mirror phase 1307)
       const auditEvents: Array<{ type: string; cols: any[] }> = [];
-      const baseAudit = makeAudit().audit;
+      const taskSystem2Audit = makeAudit();
       const instrumentedAudit = {
         write: (type: string, ...cols: any[]) => {
           auditEvents.push({ type, cols });
-          baseAudit.write(type, ...cols);
+          taskSystem2Audit.audit.write(type, ...cols);
         },
       };
 
@@ -860,8 +870,13 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       taskSystem2.startDispatch();
 
       // phase432: pending tool task 被 ingest 并执行 / phase 1309 α-1: timeout dump diagnostic
+      const completedP = waitForNextAuditEvent(taskSystem2Audit.emitter, TASK_AUDIT_EVENTS.TASK_COMPLETED);
       try {
-        await waitForPathExists(path.join(testClawDir, 'tasks', 'queues', 'done', `${taskId}.json`));
+        await completedP;
+        // moveTaskToDone 在 TASK_COMPLETED 之后；轮询到 done 文件存在
+        await waitFor(async () => {
+          try { await fs.access(path.join(testClawDir, 'tasks', 'queues', 'done', `${taskId}.json`)); return true; } catch { return false; }
+        });
       } catch (waitForErr) {
         const failedEvents = auditEvents.filter(e =>
           e.type === TASK_AUDIT_EVENTS.TASK_FAILED ||
@@ -1012,14 +1027,14 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       const longContent = 'output-' + 'x'.repeat(300);
       const executeCallback = vi.fn().mockResolvedValue({ success: true, content: longContent });
 
+      const inboxDir = path.join(testClawDir, 'inbox', 'pending');
+      const completedP = waitForNextAuditEvent(taskAuditEmitter, TASK_AUDIT_EVENTS.TASK_COMPLETED);
       const taskId = await scheduleToolCompat(taskSystem, 'testTool', executeCallback, 'parent-claw');
 
-      // phase 779 Step C: two-step wait 替裸 waitForAnyFile。高并发下 inbox file 可能被
-      // watcher 在 content 写完前拾起（endsWith('.md') 弱信号）→ 后续 readFile + regex match
-      // 拿半成品 content → flaky（phase 776）。两步：先找文件、再等 frontmatter 完整。
-      const inboxDir = path.join(testClawDir, 'inbox', 'pending');
-      const inboxName = await waitForAnyFile(inboxDir, (f) => f.endsWith('.md'), 15000);
-      const inboxFile = await waitForCompleteFile(path.join(inboxDir, inboxName), /^---[\s\S]+---\n\n/);
+      await completedP;
+      // TASK_COMPLETED emit 时 sendToolResult 已完成 → inbox 已写入
+      const inboxFiles = await fs.readdir(inboxDir);
+      const inboxFile = await fs.readFile(path.join(inboxDir, inboxFiles[0]), 'utf-8');
 
       const match = inboxFile.match(/---\n([\s\S]*?)\n---\n\n([\s\S]*)/);
       expect(match).not.toBeNull();
@@ -1035,16 +1050,12 @@ describe('AsyncTaskSystem Tool Tasks', () => {
     it('should NOT call transport.sendInboxMessage (bypass transport)', async () => {
       const executeCallback = vi.fn().mockResolvedValue({ success: true, content: 'direct result' });
 
+      const inboxDir = path.join(testClawDir, 'inbox', 'pending');
+      const completedP = waitForNextAuditEvent(taskAuditEmitter, TASK_AUDIT_EVENTS.TASK_COMPLETED);
       await scheduleToolCompat(taskSystem, 'testTool', executeCallback, 'parent-claw');
 
-      // phase 793 Step A: two-step wait 替裸 waitForAnyFile。高并发下 inbox file 可能被
-      // watcher 在 content 写完前拾起（endsWith('.md') 弱信号）→ 后续 readdir / expect
-      // 拿到半成品文件或空目录 → flaky（phase 786 #7）。两步：先找文件、再等 frontmatter 完整。
-      const inboxDir = path.join(testClawDir, 'inbox', 'pending');
-      const inboxName = await waitForAnyFile(inboxDir, (f) => f.endsWith('.md'), 15000);
-      await waitForCompleteFile(path.join(inboxDir, inboxName), /^---[\s\S]+---\n\n/);
-
-      // Inbox file must be .md (not .json or other)
+      await completedP;
+      // TASK_COMPLETED emit 时 sendToolResult 已完成 → inbox 已写入
       const inboxFiles = await fs.readdir(inboxDir);
       expect(inboxFiles.length).toBeGreaterThan(0);
       expect(inboxFiles.every(f => f.endsWith('.md'))).toBe(true);
@@ -1076,21 +1087,23 @@ describe('AsyncTaskSystem Tool Tasks', () => {
         moveSync: (from: string, to: string) => fsSync.renameSync(path.join(testClawDir, from), path.join(testClawDir, to)),
       } as any;
 
-      const taskSystem2 = new AsyncTaskSystem(testClawDir, failingFs, { maxConcurrent: TEST_MAX_CONCURRENT, retryBaseDelayMs: TEST_RETRY_BASE_DELAY_MS, auditWriter: makeAudit().audit, ...makeTaskSystemDeps() });
+      const taskSystem2Audit = makeAudit();
+      const taskSystem2 = new AsyncTaskSystem(testClawDir, failingFs, { maxConcurrent: TEST_MAX_CONCURRENT, retryBaseDelayMs: TEST_RETRY_BASE_DELAY_MS, auditWriter: taskSystem2Audit.audit, ...makeTaskSystemDeps() });
       await taskSystem2.initialize();
       taskSystem2.startDispatch();
 
       const executeCallback = vi.fn().mockResolvedValue({ success: true, content: 'fallback content' });
+      const completedP = waitForNextAuditEvent(taskSystem2Audit.emitter, TASK_AUDIT_EVENTS.TASK_COMPLETED);
       await scheduleToolCompat(taskSystem2, 'testTool', executeCallback, 'parent-claw');
-      await waitForAnyFile(path.join(testClawDir, 'inbox', 'pending'), (f) => f.endsWith('.md'), 15000);
 
+      await completedP;
+      // TASK_COMPLETED emit 时 sendToolResult 已完成 → inbox 已写入
       // Check inbox/pending/ for the result message
       const inboxFiles = (await fs.readdir(path.join(testClawDir, 'inbox', 'pending'))).filter(f => f.endsWith('.md'));
       expect(inboxFiles.length).toBeGreaterThan(0);
 
-      // Wait for atomic rename to complete before reading frontmatter (phase 779 Step D / B.flaky-8)
       const inboxPath = path.join(testClawDir, 'inbox', 'pending', inboxFiles[0]);
-      const inboxFile = await waitForCompleteFile(inboxPath, /^---[\s\S]+---\n\n/);
+      const inboxFile = await fs.readFile(inboxPath, 'utf-8');
 
       const match = inboxFile.match(/---\n([\s\S]*?)\n---\n\n([\s\S]*)/);
       expect(match).not.toBeNull();
@@ -1181,16 +1194,18 @@ describe('AsyncTaskSystem Tool Tasks', () => {
     it('should exhaust retries for idempotent tool and send error', async () => {
       const alwaysFailCallback = vi.fn().mockRejectedValue(new Error('Permanent error'));
 
+      const completedP = waitForNextAuditEvent(taskAuditEmitter, TASK_AUDIT_EVENTS.TASK_COMPLETED);
       const taskId = await scheduleToolCompat(taskSystem, 'failTool', alwaysFailCallback, 'parent-claw', {
         isIdempotent: true,
         maxRetries: 2,
       });
 
-      // phase 368: staged event-driven 替原 compound polling predicate
+      await completedP;
+      // TASK_COMPLETED emit 时 sendToolResult 已完成 → inbox 已写入
       {
         const _inboxDir = path.join(testClawDir, 'inbox', 'pending');
-        const _name = await waitForAnyFile(_inboxDir, (f) => f.endsWith('.md'), 15000);
-        await waitForCompleteFile(path.join(_inboxDir, _name), /---\n[\s\S]*?\n---\n\n[\s\S]+/);
+        const _inboxFiles = await fs.readdir(_inboxDir);
+        const _inboxFile = await fs.readFile(path.join(_inboxDir, _inboxFiles[0]), 'utf-8');
       }
 
       // Should have been called 3 times (1 initial + 2 retries)
@@ -1235,21 +1250,14 @@ describe('AsyncTaskSystem Tool Tasks', () => {
         isIdempotent: false,
       });
 
-      // phase 779 Step C: two-step wait 替裸 waitForAnyFile（同 C5 根因——高并发下
-      // endsWith('.md') 弱信号可能在 content 写完整前触发 → 后续 regex match 拿半成品）。
-      const inboxDir = path.join(testClawDir, 'inbox', 'pending');
-      const inboxName = await waitForAnyFile(inboxDir, (f) => f.endsWith('.md'), 15000);
-      await waitForCompleteFile(path.join(inboxDir, inboxName), /^---[\s\S]+---\n\n/);
       await completedP;
+      // TASK_COMPLETED emit 时 sendToolResult 已完成 → inbox 已写入
+      const inboxDir = path.join(testClawDir, 'inbox', 'pending');
+      const inboxFiles = await fs.readdir(inboxDir);
+      const inboxFile = await fs.readFile(path.join(inboxDir, inboxFiles[0]), 'utf-8');
 
       // Called exactly once, no retry
       expect(failCallback).toHaveBeenCalledTimes(1);
-
-      // Read the already-verified inbox file
-      const inboxFile = await fs.readFile(
-        path.join(inboxDir, inboxName),
-        'utf-8'
-      );
 
       const match = inboxFile.match(/---\n([\s\S]*?)\n---\n\n([\s\S]*)/);
       expect(match).not.toBeNull();
@@ -1285,14 +1293,20 @@ describe('AsyncTaskSystem Tool Tasks', () => {
         moveSync: (from: string, to: string) => fsSync.renameSync(path.join(testClawDir, from), path.join(testClawDir, to)),
       };
 
-      const taskSystem2 = new AsyncTaskSystem(testClawDir, limitedFs as any, { maxConcurrent: TEST_MAX_CONCURRENT, retryBaseDelayMs: TEST_RETRY_BASE_DELAY_MS, auditWriter: makeAudit().audit, ...makeTaskSystemDeps() });
+      const taskSystem2Audit = makeAudit();
+      const taskSystem2 = new AsyncTaskSystem(testClawDir, limitedFs as any, { maxConcurrent: TEST_MAX_CONCURRENT, retryBaseDelayMs: TEST_RETRY_BASE_DELAY_MS, auditWriter: taskSystem2Audit.audit, ...makeTaskSystemDeps() });
       await taskSystem2.initialize();
       taskSystem2.startDispatch();
 
       const failCallback = vi.fn().mockRejectedValue(new Error('Tool error'));
+      const completedP = waitForNextAuditEvent(taskSystem2Audit.emitter, TASK_AUDIT_EVENTS.TASK_COMPLETED);
       const taskId = await scheduleToolCompat(taskSystem2, 'tool', failCallback, 'parent', { isIdempotent: false });
 
-      await waitForPathExists(path.join(testClawDir, 'tasks', 'queues', 'failed', `${taskId}.json`));
+      await completedP;
+      // moveTaskToFailed 在 TASK_COMPLETED 之后；轮询到 failed 文件存在
+      await waitFor(async () => {
+        try { await fs.access(path.join(testClawDir, 'tasks', 'queues', 'failed', `${taskId}.json`)); return true; } catch { return false; }
+      });
 
       // Task should end up in failed (tool execution failed, retries exhausted)
       const failedExists = await fs.access(
@@ -1383,6 +1397,7 @@ describe('AsyncTaskSystem Tool Tasks', () => {
         }, null, 2),
       );
 
+      const freshAudit = makeAudit();
       const freshSystem = new AsyncTaskSystem(
         freshDir,
         {
@@ -1405,7 +1420,7 @@ describe('AsyncTaskSystem Tool Tasks', () => {
         },
         moveSync: (from: string, to: string) => fsSync.renameSync(path.join(freshDir, from), path.join(freshDir, to)),
         } as any,
-        { maxConcurrent: TEST_MAX_CONCURRENT, retryBaseDelayMs: TEST_RETRY_BASE_DELAY_MS, auditWriter: makeAudit().audit, ...makeTaskSystemDeps() },
+        { maxConcurrent: TEST_MAX_CONCURRENT, retryBaseDelayMs: TEST_RETRY_BASE_DELAY_MS, auditWriter: freshAudit.audit, ...makeTaskSystemDeps() },
       );
       (freshSystem as any).registry.register({
         name: 'testTool',
@@ -1421,7 +1436,12 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       freshSystem.startDispatch();
 
       // phase432: Tool task 被恢复执行并最终移到 done/
-      await waitForPathExists(path.join(freshDir, 'tasks', 'queues', 'done', `${taskId}.json`));
+      const completedP = waitForNextAuditEvent(freshAudit.emitter, TASK_AUDIT_EVENTS.TASK_COMPLETED);
+      await completedP;
+      // moveTaskToDone 在 TASK_COMPLETED 之后；轮询到 done 文件存在
+      await waitFor(async () => {
+        try { await fs.access(path.join(freshDir, 'tasks', 'queues', 'done', `${taskId}.json`)); return true; } catch { return false; }
+      });
 
       const doneExists = await fs.access(path.join(freshDir, 'tasks', 'queues', 'done', `${taskId}.json`)).then(() => true).catch(() => false);
       expect(doneExists).toBe(true);
