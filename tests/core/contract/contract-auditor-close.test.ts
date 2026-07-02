@@ -6,13 +6,8 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { ContractAuditor } from '../../../src/core/contract/contract-auditor.js';
+import { waitFor } from '../../helpers/wait-for.js';
 
-/**
- * Tick delay to let event loop schedule llm.call before we assert receivedSignal.
- * Derivation: 10ms ≥ one Node microtask flush + setTimeout(0) coalesce window
- * （fakeTimer 不适用、需真异步、纯计算 tick 不够稳）.
- */
-const EVENT_LOOP_TICK_MS = 10;
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import type { LLMOrchestrator, LLMResponse } from '../../../src/foundation/llm-orchestrator/index.js';
 import type { InboxWriter } from '../../../src/foundation/messaging/index.js';
@@ -86,8 +81,8 @@ describe('ContractAuditor.close (phase 517 B3)', () => {
     // kick off audit (fire-and-forget pattern matches manager.ts:312)
     const auditPromise = auditor.maybeAudit(makeAuditRequest());
 
-    // give event loop a tick so llm.call begins
-    await new Promise(r => setTimeout(r, EVENT_LOOP_TICK_MS));
+    // phase 789: waitFor poll until llm.call begins and the abort signal is received
+    await waitFor(() => receivedSignal !== undefined, 5000);
     expect(receivedSignal).toBeDefined();
     expect(receivedSignal!.aborted).toBe(false);
 

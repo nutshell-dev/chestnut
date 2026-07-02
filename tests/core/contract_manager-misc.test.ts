@@ -17,12 +17,8 @@ import { makeContractYaml } from '../helpers/contract-yaml.js';
 import { createToolRegistry } from '../../src/foundation/tools/index.js';
 import { makeAudit, makeMockAudit, waitForAuditEvent, waitForNextAuditEvent } from '../helpers/audit.js';
 import { DEFAULT_MAX_STEPS } from '../../src/core/agent-executor/index.js';  // phase 262: hoist
+import { waitFor } from '../helpers/wait-for.js';
 
-/**
- * Mutex release microtask grace (50ms): 等 background verification 释放 mutex 后继续.
- * Derivation: phase 1371 sub-3 / > microtask flush 1 turn / 给 saveProgress 落定 audit emit 窗口.
- */
-const MUTEX_RELEASE_GRACE_MS = 50;
 
 let testDir: string;
 let clawDir: string;
@@ -144,13 +140,16 @@ describe('ContractSystem - misc (LLM verification + escalation + phase239 audit)
         structured: { passed: false, reason: 'test', issues: [] },
       });
 
+      // phase 789: spy on mutex release so we can wait for it instead of fixed sleep
+      const releaseSpy = vi.spyOn((testManager as any).verificationMutex, 'release');
+
       // verification_attempts = 2, need 2 failures to trigger force-accept
       for (let i = 0; i < 2; i++) {
         const verifDoneP = waitForNextAuditEvent(emitter, CONTRACT_AUDIT_EVENTS.VERIFICATION_BACKGROUND_DONE);
         await testManager.completeSubtask({ contractId, subtaskId: 't1', evidence: `attempt ${i + 1}` });
         await verifDoneP;
-        // phase 1371 sub-3: extra grace for mutex release microtask to land
-        await new Promise(r => setTimeout(r, MUTEX_RELEASE_GRACE_MS));
+        // phase 789: waitFor poll until background verification releases the mutex
+        await waitFor(() => releaseSpy.mock.calls.length > 0, 5000);
       }
 
       // SUBTASK_FORCE_ACCEPTED 在 saveProgress 之后 emit（verification-notify.ts 顺序）、fast-path 等
@@ -189,13 +188,16 @@ describe('ContractSystem - misc (LLM verification + escalation + phase239 audit)
         feedback: 'verification failed',
       });
 
+      // phase 789: spy on mutex release so we can wait for it instead of fixed sleep
+      const releaseSpy = vi.spyOn((testManager as any).verificationMutex, 'release');
+
       // Only 2 failures — below verification_attempts (3)
       for (let i = 0; i < 2; i++) {
         const verifDoneP = waitForNextAuditEvent(emitter, CONTRACT_AUDIT_EVENTS.VERIFICATION_BACKGROUND_DONE);
         await testManager.completeSubtask({ contractId, subtaskId: 't1', evidence: `attempt ${i + 1}` });
         await verifDoneP;
-        // phase 1371 sub-3: extra grace for mutex release microtask to land
-        await new Promise(r => setTimeout(r, MUTEX_RELEASE_GRACE_MS));
+        // phase 789: waitFor poll until background verification releases the mutex
+        await waitFor(() => releaseSpy.mock.calls.length > 0, 5000);
       }
 
       scriptSpy.mockRestore();
