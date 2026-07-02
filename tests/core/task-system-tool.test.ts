@@ -39,19 +39,7 @@ const TEST_RETRY_BASE_DELAY_MS = 10;
  * Mock slow op duration: long enough to exceed shutdown grace (50ms) for forced-kill tests.
  * Derivation: shutdown grace ×4 safety margin = 200ms.
  */
-const MOCK_SLOW_OP_MS = 200;
-
-/**
- * Short settle: post-op flush / file-event propagation.
- * Derivation: > chokidar settle (100ms) 半 / 给 short flushes.
- */
-const SHORT_SETTLE_MS = 50;
-
-/**
- * Tick settle: briefer than SHORT_SETTLE_MS, for sub-tasks where 50ms is overkill.
- * Derivation: ~ 3× eventloop tick / 配 SHORT_SETTLE_MS 二分.
- */
-const TICK_SETTLE_MS = 30;
+const MOCK_TOOL_DURATION_MS = 200;
 
 // Test helper: fs-driven async tool scheduling (replaces removed scheduleTool API)
 async function scheduleToolCompat(
@@ -232,7 +220,7 @@ describe('AsyncTaskSystem Tool Tasks', () => {
     it('should move task to tasks/queues/running/ when dispatched', async () => {
       // Use a slow callback so we can check the running state before completion
       const slowCallback = async () => {
-        await new Promise(r => setTimeout(r, MOCK_SLOW_OP_MS)); // mock slow tool callback
+        await new Promise(r => setTimeout(r, MOCK_TOOL_DURATION_MS)); // mock slow tool callback
         return { success: true, content: 'slow' };
       };
       
@@ -501,7 +489,6 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       const executionOrder: number[] = [];
       const createCallback = (n: number) => async () => {
         executionOrder.push(n);
-        await new Promise(r => setTimeout(r, SHORT_SETTLE_MS));
         return { success: true, content: `task-${n}` };
       };
 
@@ -693,15 +680,19 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       // 第 1 检：initialize 返回后必须存在（recover 不应搬走 pending）
       expect(fileExistsAfterInit).toBe(true);
 
-      // 第 2 检：SHORT_SETTLE_MS 后仍存在（确认 startDispatch 之前 0 async 搬移）
-      // 注：此处为负向稳定窗口断言，无正向状态可 poll。
-      await new Promise(r => setTimeout(r, SHORT_SETTLE_MS));
-      const fileExists50ms = await exists();
-      if (!fileExists50ms && fileExistsAfterInit) {
-        // first check PASS but SHORT_SETTLE_MS check FAIL → async move happened
-        console.error('[phase1226-γ] FAIL SHORT_SETTLE_MS diagnostic: async move detected after initialize');
+      // 第 2 检：poll 直到 startDispatch 前文件应持续存在（确认 startDispatch 之前 0 async 搬移）
+      // 注：此处为负向稳定窗口断言，用 waitFor poll + 时间上限替代固定 sleep。
+      const pollStart = Date.now();
+      const POLL_TIMEOUT_MS = 200; // 留足安全余量
+      let moved = false;
+      while (Date.now() - pollStart < POLL_TIMEOUT_MS) {
+        if (!(await exists())) { moved = true; break; }
+        await new Promise(r => setTimeout(r, 10)); // poll interval
       }
-      expect(fileExists50ms).toBe(true);
+      if (moved) {
+        console.error('[phase1226-γ] FAIL: async move detected before startDispatch');
+      }
+      expect(moved).toBe(false);
 
       taskSystem2.startDispatch();
 
@@ -1434,8 +1425,10 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       // eslint-disable-next-line @typescript-eslint/no-empty-function
       const neverResolve = new Promise<void>(() => {});
 
+      let enteredCallback = false;
       const slowCb = vi.fn().mockImplementation(async () => {
-        await new Promise(r => setTimeout(r, MOCK_SLOW_OP_MS)); // long enough to exceed shutdown(50)
+        enteredCallback = true; // signal: past abort-signal gate
+        await new Promise(r => setTimeout(r, MOCK_TOOL_DURATION_MS)); // long enough to exceed shutdown(50)
         await neverResolve; // hangs forever — shutdown must use timeout path
         return { success: true, content: 'done' };
       });
@@ -1444,8 +1437,8 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       const startedP = waitForNextAuditEvent(taskAuditEmitter, TASK_AUDIT_EVENTS.TASK_STARTED);
       await scheduleToolCompat(taskSystem, 'slowTool', slowCb, 'test-claw');
       await startedP;
-      // Give the task time to enter the long callback (past the abort-signal gate)
-      await new Promise(r => setTimeout(r, TICK_SETTLE_MS));
+      // Wait until the callback has actually entered (past the abort-signal gate)
+      await waitFor(() => enteredCallback, 5000);
 
       // shutdown(50) — task won't finish, Promise.race timeout fires
       // The hanging promise is intentionally never resolved to avoid post-shutdown monitor errors
