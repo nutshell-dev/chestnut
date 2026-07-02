@@ -8,6 +8,15 @@ import * as os from 'os';
 import { createWatcher } from '../../src/foundation/file-watcher/index.js';
 import { waitFor } from '../helpers/wait-for.js';
 
+/**
+ * Async error settle budget (100ms). [B class: retained]
+ * Derivation: phase 288 收紧 500ms→100ms / 等 onError throw 触发后再 close.
+ * Phase 789 note: the mocked chokidar does not emit an error for a missing-file path,
+ * so watcher.isActive() stays true until close(). Without changing test semantics,
+ * keep the fixed sleep rather than an unstable waitFor poll.
+ */
+const ASYNC_ERROR_SETTLE_MS = 100;
+
 
 // Mock chokidar with EventEmitter-based fake
 // phase 743 step C — L40+L62 mock chokidar for CI inotify compat
@@ -219,8 +228,8 @@ describe('FileWatcher', () => {
       },
     );
 
-    // phase 789: waitFor watcher to become inactive (markDisabled on async error) instead of fixed sleep
-    await waitFor(() => !watcher.isActive(), 5000);
+    // sleep: async error trigger; no deterministic signal (phase 288: 500ms → 100ms)
+    await new Promise(r => setTimeout(r, ASYNC_ERROR_SETTLE_MS));
     await watcher.close();
 
     // onError throwing should not cause infinite loop or unhandled rejection

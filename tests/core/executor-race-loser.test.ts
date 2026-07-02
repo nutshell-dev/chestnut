@@ -75,7 +75,7 @@ describe('executor race-loser audit (phase 816 B2)', () => {
     const auditPath = path.join(tempDir, 'audit.tsv');
     await waitFor(async () => {
       const content = await fs.readFile(auditPath, 'utf-8').catch(() => '');
-      if (!content.includes('tool_exec_race_loser')) throw new Error('race loser audit not yet written');
+      return content.includes('tool_exec_race_loser');
     }, 5000);
 
     const auditContent = await fs.readFile(auditPath, 'utf-8');

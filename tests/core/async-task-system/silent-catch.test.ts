@@ -236,12 +236,9 @@ describe('phase 541: silent catch fixes', () => {
       capturedWatcherCallback!({ type: 'add', path: 'tasks/queues/pending/task-watcher.json' });
 
       // phase 789: waitFor poll until PENDING_INGEST_FAILED (context=watcher_async) lands
-      await waitFor(() => {
-        const found = auditEvents.some(
-          (e) => e[0] === TASK_AUDIT_EVENTS.PENDING_INGEST_FAILED && e.some((c) => typeof c === 'string' && c.includes('context=watcher_async')),
-        );
-        if (!found) throw new Error('PENDING_INGEST_FAILED not yet emitted');
-      }, 5000);
+      await waitFor(() => auditEvents.some(
+        (e) => e[0] === TASK_AUDIT_EVENTS.PENDING_INGEST_FAILED && e.some((c) => typeof c === 'string' && c.includes('context=watcher_async')),
+      ), 5000);
 
       const watcherAsyncEvents = auditEvents.filter(
         (e) => e[0] === TASK_AUDIT_EVENTS.PENDING_INGEST_FAILED && e.some((c) => typeof c === 'string' && c.includes('context=watcher_async')),
