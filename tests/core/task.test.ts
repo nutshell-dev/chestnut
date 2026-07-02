@@ -28,12 +28,6 @@ import { waitFor } from '../helpers/wait-for.js';
 import { waitForAnyFile, waitForCompleteFile } from '../helpers/wait-for-file.js';
 
 /**
- * Mock slow stream chunk 间隔 (50ms): 等 abort signal 中段触发 / 慢逐 chunk yield.
- * Derivation: > microtask flush / 给 mid-execution cancel 触发窗口.
- */
-const MOCK_SLOW_STREAM_GAP_MS = 50;
-
-/**
  * Convert LLMResponse to stream chunks for mock
  */
 async function* responseToStreamChunks(response: LLMResponse): AsyncIterableIterator<StreamChunk> {
@@ -271,14 +265,17 @@ describe('Task System + SubAgent', () => {
     test('should cancel task', async ({ ctx }) => {
       // Use a slow but cancellable mock LLM
       // It yields text slowly so we can cancel mid-execution
+      const streamGapReleases: Array<() => void> = [];
+      let signalStreamStarted: (() => void) | undefined;
+      const streamStartedP = new Promise<void>(r => { signalStreamStarted = r; });
       async function* slowStream(): AsyncIterableIterator<StreamChunk> {
         yield { type: 'text_delta', delta: 'Starting' };
-        // Wait a bit, then check for abort
-        await new Promise(r => setTimeout(r, MOCK_SLOW_STREAM_GAP_MS));
+        // barrier: mock slow chunk gap, release externally after cancel
+        await new Promise<void>(r => { streamGapReleases.push(r); signalStreamStarted?.(); });
         yield { type: 'text_delta', delta: '...' };
-        await new Promise(r => setTimeout(r, MOCK_SLOW_STREAM_GAP_MS));
+        await new Promise<void>(r => { streamGapReleases.push(r); });
         yield { type: 'text_delta', delta: '...' };
-        await new Promise(r => setTimeout(r, MOCK_SLOW_STREAM_GAP_MS));
+        await new Promise<void>(r => { streamGapReleases.push(r); });
         yield { type: 'done' };
       }
       
@@ -313,7 +310,13 @@ describe('Task System + SubAgent', () => {
       // Verify task is in running state
       expect(ctx.taskSystem.listRunning()).toContain(taskId);
 
-      await ctx.taskSystem.cancel(taskId);
+      // Wait for the stream to yield its first chunk and reach the first gap barrier.
+      await streamStartedP;
+
+      // Start cancel, then release barriers so the held stream can finish and settle.
+      const cancelP = ctx.taskSystem.cancel(taskId);
+      streamGapReleases.forEach(r => r());
+      await cancelP;
 
       // Task should be removed from running
       expect(ctx.taskSystem.listRunning()).not.toContain(taskId);
