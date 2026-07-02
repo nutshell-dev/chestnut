@@ -270,14 +270,15 @@ describe('shadow tool (phase 767)', () => {
     });
   });
 
-  describe('callerType and profile alignment (phase 782)', () => {
-    it('passes callerType=shadow to runSubagent so executorProfile derives to full', async () => {
+  describe('callerType and profile alignment (phase 787)', () => {
+    it('passes callerLabel=shadow and toolProfile=full to runSubagent', async () => {
       mockRunSubagent.mockResolvedValue({ text: 'shadow ok' });
 
       await shadowTool.execute({ task: 'profile alignment', async: false }, baseCtx);
 
       const callArgs = mockRunSubagent.mock.calls[0][0];
-      expect(callArgs.callerType).toBe('shadow');
+      expect(callArgs.callerLabel).toBe('shadow');
+      expect(callArgs.toolProfile).toBe('full');
     });
   });
 

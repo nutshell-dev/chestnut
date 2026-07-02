@@ -17,11 +17,10 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import { SUBAGENT_AUDIT_EVENTS, REACT_LOOP_AUDIT_EVENTS, emitPartialAssistantDiscarded } from './audit-events.js';
 import { AGENT_STREAM_EVENTS } from '../agent-executor/index.js';
 import type { StreamLog } from '../../foundation/stream/index.js';
-import { type CallerType, callerTypeToProfile, CALLER_TYPE_TO_GROUPS } from '../permissions/caller-types.js';
+
 import type { DialogStore } from '../../foundation/dialog-store/index.js';
 import { DEFAULT_SUBAGENT_SYSTEM_PROMPT } from '../../templates/prompts/index.js';
-import type { PermissionChecker } from '../../foundation/tool-protocol/index.js';
-import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
+import type { PermissionChecker, ToolProfile, ToolUseId } from '../../foundation/tool-protocol/index.js';
 import { createTimeoutController } from './timeout-controller.js';
 import { createStreamCallbacks } from './stream-callbacks.js';
 import { classifyAndAuditError } from './error-classifier.js';
@@ -51,7 +50,9 @@ export interface SubAgentOptions {
   maxConsecutiveParseErrors?: number;
   maxConsecutiveMaxTokensToolUse?: number;
   systemPrompt?: string;                    // 替换 run() 里硬编码的默认 system prompt
-  callerType?: CallerType;  // 默认 'subagent'
+  allowedGroups?: ReadonlySet<string>;   // caller 从 CALLER_TYPE_TO_GROUPS 查表后传入
+  toolProfile?: ToolProfile;             // caller 从 callerTypeToProfile 计算后传入
+  callerLabel?: string;                  // 替代 callerType 的 audit label 角色
   messages?: Message[];                      // 若提供，直接用；否则从 prompt 构建
   isShadow?: boolean;                         // phase 767：shadow 分身标记
   taskStreamWriter: StreamLog;
@@ -78,7 +79,9 @@ export class SubAgent {
   private idleTimeoutMs?: number;
   private onIdleTimeout?: () => void;
   private systemPrompt?: string;
-  private callerType?: CallerType;
+  private allowedGroups?: ReadonlySet<string>;
+  private toolProfile?: ToolProfile;
+  private callerLabel?: string;
   private messages?: Message[];
   private _running = false;  // phase 464 (review N3-L): re-entry guard
   isShadow?: boolean;
@@ -108,7 +111,9 @@ export class SubAgent {
     this.idleTimeoutMs = options.idleTimeoutMs;
     this.onIdleTimeout = options.onIdleTimeout;
     this.systemPrompt = options.systemPrompt;
-    this.callerType = options.callerType;
+    this.allowedGroups = options.allowedGroups;
+    this.toolProfile = options.toolProfile;
+    this.callerLabel = options.callerLabel;
     this.messages = options.messages;
     this.isShadow = options.isShadow;
     this.taskStreamWriter = options.taskStreamWriter;
@@ -149,8 +154,7 @@ export class SubAgent {
     this.auditWriter.write(REACT_LOOP_AUDIT_EVENTS.TURN_START);
 
     try {
-      const callerType = this.callerType ?? 'subagent';
-      const executorProfile = callerTypeToProfile(callerType);
+      const executorProfile = this.toolProfile ?? 'subagent';
       const executor = this.toolExecutor;
 
       // Setup messages（若传入 messages 则直接使用，否则从 prompt 构建）
@@ -222,8 +226,8 @@ export class SubAgent {
           ctx: executor.getExecContext(executorProfile, {
             clawId: this.agentId,
             signal: timeout.signal,
-            allowedGroups: CALLER_TYPE_TO_GROUPS[callerType],
-            callerLabel: callerType,
+            allowedGroups: this.allowedGroups ?? new Set(['fs-read', 'fs-write', 'exec', 'skill', 'messaging', 'memory', 'status', 'subagent-protocol']),
+            callerLabel: this.callerLabel ?? 'subagent',
             permissionChecker: this.permissionChecker,
             subagentTaskId: this.agentId,
           }),
