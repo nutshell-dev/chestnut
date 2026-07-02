@@ -440,6 +440,21 @@ describe('listAuditFiles', () => {
 describe('listPendingFallbackDumps', () => {
   let createdFiles: string[] = [];
 
+  beforeEach(() => {
+    // Clean up pre-existing fallback dumps in shared tmpdir to prevent
+    // cross-run pollution. listPendingFallbackDumps() scans the real OS
+    // tmpdir; leftover files from previous runs cause phantom matches.
+    const tmp = nodeOs.tmpdir();
+    const pattern = /^chestnut-audit-fallback-\d+-\d+\.tsv$/;
+    try {
+      for (const name of nodeFs.readdirSync(tmp)) {
+        if (pattern.test(name)) {
+          try { nodeFs.unlinkSync(path.join(tmp, name)); } catch { /* ignore */ }
+        }
+      }
+    } catch { /* tmpdir unreadable — skip cleanup */ }
+  });
+
   afterEach(() => {
     for (const f of createdFiles) {
       try { nodeFs.unlinkSync(f); } catch { /* ignore */ }
