@@ -55,6 +55,7 @@ import {
   CONTEXT_TRIM_PREVIEW_BYTES,
 } from '../context_manager/index.js';
 import { trimAndPersist } from '../context_manager/trim-and-persist.js';
+import { ContextTrimExhaustedError } from '../context_manager/errors.js';
 
 
 import { formatTimeAgo } from './utils.js';
@@ -1110,6 +1111,9 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
         `trace_id=${String(this.execContext?.trace_id ?? '')}`,
         `error=${formatErr(trimErr)}`,
       );
+      if (trimErr instanceof ContextTrimExhaustedError) {
+        return; // trim 裁不动不是错误，剩余交给 LLM 处理
+      }
       throw trimErr;
     }
   }
