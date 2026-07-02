@@ -7,15 +7,13 @@ import { describe, it, expect } from 'vitest';
 import type { ToolGroup, ExecContext, Tool } from '../../../src/foundation/tools/types.js';
 
 describe('ToolGroup capability tag', () => {
-  it('(a) ToolGroup union has exactly 12 groups', () => {
+  it('(a) ToolGroup union has exactly 10 groups', () => {
     // Runtime verification via exhaustive Set
     const allGroups: ToolGroup[] = [
       'fs-read',
       'fs-write',
       'spawn',
-      'audit',
-      'llm',
-      'cron',
+      'exec',
       'skill',
       'messaging',
       'memory',
@@ -23,8 +21,8 @@ describe('ToolGroup capability tag', () => {
       'shadow',
       'subagent-protocol',
     ];
-    expect(allGroups.length).toBe(12);
-    expect(new Set(allGroups).size).toBe(12);
+    expect(allGroups.length).toBe(10);
+    expect(new Set(allGroups).size).toBe(10);
   });
 
   it('(b) allowedGroups is ReadonlySet<ToolGroup> (compile-time readonly enforce)', () => {

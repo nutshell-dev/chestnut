@@ -35,7 +35,7 @@ describe('phase 1459 ExecContext ISP α-1 decomposition', () => {
       clawsDir: path.join(tempDir, 'claws'),
       syncDir: tempDir,
       profile: 'full',
-      allowedGroups: new Set(['audit']),
+      allowedGroups: new Set(['exec']),
       callerLabel: 'test',
       fs: mockFs,
     });

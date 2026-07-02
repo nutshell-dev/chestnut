@@ -106,7 +106,7 @@ export function createExecTool(preExecGuard?: PreExecGuard): Tool {
   return {
     name: EXEC_TOOL_NAME,
     profiles: ['full', 'subagent', 'miner'],
-    group: 'llm',
+    group: 'exec',
     description: 'Execute a shell command in your clawspace. Runs via `sh -c`, so shell features (pipes, redirects, quotes) work normally. Relative paths resolve against your clawspace.',
     schema: {
       type: 'object',

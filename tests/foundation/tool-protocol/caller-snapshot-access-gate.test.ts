@@ -29,8 +29,8 @@ import type { CallerSnapshot } from '../../../src/foundation/tool-protocol/index
 import type { ToolResult, JSONSchema7 } from '../../../src/foundation/tool-protocol/index.js';
 
 const ALL_GROUPS: ReadonlySet<ToolGroup> = new Set([
-  'fs-read', 'fs-write', 'spawn', 'audit', 'llm',
-  'cron', 'skill', 'messaging', 'memory', 'status',
+  'fs-read', 'fs-write', 'spawn', 'exec',
+  'skill', 'messaging', 'memory', 'status',
   'shadow', 'subagent-protocol',
 ]);
 
@@ -46,7 +46,7 @@ function makeTool(opts: {
     readonly: false,
     idempotent: false,
     profiles: ['full'],
-    group: 'audit' as ToolGroup,
+    group: 'exec' as ToolGroup,
     accessesCaller: opts.accessesCaller,
     execute: opts.execute,
   };

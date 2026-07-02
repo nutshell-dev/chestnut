@@ -15,14 +15,12 @@ describe('CALLER_TYPE_TO_GROUPS mapping', () => {
     }
   });
 
-  it('(b) motion has all 12 ToolGroups', () => {
+  it('(b) motion has all 10 ToolGroups', () => {
     const groups = CALLER_TYPE_TO_GROUPS.motion;
     expect(groups.has('fs-read')).toBe(true);
     expect(groups.has('fs-write')).toBe(true);
     expect(groups.has('spawn')).toBe(true);
-    expect(groups.has('audit')).toBe(true);
-    expect(groups.has('llm')).toBe(true);
-    expect(groups.has('cron')).toBe(true);
+    expect(groups.has('exec')).toBe(true);
     expect(groups.has('skill')).toBe(true);
     expect(groups.has('messaging')).toBe(true);
     expect(groups.has('memory')).toBe(true);
@@ -31,16 +29,17 @@ describe('CALLER_TYPE_TO_GROUPS mapping', () => {
     expect(groups.has('subagent-protocol')).toBe(true);
   });
 
-  it('(b) claw has all 12 ToolGroups', () => {
+  it('(b) claw has all 10 ToolGroups', () => {
     const groups = CALLER_TYPE_TO_GROUPS.claw;
     expect(groups.has('spawn')).toBe(true);
-    expect(groups.has('cron')).toBe(true);
+    expect(groups.has('exec')).toBe(true);
     expect(groups.has('shadow')).toBe(true);
   });
 
   it('(b) subagent lacks spawn, cron, shadow', () => {
     const groups = CALLER_TYPE_TO_GROUPS.subagent;
     expect(groups.has('fs-read')).toBe(true);
+    expect(groups.has('exec')).toBe(true);
     expect(groups.has('spawn')).toBe(false);
     expect(groups.has('cron')).toBe(false);
     expect(groups.has('shadow')).toBe(false);
@@ -49,6 +48,7 @@ describe('CALLER_TYPE_TO_GROUPS mapping', () => {
   it('(b) shadow lacks spawn, cron, messaging, shadow', () => {
     const groups = CALLER_TYPE_TO_GROUPS.shadow;
     expect(groups.has('fs-read')).toBe(true);
+    expect(groups.has('exec')).toBe(true);
     expect(groups.has('spawn')).toBe(false);
     expect(groups.has('cron')).toBe(false);
     expect(groups.has('messaging')).toBe(false);
@@ -58,6 +58,7 @@ describe('CALLER_TYPE_TO_GROUPS mapping', () => {
   it('(b) miner lacks fs-write, spawn, cron, skill, messaging, shadow, status', () => {
     const groups = CALLER_TYPE_TO_GROUPS.miner;
     expect(groups.has('fs-read')).toBe(true);
+    expect(groups.has('exec')).toBe(true);
     expect(groups.has('fs-write')).toBe(false);
     expect(groups.has('spawn')).toBe(false);
     expect(groups.has('cron')).toBe(false);
@@ -70,8 +71,9 @@ describe('CALLER_TYPE_TO_GROUPS mapping', () => {
   it('(b) verifier lacks fs-write, spawn, cron, skill, messaging, shadow, status', () => {
     const groups = CALLER_TYPE_TO_GROUPS.verifier;
     expect(groups.has('fs-read')).toBe(true);
+    expect(groups.has('exec')).toBe(true);
     expect(groups.has('fs-write')).toBe(false);
-    expect(groups.has('audit')).toBe(true);
+    expect(groups.has('audit')).toBe(false);
     expect(groups.has('memory')).toBe(true);
   });
 

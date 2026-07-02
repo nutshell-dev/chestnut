@@ -23,7 +23,7 @@ describe('ToolContext assembly resolution', () => {
   });
 
   it('ExecContextImpl constructor accepts allowedGroups + callerLabel', () => {
-    const allowedGroups = new Set<ToolGroup>(['fs-read', 'audit']);
+    const allowedGroups = new Set<ToolGroup>(['fs-read', 'exec']);
     const ctx = new ExecContextImpl({
       clawId: 'test-claw',
       clawDir: '/tmp/test',
