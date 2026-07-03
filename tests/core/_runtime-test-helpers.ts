@@ -6,7 +6,6 @@ import type { LLMResponse } from '../../src/foundation/llm-provider/types.js';
 import type { StreamChunk } from '../../src/foundation/llm-orchestrator/types.js';
 import type { AuditLog } from '../../src/foundation/audit/types.js';
 import { TEST_LLM_TIMEOUT_MS } from '../helpers/test-timeouts.js';
-import { TEST_ALLOWED_GROUPS } from '../helpers/test-allowed-groups.js';
 
 /**
  * Convert LLMResponse to stream chunks for mock
@@ -39,8 +38,6 @@ export async function createTestRuntime(options: {
   maxConcurrentTasks?: number;
   /** phase 379: optional AuditLog override (passed through to makeRuntimeDeps) */
   auditOverride?: AuditLog;
-  /** phase 785: optional allowed tool groups (defaults to claw groups) */
-  allowedGroups?: ReadonlySet<string>;
 }) {
   const deps = await makeRuntimeDeps({
     clawDir: options.clawDir,
@@ -50,7 +47,6 @@ export async function createTestRuntime(options: {
   });
   return new Runtime({
     ...options,
-    allowedGroups: options.allowedGroups ?? TEST_ALLOWED_GROUPS,
     callerLabel: options.callerLabel ?? options.clawId ?? 'claw',
     dependencies: deps,
   });

@@ -26,7 +26,6 @@ import noChatMethod from './eslint-rules/no-chat-method.js';
 import noChestnutDirNaming from './eslint-rules/no-chestnut-dir-naming.js';
 import noFilenameTag from './eslint-rules/no-filename-tag.js';
 import noRuntimeKnowsUpperLayer from './eslint-rules/no-runtime-knows-upper-layer-messages.js';
-import noReadonlyAndSupportsAsyncTool from './eslint-rules/no-readonly-and-supportsasync-tool.js';
 import noSubagentEnsureDirWorkspace from './eslint-rules/no-subagent-ensuredir-workspace.js';
 import execContextFieldBudget from './eslint-rules/exec-context-field-budget.js';
 import noEntryLiteralOutsideAllowlist from './eslint-rules/no-entry-literal-outside-allowlist.js';
@@ -76,7 +75,6 @@ export default [
           'no-chestnut-dir-naming': noChestnutDirNaming,
           'no-filename-tag': noFilenameTag,
           'no-runtime-knows-upper-layer-messages': noRuntimeKnowsUpperLayer,
-          'no-readonly-and-supportsasync-tool': noReadonlyAndSupportsAsyncTool,
           'no-subagent-ensuredir-workspace': noSubagentEnsureDirWorkspace,
           'exec-context-field-budget': execContextFieldBudget,
           'no-entry-literal-outside-allowlist': noEntryLiteralOutsideAllowlist,
@@ -116,7 +114,6 @@ export default [
       'chestnut-custom/no-chestnut-dir-naming': 'error',
       'chestnut-custom/no-filename-tag': 'error',
       'chestnut-custom/no-runtime-knows-upper-layer-messages': 'error',
-      'chestnut-custom/no-readonly-and-supportsasync-tool': 'error',
       'chestnut-custom/no-subagent-ensuredir-workspace': 'error',
       'chestnut-custom/exec-context-field-budget': 'error',
       'chestnut-custom/no-entry-literal-outside-allowlist': 'error',

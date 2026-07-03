@@ -195,7 +195,6 @@ describe('Tools', () => {
         clawId: 'test',
         clawDir: '/test',
         profile: 'full',
-        allowedGroups: new Set(['fs-read']),
         callerLabel: 'claw',
         fs: mockFs,
       });
@@ -226,7 +225,6 @@ describe('Tools', () => {
         clawId: 'test',
         clawDir: '/test',
         profile: 'full',
-        allowedGroups: new Set(['fs-read']),
         callerLabel: 'claw',
         fs: mockFs,
       });
@@ -255,7 +253,6 @@ describe('Tools', () => {
         clawId: 'test',
         clawDir: '/test',
         profile: 'full',
-        allowedGroups: new Set(['fs-read']),
         callerLabel: 'claw',
         fs: mockFs,
       });
@@ -296,7 +293,6 @@ describe('Tools', () => {
         clawId: 'test',
         clawDir: '/test',
         profile: 'full',
-        allowedGroups: new Set(['fs-read']),
         callerLabel: 'claw',
         fs: mockFs,
       });
@@ -327,7 +323,6 @@ describe('Tools', () => {
         clawId: 'test',
         clawDir: '/test',
         profile: 'full',
-        allowedGroups: new Set(['fs-read']),
         callerLabel: 'claw',
         fs: mockFs,
       });
@@ -392,7 +387,6 @@ describe('Tools', () => {
         clawId: 'test',
         clawDir: '/test',
         profile: 'full',
-        allowedGroups: new Set(['fs-read']),
         callerLabel: 'claw',
         fs: mockFs,
       });
@@ -437,7 +431,6 @@ describe('Tools', () => {
         clawId: 'test',
         clawDir: '/test',
         profile: 'full',
-        allowedGroups: new Set(['fs-read']),
         callerLabel: 'claw',
         fs: mockFs,
       });
@@ -445,120 +438,6 @@ describe('Tools', () => {
       const result = await executor.execute({ toolName: 'strict', args: {}, ctx });
       expect(result.success).toBe(false);
       expect(result.content).toContain('Invalid input for tool \'strict\'');
-    });
-
-    it('should return success when async=true (fs-driven, no taskSystem needed)', async () => {
-      registry.register({
-        name: 'async-capable',
-        description: 'Supports async',
-        schema: { type: 'object' },
-        profiles: ['full'],
-        readonly: true,
-        idempotent: true,
-        supportsAsync: true,
-        group: 'fs-read',
-        execute: async () => ({ success: true, content: 'sync result' }),
-      });
-
-      const ctx = new ExecContextImpl({
-        clawId: 'test',
-        clawDir: '/test',
-        profile: 'full',
-        allowedGroups: new Set(['fs-read']),
-        callerLabel: 'claw',
-        fs: {
-          ...mockFs,
-          writeAtomic: vi.fn().mockResolvedValue(undefined),
-        } as unknown as FileSystem,
-      });
-
-      const result = await executor.execute({
-        toolName: 'async-capable',
-        args: {},
-        ctx,
-        async: true,
-      });
-
-      expect(result.success).toBe(true);
-      expect(result.content).toContain('Async task queued');
-      expect(result.metadata?.taskId).toBeDefined();
-      expect(result.metadata?.async).toBe(true);
-    });
-
-    it('should return error result when async=true but tool does not support async', async () => {
-      registry.register({
-        name: 'no-async',
-        description: 'No async support',
-        schema: { type: 'object' },
-        profiles: ['full'],
-        readonly: false,
-        idempotent: false,
-        supportsAsync: false,
-        group: 'fs-read',
-        execute: async () => ({ success: true, content: 'sync' }),
-      });
-
-      const mockTaskSystem = {
-        scheduleTool: vi.fn().mockResolvedValue('task-id-123'),
-      } as unknown as import('../../src/core/async-task-system/system.js').AsyncTaskSystem;
-      (executor as any).taskSystem = mockTaskSystem;
-
-      const ctx = new ExecContextImpl({
-        clawId: 'test',
-        clawDir: '/test',
-        profile: 'full',
-        allowedGroups: new Set(['fs-read']),
-        callerLabel: 'claw',
-        fs: mockFs,
-      });
-
-      const result = await executor.execute({
-        toolName: 'no-async',
-        args: {},
-        ctx,
-        async: true,
-      });
-
-      expect(result.success).toBe(false);
-      expect(result.content).toContain('does not support async');
-    });
-
-    it('should write pending file and return taskId when async=true with supporting tool', async () => {
-      registry.register({
-        name: 'long-task',
-        description: 'Long running task',
-        schema: { type: 'object', properties: { key: { type: 'string' } } },
-        profiles: ['full'],
-        readonly: false,
-        idempotent: true,
-        supportsAsync: true,
-        group: 'fs-read',
-        execute: async () => ({ success: true, content: 'done' }),
-      });
-
-      const ctx = new ExecContextImpl({
-        clawId: 'test',
-        clawDir: '/test',
-        profile: 'full',
-        allowedGroups: new Set(['fs-read']),
-        callerLabel: 'claw',
-        fs: {
-          ...mockFs,
-          writeAtomic: vi.fn().mockResolvedValue(undefined),
-        } as unknown as FileSystem,
-      });
-
-      const result = await executor.execute({
-        toolName: 'long-task',
-        args: { key: 'value' },
-        ctx,
-        async: true,
-      });
-
-      expect(result.success).toBe(true);
-      expect(result.content).toContain('Async task queued');
-      expect(result.metadata?.taskId).toBeDefined();
-      expect(result.metadata?.async).toBe(true);
     });
 
     it('should return null for non-readonly tools in executeParallel mixed batch', async () => {
@@ -586,7 +465,6 @@ describe('Tools', () => {
         clawId: 'test',
         clawDir: '/test',
         profile: 'full',
-        allowedGroups: new Set(['fs-read']),
         callerLabel: 'claw',
         fs: mockFs,
       });

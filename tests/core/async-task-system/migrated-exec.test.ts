@@ -548,8 +548,6 @@ describe('subagent exec registry (Phase 773)', () => {
 
     expect(execTool).toBeDefined();
     expect(execTool!.profiles).toContain('subagent');
-    // The async wrapper has supportsAsync=true; plain exec should not be the wrapper.
-    expect(execTool!.supportsAsync).toBe(true);
 
     const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir, profile: 'subagent' });
     const result = await execTool!.execute({ command: 'sleep 0.15 && echo subagent-sync' }, ctx);

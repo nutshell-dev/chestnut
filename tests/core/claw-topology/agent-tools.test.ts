@@ -35,7 +35,6 @@ describe('createCrossClawReadTool', () => {
       syncDir: '/chestnut/motion/sync',
 
       profile: 'full',
-      allowedGroups: new Set(['fs-read']),
       callerLabel: 'motion',
       fs: {} as ExecContext['fs'],
       fsFactory: (dir: string) =>
@@ -158,7 +157,6 @@ describe('createCrossClawLsTool', () => {
       syncDir: '/chestnut/motion/sync',
 
       profile: 'full',
-      allowedGroups: new Set(['fs-read']),
       callerLabel: 'motion',
       fs: {} as ExecContext['fs'],
       fsFactory: (dir: string) =>
@@ -215,7 +213,6 @@ describe('createCrossClawSearchTool broadcast', () => {
       syncDir: '/chestnut/motion/sync',
 
       profile: 'full',
-      allowedGroups: new Set(['fs-read']),
       callerLabel: 'motion',
       fs: {} as ExecContext['fs'],
       fsFactory: (dir: string) =>

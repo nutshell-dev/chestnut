@@ -1,7 +1,6 @@
 /**
  * runtime.stop() awaits pending dialogStore.save() flush (phase 1024 G.3)
  */
-import { TEST_ALLOWED_GROUPS } from '../../helpers/test-allowed-groups.js';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Runtime } from '../../../src/core/runtime/runtime.js';
 import type { DialogStore } from '../../../src/foundation/dialog-store/index.js';
@@ -29,7 +28,6 @@ describe('runtime.stop flush barrier (phase 1024 G.3)', () => {
   function makeRuntime(mockDialogStore: DialogStore): Runtime {
     const { audit } = makeAudit();
     const runtime = new Runtime({
-        allowedGroups: TEST_ALLOWED_GROUPS,
         callerLabel: 'claw',
       clawId: 'test-claw',
       clawDir: '/tmp/test',

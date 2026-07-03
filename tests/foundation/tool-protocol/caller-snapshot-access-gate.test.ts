@@ -24,15 +24,9 @@ import { ToolRegistryImpl } from '../../../src/foundation/tools/registry.js';
 import { ExecContextImpl } from '../../../src/foundation/tools/context.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import { AuditWriter } from '../../../src/foundation/audit/writer.js';
-import type { Tool, ExecContext, ToolGroup } from '../../../src/foundation/tools/types.js';
+import type { Tool, ExecContext } from '../../../src/foundation/tools/types.js';
 import type { CallerSnapshot } from '../../../src/foundation/tool-protocol/index.js';
 import type { ToolResult, JSONSchema7 } from '../../../src/foundation/tool-protocol/index.js';
-
-const ALL_GROUPS: ReadonlySet<ToolGroup> = new Set([
-  'fs-read', 'fs-write', 'spawn', 'exec',
-  'skill', 'messaging', 'memory', 'status',
-  'shadow', 'subagent-protocol',
-]);
 
 function makeTool(opts: {
   name: string;
@@ -46,7 +40,6 @@ function makeTool(opts: {
     readonly: false,
     idempotent: false,
     profiles: ['full'],
-    group: 'exec' as ToolGroup,
     accessesCaller: opts.accessesCaller,
     execute: opts.execute,
   };
@@ -71,7 +64,6 @@ async function setup(opts: { withProvider: boolean; snapshotData?: CallerSnapsho
     clawsDir: path.join(tempDir, 'claws'),
     syncDir: tempDir,
     profile: 'full',
-    allowedGroups: ALL_GROUPS,
     callerLabel: 'test',
     fs: mockFs,
     maxSteps: 10,
@@ -183,7 +175,6 @@ describe('phase 1406 caller-snapshot access gate', () => {
       clawsDir: path.join(tempDir, 'claws'),
       syncDir: tempDir,
       profile: 'full',
-      allowedGroups: ALL_GROUPS,
       callerLabel: 'test',
       fs: mockFs,
       maxSteps: 10,

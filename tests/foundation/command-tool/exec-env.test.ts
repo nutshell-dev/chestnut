@@ -20,7 +20,6 @@ describe('exec tool env injection', () => {
       maxSteps: 10,
       workspaceDir: dir,
       syncDir: path.join(dir, 'tasks/sync'),
-      allowedGroups: new Set(['exec']),
       subagentTaskId,
     } as any);
     return { ctx, dir };

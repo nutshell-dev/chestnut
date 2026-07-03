@@ -2,7 +2,6 @@
  * Runtime Init integration tests
  */
 
-import { TEST_ALLOWED_GROUPS } from '../helpers/test-allowed-groups.js';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as path from 'path';
 import { promises as fs } from 'fs';
@@ -85,7 +84,6 @@ describe('Runtime Init', () => {
       const mockStreamLog = { write: vi.fn() } as any;
       (deps as any).parentStreamLog = mockStreamLog;
       const runtime = trackRuntime(new Runtime({
-        allowedGroups: TEST_ALLOWED_GROUPS,
         callerLabel: 'claw',
         clawId: 'test-claw',
         clawDir,
@@ -101,7 +99,6 @@ describe('Runtime Init', () => {
       const cb = vi.fn();
       (deps as any).contractNotifyCallback = cb;
       const runtime = trackRuntime(new Runtime({
-        allowedGroups: TEST_ALLOWED_GROUPS,
         callerLabel: 'claw',
         clawId: 'test-claw',
         clawDir,
@@ -116,7 +113,6 @@ describe('Runtime Init', () => {
     it('taskSystem.initialize() 失败 → audit task_system_init_failed + throw', async () => {
       const deps = await makeRuntimeDeps({ clawDir, clawId: 'test-claw' });
       const runtime = trackRuntime(new Runtime({
-        allowedGroups: TEST_ALLOWED_GROUPS,
         callerLabel: 'claw',
         clawId: 'test-claw',
         clawDir,
@@ -136,7 +132,6 @@ describe('Runtime Init', () => {
     it('taskSystem.startDispatch() 失败 → audit task_system_start_dispatch_failed + throw', async () => {
       const deps = await makeRuntimeDeps({ clawDir, clawId: 'test-claw' });
       const runtime = trackRuntime(new Runtime({
-        allowedGroups: TEST_ALLOWED_GROUPS,
         callerLabel: 'claw',
         clawId: 'test-claw',
         clawDir,
@@ -158,7 +153,6 @@ describe('Runtime Init', () => {
     it('顺序门控：initialize() 抛错时 startDispatch() 不被调用', async () => {
       const deps = await makeRuntimeDeps({ clawDir, clawId: 'test-claw' });
       const runtime = trackRuntime(new Runtime({
-        allowedGroups: TEST_ALLOWED_GROUPS,
         callerLabel: 'claw',
         clawId: 'test-claw',
         clawDir,
@@ -175,7 +169,6 @@ describe('Runtime Init', () => {
     it('Runtime 调序：taskSystem.initialize() 先于 startDispatch()', async () => {
       const deps = await makeRuntimeDeps({ clawDir, clawId: 'test-claw' });
       const runtime = trackRuntime(new Runtime({
-        allowedGroups: TEST_ALLOWED_GROUPS,
         callerLabel: 'claw',
         clawId: 'test-claw',
         clawDir,
@@ -197,7 +190,6 @@ describe('Runtime Init', () => {
     it('audit 写发生在 throw 之前（时机契约）', async () => {
       const deps = await makeRuntimeDeps({ clawDir, clawId: 'test-claw' });
       const runtime = trackRuntime(new Runtime({
-        allowedGroups: TEST_ALLOWED_GROUPS,
         callerLabel: 'claw',
         clawId: 'test-claw',
         clawDir,

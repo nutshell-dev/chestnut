@@ -62,7 +62,6 @@ describe('wireClawTopology', () => {
       syncDir: path.join(motionDir, 'sync'),
 
       profile: 'full',
-      allowedGroups: new Set(['fs-read']),
       callerLabel: 'motion',
       fs: new NodeFileSystem({ baseDir: motionDir }),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),

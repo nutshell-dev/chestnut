@@ -2,7 +2,6 @@ import { describe, it, expect, vi } from 'vitest';
 import { assertTaskShapeOnSave } from '../../../src/core/async-task-system/invariants.js';
 import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-events.js';
 import { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
-import { writePendingToolTaskFile } from '../../../src/core/async-task-system/tools/_pending-tool-task-writer.js';
 import { makeTaskSystemDeps } from '../../helpers/task-system.js';
 import { SUBAGENT_DEFAULT_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
@@ -265,109 +264,4 @@ describe('async-task save invariant (phase 239 Step A)', () => {
     });
   });
 
-  describe('writePendingToolTaskFile 集成', () => {
-    it('合法 tool task → 0 emit + 文件落盘', async () => {
-      const { audit, events } = makeAudit();
-      const writes: Array<{ path: string; content: string }> = [];
-      const mockFs: FileSystem = {
-        ensureDir: vi.fn().mockResolvedValue(undefined),
-        list: vi.fn().mockResolvedValue([]),
-        resolve: vi.fn((p: string) => `/abs/${p}`),
-        read: vi.fn().mockResolvedValue(''),
-        move: vi.fn().mockResolvedValue(undefined),
-        delete: vi.fn().mockResolvedValue(undefined),
-        writeAtomic: vi.fn().mockImplementation((p: string, c: string) => {
-          writes.push({ path: p, content: c });
-          return Promise.resolve();
-        }),
-        exists: vi.fn().mockResolvedValue(false),
-      } as unknown as FileSystem;
-
-      const taskId = await writePendingToolTaskFile(mockFs, audit, {
-        toolName: 'read',
-        args: {},
-        parentClawDir: '/tmp',
-        parentClawId: 'claw-1',
-        isIdempotent: true,
-        maxRetries: 2,
-        retryCount: 0,
-      });
-
-      expect(taskId).toBeTruthy();
-      expect(writes.length).toBe(1);
-
-      const invariantEvents = events.filter((e) => e[0] === TASK_AUDIT_EVENTS.ASYNC_TASK_INVARIANT_VIOLATED);
-      expect(invariantEvents).toHaveLength(0);
-    });
-
-    it('非法 tool task → 文件仍落盘 + audit emit', async () => {
-      const { audit, events } = makeAudit();
-      const writes: Array<{ path: string; content: string }> = [];
-      const mockFs: FileSystem = {
-        ensureDir: vi.fn().mockResolvedValue(undefined),
-        list: vi.fn().mockResolvedValue([]),
-        resolve: vi.fn((p: string) => `/abs/${p}`),
-        read: vi.fn().mockResolvedValue(''),
-        move: vi.fn().mockResolvedValue(undefined),
-        delete: vi.fn().mockResolvedValue(undefined),
-        writeAtomic: vi.fn().mockImplementation((p: string, c: string) => {
-          writes.push({ path: p, content: c });
-          return Promise.resolve();
-        }),
-        exists: vi.fn().mockResolvedValue(false),
-      } as unknown as FileSystem;
-
-      // @ts-expect-error 故意传入非法 args（缺 toolName）以测 invariant
-      const taskId = await writePendingToolTaskFile(mockFs, audit, {
-        args: {},
-        parentClawDir: '/tmp',
-        parentClawId: 'claw-1',
-        isIdempotent: true,
-        maxRetries: 2,
-        retryCount: 0,
-      });
-
-      expect(taskId).toBeTruthy();
-      expect(writes.length).toBe(1);
-
-      const invariantEvents = events.filter((e) => e[0] === TASK_AUDIT_EVENTS.ASYNC_TASK_INVARIANT_VIOLATED);
-      expect(invariantEvents.length).toBe(1);
-      expect(invariantEvents[0]).toEqual(
-        expect.arrayContaining([
-          expect.stringContaining('source=schedule_tool'),
-        ]),
-      );
-    });
-
-    it('audit=undefined 时 skip invariant（保 audit-optional 契约）', async () => {
-      const writes: Array<{ path: string; content: string }> = [];
-      const mockFs: FileSystem = {
-        ensureDir: vi.fn().mockResolvedValue(undefined),
-        list: vi.fn().mockResolvedValue([]),
-        resolve: vi.fn((p: string) => `/abs/${p}`),
-        read: vi.fn().mockResolvedValue(''),
-        move: vi.fn().mockResolvedValue(undefined),
-        delete: vi.fn().mockResolvedValue(undefined),
-        writeAtomic: vi.fn().mockImplementation((p: string, c: string) => {
-          writes.push({ path: p, content: c });
-          return Promise.resolve();
-        }),
-        exists: vi.fn().mockResolvedValue(false),
-      } as unknown as FileSystem;
-
-      // @ts-expect-error 故意传入非法 args（缺 toolName）但 audit=undefined
-      const taskId = await writePendingToolTaskFile(mockFs, undefined, {
-        args: {},
-        parentClawDir: '/tmp',
-        parentClawId: 'claw-1',
-        isIdempotent: true,
-        maxRetries: 2,
-        retryCount: 0,
-      });
-
-      expect(taskId).toBeTruthy();
-      expect(writes.length).toBe(1);
-      // 无 audit → 无 invariant check → 无 throw、无 emit
-    });
-  });
 });

@@ -19,7 +19,7 @@ const D1_FIELDS = new Set([
 ]);
 /** D2 ToolPermissions */
 const D2_FIELDS = new Set([
-  'profile', 'allowedGroups', 'callerLabel', 'permissionChecker',
+  'profile', 'callerLabel', 'permissionChecker',
 ]);
 /** D3 ExecutionInfra */
 const D3_FIELDS = new Set([

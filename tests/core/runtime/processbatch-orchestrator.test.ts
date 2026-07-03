@@ -3,7 +3,6 @@
  * Phase 1285 reverse tests
  */
 
-import { TEST_ALLOWED_GROUPS } from '../../helpers/test-allowed-groups.js';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as path from 'path';
 import { promises as fs } from 'fs';
@@ -48,7 +47,6 @@ describe('Runtime processBatch orchestrator (phase 1285)', () => {
   async function makeTestRuntime() {
     const deps = await makeRuntimeDeps({ clawDir: testClawDir, clawId: 'edge-claw' });
     const runtime = new Runtime({
-        allowedGroups: TEST_ALLOWED_GROUPS,
         callerLabel: 'claw',
       clawId: 'edge-claw',
       clawDir: testClawDir,

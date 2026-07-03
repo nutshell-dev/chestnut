@@ -7,7 +7,6 @@
  * - turn pipeline remains reachable after load failure
  */
 
-import { TEST_ALLOWED_GROUPS } from '../../helpers/test-allowed-groups.js';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as path from 'path';
 import { tmpdir } from 'os';
@@ -87,7 +86,6 @@ describe('Runtime — repairSessionIfNeeded load failure observability (R72-P1-2
 
     const mocks = minimalMocks();
     const runtime = new Runtime({
-        allowedGroups: TEST_ALLOWED_GROUPS,
         callerLabel: 'claw',
       clawId: 'test-claw',
       clawDir,

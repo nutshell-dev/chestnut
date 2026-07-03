@@ -255,7 +255,6 @@ describe('validateArgs strict additionalProperties (phase 531)', () => {
     },
     readonly: true,
     idempotent: true,
-    supportsAsync: false,
     execute: async () => ({ success: true, content: '' }),
   };
 

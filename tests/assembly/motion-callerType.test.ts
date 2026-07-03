@@ -8,7 +8,6 @@ import { createNotifyClawTool } from '../../src/core/claw-topology/tools/notify-
 import { formatClawStatusHint } from '../../src/cli/commands/claw-shared.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { makeAudit } from '../helpers/audit.js';
-import { CALLER_TYPE_TO_GROUPS } from '../../src/core/permissions/caller-types.js';
 import { routeNotifyClaw } from '../../src/core/claw-topology/index.js';
 
 describe('motion callerType assemble fix (phase 1160 P0-1)', () => {
@@ -36,7 +35,6 @@ describe('motion callerType assemble fix (phase 1160 P0-1)', () => {
       clawDir: path.join(chestnutDir, 'motion'),
       syncDir: path.join(chestnutDir, 'motion', 'tasks', 'sync'),
       profile: 'full',
-      allowedGroups: CALLER_TYPE_TO_GROUPS.motion,
       callerLabel: 'motion',
       fs,
       maxSteps: 10,
@@ -53,7 +51,6 @@ describe('motion callerType assemble fix (phase 1160 P0-1)', () => {
       clawDir: path.join(chestnutDir, 'claws', 'test-claw'),
       syncDir: path.join(chestnutDir, 'claws', 'test-claw', 'tasks', 'sync'),
       profile: 'full',
-      allowedGroups: CALLER_TYPE_TO_GROUPS.claw,
       callerLabel: 'claw',
       fs,
       maxSteps: 10,
@@ -72,7 +69,6 @@ describe('motion callerType assemble fix (phase 1160 P0-1)', () => {
       clawDir: path.join(chestnutDir, 'motion'),
       syncDir: path.join(chestnutDir, 'motion', 'tasks', 'sync'),
       profile: 'full',
-      allowedGroups: CALLER_TYPE_TO_GROUPS.motion,
       callerLabel: 'motion',
       fs,
       maxSteps: 10,
@@ -112,7 +108,6 @@ describe('motion callerType assemble fix (phase 1160 P0-1)', () => {
       clawDir: path.join(chestnutDir, 'claws', 'test-claw'),
       syncDir: path.join(chestnutDir, 'claws', 'test-claw', 'tasks', 'sync'),
       profile: 'full',
-      allowedGroups: CALLER_TYPE_TO_GROUPS.claw,
       callerLabel: 'claw',
       fs,
       maxSteps: 10,

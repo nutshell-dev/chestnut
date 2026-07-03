@@ -124,7 +124,7 @@ describe('handleToolUseStop prebuilt dedup (phase 1282)', () => {
     const registry = {
       register: vi.fn(),
       unregister: vi.fn(),
-      get: vi.fn().mockReturnValue({ readonly: true, supportsAsync: false }),
+      get: vi.fn().mockReturnValue({ readonly: true }),
       has: vi.fn().mockReturnValue(true),
       getAll: vi.fn().mockReturnValue([]),
       getForProfile: vi.fn().mockReturnValue([]),

@@ -35,7 +35,6 @@ describe('phase 1459 ExecContext ISP α-1 decomposition', () => {
       clawsDir: path.join(tempDir, 'claws'),
       syncDir: tempDir,
       profile: 'full',
-      allowedGroups: new Set(['exec']),
       callerLabel: 'test',
       fs: mockFs,
     });
@@ -51,7 +50,6 @@ describe('phase 1459 ExecContext ISP α-1 decomposition', () => {
     const ctx = await makeCtx();
     const perm: ToolPermissions = ctx;
     expect(perm.profile).toBe('full');
-    expect(perm.allowedGroups instanceof Set).toBe(true);
     expect(perm.callerLabel).toBe('test');
   });
 

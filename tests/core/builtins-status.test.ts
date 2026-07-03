@@ -51,11 +51,6 @@ describe('Builtin Tools - status tool', () => {
   describe('status tool', () => {
     let statusTool = createStatusTool({ loadActive: vi.fn().mockResolvedValue(null) } as any);
 
-    it('schema has 0 properties and supportsAsync is false (phase 555 cross-check)', () => {
-      expect(Object.keys(statusTool.schema.properties)).toEqual([]);
-      expect(statusTool.supportsAsync).toBe(false);
-    });
-
     it('should return status information', async () => {
       const result = await statusTool.execute({}, ctx);
 

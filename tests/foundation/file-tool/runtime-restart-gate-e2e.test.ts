@@ -21,7 +21,6 @@ import {
 } from '../../../src/foundation/file-tool/file-state-persist.js';
 import { FILE_TOOL_AUDIT_EVENTS } from '../../../src/foundation/file-tool/audit-events.js';
 import { createClawPermissionChecker } from '../../../src/core/permissions/claw-permissions.js';
-import { CALLER_TYPE_TO_GROUPS } from '../../../src/core/permissions/caller-types.js';
 
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { makeAudit } from '../../helpers/audit.js';
@@ -46,7 +45,6 @@ async function makeCtx(clawDir: string, persist: boolean): Promise<E2eCtx> {
     clawDir,
     syncDir: path.join(clawDir, 'tasks', 'sync'),
     profile: 'full',
-    allowedGroups: CALLER_TYPE_TO_GROUPS['claw'],
     callerLabel: 'claw',
     fs: nfs,
     fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
