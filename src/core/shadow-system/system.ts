@@ -150,18 +150,20 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
 
   // shadow ctx 注入 isShadow=true（透传到所有工具 execute()）
   // shadow 用 full profile（C2 cache prefix 保护，mirror main agent 字节相同）
+  let forwardStream: StreamLog | undefined;
   try {
     if (mode === 'v2') {
-      // Emit task_started so viewport can read shadow's stream
-      opts.ctx.fs.ensureDirSync(resultDir);
-      opts.streamLog?.write({
-        ts: Date.now(),
-        type: 'task_started',
-        taskId: shadowId,
-        callerType: 'shadow',
-        silent: true,
-        resultDir,
-      });
+      // Forward shadow stream events to main stream for viewport display.
+      // tool_call 加 shadow: 前缀；text_delta 透传；其余事件不转发以减少主 stream 噪声。
+      forwardStream = opts.streamLog ? {
+        write(event) {
+          if (event.type === 'tool_call' && event.name) {
+            opts.streamLog!.write({ ...event, name: `shadow:${String(event.name)}` });
+          } else if (event.type === 'text_delta') {
+            opts.streamLog!.write(event);
+          }
+        },
+      } : undefined;
     }
 
     const baseRegistry = opts.ctx.baseRegistry ?? opts.ctx.registry;
@@ -204,6 +206,7 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
       // 显式不传 signal 字段而非 fake `new AbortController().signal` (M#9 显式表达 / honesty fix)。
       // ratify chain: phase 874 (α-propagate) → phase 1084 (β-independent fake AC) → phase 1162 (β-independent honest omit)。
       permissionChecker: opts.ctx.permissionChecker,
+      forwardStream,
     });
 
     const finalResult = getDisplayResult(text, capturedResult);
