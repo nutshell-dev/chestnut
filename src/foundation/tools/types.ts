@@ -76,17 +76,9 @@ export interface ClawIdentity {
   syncDir: string;
 }
 
-/** 权限维度（D2）：profile / callerLabel / permissionChecker */
+/** 权限维度（D2）：profile / permissionChecker */
 export interface ToolPermissions {
   profile: ToolProfile;
-  /**
-   * phase 1337: opaque caller identifier.
-   * L2 carrier、L4 caller 写值（'shadow' / 'claw' / motion clawId / ...）、L4 reader 业务读双用：
-   * (a) audit annotation（executor.ts:90）
-   * (b) origin guard（notify-claw.ts MOTION_CLAW_ID gate per phase 1459 α-5；spawn/summon/shadow SHADOW_CALLER_LABEL guard per phase 61）
-   * L2 不解释具体 value 语义。
-   */
-  callerLabel: string;
   /** Assembly-injected per-claw permission checker (replaces module-level factory pattern, phase 1006) */
   permissionChecker?: PermissionChecker;
 }
@@ -170,8 +162,8 @@ export interface ExecutionAudit {
  * Execution context for tool invocations.
  *
  * phase 1459 α-1: ExecContext = ClawIdentity & ToolPermissions & ExecutionInfra & ExecutionControl & ExecutionAudit.
- * phase 61：isShadow 已迁、由 callerLabel === SHADOW_CALLER_LABEL 替代（per phase 1337 callerType 治理同型 pattern、phase 1459 α-5 callerLabel 业务读 ratify）。L2 无 L4 business field 漏抽象。
- * 50 import site 0 改动 / 0 caller cascade。新工具可声明只依赖子接口（M#8 接口最小化）。
+ * L2 无 L4 business caller 身份字段。Phase 807 删除 callerLabel，L4 通过工具多实例 DI 实现调用限制。
+ * 新工具可声明只依赖子接口（M#8 接口最小化）。
  */
 export interface ExecContext extends
   ClawIdentity,

@@ -44,9 +44,6 @@ export interface ExecContextImplOptions {
   /** Tool profile for permission control */
   profile: ToolProfile;
   
-  /** phase 1337: opaque audit label (replaces callerType semantic) */
-  callerLabel: string;
-  
   /** File system instance */
   fs: FileSystem;
   /** Factory for creating FileSystem instances with arbitrary baseDir (cross-claw access) */
@@ -144,7 +141,6 @@ export class ExecContextImpl implements ExecContext {
   workspaceDir: string;
   syncDir: string;
   profile: ToolProfile;
-  callerLabel: string;
   fs: FileSystem;
   fsFactory?: (baseDir: string) => FileSystem;
   llm?: LLMOrchestrator;
@@ -170,7 +166,6 @@ export class ExecContextImpl implements ExecContext {
     this.workspaceDir = options.workspaceDir ?? path.join(options.clawDir, CLAWSPACE_DIR);
     this.syncDir = options.syncDir;
     this.profile = options.profile;
-    this.callerLabel = options.callerLabel;
     this.fs = options.fs;
     this.fsFactory = options.fsFactory;
     this.llm = options.llm;

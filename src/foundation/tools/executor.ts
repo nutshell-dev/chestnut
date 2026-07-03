@@ -73,7 +73,6 @@ export class ToolExecutorImpl implements IToolExecutor {
       ctx.auditWriter?.write(
         TOOL_AUDIT_EVENTS.TOOL_NOT_FOUND,
         `toolName=${toolName}`,
-        `caller=${ctx.callerLabel}`,
       );
       return {
         success: false,
@@ -91,7 +90,6 @@ export class ToolExecutorImpl implements IToolExecutor {
         TOOL_AUDIT_EVENTS.TOOL_INVALID_INPUT,
         `toolName=${toolName}`,
         `error=${errMsg}`,
-        `caller=${ctx.callerLabel}`,
       );
       return {
         success: false,
@@ -434,7 +432,7 @@ export class ToolExecutor extends ToolExecutorImpl {
    */
   getExecContext(
     profile: ToolProfile,
-    options: { clawId: string; signal?: AbortSignal; callerLabel: string; permissionChecker?: PermissionChecker; subagentTaskId?: string }
+    options: { clawId: string; signal?: AbortSignal; permissionChecker?: PermissionChecker; subagentTaskId?: string }
   ): ExecContextImpl {
     return new ExecContextImpl({
       clawId: options.clawId,
@@ -442,7 +440,6 @@ export class ToolExecutor extends ToolExecutorImpl {
       workspaceDir: this.workspaceDir,
       syncDir: this.syncDir,
       profile,
-      callerLabel: options.callerLabel,
       permissionChecker: options.permissionChecker,
       fs: this.fs,
       ...(this.fsFactory ? { fsFactory: this.fsFactory } : {}),
