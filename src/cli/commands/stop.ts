@@ -190,7 +190,7 @@ export async function stopAllCommand(
         if (alivePids.length > 0) {
           console.log(`  ${alivePids.length} orphan(s) still alive, sending SIGKILL...`);
           for (const p of alivePids) {
-            try { killFn(p, 'KILL'); } catch { /* already dead */ }
+            try { killFn(p, 'KILL'); } catch { /* silent: process already dead, race between poll and kill */ }
           }
           await new Promise(resolve => setTimeout(resolve, SIGKILL_DEAD_VERIFY_GRACE_MS));
 

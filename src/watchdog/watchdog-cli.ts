@@ -124,7 +124,7 @@ export async function stopCommand(
         }
       }
     } catch {
-      // pgrep unavailable → conservative: assume not running
+      // silent: pgrep unavailable → conservative, assume not running
     }
 
     if (actualPid) {
