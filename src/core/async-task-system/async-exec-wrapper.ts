@@ -15,6 +15,7 @@ import type { ExecWithHandleArgs } from '../../foundation/command-tool/index.js'
 import { newUuid } from '../../foundation/node-utils/index.js';
 import { EXEC_TOOL_NAME } from '../../foundation/command-tool/index.js';
 import { EXEC_MAX_OUTPUT } from '../../foundation/command-tool/constants.js';
+import { processExecErrorToToolResult } from '../../foundation/command-tool/exec.js';
 import { truncateHeadTail } from '../../foundation/file-tool/truncate-head-tail.js';
 import type { CallerType } from '../../core/permissions/caller-types.js';
 import { executeToolTask } from './tool-executor.js';
@@ -215,16 +216,7 @@ export function createAsyncExecWrapper(
           };
         } catch (err) {
           if (err instanceof ProcessExecError) {
-            const short = command.length > 80
-              ? command.slice(0, 80) + '[truncated]'
-              : command;
-            const outputSuffix = err.output
-              ? `\n[output]: ${err.output.slice(0, 2000)}`
-              : '';
-            return {
-              success: false,
-              content: `Error: ${err.message}\n[command]: ${short}${outputSuffix}`,
-            };
+            return processExecErrorToToolResult(err, command);
           }
           throw err;
         }
@@ -275,13 +267,7 @@ export function createAsyncExecWrapper(
       } catch (err) {
         originalSignal?.removeEventListener('abort', onOriginalAbort);
         if (err instanceof ProcessExecError) {
-          const short = command.length > 80
-            ? command.slice(0, 80) + '[truncated]'
-            : command;
-          return {
-            success: false,
-            content: `Error: ${err.message}\n[command]: ${short}`,
-          };
+          return processExecErrorToToolResult(err, command);
         }
         throw err;
       }

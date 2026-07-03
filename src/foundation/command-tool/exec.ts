@@ -83,6 +83,32 @@ function formatNoOutput(command: string): string {
   return `(no output)\n[command]: ${short}`;
 }
 
+export function processExecErrorToToolResult(
+  error: ProcessExecError,
+  command: string,
+): ToolResult {
+  const isRealFailure = error.killed === true || error.exitCode === null;
+  const short = command.length > EXEC_COMMAND_PLACEHOLDER_CHARS
+    ? command.slice(0, EXEC_COMMAND_PLACEHOLDER_CHARS) + '[truncated]'
+    : command;
+
+  if (isRealFailure) {
+    const outputSuffix = error.output
+      ? `\n[output]: ${truncate(error.output, EXEC_MAX_OUTPUT)}`
+      : '';
+    return {
+      success: false,
+      content: `Error: ${error.message}\n[command]: ${short}${outputSuffix}`,
+    };
+  }
+
+  // 纯非零退出码：command 自己语义信号、tool 已完成契约
+  const body = error.output
+    ? `[command]: ${short}\n${truncate(error.output, EXEC_MAX_OUTPUT)}`
+    : formatNoOutput(command);
+  return { success: true, content: `[exit ${error.exitCode}]\n${body}` };
+}
+
 async function persistOverflow(
   ctx: ExecContext,
   output: string,
@@ -200,43 +226,8 @@ export function createExecTool(preExecGuard?: PreExecGuard): Tool {
           };
         }
 
-        // phase 1417: ToolResult.success 契约语义 reframe
-        //   success: false ⇔ 工具自身没完成契约（spawn-error / timeout / signal-kill / maxBuffer / abort）
-        //   success: true  ⇔ 工具完成契约（output 已交回 agent），无论 command 自己 exit 几
-        // exit code 是 agent 自己解读的语义信号（grep 无匹配 / diff 有差异 / test 退出码）。
-        // L1 process-exec 表面不动（snapshot/verification/cron caller 仍享 reject-on-non-zero 便利层）。
-        // 判据：killed=true（timeout/signal-kill）或 exitCode=null（spawn-error）→ 真异常 success:false
-        //        其他（纯非零 exit）→ success:true，content 头带 [exit N]
-        const isRealFailure = error.killed === true || error.exitCode === null;
-
-        if (isRealFailure) {
-          if (error.output.length > EXEC_MAX_OUTPUT) {
-            const relPath = await persistOverflow(ctx, error.output);
-            const truncated = relPath
-              ? truncateHeadTail(error.output, relPath)
-              : truncate(error.output, EXEC_MAX_OUTPUT);
-            return { success: false, content: `Error: ${error.message}\n[command]: ${command}\n[output]: ${truncated}` };
-          }
-          const output = error.output ? `\n[output]: ${truncate(error.output, EXEC_MAX_OUTPUT)}` : '';
-          return { success: false, content: `Error: ${error.message}\n[command]: ${command}${output}` };
-        }
-
-        // 纯非零退出码：command 自己语义信号、tool 已完成契约
-        const exitLine = `[exit ${error.exitCode}]`;
-        const short = command.length > EXEC_COMMAND_PLACEHOLDER_CHARS
-          ? command.slice(0, EXEC_COMMAND_PLACEHOLDER_CHARS) + '[truncated]'
-          : command;
-        if (error.output.length > EXEC_MAX_OUTPUT) {
-          const relPath = await persistOverflow(ctx, error.output);
-          const truncated = relPath
-            ? truncateHeadTail(error.output, relPath)
-            : truncate(error.output, EXEC_MAX_OUTPUT);
-          return { success: true, content: `${exitLine}\n[command]: ${short}\n${truncated}` };
-        }
-        const body = error.output
-          ? `[command]: ${short}\n${truncate(error.output, EXEC_MAX_OUTPUT)}`
-          : formatNoOutput(command);
-        return { success: true, content: `${exitLine}\n${body}` };
+        // phase 1417 + phase 809: isRealFailure 判据单源在 processExecErrorToToolResult
+        return processExecErrorToToolResult(error, command);
       }
     },
   };
