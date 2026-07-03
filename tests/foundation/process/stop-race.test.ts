@@ -24,7 +24,7 @@ import type { ProcessManagerContext } from '../../../src/foundation/process-mana
 // Mock constants to eliminate sleep delays
 vi.mock('../../../src/foundation/process-manager/constants.js', async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
-  return { ...actual, DAEMON_SHUTDOWN_GRACE_MS: 0 };
+  return { ...actual, DAEMON_SHUTDOWN_GRACE_MS: 0, SIGKILL_DEAD_VERIFY_GRACE_MS: 0 };
 });
 
 describe('stop.ts race + getAliveStatus probe single responsibility (phase 879)', () => {
@@ -81,24 +81,30 @@ describe('stop.ts race + getAliveStatus probe single responsibility (phase 879)'
     const ctx = makeCtx(audit);
     // 第 1 次 l1IsAlive 检（STALE 分支前）→ true（进程 alive）
     // 第 2 次 l1IsAlive 检（SIGTERM grace 后）→ true（进程仍 alive）→ 触发 SIGKILL escalation
-    vi.mocked(ctx.l1IsAlive!).mockReturnValueOnce(true).mockReturnValueOnce(true);
+    // 第 3 次 l1IsAlive 检（SIGKILL grace 后）→ true（进程仍 alive）→ phase 804 返回 false
+    vi.mocked(ctx.l1IsAlive!).mockReturnValueOnce(true).mockReturnValueOnce(true).mockReturnValueOnce(true);
     const result = await stopProcess(ctx, testClawDaemonDir(tempDir, clawId));
 
-    expect(result).toBe(true);
+    expect(result).toBe(false);
     // 不应走 STALE 分支（进程是 alive 的）
     const staleEvents = events.filter(
       (e) => e[0] === PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_STOP_STALE,
     );
     expect(staleEvents).toHaveLength(0);
-    // 应发 KILL_ESCALATED（因为 mock 返回 alive、SIGTERM 后仍 alive）+ STOPPED
+    // 应发 KILL_ESCALATED（因为 mock 返回 alive、SIGTERM 后仍 alive）
     const killEscalatedEvents = events.filter(
       (e) => e[0] === PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_KILL_ESCALATED,
     );
     expect(killEscalatedEvents).toHaveLength(1);
+    // phase 804: SIGKILL 后仍 alive → 不删 PID、不发 PROCESS_STOPPED
     const stoppedEvents = events.filter(
       (e) => e[0] === PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_STOPPED,
     );
-    expect(stoppedEvents).toHaveLength(1);
+    expect(stoppedEvents).toHaveLength(0);
+    const deadRemovedEvents = events.filter(
+      (e) => e[0] === PROCESS_MANAGER_AUDIT_EVENTS.STOP_PID_REMOVED_BEFORE_DEAD,
+    );
+    expect(deadRemovedEvents).toHaveLength(1);
   });
 
   it('l1IsAlive(pid) 直读不受并发 pidfile 删除影响 (race window 消除)', async () => {

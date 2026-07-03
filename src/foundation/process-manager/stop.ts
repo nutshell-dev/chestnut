@@ -61,6 +61,7 @@ export async function stopProcess(ctx: ProcessManagerContext, daemonDir: DaemonD
           `pid=${stored.pid}`,
           `grace_ms=${SIGKILL_DEAD_VERIFY_GRACE_MS}`,
         );
+        return false;  // phase 804: SIGKILL 后仍存活 → 不删 PID，让调用方感知失败
       }
     }
 

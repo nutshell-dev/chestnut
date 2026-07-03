@@ -24,6 +24,7 @@ const mockAuditState = vi.hoisted(() => {
 
 const mockKill = vi.hoisted(() => vi.fn());
 const mockIsPidArgvMatching = vi.hoisted(() => vi.fn().mockReturnValue(true));
+const mockIsAlive = vi.hoisted(() => vi.fn().mockReturnValue(false));
 const mockFindProcesses = vi.hoisted(() => vi.fn().mockReturnValue([99991, 99992]));
 const mockCreateSystemAudit = vi.hoisted(() => vi.fn(() => ({
   write: mockAuditState.write,
@@ -182,5 +183,56 @@ describe('stop — orphan cleanup silent → audit (P1.4)', () => {
 
     // audit 为 null，所以没有任何 audit 事件
     expect(mockAuditState.events).toHaveLength(0);
+  });
+
+  it('orphan SIGTERM 无效后升级 SIGKILL 并验证死亡', async () => {
+    mockKill.mockImplementation((_pid: number, signal: string | number) => {
+      if (signal === 'KILL') {
+        mockIsAlive.mockReturnValue(false);
+      }
+    });
+    mockFindProcesses.mockReturnValue([4444]);
+    mockIsAlive.mockReturnValue(true);
+    mockCreateSystemAudit.mockReturnValue({
+      write: mockAuditState.write,
+      preview: (s: string) => s,
+      message: (s: string) => s,
+      summary: (s: string) => s,
+    });
+
+    await stopAllCommand({ fsFactory }, { kill: mockKill, isPidArgvMatching: mockIsPidArgvMatching, isAlive: mockIsAlive });
+
+    // TERM + KILL 各一次
+    const termCalls = mockKill.mock.calls.filter(c => c[1] === 'TERM');
+    const killCalls = mockKill.mock.calls.filter(c => c[1] === 'KILL');
+    expect(termCalls).toHaveLength(1);
+    expect(killCalls).toHaveLength(1);
+    // 无残留 audit
+    const partialEvents = mockAuditState.events.filter(e => e[0] === 'orphan_cleanup_partial');
+    expect(partialEvents).toHaveLength(0);
+  });
+
+  it('orphan SIGKILL 后仍存活时写 ORPHAN_CLEANUP_PARTIAL audit', async () => {
+    mockKill.mockImplementation(() => {});
+    mockFindProcesses.mockReturnValue([5555]);
+    mockIsAlive.mockReturnValue(true);
+    mockCreateSystemAudit.mockReturnValue({
+      write: mockAuditState.write,
+      preview: (s: string) => s,
+      message: (s: string) => s,
+      summary: (s: string) => s,
+    });
+
+    await stopAllCommand({ fsFactory }, { kill: mockKill, isPidArgvMatching: mockIsPidArgvMatching, isAlive: mockIsAlive });
+
+    const partialEvents = mockAuditState.events.filter(e => e[0] === 'orphan_cleanup_partial');
+    expect(partialEvents).toHaveLength(1);
+    expect(partialEvents[0]).toEqual(
+      expect.arrayContaining([
+        'orphan_cleanup_partial',
+        'pids=5555',
+        'context=stop_all_orphan_sigkill_survived',
+      ]),
+    );
   });
 });

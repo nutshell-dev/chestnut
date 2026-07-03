@@ -12,11 +12,10 @@ import { createAuditWriter, AUDIT_FILE } from '../../foundation/audit/index.js';
 import { getChestnutFs, getGlobalConfig, setAuditWriter as setWatchdogAuditWriter } from '../../watchdog/watchdog-context.js';
 import { stopCommand as watchdogStop } from '../../watchdog/watchdog.js';
 import { stopCommand as motionStop } from './motion.js';
-import { ProcessListUnavailable } from '../../foundation/process-manager/index.js';
-import { kill, isPidArgvMatching } from '../../foundation/process-exec/index.js';
+import { ProcessListUnavailable, PROCESS_MANAGER_AUDIT_EVENTS, createProcessManagerForCLI, DAEMON_SHUTDOWN_GRACE_MS } from '../../foundation/process-manager/index.js';
+import { PROCESS_STOP_POLL_INTERVAL_MS, SIGKILL_DEAD_VERIFY_GRACE_MS } from '../../foundation/process-manager/constants.js';
+import { kill, isPidArgvMatching, isAlive } from '../../foundation/process-exec/index.js';
 import { createSystemAudit, type AuditLog } from '../../foundation/audit/index.js';
-import { PROCESS_MANAGER_AUDIT_EVENTS } from '../../foundation/process-manager/index.js';
-import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
 
 import { resolveDaemonEntry } from '../../assembly/spawn-entry.js';
@@ -26,7 +25,7 @@ import { CliError } from '../errors.js';
 
 export async function stopAllCommand(
   deps: { fsFactory: (baseDir: string) => FileSystem },
-  extraDeps?: { audit?: AuditLog; kill?: typeof kill; isPidArgvMatching?: typeof isPidArgvMatching },
+  extraDeps?: { audit?: AuditLog; kill?: typeof kill; isPidArgvMatching?: typeof isPidArgvMatching; isAlive?: typeof isAlive },
 ): Promise<void> {
   loadGlobalConfig(deps);
 
@@ -88,7 +87,10 @@ export async function stopAllCommand(
   let stopFailed: string[] = [];
   if (running.length > 0) {
     console.log(`Stopping ${running.length} claw(s): ${running.join(', ')}...`);
-    const results = await Promise.allSettled(running.map(name => pm.stop(resolveClawDaemonDir(makeClawId(name)))));
+    const results = await Promise.allSettled(running.map(async name => {
+      const ok = await pm.stop(resolveClawDaemonDir(makeClawId(name)));
+      if (!ok) throw new Error(`stopProcess returned false for ${name}`);
+    }));
     stopFailed = results
       .map((r, i) => (r.status === 'rejected' ? running[i] : null))
       .filter((n): n is string => n !== null);
@@ -147,6 +149,8 @@ export async function stopAllCommand(
       console.log(`Cleaning up ${pids.length} orphan daemon process(es)...`);
       const killFn = extraDeps?.kill ?? kill;
       const isPidArgvMatchingFn = extraDeps?.isPidArgvMatching ?? isPidArgvMatching;
+      const isAliveFn = extraDeps?.isAlive ?? isAlive;
+      const remaining: number[] = [];
       for (const p of pids) {
         // phase 422 Step A (review medium orphan-cleanup uniformity): SIGTERM 前
         // 二次 argv-verify、防 findProcesses → kill 间 PID race window 误杀
@@ -169,6 +173,36 @@ export async function stopAllCommand(
             `context=stop_all_orphan_cleanup`,
             `reason=${formatErr(err)}`,
           );
+          continue;
+        }
+        remaining.push(p);
+      }
+
+      // phase 804: poll for SIGTERM effect, escalate to SIGKILL, then verify death
+      if (remaining.length > 0) {
+        const deadline = Date.now() + DAEMON_SHUTDOWN_GRACE_MS;
+        let alivePids = [...remaining];
+        while (alivePids.length > 0 && Date.now() < deadline) {
+          await new Promise(resolve => setTimeout(resolve, PROCESS_STOP_POLL_INTERVAL_MS));
+          alivePids = alivePids.filter(p => isAliveFn(p));
+        }
+
+        if (alivePids.length > 0) {
+          console.log(`  ${alivePids.length} orphan(s) still alive, sending SIGKILL...`);
+          for (const p of alivePids) {
+            try { killFn(p, 'KILL'); } catch { /* already dead */ }
+          }
+          await new Promise(resolve => setTimeout(resolve, SIGKILL_DEAD_VERIFY_GRACE_MS));
+
+          const finalSurvivors = alivePids.filter(p => isAliveFn(p));
+          if (finalSurvivors.length > 0) {
+            console.warn(`  WARNING: ${finalSurvivors.length} orphan(s) survived SIGKILL: ${finalSurvivors.join(', ')}`);
+            audit?.write(
+              PROCESS_MANAGER_AUDIT_EVENTS.ORPHAN_CLEANUP_PARTIAL,
+              `pids=${finalSurvivors.join(',')}`,
+              `context=stop_all_orphan_sigkill_survived`,
+            );
+          }
         }
       }
     }

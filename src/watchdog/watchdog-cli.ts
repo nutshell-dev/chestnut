@@ -4,7 +4,8 @@
  */
 
 import { getWorkspaceRoot } from '../core/claw-topology/index.js';
-import { spawnDetached, kill as defaultKill } from '../foundation/process-exec/index.js';
+import { spawnDetached, kill as defaultKill, isAlive as defaultIsAlive, isPidArgvMatching as defaultIsPidArgvMatching } from '../foundation/process-exec/index.js';
+import { createProcessManagerForCLI } from '../foundation/process-manager/index.js';
 import type { WatchdogProcessDeps } from './types.js';
 import { setTimeout } from 'timers/promises';
 import type { FileSystem } from '../foundation/fs/index.js';
@@ -109,8 +110,57 @@ export async function stopCommand(
   const pid = getWatchdogPid(fsFactory);
   
   if (!pid || !isWatchdogAlive(fsFactory)) {
-    console.log('Watchdog is not running');
+    // phase 804: PID file missing/stale → pgrep fallback to find running watchdog
+    let actualPid: number | null = null;
+    try {
+      const pm = createProcessManagerForCLI({ fsFactory, baseDir: getWorkspaceRoot() });
+      const watchdogEntryPath = getWatchdogEntryPath(fsFactory);
+      const pids = pm.findProcesses(watchdogEntryPath);
+      const verifyFn = deps?.isPidArgvMatching ?? defaultIsPidArgvMatching;
+      for (const p of pids) {
+        if (verifyFn(p, 'watchdog-entry')) {
+          actualPid = p;
+          break;
+        }
+      }
+    } catch {
+      // pgrep unavailable → conservative: assume not running
+    }
+
+    if (actualPid) {
+      console.log(`Watchdog PID file missing but process found (PID: ${actualPid}). Stopping...`);
+      const killFn = deps?.kill ?? defaultKill;
+      try {
+        killFn(actualPid, 'TERM');
+      } catch (err) {
+        console.log('Failed to send SIGTERM:', err);
+        getAuditWriter()?.write(WATCHDOG_AUDIT_EVENTS.STOP_SIGTERM_FAILED, `pid=${actualPid}`, `error=${formatErr(err)}`);
+      }
+
+      // Wait up to 5s
+      let attempts = 0;
+      const isAliveFn = deps?.isAlive ?? defaultIsAlive;
+      while (isAliveFn(actualPid) && attempts < WATCHDOG_STOP_MAX_ATTEMPTS) {
+        await setTimeout(WATCHDOG_POLL_INTERVAL_MS);
+        attempts++;
+      }
+
+      if (isAliveFn(actualPid)) {
+        console.log('Watchdog still alive, sending SIGKILL...');
+        try {
+          killFn(actualPid, 'KILL');
+        } catch (err) {
+          console.log('Failed to send SIGKILL:', err);
+          getAuditWriter()?.write(WATCHDOG_AUDIT_EVENTS.STOP_SIGKILL_FAILED, `pid=${actualPid}`, `error=${formatErr(err)}`);
+        }
+        await setTimeout(WATCHDOG_SIGKILL_GRACE_MS);
+      }
+    } else {
+      console.log('Watchdog is not running');
+    }
+
     removeWatchdogPid(fsFactory);
+    console.log('Watchdog stopped');
     return;
   }
   
