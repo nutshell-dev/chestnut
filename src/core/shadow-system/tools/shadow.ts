@@ -16,7 +16,7 @@ import { runSubagent as defaultRunSubagent } from '../../subagent/index.js';
 import { SHADOW_AUDIT_EVENTS } from '../audit-events.js';
 import { spawnShadowSubagent } from '../spawn-shadow-subagent.js';
 import { stripIncompleteToolUse } from '../_helpers.js';
-import { SHADOW_TOOL_NAME, SHADOW_CALLER_LABEL, SHADOW_DEFAULT_TIMEOUT_MS } from '../constants.js';
+import { SHADOW_TOOL_NAME, SHADOW_DEFAULT_TIMEOUT_MS } from '../constants.js';
 
 export function createShadowTool(deps: {
   getTurnSnapshot: () => {
@@ -35,8 +35,10 @@ export function createShadowTool(deps: {
   subagentMaxSteps?: number;
   /** sync shadow 写 task_started 到主 stream，viewport 可读取 shadow 子代理事件 */
   streamLog?: StreamLog;
+  /** 允许递归调用。主 agent=true（默认），shadow registry=false */
+  allowRecursion?: boolean;
 }): Tool {
-  return {
+  const tool: Tool & { allowRecursion?: boolean } = {
     name: SHADOW_TOOL_NAME,
     profiles: ['full'],
     description: 'Branch your context to handle a task without polluting the main conversation. ' +
@@ -70,9 +72,9 @@ export function createShadowTool(deps: {
     idempotent: false,
     defaultTimeoutMs: SHADOW_DEFAULT_TIMEOUT_MS,
 
-    async execute(args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
-      // 防递归（D6 A ratify）
-      if (ctx.callerLabel === SHADOW_CALLER_LABEL) {
+    async execute(this: Tool & { allowRecursion?: boolean }, args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
+      // 防递归（D6 A ratify）：DI 注入替代 ctx.callerLabel
+      if (this.allowRecursion === false) {
         ctx.auditWriter?.write(SHADOW_AUDIT_EVENTS.RECURSION_REJECTED, String(ctx.clawId ?? 'unknown'));
         return {
           success: false,
@@ -163,7 +165,9 @@ export function createShadowTool(deps: {
         mode: 'v1',
       });
     },
+    allowRecursion: deps.allowRecursion ?? true,
   };
+  return tool;
 }
 
 

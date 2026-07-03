@@ -8,7 +8,7 @@ import { formatErr } from "../../../foundation/node-utils/index.js";
  * vs send：send 写自己 outbox（claw → motion 汇报 pull）/ notify_claw 写他人 inbox（motion → claw 指挥 push）/ 物理操作不同、§10.3 不对称设计登记
  */
 
-import type { Tool, ExecContext, ToolPermissions } from '../../../foundation/tools/index.js';
+import type { Tool, ExecContext } from '../../../foundation/tools/index.js';
 
 import type { ToolResult } from '../../../foundation/tool-protocol/index.js';
 import type { FileSystem } from '../../../foundation/fs/index.js';
@@ -29,10 +29,10 @@ export interface NotifyClawDeps {
    */
   defaultSource: string;
   /**
-   * phase 550: caller-provided authorization gate (replaces inline `=== motionClawId` motion check).
-   * Returns true if `callerLabel` is allowed to invoke this tool.
+   * phase 807: caller-provided authorization flag (replaces `isCallerAuthorized(callerLabel)`).
+   * true = motion/main registry authorized; false = shadow registry unauthorized.
    */
-  isCallerAuthorized: (callerLabel: string) => boolean;
+  authorized?: boolean;
   audit: AuditLog;        // NOTIFY_CLAW_SENT/FAILED emit
   isClawAlive: (clawId: string) => boolean; // phase 232: status hint callback
   formatClawStatusHint: (clawName: string, isAlive: boolean) => string | undefined; // phase 232: M#1 single source
@@ -41,7 +41,7 @@ export interface NotifyClawDeps {
 }
 
 export function createNotifyClawTool(deps: NotifyClawDeps): Tool {
-  return {
+  const tool: Tool & { authorized?: boolean } = {
     name: NOTIFY_CLAW_TOOL_NAME,
     profiles: ['full'],
     description: 'Notify a target claw by writing a message directly to its inbox. interrupt=true（默认）= 目标 claw 完成当前 step 后立即中断 react 循环、下一轮 drain 立刻处理本消息 / interrupt=false = 不打扰、等 claw 自然轮询 pull（消息排进 normal priority 队列）。motion-only tool（D11 单向访问特权）。',
@@ -71,11 +71,10 @@ export function createNotifyClawTool(deps: NotifyClawDeps): Tool {
     readonly: false,
     idempotent: false,
 
-    async execute(args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
-      // phase 1459 α-5: notify_claw 真依赖仅 `ctx.callerLabel` → `ToolPermissions` 子接口 sufficient（caller gate / D11）。
-      const perm: ToolPermissions = ctx;
-      // Phase 1105 / phase 550: authorization gate (caller-injected predicate replaces inline motion check)
-      if (!deps.isCallerAuthorized(perm.callerLabel)) {
+    async execute(this: Tool & { authorized?: boolean }, args: Record<string, unknown>, _ctx: ExecContext): Promise<ToolResult> {
+      // Phase 807: authorization via DI flag (replaces ctx.callerLabel + isCallerAuthorized predicate).
+      // 默认 true 保持主 registry 兼容；shadow registry 注入 authorized=false。
+      if (this.authorized === false) {
         return { success: false, content: 'notify_claw is motion-only' };
       }
       const to = args.to as string;
@@ -144,5 +143,7 @@ export function createNotifyClawTool(deps: NotifyClawDeps): Tool {
         };
       }
     },
+    authorized: deps.authorized ?? true,
   };
+  return tool;
 }

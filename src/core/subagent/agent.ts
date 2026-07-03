@@ -51,7 +51,6 @@ export interface SubAgentOptions {
   maxConsecutiveMaxTokensToolUse?: number;
   systemPrompt?: string;                    // 替换 run() 里硬编码的默认 system prompt
   toolProfile?: ToolProfile;             // caller 从 callerTypeToProfile 计算后传入
-  callerLabel?: string;                  // 替代 callerType 的 audit label 角色
   messages?: Message[];                      // 若提供，直接用；否则从 prompt 构建
   isShadow?: boolean;                         // phase 767：shadow 分身标记
   taskStreamWriter: StreamLog;
@@ -79,7 +78,6 @@ export class SubAgent {
   private onIdleTimeout?: () => void;
   private systemPrompt?: string;
   private toolProfile?: ToolProfile;
-  private callerLabel?: string;
   private messages?: Message[];
   private _running = false;  // phase 464 (review N3-L): re-entry guard
   isShadow?: boolean;
@@ -110,7 +108,6 @@ export class SubAgent {
     this.onIdleTimeout = options.onIdleTimeout;
     this.systemPrompt = options.systemPrompt;
     this.toolProfile = options.toolProfile;
-    this.callerLabel = options.callerLabel;
     this.messages = options.messages;
     this.isShadow = options.isShadow;
     this.taskStreamWriter = options.taskStreamWriter;
@@ -223,7 +220,6 @@ export class SubAgent {
           ctx: executor.getExecContext(executorProfile, {
             clawId: this.agentId,
             signal: timeout.signal,
-            callerLabel: this.callerLabel ?? 'subagent',
             permissionChecker: this.permissionChecker,
             subagentTaskId: this.agentId,
           }),

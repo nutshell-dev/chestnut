@@ -15,7 +15,7 @@ import {
 } from '../templates.js';
 import { SPAWN_AUDIT_EVENTS } from '../audit-events.js';
 
-import { SHADOW_CALLER_LABEL } from '../../shadow-system/index.js';
+
 import { SPAWN_DEFAULT_TIMEOUT_MS } from '../constants.js';
 
 /**
@@ -36,11 +36,13 @@ export interface SpawnToolDeps {
   originClawId?: string;
   /** 同 daemon 内恒定的子代理步数上限（Assembly 从 config 注入） */
   subagentMaxSteps?: number;
+  /** 允许 async 调度。主 agent=true（默认），shadow registry=false */
+  allowAsync?: boolean;
 }
 
 export function createSpawnTool(deps: SpawnToolDeps = {}): Tool {
   const { runSubagent, taskSystem } = deps;
-  return {
+  const tool: Tool & { allowAsync?: boolean } = {
     name: SPAWN_TOOL_NAME,
     profiles: ['full'],
     description: 'Create a subagent to handle a delegated task. ' +
@@ -76,7 +78,7 @@ export function createSpawnTool(deps: SpawnToolDeps = {}): Tool {
     idempotent: false,
     defaultTimeoutMs: SPAWN_DEFAULT_TIMEOUT_MS,
 
-    async execute(args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
+    async execute(this: Tool & { allowAsync?: boolean }, args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
       const intent = String(args.intent);
       const timeoutMs = typeof args.timeoutMs === 'number' ? args.timeoutMs : SPAWN_DEFAULT_TIMEOUT_MS;
       const maxSteps = typeof args.maxSteps === 'number'
@@ -85,8 +87,8 @@ export function createSpawnTool(deps: SpawnToolDeps = {}): Tool {
       const asyncMode = args.async === undefined ? true : Boolean(args.async);
       const templateName = typeof args.template === 'string' ? args.template : DEFAULT_SPAWN_TEMPLATE;
 
-      // shadow 防御（per shadow D6 A ratify）/ 先于 template resolve、保既有 reject 顺序
-      if (ctx.callerLabel === SHADOW_CALLER_LABEL && asyncMode) {
+      // shadow 防御（per shadow D6 A ratify）：DI 注入替代 ctx.callerLabel
+      if (this.allowAsync === false && asyncMode) {
         return {
           success: false,
           content: 'spawn from within shadow must use async=false. shadow has no async machinery — async-scheduled tasks would orphan to main inbox after shadow exits, unreachable from within shadow.',
@@ -155,7 +157,9 @@ export function createSpawnTool(deps: SpawnToolDeps = {}): Tool {
 
       return runSpawnSync({ intent, timeoutMs, maxSteps, systemPrompt, ctx, runSubagent });
     },
+    allowAsync: deps.allowAsync ?? true,
   };
+  return tool;
 }
 
 // module-level default 实例向后兼容 assembly 注册

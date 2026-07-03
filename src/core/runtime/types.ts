@@ -114,9 +114,6 @@ export interface RuntimeOptions {
 
   /** phase 440：上下文管理器运行时配置（filterSubtypes 等） */
   contextManagerConfig?: ContextManagerRuntimeConfig;
-
-  /** phase 797: opaque audit label for tool execution context. Injected by Assembly. */
-  callerLabel: string;
 }
 
 export type { StreamCallbacks } from '../agent-executor/stream-callbacks.js';

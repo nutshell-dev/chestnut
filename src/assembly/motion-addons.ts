@@ -94,7 +94,7 @@ export async function createMotionAddons(
     notifyClaw: (targetClawId, message) =>
       routeNotifyClaw(parentFs, chestnutRoot, MOTION_CLAW_ID, targetClawId, message, auditWriter),
     defaultSource: MOTION_CLAW_ID,
-    isCallerAuthorized: (label) => label === MOTION_CLAW_ID,
+    authorized: true,
     audit: auditWriter,
     isClawAlive: (clawId: string) => core.processManager.isAlive(resolveClawDaemonDir(makeClawId(clawId))), // phase 232
     formatClawStatusHint, // phase 232: M#1 single source

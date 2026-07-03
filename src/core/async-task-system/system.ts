@@ -797,7 +797,6 @@ export class AsyncTaskSystem {
       clawDir: task.parentClawDir,
       workspaceDir: path.join(task.parentClawDir, CLAWSPACE_DIR),
       syncDir: path.join(task.parentClawDir, TASKS_SYNC_DIR),
-      callerLabel: task.callerType ?? 'claw',
       fs: this.fs,
       fsFactory: this.fsFactory,
       profile: 'full',

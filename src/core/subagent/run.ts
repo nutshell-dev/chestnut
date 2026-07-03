@@ -38,7 +38,6 @@ export interface RunSubagentOptions {
 
   // 权限注入（caller 计算后传入）
   toolProfile?: ToolProfile;
-  callerLabel?: string;
 
   // 基础设施依赖（caller 注入）
   clawDir: string;
@@ -141,7 +140,6 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
     timeoutMs: opts.timeoutMs,
     toolsForLLM,
     toolProfile: opts.toolProfile,
-    callerLabel: opts.callerLabel,
     onIdleTimeout: opts.onIdleTimeout,
     taskStreamWriter,
     auditWriter,

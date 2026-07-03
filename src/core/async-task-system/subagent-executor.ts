@@ -155,7 +155,6 @@ export async function executeSubAgentTask(
     const { text, capturedResult } = await (deps.runSubagent ?? defaultRunSubagent)({
       agentId: task.id,
       toolProfile: callerTypeToProfile(task.callerType ?? 'subagent'),
-      callerLabel: task.callerType ?? 'subagent',
       clawDir,
       fs,
       fsFactory,

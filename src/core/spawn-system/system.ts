@@ -18,7 +18,6 @@ import { runSubagent as defaultRunSubagent, createPerTaskRegistry, getDisplayRes
 
 import { SPAWN_AUDIT_EVENTS } from './audit-events.js';
 import { formatErr } from './_helpers.js';
-import { SHADOW_CALLER_LABEL } from '../shadow-system/index.js';
 
 
 export interface RunSpawnSyncOptions {
@@ -60,7 +59,6 @@ export async function runSpawnSync(opts: RunSpawnSyncOptions): Promise<ToolResul
     const { text, capturedResult } = await subagentImpl({
       agentId: id,
       toolProfile: callerTypeToProfile('subagent'),
-      callerLabel: 'subagent',
       clawDir: opts.ctx.clawDir,
       fs: opts.ctx.fs,
       fsFactory: opts.ctx.fsFactory,
@@ -72,7 +70,6 @@ export async function runSpawnSync(opts: RunSpawnSyncOptions): Promise<ToolResul
       syncDir: path.join(opts.ctx.clawDir, TASKS_SYNC_DIR),
       maxSteps: opts.maxSteps,
       timeoutMs: opts.timeoutMs,
-      isShadow: opts.ctx.callerLabel === SHADOW_CALLER_LABEL,
       signal: opts.ctx.signal,
       toolTimeoutMs: opts.ctx.toolTimeoutMs,
       permissionChecker: opts.ctx.permissionChecker,

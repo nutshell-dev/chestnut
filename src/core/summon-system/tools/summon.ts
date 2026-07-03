@@ -13,7 +13,7 @@ import { SUMMON_AUDIT_EVENTS, emitSummonDispatched, emitSummonRejectedShadow } f
 import { isFileNotFound } from '../../../foundation/fs/index.js';
 import { SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME } from '../post-processors/contract-extract.js';
 import { SUMMON_CALLER_TYPES, type SummonCallerType } from '../caller-types.js';
-import { spawnShadowSubagent, stripIncompleteToolUse, SHADOW_CALLER_LABEL } from '../../shadow-system/index.js';
+import { spawnShadowSubagent, stripIncompleteToolUse } from '../../shadow-system/index.js';
 import { type TaskId, makeTaskId } from '../../async-task-system/types.js';
 
 /**
@@ -29,6 +29,7 @@ export class SummonTool implements Tool {
   private readonly taskSystem?: { schedule(kind: string, payload: Record<string, unknown>): Promise<string> };
   private readonly originClawId?: string;
   private readonly subagentMaxSteps?: number;
+  private readonly allowFromShadow?: boolean;
 
   readonly name = SUMMON_TOOL_NAME;
   readonly description = `创建子代理来给 claw 创建契约。支持两种模式（**按场景选**）：
@@ -60,10 +61,12 @@ export class SummonTool implements Tool {
     taskSystem?: { schedule(kind: string, payload: Record<string, unknown>): Promise<string> },
     originClawId?: string,
     subagentMaxSteps?: number,
+    allowFromShadow: boolean = true,
   ) {
     this.taskSystem = taskSystem;
     this.originClawId = originClawId;
     this.subagentMaxSteps = subagentMaxSteps;
+    this.allowFromShadow = allowFromShadow;
   }
 
   schema = {
@@ -93,8 +96,8 @@ export class SummonTool implements Tool {
   };
 
   async execute(args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
-    // shadow 防御（phase 767）：summon 是 async-only routing，shadow 内调用会导致 orphan
-    if (ctx.callerLabel === SHADOW_CALLER_LABEL) {
+    // shadow 防御（phase 767）：summon 是 async-only routing，shadow 内调用会导致 orphan；DI 注入替代 ctx.callerLabel
+    if (this.allowFromShadow === false) {
       if (ctx.auditWriter && ctx.currentToolUseId) {
         emitSummonRejectedShadow(ctx.auditWriter, {
           toolUseId: ctx.currentToolUseId,

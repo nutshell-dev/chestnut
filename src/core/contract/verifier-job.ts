@@ -134,7 +134,6 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
     const { text, capturedResult } = await subagentImpl({
       agentId: config.agentId,
       toolProfile: callerTypeToProfile('verifier'),
-      callerLabel: 'verifier',
       clawDir: config.clawDir,
       fs: config.fs,
       fsFactory: config.fsFactory,
