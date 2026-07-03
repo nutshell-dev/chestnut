@@ -14,24 +14,14 @@ import {
 } from './errors.js';
 import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 import type { ExecContext } from './types.js';
-import type { ToolGroup } from './types.js';
 import type { PermissionChecker } from '../tool-protocol/index.js';
 import type { ToolResult } from '../tool-protocol/index.js';
 import type { ToolProfile } from '../tool-protocol/index.js';
 import type { FileSystem } from '../fs/index.js';
 
-/**
- * Default maxRetries for tools flagged idempotent when scheduled async.
- * Derivation: 2 retries (= 3 total attempts) ≈ tolerate transient FS/network blip
- * 不放大到 wider tail（idempotent ≠ 免费）/ 与 LLM orchestrator maxAttempts default 3 同量级。
- * non-idempotent tools 用 0（DP「不重复影响外部状态」、必须 caller 显式重试）。
- * phase 529: 抽 inline literal 为命名常量。
- */
-const IDEMPOTENT_TOOL_DEFAULT_MAX_RETRIES = 2;
 import type { LLMOrchestrator } from '../llm-orchestrator/index.js';
 import type { AuditLog } from '../audit/index.js';
 import type { AbortReason } from '../llm-provider/index.js';
-import type { ScheduleAsyncTool } from './async-dispatch.js';
 import { DEFAULT_TOOL_TIMEOUT_MS } from './constants.js';
 import { TOOL_AUDIT_EVENTS } from './audit-events.js';
 import type {
@@ -65,7 +55,6 @@ export class ToolExecutorImpl implements IToolExecutor {
   constructor(
     protected registry: ToolRegistry,
     private defaultTimeoutMs = DEFAULT_TOOL_TIMEOUT_MS,
-    private scheduleAsyncTool?: ScheduleAsyncTool,
     baseRegistry?: ToolRegistry,
   ) {
     this.baseRegistry = baseRegistry;
@@ -110,63 +99,7 @@ export class ToolExecutorImpl implements IToolExecutor {
       };
     }
 
-    // Async path: tool lifecycle owned by AsyncTaskSystem, no signal merge here.
-    // 4. Async path: write fs pending file, watcher will ingest and dispatch
-    if (options.async) {
-      if (!tool.group || !ctx.allowedGroups?.has(tool.group)) {
-        ctx.auditWriter?.write(
-          TOOL_AUDIT_EVENTS.TOOL_ASYNC_REJECTED,
-          toolName,
-          options.toolUseId ?? '',
-          `reason=group_membership`,
-          `caller=${ctx.callerLabel}`,
-          `group=${tool.group ?? 'undefined'}`,
-        );
-        return { success: false, content: 'Async mode is not available for this caller.' };
-      }
-      if (!tool.supportsAsync) {
-        ctx.auditWriter?.write(
-          TOOL_AUDIT_EVENTS.TOOL_ASYNC_REJECTED,
-          toolName,
-          options.toolUseId ?? '',
-          `reason=unsupported`,
-        );
-        return { success: false, content: `Tool "${toolName}" does not support async mode.` };
-      }
-      if (!this.scheduleAsyncTool) {
-        ctx.auditWriter?.write(
-          TOOL_AUDIT_EVENTS.TOOL_ASYNC_REJECTED,
-          toolName,
-          options.toolUseId ?? '',
-          `reason=dispatch_unconfigured`,
-        );
-        return { success: false, content: 'Async tool dispatch not configured.' };
-      }
-      const taskId = await this.scheduleAsyncTool({
-        toolName,
-        args,
-        parentClawId: ctx.clawId,
-        parentClawDir: ctx.clawDir,
-        isIdempotent: tool.idempotent,
-        maxRetries: tool.idempotent ? IDEMPOTENT_TOOL_DEFAULT_MAX_RETRIES : 0,
-        retryCount: 0,
-        callerLabel: ctx.callerLabel === 'claw' ? undefined : ctx.callerLabel,
-        toolUseId: options.toolUseId,
-      });
-      ctx.auditWriter?.write(
-        TOOL_AUDIT_EVENTS.TOOL_ASYNC_START,
-        toolName,
-        options.toolUseId ?? '',
-        `task=${taskId}`,
-      );
-      return {
-        success: true,
-        content: `Async task queued. Task ID: ${taskId}. Result will be delivered to inbox when complete.`,
-        metadata: { taskId, async: true },
-      };
-    }
-
-    // 5. Execute with timeout using Promise.race (sync path)
+    // 4. Execute with timeout using Promise.race (sync path)
     const timeoutController = new AbortController();
     const timeoutId = setTimeout(() => timeoutController.abort({ type: 'tool_timeout', ms: timeoutMs } satisfies AbortReason), timeoutMs);
 
@@ -295,9 +228,8 @@ export class ToolExecutorImpl implements IToolExecutor {
     ctx: ExecContext
   ): Promise<(ToolResult | null)[]> {
     // Invariant: readonly tools are sync-only by design.
-    // executeParallel only invokes readonly tools (filter line 161 below); they
-    // never enter the async dispatch path, so toolUseId is intentionally not
-    // forwarded here. Enforced by tests/foundation/tools/readonly-supports-async-mutex.test.ts.
+    // executeParallel only invokes readonly tools (filter line below); they
+    // never enter async dispatch, so toolUseId is intentionally not forwarded here.
     const promises = batch.map(({ toolName, args }) => {
       const tool = this.registry.get(toolName);
       if (tool?.readonly !== true) return Promise.resolve(null);
@@ -487,7 +419,7 @@ export class ToolExecutor extends ToolExecutorImpl {
   private llm?: LLMOrchestrator;
   private auditWriter?: AuditLog;
   constructor(options: ToolExecutorOptions) {
-    super(options.registry, options.defaultTimeoutMs, options.scheduleAsyncTool, options.baseRegistry);
+    super(options.registry, options.defaultTimeoutMs, options.baseRegistry);
     this.clawDir = options.clawDir;
     this.syncDir = options.syncDir;
     this.workspaceDir = options.workspaceDir ?? path.join(options.clawDir, CLAWSPACE_DIR);
@@ -502,7 +434,7 @@ export class ToolExecutor extends ToolExecutorImpl {
    */
   getExecContext(
     profile: ToolProfile,
-    options: { clawId: string; signal?: AbortSignal; allowedGroups: ReadonlySet<ToolGroup>; callerLabel: string; permissionChecker?: PermissionChecker; subagentTaskId?: string }
+    options: { clawId: string; signal?: AbortSignal; callerLabel: string; permissionChecker?: PermissionChecker; subagentTaskId?: string }
   ): ExecContextImpl {
     return new ExecContextImpl({
       clawId: options.clawId,
@@ -510,7 +442,6 @@ export class ToolExecutor extends ToolExecutorImpl {
       workspaceDir: this.workspaceDir,
       syncDir: this.syncDir,
       profile,
-      allowedGroups: options.allowedGroups,
       callerLabel: options.callerLabel,
       permissionChecker: options.permissionChecker,
       fs: this.fs,
@@ -531,7 +462,6 @@ export class ToolExecutor extends ToolExecutorImpl {
 export function createToolExecutor(
   registry: ToolRegistry,
   timeoutMs?: number,
-  scheduleAsyncTool?: ScheduleAsyncTool,
 ): ToolExecutorImpl {
-  return new ToolExecutorImpl(registry, timeoutMs, scheduleAsyncTool);
+  return new ToolExecutorImpl(registry, timeoutMs);
 }

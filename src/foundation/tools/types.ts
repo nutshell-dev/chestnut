@@ -12,19 +12,12 @@ import type { AuditLog } from '../audit/types.js';
 import type { ToolDescriptor, ToolResult, CallerSnapshot } from '../tool-protocol/index.js';
 export type { CallerSnapshot };
 
-import type { ScheduleAsyncTool } from './async-dispatch.js';
 import type { PermissionChecker } from '../tool-protocol/index.js';
 import type { ToolUseId } from '../tool-protocol/index.js';
 import type { TraceId } from '../audit/types.js';
 
 
 
-
-/**
- * phase 1337 r138 D fork: L2c capability-tag enum.
- * Framework-level capability dimension, decoupled from L3 business CallerType.
- */
-export type ToolGroup = string;
 
 /**
  * File overwrite gate state per file path.
@@ -83,15 +76,13 @@ export interface ClawIdentity {
   syncDir: string;
 }
 
-/** 权限维度（D2）：profile / allowedGroups / callerLabel / permissionChecker */
+/** 权限维度（D2）：profile / callerLabel / permissionChecker */
 export interface ToolPermissions {
   profile: ToolProfile;
-  /** phase 1337: capability-tag based group filtering (replaces callerType) */
-  allowedGroups: ReadonlySet<ToolGroup>;
   /**
    * phase 1337: opaque caller identifier.
    * L2 carrier、L4 caller 写值（'shadow' / 'claw' / motion clawId / ...）、L4 reader 业务读双用：
-   * (a) audit annotation（executor.ts:90 / async-dispatch.ts）
+   * (a) audit annotation（executor.ts:90）
    * (b) origin guard（notify-claw.ts MOTION_CLAW_ID gate per phase 1459 α-5；spawn/summon/shadow SHADOW_CALLER_LABEL guard per phase 61）
    * L2 不解释具体 value 语义。
    */
@@ -200,12 +191,9 @@ export interface ExecContext extends
 export interface Tool extends ToolDescriptor {
   readonly: boolean;
   idempotent: boolean;
-  supportsAsync?: boolean;
   defaultTimeoutMs?: number;
   /** Which profiles this tool belongs to. Each tool declares its own (M#3). */
   profiles: readonly ToolProfile[];
-  /** phase 1337: capability group this tool belongs to (replaces profile-based implicit filtering) */
-  group: ToolGroup;
   /**
    * phase 1406: declares whether this tool reads caller deep context via
    * `ctx.getCallerSnapshot()`.
@@ -278,7 +266,6 @@ export interface ToolExecutorOptions {
   fsFactory?: (baseDir: string) => FileSystem;
   llm?: LLMOrchestrator;
   auditWriter?: AuditLog;
-  scheduleAsyncTool?: ScheduleAsyncTool;
   /** Tool-level default timeout (phase 1029 / F-2 / inherits from caller ExecContext / 0 传维持 ToolExecutor fallback 60s) */
   defaultTimeoutMs?: number;
   /**

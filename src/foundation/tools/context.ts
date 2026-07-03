@@ -11,7 +11,7 @@
 import type { FileSystem } from '../fs/index.js';
 import type { LLMOrchestrator } from '../llm-orchestrator/index.js';
 import type { ToolProfile } from '../tool-protocol/index.js';
-import type { ExecContext, ToolGroup, FileState } from './types.js';
+import type { ExecContext, FileState } from './types.js';
 import type { TraceId } from '../audit/types.js';
 import type { ToolUseId } from '../tool-protocol/index.js';
 
@@ -44,8 +44,6 @@ export interface ExecContextImplOptions {
   /** Tool profile for permission control */
   profile: ToolProfile;
   
-  /** phase 1337: capability-tag based group filtering (replaces callerType) */
-  allowedGroups: ReadonlySet<ToolGroup>;
   /** phase 1337: opaque audit label (replaces callerType semantic) */
   callerLabel: string;
   
@@ -146,7 +144,6 @@ export class ExecContextImpl implements ExecContext {
   workspaceDir: string;
   syncDir: string;
   profile: ToolProfile;
-  allowedGroups: ReadonlySet<ToolGroup>;
   callerLabel: string;
   fs: FileSystem;
   fsFactory?: (baseDir: string) => FileSystem;
@@ -173,7 +170,6 @@ export class ExecContextImpl implements ExecContext {
     this.workspaceDir = options.workspaceDir ?? path.join(options.clawDir, CLAWSPACE_DIR);
     this.syncDir = options.syncDir;
     this.profile = options.profile;
-    this.allowedGroups = options.allowedGroups;
     this.callerLabel = options.callerLabel;
     this.fs = options.fs;
     this.fsFactory = options.fsFactory;
