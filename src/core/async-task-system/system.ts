@@ -74,7 +74,8 @@ export class AsyncTaskSystem {
   // Runtime execution handles only (abort controller + promise). This is NOT a memory view of
   // the running set; the fs running directory remains the authoritative running state.
   private executingTasks: Map<string, TaskState> = new Map();
-  private _dispatching = false;
+  private _wakeupRequested = false;
+  private _wakeupResolve: (() => void) | null = null;
   private readonly maxConcurrent: number;
   private readonly registry: ToolRegistry;
   private readonly llm: LLMOrchestrator;
@@ -235,7 +236,10 @@ export class AsyncTaskSystem {
       });
     }
     void this.pendingWatcherHandle.start();
-    this._dispatch();
+    // 启动持久 dispatch 循环（替代原 _dispatch()）
+    void this._runDispatchLoop();
+    // 首次触发：扫 pending 目录中已有任务
+    this._signalWork();
   }
 
   setParentStreamLog(sink: StreamLog): void {
@@ -445,7 +449,7 @@ export class AsyncTaskSystem {
       this.overflowNotified = false;
     }
 
-    this._dispatch();
+    this._signalWork();
   }
 
   /**
@@ -487,36 +491,42 @@ export class AsyncTaskSystem {
     }
   }
 
-  /**
-   * Trigger the dispatch loop if not already running.
-   * Pending tasks are derived from fs on each iteration.
-   */
-  private _dispatch(): void {
-    if (this._shuttingDown || this._dispatching) return;
-    this._dispatching = true;
-    void this._runDispatchLoop().finally(() => {
-      this._dispatching = false;
-    });
+  private _signalWork(): void {
+    if (this._wakeupResolve) {
+      this._wakeupResolve();
+      this._wakeupResolve = null;
+    } else {
+      this._wakeupRequested = true;
+    }
   }
 
   /**
    * Core dispatch loop: derive pending tasks from fs, then start them until
-   * concurrency is saturated. Only one loop runs at a time to prevent duplicate
-   * starts of the same pending file.
+   * concurrency is saturated. Runs persistently and atomically sleeps when no
+   * work is available, avoiding the missed-wakeup race of the previous boolean
+   * guard.
    */
   private async _runDispatchLoop(): Promise<void> {
-    while (this.executingTasks.size < this.maxConcurrent && !this._shuttingDown) {
-      const pendingTasks = await this._getPendingTasks();
-      const task = pendingTasks.find(t => !this.executingTasks.has(t.id));
-      if (!task) break;
-
-      const abortController = new AbortController();
-
-      // Start the task (this will handle file move + execution)
-      const promise = this._startTask(task, abortController.signal);
-
-      // IMMEDIATELY occupy slot - critical to prevent race conditions
-      this.executingTasks.set(task.id, { abortController, promise });
+    while (!this._shuttingDown) {
+      // 调度所有可用任务
+      while (this.executingTasks.size < this.maxConcurrent && !this._shuttingDown) {
+        const pendingTasks = await this._getPendingTasks();
+        const task = pendingTasks.find(t => !this.executingTasks.has(t.id));
+        if (!task) break;
+        const abortController = new AbortController();
+        const promise = this._startTask(task, abortController.signal);
+        this.executingTasks.set(task.id, { abortController, promise });
+      }
+      if (this._shuttingDown) return;
+      // 原子化睡眠：注册 waiter + 检查 pending flag 在 Promise constructor 内同步完成
+      await new Promise<void>(r => {
+        this._wakeupResolve = r;
+        if (this._wakeupRequested) {
+          this._wakeupRequested = false;
+          r();
+        }
+      });
+      this._wakeupResolve = null;
     }
   }
 
@@ -568,9 +578,9 @@ export class AsyncTaskSystem {
       
 
     } finally {
-      // Remove from running and trigger next dispatch
+      // Remove from running and signal that a slot is free
       this.executingTasks.delete(task.id);
-      this._dispatch();
+      this._signalWork();
     }
   }
 
@@ -816,6 +826,7 @@ export class AsyncTaskSystem {
     // phase 546: 幂等 guard — disassemble 链 / 异常路径可能重入、防 abort 二次 + drain 重跑
     if (this._shuttingDown) return false;
     this._shuttingDown = true;
+    this._signalWork();
     // 顺序：先关 watcher（避免 shutdown 期间新事件进队）→ 旧 shutdown 流程
     await this.pendingWatcherHandle?.close();
     this.pendingWatcherHandle = undefined;
