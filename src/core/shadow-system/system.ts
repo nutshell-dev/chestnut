@@ -9,6 +9,7 @@ import { newShortUuid } from '../../foundation/node-utils/index.js';
 import type { ExecContext } from '../../foundation/tools/index.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { Message } from '../../foundation/llm-provider/index.js';
+import type { StreamLog } from '../../foundation/stream/types.js';
 
 import { TASKS_SYNC_SHADOW_DIR, SHADOW_DEFAULT_TIMEOUT_MS } from './constants.js';
 import { CALLER_TYPE_TO_GROUPS, callerTypeToProfile } from '../permissions/caller-types.js';
@@ -41,6 +42,8 @@ interface RunShadowOptions {
   /** DI seam: optional runSubagent override (replaces vi.mock pattern) */
   runSubagent?: typeof defaultRunSubagent;
   mode?: 'v1' | 'v2';
+  /** sync shadow 写 task_started 到主 stream，供 viewport 读取 */
+  streamLog?: StreamLog;
 }
 
 function findLastAssistantWithToolUse(messages: Message[], toolUseId: ToolUseId): number {
@@ -143,6 +146,19 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
   // shadow ctx 注入 isShadow=true（透传到所有工具 execute()）
   // shadow 用 full profile（C2 cache prefix 保护，mirror main agent 字节相同）
   try {
+    if (mode === 'v2') {
+      // Emit task_started so viewport can read shadow's stream
+      opts.ctx.fs.ensureDirSync(resultDir);
+      opts.streamLog?.write({
+        ts: Date.now(),
+        type: 'task_started',
+        taskId: shadowId,
+        callerType: 'shadow',
+        silent: true,
+        resultDir,
+      });
+    }
+
     const baseRegistry = opts.ctx.baseRegistry ?? opts.ctx.registry;
     if (!baseRegistry) {
       throw new Error('Tool registry not available in execution context');

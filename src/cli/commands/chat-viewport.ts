@@ -243,6 +243,8 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     stopTaskWatch,
     taskStatusBar,
     audit: options.audit,
+    sink: displayWithHolder.descriptorSink,
+    taskWatchMap,
   });
   // phase 367 step A: per-task lazy stale check 替原 60s setInterval sweep
   // 每个 task event 到达时检 tw.lastEventMs 是否过 TASK_STALE_TIMEOUT_MS、过则 cleanup

@@ -10,6 +10,7 @@
 import type { Tool, ExecContext } from '../../../foundation/tools/index.js';
 import type { ToolResult } from '../../../foundation/tool-protocol/index.js';
 import type { Message, ToolDefinition } from '../../../foundation/llm-provider/index.js';
+import type { StreamLog } from '../../../foundation/stream/types.js';
 import { runShadow } from '../system.js';
 import { runSubagent as defaultRunSubagent } from '../../subagent/index.js';
 import { SHADOW_AUDIT_EVENTS } from '../audit-events.js';
@@ -32,6 +33,8 @@ export function createShadowTool(deps: {
   taskSystem?: { schedule(kind: string, payload: Record<string, unknown>): Promise<string> };
   /** 同 daemon 内恒定的子代理步数上限（Assembly 从 config 注入） */
   subagentMaxSteps?: number;
+  /** sync shadow 写 task_started 到主 stream，viewport 可读取 shadow 子代理事件 */
+  streamLog?: StreamLog;
 }): Tool {
   return {
     name: SHADOW_TOOL_NAME,
@@ -120,6 +123,7 @@ export function createShadowTool(deps: {
           turnSnapshot: { systemPrompt, tools, messages },
           runSubagent: deps.runSubagent,
           mode: 'v2',
+          streamLog: deps.streamLog,
         });
       }
 
