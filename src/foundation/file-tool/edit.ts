@@ -54,7 +54,6 @@ function countMatches(s: string, pattern: string): number {
 export const editTool: Tool = {
   name: EDIT_TOOL_NAME,
   profiles: ['full', 'subagent', 'miner'],
-  group: 'fs-write',
   description: 'Edit a file by exact string replace. Path resolves against your clawspace; use "../" to access claw root (e.g. "../MEMORY.md"). oldText must uniquely match by default; set replaceAll=true for batch. File must exist (use write to create).',
   schema: defineFileToolSchema(EditInputSchema),
   readonly: false,

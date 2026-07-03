@@ -47,7 +47,6 @@ export function createStatusTool(
   return {
     name: STATUS_TOOL_NAME,
     profiles: ['full', 'readonly'],
-    group: 'status',
     description:
       'Get comprehensive status: Claw ID, profile, step count, active contract with full subtask list (id/description/status), tasks, storage (MEMORY.md, clawspace). Call at turn start to re-orient after restart.',
     schema: {
@@ -57,7 +56,6 @@ export function createStatusTool(
     },
     readonly: true,
     idempotent: true,
-    supportsAsync: false,
 
     async execute(_args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
       const lines = [

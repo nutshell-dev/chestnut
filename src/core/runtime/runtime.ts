@@ -213,7 +213,6 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
       clawDir: this.options.clawDir,
       syncDir: path.join(this.options.clawDir, TASKS_SYNC_DIR),
       profile: this.options.toolProfile ?? 'full',
-      allowedGroups: this.options.allowedGroups, // phase 785: injected by Assembly
       callerLabel: this.options.callerLabel, // phase 797: injected by Assembly
       permissionChecker: deps.permissionChecker,  // NEW phase 1273
       fs: this.systemFs,

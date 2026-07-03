@@ -13,7 +13,7 @@ import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import { TASKS_SYNC_SPAWN_DIR } from './constants.js';
 // phase 691 Step C: deep import dirs.ts leaf (避 barrel 触发已有 cycle / 同 verifier-job)
 import { TASKS_SYNC_DIR } from '../async-task-system/dirs.js';
-import { CALLER_TYPE_TO_GROUPS, callerTypeToProfile } from '../permissions/caller-types.js';
+import { callerTypeToProfile } from '../permissions/caller-types.js';
 import { runSubagent as defaultRunSubagent, createPerTaskRegistry, getDisplayResult } from '../subagent/index.js';
 
 import { SPAWN_AUDIT_EVENTS } from './audit-events.js';
@@ -59,7 +59,6 @@ export async function runSpawnSync(opts: RunSpawnSyncOptions): Promise<ToolResul
     const subagentImpl = opts.runSubagent ?? defaultRunSubagent;
     const { text, capturedResult } = await subagentImpl({
       agentId: id,
-      allowedGroups: CALLER_TYPE_TO_GROUPS['subagent'],
       toolProfile: callerTypeToProfile('subagent'),
       callerLabel: 'subagent',
       clawDir: opts.ctx.clawDir,

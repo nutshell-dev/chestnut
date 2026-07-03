@@ -50,7 +50,6 @@ export interface SubAgentOptions {
   maxConsecutiveParseErrors?: number;
   maxConsecutiveMaxTokensToolUse?: number;
   systemPrompt?: string;                    // 替换 run() 里硬编码的默认 system prompt
-  allowedGroups?: ReadonlySet<string>;   // caller 从 CALLER_TYPE_TO_GROUPS 查表后传入
   toolProfile?: ToolProfile;             // caller 从 callerTypeToProfile 计算后传入
   callerLabel?: string;                  // 替代 callerType 的 audit label 角色
   messages?: Message[];                      // 若提供，直接用；否则从 prompt 构建
@@ -79,7 +78,6 @@ export class SubAgent {
   private idleTimeoutMs?: number;
   private onIdleTimeout?: () => void;
   private systemPrompt?: string;
-  private allowedGroups?: ReadonlySet<string>;
   private toolProfile?: ToolProfile;
   private callerLabel?: string;
   private messages?: Message[];
@@ -111,7 +109,6 @@ export class SubAgent {
     this.idleTimeoutMs = options.idleTimeoutMs;
     this.onIdleTimeout = options.onIdleTimeout;
     this.systemPrompt = options.systemPrompt;
-    this.allowedGroups = options.allowedGroups;
     this.toolProfile = options.toolProfile;
     this.callerLabel = options.callerLabel;
     this.messages = options.messages;
@@ -226,7 +223,6 @@ export class SubAgent {
           ctx: executor.getExecContext(executorProfile, {
             clawId: this.agentId,
             signal: timeout.signal,
-            allowedGroups: this.allowedGroups ?? new Set(['fs-read', 'fs-write', 'exec', 'skill', 'messaging', 'memory', 'status', 'subagent-protocol']),
             callerLabel: this.callerLabel ?? 'subagent',
             permissionChecker: this.permissionChecker,
             subagentTaskId: this.agentId,

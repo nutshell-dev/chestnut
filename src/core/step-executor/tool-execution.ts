@@ -259,8 +259,7 @@ export async function executeSingleTool(
 
   try {
     // async is NOT a universal meta-parameter — some tools (spawn) use it as
-    // an internal parameter. Only readonly tools with supportsAsync use
-    // executor-level async dispatch, and they go through executeReadonlyAsync.
+    // an internal parameter.
     return await executor.execute({
       toolName: toolCall.name,
       args: toolCall.input,

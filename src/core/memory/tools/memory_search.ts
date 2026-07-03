@@ -23,7 +23,6 @@ const SEARCH_MAX_RESULTS_DEFAULT = 10;
 export const memorySearchTool: Tool = {
   name: MEMORY_SEARCH_TOOL_NAME,
   profiles: ['full', 'readonly', 'subagent', 'miner'],
-  group: 'memory',
   description: 'Full-text search across memory/ files. Supports keyword search, filename regex filtering, and frontmatter metadata filtering. At least one of query or filter is required.',
   schema: {
     type: 'object',
@@ -53,7 +52,6 @@ export const memorySearchTool: Tool = {
   },
   readonly: true,
   idempotent: true,
-  supportsAsync: true,
 
   async execute(args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
     // phase 1459 α-5: memory_search 真依赖仅 `ctx.fs` → `ExecutionInfra` 子接口 sufficient。

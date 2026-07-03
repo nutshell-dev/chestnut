@@ -35,7 +35,6 @@ import { createSendTool } from '../foundation/messaging/tools/send.js';
 import { MOTION_CLAW_ID } from '../core/claw-topology/index.js';
 import { createToolExecutor } from '../foundation/tools/index.js';
 import type { IToolExecutor } from '../foundation/tools/index.js';
-import { writePendingToolTaskFile } from '../core/async-task-system/index.js';
 import { createDialogStore, DIALOG_DIR, CURRENT_DIALOG_FILE } from '../foundation/dialog-store/index.js';
 import type { DialogStore } from '../foundation/dialog-store/index.js';
 import { createInboxReader } from '../foundation/messaging/index.js';
@@ -230,11 +229,7 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
 
   let toolExecutor: IToolExecutor;
   try {
-    toolExecutor = createToolExecutor(
-      toolRegistry,
-      toolTimeoutMs,
-      (args) => writePendingToolTaskFile(clawFs, auditWriter, args),
-    );
+    toolExecutor = createToolExecutor(toolRegistry, toolTimeoutMs);
   } catch (e) {
     auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=tool_executor`, `phase=construct`, `reason=${formatErr(e)}`);
     throw new Error(`Assembly: IToolExecutor construct failed: ${formatErr(e)}`, { cause: e });

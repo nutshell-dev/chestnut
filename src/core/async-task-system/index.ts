@@ -28,7 +28,6 @@ export {
   TASK_SNAPSHOT_IGNORE,  // phase 693 Step B
 } from './dirs.js';
 
-export { writePendingToolTaskFile } from './tools/_pending-tool-task-writer.js';
 export { classifyTaskError } from './_helpers.js';
 
 // phase 481: TASK_AUDIT_EVENTS barrel re-export

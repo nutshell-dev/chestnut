@@ -22,7 +22,6 @@ export function createSubmitSubtaskTool(contractManager: ContractSystem): Tool {
   return {
     name: SUBMIT_SUBTASK_TOOL_NAME,
     profiles: ['full'],
-    group: 'subagent-protocol',
     description: 'Mark a subtask as complete and submit it for verification. ' +
       'Verification runs asynchronously — the result (pass or reject) will be ' +
       'delivered to your inbox. Check inbox for feedback before proceeding.',

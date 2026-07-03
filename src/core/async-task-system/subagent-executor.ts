@@ -3,7 +3,7 @@ import type { AuditLog } from '../../foundation/audit/index.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import { type StreamLog, STREAM_FILE, createPerResourceStreamWriter } from '../../foundation/stream/index.js';
 import type { PermissionChecker } from '../../foundation/tool-protocol/index.js';
-import { CALLER_TYPE_TO_GROUPS, callerTypeToProfile } from '../permissions/caller-types.js';
+import { callerTypeToProfile } from '../permissions/caller-types.js';
 
 import type { ToolRegistry } from '../../foundation/tools/index.js';
 import { runSubagent as defaultRunSubagent, NoopAuditWriter, createPerTaskRegistry, DONE_TOOL_NAME, getDisplayResult } from '../subagent/index.js';
@@ -154,7 +154,6 @@ export async function executeSubAgentTask(
 
     const { text, capturedResult } = await (deps.runSubagent ?? defaultRunSubagent)({
       agentId: task.id,
-      allowedGroups: CALLER_TYPE_TO_GROUPS[task.callerType ?? 'subagent'],
       toolProfile: callerTypeToProfile(task.callerType ?? 'subagent'),
       callerLabel: task.callerType ?? 'subagent',
       clawDir,

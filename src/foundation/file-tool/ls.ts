@@ -28,12 +28,10 @@ type LsInput = z.infer<typeof LsInputSchema>;
 export const lsTool: Tool = {
   name: LS_TOOL_NAME,
   profiles: ['full', 'readonly', 'subagent', 'miner'],
-  group: 'fs-read',
   description: 'List files. Path resolves against your clawspace; use "../" to access claw root subdirs (e.g. "../memory").',
   schema: defineFileToolSchema(LsInputSchema),
   readonly: true,
   idempotent: true,
-  supportsAsync: false,
 
   async execute(rawArgs: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
     let args: LsInput;

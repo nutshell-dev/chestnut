@@ -70,7 +70,6 @@ export function createNotifyClawTool(deps: NotifyClawDeps): Tool {
     },
     readonly: false,
     idempotent: false,
-    group: 'messaging',
 
     async execute(args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
       // phase 1459 α-5: notify_claw 真依赖仅 `ctx.callerLabel` → `ToolPermissions` 子接口 sufficient（caller gate / D11）。

@@ -74,7 +74,6 @@ async function persistOverflow(ctx: ExecContext, output: string): Promise<string
 export const readTool: Tool = {
   name: READ_TOOL_NAME,
   profiles: ['full', 'readonly', 'subagent', 'miner'],
-  group: 'fs-read',
   description: [
     'Reads a file. Path resolves against your clawspace; use "../" to access claw root (e.g. "../MEMORY.md").',
     '',
@@ -89,7 +88,6 @@ export const readTool: Tool = {
   schema: defineFileToolSchema(ReadInputSchema),
   readonly: true,
   idempotent: true,
-  supportsAsync: false,
 
   async execute(rawArgs: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
     let args: ReadInput;

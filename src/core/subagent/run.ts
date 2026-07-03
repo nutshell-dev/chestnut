@@ -36,8 +36,7 @@ export interface RunSubagentOptions {
   // 标识
   agentId: string;
 
-  // 权限注入（caller 从 permissions 查表后传入）
-  allowedGroups?: ReadonlySet<string>;
+  // 权限注入（caller 计算后传入）
   toolProfile?: ToolProfile;
   callerLabel?: string;
 
@@ -141,7 +140,6 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
     signal: opts.signal,
     timeoutMs: opts.timeoutMs,
     toolsForLLM,
-    allowedGroups: opts.allowedGroups,
     toolProfile: opts.toolProfile,
     callerLabel: opts.callerLabel,
     onIdleTimeout: opts.onIdleTimeout,

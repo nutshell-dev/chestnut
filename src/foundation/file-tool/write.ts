@@ -40,7 +40,6 @@ type WriteInput = z.infer<typeof WriteInputSchema>;
 export const writeTool: Tool = {
   name: WRITE_TOOL_NAME,
   profiles: ['full', 'subagent', 'miner'],
-  group: 'fs-write',
   description: 'Write a file. Path resolves against your clawspace; use "../" to access claw root (e.g. "../MEMORY.md", "../memory/notes.md"). Set append: true to append. Overwrite (no append) requires a prior `read` that covered every current line of the file (no byte-cap truncation) and the file unchanged since that read.',
   schema: defineFileToolSchema(WriteInputSchema),
   readonly: false,

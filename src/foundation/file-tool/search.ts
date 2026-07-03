@@ -326,12 +326,10 @@ type SearchInput = z.infer<typeof SearchInputSchema>;
 export const searchTool: Tool = {
   name: SEARCH_TOOL_NAME,
   profiles: ['full', 'readonly', 'subagent', 'miner'],
-  group: 'fs-read',
   description: 'Search LOCAL files (not web/network) for literal text in filenames AND contents (unified). Returns segmented [Filename matches] / [Content matches] / [Skipped]. Case-insensitive by default, no regex/glob. Full scan with no result cap; first 20 returned as preview, overflow saved to tasks/sync/search/<uuid>.md. Default base: clawspace.',
   schema: defineFileToolSchema(SearchInputSchema),
   readonly: true,
   idempotent: true,
-  supportsAsync: true,
 
   async execute(rawArgs: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
     let args: SearchInput;

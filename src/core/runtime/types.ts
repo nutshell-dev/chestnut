@@ -115,9 +115,6 @@ export interface RuntimeOptions {
   /** phase 440：上下文管理器运行时配置（filterSubtypes 等） */
   contextManagerConfig?: ContextManagerRuntimeConfig;
 
-  /** phase 785: tool permission groups for this claw identity. Injected by Assembly. */
-  allowedGroups: ReadonlySet<string>;
-
   /** phase 797: opaque audit label for tool execution context. Injected by Assembly. */
   callerLabel: string;
 }

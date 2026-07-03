@@ -7,7 +7,6 @@
 
 import { newUuid } from '../../foundation/node-utils/index.js';
 
-import { CALLER_TYPE_TO_GROUPS } from '../permissions/caller-types.js';
 import * as path from 'path';
 
 import type { PermissionChecker } from '../../foundation/tool-protocol/index.js';
@@ -798,7 +797,6 @@ export class AsyncTaskSystem {
       clawDir: task.parentClawDir,
       workspaceDir: path.join(task.parentClawDir, CLAWSPACE_DIR),
       syncDir: path.join(task.parentClawDir, TASKS_SYNC_DIR),
-      allowedGroups: CALLER_TYPE_TO_GROUPS[task.callerType ?? 'claw'],
       callerLabel: task.callerType ?? 'claw',
       fs: this.fs,
       fsFactory: this.fsFactory,

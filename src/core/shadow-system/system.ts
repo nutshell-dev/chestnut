@@ -12,7 +12,7 @@ import type { Message } from '../../foundation/llm-provider/index.js';
 import type { StreamLog } from '../../foundation/stream/types.js';
 
 import { TASKS_SYNC_SHADOW_DIR, SHADOW_DEFAULT_TIMEOUT_MS } from './constants.js';
-import { CALLER_TYPE_TO_GROUPS, callerTypeToProfile } from '../permissions/caller-types.js';
+import { callerTypeToProfile } from '../permissions/caller-types.js';
 import { runSubagent as defaultRunSubagent, createPerTaskRegistry, getDisplayResult, DONE_TOOL_NAME } from '../subagent/index.js';
 
 import { SHADOW_AUDIT_EVENTS } from './audit-events.js';
@@ -171,7 +171,6 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
 
     const { text, capturedResult } = await (opts.runSubagent ?? defaultRunSubagent)({
       agentId: shadowId,
-      allowedGroups: CALLER_TYPE_TO_GROUPS['shadow'],
       toolProfile: callerTypeToProfile('shadow'),
       callerLabel: 'shadow',
       clawDir: opts.ctx.clawDir,

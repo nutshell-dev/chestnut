@@ -39,7 +39,6 @@ export function createShadowTool(deps: {
   return {
     name: SHADOW_TOOL_NAME,
     profiles: ['full'],
-    group: 'shadow',
     description: 'Branch your context to handle a task without polluting the main conversation. ' +
       'Your identity and conversation history are preserved. Only the final result ' +
       'is returned. Cannot be called from within another shadow (no recursion).',
