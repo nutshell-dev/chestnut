@@ -155,12 +155,27 @@ export function createEventHandler(deps: EventHandlerDeps) {
       }
 
       case 'tool_result': {
-        deps.mainUI.enterPhase('idle');
-        const icon = event.success ? '✓' : '✗';
-        const step = event.step ?? '?';
-        const maxSteps = event.maxSteps ?? '?';
-        deps.mainUI.clearPreview();
-        deps.sink.emit({ kind: 'text-line', color: '\x1b[2m', text: `  ${icon} [${step}/${maxSteps}] ${event.summary as string}` });
+        const eventName = String(event.name ?? '');
+        if (eventName.startsWith('shadow:')) {
+          // Shadow tool result — render line only, don't affect main agent phase
+          const icon = event.success ? '✓' : '✗';
+          deps.sink.emit({
+            kind: 'text-line',
+            color: '\x1b[2m',
+            text: `  ${icon} ${(event.summary as string) ?? ''}`,
+          });
+        } else {
+          deps.mainUI.enterPhase('idle');
+          const icon = event.success ? '✓' : '✗';
+          const step = event.step ?? '?';
+          const maxSteps = event.maxSteps ?? '?';
+          deps.mainUI.clearPreview();
+          deps.sink.emit({
+            kind: 'text-line',
+            color: '\x1b[2m',
+            text: `  ${icon} [${step}/${maxSteps}] ${event.summary as string}`,
+          });
+        }
         break;
       }
 

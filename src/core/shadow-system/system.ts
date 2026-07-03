@@ -154,11 +154,16 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
   try {
     if (mode === 'v2') {
       // Forward shadow stream events to main stream for viewport display.
-      // tool_call 加 shadow: 前缀；text_delta 透传；其余事件不转发以减少主 stream 噪声。
+      // tool_call 加 shadow: 前缀；tool_result 加 shadow:result 前缀；text_delta 透传；其余事件不转发以减少主 stream 噪声。
       forwardStream = opts.streamLog ? {
         write(event) {
           if (event.type === 'tool_call' && event.name) {
             opts.streamLog!.write({ ...event, name: `shadow:${String(event.name)}` });
+          } else if (event.type === 'tool_result') {
+            opts.streamLog!.write({
+              ...event,
+              name: `shadow:result`,
+            });
           } else if (event.type === 'text_delta') {
             opts.streamLog!.write(event);
           }
