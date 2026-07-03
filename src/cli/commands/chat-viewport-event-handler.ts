@@ -309,10 +309,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
           } catch { /* audit self-failure tolerated */ }
           break;
         }
-        const resultDir = event.resultDir as string | undefined;
-        const basePath = resultDir
-          ? path.join(deps.agentDir, resultDir)
-          : path.join(deps.agentDir, TASKS_QUEUES_RESULTS_DIR, taskId);
+        const basePath = path.join(deps.agentDir, TASKS_QUEUES_RESULTS_DIR, taskId);
         const { fs: taskFs } = createDirContext({ fsFactory: deps.fsFactory }, basePath);
         const taskReader = createStreamReader(taskFs, STREAM_FILE, (ev) => {
           const tw = deps.taskWatchMap.get(taskId);
