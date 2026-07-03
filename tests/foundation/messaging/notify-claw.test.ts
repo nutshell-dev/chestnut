@@ -48,7 +48,7 @@ const defaultDeps = {
     isClawAlive: () => true,
     clawExists: () => true,
     hasActiveContract: () => false,
-    defaultSource: 'motion', isCallerAuthorized: (label: string) => label === 'motion',
+    defaultSource: 'motion',
   };
 
   describe('schema + identity', () => {
@@ -74,7 +74,7 @@ const defaultDeps = {
     });
   });
 
-  const motionCtx = { callerLabel: 'motion' } as any;
+  const motionCtx = {} as any;
 
   describe('happy path cross-claw write', () => {
     it('default (omitted interrupt) → priority=high metadata + NOTIFY_CLAW_SENT audit (phase 1427: default=true)', async () => {

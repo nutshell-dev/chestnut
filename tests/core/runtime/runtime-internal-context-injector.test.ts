@@ -57,7 +57,6 @@ describe('Runtime internal ContextInjector + ExecContext self-construction (phas
   it('initializes contextInjector internally from deps.skillRegistry + contractManager + systemFs + auditWriter', async () => {
     const deps = await makeRuntimeDeps({ clawDir, clawId: 'test-claw' });
     const runtime = new Runtime({
-        callerLabel: 'claw',
       clawId: 'test-claw',
       clawDir,
       llmConfig: createMockLLMConfig(),
@@ -78,7 +77,6 @@ describe('Runtime internal ContextInjector + ExecContext self-construction (phas
   it('initializes execContext internally with correct clawId / clawDir / profile', async () => {
     const deps = await makeRuntimeDeps({ clawDir, clawId: 'test-claw' });
     const runtime = new Runtime({
-        callerLabel: 'claw',
       clawId: 'test-claw',
       clawDir,
       llmConfig: createMockLLMConfig(),
@@ -97,7 +95,6 @@ describe('Runtime internal ContextInjector + ExecContext self-construction (phas
   it('lazy-injects registry into execContext after initialize (phase 766)', async () => {
     const deps = await makeRuntimeDeps({ clawDir, clawId: 'test-claw' });
     const runtime = new Runtime({
-        callerLabel: 'claw',
       clawId: 'test-claw',
       clawDir,
       llmConfig: createMockLLMConfig(),
@@ -120,7 +117,6 @@ describe('Runtime internal ContextInjector + ExecContext self-construction (phas
 
     // Runtime should still initialize fine
     const runtime = new Runtime({
-        callerLabel: 'claw',
       clawId: 'test-claw',
       clawDir,
       llmConfig: createMockLLMConfig(),

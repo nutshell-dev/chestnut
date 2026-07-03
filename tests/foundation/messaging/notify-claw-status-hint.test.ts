@@ -23,7 +23,7 @@ describe('notify_claw tool status hint (phase 232)', () => {
   let fs: NodeFileSystem;
   let audit: ReturnType<typeof makeAudit>;
   const targetClaw = 'worker-1';
-  const motionCtx = { callerLabel: 'motion' } as any;
+  const motionCtx = {} as any;
 
   beforeEach(async () => {
     tempDir = await createTempDir();
@@ -40,7 +40,7 @@ describe('notify_claw tool status hint (phase 232)', () => {
     formatClawStatusHint,
     clawExists: () => true,
     hasActiveContract: () => false,
-    defaultSource: 'motion', isCallerAuthorized: (label: string) => label === 'motion',
+    defaultSource: 'motion',
   };
 
   function makeTool(auditLog: any, overrides: Record<string, unknown> = {}) {

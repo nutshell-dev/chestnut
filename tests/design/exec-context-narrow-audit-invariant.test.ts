@@ -19,7 +19,7 @@ const D1_FIELDS = new Set([
 ]);
 /** D2 ToolPermissions */
 const D2_FIELDS = new Set([
-  'profile', 'callerLabel', 'permissionChecker',
+  'profile', 'permissionChecker',
 ]);
 /** D3 ExecutionInfra */
 const D3_FIELDS = new Set([
@@ -35,12 +35,16 @@ const D5_FIELDS = new Set([
   'auditWriter', 'currentToolUseId', 'trace_id', 'readFileState', 'persistReadFileState', 'getCallerSnapshot', 'subagentTaskId',
 ]);
 
+/** Phase 807 transitional: callerLabel removed from ExecContext but still referenced in comments. */
+const TRANSITIONAL_FIELDS = new Set(['callerLabel']);
+
 function classifyField(field: string): string {
   if (D1_FIELDS.has(field)) return 'D1.ClawIdentity';
   if (D2_FIELDS.has(field)) return 'D2.ToolPermissions';
   if (D3_FIELDS.has(field)) return 'D3.ExecutionInfra';
   if (D4_FIELDS.has(field)) return 'D4.ExecutionControl';
   if (D5_FIELDS.has(field)) return 'D5.ExecutionAudit';
+  if (TRANSITIONAL_FIELDS.has(field)) return 'Transitional';
   return 'Unknown';
 }
 

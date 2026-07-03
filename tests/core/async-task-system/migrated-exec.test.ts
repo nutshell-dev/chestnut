@@ -240,7 +240,7 @@ describe('createAsyncExecWrapper', () => {
       softTimeoutMs: 100,
     });
 
-    const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir, callerLabel: 'claw' });
+    const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
     const result = await tool.execute({ command: 'sleep 0.5 && echo done' }, ctx);
 
     expect(result.success).toBe(true);
@@ -277,7 +277,7 @@ describe('createAsyncExecWrapper', () => {
 
     // Produce 20 lines over ~2s; migration should fire around line 5.
     const command = 'for i in $(seq 1 20); do echo "line $i"; sleep 0.1; done';
-    const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir, callerLabel: 'claw' });
+    const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
     const result = await tool.execute({ command }, ctx);
 
     expect(result.success).toBe(true);
@@ -301,7 +301,7 @@ describe('createAsyncExecWrapper', () => {
       softTimeoutMs: 100,
     });
 
-    const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir, callerLabel: 'claw' });
+    const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
     const result = await tool.execute({ command: 'echo before && sleep 0.5 && echo after' }, ctx);
 
     expect(result.success).toBe(true);
@@ -323,7 +323,7 @@ describe('createAsyncExecWrapper', () => {
       softTimeoutMs: 100,
     });
 
-    const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir, callerLabel: 'claw' });
+    const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
     const result = await tool.execute({ command: 'echo partial && sleep 0.3 && exit 1' }, ctx);
 
     expect(result.success).toBe(true);
@@ -385,7 +385,7 @@ describe('createAsyncExecWrapper', () => {
     });
 
     const controller = new AbortController();
-    const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir, callerLabel: 'claw', signal: controller.signal });
+    const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir, signal: controller.signal });
 
     const result = await tool.execute({ command: 'sleep 0.8 && echo survived' }, ctx);
     expect(result.success).toBe(true);
@@ -420,7 +420,7 @@ describe('createAsyncExecWrapper', () => {
     });
 
     const controller = new AbortController();
-    const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir, callerLabel: 'claw', signal: controller.signal });
+    const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir, signal: controller.signal });
 
     const execPromise = tool.execute({ command: 'sleep 5' }, ctx);
     // Give spawn a moment to start before aborting.
@@ -497,7 +497,7 @@ describe('timeoutMs dual-mode (Phase 776)', () => {
       softTimeoutMs: 100,
     });
 
-    const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir, callerLabel: 'claw' });
+    const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
     const result = await tool.execute({ command: 'sleep 0.5 && echo done' }, ctx);
 
     expect(result.success).toBe(true);
@@ -607,7 +607,7 @@ describe('migrated process hard timeout (Phase 777)', () => {
       migratedHardTimeoutMs: 500,
     });
 
-    const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir, callerLabel: 'claw' });
+    const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
     const result = await tool.execute({ command: 'while true; do echo tick; sleep 0.05; done' }, ctx);
 
     expect(result.success).toBe(true);
@@ -640,7 +640,7 @@ describe('migrated process hard timeout (Phase 777)', () => {
       migratedHardTimeoutMs: 5000,
     });
 
-    const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir, callerLabel: 'claw' });
+    const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
     const result = await tool.execute({ command: 'sleep 0.2 && echo done' }, ctx);
 
     expect(result.success).toBe(true);
@@ -664,7 +664,7 @@ describe('migrated process hard timeout (Phase 777)', () => {
       migratedHardTimeoutMs: 5000,
     });
 
-    const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir, callerLabel: 'claw' });
+    const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
     const result = await tool.execute({ command: 'sleep 0.12 && echo quick' }, ctx);
 
     expect(result.success).toBe(true);

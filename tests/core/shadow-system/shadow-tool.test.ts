@@ -4,7 +4,7 @@
  *
  * Coverage:
  * - missing task validation (V1)
- * - recursion rejection (ctx.callerLabel === 'shadow')
+ * - recursion rejection (restricted instance allowRecursion=false)
  * - missing main context (no in-memory dialog state) (V1)
  * - shadow path via runShadow (V1/V2)
  * - spawn async=true rejected from within shadow (phase 766 defense)
@@ -132,18 +132,17 @@ describe('shadow tool (phase 767)', () => {
     }
 
     describe('recursion defense', () => {
-      it('rejects when ctx.callerLabel is shadow', async () => {
-        const shadowCtx = new ExecContextImpl({
-          clawId: 'shadow-claw',
-          clawDir: tempDir,
-          syncDir: path.join(tempDir, 'tasks', 'sync'),
-          profile: 'full',
-          fs,
-          auditWriter: audit.audit,
-          callerLabel: 'shadow',
+      it('rejects when restricted instance has allowRecursion=false', async () => {
+        const restrictedShadowTool = createShadowTool({
+          getTurnSnapshot: () => ({
+            systemPrompt: 'sp',
+            tools: [] as ToolDefinition[],
+            messages: [],
+          }),
+          allowRecursion: false,
         });
 
-        const result = await shadowTool.execute({ task: 'test' }, shadowCtx);
+        const result = await restrictedShadowTool.execute({ task: 'test' }, baseCtx);
 
         expect(result.success).toBe(false);
         expect(result.error).toBe('shadow_recursion_rejected');
@@ -267,19 +266,10 @@ describe('shadow tool (phase 767)', () => {
     });
 
     describe('summon-from-shadow defense (phase 767)', () => {
-      it('rejects summon when ctx.callerLabel is shadow', async () => {
-        const summonTool = new SummonTool();
-        const shadowCtx = new ExecContextImpl({
-          clawId: 'shadow-claw',
-          clawDir: tempDir,
-          syncDir: path.join(tempDir, 'tasks', 'sync'),
-          profile: 'full',
-          fs,
-          auditWriter: audit.audit,
-          callerLabel: 'shadow',
-        });
+      it('rejects summon when restricted instance has allowFromShadow=false', async () => {
+        const summonTool = new SummonTool(undefined, undefined, undefined, false);
 
-        const result = await summonTool.execute({ goal: 'test' }, shadowCtx);
+        const result = await summonTool.execute({ goal: 'test' }, baseCtx);
 
         expect(result.success).toBe(false);
         expect(result.error).toBe('shadow_summon_rejected');
@@ -287,14 +277,14 @@ describe('shadow tool (phase 767)', () => {
       });
     });
 
-    describe('callerType and profile alignment (phase 787)', () => {
-      it('passes callerLabel=shadow and toolProfile=full to runSubagent', async () => {
+    describe('callerType and profile alignment (phase 787 / phase 807)', () => {
+      it('passes toolProfile=full to runSubagent and does not pass callerLabel', async () => {
         mockRunSubagent.mockResolvedValue({ text: 'shadow ok' });
 
         await shadowTool.execute({ task: 'profile alignment', async: false }, baseCtx);
 
         const callArgs = mockRunSubagent.mock.calls[0][0];
-        expect(callArgs.callerLabel).toBe('shadow');
+        expect(callArgs.callerLabel).toBeUndefined();
         expect(callArgs.toolProfile).toBe('full');
       });
     });

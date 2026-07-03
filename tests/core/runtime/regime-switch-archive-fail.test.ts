@@ -32,7 +32,6 @@ describe('regime switch archive hard fail (phase 1373 sub-2)', () => {
 
   function makeRuntime(): Runtime {
     return new Runtime({
-        callerLabel: 'claw',
       clawId: 'test-claw',
       clawDir: '/tmp/test',
       llmConfig: {} as any,

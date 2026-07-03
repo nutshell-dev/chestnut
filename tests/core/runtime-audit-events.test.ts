@@ -100,7 +100,6 @@ describe('Runtime audit events', () => {
       vi.spyOn(deps.snapshot, 'commit').mockRejectedValue(new Error('injected fs error'));
 
       const runtime = new Runtime({
-        callerLabel: 'claw',
         clawId: 'repair-claw',
         clawDir: clawSubDir,
         llmConfig: createMockLLMConfig(),
@@ -136,7 +135,6 @@ describe('Runtime audit events', () => {
       } as any);
 
       const runtime = new Runtime({
-        callerLabel: 'claw',
         clawId: 'repair-claw',
         clawDir: clawSubDir,
         llmConfig: createMockLLMConfig(),

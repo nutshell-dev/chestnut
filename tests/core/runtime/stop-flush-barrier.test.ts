@@ -28,7 +28,6 @@ describe('runtime.stop flush barrier (phase 1024 G.3)', () => {
   function makeRuntime(mockDialogStore: DialogStore): Runtime {
     const { audit } = makeAudit();
     const runtime = new Runtime({
-        callerLabel: 'claw',
       clawId: 'test-claw',
       clawDir: '/tmp/test',
       llmConfig: {} as any,

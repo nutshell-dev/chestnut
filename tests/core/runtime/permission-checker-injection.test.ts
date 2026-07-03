@@ -37,7 +37,6 @@ describe('phase 1273: permissionChecker injected into main runtime ExecContext',
       llmConfig: createMockLLMConfig(),
     });
     const runtime = new Runtime({
-        callerLabel: 'claw',
       clawId: 'test-claw',
       clawDir,
       llmConfig: createMockLLMConfig(),
@@ -61,7 +60,6 @@ describe('phase 1273: permissionChecker injected into main runtime ExecContext',
       llmConfig: createMockLLMConfig(),
     });
     const runtime = new Runtime({
-        callerLabel: 'claw',
       clawId: 'test-claw',
       clawDir,
       llmConfig: createMockLLMConfig(),

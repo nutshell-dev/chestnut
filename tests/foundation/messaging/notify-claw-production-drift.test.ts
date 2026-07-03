@@ -44,14 +44,14 @@ describe('notify_claw production drift regression (phase 1021)', () => {
       isClawAlive: () => true,
       clawExists: () => { throw new Error('drift detected'); },
       hasActiveContract: () => false,
-      defaultSource: 'motion', isCallerAuthorized: (label: string) => label === 'motion',
+      defaultSource: 'motion',
       fs: correctFs,
       notifyClaw: (targetClawId, message) => routeNotifyClaw(correctFs, chestnutDir, 'motion', targetClawId, message, audit.audit),
       audit: audit.audit,
     });
 
     await expect(
-      tool.execute({ to: 'worker-1', body: 'hello' }, { callerLabel: 'motion' } as any)
+      tool.execute({ to: 'worker-1', body: 'hello' }, {} as any)
     ).rejects.toThrow(/drift detected/);
 
     // NOTIFY_CLAW_FAILED audit 0 emit (throw 在 try 之外)
@@ -75,12 +75,11 @@ describe('notify_claw production drift regression (phase 1021)', () => {
       clawExists: () => true,
       hasActiveContract: () => false,
       defaultSource: 'motion',
-      isCallerAuthorized: (label: string) => label === 'motion',
       fs: correctFs,
       notifyClaw: (targetClawId, message) => routeNotifyClaw(correctFs, chestnutDir, 'motion', targetClawId, message, audit.audit),
       audit: audit.audit,
     });
-    const result = await tool.execute({ to: 'worker-1', body: 'hello' }, { callerLabel: 'motion' } as any);
+    const result = await tool.execute({ to: 'worker-1', body: 'hello' }, {} as any);
 
     expect(result.success).toBe(true);
     const sentRows = audit.events.filter(r => r[0] === MESSAGING_AUDIT_EVENTS.NOTIFY_CLAW_SENT);
@@ -101,12 +100,11 @@ describe('notify_claw production drift regression (phase 1021)', () => {
       clawExists: () => false,
       hasActiveContract: () => false,
       defaultSource: 'motion',
-      isCallerAuthorized: (label: string) => label === 'motion',
       fs: correctFs,
       notifyClaw: (targetClawId, message) => routeNotifyClaw(correctFs, chestnutDir, 'motion', targetClawId, message, audit.audit),
       audit: audit.audit,
     });
-    const result = await tool.execute({ to: 'worker-1', body: 'hello' }, { callerLabel: 'motion' } as any);
+    const result = await tool.execute({ to: 'worker-1', body: 'hello' }, {} as any);
 
     expect(result.success).toBe(false);
     expect(result.content).toBe('Failed to notify worker-1: claw "worker-1" does not exist');

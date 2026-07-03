@@ -195,7 +195,6 @@ describe('Tools', () => {
         clawId: 'test',
         clawDir: '/test',
         profile: 'full',
-        callerLabel: 'claw',
         fs: mockFs,
       });
 
@@ -225,7 +224,6 @@ describe('Tools', () => {
         clawId: 'test',
         clawDir: '/test',
         profile: 'full',
-        callerLabel: 'claw',
         fs: mockFs,
       });
 
@@ -253,7 +251,6 @@ describe('Tools', () => {
         clawId: 'test',
         clawDir: '/test',
         profile: 'full',
-        callerLabel: 'claw',
         fs: mockFs,
       });
 
@@ -293,7 +290,6 @@ describe('Tools', () => {
         clawId: 'test',
         clawDir: '/test',
         profile: 'full',
-        callerLabel: 'claw',
         fs: mockFs,
       });
 
@@ -323,7 +319,6 @@ describe('Tools', () => {
         clawId: 'test',
         clawDir: '/test',
         profile: 'full',
-        callerLabel: 'claw',
         fs: mockFs,
       });
 
@@ -387,7 +382,6 @@ describe('Tools', () => {
         clawId: 'test',
         clawDir: '/test',
         profile: 'full',
-        callerLabel: 'claw',
         fs: mockFs,
       });
 
@@ -431,7 +425,6 @@ describe('Tools', () => {
         clawId: 'test',
         clawDir: '/test',
         profile: 'full',
-        callerLabel: 'claw',
         fs: mockFs,
       });
 
@@ -465,7 +458,6 @@ describe('Tools', () => {
         clawId: 'test',
         clawDir: '/test',
         profile: 'full',
-        callerLabel: 'claw',
         fs: mockFs,
       });
 

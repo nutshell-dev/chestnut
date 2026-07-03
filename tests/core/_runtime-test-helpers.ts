@@ -47,7 +47,6 @@ export async function createTestRuntime(options: {
   });
   return new Runtime({
     ...options,
-    callerLabel: options.callerLabel ?? options.clawId ?? 'claw',
     dependencies: deps,
   });
 }

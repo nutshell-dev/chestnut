@@ -1,9 +1,9 @@
 /**
- * Phase 1411 (reframe of phase 1409) — summon REJECTED_SHADOW audit emit reverse.
+ * Phase 1411 (reframe of phase 1409) / phase 807 DI — summon REJECTED_SHADOW audit emit reverse.
  *
  * Verifies:
- * - ctx.callerLabel='shadow' → emits `summon_rejected_shadow` + returns success:false
- * - ctx.callerLabel≠'shadow' → no REJECTED_SHADOW emit
+ * - SummonTool with allowFromShadow=false → emits `summon_rejected_shadow` + returns success:false
+ * - SummonTool with allowFromShadow=true → no REJECTED_SHADOW emit
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'path';
@@ -39,30 +39,30 @@ describe('Phase 1411 — summon_rejected_shadow audit emit', () => {
     await fs.rm(tempDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
-  function makeCtx(opts: { callerLabel: string; toolUseId?: string }): any {
+  function makeCtx(opts: { allowFromShadow: boolean; toolUseId?: string }): any {
     const auditWriter = { write: auditWrite , preview: (s: string) => s, message: (s: string) => s, summary: (s: string) => s} as any;
     const ctx = new ExecContextImpl({
       clawId: 'test-claw',
       clawDir: tempDir,
+      syncDir: path.join(tempDir, 'tasks', 'sync'),
       profile: 'full',
-      callerType: 'claw',
       fs: mockFs,
       llm: {} as unknown as LLMOrchestrator,
       auditWriter,
       currentToolUseId: opts.toolUseId ?? 'toolu_reject_test',
-      callerLabel: opts.callerLabel,
       getCallerSnapshot: async () => ({
         systemPrompt: 'p',
         tools: [],
         messages: [{ role: 'user', content: 'test' }],
       }),
-    } as any);
-    const tool = new SummonTool(createMockTaskSystem(mockFs, auditWriter));
+    });
+    const taskSystem = createMockTaskSystem(mockFs, auditWriter);
+    const tool = new SummonTool(taskSystem, undefined, undefined, opts.allowFromShadow);
     return { ctx, tool };
   }
 
-  it('reverse 1 — ctx.callerLabel=shadow emits REJECTED_SHADOW + returns success:false', async () => {
-    const { ctx, tool } = makeCtx({ callerLabel: 'shadow' });
+  it('reverse 1 — allowFromShadow=false emits REJECTED_SHADOW + returns success:false', async () => {
+    const { ctx, tool } = makeCtx({ allowFromShadow: false });
     const result = await tool.execute({ goal: 'test' }, ctx);
 
     expect(result.success).toBe(false);
@@ -78,8 +78,8 @@ describe('Phase 1411 — summon_rejected_shadow audit emit', () => {
     expect(cols).toContain('reason=shadow_call_orphan_async_routing');
   });
 
-  it('reverse 2 — ctx.callerLabel=claw → no REJECTED_SHADOW emit', async () => {
-    const { ctx, tool } = makeCtx({ callerLabel: 'claw' });
+  it('reverse 2 — allowFromShadow=true → no REJECTED_SHADOW emit', async () => {
+    const { ctx, tool } = makeCtx({ allowFromShadow: true });
     const result = await tool.execute({ goal: 'test' }, ctx);
 
     expect(result.success).toBe(true);

@@ -6,8 +6,8 @@
  * - async default behavior (undefined → async path)
  * - async=true explicit (same as default)
  * - async=false → sync path via runSpawnSync
- * - shadow defense: callerLabel === 'shadow' + async=true → reject
- * - shadow defense: callerLabel === 'shadow' + async=false → passes to sync path
+ * - shadow defense: restricted spawn instance allowAsync=false + async=true → reject
+ * - shadow defense: restricted spawn instance allowAsync=false + async=false → passes to sync path
  * - sync path audit events (SYNC_STARTED, SYNC_FINISHED)
  * - sync path failure audit (SYNC_FAILED)
  */
@@ -213,20 +213,9 @@ describe('spawn tool sync path (phase 766)', () => {
   });
 
   describe('shadow defense', () => {
-    it('rejects spawn with async=true when ctx.callerLabel is shadow', async () => {
-      const shadowCtx = new ExecContextImpl({
-        clawId: 'shadow-claw',
-        clawDir: tempDir,
-        syncDir: path.join(tempDir, 'tasks', 'sync'),
-        profile: 'full',
-        fs,
-        auditWriter: audit.audit,
-        llm: makeLLM(),
-        registry: makeRegistry(),
-        callerLabel: 'shadow',
-      });
-
-      const result = await spawnToolWithTaskSystem.execute({ intent: 'test', async: true }, shadowCtx);
+    it('rejects spawn with async=true when restricted instance has allowAsync=false', async () => {
+      const restrictedSpawnTool = createSpawnTool({ taskSystem, allowAsync: false });
+      const result = await restrictedSpawnTool.execute({ intent: 'test', async: true }, baseCtx);
 
       expect(result.success).toBe(false);
       expect(result.error).toBe('shadow_async_spawn_rejected');
@@ -234,22 +223,11 @@ describe('spawn tool sync path (phase 766)', () => {
       expect(mockRunSubagent).not.toHaveBeenCalled();
     });
 
-    it('allows spawn with async=false when ctx.callerLabel is shadow', async () => {
+    it('allows spawn with async=false when restricted instance has allowAsync=false', async () => {
       mockRunSubagent.mockResolvedValue({ text: 'shadow sync result' });
 
-      const shadowCtx = new ExecContextImpl({
-        clawId: 'shadow-claw',
-        clawDir: tempDir,
-        syncDir: path.join(tempDir, 'tasks', 'sync'),
-        profile: 'full',
-        fs,
-        auditWriter: audit.audit,
-        llm: makeLLM(),
-        registry: makeRegistry(),
-        callerLabel: 'shadow',
-      });
-
-      const result = await testSpawnTool.execute({ intent: 'test', async: false }, shadowCtx);
+      const restrictedSpawnTool = createSpawnTool({ runSubagent: mockRunSubagent, allowAsync: false });
+      const result = await restrictedSpawnTool.execute({ intent: 'test', async: false }, baseCtx);
 
       expect(result.success).toBe(true);
       expect(result.content).toBe('shadow sync result');

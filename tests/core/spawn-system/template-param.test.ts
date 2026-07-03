@@ -175,22 +175,12 @@ describe('spawn tool template param (phase 11)', () => {
   });
 
   describe('shadow defense order vs template', () => {
-    it("shadow + async=true reject 优先于 unknown template reject", async () => {
-      const shadowCtx = new ExecContextImpl({
-        clawId: 'shadow-claw',
-        clawDir: tempDir,
-        syncDir: path.join(tempDir, 'tasks', 'sync'),
-        profile: 'full',
-        fs,
-        auditWriter: audit.audit,
-        llm: makeLLM(),
-        registry: makeRegistry(),
-        callerLabel: 'shadow',
-      });
+    it("restricted allowAsync=false + async=true reject 优先于 unknown template reject", async () => {
+      const restrictedSpawnTool = createSpawnTool({ taskSystem, allowAsync: false });
 
-      const result = await spawnToolWithTaskSystem.execute(
+      const result = await restrictedSpawnTool.execute(
         { intent: 'test', async: true, template: 'nonexistent' },
-        shadowCtx,
+        baseCtx,
       );
 
       expect(result.success).toBe(false);

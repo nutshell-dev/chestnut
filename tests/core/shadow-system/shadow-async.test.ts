@@ -217,18 +217,19 @@ describe('shadow tool async (phase 1087)', () => {
   });
 
   describe('recursion defense', () => {
-    it('rejects when ctx.callerLabel is shadow even for async', async () => {
-      const shadowCtx = new ExecContextImpl({
-        clawId: 'shadow-claw',
-        clawDir: tempDir,
-        syncDir: path.join(tempDir, 'tasks', 'sync'),
-        profile: 'full',
-        fs,
-        auditWriter: audit.audit,
-        callerLabel: 'shadow',
+    it('rejects when restricted instance has allowRecursion=false even for async', async () => {
+      const restrictedShadowTool = createShadowTool({
+        getTurnSnapshot: () => ({
+          systemPrompt: 'test-system-prompt',
+          tools: [] as ToolDefinition[],
+          messages: [],
+        }),
+        runSubagent: mockRunSubagent,
+        taskSystem,
+        allowRecursion: false,
       });
 
-      const result = await shadowTool.execute({ task: 'test' }, shadowCtx);
+      const result = await restrictedShadowTool.execute({ task: 'test', async: true }, baseCtx);
       // NOTE: recursion defense happens before getTurnSnapshot is called
 
       expect(result.success).toBe(false);

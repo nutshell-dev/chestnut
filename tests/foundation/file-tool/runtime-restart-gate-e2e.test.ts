@@ -45,7 +45,6 @@ async function makeCtx(clawDir: string, persist: boolean): Promise<E2eCtx> {
     clawDir,
     syncDir: path.join(clawDir, 'tasks', 'sync'),
     profile: 'full',
-    callerLabel: 'claw',
     fs: nfs,
     fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
     permissionChecker: createClawPermissionChecker({ clawDir, strict: true }),

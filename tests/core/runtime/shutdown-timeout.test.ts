@@ -45,7 +45,6 @@ describe('runtime.stop shutdown timeout (phase 1332 N4)', () => {
     } as unknown as DialogStore;
 
     const runtime = new Runtime({
-        callerLabel: 'claw',
       clawId: 'test-claw',
       clawDir: '/tmp/test',
       llmConfig: {} as any,

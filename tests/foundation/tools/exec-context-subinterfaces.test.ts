@@ -35,7 +35,7 @@ describe('phase 1459 ExecContext ISP α-1 decomposition', () => {
       clawsDir: path.join(tempDir, 'claws'),
       syncDir: tempDir,
       profile: 'full',
-      callerLabel: 'test',
+
       fs: mockFs,
     });
   }
@@ -50,7 +50,7 @@ describe('phase 1459 ExecContext ISP α-1 decomposition', () => {
     const ctx = await makeCtx();
     const perm: ToolPermissions = ctx;
     expect(perm.profile).toBe('full');
-    expect(perm.callerLabel).toBe('test');
+    expect(perm).not.toHaveProperty('callerLabel');
   });
 
   it('(3) ExecContextImpl is assignable to ExecutionInfra', async () => {
