@@ -391,6 +391,9 @@ describe('AsyncTaskSystem Tool Tasks', () => {
         moveSync: (from: string, to: string) => fsSync.renameSync(path.join(testClawDir, from), path.join(testClawDir, to)),
       } as any;
 
+      // Stop the primary taskSystem before spinning up a secondary instance on the same clawDir,
+      // so its dispatch loop does not race to ingest taskSystem2's pending task files.
+      await taskSystem.shutdown(1).catch(() => {});
       const taskSystem2 = new AsyncTaskSystem(testClawDir, failingInboxFs, { maxConcurrent: TEST_MAX_CONCURRENT, retryBaseDelayMs: TEST_RETRY_BASE_DELAY_MS, auditWriter: makeAudit().audit, ...makeTaskSystemDeps() });
       await taskSystem2.initialize();
       taskSystem2.startDispatch();
@@ -1280,6 +1283,9 @@ describe('AsyncTaskSystem Tool Tasks', () => {
       };
 
       const taskSystem2Audit = makeAudit();
+      // Stop the primary taskSystem before spinning up a secondary instance on the same clawDir,
+      // so its dispatch loop does not race to ingest taskSystem2's pending task files.
+      await taskSystem.shutdown(1).catch(() => {});
       const taskSystem2 = new AsyncTaskSystem(testClawDir, limitedFs as any, { maxConcurrent: TEST_MAX_CONCURRENT, retryBaseDelayMs: TEST_RETRY_BASE_DELAY_MS, auditWriter: taskSystem2Audit.audit, ...makeTaskSystemDeps() });
       await taskSystem2.initialize();
       taskSystem2.startDispatch();
