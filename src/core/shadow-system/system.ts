@@ -175,6 +175,9 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
     if (!baseRegistry) {
       throw new Error('Tool registry not available in execution context');
     }
+    if (!opts.ctx.registry) {
+      throw new Error('Main tool registry not available in execution context');
+    }
     if (!opts.ctx.llm) {
       throw new Error('LLM not available in execution context');
     }
@@ -183,11 +186,13 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
 
     // Phase 807: 覆盖 shadow registry 中的限制版工具，ToolDefinition 不变、KV cache 命中。
     // 通过 clone + 改 DI 属性实现；execute 内读取 this.DI_FIELD。
-    overrideRestrictedTool(shadowRegistry, baseRegistry, SHADOW_TOOL_NAME, { allowRecursion: false });
-    overrideRestrictedTool(shadowRegistry, baseRegistry, SPAWN_TOOL_NAME, { allowAsync: false });
-    overrideRestrictedTool(shadowRegistry, baseRegistry, SUMMON_TOOL_NAME, { allowFromShadow: false });
-    overrideRestrictedTool(shadowRegistry, baseRegistry, NOTIFY_CLAW_TOOL_NAME, { authorized: false });
-    overrideRestrictedTool(shadowRegistry, baseRegistry, EXEC_TOOL_NAME, { callerType: 'shadow' });
+    // Phase 811: 从 mainRegistry 取受限工具（baseRegistry 只含基础工具）
+    const mainRegistry = opts.ctx.registry;
+    overrideRestrictedTool(shadowRegistry, mainRegistry, SHADOW_TOOL_NAME, { allowRecursion: false });
+    overrideRestrictedTool(shadowRegistry, mainRegistry, SPAWN_TOOL_NAME, { allowAsync: false });
+    overrideRestrictedTool(shadowRegistry, mainRegistry, SUMMON_TOOL_NAME, { allowFromShadow: false });
+    overrideRestrictedTool(shadowRegistry, mainRegistry, NOTIFY_CLAW_TOOL_NAME, { authorized: false });
+    overrideRestrictedTool(shadowRegistry, mainRegistry, EXEC_TOOL_NAME, { callerType: 'shadow' });
 
     const { text, capturedResult } = await (opts.runSubagent ?? defaultRunSubagent)({
       agentId: shadowId,
