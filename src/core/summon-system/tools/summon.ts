@@ -222,6 +222,7 @@ export class SummonTool implements Tool {
       idleTimeoutMs,
       postProcessor: SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME,
       shadowIdPrefix: 'summon',
+      mode: 'v1',  // summon 固定 V1
       summonDecision: {
         schema_version: 1,
         mode: 'shadow',

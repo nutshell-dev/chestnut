@@ -1,14 +1,17 @@
 /**
  * shadow tool integration tests (phase 767)
+ * phase 800: V1/V2 参数化
  *
  * Coverage:
- * - missing task validation
+ * - missing task validation (V1)
  * - recursion rejection (ctx.callerLabel === 'shadow')
- * - missing main context (no in-memory dialog state)
- * - shadow path via runShadow
+ * - missing main context (no in-memory dialog state) (V1)
+ * - shadow path via runShadow (V1/V2)
  * - spawn async=true rejected from within shadow (phase 766 defense)
  * - summon rejected from within shadow (phase 767 defense、phase 1119 renamed dispatch → summon)
  * - failure returns tool_result with error metadata
+ * - V2 sync: retains shadow() tool_use, synthetic tool_result, done result direct return
+ * - V2 async: returns error
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -107,206 +110,270 @@ describe('shadow tool (phase 767)', () => {
     await cleanupTempDir(tempDir);
   });
 
-  describe('input validation', () => {
-    it('rejects when task is missing', async () => {
-      const result = await shadowTool.execute({}, baseCtx);
-      expect(result.success).toBe(false);
-      expect(result.error).toBe('missing_task');
-      expect(mockRunSubagent).not.toHaveBeenCalled();
+  describe.each([
+    { mode: 'v1', useV1: true },
+    { mode: 'v2', useV1: false },
+  ])('($mode)', ({ useV1 }) => {
+    beforeEach(() => {
+      if (useV1) process.env.CHESTNUT_SHADOW_V1 = '1';
+      else delete process.env.CHESTNUT_SHADOW_V1;
     });
-  });
+    afterEach(() => { delete process.env.CHESTNUT_SHADOW_V1; });
 
-  describe('recursion defense', () => {
-    it('rejects when ctx.callerLabel is shadow', async () => {
-      const shadowCtx = new ExecContextImpl({
-        clawId: 'shadow-claw',
-        clawDir: tempDir,
-        syncDir: path.join(tempDir, 'tasks', 'sync'),
-        profile: 'full',
-        fs,
-        auditWriter: audit.audit,
-        callerLabel: 'shadow',
+    if (useV1) {
+      describe('input validation', () => {
+        it('rejects when task is missing', async () => {
+          const result = await shadowTool.execute({}, baseCtx);
+          expect(result.success).toBe(false);
+          expect(result.error).toBe('missing_task');
+          expect(mockRunSubagent).not.toHaveBeenCalled();
+        });
+      });
+    }
+
+    describe('recursion defense', () => {
+      it('rejects when ctx.callerLabel is shadow', async () => {
+        const shadowCtx = new ExecContextImpl({
+          clawId: 'shadow-claw',
+          clawDir: tempDir,
+          syncDir: path.join(tempDir, 'tasks', 'sync'),
+          profile: 'full',
+          fs,
+          auditWriter: audit.audit,
+          callerLabel: 'shadow',
+        });
+
+        const result = await shadowTool.execute({ task: 'test' }, shadowCtx);
+
+        expect(result.success).toBe(false);
+        expect(result.error).toBe('shadow_recursion_rejected');
+        expect(mockRunSubagent).not.toHaveBeenCalled();
+
+        const auditEvents = audit.events.map(e => e[0]);
+        expect(auditEvents).toContain(SHADOW_AUDIT_EVENTS.RECURSION_REJECTED);
+      });
+    });
+
+    if (useV1) {
+      describe('missing main context', () => {
+        it('rejects when in-memory dialog state is missing', async () => {
+          const ctxNoState = new ExecContextImpl({
+            clawId: 'test-claw',
+            clawDir: tempDir,
+            syncDir: path.join(tempDir, 'tasks', 'sync'),
+            profile: 'full',
+            fs,
+            auditWriter: audit.audit,
+            llm: makeLLM(),
+            registry: makeRegistry(),
+            currentToolUseId: 'tu-1',
+          });
+          const shadowToolNoState = createShadowTool({
+            getTurnSnapshot: () => ({ systemPrompt: 'sp', tools: [], messages: undefined }),
+          });
+
+          const result = await shadowToolNoState.execute({ task: 'test', async: false }, ctxNoState);
+
+          expect(result.success).toBe(false);
+          expect(result.error).toBe('no_main_context');
+          expect(mockRunSubagent).not.toHaveBeenCalled();
+        });
+
+        it('rejects when currentToolUseId is missing', async () => {
+          const ctxNoToolUseId = new ExecContextImpl({
+            clawId: 'test-claw',
+            clawDir: tempDir,
+            syncDir: path.join(tempDir, 'tasks', 'sync'),
+            profile: 'full',
+            fs,
+            auditWriter: audit.audit,
+            llm: makeLLM(),
+            registry: makeRegistry(),
+          });
+          const shadowToolNoToolUseId = createShadowTool({
+            getTurnSnapshot: () => ({
+              systemPrompt: 'sp',
+              tools: [] as ToolDefinition[],
+              messages: [
+                { role: 'user', content: 'hi' },
+                { role: 'assistant', content: [{ type: 'tool_use', id: 'tu-1', name: 'shadow', input: {} }] },
+              ],
+            }),
+          });
+
+          const result = await shadowToolNoToolUseId.execute({ task: 'test', async: false }, ctxNoToolUseId);
+
+          expect(result.success).toBe(false);
+          expect(result.error).toBe('no_main_context');
+        });
+      });
+    }
+
+    describe('shadow path', () => {
+      it('calls runSubagent with messages from synthesizeFormB', async () => {
+        mockRunSubagent.mockResolvedValue({ text: 'shadow result' });
+
+        const result = await shadowTool.execute({ task: 'test task', async: false }, baseCtx);
+
+        expect(result.success).toBe(true);
+        expect(result.content).toBe('shadow result');
+        expect(mockRunSubagent).toHaveBeenCalledOnce();
+
+        const callArgs = mockRunSubagent.mock.calls[0][0];
+        expect(callArgs.agentId).toMatch(/^shadow-/);
+        expect(callArgs.resultDir).toContain('tasks/sync/shadow');
+        expect(callArgs.messages).toBeDefined();
+        expect(callArgs.messages.length).toBeGreaterThan(0);
+        expect(callArgs.isShadow).toBe(true);
+        expect(callArgs.resultTool).toBe('done');
+        expect(callArgs.prompt).toBe('');
       });
 
-      const result = await shadowTool.execute({ task: 'test' }, shadowCtx);
+      it('returns done capturedResult when available', async () => {
+        mockRunSubagent.mockResolvedValue({ text: 'fallback', capturedResult: { result: 'structured result' } });
 
-      expect(result.success).toBe(false);
-      expect(result.error).toBe('shadow_recursion_rejected');
-      expect(mockRunSubagent).not.toHaveBeenCalled();
+        const result = await shadowTool.execute({ task: 'test', async: false }, baseCtx);
 
-      const auditEvents = audit.events.map(e => e[0]);
-      expect(auditEvents).toContain(SHADOW_AUDIT_EVENTS.RECURSION_REJECTED);
-    });
-  });
-
-  describe('missing main context', () => {
-    it('rejects when in-memory dialog state is missing', async () => {
-      const ctxNoState = new ExecContextImpl({
-        clawId: 'test-claw',
-        clawDir: tempDir,
-        syncDir: path.join(tempDir, 'tasks', 'sync'),
-        profile: 'full',
-        fs,
-        auditWriter: audit.audit,
-        llm: makeLLM(),
-        registry: makeRegistry(),
-        currentToolUseId: 'tu-1',
+        expect(result.success).toBe(true);
+        expect(result.content).toBe('structured result');
+        expect(result.metadata?.source).toBe('done');
       });
-      const shadowToolNoState = createShadowTool({
-        getTurnSnapshot: () => ({ systemPrompt: 'sp', tools: [], messages: undefined }),
-      });
-
-      const result = await shadowToolNoState.execute({ task: 'test', async: false }, ctxNoState);
-
-      expect(result.success).toBe(false);
-      expect(result.error).toBe('no_main_context');
-      expect(mockRunSubagent).not.toHaveBeenCalled();
     });
 
-    it('rejects when currentToolUseId is missing', async () => {
-      const ctxNoToolUseId = new ExecContextImpl({
-        clawId: 'test-claw',
-        clawDir: tempDir,
-        syncDir: path.join(tempDir, 'tasks', 'sync'),
-        profile: 'full',
-        fs,
-        auditWriter: audit.audit,
-        llm: makeLLM(),
-        registry: makeRegistry(),
-      });
-      const shadowToolNoToolUseId = createShadowTool({
-        getTurnSnapshot: () => ({
-          systemPrompt: 'sp',
-          tools: [] as ToolDefinition[],
-          messages: [
-            { role: 'user', content: 'hi' },
-            { role: 'assistant', content: [{ type: 'tool_use', id: 'tu-1', name: 'shadow', input: {} }] },
-          ],
-        }),
+    describe('failure handling', () => {
+      it('returns tool_result with error metadata on runSubagent failure', async () => {
+        mockRunSubagent.mockRejectedValue(new Error('subagent crashed'));
+
+        const result = await shadowTool.execute({ task: 'fail test', async: false }, baseCtx);
+
+        expect(result.success).toBe(false);
+        expect(result.error).toBe('Error');
+        expect(result.content).toContain('execution failed');
+        expect(result.metadata?.shadowId).toMatch(/^shadow-/);
+        expect(result.metadata?.shadowAuditPath).toContain('audit.tsv');
+
+        const auditEvents = audit.events.map(e => e[0]);
+        expect(auditEvents).toContain(SHADOW_AUDIT_EVENTS.STARTED);
+        expect(auditEvents).toContain(SHADOW_AUDIT_EVENTS.FAILED);
       });
 
-      const result = await shadowToolNoToolUseId.execute({ task: 'test', async: false }, ctxNoToolUseId);
+      it('classifies ToolTimeoutError as timeout', async () => {
+        mockRunSubagent.mockRejectedValue(new ToolTimeoutError('read', 5000));
 
-      expect(result.success).toBe(false);
-      expect(result.error).toBe('no_main_context');
-    });
-  });
+        const result = await shadowTool.execute({ task: 'timeout test', async: false }, baseCtx);
 
-  describe('shadow path', () => {
-    it('calls runSubagent with messages from synthesizeFormB', async () => {
-      mockRunSubagent.mockResolvedValue({ text: 'shadow result' });
-
-      const result = await shadowTool.execute({ task: 'test task', async: false }, baseCtx);
-
-      expect(result.success).toBe(true);
-      expect(result.content).toBe('shadow result');
-      expect(mockRunSubagent).toHaveBeenCalledOnce();
-
-      const callArgs = mockRunSubagent.mock.calls[0][0];
-      expect(callArgs.agentId).toMatch(/^shadow-/);
-      expect(callArgs.resultDir).toContain('tasks/sync/shadow');
-      expect(callArgs.messages).toBeDefined();
-      expect(callArgs.messages.length).toBeGreaterThan(0);
-      expect(callArgs.isShadow).toBe(true);
-      expect(callArgs.resultTool).toBe('done');
-      expect(callArgs.prompt).toBe('');
+        expect(result.error).toBe('tool_timeout');
+      });
     });
 
-    it('returns done capturedResult when available', async () => {
-      mockRunSubagent.mockResolvedValue({ text: 'fallback', capturedResult: { result: 'structured result' } });
+    describe('summon-from-shadow defense (phase 767)', () => {
+      it('rejects summon when ctx.callerLabel is shadow', async () => {
+        const summonTool = new SummonTool();
+        const shadowCtx = new ExecContextImpl({
+          clawId: 'shadow-claw',
+          clawDir: tempDir,
+          syncDir: path.join(tempDir, 'tasks', 'sync'),
+          profile: 'full',
+          fs,
+          auditWriter: audit.audit,
+          callerLabel: 'shadow',
+        });
 
-      const result = await shadowTool.execute({ task: 'test', async: false }, baseCtx);
+        const result = await summonTool.execute({ goal: 'test' }, shadowCtx);
 
-      expect(result.success).toBe(true);
-      expect(result.content).toBe('structured result');
-      expect(result.metadata?.source).toBe('done');
-    });
-  });
-
-  describe('failure handling', () => {
-    it('returns tool_result with error metadata on runSubagent failure', async () => {
-      mockRunSubagent.mockRejectedValue(new Error('subagent crashed'));
-
-      const result = await shadowTool.execute({ task: 'fail test', async: false }, baseCtx);
-
-      expect(result.success).toBe(false);
-      expect(result.error).toBe('Error');
-      expect(result.content).toContain('execution failed');
-      expect(result.metadata?.shadowId).toMatch(/^shadow-/);
-      expect(result.metadata?.shadowAuditPath).toContain('audit.tsv');
-
-      const auditEvents = audit.events.map(e => e[0]);
-      expect(auditEvents).toContain(SHADOW_AUDIT_EVENTS.STARTED);
-      expect(auditEvents).toContain(SHADOW_AUDIT_EVENTS.FAILED);
+        expect(result.success).toBe(false);
+        expect(result.error).toBe('shadow_summon_rejected');
+        expect(result.content).toContain('not callable from within shadow');
+      });
     });
 
-    it('classifies ToolTimeoutError as timeout', async () => {
-      mockRunSubagent.mockRejectedValue(new ToolTimeoutError('read', 5000));
+    describe('callerType and profile alignment (phase 787)', () => {
+      it('passes callerLabel=shadow and toolProfile=full to runSubagent', async () => {
+        mockRunSubagent.mockResolvedValue({ text: 'shadow ok' });
 
-      const result = await shadowTool.execute({ task: 'timeout test', async: false }, baseCtx);
+        await shadowTool.execute({ task: 'profile alignment', async: false }, baseCtx);
 
-      expect(result.error).toBe('tool_timeout');
+        const callArgs = mockRunSubagent.mock.calls[0][0];
+        expect(callArgs.callerLabel).toBe('shadow');
+        expect(callArgs.toolProfile).toBe('full');
+      });
     });
-  });
 
-  describe('summon-from-shadow defense (phase 767)', () => {
-    it('rejects summon when ctx.callerLabel is shadow', async () => {
-      const summonTool = new SummonTool();
-      const shadowCtx = new ExecContextImpl({
-        clawId: 'shadow-claw',
-        clawDir: tempDir,
-        syncDir: path.join(tempDir, 'tasks', 'sync'),
-        profile: 'full',
-        fs,
-        auditWriter: audit.audit,
-        callerLabel: 'shadow',
+    describe('done capturedResult isolation (phase 780)', () => {
+      it('uses fresh done instance, isolated from main registry capturedResult', async () => {
+        // 1. pre-set main registry done with stale capturedResult
+        const mainDone = baseCtx.registry?.get(DONE_TOOL_NAME) as { capturedResult?: { result: string } } | undefined;
+        if (!mainDone) throw new Error('test setup: main registry should have done tool');
+        mainDone.capturedResult = { result: 'STALE_RESULT_FROM_PREVIOUS_SHADOW' };
+
+        // 2. mock runSubagent to not write capturedResult (simulates LLM not calling done)
+        mockRunSubagent.mockResolvedValue({ text: 'fresh shadow text result' });
+
+        // 3. run shadow; internal shadowRegistry should have fresh done, not read main stale
+        const result = await shadowTool.execute({ task: 'isolation test', async: false }, baseCtx);
+
+        // 4. assert text fallback, not stale result
+        expect(result.success).toBe(true);
+        expect(result.content).toBe('fresh shadow text result');
+        expect(result.content).not.toContain('STALE_RESULT_FROM_PREVIOUS_SHADOW');
+        expect(result.metadata?.source).toBe('text');
+
+        // 5. assert runSubagent received shadowRegistry with done as fresh instance
+        const callArgs = mockRunSubagent.mock.calls[0][0];
+        const shadowDone = callArgs.registry.get(DONE_TOOL_NAME);
+        expect(shadowDone).toBeDefined();
+        expect(shadowDone).not.toBe(mainDone); // fresh instance !== main instance
+        expect((shadowDone as { capturedResult?: unknown }).capturedResult).toBeUndefined(); // fresh, no stale state
+      });
+    });
+
+    if (!useV1) {
+      describe('V2 sync path', () => {
+        it('retains shadow() tool_use in subagent context', async () => {
+          mockRunSubagent.mockResolvedValue({ text: 'result' });
+
+          await shadowTool.execute({ task: 'test', async: false }, baseCtx);
+
+          const callArgs = mockRunSubagent.mock.calls[0][0];
+          const msgs = callArgs.messages as Message[];
+          // 末条 user msg 是 synthetic tool_result
+          const lastMsg = msgs[msgs.length - 1];
+          expect(lastMsg.role).toBe('user');
+          expect(Array.isArray(lastMsg.content)).toBe(true);
+          const content = (lastMsg.content as Array<{ type: string; content: string }>)[0];
+          expect(content.type).toBe('tool_result');
+          expect(content.content).toContain('Shadow mode started');
+        });
+
+        it('no SHADOW INSTRUCTION in subagent context', async () => {
+          mockRunSubagent.mockResolvedValue({ text: 'result' });
+
+          await shadowTool.execute({ task: 'test', async: false }, baseCtx);
+
+          const callArgs = mockRunSubagent.mock.calls[0][0];
+          const allContent = JSON.stringify(callArgs.messages);
+          expect(allContent).not.toContain('SHADOW INSTRUCTION');
+        });
+
+        it('returns done result directly as tool_result', async () => {
+          mockRunSubagent.mockResolvedValue({ text: 'shadow output' });
+
+          const result = await shadowTool.execute({ task: 'test', async: false }, baseCtx);
+
+          expect(result.success).toBe(true);
+          expect(result.content).toBe('shadow output');
+        });
       });
 
-      const result = await summonTool.execute({ goal: 'test' }, shadowCtx);
+      describe('V2 async rejection', () => {
+        it('async=true returns error in V2', async () => {
+          const result = await shadowTool.execute({ task: 'test', async: true }, baseCtx);
 
-      expect(result.success).toBe(false);
-      expect(result.error).toBe('shadow_summon_rejected');
-      expect(result.content).toContain('not callable from within shadow');
-    });
-  });
-
-  describe('callerType and profile alignment (phase 787)', () => {
-    it('passes callerLabel=shadow and toolProfile=full to runSubagent', async () => {
-      mockRunSubagent.mockResolvedValue({ text: 'shadow ok' });
-
-      await shadowTool.execute({ task: 'profile alignment', async: false }, baseCtx);
-
-      const callArgs = mockRunSubagent.mock.calls[0][0];
-      expect(callArgs.callerLabel).toBe('shadow');
-      expect(callArgs.toolProfile).toBe('full');
-    });
-  });
-
-  describe('done capturedResult isolation (phase 780)', () => {
-    it('uses fresh done instance, isolated from main registry capturedResult', async () => {
-      // 1. pre-set main registry done with stale capturedResult
-      const mainDone = baseCtx.registry?.get(DONE_TOOL_NAME) as { capturedResult?: { result: string } } | undefined;
-      if (!mainDone) throw new Error('test setup: main registry should have done tool');
-      mainDone.capturedResult = { result: 'STALE_RESULT_FROM_PREVIOUS_SHADOW' };
-
-      // 2. mock runSubagent to not write capturedResult (simulates LLM not calling done)
-      mockRunSubagent.mockResolvedValue({ text: 'fresh shadow text result' });
-
-      // 3. run shadow; internal shadowRegistry should have fresh done, not read main stale
-      const result = await shadowTool.execute({ task: 'isolation test', async: false }, baseCtx);
-
-      // 4. assert text fallback, not stale result
-      expect(result.success).toBe(true);
-      expect(result.content).toBe('fresh shadow text result');
-      expect(result.content).not.toContain('STALE_RESULT_FROM_PREVIOUS_SHADOW');
-      expect(result.metadata?.source).toBe('text');
-
-      // 5. assert runSubagent received shadowRegistry with done as fresh instance
-      const callArgs = mockRunSubagent.mock.calls[0][0];
-      const shadowDone = callArgs.registry.get(DONE_TOOL_NAME);
-      expect(shadowDone).toBeDefined();
-      expect(shadowDone).not.toBe(mainDone); // fresh instance !== main instance
-      expect((shadowDone as { capturedResult?: unknown }).capturedResult).toBeUndefined(); // fresh, no stale state
-    });
+          expect(result.success).toBe(false);
+          expect(result.error).toBe('async_not_supported_in_v2');
+          expect(mockRunSubagent).not.toHaveBeenCalled();
+        });
+      });
+    }
   });
 });

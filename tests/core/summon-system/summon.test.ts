@@ -41,6 +41,7 @@ describe('SummonTool', () => {
 
   beforeEach(async () => {
     vi.restoreAllMocks();
+    delete process.env.CHESTNUT_SHADOW_V1;  // ensure summon always V1 regardless of env
     tempDir = await createTempDir();
     mockFs = new NodeFileSystem({ baseDir: tempDir });
     auditEvents = [];

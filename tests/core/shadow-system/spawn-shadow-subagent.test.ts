@@ -1,8 +1,9 @@
 /**
  * spawn-shadow-subagent tests (phase 1185)
+ * phase 800: V1/V2 参数化
  *
  * Coverage:
- * - 反向 1: 装配产 shadow task 含 mode='shadow' + 无 intent 字段
+ * - 反向 1: 装配产 shadow task 含 mode='shadow' + intent 与 mode 对应
  * - 反向 2: shadowMessages 不含 task body 重复
  * - 反向 3: shadowIdPrefix 默认 'shadow' / summon 可定 'summon'
  * - 反向 4: postProcessor 透传
@@ -60,107 +61,124 @@ describe('spawnShadowSubagent (phase 1185)', () => {
     await cleanupTempDir(tempDir);
   });
 
-  it('反向 1 — 装配产 shadow task 含 mode=shadow + 无 intent 字段', async () => {
-    const mainMessages: Message[] = [{ role: 'user', content: 'prior' }];
-    const toolsForLLM: ToolDefinition[] = [];
+  describe.each([
+    { mode: 'v1', useV1: true },
+    { mode: 'v2', useV1: false },
+  ])('($mode)', ({ useV1 }) => {
+    beforeEach(() => {
+      if (useV1) process.env.CHESTNUT_SHADOW_V1 = '1';
+      else delete process.env.CHESTNUT_SHADOW_V1;
+    });
+    afterEach(() => { delete process.env.CHESTNUT_SHADOW_V1; });
 
-    const { taskId, shadowId } = await spawnShadowSubagent({
-      task: 'do X',
-      mainMessages,
-      ctx,
-      taskSystem,
-      systemPrompt: 'sp',
-      toolsForLLM,
+    it('反向 1 — 装配产 shadow task 含 mode=shadow + intent 与 mode 对应', async () => {
+      const mainMessages: Message[] = [{ role: 'user', content: 'prior' }];
+      const toolsForLLM: ToolDefinition[] = [];
+
+      const { taskId, shadowId } = await spawnShadowSubagent({
+        task: 'do X',
+        mainMessages,
+        ctx,
+        taskSystem,
+        systemPrompt: 'sp',
+        toolsForLLM,
+        mode: useV1 ? 'v1' : 'v2',
+      });
+
+      expect(taskId).toBeDefined();
+      expect(shadowId).toMatch(/^shadow-/);
+
+      const tasks = await readPendingTasks(tempDir);
+      expect(tasks).toHaveLength(1);
+      const task = tasks[0];
+      expect(task.mode).toBe('shadow');
+      expect(task.shadowMessages).toBeDefined();
+      expect(task.intent).toBe(useV1 ? 'do X' : '');
+      expect(task.intentPreview).toBeUndefined();
     });
 
-    expect(taskId).toBeDefined();
-    expect(shadowId).toMatch(/^shadow-/);
+    it('反向 2 — shadowMessages 不含 task body 重复', async () => {
+      const mainMessages: Message[] = [
+        { role: 'user', content: 'msg1' },
+        { role: 'assistant', content: 'reply1' },
+      ];
 
-    const tasks = await readPendingTasks(tempDir);
-    expect(tasks).toHaveLength(1);
-    const task = tasks[0];
-    expect(task.mode).toBe('shadow');
-    expect(task.shadowMessages).toBeDefined();
-    expect(task.intent).toBe('do X');
-    expect(task.intentPreview).toBeUndefined();
-  });
+      const { taskId } = await spawnShadowSubagent({
+        task: 'unique-task-body-42',
+        mainMessages,
+        ctx,
+        taskSystem,
+        systemPrompt: 'sp',
+        toolsForLLM: [],
+        mode: useV1 ? 'v1' : 'v2',
+      });
 
-  it('反向 2 — shadowMessages 不含 task body 重复', async () => {
-    const mainMessages: Message[] = [
-      { role: 'user', content: 'msg1' },
-      { role: 'assistant', content: 'reply1' },
-    ];
+      expect(taskId).toBeDefined();
+      const tasks = await readPendingTasks(tempDir);
+      expect(tasks).toHaveLength(1);
+      const shadowMessages = tasks[0].shadowMessages as Array<{ role: string; content: unknown }>;
+      expect(shadowMessages).toHaveLength(useV1 ? mainMessages.length + 1 : mainMessages.length);
 
-    const { taskId } = await spawnShadowSubagent({
-      task: 'unique-task-body-42',
-      mainMessages,
-      ctx,
-      taskSystem,
-      systemPrompt: 'sp',
-      toolsForLLM: [],
+      // task body 只出现 1 次（在 V1 SHADOW INSTRUCTION 内）/ 0 次（V2 无注入）
+      const allContent = JSON.stringify(shadowMessages);
+      const matches = allContent.split('unique-task-body-42').length - 1;
+      expect(matches).toBe(useV1 ? 1 : 0);
     });
 
-    expect(taskId).toBeDefined();
-    const tasks = await readPendingTasks(tempDir);
-    expect(tasks).toHaveLength(1);
-    const shadowMessages = tasks[0].shadowMessages as Array<{ role: string; content: unknown }>;
-    expect(shadowMessages).toHaveLength(mainMessages.length + 1); // +1 SHADOW INSTRUCTION
+    it('反向 3 — shadowIdPrefix 默认 shadow / summon 可定 summon', async () => {
+      const { shadowId: defaultId } = await spawnShadowSubagent({
+        task: 't1',
+        mainMessages: [],
+        ctx,
+        taskSystem,
+        systemPrompt: 'sp',
+        toolsForLLM: [],
+        mode: useV1 ? 'v1' : 'v2',
+      });
+      expect(defaultId).toMatch(/^shadow-/);
 
-    // task body 只出现 1 次（在 SHADOW INSTRUCTION 内）
-    const allContent = JSON.stringify(shadowMessages);
-    const matches = allContent.split('unique-task-body-42').length - 1;
-    expect(matches).toBe(1);
-  });
-
-  it('反向 3 — shadowIdPrefix 默认 shadow / summon 可定 summon', async () => {
-    const { shadowId: defaultId } = await spawnShadowSubagent({
-      task: 't1',
-      mainMessages: [],
-      ctx,
-      taskSystem,
-      systemPrompt: 'sp',
-      toolsForLLM: [],
-    });
-    expect(defaultId).toMatch(/^shadow-/);
-
-    const { shadowId: summonId } = await spawnShadowSubagent({
-      task: 't2',
-      mainMessages: [],
-      ctx,
-      taskSystem,
-      systemPrompt: 'sp',
-      toolsForLLM: [],
-      shadowIdPrefix: 'summon',
-    });
-    expect(summonId).toMatch(/^summon-/);
-  });
-
-  it('反向 4 — postProcessor 透传', async () => {
-    await spawnShadowSubagent({
-      task: 't3',
-      mainMessages: [],
-      ctx,
-      taskSystem,
-      systemPrompt: 'sp',
-      toolsForLLM: [],
-      postProcessor: 'summon-contract-extract',
+      const { shadowId: summonId } = await spawnShadowSubagent({
+        task: 't2',
+        mainMessages: [],
+        ctx,
+        taskSystem,
+        systemPrompt: 'sp',
+        toolsForLLM: [],
+        shadowIdPrefix: 'summon',
+        mode: useV1 ? 'v1' : 'v2',
+      });
+      expect(summonId).toMatch(/^summon-/);
     });
 
-    const tasks = await readPendingTasks(tempDir);
-    expect(tasks[0].postProcessor).toBe('summon-contract-extract');
+    it('反向 4 — postProcessor 透传', async () => {
+      await spawnShadowSubagent({
+        task: 't3',
+        mainMessages: [],
+        ctx,
+        taskSystem,
+        systemPrompt: 'sp',
+        toolsForLLM: [],
+        postProcessor: 'summon-contract-extract',
+        mode: useV1 ? 'v1' : 'v2',
+      });
 
-    // 无 postProcessor → undefined
-    await spawnShadowSubagent({
-      task: 't4',
-      mainMessages: [],
-      ctx,
-      taskSystem,
-      systemPrompt: 'sp',
-      toolsForLLM: [],
+      const tasks = await readPendingTasks(tempDir);
+      expect(tasks[0].postProcessor).toBe('summon-contract-extract');
+
+      // 无 postProcessor → undefined
+      await spawnShadowSubagent({
+        task: 't4',
+        mainMessages: [],
+        ctx,
+        taskSystem,
+        systemPrompt: 'sp',
+        toolsForLLM: [],
+        mode: useV1 ? 'v1' : 'v2',
+      });
+      const tasks2 = await readPendingTasks(tempDir);
+      const noPP = tasks2.find(t => (useV1 ? t.intent === 't4' : !t.intent && t.postProcessor === undefined));
+      expect(noPP).toBeDefined();
+      expect(noPP!.postProcessor).toBeUndefined();
     });
-    const tasks2 = await readPendingTasks(tempDir);
-    const noPP = tasks2.find(t => t.intent === 't4');
-    expect(noPP).toBeDefined();
-    expect(noPP!.postProcessor).toBeUndefined();
   });
 });

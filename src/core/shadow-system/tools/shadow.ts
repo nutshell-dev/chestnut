@@ -37,11 +37,9 @@ export function createShadowTool(deps: {
     name: SHADOW_TOOL_NAME,
     profiles: ['full'],
     group: 'shadow',
-    description: 'Create a one-shot shadow of yourself with full context inheritance. ' +
-      'By default the shadow executes asynchronously and results arrive via inbox. ' +
-      'Set async=false for synchronous execution that blocks until the result is available inline. ' +
-      'Use when you need an equally capable copy to handle a task without polluting your context window. ' +
-      'You cannot call shadow from within shadow (no recursion).',
+    description: 'Branch your context to handle a task without polluting the main conversation. ' +
+      'Your identity and conversation history are preserved. Only the final result ' +
+      'is returned. Cannot be called from within another shadow (no recursion).',
     schema: {
       type: 'object',
       properties: {
@@ -81,16 +79,51 @@ export function createShadowTool(deps: {
         };
       }
 
+      const shadowMode = process.env.CHESTNUT_SHADOW_V1 === '1' ? 'v1' : 'v2';
+      const asyncMode = args.async === undefined ? true : Boolean(args.async);
+
+      // V2 async → 报错（下轮实现）
+      if (shadowMode === 'v2' && asyncMode) {
+        return {
+          success: false,
+          content: 'async shadow not yet supported in V2. Use async=false.',
+          error: 'async_not_supported_in_v2',
+        };
+      }
+
       const task = String(args.task ?? '');
       if (!task) return { success: false, content: 'shadow: task is required', error: 'missing_task' };
 
       const timeoutMs = typeof args.timeoutMs === 'number' ? args.timeoutMs : SHADOW_DEFAULT_TIMEOUT_MS;
       const maxSteps = typeof args.maxSteps === 'number' ? args.maxSteps : deps.subagentMaxSteps;
-      const asyncMode = args.async === undefined ? true : Boolean(args.async);
 
       const { systemPrompt, tools, messages } = await deps.getTurnSnapshot();
 
-      // 两路径共同：截掉当前消息末的 shadow tool_use（未配 tool_result）
+      if (shadowMode === 'v2') {
+        // V2 sync：保留完整 messages（含 shadow() tool_use），追加 synthetic tool_result
+        const syntheticToolResult: Message = {
+          role: 'user',
+          content: [{
+            type: 'tool_result',
+            tool_use_id: ctx.currentToolUseId!,
+            content: 'Shadow mode started. Continue from here. '
+              + 'Call done() to return results to the main conversation.',
+          }],
+        };
+
+        return runShadow({
+          task,
+          timeoutMs,
+          maxSteps,
+          ctx,
+          mainMessages: [...messages!, syntheticToolResult],
+          turnSnapshot: { systemPrompt, tools, messages },
+          runSubagent: deps.runSubagent,
+          mode: 'v2',
+        });
+      }
+
+      // V1：现有行为
       const mainMessages = stripIncompleteToolUse(messages);
 
       if (asyncMode) {
@@ -104,6 +137,7 @@ export function createShadowTool(deps: {
           toolsForLLM: tools ?? [],
           timeoutMs,
           maxSteps,
+          mode: 'v1',
         });
         if (!('taskId' in result)) return result;
 
@@ -114,6 +148,7 @@ export function createShadowTool(deps: {
         };
       }
 
+      // V1 sync
       return runShadow({
         task,
         timeoutMs,
@@ -122,6 +157,7 @@ export function createShadowTool(deps: {
         mainMessages,
         turnSnapshot: { systemPrompt, tools, messages },
         runSubagent: deps.runSubagent,
+        mode: 'v1',
       });
     },
   };

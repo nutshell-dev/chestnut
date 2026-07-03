@@ -40,6 +40,7 @@ interface RunShadowOptions {
   };
   /** DI seam: optional runSubagent override (replaces vi.mock pattern) */
   runSubagent?: typeof defaultRunSubagent;
+  mode?: 'v1' | 'v2';
 }
 
 function findLastAssistantWithToolUse(messages: Message[], toolUseId: ToolUseId): number {
@@ -58,6 +59,7 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
   const shadowId = `shadow-${newShortUuid()}`;
   const resultDir = path.join(opts.ctx.clawDir, TASKS_SYNC_SHADOW_DIR, shadowId);
   const spawnedAt = new Date().toISOString();
+  const mode = opts.mode ?? 'v1';
 
   const aw = opts.ctx.auditWriter;
   if (aw) {
@@ -65,52 +67,70 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
   }
 
   const ts = opts.turnSnapshot;
-  // 取 main session in-memory 状态（phase 769：改读 ctx，不读 DialogStore 磁盘，避 sync 时序 bug）
-  if (
-    !opts.ctx.clawId ||
-    !opts.ctx.currentToolUseId ||
-    ts?.systemPrompt === undefined ||
-    ts?.tools === undefined
-  ) {
-    return {
-      success: false,
-      content:
-        '[chestnut shadow] missing main agent in-memory state (clawId, currentToolUseId, systemPrompt, or tools)',
-      error: 'no_main_context',
-    };
-  }
-  if (!opts.mainMessages && !ts?.messages) {
-    return {
-      success: false,
-      content: '[chestnut shadow] missing main agent in-memory state (dialogMessages)',
-      error: 'no_main_context',
-    };
+  if (mode === 'v1') {
+    // V1 validation: needs turnSnapshot
+    if (
+      !opts.ctx.clawId ||
+      !opts.ctx.currentToolUseId ||
+      ts?.systemPrompt === undefined ||
+      ts?.tools === undefined
+    ) {
+      return {
+        success: false,
+        content:
+          '[chestnut shadow] missing main agent in-memory state (clawId, currentToolUseId, systemPrompt, or tools)',
+        error: 'no_main_context',
+      };
+    }
+    if (!opts.mainMessages && !ts?.messages) {
+      return {
+        success: false,
+        content: '[chestnut shadow] missing main agent in-memory state (dialogMessages)',
+        error: 'no_main_context',
+      };
+    }
+  } else {
+    // V2 validation: needs clawId, currentToolUseId
+    if (!opts.ctx.clawId || !opts.ctx.currentToolUseId) {
+      return {
+        success: false,
+        content:
+          '[chestnut shadow] missing main agent in-memory state (clawId or currentToolUseId)',
+        error: 'no_main_context',
+      };
+    }
   }
 
-  const mainMessages = opts.mainMessages ?? ts.messages!;
-  const restoredSystemPrompt = ts.systemPrompt;
+  const restoredSystemPrompt: string = mode === 'v1' ? ts!.systemPrompt! : (ts?.systemPrompt ?? '');
 
   let synthesizedMessages: Message[];
 
   try {
-    const instructionArgs: Omit<BuildShadowInstructionArgs, 'shadowToolName'> = {
-      shadowId,
-      spawnedAt,
-      spawnedByClawId: opts.ctx.clawId,
-      toolUseId: makeToolUseId(opts.ctx.currentToolUseId),
-      task: opts.task,
-    };
-    // pre-stripped by shadow.ts → already before the marker. Otherwise find + slice.
-    const mainMessagesBeforeMarker = opts.mainMessages
-      ?? (() => {
-        const idx = findLastAssistantWithToolUse(mainMessages, makeToolUseId(opts.ctx.currentToolUseId));
-        if (idx < 0) throw new Error(`marker not found: ${opts.ctx.currentToolUseId}`);
-        return mainMessages.slice(0, idx);
-      })();
-    synthesizedMessages = synthesizeFormB({
-      mainMessagesBeforeMarker,
-      instructionArgs,
-    });
+    if (mode === 'v2') {
+      // V2: messages 已由 caller 组装（含 shadow() tool_use + synthetic tool_result）
+      synthesizedMessages = [...opts.mainMessages!];
+    } else {
+      // V1: existing behavior — find marker, strip, synthesizeFormB
+      const baseMessages = opts.mainMessages ?? ts!.messages!;
+      const instructionArgs: Omit<BuildShadowInstructionArgs, 'shadowToolName'> = {
+        shadowId,
+        spawnedAt,
+        spawnedByClawId: opts.ctx.clawId,
+        toolUseId: makeToolUseId(opts.ctx.currentToolUseId),
+        task: opts.task,
+      };
+      const mainMessagesBeforeMarker = opts.mainMessages
+        ?? (() => {
+          const idx = findLastAssistantWithToolUse(baseMessages, makeToolUseId(opts.ctx.currentToolUseId));
+          if (idx < 0) throw new Error(`marker not found: ${opts.ctx.currentToolUseId}`);
+          return baseMessages.slice(0, idx);
+        })();
+      synthesizedMessages = synthesizeFormB({
+        mainMessagesBeforeMarker,
+        instructionArgs,
+        mode: 'v1',
+      });
+    }
     // phase 712: raw shadowId 加 key= prefix
     opts.ctx.auditWriter?.write(SHADOW_AUDIT_EVENTS.PREFIX_RESTORED, `shadowId=${shadowId}`);
   } catch (err) {

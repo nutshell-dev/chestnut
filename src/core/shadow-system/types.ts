@@ -27,6 +27,8 @@ export interface SpawnShadowSubagentOptions {
   shadowIdPrefix?: string;
   /** phase 281: summon decision 内嵌 metadata，随 task lifecycle 同步 */
   summonDecision?: SummonDecisionMetadata;
+  /** 'v1': SHADOW INSTRUCTION; 'v2': fork mode, no injection. Default 'v1' for backward compat. */
+  mode?: 'v1' | 'v2';
 }
 
 export type SpawnShadowSubagentResult =
