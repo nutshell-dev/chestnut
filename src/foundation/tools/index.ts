@@ -21,6 +21,9 @@ export {
   createToolExecutor,
 } from './executor.js';
 
+// Restricted overrides (e.g., shadow subagent DI overrides)
+export { applyRestrictedOverrides } from './restricted-tools.js';
+
 // Context
 export { ExecContextImpl } from './context.js';
 

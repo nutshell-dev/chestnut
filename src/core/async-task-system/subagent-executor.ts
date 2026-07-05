@@ -5,7 +5,7 @@ import { type StreamLog, STREAM_FILE, createPerResourceStreamWriter } from '../.
 import type { PermissionChecker } from '../../foundation/tool-protocol/index.js';
 import { callerTypeToProfile } from '../permissions/caller-types.js';
 
-import type { ToolRegistry } from '../../foundation/tools/index.js';
+import { applyRestrictedOverrides, type ToolRegistry } from '../../foundation/tools/index.js';
 import { runSubagent as defaultRunSubagent, NoopAuditWriter, createPerTaskRegistry, DONE_TOOL_NAME, getDisplayResult } from '../subagent/index.js';
 import { createDialogStore, CURRENT_DIALOG_FILE } from '../../foundation/dialog-store/index.js';
 
@@ -135,19 +135,10 @@ export async function executeSubAgentTask(
         r.register(askMotion);
       }
 
-      // Phase 815: shadow 任务 apply restrictedOverrides
-      // （sync 路径在 system.ts:145-148 做，async 路径此前遗漏）
+      // Phase 815/816: shadow 任务 apply restrictedOverrides
+      // （sync 路径在 system.ts 做，async 路径统一调用 foundation 函数）
       if (isShadow) {
-        for (const tool of registry.getAll()) {
-          if (tool.restrictedOverrides) {
-            const restricted = Object.assign(
-              Object.create(Object.getPrototypeOf(tool)),
-              tool,
-              tool.restrictedOverrides,
-            );
-            r.register(restricted);
-          }
-        }
+        applyRestrictedOverrides(r, registry);
       }
 
       return r;

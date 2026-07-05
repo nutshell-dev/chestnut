@@ -7,13 +7,13 @@
 import * as path from 'path';
 import { newShortUuid } from '../../foundation/node-utils/index.js';
 import type { ExecContext } from '../../foundation/tools/index.js';
+import { applyRestrictedOverrides } from '../../foundation/tools/index.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { Message } from '../../foundation/llm-provider/index.js';
 
 import { TASKS_SYNC_SHADOW_DIR, SHADOW_DEFAULT_TIMEOUT_MS } from './constants.js';
 import { callerTypeToProfile } from '../permissions/caller-types.js';
 import { runSubagent as defaultRunSubagent, createPerTaskRegistry, getDisplayResult, DONE_TOOL_NAME } from '../subagent/index.js';
-import type { ToolRegistry } from '../../foundation/tools/index.js';
 
 import { SHADOW_AUDIT_EVENTS } from './audit-events.js';
 import { synthesizeFormB, formatErr } from './_helpers.js';
@@ -140,13 +140,8 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
     // Phase 807: 覆盖 shadow registry 中的限制版工具，ToolDefinition 不变、KV cache 命中。
     // 通过 clone + 改 DI 属性实现；execute 内读取 this.DI_FIELD。
     // Phase 811: 从 mainRegistry 取受限工具（baseRegistry 只含基础工具）
-    // Phase 814: 各工具自声明 restrictedOverrides，shadow-system 通用 apply，不再硬编码具体工具名。
-    const mainRegistry = opts.ctx.registry;
-    for (const tool of mainRegistry.getAll()) {
-      if (tool.restrictedOverrides) {
-        overrideRestrictedTool(shadowRegistry, mainRegistry, tool.name, tool.restrictedOverrides);
-      }
-    }
+    // Phase 814/816: 各工具自声明 restrictedOverrides，foundation 通用 apply，不再硬编码具体工具名。
+    applyRestrictedOverrides(shadowRegistry, opts.ctx.registry);
 
     const { text, capturedResult } = await (opts.runSubagent ?? defaultRunSubagent)({
       agentId: shadowId,
@@ -193,20 +188,4 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
   }
 }
 
-/**
- * Phase 807: clone a tool from baseRegistry into targetRegistry with overridden DI properties.
- * Preserves prototype chain (works for both object-literal and class-based Tools) and
- * leaves ToolDefinition unchanged so KV cache stays stable.
- */
-function overrideRestrictedTool(
-  targetRegistry: ToolRegistry,
-  baseRegistry: ToolRegistry,
-  name: string,
-  diOverrides: Record<string, unknown>,
-): void {
-  const baseTool = baseRegistry.get(name);
-  if (!baseTool) return;
-  const restricted = Object.assign(Object.create(Object.getPrototypeOf(baseTool)), baseTool, diOverrides);
-  targetRegistry.register(restricted);
-}
 
