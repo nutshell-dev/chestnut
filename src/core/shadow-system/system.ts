@@ -9,7 +9,6 @@ import { newShortUuid } from '../../foundation/node-utils/index.js';
 import type { ExecContext } from '../../foundation/tools/index.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { Message } from '../../foundation/llm-provider/index.js';
-import type { StreamLog } from '../../foundation/stream/types.js';
 
 import { TASKS_SYNC_SHADOW_DIR, SHADOW_DEFAULT_TIMEOUT_MS, SHADOW_TOOL_NAME } from './constants.js';
 import { callerTypeToProfile } from '../permissions/caller-types.js';
@@ -46,9 +45,6 @@ interface RunShadowOptions {
   };
   /** DI seam: optional runSubagent override (replaces vi.mock pattern) */
   runSubagent?: typeof defaultRunSubagent;
-  mode?: 'v1' | 'v2';
-  /** sync shadow 写 task_started 到主 stream，供 viewport 读取 */
-  streamLog?: StreamLog;
 }
 
 function findLastAssistantWithToolUse(messages: Message[], toolUseId: ToolUseId): number {
@@ -67,7 +63,6 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
   const shadowId = `shadow-${newShortUuid()}`;
   const resultDir = path.join(opts.ctx.clawDir, TASKS_SYNC_SHADOW_DIR, shadowId);
   const spawnedAt = new Date().toISOString();
-  const mode = opts.mode ?? 'v1';
 
   const aw = opts.ctx.auditWriter;
   if (aw) {
@@ -75,70 +70,52 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
   }
 
   const ts = opts.turnSnapshot;
-  if (mode === 'v1') {
-    // V1 validation: needs turnSnapshot
-    if (
-      !opts.ctx.clawId ||
-      !opts.ctx.currentToolUseId ||
-      ts?.systemPrompt === undefined ||
-      ts?.tools === undefined
-    ) {
-      return {
-        success: false,
-        content:
-          '[chestnut shadow] missing main agent in-memory state (clawId, currentToolUseId, systemPrompt, or tools)',
-        error: 'no_main_context',
-      };
-    }
-    if (!opts.mainMessages && !ts?.messages) {
-      return {
-        success: false,
-        content: '[chestnut shadow] missing main agent in-memory state (dialogMessages)',
-        error: 'no_main_context',
-      };
-    }
-  } else {
-    // V2 validation: needs clawId, currentToolUseId
-    if (!opts.ctx.clawId || !opts.ctx.currentToolUseId) {
-      return {
-        success: false,
-        content:
-          '[chestnut shadow] missing main agent in-memory state (clawId or currentToolUseId)',
-        error: 'no_main_context',
-      };
-    }
+  // V1 validation: needs turnSnapshot
+  if (
+    !opts.ctx.clawId ||
+    !opts.ctx.currentToolUseId ||
+    ts?.systemPrompt === undefined ||
+    ts?.tools === undefined
+  ) {
+    return {
+      success: false,
+      content:
+        '[chestnut shadow] missing main agent in-memory state (clawId, currentToolUseId, systemPrompt, or tools)',
+      error: 'no_main_context',
+    };
+  }
+  if (!opts.mainMessages && !ts?.messages) {
+    return {
+      success: false,
+      content: '[chestnut shadow] missing main agent in-memory state (dialogMessages)',
+      error: 'no_main_context',
+    };
   }
 
-  const restoredSystemPrompt: string = mode === 'v1' ? ts!.systemPrompt! : (ts?.systemPrompt ?? '');
+  const restoredSystemPrompt: string = ts!.systemPrompt!;
 
   let synthesizedMessages: Message[];
 
   try {
-    if (mode === 'v2') {
-      // V2: messages 已由 caller 组装（含 shadow() tool_use + synthetic tool_result）
-      synthesizedMessages = [...opts.mainMessages!];
-    } else {
-      // V1: existing behavior — find marker, strip, synthesizeFormB
-      const baseMessages = opts.mainMessages ?? ts!.messages!;
-      const instructionArgs: Omit<BuildShadowInstructionArgs, 'shadowToolName'> = {
-        shadowId,
-        spawnedAt,
-        spawnedByClawId: opts.ctx.clawId,
-        toolUseId: makeToolUseId(opts.ctx.currentToolUseId),
-        task: opts.task,
-      };
-      const mainMessagesBeforeMarker = opts.mainMessages
-        ?? (() => {
-          const idx = findLastAssistantWithToolUse(baseMessages, makeToolUseId(opts.ctx.currentToolUseId));
-          if (idx < 0) throw new Error(`marker not found: ${opts.ctx.currentToolUseId}`);
-          return baseMessages.slice(0, idx);
-        })();
-      synthesizedMessages = synthesizeFormB({
-        mainMessagesBeforeMarker,
-        instructionArgs,
-        mode: 'v1',
-      });
-    }
+    // V1: find marker, strip, synthesizeFormB
+    const baseMessages = opts.mainMessages ?? ts!.messages!;
+    const instructionArgs: Omit<BuildShadowInstructionArgs, 'shadowToolName'> = {
+      shadowId,
+      spawnedAt,
+      spawnedByClawId: opts.ctx.clawId,
+      toolUseId: makeToolUseId(opts.ctx.currentToolUseId),
+      task: opts.task,
+    };
+    const mainMessagesBeforeMarker = opts.mainMessages
+      ?? (() => {
+        const idx = findLastAssistantWithToolUse(baseMessages, makeToolUseId(opts.ctx.currentToolUseId));
+        if (idx < 0) throw new Error(`marker not found: ${opts.ctx.currentToolUseId}`);
+        return baseMessages.slice(0, idx);
+      })();
+    synthesizedMessages = synthesizeFormB({
+      mainMessagesBeforeMarker,
+      instructionArgs,
+    });
     // phase 712: raw shadowId 加 key= prefix
     opts.ctx.auditWriter?.write(SHADOW_AUDIT_EVENTS.PREFIX_RESTORED, `shadowId=${shadowId}`);
   } catch (err) {
@@ -150,27 +127,7 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
 
   // shadow ctx 注入 isShadow=true（透传到所有工具 execute()）
   // shadow 用 full profile（C2 cache prefix 保护，mirror main agent 字节相同）
-  let forwardStream: StreamLog | undefined;
   try {
-    if (mode === 'v2') {
-      // Forward shadow stream events to main stream for viewport display.
-      // tool_call 加 shadow: 前缀；tool_result 加 shadow:result 前缀；text_delta 透传；其余事件不转发以减少主 stream 噪声。
-      forwardStream = opts.streamLog ? {
-        write(event) {
-          if (event.type === 'tool_call' && event.name) {
-            opts.streamLog!.write({ ...event, name: `shadow:${String(event.name)}` });
-          } else if (event.type === 'tool_result') {
-            opts.streamLog!.write({
-              ...event,
-              name: `shadow:result`,
-            });
-          } else if (event.type === 'text_delta') {
-            opts.streamLog!.write(event);
-          }
-        },
-      } : undefined;
-    }
-
     const baseRegistry = opts.ctx.baseRegistry ?? opts.ctx.registry;
     if (!baseRegistry) {
       throw new Error('Tool registry not available in execution context');
@@ -216,7 +173,6 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
       // 显式不传 signal 字段而非 fake `new AbortController().signal` (M#9 显式表达 / honesty fix)。
       // ratify chain: phase 874 (α-propagate) → phase 1084 (β-independent fake AC) → phase 1162 (β-independent honest omit)。
       permissionChecker: opts.ctx.permissionChecker,
-      forwardStream,
     });
 
     const finalResult = getDisplayResult(text, capturedResult);

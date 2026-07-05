@@ -10,7 +10,6 @@
 import type { Tool, ExecContext } from '../../../foundation/tools/index.js';
 import type { ToolResult } from '../../../foundation/tool-protocol/index.js';
 import type { Message, ToolDefinition } from '../../../foundation/llm-provider/index.js';
-import type { StreamLog } from '../../../foundation/stream/types.js';
 import { runShadow } from '../system.js';
 import { runSubagent as defaultRunSubagent } from '../../subagent/index.js';
 import { SHADOW_AUDIT_EVENTS } from '../audit-events.js';
@@ -33,8 +32,6 @@ export function createShadowTool(deps: {
   taskSystem?: { schedule(kind: string, payload: Record<string, unknown>): Promise<string> };
   /** 同 daemon 内恒定的子代理步数上限（Assembly 从 config 注入） */
   subagentMaxSteps?: number;
-  /** sync shadow 写 task_started 到主 stream，viewport 可读取 shadow 子代理事件 */
-  streamLog?: StreamLog;
   /** 允许递归调用。主 agent=true（默认），shadow registry=false */
   allowRecursion?: boolean;
 }): Tool {
@@ -83,17 +80,7 @@ export function createShadowTool(deps: {
         };
       }
 
-      const shadowMode: 'v1' | 'v2' = (process.env.CHESTNUT_SHADOW_V1 === '1' ? 'v1' : 'v1') as 'v1' | 'v2';
       const asyncMode = args.async === undefined ? true : Boolean(args.async);
-
-      // V2 async → 报错（下轮实现）
-      if (shadowMode === 'v2' && asyncMode) {
-        return {
-          success: false,
-          content: 'async shadow not yet supported in V2. Use async=false.',
-          error: 'async_not_supported_in_v2',
-        };
-      }
 
       const task = String(args.task ?? '');
       if (!task) return { success: false, content: 'shadow: task is required', error: 'missing_task' };
@@ -103,32 +90,6 @@ export function createShadowTool(deps: {
 
       const { systemPrompt, tools, messages } = await deps.getTurnSnapshot();
 
-      if (shadowMode === 'v2') {
-        // V2 sync：保留完整 messages（含 shadow() tool_use），追加 synthetic tool_result
-        const syntheticToolResult: Message = {
-          role: 'user',
-          content: [{
-            type: 'tool_result',
-            tool_use_id: ctx.currentToolUseId!,
-            content: 'Shadow mode started. Continue from here. '
-              + 'Call done() to return results to the main conversation.',
-          }],
-        };
-
-        return runShadow({
-          task,
-          timeoutMs,
-          maxSteps,
-          ctx,
-          mainMessages: [...messages!, syntheticToolResult],
-          turnSnapshot: { systemPrompt, tools, messages },
-          runSubagent: deps.runSubagent,
-          mode: 'v2',
-          streamLog: deps.streamLog,
-        });
-      }
-
-      // V1：现有行为
       const mainMessages = stripIncompleteToolUse(messages);
 
       if (asyncMode) {
@@ -142,7 +103,6 @@ export function createShadowTool(deps: {
           toolsForLLM: tools ?? [],
           timeoutMs,
           maxSteps,
-          mode: 'v1',
         });
         if (!('taskId' in result)) return result;
 
@@ -153,7 +113,6 @@ export function createShadowTool(deps: {
         };
       }
 
-      // V1 sync
       return runShadow({
         task,
         timeoutMs,
@@ -162,7 +121,6 @@ export function createShadowTool(deps: {
         mainMessages,
         turnSnapshot: { systemPrompt, tools, messages },
         runSubagent: deps.runSubagent,
-        mode: 'v1',
       });
     },
     allowRecursion: deps.allowRecursion ?? true,

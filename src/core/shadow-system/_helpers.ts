@@ -32,20 +32,15 @@ export function stripIncompleteToolUse(msgs: Message[] | undefined): Message[] |
 export function synthesizeFormB(args: {
   mainMessagesBeforeMarker: Message[];   // already sliced from ctx.dialogMessages
   instructionArgs: Omit<BuildShadowInstructionArgs, 'shadowToolName'>;
-  mode?: 'v1' | 'v2';
 }): Message[] {
-  if (args.mode === 'v1') {
-    const instruction = buildShadowInstruction({
-      ...args.instructionArgs,
-      shadowToolName: SHADOW_TOOL_NAME,
-    } as BuildShadowInstructionArgs);
-    return [
-      ...args.mainMessagesBeforeMarker,
-      { role: 'user', content: instruction },
-    ];
-  }
-  // V2: no injection
-  return [...args.mainMessagesBeforeMarker];
+  const instruction = buildShadowInstruction({
+    ...args.instructionArgs,
+    shadowToolName: SHADOW_TOOL_NAME,
+  } as BuildShadowInstructionArgs);
+  return [
+    ...args.mainMessagesBeforeMarker,
+    { role: 'user', content: instruction },
+  ];
 }
 
 export { formatErr } from '../../foundation/node-utils/format.js';
