@@ -1,12 +1,10 @@
 /**
  * shadow async tests (phase 1087)
- * phase 800: V1/V2 参数化
  *
  * Coverage:
- * - default async=true queues shadow task via AsyncTaskSystem.schedule (V1 only)
- * - async=true captures ctx snapshot (messages, systemPrompt, toolsForLLM) (V1 only)
- * - async=false takes sync path via runShadow (V1/V2)
- * - V2 async=true returns error
+ * - default async=true queues shadow task via AsyncTaskSystem.schedule
+ * - async=true captures ctx snapshot (messages, systemPrompt, toolsForLLM)
+ * - async=false takes sync path via runShadow
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -107,86 +105,79 @@ describe('shadow tool async (phase 1087)', () => {
     await cleanupTempDir(tempDir);
   });
 
-  describe('v1 default', () => {
-    beforeEach(() => {
-      delete process.env.CHESTNUT_SHADOW_V1;
-    });
-    afterEach(() => { delete process.env.CHESTNUT_SHADOW_V1; });
+  describe('async path', () => {
+    it('default async=true queues shadow task with snapshot fields', async () => {
+      mockSchedule.mockResolvedValue('task-xxx');
 
-    describe('async path', () => {
-      it('default async=true queues shadow task with snapshot fields', async () => {
-        mockSchedule.mockResolvedValue('task-xxx');
+      const result = await shadowTool.execute({ task: 'test task' }, baseCtx);
 
-        const result = await shadowTool.execute({ task: 'test task' }, baseCtx);
+      expect(result.success).toBe(true);
+      expect(mockSchedule).toHaveBeenCalledOnce();
+      expect(mockRunSubagent).not.toHaveBeenCalled();
 
-        expect(result.success).toBe(true);
-        expect(mockSchedule).toHaveBeenCalledOnce();
-        expect(mockRunSubagent).not.toHaveBeenCalled();
-
-        const callArgs = mockSchedule.mock.calls[0][1];
-        expect(callArgs.kind).toBe('subagent');
-        expect(callArgs.intent).toBe('test task');
-        expect(callArgs.isShadow).toBe(true);
-        // synthesized by stripIncompleteToolUse + synthesizeFormB:
-        // main messages stripped of trailing assistant (tool_use) → 1 user msg
-        // + instruction = 2 messages (phase 1115: 3-turn reverted to 1-turn baseline)
-        expect(callArgs.shadowMessages).toHaveLength(2);
-        expect(callArgs.shadowMessages[0]).toEqual({ role: 'user', content: 'hi' });
-        expect(callArgs.shadowMessages[1]).toMatchObject({ role: 'user' });
-        expect((callArgs.shadowMessages[1] as { content: string }).content).toContain('SHADOW INSTRUCTION');
-        expect(callArgs.shadowSystemPrompt).toBe('test-system-prompt');
-        expect(callArgs.shadowToolsForLLM).toEqual([{ type: 'function', function: { name: 'read', description: 'read' } }]);
-        expect(callArgs.parentClawId).toBe('test-claw');
-        expect(callArgs.originClawId).toBe('test-claw');
-        expect(callArgs.callerType).toBe('shadow');
-      });
-
-      it('async=true explicit takes async path', async () => {
-        mockSchedule.mockResolvedValue('task-yyy');
-
-        const result = await shadowTool.execute({ task: 'test task', async: true }, baseCtx);
-
-        expect(result.success).toBe(true);
-        expect(mockSchedule).toHaveBeenCalledOnce();
-        expect(mockRunSubagent).not.toHaveBeenCalled();
-        expect(result.metadata).toMatchObject({ async: true, taskId: 'task-yyy' });
-      });
-
-      it('async path returns taskId and async metadata', async () => {
-        mockSchedule.mockResolvedValue('task-zzz');
-
-        const result = await shadowTool.execute({ task: 'test task' }, baseCtx);
-
-        expect(result.success).toBe(true);
-        expect(result.content).toContain('Shadow queued');
-        expect(result.content).toContain('task-zzz');
-        expect(result.metadata).toMatchObject({ async: true, taskId: 'task-zzz' });
-      });
+      const callArgs = mockSchedule.mock.calls[0][1];
+      expect(callArgs.kind).toBe('subagent');
+      expect(callArgs.intent).toBe('test task');
+      expect(callArgs.isShadow).toBe(true);
+      // synthesized by stripIncompleteToolUse + synthesizeFormB:
+      // main messages stripped of trailing assistant (tool_use) → 1 user msg
+      // + instruction = 2 messages (phase 1115: 3-turn reverted to 1-turn baseline)
+      expect(callArgs.shadowMessages).toHaveLength(2);
+      expect(callArgs.shadowMessages[0]).toEqual({ role: 'user', content: 'hi' });
+      expect(callArgs.shadowMessages[1]).toMatchObject({ role: 'user' });
+      expect((callArgs.shadowMessages[1] as { content: string }).content).toContain('SHADOW INSTRUCTION');
+      expect(callArgs.shadowSystemPrompt).toBe('test-system-prompt');
+      expect(callArgs.shadowToolsForLLM).toEqual([{ type: 'function', function: { name: 'read', description: 'read' } }]);
+      expect(callArgs.parentClawId).toBe('test-claw');
+      expect(callArgs.originClawId).toBe('test-claw');
+      expect(callArgs.callerType).toBe('shadow');
     });
 
-    describe('sync path', () => {
-      it('async=false takes sync path via runShadow', async () => {
-        mockRunSubagent.mockResolvedValue({ text: 'sync result' });
+    it('async=true explicit takes async path', async () => {
+      mockSchedule.mockResolvedValue('task-yyy');
 
-        const result = await shadowTool.execute({ task: 'test task', async: false }, baseCtx);
+      const result = await shadowTool.execute({ task: 'test task', async: true }, baseCtx);
 
-        expect(result.success).toBe(true);
-        expect(mockSchedule).not.toHaveBeenCalled();
-        expect(mockRunSubagent).toHaveBeenCalledOnce();
+      expect(result.success).toBe(true);
+      expect(mockSchedule).toHaveBeenCalledOnce();
+      expect(mockRunSubagent).not.toHaveBeenCalled();
+      expect(result.metadata).toMatchObject({ async: true, taskId: 'task-yyy' });
+    });
 
-        const callArgs = mockRunSubagent.mock.calls[0][0];
-        expect(callArgs.isShadow).toBe(true);
-        expect(callArgs.resultTool).toBe('done');
-      });
+    it('async path returns taskId and async metadata', async () => {
+      mockSchedule.mockResolvedValue('task-zzz');
 
-      it('sync path returns inline result', async () => {
-        mockRunSubagent.mockResolvedValue({ text: 'inline shadow result' });
+      const result = await shadowTool.execute({ task: 'test task' }, baseCtx);
 
-        const result = await shadowTool.execute({ task: 'compute 1+1', async: false }, baseCtx);
+      expect(result.success).toBe(true);
+      expect(result.content).toContain('Shadow queued');
+      expect(result.content).toContain('task-zzz');
+      expect(result.metadata).toMatchObject({ async: true, taskId: 'task-zzz' });
+    });
+  });
 
-        expect(result.success).toBe(true);
-        expect(result.content).toBe('inline shadow result');
-      });
+  describe('sync path', () => {
+    it('async=false takes sync path via runShadow', async () => {
+      mockRunSubagent.mockResolvedValue({ text: 'sync result' });
+
+      const result = await shadowTool.execute({ task: 'test task', async: false }, baseCtx);
+
+      expect(result.success).toBe(true);
+      expect(mockSchedule).not.toHaveBeenCalled();
+      expect(mockRunSubagent).toHaveBeenCalledOnce();
+
+      const callArgs = mockRunSubagent.mock.calls[0][0];
+      expect(callArgs.isShadow).toBe(true);
+      expect(callArgs.resultTool).toBe('done');
+    });
+
+    it('sync path returns inline result', async () => {
+      mockRunSubagent.mockResolvedValue({ text: 'inline shadow result' });
+
+      const result = await shadowTool.execute({ task: 'compute 1+1', async: false }, baseCtx);
+
+      expect(result.success).toBe(true);
+      expect(result.content).toBe('inline shadow result');
     });
   });
 
@@ -198,8 +189,6 @@ describe('shadow tool async (phase 1087)', () => {
           tools: [] as ToolDefinition[],
           messages: [],
         }),
-        runSubagent: mockRunSubagent,
-        taskSystem,
         allowRecursion: false,
       });
 

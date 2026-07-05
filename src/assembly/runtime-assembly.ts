@@ -221,7 +221,6 @@ export async function createRuntimeAssembly(
       getTurnSnapshot: () => runtime.getCallerSnapshot(),
       taskSystem,
       subagentMaxSteps: maxSteps,
-      streamLog: streamWriter,
     }));
 
     return { snapshot, streamWriter, runtime };

@@ -1,17 +1,14 @@
 /**
  * shadow tool integration tests (phase 767)
- * phase 800: V1/V2 参数化
  *
  * Coverage:
- * - missing task validation (V1)
+ * - missing task validation
  * - recursion rejection (restricted instance allowRecursion=false)
- * - missing main context (no in-memory dialog state) (V1)
- * - shadow path via runShadow (V1/V2)
+ * - missing main context (no in-memory dialog state)
+ * - shadow path via runShadow
  * - spawn async=true rejected from within shadow (phase 766 defense)
  * - summon rejected from within shadow (phase 767 defense、phase 1119 renamed dispatch → summon)
  * - failure returns tool_result with error metadata
- * - V2 sync: retains shadow() tool_use, synthetic tool_result, done result direct return
- * - V2 async: returns error
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -110,13 +107,7 @@ describe('shadow tool (phase 767)', () => {
     await cleanupTempDir(tempDir);
   });
 
-  describe('v1 default', () => {
-    beforeEach(() => {
-      delete process.env.CHESTNUT_SHADOW_V1;
-    });
-    afterEach(() => { delete process.env.CHESTNUT_SHADOW_V1; });
-
-    describe('input validation', () => {
+  describe('input validation', () => {
       it('rejects when task is missing', async () => {
         const result = await shadowTool.execute({}, baseCtx);
         expect(result.success).toBe(false);
@@ -308,6 +299,4 @@ describe('shadow tool (phase 767)', () => {
         expect((shadowDone as { capturedResult?: unknown }).capturedResult).toBeUndefined(); // fresh, no stale state
       });
     });
-
   });
-});

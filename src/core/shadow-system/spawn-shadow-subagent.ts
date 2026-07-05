@@ -10,7 +10,6 @@
  */
 
 import { newShortUuid } from '../../foundation/node-utils/index.js';
-import type { Message } from '../../foundation/llm-provider/index.js';
 
 import { synthesizeFormB } from './_helpers.js';
 import { type BuildShadowInstructionArgs } from '../../templates/prompts/index.js';
@@ -42,27 +41,19 @@ export async function spawnShadowSubagent(
   const prefix = opts.shadowIdPrefix ?? 'shadow';
   const shadowId = `${prefix}-${newShortUuid()}`;
 
-  const mode = opts.mode ?? 'v1';
-
-  let shadowMessages: Message[];
-  if (mode === 'v1') {
-    const instructionArgs: Omit<BuildShadowInstructionArgs, 'shadowToolName'> = {
-      shadowId,
-      spawnedAt: new Date().toISOString(),
-      spawnedByClawId: opts.ctx.clawId ?? '',
-      toolUseId: opts.ctx.currentToolUseId
-        ? makeToolUseId(opts.ctx.currentToolUseId)
-        : makeToolUseId(`shadow_${newShortUuid()}`),
-      task: opts.task,
-    };
-    shadowMessages = synthesizeFormB({
-      mainMessagesBeforeMarker: opts.mainMessages,
-      instructionArgs,
-      mode: 'v1',
-    });
-  } else {
-    shadowMessages = [...opts.mainMessages];
-  }
+  const instructionArgs: Omit<BuildShadowInstructionArgs, 'shadowToolName'> = {
+    shadowId,
+    spawnedAt: new Date().toISOString(),
+    spawnedByClawId: opts.ctx.clawId ?? '',
+    toolUseId: opts.ctx.currentToolUseId
+      ? makeToolUseId(opts.ctx.currentToolUseId)
+      : makeToolUseId(`shadow_${newShortUuid()}`),
+    task: opts.task,
+  };
+  const shadowMessages = synthesizeFormB({
+    mainMessagesBeforeMarker: opts.mainMessages,
+    instructionArgs,
+  });
 
   // phase 1373 anchor: shadow-mode subagent 不继承 caller signal by-design
   // (shadow 是异步 detach / caller abort 不应级联 abort shadow / 业务语义 mutually exclusive lifecycle)
@@ -71,7 +62,7 @@ export async function spawnShadowSubagent(
     kind: 'subagent',
     mode: 'shadow',                            // δ discriminated union 新字段
     shadowMessages,                            // shadow path 真信息源
-    intent: mode === 'v1' ? (opts.task ?? '') : '',                                                    // δ phase 218: 字段重命名 intentPreview → intent (union 合并)、消费时由 audit class 截
+    intent: opts.task ?? '',                                                    // δ phase 218: 字段重命名 intentPreview → intent (union 合并)、消费时由 audit class 截
     timeoutMs: opts.timeoutMs ?? SHADOW_DEFAULT_TIMEOUT_MS,
     maxSteps: opts.maxSteps ?? SHADOW_MAX_STEPS_DEFAULT,
     parentClawId: opts.ctx.clawId ?? '',

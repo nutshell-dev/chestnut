@@ -11,7 +11,6 @@ import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { createAuditWriter } from '../../foundation/audit/index.js';
 import { STREAM_FILE, createPerResourceStreamWriter, type StreamEvent } from '../../foundation/stream/index.js';
-import type { StreamLog } from '../../foundation/stream/types.js';
 import type { LLMOrchestrator } from '../../foundation/llm-orchestrator/index.js';
 import { ToolExecutor, type ToolRegistry } from '../../foundation/tools/index.js';
 // createToolRegistry removed — caller owns registry assembly (M#1 align)
@@ -81,9 +80,6 @@ export interface RunSubagentOptions {
   toolTimeoutMs?: number;
   permissionChecker?: PermissionChecker;
 
-  // NEW (phase 808)：可选 stream，子代理事件同时转发到此（sync shadow viewport 实时显示）
-  forwardStream?: StreamLog;
-
 }
 
 export interface RunSubagentResult {
@@ -103,7 +99,6 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<RunSubagent
     write: (event: Record<string, unknown>): void => {
       const tsEvent = { ts: Date.now(), ...event } as StreamEvent;
       baseStreamWriter.write(tsEvent);
-      opts.forwardStream?.write(tsEvent);
     },
   };
 
