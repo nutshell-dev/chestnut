@@ -1,4 +1,4 @@
-import type { Tool, ToolRegistry } from './types.js';
+import type { ToolRegistry } from './types.js';
 
 /**
  * Clone tools with restrictedOverrides from source registry into target registry.
