@@ -110,26 +110,20 @@ describe('shadow tool (phase 767)', () => {
     await cleanupTempDir(tempDir);
   });
 
-  describe.each([
-    { mode: 'v1', useV1: true },
-    { mode: 'v2', useV1: false },
-  ])('($mode)', ({ useV1 }) => {
+  describe('v1 default', () => {
     beforeEach(() => {
-      if (useV1) process.env.CHESTNUT_SHADOW_V1 = '1';
-      else delete process.env.CHESTNUT_SHADOW_V1;
+      delete process.env.CHESTNUT_SHADOW_V1;
     });
     afterEach(() => { delete process.env.CHESTNUT_SHADOW_V1; });
 
-    if (useV1) {
-      describe('input validation', () => {
-        it('rejects when task is missing', async () => {
-          const result = await shadowTool.execute({}, baseCtx);
-          expect(result.success).toBe(false);
-          expect(result.error).toBe('missing_task');
-          expect(mockRunSubagent).not.toHaveBeenCalled();
-        });
+    describe('input validation', () => {
+      it('rejects when task is missing', async () => {
+        const result = await shadowTool.execute({}, baseCtx);
+        expect(result.success).toBe(false);
+        expect(result.error).toBe('missing_task');
+        expect(mockRunSubagent).not.toHaveBeenCalled();
       });
-    }
+    });
 
     describe('recursion defense', () => {
       it('rejects when restricted instance has allowRecursion=false', async () => {
@@ -153,60 +147,58 @@ describe('shadow tool (phase 767)', () => {
       });
     });
 
-    if (useV1) {
-      describe('missing main context', () => {
-        it('rejects when in-memory dialog state is missing', async () => {
-          const ctxNoState = new ExecContextImpl({
-            clawId: 'test-claw',
-            clawDir: tempDir,
-            syncDir: path.join(tempDir, 'tasks', 'sync'),
-            profile: 'full',
-            fs,
-            auditWriter: audit.audit,
-            llm: makeLLM(),
-            registry: makeRegistry(),
-            currentToolUseId: 'tu-1',
-          });
-          const shadowToolNoState = createShadowTool({
-            getTurnSnapshot: () => ({ systemPrompt: 'sp', tools: [], messages: undefined }),
-          });
-
-          const result = await shadowToolNoState.execute({ task: 'test', async: false }, ctxNoState);
-
-          expect(result.success).toBe(false);
-          expect(result.error).toBe('no_main_context');
-          expect(mockRunSubagent).not.toHaveBeenCalled();
+    describe('missing main context', () => {
+      it('rejects when in-memory dialog state is missing', async () => {
+        const ctxNoState = new ExecContextImpl({
+          clawId: 'test-claw',
+          clawDir: tempDir,
+          syncDir: path.join(tempDir, 'tasks', 'sync'),
+          profile: 'full',
+          fs,
+          auditWriter: audit.audit,
+          llm: makeLLM(),
+          registry: makeRegistry(),
+          currentToolUseId: 'tu-1',
+        });
+        const shadowToolNoState = createShadowTool({
+          getTurnSnapshot: () => ({ systemPrompt: 'sp', tools: [], messages: undefined }),
         });
 
-        it('rejects when currentToolUseId is missing', async () => {
-          const ctxNoToolUseId = new ExecContextImpl({
-            clawId: 'test-claw',
-            clawDir: tempDir,
-            syncDir: path.join(tempDir, 'tasks', 'sync'),
-            profile: 'full',
-            fs,
-            auditWriter: audit.audit,
-            llm: makeLLM(),
-            registry: makeRegistry(),
-          });
-          const shadowToolNoToolUseId = createShadowTool({
-            getTurnSnapshot: () => ({
-              systemPrompt: 'sp',
-              tools: [] as ToolDefinition[],
-              messages: [
-                { role: 'user', content: 'hi' },
-                { role: 'assistant', content: [{ type: 'tool_use', id: 'tu-1', name: 'shadow', input: {} }] },
-              ],
-            }),
-          });
+        const result = await shadowToolNoState.execute({ task: 'test', async: false }, ctxNoState);
 
-          const result = await shadowToolNoToolUseId.execute({ task: 'test', async: false }, ctxNoToolUseId);
-
-          expect(result.success).toBe(false);
-          expect(result.error).toBe('no_main_context');
-        });
+        expect(result.success).toBe(false);
+        expect(result.error).toBe('no_main_context');
+        expect(mockRunSubagent).not.toHaveBeenCalled();
       });
-    }
+
+      it('rejects when currentToolUseId is missing', async () => {
+        const ctxNoToolUseId = new ExecContextImpl({
+          clawId: 'test-claw',
+          clawDir: tempDir,
+          syncDir: path.join(tempDir, 'tasks', 'sync'),
+          profile: 'full',
+          fs,
+          auditWriter: audit.audit,
+          llm: makeLLM(),
+          registry: makeRegistry(),
+        });
+        const shadowToolNoToolUseId = createShadowTool({
+          getTurnSnapshot: () => ({
+            systemPrompt: 'sp',
+            tools: [] as ToolDefinition[],
+            messages: [
+              { role: 'user', content: 'hi' },
+              { role: 'assistant', content: [{ type: 'tool_use', id: 'tu-1', name: 'shadow', input: {} }] },
+            ],
+          }),
+        });
+
+        const result = await shadowToolNoToolUseId.execute({ task: 'test', async: false }, ctxNoToolUseId);
+
+        expect(result.success).toBe(false);
+        expect(result.error).toBe('no_main_context');
+      });
+    });
 
     describe('shadow path', () => {
       it('calls runSubagent with messages from synthesizeFormB', async () => {
@@ -317,53 +309,5 @@ describe('shadow tool (phase 767)', () => {
       });
     });
 
-    if (!useV1) {
-      describe('V2 sync path', () => {
-        it('retains shadow() tool_use in subagent context', async () => {
-          mockRunSubagent.mockResolvedValue({ text: 'result' });
-
-          await shadowTool.execute({ task: 'test', async: false }, baseCtx);
-
-          const callArgs = mockRunSubagent.mock.calls[0][0];
-          const msgs = callArgs.messages as Message[];
-          // 末条 user msg 是 synthetic tool_result
-          const lastMsg = msgs[msgs.length - 1];
-          expect(lastMsg.role).toBe('user');
-          expect(Array.isArray(lastMsg.content)).toBe(true);
-          const content = (lastMsg.content as Array<{ type: string; content: string }>)[0];
-          expect(content.type).toBe('tool_result');
-          expect(content.content).toContain('Shadow mode started');
-        });
-
-        it('no SHADOW INSTRUCTION in subagent context', async () => {
-          mockRunSubagent.mockResolvedValue({ text: 'result' });
-
-          await shadowTool.execute({ task: 'test', async: false }, baseCtx);
-
-          const callArgs = mockRunSubagent.mock.calls[0][0];
-          const allContent = JSON.stringify(callArgs.messages);
-          expect(allContent).not.toContain('SHADOW INSTRUCTION');
-        });
-
-        it('returns done result directly as tool_result', async () => {
-          mockRunSubagent.mockResolvedValue({ text: 'shadow output' });
-
-          const result = await shadowTool.execute({ task: 'test', async: false }, baseCtx);
-
-          expect(result.success).toBe(true);
-          expect(result.content).toBe('shadow output');
-        });
-      });
-
-      describe('V2 async rejection', () => {
-        it('async=true returns error in V2', async () => {
-          const result = await shadowTool.execute({ task: 'test', async: true }, baseCtx);
-
-          expect(result.success).toBe(false);
-          expect(result.error).toBe('async_not_supported_in_v2');
-          expect(mockRunSubagent).not.toHaveBeenCalled();
-        });
-      });
-    }
   });
 });

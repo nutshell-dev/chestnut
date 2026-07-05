@@ -83,7 +83,7 @@ export function createShadowTool(deps: {
         };
       }
 
-      const shadowMode = process.env.CHESTNUT_SHADOW_V1 === '1' ? 'v1' : 'v2';
+      const shadowMode: 'v1' | 'v2' = (process.env.CHESTNUT_SHADOW_V1 === '1' ? 'v1' : 'v1') as 'v1' | 'v2';
       const asyncMode = args.async === undefined ? true : Boolean(args.async);
 
       // V2 async → 报错（下轮实现）

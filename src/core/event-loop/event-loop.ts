@@ -86,6 +86,7 @@ export class EventLoop {
    * 执行一轮事件循环：消费 inbox / 重试 / 等待消息。
    */
   async run(): Promise<void> {
+    this.stopped = false;
     const wrappedCallbacks = this.streamWriter
       ? createStreamCallbacks(this.streamWriter, this.runtime)
       : undefined;
