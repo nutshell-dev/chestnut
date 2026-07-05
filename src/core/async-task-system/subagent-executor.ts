@@ -135,12 +135,25 @@ export async function executeSubAgentTask(
         r.register(askMotion);
       }
 
+      // Phase 815: shadow 任务 apply restrictedOverrides
+      // （sync 路径在 system.ts:145-148 做，async 路径此前遗漏）
+      if (isShadow) {
+        for (const tool of registry.getAll()) {
+          if (tool.restrictedOverrides) {
+            const restricted = Object.assign(
+              Object.create(Object.getPrototypeOf(tool)),
+              tool,
+              tool.restrictedOverrides,
+            );
+            r.register(restricted);
+          }
+        }
+      }
+
       return r;
     })();
 
-    const toolsForLLM = isShadow && task.shadowToolsForLLM
-      ? task.shadowToolsForLLM
-      : registry.formatForLLM(effectiveRegistry.getAll());
+    const toolsForLLM = registry.formatForLLM(effectiveRegistry.getAll());
 
     const finalSystemPrompt = buildSubagentSystemPrompt({
       taskId: task.id,
