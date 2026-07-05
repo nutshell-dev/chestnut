@@ -124,6 +124,7 @@ export function createShadowTool(deps: {
       });
     },
     allowRecursion: deps.allowRecursion ?? true,
+    restrictedOverrides: { allowRecursion: false },
   };
   return tool;
 }

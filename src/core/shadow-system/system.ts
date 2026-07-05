@@ -10,13 +10,9 @@ import type { ExecContext } from '../../foundation/tools/index.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { Message } from '../../foundation/llm-provider/index.js';
 
-import { TASKS_SYNC_SHADOW_DIR, SHADOW_DEFAULT_TIMEOUT_MS, SHADOW_TOOL_NAME } from './constants.js';
+import { TASKS_SYNC_SHADOW_DIR, SHADOW_DEFAULT_TIMEOUT_MS } from './constants.js';
 import { callerTypeToProfile } from '../permissions/caller-types.js';
 import { runSubagent as defaultRunSubagent, createPerTaskRegistry, getDisplayResult, DONE_TOOL_NAME } from '../subagent/index.js';
-import { SPAWN_TOOL_NAME } from '../spawn-system/tools/spawn.js';
-import { SUMMON_TOOL_NAME } from '../summon-system/tools/summon.js';
-import { NOTIFY_CLAW_TOOL_NAME } from '../claw-topology/tools/notify-claw.js';
-import { EXEC_TOOL_NAME } from '../../foundation/command-tool/index.js';
 import type { ToolRegistry } from '../../foundation/tools/index.js';
 
 import { SHADOW_AUDIT_EVENTS } from './audit-events.js';
@@ -144,12 +140,13 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
     // Phase 807: 覆盖 shadow registry 中的限制版工具，ToolDefinition 不变、KV cache 命中。
     // 通过 clone + 改 DI 属性实现；execute 内读取 this.DI_FIELD。
     // Phase 811: 从 mainRegistry 取受限工具（baseRegistry 只含基础工具）
+    // Phase 814: 各工具自声明 restrictedOverrides，shadow-system 通用 apply，不再硬编码具体工具名。
     const mainRegistry = opts.ctx.registry;
-    overrideRestrictedTool(shadowRegistry, mainRegistry, SHADOW_TOOL_NAME, { allowRecursion: false });
-    overrideRestrictedTool(shadowRegistry, mainRegistry, SPAWN_TOOL_NAME, { allowAsync: false });
-    overrideRestrictedTool(shadowRegistry, mainRegistry, SUMMON_TOOL_NAME, { allowFromShadow: false });
-    overrideRestrictedTool(shadowRegistry, mainRegistry, NOTIFY_CLAW_TOOL_NAME, { authorized: false });
-    overrideRestrictedTool(shadowRegistry, mainRegistry, EXEC_TOOL_NAME, { callerType: 'shadow' });
+    for (const tool of mainRegistry.getAll()) {
+      if (tool.restrictedOverrides) {
+        overrideRestrictedTool(shadowRegistry, mainRegistry, tool.name, tool.restrictedOverrides);
+      }
+    }
 
     const { text, capturedResult } = await (opts.runSubagent ?? defaultRunSubagent)({
       agentId: shadowId,

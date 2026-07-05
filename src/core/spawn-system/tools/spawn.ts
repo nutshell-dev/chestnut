@@ -158,6 +158,7 @@ export function createSpawnTool(deps: SpawnToolDeps = {}): Tool {
       return runSpawnSync({ intent, timeoutMs, maxSteps, systemPrompt, ctx, runSubagent });
     },
     allowAsync: deps.allowAsync ?? true,
+    restrictedOverrides: { allowAsync: false },
   };
   return tool;
 }

@@ -158,6 +158,7 @@ export function createExecTool(preExecGuard?: PreExecGuard): Tool {
     readonly: false,
     idempotent: false,
     defaultTimeoutMs: PROCESS_EXEC_DEFAULT_TIMEOUT_MS,
+    restrictedOverrides: { callerType: 'shadow' },
 
     async execute(args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
       const { command, cwd, timeoutMs, env, stdin } = resolveExecArgs({

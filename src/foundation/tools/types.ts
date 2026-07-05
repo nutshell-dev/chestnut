@@ -200,6 +200,19 @@ export interface Tool extends ToolDescriptor {
    * enables mechanical audit + future lint.
    */
   readonly accessesCaller?: boolean;
+  /**
+   * DI 属性覆盖声明。受限执行上下文（如 shadow 子代理）读取此声明，
+   * 在受限 registry 中创建本工具的 clone 并 apply 这些覆盖值。
+   *
+   * 每个工具模块自己声明约束，不归执行上下文（如 shadow-system）硬编码。
+   *
+   * 示例：
+   * - { allowRecursion: false }  — shadow 工具禁止递归
+   * - { allowAsync: false }      — spawn 工具禁止 async
+   * - { allowFromShadow: false } — summon 工具禁止在 shadow 内调用
+   * - { callerType: 'shadow' }   — exec 工具标记 caller 为 shadow
+   */
+  readonly restrictedOverrides?: Record<string, unknown>;
   execute(args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult>;
 }
 

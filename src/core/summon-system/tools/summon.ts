@@ -55,6 +55,7 @@ export class SummonTool implements Tool {
    * Declared true to allow shadow's snapshot() call. ToolExecutor enforces.
    */
   readonly accessesCaller = true;
+  readonly restrictedOverrides = { allowFromShadow: false };
 
   // phase 281 Step B: SummonStateStore 已删；decision 内嵌 SubAgentTask metadata。
   constructor(

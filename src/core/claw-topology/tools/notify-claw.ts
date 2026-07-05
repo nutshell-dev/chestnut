@@ -144,6 +144,7 @@ export function createNotifyClawTool(deps: NotifyClawDeps): Tool {
       }
     },
     authorized: deps.authorized ?? true,
+    restrictedOverrides: { authorized: false },
   };
   return tool;
 }
