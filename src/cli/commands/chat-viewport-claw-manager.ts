@@ -120,6 +120,7 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
                 if (track.clearOnNextDelta) {
                   track.textBuffer = '';
                   track.bufferType = null;
+                  track.toolSuccess = null;
                   track.clearOnNextDelta = false;
                 }
                 appendCappedBuffer(track, (ev.delta as string) ?? '');
@@ -141,6 +142,7 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
                 if (track.bufferType !== 'text' || track.clearOnNextDelta) {
                   track.textBuffer = '';
                   track.bufferType = 'text';
+                  track.toolSuccess = null;
                   track.clearOnNextDelta = false;
                 }
                 appendCappedBuffer(track, (ev.delta as string) ?? '');

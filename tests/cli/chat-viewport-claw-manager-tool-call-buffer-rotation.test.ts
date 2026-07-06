@@ -161,4 +161,25 @@ describe('chat-viewport-claw-manager tool_call buffer rotation (phase 1429)', ()
     expect(track.currentTool).toBe('exec');
     expect(track.toolSuccess).toBeNull();
   });
+
+  it('case 6: second tool_call after text_delta between tools retains buffer (toolSuccess reset by buffer clear)', () => {
+    const stream = [
+      J({ type: 'turn_start' }),
+      J({ type: 'thinking_delta', delta: 'Let me check status.' }),
+      J({ type: 'tool_call', name: 'status' }),
+      J({ type: 'tool_result', success: true }),
+      // LLM outputs new text between tools
+      J({ type: 'text_delta', delta: 'Now let me write the results.' }),
+      J({ type: 'tool_call', name: 'write' }),
+    ].join('\n') + '\n';
+
+    const track = driveStream('claw-f', stream);
+
+    // text_delta 清 buffer 时同步重置 toolSuccess → 第二个 tool_call 走首轮保留路径
+    expect(track.currentTool).toBe('write');
+    expect(track.toolSuccess).toBeNull();
+    expect(track.textBuffer).toBe('Now let me write the results.');
+    expect(track.bufferType).toBe('text');
+    expect(track.clearOnNextDelta).toBe(true);
+  });
 });
