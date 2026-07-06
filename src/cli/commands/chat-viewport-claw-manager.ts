@@ -152,22 +152,20 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
             } else if (ev.type === 'turn_start') {
               track.lastOutput = '';
               track.lastInterrupted = false;
+              track.currentTool = null;
+              track.textBuffer = '';
+              track.toolSuccess = null;
+              track.bufferType = null;
+              track.clearOnNextDelta = false;
             } else if (ev.type === 'turn_end') {
-              track.active = false; track.lastInterrupted = false;
               if (track.textBuffer) track.lastOutput = track.textBuffer;
-              track.currentTool = null; track.textBuffer = '';
-              track.toolSuccess = null; track.bufferType = null; track.clearOnNextDelta = false;
               track.referenceMs = Date.now();
             } else if (ev.type === 'turn_error') {
-              track.active = false; track.lastInterrupted = false;
-              track.currentTool = null; track.textBuffer = '';
-              track.toolSuccess = null; track.bufferType = null; track.lastOutput = ''; track.clearOnNextDelta = false;
-              track.lastError = (ev.error as string) ?? 'error';
+              track.lastOutput = '';
               track.referenceMs = Date.now();
             } else if (ev.type === 'turn_interrupted') {
-              track.active = false; track.lastInterrupted = true;
-              track.currentTool = null; track.textBuffer = '';
-              track.toolSuccess = null; track.bufferType = null; track.lastOutput = ''; track.clearOnNextDelta = false;
+              track.lastInterrupted = true;
+              track.lastOutput = '';
               track.referenceMs = Date.now();
             }
           } catch {
