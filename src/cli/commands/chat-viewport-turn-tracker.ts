@@ -56,6 +56,7 @@ export function createTurnTracker(deps: TurnTrackerDeps): TurnTracker {
       cleanupUI();
     },
     interrupted() {
+      if (phase !== 'interrupting') return;
       phase = 'idle';
       clearEscTimeout();
       cleanupUI();
