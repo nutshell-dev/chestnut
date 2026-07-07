@@ -100,6 +100,7 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
         track.currentTool = null; track.toolSuccess = null; track.textBuffer = '';
         track.bufferType = null; track.lastOutput = ''; track.lastInterrupted = false;
         track.clearOnNextDelta = false;
+        track.maxSteps = 100; track.referenceMs = null;
       }
       if (stat.size > track.fileSize) {
         const buf = fs.readBytesSync(streamFile, track.fileSize, stat.size);
