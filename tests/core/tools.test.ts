@@ -300,7 +300,7 @@ describe('Tools', () => {
         timeoutMs: 50,
       });
       expect(result.success).toBe(false);
-      expect(result.content).toContain('timed out');
+      expect(result.content).toContain('execution limit');
     });
 
     it('should return error result (not re-throw) when tool throws a regular error', async () => {

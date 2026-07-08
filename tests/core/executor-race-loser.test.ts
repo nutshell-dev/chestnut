@@ -68,7 +68,7 @@ describe('executor race-loser audit (phase 816 B2)', () => {
     });
 
     expect(result.success).toBe(false);
-    expect(result.content).toMatch(/timed out/);
+    expect(result.content).toMatch(/execution limit/);
 
     const auditPath = path.join(tempDir, 'audit.tsv');
     await waitFor(async () => {
@@ -83,7 +83,7 @@ describe('executor race-loser audit (phase 816 B2)', () => {
     const winnerRow = rows.find(r => r.includes('tool_exec') && r.includes('slow-throw'));
     expect(winnerRow).toBeDefined();
     expect(winnerRow).toContain('err');
-    expect(winnerRow).toContain('timed out');
+    expect(winnerRow).toContain('execution limit');
 
     // loser row
     const loserRow = rows.find(r => r.includes('tool_exec_race_loser'));

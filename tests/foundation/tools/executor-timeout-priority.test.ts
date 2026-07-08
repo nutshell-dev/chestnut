@@ -45,7 +45,7 @@ describe('ToolExecutor — timeoutMs priority (options > tool.defaultTimeoutMs >
     const elapsed = Date.now() - start;
 
     expect(result.success).toBe(false);
-    expect(result.content).toContain('timed out');
+    expect(result.content).toContain('execution limit');
     // phase 1164: 表达「断言 = TIMEOUT_MS ± margin」derivation、替原 magic 400/900
     expect(elapsed).toBeGreaterThanOrEqual(TIMEOUT_MS - 100);  // setup overhead margin
     expect(elapsed).toBeLessThan(TIMEOUT_MS + 400);            // contention safety margin
@@ -66,7 +66,7 @@ describe('ToolExecutor — timeoutMs priority (options > tool.defaultTimeoutMs >
     const elapsed = Date.now() - start;
 
     expect(result.success).toBe(false);
-    expect(result.content).toContain('timed out');
+    expect(result.content).toContain('execution limit');
     // phase 1164: 替原 magic 50/300
     expect(elapsed).toBeGreaterThanOrEqual(TIMEOUT_MS - 50);   // setup overhead margin
     expect(elapsed).toBeLessThan(TIMEOUT_MS + 200);            // contention safety margin
@@ -82,7 +82,7 @@ describe('ToolExecutor — timeoutMs priority (options > tool.defaultTimeoutMs >
     const elapsed = Date.now() - start;
 
     expect(result.success).toBe(false);
-    expect(result.content).toContain('timed out');
+    expect(result.content).toContain('execution limit');
     // phase 1164: 替原 magic 200/600
     expect(elapsed).toBeGreaterThanOrEqual(TIMEOUT_MS - 100);  // setup overhead margin
     expect(elapsed).toBeLessThan(TIMEOUT_MS + 300);            // contention safety margin

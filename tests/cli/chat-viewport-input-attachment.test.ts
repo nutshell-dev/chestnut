@@ -57,7 +57,7 @@ describe('writeUserChat - phase 142 attachment fallback', () => {
     expect(inboxFiles.length).toBe(1);
     const inboxContent = fs.readFileSync(path.join(inboxPending, inboxFiles[0]), 'utf-8');
     expect(inboxContent).toContain('[user-input attachment: 3000 chars]');
-    expect(inboxContent).toContain('path: inbox/attachments/');
+    expect(inboxContent).toContain('path: ../inbox/attachments/');
     expect(inboxContent).toContain('preview (first 200 chars):');
     expect(inboxContent).not.toContain(longMessage);
   });
