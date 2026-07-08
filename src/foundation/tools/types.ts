@@ -210,7 +210,6 @@ export interface Tool extends ToolDescriptor {
    * - { allowRecursion: false }  — shadow 工具禁止递归
    * - { allowAsync: false }      — spawn 工具禁止 async
    * - { allowFromShadow: false } — summon 工具禁止在 shadow 内调用
-   * - { callerType: 'shadow' }   — exec 工具标记 caller 为 shadow
    */
   readonly restrictedOverrides?: Record<string, unknown>;
   execute(args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult>;
