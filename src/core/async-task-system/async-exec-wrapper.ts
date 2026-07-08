@@ -14,9 +14,7 @@ import { getProcessStartTime, ProcessExecError } from '../../foundation/process-
 import type { ExecWithHandleArgs } from '../../foundation/command-tool/index.js';
 import { newUuid } from '../../foundation/node-utils/index.js';
 import { EXEC_TOOL_NAME } from '../../foundation/command-tool/index.js';
-import { EXEC_MAX_OUTPUT } from '../../foundation/command-tool/constants.js';
 import { processExecErrorToToolResult } from '../../foundation/command-tool/exec.js';
-import { truncateHeadTail } from '../../foundation/file-tool/truncate-head-tail.js';
 import type { CallerType } from '../../core/permissions/caller-types.js';
 import { executeToolTask } from './tool-executor.js';
 import { TASKS_QUEUES_RESULTS_DIR, TASKS_QUEUES_RUNNING_DIR } from './dirs.js';
@@ -82,7 +80,7 @@ function buildMigratedToolTask(
  * Persist partial output collected before migration so the migrated monitor can
  * deliver it once the process exits.
  */
-async function persistPartialOutput(
+export async function persistPartialOutput(
   fs: FileSystem,
   taskId: TaskId,
   output: string,
@@ -314,10 +312,27 @@ export function createAsyncExecWrapper(
         return { success: false, content: `Failed to persist migrated exec task: ${formatErr(persistErr)}` };
       }
 
-      // Background chain: collect full output, persist it, then ask the async
-      // task system to deliver the result. By the time executeToolTask reads
-      // result.txt the process has already exited and the file contains the
-      // complete output.
+      // Create result.txt with the partial output collected so far and switch
+      // stdout/stderr listeners to append future chunks to the file in real time.
+      // Use synchronous I/O for the initial write so no stdout/stderr data can
+      // arrive while the listener is still the old in-memory collector.
+      const resultDir = `${TASKS_QUEUES_RESULTS_DIR}/${taskId}`;
+      fs.ensureDirSync(resultDir);
+      const resultPath = path.join(resultDir, 'result.txt');
+      fs.writeAtomicSync(resultPath, partialOutput);
+
+      const appendToFile = (chunk: Buffer): void => {
+        fs.appendSync(resultPath, chunk.toString());
+      };
+      handle.child.stdout?.removeAllListeners('data');
+      handle.child.stderr?.removeAllListeners('data');
+      handle.child.stdout?.on('data', appendToFile);
+      handle.child.stderr?.on('data', appendToFile);
+
+      // Background chain: wait for the process to exit, then ask the async task
+      // system to deliver the result. result.txt is kept up-to-date in real
+      // time by the append listeners above, so no additional persistence is
+      // needed.
       const backgroundMonitor = (async (): Promise<void> => {
         let timedOut = false;
         try {
@@ -329,10 +344,7 @@ export function createAsyncExecWrapper(
             timer.unref?.();
           });
 
-          const result = await Promise.race([handle.promise, hardTimeout]);
-          const fullOutput = result.output || partialOutput;
-
-          await persistPartialOutput(fs, taskId, fullOutput);
+          await Promise.race([handle.promise, hardTimeout]);
 
           await executeToolTask(
             task,
@@ -342,8 +354,7 @@ export function createAsyncExecWrapper(
           );
         } catch (monitorErr) {
           // Hard timeout or process exited with an error: kill if we timed out,
-          // persist whatever we collected plus an error marker, then still try
-          // to deliver the result.
+          // append an error marker to result.txt, then still try to deliver.
           if (timedOut) {
             handle.child.kill('SIGTERM');
             auditWriter.write(
@@ -354,13 +365,13 @@ export function createAsyncExecWrapper(
           }
 
           try {
-            const errorOutput = partialOutput +
+            const errorMarker =
               `\n[Process ${timedOut ? 'timed out' : 'exited with error'}: ${formatErr(monitorErr)}]`;
-            await persistPartialOutput(fs, taskId, errorOutput);
+            fs.appendSync(resultPath, errorMarker);
           } catch (persistErr) {
             emitHandlerFailed(auditWriter, {
               taskId,
-              context: 'async_exec_wrapper_persist_error_output',
+              context: 'async_exec_wrapper_append_error_marker',
               error: formatErr(persistErr),
             });
           }
@@ -398,13 +409,11 @@ export function createAsyncExecWrapper(
         `command=${command}`,
       );
 
-      const partialSegment = partialOutput
-        ? `\n\n[partial output so far]:\n${partialOutput.length > EXEC_MAX_OUTPUT ? truncateHeadTail(partialOutput) : partialOutput}`
-        : '';
+      const resultRelPath = path.join('..', resultDir, 'result.txt');
 
       return {
         success: true,
-        content: `Execution moved to async. Task ID: ${taskId}. Result will be delivered when complete.${partialSegment}`,
+        content: `Execution moved to async. Task ID: ${taskId}. Output streaming to ${resultRelPath} — use read to check progress.`,
         metadata: { taskId, async: true, migrated: true },
       };
     },
