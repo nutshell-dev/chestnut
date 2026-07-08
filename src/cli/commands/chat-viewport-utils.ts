@@ -54,7 +54,7 @@ export function writeUserChat(
   }, audit);
 }
 
-/** 写 attachment 到 inbox/attachments/<ts>_<uuid>.txt、返回 inbox-relative path 或 null（写失败）。 */
+/** 写 attachment 到 inbox/attachments/<ts>_<uuid>.txt、返回 clawspace-relative path 或 null（写失败）。 */
 function persistAttachment(fs: FileSystem, agentDir: string, content: string): string | null {
   try {
     const ts = Date.now();
@@ -62,7 +62,8 @@ function persistAttachment(fs: FileSystem, agentDir: string, content: string): s
     const relPath = path.join(ATTACHMENT_SUBDIR, `${ts}_${id}.txt`);
     const absPath = path.join(agentDir, relPath);
     fs.writeAtomicSync(absPath, content);
-    return relPath;
+    // clawspace-relative: inbox/attachments/ 在 agentDir 下，clawspace 在 agentDir/clawspace 下
+    return path.join('..', relPath);
   } catch {
     return null;
   }
