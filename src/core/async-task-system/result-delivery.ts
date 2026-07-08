@@ -39,7 +39,6 @@ interface SendResultCoreParams {
   auditWriter: AuditLog;
   taskId: TaskId;
   parentClawId: string;
-  from: string;
   fullContent: string;
   buildInlineJson: () => string;
   buildRefJson: (resultRef: string, summary: string) => string;
@@ -89,7 +88,7 @@ async function sendResultCore(p: SendResultCoreParams): Promise<void> {
   const baseMsg: InboxMessage = {
     id: newUuid(),
     type: 'task_result',
-    from: p.from,
+    from: 'system',
     to: p.parentClawId,
     content: messageContent,
     priority: p.isError ? 'high' : 'normal',
@@ -155,7 +154,6 @@ export async function sendToolResult(
     auditWriter,
     taskId: task.id,
     parentClawId: task.parentClawId,
-    from: task.callerType ?? 'task_system',
     fullContent,
     buildInlineJson: () => JSON.stringify({
       taskId: task.id,
@@ -193,7 +191,6 @@ export async function sendResult(
     auditWriter,
     taskId: task.id,
     parentClawId: task.parentClawId,
-    from: task.callerType ?? 'subagent',
     fullContent: result,
     buildInlineJson: () => JSON.stringify({
       taskId: task.id,
@@ -226,7 +223,7 @@ export async function sendFallbackError(
   const msg: InboxMessage = {
     id: msgId,
     type: 'task_result',
-    from: task.callerType ?? 'task_system',
+    from: 'system',
     to: task.parentClawId,
     content: JSON.stringify({ taskId: task.id, is_error: true, result: `Task failed: ${errorMsg}` }),
     priority: 'high',
