@@ -503,6 +503,7 @@ export class ContractSystem {
               if (allCompleted && progress.status !== 'completed') {
                 // phase 338: status mutation in-memory only (downstream archiveAndEmit 用)、2nd writeAtomic 删 (redundant after strip)
                 progress.status = 'completed';
+                progress.completed_at = new Date().toISOString();
                 const contractId = makeContractId(progress.contract_id ?? entry.name);
                 // phase 1405: yaml load 失败时跳过 archive、显式 audit 留 forensics（避免 stuck-in-active 静默）
                 let contractYaml: Awaited<ReturnType<typeof this.loadContractYaml>> | null = null;

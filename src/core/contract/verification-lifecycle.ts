@@ -219,6 +219,7 @@ export async function completeSubtaskSync(
     allCompleted = await ctx.checkAllSubtasksCompleted(contractId, progress);
     if (allCompleted) {
       progress.status = 'completed';
+      progress.completed_at = new Date().toISOString();
     }
 
     await ctx.saveProgress(contractId, progress);
