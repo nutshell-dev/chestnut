@@ -29,7 +29,7 @@ export class ToolTimeoutError extends ToolError {
 
   constructor(toolName: string, timeoutMs: number) {
     super(
-      `Tool "${toolName}" timed out after ${timeoutMs}ms`,
+      `Tool "${toolName}" exceeded the ${timeoutMs}ms execution limit (pass a higher timeoutMs or split into shorter commands)`,
       { toolName, timeoutMs }
     );
   }
