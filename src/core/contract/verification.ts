@@ -173,6 +173,7 @@ async function applyVerificationOutcome(
       const allCompleted = await ctx.checkAllSubtasksCompleted(contractId, progress);
       if (allCompleted) {
         progress.status = 'completed';
+        progress.completed_at = new Date().toISOString();
       }
       await ctx.saveProgress(contractId, progress);
       writeVerificationInbox(ctx, contractId, subtaskId, 'passed', allCompleted);
@@ -208,7 +209,10 @@ async function applyVerificationOutcome(
       });
 
       const allCompleted = await ctx.checkAllSubtasksCompleted(contractId, progress);
-      if (allCompleted) { progress.status = 'completed'; }
+      if (allCompleted) {
+        progress.status = 'completed';
+        progress.completed_at = new Date().toISOString();
+      }
       await ctx.saveProgress(contractId, progress);
 
       // phase 1405: force-accept 必给 claw inbox 反馈、否则 submit_subtask async claw 永远等不到 verdict

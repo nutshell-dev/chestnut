@@ -32,6 +32,8 @@ export interface ContractObserverOptions {
   motionAudit: AuditLog;
   /** phase 101: pre-bound notifyMotion */
   notifyMotion: NotifyMotionFn;
+  /** phase 821: worker claw 契约完成后触发 evolution system 复盘的回调 */
+  onCompletedContract?: (clawId: string, contractId: string) => Promise<void>;
   signal?: AbortSignal;
 }
 
@@ -41,6 +43,8 @@ export interface ContractObserverJobDeps {
   fs: FileSystem;
   motionAudit: AuditLog;
   notifyMotion: NotifyMotionFn;
+  /** phase 821: worker claw 契约完成后触发 evolution system 复盘的回调 */
+  onCompletedContract?: (clawId: string, contractId: string) => Promise<void>;
 }
 
 // 持久化文件：observer 状态（已通知 contract set + lastCheckTs metric + bootstrap marker）
@@ -184,6 +188,18 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
             case 'completed':
               completedEvents.push(entry.body);
               if (entry.hasFailure) allProblemPairs.push(key);
+              // phase 821: fire-and-forget 触发契约复盘，失败不阻塞 observer
+              if (options.onCompletedContract) {
+                options.onCompletedContract(clawId, entry.contractId).catch(err => {
+                  motionAudit.write(
+                    CONTRACT_AUDIT_EVENTS.OBSERVER_EVENT_FAILED,
+                    `claw=${clawId}`,
+                    `contract=${entry.contractId}`,
+                    `reason=retro_callback_failed`,
+                    `error=${formatErr(err)}`,
+                  );
+                });
+              }
               break;
             case 'cancelled':
               cancelledEvents.push(entry.body);

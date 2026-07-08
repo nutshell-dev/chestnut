@@ -186,6 +186,7 @@ export async function handleVerificationErrorRetry(
           writeForceAcceptInbox(ctx, contractId, subtaskId, allCompleted, subtask.retry_count, lastFeedback);
           if (allCompleted && progress.status !== 'completed') {
             progress.status = 'completed';
+            progress.completed_at = new Date().toISOString();
             await ctx.saveProgress(contractId, progress);
             // archiveAndEmit 由 caller（runVerificationInBackground catch）在 withProgressLock 外调用
             result = { archived: false };

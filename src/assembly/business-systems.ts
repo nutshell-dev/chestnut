@@ -24,7 +24,7 @@ import type { SubAgentTask, TaskId } from '../core/async-task-system/types.js';
 import { isFileNotFound } from '../foundation/fs/index.js';
 import { summonContractExtractPostProcessor, SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME, AskMotionTool, createSummonVerifyPolicy, SummonTool } from '../core/summon-system/index.js';
 import { createEvolutionSystem } from '../core/evolution-system/index.js';
-import type { EvolutionSystem } from '../core/evolution-system/index.js';
+import type { EvolutionSystem, MotionReviewContext } from '../core/evolution-system/index.js';
 import { createSubmitSubtaskTool } from '../core/contract/index.js';
 import { createDoneTool } from '../core/subagent/index.js';
 import { createStatusTool } from '../core/status-service/index.js';
@@ -77,6 +77,8 @@ export interface BusinessSysOutput {
   formatterRegistry: MessageFormatterRegistry;
   guidanceRegistry?: MotionGuidanceRegistry;
   guidanceCompose: (type: string, state: Record<string, string>) => GuidanceEntry | null;
+  /** phase 821: 供 motion-addons 桥接 worker claw 契约完成 → evolution retro */
+  motionReviewContext?: MotionReviewContext;
 }
 
 /**
@@ -160,6 +162,7 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
 
   // --- 10. EvolutionSystem (motion only / phase411 Step B) ---
   let evolutionSystem: EvolutionSystem | undefined;
+  let motionReviewContext: MotionReviewContext | undefined;
   if (isMotion) {
     try {
       evolutionSystem = createEvolutionSystem({
@@ -180,7 +183,7 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
         throw new Error(`Assembly: EvolutionSystem.init failed: ${formatErr(e)}`, { cause: e });
       }
 
-      const motionReviewContext = {
+      motionReviewContext = {
         motionFs: systemFs,
         motionBaseDir: clawDir,
         motionAudit: auditWriter,
@@ -208,7 +211,7 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
       };
       contractManager.onContractCompleted(async (contractId) => {
         if (!evolutionSystem) return;
-        await evolutionSystem.runRetroForContract(contractId, motionReviewContext);
+        await evolutionSystem.runRetroForContract(contractId, motionReviewContext!);
       });
     }
   }
@@ -313,5 +316,6 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
     formatterRegistry,
     guidanceRegistry,
     guidanceCompose,
+    motionReviewContext,
   };
 }
