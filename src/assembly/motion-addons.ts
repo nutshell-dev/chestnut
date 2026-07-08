@@ -36,6 +36,7 @@ import type { CoreInfraOutput } from './core-infrastructure.js';
 import type { BusinessSysOutput } from './business-systems.js';
 import { ASSEMBLY_AUDIT_EVENTS } from './audit-events.js';
 import type { AssembleConfig } from './types.js';
+import type { ContractId } from '../core/contract/types.js';
 
 interface MotionAddonsInput {
   core: CoreInfraOutput;
@@ -191,6 +192,12 @@ export async function createMotionAddons(
           fs: chestnutFs,
           motionAudit: auditWriter,  // phase 724 α：主 auditWriter 单 instance 复用
           notifyMotion: (msg) => routeNotifyClaw(chestnutFs, chestnutRoot, MOTION_CLAW_ID, MOTION_CLAW_ID, msg, auditWriter),
+          // phase 821: 桥接 worker claw 契约完成 → evolutionSystem retro
+          onCompletedContract: business.evolutionSystem && business.motionReviewContext
+            ? async (_clawId, contractId) => {
+                await business.evolutionSystem!.runRetroForContract(contractId as ContractId, business.motionReviewContext!);
+              }
+            : undefined,
         }, globalConfig),
         createAuditSizeMonitorJob({
           fs: chestnutFs,
