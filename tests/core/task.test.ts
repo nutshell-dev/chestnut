@@ -257,7 +257,7 @@ describe('Task System + SubAgent', () => {
 
       // Parse the message and verify frontmatter (phase 259: use static fs at top)
       const content = await fs.readFile(path.join(inboxDir, inboxFiles[0]), 'utf-8');
-      expect(content).toContain('from: "subagent"');
+      expect(content).toContain('from: "system"');
       expect(content).toContain('to: "motion"');
       expect(content).toContain(`"resultRef":"tasks/queues/results/${taskId}/result.txt"`);
     });
