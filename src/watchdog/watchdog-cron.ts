@@ -135,7 +135,7 @@ export async function maybeCronClawInactivity(pm: ProcessManager, audit: AuditLo
       // phase 1482: inactivity 仅对 ACTIVE contract 触发 / paused 本就该停（不算 inactivity / D 类 root cause fix）
       if (!clawHasActiveContract(clawDir, fsFactory, audit)) continue;
 
-      // phase 2 γ4: inactivity 仅对 daemon ALIVE 触发 / daemon dead 归 crash_notification 覆盖（0 dedup 重叠）
+      // phase 2 γ4: inactivity 仅对 daemon ALIVE 触发 / daemon dead 归 claw_crashed 覆盖（0 dedup 重叠）
       if (!pm.isAlive(resolveClawDaemonDir(makeClawId(clawId)))) continue;
 
       // Parse stream.jsonl to get real progress
@@ -153,7 +153,7 @@ export async function maybeCronClawInactivity(pm: ProcessManager, audit: AuditLo
       // phase 4 续: 1-shot per stuck period (取代 phase 1482 multi-notif backoff)
       //   - 已通知过 + claw 无新 stream 活动 → skip (user 关切「占用 motion 上下文」)
       //   - shouldResetNotifyCount (referenceMs > lastNotified) = 真有 progress → 允许重新通知
-      //   - motion 干预后 claw 完全冻死无 stream → 无 reset → 走 restart 路径 (crash_notification) 让 motion 知
+      //   - motion 干预后 claw 完全冻死无 stream → 无 reset → 走 restart 路径 (claw_crashed) 让 motion 知
       const lastNotified = clawStateAPI.lastInactivityNotified.get(rawClawId) ?? 0;
       if (lastNotified > 0 && !shouldResetNotifyCount(referenceMs, lastNotified)) {
         continue;  // 已通知 + 无 progress → 不重发
@@ -280,9 +280,9 @@ export function maybeCronClawCrash(pm: ProcessManager, audit: AuditLog, fsFactor
       const { fs: motionFs, audit: motionAudit } = getMotionContext(fsFactory);
       const chestnutRoot = makeChestnutRoot(path.dirname(getNamedSubrootDir('motion')));
       routeNotifyClaw(motionFs, chestnutRoot, MOTION_CLAW_ID, MOTION_CLAW_ID, {
-        type: 'crash_notification',
+        type: 'claw_crashed',
         source: rawClawId,
-        priority: 'high',
+        priority: 'normal',
         body,
         extraFields: {
           crash_class: crashClass,

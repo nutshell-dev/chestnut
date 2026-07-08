@@ -7,7 +7,7 @@
  * scope: src/core/runtime/ outside .d.ts
  *
  * 3 sub-invariant:
- *   1. 'crash_notification' string literal — M#5 反向防护 (Watchdog L6 业主)
+ *   1. 'claw_crashed' string literal — M#5 反向防护 (Watchdog L6 业主)
  *   2. 'HEARTBEAT.md' string literal — M#2/#3 业务归属防护 (Heartbeat L5 业主)
  *   3. `HEARTBEAT_AUDIT_EVENTS` import or member use — M#3 audit 归属防护
  *      (allows barrel re-export from runtime/index.ts via ExportSpecifier、
@@ -18,7 +18,7 @@
  * phase 383: 26th src ESLint rule
  */
 
-const BANNED_LITERALS = new Set(['crash_notification', 'HEARTBEAT.md']);
+const BANNED_LITERALS = new Set(['claw_crashed', 'HEARTBEAT.md']);
 const BANNED_IDENT = 'HEARTBEAT_AUDIT_EVENTS';
 
 function basenameOf(filepath) {
@@ -37,8 +37,8 @@ export default {
     },
     schema: [],
     messages: {
-      crashNotificationLiteral:
-        "Runtime persists upper-layer inbox literal 'crash_notification' in `{{file}}`. M#5 反向防护: Watchdog L6 业主 (phase 1414).",
+      clawCrashedLiteral:
+        "Runtime persists upper-layer inbox literal 'claw_crashed' in `{{file}}`. M#5 反向防护: Watchdog L6 业主 (phase 1414).",
       heartbeatMdPath:
         "Runtime persists upper-layer FS path 'HEARTBEAT.md' in `{{file}}`. M#2/#3 业务归属防护: Heartbeat L5 业主 (phase 1414).",
       heartbeatAuditEventsImportOrUse:
@@ -57,8 +57,8 @@ export default {
       Literal(node) {
         if (typeof node.value !== 'string') return;
         if (!BANNED_LITERALS.has(node.value)) return;
-        if (node.value === 'crash_notification') {
-          context.report({ node, messageId: 'crashNotificationLiteral', data: { file: base } });
+        if (node.value === 'claw_crashed') {
+          context.report({ node, messageId: 'clawCrashedLiteral', data: { file: base } });
         } else if (node.value === 'HEARTBEAT.md') {
           context.report({ node, messageId: 'heartbeatMdPath', data: { file: base } });
         }

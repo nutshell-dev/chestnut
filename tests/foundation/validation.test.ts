@@ -41,7 +41,7 @@ describe('validateType', () => {
   it('任意字符串类型原样返回（loose validation / M9 phase 575）', () => {
     expect(validateType('user_chat')).toBe('user_chat');
     expect(validateType('user_inbox_message')).toBe('user_inbox_message');
-    expect(validateType('crash_notification')).toBe('crash_notification');
+    expect(validateType('claw_crashed')).toBe('claw_crashed');
     expect(validateType('heartbeat')).toBe('heartbeat');
     expect(validateType('claw_outbox')).toBe('claw_outbox');
     expect(validateType('verification_result')).toBe('verification_result');

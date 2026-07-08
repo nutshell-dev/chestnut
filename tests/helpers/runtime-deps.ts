@@ -28,7 +28,7 @@ import {
   registerMessagingFormatters,
 } from '../../src/foundation/messaging/index.js';
 import { formatUserChat } from '../../src/core/gateway/index.js';
-import { formatCrashNotification } from '../../src/watchdog/inbox-formatter.js';
+import { formatClawCrashed } from '../../src/watchdog/inbox-formatter.js';
 import { createHeartbeatInboxFormatter } from '../../src/core/heartbeat/index.js';
 import { TEST_LLM_TIMEOUT_MS } from './test-timeouts.js';
 
@@ -85,7 +85,7 @@ export async function makeRuntimeDeps(input: MakeRuntimeDepsInput): Promise<Runt
   const formatterRegistry = createMessageFormatterRegistry();
   registerMessagingFormatters(formatterRegistry);
   formatterRegistry.register('user_chat', formatUserChat);
-  formatterRegistry.register('crash_notification', formatCrashNotification);
+  formatterRegistry.register('claw_crashed', formatClawCrashed);
   formatterRegistry.register('heartbeat', createHeartbeatInboxFormatter({ systemFs, audit: auditWriter }));
 
   return {

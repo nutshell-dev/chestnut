@@ -33,7 +33,7 @@ function isFailureClass(s: string | undefined): s is FailureClass {
   return s === 'daemon_silent' || s === 'daemon_errored';
 }
 
-// phase 2 γ4: daemon_stopped case 移除（归 crash_notification composer 覆盖、两 type 互斥状态 0 dedup 重叠）
+// phase 2 γ4: daemon_stopped case 移除（归 claw_crashed composer 覆盖、两 type 互斥状态 0 dedup 重叠）
 // phase 4: guidance 字面统一英文 / 简化 = 单 CLI line (diagnostic only, 无 restart — daemon 还活着不该 restart)
 // phase 5: 加 watch subscription CLI 教学 (motion 干预后若仍 stuck 主动订阅再提醒 / DP 系统为智能体服务)
 export const composer: GuidanceComposer<ClawInactivityState> = (state): GuidanceEntry => {

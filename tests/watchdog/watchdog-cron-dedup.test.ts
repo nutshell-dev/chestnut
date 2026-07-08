@@ -1,5 +1,5 @@
 /**
- * Watchdog crash_notification dedup tests (phase 1207 gap A)
+ * Watchdog claw_crashed dedup tests (phase 1207 gap A)
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -60,7 +60,7 @@ vi.mock('../../src/core/claw-topology/index.js', async (importOriginal) => {
   };
 });
 
-describe('watchdog crash_notification dedup (phase 1207 gap A)', () => {
+describe('watchdog claw_crashed dedup (phase 1207 gap A)', () => {
   let tmpDir: string;
   let clawsDir: string;
   let mockPm: ProcessManager;
@@ -103,7 +103,7 @@ describe('watchdog crash_notification dedup (phase 1207 gap A)', () => {
     vi.clearAllMocks();
   });
 
-  it('reverse 1: first crash emits crash_notification and marks notified', () => {
+  it('reverse 1: first crash emits claw_crashed and marks notified', () => {
     const clawId = `claw-dedup-${randomUUID().slice(0, 8)}`;
     fs.mkdirSync(path.join(clawsDir, clawId), { recursive: true });
 
@@ -120,7 +120,7 @@ describe('watchdog crash_notification dedup (phase 1207 gap A)', () => {
       expect.anything(),
       'motion',
       'motion',
-      expect.objectContaining({ type: 'crash_notification', source: clawId }),
+      expect.objectContaining({ type: 'claw_crashed', source: clawId }),
       expect.anything(),
     );
     expect(clawStateAPI.clawPreviouslyNotified.has(clawId)).toBe(true);
@@ -189,7 +189,7 @@ describe('watchdog crash_notification dedup (phase 1207 gap A)', () => {
       expect.anything(),
       'motion',
       'motion',
-      expect.objectContaining({ type: 'crash_notification', source: clawId }),
+      expect.objectContaining({ type: 'claw_crashed', source: clawId }),
       expect.anything(),
     );
   });

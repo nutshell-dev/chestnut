@@ -13,7 +13,7 @@
 
 import type { MotionGuidanceRegistry } from '../types.js';
 
-import { composer as crashNotification } from './crash-notification.js';
+import { composer as clawCrashed } from './claw-crashed.js';
 import { composer as clawInactivity } from './claw-inactivity.js';
 import { composer as contractEvents } from './contract-events.js';
 import { composer as verificationResult } from './verification-result.js';
@@ -35,7 +35,7 @@ import { composer as contractCancelled } from './contract-cancelled.js';
 import { composer as contractCrashed } from './contract-crashed.js';
 
 export function registerAllMotionGuidance(registry: MotionGuidanceRegistry): void {
-  registry.register('crash_notification', crashNotification);
+  registry.register('claw_crashed', clawCrashed);
   registry.register('claw_inactivity', clawInactivity);
   registry.register('contract_events', contractEvents);
   registry.register('verification_result', verificationResult);

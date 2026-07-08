@@ -1,6 +1,6 @@
 /**
  * phase 1482 + phase 2 reframe + phase 4 重写 + phase 201: claw-inactivity real composer unit test.
- * daemon_stopped case 已移除（归 crash_notification composer 覆盖）.
+ * daemon_stopped case 已移除（归 claw_crashed composer 覆盖）.
  * phase 4: guidance 字面英文化.
  * phase 201: unknown class 改 fallback guidance（非 null）.
  */
@@ -21,7 +21,7 @@ describe('claw-inactivity composer', () => {
     expect(r.text).toContain('To inspect: chestnut claw clawA steps');
   });
 
-  it('daemon_stopped → fallback guidance (phase 2 移出归 crash_notification composer、phase 201 unknown 不静默)', () => {
+  it('daemon_stopped → fallback guidance (phase 2 移出归 claw_crashed composer、phase 201 unknown 不静默)', () => {
     const r = composer({ failure_class: 'daemon_stopped', claw_id: 'clawA' });
     expect(r).not.toBeNull();
     expect(r.text).toContain('To inspect: chestnut claw clawA steps');

@@ -119,7 +119,7 @@ function clawHasContractSub(
  * - `daemon_silent`:  进程跑、无 lastError、stream 静默 → 看 audit events tail
  * - `daemon_errored`: 进程跑、有 lastError → 看 lastError context
  *
- * phase 2 γ4 reframe: `daemon_stopped` class 移除 — dead daemon 归 `crash_notification` 覆盖
+ * phase 2 γ4 reframe: `daemon_stopped` class 移除 — dead daemon 归 `claw_crashed` 覆盖
  * (两 type cover 互斥状态、0 dedup 重叠). inactivity 仅在 daemon ALIVE 时触发.
  *
  * Assembly motion guidance composer type-only import 此 enum、按 class switch
@@ -166,10 +166,10 @@ export function formatInactivityBody(opts: {
   }
 }
 
-// ---- phase 2 γ4: crash_notification CrashClass taxonomy ----
+// ---- phase 2 γ4: claw_crashed CrashClass taxonomy ----
 
 /**
- * Crash class for `crash_notification` watchdog notification.
+ * Crash class for `claw_crashed` watchdog notification.
  * 业主 own enum、由 clean-stop marker 探测决定。
  *
  * - `active_unexpected`: active contract + daemon dead + 无 clean-stop marker → 重启 daemon

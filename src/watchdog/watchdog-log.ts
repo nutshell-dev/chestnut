@@ -67,13 +67,13 @@ export function writeClawInactivityInbox(
   routeNotifyClaw(fs, chestnutRoot, MOTION_CLAW_ID, MOTION_CLAW_ID, {
     type: 'claw_inactivity',
     source: 'watchdog',
-    priority: 'high',
+    priority: 'normal',
     body,
     idPrefix: `${Date.now()}_claw_inactivity`,
     extraFields,
   }, audit);
 }
 
-// phase 2 γ4: crash_notification 不立 helper（与 phase 1482 writeClawInactivityInbox 对称形态偏离）。
+// phase 2 γ4: claw_crashed 不立 helper（与 phase 1482 writeClawInactivityInbox 对称形态偏离）。
 // 理由：现 maybeCronClawCrash 内 inline notifyClaw 调用、tests 既有 spy 假设直调路径 / helper 间接增加 vi.mock 解析复杂度。
-// 若 future 多 caller 需写 crash_notification、再 extract helper。
+// 若 future 多 caller 需写 claw_crashed、再 extract helper。

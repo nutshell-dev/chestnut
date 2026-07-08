@@ -196,7 +196,7 @@ describe('watchdog notify dedup persist (phase 1269 sub-3)', () => {
       expect.anything(),
       'motion',
       'motion',
-      expect.objectContaining({ type: 'crash_notification', source: clawId }),
+      expect.objectContaining({ type: 'claw_crashed', source: clawId }),
       expect.anything(),
     );
   });

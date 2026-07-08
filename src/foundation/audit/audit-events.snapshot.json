@@ -696,7 +696,7 @@
     ],
     "daemon_audit-events": [
       "contract_cancelled",
-      "crash_notification",
+      "claw_crashed",
       "daemon_cleanup_heartbeat_failed",
       "daemon_cleanup_pid_failed",
       "daemon_exit_zero",

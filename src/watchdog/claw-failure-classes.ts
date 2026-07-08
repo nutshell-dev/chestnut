@@ -19,7 +19,7 @@
 export type FailureClass = 'daemon_silent' | 'daemon_errored';
 
 /**
- * Crash class for `crash_notification` watchdog notification.
+ * Crash class for `claw_crashed` watchdog notification.
  *
  * - `active_unexpected`: active contract + daemon dead + 无 clean-stop marker → 重启 daemon
  * - `active_user_stopped`: active contract + daemon dead + 有 clean-stop marker → motion 知情即可

@@ -24,7 +24,7 @@ export const DAEMON_AUDIT_EVENTS = {
   // other
   IDLE_TIMEOUT: 'daemon_idle_timeout',
   CONTRACT_CANCELLED: 'contract_cancelled',
-  CRASH_NOTIFICATION: 'crash_notification',
+  CLAW_CRASHED: 'claw_crashed',
   DAEMON_EXIT_ZERO: 'daemon_exit_zero',
   LLM_RETRY_STATE_INVARIANT_VIOLATED: 'daemon_llm_retry_state_invariant_violated',
   LLM_RETRY_STATE_LOAD_FAILED: 'daemon_llm_retry_state_load_failed',

@@ -15,7 +15,7 @@ import {
 } from '../../src/watchdog/watchdog-utils.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 
-describe('phase 1482 + phase 2 reframe: deriveFailureClass (daemon_stopped 移除归 crash_notification)', () => {
+describe('phase 1482 + phase 2 reframe: deriveFailureClass (daemon_stopped 移除归 claw_crashed)', () => {
   it('daemon alive + no lastError → daemon_silent', () => {
     expect(deriveFailureClass({ daemonAlive: true, lastError: undefined })).toBe('daemon_silent');
     expect(deriveFailureClass({ daemonAlive: true, lastError: null })).toBe('daemon_silent');

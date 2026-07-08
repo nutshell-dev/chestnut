@@ -9,7 +9,7 @@
  * Assembly 此处 own motion-side CLI 教学：按 enum switch 1 primary action per case
  * (DP「相关」derive / 反 phase 1476 anti-pattern #5「多 options」).
  *
- * State 接 via Runtime extraMeta wire (watchdog-log.ts writeCrashNotificationInbox
+ * State 接 via Runtime extraMeta wire (watchdog-log.ts writeClawCrashedInbox
  * extraFields → encodeInbox YAML → 收件方 extraMeta).
  *
  * 业主类型 CrashClass type-only import (peer L6↔L6 装配综合本职、不违 M#5).
@@ -25,7 +25,7 @@ import { clawCmd, CLAW_VERBS } from '../../../cli/utils/cli-commands.js';
 import type { CrashClass } from '../../../watchdog/claw-failure-classes.js';
 
 
-interface CrashNotificationState {
+interface ClawCrashedState {
   crash_class: string;        // serialized CrashClass enum
   claw_id: string;
   clean_stop_marker?: string;  // 'true' | 'false'
@@ -37,7 +37,7 @@ function isCrashClass(s: string | undefined): s is CrashClass {
   return s === 'active_unexpected' || s === 'active_user_stopped';
 }
 
-export const composer: GuidanceComposer<CrashNotificationState> = (state): GuidanceEntry => {
+export const composer: GuidanceComposer<ClawCrashedState> = (state): GuidanceEntry => {
   const cls = state.crash_class;
   const id = state.claw_id || '<claw-id>';
   // phase 201: 删 unknown / user_stopped null 旁路

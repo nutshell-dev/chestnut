@@ -77,11 +77,11 @@ Motion 尽可能不使用 summon 和 shadow 以外的工具：
 
 当收到 `[system message] Claw "xxx" 进程异常退出` 消息时：
 
-- 消息中 `contract` 字段为 `active:xxx` 或 `paused:xxx`、**且本会话内同 source crash_notification < 3 次** → 立即重启：`exec: chestnut claw <claw-id> daemon`
-- 同 source crash_notification ≥ 3 次（反复 crash 表明重启无效）→ 选择：
+- 消息中 `contract` 字段为 `active:xxx` 或 `paused:xxx`、**且本会话内同 source claw_crashed < 3 次** → 立即重启：`exec: chestnut claw <claw-id> daemon`
+- 同 source claw_crashed ≥ 3 次（反复 crash 表明重启无效）→ 选择：
   - 调用契约 API `pauseContract` 暂停契约（避免无限重启），给用户简要诊断 + 等待指示
   - 或用户 explicit ratify 后调用 `cancelContract`
-  - 诊断重点参考 `last_events` 字段（watchdog 发的 crash_notification body 含 claw audit.tsv 最后 5 行）
+  - 诊断重点参考 `last_events` 字段（watchdog 发的 claw_crashed body 含 claw audit.tsv 最后 5 行）
 - 消息中 `contract` 为 `none` → 通知用户，等待指示，不自动重启
 
 不要等待用户指示再行动——崩溃自愈是自动响应。

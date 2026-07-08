@@ -11,13 +11,13 @@ describe('eslint custom rule: no-runtime-knows-upper-layer-messages (phase 383)'
     valid: [
       // out of scope: src/core/contract/
       {
-        code: 'const x = "crash_notification";',
+        code: 'const x = "claw_crashed";',
         filename: 'src/core/contract/manager.ts',
       },
       // out of scope: tests/
       {
-        code: 'const x = "crash_notification";',
-        filename: 'tests/foo.test.ts',
+        code: 'const x = "claw_crashed";',
+        filename: 'tests/foo.test.ts'
       },
       // in scope but unrelated literal
       {
@@ -41,16 +41,16 @@ describe('eslint custom rule: no-runtime-knows-upper-layer-messages (phase 383)'
       },
       // .d.ts skip
       {
-        code: 'const x = "crash_notification";',
-        filename: 'src/core/runtime/types.d.ts',
+        code: 'const x = "claw_crashed";',
+        filename: 'src/core/runtime/types.d.ts'
       },
     ],
     invalid: [
-      // crash_notification literal
+      // claw_crashed literal
       {
-        code: 'const x = "crash_notification";',
+        code: 'const x = "claw_crashed";',
         filename: 'src/core/runtime/runtime.ts',
-        errors: [{ messageId: 'crashNotificationLiteral' }],
+        errors: [{ messageId: 'clawCrashedLiteral' }],
       },
       // HEARTBEAT.md literal
       {

@@ -14,12 +14,12 @@ describe('motion AGENTS.md crash self-heal N≥3 bailout (phase 1207 gap C)', ()
   const content = fs.readFileSync(AGENTS_PATH, 'utf-8');
 
   it('contains N<3 immediate restart guidance', () => {
-    expect(content).toContain('同 source crash_notification < 3 次');
+    expect(content).toContain('同 source claw_crashed < 3 次');
     expect(content).toContain('立即重启');
   });
 
   it('contains N≥3 bailout with pauseContract / cancelContract options', () => {
-    expect(content).toContain('同 source crash_notification ≥ 3 次');
+    expect(content).toContain('同 source claw_crashed ≥ 3 次');
     expect(content).toContain('pauseContract');
     expect(content).toContain('cancelContract');
   });

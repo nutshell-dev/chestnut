@@ -128,7 +128,7 @@ describe('phase 1419: inbox formatter registry coverage invariant', () => {
     const registered = extractRegisteredTypes();
     const expected = [
       'user_inbox_message', 'user_chat',
-      'crash_notification', 'claw_inactivity',
+      'claw_crashed', 'claw_inactivity',
       'contract_events', 'verification_result', 'verification_rejection', 'verification_error',
       'startup_check',
       'random_dream', 'deep_dream',

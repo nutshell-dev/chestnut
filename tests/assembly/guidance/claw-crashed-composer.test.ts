@@ -1,12 +1,12 @@
 /**
- * phase 2 γ4 + phase 4 重写 + phase 201: crash-notification real composer unit test.
+ * phase 2 γ4 + phase 4 重写 + phase 201: claw-crashed real composer unit test.
  * phase 201: unknown → fallback guidance / active_user_stopped → read-only inspect guidance.
  */
 
 import { describe, it, expect } from 'vitest';
-import { composer } from '../../../src/assembly/guidance/composers/crash-notification.js';
+import { composer } from '../../../src/assembly/guidance/composers/claw-crashed.js';
 
-describe('crash-notification composer', () => {
+describe('claw-crashed composer', () => {
   it('active_unexpected → 2-line guidance: restart + diagnostic CLI (phase 4)', () => {
     const r = composer({ crash_class: 'active_unexpected', claw_id: 'clawA' });
     expect(r).not.toBeNull();

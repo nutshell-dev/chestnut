@@ -54,7 +54,7 @@ describe('gatherClawSnapshot forensic context (phase 1207 gap B)', () => {
     expect(snapshot.lastAuditEvents).toBeUndefined();
   });
 
-  it('reverse 3: crash_notification body includes last_events segment', () => {
+  it('reverse 3: claw_crashed body includes last_events segment', () => {
     const auditLines = [
       '2026-01-01T00:00:00Z\tturn_start\t1',
       '2026-01-01T00:01:00Z\tturn_error\ttimeout',

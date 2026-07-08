@@ -2,7 +2,7 @@
  * phase 1414: Runtime.formatInboxMessage 收窄到 registry dispatch + DP 不静默 fallback。
  *
  * Covers:
- * - 6 case 等价行为对照（user_chat / user_inbox_message / crash_notification / heartbeat / message / unknown）
+ * - 6 case 等价行为对照（user_chat / user_inbox_message / claw_crashed / heartbeat / message / unknown）
  * - unknown type 走默 fallback + emit INBOX_UNKNOWN_TYPE audit
  * - Runtime 不再字面持 case 字符串（grep invariant 在 no-runtime-knows-upper-layer-messages.test.ts）
  */
@@ -15,7 +15,7 @@ import {
 } from '../../../src/foundation/messaging/index.js';
 import type { MessageFormatterRegistry } from '../../../src/foundation/messaging/index.js';
 import { formatUserChat } from '../../../src/core/gateway/index.js';
-import { formatCrashNotification } from '../../../src/watchdog/inbox-formatter.js';
+import { formatClawCrashed } from '../../../src/watchdog/inbox-formatter.js';
 import { createHeartbeatInboxFormatter } from '../../../src/core/heartbeat/index.js';
 import { RUNTIME_AUDIT_EVENTS } from '../../../src/core/runtime/runtime-audit-events.js';
 import { registerAsyncTaskSystemFormatters } from '../../../src/core/async-task-system/inbox-formatter.js';  // phase 264: hoist
@@ -99,15 +99,15 @@ describe('phase 1414 Runtime.formatInboxMessage via FormatterRegistry', () => {
     expect(audit.write).not.toHaveBeenCalled();
   });
 
-  it('crash_notification → "[system message<ts>] <body>"（Watchdog formatter / phase 4 drop preamble）', async () => {
+  it('claw_crashed → "[system message<ts>] <body>"（Watchdog formatter / phase 4 drop preamble）', async () => {
     const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
     const registry = createMessageFormatterRegistry();
-    registry.register('crash_notification', formatCrashNotification);
+    registry.register('claw_crashed', formatClawCrashed);
     const runtime = build({ audit, formatterRegistry: registry });
 
     // phase 4: formatter 不再加 "Claw X process exited abnormally" 前缀
     // 改由 body 自含完整语义 (formatCrashBody per CrashClass)、formatter 仅 wrap [system message<ts>]
-    const result = await runtime.testFormatInboxMessage('crash_notification', 'claw-a', 'exit code 1');
+    const result = await runtime.testFormatInboxMessage('claw_crashed', 'claw-a', 'exit code 1');
 
     expect(result).toMatch(/^\[system message\d*\] exit code 1$/);
     expect(result).not.toMatch(/process exited abnormally/);
