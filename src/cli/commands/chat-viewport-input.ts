@@ -23,9 +23,21 @@ export interface InputHandlerDeps {
 
 export const createTuiInputHandler = (deps: InputHandlerDeps) =>
   (data: string): { consume: boolean } | undefined => {
-    if (data.includes('\x03') || data.includes('\x04')) {
-      deps.setShutdownReason('user_quit');
-      deps.resolveExit();
+    // Ctrl+D: 清空输入
+    if (data.includes('\x04')) {
+      deps.editor.setText('');
+      deps.requestRender();
+      return { consume: true };
+    }
+    // Ctrl+C: 有内容清空，无内容退出
+    if (data.includes('\x03')) {
+      if (deps.editor.getText().trim().length > 0) {
+        deps.editor.setText('');
+        deps.requestRender();
+      } else {
+        deps.setShutdownReason('user_quit');
+        deps.resolveExit();
+      }
       return { consume: true };
     }
     if (data.includes('\x0c')) {
