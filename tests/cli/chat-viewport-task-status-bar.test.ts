@@ -116,15 +116,15 @@ describe('chat-viewport-task-status-bar', () => {
     const { bar } = makeDeps();
     bar.addMigratedExec({ taskId: 'exec-1', command: 'sleep 10', startedAt: Date.now() - 2 * 60_000 });
     const rendered = bar.renderMigratedExec(80);
-    expect(rendered).toContain('⊙ exec 2m');
+    expect(rendered).toContain('⚙ exec 2m');
     expect(rendered).toContain('sleep 10');
   });
 
-  it('addMigratedExec shows <1m for recent tasks', () => {
+  it('addMigratedExec shows 0m for recent tasks', () => {
     const { bar } = makeDeps();
     bar.addMigratedExec({ taskId: 'exec-2', command: 'sleep 1', startedAt: Date.now() - 10_000 });
     const rendered = bar.renderMigratedExec(80);
-    expect(rendered).toContain('⊙ exec <1m');
+    expect(rendered).toContain('⚙ exec 0m');
   });
 
   it('removeMigratedExec removes the indicator', () => {
@@ -156,7 +156,7 @@ describe('chat-viewport-task-status-bar', () => {
     bar.addMigratedExec({ taskId: 'exec-6', command: longCommand, startedAt: Date.now() });
     const rendered = bar.renderMigratedExec(80);
     expect(rendered.length).toBeLessThanOrEqual(longCommand.length + 30);
-    expect(rendered).toContain('⊙ exec');
+    expect(rendered).toContain('⚙ exec');
   });
 });
 
