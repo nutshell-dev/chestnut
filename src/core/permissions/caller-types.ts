@@ -7,8 +7,8 @@
 
 import type { ToolProfile } from '../../foundation/tool-protocol/index.js';
 
-export type DispatchCallerType = 'shadow' | 'miner';
-export type CallerType = 'motion' | 'claw' | 'subagent' | 'verifier' | 'shadow' | 'miner';
+export type DispatchCallerType = 'shadow_subagent' | 'miner_subagent';
+export type CallerType = 'motion' | 'claw' | 'spawn_subagent' | 'verifier' | 'shadow_subagent' | 'miner_subagent';
 
 /**
  * Map callerType to the corresponding ToolProfile for registry filtering.
@@ -17,8 +17,8 @@ export type CallerType = 'motion' | 'claw' | 'subagent' | 'verifier' | 'shadow' 
  * shadow mirrors main agent's full toolset.
  */
 export function callerTypeToProfile(callerType: string): ToolProfile {
-  if (callerType === 'miner') return 'miner';
-  if (callerType === 'shadow') return 'full';   // shadow mirrors main agent's full toolset
-  return 'subagent';
+  if (callerType === 'miner_subagent') return 'miner';
+  if (callerType === 'shadow_subagent') return 'full';   // shadow mirrors main agent's full toolset
+  return 'subagent';  // default: spawn_subagent and other unrecognized values
 }
 

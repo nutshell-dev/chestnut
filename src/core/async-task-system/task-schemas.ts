@@ -11,7 +11,7 @@ import { z } from 'zod';
 
 
 // 字符串值与 system.ts CallerType 等价（保持单一真相 / type-import）
-const CallerTypeSchema = z.enum(['claw', 'subagent', 'verifier', 'shadow', 'miner']);
+const CallerTypeSchema = z.enum(['claw', 'spawn_subagent', 'verifier', 'shadow_subagent', 'miner_subagent']);
 
 /**
  * phase 281: SummonDecision 内嵌 metadata，与 async-task task 文件 lifecycle 同步。

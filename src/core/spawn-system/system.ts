@@ -58,7 +58,7 @@ export async function runSpawnSync(opts: RunSpawnSyncOptions): Promise<ToolResul
     const subagentImpl = opts.runSubagent ?? defaultRunSubagent;
     const { text, capturedResult } = await subagentImpl({
       agentId: id,
-      toolProfile: callerTypeToProfile('subagent'),
+      toolProfile: callerTypeToProfile('spawn_subagent'),
       clawDir: opts.ctx.clawDir,
       fs: opts.ctx.fs,
       fsFactory: opts.ctx.fsFactory,

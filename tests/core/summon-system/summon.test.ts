@@ -274,7 +274,7 @@ Content.
       expect(tasks).toHaveLength(1);
       expect(tasks[0].systemPrompt).toBe(mockMotionPrompt);
       expect(tasks[0].shadowMessages).toBeDefined();
-      expect(tasks[0].callerType).toBe('shadow');
+      expect(tasks[0].callerType).toBe('shadow_subagent');
     });
   });
 
@@ -371,7 +371,7 @@ Content.
       const resultText = 'wj，已派出 filetool-auditor 去审查 L2c FileTool 模块！';
       const summary = await summonContractExtractPostProcessor(
         resultText,
-        { id: 'task-pp-test', callerType: 'miner' } as any,
+        { id: 'task-pp-test', callerType: 'miner_subagent' } as any,
         false,
         mockFs,
         auditWriter as any,
@@ -406,7 +406,7 @@ Content.
 
       const summary = await summonContractExtractPostProcessor(
         'Done.',
-        { id: 'task-multi', callerType: 'shadow' } as any,
+        { id: 'task-multi', callerType: 'shadow_subagent' } as any,
         false,
         mockFs,
         auditWriter as any,
@@ -430,7 +430,7 @@ Content.
 
       const result = await summonContractExtractPostProcessor(
         'Result text.',
-        { id: 'task-no-audit', callerType: 'shadow' } as any,
+        { id: 'task-no-audit', callerType: 'shadow_subagent' } as any,
         false,
         mockFs,
         auditWriter as any,
@@ -455,7 +455,7 @@ Content.
 
       const summary = await summonContractExtractPostProcessor(
         'Done.',
-        { id: 'task-mixed', callerType: 'shadow' } as any,
+        { id: 'task-mixed', callerType: 'shadow_subagent' } as any,
         false,
         mockFs,
         auditWriter as any,
@@ -481,7 +481,7 @@ Content.
 
       const summary = await summonContractExtractPostProcessor(
         'Done.',
-        { id: 'task-w-fail', callerType: 'miner' } as any,
+        { id: 'task-w-fail', callerType: 'miner_subagent' } as any,
         false,
         mockFs,
         auditWriter as any,
@@ -503,7 +503,7 @@ Content.
       const auditWriter = makeAuditWriter();
       const result = await summonContractExtractPostProcessor(
         'some error result',
-        { id: 'task-err', callerType: 'miner' } as any,
+        { id: 'task-err', callerType: 'miner_subagent' } as any,
         true,
         mockFs,
         auditWriter as any,

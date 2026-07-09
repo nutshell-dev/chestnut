@@ -67,7 +67,7 @@ export function inferKind(deps: { fsFactory: (baseDir: string) => FileSystem }, 
         if (task.callerType === SUMMON_CALLER_TYPES.SHADOW || task.callerType === SUMMON_CALLER_TYPES.MINER || task.postProcessor === SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME || task.postProcessor === 'dispatch-contract-extract') {
           return 'summon';
         }
-        if (task.callerType === 'subagent') {
+        if (task.callerType === 'spawn_subagent') {
           return 'spawn';
         }
         return 'spawn';

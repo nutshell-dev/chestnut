@@ -302,7 +302,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
 
       case 'task_started': {
         const taskId = event.taskId as string;
-        const callerType = (event.callerType as string) ?? 'subagent';
+        const callerType = (event.callerType as string) ?? 'spawn_subagent';
         // Phase 537 — defensive guard against malformed stream events (D7+D11)
         if (
           typeof taskId !== 'string' || taskId === '' || taskId === '.' || taskId.startsWith('.') ||

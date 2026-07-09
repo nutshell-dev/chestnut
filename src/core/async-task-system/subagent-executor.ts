@@ -103,7 +103,7 @@ export async function executeSubAgentTask(
     ts: Date.now(),
     type: STREAM_TASK_EVENTS.TASK_STARTED,
     taskId: task.id,
-    callerType: task.callerType ?? 'subagent',
+    callerType: task.callerType ?? 'spawn_subagent',
     silent: false,
   });
   const taskStreamPath = `${taskResultDir}/${STREAM_FILE}`;
@@ -119,7 +119,7 @@ export async function executeSubAgentTask(
 
     // Build per-task registry filtered by caller profile + motionClawDir 重建
     const isShadow = task.isShadow === true;
-    const subagentProfile = callerTypeToProfile(task.callerType ?? 'subagent');
+    const subagentProfile = callerTypeToProfile(task.callerType ?? 'spawn_subagent');
     const effectiveRegistry = (() => {
       const r = createPerTaskRegistry(registry, subagentProfile);
 
@@ -158,7 +158,7 @@ export async function executeSubAgentTask(
 
     const { text, capturedResult } = await (deps.runSubagent ?? defaultRunSubagent)({
       agentId: task.id,
-      toolProfile: callerTypeToProfile(task.callerType ?? 'subagent'),
+      toolProfile: callerTypeToProfile(task.callerType ?? 'spawn_subagent'),
       clawDir,
       fs,
       fsFactory,
@@ -188,7 +188,7 @@ export async function executeSubAgentTask(
       status: 'ok',
       kind: 'subagent',
       parent: task.parentClawId,
-      callerType: task.callerType ?? 'subagent',
+      callerType: task.callerType ?? 'spawn_subagent',
       intent: auditWriter.preview(task.intent),  // phase 218: union 简化后两 mode 均有 intent
       elapsedMs: Date.now() - taskStartTime,
       len: displayResult.length,
@@ -227,7 +227,7 @@ export async function executeSubAgentTask(
       status: 'err',
       kind: 'subagent',
       parent: task.parentClawId,
-      callerType: task.callerType ?? 'subagent',
+      callerType: task.callerType ?? 'spawn_subagent',
       intent: auditWriter.preview(task.intent),  // phase 218: union 简化后两 mode 均有 intent
       errorCategory: classifyTaskError(error),
       elapsedMs: Date.now() - taskStartTime,

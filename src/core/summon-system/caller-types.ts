@@ -6,8 +6,8 @@
  * - MINER:  spawn 子代理空白起步、通过 ask_motion 多轮问答构建上下文
  */
 export const SUMMON_CALLER_TYPES = {
-  SHADOW: 'shadow',
-  MINER: 'miner',
+  SHADOW: 'shadow_subagent',
+  MINER: 'miner_subagent',
 } as const;
 
 export type SummonCallerType = typeof SUMMON_CALLER_TYPES[keyof typeof SUMMON_CALLER_TYPES];

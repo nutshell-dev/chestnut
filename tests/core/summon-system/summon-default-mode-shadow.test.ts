@@ -83,7 +83,7 @@ describe('Phase 1166 — default mode shadow', () => {
     expect(result.success).toBe(true);
     const tasks = await readPendingTasks(tempDir);
     expect(tasks).toHaveLength(1);
-    expect(tasks[0].callerType).toBe('shadow');
+    expect(tasks[0].callerType).toBe('shadow_subagent');
     expect(tasks[0].shadowMessages).toBeDefined();
     expect(tasks[0].systemPrompt).toBe('mock system prompt');
     expect(tasks[0].motionClawDir).toBeUndefined();
@@ -96,7 +96,7 @@ describe('Phase 1166 — default mode shadow', () => {
     expect(result.success).toBe(true);
     const tasks = await readPendingTasks(tempDir);
     expect(tasks).toHaveLength(1);
-    expect(tasks[0].callerType).toBe('miner');
+    expect(tasks[0].callerType).toBe('miner_subagent');
     expect(tasks[0].shadowMessages).toBeUndefined();
     expect(tasks[0].motionClawDir).toBeDefined();
   });
@@ -109,7 +109,7 @@ describe('Phase 1166 — default mode shadow', () => {
     expect(result.success).toBe(true);
     const tasks = await readPendingTasks(tempDir);
     expect(tasks).toHaveLength(1);
-    expect(tasks[0].callerType).toBe('shadow');
+    expect(tasks[0].callerType).toBe('shadow_subagent');
     expect(tasks[0].shadowMessages).toBeDefined();
     expect(tasks[0].systemPrompt).toBe('mock system prompt');
   });

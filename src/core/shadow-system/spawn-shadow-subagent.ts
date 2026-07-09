@@ -67,7 +67,7 @@ export async function spawnShadowSubagent(
     maxSteps: opts.maxSteps ?? SHADOW_MAX_STEPS_DEFAULT,
     parentClawId: opts.ctx.clawId ?? '',
     originClawId: opts.originClawId ?? opts.ctx.clawId ?? '',
-    callerType: 'shadow',
+    callerType: 'shadow_subagent',
     isShadow: true,
     systemPrompt: opts.systemPrompt,
     shadowSystemPrompt: opts.systemPrompt,

@@ -15,7 +15,7 @@ describe('exec tool env injection', () => {
       clawId: 'test-claw',
       clawDir: dir,
       profile: 'full',
-      callerType: 'subagent',
+      callerType: 'spawn_subagent',
       fs,
       maxSteps: 10,
       workspaceDir: dir,
