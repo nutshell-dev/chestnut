@@ -57,7 +57,11 @@ export interface TaskWatchRole {
   fsFactory: (baseDir: string) => FileSystem;
   taskWatchMap: Map<string, TaskWatch>;
   handleTaskEvent: (taskId: TaskId, ev: unknown) => void;
-  taskStatusBar: { addTrack(taskId: TaskId, callerType: string): void };
+  taskStatusBar: {
+    addTrack(taskId: TaskId, callerType: string): void;
+    addMigratedExec(track: { taskId: TaskId; command: string; startedAt: number }): void;
+    removeMigratedExec(taskId: TaskId): void;
+  };
 }
 
 export interface ObservabilityRole {
@@ -313,6 +317,16 @@ export function createEventHandler(deps: EventHandlerDeps) {
           } catch { /* audit self-failure tolerated */ }
           break;
         }
+        // Phase 833: migrated exec tasks have no per-task stream reader; render
+        // them in a dedicated viewport area instead.
+        if (callerType === 'exec_migrated') {
+          deps.taskStatusBar.addMigratedExec({
+            taskId: makeTaskId(taskId),
+            command: (event.command as string) ?? 'exec',
+            startedAt: (event.startedAt as number) ?? Date.now(),
+          });
+          break;
+        }
         const basePath = path.join(deps.agentDir, TASKS_QUEUES_RESULTS_DIR, taskId);
         const { fs: taskFs } = createDirContext({ fsFactory: deps.fsFactory }, basePath);
         const taskReader = createStreamReader(taskFs, STREAM_FILE, (ev) => {
@@ -342,6 +356,13 @@ export function createEventHandler(deps: EventHandlerDeps) {
         if (!tw.silent) {
           deps.taskStatusBar.addTrack(makeTaskId(taskId), callerType);
         }
+        break;
+      }
+
+      case 'task_completed': {
+        const taskId = event.taskId as string;
+        if (typeof taskId !== 'string' || taskId === '') break;
+        deps.taskStatusBar.removeMigratedExec(makeTaskId(taskId));
         break;
       }
 

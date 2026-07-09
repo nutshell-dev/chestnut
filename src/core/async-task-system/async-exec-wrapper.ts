@@ -19,6 +19,7 @@ import type { CallerType } from '../../core/permissions/caller-types.js';
 import { executeToolTask } from './tool-executor.js';
 import { TASKS_QUEUES_RESULTS_DIR, TASKS_QUEUES_RUNNING_DIR } from './dirs.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
+import { STREAM_TASK_EVENTS } from './stream-events.js';
 import { emitHandlerFailed } from './audit-emit.js';
 import { formatErr } from './_helpers.js';
 import type { ToolTask, TaskId } from './types.js';
@@ -39,6 +40,7 @@ interface AsyncExecWrapperDeps {
   retryBaseDelayMs: number;
   moveTaskToDone: (taskId: TaskId) => Promise<void>;
   moveTaskToFailed: (taskId: TaskId) => Promise<void>;
+  parentStreamLog?: { write(entry: Record<string, unknown>): void };
 }
 
 const ASYNC_EXEC_SOFT_TIMEOUT_MS = 10_000;
@@ -155,7 +157,7 @@ export function createAsyncExecWrapper(
   const { execWithHandle, softTimeoutMs } = params;
   const timeout = softTimeoutMs ?? ASYNC_EXEC_SOFT_TIMEOUT_MS;
   const migratedHardTimeoutMs = params.migratedHardTimeoutMs ?? ASYNC_EXEC_MIGRATED_HARD_TIMEOUT_MS;
-  const { fs, auditWriter, retryBaseDelayMs, moveTaskToDone, moveTaskToFailed } = deps;
+  const { fs, auditWriter, retryBaseDelayMs, moveTaskToDone, moveTaskToFailed, parentStreamLog } = deps;
 
   const tool: Tool & { callerType?: CallerType } = {
     name: EXEC_TOOL_NAME,
@@ -312,6 +314,18 @@ export function createAsyncExecWrapper(
         return { success: false, content: `Failed to persist migrated exec task: ${formatErr(persistErr)}` };
       }
 
+      // Migration persisted: notify viewport that a background exec task started.
+      const startedAt = Date.now();
+      parentStreamLog?.write({
+        ts: startedAt,
+        type: STREAM_TASK_EVENTS.TASK_STARTED,
+        taskId,
+        callerType: 'exec_migrated',
+        silent: false,
+        command: command.length > 80 ? `${command.slice(0, 80)}...` : command,
+        startedAt,
+      });
+
       // Create result.txt with the partial output collected so far and switch
       // stdout/stderr listeners to append future chunks to the file in real time.
       // Use synchronous I/O for the initial write so no stdout/stderr data can
@@ -391,6 +405,14 @@ export function createAsyncExecWrapper(
             });
           }
         }
+        // Emit completion event on both success and failure paths so the viewport
+        // removes the migrated exec indicator.
+        parentStreamLog?.write({
+          ts: Date.now(),
+          type: STREAM_TASK_EVENTS.TASK_COMPLETED,
+          taskId,
+          callerType: 'exec_migrated',
+        });
       })();
 
       // Fire-and-forget: do not await the background chain in the caller path.

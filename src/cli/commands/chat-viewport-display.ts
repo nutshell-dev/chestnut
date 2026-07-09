@@ -31,7 +31,8 @@ export interface DisplayDeps {
   clawTrackMap: Map<string, ClawTrack>;
   spawnText: { setText(text: string): void };
   shadowText: { setText(text: string): void };
-  taskStatusBar: { renderSpawn(cols: number): string; renderShadow(cols: number): string };
+  migratedExecText: { setText(text: string): void };
+  taskStatusBar: { renderSpawn(cols: number): string; renderShadow(cols: number): string; renderMigratedExec(cols: number): string };
 }
 
 export function createDisplay(deps: DisplayDeps) {
@@ -94,6 +95,7 @@ export function createDisplay(deps: DisplayDeps) {
     const cols = process.stdout.columns ?? DEFAULT_TERMINAL_WIDTH;
     deps.spawnText.setText(deps.taskStatusBar.renderSpawn(cols));
     deps.shadowText.setText(deps.taskStatusBar.renderShadow(cols));
+    deps.migratedExecText.setText(deps.taskStatusBar.renderMigratedExec(cols));
     updateDisplay();
   };
 

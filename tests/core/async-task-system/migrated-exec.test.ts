@@ -679,3 +679,113 @@ describe('migrated process hard timeout (Phase 777)', () => {
     expect(output).not.toMatch(/\[Process timed out:/);
   });
 });
+
+
+describe('Phase 833: migrated exec stream events', () => {
+  let tmpDir: string;
+  let nodeFs: NodeFileSystem;
+  let audit: AuditLog;
+  let system: AsyncTaskSystem;
+  let streamEvents: Array<Record<string, unknown>>;
+
+  beforeEach(async () => {
+    streamEvents = [];
+    const events = streamEvents;
+    const streamLog = { write: (entry: Record<string, unknown>) => { events.push(entry); } };
+    tmpDir = path.join(os.tmpdir(), `migrated-exec-stream-${randomUUID()}`);
+    await fs.mkdir(tmpDir, { recursive: true });
+    nodeFs = new NodeFileSystem({ baseDir: tmpDir });
+    const mockAudit = makeMockAudit();
+    audit = mockAudit.audit;
+
+    system = new AsyncTaskSystem(tmpDir, nodeFs, {
+      auditWriter: audit,
+      ...makeTaskSystemDeps(),
+    });
+    system.setParentStreamLog(streamLog);
+    await system.initialize();
+  });
+
+  afterEach(async () => {
+    await system.shutdown(1000).catch(() => { /* silent */ });
+    await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => { /* silent cleanup */ });
+  });
+
+  it('emits task_started when command migrates to background', async () => {
+    const execWithHandle = createExecWithHandle();
+    const tool = system.createAsyncExecWrapper({
+      execWithHandle: (args, ctx) => execWithHandle(args, ctx),
+      softTimeoutMs: 100,
+    });
+
+    const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
+    const result = await tool.execute({ command: 'sleep 0.3 && echo done' }, ctx);
+
+    expect(result.success).toBe(true);
+    const taskId = result.metadata?.taskId as string;
+
+    const started = streamEvents.find(e => e.type === 'task_started');
+    expect(started).toBeDefined();
+    expect(started?.taskId).toBe(taskId);
+    expect(started?.callerType).toBe('exec_migrated');
+    expect(started?.command).toBe('sleep 0.3 && echo done');
+    expect(typeof started?.startedAt).toBe('number');
+  });
+
+  it('emits task_completed after migrated process finishes', async () => {
+    const execWithHandle = createExecWithHandle();
+    const tool = system.createAsyncExecWrapper({
+      execWithHandle: (args, ctx) => execWithHandle(args, ctx),
+      softTimeoutMs: 100,
+    });
+
+    const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
+    const result = await tool.execute({ command: 'sleep 0.2 && echo done' }, ctx);
+
+    expect(result.success).toBe(true);
+    const taskId = result.metadata?.taskId as string;
+
+    const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${taskId}.json`);
+    await waitUntilGone(runningFile, 5000);
+
+    const completed = streamEvents.find(e => e.type === 'task_completed');
+    expect(completed).toBeDefined();
+    expect(completed?.taskId).toBe(taskId);
+    expect(completed?.callerType).toBe('exec_migrated');
+  });
+
+  it('truncates long commands in task_started event', async () => {
+    const execWithHandle = createExecWithHandle();
+    const tool = system.createAsyncExecWrapper({
+      execWithHandle: (args, ctx) => execWithHandle(args, ctx),
+      softTimeoutMs: 100,
+    });
+
+    const longCommand = 'sleep 0.3 && echo ' + 'x'.repeat(200);
+    const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
+    const result = await tool.execute({ command: longCommand }, ctx);
+
+    expect(result.success).toBe(true);
+
+    const started = streamEvents.find(e => e.type === 'task_started') as Record<string, unknown> | undefined;
+    expect(started).toBeDefined();
+    const command = started!.command as string;
+    expect(command.length).toBeLessThanOrEqual(83); // 80 + '...'
+    expect(command.endsWith('...')).toBe(true);
+  });
+
+  it('does not emit task_started for sync completion', async () => {
+    const execWithHandle = createExecWithHandle();
+    const tool = system.createAsyncExecWrapper({
+      execWithHandle: (args, ctx) => execWithHandle(args, ctx),
+      softTimeoutMs: 10_000,
+    });
+
+    const ctx = makeExecContext({ fs: nodeFs, workspaceDir: tmpDir });
+    const result = await tool.execute({ command: 'echo hi' }, ctx);
+
+    expect(result.success).toBe(true);
+    expect(streamEvents.some(e => e.type === 'task_started')).toBe(false);
+    expect(streamEvents.some(e => e.type === 'task_completed')).toBe(false);
+  });
+});
