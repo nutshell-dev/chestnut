@@ -11,4 +11,5 @@
 export const STREAM_TASK_EVENTS = {
   TASK_STARTED: 'task_started',
   TASK_ATTEMPT_START: 'task_attempt_start',
+  TASK_COMPLETED: 'task_completed',
 } as const;

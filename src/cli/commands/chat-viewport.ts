@@ -161,6 +161,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
 
   const spawnText = new Text('', 0, 0);
   const shadowText = new Text('', 0, 0);
+  const migratedExecText = new Text('', 0, 0);
   const attachedClawBar = new Text('', 0, 0);
 
   // task-status-bar wiring
@@ -174,6 +175,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
         const cols = process.stdout.columns ?? DEFAULT_TERMINAL_WIDTH;
         spawnText.setText(taskStatusBar.renderSpawn(cols));
         shadowText.setText(taskStatusBar.renderShadow(cols));
+        migratedExecText.setText(taskStatusBar.renderMigratedExec(cols));
         tui.requestRender();
       });
     },
@@ -208,6 +210,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     clawTrackMap,
     spawnText,
     shadowText,
+    migratedExecText,
     taskStatusBar,
   } as Parameters<typeof createDisplay>[0]);
 
@@ -461,9 +464,10 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   process.stdout.on('resize', onResize);
 
   tui.addChild(outputText);
-  tui.addChild(spawnText);       // 顶层
-  tui.addChild(shadowText);      // 中层
-  tui.addChild(attachedClawBar); // 下层
+  tui.addChild(spawnText);          // 顶层
+  tui.addChild(shadowText);         // 中层
+  tui.addChild(migratedExecText);   // Phase 833: migrated exec status
+  tui.addChild(attachedClawBar);    // 下层
   tui.addChild(editor);
   tui.setFocus(editor);
 

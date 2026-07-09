@@ -113,6 +113,14 @@ export class AsyncTaskSystem {
   }
 
   /**
+   * Phase 833: inject the parent stream log after construction so migrated exec
+   * tasks can emit `task_started` / `task_completed` viewport events.
+   */
+  setParentStreamLog(streamLog: StreamLog): void {
+    this.parentStreamLog = streamLog;
+  }
+
+  /**
    * Phase 770: create an async-aware `exec` Tool.
    *
    * The returned Tool shares the same name/schema/profiles as the sync exec Tool,
@@ -125,6 +133,7 @@ export class AsyncTaskSystem {
       retryBaseDelayMs: this.retryBaseDelayMs,
       moveTaskToDone: this.moveTaskToDone.bind(this),
       moveTaskToFailed: this.moveTaskToFailed.bind(this),
+      parentStreamLog: this.parentStreamLog,
     });
   }
 
@@ -239,10 +248,6 @@ export class AsyncTaskSystem {
     void this._runDispatchLoop();
     // 首次触发：扫 pending 目录中已有任务
     this._signalWork();
-  }
-
-  setParentStreamLog(sink: StreamLog): void {
-    this.parentStreamLog = sink;
   }
 
   /**

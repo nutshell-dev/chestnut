@@ -110,6 +110,54 @@ describe('chat-viewport-task-status-bar', () => {
     // 第二次 noop 不触发 updateRender
     expect(updateRender.mock.calls.length).toBe(callsAfterFirstRemove);
   });
+
+  // Phase 833: migrated exec task rendering
+  it('addMigratedExec renders exec indicator with command', () => {
+    const { bar } = makeDeps();
+    bar.addMigratedExec({ taskId: 'exec-1', command: 'sleep 10', startedAt: Date.now() - 2 * 60_000 });
+    const rendered = bar.renderMigratedExec(80);
+    expect(rendered).toContain('⊙ exec 2m');
+    expect(rendered).toContain('sleep 10');
+  });
+
+  it('addMigratedExec shows <1m for recent tasks', () => {
+    const { bar } = makeDeps();
+    bar.addMigratedExec({ taskId: 'exec-2', command: 'sleep 1', startedAt: Date.now() - 10_000 });
+    const rendered = bar.renderMigratedExec(80);
+    expect(rendered).toContain('⊙ exec <1m');
+  });
+
+  it('removeMigratedExec removes the indicator', () => {
+    const { bar } = makeDeps();
+    bar.addMigratedExec({ taskId: 'exec-3', command: 'sleep 5', startedAt: Date.now() });
+    expect(bar.renderMigratedExec(80)).toContain('sleep 5');
+    bar.removeMigratedExec('exec-3');
+    expect(bar.renderMigratedExec(80)).toBe('');
+  });
+
+  it('hasAny includes migrated exec tracks', () => {
+    const { bar } = makeDeps();
+    expect(bar.hasAny()).toBe(false);
+    bar.addMigratedExec({ taskId: 'exec-4', command: 'sleep 5', startedAt: Date.now() });
+    expect(bar.hasAny()).toBe(true);
+  });
+
+  it('migrated exec tracks are independent from spawn/shadow tracks', () => {
+    const { bar } = makeDeps();
+    bar.addMigratedExec({ taskId: 'exec-5', command: 'sleep 5', startedAt: Date.now() });
+    expect(bar.renderSpawn(80)).toBe('');
+    expect(bar.renderShadow(80)).toBe('');
+    expect(bar.renderMigratedExec(80)).not.toBe('');
+  });
+
+  it('migrated exec command longer than 80 chars is not rendered fully by the bar', () => {
+    const { bar } = makeDeps();
+    const longCommand = 'a'.repeat(120);
+    bar.addMigratedExec({ taskId: 'exec-6', command: longCommand, startedAt: Date.now() });
+    const rendered = bar.renderMigratedExec(80);
+    expect(rendered.length).toBeLessThanOrEqual(longCommand.length + 30);
+    expect(rendered).toContain('⊙ exec');
+  });
 });
 
 describe('buildTaskLine', () => {

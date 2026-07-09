@@ -102,6 +102,11 @@ export async function createRuntimeAssembly(
       maxDays: globalConfig.stream.retention.max_days,
     });
     streamWriter.open();
+    // Phase 833: wire stream writer into AsyncTaskSystem so migrated exec tasks
+    // can emit task_started / task_completed viewport events.
+    if (typeof taskSystem.setParentStreamLog === 'function') {
+      taskSystem.setParentStreamLog(streamWriter);
+    }
   } catch (e) {
     auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=stream_writer`, `phase=construct`, `reason=${formatErr(e)}`);
     throw new Error(`Assembly: StreamWriter construct failed: ${formatErr(e)}`, { cause: e });
