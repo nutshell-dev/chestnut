@@ -5,7 +5,7 @@
  * Uses a pending queue + dispatcher pattern for concurrency control.
  */
 
-import { newUuid } from '../../foundation/node-utils/index.js';
+import { newShortUuid } from '../../foundation/node-utils/index.js';
 
 import * as path from 'path';
 
@@ -266,7 +266,7 @@ export class AsyncTaskSystem {
     taskKind: 'subagent',
     payload: Omit<SubAgentTask, 'id' | 'createdAt'>,
   ): Promise<string> {
-    const taskId = makeTaskId(newUuid());
+    const taskId = makeTaskId(newShortUuid());
     const task = {
       ...payload,
       id: taskId,
