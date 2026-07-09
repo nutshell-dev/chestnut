@@ -88,7 +88,7 @@ export interface TaskStatusBarController {
 
 function renderMigratedExecLine(track: MigratedExecTrack, cols: number): string {
   const elapsedMin = Math.floor((Date.now() - track.startedAt) / 60_000);
-  const elapsedLabel = elapsedMin < 1 ? '<1m' : `${elapsedMin}m`;
+  const elapsedLabel = `${elapsedMin}m`;
   const line = `⊙ exec ${elapsedLabel}  ${track.command}`;
   return `\x1b[38;5;147m${fitLine(line, cols)}\x1b[0m`;
 }
