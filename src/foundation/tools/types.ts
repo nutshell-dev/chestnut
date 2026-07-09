@@ -241,7 +241,6 @@ export interface ExecuteOptions {
   args: Record<string, unknown>;
   ctx: ExecContext;
   timeoutMs?: number;
-  async?: boolean;   // 新增：true 时走异步路径
   toolUseId?: ToolUseId;   // 新增：LLM 生成的 tool_use block id
 }
 

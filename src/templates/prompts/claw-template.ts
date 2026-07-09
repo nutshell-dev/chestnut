@@ -93,11 +93,7 @@ Motion 会检查该文件并基于记录寻找新方法或调整任务。
   - Per-call output is capped at 100 KB. When exceeded, head + tail are returned and the full output is saved to \`tasks/sync/read/<id>.md\` — the saved path is in the response. Read that path with offset/limit to view ranges.
   - \`exec: cat\` bypasses caps and may dump an oversized file entirely into the context
 - \`exec\` is only for: shell command execution and process management
-  - **Synchronous mode** (default): blocks until result, up to 120 seconds
-  - **Async mode**: add \`"async": true\` to return a taskId immediately; results are delivered via inbox
-    - Use cases: downloading large files, long-running scripts (>30 seconds)
-    - Example: \`exec: { "command": "curl -o report.pdf https://...", "async": true }\`
-    - Result message: from=task_system, content contains taskId + execution result
+  - **Auto async migration**: commands running longer than 10 seconds are automatically moved to background execution; results are delivered via inbox with a taskId
   - ⚠️ exec is a **non-idempotent** operation — async retries may cause the command to run multiple times; confirm idempotency before retrying
   - **Output truncation**: exec output is capped per call (head+tail kept). When truncated, the result message tells you the path of the saved full output and gives a ready-to-use \`read\` invocation — follow that hint with \`read\` (paginate via offset/limit)
 

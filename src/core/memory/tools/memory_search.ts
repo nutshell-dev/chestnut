@@ -45,7 +45,7 @@ export const memorySearchTool: Tool = {
       },
       async: {
         type: 'boolean',
-        description: 'If true, run in background. Result delivered to inbox when complete. Use for large memory searches or non-blocking queries.',
+        description: 'If true, execute in the first parallel batch. Results return in the same turn.',
       },
     },
     // query 和 filter 至少一个必填，用 description 约束而非 required

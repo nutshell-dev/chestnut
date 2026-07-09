@@ -1,11 +1,10 @@
 /**
  * @module L3.StepExecutor.ToolExecution
- * Tool execution strategies — categorize + 4 parallel strategy + sequential / single
+ * Tool execution strategies — categorize + 3 parallel strategy + sequential / single
  *
- * 4 strategies (per tool readonly + async flag):
+ * 3 strategies:
  * - executeSequential: 无 registry 时串行
- * - executeReadonlyAsync: 只读 + async=true 异步
- * - executeReadonlySync: 只读 + async=false 同步并行
+ * - executeReadonlyParallel: 只读工具并行
  * - executeWriteCalls: 写工具串行
  */
 
@@ -30,8 +29,7 @@ function toSafeNumber(v: unknown): number | undefined {
 }
 
 interface CategorizedCalls {
-  readonlyAsync: { call: ToolUseBlock; index: number }[];
-  readonlySync: { call: ToolUseBlock; index: number }[];
+  readonly: { call: ToolUseBlock; index: number }[];
   write: { call: ToolUseBlock; index: number }[];
 }
 
@@ -39,22 +37,18 @@ function categorizeToolCalls(
   toolCalls: ToolUseBlock[],
   registry: ToolRegistry,
 ): CategorizedCalls {
-  const readonlyAsync: { call: ToolUseBlock; index: number }[] = [];
-  const readonlySync: { call: ToolUseBlock; index: number }[] = [];
+  const readonly: { call: ToolUseBlock; index: number }[] = [];
   const write: { call: ToolUseBlock; index: number }[] = [];
 
   for (const [i, call] of toolCalls.entries()) {
     const tool = registry.get(call.name);
-    const wantsAsync = call.input?.async === true;
-    if (tool?.readonly === true && !wantsAsync) {
-      readonlySync.push({ call, index: i });
-    } else if (tool?.readonly === true && wantsAsync) {
-      readonlyAsync.push({ call, index: i });
+    if (tool?.readonly === true) {
+      readonly.push({ call, index: i });
     } else {
       write.push({ call, index: i });
     }
   }
-  return { readonlyAsync, readonlySync, write };
+  return { readonly, write };
 }
 
 function isStepInput(value: StepCallbacks | StepInput): value is StepInput {
@@ -90,7 +84,7 @@ async function executeSequential(
   return results;
 }
 
-async function executeReadonlyAsync(
+async function executeReadonlyParallel(
   group: { call: ToolUseBlock; index: number }[],
   executor: IToolExecutor,
   ctx: ExecContext,
@@ -103,40 +97,7 @@ async function executeReadonlyAsync(
   const { callbacks, auditWriter: aw } = resolveCallbacksAndAudit(callbacksOrInput, auditWriter);
 
   const batch = group.map(({ call }) => {
-    const { async: _asyncMode, ...toolArgs } = call.input;
-    return { toolName: call.name, args: toolArgs };
-  });
-
-  const parallelResults = await executor.executeParallel(batch, ctx);
-
-  for (let i = 0; i < group.length; i++) {
-    const { call, index } = group[i];
-    const result = parallelResults[i];
-    if (!result) {
-      const singleResult = await executeSingleTool(call, executor, ctx, callbacksOrInput, auditWriter);
-      safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, makeToolUseId(call.id), singleResult), callbacks, aw);
-      results.set(index, toToolResultBlock(makeToolUseId(call.id), singleResult));
-      continue;
-    }
-    safeCallback('onToolResult', () => callbacks?.onToolResult?.(call.name, makeToolUseId(call.id), result), callbacks, aw);
-    results.set(index, toToolResultBlock(makeToolUseId(call.id), result));
-  }
-}
-
-async function executeReadonlySync(
-  group: { call: ToolUseBlock; index: number }[],
-  executor: IToolExecutor,
-  ctx: ExecContext,
-  results: Map<number, ToolResultBlock>,
-  callbacksOrInput?: StepCallbacks | StepInput,
-  auditWriter?: AuditLog,
-): Promise<void> {
-  if (group.length === 0) return;
-
-  const { callbacks, auditWriter: aw } = resolveCallbacksAndAudit(callbacksOrInput, auditWriter);
-
-  const batch = group.map(({ call }) => {
-    const { async: _asyncMode, ...toolArgs } = call.input;
+    const { async: _, ...toolArgs } = call.input;
     return { toolName: call.name, args: toolArgs };
   });
 
@@ -184,11 +145,10 @@ export async function executeToolCalls(
 ): Promise<ToolResultBlock[]> {
   if (!registry) return executeSequential(toolCalls, executor, ctx, callbacksOrInput, auditWriter);
 
-  const { readonlyAsync, readonlySync, write } = categorizeToolCalls(toolCalls, registry);
+  const { readonly, write } = categorizeToolCalls(toolCalls, registry);
   const results = new Map<number, ToolResultBlock>();
 
-  await executeReadonlyAsync(readonlyAsync, executor, ctx, results, callbacksOrInput, auditWriter);
-  await executeReadonlySync(readonlySync, executor, ctx, results, callbacksOrInput, auditWriter);
+  await executeReadonlyParallel(readonly, executor, ctx, results, callbacksOrInput, auditWriter);
   await executeWriteCalls(write, executor, ctx, results, callbacksOrInput, auditWriter);
 
   return toolCalls.map((_, i) => {
