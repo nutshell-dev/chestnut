@@ -695,7 +695,7 @@ describe('StepExecutor', () => {
     expect(messages).toHaveLength(2);
   });
 
-  it('readonly+async tools go through executeParallel in their own batch before sync parallel batch', async () => {
+  it('readonly tools (including async-flagged) go through executeParallel in a single batch', async () => {
     const ctx = await makeRealCtx();
     const registry = new ToolRegistryImpl();
     const order: string[] = [];
@@ -723,11 +723,9 @@ describe('StepExecutor', () => {
       messages: [], systemPrompt: '', llm, tools: [],
       executor, registry, ctx,
     });
-    // asyncA now goes through executeParallel (readonlyAsync batch)
-    // async batch runs before sync batch
+    // both readonly tools share one parallel batch; async flag only affects batch grouping historically
     expect(order).toEqual([
-      'parallel-start', 'asyncA', 'parallel-end',
-      'parallel-start', 'syncB', 'parallel-end',
+      'parallel-start', 'asyncA', 'syncB', 'parallel-end',
     ]);
   });
 
@@ -803,7 +801,7 @@ describe('StepExecutor', () => {
     expect(order).toEqual(['writeA', 'writeB']);
   });
 
-  it('mixed three categories execute in order: async parallel → sync parallel → write', async () => {
+  it('mixed readonly parallel → write sequential', async () => {
     const ctx = await makeRealCtx();
     const registry = new ToolRegistryImpl();
     const order: string[] = [];
@@ -831,8 +829,8 @@ describe('StepExecutor', () => {
       messages: [], systemPrompt: '', llm, tools: [],
       executor, registry, ctx,
     });
-    // asyncA runs in first parallel batch; syncB runs in second parallel batch; writeC runs sequentially last
-    expect(order.indexOf('asyncA')).toBeLessThan(order.indexOf('syncB'));
+    // all readonly tools share one parallel batch; writeC runs sequentially last
+    expect(order.indexOf('asyncA')).toBeLessThan(order.indexOf('writeC'));
     expect(order.indexOf('syncB')).toBeLessThan(order.indexOf('writeC'));
   });
 
@@ -915,9 +913,9 @@ describe('StepExecutor', () => {
     expect(events).toEqual(['call', 'result']);
   });
 
-  it('categorizeToolCalls partitions by readonly and async flag', async () => {
+  it('categorizeToolCalls partitions by readonly flag only', async () => {
     // This helper is pure; we test it via the module import by exercising executeStep
-    // with a registry that distinguishes the three paths.
+    // with a registry that distinguishes readonly vs write paths.
     const ctx = await makeRealCtx();
     const registry = new ToolRegistryImpl();
     registry.register(makeTool('roSync', async () => ({ success: true, content: 's' }), true));
@@ -940,9 +938,8 @@ describe('StepExecutor', () => {
       messages: [], systemPrompt: '', llm, tools: [],
       executor, registry, ctx,
     });
-    // roAsync and roSync each go through parallel in separate batches
-    expect(parallelSpy).toHaveBeenCalledTimes(2);
-    expect(parallelSpy.mock.calls[0][0]).toHaveLength(1); // roAsync batch
-    expect(parallelSpy.mock.calls[1][0]).toHaveLength(1); // roSync batch
+    // roAsync and roSync share a single readonly parallel batch
+    expect(parallelSpy).toHaveBeenCalledTimes(1);
+    expect(parallelSpy.mock.calls[0][0]).toHaveLength(2); // both readonly tools
   });
 });
