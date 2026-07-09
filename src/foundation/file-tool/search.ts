@@ -318,7 +318,7 @@ const SearchInputSchema = z.object({
     'Directory to search in, relative to clawspace. Use ".." to escape clawspace to claw root (e.g. path: "../memory"). Default: clawspace root.'
   ),
   caseSensitive: z.boolean().optional().describe('Match case-sensitively. Default: false.'),
-  async: z.boolean().optional().describe('If true, run in background. Result delivered to inbox when complete.'),
+  async: z.boolean().optional().describe('If true, execute in the first parallel batch. Results return in the same turn.'),
 }).strict();
 
 type SearchInput = z.infer<typeof SearchInputSchema>;
