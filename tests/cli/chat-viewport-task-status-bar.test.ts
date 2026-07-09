@@ -117,6 +117,7 @@ describe('chat-viewport-task-status-bar', () => {
     bar.addMigratedExec({ taskId: 'exec-1', command: 'sleep 10', startedAt: Date.now() - 2 * 60_000 });
     const rendered = bar.renderMigratedExec(80);
     expect(rendered).toContain('⚙ exec 2m');
+    expect(rendered).toContain(' · sleep 10');
     expect(rendered).toContain('sleep 10');
   });
 
@@ -125,6 +126,7 @@ describe('chat-viewport-task-status-bar', () => {
     bar.addMigratedExec({ taskId: 'exec-2', command: 'sleep 1', startedAt: Date.now() - 10_000 });
     const rendered = bar.renderMigratedExec(80);
     expect(rendered).toContain('⚙ exec 0m');
+    expect(rendered).toContain(' · sleep 1');
   });
 
   it('removeMigratedExec removes the indicator', () => {
@@ -157,6 +159,7 @@ describe('chat-viewport-task-status-bar', () => {
     const rendered = bar.renderMigratedExec(80);
     expect(rendered.length).toBeLessThanOrEqual(longCommand.length + 30);
     expect(rendered).toContain('⚙ exec');
+    expect(rendered).toContain(' · ');
   });
 });
 
