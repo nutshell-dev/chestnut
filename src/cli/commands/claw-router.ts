@@ -42,6 +42,7 @@ import { parseIntOption } from '../parse-int-option.js';
 import { makeContractId } from '../../core/contract/types.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { clawStepsCommand, clawStepCommand } from './claw-steps.js';
+import { psCommand } from './claw-ps.js';
 import {
   CLAW_VERB_FACTS,
   type ClawVerbName,
@@ -228,6 +229,7 @@ export async function dispatchClawSubcommand(
     case 'trace': return runTrace(deps, name, verbArgs);
     case 'status': return runStatus(deps, name, verbArgs);
     case 'watch': return runWatch(deps, name, verbArgs);
+    case 'ps': return runPs(deps, name, verbArgs);
     case 'stream': return runStreamFromArgs(deps, name, verbArgs);
   }
 }
@@ -429,5 +431,12 @@ async function runWatch(deps: RouterDeps, name: string, args: string[]): Promise
   const { audit } = createDirContext(deps, getClawDir(name));
   const opts = parser.opts<{ inactiveAfter?: string }>();
   await watchCommand(deps, name, { inactiveAfter: opts.inactiveAfter }, { audit });
+}
+
+async function runPs(deps: RouterDeps, name: string, args: string[]): Promise<void> {
+  if (args.length > 0) {
+    throw new CliError(`'ps' takes no extra arguments (got: ${args.join(' ')})`);
+  }
+  await psCommand(deps, name, args);
 }
 

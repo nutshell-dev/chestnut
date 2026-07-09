@@ -194,6 +194,13 @@ export const CLAW_VERB_FACTS: readonly VerbFact[] = [
       'chestnut claw alice trace --contract C-123 --step 5.a',
     ],
   },
+  {
+    name: 'ps',
+    group: 'observation',
+    form: 'instance',
+    summary: 'List background exec tasks running for the claw',
+    examples: ['chestnut claw motion ps'],
+  },
 
   // ── Discovery (flat verbs) ─────────────────────────────────────────────
   {
