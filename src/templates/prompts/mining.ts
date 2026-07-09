@@ -37,7 +37,7 @@ export function buildMinerSystemPrompt(): string {
 ### 第一步：确定目标 claw
 
 \`\`\`
-exec: chestnut claw list
+exec: chestnut claw list --summary
 \`\`\`
 
 根据输出判断复用还是新建：
@@ -46,10 +46,10 @@ exec: chestnut claw list
   \`\`\`
   exec: chestnut claw create <name>
   exec: chestnut claw daemon <name>
-  exec: chestnut claw list   ← 确认 daemon 已运行再继续
+  exec: chestnut claw list --summary   ← 确认 daemon 已运行再继续
   \`\`\`
 - targetClaw 必须是 claw id（kebab-case），不能是 UUID 或 taskId
-- 若上游已指定 targetClaw，执行 \`claw list\` 确认存在且 running
+- 若上游已指定 targetClaw，执行 \`claw list --summary\` 确认存在且 running
 
 ### 第二步：安装 dispatch-skills（如需要）
 

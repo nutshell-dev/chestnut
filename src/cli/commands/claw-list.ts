@@ -11,7 +11,8 @@ import { createDirContext } from '../../foundation/audit/index.js';
 import { createProcessManagerForCLI } from '../../foundation/process-manager/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
-import { hasActiveContract, listActiveContracts, CONTRACT_ARCHIVE_DIR, CONTRACT_YAML_FILE } from '../../core/contract/index.js';
+import { hasActiveContract, listActiveContracts, getLatestContractStats, CONTRACT_ARCHIVE_DIR, CONTRACT_YAML_FILE } from '../../core/contract/index.js';
+import type { ContractSubtaskStats } from '../../core/contract/index.js';
 import { CONFIG_YAML_FILE } from '../../core/claw-topology/index.js';
 import { getLastActiveMs } from './claw-shared.js';
 import { listOutboxPendingSync } from '../../foundation/messaging/index.js';
@@ -22,7 +23,19 @@ const CLAW_TITLE_DISPLAY_CHARS = 28;
 /**
  * List all Claws and their status
  */
-export async function listCommand(deps: { fsFactory: (baseDir: string) => FileSystem }, opts?: { json?: boolean }): Promise<void> {
+/** Internal claw entry populated for list rendering. */
+interface ClawEntry {
+  name: string;
+  status: 'running' | 'stopped';
+  pid?: number;
+  lastActiveIso: string | null;
+  contract: string;
+  outbox: number;
+  lastActive: string;
+  lastContract: string;
+}
+
+export async function listCommand(deps: { fsFactory: (baseDir: string) => FileSystem }, opts?: { json?: boolean; summary?: boolean }): Promise<void> {
   loadGlobalConfig(deps);
 
   const globalConfigPath = getGlobalConfigPath();
@@ -81,16 +94,7 @@ export async function listCommand(deps: { fsFactory: (baseDir: string) => FileSy
   }
   const clawsDirFs = deps.fsFactory(clawsDir);
   const entries = clawsDirFs.listSync('.', { includeDirs: true }).map(e => e.name);
-  const claws: Array<{
-    name: string;
-    status: string;
-    pid?: number;
-    lastActiveIso: string | null;
-    contract: string;
-    outbox: number;
-    lastActive: string;
-    lastContract: string;
-  }> = [];
+  const claws: ClawEntry[] = [];
 
   for (const entry of entries) {
     const clawFs = deps.fsFactory(path.join(clawsDir, entry));
@@ -126,6 +130,25 @@ export async function listCommand(deps: { fsFactory: (baseDir: string) => FileSy
         lastContract: getLatestContractTitle(clawFs),
       });
     }
+  }
+
+  if (opts?.summary) {
+    if (claws.length === 0) {
+      console.log('No claws found. Create one with: chestnut claw <name> create');
+      return;
+    }
+    const summaries: string[] = [];
+    for (const claw of claws) {
+      const stats = getLatestContractStats(clawFsForClaw(claw.name), '.');
+      summaries.push(formatClawSummary(claw, stats));
+    }
+    console.log(summaries.join('\n\n'));
+    return;
+  }
+
+  // Helper: get a FileSystem scoped to a specific claw directory
+  function clawFsForClaw(name: string): FileSystem {
+    return deps.fsFactory(path.join(clawsDir, name));
   }
 
   if (opts?.json) {
@@ -165,4 +188,72 @@ export async function listCommand(deps: { fsFactory: (baseDir: string) => FileSy
 
   console.log('─'.repeat(112));
   console.log(`\nTotal: ${claws.length} claws (${claws.filter(c => c.status === 'running').length} running)\n`);
+}
+
+/** Exported for unit testing; not part of the public CLI surface. */
+export function formatClawSummary(claw: ClawEntry, stats: ContractSubtaskStats | null): string {
+  const lines: string[] = [];
+  lines.push(claw.name);
+
+  const running = claw.status === 'running';
+  const age = claw.lastActive;
+  const ageMs = claw.lastActiveIso ? Date.now() - new Date(claw.lastActiveIso).getTime() : Infinity;
+  const pid = claw.pid !== undefined ? `PID: ${claw.pid}` : 'PID: none';
+
+  let daemonLine: string;
+  if (running) {
+    if (ageMs < 5 * 60_000) {
+      daemonLine = `running · last active ${age} ago · ${pid}`;
+    } else {
+      daemonLine = `running · last active ${age} ago (⚠ stalled) · ${pid}`;
+    }
+  } else {
+    if (ageMs === Infinity) {
+      daemonLine = `stopped · last active never · ${pid}`;
+    } else if (ageMs < 5 * 60_000) {
+      daemonLine = `stopped · just stopped · ${pid}`;
+    } else {
+      daemonLine = `stopped · last active ${age} ago · ${pid}`;
+    }
+  }
+  lines.push(`  daemon: ${daemonLine}`);
+
+  if (claw.contract === 'active') {
+    if (running) {
+      lines.push(`  current: working on "${stats?.title ?? '(unknown)'}"`);
+    } else {
+      const activeTitle = stats?.title ?? '(unknown)';
+      lines.push(`  current: ⚠ has active contract "${activeTitle}" but daemon is stopped — needs restart`);
+    }
+  } else if (claw.contract === 'paused') {
+    lines.push('  current: paused contract');
+  } else {
+    if (stats === null) {
+      lines.push('  current: no contract history — fresh claw');
+    } else {
+      lines.push('  current: idle');
+    }
+  }
+
+  if (stats && stats.total > 0) {
+    const title = stats.title.slice(0, 60);
+    let quality: string;
+    if (stats.abandoned > 0) {
+      quality = `${stats.passed} passed, ${stats.forceAccepted} force-accepted, ${stats.abandoned} abandoned`;
+    } else if (stats.forceAccepted === 0) {
+      quality = 'all passed first attempt';
+    } else if (stats.passed === 0) {
+      quality = '⚠ all force-accepted (retry limit reached)';
+    } else {
+      quality = `${stats.passed} passed, ⚠ ${stats.forceAccepted} force-accepted (retry limit reached)`;
+    }
+    lines.push(`  last completed: "${title}" · completed`);
+    lines.push(`    ${stats.total} subtasks — ${quality}`);
+  }
+
+  if (claw.outbox > 0) {
+    lines.push(`  ⚠ ${claw.outbox} undelivered outbox messages`);
+  }
+
+  return lines.join('\n');
 }

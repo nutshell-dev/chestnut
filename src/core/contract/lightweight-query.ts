@@ -215,3 +215,97 @@ export function readArchiveProgress(
     return null;
   }
 }
+
+/** Subtask completion quality statistics for a single contract. */
+export interface ContractSubtaskStats {
+  /** Contract title (from contract.yaml or active contract summary). */
+  title: string;
+  /** Total number of subtasks. */
+  total: number;
+  /** Subtasks completed without force-accept. */
+  passed: number;
+  /** Subtasks completed via force-accept (retry limit reached). */
+  forceAccepted: number;
+  /** Subtasks not completed (abandoned / in-progress / pending). */
+  abandoned: number;
+}
+
+/**
+ * Get the latest contract's title + subtask quality stats.
+ *
+ * - If an active contract exists, return its title with zeroed stats (active
+ *   contracts are still in progress; their subtask quality is not yet final).
+ * - Otherwise find the most recently modified archived contract by
+ *   contract.yaml mtime and compute stats from its progress.json.
+ *
+ * @returns null if no active or archived contract exists
+ */
+export function getLatestContractStats(
+  fs: FileSystem,
+  clawDir: string,
+): ContractSubtaskStats | null {
+  const activeContracts = listActiveContracts(fs, clawDir);
+  if (activeContracts.length > 0) {
+    return { title: activeContracts[0].title, total: 0, passed: 0, forceAccepted: 0, abandoned: 0 };
+  }
+
+  try {
+    const archiveDir = path.join(clawDir, CONTRACT_ARCHIVE_DIR);
+    if (!fs.existsSync(archiveDir)) return null;
+
+    const dirs = fs.listSync(archiveDir, { includeDirs: true }).filter(e => e.isDirectory);
+    let latest: { path: string; title: string } | null = null;
+    let latestMtime = 0;
+
+    for (const dir of dirs) {
+      const yamlPath = path.join(archiveDir, dir.name, CONTRACT_YAML_FILE);
+      if (!fs.existsSync(yamlPath)) continue;
+      const stat = fs.statSync(yamlPath);
+      if (stat.mtime.getTime() <= latestMtime) continue;
+      const content = fs.readSync(yamlPath);
+      const match = content.match(/^title:\s*["']?(.+?)["']?\s*$/m);
+      if (!match) continue;
+      latestMtime = stat.mtime.getTime();
+      latest = { path: path.join(archiveDir, dir.name), title: match[1] };
+    }
+
+    if (!latest) return null;
+
+    const progress = readArchiveProgress(fs, { contractDir: latest.path });
+    if (!progress || !progress.subtasks || typeof progress.subtasks !== 'object') {
+      return { title: latest.title, total: 0, passed: 0, forceAccepted: 0, abandoned: 0 };
+    }
+
+    return computeContractSubtaskStats(
+      latest.title,
+      progress.subtasks as Record<string, Record<string, unknown>>,
+    );
+  } catch {
+    return null;
+  }
+}
+
+function computeContractSubtaskStats(
+  title: string,
+  subtasks: Record<string, Record<string, unknown>>,
+): ContractSubtaskStats {
+  let total = 0;
+  let passed = 0;
+  let forceAccepted = 0;
+  let abandoned = 0;
+
+  for (const st of Object.values(subtasks)) {
+    total++;
+    if (st.status === 'completed') {
+      if (st.force_accepted === true) {
+        forceAccepted++;
+      } else {
+        passed++;
+      }
+    } else {
+      abandoned++;
+    }
+  }
+
+  return { title, total, passed, forceAccepted, abandoned };
+}

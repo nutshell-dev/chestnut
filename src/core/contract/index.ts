@@ -50,8 +50,9 @@ export {
   getContractMetadata,
   readContractYamlLightweight,
   readArchiveProgress,
+  getLatestContractStats,
 } from './lightweight-query.js';
-export type { ContractSummary, ContractMetadata } from './lightweight-query.js';
+export type { ContractSummary, ContractMetadata, ContractSubtaskStats } from './lightweight-query.js';
 
 export { collectContractEvents } from './jobs/event-collector.js';
 
