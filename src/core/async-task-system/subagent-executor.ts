@@ -103,7 +103,7 @@ export async function executeSubAgentTask(
     ts: Date.now(),
     type: STREAM_TASK_EVENTS.TASK_STARTED,
     taskId: task.id,
-    callerType: task.callerType ?? 'spawn_subagent',
+    taskKind: task.callerType ?? 'spawn_subagent',
     silent: false,
   });
   const taskStreamPath = `${taskResultDir}/${STREAM_FILE}`;

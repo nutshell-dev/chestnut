@@ -12,7 +12,7 @@ import { createDirContext } from '../../foundation/audit/index.js';
 import { createStreamReader, STREAM_FILE } from '../../foundation/stream/index.js';
 import { TASKS_QUEUES_RESULTS_DIR } from '../../core/async-task-system/index.js';
 import { VIEWPORT_AUDIT_EVENTS } from './viewport-audit-events.js';
-import type { CallerType } from '../../core/permissions/caller-types.js';
+
 import type { StreamReader } from '../../foundation/stream/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
@@ -25,7 +25,7 @@ import type { DescriptorSink } from './viewport-render-descriptor.js';
 
 
 export interface TaskWatch {
-  callerType: CallerType;
+  taskKind: string;
   silent: boolean;
   fileSize: number;
   leftover: string;
@@ -58,7 +58,7 @@ export interface TaskWatchRole {
   taskWatchMap: Map<string, TaskWatch>;
   handleTaskEvent: (taskId: TaskId, ev: unknown) => void;
   taskStatusBar: {
-    addTrack(taskId: TaskId, callerType: string): void;
+    addTrack(taskId: TaskId, taskKind: string): void;
     addMigratedExec(track: { taskId: TaskId; command: string; startedAt: number }): void;
     removeMigratedExec(taskId: TaskId): void;
   };
@@ -306,7 +306,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
 
       case 'task_started': {
         const taskId = event.taskId as string;
-        const callerType = (event.callerType as string) ?? 'spawn_subagent';
+        const taskKind = (event.taskKind as string) ?? 'spawn_subagent';
         // Phase 537 — defensive guard against malformed stream events (D7+D11)
         if (
           typeof taskId !== 'string' || taskId === '' || taskId === '.' || taskId.startsWith('.') ||
@@ -319,7 +319,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
         }
         // Phase 833: migrated exec tasks have no per-task stream reader; render
         // them in a dedicated viewport area instead.
-        if (callerType === 'exec_migrated') {
+        if (taskKind === 'exec_migrated') {
           deps.taskStatusBar.addMigratedExec({
             taskId: makeTaskId(taskId),
             command: (event.command as string) ?? 'exec',
@@ -347,14 +347,14 @@ export function createEventHandler(deps: EventHandlerDeps) {
           break;   // phase 1217 r131 C.3 fix: 不 register stale TaskWatch with failed streamReader
         }
         const tw: TaskWatch = {
-          callerType: callerType as CallerType,
+          taskKind,
           silent: (event.silent as boolean) ?? false,
           fileSize: 0, leftover: '', streamReader: taskReader,
           lastEventMs: Date.now(),
         };
         deps.taskWatchMap.set(taskId, tw);
         if (!tw.silent) {
-          deps.taskStatusBar.addTrack(makeTaskId(taskId), callerType);
+          deps.taskStatusBar.addTrack(makeTaskId(taskId), taskKind);
         }
         break;
       }

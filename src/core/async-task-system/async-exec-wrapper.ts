@@ -301,7 +301,7 @@ export function createAsyncExecWrapper(
         ts: startedAt,
         type: STREAM_TASK_EVENTS.TASK_STARTED,
         taskId,
-        callerType: 'exec_migrated',
+        taskKind: 'exec_migrated',
         silent: false,
         command: command.length > 80 ? `${command.slice(0, 80)}...` : command,
         startedAt,
@@ -392,7 +392,7 @@ export function createAsyncExecWrapper(
           ts: Date.now(),
           type: STREAM_TASK_EVENTS.TASK_COMPLETED,
           taskId,
-          callerType: 'exec_migrated',
+          taskKind: 'exec_migrated',
         });
       })();
 

@@ -21,7 +21,7 @@ const VIEWPORT_TASK_ID_DISPLAY_CHARS = 6;
 
 export interface TaskTrack {
   taskId: TaskId;
-  callerType: 'spawn_subagent' | 'shadow_subagent';   // 'spawn_subagent' 归 spawn 数组、'shadow_subagent' 归 shadow 数组
+  taskKind: 'spawn_subagent' | 'shadow_subagent';   // 'spawn_subagent' 归 spawn 数组、'shadow_subagent' 归 shadow 数组
   currentTool: string | null;
   toolSuccess: boolean | null;
   textBuffer: string;
@@ -31,10 +31,10 @@ export interface TaskTrack {
   lastError: string | null;
 }
 
-export function makeTaskTrack(taskId: TaskId, callerType: 'spawn_subagent' | 'shadow_subagent'): TaskTrack {
+export function makeTaskTrack(taskId: TaskId, taskKind: 'spawn_subagent' | 'shadow_subagent'): TaskTrack {
   return {
     taskId,
-    callerType,
+    taskKind,
     currentTool: null,
     toolSuccess: null,
     textBuffer: '',
@@ -47,7 +47,7 @@ export function makeTaskTrack(taskId: TaskId, callerType: 'spawn_subagent' | 'sh
 
 export function buildTaskLine(t: TaskTrack, cols: number): string {
   const shortId = t.taskId.slice(0, VIEWPORT_TASK_ID_DISPLAY_CHARS);
-  const prefix = t.callerType === 'spawn_subagent' ? 'spawn-' : 'shadow-';
+  const prefix = t.taskKind === 'spawn_subagent' ? 'spawn-' : 'shadow-';
   const label = `${prefix}${shortId}`;
   const icon = t.toolSuccess === true ? '✓' : t.toolSuccess === false ? '✗' : '⚙';
   if (t.currentTool) {
@@ -75,7 +75,7 @@ export interface MigratedExecTrack {
 }
 
 export interface TaskStatusBarController {
-  addTrack(taskId: TaskId, callerType: string): void;
+  addTrack(taskId: TaskId, taskKind: string): void;
   removeTrack(taskId: TaskId): void;
   updateTrack(taskId: TaskId, event: { type: string; [key: string]: unknown }): void;
   addMigratedExec(track: MigratedExecTrack): void;
@@ -103,8 +103,8 @@ export function createTaskStatusBar(deps: TaskStatusBarDeps): TaskStatusBarContr
   const findIndex = (arr: TaskTrack[], taskId: TaskId) => arr.findIndex(tr => tr.taskId === taskId);
   const findMigratedIndex = (taskId: TaskId) => migratedExecTracks.findIndex(tr => tr.taskId === taskId);
 
-  const addTrack = (taskId: TaskId, callerType: string) => {
-    const isShadow = callerType === 'shadow_subagent';
+  const addTrack = (taskId: TaskId, taskKind: string) => {
+    const isShadow = taskKind === 'shadow_subagent';
     const track = makeTaskTrack(taskId, isShadow ? 'shadow_subagent' : 'spawn_subagent');
     const arr = isShadow ? shadowTracks : spawnTracks;
     arr.unshift(track);   // GView-6 α 新在堆顶

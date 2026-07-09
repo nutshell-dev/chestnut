@@ -65,7 +65,7 @@ describe('chat-viewport-task-status-bar', () => {
     expect(bar.renderShadow(80)).not.toContain('spawn-task-z');
   });
 
-  it('callerType=spawn maps to spawn tracks', () => {
+  it('taskKind=spawn maps to spawn tracks', () => {
     const { bar } = makeDeps();
     bar.addTrack('task-spawn', 'spawn');
     // 'spawn' != 'shadow' → maps to 'subagent' → prefix 'spawn-'

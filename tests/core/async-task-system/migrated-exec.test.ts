@@ -727,7 +727,7 @@ describe('Phase 833: migrated exec stream events', () => {
     const started = streamEvents.find(e => e.type === 'task_started');
     expect(started).toBeDefined();
     expect(started?.taskId).toBe(taskId);
-    expect(started?.callerType).toBe('exec_migrated');
+    expect(started?.taskKind).toBe('exec_migrated');
     expect(started?.command).toBe('sleep 0.3 && echo done');
     expect(typeof started?.startedAt).toBe('number');
   });
@@ -751,7 +751,7 @@ describe('Phase 833: migrated exec stream events', () => {
     const completed = streamEvents.find(e => e.type === 'task_completed');
     expect(completed).toBeDefined();
     expect(completed?.taskId).toBe(taskId);
-    expect(completed?.callerType).toBe('exec_migrated');
+    expect(completed?.taskKind).toBe('exec_migrated');
   });
 
   it('truncates long commands in task_started event', async () => {

@@ -72,7 +72,7 @@ describe('phase 1217 (r131 C fork) B.2 — stream reader start fail no register'
     handleEvent({
       type: 'task_started',
       taskId,
-      callerType: 'spawn_subagent',
+      taskKind: 'spawn_subagent',
     });
 
     // audit 应记录 STREAM_READER_START_FAILED
