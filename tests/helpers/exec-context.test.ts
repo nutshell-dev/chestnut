@@ -12,9 +12,9 @@ describe('makeExecContext', () => {
   });
 
   it('overrides shallow-merge', () => {
-    const ctx = makeExecContext({ clawId: 'foo', callerType: 'shadow' });
+    const ctx = makeExecContext({ clawId: 'foo', callerType: 'shadow_subagent' });
     expect(ctx.clawId).toBe('foo');
-    expect(ctx.callerType).toBe('shadow');
+    expect(ctx.callerType).toBe('shadow_subagent');
     // defaults untouched
     expect(ctx.stopRequested).toBe(false);
   });

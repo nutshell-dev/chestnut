@@ -21,7 +21,7 @@ const VIEWPORT_TASK_ID_DISPLAY_CHARS = 6;
 
 export interface TaskTrack {
   taskId: TaskId;
-  callerType: 'subagent' | 'shadow';   // 'subagent' 加 'spawn' 共归 spawn 数组、'shadow' 归 shadow 数组
+  callerType: 'spawn_subagent' | 'shadow_subagent';   // 'spawn_subagent' 归 spawn 数组、'shadow_subagent' 归 shadow 数组
   currentTool: string | null;
   toolSuccess: boolean | null;
   textBuffer: string;
@@ -31,7 +31,7 @@ export interface TaskTrack {
   lastError: string | null;
 }
 
-export function makeTaskTrack(taskId: TaskId, callerType: 'subagent' | 'shadow'): TaskTrack {
+export function makeTaskTrack(taskId: TaskId, callerType: 'spawn_subagent' | 'shadow_subagent'): TaskTrack {
   return {
     taskId,
     callerType,
@@ -47,7 +47,7 @@ export function makeTaskTrack(taskId: TaskId, callerType: 'subagent' | 'shadow')
 
 export function buildTaskLine(t: TaskTrack, cols: number): string {
   const shortId = t.taskId.slice(0, VIEWPORT_TASK_ID_DISPLAY_CHARS);
-  const prefix = t.callerType === 'subagent' ? 'spawn-' : 'shadow-';
+  const prefix = t.callerType === 'spawn_subagent' ? 'spawn-' : 'shadow-';
   const label = `${prefix}${shortId}`;
   const icon = t.toolSuccess === true ? '✓' : t.toolSuccess === false ? '✗' : '⚙';
   if (t.currentTool) {
@@ -85,8 +85,8 @@ export function createTaskStatusBar(deps: TaskStatusBarDeps): TaskStatusBarContr
   const findIndex = (arr: TaskTrack[], taskId: TaskId) => arr.findIndex(tr => tr.taskId === taskId);
 
   const addTrack = (taskId: TaskId, callerType: string) => {
-    const isShadow = callerType === 'shadow';
-    const track = makeTaskTrack(taskId, isShadow ? 'shadow' : 'subagent');
+    const isShadow = callerType === 'shadow_subagent';
+    const track = makeTaskTrack(taskId, isShadow ? 'shadow_subagent' : 'spawn_subagent');
     const arr = isShadow ? shadowTracks : spawnTracks;
     arr.unshift(track);   // GView-6 α 新在堆顶
     deps.updateRender();

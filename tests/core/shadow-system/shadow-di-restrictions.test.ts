@@ -96,7 +96,7 @@ describe('shadow DI restrictions (phase 807)', () => {
       [SPAWN_TOOL_NAME]: { allowAsync: false },
       [SUMMON_TOOL_NAME]: { allowFromShadow: false },
       [NOTIFY_CLAW_TOOL_NAME]: { authorized: false },
-      [EXEC_TOOL_NAME]: { callerType: 'shadow' },
+      [EXEC_TOOL_NAME]: { callerType: 'shadow_subagent' },
     });
 
     for (const name of [SHADOW_TOOL_NAME, SPAWN_TOOL_NAME, SUMMON_TOOL_NAME, NOTIFY_CLAW_TOOL_NAME, EXEC_TOOL_NAME]) {

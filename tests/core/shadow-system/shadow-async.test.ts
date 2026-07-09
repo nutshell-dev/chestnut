@@ -130,7 +130,7 @@ describe('shadow tool async (phase 1087)', () => {
       expect(callArgs.shadowToolsForLLM).toEqual([{ type: 'function', function: { name: 'read', description: 'read' } }]);
       expect(callArgs.parentClawId).toBe('test-claw');
       expect(callArgs.originClawId).toBe('test-claw');
-      expect(callArgs.callerType).toBe('shadow');
+      expect(callArgs.callerType).toBe('shadow_subagent');
     });
 
     it('async=true explicit takes async path', async () => {

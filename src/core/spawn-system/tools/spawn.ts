@@ -134,7 +134,7 @@ export function createSpawnTool(deps: SpawnToolDeps = {}): Tool {
             systemPrompt,
             parentClawId: ctx.clawId,
             originClawId: deps.originClawId ?? ctx.clawId,
-            callerType: 'subagent',
+            callerType: 'spawn_subagent',
             mainContextSnapshot,
           });
 

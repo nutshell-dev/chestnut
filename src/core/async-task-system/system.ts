@@ -554,7 +554,7 @@ export class AsyncTaskSystem {
           ts: Date.now(),
           type: STREAM_TASK_EVENTS.TASK_STARTED,
           taskId: task.id,
-          callerType: task.callerType ?? 'subagent',
+          callerType: task.callerType ?? 'spawn_subagent',
           silent: false,
         });
       }

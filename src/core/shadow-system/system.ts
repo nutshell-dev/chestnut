@@ -145,7 +145,7 @@ export async function runShadow(opts: RunShadowOptions): Promise<ToolResult> {
 
     const { text, capturedResult } = await (opts.runSubagent ?? defaultRunSubagent)({
       agentId: shadowId,
-      toolProfile: callerTypeToProfile('shadow'),
+      toolProfile: callerTypeToProfile('shadow_subagent'),
       clawDir: opts.ctx.clawDir,
       fs: opts.ctx.fs,
       fsFactory: opts.ctx.fsFactory,

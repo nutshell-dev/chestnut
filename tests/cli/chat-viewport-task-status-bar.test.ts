@@ -9,7 +9,7 @@ describe('chat-viewport-task-status-bar', () => {
 
   it('addTrack(subagent) goes to spawn, not shadow', () => {
     const { bar } = makeDeps();
-    bar.addTrack('task-abc', 'subagent');
+    bar.addTrack('task-abc', 'spawn_subagent');
     const spawn = bar.renderSpawn(80);
     const shadow = bar.renderShadow(80);
     // prefix 'spawn-' + slice(0,6) 'task-a' → 'spawn-task-a'
@@ -19,7 +19,7 @@ describe('chat-viewport-task-status-bar', () => {
 
   it('addTrack(shadow) goes to shadow, not spawn', () => {
     const { bar } = makeDeps();
-    bar.addTrack('task-def', 'shadow');
+    bar.addTrack('task-def', 'shadow_subagent');
     const spawn = bar.renderSpawn(80);
     const shadow = bar.renderShadow(80);
     // prefix 'shadow-' + slice(0,6) 'task-d' → 'shadow-task-d'
@@ -29,9 +29,9 @@ describe('chat-viewport-task-status-bar', () => {
 
   it('unshift order: newest at head (visual top)', () => {
     const { bar } = makeDeps();
-    bar.addTrack('task-a', 'subagent');
-    bar.addTrack('task-b', 'subagent');
-    bar.addTrack('task-c', 'subagent');
+    bar.addTrack('task-a', 'spawn_subagent');
+    bar.addTrack('task-b', 'spawn_subagent');
+    bar.addTrack('task-c', 'spawn_subagent');
     const spawn = bar.renderSpawn(80);
     const lines = spawn.split('\n');
     // head = newest = task-c → label 'spawn-task-c'
@@ -42,7 +42,7 @@ describe('chat-viewport-task-status-bar', () => {
 
   it('updateTrack tool_call renders tool name', () => {
     const { bar } = makeDeps();
-    bar.addTrack('task-x', 'subagent');
+    bar.addTrack('task-x', 'spawn_subagent');
     bar.updateTrack('task-x', { type: 'tool_call', name: 'exec' });
     const spawn = bar.renderSpawn(80);
     expect(spawn).toContain('exec');
@@ -50,7 +50,7 @@ describe('chat-viewport-task-status-bar', () => {
 
   it('updateTrack text_delta renders buffered text', () => {
     const { bar } = makeDeps();
-    bar.addTrack('task-y', 'subagent');
+    bar.addTrack('task-y', 'spawn_subagent');
     bar.updateTrack('task-y', { type: 'text_delta', delta: 'hello' });
     const spawn = bar.renderSpawn(80);
     expect(spawn).toContain('hello');
@@ -58,7 +58,7 @@ describe('chat-viewport-task-status-bar', () => {
 
   it('updateTrack turn_end removes track immediately', () => {
     const { bar } = makeDeps();
-    bar.addTrack('task-z', 'subagent');
+    bar.addTrack('task-z', 'spawn_subagent');
     expect(bar.renderSpawn(80)).toContain('spawn-task-z');
     bar.updateTrack('task-z', { type: 'turn_end' });
     expect(bar.renderSpawn(80)).not.toContain('spawn-task-z');
@@ -77,7 +77,7 @@ describe('chat-viewport-task-status-bar', () => {
   it('hasAny reflects track presence', () => {
     const { bar } = makeDeps();
     expect(bar.hasAny()).toBe(false);
-    bar.addTrack('task-1', 'subagent');
+    bar.addTrack('task-1', 'spawn_subagent');
     expect(bar.hasAny()).toBe(true);
     bar.removeTrack('task-1');
     expect(bar.hasAny()).toBe(false);
@@ -88,7 +88,7 @@ describe('chat-viewport-task-status-bar', () => {
   // 直接验 removeTrack idempotent 行为 + 即使没经 turn_end 也能清干净。
   it('removeTrack on shadow track without prior turn_end (stale-sweep path)', () => {
     const { bar, updateRender } = makeDeps();
-    bar.addTrack('shadow-stale', 'shadow');
+    bar.addTrack('shadow-stale', 'shadow_subagent');
     expect(bar.renderShadow(80)).toContain('shadow-shadow');
     expect(bar.hasAny()).toBe(true);
     const renderCallsBefore = updateRender.mock.calls.length;
@@ -100,7 +100,7 @@ describe('chat-viewport-task-status-bar', () => {
 
   it('removeTrack is idempotent (turn_end then stale-sweep double-call safe)', () => {
     const { bar, updateRender } = makeDeps();
-    bar.addTrack('task-dup', 'subagent');
+    bar.addTrack('task-dup', 'spawn_subagent');
     bar.updateTrack('task-dup', { type: 'turn_end' });
     expect(bar.hasAny()).toBe(false);
     const callsAfterFirstRemove = updateRender.mock.calls.length;
@@ -114,23 +114,23 @@ describe('chat-viewport-task-status-bar', () => {
 
 describe('buildTaskLine', () => {
   it('renders tool call with buffered thinking', () => {
-    const t = makeTaskTrack('abc12345', 'subagent');
+    const t = makeTaskTrack('abc12345', 'spawn_subagent');
     t.currentTool = 'read_file';
     t.textBuffer = 'pondering';
     t.bufferType = 'thinking';
     const line = buildTaskLine(t, 80);
-    // 'subagent' → prefix 'spawn-' + slice(0,6) 'abc123' → '[spawn-abc123]'
+    // 'spawn_subagent' → prefix 'spawn-' + slice(0,6) 'abc123' → '[spawn-abc123]'
     expect(line).toContain('[spawn-abc123]');
     expect(line).toContain('read_file');
     expect(line).toContain('(pondering)');
   });
 
   it('renders idle track with text buffer', () => {
-    const t = makeTaskTrack('def67890', 'shadow');
+    const t = makeTaskTrack('def67890', 'shadow_subagent');
     t.textBuffer = 'some output';
     t.bufferType = 'text';
     const line = buildTaskLine(t, 80);
-    // 'shadow' → prefix 'shadow-' + slice(0,6) 'def678' → '[shadow-def678]'
+    // 'shadow_subagent' → prefix 'shadow-' + slice(0,6) 'def678' → '[shadow-def678]'
     expect(line).toContain('[shadow-def678]');
     expect(line).toContain('some output');
   });
