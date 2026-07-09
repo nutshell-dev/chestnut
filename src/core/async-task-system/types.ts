@@ -118,7 +118,6 @@ export interface ToolTask {
   isIdempotent: boolean;  // Determines if retry is allowed
   maxRetries: number;     // Max retry attempts (default 2)
   retryCount: number;     // Current retry count (initial 0)
-  callerType?: CallerType;  // 决定 inbox 消息 from 字段
   toolUseId?: ToolUseId;   // 对应 LLM tool_use block id，用于 tool_async_result
   /** phase 858：sourced from ExecContext.isShadow at schedule time */
   isShadow?: boolean;

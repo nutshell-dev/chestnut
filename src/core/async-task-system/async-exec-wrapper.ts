@@ -15,7 +15,6 @@ import type { ExecWithHandleArgs } from '../../foundation/command-tool/index.js'
 import { newUuid } from '../../foundation/node-utils/index.js';
 import { EXEC_TOOL_NAME } from '../../foundation/command-tool/index.js';
 import { processExecErrorToToolResult } from '../../foundation/command-tool/exec.js';
-import type { CallerType } from '../../core/permissions/caller-types.js';
 import { executeToolTask } from './tool-executor.js';
 import { TASKS_QUEUES_RESULTS_DIR, TASKS_QUEUES_RUNNING_DIR } from './dirs.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
@@ -30,8 +29,6 @@ export interface AsyncExecWrapperParams {
   softTimeoutMs?: number;
   /** Optional override for the migrated hard timeout (ms). Primarily for tests. */
   migratedHardTimeoutMs?: number;
-  /** Caller type persisted to migrated task. Main registry='claw'（默认），shadow registry='shadow'. */
-  callerType?: CallerType;
 }
 
 interface AsyncExecWrapperDeps {
@@ -56,7 +53,6 @@ function buildMigratedToolTask(
   command: string,
   ctx: ExecContext,
   handle: ExecHandle,
-  callerType: CallerType,
 ): ToolTask {
   const pid = handle.child.pid ?? -1;
   return {
@@ -70,26 +66,11 @@ function buildMigratedToolTask(
     isIdempotent: false,
     maxRetries: 0,
     retryCount: 0,
-    callerType,
     toolUseId: ctx.currentToolUseId,
     mode: 'migrated',
     migratedPid: pid,
     migratedStartTime: pid > 0 ? getProcessStartTime(pid) : undefined,
   };
-}
-
-/**
- * Persist partial output collected before migration so the migrated monitor can
- * deliver it once the process exits.
- */
-export async function persistPartialOutput(
-  fs: FileSystem,
-  taskId: TaskId,
-  output: string,
-): Promise<void> {
-  const resultDir = `${TASKS_QUEUES_RESULTS_DIR}/${taskId}`;
-  await fs.ensureDir(resultDir);
-  await fs.writeAtomic(path.join(resultDir, 'result.txt'), output);
 }
 
 /**
@@ -159,7 +140,7 @@ export function createAsyncExecWrapper(
   const migratedHardTimeoutMs = params.migratedHardTimeoutMs ?? ASYNC_EXEC_MIGRATED_HARD_TIMEOUT_MS;
   const { fs, auditWriter, retryBaseDelayMs, moveTaskToDone, moveTaskToFailed, parentStreamLog } = deps;
 
-  const tool: Tool & { callerType?: CallerType } = {
+  const tool: Tool = {
     name: EXEC_TOOL_NAME,
     profiles: ['full'],  // Phase 773: wrapper is only for the main agent; subagents use plain sync exec.
     description: 'Execute a shell command in your clawspace. Runs via `sh -c`, so shell features (pipes, redirects, quotes) work normally. Relative paths resolve against your clawspace. Long-running commands are automatically moved to async execution.',
@@ -193,7 +174,7 @@ export function createAsyncExecWrapper(
     readonly: false,
     idempotent: false,
 
-    async execute(this: Tool & { callerType?: CallerType }, args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
+    async execute(args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
       const command = args.command as string;
 
       // --- pure sync mode: caller set an explicit timeout --------------------
@@ -298,7 +279,7 @@ export function createAsyncExecWrapper(
       originalSignal?.removeEventListener('abort', onOriginalAbort);
       handle.child.unref();
       const taskId = makeTaskId(newUuid());
-      const task = buildMigratedToolTask(taskId, command, ctx, handle, tool.callerType ?? 'claw');
+      const task = buildMigratedToolTask(taskId, command, ctx, handle);
 
       try {
         await persistRunningTask(fs, task);
@@ -439,7 +420,6 @@ export function createAsyncExecWrapper(
         metadata: { taskId, async: true, migrated: true },
       };
     },
-    callerType: params.callerType ?? 'claw',
   };
   return tool;
 }
