@@ -37,7 +37,7 @@ export function buildSummonContractTask(
 
 你**应该**做：
 
-- 调 \`chestnut claw list\` 确认 target claw 在 daemon 状态
+- 调 \`chestnut claw list --summary\` 查看各 claw 状态和契约质量
 - 设计 contract.yaml（含 goal/expectations/subtasks）
 - 写到 \`./contract-drafts/<slug>/\`
 - 调 \`chestnut contract create --claw <id> --dir <path>\` 提交契约
@@ -46,7 +46,7 @@ export function buildSummonContractTask(
 
 **关键边界（phase 119）**：
 
-你**只能**为本次 summon 指定的 target_claw 创建契约。即使你跑 \`chestnut claw list\`
+你**只能**为本次 summon 指定的 target_claw 创建契约。即使你跑 \`chestnut claw list --summary\`
 看到别的 claw 缺契约、跑 daemon 没起、或任何"系统状态不完整"
 的信号——**也不要补**。
 
@@ -64,19 +64,19 @@ export function buildSummonContractTask(
   if (targetClaw) {
     task += `
 目标 claw 已由用户指定：**${targetClaw}**。
-执行 \`chestnut claw list\` 确认它存在且处于 daemon 状态。
+执行 \`chestnut claw list --summary\` 确认它存在且 daemon 已运行。
 如未运行，执行：
   exec: chestnut claw ${targetClaw} daemon
-  exec: chestnut claw list   ← 再次确认状态已变为 running，再继续`;
+  exec: chestnut claw list --summary   ← 再次确认 daemon 状态`;
   } else {
     task += `
-用 \`chestnut claw list\` 查现有 claw，判断复用还是新建：
+用 \`chestnut claw list --summary\` 查现有 claw，判断复用还是新建：
 - 判断依据：上下文效率，不根据 claw 名称推断能力
 - 如果现有 claw 的对话状态专注于不同的项目或任务域，应新建 claw
 - 如需新建：
   exec: chestnut claw <name> create
   exec: chestnut claw <name> daemon
-  exec: chestnut claw list   ← 确认 daemon 已运行再继续
+  exec: chestnut claw list --summary   ← 确认 daemon 已运行再继续
 - targetClaw 必须是 claw id（kebab-case），不能是 UUID 或 taskId`;
   }
 
