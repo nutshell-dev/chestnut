@@ -161,16 +161,21 @@ export async function dispatchClawSubcommand(
     return;
   }
 
-  // Path 1: `claw list [--json]`
+  // Path 1: `claw list [--json|--summary]`
   if (subject === 'list') {
     const parser = makeVerbParser('status'); // dummy name for option parsing
     parser.option('--json', 'Output as JSON (machine-readable)');
+    parser.option('--summary', 'Output as structured summary (for agent consumption)');
     try {
       parser.parse(args, { from: 'user' });
     } catch (err) {
       throw new CliError(`invalid 'claw list' options: ${(err as Error).message}`, { cause: err });
     }
-    await listCommand(deps, parser.opts());
+    const opts = parser.opts() as { json?: boolean; summary?: boolean };
+    if (opts.json && opts.summary) {
+      throw new CliError("options '--json' and '--summary' are mutually exclusive");
+    }
+    await listCommand(deps, opts);
     return;
   }
 
