@@ -49,7 +49,14 @@ function baseInputs(overrides?: Partial<Parameters<typeof trimAndPersist>[0]>): 
 describe('trimAndPersist', () => {
   it('1. 触底裁基础：trim + archive + save 全调', async () => {
     const store = makeDialogStore();
-    const inputs = baseInputs({ dialogStore: store });
+    const inputs = baseInputs({
+      dialogStore: store,
+      contextWindow: 1_000,
+      messages: [
+        { role: 'user', origin: 'system', systemSubtype: 'task_result', content: '[system message] ' + '测'.repeat(500), addedAt: new Date(NOW - RECENT_WINDOW_MS - 1).toISOString() },
+        { role: 'user', content: '最近一条', addedAt: new Date(NOW).toISOString() },
+      ],
+    });
     const result = await trimAndPersist(inputs);
 
     expect(store.archive).toHaveBeenCalledTimes(1);
@@ -75,7 +82,14 @@ describe('trimAndPersist', () => {
     const store = makeDialogStore({
       archive: async () => { throw archiveErr; },
     });
-    const inputs = baseInputs({ dialogStore: store });
+    const inputs = baseInputs({
+      dialogStore: store,
+      contextWindow: 1_000,
+      messages: [
+        { role: 'user', origin: 'system', systemSubtype: 'task_result', content: '[system message] ' + '测'.repeat(500), addedAt: new Date(NOW - RECENT_WINDOW_MS - 1).toISOString() },
+        { role: 'user', content: '最近一条', addedAt: new Date(NOW).toISOString() },
+      ],
+    });
     await expect(trimAndPersist(inputs)).rejects.toThrow(archiveErr);
     expect(store.save).not.toHaveBeenCalled();
   });
@@ -85,14 +99,29 @@ describe('trimAndPersist', () => {
     const store = makeDialogStore({
       save: async () => { throw saveErr; },
     });
-    const inputs = baseInputs({ dialogStore: store });
+    const inputs = baseInputs({
+      dialogStore: store,
+      contextWindow: 1_000,
+      messages: [
+        { role: 'user', origin: 'system', systemSubtype: 'task_result', content: '[system message] ' + '测'.repeat(500), addedAt: new Date(NOW - RECENT_WINDOW_MS - 1).toISOString() },
+        { role: 'user', content: '最近一条', addedAt: new Date(NOW).toISOString() },
+      ],
+    });
     await expect(trimAndPersist(inputs)).rejects.toThrow(saveErr);
     expect(store.archive).toHaveBeenCalledTimes(1);
   });
 
   it('5. trigger_kind = reactive_overflow → audit ARCHIVED 含 reactive', async () => {
     const audit = makeAudit();
-    const inputs = baseInputs({ audit, triggerKind: 'reactive_overflow' });
+    const inputs = baseInputs({
+      audit,
+      triggerKind: 'reactive_overflow',
+      contextWindow: 1_000,
+      messages: [
+        { role: 'user', origin: 'system', systemSubtype: 'task_result', content: '[system message] ' + '测'.repeat(500), addedAt: new Date(NOW - RECENT_WINDOW_MS - 1).toISOString() },
+        { role: 'user', content: '最近一条', addedAt: new Date(NOW).toISOString() },
+      ],
+    });
     await trimAndPersist(inputs);
     const archived = audit.events.find(e => e[0] === CONTEXT_TRIM_ARCHIVED);
     expect(archived).toBeDefined();
@@ -101,10 +130,29 @@ describe('trimAndPersist', () => {
 
   it('6. trigger_kind = proactive_cache_idle', async () => {
     const audit = makeAudit();
-    const inputs = baseInputs({ audit, triggerKind: 'proactive_cache_idle' });
+    const inputs = baseInputs({
+      audit,
+      triggerKind: 'proactive_cache_idle',
+      contextWindow: 1_000,
+      messages: [
+        { role: 'user', origin: 'system', systemSubtype: 'task_result', content: '[system message] ' + '测'.repeat(500), addedAt: new Date(NOW - RECENT_WINDOW_MS - 1).toISOString() },
+        { role: 'user', content: '最近一条', addedAt: new Date(NOW).toISOString() },
+      ],
+    });
     await trimAndPersist(inputs);
     const archived = audit.events.find(e => e[0] === CONTEXT_TRIM_ARCHIVED);
     expect(archived).toContain('trigger_kind=proactive_cache_idle');
+  });
+
+  it('9. trimV2 空操作 → archive + save 不调、archived=false', async () => {
+    const store = makeDialogStore();
+    const inputs = baseInputs({ dialogStore: store });
+    const result = await trimAndPersist(inputs);
+
+    expect(store.archive).not.toHaveBeenCalled();
+    expect(store.save).not.toHaveBeenCalled();
+    expect(result.archived).toBe(false);
+    expect(result.newMessages.length).toBe(inputs.messages.length);
   });
 
   it('7. targetMessagesTokens 算法 = window × 0.75 - sysTokens - toolsTokens', async () => {

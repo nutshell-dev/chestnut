@@ -67,6 +67,15 @@ export async function trimAndPersist(
     audit: inputs.audit,
   });
 
+  // phase 827: trimV2 没裁掉任何内容时跳过 archive + save
+  if (trimResult.newMessages.length === inputs.messages.length) {
+    return {
+      newMessages: trimResult.newMessages,
+      archived: false,
+      estimatedTokensAfter: trimResult.estimatedTokensAfter,
+    };
+  }
+
   // 3. archive 当前 current.json
   await inputs.dialogStore.archive();
   inputs.audit.write(
