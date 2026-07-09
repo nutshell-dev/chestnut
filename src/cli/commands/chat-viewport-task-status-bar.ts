@@ -68,21 +68,40 @@ export interface TaskStatusBarDeps {
   updateRender: () => void;   // debounced render trigger（与 attachedClawBar 同 nextTick 模式）
 }
 
+export interface MigratedExecTrack {
+  taskId: TaskId;
+  command: string;
+  startedAt: number;  // ms epoch
+}
+
 export interface TaskStatusBarController {
   addTrack(taskId: TaskId, callerType: string): void;
   removeTrack(taskId: TaskId): void;
   updateTrack(taskId: TaskId, event: { type: string; [key: string]: unknown }): void;
+  addMigratedExec(track: MigratedExecTrack): void;
+  removeMigratedExec(taskId: TaskId): void;
   renderSpawn(cols: number): string;   // 多行 join、堆顶 = 数组 head
   renderShadow(cols: number): string;
+  renderMigratedExec(cols: number): string;
   hasAny(): boolean;
+}
+
+function renderMigratedExecLine(track: MigratedExecTrack, cols: number): string {
+  const elapsedMin = Math.floor((Date.now() - track.startedAt) / 60_000);
+  const elapsedLabel = elapsedMin < 1 ? '<1m' : `${elapsedMin}m`;
+  const line = `⊙ exec ${elapsedLabel}  ${track.command}`;
+  return `\x1b[38;5;147m${fitLine(line, cols)}\x1b[0m`;
 }
 
 export function createTaskStatusBar(deps: TaskStatusBarDeps): TaskStatusBarController {
   // 严格分两组 Map（GView-7 α 的 data 层）
   const spawnTracks: TaskTrack[] = [];   // head = 堆顶 = 视觉最上
   const shadowTracks: TaskTrack[] = [];
+  // Phase 833: migrated exec tasks run independently of spawn/shadow subagents.
+  const migratedExecTracks: MigratedExecTrack[] = [];
 
   const findIndex = (arr: TaskTrack[], taskId: TaskId) => arr.findIndex(tr => tr.taskId === taskId);
+  const findMigratedIndex = (taskId: TaskId) => migratedExecTracks.findIndex(tr => tr.taskId === taskId);
 
   const addTrack = (taskId: TaskId, callerType: string) => {
     const isShadow = callerType === 'shadow_subagent';
@@ -140,9 +159,29 @@ export function createTaskStatusBar(deps: TaskStatusBarDeps): TaskStatusBarContr
     deps.updateRender();
   };
 
+  const addMigratedExec = (track: MigratedExecTrack) => {
+    const idx = findMigratedIndex(track.taskId);
+    if (idx >= 0) {
+      // Re-use slot if the same taskId arrives again (defensive).
+      migratedExecTracks[idx] = track;
+    } else {
+      migratedExecTracks.unshift(track);   // newest at head, matching spawn/shadow
+    }
+    deps.updateRender();
+  };
+
+  const removeMigratedExec = (taskId: TaskId) => {
+    const idx = findMigratedIndex(taskId);
+    if (idx >= 0) {
+      migratedExecTracks.splice(idx, 1);
+      deps.updateRender();
+    }
+  };
+
   const renderSpawn = (cols: number) => spawnTracks.map(t => buildTaskLine(t, cols)).join('\n');
   const renderShadow = (cols: number) => shadowTracks.map(t => buildTaskLine(t, cols)).join('\n');
-  const hasAny = () => spawnTracks.length > 0 || shadowTracks.length > 0;
+  const renderMigratedExec = (cols: number) => migratedExecTracks.map(t => renderMigratedExecLine(t, cols)).join('\n');
+  const hasAny = () => spawnTracks.length > 0 || shadowTracks.length > 0 || migratedExecTracks.length > 0;
 
-  return { addTrack, removeTrack, updateTrack, renderSpawn, renderShadow, hasAny };
+  return { addTrack, removeTrack, updateTrack, addMigratedExec, removeMigratedExec, renderSpawn, renderShadow, renderMigratedExec, hasAny };
 }
