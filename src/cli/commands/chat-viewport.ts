@@ -464,9 +464,9 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
   process.stdout.on('resize', onResize);
 
   tui.addChild(outputText);
+  tui.addChild(migratedExecText);   // Phase 833: migrated exec（spawn/shadow 之上）
   tui.addChild(spawnText);          // 顶层
   tui.addChild(shadowText);         // 中层
-  tui.addChild(migratedExecText);   // Phase 833: migrated exec status
   tui.addChild(attachedClawBar);    // 下层
   tui.addChild(editor);
   tui.setFocus(editor);
