@@ -26,13 +26,13 @@ export function sliceFromStart(s: string, maxCols: number): string {
 
 /**
  * 将字符串适配为单行显示：
- * - \n 替换为空格（保留所有内容，只消除换行）
+ * - \r / \n 替换为空格（保留所有内容，只消除换行/回车）
  * - 按终端宽度截断，超出追加 '…'
  * - 预留 1 列给 '…'，避免 off-by-one 溢出
  */
 export function fitLine(s: string, cols?: number): string {
   const width = cols ?? (process.stdout.columns ?? DEFAULT_TERMINAL_WIDTH);
-  const flat = s.replace(/\n/g, ' ');
+  const flat = s.replace(/\r\n?|\n/g, ' ');
   if (stringWidth(flat) <= width) return flat;
   return sliceFromStart(flat, width - 1) + '…';
 }

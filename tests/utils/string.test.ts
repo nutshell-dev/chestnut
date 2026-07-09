@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { sliceFromStart, wrapLine } from '../../src/cli/utils/string.js';
+import { fitLine, sliceFromStart, wrapLine } from '../../src/cli/utils/string.js';
 
 describe('sliceFromStart — ANSI CSI 支持', () => {
   it('ANSI 前缀不计入可见宽度', () => {
@@ -48,6 +48,32 @@ describe('sliceFromStart — ANSI CSI 支持', () => {
     // 每个 CJK 字符 2 列宽
     const result = sliceFromStart('你好世界', 5);
     expect(result).toBe('你好');  // 4 列，加第三个会超 5
+  });
+});
+
+describe('fitLine — 单行适配', () => {
+  it('\\n 替换为空格', () => {
+    expect(fitLine('hello\nworld', 80)).toBe('hello world');
+  });
+
+  it('\\r 替换为空格（修复 viewport tool_result 前缀被覆盖）', () => {
+    expect(fitLine('hello\rworld', 80)).toBe('hello world');
+  });
+
+  it('\\r\\n 替换为单个空格', () => {
+    expect(fitLine('hello\r\nworld', 80)).toBe('hello world');
+  });
+
+  it('混合 \\r、\\n、\\r\\n 均替换为空格', () => {
+    expect(fitLine('a\rb\nc\r\nd', 80)).toBe('a b c d');
+  });
+
+  it('超长时按视觉宽度截断并追加 …', () => {
+    expect(fitLine('abcdefgh', 5)).toBe('abcd…');
+  });
+
+  it('未超宽时原样返回', () => {
+    expect(fitLine('short', 80)).toBe('short');
   });
 });
 
