@@ -89,7 +89,6 @@ export const ToolTaskSchema = z.object({
   maxRetries: z.number(),
   retryCount: z.number(),
   // optional fields
-  callerType: CallerTypeSchema.optional(),
   toolUseId: z.string().optional(),
   isShadow: z.boolean().optional(),
 });
