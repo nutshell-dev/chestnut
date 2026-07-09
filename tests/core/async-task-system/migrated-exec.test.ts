@@ -244,7 +244,7 @@ describe('createAsyncExecWrapper', () => {
     const result = await tool.execute({ command: 'sleep 0.5 && echo done' }, ctx);
 
     expect(result.success).toBe(true);
-    expect(result.content).toMatch(/Execution moved to async\. Task ID:/);
+    expect(result.content).toMatch(/Execution moved to async\. Task:/);
     expect(result.metadata).toMatchObject({ async: true, migrated: true });
     expect(typeof result.metadata?.taskId).toBe('string');
 
@@ -389,7 +389,7 @@ describe('createAsyncExecWrapper', () => {
 
     const result = await tool.execute({ command: 'sleep 0.8 && echo survived' }, ctx);
     expect(result.success).toBe(true);
-    expect(result.content).toMatch(/Execution moved to async\. Task ID:/);
+    expect(result.content).toMatch(/Execution moved to async\. Task:/);
 
     const taskId = result.metadata?.taskId as string;
     const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${taskId}.json`);
@@ -501,7 +501,7 @@ describe('timeoutMs dual-mode (Phase 776)', () => {
     const result = await tool.execute({ command: 'sleep 0.5 && echo done' }, ctx);
 
     expect(result.success).toBe(true);
-    expect(result.content).toMatch(/Execution moved to async\. Task ID:/);
+    expect(result.content).toMatch(/Execution moved to async\. Task:/);
     expect(result.metadata).toMatchObject({ async: true, migrated: true });
     expect(typeof result.metadata?.taskId).toBe('string');
   });
@@ -611,7 +611,7 @@ describe('migrated process hard timeout (Phase 777)', () => {
     const result = await tool.execute({ command: 'while true; do echo tick; sleep 0.05; done' }, ctx);
 
     expect(result.success).toBe(true);
-    expect(result.content).toMatch(/Execution moved to async\. Task ID:/);
+    expect(result.content).toMatch(/Execution moved to async\. Task:/);
     const taskId = result.metadata?.taskId as string;
 
     const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${taskId}.json`);

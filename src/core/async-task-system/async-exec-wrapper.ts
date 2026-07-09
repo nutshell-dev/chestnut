@@ -12,7 +12,7 @@ import type { FileSystem } from '../../foundation/fs/index.js';
 import type { ExecHandle } from '../../foundation/process-exec/index.js';
 import { getProcessStartTime, ProcessExecError } from '../../foundation/process-exec/index.js';
 import type { ExecWithHandleArgs } from '../../foundation/command-tool/index.js';
-import { newUuid } from '../../foundation/node-utils/index.js';
+import { newShortUuid } from '../../foundation/node-utils/index.js';
 import { EXEC_TOOL_NAME } from '../../foundation/command-tool/index.js';
 import { processExecErrorToToolResult } from '../../foundation/command-tool/exec.js';
 import { executeToolTask } from './tool-executor.js';
@@ -278,7 +278,7 @@ export function createAsyncExecWrapper(
       //    the caller's turn.
       originalSignal?.removeEventListener('abort', onOriginalAbort);
       handle.child.unref();
-      const taskId = makeTaskId(newUuid());
+      const taskId = makeTaskId(newShortUuid());
       const task = buildMigratedToolTask(taskId, command, ctx, handle);
 
       try {
@@ -416,7 +416,7 @@ export function createAsyncExecWrapper(
 
       return {
         success: true,
-        content: `Execution moved to async. Task ID: ${taskId}. Output streaming to ${resultRelPath} — use read to check progress.`,
+        content: `Execution moved to async. Task: ${taskId}. Output streaming to ${resultRelPath} — use read to check progress.`,
         metadata: { taskId, async: true, migrated: true },
       };
     },
