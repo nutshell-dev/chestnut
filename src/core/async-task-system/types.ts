@@ -65,6 +65,7 @@ export interface ShortIdIndex {
   ): void;
   delete(shortId: ShortTaskId): void;
   resolve(shortId: string): FullTaskId | undefined;
+  reverseResolve(fullId: FullTaskId): ShortTaskId | undefined;
   deriveShortId(fullId: FullTaskId): ShortTaskId;
   rebuildFromDisk(
     fs: {
