@@ -218,4 +218,53 @@ describe('CustomAnthropicAdapter — stream output budget exceeded', () => {
       })(),
     ).rejects.toBeInstanceOf(LLMContextExceededError);
   });
+
+  it('writes OUTPUT_BUDGET_ADJUSTED audit before throwing thinking budget conflict (stream)', async () => {
+    const THINKING_BUDGET_EQUALS_ADJUSTED_MESSAGE =
+      "This model's maximum context length is 105000 tokens. However, you requested " +
+      '105000 tokens (55000 in the messages, 50000 in the completions).';
+
+    const { writes, sink } = createAuditSink();
+    const adapter = new CustomAnthropicAdapter({
+      name: 'test-cap',
+      model: 'claude-test',
+      apiKey: 'k',
+      baseUrl: 'https://example.invalid',
+      maxTokens: 200000,
+      temperature: 0.5,
+      timeoutMs: 30000,
+      apiFormat: 'anthropic',
+      auditLog: sink as any,
+      thinking: true,
+      thinkingBudgetTokens: 50000,
+    });
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        createJsonResponse({ error: { message: THINKING_BUDGET_EQUALS_ADJUSTED_MESSAGE } }, 400),
+      ),
+    );
+
+    await expect(
+      (async () => {
+        for await (const _chunk of adapter.stream({ messages: [], maxTokens: 60000 })) {
+          // no-op
+        }
+      })(),
+    ).rejects.toBeInstanceOf(LLMContextExceededError);
+
+    const audit = writes.find(e => e[0] === LLM_PROVIDER_AUDIT_EVENTS.OUTPUT_BUDGET_ADJUSTED);
+    expect(audit).toBeDefined();
+    expect(audit).toEqual(
+      expect.arrayContaining([
+        LLM_PROVIDER_AUDIT_EVENTS.OUTPUT_BUDGET_ADJUSTED,
+        expect.stringContaining('provider=test-cap'),
+        expect.stringContaining('original_max_tokens=60000'),
+        expect.stringContaining('adjusted_max_tokens=50000'),
+        expect.stringContaining('context_limit=105000'),
+        expect.stringContaining('input_tokens=55000'),
+      ]),
+    );
+  });
 });
