@@ -48,6 +48,11 @@ export function createDisplay(deps: DisplayDeps) {
     const startNow = performance.now();
     const cols = process.stdout.columns ?? DEFAULT_TERMINAL_WIDTH;
 
+    // task status bar texts 每次 display 刷新时重算，确保 migratedExec 等的时间标签实时更新
+    deps.spawnText.setText(deps.taskStatusBar.renderSpawn(cols));
+    deps.shadowText.setText(deps.taskStatusBar.renderShadow(cols));
+    deps.migratedExecText.setText(deps.taskStatusBar.renderMigratedExec(cols));
+
     // body 重算：cache miss 或 cols 变才重算
     if (bodyCache === null || bodyCacheCols !== cols) {
       bodyCache = outputLines
