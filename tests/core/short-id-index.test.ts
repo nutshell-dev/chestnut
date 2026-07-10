@@ -157,4 +157,39 @@ describe('PersistentShortIdIndex', () => {
     expect(rebuiltEvent?.payload.entryCount).toBe(1);
     expect(rebuiltEvent?.payload.collisionCount).toBe(1);
   });
+
+  it('sets needsRebuild when index file does not exist', () => {
+    const index = new PersistentShortIdIndex(fsFactory(tmpDir));
+    // 不创建 short-id-map.json
+    index.load();
+    expect(index.needsRebuild).toBe(true);
+  });
+
+  it('rebuildFromDisk preserves old 8-char task.id as shortId', () => {
+    const runningDir = path.join(tmpDir, 'tasks', 'queues', 'running');
+    fs.mkdirSync(runningDir, { recursive: true });
+    // 旧格式：文件名和 task.id 都是 8 位
+    fs.writeFileSync(path.join(runningDir, 'abcdef12.json'), JSON.stringify({
+      kind: 'tool', id: 'abcdef12', toolName: 'exec',
+      args: { command: 'echo hi' },
+      parentClawDir: '/t', parentClawId: 'p',
+      createdAt: new Date().toISOString(),
+      isIdempotent: false, maxRetries: 2, retryCount: 0,
+    }));
+
+    const index = new PersistentShortIdIndex(fsFactory(tmpDir));
+    index.rebuildFromDisk({
+      existsSync: (p) => fs.existsSync(path.join(tmpDir, p)),
+      listSync: (p, opts) => fs.readdirSync(path.join(tmpDir, p), { withFileTypes: true })
+        .filter(d => !opts?.includeDirs || !d.isDirectory()).map(d => ({ name: d.name })),
+      readSync: (p) => fs.readFileSync(path.join(tmpDir, p), 'utf-8'),
+    });
+
+    // shortId 应为原 8 位 ID，不是随机 UUID 的前 8 位
+    expect(index.has('abcdef12')).toBe(true);
+    const resolved = index.resolve('abcdef12');
+    expect(resolved).toBeDefined();
+    expect(resolved!.length).toBe(36); // fullId 是 UUID
+    expect(index.deriveShortId(resolved!)).not.toBe('abcdef12'); // fullId 前 8 位 ≠ 原 shortId
+  });
 });
