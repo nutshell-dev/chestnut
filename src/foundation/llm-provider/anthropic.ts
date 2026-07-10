@@ -27,7 +27,6 @@ import type {
   LLMCallOptions,
   StreamChunk,
 } from './types.js';
-import { THINKING_TOKEN_RESERVE } from './constants.js';
 import { BaseAnthropicAdapter, type AnthropicRequestBody } from './base-anthropic.js';
 import { LLM_PROVIDER_AUDIT_EVENTS } from './audit-events.js';
 import { makeExternalAbortError, type AbortReason } from './abort-helper.js';
@@ -67,13 +66,11 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
 
     // Extended thinking (requires no temperature)
     if (this.config.thinking) {
-      const mode = this.config.thinkingMode ?? 'adaptive';
-      if (mode === 'adaptive') {
-        body.thinking = { type: 'adaptive', effort: this.config.thinkingEffort ?? 'high' };
-      } else {
-        const budget = this.config.thinkingBudgetTokens
-          ?? Math.max(1, body.max_tokens - THINKING_TOKEN_RESERVE);
+      const budget = this.getEffectiveThinkingBudget(body.max_tokens);
+      if (budget !== undefined) {
         body.thinking = { type: 'enabled', budget_tokens: budget };
+      } else {
+        body.thinking = { type: 'adaptive', effort: this.config.thinkingEffort ?? 'high' };
       }
       delete body.temperature;
     }
@@ -176,15 +173,15 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
   }
 
   /**
-   * Ensure adjusted output budget can still accommodate the configured thinking budget.
+   * Ensure adjusted output budget can still accommodate the effective thinking budget.
    */
   private assertThinkingBudgetFits(adjusted: number): void {
-    const configuredThinkingBudget = this.config.thinkingBudgetTokens;
-    if (configuredThinkingBudget !== undefined && adjusted < configuredThinkingBudget) {
+    const effectiveBudget = this.getEffectiveThinkingBudget(adjusted);
+    if (effectiveBudget !== undefined && adjusted <= effectiveBudget) {
       throw new LLMContextExceededError(
         this.name,
         400,
-        `Output budget adjusted to ${adjusted} tokens, but configured thinking budget is ${configuredThinkingBudget}. ` +
+        `Output budget adjusted to ${adjusted} tokens, but effective thinking budget is ${effectiveBudget}. ` +
           `Reduce thinking budget or trim input context.`,
       );
     }
