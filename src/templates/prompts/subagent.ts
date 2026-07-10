@@ -34,6 +34,7 @@ Do NOT attempt to fix issues, execute tasks, or make assumptions about missing e
  * phase 514 加
  */
 export function buildSubagentSystemPrompt(args: {
+  /** phase 849: should be FullTaskId; paths in the prompt use this value verbatim. */
   taskId: string;              // subagent task id
   callerClawId: string;        // caller's clawId
   subagentsDir: string;        // e.g. 'tasks/subagents' — caller 装配期注入

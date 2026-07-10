@@ -14,6 +14,7 @@ import type { FileSystem } from '../../foundation/fs/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import { TASKS_QUEUES_PENDING_DIR, TASKS_QUEUES_RUNNING_DIR } from './dirs.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
+import { deriveShortIdFromTaskId, makeShortTaskId } from './types.js';
 
 export interface QueueSnapshot {
   readonly cancellingIds: ReadonlySet<string>;
@@ -49,7 +50,14 @@ async function listTaskIdsInDir(fs: FileSystem, dir: string): Promise<Set<string
   const entries = await fs.list(dir, { includeDirs: false });
   const ids = new Set<string>();
   for (const e of entries) {
-    if (e.name.endsWith('.json')) ids.add(e.name.slice(0, -5));
+    if (!e.name.endsWith('.json')) continue;
+    const nameId = e.name.slice(0, -5);
+    // phase 849: filenames may be fullId (36 chars) or legacy shortId (8 chars);
+    // canonicalise to shortId for comparison with cancellingIds snapshot.
+    const shortId = nameId.length === 36
+      ? deriveShortIdFromTaskId(nameId as import('./types.js').FullTaskId)
+      : makeShortTaskId(nameId);
+    ids.add(shortId);
   }
   return ids;
 }

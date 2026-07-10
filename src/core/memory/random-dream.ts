@@ -10,7 +10,7 @@ import type { AsyncTaskSystem } from '../async-task-system/index.js';
 import type { InboxMessageOptionsBase } from '../../foundation/messaging/index.js';
 import type { ProgressData } from '../contract/index.js';
 import type { ContractId } from '../contract/types.js';
-import { type TaskId, makeTaskId } from '../async-task-system/types.js';
+import { type TaskId, type FullTaskId, type ShortTaskId, type ShortIdIndex, makeShortTaskId } from '../async-task-system/types.js';
 import { listArchiveContracts, readArchiveProgress } from '../contract/index.js';
 import { assertDreamStateShape } from './invariants.js';
 
@@ -70,6 +70,8 @@ export interface RandomDreamOptions {
   signal?: AbortSignal;
   /** 读取指定 claw+contract 的 progress（M#3：不走直接文件访问） */
   getContractProgress?: (clawId: string, contractId: ContractId) => Promise<ProgressData | null>;
+  /** phase 849: shortId ↔ fullId index for dual-key task IDs */
+  shortIdIndex?: ShortIdIndex;
 }
 
 interface WeightedContract {
@@ -83,6 +85,7 @@ interface WeightedContract {
 
 interface PendingLateSettleEntry {
   taskId: TaskId;
+  fullTaskId?: FullTaskId;   // phase 849: stored fullId for persistence paths
   scheduledAt: number;       // ms epoch, entry entered pending
   expectedTimeoutAt: number; // scheduledAt + subagentTimeoutMs
 }
@@ -106,7 +109,11 @@ function isValidPendingEntry(e: unknown): e is PendingLateSettleEntry {
   return typeof e === 'object' && e !== null
     && typeof (e as Record<string, unknown>).taskId === 'string'
     && typeof (e as Record<string, unknown>).scheduledAt === 'number'
-    && typeof (e as Record<string, unknown>).expectedTimeoutAt === 'number';
+    && typeof (e as Record<string, unknown>).expectedTimeoutAt === 'number'
+    && (
+      (e as Record<string, unknown>).fullTaskId === undefined
+      || typeof (e as Record<string, unknown>).fullTaskId === 'string'
+    );
 }
 
 function loadRandomDreamState(fs: FileSystem, audit: AuditLog): RandomDreamState {
@@ -323,6 +330,14 @@ async function discoverWeightedContracts(
   return contracts;
 }
 
+// phase 849: resolve shortId → fullId when available; fall back to shortId if no index.
+function resolveFullTaskId(
+  shortId: ShortTaskId,
+  index?: ShortIdIndex,
+): FullTaskId | undefined {
+  return index?.resolve(shortId);
+}
+
 // ─── 等待任务结果 ────────────────────────────────────────────
 
 export async function waitForTaskResult(
@@ -425,8 +440,11 @@ async function sweepLateSettlePending(
   const archivedAtMap = new Map(archiveContracts.map(r => [r.contractId, r.archivedAt]));
 
   for (const entry of pending) {
-    const donePath = path.join('tasks', 'queues', 'results', entry.taskId, 'result.txt');
-    const logPath  = path.join('tasks', 'queues', 'results', entry.taskId, 'daemon.log');
+    const lateFullId = entry.fullTaskId
+      ?? (entry.taskId.length === 36 ? entry.taskId as FullTaskId : resolveFullTaskId(entry.taskId as ShortTaskId, opts.shortIdIndex));
+    const lateTaskIdForPaths = lateFullId ?? entry.taskId;
+    const donePath = path.join('tasks', 'queues', 'results', lateTaskIdForPaths, 'result.txt');
+    const logPath  = path.join('tasks', 'queues', 'results', lateTaskIdForPaths, 'daemon.log');
 
     if (opts.motionFs.existsSync(donePath)) {
       // settled — consume
@@ -437,7 +455,7 @@ async function sweepLateSettlePending(
       const { outputs, contractIds } = extractDreamOutputs(log);
       if (outputs.length > 0) {
         const dreamOutput = outputs.join('\n\n---\n\n');
-        const dreamOutputPath = `${MEMORY_DREAM_OUTPUTS_DIR}/${entry.taskId}.txt`;
+        const dreamOutputPath = `${MEMORY_DREAM_OUTPUTS_DIR}/${lateTaskIdForPaths}.txt`;
         await opts.motionFs.ensureDir(MEMORY_DREAM_OUTPUTS_DIR);
         await opts.motionFs.writeAtomic(dreamOutputPath, dreamOutput);
 
@@ -457,6 +475,7 @@ async function sweepLateSettlePending(
           extraFields: {
             dream_count: String(outputs.length),
             late_settle_task_id: entry.taskId,
+            ...(lateFullId ? { late_settle_full_task_id: lateFullId } : {}),
           },
         });
 
@@ -526,7 +545,7 @@ export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
   const subagentTimeoutMs = opts.subagentTimeoutMs ?? DEFAULT_RANDOM_DREAM_TIMEOUT_MS;
   const subagentMaxSteps = opts.subagentMaxSteps ?? DEFAULT_RANDOM_DREAM_MAX_STEPS;
 
-  const taskId = makeTaskId(await opts.taskSystem.schedule('subagent', {
+  const taskId = makeShortTaskId(await opts.taskSystem.schedule('subagent', {
     kind: 'subagent',
     mode: 'standard',
     intent: buildRandomDreamPrompt(weightedContracts),
@@ -536,13 +555,15 @@ export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
     originClawId: MOTION_CLAW_ID,
     systemPrompt: RANDOM_DREAM_SYSTEM_PROMPT,    // phase 546: dead import 活化（同 deep-dream 直 LLMService.call 模板 align）
   }));
+  const fullTaskId = resolveFullTaskId(taskId, opts.shortIdIndex);
+  const taskIdForPaths = fullTaskId ?? taskId;
 
   opts.audit.write(MEMORY_AUDIT_EVENTS.RANDOM_DREAM_JOB, `step=subagent_started`, `taskId=${taskId}`);
 
   // 等待完成（最长 1h，每 30s 轮询）
   const log = await waitForTaskResult(
     opts.motionFs,
-    taskId,
+    taskIdForPaths,
     subagentTimeoutMs,
     opts.pulseIntervalMs ?? DEFAULT_PULSE_INTERVAL_MS,
     opts.audit,
@@ -558,6 +579,7 @@ export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
         ...(state.pendingLateSettle ?? []),
         {
           taskId,
+          ...(fullTaskId ? { fullTaskId } : {}),
           scheduledAt: now - subagentTimeoutMs,
           expectedTimeoutAt: now,
         },
@@ -598,7 +620,7 @@ export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
   saveRandomDreamState(opts.fs, updatedState, opts.audit);
 
   const dreamOutput = outputs.join('\n\n---\n\n');
-  const dreamOutputPath = `${MEMORY_DREAM_OUTPUTS_DIR}/${taskId}.txt`;
+  const dreamOutputPath = `${MEMORY_DREAM_OUTPUTS_DIR}/${taskIdForPaths}.txt`;
 
   // NEW: disk snapshot（motion 域）
   await opts.motionFs.ensureDir(MEMORY_DREAM_OUTPUTS_DIR);

@@ -196,18 +196,29 @@ export class InboxReader {
           });
         }
 
-        let taskId: string | undefined;
+        let shortTaskId: string | undefined;
+        let fullTaskId: string | undefined;
         try {
           const parsed = JSON.parse(message.content);
           if (typeof parsed.taskId === 'string') {
-            taskId = parsed.taskId;
+            shortTaskId = parsed.taskId;
+          }
+          if (typeof parsed.fullTaskId === 'string') {
+            fullTaskId = parsed.fullTaskId;
           }
         } catch {
           // silent: non-JSON content — skip dedupe
         }
 
-        if (taskId && seenTaskIds.has(taskId)) {
-          emitInboxDeduped(this.audit, { file: entry.name, taskId, contractId: message.metadata?.contract_id });
+        // phase 849: dedup by shortId (agent-facing); emit both keys for audit.
+        const dedupKey = shortTaskId ?? fullTaskId;
+        if (dedupKey && seenTaskIds.has(dedupKey)) {
+          emitInboxDeduped(this.audit, {
+            file: entry.name,
+            shortTaskId,
+            fullTaskId,
+            contractId: message.metadata?.contract_id,
+          });
           try {
             await this.markDone(filePath);
           } catch (e) {
@@ -218,8 +229,8 @@ export class InboxReader {
           }
           continue;
         }
-        if (taskId) {
-          seenTaskIds.add(taskId);
+        if (dedupKey) {
+          seenTaskIds.add(dedupKey);
         }
 
         results.push({ message, filePath });

@@ -24,11 +24,26 @@ import {
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { type ContractId, makeContractId } from '../../core/contract/types.js';
 import { AUDIT_FILE, auditFileContains, auditFileGetMtime, auditFirstTimestamp } from '../../foundation/audit/index.js';
+import type { ShortIdIndex } from '../../core/async-task-system/types.js';
+import { deriveShortIdFromTaskId, makeFullTaskId } from '../../core/async-task-system/types.js';
 
 
 
 export type SubagentKind = 'summon' | 'spawn' | 'shadow' | 'verifier' | 'random_dream' | 'cron';
 export type SubagentStatus = 'completed' | 'running' | 'failed';
+
+/** Phase 849: resolve a task id (short or full) to the id used for filesystem paths. */
+function resolvePathTaskId(id: string, shortIdIndex?: ShortIdIndex): string {
+  if (id.length === 36) return id;
+  const resolved = shortIdIndex?.resolve(id);
+  return resolved ?? id;
+}
+
+/** Phase 849: derive the display id (shortId) from a path/task id. */
+function deriveDisplayTaskId(id: string): string {
+  if (id.length === 36) return deriveShortIdFromTaskId(makeFullTaskId(id));
+  return id;
+}
 
 // 文件级 const，cli/commands/subagent-helpers.ts inferKind + getStartedAt 两处共用
 // 单源 = src/types/paths.ts 既有 4 const、避免 cross-line + cross-file value drift
@@ -44,14 +59,16 @@ export function resolveClawDir(clawId: string): string {
   return clawId === MOTION_CLAW_ID ? getNamedSubrootDir(MOTION_CLAW_ID) : getClawDir(clawId);
 }
 
-export function inferKind(deps: { fsFactory: (baseDir: string) => FileSystem }, id: string, clawDir: string): SubagentKind {
+export function inferKind(deps: { fsFactory: (baseDir: string) => FileSystem; shortIdIndex?: ShortIdIndex }, id: string, clawDir: string): SubagentKind {
   if (id.startsWith('verifier-')) return 'verifier';
 
   const clawFs = deps.fsFactory(clawDir);
+  // Phase 849: queue files are keyed by fullTaskId; use resolved path id for lookups.
+  const pathId = resolvePathTaskId(id, deps.shortIdIndex);
 
   // Try to find task.json in queue dirs
   for (const qdir of QUEUE_DIRS) {
-    const taskRel = path.join(qdir, `${id}.json`);
+    const taskRel = path.join(qdir, `${pathId}.json`);
     if (clawFs.existsSync(taskRel)) {
       try {
         // phase 355 C3 (review-2026-06-13): JSON.parse 返非对象（string / number）会让
@@ -76,7 +93,7 @@ export function inferKind(deps: { fsFactory: (baseDir: string) => FileSystem }, 
   }
 
   // Fallback: check audit.tsv for random_dream signals
-  const auditRel = path.join(TASKS_QUEUES_RESULTS_DIR, id, AUDIT_FILE);
+  const auditRel = path.join(TASKS_QUEUES_RESULTS_DIR, pathId, AUDIT_FILE);
   if (auditFileContains(clawFs, auditRel, 'cron_random_dream_job')) return 'random_dream';
 
   return 'spawn';
@@ -95,12 +112,14 @@ export function inferStatus(deps: { fsFactory: (baseDir: string) => FileSystem }
   return 'running';
 }
 
-export function getStartedAt(deps: { fsFactory: (baseDir: string) => FileSystem }, resultDir: string, id: string, clawDir: string): Date | undefined {
+export function getStartedAt(deps: { fsFactory: (baseDir: string) => FileSystem; shortIdIndex?: ShortIdIndex }, resultDir: string, id: string, clawDir: string): Date | undefined {
   const clawFs = deps.fsFactory(clawDir);
+  // Phase 849: queue files are keyed by fullTaskId; use resolved path id for lookups.
+  const pathId = resolvePathTaskId(id, deps.shortIdIndex);
 
   // Try task.json createdAt first
   for (const qdir of QUEUE_DIRS) {
-    const taskRel = path.join(qdir, `${id}.json`);
+    const taskRel = path.join(qdir, `${pathId}.json`);
     if (clawFs.existsSync(taskRel)) {
       try {
         // phase 355 C3: 验对象 shape + createdAt 是字符串、否则 skip
@@ -151,16 +170,19 @@ export interface SubagentEntry {
   contractId?: string;
 }
 
-export function scanSubagentResults(deps: { fsFactory: (baseDir: string) => FileSystem }, clawDir: string): SubagentEntry[] {
+export function scanSubagentResults(deps: { fsFactory: (baseDir: string) => FileSystem; shortIdIndex?: ShortIdIndex }, clawDir: string): SubagentEntry[] {
   const entries: SubagentEntry[] = [];
   const clawFs = deps.fsFactory(clawDir);
 
-  // Scan async path: tasks/queues/results/<taskId>/
+  // Scan async path: tasks/queues/results/<fullTaskId>/
   const asyncRel = TASKS_QUEUES_RESULTS_DIR;
   if (clawFs.existsSync(asyncRel)) {
     const ids = clawFs.listSync(asyncRel, { includeDirs: true }).map(e => e.name);
     for (const id of ids) {
-      const resultDir = path.join(clawDir, asyncRel, id);
+      // Phase 849: result directories are keyed by fullTaskId; derive shortId for display.
+      const pathId = resolvePathTaskId(id, deps.shortIdIndex);
+      const displayId = deriveDisplayTaskId(pathId);
+      const resultDir = path.join(clawDir, asyncRel, pathId);
       const resultFs = deps.fsFactory(resultDir);
       const stat = resultFs.statSync('.');
       if (!stat.isDirectory) continue;
@@ -170,18 +192,18 @@ export function scanSubagentResults(deps: { fsFactory: (baseDir: string) => File
       let durationMs: number | undefined;
       if (startedAt) {
         // Use result.txt mtime or audit last event ts as end time
-        const resultTxtRel = path.join(asyncRel, id, 'result.txt');
+        const resultTxtRel = path.join(asyncRel, pathId, 'result.txt');
         if (clawFs.existsSync(resultTxtRel)) {
           durationMs = clawFs.statSync(resultTxtRel).mtime.getTime() - startedAt.getTime();
         } else {
-          const auditRel = path.join(asyncRel, id, AUDIT_FILE);
+          const auditRel = path.join(asyncRel, pathId, AUDIT_FILE);
           const mtime = auditFileGetMtime(clawFs, auditRel);
           if (mtime !== null) {
             durationMs = mtime - startedAt.getTime();
           }
         }
       }
-      entries.push({ id, kind, status, startedAt, durationMs });
+      entries.push({ id: displayId, kind, status, startedAt, durationMs });
     }
   }
 
@@ -194,7 +216,7 @@ export function scanSubagentResults(deps: { fsFactory: (baseDir: string) => File
 }
 
 function scanSyncDir(
-  deps: { fsFactory: (baseDir: string) => FileSystem },
+  deps: { fsFactory: (baseDir: string) => FileSystem; shortIdIndex?: ShortIdIndex },
   clawDir: string,
   syncSubDir: string,
   filterPrefix?: string,

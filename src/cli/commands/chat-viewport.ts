@@ -41,7 +41,7 @@ import { createDisplay } from './chat-viewport-display.js';
 import { createClawPanel, createRescanClawsDir } from './chat-viewport-claw-panel.js';
 import { createEventHandler, type TaskWatch } from './chat-viewport-event-handler.js';
 import { initOwnStateFromHistory, createUncaughtHandler } from './chat-viewport-init.js';
-import { type TaskId, makeTaskId } from '../../core/async-task-system/types.js';
+import { type TaskId, makeShortTaskId } from '../../core/async-task-system/types.js';
 
 
 /**
@@ -259,7 +259,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
       const idleMs = now - tw.lastEventMs;
       if (idleMs > TASK_STALE_TIMEOUT_MS) {
         // task 已 stale: cleanup 而非 process event (phase 1401 Bug B: 5min 太短 → 30min)
-        stopTaskWatch(makeTaskId(taskId)).catch(err =>
+        stopTaskWatch(makeShortTaskId(taskId)).catch(err =>
           // phase 702: 拆 taskId + reason 为两 col、与 phase 690-695 同模式
           options.audit.write(
             VIEWPORT_AUDIT_EVENTS.TASK_WATCH_STOP_FAILED,

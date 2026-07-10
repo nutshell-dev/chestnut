@@ -14,7 +14,7 @@ import { newShortUuid } from '../../foundation/node-utils/index.js';
 import { synthesizeFormB } from './_helpers.js';
 import { type BuildShadowInstructionArgs } from '../../templates/prompts/index.js';
 import type { SpawnShadowSubagentOptions, SpawnShadowSubagentResult } from './types.js';
-import { makeTaskId } from '../async-task-system/types.js';
+import { makeShortTaskId } from '../async-task-system/types.js';
 import { makeToolUseId } from '../../foundation/tool-protocol/index.js';
 
 /**
@@ -76,5 +76,5 @@ export async function spawnShadowSubagent(
     summonDecision: opts.summonDecision,
   });
 
-  return { taskId: makeTaskId(taskId), shadowId };
+  return { taskId: makeShortTaskId(taskId), shadowId };
 }

@@ -110,16 +110,19 @@ export function emitInboxLegacyClawIdField(
 
 // ─── INBOX_DEDUPED ────────────────────────────────────────────────────────────
 // phase 437 Step B (phase 434 cluster follow-up): contract_id forensic join
+// phase 849: dual-key task IDs — emit both short and full ID when available
 export function emitInboxDeduped(
   audit: AuditLog,
-  opts: { file: string; taskId: string; contractId?: string },
+  opts: { file: string; shortTaskId?: string; fullTaskId?: string; contractId?: string },
 ): void {
-  audit.write(
-    MESSAGING_AUDIT_EVENTS.INBOX_DEDUPED,
-    `file=${opts.file}`,
-    `taskId=${opts.taskId}`,
-    `contract_id=${opts.contractId ?? ''}`,
-  );
+  const cols: string[] = [`file=${opts.file}`];
+  // phase 849: dual-key IDs; keep legacy taskId= column for backward compatibility
+  const legacyTaskId = opts.shortTaskId ?? opts.fullTaskId;
+  if (legacyTaskId !== undefined) cols.push(`taskId=${legacyTaskId}`);
+  if (opts.shortTaskId !== undefined) cols.push(`shortTaskId=${opts.shortTaskId}`);
+  if (opts.fullTaskId !== undefined) cols.push(`fullTaskId=${opts.fullTaskId}`);
+  cols.push(`contract_id=${opts.contractId ?? ''}`);
+  audit.write(MESSAGING_AUDIT_EVENTS.INBOX_DEDUPED, ...cols);
 }
 
 // ─── INBOX_MARK_DONE_FAILED ───────────────────────────────────────────────────

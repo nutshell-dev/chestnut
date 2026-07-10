@@ -5,6 +5,7 @@
  * Phase 842: distinguish corrupted/IO errors from "no tasks" and report them explicitly.
  * Phase 842 Step B: validate ToolTask shape with Zod instead of bare `as` assertions.
  * Phase 843: delegate task listing to AsyncTaskSystem.listMigratedExecTasks().
+ * Phase 849: display ShortTaskId; MigratedExecTaskInfo carries fullTaskId separately.
  */
 
 import { getClawDir } from '../../core/claw-topology/index.js';
@@ -12,6 +13,7 @@ import type {
   MigratedExecTaskInfo,
   TaskReadError,
 } from '../../core/async-task-system/index.js';
+import { deriveShortIdFromTaskId, makeShortTaskId } from '../../core/async-task-system/types.js';
 
 export async function psCommand(
   deps: {
@@ -36,14 +38,17 @@ export async function psCommand(
       const liveness = t.lastOutputMs !== null
         ? `last output ${fmtDuration(t.lastOutputMs)} ago`
         : 'no output yet';
-      console.log(`  Task ${t.taskId}  ${elapsed}  ${liveness}  ${shortCmd}`);
+      // Phase 849: taskId is the shortId, but defensively derive in case it carries a full UUID.
+      const shortId = deriveShortIdFromTaskId(makeShortTaskId(t.taskId));
+      console.log(`  Task ${shortId}  ${elapsed}  ${liveness}  ${shortCmd}`);
     }
   }
 
   if (errors.length > 0) {
     console.error(`\n${errors.length} task file(s) could not be read:`);
     for (const err of errors) {
-      console.error(`  ${err.taskId}: ${err.reason}`);
+      const shortId = deriveShortIdFromTaskId(makeShortTaskId(err.taskId));
+      console.error(`  ${shortId}: ${err.reason}`);
     }
   }
 }

@@ -227,6 +227,9 @@ export class AsyncTaskSystem {
     await this.fs.ensureDir(TASKS_QUEUES_FAILED_DIR);
     await this.fs.ensureDir(TASKS_QUEUES_RESULTS_DIR);
 
+    // Phase 849: load shortId ↔ fullId index from disk
+    this.shortIdIndex.load();
+
     // Cold-start recovery: running tasks are moved back to pending by recoverTasks.
     // No in-memory pending queue is kept; pending state is derived from fs on demand.
     await recoverTasks({ fs: this.fs, auditWriter: this.auditWriter });

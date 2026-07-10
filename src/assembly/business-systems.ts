@@ -12,6 +12,7 @@ import { TASKS_SYNC_SPAWN_DIR, createSpawnTool } from '../core/spawn-system/inde
 import { TASKS_SYNC_SHADOW_DIR } from '../core/shadow-system/index.js';
 import { InboxWriter, makeInboxPath, INBOX_PENDING_DIR } from '../foundation/messaging/index.js';
 import { createAsyncTaskSystem } from '../core/async-task-system/index.js';
+import { PersistentShortIdIndex } from '../core/async-task-system/short-id-index.js';
 import type { AsyncTaskSystem } from '../core/async-task-system/system.js';
 import {
   TASKS_QUEUES_PENDING_DIR,
@@ -116,6 +117,8 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
   const selfInbox = InboxWriter.__internal_create(systemFs, makeInboxPath(selfInboxDir), auditWriter);
 
   // --- 9. AsyncTaskSystem（仅构造，不调 initialize / startDispatch；业务动作归 Runtime） ---
+  // Phase 849: dual-key shortId ↔ fullId index
+  const shortIdIndex = new PersistentShortIdIndex(systemFs);
   let taskSystem: AsyncTaskSystem;
   try {
     taskSystem = createAsyncTaskSystem(clawDir, systemFs, {
@@ -130,6 +133,7 @@ export async function createBusinessSystems(input: BusinessSysInput): Promise<Bu
       selfInbox,
       fsFactory,
       askMotionToolFactory: (llmArg, motionDialogStore) => new AskMotionTool(llmArg, motionDialogStore),
+      shortIdIndex,
     });
   } catch (e) {
     auditWriter.write(ASSEMBLY_AUDIT_EVENTS.ASSEMBLE_FAILED, `module=task_system`, `phase=construct`, `reason=${formatErr(e)}`);

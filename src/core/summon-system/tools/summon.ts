@@ -14,7 +14,7 @@ import { isFileNotFound } from '../../../foundation/fs/index.js';
 import { SUMMON_CONTRACT_EXTRACT_POSTPROCESSOR_NAME } from '../post-processors/contract-extract.js';
 import { SUMMON_CALLER_TYPES, type SummonCallerType } from '../caller-types.js';
 import { spawnShadowSubagent, stripIncompleteToolUse } from '../../shadow-system/index.js';
-import { type TaskId, makeTaskId } from '../../async-task-system/types.js';
+import { type TaskId, makeShortTaskId } from '../../async-task-system/types.js';
 
 /**
  * Summon subagent execution timeout（ms）= 1 hour.
@@ -263,7 +263,7 @@ export class SummonTool implements Tool {
       };
     }
 
-    const taskId = makeTaskId(await this.taskSystem.schedule('subagent', {
+    const taskId = makeShortTaskId(await this.taskSystem.schedule('subagent', {
       kind: 'subagent',
       mode: 'standard',
       intent: userMessage,

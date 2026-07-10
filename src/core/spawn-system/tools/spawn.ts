@@ -7,6 +7,7 @@
 
 import type { Tool, ExecContext } from '../../../foundation/tools/index.js';
 import type { ToolResult } from '../../../foundation/tool-protocol/index.js';
+import { makeShortTaskId } from '../../async-task-system/types.js';
 import { runSpawnSync, type RunSpawnSyncOptions } from '../system.js';
 import {
   resolveSpawnTemplate,
@@ -125,7 +126,7 @@ export function createSpawnTool(deps: SpawnToolDeps = {}): Tool {
           ? { clawId: ctx.clawId, toolUseId: ctx.currentToolUseId }
           : undefined;
         try {
-          const taskId = await taskSystem.schedule('subagent', {
+          const taskId = makeShortTaskId(await taskSystem.schedule('subagent', {
             kind: 'subagent',
             mode: 'standard',
             intent,
@@ -136,7 +137,7 @@ export function createSpawnTool(deps: SpawnToolDeps = {}): Tool {
             originClawId: deps.originClawId ?? ctx.clawId,
             callerType: 'spawn_subagent',
             mainContextSnapshot,
-          });
+          }));
 
           return {
             success: true,

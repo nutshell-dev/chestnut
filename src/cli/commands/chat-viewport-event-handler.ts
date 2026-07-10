@@ -20,7 +20,7 @@ import type { TurnTracker } from './chat-viewport-types.js';
 import type { MainTurnUIController } from './main-turn-ui.js';
 import type { ThinkingMode } from './chat-viewport-commands.js';
 import type { createViewportObservability } from './chat-viewport-observability.js';
-import { type TaskId, makeTaskId } from '../../core/async-task-system/types.js';
+import { type TaskId, makeShortTaskId, makeFullTaskId, deriveShortIdFromTaskId } from '../../core/async-task-system/types.js';
 import type { DescriptorSink } from './viewport-render-descriptor.js';
 
 
@@ -305,15 +305,21 @@ export function createEventHandler(deps: EventHandlerDeps) {
       }
 
       case 'task_started': {
-        const taskId = event.taskId as string;
+        const rawTaskId = event.taskId as string;
+        const fullTaskId = (event.fullTaskId as string | undefined) ?? rawTaskId;
         const taskKind = (event.taskKind as string) ?? 'spawn_subagent';
         // Phase 537 — defensive guard against malformed stream events (D7+D11)
+        // Phase 849: taskId is the shortId; fullTaskId is the persistence key.
+        const taskId = typeof rawTaskId === 'string' && rawTaskId.length === 36
+          ? deriveShortIdFromTaskId(makeFullTaskId(rawTaskId))
+          : rawTaskId;
         if (
           typeof taskId !== 'string' || taskId === '' || taskId === '.' || taskId.startsWith('.') ||
-          taskId.includes('/') || taskId.includes('..')
+          taskId.includes('/') || taskId.includes('..') ||
+          typeof fullTaskId !== 'string' || fullTaskId === '' || fullTaskId.includes('/') || fullTaskId.includes('..')
         ) {
           try {
-            deps.audit.write(VIEWPORT_AUDIT_EVENTS.INVALID_TASK_ID, `taskId=${JSON.stringify(taskId)}`);
+            deps.audit.write(VIEWPORT_AUDIT_EVENTS.INVALID_TASK_ID, `taskId=${JSON.stringify(taskId)}`, `fullTaskId=${JSON.stringify(fullTaskId)}`);
           } catch { /* audit self-failure tolerated */ }
           break;
         }
@@ -321,18 +327,18 @@ export function createEventHandler(deps: EventHandlerDeps) {
         // them in a dedicated viewport area instead.
         if (taskKind === 'exec_migrated') {
           deps.taskStatusBar.addMigratedExec({
-            taskId: makeTaskId(taskId),
+            taskId: makeShortTaskId(taskId),
             command: (event.command as string) ?? 'exec',
             startedAt: (event.startedAt as number) ?? Date.now(),
           });
           break;
         }
-        const basePath = path.join(deps.agentDir, TASKS_QUEUES_RESULTS_DIR, taskId);
+        const basePath = path.join(deps.agentDir, TASKS_QUEUES_RESULTS_DIR, fullTaskId);
         const { fs: taskFs } = createDirContext({ fsFactory: deps.fsFactory }, basePath);
         const taskReader = createStreamReader(taskFs, STREAM_FILE, (ev) => {
           const tw = deps.taskWatchMap.get(taskId);
           if (tw) tw.lastEventMs = Date.now();
-          deps.mainUI.withScope('task', () => deps.handleTaskEvent(makeTaskId(taskId), ev));
+          deps.mainUI.withScope('task', () => deps.handleTaskEvent(makeShortTaskId(taskId), ev));
         }, deps.audit, { persistent: true });
         try {
           // phase 1401 Bug A: 从 0 catch-up，避免漏 reader 启动前 shadow 已写的
@@ -342,7 +348,7 @@ export function createEventHandler(deps: EventHandlerDeps) {
           taskReader.start(0);
         } catch (err) {
           try {
-            deps.audit.write(VIEWPORT_AUDIT_EVENTS.STREAM_READER_START_FAILED, `taskId=${taskId}`, `reason=${formatErr(err)}`);
+            deps.audit.write(VIEWPORT_AUDIT_EVENTS.STREAM_READER_START_FAILED, `taskId=${taskId}`, `fullTaskId=${fullTaskId}`, `reason=${formatErr(err)}`);
           } catch { /* audit self-failure tolerated */ }
           break;   // phase 1217 r131 C.3 fix: 不 register stale TaskWatch with failed streamReader
         }
@@ -354,15 +360,18 @@ export function createEventHandler(deps: EventHandlerDeps) {
         };
         deps.taskWatchMap.set(taskId, tw);
         if (!tw.silent) {
-          deps.taskStatusBar.addTrack(makeTaskId(taskId), taskKind);
+          deps.taskStatusBar.addTrack(makeShortTaskId(taskId), taskKind);
         }
         break;
       }
 
       case 'task_completed': {
-        const taskId = event.taskId as string;
-        if (typeof taskId !== 'string' || taskId === '') break;
-        deps.taskStatusBar.removeMigratedExec(makeTaskId(taskId));
+        const rawTaskId = event.taskId as string;
+        if (typeof rawTaskId !== 'string' || rawTaskId === '') break;
+        const taskId = rawTaskId.length === 36
+          ? deriveShortIdFromTaskId(makeFullTaskId(rawTaskId))
+          : rawTaskId;
+        deps.taskStatusBar.removeMigratedExec(makeShortTaskId(taskId));
         break;
       }
 

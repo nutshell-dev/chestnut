@@ -17,6 +17,7 @@ import { isFileNotFound } from '../../foundation/fs/index.js';
 const PROGRAMMING_BUG_TYPES = [TypeError, ReferenceError, SyntaxError, RangeError] as const;
 import { readPendingRetrospective, InvalidJSONError, UnexpectedFormatError, InvalidTargetClawError } from '../summon-system/index.js';
 import type { ContractId } from '../contract/types.js';
+import { deriveShortIdFromTaskId, makeFullTaskId } from '../async-task-system/types.js';
 
 
 export interface EvolutionSystemDeps {
@@ -346,7 +347,10 @@ export class EvolutionSystem {
     // 2.3 加载 mining task messages（若 mining 模式，2 best-effort 退化）
     let baseMessages: Message[] = [];
     if (mode === 'mining' && miningTaskId) {
-      const messagesPath = path.join('tasks', 'queues', 'results', miningTaskId, 'messages.json');
+      // phase 849: miningTaskId persisted as fullId; derive shortId for audit, keep fullId for paths
+      const miningFullId = makeFullTaskId(miningTaskId);
+      const miningShortId = deriveShortIdFromTaskId(miningFullId);
+      const messagesPath = path.join('tasks', 'queues', 'results', miningFullId, 'messages.json');
       try {
         const rawMining = await ctx.motionFs.read(messagesPath);
         const parsed = JSON.parse(rawMining);
@@ -357,7 +361,8 @@ export class EvolutionSystem {
           // — 之前 silent fallthrough、baseMessages 保持空、无 forensics
           this.deps.audit.write(
             RETRO_AUDIT_EVENTS.MINING_FAILED,
-            `taskId=${miningTaskId}`,
+            `fullTaskId=${miningFullId}`,
+            `shortTaskId=${miningShortId}`,
             'reason=shape_mismatch',
             `actual_type=${typeof parsed === 'object' && parsed !== null ? (Array.isArray(parsed) ? 'array' : 'object') : typeof parsed}`,
           );
@@ -366,13 +371,15 @@ export class EvolutionSystem {
         if (isFileNotFound(e)) {
           this.deps.audit.write(
             RETRO_AUDIT_EVENTS.MINING_FAILED,
-            `taskId=${miningTaskId}`,
+            `fullTaskId=${miningFullId}`,
+            `shortTaskId=${miningShortId}`,
             'reason=ENOENT',
           );
         } else {
           this.deps.audit.write(
             RETRO_AUDIT_EVENTS.MINING_FAILED,
-            `taskId=${miningTaskId}`,
+            `fullTaskId=${miningFullId}`,
+            `shortTaskId=${miningShortId}`,
             `error=${formatErr(e)}`,
           );
         }
