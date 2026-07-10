@@ -3,6 +3,7 @@
  *
  * Phase 841: `chestnut claw <name> ps` — list background migrated exec tasks.
  * Phase 842: distinguish corrupted/IO errors from "no tasks" and report them explicitly.
+ * Phase 842 Step B: validate ToolTask shape with Zod instead of bare `as` assertions.
  */
 
 import * as path from 'path';
@@ -12,6 +13,7 @@ import {
   TASKS_QUEUES_RUNNING_DIR,
   TASKS_QUEUES_RESULTS_DIR,
 } from '../../core/async-task-system/dirs.js';
+import { ToolTaskSchema } from '../../core/async-task-system/task-schemas.js';
 import { clawExists } from '../../assembly/config/config-load.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 
@@ -53,12 +55,16 @@ export async function psCommand(
     if (!entry.name.endsWith('.json')) continue;
     try {
       const raw = runningFs.readSync(entry.name);
-      const task = JSON.parse(raw) as Record<string, unknown>;
-      if (task.kind !== 'tool' || task.mode !== 'migrated') continue;
+      const parsed = ToolTaskSchema.passthrough().safeParse(JSON.parse(raw));
+      if (!parsed.success) {
+        throw new Error(`schema mismatch: ${parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ')}`);
+      }
+      const task = parsed.data;
+      if (task.kind !== 'tool' || (task as Record<string, unknown>).mode !== 'migrated') continue;
 
-      const taskId = task.id as string;
-      const command = (task.args as Record<string, unknown> | undefined)?.command as string ?? '(unknown)';
-      const createdAt = task.createdAt as string;
+      const taskId = task.id;
+      const command = (task.args as Record<string, unknown>).command as string ?? '(unknown)';
+      const createdAt = task.createdAt;
 
       let lastOutputMs: number | null = null;
       const resultPath = path.join(clawDir, TASKS_QUEUES_RESULTS_DIR, taskId, 'result.txt');
