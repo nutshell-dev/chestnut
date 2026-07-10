@@ -2,6 +2,7 @@
  * @module L6.CLI.Claw.Ps
  *
  * Phase 841: `chestnut claw <name> ps` — list background migrated exec tasks.
+ * Phase 842: distinguish corrupted/IO errors from "no tasks" and report them explicitly.
  */
 
 import * as path from 'path';
@@ -19,6 +20,11 @@ interface MigratedExec {
   command: string;
   createdAt: string;
   lastOutputMs: number | null;
+}
+
+interface TaskReadError {
+  fileName: string;
+  reason: string;
 }
 
 export async function psCommand(
@@ -41,6 +47,7 @@ export async function psCommand(
 
   const entries = runningFs.listSync('.', { includeDirs: false });
   const migrated: MigratedExec[] = [];
+  const errors: TaskReadError[] = [];
 
   for (const entry of entries) {
     if (!entry.name.endsWith('.json')) continue;
@@ -59,29 +66,44 @@ export async function psCommand(
         const resultFs = deps.fsFactory(path.dirname(resultPath));
         const stat = resultFs.statSync(path.basename(resultPath));
         lastOutputMs = Date.now() - stat.mtime.getTime();
-      } catch {
-        // silent: result.txt not created yet — process still in first soft-timeout window
+      } catch (e: unknown) {
+        const errno = (e as { code?: string }).code;
+        if (errno === 'ENOENT') {
+          // result.txt not created yet — process still in first soft-timeout window
+        } else {
+          errors.push({ fileName: `Task ${taskId} result.txt`, reason: `${errno ?? 'UNKNOWN'}: ${String(e)}` });
+        }
       }
 
       migrated.push({ taskId, command, createdAt, lastOutputMs });
-    } catch {
-      // silent: corrupted running task file, skip
+    } catch (e: unknown) {
+      // corrupted running task file, report instead of silently skipping
+      errors.push({ fileName: entry.name, reason: String(e) });
     }
   }
 
-  if (migrated.length === 0) {
+  if (migrated.length === 0 && errors.length === 0) {
     console.log('No background exec tasks running.');
     return;
   }
 
-  console.log(`\nBackground exec (${migrated.length} running):\n`);
-  for (const m of migrated) {
-    const elapsed = fmtDuration(Date.now() - new Date(m.createdAt).getTime());
-    const shortCmd = m.command.length > 60 ? m.command.slice(0, 57) + '...' : m.command;
-    const liveness = m.lastOutputMs !== null
-      ? `last output ${fmtDuration(m.lastOutputMs)} ago`
-      : 'no output yet';
-    console.log(`  Task ${m.taskId}  ${elapsed}  ${liveness}  ${shortCmd}`);
+  if (migrated.length > 0) {
+    console.log(`\nBackground exec (${migrated.length} running):\n`);
+    for (const m of migrated) {
+      const elapsed = fmtDuration(Date.now() - new Date(m.createdAt).getTime());
+      const shortCmd = m.command.length > 60 ? m.command.slice(0, 57) + '...' : m.command;
+      const liveness = m.lastOutputMs !== null
+        ? `last output ${fmtDuration(m.lastOutputMs)} ago`
+        : 'no output yet';
+      console.log(`  Task ${m.taskId}  ${elapsed}  ${liveness}  ${shortCmd}`);
+    }
+  }
+
+  if (errors.length > 0) {
+    console.error(`\n${errors.length} task file(s) could not be read:`);
+    for (const err of errors) {
+      console.error(`  ${err.fileName}: ${err.reason}`);
+    }
   }
 }
 
