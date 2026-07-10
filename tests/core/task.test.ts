@@ -453,7 +453,7 @@ describe('Task System + SubAgent', () => {
         expect(content).toContain(taskId);
         expect(content).toContain('is_error');
       } finally {
-        await failSystem.shutdown(1000).catch(() => {});
+        await failSystem.shutdown(1000).catch(() => { /* silent: cleanup */ });
       }
     });
 
@@ -505,7 +505,7 @@ describe('Task System + SubAgent', () => {
         expect(content).toContain(taskId);
         expect(content).toContain('is_error');
       } finally {
-        await failSystem.shutdown(1000).catch(() => {});
+        await failSystem.shutdown(1000).catch(() => { /* silent: cleanup */ });
       }
     });
 
