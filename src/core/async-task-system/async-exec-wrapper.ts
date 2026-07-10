@@ -51,6 +51,7 @@ const ASYNC_EXEC_MIGRATED_HARD_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
  */
 function buildMigratedToolTask(
   fullId: FullTaskId,
+  shortId: ShortTaskId,
   command: string,
   ctx: ExecContext,
   handle: ExecHandle,
@@ -59,6 +60,7 @@ function buildMigratedToolTask(
   return {
     kind: 'tool',
     id: fullId,
+    shortId: shortId,
     toolName: EXEC_TOOL_NAME,
     args: { command },
     parentClawDir: ctx.clawDir,
@@ -290,7 +292,7 @@ export function createAsyncExecWrapper(
       shortIdIndex.add(shortId, fullId);
       shortIdIndex.save();
 
-      const task = buildMigratedToolTask(fullId, command, ctx, handle);
+      const task = buildMigratedToolTask(fullId, shortId, command, ctx, handle);
 
       try {
         await persistRunningTask(fs, task);

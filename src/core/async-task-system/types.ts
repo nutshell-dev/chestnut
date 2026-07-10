@@ -101,6 +101,8 @@ export interface AsyncTaskSystemOptions {
 interface CommonSubAgentTaskFields {
   kind: 'subagent';
   id: TaskId;
+  /** Phase 867: 8-char display ID persisted alongside full UUID id. */
+  shortId: ShortTaskId;
   timeoutMs: number;
   // phase 1490: maxSteps optional / undefined → SubAgent boundary fallback to DEFAULT_MAX_STEPS
   maxSteps?: number;
@@ -150,6 +152,8 @@ export type TaskExecutor = (
 export interface ToolTask {
   kind: 'tool';
   id: TaskId;
+  /** Phase 867: 8-char display ID persisted alongside full UUID id. */
+  shortId: ShortTaskId;
   toolName: string;
   args: Record<string, unknown>;        // fs-persistable / 替代 callback closure
   parentClawDir: string;                // caller clawDir / ctx 重建用

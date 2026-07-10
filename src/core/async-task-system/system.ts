@@ -279,7 +279,7 @@ export class AsyncTaskSystem {
    * Schedule a new subagent task
    * Returns taskId immediately, task enters pending queue and will be dispatched
    */
-  async scheduleSubAgent(taskData: Omit<SubAgentTask, 'id' | 'createdAt'>): Promise<string> {
+  async scheduleSubAgent(taskData: Omit<SubAgentTask, 'id' | 'shortId' | 'createdAt'>): Promise<string> {
     return this.schedule('subagent', taskData);
   }
 
@@ -289,7 +289,7 @@ export class AsyncTaskSystem {
    */
   async schedule(
     taskKind: 'subagent',
-    payload: Omit<SubAgentTask, 'id' | 'createdAt'>,
+    payload: Omit<SubAgentTask, 'id' | 'shortId' | 'createdAt'>,
   ): Promise<string> {
     // Phase 849: dual-key task IDs. fullId for persistence, shortId for agents/CLI.
     let fullId: FullTaskId;
@@ -304,6 +304,7 @@ export class AsyncTaskSystem {
     const task = {
       ...payload,
       id: fullId,
+      shortId: shortId,
       createdAt: new Date().toISOString(),
     } as SubAgentTask;
 
@@ -667,19 +668,66 @@ export class AsyncTaskSystem {
   }
 
   /**
-   * Best-effort update legacy JSON `id` after migrating from 8-char filename to UUID filename.
+   * Best-effort migrate a task JSON after its file has been renamed to the UUID filename.
+   * Phase 867: persists both `id` (fullId) and `shortId`.
    */
   private async _migrateTaskJsonId(filePath: string, fullId: FullTaskId): Promise<void> {
     try {
       const raw = await this.fs.read(filePath);
       const task = JSON.parse(raw) as Record<string, unknown>;
+      const legacyShortId = task.shortId as string | undefined;
+      let changed = false;
       if (task.id && (task.id as string).length === 8) {
+        // Legacy: id is the 8-char shortId → preserve as shortId, set fullId
+        task.shortId = task.id;
         task.id = fullId;
+        changed = true;
+      } else if (!legacyShortId) {
+        // Pre-867 UUID task without explicit shortId → derive from fullId
+        task.shortId = this.shortIdIndex.deriveShortId(fullId);
+        changed = true;
+      }
+      if (changed) {
         await this.fs.writeAtomic(filePath, JSON.stringify(task));
       }
     } catch {
       // silent: best-effort migration — rebuildFromDisk handles inconsistency
     }
+  }
+
+  /**
+   * Find a legacy task file by scanning the directory and matching content to the fullId.
+   * Returns undefined if no matching file is found.
+   */
+  private async _findLegacyTaskFile(dir: string, fullId: FullTaskId): Promise<string | undefined> {
+    let entries: Awaited<ReturnType<FileSystem['list']>>;
+    try {
+      entries = await this.fs.list(dir, { includeDirs: false });
+    } catch {
+      return undefined;
+    }
+    for (const entry of entries) {
+      if (!entry.name.endsWith('.json')) continue;
+      const filePath = `${dir}/${entry.name}`;
+      try {
+        const raw = await this.fs.read(filePath);
+        const task = JSON.parse(raw) as Record<string, unknown>;
+        const storedId = task.id as string | undefined;
+        const storedShortId = task.shortId as string | undefined;
+        if (storedId === fullId) {
+          return filePath;
+        }
+        if (storedShortId && this.shortIdIndex.resolve(storedShortId) === fullId) {
+          return filePath;
+        }
+        if (storedId && storedId.length === 8 && this.shortIdIndex.resolve(storedId) === fullId) {
+          return filePath;
+        }
+      } catch {
+        // skip unreadable/corrupt files
+      }
+    }
+    return undefined;
   }
 
   /**
@@ -690,16 +738,26 @@ export class AsyncTaskSystem {
     if (!fullId) {
       throw new Error(`[INVARIANT VIOLATION] movePendingToRunning: cannot resolve ${taskId}`);
     }
-    const shortId = deriveShortIdFromTaskId(fullId);
+    const auditShortId = this.shortIdIndex.deriveShortId(fullId);
     const fromFull = `${TASKS_QUEUES_PENDING_DIR}/${fullId}.json`;
-    const fromLegacy = `${TASKS_QUEUES_PENDING_DIR}/${shortId}.json`;
     const to = `${TASKS_QUEUES_RUNNING_DIR}/${fullId}.json`;
-    const fromPath = await this.fs.exists(fromFull).then((exists) => exists ? fromFull : fromLegacy);
+
+    let fromPath: string;
+    if (await this.fs.exists(fromFull)) {
+      fromPath = fromFull;
+    } else {
+      const legacyPath = await this._findLegacyTaskFile(TASKS_QUEUES_PENDING_DIR, fullId);
+      if (!legacyPath) {
+        throw new Error(`Cannot find task file for ${fullId} in pending directory`);
+      }
+      fromPath = legacyPath;
+    }
+
     await this.fs.move(fromPath, to);
     if (fromPath !== fromFull) {
       await this._migrateTaskJsonId(to, fullId);
     }
-    emitTaskStarted(this.auditWriter, { fullTaskId: fullId, shortTaskId: shortId });
+    emitTaskStarted(this.auditWriter, { fullTaskId: fullId, shortTaskId: auditShortId });
   }
 
   /**
@@ -710,12 +768,20 @@ export class AsyncTaskSystem {
     if (!fullId) {
       throw new Error(`[INVARIANT VIOLATION] moveTaskToDone: cannot resolve ${taskId}`);
     }
-    const shortId = deriveShortIdFromTaskId(fullId);
+    const auditShortId = this.shortIdIndex.deriveShortId(fullId);
     try {
       const fromFull = `${TASKS_QUEUES_RUNNING_DIR}/${fullId}.json`;
-      const fromLegacy = `${TASKS_QUEUES_RUNNING_DIR}/${shortId}.json`;
       const to = `${TASKS_QUEUES_DONE_DIR}/${fullId}.json`;
-      const fromPath = await this.fs.exists(fromFull).then((exists) => exists ? fromFull : fromLegacy);
+      let fromPath: string;
+      if (await this.fs.exists(fromFull)) {
+        fromPath = fromFull;
+      } else {
+        const legacyPath = await this._findLegacyTaskFile(TASKS_QUEUES_RUNNING_DIR, fullId);
+        if (!legacyPath) {
+          throw new Error(`Cannot find task file for ${fullId} in running directory`);
+        }
+        fromPath = legacyPath;
+      }
       await this.fs.move(fromPath, to);
       if (fromPath !== fromFull) {
         await this._migrateTaskJsonId(to, fullId);
@@ -723,29 +789,35 @@ export class AsyncTaskSystem {
       this.auditWriter.write(
         TASK_AUDIT_EVENTS.TASK_MOVED,
         `fullTaskId=${fullId}`,
-        `shortTaskId=${shortId}`,
+        `shortTaskId=${auditShortId}`,
         `from=running`,
         `to=done`,
       );
     } catch (err) {
       emitMoveFailed(this.auditWriter, {
         fullTaskId: fullId,
-        shortTaskId: shortId,
+        shortTaskId: auditShortId,
         context: 'move_to_done',
         error: formatErr(err),
       });
       // 删除 running 文件防止重启后重复执行，丢失记录好过重复副作用
-      const deletePath = await this.fs.exists(`${TASKS_QUEUES_RUNNING_DIR}/${fullId}.json`).then((exists) =>
-        exists ? `${TASKS_QUEUES_RUNNING_DIR}/${fullId}.json` : `${TASKS_QUEUES_RUNNING_DIR}/${shortId}.json`
-      );
-      await this.fs.delete(deletePath).catch((e) => {
-        emitMoveFailed(this.auditWriter, {
-          fullTaskId: fullId,
-          shortTaskId: shortId,
-          context: 'move_done_delete',
-          error: formatErr(e),
+      const runningFullPath = `${TASKS_QUEUES_RUNNING_DIR}/${fullId}.json`;
+      let deletePath: string | undefined;
+      if (await this.fs.exists(runningFullPath)) {
+        deletePath = runningFullPath;
+      } else {
+        deletePath = await this._findLegacyTaskFile(TASKS_QUEUES_RUNNING_DIR, fullId);
+      }
+      if (deletePath) {
+        await this.fs.delete(deletePath).catch((e) => {
+          emitMoveFailed(this.auditWriter, {
+            fullTaskId: fullId,
+            shortTaskId: auditShortId,
+            context: 'move_done_delete',
+            error: formatErr(e),
+          });
         });
-      });
+      }
     }
   }
 
@@ -754,12 +826,20 @@ export class AsyncTaskSystem {
     if (!fullId) {
       throw new Error(`[INVARIANT VIOLATION] moveTaskToFailed: cannot resolve ${taskId}`);
     }
-    const shortId = deriveShortIdFromTaskId(fullId);
+    const auditShortId = this.shortIdIndex.deriveShortId(fullId);
     try {
       const fromFull = `${TASKS_QUEUES_RUNNING_DIR}/${fullId}.json`;
-      const fromLegacy = `${TASKS_QUEUES_RUNNING_DIR}/${shortId}.json`;
       const to = `${TASKS_QUEUES_FAILED_DIR}/${fullId}.json`;
-      const fromPath = await this.fs.exists(fromFull).then((exists) => exists ? fromFull : fromLegacy);
+      let fromPath: string;
+      if (await this.fs.exists(fromFull)) {
+        fromPath = fromFull;
+      } else {
+        const legacyPath = await this._findLegacyTaskFile(TASKS_QUEUES_RUNNING_DIR, fullId);
+        if (!legacyPath) {
+          throw new Error(`Cannot find task file for ${fullId} in running directory`);
+        }
+        fromPath = legacyPath;
+      }
       await this.fs.move(fromPath, to);
       if (fromPath !== fromFull) {
         await this._migrateTaskJsonId(to, fullId);
@@ -767,28 +847,34 @@ export class AsyncTaskSystem {
       this.auditWriter.write(
         TASK_AUDIT_EVENTS.TASK_MOVED,
         `fullTaskId=${fullId}`,
-        `shortTaskId=${shortId}`,
+        `shortTaskId=${auditShortId}`,
         `from=running`,
         `to=failed`,
       );
     } catch (err) {
       emitMoveFailed(this.auditWriter, {
         fullTaskId: fullId,
-        shortTaskId: shortId,
+        shortTaskId: auditShortId,
         context: 'move_to_failed',
         error: formatErr(err),
       });
-      const deletePath = await this.fs.exists(`${TASKS_QUEUES_RUNNING_DIR}/${fullId}.json`).then((exists) =>
-        exists ? `${TASKS_QUEUES_RUNNING_DIR}/${fullId}.json` : `${TASKS_QUEUES_RUNNING_DIR}/${shortId}.json`
-      );
-      await this.fs.delete(deletePath).catch((e) => {
-        emitMoveFailed(this.auditWriter, {
-          fullTaskId: fullId,
-          shortTaskId: shortId,
-          context: 'move_failed_delete',
-          error: formatErr(e),
+      const runningFullPath = `${TASKS_QUEUES_RUNNING_DIR}/${fullId}.json`;
+      let deletePath: string | undefined;
+      if (await this.fs.exists(runningFullPath)) {
+        deletePath = runningFullPath;
+      } else {
+        deletePath = await this._findLegacyTaskFile(TASKS_QUEUES_RUNNING_DIR, fullId);
+      }
+      if (deletePath) {
+        await this.fs.delete(deletePath).catch((e) => {
+          emitMoveFailed(this.auditWriter, {
+            fullTaskId: fullId,
+            shortTaskId: auditShortId,
+            context: 'move_failed_delete',
+            error: formatErr(e),
+          });
         });
-      });
+      }
     }
   }
 

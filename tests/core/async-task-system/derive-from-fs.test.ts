@@ -25,6 +25,7 @@ function makeTaskJson(id: string): string {
     kind: 'subagent',
     mode: 'standard',
     id,
+    shortId: id,
     intent: 'test',
     timeoutMs: SUBAGENT_SHORT_TIMEOUT_MS,
     maxSteps: 1,
