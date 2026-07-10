@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
-import { InMemoryShortIdIndex } from '../../../src/core/async-task-system/short-id-index.js';
+import { InMemoryShortIdIndex, PersistentShortIdIndex } from '../../../src/core/async-task-system/short-id-index.js';
 import { makeTaskSystemDeps } from '../../helpers/task-system.js';
 import { TASKS_QUEUES_PENDING_DIR, TASKS_QUEUES_RUNNING_DIR, TASKS_QUEUES_DONE_DIR, TASKS_QUEUES_FAILED_DIR } from '../../../src/core/async-task-system/dirs.js';
 import { makeFullTaskId, makeShortTaskId } from '../../../src/core/async-task-system/types.js';
@@ -41,6 +41,34 @@ function legacyToolTask(id: string): Record<string, unknown> {
     isIdempotent: false,
     maxRetries: 2,
     retryCount: 0,
+  };
+}
+
+function malformedTask(): Record<string, unknown> {
+  // 缺少 id 字段，会进入 malformed 分支
+  return {
+    kind: 'tool',
+    toolName: 'exec',
+    args: { command: 'echo hello' },
+    parentClawDir: '/tmp',
+    parentClawId: 'parent',
+    createdAt: new Date().toISOString(),
+    isIdempotent: false,
+    maxRetries: 2,
+    retryCount: 0,
+  };
+}
+
+function captureAudit(): { writer: AuditLog; events: Array<{ type: string; cols: (string | number)[] }> } {
+  const events: Array<{ type: string; cols: (string | number)[] }> = [];
+  return {
+    events,
+    writer: {
+      write: (type, ...cols) => events.push({ type, cols }),
+      preview: (s: string) => s,
+      message: (s: string) => s,
+      summary: (s: string) => s,
+    },
   };
 }
 
@@ -148,13 +176,7 @@ describe('Phase 868 legacy task file migration', () => {
       shortId: legacyId,
     }));
 
-    const events: Array<{ type: string; cols: (string | number)[] }> = [];
-    const auditWriter: AuditLog = {
-      write: (type, ...cols) => events.push({ type, cols }),
-      preview: (s: string) => s,
-      message: (s: string) => s,
-      summary: (s: string) => s,
-    };
+    const { events, writer: auditWriter } = captureAudit();
 
     const system = new AsyncTaskSystem(clawDir, new NodeFileSystem({ baseDir: clawDir }), {
       auditWriter,
@@ -166,5 +188,102 @@ describe('Phase 868 legacy task file migration', () => {
 
     const collisionEvent = events.find(e => e.type === TASK_AUDIT_EVENTS.SHORT_ID_COLLISION);
     expect(collisionEvent).toBeDefined();
+  });
+
+  it('blocks init when active task file is malformed', async () => {
+    const badPath = path.join(clawDir, TASKS_QUEUES_PENDING_DIR, 'bad.json');
+    fs.writeFileSync(badPath, JSON.stringify(malformedTask()));
+
+    const { events, writer: auditWriter } = captureAudit();
+
+    const system = new AsyncTaskSystem(clawDir, new NodeFileSystem({ baseDir: clawDir }), {
+      auditWriter,
+      shortIdIndex: new InMemoryShortIdIndex(),
+      ...makeTaskSystemDeps(),
+    });
+
+    await expect(system.initialize()).rejects.toThrow(/malformed/i);
+
+    const malformedEvent = events.find(e =>
+      e.type === TASK_AUDIT_EVENTS.SHORT_ID_INDEX_LOAD_FAILED &&
+      e.cols.some(c => String(c).includes('migrate_malformed')),
+    );
+    expect(malformedEvent).toBeDefined();
+  });
+
+  it('audits and skips terminal task file that is malformed', async () => {
+    const badPath = path.join(clawDir, TASKS_QUEUES_DONE_DIR, 'bad.json');
+    fs.writeFileSync(badPath, JSON.stringify(malformedTask()));
+
+    const { events, writer: auditWriter } = captureAudit();
+
+    const system = new AsyncTaskSystem(clawDir, new NodeFileSystem({ baseDir: clawDir }), {
+      auditWriter,
+      shortIdIndex: new InMemoryShortIdIndex(),
+      ...makeTaskSystemDeps(),
+    });
+
+    await system.initialize();
+
+    const malformedEvent = events.find(e =>
+      e.type === TASK_AUDIT_EVENTS.SHORT_ID_INDEX_LOAD_FAILED &&
+      e.cols.some(c => String(c).includes('migrate_malformed')),
+    );
+    expect(malformedEvent).toBeDefined();
+  });
+
+  it('emits only one SHORT_ID_COLLISION audit per terminal migration collision', async () => {
+    const legacyId = 'abcdef12';
+    const fullId = '550e8400-e29b-41d4-a716-446655440000';
+
+    const shortIdIndex = new InMemoryShortIdIndex();
+    shortIdIndex.add(makeShortTaskId(legacyId), makeFullTaskId('660e8400-e29b-41d4-a716-446655440000'));
+
+    fs.writeFileSync(path.join(clawDir, TASKS_QUEUES_DONE_DIR, `${fullId}.json`), JSON.stringify({
+      ...legacyToolTask(fullId),
+      shortId: legacyId,
+    }));
+
+    const { events, writer: auditWriter } = captureAudit();
+
+    const system = new AsyncTaskSystem(clawDir, new NodeFileSystem({ baseDir: clawDir }), {
+      auditWriter,
+      shortIdIndex,
+      ...makeTaskSystemDeps(),
+    });
+
+    await system.initialize();
+
+    const collisionEvents = events.filter(e => e.type === TASK_AUDIT_EVENTS.SHORT_ID_COLLISION);
+    expect(collisionEvents).toHaveLength(1);
+  });
+
+  it('SHORT_ID_COLLISION audit from migration includes context', async () => {
+    const legacyId = 'abcdef12';
+    const fullId = '550e8400-e29b-41d4-a716-446655440000';
+
+    const nodeFs = new NodeFileSystem({ baseDir: clawDir });
+    const shortIdIndex = new PersistentShortIdIndex(nodeFs);
+    shortIdIndex.add(makeShortTaskId(legacyId), makeFullTaskId('660e8400-e29b-41d4-a716-446655440000'));
+    shortIdIndex.save();
+
+    fs.writeFileSync(path.join(clawDir, TASKS_QUEUES_DONE_DIR, `${fullId}.json`), JSON.stringify({
+      ...legacyToolTask(fullId),
+      shortId: legacyId,
+    }));
+
+    const { events, writer: auditWriter } = captureAudit();
+
+    const system = new AsyncTaskSystem(clawDir, nodeFs, {
+      auditWriter,
+      shortIdIndex,
+      ...makeTaskSystemDeps(),
+    });
+
+    await system.initialize();
+
+    const collisionEvent = events.find(e => e.type === TASK_AUDIT_EVENTS.SHORT_ID_COLLISION);
+    expect(collisionEvent).toBeDefined();
+    expect(collisionEvent!.cols.some(c => String(c) === 'context=migrateLegacyTaskFiles')).toBe(true);
   });
 });

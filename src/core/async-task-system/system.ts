@@ -290,13 +290,9 @@ export class AsyncTaskSystem {
             fullId = makeFullTaskId(storedId);
             shortId = makeShortTaskId(storedShortId);
             try {
-              this.shortIdIndex.add(shortId, fullId, this.shortIdIndexAuditWriter);
+              this.shortIdIndex.add(shortId, fullId, this.shortIdIndexAuditWriter, 'migrateLegacyTaskFiles');
             } catch {
-              this.shortIdIndexAuditWriter.write(TASK_AUDIT_EVENTS.SHORT_ID_COLLISION, {
-                shortId,
-                fullId,
-                context: 'migrateLegacyTaskFiles',
-              });
+              // add() already emitted SHORT_ID_COLLISION with context — don't duplicate
               const isActive = dir === TASKS_QUEUES_PENDING_DIR || dir === TASKS_QUEUES_RUNNING_DIR;
               if (isActive) {
                 throw new Error(`ShortId collision in ${dir}: ${shortId}`);
@@ -323,10 +319,23 @@ export class AsyncTaskSystem {
               fullId = resolvedFullId;
             } else {
               fullId = makeFullTaskId(newUuid());
-              this.shortIdIndex.add(shortId, fullId, this.shortIdIndexAuditWriter);
+              this.shortIdIndex.add(shortId, fullId, this.shortIdIndexAuditWriter, 'migrateLegacyTaskFiles');
             }
           } else {
-            continue; // malformed — skip, recovery handles
+            this.shortIdIndexAuditWriter.write(TASK_AUDIT_EVENTS.SHORT_ID_INDEX_LOAD_FAILED, {
+              path: oldPath,
+              storedId: String(storedId),
+              error: `malformed task file: id is missing or has illegal length (${storedId ? storedId.length : 'undefined'})`,
+              context: 'migrate_malformed',
+            });
+            const isActive = dir === TASKS_QUEUES_PENDING_DIR || dir === TASKS_QUEUES_RUNNING_DIR;
+            if (isActive) {
+              const err = new Error(`Malformed task file in ${dir}: id is missing or has illegal length (${storedId ? storedId.length : 'undefined'})`);
+              (err as { isMalformed?: boolean }).isMalformed = true;
+              throw err;
+            }
+            // terminal (done/failed) — audit + skip
+            continue;
           }
 
           // Rewrite JSON with both fields
@@ -340,6 +349,9 @@ export class AsyncTaskSystem {
             await this.fs.move(oldPath, newPath);
           }
         } catch (e) {
+          if ((e as { isMalformed?: boolean }).isMalformed) {
+            throw e; // already audited above
+          }
           const isActive = dir === TASKS_QUEUES_PENDING_DIR || dir === TASKS_QUEUES_RUNNING_DIR;
           const context = isActive ? 'active' : 'terminal';
           this.shortIdIndexAuditWriter.write(TASK_AUDIT_EVENTS.SHORT_ID_INDEX_LOAD_FAILED, {
