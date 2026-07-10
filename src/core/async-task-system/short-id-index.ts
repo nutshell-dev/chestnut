@@ -52,6 +52,12 @@ export class InMemoryShortIdIndex implements ShortIdIndex {
   }
   delete(shortId: ShortTaskId): void { this.map.delete(shortId); }
   resolve(shortId: string): FullTaskId | undefined { return this.map.get(shortId); }
+  reverseResolve(fullId: FullTaskId): ShortTaskId | undefined {
+    for (const [shortId, mappedFullId] of this.map.entries()) {
+      if (mappedFullId === fullId) return makeShortTaskId(shortId);
+    }
+    return undefined;
+  }
   deriveShortId(fullId: FullTaskId): ShortTaskId { return makeShortTaskId(fullId.slice(0, 8)); }
   rebuildFromDisk(_fs: unknown, _auditWriter?: ShortIdIndexAuditWriter): void { /* no-op */ }
 }
@@ -133,6 +139,13 @@ export class PersistentShortIdIndex implements ShortIdIndex {
   resolve(shortId: string): FullTaskId | undefined {
     const full = this.map[shortId];
     return full ? makeFullTaskId(full) : undefined;
+  }
+
+  reverseResolve(fullId: FullTaskId): ShortTaskId | undefined {
+    for (const [shortId, mappedFullId] of Object.entries(this.map)) {
+      if (mappedFullId === fullId) return makeShortTaskId(shortId);
+    }
+    return undefined;
   }
 
   /** Derive shortId from fullId (first 8 chars). */

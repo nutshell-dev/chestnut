@@ -289,8 +289,19 @@ export class AsyncTaskSystem {
             // Already Phase 867+ format — just register index, skip rewrite
             fullId = makeFullTaskId(storedId);
             shortId = makeShortTaskId(storedShortId);
-            if (!this.shortIdIndex.has(shortId)) {
-              this.shortIdIndex.add(shortId, fullId);
+            try {
+              this.shortIdIndex.add(shortId, fullId, this.shortIdIndexAuditWriter);
+            } catch {
+              this.shortIdIndexAuditWriter.write(TASK_AUDIT_EVENTS.SHORT_ID_COLLISION, {
+                shortId,
+                fullId,
+                context: 'migrateLegacyTaskFiles',
+              });
+              const isActive = dir === TASKS_QUEUES_PENDING_DIR || dir === TASKS_QUEUES_RUNNING_DIR;
+              if (isActive) {
+                throw new Error(`ShortId collision in ${dir}: ${shortId}`);
+              }
+              continue;
             }
             if (nameId.length !== 36) {
               // Rename to UUID filename
@@ -307,11 +318,12 @@ export class AsyncTaskSystem {
           } else if (storedId && storedId.length === 8) {
             // Legacy 8-char — preserve as shortId, generate fullId
             shortId = makeShortTaskId(storedId);
-            if (this.shortIdIndex.has(shortId)) {
-              fullId = this.shortIdIndex.resolve(shortId)!;
+            const resolvedFullId = this.shortIdIndex.resolve(shortId);
+            if (resolvedFullId) {
+              fullId = resolvedFullId;
             } else {
               fullId = makeFullTaskId(newUuid());
-              this.shortIdIndex.add(shortId, fullId);
+              this.shortIdIndex.add(shortId, fullId, this.shortIdIndexAuditWriter);
             }
           } else {
             continue; // malformed — skip, recovery handles
@@ -327,8 +339,16 @@ export class AsyncTaskSystem {
           if (oldPath !== newPath) {
             await this.fs.move(oldPath, newPath);
           }
-        } catch {
-          // silent: corrupted file — skip, recovery handles
+        } catch (e) {
+          const isActive = dir === TASKS_QUEUES_PENDING_DIR || dir === TASKS_QUEUES_RUNNING_DIR;
+          const context = isActive ? 'active' : 'terminal';
+          this.shortIdIndexAuditWriter.write(TASK_AUDIT_EVENTS.SHORT_ID_INDEX_LOAD_FAILED, {
+            path: oldPath,
+            error: String(e),
+            context: `migrate_${context}`,
+          });
+          if (isActive) throw e; // can't proceed with corrupted active task
+          // terminal → skip
         }
       }
     }
@@ -820,7 +840,7 @@ export class AsyncTaskSystem {
     if (!fullId) {
       throw new Error(`[INVARIANT VIOLATION] movePendingToRunning: cannot resolve ${taskId}`);
     }
-    const auditShortId = this.shortIdIndex.deriveShortId(fullId);
+    const auditShortId = this.shortIdIndex.reverseResolve(fullId) ?? this.shortIdIndex.deriveShortId(fullId);
     const fromFull = `${TASKS_QUEUES_PENDING_DIR}/${fullId}.json`;
     const to = `${TASKS_QUEUES_RUNNING_DIR}/${fullId}.json`;
 
@@ -850,7 +870,7 @@ export class AsyncTaskSystem {
     if (!fullId) {
       throw new Error(`[INVARIANT VIOLATION] moveTaskToDone: cannot resolve ${taskId}`);
     }
-    const auditShortId = this.shortIdIndex.deriveShortId(fullId);
+    const auditShortId = this.shortIdIndex.reverseResolve(fullId) ?? this.shortIdIndex.deriveShortId(fullId);
     try {
       const fromFull = `${TASKS_QUEUES_RUNNING_DIR}/${fullId}.json`;
       const to = `${TASKS_QUEUES_DONE_DIR}/${fullId}.json`;
@@ -908,7 +928,7 @@ export class AsyncTaskSystem {
     if (!fullId) {
       throw new Error(`[INVARIANT VIOLATION] moveTaskToFailed: cannot resolve ${taskId}`);
     }
-    const auditShortId = this.shortIdIndex.deriveShortId(fullId);
+    const auditShortId = this.shortIdIndex.reverseResolve(fullId) ?? this.shortIdIndex.deriveShortId(fullId);
     try {
       const fromFull = `${TASKS_QUEUES_RUNNING_DIR}/${fullId}.json`;
       const to = `${TASKS_QUEUES_FAILED_DIR}/${fullId}.json`;
