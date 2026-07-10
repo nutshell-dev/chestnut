@@ -11,16 +11,18 @@ import type {
 import {
   LLMError,
   LLMNetworkError,
+  LLMContextExceededError,
 } from './errors.js';
-import { throwHttpErrorResponse } from './_helpers.js';
+import { throwHttpErrorResponse, parseOutputBudgetError } from './_helpers.js';
 import { isAbortError } from './is-abort-error.js';
 import type {
   ProviderConfig,
   LLMCallOptions,
   StreamChunk,
 } from './types.js';
-import { THINKING_TOKEN_RESERVE, STREAM_MAX_DURATION_MS, STREAM_IDLE_MAX_MS } from './constants.js';
+import { THINKING_TOKEN_RESERVE, STREAM_MAX_DURATION_MS, STREAM_IDLE_MAX_MS, MIN_USABLE_OUTPUT_TOKENS } from './constants.js';
 import { BaseAnthropicAdapter, type AnthropicRequestBody } from './base-anthropic.js';
+import { LLM_PROVIDER_AUDIT_EVENTS } from './audit-events.js';
 import { withCombinedAbortSignal, classifyFetchAbortError } from './abort-helper.js';
 import { parseAnthropicSSEStream } from './custom-anthropic-sse-parser.js';
 import { parseAnthropicResponse, type AnthropicResponse } from './custom-anthropic-response-parser.js';
@@ -90,7 +92,46 @@ export class CustomAnthropicAdapter extends BaseAnthropicAdapter {
       });
 
       if (!response.ok) {
-        await throwHttpErrorResponse(this.name, this.model, response);
+        const errorText = await response.text().catch(() => '');
+        const parsed = parseOutputBudgetError(errorText);
+        if (parsed) {
+          const adjusted = parsed.contextLimit - parsed.inputTokens;
+          const auditPayload = [
+            `provider=${this.providerName}`,
+            `model=${this.model}`,
+            `original_max_tokens=${body.max_tokens}`,
+            `adjusted_max_tokens=${adjusted}`,
+            `context_limit=${parsed.contextLimit}`,
+            `input_tokens=${parsed.inputTokens}`,
+          ];
+          if (adjusted >= MIN_USABLE_OUTPUT_TOKENS) {
+            this.auditLog?.write(LLM_PROVIDER_AUDIT_EVENTS.OUTPUT_BUDGET_ADJUSTED, ...auditPayload);
+            const retryBody = this.buildRequestBody({ ...options, maxTokens: adjusted });
+            const retryResponse = await fetch(`${this.baseUrl}/v1/messages`, {
+              method: 'POST',
+              headers: this.authHeaders,
+              body: JSON.stringify(retryBody),
+              signal: abortHandle.signal,
+            });
+            if (retryResponse.ok) {
+              const data = await retryResponse.json() as AnthropicResponse;
+              return parseAnthropicResponse(data);
+            }
+            await throwHttpErrorResponse(this.name, this.model, retryResponse);
+          } else {
+            this.auditLog?.write(
+              LLM_PROVIDER_AUDIT_EVENTS.OUTPUT_BUDGET_ADJUSTED,
+              ...auditPayload,
+              `reason=below_min_usable_output`,
+            );
+            throw new LLMContextExceededError(
+              this.name,
+              400,
+              `Output budget insufficient after adjustment: ${adjusted} tokens available, need at least ${MIN_USABLE_OUTPUT_TOKENS}`,
+            );
+          }
+        }
+        await throwHttpErrorResponse(this.name, this.model, response, errorText);
       }
 
       const data = await response.json() as AnthropicResponse;

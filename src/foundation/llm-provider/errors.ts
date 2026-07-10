@@ -20,6 +20,7 @@ export type LLMErrorCode =
   | 'LLM_EMPTY_RESPONSE'
   | 'LLM_MODEL_NOT_FOUND'
   | 'LLM_CONTEXT_EXCEEDED'
+  | 'LLM_OUTPUT_BUDGET_EXCEEDED'
   | 'LLM_CIRCUIT_BREAKER_OPEN'
   | 'LLM_STREAM_ABORTED';
 
@@ -126,6 +127,31 @@ export class LLMContextExceededError extends LLMError {
     this.provider = provider;
     this.status = status;
     this.providerMessage = providerMessage;
+  }
+}
+
+export class LLMOutputBudgetExceededError extends LLMError {
+  readonly code: LLMErrorCode = 'LLM_OUTPUT_BUDGET_EXCEEDED';
+  readonly provider: string;
+  readonly contextLimit: number;
+  readonly inputTokens: number;
+  readonly requestedMaxTokens: number;
+
+  constructor(
+    provider: string,
+    contextLimit: number,
+    inputTokens: number,
+    requestedMaxTokens: number,
+    message: string,
+  ) {
+    super(
+      message,
+      { provider, contextLimit, inputTokens, requestedMaxTokens },
+    );
+    this.provider = provider;
+    this.contextLimit = contextLimit;
+    this.inputTokens = inputTokens;
+    this.requestedMaxTokens = requestedMaxTokens;
   }
 }
 

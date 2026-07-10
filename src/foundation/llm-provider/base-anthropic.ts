@@ -10,7 +10,6 @@ import type { LLMResponse } from './types.js';
 import { assertContentBlocks } from './_block-guards.js';
 import { LLM_PROVIDER_AUDIT_EVENTS } from './audit-events.js';
 import { sanitizeForLLMCall } from './sanitize.js';
-import { resolveContextWindow } from './model-context-windows.js';
 
 // phase 194: Anthropic format 路径专用 model→max_tokens 查表 fallback
 // 用户未在 config 显式设 max_tokens 时由 adapter 自决（API 必填、必须给值）
@@ -31,14 +30,6 @@ function resolveAnthropicMaxTokens(model: string): number {
     if (entry.pattern.test(model)) return entry.maxTokens;
   }
   return ANTHROPIC_FALLBACK_MAX_TOKENS;
-}
-
-/** input token 估算安全边际（覆盖 token count 估算误差 + thinking budget 等 overhead） */
-const DYNAMIC_MAX_TOKENS_MARGIN = 10_000;
-
-/** 根据消息内容保守估算 token 数：字符数 / 2（英文 ~4 char/token，中文 ~1-2 char/token，取保守 2.0） */
-function estimateInputTokens(messages: unknown[]): number {
-  return Math.ceil(JSON.stringify(messages).length / 2.0);
 }
 
 export interface AnthropicRequestBody {
@@ -76,19 +67,13 @@ export abstract class BaseAnthropicAdapter implements ProviderAdapter {
     const { messages, system, tools, maxTokens, temperature } = options;
     const sanitized = sanitizeForLLMCall(messages);
     const model = options.model ?? this.config.model;
-    const resolvedMaxTokens = maxTokens
-      ?? this.config.maxTokens
-      ?? resolveAnthropicMaxTokens(model);
-
-    const contextWindow = resolveContextWindow(model);
-    const estimatedInput = estimateInputTokens(sanitized);
-    const maxAvailable = contextWindow - estimatedInput - DYNAMIC_MAX_TOKENS_MARGIN;
-    const dynamicMaxTokens = Math.max(1, Math.min(resolvedMaxTokens, maxAvailable));
 
     const body: AnthropicRequestBody = {
       model,
       messages: this.formatMessages(sanitized),
-      max_tokens: dynamicMaxTokens,
+      max_tokens: maxTokens
+        ?? this.config.maxTokens
+        ?? resolveAnthropicMaxTokens(model),
     };
 
     if (system !== undefined) {
