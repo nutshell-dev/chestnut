@@ -62,6 +62,21 @@ export class CustomAnthropicAdapter extends BaseAnthropicAdapter {
   }
 
   /**
+   * Ensure adjusted output budget can still accommodate the configured thinking budget.
+   */
+  private assertThinkingBudgetFits(adjusted: number): void {
+    const configuredThinkingBudget = this.config.thinkingBudgetTokens;
+    if (configuredThinkingBudget !== undefined && adjusted < configuredThinkingBudget) {
+      throw new LLMContextExceededError(
+        this.name,
+        400,
+        `Output budget adjusted to ${adjusted} tokens, but configured thinking budget is ${configuredThinkingBudget}. ` +
+          `Reduce thinking budget or trim input context.`,
+      );
+    }
+  }
+
+  /**
    * Auth headers for custom providers (Bearer token)
    */
   private get authHeaders(): Record<string, string> {
@@ -104,6 +119,7 @@ export class CustomAnthropicAdapter extends BaseAnthropicAdapter {
             `context_limit=${parsed.contextLimit}`,
             `input_tokens=${parsed.inputTokens}`,
           ];
+          this.assertThinkingBudgetFits(adjusted);
           if (adjusted > 0) {
             this.auditLog?.write(LLM_PROVIDER_AUDIT_EVENTS.OUTPUT_BUDGET_ADJUSTED, ...auditPayload);
             const retryBody = this.buildRequestBody({ ...options, maxTokens: adjusted });
@@ -188,6 +204,7 @@ export class CustomAnthropicAdapter extends BaseAnthropicAdapter {
             `context_limit=${parsed.contextLimit}`,
             `input_tokens=${parsed.inputTokens}`,
           ];
+          this.assertThinkingBudgetFits(adjusted);
           if (adjusted > 0) {
             this.auditLog?.write(LLM_PROVIDER_AUDIT_EVENTS.OUTPUT_BUDGET_ADJUSTED, ...auditPayload);
             const retryBody = this.buildRequestBody({ ...options, maxTokens: adjusted });
