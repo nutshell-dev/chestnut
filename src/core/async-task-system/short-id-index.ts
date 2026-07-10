@@ -118,12 +118,13 @@ export class PersistentShortIdIndex implements ShortIdIndex {
     return shortId in this.map;
   }
 
-  add(shortId: ShortTaskId, fullId: FullTaskId, auditWriter?: ShortIdIndexAuditWriter): void {
+  add(shortId: ShortTaskId, fullId: FullTaskId, auditWriter?: ShortIdIndexAuditWriter, context?: string): void {
     if (shortId in this.map && this.map[shortId] !== fullId) {
       auditWriter?.write(TASK_AUDIT_EVENTS.SHORT_ID_COLLISION, {
         shortId,
         existingFullId: this.map[shortId],
         conflictingFullId: fullId,
+        context: context ?? 'add',
       });
       throw new Error(`ShortId collision: "${shortId}" already maps to "${this.map[shortId]}", cannot add "${fullId}"`);
     }
