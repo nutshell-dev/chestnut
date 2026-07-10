@@ -175,9 +175,16 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
   /**
    * Ensure adjusted output budget can still accommodate the effective thinking budget.
    */
-  private assertThinkingBudgetFits(adjusted: number): void {
+  private assertThinkingBudgetFits(adjusted: number, auditPayload: string[]): void {
     const effectiveBudget = this.getEffectiveThinkingBudget(adjusted);
-    if (effectiveBudget !== undefined && adjusted <= effectiveBudget) {
+    const conflict = effectiveBudget !== undefined && adjusted <= effectiveBudget;
+    this.auditLog?.write(
+      LLM_PROVIDER_AUDIT_EVENTS.OUTPUT_BUDGET_ADJUSTED,
+      ...auditPayload,
+      ...(effectiveBudget !== undefined ? [`effective_thinking_budget=${effectiveBudget}`] : []),
+      ...(conflict ? [`reason=thinking_budget_conflict`, `retry=false`] : []),
+    );
+    if (conflict) {
       throw new LLMContextExceededError(
         this.name,
         400,
@@ -204,8 +211,7 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
     ];
 
     if (adjusted > 0) {
-      this.auditLog?.write(LLM_PROVIDER_AUDIT_EVENTS.OUTPUT_BUDGET_ADJUSTED, ...auditPayload);
-      this.assertThinkingBudgetFits(adjusted);
+      this.assertThinkingBudgetFits(adjusted, auditPayload);
       const retryBody = this.buildRequestBody({ ...options, maxTokens: adjusted });
       const response = await this.client.messages.create(
         retryBody as Anthropic.MessageCreateParamsNonStreaming,
@@ -219,7 +225,6 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
       ...auditPayload,
       `reason=nonpositive_adjusted`,
     );
-    this.assertThinkingBudgetFits(adjusted);
     throw new LLMContextExceededError(
       this.name,
       400,
@@ -256,8 +261,7 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
           `input_tokens=${mapped.inputTokens}`,
         ];
         if (adjusted > 0) {
-          this.auditLog?.write(LLM_PROVIDER_AUDIT_EVENTS.OUTPUT_BUDGET_ADJUSTED, ...auditPayload);
-          this.assertThinkingBudgetFits(adjusted);
+          this.assertThinkingBudgetFits(adjusted, auditPayload);
           const retryBody = this.buildRequestBody({ ...options, maxTokens: adjusted });
           const sdkStream = this.client.messages.stream(
             retryBody as Anthropic.MessageStreamParams,
@@ -271,7 +275,6 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
           ...auditPayload,
           `reason=nonpositive_adjusted`,
         );
-        this.assertThinkingBudgetFits(adjusted);
         throw new LLMContextExceededError(
           this.name,
           400,
