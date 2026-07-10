@@ -192,4 +192,70 @@ describe('PersistentShortIdIndex', () => {
     expect(resolved!.length).toBe(36); // fullId 是 UUID
     expect(index.deriveShortId(resolved!)).not.toBe('abcdef12'); // fullId 前 8 位 ≠ 原 shortId
   });
+
+  it('rebuildFromDisk is idempotent across two runs', () => {
+    const runningDir = path.join(tmpDir, 'tasks', 'queues', 'running');
+    fs.mkdirSync(runningDir, { recursive: true });
+    // Legacy task: 8-char filename + 8-char content id
+    fs.writeFileSync(path.join(runningDir, 'abcdef12.json'), JSON.stringify({
+      kind: 'tool', id: 'abcdef12', toolName: 'exec',
+      args: { command: 'echo hi' },
+      parentClawDir: '/t', parentClawId: 'p',
+      createdAt: new Date().toISOString(),
+      isIdempotent: false, maxRetries: 2, retryCount: 0,
+    }));
+
+    const makeFs = () => ({
+      existsSync: (p: string) => fs.existsSync(path.join(tmpDir, p)),
+      listSync: (p: string, opts?: { includeDirs?: boolean }) =>
+        fs.readdirSync(path.join(tmpDir, p), { withFileTypes: true })
+          .filter(d => !opts?.includeDirs || !d.isDirectory()).map(d => ({ name: d.name })),
+      readSync: (p: string) => fs.readFileSync(path.join(tmpDir, p), 'utf-8'),
+    });
+
+    // First rebuild
+    const index1 = new PersistentShortIdIndex(fsFactory(tmpDir));
+    index1.rebuildFromDisk(makeFs());
+    const fullId1 = index1.resolve('abcdef12');
+
+    // Simulate migration move (e.g. movePendingToRunning) renaming file to UUID filename
+    fs.renameSync(path.join(runningDir, 'abcdef12.json'), path.join(runningDir, `${fullId1}.json`));
+
+    // Second rebuild — must return the same mapping
+    const index2 = new PersistentShortIdIndex(fsFactory(tmpDir));
+    index2.rebuildFromDisk(makeFs());
+    const fullId2 = index2.resolve('abcdef12');
+
+    expect(fullId1).toBeDefined();
+    expect(fullId2).toBe(fullId1);
+  });
+
+  it('rebuildFromDisk handles migrated file (UUID filename + 8-char content)', () => {
+    const runningDir = path.join(tmpDir, 'tasks', 'queues', 'running');
+    fs.mkdirSync(runningDir, { recursive: true });
+    const fullId = '550e8400-e29b-41d4-a716-446655440000';
+    // Simulates post-migration state: UUID filename, but content id still 8-char
+    fs.writeFileSync(path.join(runningDir, `${fullId}.json`), JSON.stringify({
+      kind: 'tool', id: 'abcdef12', toolName: 'exec',
+      args: { command: 'echo hi' },
+      parentClawDir: '/t', parentClawId: 'p',
+      createdAt: new Date().toISOString(),
+      isIdempotent: false, maxRetries: 2, retryCount: 0,
+    }));
+
+    const makeFs = () => ({
+      existsSync: (p: string) => fs.existsSync(path.join(tmpDir, p)),
+      listSync: (p: string, opts?: { includeDirs?: boolean }) =>
+        fs.readdirSync(path.join(tmpDir, p), { withFileTypes: true })
+          .filter(d => !opts?.includeDirs || !d.isDirectory()).map(d => ({ name: d.name })),
+      readSync: (p: string) => fs.readFileSync(path.join(tmpDir, p), 'utf-8'),
+    });
+
+    const index = new PersistentShortIdIndex(fsFactory(tmpDir));
+    index.rebuildFromDisk(makeFs());
+
+    // shortId should be from content (abcdef12), fullId from filename
+    expect(index.has('abcdef12')).toBe(true);
+    expect(index.resolve('abcdef12')).toBe(makeFullTaskId(fullId));
+  });
 });
