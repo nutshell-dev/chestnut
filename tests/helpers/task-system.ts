@@ -105,7 +105,7 @@ export function createMockTaskSystem(fs: FileSystem, auditWriter?: AuditLog): As
   return {
     schedule: async (_kind: 'subagent', payload: Record<string, unknown>) => {
       const taskId = randomUUID();
-      const task = { ...payload, id: taskId, createdAt: new Date().toISOString() };
+      const task = { ...payload, id: taskId, shortId: taskId.slice(0, 8), createdAt: new Date().toISOString() };
       await fs.writeAtomic(`${TASKS_QUEUES_PENDING_DIR}/${taskId}.json`, JSON.stringify(task, null, 2));
       if (auditWriter) {
         auditWriter.write('task_scheduled', `taskId=${taskId}`, `kind=subagent`);

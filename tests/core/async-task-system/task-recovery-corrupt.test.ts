@@ -27,6 +27,7 @@ function makeValidTask(kind: 'subagent' | 'tool' = 'subagent') {
   const base = {
     kind,
     id: 'task-1',
+    shortId: 'task1',
     parentClawId: 'parent',
     createdAt: new Date().toISOString(),
   };

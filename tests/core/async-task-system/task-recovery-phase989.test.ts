@@ -29,6 +29,7 @@ function makeValidTask(kind: 'subagent' | 'tool' = 'subagent') {
     kind,
     mode: 'standard' as const,
     id: 'task-1',
+    shortId: 'task1',
     intent: 'test',
     timeoutMs: SUBAGENT_SHORT_TIMEOUT_MS,
     maxSteps: 1,
