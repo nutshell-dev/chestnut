@@ -44,6 +44,26 @@ describe('InMemoryShortIdIndex', () => {
     expect(index.resolve(shortId)).toBe(makeFullTaskId('550e8400-e29b-41d4-a716-446655440000'));
   });
 
+  it('reverseResolve finds canonical shortId for legacy mapping', () => {
+    const index = new InMemoryShortIdIndex();
+    const fullId = makeFullTaskId('550e8400-e29b-41d4-a716-446655440000');
+    const canonicalShortId = makeShortTaskId('abcdef12');
+    // Legacy: shortId (abcdef12) ≠ deriveShortId(fullId) (550e8400)
+    index.add(canonicalShortId, fullId);
+    expect(index.reverseResolve(fullId)).toBe(canonicalShortId);
+    expect(index.reverseResolve(fullId)).not.toBe(index.deriveShortId(fullId));
+  });
+
+  it('add throws on conflict with existing different fullId during migration', () => {
+    const index = new InMemoryShortIdIndex();
+    const shortId = makeShortTaskId('abcdef12');
+    index.add(shortId, makeFullTaskId('550e8400-e29b-41d4-a716-446655440000'));
+    // Migration encounters same shortId pointing to different fullId
+    expect(() =>
+      index.add(shortId, makeFullTaskId('660e8400-e29b-41d4-a716-446655440000'))
+    ).toThrow(/collision/i);
+  });
+
   it('add is idempotent for same fullId', () => {
     const index = new InMemoryShortIdIndex();
     const shortId = makeShortTaskId('550e8400');
