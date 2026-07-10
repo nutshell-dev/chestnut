@@ -203,4 +203,80 @@ describe('AnthropicAdapter', () => {
       expect(audit).toBeDefined();
     });
   });
+
+  describe('thinking budget guard', () => {
+    const THINKING_BUDGET_EQUALS_ADJUSTED_MESSAGE =
+      "This model's maximum context length is 105000 tokens. However, you requested " +
+      '105000 tokens (55000 in the messages, 50000 in the completions).';
+
+    it('retries with adaptive thinking mode despite configured thinkingBudgetTokens', async () => {
+      const adapter = new AnthropicAdapter({
+        ...config,
+        thinking: true,
+        thinkingMode: 'adaptive',
+        thinkingBudgetTokens: 100000,
+      });
+
+      mockMessagesCreate
+        .mockRejectedValueOnce(new BadRequestError(400, BUDGET_ERROR_MESSAGE))
+        .mockResolvedValueOnce({
+          id: 'msg_1',
+          type: 'message',
+          role: 'assistant',
+          model: 'claude-test',
+          stop_reason: 'end_turn',
+          content: [{ type: 'text', text: 'ok' }],
+          usage: { input_tokens: 10, output_tokens: 1 },
+        });
+
+      const result = await adapter.call({ messages: [], maxTokens: 393216 });
+
+      expect(result.content).toEqual([{ type: 'text', text: 'ok' }]);
+      expect(mockMessagesCreate).toHaveBeenCalledTimes(2);
+      expect(mockMessagesCreate.mock.calls[1][0]).toMatchObject({
+        max_tokens: 1048565 - 659572,
+        thinking: { type: 'adaptive', effort: 'high' },
+      });
+    });
+
+    it('throws LLMContextExceededError when effective thinking budget equals adjusted max_tokens (call)', async () => {
+      const adapter = new AnthropicAdapter({
+        ...config,
+        thinking: true,
+        thinkingMode: 'enabled',
+        thinkingBudgetTokens: 50000,
+      });
+
+      mockMessagesCreate.mockRejectedValueOnce(
+        new BadRequestError(400, THINKING_BUDGET_EQUALS_ADJUSTED_MESSAGE),
+      );
+
+      await expect(adapter.call({ messages: [], maxTokens: 60000 })).rejects.toBeInstanceOf(
+        LLMContextExceededError,
+      );
+      expect(mockMessagesCreate).toHaveBeenCalledTimes(1);
+    });
+
+    it('throws LLMContextExceededError when effective thinking budget equals adjusted max_tokens (stream)', async () => {
+      const adapter = new AnthropicAdapter({
+        ...config,
+        thinking: true,
+        thinkingMode: 'enabled',
+        thinkingBudgetTokens: 50000,
+      });
+
+      mockMessagesStream.mockReturnValueOnce(
+        createFailingSDKStream(new BadRequestError(400, THINKING_BUDGET_EQUALS_ADJUSTED_MESSAGE)),
+      );
+
+      await expect(
+        (async () => {
+          for await (const _chunk of adapter.stream({ messages: [], maxTokens: 60000 })) {
+            // no-op
+          }
+        })(),
+      ).rejects.toBeInstanceOf(LLMContextExceededError);
+      expect(mockMessagesStream).toHaveBeenCalledTimes(1);
+    });
+  });
 });
