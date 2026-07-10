@@ -926,6 +926,17 @@ export class AsyncTaskSystem {
       throw new Error(`[INVARIANT VIOLATION] moveTaskToFailed: cannot resolve ${taskId}`);
     }
     const auditShortId = this.shortIdIndex.reverseResolve(fullId) ?? this.shortIdIndex.deriveShortId(fullId);
+
+    // Persist intended terminal state BEFORE the move.
+    // If the move fails, recovery uses this marker to correctly route to failed
+    // instead of mistakenly recovering as done.
+    const intendedFailedPath = `${TASKS_QUEUES_RESULTS_DIR}/${fullId}/result.txt.intended-failed`;
+    try {
+      await this.fs.writeAtomic(intendedFailedPath, '');
+    } catch {
+      // silent: best-effort marker — move will still be attempted
+    }
+
     try {
       const fromFull = `${TASKS_QUEUES_RUNNING_DIR}/${fullId}.json`;
       const to = `${TASKS_QUEUES_FAILED_DIR}/${fullId}.json`;
