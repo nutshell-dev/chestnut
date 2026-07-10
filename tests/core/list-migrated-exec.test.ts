@@ -130,4 +130,49 @@ describe('listMigratedExecTasks', () => {
     expect(result.errors).toHaveLength(1);
     expect(result.tasks.map(t => t.taskId).sort()).toEqual(['also-good', 'good']);
   });
+
+  // ── phase 845 expanded coverage ──
+
+  it('emits TASK_QUERY_FILE_CORRUPT audit for corrupted JSON', () => {
+    const auditEvents: Array<{ event: string; payload: Record<string, unknown> }> = [];
+    const auditWriter = {
+      write: (event: string, payload: Record<string, unknown>) => auditEvents.push({ event, payload }),
+    };
+    const deps = { ...makeDeps(), auditWriter };
+    fs.writeFileSync(path.join(runningDir, 'bad.json'), '{not valid');
+    listMigratedExecTasks(deps, clawDir);
+    expect(auditEvents).toHaveLength(1);
+    expect(auditEvents[0].event).toBe('task_query_file_corrupt');
+    expect(auditEvents[0].payload.taskId).toBe('bad');
+  });
+
+  it('emits TASK_QUERY_FILE_CORRUPT audit for filename/content ID mismatch', () => {
+    const auditEvents: Array<{ event: string; payload: Record<string, unknown> }> = [];
+    const deps = {
+      ...makeDeps(),
+      auditWriter: {
+        write: (event: string, payload: Record<string, unknown>) => auditEvents.push({ event, payload }),
+      },
+    };
+    writeTaskFile('file-id', { id: 'content-id' });
+    listMigratedExecTasks(deps, clawDir);
+    expect(auditEvents).toHaveLength(1);
+    expect(auditEvents[0].event).toBe('task_query_file_corrupt');
+    expect(auditEvents[0].payload.taskId).toBe('file-id');
+  });
+
+  it('silently skips non-migrated tool tasks', () => {
+    writeTaskFile('fresh-task', { mode: 'fresh' });
+    const result = listMigratedExecTasks(makeDeps(), clawDir);
+    expect(result.tasks).toEqual([]);
+    expect(result.errors).toEqual([]);
+  });
+
+  it('reports error for invalid createdAt', () => {
+    writeTaskFile('bad-date', { createdAt: 'broken' });
+    const result = listMigratedExecTasks(makeDeps(), clawDir);
+    expect(result.tasks).toEqual([]);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].reason).toContain('createdAt is not a valid ISO datetime');
+  });
 });

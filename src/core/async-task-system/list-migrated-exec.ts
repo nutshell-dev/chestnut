@@ -48,6 +48,15 @@ export function listMigratedExecTasks(
   const tasks: MigratedExecTaskInfo[] = [];
   const errors: TaskReadError[] = [];
 
+  const pushError = (taskId: string, reason: string) => {
+    deps.auditWriter?.write(TASK_AUDIT_EVENTS.TASK_QUERY_FILE_CORRUPT, {
+      taskId,
+      clawDir,
+      reason,
+    });
+    errors.push({ taskId, reason });
+  };
+
   for (const entry of entries) {
     if (!entry.name.endsWith('.json')) continue;
     const taskId = entry.name.replace(/\.json$/, '');
@@ -57,25 +66,14 @@ export function listMigratedExecTasks(
       const parsed = ToolTaskSchema.passthrough().safeParse(JSON.parse(raw));
       if (!parsed.success) {
         const reason = `schema mismatch: ${parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ')}`;
-        deps.auditWriter?.write(TASK_AUDIT_EVENTS.TASK_QUERY_FILE_CORRUPT, {
-          taskId,
-          clawDir,
-          reason,
-        });
-        errors.push({
-          taskId,
-          reason,
-        });
+        pushError(taskId, reason);
         continue;
       }
       const task = parsed.data;
 
       // phase 844 Step D: verify filename ID matches content task.id
       if (task.id !== taskId) {
-        errors.push({
-          taskId,
-          reason: `filename ID "${taskId}" does not match task.id "${task.id}"`,
-        });
+        pushError(taskId, `filename ID "${taskId}" does not match task.id "${task.id}"`);
         continue;
       }
 
@@ -85,13 +83,17 @@ export function listMigratedExecTasks(
 
       const rawCommand = (task.args as Record<string, unknown>).command;
       if (typeof rawCommand !== 'string') {
-        errors.push({
-          taskId,
-          reason: `args.command must be a string, got ${typeof rawCommand}`,
-        });
+        pushError(taskId, `args.command must be a string, got ${typeof rawCommand}`);
         continue;
       }
       const command = rawCommand;
+
+      // phase 845 Step B: validate createdAt is a parseable ISO datetime
+      const createdAtMs = Date.parse(task.createdAt);
+      if (Number.isNaN(createdAtMs)) {
+        pushError(taskId, `createdAt is not a valid ISO datetime: "${task.createdAt}"`);
+        continue;
+      }
       const createdAt = task.createdAt;
 
       let lastOutputMs: number | null = null;
@@ -115,12 +117,7 @@ export function listMigratedExecTasks(
 
       tasks.push({ taskId, command, createdAt, lastOutputMs });
     } catch (e: unknown) {
-      deps.auditWriter?.write(TASK_AUDIT_EVENTS.TASK_QUERY_FILE_CORRUPT, {
-        taskId,
-        clawDir,
-        reason: String(e),
-      });
-      errors.push({ taskId, reason: String(e) });
+      pushError(taskId, String(e));
     }
   }
 
