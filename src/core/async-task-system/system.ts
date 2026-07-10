@@ -667,6 +667,22 @@ export class AsyncTaskSystem {
   }
 
   /**
+   * Best-effort update legacy JSON `id` after migrating from 8-char filename to UUID filename.
+   */
+  private async _migrateTaskJsonId(filePath: string, fullId: FullTaskId): Promise<void> {
+    try {
+      const raw = await this.fs.read(filePath);
+      const task = JSON.parse(raw) as Record<string, unknown>;
+      if (task.id && (task.id as string).length === 8) {
+        task.id = fullId;
+        await this.fs.writeAtomic(filePath, JSON.stringify(task));
+      }
+    } catch {
+      // silent: best-effort migration — rebuildFromDisk handles inconsistency
+    }
+  }
+
+  /**
    * Move task file from pending to running directory
    */
   private async movePendingToRunning(taskId: TaskId): Promise<void> {
@@ -680,6 +696,9 @@ export class AsyncTaskSystem {
     const to = `${TASKS_QUEUES_RUNNING_DIR}/${fullId}.json`;
     const fromPath = await this.fs.exists(fromFull).then((exists) => exists ? fromFull : fromLegacy);
     await this.fs.move(fromPath, to);
+    if (fromPath !== fromFull) {
+      await this._migrateTaskJsonId(to, fullId);
+    }
     emitTaskStarted(this.auditWriter, { fullTaskId: fullId, shortTaskId: shortId });
   }
 
@@ -698,6 +717,9 @@ export class AsyncTaskSystem {
       const to = `${TASKS_QUEUES_DONE_DIR}/${fullId}.json`;
       const fromPath = await this.fs.exists(fromFull).then((exists) => exists ? fromFull : fromLegacy);
       await this.fs.move(fromPath, to);
+      if (fromPath !== fromFull) {
+        await this._migrateTaskJsonId(to, fullId);
+      }
       this.auditWriter.write(
         TASK_AUDIT_EVENTS.TASK_MOVED,
         `fullTaskId=${fullId}`,
@@ -739,6 +761,9 @@ export class AsyncTaskSystem {
       const to = `${TASKS_QUEUES_FAILED_DIR}/${fullId}.json`;
       const fromPath = await this.fs.exists(fromFull).then((exists) => exists ? fromFull : fromLegacy);
       await this.fs.move(fromPath, to);
+      if (fromPath !== fromFull) {
+        await this._migrateTaskJsonId(to, fullId);
+      }
       this.auditWriter.write(
         TASK_AUDIT_EVENTS.TASK_MOVED,
         `fullTaskId=${fullId}`,

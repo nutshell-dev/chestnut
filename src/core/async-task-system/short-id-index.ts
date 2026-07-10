@@ -145,16 +145,29 @@ export class PersistentShortIdIndex implements ShortIdIndex {
         try {
           const raw = fs.readSync(`${dir}/${entry.name}`);
           const task = JSON.parse(raw) as Record<string, unknown>;
+          const taskIdFromFile = entry.name.replace(/\.json$/, '');
           const storedId = task.id as string | undefined;
           if (!storedId) continue;
 
           let fullId: FullTaskId;
           let shortId: ShortTaskId;
-          if (storedId.length === 36) {
+
+          if (taskIdFromFile.length === 36) {
+            // File already migrated — filename is authoritative fullId
+            fullId = makeFullTaskId(taskIdFromFile);
+            if (storedId.length === 8) {
+              // Content still has legacy shortId → preserve it
+              shortId = makeShortTaskId(storedId);
+            } else {
+              // Content already has UUID → derive
+              shortId = this.deriveShortId(fullId);
+            }
+          } else if (storedId.length === 36) {
+            // Legacy filename, but content already has UUID
             fullId = makeFullTaskId(storedId);
             shortId = this.deriveShortId(fullId);
           } else {
-            // Old 8-char task: preserve the filename / old task.id as shortId
+            // Both are 8-char — true legacy task
             shortId = makeShortTaskId(storedId);
             fullId = makeFullTaskId(newUuid());
           }
