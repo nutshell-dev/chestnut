@@ -155,4 +155,67 @@ describe('CustomAnthropicAdapter — stream output budget exceeded', () => {
       expect.arrayContaining([expect.stringContaining('reason=nonpositive_adjusted')]),
     );
   });
+
+  it('retries stream when thinking is disabled even if thinkingBudgetTokens is set', async () => {
+    const adapter = new CustomAnthropicAdapter({
+      name: 'test-cap',
+      model: 'claude-test',
+      apiKey: 'k',
+      baseUrl: 'https://example.invalid',
+      maxTokens: 200000,
+      temperature: 0.5,
+      timeoutMs: 30000,
+      apiFormat: 'anthropic',
+      thinking: false,
+      thinkingBudgetTokens: 100000,
+    });
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn()
+        .mockResolvedValueOnce(createJsonResponse({ error: { message: BUDGET_ERROR_MESSAGE } }, 400))
+        .mockResolvedValueOnce(createSSEStreamResponse(createSuccessSSEEvents())),
+    );
+
+    const chunks: unknown[] = [];
+    for await (const chunk of adapter.stream({ messages: [], maxTokens: 393216 })) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks.length).toBeGreaterThan(0);
+  });
+
+  it('throws LLMContextExceededError when effective thinking budget equals adjusted max_tokens (stream)', async () => {
+    const THINKING_BUDGET_EQUALS_ADJUSTED_MESSAGE =
+      "This model's maximum context length is 105000 tokens. However, you requested " +
+      '105000 tokens (55000 in the messages, 50000 in the completions).';
+
+    const adapter = new CustomAnthropicAdapter({
+      name: 'test-cap',
+      model: 'claude-test',
+      apiKey: 'k',
+      baseUrl: 'https://example.invalid',
+      maxTokens: 200000,
+      temperature: 0.5,
+      timeoutMs: 30000,
+      apiFormat: 'anthropic',
+      thinking: true,
+      thinkingBudgetTokens: 50000,
+    });
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        createJsonResponse({ error: { message: THINKING_BUDGET_EQUALS_ADJUSTED_MESSAGE } }, 400),
+      ),
+    );
+
+    await expect(
+      (async () => {
+        for await (const _chunk of adapter.stream({ messages: [], maxTokens: 60000 })) {
+          // no-op
+        }
+      })(),
+    ).rejects.toBeInstanceOf(LLMContextExceededError);
+  });
 });
