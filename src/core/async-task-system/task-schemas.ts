@@ -29,9 +29,10 @@ export type SummonDecisionMetadata = z.infer<typeof SummonDecisionMetadataSchema
 
 const commonSubAgentFields = {
   kind: z.literal('subagent'),
-  id: z.string(),
-  // Phase 867: explicit 8-char display ID persisted alongside full UUID id
-  shortId: z.string(),
+  // Phase 868: full persistence ID must be a valid UUID
+  id: z.string().uuid(),
+  // Phase 867/868: explicit 8-char hex display ID
+  shortId: z.string().regex(/^[0-9a-f]{8}$/),
   timeoutMs: z.number(),
   // phase 1490: maxSteps optional / undefined → SubAgent boundary fallback to DEFAULT_MAX_STEPS
   maxSteps: z.number().optional(),
@@ -81,9 +82,10 @@ export const SubAgentTaskSchema = subAgentTaskDiscriminatedUnion;
 
 export const ToolTaskSchema = z.object({
   kind: z.literal('tool'),
-  id: z.string(),
-  // Phase 867: explicit 8-char display ID persisted alongside full UUID id
-  shortId: z.string(),
+  // Phase 868: full persistence ID must be a valid UUID
+  id: z.string().uuid(),
+  // Phase 867/868: explicit 8-char hex display ID
+  shortId: z.string().regex(/^[0-9a-f]{8}$/),
   toolName: z.string(),
   args: z.record(z.unknown()),
   parentClawDir: z.string(),

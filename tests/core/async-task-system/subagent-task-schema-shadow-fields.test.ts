@@ -5,8 +5,8 @@ describe('SubAgentTaskSchema phase 1087 shadow fields (phase 1131)', () => {
   const baseTask = {
     kind: 'subagent' as const,
     mode: 'standard' as const,
-    id: 'task-abc',
-    shortId: 'taskabc1',
+    id: '550e8400-e29b-41d4-a716-446655440000',
+    shortId: '550e8400',
     intent: 'test intent',
     timeoutMs: 60_000,
     maxSteps: 100,

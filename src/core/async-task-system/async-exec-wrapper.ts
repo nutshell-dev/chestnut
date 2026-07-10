@@ -22,7 +22,7 @@ import { STREAM_TASK_EVENTS } from './stream-events.js';
 import { emitHandlerFailed } from './audit-emit.js';
 import { formatErr } from './_helpers.js';
 import type { ToolTask, TaskId, FullTaskId, ShortTaskId, ShortIdIndex } from './types.js';
-import { makeFullTaskId, deriveShortIdFromTaskId } from './types.js';
+import { makeFullTaskId, taskShortId } from './types.js';
 
 export interface AsyncExecWrapperParams {
   execWithHandle: (args: ExecWithHandleArgs, ctx: ExecContext) => Promise<ExecHandle>;
@@ -380,7 +380,7 @@ export function createAsyncExecWrapper(
           } catch (persistErr) {
             emitHandlerFailed(auditWriter, {
               fullTaskId: task.id as FullTaskId,
-              shortTaskId: deriveShortIdFromTaskId(task.id),
+              shortTaskId: taskShortId(task),
               context: 'async_exec_wrapper_append_error_marker',
               error: formatErr(persistErr),
             });
@@ -396,7 +396,7 @@ export function createAsyncExecWrapper(
           } catch (execErr) {
             emitHandlerFailed(auditWriter, {
               fullTaskId: task.id as FullTaskId,
-              shortTaskId: deriveShortIdFromTaskId(task.id),
+              shortTaskId: taskShortId(task),
               context: 'async_exec_wrapper_monitor',
               error: formatErr(execErr),
             });
@@ -417,7 +417,7 @@ export function createAsyncExecWrapper(
       backgroundMonitor.catch((err) => {
         emitHandlerFailed(auditWriter, {
           fullTaskId: task.id as FullTaskId,
-          shortTaskId: deriveShortIdFromTaskId(task.id),
+          shortTaskId: taskShortId(task),
           context: 'async_exec_wrapper_background',
           error: formatErr(err),
         });

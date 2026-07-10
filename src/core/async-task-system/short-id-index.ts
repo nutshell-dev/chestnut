@@ -78,7 +78,8 @@ export class PersistentShortIdIndex implements ShortIdIndex {
         if (key.length !== 8 || !/^[0-9a-f]{8}$/.test(key)) {
           throw new Error(`ShortIdIndex: invalid shortId key "${key}"`);
         }
-        if (typeof value !== 'string' || value.length !== 36) {
+        if (typeof value !== 'string' ||
+            !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value)) {
           throw new Error(`ShortIdIndex: invalid fullId value for "${key}": ${String(value)}`);
         }
       }

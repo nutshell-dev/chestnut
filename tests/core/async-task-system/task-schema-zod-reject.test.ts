@@ -7,7 +7,8 @@ describe('phase 1019 r124 E fork: TaskMeta zod strict schema', () => {
   it('rejects SubAgentTask with missing intent field (was previously accepted by 2-field discriminator)', () => {
     const corrupt = {
       kind: 'subagent',
-      id: 'task-1',
+      id: '550e8400-e29b-41d4-a716-446655440000',
+      shortId: '550e8400',
       // intent missing
       timeoutMs: SUBAGENT_DEFAULT_TIMEOUT_MS,
       maxSteps: 10,
@@ -20,7 +21,8 @@ describe('phase 1019 r124 E fork: TaskMeta zod strict schema', () => {
   it('rejects ToolTask with wrong type for retryCount (string instead of number)', () => {
     const corrupt = {
       kind: 'tool',
-      id: 'task-2',
+      id: '550e8401-e29b-41d4-a716-446655440000',
+      shortId: '550e8401',
       toolName: 'read',
       args: {},
       parentClawDir: '/tmp',
@@ -37,8 +39,8 @@ describe('phase 1019 r124 E fork: TaskMeta zod strict schema', () => {
     const valid = {
       kind: 'subagent',
       mode: 'standard',
-      id: 'task-3',
-      shortId: 'task3short',
+      id: '550e8402-e29b-41d4-a716-446655440000',
+      shortId: '550e8402',
       intent: 'do something',
       timeoutMs: SUBAGENT_DEFAULT_TIMEOUT_MS,
       maxSteps: 10,
@@ -55,7 +57,8 @@ describe('phase 311 ML#9 strict: SubAgentTaskSchema no silent preprocess', () =>
   it('rejects SubAgentTask missing mode field (no silent inject standard)', () => {
     const corrupt = {
       kind: 'subagent',
-      id: 'task-no-mode',
+      id: '550e8403-e29b-41d4-a716-446655440000',
+      shortId: '550e8403',
       intent: 'do something',
       timeoutMs: SUBAGENT_DEFAULT_TIMEOUT_MS,
       maxSteps: 10,
@@ -69,7 +72,8 @@ describe('phase 311 ML#9 strict: SubAgentTaskSchema no silent preprocess', () =>
   it('rejects SubAgentTask with intentPreview field (no silent rename to intent)', () => {
     const corrupt = {
       kind: 'subagent',
-      id: 'task-intent-preview',
+      id: '550e8404-e29b-41d4-a716-446655440000',
+      shortId: '550e8404',
       intentPreview: 'old intent field',
       mode: 'shadow',
       timeoutMs: SUBAGENT_DEFAULT_TIMEOUT_MS,

@@ -99,8 +99,8 @@ describe('SubAgentTaskSchema phase 311 strict (no silent preprocess)', () => {
     const shadowTask = {
       kind: 'subagent',
       mode: 'shadow',
-      id: 'shadow-task',
-      shortId: 'shadowid',
+      id: '550e8400-e29b-41d4-a716-446655440000',
+      shortId: '550e8400',
       shadowMessages: [{ role: 'user', content: 'hi' }],
       intent: 'hi',
       timeoutMs: 60_000,

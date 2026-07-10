@@ -25,7 +25,7 @@ import { sendResult, sendFallbackError } from './result-delivery.js';
 import type { Tool } from '../../foundation/tools/index.js';
 import type { PostProcessor } from './post-processors/types.js';
 import type { SubAgentTask, FullTaskId } from './types.js';
-import { deriveShortIdFromTaskId } from './types.js';
+import { taskShortId } from './types.js';
 import type { DialogStore } from '../../foundation/dialog-store/index.js';
 import type { TaskId } from './types.js';
 
@@ -66,7 +66,7 @@ async function applyPostProcessor(
   if (!handler) {
     emitHandlerFailed(auditWriter, {
       fullTaskId: task.id as FullTaskId,
-      shortTaskId: deriveShortIdFromTaskId(task.id),
+      shortTaskId: taskShortId(task),
       context: 'postProcessor_not_found',
       name: task.postProcessor,
     });
@@ -78,7 +78,7 @@ async function applyPostProcessor(
     const ctx = isError ? 'postProcessor_threw_error_path' : 'postProcessor_threw';
     emitHandlerFailed(auditWriter, {
       fullTaskId: task.id as FullTaskId,
-      shortTaskId: deriveShortIdFromTaskId(task.id),
+      shortTaskId: taskShortId(task),
       context: ctx,
       error: formatErr(handlerErr),
     });
@@ -188,7 +188,7 @@ export async function executeSubAgentTask(
 
     emitTaskCompleted(auditWriter, {
       fullTaskId: task.id as FullTaskId,
-      shortTaskId: deriveShortIdFromTaskId(task.id),
+      shortTaskId: taskShortId(task),
       status: 'ok',
       kind: 'subagent',
       parent: task.parentClawId,
@@ -214,7 +214,7 @@ export async function executeSubAgentTask(
       } catch (fallbackErr) {
         emitResultDeliveryFailed(auditWriter, {
           fullTaskId: task.id as FullTaskId,
-          shortTaskId: deriveShortIdFromTaskId(task.id),
+          shortTaskId: taskShortId(task),
           reason: 'both sendResult and sendFallbackError failed',
           error: formatErr(fallbackErr),
         });
@@ -224,13 +224,13 @@ export async function executeSubAgentTask(
 
     emitHandlerFailed(auditWriter, {
       fullTaskId: task.id as FullTaskId,
-      shortTaskId: deriveShortIdFromTaskId(task.id),
+      shortTaskId: taskShortId(task),
       parent: task.parentClawId,
       error: errorMsg,
     });
     emitTaskCompleted(auditWriter, {
       fullTaskId: task.id as FullTaskId,
-      shortTaskId: deriveShortIdFromTaskId(task.id),
+      shortTaskId: taskShortId(task),
       status: 'err',
       kind: 'subagent',
       parent: task.parentClawId,

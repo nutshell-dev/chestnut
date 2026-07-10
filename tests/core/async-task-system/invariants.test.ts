@@ -23,8 +23,8 @@ function makeAudit(): { audit: AuditLog; events: Array<[string, ...(string | num
 
 const validSubAgentTaskStandard = {
   kind: 'subagent' as const,
-  id: 'task-sa-1',
-  shortId: 'short1',
+  id: '550e8400-e29b-41d4-a716-446655440000',
+  shortId: '550e8400',
   intent: 'do something',
   timeoutMs: SUBAGENT_DEFAULT_TIMEOUT_MS,
   maxSteps: 10,
@@ -35,8 +35,8 @@ const validSubAgentTaskStandard = {
 
 const validSubAgentTaskShadow = {
   kind: 'subagent' as const,
-  id: 'task-sa-2',
-  shortId: 'short2',
+  id: '550e8401-e29b-41d4-a716-446655440000',
+  shortId: '550e8401',
   intent: 'shadow work',
   timeoutMs: SUBAGENT_DEFAULT_TIMEOUT_MS,
   maxSteps: 5,
@@ -48,8 +48,8 @@ const validSubAgentTaskShadow = {
 
 const validToolTask = {
   kind: 'tool' as const,
-  id: 'task-tool-1',
-  shortId: 'shorttool1',
+  id: '550e8402-e29b-41d4-a716-446655440000',
+  shortId: '550e8402',
   toolName: 'read',
   args: {},
   parentClawDir: '/tmp',

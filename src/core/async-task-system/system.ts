@@ -59,7 +59,7 @@ import {
 } from './audit-emit.js';
 import type { PostProcessor } from './post-processors/types.js';
 import type { AsyncTaskSystemOptions, SubAgentTask, ToolTask, TaskKind, TaskExecutor, FullTaskId, ShortTaskId, ShortIdIndex } from './types.js';
-import { type TaskId, makeFullTaskId, deriveShortIdFromTaskId } from './types.js';
+import { type TaskId, makeFullTaskId, makeShortTaskId, deriveShortIdFromTaskId, taskShortId } from './types.js';
 
 
 
@@ -173,7 +173,7 @@ export class AsyncTaskSystem {
             this.auditWriter?.write(
               TASK_AUDIT_EVENTS.RUNNING_FILE_DELETE_FAILED,
               `fullTaskId=${task.id}`,
-              `shortTaskId=${deriveShortIdFromTaskId(task.id)}`,
+              `shortTaskId=${taskShortId(task)}`,
               `reason=${formatErr(err)}`,
             );
           });
@@ -248,9 +248,91 @@ export class AsyncTaskSystem {
       this.shortIdIndex.save();
     }
 
+    // Phase 868: migrate legacy files BEFORE recovery/dispatch so strict schema
+    // validation can assume every task file has explicit `id` + `shortId`.
+    await this._migrateLegacyTaskFiles();
+
     // Cold-start recovery: running tasks are moved back to pending by recoverTasks.
     // No in-memory pending queue is kept; pending state is derived from fs on demand.
     await recoverTasks({ fs: this.fs, auditWriter: this.auditWriter });
+  }
+
+  /**
+   * One-time disk migration: scan all queue directories for legacy-format
+   * task files (8-char filename or missing shortId field) and rewrite them
+   * to the Phase 867+ format (UUID filename + id/shortId fields).
+   *
+   * Must run BEFORE recoverTasks() and _getPendingTasks() so that strict
+   * schema validation passes.
+   */
+  private async _migrateLegacyTaskFiles(): Promise<void> {
+    for (const dir of [TASKS_QUEUES_PENDING_DIR, TASKS_QUEUES_RUNNING_DIR,
+                       TASKS_QUEUES_DONE_DIR, TASKS_QUEUES_FAILED_DIR]) {
+      if (!await this.fs.exists(dir)) continue;
+      const entries = await this.fs.list(dir, { includeDirs: false });
+      for (const e of entries) {
+        if (!e.name.endsWith('.json')) continue;
+        const oldPath = `${dir}/${e.name}`;
+        try {
+          const raw = await this.fs.read(oldPath);
+          const task = JSON.parse(raw) as Record<string, unknown>;
+
+          // Determine fullId and shortId
+          let fullId: FullTaskId;
+          let shortId: ShortTaskId;
+
+          const storedId = task.id as string | undefined;
+          const storedShortId = task.shortId as string | undefined;
+          const nameId = e.name.replace(/\.json$/, '');
+
+          if (storedShortId && storedId && storedId.length === 36) {
+            // Already Phase 867+ format — just register index, skip rewrite
+            fullId = makeFullTaskId(storedId);
+            shortId = makeShortTaskId(storedShortId);
+            if (!this.shortIdIndex.has(shortId)) {
+              this.shortIdIndex.add(shortId, fullId);
+            }
+            if (nameId.length !== 36) {
+              // Rename to UUID filename
+              const newPath = `${dir}/${fullId}.json`;
+              await this.fs.move(oldPath, newPath);
+            }
+            continue;
+          }
+
+          if (storedId && storedId.length === 36) {
+            // Pre-867 UUID task without shortId — derive and add
+            fullId = makeFullTaskId(storedId);
+            shortId = this.shortIdIndex.deriveShortId(fullId);
+          } else if (storedId && storedId.length === 8) {
+            // Legacy 8-char — preserve as shortId, generate fullId
+            shortId = makeShortTaskId(storedId);
+            if (this.shortIdIndex.has(shortId)) {
+              fullId = this.shortIdIndex.resolve(shortId)!;
+            } else {
+              fullId = makeFullTaskId(newUuid());
+              this.shortIdIndex.add(shortId, fullId);
+            }
+          } else {
+            continue; // malformed — skip, recovery handles
+          }
+
+          // Rewrite JSON with both fields
+          task.id = fullId;
+          task.shortId = shortId;
+          await this.fs.writeAtomic(oldPath, JSON.stringify(task));
+
+          // Rename to UUID filename
+          const newPath = `${dir}/${fullId}.json`;
+          if (oldPath !== newPath) {
+            await this.fs.move(oldPath, newPath);
+          }
+        } catch {
+          // silent: corrupted file — skip, recovery handles
+        }
+      }
+    }
+    this.shortIdIndex.save();
   }
 
   /**
@@ -464,7 +546,7 @@ export class AsyncTaskSystem {
    */
   private async _enqueueAndDispatch(task: SubAgentTask | ToolTask): Promise<void> {
     const fullId = task.id as FullTaskId;
-    const shortId = deriveShortIdFromTaskId(fullId);
+    const shortId = taskShortId(task);
     const pendingIds = await this._getPendingTaskIds();
     const pendingCount = pendingIds.size;
 
@@ -632,7 +714,7 @@ export class AsyncTaskSystem {
         this.parentStreamLog?.write({
           ts: Date.now(),
           type: STREAM_TASK_EVENTS.TASK_STARTED,
-          taskId: deriveShortIdFromTaskId(task.id),
+          taskId: taskShortId(task),
           fullTaskId: task.id,
           taskKind: 'spawn_subagent',
           silent: false,
@@ -643,7 +725,7 @@ export class AsyncTaskSystem {
     } catch (error) {
       const errorMsg = formatErr(error);
       const fullId = task.id as FullTaskId;
-      const shortId = deriveShortIdFromTaskId(fullId);
+      const shortId = taskShortId(task);
       emitStartFailed(this.auditWriter, {
         fullTaskId: fullId,
         shortTaskId: shortId,

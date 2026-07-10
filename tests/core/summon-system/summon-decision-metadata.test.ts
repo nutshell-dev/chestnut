@@ -131,8 +131,8 @@ describe('summon decision metadata embed (phase 281 Step A)', () => {
     const parsed = SubAgentTaskSchema.safeParse({
       kind: 'subagent',
       mode: 'standard',
-      id: 'task-1',
-      shortId: 'task1short',
+      id: '550e8400-e29b-41d4-a716-446655440000',
+      shortId: '550e8400',
       intent: 'plain subagent',
       timeoutMs: 1000,
       parentClawId: 'p1',
@@ -146,8 +146,8 @@ describe('summon decision metadata embed (phase 281 Step A)', () => {
     const valid = {
       kind: 'subagent',
       mode: 'shadow',
-      id: 'task-1',
-      shortId: 'task1short',
+      id: '550e8401-e29b-41d4-a716-446655440000',
+      shortId: '550e8401',
       intent: 'test',
       timeoutMs: 1000,
       parentClawId: 'p1',
