@@ -1,0 +1,133 @@
+import { describe, it, expect, beforeEach } from 'vitest';
+import { listMigratedExecTasks } from '../../src/core/async-task-system/index.js';
+import { TASKS_QUEUES_RUNNING_DIR, TASKS_QUEUES_RESULTS_DIR } from '../../src/core/async-task-system/dirs.js';
+import * as path from 'path';
+import * as os from 'os';
+import * as fs from 'fs';
+import type { FileSystem } from '../../src/foundation/fs/index.js';
+
+describe('listMigratedExecTasks', () => {
+  let tmpDir: string;
+  let clawDir: string;
+  let runningDir: string;
+  let resultsDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'chestnut-test-'));
+    clawDir = path.join(tmpDir, 'claws', 'test-claw');
+    runningDir = path.join(clawDir, TASKS_QUEUES_RUNNING_DIR);
+    resultsDir = path.join(clawDir, TASKS_QUEUES_RESULTS_DIR);
+    fs.mkdirSync(runningDir, { recursive: true });
+    fs.mkdirSync(resultsDir, { recursive: true });
+  });
+
+  const makeDeps = () => ({
+    fsFactory: (baseDir: string) => (({
+      existsSync: (p: string) => {
+        const full = path.join(baseDir, p);
+        try { fs.statSync(full); return true; } catch { return false; }
+      },
+      listSync: (p: string) => {
+        const full = path.join(baseDir, p);
+        return fs.readdirSync(full, { withFileTypes: true }).map(d => ({
+          name: d.name,
+          path: d.name,
+          isDirectory: d.isDirectory(),
+          isFile: d.isFile(),
+          size: 0,
+          mtime: new Date(),
+        }));
+      },
+      readSync: (p: string) => fs.readFileSync(path.join(baseDir, p), 'utf-8'),
+      statSync: (p: string) => {
+        const s = fs.statSync(path.join(baseDir, p));
+        return { mtime: s.mtime, size: s.size, ctime: s.ctime, isDirectory: s.isDirectory(), isFile: s.isFile() };
+      },
+    }) as unknown as FileSystem),
+  });
+
+  function writeTaskFile(taskId: string, overrides: Record<string, unknown> = {}) {
+    const task = {
+      kind: 'tool',
+      id: taskId,
+      toolName: 'exec',
+      args: { command: 'echo hello' },
+      parentClawDir: '/test',
+      parentClawId: 'parent-1',
+      createdAt: new Date().toISOString(),
+      isIdempotent: false,
+      maxRetries: 2,
+      retryCount: 0,
+      mode: 'migrated',
+      ...overrides,
+    };
+    fs.writeFileSync(path.join(runningDir, `${taskId}.json`), JSON.stringify(task));
+  }
+
+  // ── 8 test cases ──
+
+  it('returns empty when no running dir', () => {
+    fs.rmSync(runningDir, { recursive: true });
+    const result = listMigratedExecTasks(makeDeps(), clawDir);
+    expect(result.tasks).toEqual([]);
+    expect(result.errors).toEqual([]);
+  });
+
+  it('returns valid migrated exec task', () => {
+    writeTaskFile('abc123');
+    const result = listMigratedExecTasks(makeDeps(), clawDir);
+    expect(result.tasks).toHaveLength(1);
+    expect(result.tasks[0].taskId).toBe('abc123');
+    expect(result.tasks[0].command).toBe('echo hello');
+    expect(result.errors).toEqual([]);
+  });
+
+  it('reports error for corrupted JSON', () => {
+    fs.writeFileSync(path.join(runningDir, 'bad.json'), '{not valid json');
+    const result = listMigratedExecTasks(makeDeps(), clawDir);
+    expect(result.tasks).toEqual([]);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].taskId).toBe('bad');
+  });
+
+  it('reports error for schema mismatch (missing id)', () => {
+    writeTaskFile('no-id', { id: undefined });
+    const result = listMigratedExecTasks(makeDeps(), clawDir);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].reason).toContain('schema mismatch');
+  });
+
+  it('reports error for non-string command', () => {
+    writeTaskFile('obj-cmd', { args: { command: { program: 'curl' } } });
+    const result = listMigratedExecTasks(makeDeps(), clawDir);
+    expect(result.tasks).toEqual([]);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].reason).toContain('args.command must be a string');
+  });
+
+  it('reports error when filename ID does not match task.id', () => {
+    writeTaskFile('file-id', { id: 'content-id' });
+    const result = listMigratedExecTasks(makeDeps(), clawDir);
+    expect(result.tasks).toEqual([]);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].reason).toContain('does not match');
+  });
+
+  it('result.txt ENOENT → lastOutputMs is null, no error', () => {
+    writeTaskFile('no-result');
+    const result = listMigratedExecTasks(makeDeps(), clawDir);
+    expect(result.tasks).toHaveLength(1);
+    expect(result.tasks[0].lastOutputMs).toBeNull();
+    expect(result.errors).toEqual([]);
+  });
+
+  it('mixes valid tasks and corrupted entries', () => {
+    writeTaskFile('good');
+    fs.writeFileSync(path.join(runningDir, 'bad.json'), '{corrupt');
+    writeTaskFile('also-good');
+    const result = listMigratedExecTasks(makeDeps(), clawDir);
+    expect(result.tasks).toHaveLength(2);
+    expect(result.errors).toHaveLength(1);
+    expect(result.tasks.map(t => t.taskId).sort()).toEqual(['also-good', 'good']);
+  });
+});

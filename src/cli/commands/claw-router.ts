@@ -38,7 +38,7 @@ import { CliError } from '../errors.js';
 import { createDirContext } from '../../foundation/audit/index.js';
 import { getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js';
 import { loadGlobalConfig, clawExists } from '../../assembly/config/config-load.js';
-import { listMigratedExecTasks } from '../../core/async-task-system/list-migrated-exec.js';
+import { listMigratedExecTasks } from '../../core/async-task-system/index.js';
 import { parseIntOption } from '../parse-int-option.js';
 import { makeContractId } from '../../core/contract/types.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
@@ -442,8 +442,20 @@ async function runPs(deps: RouterDeps, name: string, args: string[]): Promise<vo
   if (!clawExists(deps, configPath)) {
     throw new CliError(`Claw "${name}" does not exist`);
   }
+  const clawDir = getClawDir(name);
+  const { audit } = createDirContext(deps, clawDir);
   await psCommand(
-    { listMigratedExecTasks: (clawDir) => listMigratedExecTasks(deps, clawDir) },
+    {
+      listMigratedExecTasks: (dir) => listMigratedExecTasks({
+        fsFactory: deps.fsFactory,
+        auditWriter: {
+          write: (event, payload) => {
+            const cols = Object.entries(payload).map(([key, value]) => `${key}=${String(value)}`);
+            audit.write(event, ...cols);
+          },
+        },
+      }, dir),
+    },
     name,
     args,
   );

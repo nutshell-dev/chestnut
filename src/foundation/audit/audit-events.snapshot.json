@@ -210,6 +210,8 @@
       "task_pending_queue_overflow_notified",
       "task_pending_watcher_callback_failed",
       "task_pending_watcher_failed",
+      "task_query_file_corrupt",
+      "task_query_result_io_error",
       "task_recovered",
       "task_recovery_complete",
       "task_recovery_dead_letter",

@@ -1,6 +1,7 @@
 import * as path from 'path';
 import { TASKS_QUEUES_RUNNING_DIR, TASKS_QUEUES_RESULTS_DIR } from './dirs.js';
 import { ToolTaskSchema } from './task-schemas.js';
+import { TASK_AUDIT_EVENTS } from './audit-events.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 
 export interface MigratedExecTaskInfo {
@@ -30,7 +31,10 @@ export interface MigratedExecListResult {
  * Does NOT require an AsyncTaskSystem instance — stateless query function.
  */
 export function listMigratedExecTasks(
-  deps: { fsFactory: (baseDir: string) => FileSystem },
+  deps: {
+    fsFactory: (baseDir: string) => FileSystem;
+    auditWriter?: { write: (event: string, payload: Record<string, unknown>) => void };
+  },
   clawDir: string,
 ): MigratedExecListResult {
   const runningDir = path.join(clawDir, TASKS_QUEUES_RUNNING_DIR);
@@ -52,16 +56,42 @@ export function listMigratedExecTasks(
       const raw = runningFs.readSync(entry.name);
       const parsed = ToolTaskSchema.passthrough().safeParse(JSON.parse(raw));
       if (!parsed.success) {
+        const reason = `schema mismatch: ${parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ')}`;
+        deps.auditWriter?.write(TASK_AUDIT_EVENTS.TASK_QUERY_FILE_CORRUPT, {
+          taskId,
+          clawDir,
+          reason,
+        });
         errors.push({
           taskId,
-          reason: `schema mismatch: ${parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ')}`,
+          reason,
         });
         continue;
       }
       const task = parsed.data;
-      if (task.kind !== 'tool' || (task as Record<string, unknown>).mode !== 'migrated') continue;
 
-      const command = (task.args as Record<string, unknown>).command as string ?? '(unknown)';
+      // phase 844 Step D: verify filename ID matches content task.id
+      if (task.id !== taskId) {
+        errors.push({
+          taskId,
+          reason: `filename ID "${taskId}" does not match task.id "${task.id}"`,
+        });
+        continue;
+      }
+
+      // ToolTaskSchema now validates mode as optional enum; check at runtime
+      const taskMode = task.mode;
+      if (task.kind !== 'tool' || taskMode !== 'migrated') continue;
+
+      const rawCommand = (task.args as Record<string, unknown>).command;
+      if (typeof rawCommand !== 'string') {
+        errors.push({
+          taskId,
+          reason: `args.command must be a string, got ${typeof rawCommand}`,
+        });
+        continue;
+      }
+      const command = rawCommand;
       const createdAt = task.createdAt;
 
       let lastOutputMs: number | null = null;
@@ -73,12 +103,23 @@ export function listMigratedExecTasks(
       } catch (e: unknown) {
         const errno = (e as { code?: string }).code;
         if (errno !== 'ENOENT') {
+          deps.auditWriter?.write(TASK_AUDIT_EVENTS.TASK_QUERY_RESULT_IO_ERROR, {
+            taskId,
+            clawDir,
+            errno: errno ?? 'UNKNOWN',
+            error: String(e),
+          });
           errors.push({ taskId, reason: `result.txt: ${errno ?? 'UNKNOWN'}: ${String(e)}` });
         }
       }
 
       tasks.push({ taskId, command, createdAt, lastOutputMs });
     } catch (e: unknown) {
+      deps.auditWriter?.write(TASK_AUDIT_EVENTS.TASK_QUERY_FILE_CORRUPT, {
+        taskId,
+        clawDir,
+        reason: String(e),
+      });
       errors.push({ taskId, reason: String(e) });
     }
   }

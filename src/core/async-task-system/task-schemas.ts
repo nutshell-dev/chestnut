@@ -91,6 +91,10 @@ export const ToolTaskSchema = z.object({
   // optional fields
   toolUseId: z.string().optional(),
   isShadow: z.boolean().optional(),
+  // phase 844: sync with ToolTask TS interface — migrated exec fields
+  mode: z.enum(['fresh', 'migrated']).optional(),
+  migratedPid: z.number().optional(),
+  migratedStartTime: z.string().optional(),
 });
 
 export const TaskSchema = z.union([

@@ -11,7 +11,7 @@ import { getClawDir } from '../../core/claw-topology/index.js';
 import type {
   MigratedExecTaskInfo,
   TaskReadError,
-} from '../../core/async-task-system/list-migrated-exec.js';
+} from '../../core/async-task-system/index.js';
 
 export async function psCommand(
   deps: {

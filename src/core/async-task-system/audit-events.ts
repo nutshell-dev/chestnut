@@ -44,4 +44,6 @@ export const TASK_AUDIT_EVENTS = {
   TASK_MIGRATED_COMPLETED: 'task_migrated_completed', // phase 770 Step A
   TASK_MIGRATED_PID_REUSED: 'task_migrated_pid_reused', // phase 770 Step A
   TASK_MIGRATED_TIMED_OUT: 'task_migrated_timed_out', // phase 777 Step A
+  TASK_QUERY_FILE_CORRUPT: 'task_query_file_corrupt', // phase 844 Step B
+  TASK_QUERY_RESULT_IO_ERROR: 'task_query_result_io_error', // phase 844 Step B
 } as const;
