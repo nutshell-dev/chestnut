@@ -1,7 +1,11 @@
 import { readFile, access, mkdir, readdir } from 'node:fs/promises';
 import * as path from 'node:path';
 import { WAIT_FOR_DEFAULT_BUDGET_MS } from './test-timeouts.js';
-import { createWatcher } from '../../src/foundation/file-watcher/index.js';
+import {
+  createWatcher,
+  type Watcher,
+  type WatcherFactory,
+} from '../../src/foundation/file-watcher/index.js';
 
 /**
  * Wait for a file to match a regex predicate.
@@ -17,7 +21,13 @@ export async function waitForCompleteFile(
   filePath: string,
   regex: RegExp,
   timeoutMs = WAIT_FOR_DEFAULT_BUDGET_MS,
+  opts?: {
+    watcherFactory?: WatcherFactory;
+    pollIntervalMs?: number;
+  },
 ): Promise<string> {
+  const pollMs = opts?.pollIntervalMs ?? 100;
+
   // initial check
   try {
     const content = await readFile(filePath, 'utf-8');
@@ -28,14 +38,24 @@ export async function waitForCompleteFile(
 
   return new Promise<string>((resolve, reject) => {
     let resolved = false;
+    let watcher: Watcher | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let pollInterval: ReturnType<typeof setInterval> | undefined;
+
+    const cleanup = (): void => {
+      if (timer) clearTimeout(timer);
+      if (pollInterval) clearInterval(pollInterval);
+      if (watcher) watcher.close().catch(() => { /* silent: cleanup */ });
+    };
+
     const onSettle = (val: string | Error): void => {
       if (resolved) return;
       resolved = true;
-      clearTimeout(timer);
-      watcher.close().catch(() => { /* silent: cleanup */ });
+      cleanup();
       if (val instanceof Error) reject(val);
       else resolve(val);
     };
+
     const tryRead = async (): Promise<void> => {
       try {
         const content = await readFile(filePath, 'utf-8');
@@ -44,17 +64,24 @@ export async function waitForCompleteFile(
         if ((e as NodeJS.ErrnoException).code !== 'ENOENT') onSettle(e as Error);
       }
     };
-    const watcher = createWatcher(
-      filePath,
-      (event) => {
-        if (event.type === 'add' || event.type === 'change') void tryRead();
-      },
-      { persistent: false, stability: 'immediate' },
-    );
-    const timer = setTimeout(
+
+    timer = setTimeout(
       () => onSettle(new Error(`waitForCompleteFile timeout: ${filePath} did not match ${regex} in ${timeoutMs}ms`)),
       timeoutMs,
     );
+
+    // Optional watcher as low-latency event source; polling is the safety net.
+    if (opts?.watcherFactory) {
+      watcher = opts.watcherFactory(
+        filePath,
+        (event) => {
+          if (event.type === 'add' || event.type === 'change') void tryRead();
+        },
+        { persistent: false, stability: 'immediate' },
+      );
+    }
+
+    pollInterval = setInterval(() => { void tryRead(); }, pollMs);
   });
 }
 
@@ -219,7 +246,13 @@ export async function waitForAnyFile(
   dir: string,
   predicate: (filename: string) => boolean,
   timeoutMs = WAIT_FOR_DEFAULT_BUDGET_MS,
+  opts?: {
+    watcherFactory?: WatcherFactory;
+    pollIntervalMs?: number;
+  },
 ): Promise<string> {
+  const pollMs = opts?.pollIntervalMs ?? 100;
+
   // initial check
   try {
     const files = await readdir(dir);
@@ -243,14 +276,24 @@ export async function waitForAnyFile(
 
   return new Promise<string>((resolve, reject) => {
     let resolved = false;
+    let watcher: Watcher | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let pollInterval: ReturnType<typeof setInterval> | undefined;
+
+    const cleanup = (): void => {
+      if (timer) clearTimeout(timer);
+      if (pollInterval) clearInterval(pollInterval);
+      if (watcher) watcher.close().catch(() => { /* silent: cleanup */ });
+    };
+
     const onSettle = (val: string | Error): void => {
       if (resolved) return;
       resolved = true;
-      clearTimeout(timer);
-      watcher.close().catch(() => { /* silent: cleanup */ });
+      cleanup();
       if (val instanceof Error) reject(val);
       else resolve(val);
     };
+
     const tryCheck = async (): Promise<void> => {
       try {
         const files = await readdir(dir);
@@ -260,24 +303,26 @@ export async function waitForAnyFile(
         if ((e as NodeJS.ErrnoException).code !== 'ENOENT') onSettle(e as Error);
       }
     };
-    const watcher = createWatcher(
-      dir,
-      (event) => {
-        if (event.type === 'add' || event.type === 'change') {
-          const filename = path.basename(event.path);
-          if (predicate(filename)) void tryCheck();
-        }
-      },
-      {
-        persistent: false,
-        stability: 'immediate',
-        recursive: false,
-        onReady: () => { void tryCheck(); },
-      },
-    );
-    const timer = setTimeout(
+
+    timer = setTimeout(
       () => onSettle(new Error(`waitForAnyFile timeout: no file matching predicate in ${dir} after ${timeoutMs}ms`)),
       timeoutMs,
     );
+
+    // Optional watcher as low-latency event source; polling is the safety net.
+    if (opts?.watcherFactory) {
+      watcher = opts.watcherFactory(
+        dir,
+        (event) => {
+          if (event.type === 'add' || event.type === 'change') {
+            const filename = path.basename(event.path);
+            if (predicate(filename)) void tryCheck();
+          }
+        },
+        { persistent: false, stability: 'immediate', recursive: false },
+      );
+    }
+
+    pollInterval = setInterval(() => { void tryCheck(); }, pollMs);
   });
 }

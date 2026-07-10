@@ -427,31 +427,34 @@ describe('Task System + SubAgent', () => {
         content: [{ type: 'text', text: 'done' }],
         stop_reason: 'end_turn',
       }]), { createWatcher: patchedWatcher });
-      await failSystem.initialize();
-      failSystem.startDispatch();
+      try {
+        await failSystem.initialize();
+        failSystem.startDispatch();
 
-      const taskId = await failSystem.scheduleSubAgent({
-        kind: 'subagent',
-        mode: 'standard',
-        intent: 'test fallback',
-        timeoutMs: SUBAGENT_LONG_TIMEOUT_MS,
-        maxSteps: 5,
-        parentClawId: 'test-claw',
-      });
+        const taskId = await failSystem.scheduleSubAgent({
+          kind: 'subagent',
+          mode: 'standard',
+          intent: 'test fallback',
+          timeoutMs: SUBAGENT_LONG_TIMEOUT_MS,
+          maxSteps: 5,
+          parentClawId: 'test-claw',
+        });
 
-      await waitForAnyFile(path.join(ctx.tempDir, 'inbox', 'pending'), (f) => f.endsWith('.md'), 15000);
-      await failSystem.shutdown(1000);
+        await waitForAnyFile(path.join(ctx.tempDir, 'inbox', 'pending'), (f) => f.endsWith('.md'), 15000);
 
-      // fallback 消息应该存在于 inbox
-      const inboxDir = path.join(ctx.tempDir, 'inbox', 'pending');
-      const files = await fs.readdir(inboxDir).catch(() => [] as string[]);
-      const mdFiles = (files as string[]).filter(f => f.endsWith('.md'));
-      expect(mdFiles.length).toBeGreaterThan(0);
+        // fallback 消息应该存在于 inbox
+        const inboxDir = path.join(ctx.tempDir, 'inbox', 'pending');
+        const files = await fs.readdir(inboxDir).catch(() => [] as string[]);
+        const mdFiles = (files as string[]).filter(f => f.endsWith('.md'));
+        expect(mdFiles.length).toBeGreaterThan(0);
 
-      // fallback 消息包含 taskId 和 is_error
-      const content = await fs.readFile(path.join(inboxDir, mdFiles[0]), 'utf-8');
-      expect(content).toContain(taskId);
-      expect(content).toContain('is_error');
+        // fallback 消息包含 taskId 和 is_error
+        const content = await fs.readFile(path.join(inboxDir, mdFiles[0]), 'utf-8');
+        expect(content).toContain(taskId);
+        expect(content).toContain('is_error');
+      } finally {
+        await failSystem.shutdown(1000).catch(() => {});
+      }
     });
 
     test('should write fallback inbox message when movePendingToRunning fails', async ({ ctx }) => {
@@ -470,37 +473,40 @@ describe('Task System + SubAgent', () => {
         content: [{ type: 'text', text: 'done' }],
         stop_reason: 'end_turn',
       }]), { createWatcher: patchedWatcher });
-      await failSystem.initialize();
-      failSystem.startDispatch();
+      try {
+        await failSystem.initialize();
+        failSystem.startDispatch();
 
-      const taskId = await failSystem.scheduleSubAgent({
-        kind: 'subagent',
-        mode: 'standard',
-        intent: 'test move failure',
-        timeoutMs: SUBAGENT_LONG_TIMEOUT_MS,
-        maxSteps: 5,
-        parentClawId: 'test-claw',
-      });
+        const taskId = await failSystem.scheduleSubAgent({
+          kind: 'subagent',
+          mode: 'standard',
+          intent: 'test move failure',
+          timeoutMs: SUBAGENT_LONG_TIMEOUT_MS,
+          maxSteps: 5,
+          parentClawId: 'test-claw',
+        });
 
-      const inboxDir = path.join(ctx.tempDir, 'inbox', 'pending');
-      // phase 368: staged event-driven 替原 compound polling predicate
-      const _inboxName = await waitForAnyFile(inboxDir, (f) => f.endsWith('.md'), 15000);
-      // taskId + is_error 同时出现的 regex（content.includes 两词 → 任一顺序）
-      await waitForCompleteFile(
-        path.join(inboxDir, _inboxName),
-        new RegExp(`(?=.*is_error)(?=.*${taskId.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')})`, 's'),
-        15000,
-      );
-      await failSystem.shutdown(1000);
+        const inboxDir = path.join(ctx.tempDir, 'inbox', 'pending');
+        // phase 368: staged event-driven 替原 compound polling predicate
+        const _inboxName = await waitForAnyFile(inboxDir, (f) => f.endsWith('.md'), 15000);
+        // taskId + is_error 同时出现的 regex（content.includes 两词 → 任一顺序）
+        await waitForCompleteFile(
+          path.join(inboxDir, _inboxName),
+          new RegExp(`(?=.*is_error)(?=.*${taskId.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')})`, 's'),
+          15000,
+        );
 
-      // _startTask catch 应该发了 fallback 通知
-      const files = await fs.readdir(inboxDir).catch(() => [] as string[]);
-      const mdFiles = (files as string[]).filter(f => f.endsWith('.md'));
-      expect(mdFiles.length).toBeGreaterThan(0);
+        // _startTask catch 应该发了 fallback 通知
+        const files = await fs.readdir(inboxDir).catch(() => [] as string[]);
+        const mdFiles = (files as string[]).filter(f => f.endsWith('.md'));
+        expect(mdFiles.length).toBeGreaterThan(0);
 
-      const content = await fs.readFile(path.join(inboxDir, mdFiles[0]), 'utf-8');
-      expect(content).toContain(taskId);
-      expect(content).toContain('is_error');
+        const content = await fs.readFile(path.join(inboxDir, mdFiles[0]), 'utf-8');
+        expect(content).toContain(taskId);
+        expect(content).toContain('is_error');
+      } finally {
+        await failSystem.shutdown(1000).catch(() => {});
+      }
     });
 
     test('should write TASK_SHUTDOWN_TIMEOUT audit event when shutdown times out', async ({ ctx }) => {
