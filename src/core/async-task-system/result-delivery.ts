@@ -12,7 +12,7 @@ import {
 } from './audit-emit.js';
 import { TASKS_QUEUES_RESULTS_DIR } from './dirs.js';
 
-import type { SubAgentTask, ToolTask, FullTaskId } from './types.js';
+import type { SubAgentTask, ToolTask, FullTaskId, ShortTaskId } from './types.js';
 import { deriveShortIdFromTaskId, taskShortId } from './types.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { TaskId } from './types.js';
@@ -22,14 +22,19 @@ import type { TaskId } from './types.js';
 export const SENT_MARKER = (taskId: TaskId): string =>
   `${TASKS_QUEUES_RESULTS_DIR}/${taskId}/result.txt.sent`;
 
-async function writeSentMarker(fs: FileSystem, auditWriter: AuditLog, taskId: TaskId): Promise<void> {
+async function writeSentMarker(
+  fs: FileSystem,
+  auditWriter: AuditLog,
+  taskId: TaskId,
+  shortId?: ShortTaskId,
+): Promise<void> {
   try {
     await fs.writeAtomic(SENT_MARKER(taskId), '1');
   } catch (markerErr) {
     // 不 throw：marker 写失败仅影响 future recovery 重发 → at-least-once 投递（≤ 10ms race window 已 design ratify ⚓ accepted-stable by phase 875、consumer 容忍重发、详 design/modules/l4_async_task_system.md §7.B B.sent-marker-residual-race-window）
     emitResultWriteFailed(auditWriter, {
       fullTaskId: taskId as FullTaskId,
-      shortTaskId: deriveShortIdFromTaskId(taskId),
+      shortTaskId: shortId ?? deriveShortIdFromTaskId(taskId),
       context: 'sent_marker_persist_failed',
       error: formatErr(markerErr),
     });
@@ -40,6 +45,7 @@ interface SendResultCoreParams {
   fs: FileSystem;
   auditWriter: AuditLog;
   taskId: TaskId;
+  shortId: ShortTaskId;
   parentClawId: string;
   fullContent: string;
   buildInlineJson: () => string;
@@ -78,7 +84,7 @@ async function sendResultCore(p: SendResultCoreParams): Promise<void> {
   } catch (writeErr) {
     emitResultWriteFailed(p.auditWriter, {
       fullTaskId: p.taskId as FullTaskId,
-      shortTaskId: deriveShortIdFromTaskId(p.taskId),
+      shortTaskId: p.shortId,
       context: p.auditContexts.initialWrite,
       error: formatErr(writeErr),
     });
@@ -105,7 +111,7 @@ async function sendResultCore(p: SendResultCoreParams): Promise<void> {
       await p.fs.delete(resultRef).catch((delErr) => {
         emitResultWriteFailed(p.auditWriter, {
           fullTaskId: p.taskId as FullTaskId,
-          shortTaskId: deriveShortIdFromTaskId(p.taskId),
+          shortTaskId: p.shortId,
           context: p.auditContexts.orphanDelete,
           error: formatErr(delErr),
         });
@@ -113,13 +119,13 @@ async function sendResultCore(p: SendResultCoreParams): Promise<void> {
       try {
         await writeInboxAsync(p.fs, INBOX_PENDING_DIR, { ...baseMsg, content: inlineContent }, p.auditWriter);
         if (p.writeMarkerOnSuccess) {
-          await writeSentMarker(p.fs, p.auditWriter, p.taskId);
+          await writeSentMarker(p.fs, p.auditWriter, p.taskId, p.shortId);
         }
         return;
       } catch (inlineErr) {
         emitInboxWriteFailed(p.auditWriter, {
           fullTaskId: p.taskId as FullTaskId,
-          shortTaskId: deriveShortIdFromTaskId(p.taskId),
+          shortTaskId: p.shortId,
           context: 'inline_fallback_failed',
           error: formatErr(inlineErr),
         });
@@ -127,7 +133,7 @@ async function sendResultCore(p: SendResultCoreParams): Promise<void> {
     }
     emitInboxWriteFailed(p.auditWriter, {
       fullTaskId: p.taskId as FullTaskId,
-      shortTaskId: deriveShortIdFromTaskId(p.taskId),
+      shortTaskId: p.shortId,
       error: formatErr(err),
     });
     throw err;
@@ -137,7 +143,7 @@ async function sendResultCore(p: SendResultCoreParams): Promise<void> {
     // phase 789 (audit-2026-05-14 P0.19): SENT_MARKER = "parent inbox has
     // received at least one notification for this task" idempotency token;
     // recovery checks the marker to decide whether to skip re-send.
-    await writeSentMarker(p.fs, p.auditWriter, p.taskId);
+    await writeSentMarker(p.fs, p.auditWriter, p.taskId, p.shortId);
   }
 }
 
@@ -155,21 +161,23 @@ export async function sendToolResult(
   isError: boolean,
 ): Promise<void> {
   const fullContent = typeof result === 'string' ? result : result.content;
+  const shortId = taskShortId(task);
   await sendResultCore({
     fs,
     auditWriter,
     taskId: task.id,
+    shortId,
     parentClawId: task.parentClawId,
     fullContent,
     buildInlineJson: () => JSON.stringify({
-      taskId: taskShortId(task),
+      taskId: shortId,
       fullTaskId: task.id as FullTaskId,
       toolName: task.toolName,
       result: fullContent,
       is_error: isError,
     }),
     buildRefJson: (resultRef, summary) => JSON.stringify({
-      taskId: taskShortId(task),
+      taskId: shortId,
       fullTaskId: task.id as FullTaskId,
       toolName: task.toolName,
       summary,
@@ -194,20 +202,22 @@ export async function sendResult(
   result: string,
   isError: boolean,
 ): Promise<void> {
+  const shortId = taskShortId(task);
   await sendResultCore({
     fs,
     auditWriter,
     taskId: task.id,
+    shortId,
     parentClawId: task.parentClawId,
     fullContent: result,
     buildInlineJson: () => JSON.stringify({
-      taskId: taskShortId(task),
+      taskId: shortId,
       fullTaskId: task.id as FullTaskId,
       result,
       is_error: isError,
     }),
     buildRefJson: (resultRef, summary) => JSON.stringify({
-      taskId: taskShortId(task),
+      taskId: shortId,
       fullTaskId: task.id as FullTaskId,
       summary,
       resultRef,
@@ -260,6 +270,6 @@ export async function sendFallbackError(
         });
       }
     });
-    await writeSentMarker(fs, auditWriter, task.id);
+    await writeSentMarker(fs, auditWriter, task.id, taskShortId(task));
   }
 }
