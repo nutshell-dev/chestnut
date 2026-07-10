@@ -50,6 +50,7 @@ describe('listMigratedExecTasks', () => {
     const task = {
       kind: 'tool',
       id: taskId,
+      shortId: taskId,
       toolName: 'exec',
       args: { command: 'echo hello' },
       parentClawDir: '/test',

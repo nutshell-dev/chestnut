@@ -29,6 +29,7 @@ function makeMockFsForS1(opts: { moveReject?: boolean; deleteReject?: boolean } 
       kind: 'subagent',
       mode: 'standard',
       id: 'task-1',
+      shortId: 'task1',
       intent: 'test',
       timeoutMs: SUBAGENT_SHORT_TIMEOUT_MS,
       maxSteps: 1,
@@ -165,6 +166,7 @@ describe('phase 541: silent catch fixes', () => {
         sendToolResult(mockFs, audit, {
           kind: 'tool',
           id: 'tool-1',
+          shortId: 'tool1',
           toolName: 'read',
           args: {},
           parentClawDir: '/tmp',

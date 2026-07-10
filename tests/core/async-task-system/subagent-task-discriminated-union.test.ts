@@ -12,6 +12,7 @@ import { describe, it, expect } from 'vitest';
 import type { SubAgentTask } from '../../../src/core/async-task-system/system.js';
 import { SubAgentTaskSchema } from '../../../src/core/async-task-system/task-schemas.js';
 import { executeSubAgentTask } from '../../../src/core/async-task-system/subagent-executor.js';
+import { makeShortTaskId } from '../../../src/core/async-task-system/types.js';
 
 // 反向 1 — tsc enforce 非法组合（compile-time）
 describe('SubAgentTask discriminated union (phase 1185)', () => {
@@ -53,6 +54,7 @@ describe('SubAgentTask discriminated union (phase 1185)', () => {
       intent: 'hi',
       kind: 'subagent',
       id: 't3',
+      shortId: makeShortTaskId('shortt3'),
       timeoutMs: 60_000,
       maxSteps: 10,
       parentClawId: 'c1',
@@ -67,6 +69,7 @@ describe('SubAgentTask discriminated union (phase 1185)', () => {
       intent: 'do Z',
       kind: 'subagent',
       id: 't4',
+      shortId: makeShortTaskId('shortt4'),
       timeoutMs: 60_000,
       maxSteps: 10,
       parentClawId: 'c1',
@@ -97,6 +100,7 @@ describe('SubAgentTaskSchema phase 311 strict (no silent preprocess)', () => {
       kind: 'subagent',
       mode: 'shadow',
       id: 'shadow-task',
+      shortId: 'shadowid',
       shadowMessages: [{ role: 'user', content: 'hi' }],
       intent: 'hi',
       timeoutMs: 60_000,

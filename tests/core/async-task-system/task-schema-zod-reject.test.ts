@@ -38,6 +38,7 @@ describe('phase 1019 r124 E fork: TaskMeta zod strict schema', () => {
       kind: 'subagent',
       mode: 'standard',
       id: 'task-3',
+      shortId: 'task3short',
       intent: 'do something',
       timeoutMs: SUBAGENT_DEFAULT_TIMEOUT_MS,
       maxSteps: 10,

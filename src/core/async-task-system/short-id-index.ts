@@ -67,7 +67,23 @@ export class PersistentShortIdIndex implements ShortIdIndex {
   load(auditWriter?: ShortIdIndexAuditWriter): void {
     try {
       const raw = this.fs.readSync(INDEX_PATH);
-      this.map = JSON.parse(raw) as ShortIdMap;
+      const parsed: unknown = JSON.parse(raw);
+
+      // Phase 867: validate index schema — reject null / arrays / non-object roots
+      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error('ShortIdIndex: root must be a plain object');
+      }
+      const map = parsed as Record<string, unknown>;
+      for (const [key, value] of Object.entries(map)) {
+        if (key.length !== 8 || !/^[0-9a-f]{8}$/.test(key)) {
+          throw new Error(`ShortIdIndex: invalid shortId key "${key}"`);
+        }
+        if (typeof value !== 'string' || value.length !== 36) {
+          throw new Error(`ShortIdIndex: invalid fullId value for "${key}": ${String(value)}`);
+        }
+      }
+
+      this.map = parsed as ShortIdMap;
       this.needsRebuild = false;
     } catch (e: unknown) {
       if (isFileNotFound(e)) {
@@ -145,29 +161,23 @@ export class PersistentShortIdIndex implements ShortIdIndex {
         try {
           const raw = fs.readSync(`${dir}/${entry.name}`);
           const task = JSON.parse(raw) as Record<string, unknown>;
-          const taskIdFromFile = entry.name.replace(/\.json$/, '');
           const storedId = task.id as string | undefined;
+          const storedShortId = task.shortId as string | undefined;
           if (!storedId) continue;
 
           let fullId: FullTaskId;
           let shortId: ShortTaskId;
 
-          if (taskIdFromFile.length === 36) {
-            // File already migrated — filename is authoritative fullId
-            fullId = makeFullTaskId(taskIdFromFile);
-            if (storedId.length === 8) {
-              // Content still has legacy shortId → preserve it
-              shortId = makeShortTaskId(storedId);
-            } else {
-              // Content already has UUID → derive
-              shortId = this.deriveShortId(fullId);
-            }
+          if (storedShortId && storedId.length === 36) {
+            // Phase 867+: explicit dual-key — authoritative
+            fullId = makeFullTaskId(storedId);
+            shortId = makeShortTaskId(storedShortId);
           } else if (storedId.length === 36) {
-            // Legacy filename, but content already has UUID
+            // Pre-867 UUID task without explicit shortId → derive
             fullId = makeFullTaskId(storedId);
             shortId = this.deriveShortId(fullId);
           } else {
-            // Both are 8-char — true legacy task
+            // Legacy 8-char task — preserve id as shortId, generate fullId
             shortId = makeShortTaskId(storedId);
             fullId = makeFullTaskId(newUuid());
           }

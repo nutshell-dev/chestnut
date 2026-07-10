@@ -193,10 +193,10 @@ describe('PersistentShortIdIndex', () => {
     expect(index.deriveShortId(resolved!)).not.toBe('abcdef12'); // fullId 前 8 位 ≠ 原 shortId
   });
 
-  it('rebuildFromDisk is idempotent across two runs', () => {
+  it('rebuildFromDisk is idempotent across two runs after migration writes shortId', () => {
     const runningDir = path.join(tmpDir, 'tasks', 'queues', 'running');
     fs.mkdirSync(runningDir, { recursive: true });
-    // Legacy task: 8-char filename + 8-char content id
+    // Legacy task: 8-char filename + 8-char content id, no shortId
     fs.writeFileSync(path.join(runningDir, 'abcdef12.json'), JSON.stringify({
       kind: 'tool', id: 'abcdef12', toolName: 'exec',
       args: { command: 'echo hi' },
@@ -217,26 +217,34 @@ describe('PersistentShortIdIndex', () => {
     const index1 = new PersistentShortIdIndex(fsFactory(tmpDir));
     index1.rebuildFromDisk(makeFs());
     const fullId1 = index1.resolve('abcdef12');
+    expect(fullId1).toBeDefined();
 
-    // Simulate migration move (e.g. movePendingToRunning) renaming file to UUID filename
-    fs.renameSync(path.join(runningDir, 'abcdef12.json'), path.join(runningDir, `${fullId1}.json`));
+    // Simulate migration move (movePendingToRunning): rename to UUID filename
+    // AND migrate JSON content to persist id + shortId (Phase 867)
+    const legacyPath = path.join(runningDir, 'abcdef12.json');
+    const migratedPath = path.join(runningDir, `${fullId1}.json`);
+    fs.renameSync(legacyPath, migratedPath);
+    const migratedTask = JSON.parse(fs.readFileSync(migratedPath, 'utf-8'));
+    migratedTask.id = fullId1;
+    migratedTask.shortId = 'abcdef12';
+    fs.writeFileSync(migratedPath, JSON.stringify(migratedTask));
 
-    // Second rebuild — must return the same mapping
+    // Second rebuild — explicit shortId field gives same mapping
     const index2 = new PersistentShortIdIndex(fsFactory(tmpDir));
     index2.rebuildFromDisk(makeFs());
     const fullId2 = index2.resolve('abcdef12');
 
-    expect(fullId1).toBeDefined();
     expect(fullId2).toBe(fullId1);
   });
 
-  it('rebuildFromDisk handles migrated file (UUID filename + 8-char content)', () => {
+  it('rebuildFromDisk uses explicit shortId field when present', () => {
     const runningDir = path.join(tmpDir, 'tasks', 'queues', 'running');
     fs.mkdirSync(runningDir, { recursive: true });
+    // Phase 867 format: id is UUID, shortId is explicit 8-char (different from deriveShortId(fullId))
     const fullId = '550e8400-e29b-41d4-a716-446655440000';
-    // Simulates post-migration state: UUID filename, but content id still 8-char
+    const explicitShortId = 'abcdef12'; // different from deriveShortId(fullId) = '550e8400'
     fs.writeFileSync(path.join(runningDir, `${fullId}.json`), JSON.stringify({
-      kind: 'tool', id: 'abcdef12', toolName: 'exec',
+      kind: 'tool', id: fullId, shortId: explicitShortId, toolName: 'exec',
       args: { command: 'echo hi' },
       parentClawDir: '/t', parentClawId: 'p',
       createdAt: new Date().toISOString(),
@@ -254,8 +262,87 @@ describe('PersistentShortIdIndex', () => {
     const index = new PersistentShortIdIndex(fsFactory(tmpDir));
     index.rebuildFromDisk(makeFs());
 
-    // shortId should be from content (abcdef12), fullId from filename
-    expect(index.has('abcdef12')).toBe(true);
-    expect(index.resolve('abcdef12')).toBe(makeFullTaskId(fullId));
+    expect(index.has(explicitShortId)).toBe(true);
+    expect(index.resolve(explicitShortId)).toBe(makeFullTaskId(fullId));
+    // Should NOT use derived shortId '550e8400'
+    expect(index.has('550e8400')).toBe(false);
+  });
+
+  it('full legacy transition: 8-char task → move → migrate → rebuild', () => {
+    const runningDir = path.join(tmpDir, 'tasks', 'queues', 'running');
+    fs.mkdirSync(runningDir, { recursive: true });
+    // 1. Create legacy task (8-char filename + 8-char id, no shortId)
+    const shortId = 'abcdef12';
+    fs.writeFileSync(path.join(runningDir, `${shortId}.json`), JSON.stringify({
+      kind: 'tool', id: shortId, toolName: 'exec',
+      args: { command: 'echo hi' },
+      parentClawDir: '/t', parentClawId: 'p',
+      createdAt: new Date().toISOString(),
+      isIdempotent: false, maxRetries: 2, retryCount: 0,
+    }));
+
+    const makeFs = () => ({
+      existsSync: (p: string) => fs.existsSync(path.join(tmpDir, p)),
+      listSync: (p: string, opts?: { includeDirs?: boolean }) =>
+        fs.readdirSync(path.join(tmpDir, p), { withFileTypes: true })
+          .filter(d => !opts?.includeDirs || !d.isDirectory()).map(d => ({ name: d.name })),
+      readSync: (p: string) => fs.readFileSync(path.join(tmpDir, p), 'utf-8'),
+    });
+
+    // 2. rebuildFromDisk → register in index
+    const index1 = new PersistentShortIdIndex(fsFactory(tmpDir));
+    index1.rebuildFromDisk(makeFs());
+    const fullId = index1.resolve(shortId);
+    expect(fullId).toBeDefined();
+    expect(fullId!.length).toBe(36);
+
+    // 3. Simulate move: rename file to UUID name, run migration (write id + shortId)
+    const legacyPath = path.join(runningDir, `${shortId}.json`);
+    const migratedPath = path.join(runningDir, `${fullId}.json`);
+    fs.renameSync(legacyPath, migratedPath);
+    const migratedTask = JSON.parse(fs.readFileSync(migratedPath, 'utf-8'));
+    migratedTask.id = fullId;
+    migratedTask.shortId = shortId;
+    fs.writeFileSync(migratedPath, JSON.stringify(migratedTask));
+
+    // 4. Persist and then delete index file to force a clean rebuild
+    index1.save();
+    const indexPath = path.join(tmpDir, 'tasks', 'queues', 'short-id-map.json');
+    fs.unlinkSync(indexPath);
+
+    // 5. rebuildFromDisk again → verify same shortId → same fullId
+    const index2 = new PersistentShortIdIndex(fsFactory(tmpDir));
+    index2.rebuildFromDisk(makeFs());
+    expect(index2.resolve(shortId)).toBe(fullId);
+  });
+
+  it('load rejects null index → needsRebuild', () => {
+    fs.writeFileSync(path.join(tmpDir, 'tasks', 'queues', 'short-id-map.json'), 'null');
+    const index = new PersistentShortIdIndex(fsFactory(tmpDir));
+    index.load();
+    expect(index.needsRebuild).toBe(true);
+  });
+
+  it('load rejects array index → needsRebuild', () => {
+    fs.writeFileSync(path.join(tmpDir, 'tasks', 'queues', 'short-id-map.json'), '[]');
+    const index = new PersistentShortIdIndex(fsFactory(tmpDir));
+    index.load();
+    expect(index.needsRebuild).toBe(true);
+  });
+
+  it('load rejects invalid UUID value → needsRebuild', () => {
+    fs.writeFileSync(path.join(tmpDir, 'tasks', 'queues', 'short-id-map.json'),
+      JSON.stringify({ abcdef12: 'not-a-uuid' }));
+    const index = new PersistentShortIdIndex(fsFactory(tmpDir));
+    index.load();
+    expect(index.needsRebuild).toBe(true);
+  });
+
+  it('load rejects invalid shortId key → needsRebuild', () => {
+    fs.writeFileSync(path.join(tmpDir, 'tasks', 'queues', 'short-id-map.json'),
+      JSON.stringify({ badkey: '550e8400-e29b-41d4-a716-446655440000' }));
+    const index = new PersistentShortIdIndex(fsFactory(tmpDir));
+    index.load();
+    expect(index.needsRebuild).toBe(true);
   });
 });
