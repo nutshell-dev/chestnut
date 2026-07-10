@@ -143,9 +143,20 @@ export function createEventHandler(deps: EventHandlerDeps) {
         break;
       }
 
-      case 'text_end':
-        // no-op: keep cursor (▋) visible until tool_call/turn_end flushes
+      case 'text_end': {
+        deps.mainUI.enterPhase('streaming_text');
+        const streamBuf = deps.mainUI.appendToBuffer('');
+        if (!streamBuf) break;
+        const dotPrefix = '\x1b[38;5;232m⏺\x1b[0m ';
+        const indent = '  ';
+        const clean = streamBuf.endsWith('▋') ? streamBuf.slice(0, -1) : streamBuf;
+        const previewText = clean
+          .split('\n')
+          .map((line: string, i: number) => (i === 0 ? dotPrefix : indent) + line)
+          .join('\n');
+        deps.mainUI.setPreview(previewText);
         break;
+      }
 
       case 'tool_call': {
         deps.mainUI.flushThinking();
