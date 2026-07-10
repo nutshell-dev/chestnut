@@ -45,13 +45,26 @@ export function deriveShortIdFromTaskId(taskId: TaskId): ShortTaskId {
 }
 
 export interface ShortIdIndex {
-  load(): void;
+  needsRebuild: boolean;
+  load(auditWriter?: { write: (event: string, payload: Record<string, unknown>) => void }): void;
   save(): void;
   has(shortId: string): boolean;
-  add(shortId: ShortTaskId, fullId: FullTaskId): void;
+  add(
+    shortId: ShortTaskId,
+    fullId: FullTaskId,
+    auditWriter?: { write: (event: string, payload: Record<string, unknown>) => void },
+  ): void;
   delete(shortId: ShortTaskId): void;
   resolve(shortId: string): FullTaskId | undefined;
   deriveShortId(fullId: FullTaskId): ShortTaskId;
+  rebuildFromDisk(
+    fs: {
+      existsSync(path: string): boolean;
+      listSync(path: string, opts?: { includeDirs?: boolean }): Array<{ name: string }>;
+      readSync(path: string): string;
+    },
+    auditWriter?: { write: (event: string, payload: Record<string, unknown>) => void },
+  ): void;
 }
 
 export interface AsyncTaskSystemOptions {

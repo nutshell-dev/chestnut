@@ -219,6 +219,15 @@ export class AsyncTaskSystem {
     };
   }
 
+  private get shortIdIndexAuditWriter() {
+    return {
+      write: (event: string, payload: Record<string, unknown>) => {
+        const cols = Object.entries(payload).map(([key, value]) => `${key}=${String(value)}`);
+        this.auditWriter?.write(event, ...cols);
+      },
+    };
+  }
+
   async initialize(): Promise<void> {
     // Ensure task directories exist
     await this.fs.ensureDir(TASKS_QUEUES_PENDING_DIR);
@@ -227,35 +236,10 @@ export class AsyncTaskSystem {
     await this.fs.ensureDir(TASKS_QUEUES_FAILED_DIR);
     await this.fs.ensureDir(TASKS_QUEUES_RESULTS_DIR);
 
-    // Phase 849: load shortId ↔ fullId index from disk
-    this.shortIdIndex.load();
-
-    // Phase 849: lazy migration — register existing 8-char task IDs in ShortIdIndex.
-    // Files are not renamed; they will be renamed on the next state transition.
-    // Guard: some test mocks do not implement sync listing methods.
-    if (typeof this.fs.existsSync === 'function' && typeof this.fs.listSync === 'function') {
-      for (const dir of [TASKS_QUEUES_PENDING_DIR, TASKS_QUEUES_RUNNING_DIR, TASKS_QUEUES_DONE_DIR, TASKS_QUEUES_FAILED_DIR]) {
-        if (!this.fs.existsSync(dir)) continue;
-        for (const entry of this.fs.listSync(dir, { includeDirs: false })) {
-          if (!entry.name.endsWith('.json')) continue;
-          const taskId = entry.name.replace(/\.json$/, '');
-          if (taskId.length !== 8) continue;
-          if (this.shortIdIndex.has(taskId)) continue;
-          try {
-            const raw = this.fs.readSync(`${dir}/${entry.name}`);
-            const task = JSON.parse(raw) as Record<string, unknown>;
-            const storedId = task.id as string | undefined;
-            if (storedId && storedId.length === 36) {
-              this.shortIdIndex.add(taskId as ShortTaskId, makeFullTaskId(storedId));
-            } else {
-              const fullId = makeFullTaskId(newUuid());
-              this.shortIdIndex.add(taskId as ShortTaskId, fullId);
-            }
-          } catch {
-            // Corrupted file — skip, will be handled by recovery
-          }
-        }
-      }
+    // Phase 849/854: load shortId ↔ fullId index from disk, rebuild if needed
+    this.shortIdIndex.load(this.shortIdIndexAuditWriter);
+    if (this.shortIdIndex.needsRebuild) {
+      this.shortIdIndex.rebuildFromDisk(this.fs, this.shortIdIndexAuditWriter);
       this.shortIdIndex.save();
     }
 
