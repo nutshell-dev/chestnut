@@ -10,6 +10,7 @@ import type { LLMResponse } from './types.js';
 import { assertContentBlocks } from './_block-guards.js';
 import { LLM_PROVIDER_AUDIT_EVENTS } from './audit-events.js';
 import { sanitizeForLLMCall } from './sanitize.js';
+import { THINKING_TOKEN_RESERVE } from './constants.js';
 
 // phase 194: Anthropic format 路径专用 model→max_tokens 查表 fallback
 // 用户未在 config 显式设 max_tokens 时由 adapter 自决（API 必填、必须给值）
@@ -58,6 +59,27 @@ export abstract class BaseAnthropicAdapter implements ProviderAdapter {
 
   protected get providerName(): string {
     return this.name;
+  }
+
+  /**
+   * 返回实际生效的 thinking budget，或 undefined（thinking 未启用 / adaptive 模式）。
+   * 与 buildRequestBody 中的判断逻辑保持一致（single source of truth）。
+   */
+  protected getEffectiveThinkingBudget(maxTokens: number): number | undefined {
+    if (!this.config.thinking) return undefined;
+
+    const mode = this.config.thinkingMode ?? 'adaptive';
+
+    // 官方 adapter：adaptive 模式不设 budget_tokens
+    if (mode === 'adaptive') {
+      // custom adapter 不支持 adaptive（only enabled），但基类通用判断
+      // 由子类覆盖决定
+      return undefined;
+    }
+
+    // enabled 模式：用户显式配置 或 默认 max_tokens - RESERVE
+    return this.config.thinkingBudgetTokens
+      ?? Math.max(1, maxTokens - THINKING_TOKEN_RESERVE);
   }
 
   /**
