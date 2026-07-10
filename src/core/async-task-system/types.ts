@@ -39,6 +39,11 @@ export function makeShortTaskId(s: string): ShortTaskId { return s as ShortTaskI
 /** @deprecated Use makeFullTaskId or makeShortTaskId. */
 export function makeTaskId(s: string): TaskId { return s as TaskId; }
 
+/** Derive the shortId from any TaskId. For FullTaskId returns first 8 chars; for legacy 8-char ids returns as-is. */
+export function deriveShortIdFromTaskId(taskId: TaskId): ShortTaskId {
+  return makeShortTaskId(taskId.length === 36 ? taskId.slice(0, 8) : taskId);
+}
+
 export interface ShortIdIndex {
   load(): void;
   save(): void;

@@ -59,7 +59,7 @@ import {
 } from './audit-emit.js';
 import type { PostProcessor } from './post-processors/types.js';
 import type { AsyncTaskSystemOptions, SubAgentTask, ToolTask, TaskKind, TaskExecutor, FullTaskId, ShortTaskId, ShortIdIndex } from './types.js';
-import { type TaskId, makeTaskId, makeFullTaskId } from './types.js';
+import { type TaskId, makeFullTaskId, deriveShortIdFromTaskId } from './types.js';
 
 
 
@@ -72,7 +72,7 @@ interface TaskState {
 export class AsyncTaskSystem {
   // Runtime execution handles only (abort controller + promise). This is NOT a memory view of
   // the running set; the fs running directory remains the authoritative running state.
-  private executingTasks: Map<string, TaskState> = new Map();
+  private executingTasks: Map<FullTaskId, TaskState> = new Map();
   private _wakeupRequested = false;
   private _wakeupResolve: (() => void) | null = null;
   private readonly maxConcurrent: number;
@@ -87,7 +87,7 @@ export class AsyncTaskSystem {
   private mainDialogStore?: DialogStore;
 
   private postProcessors: Map<string, PostProcessor> = new Map();
-  private cancellingIds: Set<string> = new Set();
+  private cancellingIds: Set<FullTaskId> = new Set();
   private readonly toolTimeoutMs?: number;
   private permissionChecker?: PermissionChecker;
   private fsFactory: (baseDir: string) => FileSystem;
@@ -132,8 +132,8 @@ export class AsyncTaskSystem {
       fs: this.fs,
       auditWriter: this.auditWriter,
       retryBaseDelayMs: this.retryBaseDelayMs,
-      moveTaskToDone: this.moveTaskToDone.bind(this),
-      moveTaskToFailed: this.moveTaskToFailed.bind(this),
+      moveTaskToDone: (id: TaskId) => this.moveTaskToDone(id),
+      moveTaskToFailed: (id: TaskId) => this.moveTaskToFailed(id),
       parentStreamLog: this.parentStreamLog,
       shortIdIndex: this.shortIdIndex,
     });
@@ -172,7 +172,8 @@ export class AsyncTaskSystem {
           await this.fs.delete(`${TASKS_QUEUES_RUNNING_DIR}/${task.id}.json`).catch((err) => {
             this.auditWriter?.write(
               TASK_AUDIT_EVENTS.RUNNING_FILE_DELETE_FAILED,
-              `task_id=${task.id}`,
+              `fullTaskId=${task.id}`,
+              `shortTaskId=${deriveShortIdFromTaskId(task.id)}`,
               `reason=${formatErr(err)}`,
             );
           });
@@ -192,8 +193,8 @@ export class AsyncTaskSystem {
           fs: this.fs,
           auditWriter: this.auditWriter,
           retryBaseDelayMs: this.retryBaseDelayMs,
-          moveTaskToDone: this.moveTaskToDone.bind(this),
-          moveTaskToFailed: this.moveTaskToFailed.bind(this),
+          moveTaskToDone: (id: TaskId) => this.moveTaskToDone(id),
+          moveTaskToFailed: (id: TaskId) => this.moveTaskToFailed(id),
         });
       },
       subagent: async (task, signal) => {
@@ -208,8 +209,8 @@ export class AsyncTaskSystem {
           parentStreamLog: this.parentStreamLog,
           postProcessors: this.postProcessors,
           mainDialogStore: this.mainDialogStore,
-          moveTaskToDone: this.moveTaskToDone.bind(this),
-          moveTaskToFailed: this.moveTaskToFailed.bind(this),
+          moveTaskToDone: (id: TaskId) => this.moveTaskToDone(id),
+          moveTaskToFailed: (id: TaskId) => this.moveTaskToFailed(id),
           toolTimeoutMs: this.toolTimeoutMs,
           permissionChecker: this.permissionChecker,
           askMotionToolFactory: this.askMotionToolFactory,
@@ -294,7 +295,8 @@ export class AsyncTaskSystem {
     await this.fs.writeAtomic(taskPath, JSON.stringify(task, null, 2));
 
     emitTaskScheduled(this.auditWriter, {
-      taskId: fullId,
+      fullTaskId: fullId,
+      shortTaskId: shortId,
       kind: taskKind,
       parent: task.parentClawId,
       maxSteps: task.maxSteps,
@@ -307,6 +309,15 @@ export class AsyncTaskSystem {
 
 
   /**
+   * Resolve any TaskId (short or full) to the canonical FullTaskId.
+   * Short IDs are looked up in the ShortIdIndex; FullTaskIds pass through.
+   */
+  private _resolveFullTaskId(taskId: TaskId): FullTaskId | undefined {
+    if (taskId.length === 36) return taskId as FullTaskId;
+    return this.shortIdIndex.resolve(taskId);
+  }
+
+  /**
    * Dedup gate: check runtime execution handles + transient cancelling set.
    * The actual pending/running authoritative state lives on fs; this gate only
    * prevents duplicate ingestion/dispatch for ids already being processed in
@@ -314,7 +325,9 @@ export class AsyncTaskSystem {
    * loop guard and fs.move atomicity.
    */
   private _isDuplicate(taskId: TaskId): boolean {
-    return this.executingTasks.has(taskId) || this.cancellingIds.has(taskId);
+    const fullId = this._resolveFullTaskId(taskId);
+    if (!fullId) return false;
+    return this.executingTasks.has(fullId) || this.cancellingIds.has(fullId);
   }
 
   /**
@@ -339,9 +352,9 @@ export class AsyncTaskSystem {
 
   /**
    * Derive pending task ids from the pending directory, excluding tasks that are
-   * currently being cancelled.
+   * currently being cancelled. Returns canonical FullTaskIds.
    */
-  private async _getPendingTaskIds(): Promise<Set<string>> {
+  private async _getPendingTaskIds(): Promise<Set<FullTaskId>> {
     let entries: Awaited<ReturnType<FileSystem['list']>>;
     try {
       entries = await this.fs.list(TASKS_QUEUES_PENDING_DIR, { includeDirs: false });
@@ -350,12 +363,16 @@ export class AsyncTaskSystem {
       if (isFileNotFound(err)) return new Set();
       throw err;
     }
-    const ids = new Set<string>();
+    const ids = new Set<FullTaskId>();
     for (const e of entries) {
       if (!e.name.endsWith('.json')) continue;
-      const id = e.name.slice(0, -5);
-      if (this.cancellingIds.has(id)) continue;
-      ids.add(id);
+      const nameId = e.name.slice(0, -5);
+      const fullId = nameId.length === 36
+        ? makeFullTaskId(nameId)
+        : this.shortIdIndex.resolve(nameId);
+      if (!fullId) continue;
+      if (this.cancellingIds.has(fullId)) continue;
+      ids.add(fullId);
     }
     return ids;
   }
@@ -376,7 +393,8 @@ export class AsyncTaskSystem {
           // schema drift / corrupt file: emit audit, skip (derive is read-only)
           this.auditWriter?.write(
             TASK_AUDIT_EVENTS.ASYNC_TASK_INVARIANT_VIOLATED,
-            `task_id=${id}`,
+            `fullTaskId=${id}`,
+            `shortTaskId=${deriveShortIdFromTaskId(id)}`,
             `context=derive_pending_corrupt`,
             `reason=load_returned_null`,
           );
@@ -385,7 +403,8 @@ export class AsyncTaskSystem {
         if (isFileNotFound(err)) continue; // race: file moved/deleted between list and read
         this.auditWriter?.write(
           TASK_AUDIT_EVENTS.ASYNC_TASK_INVARIANT_VIOLATED,
-          `task_id=${id}`,
+          `fullTaskId=${id}`,
+          `shortTaskId=${deriveShortIdFromTaskId(id)}`,
           `context=derive_pending_corrupt`,
           `error=${formatErr(err)}`,
         );
@@ -406,22 +425,26 @@ export class AsyncTaskSystem {
    * dispatcher and handles overflow by moving the file to failed/.
    */
   private async _enqueueAndDispatch(task: SubAgentTask | ToolTask): Promise<void> {
+    const fullId = task.id as FullTaskId;
+    const shortId = deriveShortIdFromTaskId(fullId);
     const pendingIds = await this._getPendingTaskIds();
     const pendingCount = pendingIds.size;
 
     // T6: PENDING_QUEUE_MAX cap check
     if (pendingCount >= PENDING_QUEUE_MAX) {
       emitPendingQueueOverflow(this.auditWriter, {
-        taskId: task.id,
+        fullTaskId: fullId,
+        shortTaskId: shortId,
         queueLength: pendingCount,
         cap: PENDING_QUEUE_MAX,
       });
       // Move file to failed/ to prevent restart watcher race re-ingest
-      const pendingPath = `${TASKS_QUEUES_PENDING_DIR}/${task.id}.json`;
-      const failedPath = `${TASKS_QUEUES_FAILED_DIR}/${task.id}.json`;
+      const pendingPath = `${TASKS_QUEUES_PENDING_DIR}/${fullId}.json`;
+      const failedPath = `${TASKS_QUEUES_FAILED_DIR}/${fullId}.json`;
       await this.fs.move(pendingPath, failedPath).catch((moveErr) => {
         emitMoveFailed(this.auditWriter, {
-          taskId: task.id,
+          fullTaskId: fullId,
+          shortTaskId: shortId,
           context: 'cap_overflow_move',
           error: formatErr(moveErr),
         });
@@ -443,14 +466,16 @@ export class AsyncTaskSystem {
             },
           });
           emitPendingQueueOverflowNotified(this.auditWriter, {
-            taskId: task.id,
+            fullTaskId: fullId,
+            shortTaskId: shortId,
             queueLength: pendingCount,
             cap: PENDING_QUEUE_MAX,
           });
           this.overflowNotified = true;   // dedup until queue drains below cap
         } catch (notifyErr) {
           emitMoveFailed(this.auditWriter, {
-            taskId: task.id,
+            fullTaskId: fullId,
+            shortTaskId: shortId,
             context: 'overflow_notify_failed',
             error: formatErr(notifyErr),
           });
@@ -473,13 +498,12 @@ export class AsyncTaskSystem {
    * Shared by watcher callback and _initialScanPending.
    */
   private async _ingestPendingFile(filePath: string): Promise<void> {
-    let taskId: TaskId | undefined;
+    let taskId: FullTaskId | undefined;
     try {
-      taskId = makeTaskId(path.basename(filePath, '.json'));
-      if (!taskId || this._isDuplicate(taskId)) return;
-
       const task = await this._loadTaskFromFile(filePath);
       if (!task) return;
+      taskId = task.id as FullTaskId;
+      if (this._isDuplicate(taskId)) return;
 
       // β race fix (phase 556 + phase 612): concurrent ingest 同 taskId 可
       // 在 _loadTaskFromFile await 间隙双通过 sync gate / cancel 也可 race ahead.
@@ -487,13 +511,13 @@ export class AsyncTaskSystem {
       // (a) cancel 期间 ghost dispatch (phase 556 β)
       // (b) concurrent ingest 双 dispatch 同 taskId (phase 612 P1.7)
       // (c) 上次 ingest 已 dispatch 但本次 await 慢于其
-      if (!taskId || this._isDuplicate(taskId)) return;
+      if (this._isDuplicate(taskId)) return;
 
       await this._enqueueAndDispatch(task);
 
       // phase 284: QC-4 only (cancellingIds subset of active) after ingest
       void auditQueueCrossSource(
-        { cancellingIds: new Set(this.cancellingIds) },
+        { cancellingIds: new Set(Array.from(this.cancellingIds).map(id => deriveShortIdFromTaskId(id))) },
         this.fs,
         this.auditWriter,
         'ingest_pending_file',
@@ -527,11 +551,11 @@ export class AsyncTaskSystem {
       // 调度所有可用任务
       while (this.executingTasks.size < this.maxConcurrent && !this._shuttingDown) {
         const pendingTasks = await this._getPendingTasks();
-        const task = pendingTasks.find(t => !this.executingTasks.has(t.id));
+        const task = pendingTasks.find(t => !this.executingTasks.has(t.id as FullTaskId));
         if (!task) break;
         const abortController = new AbortController();
         const promise = this._startTask(task, abortController.signal);
-        this.executingTasks.set(task.id, { abortController, promise });
+        this.executingTasks.set(task.id as FullTaskId, { abortController, promise });
       }
       if (this._shuttingDown) return;
       // 原子化睡眠：注册 waiter + 检查 pending flag 在 Promise constructor 内同步完成
@@ -554,11 +578,11 @@ export class AsyncTaskSystem {
     signal: AbortSignal
   ): Promise<void> {
     try {
-      await this.movePendingToRunning(task.id);
+      await this.movePendingToRunning(task.id as FullTaskId);
 
       // phase 284: QC-4 only (cancellingIds subset of active) after move
       void auditQueueCrossSource(
-        { cancellingIds: new Set(this.cancellingIds) },
+        { cancellingIds: new Set(Array.from(this.cancellingIds).map(id => deriveShortIdFromTaskId(id))) },
         this.fs,
         this.auditWriter,
         'dispatch_after_move',
@@ -570,7 +594,8 @@ export class AsyncTaskSystem {
         this.parentStreamLog?.write({
           ts: Date.now(),
           type: STREAM_TASK_EVENTS.TASK_STARTED,
-          taskId: task.id,
+          taskId: deriveShortIdFromTaskId(task.id),
+          fullTaskId: task.id,
           taskKind: 'spawn_subagent',
           silent: false,
         });
@@ -579,14 +604,18 @@ export class AsyncTaskSystem {
       await this.executors[task.kind](task, signal);
     } catch (error) {
       const errorMsg = formatErr(error);
+      const fullId = task.id as FullTaskId;
+      const shortId = deriveShortIdFromTaskId(fullId);
       emitStartFailed(this.auditWriter, {
-        taskId: task.id,
+        fullTaskId: fullId,
+        shortTaskId: shortId,
         error: formatErr(error),
       });
       // 通知 parent，避免永久挂起
       await sendFallbackError(this.fs, this.auditWriter, task, `Task failed to start: ${errorMsg}`).catch((e) => {
         emitStartFailed(this.auditWriter, {
-          taskId: task.id,
+          fullTaskId: fullId,
+          shortTaskId: shortId,
           context: 'sendFallbackError',
           error: formatErr(e),
         });
@@ -595,7 +624,7 @@ export class AsyncTaskSystem {
 
     } finally {
       // Remove from running and signal that a slot is free
-      this.executingTasks.delete(task.id);
+      this.executingTasks.delete(task.id as FullTaskId);
       this._signalWork();
     }
   }
@@ -604,38 +633,51 @@ export class AsyncTaskSystem {
    * Move task file from pending to running directory
    */
   private async movePendingToRunning(taskId: TaskId): Promise<void> {
+    const fullId = this._resolveFullTaskId(taskId);
+    if (!fullId) {
+      throw new Error(`[INVARIANT VIOLATION] movePendingToRunning: cannot resolve ${taskId}`);
+    }
+    const shortId = deriveShortIdFromTaskId(fullId);
     await this.fs.move(
-      `${TASKS_QUEUES_PENDING_DIR}/${taskId}.json`,
-      `${TASKS_QUEUES_RUNNING_DIR}/${taskId}.json`
+      `${TASKS_QUEUES_PENDING_DIR}/${fullId}.json`,
+      `${TASKS_QUEUES_RUNNING_DIR}/${fullId}.json`
     );
-    emitTaskStarted(this.auditWriter, { taskId });
+    emitTaskStarted(this.auditWriter, { fullTaskId: fullId, shortTaskId: shortId });
   }
 
   /**
    * Move task file from running to done
    */
   private async moveTaskToDone(taskId: TaskId): Promise<void> {
+    const fullId = this._resolveFullTaskId(taskId);
+    if (!fullId) {
+      throw new Error(`[INVARIANT VIOLATION] moveTaskToDone: cannot resolve ${taskId}`);
+    }
+    const shortId = deriveShortIdFromTaskId(fullId);
     try {
       await this.fs.move(
-        `${TASKS_QUEUES_RUNNING_DIR}/${taskId}.json`,
-        `${TASKS_QUEUES_DONE_DIR}/${taskId}.json`
+        `${TASKS_QUEUES_RUNNING_DIR}/${fullId}.json`,
+        `${TASKS_QUEUES_DONE_DIR}/${fullId}.json`
       );
       this.auditWriter.write(
         TASK_AUDIT_EVENTS.TASK_MOVED,
-        `taskId=${taskId}`,
+        `fullTaskId=${fullId}`,
+        `shortTaskId=${shortId}`,
         `from=running`,
         `to=done`,
       );
     } catch (err) {
       emitMoveFailed(this.auditWriter, {
-        taskId,
+        fullTaskId: fullId,
+        shortTaskId: shortId,
         context: 'move_to_done',
         error: formatErr(err),
       });
       // 删除 running 文件防止重启后重复执行，丢失记录好过重复副作用
-      await this.fs.delete(`${TASKS_QUEUES_RUNNING_DIR}/${taskId}.json`).catch((e) => {
+      await this.fs.delete(`${TASKS_QUEUES_RUNNING_DIR}/${fullId}.json`).catch((e) => {
         emitMoveFailed(this.auditWriter, {
-          taskId,
+          fullTaskId: fullId,
+          shortTaskId: shortId,
           context: 'move_done_delete',
           error: formatErr(e),
         });
@@ -644,26 +686,34 @@ export class AsyncTaskSystem {
   }
 
   private async moveTaskToFailed(taskId: TaskId): Promise<void> {
+    const fullId = this._resolveFullTaskId(taskId);
+    if (!fullId) {
+      throw new Error(`[INVARIANT VIOLATION] moveTaskToFailed: cannot resolve ${taskId}`);
+    }
+    const shortId = deriveShortIdFromTaskId(fullId);
     try {
       await this.fs.move(
-        `${TASKS_QUEUES_RUNNING_DIR}/${taskId}.json`,
-        `${TASKS_QUEUES_FAILED_DIR}/${taskId}.json`
+        `${TASKS_QUEUES_RUNNING_DIR}/${fullId}.json`,
+        `${TASKS_QUEUES_FAILED_DIR}/${fullId}.json`
       );
       this.auditWriter.write(
         TASK_AUDIT_EVENTS.TASK_MOVED,
-        `taskId=${taskId}`,
+        `fullTaskId=${fullId}`,
+        `shortTaskId=${shortId}`,
         `from=running`,
         `to=failed`,
       );
     } catch (err) {
       emitMoveFailed(this.auditWriter, {
-        taskId,
+        fullTaskId: fullId,
+        shortTaskId: shortId,
         context: 'move_to_failed',
         error: formatErr(err),
       });
-      await this.fs.delete(`${TASKS_QUEUES_RUNNING_DIR}/${taskId}.json`).catch((e) => {
+      await this.fs.delete(`${TASKS_QUEUES_RUNNING_DIR}/${fullId}.json`).catch((e) => {
         emitMoveFailed(this.auditWriter, {
-          taskId,
+          fullTaskId: fullId,
+          shortTaskId: shortId,
           context: 'move_failed_delete',
           error: formatErr(e),
         });
@@ -674,8 +724,8 @@ export class AsyncTaskSystem {
   /**
    * List running task IDs (active executions).
    */
-  listRunning(): string[] {
-    return Array.from(this.executingTasks.keys());
+  listRunning(): ShortTaskId[] {
+    return Array.from(this.executingTasks.keys()).map(id => deriveShortIdFromTaskId(id));
   }
 
   getRunningCount(): number {
@@ -685,9 +735,9 @@ export class AsyncTaskSystem {
   /**
    * List pending task IDs derived from fs.
    */
-  async listPending(): Promise<string[]> {
+  async listPending(): Promise<ShortTaskId[]> {
     const ids = await this._getPendingTaskIds();
-    return Array.from(ids);
+    return Array.from(ids).map(id => deriveShortIdFromTaskId(id));
   }
 
   async getPendingCount(): Promise<number> {
@@ -695,16 +745,30 @@ export class AsyncTaskSystem {
     return ids.size;
   }
 
-  getCancellingIds(): string[] {
-    return [...this.cancellingIds];
+  getCancellingIds(): ShortTaskId[] {
+    return [...this.cancellingIds].map(id => deriveShortIdFromTaskId(id));
   }
 
   /**
    * Cancel a running or pending task.
    */
   async cancel(taskId: TaskId): Promise<void> {
+    const fullId = this._resolveFullTaskId(taskId);
+    if (!fullId) {
+      const violationMsg = `Task ${taskId} not found in ShortIdIndex (race / caller bug)`;
+      this.auditWriter?.write(
+        TASK_AUDIT_EVENTS.INVARIANT_VIOLATION,
+        `site=async-task-system/system.ts:cancel`,
+        `kind=task_not_found`,
+        `taskId=${taskId}`,
+        `msg=${violationMsg}`,
+      );
+      throw new Error(`[INVARIANT VIOLATION] async-task-system: ${violationMsg}`);
+    }
+    const shortId = deriveShortIdFromTaskId(fullId);
+
     // 1. 先检查 running (active execution handles)
-    const state = this.executingTasks.get(taskId);
+    const state = this.executingTasks.get(fullId);
     if (state) {
       state.abortController.abort();
       try {
@@ -714,31 +778,33 @@ export class AsyncTaskSystem {
         // per feedback_silent_x_audit_kit (silent catch swallow → audit 注入)
         try {
           emitCancelPromiseRejected(this.auditWriter, {
-            taskId,
+            fullTaskId: fullId,
+            shortTaskId: shortId,
             error: formatErr(err),
           });
         } catch (innerErr) {
           // L2 audit writer recursion border: align `[AUDIT CRITICAL]` console.error pattern
           // (foundation/audit/writer.ts:81+99 + foundation/audit/index.ts:14-16 design)
-          console.error(`[AUDIT CRITICAL] task cancel audit nested throw: taskId=${taskId} reason=${formatErr(innerErr)}`);
+          console.error(`[AUDIT CRITICAL] task cancel audit nested throw: fullTaskId=${fullId} shortTaskId=${shortId} reason=${formatErr(innerErr)}`);
         }
       }
-      emitCancelled(this.auditWriter, { taskId, from: 'running' });
+      emitCancelled(this.auditWriter, { fullTaskId: fullId, shortTaskId: shortId, from: 'running' });
       return;
     }
 
     // 2. 再检查 pending（derive from fs）
-    this.cancellingIds.add(taskId);
+    this.cancellingIds.add(fullId);
     try {
-      const fileExists = await this.fs.exists(`${TASKS_QUEUES_PENDING_DIR}/${taskId}.json`);
+      const fileExists = await this.fs.exists(`${TASKS_QUEUES_PENDING_DIR}/${fullId}.json`);
 
       if (!fileExists) {
-        const violationMsg = `Task ${taskId} not found in running or pending (race / caller bug)`;
+        const violationMsg = `Task ${shortId} not found in running or pending (race / caller bug)`;
         this.auditWriter?.write(
           TASK_AUDIT_EVENTS.INVARIANT_VIOLATION,
           `site=async-task-system/system.ts:cancel`,
           `kind=task_not_found`,
-          `taskId=${taskId}`,
+          `fullTaskId=${fullId}`,
+          `shortTaskId=${shortId}`,
           `msg=${violationMsg}`,
         );
         throw new Error(`[INVARIANT VIOLATION] async-task-system: ${violationMsg}`);
@@ -746,7 +812,7 @@ export class AsyncTaskSystem {
 
       // 从盘读出以决定是否 sendFallbackError
       let task: SubAgentTask | ToolTask | undefined;
-      const filePath = `${TASKS_QUEUES_PENDING_DIR}/${taskId}.json`;
+      const filePath = `${TASKS_QUEUES_PENDING_DIR}/${fullId}.json`;
       let content: string | undefined;
       try {
         content = await this.fs.read(filePath);
@@ -763,7 +829,8 @@ export class AsyncTaskSystem {
         // read 失败 → 跳过 / 后续 move 仍尝试
         // phase 1013 E.4: parse fail 显式 audit 留痕
         emitParseFailed(this.auditWriter, {
-          taskId,
+          fullTaskId: fullId,
+          shortTaskId: shortId,
           context: 'cancel_pending_load',
           error: formatErr(e),
         });
@@ -771,15 +838,16 @@ export class AsyncTaskSystem {
 
       // 文件：pending → failed
       await this.fs.move(
-        `${TASKS_QUEUES_PENDING_DIR}/${taskId}.json`,
-        `${TASKS_QUEUES_FAILED_DIR}/${taskId}.json`
+        `${TASKS_QUEUES_PENDING_DIR}/${fullId}.json`,
+        `${TASKS_QUEUES_FAILED_DIR}/${fullId}.json`
       ).catch((e) => {
         if (isFileNotFound(e)) {
           // race-loss: dispatch 已 movePendingToRunning / cancel pending move 失败是预期 (phase 1011 D.3)
-          emitTaskCancelRaceLostToDispatch(this.auditWriter, { taskId });
+          emitTaskCancelRaceLostToDispatch(this.auditWriter, { fullTaskId: fullId, shortTaskId: shortId });
         } else {
           emitMoveFailed(this.auditWriter, {
-            taskId,
+            fullTaskId: fullId,
+            shortTaskId: shortId,
             context: 'cancel_pending_move',
             error: formatErr(e),
           });
@@ -790,16 +858,17 @@ export class AsyncTaskSystem {
       if (task?.kind === 'tool') {
         await sendFallbackError(this.fs, this.auditWriter, task, 'Task cancelled before execution').catch((e) => {
           emitMoveFailed(this.auditWriter, {
-            taskId,
+            fullTaskId: fullId,
+            shortTaskId: shortId,
             context: 'cancel_sendFallbackError',
             error: formatErr(e),
           });
         });
       }
 
-      emitCancelled(this.auditWriter, { taskId, from: 'pending' });
+      emitCancelled(this.auditWriter, { fullTaskId: fullId, shortTaskId: shortId, from: 'pending' });
     } finally {
-      this.cancellingIds.delete(taskId);
+      this.cancellingIds.delete(fullId);
     }
   }
 

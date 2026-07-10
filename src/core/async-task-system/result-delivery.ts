@@ -12,7 +12,8 @@ import {
 } from './audit-emit.js';
 import { TASKS_QUEUES_RESULTS_DIR } from './dirs.js';
 
-import type { SubAgentTask, ToolTask } from './types.js';
+import type { SubAgentTask, ToolTask, FullTaskId } from './types.js';
+import { deriveShortIdFromTaskId } from './types.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { TaskId } from './types.js';
 
@@ -27,7 +28,8 @@ async function writeSentMarker(fs: FileSystem, auditWriter: AuditLog, taskId: Ta
   } catch (markerErr) {
     // 不 throw：marker 写失败仅影响 future recovery 重发 → at-least-once 投递（≤ 10ms race window 已 design ratify ⚓ accepted-stable by phase 875、consumer 容忍重发、详 design/modules/l4_async_task_system.md §7.B B.sent-marker-residual-race-window）
     emitResultWriteFailed(auditWriter, {
-      taskId,
+      fullTaskId: taskId as FullTaskId,
+      shortTaskId: deriveShortIdFromTaskId(taskId),
       context: 'sent_marker_persist_failed',
       error: formatErr(markerErr),
     });
@@ -75,7 +77,8 @@ async function sendResultCore(p: SendResultCoreParams): Promise<void> {
     resultRef = resultPath;
   } catch (writeErr) {
     emitResultWriteFailed(p.auditWriter, {
-      taskId: p.taskId,
+      fullTaskId: p.taskId as FullTaskId,
+      shortTaskId: deriveShortIdFromTaskId(p.taskId),
       context: p.auditContexts.initialWrite,
       error: formatErr(writeErr),
     });
@@ -101,7 +104,8 @@ async function sendResultCore(p: SendResultCoreParams): Promise<void> {
     if (resultRef) {
       await p.fs.delete(resultRef).catch((delErr) => {
         emitResultWriteFailed(p.auditWriter, {
-          taskId: p.taskId,
+          fullTaskId: p.taskId as FullTaskId,
+          shortTaskId: deriveShortIdFromTaskId(p.taskId),
           context: p.auditContexts.orphanDelete,
           error: formatErr(delErr),
         });
@@ -114,14 +118,16 @@ async function sendResultCore(p: SendResultCoreParams): Promise<void> {
         return;
       } catch (inlineErr) {
         emitInboxWriteFailed(p.auditWriter, {
-          taskId: p.taskId,
+          fullTaskId: p.taskId as FullTaskId,
+          shortTaskId: deriveShortIdFromTaskId(p.taskId),
           context: 'inline_fallback_failed',
           error: formatErr(inlineErr),
         });
       }
     }
     emitInboxWriteFailed(p.auditWriter, {
-      taskId: p.taskId,
+      fullTaskId: p.taskId as FullTaskId,
+      shortTaskId: deriveShortIdFromTaskId(p.taskId),
       error: formatErr(err),
     });
     throw err;
@@ -242,7 +248,8 @@ export async function sendFallbackError(
       if (code !== 'EEXIST') {
         const msg = formatErr(err);
         emitResultDeliveryEnsureDirFailed(auditWriter, {
-          taskId: task.id,
+          fullTaskId: task.id as FullTaskId,
+          shortTaskId: deriveShortIdFromTaskId(task.id),
           dir: resultsDir,
           code: code ?? 'UNKNOWN',
           error: msg,

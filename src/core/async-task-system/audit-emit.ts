@@ -10,7 +10,7 @@
 import type { AuditLog } from '../../foundation/audit/index.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
-import type { TaskId } from './types.js';
+import type { FullTaskId, ShortTaskId } from './types.js';
 import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
 
 
@@ -19,7 +19,8 @@ import type { ToolUseId } from '../../foundation/tool-protocol/index.js';
 export function emitTaskScheduled(
   audit: AuditLog,
   opts: {
-    taskId: TaskId;
+    fullTaskId: FullTaskId;
+    shortTaskId: ShortTaskId;
     kind: string;
     parent?: string;
     maxSteps?: number;
@@ -27,7 +28,11 @@ export function emitTaskScheduled(
     isShadow?: boolean;
   },
 ): void {
-  const cols: (string | number)[] = [`taskId=${opts.taskId}`, `kind=${opts.kind}`];
+  const cols: (string | number)[] = [
+    `fullTaskId=${opts.fullTaskId}`,
+    `shortTaskId=${opts.shortTaskId}`,
+    `kind=${opts.kind}`,
+  ];
   if (opts.parent !== undefined) cols.push(`parent=${opts.parent}`);
   if (opts.maxSteps !== undefined) cols.push(`maxSteps=${opts.maxSteps}`);
   if (opts.tool !== undefined) cols.push(`tool=${opts.tool}`);
@@ -38,16 +43,21 @@ export function emitTaskScheduled(
 // ─── TASK_STARTED ─────────────────────────────────────────────────────────────
 export function emitTaskStarted(
   audit: AuditLog,
-  opts: { taskId: TaskId },
+  opts: { fullTaskId: FullTaskId; shortTaskId: ShortTaskId },
 ): void {
-  audit.write(TASK_AUDIT_EVENTS.TASK_STARTED, `taskId=${opts.taskId}`);
+  audit.write(
+    TASK_AUDIT_EVENTS.TASK_STARTED,
+    `fullTaskId=${opts.fullTaskId}`,
+    `shortTaskId=${opts.shortTaskId}`,
+  );
 }
 
 // ─── TASK_COMPLETED ───────────────────────────────────────────────────────────
 export function emitTaskCompleted(
   audit: AuditLog,
   opts: {
-    taskId: TaskId;
+    fullTaskId: FullTaskId;
+    shortTaskId: ShortTaskId;
     status: 'ok' | 'err';
     kind: string;
     parent?: string;
@@ -63,7 +73,8 @@ export function emitTaskCompleted(
 ): void {
   // phase 706: raw status 加 key= prefix、与同 fn 其他 cols 统一形态、forensic 可 join status 维度
   const cols: (string | number)[] = [
-    `taskId=${opts.taskId}`,
+    `fullTaskId=${opts.fullTaskId}`,
+    `shortTaskId=${opts.shortTaskId}`,
     `status=${opts.status}`,
     `kind=${opts.kind}`,
   ];
@@ -100,11 +111,12 @@ export function emitPendingIngestFailed(
 // ─── PENDING_QUEUE_OVERFLOW ───────────────────────────────────────────────────
 export function emitPendingQueueOverflow(
   audit: AuditLog,
-  opts: { taskId: TaskId; queueLength: number; cap: number },
+  opts: { fullTaskId: FullTaskId; shortTaskId: ShortTaskId; queueLength: number; cap: number },
 ): void {
   audit.write(
     TASK_AUDIT_EVENTS.PENDING_QUEUE_OVERFLOW,
-    `taskId=${opts.taskId}`,
+    `fullTaskId=${opts.fullTaskId}`,
+    `shortTaskId=${opts.shortTaskId}`,
     `queueLength=${opts.queueLength}`,
     `cap=${opts.cap}`,
   );
@@ -113,11 +125,12 @@ export function emitPendingQueueOverflow(
 // ─── PENDING_QUEUE_OVERFLOW_NOTIFIED ──────────────────────────────────────────
 export function emitPendingQueueOverflowNotified(
   audit: AuditLog,
-  opts: { taskId: TaskId; queueLength: number; cap: number },
+  opts: { fullTaskId: FullTaskId; shortTaskId: ShortTaskId; queueLength: number; cap: number },
 ): void {
   audit.write(
     TASK_AUDIT_EVENTS.PENDING_QUEUE_OVERFLOW_NOTIFIED,
-    `taskId=${opts.taskId}`,
+    `fullTaskId=${opts.fullTaskId}`,
+    `shortTaskId=${opts.shortTaskId}`,
     `queueLength=${opts.queueLength}`,
     `cap=${opts.cap}`,
   );
@@ -135,14 +148,18 @@ export function emitPendingWatcherFailed(
 export function emitRecovered(
   audit: AuditLog,
   opts: {
-    taskId: TaskId;
+    fullTaskId: FullTaskId;
+    shortTaskId: ShortTaskId;
     kind?: string;
     from?: string;
     to?: string;
     reason?: string;
   },
 ): void {
-  const cols: (string | number)[] = [`taskId=${opts.taskId}`];
+  const cols: (string | number)[] = [
+    `fullTaskId=${opts.fullTaskId}`,
+    `shortTaskId=${opts.shortTaskId}`,
+  ];
   if (opts.kind !== undefined) cols.push(`kind=${opts.kind}`);
   if (opts.from !== undefined) cols.push(`from=${opts.from}`);
   if (opts.to !== undefined) cols.push(`to=${opts.to}`);
@@ -193,11 +210,12 @@ export function emitRecoveryFailed(
 // ─── RECOVERY_DEAD_LETTER ─────────────────────────────────────────────────────
 export function emitRecoveryDeadLetter(
   audit: AuditLog,
-  opts: { taskId: TaskId; retries: number },
+  opts: { fullTaskId: FullTaskId; shortTaskId: ShortTaskId; retries: number },
 ): void {
   audit.write(
     TASK_AUDIT_EVENTS.RECOVERY_DEAD_LETTER,
-    `taskId=${opts.taskId}`,
+    `fullTaskId=${opts.fullTaskId}`,
+    `shortTaskId=${opts.shortTaskId}`,
     `retries=${opts.retries}`,
     'action=move_to_failed',
   );
@@ -206,9 +224,12 @@ export function emitRecoveryDeadLetter(
 // ─── START_FAILED ─────────────────────────────────────────────────────────────
 export function emitStartFailed(
   audit: AuditLog,
-  opts: { taskId: TaskId; context?: string; error: string },
+  opts: { fullTaskId: FullTaskId; shortTaskId: ShortTaskId; context?: string; error: string },
 ): void {
-  const cols: (string | number)[] = [`taskId=${opts.taskId}`];
+  const cols: (string | number)[] = [
+    `fullTaskId=${opts.fullTaskId}`,
+    `shortTaskId=${opts.shortTaskId}`,
+  ];
   if (opts.context !== undefined) cols.push(`context=${opts.context}`);
   cols.push(`error=${opts.error}`);
   audit.write(TASK_AUDIT_EVENTS.START_FAILED, ...cols);
@@ -218,7 +239,8 @@ export function emitStartFailed(
 export function emitHandlerFailed(
   audit: AuditLog,
   opts: {
-    taskId: TaskId;
+    fullTaskId: FullTaskId;
+    shortTaskId: ShortTaskId;
     context?: string;
     error?: string;
     parent?: string;
@@ -226,7 +248,10 @@ export function emitHandlerFailed(
     tool?: string;
   },
 ): void {
-  const cols: (string | number)[] = [`taskId=${opts.taskId}`];
+  const cols: (string | number)[] = [
+    `fullTaskId=${opts.fullTaskId}`,
+    `shortTaskId=${opts.shortTaskId}`,
+  ];
   if (opts.tool !== undefined) cols.push(`tool=${opts.tool}`);
   if (opts.context !== undefined) cols.push(`context=${opts.context}`);
   if (opts.name !== undefined) cols.push(`name=${opts.name}`);
@@ -238,11 +263,12 @@ export function emitHandlerFailed(
 // ─── RESULT_WRITE_FAILED ──────────────────────────────────────────────────────
 export function emitResultWriteFailed(
   audit: AuditLog,
-  opts: { taskId: TaskId; context: string; error: string },
+  opts: { fullTaskId: FullTaskId; shortTaskId: ShortTaskId; context: string; error: string },
 ): void {
   audit.write(
     TASK_AUDIT_EVENTS.RESULT_WRITE_FAILED,
-    `taskId=${opts.taskId}`,
+    `fullTaskId=${opts.fullTaskId}`,
+    `shortTaskId=${opts.shortTaskId}`,
     `context=${opts.context}`,
     `error=${opts.error}`,
   );
@@ -251,9 +277,12 @@ export function emitResultWriteFailed(
 // ─── INBOX_WRITE_FAILED ───────────────────────────────────────────────────────
 export function emitInboxWriteFailed(
   audit: AuditLog,
-  opts: { taskId: TaskId; context?: string; error: string },
+  opts: { fullTaskId: FullTaskId; shortTaskId: ShortTaskId; context?: string; error: string },
 ): void {
-  const cols: (string | number)[] = [`taskId=${opts.taskId}`];
+  const cols: (string | number)[] = [
+    `fullTaskId=${opts.fullTaskId}`,
+    `shortTaskId=${opts.shortTaskId}`,
+  ];
   if (opts.context !== undefined) cols.push(`context=${opts.context}`);
   cols.push(`error=${opts.error}`);
   audit.write(TASK_AUDIT_EVENTS.INBOX_WRITE_FAILED, ...cols);
@@ -267,11 +296,12 @@ export function emitShutdownTimeout(audit: AuditLog): void {
 // ─── MOVE_FAILED ──────────────────────────────────────────────────────────────
 export function emitMoveFailed(
   audit: AuditLog,
-  opts: { taskId: TaskId; context: string; error: string },
+  opts: { fullTaskId: FullTaskId; shortTaskId: ShortTaskId; context: string; error: string },
 ): void {
   audit.write(
     TASK_AUDIT_EVENTS.MOVE_FAILED,
-    `taskId=${opts.taskId}`,
+    `fullTaskId=${opts.fullTaskId}`,
+    `shortTaskId=${opts.shortTaskId}`,
     `context=${opts.context}`,
     `error=${opts.error}`,
   );
@@ -280,27 +310,37 @@ export function emitMoveFailed(
 // ─── TASK_CANCEL_RACE_LOST_TO_DISPATCH ────────────────────────────────────────
 export function emitTaskCancelRaceLostToDispatch(
   audit: AuditLog,
-  opts: { taskId: TaskId },
+  opts: { fullTaskId: FullTaskId; shortTaskId: ShortTaskId },
 ): void {
-  audit.write(TASK_AUDIT_EVENTS.TASK_CANCEL_RACE_LOST_TO_DISPATCH, `taskId=${opts.taskId}`);
+  audit.write(
+    TASK_AUDIT_EVENTS.TASK_CANCEL_RACE_LOST_TO_DISPATCH,
+    `fullTaskId=${opts.fullTaskId}`,
+    `shortTaskId=${opts.shortTaskId}`,
+  );
 }
 
 // ─── CANCELLED ────────────────────────────────────────────────────────────────
 export function emitCancelled(
   audit: AuditLog,
-  opts: { taskId: TaskId; from: string },
+  opts: { fullTaskId: FullTaskId; shortTaskId: ShortTaskId; from: string },
 ): void {
-  audit.write(TASK_AUDIT_EVENTS.CANCELLED, `taskId=${opts.taskId}`, `from=${opts.from}`);
+  audit.write(
+    TASK_AUDIT_EVENTS.CANCELLED,
+    `fullTaskId=${opts.fullTaskId}`,
+    `shortTaskId=${opts.shortTaskId}`,
+    `from=${opts.from}`,
+  );
 }
 
 // ─── TOOL_RETRY ───────────────────────────────────────────────────────────────
 export function emitToolRetry(
   audit: AuditLog,
-  opts: { taskId: TaskId; tool: string; attempt: number; max: number; error: string },
+  opts: { fullTaskId: FullTaskId; shortTaskId: ShortTaskId; tool: string; attempt: number; max: number; error: string },
 ): void {
   audit.write(
     TASK_AUDIT_EVENTS.TOOL_RETRY,
-    `taskId=${opts.taskId}`,
+    `fullTaskId=${opts.fullTaskId}`,
+    `shortTaskId=${opts.shortTaskId}`,
     `tool=${opts.tool}`,
     `attempt=${opts.attempt}`,
     `max=${opts.max}`,
@@ -311,13 +351,14 @@ export function emitToolRetry(
 // ─── TOOL_ASYNC_RESULT ────────────────────────────────────────────────────────
 export function emitToolAsyncResult(
   audit: AuditLog,
-  opts: { taskId: TaskId; toolName: string; toolUseId: ToolUseId },
+  opts: { fullTaskId: FullTaskId; shortTaskId: ShortTaskId; toolName: string; toolUseId: ToolUseId },
 ): void {
   audit.write(
     TASK_AUDIT_EVENTS.TOOL_ASYNC_RESULT,
     `tool_name=${opts.toolName}`,
     `tool_use_id=${String(opts.toolUseId)}`,
-    `task_id=${opts.taskId}`,
+    `fullTaskId=${opts.fullTaskId}`,
+    `shortTaskId=${opts.shortTaskId}`,
   );
 }
 
@@ -345,11 +386,12 @@ export function emitTaskCorrupt(
 // ─── CANCEL_PROMISE_REJECTED ──────────────────────────────────────────────────
 export function emitCancelPromiseRejected(
   audit: AuditLog,
-  opts: { taskId: TaskId; error: string },
+  opts: { fullTaskId: FullTaskId; shortTaskId: ShortTaskId; error: string },
 ): void {
   audit.write(
     TASK_AUDIT_EVENTS.CANCEL_PROMISE_REJECTED,
-    `taskId=${opts.taskId}`,
+    `fullTaskId=${opts.fullTaskId}`,
+    `shortTaskId=${opts.shortTaskId}`,
     `error=${opts.error}`,
   );
 }
@@ -357,11 +399,12 @@ export function emitCancelPromiseRejected(
 // ─── RESULT_DELIVERY_ENSURE_DIR_FAILED ────────────────────────────────────────
 export function emitResultDeliveryEnsureDirFailed(
   audit: AuditLog,
-  opts: { taskId: TaskId; dir: string; code: string; error: string },
+  opts: { fullTaskId: FullTaskId; shortTaskId: ShortTaskId; dir: string; code: string; error: string },
 ): void {
   audit.write(
     TASK_AUDIT_EVENTS.RESULT_DELIVERY_ENSURE_DIR_FAILED,
-    `taskId=${opts.taskId}`,
+    `fullTaskId=${opts.fullTaskId}`,
+    `shortTaskId=${opts.shortTaskId}`,
     `dir=${opts.dir}`,
     `code=${opts.code}`,
     `error=${opts.error}`,
@@ -371,11 +414,12 @@ export function emitResultDeliveryEnsureDirFailed(
 // ─── PARSE_FAILED ─────────────────────────────────────────────────────────────
 export function emitParseFailed(
   audit: AuditLog,
-  opts: { taskId: TaskId; context: string; error: string },
+  opts: { fullTaskId: FullTaskId; shortTaskId: ShortTaskId; context: string; error: string },
 ): void {
   audit.write(
     TASK_AUDIT_EVENTS.PARSE_FAILED,
-    `taskId=${opts.taskId}`,
+    `fullTaskId=${opts.fullTaskId}`,
+    `shortTaskId=${opts.shortTaskId}`,
     `context=${opts.context}`,
     `error=${opts.error}`,
   );
@@ -384,11 +428,12 @@ export function emitParseFailed(
 // ─── RESULT_DELIVERY_FAILED ───────────────────────────────────────────────────
 export function emitResultDeliveryFailed(
   audit: AuditLog,
-  opts: { taskId: TaskId; reason: string; error: string },
+  opts: { fullTaskId: FullTaskId; shortTaskId: ShortTaskId; reason: string; error: string },
 ): void {
   audit.write(
     TASK_AUDIT_EVENTS.RESULT_DELIVERY_FAILED,
-    `taskId=${opts.taskId}`,
+    `fullTaskId=${opts.fullTaskId}`,
+    `shortTaskId=${opts.shortTaskId}`,
     `reason=${opts.reason}`,
     `error=${opts.error}`,
   );

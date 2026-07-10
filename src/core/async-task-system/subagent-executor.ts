@@ -24,7 +24,8 @@ import { sendResult, sendFallbackError } from './result-delivery.js';
 
 import type { Tool } from '../../foundation/tools/index.js';
 import type { PostProcessor } from './post-processors/types.js';
-import type { SubAgentTask } from './types.js';
+import type { SubAgentTask, FullTaskId } from './types.js';
+import { deriveShortIdFromTaskId } from './types.js';
 import type { DialogStore } from '../../foundation/dialog-store/index.js';
 import type { TaskId } from './types.js';
 
@@ -64,7 +65,8 @@ async function applyPostProcessor(
   const handler = postProcessors.get(task.postProcessor);
   if (!handler) {
     emitHandlerFailed(auditWriter, {
-      taskId: task.id,
+      fullTaskId: task.id as FullTaskId,
+      shortTaskId: deriveShortIdFromTaskId(task.id),
       context: 'postProcessor_not_found',
       name: task.postProcessor,
     });
@@ -75,7 +77,8 @@ async function applyPostProcessor(
   } catch (handlerErr) {
     const ctx = isError ? 'postProcessor_threw_error_path' : 'postProcessor_threw';
     emitHandlerFailed(auditWriter, {
-      taskId: task.id,
+      fullTaskId: task.id as FullTaskId,
+      shortTaskId: deriveShortIdFromTaskId(task.id),
       context: ctx,
       error: formatErr(handlerErr),
     });
@@ -184,7 +187,8 @@ export async function executeSubAgentTask(
     await sendResult(fs, auditWriter, task, inboxResult, false);
 
     emitTaskCompleted(auditWriter, {
-      taskId: task.id,
+      fullTaskId: task.id as FullTaskId,
+      shortTaskId: deriveShortIdFromTaskId(task.id),
       status: 'ok',
       kind: 'subagent',
       parent: task.parentClawId,
@@ -209,7 +213,8 @@ export async function executeSubAgentTask(
         await sendFallbackError(fs, auditWriter, task, errorMsg);
       } catch (fallbackErr) {
         emitResultDeliveryFailed(auditWriter, {
-          taskId: task.id,
+          fullTaskId: task.id as FullTaskId,
+          shortTaskId: deriveShortIdFromTaskId(task.id),
           reason: 'both sendResult and sendFallbackError failed',
           error: formatErr(fallbackErr),
         });
@@ -218,12 +223,14 @@ export async function executeSubAgentTask(
     }
 
     emitHandlerFailed(auditWriter, {
-      taskId: task.id,
+      fullTaskId: task.id as FullTaskId,
+      shortTaskId: deriveShortIdFromTaskId(task.id),
       parent: task.parentClawId,
       error: errorMsg,
     });
     emitTaskCompleted(auditWriter, {
-      taskId: task.id,
+      fullTaskId: task.id as FullTaskId,
+      shortTaskId: deriveShortIdFromTaskId(task.id),
       status: 'err',
       kind: 'subagent',
       parent: task.parentClawId,
