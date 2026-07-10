@@ -62,6 +62,7 @@ export interface ShortIdIndex {
     shortId: ShortTaskId,
     fullId: FullTaskId,
     auditWriter?: { write: (event: string, payload: Record<string, unknown>) => void },
+    context?: string,
   ): void;
   delete(shortId: ShortTaskId): void;
   resolve(shortId: string): FullTaskId | undefined;
