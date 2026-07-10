@@ -122,7 +122,7 @@ function parseSnapshotState(raw: unknown, audit: AuditLog, dir: string): Snapsho
   return undefined;
 }
 
-async function persistState(fs: FileSystem, dir: string, state: SnapshotState, audit?: AuditLog): Promise<void> {
+async function persistState(fs: FileSystem, dir: string, state: SnapshotState, audit?: AuditLog): Promise<boolean> {
   if (audit) {
     // phase 275 Step A: shape invariant
     assertSnapshotStateShape(state, audit, dir);
@@ -132,12 +132,14 @@ async function persistState(fs: FileSystem, dir: string, state: SnapshotState, a
 
   try {
     await fs.writeAtomic(STATE_FILE_REL, JSON.stringify(state));
+    return true;
   } catch (err) {
-    // silent: persist fail 不抛，下轮 load 最多丢 1 inc
     // phase 724: catch(err) 绑 err、emit reason=formatErr(err) 保留 err message forensic
+    // phase 851: 返回 false 让调用方感知持久化失败、避免状态被伪装为已可靠记录
     if (audit) {
       emitSnapshotPersistFailed(audit, { dir, reason: formatErr(err) });
     }
+    return false;
   }
 }
 
@@ -352,13 +354,22 @@ export class Snapshot {
     } catch (rawErr) {
       const failure = this.classifyOrThrow(rawErr);
       this.state = onCommitFailure(this.state, Date.now());
-      await persistState(this.fs, this.dir, this.state, this.audit);
+      const persisted = await persistState(this.fs, this.dir, this.state, this.audit);
       const consecutive = this.state.kind === 'degraded' ? this.state.failures : 0;
       emitSnapshotCommitFailed(this.audit, {
         dir: this.dir,
         kind: failure.kind,
         consecutive,
       });
+      if (!persisted) {
+        // phase 851: git commit 已失败、状态持久化也失败 — 双失败独立 audit、不伪装状态已可靠记录
+        emitSnapshotCommitFailed(this.audit, {
+          dir: this.dir,
+          kind: failure.kind,
+          consecutive,
+          context: 'persist_failed',
+        });
+      }
       if (this.state.kind === 'degraded' && this.state.failures === 3) {
         emitSnapshotDegraded(this.audit, {
           dir: this.dir,

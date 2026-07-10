@@ -85,7 +85,7 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
       // Startup single-fire: has active contract + inbox is empty → trigger once in-process (no disk write)
       if (!startupFired) {
         startupFired = true;
-        if (shouldEmitStartupCheck(agentFs)) {
+        if (shouldEmitStartupCheck(agentFs, audit)) {
           const STATUS_SUBDIR = 'status';
           agentFs.ensureDirSync(STATUS_SUBDIR);
           agentFs.writeAtomicSync(path.join(STATUS_SUBDIR, 'startup_check_ts'), String(Date.now()));

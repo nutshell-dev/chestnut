@@ -28,7 +28,7 @@ export type SnapshotCommitFailedPayload = {
   dir: string;
   kind?: string;
   consecutive?: number;
-  context?: 'state_restored_from_disk';
+  context?: 'state_restored_from_disk' | 'persist_failed';
 };
 
 export function emitSnapshotCommitFailed(audit: AuditLog, opts: SnapshotCommitFailedPayload): void {

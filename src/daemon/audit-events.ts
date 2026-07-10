@@ -33,6 +33,8 @@ export const DAEMON_AUDIT_EVENTS = {
   UNCAUGHT_EXCEPTION: 'daemon_uncaught_exception',
   // phase 324 H4: motion 自审 watchdog 存活 / 不活时 audit（dedup 单次/dead-streak）
   WATCHDOG_MISSING: 'watchdog_missing',
+  // phase 851: startup-check I/O 错误可观察
+  STARTUP_CHECK_IO_ERROR: 'daemon_startup_check_io_error',
 } as const;
 
 /**

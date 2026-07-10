@@ -716,6 +716,7 @@
       "daemon_spawn_attempt",
       "daemon_spawn_failed",
       "daemon_spawn_success",
+      "daemon_startup_check_io_error",
       "daemon_stop_attempt",
       "daemon_stop_failed",
       "daemon_stop_success",
