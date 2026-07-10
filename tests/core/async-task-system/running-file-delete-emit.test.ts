@@ -4,7 +4,9 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
+import { InMemoryShortIdIndex } from '../../../src/core/async-task-system/short-id-index.js';
 import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-events.js';
+import { deriveShortIdFromTaskId } from '../../../src/core/async-task-system/types.js';
 import { makeTaskSystemDeps } from '../../helpers/task-system.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
@@ -30,6 +32,7 @@ describe('phase 1324 C.3: running file delete fail audit emit', () => {
   beforeEach(() => {
     mockFs = {
       ensureDir: vi.fn().mockResolvedValue(undefined),
+      exists: vi.fn().mockResolvedValue(true),
       list: vi.fn().mockResolvedValue([]),
       resolve: vi.fn((p: string) => `/abs/${p}`),
     } as unknown as FileSystem;
@@ -38,6 +41,7 @@ describe('phase 1324 C.3: running file delete fail audit emit', () => {
     auditEvents = events;
 
     system = new AsyncTaskSystem('/tmp/claw', mockFs, {
+      shortIdIndex: new InMemoryShortIdIndex(),
       auditWriter: audit,
       ...makeTaskSystemDeps(),
     });
@@ -90,14 +94,19 @@ describe('phase 1324 C.3: running file delete fail audit emit', () => {
     expect(deleteFailedEvents[0]).toEqual(
       expect.arrayContaining([
         TASK_AUDIT_EVENTS.RUNNING_FILE_DELETE_FAILED,
-        expect.stringContaining('task_id='),
+        expect.stringContaining('fullTaskId='),
+        expect.stringContaining('shortTaskId='),
         expect.stringContaining('reason='),
       ]),
     );
-    const taskIdCol = deleteFailedEvents[0].find(
-      (c): c is string => typeof c === 'string' && c.startsWith('task_id='),
+    const fullTaskIdCol = deleteFailedEvents[0].find(
+      (c): c is string => typeof c === 'string' && c.startsWith('fullTaskId='),
     );
-    expect(taskIdCol).toContain(taskId);
+    expect(fullTaskIdCol).toContain(taskId);
+    const shortTaskIdCol = deleteFailedEvents[0].find(
+      (c): c is string => typeof c === 'string' && c.startsWith('shortTaskId='),
+    );
+    expect(shortTaskIdCol).toContain(deriveShortIdFromTaskId(taskId as any));
     const reasonCol = deleteFailedEvents[0].find(
       (c): c is string => typeof c === 'string' && c.startsWith('reason='),
     );

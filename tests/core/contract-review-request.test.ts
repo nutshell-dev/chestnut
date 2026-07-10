@@ -127,6 +127,8 @@ describe('EvolutionSystem.runRetroForContract - happy path', () => {
   beforeEach(async () => {
     vi.restoreAllMocks();
     vi.clearAllMocks();
+    mockSkillRegistryLoadAll.mockResolvedValue(undefined);
+    mockSkillRegistryFormatForContext.mockReturnValue('No skills loaded');
     fixtures = await setupFixtures();
   });
 
@@ -168,6 +170,8 @@ describe('EvolutionSystem.runRetroForContract - best-effort branches', () => {
   beforeEach(async () => {
     vi.restoreAllMocks();
     vi.clearAllMocks();
+    mockSkillRegistryLoadAll.mockResolvedValue(undefined);
+    mockSkillRegistryFormatForContext.mockReturnValue('No skills loaded');
     fixtures = await setupFixtures();
     auditSpy = vi.spyOn(fixtures.mockAudit, 'write');
   });
@@ -314,7 +318,8 @@ describe('EvolutionSystem.runRetroForContract - best-effort branches', () => {
     expect(result.status).toBe('finished');
     expect(auditSpy).toHaveBeenCalledWith(
       RETRO_AUDIT_EVENTS.MINING_FAILED,
-      expect.stringContaining('taskId='),
+      expect.stringContaining('fullTaskId=nonexistent-task-id'),
+      expect.stringContaining('shortTaskId=nonexistent-task-id'),
       'reason=ENOENT',
     );
     expect(mockSchedule).toHaveBeenCalledWith(
@@ -349,7 +354,8 @@ describe('EvolutionSystem.runRetroForContract - best-effort branches', () => {
     expect(result.status).toBe('finished');
     expect(auditSpy).toHaveBeenCalledWith(
       RETRO_AUDIT_EVENTS.MINING_FAILED,
-      expect.stringContaining('taskId='),
+      expect.stringContaining('fullTaskId=mining-123'),
+      expect.stringContaining('shortTaskId=mining-123'),
       expect.stringContaining('error='),
     );
   });

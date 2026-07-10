@@ -15,6 +15,10 @@ import {
   emitPendingIngestFailed,
 } from '../../../src/core/async-task-system/audit-emit.js';
 import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-events.js';
+import {
+  makeFullTaskId,
+  makeShortTaskId,
+} from '../../../src/core/async-task-system/types.js';
 import { makeMockAudit } from '../../helpers/audit.js';
 
 describe('async-task-system typed audit emit (phase 1130)', () => {
@@ -22,17 +26,19 @@ describe('async-task-system typed audit emit (phase 1130)', () => {
 
   // ─── 主路径 ────────────────────────────────────────────────────────────────
 
-  it('emitRecovered serialize 含 taskId= prefix', () => {
+  it('emitRecovered serialize 含 fullTaskId/shortTaskId= 前缀', () => {
     const audit = makeAudit();
     emitRecovered(audit, {
-      taskId: 'tk_abc',
+      fullTaskId: makeFullTaskId('tk_abc'),
+      shortTaskId: makeShortTaskId('sh_abc'),
       kind: 'subagent',
       from: 'running',
       to: 'pending',
     });
     expect(audit.write).toHaveBeenCalledWith(
       TASK_AUDIT_EVENTS.RECOVERED,
-      'taskId=tk_abc',
+      'fullTaskId=tk_abc',
+      'shortTaskId=sh_abc',
       'kind=subagent',
       'from=running',
       'to=pending',
@@ -42,7 +48,8 @@ describe('async-task-system typed audit emit (phase 1130)', () => {
   it('emitToolAsyncResult 拆 3 关联键 (key fix site tool-executor.ts:63)', () => {
     const audit = makeAudit();
     emitToolAsyncResult(audit, {
-      taskId: 'tk_abc',
+      fullTaskId: makeFullTaskId('tk_abc'),
+      shortTaskId: makeShortTaskId('sh_abc'),
       toolName: 'read_file',
       toolUseId: 'tu_xyz',
     });
@@ -50,7 +57,8 @@ describe('async-task-system typed audit emit (phase 1130)', () => {
       TASK_AUDIT_EVENTS.TOOL_ASYNC_RESULT,
       'tool_name=read_file',
       'tool_use_id=tu_xyz',
-      'task_id=tk_abc',
+      'fullTaskId=tk_abc',
+      'shortTaskId=sh_abc',
     );
     // 确认: 无 `task=tk_abc` 重复 col、无 positional task.toolName / task.toolUseId
     const callArgs = audit.write.mock.calls[0] as unknown as unknown[];
@@ -63,7 +71,8 @@ describe('async-task-system typed audit emit (phase 1130)', () => {
   it('emitTaskScheduled 含 isShadow 当传入时（含 undefined）', () => {
     const audit = makeAudit();
     emitTaskScheduled(audit, {
-      taskId: 'tk_1',
+      fullTaskId: makeFullTaskId('tk_1'),
+      shortTaskId: makeShortTaskId('sh_1'),
       kind: 'tool',
       parent: 'p1',
       tool: 'spawn',
@@ -76,7 +85,8 @@ describe('async-task-system typed audit emit (phase 1130)', () => {
   it('emitTaskScheduled 不含 isShadow 当未传入时', () => {
     const audit = makeAudit();
     emitTaskScheduled(audit, {
-      taskId: 'tk_1',
+      fullTaskId: makeFullTaskId('tk_1'),
+      shortTaskId: makeShortTaskId('sh_1'),
       kind: 'subagent',
       parent: 'p1',
     });
@@ -87,19 +97,24 @@ describe('async-task-system typed audit emit (phase 1130)', () => {
     expect(hasIsShadow).toBe(false);
   });
 
-  it('emitTaskStarted 仅 emit taskId', () => {
+  it('emitTaskStarted 仅 emit fullTaskId/shortTaskId', () => {
     const audit = makeAudit();
-    emitTaskStarted(audit, { taskId: 'tk_1' });
+    emitTaskStarted(audit, {
+      fullTaskId: makeFullTaskId('tk_1'),
+      shortTaskId: makeShortTaskId('sh_1'),
+    });
     expect(audit.write).toHaveBeenCalledWith(
       TASK_AUDIT_EVENTS.TASK_STARTED,
-      'taskId=tk_1',
+      'fullTaskId=tk_1',
+      'shortTaskId=sh_1',
     );
   });
 
   it('emitTaskCompleted 覆盖 ok/err + optional fields', () => {
     const audit = makeAudit();
     emitTaskCompleted(audit, {
-      taskId: 'tk_1',
+      fullTaskId: makeFullTaskId('tk_1'),
+      shortTaskId: makeShortTaskId('sh_1'),
       status: 'ok',
       kind: 'tool',
       toolName: 'read',
@@ -108,7 +123,8 @@ describe('async-task-system typed audit emit (phase 1130)', () => {
     });
     const callArgs = audit.write.mock.calls[0] as unknown as string[];
     expect(callArgs[0]).toBe(TASK_AUDIT_EVENTS.TASK_COMPLETED);
-    expect(callArgs).toContain('taskId=tk_1');
+    expect(callArgs).toContain('fullTaskId=tk_1');
+    expect(callArgs).toContain('shortTaskId=sh_1');
     // phase 706: src raw 'ok' 加 'status=' prefix
     expect(callArgs).toContain('status=ok');
     expect(callArgs).toContain('kind=tool');
@@ -132,16 +148,18 @@ describe('async-task-system typed audit emit (phase 1130)', () => {
     );
   });
 
-  it('emitMoveFailed 含 taskId=前缀', () => {
+  it('emitMoveFailed 含 fullTaskId/shortTaskId=前缀', () => {
     const audit = makeAudit();
     emitMoveFailed(audit, {
-      taskId: 'tk_1',
+      fullTaskId: makeFullTaskId('tk_1'),
+      shortTaskId: makeShortTaskId('sh_1'),
       context: 'move_to_done',
       error: 'disk full',
     });
     expect(audit.write).toHaveBeenCalledWith(
       TASK_AUDIT_EVENTS.MOVE_FAILED,
-      'taskId=tk_1',
+      'fullTaskId=tk_1',
+      'shortTaskId=sh_1',
       'context=move_to_done',
       'error=disk full',
     );
@@ -166,7 +184,10 @@ describe('async-task-system typed audit emit (phase 1130)', () => {
 
   it('反向 1: emit fn 实然调 audit.write', () => {
     const audit = makeAudit();
-    emitRecovered(audit, { taskId: 'x' });
+    emitRecovered(audit, {
+      fullTaskId: makeFullTaskId('x'),
+      shortTaskId: makeShortTaskId('x'),
+    });
     expect(audit.write).toHaveBeenCalled();
   });
 
@@ -174,8 +195,8 @@ describe('async-task-system typed audit emit (phase 1130)', () => {
 
   it('反向 2: typed payload key TS enforce', () => {
     const audit = makeAudit();
-    // @ts-expect-error: missing required field `taskId`
-    emitRecovered(audit, { id: 'x' });
+    // @ts-expect-error: missing required field `fullTaskId`
+    emitRecovered(audit, { shortTaskId: makeShortTaskId('x') });
     expect(audit.write).toHaveBeenCalledTimes(1);
   });
 
@@ -184,7 +205,8 @@ describe('async-task-system typed audit emit (phase 1130)', () => {
   it('反向 3: tool-executor.ts:63 cascade 后 row 不含 `task=` ad-hoc col', () => {
     const audit = makeAudit();
     emitToolAsyncResult(audit, {
-      taskId: 'tk_abc',
+      fullTaskId: makeFullTaskId('tk_abc'),
+      shortTaskId: makeShortTaskId('sh_abc'),
       toolName: 'foo',
       toolUseId: 'tu_x',
     });

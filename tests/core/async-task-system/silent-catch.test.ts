@@ -6,6 +6,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { recoverTasks, type RecoverTasksDeps } from '../../../src/core/async-task-system/task-recovery.js';
 import { sendToolResult } from '../../../src/core/async-task-system/result-delivery.js';
 import { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
+import { InMemoryShortIdIndex } from '../../../src/core/async-task-system/short-id-index.js';
 import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-events.js';
 import { makeTaskSystemDeps } from '../../helpers/task-system.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
@@ -182,7 +183,8 @@ describe('phase 541: silent catch fixes', () => {
       expect(inlineFallbackEvents[0]).toEqual(
         expect.arrayContaining([
           TASK_AUDIT_EVENTS.INBOX_WRITE_FAILED,
-          expect.stringContaining('taskId='),
+          expect.stringContaining('fullTaskId=tool-1'),
+          expect.stringContaining('shortTaskId=tool-1'),
           'context=inline_fallback_failed',
           expect.stringContaining('error='),
         ]),
@@ -214,6 +216,7 @@ describe('phase 541: silent catch fixes', () => {
       };
 
       system = new AsyncTaskSystem('/tmp/claw', mockFs, {
+        shortIdIndex: new InMemoryShortIdIndex(),
         auditWriter: audit,
         ...makeTaskSystemDeps(),
       });

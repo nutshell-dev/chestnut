@@ -6,6 +6,7 @@ import type { OutboxWriter } from '../../src/foundation/messaging/index.js';
 import type { AuditWriter } from '../../src/foundation/audit/writer.js';
 import type { FileSystem } from '../../src/foundation/fs/types.js';
 import { AsyncTaskSystem, type AsyncTaskSystemOptions } from '../../src/core/async-task-system/system.js';
+import { InMemoryShortIdIndex } from '../../src/core/async-task-system/short-id-index.js';
 import { ToolRegistryImpl } from '../../src/foundation/tools/registry.js';
 import { TASKS_QUEUES_PENDING_DIR } from '../../src/core/async-task-system/index.js';
 import type { AuditLog } from '../../src/foundation/audit/index.js';
@@ -43,6 +44,7 @@ export function createTestTaskSystem(
   const deps = makeTaskSystemDeps(llm);
   return new AsyncTaskSystem(clawDir, fs, {
     auditWriter,
+    shortIdIndex: new InMemoryShortIdIndex(),
     ...deps,
     ...overrides,
   });

@@ -6,6 +6,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { recoverTasks, type RecoverTasksDeps } from '../../../src/core/async-task-system/task-recovery.js';
 import { sendResult } from '../../../src/core/async-task-system/result-delivery.js';
 import { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
+import { InMemoryShortIdIndex } from '../../../src/core/async-task-system/short-id-index.js';
 import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-events.js';
 import { makeTaskSystemDeps } from '../../helpers/task-system.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
@@ -69,6 +70,7 @@ describe('phase 556: race + dead-letter cluster fix', () => {
       };
 
       system = new AsyncTaskSystem('/tmp/claw', mockFs, {
+        shortIdIndex: new InMemoryShortIdIndex(),
         auditWriter: audit,
         ...makeTaskSystemDeps(),
       });
@@ -105,9 +107,14 @@ describe('phase 556: race + dead-letter cluster fix', () => {
       });
 
       let resolveExists!: (v: boolean) => void;
+      let existsDeferred = true;
       mockFs.exists = vi.fn().mockImplementation((path: string) => {
         if (path.includes('pending') && path.includes(taskId)) {
-          return new Promise((resolve) => { resolveExists = resolve; });
+          if (existsDeferred) {
+            existsDeferred = false;
+            return new Promise((resolve) => { resolveExists = resolve; });
+          }
+          return Promise.resolve(true);
         }
         return Promise.resolve(false);
       });
@@ -288,6 +295,7 @@ describe('phase 556: race + dead-letter cluster fix', () => {
       };
 
       system = new AsyncTaskSystem('/tmp/claw', mockFs, {
+        shortIdIndex: new InMemoryShortIdIndex(),
         auditWriter: audit,
         ...makeTaskSystemDeps(),
       });
@@ -370,9 +378,14 @@ describe('phase 556: race + dead-letter cluster fix', () => {
       });
 
       let resolveExists!: (v: boolean) => void;
+      let existsDeferred = true;
       mockFs.exists = vi.fn().mockImplementation((path: string) => {
         if (path.includes('pending') && path.includes(taskId)) {
-          return new Promise((resolve) => { resolveExists = resolve; });
+          if (existsDeferred) {
+            existsDeferred = false;
+            return new Promise((resolve) => { resolveExists = resolve; });
+          }
+          return Promise.resolve(true);
         }
         return Promise.resolve(false);
       });

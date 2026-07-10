@@ -15,6 +15,19 @@ export interface ShortIdMap {
   [shortId: string]: string; // shortId → full UUID string
 }
 
+/** In-memory ShortIdIndex for tests or lightweight scenarios. */
+export class InMemoryShortIdIndex implements ShortIdIndex {
+  private map = new Map<string, FullTaskId>();
+
+  load(): void { /* no-op */ }
+  save(): void { /* no-op */ }
+  has(shortId: string): boolean { return this.map.has(shortId); }
+  add(shortId: ShortTaskId, fullId: FullTaskId): void { this.map.set(shortId, fullId); }
+  delete(shortId: ShortTaskId): void { this.map.delete(shortId); }
+  resolve(shortId: string): FullTaskId | undefined { return this.map.get(shortId); }
+  deriveShortId(fullId: FullTaskId): ShortTaskId { return makeShortTaskId(fullId.slice(0, 8)); }
+}
+
 export class PersistentShortIdIndex implements ShortIdIndex {
   private map: ShortIdMap = {};
   private dirty = false;

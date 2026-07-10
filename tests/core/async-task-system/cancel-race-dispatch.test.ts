@@ -4,6 +4,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
+import { InMemoryShortIdIndex } from '../../../src/core/async-task-system/short-id-index.js';
 import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-events.js';
 import { makeTaskSystemDeps } from '../../helpers/task-system.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
@@ -14,6 +15,8 @@ function makeMockFsForCancelRace(): FileSystem {
     ensureDir: vi.fn().mockResolvedValue(undefined),
     list: vi.fn().mockResolvedValue([]),
     resolve: vi.fn((p: string) => `/abs/${p}`),
+    existsSync: vi.fn().mockReturnValue(false),
+    listSync: vi.fn().mockReturnValue([]),
     exists: vi.fn().mockImplementation((path: string) => {
       if (path.includes('tasks/queues/pending/task-X.json')) return Promise.resolve(true);
       return Promise.resolve(false);
@@ -59,6 +62,7 @@ describe('phase 1011 D.3: cancel race lost to dispatch', () => {
       summary: (s: string) => s,
     };
     system = new AsyncTaskSystem('/tmp/claw', mockFs, {
+      shortIdIndex: new InMemoryShortIdIndex(),
       auditWriter: audit,
       ...makeTaskSystemDeps(),
     });
@@ -74,7 +78,7 @@ describe('phase 1011 D.3: cancel race lost to dispatch', () => {
     await system.cancel('task-X');
 
     const raceLostEvents = auditEvents.filter(
-      e => e[0] === TASK_AUDIT_EVENTS.TASK_CANCEL_RACE_LOST_TO_DISPATCH && e.some(c => typeof c === 'string' && c === 'taskId=task-X'),
+      e => e[0] === TASK_AUDIT_EVENTS.TASK_CANCEL_RACE_LOST_TO_DISPATCH && e.some(c => typeof c === 'string' && (c === 'fullTaskId=task-X' || c === 'shortTaskId=task-X')),
     );
     expect(raceLostEvents.length).toBe(1);
 

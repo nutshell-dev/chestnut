@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { recoverTasks, type RecoverTasksDeps } from '../../../src/core/async-task-system/task-recovery.js';
 import { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
+import { InMemoryShortIdIndex } from '../../../src/core/async-task-system/short-id-index.js';
 import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-events.js';
 import { makeTaskSystemDeps } from '../../helpers/task-system.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
@@ -279,7 +280,8 @@ describe('task-recovery corrupt-backup 三件套', () => {
       };
 
       system = new AsyncTaskSystem('/tmp/claw', mockFs, {
-        auditWriter: audit,
+      shortIdIndex: new InMemoryShortIdIndex(),
+      auditWriter: audit,
         ...makeTaskSystemDeps(),
       });
     });

@@ -143,12 +143,14 @@ describe('Task System + SubAgent', () => {
         maxSteps: 10,
         parentClawId: 'parent-claw',
       });
+      const fullTaskId = ctx.taskSystem.resolveFullTaskId(taskId);
 
       expect(taskId).toBeDefined();
       expect(typeof taskId).toBe('string');
+      expect(taskId.length).toBe(8);
 
       // Wait for dispatch to move from pending to running (file on disk)
-      await waitFor(() => ctx.mockFs.exists(`tasks/queues/running/${taskId}.json`));
+      await waitFor(() => ctx.mockFs.exists(`tasks/queues/running/${fullTaskId}.json`));
 
       // Check task is tracked in running list
       expect(ctx.taskSystem.listRunning()).toContain(taskId);
@@ -168,20 +170,21 @@ describe('Task System + SubAgent', () => {
         maxSteps: 5,
         parentClawId: 'parent-claw',
       });
+      const fullTaskId = ctx.taskSystem.resolveFullTaskId(taskId);
 
-      // 1. scheduleSubAgent 写文件后立即可见于 pending/
-      expect(await ctx.mockFs.exists(`tasks/queues/pending/${taskId}.json`)).toBe(true);
+      // 1. scheduleSubAgent writes the pending file by its persistence fullId
+      expect(await ctx.mockFs.exists(`tasks/queues/pending/${fullTaskId}.json`)).toBe(true);
 
-      // 2. watcher 拾起 → _ingestPendingFile → _dispatch → movePendingToRunning（异步，给足时间）
+      // 2. watcher → ingest → dispatch moves it to running/ (async, generous budget)
       await waitFor(async () => {
-        return await ctx.mockFs.exists(`tasks/queues/running/${taskId}.json`);
+        return await ctx.mockFs.exists(`tasks/queues/running/${fullTaskId}.json`);
       }, 10000); // was 3000
 
-      // 3. pending/ 文件已被移走
-      expect(await ctx.mockFs.exists(`tasks/queues/pending/${taskId}.json`)).toBe(false);
-      expect(await ctx.mockFs.exists(`tasks/queues/running/${taskId}.json`)).toBe(true);
+      // 3. pending/ file has been moved away
+      expect(await ctx.mockFs.exists(`tasks/queues/pending/${fullTaskId}.json`)).toBe(false);
+      expect(await ctx.mockFs.exists(`tasks/queues/running/${fullTaskId}.json`)).toBe(true);
 
-      // 4. listRunning 反映状态
+      // 4. listRunning reflects state using shortIds
       expect(ctx.taskSystem.listRunning()).toContain(taskId);
     });
 
@@ -204,22 +207,22 @@ describe('Task System + SubAgent', () => {
         maxSteps: 5,
         parentClawId: 'parent-claw',
       });
+      const fullTaskId = ctx.taskSystem.resolveFullTaskId(taskId);
 
       // Wait for TASK_COMPLETED audit event (phase 1143 — was waitFor fs poll, flaky)
       await waitForAuditEvent(emitter, events, TASK_AUDIT_EVENTS.TASK_COMPLETED);
 
       // Allow brief fs flush after audit event (R1: emit may slightly precede writeAtomic).
       // Budget derive: typical fs.move on local tmpfs ~5ms × CI safety (×200) = 1000ms.
-      // 比 default 5s budget 紧 5×、保 regression 可见（若 move 真退化到 >1s 立 fail-loud）。
       const POST_AUDIT_FS_FLUSH_BUDGET_MS = 1000;
-      await waitFor(() => ctx.mockFs.exists(`tasks/queues/done/${taskId}.json`), POST_AUDIT_FS_FLUSH_BUDGET_MS);
+      await waitFor(() => ctx.mockFs.exists(`tasks/queues/done/${fullTaskId}.json`), POST_AUDIT_FS_FLUSH_BUDGET_MS);
 
       // Task should be moved to done
-      const doneExists = await ctx.mockFs.exists(`tasks/queues/done/${taskId}.json`);
+      const doneExists = await ctx.mockFs.exists(`tasks/queues/done/${fullTaskId}.json`);
       expect(doneExists).toBe(true);
 
       // Running file should not exist
-      const runningExists = await ctx.mockFs.exists(`tasks/queues/running/${taskId}.json`);
+      const runningExists = await ctx.mockFs.exists(`tasks/queues/running/${fullTaskId}.json`);
       expect(runningExists).toBe(false);
 
       // phase 805: runSubagent 不再创建 tasks/subagents/<id>/ orphan empty dir
@@ -244,6 +247,7 @@ describe('Task System + SubAgent', () => {
         maxSteps: 5,
         parentClawId: 'motion',
       });
+      const fullTaskId = ctx.taskSystem.resolveFullTaskId(taskId);
 
       // Wait for TASK_COMPLETED instead of polling inbox (phase 779 Step C)
       await waitForAuditEvent(emitter, events, TASK_AUDIT_EVENTS.TASK_COMPLETED);
@@ -259,7 +263,9 @@ describe('Task System + SubAgent', () => {
       const content = await fs.readFile(path.join(inboxDir, inboxFiles[0]), 'utf-8');
       expect(content).toContain('from: "system"');
       expect(content).toContain('to: "motion"');
-      expect(content).toContain(`"resultRef":"tasks/queues/results/${taskId}/result.txt"`);
+      expect(content).toContain(`"taskId":"${taskId}"`);
+      expect(content).toContain(`"fullTaskId":"${fullTaskId}"`);
+      expect(content).toContain(`"resultRef":"tasks/queues/results/${fullTaskId}/result.txt"`);
     });
 
     test('should cancel task', async ({ ctx }) => {
@@ -351,7 +357,7 @@ describe('Task System + SubAgent', () => {
         expect.arrayContaining([
           expect.arrayContaining([
             TASK_AUDIT_EVENTS.TASK_COMPLETED,
-            expect.stringContaining('taskId='),
+            expect.stringContaining('shortTaskId='),
           ]),
         ])
       );
@@ -394,7 +400,7 @@ describe('Task System + SubAgent', () => {
         expect.arrayContaining([
           expect.arrayContaining([
             'task_completed',
-            expect.stringContaining('taskId='),
+            expect.stringContaining('shortTaskId='),
             'status=err',
             expect.stringMatching(/^elapsed_ms=\d+$/),
           ]),

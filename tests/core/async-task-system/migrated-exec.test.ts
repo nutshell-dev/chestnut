@@ -18,6 +18,7 @@ import { spawn } from 'child_process';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { executeToolTask } from '../../../src/core/async-task-system/tool-executor.js';
 import { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
+import { InMemoryShortIdIndex } from '../../../src/core/async-task-system/short-id-index.js';
 import { createExecWithHandle, createExecTool, EXEC_TOOL_NAME } from '../../../src/foundation/command-tool/exec.js';
 import { createToolRegistry } from '../../../src/foundation/tools/index.js';
 import { createPerTaskRegistry } from '../../../src/core/subagent/registry-helper.js';
@@ -208,6 +209,7 @@ describe('createAsyncExecWrapper', () => {
     auditEvents = mockAudit.events;
 
     system = new AsyncTaskSystem(tmpDir, nodeFs, {
+      shortIdIndex: new InMemoryShortIdIndex(),
       auditWriter: audit,
       ...makeTaskSystemDeps(),
     });
@@ -247,11 +249,16 @@ describe('createAsyncExecWrapper', () => {
     expect(result.content).toMatch(/Execution moved to async\. Task:/);
     expect(result.metadata).toMatchObject({ async: true, migrated: true });
     expect(typeof result.metadata?.taskId).toBe('string');
+    expect(typeof result.metadata?.fullTaskId).toBe('string');
 
-    const taskId = result.metadata?.taskId as string;
+    const shortId = result.metadata?.taskId as string;
+    const fullId = result.metadata?.fullTaskId as string;
 
-    // Running task file should exist immediately after migration.
-    const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${taskId}.json`);
+    // Agent-visible content uses the shortId.
+    expect(result.content).toContain(shortId);
+
+    // Running task file should exist immediately after migration (persistence uses fullId).
+    const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${fullId}.json`);
     expect(await fs.stat(runningFile).then(() => true).catch(() => false)).toBe(true);
 
     // Migrated audit should have been emitted.
@@ -260,11 +267,11 @@ describe('createAsyncExecWrapper', () => {
     // Wait for the background chain to finish and move the running file to done.
     await waitUntilGone(runningFile, 5000);
 
-    // Result file is written by the background chain once the process exits.
-    const resultFile = path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, taskId, 'result.txt');
+    // Result file is written by the background chain once the process exits (persistence uses fullId).
+    const resultFile = path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, fullId, 'result.txt');
     expect(await fs.stat(resultFile).then(() => true).catch(() => false)).toBe(true);
 
-    const doneFile = path.join(tmpDir, TASKS_QUEUES_DONE_DIR, `${taskId}.json`);
+    const doneFile = path.join(tmpDir, TASKS_QUEUES_DONE_DIR, `${fullId}.json`);
     expect(await fs.stat(doneFile).then(() => true).catch(() => false)).toBe(true);
   });
 
@@ -281,9 +288,10 @@ describe('createAsyncExecWrapper', () => {
     const result = await tool.execute({ command }, ctx);
 
     expect(result.success).toBe(true);
-    const taskId = result.metadata?.taskId as string;
-    const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${taskId}.json`);
-    const resultFile = path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, taskId, 'result.txt');
+    const shortId = result.metadata?.taskId as string;
+    const fullId = result.metadata?.fullTaskId as string;
+    const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${fullId}.json`);
+    const resultFile = path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, fullId, 'result.txt');
 
     // Wait for the background chain to finish and move the task to done.
     await waitUntilGone(runningFile, 5000);
@@ -305,9 +313,10 @@ describe('createAsyncExecWrapper', () => {
     const result = await tool.execute({ command: 'echo before && sleep 0.5 && echo after' }, ctx);
 
     expect(result.success).toBe(true);
-    const taskId = result.metadata?.taskId as string;
-    const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${taskId}.json`);
-    const resultFile = path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, taskId, 'result.txt');
+    const shortId = result.metadata?.taskId as string;
+    const fullId = result.metadata?.fullTaskId as string;
+    const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${fullId}.json`);
+    const resultFile = path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, fullId, 'result.txt');
 
     await waitUntilGone(runningFile, 5000);
 
@@ -327,9 +336,10 @@ describe('createAsyncExecWrapper', () => {
     const result = await tool.execute({ command: 'echo partial && sleep 0.3 && exit 1' }, ctx);
 
     expect(result.success).toBe(true);
-    const taskId = result.metadata?.taskId as string;
-    const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${taskId}.json`);
-    const resultFile = path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, taskId, 'result.txt');
+    const shortId = result.metadata?.taskId as string;
+    const fullId = result.metadata?.fullTaskId as string;
+    const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${fullId}.json`);
+    const resultFile = path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, fullId, 'result.txt');
 
     await waitUntilGone(runningFile, 5000);
 
@@ -391,8 +401,9 @@ describe('createAsyncExecWrapper', () => {
     expect(result.success).toBe(true);
     expect(result.content).toMatch(/Execution moved to async\. Task:/);
 
-    const taskId = result.metadata?.taskId as string;
-    const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${taskId}.json`);
+    const shortId = result.metadata?.taskId as string;
+    const fullId = result.metadata?.fullTaskId as string;
+    const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${fullId}.json`);
     const task = JSON.parse(await fs.readFile(runningFile, 'utf-8'));
     const pid = task.migratedPid as number;
     expect(pid).toBeGreaterThan(0);
@@ -407,7 +418,7 @@ describe('createAsyncExecWrapper', () => {
     // Wait for the process to finish naturally and the background chain to deliver output.
     await waitUntilGone(runningFile, 5000);
 
-    const resultFile = path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, taskId, 'result.txt');
+    const resultFile = path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, fullId, 'result.txt');
     const output = await fs.readFile(resultFile, 'utf-8');
     expect(output).toContain('survived');
   });
@@ -447,6 +458,7 @@ describe('timeoutMs dual-mode (Phase 776)', () => {
     audit = mockAudit.audit;
 
     system = new AsyncTaskSystem(tmpDir, nodeFs, {
+      shortIdIndex: new InMemoryShortIdIndex(),
       auditWriter: audit,
       ...makeTaskSystemDeps(),
     });
@@ -588,6 +600,7 @@ describe('migrated process hard timeout (Phase 777)', () => {
     auditEvents = mockAudit.events;
 
     system = new AsyncTaskSystem(tmpDir, nodeFs, {
+      shortIdIndex: new InMemoryShortIdIndex(),
       auditWriter: audit,
       ...makeTaskSystemDeps(),
     });
@@ -612,17 +625,18 @@ describe('migrated process hard timeout (Phase 777)', () => {
 
     expect(result.success).toBe(true);
     expect(result.content).toMatch(/Execution moved to async\. Task:/);
-    const taskId = result.metadata?.taskId as string;
+    const shortId = result.metadata?.taskId as string;
+    const fullId = result.metadata?.fullTaskId as string;
 
-    const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${taskId}.json`);
+    const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${fullId}.json`);
     await waitUntilGone(runningFile, 5000);
 
-    const resultFile = path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, taskId, 'result.txt');
+    const resultFile = path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, fullId, 'result.txt');
     const output = await fs.readFile(resultFile, 'utf-8');
     expect(output).toContain('tick');
     expect(output).toMatch(/\[Process timed out: Migrated process timed out after 500ms\]/);
 
-    const doneFile = path.join(tmpDir, TASKS_QUEUES_DONE_DIR, `${taskId}.json`);
+    const doneFile = path.join(tmpDir, TASKS_QUEUES_DONE_DIR, `${fullId}.json`);
     expect(await fs.stat(doneFile).then(() => true).catch(() => false)).toBe(true);
 
     expect(auditEvents.some(e => e[0] === TASK_AUDIT_EVENTS.TASK_MIGRATED_TIMED_OUT)).toBe(true);
@@ -644,9 +658,10 @@ describe('migrated process hard timeout (Phase 777)', () => {
     const result = await tool.execute({ command: 'sleep 0.2 && echo done' }, ctx);
 
     expect(result.success).toBe(true);
-    const taskId = result.metadata?.taskId as string;
-    const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${taskId}.json`);
-    const resultFile = path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, taskId, 'result.txt');
+    const shortId = result.metadata?.taskId as string;
+    const fullId = result.metadata?.fullTaskId as string;
+    const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${fullId}.json`);
+    const resultFile = path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, fullId, 'result.txt');
 
     await waitUntilGone(runningFile, 5000);
 
@@ -668,9 +683,10 @@ describe('migrated process hard timeout (Phase 777)', () => {
     const result = await tool.execute({ command: 'sleep 0.12 && echo quick' }, ctx);
 
     expect(result.success).toBe(true);
-    const taskId = result.metadata?.taskId as string;
-    const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${taskId}.json`);
-    const resultFile = path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, taskId, 'result.txt');
+    const shortId = result.metadata?.taskId as string;
+    const fullId = result.metadata?.fullTaskId as string;
+    const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${fullId}.json`);
+    const resultFile = path.join(tmpDir, TASKS_QUEUES_RESULTS_DIR, fullId, 'result.txt');
 
     await waitUntilGone(runningFile, 5000);
 
@@ -699,6 +715,7 @@ describe('Phase 833: migrated exec stream events', () => {
     audit = mockAudit.audit;
 
     system = new AsyncTaskSystem(tmpDir, nodeFs, {
+      shortIdIndex: new InMemoryShortIdIndex(),
       auditWriter: audit,
       ...makeTaskSystemDeps(),
     });
@@ -722,11 +739,13 @@ describe('Phase 833: migrated exec stream events', () => {
     const result = await tool.execute({ command: 'sleep 0.3 && echo done' }, ctx);
 
     expect(result.success).toBe(true);
-    const taskId = result.metadata?.taskId as string;
+    const shortId = result.metadata?.taskId as string;
+    const fullId = result.metadata?.fullTaskId as string;
 
     const started = streamEvents.find(e => e.type === 'task_started');
     expect(started).toBeDefined();
-    expect(started?.taskId).toBe(taskId);
+    expect(started?.taskId).toBe(shortId);
+    expect(started?.fullTaskId).toBe(fullId);
     expect(started?.taskKind).toBe('exec_migrated');
     expect(started?.command).toBe('sleep 0.3 && echo done');
     expect(typeof started?.startedAt).toBe('number');
@@ -743,14 +762,16 @@ describe('Phase 833: migrated exec stream events', () => {
     const result = await tool.execute({ command: 'sleep 0.2 && echo done' }, ctx);
 
     expect(result.success).toBe(true);
-    const taskId = result.metadata?.taskId as string;
+    const shortId = result.metadata?.taskId as string;
+    const fullId = result.metadata?.fullTaskId as string;
 
-    const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${taskId}.json`);
+    const runningFile = path.join(tmpDir, TASKS_QUEUES_RUNNING_DIR, `${fullId}.json`);
     await waitUntilGone(runningFile, 5000);
 
     const completed = streamEvents.find(e => e.type === 'task_completed');
     expect(completed).toBeDefined();
-    expect(completed?.taskId).toBe(taskId);
+    expect(completed?.taskId).toBe(shortId);
+    expect(completed?.fullTaskId).toBe(fullId);
     expect(completed?.taskKind).toBe('exec_migrated');
   });
 

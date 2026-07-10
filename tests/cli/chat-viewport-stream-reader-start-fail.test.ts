@@ -36,6 +36,7 @@ describe('phase 1217 (r131 C fork) B.2 — stream reader start fail no register'
 
   it('stream reader start() throw 后不注册 stale TaskWatch', () => {
     const taskId = 'task-123';
+    const fullTaskId = '550e8400-e29b-41d4-a716-446655440000';
     const startError = new Error('ENOENT: stream file missing');
 
     // mock createStreamReader 返回一个在 start() 时 throw 的 reader
@@ -67,11 +68,13 @@ describe('phase 1217 (r131 C fork) B.2 — stream reader start fail no register'
       handleTaskEvent: vi.fn(),
       taskStatusBar: { addTrack: vi.fn() },
       getThinkingMode: () => 'off' as const,
+      resolvePending: vi.fn(),
     });
 
     handleEvent({
       type: 'task_started',
       taskId,
+      fullTaskId,
       taskKind: 'spawn_subagent',
     });
 
@@ -79,7 +82,8 @@ describe('phase 1217 (r131 C fork) B.2 — stream reader start fail no register'
     expect(auditWrite).toHaveBeenCalledWith(
       VIEWPORT_AUDIT_EVENTS.STREAM_READER_START_FAILED,
       expect.stringContaining(`taskId=${taskId}`),
-      expect.stringContaining(startError.message),
+      expect.stringContaining(`fullTaskId=${fullTaskId}`),
+      expect.stringContaining(`reason=${startError.message}`),
     );
 
     // taskWatchMap 不应有该 taskId（不 register stale TaskWatch）

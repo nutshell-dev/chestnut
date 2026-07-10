@@ -5,6 +5,7 @@ import {
 } from '../../../src/core/async-task-system/queue-cross-source-audit.js';
 import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-events.js';
 import { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
+import { InMemoryShortIdIndex } from '../../../src/core/async-task-system/short-id-index.js';
 import { makeTaskSystemDeps } from '../../helpers/task-system.js';
 import { SUBAGENT_DEFAULT_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
 import { waitFor } from '../../helpers/wait-for.js';
@@ -136,7 +137,8 @@ describe('async-task queue cross-source audit (phase 284)', () => {
       } as unknown as FileSystem;
 
       const system = new AsyncTaskSystem('/tmp/claw', mockFs, {
-        auditWriter: audit,
+      shortIdIndex: new InMemoryShortIdIndex(),
+      auditWriter: audit,
         ...makeTaskSystemDeps(),
       });
 

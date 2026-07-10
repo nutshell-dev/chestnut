@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
+import { InMemoryShortIdIndex } from '../../../src/core/async-task-system/short-id-index.js';
 import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-events.js';
 import { makeTaskSystemDeps } from '../../helpers/task-system.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
@@ -57,6 +58,7 @@ describe('cancel pending task with corrupt JSON triggers backupCorruptTask audit
     } as unknown as FileSystem;
 
     const system = new AsyncTaskSystem('/tmp/claw', mockFs, {
+      shortIdIndex: new InMemoryShortIdIndex(),
       auditWriter: audit,
       ...makeTaskSystemDeps(),
     });
@@ -117,6 +119,7 @@ describe('cancel pending task with corrupt JSON triggers backupCorruptTask audit
     } as unknown as FileSystem;
 
     const system = new AsyncTaskSystem('/tmp/claw', mockFs, {
+      shortIdIndex: new InMemoryShortIdIndex(),
       auditWriter: audit,
       ...makeTaskSystemDeps(),
     });

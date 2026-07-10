@@ -4,6 +4,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
+import { InMemoryShortIdIndex } from '../../../src/core/async-task-system/short-id-index.js';
 import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-events.js';
 import { makeTaskSystemDeps } from '../../helpers/task-system.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
@@ -41,6 +42,7 @@ describe('phase 1013 E.4: cancel pending parse fail audit', () => {
     auditEvents = events;
 
     system = new AsyncTaskSystem('/tmp/claw', mockFs, {
+      shortIdIndex: new InMemoryShortIdIndex(),
       auditWriter: audit,
       ...makeTaskSystemDeps(),
     });
@@ -62,7 +64,8 @@ describe('phase 1013 E.4: cancel pending parse fail audit', () => {
     expect(parseFailedEvents[0]).toEqual(
       expect.arrayContaining([
         TASK_AUDIT_EVENTS.PARSE_FAILED,
-        expect.stringContaining('taskId='),
+        expect.stringContaining('fullTaskId='),
+        expect.stringContaining('shortTaskId='),
         'context=cancel_pending_load',
         expect.stringContaining('error='),
       ]),

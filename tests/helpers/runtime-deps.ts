@@ -16,6 +16,7 @@ import { CLAW_SUBDIRS } from '../../src/assembly/claw-subdirs.js';
 import { createClawPermissionChecker } from '../../src/core/permissions/claw-permissions.js';
 import { ContractSystem } from '../../src/core/contract/manager.js';
 import { AsyncTaskSystem } from '../../src/core/async-task-system/system.js';
+import { InMemoryShortIdIndex } from '../../src/core/async-task-system/short-id-index.js';
 import { ContextInjector } from '../../src/core/context_manager/injector.js';
 import { ExecContextImpl } from '../../src/foundation/tools/context.js';
 import type { RuntimeDependencies } from '../../src/core/runtime/index.js';
@@ -77,6 +78,7 @@ export async function makeRuntimeDeps(input: MakeRuntimeDepsInput): Promise<Runt
     notifyClaw: () => {},});
   const taskSystem = new AsyncTaskSystem(clawDir, systemFs, {
     auditWriter, llm, contractManager, outboxWriter, registry: toolRegistry,
+    shortIdIndex: new InMemoryShortIdIndex(),
   });
   const toolExecutor = new ToolExecutorImpl(toolRegistry, 60000);
   const permissionChecker = createClawPermissionChecker({ clawDir, strict: true, audit: auditWriter, fs: clawFs });

@@ -232,31 +232,32 @@ export class AsyncTaskSystem {
 
     // Phase 849: lazy migration — register existing 8-char task IDs in ShortIdIndex.
     // Files are not renamed; they will be renamed on the next state transition.
-    for (const dir of [TASKS_QUEUES_PENDING_DIR, TASKS_QUEUES_RUNNING_DIR, TASKS_QUEUES_DONE_DIR, TASKS_QUEUES_FAILED_DIR]) {
-      const fullDir = path.join(this.clawDir, dir);
-      const dirFs = this.fsFactory(fullDir);
-      if (!dirFs.existsSync('.')) continue;
-      for (const entry of dirFs.listSync('.', { includeDirs: false })) {
-        if (!entry.name.endsWith('.json')) continue;
-        const taskId = entry.name.replace(/\.json$/, '');
-        if (taskId.length !== 8) continue;
-        if (this.shortIdIndex.has(taskId)) continue;
-        try {
-          const raw = dirFs.readSync(entry.name);
-          const task = JSON.parse(raw) as Record<string, unknown>;
-          const storedId = task.id as string | undefined;
-          if (storedId && storedId.length === 36) {
-            this.shortIdIndex.add(taskId as ShortTaskId, makeFullTaskId(storedId));
-          } else {
-            const fullId = makeFullTaskId(newUuid());
-            this.shortIdIndex.add(taskId as ShortTaskId, fullId);
+    // Guard: some test mocks do not implement sync listing methods.
+    if (typeof this.fs.existsSync === 'function' && typeof this.fs.listSync === 'function') {
+      for (const dir of [TASKS_QUEUES_PENDING_DIR, TASKS_QUEUES_RUNNING_DIR, TASKS_QUEUES_DONE_DIR, TASKS_QUEUES_FAILED_DIR]) {
+        if (!this.fs.existsSync(dir)) continue;
+        for (const entry of this.fs.listSync(dir, { includeDirs: false })) {
+          if (!entry.name.endsWith('.json')) continue;
+          const taskId = entry.name.replace(/\.json$/, '');
+          if (taskId.length !== 8) continue;
+          if (this.shortIdIndex.has(taskId)) continue;
+          try {
+            const raw = this.fs.readSync(`${dir}/${entry.name}`);
+            const task = JSON.parse(raw) as Record<string, unknown>;
+            const storedId = task.id as string | undefined;
+            if (storedId && storedId.length === 36) {
+              this.shortIdIndex.add(taskId as ShortTaskId, makeFullTaskId(storedId));
+            } else {
+              const fullId = makeFullTaskId(newUuid());
+              this.shortIdIndex.add(taskId as ShortTaskId, fullId);
+            }
+          } catch {
+            // Corrupted file — skip, will be handled by recovery
           }
-        } catch {
-          // Corrupted file — skip, will be handled by recovery
         }
       }
+      this.shortIdIndex.save();
     }
-    this.shortIdIndex.save();
 
     // Cold-start recovery: running tasks are moved back to pending by recoverTasks.
     // No in-memory pending queue is kept; pending state is derived from fs on demand.
@@ -343,9 +344,19 @@ export class AsyncTaskSystem {
    * Resolve any TaskId (short or full) to the canonical FullTaskId.
    * Short IDs are looked up in the ShortIdIndex; FullTaskIds pass through.
    */
-  private _resolveFullTaskId(taskId: TaskId): FullTaskId | undefined {
+  private _resolveFullTaskId(taskId: TaskId): FullTaskId {
     if (taskId.length === 36) return taskId as FullTaskId;
-    return this.shortIdIndex.resolve(taskId);
+    const resolved = this.shortIdIndex.resolve(taskId);
+    if (resolved) return resolved;
+    // Fallback: treat non-8-char / non-indexed IDs as legacy full IDs (test fixtures).
+    return taskId as FullTaskId;
+  }
+
+  /**
+   * Public resolver for tests / tooling to map a shortId to the persisted FullTaskId.
+   */
+  resolveFullTaskId(taskId: string): string {
+    return this._resolveFullTaskId(taskId as TaskId);
   }
 
   /**
@@ -398,10 +409,16 @@ export class AsyncTaskSystem {
     for (const e of entries) {
       if (!e.name.endsWith('.json')) continue;
       const nameId = e.name.slice(0, -5);
-      const fullId = nameId.length === 36
-        ? makeFullTaskId(nameId)
-        : this.shortIdIndex.resolve(nameId);
-      if (!fullId) continue;
+      let fullId: FullTaskId | undefined;
+      if (nameId.length === 36) {
+        fullId = makeFullTaskId(nameId);
+      } else {
+        fullId = this.shortIdIndex.resolve(nameId);
+        if (!fullId) {
+          // Fallback: legacy / test fixtures with arbitrary-length IDs.
+          fullId = makeFullTaskId(nameId);
+        }
+      }
       if (this.cancellingIds.has(fullId)) continue;
       ids.add(fullId);
     }

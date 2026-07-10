@@ -5,6 +5,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
+import { InMemoryShortIdIndex } from '../../../src/core/async-task-system/short-id-index.js';
 import { PENDING_QUEUE_MAX } from '../../../src/core/async-task-system/constants.js';
 import { TASKS_QUEUES_PENDING_DIR } from '../../../src/core/async-task-system/dirs.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
@@ -55,6 +56,7 @@ describe('phase 7: overflow dedup (system-level overload, 1 notif per window)', 
 
     const realFs = new NodeFileSystem({ baseDir });
     const system = new AsyncTaskSystem(baseDir, realFs, {
+      shortIdIndex: new InMemoryShortIdIndex(),
       auditWriter: audit, llm: {} as any, contractManager: {} as any,
       outboxWriter: {} as any, registry: {} as any, selfInbox: mockInbox,
     });
@@ -82,6 +84,7 @@ describe('phase 7: overflow dedup (system-level overload, 1 notif per window)', 
 
     const realFs = new NodeFileSystem({ baseDir });
     const system = new AsyncTaskSystem(baseDir, realFs, {
+      shortIdIndex: new InMemoryShortIdIndex(),
       auditWriter: audit, llm: {} as any, contractManager: {} as any,
       outboxWriter: {} as any, registry: {} as any, selfInbox: mockInbox,
     });
@@ -111,6 +114,7 @@ describe('phase 7: overflow dedup (system-level overload, 1 notif per window)', 
 
     const realFs = new NodeFileSystem({ baseDir });
     const system = new AsyncTaskSystem(baseDir, realFs, {
+      shortIdIndex: new InMemoryShortIdIndex(),
       auditWriter: audit, llm: {} as any, contractManager: {} as any,
       outboxWriter: {} as any, registry: {} as any, selfInbox: mockInbox,
     });

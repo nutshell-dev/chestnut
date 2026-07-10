@@ -4,6 +4,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
+import { InMemoryShortIdIndex } from '../../../src/core/async-task-system/short-id-index.js';
 import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-events.js';
 import { makeTaskSystemDeps } from '../../helpers/task-system.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
@@ -42,6 +43,7 @@ describe('phase 859 r111 H fork: cancel path promise reject audit (Sa.2)', () =>
     auditEvents = events;
 
     system = new AsyncTaskSystem('/tmp/claw', mockFs, {
+      shortIdIndex: new InMemoryShortIdIndex(),
       auditWriter: audit,
       ...makeTaskSystemDeps(),
     });
@@ -75,7 +77,8 @@ describe('phase 859 r111 H fork: cancel path promise reject audit (Sa.2)', () =>
     expect(cancelPromiseRejectedEvents[0]).toEqual(
       expect.arrayContaining([
         TASK_AUDIT_EVENTS.CANCEL_PROMISE_REJECTED,
-        expect.stringContaining('taskId='),
+        expect.stringContaining('fullTaskId='),
+        expect.stringContaining('shortTaskId='),
         expect.stringContaining('error='),
       ]),
     );
@@ -93,7 +96,8 @@ describe('phase 859 r111 H fork: cancel path promise reject audit (Sa.2)', () =>
     expect(cancelledEvents[0]).toEqual(
       expect.arrayContaining([
         TASK_AUDIT_EVENTS.CANCELLED,
-        expect.stringContaining('taskId='),
+        expect.stringContaining('fullTaskId='),
+        expect.stringContaining('shortTaskId='),
         'from=running',
       ]),
     );
@@ -125,7 +129,8 @@ describe('phase 859 r111 H fork: cancel path promise reject audit (Sa.2)', () =>
     expect(cancelledEvents[0]).toEqual(
       expect.arrayContaining([
         TASK_AUDIT_EVENTS.CANCELLED,
-        expect.stringContaining('taskId='),
+        expect.stringContaining('fullTaskId='),
+        expect.stringContaining('shortTaskId='),
         'from=running',
       ]),
     );
