@@ -58,6 +58,7 @@ export async function throwHttpErrorResponse(
       const errorData = await response.json() as { error?: { message?: string } };
       resolvedErrorText = errorData.error?.message ?? JSON.stringify(errorData);
     } catch {
+      // silent: json parse fallback — use raw text instead
       resolvedErrorText = await cloned.text();
     }
   }
