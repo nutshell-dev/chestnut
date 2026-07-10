@@ -12,7 +12,7 @@ import type { FileSystem } from '../../foundation/fs/index.js';
 import type { ExecHandle } from '../../foundation/process-exec/index.js';
 import { getProcessStartTime, ProcessExecError } from '../../foundation/process-exec/index.js';
 import type { ExecWithHandleArgs } from '../../foundation/command-tool/index.js';
-import { newShortUuid } from '../../foundation/node-utils/index.js';
+import { newUuid } from '../../foundation/node-utils/index.js';
 import { EXEC_TOOL_NAME } from '../../foundation/command-tool/index.js';
 import { processExecErrorToToolResult } from '../../foundation/command-tool/exec.js';
 import { executeToolTask } from './tool-executor.js';
@@ -21,8 +21,8 @@ import { TASK_AUDIT_EVENTS } from './audit-events.js';
 import { STREAM_TASK_EVENTS } from './stream-events.js';
 import { emitHandlerFailed } from './audit-emit.js';
 import { formatErr } from './_helpers.js';
-import type { ToolTask, TaskId } from './types.js';
-import { makeTaskId } from './types.js';
+import type { ToolTask, TaskId, FullTaskId, ShortTaskId, ShortIdIndex } from './types.js';
+import { makeFullTaskId } from './types.js';
 
 export interface AsyncExecWrapperParams {
   execWithHandle: (args: ExecWithHandleArgs, ctx: ExecContext) => Promise<ExecHandle>;
@@ -38,6 +38,7 @@ interface AsyncExecWrapperDeps {
   moveTaskToDone: (taskId: TaskId) => Promise<void>;
   moveTaskToFailed: (taskId: TaskId) => Promise<void>;
   parentStreamLog?: { write(entry: Record<string, unknown>): void };
+  shortIdIndex: ShortIdIndex;
 }
 
 const ASYNC_EXEC_SOFT_TIMEOUT_MS = 10_000;
@@ -49,7 +50,7 @@ const ASYNC_EXEC_MIGRATED_HARD_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
  * Build a synthetic ToolTask for a migrated exec command.
  */
 function buildMigratedToolTask(
-  taskId: TaskId,
+  fullId: FullTaskId,
   command: string,
   ctx: ExecContext,
   handle: ExecHandle,
@@ -57,7 +58,7 @@ function buildMigratedToolTask(
   const pid = handle.child.pid ?? -1;
   return {
     kind: 'tool',
-    id: taskId,
+    id: fullId,
     toolName: EXEC_TOOL_NAME,
     args: { command },
     parentClawDir: ctx.clawDir,
@@ -138,7 +139,7 @@ export function createAsyncExecWrapper(
   const { execWithHandle, softTimeoutMs } = params;
   const timeout = softTimeoutMs ?? ASYNC_EXEC_SOFT_TIMEOUT_MS;
   const migratedHardTimeoutMs = params.migratedHardTimeoutMs ?? ASYNC_EXEC_MIGRATED_HARD_TIMEOUT_MS;
-  const { fs, auditWriter, retryBaseDelayMs, moveTaskToDone, moveTaskToFailed, parentStreamLog } = deps;
+  const { fs, auditWriter, retryBaseDelayMs, moveTaskToDone, moveTaskToFailed, parentStreamLog, shortIdIndex } = deps;
 
   const tool: Tool = {
     name: EXEC_TOOL_NAME,
@@ -278,8 +279,18 @@ export function createAsyncExecWrapper(
       //    the caller's turn.
       originalSignal?.removeEventListener('abort', onOriginalAbort);
       handle.child.unref();
-      const taskId = makeTaskId(newShortUuid());
-      const task = buildMigratedToolTask(taskId, command, ctx, handle);
+
+      // Phase 849: dual-key task IDs. fullId for persistence, shortId for agent output.
+      let fullId: FullTaskId;
+      let shortId: ShortTaskId;
+      do {
+        fullId = makeFullTaskId(newUuid());
+        shortId = shortIdIndex.deriveShortId(fullId);
+      } while (shortIdIndex.has(shortId));
+      shortIdIndex.add(shortId, fullId);
+      shortIdIndex.save();
+
+      const task = buildMigratedToolTask(fullId, command, ctx, handle);
 
       try {
         await persistRunningTask(fs, task);
@@ -288,7 +299,7 @@ export function createAsyncExecWrapper(
         handle.child.kill('SIGTERM');
         auditWriter.write(
           TASK_AUDIT_EVENTS.HANDLER_FAILED,
-          `taskId=${taskId}`,
+          `taskId=${task.id}`,
           `context=async_exec_wrapper_persist_failed`,
           `error=${formatErr(persistErr)}`,
         );
@@ -300,7 +311,8 @@ export function createAsyncExecWrapper(
       parentStreamLog?.write({
         ts: startedAt,
         type: STREAM_TASK_EVENTS.TASK_STARTED,
-        taskId,
+        taskId: shortId,
+        fullTaskId: fullId,
         taskKind: 'exec_migrated',
         silent: false,
         command: command.length > 80 ? `${command.slice(0, 80)}...` : command,
@@ -311,7 +323,7 @@ export function createAsyncExecWrapper(
       // stdout/stderr listeners to append future chunks to the file in real time.
       // Use synchronous I/O for the initial write so no stdout/stderr data can
       // arrive while the listener is still the old in-memory collector.
-      const resultDir = `${TASKS_QUEUES_RESULTS_DIR}/${taskId}`;
+      const resultDir = `${TASKS_QUEUES_RESULTS_DIR}/${task.id}`;
       fs.ensureDirSync(resultDir);
       const resultPath = path.join(resultDir, 'result.txt');
       fs.writeAtomicSync(resultPath, partialOutput);
@@ -354,7 +366,7 @@ export function createAsyncExecWrapper(
             handle.child.kill('SIGTERM');
             auditWriter.write(
               TASK_AUDIT_EVENTS.TASK_MIGRATED_TIMED_OUT,
-              `taskId=${taskId}`,
+              `taskId=${task.id}`,
               `pid=${handle.child.pid}`,
             );
           }
@@ -365,7 +377,7 @@ export function createAsyncExecWrapper(
             fs.appendSync(resultPath, errorMarker);
           } catch (persistErr) {
             emitHandlerFailed(auditWriter, {
-              taskId,
+              taskId: task.id,
               context: 'async_exec_wrapper_append_error_marker',
               error: formatErr(persistErr),
             });
@@ -380,7 +392,7 @@ export function createAsyncExecWrapper(
             );
           } catch (execErr) {
             emitHandlerFailed(auditWriter, {
-              taskId,
+              taskId: task.id,
               context: 'async_exec_wrapper_monitor',
               error: formatErr(execErr),
             });
@@ -391,7 +403,8 @@ export function createAsyncExecWrapper(
         parentStreamLog?.write({
           ts: Date.now(),
           type: STREAM_TASK_EVENTS.TASK_COMPLETED,
-          taskId,
+          taskId: shortId,
+          fullTaskId: fullId,
           taskKind: 'exec_migrated',
         });
       })();
@@ -399,7 +412,7 @@ export function createAsyncExecWrapper(
       // Fire-and-forget: do not await the background chain in the caller path.
       backgroundMonitor.catch((err) => {
         emitHandlerFailed(auditWriter, {
-          taskId,
+          taskId: task.id,
           context: 'async_exec_wrapper_background',
           error: formatErr(err),
         });
@@ -407,7 +420,7 @@ export function createAsyncExecWrapper(
 
       auditWriter.write(
         TASK_AUDIT_EVENTS.TASK_MIGRATED_REGISTERED,
-        `taskId=${taskId}`,
+        `taskId=${task.id}`,
         `pid=${task.migratedPid}`,
         `command=${command}`,
       );
@@ -416,8 +429,8 @@ export function createAsyncExecWrapper(
 
       return {
         success: true,
-        content: `Execution moved to async. Task: ${taskId}. Output streaming to ${resultRelPath} — use read to check progress.`,
-        metadata: { taskId, async: true, migrated: true },
+        content: `Execution moved to async. Task: ${shortId}. Output streaming to ${resultRelPath} — use read to check progress.`,
+        metadata: { taskId: shortId, fullTaskId: fullId, async: true, migrated: true },
       };
     },
   };

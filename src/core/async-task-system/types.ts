@@ -22,12 +22,32 @@ import type { SummonDecisionMetadata } from './task-schemas.js';
 // phase 64: TaskId brand 迁回（自 foundation/identity 解散）— types.ts 历史注释 admit
 // 「物理迁自 core/async-task-system/types.ts」(phase 1365)
 // per M#3 资源唯一归属（按业务真实归属、非机制 surface）+ M#1 task lifecycle 独立可变
+
 declare const TaskIdBrand: unique symbol;
-export type TaskId = string & { readonly [TaskIdBrand]: true };
+declare const FullTaskIdBrand: unique symbol;
+declare const ShortTaskIdBrand: unique symbol;
+
+/** UUID v4, 36 chars. Used for persistence paths, JSON id field, audit. */
+export type FullTaskId = string & { readonly [FullTaskIdBrand]: true };
+/** 8-char hex. Used for agent messages, CLI display, stream events. */
+export type ShortTaskId = string & { readonly [ShortTaskIdBrand]: true };
+/** Union alias for contexts that accept either. */
+export type TaskId = FullTaskId | ShortTaskId;
+
+export function makeFullTaskId(s: string): FullTaskId { return s as FullTaskId; }
+export function makeShortTaskId(s: string): ShortTaskId { return s as ShortTaskId; }
+/** @deprecated Use makeFullTaskId or makeShortTaskId. */
 export function makeTaskId(s: string): TaskId { return s as TaskId; }
 
-
-
+export interface ShortIdIndex {
+  load(): void;
+  save(): void;
+  has(shortId: string): boolean;
+  add(shortId: ShortTaskId, fullId: FullTaskId): void;
+  delete(shortId: ShortTaskId): void;
+  resolve(shortId: string): FullTaskId | undefined;
+  deriveShortId(fullId: FullTaskId): ShortTaskId;
+}
 
 export interface AsyncTaskSystemOptions {
   maxConcurrent?: number;
@@ -53,6 +73,8 @@ export interface AsyncTaskSystemOptions {
   fsFactory: (baseDir: string) => FileSystem;
   // NEW phase 1369: AskMotionTool factory inject (per phase 619 caller DIP enforce template / cut async-task→summon reverse)
   askMotionToolFactory: (llm: LLMOrchestrator, motionDialogStore: DialogStore) => import('../../foundation/tools/index.js').Tool;
+  /** phase 849: shortId ↔ fullId index for dual-key task IDs */
+  shortIdIndex: ShortIdIndex;
   /** phase 86: optional WatcherFactory for DI (test mock injection) */
   createWatcher?: WatcherFactory;
 }

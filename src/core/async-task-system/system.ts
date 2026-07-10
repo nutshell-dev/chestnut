@@ -5,7 +5,7 @@
  * Uses a pending queue + dispatcher pattern for concurrency control.
  */
 
-import { newShortUuid } from '../../foundation/node-utils/index.js';
+import { newUuid } from '../../foundation/node-utils/index.js';
 
 import * as path from 'path';
 
@@ -58,8 +58,8 @@ import {
   emitShutdownPendingCleanupsDrained,
 } from './audit-emit.js';
 import type { PostProcessor } from './post-processors/types.js';
-import type { AsyncTaskSystemOptions, SubAgentTask, ToolTask, TaskKind, TaskExecutor } from './types.js';
-import { type TaskId, makeTaskId } from './types.js';
+import type { AsyncTaskSystemOptions, SubAgentTask, ToolTask, TaskKind, TaskExecutor, FullTaskId, ShortTaskId, ShortIdIndex } from './types.js';
+import { type TaskId, makeTaskId, makeFullTaskId } from './types.js';
 
 
 
@@ -92,6 +92,7 @@ export class AsyncTaskSystem {
   private permissionChecker?: PermissionChecker;
   private fsFactory: (baseDir: string) => FileSystem;
   private readonly askMotionToolFactory: (llm: LLMOrchestrator, motionDialogStore: DialogStore) => Tool;
+  private readonly shortIdIndex: ShortIdIndex;
   private _shuttingDown = false;
 
   /**
@@ -134,6 +135,7 @@ export class AsyncTaskSystem {
       moveTaskToDone: this.moveTaskToDone.bind(this),
       moveTaskToFailed: this.moveTaskToFailed.bind(this),
       parentStreamLog: this.parentStreamLog,
+      shortIdIndex: this.shortIdIndex,
     });
   }
 
@@ -157,6 +159,7 @@ export class AsyncTaskSystem {
     this.permissionChecker = options.permissionChecker;
     this.fsFactory = options.fsFactory;
     this.askMotionToolFactory = options.askMotionToolFactory;
+    this.shortIdIndex = options.shortIdIndex;
 
     // Strategy table: dispatches task body by kind. Adding a new kind
     // requires extending union + registering one entry — _startTask itself
@@ -266,15 +269,24 @@ export class AsyncTaskSystem {
     taskKind: 'subagent',
     payload: Omit<SubAgentTask, 'id' | 'createdAt'>,
   ): Promise<string> {
-    const taskId = makeTaskId(newShortUuid());
+    // Phase 849: dual-key task IDs. fullId for persistence, shortId for agents/CLI.
+    let fullId: FullTaskId;
+    let shortId: ShortTaskId;
+    do {
+      fullId = makeFullTaskId(newUuid());
+      shortId = this.shortIdIndex.deriveShortId(fullId);
+    } while (this.shortIdIndex.has(shortId));
+    this.shortIdIndex.add(shortId, fullId);
+    this.shortIdIndex.save();
+
     const task = {
       ...payload,
-      id: taskId,
+      id: fullId,
       createdAt: new Date().toISOString(),
     } as SubAgentTask;
 
     // Save to pending directory; watcher will pick up and dispatch
-    const taskPath = `${TASKS_QUEUES_PENDING_DIR}/${taskId}.json`;
+    const taskPath = `${TASKS_QUEUES_PENDING_DIR}/${fullId}.json`;
 
     // phase 239 Step A: schema invariant check（违例 emit audit、不 throw、不阻 save、Path #4）
     assertTaskShapeOnSave(task, this.auditWriter, 'schedule_subagent');
@@ -282,14 +294,14 @@ export class AsyncTaskSystem {
     await this.fs.writeAtomic(taskPath, JSON.stringify(task, null, 2));
 
     emitTaskScheduled(this.auditWriter, {
-      taskId,
+      taskId: fullId,
       kind: taskKind,
       parent: task.parentClawId,
       maxSteps: task.maxSteps,
     });
 
     // No push, no dispatch; watcher ingests asynchronously
-    return taskId;
+    return shortId;
   }
 
 
