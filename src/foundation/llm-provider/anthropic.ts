@@ -175,6 +175,21 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
     }
   }
 
+  /**
+   * Ensure adjusted output budget can still accommodate the configured thinking budget.
+   */
+  private assertThinkingBudgetFits(adjusted: number): void {
+    const configuredThinkingBudget = this.config.thinkingBudgetTokens;
+    if (configuredThinkingBudget !== undefined && adjusted < configuredThinkingBudget) {
+      throw new LLMContextExceededError(
+        this.name,
+        400,
+        `Output budget adjusted to ${adjusted} tokens, but configured thinking budget is ${configuredThinkingBudget}. ` +
+          `Reduce thinking budget or trim input context.`,
+      );
+    }
+  }
+
   private async handleOutputBudgetExceeded(
     err: LLMOutputBudgetExceededError,
     body: AnthropicRequestBody,
@@ -182,6 +197,7 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
     requestOptions: Anthropic.RequestOptions,
   ): Promise<LLMResponse> {
     const adjusted = err.contextLimit - err.inputTokens;
+    this.assertThinkingBudgetFits(adjusted);
     const auditPayload = [
       `provider=${this.providerName}`,
       `model=${this.model}`,
@@ -241,6 +257,7 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
           `context_limit=${mapped.contextLimit}`,
           `input_tokens=${mapped.inputTokens}`,
         ];
+        this.assertThinkingBudgetFits(adjusted);
         if (adjusted > 0) {
           this.auditLog?.write(LLM_PROVIDER_AUDIT_EVENTS.OUTPUT_BUDGET_ADJUSTED, ...auditPayload);
           const retryBody = this.buildRequestBody({ ...options, maxTokens: adjusted });

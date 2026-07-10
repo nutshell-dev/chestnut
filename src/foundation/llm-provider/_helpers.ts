@@ -102,7 +102,7 @@ export interface ParsedOutputBudgetError {
 }
 
 const OUTPUT_BUDGET_EXCEEDED_RE =
-  /maximum context length is (\d+) tokens[\s\S]*?requested (\d+) tokens[\s\S]*?(\d+) in the messages[\s\S]*?(\d+) in the completions/i;
+  /maximum context length is (\d+) tokens[\s\S]*?requested (\d+) tokens[\s\S]*?(\d+) in the messages[\s\S]*?(\d+) in the completions?/i;
 
 export function parseOutputBudgetError(message: string): ParsedOutputBudgetError | null {
   const m = message.match(OUTPUT_BUDGET_EXCEEDED_RE);
