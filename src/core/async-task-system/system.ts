@@ -230,6 +230,34 @@ export class AsyncTaskSystem {
     // Phase 849: load shortId ↔ fullId index from disk
     this.shortIdIndex.load();
 
+    // Phase 849: lazy migration — register existing 8-char task IDs in ShortIdIndex.
+    // Files are not renamed; they will be renamed on the next state transition.
+    for (const dir of [TASKS_QUEUES_PENDING_DIR, TASKS_QUEUES_RUNNING_DIR, TASKS_QUEUES_DONE_DIR, TASKS_QUEUES_FAILED_DIR]) {
+      const fullDir = path.join(this.clawDir, dir);
+      const dirFs = this.fsFactory(fullDir);
+      if (!dirFs.existsSync('.')) continue;
+      for (const entry of dirFs.listSync('.', { includeDirs: false })) {
+        if (!entry.name.endsWith('.json')) continue;
+        const taskId = entry.name.replace(/\.json$/, '');
+        if (taskId.length !== 8) continue;
+        if (this.shortIdIndex.has(taskId)) continue;
+        try {
+          const raw = dirFs.readSync(entry.name);
+          const task = JSON.parse(raw) as Record<string, unknown>;
+          const storedId = task.id as string | undefined;
+          if (storedId && storedId.length === 36) {
+            this.shortIdIndex.add(taskId as ShortTaskId, makeFullTaskId(storedId));
+          } else {
+            const fullId = makeFullTaskId(newUuid());
+            this.shortIdIndex.add(taskId as ShortTaskId, fullId);
+          }
+        } catch {
+          // Corrupted file — skip, will be handled by recovery
+        }
+      }
+    }
+    this.shortIdIndex.save();
+
     // Cold-start recovery: running tasks are moved back to pending by recoverTasks.
     // No in-memory pending queue is kept; pending state is derived from fs on demand.
     await recoverTasks({ fs: this.fs, auditWriter: this.auditWriter });
@@ -641,10 +669,11 @@ export class AsyncTaskSystem {
       throw new Error(`[INVARIANT VIOLATION] movePendingToRunning: cannot resolve ${taskId}`);
     }
     const shortId = deriveShortIdFromTaskId(fullId);
-    await this.fs.move(
-      `${TASKS_QUEUES_PENDING_DIR}/${fullId}.json`,
-      `${TASKS_QUEUES_RUNNING_DIR}/${fullId}.json`
-    );
+    const fromFull = `${TASKS_QUEUES_PENDING_DIR}/${fullId}.json`;
+    const fromLegacy = `${TASKS_QUEUES_PENDING_DIR}/${shortId}.json`;
+    const to = `${TASKS_QUEUES_RUNNING_DIR}/${fullId}.json`;
+    const fromPath = await this.fs.exists(fromFull).then((exists) => exists ? fromFull : fromLegacy);
+    await this.fs.move(fromPath, to);
     emitTaskStarted(this.auditWriter, { fullTaskId: fullId, shortTaskId: shortId });
   }
 
@@ -658,10 +687,11 @@ export class AsyncTaskSystem {
     }
     const shortId = deriveShortIdFromTaskId(fullId);
     try {
-      await this.fs.move(
-        `${TASKS_QUEUES_RUNNING_DIR}/${fullId}.json`,
-        `${TASKS_QUEUES_DONE_DIR}/${fullId}.json`
-      );
+      const fromFull = `${TASKS_QUEUES_RUNNING_DIR}/${fullId}.json`;
+      const fromLegacy = `${TASKS_QUEUES_RUNNING_DIR}/${shortId}.json`;
+      const to = `${TASKS_QUEUES_DONE_DIR}/${fullId}.json`;
+      const fromPath = await this.fs.exists(fromFull).then((exists) => exists ? fromFull : fromLegacy);
+      await this.fs.move(fromPath, to);
       this.auditWriter.write(
         TASK_AUDIT_EVENTS.TASK_MOVED,
         `fullTaskId=${fullId}`,
@@ -677,7 +707,10 @@ export class AsyncTaskSystem {
         error: formatErr(err),
       });
       // 删除 running 文件防止重启后重复执行，丢失记录好过重复副作用
-      await this.fs.delete(`${TASKS_QUEUES_RUNNING_DIR}/${fullId}.json`).catch((e) => {
+      const deletePath = await this.fs.exists(`${TASKS_QUEUES_RUNNING_DIR}/${fullId}.json`).then((exists) =>
+        exists ? `${TASKS_QUEUES_RUNNING_DIR}/${fullId}.json` : `${TASKS_QUEUES_RUNNING_DIR}/${shortId}.json`
+      );
+      await this.fs.delete(deletePath).catch((e) => {
         emitMoveFailed(this.auditWriter, {
           fullTaskId: fullId,
           shortTaskId: shortId,
@@ -695,10 +728,11 @@ export class AsyncTaskSystem {
     }
     const shortId = deriveShortIdFromTaskId(fullId);
     try {
-      await this.fs.move(
-        `${TASKS_QUEUES_RUNNING_DIR}/${fullId}.json`,
-        `${TASKS_QUEUES_FAILED_DIR}/${fullId}.json`
-      );
+      const fromFull = `${TASKS_QUEUES_RUNNING_DIR}/${fullId}.json`;
+      const fromLegacy = `${TASKS_QUEUES_RUNNING_DIR}/${shortId}.json`;
+      const to = `${TASKS_QUEUES_FAILED_DIR}/${fullId}.json`;
+      const fromPath = await this.fs.exists(fromFull).then((exists) => exists ? fromFull : fromLegacy);
+      await this.fs.move(fromPath, to);
       this.auditWriter.write(
         TASK_AUDIT_EVENTS.TASK_MOVED,
         `fullTaskId=${fullId}`,
@@ -713,7 +747,10 @@ export class AsyncTaskSystem {
         context: 'move_to_failed',
         error: formatErr(err),
       });
-      await this.fs.delete(`${TASKS_QUEUES_RUNNING_DIR}/${fullId}.json`).catch((e) => {
+      const deletePath = await this.fs.exists(`${TASKS_QUEUES_RUNNING_DIR}/${fullId}.json`).then((exists) =>
+        exists ? `${TASKS_QUEUES_RUNNING_DIR}/${fullId}.json` : `${TASKS_QUEUES_RUNNING_DIR}/${shortId}.json`
+      );
+      await this.fs.delete(deletePath).catch((e) => {
         emitMoveFailed(this.auditWriter, {
           fullTaskId: fullId,
           shortTaskId: shortId,
@@ -798,7 +835,10 @@ export class AsyncTaskSystem {
     // 2. 再检查 pending（derive from fs）
     this.cancellingIds.add(fullId);
     try {
-      const fileExists = await this.fs.exists(`${TASKS_QUEUES_PENDING_DIR}/${fullId}.json`);
+      const fullPendingPath = `${TASKS_QUEUES_PENDING_DIR}/${fullId}.json`;
+      const legacyPendingPath = `${TASKS_QUEUES_PENDING_DIR}/${shortId}.json`;
+      const pendingPath = await this.fs.exists(fullPendingPath).then((exists) => exists ? fullPendingPath : legacyPendingPath);
+      const fileExists = await this.fs.exists(pendingPath);
 
       if (!fileExists) {
         const violationMsg = `Task ${shortId} not found in running or pending (race / caller bug)`;
@@ -815,7 +855,7 @@ export class AsyncTaskSystem {
 
       // 从盘读出以决定是否 sendFallbackError
       let task: SubAgentTask | ToolTask | undefined;
-      const filePath = `${TASKS_QUEUES_PENDING_DIR}/${fullId}.json`;
+      const filePath = pendingPath;
       let content: string | undefined;
       try {
         content = await this.fs.read(filePath);
@@ -841,7 +881,7 @@ export class AsyncTaskSystem {
 
       // 文件：pending → failed
       await this.fs.move(
-        `${TASKS_QUEUES_PENDING_DIR}/${fullId}.json`,
+        pendingPath,
         `${TASKS_QUEUES_FAILED_DIR}/${fullId}.json`
       ).catch((e) => {
         if (isFileNotFound(e)) {
