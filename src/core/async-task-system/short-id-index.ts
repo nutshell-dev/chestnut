@@ -165,7 +165,7 @@ export class PersistentShortIdIndex implements ShortIdIndex {
           }
           this.map[shortId] = fullId;
         } catch {
-          // corrupted file — skip
+          // silent: corrupted file — skip (recovery handles it separately)
         }
       }
     }
