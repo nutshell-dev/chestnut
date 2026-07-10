@@ -6,7 +6,9 @@ import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import { AsyncTaskSystem } from '../../../src/core/async-task-system/system.js';
 import { InMemoryShortIdIndex } from '../../../src/core/async-task-system/short-id-index.js';
 import { makeTaskSystemDeps } from '../../helpers/task-system.js';
-import { TASKS_QUEUES_PENDING_DIR, TASKS_QUEUES_RUNNING_DIR } from '../../../src/core/async-task-system/dirs.js';
+import { TASKS_QUEUES_PENDING_DIR, TASKS_QUEUES_RUNNING_DIR, TASKS_QUEUES_DONE_DIR, TASKS_QUEUES_FAILED_DIR } from '../../../src/core/async-task-system/dirs.js';
+import { makeFullTaskId, makeShortTaskId } from '../../../src/core/async-task-system/types.js';
+import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-events.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 
 function makeAudit(): AuditLog {
@@ -51,6 +53,8 @@ describe('Phase 868 legacy task file migration', () => {
     clawDir = path.join(tmpDir, 'claw');
     fs.mkdirSync(path.join(clawDir, TASKS_QUEUES_PENDING_DIR), { recursive: true });
     fs.mkdirSync(path.join(clawDir, TASKS_QUEUES_RUNNING_DIR), { recursive: true });
+    fs.mkdirSync(path.join(clawDir, TASKS_QUEUES_DONE_DIR), { recursive: true });
+    fs.mkdirSync(path.join(clawDir, TASKS_QUEUES_FAILED_DIR), { recursive: true });
   });
 
   it('migrates 8-char filename + missing shortId to UUID filename + dual-key', async () => {
@@ -105,5 +109,62 @@ describe('Phase 868 legacy task file migration', () => {
     expect(pendingFiles).toEqual([`${fullId}.json`]);
     const content = JSON.parse(fs.readFileSync(path.join(clawDir, TASKS_QUEUES_PENDING_DIR, pendingFiles[0]), 'utf-8'));
     expect(content.shortId).toBe('550e8400');
+  });
+
+  it('blocks init when active task migration has shortId collision', async () => {
+    const legacyId = 'abcdef12';
+    const fullId = '550e8400-e29b-41d4-a716-446655440000';
+
+    // Pre-populate index with shortId -> different fullId
+    const shortIdIndex = new InMemoryShortIdIndex();
+    shortIdIndex.add(makeShortTaskId(legacyId), makeFullTaskId('660e8400-e29b-41d4-a716-446655440000'));
+
+    // Phase 867+ format file with same shortId but different fullId
+    fs.writeFileSync(path.join(clawDir, TASKS_QUEUES_PENDING_DIR, `${fullId}.json`), JSON.stringify({
+      ...legacyToolTask(fullId),
+      shortId: legacyId,
+    }));
+
+    const system = new AsyncTaskSystem(clawDir, new NodeFileSystem({ baseDir: clawDir }), {
+      auditWriter: makeAudit(),
+      shortIdIndex,
+      ...makeTaskSystemDeps(),
+    });
+
+    await expect(system.initialize()).rejects.toThrow(/collision/i);
+  });
+
+  it('audits and skips terminal task migration with shortId collision', async () => {
+    const legacyId = 'abcdef12';
+    const fullId = '550e8400-e29b-41d4-a716-446655440000';
+
+    // Pre-populate index with shortId -> different fullId
+    const shortIdIndex = new InMemoryShortIdIndex();
+    shortIdIndex.add(makeShortTaskId(legacyId), makeFullTaskId('660e8400-e29b-41d4-a716-446655440000'));
+
+    // Phase 867+ format file in terminal directory with same shortId but different fullId
+    fs.writeFileSync(path.join(clawDir, TASKS_QUEUES_DONE_DIR, `${fullId}.json`), JSON.stringify({
+      ...legacyToolTask(fullId),
+      shortId: legacyId,
+    }));
+
+    const events: Array<{ type: string; cols: (string | number)[] }> = [];
+    const auditWriter: AuditLog = {
+      write: (type, ...cols) => events.push({ type, cols }),
+      preview: (s: string) => s,
+      message: (s: string) => s,
+      summary: (s: string) => s,
+    };
+
+    const system = new AsyncTaskSystem(clawDir, new NodeFileSystem({ baseDir: clawDir }), {
+      auditWriter,
+      shortIdIndex,
+      ...makeTaskSystemDeps(),
+    });
+
+    await system.initialize();
+
+    const collisionEvent = events.find(e => e.type === TASK_AUDIT_EVENTS.SHORT_ID_COLLISION);
+    expect(collisionEvent).toBeDefined();
   });
 });
