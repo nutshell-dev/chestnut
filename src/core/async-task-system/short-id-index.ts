@@ -72,7 +72,7 @@ export class PersistentShortIdIndex implements ShortIdIndex {
     } catch (e: unknown) {
       if (isFileNotFound(e)) {
         this.map = {};
-        this.needsRebuild = false;
+        this.needsRebuild = true; // missing index → rebuild from disk
         return;
       }
       auditWriter?.write(TASK_AUDIT_EVENTS.SHORT_ID_INDEX_LOAD_FAILED, {
@@ -148,8 +148,16 @@ export class PersistentShortIdIndex implements ShortIdIndex {
           const storedId = task.id as string | undefined;
           if (!storedId) continue;
 
-          const fullId = storedId.length === 36 ? makeFullTaskId(storedId) : makeFullTaskId(newUuid());
-          const shortId = this.deriveShortId(fullId);
+          let fullId: FullTaskId;
+          let shortId: ShortTaskId;
+          if (storedId.length === 36) {
+            fullId = makeFullTaskId(storedId);
+            shortId = this.deriveShortId(fullId);
+          } else {
+            // Old 8-char task: preserve the filename / old task.id as shortId
+            shortId = makeShortTaskId(storedId);
+            fullId = makeFullTaskId(newUuid());
+          }
 
           if (shortId in this.map && this.map[shortId] !== fullId) {
             collisions.push({ shortId, existingFullId: this.map[shortId], newFullId: fullId });
