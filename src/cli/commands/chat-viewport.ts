@@ -354,6 +354,17 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     }, 2000);
   }
 
+  // 周期性刷新 task status bar texts，确保 migratedExec 时间标签在无输出事件时也更新
+  const STATUS_BAR_REFRESH_MS = 30_000;
+  const statusBarRefreshInterval = setInterval(() => {
+    const cols = process.stdout.columns ?? DEFAULT_TERMINAL_WIDTH;
+    spawnText.setText(taskStatusBar.renderSpawn(cols));
+    shadowText.setText(taskStatusBar.renderShadow(cols));
+    migratedExecText.setText(taskStatusBar.renderMigratedExec(cols));
+    tui.requestRender();
+  }, STATUS_BAR_REFRESH_MS);
+  statusBarRefreshInterval.unref();
+
   // Daemon 存活检测（事件驱动：PID file unlink 触发、phase 361 替原 setInterval polling）
   // daemon SIGKILL 不清 PID 的情形由 watchdog stale PID 清理覆盖（会触 'unlink'）.
   let daemonDead = false;
@@ -546,6 +557,7 @@ export async function runChatViewport(options: ChatViewportOptions): Promise<voi
     mainUI.enterPhase('idle');
     observability.recordShutdown(shutdownReason);
     if (clawScanInterval) clearInterval(clawScanInterval);
+    clearInterval(statusBarRefreshInterval);
     await daemonLivenessWatcher.close().catch(() => { /* silent: cleanup */ });
     // phase 367: taskSweepInterval 删、改 per-task lazy check (handleTaskEvent inline)
     await streamReader.stop();
