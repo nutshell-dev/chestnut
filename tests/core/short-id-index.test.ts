@@ -338,6 +338,14 @@ describe('PersistentShortIdIndex', () => {
     expect(index.needsRebuild).toBe(true);
   });
 
+  it('load rejects length-36 but non-UUID value → needsRebuild', () => {
+    fs.writeFileSync(path.join(tmpDir, 'tasks', 'queues', 'short-id-map.json'),
+      JSON.stringify({ abcdef12: 'not-a-uuid-but-length-36-characters' }));
+    const index = new PersistentShortIdIndex(fsFactory(tmpDir));
+    index.load();
+    expect(index.needsRebuild).toBe(true);
+  });
+
   it('load rejects invalid shortId key → needsRebuild', () => {
     fs.writeFileSync(path.join(tmpDir, 'tasks', 'queues', 'short-id-map.json'),
       JSON.stringify({ badkey: '550e8400-e29b-41d4-a716-446655440000' }));

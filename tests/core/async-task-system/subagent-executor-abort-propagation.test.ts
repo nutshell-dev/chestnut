@@ -21,7 +21,8 @@ describe('subagent-executor abort propagation (phase 1373 sub-5)', () => {
     const abortController = new AbortController();
     const task: SubAgentTask = {
       kind: 'subagent',
-      id: 'task-1',
+      id: '550e8400-e29b-41d4-a716-446655440000',
+      shortId: '550e8400',
       mode: 'standard',
       intent: 'test intent',
       timeoutMs: 300_000,
@@ -69,7 +70,8 @@ describe('subagent-executor abort propagation (phase 1373 sub-5)', () => {
 
     const task: SubAgentTask = {
       kind: 'subagent',
-      id: 'task-2',
+      id: '550e8401-e29b-41d4-a716-446655440000',
+      shortId: '550e8401',
       mode: 'standard',
       intent: 'test intent',
       timeoutMs: 300_000,

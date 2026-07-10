@@ -13,7 +13,7 @@ import {
 import { TASKS_QUEUES_RESULTS_DIR } from './dirs.js';
 
 import type { SubAgentTask, ToolTask, FullTaskId } from './types.js';
-import { deriveShortIdFromTaskId } from './types.js';
+import { deriveShortIdFromTaskId, taskShortId } from './types.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { TaskId } from './types.js';
 
@@ -162,14 +162,14 @@ export async function sendToolResult(
     parentClawId: task.parentClawId,
     fullContent,
     buildInlineJson: () => JSON.stringify({
-      taskId: deriveShortIdFromTaskId(task.id),
+      taskId: taskShortId(task),
       fullTaskId: task.id as FullTaskId,
       toolName: task.toolName,
       result: fullContent,
       is_error: isError,
     }),
     buildRefJson: (resultRef, summary) => JSON.stringify({
-      taskId: deriveShortIdFromTaskId(task.id),
+      taskId: taskShortId(task),
       fullTaskId: task.id as FullTaskId,
       toolName: task.toolName,
       summary,
@@ -201,13 +201,13 @@ export async function sendResult(
     parentClawId: task.parentClawId,
     fullContent: result,
     buildInlineJson: () => JSON.stringify({
-      taskId: deriveShortIdFromTaskId(task.id),
+      taskId: taskShortId(task),
       fullTaskId: task.id as FullTaskId,
       result,
       is_error: isError,
     }),
     buildRefJson: (resultRef, summary) => JSON.stringify({
-      taskId: deriveShortIdFromTaskId(task.id),
+      taskId: taskShortId(task),
       fullTaskId: task.id as FullTaskId,
       summary,
       resultRef,
@@ -253,7 +253,7 @@ export async function sendFallbackError(
         const msg = formatErr(err);
         emitResultDeliveryEnsureDirFailed(auditWriter, {
           fullTaskId: task.id as FullTaskId,
-          shortTaskId: deriveShortIdFromTaskId(task.id),
+          shortTaskId: taskShortId(task),
           dir: resultsDir,
           code: code ?? 'UNKNOWN',
           error: msg,

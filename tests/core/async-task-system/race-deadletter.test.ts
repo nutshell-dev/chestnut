@@ -81,7 +81,7 @@ describe('phase 556: race + dead-letter cluster fix', () => {
     });
 
     it('cancel during _ingestPendingFile fs.read await must prevent dispatch', async () => {
-      const taskId = 'task-race';
+      const taskId = '11111111-1111-4111-9111-111111111111';
       const filePath = `tasks/queues/pending/${taskId}.json`;
 
       let resolveRead!: (v: string) => void;
@@ -96,7 +96,7 @@ describe('phase 556: race + dead-letter cluster fix', () => {
             kind: 'subagent',
             mode: 'standard',
             id: taskId,
-            shortId: taskId,
+            shortId: '11111111',
             intent: 'test',
             timeoutMs: SUBAGENT_SHORT_TIMEOUT_MS,
             maxSteps: 1,
@@ -164,8 +164,8 @@ describe('phase 556: race + dead-letter cluster fix', () => {
     const taskJson = JSON.stringify({
       kind: 'subagent',
       mode: 'standard',
-      id: 'task-dead',
-      shortId: 'task-dead',
+      id: 'deadbeef-dead-4ead-bead-deadbeefdead',
+      shortId: 'deadbeef',
       intent: 'test',
       timeoutMs: SUBAGENT_SHORT_TIMEOUT_MS,
       maxSteps: 1,
@@ -175,7 +175,7 @@ describe('phase 556: race + dead-letter cluster fix', () => {
 
     it('dead-letter path cleans up retry counter file', async () => {
       const { audit, events } = makeMockAudit();
-      const retryPath = 'tasks/queues/results/task-dead/result.txt.retry-count';
+      const retryPath = 'tasks/queues/results/deadbeef-dead-4ead-bead-deadbeefdead/result.txt.retry-count';
 
       const mockFs = {
         list: vi.fn().mockImplementation((dir: string) => {
@@ -186,13 +186,13 @@ describe('phase 556: race + dead-letter cluster fix', () => {
         }),
         read: vi.fn().mockImplementation((path: string) => {
           if (path === 'tasks/queues/running/task-dead.json') return Promise.resolve(taskJson);
-          if (path === 'tasks/queues/results/task-dead/result.txt') return Promise.resolve('result data');
+          if (path === 'tasks/queues/results/deadbeef-dead-4ead-bead-deadbeefdead/result.txt') return Promise.resolve('result data');
           if (path === retryPath) return Promise.resolve('3');
           return Promise.resolve('');
         }),
         exists: vi.fn().mockImplementation((path: string) => {
           if (path.includes('.sent')) return Promise.resolve(false);
-          if (path === 'tasks/queues/results/task-dead/result.txt') return Promise.resolve(true);
+          if (path === 'tasks/queues/results/deadbeef-dead-4ead-bead-deadbeefdead/result.txt') return Promise.resolve(true);
           if (path === retryPath) return Promise.resolve(true);
           return Promise.resolve(false);
         }),
@@ -220,7 +220,7 @@ describe('phase 556: race + dead-letter cluster fix', () => {
 
     it('dead-letter move failure audits dead_letter_move_failed', async () => {
       const { audit, events } = makeMockAudit();
-      const retryPath = 'tasks/queues/results/task-dead/result.txt.retry-count';
+      const retryPath = 'tasks/queues/results/deadbeef-dead-4ead-bead-deadbeefdead/result.txt.retry-count';
 
       const mockFs = {
         list: vi.fn().mockImplementation((dir: string) => {
@@ -231,13 +231,13 @@ describe('phase 556: race + dead-letter cluster fix', () => {
         }),
         read: vi.fn().mockImplementation((path: string) => {
           if (path === 'tasks/queues/running/task-dead.json') return Promise.resolve(taskJson);
-          if (path === 'tasks/queues/results/task-dead/result.txt') return Promise.resolve('result data');
+          if (path === 'tasks/queues/results/deadbeef-dead-4ead-bead-deadbeefdead/result.txt') return Promise.resolve('result data');
           if (path === retryPath) return Promise.resolve('3');
           return Promise.resolve('');
         }),
         exists: vi.fn().mockImplementation((path: string) => {
           if (path.includes('.sent')) return Promise.resolve(false);
-          if (path === 'tasks/queues/results/task-dead/result.txt') return Promise.resolve(true);
+          if (path === 'tasks/queues/results/deadbeef-dead-4ead-bead-deadbeefdead/result.txt') return Promise.resolve(true);
           return Promise.resolve(false);
         }),
         move: vi.fn().mockImplementation((_src: string, dest: string) => {
@@ -309,12 +309,12 @@ describe('phase 556: race + dead-letter cluster fix', () => {
     });
 
     it('prevents double start 同 taskId on concurrent ingest', async () => {
-      const taskId = 'task-race-concurrent';
+      const taskId = '44444444-4444-4444-a444-444444444444';
       const filePath = `tasks/queues/pending/${taskId}.json`;
       const taskObj = {
         kind: 'subagent' as const,
         id: taskId,
-        shortId: taskId,
+        shortId: '44444444',
         intent: 'test',
         timeoutMs: SUBAGENT_SHORT_TIMEOUT_MS,
         maxSteps: 1,
@@ -356,7 +356,7 @@ describe('phase 556: race + dead-letter cluster fix', () => {
     });
 
     it('still prevents ghost dispatch during cancel race (phase 556 regression)', async () => {
-      const taskId = 'task-race-cancel';
+      const taskId = '55555555-5555-4555-a555-555555555555';
       const filePath = `tasks/queues/pending/${taskId}.json`;
 
       let resolveRead!: (v: string) => void;
@@ -371,7 +371,7 @@ describe('phase 556: race + dead-letter cluster fix', () => {
             kind: 'subagent',
             mode: 'standard',
             id: taskId,
-            shortId: taskId,
+            shortId: '11111111',
             intent: 'test',
             timeoutMs: SUBAGENT_SHORT_TIMEOUT_MS,
             maxSteps: 1,
@@ -433,8 +433,8 @@ describe('phase 556: race + dead-letter cluster fix', () => {
     const taskJson = JSON.stringify({
       kind: 'subagent',
       mode: 'standard',
-      id: 'task-retry',
-      shortId: 'task-retry',
+      id: '33333333-3333-4333-a333-333333333333',
+      shortId: '33333333',
       intent: 'test',
       timeoutMs: SUBAGENT_SHORT_TIMEOUT_MS,
       maxSteps: 1,
@@ -444,7 +444,7 @@ describe('phase 556: race + dead-letter cluster fix', () => {
 
     it('keeps task in running/ when retryCount<MAX (not move DONE)', async () => {
       const { audit, events } = makeMockAudit();
-      const retryPath = 'tasks/queues/results/task-retry/result.txt.retry-count';
+      const retryPath = 'tasks/queues/results/33333333-3333-4333-a333-333333333333/result.txt.retry-count';
 
       const mockFs = {
         list: vi.fn().mockImplementation((dir: string) => {
@@ -455,13 +455,13 @@ describe('phase 556: race + dead-letter cluster fix', () => {
         }),
         read: vi.fn().mockImplementation((path: string) => {
           if (path === 'tasks/queues/running/task-retry.json') return Promise.resolve(taskJson);
-          if (path === 'tasks/queues/results/task-retry/result.txt') return Promise.resolve('result data');
+          if (path === 'tasks/queues/results/33333333-3333-4333-a333-333333333333/result.txt') return Promise.resolve('result data');
           if (path === retryPath) return Promise.resolve('1');
           return Promise.resolve('');
         }),
         exists: vi.fn().mockImplementation((path: string) => {
           if (path.includes('.sent')) return Promise.resolve(false);
-          if (path === 'tasks/queues/results/task-retry/result.txt') return Promise.resolve(true);
+          if (path === 'tasks/queues/results/33333333-3333-4333-a333-333333333333/result.txt') return Promise.resolve(true);
           if (path === retryPath) return Promise.resolve(true);
           return Promise.resolve(false);
         }),
@@ -508,7 +508,7 @@ describe('phase 556: race + dead-letter cluster fix', () => {
 
     it('moves to dead-letter when retryCount >= MAX (regression)', async () => {
       const { audit, events } = makeMockAudit();
-      const retryPath = 'tasks/queues/results/task-retry/result.txt.retry-count';
+      const retryPath = 'tasks/queues/results/33333333-3333-4333-a333-333333333333/result.txt.retry-count';
 
       const mockFs = {
         list: vi.fn().mockImplementation((dir: string) => {
@@ -519,13 +519,13 @@ describe('phase 556: race + dead-letter cluster fix', () => {
         }),
         read: vi.fn().mockImplementation((path: string) => {
           if (path === 'tasks/queues/running/task-retry.json') return Promise.resolve(taskJson);
-          if (path === 'tasks/queues/results/task-retry/result.txt') return Promise.resolve('result data');
+          if (path === 'tasks/queues/results/33333333-3333-4333-a333-333333333333/result.txt') return Promise.resolve('result data');
           if (path === retryPath) return Promise.resolve('2');
           return Promise.resolve('');
         }),
         exists: vi.fn().mockImplementation((path: string) => {
           if (path.includes('.sent')) return Promise.resolve(false);
-          if (path === 'tasks/queues/results/task-retry/result.txt') return Promise.resolve(true);
+          if (path === 'tasks/queues/results/33333333-3333-4333-a333-333333333333/result.txt') return Promise.resolve(true);
           if (path === retryPath) return Promise.resolve(true);
           return Promise.resolve(false);
         }),
@@ -553,7 +553,7 @@ describe('phase 556: race + dead-letter cluster fix', () => {
 
     it('moves to DONE when resultSent=true (success regression)', async () => {
       const { audit, events } = makeMockAudit();
-      const retryPath = 'tasks/queues/results/task-retry/result.txt.retry-count';
+      const retryPath = 'tasks/queues/results/33333333-3333-4333-a333-333333333333/result.txt.retry-count';
 
       const mockFs = {
         list: vi.fn().mockImplementation((dir: string) => {
@@ -564,13 +564,13 @@ describe('phase 556: race + dead-letter cluster fix', () => {
         }),
         read: vi.fn().mockImplementation((path: string) => {
           if (path === 'tasks/queues/running/task-retry.json') return Promise.resolve(taskJson);
-          if (path === 'tasks/queues/results/task-retry/result.txt') return Promise.resolve('result data');
+          if (path === 'tasks/queues/results/33333333-3333-4333-a333-333333333333/result.txt') return Promise.resolve('result data');
           if (path === retryPath) return Promise.resolve('1');
           return Promise.resolve('');
         }),
         exists: vi.fn().mockImplementation((path: string) => {
           if (path.includes('.sent')) return Promise.resolve(false);
-          if (path === 'tasks/queues/results/task-retry/result.txt') return Promise.resolve(true);
+          if (path === 'tasks/queues/results/33333333-3333-4333-a333-333333333333/result.txt') return Promise.resolve(true);
           if (path === retryPath) return Promise.resolve(true);
           return Promise.resolve(false);
         }),

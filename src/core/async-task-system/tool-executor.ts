@@ -2,7 +2,7 @@ import type { FileSystem } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import type { ToolTask, FullTaskId } from './types.js';
-import { deriveShortIdFromTaskId } from './types.js';
+import { taskShortId } from './types.js';
 import { sendToolResult, sendFallbackError } from './result-delivery.js';
 import { formatErr, classifyTaskError } from './_helpers.js';
 import { isFileNotFound } from '../../foundation/fs/index.js';
@@ -71,14 +71,14 @@ async function executeMigratedToolTask(
       await sendToolResult(fs, auditWriter, task, errorMsg, true).catch((sendErr) => {
         emitHandlerFailed(auditWriter, {
           fullTaskId: task.id as FullTaskId,
-          shortTaskId: deriveShortIdFromTaskId(task.id),
+          shortTaskId: taskShortId(task),
           context: 'sendFallbackError_migrated_pid_reused',
           error: formatErr(sendErr),
         });
       });
       emitTaskCompleted(auditWriter, {
         fullTaskId: task.id as FullTaskId,
-        shortTaskId: deriveShortIdFromTaskId(task.id),
+        shortTaskId: taskShortId(task),
         status: 'err',
         kind: 'tool',
         toolName: task.toolName,
@@ -101,7 +101,7 @@ async function executeMigratedToolTask(
     await sendFallbackError(fs, auditWriter, task, 'Failed to send migrated result').catch((e) => {
       emitHandlerFailed(auditWriter, {
         fullTaskId: task.id as FullTaskId,
-        shortTaskId: deriveShortIdFromTaskId(task.id),
+        shortTaskId: taskShortId(task),
         context: 'sendFallbackError_migrated_result',
         error: formatErr(e),
       });
@@ -110,7 +110,7 @@ async function executeMigratedToolTask(
 
   emitTaskCompleted(auditWriter, {
     fullTaskId: task.id as FullTaskId,
-    shortTaskId: deriveShortIdFromTaskId(task.id),
+    shortTaskId: taskShortId(task),
     status: 'ok',
     kind: 'tool',
     toolName: task.toolName,
@@ -120,7 +120,7 @@ async function executeMigratedToolTask(
   if (task.toolUseId) {
     emitToolAsyncResult(auditWriter, {
       fullTaskId: task.id as FullTaskId,
-      shortTaskId: deriveShortIdFromTaskId(task.id),
+      shortTaskId: taskShortId(task),
       toolName: task.toolName,
       toolUseId: task.toolUseId,
     });
@@ -174,7 +174,7 @@ export async function executeToolTask(
         await sendFallbackError(fs, auditWriter, task, 'Failed to send result').catch((e) => {
           emitHandlerFailed(auditWriter, {
             fullTaskId: task.id as FullTaskId,
-            shortTaskId: deriveShortIdFromTaskId(task.id),
+            shortTaskId: taskShortId(task),
             context: 'sendFallbackError_error_path',
             error: formatErr(e),
           });
@@ -183,7 +183,7 @@ export async function executeToolTask(
       success = true;
       emitTaskCompleted(auditWriter, {
         fullTaskId: task.id as FullTaskId,
-        shortTaskId: deriveShortIdFromTaskId(task.id),
+        shortTaskId: taskShortId(task),
         status: 'ok',
         kind: 'tool',
         toolName: task.toolName,
@@ -194,7 +194,7 @@ export async function executeToolTask(
       if (task.toolUseId) {
         emitToolAsyncResult(auditWriter, {
           fullTaskId: task.id as FullTaskId,
-          shortTaskId: deriveShortIdFromTaskId(task.id),
+          shortTaskId: taskShortId(task),
           toolName: task.toolName,
           toolUseId: task.toolUseId,
         });
@@ -217,7 +217,7 @@ export async function executeToolTask(
           // Non-critical: just log
           emitHandlerFailed(auditWriter, {
             fullTaskId: task.id as FullTaskId,
-            shortTaskId: deriveShortIdFromTaskId(task.id),
+            shortTaskId: taskShortId(task),
             context: 'retry_count_update',
             error: formatErr(writeErr),
           });
@@ -225,7 +225,7 @@ export async function executeToolTask(
 
         emitToolRetry(auditWriter, {
           fullTaskId: task.id as FullTaskId,
-          shortTaskId: deriveShortIdFromTaskId(task.id),
+          shortTaskId: taskShortId(task),
           tool: task.toolName,
           attempt: attempt + 1,
           max: task.maxRetries,
@@ -264,7 +264,7 @@ export async function executeToolTask(
       await sendFallbackError(fs, auditWriter, task, finalError).catch((e) => {
         emitHandlerFailed(auditWriter, {
           fullTaskId: task.id as FullTaskId,
-          shortTaskId: deriveShortIdFromTaskId(task.id),
+          shortTaskId: taskShortId(task),
           context: 'sendFallbackError_retry',
           error: formatErr(e),
         });
@@ -273,14 +273,14 @@ export async function executeToolTask(
 
     emitHandlerFailed(auditWriter, {
       fullTaskId: task.id as FullTaskId,
-      shortTaskId: deriveShortIdFromTaskId(task.id),
+      shortTaskId: taskShortId(task),
       tool: task.toolName,
       context: 'retries_exhausted',
       error: finalError,
     });
     emitTaskCompleted(auditWriter, {
       fullTaskId: task.id as FullTaskId,
-      shortTaskId: deriveShortIdFromTaskId(task.id),
+      shortTaskId: taskShortId(task),
       status: 'err',
       kind: 'tool',
       toolName: task.toolName,

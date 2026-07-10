@@ -28,8 +28,8 @@ function makeMockFsForS1(opts: { moveReject?: boolean; deleteReject?: boolean } 
     read: vi.fn().mockResolvedValue(JSON.stringify({
       kind: 'subagent',
       mode: 'standard',
-      id: 'task-1',
-      shortId: 'task1',
+      id: '11111111-1111-4111-9111-111111111111',
+      shortId: '11111111',
       intent: 'test',
       timeoutMs: SUBAGENT_SHORT_TIMEOUT_MS,
       maxSteps: 1,
@@ -165,8 +165,8 @@ describe('phase 541: silent catch fixes', () => {
       await expect(
         sendToolResult(mockFs, audit, {
           kind: 'tool',
-          id: 'tool-1',
-          shortId: 'tool1',
+          id: '22222222-2222-4222-a222-222222222222',
+          shortId: '22222222',
           toolName: 'read',
           args: {},
           parentClawDir: '/tmp',
@@ -185,8 +185,8 @@ describe('phase 541: silent catch fixes', () => {
       expect(inlineFallbackEvents[0]).toEqual(
         expect.arrayContaining([
           TASK_AUDIT_EVENTS.INBOX_WRITE_FAILED,
-          expect.stringContaining('fullTaskId=tool-1'),
-          expect.stringContaining('shortTaskId=tool-1'),
+          expect.stringContaining('fullTaskId=22222222-2222-4222-a222-222222222222'),
+          expect.stringContaining('shortTaskId=22222222'),
           'context=inline_fallback_failed',
           expect.stringContaining('error='),
         ]),
@@ -205,6 +205,11 @@ describe('phase 541: silent catch fixes', () => {
         ensureDir: vi.fn().mockResolvedValue(undefined),
         list: vi.fn().mockResolvedValue([]),
         resolve: vi.fn((p: string) => `/abs/${p}`),
+        exists: vi.fn().mockResolvedValue(false),
+        read: vi.fn().mockResolvedValue(''),
+        move: vi.fn().mockResolvedValue(undefined),
+        delete: vi.fn().mockResolvedValue(undefined),
+        writeAtomic: vi.fn().mockResolvedValue(undefined),
       } as unknown as FileSystem;
 
       auditEvents = [];

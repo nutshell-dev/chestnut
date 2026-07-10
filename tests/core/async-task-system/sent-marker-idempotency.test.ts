@@ -56,6 +56,7 @@ describe('SENT_MARKER idempotency (phase 789 / P0.19 + P0.20)', () => {
   it('sendResult success writes SENT_MARKER (P0.19 fix)', async () => {
     const task = {
       id: 'task-1',
+      shortId: 'task1',
       kind: 'subagent' as const,
       mode: 'standard' as const,
       parentClawId: 'parent',
@@ -75,6 +76,7 @@ describe('SENT_MARKER idempotency (phase 789 / P0.19 + P0.20)', () => {
   it('sendFallbackError on SubAgentTask writes SENT_MARKER (P0.20 fix)', async () => {
     const task = {
       id: 'task-2',
+      shortId: 'task2',
       kind: 'subagent' as const,
       mode: 'standard' as const,
       parentClawId: 'parent',
@@ -93,6 +95,7 @@ describe('SENT_MARKER idempotency (phase 789 / P0.19 + P0.20)', () => {
   it('sendFallbackError on ToolTask does NOT write SENT_MARKER', async () => {
     const task = {
       id: 'task-3',
+      shortId: 'task3',
       kind: 'tool' as const,
       parentClawId: 'parent',
       toolName: 'test_tool',
@@ -131,6 +134,7 @@ describe('SENT_MARKER idempotency (phase 789 / P0.19 + P0.20)', () => {
     // and verify that sendResult also writes it.
     const task = {
       id: 'task-4',
+      shortId: 'task4',
       kind: 'subagent' as const,
       mode: 'standard' as const,
       parentClawId: 'parent',

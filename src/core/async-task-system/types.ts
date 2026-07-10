@@ -44,6 +44,15 @@ export function deriveShortIdFromTaskId(taskId: TaskId): ShortTaskId {
   return makeShortTaskId(taskId.length === 36 ? taskId.slice(0, 8) : taskId);
 }
 
+/**
+ * Return the canonical shortId for a task object.
+ * Prefers the persisted `shortId` field; falls back to deriving from `id`
+ * for pre-migration tasks or test fixtures.
+ */
+export function taskShortId(task: { id: TaskId; shortId?: ShortTaskId | string }): ShortTaskId {
+  return task.shortId ? makeShortTaskId(task.shortId) : deriveShortIdFromTaskId(task.id);
+}
+
 export interface ShortIdIndex {
   needsRebuild: boolean;
   load(auditWriter?: { write: (event: string, payload: Record<string, unknown>) => void }): void;

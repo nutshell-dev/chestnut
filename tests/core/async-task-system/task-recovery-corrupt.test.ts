@@ -23,11 +23,14 @@ function makeMockAudit(): { audit: AuditLog; events: Array<[string, ...(string |
   return { audit, events };
 }
 
+const VALID_TASK_ID = '550e8400-e29b-41d4-a716-446655440000';
+const VALID_TASK_SHORT_ID = '550e8400';
+
 function makeValidTask(kind: 'subagent' | 'tool' = 'subagent') {
   const base = {
     kind,
-    id: 'task-1',
-    shortId: 'task1',
+    id: VALID_TASK_ID,
+    shortId: VALID_TASK_SHORT_ID,
     parentClawId: 'parent',
     createdAt: new Date().toISOString(),
   };
@@ -183,7 +186,7 @@ describe('task-recovery corrupt-backup 三件套', () => {
       // task should be moved to pending (recovered)
       expect(mockFs.move).toHaveBeenCalledWith(
         'tasks/queues/running/task-1.json',
-        'tasks/queues/pending/task-1.json',
+        `tasks/queues/pending/${VALID_TASK_ID}.json`,
       );
     });
 
@@ -334,7 +337,7 @@ describe('task-recovery corrupt-backup 三件套', () => {
       const result = await (system as any)._loadTaskFromFile('tasks/queues/pending/task-1.json');
 
       expect(result).not.toBeNull();
-      expect(result.id).toBe('task-1');
+      expect(result.id).toBe(VALID_TASK_ID);
 
       const corruptEvents = auditEvents.filter((e) => e[0] === TASK_AUDIT_EVENTS.TASK_CORRUPT);
       expect(corruptEvents.length).toBe(0);

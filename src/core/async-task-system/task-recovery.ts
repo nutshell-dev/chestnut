@@ -1,7 +1,7 @@
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { SubAgentTask, ToolTask, FullTaskId } from './types.js';
-import { deriveShortIdFromTaskId } from './types.js';
+import { taskShortId } from './types.js';
 import {
   TASKS_QUEUES_PENDING_DIR,
   TASKS_QUEUES_RUNNING_DIR,
@@ -89,7 +89,7 @@ async function _recoverToolTask(
   await deps.fs.move(filePath, pendingPath);
   emitRecovered(deps.auditWriter, {
     fullTaskId: task.id as FullTaskId,
-    shortTaskId: deriveShortIdFromTaskId(task.id),
+    shortTaskId: taskShortId(task),
     kind: task.kind,
     from: 'running',
     to: 'pending',
@@ -118,7 +118,7 @@ async function _recoverMigratedToolTask(
     // The process will eventually exit or be killed by the hard timeout.
     emitRecovered(auditWriter, {
       fullTaskId: task.id as FullTaskId,
-      shortTaskId: deriveShortIdFromTaskId(task.id),
+      shortTaskId: taskShortId(task),
       kind: task.kind,
       from: 'running',
       to: 'running',
@@ -154,7 +154,7 @@ async function _recoverMigratedToolTask(
       });
       emitRecovered(auditWriter, {
         fullTaskId: task.id as FullTaskId,
-        shortTaskId: deriveShortIdFromTaskId(task.id),
+        shortTaskId: taskShortId(task),
         kind: task.kind,
         from: 'running',
         to: 'done',
@@ -188,7 +188,7 @@ async function _recoverMigratedToolTask(
   });
   emitRecovered(auditWriter, {
     fullTaskId: task.id as FullTaskId,
-    shortTaskId: deriveShortIdFromTaskId(task.id),
+    shortTaskId: taskShortId(task),
     kind: task.kind,
     from: 'running',
     to: 'failed',
@@ -246,7 +246,7 @@ async function _recoverAlreadySent(
   });
   emitRecovered(deps.auditWriter, {
     fullTaskId: task.id as FullTaskId,
-    shortTaskId: deriveShortIdFromTaskId(task.id),
+    shortTaskId: taskShortId(task),
     reason: 'already_sent',
   });
 }
@@ -377,7 +377,7 @@ async function _recoverWithResult(
   });
   emitRecovered(auditWriter, {
     fullTaskId: task.id as FullTaskId,
-    shortTaskId: deriveShortIdFromTaskId(task.id),
+    shortTaskId: taskShortId(task),
     reason: 'result_file_exists',
   });
   return 0;
@@ -389,7 +389,7 @@ async function _moveToDeadLetter(
   const { fs, auditWriter } = deps;
   emitRecoveryDeadLetter(auditWriter, {
     fullTaskId: task.id as FullTaskId,
-    shortTaskId: deriveShortIdFromTaskId(task.id),
+    shortTaskId: taskShortId(task),
     retries: retryCount,
   });
   await fs.move(filePath, `${TASKS_QUEUES_FAILED_DIR}/${task.id}.json`).catch(async (moveErr) => {
@@ -435,7 +435,7 @@ async function _recoverWithoutResult(
   });
   emitRecovered(deps.auditWriter, {
     fullTaskId: task.id as FullTaskId,
-    shortTaskId: deriveShortIdFromTaskId(task.id),
+    shortTaskId: taskShortId(task),
     kind: task.kind,
     from: 'running',
     to: 'pending',

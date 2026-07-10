@@ -20,12 +20,12 @@ function makeMockAudit(): { audit: AuditLog; events: Array<[string, ...(string |
   return { audit, events };
 }
 
-function makeTaskJson(id: string): string {
+function makeTaskJson(fullId: string): string {
   return JSON.stringify({
     kind: 'subagent',
     mode: 'standard',
-    id,
-    shortId: id,
+    id: fullId,
+    shortId: fullId.slice(0, 8),
     intent: 'test',
     timeoutMs: SUBAGENT_SHORT_TIMEOUT_MS,
     maxSteps: 1,
@@ -90,32 +90,32 @@ describe('derive from fs (phase 284 Step A)', () => {
   });
 
   it('_getPendingTasks returns all valid pending tasks sorted by createdAt', async () => {
-    await mockFs.writeAtomic('tasks/queues/pending/a.json', makeTaskJson('a'));
-    await mockFs.writeAtomic('tasks/queues/pending/b.json', makeTaskJson('b'));
+    await mockFs.writeAtomic('tasks/queues/pending/11111111-1111-4111-9111-111111111111.json', makeTaskJson('11111111-1111-4111-9111-111111111111'));
+    await mockFs.writeAtomic('tasks/queues/pending/22222222-2222-4222-a222-222222222222.json', makeTaskJson('22222222-2222-4222-a222-222222222222'));
 
     const tasks = await (system as any)._getPendingTasks();
     expect(tasks).toHaveLength(2);
-    expect(tasks.map((t: { id: string }) => t.id).sort()).toEqual(['a', 'b']);
+    expect(tasks.map((t: { id: string }) => t.id).sort()).toEqual(['11111111-1111-4111-9111-111111111111', '22222222-2222-4222-a222-222222222222']);
   });
 
   it('_getPendingTasks filters cancellingIds', async () => {
-    await mockFs.writeAtomic('tasks/queues/pending/a.json', makeTaskJson('a'));
-    await mockFs.writeAtomic('tasks/queues/pending/b.json', makeTaskJson('b'));
+    await mockFs.writeAtomic('tasks/queues/pending/11111111-1111-4111-9111-111111111111.json', makeTaskJson('11111111-1111-4111-9111-111111111111'));
+    await mockFs.writeAtomic('tasks/queues/pending/22222222-2222-4222-a222-222222222222.json', makeTaskJson('22222222-2222-4222-a222-222222222222'));
 
-    (system as any).cancellingIds.add('b');
+    (system as any).cancellingIds.add('22222222-2222-4222-a222-222222222222');
 
     const tasks = await (system as any)._getPendingTasks();
     expect(tasks).toHaveLength(1);
-    expect(tasks[0].id).toBe('a');
+    expect(tasks[0].id).toBe('11111111-1111-4111-9111-111111111111');
   });
 
   it('_getPendingTasks skips corrupt files and emits audit', async () => {
-    await mockFs.writeAtomic('tasks/queues/pending/good.json', makeTaskJson('good'));
+    await mockFs.writeAtomic('tasks/queues/pending/33333333-3333-4333-a333-333333333333.json', makeTaskJson('33333333-3333-4333-a333-333333333333'));
     await mockFs.writeAtomic('tasks/queues/pending/bad.json', 'not json');
 
     const tasks = await (system as any)._getPendingTasks();
     expect(tasks).toHaveLength(1);
-    expect(tasks[0].id).toBe('good');
+    expect(tasks[0].id).toBe('33333333-3333-4333-a333-333333333333');
 
     const violations = auditEvents.filter(
       e => e[0] === TASK_AUDIT_EVENTS.ASYNC_TASK_INVARIANT_VIOLATED && e.some(c => typeof c === 'string' && c.includes('derive_pending_corrupt')),
@@ -124,25 +124,25 @@ describe('derive from fs (phase 284 Step A)', () => {
   });
 
   it('_getPendingTaskIds returns ids excluding cancellingIds', async () => {
-    await mockFs.writeAtomic('tasks/queues/pending/a.json', makeTaskJson('a'));
-    await mockFs.writeAtomic('tasks/queues/pending/b.json', makeTaskJson('b'));
-    (system as any).cancellingIds.add('b');
+    await mockFs.writeAtomic('tasks/queues/pending/11111111-1111-4111-9111-111111111111.json', makeTaskJson('11111111-1111-4111-9111-111111111111'));
+    await mockFs.writeAtomic('tasks/queues/pending/22222222-2222-4222-a222-222222222222.json', makeTaskJson('22222222-2222-4222-a222-222222222222'));
+    (system as any).cancellingIds.add('22222222-2222-4222-a222-222222222222');
 
     const ids = await (system as any)._getPendingTaskIds();
-    expect(ids).toEqual(new Set(['a']));
+    expect(ids).toEqual(new Set(['11111111-1111-4111-9111-111111111111']));
   });
 
   it('listPending returns pending ids derived from fs', async () => {
-    await mockFs.writeAtomic('tasks/queues/pending/a.json', makeTaskJson('a'));
-    await mockFs.writeAtomic('tasks/queues/pending/b.json', makeTaskJson('b'));
+    await mockFs.writeAtomic('tasks/queues/pending/11111111-1111-4111-9111-111111111111.json', makeTaskJson('11111111-1111-4111-9111-111111111111'));
+    await mockFs.writeAtomic('tasks/queues/pending/22222222-2222-4222-a222-222222222222.json', makeTaskJson('22222222-2222-4222-a222-222222222222'));
 
     const ids = await system.listPending();
-    expect(ids.sort()).toEqual(['a', 'b']);
+    expect(ids.sort()).toEqual(['11111111', '22222222']);
   });
 
   it('getPendingCount returns count derived from fs', async () => {
-    await mockFs.writeAtomic('tasks/queues/pending/a.json', makeTaskJson('a'));
-    await mockFs.writeAtomic('tasks/queues/pending/b.json', makeTaskJson('b'));
+    await mockFs.writeAtomic('tasks/queues/pending/11111111-1111-4111-9111-111111111111.json', makeTaskJson('11111111-1111-4111-9111-111111111111'));
+    await mockFs.writeAtomic('tasks/queues/pending/22222222-2222-4222-a222-222222222222.json', makeTaskJson('22222222-2222-4222-a222-222222222222'));
 
     expect(await system.getPendingCount()).toBe(2);
   });

@@ -47,10 +47,11 @@ describe('listMigratedExecTasks', () => {
   });
 
   function writeTaskFile(taskId: string, overrides: Record<string, unknown> = {}) {
+    const shortId = taskId.slice(0, 8);
     const task = {
       kind: 'tool',
       id: taskId,
-      shortId: taskId,
+      shortId,
       toolName: 'exec',
       args: { command: 'echo hello' },
       parentClawDir: '/test',
@@ -75,10 +76,10 @@ describe('listMigratedExecTasks', () => {
   });
 
   it('returns valid migrated exec task', () => {
-    writeTaskFile('abc123');
+    writeTaskFile('11111111-1111-4111-9111-111111111111');
     const result = listMigratedExecTasks(makeDeps(), clawDir);
     expect(result.tasks).toHaveLength(1);
-    expect(result.tasks[0].taskId).toBe('abc123');
+    expect(result.tasks[0].taskId).toBe('11111111');
     expect(result.tasks[0].command).toBe('echo hello');
     expect(result.errors).toEqual([]);
   });
@@ -92,14 +93,14 @@ describe('listMigratedExecTasks', () => {
   });
 
   it('reports error for schema mismatch (missing id)', () => {
-    writeTaskFile('no-id', { id: undefined });
+    writeTaskFile('22222222-2222-4222-a222-222222222222', { id: undefined });
     const result = listMigratedExecTasks(makeDeps(), clawDir);
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0].reason).toContain('schema mismatch');
   });
 
   it('reports error for non-string command', () => {
-    writeTaskFile('obj-cmd', { args: { command: { program: 'curl' } } });
+    writeTaskFile('33333333-3333-4333-a333-333333333333', { args: { command: { program: 'curl' } } });
     const result = listMigratedExecTasks(makeDeps(), clawDir);
     expect(result.tasks).toEqual([]);
     expect(result.errors).toHaveLength(1);
@@ -107,7 +108,7 @@ describe('listMigratedExecTasks', () => {
   });
 
   it('reports error when filename ID does not match task.id', () => {
-    writeTaskFile('file-id', { id: 'content-id' });
+    writeTaskFile('55555555-5555-4555-a555-555555555555', { id: '66666666-6666-4666-a666-666666666666' });
     const result = listMigratedExecTasks(makeDeps(), clawDir);
     expect(result.tasks).toEqual([]);
     expect(result.errors).toHaveLength(1);
@@ -115,7 +116,7 @@ describe('listMigratedExecTasks', () => {
   });
 
   it('result.txt ENOENT → lastOutputMs is null, no error', () => {
-    writeTaskFile('no-result');
+    writeTaskFile('66666666-6666-4666-a666-666666666666');
     const result = listMigratedExecTasks(makeDeps(), clawDir);
     expect(result.tasks).toHaveLength(1);
     expect(result.tasks[0].lastOutputMs).toBeNull();
@@ -123,13 +124,13 @@ describe('listMigratedExecTasks', () => {
   });
 
   it('mixes valid tasks and corrupted entries', () => {
-    writeTaskFile('good');
+    writeTaskFile('77777777-7777-4777-a777-777777777777');
     fs.writeFileSync(path.join(runningDir, 'bad.json'), '{corrupt');
-    writeTaskFile('also-good');
+    writeTaskFile('88888888-8888-4888-a888-888888888888');
     const result = listMigratedExecTasks(makeDeps(), clawDir);
     expect(result.tasks).toHaveLength(2);
     expect(result.errors).toHaveLength(1);
-    expect(result.tasks.map(t => t.taskId).sort()).toEqual(['also-good', 'good']);
+    expect(result.tasks.map(t => t.taskId).sort()).toEqual(['77777777', '88888888']);
   });
 
   // ── phase 845 expanded coverage ──
@@ -155,22 +156,22 @@ describe('listMigratedExecTasks', () => {
         write: (event: string, payload: Record<string, unknown>) => auditEvents.push({ event, payload }),
       },
     };
-    writeTaskFile('file-id', { id: 'content-id' });
+    writeTaskFile('55555555-5555-4555-a555-555555555555', { id: 'content-id' });
     listMigratedExecTasks(deps, clawDir);
     expect(auditEvents).toHaveLength(1);
     expect(auditEvents[0].event).toBe('task_query_file_corrupt');
-    expect(auditEvents[0].payload.taskId).toBe('file-id');
+    expect(auditEvents[0].payload.taskId).toBe('55555555');
   });
 
   it('silently skips non-migrated tool tasks', () => {
-    writeTaskFile('fresh-task', { mode: 'fresh' });
+    writeTaskFile('99999999-9999-4999-a999-999999999999', { mode: 'fresh' });
     const result = listMigratedExecTasks(makeDeps(), clawDir);
     expect(result.tasks).toEqual([]);
     expect(result.errors).toEqual([]);
   });
 
   it('reports error for invalid createdAt', () => {
-    writeTaskFile('bad-date', { createdAt: 'broken' });
+    writeTaskFile('aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa', { createdAt: 'broken' });
     const result = listMigratedExecTasks(makeDeps(), clawDir);
     expect(result.tasks).toEqual([]);
     expect(result.errors).toHaveLength(1);

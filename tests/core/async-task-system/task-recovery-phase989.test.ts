@@ -28,8 +28,8 @@ function makeValidTask(kind: 'subagent' | 'tool' = 'subagent') {
   return {
     kind,
     mode: 'standard' as const,
-    id: 'task-1',
-    shortId: 'task1',
+    id: '550e8400-e29b-41d4-a716-446655440000',
+    shortId: '550e8400',
     intent: 'test',
     timeoutMs: SUBAGENT_SHORT_TIMEOUT_MS,
     maxSteps: 1,
@@ -92,8 +92,8 @@ describe('phase 989 task-recovery sub-fixes', () => {
   it('treats corrupt retry counter as dead-letter promotion (phase 989 C.2)', async () => {
     const task = makeValidTask('subagent');
     const taskFile = 'tasks/queues/running/task-1.json';
-    const retryPath = 'tasks/queues/results/task-1/result.txt.retry-count';
-    const resultPath = 'tasks/queues/results/task-1/result.txt';
+    const retryPath = 'tasks/queues/results/550e8400-e29b-41d4-a716-446655440000/result.txt.retry-count';
+    const resultPath = 'tasks/queues/results/550e8400-e29b-41d4-a716-446655440000/result.txt';
 
     const mockFs = makeMockFsForPhase989({
       runningFiles: [{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }],
@@ -121,14 +121,14 @@ describe('phase 989 task-recovery sub-fixes', () => {
     );
 
     // Verify: task moved to failed/ (dead-letter promotion)
-    expect(await mockFs.exists('tasks/queues/failed/task-1.json')).toBe(true);
+    expect(await mockFs.exists('tasks/queues/failed/550e8400-e29b-41d4-a716-446655440000.json')).toBe(true);
   });
 
   it('_recoverAlreadySent deletes retryPath after move (phase 989 C.3)', async () => {
     const task = makeValidTask('subagent');
     const taskFile = 'tasks/queues/running/task-1.json';
-    const sentMarker = 'tasks/queues/results/task-1/result.txt.sent';
-    const retryPath = 'tasks/queues/results/task-1/result.txt.retry-count';
+    const sentMarker = 'tasks/queues/results/550e8400-e29b-41d4-a716-446655440000/result.txt.sent';
+    const retryPath = 'tasks/queues/results/550e8400-e29b-41d4-a716-446655440000/result.txt.retry-count';
 
     const mockFs = makeMockFsForPhase989({
       runningFiles: [{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }],
@@ -142,7 +142,7 @@ describe('phase 989 task-recovery sub-fixes', () => {
     await recoverTasks({ fs: mockFs, auditWriter: audit } as RecoverTasksDeps);
 
     // Verify: task moved to done/
-    expect(await mockFs.exists('tasks/queues/done/task-1.json')).toBe(true);
+    expect(await mockFs.exists('tasks/queues/done/550e8400-e29b-41d4-a716-446655440000.json')).toBe(true);
 
     // Verify: retryPath deleted (C.3 fix)
     expect(await mockFs.exists(retryPath)).toBe(false);

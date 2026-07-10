@@ -5,6 +5,7 @@ import { TASK_AUDIT_EVENTS } from './audit-events.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { ShortIdIndex } from './types.js';
 import { deriveShortIdFromTaskId, makeFullTaskId } from './types.js';
+import type { ShortTaskId } from './types.js';
 
 export interface MigratedExecTaskInfo {
   taskId: string;
@@ -77,7 +78,7 @@ export function listMigratedExecTasks(
     if (!entry.name.endsWith('.json')) continue;
     const fileNameId = entry.name.replace(/\.json$/, '');
 
-    // Phase 849: dual-key task IDs. Derive short/full from filename.
+    // Phase 868: dual-key task IDs. UUID filename + task.shortId authoritative.
     let shortTaskId: string;
     let fullTaskId: string;
     if (fileNameId.length === 36) {
@@ -98,6 +99,11 @@ export function listMigratedExecTasks(
         continue;
       }
       const task = parsed.data;
+
+      // Phase 868: for UUID filenames the persisted shortId is authoritative.
+      if (fileNameId.length === 36 && task.shortId) {
+        shortTaskId = task.shortId as ShortTaskId;
+      }
 
       // phase 844 Step D: verify filename ID matches content task.id
       if (task.id !== fileNameId) {
