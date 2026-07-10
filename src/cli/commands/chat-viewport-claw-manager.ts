@@ -63,6 +63,13 @@ export const createClawManager = (deps: ClawManagerDeps): ClawManager => {
   const clawWatcherVersions = new Map<string, number>();
 
   const attachClawWatcher = (clawId: string, streamFile: string) => {
+    // close previous watcher if re-attaching same claw (defensive, caller already guards)
+    const prev = clawWatchers.get(clawId);
+    if (prev) {
+      prev.close().catch(() => { /* silent: cleanup */ });
+      clawWatchers.delete(clawId);
+    }
+
     const ver = (clawWatcherVersions.get(clawId) ?? 0) + 1;
     clawWatcherVersions.set(clawId, ver);
     try {

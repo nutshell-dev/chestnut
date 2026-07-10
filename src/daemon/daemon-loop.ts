@@ -147,6 +147,7 @@ export function startDaemonLoop(options: DaemonLoopOptions): {
             interruptWatcher = null;
             // phase 229: DP「中断可恢复」+ DP「系统能自己做的就自己做好」delayed retry recovery
             setTimeout(() => {
+              if (stopped) return;
               audit.write(DAEMON_AUDIT_EVENTS.LOOP_INTERRUPT_POLLER_RECOVERY_ATTEMPT, `backoff_ms=${INTERRUPT_POLL_RECOVERY_BACKOFF_MS}`);
               interruptErrCount = 0;
               interruptWatcher = createInterruptWatcher({

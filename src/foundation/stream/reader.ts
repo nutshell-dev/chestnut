@@ -237,7 +237,6 @@ export function createStreamReader(
   return {
     start(initialOffset?: number) {
       if (started) throw new Error('StreamReader already started');
-      started = true;
       active = true;
       if (initialOffset !== undefined) {
         offset = initialOffset;
@@ -311,6 +310,7 @@ export function createStreamReader(
           },
         },
       );
+      started = true;
     },
     async stop() {
       if (!started) return;
