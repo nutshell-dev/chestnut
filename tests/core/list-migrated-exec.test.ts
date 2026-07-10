@@ -173,6 +173,35 @@ describe('listMigratedExecTasks', () => {
     const result = listMigratedExecTasks(makeDeps(), clawDir);
     expect(result.tasks).toEqual([]);
     expect(result.errors).toHaveLength(1);
-    expect(result.errors[0].reason).toContain('createdAt is not a valid ISO datetime');
+    expect(result.errors[0].reason).toContain('createdAt is not a parseable datetime');
+  });
+
+  // ── phase 846 expanded coverage ──
+
+  it('returns error and audit when listSync throws', () => {
+    const auditEvents: Array<{ event: string; payload: Record<string, unknown> }> = [];
+    const deps = {
+      ...makeDeps(),
+      fsFactory: (baseDir: string) => {
+        const fs = makeDeps().fsFactory(baseDir);
+        return {
+          ...fs,
+          listSync: () => {
+            throw new Error('EACCES: permission denied');
+          },
+        } as unknown as FileSystem;
+      },
+      auditWriter: {
+        write: (event: string, payload: Record<string, unknown>) => auditEvents.push({ event, payload }),
+      },
+    };
+    const result = listMigratedExecTasks(deps, clawDir);
+    expect(result.tasks).toEqual([]);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].taskId).toBe('(directory)');
+    expect(result.errors[0].reason).toContain('Cannot list running queue');
+    expect(auditEvents).toHaveLength(1);
+    expect(auditEvents[0].event).toBe('task_query_file_corrupt');
+    expect(auditEvents[0].payload.taskId).toBe('(directory)');
   });
 });

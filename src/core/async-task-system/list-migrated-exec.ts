@@ -40,11 +40,6 @@ export function listMigratedExecTasks(
   const runningDir = path.join(clawDir, TASKS_QUEUES_RUNNING_DIR);
   const runningFs = deps.fsFactory(runningDir);
 
-  if (!runningFs.existsSync('.')) {
-    return { tasks: [], errors: [] };
-  }
-
-  const entries = runningFs.listSync('.', { includeDirs: false });
   const tasks: MigratedExecTaskInfo[] = [];
   const errors: TaskReadError[] = [];
 
@@ -56,6 +51,18 @@ export function listMigratedExecTasks(
     });
     errors.push({ taskId, reason });
   };
+
+  if (!runningFs.existsSync('.')) {
+    return { tasks: [], errors: [] };
+  }
+
+  let entries: ReturnType<typeof runningFs.listSync>;
+  try {
+    entries = runningFs.listSync('.', { includeDirs: false });
+  } catch (e: unknown) {
+    pushError('(directory)', `Cannot list running queue: ${String(e)}`);
+    return { tasks, errors };
+  }
 
   for (const entry of entries) {
     if (!entry.name.endsWith('.json')) continue;
@@ -88,10 +95,10 @@ export function listMigratedExecTasks(
       }
       const command = rawCommand;
 
-      // phase 845 Step B: validate createdAt is a parseable ISO datetime
+      // phase 846 Step B: validate createdAt is a parseable datetime
       const createdAtMs = Date.parse(task.createdAt);
       if (Number.isNaN(createdAtMs)) {
-        pushError(taskId, `createdAt is not a valid ISO datetime: "${task.createdAt}"`);
+        pushError(taskId, `createdAt is not a parseable datetime: "${task.createdAt}"`);
         continue;
       }
       const createdAt = task.createdAt;
