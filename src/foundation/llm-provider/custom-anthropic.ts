@@ -128,9 +128,9 @@ export class CustomAnthropicAdapter extends BaseAnthropicAdapter {
             `context_limit=${parsed.contextLimit}`,
             `input_tokens=${parsed.inputTokens}`,
           ];
-          this.assertThinkingBudgetFits(adjusted);
           if (adjusted > 0) {
             this.auditLog?.write(LLM_PROVIDER_AUDIT_EVENTS.OUTPUT_BUDGET_ADJUSTED, ...auditPayload);
+            this.assertThinkingBudgetFits(adjusted);
             const retryBody = this.buildRequestBody({ ...options, maxTokens: adjusted });
             const retryResponse = await fetch(`${this.baseUrl}/v1/messages`, {
               method: 'POST',
@@ -149,6 +149,7 @@ export class CustomAnthropicAdapter extends BaseAnthropicAdapter {
               ...auditPayload,
               `reason=nonpositive_adjusted`,
             );
+            this.assertThinkingBudgetFits(adjusted);
             throw new LLMContextExceededError(
               this.name,
               400,
@@ -213,9 +214,9 @@ export class CustomAnthropicAdapter extends BaseAnthropicAdapter {
             `context_limit=${parsed.contextLimit}`,
             `input_tokens=${parsed.inputTokens}`,
           ];
-          this.assertThinkingBudgetFits(adjusted);
           if (adjusted > 0) {
             this.auditLog?.write(LLM_PROVIDER_AUDIT_EVENTS.OUTPUT_BUDGET_ADJUSTED, ...auditPayload);
+            this.assertThinkingBudgetFits(adjusted);
             const retryBody = this.buildRequestBody({ ...options, maxTokens: adjusted });
             const retryResponse = await fetch(`${this.baseUrl}/v1/messages`, {
               method: 'POST',
@@ -247,6 +248,7 @@ export class CustomAnthropicAdapter extends BaseAnthropicAdapter {
               ...auditPayload,
               `reason=nonpositive_adjusted`,
             );
+            this.assertThinkingBudgetFits(adjusted);
             throw new LLMContextExceededError(
               this.name,
               400,

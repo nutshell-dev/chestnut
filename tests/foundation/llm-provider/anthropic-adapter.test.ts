@@ -257,6 +257,37 @@ describe('AnthropicAdapter', () => {
       expect(mockMessagesCreate).toHaveBeenCalledTimes(1);
     });
 
+    it('writes OUTPUT_BUDGET_ADJUSTED audit before throwing thinking budget conflict (call)', async () => {
+      const { writes, sink } = createAuditSink();
+      const adapter = new AnthropicAdapter({
+        ...config,
+        auditLog: sink as any,
+        thinking: true,
+        thinkingMode: 'enabled',
+        thinkingBudgetTokens: 50000,
+      });
+
+      mockMessagesCreate.mockRejectedValueOnce(
+        new BadRequestError(400, THINKING_BUDGET_EQUALS_ADJUSTED_MESSAGE),
+      );
+
+      await expect(adapter.call({ messages: [], maxTokens: 60000 })).rejects.toBeInstanceOf(
+        LLMContextExceededError,
+      );
+
+      const audit = writes.find(e => e[0] === LLM_PROVIDER_AUDIT_EVENTS.OUTPUT_BUDGET_ADJUSTED);
+      expect(audit).toBeDefined();
+      expect(audit).toEqual(
+        expect.arrayContaining([
+          LLM_PROVIDER_AUDIT_EVENTS.OUTPUT_BUDGET_ADJUSTED,
+          expect.stringContaining('original_max_tokens=60000'),
+          expect.stringContaining('adjusted_max_tokens=50000'),
+          expect.stringContaining('context_limit=105000'),
+          expect.stringContaining('input_tokens=55000'),
+        ]),
+      );
+    });
+
     it('throws LLMContextExceededError when effective thinking budget equals adjusted max_tokens (stream)', async () => {
       const adapter = new AnthropicAdapter({
         ...config,
@@ -277,6 +308,41 @@ describe('AnthropicAdapter', () => {
         })(),
       ).rejects.toBeInstanceOf(LLMContextExceededError);
       expect(mockMessagesStream).toHaveBeenCalledTimes(1);
+    });
+
+    it('writes OUTPUT_BUDGET_ADJUSTED audit before throwing thinking budget conflict (stream)', async () => {
+      const { writes, sink } = createAuditSink();
+      const adapter = new AnthropicAdapter({
+        ...config,
+        auditLog: sink as any,
+        thinking: true,
+        thinkingMode: 'enabled',
+        thinkingBudgetTokens: 50000,
+      });
+
+      mockMessagesStream.mockReturnValueOnce(
+        createFailingSDKStream(new BadRequestError(400, THINKING_BUDGET_EQUALS_ADJUSTED_MESSAGE)),
+      );
+
+      await expect(
+        (async () => {
+          for await (const _chunk of adapter.stream({ messages: [], maxTokens: 60000 })) {
+            // no-op
+          }
+        })(),
+      ).rejects.toBeInstanceOf(LLMContextExceededError);
+
+      const audit = writes.find(e => e[0] === LLM_PROVIDER_AUDIT_EVENTS.OUTPUT_BUDGET_ADJUSTED);
+      expect(audit).toBeDefined();
+      expect(audit).toEqual(
+        expect.arrayContaining([
+          LLM_PROVIDER_AUDIT_EVENTS.OUTPUT_BUDGET_ADJUSTED,
+          expect.stringContaining('original_max_tokens=60000'),
+          expect.stringContaining('adjusted_max_tokens=50000'),
+          expect.stringContaining('context_limit=105000'),
+          expect.stringContaining('input_tokens=55000'),
+        ]),
+      );
     });
   });
 });
