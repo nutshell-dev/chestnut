@@ -7,29 +7,28 @@
  */
 
 import * as path from 'path';
-import type { AuditLog } from '../audit/index.js';
 import type { FileSystem } from '../fs/index.js';
 import { formatErr } from '../node-utils/index.js';
 import { INBOX_PENDING_DIR, OUTBOX_PENDING_DIR } from './dirs.js';
 
 /**
+ * Lightweight Result type for standalone query helpers.
+ * Kept local to avoid cross-module coupling; independent from snapshot Result<T,E>.
+ */
+type Result<T> = { ok: true; value: T } | { ok: false; error: string };
+
+/**
  * Lightweight pending inbox count — directory list only, no file reads.
  * Standalone equivalent of InboxReader.peekPendingCount().
  */
-export function peekPendingCount(fs: FileSystem, clawDir: string, audit?: AuditLog): number {
+export function peekPendingCount(fs: FileSystem, clawDir: string): Result<number> {
   const dir = path.join(clawDir, INBOX_PENDING_DIR);
-  if (!fs.existsSync(dir)) return 0;
+  if (!fs.existsSync(dir)) return { ok: true, value: 0 };
   try {
-    return fs.listSync(dir, { includeDirs: false })
-      .filter(e => e.name.endsWith('.md')).length;
+    return { ok: true, value: fs.listSync(dir, { includeDirs: false })
+      .filter(e => e.name.endsWith('.md')).length };
   } catch (err) {
-    if (audit) {
-      audit.write('daemon_startup_check_io_error',
-        `fn=peekPendingCount`,
-        `reason=${formatErr(err)}`,
-      );
-    }
-    return 0;
+    return { ok: false, error: formatErr(err) };
   }
 }
 
@@ -37,21 +36,15 @@ export function peekPendingCount(fs: FileSystem, clawDir: string, audit?: AuditL
  * Lightweight pending inbox filenames — directory list only, no file reads.
  * For callers that need to match filename patterns (e.g. startup-check dedup).
  */
-export function peekPendingFilenames(fs: FileSystem, clawDir: string, audit?: AuditLog): string[] {
+export function peekPendingFilenames(fs: FileSystem, clawDir: string): Result<string[]> {
   const dir = path.join(clawDir, INBOX_PENDING_DIR);
-  if (!fs.existsSync(dir)) return [];
+  if (!fs.existsSync(dir)) return { ok: true, value: [] };
   try {
-    return fs.listSync(dir, { includeDirs: false })
+    return { ok: true, value: fs.listSync(dir, { includeDirs: false })
       .filter(e => e.name.endsWith('.md'))
-      .map(e => e.name);
+      .map(e => e.name) };
   } catch (err) {
-    if (audit) {
-      audit.write('daemon_startup_check_io_error',
-        `fn=peekPendingFilenames`,
-        `reason=${formatErr(err)}`,
-      );
-    }
-    return [];
+    return { ok: false, error: formatErr(err) };
   }
 }
 

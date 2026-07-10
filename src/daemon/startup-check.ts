@@ -18,9 +18,18 @@ import { STARTUP_CHECK_COOLDOWN_MS } from './constants.js';
 import { DAEMON_AUDIT_EVENTS } from './audit-events.js';
 import { formatErr } from '../foundation/node-utils/index.js';
 
-/** inbox 目录是否 0 个 .md 文件。读失败默 true（保守假定非空）。*/
+/** inbox 目录是否 0 个 .md 文件。I/O 错误 → 假定非空（fail-closed，不跳过 startup check）。*/
 export function isInboxEmpty(fs: FileSystem, audit: AuditLog): boolean {
-  return peekPendingCount(fs, '.', audit) === 0;
+  const result = peekPendingCount(fs, '.');
+  if (!result.ok) {
+    audit.write(
+      DAEMON_AUDIT_EVENTS.STARTUP_CHECK_IO_ERROR,
+      `fn=peekPendingCount`,
+      `reason=${result.error}`,
+    );
+    return false;
+  }
+  return result.value === 0;
 }
 
 /** 是否有活跃 contract（contracts/active 目录下有子目录）。读失败默 false（保守假定无活跃）。*/
@@ -38,9 +47,18 @@ export function hasActiveContracts(fs: FileSystem, audit: AuditLog): boolean {
   }
 }
 
-/** inbox 是否已有 pending 的 _startup_check_ 文件（dedup 用）。读失败默 false。*/
+/** inbox 是否已有 pending 的 _startup_check_ 文件（dedup 用）。I/O 错误 → 假定有 pending（fail-closed，不重复 emit）。*/
 export function hasPendingStartupCheck(fs: FileSystem, audit: AuditLog): boolean {
-  return peekPendingFilenames(fs, '.', audit).some(f => f.includes('_startup_check_'));
+  const result = peekPendingFilenames(fs, '.');
+  if (!result.ok) {
+    audit.write(
+      DAEMON_AUDIT_EVENTS.STARTUP_CHECK_IO_ERROR,
+      `fn=peekPendingFilenames`,
+      `reason=${result.error}`,
+    );
+    return true;
+  }
+  return result.value.some(f => f.includes('_startup_check_'));
 }
 
 /** startup_check_ts 文件是否过 cooldown。读失败 / 解析失败 / 负值 → 默 true（无 cooldown）。*/

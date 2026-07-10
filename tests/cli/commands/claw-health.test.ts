@@ -119,15 +119,34 @@ describe('claw-health', () => {
     expect(output).toMatch(/outbox_pending: 2/);
   });
 
-  it('reports stopped status and 0 pending when dirs are missing', async () => {
+  it('reports stopped status and -1 inbox when list fails (Result error)', async () => {
     vi.mocked(createProcessManagerForCLI).mockReturnValue({
       isAlive: vi.fn().mockReturnValue(false),
     } as any);
 
     vi.mocked(fs.readdirSync).mockImplementation(() => {
-      const err = new Error('ENOENT') as NodeJS.ErrnoException;
-      err.code = 'ENOENT';
+      const err = new Error('EIO') as NodeJS.ErrnoException;
+      err.code = 'EIO';
       throw err;
+    });
+
+    await healthCommand({ fsFactory }, 'test-claw');
+
+    const output = consoleLogSpy.mock.calls.flat().join('\n');
+    expect(output).toMatch(/stopped/);
+    // phase 858: peekPendingCount returns Result; I/O error surfaces as -1 in CLI output
+    expect(output).toMatch(/inbox_pending: -1/);
+    expect(output).toMatch(/outbox_pending: 0/);
+  });
+
+  it('reports stopped status and 0 pending when dirs are missing', async () => {
+    vi.mocked(createProcessManagerForCLI).mockReturnValue({
+      isAlive: vi.fn().mockReturnValue(false),
+    } as any);
+
+    vi.mocked(fs.existsSync).mockImplementation((p: fs.PathLike) => {
+      const sp = String(p);
+      return sp.includes('contract/active');
     });
 
     await healthCommand({ fsFactory }, 'test-claw');
@@ -220,7 +239,7 @@ describe('claw-health', () => {
         throw new Error(`Unexpected readdirSync: ${String(p)}`);
       });
 
-      // phase 746: peekPendingCount swallows read errors → inboxPending=0
+      // phase 858: peekPendingCount returns Result error → inboxPending=-1, but command still succeeds
       await expect(healthCommand({ fsFactory }, 'test-claw')).resolves.toBeUndefined();
     });
 

@@ -268,8 +268,9 @@ export function gatherClawSnapshot(
     }
   }
 
-  // phase 746: use Messaging lightweight query helpers (swallow read errors → 0)
-  const inboxPending = peekPendingCount(fs, '.');
+  // phase 858: lightweight query helpers now return Result; -1 marks I/O error
+  const inboxResult = peekPendingCount(fs, '.');
+  const inboxPending = inboxResult.ok ? inboxResult.value : -1;
   const outboxPending = listOutboxPendingSync(fs, '.').length;
 
   // NEW: read claw audit.tsv tail for forensic context (phase 1207 gap B)

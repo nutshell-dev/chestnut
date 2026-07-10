@@ -39,8 +39,9 @@ export async function healthCommand(deps: { fsFactory: (baseDir: string) => File
   const isRunning = processManager.isAlive(resolveClawDaemonDir(makeClawId(name)));
 
   // Read inbox/outbox pending counts in real time
-  // phase 746: use Messaging lightweight query helpers (swallow read errors → 0)
-  const inboxPending = peekPendingCount(clawFs, '.');
+  // phase 858: lightweight query helpers now return Result; -1 marks I/O error
+  const inboxResult = peekPendingCount(clawFs, '.');
+  const inboxPending = inboxResult.ok ? inboxResult.value : -1;
   const outboxPending = listOutboxPendingSync(clawFs, '.').length;
 
   // Check contract status

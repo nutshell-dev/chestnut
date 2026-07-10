@@ -82,7 +82,7 @@ describe('gatherClawSnapshot audit emit (phase 143)', () => {
     expect(mockAudit.write).not.toHaveBeenCalled();
   });
 
-  it('反向 3: inbox dir EIO → silent (lightweight helper swallows) + return 0', () => {
+  it('反向 3: inbox dir EIO → silent (Result error) + return -1', () => {
     const fs = makeFs({
       inboxDirError: Object.assign(new Error('I/O error'), { code: 'EIO' }),
     });
@@ -90,14 +90,30 @@ describe('gatherClawSnapshot audit emit (phase 143)', () => {
 
     const snap = gatherClawSnapshot('/claw-X', fsFactory, mockPm, 'claw-X', mockAudit as unknown as import('../../src/foundation/audit/index.js').AuditLog);
 
-    expect(snap.inboxPending).toBe(0);
-    // phase 746: peekPendingCount swallows read errors, no CLAW_DIR_LIST_FAILED audit
+    // phase 858: peekPendingCount returns Result; I/O error surfaces as -1 in watchdog snapshot
+    expect(snap.inboxPending).toBe(-1);
     expect(mockAudit.write).not.toHaveBeenCalled();
   });
 
-  it('反向 4: inbox dir ENOENT → 0 audit + return 0', () => {
+  it('反向 4: inbox dir ENOENT on listSync → silent (Result error) + return -1', () => {
     const fs = makeFs({
       inboxDirError: Object.assign(new Error('no such file'), { code: 'ENOENT' }),
+    });
+    const fsFactory = () => fs as unknown as import('../../src/foundation/fs/types.js').FileSystem;
+
+    const snap = gatherClawSnapshot('/claw-X', fsFactory, mockPm, 'claw-X', mockAudit as unknown as import('../../src/foundation/audit/index.js').AuditLog);
+
+    // phase 858: listSync throwing ENOENT is an I/O error, not a missing dir → -1
+    expect(snap.inboxPending).toBe(-1);
+    expect(mockAudit.write).not.toHaveBeenCalled();
+  });
+
+  it('反向 5: inbox dir missing → 0 audit + return 0', () => {
+    const fs = makeFs({});
+    fs.existsSync = vi.fn((dir: string) => {
+      if (typeof dir === 'string' && dir.includes('inbox')) return false;
+      if (typeof dir === 'string' && dir.includes('outbox')) return true;
+      return false;
     });
     const fsFactory = () => fs as unknown as import('../../src/foundation/fs/types.js').FileSystem;
 

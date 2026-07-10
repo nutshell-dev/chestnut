@@ -222,7 +222,12 @@ export class AsyncTaskSystem {
   private get shortIdIndexAuditWriter() {
     return {
       write: (event: string, payload: Record<string, unknown>) => {
-        const cols = Object.entries(payload).map(([key, value]) => `${key}=${String(value)}`);
+        const cols = Object.entries(payload).map(([key, value]) => {
+          const str = typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
+            ? String(value)
+            : JSON.stringify(value);
+          return `${key}=${str}`;
+        });
         this.auditWriter?.write(event, ...cols);
       },
     };
