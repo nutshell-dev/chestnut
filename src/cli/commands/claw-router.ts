@@ -36,8 +36,9 @@ import {
 } from './claw.js';
 import { CliError } from '../errors.js';
 import { createDirContext } from '../../foundation/audit/index.js';
-import { getClawDir } from '../../core/claw-topology/index.js';
-import { loadGlobalConfig } from '../../assembly/config/config-load.js';
+import { getClawDir, getClawConfigPath } from '../../core/claw-topology/index.js';
+import { loadGlobalConfig, clawExists } from '../../assembly/config/config-load.js';
+import { listMigratedExecTasks } from '../../core/async-task-system/list-migrated-exec.js';
 import { parseIntOption } from '../parse-int-option.js';
 import { makeContractId } from '../../core/contract/types.js';
 import type { FileSystem } from '../../foundation/fs/index.js';
@@ -437,6 +438,14 @@ async function runPs(deps: RouterDeps, name: string, args: string[]): Promise<vo
   if (args.length > 0) {
     throw new CliError(`'ps' takes no extra arguments (got: ${args.join(' ')})`);
   }
-  await psCommand(deps, name, args);
+  const configPath = getClawConfigPath(name);
+  if (!clawExists(deps, configPath)) {
+    throw new CliError(`Claw "${name}" does not exist`);
+  }
+  await psCommand(
+    { listMigratedExecTasks: (clawDir) => listMigratedExecTasks(deps, clawDir) },
+    name,
+    args,
+  );
 }
 

@@ -55,3 +55,7 @@ export function createAsyncTaskSystem(
 ): AsyncTaskSystem {
   return new AsyncTaskSystem(clawDir, fs, options);
 }
+
+// phase 843: migrated exec task query API
+export { listMigratedExecTasks } from './list-migrated-exec.js';
+export type { MigratedExecTaskInfo, TaskReadError, MigratedExecListResult } from './list-migrated-exec.js';
