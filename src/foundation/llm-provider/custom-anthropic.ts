@@ -20,7 +20,7 @@ import type {
   LLMCallOptions,
   StreamChunk,
 } from './types.js';
-import { THINKING_TOKEN_RESERVE, STREAM_MAX_DURATION_MS, STREAM_IDLE_MAX_MS, MIN_USABLE_OUTPUT_TOKENS } from './constants.js';
+import { THINKING_TOKEN_RESERVE, STREAM_MAX_DURATION_MS, STREAM_IDLE_MAX_MS } from './constants.js';
 import { BaseAnthropicAdapter, type AnthropicRequestBody } from './base-anthropic.js';
 import { LLM_PROVIDER_AUDIT_EVENTS } from './audit-events.js';
 import { withCombinedAbortSignal, classifyFetchAbortError } from './abort-helper.js';
@@ -104,7 +104,7 @@ export class CustomAnthropicAdapter extends BaseAnthropicAdapter {
             `context_limit=${parsed.contextLimit}`,
             `input_tokens=${parsed.inputTokens}`,
           ];
-          if (adjusted >= MIN_USABLE_OUTPUT_TOKENS) {
+          if (adjusted > 0) {
             this.auditLog?.write(LLM_PROVIDER_AUDIT_EVENTS.OUTPUT_BUDGET_ADJUSTED, ...auditPayload);
             const retryBody = this.buildRequestBody({ ...options, maxTokens: adjusted });
             const retryResponse = await fetch(`${this.baseUrl}/v1/messages`, {
@@ -122,12 +122,12 @@ export class CustomAnthropicAdapter extends BaseAnthropicAdapter {
             this.auditLog?.write(
               LLM_PROVIDER_AUDIT_EVENTS.OUTPUT_BUDGET_ADJUSTED,
               ...auditPayload,
-              `reason=below_min_usable_output`,
+              `reason=nonpositive_adjusted`,
             );
             throw new LLMContextExceededError(
               this.name,
               400,
-              `Output budget insufficient after adjustment: ${adjusted} tokens available, need at least ${MIN_USABLE_OUTPUT_TOKENS}`,
+              `Output budget exhausted after adjustment: ${adjusted} tokens available`,
             );
           }
         }
@@ -175,7 +175,61 @@ export class CustomAnthropicAdapter extends BaseAnthropicAdapter {
         signal: abortHandle.signal,
       });
 
-      if (!response.ok) await throwHttpErrorResponse(this.name, this.model, response);
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => '');
+        const parsed = parseOutputBudgetError(errorText);
+        if (parsed) {
+          const adjusted = parsed.contextLimit - parsed.inputTokens;
+          const auditPayload = [
+            `provider=${this.providerName}`,
+            `model=${this.model}`,
+            `original_max_tokens=${body.max_tokens}`,
+            `adjusted_max_tokens=${adjusted}`,
+            `context_limit=${parsed.contextLimit}`,
+            `input_tokens=${parsed.inputTokens}`,
+          ];
+          if (adjusted > 0) {
+            this.auditLog?.write(LLM_PROVIDER_AUDIT_EVENTS.OUTPUT_BUDGET_ADJUSTED, ...auditPayload);
+            const retryBody = this.buildRequestBody({ ...options, maxTokens: adjusted });
+            const retryResponse = await fetch(`${this.baseUrl}/v1/messages`, {
+              method: 'POST',
+              headers: this.authHeaders,
+              body: JSON.stringify({ ...retryBody, stream: true }),
+              signal: abortHandle.signal,
+            });
+            if (retryResponse.ok) {
+              // 进入 stream 阶段：切换 timer 为总时长保护
+              abortHandle.enterStreamPhase(STREAM_MAX_DURATION_MS);
+              const idleTimeoutMs = Math.min(timeout, STREAM_IDLE_MAX_MS);
+              const auditLog = this.config.auditLog;
+              const onParseError = auditLog
+                ? (event: { provider: string; raw: string; error: string }) => {
+                    this.onStreamParseError?.({
+                      provider: event.provider,
+                      raw: auditLog.preview(event.raw),
+                      error: event.error,
+                    });
+                  }
+                : this.onStreamParseError;
+              yield* parseAnthropicSSEStream(retryResponse, abortHandle, idleTimeoutMs, this.name, onParseError);
+              return;
+            }
+            await throwHttpErrorResponse(this.name, this.model, retryResponse, await retryResponse.text().catch(() => ''));
+          } else {
+            this.auditLog?.write(
+              LLM_PROVIDER_AUDIT_EVENTS.OUTPUT_BUDGET_ADJUSTED,
+              ...auditPayload,
+              `reason=nonpositive_adjusted`,
+            );
+            throw new LLMContextExceededError(
+              this.name,
+              400,
+              `Output budget exhausted after adjustment: ${adjusted} tokens available`,
+            );
+          }
+        }
+        await throwHttpErrorResponse(this.name, this.model, response, errorText);
+      }
 
       // 进入 stream 阶段：切换 timer 为总时长保护
       abortHandle.enterStreamPhase(STREAM_MAX_DURATION_MS);

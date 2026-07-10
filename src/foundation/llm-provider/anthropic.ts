@@ -20,14 +20,14 @@ import {
   LLMOutputBudgetExceededError,
   LLMContextExceededError,
 } from './errors.js';
-import { AuthenticationError, PermissionDeniedError, NotFoundError } from '@anthropic-ai/sdk';
+import { AuthenticationError, PermissionDeniedError, NotFoundError, APIError } from '@anthropic-ai/sdk';
 import { parseRetryAfter, parseOutputBudgetError } from './_helpers.js';
 import type {
   ProviderConfig,
   LLMCallOptions,
   StreamChunk,
 } from './types.js';
-import { THINKING_TOKEN_RESERVE, MIN_USABLE_OUTPUT_TOKENS } from './constants.js';
+import { THINKING_TOKEN_RESERVE } from './constants.js';
 import { BaseAnthropicAdapter, type AnthropicRequestBody } from './base-anthropic.js';
 import { LLM_PROVIDER_AUDIT_EVENTS } from './audit-events.js';
 import { makeExternalAbortError, type AbortReason } from './abort-helper.js';
@@ -122,7 +122,7 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
     if (error instanceof NotFoundError) {
       return new LLMModelNotFoundError(this.name, this.model);
     }
-    if (errName === 'APIError') {
+    if (error instanceof APIError) {
       const apiErr = error as { status?: number; message: string };
       const parsed = parseOutputBudgetError(apiErr.message);
       if (parsed) {
@@ -191,7 +191,7 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
       `input_tokens=${err.inputTokens}`,
     ];
 
-    if (adjusted >= MIN_USABLE_OUTPUT_TOKENS) {
+    if (adjusted > 0) {
       this.auditLog?.write(LLM_PROVIDER_AUDIT_EVENTS.OUTPUT_BUDGET_ADJUSTED, ...auditPayload);
       const retryBody = this.buildRequestBody({ ...options, maxTokens: adjusted });
       const response = await this.client.messages.create(
@@ -204,12 +204,12 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
     this.auditLog?.write(
       LLM_PROVIDER_AUDIT_EVENTS.OUTPUT_BUDGET_ADJUSTED,
       ...auditPayload,
-      `reason=below_min_usable_output`,
+      `reason=nonpositive_adjusted`,
     );
     throw new LLMContextExceededError(
       this.name,
       400,
-      `Output budget insufficient after adjustment: ${adjusted} tokens available, need at least ${MIN_USABLE_OUTPUT_TOKENS}`,
+      `Output budget exhausted after adjustment: ${adjusted} tokens available`,
     );
   }
 
@@ -230,7 +230,39 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
       );
       yield* this.parseSDKStream(sdkStream, options.signal);
     } catch (error) {
-      throw this.mapSDKError(error, options.timeoutMs ?? this.config.timeoutMs, options.signal);
+      const mapped = this.mapSDKError(error, options.timeoutMs ?? this.config.timeoutMs, options.signal);
+      if (mapped instanceof LLMOutputBudgetExceededError) {
+        const adjusted = mapped.contextLimit - mapped.inputTokens;
+        const auditPayload = [
+          `provider=${this.providerName}`,
+          `model=${this.model}`,
+          `original_max_tokens=${body.max_tokens}`,
+          `adjusted_max_tokens=${adjusted}`,
+          `context_limit=${mapped.contextLimit}`,
+          `input_tokens=${mapped.inputTokens}`,
+        ];
+        if (adjusted > 0) {
+          this.auditLog?.write(LLM_PROVIDER_AUDIT_EVENTS.OUTPUT_BUDGET_ADJUSTED, ...auditPayload);
+          const retryBody = this.buildRequestBody({ ...options, maxTokens: adjusted });
+          const sdkStream = this.client.messages.stream(
+            retryBody as Anthropic.MessageStreamParams,
+            requestOptions,
+          );
+          yield* this.parseSDKStream(sdkStream, options.signal);
+          return;
+        }
+        this.auditLog?.write(
+          LLM_PROVIDER_AUDIT_EVENTS.OUTPUT_BUDGET_ADJUSTED,
+          ...auditPayload,
+          `reason=nonpositive_adjusted`,
+        );
+        throw new LLMContextExceededError(
+          this.name,
+          400,
+          `Output budget exhausted after adjustment: ${adjusted} tokens available`,
+        );
+      }
+      throw mapped;
     }
   }
 
