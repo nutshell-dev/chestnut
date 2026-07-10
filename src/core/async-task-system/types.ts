@@ -68,6 +68,12 @@ export interface ShortIdIndex {
   resolve(shortId: string): FullTaskId | undefined;
   reverseResolve(fullId: FullTaskId): ShortTaskId | undefined;
   deriveShortId(fullId: FullTaskId): ShortTaskId;
+  /**
+   * Return the canonical shortId for a fullId.
+   * Uses reverse-resolve for legacy tasks (shortId ≠ derive),
+   * falls back to derive for new tasks and tasks not yet in the index.
+   */
+  canonicalShortId(fullId: FullTaskId): ShortTaskId;
   rebuildFromDisk(
     fs: {
       existsSync(path: string): boolean;

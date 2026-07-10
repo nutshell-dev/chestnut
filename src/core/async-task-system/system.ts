@@ -669,7 +669,7 @@ export class AsyncTaskSystem {
 
       // phase 284: QC-4 only (cancellingIds subset of active) after ingest
       void auditQueueCrossSource(
-        { cancellingIds: new Set(Array.from(this.cancellingIds).map(id => deriveShortIdFromTaskId(id))) },
+        { cancellingIds: new Set(Array.from(this.cancellingIds).map(id => this.shortIdIndex.canonicalShortId(id))) },
         this.fs,
         this.auditWriter,
         'ingest_pending_file',
@@ -734,7 +734,7 @@ export class AsyncTaskSystem {
 
       // phase 284: QC-4 only (cancellingIds subset of active) after move
       void auditQueueCrossSource(
-        { cancellingIds: new Set(Array.from(this.cancellingIds).map(id => deriveShortIdFromTaskId(id))) },
+        { cancellingIds: new Set(Array.from(this.cancellingIds).map(id => this.shortIdIndex.canonicalShortId(id))) },
         this.fs,
         this.auditWriter,
         'dispatch_after_move',
@@ -914,24 +914,9 @@ export class AsyncTaskSystem {
         context: 'move_to_done',
         error: formatErr(err),
       });
-      // 删除 running 文件防止重启后重复执行，丢失记录好过重复副作用
-      const runningFullPath = `${TASKS_QUEUES_RUNNING_DIR}/${fullId}.json`;
-      let deletePath: string | undefined;
-      if (await this.fs.exists(runningFullPath)) {
-        deletePath = runningFullPath;
-      } else {
-        deletePath = await this._findLegacyTaskFile(TASKS_QUEUES_RUNNING_DIR, fullId);
-      }
-      if (deletePath) {
-        await this.fs.delete(deletePath).catch((e) => {
-          emitMoveFailed(this.auditWriter, {
-            fullTaskId: fullId,
-            shortTaskId: auditShortId,
-            context: 'move_done_delete',
-            error: formatErr(e),
-          });
-        });
-      }
+      // Keep the running file — result.txt.sent marker ensures idempotency on recovery.
+      // On next startup, recoverTasks will see the running file + sent marker
+      // and complete the move to done. Deleting the running file would block recovery.
     }
   }
 
@@ -972,23 +957,7 @@ export class AsyncTaskSystem {
         context: 'move_to_failed',
         error: formatErr(err),
       });
-      const runningFullPath = `${TASKS_QUEUES_RUNNING_DIR}/${fullId}.json`;
-      let deletePath: string | undefined;
-      if (await this.fs.exists(runningFullPath)) {
-        deletePath = runningFullPath;
-      } else {
-        deletePath = await this._findLegacyTaskFile(TASKS_QUEUES_RUNNING_DIR, fullId);
-      }
-      if (deletePath) {
-        await this.fs.delete(deletePath).catch((e) => {
-          emitMoveFailed(this.auditWriter, {
-            fullTaskId: fullId,
-            shortTaskId: auditShortId,
-            context: 'move_failed_delete',
-            error: formatErr(e),
-          });
-        });
-      }
+      // Keep the running file — recovery will retry the move on next startup.
     }
   }
 
@@ -996,7 +965,7 @@ export class AsyncTaskSystem {
    * List running task IDs (active executions).
    */
   listRunning(): ShortTaskId[] {
-    return Array.from(this.executingTasks.keys()).map(id => deriveShortIdFromTaskId(id));
+    return Array.from(this.executingTasks.keys()).map(id => this.shortIdIndex.canonicalShortId(id));
   }
 
   getRunningCount(): number {
@@ -1008,7 +977,7 @@ export class AsyncTaskSystem {
    */
   async listPending(): Promise<ShortTaskId[]> {
     const ids = await this._getPendingTaskIds();
-    return Array.from(ids).map(id => deriveShortIdFromTaskId(id));
+    return Array.from(ids).map(id => this.shortIdIndex.canonicalShortId(id));
   }
 
   async getPendingCount(): Promise<number> {
@@ -1017,7 +986,7 @@ export class AsyncTaskSystem {
   }
 
   getCancellingIds(): ShortTaskId[] {
-    return [...this.cancellingIds].map(id => deriveShortIdFromTaskId(id));
+    return [...this.cancellingIds].map(id => this.shortIdIndex.canonicalShortId(id));
   }
 
   /**
@@ -1036,7 +1005,7 @@ export class AsyncTaskSystem {
       );
       throw new Error(`[INVARIANT VIOLATION] async-task-system: ${violationMsg}`);
     }
-    const shortId = deriveShortIdFromTaskId(fullId);
+    const shortId = this.shortIdIndex.canonicalShortId(fullId);
 
     // 1. 先检查 running (active execution handles)
     const state = this.executingTasks.get(fullId);

@@ -33,6 +33,22 @@ describe('InMemoryShortIdIndex', () => {
     expect(index.deriveShortId(fullId)).toBe(makeShortTaskId('550e8400'));
   });
 
+  it('canonicalShortId returns original shortId for legacy tasks', () => {
+    const index = new InMemoryShortIdIndex();
+    const fullId = makeFullTaskId('550e8400-e29b-41d4-a716-446655440000');
+    const legacyShortId = makeShortTaskId('abcdef12');
+    // legacy: shortId ≠ deriveShortId(fullId) = "550e8400"
+    index.add(legacyShortId, fullId);
+    expect(index.canonicalShortId(fullId)).toBe(legacyShortId);
+    expect(index.canonicalShortId(fullId)).not.toBe(index.deriveShortId(fullId));
+  });
+
+  it('canonicalShortId falls back to derive for tasks not in index', () => {
+    const index = new InMemoryShortIdIndex();
+    const fullId = makeFullTaskId('550e8400-e29b-41d4-a716-446655440000');
+    expect(index.canonicalShortId(fullId)).toBe(index.deriveShortId(fullId));
+  });
+
   it('add throws on collision with different fullId', () => {
     const index = new InMemoryShortIdIndex();
     const shortId = makeShortTaskId('550e8400');
