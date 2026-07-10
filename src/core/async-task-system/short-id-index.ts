@@ -59,6 +59,9 @@ export class InMemoryShortIdIndex implements ShortIdIndex {
     return undefined;
   }
   deriveShortId(fullId: FullTaskId): ShortTaskId { return makeShortTaskId(fullId.slice(0, 8)); }
+  canonicalShortId(fullId: FullTaskId): ShortTaskId {
+    return this.reverseResolve(fullId) ?? this.deriveShortId(fullId);
+  }
   rebuildFromDisk(_fs: unknown, _auditWriter?: ShortIdIndexAuditWriter): void { /* no-op */ }
 }
 
@@ -152,6 +155,10 @@ export class PersistentShortIdIndex implements ShortIdIndex {
   /** Derive shortId from fullId (first 8 chars). */
   deriveShortId(fullId: FullTaskId): ShortTaskId {
     return makeShortTaskId(fullId.slice(0, 8));
+  }
+
+  canonicalShortId(fullId: FullTaskId): ShortTaskId {
+    return this.reverseResolve(fullId) ?? this.deriveShortId(fullId);
   }
 
   /**
