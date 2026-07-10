@@ -60,12 +60,12 @@ export async function psCommand(
         const stat = resultFs.statSync(path.basename(resultPath));
         lastOutputMs = Date.now() - stat.mtime.getTime();
       } catch {
-        // result.txt not created yet — process still in first soft-timeout window
+        // silent: result.txt not created yet — process still in first soft-timeout window
       }
 
       migrated.push({ taskId, command, createdAt, lastOutputMs });
     } catch {
-      // corrupted file, skip
+      // silent: corrupted running task file, skip
     }
   }
 
