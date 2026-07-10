@@ -4,7 +4,7 @@
  */
 const HTTP_SERVER_ERROR_STATUS_MIN = 500;
 
-import { LLMError, LLMRateLimitError, LLMAuthError, LLMModelNotFoundError, LLMContextExceededError } from './errors.js';
+import { LLMError, LLMRateLimitError, LLMAuthError, LLMModelNotFoundError, LLMContextExceededError, LLMOutputBudgetExceededError } from './errors.js';
 
 /**
  * 400 context-exceeded message 字面族（phase 690）：
@@ -45,26 +45,31 @@ export async function throwHttpErrorResponse(
   provider: string,
   model: string,
   response: Response,
+  errorText?: string,
 ): Promise<never> {
   const status = response.status;
-  let errorText: string;
-  const cloned = response.clone();
+  let resolvedErrorText: string;
 
-  try {
-    const errorData = await response.json() as { error?: { message?: string } };
-    errorText = errorData.error?.message ?? JSON.stringify(errorData);
-  } catch {
-    errorText = await cloned.text();
+  if (errorText !== undefined) {
+    resolvedErrorText = errorText;
+  } else {
+    const cloned = response.clone();
+    try {
+      const errorData = await response.json() as { error?: { message?: string } };
+      resolvedErrorText = errorData.error?.message ?? JSON.stringify(errorData);
+    } catch {
+      resolvedErrorText = await cloned.text();
+    }
   }
 
   // phase 735 step 2: 401/403/404 分类（permanent / 0 retry）
   // phase 445: 404 用 caller 传入 model（权威源）+ errorText 作 providerMessage、
   // 不再用 regex 反查 errorText（provider 返自然语言 "The model does not exist" 时反查抓到 "does"）
   if (status === 401 || status === 403) {
-    throw new LLMAuthError(provider, status, errorText);
+    throw new LLMAuthError(provider, status, resolvedErrorText);
   }
   if (status === 404) {
-    throw new LLMModelNotFoundError(provider, model, errorText);
+    throw new LLMModelNotFoundError(provider, model, resolvedErrorText);
   }
 
   if (status === 429) {
@@ -73,21 +78,49 @@ export async function throwHttpErrorResponse(
   }
 
   // phase 690: 400 context-exceeded → 类型化错、Runtime 反应式 trim+retry 路径处理
-  if (status === 400 && isContextExceededMessage(errorText)) {
-    throw new LLMContextExceededError(provider, status, errorText);
+  if (status === 400 && isContextExceededMessage(resolvedErrorText)) {
+    throw new LLMContextExceededError(provider, status, resolvedErrorText);
   }
 
   if (status >= HTTP_SERVER_ERROR_STATUS_MIN) {
     throw new LLMError(
-      `Provider ${provider} server error (${status}): ${errorText}`,
+      `Provider ${provider} server error (${status}): ${resolvedErrorText}`,
       { provider, status },
     );
   }
 
   throw new LLMError(
-    `Provider ${provider} error (${status}): ${errorText}`,
+    `Provider ${provider} error (${status}): ${resolvedErrorText}`,
     { provider, status },
   );
+}
+
+export interface ParsedOutputBudgetError {
+  contextLimit: number;
+  inputTokens: number;
+  requestedMaxTokens: number;
+}
+
+const OUTPUT_BUDGET_EXCEEDED_RE =
+  /maximum context length is (\d+) tokens[\s\S]*?requested (\d+) tokens[\s\S]*?(\d+) in the messages[\s\S]*?(\d+) in the completions/i;
+
+export function parseOutputBudgetError(message: string): ParsedOutputBudgetError | null {
+  const m = message.match(OUTPUT_BUDGET_EXCEEDED_RE);
+  if (!m) return null;
+  return {
+    contextLimit: parseInt(m[1], 10),
+    inputTokens: parseInt(m[3], 10),
+    requestedMaxTokens: parseInt(m[4], 10),
+  };
+}
+
+/**
+ * Detect output-budget errors (input fits, but input + max_tokens exceeds context limit).
+ *
+ * Used by Anthropic adapters to decide whether to retry with an adjusted max_tokens.
+ */
+export function isOutputBudgetExceededError(error: unknown): error is LLMOutputBudgetExceededError {
+  return error instanceof LLMOutputBudgetExceededError;
 }
 
 /**

@@ -17,16 +17,19 @@ import {
   LLMAuthError,
   LLMModelNotFoundError,
   LLMEmptyResponseError,
+  LLMOutputBudgetExceededError,
+  LLMContextExceededError,
 } from './errors.js';
 import { AuthenticationError, PermissionDeniedError, NotFoundError } from '@anthropic-ai/sdk';
-import { parseRetryAfter } from './_helpers.js';
+import { parseRetryAfter, parseOutputBudgetError } from './_helpers.js';
 import type {
   ProviderConfig,
   LLMCallOptions,
   StreamChunk,
 } from './types.js';
-import { THINKING_TOKEN_RESERVE } from './constants.js';
+import { THINKING_TOKEN_RESERVE, MIN_USABLE_OUTPUT_TOKENS } from './constants.js';
 import { BaseAnthropicAdapter, type AnthropicRequestBody } from './base-anthropic.js';
+import { LLM_PROVIDER_AUDIT_EVENTS } from './audit-events.js';
 import { makeExternalAbortError, type AbortReason } from './abort-helper.js';
 import { assertContentBlocks } from './_block-guards.js';
 
@@ -121,6 +124,16 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
     }
     if (errName === 'APIError') {
       const apiErr = error as { status?: number; message: string };
+      const parsed = parseOutputBudgetError(apiErr.message);
+      if (parsed) {
+        return new LLMOutputBudgetExceededError(
+          this.name,
+          parsed.contextLimit,
+          parsed.inputTokens,
+          parsed.requestedMaxTokens,
+          apiErr.message,
+        );
+      }
       return new LLMError(
         `Provider ${this.name} error (${apiErr.status ?? 'unknown'}): ${apiErr.message}`,
         { provider: this.name, status: apiErr.status },
@@ -154,8 +167,50 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
       }
       return this.parseResponse(response);
     } catch (error) {
-      throw this.mapSDKError(error, options.timeoutMs ?? this.config.timeoutMs, options.signal);
+      const mapped = this.mapSDKError(error, options.timeoutMs ?? this.config.timeoutMs, options.signal);
+      if (mapped instanceof LLMOutputBudgetExceededError) {
+        return this.handleOutputBudgetExceeded(mapped, body, options, requestOptions);
+      }
+      throw mapped;
     }
+  }
+
+  private async handleOutputBudgetExceeded(
+    err: LLMOutputBudgetExceededError,
+    body: AnthropicRequestBody,
+    options: LLMCallOptions,
+    requestOptions: Anthropic.RequestOptions,
+  ): Promise<LLMResponse> {
+    const adjusted = err.contextLimit - err.inputTokens;
+    const auditPayload = [
+      `provider=${this.providerName}`,
+      `model=${this.model}`,
+      `original_max_tokens=${body.max_tokens}`,
+      `adjusted_max_tokens=${adjusted}`,
+      `context_limit=${err.contextLimit}`,
+      `input_tokens=${err.inputTokens}`,
+    ];
+
+    if (adjusted >= MIN_USABLE_OUTPUT_TOKENS) {
+      this.auditLog?.write(LLM_PROVIDER_AUDIT_EVENTS.OUTPUT_BUDGET_ADJUSTED, ...auditPayload);
+      const retryBody = this.buildRequestBody({ ...options, maxTokens: adjusted });
+      const response = await this.client.messages.create(
+        retryBody as Anthropic.MessageCreateParamsNonStreaming,
+        requestOptions,
+      );
+      return this.parseResponse(response);
+    }
+
+    this.auditLog?.write(
+      LLM_PROVIDER_AUDIT_EVENTS.OUTPUT_BUDGET_ADJUSTED,
+      ...auditPayload,
+      `reason=below_min_usable_output`,
+    );
+    throw new LLMContextExceededError(
+      this.name,
+      400,
+      `Output budget insufficient after adjustment: ${adjusted} tokens available, need at least ${MIN_USABLE_OUTPUT_TOKENS}`,
+    );
   }
 
   /**

@@ -19,9 +19,10 @@ import {
   LLMNetworkError,
   LLMTimeoutError,
   LLMContextExceededError,
+  LLMOutputBudgetExceededError,
 } from '../llm-provider/errors.js';
 
-export { LLMError, LLMRateLimitError, LLMTimeoutError, LLMAuthError, LLMNetworkError, LLMEmptyResponseError, LLMModelNotFoundError, LLMContextExceededError, LLMCircuitBreakerOpenError, LLMStreamAbortedError } from '../llm-provider/errors.js';
+export { LLMError, LLMRateLimitError, LLMTimeoutError, LLMAuthError, LLMNetworkError, LLMEmptyResponseError, LLMModelNotFoundError, LLMContextExceededError, LLMOutputBudgetExceededError, LLMCircuitBreakerOpenError, LLMStreamAbortedError } from '../llm-provider/errors.js';
 
 export type OrchestratorErrorCode = 'LLM_ALL_PROVIDERS_FAILED';
 
@@ -57,7 +58,7 @@ export type LLMErrorClass = 'permanent' | 'transient' | 'rate_limit' | 'abort' |
 
 export function classifyLLMError(err: unknown): LLMErrorClass {
   // phase 690: context_exceeded 必须先于 LLMError 通用判定（subclass 关系）
-  if (err instanceof LLMContextExceededError) return 'context_exceeded';
+  if (err instanceof LLMContextExceededError || err instanceof LLMOutputBudgetExceededError) return 'context_exceeded';
   if (err instanceof Error) {
     const msg = err.message.toLowerCase();
     if (msg.includes('quota') || msg.includes('insufficient') || msg.includes('credit') || msg.includes('billing')) {
