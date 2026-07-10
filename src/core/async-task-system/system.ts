@@ -838,7 +838,7 @@ export class AsyncTaskSystem {
           return filePath;
         }
       } catch {
-        // skip unreadable/corrupt files
+        // silent: skip unreadable/corrupt files — caller handles not-found
       }
     }
     return undefined;
