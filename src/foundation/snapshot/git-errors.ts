@@ -4,11 +4,11 @@ type Result<T, E> =
 
 /** 预期失败：git 语义上的可识别状态，降级不抛 */
 export type ExpectedGitFailure =
-  | { kind: 'not_a_repo'; output: string }
-  | { kind: 'nothing_to_commit'; output: string }
-  | { kind: 'no_commits_yet'; output: string }
-  | { kind: 'no_repo_handle'; output: string }
-  | { kind: 'uncategorized'; exitCode: number; output: string };
+  | { kind: 'not_a_repo'; output: string; persistFailed?: boolean }
+  | { kind: 'nothing_to_commit'; output: string; persistFailed?: boolean }
+  | { kind: 'no_commits_yet'; output: string; persistFailed?: boolean }
+  | { kind: 'no_repo_handle'; output: string; persistFailed?: boolean }
+  | { kind: 'uncategorized'; exitCode: number; output: string; persistFailed?: boolean };
 
 const EXPECTED_PATTERNS: Array<{ kind: ExpectedGitFailure['kind']; re: RegExp }> = [
   { kind: 'not_a_repo', re: /fatal:\s+not a git repository/i },

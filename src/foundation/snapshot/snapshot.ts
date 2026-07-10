@@ -376,7 +376,7 @@ export class Snapshot {
           consecutive: this.state.failures,
         });
       }
-      return { ok: false as const, error: failure };
+      return { ok: false as const, error: { ...failure, persistFailed: !persisted } };
     }
   }
 

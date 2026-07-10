@@ -9,7 +9,7 @@
  */
 
 import * as path from 'path';
-import type { FileSystem } from '../foundation/fs/index.js';
+import { isFileNotFound, type FileSystem } from '../foundation/fs/index.js';
 import type { AuditLog } from '../foundation/audit/index.js';
 import { hasActiveContract } from '../core/contract/index.js';
 import { STATUS_SUBDIR } from '../foundation/process-manager/index.js';
@@ -19,10 +19,8 @@ import { DAEMON_AUDIT_EVENTS } from './audit-events.js';
 import { formatErr } from '../foundation/node-utils/index.js';
 
 /** inbox 目录是否 0 个 .md 文件。读失败默 true（保守假定非空）。*/
-export function isInboxEmpty(fs: FileSystem, _audit: AuditLog): boolean {
-  // phase 851: peekPendingCount 内部 catch 返回 0，I/O 错误在此层不可观察；
-  // 底层 API 改动留后续 phase，本次保持最小改动。
-  return peekPendingCount(fs, '.') === 0;
+export function isInboxEmpty(fs: FileSystem, audit: AuditLog): boolean {
+  return peekPendingCount(fs, '.', audit) === 0;
 }
 
 /** 是否有活跃 contract（contracts/active 目录下有子目录）。读失败默 false（保守假定无活跃）。*/
@@ -41,10 +39,8 @@ export function hasActiveContracts(fs: FileSystem, audit: AuditLog): boolean {
 }
 
 /** inbox 是否已有 pending 的 _startup_check_ 文件（dedup 用）。读失败默 false。*/
-export function hasPendingStartupCheck(fs: FileSystem, _audit: AuditLog): boolean {
-  // phase 851: peekPendingFilenames 内部 catch 返回 []，I/O 错误在此层不可观察；
-  // 底层 API 改动留后续 phase，本次保持最小改动。
-  return peekPendingFilenames(fs, '.').some(f => f.includes('_startup_check_'));
+export function hasPendingStartupCheck(fs: FileSystem, audit: AuditLog): boolean {
+  return peekPendingFilenames(fs, '.', audit).some(f => f.includes('_startup_check_'));
 }
 
 /** startup_check_ts 文件是否过 cooldown。读失败 / 解析失败 / 负值 → 默 true（无 cooldown）。*/
@@ -59,12 +55,14 @@ export function isStartupCheckCooledDown(fs: FileSystem, audit: AuditLog): boole
     }
     return Date.now() - ts >= STARTUP_CHECK_COOLDOWN_MS;
   } catch (err) {
-    // phase 851: I/O 错误不再静默吞没，emit audit 保持可观察
-    audit.write(
-      DAEMON_AUDIT_EVENTS.STARTUP_CHECK_IO_ERROR,
-      `fn=isStartupCheckCooledDown`,
-      `reason=${formatErr(err)}`,
-    );
+    if (!isFileNotFound(err)) {
+      // phase 851: I/O 错误不再静默吞没，emit audit 保持可观察
+      audit.write(
+        DAEMON_AUDIT_EVENTS.STARTUP_CHECK_IO_ERROR,
+        `fn=isStartupCheckCooledDown`,
+        `reason=${formatErr(err)}`,
+      );
+    }
     return true;
   }
 }
