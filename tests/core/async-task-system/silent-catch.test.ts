@@ -105,13 +105,15 @@ describe('phase 541: silent catch fixes', () => {
       );
     });
 
-    it('move + delete both failure writes 3 RECOVERY_FAILED audits (phase 18: retry-count cleanup failure 也 emit)', async () => {
+    it('move failure keeps running file + writes RECOVERY_FAILED audits (phase 18: retry-count cleanup failure 也 emit)', async () => {
       const mockFs = makeMockFsForS1({ moveReject: true, deleteReject: true });
       const { audit, events } = makeMockAudit();
       await recoverTasks({ fs: mockFs, auditWriter: audit } as RecoverTasksDeps);
 
       const recoveryFailedEvents = events.filter((e) => e[0] === TASK_AUDIT_EVENTS.RECOVERY_FAILED);
-      expect(recoveryFailedEvents.length).toBe(3);
+      // Phase 872: running file is no longer deleted on move failure, so there is no
+      // alreadysent_delete_failed audit. We expect move failed + retry-count cleanup failed.
+      expect(recoveryFailedEvents.length).toBe(2);
 
       expect(recoveryFailedEvents[0]).toEqual(
         expect.arrayContaining([
@@ -121,16 +123,8 @@ describe('phase 541: silent catch fixes', () => {
           expect.stringContaining('error='),
         ]),
       );
-      expect(recoveryFailedEvents[1]).toEqual(
-        expect.arrayContaining([
-          TASK_AUDIT_EVENTS.RECOVERY_FAILED,
-          expect.stringContaining('taskId='),
-          'context=alreadysent_delete_failed',
-          expect.stringContaining('error='),
-        ]),
-      );
       // phase 18: retry-count cleanup failure 也 emit RECOVERY_FAILED (非 ENOENT 路径)
-      expect(recoveryFailedEvents[2]).toEqual(
+      expect(recoveryFailedEvents[1]).toEqual(
         expect.arrayContaining([
           TASK_AUDIT_EVENTS.RECOVERY_FAILED,
           expect.stringContaining('taskId='),

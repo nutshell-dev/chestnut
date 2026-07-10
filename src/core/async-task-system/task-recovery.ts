@@ -144,13 +144,7 @@ async function _recoverMigratedToolTask(
           context: 'migrated_done_move_failed',
           error: formatErr(e),
         });
-        await fs.delete(filePath).catch((delErr) => {
-          emitRecoveryFailed(auditWriter, {
-            taskId: task.id,
-            context: 'migrated_done_delete_failed',
-            error: formatErr(delErr),
-          });
-        });
+        // Keep running file — sent marker ensures idempotency on next recovery.
       });
       emitRecovered(auditWriter, {
         fullTaskId: task.id as FullTaskId,
@@ -178,13 +172,7 @@ async function _recoverMigratedToolTask(
       context: 'migrated_failed_move_failed',
       error: formatErr(e),
     });
-    await fs.delete(filePath).catch((delErr) => {
-      emitRecoveryFailed(auditWriter, {
-        taskId: task.id,
-        context: 'migrated_failed_delete_failed',
-        error: formatErr(delErr),
-      });
-    });
+    // Keep running file — recovery will retry the move on next startup.
   });
   emitRecovered(auditWriter, {
     fullTaskId: task.id as FullTaskId,
@@ -215,22 +203,17 @@ async function _recoverSubAgentTask(
   }
 }
 
-async function _recoverAlreadySent(
-  deps: RecoverTasksDeps, filePath: string, task: SubAgentTask,
+async function _recoverToDone(
+  deps: RecoverTasksDeps, filePath: string, task: SubAgentTask, reason: string,
+  moveFailedContext: string,
 ): Promise<void> {
   await deps.fs.move(filePath, `${TASKS_QUEUES_DONE_DIR}/${task.id}.json`).catch(async (moveErr) => {
     emitRecoveryFailed(deps.auditWriter, {
       taskId: task.id,
-      context: 'alreadysent_move_failed',
+      context: moveFailedContext,
       error: formatErr(moveErr),
     });
-    await deps.fs.delete(filePath).catch((delErr) => {
-      emitRecoveryFailed(deps.auditWriter, {
-        taskId: task.id,
-        context: 'alreadysent_delete_failed',
-        error: formatErr(delErr),
-      });
-    });
+    // Keep running file — sent marker ensures idempotency on next recovery.
   });
   // C.3 (phase 989): mirror _recoverWithResult line 166 cleanup / D5 hygiene / retry-count file 不 accumulate
   // phase 18: narrow ENOENT silent + 其他 IO error audit emit (Design Principle 不可预期失败暴露而非吞没)
@@ -247,8 +230,50 @@ async function _recoverAlreadySent(
   emitRecovered(deps.auditWriter, {
     fullTaskId: task.id as FullTaskId,
     shortTaskId: taskShortId(task),
-    reason: 'already_sent',
+    reason,
   });
+}
+
+async function _recoverToFailed(
+  deps: RecoverTasksDeps, filePath: string, task: SubAgentTask, reason: string,
+  moveFailedContext: string,
+): Promise<void> {
+  await deps.fs.move(filePath, `${TASKS_QUEUES_FAILED_DIR}/${task.id}.json`).catch(async (moveErr) => {
+    emitRecoveryFailed(deps.auditWriter, {
+      taskId: task.id,
+      context: moveFailedContext,
+      error: formatErr(moveErr),
+    });
+    // Keep running file — intended-failed marker ensures correct routing on next recovery.
+  });
+  // C.3 (phase 989): mirror _recoverWithResult line 166 cleanup / D5 hygiene / retry-count file 不 accumulate
+  await deps.fs.delete(RETRY_COUNT_PATH(task.id)).catch((err) => {
+    if (!isFileNotFound(err)) {
+      emitRecoveryFailed(deps.auditWriter, {
+        taskId: task.id,
+        context: 'retry_counter_cleanup_failed',
+        error: formatErr(err),
+      });
+    }
+    // silent: ENOENT/FS_NOT_FOUND first-time recovery、retry-count file 未生成、cleanup 无目标
+  });
+  emitRecovered(deps.auditWriter, {
+    fullTaskId: task.id as FullTaskId,
+    shortTaskId: taskShortId(task),
+    reason,
+  });
+}
+
+async function _recoverAlreadySent(
+  deps: RecoverTasksDeps, filePath: string, task: SubAgentTask,
+): Promise<void> {
+  const intendedFailedPath = `${TASKS_QUEUES_RESULTS_DIR}/${task.id}/result.txt.intended-failed`;
+  const intendedFailed = await deps.fs.exists(intendedFailedPath).catch(() => false);
+  if (intendedFailed) {
+    await _recoverToFailed(deps, filePath, task, 'intended_failed', 'intended_failed_move_failed');
+  } else {
+    await _recoverToDone(deps, filePath, task, 'already_sent', 'alreadysent_move_failed');
+  }
 }
 
 async function _recoverWithResult(
@@ -367,13 +392,7 @@ async function _recoverWithResult(
       context: 'done_move_failed',
       error: formatErr(moveErr),
     });
-    await fs.delete(filePath).catch((delErr) => {
-      emitRecoveryFailed(auditWriter, {
-        taskId: task.id,
-        context: 'done_delete_failed',
-        error: formatErr(delErr),
-      });
-    });
+    // Keep running file — result.txt.sent marker ensures idempotency on next recovery.
   });
   emitRecovered(auditWriter, {
     fullTaskId: task.id as FullTaskId,
