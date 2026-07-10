@@ -35,6 +35,18 @@ describe('parseOutputBudgetError', () => {
     });
   });
 
+  it('parses singular "completion" in Anthropic output-budget error message', () => {
+    const message =
+      "This model's maximum context length is 1048565 tokens. However, you requested " +
+      '1052788 tokens (659572 in the messages, 393216 in the completion).';
+    const parsed = parseOutputBudgetError(message);
+    expect(parsed).toEqual({
+      contextLimit: 1048565,
+      inputTokens: 659572,
+      requestedMaxTokens: 393216,
+    });
+  });
+
   it('returns null for unrelated messages', () => {
     expect(parseOutputBudgetError('invalid request')).toBeNull();
     expect(parseOutputBudgetError('context_length_exceeded')).toBeNull();
