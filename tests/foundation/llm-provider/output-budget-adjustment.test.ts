@@ -119,7 +119,7 @@ describe('CustomAnthropicAdapter — output budget exceeded', () => {
     );
   });
 
-  it('throws LLMContextExceededError when adjusted budget is below minimum', async () => {
+  it('throws LLMContextExceededError when adjusted budget is not positive', async () => {
     const auditWrites: unknown[][] = [];
     const mockAudit = {
       write: (type: string, ...cols: unknown[]) => auditWrites.push([type, ...cols]),
@@ -140,7 +140,7 @@ describe('CustomAnthropicAdapter — output budget exceeded', () => {
 
     const message =
       "This model's maximum context length is 1000 tokens. However, you requested " +
-      '1050 tokens (950 in the messages, 100 in the completions).';
+      '1100 tokens (1000 in the messages, 100 in the completions).';
 
     vi.stubGlobal(
       'fetch',
@@ -153,7 +153,7 @@ describe('CustomAnthropicAdapter — output budget exceeded', () => {
 
     const audit = auditWrites.find(e => e[0] === LLM_PROVIDER_AUDIT_EVENTS.OUTPUT_BUDGET_ADJUSTED);
     expect(audit).toBeDefined();
-    expect(audit).toEqual(expect.arrayContaining([expect.stringContaining('reason=below_min_usable_output')]));
+    expect(audit).toEqual(expect.arrayContaining([expect.stringContaining('reason=nonpositive_adjusted')]));
   });
 
   it('falls back to original error path for non-output-budget 400 errors', async () => {
