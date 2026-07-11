@@ -660,7 +660,18 @@ export class AsyncTaskSystem {
     const fullId = task.id as FullTaskId;
     const shortId = taskShortId(task);
     const notifiedPath = `${TASKS_QUEUES_RESULTS_DIR}/${fullId}/result.txt.notified`;
-    const notified = await this.fs.exists(notifiedPath).catch(() => false);
+    let notified: boolean;
+    try {
+      notified = await this.fs.exists(notifiedPath);
+    } catch (e) {
+      emitMoveFailed(this.auditWriter, {
+        fullTaskId: fullId,
+        shortTaskId: shortId,
+        context: 'overflow_marker_read_failed',
+        error: formatErr(e),
+      });
+      return; // can't determine state — stop, retry next cycle
+    }
 
     if (!notified) {
       // Notification not yet sent (or marker missing) — retry
@@ -668,8 +679,18 @@ export class AsyncTaskSystem {
       try {
         await sendFallbackError(this.fs, this.auditWriter, task,
           'Task rejected: pending queue overflow.');
-        notifyOk = true;
-        await this.fs.writeAtomic(notifiedPath, '').catch(() => {});
+        try {
+          await this.fs.writeAtomic(notifiedPath, '');
+          notifyOk = true;
+        } catch (e) {
+          emitMoveFailed(this.auditWriter, {
+            fullTaskId: fullId,
+            shortTaskId: shortId,
+            context: 'overflow_marker_write_failed',
+            error: formatErr(e),
+          });
+          // notifyOk stays false — task stays in pending for retry
+        }
       } catch (e) {
         emitMoveFailed(this.auditWriter, {
           fullTaskId: fullId,
@@ -725,10 +746,18 @@ export class AsyncTaskSystem {
 
       // Phase 887: mark terminal state FIRST so the dispatcher will not execute
       // this task while we retry notification / move.
+      // Phase 902: terminalState write failure must propagate — otherwise the task
+      // remains indistinguishable from a normal pending task and may be dispatched.
       try {
         await this._setTerminalState(pendingPath, 'failed');
-      } catch {
-        // terminalState write failed — still attempt notification + move
+      } catch (e) {
+        emitMoveFailed(this.auditWriter, {
+          fullTaskId: fullId,
+          shortTaskId: shortId,
+          context: 'cap_overflow_terminal_state_failed',
+          error: formatErr(e),
+        });
+        throw e;
       }
 
       // Phase 887: send notification. If it fails, don't move; leave the task in
@@ -737,8 +766,18 @@ export class AsyncTaskSystem {
       try {
         await sendFallbackError(this.fs, this.auditWriter, task,
           `Task rejected: pending queue overflow (${pendingCount} > ${PENDING_QUEUE_MAX}).`);
-        notified = true;
-        await this.fs.writeAtomic(`${TASKS_QUEUES_RESULTS_DIR}/${fullId}/result.txt.notified`, '').catch(() => {});
+        try {
+          await this.fs.writeAtomic(`${TASKS_QUEUES_RESULTS_DIR}/${fullId}/result.txt.notified`, '');
+          notified = true;
+        } catch (e) {
+          emitMoveFailed(this.auditWriter, {
+            fullTaskId: fullId,
+            shortTaskId: shortId,
+            context: 'overflow_marker_write_failed',
+            error: formatErr(e),
+          });
+          // notified stays false — task stays in pending for retry
+        }
       } catch (e) {
         emitMoveFailed(this.auditWriter, {
           fullTaskId: fullId,

@@ -128,8 +128,18 @@ export class PersistentShortIdIndex implements ShortIdIndex {
           throw new Error(`ShortIdIndex: invalid fullId value for "${key}": ${String(value)}`);
         }
         const fullId = makeFullTaskId(value);
+        const shortId = makeShortTaskId(key);
+
+        // Phase 902: check fullId → shortId uniqueness
+        const existingShort = newFullToShort.get(fullId);
+        if (existingShort && existingShort !== shortId) {
+          throw new Error(
+            `ShortIdIndex: fullId "${value}" already mapped to "${existingShort}", cannot also map to "${key}"`
+          );
+        }
+
         newShortToFull.set(key, fullId);
-        newFullToShort.set(fullId, makeShortTaskId(key));
+        newFullToShort.set(fullId, shortId);
       }
 
       this.shortToFull = newShortToFull;
@@ -238,7 +248,7 @@ export class PersistentShortIdIndex implements ShortIdIndex {
   ): void {
     this.shortToFull = new Map();
     this.fullToShort = new Map();
-    const collisions: Array<{ shortId: string; existingFullId: string; newFullId: string }> = [];
+    const collisions: Array<Record<string, string>> = [];
 
     for (const dir of [TASKS_QUEUES_PENDING_DIR, TASKS_QUEUES_RUNNING_DIR, TASKS_QUEUES_DONE_DIR, TASKS_QUEUES_FAILED_DIR]) {
       if (!fs.existsSync(dir)) continue;
@@ -284,6 +294,18 @@ export class PersistentShortIdIndex implements ShortIdIndex {
             collisions.push({ shortId, existingFullId: this.shortToFull.get(shortId)!, newFullId: fullId });
             continue; // keep first mapping, report collision
           }
+
+          // Phase 902: check fullId → shortId uniqueness
+          if (this.fullToShort.has(fullId) && this.fullToShort.get(fullId) !== shortId) {
+            collisions.push({
+              direction: 'full_to_short',
+              fullId,
+              existingShortId: this.fullToShort.get(fullId)!,
+              conflictingShortId: shortId,
+            });
+            continue; // keep first mapping, report collision
+          }
+
           this.shortToFull.set(shortId, fullId);
           this.fullToShort.set(fullId, shortId);
         } catch {
