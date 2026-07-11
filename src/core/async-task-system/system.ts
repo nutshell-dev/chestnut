@@ -883,20 +883,25 @@ export class AsyncTaskSystem {
       throw new Error(`[INVARIANT VIOLATION] moveTaskToDone: cannot resolve ${taskId}`);
     }
     const auditShortId = this.shortIdIndex.reverseResolve(fullId) ?? this.shortIdIndex.deriveShortId(fullId);
-    try {
-      const fromFull = `${TASKS_QUEUES_RUNNING_DIR}/${fullId}.json`;
-      const to = `${TASKS_QUEUES_DONE_DIR}/${fullId}.json`;
-      let fromPath: string;
-      if (await this.fs.exists(fromFull)) {
-        fromPath = fromFull;
-      } else {
-        const legacyPath = await this._findLegacyTaskFile(TASKS_QUEUES_RUNNING_DIR, fullId);
-        if (!legacyPath) {
-          throw new Error(`Cannot find task file for ${fullId} in running directory`);
-        }
-        fromPath = legacyPath;
+
+    const fromFull = `${TASKS_QUEUES_RUNNING_DIR}/${fullId}.json`;
+    const to = `${TASKS_QUEUES_DONE_DIR}/${fullId}.json`;
+    let fromPath: string;
+    if (await this.fs.exists(fromFull)) {
+      fromPath = fromFull;
+    } else {
+      const legacyPath = await this._findLegacyTaskFile(TASKS_QUEUES_RUNNING_DIR, fullId);
+      if (!legacyPath) {
+        throw new Error(`Cannot find task file for ${fullId} in running directory`);
       }
-      await this._setTerminalState(fromPath, 'done');
+      fromPath = legacyPath;
+    }
+
+    // Phase 874: persist terminal state OUTSIDE the move catch.
+    // If this fails, the error propagates — we cannot safely proceed.
+    await this._setTerminalState(fromPath, 'done');
+
+    try {
       await this.fs.move(fromPath, to);
       if (fromPath !== fromFull) {
         await this._migrateTaskJsonId(to, fullId);
@@ -928,20 +933,24 @@ export class AsyncTaskSystem {
     }
     const auditShortId = this.shortIdIndex.reverseResolve(fullId) ?? this.shortIdIndex.deriveShortId(fullId);
 
-    try {
-      const fromFull = `${TASKS_QUEUES_RUNNING_DIR}/${fullId}.json`;
-      const to = `${TASKS_QUEUES_FAILED_DIR}/${fullId}.json`;
-      let fromPath: string;
-      if (await this.fs.exists(fromFull)) {
-        fromPath = fromFull;
-      } else {
-        const legacyPath = await this._findLegacyTaskFile(TASKS_QUEUES_RUNNING_DIR, fullId);
-        if (!legacyPath) {
-          throw new Error(`Cannot find task file for ${fullId} in running directory`);
-        }
-        fromPath = legacyPath;
+    const fromFull = `${TASKS_QUEUES_RUNNING_DIR}/${fullId}.json`;
+    const to = `${TASKS_QUEUES_FAILED_DIR}/${fullId}.json`;
+    let fromPath: string;
+    if (await this.fs.exists(fromFull)) {
+      fromPath = fromFull;
+    } else {
+      const legacyPath = await this._findLegacyTaskFile(TASKS_QUEUES_RUNNING_DIR, fullId);
+      if (!legacyPath) {
+        throw new Error(`Cannot find task file for ${fullId} in running directory`);
       }
-      await this._setTerminalState(fromPath, 'failed');
+      fromPath = legacyPath;
+    }
+
+    // Phase 874: persist terminal state OUTSIDE the move catch.
+    // If this fails, the error propagates — we cannot safely proceed.
+    await this._setTerminalState(fromPath, 'failed');
+
+    try {
       await this.fs.move(fromPath, to);
       if (fromPath !== fromFull) {
         await this._migrateTaskJsonId(to, fullId);

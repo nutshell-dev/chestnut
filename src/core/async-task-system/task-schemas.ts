@@ -56,6 +56,8 @@ const commonSubAgentFields = {
   intent: z.string(),
   // phase 281: summon decision 内嵌 metadata，随 task lifecycle 同步
   summonDecision: SummonDecisionMetadataSchema.optional(),
+  // Phase 874: persisted terminal intent for recovery routing
+  terminalState: z.enum(['done', 'failed']).optional(),
 };
 
 const standardSubAgentTaskSchema = z.object({
@@ -101,6 +103,8 @@ export const ToolTaskSchema = z.object({
   mode: z.enum(['fresh', 'migrated']).optional(),
   migratedPid: z.number().optional(),
   migratedStartTime: z.string().optional(),
+  // Phase 874: persisted terminal intent for recovery routing
+  terminalState: z.enum(['done', 'failed']).optional(),
 });
 
 export const TaskSchema = z.union([
