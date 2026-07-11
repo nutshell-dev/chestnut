@@ -24,13 +24,13 @@ function createMockSink() {
 function createMockProvider(
   name: string,
   streamImpl?: (opts: { signal?: AbortSignal }) => AsyncGenerator<StreamChunk>,
-  callImpl?: () => Promise<any>,
+  callImpl?: (opts?: { signal?: AbortSignal }) => Promise<any>,
 ): ProviderAdapter {
   return {
     name,
     model: 'mock-model',
     async call(opts?: { signal?: AbortSignal }) {
-      if (callImpl) return callImpl();
+      if (callImpl) return callImpl(opts);
       return {
         content: [{ type: 'text', text: `Response from ${name}` }],
         stop_reason: 'end_turn',
@@ -206,5 +206,160 @@ describe('Stream idle probe (⚓4 ε ratified by phase 628)', () => {
 
     // idle_failover_triggered 不应被 emit（auth/model 直接 throw）
     expect(emitted.some((e) => e.type === 'idle_failover_triggered')).toBe(false);
+  });
+});
+
+
+describe('Stream idle probe reset + done-guard + signal propagation (phase 893)', () => {
+  it('emits reset before retry when idle probe succeeds after partial output', async () => {
+    const { sink, emitted } = createMockSink();
+
+    let streamCallCount = 0;
+    const primary = createMockProvider(
+      'primary',
+      async function* (opts: { signal?: AbortSignal }) {
+        streamCallCount++;
+        if (streamCallCount === 1) {
+          yield { type: 'text_delta', delta: 'partial' };
+          // hang until idle abort fires
+          await new Promise<void>((_, reject) => {
+            opts.signal?.addEventListener('abort', () => {
+              reject(new Error('AbortError'));
+            });
+          });
+          yield { type: 'done' };
+        } else {
+          yield { type: 'text_delta', delta: 'retry-ok' };
+          yield { type: 'done' };
+        }
+      },
+      async () => ({ content: [{ type: 'text', text: 'probe-ok' }], stop_reason: 'end_turn' }),
+    );
+
+    const service = new LLMOrchestratorImpl({
+      primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
+      maxAttempts: 2,
+      retryDelayMs: 0,
+      events: sink,
+    });
+    (service as any).primary = primary;
+
+    const chunks: StreamChunk[] = [];
+    for await (const chunk of service.stream({ messages: [], streamIdleTimeoutMs: 50, streamIdleProbeTimeoutMs: 50 })) {
+      chunks.push(chunk);
+    }
+
+    // reset chunk emitted before retry
+    expect(chunks.some((c) => c.type === 'reset')).toBe(true);
+
+    // partial output is not duplicated; retry content present
+    expect(chunks.filter((c) => c.type === 'text_delta').map((c: any) => c.delta)).toEqual(['partial', 'retry-ok']);
+
+    // probe succeeded event emitted
+    expect(emitted.some((e) => e.type === 'stream_idle_probe_succeeded')).toBe(true);
+
+    // stream_reset event emitted with idle_timeout_probe_retry reason
+    expect(emitted.some((e) => e.type === 'stream_reset' && (e as any).error === 'idle_timeout_probe_retry')).toBe(true);
+  });
+
+  it('failovers when stream ends without done chunk', async () => {
+    const { sink, emitted } = createMockSink();
+
+    const primary = createMockProvider(
+      'primary',
+      async function* () {
+        yield { type: 'text_delta', delta: 'partial' };
+        // clean EOF, no done chunk
+      },
+    );
+
+    const fallback = createMockProvider(
+      'fallback',
+      async function* () {
+        yield { type: 'text_delta', delta: 'full' };
+        yield { type: 'done' };
+      },
+    );
+
+    const service = new LLMOrchestratorImpl({
+      primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
+      fallbacks: [{ name: 'fallback', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const }],
+      maxAttempts: 1,
+      retryDelayMs: 0,
+      events: sink,
+    });
+    (service as any).primary = primary;
+    (service as any).fallbacks = [fallback];
+
+    const chunks: StreamChunk[] = [];
+    for await (const chunk of service.stream({ messages: [], streamIdleTimeoutMs: 50 })) {
+      chunks.push(chunk);
+    }
+
+    // partial yielded first, then reset from primary tells caller to discard partial state
+    const textDeltas = chunks.filter((c) => c.type === 'text_delta').map((c: any) => c.delta);
+    expect(textDeltas).toEqual(['partial', 'full']);
+
+    // reset from primary
+    expect(chunks.some((c) => c.type === 'reset')).toBe(true);
+
+    // done from fallback
+    expect(chunks.some((c) => c.type === 'done')).toBe(true);
+
+    // failover event emitted
+    expect(emitted.some((e) => e.type === 'fallback_switched')).toBe(true);
+  });
+
+  it('stops probe immediately on user abort', async () => {
+    const { sink } = createMockSink();
+    const abortCtrl = new AbortController();
+
+    const primary = createMockProvider(
+      'primary',
+      async function* (opts: { signal?: AbortSignal }) {
+        yield { type: 'text_delta', delta: 'first' };
+        // hang until idle abort fires
+        await new Promise<void>((_, reject) => {
+          opts.signal?.addEventListener('abort', () => {
+            reject(new Error('AbortError'));
+          });
+        });
+        yield { type: 'done' };
+      },
+      async (opts?: { signal?: AbortSignal }) => {
+        abortCtrl.abort();
+        return new Promise((_, reject) => {
+          if (opts?.signal?.aborted) {
+            const err = new Error('AbortError');
+            err.name = 'AbortError';
+            reject(err);
+            return;
+          }
+          opts?.signal?.addEventListener('abort', () => {
+            const err = new Error('AbortError');
+            err.name = 'AbortError';
+            reject(err);
+          });
+        });
+      },
+    );
+
+    const service = new LLMOrchestratorImpl({
+      primary: { name: 'primary', apiKey: 'test', model: 'test', apiFormat: 'anthropic' as const },
+      maxAttempts: 2,
+      retryDelayMs: 0,
+      events: sink,
+    });
+    (service as any).primary = primary;
+
+    const promise = (async () => {
+      const chunks: StreamChunk[] = [];
+      for await (const chunk of service.stream({ messages: [], streamIdleTimeoutMs: 50, streamIdleProbeTimeoutMs: 50, signal: abortCtrl.signal })) {
+        chunks.push(chunk);
+      }
+      return chunks;
+    })();
+
+    await expect(promise).rejects.toThrow();
   });
 });

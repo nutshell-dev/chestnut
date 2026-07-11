@@ -381,6 +381,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
       // Retry loop (aligns with call())
       let success = false;
       let hasYielded = false;
+      let receivedDone = false;
       let midStreamReset = false;
       let lastError: Error | null = null;
       let contextExceeded = false;
@@ -423,6 +424,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
             }
             hasYielded = true;
             if (chunk.type === 'done') {
+              receivedDone = true;
               if (chunk.stopReason && CONTEXT_EXCEEDED_STOP_REASONS.has(chunk.stopReason)) {
                 contextExceeded = true;
                 this.events.emit({ type: 'context_exceeded_failover', provider: adapter.name, stopReason: chunk.stopReason });
@@ -469,12 +471,24 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
               provider: adapter.name,
               timeoutMs: probeTimeoutMs,
             });
-            const probe = await this._minimalProbe(adapter, probeTimeoutMs);
+            const probe = await this._minimalProbe(adapter, probeTimeoutMs, options.signal);
+            if (options.signal?.aborted) {
+              // user abort overrides probe result — stop immediately instead of failover/retry
+              throw err;
+            }
             if (probe.ok) {
               this.events.emit({
                 type: 'stream_idle_probe_succeeded',
                 provider: adapter.name,
               });
+              if (hasYielded) {
+                // partial output already yielded → reset before retry
+                this.events.emit({ type: 'stream_reset', provider: adapter.name, error: 'idle_timeout_probe_retry' });
+                yield {
+                  type: 'reset',
+                  provider: adapter.name,
+                };
+              }
               continue; // retry same provider stream within retry loop（复用 maxAttempts budget）
             }
             if (probe.reason === 'auth_or_model') {
@@ -524,11 +538,23 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
         }
       }
 
-      if (success && hasYielded) {
+      if (success && receivedDone) {
         // Circuit breaker: record success
         breaker?.onSuccess();
         this.updateLastSuccess(adapter, pi !== 0);
         return; // Success, exit generator
+      }
+
+      if (success && hasYielded && !receivedDone) {
+        // Stream ended cleanly but never emitted a done chunk — truncated/interrupted stream.
+        // Signal caller to discard partial state, then failover to next provider.
+        this.events.emit({ type: 'stream_reset', provider: adapter.name, error: 'stream ended without done chunk' });
+        yield {
+          type: 'reset',
+          provider: adapter.name,
+        };
+        midStreamReset = true;
+        lastFailedProviderName = adapter.name;
       }
 
       if (success && !hasYielded) {
@@ -642,14 +668,17 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
   private async _minimalProbe(
     provider: LLMProvider,
     timeoutMs: number,
+    userSignal?: AbortSignal,
   ): Promise<{ ok: true } | { ok: false; reason: 'network_timeout' | 'auth_or_model'; error: Error }> {
     const probeCtrl = new AbortController();
     const probeTimer = setTimeout(() => probeCtrl.abort(), timeoutMs);
+    const merged = mergeSignals(userSignal, probeCtrl.signal);
+    const signal = merged.signal ?? probeCtrl.signal;
     try {
       await provider.call({
         messages: [{ role: 'user', content: 'Hi' }],
         maxTokens: 1,
-        signal: probeCtrl.signal,
+        signal,
       });
       return { ok: true };
     } catch (err) {
@@ -657,6 +686,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
       // network/timeout 类（含 abort）→ transient
       if (
         probeCtrl.signal.aborted ||
+        signal.aborted ||
         e.name === 'AbortError' ||
         e instanceof LLMTimeoutError ||
         e instanceof LLMRateLimitError
@@ -667,6 +697,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
       return { ok: false, reason: 'auth_or_model', error: e };
     } finally {
       clearTimeout(probeTimer);
+      merged.cleanup();
     }
   }
 
