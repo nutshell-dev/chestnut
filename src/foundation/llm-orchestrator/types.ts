@@ -71,7 +71,8 @@ export type LLMEvent =
   | { type: 'all_providers_context_exceeded'; totalAttempted: number; skippedCount: number }
   | { type: 'race_loser_cleaned'; provider: string; reason: string }
   | { type: 'sdk_client_cache_hit'; preset: string; model: string }
-  | { type: 'sdk_client_cache_miss'; preset: string; model: string };
+  | { type: 'sdk_client_cache_miss'; preset: string; model: string }
+  | { type: 'provider_close_failed'; error: string };
 
 /**
  * LLM event sink protocol — defined here (L2b), implemented by assembly layer (L6)

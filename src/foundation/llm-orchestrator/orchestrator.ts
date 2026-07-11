@@ -32,7 +32,7 @@ import type {
 } from './types.js';
 import type { LLMOrchestrator } from './types.js';
 import { CircuitBreaker } from './circuit-breaker.js';
-import { createLLMProvider, type LLMProvider } from '../llm-provider/index.js';
+import { createLLMProvider, type LLMProvider, type AuditSink } from '../llm-provider/index.js';
 import { makeExternalAbortError, withCombinedAbortSignal, type AbortReason } from '../llm-provider/index.js';
 import { isAbortError } from '../llm-provider/is-abort-error.js';
 import { delay, isContentChunk, wrapResponseAsStream, mergeSignals } from './utils.js';
@@ -92,6 +92,13 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
   // phase 1374 sub-3: SDK client cache (instance-lifetime)
   private sdkClientCache = new Map<string, LLMProvider>();
 
+  // phase 900: 旧 provider 延迟 close，避免 reload 中断活跃请求
+  private pendingClose: LLMProvider[] = [];
+
+  // phase 900: auditLog 对象引用身份映射，不同 audit sink 实例不同 cache key
+  private auditLogIdMap = new WeakMap<AuditSink, string>();
+  private nextAuditLogId = 0;
+
   /**
    * phase 287 Step C: extract backoff formula to helper (M#1 共用基础设施单源)
    *
@@ -105,21 +112,42 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
     );
   }
 
+  /**
+   * phase 900: 用对象引用身份区分 audit sink 实例，避免不同实例共享同一 cache key。
+   * 同一 orchestrator 生命周期内，同一 auditLog 对象引用始终映射到同一 id。
+   */
+  private getAuditLogId(auditLog?: AuditSink): string {
+    if (!auditLog) return 'absent';
+    let id = this.auditLogIdMap.get(auditLog);
+    if (!id) {
+      id = `audit-${++this.nextAuditLogId}`;
+      this.auditLogIdMap.set(auditLog, id);
+    }
+    return id;
+  }
+
   private getSdkClient(config: ProviderConfig): LLMProvider {
     // phase 450 (review): cache key 含全部 endpoint-determining 字段
     // - baseUrl: 同 apiFormat+model 不同 endpoint 不应共享 client
     // - apiKey hash (SHA-256 前 8 位): 防末 8 位明文 collision + 不放完整 key
     // phase 899: 额外加入 name 与影响 adapter 行为/身份的配置指纹，避免同名 endpoint
     // 不同配置共享同一 adapter（审计/breaker 串线）。
+    // phase 900: fingerprint 补全 maxTokens/thinking* 等字段；auditLog 用对象引用身份。
     const apiKeyHash = config.apiKey
       ? sha256ShortHex(config.apiKey, 8)
       : 'noapikey';
     const configFingerprint = sha256ShortHex(JSON.stringify({
       temperature: config.temperature,
       timeoutMs: config.timeoutMs,
+      maxTokens: config.maxTokens,
       thinking: config.thinking,
+      thinkingBudgetTokens: config.thinkingBudgetTokens,
+      thinkingMode: config.thinkingMode,
+      thinkingEffort: config.thinkingEffort,
+      reasoningEffort: config.reasoningEffort,
+      dropThinkingBlocks: config.dropThinkingBlocks,
       extraHeaders: config.extraHeaders,
-      auditLog: config.auditLog ? 'present' : 'absent',
+      auditLogId: this.getAuditLogId(config.auditLog),
     }), 8);
     const key = [
       config.name ?? config.apiFormat ?? 'unknown',
@@ -1130,24 +1158,23 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
    * agent、不显式清理依赖 GC 回收时机不可控。close 后再 call 会 lazy 重建 cache。
    * phase 899: per-provider try/catch + finally clear；任一 provider close 抛错不影响其余
    * provider 关闭与 cache 清空，最终聚合并抛出错误信息。
+   * phase 900: 统一关闭 cache + pendingClose 中延迟回收的 provider；close 失败 emit
+   * provider_close_failed 事件，供调用方审计，不再抛错中断整体关闭流程。
    */
   async close(): Promise<void> {
-    const closeErrors: Error[] = [];
-    try {
-      for (const [, provider] of this.sdkClientCache) {
-        try {
-          // LLMProvider 接口未要求 close()、optional chain 兼容未实现的 provider
-          await (provider as { close?: () => Promise<void> | void }).close?.();
-        } catch (err) {
-          closeErrors.push(err as Error);
-        }
+    const allToClose = [...this.sdkClientCache.values(), ...this.pendingClose];
+    const results = await Promise.allSettled(allToClose.map((provider) => {
+      // LLMProvider 接口未要求 close()、optional chain 兼容未实现的 provider
+      const maybeClose = (provider as { close?: () => Promise<void> | void }).close?.();
+      return maybeClose instanceof Promise ? maybeClose : Promise.resolve();
+    }));
+    for (const r of results) {
+      if (r.status === 'rejected') {
+        this.events.emit({ type: 'provider_close_failed', error: String(r.reason) });
       }
-    } finally {
-      this.sdkClientCache.clear();
     }
-    if (closeErrors.length > 0) {
-      throw new Error(`Failed to close ${closeErrors.length} provider(s): ${closeErrors.map(e => e.message).join('; ')}`);
-    }
+    this.sdkClientCache.clear();
+    this.pendingClose = [];
   }
 
   /**
@@ -1192,18 +1219,14 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
     this.primary.onToolArgParseError = toolArgErrHandler;
     this.fallbacks.forEach(fb => { fb.onToolArgParseError = toolArgErrHandler; });
 
-    // Phase 899: evict entries no longer referenced by new config
+    // Phase 900: 旧 provider 移出 cache 但暂不 close，避免 reload 中断活跃请求；
+    // 延迟到 orchestrator.close() 统一回收。
     const newProviders = new Set(allProviders);
     for (const key of oldKeys) {
       const provider = this.sdkClientCache.get(key);
       if (!provider) continue;
       if (!newProviders.has(provider)) {
-        try {
-          const maybeClose = (provider as { close?: () => Promise<void> | void }).close?.();
-          if (maybeClose && typeof (maybeClose as Promise<void>).catch === 'function') {
-            (maybeClose as Promise<void>).catch(() => { /* best-effort */ });
-          }
-        } catch { /* best-effort */ }
+        this.pendingClose.push(provider);
         this.sdkClientCache.delete(key);
       }
     }

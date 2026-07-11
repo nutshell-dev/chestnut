@@ -83,8 +83,8 @@ describe('LLMOrchestratorImpl.close', () => {
     await orch.close();
   });
 
-  it('Phase 899: 单个 provider close 抛错时其余仍关闭且 cache 被清空', async () => {
-    const { sink } = createSink();
+  it('Phase 900: 单个 provider close 抛错时 emit 事件且其余仍关闭、cache 被清空', async () => {
+    const { sink, emitted } = createSink();
     const orch = new LLMOrchestratorImpl({
       primary: { name: 'p1', apiKey: 'k1', model: 'm1', apiFormat: 'anthropic' },
       maxAttempts: 1,
@@ -97,8 +97,11 @@ describe('LLMOrchestratorImpl.close', () => {
     cache.set('bad', { close: async () => { throw new Error('bad close'); } });
     cache.set('good', { close: goodClose });
 
-    await expect(orch.close()).rejects.toThrow('Failed to close 1 provider(s): bad close');
+    await expect(orch.close()).resolves.toBeUndefined();
     expect(goodClose).toHaveBeenCalledTimes(1);
     expect(cache.size).toBe(0);
+    const closeFailedEvents = emitted.filter(e => e.type === 'provider_close_failed');
+    expect(closeFailedEvents.length).toBe(1);
+    expect(closeFailedEvents[0]).toMatchObject({ type: 'provider_close_failed', error: 'Error: bad close' });
   });
 });
