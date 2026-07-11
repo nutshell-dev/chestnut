@@ -44,7 +44,7 @@ interface AsyncExecWrapperDeps {
 const ASYNC_EXEC_SOFT_TIMEOUT_MS = 10_000;
 
 /** Migrated process hard timeout (ms). Process will be killed after this time. */
-const ASYNC_EXEC_MIGRATED_HARD_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+export const ASYNC_EXEC_MIGRATED_HARD_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 
 /**
  * Build a synthetic ToolTask for a migrated exec command.
