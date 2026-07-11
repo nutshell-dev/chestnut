@@ -20,7 +20,7 @@ export interface GeminiResponse {
   usageMetadata?: { promptTokenCount: number; candidatesTokenCount: number };
 }
 
-export function parseGeminiResponse(data: GeminiResponse): LLMResponse {
+export function parseGeminiResponse(data: GeminiResponse, providerName: string): LLMResponse {
   const candidate = data.candidates?.[0];
 
   // Content filtered or generation failed
@@ -51,7 +51,7 @@ export function parseGeminiResponse(data: GeminiResponse): LLMResponse {
 
   // 0-chunk guard
   if (content.length === 0) {
-    throw new LLMEmptyResponseError('gemini');
+    throw new LLMEmptyResponseError(providerName);
   }
 
   const finishReason = candidate.finishReason ?? 'STOP';

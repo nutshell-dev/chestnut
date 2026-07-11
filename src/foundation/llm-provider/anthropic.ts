@@ -163,10 +163,7 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
         requestOptions,
       );
       const data = response as Anthropic.Message;
-      if (!data.content || data.content.length === 0) {
-        throw new LLMEmptyResponseError(this.name);
-      }
-      return this.parseResponse(response);
+      return this.parseResponse(data);
     } catch (error) {
       const mapped = this.mapSDKError(error, options.timeoutMs ?? this.config.timeoutMs, options.signal);
       if (mapped instanceof LLMOutputBudgetExceededError) {
@@ -395,6 +392,9 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
    * Parse Anthropic response to our LLMResponse format
    */
   private parseResponse(data: Anthropic.Message): LLMResponse {
+    if (!data.content || data.content.length === 0) {
+      throw new LLMEmptyResponseError(this.name);
+    }
     // Store raw content blocks including unknown types (think, reasoning, etc.)
     // This aligns with MVP behavior - don't filter, let LLM handle its own blocks
     const content = data.content as ContentBlock[];
