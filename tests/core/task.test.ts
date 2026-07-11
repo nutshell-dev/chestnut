@@ -133,7 +133,7 @@ describe('Task System + SubAgent', () => {
       await ctx.taskSystem.shutdown(1);
       ctx.replaceTaskSystem(createTestTaskSystem(ctx.tempDir, ctx.mockFs, makeAudit().audit, createHangingMockLLM(), { createWatcher: ctx.createWatcher }));
       await ctx.taskSystem.initialize();
-      ctx.taskSystem.startDispatch();
+      await ctx.taskSystem.startDispatch();
       
       const taskId = await ctx.taskSystem.scheduleSubAgent({
         kind: 'subagent',
@@ -160,7 +160,7 @@ describe('Task System + SubAgent', () => {
       await ctx.taskSystem.shutdown(1);
       ctx.replaceTaskSystem(createTestTaskSystem(ctx.tempDir, ctx.mockFs, makeAudit().audit, createHangingMockLLM(), { createWatcher: ctx.createWatcher }));
       await ctx.taskSystem.initialize();
-      ctx.taskSystem.startDispatch();
+      await ctx.taskSystem.startDispatch();
 
       const taskId = await ctx.taskSystem.scheduleSubAgent({
         kind: 'subagent',
@@ -197,7 +197,7 @@ describe('Task System + SubAgent', () => {
         stop_reason: 'end_turn',
       }]), { createWatcher: ctx.createWatcher }));
       await ctx.taskSystem.initialize();
-      ctx.taskSystem.startDispatch();
+      await ctx.taskSystem.startDispatch();
 
       const taskId = await ctx.taskSystem.scheduleSubAgent({
         kind: 'subagent',
@@ -237,7 +237,7 @@ describe('Task System + SubAgent', () => {
         stop_reason: 'end_turn',
       }]), { createWatcher: ctx.createWatcher }));
       await ctx.taskSystem.initialize();
-      ctx.taskSystem.startDispatch();
+      await ctx.taskSystem.startDispatch();
 
       const taskId = await ctx.taskSystem.scheduleSubAgent({
         kind: 'subagent',
@@ -299,7 +299,7 @@ describe('Task System + SubAgent', () => {
         getProviderInfo: vi.fn().mockReturnValue({ name: 'mock', model: 'test', isFallback: false }),
       } as unknown as LLMOrchestrator, { createWatcher: ctx.createWatcher }));
       await ctx.taskSystem.initialize();
-      ctx.taskSystem.startDispatch();
+      await ctx.taskSystem.startDispatch();
 
       const taskId = await ctx.taskSystem.scheduleSubAgent({
         kind: 'subagent',
@@ -338,7 +338,7 @@ describe('Task System + SubAgent', () => {
         stop_reason: 'end_turn',
       }]), { createWatcher: ctx.createWatcher }));
       await ctx.taskSystem.initialize();
-      ctx.taskSystem.startDispatch();
+      await ctx.taskSystem.startDispatch();
 
       const taskId = await ctx.taskSystem.scheduleSubAgent({
         kind: 'subagent',
@@ -368,7 +368,7 @@ describe('Task System + SubAgent', () => {
       const { audit, events, emitter } = makeAudit();
       ctx.replaceTaskSystem(createTestTaskSystem(ctx.tempDir, ctx.mockFs, audit, createAbortableHangingMockLLM(), { createWatcher: ctx.createWatcher }));
       await ctx.taskSystem.initialize();
-      ctx.taskSystem.startDispatch();
+      await ctx.taskSystem.startDispatch();
 
       const taskId = await ctx.taskSystem.scheduleSubAgent({
         kind: 'subagent',
@@ -430,7 +430,7 @@ describe('Task System + SubAgent', () => {
       }]), { createWatcher: patchedWatcher });
       ctx.replaceTaskSystem(failSystem);
       await failSystem.initialize();
-      failSystem.startDispatch();
+      await failSystem.startDispatch();
 
       const taskId = await failSystem.scheduleSubAgent({
         kind: 'subagent',
@@ -474,7 +474,7 @@ describe('Task System + SubAgent', () => {
       }]), { createWatcher: patchedWatcher });
       ctx.replaceTaskSystem(failSystem);
       await failSystem.initialize();
-      failSystem.startDispatch();
+      await failSystem.startDispatch();
 
       const taskId = await failSystem.scheduleSubAgent({
         kind: 'subagent',
@@ -510,7 +510,7 @@ describe('Task System + SubAgent', () => {
       const { audit, events, emitter } = makeAudit();
       ctx.replaceTaskSystem(createTestTaskSystem(ctx.tempDir, ctx.mockFs, audit, createHangingMockLLM(), { createWatcher: ctx.createWatcher }));
       await ctx.taskSystem.initialize();
-      ctx.taskSystem.startDispatch();
+      await ctx.taskSystem.startDispatch();
 
       const taskId = await ctx.taskSystem.scheduleSubAgent({
         kind: 'subagent',
@@ -541,7 +541,7 @@ describe('Task System + SubAgent', () => {
       await ctx.taskSystem.shutdown(1);
       ctx.replaceTaskSystem(createTestTaskSystem(ctx.tempDir, ctx.mockFs, { write: () => {} } as any, createHangingMockLLM(), { createWatcher: ctx.createWatcher }));
       await ctx.taskSystem.initialize();
-      ctx.taskSystem.startDispatch();
+      await ctx.taskSystem.startDispatch();
 
       const taskId = await ctx.taskSystem.scheduleSubAgent({
         kind: 'subagent',
@@ -578,7 +578,7 @@ describe('Task System + SubAgent', () => {
         }]), { createWatcher: ctx.createWatcher }));
         ctx.taskSystem.addPostProcessor('test-proc', mockProcessor as any);
         await ctx.taskSystem.initialize();
-        ctx.taskSystem.startDispatch();
+        await ctx.taskSystem.startDispatch();
 
         await ctx.taskSystem.scheduleSubAgent({
           kind: 'subagent',
@@ -628,7 +628,7 @@ describe('Task System + SubAgent', () => {
         ctx.replaceTaskSystem(createTestTaskSystem(ctx.tempDir, ctx.mockFs, audit, undefined, { createWatcher: ctx.createWatcher }));
         ctx.taskSystem.addPostProcessor('test-proc-err', capturingProcessor as any);
         await ctx.taskSystem.initialize();
-        ctx.taskSystem.startDispatch();
+        await ctx.taskSystem.startDispatch();
 
         const taskId = await ctx.taskSystem.scheduleSubAgent({
           kind: 'subagent',
@@ -657,7 +657,7 @@ describe('Task System + SubAgent', () => {
           stop_reason: 'end_turn',
         }]), { createWatcher: ctx.createWatcher }));
         await ctx.taskSystem.initialize();
-        ctx.taskSystem.startDispatch();
+        await ctx.taskSystem.startDispatch();
 
         const taskId = await ctx.taskSystem.scheduleSubAgent({
           kind: 'subagent',

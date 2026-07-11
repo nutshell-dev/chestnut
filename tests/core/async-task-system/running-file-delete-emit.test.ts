@@ -1,5 +1,6 @@
 /**
- * Phase 1324 C.3: async-task running file delete fail → audit emit
+ * Phase 884: tool not found in registry must NOT delete the running file.
+ * Instead it should persist terminalState=failed and attempt to move to failed/.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -24,7 +25,22 @@ function makeMockAudit(): { audit: AuditLog; events: Array<[string, ...(string |
   return { audit, events };
 }
 
-describe('phase 1324 C.3: running file delete fail audit emit', () => {
+function makeToolTaskJson(taskId: string): string {
+  return JSON.stringify({
+    kind: 'tool',
+    id: taskId,
+    toolName: 'nonexistent_tool',
+    args: {},
+    parentClawDir: '/tmp',
+    parentClawId: 'parent',
+    createdAt: new Date().toISOString(),
+    isIdempotent: true,
+    maxRetries: 0,
+    retryCount: 0,
+  });
+}
+
+describe('phase 884: tool not found keeps running file', () => {
   let system: AsyncTaskSystem;
   let mockFs: FileSystem;
   let auditEvents: Array<[string, ...(string | number)[]]>;
@@ -35,6 +51,16 @@ describe('phase 1324 C.3: running file delete fail audit emit', () => {
       exists: vi.fn().mockResolvedValue(true),
       list: vi.fn().mockResolvedValue([]),
       resolve: vi.fn((p: string) => `/abs/${p}`),
+      delete: vi.fn().mockResolvedValue(undefined),
+      read: vi.fn().mockImplementation((filePath: string) => {
+        if (filePath.includes('tasks/queues/running/') || filePath.includes('tasks/queues/pending/')) {
+          const id = filePath.replace(/^.*\//, '').replace(/\.json$/, '');
+          return Promise.resolve(makeToolTaskJson(id));
+        }
+        return Promise.resolve('');
+      }),
+      move: vi.fn().mockResolvedValue(undefined),
+      writeAtomic: vi.fn().mockResolvedValue(undefined),
     } as unknown as FileSystem;
 
     const { audit, events } = makeMockAudit();
@@ -51,104 +77,115 @@ describe('phase 1324 C.3: running file delete fail audit emit', () => {
     await system.shutdown(1).catch(() => { /* silent: shutdown */ });
   });
 
-  it('tool not found + fs.delete throw → RUNNING_FILE_DELETE_FAILED audit emitted with task_id + reason', async () => {
-    const taskId = 'tool-missing-task';
-    const deleteError = new Error('disk full');
+  it('persists terminalState=failed and moves to failed dir instead of deleting', async () => {
+    const taskId = 'tool-missing-move-ok';
+    const runningPath = `tasks/queues/running/${taskId}.json`;
+    const failedPath = `tasks/queues/failed/${taskId}.json`;
 
-    // Mock fs.delete to reject
-    mockFs.delete = vi.fn().mockRejectedValue(deleteError);
-    mockFs.read = vi.fn().mockResolvedValue(JSON.stringify({
-      kind: 'tool',
-      id: taskId,
-      toolName: 'nonexistent_tool',
-      args: {},
-      parentClawDir: '/tmp',
-      parentClawId: 'parent',
-      createdAt: new Date().toISOString(),
-      isIdempotent: true,
-      maxRetries: 0,
-      retryCount: 0,
-    }));
-    mockFs.move = vi.fn().mockResolvedValue(undefined);
-    mockFs.writeAtomic = vi.fn().mockResolvedValue(undefined);
-    mockFs.ensureDir = vi.fn().mockResolvedValue(undefined);
-
-    // _startTask catches tool-not-found internally and does not re-throw
-    await (system as any)._startTask({
-      kind: 'tool',
-      id: taskId,
-      toolName: 'nonexistent_tool',
-      args: {},
-      parentClawDir: '/tmp',
-      parentClawId: 'parent',
-      createdAt: new Date().toISOString(),
-      isIdempotent: true,
-      maxRetries: 0,
-      retryCount: 0,
-    }, new AbortController().signal);
-
-    const deleteFailedEvents = auditEvents.filter(
-      e => e[0] === TASK_AUDIT_EVENTS.RUNNING_FILE_DELETE_FAILED,
+    await (system as any)._startTask(
+      {
+        kind: 'tool',
+        id: taskId,
+        toolName: 'nonexistent_tool',
+        args: {},
+        parentClawDir: '/tmp',
+        parentClawId: 'parent',
+        createdAt: new Date().toISOString(),
+        isIdempotent: true,
+        maxRetries: 0,
+        retryCount: 0,
+      },
+      new AbortController().signal,
     );
-    expect(deleteFailedEvents.length).toBe(1);
-    expect(deleteFailedEvents[0]).toEqual(
+
+    expect((mockFs as any).delete).not.toHaveBeenCalled();
+
+    const terminalStateWrites = (mockFs as any).writeAtomic.mock.calls.filter(
+      ([filePath, content]: [string, string]) =>
+        filePath === runningPath && content.includes('"terminalState":"failed"'),
+    );
+    expect(terminalStateWrites.length).toBe(1);
+
+    expect((mockFs as any).move).toHaveBeenCalledWith(runningPath, failedPath);
+
+    const invariantEvents = auditEvents.filter(
+      e => e[0] === TASK_AUDIT_EVENTS.INVARIANT_VIOLATION && e.some(
+        c => typeof c === 'string' && c.includes('kind=tool_not_found_registry'),
+      ),
+    );
+    expect(invariantEvents.length).toBe(1);
+    expect(invariantEvents[0]).toEqual(
       expect.arrayContaining([
-        TASK_AUDIT_EVENTS.RUNNING_FILE_DELETE_FAILED,
-        expect.stringContaining('fullTaskId='),
-        expect.stringContaining('shortTaskId='),
-        expect.stringContaining('reason='),
+        TASK_AUDIT_EVENTS.INVARIANT_VIOLATION,
+        expect.stringContaining('toolName=nonexistent_tool'),
       ]),
     );
-    const fullTaskIdCol = deleteFailedEvents[0].find(
+  });
+
+  it('move failure keeps running file and emits MOVE_FAILED audit', async () => {
+    const taskId = 'tool-missing-move-fail';
+    const runningPath = `tasks/queues/running/${taskId}.json`;
+    const failedPath = `tasks/queues/failed/${taskId}.json`;
+    (mockFs as any).move = vi.fn().mockImplementation((from: string, to: string) => {
+      if (to.includes('tasks/queues/failed/')) {
+        return Promise.reject(new Error('disk full'));
+      }
+      return Promise.resolve(undefined);
+    });
+
+    await (system as any)._startTask(
+      {
+        kind: 'tool',
+        id: taskId,
+        toolName: 'nonexistent_tool',
+        args: {},
+        parentClawDir: '/tmp',
+        parentClawId: 'parent',
+        createdAt: new Date().toISOString(),
+        isIdempotent: true,
+        maxRetries: 0,
+        retryCount: 0,
+      },
+      new AbortController().signal,
+    );
+
+    expect((mockFs as any).delete).not.toHaveBeenCalled();
+
+    const terminalStateWrites = (mockFs as any).writeAtomic.mock.calls.filter(
+      ([filePath, content]: [string, string]) =>
+        filePath === runningPath && content.includes('"terminalState":"failed"'),
+    );
+    expect(terminalStateWrites.length).toBe(1);
+
+    expect((mockFs as any).move).toHaveBeenCalledWith(runningPath, failedPath);
+
+    const moveFailedEvents = auditEvents.filter(
+      e => e[0] === TASK_AUDIT_EVENTS.MOVE_FAILED && e.some(
+        c => typeof c === 'string' && c.includes('context=tool_not_found_move_to_failed'),
+      ),
+    );
+    expect(moveFailedEvents.length).toBe(1);
+    expect(moveFailedEvents[0]).toEqual(
+      expect.arrayContaining([
+        TASK_AUDIT_EVENTS.MOVE_FAILED,
+        expect.stringContaining('fullTaskId='),
+        expect.stringContaining('shortTaskId='),
+        expect.stringContaining('context=tool_not_found_move_to_failed'),
+        expect.stringContaining('error='),
+      ]),
+    );
+
+    const fullTaskIdCol = moveFailedEvents[0].find(
       (c): c is string => typeof c === 'string' && c.startsWith('fullTaskId='),
     );
     expect(fullTaskIdCol).toContain(taskId);
-    const shortTaskIdCol = deleteFailedEvents[0].find(
+    const shortTaskIdCol = moveFailedEvents[0].find(
       (c): c is string => typeof c === 'string' && c.startsWith('shortTaskId='),
     );
     expect(shortTaskIdCol).toContain(deriveShortIdFromTaskId(taskId as any));
-    const reasonCol = deleteFailedEvents[0].find(
-      (c): c is string => typeof c === 'string' && c.startsWith('reason='),
+    const errorCol = moveFailedEvents[0].find(
+      (c): c is string => typeof c === 'string' && c.startsWith('error='),
     );
-    expect(reasonCol).toContain('disk full');
-  });
-
-  it('tool not found + fs.delete success → 0 RUNNING_FILE_DELETE_FAILED', async () => {
-    const taskId = 'tool-missing-delete-ok';
-
-    mockFs.delete = vi.fn().mockResolvedValue(undefined);
-    mockFs.read = vi.fn().mockResolvedValue(JSON.stringify({
-      kind: 'tool',
-      id: taskId,
-      toolName: 'nonexistent_tool',
-      args: {},
-      parentClawDir: '/tmp',
-      parentClawId: 'parent',
-      createdAt: new Date().toISOString(),
-      isIdempotent: true,
-      maxRetries: 0,
-      retryCount: 0,
-    }));
-    mockFs.move = vi.fn().mockResolvedValue(undefined);
-    mockFs.writeAtomic = vi.fn().mockResolvedValue(undefined);
-    mockFs.ensureDir = vi.fn().mockResolvedValue(undefined);
-
-    await (system as any)._startTask({
-      kind: 'tool',
-      id: taskId,
-      toolName: 'nonexistent_tool',
-      args: {},
-      parentClawDir: '/tmp',
-      parentClawId: 'parent',
-      createdAt: new Date().toISOString(),
-      isIdempotent: true,
-      maxRetries: 0,
-      retryCount: 0,
-    }, new AbortController().signal);
-
-    const deleteFailedEvents = auditEvents.filter(
-      e => e[0] === TASK_AUDIT_EVENTS.RUNNING_FILE_DELETE_FAILED,
-    );
-    expect(deleteFailedEvents.length).toBe(0);
+    expect(errorCol).toContain('disk full');
   });
 });

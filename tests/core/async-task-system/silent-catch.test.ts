@@ -239,7 +239,7 @@ describe('phase 541: silent catch fixes', () => {
 
     it('watcher async ingest reject writes PENDING_INGEST_FAILED audit (context=watcher_async)', async () => {
       await system.initialize();
-      system.startDispatch();
+      await system.startDispatch();
 
       // 替换 _ingestPendingFile 让它 reject（模拟极端情况如同步 throw / audit 自身 throw）
       const originalIngest = (system as any)._ingestPendingFile.bind(system);

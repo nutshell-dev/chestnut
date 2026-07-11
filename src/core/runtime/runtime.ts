@@ -250,7 +250,7 @@ export class Runtime implements IRuntimeLifecycle, IRuntimeDaemon {
       throw new Error(`Runtime: AsyncTaskSystem.initialize failed: ${formatErr(e)}`, { cause: e });
     }
     try {
-      this.taskSystem.startDispatch();
+      await this.taskSystem.startDispatch();
     } catch (e) {
       auditError(this.auditWriter, RUNTIME_AUDIT_EVENTS.TASK_SYSTEM_START_DISPATCH_FAILED, e);
       throw new Error(`Runtime: AsyncTaskSystem.startDispatch failed: ${formatErr(e)}`, { cause: e });
