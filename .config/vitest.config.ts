@@ -16,7 +16,7 @@ const maxThreads = Number.isFinite(envMaxThreads) && envMaxThreads > 0
  * 维护: NEW test 用 vi.mock 需加此列表
  *
  * 生成: find tests -name "*.test.ts" -exec grep -lE "^vi\.mock\(|^\s*vi\.mock\(" {} \; | sort
- * 数量: 119 file (sync 2026-07-11 / phase 879 added phase879 mock)
+ * 数量: 120 file (sync 2026-07-11 / phase 882 added phase882 mock)
  * Invariant test: tests/design/vi-mock-list-consistency-invariant.test.ts 守 list ↔ 真 use site 一致性
  *   (phase 316 V53 a 真治、撤回 phase 306 ratify「推 §10」、详 `coding plan/phase316/`)
  */
@@ -73,6 +73,7 @@ const VI_MOCK_FILES = [
   'tests/core/async-task-system/task-recovery-phase874.test.ts',  // phase 874: vi.mock result-delivery
   'tests/core/async-task-system/task-recovery-phase875.test.ts',  // phase 875: vi.mock result-delivery
   'tests/core/async-task-system/phase881.test.ts',  // phase 881: vi.mock messaging
+  'tests/core/async-task-system/phase882.test.ts',  // phase 882: vi.mock messaging
   // phase 1352 reverted (post-merge fix): spawn tool extraction conflicted with phase 1332
   // builtins.test.ts now has vi.hoisted only (mockSchedule) → stays in fast project
   // phase 1353: builtins-slow.test.ts moved to fast (dead vi.mock removed)
