@@ -836,7 +836,7 @@ export class AsyncTaskSystem {
 
       // phase 284: QC-4 only (cancellingIds subset of active) after ingest
       void auditQueueCrossSource(
-        { cancellingIds: new Set(Array.from(this.cancellingIds).map(id => this.shortIdIndex.canonicalShortId(id))) },
+        { cancellingIds: new Set(Array.from(this.cancellingIds).map(id => this.shortIdIndex.canonicalShortId(id) ?? this.shortIdIndex.deriveShortId(id))) },
         this.fs,
         this.auditWriter,
         'ingest_pending_file',
@@ -911,7 +911,7 @@ export class AsyncTaskSystem {
 
       // phase 284: QC-4 only (cancellingIds subset of active) after move
       void auditQueueCrossSource(
-        { cancellingIds: new Set(Array.from(this.cancellingIds).map(id => this.shortIdIndex.canonicalShortId(id))) },
+        { cancellingIds: new Set(Array.from(this.cancellingIds).map(id => this.shortIdIndex.canonicalShortId(id) ?? this.shortIdIndex.deriveShortId(id))) },
         this.fs,
         this.auditWriter,
         'dispatch_after_move',
@@ -1175,7 +1175,7 @@ export class AsyncTaskSystem {
    * List running task IDs (active executions).
    */
   listRunning(): ShortTaskId[] {
-    return Array.from(this.executingTasks.keys()).map(id => this.shortIdIndex.canonicalShortId(id));
+    return Array.from(this.executingTasks.keys()).map(id => this.shortIdIndex.canonicalShortId(id) ?? this.shortIdIndex.deriveShortId(id));
   }
 
   getRunningCount(): number {
@@ -1187,7 +1187,7 @@ export class AsyncTaskSystem {
    */
   async listPending(): Promise<ShortTaskId[]> {
     const ids = await this._getPendingTaskIds();
-    return Array.from(ids).map(id => this.shortIdIndex.canonicalShortId(id));
+    return Array.from(ids).map(id => this.shortIdIndex.canonicalShortId(id) ?? this.shortIdIndex.deriveShortId(id));
   }
 
   async getPendingCount(): Promise<number> {
@@ -1196,7 +1196,7 @@ export class AsyncTaskSystem {
   }
 
   getCancellingIds(): ShortTaskId[] {
-    return [...this.cancellingIds].map(id => this.shortIdIndex.canonicalShortId(id));
+    return [...this.cancellingIds].map(id => this.shortIdIndex.canonicalShortId(id) ?? this.shortIdIndex.deriveShortId(id));
   }
 
   /**
@@ -1215,7 +1215,7 @@ export class AsyncTaskSystem {
       );
       throw new Error(`[INVARIANT VIOLATION] async-task-system: ${violationMsg}`);
     }
-    const shortId = this.shortIdIndex.canonicalShortId(fullId);
+    const shortId = this.shortIdIndex.canonicalShortId(fullId) ?? this.shortIdIndex.deriveShortId(fullId);
 
     // 1. 先检查 running (active execution handles)
     const state = this.executingTasks.get(fullId);
