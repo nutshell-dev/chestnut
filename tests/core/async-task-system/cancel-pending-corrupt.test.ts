@@ -25,7 +25,7 @@ describe('cancel pending task with corrupt JSON triggers backupCorruptTask audit
     vi.clearAllMocks();
   });
 
-  it('corrupt JSON parse fail → backupCorruptTask audit TASK_CORRUPT + file still moved to failed', async () => {
+  it('corrupt JSON parse fail → backupCorruptTask audit TASK_CORRUPT + CANCELLED from pending_corrupt, no move to failed', async () => {
     const auditEvents: Array<[string, ...(string | number)[]]> = [];
     const audit: AuditLog = {
       write: (type: string, ...cols: (string | number)[]) => {
@@ -77,16 +77,26 @@ describe('cancel pending task with corrupt JSON triggers backupCorruptTask audit
       ]),
     );
 
-    // file still moved to failed
+    // Phase 887: corrupt file is quarantined by backupCorruptTask; cancel emits
+    // CANCELLED from=pending_corrupt and does NOT attempt to move to failed.
     expect(mockFs.move).toHaveBeenCalledWith(
+      'tasks/queues/pending/task-bad.json',
+      expect.stringMatching(/tasks\/queues\/pending\/task-bad\.json\.corrupt-\d+/),
+    );
+    expect(mockFs.move).not.toHaveBeenCalledWith(
       'tasks/queues/pending/task-bad.json',
       'tasks/queues/failed/task-bad.json',
     );
 
+    const cancelledEvents = auditEvents.filter(
+      (e) => e[0] === TASK_AUDIT_EVENTS.CANCELLED && e.some((c) => typeof c === 'string' && c.includes('from=pending_corrupt')),
+    );
+    expect(cancelledEvents.length).toBe(1);
+
     await system.shutdown(1).catch(() => { /* silent: shutdown */ });
   });
 
-  it('valid JSON but shape mismatch → backupCorruptTask audit + file moved to failed', async () => {
+  it('valid JSON but shape mismatch → backupCorruptTask audit + CANCELLED from pending_corrupt, no move to failed', async () => {
     const auditEvents: Array<[string, ...(string | number)[]]> = [];
     const audit: AuditLog = {
       write: (type: string, ...cols: (string | number)[]) => {
@@ -135,10 +145,21 @@ describe('cancel pending task with corrupt JSON triggers backupCorruptTask audit
       ]),
     );
 
+    // Phase 887: corrupt file is quarantined by backupCorruptTask; cancel emits
+    // CANCELLED from=pending_corrupt and does NOT attempt to move to failed.
     expect(mockFs.move).toHaveBeenCalledWith(
+      'tasks/queues/pending/task-shape.json',
+      expect.stringMatching(/tasks\/queues\/pending\/task-shape\.json\.corrupt-\d+/),
+    );
+    expect(mockFs.move).not.toHaveBeenCalledWith(
       'tasks/queues/pending/task-shape.json',
       'tasks/queues/failed/task-shape.json',
     );
+
+    const cancelledEvents = auditEvents.filter(
+      (e) => e[0] === TASK_AUDIT_EVENTS.CANCELLED && e.some((c) => typeof c === 'string' && c.includes('from=pending_corrupt')),
+    );
+    expect(cancelledEvents.length).toBe(1);
 
     await system.shutdown(1).catch(() => { /* silent: shutdown */ });
   });

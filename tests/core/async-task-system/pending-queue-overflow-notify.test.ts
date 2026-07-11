@@ -33,11 +33,22 @@ describe('pending queue overflow motion notify', () => {
     }
     fs.mkdirSync(path.join(baseDir, 'sync'), { recursive: true });
     fs.mkdirSync(path.join(baseDir, 'subagents'), { recursive: true });
+    fs.mkdirSync(path.join(baseDir, 'inbox', 'pending'), { recursive: true });
   });
 
   function writePendingFile(id: string): void {
     const p = path.join(baseDir, TASKS_QUEUES_PENDING_DIR, `${id}.json`);
-    fs.writeFileSync(p, JSON.stringify({ id, kind: 'subagent', createdAt: new Date().toISOString() }));
+    fs.writeFileSync(p, JSON.stringify({
+      id,
+      kind: 'subagent',
+      mode: 'standard',
+      shortId: id.slice(0, 8),
+      parentClawId: 'parent-claw',
+      parentClawDir: baseDir,
+      createdAt: new Date().toISOString(),
+      timeoutMs: 60000,
+      intent: 'test',
+    }));
   }
 
   it('反向 1: overflow 触发 -> selfInbox.writeSync called + audit PENDING_QUEUE_OVERFLOW_NOTIFIED + file moved to failed', async () => {
@@ -67,7 +78,7 @@ describe('pending queue overflow motion notify', () => {
     }
 
     // 触发 overflow
-    await (system as any)._enqueueAndDispatch({ id: 'overflow-task', kind: 'subagent' } as any);
+    await (system as any)._enqueueAndDispatch({ id: 'overflow-task', kind: 'subagent', parentClawId: 'parent-claw', parentClawDir: baseDir } as any);
 
     // 验收 1: selfInbox.writeSync called
     expect(inboxWrites.length).toBeGreaterThanOrEqual(1);
@@ -102,7 +113,7 @@ describe('pending queue overflow motion notify', () => {
       writePendingFile(`task-${i}`);
     }
 
-    await (system as any)._enqueueAndDispatch({ id: 'no-inbox-task', kind: 'subagent' } as any);
+    await (system as any)._enqueueAndDispatch({ id: 'no-inbox-task', kind: 'subagent', parentClawId: 'parent-claw', parentClawDir: baseDir } as any);
 
     // 验收: PENDING_QUEUE_OVERFLOW 仍 emit
     const overflowAudit = writes.find(w => w.type === TASK_AUDIT_EVENTS.PENDING_QUEUE_OVERFLOW);
@@ -120,7 +131,17 @@ describe('pending queue overflow motion notify', () => {
     const pendingDir = path.join(baseDir, 'tasks', 'queues', 'pending');
     const failedDir = path.join(baseDir, 'tasks', 'queues', 'failed');
     const taskFile = path.join(pendingDir, `${taskId}.json`);
-    fs.writeFileSync(taskFile, JSON.stringify({ id: taskId, kind: 'subagent' }));
+    fs.writeFileSync(taskFile, JSON.stringify({
+      id: taskId,
+      kind: 'subagent',
+      mode: 'standard',
+      shortId: taskId.slice(0, 8),
+      parentClawId: 'parent-claw',
+      parentClawDir: baseDir,
+      createdAt: new Date().toISOString(),
+      timeoutMs: 60000,
+      intent: 'test',
+    }));
 
     const realFs = new NodeFileSystem({ baseDir });
 
@@ -142,7 +163,7 @@ describe('pending queue overflow motion notify', () => {
       writePendingFile(`task-${i}`);
     }
 
-    await (system as any)._enqueueAndDispatch({ id: taskId, kind: 'subagent' } as any);
+    await (system as any)._enqueueAndDispatch({ id: taskId, kind: 'subagent', parentClawId: 'parent-claw', parentClawDir: baseDir } as any);
 
     // 验收: task file 从 pending 移到了 failed
     const failedFile = path.join(failedDir, `${taskId}.json`);

@@ -48,12 +48,16 @@ function writePendingFile(baseDir: string, id: string, extra: Record<string, unk
   const p = path.join(baseDir, TASKS_QUEUES_PENDING_DIR, `${id}.json`);
   fs.writeFileSync(p, JSON.stringify({
     id,
+    shortId: id.length === 36 ? id.slice(0, 8) : id,
     kind: 'tool',
     toolName: 'test',
     args: {},
     parentClawDir: baseDir,
     parentClawId: 'parent-claw',
     createdAt: new Date().toISOString(),
+    isIdempotent: true,
+    maxRetries: 0,
+    retryCount: 0,
     ...extra,
   }));
 }
@@ -101,12 +105,11 @@ describe('phase 886', () => {
     await system.shutdown(1).catch(() => { /* silent: shutdown */ });
   });
 
-  it('throws and re-signals when overflow move fails', async () => {
+  it('keeps task in pending and retries move on next dispatch cycle when overflow move fails', async () => {
     const baseDir = setupBaseDir();
     const { audit, events } = makeAudit();
     const realFs = new NodeFileSystem({ baseDir });
 
-    let signalCount = 0;
     const system = new AsyncTaskSystem(baseDir, realFs, {
       shortIdIndex: new InMemoryShortIdIndex(),
       auditWriter: audit,
@@ -115,37 +118,42 @@ describe('phase 886', () => {
       outboxWriter: {} as any,
       registry: {} as any,
     });
-    const originalSignal = (system as any)._signalWork.bind(system);
-    (system as any)._signalWork = () => {
-      signalCount++;
-      originalSignal();
-    };
+
+    // Use a UUID-length task id so _loadTaskFromFile can validate the shape on retry.
+    const taskId = '550e8400-e29b-41d4-a716-446655440000';
 
     // Replace move with one that rejects for the overflow path only.
+    let moveAttempts = 0;
     const originalMove = realFs.move.bind(realFs);
     realFs.move = async (from: string, to: string) => {
-      if (from.includes('tasks/queues/pending/overflow-task.json')) {
-        const err = Object.assign(new Error('EACCES'), { code: 'EACCES' });
-        throw err;
+      if (from.includes(`tasks/queues/pending/${taskId}.json`)) {
+        moveAttempts++;
+        if (moveAttempts === 1) {
+          const err = Object.assign(new Error('EACCES'), { code: 'EACCES' });
+          throw err;
+        }
       }
       return originalMove(from, to);
     };
 
-    writePendingFile(baseDir, 'overflow-task');
+    writePendingFile(baseDir, taskId);
     for (let i = 0; i < PENDING_QUEUE_MAX; i++) {
-      writePendingFile(baseDir, `task-${i}`);
+      writePendingFile(baseDir, `550e8400-e29b-41d4-a716-${String(i).padStart(12, '0')}`);
     }
 
-    await expect((system as any)._enqueueAndDispatch({
-      id: 'overflow-task',
+    // Phase 887: overflow move failure no longer throws; the task stays in pending
+    // with terminalState='failed' and is retried on the next dispatch cycle.
+    await (system as any)._enqueueAndDispatch({
+      id: taskId,
       kind: 'tool',
       toolName: 'test',
       args: {},
       parentClawDir: baseDir,
       parentClawId: 'parent-claw',
-    } as any)).rejects.toThrow('EACCES');
-
-    expect(signalCount).toBeGreaterThanOrEqual(1);
+      isIdempotent: true,
+      maxRetries: 0,
+      retryCount: 0,
+    } as any);
 
     const moveFailedEvents = events.filter(
       e => e[0] === TASK_AUDIT_EVENTS.MOVE_FAILED && e.some(c => typeof c === 'string' && c.includes('context=cap_overflow_move')),
@@ -153,8 +161,16 @@ describe('phase 886', () => {
     expect(moveFailedEvents.length).toBe(1);
 
     // Task file must remain in pending so the dispatcher can retry.
-    const pendingFile = path.join(baseDir, TASKS_QUEUES_PENDING_DIR, 'overflow-task.json');
+    const pendingFile = path.join(baseDir, TASKS_QUEUES_PENDING_DIR, `${taskId}.json`);
     expect(fs.existsSync(pendingFile)).toBe(true);
+    const pendingContent = JSON.parse(fs.readFileSync(pendingFile, 'utf-8'));
+    expect(pendingContent.terminalState).toBe('failed');
+
+    // Next dispatch cycle: _getPendingTasks sees terminalState='failed' and retries.
+    const pendingTasks = await (system as any)._getPendingTasks();
+    expect(pendingTasks.some((t: { id: string }) => t.id === taskId)).toBe(false);
+    expect(fs.existsSync(path.join(baseDir, TASKS_QUEUES_FAILED_DIR, `${taskId}.json`))).toBe(true);
+    expect(fs.existsSync(pendingFile)).toBe(false);
 
     await system.shutdown(1).catch(() => { /* silent: shutdown */ });
   });

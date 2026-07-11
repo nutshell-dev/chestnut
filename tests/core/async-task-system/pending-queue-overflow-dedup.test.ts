@@ -28,12 +28,23 @@ function setupBaseDir(): string {
   }
   fs.mkdirSync(path.join(baseDir, 'sync'), { recursive: true });
   fs.mkdirSync(path.join(baseDir, 'subagents'), { recursive: true });
+  fs.mkdirSync(path.join(baseDir, 'inbox', 'pending'), { recursive: true });
   return baseDir;
 }
 
 function writePendingFile(baseDir: string, id: string): void {
   const p = path.join(baseDir, TASKS_QUEUES_PENDING_DIR, `${id}.json`);
-  fs.writeFileSync(p, JSON.stringify({ id, kind: 'subagent', createdAt: new Date().toISOString() }));
+  fs.writeFileSync(p, JSON.stringify({
+    id,
+    kind: 'subagent',
+    mode: 'standard',
+    shortId: id.slice(0, 8),
+    parentClawId: 'parent-claw',
+    parentClawDir: baseDir,
+    createdAt: new Date().toISOString(),
+    timeoutMs: 60000,
+    intent: 'test',
+  }));
 }
 
 function clearPendingDir(baseDir: string): void {
@@ -72,7 +83,7 @@ describe('phase 7: overflow dedup (system-level overload, 1 notif per window)', 
 
     // Trigger 3 overflow rejections in same window
     for (let i = 0; i < 3; i++) {
-      await (system as any)._enqueueAndDispatch({ id: `overflow-${i}`, kind: 'subagent' } as any);
+      await (system as any)._enqueueAndDispatch({ id: `overflow-${i}`, kind: 'subagent', parentClawId: 'parent-claw', parentClawDir: baseDir } as any);
     }
 
     // Only 1 notification despite 3 rejections (dedup)
@@ -99,7 +110,7 @@ describe('phase 7: overflow dedup (system-level overload, 1 notif per window)', 
       writePendingFile(baseDir, `task-${i}`);
     }
 
-    await (system as any)._enqueueAndDispatch({ id: 'overflow-task', kind: 'subagent' } as any);
+    await (system as any)._enqueueAndDispatch({ id: 'overflow-task', kind: 'subagent', parentClawId: 'parent-claw', parentClawDir: baseDir } as any);
 
     const msg = inboxWrites.find(w => w.type === 'task_queue_overflow');
     expect(msg).toBeDefined();
@@ -130,21 +141,21 @@ describe('phase 7: overflow dedup (system-level overload, 1 notif per window)', 
     for (let i = 0; i < PENDING_QUEUE_MAX; i++) {
       writePendingFile(baseDir, `task-${i}`);
     }
-    await (system as any)._enqueueAndDispatch({ id: 'first-overflow', kind: 'subagent' } as any);
+    await (system as any)._enqueueAndDispatch({ id: 'first-overflow', kind: 'subagent', parentClawId: 'parent-claw', parentClawDir: baseDir } as any);
     expect(inboxWrites.filter(w => w.type === 'task_queue_overflow').length).toBe(1);
 
     // Drain queue (simulate processing)
     clearPendingDir(baseDir);
 
     // _enqueueAndDispatch 不在 overflow case 时也会 reset dedup
-    await (system as any)._enqueueAndDispatch({ id: 'recovery-task', kind: 'subagent' } as any).catch(() => { /* silent: cleanup */ });
+    await (system as any)._enqueueAndDispatch({ id: 'recovery-task', kind: 'subagent', parentClawId: 'parent-claw', parentClawDir: baseDir } as any).catch(() => { /* silent: cleanup */ });
 
     // Re-fill queue + second overflow
     writePendingFile(baseDir, 'second-overflow');
     for (let i = 0; i < PENDING_QUEUE_MAX; i++) {
       writePendingFile(baseDir, `task2-${i}`);
     }
-    await (system as any)._enqueueAndDispatch({ id: 'second-overflow', kind: 'subagent' } as any);
+    await (system as any)._enqueueAndDispatch({ id: 'second-overflow', kind: 'subagent', parentClawId: 'parent-claw', parentClawDir: baseDir } as any);
 
     // 2 notifications now (across 2 windows)
     expect(inboxWrites.filter(w => w.type === 'task_queue_overflow').length).toBe(2);
