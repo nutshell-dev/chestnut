@@ -69,6 +69,7 @@ const VI_MOCK_FILES = [
   'tests/core/async-task-system/task-recovery-corrupt.test.ts',
   'tests/core/async-task-system/task-recovery-phase989.test.ts',
   'tests/core/async-task-system/task-recovery-phase872.test.ts',  // phase 872: vi.mock result-delivery
+  'tests/core/async-task-system/task-recovery-phase874.test.ts',  // phase 874: vi.mock result-delivery
   // phase 1352 reverted (post-merge fix): spawn tool extraction conflicted with phase 1332
   // builtins.test.ts now has vi.hoisted only (mockSchedule) → stays in fast project
   // phase 1353: builtins-slow.test.ts moved to fast (dead vi.mock removed)

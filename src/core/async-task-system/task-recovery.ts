@@ -84,7 +84,30 @@ async function _recoverToolTask(
     return _recoverMigratedToolTask(deps, filePath, task);
   }
 
-  // Fresh task: move back to pending and re-execute.
+  // Phase 874: respect terminalState for already-executed tool tasks
+  const ts = (task as unknown as Record<string, unknown>).terminalState as string | undefined;
+  if (ts === 'done') {
+    await deps.fs.move(filePath, `${TASKS_QUEUES_DONE_DIR}/${task.id}.json`).catch(async (e) => {
+      emitRecoveryFailed(deps.auditWriter, {
+        taskId: task.id,
+        context: 'tool_done_move_failed',
+        error: formatErr(e),
+      });
+    });
+    return 0;
+  }
+  if (ts === 'failed') {
+    await deps.fs.move(filePath, `${TASKS_QUEUES_FAILED_DIR}/${task.id}.json`).catch(async (e) => {
+      emitRecoveryFailed(deps.auditWriter, {
+        taskId: task.id,
+        context: 'tool_failed_move_failed',
+        error: formatErr(e),
+      });
+    });
+    return 0;
+  }
+
+  // No terminalState: fresh task — move back to pending, re-execute
   const pendingPath = `${TASKS_QUEUES_PENDING_DIR}/${task.id}.json`;
   await deps.fs.move(filePath, pendingPath);
   emitRecovered(deps.auditWriter, {
@@ -426,21 +449,28 @@ async function _moveToDeadLetter(
     shortTaskId: taskShortId(task),
     retries: retryCount,
   });
-  await fs.move(filePath, `${TASKS_QUEUES_FAILED_DIR}/${task.id}.json`).catch(async (moveErr) => {
-    emitRecoveryFailed(auditWriter, {
-      taskId: task.id,
-      context: 'dead_letter_move_failed',
-      error: formatErr(moveErr),
+  await fs.move(filePath, `${TASKS_QUEUES_FAILED_DIR}/${task.id}.json`)
+    .then(async () => {
+      // Phase 874: only cleanup retry counter on successful move
+      await fs.delete(retryPath).catch((cleanupErr) => {
+        if (!isFileNotFound(cleanupErr)) {
+          emitRecoveryFailed(auditWriter, {
+            taskId: task.id,
+            context: 'dead_letter_retrypath_cleanup_failed',
+            error: formatErr(cleanupErr),
+          });
+        }
+        // silent: ENOENT/FS_NOT_FOUND — retry counter already absent; cleanup has no target
+      });
+    })
+    .catch(async (moveErr) => {
+      emitRecoveryFailed(auditWriter, {
+        taskId: task.id,
+        context: 'dead_letter_move_failed',
+        error: formatErr(moveErr),
+      });
+      // Keep running file + retry counter for next recovery attempt.
     });
-    // Keep running file — retry counter already at max; next recovery will dead-letter again.
-  });
-  await fs.delete(retryPath).catch((cleanupErr) => {
-    emitRecoveryFailed(auditWriter, {
-      taskId: task.id,
-      context: 'dead_letter_retrypath_cleanup_failed',
-      error: formatErr(cleanupErr),
-    });
-  });
 }
 
 async function _recoverWithoutResult(

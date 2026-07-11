@@ -143,6 +143,8 @@ interface CommonSubAgentTaskFields {
   shadowToolsForLLM?: ToolDefinition[];
   // phase 281: summon decision 内嵌 metadata，随 task lifecycle 同步
   summonDecision?: SummonDecisionMetadata;
+  /** Phase 873/874: persisted terminal intent for recovery routing. */
+  terminalState?: 'done' | 'failed';
 }
 
 // phase 218: intent 在 both mode 都存在、shadow 独有 shadowMessages
@@ -195,5 +197,7 @@ export interface ToolTask {
    * Format matches ProcessStartTime (ps lstart string) for PID reuse defense.
    */
   migratedStartTime?: string;
+  /** Phase 873/874: persisted terminal intent for recovery routing. */
+  terminalState?: 'done' | 'failed';
 }
 
