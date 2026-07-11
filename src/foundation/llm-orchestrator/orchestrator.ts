@@ -266,8 +266,9 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
 
     try {
       // 上次成功的 fallback 排最前：同 turn 内后续 step 直接用、不反复 failover
+      let stickyFb: LLMProvider | undefined;
       if (this.lastSuccessProvider?.isFallback) {
-        const stickyFb = this.fallbacks.find(fb => fb.name === this.lastSuccessProvider!.name);
+        stickyFb = this.fallbacks.find(fb => fb.name === this.lastSuccessProvider!.name);
         const stickyIdx = stickyFb ? this.fallbacks.indexOf(stickyFb) : -1;
         if (stickyFb && stickyIdx >= 0 && !isBreakerOpen(stickyIdx + 1)) {
           try {
@@ -304,6 +305,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
 
       for (let i = 0; i < this.fallbacks.length; i++) {
         if (options.signal?.aborted) throw makeExternalAbortError(options.signal.reason as AbortReason | undefined);
+        if (stickyFb && this.fallbacks[i].name === stickyFb.name) continue;
         if (isBreakerOpen(i + 1)) {
           failures.push({ provider: this.fallbacks[i].name, error: new LLMCircuitBreakerOpenError(this.fallbacks[i].name) });
           continue;
@@ -342,9 +344,9 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
       return;
     }
 
-    const providers: Array<{ adapter: LLMProvider; breakerIndex: number }> = [
-      { adapter: this.primary, breakerIndex: 0 },
-      ...this.fallbacks.map((fb, i) => ({ adapter: fb, breakerIndex: i + 1 })),
+    const providers: Array<{ adapter: LLMProvider; breakerIndex: number; isFallback: boolean }> = [
+      { adapter: this.primary, breakerIndex: 0, isFallback: false },
+      ...this.fallbacks.map((fb, i) => ({ adapter: fb, breakerIndex: i + 1, isFallback: true })),
     ];
 
     // 上次成功的 fallback 排到最前：同 turn 内后续 step 直接用、不反复 failover
@@ -372,7 +374,12 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
       if (options.signal?.aborted) throw makeExternalAbortError(options.signal.reason as AbortReason | undefined);
       const { adapter, breakerIndex } = providers[pi];
 
-      if (!adapter.stream) continue;
+      if (!adapter.stream) {
+        failures.push({ provider: adapter.name, error: new Error('Provider does not support streaming') });
+        yield { type: 'provider_failed' as const, provider: adapter.name, model: adapter.model, error: 'stream capability missing' };
+        lastFailedProviderName = adapter.name;
+        continue;
+      }
 
       // Check circuit breaker
       const breaker = this.breakers[breakerIndex];
@@ -434,7 +441,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
                 });
                 lastFailedProviderName = null;
               }
-              this.currentStreamingProvider = { name: adapter.name, model: adapter.model, isFallback: pi !== 0 };
+              this.currentStreamingProvider = { name: adapter.name, model: adapter.model, isFallback: providers[pi].isFallback };
             }
             hasYielded = true;
             if (chunk.type === 'text_delta' || chunk.type === 'tool_use_start') {
@@ -571,7 +578,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
       if (success && receivedDone && hasContent) {
         // Circuit breaker: record success
         breaker?.onSuccess();
-        this.updateLastSuccess(adapter, pi !== 0);
+        this.updateLastSuccess(adapter, providers[pi].isFallback);
         return; // Success, exit generator
       }
 
