@@ -30,7 +30,7 @@ export const test = base.extend<{ ctx: TaskTestCtx }>({
     await mockFs.ensureDir('tasks');
     let currentSystem = createTestTaskSystem(tempDir, mockFs, makeAudit().audit, undefined, { createWatcher });
     await currentSystem.initialize();
-    currentSystem.startDispatch();
+    await currentSystem.startDispatch();
     const registry = new ToolRegistryImpl();
 
     const ctx: TaskTestCtx = {

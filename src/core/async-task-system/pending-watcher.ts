@@ -78,6 +78,7 @@ export function createPendingWatcher(deps: PendingWatcherDeps): PendingWatcherHa
           context: 'initial_scan_pending_failed',
           error: formatErr(err),
         });
+        throw err;
       }
     },
 

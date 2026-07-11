@@ -94,6 +94,7 @@ export class AsyncTaskSystem {
   private readonly askMotionToolFactory: (llm: LLMOrchestrator, motionDialogStore: DialogStore) => Tool;
   private readonly shortIdIndex: ShortIdIndex;
   private _shuttingDown = false;
+  private _dispatchRunning = false;
 
   /**
    * 装配期注册 PostProcessor
@@ -169,14 +170,27 @@ export class AsyncTaskSystem {
         if (task.kind !== 'tool') return;
         const tool = this.registry.getAll().find(t => t.name === task.toolName);
         if (!tool) {
-          await this.fs.delete(`${TASKS_QUEUES_RUNNING_DIR}/${task.id}.json`).catch((err) => {
-            this.auditWriter?.write(
-              TASK_AUDIT_EVENTS.RUNNING_FILE_DELETE_FAILED,
-              `fullTaskId=${task.id}`,
-              `shortTaskId=${taskShortId(task)}`,
-              `reason=${formatErr(err)}`,
-            );
-          });
+          const runningPath = `${TASKS_QUEUES_RUNNING_DIR}/${task.id}.json`;
+          try {
+            await this._setTerminalState(runningPath, 'failed');
+            await this.fs.move(runningPath, `${TASKS_QUEUES_FAILED_DIR}/${task.id}.json`)
+              .catch((moveErr) => {
+                emitMoveFailed(this.auditWriter, {
+                  fullTaskId: task.id as FullTaskId,
+                  shortTaskId: taskShortId(task),
+                  context: 'tool_not_found_move_to_failed',
+                  error: formatErr(moveErr),
+                });
+              });
+          } catch (e) {
+            // _setTerminalState failed — audit and keep running for recovery
+            emitMoveFailed(this.auditWriter, {
+              fullTaskId: task.id as FullTaskId,
+              shortTaskId: taskShortId(task),
+              context: 'tool_not_found_set_terminal_state_failed',
+              error: formatErr(e),
+            });
+          }
           const violationMsg = `Tool "${task.toolName}" not found in registry (装配 bug)`;
           this.auditWriter?.write(
             TASK_AUDIT_EVENTS.INVARIANT_VIOLATION,
@@ -372,7 +386,9 @@ export class AsyncTaskSystem {
    * The LLM service is injected via constructor; dispatch is ready once
    * initialize() has completed.
    */
-  startDispatch(): void {
+  async startDispatch(): Promise<void> {
+    if (this._dispatchRunning) return;
+
     if (!this.pendingWatcherHandle) {
       this.pendingWatcherHandle = createPendingWatcher({
         fs: this.fs,
@@ -382,9 +398,9 @@ export class AsyncTaskSystem {
         createWatcher: this.options.createWatcher,
       });
     }
-    void this.pendingWatcherHandle.start();
-    // 启动持久 dispatch 循环（替代原 _dispatch()）
-    void this._runDispatchLoop();
+    await this.pendingWatcherHandle.start();
+    this._dispatchRunning = true;
+    this._runDispatchLoop();
     // 首次触发：扫 pending 目录中已有任务
     this._signalWork();
   }
@@ -713,26 +729,36 @@ export class AsyncTaskSystem {
    * guard.
    */
   private async _runDispatchLoop(): Promise<void> {
-    while (!this._shuttingDown) {
-      // 调度所有可用任务
-      while (this.executingTasks.size < this.maxConcurrent && !this._shuttingDown) {
-        const pendingTasks = await this._getPendingTasks();
-        const task = pendingTasks.find(t => !this.executingTasks.has(t.id as FullTaskId));
-        if (!task) break;
-        const abortController = new AbortController();
-        const promise = this._startTask(task, abortController.signal);
-        this.executingTasks.set(task.id as FullTaskId, { abortController, promise });
-      }
-      if (this._shuttingDown) return;
-      // 原子化睡眠：注册 waiter + 检查 pending flag 在 Promise constructor 内同步完成
-      await new Promise<void>(r => {
-        this._wakeupResolve = r;
-        if (this._wakeupRequested) {
-          this._wakeupRequested = false;
-          r();
+    while (this._dispatchRunning && !this._shuttingDown) {
+      try {
+        while (this.executingTasks.size < this.maxConcurrent && !this._shuttingDown) {
+          const pendingTasks = await this._getPendingTasks();
+          const task = pendingTasks.find(t => !this.executingTasks.has(t.id as FullTaskId));
+          if (!task) break;
+          const abortController = new AbortController();
+          const promise = this._startTask(task, abortController.signal);
+          this.executingTasks.set(task.id as FullTaskId, { abortController, promise });
         }
-      });
-      this._wakeupResolve = null;
+        if (this._shuttingDown) return;
+        // 原子化睡眠：注册 waiter + 检查 pending flag 在 Promise constructor 内同步完成
+        await new Promise<void>(r => {
+          this._wakeupResolve = r;
+          if (this._wakeupRequested) {
+            this._wakeupRequested = false;
+            r();
+          }
+        });
+        this._wakeupResolve = null;
+      } catch (err) {
+        if (this._shuttingDown) return;
+        this.auditWriter?.write(
+          TASK_AUDIT_EVENTS.INVARIANT_VIOLATION,
+          `site=async-task-system/system.ts:_runDispatchLoop`,
+          `kind=dispatch_loop_error`,
+          `error=${formatErr(err)}`,
+        );
+        await new Promise(r => setTimeout(r, 1000));
+      }
     }
   }
 

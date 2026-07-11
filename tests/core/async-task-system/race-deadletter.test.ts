@@ -334,6 +334,8 @@ describe('phase 556: race + dead-letter cluster fix', () => {
       vi.spyOn(system as any, '_getPendingTasks').mockResolvedValue([taskObj]);
 
       // Phase 802: dispatch loop is persistent and must be started before _signalWork() can wake it.
+      // Phase 884: the loop now guards on _dispatchRunning.
+      (system as any)._dispatchRunning = true;
       void (system as any)._runDispatchLoop();
 
       // 并发触发两次 _ingestPendingFile
