@@ -43,10 +43,17 @@ describe('InMemoryShortIdIndex', () => {
     expect(index.canonicalShortId(fullId)).not.toBe(index.deriveShortId(fullId));
   });
 
-  it('canonicalShortId falls back to derive for tasks not in index', () => {
+  it('canonicalShortId returns undefined for unregistered fullId', () => {
     const index = new InMemoryShortIdIndex();
     const fullId = makeFullTaskId('550e8400-e29b-41d4-a716-446655440000');
-    expect(index.canonicalShortId(fullId)).toBe(index.deriveShortId(fullId));
+    expect(index.canonicalShortId(fullId)).toBeUndefined();
+  });
+
+  it('throws when two different shortIds map to the same fullId', () => {
+    const index = new InMemoryShortIdIndex();
+    const fullId = makeFullTaskId('550e8400-e29b-41d4-a716-446655440000');
+    index.add(makeShortTaskId('abcdef12'), fullId);
+    expect(() => index.add(makeShortTaskId('34567890'), fullId)).toThrow(/collision/i);
   });
 
   it('add throws on collision with different fullId', () => {
@@ -148,6 +155,33 @@ describe('PersistentShortIdIndex', () => {
     const shortId = index.deriveShortId(makeFullTaskId(fullId));
     expect(index.has(shortId)).toBe(true);
     expect(index.resolve(shortId)).toBe(makeFullTaskId(fullId));
+  });
+
+  it('rebuildFromDisk skips tasks with invalid shortId format', () => {
+    const fullId = '550e8400-e29b-41d4-a716-446655440000';
+    const runningDir = path.join(tmpDir, 'tasks', 'queues', 'running');
+    fs.mkdirSync(runningDir, { recursive: true });
+    fs.writeFileSync(path.join(runningDir, `${fullId}.json`), JSON.stringify({
+      kind: 'tool', id: fullId, shortId: '!!!', toolName: 'exec', args: { command: 'echo hi' },
+      parentClawDir: '/t', parentClawId: 'p', createdAt: new Date().toISOString(),
+      isIdempotent: false, maxRetries: 2, retryCount: 0,
+    }));
+
+    const events: Array<{ event: string; payload: Record<string, unknown> }> = [];
+    const index = new PersistentShortIdIndex(fsFactory(tmpDir));
+    index.rebuildFromDisk(
+      { existsSync: (p) => fs.existsSync(path.join(tmpDir, p)),
+        listSync: (p, opts) => fs.readdirSync(path.join(tmpDir, p), { withFileTypes: true })
+          .filter(d => opts?.includeDirs || !d.isDirectory()).map(d => ({ name: d.name })),
+        readSync: (p) => fs.readFileSync(path.join(tmpDir, p), 'utf-8') },
+      { write: (event, payload) => events.push({ event, payload }) },
+    );
+
+    expect(index.has('!!!')).toBe(false);
+    const failedEvent = events.find(e => e.event === 'short_id_index_load_failed');
+    expect(failedEvent).toBeDefined();
+    expect(failedEvent?.payload.context).toBe('rebuild_skip_invalid');
+    expect(failedEvent?.payload.storedShortId).toBe('!!!');
   });
 
   it('rebuildFromDisk reports collisions', () => {

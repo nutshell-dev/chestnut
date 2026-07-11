@@ -70,10 +70,10 @@ export interface ShortIdIndex {
   deriveShortId(fullId: FullTaskId): ShortTaskId;
   /**
    * Return the canonical shortId for a fullId.
-   * Uses reverse-resolve for legacy tasks (shortId ≠ derive),
-   * falls back to derive for new tasks and tasks not yet in the index.
+   * Uses reverse-resolve for registered tasks only (legacy tasks where shortId ≠ derive).
+   * Returns undefined for unknown fullIds; callers decide whether to derive.
    */
-  canonicalShortId(fullId: FullTaskId): ShortTaskId;
+  canonicalShortId(fullId: FullTaskId): ShortTaskId | undefined;
   rebuildFromDisk(
     fs: {
       existsSync(path: string): boolean;
