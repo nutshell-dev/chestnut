@@ -144,11 +144,40 @@ async function _recoverToolTask(
   }
 
   // Non-idempotent: don't re-execute — move to failed/manual-recovery
-  // Send notification BEFORE moving — if it fails, task stays in running
-  // and will be retried on next recovery.
+  const notifiedPath = `${TASKS_QUEUES_RESULTS_DIR}/${task.id}/result.txt.notified`;
+  const alreadyNotified = await deps.fs.exists(notifiedPath).catch(() => false);
+
+  if (alreadyNotified) {
+    // Notification already sent — just move to failed, don't re-notify
+    await deps.fs.move(filePath, `${TASKS_QUEUES_FAILED_DIR}/${task.id}.json`)
+      .then(() => {
+        emitRecovered(deps.auditWriter, {
+          fullTaskId: task.id as FullTaskId,
+          shortTaskId: taskShortId(task),
+          kind: task.kind,
+          from: 'running',
+          to: 'failed',
+          reason: 'non_idempotent_already_notified',
+        });
+      })
+      .catch(async (e) => {
+        emitRecoveryFailed(deps.auditWriter, {
+          taskId: task.id,
+          context: 'non_idempotent_move_failed',
+          error: formatErr(e),
+        });
+      });
+    return 0;
+  }
+
+  // First time — send notification, then marker, then move
   await sendFallbackError(deps.fs, deps.auditWriter, task,
     'Non-idempotent tool task cannot be retried after crash. Manual intervention required.')
     .then(async () => {
+      // Persist notification-sent marker BEFORE moving to failed.
+      // If crash occurs between marker and move, next recovery skips re-notification.
+      await deps.fs.writeAtomic(notifiedPath, '').catch(() => { /* best-effort marker */ });
+
       await deps.fs.move(filePath, `${TASKS_QUEUES_FAILED_DIR}/${task.id}.json`)
         .then(() => {
           emitRecovered(deps.auditWriter, {

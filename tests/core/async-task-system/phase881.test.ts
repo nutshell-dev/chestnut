@@ -116,23 +116,24 @@ describe('phase 881: cancel error propagation', () => {
 });
 
 describe('phase 881: schedule index write audit', () => {
-  it('returns shortId and audits when shortIdIndex add/save fails after file write', async () => {
+  it('returns shortId and emits TASK_SCHEDULED when shortIdIndex save fails after file write', async () => {
     const { audit, events } = makeMockAudit();
     const shortIdIndex = new InMemoryShortIdIndex();
-    vi.spyOn(shortIdIndex, 'add').mockImplementation(() => {
-      throw new Error('index persist failed');
-    });
 
+    const files = new Map<string, string>();
     const mockFs: FileSystem = {
       ensureDir: vi.fn().mockResolvedValue(undefined),
       list: vi.fn().mockResolvedValue([]),
       resolve: vi.fn((p: string) => `/abs/${p}`),
       existsSync: vi.fn().mockReturnValue(false),
       listSync: vi.fn().mockReturnValue([]),
-      exists: vi.fn().mockResolvedValue(false),
+      exists: vi.fn().mockImplementation((path: string) => Promise.resolve(files.has(path))),
       move: vi.fn().mockResolvedValue(undefined),
       delete: vi.fn().mockResolvedValue(undefined),
-      writeAtomic: vi.fn().mockResolvedValue(undefined),
+      writeAtomic: vi.fn().mockImplementation((path: string, content: string) => {
+        files.set(path, content);
+        return Promise.resolve(undefined);
+      }),
     } as unknown as FileSystem;
 
     const system = new AsyncTaskSystem('/tmp/claw', mockFs, {
@@ -141,6 +142,11 @@ describe('phase 881: schedule index write audit', () => {
       ...makeTaskSystemDeps(),
     });
     await system.initialize();
+
+    // Spy on save AFTER initialize so startup migration can persist the index.
+    vi.spyOn(shortIdIndex, 'save').mockImplementation(() => {
+      throw new Error('index save failed');
+    });
 
     const shortId = await system.schedule('subagent', {
       parentClawId: 'claw-1',
@@ -152,8 +158,12 @@ describe('phase 881: schedule index write audit', () => {
     expect(typeof shortId).toBe('string');
     expect(shortId.length).toBe(8);
 
+    const scheduledEvents = events.filter(e => e[0] === TASK_AUDIT_EVENTS.TASK_SCHEDULED);
+    expect(scheduledEvents.length).toBe(1);
+    expect(scheduledEvents[0]).toContain('indexPersisted=false');
+
     const indexFailedEvents = events.filter(
-      e => e[0] === TASK_AUDIT_EVENTS.SHORT_ID_INDEX_LOAD_FAILED && e.some(c => typeof c === 'string' && c.includes('context=schedule_index_write')),
+      e => e[0] === TASK_AUDIT_EVENTS.SHORT_ID_INDEX_LOAD_FAILED && e.some(c => typeof c === 'string' && c.includes('context=schedule_index_save')),
     );
     expect(indexFailedEvents.length).toBe(1);
 

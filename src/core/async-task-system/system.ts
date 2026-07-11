@@ -429,31 +429,35 @@ export class AsyncTaskSystem {
     await this.fs.writeAtomic(taskPath, JSON.stringify(task, null, 2));
 
     // Only register index after successful file write to avoid dangling entries.
+    // Phase 883: add() failure (collision) must propagate — the shortId is unusable.
+    this.shortIdIndex.add(shortId, fullId);
+
+    let indexPersisted = true;
     try {
-      this.shortIdIndex.add(shortId, fullId);
       this.shortIdIndex.save();
-
-      emitTaskScheduled(this.auditWriter, {
-        fullTaskId: fullId,
-        shortTaskId: shortId,
-        kind: taskKind,
-        parent: task.parentClawId,
-        maxSteps: task.maxSteps,
-      });
-
-      // No push, no dispatch; watcher ingests asynchronously
-      return shortId;
     } catch (e) {
+      indexPersisted = false;
       // File is already written and may be picked up by watcher.
       // Don't delete it — rebuildFromDisk() will recover the index on next startup.
       // The caller must NOT retry; the task will execute from the pending file.
       this.shortIdIndexAuditWriter.write(TASK_AUDIT_EVENTS.SHORT_ID_INDEX_LOAD_FAILED, {
         path: taskPath,
-        error: `schedule index write failed: ${String(e)}`,
-        context: 'schedule_index_write',
+        error: `schedule index save failed: ${String(e)}`,
+        context: 'schedule_index_save',
       });
-      return shortId;
     }
+
+    emitTaskScheduled(this.auditWriter, {
+      fullTaskId: fullId,
+      shortTaskId: shortId,
+      kind: taskKind,
+      parent: task.parentClawId,
+      maxSteps: task.maxSteps,
+      indexPersisted,
+    });
+
+    // No push, no dispatch; watcher ingests asynchronously
+    return shortId;
   }
 
 
