@@ -34,6 +34,7 @@ import type { LLMOrchestrator } from './types.js';
 import { CircuitBreaker } from './circuit-breaker.js';
 import { createLLMProvider, type LLMProvider } from '../llm-provider/index.js';
 import { makeExternalAbortError, withCombinedAbortSignal, type AbortReason } from '../llm-provider/index.js';
+import { isAbortError } from '../llm-provider/is-abort-error.js';
 import { delay, isContentChunk, wrapResponseAsStream, mergeSignals } from './utils.js';
 import { sha256ShortHex } from  '../node-utils/index.js';  // phase 450 (review): cache key apiKey hash
 
@@ -270,6 +271,8 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
           try {
             return await this._tryCallProvider(stickyFb, stickyIdx + 1, true, options);
           } catch (err) {
+            // User abort is not a provider failure — propagate immediately
+            if (options.signal?.aborted || isAbortError(err)) throw err;
             // silent: collect sticky fallback failure for aggregate LLMAllProvidersFailedError
             failures.push({ provider: stickyFb.name, error: err as Error });
           }
@@ -282,6 +285,8 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
         try {
           return await this._tryCallProvider(this.primary, 0, false, options);
         } catch (err) {
+          // User abort is not a provider failure — propagate immediately
+          if (options.signal?.aborted || isAbortError(err)) throw err;
           // silent: collect primary failure for aggregate LLMAllProvidersFailedError
           primaryFailed = true;
           failures.push({ provider: this.primary.name, error: err as Error });
@@ -305,6 +310,8 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
         try {
           return await this._tryCallProvider(this.fallbacks[i], i + 1, true, options);
         } catch (err) {
+          // User abort is not a provider failure — propagate immediately
+          if (options.signal?.aborted || isAbortError(err)) throw err;
           // silent: collect fallback failure for aggregate LLMAllProvidersFailedError
           failures.push({ provider: this.fallbacks[i].name, error: err as Error });
         }
@@ -830,12 +837,15 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
       this.events.emit({ type: 'hedge_primary_recovered', provider: this.primary.name });
       this.updateLastSuccess(this.primary, false);
       yield winner.chunk;
+      let receivedDone = false;
+      let drainError: Error | undefined;
       try {
         // phase 991 B.2: drain loop user-abort early-exit guard
         for await (const chunk of primaryIter) {
           if (options.signal?.aborted) {
             throw makeExternalAbortError(options.signal.reason as AbortReason | undefined);
           }
+          if (chunk.type === 'done') receivedDone = true;
           yield chunk;
         }
       } catch (err) {
@@ -857,12 +867,21 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
           provider: this.primary.name,
           ...(err instanceof LLMTimeoutError ? { timeoutMs: err.timeoutMs } : {}),
         };
-        throw err;
+        drainError = err as Error;
       } finally {
         // phase 1374 sub-2: explicit cleanup instead of relying on GC / for-await auto-close
         try { await primaryIter.return?.(); } catch { /* silent: generator already closed, ignore */ }
         cleanupSignals();
       }
+      if (!receivedDone && !drainError) {
+        // Clean EOF without done → truncated stream, treat as provider failure
+        this.breakers[0]?.onFailure('transient');
+        this.events.emit({ type: 'stream_reset', provider: this.primary.name, error: 'hedge primary stream ended without done chunk' });
+        yield { type: 'reset', provider: this.primary.name };
+        yield { type: 'provider_failed', provider: this.primary.name, model: this.primary.model, error: 'stream ended without done chunk' };
+        throw new LLMStreamAbortedError(this.primary.name, 'stream ended without done chunk');
+      }
+      if (drainError) throw drainError;
       return;
     }
 
@@ -959,17 +978,47 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
       this.events.emit({ type: 'hedge_primary_recovered', provider: this.primary.name });
       this.updateLastSuccess(this.primary, false);
       yield aResult.chunk;
+      let receivedDone = false;
+      let drainError: Error | undefined;
       try {
         // phase 991 B.2: drain loop user-abort early-exit guard
         for await (const chunk of primaryIter) {
           if (options.signal?.aborted) {
             throw makeExternalAbortError(options.signal.reason as AbortReason | undefined);
           }
+          if (chunk.type === 'done') receivedDone = true;
           yield chunk;
         }
+      } catch (err) {
+        // User abort is not a provider failure — don't trip breaker or emit stream_reset
+        if (options.signal?.aborted) {
+          throw makeExternalAbortError(options.signal.reason as AbortReason | undefined);
+        }
+        this.breakers[0]?.onFailure(classifyLLMError(err));
+        this.events.emit({
+          type: 'hedge_primary_post_first_chunk_failure',
+          provider: this.primary.name,
+          error: err as Error,
+        });
+        this.events.emit({ type: 'stream_reset', provider: this.primary.name, error: (err as Error).message });
+        yield {
+          type: 'reset',
+          provider: this.primary.name,
+          ...(err instanceof LLMTimeoutError ? { timeoutMs: err.timeoutMs } : {}),
+        };
+        drainError = err as Error;
       } finally {
         cleanupSignals();
       }
+      if (!receivedDone && !drainError) {
+        // Clean EOF without done → truncated stream, treat as provider failure
+        this.breakers[0]?.onFailure('transient');
+        this.events.emit({ type: 'stream_reset', provider: this.primary.name, error: 'hedge primary stream ended without done chunk' });
+        yield { type: 'reset', provider: this.primary.name };
+        yield { type: 'provider_failed', provider: this.primary.name, model: this.primary.model, error: 'stream ended without done chunk' };
+        throw new LLMStreamAbortedError(this.primary.name, 'stream ended without done chunk');
+      }
+      if (drainError) throw drainError;
       return;
     }
     // 双失败

@@ -164,6 +164,7 @@ const VI_MOCK_FILES = [
   'tests/foundation/llm-orchestrator/hedge-state-machine-cluster.test.ts',
   'tests/foundation/llm-orchestrator/hedge.test.ts',
   'tests/foundation/llm-orchestrator/merge-signals-cleanup.test.ts',
+  'tests/foundation/llm-orchestrator/orchestrator.test.ts',  // phase 896: vi.mock anthropic adapter
   'tests/foundation/llm-orchestrator/timeout-distinction.test.ts',
   'tests/foundation/llm-service.test.ts',
   'tests/foundation/llm.test.ts',
