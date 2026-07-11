@@ -129,7 +129,7 @@ describe('hedge state machine cluster (phase 991)', () => {
   });
 
   describe('B.2 drain post-abort guard', () => {
-    it('A-win drain loop breaks when user signals abort mid-drain', async () => {
+    it('A-win drain loop throws AbortError when user signals abort mid-drain', async () => {
       const abortCtrl = new AbortController();
       const primary = createMockProvider('primary', {
         streamChunks: [
@@ -150,20 +150,149 @@ describe('hedge state machine cluster (phase 991)', () => {
       });
       const service = createOrchestrator(primary, [fallback]);
       forceBreakerOpen(service, 0, 'transient');
+      const breaker = (service as any).breakers[0] as CircuitBreaker;
+      const onFailureSpy = vi.spyOn(breaker, 'onFailure');
 
       const chunks: StreamChunk[] = [];
-      for await (const c of service.stream({ messages: [{ role: 'user', content: 'hi' }], signal: abortCtrl.signal })) {
-        chunks.push(c);
-        if (chunks.length === 2) {
-          abortCtrl.abort();
+      let caught: Error | undefined;
+      try {
+        for await (const c of service.stream({ messages: [{ role: 'user', content: 'hi' }], signal: abortCtrl.signal })) {
+          chunks.push(c);
+          if (chunks.length === 2) {
+            abortCtrl.abort();
+          }
         }
+      } catch (e) {
+        caught = e as Error;
       }
 
-      // first chunk + at most one more before abort signal propagates
-      expect(chunks.length).toBeLessThanOrEqual(3);
+      // AbortError propagated to consumer (not silent EOF)
+      expect(caught).toBeDefined();
+      expect(caught!.name).toBe('AbortError');
       // chunk 4 and done should NOT be yielded because abort guard breaks drain
       expect(chunks.some(ch => (ch as any).delta === 'c4')).toBe(false);
       expect(chunks.some(ch => ch.type === 'done')).toBe(false);
+      // user abort is not a provider failure
+      expect(onFailureSpy).not.toHaveBeenCalled();
+    });
+
+    it('B-error-then-A-win drain loop throws AbortError when user aborts mid-drain', async () => {
+      const abortCtrl = new AbortController();
+      const primary = createMockProvider('primary', {
+        streamChunks: [
+          { type: 'text_delta', delta: 'c1' },
+          { type: 'text_delta', delta: 'c2' },
+          { type: 'text_delta', delta: 'c3' },
+        ],
+        streamDelayMs: 30,
+      });
+      const fallback = createMockProvider('fb1', {
+        callError: new LLMNetworkError('fb1', new Error('ECONNREFUSED')),
+        callDelayMs: 5,
+      });
+      const service = createOrchestrator(primary, [fallback]);
+      forceBreakerOpen(service, 0, 'transient');
+
+      const chunks: StreamChunk[] = [];
+      let caught: Error | undefined;
+      try {
+        for await (const c of service.stream({ messages: [{ role: 'user', content: 'hi' }], signal: abortCtrl.signal })) {
+          chunks.push(c);
+          if (chunks.length === 1) {
+            abortCtrl.abort();
+          }
+        }
+      } catch (e) {
+        caught = e as Error;
+      }
+
+      expect(caught).toBeDefined();
+      expect(caught!.name).toBe('AbortError');
+      expect(chunks.some(ch => (ch as any).delta === 'c3')).toBe(false);
+    });
+
+    it('does not fallback when user aborts during hedge race', async () => {
+      const abortCtrl = new AbortController();
+      const primary = createMockProvider('primary', {
+        streamDelayMs: 100,
+        streamError: new LLMNetworkError('primary', new Error('ECONNREFUSED')),
+      });
+      const fallback = createMockProvider('fb1', {
+        callDelayMs: 100,
+        callError: new LLMNetworkError('fb1', new Error('ECONNREFUSED')),
+      });
+      const service = createOrchestrator(primary, [fallback]);
+      forceBreakerOpen(service, 0, 'transient');
+      const breaker = (service as any).breakers[0] as CircuitBreaker;
+      const onFailureSpy = vi.spyOn(breaker, 'onFailure');
+
+      // Abort mid-race, before either track settles
+      const abortTimer = setTimeout(() => abortCtrl.abort(), 10);
+
+      await expect(async () => {
+        for await (const _ of service.stream({ messages: [{ role: 'user', content: 'hi' }], signal: abortCtrl.signal })) {}
+      }).rejects.toThrowError(/Execution aborted/);
+
+      clearTimeout(abortTimer);
+
+      // user abort must not be wrapped as all-providers-failed
+      expect(onFailureSpy).not.toHaveBeenCalled();
+    });
+
+    it('does not trip breaker when user aborts during A-win drain catch', async () => {
+      const abortCtrl = new AbortController();
+      const primary: ProviderAdapter = {
+        name: 'primary',
+        model: 'mock-model',
+        async call() {
+          return { content: [{ type: 'text', text: 'primary response' }], stop_reason: 'end_turn' };
+        },
+        async *stream(streamOpts?: { signal?: AbortSignal }) {
+          yield { type: 'text_delta', delta: 'c1' };
+          await new Promise<void>((resolve) => {
+            const timer = setTimeout(resolve, 50);
+            streamOpts?.signal?.addEventListener('abort', () => clearTimeout(timer));
+          });
+          // Throw a real provider error even though user may have aborted
+          throw new LLMNetworkError('primary', new Error('ECONNRESET'));
+        },
+        onStreamParseError: undefined,
+        onToolArgParseError: undefined,
+      };
+      const fallback = createMockProvider('fb1', {
+        callResponse: {
+          content: [{ type: 'text', text: 'fb response' }],
+          stop_reason: 'end_turn',
+        },
+        callDelayMs: 500,
+      });
+      const service = createOrchestrator(primary, [fallback]);
+      forceBreakerOpen(service, 0, 'transient');
+      const events = attachEventSpy(service);
+      const breaker = (service as any).breakers[0] as CircuitBreaker;
+      const onFailureSpy = vi.spyOn(breaker, 'onFailure');
+
+      const chunks: StreamChunk[] = [];
+      let caught: Error | undefined;
+      try {
+        for await (const c of service.stream({ messages: [{ role: 'user', content: 'hi' }], signal: abortCtrl.signal })) {
+          chunks.push(c);
+          if (chunks.length === 1) {
+            abortCtrl.abort();
+          }
+        }
+      } catch (e) {
+        caught = e as Error;
+      }
+
+      // user abort takes priority over the provider error
+      expect(caught).toBeDefined();
+      expect(caught!.name).toBe('AbortError');
+      // breaker must not be tripped for user abort
+      expect(onFailureSpy).not.toHaveBeenCalled();
+      // stream_reset must not be emitted for user abort
+      expect(events.some(e => e.type === 'stream_reset')).toBe(false);
+      expect(chunks.some(c => c.type === 'reset')).toBe(false);
     });
   });
 
