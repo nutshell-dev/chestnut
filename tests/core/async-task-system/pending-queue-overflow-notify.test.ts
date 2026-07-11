@@ -59,7 +59,9 @@ describe('pending queue overflow motion notify', () => {
       selfInbox: mockInbox,
     });
 
-    // 塞满 pending dir 到 PENDING_QUEUE_MAX (src const)
+    // Phase 886: need MAX+1 pending tasks to trigger overflow (cap is now > MAX).
+    // The overflow task itself must exist in pending so the move to failed succeeds.
+    writePendingFile('overflow-task');
     for (let i = 0; i < PENDING_QUEUE_MAX; i++) {
       writePendingFile(`task-${i}`);
     }
@@ -95,7 +97,8 @@ describe('pending queue overflow motion notify', () => {
       // 不传 selfInbox
     });
 
-    for (let i = 0; i < 1000; i++) {
+    writePendingFile('no-inbox-task');
+    for (let i = 0; i < PENDING_QUEUE_MAX; i++) {
       writePendingFile(`task-${i}`);
     }
 

@@ -14,15 +14,17 @@ export async function backupCorruptTask(
   fs: FileSystem,
   auditWriter: AuditLog,
   filePath: string,
-  content: string,
+  _content: string,
   err: unknown,
 ): Promise<void> {
   const backupPath = `${filePath}.corrupt-${Date.now()}`;
   let moveOk = true;
   let moveErr: unknown = undefined;
   try {
-    await fs.writeAtomic(backupPath, content);
-    await fs.delete(filePath);
+    // Phase 886: atomic move to backup path. This leaves the original file gone,
+    // so downstream cancel/recovery can detect the corrupt backup and avoid
+    // misreporting an ENOENT move as a dispatch race.
+    await fs.move(filePath, backupPath);
   } catch (mErr) {
     moveOk = false;
     moveErr = mErr;
