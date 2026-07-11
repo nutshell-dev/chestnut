@@ -500,6 +500,7 @@ async function _recoverWithoutResult(
   deps: RecoverTasksDeps, filePath: string, task: SubAgentTask,
 ): Promise<number> {
   const pendingPath = `${TASKS_QUEUES_PENDING_DIR}/${task.id}.json`;
+  let recovered = 1;
   await deps.fs.move(filePath, pendingPath)
     .then(() => {
       emitRecovered(deps.auditWriter, {
@@ -511,6 +512,7 @@ async function _recoverWithoutResult(
       });
     })
     .catch(async (moveErr) => {
+      recovered = 0; // move failed — not recovered
       emitRecoveryFailed(deps.auditWriter, {
         taskId: task.id,
         context: 'without_result_move_failed',
@@ -518,7 +520,7 @@ async function _recoverWithoutResult(
       });
       // Keep running file — next recovery will retry the move back to pending.
     });
-  return 1;
+  return recovered;
 }
 
 async function _loadPendingTasks(deps: RecoverTasksDeps): Promise<void> {
@@ -563,10 +565,31 @@ export async function recoverTasks(deps: RecoverTasksDeps): Promise<void> {
     const recoveredFromRunning = await _recoverRunningTasks(deps);
     await _loadPendingTasks(deps);
 
-    const pendingEntries = await deps.fs.list(TASKS_QUEUES_PENDING_DIR).catch(() => []);
-    const pendingCount = pendingEntries.filter(e => e.name.endsWith('.json')).length;
-    const failedEntries = await deps.fs.list(TASKS_QUEUES_FAILED_DIR).catch(() => []);
-    const failedCount = failedEntries.filter(e => e.name.endsWith('.json')).length;
+    let pendingCount: number;
+    try {
+      const pendingEntries = await deps.fs.list(TASKS_QUEUES_PENDING_DIR);
+      pendingCount = pendingEntries.filter(e => e.name.endsWith('.json')).length;
+    } catch (e) {
+      emitRecoveryFailed(auditWriter, {
+        source: 'system',
+        context: 'recovery_pending_list_failed',
+        error: formatErr(e),
+      });
+      throw e;
+    }
+
+    let failedCount: number;
+    try {
+      const failedEntries = await deps.fs.list(TASKS_QUEUES_FAILED_DIR);
+      failedCount = failedEntries.filter(e => e.name.endsWith('.json')).length;
+    } catch (e) {
+      emitRecoveryFailed(auditWriter, {
+        source: 'system',
+        context: 'recovery_failed_list_failed',
+        error: formatErr(e),
+      });
+      throw e;
+    }
 
     emitRecoveryComplete(auditWriter, {
       pending: pendingCount,
@@ -580,5 +603,6 @@ export async function recoverTasks(deps: RecoverTasksDeps): Promise<void> {
       context: 'recovery_top',
       error: errMsg,
     });
+    throw err; // Phase 877: recovery failure must prevent initialization
   }
 }
