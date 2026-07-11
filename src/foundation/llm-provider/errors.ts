@@ -171,3 +171,6 @@ export class LLMStreamAbortedError extends LLMError {
     );
   }
 }
+
+/** Alias for the canonical stream-abort error used by adapter plans. */
+export { LLMStreamAbortedError as LLMAbortError };

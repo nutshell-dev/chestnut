@@ -19,6 +19,7 @@ import {
   LLMEmptyResponseError,
   LLMOutputBudgetExceededError,
   LLMContextExceededError,
+  LLMAbortError,
 } from './errors.js';
 import { AuthenticationError, PermissionDeniedError, NotFoundError, APIError } from '@anthropic-ai/sdk';
 import { parseRetryAfter, parseOutputBudgetError } from './_helpers.js';
@@ -213,11 +214,15 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
     if (adjusted > 0) {
       this.assertThinkingBudgetFits(adjusted, auditPayload);
       const retryBody = this.buildRequestBody({ ...options, maxTokens: adjusted });
-      const response = await this.client.messages.create(
-        retryBody as Anthropic.MessageCreateParamsNonStreaming,
-        requestOptions,
-      );
-      return this.parseResponse(response);
+      try {
+        const response = await this.client.messages.create(
+          retryBody as Anthropic.MessageCreateParamsNonStreaming,
+          requestOptions,
+        );
+        return this.parseResponse(response);
+      } catch (retryError) {
+        throw this.mapSDKError(retryError, options.timeoutMs ?? this.config.timeoutMs, options.signal);
+      }
     }
 
     this.auditLog?.write(
@@ -242,15 +247,24 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
       timeout: options.timeoutMs ?? this.config.timeoutMs,
       signal: options.signal,
     };
+    let yieldedChunks = false;
     try {
       const sdkStream = this.client.messages.stream(
         body as Anthropic.MessageStreamParams,
         requestOptions,
       );
-      yield* this.parseSDKStream(sdkStream, options.signal);
+      for await (const chunk of this.parseSDKStream(sdkStream, options.signal)) {
+        yieldedChunks = true;
+        yield chunk;
+      }
     } catch (error) {
       const mapped = this.mapSDKError(error, options.timeoutMs ?? this.config.timeoutMs, options.signal);
       if (mapped instanceof LLMOutputBudgetExceededError) {
+        if (yieldedChunks) {
+          // Output already started — don't retry, propagate the error.
+          // The orchestrator should handle as an interrupted stream.
+          throw mapped;
+        }
         const adjusted = mapped.contextLimit - mapped.inputTokens;
         const auditPayload = [
           `provider=${this.providerName}`,
@@ -263,12 +277,16 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
         if (adjusted > 0) {
           this.assertThinkingBudgetFits(adjusted, auditPayload);
           const retryBody = this.buildRequestBody({ ...options, maxTokens: adjusted });
-          const sdkStream = this.client.messages.stream(
-            retryBody as Anthropic.MessageStreamParams,
-            requestOptions,
-          );
-          yield* this.parseSDKStream(sdkStream, options.signal);
-          return;
+          try {
+            const retryStream = this.client.messages.stream(
+              retryBody as Anthropic.MessageStreamParams,
+              requestOptions,
+            );
+            yield* this.parseSDKStream(retryStream, options.signal);
+            return;
+          } catch (retryError) {
+            throw this.mapSDKError(retryError, options.timeoutMs ?? this.config.timeoutMs, options.signal);
+          }
         }
         this.auditLog?.write(
           LLM_PROVIDER_AUDIT_EVENTS.OUTPUT_BUDGET_ADJUSTED,
@@ -296,7 +314,9 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
     let currentToolName = '';
 
     for await (const event of stream) {
-      if (signal?.aborted) break;
+      if (signal?.aborted) {
+        throw new LLMAbortError(this.name, 'Stream aborted by signal');
+      }
       if (event.type === 'content_block_start') {
         const block = event.content_block;
         if (block.type === 'tool_use') {
