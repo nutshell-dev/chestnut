@@ -109,7 +109,7 @@ export function parseResponse(
 
   // 0-chunk guard
   if (content.length === 0) {
-    throw new LLMEmptyResponseError('openai');
+    throw new LLMEmptyResponseError(providerName);
   }
 
   // Normalize stop_reason to internal format

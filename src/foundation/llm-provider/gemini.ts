@@ -98,7 +98,7 @@ export class GeminiAdapter implements ProviderAdapter {
         `${this.baseUrl}/models/${model}:generateContent`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': this.config.apiKey },
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': this.config.apiKey, ...this.config.extraHeaders },
           body: JSON.stringify(body),
           signal: abortHandle.signal,
         }
@@ -106,7 +106,7 @@ export class GeminiAdapter implements ProviderAdapter {
       if (!response.ok) await throwHttpErrorResponse(this.name, this.model, response);
       const data = await response.json() as GeminiResponse & { error?: { message: string } };
       if (data.error) throw new LLMError(`Gemini API error: ${data.error.message}`, { provider: this.name });
-      return parseGeminiResponse(data);
+      return parseGeminiResponse(data, this.name);
     } catch (error) {
       const classified = classifyFetchAbortError(error, options.signal, timeout, this.name);
       if (classified) throw classified;
@@ -132,7 +132,7 @@ export class GeminiAdapter implements ProviderAdapter {
         `${this.baseUrl}/models/${model}:streamGenerateContent?alt=sse`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': this.config.apiKey },
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': this.config.apiKey, ...this.config.extraHeaders },
           body: JSON.stringify(body),
           signal: abortHandle.signal,
         }
