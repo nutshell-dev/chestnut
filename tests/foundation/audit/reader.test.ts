@@ -439,23 +439,37 @@ describe('listAuditFiles', () => {
 
 describe('listPendingFallbackDumps', () => {
   let createdFiles: string[] = [];
+  // phase 880 Step B: 给本 worker 一个隔离 tmpdir，避免跨 worker 并发跑时
+  // 其他 worker 的 beforeEach/afterEach 删到本测试刚创建的文件。
+  const workerTmp = nodeFs.mkdtempSync(path.join(nodeOs.tmpdir(), 'chestnut-reader-test-'));
+  let originalTmpdir: string | undefined;
+
+  afterAll(() => {
+    nodeFs.rmSync(workerTmp, { recursive: true, force: true });
+  });
 
   beforeEach(() => {
-    // Clean up pre-existing fallback dumps in shared tmpdir to prevent
-    // cross-run pollution. listPendingFallbackDumps() scans the real OS
-    // tmpdir; leftover files from previous runs cause phantom matches.
-    const tmp = nodeOs.tmpdir();
+    originalTmpdir = process.env.TMPDIR;
+    process.env.TMPDIR = workerTmp;
+    // Clean up pre-existing fallback dumps in this worker's private tmpdir to
+    // prevent cross-run pollution. listPendingFallbackDumps() scans os.tmpdir(),
+    // which reads TMPDIR; leftover files from previous runs cause phantom matches.
     const pattern = /^chestnut-audit-fallback-\d+-\d+\.tsv$/;
     try {
-      for (const name of nodeFs.readdirSync(tmp)) {
+      for (const name of nodeFs.readdirSync(workerTmp)) {
         if (pattern.test(name)) {
-          try { nodeFs.unlinkSync(path.join(tmp, name)); } catch { /* ignore */ }
+          try { nodeFs.unlinkSync(path.join(workerTmp, name)); } catch { /* ignore */ }
         }
       }
     } catch { /* tmpdir unreadable — skip cleanup */ }
   });
 
   afterEach(() => {
+    if (originalTmpdir === undefined) {
+      delete process.env.TMPDIR;
+    } else {
+      process.env.TMPDIR = originalTmpdir;
+    }
     for (const f of createdFiles) {
       try { nodeFs.unlinkSync(f); } catch { /* ignore */ }
     }
@@ -467,18 +481,17 @@ describe('listPendingFallbackDumps', () => {
   });
 
   it('returns matching fallback dumps', async () => {
-    const dumpPath = path.join(nodeOs.tmpdir(), 'chestnut-audit-fallback-1234-5678.tsv');
+    const ts = Date.now();
+    const dumpPath = path.join(nodeOs.tmpdir(), `chestnut-audit-fallback-${process.pid}-${ts}.tsv`);
     nodeFs.writeFileSync(dumpPath, 'line1\n');
     createdFiles.push(dumpPath);
-    // phase 779 Step D: waitFor 替即时 assertion — tmpdir 跨 worker 共享、并发下其他
-    // worker 的 afterEach unlinkSync 可能在 writeFileSync 后、readdirSync 前删文件。
-    // writeFileSync + readdirSync 皆同步但跨进程 OS 调度无保证。
+    // phase 779 Step D / phase 880 Step B: waitFor 内部直接断言，避免 waitFor
+    // 返回后、重查前被其他 worker 删文件的竞态窗口。
     await waitFor(() => {
       const dumps = listPendingFallbackDumps();
-      return dumps.some(d => d.pid === 1234 && d.ts === 5678);
+      expect(dumps.some(d => d.pid === process.pid && d.ts === ts)).toBe(true);
+      return true;
     }, 5000);
-    const dumps = listPendingFallbackDumps();
-    expect(dumps.some(d => d.pid === 1234 && d.ts === 5678)).toBe(true);
   });
 
   it('ignores non-matching files', () => {
