@@ -610,9 +610,7 @@ export class AsyncTaskSystem {
       const filePath = `${TASKS_QUEUES_PENDING_DIR}/${id}.json`;
       try {
         const task = await this._loadTaskFromFile(filePath);
-        if (task) {
-          tasks.push(task);
-        } else {
+        if (!task) {
           // schema drift / corrupt file: emit audit, skip (derive is read-only)
           this.auditWriter?.write(
             TASK_AUDIT_EVENTS.ASYNC_TASK_INVARIANT_VIOLATED,
@@ -621,7 +619,17 @@ export class AsyncTaskSystem {
             `context=derive_pending_corrupt`,
             `reason=load_returned_null`,
           );
+          continue;
         }
+
+        // Phase 887: terminalState='failed' — don't dispatch, retry overflow move/notify.
+        const ts = ((task as unknown) as Record<string, unknown>).terminalState as string | undefined;
+        if (ts === 'failed') {
+          await this._retryOverflowMove(task, filePath);
+          continue;
+        }
+
+        tasks.push(task);
       } catch (err) {
         if (isFileNotFound(err)) continue; // race: file moved/deleted between list and read
         this.auditWriter?.write(
@@ -640,6 +648,55 @@ export class AsyncTaskSystem {
       return ta ? -1 : tb ? 1 : a.id.localeCompare(b.id);
     });
     return tasks;
+  }
+
+  /**
+   * Phase 887: retry overflow notification + move for tasks stuck in pending with
+   * terminalState='failed'. This prevents the dispatcher from executing a task that
+   * was already marked as failed, and ensures the parent eventually receives the
+   * overflow notification even if the first attempt failed.
+   */
+  private async _retryOverflowMove(task: SubAgentTask | ToolTask, pendingPath: string): Promise<void> {
+    const fullId = task.id as FullTaskId;
+    const shortId = taskShortId(task);
+    const notifiedPath = `${TASKS_QUEUES_RESULTS_DIR}/${fullId}/result.txt.notified`;
+    const notified = await this.fs.exists(notifiedPath).catch(() => false);
+
+    if (!notified) {
+      // Notification not yet sent (or marker missing) — retry
+      let notifyOk = false;
+      try {
+        await sendFallbackError(this.fs, this.auditWriter, task,
+          'Task rejected: pending queue overflow.');
+        notifyOk = true;
+        await this.fs.writeAtomic(notifiedPath, '').catch(() => {});
+      } catch (e) {
+        emitMoveFailed(this.auditWriter, {
+          fullTaskId: fullId,
+          shortTaskId: shortId,
+          context: 'retry_overflow_notify_failed',
+          error: formatErr(e),
+        });
+      }
+
+      if (!notifyOk) {
+        // Stay in pending; next dispatch cycle will retry notification.
+        return;
+      }
+    }
+
+    // Notified (or retry succeeded) — move to failed
+    try {
+      await this.fs.move(pendingPath, `${TASKS_QUEUES_FAILED_DIR}/${fullId}.json`);
+    } catch (moveErr) {
+      emitMoveFailed(this.auditWriter, {
+        fullTaskId: fullId,
+        shortTaskId: shortId,
+        context: 'retry_overflow_move',
+        error: formatErr(moveErr),
+      });
+      // Stay in pending — next cycle retries the move.
+    }
   }
 
   /**
@@ -663,29 +720,41 @@ export class AsyncTaskSystem {
         cap: PENDING_QUEUE_MAX,
       });
 
-      // Phase 886: notify parent BEFORE moving so the parent is not left waiting forever.
-      await sendFallbackError(this.fs, this.auditWriter, task,
-        `Task rejected: pending queue overflow (${pendingCount} > ${PENDING_QUEUE_MAX}).`)
-        .catch((e) => {
-          emitMoveFailed(this.auditWriter, {
-            fullTaskId: fullId,
-            shortTaskId: shortId,
-            context: 'cap_overflow_notify_failed',
-            error: formatErr(e),
-          });
-        });
-
       const pendingPath = `${TASKS_QUEUES_PENDING_DIR}/${fullId}.json`;
       const failedPath = `${TASKS_QUEUES_FAILED_DIR}/${fullId}.json`;
 
-      // Phase 886: mark terminal state so recovery will not re-execute the task if the move fails.
+      // Phase 887: mark terminal state FIRST so the dispatcher will not execute
+      // this task while we retry notification / move.
       try {
         await this._setTerminalState(pendingPath, 'failed');
       } catch {
-        // terminalState write failed — still attempt the move
+        // terminalState write failed — still attempt notification + move
       }
 
-      // Move file to failed/ to prevent restart watcher race re-ingest
+      // Phase 887: send notification. If it fails, don't move; leave the task in
+      // pending so _getPendingTasks can retry on the next dispatch cycle.
+      let notified = false;
+      try {
+        await sendFallbackError(this.fs, this.auditWriter, task,
+          `Task rejected: pending queue overflow (${pendingCount} > ${PENDING_QUEUE_MAX}).`);
+        notified = true;
+        await this.fs.writeAtomic(`${TASKS_QUEUES_RESULTS_DIR}/${fullId}/result.txt.notified`, '').catch(() => {});
+      } catch (e) {
+        emitMoveFailed(this.auditWriter, {
+          fullTaskId: fullId,
+          shortTaskId: shortId,
+          context: 'cap_overflow_notify_failed',
+          error: formatErr(e),
+        });
+      }
+
+      if (!notified) {
+        // Stay in pending (terminalState='failed', no notified marker). The dispatch
+        // loop will call _retryOverflowMove on the next cycle.
+        return;
+      }
+
+      // Notified — safe to move to failed/
       try {
         await this.fs.move(pendingPath, failedPath);
       } catch (moveErr) {
@@ -695,10 +764,9 @@ export class AsyncTaskSystem {
           context: 'cap_overflow_move',
           error: formatErr(moveErr),
         });
-        // Phase 886: move failed — file is still in pending. Re-signal the dispatcher
-        // so the next cycle can retry or handle the residual task.
-        this._signalWork();
-        throw moveErr;
+        // Phase 887: move failed — terminalState + notified marker ensure correct
+        // retry routing on the next cycle via _retryOverflowMove.
+        return;
       }
 
       // phase 7: Notify self daemon of system-level overload (best-effort) / dedup 同 overflow 窗口 1 通知
@@ -1214,17 +1282,18 @@ export class AsyncTaskSystem {
       let task: SubAgentTask | ToolTask | undefined;
       const filePath = pendingPath;
       let content: string | undefined;
+      let quarantined = false;
       try {
         content = await this.fs.read(filePath);
         const parsed: unknown = JSON.parse(content);
         if (validateTaskShape(parsed)) {
           task = parsed as SubAgentTask | ToolTask;
         } else {
-          await backupCorruptTask(this.fs, this.auditWriter, filePath, content, new Error('shape_mismatch'));
+          quarantined = await backupCorruptTask(this.fs, this.auditWriter, filePath, content, new Error('shape_mismatch'));
         }
       } catch (e) {
         if (content !== undefined) {
-          await backupCorruptTask(this.fs, this.auditWriter, filePath, content, e).catch(() => { /* silent: fs.move path covered by backupCorruptTask */ });
+          quarantined = await backupCorruptTask(this.fs, this.auditWriter, filePath, content, e).catch(() => { /* silent: fs.move path covered by backupCorruptTask */ }) ?? false;
         }
         // read 失败 → 跳过 / 后续 move 仍尝试
         // phase 1013 E.4: parse fail 显式 audit 留痕
@@ -1234,6 +1303,13 @@ export class AsyncTaskSystem {
           context: 'cancel_pending_load',
           error: formatErr(e),
         });
+      }
+
+      // Phase 887: if backupCorruptTask successfully quarantined the file, there is
+      // no pending file to move and no race-lost. Emit CANCELLED and return.
+      if (quarantined) {
+        emitCancelled(this.auditWriter, { fullTaskId: fullId, shortTaskId: shortId, from: 'pending_corrupt' });
+        return;
       }
 
       // 文件：pending → failed

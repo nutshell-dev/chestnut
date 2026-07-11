@@ -16,7 +16,7 @@ export async function backupCorruptTask(
   filePath: string,
   _content: string,
   err: unknown,
-): Promise<void> {
+): Promise<boolean> {
   const backupPath = `${filePath}.corrupt-${Date.now()}`;
   let moveOk = true;
   let moveErr: unknown = undefined;
@@ -35,4 +35,5 @@ export async function backupCorruptTask(
     moveError: moveOk ? undefined : auditWriter.message(formatErr(moveErr)),
     error: auditWriter.message(formatErr(err)),
   });
+  return moveOk;
 }
