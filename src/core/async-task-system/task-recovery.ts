@@ -129,17 +129,40 @@ async function _recoverToolTask(
     return _recoverMigratedToolTask(deps, filePath, task);
   }
 
-  // No terminalState: fresh task — move back to pending, re-execute
-  const pendingPath = `${TASKS_QUEUES_PENDING_DIR}/${task.id}.json`;
-  await deps.fs.move(filePath, pendingPath);
-  emitRecovered(deps.auditWriter, {
-    fullTaskId: task.id as FullTaskId,
-    shortTaskId: taskShortId(task),
-    kind: task.kind,
-    from: 'running',
-    to: 'pending',
-  });
-  return 1;
+  // No terminalState: fresh task — re-execute only if idempotent
+  if (task.isIdempotent) {
+    const pendingPath = `${TASKS_QUEUES_PENDING_DIR}/${task.id}.json`;
+    await deps.fs.move(filePath, pendingPath);
+    emitRecovered(deps.auditWriter, {
+      fullTaskId: task.id as FullTaskId,
+      shortTaskId: taskShortId(task),
+      kind: task.kind,
+      from: 'running',
+      to: 'pending',
+    });
+    return 1;
+  }
+
+  // Non-idempotent: don't re-execute — move to failed/manual-recovery
+  await deps.fs.move(filePath, `${TASKS_QUEUES_FAILED_DIR}/${task.id}.json`)
+    .then(() => {
+      emitRecovered(deps.auditWriter, {
+        fullTaskId: task.id as FullTaskId,
+        shortTaskId: taskShortId(task),
+        kind: task.kind,
+        from: 'running',
+        to: 'failed',
+        reason: 'non_idempotent_recovery',
+      });
+    })
+    .catch(async (e) => {
+      emitRecoveryFailed(deps.auditWriter, {
+        taskId: task.id,
+        context: 'non_idempotent_failed_move_failed',
+        error: formatErr(e),
+      });
+    });
+  return 0;
 }
 
 async function _recoverMigratedToolTask(
