@@ -289,13 +289,14 @@ export function createAsyncExecWrapper(
         fullId = makeFullTaskId(newUuid());
         shortId = shortIdIndex.deriveShortId(fullId);
       } while (shortIdIndex.has(shortId));
-      shortIdIndex.add(shortId, fullId);
-      shortIdIndex.save();
 
       const task = buildMigratedToolTask(fullId, shortId, command, ctx, handle);
 
       try {
         await persistRunningTask(fs, task);
+        // Only register index after successful file write to avoid dangling entries.
+        shortIdIndex.add(shortId, fullId);
+        shortIdIndex.save();
       } catch (persistErr) {
         // Migration persistence failed: kill the child and report error.
         handle.child.kill('SIGTERM');

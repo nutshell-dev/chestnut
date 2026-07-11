@@ -72,8 +72,24 @@ describe('phase 1011 D.3: cancel race lost to dispatch', () => {
     await system.shutdown(1).catch(() => { /* silent: shutdown */ });
   });
 
-  it('cancel pending move ENOENT emits TASK_CANCEL_RACE_LOST_TO_DISPATCH', async () => {
+  it('cancel pending move ENOENT emits TASK_CANCEL_RACE_LOST_TO_DISPATCH and aborts running task', async () => {
     await system.initialize();
+
+    const abortController = new AbortController();
+    const abortSpy = vi.spyOn(abortController, 'abort');
+    const state = { abortController, promise: Promise.resolve() };
+
+    // Race simulation: the first executingTasks lookup (running check) must miss,
+    // but the second lookup inside the ENOENT race-lost path must find the task.
+    const executingTasks = (system as any).executingTasks as Map<string, unknown>;
+    let getCount = 0;
+    executingTasks.get = function (key: string) {
+      if (key === 'task-X') {
+        getCount++;
+        if (getCount > 1) return state;
+      }
+      return Map.prototype.get.call(this, key);
+    };
 
     await system.cancel('task-X');
 
@@ -87,5 +103,14 @@ describe('phase 1011 D.3: cancel race lost to dispatch', () => {
       e => e[0] === TASK_AUDIT_EVENTS.MOVE_FAILED && e.some(c => typeof c === 'string' && c.includes('context=cancel_pending_move')),
     );
     expect(moveFailedEvents.length).toBe(0);
+
+    // should abort the running task
+    expect(abortSpy).toHaveBeenCalled();
+
+    // should NOT emit CANCELLED because the race was lost, not successfully cancelled
+    const cancelledEvents = auditEvents.filter(
+      e => e[0] === TASK_AUDIT_EVENTS.CANCELLED && e.some(c => typeof c === 'string' && c.includes('fullTaskId=task-X')),
+    );
+    expect(cancelledEvents.length).toBe(0);
   });
 });
