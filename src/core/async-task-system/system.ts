@@ -412,8 +412,6 @@ export class AsyncTaskSystem {
       fullId = makeFullTaskId(newUuid());
       shortId = this.shortIdIndex.deriveShortId(fullId);
     } while (this.shortIdIndex.has(shortId));
-    this.shortIdIndex.add(shortId, fullId);
-    this.shortIdIndex.save();
 
     const task = {
       ...payload,
@@ -429,6 +427,10 @@ export class AsyncTaskSystem {
     assertTaskShapeOnSave(task, this.auditWriter, 'schedule_subagent');
 
     await this.fs.writeAtomic(taskPath, JSON.stringify(task, null, 2));
+
+    // Only register index after successful file write to avoid dangling entries.
+    this.shortIdIndex.add(shortId, fullId);
+    this.shortIdIndex.save();
 
     emitTaskScheduled(this.auditWriter, {
       fullTaskId: fullId,
@@ -1113,14 +1115,18 @@ export class AsyncTaskSystem {
       }
 
       // 文件：pending → failed
+      let moveFailed = false;
+      let raceLost = false;
       await this.fs.move(
         pendingPath,
         `${TASKS_QUEUES_FAILED_DIR}/${fullId}.json`
       ).catch((e) => {
         if (isFileNotFound(e)) {
           // race-loss: dispatch 已 movePendingToRunning / cancel pending move 失败是预期 (phase 1011 D.3)
+          raceLost = true;
           emitTaskCancelRaceLostToDispatch(this.auditWriter, { fullTaskId: fullId, shortTaskId: shortId });
         } else {
+          moveFailed = true;
           emitMoveFailed(this.auditWriter, {
             fullTaskId: fullId,
             shortTaskId: shortId,
@@ -1129,6 +1135,22 @@ export class AsyncTaskSystem {
           });
         }
       });
+
+      if (moveFailed) {
+        // File is still in pending; task will execute. Do not emit CANCELLED or notify caller.
+        return;
+      }
+
+      if (raceLost) {
+        // Dispatch already moved the task to running. Try to abort the running task.
+        const state = this.executingTasks.get(fullId);
+        if (state) {
+          state.abortController.abort();
+        }
+        // Don't emit CANCELLED — the task was not successfully cancelled from pending,
+        // only the pending→running race was lost.
+        return;
+      }
 
       // tool 任务：通知 parent
       if (task?.kind === 'tool') {
