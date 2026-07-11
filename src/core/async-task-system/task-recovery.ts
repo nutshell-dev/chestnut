@@ -144,23 +144,26 @@ async function _recoverToolTask(
   }
 
   // Non-idempotent: don't re-execute — move to failed/manual-recovery
-  await deps.fs.move(filePath, `${TASKS_QUEUES_FAILED_DIR}/${task.id}.json`)
+  // Send notification BEFORE moving — if it fails, task stays in running
+  // and will be retried on next recovery.
+  await sendFallbackError(deps.fs, deps.auditWriter, task,
+    'Non-idempotent tool task cannot be retried after crash. Manual intervention required.')
     .then(async () => {
-      emitRecovered(deps.auditWriter, {
-        fullTaskId: task.id as FullTaskId,
-        shortTaskId: taskShortId(task),
-        kind: task.kind,
-        from: 'running',
-        to: 'failed',
-        reason: 'non_idempotent_recovery',
-      });
-      // Notify parent — the result is indeterminate, no automatic retry
-      await sendFallbackError(deps.fs, deps.auditWriter, task,
-        'Non-idempotent tool task cannot be retried after crash. Manual intervention required.')
-        .catch((e) => {
+      await deps.fs.move(filePath, `${TASKS_QUEUES_FAILED_DIR}/${task.id}.json`)
+        .then(() => {
+          emitRecovered(deps.auditWriter, {
+            fullTaskId: task.id as FullTaskId,
+            shortTaskId: taskShortId(task),
+            kind: task.kind,
+            from: 'running',
+            to: 'failed',
+            reason: 'non_idempotent_recovery',
+          });
+        })
+        .catch(async (e) => {
           emitRecoveryFailed(deps.auditWriter, {
             taskId: task.id,
-            context: 'non_idempotent_notify_failed',
+            context: 'non_idempotent_move_failed',
             error: formatErr(e),
           });
         });
@@ -168,9 +171,10 @@ async function _recoverToolTask(
     .catch(async (e) => {
       emitRecoveryFailed(deps.auditWriter, {
         taskId: task.id,
-        context: 'non_idempotent_failed_move_failed',
+        context: 'non_idempotent_notify_failed',
         error: formatErr(e),
       });
+      // Task stays in running — next recovery will retry
     });
   return 0;
 }
