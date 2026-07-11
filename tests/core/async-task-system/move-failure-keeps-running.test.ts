@@ -38,7 +38,12 @@ describe('phase 871: move failure keeps running file', () => {
       resolve: vi.fn((p: string) => `/abs/${p}`),
       move: vi.fn().mockRejectedValue(new Error('disk full')),
       delete: vi.fn().mockResolvedValue(undefined),
-      read: vi.fn().mockResolvedValue(''),
+      read: vi.fn().mockImplementation((filePath: string) => {
+        if (filePath.startsWith('tasks/queues/running/')) {
+          return Promise.resolve(JSON.stringify({ id: 'task', kind: 'subagent' }));
+        }
+        return Promise.resolve('');
+      }),
       writeAtomic: vi.fn().mockResolvedValue(undefined),
     } as unknown as FileSystem;
 
@@ -56,12 +61,19 @@ describe('phase 871: move failure keeps running file', () => {
     await system.shutdown(1).catch(() => { /* silent: shutdown */ });
   });
 
-  it('moveTaskToDone failure does not delete the running file', async () => {
+  it('moveTaskToDone failure does not delete the running file and persists terminalState=done', async () => {
     const fullId = makeFullTaskId('550e8400-e29b-41d4-a716-446655440000');
     const runningPath = `tasks/queues/running/${fullId}.json`;
     const donePath = `tasks/queues/done/${fullId}.json`;
 
     await (system as any).moveTaskToDone(fullId);
+
+    // terminalState=done must be persisted before the move attempt
+    const terminalStateWrites = (mockFs as any).writeAtomic.mock.calls.filter(
+      ([filePath, content]: [string, string]) =>
+        filePath === runningPath && content.includes('"terminalState":"done"'),
+    );
+    expect(terminalStateWrites.length).toBe(1);
 
     expect((mockFs as any).move).toHaveBeenCalledWith(runningPath, donePath);
     expect((mockFs as any).delete).not.toHaveBeenCalled();
@@ -78,12 +90,19 @@ describe('phase 871: move failure keeps running file', () => {
     );
   });
 
-  it('moveTaskToFailed failure does not delete the running file', async () => {
+  it('moveTaskToFailed failure does not delete the running file and persists terminalState=failed', async () => {
     const fullId = makeFullTaskId('660e8400-e29b-41d4-a716-446655440000');
     const runningPath = `tasks/queues/running/${fullId}.json`;
     const failedPath = `tasks/queues/failed/${fullId}.json`;
 
     await (system as any).moveTaskToFailed(fullId);
+
+    // terminalState=failed must be persisted before the move attempt
+    const terminalStateWrites = (mockFs as any).writeAtomic.mock.calls.filter(
+      ([filePath, content]: [string, string]) =>
+        filePath === runningPath && content.includes('"terminalState":"failed"'),
+    );
+    expect(terminalStateWrites.length).toBe(1);
 
     expect((mockFs as any).move).toHaveBeenCalledWith(runningPath, failedPath);
     expect((mockFs as any).delete).not.toHaveBeenCalled();
