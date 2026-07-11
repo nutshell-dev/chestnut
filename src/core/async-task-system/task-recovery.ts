@@ -267,8 +267,13 @@ async function _recoverMigratedToolTask(
   let alreadySent = false;
   try {
     alreadySent = await fs.exists(sentMarkerPath);
-  } catch {
-    // I/O error checking the marker: be conservative and attempt re-delivery.
+  } catch (err) {
+    emitRecoveryFailed(auditWriter, {
+      taskId: task.id,
+      context: 'migrated_sent_marker_read_failed',
+      error: formatErr(err),
+    });
+    return 0;
   }
 
   if (alreadySent) {
@@ -328,13 +333,16 @@ async function _recoverMigratedToolTask(
     if (sent) {
       // Persist sent marker BEFORE moving to done. If the move fails, the marker
       // guarantees the next recovery will skip re-delivery and only retry the move.
-      await fs.writeAtomic(sentMarkerPath, '1').catch((e) => {
+      try {
+        await fs.writeAtomic(sentMarkerPath, '1');
+      } catch (err) {
         emitRecoveryFailed(auditWriter, {
           taskId: task.id,
           context: 'migrated_sent_marker_persist_failed',
-          error: formatErr(e),
+          error: formatErr(err),
         });
-      });
+        return 0;
+      }
 
       await fs.move(filePath, `${TASKS_QUEUES_DONE_DIR}/${task.id}.json`)
         .then(() => {

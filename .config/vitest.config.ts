@@ -16,7 +16,7 @@ const maxThreads = Number.isFinite(envMaxThreads) && envMaxThreads > 0
  * 维护: NEW test 用 vi.mock 需加此列表
  *
  * 生成: find tests -name "*.test.ts" -exec grep -lE "^vi\.mock\(|^\s*vi\.mock\(" {} \; | sort
- * 数量: 121 file (sync 2026-07-11 / phase 883 added phase883 mock)
+ * 数量: 123 file (sync 2026-07-11 / phase 890 added phase887, phase889 mock)
  * Invariant test: tests/design/vi-mock-list-consistency-invariant.test.ts 守 list ↔ 真 use site 一致性
  *   (phase 316 V53 a 真治、撤回 phase 306 ratify「推 §10」、详 `coding plan/phase316/`)
  */
