@@ -71,8 +71,24 @@ vi.mock('../../src/watchdog/watchdog.js', () => ({
   stopCommand: vi.fn().mockResolvedValue(undefined),
 }));
 
+// phase 880 Step C: orphan-sweep uses real timers + real kill in its fallback path;
+// in unit tests we only care about stopAllCommand's own cleanup loop, so bypass sweep
+// to remove timing noise and cross-test side effects.
+vi.mock('../../src/watchdog/orphan-sweep.js', () => ({
+  sweepOrphanWatchdogs: vi.fn().mockResolvedValue([]),
+}));
+
 vi.mock('../../src/cli/commands/motion.js', () => ({
   stopCommand: vi.fn().mockResolvedValue(undefined),
+}));
+
+// phase 880 Step C: shrink stopProcess polling grace so tests don't spend 7s each
+// waiting on real timers (flaky under load / close to testTimeout).
+vi.mock('../../src/foundation/process-manager/constants.js', () => ({
+  DAEMON_SHUTDOWN_GRACE_MS: 50,
+  PROCESS_STOP_POLL_INTERVAL_MS: 5,
+  SIGKILL_DEAD_VERIFY_GRACE_MS: 5,
+  SPAWN_POLL_INTERVAL_MS: 5,
 }));
 
 vi.mock('../../src/foundation/process-manager/factories.js', () => ({
@@ -115,6 +131,19 @@ describe('stop — orphan cleanup silent → audit (P1.4)', () => {
   beforeEach(() => {
     mockAuditState.clear();
     vi.clearAllMocks();
+    // phase 880 Step C: clearAllMocks does not reset implementations. Reset each
+    // hoisted mock back to a known default so one test's mockImplementation cannot
+    // leak into the next test.
+    mockKill.mockReset().mockImplementation(() => {});
+    mockFindProcesses.mockReset().mockReturnValue([99991, 99992]);
+    mockIsAlive.mockReset().mockReturnValue(false);
+    mockIsPidArgvMatching.mockReset().mockReturnValue(true);
+    mockCreateSystemAudit.mockReset().mockImplementation(() => ({
+      write: mockAuditState.write,
+      preview: (s: string) => s,
+      message: (s: string) => s,
+      summary: (s: string) => s,
+    }));
   });
 
   it('kill TERM 失败时写 ORPHAN_SIGTERM_FAILED audit', async () => {
