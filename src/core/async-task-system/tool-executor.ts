@@ -204,8 +204,8 @@ export async function executeToolTask(
       const errorMsg = formatErr(error);
       lastError = errorMsg;
 
-      // Check if we should retry
-      if (attempt < task.maxRetries) {
+      // Check if we should retry (only idempotent tools may be retried)
+      if (task.isIdempotent && attempt < task.maxRetries) {
         // Update retry count in task and persist to running file
         task.retryCount = attempt + 1;
         try {
@@ -241,8 +241,10 @@ export async function executeToolTask(
           lastError = 'Execution aborted during retry wait';
           break;
         }
+      } else {
+        // No more retries allowed: exit the loop
+        break;
       }
-      // Continue to next retry attempt
     }
   }
 

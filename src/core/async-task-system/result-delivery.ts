@@ -108,16 +108,17 @@ async function sendResultCore(p: SendResultCoreParams): Promise<void> {
     await writeInboxAsync(p.fs, INBOX_PENDING_DIR, baseMsg, p.auditWriter);
   } catch (err) {
     if (resultRef) {
-      await p.fs.delete(resultRef).catch((delErr) => {
-        emitResultWriteFailed(p.auditWriter, {
-          fullTaskId: p.taskId as FullTaskId,
-          shortTaskId: p.shortId,
-          context: p.auditContexts.orphanDelete,
-          error: formatErr(delErr),
-        });
-      });
       try {
         await writeInboxAsync(p.fs, INBOX_PENDING_DIR, { ...baseMsg, content: inlineContent }, p.auditWriter);
+        // Inline succeeded — now safe to delete the ref result
+        await p.fs.delete(resultRef).catch((delErr) => {
+          emitResultWriteFailed(p.auditWriter, {
+            fullTaskId: p.taskId as FullTaskId,
+            shortTaskId: p.shortId,
+            context: p.auditContexts.orphanDelete,
+            error: formatErr(delErr),
+          });
+        });
         if (p.writeMarkerOnSuccess) {
           await writeSentMarker(p.fs, p.auditWriter, p.taskId, p.shortId);
         }
@@ -129,6 +130,7 @@ async function sendResultCore(p: SendResultCoreParams): Promise<void> {
           context: 'inline_fallback_failed',
           error: formatErr(inlineErr),
         });
+        // resultRef preserved — can be read manually or retried on next recovery
       }
     }
     emitInboxWriteFailed(p.auditWriter, {
@@ -245,7 +247,12 @@ export async function sendFallbackError(
     type: 'task_result',
     from: 'system',
     to: task.parentClawId,
-    content: JSON.stringify({ taskId: task.id, is_error: true, result: `Task failed: ${errorMsg}` }),
+    content: JSON.stringify({
+      taskId: taskShortId(task),
+      fullTaskId: task.id,
+      is_error: true,
+      result: `Task failed: ${errorMsg}`,
+    }),
     priority: 'high',
     timestamp: new Date().toISOString(),
   };

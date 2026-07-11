@@ -38,7 +38,7 @@ function legacyToolTask(id: string): Record<string, unknown> {
     parentClawDir: '/tmp',
     parentClawId: 'parent',
     createdAt: new Date().toISOString(),
-    isIdempotent: false,
+    isIdempotent: true,
     maxRetries: 2,
     retryCount: 0,
   };
