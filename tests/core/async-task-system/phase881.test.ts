@@ -116,7 +116,7 @@ describe('phase 881: cancel error propagation', () => {
 });
 
 describe('phase 881: schedule index write audit', () => {
-  it('rejects and audits when shortIdIndex add/save fails after file write', async () => {
+  it('returns shortId and audits when shortIdIndex add/save fails after file write', async () => {
     const { audit, events } = makeMockAudit();
     const shortIdIndex = new InMemoryShortIdIndex();
     vi.spyOn(shortIdIndex, 'add').mockImplementation(() => {
@@ -142,14 +142,15 @@ describe('phase 881: schedule index write audit', () => {
     });
     await system.initialize();
 
-    await expect(
-      system.schedule('subagent', {
-        parentClawId: 'claw-1',
-        parentClawDir: '/tmp/claw',
-        goal: 'test goal',
-        maxSteps: 10,
-      } as any),
-    ).rejects.toThrow('index persist failed');
+    const shortId = await system.schedule('subagent', {
+      parentClawId: 'claw-1',
+      parentClawDir: '/tmp/claw',
+      goal: 'test goal',
+      maxSteps: 10,
+    } as any);
+
+    expect(typeof shortId).toBe('string');
+    expect(shortId.length).toBe(8);
 
     const indexFailedEvents = events.filter(
       e => e[0] === TASK_AUDIT_EVENTS.SHORT_ID_INDEX_LOAD_FAILED && e.some(c => typeof c === 'string' && c.includes('context=schedule_index_write')),

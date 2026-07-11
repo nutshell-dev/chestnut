@@ -432,6 +432,17 @@ export class AsyncTaskSystem {
     try {
       this.shortIdIndex.add(shortId, fullId);
       this.shortIdIndex.save();
+
+      emitTaskScheduled(this.auditWriter, {
+        fullTaskId: fullId,
+        shortTaskId: shortId,
+        kind: taskKind,
+        parent: task.parentClawId,
+        maxSteps: task.maxSteps,
+      });
+
+      // No push, no dispatch; watcher ingests asynchronously
+      return shortId;
     } catch (e) {
       // File is already written and may be picked up by watcher.
       // Don't delete it — rebuildFromDisk() will recover the index on next startup.
@@ -441,19 +452,8 @@ export class AsyncTaskSystem {
         error: `schedule index write failed: ${String(e)}`,
         context: 'schedule_index_write',
       });
-      throw e; // propagate to caller — do not retry
+      return shortId;
     }
-
-    emitTaskScheduled(this.auditWriter, {
-      fullTaskId: fullId,
-      shortTaskId: shortId,
-      kind: taskKind,
-      parent: task.parentClawId,
-      maxSteps: task.maxSteps,
-    });
-
-    // No push, no dispatch; watcher ingests asynchronously
-    return shortId;
   }
 
 

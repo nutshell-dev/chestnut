@@ -27,9 +27,10 @@ async function writeSentMarker(
   auditWriter: AuditLog,
   taskId: TaskId,
   shortId?: ShortTaskId,
-): Promise<void> {
+): Promise<boolean> {
   try {
     await fs.writeAtomic(SENT_MARKER(taskId), '1');
+    return true;
   } catch (markerErr) {
     // 不 throw：marker 写失败仅影响 future recovery 重发 → at-least-once 投递（≤ 10ms race window 已 design ratify ⚓ accepted-stable by phase 875、consumer 容忍重发、详 design/modules/l4_async_task_system.md §7.B B.sent-marker-residual-race-window）
     emitResultWriteFailed(auditWriter, {
@@ -38,6 +39,7 @@ async function writeSentMarker(
       context: 'sent_marker_persist_failed',
       error: formatErr(markerErr),
     });
+    return false;
   }
 }
 
@@ -112,17 +114,23 @@ async function sendResultCore(p: SendResultCoreParams): Promise<void> {
         await writeInboxAsync(p.fs, INBOX_PENDING_DIR, { ...baseMsg, content: inlineContent }, p.auditWriter);
         // Persist sent marker BEFORE deleting resultRef.
         // If crash occurs between marker and delete, recovery sees marker and skips re-send.
+        let markerOk = true;
         if (p.writeMarkerOnSuccess) {
-          await writeSentMarker(p.fs, p.auditWriter, p.taskId, p.shortId);
+          markerOk = await writeSentMarker(p.fs, p.auditWriter, p.taskId, p.shortId);
         }
-        await p.fs.delete(resultRef).catch((delErr) => {
-          emitResultWriteFailed(p.auditWriter, {
-            fullTaskId: p.taskId as FullTaskId,
-            shortTaskId: p.shortId,
-            context: p.auditContexts.orphanDelete,
-            error: formatErr(delErr),
+        if (markerOk) {
+          // Only delete resultRef if marker was persisted.
+          // If marker failed, keep resultRef — recovery will re-send on next startup.
+          await p.fs.delete(resultRef).catch((delErr) => {
+            emitResultWriteFailed(p.auditWriter, {
+              fullTaskId: p.taskId as FullTaskId,
+              shortTaskId: p.shortId,
+              context: p.auditContexts.orphanDelete,
+              error: formatErr(delErr),
+            });
           });
-        });
+        }
+        // If marker failed, resultRef is preserved — don't delete it.
         return;
       } catch (inlineErr) {
         emitInboxWriteFailed(p.auditWriter, {
@@ -146,6 +154,8 @@ async function sendResultCore(p: SendResultCoreParams): Promise<void> {
     // phase 789 (audit-2026-05-14 P0.19): SENT_MARKER = "parent inbox has
     // received at least one notification for this task" idempotency token;
     // recovery checks the marker to decide whether to skip re-send.
+    // Marker failure is swallowed (returns false) so recovery can re-send the
+    // still-present result.txt on next startup.
     await writeSentMarker(p.fs, p.auditWriter, p.taskId, p.shortId);
   }
 }
