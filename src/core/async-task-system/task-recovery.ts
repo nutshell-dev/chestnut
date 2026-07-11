@@ -10,6 +10,7 @@ import {
   TASKS_QUEUES_RESULTS_DIR,
 } from './dirs.js';
 import { formatErr } from './_helpers.js';
+import { ASYNC_EXEC_MIGRATED_HARD_TIMEOUT_MS } from './async-exec-wrapper.js';
 import {
   emitRecovered,
   emitRecoveryComplete,
@@ -239,24 +240,43 @@ async function _recoverMigratedToolTask(
   let processAlive = isAlive(pid);
   if (processAlive && task.migratedStartTime !== undefined) {
     const actualStartTime = getProcessStartTime(pid);
-    if (actualStartTime !== undefined && actualStartTime !== task.migratedStartTime) {
+    if (actualStartTime === undefined) {
+      // Cannot verify PID match — uncertain state, retry next recovery.
+      emitRecoveryFailed(auditWriter, {
+        taskId: task.id,
+        context: 'migrated_start_time_unavailable',
+      });
+      return 0;
+    }
+    if (actualStartTime !== task.migratedStartTime) {
       processAlive = false; // PID reused by a different process.
     }
   }
 
   if (processAlive) {
-    // Cannot reconstruct the monitor (ChildProcess reference is lost across
-    // restarts), but leave the task in running/ so we do not spawn a duplicate.
-    // The process will eventually exit or be killed by the hard timeout.
-    emitRecovered(auditWriter, {
-      fullTaskId: task.id as FullTaskId,
-      shortTaskId: taskShortId(task),
-      kind: task.kind,
-      from: 'running',
-      to: 'running',
-      reason: 'migrated_process_still_alive',
-    });
-    return 0;
+    const deadlineMs = Date.parse(task.createdAt) + ASYNC_EXEC_MIGRATED_HARD_TIMEOUT_MS;
+    if (Date.now() >= deadlineMs) {
+      // Process survived beyond hard timeout — treat as dead and proceed to result check.
+      emitRecoveryFailed(auditWriter, {
+        taskId: task.id,
+        context: 'migrated_process_hard_timeout_exceeded',
+        error: `createdAt=${task.createdAt} deadlineMs=${deadlineMs}`,
+      });
+      processAlive = false; // fall through to result delivery / failure
+    } else {
+      // Cannot reconstruct the monitor (ChildProcess reference is lost across
+      // restarts), but leave the task in running/ so we do not spawn a duplicate.
+      // The process will eventually exit or be killed by the hard timeout.
+      emitRecovered(auditWriter, {
+        fullTaskId: task.id as FullTaskId,
+        shortTaskId: taskShortId(task),
+        kind: task.kind,
+        from: 'running',
+        to: 'running',
+        reason: 'migrated_process_still_alive',
+      });
+      return 0;
+    }
   }
 
   // 2. Process is dead — check whether the wrapper already wrote the result.
@@ -375,6 +395,14 @@ async function _recoverMigratedToolTask(
   }
 
   // 3. Process is dead and no result exists: output is unrecoverable.
+  await sendFallbackError(fs, auditWriter, task, 'Migrated process exited without producing output')
+    .catch((e) => {
+      emitRecoveryFailed(auditWriter, {
+        taskId: task.id,
+        context: 'migrated_fallback_error_failed',
+        error: formatErr(e),
+      });
+    });
   await fs.move(filePath, `${TASKS_QUEUES_FAILED_DIR}/${task.id}.json`)
     .then(() => {
       emitRecovered(auditWriter, {
