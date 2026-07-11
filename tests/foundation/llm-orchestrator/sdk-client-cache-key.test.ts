@@ -71,4 +71,22 @@ describe('SDK client cache key (phase 450 review)', () => {
     expect(misses.length).toBe(1);
     expect(hits.length).toBe(3);
   });
+
+  it('Phase 899: 不同 name 不共享 client（同 apiFormat+model+baseUrl+apiKey）', () => {
+    const { sink, emitted } = createMockSink();
+    new LLMOrchestratorImpl({
+      primary: { name: 'p1', apiKey: 'key-abc', model: 'm1', apiFormat: 'anthropic', baseUrl: 'https://api.anthropic.com' },
+      fallbacks: [
+        { name: 'p2', apiKey: 'key-abc', model: 'm1', apiFormat: 'anthropic', baseUrl: 'https://api.anthropic.com' },
+      ],
+      maxAttempts: 1,
+      retryDelayMs: 0,
+      events: sink,
+    });
+    // 改前 name 不参与 key；改后不同 name → 2 miss
+    const misses = emitted.filter(e => e.type === 'sdk_client_cache_miss');
+    const hits = emitted.filter(e => e.type === 'sdk_client_cache_hit');
+    expect(misses.length).toBe(2);
+    expect(hits.length).toBe(0);
+  });
 });

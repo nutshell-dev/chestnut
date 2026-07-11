@@ -4,7 +4,7 @@
  * phase 532: 加测试覆盖之前 phase 517 没建。
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { LLMOrchestratorImpl } from '../../../src/foundation/llm-orchestrator/orchestrator.js';
 import type {
   LLMEventSink,
@@ -81,5 +81,24 @@ describe('LLMOrchestratorImpl.close', () => {
     await orch.close();
     await orch.close();
     await orch.close();
+  });
+
+  it('Phase 899: 单个 provider close 抛错时其余仍关闭且 cache 被清空', async () => {
+    const { sink } = createSink();
+    const orch = new LLMOrchestratorImpl({
+      primary: { name: 'p1', apiKey: 'k1', model: 'm1', apiFormat: 'anthropic' },
+      maxAttempts: 1,
+      retryDelayMs: 0,
+      events: sink,
+    });
+
+    const goodClose = vi.fn().mockResolvedValue(undefined);
+    const cache: Map<string, unknown> = (orch as unknown as { sdkClientCache: Map<string, unknown> }).sdkClientCache;
+    cache.set('bad', { close: async () => { throw new Error('bad close'); } });
+    cache.set('good', { close: goodClose });
+
+    await expect(orch.close()).rejects.toThrow('Failed to close 1 provider(s): bad close');
+    expect(goodClose).toHaveBeenCalledTimes(1);
+    expect(cache.size).toBe(0);
   });
 });

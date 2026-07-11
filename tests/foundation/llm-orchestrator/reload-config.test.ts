@@ -134,7 +134,7 @@ describe('phase 320 Step A: reloadConfig', () => {
     expect(eventsAfter).toBe(eventsBefore);
   });
 
-  it('sdkClientCache 命中：reload 切回旧 config 时 cache hit、复用同一 provider 实例', () => {
+  it('Phase 899: reloadConfig 淘汰不在新 config 中的旧 provider', () => {
     const { sink, emitted } = createSink();
     const cfgA = { name: 'pA', apiKey: 'kA', model: 'mA', apiFormat: 'anthropic' as const };
     const cfgB = { name: 'pB', apiKey: 'kB', model: 'mB', apiFormat: 'openai' as const };
@@ -146,6 +146,7 @@ describe('phase 320 Step A: reloadConfig', () => {
       events: sink,
     });
     const pA = (orch as any).primary;
+    const cache: Map<string, unknown> = (orch as any).sdkClientCache;
 
     orch.reloadConfig({
       primary: cfgB,
@@ -155,7 +156,10 @@ describe('phase 320 Step A: reloadConfig', () => {
     });
     const pB = (orch as any).primary;
     expect(pB).not.toBe(pA);
+    // 旧 provider 应从 cache 移除
+    expect(Array.from(cache.values()).includes(pA)).toBe(false);
 
+    // 切回旧 config 时，旧实例已被淘汰，应创建新实例（cache miss）
     orch.reloadConfig({
       primary: cfgA,
       maxAttempts: 1,
@@ -163,9 +167,9 @@ describe('phase 320 Step A: reloadConfig', () => {
       events: sink,
     });
     const pA2 = (orch as any).primary;
-    expect(pA2).toBe(pA);  // 同实例（cache hit）
+    expect(pA2).not.toBe(pA);
 
-    const hits = emitted.filter(e => e.type === 'sdk_client_cache_hit');
-    expect(hits.length).toBeGreaterThan(0);
+    const misses = emitted.filter(e => e.type === 'sdk_client_cache_miss');
+    expect(misses.length).toBeGreaterThanOrEqual(2);
   });
 });

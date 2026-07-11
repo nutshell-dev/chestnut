@@ -109,14 +109,25 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
     // phase 450 (review): cache key 含全部 endpoint-determining 字段
     // - baseUrl: 同 apiFormat+model 不同 endpoint 不应共享 client
     // - apiKey hash (SHA-256 前 8 位): 防末 8 位明文 collision + 不放完整 key
+    // phase 899: 额外加入 name 与影响 adapter 行为/身份的配置指纹，避免同名 endpoint
+    // 不同配置共享同一 adapter（审计/breaker 串线）。
     const apiKeyHash = config.apiKey
       ? sha256ShortHex(config.apiKey, 8)
       : 'noapikey';
+    const configFingerprint = sha256ShortHex(JSON.stringify({
+      temperature: config.temperature,
+      timeoutMs: config.timeoutMs,
+      thinking: config.thinking,
+      extraHeaders: config.extraHeaders,
+      auditLog: config.auditLog ? 'present' : 'absent',
+    }), 8);
     const key = [
+      config.name ?? config.apiFormat ?? 'unknown',
       config.apiFormat ?? 'unknown',
       config.model ?? 'unknown',
       config.baseUrl ?? 'default',
       apiKeyHash,
+      configFingerprint,
     ].join(':');
     if (!this.sdkClientCache.has(key)) {
       this.sdkClientCache.set(key, createLLMProvider(config));
@@ -1117,24 +1128,40 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
    * Close/cleanup - clear SDK client cache.
    * phase 517 B7: 实现 API 契约「close() 释放资源」。Anthropic SDK 等用 fetch keepalive
    * agent、不显式清理依赖 GC 回收时机不可控。close 后再 call 会 lazy 重建 cache。
+   * phase 899: per-provider try/catch + finally clear；任一 provider close 抛错不影响其余
+   * provider 关闭与 cache 清空，最终聚合并抛出错误信息。
    */
   async close(): Promise<void> {
-    for (const [, provider] of this.sdkClientCache) {
-      // LLMProvider 接口未要求 close()、optional chain 兼容未实现的 provider
-      await (provider as { close?: () => Promise<void> | void }).close?.();
+    const closeErrors: Error[] = [];
+    try {
+      for (const [, provider] of this.sdkClientCache) {
+        try {
+          // LLMProvider 接口未要求 close()、optional chain 兼容未实现的 provider
+          await (provider as { close?: () => Promise<void> | void }).close?.();
+        } catch (err) {
+          closeErrors.push(err as Error);
+        }
+      }
+    } finally {
+      this.sdkClientCache.clear();
     }
-    this.sdkClientCache.clear();
+    if (closeErrors.length > 0) {
+      throw new Error(`Failed to close ${closeErrors.length} provider(s): ${closeErrors.map(e => e.message).join('; ')}`);
+    }
   }
 
   /**
    * phase 320: 原地替换 primary/fallbacks/breakers，对象引用不变。
+   * phase 899: reload 前记录旧 key set，reload 后淘汰不在新 config 中的 provider。
    * 同 ctor L98-131 同构（改 ctor 需同步改本方法、否则 reload 与起步态漂移）。
-   * sdkClientCache 不清（旧 key 残留无害；切回旧 provider 时 cache hit、性能更好）。
    * events 不动（装配期注入）。
    * lastSuccessProvider 重置：配置已变，上次成功的 provider 信息应失效。
    * currentStreamingProvider 不动（如有活跃 stream，配置替换不影响当前流）。
    */
   reloadConfig(newConfig: LLMOrchestratorConfig): void {
+    // Phase 899: record old keys, evict after reload
+    const oldKeys = new Set(this.sdkClientCache.keys());
+
     this.config = newConfig;
     this.primary = this.getSdkClient(newConfig.primary);
     this.fallbacks = (newConfig.fallbacks ?? []).map((c) => this.getSdkClient(c));
@@ -1164,6 +1191,22 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
       this.events.emit({ type: 'tool_arg_parse_error', ...e });
     this.primary.onToolArgParseError = toolArgErrHandler;
     this.fallbacks.forEach(fb => { fb.onToolArgParseError = toolArgErrHandler; });
+
+    // Phase 899: evict entries no longer referenced by new config
+    const newProviders = new Set(allProviders);
+    for (const key of oldKeys) {
+      const provider = this.sdkClientCache.get(key);
+      if (!provider) continue;
+      if (!newProviders.has(provider)) {
+        try {
+          const maybeClose = (provider as { close?: () => Promise<void> | void }).close?.();
+          if (maybeClose && typeof (maybeClose as Promise<void>).catch === 'function') {
+            (maybeClose as Promise<void>).catch(() => { /* best-effort */ });
+          }
+        } catch { /* best-effort */ }
+        this.sdkClientCache.delete(key);
+      }
+    }
 
     // 配置已替换 → 上次成功的 provider 信息不再有效
     this.lastSuccessProvider = null;
