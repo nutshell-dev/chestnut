@@ -80,31 +80,53 @@ async function _recoverRunningTasks(deps: RecoverTasksDeps): Promise<number> {
 async function _recoverToolTask(
   deps: RecoverTasksDeps, filePath: string, task: ToolTask,
 ): Promise<number> {
-  if (task.mode === 'migrated' && task.migratedPid !== undefined) {
-    return _recoverMigratedToolTask(deps, filePath, task);
-  }
-
-  // Phase 874: respect terminalState for already-executed tool tasks
+  // Phase 875: terminalState outranks mode; a migrated task may already be done/failed.
   const ts = (task as unknown as Record<string, unknown>).terminalState as string | undefined;
   if (ts === 'done') {
-    await deps.fs.move(filePath, `${TASKS_QUEUES_DONE_DIR}/${task.id}.json`).catch(async (e) => {
-      emitRecoveryFailed(deps.auditWriter, {
-        taskId: task.id,
-        context: 'tool_done_move_failed',
-        error: formatErr(e),
+    await deps.fs.move(filePath, `${TASKS_QUEUES_DONE_DIR}/${task.id}.json`)
+      .then(() => {
+        emitRecovered(deps.auditWriter, {
+          fullTaskId: task.id as FullTaskId,
+          shortTaskId: taskShortId(task),
+          kind: task.kind,
+          from: 'running',
+          to: 'done',
+          reason: 'terminal_state_done',
+        });
+      })
+      .catch(async (e) => {
+        emitRecoveryFailed(deps.auditWriter, {
+          taskId: task.id,
+          context: 'tool_done_move_failed',
+          error: formatErr(e),
+        });
       });
-    });
     return 0;
   }
   if (ts === 'failed') {
-    await deps.fs.move(filePath, `${TASKS_QUEUES_FAILED_DIR}/${task.id}.json`).catch(async (e) => {
-      emitRecoveryFailed(deps.auditWriter, {
-        taskId: task.id,
-        context: 'tool_failed_move_failed',
-        error: formatErr(e),
+    await deps.fs.move(filePath, `${TASKS_QUEUES_FAILED_DIR}/${task.id}.json`)
+      .then(() => {
+        emitRecovered(deps.auditWriter, {
+          fullTaskId: task.id as FullTaskId,
+          shortTaskId: taskShortId(task),
+          kind: task.kind,
+          from: 'running',
+          to: 'failed',
+          reason: 'terminal_state_failed',
+        });
+      })
+      .catch(async (e) => {
+        emitRecoveryFailed(deps.auditWriter, {
+          taskId: task.id,
+          context: 'tool_failed_move_failed',
+          error: formatErr(e),
+        });
       });
-    });
     return 0;
+  }
+
+  if (task.mode === 'migrated' && task.migratedPid !== undefined) {
+    return _recoverMigratedToolTask(deps, filePath, task);
   }
 
   // No terminalState: fresh task — move back to pending, re-execute
@@ -444,11 +466,6 @@ async function _moveToDeadLetter(
   deps: RecoverTasksDeps, filePath: string, task: SubAgentTask, retryCount: number, retryPath: string,
 ): Promise<void> {
   const { fs, auditWriter } = deps;
-  emitRecoveryDeadLetter(auditWriter, {
-    fullTaskId: task.id as FullTaskId,
-    shortTaskId: taskShortId(task),
-    retries: retryCount,
-  });
   await fs.move(filePath, `${TASKS_QUEUES_FAILED_DIR}/${task.id}.json`)
     .then(async () => {
       // Phase 874: only cleanup retry counter on successful move
@@ -461,6 +478,12 @@ async function _moveToDeadLetter(
           });
         }
         // silent: ENOENT/FS_NOT_FOUND — retry counter already absent; cleanup has no target
+      });
+      // Phase 875: only emit dead-letter audit after the move succeeds.
+      emitRecoveryDeadLetter(auditWriter, {
+        fullTaskId: task.id as FullTaskId,
+        shortTaskId: taskShortId(task),
+        retries: retryCount,
       });
     })
     .catch(async (moveErr) => {
