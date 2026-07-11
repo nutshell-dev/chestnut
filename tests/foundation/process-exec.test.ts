@@ -251,10 +251,10 @@ describe('isAlive', () => {
 });
 
 describe('findByPattern', () => {
-  it.concurrent('returns empty for no match', () => {
+  it('returns empty for no match', () => {
     expect(findByPattern('zzz_no_such_process_zzz_xyz')).toEqual([]);
   });
-  it.concurrent('finds processes with command field', () => {
+  it('finds processes with command field', () => {
     const r = findByPattern('node');
     expect(r.length).toBeGreaterThan(0);
     expect(r[0]).toHaveProperty('pid');
