@@ -896,6 +896,7 @@ export class AsyncTaskSystem {
         }
         fromPath = legacyPath;
       }
+      await this._setTerminalState(fromPath, 'done');
       await this.fs.move(fromPath, to);
       if (fromPath !== fromFull) {
         await this._migrateTaskJsonId(to, fullId);
@@ -914,7 +915,7 @@ export class AsyncTaskSystem {
         context: 'move_to_done',
         error: formatErr(err),
       });
-      // Keep the running file — result.txt.sent marker ensures idempotency on recovery.
+      // Keep the running file — terminalState + sent marker ensure correct recovery routing.
       // On next startup, recoverTasks will see the running file + sent marker
       // and complete the move to done. Deleting the running file would block recovery.
     }
@@ -926,16 +927,6 @@ export class AsyncTaskSystem {
       throw new Error(`[INVARIANT VIOLATION] moveTaskToFailed: cannot resolve ${taskId}`);
     }
     const auditShortId = this.shortIdIndex.reverseResolve(fullId) ?? this.shortIdIndex.deriveShortId(fullId);
-
-    // Persist intended terminal state BEFORE the move.
-    // If the move fails, recovery uses this marker to correctly route to failed
-    // instead of mistakenly recovering as done.
-    const intendedFailedPath = `${TASKS_QUEUES_RESULTS_DIR}/${fullId}/result.txt.intended-failed`;
-    try {
-      await this.fs.writeAtomic(intendedFailedPath, '');
-    } catch {
-      // silent: best-effort marker — move will still be attempted
-    }
 
     try {
       const fromFull = `${TASKS_QUEUES_RUNNING_DIR}/${fullId}.json`;
@@ -950,6 +941,7 @@ export class AsyncTaskSystem {
         }
         fromPath = legacyPath;
       }
+      await this._setTerminalState(fromPath, 'failed');
       await this.fs.move(fromPath, to);
       if (fromPath !== fromFull) {
         await this._migrateTaskJsonId(to, fullId);
@@ -968,7 +960,28 @@ export class AsyncTaskSystem {
         context: 'move_to_failed',
         error: formatErr(err),
       });
-      // Keep the running file — recovery will retry the move on next startup.
+      // Keep the running file — terminalState ensures recovery routes to failed on next startup.
+    }
+  }
+
+  /**
+   * Write terminalState into the task JSON before attempting the move.
+   * If the move fails, recovery reads this field to correctly route the task.
+   */
+  private async _setTerminalState(filePath: string, state: 'done' | 'failed'): Promise<void> {
+    try {
+      const raw = await this.fs.read(filePath);
+      const task = JSON.parse(raw) as Record<string, unknown>;
+      task.terminalState = state;
+      await this.fs.writeAtomic(filePath, JSON.stringify(task));
+    } catch (e) {
+      this.auditWriter.write(
+        TASK_AUDIT_EVENTS.SHORT_ID_INDEX_LOAD_FAILED,
+        `path=${filePath}`,
+        `error=cannot persist terminalState=${state}: ${String(e)}`,
+        `context=set_terminal_state`,
+      );
+      throw e; // can't proceed — recovery would route incorrectly without this field
     }
   }
 
