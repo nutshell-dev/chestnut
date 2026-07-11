@@ -65,6 +65,11 @@ describe('phase 7: overflow dedup (system-level overload, 1 notif per window)', 
       writePendingFile(baseDir, `task-${i}`);
     }
 
+    // Phase 886: each overflow task must exist in pending so the move to failed succeeds.
+    for (let i = 0; i < 3; i++) {
+      writePendingFile(baseDir, `overflow-${i}`);
+    }
+
     // Trigger 3 overflow rejections in same window
     for (let i = 0; i < 3; i++) {
       await (system as any)._enqueueAndDispatch({ id: `overflow-${i}`, kind: 'subagent' } as any);
@@ -89,6 +94,7 @@ describe('phase 7: overflow dedup (system-level overload, 1 notif per window)', 
       outboxWriter: {} as any, registry: {} as any, selfInbox: mockInbox,
     });
 
+    writePendingFile(baseDir, 'overflow-task');
     for (let i = 0; i < PENDING_QUEUE_MAX; i++) {
       writePendingFile(baseDir, `task-${i}`);
     }
@@ -120,6 +126,7 @@ describe('phase 7: overflow dedup (system-level overload, 1 notif per window)', 
     });
 
     // First overflow window
+    writePendingFile(baseDir, 'first-overflow');
     for (let i = 0; i < PENDING_QUEUE_MAX; i++) {
       writePendingFile(baseDir, `task-${i}`);
     }
@@ -133,6 +140,7 @@ describe('phase 7: overflow dedup (system-level overload, 1 notif per window)', 
     await (system as any)._enqueueAndDispatch({ id: 'recovery-task', kind: 'subagent' } as any).catch(() => { /* silent: cleanup */ });
 
     // Re-fill queue + second overflow
+    writePendingFile(baseDir, 'second-overflow');
     for (let i = 0; i < PENDING_QUEUE_MAX; i++) {
       writePendingFile(baseDir, `task2-${i}`);
     }

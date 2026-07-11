@@ -654,24 +654,52 @@ export class AsyncTaskSystem {
     const pendingCount = pendingIds.size;
 
     // T6: PENDING_QUEUE_MAX cap check
-    if (pendingCount >= PENDING_QUEUE_MAX) {
+    // Phase 886: off-by-one fix — accept exactly MAX pending tasks, reject MAX+1.
+    if (pendingCount > PENDING_QUEUE_MAX) {
       emitPendingQueueOverflow(this.auditWriter, {
         fullTaskId: fullId,
         shortTaskId: shortId,
         queueLength: pendingCount,
         cap: PENDING_QUEUE_MAX,
       });
-      // Move file to failed/ to prevent restart watcher race re-ingest
+
+      // Phase 886: notify parent BEFORE moving so the parent is not left waiting forever.
+      await sendFallbackError(this.fs, this.auditWriter, task,
+        `Task rejected: pending queue overflow (${pendingCount} > ${PENDING_QUEUE_MAX}).`)
+        .catch((e) => {
+          emitMoveFailed(this.auditWriter, {
+            fullTaskId: fullId,
+            shortTaskId: shortId,
+            context: 'cap_overflow_notify_failed',
+            error: formatErr(e),
+          });
+        });
+
       const pendingPath = `${TASKS_QUEUES_PENDING_DIR}/${fullId}.json`;
       const failedPath = `${TASKS_QUEUES_FAILED_DIR}/${fullId}.json`;
-      await this.fs.move(pendingPath, failedPath).catch((moveErr) => {
+
+      // Phase 886: mark terminal state so recovery will not re-execute the task if the move fails.
+      try {
+        await this._setTerminalState(pendingPath, 'failed');
+      } catch {
+        // terminalState write failed — still attempt the move
+      }
+
+      // Move file to failed/ to prevent restart watcher race re-ingest
+      try {
+        await this.fs.move(pendingPath, failedPath);
+      } catch (moveErr) {
         emitMoveFailed(this.auditWriter, {
           fullTaskId: fullId,
           shortTaskId: shortId,
           context: 'cap_overflow_move',
           error: formatErr(moveErr),
         });
-      });
+        // Phase 886: move failed — file is still in pending. Re-signal the dispatcher
+        // so the next cycle can retry or handle the residual task.
+        this._signalWork();
+        throw moveErr;
+      }
 
       // phase 7: Notify self daemon of system-level overload (best-effort) / dedup 同 overflow 窗口 1 通知
       // phase 37 rename: motion daemon → 写 motion 自家、worker daemon → 写 worker 自家
@@ -1152,6 +1180,21 @@ export class AsyncTaskSystem {
       const fullPendingPath = `${TASKS_QUEUES_PENDING_DIR}/${fullId}.json`;
       const legacyPendingPath = `${TASKS_QUEUES_PENDING_DIR}/${shortId}.json`;
       const pendingPath = await this.fs.exists(fullPendingPath).then((exists) => exists ? fullPendingPath : legacyPendingPath);
+
+      // Phase 886: if the task file was already quarantined as corrupt (atomic move to
+      // tasks/queues/pending/<id>.json.corrupt-<ts>), don't try to move it to failed/
+      // and don't report TASK_CANCEL_RACE_LOST_TO_DISPATCH on the resulting ENOENT.
+      // Check both full-id and short-id basenames because the backup preserves the
+      // exact filename of the original file that was quarantined.
+      const possibleBasenames = [path.basename(fullPendingPath), path.basename(legacyPendingPath)];
+      const backupExists = await this.fs.list(TASKS_QUEUES_PENDING_DIR, { includeDirs: false })
+        .then((entries) => entries.some((e) => possibleBasenames.some((b) => e.name.startsWith(`${b}.corrupt-`))))
+        .catch(() => false);
+      if (backupExists) {
+        emitCancelled(this.auditWriter, { fullTaskId: fullId, shortTaskId: shortId, from: 'pending_corrupt' });
+        return;
+      }
+
       const fileExists = await this.fs.exists(pendingPath);
 
       if (!fileExists) {

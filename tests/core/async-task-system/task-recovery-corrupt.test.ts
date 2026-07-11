@@ -81,18 +81,19 @@ function makeMockFsForRecovery(opts: {
       if (content === undefined) return Promise.reject(new Error('ENOENT'));
       return Promise.resolve(content);
     }),
-    move: vi.fn().mockResolvedValue(undefined),
-    delete: vi.fn().mockImplementation((filePath: string) => {
-      if (filePath.includes('.corrupt-')) {
-        backupPaths.push(filePath);
+    move: vi.fn().mockImplementation((from: string, to: string) => {
+      if (to.includes('.corrupt-')) {
+        backupPaths.push(to);
+        fileMap.set(to, fileMap.get(from) ?? '');
+        fileMap.delete(from);
       }
+      return Promise.resolve(undefined);
+    }),
+    delete: vi.fn().mockImplementation((filePath: string) => {
       fileMap.delete(filePath);
       return Promise.resolve(undefined);
     }),
     writeAtomic: vi.fn().mockImplementation((filePath: string, content: string) => {
-      if (filePath.includes('.corrupt-')) {
-        backupPaths.push(filePath);
-      }
       fileMap.set(filePath, content);
       return Promise.resolve(undefined);
     }),
@@ -143,8 +144,11 @@ describe('task-recovery corrupt-backup 三件套', () => {
         ]),
       );
 
-      // running file should have been deleted after backup
-      expect(mockFs.delete).toHaveBeenCalledWith('tasks/queues/running/task-bad.json');
+      // Phase 886: corrupt backup uses atomic move, so the original file is removed by move().
+      expect(mockFs.move).toHaveBeenCalledWith(
+        'tasks/queues/running/task-bad.json',
+        expect.stringContaining('.corrupt-'),
+      );
       // no RECOVERY_FAILED for parse error (TASK_CORRUPT replaces it for corrupt files)
       const recoveryFailed = events.filter((e) => e[0] === TASK_AUDIT_EVENTS.RECOVERY_FAILED);
       expect(recoveryFailed.length).toBe(0);
@@ -196,7 +200,7 @@ describe('task-recovery corrupt-backup 三件套', () => {
           { name: 'task-bad.json', path: 'tasks/queues/running/task-bad.json', content: 'invalid json' },
         ],
       });
-      vi.mocked(mockFs.writeAtomic).mockRejectedValue(new Error('disk full'));
+      vi.mocked(mockFs.move).mockRejectedValue(new Error('disk full'));
       const { audit, events } = makeMockAudit();
       await recoverTasks({ fs: mockFs, auditWriter: audit } as RecoverTasksDeps);
 
