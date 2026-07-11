@@ -5,7 +5,6 @@ import {
   LLMContextExceededError,
   LLMRateLimitError,
   LLMOutputBudgetExceededError,
-  LLMAbortError,
 } from '../../../src/foundation/llm-provider/errors.js';
 import { BadRequestError, RateLimitError } from '@anthropic-ai/sdk';
 import { TEST_LLM_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
@@ -267,10 +266,10 @@ describe.sequential('AnthropicAdapter', () => {
       expect(mockMessagesStream).toHaveBeenCalledTimes(1);
     });
 
-    it('throws LLMAbortError when signal is aborted during stream', async () => {
+    it('throws external AbortError when signal is aborted during stream', async () => {
       const adapter = new AnthropicAdapter(config);
       const controller = new AbortController();
-      controller.abort();
+      controller.abort({ type: 'user' });
 
       mockMessagesStream.mockReturnValueOnce(
         createMockSDKStream([
@@ -288,7 +287,11 @@ describe.sequential('AnthropicAdapter', () => {
             // no-op
           }
         })(),
-      ).rejects.toBeInstanceOf(LLMAbortError);
+      ).rejects.toMatchObject({
+        name: 'AbortError',
+        message: expect.stringContaining('Execution aborted'),
+        cause: { type: 'user' },
+      });
 
       expect(mockMessagesStream).toHaveBeenCalledTimes(1);
     });

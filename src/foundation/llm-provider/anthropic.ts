@@ -19,7 +19,6 @@ import {
   LLMEmptyResponseError,
   LLMOutputBudgetExceededError,
   LLMContextExceededError,
-  LLMAbortError,
 } from './errors.js';
 import { AuthenticationError, PermissionDeniedError, NotFoundError, APIError } from '@anthropic-ai/sdk';
 import { parseRetryAfter, parseOutputBudgetError } from './_helpers.js';
@@ -100,6 +99,10 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
     // 若未来 SDK 语义漂移（例如非 user abort 也标此名），这里会误分类为 external abort。
     if (errName === 'APIUserAbortError') {
       return makeExternalAbortError(signal?.reason as AbortReason | undefined);
+    }
+    // Propagate external abort errors already converted by parseSDKStream or other layers.
+    if ((error as Error).name === 'AbortError') {
+      return error as Error;
     }
     if (errName === 'RateLimitError') {
       const retryAfter = (error as { headers?: Headers })?.headers?.get?.('retry-after') ?? undefined;
@@ -315,7 +318,7 @@ export class AnthropicAdapter extends BaseAnthropicAdapter {
 
     for await (const event of stream) {
       if (signal?.aborted) {
-        throw new LLMAbortError(this.name, 'Stream aborted by signal');
+        throw makeExternalAbortError(signal.reason as AbortReason | undefined);
       }
       if (event.type === 'content_block_start') {
         const block = event.content_block;
