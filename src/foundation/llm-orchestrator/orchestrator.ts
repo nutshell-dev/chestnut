@@ -204,7 +204,9 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
         cleanupSignal();
         lastError = error as Error;
 
-        if (options.signal?.aborted) throw lastError;
+        if (options.signal?.aborted) {
+          throw makeExternalAbortError(options.signal.reason as AbortReason | undefined);
+        }
         if (lastError.name === 'AbortError' && hardSignal?.aborted) throw lastError;
         if (lastError.name === 'AbortError' && !hardSignal?.aborted) throw lastError;
 
@@ -898,9 +900,6 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
     // A 胜（first content chunk）
     if (winner.winner === 'A') {
       trackBCtrl.abort();
-      this.breakers[0]?.onSuccess(); // breaker auto-close (first chunk = real recovery)
-      this.events.emit({ type: 'hedge_primary_recovered', provider: this.primary.name });
-      this.updateLastSuccess(this.primary, false);
       yield winner.chunk;
       let receivedDone = false;
       let drainError: Error | undefined;
@@ -947,6 +946,11 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
         throw new LLMStreamAbortedError(this.primary.name, 'stream ended without done chunk');
       }
       if (drainError) throw drainError;
+      if (receivedDone) {
+        this.breakers[0]?.onSuccess();
+        this.events.emit({ type: 'hedge_primary_recovered', provider: this.primary.name });
+        this.updateLastSuccess(this.primary, false);
+      }
       return;
     }
 
@@ -1039,9 +1043,6 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
     const aResult = await trackAPromise;
     if (aResult.winner === 'A') {
       trackBCtrl.abort();
-      this.breakers[0]?.onSuccess();
-      this.events.emit({ type: 'hedge_primary_recovered', provider: this.primary.name });
-      this.updateLastSuccess(this.primary, false);
       yield aResult.chunk;
       let receivedDone = false;
       let drainError: Error | undefined;
@@ -1084,6 +1085,11 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
         throw new LLMStreamAbortedError(this.primary.name, 'stream ended without done chunk');
       }
       if (drainError) throw drainError;
+      if (receivedDone) {
+        this.breakers[0]?.onSuccess();
+        this.events.emit({ type: 'hedge_primary_recovered', provider: this.primary.name });
+        this.updateLastSuccess(this.primary, false);
+      }
       return;
     }
     // 双失败
