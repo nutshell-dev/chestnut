@@ -226,8 +226,9 @@ describe('hedge state machine cluster (phase 991)', () => {
       const breaker = (service as any).breakers[0] as CircuitBreaker;
       const onFailureSpy = vi.spyOn(breaker, 'onFailure');
 
-      // Abort mid-race, before either track settles
-      const abortTimer = setTimeout(() => abortCtrl.abort(), 10);
+      // Abort mid-race, before either 100ms track settles
+      const ABORT_DELAY_MS = 10; // derive: enough for track promise to start but not resolve (>0, <100ms track delay)
+      const abortTimer = setTimeout(() => abortCtrl.abort(), ABORT_DELAY_MS);
 
       await expect(async () => {
         for await (const _ of service.stream({ messages: [{ role: 'user', content: 'hi' }], signal: abortCtrl.signal })) {}
@@ -250,7 +251,8 @@ describe('hedge state machine cluster (phase 991)', () => {
         async *stream(streamOpts?: { signal?: AbortSignal }) {
           yield { type: 'text_delta', delta: 'c1' };
           await new Promise<void>((resolve) => {
-            const timer = setTimeout(resolve, 50);
+            const NETWORK_ERROR_DELAY_MS = 50; // derive: >ABORT_DELAY_MS(10ms) so consumer aborts while stream is still "in-flight"
+            const timer = setTimeout(resolve, NETWORK_ERROR_DELAY_MS);
             streamOpts?.signal?.addEventListener('abort', () => clearTimeout(timer));
           });
           // Throw a real provider error even though user may have aborted
