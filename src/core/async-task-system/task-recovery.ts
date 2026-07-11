@@ -145,7 +145,18 @@ async function _recoverToolTask(
 
   // Non-idempotent: don't re-execute — move to failed/manual-recovery
   const notifiedPath = `${TASKS_QUEUES_RESULTS_DIR}/${task.id}/result.txt.notified`;
-  const alreadyNotified = await deps.fs.exists(notifiedPath).catch(() => false);
+  let alreadyNotified = false;
+  try {
+    alreadyNotified = await deps.fs.exists(notifiedPath);
+  } catch (e) {
+    emitRecoveryFailed(deps.auditWriter, {
+      taskId: task.id,
+      context: 'non_idempotent_marker_read_failed',
+      error: formatErr(e),
+    });
+    // Can't determine state — stop, keep in running, retry next recovery
+    return 0;
+  }
 
   if (alreadyNotified) {
     // Notification already sent — just move to failed, don't re-notify
@@ -176,7 +187,17 @@ async function _recoverToolTask(
     .then(async () => {
       // Persist notification-sent marker BEFORE moving to failed.
       // If crash occurs between marker and move, next recovery skips re-notification.
-      await deps.fs.writeAtomic(notifiedPath, '').catch(() => { /* best-effort marker */ });
+      try {
+        await deps.fs.writeAtomic(notifiedPath, '');
+      } catch (e) {
+        emitRecoveryFailed(deps.auditWriter, {
+          taskId: task.id,
+          context: 'non_idempotent_marker_write_failed',
+          error: formatErr(e),
+        });
+        // Don't move — keep in running for next recovery retry
+        return;
+      }
 
       await deps.fs.move(filePath, `${TASKS_QUEUES_FAILED_DIR}/${task.id}.json`)
         .then(() => {

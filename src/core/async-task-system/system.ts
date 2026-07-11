@@ -95,6 +95,7 @@ export class AsyncTaskSystem {
   private readonly shortIdIndex: ShortIdIndex;
   private _shuttingDown = false;
   private _dispatchRunning = false;
+  private _startPromise: Promise<void> | null = null;
 
   /**
    * 装配期注册 PostProcessor
@@ -388,21 +389,36 @@ export class AsyncTaskSystem {
    */
   async startDispatch(): Promise<void> {
     if (this._dispatchRunning) return;
+    if (this._startPromise) return this._startPromise;
 
-    if (!this.pendingWatcherHandle) {
-      this.pendingWatcherHandle = createPendingWatcher({
-        fs: this.fs,
-        auditWriter: this.auditWriter,
-        pendingDir: TASKS_QUEUES_PENDING_DIR,
-        ingest: (filePath) => this._ingestPendingFile(filePath),
-        createWatcher: this.options.createWatcher,
-      });
-    }
-    await this.pendingWatcherHandle.start();
-    this._dispatchRunning = true;
-    this._runDispatchLoop();
-    // 首次触发：扫 pending 目录中已有任务
-    this._signalWork();
+    this._startPromise = (async () => {
+      try {
+        if (!this.pendingWatcherHandle) {
+          this.pendingWatcherHandle = createPendingWatcher({
+            fs: this.fs,
+            auditWriter: this.auditWriter,
+            pendingDir: TASKS_QUEUES_PENDING_DIR,
+            ingest: (filePath) => this._ingestPendingFile(filePath),
+            createWatcher: this.options.createWatcher,
+          });
+        }
+        await this.pendingWatcherHandle.start();
+        this._dispatchRunning = true;
+        void this._runDispatchLoop();
+        // 首次触发：扫 pending 目录中已有任务
+        this._signalWork();
+      } catch (e) {
+        // Watcher start failed — clean up so the next call can retry
+        if (this.pendingWatcherHandle) {
+          await this.pendingWatcherHandle.close().catch(() => {});
+          this.pendingWatcherHandle = undefined;
+        }
+        throw e;
+      } finally {
+        this._startPromise = null;
+      }
+    })();
+    return this._startPromise;
   }
 
   /**
@@ -446,7 +462,28 @@ export class AsyncTaskSystem {
 
     // Only register index after successful file write to avoid dangling entries.
     // Phase 883: add() failure (collision) must propagate — the shortId is unusable.
-    this.shortIdIndex.add(shortId, fullId);
+    // Phase 885: if add() fails, move the orphaned pending file to failed so it
+    // won't be silently executed by the watcher.
+    try {
+      this.shortIdIndex.add(shortId, fullId);
+    } catch (e) {
+      this.shortIdIndexAuditWriter.write(TASK_AUDIT_EVENTS.INVARIANT_VIOLATION, {
+        site: 'schedule_add_collision',
+        shortId,
+        fullId,
+        error: formatErr(e),
+      });
+      await this.fs.move(taskPath, `${TASKS_QUEUES_FAILED_DIR}/${fullId}.json`)
+        .catch((moveErr) => {
+          emitMoveFailed(this.auditWriter, {
+            fullTaskId: fullId,
+            shortTaskId: shortId,
+            context: 'schedule_add_collision_move_to_failed',
+            error: formatErr(moveErr),
+          });
+        });
+      throw e;
+    }
 
     let indexPersisted = true;
     try {
