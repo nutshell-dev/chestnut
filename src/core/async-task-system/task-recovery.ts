@@ -261,15 +261,81 @@ async function _recoverMigratedToolTask(
 
   // 2. Process is dead — check whether the wrapper already wrote the result.
   const resultPath = `${TASKS_QUEUES_RESULTS_DIR}/${task.id}/result.txt`;
-  const resultExists = await fs.exists(resultPath).catch(() => false);
+  const sentMarkerPath = `${TASKS_QUEUES_RESULTS_DIR}/${task.id}/result.txt.sent`;
+
+  // 0. If a previous recovery already delivered the result, just move to done.
+  let alreadySent = false;
+  try {
+    alreadySent = await fs.exists(sentMarkerPath);
+  } catch {
+    // I/O error checking the marker: be conservative and attempt re-delivery.
+  }
+
+  if (alreadySent) {
+    await fs.move(filePath, `${TASKS_QUEUES_DONE_DIR}/${task.id}.json`)
+      .then(() => {
+        emitRecovered(auditWriter, {
+          fullTaskId: task.id as FullTaskId,
+          shortTaskId: taskShortId(task),
+          kind: task.kind,
+          from: 'running',
+          to: 'done',
+          reason: 'migrated_sent_marker_found',
+        });
+      })
+      .catch(async (e) => {
+        emitRecoveryFailed(auditWriter, {
+          taskId: task.id,
+          context: 'migrated_done_move_failed_after_sent',
+          error: formatErr(e),
+        });
+        // Keep running file — sent marker ensures idempotency on next recovery.
+      });
+    return 0;
+  }
+
+  let resultExists: boolean;
+  try {
+    resultExists = await fs.exists(resultPath);
+  } catch (err) {
+    emitRecoveryFailed(auditWriter, {
+      taskId: task.id,
+      context: 'migrated_result_exists_io_error',
+      error: formatErr(err),
+    });
+    // I/O error: don't know whether the result exists — keep running for next recovery.
+    return 0;
+  }
 
   if (resultExists) {
-    const resultContent = await fs.read(resultPath).catch(() => '(output unavailable)');
+    let resultContent: string;
+    try {
+      resultContent = await fs.read(resultPath);
+    } catch (err) {
+      emitRecoveryFailed(auditWriter, {
+        taskId: task.id,
+        context: 'migrated_result_read_io_error',
+        error: formatErr(err),
+      });
+      // I/O error: result exists but cannot be read — keep running for next recovery.
+      return 0;
+    }
+
     const sent = await sendToolResult(fs, auditWriter, task, resultContent, false)
       .then(() => true)
       .catch(() => false);
 
     if (sent) {
+      // Persist sent marker BEFORE moving to done. If the move fails, the marker
+      // guarantees the next recovery will skip re-delivery and only retry the move.
+      await fs.writeAtomic(sentMarkerPath, '1').catch((e) => {
+        emitRecoveryFailed(auditWriter, {
+          taskId: task.id,
+          context: 'migrated_sent_marker_persist_failed',
+          error: formatErr(e),
+        });
+      });
+
       await fs.move(filePath, `${TASKS_QUEUES_DONE_DIR}/${task.id}.json`)
         .then(() => {
           emitRecovered(auditWriter, {
@@ -450,6 +516,8 @@ async function _recoverWithResult(
         context: 'retry_counter_read_failed',
         error: formatErr(err),
       });
+      // Phase 889: non-ENOENT counter read failure must stop this recovery attempt.
+      return 0;
     }
   }
 
@@ -506,13 +574,17 @@ async function _recoverWithResult(
     });
   } else {
     retryCount++;
-    await fs.writeAtomic(retryPath, String(retryCount)).catch((e) => {
+    try {
+      await fs.writeAtomic(retryPath, String(retryCount));
+    } catch (e) {
       emitRecoveryFailed(auditWriter, {
         taskId: task.id,
         context: 'retry_counter_persist_failed',
         error: formatErr(e),
       });
-    });
+      // Phase 889: counter persist failure must stop this recovery attempt.
+      return 0;
+    }
     if (retryCount >= MAX_RECOVERY_RETRIES) {
       await _moveToDeadLetter(deps, filePath, task, retryCount, retryPath);
       return 0;
