@@ -1,8 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AnthropicAdapter } from '../../../src/foundation/llm-provider/anthropic.js';
 import { LLM_PROVIDER_AUDIT_EVENTS } from '../../../src/foundation/llm-provider/audit-events.js';
-import { LLMContextExceededError } from '../../../src/foundation/llm-provider/errors.js';
-import { BadRequestError } from '@anthropic-ai/sdk';
+import {
+  LLMContextExceededError,
+  LLMRateLimitError,
+  LLMOutputBudgetExceededError,
+  LLMAbortError,
+} from '../../../src/foundation/llm-provider/errors.js';
+import { BadRequestError, RateLimitError } from '@anthropic-ai/sdk';
 import { TEST_LLM_TIMEOUT_MS } from '../../helpers/test-timeouts.js';
 
 const mockMessagesCreate = vi.fn();
@@ -52,6 +57,8 @@ vi.mock('@anthropic-ai/sdk', () => {
       this.headers = headers;
     }
   }
+  // Vitest may mangle the mock class name; preserve it so mapSDKError recognises the error.
+  Object.defineProperty(RateLimitError, 'name', { value: 'RateLimitError', configurable: true });
   class APIConnectionTimeoutError extends Error {}
   class APIUserAbortError extends Error {}
   class AuthenticationError extends Error { status = 401; }
@@ -95,7 +102,7 @@ function createAuditSink() {
   };
 }
 
-describe('AnthropicAdapter', () => {
+describe.sequential('AnthropicAdapter', () => {
   const config = {
     name: 'anthropic',
     apiKey: 'test-key',
@@ -168,6 +175,21 @@ describe('AnthropicAdapter', () => {
         expect.arrayContaining([expect.stringContaining('reason=nonpositive_adjusted')]),
       );
     });
+
+    it('maps SDK errors from output-budget retry request', async () => {
+      const adapter = new AnthropicAdapter(config);
+
+      mockMessagesCreate
+        .mockRejectedValueOnce(new BadRequestError(400, BUDGET_ERROR_MESSAGE))
+        .mockRejectedValueOnce(
+          new RateLimitError('rate limited', new Headers({ 'retry-after': '5' })),
+        );
+
+      await expect(adapter.call({ messages: [], maxTokens: 393216 })).rejects.toBeInstanceOf(
+        LLMRateLimitError,
+      );
+      expect(mockMessagesCreate).toHaveBeenCalledTimes(2);
+    });
   });
 
   describe('stream()', () => {
@@ -201,6 +223,74 @@ describe('AnthropicAdapter', () => {
 
       const audit = writes.find(e => e[0] === LLM_PROVIDER_AUDIT_EVENTS.OUTPUT_BUDGET_ADJUSTED);
       expect(audit).toBeDefined();
+    });
+
+    it('does not retry stream when chunks already yielded', async () => {
+      const adapter = new AnthropicAdapter(config);
+
+      function createFailingAfterEventsSDKStream(
+        events: unknown[],
+        error: unknown,
+      ): AsyncIterable<unknown> {
+        return {
+          [Symbol.asyncIterator](): AsyncIterator<unknown> {
+            let index = 0;
+            return {
+              next(): Promise<IteratorResult<unknown>> {
+                if (index < events.length) {
+                  return Promise.resolve({ value: events[index++], done: false });
+                }
+                return Promise.reject(error);
+              },
+            };
+          },
+        };
+      }
+
+      mockMessagesStream.mockReturnValueOnce(
+        createFailingAfterEventsSDKStream(
+          [{ type: 'content_block_delta', delta: { type: 'text_delta', text: 'partial' } }],
+          new BadRequestError(400, BUDGET_ERROR_MESSAGE),
+        ),
+      );
+
+      const chunks: unknown[] = [];
+      await expect(
+        (async () => {
+          for await (const chunk of adapter.stream({ messages: [], maxTokens: 393216 })) {
+            chunks.push(chunk);
+          }
+        })(),
+      ).rejects.toBeInstanceOf(LLMOutputBudgetExceededError);
+
+      expect(chunks).toHaveLength(1);
+      expect(mockMessagesStream).toHaveBeenCalledTimes(1);
+    });
+
+    it('throws LLMAbortError when signal is aborted during stream', async () => {
+      const adapter = new AnthropicAdapter(config);
+      const controller = new AbortController();
+      controller.abort();
+
+      mockMessagesStream.mockReturnValueOnce(
+        createMockSDKStream([
+          { type: 'content_block_delta', delta: { type: 'text_delta', text: 'partial' } },
+        ]),
+      );
+
+      await expect(
+        (async () => {
+          for await (const _chunk of adapter.stream({
+            messages: [],
+            maxTokens: 100,
+            signal: controller.signal,
+          })) {
+            // no-op
+          }
+        })(),
+      ).rejects.toBeInstanceOf(LLMAbortError);
+
+      expect(mockMessagesStream).toHaveBeenCalledTimes(1);
     });
   });
 
