@@ -110,7 +110,11 @@ async function sendResultCore(p: SendResultCoreParams): Promise<void> {
     if (resultRef) {
       try {
         await writeInboxAsync(p.fs, INBOX_PENDING_DIR, { ...baseMsg, content: inlineContent }, p.auditWriter);
-        // Inline succeeded — now safe to delete the ref result
+        // Persist sent marker BEFORE deleting resultRef.
+        // If crash occurs between marker and delete, recovery sees marker and skips re-send.
+        if (p.writeMarkerOnSuccess) {
+          await writeSentMarker(p.fs, p.auditWriter, p.taskId, p.shortId);
+        }
         await p.fs.delete(resultRef).catch((delErr) => {
           emitResultWriteFailed(p.auditWriter, {
             fullTaskId: p.taskId as FullTaskId,
@@ -119,9 +123,6 @@ async function sendResultCore(p: SendResultCoreParams): Promise<void> {
             error: formatErr(delErr),
           });
         });
-        if (p.writeMarkerOnSuccess) {
-          await writeSentMarker(p.fs, p.auditWriter, p.taskId, p.shortId);
-        }
         return;
       } catch (inlineErr) {
         emitInboxWriteFailed(p.auditWriter, {

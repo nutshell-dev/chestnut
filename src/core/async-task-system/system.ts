@@ -429,8 +429,20 @@ export class AsyncTaskSystem {
     await this.fs.writeAtomic(taskPath, JSON.stringify(task, null, 2));
 
     // Only register index after successful file write to avoid dangling entries.
-    this.shortIdIndex.add(shortId, fullId);
-    this.shortIdIndex.save();
+    try {
+      this.shortIdIndex.add(shortId, fullId);
+      this.shortIdIndex.save();
+    } catch (e) {
+      // File is already written and may be picked up by watcher.
+      // Don't delete it — rebuildFromDisk() will recover the index on next startup.
+      // The caller must NOT retry; the task will execute from the pending file.
+      this.shortIdIndexAuditWriter.write(TASK_AUDIT_EVENTS.SHORT_ID_INDEX_LOAD_FAILED, {
+        path: taskPath,
+        error: `schedule index write failed: ${String(e)}`,
+        context: 'schedule_index_write',
+      });
+      throw e; // propagate to caller — do not retry
+    }
 
     emitTaskScheduled(this.auditWriter, {
       fullTaskId: fullId,
@@ -1137,8 +1149,8 @@ export class AsyncTaskSystem {
       });
 
       if (moveFailed) {
-        // File is still in pending; task will execute. Do not emit CANCELLED or notify caller.
-        return;
+        // File is still in pending; task will execute. Propagate failure so caller knows.
+        throw new Error(`Cancel failed: cannot move task ${shortId} to failed`);
       }
 
       if (raceLost) {
@@ -1147,9 +1159,8 @@ export class AsyncTaskSystem {
         if (state) {
           state.abortController.abort();
         }
-        // Don't emit CANCELLED — the task was not successfully cancelled from pending,
-        // only the pending→running race was lost.
-        return;
+        // Propagate failure so caller knows the cancel race was lost.
+        throw new Error(`Cancel race lost: task ${shortId} already dispatched to running`);
       }
 
       // tool 任务：通知 parent

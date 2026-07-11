@@ -91,7 +91,7 @@ describe('phase 1011 D.3: cancel race lost to dispatch', () => {
       return Map.prototype.get.call(this, key);
     };
 
-    await system.cancel('task-X');
+    await expect(system.cancel('task-X')).rejects.toThrow('Cancel race lost');
 
     const raceLostEvents = auditEvents.filter(
       e => e[0] === TASK_AUDIT_EVENTS.TASK_CANCEL_RACE_LOST_TO_DISPATCH && e.some(c => typeof c === 'string' && (c === 'fullTaskId=task-X' || c === 'shortTaskId=task-X')),

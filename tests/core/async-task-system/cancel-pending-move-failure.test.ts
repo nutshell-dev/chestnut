@@ -66,7 +66,7 @@ describe('phase 878: cancel pending move non-ENOENT failure', () => {
   it('does not emit CANCELLED when cancel move fails with non-ENOENT error', async () => {
     await system.initialize();
 
-    await system.cancel('task-X');
+    await expect(system.cancel('task-X')).rejects.toThrow('Cancel failed');
 
     // MOVE_FAILED audit must be emitted for the actual move failure
     const moveFailedEvents = auditEvents.filter(
