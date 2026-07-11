@@ -389,6 +389,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
       let success = false;
       let hasYielded = false;
       let receivedDone = false;
+      let hasContent = false;  // text_delta / tool_use_start → actual output, not just metadata
       let midStreamReset = false;
       let lastError: Error | null = null;
       let contextExceeded = false;
@@ -396,6 +397,9 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
       let idleCtrl: AbortController | null = null;
       let cleanupSignal: (() => void) | undefined;
       for (let attempt = 0; attempt < this.config.maxAttempts; attempt++) {
+        hasYielded = false;
+        receivedDone = false;
+        hasContent = false;
         idleTimer = undefined;
         idleCtrl = null;
         cleanupSignal = undefined;
@@ -412,6 +416,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
           cleanupSignal = merged.cleanup;
           const providerOptions: LLMCallOptions = { ...options, signal: merged.signal, hardTimeoutMs: undefined, streamIdleTimeoutMs: undefined };
 
+          let pendingDone: StreamChunk | null = null;
           resetIdleTimer();
           for await (const chunk of adapter.stream(providerOptions)) {
             resetIdleTimer();
@@ -430,6 +435,9 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
               this.currentStreamingProvider = { name: adapter.name, model: adapter.model, isFallback: pi !== 0 };
             }
             hasYielded = true;
+            if (chunk.type === 'text_delta' || chunk.type === 'tool_use_start') {
+              hasContent = true;
+            }
             if (chunk.type === 'done') {
               receivedDone = true;
               if (chunk.stopReason && CONTEXT_EXCEEDED_STOP_REASONS.has(chunk.stopReason)) {
@@ -441,6 +449,10 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
                 };
                 break; // exit inner stream loop early
               }
+              // Defer yielding done until we know the stream actually carried content.
+              // A done-only stream will be treated as an empty response and failed over.
+              pendingDone = chunk;
+              continue;
             }
             yield chunk;
           }
@@ -454,6 +466,9 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
             break; // exit retry loop → outer loop continues to next provider
           }
 
+          if (pendingDone && hasContent) {
+            yield pendingDone;
+          }
           success = true;
           break; // Success, exit retry loop
         } catch (error) {
@@ -464,7 +479,7 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
           const isUserAbort = options.signal?.aborted;
           const isIdleTimeout = idleCtrl?.signal.aborted && !isUserAbort;
 
-          if (isUserAbort) throw err;
+          if (isUserAbort) throw makeExternalAbortError(options.signal?.reason as AbortReason | undefined);
 
           if (isIdleTimeout) {
             // ⚓4 ε ratified by phase 628 user binary: probe-then-decide
@@ -481,9 +496,12 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
             const probe = await this._minimalProbe(adapter, probeTimeoutMs, options.signal);
             if (options.signal?.aborted) {
               // user abort overrides probe result — stop immediately instead of failover/retry
-              throw err;
+              throw makeExternalAbortError(options.signal.reason as AbortReason | undefined);
             }
             if (probe.ok) {
+              if (options.signal?.aborted) {
+                throw makeExternalAbortError(options.signal.reason as AbortReason | undefined);
+              }
               this.events.emit({
                 type: 'stream_idle_probe_succeeded',
                 provider: adapter.name,
@@ -499,6 +517,9 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
               continue; // retry same provider stream within retry loop（复用 maxAttempts budget）
             }
             if (probe.reason === 'auth_or_model') {
+              if (options.signal?.aborted) {
+                throw makeExternalAbortError(options.signal.reason as AbortReason | undefined);
+              }
               // probe auth/model 错 = 用户配置问题 / throw 给 caller decide
               throw probe.error;
             }
@@ -545,11 +566,39 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
         }
       }
 
-      if (success && receivedDone) {
+      if (success && receivedDone && hasContent) {
         // Circuit breaker: record success
         breaker?.onSuccess();
         this.updateLastSuccess(adapter, pi !== 0);
         return; // Success, exit generator
+      }
+
+      if (success && receivedDone && !hasContent) {
+        // Empty done-only response: stream emitted done without any text/tool content.
+        // Treat as a failure and failover to the next provider.
+        this.events.emit({ type: 'stream_reset', provider: adapter.name, error: 'empty done-only response' });
+        yield {
+          type: 'reset',
+          provider: adapter.name,
+        };
+        const wasOpen = breaker?.isOpen();
+        breaker?.onFailure('unknown');
+        if (!wasOpen && breaker?.isOpen()) {
+          this.events.emit({ type: 'breaker_opened', provider: adapter.name, consecutiveFailures: this.config.circuitBreaker?.failureThreshold ?? 0 });
+        }
+        const err = new LLMEmptyResponseError(adapter.name);
+        this.events.emit({
+          type: 'provider_attempt_failed',
+          provider: adapter.name,
+          attempt: 0,
+          error: err.message,
+          errorClass: 'unknown',
+          userActionHint: null,
+        });
+        failures.push({ provider: adapter.name, error: err });
+        yield { type: 'provider_failed' as const, provider: adapter.name, model: adapter.model, error: err.message };
+        lastFailedProviderName = adapter.name;  // phase 686
+        midStreamReset = true;
       }
 
       if (success && hasYielded && !receivedDone) {
@@ -560,8 +609,24 @@ export class LLMOrchestratorImpl implements LLMOrchestrator {
           type: 'reset',
           provider: adapter.name,
         };
+        const wasOpen = breaker?.isOpen();
+        breaker?.onFailure('transient');
+        if (!wasOpen && breaker?.isOpen()) {
+          this.events.emit({ type: 'breaker_opened', provider: adapter.name, consecutiveFailures: this.config.circuitBreaker?.failureThreshold ?? 0 });
+        }
+        const err = new LLMStreamAbortedError(adapter.name, 'stream ended without done chunk');
+        this.events.emit({
+          type: 'provider_attempt_failed',
+          provider: adapter.name,
+          attempt: 0,
+          error: err.message,
+          errorClass: classifyLLMError(err),
+          userActionHint: getUserActionHint(err),
+        });
+        failures.push({ provider: adapter.name, error: err });
+        yield { type: 'provider_failed' as const, provider: adapter.name, model: adapter.model, error: err.message };
+        lastFailedProviderName = adapter.name;  // phase 686
         midStreamReset = true;
-        lastFailedProviderName = adapter.name;
       }
 
       if (success && !hasYielded) {
