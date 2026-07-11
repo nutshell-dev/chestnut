@@ -122,18 +122,16 @@ describe('phase 872: recovery keeps running file + intended-failed marker', () =
     expect(moveFailedEvents.length).toBe(1);
   });
 
-  it('recovery routes to failed when intended-failed marker exists', async () => {
-    const task = makeValidTask();
+  it('recovery routes to failed when task has terminalState=failed', async () => {
+    const task = { ...makeValidTask(), terminalState: 'failed' };
     const taskFile = 'tasks/queues/running/task-1.json';
     const sentMarker = 'tasks/queues/results/550e8400-e29b-41d4-a716-446655440000/result.txt.sent';
-    const intendedFailedMarker = 'tasks/queues/results/550e8400-e29b-41d4-a716-446655440000/result.txt.intended-failed';
 
     const mockFs = makeMockFsForPhase872({
       runningFiles: [{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }],
     });
 
     await mockFs.writeAtomic(sentMarker, '1');
-    await mockFs.writeAtomic(intendedFailedMarker, '');
 
     const { audit, events } = makeMockAudit();
     await recoverTasks({ fs: mockFs, auditWriter: audit } as RecoverTasksDeps);
@@ -142,18 +140,46 @@ describe('phase 872: recovery keeps running file + intended-failed marker', () =
     expect(await mockFs.exists('tasks/queues/failed/550e8400-e29b-41d4-a716-446655440000.json')).toBe(true);
     expect(await mockFs.exists('tasks/queues/done/550e8400-e29b-41d4-a716-446655440000.json')).toBe(false);
 
-    // recovered event reason should reflect intended-failed routing
+    // recovered event reason should reflect terminalState=failed routing
     const recoveredEvents = events.filter((e) => e[0] === TASK_AUDIT_EVENTS.RECOVERED);
     expect(recoveredEvents.length).toBe(1);
     expect(recoveredEvents[0]).toEqual(
       expect.arrayContaining([
         TASK_AUDIT_EVENTS.RECOVERED,
-        expect.stringContaining('reason=intended_failed'),
+        expect.stringContaining('reason=terminal_state_failed'),
       ]),
     );
   });
 
-  it('recovery routes to done when no intended-failed marker', async () => {
+  it('recovery routes to done when terminalState=done', async () => {
+    const task = { ...makeValidTask(), terminalState: 'done' };
+    const taskFile = 'tasks/queues/running/task-1.json';
+    const sentMarker = 'tasks/queues/results/550e8400-e29b-41d4-a716-446655440000/result.txt.sent';
+
+    const mockFs = makeMockFsForPhase872({
+      runningFiles: [{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }],
+    });
+
+    await mockFs.writeAtomic(sentMarker, '1');
+
+    const { audit, events } = makeMockAudit();
+    await recoverTasks({ fs: mockFs, auditWriter: audit } as RecoverTasksDeps);
+
+    // task should end up in done/
+    expect(await mockFs.exists('tasks/queues/done/550e8400-e29b-41d4-a716-446655440000.json')).toBe(true);
+    expect(await mockFs.exists('tasks/queues/failed/550e8400-e29b-41d4-a716-446655440000.json')).toBe(false);
+
+    const recoveredEvents = events.filter((e) => e[0] === TASK_AUDIT_EVENTS.RECOVERED);
+    expect(recoveredEvents.length).toBe(1);
+    expect(recoveredEvents[0]).toEqual(
+      expect.arrayContaining([
+        TASK_AUDIT_EVENTS.RECOVERED,
+        expect.stringContaining('reason=terminal_state_done'),
+      ]),
+    );
+  });
+
+  it('recovery routes to done when task has no terminalState (backward compat)', async () => {
     const task = makeValidTask();
     const taskFile = 'tasks/queues/running/task-1.json';
     const sentMarker = 'tasks/queues/results/550e8400-e29b-41d4-a716-446655440000/result.txt.sent';
@@ -179,5 +205,34 @@ describe('phase 872: recovery keeps running file + intended-failed marker', () =
         expect.stringContaining('reason=already_sent'),
       ]),
     );
+  });
+
+  it('does not emit RECOVERED when move fails', async () => {
+    const task = makeValidTask();
+    const taskFile = 'tasks/queues/running/task-1.json';
+    const sentMarker = 'tasks/queues/results/550e8400-e29b-41d4-a716-446655440000/result.txt.sent';
+
+    const mockFs = makeMockFsForPhase872({
+      runningFiles: [{ name: 'task-1.json', path: taskFile, content: JSON.stringify(task) }],
+      moveShouldFail: true,
+    });
+
+    await mockFs.writeAtomic(sentMarker, '1');
+
+    const { audit, events } = makeMockAudit();
+    await recoverTasks({ fs: mockFs, auditWriter: audit } as RecoverTasksDeps);
+
+    // running file must be preserved for next recovery retry
+    expect(await mockFs.exists(taskFile)).toBe(true);
+
+    // RECOVERED must NOT be emitted when move fails
+    const recoveredEvents = events.filter((e) => e[0] === TASK_AUDIT_EVENTS.RECOVERED);
+    expect(recoveredEvents.length).toBe(0);
+
+    // RECOVERY_FAILED must be emitted
+    const moveFailedEvents = events.filter(
+      (e) => e[0] === TASK_AUDIT_EVENTS.RECOVERY_FAILED && e[2] === 'context=alreadysent_move_failed',
+    );
+    expect(moveFailedEvents.length).toBe(1);
   });
 });
