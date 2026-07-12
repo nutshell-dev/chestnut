@@ -109,7 +109,8 @@ async function runVerificationByType(
 type ApplyOutcome =
   | { allCompleted: boolean; passed: boolean }
   | { kind: 'cancelled' }
-  | { kind: 'missing_subtask' };
+  | { kind: 'missing_subtask' }
+  | { kind: 'skipped' };
 
 async function applyVerificationOutcome(
   ctx: VerificationContext,
@@ -151,6 +152,31 @@ async function applyVerificationOutcome(
         },
       );
       return { kind: 'missing_subtask' };
+    }
+
+    if (progress.status !== 'running') {
+      emitContractVerificationResetFailed(
+        ctx.audit,
+        {
+          contractId,
+          subtaskId,
+          context: 'applyVerificationOutcome',
+          message: `contract status is "${progress.status}", expected "running"`,
+        },
+      );
+      return { kind: 'skipped' };
+    }
+    if (subtask.status !== 'in_progress') {
+      emitContractVerificationResetFailed(
+        ctx.audit,
+        {
+          contractId,
+          subtaskId,
+          context: 'applyVerificationOutcome',
+          message: `subtask status is "${subtask.status}", expected "in_progress"`,
+        },
+      );
+      return { kind: 'skipped' };
     }
 
     if (result.passed) {
@@ -326,7 +352,7 @@ export async function runVerificationPipeline(
   // work concurrently with the first when status briefly flipped during
   // archiveAndEmit / rollback windows. Release in .finally() of the bg promise.
   runVerificationInBackground(ctx, params, contractYaml, verificationConfig)
-    .catch(err => {
+    .catch(async (err) => {
       if ([TypeError, ReferenceError, SyntaxError, RangeError].some(T => err instanceof T)) {
         emitContractUnexpectedAsyncThrow(
           ctx.audit,
@@ -345,7 +371,7 @@ export async function runVerificationPipeline(
           { contractId, subtaskId, error: formatErr(err) },
         );
       }
-      writeVerificationError(ctx, contractId, subtaskId, err).then(async (result) => {
+      return writeVerificationError(ctx, contractId, subtaskId, err).then(async (result) => {
         // phase 1399: writeVerificationError 内防嵌套锁未调 archiveAndEmit，此处补调
         if (result.archived === false) {
           const progressAfterLock = await ctx.getProgress(contractId);
@@ -395,7 +421,7 @@ export async function runVerificationInBackground(
   const subtaskDesc = subtaskDef?.description || subtaskId;
   const contractAbsDir = path.join(ctx.clawDir, await ctx.contractDir(contractId), contractId);
 
-  let outcomeKind: 'passed' | 'failed' | 'error' | 'cancelled' | 'missing_subtask' = 'error';
+  let outcomeKind: 'passed' | 'failed' | 'error' | 'cancelled' | 'missing_subtask' | 'skipped' = 'error';
   let cancelReason: string | undefined;
   let missingSubtaskId: string | undefined;
   try {
@@ -427,6 +453,8 @@ export async function runVerificationInBackground(
       } else if (outcome.kind === 'missing_subtask') {
         outcomeKind = 'missing_subtask';
         missingSubtaskId = subtaskId;
+      } else if (outcome.kind === 'skipped') {
+        outcomeKind = 'skipped';
       }
     } else {
       outcomeKind = outcome.passed ? 'passed' : 'failed';
@@ -449,10 +477,15 @@ export async function runVerificationInBackground(
       }
     }
   } finally {
-    emitContractVerificationBackgroundDone(
-      ctx.audit,
-      { contractId, subtaskId, result: outcomeKind, cancelReason, missingSubtaskId },
-    );
+    try {
+      emitContractVerificationBackgroundDone(
+        ctx.audit,
+        { contractId, subtaskId, result: outcomeKind, cancelReason, missingSubtaskId },
+      );
+    } catch (auditErr) {
+      // Audit failure must not reverse committed business outcome
+      process.stderr.write(`[verification] background done audit failed: ${formatErr(auditErr)}\n`);
+    }
   }
 }
 
