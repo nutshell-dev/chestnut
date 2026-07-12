@@ -33,6 +33,17 @@ export function notifyClaw(
   message: InboxMessageOptionsBase,
   audit: AuditLog,
 ): void {
+  // phase 936: containment check — targetInboxDir must be inside targetClawRoot
+  const resolvedInbox = fs.resolve(targetInboxDir);
+  const resolvedRoot = fs.resolve(targetClawRoot);
+  const rootPrefix = resolvedRoot.endsWith(path.sep) ? resolvedRoot : resolvedRoot + path.sep;
+  const normalizedInbox = path.normalize(resolvedInbox);
+  if (normalizedInbox !== resolvedRoot && !normalizedInbox.startsWith(rootPrefix)) {
+    throw new Error(
+      `notifyClaw: targetInboxDir "${targetInboxDir}" is not within targetClawRoot "${targetClawRoot}"`,
+    );
+  }
+
   // phase 1372 sub-4: DLQ for unknown destination — prevent silent orphan dir creation
   if (dlqDir !== undefined && typeof fs.existsSync === 'function') {
     if (!fs.existsSync(targetClawRoot)) {

@@ -28,6 +28,11 @@ import {
 import { newShortUuid } from '../node-utils/index.js';
 import { emitOutboxDelivered } from './audit-emit.js';
 
+export type ClaimResult =
+  | { status: 'empty' }
+  | { status: 'io_error'; error: string }
+  | { status: 'claimed'; claimPath: string; filename: string; content: string };
+
 export class OutboxReader {
   constructor(
     private readonly fs: FileSystem,
@@ -255,30 +260,57 @@ export class OutboxReader {
   }
 
   /**
+   * List pending filenames with a discriminated result so callers can distinguish
+   * an empty outbox from an I/O failure.
+   */
+  private async listClawOutboxPendingResult(
+    clawDir: string,
+  ): Promise<{ ok: true; value: string[] } | { ok: false; error: string }> {
+    const pendingDir = path.join(clawDir, OUTBOX_PENDING_DIR);
+    try {
+      const entries = await this.fs.list(pendingDir, { includeDirs: false });
+      return {
+        ok: true,
+        value: entries
+          .filter(e => e.name.endsWith('.md'))
+          .map(e => e.name)
+          .sort(),
+      };
+    } catch (err) {
+      if (isFileNotFound(err)) return { ok: true, value: [] };
+      const reason = formatErr(err);
+      emitOutboxListFailed(this.audit, {
+        dir: pendingDir,
+        reason,
+      });
+      return { ok: false, error: reason };
+    }
+  }
+
+  /**
    * Atomically claim the next pending outbox message.
    *
    * Steps:
    *   1. List pending/, take first .md file (filename-sorted)
    *   2. Move pending/<filename> → processing/<claimToken>_<filename> (atomic claim)
    *   3. Read content from claimed path
-   *   4. Return { claimPath, filename, content }
+   *   4. Return { status: 'claimed', claimPath, filename, content }
    *
-   * Returns null if pending empty, race lost (file disappeared before move), or IO error.
+   * Returns a discriminated result so callers can distinguish:
+   *   - `empty`: nothing to claim (including race-lost cases)
+   *   - `io_error`: filesystem error while listing/moving/reading
    *
    * The returned `claimPath` is relative to clawDir; caller passes it to markDone()/markFailed().
    *
    * @param clawDir absolute path to a claw root
-   * @returns null if nothing to claim, else the claimed message
+   * @returns ClaimResult
    */
-  async claimNext(clawDir: string): Promise<{
-    claimPath: string;
-    filename: string;
-    content: string;
-  } | null> {
-    const filenames = await this.listClawOutboxPending(clawDir);
-    if (filenames.length === 0) return null;
+  async claimNext(clawDir: string): Promise<ClaimResult> {
+    const listResult = await this.listClawOutboxPendingResult(clawDir);
+    if (!listResult.ok) return { status: 'io_error', error: listResult.error };
+    if (listResult.value.length === 0) return { status: 'empty' };
 
-    const fileName = filenames[0]; // oldest first
+    const fileName = listResult.value[0]; // oldest first
     const pendingDir = path.join(clawDir, OUTBOX_PENDING_DIR);
     const processingDir = path.join(clawDir, OUTBOX_PROCESSING_DIR);
     const startTime = getProcessStartTime(process.pid);
@@ -291,14 +323,15 @@ export class OutboxReader {
     try {
       await this.fs.move(relPendingPath, relClaimedPath);
     } catch (err) {
-      if (isFileNotFound(err)) return null; // race lost
-      // Non-ENOENT: audit the I/O error and return null
+      if (isFileNotFound(err)) return { status: 'empty' }; // race lost
+      // Non-ENOENT: audit the I/O error and return io_error
+      const reason = formatErr(err);
       emitOutboxClaimFailed(this.audit, {
         file: fileName,
         op: 'move',
-        reason: formatErr(err),
+        reason,
       });
-      return null;
+      return { status: 'io_error', error: reason };
     }
 
     // Read
@@ -317,18 +350,19 @@ export class OutboxReader {
           reason: formatErr(rollbackErr),
         });
       }
+      const reason = formatErr(err);
       emitOutboxClaimFailed(this.audit, {
         file: fileName,
         op: 'read',
-        reason: formatErr(err),
+        reason,
       });
-      return null;
+      return { status: 'io_error', error: reason };
     }
 
     // Build claimPath relative to clawDir (for markDone/markFailed to use)
     const claimPath = path.join(OUTBOX_PROCESSING_DIR, `${claimToken}_${fileName}`);
 
-    return { claimPath, filename: fileName, content };
+    return { status: 'claimed', claimPath, filename: fileName, content };
   }
 
   /**

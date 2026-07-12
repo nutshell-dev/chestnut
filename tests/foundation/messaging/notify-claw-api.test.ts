@@ -142,4 +142,29 @@ describe('notifyClaw API', () => {
     const files = fsSync.readdirSync(motionInboxDir);
     expect(files.length).toBe(3);
   });
+
+  it('rejects targetInboxDir outside targetClawRoot (containment)', () => {
+    const { targetClawRoot } = makeNotifyArgs(chestnutRoot, MOTION_CLAW_ID);
+    const targetInboxDir = path.join(chestnutRoot, 'other', 'inbox', 'pending');
+
+    expect(() => notifyClaw(nodeFs, targetClawRoot, targetInboxDir, undefined, {
+      type: 'containment_test',
+      source: 'system',
+      body: 'should not write',
+    }, audit)).toThrow(/is not within targetClawRoot/);
+  });
+
+  it('accepts targetInboxDir inside targetClawRoot (containment)', () => {
+    const { targetClawRoot, targetInboxDir, dlqDir } = makeNotifyArgs(chestnutRoot, MOTION_CLAW_ID);
+
+    notifyClaw(nodeFs, targetClawRoot, targetInboxDir, dlqDir, {
+      type: 'containment_inbox_test',
+      source: 'system',
+      body: 'inbox is allowed',
+    }, audit);
+
+    const motionInboxDir = path.join(chestnutRoot, 'motion', 'inbox', 'pending');
+    const files = fsSync.readdirSync(motionInboxDir);
+    expect(files.length).toBe(1);
+  });
 });

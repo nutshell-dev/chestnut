@@ -10,7 +10,7 @@ import { InboxDecodeError } from './errors.js';
  * per phase 62 frame syntax 共享、unquote 自治.
  */
 export function parseFrontmatter(raw: string): { meta: Record<string, string>; body: string } {
-  const { meta: rawMeta, body } = parseFrontmatterFrame(raw);
+  const { meta: rawMeta, body } = parseFrontmatterFrame(raw, { strict: true });
   const meta: Record<string, string> = {};
   for (const [k, v] of Object.entries(rawMeta)) {
     meta[k] = yamlUnquote(v);

@@ -63,8 +63,8 @@ describe('OutboxReader.claimNext + markDone', () => {
     await fsAsync.rm(root, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
   });
 
-  it('returns null when pending is empty', async () => {
-    expect(await reader.claimNext(clawDir)).toBeNull();
+  it('returns empty when pending is empty', async () => {
+    expect(await reader.claimNext(clawDir)).toEqual({ status: 'empty' });
   });
 
   it('claims oldest pending message and moves it to processing', async () => {
@@ -80,11 +80,12 @@ describe('OutboxReader.claimNext + markDone', () => {
     );
 
     const claimed = await reader.claimNext(clawDir);
-    expect(claimed).not.toBeNull();
-    expect(claimed?.filename).toBe(`${t1}_normal_aaa.md`);
-    expect(claimed?.content).toContain('earlier');
-    expect(claimed?.claimPath.startsWith('outbox/processing/cli_')).toBe(true);
-    expect(claimed?.claimPath.endsWith(`_${t1}_normal_aaa.md`)).toBe(true);
+    expect(claimed.status).toBe('claimed');
+    if (claimed.status !== 'claimed') throw new Error('unreachable');
+    expect(claimed.filename).toBe(`${t1}_normal_aaa.md`);
+    expect(claimed.content).toContain('earlier');
+    expect(claimed.claimPath.startsWith('outbox/processing/cli_')).toBe(true);
+    expect(claimed.claimPath.endsWith(`_${t1}_normal_aaa.md`)).toBe(true);
 
     // pending oldest gone, processing has claimed file
     const pendingFiles = (await fsAsync.readdir(pendingDir)).sort();
@@ -107,9 +108,10 @@ describe('OutboxReader.claimNext + markDone', () => {
     );
 
     const claimed = await reader.claimNext(clawDir);
-    expect(claimed).not.toBeNull();
+    expect(claimed.status).toBe('claimed');
+    if (claimed.status !== 'claimed') throw new Error('unreachable');
 
-    await reader.markDone(clawDir, claimed!.claimPath, claimed!.filename);
+    await reader.markDone(clawDir, claimed.claimPath, claimed.filename);
 
     expect(await fsAsync.readdir(processingDir).catch(() => [])).toEqual([]);
     const doneFiles = await fsAsync.readdir(doneDir);
@@ -118,21 +120,16 @@ describe('OutboxReader.claimNext + markDone', () => {
     expect(auditEvents.some(e => String(e[0]).includes('outbox_delivered') && String(e).includes(`file=${filename}`))).toBe(true);
   });
 
-  it('returns null on race lost (file disappears before claim)', async () => {
-    const t1 = '1717480000000';
-    const filename = `${t1}_normal_aaa.md`;
-    await fsAsync.writeFile(path.join(pendingDir, filename), encodeOutbox(makeMsg('x', '2026-06-04T10:00:00Z')));
+  it('returns empty on race lost (file disappears before claim)', async () => {
+    const fs = makeMockOutboxFs({
+      move: vi.fn().mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' })),
+    });
+    const { audit: raceAudit } = makeAudit();
+    const reader = new OutboxReader(fs, raceAudit);
 
-    const originalList = reader.listClawOutboxPending.bind(reader);
-    reader.listClawOutboxPending = async (dir: string) => {
-      const list = await originalList(dir);
-      if (list.includes(filename)) {
-        await fsAsync.rm(path.join(pendingDir, filename)).catch(() => { /* silent: cleanup */ });
-      }
-      return list;
-    };
+    const result = await reader.claimNext('/claw');
 
-    expect(await reader.claimNext(clawDir)).toBeNull();
+    expect(result).toEqual({ status: 'empty' });
   });
 
   it('reconciles orphaned processing files back to pending on init', async () => {
@@ -191,7 +188,7 @@ describe('OutboxReader.claimNext I/O failure handling', () => {
 
     const result = await reader.claimNext('/claw');
 
-    expect(result).toBeNull();
+    expect(result).toEqual({ status: 'io_error', error: expect.stringContaining('EACCES') });
     expect(auditEvents.some(e => e[0] === 'outbox_claim_failed' && String(e).includes('op=move'))).toBe(true);
   });
 
@@ -204,7 +201,7 @@ describe('OutboxReader.claimNext I/O failure handling', () => {
 
     const result = await reader.claimNext('/claw');
 
-    expect(result).toBeNull();
+    expect(result).toEqual({ status: 'io_error', error: expect.stringContaining('EIO') });
     // First move: pending -> processing; Second move: processing -> pending (rollback)
     expect(fs.move).toHaveBeenCalledTimes(2);
     const calls = (fs.move as ReturnType<typeof vi.fn>).mock.calls;
@@ -213,5 +210,17 @@ describe('OutboxReader.claimNext I/O failure handling', () => {
     expect(calls[1][0]).toMatch(/outbox\/processing/);
     expect(calls[1][1]).toMatch(/outbox\/pending/);
     expect(auditEvents.some(e => e[0] === 'outbox_claim_failed' && String(e).includes('op=read'))).toBe(true);
+  });
+
+  it('returns io_error when list fails', async () => {
+    const fs = makeMockOutboxFs({
+      list: vi.fn().mockRejectedValue(Object.assign(new Error('EACCES list'), { code: 'EACCES' })),
+    });
+    const reader = new OutboxReader(fs, audit);
+
+    const result = await reader.claimNext('/claw');
+
+    expect(result).toEqual({ status: 'io_error', error: expect.stringContaining('EACCES list') });
+    expect(auditEvents.some(e => e[0] === 'outbox_list_failed')).toBe(true);
   });
 });
