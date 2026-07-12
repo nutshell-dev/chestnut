@@ -542,7 +542,15 @@ export class DialogStore {
    * @throws 文件格式损坏时抛 error（含 corrupted 隔离 + audit）
    */
   async readArchive(filename: string): Promise<SessionData> {
-    const filePath = path.join(this.archiveDir, filename);
+    const safeName = path.basename(filename); // strip any directory components
+    if (safeName !== filename || safeName === '..' || safeName === '.') {
+      throw new DialogStoreError(`Invalid archive filename: "${filename}"`);
+    }
+    const filePath = path.join(this.archiveDir, safeName);
+    // Defensive: verify resolved path is within archiveDir
+    if (!filePath.startsWith(this.archiveDir + path.sep)) {
+      throw new DialogStoreError(`Path traversal detected: "${filename}"`);
+    }
     try {
       const content = await this.fs.read(filePath);
       const parsed = JSON.parse(content) as Partial<SessionData>;
@@ -559,7 +567,7 @@ export class DialogStore {
       // 其他错误（parse / version / validation）——尝试隔离到 corrupted
       try {
         await this.fs.ensureDir(path.join(this.archiveDir, CORRUPTED_SUBDIR));
-        await this.fs.move(filePath, path.join(this.archiveDir, CORRUPTED_SUBDIR, filename));
+        await this.fs.move(filePath, path.join(this.archiveDir, CORRUPTED_SUBDIR, safeName));
         this.audit.write(DIALOG_AUDIT_EVENTS.CORRUPTED, `file=${filename}`, `isolated=corrupted/${filename}`);
       } catch (moveErr) {
         this.audit.write(
