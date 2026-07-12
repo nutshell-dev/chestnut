@@ -47,14 +47,20 @@ export async function restoreMessages(
       throw new DialogStoreError('session version unknown');
     }
     const data = validateSessionData(detected, audit);
-    const sliced = sliceMessagesAtMarker(data.messages, marker.toolUseId, inclusive);
-    if (sliced !== null) {
-      return {
-        messages: sliced,
-        systemPrompt: data.systemPrompt,
-        toolsForLLM: data.toolsForLLM,
-        meta: { foundIn: 'current' },
-      };
+    // Phase 921: clawId consistency — mismatch means this source belongs to a different claw.
+    // Legacy sessions without clawId are skipped (backward compatible).
+    if (data.clawId && marker.clawId && data.clawId !== marker.clawId) {
+      // fall through to archive search
+    } else {
+      const sliced = sliceMessagesAtMarker(data.messages, marker.toolUseId, inclusive);
+      if (sliced !== null) {
+        return {
+          messages: sliced,
+          systemPrompt: data.systemPrompt,
+          toolsForLLM: data.toolsForLLM,
+          meta: { foundIn: 'current' },
+        };
+      }
     }
   } catch (err) {
     if (!isFileNotFound(err)) {
@@ -86,6 +92,11 @@ export async function restoreMessages(
           continue; // version unknown (version > SESSION_CURRENT_VERSION)
         }
         const data = validateSessionData(detected, audit);
+        // Phase 921: skip archive files that belong to a different claw.
+        // Legacy sessions without clawId remain backward compatible.
+        if (data.clawId && marker.clawId && data.clawId !== marker.clawId) {
+          continue;
+        }
         const sliced = sliceMessagesAtMarker(data.messages, marker.toolUseId, inclusive);
         if (sliced !== null) {
           return {

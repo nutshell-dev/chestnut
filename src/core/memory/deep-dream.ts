@@ -266,7 +266,15 @@ async function processSession(
       `reason=${formatErr(err)}`,
     );
     if (sf.filename !== CURRENT_DIALOG_FILE) {
-      plan.state.lastProcessedDeepDreamAt = Math.max(plan.state.lastProcessedDeepDreamAt, sf.tsMs);
+      // Phase 921: distinguish transient from permanent errors.
+      // Transient errors (EACCES, EIO, etc.) → don't advance waterline, retry next time.
+      // Permanent errors (corrupt JSON, version unknown) → advance to avoid infinite retry.
+      const errCode = (err as NodeJS.ErrnoException).code;
+      const isTransient = errCode === 'EACCES' || errCode === 'EIO' || errCode === 'EBUSY' ||
+                          errCode === 'EMFILE' || errCode === 'ENFILE' || errCode === 'ENOMEM';
+      if (!isTransient) {
+        plan.state.lastProcessedDeepDreamAt = Math.max(plan.state.lastProcessedDeepDreamAt, sf.tsMs);
+      }
       return compressions;
     }
     const retryCount = (plan.state.currentSessionRetryCount ?? 0) + 1;
@@ -415,6 +423,16 @@ export const __test_saveDreamState = saveDreamState;
 /** @internal test-only export (phase 1467) */
 export const __test_DEEP_DREAM_STATE_FILE = DEEP_DREAM_STATE_FILE;
 export type { DreamStateData as __test_DreamStateData };
+
+// Phase 921: test-only exports for transient waterline behavior.
+/** @internal test-only export (phase 921) */
+export const __test_processSession = processSession;
+/** @internal test-only export (phase 921) */
+export type { DreamRunContext as __test_DreamRunContext };
+/** @internal test-only export (phase 921) */
+export type { DreamRunPlan as __test_DreamRunPlan };
+/** @internal test-only export (phase 921) */
+export type { SessionFile as __test_SessionFile };
 
 export async function runDeepDream(opts: DeepDreamOptions): Promise<void> {
   const maxCompressionTokens = opts.maxCompressionTokens ?? COMPRESSION_TOKENS_DEFAULT;
