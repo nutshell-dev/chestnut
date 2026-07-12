@@ -56,6 +56,14 @@ function readOutboxPending(motionDir: string): string[] {
     .map(f => fsSync.readFileSync(path.join(outboxDir, f), 'utf8'));
 }
 
+function readInboxPending(motionDir: string): string[] {
+  const inboxDir = path.join(motionDir, 'inbox', 'pending');
+  if (!fsSync.existsSync(inboxDir)) return [];
+  return fsSync.readdirSync(inboxDir)
+    .filter(f => f.endsWith('.md'))
+    .map(f => fsSync.readFileSync(path.join(inboxDir, f), 'utf8'));
+}
+
 async function writeTaskCompletion(motionDir: string, taskId: string, logContent: string) {
   const taskResultDir = path.join(motionDir, 'tasks', 'queues', 'results', taskId);
   await fs.mkdir(taskResultDir, { recursive: true });
@@ -168,11 +176,12 @@ describe('random-dream late-settle (phase 170)', () => {
     const content = fsSync.readFileSync(dreamOutputPath, 'utf-8');
     expect(content).toContain('跨 claw 洞见');
 
-    // durable outbox (idPrefix 含 late_settle)
-    const outboxContents = readOutboxPending(motionDir);
-    expect(outboxContents.length).toBeGreaterThan(0);
-    expect(outboxContents[0]).toContain('type: result');
-    expect(outboxContents[0]).toContain('late_settle_task_id: "late-1"');
+    // self-inbox notification
+    const inboxContents = readInboxPending(motionDir);
+    expect(inboxContents.length).toBeGreaterThan(0);
+    expect(inboxContents[0]).toContain('type: random_dream_completed');
+    expect(inboxContents[0]).toContain('from: "random-dream"');
+    expect(inboxContents[0]).toContain('dreamId:');
 
     // state 文件 entry drop
     const state = JSON.parse(fsSync.readFileSync(path.join(chestnutRoot, '.random-dream-state.json'), 'utf-8'));
@@ -346,9 +355,11 @@ describe('random-dream late-settle (phase 170)', () => {
     const dreamOutputPath = path.join(motionDir, 'memory', 'dream-outputs', `${taskId}.txt`);
     expect(fsSync.existsSync(dreamOutputPath)).toBe(true);
 
-    // durable outbox 写 2 次（重入），文件名不同但内容 taskId 一致
-    const outboxContents = readOutboxPending(motionDir);
-    expect(outboxContents.length).toBeGreaterThanOrEqual(1);
+    // self-inbox 写 2 次（重入），文件名不同但内容 taskId 一致
+    const inboxContents = readInboxPending(motionDir);
+    expect(inboxContents.length).toBeGreaterThanOrEqual(1);
+    expect(inboxContents[0]).toContain('type: random_dream_completed');
+    expect(inboxContents[0]).toContain('from: "random-dream"');
 
     // state 最终 pending = []
     const stateFinal = JSON.parse(fsSync.readFileSync(path.join(chestnutRoot, '.random-dream-state.json'), 'utf-8'));

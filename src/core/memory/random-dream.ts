@@ -13,7 +13,7 @@ import type { ContractId } from '../contract/types.js';
 import { type TaskId, type FullTaskId, type ShortTaskId, type ShortIdIndex, makeShortTaskId } from '../async-task-system/types.js';
 import { listArchiveContracts, readArchiveProgress } from '../contract/index.js';
 import { assertDreamStateShape } from './invariants.js';
-import { createOutboxWriter } from '../../foundation/messaging/index.js';
+import { notifyInbox, INBOX_PENDING_DIR } from '../../foundation/messaging/index.js';
 
 /**
  * Default pulse interval（ms）for waitForTaskResult polling.
@@ -103,6 +103,11 @@ interface RandomDreamState {
   pendingLateSettle?: PendingLateSettleEntry[];  // NEW phase 170, optional for backward compat
 }
 
+interface RandomDreamLoadResult {
+  state: RandomDreamState;
+  blocked?: { reason: string; version: number };
+}
+
 // ─── Random Dream State I/O ──────────────────────────────────
 
 const RANDOM_DREAM_STATE_FILE = '.random-dream-state.json';
@@ -119,7 +124,7 @@ function isValidPendingEntry(e: unknown): e is PendingLateSettleEntry {
   return true;
 }
 
-function loadRandomDreamState(fs: FileSystem, audit: AuditLog): RandomDreamState {
+function loadRandomDreamState(fs: FileSystem, audit: AuditLog): RandomDreamLoadResult {
   try {
     const parsed: unknown = JSON.parse(fs.readSync(RANDOM_DREAM_STATE_FILE));
     if (typeof parsed !== 'object' || parsed === null) {
@@ -127,11 +132,11 @@ function loadRandomDreamState(fs: FileSystem, audit: AuditLog): RandomDreamState
         `site=load_state_shape_invalid`,
         `reason=state_not_object`,
         `actual=${typeof parsed}`);
-      return { schema_version: RANDOM_DREAM_STATE_CURRENT_VERSION, completedContractIds: [] };
+      return { state: { schema_version: RANDOM_DREAM_STATE_CURRENT_VERSION, completedContractIds: [] } };
     }
     const r = parsed as Record<string, unknown>;
 
-    // phase 926: reject future schema versions (keep file, return default)
+    // phase 927: reject future schema versions (keep file, return blocked)
     const version = typeof r.schema_version === 'number' ? r.schema_version : 0;
     if (version > RANDOM_DREAM_STATE_CURRENT_VERSION) {
       audit.write(MEMORY_AUDIT_EVENTS.DREAM_STATE_FUTURE_VERSION,
@@ -139,7 +144,10 @@ function loadRandomDreamState(fs: FileSystem, audit: AuditLog): RandomDreamState
         `current=${RANDOM_DREAM_STATE_CURRENT_VERSION}`,
         `reason=cannot_migrate_future_version`,
       );
-      return { schema_version: RANDOM_DREAM_STATE_CURRENT_VERSION, completedContractIds: [] };
+      return {
+        state: { schema_version: RANDOM_DREAM_STATE_CURRENT_VERSION, completedContractIds: [] },
+        blocked: { reason: 'future_schema', version },
+      };
     }
 
     // phase 280/925: legacy schema migration
@@ -157,21 +165,21 @@ function loadRandomDreamState(fs: FileSystem, audit: AuditLog): RandomDreamState
       const completed: ContractId[] = Array.isArray(r.processedContractIds)
         ? r.processedContractIds.filter((id): id is ContractId => typeof id === 'string')
         : [];
-      return { schema_version: RANDOM_DREAM_STATE_CURRENT_VERSION, completedContractIds: completed, pendingLateSettle: pending };
+      return { state: { schema_version: RANDOM_DREAM_STATE_CURRENT_VERSION, completedContractIds: completed, pendingLateSettle: pending } };
     }
 
-    return r as unknown as RandomDreamState;
+    return { state: r as unknown as RandomDreamState };
   } catch (err) {
     // FileNotFoundError 首启良性 / silent
     if (err instanceof FileNotFoundError) {
-      return { schema_version: RANDOM_DREAM_STATE_CURRENT_VERSION, completedContractIds: [] };
+      return { state: { schema_version: RANDOM_DREAM_STATE_CURRENT_VERSION, completedContractIds: [] } };
     }
     // 其他 IO 错（parse 损坏 / 权限 / 等）必 audit + 返空 resilient
     audit.write(MEMORY_AUDIT_EVENTS.RANDOM_DREAM_ERROR,
       `site=load_state`,
       `reason=${formatErr(err)}`,
     );
-    return { schema_version: RANDOM_DREAM_STATE_CURRENT_VERSION, completedContractIds: [] };
+    return { state: { schema_version: RANDOM_DREAM_STATE_CURRENT_VERSION, completedContractIds: [] } };
   }
 }
 
@@ -361,23 +369,6 @@ function resolveFullTaskId(
   return index?.resolve(shortId);
 }
 
-// phase 925: durable outbox helper — write to motion claw outbox before committing state
-async function writeOutboxAsync(
-  fs: FileSystem,
-  audit: AuditLog,
-  content: string,
-  metadata?: Record<string, string>,
-): Promise<string> {
-  const writer = createOutboxWriter(MOTION_CLAW_ID, '.', fs, audit);
-  return writer.write({
-    type: 'result',
-    to: MOTION_CLAW_ID,
-    content,
-    priority: 'low',
-    metadata,
-  });
-}
-
 // ─── 等待任务结果 ────────────────────────────────────────────
 
 export async function waitForTaskResult(
@@ -519,19 +510,23 @@ async function sweepLateSettlePending(
           `bytes=${dreamOutput.length}`,
         );
 
-        // phase 925: durable outbox first, then commit state
-        await writeOutboxAsync(
+        // phase 927: notify motion self-inbox so daemon picks it up
+        notifyInbox(
           opts.motionFs,
-          opts.audit,
-          dreamOutput.slice(0, 500),
           {
-            dream_type: 'random_dream',
-            dream_count: String(outputs.length),
-            dream_id: entry.taskId,
-            late_settle_task_id: entry.taskId,
-            ...(lateFullId ? { late_settle_full_task_id: lateFullId } : {}),
-            path: dreamOutputPath,
+            inboxDir: INBOX_PENDING_DIR,
+            type: 'random_dream_completed',
+            source: 'random-dream',
+            priority: 'normal',
+            body: `Dream outputs persisted: ${outputs.length} contracts. See ${dreamOutputPath}`,
+            metadata: {
+              dreamId: entry.taskId,
+              outputCount: String(outputs.length),
+              ...(lateFullId ? { lateSettleFullTaskId: lateFullId } : {}),
+              path: dreamOutputPath,
+            },
           },
+          opts.audit,
         );
 
         // phase 925: mark covered contracts as completed
@@ -586,7 +581,12 @@ async function sweepLateSettlePending(
  * - β fs.watch + γ exponential backoff rejected per phase 622 28 原则核（D5+caller-control+YAGNI dominant）
  */
 export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
-  let state = loadRandomDreamState(opts.fs, opts.audit);
+  const loaded = loadRandomDreamState(opts.fs, opts.audit);
+  if (loaded.blocked) {
+    opts.audit.write(MEMORY_AUDIT_EVENTS.RANDOM_DREAM_JOB, `step=blocked`, `reason=${loaded.blocked.reason}`);
+    return;
+  }
+  let state = loaded.state;
   state = await sweepLateSettlePending(opts, state);   // NEW phase 170
   const weightedContracts = await discoverWeightedContracts(opts.fs, state, opts.audit, opts.getContractProgress);
 
@@ -683,17 +683,22 @@ export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
     `bytes=${dreamOutput.length}`,
   );
 
-  // phase 925: durable outbox first, then commit state
-  await writeOutboxAsync(
+  // phase 927: notify motion self-inbox so daemon picks it up
+  notifyInbox(
     opts.motionFs,
-    opts.audit,
-    dreamOutput.slice(0, 500),
     {
-      dream_type: 'random_dream',
-      dream_count: String(outputs.length),
-      dream_id: taskId,
-      path: dreamOutputPath,
+      inboxDir: INBOX_PENDING_DIR,
+      type: 'random_dream_completed',
+      source: 'random-dream',
+      priority: 'normal',
+      body: `Dream outputs persisted: ${outputs.length} contracts. See ${dreamOutputPath}`,
+      metadata: {
+        dreamId: taskId,
+        outputCount: String(outputs.length),
+        path: dreamOutputPath,
+      },
     },
+    opts.audit,
   );
 
   // phase 925: commit state — remove pending entry + append completed contract IDs

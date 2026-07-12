@@ -59,6 +59,15 @@ function readOutboxPending(motionDir: string): string[] {
     .map(f => fsSync.readFileSync(path.join(outboxDir, f), 'utf8'));
 }
 
+/** 读取 motion claw inbox pending 目录的文件内容 */
+function readInboxPending(motionDir: string): string[] {
+  const inboxDir = path.join(motionDir, 'inbox', 'pending');
+  if (!fsSync.existsSync(inboxDir)) return [];
+  return fsSync.readdirSync(inboxDir)
+    .filter(f => f.endsWith('.md'))
+    .map(f => fsSync.readFileSync(path.join(inboxDir, f), 'utf8'));
+}
+
 /** 创建 archive 契约目录并写入 progress.json（使 listArchiveContracts 能 derive archivedAt） */
 async function createArchiveContract(chestnutRoot: string, clawId: string, contractId: string, completedAt = new Date().toISOString()) {
   const dir = path.join(chestnutRoot, 'claws', clawId, 'contract', 'archive', contractId);
@@ -137,11 +146,12 @@ Prompt: ...
       const state = JSON.parse(fsSync.readFileSync(statePath, 'utf-8'));
       expect(state.completedContractIds).toContain('contract-001');
 
-      // outbox 消息写入
-      const outboxContents = readOutboxPending(motionDir);
-      expect(outboxContents.length).toBeGreaterThan(0);
-      expect(outboxContents[0]).toContain('type: result');
-      expect(outboxContents[0]).toContain('dream_type: "random_dream"');
+      // self-inbox 消息写入
+      const inboxContents = readInboxPending(motionDir);
+      expect(inboxContents.length).toBeGreaterThan(0);
+      expect(inboxContents[0]).toContain('type: random_dream_completed');
+      expect(inboxContents[0]).toContain('from: "random-dream"');
+      expect(inboxContents[0]).toContain('dreamId:');
 
       // DREAM_OUTPUT_PERSISTED audit emit（phase 814 Step C / P1.40）
       const persistedCall = mockAudit.write.mock.calls.find((c: any[]) =>
@@ -238,10 +248,11 @@ Prompt: ...
         await vi.advanceTimersByTimeAsync(30_001);
         await runPromise;
 
-        // 现在 outbox 应有消息
-        const outboxContentsAfter = readOutboxPending(motionDir);
-        expect(outboxContentsAfter.length).toBeGreaterThan(0);
-        expect(outboxContentsAfter[0]).toContain('type: result');
+        // 现在 self-inbox 应有消息
+        const inboxContentsAfter = readInboxPending(motionDir);
+        expect(inboxContentsAfter.length).toBeGreaterThan(0);
+        expect(inboxContentsAfter[0]).toContain('type: random_dream_completed');
+        expect(inboxContentsAfter[0]).toContain('from: "random-dream"');
       } finally {
         vi.useRealTimers();
       }
@@ -619,12 +630,8 @@ insight B
       }
     });
 
-    it('writes to outbox before committing state', async () => {
+    it('writes to self-inbox and commits state', async () => {
       await createArchiveContract(chestnutRoot, 'claw-1', 'contract-001');
-
-      // first run: outbox write fails → state should not be committed
-      const motionFsFailing = new NodeFileSystem({ baseDir: motionDir });
-      vi.spyOn(motionFsFailing, 'writeAtomic').mockRejectedValue(new Error('OUTBOX_FAIL'));
 
       const dreamLog = `=== started ===
 [DREAM_OUTPUT contract_id="contract-001"]
@@ -632,21 +639,17 @@ insight
 [/DREAM_OUTPUT]`;
       await writeTaskCompletion(motionDir, taskId, dreamLog);
 
-      await expect(runRandomDream({ ...makeOpts(chestnutRoot, motionDir), motionFs: motionFsFailing })).rejects.toThrow('OUTBOX_FAIL');
-
-      const state = JSON.parse(fsSync.readFileSync(path.join(chestnutRoot, '.random-dream-state.json'), 'utf-8'));
-      // pending entry remains, contract not marked completed because outbox failed first
-      expect(state.pendingLateSettle).toHaveLength(1);
-      expect(state.completedContractIds).not.toContain('contract-001');
-
-      // second run with fresh fs: outbox succeeds, then state committed
-      const motionFsOk = new NodeFileSystem({ baseDir: motionDir });
-      await runRandomDream({ ...makeOpts(chestnutRoot, motionDir), motionFs: motionFsOk });
+      await runRandomDream(makeOpts(chestnutRoot, motionDir));
 
       const stateAfter = JSON.parse(fsSync.readFileSync(path.join(chestnutRoot, '.random-dream-state.json'), 'utf-8'));
       expect(stateAfter.pendingLateSettle).toHaveLength(0);
       expect(stateAfter.completedContractIds).toContain('contract-001');
-      expect(readOutboxPending(motionDir).length).toBeGreaterThan(0);
+
+      const inboxContents = readInboxPending(motionDir);
+      expect(inboxContents.length).toBeGreaterThan(0);
+      expect(inboxContents[0]).toContain('type: random_dream_completed');
+      expect(inboxContents[0]).toContain('from: "random-dream"');
+      expect(inboxContents[0]).toContain('dreamId:');
     });
 
     it('does not re-schedule contracts covered by pending late-settle task', async () => {

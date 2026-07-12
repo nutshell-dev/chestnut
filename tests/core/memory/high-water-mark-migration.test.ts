@@ -106,7 +106,7 @@ describe('random-dream legacy schema migration (phase 925)', () => {
       }),
     });
 
-    const state = __test_loadRandomDreamState(fs, audit);
+    const { state } = __test_loadRandomDreamState(fs, audit);
 
     expect(state.completedContractIds).toEqual(['c1', 'c2']);
     expect(state.pendingLateSettle).toEqual([]);
@@ -133,7 +133,7 @@ describe('random-dream legacy schema migration (phase 925)', () => {
       }),
     });
 
-    const state = __test_loadRandomDreamState(fs, audit);
+    const { state } = __test_loadRandomDreamState(fs, audit);
 
     expect(state.completedContractIds).toEqual(['c1']);
     expect(state.pendingLateSettle).toHaveLength(2);
@@ -151,7 +151,7 @@ describe('random-dream legacy schema migration (phase 925)', () => {
       }),
     });
 
-    const state = __test_loadRandomDreamState(fs, audit);
+    const { state } = __test_loadRandomDreamState(fs, audit);
 
     expect(state.completedContractIds).toEqual([]);
     expect(audit.write).toHaveBeenCalledTimes(1);
@@ -167,7 +167,7 @@ describe('random-dream legacy schema migration (phase 925)', () => {
       }),
     });
 
-    const state = __test_loadRandomDreamState(fs, audit);
+    const { state } = __test_loadRandomDreamState(fs, audit);
 
     expect(state.completedContractIds).toEqual(['c1']);
     expect(audit.write).not.toHaveBeenCalled();
@@ -177,7 +177,7 @@ describe('random-dream legacy schema migration (phase 925)', () => {
     const audit = makeMockAudit();
     const fs = makeMockFs({});
 
-    const state = __test_loadRandomDreamState(fs, audit);
+    const { state } = __test_loadRandomDreamState(fs, audit);
 
     expect(state.completedContractIds).toEqual([]);
     expect(audit.write).not.toHaveBeenCalled();
@@ -189,7 +189,7 @@ describe('random-dream legacy schema migration (phase 925)', () => {
       [__test_RANDOM_DREAM_STATE_FILE]: 'not-json',
     });
 
-    const state = __test_loadRandomDreamState(fs, audit);
+    const { state } = __test_loadRandomDreamState(fs, audit);
 
     expect(state.completedContractIds).toEqual([]);
     const calls = (audit.write as ReturnType<typeof vi.fn>).mock.calls;
