@@ -117,8 +117,10 @@ describe('scanOutboxes preview collection', () => {
       encodeOutbox(makeMsg('latest message here', '2026-06-04T11:00:00Z')),
     );
 
-    const state = await scanOutboxes({ clawsDir: `${root}/claws`, clawTopology: topology, fs, outboxReader });
+    const state = await scanOutboxes({ clawTopology: topology, fs, outboxReader });
     expect(state.previews).toEqual({ clawA: 'latest message here' });
+    expect(state.failed_claws).toEqual([]);
+    expect(state.incomplete).toBe(false);
   });
 
   it('truncates long previews', async () => {
@@ -129,8 +131,10 @@ describe('scanOutboxes preview collection', () => {
       encodeOutbox(makeMsg(longContent, '2026-06-04T10:00:00Z')),
     );
 
-    const state = await scanOutboxes({ clawsDir: `${root}/claws`, clawTopology: topology, fs, outboxReader });
+    const state = await scanOutboxes({ clawTopology: topology, fs, outboxReader });
     expect(state.previews.clawA).toBe('a'.repeat(PREVIEW_MAX_CHARS) + '…');
+    expect(state.failed_claws).toEqual([]);
+    expect(state.incomplete).toBe(false);
   });
 
   it('marks read failure when decode fails', async () => {
@@ -140,9 +144,11 @@ describe('scanOutboxes preview collection', () => {
       'INVALID CONTENT',
     );
 
-    const state = await scanOutboxes({ clawsDir: `${root}/claws`, clawTopology: topology, fs, outboxReader });
+    const state = await scanOutboxes({ clawTopology: topology, fs, outboxReader });
     expect(state.counts).toEqual({ clawA: 1 });
     expect(state.previews).toEqual({ clawA: '(读取失败)' });
+    expect(state.failed_claws).toEqual([]);
+    expect(state.incomplete).toBe(false);
   });
 
   it('handles multiple claws with previews', async () => {
@@ -157,10 +163,12 @@ describe('scanOutboxes preview collection', () => {
       encodeOutbox(makeMsg('clawB reports done', '2026-06-04T10:00:00Z')),
     );
 
-    const state = await scanOutboxes({ clawsDir: `${root}/claws`, clawTopology: topology, fs, outboxReader });
+    const state = await scanOutboxes({ clawTopology: topology, fs, outboxReader });
     expect(state.previews).toEqual({
       clawA: 'clawA says hi',
       clawB: 'clawB reports done',
     });
+    expect(state.failed_claws).toEqual([]);
+    expect(state.incomplete).toBe(false);
   });
 });

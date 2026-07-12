@@ -2,6 +2,7 @@
  * @module L4.ClawTopology.OutboxSummary
  * phase 1476: one orchestration tick = scan + dedup + write.
  * phase 42: 全部 I/O 改走 Messaging 对外入口；删自管 archive。
+ * phase 938: signal propagated and checked at scan/dedup/write boundaries.
  *
  * 流程：
  * 1. scan claws/*\/outbox/pending（经 OutboxReader）→ state
@@ -29,6 +30,14 @@ interface OutboxSummaryTickDeps {
   outboxReader: OutboxReader;
   audit: AuditLog;
   now?: () => number;
+  /** phase 938: cooperative abort signal checked at stage boundaries. */
+  signal?: AbortSignal;
+}
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) {
+    throw new Error('Outbox summary tick aborted');
+  }
 }
 
 export async function runOutboxSummaryTick(deps: OutboxSummaryTickDeps): Promise<void> {
@@ -36,6 +45,7 @@ export async function runOutboxSummaryTick(deps: OutboxSummaryTickDeps): Promise
     clawTopology: deps.clawTopology,
     fs: deps.fs,
     outboxReader: deps.outboxReader,
+    signal: deps.signal,
   });
 
   if (state.total_msgs === 0) {
@@ -49,6 +59,9 @@ export async function runOutboxSummaryTick(deps: OutboxSummaryTickDeps): Promise
   if (hit !== null) {
     return;
   }
+
+  // phase 938: after dedup and before writing inbox, respect cancellation.
+  throwIfAborted(deps.signal);
 
   await writeNewSummary(
     { inboxWriter: deps.inboxWriter, audit: deps.audit, now: deps.now },

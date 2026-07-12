@@ -58,6 +58,7 @@ export async function runOutboxSummary(opts: OutboxSummaryJobOptions): Promise<v
       inboxReader: opts.inboxReader,
       inboxWriter: opts.inboxWriter,
       outboxReader: opts.outboxReader,
+      signal: opts.signal,
     });
   } catch (err) {
     opts.audit.write(

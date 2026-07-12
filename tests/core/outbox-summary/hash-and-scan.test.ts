@@ -76,20 +76,24 @@ describe('phase 1476: scanOutboxes (real fs)', () => {
   });
 
   it('empty claws dir → empty state', async () => {
-    const state = await scanOutboxes({ clawsDir: `${root}/claws`, clawTopology: topology, fs, outboxReader });
+    const state = await scanOutboxes({ clawTopology: topology, fs, outboxReader });
     expect(state.counts).toEqual({});
     expect(state.total_claws).toBe(0);
     expect(state.total_msgs).toBe(0);
     expect(state.file_set).toEqual([]);
     expect(state.previews).toEqual({});
+    expect(state.failed_claws).toEqual([]);
+    expect(state.incomplete).toBe(false);
   });
 
   it('skips motion claw', async () => {
     await fsAsync.mkdir(path.join(root, 'claws/motion/outbox/pending'), { recursive: true });
     await fsAsync.writeFile(path.join(root, 'claws/motion/outbox/pending/foo.md'), 'x');
-    const state = await scanOutboxes({ clawsDir: `${root}/claws`, clawTopology: topology, fs, outboxReader });
+    const state = await scanOutboxes({ clawTopology: topology, fs, outboxReader });
     expect(state.counts).toEqual({});
     expect(state.previews).toEqual({});
+    expect(state.failed_claws).toEqual([]);
+    expect(state.incomplete).toBe(false);
   });
 
   it('counts pending files per claw', async () => {
@@ -98,36 +102,104 @@ describe('phase 1476: scanOutboxes (real fs)', () => {
     await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/a1.md'), 'x');
     await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/a2.md'), 'x');
     await fsAsync.writeFile(path.join(root, 'claws/clawB/outbox/pending/b1.md'), 'x');
-    const state = await scanOutboxes({ clawsDir: `${root}/claws`, clawTopology: topology, fs, outboxReader });
+    const state = await scanOutboxes({ clawTopology: topology, fs, outboxReader });
     expect(state.counts).toEqual({ clawA: 2, clawB: 1 });
     expect(state.total_claws).toBe(2);
     expect(state.total_msgs).toBe(3);
     expect(state.file_set).toEqual(['clawA:a1.md', 'clawA:a2.md', 'clawB:b1.md']);
     expect(state.previews).toEqual({ clawA: '(读取失败)', clawB: '(读取失败)' });
+    expect(state.failed_claws).toEqual([]);
+    expect(state.incomplete).toBe(false);
   });
 
   it('ignores non-.md files', async () => {
     await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
     await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/a1.md'), 'x');
     await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/junk.txt'), 'x');
-    const state = await scanOutboxes({ clawsDir: `${root}/claws`, clawTopology: topology, fs, outboxReader });
+    const state = await scanOutboxes({ clawTopology: topology, fs, outboxReader });
     expect(state.counts).toEqual({ clawA: 1 });
     expect(state.previews).toEqual({ clawA: '(读取失败)' });
+    expect(state.failed_claws).toEqual([]);
+    expect(state.incomplete).toBe(false);
   });
 
   it('claws/<id>/outbox missing → silent skip', async () => {
     await fsAsync.mkdir(path.join(root, 'claws/clawA'), { recursive: true });
-    const state = await scanOutboxes({ clawsDir: `${root}/claws`, clawTopology: topology, fs, outboxReader });
+    const state = await scanOutboxes({ clawTopology: topology, fs, outboxReader });
     expect(state.counts).toEqual({});
     expect(state.previews).toEqual({});
+    expect(state.failed_claws).toEqual([]);
+    expect(state.incomplete).toBe(false);
   });
 
   it('hash deterministic for same fileSet', async () => {
     await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
     await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m1.md'), 'x');
     await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m2.md'), 'x');
-    const a = await scanOutboxes({ clawsDir: `${root}/claws`, clawTopology: topology, fs, outboxReader });
-    const b = await scanOutboxes({ clawsDir: `${root}/claws`, clawTopology: topology, fs, outboxReader });
+    const a = await scanOutboxes({ clawTopology: topology, fs, outboxReader });
+    const b = await scanOutboxes({ clawTopology: topology, fs, outboxReader });
     expect(a.hash).toBe(b.hash);
+  });
+
+  it('records failed claws and marks summary incomplete', async () => {
+    await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
+    await fsAsync.mkdir(path.join(root, 'claws/clawB/outbox/pending'), { recursive: true });
+    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/a1.md'), 'x');
+    await fsAsync.writeFile(path.join(root, 'claws/clawB/outbox/pending/b1.md'), 'x');
+
+    const failingReader = {
+      listClawOutboxPending: async (clawDir: string) => {
+        const clawId = path.basename(clawDir);
+        if (clawId === 'clawB') throw new Error('mock I/O failure');
+        return outboxReader.listClawOutboxPending(clawDir);
+      },
+      peekLastOutboxPending: async (clawDir: string) => {
+        const clawId = path.basename(clawDir);
+        if (clawId === 'clawB') throw new Error('mock I/O failure');
+        return outboxReader.peekLastOutboxPending(clawDir);
+      },
+    } as unknown as OutboxReader;
+
+    const state = await scanOutboxes({ clawTopology: topology, fs, outboxReader: failingReader });
+    expect(state.counts).toEqual({ clawA: 1 });
+    expect(state.total_claws).toBe(1);
+    expect(state.total_msgs).toBe(1);
+    expect(state.file_set).toEqual(['clawA:a1.md']);
+    expect(state.failed_claws).toEqual(['clawB']);
+    expect(state.incomplete).toBe(true);
+  });
+
+  it('aborts scan when signal is triggered', async () => {
+    await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
+    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/a1.md'), 'x');
+
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      scanOutboxes({ clawTopology: topology, fs, outboxReader, signal: controller.signal }),
+    ).rejects.toThrow(/aborted/i);
+  });
+
+  it('aborts before the next claw when signal fires mid-scan', async () => {
+    await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
+    await fsAsync.mkdir(path.join(root, 'claws/clawB/outbox/pending'), { recursive: true });
+    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/a1.md'), 'x');
+    await fsAsync.writeFile(path.join(root, 'claws/clawB/outbox/pending/b1.md'), 'x');
+
+    const controller = new AbortController();
+    const interceptReader = {
+      listClawOutboxPending: async (clawDir: string) => {
+        const clawId = path.basename(clawDir);
+        const files = await outboxReader.listClawOutboxPending(clawDir);
+        if (clawId === 'clawA') controller.abort();
+        return files;
+      },
+      peekLastOutboxPending: outboxReader.peekLastOutboxPending.bind(outboxReader),
+    } as unknown as OutboxReader;
+
+    await expect(
+      scanOutboxes({ clawTopology: topology, fs, outboxReader: interceptReader, signal: controller.signal }),
+    ).rejects.toThrow(/aborted/i);
   });
 });
