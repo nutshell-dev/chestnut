@@ -211,7 +211,7 @@ describe('ContractSystem — 并发幂等与锁', () => {
     const lockPath = path.join(lockDir, 'progress.lock');
 
     // 写入当前进程 PID 但时间很久以前，模拟超时锁
-    await fs.writeFile(lockPath, JSON.stringify({ pid: process.pid, time: 0 }));
+    await fs.writeFile(lockPath, JSON.stringify({ pid: process.pid, time: 0, ownerToken: 'existing-token' }));
 
     const result = await auditManager.completeSubtask({
       contractId,

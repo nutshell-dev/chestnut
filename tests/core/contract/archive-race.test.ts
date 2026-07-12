@@ -104,8 +104,8 @@ describe('moveContractToArchive lock acquire (phase 860 / P0-B)', () => {
     // Verify lock is truly released: a new acquire on the same path succeeds
     const nodeFs = new NodeFileSystem({ baseDir: clawDir });
     const ctx = { fs: nodeFs, audit: { write: () => {} , preview: (s: string) => s, message: (s: string) => s, summary: (s: string) => s} };
-    await acquireLock(ctx, archiveLockPath);
-    await releaseLock(ctx, archiveLockPath);
+    const ownerToken = await acquireLock(ctx, archiveLockPath);
+    await releaseLock(ctx, archiveLockPath, ownerToken);
   });
 
   it('skips lock acquire when contract already archived', async () => {

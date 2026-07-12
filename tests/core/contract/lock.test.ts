@@ -83,7 +83,7 @@ describe('acquireLock', () => {
     await fs.mkdir(path.dirname(absLockPath), { recursive: true });
 
     // 写入合法但 dead pid 的 lock 文件
-    await fs.writeFile(absLockPath, JSON.stringify({ pid: DEAD_PID, time: Date.now() }), 'utf-8');
+    await fs.writeFile(absLockPath, JSON.stringify({ pid: DEAD_PID, time: Date.now(), ownerToken: 'existing-token' }), 'utf-8');
 
     await acquireLock({ fs: nodeFs, audit: mockAudit as any }, lockPath);
 
@@ -104,7 +104,7 @@ describe('acquireLock', () => {
     await fs.mkdir(path.dirname(absLockPath), { recursive: true });
 
     // 写入当前进程持有的合法 lock 文件
-    await fs.writeFile(absLockPath, JSON.stringify({ pid: process.pid, time: Date.now() }), 'utf-8');
+    await fs.writeFile(absLockPath, JSON.stringify({ pid: process.pid, time: Date.now(), ownerToken: 'existing-token' }), 'utf-8');
 
     await expect(
       acquireLock({ fs: nodeFs, audit: mockAudit as any }, lockPath)
@@ -138,7 +138,7 @@ describe('acquireLock', () => {
     await fs.mkdir(path.dirname(absLockPath), { recursive: true });
 
     // Write a lock held by a fake live PID.
-    await fs.writeFile(absLockPath, JSON.stringify({ pid: FAKE_LIVE_PID, time: Date.now() }), 'utf-8');
+    await fs.writeFile(absLockPath, JSON.stringify({ pid: FAKE_LIVE_PID, time: Date.now(), ownerToken: 'existing-token' }), 'utf-8');
 
     const l1IsAlive = () => {
       throw new Error('EIO');
@@ -159,9 +159,9 @@ describe('releaseLock', () => {
     const lockPath = 'test/progress.lock';
     const absLockPath = path.join(tmpDir, lockPath);
     await fs.mkdir(path.dirname(absLockPath), { recursive: true });
-    await fs.writeFile(absLockPath, JSON.stringify({ pid: process.pid }), 'utf-8');
+    await fs.writeFile(absLockPath, JSON.stringify({ pid: process.pid, ownerToken: 'token' }), 'utf-8');
 
-    await releaseLock({ fs: nodeFs, audit: mockAudit as any }, lockPath);
+    await releaseLock({ fs: nodeFs, audit: mockAudit as any }, lockPath, 'token');
 
     await expect(fs.access(absLockPath)).rejects.toThrow();
   });
@@ -174,12 +174,40 @@ describe('releaseLock', () => {
     // Corrupt / unparseable lock JSON.
     await fs.writeFile(absLockPath, 'not-json', 'utf-8');
 
-    await releaseLock({ fs: nodeFs, audit: mockAudit as any }, lockPath);
+    await releaseLock({ fs: nodeFs, audit: mockAudit as any }, lockPath, 'token');
 
     // Ownership could not be verified — must not delete.
     const lockExists = await pathExists(absLockPath);
     expect(lockExists).toBe(true);
   });
+
+  it('does not delete lock owned by different token (phase 954)', async () => {
+    const lockPath = 'test/progress.lock';
+    const absLockPath = path.join(tmpDir, lockPath);
+    await fs.mkdir(path.dirname(absLockPath), { recursive: true });
+
+    // First acquire
+    const token1 = await acquireLock({ fs: nodeFs, audit: mockAudit as any }, lockPath);
+
+    // Simulate stale lock (timed out) so the next acquire force-clears and re-acquires
+    const staleTime = Date.now() - 6 * 60 * 1000; // older than LOCK_STALE_TIMEOUT_MS (5 min)
+    const staleContent = JSON.stringify({ pid: process.pid, time: staleTime, ownerToken: token1 });
+    await fs.writeFile(absLockPath, staleContent, 'utf-8');
+
+    // Second acquire clears the stale lock and writes a new ownerToken
+    const token2 = await acquireLock({ fs: nodeFs, audit: mockAudit as any }, lockPath);
+    expect(token2).not.toBe(token1);
+    expect(await fs.stat(absLockPath).then(() => true).catch(() => false)).toBe(true);
+
+    // Releasing with the old token must NOT delete the current lock
+    await releaseLock({ fs: nodeFs, audit: mockAudit as any }, lockPath, token1);
+
+    expect(await fs.stat(absLockPath).then(() => true).catch(() => false)).toBe(true);
+    const raw = await fs.readFile(absLockPath, 'utf-8');
+    const current = JSON.parse(raw);
+    expect(current.ownerToken).toBe(token2);
+    expect(current.pid).toBe(process.pid);
+  }, 2000);
 });
 
 describe('lockContract', () => {

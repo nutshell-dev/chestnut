@@ -5,7 +5,7 @@
 
 import * as path from 'path';
 import { z } from 'zod';
-import { formatErr } from "../../foundation/node-utils/index.js";
+import { formatErr, newShortUuid } from "../../foundation/node-utils/index.js";
 import type { FileSystem } from '../../foundation/fs/index.js';
 
 import type { AuditLog } from '../../foundation/audit/index.js';
@@ -31,10 +31,12 @@ import { LockContentionExhaustedError } from './errors.js';
 const LockMetadataSchema = z.object({
   pid: z.number().finite(),
   time: z.number().finite(),
+  ownerToken: z.string(),
 }).strict();
 
 const LockMetadataReleaseSchema = z.object({
   pid: z.number().finite(),
+  ownerToken: z.string(),
 });
 
 export interface LockContext {
@@ -43,18 +45,19 @@ export interface LockContext {
   l1IsAlive?: typeof defaultL1IsAlive;
 }
 
-export async function acquireLock(ctx: LockContext, lockPath: string): Promise<void> {
+export async function acquireLock(ctx: LockContext, lockPath: string): Promise<string> {
   await ctx.fs.ensureDir(path.dirname(lockPath));
 
+  const ownerToken = newShortUuid();
   let lastReason = 'unknown';
 
   for (let i = 0; i < LOCK_MAX_RETRIES; i++) {
     try {
       ctx.fs.writeExclusiveSync(
         lockPath,
-        JSON.stringify({ pid: process.pid, time: Date.now() }),
+        JSON.stringify({ pid: process.pid, time: Date.now(), ownerToken }),
       );
-      return;
+      return ownerToken;
     } catch (err: unknown) {
       if ((err as NodeJS.ErrnoException)?.code !== 'EEXIST') throw err;
 
@@ -157,28 +160,46 @@ export async function unlinkStaleLock(ctx: LockContext, lockPath: string, reason
   }
 }
 
-export async function releaseLock(ctx: LockContext, lockPath: string): Promise<void> {
+export async function releaseLock(ctx: LockContext, lockPath: string, ownerToken: string): Promise<void> {
   try {
-    // phase 1102 con-3: verify ownership before deleting to prevent race-condition
-    // where a concurrent force-clear removed our lock and replaced it with another
+    // phase 953 + 954: verify ownership before deleting to prevent race-conditions.
+    // Any read/parse/schema error means we cannot confirm this lock belongs to us,
+    // so we must not delete it.
     const raw = await ctx.fs.read(lockPath);
-    // phase 953: ownership verification — any read/parse/schema error means we
-    // cannot confirm this lock belongs to us, so we must not delete it.
-    const rawParsed: unknown = JSON.parse(raw);
-    const validation = LockMetadataReleaseSchema.safeParse(rawParsed);
-    if (!validation.success) {
+    let parsedPid: number | undefined;
+    let parsedToken: string | undefined;
+    try {
+      const rawParsed: unknown = JSON.parse(raw);
+      const validation = LockMetadataReleaseSchema.safeParse(rawParsed);
+      if (validation.success) {
+        parsedPid = validation.data.pid;
+        parsedToken = validation.data.ownerToken;
+      }
+    } catch (parseErr) {
       emitContractLockUnlinkFailed(
         ctx.audit,
         {
           context: 'ContractSystem.releaseLock',
           path: lockPath,
           reason: 'ownership_unverifiable',
-          error: validation.error.message,
+          error: formatErr(parseErr),
         },
       );
       return;
     }
-    if (validation.data.pid !== process.pid) {
+    if (parsedPid === undefined || parsedToken === undefined) {
+      emitContractLockUnlinkFailed(
+        ctx.audit,
+        {
+          context: 'ContractSystem.releaseLock',
+          path: lockPath,
+          reason: 'ownership_unverifiable',
+          error: 'lock metadata missing pid or ownerToken',
+        },
+      );
+      return;
+    }
+    if (parsedPid !== process.pid) {
       emitContractLockUnlinkFailed(
         ctx.audit,
         {
@@ -186,7 +207,20 @@ export async function releaseLock(ctx: LockContext, lockPath: string): Promise<v
           path: lockPath,
           reason: 'ownership_mismatch',
           expectedPid: process.pid,
-          actualPid: validation.data.pid,
+          actualPid: parsedPid,
+        },
+      );
+      return;
+    }
+    if (parsedToken !== ownerToken) {
+      emitContractLockUnlinkFailed(
+        ctx.audit,
+        {
+          context: 'ContractSystem.releaseLock',
+          path: lockPath,
+          reason: 'owner_token_mismatch',
+          expectedToken: ownerToken,
+          actualToken: parsedToken,
         },
       );
       return;
@@ -197,14 +231,12 @@ export async function releaseLock(ctx: LockContext, lockPath: string): Promise<v
       // behavior is preserved (caller may rely on LOCK_UNLINK_FAILED when target
       // lock was never created).
     } else {
-      // Read/parse/schema error — cannot verify ownership. Do NOT delete the
-      // lock; it may belong to another process.
       emitContractLockUnlinkFailed(
         ctx.audit,
         {
           context: 'ContractSystem.releaseLock',
           path: lockPath,
-          reason: 'ownership_unverifiable',
+          reason: 'read_error',
           error: formatErr(e),
         },
       );
@@ -229,6 +261,7 @@ export async function releaseLock(ctx: LockContext, lockPath: string): Promise<v
 export interface LockContractResult {
   dir: string;
   lockPath: string;
+  ownerToken: string;
   release: () => Promise<void>;
 }
 
@@ -267,7 +300,7 @@ export async function lockContract(
   while (attempt < LOCK_CONTRACT_MAX_RETRY) {
     const dirBefore = await contractDirFn(contractId);
     const lockPath = `${dirBefore}/${contractId}/progress.lock`;
-    await acquireLock(ctx, lockPath);
+    const ownerToken = await acquireLock(ctx, lockPath);
 
     let ownershipTransferred = false;
     let dirAfter: string | undefined;
@@ -278,7 +311,8 @@ export async function lockContract(
         return {
           dir: dirBefore,
           lockPath,
-          release: () => releaseLock(ctx, lockPath),
+          ownerToken,
+          release: () => releaseLock(ctx, lockPath, ownerToken),
         };
       }
 
@@ -294,7 +328,7 @@ export async function lockContract(
       // exception (including from contractDirFn) keeps ownershipTransferred
       // false, so the lock is cleaned up before the error propagates.
       if (!ownershipTransferred) {
-        await releaseLock(ctx, lockPath);
+        await releaseLock(ctx, lockPath, ownerToken);
       }
     }
 

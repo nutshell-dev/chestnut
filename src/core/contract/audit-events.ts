@@ -108,6 +108,13 @@ export const CONTRACT_AUDIT_EVENTS = {
   ARCHIVE_RECOVERED: 'contract_archive_recovered',
   // phase 1371 sub-3: verification pipeline mutex race rejection audit trace
   VERIFICATION_PIPELINE_RACE_REJECTED: 'verification_pipeline_race_rejected',
+  // NEW phase 954: boot reconcile lifecycle move recovery (cancel/crash/pause/resume)
+  BOOT_RECONCILE_TERMINAL_MOVED: 'contract_boot_reconcile_terminal_moved',
+  BOOT_RECONCILE_TERMINAL_MOVE_FAILED: 'contract_boot_reconcile_terminal_move_failed',
+  BOOT_RECONCILE_PAUSED_MOVED: 'contract_boot_reconcile_paused_moved',
+  BOOT_RECONCILE_PAUSED_MOVE_FAILED: 'contract_boot_reconcile_paused_move_failed',
+  BOOT_RECONCILE_RUNNING_MOVED: 'contract_boot_reconcile_running_moved',
+  BOOT_RECONCILE_RUNNING_MOVE_FAILED: 'contract_boot_reconcile_running_move_failed',
   // phase 66 NEW: schema corruption isolation
   CONTRACT_FILE_ISOLATED: 'contract_file_isolated',
   CONTRACT_FILE_ISOLATION_FAILED: 'contract_file_isolation_failed',
@@ -246,4 +253,11 @@ export const CONTRACT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   contract_legacy_status_field_ignored: 'audit',
   contract_legacy_contract_id_field_ignored: 'audit',
   contract_observer_state_invariant_violated: 'audit',
+  // phase 954: boot reconcile lifecycle move recovery events
+  contract_boot_reconcile_terminal_moved: 'audit',
+  contract_boot_reconcile_terminal_move_failed: 'audit',
+  contract_boot_reconcile_paused_moved: 'audit',
+  contract_boot_reconcile_paused_move_failed: 'audit',
+  contract_boot_reconcile_running_moved: 'audit',
+  contract_boot_reconcile_running_move_failed: 'audit',
 } as const;

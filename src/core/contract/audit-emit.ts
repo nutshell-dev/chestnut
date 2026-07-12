@@ -58,6 +58,8 @@ export function emitContractLockUnlinkFailed(
     reason?: string;
     expectedPid?: number;
     actualPid?: number;
+    expectedToken?: string;
+    actualToken?: string;
     error?: string;
   },
 ): void {
@@ -67,6 +69,8 @@ export function emitContractLockUnlinkFailed(
   if (opts.reason !== undefined) cols.push(`reason=${opts.reason}`);
   if (opts.expectedPid !== undefined) cols.push(`expected_pid=${opts.expectedPid}`);
   if (opts.actualPid !== undefined) cols.push(`actual_pid=${opts.actualPid}`);
+  if (opts.expectedToken !== undefined) cols.push(`expected_token=${opts.expectedToken}`);
+  if (opts.actualToken !== undefined) cols.push(`actual_token=${opts.actualToken}`);
   if (opts.error !== undefined) cols.push(`error=${opts.error}`);
   audit.write(CONTRACT_AUDIT_EVENTS.LOCK_UNLINK_FAILED, ...cols);
 }

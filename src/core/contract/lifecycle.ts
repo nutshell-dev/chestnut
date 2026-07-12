@@ -44,7 +44,7 @@ export async function pauseContract(
   contractId: ContractId,
   checkpointNote: string,
 ): Promise<void> {
-  const { dir, release: releaseSource } = await lockContract(ctx, contractId, ctx.contractDir);
+  const { dir, release: releaseSource, ownerToken } = await lockContract(ctx, contractId, ctx.contractDir);
   if (dir !== ctx.activeDir) {
     await releaseSource();
     throw new ToolError(`Cannot pause contract "${contractId}": not in active/`);
@@ -86,7 +86,7 @@ export async function pauseContract(
     // release at TARGET (lock file moved with dir)
     // 正常 path: target lock = source lock moved with dir → release target ✓
     // exception path (catch 已执行): source 已 release / target 不存在 / releaseLock emit LOCK_UNLINK_FAILED audit
-    await releaseLock(ctx, targetLockPath);
+    await releaseLock(ctx, targetLockPath, ownerToken);
   }
 
   emitContractPaused(ctx.audit, { contractId, checkpoint: checkpointNote });
@@ -96,7 +96,7 @@ export async function resumeContract(
   ctx: LifecycleContext,
   contractId: ContractId,
 ): Promise<Contract> {
-  const { dir, release: releaseSource } = await lockContract(ctx, contractId, ctx.contractDir);
+  const { dir, release: releaseSource, ownerToken } = await lockContract(ctx, contractId, ctx.contractDir);
   if (dir !== ctx.pausedDir) {
     await releaseSource();
     throw new ToolError(`Cannot resume contract "${contractId}": not in paused/`);
@@ -129,7 +129,7 @@ export async function resumeContract(
     }
     throw err;
   } finally {
-    await releaseLock(ctx, targetLockPath);
+    await releaseLock(ctx, targetLockPath, ownerToken);
   }
 
   emitContractResumed(ctx.audit, { contractId });
@@ -141,7 +141,7 @@ export async function cancelContract(
   contractId: ContractId,
   reason: string,
 ): Promise<void> {
-  const { dir, release: releaseSource } = await lockContract(ctx, contractId, ctx.contractDir);
+  const { dir, release: releaseSource, ownerToken } = await lockContract(ctx, contractId, ctx.contractDir);
   if (dir === ctx.archiveDir) {
     await releaseSource();
     throw new ToolError(`Cannot cancel contract "${contractId}": already archived`);
@@ -202,7 +202,7 @@ export async function cancelContract(
     }
     throw err;
   } finally {
-    await releaseLock(ctx, targetLockPath);
+    await releaseLock(ctx, targetLockPath, ownerToken);
   }
 
   emitContractCancelled(ctx.audit, { contractId, reason });
@@ -236,7 +236,7 @@ export async function markCrashed(
   contractId: ContractId,
   cause: string,
 ): Promise<void> {
-  const { dir, release: releaseSource } = await lockContract(ctx, contractId, ctx.contractDir);
+  const { dir, release: releaseSource, ownerToken } = await lockContract(ctx, contractId, ctx.contractDir);
   if (dir === ctx.archiveDir) {
     await releaseSource();
     throw new ToolError(`Cannot mark crashed contract "${contractId}": already archived`);
@@ -307,7 +307,7 @@ export async function markCrashed(
     }
     throw err;
   } finally {
-    await releaseLock(ctx, targetLockPath);
+    await releaseLock(ctx, targetLockPath, ownerToken);
   }
 
   emitContractCrashed(ctx.audit, { contractId, cause });
@@ -329,7 +329,7 @@ export async function moveContractToArchive(
   ctx: LifecycleContext,
   contractId: ContractId,
 ): Promise<void> {
-  const { dir, release: releaseSource } = await lockContract(ctx, contractId, ctx.contractDir);
+  const { dir, release: releaseSource, ownerToken } = await lockContract(ctx, contractId, ctx.contractDir);
   if (dir === ctx.archiveDir) {
     await releaseSource();
     return;
@@ -377,6 +377,6 @@ export async function moveContractToArchive(
     throw err;
   } finally {
     // release at TARGET (lock file moved with dir)
-    await releaseLock(ctx, targetLockPath);
+    await releaseLock(ctx, targetLockPath, ownerToken);
   }
 }

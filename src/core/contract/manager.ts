@@ -561,6 +561,104 @@ export class ContractSystem {
       );
     }
 
+    // NEW phase 954: boot reconcile — recover lifecycle moves interrupted mid-flight
+    // (cancel/crash move failed leaves terminal status in active/; pause/resume move
+    // failed leaves status/dir mismatch). Best-effort; failures emit audit only.
+    const TERMINAL_STATUSES = new Set(['cancelled', 'crashed', 'completed']);
+    try {
+      // 1. terminal / paused contracts stuck in active/
+      if (await this.fs.exists(this.activeDir)) {
+        const activeEntries = await this.fs.list(this.activeDir, { includeDirs: true });
+        for (const entry of activeEntries) {
+          if (!entry.isDirectory) continue;
+          const progressPath = `${this.activeDir}/${entry.name}/progress.json`;
+          if (!(await this.fs.exists(progressPath))) continue;
+          try {
+            const raw = await this.fs.read(progressPath);
+            const rawParsed: unknown = JSON.parse(raw);
+            const validation = ContractProgressArchiveLooseSchema.safeParse(rawParsed);
+            if (!validation.success) continue;
+            const progress = validation.data;
+
+            if (TERMINAL_STATUSES.has(progress.status ?? '')) {
+              const contractId = makeContractId(progress.contract_id ?? entry.name);
+              const contractYaml = await this.loadContractYaml(contractId);
+              if (contractYaml) {
+                await archiveAndEmit(
+                  this._verificationCtx(),
+                  contractId,
+                  contractYaml,
+                  'ContractSystem.init.bootReconcile.terminal',
+                );
+                this.audit.write(
+                  CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_TERMINAL_MOVED,
+                  `contract_id=${contractId}`,
+                  `status=${progress.status}`,
+                );
+              }
+            } else if (progress.status === 'paused') {
+              const contractId = makeContractId(progress.contract_id ?? entry.name);
+              await this.fs.ensureDir(this.pausedDir);
+              await this.fs.move(`${this.activeDir}/${contractId}`, `${this.pausedDir}/${contractId}`);
+              this.audit.write(
+                CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_PAUSED_MOVED,
+                `contract_id=${contractId}`,
+                `from=active`,
+                `to=paused`,
+              );
+            }
+          } catch (err) {
+            this.audit.write(
+              CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_TERMINAL_MOVE_FAILED,
+              `contract_id=${entry.name}`,
+              `reason=${formatErr(err)}`,
+            );
+          }
+        }
+      }
+
+      // 2. running contracts stuck in paused/
+      if (await this.fs.exists(this.pausedDir)) {
+        const pausedEntries = await this.fs.list(this.pausedDir, { includeDirs: true });
+        for (const entry of pausedEntries) {
+          if (!entry.isDirectory) continue;
+          const progressPath = `${this.pausedDir}/${entry.name}/progress.json`;
+          if (!(await this.fs.exists(progressPath))) continue;
+          try {
+            const raw = await this.fs.read(progressPath);
+            const rawParsed: unknown = JSON.parse(raw);
+            const validation = ContractProgressArchiveLooseSchema.safeParse(rawParsed);
+            if (!validation.success) continue;
+            const progress = validation.data;
+
+            if (progress.status === 'running') {
+              const contractId = makeContractId(progress.contract_id ?? entry.name);
+              await this.fs.ensureDir(this.activeDir);
+              await this.fs.move(`${this.pausedDir}/${contractId}`, `${this.activeDir}/${contractId}`);
+              this.audit.write(
+                CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_RUNNING_MOVED,
+                `contract_id=${contractId}`,
+                `from=paused`,
+                `to=active`,
+              );
+            }
+          } catch (err) {
+            this.audit.write(
+              CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_RUNNING_MOVE_FAILED,
+              `contract_id=${entry.name}`,
+              `reason=${formatErr(err)}`,
+            );
+          }
+        }
+      }
+    } catch (err) {
+      this.audit.write(
+        CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_TERMINAL_MOVE_FAILED,
+        `context=lifecycle_recovery_outer`,
+        `reason=${formatErr(err)}`,
+      );
+    }
+
     // NEW phase 188 Step C: archive 目录 stale active 态 sweep
     try {
       await reconcileArchiveStaleEntries(

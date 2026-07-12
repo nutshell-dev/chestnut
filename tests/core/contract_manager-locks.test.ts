@@ -73,9 +73,9 @@ describe('ContractSystem - lock retry (phase 1351 split)', () => {
       verification: [],
     }));
 
-    // 预先写入锁文件，模拟另一个进程持有锁
+    // 预先写入锁文件，模拟另一个进程持有锁（valid schema + fake alive PID）
     const lockPath = path.join(clawDir, 'contract', 'active', contractId, 'progress.lock');
-    await fs.writeFile(lockPath, '{}', 'utf-8');
+    await fs.writeFile(lockPath, JSON.stringify({ pid: 12345, time: Date.now(), ownerToken: 'existing-token' }), 'utf-8');
 
     // pause() 先 fs.move(active → paused)，锁文件随目录一起移动到 paused/。
     // 50ms 后从移动后的位置释放锁，确保第二次重试能拿到锁
@@ -97,7 +97,7 @@ describe('ContractSystem - lock retry (phase 1351 split)', () => {
 
     // 写入锁文件（持有者 = 当前进程，模拟活跃锁），不释放
     const lockPath = path.join(clawDir, 'contract', 'active', contractId, 'progress.lock');
-    await fs.writeFile(lockPath, JSON.stringify({ pid: process.pid, time: Date.now() }), 'utf-8');
+    await fs.writeFile(lockPath, JSON.stringify({ pid: process.pid, time: Date.now(), ownerToken: 'existing-token' }), 'utf-8');
 
     await expect(manager.pause(contractId, 'checkpoint'))
       .rejects.toThrow(/Failed to acquire lock after/);
@@ -125,7 +125,7 @@ describe('ContractSystem - lock retry (phase 1351 split)', () => {
     // 写 stale lock：持有者 PID 不存在（process.kill(deadPid, 0) 会 ESRCH）
     const deadPid = DEAD_PID;
     const lockPath = path.join(clawDir, 'contract', 'active', contractId, 'progress.lock');
-    await fs.writeFile(lockPath, JSON.stringify({ pid: deadPid, time: Date.now() }), 'utf-8');
+    await fs.writeFile(lockPath, JSON.stringify({ pid: deadPid, time: Date.now(), ownerToken: 'existing-token' }), 'utf-8');
 
     // 针对 progress.lock 的 unlink 抛 EACCES；其他路径（如 writeAtomic 的 tmp 文件）走原函数
     const realUnlink = fsNative.promises.unlink.bind(fsNative.promises);
@@ -180,7 +180,7 @@ describe('ContractSystem - lock retry (phase 1351 split)', () => {
 
     const deadPid = DEAD_PID;
     const lockPath = path.join(clawDir, 'contract', 'active', contractId, 'progress.lock');
-    await fs.writeFile(lockPath, JSON.stringify({ pid: deadPid, time: Date.now() }), 'utf-8');
+    await fs.writeFile(lockPath, JSON.stringify({ pid: deadPid, time: Date.now(), ownerToken: 'existing-token' }), 'utf-8');
 
     // 模拟"已被其他路径清理"：unlink 对 progress.lock 抛 ENOENT
     const realUnlink = fsNative.promises.unlink.bind(fsNative.promises);

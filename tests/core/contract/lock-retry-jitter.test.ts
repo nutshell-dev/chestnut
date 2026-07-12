@@ -59,7 +59,7 @@ describe('phase 1325 lock retry jitter + audit emit', () => {
         err.code = 'EEXIST';
         throw err;
       }),
-      read: vi.fn().mockResolvedValue(JSON.stringify({ pid: 12345, time: Date.now() })),
+      read: vi.fn().mockResolvedValue(JSON.stringify({ pid: 12345, time: Date.now(), ownerToken: 'existing-token' })),
       delete: vi.fn().mockResolvedValue(undefined),
     };
 
@@ -98,7 +98,7 @@ describe('phase 1325 lock retry jitter + audit emit', () => {
         err.code = 'EEXIST';
         throw err;
       }),
-      read: vi.fn().mockResolvedValue(JSON.stringify({ pid: 12345, time: Date.now() })),
+      read: vi.fn().mockResolvedValue(JSON.stringify({ pid: 12345, time: Date.now(), ownerToken: 'existing-token' })),
       delete: vi.fn().mockResolvedValue(undefined),
     };
 
