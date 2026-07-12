@@ -80,6 +80,8 @@ const VI_MOCK_FILES = [
   'tests/core/async-task-system/phase887.test.ts',  // phase 887: vi.mock result-delivery
   'tests/core/async-task-system/phase889.test.ts',  // phase 889: vi.mock result-delivery
   'tests/core/async-task-system/phase902.test.ts',  // phase 902: vi.mock result-delivery
+  'tests/core/async-task-system/phase905.test.ts',  // phase 905: vi.mock result-delivery
+  'tests/core/async-task-system/task-recovery-phase904.test.ts',  // phase 904: vi.mock result-delivery + process-exec
   // phase 1352 reverted (post-merge fix): spawn tool extraction conflicted with phase 1332
   // builtins.test.ts now has vi.hoisted only (mockSchedule) → stays in fast project
   // phase 1353: builtins-slow.test.ts moved to fast (dead vi.mock removed)
