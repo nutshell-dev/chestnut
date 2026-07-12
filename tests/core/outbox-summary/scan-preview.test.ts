@@ -145,10 +145,10 @@ describe('scanOutboxes preview collection', () => {
     );
 
     const state = await scanOutboxes({ clawTopology: topology, fs, outboxReader });
-    expect(state.counts).toEqual({ clawA: 1 });
-    expect(state.previews).toEqual({ clawA: '(读取失败)' });
-    expect(state.failed_claws).toEqual([]);
-    expect(state.incomplete).toBe(false);
+    expect(state.counts).toEqual({});
+    expect(state.previews).toEqual({});
+    expect(state.failed_claws).toEqual(['clawA']);
+    expect(state.incomplete).toBe(true);
   });
 
   it('handles multiple claws with previews', async () => {

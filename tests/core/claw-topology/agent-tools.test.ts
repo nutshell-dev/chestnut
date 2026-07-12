@@ -136,6 +136,26 @@ describe('createCrossClawReadTool', () => {
     );
   });
 
+  it('preserves actual error cause instead of reporting "not found"', async () => {
+    const auditSpy = vi.fn();
+    const tool = createCrossClawReadTool({ topology: mockTopology, allowed: true });
+    const ctx = makeBaseCtx({
+      fsFactory: (_dir: string) => {
+        throw new Error('EACCES: permission denied, open /chestnut/claws/claw1/clawspace/test.txt');
+      },
+      auditWriter: { write: auditSpy, preview: vi.fn(), message: vi.fn(), summary: vi.fn(), __brand: 'AuditLog' } as unknown as AuditLog,
+    });
+    const result = await tool.execute({ path: 'test.txt', claw: 'claw1' }, ctx);
+    expect(result.success).toBe(false);
+    expect(result.content).toContain('EACCES');
+    expect(result.content).not.toContain('not found');
+    expect(auditSpy).toHaveBeenCalledWith(
+      CLAW_TOPOLOGY_AUDIT_EVENTS.CROSS_CLAW_RESOLVE_FAILED,
+      expect.any(String),
+      expect.any(String),
+    );
+  });
+
   it('readTool.execute 抛 AbortError → 向上传播（不转成 claw not found）', async () => {
     const abortErr = new Error('Execution aborted');
     abortErr.name = 'AbortError';
