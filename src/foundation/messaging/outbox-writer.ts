@@ -5,7 +5,7 @@
  */
 
 import * as path from 'path';
-import { formatErr, newShortUuid } from "../node-utils/index.js";
+import { formatErr, newShortUuid, newUuid } from "../node-utils/index.js";
 import type { FileSystem } from '../fs/index.js';
 import type { OutboxMessage } from '../messaging/types.js';
 import type { AuditLog } from '../audit/index.js';
@@ -92,20 +92,6 @@ export class OutboxWriter {
    * @returns Path to the written file
    */
   async write(options: OutboxWriteOptions): Promise<string> {
-    // phase 430 Step E (review medium、inbox cap 对称): outbox body 硬上限、防 disk DoS
-    const bodySize = Buffer.byteLength(options.content, 'utf-8');
-    const maxBytes = getOutboxBodyMaxBytes();
-    if (bodySize > maxBytes) {
-      emitOutboxBodyOversize(this.audit, {
-        clawId: this.clawId,
-        to: options.to,
-        type: options.type,
-        bodySize,
-        cap: maxBytes,
-        contractId: options.metadata?.contract_id,
-      });
-      throw new Error(`Outbox body size ${bodySize} bytes exceeds cap ${maxBytes} (env CHESTNUT_OUTBOX_BODY_MAX_BYTES to override)`);
-    }
     // phase 398 Step A (review N4): await async next() to serialize via
     // promise chain; nextSync() let two concurrent writes race the
     // read-modify-write on .next-msg-seq → duplicate seq → filename collision.
@@ -115,7 +101,7 @@ export class OutboxWriter {
     try {
       const seq = await this.counter.next();
       const message: OutboxMessage = {
-        id: `${this.clawId}-${seq}`,
+        id: `${this.clawId}-${newUuid()}`,
         type: options.type,
         from: this.clawId,
         to: options.to,
@@ -126,18 +112,32 @@ export class OutboxWriter {
       };
       messageId = message.id;
 
+      // phase 273 Step A:
+      assertMessageShape(message, this.audit, 'outbox', 'write');
+
+      // phase 935: wire size limit covers the encoded payload (body + metadata)
+      const content = encodeOutbox(message);
+      const wireSize = Buffer.byteLength(content, 'utf-8');
+      const maxBytes = getOutboxBodyMaxBytes();
+      if (wireSize > maxBytes) {
+        emitOutboxBodyOversize(this.audit, {
+          clawId: this.clawId,
+          to: options.to,
+          type: options.type,
+          bodySize: Buffer.byteLength(options.content, 'utf-8'),
+          wireSize,
+          cap: maxBytes,
+          contractId: options.metadata?.contract_id,
+        });
+        throw new Error(`Outbox wire size ${wireSize} bytes exceeds cap ${maxBytes} (env CHESTNUT_OUTBOX_BODY_MAX_BYTES to override)`);
+      }
+
       // Generate filename: {timestamp}_{type}_{seq}_{randomSuffix}.md
       const timestamp = Date.now();
       const typeSlug = options.type.toLowerCase();
       const randomSuffix = newShortUuid().slice(0, 6);
       const filename = `${timestamp}_${typeSlug}_${formatSeq(seq)}_${randomSuffix}.md`;
       const filePath = path.join(this.outboxDir, filename);
-
-      // Format content as markdown
-      // phase 273 Step A:
-      assertMessageShape(message, this.audit, 'outbox', 'write');
-
-      const content = encodeOutbox(message);
 
       // Ensure directory exists
       await this.fs.ensureDir(this.outboxDir);

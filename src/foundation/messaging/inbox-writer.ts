@@ -100,28 +100,28 @@ export class InboxWriter {
 
   /** async 写，atomic */
   async write(msg: InboxMessage, extraFields?: Record<string, string>): Promise<void> {
-    // phase 273 Step A: schema invariant (violation emit audit、不 throw、不阻 write、保 IO 错 throw)
-    assertMessageShape(msg, this.audit, 'inbox', 'write');
-
-    // phase 933: wire size limit covers the encoded payload (body + metadata + extraFields)
-    const encoded = encodeInbox(msg, extraFields);
-    const wireSize = Buffer.byteLength(encoded, 'utf-8');
-    const maxBytes = getInboxBodyMaxBytes();
-    if (wireSize > maxBytes) {
-      emitInboxBodyOversize(this.audit, {
-        source: msg.from,
-        to: msg.to,
-        type: msg.type,
-        bodySize: Buffer.byteLength(msg.content, 'utf-8'),
-        wireSize,
-        cap: maxBytes,
-        contractId: msg.metadata?.contract_id,
-      });
-      throw new Error(`Inbox wire size ${wireSize} bytes exceeds cap ${maxBytes}`);
-    }
-
     let filename: string | undefined;
     try {
+      // phase 273 Step A: schema invariant (violation emit audit、不 throw、不阻 write、保 IO 错 throw)
+      assertMessageShape(msg, this.audit, 'inbox', 'write');
+
+      // phase 933: wire size limit covers the encoded payload (body + metadata + extraFields)
+      const encoded = encodeInbox(msg, extraFields);
+      const wireSize = Buffer.byteLength(encoded, 'utf-8');
+      const maxBytes = getInboxBodyMaxBytes();
+      if (wireSize > maxBytes) {
+        emitInboxBodyOversize(this.audit, {
+          source: msg.from,
+          to: msg.to,
+          type: msg.type,
+          bodySize: Buffer.byteLength(msg.content, 'utf-8'),
+          wireSize,
+          cap: maxBytes,
+          contractId: msg.metadata?.contract_id,
+        });
+        throw new Error(`Inbox wire size ${wireSize} bytes exceeds cap ${maxBytes}`);
+      }
+
       await this.fs.ensureDir(this.inboxDir);
       const timestamp = String(Date.now()).padStart(15, '0');
       const priority = msg.priority ?? 'normal';
@@ -131,12 +131,12 @@ export class InboxWriter {
       filename = `${source}-${timestamp}_${priority}_${formatSeq(seq)}_${randomSuffix}.md`;
       const filePath = path.join(this.inboxDir, filename);
       await this.fs.writeAtomic(filePath, encoded);
+      emitInboxWritten(this.audit, { file: filename as string, to: msg.to, contractId: msg.metadata?.contract_id });
     } catch (e) {
       const reason = formatErr(e);
       emitInboxWriteFailed(this.audit, { file: filename ?? '<unknown>', to: msg.to, reason, contractId: msg.metadata?.contract_id });
       throw e;
     }
-    emitInboxWritten(this.audit, { file: filename as string, to: msg.to, contractId: msg.metadata?.contract_id });
   }
 
   /** sync 写，供 task/system 同步路径使用 */
@@ -147,7 +147,7 @@ export class InboxWriter {
     const idPrefix = opts.idPrefix ?? opts.type;
 
     const message: InboxMessage = {
-      id: `${idPrefix}-${newUuid().slice(0, 8)}`,
+      id: `${idPrefix}-${newUuid()}`,
       type: opts.type as InboxMessage['type'],
       from: opts.source,
       to: opts.to ?? '',

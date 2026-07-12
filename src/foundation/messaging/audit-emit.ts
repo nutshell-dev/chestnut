@@ -317,6 +317,7 @@ export function emitOutboxSendFailed(
 
 // ─── OUTBOX_BODY_OVERSIZE ─────────────────────────────────────────────────────
 // phase 430 Step E (review medium、inbox cap 对称): outbox body 超 cap、emit + caller 收 throw
+// phase 935: wire size limit covers the encoded payload (body + metadata)
 export function emitOutboxBodyOversize(
   audit: AuditLog,
   opts: {
@@ -324,6 +325,7 @@ export function emitOutboxBodyOversize(
     to: string;
     type: string;
     bodySize: number;
+    wireSize: number;
     cap: number;
     // phase 434 Step B (review N11 partial、emitOutboxSent 对称): contract_id 同型
     contractId?: string;
@@ -335,6 +337,7 @@ export function emitOutboxBodyOversize(
     `to=${opts.to}`,
     `type=${opts.type}`,
     `body_size=${opts.bodySize}`,
+    `wire_size=${opts.wireSize}`,
     `cap=${opts.cap}`,
     `contract_id=${opts.contractId ?? ''}`,
   );
