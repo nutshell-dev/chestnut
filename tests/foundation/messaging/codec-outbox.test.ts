@@ -161,14 +161,18 @@ describe('codec-outbox', () => {
       expect(() => decodeOutbox('no frontmatter body')).toThrow(/missing YAML frontmatter/);
     });
 
-    it('fills defaults for absent base fields', () => {
-      const raw = '---\npriority: normal\n---\nbare';
+    it('throws on missing required base fields', () => {
+      expect(() => decodeOutbox('---\npriority: normal\n---\nbare')).toThrow(/missing required field: id/i);
+      expect(() => decodeOutbox('---\nid: x\npriority: normal\n---\nbare')).toThrow(/missing required field: type/i);
+      expect(() => decodeOutbox('---\nid: x\ntype: response\npriority: normal\n---\nbare')).toThrow(/missing required field: from/i);
+      expect(() => decodeOutbox('---\nid: x\ntype: response\nfrom: a\npriority: normal\n---\nbare')).toThrow(/missing required field: timestamp/i);
+    });
+
+    it('allows empty to as broadcast', () => {
+      const raw = '---\nid: x\ntype: response\nfrom: a\npriority: normal\ntimestamp: 2026-01-01\n---\nbare';
       const decoded = decodeOutbox(raw);
-      expect(decoded.id).toBeTruthy();         // randomUUID fallback
-      expect(decoded.from).toBe('unknown');
       expect(decoded.to).toBe('');
       expect(decoded.content).toBe('bare');
-      expect(decoded.type).toBe('response');   // fallback default
     });
   });
 });

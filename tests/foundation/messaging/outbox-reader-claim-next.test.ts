@@ -94,6 +94,10 @@ describe('OutboxReader.claimNext + markDone', () => {
     expect(processingFiles[0]).toMatch(/^cli_.*_1717480000000_normal_aaa\.md$/);
   });
 
+  it('rejects path traversal in markDone', async () => {
+    await expect(reader.markDone(clawDir, '../../../etc', 'test.md')).rejects.toThrow(/traversal/i);
+  });
+
   it('markDone moves processing file to done and emits delivered audit', async () => {
     const t1 = '1717480000000';
     const filename = `${t1}_normal_aaa.md`;
@@ -134,7 +138,8 @@ describe('OutboxReader.claimNext + markDone', () => {
   it('reconciles orphaned processing files back to pending on init', async () => {
     const t1 = '1717480000000';
     const filename = `${t1}_normal_aaa.md`;
-    const processingFile = `cli_99999_abc123_${filename}`;
+    const startTimeHex = Buffer.from('Mon Jan 01 00:00:00 2020').toString('hex');
+    const processingFile = `cli_99999_${startTimeHex}_abc123_${filename}`;
     await fsAsync.writeFile(path.join(processingDir, processingFile), encodeOutbox(makeMsg('orphan', '2026-06-04T10:00:00Z')));
 
     await reader.init(clawDir);

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { OutboxReader } from '../../../src/foundation/messaging/index.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
+import { makeProcessStartTime } from '../../../src/foundation/process-exec/process-starttime.js';
 
 vi.mock(import('../../../src/foundation/process-exec/index.js'), async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../src/foundation/process-exec/index.js')>();
@@ -102,6 +103,30 @@ describe('OutboxReader._reconcileProcessing lease + I/O safety', () => {
 
     expect(fs.move).toHaveBeenCalledWith(
       '/claw/outbox/processing/cli_99999_abc123_msg.md',
+      '/claw/outbox/pending/msg.md',
+    );
+  });
+
+  it('reclaims when PID is alive but startTime differs', async () => {
+    const { isAlive } = await import('../../../src/foundation/process-exec/index.js');
+    const wrongStartTime = makeProcessStartTime('Mon Jan 01 00:00:00 2020');
+    vi.mocked(isAlive).mockImplementation((_pid: number, startTime?: unknown) => startTime !== wrongStartTime);
+
+    const wrongHex = Buffer.from(wrongStartTime).toString('hex');
+    const fs = makeMockFs({
+      list: vi.fn().mockImplementation((dir: string) => {
+        if (dir.includes('/processing')) return Promise.resolve([{ name: `cli_${process.pid}_${wrongHex}_abc123_msg.md` }]);
+        return Promise.resolve([]);
+      }),
+    });
+    const { audit } = makeAudit();
+    const reader = new OutboxReader(fs, audit);
+
+    await reader.init('/claw');
+
+    expect(isAlive).toHaveBeenCalledWith(process.pid, wrongStartTime);
+    expect(fs.move).toHaveBeenCalledWith(
+      `/claw/outbox/processing/cli_${process.pid}_${wrongHex}_abc123_msg.md`,
       '/claw/outbox/pending/msg.md',
     );
   });
