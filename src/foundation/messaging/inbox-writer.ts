@@ -6,7 +6,7 @@
  */
 
 import * as path from 'path';
-import { formatErr, newShortUuid } from "../node-utils/index.js";
+import { formatErr, newShortUuid, newUuid } from "../node-utils/index.js";
 import type { FileSystem } from '../fs/index.js';
 import type { InboxMessage } from '../messaging/types.js';
 import { encodeInbox, parseFrontmatter } from './codec-inbox.js';
@@ -100,64 +100,54 @@ export class InboxWriter {
 
   /** async 写，atomic */
   async write(msg: InboxMessage, extraFields?: Record<string, string>): Promise<void> {
-    // phase 430 Step A (phase 429 follow-up、review medium): async write 对称 body cap、防 disk DoS
-    const bodySize = Buffer.byteLength(msg.content, 'utf-8');
+    // phase 273 Step A: schema invariant (violation emit audit、不 throw、不阻 write、保 IO 错 throw)
+    assertMessageShape(msg, this.audit, 'inbox', 'write');
+
+    // phase 933: wire size limit covers the encoded payload (body + metadata + extraFields)
+    const encoded = encodeInbox(msg, extraFields);
+    const wireSize = Buffer.byteLength(encoded, 'utf-8');
     const maxBytes = getInboxBodyMaxBytes();
-    if (bodySize > maxBytes) {
+    if (wireSize > maxBytes) {
       emitInboxBodyOversize(this.audit, {
         source: msg.from,
         to: msg.to,
         type: msg.type,
-        bodySize,
+        bodySize: Buffer.byteLength(msg.content, 'utf-8'),
+        wireSize,
         cap: maxBytes,
         contractId: msg.metadata?.contract_id,
       });
-      throw new Error(`Inbox body size ${bodySize} bytes exceeds cap ${maxBytes} (env CHESTNUT_INBOX_BODY_MAX_BYTES to override)`);
+      throw new Error(`Inbox wire size ${wireSize} bytes exceeds cap ${maxBytes}`);
     }
-    // phase 273 Step A: schema invariant (violation emit audit、不 throw、不阻 write、保 IO 错 throw)
-    assertMessageShape(msg, this.audit, 'inbox', 'write');
 
-    await this.fs.ensureDir(this.inboxDir);
-    const timestamp = String(Date.now()).padStart(15, '0');
-    const priority = msg.priority ?? 'normal';
-    const source = sanitizeMessageIdentifier(msg.from || 'unknown', 'from');
-    const seq = await this.counter.next();
-    const randomSuffix = newShortUuid().slice(0, 6);
-    const filename = `${source}-${timestamp}_${priority}_${formatSeq(seq)}_${randomSuffix}.md`;
-    const filePath = path.join(this.inboxDir, filename);
+    let filename: string | undefined;
     try {
-      await this.fs.writeAtomic(filePath, encodeInbox(msg, extraFields));
+      await this.fs.ensureDir(this.inboxDir);
+      const timestamp = String(Date.now()).padStart(15, '0');
+      const priority = msg.priority ?? 'normal';
+      const source = sanitizeMessageIdentifier(msg.from || 'unknown', 'from');
+      const seq = await this.counter.next();
+      const randomSuffix = newShortUuid().slice(0, 6);
+      filename = `${source}-${timestamp}_${priority}_${formatSeq(seq)}_${randomSuffix}.md`;
+      const filePath = path.join(this.inboxDir, filename);
+      await this.fs.writeAtomic(filePath, encoded);
     } catch (e) {
       const reason = formatErr(e);
-      emitInboxWriteFailed(this.audit, { file: filename, to: msg.to, reason, contractId: msg.metadata?.contract_id });
+      emitInboxWriteFailed(this.audit, { file: filename ?? '<unknown>', to: msg.to, reason, contractId: msg.metadata?.contract_id });
       throw e;
     }
-    emitInboxWritten(this.audit, { file: filename, to: msg.to, contractId: msg.metadata?.contract_id });
+    emitInboxWritten(this.audit, { file: filename as string, to: msg.to, contractId: msg.metadata?.contract_id });
   }
 
   /** sync 写，供 task/system 同步路径使用 */
   writeSync(opts: InboxMessageOptionsBase): string {
-    // phase 429 Step A (review medium): inbox body 硬上限、防 disk DoS / runaway bug
-    const bodySize = Buffer.byteLength(opts.body, 'utf-8');
-    const maxBytes = getInboxBodyMaxBytes();
-    if (bodySize > maxBytes) {
-      emitInboxBodyOversize(this.audit, {
-        source: opts.source,
-        to: opts.to,
-        type: opts.type,
-        bodySize,
-        cap: maxBytes,
-        contractId: opts.metadata?.contract_id,
-      });
-      throw new Error(`Inbox body size ${bodySize} bytes exceeds cap ${maxBytes} (env CHESTNUT_INBOX_BODY_MAX_BYTES to override)`);
-    }
     const now = new Date();
     const priority = opts.priority ?? 'normal';
     const timestamp = String(now.getTime()).padStart(15, '0');
     const idPrefix = opts.idPrefix ?? opts.type;
 
     const message: InboxMessage = {
-      id: `${idPrefix}-${now.getTime()}`,
+      id: `${idPrefix}-${newUuid().slice(0, 8)}`,
       type: opts.type as InboxMessage['type'],
       from: opts.source,
       to: opts.to ?? '',
@@ -170,21 +160,38 @@ export class InboxWriter {
     // phase 273 Step A:
     assertMessageShape(message, this.audit, 'inbox', 'write');
 
-    const source = sanitizeMessageIdentifier(opts.source || 'unknown', 'source');
-    const seq = this.counter.nextSync();
-    const randomSuffix = newShortUuid().slice(0, 6);
-    const filename = `${source}-${timestamp}_${priority}_${formatSeq(seq)}_${randomSuffix}.md`;
+    // phase 933: wire size limit covers the encoded payload (body + metadata + extraFields)
+    const encoded = encodeInbox(message, opts.extraFields);
+    const wireSize = Buffer.byteLength(encoded, 'utf-8');
+    const maxBytes = getInboxBodyMaxBytes();
+    if (wireSize > maxBytes) {
+      emitInboxBodyOversize(this.audit, {
+        source: opts.source,
+        to: opts.to,
+        type: opts.type,
+        bodySize: Buffer.byteLength(opts.body, 'utf-8'),
+        wireSize,
+        cap: maxBytes,
+        contractId: opts.metadata?.contract_id,
+      });
+      throw new Error(`Inbox wire size ${wireSize} bytes exceeds cap ${maxBytes}`);
+    }
+
+    let filename: string | undefined;
     try {
       this.fs.ensureDirSync(this.inboxDir);
-      const content = encodeInbox(message, opts.extraFields);
-      this.fs.writeAtomicSync(path.join(this.inboxDir, filename), content);
+      const source = sanitizeMessageIdentifier(opts.source || 'unknown', 'source');
+      const seq = this.counter.nextSync();
+      const randomSuffix = newShortUuid().slice(0, 6);
+      filename = `${source}-${timestamp}_${priority}_${formatSeq(seq)}_${randomSuffix}.md`;
+      this.fs.writeAtomicSync(path.join(this.inboxDir, filename), encoded);
     } catch (e) {
       const reason = formatErr(e);
-      emitInboxWriteFailed(this.audit, { file: filename, to: opts.to, reason, contractId: opts.metadata?.contract_id });
+      emitInboxWriteFailed(this.audit, { file: filename ?? '<unknown>', to: opts.to, reason, contractId: opts.metadata?.contract_id });
       throw e;
     }
-    emitInboxWritten(this.audit, { file: filename, to: opts.to, contractId: opts.metadata?.contract_id });
-    return filename;
+    emitInboxWritten(this.audit, { file: filename as string, to: opts.to, contractId: opts.metadata?.contract_id });
+    return filename as string;
   }
 
   /** 读 frontmatter meta；纯读，静态方法不依赖 audit */

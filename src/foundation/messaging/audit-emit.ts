@@ -47,6 +47,7 @@ export function emitInboxWriteFailed(
 // ─── INBOX_BODY_OVERSIZE ──────────────────────────────────────────────────────
 // phase 429 Step A (review medium): inbox body 超 cap、emit + caller 收 throw
 // phase 434 Step C (review N11 partial、outbox 对称): contract_id forensic join
+// phase 933: wire size limit covers the encoded payload (body + metadata + extraFields)
 export function emitInboxBodyOversize(
   audit: AuditLog,
   opts: {
@@ -54,6 +55,7 @@ export function emitInboxBodyOversize(
     to?: string;
     type: string;
     bodySize: number;
+    wireSize: number;
     cap: number;
     contractId?: string;
   },
@@ -64,6 +66,7 @@ export function emitInboxBodyOversize(
     `to=${opts.to ?? 'broadcast'}`,
     `type=${opts.type}`,
     `body_size=${opts.bodySize}`,
+    `wire_size=${opts.wireSize}`,
     `cap=${opts.cap}`,
     `contract_id=${opts.contractId ?? ''}`,
   );
