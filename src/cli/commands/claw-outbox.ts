@@ -33,6 +33,9 @@ export async function outboxCommand(
 
   const outboxReader = new OutboxReader(clawFs, audit ?? { write: () => {} } as unknown as AuditLog);
 
+  // Reconcile orphaned processing files back to pending before draining.
+  await outboxReader.init('.');
+
   // Peek initial pending count for empty-check + remaining counter.
   // claimNext handles races internally; this list is best-effort.
   let initialFiles: string[] = [];

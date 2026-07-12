@@ -69,4 +69,20 @@ describe('inbox-reader drainAndDeliver mtime reset (phase 1372 sub-2)', () => {
     expect(result.handles.length).toBe(0);
     expect(mockFs.utimes).not.toHaveBeenCalled();
   });
+
+  it('returns handle even when utimes fails after successful move', async () => {
+    const mockFs = makeMockFs();
+    (mockFs.utimes as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('EIO'));
+    const { audit, events } = makeMockAudit();
+    const reader = new InboxReader('/inbox/pending', '/inbox/done', '/inbox/failed', mockFs, audit, '/inbox/inflight');
+
+    const result = await reader.drainAndDeliver();
+
+    expect(result.entries.length).toBe(1);
+    expect(result.handles.length).toBe(1);
+    expect(result.handles[0].filePath).toBe('/inbox/inflight/msg.md');
+    expect(mockFs.move).toHaveBeenCalledTimes(1);
+    expect(mockFs.utimes).toHaveBeenCalledTimes(1);
+    expect(events.some(e => e[0] === 'inbox_move_failed' && String(e).includes('op=deliver_utimes'))).toBe(true);
+  });
 });

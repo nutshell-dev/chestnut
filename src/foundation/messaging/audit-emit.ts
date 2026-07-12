@@ -259,6 +259,19 @@ export function emitOutboxProcessingOrphanCleaned(
   audit.write(MESSAGING_AUDIT_EVENTS.OUTBOX_PROCESSING_ORPHAN_CLEANED, `count=${opts.count}`);
 }
 
+// ─── OUTBOX_CLAIM_FAILED ──────────────────────────────────────────────────────
+export function emitOutboxClaimFailed(
+  audit: AuditLog,
+  opts: { file: string; op: string; reason: string },
+): void {
+  audit.write(
+    MESSAGING_AUDIT_EVENTS.OUTBOX_CLAIM_FAILED,
+    `file=${opts.file}`,
+    `op=${opts.op}`,
+    `reason=${opts.reason}`,
+  );
+}
+
 // ─── UNKNOWN_DESTINATION_DLQ ──────────────────────────────────────────────────
 export function emitUnknownDestinationDlq(
   audit: AuditLog,

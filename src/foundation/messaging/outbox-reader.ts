@@ -15,7 +15,7 @@ import { formatErr } from '../node-utils/index.js';
 import type { FileSystem } from '../fs/index.js';
 import { isFileNotFound } from '../fs/index.js';
 import type { AuditLog } from '../audit/index.js';
-import { emitOutboxListFailed, emitOutboxPeekFailed } from './audit-emit.js';
+import { emitOutboxClaimFailed, emitOutboxListFailed, emitOutboxPeekFailed, emitOutboxProcessingOrphanCleaned } from './audit-emit.js';
 import { decodeOutbox } from './codec-outbox.js';
 import type { OutboxMessage } from './types.js';
 import {
@@ -31,6 +31,68 @@ export class OutboxReader {
     private readonly fs: FileSystem,
     private readonly audit: AuditLog,
   ) {}
+
+  /**
+   * Ensure outbox directories exist + reconcile orphaned processing files back to pending.
+   */
+  async init(clawDir: string): Promise<void> {
+    await this.fs.ensureDir(path.join(clawDir, OUTBOX_PENDING_DIR));
+    await this.fs.ensureDir(path.join(clawDir, OUTBOX_PROCESSING_DIR));
+    await this.fs.ensureDir(path.join(clawDir, OUTBOX_DONE_DIR));
+    await this._reconcileProcessing(clawDir);
+  }
+
+  /**
+   * Reconcile orphaned processing files back to pending on startup.
+   * Guarantees crash recovery: a claimed message that was not marked done/failed
+   * will eventually be re-delivered.
+   */
+  private async _reconcileProcessing(clawDir: string): Promise<void> {
+    const processingDir = path.join(clawDir, OUTBOX_PROCESSING_DIR);
+    const pendingDir = path.join(clawDir, OUTBOX_PENDING_DIR);
+
+    let entries: { name: string }[] = [];
+    try {
+      entries = await this.fs.list(processingDir, { includeDirs: false });
+    } catch (err) {
+      if (isFileNotFound(err)) return;
+      emitOutboxListFailed(this.audit, {
+        dir: processingDir,
+        reason: formatErr(err),
+      });
+      return;
+    }
+
+    let revertedCount = 0;
+    const pendingSet = new Set(
+      (await this.fs.list(pendingDir, { includeDirs: false }).catch(() => []))
+        .map(e => e.name),
+    );
+
+    for (const entry of entries) {
+      if (!entry.name.endsWith('.md')) continue;
+      // processing filenames are: cli_<claimToken>_<originalFilename>
+      const originalName = entry.name.replace(/^cli_[^_]+_/, '');
+      if (pendingSet.has(originalName)) continue; // already re-claimed
+      const sourcePath = path.join(processingDir, entry.name);
+      const targetPath = path.join(pendingDir, originalName);
+      try {
+        await this.fs.move(sourcePath, targetPath);
+        revertedCount++;
+      } catch (err) {
+        const reason = formatErr(err);
+        emitOutboxClaimFailed(this.audit, {
+          file: entry.name,
+          op: 'reconcile_pending',
+          reason,
+        });
+      }
+    }
+
+    if (revertedCount > 0) {
+      emitOutboxProcessingOrphanCleaned(this.audit, { count: revertedCount });
+    }
+  }
 
   /**
    * List `.md` filenames in `<clawDir>/outbox/pending`.
@@ -95,6 +157,12 @@ export class OutboxReader {
       await this.fs.move(relPendingPath, relClaimedPath);
     } catch (err) {
       if (isFileNotFound(err)) return null; // race lost
+      // Non-ENOENT: audit the I/O error and return null
+      emitOutboxClaimFailed(this.audit, {
+        file: fileName,
+        op: 'move',
+        reason: formatErr(err),
+      });
       return null;
     }
 
@@ -103,6 +171,22 @@ export class OutboxReader {
     try {
       content = await this.fs.read(relClaimedPath);
     } catch (err) {
+      // Rollback: move back to pending so message is not stuck in processing
+      try {
+        await this.fs.move(relClaimedPath, relPendingPath);
+      } catch (rollbackErr) {
+        // Rollback failed: leave audit trail, message will be recovered by reconcile on next restart
+        emitOutboxClaimFailed(this.audit, {
+          file: fileName,
+          op: 'read_rollback',
+          reason: formatErr(rollbackErr),
+        });
+      }
+      emitOutboxClaimFailed(this.audit, {
+        file: fileName,
+        op: 'read',
+        reason: formatErr(err),
+      });
       return null;
     }
 

@@ -276,10 +276,6 @@ export class InboxReader {
       const inflightPath = path.join(this.inflightDir, fileName);
       try {
         await this.fs.move(entry.filePath, inflightPath);
-        const now = new Date();
-        await this.fs.utimes(inflightPath, now, now);
-        handles.push({ filePath: inflightPath, originalFileName: fileName });
-        deliveredEntries.push({ message: entry.message, filePath: inflightPath });
       } catch (err) {
         const reason = formatErr(err);
         emitInboxMoveFailed(this.audit, {
@@ -291,6 +287,23 @@ export class InboxReader {
         // Stop delivering at first move failure; remaining stay in pending/
         break;
       }
+
+      // mtime update is best-effort; failure does not invalidate the delivery
+      try {
+        const now = new Date();
+        await this.fs.utimes(inflightPath, now, now);
+      } catch (err) {
+        emitInboxMoveFailed(this.audit, {
+          file: fileName,
+          op: 'deliver_utimes',
+          errorCode: classifyErrno(err),
+          reason: formatErr(err),
+        });
+        // Continue — delivery is still valid
+      }
+
+      handles.push({ filePath: inflightPath, originalFileName: fileName });
+      deliveredEntries.push({ message: entry.message, filePath: inflightPath });
     }
 
     return { entries: deliveredEntries, handles };

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fsAsync from 'fs/promises';
 import * as path from 'path';
 import { tmpdir } from 'os';
@@ -6,6 +6,7 @@ import { randomUUID } from 'crypto';
 import { OutboxReader } from '../../../src/foundation/messaging/index.js';
 import { encodeOutbox } from '../../../src/foundation/messaging/codec-outbox.js';
 import type { OutboxMessage } from '../../../src/foundation/messaging/types.js';
+import type { FileSystem } from '../../../src/foundation/fs/types.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 
 function makeAudit() {
@@ -50,6 +51,8 @@ describe('OutboxReader.claimNext + markDone', () => {
     processingDir = path.join(clawDir, 'outbox/processing');
     doneDir = path.join(clawDir, 'outbox/done');
     await fsAsync.mkdir(pendingDir, { recursive: true });
+    await fsAsync.mkdir(processingDir, { recursive: true });
+    await fsAsync.mkdir(doneDir, { recursive: true });
     fs = new NodeFileSystem({ baseDir: root });
     const { audit, events } = makeAudit();
     auditEvents = events;
@@ -126,5 +129,84 @@ describe('OutboxReader.claimNext + markDone', () => {
     };
 
     expect(await reader.claimNext(clawDir)).toBeNull();
+  });
+
+  it('reconciles orphaned processing files back to pending on init', async () => {
+    const t1 = '1717480000000';
+    const filename = `${t1}_normal_aaa.md`;
+    const processingFile = `cli_12345678_${filename}`;
+    await fsAsync.writeFile(path.join(processingDir, processingFile), encodeOutbox(makeMsg('orphan', '2026-06-04T10:00:00Z')));
+
+    await reader.init(clawDir);
+
+    const pendingFiles = await fsAsync.readdir(pendingDir);
+    expect(pendingFiles).toContain(filename);
+    const processingFiles = await fsAsync.readdir(processingDir).catch(() => []);
+    expect(processingFiles).not.toContain(processingFile);
+    expect(auditEvents.some(e => e[0] === 'outbox_processing_orphan_cleaned')).toBe(true);
+  });
+});
+
+function makeMockOutboxFs(overrides?: {
+  list?: () => Promise<{ name: string; path: string }[]>;
+  move?: () => Promise<void>;
+  read?: () => Promise<string>;
+}): FileSystem {
+  return {
+    list: overrides?.list ?? vi.fn().mockResolvedValue([{ name: '1717480000000_normal_aaa.md', path: '/outbox/pending/1717480000000_normal_aaa.md' }]),
+    read: overrides?.read ?? vi.fn().mockResolvedValue(encodeOutbox(makeMsg('x', '2026-06-04T10:00:00Z'))),
+    move: overrides?.move ?? vi.fn().mockResolvedValue(undefined),
+    ensureDir: vi.fn().mockResolvedValue(undefined),
+    writeAtomic: vi.fn(),
+    append: vi.fn(),
+    delete: vi.fn(),
+    removeDir: vi.fn(),
+    realpath: vi.fn(),
+    exists: vi.fn().mockResolvedValue(true),
+    isDirectory: vi.fn().mockResolvedValue(true),
+    stat: vi.fn(),
+    utimes: vi.fn(),
+  } as unknown as FileSystem;
+}
+
+describe('OutboxReader.claimNext I/O failure handling', () => {
+  let audit: ReturnType<typeof makeAudit>['audit'];
+  let auditEvents: ReturnType<typeof makeAudit>['events'];
+
+  beforeEach(() => {
+    const made = makeAudit();
+    audit = made.audit;
+    auditEvents = made.events;
+    vi.clearAllMocks();
+  });
+
+  it('audits non-ENOENT move error and returns null', async () => {
+    const fs = makeMockOutboxFs({ move: vi.fn().mockRejectedValue(Object.assign(new Error('EACCES'), { code: 'EACCES' })) });
+    const reader = new OutboxReader(fs, audit);
+
+    const result = await reader.claimNext('/claw');
+
+    expect(result).toBeNull();
+    expect(auditEvents.some(e => e[0] === 'outbox_claim_failed' && String(e).includes('op=move'))).toBe(true);
+  });
+
+  it('rolls back to pending when read fails after successful claim', async () => {
+    const fs = makeMockOutboxFs({
+      move: vi.fn().mockResolvedValue(undefined),
+      read: vi.fn().mockRejectedValue(Object.assign(new Error('EIO'), { code: 'EIO' })),
+    });
+    const reader = new OutboxReader(fs, audit);
+
+    const result = await reader.claimNext('/claw');
+
+    expect(result).toBeNull();
+    // First move: pending -> processing; Second move: processing -> pending (rollback)
+    expect(fs.move).toHaveBeenCalledTimes(2);
+    const calls = (fs.move as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls[0][0]).toMatch(/outbox\/pending/);
+    expect(calls[0][1]).toMatch(/outbox\/processing/);
+    expect(calls[1][0]).toMatch(/outbox\/processing/);
+    expect(calls[1][1]).toMatch(/outbox\/pending/);
+    expect(auditEvents.some(e => e[0] === 'outbox_claim_failed' && String(e).includes('op=read'))).toBe(true);
   });
 });
