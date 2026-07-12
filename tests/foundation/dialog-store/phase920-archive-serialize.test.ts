@@ -61,7 +61,8 @@ describe('DialogStore archive (phase 920)', () => {
     const archivePromise = store.archive();
 
     // Give archive a chance to run if it were not properly serialized.
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    const ARCHIVE_RACE_WINDOW_MS = 30; // derive: short enough for test speed, long enough for racy archive to execute
+    await new Promise((resolve) => setTimeout(resolve, ARCHIVE_RACE_WINDOW_MS));
     expect(order).toEqual(['save']);
 
     releaseSave();

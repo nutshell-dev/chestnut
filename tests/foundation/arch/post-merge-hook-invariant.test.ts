@@ -29,7 +29,7 @@ describe('post-merge hook invariant (phase 624)', () => {
     expect(st.mode & 0o100).not.toBe(0); // owner-execute
 
     const text = fs.readFileSync(hookPath, 'utf-8');
-    const required = ['pnpm run typecheck', 'pnpm run test:run'];
+    const required = ['pnpm run typecheck', 'pnpm run test:diff'];
     const missing = required.filter(r => !text.includes(r));
     expect(missing).toEqual([]);
 
