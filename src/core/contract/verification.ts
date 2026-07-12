@@ -7,7 +7,7 @@
 import * as path from 'path';
 import type { AcceptanceFailedNotification, ContractYaml, VerificationResult, SubtaskId } from './types.js';
 import { ToolError } from '../../foundation/tools/errors.js';
-import { formatErr } from '../../foundation/node-utils/index.js';
+import { formatErr, newUuid } from '../../foundation/node-utils/index.js';
 import { DEFAULT_VERIFICATION_ATTEMPTS } from './constants.js';
 import {
   emitContractCompleteOnCancelled,
@@ -120,6 +120,7 @@ async function applyVerificationOutcome(
   result: VerificationResult,
   contractYaml: ContractYaml,
   verificationConfig: VerificationConfig,
+  attemptId: string,
 ): Promise<ApplyOutcome> {
   return ctx.withProgressLock(contractId, async () => {
     const progress = await ctx.getProgress(contractId);
@@ -174,6 +175,20 @@ async function applyVerificationOutcome(
           subtaskId,
           context: 'applyVerificationOutcome',
           message: `subtask status is "${subtask.status}", expected "in_progress"`,
+        },
+      );
+      return { kind: 'skipped' };
+    }
+
+    // Phase 961: ABA guard — reject result from a previous verification attempt.
+    if (subtask.verification_attempt_id && subtask.verification_attempt_id !== attemptId) {
+      emitContractVerificationResetFailed(
+        ctx.audit,
+        {
+          contractId,
+          subtaskId,
+          context: 'attempt_id_mismatch',
+          message: `expected ${attemptId}, got ${subtask.verification_attempt_id}`,
         },
       );
       return { kind: 'skipped' };
@@ -321,6 +336,8 @@ export async function runVerificationPipeline(
       return await completeSubtaskSync(ctx, contractId, subtaskId, evidence, artifacts);
     }
 
+  const attemptId = newUuid();
+
   await ctx.withProgressLock(contractId, async () => {
     const progress = await ctx.getProgress(contractId);
     if (!progress) {
@@ -341,6 +358,7 @@ export async function runVerificationPipeline(
       status: 'in_progress',
       evidence,
       artifacts,
+      verification_attempt_id: attemptId,
     };
     await ctx.saveProgress(contractId, progress);
     emitContractVerificationStarted(ctx.audit, { contractId, subtaskId });
@@ -351,25 +369,30 @@ export async function runVerificationPipeline(
   // (削 phase 1371 sub-3 闭环) let a second completeSubtask reach background-
   // work concurrently with the first when status briefly flipped during
   // archiveAndEmit / rollback windows. Release in .finally() of the bg promise.
-  runVerificationInBackground(ctx, params, contractYaml, verificationConfig)
+  runVerificationInBackground(ctx, { ...params, attemptId }, contractYaml, verificationConfig)
     .catch(async (err) => {
-      if ([TypeError, ReferenceError, SyntaxError, RangeError].some(T => err instanceof T)) {
-        emitContractUnexpectedAsyncThrow(
-          ctx.audit,
-          {
-            context: 'ContractSystem.backgroundVerification',
-            contractId,
-            subtaskId,
-            errorType: err instanceof Error ? err.constructor.name : typeof err,
-            error: formatErr(err),
-            stack: err instanceof Error ? err.stack ?? '' : '',
-          },
-        );
-      } else {
-        emitContractVerificationBackgroundFailed(
-          ctx.audit,
-          { contractId, subtaskId, error: formatErr(err) },
-        );
+      // Phase 961: audit failure must not block recovery. The subtask must always be reset from in_progress.
+      try {
+        if ([TypeError, ReferenceError, SyntaxError, RangeError].some(T => err instanceof T)) {
+          emitContractUnexpectedAsyncThrow(
+            ctx.audit,
+            {
+              context: 'ContractSystem.backgroundVerification',
+              contractId,
+              subtaskId,
+              errorType: err instanceof Error ? err.constructor.name : typeof err,
+              error: formatErr(err),
+              stack: err instanceof Error ? err.stack ?? '' : '',
+            },
+          );
+        } else {
+          emitContractVerificationBackgroundFailed(
+            ctx.audit,
+            { contractId, subtaskId, error: formatErr(err) },
+          );
+        }
+      } catch (auditErr) {
+        process.stderr.write(`[verification] background failed audit error: ${formatErr(auditErr)}\n`);
       }
       return writeVerificationError(ctx, contractId, subtaskId, err).then(async (result) => {
         // phase 1399: writeVerificationError 内防嵌套锁未调 archiveAndEmit，此处补调
@@ -412,11 +435,11 @@ export async function runVerificationPipeline(
 
 export async function runVerificationInBackground(
   ctx: VerificationContext,
-  params: { contractId: ContractId; subtaskId: SubtaskId; evidence: string; artifacts?: string[] },
+  params: { contractId: ContractId; subtaskId: SubtaskId; evidence: string; artifacts?: string[]; attemptId: string },
   contractYaml: ContractYaml,
   verificationConfig: VerificationConfig,
 ): Promise<void> {
-  const { contractId, subtaskId, evidence, artifacts = [] } = params;
+  const { contractId, subtaskId, evidence, artifacts = [], attemptId } = params;
   const subtaskDef = contractYaml.subtasks.find(st => st.id === subtaskId);
   const subtaskDesc = subtaskDef?.description || subtaskId;
   const contractAbsDir = path.join(ctx.clawDir, await ctx.contractDir(contractId), contractId);
@@ -444,6 +467,7 @@ export async function runVerificationInBackground(
       result,
       contractYaml,
       verificationConfig,
+      attemptId,
     );
 
     if ('kind' in outcome) {

@@ -72,6 +72,8 @@ const SubtaskProgressSchema = z.object({
   retry_count: z.number().optional(),
   last_failed_feedback: LastFailedFeedbackSchema.optional(),
   force_accepted: z.boolean().optional(),
+  // Phase 961: unique per verification attempt, prevents ABA (late result from a previous attempt applied to current one)
+  verification_attempt_id: z.string().optional(),
 }).strict();
 
 export const ContractProgressPersistedSchema = z.object({
