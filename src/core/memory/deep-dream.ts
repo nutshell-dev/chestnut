@@ -101,6 +101,18 @@ function loadDreamState(clawFs: FileSystem, audit: AuditLog, clawId: string): Dr
   try {
     const raw = JSON.parse(clawFs.readSync(DEEP_DREAM_STATE_FILE)) as Record<string, unknown>;
 
+    // phase 926: reject future schema versions (keep file, return default)
+    const version = typeof raw.schema_version === 'number' ? raw.schema_version : 0;
+    if (version > DEEP_DREAM_STATE_CURRENT_VERSION) {
+      audit.write(MEMORY_AUDIT_EVENTS.DREAM_STATE_FUTURE_VERSION,
+        `version=${version}`,
+        `current=${DEEP_DREAM_STATE_CURRENT_VERSION}`,
+        `clawId=${clawId}`,
+        `reason=cannot_migrate_future_version`,
+      );
+      return { schema_version: DEEP_DREAM_STATE_CURRENT_VERSION, lastProcessedDeepDreamAt: 0, currentSessionDreamedDate: '', currentSessionRetryCount: 0 };
+    }
+
     // phase 280: legacy schema migration (option 2 silent reset + audit emit)
     if ('processedArchives' in raw) {
       audit.write(MEMORY_AUDIT_EVENTS.LEGACY_SCHEMA_MIGRATED_RESET,

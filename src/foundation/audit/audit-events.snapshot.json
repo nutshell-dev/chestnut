@@ -410,6 +410,7 @@
       "memory_dream_invariant_violated",
       "memory_dream_cross_source_mismatch",
       "memory_dream_cross_source_skipped",
+      "memory_dream_state_future_version",
       "memory_legacy_schema_migrated_reset",
       "memory_random_dream_late_settle_abandoned",
       "memory_random_dream_late_settle_consumed",
@@ -732,6 +733,7 @@
     "foundation_dialog-store_audit-events": [
       "dialog_archive_all_corrupted",
       "dialog_archive_empty",
+      "dialog_clawid_mismatch",
       "dialog_cold_start",
       "dialog_flush_chain_error",
       "dialog_invariant_failed",

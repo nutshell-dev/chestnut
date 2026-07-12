@@ -72,6 +72,7 @@ export const memorySearchTool: Tool = {
     }
 
     const results: string[] = [];
+    let skippedCount = 0;
     let compiled: RegExp | null = null;
     if (pattern) {
       try {
@@ -134,22 +135,26 @@ export const memorySearchTool: Tool = {
           // 仅 filter 匹配时，返回文件路径
           results.push(`[${entry.path}] (元数据匹配)`);
         }
-      } catch {
-        // 跳过无法读取的文件
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code === 'ENOENT') continue; // TOCTOU
+        skippedCount++;
         continue;
       }
     }
 
+    const hint = skippedCount > 0 ? `（${skippedCount} 个文件因读取错误被跳过）` : '';
     if (results.length === 0) {
       return {
         success: true,
-        content: query ? `未找到包含「${query}」的记忆` : '未找到匹配的记忆',
+        content: query
+          ? `未找到包含「${query}」的记忆${hint}`
+          : `未找到匹配的记忆${hint}`,
       };
     }
 
     return {
       success: true,
-      content: results.join('\n'),
+      content: `${results.join('\n')}${hint}`,
     };
   },
 };

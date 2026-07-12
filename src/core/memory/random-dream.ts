@@ -129,6 +129,17 @@ function loadRandomDreamState(fs: FileSystem, audit: AuditLog): RandomDreamState
     }
     const r = parsed as Record<string, unknown>;
 
+    // phase 926: reject future schema versions (keep file, return default)
+    const version = typeof r.schema_version === 'number' ? r.schema_version : 0;
+    if (version > RANDOM_DREAM_STATE_CURRENT_VERSION) {
+      audit.write(MEMORY_AUDIT_EVENTS.DREAM_STATE_FUTURE_VERSION,
+        `version=${version}`,
+        `current=${RANDOM_DREAM_STATE_CURRENT_VERSION}`,
+        `reason=cannot_migrate_future_version`,
+      );
+      return { schema_version: RANDOM_DREAM_STATE_CURRENT_VERSION, lastProcessedRandomDreamAt: 0 };
+    }
+
     // phase 280: legacy schema migration
     if ('processedContractIds' in r) {
       audit.write(MEMORY_AUDIT_EVENTS.LEGACY_SCHEMA_MIGRATED_RESET,
@@ -372,10 +383,27 @@ export async function waitForTaskResult(
     if (motionFs.existsSync(donePath)) {
       // 完成信号出现，读取日志内容
       if (motionFs.existsSync(logPath)) {
-        return motionFs.readSync(logPath);
+        try {
+          return motionFs.readSync(logPath);
+        } catch (e) {
+          if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
+            // TOCTOU: log was deleted between existsSync and readSync
+            // fall through to .txt
+          } else {
+            throw e; // real I/O error — let caller decide
+          }
+        }
       }
       // .log 不存在（极端情况），降级读 .txt
-      return motionFs.readSync(donePath);
+      try {
+        return motionFs.readSync(donePath);
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
+          // TOCTOU: done file vanished — re-enter poll loop
+        } else {
+          throw e; // real I/O error
+        }
+      }
     }
     if (auditEnabled && audit) {
       audit.write(
