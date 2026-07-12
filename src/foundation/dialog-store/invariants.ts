@@ -73,15 +73,50 @@ function checkToolUseResultPairing(
 ): void {
   const toolUseIds = new Set<string>();
   const toolResultIds = new Set<string>();
+  const toolUsePositions = new Map<string, number>(); // id → message index
+  const orderViolations = new Set<string>();
 
-  for (const m of messages) {
-    const content = m.content;
+  // phase 918: first pass — record every tool_use position so we can detect
+  // tool_result blocks that appear BEFORE their paired tool_use.
+  for (let mi = 0; mi < messages.length; mi++) {
+    const content = messages[mi].content;
     if (!Array.isArray(content)) continue;
     for (const block of content) {
       if (typeof block !== 'object' || block === null) continue;
       const b = block as { type?: string; id?: string; tool_use_id?: string };
-      if (b.type === 'tool_use' && typeof b.id === 'string') toolUseIds.add(b.id);
-      if (b.type === 'tool_result' && typeof b.tool_use_id === 'string') toolResultIds.add(b.tool_use_id);
+      if (b.type === 'tool_use' && typeof b.id === 'string') {
+        toolUseIds.add(b.id);
+        // Keep the earliest occurrence (defensive; normally one tool_use per id)
+        if (!toolUsePositions.has(b.id)) {
+          toolUsePositions.set(b.id, mi);
+        }
+      }
+    }
+  }
+
+  // Second pass — collect tool_result ids and check order.
+  for (let mi = 0; mi < messages.length; mi++) {
+    const content = messages[mi].content;
+    if (!Array.isArray(content)) continue;
+    for (const block of content) {
+      if (typeof block !== 'object' || block === null) continue;
+      const b = block as { type?: string; id?: string; tool_use_id?: string };
+      if (b.type === 'tool_result' && typeof b.tool_use_id === 'string') {
+        toolResultIds.add(b.tool_use_id);
+        // phase 918: tool_result must appear AFTER its paired tool_use
+        const usePos = toolUsePositions.get(b.tool_use_id);
+        if (usePos !== undefined && mi < usePos && !orderViolations.has(b.tool_use_id)) {
+          orderViolations.add(b.tool_use_id);
+          audit.write(
+            DIALOG_AUDIT_EVENTS.DIALOG_INVARIANT_VIOLATED,
+            `kind=tool_result_before_tool_use`,
+            `tool_use_id=${b.tool_use_id}`,
+            `tool_use_idx=${usePos}`,
+            `tool_result_idx=${mi}`,
+            `messages_length=${messages.length}`,
+          );
+        }
+      }
     }
   }
 

@@ -40,15 +40,24 @@ export function lookupContentByToolUseId(
 ): LookupResult {
   const idStr = String(toolUseId);
 
+  // phase 918: dialogDir 不存在 → 整体不可用
+  if (!fs.existsSync(dialogDir)) {
+    return { source: 'unavailable', reason: 'all_failed' };
+  }
+
   // Level 1: current
-  const currentResult = lookupInCurrent(fs, dialogDir, idStr);
-  if (currentResult !== null) {
-    return { source: 'current', content: currentResult };
+  const currentPath = `${dialogDir}/current.json`;
+  const currentAccessible = fs.existsSync(currentPath);
+  if (currentAccessible) {
+    const currentResult = lookupInCurrent(fs, dialogDir, idStr);
+    if (currentResult !== null) {
+      return { source: 'current', content: currentResult };
+    }
   }
 
   // Level 2: archive 扫
   const archiveResult = lookupInArchive(fs, dialogDir, idStr);
-  if (archiveResult !== null) {
+  if (archiveResult.found) {
     // Level 3: hash 核（若提供 contentHash）
     if (options?.contentHash) {
       const hash = computeSha8(archiveResult.content);
@@ -70,6 +79,14 @@ export function lookupContentByToolUseId(
   }
 
   // Level 4: unavailable
+  // phase 918: archive 目录读失败单独报告 not_in_archive
+  if (archiveResult.inaccessible) {
+    return { source: 'unavailable', reason: 'not_in_archive' };
+  }
+  // phase 918: current 不存在（或不可读）且 archive 也未命中 → not_in_current
+  if (!currentAccessible) {
+    return { source: 'unavailable', reason: 'not_in_current' };
+  }
   return { source: 'unavailable', reason: 'all_failed' };
 }
 
@@ -88,19 +105,24 @@ function lookupInCurrent(fs: FileSystem, dialogDir: string, toolUseId: string): 
   }
 }
 
+type ArchiveLookupResult =
+  | { found: true; content: string; archivedAt: string; inaccessible: false }
+  | { found: false; inaccessible: boolean };
+
 function lookupInArchive(
   fs: FileSystem,
   dialogDir: string,
   toolUseId: string,
-): { content: string; archivedAt: string } | null {
+): ArchiveLookupResult {
   const archiveDir = `${dialogDir}/archive`;
-  if (!fs.existsSync(archiveDir)) return null;
+  if (!fs.existsSync(archiveDir)) return { found: false, inaccessible: false };
 
   let entries;
   try {
     entries = fs.listSync(archiveDir);
-  } catch {
-    return null;
+  } catch (err) {
+    process.stderr.write(`[dialog-lookup] archive list failed: ${err}\n`);
+    return { found: false, inaccessible: true };
   }
 
   // archive entries 形态：`<timestamp>_<uuid>.json` 文件（store.ts archive() 生成）
@@ -122,7 +144,7 @@ function lookupInArchive(
       const content = findContentInMessages(session.messages ?? [], toolUseId);
       if (content !== null) {
         const archivedAt = String(parseArchiveTs(entry.name));
-        return { content, archivedAt };
+        return { found: true, content, archivedAt, inaccessible: false };
       }
     } catch (err) {
       process.stderr.write(`[dialog-lookup] archive ${entry.name} parse failed: ${err}\n`);
@@ -130,7 +152,7 @@ function lookupInArchive(
     }
   }
 
-  return null;
+  return { found: false, inaccessible: false };
 }
 
 function parseArchiveTs(name: string): number {
