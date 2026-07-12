@@ -20,6 +20,8 @@ import type { FileSystem } from '../fs/index.js';
 import { isFileNotFound } from '../fs/index.js';
 import type { InboxMessage, InboxHandle } from '../messaging/types.js';
 import { PRIORITY_VALUES, type Priority } from '../messaging/types.js';
+import { isAlive, getProcessStartTime, makeProcessStartTime } from '../process-exec/index.js';
+import type { ProcessStartTime } from '../process-exec/index.js';
 import { decodeInbox } from './codec-inbox.js';
 import type { AuditLog } from '../audit/index.js';
 import {
@@ -89,6 +91,51 @@ export class InboxReader {
     this.misroutedDir = misroutedDir ?? pendingDir.replace(/\/pending\/?$/, '/misrouted');
   }
 
+  /**
+   * Mint a branded InboxHandle. Only InboxReader may create handles so that
+   * ack/nack/markMisrouted can rely on the handle having originated from
+   * drainAndDeliver() under this reader's inflight directory.
+   */
+  private _makeHandle(filePath: string, originalFileName: string): InboxHandle {
+    return { filePath, originalFileName } as InboxHandle;
+  }
+
+  /**
+   * Validate that a handle points inside this reader's inflight directory
+   * and that the original filename is a plain basename.
+   * Returns the safe, normalized source path.
+   */
+  private _validateHandle(handle: InboxHandle): string {
+    const normalized = path.normalize(handle.filePath);
+    const normalizedInflight = path.normalize(this.inflightDir);
+
+    // Reject any traversal attempt (.. segments).
+    if (
+      normalized === '..' ||
+      normalized.startsWith('..' + path.sep) ||
+      normalized.startsWith('../') ||
+      normalized.endsWith(path.sep + '..') ||
+      normalized.endsWith('/..') ||
+      normalized.includes(path.sep + '..' + path.sep) ||
+      normalized.includes('/../')
+    ) {
+      throw new Error(`Path traversal detected in handle: "${handle.filePath}"`);
+    }
+
+    // Ensure the path is contained within the inflight directory.
+    const inflightPrefix = normalizedInflight.endsWith(path.sep)
+      ? normalizedInflight
+      : normalizedInflight + path.sep;
+    if (!normalized.startsWith(inflightPrefix)) {
+      throw new Error(`Path traversal detected in handle: "${handle.filePath}"`);
+    }
+
+    if (handle.originalFileName !== path.basename(handle.originalFileName)) {
+      throw new Error(`Invalid originalFileName in handle: "${handle.originalFileName}"`);
+    }
+    return normalized;
+  }
+
   /** Ensure inbox directories exist + reconcile orphaned inflight files */
   async init(): Promise<void> {
     await this.fs.ensureDir(this.pendingDir);
@@ -102,6 +149,9 @@ export class InboxReader {
   /**
    * Reconcile orphaned inflight files back to pending on startup.
    * Guarantees DP「中断可恢复」+「未经显式决策不得丢弃」。
+   *
+   * Phase 930: inflight filenames carry a claim lease `{pid}_{startTime}_{originalName}`.
+   * Only stale claims (owner process not alive) are reclaimed.
    */
   private async _reconcileInflight(): Promise<void> {
     let entries: { name: string }[] = [];
@@ -119,11 +169,52 @@ export class InboxReader {
       return;
     }
 
+    const CLAIM_RE = /^(\d+)_([0-9a-f]+)_(.+\.md)$/i;
+    const STALE_THRESHOLD_MS = 5 * 60 * 1000;
     let revertedCount = 0;
+
     for (const entry of entries) {
       if (!entry.name.endsWith('.md')) continue;
+
+      let originalName: string;
+      let shouldReclaim = false;
+      const match = entry.name.match(CLAIM_RE);
+      if (!match) {
+        // Legacy format (pre-Phase 930): no PID lease, use mtime-based heuristic.
+        originalName = entry.name;
+        const sourcePath = path.join(this.inflightDir, entry.name);
+        let mtime: number;
+        try {
+          const stat = await this.fs.stat(sourcePath);
+          mtime = stat.mtime.getTime();
+        } catch (err) {
+          emitInboxMoveFailed(this.audit, {
+            file: entry.name,
+            op: 'reconcile_stat',
+            errorCode: classifyErrno(err),
+            reason: formatErr(err),
+          });
+          continue;
+        }
+        if (Date.now() - mtime >= STALE_THRESHOLD_MS) {
+          shouldReclaim = true;
+        }
+      } else {
+        const pid = parseInt(match[1], 10);
+        const startTimeHex = match[2];
+        originalName = match[3];
+        const startTime: ProcessStartTime | undefined = startTimeHex === '0'
+          ? undefined
+          : makeProcessStartTime(Buffer.from(startTimeHex, 'hex').toString('utf8'));
+        if (!isAlive(pid, startTime)) {
+          shouldReclaim = true;
+        }
+      }
+
+      if (!shouldReclaim) continue;
+
       const sourcePath = path.join(this.inflightDir, entry.name);
-      const targetPath = path.join(this.pendingDir, entry.name);
+      const targetPath = path.join(this.pendingDir, originalName);
       try {
         await this.fs.move(sourcePath, targetPath);
         revertedCount++;
@@ -235,6 +326,17 @@ export class InboxReader {
 
         results.push({ message, filePath });
       } catch (err) {
+        const errCode = (err as NodeJS.ErrnoException).code;
+        const transientCodes = new Set(['EACCES', 'EIO', 'EBUSY', 'EMFILE', 'ENFILE', 'ENOMEM']);
+        if (errCode && transientCodes.has(errCode)) {
+          // Phase 930: transient I/O error — keep in pending, audit, retry next cycle.
+          emitInboxFailed(this.audit, {
+            file: entry.name,
+            errorCode: errCode ?? 'OTHER',
+            reason: `transient IO error — kept in pending: ${formatErr(err)}`,
+          });
+          continue;
+        }
         const reason = formatErr(err);
         emitInboxFailed(this.audit, {
           file: entry.name,
@@ -273,7 +375,11 @@ export class InboxReader {
 
     for (const entry of entries) {
       const fileName = path.basename(entry.filePath);
-      const inflightPath = path.join(this.inflightDir, fileName);
+      const pid = process.pid;
+      const startTime = getProcessStartTime(pid);
+      const startTimeHex = startTime ? Buffer.from(startTime).toString('hex') : '0';
+      const inflightName = `${pid}_${startTimeHex}_${fileName}`;
+      const inflightPath = path.join(this.inflightDir, inflightName);
       try {
         await this.fs.move(entry.filePath, inflightPath);
       } catch (err) {
@@ -302,7 +408,7 @@ export class InboxReader {
         // Continue — delivery is still valid
       }
 
-      handles.push({ filePath: inflightPath, originalFileName: fileName });
+      handles.push(this._makeHandle(inflightPath, fileName));
       deliveredEntries.push({ message: entry.message, filePath: inflightPath });
     }
 
@@ -311,11 +417,12 @@ export class InboxReader {
 
   /** Acknowledge handle: move from inflight/ to done/ */
   async ack(handle: InboxHandle): Promise<void> {
+    const sourcePath = this._validateHandle(handle);
     const fileName = handle.originalFileName;
     const uuid8 = newShortUuid();
     const targetPath = path.join(this.doneDir, `${Date.now()}_${uuid8}_${fileName}`);
     try {
-      await this.fs.move(handle.filePath, targetPath);
+      await this.fs.move(sourcePath, targetPath);
     } catch (err) {
       const reason = formatErr(err);
       emitInboxMoveFailed(this.audit, {
@@ -340,11 +447,12 @@ export class InboxReader {
    * instead of ack().
    */
   async markMisrouted(handle: InboxHandle): Promise<void> {
+    const sourcePath = this._validateHandle(handle);
     const fileName = handle.originalFileName;
     const uuid8 = newShortUuid();
     const targetPath = path.join(this.misroutedDir, `${Date.now()}_${uuid8}_${fileName}`);
     try {
-      await this.fs.move(handle.filePath, targetPath);
+      await this.fs.move(sourcePath, targetPath);
     } catch (err) {
       const reason = formatErr(err);
       emitInboxMoveFailed(this.audit, {
@@ -360,10 +468,11 @@ export class InboxReader {
 
   /** Negative acknowledge: move from inflight/ back to pending/ */
   async nack(handle: InboxHandle, reason?: string): Promise<void> {
+    const sourcePath = this._validateHandle(handle);
     const fileName = handle.originalFileName;
     const targetPath = path.join(this.pendingDir, fileName);
     try {
-      await this.fs.move(handle.filePath, targetPath);
+      await this.fs.move(sourcePath, targetPath);
     } catch (err) {
       const errReason = formatErr(err);
       emitInboxMoveFailed(this.audit, {

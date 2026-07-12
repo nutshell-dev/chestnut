@@ -33,10 +33,19 @@ export interface OutboxMessage {
   metadata?: Record<string, string>;
 }
 
-export interface InboxHandle {
+declare const InboxHandleBrand: unique symbol;
+
+/**
+ * Opaque branded handle for an inflight inbox message.
+ *
+ * Handles are minted only by InboxReader.drainAndDeliver() and validated
+ * on ack/nack/markMisrouted to enforce path containment.
+ */
+export type InboxHandle = {
   readonly filePath: string;
   readonly originalFileName: string;
-}
+  readonly [InboxHandleBrand]: true;
+};
 
 export interface HeartbeatEntry {
   claw_id: string;
