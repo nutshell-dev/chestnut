@@ -24,9 +24,22 @@ import { DEDUP_DONE_WINDOW_MS } from '../../../src/core/claw-topology/jobs/outbo
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { InboxReader, InboxWriter, makeInboxPath } from '../../../src/foundation/messaging/index.js';
 import { OutboxReader } from '../../../src/foundation/messaging/index.js';
+import { encodeOutbox } from '../../../src/foundation/messaging/codec-outbox.js';
 import { createClawTopology } from '../../../src/core/claw-topology/topology.js';
 import { makeClawId } from '../../../src/foundation/claw-identity/claw-id.js';
 import type { ClawTopology } from '../../../src/core/claw-topology/types.js';
+
+function makeMsg(content: string, ts: string) {
+  return {
+    id: `m-${ts}`,
+    type: 'report' as const,
+    from: 'clawA',
+    to: 'motion',
+    content,
+    timestamp: ts,
+    priority: 'normal' as const,
+  };
+}
 
 function makeAudit() {
   const events: Array<[string, ...(string | number)[]]> = [];
@@ -117,7 +130,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
 
   it('first tick with unread → writes new summary + emits WRITTEN', async () => {
     await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
-    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m1.md'), 'x');
+    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m1.md'), encodeOutbox(makeMsg('m1', '2026-06-04T10:00:00Z')));
     await runOutboxSummaryTick({
       clawTopology: topology,
       fs,
@@ -133,7 +146,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
 
   it('re-tick same state → skip silently (pending hit)', async () => {
     await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
-    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m1.md'), 'x');
+    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m1.md'), encodeOutbox(makeMsg('m1', '2026-06-04T10:00:00Z')));
     await runOutboxSummaryTick({
       clawTopology: topology,
       fs,
@@ -158,7 +171,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
 
   it('after motion drain/ack re-tick → skip silently (done hit within 24h)', async () => {
     await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
-    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m1.md'), 'x');
+    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m1.md'), encodeOutbox(makeMsg('m1', '2026-06-04T10:00:00Z')));
     await runOutboxSummaryTick({
       clawTopology: topology,
       fs,
@@ -186,7 +199,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
 
   it('re-tick after markDone prefix → skip silently via extraMeta (not filename pattern)', async () => {
     await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
-    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m1.md'), 'x');
+    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m1.md'), encodeOutbox(makeMsg('m1', '2026-06-04T10:00:00Z')));
     await runOutboxSummaryTick({
       clawTopology: topology,
       fs,
@@ -215,7 +228,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
 
   it('done file aged > 24h → write new (mtime window expired)', async () => {
     await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
-    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m1.md'), 'x');
+    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m1.md'), encodeOutbox(makeMsg('m1', '2026-06-04T10:00:00Z')));
     await runOutboxSummaryTick({
       clawTopology: topology,
       fs,
@@ -245,7 +258,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
 
   it('state change → writes new summary, old summary stays pending', async () => {
     await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
-    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m1.md'), 'x');
+    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m1.md'), encodeOutbox(makeMsg('m1', '2026-06-04T10:00:00Z')));
     await runOutboxSummaryTick({
       clawTopology: topology,
       fs,
@@ -256,7 +269,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
     });
     const firstSummary = (await listSummaries(root, 'pending', fs))[0];
 
-    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m2.md'), 'y');
+    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m2.md'), encodeOutbox(makeMsg('m2', '2026-06-04T10:00:01Z')));
     events.length = 0;
     await runOutboxSummaryTick({
       clawTopology: topology,
@@ -274,7 +287,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
 
   it('all unread consumed + new tick → no write, no audit, old summary stays pending', async () => {
     await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
-    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m1.md'), 'x');
+    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m1.md'), encodeOutbox(makeMsg('m1', '2026-06-04T10:00:00Z')));
     await runOutboxSummaryTick({
       clawTopology: topology,
       fs,
@@ -302,8 +315,8 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
   it('phase 939: throws and audits when scan is incomplete', async () => {
     await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
     await fsAsync.mkdir(path.join(root, 'claws/clawB/outbox/pending'), { recursive: true });
-    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/a1.md'), 'x');
-    await fsAsync.writeFile(path.join(root, 'claws/clawB/outbox/pending/b1.md'), 'x');
+    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/a1.md'), encodeOutbox(makeMsg('a1', '2026-06-04T10:00:00Z')));
+    await fsAsync.writeFile(path.join(root, 'claws/clawB/outbox/pending/b1.md'), encodeOutbox(makeMsg('b1', '2026-06-04T10:00:00Z')));
 
     const failingReader = {
       listClawOutboxPending: async (clawDir: string) => {
@@ -362,7 +375,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
 
   it('phase 938: abort before scan throws and writes nothing', async () => {
     await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
-    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m1.md'), 'x');
+    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m1.md'), encodeOutbox(makeMsg('m1', '2026-06-04T10:00:00Z')));
 
     const controller = new AbortController();
     controller.abort();
@@ -383,7 +396,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
 
   it('phase 938: abort after dedup before write throws and writes nothing', async () => {
     await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
-    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m1.md'), 'x');
+    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m1.md'), encodeOutbox(makeMsg('m1', '2026-06-04T10:00:00Z')));
 
     // First tick writes summary for hash A.
     await runOutboxSummaryTick({
@@ -397,7 +410,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
     expect(await listSummaries(root, 'pending', fs)).toHaveLength(1);
 
     // Change state so dedup misses, then abort before write.
-    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m2.md'), 'y');
+    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m2.md'), encodeOutbox(makeMsg('m2', '2026-06-04T10:00:01Z')));
     const controller = new AbortController();
 
     const interceptReader = {

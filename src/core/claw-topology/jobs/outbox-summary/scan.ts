@@ -53,22 +53,24 @@ export async function scanOutboxes(deps: ScanDeps): Promise<OutboxSummaryState> 
   for (const clawId of clawIds) {
     throwIfAborted(signal);
 
-    const location = clawTopology.resolve(clawId);
-    if (location.kind !== 'local') continue;
-
     try {
-      const files = await outboxReader.listClawOutboxPending(location.clawDir);
-      if (files.length > 0) {
-        counts[clawId] = files.length;
-        for (const f of files) fileSet.push(`${clawId}:${f}`);
+      const location = clawTopology.resolve(clawId);
+      if (location.kind !== 'local') continue;
 
-        const last = await outboxReader.peekLastOutboxPending(location.clawDir);
-        if (last) {
-          previews[clawId] = truncatePreview(last.message.content);
-        } else {
-          previews[clawId] = '(读取失败)';
-        }
+      const files = await outboxReader.listClawOutboxPending(location.clawDir);
+      if (files.length === 0) continue;
+
+      const last = await outboxReader.peekLastOutboxPending(location.clawDir);
+      if (!last) {
+        // List succeeded but peek returned null — incomplete snapshot.
+        // Mark this claw as failed rather than silently producing partial data.
+        failedClaws.push(clawId);
+        continue;
       }
+
+      counts[clawId] = files.length;
+      for (const f of files) fileSet.push(`${clawId}:${f}`);
+      previews[clawId] = truncatePreview(last.message.content);
     } catch (err) {
       // phase 938: fail-closed — record the failed claw and mark summary incomplete.
       failedClaws.push(clawId);

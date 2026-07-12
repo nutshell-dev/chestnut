@@ -3,7 +3,7 @@ import type { Tool, ExecContext } from '../../foundation/tools/index.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import { readTool, lsTool, searchTool } from '../../foundation/file-tool/index.js';
 import { makeClawId } from '../../foundation/claw-identity/index.js';
-import type { ClawTopology } from './types.js';
+import { ClawIdResolveError, type ClawTopology } from './types.js';
 import { CLAW_TOPOLOGY_AUDIT_EVENTS } from './audit-events.js';
 import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 import { MOTION_CLAW_ID } from './motion-claw-id.js';
@@ -94,9 +94,16 @@ export function createCrossClawReadTool(deps: CrossClawToolDeps): Tool {
           `clawId=${clawParam}`,
           `reason=${String(err)}`,
         );
+        // Only ClawIdResolveError means the claw genuinely doesn't exist.
+        // All other errors (EACCES, fsFactory failure, tool execution error)
+        // must preserve their actual cause so the agent can reason about the failure.
+        const isNotFound = err instanceof ClawIdResolveError
+          || (err instanceof Error && err.message.includes('not found'));
         return {
           success: false,
-          content: `Error: claw "${clawParam}" not found.`,
+          content: isNotFound
+            ? `Error: claw "${clawParam}" not found.`
+            : `Error accessing claw "${clawParam}": ${err instanceof Error ? err.message : String(err)}`,
         };
       }
     },
@@ -148,9 +155,13 @@ export function createCrossClawLsTool(deps: CrossClawToolDeps): Tool {
           `clawId=${clawParam}`,
           `reason=${String(err)}`,
         );
+        const isNotFound = err instanceof ClawIdResolveError
+          || (err instanceof Error && err.message.includes('not found'));
         return {
           success: false,
-          content: `Error: claw "${clawParam}" not found.`,
+          content: isNotFound
+            ? `Error: claw "${clawParam}" not found.`
+            : `Error accessing claw "${clawParam}": ${err instanceof Error ? err.message : String(err)}`,
         };
       }
     },
@@ -268,9 +279,13 @@ export function createCrossClawSearchTool(deps: CrossClawToolDeps): Tool {
           `clawId=${clawParam}`,
           `reason=${String(err)}`,
         );
+        const isNotFound = err instanceof ClawIdResolveError
+          || (err instanceof Error && err.message.includes('not found'));
         return {
           success: false,
-          content: `Error: claw "${clawParam}" not found.`,
+          content: isNotFound
+            ? `Error: claw "${clawParam}" not found.`
+            : `Error accessing claw "${clawParam}": ${err instanceof Error ? err.message : String(err)}`,
         };
       }
     },

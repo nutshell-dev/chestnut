@@ -4,13 +4,14 @@
  */
 
 import { makeChestnutRoot } from '../../../src/core/claw-topology/claw-instance-paths.js';
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fsAsync from 'fs/promises';
 import * as path from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { computeHash } from '../../../src/core/claw-topology/jobs/outbox-summary/hash.js';
 import { scanOutboxes } from '../../../src/core/claw-topology/jobs/outbox-summary/scan.js';
+import { encodeOutbox } from '../../../src/foundation/messaging/codec-outbox.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { OutboxReader } from '../../../src/foundation/messaging/index.js';
 import { createClawTopology } from '../../../src/core/claw-topology/topology.js';
@@ -99,26 +100,44 @@ describe('phase 1476: scanOutboxes (real fs)', () => {
   it('counts pending files per claw', async () => {
     await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
     await fsAsync.mkdir(path.join(root, 'claws/clawB/outbox/pending'), { recursive: true });
-    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/a1.md'), 'x');
-    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/a2.md'), 'x');
-    await fsAsync.writeFile(path.join(root, 'claws/clawB/outbox/pending/b1.md'), 'x');
+    const makeMsg = (content: string, ts: string) => ({
+      id: `m-${ts}`,
+      type: 'report' as const,
+      from: 'clawA',
+      to: 'motion',
+      content,
+      timestamp: ts,
+      priority: 'normal' as const,
+    });
+    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/a1.md'), encodeOutbox(makeMsg('a1', '2026-06-04T10:00:00Z')));
+    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/a2.md'), encodeOutbox(makeMsg('a2', '2026-06-04T10:00:01Z')));
+    await fsAsync.writeFile(path.join(root, 'claws/clawB/outbox/pending/b1.md'), encodeOutbox(makeMsg('b1', '2026-06-04T10:00:02Z')));
     const state = await scanOutboxes({ clawTopology: topology, fs, outboxReader });
     expect(state.counts).toEqual({ clawA: 2, clawB: 1 });
     expect(state.total_claws).toBe(2);
     expect(state.total_msgs).toBe(3);
     expect(state.file_set).toEqual(['clawA:a1.md', 'clawA:a2.md', 'clawB:b1.md']);
-    expect(state.previews).toEqual({ clawA: '(读取失败)', clawB: '(读取失败)' });
+    expect(state.previews).toEqual({ clawA: 'a2', clawB: 'b1' });
     expect(state.failed_claws).toEqual([]);
     expect(state.incomplete).toBe(false);
   });
 
   it('ignores non-.md files', async () => {
     await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
-    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/a1.md'), 'x');
+    const msg = {
+      id: 'm-1',
+      type: 'report' as const,
+      from: 'clawA',
+      to: 'motion',
+      content: 'a1',
+      timestamp: '2026-06-04T10:00:00Z',
+      priority: 'normal' as const,
+    };
+    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/a1.md'), encodeOutbox(msg));
     await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/junk.txt'), 'x');
     const state = await scanOutboxes({ clawTopology: topology, fs, outboxReader });
     expect(state.counts).toEqual({ clawA: 1 });
-    expect(state.previews).toEqual({ clawA: '(读取失败)' });
+    expect(state.previews).toEqual({ clawA: 'a1' });
     expect(state.failed_claws).toEqual([]);
     expect(state.incomplete).toBe(false);
   });
@@ -134,8 +153,17 @@ describe('phase 1476: scanOutboxes (real fs)', () => {
 
   it('hash deterministic for same fileSet', async () => {
     await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
-    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m1.md'), 'x');
-    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m2.md'), 'x');
+    const makeMsg = (content: string, ts: string) => ({
+      id: `m-${ts}`,
+      type: 'report' as const,
+      from: 'clawA',
+      to: 'motion',
+      content,
+      timestamp: ts,
+      priority: 'normal' as const,
+    });
+    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m1.md'), encodeOutbox(makeMsg('m1', '2026-06-04T10:00:00Z')));
+    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m2.md'), encodeOutbox(makeMsg('m2', '2026-06-04T10:00:01Z')));
     const a = await scanOutboxes({ clawTopology: topology, fs, outboxReader });
     const b = await scanOutboxes({ clawTopology: topology, fs, outboxReader });
     expect(a.hash).toBe(b.hash);
@@ -144,8 +172,17 @@ describe('phase 1476: scanOutboxes (real fs)', () => {
   it('records failed claws and marks summary incomplete', async () => {
     await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
     await fsAsync.mkdir(path.join(root, 'claws/clawB/outbox/pending'), { recursive: true });
-    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/a1.md'), 'x');
-    await fsAsync.writeFile(path.join(root, 'claws/clawB/outbox/pending/b1.md'), 'x');
+    const makeMsg = (content: string, ts: string) => ({
+      id: `m-${ts}`,
+      type: 'report' as const,
+      from: 'clawA',
+      to: 'motion',
+      content,
+      timestamp: ts,
+      priority: 'normal' as const,
+    });
+    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/a1.md'), encodeOutbox(makeMsg('a1', '2026-06-04T10:00:00Z')));
+    await fsAsync.writeFile(path.join(root, 'claws/clawB/outbox/pending/b1.md'), encodeOutbox(makeMsg('b1', '2026-06-04T10:00:00Z')));
 
     const failingReader = {
       listClawOutboxPending: async (clawDir: string) => {
@@ -201,5 +238,50 @@ describe('phase 1476: scanOutboxes (real fs)', () => {
     await expect(
       scanOutboxes({ clawTopology: topology, fs, outboxReader: interceptReader, signal: controller.signal }),
     ).rejects.toThrow(/aborted/i);
+  });
+
+  it('continues scanning remaining claws when one resolve fails', async () => {
+    await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
+    await fsAsync.mkdir(path.join(root, 'claws/clawB/outbox/pending'), { recursive: true });
+    const makeMsg = (content: string, ts: string) => ({
+      id: `m-${ts}`,
+      type: 'report' as const,
+      from: 'clawA',
+      to: 'motion',
+      content,
+      timestamp: ts,
+      priority: 'normal' as const,
+    });
+    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/a1.md'), encodeOutbox(makeMsg('a1', '2026-06-04T10:00:00Z')));
+    await fsAsync.writeFile(path.join(root, 'claws/clawB/outbox/pending/b1.md'), encodeOutbox(makeMsg('b1', '2026-06-04T10:00:00Z')));
+
+    const resolveSpy = vi.spyOn(topology, 'resolve').mockImplementation((clawId: string) => {
+      if (clawId === 'clawA') throw new Error('resolve boom');
+      return { kind: 'local', clawDir: path.join(root, 'claws', clawId) };
+    });
+
+    const state = await scanOutboxes({ clawTopology: topology, fs, outboxReader });
+    expect(state.counts).toEqual({ clawB: 1 });
+    expect(state.file_set).toEqual(['clawB:b1.md']);
+    expect(state.failed_claws).toEqual(['clawA']);
+    expect(state.incomplete).toBe(true);
+    resolveSpy.mockRestore();
+  });
+
+  it('marks claw as failed when peek returns null after list succeeds', async () => {
+    await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
+    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/a1.md'), 'x');
+
+    const peekFailingReader = {
+      listClawOutboxPending: async (clawDir: string) => outboxReader.listClawOutboxPending(clawDir),
+      peekLastOutboxPending: vi.fn().mockResolvedValue(null),
+    } as unknown as OutboxReader;
+
+    const state = await scanOutboxes({ clawTopology: topology, fs, outboxReader: peekFailingReader });
+    expect(state.counts).toEqual({});
+    expect(state.file_set).toEqual([]);
+    expect(state.previews).toEqual({});
+    expect(state.failed_claws).toEqual(['clawA']);
+    expect(state.incomplete).toBe(true);
   });
 });
