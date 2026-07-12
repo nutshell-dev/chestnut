@@ -30,7 +30,7 @@ function makeFsForStatus(status: string, checkpoint?: string): FileSystem {
 }
 
 describe('phase 63: formatContractEvent status 分支', () => {
-  it('completed → [contract_completed] + status 字段', () => {
+  it('completed → [contract_completed] + status 字段', async () => {
     const { audit } = makeAudit();
     const fs = makeFsForStatus('completed');
     const { entries } = await scanArchivedContracts(fs, '/tmp/claw', 'clawA', audit);
@@ -39,7 +39,7 @@ describe('phase 63: formatContractEvent status 分支', () => {
     expect(entries[0].status).toBe('completed');
   });
 
-  it('cancelled → [contract_cancelled] + reason + status 字段', () => {
+  it('cancelled → [contract_cancelled] + reason + status 字段', async () => {
     const { audit } = makeAudit();
     const fs = makeFsForStatus('cancelled', 'cancelled: user manual');
     const { entries } = await scanArchivedContracts(fs, '/tmp/claw', 'clawA', audit);
@@ -50,7 +50,7 @@ describe('phase 63: formatContractEvent status 分支', () => {
     expect(entries[0].reason).toBe('user manual');
   });
 
-  it('crashed → [contract_crashed] + cause + status 字段', () => {
+  it('crashed → [contract_crashed] + cause + status 字段', async () => {
     const { audit } = makeAudit();
     const fs = makeFsForStatus('crashed', 'crashed: system: maxstepsexceedederror');
     const { entries } = await scanArchivedContracts(fs, '/tmp/claw', 'clawA', audit);
@@ -61,7 +61,7 @@ describe('phase 63: formatContractEvent status 分支', () => {
     expect(entries[0].cause).toBe('system: maxstepsexceedederror');
   });
 
-  it('archive_pending_recovery → [contract_archive_pending_recovery]', () => {
+  it('archive_pending_recovery → [contract_archive_pending_recovery]', async () => {
     const { audit } = makeAudit();
     const fs = makeFsForStatus('archive_pending_recovery');
     const { entries } = await scanArchivedContracts(fs, '/tmp/claw', 'clawA', audit);
@@ -70,7 +70,7 @@ describe('phase 63: formatContractEvent status 分支', () => {
     expect(entries[0].status).toBe('archive_pending_recovery');
   });
 
-  it('archive_corrupted → [contract_archive_corrupted] + failure marker', () => {
+  it('archive_corrupted → [contract_archive_corrupted] + failure marker', async () => {
     const { audit } = makeAudit();
     const fs = makeFsForStatus('archive_corrupted');
     const { entries } = await scanArchivedContracts(fs, '/tmp/claw', 'clawA', audit);

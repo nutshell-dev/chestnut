@@ -322,7 +322,7 @@ describe('event-collector schema check', () => {
     } as unknown as FileSystem;
   }
 
-  it('skips archive contract with schema invalid progress.json', () => {
+  it('skips archive contract with schema invalid progress.json', async () => {
     const mockAudit = makeMockAudit();
     const fsMock = makeFsWithContracts([
       {
@@ -356,7 +356,7 @@ describe('event-collector schema check', () => {
     );
   });
 
-  it('audits PROGRESS_CORRUPTED on JSON.parse throw', () => {
+  it('audits PROGRESS_CORRUPTED on JSON.parse throw', async () => {
     const mockAudit = makeMockAudit();
     const files = new Map<string, string>();
     const dirs = new Map<string, { name: string; isDirectory: boolean; size: number }[]>();

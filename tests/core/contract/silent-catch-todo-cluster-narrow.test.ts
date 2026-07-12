@@ -50,7 +50,7 @@ function makeFsThrow(code: string): FileSystem {
 }
 
 describe('phase 1010 — silent X TODO cluster narrow', () => {
-  it('event-collector.ts archive ENOENT silent (first-run)', () => {
+  it('event-collector.ts archive ENOENT silent (first-run)', async () => {
     const { audit, events } = makeAudit();
     const fs = makeFsThrow('ENOENT');
     const result = await collectContractEvents(fs, '/tmp/claw', 'claw1', 0, audit);
@@ -59,7 +59,7 @@ describe('phase 1010 — silent X TODO cluster narrow', () => {
     expect(events).toHaveLength(0);
   });
 
-  it('event-collector.ts archive EACCES → EVENT_COLLECTOR_SCAN_FAILED audit', () => {
+  it('event-collector.ts archive EACCES → EVENT_COLLECTOR_SCAN_FAILED audit', async () => {
     const { audit, events } = makeAudit();
     const fs = {
       listSync: (p: string) => {
@@ -83,7 +83,7 @@ describe('phase 1010 — silent X TODO cluster narrow', () => {
     expect(events[0]).toContain('code=EACCES');
   });
 
-  it('lightweight-query.ts getActiveContractTimestamp ENOENT silent', () => {
+  it('lightweight-query.ts getActiveContractTimestamp ENOENT silent', async () => {
     const { audit, events } = makeAudit();
     const fs = {
       ...makeFsThrow('ENOENT'),
@@ -94,7 +94,7 @@ describe('phase 1010 — silent X TODO cluster narrow', () => {
     expect(events).toHaveLength(0);
   });
 
-  it('lightweight-query.ts getActiveContractTimestamp EACCES → CONTRACT_DIR_SCAN_FAILED audit (when audit param 注入)', () => {
+  it('lightweight-query.ts getActiveContractTimestamp EACCES → CONTRACT_DIR_SCAN_FAILED audit (when audit param 注入)', async () => {
     const { audit, events } = makeAudit();
     const fs = {
       listSync: () => {
@@ -112,7 +112,7 @@ describe('phase 1010 — silent X TODO cluster narrow', () => {
     expect(events[0]).toContain('code=EACCES');
   });
 
-  it('lightweight-query.ts getActiveContractTimestamp EACCES 无 audit param → silent (兼容旧 caller)', () => {
+  it('lightweight-query.ts getActiveContractTimestamp EACCES 无 audit param → silent (兼容旧 caller)', async () => {
     const fs = {
       ...makeFsThrow('EACCES'),
       existsSync: () => true,
@@ -181,7 +181,7 @@ describe('phase 1010 — silent X TODO cluster narrow', () => {
     expect(notifyInbox).not.toHaveBeenCalled();
   });
 
-  it('NEW 3 audit const name invariant', () => {
+  it('NEW 3 audit const name invariant', async () => {
     expect(CONTRACT_AUDIT_EVENTS.EVENT_COLLECTOR_SCAN_FAILED).toBe('contract_event_collector_scan_failed');
     expect(CONTRACT_AUDIT_EVENTS.CONTRACT_DIR_SCAN_FAILED).toBe('contract_dir_scan_failed');
     expect(CONTRACT_AUDIT_EVENTS.OBSERVER_STATE_LOAD_FAILED).toBe('contract_observer_state_load_failed');

@@ -15,7 +15,7 @@ import { makeAudit } from '../../../helpers/audit.js';
 import type { FileSystem } from '../../../../src/foundation/fs/types.js';
 
 describe('phase 1154 — event-collector FS_NOT_FOUND narrow + α-4 progress_corrupted分流', () => {
-  it('archive listSync FileNotFoundError → 0 emit', () => {
+  it('archive listSync FileNotFoundError → 0 emit', async () => {
     const { audit, events } = makeAudit();
     const fs = {
       listSync: () => { throw new FileNotFoundError('/tmp/claw/contract/archive'); },
@@ -28,7 +28,7 @@ describe('phase 1154 — event-collector FS_NOT_FOUND narrow + α-4 progress_cor
     expect(events).toHaveLength(0);
   });
 
-  it('progress.json readSync FileNotFoundError → 0 PROGRESS_CORRUPTED emit + continue next contract', () => {
+  it('progress.json readSync FileNotFoundError → 0 PROGRESS_CORRUPTED emit + continue next contract', async () => {
     const { audit, events } = makeAudit();
     let readCalls = 0;
     const fs = {
@@ -49,7 +49,7 @@ describe('phase 1154 — event-collector FS_NOT_FOUND narrow + α-4 progress_cor
     expect(readCalls).toBe(1);
   });
 
-  it('progress.json readSync EACCES → emit PROGRESS_CORRUPTED 2 次 (archive + active)', () => {
+  it('progress.json readSync EACCES → emit PROGRESS_CORRUPTED 2 次 (archive + active)', async () => {
     const { audit, events } = makeAudit();
     const fs = {
       listSync: () => [
@@ -70,7 +70,7 @@ describe('phase 1154 — event-collector FS_NOT_FOUND narrow + α-4 progress_cor
     expect(events[0][0]).toBe(CONTRACT_AUDIT_EVENTS.PROGRESS_CORRUPTED);
   });
 
-  it('progress.json invalid JSON → emit PROGRESS_CORRUPTED 2 次 (archive + active, phase 587 invariant)', () => {
+  it('progress.json invalid JSON → emit PROGRESS_CORRUPTED 2 次 (archive + active, phase 587 invariant)', async () => {
     const { audit, events } = makeAudit();
     const fs = {
       listSync: () => [
