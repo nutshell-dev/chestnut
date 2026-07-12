@@ -22,6 +22,9 @@ import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 const CORRUPTED_SUBDIR = 'corrupted';
 /** Sub-directory name for isolated corrupt artifacts */
 
+/** Maximum UUID collision retries before giving up on a unique backup path. */
+const MAX_BACKUP_RETRIES = 3;
+
 interface IsolationArgs {
   contractId: ContractId;
   contractDir: string;
@@ -38,18 +41,43 @@ export async function isolateCorruptedFile(
   try {
     await fs.ensureDir(corruptedDir);
     const ts = Date.now();
-    const uuid = newShortUuid();
-    const backupPath = path.join(corruptedDir, `${ts}_${uuid}_${args.filename}`);
     const srcPath = path.join(args.contractDir, args.filename);
-    await fs.move(srcPath, backupPath);
+
+    // phase 959: never overwrite an existing backup; retry with fresh UUIDs.
+    for (let attempt = 0; attempt < MAX_BACKUP_RETRIES; attempt++) {
+      const uuid = newShortUuid();
+      const backupPath = path.join(corruptedDir, `${ts}_${uuid}_${args.filename}`);
+      if (fs.existsSync(backupPath)) continue;
+      try {
+        await fs.move(srcPath, backupPath);
+        audit.write(
+          CONTRACT_AUDIT_EVENTS.CONTRACT_FILE_ISOLATED,
+          `contractId=${args.contractId}`,
+          `filename=${args.filename}`,
+          `reason=${args.reason}`,
+          `backupPath=${backupPath}`,
+        );
+        return { backupPath };
+      } catch (moveErr) {
+        // move failed (race / perm denied). Retry on collision, otherwise audit + fail.
+        if (attempt < MAX_BACKUP_RETRIES - 1) continue;
+        audit.write(
+          CONTRACT_AUDIT_EVENTS.CONTRACT_FILE_ISOLATION_FAILED,
+          `contractId=${args.contractId}`,
+          `filename=${args.filename}`,
+          `reason=${formatErr(moveErr)}`,
+        );
+        return null;
+      }
+    }
+    // All retries hit existing backup paths (extremely unlikely).
     audit.write(
-      CONTRACT_AUDIT_EVENTS.CONTRACT_FILE_ISOLATED,
+      CONTRACT_AUDIT_EVENTS.CONTRACT_FILE_ISOLATION_FAILED,
       `contractId=${args.contractId}`,
       `filename=${args.filename}`,
-      `reason=${args.reason}`,
-      `backupPath=${backupPath}`,
+      `reason=backup_path_collision_exhausted`,
     );
-    return { backupPath };
+    return null;
   } catch (err) {
     // 隔离失败（race / perm denied）→ audit + return null、不阻塞 markCrashed
     audit.write(

@@ -49,7 +49,32 @@ export async function loadContractYaml(
   const dir = await ctx.contractDir(contractId);
   const contractPath = `${dir}/${contractId}/contract.yaml`;
   const content = await ctx.fs.read(contractPath);
-  const rawParsed = yaml.load(content);
+
+  // phase 959: YAML parse errors must follow the same isolation path as schema errors.
+  let rawParsed: unknown;
+  try {
+    rawParsed = yaml.load(content);
+  } catch (yamlErr) {
+    emitContractYamlSchemaInvalid(
+      ctx.audit,
+      {
+        contractId,
+        path: contractPath,
+        reason: 'yaml_parse_failed',
+        error: formatErr(yamlErr),
+      },
+    );
+    const contractDir = await ctx.contractDir(contractId);
+    const isolated = await isolateCorruptedFile(ctx.fs, ctx.audit, {
+      contractId, contractDir: `${contractDir}/${contractId}`, filename: CONTRACT_YAML_FILE,
+      reason: 'yaml_parse_error',
+    });
+    if (isolated && ctx.markCrashed) {
+      await ctx.markCrashed(contractId, 'system: yaml_parse_corruption_contract_yaml');
+    }
+    return null;
+  }
+
   const result = ContractYamlSchema.safeParse(rawParsed);
   if (!result.success) {
     emitContractYamlSchemaInvalid(
@@ -63,11 +88,11 @@ export async function loadContractYaml(
       },
     );
     const contractDir = await ctx.contractDir(contractId);
-    await isolateCorruptedFile(ctx.fs, ctx.audit, {
+    const isolated = await isolateCorruptedFile(ctx.fs, ctx.audit, {
       contractId, contractDir: `${contractDir}/${contractId}`, filename: CONTRACT_YAML_FILE,
       reason: 'schema_invalid',
     });
-    if (ctx.markCrashed) {
+    if (isolated && ctx.markCrashed) {
       await ctx.markCrashed(contractId, 'system: schema_corruption_contract_yaml');
     }
     return null;

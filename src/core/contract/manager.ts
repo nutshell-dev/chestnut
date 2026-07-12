@@ -1040,10 +1040,19 @@ export class ContractSystem {
           `reason=json_parse_failed`,
           `error=${formatErr(parseErr)}`,
         );
-        await isolateCorruptedFile(this.fs, this.audit, {
+        const isolated = await isolateCorruptedFile(this.fs, this.audit, {
           contractId, contractDir: `${dir}/${contractId}`, filename: PROGRESS_FILE,
           reason: 'json_parse_error',
         });
+        if (!isolated) {
+          this.audit.write(
+            CONTRACT_AUDIT_EVENTS.CONTRACT_FILE_ISOLATION_FAILED,
+            `contractId=${contractId}`,
+            `context=isolation_failed_cannot_proceed`,
+            `reason=isolation_move_failed`,
+          );
+          throw new Error(`Cannot isolate corrupt progress.json for ${contractId} — aborting to avoid recursive getProgress`);
+        }
         await this.markCrashed(contractId, 'system: json_parse_corruption_progress_json', dir);
         return null;
       }
@@ -1119,10 +1128,19 @@ export class ContractSystem {
       // phase 958: isolate corrupted progress.json first, then markCrashed with known dir.
       // markCrashed internally re-resolves contractDir via progress.json existence;
       // after isolation progress.json is gone, so pass the known dir to avoid orphan.
-      await isolateCorruptedFile(this.fs, this.audit, {
+      const isolated = await isolateCorruptedFile(this.fs, this.audit, {
         contractId, contractDir: `${dir}/${contractId}`, filename: PROGRESS_FILE,
         reason: isolationReason,
       });
+      if (!isolated) {
+        this.audit.write(
+          CONTRACT_AUDIT_EVENTS.CONTRACT_FILE_ISOLATION_FAILED,
+          `contractId=${contractId}`,
+          `context=isolation_failed_cannot_proceed`,
+          `reason=isolation_move_failed`,
+        );
+        throw new Error(`Cannot isolate corrupt progress.json for ${contractId} — aborting to avoid recursive getProgress`);
+      }
       await this.markCrashed(contractId, 'system: schema_corruption_progress_json', dir);
       return null;
     }

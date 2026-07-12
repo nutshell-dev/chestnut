@@ -170,6 +170,7 @@ export function emitContractYamlSchemaInvalid(
     actual?: string;
     current?: number;
     raw?: string;
+    error?: string;
   },
 ): void {
   if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractYamlSchemaInvalid')) return;
@@ -178,6 +179,7 @@ export function emitContractYamlSchemaInvalid(
   if (opts.actual !== undefined) cols.push(`actual=${opts.actual}`);
   if (opts.current !== undefined) cols.push(`current=${opts.current}`);
   if (opts.raw !== undefined) cols.push(`raw=${opts.raw}`);
+  if (opts.error !== undefined) cols.push(`error=${opts.error}`);
   audit.write(CONTRACT_AUDIT_EVENTS.CONTRACT_YAML_SCHEMA_INVALID, ...cols);
 }
 
