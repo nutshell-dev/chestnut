@@ -205,6 +205,29 @@ describe('lookupContentByToolUseId', () => {
     expect((result as Extract<LookupResult, { source: 'unavailable' }>).reason).toBe('not_in_current');
   });
 
+  it('phase 919: returns not_in_current when current.json is corrupted', () => {
+    const fs = makeFs({
+      '/dialog/current.json': 'not-valid-json',
+      '/dialog/archive': { size: 0, isDirectory: true },
+    });
+    const result = lookupContentByToolUseId(fs, '/dialog', 't1');
+    expect(result.source).toBe('unavailable');
+    expect((result as Extract<LookupResult, { source: 'unavailable' }>).reason).toBe('not_in_current');
+    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('current.json parse failed'));
+  });
+
+  it('phase 919: returns all_failed when current.json is valid but id not found and archive is empty', () => {
+    const fs = makeFs({
+      '/dialog/current.json': currentJson([
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'other', content: 'ok' }] },
+      ]),
+      '/dialog/archive': { size: 0, isDirectory: true },
+    });
+    const result = lookupContentByToolUseId(fs, '/dialog', 't1');
+    expect(result.source).toBe('unavailable');
+    expect((result as Extract<LookupResult, { source: 'unavailable' }>).reason).toBe('all_failed');
+  });
+
   it('phase 918: returns not_in_archive when archive directory list fails', () => {
     const fs = makeFs({
       '/dialog/current.json': currentJson([]),

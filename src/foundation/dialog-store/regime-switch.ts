@@ -80,14 +80,15 @@ export interface PerformRegimeSwitchResult {
 /** phase 521: 'last-turn' 策略 helper / 找最近 'user' role msg / 从那里切片
  * phase 918: 跳过仅含 tool_result 的 user 消息（那是 assistant tool_use 的响应，
  * 不是真实用户输入），避免 regime switch 后遗留孤立 tool_result。
+ * phase 919: 只要 user 消息包含任何 tool_result 就跳过，混合消息同样不是真实用户输入。
  */
 export function extractLastTurn(messages: Message[]): Message[] {
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
     if (msg.role !== 'user') continue;
-    // Skip messages that contain only tool_result blocks (not genuine user input)
+    // Skip any user message that contains a tool_result block (not a genuine turn boundary)
     if (Array.isArray(msg.content) && msg.content.length > 0 &&
-        msg.content.every((b) => (b as { type?: string }).type === 'tool_result')) {
+        msg.content.some((b) => (b as { type?: string }).type === 'tool_result')) {
       continue;
     }
     return messages.slice(i);

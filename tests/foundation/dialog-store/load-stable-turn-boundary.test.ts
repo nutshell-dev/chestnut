@@ -113,4 +113,24 @@ describe('phase 1184 loadStableTurnBoundary', () => {
     expect(session.messages.length).toBe(4);  // 0 truncate
     expect(events.filter(e => e[0] === DIALOG_AUDIT_EVENTS.TURN_BOUNDARY_TRUNCATED).length).toBe(0);
   });
+
+  it('phase 919: tool_result 出现在对应 tool_use 之前不视为配对，末条 tool_use 应截断', async () => {
+    const { audit, events } = makeAudit();
+    const store = new DialogStore(fs, '', audit, filename, clawId);
+    await store.save({
+      systemPrompt: 'sys',
+      messages: [
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tu_1', content: 'premature' }] },
+        { role: 'assistant', content: [
+          { type: 'tool_use', id: 'tu_1', name: 'foo', input: {} },
+        ]},
+      ],
+      toolsForLLM: [],
+    });
+    const { session } = await store.loadStableTurnBoundary();
+    expect(session.messages.length).toBe(1);
+    const evt = events.find(e => e[0] === DIALOG_AUDIT_EVENTS.TURN_BOUNDARY_TRUNCATED);
+    expect(evt).toBeDefined();
+    expect(evt!).toContain('unpaired_tool_use_id=tu_1');
+  });
 });

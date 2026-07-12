@@ -32,7 +32,7 @@ describe('extractLastTurn (phase 918)', () => {
     expect(inherited).toHaveLength(5);
   });
 
-  it('does not skip user messages that mix tool_result with text', () => {
+  it('phase 919: skips user messages that mix tool_result with text', () => {
     const mixedContent: Message['content'] = [
       { type: 'tool_result', tool_use_id: 'tu1', content: 'r' },
       { type: 'text', text: 'follow-up' },
@@ -44,7 +44,8 @@ describe('extractLastTurn (phase 918)', () => {
     ];
     const inherited = extractLastTurn(messages);
     expect(inherited[0].role).toBe('user');
-    expect(inherited[0].content).toEqual(mixedContent);
+    expect(inherited[0].content).toBe('genuine');
+    expect(inherited).toHaveLength(3);
   });
 
   it('falls back to all messages when there is no genuine user input', () => {

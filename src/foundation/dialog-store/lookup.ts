@@ -48,10 +48,11 @@ export function lookupContentByToolUseId(
   // Level 1: current
   const currentPath = `${dialogDir}/current.json`;
   const currentAccessible = fs.existsSync(currentPath);
+  let currentResult: CurrentLookupResult | undefined;
   if (currentAccessible) {
-    const currentResult = lookupInCurrent(fs, dialogDir, idStr);
-    if (currentResult !== null) {
-      return { source: 'current', content: currentResult };
+    currentResult = lookupInCurrent(fs, dialogDir, idStr);
+    if (currentResult.found) {
+      return { source: 'current', content: currentResult.content };
     }
   }
 
@@ -83,25 +84,35 @@ export function lookupContentByToolUseId(
   if (archiveResult.inaccessible) {
     return { source: 'unavailable', reason: 'not_in_archive' };
   }
-  // phase 918: current 不存在（或不可读）且 archive 也未命中 → not_in_current
-  if (!currentAccessible) {
+  // phase 919: current 不可访问（不存在或解析失败）→ not_in_current；current 已解析但未命中 → all_failed
+  if (
+    !currentAccessible ||
+    (currentResult !== undefined && !currentResult.found && currentResult.reason === 'parse_failed')
+  ) {
     return { source: 'unavailable', reason: 'not_in_current' };
   }
   return { source: 'unavailable', reason: 'all_failed' };
 }
 
-function lookupInCurrent(fs: FileSystem, dialogDir: string, toolUseId: string): string | null {
+type CurrentLookupResult =
+  | { found: true; content: string }
+  | { found: false; reason: 'missing' | 'parse_failed' | 'not_found' };
+
+function lookupInCurrent(fs: FileSystem, dialogDir: string, toolUseId: string): CurrentLookupResult {
   const currentPath = `${dialogDir}/current.json`;
-  if (!fs.existsSync(currentPath)) return null;
+  if (!fs.existsSync(currentPath)) return { found: false, reason: 'missing' };
   try {
     const session = JSON.parse(fs.readSync(currentPath));
     // phase 521 (review-round4 Foundation M): shape guard、防 session=null/null-prototype/array
     // 致 session.messages 访问抛错被外 catch silent 吞、有效线索可观察
-    if (typeof session !== 'object' || session === null || Array.isArray(session)) return null;
-    return findContentInMessages(session.messages ?? [], toolUseId);
+    if (typeof session !== 'object' || session === null || Array.isArray(session)) {
+      return { found: false, reason: 'parse_failed' };
+    }
+    const content = findContentInMessages(session.messages ?? [], toolUseId);
+    return content !== null ? { found: true, content } : { found: false, reason: 'not_found' };
   } catch (err) {
     process.stderr.write(`[dialog-lookup] current.json parse failed: ${err}\n`);
-    return null;
+    return { found: false, reason: 'parse_failed' };
   }
 }
 

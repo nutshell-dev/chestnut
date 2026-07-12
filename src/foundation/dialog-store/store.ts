@@ -277,25 +277,31 @@ export class DialogStore {
    * Find the tool_use_id of the last unpaired tool_use in messages.
    * Returns null if all tool_use are paired.
    *
-   * Algorithm:
-   * - Collect tool_use_id set from assistant messages
-   * - Collect tool_result tool_use_id set from user messages (after each tool_use's assistant message)
-   * - Return the latest (highest index) tool_use_id not in tool_result set
+   * Algorithm (phase 919):
+   * - Scan messages in order, recording the position of each tool_use.
+   * - A tool_result only pairs with a tool_use that appears BEFORE it.
+   * - Scan assistant messages reverse, find latest tool_use without a later tool_result.
    */
   private _findLastUnpairedToolUseId(messages: Message[]): string | null {
-    const seenToolResultIds = new Set<string>();
-    // Scan all messages first, collect all tool_result IDs
-    for (const msg of messages) {
-      if (msg.role !== 'user') continue;
-      const content = Array.isArray(msg.content) ? msg.content : null;
-      if (!content) continue;
+    const toolUsePositions = new Map<string, number>();
+    const paired = new Set<string>();
+
+    for (let i = 0; i < messages.length; i++) {
+      const msg = messages[i];
+      const content = Array.isArray(msg.content) ? msg.content : [];
       for (const block of content) {
+        if (block.type === 'tool_use' && (block as ToolUseBlock).id) {
+          toolUsePositions.set((block as ToolUseBlock).id, i);
+        }
         if (block.type === 'tool_result') {
-          seenToolResultIds.add((block as ToolResultBlock).tool_use_id);
+          const tuId = (block as ToolResultBlock).tool_use_id;
+          if (toolUsePositions.has(tuId) && toolUsePositions.get(tuId)! < i) {
+            paired.add(tuId);
+          }
         }
       }
     }
-    // Scan assistant messages reverse, find latest tool_use without matching tool_result
+
     for (let i = messages.length - 1; i >= 0; i--) {
       const msg = messages[i];
       if (msg.role !== 'assistant') continue;
@@ -304,7 +310,7 @@ export class DialogStore {
       for (const block of content) {
         if (block.type === 'tool_use') {
           const id = (block as ToolUseBlock).id;
-          if (!seenToolResultIds.has(id)) {
+          if (!paired.has(id)) {
             return id;
           }
         }
