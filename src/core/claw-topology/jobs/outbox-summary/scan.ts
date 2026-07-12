@@ -2,6 +2,7 @@
  * @module L4.ClawTopology.OutboxSummary
  * phase 1476: scan all claws/*\/outbox/pending → counts + fileSet.
  * phase 42: outbox/pending 列举改走 Messaging.OutboxReader（消 MLP-3 直访）。
+ * phase 938: per-claw I/O failure recorded in failed_claws + incomplete flag.
  *
  * 业主仅 own claw outbox/pending 计数 + 文件身份扫描。MOTION_CLAW_ID 跳过
  * （motion 自家不该写 outbox-summary 到自家 outbox）。失败 silent skip per claw
@@ -23,10 +24,18 @@ export interface ScanDeps {
   clawTopology: ClawTopology;
   fs: FileSystem;             // 仅供 enumerate claws/
   outboxReader: OutboxReader; // Messaging 对外入口：单 claw outbox/pending 列举
+  /** phase 938: cooperative abort signal checked before each claw scan. */
+  signal?: AbortSignal;
+}
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) {
+    throw new Error('Outbox summary tick aborted');
+  }
 }
 
 export async function scanOutboxes(deps: ScanDeps): Promise<OutboxSummaryState> {
-  const { clawTopology, outboxReader } = deps;
+  const { clawTopology, outboxReader, signal } = deps;
 
   let clawIds: ClawId[];
   try {
@@ -39,21 +48,30 @@ export async function scanOutboxes(deps: ScanDeps): Promise<OutboxSummaryState> 
   const counts: Record<string, number> = {};
   const fileSet: string[] = [];
   const previews: Record<string, string> = {};
+  const failedClaws: string[] = [];
 
   for (const clawId of clawIds) {
+    throwIfAborted(signal);
+
     const location = clawTopology.resolve(clawId);
     if (location.kind !== 'local') continue;
-    const files = await outboxReader.listClawOutboxPending(location.clawDir);
-    if (files.length > 0) {
-      counts[clawId] = files.length;
-      for (const f of files) fileSet.push(`${clawId}:${f}`);
 
-      const last = await outboxReader.peekLastOutboxPending(location.clawDir);
-      if (last) {
-        previews[clawId] = truncatePreview(last.message.content);
-      } else {
-        previews[clawId] = '(读取失败)';
+    try {
+      const files = await outboxReader.listClawOutboxPending(location.clawDir);
+      if (files.length > 0) {
+        counts[clawId] = files.length;
+        for (const f of files) fileSet.push(`${clawId}:${f}`);
+
+        const last = await outboxReader.peekLastOutboxPending(location.clawDir);
+        if (last) {
+          previews[clawId] = truncatePreview(last.message.content);
+        } else {
+          previews[clawId] = '(读取失败)';
+        }
       }
+    } catch (err) {
+      // phase 938: fail-closed — record the failed claw and mark summary incomplete.
+      failedClaws.push(clawId);
     }
   }
 
@@ -68,6 +86,8 @@ export async function scanOutboxes(deps: ScanDeps): Promise<OutboxSummaryState> 
     file_set: fileSet,
     hash,
     previews,
+    failed_claws: failedClaws,
+    incomplete: failedClaws.length > 0,
   };
 }
 
@@ -79,6 +99,8 @@ function emptyState(): OutboxSummaryState {
     file_set: [],
     hash: computeHash([]),
     previews: {},
+    failed_claws: [],
+    incomplete: false,
   };
 }
 

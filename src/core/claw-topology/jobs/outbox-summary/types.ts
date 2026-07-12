@@ -28,6 +28,10 @@ export interface OutboxSummaryState {
   hash: string;
   /** phase 44 NEW: truncated preview of the latest unread message per claw. */
   previews: Record<string, string>;
+  /** phase 938 NEW: clawIds whose outbox I/O failed during scan. */
+  failed_claws: string[];
+  /** phase 938 NEW: true if any claw failed to scan (hash/counts may be incomplete). */
+  incomplete: boolean;
 }
 
 /** Per-tick state for guidance extraMeta（Record<string,string> only / serialized）. */
@@ -37,5 +41,7 @@ export function toExtraMeta(state: OutboxSummaryState): Record<string, string> {
     total_claws: String(state.total_claws),
     total_msgs: String(state.total_msgs),
     counts: JSON.stringify(state.counts),
+    failed_claws: JSON.stringify(state.failed_claws),
+    incomplete: String(state.incomplete),
   };
 }

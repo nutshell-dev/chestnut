@@ -36,7 +36,7 @@ export async function outboxCommand(
   // Reconcile orphaned processing files back to pending before draining.
   await outboxReader.init('.');
 
-  // Peek initial pending count for empty-check + remaining counter.
+  // Peek initial pending count for empty-check.
   // claimNext handles races internally; this list is best-effort.
   let initialFiles: string[] = [];
   try {
@@ -54,7 +54,6 @@ export async function outboxCommand(
 
   // Limit number of messages read (default 1)
   const limit = options?.limit ?? 1;
-  const remaining = Math.max(0, initialFiles.length - limit);
 
   audit?.write(CLI_AUDIT_EVENTS.CLAW_OUTBOX_DRAIN_START, `claw=${name}`, `limit=${limit}`);
 
@@ -72,6 +71,18 @@ export async function outboxCommand(
 
     results.push(claimed.content);
     await outboxReader.markDone('.', claimed.claimPath, claimed.filename);
+  }
+
+  // phase 938: calculate remaining from actual post-drain state rather than the
+  // pre-drain snapshot, which is inaccurate when races or fewer messages exist.
+  let remaining = 0;
+  try {
+    const remainingFiles = await outboxReader.listClawOutboxPending('.');
+    remaining = remainingFiles.length;
+  } catch (e) {
+    // Fallback to the pre-drain snapshot minus successfully consumed messages.
+    process.stderr.write(`[claw-outbox] post-drain list failed: ${formatErr(e)}\n`);
+    remaining = Math.max(0, initialFiles.length - results.length);
   }
 
   // Output

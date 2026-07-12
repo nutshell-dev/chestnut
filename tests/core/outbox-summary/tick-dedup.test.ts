@@ -104,7 +104,6 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
 
   it('0 unread + no existing summary → no write, no audit', async () => {
     await runOutboxSummaryTick({
-      clawsDir: `${root}/claws`,
       clawTopology: topology,
       fs,
       inboxReader,
@@ -120,7 +119,6 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
     await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
     await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m1.md'), 'x');
     await runOutboxSummaryTick({
-      clawsDir: `${root}/claws`,
       clawTopology: topology,
       fs,
       inboxReader,
@@ -137,7 +135,6 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
     await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
     await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m1.md'), 'x');
     await runOutboxSummaryTick({
-      clawsDir: `${root}/claws`,
       clawTopology: topology,
       fs,
       inboxReader,
@@ -148,7 +145,6 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
     const firstSummary = (await listSummaries(root, 'pending', fs))[0];
     events.length = 0;
     await runOutboxSummaryTick({
-      clawsDir: `${root}/claws`,
       clawTopology: topology,
       fs,
       inboxReader,
@@ -164,7 +160,6 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
     await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
     await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m1.md'), 'x');
     await runOutboxSummaryTick({
-      clawsDir: `${root}/claws`,
       clawTopology: topology,
       fs,
       inboxReader,
@@ -178,7 +173,6 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
 
     events.length = 0;
     await runOutboxSummaryTick({
-      clawsDir: `${root}/claws`,
       clawTopology: topology,
       fs,
       inboxReader,
@@ -194,7 +188,6 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
     await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
     await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m1.md'), 'x');
     await runOutboxSummaryTick({
-      clawsDir: `${root}/claws`,
       clawTopology: topology,
       fs,
       inboxReader,
@@ -210,7 +203,6 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
 
     events.length = 0;
     await runOutboxSummaryTick({
-      clawsDir: `${root}/claws`,
       clawTopology: topology,
       fs,
       inboxReader,
@@ -225,7 +217,6 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
     await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
     await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m1.md'), 'x');
     await runOutboxSummaryTick({
-      clawsDir: `${root}/claws`,
       clawTopology: topology,
       fs,
       inboxReader,
@@ -241,7 +232,6 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
 
     events.length = 0;
     await runOutboxSummaryTick({
-      clawsDir: `${root}/claws`,
       clawTopology: topology,
       fs,
       inboxReader,
@@ -257,7 +247,6 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
     await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
     await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m1.md'), 'x');
     await runOutboxSummaryTick({
-      clawsDir: `${root}/claws`,
       clawTopology: topology,
       fs,
       inboxReader,
@@ -270,7 +259,6 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
     await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m2.md'), 'y');
     events.length = 0;
     await runOutboxSummaryTick({
-      clawsDir: `${root}/claws`,
       clawTopology: topology,
       fs,
       inboxReader,
@@ -288,7 +276,6 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
     await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
     await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m1.md'), 'x');
     await runOutboxSummaryTick({
-      clawsDir: `${root}/claws`,
       clawTopology: topology,
       fs,
       inboxReader,
@@ -301,7 +288,6 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
 
     events.length = 0;
     await runOutboxSummaryTick({
-      clawsDir: `${root}/claws`,
       clawTopology: topology,
       fs,
       inboxReader,
@@ -311,5 +297,105 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
     });
     expect(await listSummaries(root, 'pending', fs)).toContain(summary);
     expect(events.some(e => e[0] === 'cron_outbox_summary_skipped' || e[0] === 'cron_outbox_summary_cleared')).toBe(false);
+  });
+
+  it('phase 938: writes summary even when one claw scan fails', async () => {
+    await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
+    await fsAsync.mkdir(path.join(root, 'claws/clawB/outbox/pending'), { recursive: true });
+    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/a1.md'), 'x');
+    await fsAsync.writeFile(path.join(root, 'claws/clawB/outbox/pending/b1.md'), 'x');
+
+    const failingReader = {
+      listClawOutboxPending: async (clawDir: string) => {
+        const clawId = path.basename(clawDir);
+        if (clawId === 'clawB') throw new Error('mock I/O failure');
+        return outboxReader.listClawOutboxPending(clawDir);
+      },
+      peekLastOutboxPending: async (clawDir: string) => {
+        const clawId = path.basename(clawDir);
+        if (clawId === 'clawB') throw new Error('mock I/O failure');
+        return outboxReader.peekLastOutboxPending(clawDir);
+      },
+    } as unknown as OutboxReader;
+
+    await runOutboxSummaryTick({
+      clawTopology: topology,
+      fs,
+      inboxReader,
+      inboxWriter,
+      outboxReader: failingReader,
+      audit,
+    });
+
+    const summaries = await listSummaries(root, 'pending', fs);
+    expect(summaries.length).toBe(1);
+    expect(events.some(e => e[0] === 'cron_outbox_summary_written')).toBe(true);
+  });
+
+  it('phase 938: abort before scan throws and writes nothing', async () => {
+    await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
+    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m1.md'), 'x');
+
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      runOutboxSummaryTick({
+        clawTopology: topology,
+        fs,
+        inboxReader,
+        inboxWriter,
+        outboxReader,
+        audit,
+        signal: controller.signal,
+      }),
+    ).rejects.toThrow(/aborted/i);
+    expect(await listSummaries(root, 'pending', fs)).toEqual([]);
+  });
+
+  it('phase 938: abort after dedup before write throws and writes nothing', async () => {
+    await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
+    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m1.md'), 'x');
+
+    // First tick writes summary for hash A.
+    await runOutboxSummaryTick({
+      clawTopology: topology,
+      fs,
+      inboxReader,
+      inboxWriter,
+      outboxReader,
+      audit,
+    });
+    expect(await listSummaries(root, 'pending', fs)).toHaveLength(1);
+
+    // Change state so dedup misses, then abort before write.
+    await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/m2.md'), 'y');
+    const controller = new AbortController();
+
+    const interceptReader = {
+      listClawOutboxPending: async (clawDir: string) => {
+        const files = await outboxReader.listClawOutboxPending(clawDir);
+        // Abort after dedup scan returns (signal is checked right after scan).
+        controller.abort();
+        return files;
+      },
+      peekLastOutboxPending: outboxReader.peekLastOutboxPending.bind(outboxReader),
+    } as unknown as OutboxReader;
+
+    events.length = 0;
+    await expect(
+      runOutboxSummaryTick({
+        clawTopology: topology,
+        fs,
+        inboxReader,
+        inboxWriter,
+        outboxReader: interceptReader,
+        audit,
+        signal: controller.signal,
+      }),
+    ).rejects.toThrow(/aborted/i);
+
+    // Only the first summary should exist.
+    expect(await listSummaries(root, 'pending', fs)).toHaveLength(1);
   });
 });

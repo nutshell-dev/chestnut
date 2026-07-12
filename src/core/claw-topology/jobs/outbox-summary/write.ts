@@ -48,6 +48,7 @@ export async function writeNewSummary(
     `hash=${state.hash}`,
     `total_claws=${state.total_claws}`,
     `total_msgs=${state.total_msgs}`,
+    `incomplete=${state.incomplete}`,
   );
 }
 
@@ -56,5 +57,9 @@ function formatBody(state: OutboxSummaryState): string {
   const lines = Object.entries(state.counts)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([id, n]) => `- ${id} (${n}): 「${state.previews[id] ?? '(无预览)'}」`);
-  return [head, ...lines].join('\n');
+  const parts = [head, ...lines];
+  if (state.incomplete) {
+    parts.push(`警告：以下 claw 扫描失败，计数可能不完整 — ${state.failed_claws.join(', ')}`);
+  }
+  return parts.join('\n');
 }
