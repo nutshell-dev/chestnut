@@ -73,7 +73,7 @@ describe('phase 63: formatContractEvent status 分支', () => {
   it('archive_corrupted → [contract_archive_corrupted] + failure marker', () => {
     const { audit } = makeAudit();
     const fs = makeFsForStatus('archive_corrupted');
-    const entries = scanArchivedContracts(fs, '/tmp/claw', 'clawA', audit);
+    const { entries } = scanArchivedContracts(fs, '/tmp/claw', 'clawA', audit);
     expect(entries).toHaveLength(1);
     expect(entries[0].body).toMatch(/^\[contract_archive_corrupted\]/);
     expect(entries[0].status).toBe('archive_corrupted');
