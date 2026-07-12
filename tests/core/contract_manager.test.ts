@@ -297,7 +297,7 @@ describe('ContractSystem', () => {
 
   // === 新增测试：损坏 progress.json 抛出 ToolError ===
 
-  it('should throw ToolError when progress.json is corrupted', async () => {
+  it('should isolate and mark crashed when progress.json is corrupted', async () => {
     const contractYaml = makeContractYaml({
       title: 'Test',
       goal: 'Test',
@@ -309,8 +309,19 @@ describe('ContractSystem', () => {
     const progressPath = path.join(clawDir, 'contract', 'active', contractId, 'progress.json');
     await fs.writeFile(progressPath, '{ broken json', 'utf-8');
 
-    // 应该抛出包含解析错误的 ToolError
-    await expect(manager.getProgress(contractId)).rejects.toThrow(/parse|JSON|Unexpected token/i);
+    // phase 958: JSON.parse 失败进入隔离 + markCrashed 路径，返回 null
+    const result = await manager.getProgress(contractId);
+    expect(result).toBeNull();
+
+    // contract 被移到 archive
+    const archiveContractDir = path.join(clawDir, 'contract', 'archive', contractId);
+    await expect(fs.stat(archiveContractDir)).resolves.toBeDefined();
+
+    // 损坏文件被隔离
+    const corruptedDir = path.join(archiveContractDir, 'corrupted');
+    const corruptedFiles = await fs.readdir(corruptedDir);
+    expect(corruptedFiles.length).toBeGreaterThan(0);
+    expect(corruptedFiles[0]).toMatch(/^\d+_[a-zA-Z0-9-]+_progress\.json$/);
   });
 
   // === Phase 22 H1: acquireLock EEXIST retry ===
