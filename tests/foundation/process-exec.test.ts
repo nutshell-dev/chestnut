@@ -15,6 +15,7 @@ import { spawn } from 'child_process';
 
 import { exec, kill, isAlive, findByPattern } from '../../src/foundation/process-exec/index.js';
 import { ProcessExecError, ProcessListUnavailable } from '../../src/foundation/process-exec/index.js';
+import { KillEscalator } from '../../src/foundation/process-exec/exec.js';
 import { DEAD_PID } from '../helpers/dead-pid.js';
 
 /**
@@ -165,6 +166,45 @@ describe('ProcessExec exec', () => {
     expect(result.output).toContain(nodeBinDir);
   });
 
+  // ── timeout precedence over exit code ───────────────────────────────────
+
+  it.concurrent('rejects on timeout even when process exits with code 0', async () => {
+    // Child catches SIGTERM and exits 0; exec must still report timeout/killed.
+    const script = `process.on('SIGTERM', () => { process.exit(0); }); setTimeout(() => {}, ${SUBPROC_HANG_MS});`;
+    try {
+      await exec('node', ['-e', script], {
+        cwd: workDir,
+        timeout: 100,
+        __testMinTimeoutMs: 100,
+        __testSigkillGraceMs: 100,
+      });
+      expect.fail('should have thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(ProcessExecError);
+      expect((err as ProcessExecError).killed).toBe(true);
+    }
+  });
+
+  // ── maxBuffer single-chunk truncation ───────────────────────────────────
+
+  it.concurrent('truncates a single chunk that exceeds maxBuffer', async () => {
+    const maxBuffer = 100;
+    const chunkSize = 1000;
+    const script = `process.stdout.write('a'.repeat(${chunkSize}));`;
+    try {
+      await exec('node', ['-e', script], {
+        cwd: workDir,
+        maxBuffer,
+        timeout: 1000,
+      });
+      expect.fail('should have thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(ProcessExecError);
+      expect((err as ProcessExecError).maxBufferExceeded).toBe(true);
+      expect((err as ProcessExecError).output.length).toBeLessThanOrEqual(maxBuffer);
+    }
+  });
+
   // ── SIGKILL escalation ──────────────────────────────────────────────────
 
   it.concurrent('should escalate to SIGKILL when process traps SIGTERM', async () => {
@@ -222,6 +262,26 @@ describe('ProcessExec exec', () => {
       rejectCount++;
     }
     expect(rejectCount).toBe(1);
+  });
+});
+
+describe('KillEscalator', () => {
+  it('arm() cancels previous timer before setting new one', async () => {
+    const child = spawn('node', ['-e', `setTimeout(() => {}, ${SUBPROC_HANG_MS})`]);
+    const killSpy = vi.spyOn(child, 'kill');
+
+    const escalator = new KillEscalator(child, () => false, 100);
+    escalator.arm(); // first timer
+    escalator.arm(); // second timer should cancel first
+
+    // Wait past the first timer's original deadline (100ms) plus margin.
+    const ESCALATION_WAIT_MS = 150;
+    await new Promise((resolve) => setTimeout(resolve, ESCALATION_WAIT_MS));
+
+    expect(killSpy).toHaveBeenCalledTimes(1);
+    expect(killSpy).toHaveBeenCalledWith('SIGKILL');
+
+    child.kill('SIGKILL');
   });
 });
 

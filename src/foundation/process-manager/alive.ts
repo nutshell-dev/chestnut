@@ -61,18 +61,25 @@ export function getAliveStatus(
       // 历史 deleteSync 引发 stop.ts isAliveByPidFile race（new4.P1.1 + new4.P2.1-C 同根 cluster phase 879）
       return { alive: false, reason: `PID ${pid} not alive` };
     } catch (err) {
-      // PM-5：非 ESRCH/EPERM 的异常 → 保守假设 alive，避免误杀健康进程
+      // Only ESRCH (no such process) is definite death.
+      // EPERM: process exists but we cannot signal it → assume alive (conservative).
       const code = (err as NodeJS.ErrnoException).code;
-      if (code === 'ESRCH' || code === 'EPERM') {
-        return { alive: false, reason: `isAlive ${code}` };
+      if (code === 'ESRCH') {
+        return { alive: false, reason: 'isAlive ESRCH' };
       }
+      if (code === 'EPERM') {
+        return { alive: true, reason: `isAlive EPERM (process exists, cannot probe)`, pid };
+      }
+      // Any other probe error → conservative assume alive to avoid killing a healthy process.
       return { alive: true, reason: `isAlive probe failed: ${formatErr(err)}`, pid };
     }
   } catch (err) {
     if (isFileNotFound(err)) {
       return { alive: false, reason: 'no PID file' };
     }
-    return { alive: false, reason: `read error: ${(err as NodeJS.ErrnoException).code || (err as Error).message}` };
+    // Any other read error (EACCES, EIO, etc.) — cannot determine state.
+    // Assume alive to prevent duplicate daemon startup.
+    return { alive: true, reason: `PID file unreadable: ${formatErr(err)}` };
   }
 }
 

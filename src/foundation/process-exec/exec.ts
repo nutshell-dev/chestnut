@@ -80,14 +80,12 @@ class BufferCollector {
 
   pushStdout(chunk: Buffer): void {
     if (this.overflowed) return;
-    this.stdout.push(chunk);
-    this.appendCombined(chunk);
+    this.pushChunk(this.stdout, chunk);
   }
 
   pushStderr(chunk: Buffer): void {
     if (this.overflowed) return;
-    this.stderr.push(chunk);
-    this.appendCombined(chunk);
+    this.pushChunk(this.stderr, chunk);
   }
 
   get isOverflowed(): boolean {
@@ -102,10 +100,17 @@ class BufferCollector {
     return Buffer.concat(this.stderr).toString('utf-8');
   }
 
-  private appendCombined(chunk: Buffer): void {
-    this.combined.push(chunk);
-    this.totalSize += chunk.length;
-    if (this.totalSize > this.maxBytes && !this.overflowed) {
+  private pushChunk(stream: Buffer[], chunk: Buffer): void {
+    const remaining = this.maxBytes - this.totalSize;
+    if (remaining <= 0) {
+      this.overflowed = true;
+      return;
+    }
+    const toPush = chunk.length <= remaining ? chunk : chunk.subarray(0, remaining);
+    stream.push(toPush);
+    this.combined.push(toPush);
+    this.totalSize += toPush.length;
+    if (this.totalSize >= this.maxBytes && !this.overflowed) {
       this.overflowed = true;
       this.onOverflow();
     }
@@ -116,8 +121,10 @@ class BufferCollector {
  * SIGTERM→SIGKILL escalator. Owner calls `arm()` immediately after issuing
  * SIGTERM; if the process has not exited within `PROCESS_EXEC_SIGKILL_GRACE_MS`,
  * SIGKILL is sent. `disarm()` is idempotent and must be called when settled.
+ *
+ * Exported for unit testing only (phase 912); not part of the public API surface.
  */
-class KillEscalator {
+export class KillEscalator {
   private timerId: ReturnType<typeof setTimeout> | undefined;
   constructor(
     private readonly proc: ReturnType<typeof spawn>,
@@ -126,6 +133,9 @@ class KillEscalator {
   ) {}
 
   arm(): void {
+    if (this.timerId !== undefined) {
+      clearTimeout(this.timerId); // cancel previous timer first (idempotent)
+    }
     this.timerId = setTimeout(() => {
       if (!this.isSettled()) {
         this.proc.kill('SIGKILL');
@@ -216,18 +226,12 @@ export function execWithHandle(
       const output = collector.combinedString();
       const stderr = collector.stderrString() || undefined;
 
-      if (code === 0) {
-        resolve({ output, exitCode: 0, stderr });
-        return;
-      }
-
-      const exitCode = code ?? null;
-
+      // System termination reasons take precedence over exit code interpretation.
       if (timedOut) {
         reject(new ProcessExecError({
           message: `Command timed out after ${timeout}ms`,
           output,
-          exitCode,
+          exitCode: code ?? null,
           killed: true,
           stderr,
         }));
@@ -238,21 +242,45 @@ export function execWithHandle(
         reject(new ProcessExecError({
           message: `Command output exceeded ${maxBuffer / 1024 / 1024} MB limit`,
           output,
-          exitCode,
+          exitCode: code ?? null,
           maxBufferExceeded: true,
           stderr,
         }));
         return;
       }
 
+      if (signal) {
+        reject(new ProcessExecError({
+          message: `Command killed by signal ${signal}`,
+          output,
+          exitCode: null,
+          killed: true,
+          stderr,
+        }));
+        return;
+      }
+
+      if (code === 0) {
+        resolve({ output, exitCode: 0, stderr });
+        return;
+      }
+
+      if (proc.killed) {
+        reject(new ProcessExecError({
+          message: 'Command was killed',
+          output,
+          exitCode: code,
+          killed: true,
+          stderr,
+        }));
+        return;
+      }
+
       reject(new ProcessExecError({
-        message: signal
-          ? `Command killed with signal ${signal}`
-          : `Command failed with exit code ${exitCode}`,
+        message: `Command exited with code ${code}`,
         output,
-        exitCode,
-        signal: signal ?? undefined,
-        killed: !!signal,
+        exitCode: code,
+        killed: false,
         stderr,
       }));
     });
