@@ -113,9 +113,10 @@ function createMockAudit(): { audit: AuditLog; events: string[][] } {
 }
 
 describe('phase 946 contract-observer watermark + async notify', () => {
-  it('watermark: archivedAt <= lastArchivedAt → 不再 emit', async () => {
+  it('watermark: archivedAt < lastArchivedAt → 不再 emit', async () => {
     const pastTs = '2026-06-04T06:35:59.482Z';
     const pastMs = new Date(pastTs).getTime();
+    const olderTs = '2026-06-04T06:35:58.482Z';
     const { fs } = createMockFs({
       initialState: {
         version: 3,
@@ -127,7 +128,7 @@ describe('phase 946 contract-observer watermark + async notify', () => {
         clawId: 'worker-a',
         contractId: 'contract-1',
         status: 'completed',
-        subtaskCompletedAt: pastTs,
+        subtaskCompletedAt: olderTs,
       }],
     });
     const { audit } = createMockAudit();
@@ -208,18 +209,18 @@ describe('phase 946 contract-observer watermark + async notify', () => {
     // bootstrap = no emit
     expect(notifyClaw).not.toHaveBeenCalled();
 
-    // verify state migrated to v4 + bootstrapDone + per-claw 水位更新
+    // verify state migrated to v5 + bootstrapDone + per-claw 复合游标水位更新
     const stateContent = writes.get('/test/root/motion/status/contract-observer-state.json');
     expect(stateContent).toBeDefined();
     const newState = JSON.parse(stateContent!) as {
       version: number;
       lastCheckTs: number;
-      clawWatermarks: Record<string, number>;
+      clawWatermarks: Record<string, { archivedAt: number; lastContractId: string }>;
       bootstrapDone: boolean;
     };
-    expect(newState.version).toBe(4);
+    expect(newState.version).toBe(5);
     expect(newState.bootstrapDone).toBe(true);
-    expect(newState.clawWatermarks['worker-a']).toBe(pastMs);
+    expect(newState.clawWatermarks['worker-a']).toEqual({ archivedAt: pastMs, lastContractId: 'contract-1' });
 
     // bootstrap done trace audit
     const bootstrapAudits = events.filter(e => e[0] === 'contract_observer_bootstrap_done');
@@ -260,12 +261,12 @@ describe('phase 946 contract-observer watermark + async notify', () => {
     expect(stateContent).toBeDefined();
     const newState = JSON.parse(stateContent!) as {
       version: number;
-      clawWatermarks: Record<string, number>;
+      clawWatermarks: Record<string, { archivedAt: number; lastContractId: string }>;
       bootstrapDone: boolean;
     };
-    expect(newState.version).toBe(4);
+    expect(newState.version).toBe(5);
     expect(newState.bootstrapDone).toBe(true);
-    expect(newState.clawWatermarks['worker-a']).toBe(pastMs);
+    expect(newState.clawWatermarks['worker-a']).toEqual({ archivedAt: pastMs, lastContractId: 'contract-1' });
   });
 
   it('first-run (state 不存在): bootstrap path、首 tick 不 emit、更新水位', async () => {
@@ -298,11 +299,11 @@ describe('phase 946 contract-observer watermark + async notify', () => {
     const newState = JSON.parse(stateContent!) as {
       version: number;
       bootstrapDone: boolean;
-      clawWatermarks: Record<string, number>;
+      clawWatermarks: Record<string, { archivedAt: number; lastContractId: string }>;
     };
-    expect(newState.version).toBe(4);
+    expect(newState.version).toBe(5);
     expect(newState.bootstrapDone).toBe(true);
-    expect(newState.clawWatermarks['worker-a']).toBe(pastMs);
+    expect(newState.clawWatermarks['worker-a']).toEqual({ archivedAt: pastMs, lastContractId: 'contract-1' });
   });
 
   it('lastCheckTs 写 tickStart 不是 end-of-scan now', async () => {

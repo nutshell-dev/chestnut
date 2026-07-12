@@ -166,19 +166,31 @@ export interface ArchivedContractEntry {
 }
 
 /**
+ * phase 950: 结构化 scan 结果，使 caller 能感知扫描是否完整。
+ */
+export interface ArchivedContractScanResult {
+  entries: ArchivedContractEntry[];
+  /** true when at least one contract could not be parsed / validated / read */
+  incomplete: boolean;
+}
+
+/**
  * phase 37: 扫 archive 全 completed contract、不 filter。
  * Caller 按需 filter (sinceTs / notifiedSet / 其他)。
  *
  * 抽出动机：observer race 治本要求按 dedup-set 过滤（不依赖时间戳）、
  * 同时保留 CLI's `chestnut claw <id> events --since <ts>` sinceTs 语义。
+ *
+ * phase 950: 返回 `{ entries, incomplete }`；incomplete 时 observer 不推进该 claw 水位。
  */
 export function scanArchivedContracts(
   fs: FileSystem,
   clawDir: string,
   clawId: ClawId,
   audit: AuditLog,
-): ArchivedContractEntry[] {
+): ArchivedContractScanResult {
   const entries: ArchivedContractEntry[] = [];
+  let incomplete = false;
   const archiveDir = path.join(clawDir, CONTRACT_ARCHIVE_DIR);
   try {
     const dirs = fs.listSync(archiveDir, { includeDirs: true })
@@ -195,6 +207,7 @@ export function scanArchivedContracts(
         delete obj.contract_id;
         const result = ContractProgressArchiveLooseSchema.safeParse(obj);
         if (!result.success) {
+          incomplete = true;
           audit?.write(
             CONTRACT_AUDIT_EVENTS.PROGRESS_CORRUPTED,
             `clawId=${clawId}`,
@@ -252,6 +265,7 @@ export function scanArchivedContracts(
         if (isFileNotFound(err)) {
           continue; // silent skip absent / 不入 audit
         }
+        incomplete = true;
         audit?.write(
           CONTRACT_AUDIT_EVENTS.PROGRESS_CORRUPTED,
           `clawId=${clawId}`,
@@ -265,6 +279,7 @@ export function scanArchivedContracts(
   } catch (err) {
     // phase 1154 r+ derive: 双码 narrow via foundation helper (FileSystem 抽象层抛 FS_NOT_FOUND)
     if (!isFileNotFound(err)) {
+      incomplete = true;
       const code = (err as NodeJS.ErrnoException)?.code;
       // phase 717: dir col 改为实际 archiveDir 路径、与 phase 696/697 同语义 listing-failed 形态对齐
       audit?.write(
@@ -275,7 +290,7 @@ export function scanArchivedContracts(
       );
     }
   }
-  return entries;
+  return { entries, incomplete };
 }
 
 /**
@@ -298,10 +313,10 @@ export function collectContractEvents(
   sinceTs: number,
   audit: AuditLog,
 ): CollectedContractEventsResult {
-  const entries = scanArchivedContracts(fs, clawDir, clawId, audit)
-    .filter(e => e.archivedAt > sinceTs);
+  const { entries } = scanArchivedContracts(fs, clawDir, clawId, audit);
+  const filtered = entries.filter(e => e.archivedAt > sinceTs);
   return {
-    events: entries.map(e => e.body),
-    problemPairs: entries.filter(e => e.hasFailure).map(e => `${clawId}:${e.contractId}`),
+    events: filtered.map(e => e.body),
+    problemPairs: filtered.filter(e => e.hasFailure).map(e => `${clawId}:${e.contractId}`),
   };
 }

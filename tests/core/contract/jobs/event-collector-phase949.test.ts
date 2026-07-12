@@ -50,7 +50,7 @@ describe('phase 949: event-collector cursor / schema / active-state fixes', () =
     }));
 
     const clawDir = path.join(chestnutRoot, 'claws/worker-1');
-    const entries = scanArchivedContracts(fs, clawDir, 'worker-1', audit);
+    const { entries } = scanArchivedContracts(fs, clawDir, 'worker-1', audit);
     expect(entries).toHaveLength(1);
     expect(entries[0].status).toBe('cancelled');
     expect(entries[0].archivedAt).toBeGreaterThan(0);
@@ -81,7 +81,7 @@ describe('phase 949: event-collector cursor / schema / active-state fixes', () =
     }));
 
     const clawDir = path.join(chestnutRoot, 'claws/worker-1');
-    const entries = scanArchivedContracts(fs, clawDir, 'worker-1', audit);
+    const { entries } = scanArchivedContracts(fs, clawDir, 'worker-1', audit);
     expect(entries).toHaveLength(1);
     expect(entries[0].contractId).toBe('1780-good');
 
@@ -102,7 +102,7 @@ describe('phase 949: event-collector cursor / schema / active-state fixes', () =
     }));
 
     const clawDir = path.join(chestnutRoot, 'claws/worker-1');
-    const entries = scanArchivedContracts(fs, clawDir, 'worker-1', audit);
+    const { entries } = scanArchivedContracts(fs, clawDir, 'worker-1', audit);
     expect(entries).toHaveLength(1);
     expect(entries[0].status).toBe('running');
     expect(entries[0].hasFailure).toBe(true);
