@@ -222,56 +222,36 @@ describe('memory dream-state save invariant (phase 247 Step A + phase 280)', () 
   });
 
   describe('random_dream_save', () => {
-    describe('lastProcessedRandomDreamAt', () => {
-      it('合法 0 → 0 emit', () => {
+    describe('completedContractIds', () => {
+      it('合法空数组 → 0 emit', () => {
         const audit = makeMockAudit();
-        assertDreamStateShape({ lastProcessedRandomDreamAt: 0 }, audit, 'random_dream_save');
+        assertDreamStateShape({ completedContractIds: [] }, audit, 'random_dream_save');
         expect(audit.write).not.toHaveBeenCalled();
       });
 
-      it('合法正数 → 0 emit', () => {
+      it('合法字符串数组 → 0 emit', () => {
         const audit = makeMockAudit();
-        assertDreamStateShape({ lastProcessedRandomDreamAt: 1717000000000 }, audit, 'random_dream_save');
+        assertDreamStateShape({ completedContractIds: ['c1', 'c2'] }, audit, 'random_dream_save');
         expect(audit.write).not.toHaveBeenCalled();
       });
 
-      it('负数 → emit kind=random_lastProcessedRandomDreamAt_invalid', () => {
+      it('非数组 → emit kind=random_completedContractIds_not_array', () => {
         const audit = makeMockAudit();
-        assertDreamStateShape({ lastProcessedRandomDreamAt: -1 }, audit, 'random_dream_save');
+        assertDreamStateShape({ completedContractIds: 'nope' }, audit, 'random_dream_save');
         const calls = (audit.write as ReturnType<typeof vi.fn>).mock.calls;
         expect(calls.some(c =>
           c[0] === MEMORY_AUDIT_EVENTS.MEMORY_DREAM_INVARIANT_VIOLATED &&
-          c[1]?.includes('random_lastProcessedRandomDreamAt_invalid')
+          c[1]?.includes('random_completedContractIds_not_array')
         )).toBe(true);
       });
 
-      it('NaN → emit', () => {
+      it('entry 非 string → emit kind=random_completedContractIds_entry_not_string', () => {
         const audit = makeMockAudit();
-        assertDreamStateShape({ lastProcessedRandomDreamAt: NaN }, audit, 'random_dream_save');
+        assertDreamStateShape({ completedContractIds: ['c1', 42 as unknown as string] }, audit, 'random_dream_save');
         const calls = (audit.write as ReturnType<typeof vi.fn>).mock.calls;
         expect(calls.some(c =>
           c[0] === MEMORY_AUDIT_EVENTS.MEMORY_DREAM_INVARIANT_VIOLATED &&
-          c[1]?.includes('random_lastProcessedRandomDreamAt_invalid')
-        )).toBe(true);
-      });
-
-      it('Infinity → emit', () => {
-        const audit = makeMockAudit();
-        assertDreamStateShape({ lastProcessedRandomDreamAt: Infinity }, audit, 'random_dream_save');
-        const calls = (audit.write as ReturnType<typeof vi.fn>).mock.calls;
-        expect(calls.some(c =>
-          c[0] === MEMORY_AUDIT_EVENTS.MEMORY_DREAM_INVARIANT_VIOLATED &&
-          c[1]?.includes('random_lastProcessedRandomDreamAt_invalid')
-        )).toBe(true);
-      });
-
-      it('字符串 → emit', () => {
-        const audit = makeMockAudit();
-        assertDreamStateShape({ lastProcessedRandomDreamAt: '0' }, audit, 'random_dream_save');
-        const calls = (audit.write as ReturnType<typeof vi.fn>).mock.calls;
-        expect(calls.some(c =>
-          c[0] === MEMORY_AUDIT_EVENTS.MEMORY_DREAM_INVARIANT_VIOLATED &&
-          c[1]?.includes('random_lastProcessedRandomDreamAt_invalid')
+          c[1]?.includes('random_completedContractIds_entry_not_string')
         )).toBe(true);
       });
     });
@@ -279,22 +259,22 @@ describe('memory dream-state save invariant (phase 247 Step A + phase 280)', () 
     describe('pendingLateSettle', () => {
       it('undefined → 0 emit', () => {
         const audit = makeMockAudit();
-        assertDreamStateShape({ lastProcessedRandomDreamAt: 0 }, audit, 'random_dream_save');
+        assertDreamStateShape({ completedContractIds: [] }, audit, 'random_dream_save');
         expect(audit.write).not.toHaveBeenCalled();
       });
 
       it('合法 entry 数组 → 0 emit', () => {
         const audit = makeMockAudit();
         assertDreamStateShape({
-          lastProcessedRandomDreamAt: 0,
-          pendingLateSettle: [{ taskId: 't1', scheduledAt: 1, expectedTimeoutAt: 2 }],
+          completedContractIds: [],
+          pendingLateSettle: [{ taskId: 't1', scheduledAt: 1, expectedTimeoutAt: 2, contractIds: ['c1'] }],
         }, audit, 'random_dream_save');
         expect(audit.write).not.toHaveBeenCalled();
       });
 
       it('非数组 → emit kind=random_pendingLateSettle_not_array', () => {
         const audit = makeMockAudit();
-        assertDreamStateShape({ lastProcessedRandomDreamAt: 0, pendingLateSettle: 'nope' }, audit, 'random_dream_save');
+        assertDreamStateShape({ completedContractIds: [], pendingLateSettle: 'nope' }, audit, 'random_dream_save');
         const calls = (audit.write as ReturnType<typeof vi.fn>).mock.calls;
         expect(calls.some(c =>
           c[0] === MEMORY_AUDIT_EVENTS.MEMORY_DREAM_INVARIANT_VIOLATED &&
@@ -305,8 +285,8 @@ describe('memory dream-state save invariant (phase 247 Step A + phase 280)', () 
       it('entry 缺 taskId → emit kind=random_pendingLateSettle_entry_invalid + idx', () => {
         const audit = makeMockAudit();
         assertDreamStateShape({
-          lastProcessedRandomDreamAt: 0,
-          pendingLateSettle: [{ scheduledAt: 1, expectedTimeoutAt: 2 }],
+          completedContractIds: [],
+          pendingLateSettle: [{ scheduledAt: 1, expectedTimeoutAt: 2, contractIds: ['c1'] }],
         }, audit, 'random_dream_save');
         const calls = (audit.write as ReturnType<typeof vi.fn>).mock.calls;
         expect(calls.some(c =>
@@ -319,8 +299,8 @@ describe('memory dream-state save invariant (phase 247 Step A + phase 280)', () 
       it('entry scheduledAt 非 number → emit', () => {
         const audit = makeMockAudit();
         assertDreamStateShape({
-          lastProcessedRandomDreamAt: 0,
-          pendingLateSettle: [{ taskId: 't1', scheduledAt: '1', expectedTimeoutAt: 2 }],
+          completedContractIds: [],
+          pendingLateSettle: [{ taskId: 't1', scheduledAt: '1', expectedTimeoutAt: 2, contractIds: ['c1'] }],
         }, audit, 'random_dream_save');
         const calls = (audit.write as ReturnType<typeof vi.fn>).mock.calls;
         expect(calls.some(c =>
@@ -332,8 +312,8 @@ describe('memory dream-state save invariant (phase 247 Step A + phase 280)', () 
       it('entry expectedTimeoutAt 非 number → emit', () => {
         const audit = makeMockAudit();
         assertDreamStateShape({
-          lastProcessedRandomDreamAt: 0,
-          pendingLateSettle: [{ taskId: 't1', scheduledAt: 1, expectedTimeoutAt: '2' }],
+          completedContractIds: [],
+          pendingLateSettle: [{ taskId: 't1', scheduledAt: 1, expectedTimeoutAt: '2', contractIds: ['c1'] }],
         }, audit, 'random_dream_save');
         const calls = (audit.write as ReturnType<typeof vi.fn>).mock.calls;
         expect(calls.some(c =>
@@ -382,7 +362,7 @@ describe('memory dream-state save invariant (phase 247 Step A + phase 280)', () 
       const fs = makeMockFsForWrite((file, content) => { writes.push([file, content]); });
       const audit = makeMockAudit();
 
-      __test_saveRandomDreamState(fs, { lastProcessedRandomDreamAt: 0 }, audit);
+      __test_saveRandomDreamState(fs, { completedContractIds: [] }, audit);
 
       expect(writes).toHaveLength(1);
       expect(writes[0][0]).toBe('.random-dream-state.json');
@@ -394,7 +374,7 @@ describe('memory dream-state save invariant (phase 247 Step A + phase 280)', () 
       const fs = makeMockFsForWrite(() => { throw new Error('ENOSPC'); });
       const audit = makeMockAudit();
 
-      const state = { lastProcessedRandomDreamAt: -1 } as unknown as { lastProcessedRandomDreamAt: number };
+      const state = { completedContractIds: 'bad' } as unknown as { completedContractIds: string[] };
       expect(() => __test_saveRandomDreamState(fs, state, audit)).toThrow('ENOSPC');
 
       expect(writes).toHaveLength(0);

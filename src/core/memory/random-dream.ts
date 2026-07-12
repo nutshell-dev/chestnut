@@ -13,6 +13,7 @@ import type { ContractId } from '../contract/types.js';
 import { type TaskId, type FullTaskId, type ShortTaskId, type ShortIdIndex, makeShortTaskId } from '../async-task-system/types.js';
 import { listArchiveContracts, readArchiveProgress } from '../contract/index.js';
 import { assertDreamStateShape } from './invariants.js';
+import { createOutboxWriter } from '../../foundation/messaging/index.js';
 
 /**
  * Default pulse interval（ms）for waitForTaskResult polling.
@@ -88,7 +89,7 @@ interface PendingLateSettleEntry {
   fullTaskId?: FullTaskId;   // phase 849: stored fullId for persistence paths
   scheduledAt: number;       // ms epoch, entry entered pending
   expectedTimeoutAt: number; // scheduledAt + subagentTimeoutMs
-  contractIds?: ContractId[]; // phase 924: contracts covered by this pending task
+  contractIds: ContractId[]; // phase 924/925: contracts covered by this pending task
 }
 
 /**
@@ -98,7 +99,7 @@ const RANDOM_DREAM_STATE_CURRENT_VERSION = 1;
 
 interface RandomDreamState {
   schema_version?: number;                       // phase 548: 显式 schema 版本（缺即视 v1）
-  lastProcessedRandomDreamAt: number;            // ms epoch 高水位线
+  completedContractIds: ContractId[];            // phase 925: per-contract 完成集合
   pendingLateSettle?: PendingLateSettleEntry[];  // NEW phase 170, optional for backward compat
 }
 
@@ -107,14 +108,15 @@ interface RandomDreamState {
 const RANDOM_DREAM_STATE_FILE = '.random-dream-state.json';
 
 function isValidPendingEntry(e: unknown): e is PendingLateSettleEntry {
-  return typeof e === 'object' && e !== null
-    && typeof (e as Record<string, unknown>).taskId === 'string'
-    && typeof (e as Record<string, unknown>).scheduledAt === 'number'
-    && typeof (e as Record<string, unknown>).expectedTimeoutAt === 'number'
-    && (
-      (e as Record<string, unknown>).fullTaskId === undefined
-      || typeof (e as Record<string, unknown>).fullTaskId === 'string'
-    );
+  if (typeof e !== 'object' || e === null) return false;
+  const r = e as Record<string, unknown>;
+  if (typeof r.taskId !== 'string') return false;
+  if (typeof r.scheduledAt !== 'number') return false;
+  if (typeof r.expectedTimeoutAt !== 'number') return false;
+  if (!Array.isArray(r.contractIds)) return false;
+  if (!r.contractIds.every((id: unknown) => typeof id === 'string')) return false;
+  if (r.fullTaskId !== undefined && typeof r.fullTaskId !== 'string') return false;
+  return true;
 }
 
 function loadRandomDreamState(fs: FileSystem, audit: AuditLog): RandomDreamState {
@@ -125,7 +127,7 @@ function loadRandomDreamState(fs: FileSystem, audit: AuditLog): RandomDreamState
         `site=load_state_shape_invalid`,
         `reason=state_not_object`,
         `actual=${typeof parsed}`);
-      return { schema_version: RANDOM_DREAM_STATE_CURRENT_VERSION, lastProcessedRandomDreamAt: 0 };
+      return { schema_version: RANDOM_DREAM_STATE_CURRENT_VERSION, completedContractIds: [] };
     }
     const r = parsed as Record<string, unknown>;
 
@@ -137,34 +139,39 @@ function loadRandomDreamState(fs: FileSystem, audit: AuditLog): RandomDreamState
         `current=${RANDOM_DREAM_STATE_CURRENT_VERSION}`,
         `reason=cannot_migrate_future_version`,
       );
-      return { schema_version: RANDOM_DREAM_STATE_CURRENT_VERSION, lastProcessedRandomDreamAt: 0 };
+      return { schema_version: RANDOM_DREAM_STATE_CURRENT_VERSION, completedContractIds: [] };
     }
 
-    // phase 280: legacy schema migration
-    if ('processedContractIds' in r) {
+    // phase 280/925: legacy schema migration
+    if ('processedContractIds' in r || 'lastProcessedRandomDreamAt' in r) {
+      const legacyField = 'processedContractIds' in r ? 'processedContractIds' : 'lastProcessedRandomDreamAt';
       audit.write(MEMORY_AUDIT_EVENTS.LEGACY_SCHEMA_MIGRATED_RESET,
         `kind=random_dream`,
-        `legacy_field=processedContractIds`,
+        `legacy_field=${legacyField}`,
         `legacy_count=${Array.isArray(r.processedContractIds) ? r.processedContractIds.length : 0}`,
       );
       const pending = Array.isArray(r.pendingLateSettle)
         ? r.pendingLateSettle.filter(isValidPendingEntry)
         : [];
-      return { schema_version: RANDOM_DREAM_STATE_CURRENT_VERSION, lastProcessedRandomDreamAt: 0, pendingLateSettle: pending };
+      // phase 925: best-effort seed completedContractIds from legacy processedContractIds
+      const completed: ContractId[] = Array.isArray(r.processedContractIds)
+        ? r.processedContractIds.filter((id): id is ContractId => typeof id === 'string')
+        : [];
+      return { schema_version: RANDOM_DREAM_STATE_CURRENT_VERSION, completedContractIds: completed, pendingLateSettle: pending };
     }
 
     return r as unknown as RandomDreamState;
   } catch (err) {
     // FileNotFoundError 首启良性 / silent
     if (err instanceof FileNotFoundError) {
-      return { schema_version: RANDOM_DREAM_STATE_CURRENT_VERSION, lastProcessedRandomDreamAt: 0 };
+      return { schema_version: RANDOM_DREAM_STATE_CURRENT_VERSION, completedContractIds: [] };
     }
     // 其他 IO 错（parse 损坏 / 权限 / 等）必 audit + 返空 resilient
     audit.write(MEMORY_AUDIT_EVENTS.RANDOM_DREAM_ERROR,
       `site=load_state`,
       `reason=${formatErr(err)}`,
     );
-    return { schema_version: RANDOM_DREAM_STATE_CURRENT_VERSION, lastProcessedRandomDreamAt: 0 };
+    return { schema_version: RANDOM_DREAM_STATE_CURRENT_VERSION, completedContractIds: [] };
   }
 }
 
@@ -308,21 +315,18 @@ async function discoverWeightedContracts(
   const contracts: WeightedContract[] = [];
 
   // Phase 1335 (r138 F fork): cross-module query API 替代直扫
-  // phase 280: 高水位线 filter，不再本地持 processedIds Set
-  // 当 lastProcessedRandomDreamAt === 0 时不传 filter（兼容 archivedAt 为 undefined 的初态 archive）
-  const archiveContracts = await listArchiveContracts({
-    fs,
-    filter: state.lastProcessedRandomDreamAt > 0
-      ? { sinceMs: state.lastProcessedRandomDreamAt + 1 }
-      : undefined,
-  });
+  // phase 925: 不再使用单一高水位线过滤；改为按 completed/pending contractIds 集合过滤
+  const archiveContracts = await listArchiveContracts({ fs });
 
-  // phase 924: exclude contracts already covered by pending late-settle tasks
+  // phase 925: exclude contracts already completed or covered by pending late-settle tasks
+  const completedIds = new Set<ContractId>(state.completedContractIds);
   const pendingIds = new Set<ContractId>(
     (state.pendingLateSettle ?? [])
-      .flatMap(e => e.contractIds ?? [])
+      .flatMap(e => e.contractIds)
   );
-  const visibleRefs = archiveContracts.filter(ref => !pendingIds.has(ref.contractId));
+  const visibleRefs = archiveContracts.filter(ref =>
+    !completedIds.has(ref.contractId) && !pendingIds.has(ref.contractId)
+  );
 
   for (const ref of visibleRefs) {
     const { clawId, contractId, contractDir } = ref;
@@ -355,6 +359,23 @@ function resolveFullTaskId(
   index?: ShortIdIndex,
 ): FullTaskId | undefined {
   return index?.resolve(shortId);
+}
+
+// phase 925: durable outbox helper — write to motion claw outbox before committing state
+async function writeOutboxAsync(
+  fs: FileSystem,
+  audit: AuditLog,
+  content: string,
+  metadata?: Record<string, string>,
+): Promise<string> {
+  const writer = createOutboxWriter(MOTION_CLAW_ID, '.', fs, audit);
+  return writer.write({
+    type: 'result',
+    to: MOTION_CLAW_ID,
+    content,
+    priority: 'low',
+    metadata,
+  });
 }
 
 // ─── 等待任务结果 ────────────────────────────────────────────
@@ -471,10 +492,6 @@ async function sweepLateSettlePending(
   const now = Date.now();
   const remaining: PendingLateSettleEntry[] = [];
 
-  // phase 280: 为 late-settle 消费的 contract 查 archivedAt 以更新高水位线
-  const archiveContracts = await listArchiveContracts({ fs: opts.fs });
-  const archivedAtMap = new Map(archiveContracts.map(r => [r.contractId, r.archivedAt]));
-
   for (const entry of pending) {
     const lateFullId = entry.fullTaskId
       ?? (entry.taskId.length === 36 ? entry.taskId as FullTaskId : resolveFullTaskId(entry.taskId as ShortTaskId, opts.shortIdIndex));
@@ -502,23 +519,26 @@ async function sweepLateSettlePending(
           `bytes=${dreamOutput.length}`,
         );
 
-        opts.notifyMotion({
-          type: 'random_dream',
-          source: 'cron-dream',
-          priority: 'low',
-          body: dreamOutput,
-          idPrefix: `${entry.taskId}_late_settle`,    // dedup key含taskId、idempotent
-          extraFields: {
+        // phase 925: durable outbox first, then commit state
+        await writeOutboxAsync(
+          opts.motionFs,
+          opts.audit,
+          dreamOutput.slice(0, 500),
+          {
+            dream_type: 'random_dream',
             dream_count: String(outputs.length),
+            dream_id: entry.taskId,
             late_settle_task_id: entry.taskId,
             ...(lateFullId ? { late_settle_full_task_id: lateFullId } : {}),
+            path: dreamOutputPath,
           },
-        });
+        );
 
+        // phase 925: mark covered contracts as completed
         for (const cid of contractIds) {
-          const at = archivedAtMap.get(cid as ContractId);
-          const tsMs = at ? new Date(at).getTime() : 0;
-          state.lastProcessedRandomDreamAt = Math.max(state.lastProcessedRandomDreamAt, tsMs);
+          if (!state.completedContractIds.includes(cid as ContractId)) {
+            state.completedContractIds.push(cid as ContractId);
+          }
         }
       }
 
@@ -547,7 +567,7 @@ async function sweepLateSettlePending(
   }
 
   const updatedState: RandomDreamState = {
-    lastProcessedRandomDreamAt: state.lastProcessedRandomDreamAt,
+    completedContractIds: state.completedContractIds,
     pendingLateSettle: remaining,
   };
   saveRandomDreamState(opts.fs, updatedState, opts.audit);
@@ -596,6 +616,18 @@ export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
 
   opts.audit.write(MEMORY_AUDIT_EVENTS.RANDOM_DREAM_JOB, `step=subagent_started`, `taskId=${taskId}`);
 
+  // phase 925: persist pending contractIds immediately after schedule (crash-recoverable)
+  const now = Date.now();
+  const pendingEntry: PendingLateSettleEntry = {
+    taskId,
+    ...(fullTaskId ? { fullTaskId } : {}),
+    scheduledAt: now,
+    expectedTimeoutAt: now + subagentTimeoutMs,
+    contractIds: weightedContracts.map(wc => wc.contractId),
+  };
+  state.pendingLateSettle = [...(state.pendingLateSettle ?? []), pendingEntry];
+  saveRandomDreamState(opts.fs, state, opts.audit);
+
   // 等待完成（最长 1h，每 30s 轮询）
   const log = await waitForTaskResult(
     opts.motionFs,
@@ -607,27 +639,11 @@ export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
     opts.signal,
   );
   if (!log) {
-    // NEW phase 170: late-settle pending state
-    const now = Date.now();
-    const updatedState: RandomDreamState = {
-      lastProcessedRandomDreamAt: state.lastProcessedRandomDreamAt,
-      pendingLateSettle: [
-        ...(state.pendingLateSettle ?? []),
-        {
-          taskId,
-          ...(fullTaskId ? { fullTaskId } : {}),
-          scheduledAt: now - subagentTimeoutMs,
-          expectedTimeoutAt: now,
-          contractIds: weightedContracts.map(wc => wc.contractId),
-        },
-      ],
-    };
-    saveRandomDreamState(opts.fs, updatedState, opts.audit);
-
+    // pending entry already persisted above; just emit audits
     opts.audit.write(
       MEMORY_AUDIT_EVENTS.RANDOM_DREAM_LATE_SETTLE_PENDING,
       `taskId=${taskId}`,
-      `expected_timeout_at=${now}`,
+      `expected_timeout_at=${now + subagentTimeoutMs}`,
     );
     opts.audit.write(
       MEMORY_AUDIT_EVENTS.RANDOM_DREAM_SUBAGENT_TIMEOUT,
@@ -640,30 +656,24 @@ export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
   // 解析梦境输出
   const { outputs, contractIds: completedIds } = extractDreamOutputs(log);
   if (outputs.length === 0) {
+    // phase 925: remove pending entry even when no output, then save state
+    state.pendingLateSettle = state.pendingLateSettle?.filter(p => p.taskId !== taskId);
+    saveRandomDreamState(opts.fs, state, opts.audit);
     opts.audit.write(MEMORY_AUDIT_EVENTS.RANDOM_DREAM_OUTPUT_MISSING, `reason=no_output`);
     return;
   }
 
   opts.audit.write(MEMORY_AUDIT_EVENTS.RANDOM_DREAM_JOB, `step=finished`, `output_count=${outputs.length}`);
 
-  // 更新高水位线（phase 280）—— phase 924: 只按实际有输出的契约推进
   const completedSet = new Set(completedIds);
-  let maxProcessedAt = state.lastProcessedRandomDreamAt;
-  for (const wc of weightedContracts) {
-    if (completedSet.has(wc.contractId)) {
-      const ts = wc.archivedAt ? new Date(wc.archivedAt).getTime() : 0;
-      maxProcessedAt = Math.max(maxProcessedAt, ts);
-    }
-  }
-  const updatedState: RandomDreamState = {
-    lastProcessedRandomDreamAt: maxProcessedAt,
-  };
+  const newlyCompletedIds = weightedContracts
+    .filter(wc => completedSet.has(wc.contractId))
+    .map(wc => wc.contractId);
 
   const dreamOutput = outputs.join('\n\n---\n\n');
   const dreamOutputPath = `${MEMORY_DREAM_OUTPUTS_DIR}/${taskIdForPaths}.txt`;
 
-  // phase 924: 先写 output，再推进水位，最后通知
-  // NEW: disk snapshot（motion 域）
+  // phase 924/925: 先写 output snapshot
   await opts.motionFs.ensureDir(MEMORY_DREAM_OUTPUTS_DIR);
   await opts.motionFs.writeAtomic(dreamOutputPath, dreamOutput);
   opts.audit.write(
@@ -673,15 +683,21 @@ export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
     `bytes=${dreamOutput.length}`,
   );
 
-  saveRandomDreamState(opts.fs, updatedState, opts.audit);
+  // phase 925: durable outbox first, then commit state
+  await writeOutboxAsync(
+    opts.motionFs,
+    opts.audit,
+    dreamOutput.slice(0, 500),
+    {
+      dream_type: 'random_dream',
+      dream_count: String(outputs.length),
+      dream_id: taskId,
+      path: dreamOutputPath,
+    },
+  );
 
-  // phase 92: 通过 caller-bound notifyMotion 投递到 motion inbox
-  opts.notifyMotion({
-    type: 'random_dream',
-    source: 'cron-dream',
-    priority: 'low',
-    body: dreamOutput,
-    idPrefix: `${Date.now()}_random_dream`,
-    extraFields: { dream_count: String(outputs.length) },
-  });
+  // phase 925: commit state — remove pending entry + append completed contract IDs
+  state.pendingLateSettle = state.pendingLateSettle?.filter(p => p.taskId !== taskId);
+  state.completedContractIds = [...new Set([...state.completedContractIds, ...newlyCompletedIds])];
+  saveRandomDreamState(opts.fs, state, opts.audit);
 }

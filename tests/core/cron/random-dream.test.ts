@@ -5,7 +5,7 @@
  * - 无契约时提前返回
  * - Fix 3 回归：同 claw 后续契约 hint 不含"新claw"
  * - Fix 5 回归：轮询 .txt（完成信号），不轮询 .log（启动即存在）
- * - [DREAM_OUTPUT] 提取与 inbox 投递
+ * - [DREAM_OUTPUT] 提取与 outbox 投递
  * - state 更新
  */
 
@@ -48,6 +48,15 @@ function makeOpts(chestnutRoot: string, motionDir: string): RandomDreamOptions {
     audit: mockAudit as any,
     notifyMotion: (msg) => routeNotifyClaw(fs, chestnutRoot, MOTION_CLAW_ID, MOTION_CLAW_ID, msg, mockAudit as any),
   };
+}
+
+/** 读取 motion claw outbox pending 目录的文件内容 */
+function readOutboxPending(motionDir: string): string[] {
+  const outboxDir = path.join(motionDir, 'outbox', 'pending');
+  if (!fsSync.existsSync(outboxDir)) return [];
+  return fsSync.readdirSync(outboxDir)
+    .filter(f => f.endsWith('.md'))
+    .map(f => fsSync.readFileSync(path.join(outboxDir, f), 'utf8'));
 }
 
 /** 创建 archive 契约目录并写入 progress.json（使 listArchiveContracts 能 derive archivedAt） */
@@ -111,7 +120,7 @@ describe('runRandomDream', () => {
       await createArchiveContract(chestnutRoot, 'claw-1', 'contract-001');
     });
 
-    it('sub-agent 完成后提取 [DREAM_OUTPUT]，写入 inbox，更新 state', async () => {
+    it('sub-agent 完成后提取 [DREAM_OUTPUT]，写入 outbox，更新 state', async () => {
       const dreamLog = `=== SubAgent ${taskId} started ===
 Prompt: ...
 [DREAM_OUTPUT contract_id="contract-001"]
@@ -126,13 +135,13 @@ Prompt: ...
       const statePath = path.join(chestnutRoot, '.random-dream-state.json');
       expect(fsSync.existsSync(statePath)).toBe(true);
       const state = JSON.parse(fsSync.readFileSync(statePath, 'utf-8'));
-      expect(typeof state.lastProcessedRandomDreamAt).toBe('number');
-      expect(state.lastProcessedRandomDreamAt).toBeGreaterThan(0);
+      expect(state.completedContractIds).toContain('contract-001');
 
-      // inbox 消息写入
-      const inboxFiles = fsSync.readdirSync(path.join(motionDir, 'inbox', 'pending'));
-      const hasRandomDream = inboxFiles.some(f => fsSync.readFileSync(path.join(motionDir, 'inbox', 'pending', f), 'utf8').includes('type: random_dream'));
-      expect(hasRandomDream).toBe(true);
+      // outbox 消息写入
+      const outboxContents = readOutboxPending(motionDir);
+      expect(outboxContents.length).toBeGreaterThan(0);
+      expect(outboxContents[0]).toContain('type: result');
+      expect(outboxContents[0]).toContain('dream_type: "random_dream"');
 
       // DREAM_OUTPUT_PERSISTED audit emit（phase 814 Step C / P1.40）
       const persistedCall = mockAudit.write.mock.calls.find((c: any[]) =>
@@ -163,18 +172,17 @@ Prompt: ...
       const state = JSON.parse(fsSync.readFileSync(
         path.join(chestnutRoot, '.random-dream-state.json'), 'utf-8'
       ));
-      expect(typeof state.lastProcessedRandomDreamAt).toBe('number');
-      expect(state.lastProcessedRandomDreamAt).toBeGreaterThan(0);
+      expect(state.completedContractIds).toContain('contract-001');
+      expect(state.completedContractIds).toContain('contract-002');
     });
 
-    it('log 中无 [DREAM_OUTPUT] 块时不写 inbox', async () => {
+    it('log 中无 [DREAM_OUTPUT] 块时不写 outbox', async () => {
       await writeTaskCompletion(motionDir, taskId, '=== started ===\nsome output\n[DREAM_COMPLETE]');
 
       await runRandomDream(makeOpts(chestnutRoot, motionDir));
 
-      const inboxFiles = fsSync.readdirSync(path.join(motionDir, 'inbox', 'pending'));
-      const randomDreamFiles = inboxFiles.filter(f => fsSync.readFileSync(path.join(motionDir, 'inbox', 'pending', f), 'utf8').includes('type: random_dream'));
-      expect(randomDreamFiles).toHaveLength(0);
+      const outboxContents = readOutboxPending(motionDir);
+      expect(outboxContents).toHaveLength(0);
     });
 
     describe('Phase 546 — random-dream systemPrompt 透传', () => {
@@ -215,10 +223,9 @@ Prompt: ...
         // 推进一个轮询周期（30 秒）
         await vi.advanceTimersByTimeAsync(30_001);
 
-        // 此时 inbox 应仍为空（未完成）
-        const inboxFiles = fsSync.readdirSync(path.join(motionDir, 'inbox', 'pending'));
-        const randomDreamFiles = inboxFiles.filter(f => fsSync.readFileSync(path.join(motionDir, 'inbox', 'pending', f), 'utf8').includes('type: random_dream'));
-      expect(randomDreamFiles).toHaveLength(0);
+        // 此时 outbox 应仍为空（未完成）
+        const outboxContentsBefore = readOutboxPending(motionDir);
+        expect(outboxContentsBefore).toHaveLength(0);
 
         // 写入 result.txt + 更新 daemon.log（模拟 sub-agent 完成）
         fsSync.writeFileSync(path.join(taskResultDir, 'result.txt'), 'done');
@@ -231,10 +238,10 @@ Prompt: ...
         await vi.advanceTimersByTimeAsync(30_001);
         await runPromise;
 
-        // 现在 inbox 应有消息
-        const inboxFilesAfter = fsSync.readdirSync(path.join(motionDir, 'inbox', 'pending'));
-        const hasRandomDreamAfter = inboxFilesAfter.some(f => fsSync.readFileSync(path.join(motionDir, 'inbox', 'pending', f), 'utf8').includes('type: random_dream'));
-        expect(hasRandomDreamAfter).toBe(true);
+        // 现在 outbox 应有消息
+        const outboxContentsAfter = readOutboxPending(motionDir);
+        expect(outboxContentsAfter.length).toBeGreaterThan(0);
+        expect(outboxContentsAfter[0]).toContain('type: result');
       } finally {
         vi.useRealTimers();
       }
@@ -315,16 +322,16 @@ Prompt: ...
 
   // ── 已处理契约降权 ──────────────────────────────────────────
 
-  it('已处理契约被高水位线过滤（不再出现在候选列表）', async () => {
+  it('已处理契约被 completedContractIds 过滤（不再出现在候选列表）', async () => {
     // 两个 claw 各一个契约
     const oldCompletedAt = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     await createArchiveContract(chestnutRoot, 'claw-new', 'contract-new');
     await createArchiveContract(chestnutRoot, 'claw-old', 'contract-old', oldCompletedAt);
 
-    // 预置 state：contract-old 已处理（高水位线覆盖其 archivedAt）
+    // 预置 state：contract-old 已完成
     await fs.writeFile(
       path.join(chestnutRoot, '.random-dream-state.json'),
-      JSON.stringify({ lastProcessedRandomDreamAt: new Date(oldCompletedAt).getTime() }),
+      JSON.stringify({ completedContractIds: ['contract-old'] }),
       'utf-8'
     );
 
@@ -489,7 +496,7 @@ Prompt: ...
 
   // ── waitForTaskResult 超时路径 ──────────────────────────────
 
-  it('sub-agent 超时：.txt 始终不出现，不写 inbox', async () => {
+  it('sub-agent 超时：.txt 始终不出现，不写 outbox', async () => {
     vi.useFakeTimers();
     try {
       await fs.mkdir(
@@ -510,10 +517,11 @@ Prompt: ...
       await vi.advanceTimersByTimeAsync(3_600_001);
       await runPromise;
 
-      // 不应写 inbox
-      const inboxFiles = fsSync.readdirSync(path.join(motionDir, 'inbox', 'pending'));
-      const randomDreamFiles = inboxFiles.filter(f => fsSync.readFileSync(path.join(motionDir, 'inbox', 'pending', f), 'utf8').includes('type: random_dream'));
-      expect(randomDreamFiles).toHaveLength(0);
+      // 不应写 outbox；pending entry 已持久化
+      const outboxContents = readOutboxPending(motionDir);
+      expect(outboxContents).toHaveLength(0);
+      const state = JSON.parse(fsSync.readFileSync(path.join(chestnutRoot, '.random-dream-state.json'), 'utf-8'));
+      expect(state.pendingLateSettle).toHaveLength(1);
     } finally {
       vi.useRealTimers();
     }
@@ -521,8 +529,8 @@ Prompt: ...
 
   // ── Phase 924 — random-dream 三项根治修复 ───────────────────
 
-  describe('Phase 924 — random-dream 三项根治修复', () => {
-    it('advances watermark only for contracts with actual output', async () => {
+  describe('Phase 925 — random-dream 状态模型 + 事务协议根治', () => {
+    it('advances completedContractIds only for contracts with actual output', async () => {
       const t1 = new Date('2026-07-10T10:00:00.000Z').toISOString();
       const t2 = new Date('2026-07-11T10:00:00.000Z').toISOString();
       const t3 = new Date('2026-07-12T10:00:00.000Z').toISOString();
@@ -543,8 +551,102 @@ insight B
       await runRandomDream(makeOpts(chestnutRoot, motionDir));
 
       const state = JSON.parse(fsSync.readFileSync(path.join(chestnutRoot, '.random-dream-state.json'), 'utf-8'));
-      expect(state.lastProcessedRandomDreamAt).toBe(new Date(t2).getTime());
-      expect(state.lastProcessedRandomDreamAt).toBeLessThan(new Date(t3).getTime());
+      expect(state.completedContractIds).toContain('contract-001');
+      expect(state.completedContractIds).toContain('contract-002');
+      expect(state.completedContractIds).not.toContain('contract-003');
+    });
+
+    it('does not skip non-contiguous uncompleted contracts', async () => {
+      const t1 = new Date('2026-07-10T10:00:00.000Z').toISOString();
+      const t2 = new Date('2026-07-11T10:00:00.000Z').toISOString();
+      const t3 = new Date('2026-07-12T10:00:00.000Z').toISOString();
+
+      await createArchiveContract(chestnutRoot, 'claw-a', 'contract-001', t1);
+      await createArchiveContract(chestnutRoot, 'claw-b', 'contract-002', t2);
+      await createArchiveContract(chestnutRoot, 'claw-c', 'contract-003', t3);
+
+      // simulate prior run completed c1 and c3 but skipped c2
+      await fs.writeFile(
+        path.join(chestnutRoot, '.random-dream-state.json'),
+        JSON.stringify({ completedContractIds: ['contract-001', 'contract-003'] }),
+        'utf-8'
+      );
+
+      let capturedPrompt = '';
+      mockWritePendingSubAgentTask.mockImplementation(async (_audit: unknown, opts: { intent: string }) => {
+        capturedPrompt = opts.intent;
+        return taskId;
+      });
+      await writeTaskCompletion(motionDir, taskId, '=== started ===');
+
+      await runRandomDream(makeOpts(chestnutRoot, motionDir));
+
+      expect(capturedPrompt).not.toBe('');
+      // c1/c3 completed, c2 still discoverable
+      expect(capturedPrompt).toContain('contract-002');
+      expect(capturedPrompt).not.toContain('contract-001');
+      expect(capturedPrompt).not.toContain('contract-003');
+    });
+
+    it('persists pending contractIds immediately after schedule', async () => {
+      await createArchiveContract(chestnutRoot, 'claw-a', 'contract-001');
+      await createArchiveContract(chestnutRoot, 'claw-b', 'contract-002');
+      await createArchiveContract(chestnutRoot, 'claw-c', 'contract-003');
+
+      const taskId = 'captured-task-id';
+      mockWritePendingSubAgentTask.mockResolvedValue(taskId);
+
+      vi.useFakeTimers();
+      try {
+        const taskResultDir = path.join(motionDir, 'tasks', 'queues', 'results', taskId);
+        await fs.mkdir(taskResultDir, { recursive: true });
+        fsSync.writeFileSync(path.join(taskResultDir, 'daemon.log'), '=== started ===');
+
+        const runPromise = runRandomDream(makeOpts(chestnutRoot, motionDir));
+        // advance just past schedule but before first poll tick
+        await vi.advanceTimersByTimeAsync(1);
+
+        // state persisted immediately after schedule
+        const state = JSON.parse(fsSync.readFileSync(path.join(chestnutRoot, '.random-dream-state.json'), 'utf-8'));
+        expect(state.pendingLateSettle).toHaveLength(1);
+        expect(state.pendingLateSettle[0].taskId).toBe(taskId);
+        expect(state.pendingLateSettle[0].contractIds).toEqual(['contract-001', 'contract-002', 'contract-003']);
+
+        await vi.advanceTimersByTimeAsync(3_600_001);
+        await runPromise;
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('writes to outbox before committing state', async () => {
+      await createArchiveContract(chestnutRoot, 'claw-1', 'contract-001');
+
+      // first run: outbox write fails → state should not be committed
+      const motionFsFailing = new NodeFileSystem({ baseDir: motionDir });
+      vi.spyOn(motionFsFailing, 'writeAtomic').mockRejectedValue(new Error('OUTBOX_FAIL'));
+
+      const dreamLog = `=== started ===
+[DREAM_OUTPUT contract_id="contract-001"]
+insight
+[/DREAM_OUTPUT]`;
+      await writeTaskCompletion(motionDir, taskId, dreamLog);
+
+      await expect(runRandomDream({ ...makeOpts(chestnutRoot, motionDir), motionFs: motionFsFailing })).rejects.toThrow('OUTBOX_FAIL');
+
+      const state = JSON.parse(fsSync.readFileSync(path.join(chestnutRoot, '.random-dream-state.json'), 'utf-8'));
+      // pending entry remains, contract not marked completed because outbox failed first
+      expect(state.pendingLateSettle).toHaveLength(1);
+      expect(state.completedContractIds).not.toContain('contract-001');
+
+      // second run with fresh fs: outbox succeeds, then state committed
+      const motionFsOk = new NodeFileSystem({ baseDir: motionDir });
+      await runRandomDream({ ...makeOpts(chestnutRoot, motionDir), motionFs: motionFsOk });
+
+      const stateAfter = JSON.parse(fsSync.readFileSync(path.join(chestnutRoot, '.random-dream-state.json'), 'utf-8'));
+      expect(stateAfter.pendingLateSettle).toHaveLength(0);
+      expect(stateAfter.completedContractIds).toContain('contract-001');
+      expect(readOutboxPending(motionDir).length).toBeGreaterThan(0);
     });
 
     it('does not re-schedule contracts covered by pending late-settle task', async () => {
@@ -552,7 +654,7 @@ insight B
       await fs.writeFile(
         path.join(chestnutRoot, '.random-dream-state.json'),
         JSON.stringify({
-          lastProcessedRandomDreamAt: 0,
+          completedContractIds: [],
           pendingLateSettle: [{
             taskId: 'pending-task-1',
             scheduledAt: now - 3600_000,
@@ -582,7 +684,7 @@ insight B
       expect(capturedPrompt).not.toContain('contract-002');
     });
 
-    it('does not advance watermark when dream output write fails', async () => {
+    it('does not advance completedContractIds when dream output write fails', async () => {
       await createArchiveContract(chestnutRoot, 'claw-1', 'contract-001');
 
       const motionFs = new NodeFileSystem({ baseDir: motionDir });
@@ -597,8 +699,10 @@ insight
 
       await expect(runRandomDream({ ...makeOpts(chestnutRoot, motionDir), motionFs })).rejects.toThrow('ENOSPC');
 
-      const statePath = path.join(chestnutRoot, '.random-dream-state.json');
-      expect(fsSync.existsSync(statePath)).toBe(false);
+      const state = JSON.parse(fsSync.readFileSync(path.join(chestnutRoot, '.random-dream-state.json'), 'utf-8'));
+      // pending entry persisted but contract not marked completed due to write failure
+      expect(state.pendingLateSettle).toHaveLength(1);
+      expect(state.completedContractIds).not.toContain('contract-001');
     });
   });
 });

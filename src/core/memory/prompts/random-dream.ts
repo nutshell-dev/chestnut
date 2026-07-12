@@ -13,7 +13,7 @@
  * | 近期完成 | 高 | `progress.json` subtask 的 `completed_at` |
  * | 失败/困难 | 高 | `failed` subtask 或 `retry_count >= 2` |
  * | 不同 claw | 高 | 本次尚未出现过的 clawId 优先 |
- * | 高水位线 | 低 | `.random-dream-state.json` 中的 `lastProcessedRandomDreamAt`（sinceMs filter） |
+ * | 已完成集合 | 低 | `.random-dream-state.json` 中的 `completedContractIds`（按 per-contract 集合过滤） |
  *
  * ### [DREAM_OUTPUT] 格式
  *

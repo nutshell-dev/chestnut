@@ -8,7 +8,7 @@
  *
  * 2 子模块共享 helper、按 source 字段分流走子模块特定 shape check：
  * - source='deep_dream_save': DreamStateData（lastProcessedDeepDreamAt / currentSessionDreamedDate / currentSessionRetryCount?）
- * - source='random_dream_save': RandomDreamState（lastProcessedRandomDreamAt / pendingLateSettle?）
+ * - source='random_dream_save': RandomDreamState（completedContractIds / pendingLateSettle?）
  *
  * 不 throw（DP1 + Path #4 防 break dream cron 路径、保既有 save throw / 不 throw 业务语义对称差）。
  */
@@ -80,15 +80,24 @@ function checkDeepDream(s: Record<string, unknown>, audit: AuditLog): void {
 }
 
 function checkRandomDream(s: Record<string, unknown>, audit: AuditLog): void {
-  // lastProcessedRandomDreamAt: number (finite, non-negative)
-  if (typeof s.lastProcessedRandomDreamAt !== 'number'
-      || !Number.isFinite(s.lastProcessedRandomDreamAt)
-      || s.lastProcessedRandomDreamAt < 0) {
+  // completedContractIds: string[]
+  if (!Array.isArray(s.completedContractIds)) {
     audit.write(
       MEMORY_AUDIT_EVENTS.MEMORY_DREAM_INVARIANT_VIOLATED,
-      `kind=random_lastProcessedRandomDreamAt_invalid`, `source=random_dream_save`,
-      `actual=${String(s.lastProcessedRandomDreamAt)}`,
+      `kind=random_completedContractIds_not_array`, `source=random_dream_save`,
+      `actual=${typeof s.completedContractIds}`,
     );
+  } else {
+    for (let i = 0; i < s.completedContractIds.length; i++) {
+      const id = s.completedContractIds[i];
+      if (typeof id !== 'string') {
+        audit.write(
+          MEMORY_AUDIT_EVENTS.MEMORY_DREAM_INVARIANT_VIOLATED,
+          `kind=random_completedContractIds_entry_not_string`, `source=random_dream_save`,
+          `idx=${i}`, `actual=${typeof id}`,
+        );
+      }
+    }
   }
 
   // pendingLateSettle?: PendingLateSettleEntry[]（taskId/string + scheduledAt/number + expectedTimeoutAt/number）

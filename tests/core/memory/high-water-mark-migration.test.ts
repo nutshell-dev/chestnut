@@ -97,8 +97,8 @@ describe('deep-dream legacy schema migration (phase 280)', () => {
   });
 });
 
-describe('random-dream legacy schema migration (phase 280)', () => {
-  it('legacy state 含 processedContractIds → migrate to lastProcessedRandomDreamAt=0 + audit emit', () => {
+describe('random-dream legacy schema migration (phase 925)', () => {
+  it('legacy state 含 processedContractIds → migrate to completedContractIds + audit emit', () => {
     const audit = makeMockAudit();
     const fs = makeMockFs({
       [__test_RANDOM_DREAM_STATE_FILE]: JSON.stringify({
@@ -108,7 +108,7 @@ describe('random-dream legacy schema migration (phase 280)', () => {
 
     const state = __test_loadRandomDreamState(fs, audit);
 
-    expect(state.lastProcessedRandomDreamAt).toBe(0);
+    expect(state.completedContractIds).toEqual(['c1', 'c2']);
     expect(state.pendingLateSettle).toEqual([]);
 
     expect(audit.write).toHaveBeenCalledTimes(1);
@@ -127,15 +127,15 @@ describe('random-dream legacy schema migration (phase 280)', () => {
       [__test_RANDOM_DREAM_STATE_FILE]: JSON.stringify({
         processedContractIds: ['c1'],
         pendingLateSettle: [
-          { taskId: 't1', scheduledAt: 1, expectedTimeoutAt: 2 },
-          { taskId: 't2', scheduledAt: 3, expectedTimeoutAt: 4 },
+          { taskId: 't1', scheduledAt: 1, expectedTimeoutAt: 2, contractIds: ['c1'] },
+          { taskId: 't2', scheduledAt: 3, expectedTimeoutAt: 4, contractIds: ['c2'] },
         ],
       }),
     });
 
     const state = __test_loadRandomDreamState(fs, audit);
 
-    expect(state.lastProcessedRandomDreamAt).toBe(0);
+    expect(state.completedContractIds).toEqual(['c1']);
     expect(state.pendingLateSettle).toHaveLength(2);
     expect(state.pendingLateSettle?.[0].taskId).toBe('t1');
     expect(audit.write).toHaveBeenCalledTimes(1);
@@ -143,7 +143,7 @@ describe('random-dream legacy schema migration (phase 280)', () => {
       .toBe(MEMORY_AUDIT_EVENTS.LEGACY_SCHEMA_MIGRATED_RESET);
   });
 
-  it('新 schema → 0 migration 触发 + 正常返回', () => {
+  it('legacy state 含 lastProcessedRandomDreamAt → migrate to completedContractIds=[] + audit emit', () => {
     const audit = makeMockAudit();
     const fs = makeMockFs({
       [__test_RANDOM_DREAM_STATE_FILE]: JSON.stringify({
@@ -153,21 +153,37 @@ describe('random-dream legacy schema migration (phase 280)', () => {
 
     const state = __test_loadRandomDreamState(fs, audit);
 
-    expect(state.lastProcessedRandomDreamAt).toBe(1717000000000);
+    expect(state.completedContractIds).toEqual([]);
+    expect(audit.write).toHaveBeenCalledTimes(1);
+    expect((audit.write as ReturnType<typeof vi.fn>).mock.calls[0][0])
+      .toBe(MEMORY_AUDIT_EVENTS.LEGACY_SCHEMA_MIGRATED_RESET);
+  });
+
+  it('新 schema → 0 migration 触发 + 正常返回', () => {
+    const audit = makeMockAudit();
+    const fs = makeMockFs({
+      [__test_RANDOM_DREAM_STATE_FILE]: JSON.stringify({
+        completedContractIds: ['c1'],
+      }),
+    });
+
+    const state = __test_loadRandomDreamState(fs, audit);
+
+    expect(state.completedContractIds).toEqual(['c1']);
     expect(audit.write).not.toHaveBeenCalled();
   });
 
-  it('文件不存在 → 返默认值 0 + 0 audit', () => {
+  it('文件不存在 → 返默认值空数组 + 0 audit', () => {
     const audit = makeMockAudit();
     const fs = makeMockFs({});
 
     const state = __test_loadRandomDreamState(fs, audit);
 
-    expect(state.lastProcessedRandomDreamAt).toBe(0);
+    expect(state.completedContractIds).toEqual([]);
     expect(audit.write).not.toHaveBeenCalled();
   });
 
-  it('损坏 JSON → 返默认值 0 + audit emit RANDOM_DREAM_ERROR', () => {
+  it('损坏 JSON → 返默认值空数组 + audit emit RANDOM_DREAM_ERROR', () => {
     const audit = makeMockAudit();
     const fs = makeMockFs({
       [__test_RANDOM_DREAM_STATE_FILE]: 'not-json',
@@ -175,7 +191,7 @@ describe('random-dream legacy schema migration (phase 280)', () => {
 
     const state = __test_loadRandomDreamState(fs, audit);
 
-    expect(state.lastProcessedRandomDreamAt).toBe(0);
+    expect(state.completedContractIds).toEqual([]);
     const calls = (audit.write as ReturnType<typeof vi.fn>).mock.calls;
     expect(calls[0][0]).toBe(MEMORY_AUDIT_EVENTS.RANDOM_DREAM_ERROR);
   });

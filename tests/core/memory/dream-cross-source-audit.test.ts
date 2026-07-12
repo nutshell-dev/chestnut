@@ -173,7 +173,7 @@ describe('memory dream-state cross-source audit (phase 247 Step B + phase 280)',
       const fs = makeMockFsForWrite((file, content) => { writes.push([file, content]); });
       const audit = makeMockAudit();
 
-      __test_saveRandomDreamState(fs, { lastProcessedRandomDreamAt: 0 }, audit);
+      __test_saveRandomDreamState(fs, { completedContractIds: [] }, audit);
 
       expect(writes).toHaveLength(1);
       expect(writes[0][0]).toBe(__test_RANDOM_DREAM_STATE_FILE);
@@ -187,7 +187,7 @@ describe('memory dream-state cross-source audit (phase 247 Step B + phase 280)',
 
       expect(() => __test_saveRandomDreamState(
         fs,
-        { lastProcessedRandomDreamAt: 0, pendingLateSettle: [{ taskId: 't1', scheduledAt: 1, expectedTimeoutAt: 2 }, { taskId: 't1', scheduledAt: 3, expectedTimeoutAt: 4 }] },
+        { completedContractIds: [], pendingLateSettle: [{ taskId: 't1', scheduledAt: 1, expectedTimeoutAt: 2, contractIds: ['c1'] }, { taskId: 't1', scheduledAt: 3, expectedTimeoutAt: 4, contractIds: ['c2'] }] },
         audit,
       )).toThrow('ENOSPC');
 

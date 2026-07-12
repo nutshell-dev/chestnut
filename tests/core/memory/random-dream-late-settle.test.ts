@@ -48,6 +48,14 @@ function makeOpts(chestnutRoot: string, motionDir: string): RandomDreamOptions {
   };
 }
 
+function readOutboxPending(motionDir: string): string[] {
+  const outboxDir = path.join(motionDir, 'outbox', 'pending');
+  if (!fsSync.existsSync(outboxDir)) return [];
+  return fsSync.readdirSync(outboxDir)
+    .filter(f => f.endsWith('.md'))
+    .map(f => fsSync.readFileSync(path.join(outboxDir, f), 'utf8'));
+}
+
 async function writeTaskCompletion(motionDir: string, taskId: string, logContent: string) {
   const taskResultDir = path.join(motionDir, 'tasks', 'queues', 'results', taskId);
   await fs.mkdir(taskResultDir, { recursive: true });
@@ -135,7 +143,7 @@ describe('random-dream late-settle (phase 170)', () => {
     await fs.writeFile(
       path.join(chestnutRoot, '.random-dream-state.json'),
       JSON.stringify({
-        lastProcessedRandomDreamAt: 0,
+        completedContractIds: [],
         pendingLateSettle: [{
           taskId,
           scheduledAt: now - 3600_000,
@@ -160,12 +168,11 @@ describe('random-dream late-settle (phase 170)', () => {
     const content = fsSync.readFileSync(dreamOutputPath, 'utf-8');
     expect(content).toContain('跨 claw 洞见');
 
-    // motion notify (idPrefix 含 late_settle)
-    const inboxFiles = fsSync.readdirSync(path.join(motionDir, 'inbox', 'pending'));
-    const randomDreamFiles = inboxFiles.filter(f =>
-      fsSync.readFileSync(path.join(motionDir, 'inbox', 'pending', f), 'utf8').includes('type: random_dream')
-    );
-    expect(randomDreamFiles).toHaveLength(1);
+    // durable outbox (idPrefix 含 late_settle)
+    const outboxContents = readOutboxPending(motionDir);
+    expect(outboxContents.length).toBeGreaterThan(0);
+    expect(outboxContents[0]).toContain('type: result');
+    expect(outboxContents[0]).toContain('late_settle_task_id: "late-1"');
 
     // state 文件 entry drop
     const state = JSON.parse(fsSync.readFileSync(path.join(chestnutRoot, '.random-dream-state.json'), 'utf-8'));
@@ -190,7 +197,7 @@ describe('random-dream late-settle (phase 170)', () => {
     await fs.writeFile(
       path.join(chestnutRoot, '.random-dream-state.json'),
       JSON.stringify({
-        lastProcessedRandomDreamAt: 0,
+        completedContractIds: [],
         pendingLateSettle: [{
           taskId: 'p-1',
           scheduledAt: now - 3 * 24 * 60 * 60_000, // 3 天前
@@ -217,12 +224,9 @@ describe('random-dream late-settle (phase 170)', () => {
     );
     expect(abandonedCalls).toHaveLength(0);
 
-    // 0 motion notify
-    const inboxFiles = fsSync.readdirSync(path.join(motionDir, 'inbox', 'pending'));
-    const randomDreamFiles = inboxFiles.filter(f =>
-      fsSync.readFileSync(path.join(motionDir, 'inbox', 'pending', f), 'utf8').includes('type: random_dream')
-    );
-    expect(randomDreamFiles).toHaveLength(0);
+    // 0 outbox write
+    const outboxContents = readOutboxPending(motionDir);
+    expect(outboxContents).toHaveLength(0);
   });
 
   // ── case 4: result.txt 未存在 + 超 grace → abandon ───────────
@@ -232,7 +236,7 @@ describe('random-dream late-settle (phase 170)', () => {
     await fs.writeFile(
       path.join(chestnutRoot, '.random-dream-state.json'),
       JSON.stringify({
-        lastProcessedRandomDreamAt: 0,
+        completedContractIds: [],
         pendingLateSettle: [{
           taskId: 'a-1',
           scheduledAt: now - 8 * 24 * 60 * 60_000, // 8 天前
@@ -256,12 +260,9 @@ describe('random-dream late-settle (phase 170)', () => {
     expect(abandonedCalls[0][2]).toMatch(/^age_ms=/);
     expect(abandonedCalls[0][3]).toMatch(/^grace_ms=/);
 
-    // 0 motion notify
-    const inboxFiles = fsSync.readdirSync(path.join(motionDir, 'inbox', 'pending'));
-    const randomDreamFiles = inboxFiles.filter(f =>
-      fsSync.readFileSync(path.join(motionDir, 'inbox', 'pending', f), 'utf8').includes('type: random_dream')
-    );
-    expect(randomDreamFiles).toHaveLength(0);
+    // 0 outbox write
+    const outboxContents = readOutboxPending(motionDir);
+    expect(outboxContents).toHaveLength(0);
   });
 
   // ── case 5: backward compat ───────────────────────────────────
@@ -290,7 +291,7 @@ describe('random-dream late-settle (phase 170)', () => {
     // skip_empty 不触发 save，文件保持原样（legacy schema）
     const diskState = JSON.parse(fsSync.readFileSync(path.join(chestnutRoot, '.random-dream-state.json'), 'utf-8'));
     expect(diskState.processedContractIds).toContain('c-old');
-    expect(diskState.lastProcessedRandomDreamAt).toBeUndefined();
+    expect(diskState.completedContractIds).toBeUndefined();
   });
 
   // ── case 6: sweep 同 entry 重入 idempotent ────────────────────
@@ -302,7 +303,7 @@ describe('random-dream late-settle (phase 170)', () => {
     await fs.writeFile(
       path.join(chestnutRoot, '.random-dream-state.json'),
       JSON.stringify({
-        lastProcessedRandomDreamAt: 0,
+        completedContractIds: [],
         pendingLateSettle: [{
           taskId,
           scheduledAt: now - 3600_000,
@@ -328,7 +329,7 @@ describe('random-dream late-settle (phase 170)', () => {
     await fs.writeFile(
       path.join(chestnutRoot, '.random-dream-state.json'),
       JSON.stringify({
-        lastProcessedRandomDreamAt: 0,
+        completedContractIds: [],
         pendingLateSettle: [{
           taskId,
           scheduledAt: now - 3600_000,
@@ -345,13 +346,9 @@ describe('random-dream late-settle (phase 170)', () => {
     const dreamOutputPath = path.join(motionDir, 'memory', 'dream-outputs', `${taskId}.txt`);
     expect(fsSync.existsSync(dreamOutputPath)).toBe(true);
 
-    // notifyMotion 调 2 次但 idPrefix 同（含 taskId）
-    const inboxFiles = fsSync.readdirSync(path.join(motionDir, 'inbox', 'pending'));
-    const randomDreamFiles = inboxFiles.filter(f =>
-      fsSync.readFileSync(path.join(motionDir, 'inbox', 'pending', f), 'utf8').includes('type: random_dream')
-    );
-    // 2 次 notify 写 2 个 inbox file（timestamp+uuid 不同），但内容 idPrefix 一致
-    expect(randomDreamFiles.length).toBeGreaterThanOrEqual(1);
+    // durable outbox 写 2 次（重入），文件名不同但内容 taskId 一致
+    const outboxContents = readOutboxPending(motionDir);
+    expect(outboxContents.length).toBeGreaterThanOrEqual(1);
 
     // state 最终 pending = []
     const stateFinal = JSON.parse(fsSync.readFileSync(path.join(chestnutRoot, '.random-dream-state.json'), 'utf-8'));

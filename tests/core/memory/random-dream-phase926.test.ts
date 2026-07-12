@@ -21,11 +21,11 @@ function makeMockFs(readImpl: (file: string) => string): FileSystem {
 describe('random-dream phase926 invariants', () => {
   describe('loadRandomDreamState future version guard', () => {
     it('returns default state for future schema_version and keeps file on disk', () => {
-      const fs = makeMockFs(() => JSON.stringify({ schema_version: 99, lastProcessedRandomDreamAt: 12345 }));
+      const fs = makeMockFs(() => JSON.stringify({ schema_version: 99, completedContractIds: ['c-old'] }));
       const audit = makeMockAudit();
 
       const state = __test_loadRandomDreamState(fs, audit);
-      expect(state).toEqual({ schema_version: 1, lastProcessedRandomDreamAt: 0 });
+      expect(state).toEqual({ schema_version: 1, completedContractIds: [] });
       expect(audit.write).toHaveBeenCalledTimes(1);
       const call = (audit.write as ReturnType<typeof vi.fn>).mock.calls[0];
       expect(call[0]).toBe(MEMORY_AUDIT_EVENTS.DREAM_STATE_FUTURE_VERSION);
