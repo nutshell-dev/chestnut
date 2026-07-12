@@ -274,6 +274,7 @@
       "contract_boot_migrate_archive_skipped",
       "contract_boot_migrate_escalated",
       "contract_boot_reconcile",
+      "contract_boot_reconcile_schema_failed",
       "contract_boot_reconcile_skipped",
       "contract_cancel_partial_failed",
       "contract_cancelled",

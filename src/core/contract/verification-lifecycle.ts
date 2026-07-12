@@ -29,8 +29,23 @@ export async function archiveAndEmit(
   contractId: ContractId,
   contractYaml: ContractYaml,
   contextLabel: string,
-): Promise<void> {
-  // Phase 1: commit — move to archive (irreversible)
+): Promise<{ archived: boolean }> {
+  // Phase 1: emit contract completed BEFORE move (if fails, contract stays active for retry)
+  try {
+    await ctx.emitContractCompleted(contractId);
+  } catch (emitErr) {
+    emitContractMoveArchiveFailed(
+      ctx.audit,
+      {
+        context: contextLabel,
+        message: 'emitContractCompleted failed, cannot archive',
+        error: formatErr(emitErr),
+      },
+    );
+    return { archived: false };
+  }
+
+  // Phase 2: commit — move to archive (irreversible)
   try {
     await ctx.moveContractToArchive(contractId);
   } catch (err) {
@@ -109,11 +124,11 @@ export async function archiveAndEmit(
         error: formatErr(err),
       },
     );
-    return; // move failed before commit point; rollback attempted, caller sees normal return
+    return { archived: false };
   }
 
-  // COMMIT POINT: directory is now in archive. Side-effect failures do NOT roll back.
-  // Phase 2: side effects (best-effort, independent try/catch per action)
+  // COMMIT POINT: both emit and move succeeded. Side-effect failures do NOT roll back.
+  // Phase 3: audit + best-effort notification
   try {
     emitContractCompleted(
       ctx.audit,
@@ -121,20 +136,6 @@ export async function archiveAndEmit(
     );
   } catch {
     // audit failure should not affect downstream side effects
-  }
-
-  try {
-    await ctx.emitContractCompleted(contractId);
-  } catch (emitErr) {
-    emitContractArchivePartialRecoveryFailed(
-      ctx.audit,
-      {
-        contractId,
-        context: contextLabel,
-        message: 'archive move succeeded but emitContractCompleted side effect failed; contract remains archived for retry',
-        error: formatErr(emitErr),
-      },
-    );
   }
 
   let progress: ProgressData | null = null;
@@ -164,6 +165,8 @@ export async function archiveAndEmit(
     subtasks: subtasksSummary,
     completed_at: completedAt,
   });
+
+  return { archived: true };
 }
 
 export async function completeSubtaskSync(

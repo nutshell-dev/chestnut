@@ -97,6 +97,8 @@ export const CONTRACT_AUDIT_EVENTS = {
   CONTRACT_BOOT_MIGRATE_ARCHIVE_SKIPPED: 'contract_boot_migrate_archive_skipped', // ← NEW phase 1405: boot migrate 后 yaml load 失败、跳过 archive 留 forensics
   // NEW phase 153: boot reconcile JSON.parse silent catch 显式 audit emit (playbook §1)
   CONTRACT_BOOT_RECONCILE_SKIPPED: 'contract_boot_reconcile_skipped',
+  // NEW phase 952: boot reconcile schema parse failed audit + count as failed
+  BOOT_RECONCILE_SCHEMA_FAILED: 'contract_boot_reconcile_schema_failed',
   // NEW phase 153: onboarding discovery progress.json parse failed silent skip 显式 audit
   CONTRACT_ONBOARDING_PROGRESS_PARSE_FAILED: 'contract_onboarding_progress_parse_failed',
   // phase 1362 (r140): contractDir → acquireLock TOCTOU race retry audit trace
@@ -221,6 +223,7 @@ export const CONTRACT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   contract_boot_migrate_escalated: 'audit',
   contract_boot_migrate_archive_skipped: 'audit',
   contract_boot_reconcile_skipped: 'audit',
+  contract_boot_reconcile_schema_failed: 'audit',
   contract_onboarding_progress_parse_failed: 'audit',
   contract_dir_race_retry: 'audit',
   contract_archive_partial_recovery_failed: 'audit',

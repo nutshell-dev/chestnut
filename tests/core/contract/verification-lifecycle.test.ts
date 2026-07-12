@@ -57,45 +57,47 @@ describe('archiveAndEmit (phase 951)', () => {
     contractYaml = makeYaml();
   });
 
-  it('does not rollback archive after successful move when emitContractCompleted fails', async () => {
+  it('does not archive when emitContractCompleted fails', async () => {
     const contractId = makeContractId('c-1');
     vi.mocked(ctx.moveContractToArchive).mockResolvedValue(undefined);
     vi.mocked(ctx.emitContractCompleted).mockRejectedValue(new Error('emit failed'));
 
-    await archiveAndEmit(ctx, contractId, contractYaml, 'test-context');
+    const result = await archiveAndEmit(ctx, contractId, contractYaml, 'test-context');
 
-    // move succeeded and was not rolled back
-    expect(ctx.moveContractToArchive).toHaveBeenCalledWith(contractId);
+    // emit failed before move; contract stays active
+    expect(result).toEqual({ archived: false });
+    expect(ctx.moveContractToArchive).not.toHaveBeenCalled();
     expect(ctx.withProgressLock).not.toHaveBeenCalled();
     expect(ctx.saveProgress).not.toHaveBeenCalled();
 
     // emit side effect was attempted
     expect(ctx.emitContractCompleted).toHaveBeenCalledWith(contractId);
 
-    // partial recovery audit emitted
+    // move-archive-failed audit emitted
     const auditWrites = vi.mocked(ctx.audit.write).mock.calls;
-    const partialRecovery = auditWrites.find(c => c[0] === CONTRACT_AUDIT_EVENTS.ARCHIVE_PARTIAL_RECOVERY_FAILED);
-    expect(partialRecovery).toBeDefined();
-    expect(String(partialRecovery?.[1] ?? '')).toContain('contractId=c-1');
+    const moveFailed = auditWrites.find(c => c[0] === CONTRACT_AUDIT_EVENTS.MOVE_ARCHIVE_FAILED);
+    expect(moveFailed).toBeDefined();
+    expect(moveFailed?.some(col => String(col).includes('emitContractCompleted failed, cannot archive'))).toBe(true);
   });
 
-  it('emits completed audit and notifies even when emitContractCompleted fails', async () => {
+  it('emits completed audit and notifies after successful emit + move', async () => {
     const contractId = makeContractId('c-2');
     vi.mocked(ctx.moveContractToArchive).mockResolvedValue(undefined);
-    vi.mocked(ctx.emitContractCompleted).mockRejectedValue(new Error('emit failed'));
+    vi.mocked(ctx.emitContractCompleted).mockResolvedValue(undefined);
 
-    await archiveAndEmit(ctx, contractId, contractYaml, 'test-context');
+    const result = await archiveAndEmit(ctx, contractId, contractYaml, 'test-context');
 
+    expect(result).toEqual({ archived: true });
     const auditWrites = vi.mocked(ctx.audit.write).mock.calls;
     expect(auditWrites.some(c => c[0] === CONTRACT_AUDIT_EVENTS.COMPLETED)).toBe(true);
     expect(ctx.onNotify).toHaveBeenCalled();
   });
 
-  it('does not propagate when moveContractToArchive fails (rollback + audit)', async () => {
+  it('returns archived false when moveContractToArchive fails (rollback + audit)', async () => {
     const contractId = makeContractId('c-3');
     vi.mocked(ctx.moveContractToArchive).mockRejectedValue(new Error('disk full'));
 
-    await expect(archiveAndEmit(ctx, contractId, contractYaml, 'test-context')).resolves.toBeUndefined();
+    await expect(archiveAndEmit(ctx, contractId, contractYaml, 'test-context')).resolves.toEqual({ archived: false });
 
     const auditWrites = vi.mocked(ctx.audit.write).mock.calls;
     expect(auditWrites.some(c => c[0] === CONTRACT_AUDIT_EVENTS.MOVE_ARCHIVE_FAILED)).toBe(true);

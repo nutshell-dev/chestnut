@@ -458,6 +458,7 @@ export class ContractSystem {
     }
 
     // phase 1371 sub-2: boot reconcile — scan active contracts for archive_pending_recovery
+    let failedCount = 0;
     if (await this.fs.exists(this.activeDir)) {
       const entries = await this.fs.list(this.activeDir, { includeDirs: true });
       for (const entry of entries) {
@@ -471,6 +472,12 @@ export class ContractSystem {
           const rawParsed: unknown = JSON.parse(raw);
           const validation = ContractProgressArchiveLooseSchema.safeParse(rawParsed);
           if (!validation.success) {
+            this.audit.write(
+              CONTRACT_AUDIT_EVENTS.BOOT_RECONCILE_SCHEMA_FAILED,
+              `contract=${entry.name}`,
+              'reason=schema_parse_failed',
+            );
+            failedCount++;
             continue;
           }
           const progress = validation.data;
@@ -545,6 +552,13 @@ export class ContractSystem {
           // silent: corrupted progress.json boot reconcile best-effort skip（forensics emit 上面）
         }
       }
+    }
+
+    if (failedCount > 0) {
+      this.audit.write(
+        CONTRACT_AUDIT_EVENTS.CONTRACT_BOOT_RECONCILE,
+        `schema_failed_count=${failedCount}`,
+      );
     }
 
     // NEW phase 188 Step C: archive 目录 stale active 态 sweep
