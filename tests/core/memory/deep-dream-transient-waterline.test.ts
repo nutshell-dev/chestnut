@@ -59,7 +59,7 @@ describe('processSession waterline behavior (phase 921)', () => {
     (plan.dialogStore.readArchive as ReturnType<typeof vi.fn>).mockRejectedValue(err);
 
     const result = await __test_processSession(ctx, sf, plan, [], []);
-    expect(result).toEqual([]);
+    expect(result).toEqual({ status: 'skip', reason: 'transient_io' });
     expect(plan.state.lastProcessedDeepDreamAt).toBe(1000);
 
     const auditCalls = (ctx.audit.write as ReturnType<typeof vi.fn>).mock.calls;
@@ -75,7 +75,8 @@ describe('processSession waterline behavior (phase 921)', () => {
     err.code = 'EIO';
     (plan.dialogStore.readArchive as ReturnType<typeof vi.fn>).mockRejectedValue(err);
 
-    await __test_processSession(ctx, sf, plan, [], []);
+    const result = await __test_processSession(ctx, sf, plan, [], []);
+    expect(result).toEqual({ status: 'skip', reason: 'transient_io' });
     expect(plan.state.lastProcessedDeepDreamAt).toBe(1000);
   });
 
@@ -87,7 +88,8 @@ describe('processSession waterline behavior (phase 921)', () => {
     const err = new Error('Unexpected token');
     (plan.dialogStore.readArchive as ReturnType<typeof vi.fn>).mockRejectedValue(err);
 
-    await __test_processSession(ctx, sf, plan, [], []);
+    const result = await __test_processSession(ctx, sf, plan, [], []);
+    expect(result).toEqual({ status: 'skip', reason: 'permanent_io' });
     expect(plan.state.lastProcessedDeepDreamAt).toBe(2000);
   });
 });
