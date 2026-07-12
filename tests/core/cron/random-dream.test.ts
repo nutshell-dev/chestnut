@@ -518,4 +518,87 @@ Prompt: ...
       vi.useRealTimers();
     }
   });
+
+  // ── Phase 924 — random-dream 三项根治修复 ───────────────────
+
+  describe('Phase 924 — random-dream 三项根治修复', () => {
+    it('advances watermark only for contracts with actual output', async () => {
+      const t1 = new Date('2026-07-10T10:00:00.000Z').toISOString();
+      const t2 = new Date('2026-07-11T10:00:00.000Z').toISOString();
+      const t3 = new Date('2026-07-12T10:00:00.000Z').toISOString();
+
+      await createArchiveContract(chestnutRoot, 'claw-a', 'contract-001', t1);
+      await createArchiveContract(chestnutRoot, 'claw-b', 'contract-002', t2);
+      await createArchiveContract(chestnutRoot, 'claw-c', 'contract-003', t3);
+
+      const dreamLog = `=== started ===
+[DREAM_OUTPUT contract_id="contract-001"]
+insight A
+[/DREAM_OUTPUT]
+[DREAM_OUTPUT contract_id="contract-002"]
+insight B
+[/DREAM_OUTPUT]`;
+
+      await writeTaskCompletion(motionDir, taskId, dreamLog);
+      await runRandomDream(makeOpts(chestnutRoot, motionDir));
+
+      const state = JSON.parse(fsSync.readFileSync(path.join(chestnutRoot, '.random-dream-state.json'), 'utf-8'));
+      expect(state.lastProcessedRandomDreamAt).toBe(new Date(t2).getTime());
+      expect(state.lastProcessedRandomDreamAt).toBeLessThan(new Date(t3).getTime());
+    });
+
+    it('does not re-schedule contracts covered by pending late-settle task', async () => {
+      const now = Date.now();
+      await fs.writeFile(
+        path.join(chestnutRoot, '.random-dream-state.json'),
+        JSON.stringify({
+          lastProcessedRandomDreamAt: 0,
+          pendingLateSettle: [{
+            taskId: 'pending-task-1',
+            scheduledAt: now - 3600_000,
+            expectedTimeoutAt: now + 3600_000,
+            contractIds: ['contract-001', 'contract-002'],
+          }],
+        }),
+        'utf-8'
+      );
+
+      await createArchiveContract(chestnutRoot, 'claw-a', 'contract-001');
+      await createArchiveContract(chestnutRoot, 'claw-b', 'contract-002');
+      await createArchiveContract(chestnutRoot, 'claw-c', 'contract-003');
+
+      let capturedPrompt = '';
+      mockWritePendingSubAgentTask.mockImplementation(async (_audit: unknown, opts: { intent: string }) => {
+        capturedPrompt = opts.intent;
+        return taskId;
+      });
+      await writeTaskCompletion(motionDir, taskId, '=== started ===');
+
+      await runRandomDream(makeOpts(chestnutRoot, motionDir));
+
+      expect(capturedPrompt).not.toBe('');
+      expect(capturedPrompt).toContain('contract-003');
+      expect(capturedPrompt).not.toContain('contract-001');
+      expect(capturedPrompt).not.toContain('contract-002');
+    });
+
+    it('does not advance watermark when dream output write fails', async () => {
+      await createArchiveContract(chestnutRoot, 'claw-1', 'contract-001');
+
+      const motionFs = new NodeFileSystem({ baseDir: motionDir });
+      vi.spyOn(motionFs, 'writeAtomic').mockRejectedValue(new Error('ENOSPC'));
+
+      const dreamLog = `=== started ===
+[DREAM_OUTPUT contract_id="contract-001"]
+insight
+[/DREAM_OUTPUT]`;
+
+      await writeTaskCompletion(motionDir, taskId, dreamLog);
+
+      await expect(runRandomDream({ ...makeOpts(chestnutRoot, motionDir), motionFs })).rejects.toThrow('ENOSPC');
+
+      const statePath = path.join(chestnutRoot, '.random-dream-state.json');
+      expect(fsSync.existsSync(statePath)).toBe(false);
+    });
+  });
 });
