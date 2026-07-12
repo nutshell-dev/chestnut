@@ -7,6 +7,7 @@ import type { ClawTopology } from './types.js';
 import { CLAW_TOPOLOGY_AUDIT_EVENTS } from './audit-events.js';
 import { CLAWSPACE_DIR } from '../../foundation/claw-identity/index.js';
 import { MOTION_CLAW_ID } from './motion-claw-id.js';
+import { makeExternalAbortError, type AbortReason } from '../../foundation/llm-provider/index.js';
 
 /** phase 520: motionClawId DI 删除（caller 不再传）、agent-tools 直 import 自家 const */
 interface CrossClawToolDeps {
@@ -155,8 +156,10 @@ function aggregateBroadcastResults(
   pattern: string,
 ): ToolResult {
   const successes = results.filter(r => r.result.success);
-  if (successes.length === 0) {
-    return { success: true, content: `No matches for "${pattern}".` };
+  const failures = results.filter(r => !r.result.success);
+  if (failures.length === results.length && results.length > 0) {
+    const failedClaws = failures.map(f => f.clawId).join(', ');
+    return { success: false, content: `Search failed: all ${results.length} claws failed (${failedClaws}).` };
   }
   const blocks: string[] = [];
   for (const s of successes) {
@@ -164,10 +167,15 @@ function aggregateBroadcastResults(
       blocks.push(`[${s.clawId}]\n${s.result.content}`);
     }
   }
-  if (blocks.length === 0) {
+  let content = blocks.join('\n\n');
+  if (failures.length > 0) {
+    const failedClaws = failures.map(f => f.clawId).join(', ');
+    content += `${content ? '\n\n' : ''}(⚠ ${failures.length}/${results.length} claws failed: ${failedClaws})`;
+  }
+  if (!content) {
     return { success: true, content: `No matches for "${pattern}".` };
   }
-  return { success: true, content: blocks.join('\n\n') };
+  return { success: true, content };
 }
 
 export function createCrossClawSearchTool(deps: CrossClawToolDeps): Tool {
@@ -206,7 +214,9 @@ export function createCrossClawSearchTool(deps: CrossClawToolDeps): Tool {
         const results: { clawId: string; result: ToolResult }[] = [];
         const rawText = args.text as string;
         for (const clawId of clawIds) {
-          if (ctx.signal?.aborted) break;
+          if (ctx.signal?.aborted) {
+            throw makeExternalAbortError(ctx.signal.reason as AbortReason | undefined);
+          }
           try {
             const location = deps.topology.resolve(clawId);
             if (location.kind !== 'local') continue;
