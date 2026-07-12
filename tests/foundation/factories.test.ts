@@ -62,7 +62,7 @@ describe('L2 factories — 行为契约', () => {
     const { dir, fs, audit } = mkEnv();
     const r = createInboxReader(fs, audit, 'tmp-inbox');
     await r.init();
-    await fs.writeAtomic('tmp-inbox/pending/001_hello.md', '---\nfrom: test\n---\nhello');
+    await fs.writeAtomic('tmp-inbox/pending/001_hello.md', '---\nfrom: test\ntimestamp: 2026-07-12T00:00:00Z\n---\nhello');
     const entries = await r.drainInbox();
     expect(entries).toHaveLength(1);
     expect(entries[0].filePath).toContain('tmp-inbox/pending/001_hello.md');

@@ -140,4 +140,25 @@ describe('InboxReader.findByExtraMeta', () => {
     const hit = await reader.findByExtraMeta('hash', 'same');
     expect(hit).not.toBeNull();
   });
+
+  it('propagates non-ENOENT list errors instead of returning null (phase 931)', async () => {
+    const errFs = new Proxy(fs, {
+      get(target, prop) {
+        if (prop === 'list') {
+          return async (dir: string) => {
+            if (dir === pendingDir) {
+              const e = new Error('permission denied') as NodeJS.ErrnoException;
+              e.code = 'EACCES';
+              throw e;
+            }
+            return (target as unknown as Record<string, (d: string) => Promise<unknown>>).list(dir);
+          };
+        }
+        return (target as unknown as Record<string, unknown>)[prop];
+      },
+    }) as unknown as NodeFileSystem;
+    const { audit } = makeAudit();
+    const fragileReader = new InboxReader(pendingDir, doneDir, failedDir, errFs, audit, inflightDir);
+    await expect(fragileReader.findByExtraMeta('hash', 'abc')).rejects.toThrow();
+  });
 });
