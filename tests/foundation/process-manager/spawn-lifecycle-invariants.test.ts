@@ -16,6 +16,7 @@ import { randomUUID } from 'crypto';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { spawnProcess } from '../../../src/foundation/process-manager/spawn.js';
 import { acquireLock, readLockPid } from '../../../src/foundation/process-manager/lock.js';
+import { getLockFile, getPidFile } from '../../../src/foundation/process-manager/paths.js';
 import { LockConflictError } from '../../../src/foundation/process-manager/types.js';
 import { makeAudit } from '../../helpers/audit.js';
 import { testClawDaemonDir } from '../../helpers/daemon-dir.js';
@@ -124,6 +125,95 @@ describe('spawn lifecycle invariants (Phase 914)', () => {
     ).rejects.toThrow('pidfile write failed');
 
     expect(killSpy).toHaveBeenCalledWith(FAKE_LIVE_PID, 'TERM');
+  });
+
+  it('does not delete corrupt lock file', async () => {
+    const { audit } = makeAudit();
+    const clawId = `test-claw-lock-corrupt-${randomUUID()}`;
+    const daemonDir = testClawDaemonDir(tempDir, clawId);
+    const lockFile = getLockFile({ fs: nodeFs } as ProcessManagerContext, daemonDir);
+    await fs.mkdir(path.dirname(lockFile), { recursive: true });
+    await fs.writeFile(lockFile, 'this is not valid lock content', 'utf-8');
+
+    const ctx: ProcessManagerContext = {
+      fs: nodeFs,
+      audit,
+      isAlive: () => false,
+      l1IsAlive: vi.fn().mockReturnValue(false),
+      getProcessStartTime: vi.fn().mockReturnValue(undefined),
+    };
+
+    // corrupt lock should not prevent spawn; lock file must remain untouched
+    await expect(
+      spawnProcess(ctx, daemonDir, {
+        command: 'node',
+        args: [`/fake/daemon-entry-${randomUUID()}.js`, clawId],
+        logFile: path.join(daemonDir, 'logs', 'daemon.log'),
+      }),
+    ).rejects.toThrow();
+
+    expect(await fs.access(lockFile).then(() => true).catch(() => false)).toBe(true);
+  });
+
+  it('uses childStartTime in isAlive check during spawn cleanup', async () => {
+    const { audit } = makeAudit();
+    const clawId = `test-claw-spawn-starttime-${randomUUID()}`;
+    const daemonDir = testClawDaemonDir(tempDir, clawId);
+    const childStartTime = 'Sat May 18 10:30:00 2026';
+
+    const l1IsAliveSpy = vi.fn().mockReturnValue(false);
+    const ctx: ProcessManagerContext = {
+      fs: nodeFs,
+      audit,
+      isAlive: () => false,
+      isReady: () => false,
+      l1IsAlive: l1IsAliveSpy,
+      kill: vi.fn(),
+      spawnDetached: vi.fn().mockReturnValue({ pid: FAKE_LIVE_PID }),
+      getProcessStartTime: vi.fn().mockReturnValue(childStartTime),
+    };
+
+    vi.spyOn(nodeFs, 'writeAtomic').mockRejectedValue(new Error('pidfile write failed'));
+
+    await expect(
+      spawnProcess(ctx, daemonDir, {
+        command: 'node',
+        args: [`/fake/daemon-entry-${randomUUID()}.js`, clawId],
+        logFile: path.join(daemonDir, 'logs', 'daemon.log'),
+      }),
+    ).rejects.toThrow('pidfile write failed');
+
+    expect(l1IsAliveSpy).toHaveBeenCalledWith(FAKE_LIVE_PID, childStartTime);
+  });
+
+  it('keeps PID file when child survives kill attempts', async () => {
+    const { audit } = makeAudit();
+    const clawId = `test-claw-child-survives-${randomUUID()}`;
+    const daemonDir = testClawDaemonDir(tempDir, clawId);
+    const pidFile = getPidFile({ fs: nodeFs } as ProcessManagerContext, daemonDir);
+
+    const ctx: ProcessManagerContext = {
+      fs: nodeFs,
+      audit,
+      isAlive: () => false,
+      isReady: () => false,
+      l1IsAlive: vi.fn().mockReturnValue(true),
+      kill: vi.fn(),
+      spawnDetached: vi.fn().mockReturnValue({ pid: FAKE_LIVE_PID }),
+      getProcessStartTime: vi.fn().mockReturnValue(undefined),
+    };
+
+    vi.spyOn(nodeFs, 'writeAtomic').mockRejectedValue(new Error('pidfile write failed'));
+
+    await expect(
+      spawnProcess(ctx, daemonDir, {
+        command: 'node',
+        args: [`/fake/daemon-entry-${randomUUID()}.js`, clawId],
+        logFile: path.join(daemonDir, 'logs', 'daemon.log'),
+      }),
+    ).rejects.toThrow('pidfile write failed');
+
+    expect(await fs.access(pidFile).then(() => true).catch(() => false)).toBe(true);
   });
 
   it('throws when daemon does not become ready within deadline and kills child', async () => {

@@ -9,11 +9,16 @@ import { isFileNotFound } from '../fs/index.js';
 
 
 
-export function readLockPid(
+export type LockReadResult =
+  | { status: 'missing' }
+  | { status: 'valid'; holder: { pid: number; startTime?: ProcessStartTime } }
+  | { status: 'corrupt'; error: string }
+  | { status: 'io_error'; error: string };
+
+export function readLock(
   ctx: ProcessManagerContext,
   daemonDir: DaemonDir,
-): { pid: number; startTime?: ProcessStartTime } | null {
-  // phase 586: lockFile 提到 try 外、let catch path 内的 audit emit 引用
+): LockReadResult {
   const lockFile = getLockFile(ctx, daemonDir);
   try {
     const content = ctx.fs.readSync(lockFile).trim();
@@ -26,11 +31,14 @@ export function readLockPid(
         typeof (parsed as { pid?: unknown }).pid === 'number'
       ) {
         return {
-          pid: (parsed as { pid: number }).pid,
-          startTime:
-            typeof (parsed as { startTime?: unknown }).startTime === 'string'
-              ? makeProcessStartTime((parsed as { startTime: string }).startTime)
-              : undefined,
+          status: 'valid',
+          holder: {
+            pid: (parsed as { pid: number }).pid,
+            startTime:
+              typeof (parsed as { startTime?: unknown }).startTime === 'string'
+                ? makeProcessStartTime((parsed as { startTime: string }).startTime)
+                : undefined,
+          },
         };
       }
     } catch {
@@ -40,21 +48,29 @@ export function readLockPid(
     const legacyPid = parseInt(content, 10);
     if (Number.isFinite(legacyPid)) {
       ctx.audit.write(PROCESS_MANAGER_AUDIT_EVENTS.PID_FILE_LEGACY_FORMAT, `daemon_dir=${daemonDir}`, `pid=${legacyPid}`, `file=lock`);
-      return { pid: legacyPid, startTime: undefined };
+      return { status: 'valid', holder: { pid: legacyPid, startTime: undefined } };
     }
-    return null;
+    return { status: 'corrupt', error: `unparseable lock content: ${content.slice(0, 50)}` };
   } catch (err) {
-    if (!isFileNotFound(err)) {
-      // phase 586: 加 path forensic col、延续 phase 580 PID_READ_FAILED 模式
-      ctx.audit.write(
-        PROCESS_MANAGER_AUDIT_EVENTS.LOCKFILE_READ_FAILED,
-        `daemon_dir=${daemonDir}`,
-        `path=${lockFile}`,
-        `reason=${formatErr(err)}`,
-      );
-    }
-    return null;
+    if (isFileNotFound(err)) return { status: 'missing' };
+    // phase 586: 加 path forensic col、延续 phase 580 PID_READ_FAILED 模式
+    ctx.audit.write(
+      PROCESS_MANAGER_AUDIT_EVENTS.LOCKFILE_READ_FAILED,
+      `daemon_dir=${daemonDir}`,
+      `path=${lockFile}`,
+      `reason=${formatErr(err)}`,
+    );
+    return { status: 'io_error', error: formatErr(err) };
   }
+}
+
+export function readLockPid(
+  ctx: ProcessManagerContext,
+  daemonDir: DaemonDir,
+): { pid: number; startTime?: ProcessStartTime } | null {
+  const result = readLock(ctx, daemonDir);
+  if (result.status === 'valid') return result.holder;
+  return null;
 }
 
 export function acquireLock(ctx: ProcessManagerContext, daemonDir: DaemonDir): void {

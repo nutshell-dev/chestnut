@@ -9,12 +9,12 @@ import { isFileNotFound } from '../fs/index.js';
 import { ProcessListUnavailable } from './errors.js';
 import { isAliveByPidFile as checkAlive } from './alive.js';
 import { isReady as checkReady } from './ready.js';
-import { readLockPid } from './lock.js';
+import { readLock } from './lock.js';
 import { readPid, removePid } from './pid.js';
 import type { PidFileContent } from './pid.js';
 import { findProcessesDetailed, commandContainsDaemonDirToken } from './find.js';
 
-import { isAlive as defaultL1IsAlive, getProcessStartTime as defaultGetProcessStartTime } from '../process-exec/index.js';
+import { isAlive as defaultL1IsAlive, getProcessStartTime as defaultGetProcessStartTime, type ProcessStartTime } from '../process-exec/index.js';
 import { LockConflictError, type ProcessManagerContext } from './types.js';
 import type { SpawnOptions } from './types.js';
 
@@ -147,50 +147,49 @@ async function cleanupLock(
   daemonDir: DaemonDir,
 ): Promise<void> {
   const lockFile = getLockFile(ctx, daemonDir);
+  const result = readLock(ctx, daemonDir);
+  if (result.status === 'missing') {
+    return; // nothing to clean
+  }
+  if (result.status === 'io_error' || result.status === 'corrupt') {
+    // Cannot determine state — keep lock, don't remove
+    ctx.audit.write(
+      PROCESS_MANAGER_AUDIT_EVENTS.LOCKFILE_CLEANUP_FAILED,
+      `daemon_dir=${daemonDir}`,
+      `op=stale_cleanup`,
+      `reason=cannot_determine_state`,
+      `detail=${result.error}`,
+    );
+    return;
+  }
+  // result.status === 'valid' — check if holder is alive
+  const lockHolder = result.holder;
+  const lockStartTime = lockHolder.startTime;
+  if ((ctx.l1IsAlive ?? defaultL1IsAlive)(lockHolder.pid, lockStartTime)) {
+    // Holder is alive — throw, don't kill. Let the caller handle the conflict.
+    throw new LockConflictError(
+      daemonDir,
+      `Another "${daemonDir}" daemon is running (PID: ${lockHolder.pid})`,
+    );
+  }
+  // Holder is dead — safe to clean up stale lock
+  ctx.audit.write(
+    PROCESS_MANAGER_AUDIT_EVENTS.LOCKFILE_CLEANUP_FAILED,
+    `daemon_dir=${daemonDir}`,
+    `op=stale_cleanup`,
+    `pid=${lockHolder.pid}`,
+    `reason=holder_dead`,
+  );
   try {
-    const lockHolder = readLockPid(ctx, daemonDir);
-    if (lockHolder !== null) {
-      const lockStartTime = lockHolder.startTime;
-      if ((ctx.l1IsAlive ?? defaultL1IsAlive)(lockHolder.pid, lockStartTime)) {
-        // Holder is alive — throw, don't kill. Let the caller handle the conflict.
-        throw new LockConflictError(
-          daemonDir,
-          `Another "${daemonDir}" daemon is running (PID: ${lockHolder.pid})`,
-        );
-      }
-      // Holder is dead — safe to clean up stale lock
+    await ctx.fs.delete(lockFile);
+  } catch (err) {
+    if (!isFileNotFound(err)) {
       ctx.audit.write(
         PROCESS_MANAGER_AUDIT_EVENTS.LOCKFILE_CLEANUP_FAILED,
         `daemon_dir=${daemonDir}`,
-        `op=stale_cleanup`,
-        `pid=${lockHolder.pid}`,
-        `reason=holder_dead`,
-      );
-    }
-    try {
-      await ctx.fs.delete(lockFile);
-    } catch (err) {
-      if (!isFileNotFound(err)) {
-        ctx.audit.write(
-          PROCESS_MANAGER_AUDIT_EVENTS.LOCKFILE_CLEANUP_FAILED,
-          `daemon_dir=${daemonDir}`,
-          `op=delete`,
-          `path=${lockFile}`,
-          `reason=${formatErr(err)}`,
-        );
-      }
-    }
-  } catch (err) {
-    if (err instanceof LockConflictError) {
-      throw err;
-    }
-    if (!isFileNotFound(err)) {
-      // phase 681: 加 path forensic col、与 lock.ts:49 同 event 形态对齐
-      ctx.audit.write(
-        PROCESS_MANAGER_AUDIT_EVENTS.LOCKFILE_READ_FAILED,
-        `daemon_dir=${daemonDir}`,
+        `op=delete`,
         `path=${lockFile}`,
-        `reason=${(err as NodeJS.ErrnoException).code || formatErr(err)}`,
+        `reason=${formatErr(err)}`,
       );
     }
   }
@@ -328,6 +327,7 @@ async function spawnAndAwaitReady(
 ): Promise<number> {
   const pidFile = getPidFile(ctx, daemonDir);
   let pid: number | undefined;
+  let childStartTime: ProcessStartTime | undefined;
   try {
     ({ pid } = (ctx.spawnDetached ?? defaultSpawnDetached)(options.command, options.args, {
       cwd: options.cwd,
@@ -335,7 +335,7 @@ async function spawnAndAwaitReady(
       logFile: options.logFile,
     }));
 
-    const childStartTime = (ctx.getProcessStartTime ?? defaultGetProcessStartTime)(pid);
+    childStartTime = (ctx.getProcessStartTime ?? defaultGetProcessStartTime)(pid);
     const pidPayload: PidFileContent = {
       pid,
       ...(childStartTime !== undefined ? { startTime: childStartTime } : {}),
@@ -374,12 +374,16 @@ async function spawnAndAwaitReady(
   } catch (err) {
     // If child was spawned, terminate it. Don't leave orphans.
     // Guard against self-kill (tests may inject process.pid as a mock child).
+    let childSurvived = false;
     if (typeof pid === 'number' && pid > 0 && pid !== process.pid) {
       try {
         (ctx.kill ?? defaultKill)(pid, 'TERM');
         // Grace period for child to exit on SIGTERM
         await sleep(DAEMON_SHUTDOWN_GRACE_MS);
-        if ((ctx.l1IsAlive ?? defaultL1IsAlive)(pid)) {
+        const aliveAfterTerm = childStartTime !== undefined
+          ? (ctx.l1IsAlive ?? defaultL1IsAlive)(pid, childStartTime)
+          : (ctx.l1IsAlive ?? defaultL1IsAlive)(pid);
+        if (aliveAfterTerm) {
           (ctx.kill ?? defaultKill)(pid, 'KILL');
           await sleep(500);
         }
@@ -392,15 +396,31 @@ async function spawnAndAwaitReady(
           `reason=${formatErr(killErr)}`,
         );
       }
+      const stillAlive = childStartTime !== undefined
+        ? (ctx.l1IsAlive ?? defaultL1IsAlive)(pid, childStartTime)
+        : (ctx.l1IsAlive ?? defaultL1IsAlive)(pid);
+      if (stillAlive) {
+        childSurvived = true;
+        // Child survived SIGTERM + SIGKILL. Keep PID file for forensics.
+        ctx.audit.write(
+          PROCESS_MANAGER_AUDIT_EVENTS.LOCKFILE_CLEANUP_FAILED,
+          `daemon_dir=${daemonDir}`,
+          `op=spawn_failed_child_survived`,
+          `pid=${pid}`,
+          `reason=child_still_alive_after_kill_attempts`,
+        );
+      }
     }
-    await removePid(ctx, daemonDir).catch((removeErr) => {
-      ctx.audit.write(
-        PROCESS_MANAGER_AUDIT_EVENTS.PID_REMOVE_FAILED,
-        `daemon_dir=${daemonDir}`,
-        `context=spawn_cleanup`,
-        `reason=${formatErr(removeErr)}`,
-      );
-    });
+    if (!childSurvived) {
+      await removePid(ctx, daemonDir).catch((removeErr) => {
+        ctx.audit.write(
+          PROCESS_MANAGER_AUDIT_EVENTS.PID_REMOVE_FAILED,
+          `daemon_dir=${daemonDir}`,
+          `context=spawn_cleanup`,
+          `reason=${formatErr(removeErr)}`,
+        );
+      });
+    }
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.PROCESS_SPAWN_FAILED,
       `daemon_dir=${daemonDir}`,
