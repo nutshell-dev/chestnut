@@ -67,6 +67,16 @@ export async function acquireLock(ctx: LockContext, lockPath: string): Promise<s
         const rawParsed: unknown = JSON.parse(raw);
         const validation = LockMetadataSchema.safeParse(rawParsed);
         if (!validation.success) {
+          // Old schema (no ownerToken) or other parse failure.
+          // Try to extract pid from the raw data to check liveness.
+          const legacyPid = typeof rawParsed === 'object' && rawParsed !== null
+            ? (rawParsed as Record<string, unknown>).pid : undefined;
+          if (typeof legacyPid === 'number' && (ctx.l1IsAlive ?? defaultL1IsAlive)(legacyPid)) {
+            // Old-format lock held by a live process — fail-closed.
+            // Don't clean it up; the owner is still running its critical section.
+            lastReason = `lock schema invalid but PID ${legacyPid} is alive — cannot determine ownership; lock preserved`;
+            continue;
+          }
           emitContractLockSchemaInvalid(
             ctx.audit,
             { path: lockPath, raw: ctx.audit.preview(raw) },
@@ -89,18 +99,25 @@ export async function acquireLock(ctx: LockContext, lockPath: string): Promise<s
           lastReason = 'unlink failed on corrupt lock file after isolation failed';
         }
         const { pid, time } = validation.success ? validation.data : { pid: 0, time: 0 };
-        if (!(ctx.l1IsAlive ?? defaultL1IsAlive)(pid)) {
+        const isAlive = (ctx.l1IsAlive ?? defaultL1IsAlive)(pid);
+        const isStale = Date.now() - time > LOCK_STALE_TIMEOUT_MS;
+        if (!isAlive && isStale) {
+          // Both stale-by-time AND dead-by-signal — safe to clean up.
+          lastReason = `holder PID ${pid} is dead and stale`;
+          emitContractLockCleared(
+            ctx.audit,
+            { pid, timeout: LOCK_STALE_TIMEOUT_MS, reason: 'stale_and_dead' },
+          );
+          if (await unlinkStaleLock(ctx, lockPath, `stale_timeout_pid_${pid}`)) continue;
+          lastReason = `unlink failed on stale lock (PID ${pid})`;
+        } else if (!isAlive) {
           lastReason = `holder PID ${pid} is dead (stale lock)`;
           if (await unlinkStaleLock(ctx, lockPath, `stale_pid_${pid}`)) continue;
           lastReason = `unlink failed on stale lock (PID ${pid})`;
-        } else if (Date.now() - time > LOCK_STALE_TIMEOUT_MS) {
-          lastReason = `holder PID ${pid} exceeded timeout (${LOCK_STALE_TIMEOUT_MS}ms)`;
-          emitContractLockCleared(
-            ctx.audit,
-            { pid, timeout: LOCK_STALE_TIMEOUT_MS, reason: 'stale' },
-          );
-          if (await unlinkStaleLock(ctx, lockPath, `timeout_pid_${pid}`)) continue;
-          lastReason = `unlink failed on timeout lock (PID ${pid})`;
+        } else if (isStale) {
+          // Stale by time but PID is alive — the lock is still valid.
+          // Don't clear it. The process may be slow but not dead.
+          lastReason = `holder PID ${pid} exceeded timeout (${LOCK_STALE_TIMEOUT_MS}ms) but is alive — lock preserved`;
         } else {
           lastReason = `held by PID ${pid} (${Math.round((Date.now() - time) / 1000)}s)`;
         }
@@ -161,97 +178,52 @@ export async function unlinkStaleLock(ctx: LockContext, lockPath: string, reason
 }
 
 export async function releaseLock(ctx: LockContext, lockPath: string, ownerToken: string): Promise<void> {
+  // Atomic claim: rename the lock file to a "released" path that includes our token.
+  // If the lock was already replaced by another owner, the rename target will be
+  // different and our token check will fail against the post-rename file.
+  const releasedPath = `${lockPath}.released-${ownerToken}`;
   try {
-    // phase 953 + 954: verify ownership before deleting to prevent race-conditions.
-    // Any read/parse/schema error means we cannot confirm this lock belongs to us,
-    // so we must not delete it.
-    const raw = await ctx.fs.read(lockPath);
-    let parsedPid: number | undefined;
-    let parsedToken: string | undefined;
-    try {
-      const rawParsed: unknown = JSON.parse(raw);
-      const validation = LockMetadataReleaseSchema.safeParse(rawParsed);
-      if (validation.success) {
-        parsedPid = validation.data.pid;
-        parsedToken = validation.data.ownerToken;
-      }
-    } catch (parseErr) {
-      emitContractLockUnlinkFailed(
-        ctx.audit,
-        {
-          context: 'ContractSystem.releaseLock',
-          path: lockPath,
-          reason: 'ownership_unverifiable',
-          error: formatErr(parseErr),
-        },
-      );
-      return;
-    }
-    if (parsedPid === undefined || parsedToken === undefined) {
-      emitContractLockUnlinkFailed(
-        ctx.audit,
-        {
-          context: 'ContractSystem.releaseLock',
-          path: lockPath,
-          reason: 'ownership_unverifiable',
-          error: 'lock metadata missing pid or ownerToken',
-        },
-      );
-      return;
-    }
-    if (parsedPid !== process.pid) {
-      emitContractLockUnlinkFailed(
-        ctx.audit,
-        {
-          context: 'ContractSystem.releaseLock',
-          path: lockPath,
-          reason: 'ownership_mismatch',
-          expectedPid: process.pid,
-          actualPid: parsedPid,
-        },
-      );
-      return;
-    }
-    if (parsedToken !== ownerToken) {
-      emitContractLockUnlinkFailed(
-        ctx.audit,
-        {
-          context: 'ContractSystem.releaseLock',
-          path: lockPath,
-          reason: 'owner_token_mismatch',
-          expectedToken: ownerToken,
-          actualToken: parsedToken,
-        },
-      );
-      return;
-    }
-  } catch (e) {
-    if (isFileNotFound(e)) {
-      // Lock already gone — proceed to delete for cleanup so the original audit
-      // behavior is preserved (caller may rely on LOCK_UNLINK_FAILED when target
-      // lock was never created).
-    } else {
-      emitContractLockUnlinkFailed(
-        ctx.audit,
-        {
-          context: 'ContractSystem.releaseLock',
-          path: lockPath,
-          reason: 'read_error',
-          error: formatErr(e),
-        },
-      );
-      return;
-    }
-  }
-
-  try {
-    await ctx.fs.delete(lockPath);
-  } catch (e) {
+    await ctx.fs.move(lockPath, releasedPath);
+  } catch (moveErr) {
+    if (isFileNotFound(moveErr)) return; // lock already gone
     emitContractLockUnlinkFailed(
       ctx.audit,
       {
         context: 'ContractSystem.releaseLock',
         path: lockPath,
+        reason: 'move_failed',
+        error: formatErr(moveErr),
+      },
+    );
+    return;
+  }
+
+  // Now read the renamed file to verify it's still ours (no race window between
+  // read and move — the move itself is the atomic claim).
+  try {
+    const raw = await ctx.fs.read(releasedPath);
+    const rawParsed: unknown = JSON.parse(raw);
+    const validation = LockMetadataReleaseSchema.safeParse(rawParsed);
+    if (!validation.success || validation.data.pid !== process.pid || validation.data.ownerToken !== ownerToken) {
+      // Token/pid mismatch after rename — something is wrong. Restore the lock.
+      await ctx.fs.move(releasedPath, lockPath).catch(() => {});
+      return;
+    }
+  } catch {
+    // Can't read or parse the renamed file → ownership unverifiable. Restore the
+    // lock rather than deleting data we cannot confirm belongs to us.
+    await ctx.fs.move(releasedPath, lockPath).catch(() => {});
+    return;
+  }
+
+  try {
+    await ctx.fs.delete(releasedPath);
+  } catch (e) {
+    emitContractLockUnlinkFailed(
+      ctx.audit,
+      {
+        context: 'ContractSystem.releaseLock',
+        path: releasedPath,
         error: formatErr(e),
       },
     );
