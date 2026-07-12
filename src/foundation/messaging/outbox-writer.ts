@@ -5,7 +5,7 @@
  */
 
 import * as path from 'path';
-import { formatErr } from "../node-utils/index.js";
+import { formatErr, newShortUuid } from "../node-utils/index.js";
 import type { FileSystem } from '../fs/index.js';
 import type { OutboxMessage } from '../messaging/types.js';
 import type { AuditLog } from '../audit/index.js';
@@ -126,10 +126,11 @@ export class OutboxWriter {
       };
       messageId = message.id;
 
-      // Generate filename: {timestamp}_{type}_{seq}.md
+      // Generate filename: {timestamp}_{type}_{seq}_{randomSuffix}.md
       const timestamp = Date.now();
       const typeSlug = options.type.toLowerCase();
-      const filename = `${timestamp}_${typeSlug}_${formatSeq(seq)}.md`;
+      const randomSuffix = newShortUuid().slice(0, 6);
+      const filename = `${timestamp}_${typeSlug}_${formatSeq(seq)}_${randomSuffix}.md`;
       const filePath = path.join(this.outboxDir, filename);
 
       // Format content as markdown

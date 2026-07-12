@@ -6,7 +6,7 @@
  */
 
 import * as path from 'path';
-import { formatErr } from "../node-utils/index.js";
+import { formatErr, newShortUuid } from "../node-utils/index.js";
 import type { FileSystem } from '../fs/index.js';
 import type { InboxMessage } from '../messaging/types.js';
 import { encodeInbox, parseFrontmatter } from './codec-inbox.js';
@@ -122,7 +122,8 @@ export class InboxWriter {
     const priority = msg.priority ?? 'normal';
     const source = sanitizeMessageIdentifier(msg.from || 'unknown', 'from');
     const seq = await this.counter.next();
-    const filename = `${source}-${timestamp}_${priority}_${formatSeq(seq)}.md`;
+    const randomSuffix = newShortUuid().slice(0, 6);
+    const filename = `${source}-${timestamp}_${priority}_${formatSeq(seq)}_${randomSuffix}.md`;
     const filePath = path.join(this.inboxDir, filename);
     try {
       await this.fs.writeAtomic(filePath, encodeInbox(msg, extraFields));
@@ -170,7 +171,9 @@ export class InboxWriter {
     assertMessageShape(message, this.audit, 'inbox', 'write');
 
     const source = sanitizeMessageIdentifier(opts.source || 'unknown', 'source');
-    const filename = `${source}-${timestamp}_${priority}_${formatSeq(this.counter.nextSync())}.md`;
+    const seq = this.counter.nextSync();
+    const randomSuffix = newShortUuid().slice(0, 6);
+    const filename = `${source}-${timestamp}_${priority}_${formatSeq(seq)}_${randomSuffix}.md`;
     try {
       this.fs.ensureDirSync(this.inboxDir);
       const content = encodeInbox(message, opts.extraFields);

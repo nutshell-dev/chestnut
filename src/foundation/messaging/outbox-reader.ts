@@ -316,7 +316,7 @@ export class OutboxReader {
   /**
    * Read the **latest** message from `<clawDir>/outbox/pending` (last by filename sort order).
    *
-   * Outbox filenames follow `{timestamp}_{type}_{seq}.md` — lexical sort == time sort asc,
+   * Outbox filenames follow `{timestamp}_{type}_{seq}_{randomSuffix}.md` — lexical sort == time sort asc,
    * so the last element is the newest.
    *
    * Pure read: no file move/delete side effect.

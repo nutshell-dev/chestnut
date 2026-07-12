@@ -47,7 +47,7 @@ describe('inbox filename source prefix (phase 1047)', () => {
 
     const files = await fs.readdir(path.join(testDir, 'inbox', 'pending'));
     expect(files).toHaveLength(1);
-    expect(files[0]).toMatch(/^claw-a-\d{15}_normal_\d{10}\.md$/);
+    expect(files[0]).toMatch(/^claw-a-\d{15}_normal_\d{10}_[a-f0-9]{6}\.md$/);
   });
 
   it('writeSync() filename contains source prefix from opts.source', () => {
@@ -60,6 +60,6 @@ describe('inbox filename source prefix (phase 1047)', () => {
 
     const files = fsSync.readdirSync(path.join(testDir, 'inbox', 'pending'));
     expect(files).toHaveLength(1);
-    expect(files[0]).toMatch(/^motion-\d{15}_high_\d{10}\.md$/);
+    expect(files[0]).toMatch(/^motion-\d{15}_high_\d{10}_[a-f0-9]{6}\.md$/);
   });
 });

@@ -90,6 +90,6 @@ describe('OutboxWriter', () => {
 
     const filePath = await writer.write({ type: 'question', to: 'claw-b', content: '?' });
     const basename = path.basename(filePath);
-    expect(basename).toMatch(/^\d+_question_\d{10}\.md$/);
+    expect(basename).toMatch(/^\d+_question_\d{10}_[a-f0-9]{6}\.md$/);
   });
 });
