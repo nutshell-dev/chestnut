@@ -444,9 +444,18 @@ export class DialogStore {
 
   /**
    * Archive current session (move to archive dir)
+   *
+   * Phase 920: archive 必须排在 flushPromise 串行链之后，先 drain 所有 pending save，
+   * 再执行 move，防止 save() 与 archive() 重叠导致 "current.json 被 move 走后又被新 save
+   * 重建" 的竞态。同时完整重置新会话的状态缓存。
    */
   async archive(): Promise<void> {
-    try {
+    // Phase 920: drain pending saves before archiving.
+    // Prevents race where a concurrent save() creates a new current.json
+    // after we move the old one.
+    await this.flushPromise;
+
+    const doArchive = async (): Promise<void> => {
       // Ensure archive directory exists
       await this.fs.ensureDir(this.archiveDir);
 
@@ -456,18 +465,38 @@ export class DialogStore {
 
       // Move current.json to archive
       await this.fs.move(this.currentPath, archivePath);
+
+      // Phase 920: 完整重置新会话状态缓存
       this.createdAt = null;  // Reset so next save() starts a fresh session
       // phase 988 (audit-2026-05-17 NEW.P1 G.2): reset corruptedPoisoned 防 sticky
       // archive 移走 current.json → 下次 load cold start → 新 file 不继承 stale poisoned state
       this.corruptedPoisoned = false;
-    } catch (err) {
+      // Phase 920: reset message length cache for new session
+      this.prevMessagesLength = 0;
+    };
+
+    // Chain archive after flushPromise to serialize with any new saves.
+    const next = this.flushPromise.then(doArchive, doArchive);
+    const wrapped = next.catch((err) => {
       this.audit.write(
         DIALOG_AUDIT_EVENTS.ARCHIVE_FAILED,
         `path=${this.currentPath}`,
         `reason=${formatErr(err)}`,
       );
-      throw err;
-    }
+      // swallow: keep flushPromise chain alive for subsequent saves
+    });
+    this.flushPromise = wrapped;
+
+    // phase 1082: cap flushPromise chain growth — reset to resolved when quiescent
+    wrapped.then(() => {
+      if (this.flushPromise === wrapped) {
+        this.flushPromise = Promise.resolve();
+      }
+    }).catch((e) => {
+      this.audit.write(DIALOG_AUDIT_EVENTS.FLUSH_CHAIN_ERROR, `reason=${formatErr(e)}`);
+    });
+
+    return next;
   }
 
   /**

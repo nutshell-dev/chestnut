@@ -5,6 +5,7 @@
 
 import * as path from 'path';
 import type { FileSystem } from '../fs/index.js';
+import { isFileNotFound } from '../fs/index.js';
 import { DIALOG_ARCHIVE_DIR } from './dirs.js';
 
 /** Lightweight reference to an archived dialog file. */
@@ -28,25 +29,30 @@ export async function listArchiveDialogFiles(
 ): Promise<ArchiveDialogRef[]> {
   const archiveDir = path.join(clawDir, DIALOG_ARCHIVE_DIR);
   if (!fs.existsSync(archiveDir)) return [];
-  try {
-    const entries = await fs.list(archiveDir, { includeDirs: false });
-    const refs: ArchiveDialogRef[] = [];
-    for (const e of entries) {
-      if (!e.isFile || !e.name.endsWith('.json')) continue;
-      let mtime = 0;
-      try {
-        const s = await fs.stat(path.join(archiveDir, e.name));
-        mtime = s.mtime.getTime();
-      } catch { /* silent: TOCTOU race — file vanished between list and stat */ }
-      refs.push({ name: e.name, relPath: path.join(DIALOG_ARCHIVE_DIR, e.name), mtime });
+
+  // Phase 920: list() errors (EACCES/EIO etc.) must propagate — they should not
+  // be silently masked as an empty archive.
+  const entries = await fs.list(archiveDir, { includeDirs: false });
+
+  const refs: ArchiveDialogRef[] = [];
+  for (const e of entries) {
+    if (!e.isFile || !e.name.endsWith('.json')) continue;
+    let mtime = 0;
+    try {
+      const s = await fs.stat(path.join(archiveDir, e.name));
+      mtime = s.mtime.getTime();
+    } catch (statErr) {
+      // Phase 920: ENOENT from stat is a TOCTOU race — the file vanished between
+      // list() and stat(). Skip it. All other I/O errors propagate.
+      if (isFileNotFound(statErr)) continue;
+      throw statErr;
     }
-    return refs.sort((a, b) => {
-      const aTs = parseInt(a.name.split('_')[0], 10);
-      const bTs = parseInt(b.name.split('_')[0], 10);
-      if (isNaN(aTs) || isNaN(bTs)) return 0;
-      return aTs - bTs;
-    });
-  } catch {
-    return [];
+    refs.push({ name: e.name, relPath: path.join(DIALOG_ARCHIVE_DIR, e.name), mtime });
   }
+  return refs.sort((a, b) => {
+    const aTs = parseInt(a.name.split('_')[0], 10);
+    const bTs = parseInt(b.name.split('_')[0], 10);
+    if (isNaN(aTs) || isNaN(bTs)) return 0;
+    return aTs - bTs;
+  });
 }
