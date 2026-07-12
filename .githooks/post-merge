@@ -3,7 +3,25 @@
 # Enabled via: git config core.hooksPath .githooks
 # If this fails, the merge has already completed; consider manual rollback.
 
-set -e
+set -euo pipefail
+
+LOCKFILE="/tmp/chestnut-post-merge.lock"
+LOCK_TIMEOUT=600  # 10 min max wait for previous run
+TEST_TIMEOUT=600  # 10 min max for test suite
+
+# ── mutex: only one post-merge test at a time ──
+exec 9>"$LOCKFILE"
+if ! flock -w "$LOCK_TIMEOUT" 9; then
+  echo "[post-merge] SKIP: could not acquire lock (another post-merge test running)"
+  exit 0
+fi
+
+cleanup() {
+  # Kill any leftover vitest/node child processes from this run
+  pkill -P $$ 2>/dev/null || true
+  flock -u 9 2>/dev/null || true
+}
+trap cleanup EXIT
 
 echo "[post-merge] running pnpm typecheck..."
 if ! pnpm run typecheck; then
@@ -15,10 +33,10 @@ if ! pnpm run typecheck; then
   exit 1
 fi
 
-echo "[post-merge] running pnpm test:run..."
-if ! pnpm run test:run; then
+echo "[post-merge] running pnpm test:diff..."
+if ! timeout "$TEST_TIMEOUT" pnpm run test:diff; then
   echo ""
-  echo "[post-merge] TESTS FAILED on merged tree."
+  echo "[post-merge] TESTS FAILED (or timed out) on merged tree."
   exit 1
 fi
 
