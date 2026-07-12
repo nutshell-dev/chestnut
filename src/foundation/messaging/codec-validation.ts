@@ -16,10 +16,10 @@ export function validatePriority(value: unknown): Priority {
 }
 
 export function validateType(value: unknown): InboxMessage['type'] {
-  // loose validation：接受任意 string / 防 silent UX drift（M9 phase 575）
-  // 保 string 类型 cast / 非 string fallback 'user_inbox_message'（phase 9：'message' catch-all 移除）
+  // Phase 932: strict type validation — non-string or missing values are rejected
+  // by the caller (codec-inbox). This helper remains as a thin string cast.
   if (typeof value === 'string') {
     return value as InboxMessage['type'];
   }
-  return 'user_inbox_message';
+  throw new Error(`invalid inbox type: expected string, got ${value === undefined ? 'undefined' : typeof value}`);
 }

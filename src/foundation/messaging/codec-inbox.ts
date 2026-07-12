@@ -1,6 +1,5 @@
-import { newUuid } from  '../node-utils/index.js';
 import type { InboxMessage } from '../messaging/types.js';
-import { validatePriority, validateType } from './codec-validation.js';
+import { validatePriority } from './codec-validation.js';
 import { parseFrontmatterFrame } from './frontmatter-frame.js';
 import { assertSafeKey } from './sanitize.js';
 import { InboxDecodeError } from './errors.js';
@@ -120,8 +119,8 @@ export function encodeInbox(
 /**
  * Decode raw string to InboxMessage.
  * Reads `from` field, falls back to `source` for backward compatibility.
- * `id` is auto-generated if missing; `from` and `timestamp` are required and
- * will throw InboxDecodeError when absent.
+ * `id`, `type`, `from`, and `timestamp` are required and will throw
+ * InboxDecodeError when absent or malformed.
  */
 export function decodeInbox(raw: string): InboxMessage {
   if (!raw.startsWith('---\n') && !raw.startsWith('---\r\n')) {
@@ -158,21 +157,27 @@ export function decodeInbox(raw: string): InboxMessage {
     extraMeta.__legacy_claw_id = meta.claw_id;
   }
 
-  // type loose validation（M9 phase 575）/ 任意 string 直通 / 非 string fallback 'message'
+  // Strict validation: id/type/timestamp are required (align with outbox Phase 928).
+  if (!meta.id) throw new InboxDecodeError('missing required field: id');
+
   const rawType = meta.type;
-  const type = validateType(rawType);
-  if (rawType !== undefined && typeof rawType !== 'string') {
-    extraMeta.__original_type = String(rawType);   // 非 string 输入仍记原值
+  if (!rawType || typeof rawType !== 'string') {
+    throw new InboxDecodeError(
+      `missing required field: type (got ${rawType === undefined ? 'undefined' : typeof rawType})`
+    );
   }
 
   // Legacy migration: source → from
   const from = meta.from ?? meta.source;
   if (!from) throw new InboxDecodeError('missing required field: from (or source for legacy)');
   if (!meta.timestamp) throw new InboxDecodeError('missing required field: timestamp');
+  if (Number.isNaN(Date.parse(meta.timestamp))) {
+    throw new InboxDecodeError(`invalid timestamp: "${meta.timestamp}"`);
+  }
 
   const result: InboxMessage = {
-    id: meta.id ?? newUuid(),
-    type,
+    id: meta.id,
+    type: rawType as InboxMessage['type'],
     from,
     to: meta.to ?? '',
     content: body,

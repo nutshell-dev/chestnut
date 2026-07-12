@@ -117,4 +117,22 @@ describe('codec-inbox strict decode invariant (phase 931)', () => {
   it('throws when extraFields override reserved from key', () => {
     expect(() => encodeInbox(base, { from: 'attacker' })).toThrow(/conflicts with reserved frontmatter field/i);
   });
+
+  it('throws when id is missing (phase 932)', () => {
+    const encoded = encodeInbox(base);
+    const rawWithoutId = encoded.replace(/^id:.*$/m, '');
+    expect(() => decodeInbox(rawWithoutId)).toThrow(/missing required field: id/i);
+  });
+
+  it('throws when type is missing (phase 932)', () => {
+    const encoded = encodeInbox(base);
+    const rawWithoutType = encoded.replace(/^type:.*$/m, '');
+    expect(() => decodeInbox(rawWithoutType)).toThrow(/missing required field: type/i);
+  });
+
+  it('throws when timestamp is malformed (phase 932)', () => {
+    const encoded = encodeInbox(base);
+    const rawWithBadTs = encoded.replace(/^timestamp:.*$/m, 'timestamp: broken');
+    expect(() => decodeInbox(rawWithBadTs)).toThrow(/invalid timestamp/i);
+  });
 });

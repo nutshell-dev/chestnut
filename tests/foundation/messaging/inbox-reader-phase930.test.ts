@@ -21,6 +21,7 @@ describe('InboxReader phase 930', () => {
   let testDir: string;
   let nfs: NodeFileSystem;
   let auditCalls: Array<{ type: string; cols: string[] }>;
+  let audit: { write(type: string, ...cols: (string | number)[]): void };
   let reader: InboxReader;
   let writer: InboxWriter;
 
@@ -30,7 +31,7 @@ describe('InboxReader phase 930', () => {
     await fs.mkdir(testDir, { recursive: true });
     nfs = new NodeFileSystem({ baseDir: testDir });
     auditCalls = [];
-    const audit = {
+    audit = {
       write(type: string, ...cols: (string | number)[]) {
         auditCalls.push({ type, cols: cols.map(String) });
       },
@@ -113,7 +114,68 @@ describe('InboxReader phase 930', () => {
     expect(reconcileAudit).toHaveLength(0);
   });
 
-  // ─── Case 3: transient read error → keep pending ──────────────────────────
+  // ─── Case 3: startTime=0 with expired mtime lease → reclaim ───────────────
+  it('reclaims inflight when startTime=0 and mtime lease expired', async () => {
+    await writeMsg('msg-1', 'hello');
+    const pid = process.pid;
+
+    const pendingDir = path.join(testDir, 'inbox', 'pending');
+    const inflightDir = path.join(testDir, 'inbox', 'inflight');
+    const files = await fs.readdir(pendingDir);
+    const originalName = files.find(f => f.endsWith('.md'))!;
+    const inflightPath = path.join(inflightDir, `${pid}_0_${originalName}`);
+    await fs.rename(path.join(pendingDir, originalName), inflightPath);
+
+    // Backdate mtime beyond STALE_THRESHOLD_MS (5 minutes)
+    const oldMtime = new Date(Date.now() - 6 * 60 * 1000);
+    await fs.utimes(inflightPath, oldMtime, oldMtime);
+
+    const freshReader = new InboxReader(
+      path.join(testDir, 'inbox', 'pending'),
+      path.join(testDir, 'inbox', 'done'),
+      path.join(testDir, 'inbox', 'failed'),
+      nfs,
+      audit,
+    );
+    await freshReader.init();
+
+    const pendingFiles = (await fs.readdir(pendingDir)).filter(f => f.endsWith('.md'));
+    expect(pendingFiles).toHaveLength(1);
+  });
+
+  // ─── Case 4: startTime=0 with recent mtime → keep inflight ──────────────────
+  it('keeps inflight when startTime=0 but mtime lease has not expired', async () => {
+    await writeMsg('msg-1', 'hello');
+    const pid = process.pid;
+
+    const pendingDir = path.join(testDir, 'inbox', 'pending');
+    const inflightDir = path.join(testDir, 'inbox', 'inflight');
+    const files = await fs.readdir(pendingDir);
+    const originalName = files.find(f => f.endsWith('.md'))!;
+    const inflightPath = path.join(inflightDir, `${pid}_0_${originalName}`);
+    await fs.rename(path.join(pendingDir, originalName), inflightPath);
+
+    // Keep recent mtime
+    const recentMtime = new Date();
+    await fs.utimes(inflightPath, recentMtime, recentMtime);
+
+    const freshReader = new InboxReader(
+      path.join(testDir, 'inbox', 'pending'),
+      path.join(testDir, 'inbox', 'done'),
+      path.join(testDir, 'inbox', 'failed'),
+      nfs,
+      audit,
+    );
+    await freshReader.init();
+
+    const pendingFiles = (await fs.readdir(pendingDir)).filter(f => f.endsWith('.md'));
+    expect(pendingFiles).toHaveLength(0);
+
+    const inflightFiles = await fs.readdir(inflightDir);
+    expect(inflightFiles).toHaveLength(1);
+  });
+
+  // ─── Case 5: transient read error → keep pending ──────────────────────────
   it('keeps message in pending on transient read error', async () => {
     const events: Array<[string, ...(string | number)[]]> = [];
     const audit: AuditLog = {

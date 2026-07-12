@@ -50,10 +50,10 @@ describe('validateType', () => {
     expect(validateType('HEARTBEAT')).toBe('HEARTBEAT');
   });
 
-  it('非字符串输入降级为 user_inbox_message (phase 9: message catch-all 移除)', () => {
-    expect(validateType(undefined)).toBe('user_inbox_message');
-    expect(validateType(null)).toBe('user_inbox_message');
-    expect(validateType(42)).toBe('user_inbox_message');
-    expect(validateType({})).toBe('user_inbox_message');
+  it('非字符串输入抛错 (phase 932)', () => {
+    expect(() => validateType(undefined)).toThrow();
+    expect(() => validateType(null)).toThrow();
+    expect(() => validateType(42)).toThrow();
+    expect(() => validateType({})).toThrow();
   });
 });
