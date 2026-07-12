@@ -18,7 +18,11 @@ export const formatRandomDream: MessageFormatter = async ({ body, timestampSec }
 export const formatDeepDream: MessageFormatter = async ({ body, timestampSec }) =>
   `[system message${timestampSec}] ${body}`;
 
+export const formatRandomDreamCompleted: MessageFormatter = async ({ body, timestampSec }) =>
+  `[system message${timestampSec}] ${body}`;
+
 export function registerMemoryFormatters(registry: MessageFormatterRegistry): void {
   registry.register('random_dream', formatRandomDream);
+  registry.register('random_dream_completed', formatRandomDreamCompleted);
   registry.register('deep_dream', formatDeepDream);
 }

@@ -42,6 +42,7 @@ export function registerAllMotionGuidance(registry: MotionGuidanceRegistry): voi
   registry.register('verification_rejection', verificationRejection);
   registry.register('verification_error', verificationError);
   registry.register('random_dream', randomDream);
+  registry.register('random_dream_completed', randomDream);
   registry.register('deep_dream', deepDream);
   registry.register('heartbeat', heartbeat);
   registry.register('startup_check', startupCheck);
