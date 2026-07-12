@@ -14,6 +14,7 @@ import * as path from 'path';
 import { formatErr } from '../node-utils/index.js';
 import type { FileSystem } from '../fs/index.js';
 import { isFileNotFound } from '../fs/index.js';
+import { isAlive } from '../process-exec/index.js';
 import type { AuditLog } from '../audit/index.js';
 import { emitOutboxClaimFailed, emitOutboxListFailed, emitOutboxPeekFailed, emitOutboxProcessingOrphanCleaned } from './audit-emit.js';
 import { decodeOutbox } from './codec-outbox.js';
@@ -22,6 +23,7 @@ import {
   OUTBOX_PENDING_DIR,
   OUTBOX_PROCESSING_DIR,
   OUTBOX_DONE_DIR,
+  OUTBOX_FAILED_DIR,
 } from './dirs.js';
 import { newShortUuid } from '../node-utils/index.js';
 import { emitOutboxDelivered } from './audit-emit.js';
@@ -50,6 +52,7 @@ export class OutboxReader {
   private async _reconcileProcessing(clawDir: string): Promise<void> {
     const processingDir = path.join(clawDir, OUTBOX_PROCESSING_DIR);
     const pendingDir = path.join(clawDir, OUTBOX_PENDING_DIR);
+    const doneDir = path.join(clawDir, OUTBOX_DONE_DIR);
 
     let entries: { name: string }[] = [];
     try {
@@ -63,19 +66,114 @@ export class OutboxReader {
       return;
     }
 
+    let pendingEntries: { name: string }[] = [];
+    try {
+      pendingEntries = await this.fs.list(pendingDir, { includeDirs: false });
+    } catch (err) {
+      emitOutboxListFailed(this.audit, {
+        dir: pendingDir,
+        op: 'reconcile',
+        reason: formatErr(err),
+      });
+      return;
+    }
+
     let revertedCount = 0;
-    const pendingSet = new Set(
-      (await this.fs.list(pendingDir, { includeDirs: false }).catch(() => []))
-        .map(e => e.name),
-    );
+    const pendingSet = new Set(pendingEntries.map(e => e.name));
+
+    const CLAIM_TOKEN_RE = /^cli_(\d+)_[^_]+_(.+\.md)$/;
+    const STALE_THRESHOLD_MS = 5 * 60 * 1000;
 
     for (const entry of entries) {
       if (!entry.name.endsWith('.md')) continue;
-      // processing filenames are: cli_<claimToken>_<originalFilename>
-      const originalName = entry.name.replace(/^cli_[^_]+_/, '');
-      if (pendingSet.has(originalName)) continue; // already re-claimed
+
+      let originalName: string;
+      let shouldReclaim = false;
+      const match = entry.name.match(CLAIM_TOKEN_RE);
+      if (!match) {
+        // Legacy format (pre-Phase 908): no PID, use mtime-based heuristic.
+        originalName = entry.name.replace(/^cli_[^_]+_/, '');
+        const sourcePath = path.join(processingDir, entry.name);
+        let mtime: number;
+        try {
+          const stat = await this.fs.stat(sourcePath);
+          mtime = stat.mtime.getTime();
+        } catch (err) {
+          emitOutboxClaimFailed(this.audit, {
+            file: entry.name,
+            op: 'reconcile_stat',
+            reason: formatErr(err),
+          });
+          continue;
+        }
+        if (Date.now() - mtime >= STALE_THRESHOLD_MS) {
+          shouldReclaim = true;
+        }
+      } else {
+        const pid = parseInt(match[1], 10);
+        originalName = match[2];
+        if (!isAlive(pid)) {
+          shouldReclaim = true;
+        }
+      }
+
+      if (!shouldReclaim) continue;
+
       const sourcePath = path.join(processingDir, entry.name);
       const targetPath = path.join(pendingDir, originalName);
+
+      if (pendingSet.has(originalName)) {
+        // Duplicate: compare content to decide.
+        let sourceContent: string;
+        try {
+          sourceContent = await this.fs.read(sourcePath);
+        } catch (err) {
+          emitOutboxClaimFailed(this.audit, {
+            file: entry.name,
+            op: 'reconcile_compare_read',
+            reason: formatErr(err),
+          });
+          continue;
+        }
+        let targetContent: string;
+        try {
+          targetContent = await this.fs.read(targetPath);
+        } catch (err) {
+          emitOutboxClaimFailed(this.audit, {
+            file: entry.name,
+            op: 'reconcile_compare_read',
+            reason: formatErr(err),
+          });
+          continue;
+        }
+        if (sourceContent === targetContent) {
+          // Same content → already re-delivered by another consumer; archive processing file.
+          try {
+            await this.fs.move(sourcePath, path.join(doneDir, entry.name));
+          } catch (err) {
+            emitOutboxClaimFailed(this.audit, {
+              file: entry.name,
+              op: 'reconcile_archive',
+              reason: formatErr(err),
+            });
+          }
+        } else {
+          // Different content → conflict, move to DLQ.
+          const failedDir = path.join(clawDir, OUTBOX_FAILED_DIR);
+          try {
+            await this.fs.ensureDir(failedDir);
+            await this.fs.move(sourcePath, path.join(failedDir, entry.name));
+          } catch (err) {
+            emitOutboxClaimFailed(this.audit, {
+              file: entry.name,
+              op: 'reconcile_dlq',
+              reason: formatErr(err),
+            });
+          }
+        }
+        continue;
+      }
+
       try {
         await this.fs.move(sourcePath, targetPath);
         revertedCount++;
@@ -148,7 +246,7 @@ export class OutboxReader {
     const fileName = filenames[0]; // oldest first
     const pendingDir = path.join(clawDir, OUTBOX_PENDING_DIR);
     const processingDir = path.join(clawDir, OUTBOX_PROCESSING_DIR);
-    const claimToken = `cli_${newShortUuid()}`;
+    const claimToken = `cli_${process.pid}_${newShortUuid()}`;
     const relPendingPath = path.join(pendingDir, fileName);
     const relClaimedPath = path.join(processingDir, `${claimToken}_${fileName}`);
 

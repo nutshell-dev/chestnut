@@ -134,7 +134,7 @@ describe('OutboxReader.claimNext + markDone', () => {
   it('reconciles orphaned processing files back to pending on init', async () => {
     const t1 = '1717480000000';
     const filename = `${t1}_normal_aaa.md`;
-    const processingFile = `cli_12345678_${filename}`;
+    const processingFile = `cli_99999_abc123_${filename}`;
     await fsAsync.writeFile(path.join(processingDir, processingFile), encodeOutbox(makeMsg('orphan', '2026-06-04T10:00:00Z')));
 
     await reader.init(clawDir);

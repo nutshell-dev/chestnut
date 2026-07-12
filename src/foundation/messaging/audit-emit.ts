@@ -233,9 +233,12 @@ export function emitOutboxSent(
 // ─── OUTBOX_LIST_FAILED ───────────────────────────────────────────────────────
 export function emitOutboxListFailed(
   audit: AuditLog,
-  opts: { dir: string; reason: string },
+  opts: { dir: string; op?: string; reason: string },
 ): void {
-  audit.write(MESSAGING_AUDIT_EVENTS.OUTBOX_LIST_FAILED, `dir=${opts.dir}`, `reason=${opts.reason}`);
+  const cols: string[] = [`dir=${opts.dir}`];
+  if (opts.op !== undefined) cols.push(`op=${opts.op}`);
+  cols.push(`reason=${opts.reason}`);
+  audit.write(MESSAGING_AUDIT_EVENTS.OUTBOX_LIST_FAILED, ...cols);
 }
 
 // ─── OUTBOX_PEEK_FAILED ───────────────────────────────────────────────────────
