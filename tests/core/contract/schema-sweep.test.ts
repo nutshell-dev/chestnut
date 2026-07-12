@@ -342,8 +342,15 @@ describe('event-collector schema check', () => {
     expect(result.events.length).toBe(1);
     expect(result.events[0]).toContain('contract=good');
 
-    // Phase 748: scanArchivedContracts no longer emits PROGRESS_SCHEMA_INVALID audit.
-    expect(mockAudit.write).not.toHaveBeenCalled();
+    // Phase 949: schema validation failure emits PROGRESS_CORRUPTED audit.
+    expect(mockAudit.write).toHaveBeenCalledTimes(1);
+    expect(mockAudit.write).toHaveBeenCalledWith(
+      CONTRACT_AUDIT_EVENTS.PROGRESS_CORRUPTED,
+      expect.stringContaining('clawId=test-claw'),
+      expect.stringContaining('contract=bad'),
+      expect.stringContaining('context=schema_validation_failed'),
+      expect.stringContaining('issues='),
+    );
   });
 
   it('audits PROGRESS_CORRUPTED on JSON.parse throw', () => {

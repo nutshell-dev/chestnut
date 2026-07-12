@@ -1,10 +1,11 @@
 import * as path from 'path';
+import * as nodeFs from 'fs';
 import { formatErr } from "../../../foundation/node-utils/index.js";
 import * as yaml from 'js-yaml';
 import { isFileNotFound, type FileSystem } from '../../../foundation/fs/index.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
 import type { ProgressData } from '../manager.js';
-import type { ArchiveAllowedStatus } from '../types.js';
+import type { ArchiveAllowedStatus, ActiveStatus } from '../types.js';
 import { CONTRACT_AUDIT_EVENTS } from '../audit-events.js';
 import { CONTRACT_ARCHIVE_DIR, PROGRESS_FILE, CONTRACT_YAML_FILE } from '../dirs.js';
 import { ContractProgressArchiveLooseSchema } from '../schemas.js';
@@ -29,8 +30,8 @@ function readContractMeta(
 
 interface FormattedEvent {
   body: string;
-  hasFailure: boolean;     // 任意 subtask 有 last_failed_feedback
-  status: ArchiveAllowedStatus;
+  hasFailure: boolean;     // 任意 subtask 有 last_failed_feedback 或状态机断裂
+  status: ArchiveAllowedStatus | ActiveStatus;
   reason?: string;
   cause?: string;
 }
@@ -54,8 +55,15 @@ function formatContractEvent(
     case 'pending':
     case 'running':
     case 'paused':
-      // active 态在 archive 是状态机断裂、不投 inbox、上层 emit audit
-      return null;
+      // Active state in archive is a state-machine break.
+      // Audit at collector level — the "upper layer" has no visibility into this.
+      return {
+        body: '',
+        hasFailure: true,
+        status,
+        reason: 'state_machine_break',
+        cause: `Contract ${contractDirName} has active status "${status}" in archive`,
+      };
     default: {
       // exhaustive check：未来加新 status 编译期失败
       const _exhaustive: never = status;
@@ -149,12 +157,12 @@ export interface ArchivedContractEntry {
   contractId: string;
   body: string;
   hasFailure: boolean;
-  /** max(subtask.completed_at) ms epoch、0 if no subtask completed_at */
-  latestSubtaskCompletedAtMs: number;
+  /** archive 时间戳 ms epoch；优先 max(subtask.completed_at)，无完成 subtask 时 fallback 到 progress.json mtime */
+  archivedAt: number;
   // phase 63 NEW
-  status: ArchiveAllowedStatus;     // entry 终态、observer 据此分流
-  reason?: string;            // cancelled 时填
-  cause?: string;             // crashed 时填
+  status: ArchiveAllowedStatus | ActiveStatus;     // entry 状态、observer 据此分流
+  reason?: string;            // cancelled / state_machine_break 时填
+  cause?: string;             // crashed / state_machine_break 时填
 }
 
 /**
@@ -186,26 +194,54 @@ export function scanArchivedContracts(
         const obj = rawParsed as Record<string, unknown>;
         delete obj.contract_id;
         const result = ContractProgressArchiveLooseSchema.safeParse(obj);
-        if (!result.success) continue;
+        if (!result.success) {
+          audit?.write(
+            CONTRACT_AUDIT_EVENTS.PROGRESS_CORRUPTED,
+            `clawId=${clawId}`,
+            `contract=${d.name}`,
+            `context=schema_validation_failed`,
+            `issues=${result.error.issues.map(i => i.message).join('; ')}`,
+          );
+          continue;
+        }
         const progress = {
           ...result.data,
           contract_id: d.name,
           status: result.data.status ?? 'completed',
         } as ProgressData;
-        const latestSubtaskCompletedAtMs = Object.values(progress.subtasks)
+        let archivedAt = Object.values(progress.subtasks)
           .reduce((max, s) => {
             if (!s.completed_at) return max;
             const ts = new Date(s.completed_at).getTime();
             return ts > max ? ts : max;
           }, 0);
+        // When no subtask has a completion timestamp, fall back to the progress.json mtime
+        // (the time the contract entered its terminal state and was archived).
+        if (archivedAt === 0) {
+          try {
+            const stat = nodeFs.statSync(progressPath);
+            archivedAt = stat.mtime.getTime();
+          } catch {
+            archivedAt = Date.now(); // last resort: use collection time
+          }
+        }
         const meta = readContractMeta(fs, path.join(archiveDir, d.name));
         const formatted = formatContractEvent(clawId, d.name, meta, progress);
         if (formatted === null) continue;
+        if (formatted.status === 'pending' || formatted.status === 'running' || formatted.status === 'paused') {
+          audit?.write(
+            CONTRACT_AUDIT_EVENTS.CONTRACT_ARCHIVE_ACTIVE_STATE_DETECTED,
+            `clawId=${clawId}`,
+            `contract=${d.name}`,
+            `status=${formatted.status}`,
+            `cause=${formatted.cause ?? 'active status in archive'}`,
+          );
+        }
         entries.push({
           contractId: d.name,
           body: formatted.body,
           hasFailure: formatted.hasFailure,
-          latestSubtaskCompletedAtMs,
+          archivedAt,
           status: formatted.status,
           reason: formatted.reason,
           cause: formatted.cause,
@@ -263,7 +299,7 @@ export function collectContractEvents(
   audit: AuditLog,
 ): CollectedContractEventsResult {
   const entries = scanArchivedContracts(fs, clawDir, clawId, audit)
-    .filter(e => e.latestSubtaskCompletedAtMs > sinceTs);
+    .filter(e => e.archivedAt > sinceTs);
   return {
     events: entries.map(e => e.body),
     problemPairs: entries.filter(e => e.hasFailure).map(e => `${clawId}:${e.contractId}`),

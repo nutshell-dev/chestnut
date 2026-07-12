@@ -215,7 +215,7 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
           );
           continue;
         }
-        const archivedAt = entry.latestSubtaskCompletedAtMs;
+        const archivedAt = entry.archivedAt;
         if (archivedAt <= state.lastArchivedAt) continue;  // 水位线去重：已处理
         if (archivedAt > maxArchivedAt) {
           maxArchivedAt = archivedAt;
@@ -263,7 +263,18 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
                 context: 'observer_scan',
               });
               break;
-            // phase 356: 'pending'/'running'/'paused' unreachable cases 删 (narrow ArchiveAllowedStatus 编译期 enforce 不可达)
+            case 'pending':
+            case 'running':
+            case 'paused':
+              // phase 949: active status in archive 已在 collector 层审计；observer 只跳过、不投 inbox
+              motionAudit.write(
+                CONTRACT_AUDIT_EVENTS.CONTRACT_ARCHIVE_ACTIVE_STATE_DETECTED,
+                `claw=${clawId}`,
+                `contract=${entry.contractId}`,
+                `status=${entry.status}`,
+                `context=observer_skip_active_in_archive`,
+              );
+              break;
             default: {
               const _exhaustive: never = entry.status;
               return _exhaustive;

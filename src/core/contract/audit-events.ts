@@ -123,6 +123,8 @@ export const CONTRACT_AUDIT_EVENTS = {
   CONTRACT_ARCHIVE_RECONCILE_SUMMARY: 'contract_archive_reconcile_summary',
   // phase 197: archive_pending_recovery observer 扫到时归 audit、不投 motion inbox
   CONTRACT_ARCHIVE_RECOVERY_PENDING_OBSERVED: 'contract_archive_recovery_pending_observed',
+  // phase 949: event-collector 在 archive 目录发现 active status 状态机断裂
+  CONTRACT_ARCHIVE_ACTIVE_STATE_DETECTED: 'contract_archive_active_state_detected',
   // Phase 230: contract create policy rejected
   CONTRACT_CREATE_POLICY_REJECTED: 'contract_create_policy_rejected',
   // phase 233 Step A: saveProgress 入口 schema invariant 违例
@@ -236,6 +238,7 @@ export const CONTRACT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   contract_archive_reconcile_failed: 'audit',
   contract_archive_reconcile_summary: 'audit',
   contract_archive_recovery_pending_observed: 'audit',
+  contract_archive_active_state_detected: 'audit',
   contract_progress_invariant_violated: 'audit',
   contract_legacy_status_field_ignored: 'audit',
   contract_legacy_contract_id_field_ignored: 'audit',
