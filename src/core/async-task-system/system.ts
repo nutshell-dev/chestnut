@@ -1388,8 +1388,8 @@ export class AsyncTaskSystem {
         throw new Error(`Cancel race lost: task ${shortId} already dispatched to running`);
       }
 
-      // tool 任务：通知 parent
-      if (task?.kind === 'tool') {
+      // Phase 905: 取消 pending 任务时，tool / subagent 都需要通知 parent，避免 parent 永久等待。
+      if (task) {
         await sendFallbackError(this.fs, this.auditWriter, task, 'Task cancelled before execution').catch((e) => {
           emitMoveFailed(this.auditWriter, {
             fullTaskId: fullId,
@@ -1445,7 +1445,15 @@ export class AsyncTaskSystem {
     this._shuttingDown = true;
     this._signalWork();
     // 顺序：先关 watcher（避免 shutdown 期间新事件进队）→ 旧 shutdown 流程
-    await this.pendingWatcherHandle?.close();
+    // Phase 905: watcher close 必须 best-effort；即使抛错也要继续 abort，避免死锁。
+    try {
+      await this.pendingWatcherHandle?.close();
+    } catch (e) {
+      this.auditWriter?.write(TASK_AUDIT_EVENTS.SHUTDOWN_TIMEOUT,
+        `context=watcher_close_failed`,
+        `error=${formatErr(e)}`,
+      );
+    }
     this.pendingWatcherHandle = undefined;
 
     // Signal all running tasks to stop
@@ -1482,7 +1490,9 @@ export class AsyncTaskSystem {
     }
     emitShutdownPendingCleanupsDrained(this.auditWriter);
 
-    this.executingTasks.clear();
+    // Phase 905: drain 超时后仍可能有未 settle 的后台任务在运行。
+    // 不再无条件 clear，保留未 settle 任务的句柄，让其完成时通过 finally 自清理。
+    // executingTasks map 会随实例 GC 回收，无副作用。
 
     return timedOut;
   }
