@@ -42,8 +42,7 @@ export async function outboxCommand(
   try {
     initialFiles = await outboxReader.listClawOutboxPending('.');
   } catch (e) {
-    // listClawOutboxPending swallows non-fatal errors; this catch is defensive.
-    process.stderr.write(`[claw-outbox] list pending failed: ${formatErr(e)}\n`);
+    throw new CliError(`Failed to list outbox pending: ${formatErr(e)}`);
   }
 
   if (initialFiles.length === 0) {
@@ -58,19 +57,27 @@ export async function outboxCommand(
   audit?.write(CLI_AUDIT_EVENTS.CLAW_OUTBOX_DRAIN_START, `claw=${name}`, `limit=${limit}`);
 
   // Read and output
+  const MAX_RACE_RETRIES = 10;
   const results: string[] = [];
-  for (let i = 0; i < limit; i++) {
+  let successCount = 0;
+  let raceCount = 0;
+  while (successCount < limit) {
     const claimed = await outboxReader.claimNext('.');
     if (claimed.status === 'empty') break;
-    if (claimed.status === 'race_lost') continue;
+    if (claimed.status === 'race_lost') {
+      if (++raceCount >= MAX_RACE_RETRIES) break;
+      continue;
+    }
     if (claimed.status === 'io_error') {
       const msg = `Failed to claim next outbox message: ${claimed.error}`;
       process.stderr.write(`[claw-outbox] ${msg}\n`);
       throw new CliError(msg);
     }
 
+    raceCount = 0;
     results.push(claimed.content);
     await outboxReader.markDone('.', claimed.claimPath, claimed.filename);
+    successCount++;
   }
 
   // phase 938: calculate remaining from actual post-drain state rather than the

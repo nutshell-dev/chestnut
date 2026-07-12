@@ -299,7 +299,7 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
     expect(events.some(e => e[0] === 'cron_outbox_summary_skipped' || e[0] === 'cron_outbox_summary_cleared')).toBe(false);
   });
 
-  it('phase 938: writes summary even when one claw scan fails', async () => {
+  it('phase 939: throws and audits when scan is incomplete', async () => {
     await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
     await fsAsync.mkdir(path.join(root, 'claws/clawB/outbox/pending'), { recursive: true });
     await fsAsync.writeFile(path.join(root, 'claws/clawA/outbox/pending/a1.md'), 'x');
@@ -318,18 +318,46 @@ describe('phase 42: runOutboxSummaryTick orchestration', () => {
       },
     } as unknown as OutboxReader;
 
-    await runOutboxSummaryTick({
-      clawTopology: topology,
-      fs,
-      inboxReader,
-      inboxWriter,
-      outboxReader: failingReader,
-      audit,
-    });
+    await expect(
+      runOutboxSummaryTick({
+        clawTopology: topology,
+        fs,
+        inboxReader,
+        inboxWriter,
+        outboxReader: failingReader,
+        audit,
+      }),
+    ).rejects.toThrow(/incomplete/i);
 
-    const summaries = await listSummaries(root, 'pending', fs);
-    expect(summaries.length).toBe(1);
-    expect(events.some(e => e[0] === 'cron_outbox_summary_written')).toBe(true);
+    expect(await listSummaries(root, 'pending', fs)).toHaveLength(0);
+    expect(events.some(e => e[0] === 'cron_outbox_summary_failed' && e[1] === 'reason=scan_incomplete')).toBe(true);
+  });
+
+  it('phase 939: throws and audits when all claw scans fail', async () => {
+    await fsAsync.mkdir(path.join(root, 'claws/clawA/outbox/pending'), { recursive: true });
+
+    const failingReader = {
+      listClawOutboxPending: async () => {
+        throw new Error('mock I/O failure');
+      },
+      peekLastOutboxPending: async () => {
+        throw new Error('mock I/O failure');
+      },
+    } as unknown as OutboxReader;
+
+    await expect(
+      runOutboxSummaryTick({
+        clawTopology: topology,
+        fs,
+        inboxReader,
+        inboxWriter,
+        outboxReader: failingReader,
+        audit,
+      }),
+    ).rejects.toThrow(/incomplete/i);
+
+    expect(await listSummaries(root, 'pending', fs)).toHaveLength(0);
+    expect(events.some(e => e[0] === 'cron_outbox_summary_failed' && e[1] === 'reason=scan_incomplete')).toBe(true);
   });
 
   it('phase 938: abort before scan throws and writes nothing', async () => {

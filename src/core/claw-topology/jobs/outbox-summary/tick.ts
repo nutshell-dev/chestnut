@@ -20,6 +20,7 @@ import type { ClawTopology } from '../../index.js';
 import { scanOutboxes } from './scan.js';
 import { findExistingSummaryByHash } from './dedup.js';
 import { writeNewSummary } from './write.js';
+import { OUTBOX_SUMMARY_AUDIT_EVENTS } from './audit-events.js';
 
 interface OutboxSummaryTickDeps {
   /** phase 259: caller (装配期) 注入的 claw topology */
@@ -47,6 +48,16 @@ export async function runOutboxSummaryTick(deps: OutboxSummaryTickDeps): Promise
     outboxReader: deps.outboxReader,
     signal: deps.signal,
   });
+
+  if (state.incomplete) {
+    const failedList = state.failed_claws.join(', ');
+    deps.audit.write(
+      OUTBOX_SUMMARY_AUDIT_EVENTS.OUTBOX_SUMMARY_FAILED,
+      `reason=scan_incomplete`,
+      `failed_claws=${failedList}`,
+    );
+    throw new Error(`Outbox scan incomplete: ${state.failed_claws.length} claw(s) failed`);
+  }
 
   if (state.total_msgs === 0) {
     return;
