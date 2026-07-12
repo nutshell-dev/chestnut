@@ -7,7 +7,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
-import { SequenceCounter, formatSeq } from '../../../src/foundation/messaging/sequence-counter.js';
+import { SequenceCounter, formatSeq, getSharedSequenceCounter } from '../../../src/foundation/messaging/sequence-counter.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 
 describe('SequenceCounter', () => {
@@ -61,5 +61,13 @@ describe('SequenceCounter', () => {
   it('formatSeq pads to 10 digits', () => {
     expect(formatSeq(1)).toBe('0000000001');
     expect(formatSeq(1234567890)).toBe('1234567890');
+  });
+
+  it('shared counter serializes concurrent increments across instances', async () => {
+    const c1 = getSharedSequenceCounter(nfs, testDir);
+    const c2 = getSharedSequenceCounter(nfs, testDir);
+    const [s1, s2] = await Promise.all([c1.next(), c2.next()]);
+    expect(s1).not.toBe(s2);
+    expect(Math.abs(s1 - s2)).toBe(1);
   });
 });

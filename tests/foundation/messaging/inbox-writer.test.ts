@@ -2,7 +2,7 @@
  * InboxWriter class tests
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import * as path from 'path';
@@ -104,6 +104,38 @@ describe('InboxWriter', () => {
   it('writeSync audits INBOX_WRITTEN on success', () => {
     writer.writeSync({ type: 'ping', source: 'motion', priority: 'normal', body: 'test' });
     expect(auditCalls.some(c => c.startsWith('inbox_written:'))).toBe(true);
+  });
+
+  it('writeSync includes metadata in the written message', () => {
+    writer.writeSync({
+      type: 'ping',
+      source: 'motion',
+      priority: 'normal',
+      body: 'test body',
+      metadata: { contract_id: 'c1' },
+    });
+
+    const files = fsSync.readdirSync(path.join(testDir, 'inbox', 'pending'));
+    expect(files).toHaveLength(1);
+    const content = fsSync.readFileSync(path.join(testDir, 'inbox', 'pending', files[0]), 'utf-8');
+    expect(content).toContain('contract_id: "c1"');
+  });
+
+  it('audits INBOX_WRITE_FAILED when ensureDir fails', () => {
+    vi.spyOn(nfs, 'ensureDirSync').mockImplementation(() => {
+      throw new Error('ENOSPC');
+    });
+
+    expect(() =>
+      writer.writeSync({
+        type: 'ping',
+        source: 'motion',
+        priority: 'normal',
+        body: 'test',
+        metadata: { contract_id: 'c1' },
+      }),
+    ).toThrow();
+    expect(auditCalls.some(c => c.startsWith('inbox_write_failed:'))).toBe(true);
   });
 
   // ─── .readMeta() ─────────────────────────────────────────────────────────
