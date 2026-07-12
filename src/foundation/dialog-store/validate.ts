@@ -29,18 +29,18 @@ export function detectAndMigrateVersion(
   filename: string,
   audit?: AuditLog,
 ): SessionData | null {
+  // NEW unknown version reject（phase 1019 r124 E fork）
+  if (typeof parsed.version === 'number' && parsed.version > SESSION_CURRENT_VERSION) {
+    audit?.write?.(DIALOG_AUDIT_EVENTS.VERSION_UNKNOWN, `file=${filename}`,
+      `actual=${parsed.version}`, `current=${SESSION_CURRENT_VERSION}`);
+    return null;  // caller treats as corrupt
+  }
   // v1 → v2 intentional migration (phase 713 logic 保留)
   if (!parsed.toolsForLLM) {
     (parsed as SessionData).toolsForLLM = [];
     (parsed as SessionData).version = SESSION_CURRENT_VERSION;
     audit?.write?.(DIALOG_AUDIT_EVENTS.VERSION_MIGRATE, `file=${filename}`, `from=1`, `to=${SESSION_CURRENT_VERSION}`);
     return parsed as SessionData;
-  }
-  // NEW unknown version reject（phase 1019 r124 E fork）
-  if (typeof parsed.version === 'number' && parsed.version > SESSION_CURRENT_VERSION) {
-    audit?.write?.(DIALOG_AUDIT_EVENTS.VERSION_UNKNOWN, `file=${filename}`,
-      `actual=${parsed.version}`, `current=${SESSION_CURRENT_VERSION}`);
-    return null;  // caller treats as corrupt
   }
   return parsed as SessionData;
 }
@@ -77,6 +77,7 @@ export function validateSessionData(
     systemPrompt: data.systemPrompt ?? '',
     messages,
     toolsForLLM: Array.isArray(data.toolsForLLM) ? data.toolsForLLM : [],
+    trace_id: data.trace_id,
   };
 }
 
@@ -89,17 +90,17 @@ export function migrateAndValidateSession(
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const parsed = raw as Partial<SessionData>;
 
-  // v1 → v2 migration
-  if (!parsed.toolsForLLM) {
-    (parsed as SessionData).toolsForLLM = [];
-    (parsed as SessionData).version = SESSION_CURRENT_VERSION;
-    audit?.write?.(DIALOG_AUDIT_EVENTS.VERSION_MIGRATE, `file=${filename}`, `from=1`, `to=${SESSION_CURRENT_VERSION}`);
-  }
   // unknown version reject
   if (typeof parsed.version === 'number' && parsed.version > SESSION_CURRENT_VERSION) {
     audit?.write?.(DIALOG_AUDIT_EVENTS.VERSION_UNKNOWN, `file=${filename}`,
       `actual=${parsed.version}`, `current=${SESSION_CURRENT_VERSION}`);
     return null;
+  }
+  // v1 → v2 migration
+  if (!parsed.toolsForLLM) {
+    (parsed as SessionData).toolsForLLM = [];
+    (parsed as SessionData).version = SESSION_CURRENT_VERSION;
+    audit?.write?.(DIALOG_AUDIT_EVENTS.VERSION_MIGRATE, `file=${filename}`, `from=1`, `to=${SESSION_CURRENT_VERSION}`);
   }
   return parsed as SessionData;
 }
