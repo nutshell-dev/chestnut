@@ -102,4 +102,29 @@ describe('createClawTopology', () => {
     await expect(topology.read('epsilon', '..')).rejects.toThrow(CrossClawReadError);
     await expect(topology.read('epsilon', '.')).rejects.toThrow(CrossClawReadError);
   });
+
+  it('enumerate skips invalid claw directory names', async () => {
+    await fs.ensureDir('claws/valid-claw');
+    await fs.ensureDir('claws/.trash');
+    await fs.ensureDir('claws/a..b');
+    const audit = makeAudit();
+    const topology = createClawTopology({ fs, chestnutRoot: tempDir, audit, motionClawId: makeClawId('motion'), motionDir: 'motion' });
+    const ids = topology.enumerate();
+    expect(ids).toContain(makeClawId('motion'));
+    expect(ids).toContain('valid-claw');
+    expect(ids).not.toContain('.trash');
+    expect(ids).not.toContain('a..b');
+    expect(ids.length).toBe(2);
+    expect(auditWrites.some(e => e[0] === CLAW_TOPOLOGY_AUDIT_EVENTS.INVALID_CLAW_DIR)).toBe(true);
+  });
+
+  it('resolve throws for non-directory claw entry', async () => {
+    await fs.ensureDir('claws');
+    await fs.writeAtomic('claws/claw-file', 'not a directory');
+    const audit = makeAudit();
+    const topology = createClawTopology({ fs, chestnutRoot: tempDir, audit, motionClawId: makeClawId('motion'), motionDir: 'motion' });
+    expect(() => topology.resolve('claw-file')).toThrow(ClawIdResolveError);
+    expect(auditWrites).toHaveLength(1);
+    expect(auditWrites[0][0]).toBe(CLAW_TOPOLOGY_AUDIT_EVENTS.CLAW_DIR_NOT_DIRECTORY);
+  });
 });

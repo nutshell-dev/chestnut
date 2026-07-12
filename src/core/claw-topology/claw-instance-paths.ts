@@ -15,6 +15,7 @@ import { notifyClaw } from '../../foundation/messaging/notify.js';
 import { InboxWriter, makeInboxPath } from '../../foundation/messaging/inbox-writer.js';
 import type { InboxMessageOptionsBase } from '../../foundation/messaging/inbox-writer.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
+import { makeClawId } from '../../foundation/claw-identity/index.js';
 
 /** Config YAML filename (per-claw + global config 同名). */
 export const CONFIG_YAML_FILE = 'config.yaml' as const;
@@ -108,6 +109,8 @@ export function routeNotifyClaw(
   message: InboxMessageOptionsBase,
   audit: AuditLog,
 ): void {
+  // phase 944: validate targetClawId before deriving any paths
+  makeClawId(targetClawId);
   const isMotion = targetClawId === motionClawId;
   const targetClawRoot = isMotion
     ? path.join(chestnutRoot, motionClawId)
@@ -130,6 +133,8 @@ export async function routeNotifyClawAsync(
   message: InboxMessageOptionsBase,
   audit: AuditLog,
 ): Promise<void> {
+  // phase 944: validate targetClawId before deriving any paths
+  makeClawId(targetClawId);
   const isMotion = targetClawId === motionClawId;
   const targetClawRoot = isMotion
     ? path.join(chestnutRoot, motionClawId)

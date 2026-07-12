@@ -13,7 +13,22 @@ export function createClawTopology(deps: ClawTopologyDeps): ClawTopology {
 
   return {
     enumerate() {
-      const clawIds = enumerateClaws(fs, clawsDir).map(makeClawId);
+      // phase 944: isolate invalid claw directory names so one bad entry does not
+      // abort enumeration of the remaining valid claws.
+      const rawNames = enumerateClaws(fs, clawsDir);
+      const clawIds: ClawId[] = [];
+      for (const name of rawNames) {
+        try {
+          clawIds.push(makeClawId(name));
+        } catch {
+          audit?.write(
+            CLAW_TOPOLOGY_AUDIT_EVENTS.INVALID_CLAW_DIR,
+            `dir=${name}`,
+            'reason=invalid_claw_id_format',
+          );
+          // skip invalid entry, continue enumerating valid claws
+        }
+      }
       return [MOTION_CLAW_ID, ...clawIds];
     },
     resolve(clawId) {
@@ -24,6 +39,15 @@ export function createClawTopology(deps: ClawTopologyDeps): ClawTopology {
       if (!fs.existsSync(clawDir)) {
         audit?.write(CLAW_TOPOLOGY_AUDIT_EVENTS.CROSS_CLAW_RESOLVE_FAILED, `clawId=${clawId}`, 'reason=not_found');
         throw new ClawIdResolveError(clawId, 'not_found');
+      }
+      // phase 944: ensure the resolved path is a directory, not a regular file
+      if (!fs.isDirectorySync(clawDir)) {
+        audit?.write(
+          CLAW_TOPOLOGY_AUDIT_EVENTS.CLAW_DIR_NOT_DIRECTORY,
+          `clawId=${clawId}`,
+          `path=${clawDir}`,
+        );
+        throw new ClawIdResolveError(clawId, 'not_a_directory');
       }
       return { kind: 'local', clawDir };
     },
