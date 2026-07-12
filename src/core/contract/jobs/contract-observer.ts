@@ -275,8 +275,8 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
       const entries = scanArchivedContracts(fs, location.clawDir, makeClawId(clawId), motionAudit);
       // phase 948: 复合游标排序（archivedAt, contractId）确保同毫秒契约确定性处理
       const sortedEntries = [...entries].sort((a, b) => {
-        const ta = a.latestSubtaskCompletedAtMs;
-        const tb = b.latestSubtaskCompletedAtMs;
+        const ta = a.archivedAt;
+        const tb = b.archivedAt;
         if (ta !== tb) return ta - tb;
         return a.contractId.localeCompare(b.contractId);
       });
@@ -301,7 +301,6 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
         if (archivedAt <= clawWatermark) continue;
         if (archivedAt > clawMax) {
           clawMax = archivedAt;
-        }
         }
         // bootstrap 期不 emit、仅更新水位（防首次启动历史 archive 大量重 emit）
         if (state.bootstrapDone) {
