@@ -19,7 +19,7 @@ function makeAudit() {
 function makeMsg(content: string, ts: string, priority: OutboxMessage['priority'] = 'normal'): OutboxMessage {
   return {
     id: `m-${ts}`,
-    type: 'response',
+    type: 'report',
     from: 'clawA',
     to: 'motion',
     content,

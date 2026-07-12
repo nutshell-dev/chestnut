@@ -29,7 +29,7 @@ function makeAudit() {
 function makeMsg(content: string, ts: string): OutboxMessage {
   return {
     id: `m-${ts}`,
-    type: 'response',
+    type: 'report',
     from: 'clawA',
     to: 'motion',
     content,

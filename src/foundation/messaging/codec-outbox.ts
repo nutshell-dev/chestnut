@@ -58,9 +58,21 @@ export function decodeOutbox(raw: string): OutboxMessage {
   }
 
   if (!meta.id) throw new OutboxDecodeError('missing required field: id');
+
+  // phase 929: validate type is a known enum value
+  const VALID_OUTBOX_TYPES = new Set(['report', 'question', 'result', 'error']);
   if (!meta.type) throw new OutboxDecodeError('missing required field: type');
+  if (!VALID_OUTBOX_TYPES.has(meta.type)) {
+    throw new OutboxDecodeError(`invalid outbox type: "${meta.type}"`);
+  }
+
   if (!meta.from) throw new OutboxDecodeError('missing required field: from');
+
+  // phase 929: validate timestamp is parseable
   if (!meta.timestamp) throw new OutboxDecodeError('missing required field: timestamp');
+  if (Number.isNaN(Date.parse(meta.timestamp))) {
+    throw new OutboxDecodeError(`invalid outbox timestamp: "${meta.timestamp}"`);
+  }
 
   const priority = validatePriority(meta.priority) as Priority;
 

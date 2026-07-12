@@ -26,6 +26,7 @@ function makeAudit(): { audit: AuditLog; events: Array<[string, ...unknown[]]> }
 function makeMockFs(overrides: {
   list?: (dir: string) => Promise<{ name: string }[]>;
   read?: (path: string) => Promise<string>;
+  stat?: (path: string) => Promise<{ mtime: Date; ctime: Date; size: number; isDirectory: boolean; isFile: boolean }>;
 } = {}): FileSystem {
   return {
     list: overrides.list ?? vi.fn().mockResolvedValue([]),
@@ -39,7 +40,7 @@ function makeMockFs(overrides: {
     realpath: vi.fn(),
     exists: vi.fn().mockResolvedValue(true),
     isDirectory: vi.fn().mockResolvedValue(true),
-    stat: vi.fn().mockResolvedValue({ mtime: new Date(0), ctime: new Date(0), size: 0, isDirectory: false, isFile: true }),
+    stat: overrides.stat ?? vi.fn().mockResolvedValue({ mtime: new Date(0), ctime: new Date(0), size: 0, isDirectory: false, isFile: true }),
     utimes: vi.fn(),
     writeAtomicSync: vi.fn(),
     writeExclusiveSync: vi.fn(),
@@ -72,11 +73,13 @@ describe('OutboxReader._reconcileProcessing lease + I/O safety', () => {
     vi.mocked(isAlive).mockReturnValue(true);
 
     const pid = process.pid;
+    const recentMtime = new Date();
     const fs = makeMockFs({
       list: vi.fn().mockImplementation((dir: string) => {
         if (dir.includes('/processing')) return Promise.resolve([{ name: `cli_${pid}_abc123_msg.md` }]);
         return Promise.resolve([]);
       }),
+      stat: vi.fn().mockResolvedValue({ mtime: recentMtime, ctime: recentMtime, size: 0, isDirectory: false, isFile: true }),
     });
     const { audit } = makeAudit();
     const reader = new OutboxReader(fs, audit);
@@ -103,6 +106,72 @@ describe('OutboxReader._reconcileProcessing lease + I/O safety', () => {
 
     expect(fs.move).toHaveBeenCalledWith(
       '/claw/outbox/processing/cli_99999_abc123_msg.md',
+      '/claw/outbox/pending/msg.md',
+    );
+  });
+
+  it('reclaims via mtime lease when startTime is unavailable (startTimeHex=0)', async () => {
+    const { isAlive } = await import('../../../src/foundation/process-exec/index.js');
+    vi.mocked(isAlive).mockReturnValue(true);
+
+    const staleMtime = new Date(Date.now() - 6 * 60 * 1000);
+    const fs = makeMockFs({
+      list: vi.fn().mockImplementation((dir: string) => {
+        if (dir.includes('/processing')) return Promise.resolve([{ name: `cli_${process.pid}_0_abc123_msg.md` }]);
+        return Promise.resolve([]);
+      }),
+      stat: vi.fn().mockResolvedValue({ mtime: staleMtime, ctime: staleMtime, size: 0, isDirectory: false, isFile: true }),
+    });
+    const { audit } = makeAudit();
+    const reader = new OutboxReader(fs, audit);
+
+    await reader.init('/claw');
+
+    expect(fs.move).toHaveBeenCalledWith(
+      `/claw/outbox/processing/cli_${process.pid}_0_abc123_msg.md`,
+      '/claw/outbox/pending/msg.md',
+    );
+  });
+
+  it('keeps processing file when startTime is unavailable but mtime lease has not expired', async () => {
+    const { isAlive } = await import('../../../src/foundation/process-exec/index.js');
+    vi.mocked(isAlive).mockReturnValue(true);
+
+    const recentMtime = new Date(Date.now() - 1 * 60 * 1000);
+    const fs = makeMockFs({
+      list: vi.fn().mockImplementation((dir: string) => {
+        if (dir.includes('/processing')) return Promise.resolve([{ name: `cli_${process.pid}_0_abc123_msg.md` }]);
+        return Promise.resolve([]);
+      }),
+      stat: vi.fn().mockResolvedValue({ mtime: recentMtime, ctime: recentMtime, size: 0, isDirectory: false, isFile: true }),
+    });
+    const { audit } = makeAudit();
+    const reader = new OutboxReader(fs, audit);
+
+    await reader.init('/claw');
+
+    expect(fs.move).not.toHaveBeenCalled();
+  });
+
+  it('reclaims old-token processing file via mtime lease even when PID is alive', async () => {
+    const { isAlive } = await import('../../../src/foundation/process-exec/index.js');
+    vi.mocked(isAlive).mockReturnValue(true);
+
+    const staleMtime = new Date(Date.now() - 6 * 60 * 1000);
+    const fs = makeMockFs({
+      list: vi.fn().mockImplementation((dir: string) => {
+        if (dir.includes('/processing')) return Promise.resolve([{ name: `cli_${process.pid}_abc123_msg.md` }]);
+        return Promise.resolve([]);
+      }),
+      stat: vi.fn().mockResolvedValue({ mtime: staleMtime, ctime: staleMtime, size: 0, isDirectory: false, isFile: true }),
+    });
+    const { audit } = makeAudit();
+    const reader = new OutboxReader(fs, audit);
+
+    await reader.init('/claw');
+
+    expect(fs.move).toHaveBeenCalledWith(
+      `/claw/outbox/processing/cli_${process.pid}_abc123_msg.md`,
       '/claw/outbox/pending/msg.md',
     );
   });

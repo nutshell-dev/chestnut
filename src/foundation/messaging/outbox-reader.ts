@@ -84,6 +84,8 @@ export class OutboxReader {
     const CLAIM_TOKEN_RE = /^cli_(\d+)_([0-9a-f]+)_[0-9a-z]+_(.+\.md)$/i;
     const OLD_TOKEN_RE = /^cli_(\d+)_[0-9a-z]+_(.+\.md)$/i;
     const STALE_THRESHOLD_MS = 5 * 60 * 1000;
+    // phase 929: mtime lease fallback when PID startTime is unavailable (prevents PID-reuse false negatives)
+    const OUTBOX_MTIME_LEASE_MS = 5 * 60 * 1000;
 
     for (const entry of entries) {
       if (!entry.name.endsWith('.md')) continue;
@@ -111,22 +113,42 @@ export class OutboxReader {
         if (Date.now() - mtime >= STALE_THRESHOLD_MS) {
           shouldReclaim = true;
         }
-      } else if (newMatch) {
-        const pid = parseInt(newMatch[1], 10);
-        const startTimeHex = newMatch[2];
-        originalName = newMatch[3];
-        const startTime = startTimeHex === '0'
-          ? undefined
-          : makeProcessStartTime(Buffer.from(startTimeHex, 'hex').toString('utf8'));
-        if (!isAlive(pid, startTime)) {
-          shouldReclaim = true;
-        }
       } else {
-        // Old token format (pre-Phase 928): PID + shortUuid, no startTime.
-        const pid = parseInt(oldMatch![1], 10);
-        originalName = oldMatch![2];
-        if (!isAlive(pid)) {
-          shouldReclaim = true;
+        // phase 929: both new and old token formats need mtime for fallback lease
+        const sourcePath = path.join(processingDir, entry.name);
+        let mtime: number;
+        try {
+          const stat = await this.fs.stat(sourcePath);
+          mtime = stat.mtime.getTime();
+        } catch (err) {
+          emitOutboxClaimFailed(this.audit, {
+            file: entry.name,
+            op: 'reconcile_stat',
+            reason: formatErr(err),
+          });
+          continue;
+        }
+
+        if (newMatch) {
+          const pid = parseInt(newMatch[1], 10);
+          const startTimeHex = newMatch[2];
+          originalName = newMatch[3];
+          const startTime = startTimeHex === '0'
+            ? undefined
+            : makeProcessStartTime(Buffer.from(startTimeHex, 'hex').toString('utf8'));
+          if (!startTime) {
+            // Cannot verify PID ownership — fall back to mtime lease
+            shouldReclaim = Date.now() - mtime >= OUTBOX_MTIME_LEASE_MS;
+          } else if (!isAlive(pid, startTime)) {
+            shouldReclaim = true;
+          }
+        } else {
+          // Old token format (pre-Phase 928): PID + shortUuid, no startTime.
+          const pid = parseInt(oldMatch![1], 10);
+          originalName = oldMatch![2];
+          if (!isAlive(pid) || Date.now() - mtime >= OUTBOX_MTIME_LEASE_MS) {
+            shouldReclaim = true;
+          }
         }
       }
 
