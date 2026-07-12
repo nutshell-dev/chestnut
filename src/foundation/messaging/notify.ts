@@ -15,6 +15,7 @@ import type { InboxMessage } from './types.js';
 import type { FileSystem } from '../fs/index.js';
 import type { AuditLog } from '../audit/index.js';
 import { emitUnknownDestinationDlq } from './audit-emit.js';
+import { INBOX_PENDING_DIR } from './dirs.js';
 
 /**
  * Notify a target claw by writing a message to its inbox.
@@ -41,6 +42,17 @@ export function notifyClaw(
   if (normalizedInbox !== resolvedRoot && !normalizedInbox.startsWith(rootPrefix)) {
     throw new Error(
       `notifyClaw: targetInboxDir "${targetInboxDir}" is not within targetClawRoot "${targetClawRoot}"`,
+    );
+  }
+
+  // phase 937: targetInboxDir must be <root>/inbox/pending specifically
+  const expectedSuffix = path.normalize(INBOX_PENDING_DIR);
+  if (
+    !normalizedInbox.endsWith(expectedSuffix) &&
+    normalizedInbox !== resolvedRoot + path.sep + expectedSuffix
+  ) {
+    throw new Error(
+      `notifyClaw: targetInboxDir must be <root>/inbox/pending, got "${targetInboxDir}"`,
     );
   }
 

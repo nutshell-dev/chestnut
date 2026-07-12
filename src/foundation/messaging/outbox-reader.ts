@@ -30,6 +30,7 @@ import { emitOutboxDelivered } from './audit-emit.js';
 
 export type ClaimResult =
   | { status: 'empty' }
+  | { status: 'race_lost'; error: string }
   | { status: 'io_error'; error: string }
   | { status: 'claimed'; claimPath: string; filename: string; content: string };
 
@@ -243,20 +244,17 @@ export class OutboxReader {
    */
   async listClawOutboxPending(clawDir: string): Promise<string[]> {
     const pendingDir = path.join(clawDir, OUTBOX_PENDING_DIR);
+    let entries: Awaited<ReturnType<FileSystem['list']>>;
     try {
-      const entries = await this.fs.list(pendingDir, { includeDirs: false });
-      return entries
-        .filter(e => e.name.endsWith('.md'))
-        .map(e => e.name)
-        .sort();
+      entries = await this.fs.list(pendingDir, { includeDirs: false });
     } catch (err) {
       if (isFileNotFound(err)) return [];
-      emitOutboxListFailed(this.audit, {
-        dir: pendingDir,
-        reason: formatErr(err),
-      });
-      return [];
+      throw err;
     }
+    return entries
+      .filter(e => e.name.endsWith('.md'))
+      .map(e => e.name)
+      .sort();
   }
 
   /**
@@ -323,7 +321,7 @@ export class OutboxReader {
     try {
       await this.fs.move(relPendingPath, relClaimedPath);
     } catch (err) {
-      if (isFileNotFound(err)) return { status: 'empty' }; // race lost
+      if (isFileNotFound(err)) return { status: 'race_lost', error: 'file already claimed by concurrent consumer' }; // race lost
       // Non-ENOENT: audit the I/O error and return io_error
       const reason = formatErr(err);
       emitOutboxClaimFailed(this.audit, {

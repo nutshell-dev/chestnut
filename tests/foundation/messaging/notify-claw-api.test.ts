@@ -167,4 +167,15 @@ describe('notifyClaw API', () => {
     const files = fsSync.readdirSync(motionInboxDir);
     expect(files.length).toBe(1);
   });
+
+  it('rejects targetInboxDir not ending in inbox/pending (phase 937)', () => {
+    const { targetClawRoot } = makeNotifyArgs(chestnutRoot, MOTION_CLAW_ID);
+    const targetInboxDir = path.join(targetClawRoot, 'inbox');
+
+    expect(() => notifyClaw(nodeFs, targetClawRoot, targetInboxDir, undefined, {
+      type: 'suffix_test',
+      source: 'system',
+      body: 'should not write',
+    }, audit)).toThrow(/targetInboxDir must be <root>\/inbox\/pending/);
+  });
 });

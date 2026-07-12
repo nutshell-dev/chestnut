@@ -120,7 +120,7 @@ describe('OutboxReader.claimNext + markDone', () => {
     expect(auditEvents.some(e => String(e[0]).includes('outbox_delivered') && String(e).includes(`file=${filename}`))).toBe(true);
   });
 
-  it('returns empty on race lost (file disappears before claim)', async () => {
+  it('returns race_lost on race lost (file disappears before claim)', async () => {
     const fs = makeMockOutboxFs({
       move: vi.fn().mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' })),
     });
@@ -129,7 +129,7 @@ describe('OutboxReader.claimNext + markDone', () => {
 
     const result = await reader.claimNext('/claw');
 
-    expect(result).toEqual({ status: 'empty' });
+    expect(result).toEqual({ status: 'race_lost', error: 'file already claimed by concurrent consumer' });
   });
 
   it('reconciles orphaned processing files back to pending on init', async () => {

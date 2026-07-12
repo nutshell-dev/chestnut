@@ -63,6 +63,7 @@ export async function outboxCommand(
   for (let i = 0; i < limit; i++) {
     const claimed = await outboxReader.claimNext('.');
     if (claimed.status === 'empty') break;
+    if (claimed.status === 'race_lost') continue;
     if (claimed.status === 'io_error') {
       const msg = `Failed to claim next outbox message: ${claimed.error}`;
       process.stderr.write(`[claw-outbox] ${msg}\n`);

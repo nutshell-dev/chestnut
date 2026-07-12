@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fsAsync from 'fs/promises';
 import * as path from 'path';
 import { tmpdir } from 'os';
@@ -65,5 +65,15 @@ describe('OutboxReader.listClawOutboxPending', () => {
     await fsAsync.mkdir(pendingDir, { recursive: true });
     const files = await reader.listClawOutboxPending(clawDir);
     expect(files).toEqual([]);
+  });
+
+  it('propagates non-ENOENT list errors (EACCES)', async () => {
+    const mockFs = {
+      list: vi.fn().mockRejectedValue(Object.assign(new Error('EACCES'), { code: 'EACCES' })),
+    } as unknown as NodeFileSystem;
+    const { audit } = makeAudit();
+    const readerWithMock = new OutboxReader(mockFs, audit);
+
+    await expect(readerWithMock.listClawOutboxPending(clawDir)).rejects.toThrow(/EACCES/);
   });
 });
