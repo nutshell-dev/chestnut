@@ -229,6 +229,11 @@ interface DreamRunPlan {
   today: string;
 }
 
+// Phase 923: discriminated result so callers can distinguish success from any failure.
+type ProcessResult =
+  | { status: 'ok'; compressions: string[] }
+  | { status: 'skip'; reason: string };
+
 async function prepareDeepDreamRun(ctx: DreamRunContext): Promise<DreamRunPlan | null> {
   const today = new Date().toLocaleDateString('sv');
   const state = loadDreamState(ctx.clawFs, ctx.audit, ctx.clawId);
@@ -248,12 +253,12 @@ async function processSession(
   plan: DreamRunPlan,
   compressions: string[],
   dreamOutputs: string[],
-): Promise<string[]> {
+): Promise<ProcessResult> {
   let sessionData: SessionData;
   try {
     if (sf.filename === CURRENT_DIALOG_FILE) {
       const result = await plan.dialogStore.load();
-      if (result.source !== 'current') return compressions;
+      if (result.source !== 'current') return { status: 'skip', reason: 'not_current' };
       sessionData = result.session;
     } else {
       sessionData = await plan.dialogStore.readArchive(sf.filename);
@@ -275,7 +280,7 @@ async function processSession(
       if (!isTransient) {
         plan.state.lastProcessedDeepDreamAt = Math.max(plan.state.lastProcessedDeepDreamAt, sf.tsMs);
       }
-      return compressions;
+      return { status: 'skip', reason: isTransient ? 'transient_io' : 'permanent_io' };
     }
     const retryCount = (plan.state.currentSessionRetryCount ?? 0) + 1;
     plan.state.currentSessionRetryCount = retryCount;
@@ -287,13 +292,13 @@ async function processSession(
       );
       plan.state.lastProcessedDeepDreamAt = Math.max(plan.state.lastProcessedDeepDreamAt, sf.tsMs);
     }
-    return compressions;
+    return { status: 'skip', reason: 'current_io' };
   }
 
   const sessionText = serializeSession(sessionData.messages ?? []);
   if (!sessionText.trim()) {
     if (sf.filename !== CURRENT_DIALOG_FILE) plan.state.lastProcessedDeepDreamAt = Math.max(plan.state.lastProcessedDeepDreamAt, sf.tsMs);
-    return compressions;
+    return { status: 'skip', reason: 'empty_session' };
   }
 
   const userMsg: Message = { role: 'user', content: buildDreamInput(compressions, sessionText) };
@@ -303,7 +308,11 @@ async function processSession(
     dreamOutput = responseText(res);
   } catch (err) {
     ctx.audit.write(MEMORY_AUDIT_EVENTS.DEEP_DREAM_CALL_FAILED, `step=call_1`, `clawId=${ctx.clawId}`, `file=${sf.filename}`, `reason=${formatErr(err)}`);
-    return compressions;
+    // Phase 923: current.json LLM failure counts as a retry; don't mark current as dreamed.
+    if (sf.filename === CURRENT_DIALOG_FILE) {
+      plan.state.currentSessionRetryCount = (plan.state.currentSessionRetryCount ?? 0) + 1;
+    }
+    return { status: 'skip', reason: 'llm_call_failed' };
   }
 
   dreamOutputs.push(`### ${sf.filename}\n\n${dreamOutput}`);
@@ -330,52 +339,59 @@ async function processSession(
   if (sf.filename !== CURRENT_DIALOG_FILE) {
     plan.state.lastProcessedDeepDreamAt = Math.max(plan.state.lastProcessedDeepDreamAt, sf.tsMs);
   }
-  return merged;
+  return { status: 'ok', compressions: merged };
 }
 
 async function persistDreamRun(
   ctx: DreamRunContext,
   plan: DreamRunPlan,
   dreamOutputs: string[],
+  currentProcessed: boolean,
 ): Promise<void> {
-  const currentProcessedToday = plan.sessionFiles.some(f => f.filename === CURRENT_DIALOG_FILE);
-  // state 已在 processSession 中 mutate，只需保存当前值
+  let dreamOutput = '';
+
+  if (dreamOutputs.length > 0) {
+    dreamOutput = dreamOutputs.join('\n\n---\n\n');
+
+    if (ctx.motionFs) {
+      const dreamId = `${Date.now()}_${ctx.clawId}`;
+      const dreamOutputPath = `${MEMORY_DREAM_OUTPUTS_DIR}/${dreamId}.txt`;
+      await ctx.motionFs.ensureDir(MEMORY_DREAM_OUTPUTS_DIR);
+      await ctx.motionFs.writeAtomic(dreamOutputPath, dreamOutput);
+      ctx.audit.write(
+        MEMORY_AUDIT_EVENTS.DREAM_OUTPUT_PERSISTED,
+        `dreamId=${dreamId}`,
+        `path=${dreamOutputPath}`,
+        `bytes=${dreamOutput.length}`,
+      );
+    }
+  }
+
+  // Phase 923: commit state only after output is safely persisted.
+  // If writeAtomic throws above, state remains unchanged → next cycle retries.
   const updatedState: DreamStateData = {
     lastProcessedDeepDreamAt: plan.state.lastProcessedDeepDreamAt,
-    currentSessionDreamedDate: currentProcessedToday ? plan.today : plan.state.currentSessionDreamedDate,
-    currentSessionRetryCount: currentProcessedToday ? 0 : plan.state.currentSessionRetryCount,
+    currentSessionDreamedDate: currentProcessed ? plan.today : plan.state.currentSessionDreamedDate,
+    currentSessionRetryCount: currentProcessed ? 0 : plan.state.currentSessionRetryCount,
   };
   saveDreamState(ctx.clawFs, updatedState, ctx.audit, ctx.clawId);
 
-  if (dreamOutputs.length === 0) return;
-
-  const dreamOutput = dreamOutputs.join('\n\n---\n\n');
-
-  if (ctx.motionFs) {
-    const dreamId = `${Date.now()}_${ctx.clawId}`;
-    const dreamOutputPath = `${MEMORY_DREAM_OUTPUTS_DIR}/${dreamId}.txt`;
-    await ctx.motionFs.ensureDir(MEMORY_DREAM_OUTPUTS_DIR);
-    await ctx.motionFs.writeAtomic(dreamOutputPath, dreamOutput);
-    ctx.audit.write(
-      MEMORY_AUDIT_EVENTS.DREAM_OUTPUT_PERSISTED,
-      `dreamId=${dreamId}`,
-      `path=${dreamOutputPath}`,
-      `bytes=${dreamOutput.length}`,
-    );
+  if (dreamOutputs.length > 0) {
+    const clawAudit = createSystemAudit(ctx.clawFs, ctx.clawDir);
+    notifyInbox(ctx.clawFs, {
+      inboxDir: INBOX_PENDING_DIR,
+      type: 'deep_dream',
+      source: 'cron-dream',
+      priority: 'low',
+      body: dreamOutput,
+      idPrefix: `${Date.now()}_deep_dream`,
+      extraFields: { session_count: String(dreamOutputs.length) },
+    }, clawAudit);
   }
 
-  const clawAudit = createSystemAudit(ctx.clawFs, ctx.clawDir);
-  notifyInbox(ctx.clawFs, {
-    inboxDir: INBOX_PENDING_DIR,
-    type: 'deep_dream',
-    source: 'cron-dream',
-    priority: 'low',
-    body: dreamOutput,
-    idPrefix: `${Date.now()}_deep_dream`,
-    extraFields: { session_count: String(dreamOutputs.length) },
-  }, clawAudit);
-
-  ctx.audit.write(MEMORY_AUDIT_EVENTS.DEEP_DREAM_JOB, `step=finished`, `clawId=${ctx.clawId}`, `dream_count=${dreamOutputs.length}`);
+  if (dreamOutputs.length > 0) {
+    ctx.audit.write(MEMORY_AUDIT_EVENTS.DEEP_DREAM_JOB, `step=finished`, `clawId=${ctx.clawId}`, `dream_count=${dreamOutputs.length}`);
+  }
 }
 
 async function runDeepDreamForClaw(
@@ -394,12 +410,16 @@ async function runDeepDreamForClaw(
 
   let compressions: string[] = [];
   const dreamOutputs: string[] = [];
+  let currentProcessed = false;
 
   for (const sf of plan.sessionFiles) {
-    compressions = await processSession(ctx, sf, plan, compressions, dreamOutputs);
+    const result = await processSession(ctx, sf, plan, compressions, dreamOutputs);
+    if (result.status === 'skip') break; // Phase 923: any failure stops; don't advance waterline past failed files.
+    compressions = result.compressions;
+    if (sf.filename === CURRENT_DIALOG_FILE) currentProcessed = true;
   }
 
-  await persistDreamRun(ctx, plan, dreamOutputs);
+  await persistDreamRun(ctx, plan, dreamOutputs, currentProcessed);
 }
 
 
@@ -433,6 +453,14 @@ export type { DreamRunContext as __test_DreamRunContext };
 export type { DreamRunPlan as __test_DreamRunPlan };
 /** @internal test-only export (phase 921) */
 export type { SessionFile as __test_SessionFile };
+
+// Phase 923: test-only exports for process/persist behavior.
+/** @internal test-only export (phase 923) */
+export const __test_persistDreamRun = persistDreamRun;
+/** @internal test-only export (phase 923) */
+export const __test_runDeepDreamForClaw = runDeepDreamForClaw;
+/** @internal test-only export (phase 923) */
+export type { ProcessResult as __test_ProcessResult };
 
 export async function runDeepDream(opts: DeepDreamOptions): Promise<void> {
   const maxCompressionTokens = opts.maxCompressionTokens ?? COMPRESSION_TOKENS_DEFAULT;
