@@ -7,6 +7,10 @@
  *
  * phase 286 Step A: replaces uuid8 suffix to strictly eliminate filename
  * collision possibility (CC-1/CC-2).
+ *
+ * phase 934: `seq` is an in-process ordering token. Cross-process uniqueness is
+ * guaranteed by the random suffix appended by callers (e.g. inbox/outbox writers),
+ * not by this counter.
  */
 
 import * as path from 'path';
@@ -40,7 +44,9 @@ export class SequenceCounter {
   async next(): Promise<number> {
     const prev = this.pending;
     const p = (async (): Promise<number> => {
-      await prev;
+      // phase 934: isolate previous failures so one rejected increment does not
+      // poison the chain; this call retries independently.
+      await (prev ?? Promise.resolve()).catch(() => { /* swallow: caller gets this call's result below */ });
       const seqFile = path.join(this.clawDir, SEQ_FILENAME);
       let seq = 0;
       try {
@@ -54,7 +60,10 @@ export class SequenceCounter {
       await this.fs.writeAtomic(seqFile, String(seq));
       return seq;
     })();
-    this.pending = p;
+    // Swallow the rejection on the stored chain so the next `next()` is not
+    // blocked, but still return the actual promise to the caller so they receive
+    // this call's rejection if it fails.
+    this.pending = p.catch(() => { /* swallow to prevent chain poison */ });
     return p;
   }
 

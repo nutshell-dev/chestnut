@@ -271,7 +271,8 @@ export function gatherClawSnapshot(
   // phase 858: lightweight query helpers now return Result; -1 marks I/O error
   const inboxResult = peekPendingCount(fs, '.');
   const inboxPending = inboxResult.ok ? inboxResult.value : -1;
-  const outboxPending = listOutboxPendingSync(fs, '.').length;
+  const outboxResult = listOutboxPendingSync(fs, '.');
+  const outboxPending = outboxResult.ok ? outboxResult.value.length : -1;
 
   // NEW: read claw audit.tsv tail for forensic context (phase 1207 gap B)
   let lastAuditEvents: string[] | undefined;

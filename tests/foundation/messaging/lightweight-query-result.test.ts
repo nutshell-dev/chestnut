@@ -5,6 +5,7 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   peekPendingCount,
   peekPendingFilenames,
+  listOutboxPendingSync,
 } from '../../../src/foundation/messaging/lightweight-query.js';
 import type { FileSystem } from '../../../src/foundation/fs/index.js';
 
@@ -77,6 +78,35 @@ describe('lightweight-query Result (phase 858)', () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error).toContain('EACCES');
+    }
+  });
+
+  it('listOutboxPendingSync returns ok [] when pending dir does not exist', () => {
+    const fs = makeFs({ exists: false });
+    const result = listOutboxPendingSync(fs, '.');
+    expect(result).toEqual({ ok: true, value: [] });
+  });
+
+  it('listOutboxPendingSync returns sorted .md filenames', () => {
+    const fs = makeFs({
+      entries: [
+        { name: 'c.md', isDirectory: () => false, isFile: () => true },
+        { name: 'a.md', isDirectory: () => false, isFile: () => true },
+        { name: 'b.txt', isDirectory: () => false, isFile: () => true },
+      ],
+    });
+    const result = listOutboxPendingSync(fs, '.');
+    expect(result).toEqual({ ok: true, value: ['a.md', 'c.md'] });
+  });
+
+  it('listOutboxPendingSync returns error when listSync throws', () => {
+    const fs = makeFs({
+      listError: Object.assign(new Error('EIO'), { code: 'EIO' }),
+    });
+    const result = listOutboxPendingSync(fs, '.');
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toContain('EIO');
     }
   });
 });

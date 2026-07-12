@@ -51,16 +51,19 @@ export function peekPendingFilenames(fs: FileSystem, clawDir: string): Result<st
 /**
  * Sync list of outbox pending filenames.
  * Standalone sync equivalent of OutboxReader.listClawOutboxPending().
+ *
+ * phase 934: returns Result so callers can distinguish I/O errors from an
+ * actually empty pending outbox.
  */
-export function listOutboxPendingSync(fs: FileSystem, clawDir: string): string[] {
+export function listOutboxPendingSync(fs: FileSystem, clawDir: string): Result<string[]> {
   const dir = path.join(clawDir, OUTBOX_PENDING_DIR);
-  if (!fs.existsSync(dir)) return [];
+  if (!fs.existsSync(dir)) return { ok: true, value: [] };
   try {
-    return fs.listSync(dir, { includeDirs: false })
+    return { ok: true, value: fs.listSync(dir, { includeDirs: false })
       .filter(e => e.name.endsWith('.md'))
       .map(e => e.name)
-      .sort();
-  } catch {
-    return [];
+      .sort() };
+  } catch (err) {
+    return { ok: false, error: formatErr(err) };
   }
 }

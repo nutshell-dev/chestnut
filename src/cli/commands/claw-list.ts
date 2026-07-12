@@ -54,8 +54,10 @@ export async function listCommand(deps: { fsFactory: (baseDir: string) => FileSy
 
   // Helper: count unread outbox messages
   // phase 746: use Messaging lightweight query helper
+  // phase 934: helper returns Result; -1 marks I/O error
   function getOutboxCount(clawFs: FileSystem): number {
-    return listOutboxPendingSync(clawFs, '.').length;
+    const r = listOutboxPendingSync(clawFs, '.');
+    return r.ok ? r.value.length : -1;
   }
 
   async function formatLastActiveMs(clawFs: FileSystem): Promise<number | undefined> {

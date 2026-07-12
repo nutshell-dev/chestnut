@@ -122,4 +122,30 @@ describe('gatherClawSnapshot audit emit (phase 143)', () => {
     expect(snap.inboxPending).toBe(0);
     expect(mockAudit.write).not.toHaveBeenCalled();
   });
+
+  it('反向 6: outbox dir EIO → silent (Result error) + return -1', () => {
+    const fs = makeFs({
+      outboxDirError: Object.assign(new Error('I/O error'), { code: 'EIO' }),
+    });
+    const fsFactory = () => fs as unknown as import('../../src/foundation/fs/types.js').FileSystem;
+
+    const snap = gatherClawSnapshot('/claw-X', fsFactory, mockPm, 'claw-X', mockAudit as unknown as import('../../src/foundation/audit/index.js').AuditLog);
+
+    // phase 934: listOutboxPendingSync returns Result; I/O error surfaces as -1
+    expect(snap.outboxPending).toBe(-1);
+    expect(mockAudit.write).not.toHaveBeenCalled();
+  });
+
+  it('反向 7: outbox dir ENOENT on listSync → silent (Result error) + return -1', () => {
+    const fs = makeFs({
+      outboxDirError: Object.assign(new Error('no such file'), { code: 'ENOENT' }),
+    });
+    const fsFactory = () => fs as unknown as import('../../src/foundation/fs/types.js').FileSystem;
+
+    const snap = gatherClawSnapshot('/claw-X', fsFactory, mockPm, 'claw-X', mockAudit as unknown as import('../../src/foundation/audit/index.js').AuditLog);
+
+    // phase 934: listSync throwing ENOENT is an I/O error, not a missing dir → -1
+    expect(snap.outboxPending).toBe(-1);
+    expect(mockAudit.write).not.toHaveBeenCalled();
+  });
 });

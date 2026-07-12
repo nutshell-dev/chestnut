@@ -136,7 +136,8 @@ describe('claw-health', () => {
     expect(output).toMatch(/stopped/);
     // phase 858: peekPendingCount returns Result; I/O error surfaces as -1 in CLI output
     expect(output).toMatch(/inbox_pending: -1/);
-    expect(output).toMatch(/outbox_pending: 0/);
+    // phase 934: listOutboxPendingSync returns Result; I/O error surfaces as -1
+    expect(output).toMatch(/outbox_pending: -1/);
   });
 
   it('reports stopped status and 0 pending when dirs are missing', async () => {
@@ -243,7 +244,7 @@ describe('claw-health', () => {
       await expect(healthCommand({ fsFactory }, 'test-claw')).resolves.toBeUndefined();
     });
 
-    it('outbox EACCES → silent (lightweight query helper swallows)', async () => {
+    it('outbox EACCES → silent (lightweight query helper returns Result error)', async () => {
       vi.mocked(createProcessManagerForCLI).mockReturnValue({
         isAlive: vi.fn().mockReturnValue(false),
       } as any);
@@ -259,8 +260,11 @@ describe('claw-health', () => {
         throw new Error(`Unexpected readdirSync: ${sp}`);
       });
 
-      // phase 746: listOutboxPendingSync swallows read errors → outboxPending=0
-      await expect(healthCommand({ fsFactory }, 'test-claw')).resolves.toBeUndefined();
+      await healthCommand({ fsFactory }, 'test-claw');
+
+      // phase 934: listOutboxPendingSync returns Result; I/O error surfaces as -1
+      const output = consoleLogSpy.mock.calls.flat().join('\n');
+      expect(output).toMatch(/outbox_pending: -1/);
     });
 
     it('contract sub-dir EACCES → silent (hasActiveContract swallows)', async () => {

@@ -42,7 +42,8 @@ export async function healthCommand(deps: { fsFactory: (baseDir: string) => File
   // phase 858: lightweight query helpers now return Result; -1 marks I/O error
   const inboxResult = peekPendingCount(clawFs, '.');
   const inboxPending = inboxResult.ok ? inboxResult.value : -1;
-  const outboxPending = listOutboxPendingSync(clawFs, '.').length;
+  const outboxResult = listOutboxPendingSync(clawFs, '.');
+  const outboxPending = outboxResult.ok ? outboxResult.value.length : -1;
 
   // Check contract status
   let contractStatus = 'none';
