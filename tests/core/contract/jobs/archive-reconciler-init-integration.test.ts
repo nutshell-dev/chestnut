@@ -66,7 +66,7 @@ describe('Phase 188 Step C: init integration — archive sweep on boot', () => {
     return parsed.status;
   }
 
-  it('init sweeps archive: active entries flipped to archive_pending_recovery', async () => {
+  it('init sweeps archive: active entries flipped to archive_corrupted', async () => {
     await setupArchiveEntry('c-running', 'running');
     await setupArchiveEntry('c-pending', 'pending');
     await setupArchiveEntry('c-completed', 'completed');
@@ -74,8 +74,8 @@ describe('Phase 188 Step C: init integration — archive sweep on boot', () => {
     const manager = makeManager();
     await manager.init();
 
-    expect(await readArchiveStatus('c-running')).toBe('archive_pending_recovery');
-    expect(await readArchiveStatus('c-pending')).toBe('archive_pending_recovery');
+    expect(await readArchiveStatus('c-running')).toBe('archive_corrupted');
+    expect(await readArchiveStatus('c-pending')).toBe('archive_corrupted');
     expect(await readArchiveStatus('c-completed')).toBe('completed');
 
     const staleAudits = auditCalls.filter(c => c.type === CONTRACT_AUDIT_EVENTS.CONTRACT_ARCHIVE_RECONCILE_STALE);
@@ -91,14 +91,14 @@ describe('Phase 188 Step C: init integration — archive sweep on boot', () => {
 
     const manager1 = makeManager();
     await manager1.init();
-    expect(await readArchiveStatus('c-running')).toBe('archive_pending_recovery');
+    expect(await readArchiveStatus('c-running')).toBe('archive_corrupted');
 
     // reset audit for second init
     auditCalls = [];
     const manager2 = makeManager();
     await manager2.init();
 
-    // already archive_pending_recovery, should not be swept again
+    // already archive_corrupted, should not be swept again
     const staleAudits = auditCalls.filter(c => c.type === CONTRACT_AUDIT_EVENTS.CONTRACT_ARCHIVE_RECONCILE_STALE);
     expect(staleAudits).toHaveLength(0);
 

@@ -56,7 +56,7 @@ describe('Phase 188 Step C: reconcileArchiveStaleEntries', () => {
   }
 
   // 3 active 态 → 翻
-  it('flips pending → archive_pending_recovery', async () => {
+  it('flips pending → archive_corrupted', async () => {
     await setupArchiveEntry('c-pending', 'pending');
     const result = await reconcileArchiveStaleEntries(
       { fs: nodeFs, audit: makeAudit() as any },
@@ -66,14 +66,14 @@ describe('Phase 188 Step C: reconcileArchiveStaleEntries', () => {
     expect(result.swept).toBe(1);
     expect(result.scanned).toBe(1);
     expect(result.failed).toBe(0);
-    expect(await readArchiveStatus('c-pending')).toBe('archive_pending_recovery');
+    expect(await readArchiveStatus('c-pending')).toBe('archive_corrupted');
 
     const staleAudits = auditCalls.filter(c => c.type === CONTRACT_AUDIT_EVENTS.CONTRACT_ARCHIVE_RECONCILE_STALE);
     expect(staleAudits).toHaveLength(1);
     expect(staleAudits[0].args.some(a => a.includes('oldStatus=pending'))).toBe(true);
   });
 
-  it('flips running → archive_pending_recovery', async () => {
+  it('flips running → archive_corrupted', async () => {
     await setupArchiveEntry('c-running', 'running');
     const result = await reconcileArchiveStaleEntries(
       { fs: nodeFs, audit: makeAudit() as any },
@@ -83,10 +83,10 @@ describe('Phase 188 Step C: reconcileArchiveStaleEntries', () => {
     expect(result.swept).toBe(1);
     expect(result.scanned).toBe(1);
     expect(result.failed).toBe(0);
-    expect(await readArchiveStatus('c-running')).toBe('archive_pending_recovery');
+    expect(await readArchiveStatus('c-running')).toBe('archive_corrupted');
   });
 
-  it('flips paused → archive_pending_recovery', async () => {
+  it('flips paused → archive_corrupted', async () => {
     await setupArchiveEntry('c-paused', 'paused');
     const result = await reconcileArchiveStaleEntries(
       { fs: nodeFs, audit: makeAudit() as any },
@@ -96,10 +96,10 @@ describe('Phase 188 Step C: reconcileArchiveStaleEntries', () => {
     expect(result.swept).toBe(1);
     expect(result.scanned).toBe(1);
     expect(result.failed).toBe(0);
-    expect(await readArchiveStatus('c-paused')).toBe('archive_pending_recovery');
+    expect(await readArchiveStatus('c-paused')).toBe('archive_corrupted');
   });
 
-  // 4 终态 → 跳过
+  // 5 终态 → 跳过
   it('skips completed (no flip)', async () => {
     await setupArchiveEntry('c-completed', 'completed');
     const result = await reconcileArchiveStaleEntries(
@@ -148,6 +148,18 @@ describe('Phase 188 Step C: reconcileArchiveStaleEntries', () => {
     expect(await readArchiveStatus('c-recovery')).toBe('archive_pending_recovery');
   });
 
+  it('skips archive_corrupted (no flip)', async () => {
+    await setupArchiveEntry('c-corrupted', 'archive_corrupted');
+    const result = await reconcileArchiveStaleEntries(
+      { fs: nodeFs, audit: makeAudit() as any },
+      'test-claw',
+      clawDir,
+    );
+    expect(result.swept).toBe(0);
+    expect(result.scanned).toBe(1);
+    expect(await readArchiveStatus('c-corrupted')).toBe('archive_corrupted');
+  });
+
   // 混合场景
   it('mixed: 2 active + 2 terminal → 2 swept + 2 skipped + summary audit', async () => {
     await setupArchiveEntry('c1', 'pending');
@@ -169,10 +181,32 @@ describe('Phase 188 Step C: reconcileArchiveStaleEntries', () => {
     expect(summaryAudits[0].args.some(a => a.includes('swept=2'))).toBe(true);
   });
 
-  // corrupt progress.json
-  it('corrupt progress.json → failed++ + audit + continue others', async () => {
+  // schema-invalid progress.json
+  it('schema-invalid progress.json → failed++ + audit + continue others', async () => {
     await setupArchiveEntry('c-good', 'pending');
     const badDir = path.join(clawDir, 'contract', 'archive', 'c-bad');
+    await fs.mkdir(badDir, { recursive: true });
+    await fs.writeFile(path.join(badDir, 'progress.json'), JSON.stringify({ invalid: true }));
+
+    const result = await reconcileArchiveStaleEntries(
+      { fs: nodeFs, audit: makeAudit() as any },
+      'test-claw',
+      clawDir,
+    );
+    expect(result.swept).toBe(1);
+    expect(result.scanned).toBe(2);
+    expect(result.failed).toBe(1);
+
+    const failedAudits = auditCalls.filter(c => c.type === CONTRACT_AUDIT_EVENTS.CONTRACT_ARCHIVE_RECONCILE_FAILED);
+    expect(failedAudits).toHaveLength(1);
+    expect(failedAudits[0].args.some(a => a.includes('contractId=c-bad'))).toBe(true);
+    expect(failedAudits[0].args.some(a => a.includes('context=schema_invalid'))).toBe(true);
+  });
+
+  // corrupt (non-JSON) progress.json
+  it('non-JSON progress.json → failed++ + audit + continue others', async () => {
+    await setupArchiveEntry('c-good2', 'pending');
+    const badDir = path.join(clawDir, 'contract', 'archive', 'c-bad2');
     await fs.mkdir(badDir, { recursive: true });
     await fs.writeFile(path.join(badDir, 'progress.json'), 'not-json');
 
@@ -187,7 +221,28 @@ describe('Phase 188 Step C: reconcileArchiveStaleEntries', () => {
 
     const failedAudits = auditCalls.filter(c => c.type === CONTRACT_AUDIT_EVENTS.CONTRACT_ARCHIVE_RECONCILE_FAILED);
     expect(failedAudits).toHaveLength(1);
-    expect(failedAudits[0].args.some(a => a.includes('contractId=c-bad'))).toBe(true);
+    expect(failedAudits[0].args.some(a => a.includes('contractId=c-bad2'))).toBe(true);
+  });
+
+  // missing progress.json
+  it('missing progress.json → failed++ + audit + continue others', async () => {
+    await setupArchiveEntry('c-good3', 'pending');
+    const badDir = path.join(clawDir, 'contract', 'archive', 'c-missing');
+    await fs.mkdir(badDir, { recursive: true });
+
+    const result = await reconcileArchiveStaleEntries(
+      { fs: nodeFs, audit: makeAudit() as any },
+      'test-claw',
+      clawDir,
+    );
+    expect(result.swept).toBe(1);
+    expect(result.scanned).toBe(2);
+    expect(result.failed).toBe(1);
+
+    const failedAudits = auditCalls.filter(c => c.type === CONTRACT_AUDIT_EVENTS.CONTRACT_ARCHIVE_RECONCILE_FAILED);
+    expect(failedAudits).toHaveLength(1);
+    expect(failedAudits[0].args.some(a => a.includes('contractId=c-missing'))).toBe(true);
+    expect(failedAudits[0].args.some(a => a.includes('context=progress_missing'))).toBe(true);
   });
 
   // missing archive dir → 0 sweep

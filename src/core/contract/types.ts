@@ -167,6 +167,7 @@ export const ARCHIVE_ALLOWED_STATUSES_TUPLE = [
   'cancelled',                    // LifecyclePersistedStatus
   'crashed',                      // LifecyclePersistedStatus
   'archive_pending_recovery',     // LifecyclePersistedStatus
+  'archive_corrupted',            // phase 951: archive-level corrupted marker (terminal)
 ] as const;
 
 export type ArchiveAllowedStatus = (typeof ARCHIVE_ALLOWED_STATUSES_TUPLE)[number];

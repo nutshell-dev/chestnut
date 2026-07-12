@@ -60,8 +60,8 @@ describe('phase 360: status tuples / types / Sets runtime invariants', () => {
       expect(() => PersistedSchema.parse('completed')).toThrow();
     });
 
-    it('tuple has exactly 4 literals (paused/cancelled/crashed/archive_pending_recovery)', () => {
-      expect(LIFECYCLE_PERSISTED_STATUSES_TUPLE.length).toBe(4);
+    it('tuple has exactly 5 literals (paused/cancelled/crashed/archive_pending_recovery/archive_corrupted)', () => {
+      expect(LIFECYCLE_PERSISTED_STATUSES_TUPLE.length).toBe(5);
     });
   });
 
@@ -187,6 +187,12 @@ describe('phase 360: status tuples / types / Sets runtime invariants', () => {
       const obj: Record<string, unknown> = { status: 'archive_pending_recovery', subtasks: {} };
       stripDerivableStatus(obj);
       expect(obj.status).toBe('archive_pending_recovery');
+    });
+
+    it('preserves non-derivable: archive_corrupted', () => {
+      const obj: Record<string, unknown> = { status: 'archive_corrupted', subtasks: {} };
+      stripDerivableStatus(obj);
+      expect(obj.status).toBe('archive_corrupted');
     });
 
     it('preserves unknown string (loose、不 strip)', () => {

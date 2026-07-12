@@ -105,7 +105,7 @@ describe('Phase 188 Step A: moveContractToArchive precondition', () => {
     );
   }
 
-  // 4 终态 → 通过
+  // 5 终态 → 通过
   it('allows archive when status=completed', async () => {
     const contractId = 'c-completed';
     await setupContractInDir('active', contractId, 'completed');
@@ -133,6 +133,14 @@ describe('Phase 188 Step A: moveContractToArchive precondition', () => {
   it('allows archive when status=archive_pending_recovery', async () => {
     const contractId = 'c-recovery';
     await setupContractInDir('active', contractId, 'archive_pending_recovery');
+    await moveContractToArchive(makeCtx(), contractId);
+    const archiveDir = path.join(clawDir, 'contract', 'archive', contractId);
+    expect(await fs.stat(archiveDir).then(() => true).catch(() => false)).toBe(true);
+  });
+
+  it('allows archive when status=archive_corrupted', async () => {
+    const contractId = 'c-corrupted';
+    await setupContractInDir('active', contractId, 'archive_corrupted');
     await moveContractToArchive(makeCtx(), contractId);
     const archiveDir = path.join(clawDir, 'contract', 'archive', contractId);
     expect(await fs.stat(archiveDir).then(() => true).catch(() => false)).toBe(true);

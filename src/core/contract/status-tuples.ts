@@ -26,6 +26,7 @@ export const LIFECYCLE_PERSISTED_STATUSES_TUPLE = [
   'cancelled',                    // archive 子目录、用户 CLI / system 主动停
   'crashed',                      // archive 子目录、agent 物理推不动 (phase 63)
   'archive_pending_recovery',     // archiveAndEmit partial recovery state (phase 1371 sub-2)
+  'archive_corrupted',            // phase 951: archive-level corrupted marker (terminal)
 ] as const;
 
 export const ALL_CONTRACT_STATUSES_TUPLE = [

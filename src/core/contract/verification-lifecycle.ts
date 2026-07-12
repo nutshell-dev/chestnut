@@ -4,7 +4,7 @@
  */
 
 import type { VerificationContext } from './verification-types.js';
-import type { VerificationResult, SubtaskId } from './types.js';
+import type { VerificationResult, SubtaskId, ProgressData } from './types.js';
 import { safeNotify } from './verification-notify.js';
 import { formatValidIds } from './verification-format.js';
 import { ToolError } from '../../foundation/tools/errors.js';
@@ -30,36 +30,11 @@ export async function archiveAndEmit(
   contractYaml: ContractYaml,
   contextLabel: string,
 ): Promise<void> {
+  // Phase 1: commit — move to archive (irreversible)
   try {
     await ctx.moveContractToArchive(contractId);
-    emitContractCompleted(
-      ctx.audit,
-      { contractId, title: contractYaml.title, claw: ctx.clawId },
-    );
-    await ctx.emitContractCompleted(contractId);
-
-    const progress = await ctx.getProgress(contractId);
-    const subtasksSummary = progress
-      ? Object.entries(progress.subtasks)
-          .filter(([, st]) => st.status === 'completed')
-          .map(([id, st]) => ({ id, completed_at: st.completed_at ?? '', force_accepted: !!st.force_accepted }))
-      : [];
-    const completedAt = progress
-      ? Object.values(progress.subtasks)
-          .reduce((max, s) => {
-            if (!s.completed_at) return max;
-            return s.completed_at > max ? s.completed_at : max;
-          }, '')
-      : '';
-
-    safeNotify(ctx, 'contract_completed', {
-      contractId,
-      title: contractYaml.title,
-      goal: contractYaml.goal,
-      subtasks: subtasksSummary,
-      completed_at: completedAt,
-    });
   } catch (err) {
+    // Move failed BEFORE commit point: attempt rollback for retry.
     try {
       await ctx.withProgressLock(contractId, async () => {
         const progress = await ctx.getProgress(contractId);
@@ -134,7 +109,61 @@ export async function archiveAndEmit(
         error: formatErr(err),
       },
     );
+    return; // move failed before commit point; rollback attempted, caller sees normal return
   }
+
+  // COMMIT POINT: directory is now in archive. Side-effect failures do NOT roll back.
+  // Phase 2: side effects (best-effort, independent try/catch per action)
+  try {
+    emitContractCompleted(
+      ctx.audit,
+      { contractId, title: contractYaml.title, claw: ctx.clawId },
+    );
+  } catch {
+    // audit failure should not affect downstream side effects
+  }
+
+  try {
+    await ctx.emitContractCompleted(contractId);
+  } catch (emitErr) {
+    emitContractArchivePartialRecoveryFailed(
+      ctx.audit,
+      {
+        contractId,
+        context: contextLabel,
+        message: 'archive move succeeded but emitContractCompleted side effect failed; contract remains archived for retry',
+        error: formatErr(emitErr),
+      },
+    );
+  }
+
+  let progress: ProgressData | null = null;
+  try {
+    progress = await ctx.getProgress(contractId);
+  } catch {
+    // best-effort: notify with available yaml context only
+  }
+
+  const subtasksSummary = progress
+    ? Object.entries(progress.subtasks)
+        .filter(([, st]) => st.status === 'completed')
+        .map(([id, st]) => ({ id, completed_at: st.completed_at ?? '', force_accepted: !!st.force_accepted }))
+    : [];
+  const completedAt = progress
+    ? Object.values(progress.subtasks)
+        .reduce((max, s) => {
+          if (!s.completed_at) return max;
+          return s.completed_at > max ? s.completed_at : max;
+        }, '')
+    : '';
+
+  safeNotify(ctx, 'contract_completed', {
+    contractId,
+    title: contractYaml.title,
+    goal: contractYaml.goal,
+    subtasks: subtasksSummary,
+    completed_at: completedAt,
+  });
 }
 
 export async function completeSubtaskSync(

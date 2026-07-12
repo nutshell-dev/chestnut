@@ -69,4 +69,14 @@ describe('phase 63: formatContractEvent status 分支', () => {
     expect(entries[0].body).toMatch(/^\[contract_archive_pending_recovery\]/);
     expect(entries[0].status).toBe('archive_pending_recovery');
   });
+
+  it('archive_corrupted → [contract_archive_corrupted] + failure marker', () => {
+    const { audit } = makeAudit();
+    const fs = makeFsForStatus('archive_corrupted');
+    const entries = scanArchivedContracts(fs, '/tmp/claw', 'clawA', audit);
+    expect(entries).toHaveLength(1);
+    expect(entries[0].body).toMatch(/^\[contract_archive_corrupted\]/);
+    expect(entries[0].status).toBe('archive_corrupted');
+    expect(entries[0].hasFailure).toBe(true);
+  });
 });

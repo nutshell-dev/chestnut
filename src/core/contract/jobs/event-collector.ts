@@ -52,6 +52,15 @@ function formatContractEvent(
       return formatCrashed(clawId, contractDirName, meta, progress);
     case 'archive_pending_recovery':
       return formatPendingRecovery(clawId, contractDirName, meta, progress);
+    case 'archive_corrupted':
+      // phase 951: archive-level corruption marker — terminal, no motion delivery
+      return {
+        body: `[contract_archive_corrupted] claw=${clawId} contract=${contractDirName}`,
+        hasFailure: true,
+        status: 'archive_corrupted',
+        reason: 'archive_corrupted',
+        cause: `Contract ${contractDirName} is marked archive_corrupted`,
+      };
     case 'pending':
     case 'running':
     case 'paused':

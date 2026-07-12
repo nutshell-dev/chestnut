@@ -345,6 +345,16 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
                 context: 'observer_scan',
               });
               break;
+            case 'archive_corrupted':
+              // phase 951: archive-level corruption marker — terminal, no motion delivery
+              motionAudit.write(
+                CONTRACT_AUDIT_EVENTS.CONTRACT_ARCHIVE_ACTIVE_STATE_DETECTED,
+                `claw=${clawId}`,
+                `contract=${entry.contractId}`,
+                `status=archive_corrupted`,
+                `context=observer_skip_archive_corrupted`,
+              );
+              break;
             case 'pending':
             case 'running':
             case 'paused':

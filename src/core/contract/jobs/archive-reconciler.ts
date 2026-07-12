@@ -53,24 +53,40 @@ export async function reconcileArchiveStaleEntries(
       // phase 341 Zod SoT broaden (ML#9 优先编译器检查、复用 phase 332 loose schema、cluster N=10)
       const rawParsed: unknown = JSON.parse(raw);
       const validation = ContractProgressArchiveLooseSchema.safeParse(rawParsed);
-      if (!validation.success) continue; // 解析失败、跳过 (archive use case loose、skip silent)
+      if (!validation.success) {
+        // phase 951: invalid progress.json in archive → archive-level corruption
+        failed++;
+        emitContractArchiveReconcileFailed(ctx.audit, {
+          clawId, contractId: d.name, context: 'schema_invalid',
+          error: validation.error.message,
+        });
+        continue;
+      }
       const persisted = validation.data;
       // phase 365: phase 358 ContractProgressArchiveLooseSchema status field z.enum(ALL_CONTRACT_STATUSES_TUPLE) 后已 typed、cast 删除
       const currentStatus = persisted.status;
       // phase 351: cast string for typed Set runtime check (mirror phase 344 pattern)
       if (!currentStatus || !(ACTIVE_STATUSES as ReadonlySet<string>).has(currentStatus)) continue; // 终态跳过
 
-      // 翻 archive_pending_recovery (non-derivable status、phase 330 strict schema align、无需 strip pattern)
+      // phase 951: 翻 archive_corrupted (archive-level corruption marker)
       const oldStatus = currentStatus;
-      const newPayload = { ...persisted, status: 'archive_pending_recovery' as const };
+      const newPayload = { ...persisted, status: 'archive_corrupted' as const };
       await ctx.fs.writeAtomic(progressPath, JSON.stringify(newPayload, null, 2));
 
       emitContractArchiveReconcileStale(ctx.audit, {
-        clawId, contractId: d.name, oldStatus, newStatus: 'archive_pending_recovery',
+        clawId, contractId: d.name, oldStatus, newStatus: 'archive_corrupted',
       });
       swept++;
     } catch (err) {
-      if (isFileNotFound(err)) continue; // progress.json 缺失、archive partial state、跳过
+      if (isFileNotFound(err)) {
+        // phase 951: missing progress.json → incomplete archive
+        failed++;
+        emitContractArchiveReconcileFailed(ctx.audit, {
+          clawId, contractId: d.name, context: 'progress_missing',
+          error: 'progress.json missing in archive',
+        });
+        continue;
+      }
       failed++;
       emitContractArchiveReconcileFailed(ctx.audit, {
         clawId, contractId: d.name, context: 'read_or_flip',
