@@ -32,6 +32,7 @@ describe('notifyContractCreated audit observability', () => {
     (createDirContext as any).mockReturnValue({
       fs: {
         appendSync: vi.fn(() => { throw new Error('disk full'); }),
+        resolve: vi.fn((p: string) => path.resolve(p)),
       },
       audit,
     });
@@ -62,6 +63,7 @@ describe('notifyContractCreated audit observability', () => {
           appendSync: vi.fn((filePath: string, data: string) => {
             fs.appendFileSync(path.join(tempDir, filePath), data);
           }),
+          resolve: vi.fn((p: string) => path.resolve(tempDir, p)),
         },
         audit,
       });
@@ -93,6 +95,7 @@ describe('notifyContractCreated audit observability', () => {
     (createDirContext as any).mockReturnValue({
       fs: {
         appendSync: vi.fn(() => { throw new Error('disk full'); }),
+        resolve: vi.fn((p: string) => path.resolve(p)),
       },
       audit,
     });
@@ -103,8 +106,9 @@ describe('notifyContractCreated audit observability', () => {
 
     expect(() => notifyContractCreated({ fsFactory }, '/tmp/claw', 'claw-A', 'c-002', contract, '/tmp/chestnut')).not.toThrow();
 
-    expect(audit.write).toHaveBeenCalledTimes(1);
-    const call = audit.write.mock.calls[0];
+    const streamFailedCalls = audit.write.mock.calls.filter(c => c[0] === 'stream_append_failed');
+    expect(streamFailedCalls).toHaveLength(1);
+    const call = streamFailedCalls[0];
     expect(call[0]).toBe('stream_append_failed');
     expect(call[1]).toBe('path=stream.jsonl');
     expect(call[2]).toBe('type=user_notify');

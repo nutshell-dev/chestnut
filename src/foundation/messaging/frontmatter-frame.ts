@@ -26,7 +26,7 @@
  */
 export function parseFrontmatterFrame(
   raw: string,
-  opts?: { eofTolerant?: boolean },
+  opts?: { eofTolerant?: boolean; strict?: boolean },
 ): { meta: Record<string, string>; body: string } {
   const normalized = raw.replace(/\r\n/g, '\n');
   if (!normalized.startsWith('---\n')) return { meta: {}, body: raw };
@@ -51,10 +51,28 @@ export function parseFrontmatterFrame(
   }
 
   const meta: Record<string, string> = {};
+  const seenKeys = new Set<string>();
   for (const line of afterOpen.slice(0, closeIdx).split('\n')) {
     const ci = line.indexOf(':');
-    if (ci <= 0) continue;
+    if (ci < 0) {
+      if (opts?.strict && line.trim().length > 0) {
+        throw new Error(`Malformed frontmatter line: "${line}"`);
+      }
+      continue;
+    }
+    if (ci === 0) {
+      if (opts?.strict) throw new Error(`Empty frontmatter key in line: "${line}"`);
+      continue;
+    }
     const key = line.slice(0, ci).trim();
+    if (!key) {
+      if (opts?.strict) throw new Error(`Empty frontmatter key in line: "${line}"`);
+      continue;
+    }
+    if (opts?.strict && seenKeys.has(key)) {
+      throw new Error(`Duplicate frontmatter key: "${key}"`);
+    }
+    seenKeys.add(key);
     const value = line.slice(ci + 1).trim();
     meta[key] = value;
   }

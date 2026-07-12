@@ -66,4 +66,31 @@ describe('parseFrontmatterFrame', () => {
     const r = parseFrontmatterFrame('---\n  name  :   foo   \n---\nbody');
     expect(r.meta.name).toBe('foo');
   });
+
+  describe('strict mode', () => {
+    it('throws on malformed line without colon', () => {
+      expect(() => parseFrontmatterFrame('---\nname: foo\nnot-a-line\n---\nbody', { strict: true }))
+        .toThrow(/Malformed frontmatter line/);
+    });
+
+    it('throws on empty key', () => {
+      expect(() => parseFrontmatterFrame('---\n: value\n---\nbody', { strict: true }))
+        .toThrow(/Empty frontmatter key/);
+    });
+
+    it('throws on duplicate key', () => {
+      expect(() => parseFrontmatterFrame('---\nname: foo\nname: bar\n---\nbody', { strict: true }))
+        .toThrow(/Duplicate frontmatter key/);
+    });
+
+    it('allows blank lines in strict mode', () => {
+      const r = parseFrontmatterFrame('---\nname: foo\n\nver: 1.0\n---\nbody', { strict: true });
+      expect(r.meta).toEqual({ name: 'foo', ver: '1.0' });
+    });
+
+    it('keeps lenient behavior when strict is false', () => {
+      const r = parseFrontmatterFrame('---\nname: foo\nname: bar\n:bad\n---\nbody');
+      expect(r.meta).toEqual({ name: 'bar' });
+    });
+  });
 });
