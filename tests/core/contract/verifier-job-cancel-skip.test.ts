@@ -117,27 +117,42 @@ describe('phase 1080: verifier-job cancel skip', () => {
     expect(skippedRow).toContain('reason=contract_no_longer_active');
   });
 
-  it('runs verifier when progress.json read fails with non-ENOENT error (audit only)', async () => {
+  it('fails closed without launching LLM when progress schema is invalid', async () => {
+    const { audit, events } = makeAudit();
+    const fs = {
+      read: vi.fn().mockResolvedValue(JSON.stringify({ status: 123 })),
+    };
+
+    const result = await runContractVerifier(makeConfig({ audit, fs: fs as unknown as VerifierConfig['fs'] }));
+
+    expect(result.passed).toBe(false);
+    expect(result.feedback).toContain('schema invalid');
+    expect(mockRunSubagent).not.toHaveBeenCalled();
+
+    const skippedRow = events.find(e => e[0] === CONTRACT_AUDIT_EVENTS.VERIFIER_SKIPPED);
+    expect(skippedRow).toBeDefined();
+    expect(skippedRow).toContain('agentId=verifier-test-contract-1');
+    expect(skippedRow).toContain('reason=progress_schema_invalid');
+  });
+
+  it('fails closed when progress.json read fails with non-ENOENT error', async () => {
     const { audit, events } = makeAudit();
     const err = new Error('EACCES: permission denied') as NodeJS.ErrnoException;
     err.code = 'EACCES';
     const fs = {
       read: vi.fn().mockRejectedValue(err),
     };
-    mockRunSubagent.mockResolvedValue({
-      text: '',
-      capturedResult: { passed: true, reason: 'ok' },
-    });
 
     const result = await runContractVerifier(makeConfig({ audit, fs: fs as unknown as VerifierConfig['fs'] }));
 
-    expect(result.passed).toBe(true);
-    expect(mockRunSubagent).toHaveBeenCalledTimes(1);
+    expect(result.passed).toBe(false);
+    expect(result.feedback).toContain('Cannot read contract progress');
+    expect(mockRunSubagent).not.toHaveBeenCalled();
 
     const failedRow = events.find(e => e[0] === CONTRACT_AUDIT_EVENTS.VERIFIER_FAILED);
     expect(failedRow).toBeDefined();
     expect(failedRow).toContain('agentId=verifier-test-contract-1');
-    expect(failedRow).toContain('kind=progress_read_error');
+    expect(failedRow).toContain('kind=io_error');
     expect(failedRow).toContain('reason=EACCES: permission denied');
   });
 

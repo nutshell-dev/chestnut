@@ -34,7 +34,7 @@ import type { VerifierConfig, VerifierResult } from './types.js';
 
 // phase 330: peek-pattern schema for crash-recovery cancelled-skip check (passthrough、允许其他字段)
 const LifecycleStatusPeekSchema = z.object({
-  status: z.enum(['cancelled', 'crashed', 'paused', 'archive_pending_recovery']).optional(),
+  status: z.string().optional(),
 }).passthrough();
 
 export async function runContractVerifier(config: VerifierConfig): Promise<VerifierResult> {
@@ -59,7 +59,7 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
   // 不直走 getProgress：verifier-job 是底层 helper、不应回调 ContractSystem
   // 创建循环依赖；status 在 progress.json 的可观察字段已够辨识非派生生命周期。
   if (config.contractId) {
-    const TERMINAL_OR_PAUSED = new Set(['cancelled', 'crashed', 'paused', 'archive_pending_recovery']);
+    const TERMINAL_OR_PAUSED = new Set(['cancelled', 'crashed', 'paused', 'archive_pending_recovery', 'archive_corrupted']);
     const progressPath = path.join(
       CONTRACT_ACTIVE_DIR,
       config.contractId,
@@ -71,7 +71,18 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
       // crash-recovery skip check uses peek-pattern (passthrough、仅 access status field、不强制 full schema)
       const rawParsed: unknown = JSON.parse(raw);
       const result = LifecycleStatusPeekSchema.safeParse(rawParsed);
-      const progress = result.success ? result.data : {};
+      if (!result.success) {
+        // progress.json schema invalid → cannot determine contract state.
+        // Fail-closed: don't launch LLM verifier on potentially corrupt state.
+        if (config.audit) {
+          emitContractVerifierSkipped(config.audit, {
+            contractId: config.contractId, agentId: config.agentId,
+            reason: 'progress_schema_invalid',
+          });
+        }
+        return { passed: false, feedback: 'Contract progress.json schema invalid — verifier aborting' };
+      }
+      const progress = result.data;
       if (typeof progress.status === 'string' && TERMINAL_OR_PAUSED.has(progress.status)) {
         if (config.audit) {
           emitContractVerifierSkipped(
@@ -93,19 +104,15 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
         }
         return { passed: false, feedback: 'Contract is no longer in active/ — skipping verifier' };
       }
+      // EACCES, EIO, etc. → cannot determine state. Fail-closed.
       if (config.audit) {
-        emitContractVerifierFailed(
-          config.audit,
-          {
-            contractId: config.contractId,
-            agentId: config.agentId,
-            clawId: config.clawId,
-            kind: 'progress_read_error',
-            reason: formatErr(err),
-          },
-        );
+        emitContractVerifierFailed(config.audit, {
+          contractId: config.contractId, agentId: config.agentId, clawId: config.clawId,
+          kind: 'io_error',
+          reason: formatErr(err),
+        });
       }
-      // 其他 read error: do not block verifier（保留旧 fallthrough、错误已 audit）
+      return { passed: false, feedback: `Cannot read contract progress: ${formatErr(err)}` };
     }
   }
 
@@ -207,9 +214,9 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
         }
       }
 
-      // 兼容旧格式（direct object）
-      const r = capturedResult as { passed: boolean; reason: string; issues?: string[] };
-      if ('passed' in r) {
+      // Phase 962: unified validation — all result entry points use the same schema check
+      if (isValidVerifierResult(capturedResult)) {
+        const r = capturedResult;
         if (r.passed && config.audit) {
           emitContractVerifierPassed(config.audit, { contractId: config.contractId, agentId: config.agentId });
         }
@@ -219,6 +226,7 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
           structured: r,
         };
       }
+      // Falls through to next parsing attempt
     }
 
     const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```/) || text.match(/\{[\s\S]*\}/);
@@ -250,6 +258,11 @@ export async function runContractVerifier(config: VerifierConfig): Promise<Verif
     return { passed: result.passed, feedback: jsonStr, structured: result };
 
   } catch (err) {
+    // Phase 962: signal abort is not a verification failure.
+    // Don't consume retry budget — propagate so the pipeline can handle cancellation.
+    if (config.signal?.aborted || (err instanceof Error && err.name === 'AbortError')) {
+      throw err;
+    }
     // phase 993 D.2: catch audit emit (config.audit phase 646 ⚓ inject、之前 dead field)
     if (err instanceof ToolTimeoutError) {
       emitContractVerifierFailed(

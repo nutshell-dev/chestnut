@@ -85,4 +85,22 @@ describe('runContractVerifier (phase 990)', () => {
     expect(result.passed).toBe(false);
     expect(result.feedback).toContain('boom');
   });
+
+  it('rejects legacy result with non-boolean passed field', async () => {
+    mockRunSubagent.mockResolvedValue({
+      text: '{"passed":false,"reason":"rejected legacy shape"}',
+      capturedResult: { passed: 'yes', reason: 'looks good' },
+    });
+    const result = await runContractVerifier(makeConfig());
+    expect(result.passed).toBe(false);
+    expect(result.structured).toEqual({ passed: false, reason: 'rejected legacy shape' });
+  });
+
+  it('propagates signal abort instead of returning passed:false', async () => {
+    const abortError = new Error('Aborted');
+    abortError.name = 'AbortError';
+    mockRunSubagent.mockRejectedValue(abortError);
+    const config = makeConfig({ signal: AbortSignal.abort() });
+    await expect(runContractVerifier(config)).rejects.toThrow('Aborted');
+  });
 });

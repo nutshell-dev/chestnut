@@ -37,7 +37,7 @@ describe('phase 993: verifier-job D.1 signal + D.2 catch audit emit', () => {
     mockRunSubagent.mockReset();
   });
 
-  it('signal abort → verifier early abort + VERIFIER_FAILED audit emit (kind=other)', async () => {
+  it('signal abort → propagates abort without VERIFIER_FAILED audit emit', async () => {
     const { audit, events } = makeAudit();
     const controller = new AbortController();
 
@@ -59,16 +59,10 @@ describe('phase 993: verifier-job D.1 signal + D.2 catch audit emit', () => {
     }));
 
     controller.abort();
-    const result = await promise;
-
-    expect(result.passed).toBe(false);
+    await expect(promise).rejects.toThrow('AbortError: signal aborted');
 
     const failedRow = events.find(e => e[0] === CONTRACT_AUDIT_EVENTS.VERIFIER_FAILED);
-    expect(failedRow).toBeDefined();
-    expect(failedRow).toContain('agentId=verifier-test');
-    expect(failedRow).toContain('clawId=claw-test');
-    expect(failedRow).toContain('kind=other');
-    expect(failedRow).toContain('reason=AbortError: signal aborted');
+    expect(failedRow).toBeUndefined();
   });
 
   it('ToolTimeoutError → VERIFIER_FAILED audit emit (kind=timeout)', async () => {
