@@ -1,4 +1,5 @@
 import { formatErr } from "../../../foundation/node-utils/index.js";
+import { makeExternalAbortError, type AbortReason } from '../../../foundation/llm-provider/index.js';
 /**
  * @module L2c.Messaging
  * notify_claw tool - motion 视角、向 target claw inbox 直接发消息（指挥型 push 模型）
@@ -71,7 +72,7 @@ export function createNotifyClawTool(deps: NotifyClawDeps): Tool {
     readonly: false,
     idempotent: false,
 
-    async execute(this: Tool & { authorized?: boolean }, args: Record<string, unknown>, _ctx: ExecContext): Promise<ToolResult> {
+    async execute(this: Tool & { authorized?: boolean }, args: Record<string, unknown>, ctx: ExecContext): Promise<ToolResult> {
       // Phase 807: authorization via DI flag (replaces ctx.callerLabel + isCallerAuthorized predicate).
       // 默认 true 保持主 registry 兼容；shadow registry 注入 authorized=false。
       if (this.authorized === false) {
@@ -114,6 +115,9 @@ export function createNotifyClawTool(deps: NotifyClawDeps): Tool {
           body,
         });
       } catch (error) {
+        if (ctx.signal?.aborted) {
+          throw makeExternalAbortError(ctx.signal.reason as AbortReason | undefined);
+        }
         const reason = formatErr(error);
         deps.audit.write(
           MESSAGING_AUDIT_EVENTS.NOTIFY_CLAW_FAILED,
