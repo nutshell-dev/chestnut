@@ -118,7 +118,7 @@ describe('InboxWriter', () => {
     const files = fsSync.readdirSync(path.join(testDir, 'inbox', 'pending'));
     expect(files).toHaveLength(1);
     const content = fsSync.readFileSync(path.join(testDir, 'inbox', 'pending', files[0]), 'utf-8');
-    expect(content).toContain('contract_id: c1');
+    expect(content).toContain('contract_id: "c1"');
   });
 
   it('audits INBOX_WRITE_FAILED when ensureDir fails', () => {

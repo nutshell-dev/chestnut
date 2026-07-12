@@ -149,6 +149,7 @@ describe('phase 541: silent catch fixes', () => {
     it('inline fallback failure writes INBOX_WRITE_FAILED audit (context=inline_fallback_failed)', async () => {
       let inboxWriteCount = 0;
       const mockFs = {
+        resolve: vi.fn((p: string) => p),
         ensureDir: vi.fn().mockResolvedValue(undefined),
         read: vi.fn().mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' })),
         writeAtomic: vi.fn().mockImplementation((filePath: string) => {
