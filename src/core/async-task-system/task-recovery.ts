@@ -256,17 +256,38 @@ async function _recoverMigratedToolTask(
   if (processAlive) {
     const deadlineMs = Date.parse(task.createdAt) + ASYNC_EXEC_MIGRATED_HARD_TIMEOUT_MS;
     if (Date.now() >= deadlineMs) {
-      // Process survived beyond hard timeout — treat as dead and proceed to result check.
+      // Hard timeout exceeded — kill the process, wait for exit, then proceed.
       emitRecoveryFailed(auditWriter, {
         taskId: task.id,
         context: 'migrated_process_hard_timeout_exceeded',
         error: `createdAt=${task.createdAt} deadlineMs=${deadlineMs}`,
       });
-      processAlive = false; // fall through to result delivery / failure
+      try {
+        process.kill(pid, 'SIGTERM');
+      } catch (err) {
+        // ESRCH: already dead — fall through to result check
+        if ((err as NodeJS.ErrnoException).code !== 'ESRCH') {
+          emitRecoveryFailed(auditWriter, {
+            taskId: task.id,
+            context: 'migrated_process_kill_failed',
+            error: formatErr(err),
+          });
+        }
+      }
+      // Wait for process exit (poll isAlive with backoff)
+      const exitTimeoutMs = 10_000; // wait up to 10s for graceful exit
+      const startWait = Date.now();
+      while (isAlive(pid) && Date.now() - startWait < exitTimeoutMs) {
+        await new Promise<void>(resolve => setTimeout(resolve, 500));
+      }
+      if (isAlive(pid)) {
+        try { process.kill(pid, 'SIGKILL'); } catch { /* ESRCH */ }
+        await new Promise<void>(resolve => setTimeout(resolve, 1000));
+      }
+      processAlive = false; // fall through to result check
     } else {
-      // Cannot reconstruct the monitor (ChildProcess reference is lost across
-      // restarts), but leave the task in running/ so we do not spawn a duplicate.
-      // The process will eventually exit or be killed by the hard timeout.
+      // Still within deadline, leave in running — natural convergence:
+      // process will exit or hit deadline on next startup recovery scan.
       emitRecovered(auditWriter, {
         fullTaskId: task.id as FullTaskId,
         shortTaskId: taskShortId(task),
@@ -395,14 +416,22 @@ async function _recoverMigratedToolTask(
   }
 
   // 3. Process is dead and no result exists: output is unrecoverable.
-  await sendFallbackError(fs, auditWriter, task, 'Migrated process exited without producing output')
+  const fallbackSent = await sendFallbackError(fs, auditWriter, task, 'Migrated process exited without producing output')
+    .then(() => true)
     .catch((e) => {
       emitRecoveryFailed(auditWriter, {
         taskId: task.id,
         context: 'migrated_fallback_error_failed',
         error: formatErr(e),
       });
+      return false;
     });
+
+  if (!fallbackSent) {
+    // Keep in running — retry notification on next recovery
+    return 0;
+  }
+
   await fs.move(filePath, `${TASKS_QUEUES_FAILED_DIR}/${task.id}.json`)
     .then(() => {
       emitRecovered(auditWriter, {
