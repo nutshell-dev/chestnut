@@ -388,7 +388,7 @@ export class ContractSystem {
       contractDir: (id) => this.contractDir(id),
       loadContract: (id) => this.loadContract(id),
       getProgress: (id) => this.getProgress(id),
-      saveProgress: (id, p) => this.saveProgress(id, p),
+      saveProgress: (id, p, knownDir) => this.saveProgress(id, p, knownDir),
       checkAllSubtasksCompleted: (id, p) => this.checkAllCompleted(id, p),
       abortContractVerifiers: (id, reason) => this._abortContractVerifiers(id, reason),
       // phase 438: lazy thunk、setOnNotify 后的回调能在 ctx 已分发场景下生效（review N3-C-H3 / R2-C-N18）
@@ -407,7 +407,7 @@ export class ContractSystem {
       contractDir: (id) => this.contractDir(id),
       loadContractYaml: (id) => this.loadContractYaml(id),
       getProgress: (id) => this.getProgress(id),
-      saveProgress: (id, p) => this.saveProgress(id, p),
+      saveProgress: (id, p, knownDir) => this.saveProgress(id, p, knownDir),
       checkAllSubtasksCompleted: (id, p) => this.checkAllCompleted(id, p),
       moveContractToArchive: (id) => this.moveToArchive(id),
       emitContractCompleted: (id) => this._emitContractCompleted(id),
@@ -713,8 +713,8 @@ export class ContractSystem {
     this.auditorState.delete(contractId);
   }
 
-  async markCrashed(contractId: ContractId, cause: string): Promise<void> {
-    await markCrashed(this._lifecycleCtx(), contractId, cause);
+  async markCrashed(contractId: ContractId, cause: string, knownDir?: string): Promise<void> {
+    await markCrashed(this._lifecycleCtx(), contractId, cause, knownDir);
     // phase 398 Step D (review N9): 同 cancel。
     this.auditorState.delete(contractId);
   }
@@ -1028,7 +1028,27 @@ export class ContractSystem {
       content = await this.fs.read(`${dir}/${contractId}/progress.json`);
     }
     const progressPath = `${dir}/${contractId}/progress.json`;
-    const rawParsed: unknown = JSON.parse(content);
+    let rawParsed: unknown;
+    try {
+      rawParsed = JSON.parse(content);
+    } catch (parseErr) {
+      // phase 958: JSON.parse SyntaxError → same isolation path as schema validation failure
+      if (parseErr instanceof SyntaxError) {
+        this.audit.write(
+          CONTRACT_AUDIT_EVENTS.PROGRESS_SCHEMA_INVALID,
+          `contractId=${contractId}`,
+          `reason=json_parse_failed`,
+          `error=${formatErr(parseErr)}`,
+        );
+        await isolateCorruptedFile(this.fs, this.audit, {
+          contractId, contractDir: `${dir}/${contractId}`, filename: PROGRESS_FILE,
+          reason: 'json_parse_error',
+        });
+        await this.markCrashed(contractId, 'system: json_parse_corruption_progress_json', dir);
+        return null;
+      }
+      throw parseErr;
+    }
 
     // phase 319: legacy derive field handling (contract_id + status) before strict Zod parse
     // (Zod .strict() would reject these legacy fields、需先 strip + emit audit observability for derive)
@@ -1096,20 +1116,14 @@ export class ContractSystem {
         );
       }
       const isolationReason = isSchemaVersionIssue ? 'unknown_schema_version' : 'schema_invalid';
+      // phase 958: isolate corrupted progress.json first, then markCrashed with known dir.
+      // markCrashed internally re-resolves contractDir via progress.json existence;
+      // after isolation progress.json is gone, so pass the known dir to avoid orphan.
       await isolateCorruptedFile(this.fs, this.audit, {
         contractId, contractDir: `${dir}/${contractId}`, filename: PROGRESS_FILE,
         reason: isolationReason,
       });
-      try {
-        await this.markCrashed(contractId, 'system: schema_corruption_progress_json');
-      } catch (markErr) {
-        this.audit.write(
-          CONTRACT_AUDIT_EVENTS.CONTRACT_FILE_ISOLATION_FAILED,
-          `contractId=${contractId}`,
-          `context=markCrashed_after_isolation`,
-          `reason=${formatErr(markErr)}`,
-        );
-      }
+      await this.markCrashed(contractId, 'system: schema_corruption_progress_json', dir);
       return null;
     }
 
@@ -1147,8 +1161,8 @@ export class ContractSystem {
     return loadCt(this._persistenceCtx(), contractId);
   }
 
-  private async saveProgress(contractId: ContractId, progress: ProgressData): Promise<void> {
-    return saveProg(this._persistenceCtx(), contractId, progress);
+  private async saveProgress(contractId: ContractId, progress: ProgressData, knownDir?: string): Promise<void> {
+    return saveProg(this._persistenceCtx(), contractId, progress, knownDir);
   }
 
   private async checkAllCompleted(contractId: ContractId, progress: ProgressData): Promise<boolean> {

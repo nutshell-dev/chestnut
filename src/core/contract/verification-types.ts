@@ -43,7 +43,7 @@ export interface VerificationContractContext {
   contractDir: (contractId: ContractId) => Promise<string>;
   loadContractYaml: (contractId: ContractId) => Promise<ContractYaml | null>;
   getProgress: (contractId: ContractId) => Promise<ProgressData | null>;
-  saveProgress: (contractId: ContractId, progress: ProgressData) => Promise<void>;
+  saveProgress: (contractId: ContractId, progress: ProgressData, knownDir?: string) => Promise<void>;
   checkAllSubtasksCompleted: (contractId: ContractId, progress: ProgressData) => Promise<boolean>;
   moveContractToArchive: (contractId: ContractId) => Promise<void>;
   emitContractCompleted: (contractId: ContractId) => Promise<void>;

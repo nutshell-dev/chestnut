@@ -16,7 +16,7 @@ import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 import type { ContractId } from './types.js';
-import { formatErr } from '../../foundation/node-utils/index.js';
+import { formatErr, newShortUuid } from '../../foundation/node-utils/index.js';
 import { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 
 const CORRUPTED_SUBDIR = 'corrupted';
@@ -38,7 +38,8 @@ export async function isolateCorruptedFile(
   try {
     await fs.ensureDir(corruptedDir);
     const ts = Date.now();
-    const backupPath = path.join(corruptedDir, `${ts}_${args.filename}`);
+    const uuid = newShortUuid();
+    const backupPath = path.join(corruptedDir, `${ts}_${uuid}_${args.filename}`);
     const srcPath = path.join(args.contractDir, args.filename);
     await fs.move(srcPath, backupPath);
     audit.write(

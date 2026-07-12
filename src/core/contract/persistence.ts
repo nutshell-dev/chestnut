@@ -124,8 +124,9 @@ export async function saveProgress(
   ctx: PersistenceContext,
   contractId: ContractId,
   progress: ProgressData,
+  knownDir?: string,
 ): Promise<void> {
-  const dir = await ctx.contractDir(contractId);
+  const dir = knownDir ?? await ctx.contractDir(contractId);
   const progressPath = `${dir}/${contractId}/progress.json`;
   // phase 319: ProgressData.schema_version now z.literal(1) brand (Zod SoT)、显式 set 保 writer SoT
   const progressToSave = { ...progress, schema_version: PROGRESS_CURRENT_SCHEMA_VERSION };

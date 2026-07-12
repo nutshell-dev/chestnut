@@ -31,7 +31,7 @@ export interface LifecycleContext extends LockContext {
   contractDir: (contractId: ContractId) => Promise<string>;
   loadContract: (contractId: ContractId) => Promise<Contract>;
   getProgress: (contractId: ContractId) => Promise<ProgressData | null>;
-  saveProgress: (contractId: ContractId, progress: ProgressData) => Promise<void>;
+  saveProgress: (contractId: ContractId, progress: ProgressData, knownDir?: string) => Promise<void>;
   checkAllSubtasksCompleted: (contractId: ContractId, progress: ProgressData) => Promise<boolean>;
   /** phase 1020 (r124 C fork): cancelContract abort propagation to active verifier subagents */
   abortContractVerifiers: (contractId: ContractId, reason: string) => void;
@@ -235,8 +235,12 @@ export async function markCrashed(
   ctx: LifecycleContext,
   contractId: ContractId,
   cause: string,
+  knownDir?: string,
 ): Promise<void> {
-  const { dir, release: releaseSource, ownerToken } = await lockContract(ctx, contractId, ctx.contractDir);
+  const contractDirResolver = knownDir !== undefined
+    ? () => Promise.resolve(knownDir)
+    : ctx.contractDir;
+  const { dir, release: releaseSource, ownerToken } = await lockContract(ctx, contractId, contractDirResolver);
   if (dir === ctx.archiveDir) {
     await releaseSource();
     throw new ToolError(`Cannot mark crashed contract "${contractId}": already archived`);
@@ -274,7 +278,7 @@ export async function markCrashed(
     }
     progress.status = 'crashed';
     progress.checkpoint = `crashed: ${cause}`;
-    await ctx.saveProgress(contractId, progress);
+    await ctx.saveProgress(contractId, progress, knownDir);
 
     // (3) abort verifier subagents (best-effort)
     try {
