@@ -138,9 +138,9 @@ async function cleanupOrphans(
 
 /**
  * Clear any stale lockfile from a previous run. If the holder is still alive
- * SIGTERM it first, then delete the lockfile. Errors are audited; non-ENOENT
- * delete failures keep the pipeline going (a later `writeExclusiveSync` will
- * eventually surface conflicts).
+ * throw LockConflictError — never kill a live holder. Only stale (dead) locks
+ * are removed. Errors are audited; non-ENOENT delete failures keep the pipeline
+ * going (a later `writeExclusiveSync` will eventually surface conflicts).
  */
 async function cleanupLock(
   ctx: ProcessManagerContext,
@@ -152,19 +152,20 @@ async function cleanupLock(
     if (lockHolder !== null) {
       const lockStartTime = lockHolder.startTime;
       if ((ctx.l1IsAlive ?? defaultL1IsAlive)(lockHolder.pid, lockStartTime)) {
-        try {
-          (ctx.kill ?? defaultKill)(lockHolder.pid, 'TERM');
-          await sleep(DAEMON_SHUTDOWN_GRACE_MS);
-        } catch (err) {
-          ctx.audit.write(
-            PROCESS_MANAGER_AUDIT_EVENTS.LOCKFILE_CLEANUP_FAILED,
-            `daemon_dir=${daemonDir}`,
-            `op=sigterm`,
-            `pid=${lockHolder.pid}`,
-            `reason=${formatErr(err)}`,
-          );
-        }
+        // Holder is alive — throw, don't kill. Let the caller handle the conflict.
+        throw new LockConflictError(
+          daemonDir,
+          `Another "${daemonDir}" daemon is running (PID: ${lockHolder.pid})`,
+        );
       }
+      // Holder is dead — safe to clean up stale lock
+      ctx.audit.write(
+        PROCESS_MANAGER_AUDIT_EVENTS.LOCKFILE_CLEANUP_FAILED,
+        `daemon_dir=${daemonDir}`,
+        `op=stale_cleanup`,
+        `pid=${lockHolder.pid}`,
+        `reason=holder_dead`,
+      );
     }
     try {
       await ctx.fs.delete(lockFile);
@@ -180,6 +181,9 @@ async function cleanupLock(
       }
     }
   } catch (err) {
+    if (err instanceof LockConflictError) {
+      throw err;
+    }
     if (!isFileNotFound(err)) {
       // phase 681: 加 path forensic col、与 lock.ts:49 同 event 形态对齐
       ctx.audit.write(
@@ -313,6 +317,8 @@ async function handlePidFileConflict(
  * On failure: audits PROCESS_SPAWN_FAILED and best-effort removes the pidfile
  * so the next spawn attempt doesn't false-conflict.
  */
+const BOOT_DEADLINE_MS = 30_000; // 30s for daemon to become ready
+
 async function spawnAndAwaitReady(
   ctx: ProcessManagerContext,
   daemonDir: DaemonDir,
@@ -321,12 +327,13 @@ async function spawnAndAwaitReady(
   isAliveByPidFile: (id: DaemonDir) => boolean,
 ): Promise<number> {
   const pidFile = getPidFile(ctx, daemonDir);
+  let pid: number | undefined;
   try {
-    const { pid } = (ctx.spawnDetached ?? defaultSpawnDetached)(options.command, options.args, {
+    ({ pid } = (ctx.spawnDetached ?? defaultSpawnDetached)(options.command, options.args, {
       cwd: options.cwd,
       env: options.env,
       logFile: options.logFile,
-    });
+    }));
 
     const childStartTime = (ctx.getProcessStartTime ?? defaultGetProcessStartTime)(pid);
     const pidPayload: PidFileContent = {
@@ -337,7 +344,14 @@ async function spawnAndAwaitReady(
 
     const isReady = ctx.isReady ?? ((id: DaemonDir) => checkReady(ctx, id));
     let ready = isReady(daemonDir);
+    const bootStart = Date.now();
     while (!ready) {
+      if (Date.now() - bootStart > BOOT_DEADLINE_MS) {
+        throw new Error(
+          `Process "${daemonDir}" did not become ready within ${BOOT_DEADLINE_MS}ms. ` +
+          `Check logs at: ${options.logFile}`,
+        );
+      }
       if (!isAliveByPidFile(daemonDir)) {
         throw new Error(
           `Process "${daemonDir}" died during boot. Check logs at: ${options.logFile}`,
@@ -358,6 +372,27 @@ async function spawnAndAwaitReady(
 
     return pid;
   } catch (err) {
+    // If child was spawned, terminate it. Don't leave orphans.
+    // Guard against self-kill (tests may inject process.pid as a mock child).
+    if (typeof pid === 'number' && pid > 0 && pid !== process.pid) {
+      try {
+        (ctx.kill ?? defaultKill)(pid, 'TERM');
+        // Grace period for child to exit on SIGTERM
+        await sleep(DAEMON_SHUTDOWN_GRACE_MS);
+        if ((ctx.l1IsAlive ?? defaultL1IsAlive)(pid)) {
+          (ctx.kill ?? defaultKill)(pid, 'KILL');
+          await sleep(500);
+        }
+      } catch (killErr) {
+        ctx.audit.write(
+          PROCESS_MANAGER_AUDIT_EVENTS.LOCKFILE_CLEANUP_FAILED,
+          `daemon_dir=${daemonDir}`,
+          `op=spawn_failed_kill`,
+          `pid=${pid}`,
+          `reason=${formatErr(killErr)}`,
+        );
+      }
+    }
     await removePid(ctx, daemonDir).catch((removeErr) => {
       ctx.audit.write(
         PROCESS_MANAGER_AUDIT_EVENTS.PID_REMOVE_FAILED,

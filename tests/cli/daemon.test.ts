@@ -62,7 +62,9 @@ describe('ProcessManager.acquireLock — fix 004: TOCTOU race protection', () =>
     // 非数字 PID 被视为 stale lock，清理后成功获取
     pm.acquireLock(testClawDaemonDir(tmpDir, 'test-claw'));
     const content = fsNative.readFileSync(path.join(statusDir, 'daemon.lock'), 'utf-8');
-    expect(content).toBe(JSON.stringify({ pid: process.pid }));
+    const parsed = JSON.parse(content);
+    expect(parsed.pid).toBe(process.pid);
+    expect(parsed.startTime).toBeDefined();
   });
 
   it('throws on EPERM (holder alive but no permission to signal)', () => {

@@ -253,6 +253,7 @@ const VI_MOCK_FILES = [
   'tests/foundation/process-manager/spawn-duration-metric.test.ts',
   'tests/foundation/process-manager/spawn-event-driven-readiness.test.ts',
   'tests/foundation/process-manager/spawn-fast-fail-child-died.test.ts',
+  'tests/foundation/process-manager/spawn-lifecycle-invariants.test.ts',
   'tests/foundation/process-manager/spawn-race.test.ts',
   'tests/foundation/process-manager/spawn-remove-pid-audit.test.ts',
   'tests/foundation/process/stop-race.test.ts',

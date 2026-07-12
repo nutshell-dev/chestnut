@@ -61,7 +61,11 @@ export function acquireLock(ctx: ProcessManagerContext, daemonDir: DaemonDir): v
   const lockFile = getLockFile(ctx, daemonDir);
   ctx.fs.ensureDirSync(path.dirname(lockFile));
   try {
-    ctx.fs.writeExclusiveSync(lockFile, JSON.stringify({ pid: process.pid }));
+    const startTime = (ctx.getProcessStartTime ?? defaultGetProcessStartTime)(process.pid);
+    ctx.fs.writeExclusiveSync(lockFile, JSON.stringify({
+      pid: process.pid,
+      ...(startTime !== undefined ? { startTime } : {}),
+    }));
     // phase 584: 加 context=fresh col、与 L101 context=stale_retry 对齐
     // forensic 解析能区分 LOCK_ACQUIRED 的 2 路径 (首次 acquire vs stale 后重试)
     ctx.audit.write(PROCESS_MANAGER_AUDIT_EVENTS.LOCK_ACQUIRED, `daemon_dir=${daemonDir}`, `pid=${process.pid}`, `context=fresh`);
@@ -102,7 +106,11 @@ export function acquireLock(ctx: ProcessManagerContext, daemonDir: DaemonDir): v
     }
   }
   try {
-    ctx.fs.writeExclusiveSync(lockFile, JSON.stringify({ pid: process.pid }));
+    const retryStartTime = (ctx.getProcessStartTime ?? defaultGetProcessStartTime)(process.pid);
+    ctx.fs.writeExclusiveSync(lockFile, JSON.stringify({
+      pid: process.pid,
+      ...(retryStartTime !== undefined ? { startTime: retryStartTime } : {}),
+    }));
     ctx.audit.write(
       PROCESS_MANAGER_AUDIT_EVENTS.LOCK_ACQUIRED,
       `daemon_dir=${daemonDir}`,
