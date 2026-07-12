@@ -187,10 +187,13 @@ describe('ProcessExec exec', () => {
 
   // ── maxBuffer single-chunk truncation ───────────────────────────────────
 
-  it.concurrent('truncates a single chunk that exceeds maxBuffer', async () => {
+  it.concurrent('truncates output that exceeds maxBuffer', async () => {
     const maxBuffer = 100;
-    const chunkSize = 1000;
-    const script = `process.stdout.write('a'.repeat(${chunkSize}));`;
+    // Output a large first chunk (> stream highWaterMark) so it backpressures,
+    // then one more byte in a second chunk. maxBuffer is the allowed maximum;
+    // the extra byte strictly exceeds it.
+    const firstChunkSize = 64 * 1024;
+    const script = `process.stdout.write('a'.repeat(${firstChunkSize}), () => process.stdout.write('b'));`;
     try {
       await exec('node', ['-e', script], {
         cwd: workDir,

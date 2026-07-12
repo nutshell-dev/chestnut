@@ -103,14 +103,17 @@ class BufferCollector {
   private pushChunk(stream: Buffer[], chunk: Buffer): void {
     const remaining = this.maxBytes - this.totalSize;
     if (remaining <= 0) {
-      this.overflowed = true;
+      if (!this.overflowed) {
+        this.overflowed = true;
+        this.onOverflow();
+      }
       return;
     }
     const toPush = chunk.length <= remaining ? chunk : chunk.subarray(0, remaining);
     stream.push(toPush);
     this.combined.push(toPush);
     this.totalSize += toPush.length;
-    if (this.totalSize >= this.maxBytes && !this.overflowed) {
+    if (this.totalSize > this.maxBytes && !this.overflowed) {
       this.overflowed = true;
       this.onOverflow();
     }
@@ -133,9 +136,9 @@ export class KillEscalator {
   ) {}
 
   arm(): void {
-    if (this.timerId !== undefined) {
-      clearTimeout(this.timerId); // cancel previous timer first (idempotent)
-    }
+    // Once escalation is armed, the SIGKILL deadline is fixed.
+    // Subsequent arm() calls are no-ops — the earliest deadline must not be extended.
+    if (this.timerId !== undefined) return;
     this.timerId = setTimeout(() => {
       if (!this.isSettled()) {
         this.proc.kill('SIGKILL');
