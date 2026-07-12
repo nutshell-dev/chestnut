@@ -123,7 +123,8 @@ describe('acquireLock', () => {
 
     await fs.writeFile(absLockPath, JSON.stringify({ pid: FAKE_LIVE_PID, time: NaN }), 'utf-8');
 
-    await acquireLock({ fs: nodeFs, audit: mockAudit as any }, lockPath);
+    // Treat the legacy PID as dead so the schema-invalid path can isolate/unlink it.
+    await acquireLock({ fs: nodeFs, audit: mockAudit as any, l1IsAlive: () => false }, lockPath);
 
     expect(mockAudit.write).toHaveBeenCalledWith(
       'contract_lock_schema_invalid',
@@ -149,6 +150,48 @@ describe('acquireLock', () => {
     ).rejects.toThrow('EIO');
 
     // The lock must remain on disk because we could not determine staleness.
+    const lockExists = await pathExists(absLockPath);
+    expect(lockExists).toBe(true);
+  }, 2000);
+
+  it('does not clear lock when PID is alive even if timeout exceeded', async () => {
+    const lockPath = 'test/progress.lock';
+    const absLockPath = path.join(tmpDir, lockPath);
+    await fs.mkdir(path.dirname(absLockPath), { recursive: true });
+
+    const staleTime = Date.now() - 6 * 60 * 1000; // older than LOCK_STALE_TIMEOUT_MS (5 min)
+    await fs.writeFile(
+      absLockPath,
+      JSON.stringify({ pid: process.pid, time: staleTime, ownerToken: 'existing-token' }),
+      'utf-8',
+    );
+
+    await expect(
+      acquireLock({ fs: nodeFs, audit: mockAudit as any }, lockPath)
+    ).rejects.toThrow(/Failed to acquire lock after/);
+
+    // The lock must be preserved because the holder PID is still alive.
+    const lockExists = await pathExists(absLockPath);
+    expect(lockExists).toBe(true);
+  }, 2000);
+
+  it('throws on old-format lock when PID is alive', async () => {
+    const lockPath = 'test/progress.lock';
+    const absLockPath = path.join(tmpDir, lockPath);
+    await fs.mkdir(path.dirname(absLockPath), { recursive: true });
+
+    // Old schema { pid, time } without ownerToken held by the live current process.
+    await fs.writeFile(
+      absLockPath,
+      JSON.stringify({ pid: process.pid, time: Date.now() }),
+      'utf-8',
+    );
+
+    await expect(
+      acquireLock({ fs: nodeFs, audit: mockAudit as any }, lockPath)
+    ).rejects.toThrow(/Failed to acquire lock after/);
+
+    // Fail-closed: the old-format live lock must NOT be cleaned up.
     const lockExists = await pathExists(absLockPath);
     expect(lockExists).toBe(true);
   }, 2000);
@@ -181,6 +224,29 @@ describe('releaseLock', () => {
     expect(lockExists).toBe(true);
   });
 
+  it('does not delete a lock that was replaced before release', async () => {
+    const lockPath = 'test/progress.lock';
+    const absLockPath = path.join(tmpDir, lockPath);
+    await fs.mkdir(path.dirname(absLockPath), { recursive: true });
+
+    const tokenA = 'token-a';
+    const tokenB = 'token-b';
+    await fs.writeFile(absLockPath, JSON.stringify({ pid: process.pid, ownerToken: tokenA }), 'utf-8');
+
+    // Another owner replaces the lock before we release token A.
+    await fs.writeFile(absLockPath, JSON.stringify({ pid: process.pid, ownerToken: tokenB }), 'utf-8');
+
+    await releaseLock({ fs: nodeFs, audit: mockAudit as any }, lockPath, tokenA);
+
+    // Lock B must still exist.
+    const lockExists = await pathExists(absLockPath);
+    expect(lockExists).toBe(true);
+    const raw = await fs.readFile(absLockPath, 'utf-8');
+    const current = JSON.parse(raw);
+    expect(current.ownerToken).toBe(tokenB);
+    expect(current.pid).toBe(process.pid);
+  }, 2000);
+
   it('does not delete lock owned by different token (phase 954)', async () => {
     const lockPath = 'test/progress.lock';
     const absLockPath = path.join(tmpDir, lockPath);
@@ -189,9 +255,9 @@ describe('releaseLock', () => {
     // First acquire
     const token1 = await acquireLock({ fs: nodeFs, audit: mockAudit as any }, lockPath);
 
-    // Simulate stale lock (timed out) so the next acquire force-clears and re-acquires
+    // Simulate stale lock held by a dead PID so the next acquire force-clears and re-acquires
     const staleTime = Date.now() - 6 * 60 * 1000; // older than LOCK_STALE_TIMEOUT_MS (5 min)
-    const staleContent = JSON.stringify({ pid: process.pid, time: staleTime, ownerToken: token1 });
+    const staleContent = JSON.stringify({ pid: DEAD_PID, time: staleTime, ownerToken: token1 });
     await fs.writeFile(absLockPath, staleContent, 'utf-8');
 
     // Second acquire clears the stale lock and writes a new ownerToken

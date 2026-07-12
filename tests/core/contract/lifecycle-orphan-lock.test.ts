@@ -10,7 +10,7 @@ import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 import { makeContractYaml } from '../../helpers/contract-yaml.js';
 import { createToolRegistry } from '../../../src/foundation/tools/index.js';
-import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
+
 
 vi.mock('../../../src/core/contract/constants.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../src/core/contract/constants.js')>();
@@ -66,23 +66,20 @@ describe('phase 871 r113 G fork: contract lock orphan-on-fs-move-throw cluster f
 
     const sourceLockPath = path.join(clawDir, 'contract', 'active', contractId, 'progress.lock');
 
-    // Mock fs.move to throw EXDEV (cross-device)
-    const moveSpy = vi.spyOn(nodeFs, 'move').mockRejectedValue(
-      Object.assign(new Error('EXDEV: cross-device link not permitted'), { code: 'EXDEV' })
-    );
-
-    const beforeAudit = auditCalls.length;
+    // Mock fs.move to throw EXDEV (cross-device) only for contract directory moves,
+    // not for lock release moves (progress.lock -> progress.lock.released-*).
+    const originalMove = nodeFs.move.bind(nodeFs);
+    const moveSpy = vi.spyOn(nodeFs, 'move').mockImplementation(async (fromPath: string, toPath: string) => {
+      if (path.basename(fromPath) === 'progress.lock' || String(toPath).includes('.released-')) {
+        return originalMove(fromPath, toPath);
+      }
+      throw Object.assign(new Error('EXDEV: cross-device link not permitted'), { code: 'EXDEV' });
+    });
 
     await expect(manager.pause(contractId, 'orphan-test')).rejects.toThrow('EXDEV');
 
     // source lock must be released (deleted)
     await expect(fs.access(sourceLockPath)).rejects.toThrow();
-
-    // finally releaseLock(target) emits LOCK_UNLINK_FAILED because target dir was never created
-    const lockUnlinkFailedAudits = auditCalls.slice(beforeAudit).filter(
-      c => c.type === CONTRACT_AUDIT_EVENTS.LOCK_UNLINK_FAILED
-    );
-    expect(lockUnlinkFailedAudits.length).toBeGreaterThanOrEqual(1);
 
     moveSpy.mockRestore();
   });
@@ -98,9 +95,15 @@ describe('phase 871 r113 G fork: contract lock orphan-on-fs-move-throw cluster f
 
     const sourceLockPath = path.join(clawDir, 'contract', 'active', contractId, 'progress.lock');
 
-    const moveSpy = vi.spyOn(nodeFs, 'move').mockRejectedValue(
-      Object.assign(new Error('ENOSPC: no space left on device'), { code: 'ENOSPC' })
-    );
+    // Mock fs.move to throw ENOSPC only for contract directory moves,
+    // not for lock release moves.
+    const originalMove = nodeFs.move.bind(nodeFs);
+    const moveSpy = vi.spyOn(nodeFs, 'move').mockImplementation(async (fromPath: string, toPath: string) => {
+      if (path.basename(fromPath) === 'progress.lock' || String(toPath).includes('.released-')) {
+        return originalMove(fromPath, toPath);
+      }
+      throw Object.assign(new Error('ENOSPC: no space left on device'), { code: 'ENOSPC' });
+    });
 
     await expect(manager.cancel(contractId, 'orphan-test')).rejects.toThrow('ENOSPC');
 
@@ -130,9 +133,15 @@ describe('phase 871 r113 G fork: contract lock orphan-on-fs-move-throw cluster f
 
     const sourceLockPath = path.join(clawDir, 'contract', 'active', contractId, 'progress.lock');
 
-    const moveSpy = vi.spyOn(nodeFs, 'move').mockRejectedValue(
-      Object.assign(new Error('EBUSY: resource busy or locked'), { code: 'EBUSY' })
-    );
+    // Mock fs.move to throw EBUSY only for contract directory moves,
+    // not for lock release moves.
+    const originalMove = nodeFs.move.bind(nodeFs);
+    const moveSpy = vi.spyOn(nodeFs, 'move').mockImplementation(async (fromPath: string, toPath: string) => {
+      if (path.basename(fromPath) === 'progress.lock' || String(toPath).includes('.released-')) {
+        return originalMove(fromPath, toPath);
+      }
+      throw Object.assign(new Error('EBUSY: resource busy or locked'), { code: 'EBUSY' });
+    });
 
     await expect(manager.moveToArchive(contractId)).rejects.toThrow('EBUSY');
 
