@@ -1,8 +1,7 @@
 import * as path from 'path';
-import * as nodeFs from 'fs';
 import { formatErr } from "../../../foundation/node-utils/index.js";
 import * as yaml from 'js-yaml';
-import { isFileNotFound, type FileSystem } from '../../../foundation/fs/index.js';
+import { isFileNotFound, stat, type FileSystem } from '../../../foundation/fs/index.js';
 import type { AuditLog } from '../../../foundation/audit/index.js';
 import type { ProgressData } from '../manager.js';
 import type { ArchiveAllowedStatus, ActiveStatus } from '../types.js';
@@ -192,12 +191,12 @@ export interface ArchivedContractScanResult {
  *
  * phase 950: 返回 `{ entries, incomplete }`；incomplete 时 observer 不推进该 claw 水位。
  */
-export function scanArchivedContracts(
+export async function scanArchivedContracts(
   fs: FileSystem,
   clawDir: string,
   clawId: ClawId,
   audit: AuditLog,
-): ArchivedContractScanResult {
+): Promise<ArchivedContractScanResult> {
   const entries: ArchivedContractEntry[] = [];
   let incomplete = false;
   const archiveDir = path.join(clawDir, CONTRACT_ARCHIVE_DIR);
@@ -241,10 +240,11 @@ export function scanArchivedContracts(
         // (the time the contract entered its terminal state and was archived).
         if (archivedAt === 0) {
           try {
-            const stat = nodeFs.statSync(progressPath);
-            archivedAt = stat.mtime.getTime();
+            const statResult = await stat(progressPath);
+            archivedAt = statResult.mtime.getTime();
           } catch {
-            archivedAt = Date.now(); // last resort: use collection time
+            // silent: stat fallback — use collection time when progress.json mtime is unavailable
+            archivedAt = Date.now();
           }
         }
         const meta = readContractMeta(fs, path.join(archiveDir, d.name));
@@ -315,14 +315,14 @@ export interface CollectedContractEventsResult {
 /**
  * phase 37: thin wrapper over scanArchivedContracts + sinceTs filter (CLI / 既有 API 兼容)
  */
-export function collectContractEvents(
+export async function collectContractEvents(
   fs: FileSystem,
   clawDir: string,
   clawId: ClawId,
   sinceTs: number,
   audit: AuditLog,
-): CollectedContractEventsResult {
-  const { entries } = scanArchivedContracts(fs, clawDir, clawId, audit);
+): Promise<CollectedContractEventsResult> {
+  const { entries } = await scanArchivedContracts(fs, clawDir, clawId, audit);
   const filtered = entries.filter(e => e.archivedAt > sinceTs);
   return {
     events: filtered.map(e => e.body),

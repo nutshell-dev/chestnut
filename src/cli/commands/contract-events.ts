@@ -12,7 +12,7 @@ export async function contractEventsCommand(deps: { fsFactory: (baseDir: string)
   const clawDir = getClawDir(clawId);
   const fs = deps.fsFactory(clawDir);
   const audit = createSystemAudit(fs, clawDir);
-  const result = collectContractEvents(fs, clawDir, makeClawId(clawId), sinceTs, audit);
+  const result = await collectContractEvents(fs, clawDir, makeClawId(clawId), sinceTs, audit);
   if (result.events.length > 0) {
     console.log(result.events.join('\n'));
   }

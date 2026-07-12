@@ -361,7 +361,7 @@ export async function runContractObserver(options: ContractObserverOptions): Pro
         }
         throw err;
       }
-      const { entries, incomplete } = scanArchivedContracts(fs, location.clawDir, makeClawId(clawId), motionAudit);
+      const { entries, incomplete } = await scanArchivedContracts(fs, location.clawDir, makeClawId(clawId), motionAudit);
 
       // phase 950: 扫描不完整 → 跳过该 claw、不推进水位、写 audit。
       if (incomplete) {
