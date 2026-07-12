@@ -88,6 +88,7 @@ interface PendingLateSettleEntry {
   fullTaskId?: FullTaskId;   // phase 849: stored fullId for persistence paths
   scheduledAt: number;       // ms epoch, entry entered pending
   expectedTimeoutAt: number; // scheduledAt + subagentTimeoutMs
+  contractIds?: ContractId[]; // phase 924: contracts covered by this pending task
 }
 
 /**
@@ -305,7 +306,14 @@ async function discoverWeightedContracts(
       : undefined,
   });
 
-  for (const ref of archiveContracts) {
+  // phase 924: exclude contracts already covered by pending late-settle tasks
+  const pendingIds = new Set<ContractId>(
+    (state.pendingLateSettle ?? [])
+      .flatMap(e => e.contractIds ?? [])
+  );
+  const visibleRefs = archiveContracts.filter(ref => !pendingIds.has(ref.contractId));
+
+  for (const ref of visibleRefs) {
     const { clawId, contractId, contractDir } = ref;
     const { weight, hint } = await computeWeight(fs, contractId, contractDir, clawId, clawsSeen, audit, getContractProgress);
     contracts.push({ clawId, contractId, contractDir, weight, hint, archivedAt: ref.archivedAt });
@@ -582,6 +590,7 @@ export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
           ...(fullTaskId ? { fullTaskId } : {}),
           scheduledAt: now - subagentTimeoutMs,
           expectedTimeoutAt: now,
+          contractIds: weightedContracts.map(wc => wc.contractId),
         },
       ],
     };
@@ -601,7 +610,7 @@ export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
   }
 
   // 解析梦境输出
-  const { outputs } = extractDreamOutputs(log);
+  const { outputs, contractIds: completedIds } = extractDreamOutputs(log);
   if (outputs.length === 0) {
     opts.audit.write(MEMORY_AUDIT_EVENTS.RANDOM_DREAM_OUTPUT_MISSING, `reason=no_output`);
     return;
@@ -609,19 +618,23 @@ export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
 
   opts.audit.write(MEMORY_AUDIT_EVENTS.RANDOM_DREAM_JOB, `step=finished`, `output_count=${outputs.length}`);
 
-  // 更新高水位线（phase 280）
-  const maxArchivedAt = weightedContracts.reduce((max, wc) => {
-    const ts = wc.archivedAt ? new Date(wc.archivedAt).getTime() : 0;
-    return Math.max(max, ts);
-  }, state.lastProcessedRandomDreamAt);
+  // 更新高水位线（phase 280）—— phase 924: 只按实际有输出的契约推进
+  const completedSet = new Set(completedIds);
+  let maxProcessedAt = state.lastProcessedRandomDreamAt;
+  for (const wc of weightedContracts) {
+    if (completedSet.has(wc.contractId)) {
+      const ts = wc.archivedAt ? new Date(wc.archivedAt).getTime() : 0;
+      maxProcessedAt = Math.max(maxProcessedAt, ts);
+    }
+  }
   const updatedState: RandomDreamState = {
-    lastProcessedRandomDreamAt: maxArchivedAt,
+    lastProcessedRandomDreamAt: maxProcessedAt,
   };
-  saveRandomDreamState(opts.fs, updatedState, opts.audit);
 
   const dreamOutput = outputs.join('\n\n---\n\n');
   const dreamOutputPath = `${MEMORY_DREAM_OUTPUTS_DIR}/${taskIdForPaths}.txt`;
 
+  // phase 924: 先写 output，再推进水位，最后通知
   // NEW: disk snapshot（motion 域）
   await opts.motionFs.ensureDir(MEMORY_DREAM_OUTPUTS_DIR);
   await opts.motionFs.writeAtomic(dreamOutputPath, dreamOutput);
@@ -631,6 +644,8 @@ export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
     `path=${dreamOutputPath}`,
     `bytes=${dreamOutput.length}`,
   );
+
+  saveRandomDreamState(opts.fs, updatedState, opts.audit);
 
   // phase 92: 通过 caller-bound notifyMotion 投递到 motion inbox
   opts.notifyMotion({
