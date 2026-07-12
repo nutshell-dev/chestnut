@@ -136,7 +136,7 @@ export const memorySearchTool: Tool = {
           results.push(`[${entry.path}] (元数据匹配)`);
         }
       } catch (e) {
-        if ((e as NodeJS.ErrnoException).code === 'ENOENT') continue; // TOCTOU
+        if (isFileNotFound(e)) continue; // TOCTOU
         skippedCount++;
         continue;
       }

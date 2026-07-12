@@ -41,6 +41,7 @@ export function emitContractMultiDir(
   audit: AuditLog,
   opts: { contractId: ContractId; dirs: string[] },
 ): void {
+  if (!assertContractIdNonEmpty(audit, opts.contractId, 'emitContractMultiDir')) return;
   audit.write(
     CONTRACT_AUDIT_EVENTS.CONTRACT_MULTI_DIR,
     `contractId=${opts.contractId}`,

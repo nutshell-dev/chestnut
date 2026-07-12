@@ -281,7 +281,7 @@ export async function recoverMigratedToolTask(
         await new Promise<void>(resolve => setTimeout(resolve, 500));
       }
       if (isAlive(pid)) {
-        try { process.kill(pid, 'SIGKILL'); } catch { /* ESRCH */ }
+        try { process.kill(pid, 'SIGKILL'); } catch { /* silent: ESRCH - process already dead */ }
         await new Promise<void>(resolve => setTimeout(resolve, 1000));
         const stillAlive = isAlive(pid);
         if (stillAlive) {

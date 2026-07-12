@@ -1,4 +1,5 @@
 import * as path from 'path';
+import { formatErr } from '../../foundation/node-utils/index.js';
 import type { Tool, ExecContext } from '../../foundation/tools/index.js';
 import type { ToolResult } from '../../foundation/tool-protocol/index.js';
 import { readTool, lsTool, searchTool } from '../../foundation/file-tool/index.js';
@@ -102,7 +103,7 @@ export function createCrossClawReadTool(deps: CrossClawToolDeps): Tool {
           success: false,
           content: isNotFound
             ? `Error: claw "${clawParam}" not found.`
-            : `Error accessing claw "${clawParam}": ${err instanceof Error ? err.message : String(err)}`,
+            : `Error accessing claw "${clawParam}": ${formatErr(err)}`,
         };
       }
     },
@@ -159,7 +160,7 @@ export function createCrossClawLsTool(deps: CrossClawToolDeps): Tool {
           success: false,
           content: isNotFound
             ? `Error: claw "${clawParam}" not found.`
-            : `Error accessing claw "${clawParam}": ${err instanceof Error ? err.message : String(err)}`,
+            : `Error accessing claw "${clawParam}": ${formatErr(err)}`,
         };
       }
     },
@@ -282,7 +283,7 @@ export function createCrossClawSearchTool(deps: CrossClawToolDeps): Tool {
           success: false,
           content: isNotFound
             ? `Error: claw "${clawParam}" not found.`
-            : `Error accessing claw "${clawParam}": ${err instanceof Error ? err.message : String(err)}`,
+            : `Error accessing claw "${clawParam}": ${formatErr(err)}`,
         };
       }
     },

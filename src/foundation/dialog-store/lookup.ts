@@ -111,7 +111,7 @@ function lookupInCurrent(fs: FileSystem, dialogDir: string, toolUseId: string): 
     const content = findContentInMessages(session.messages ?? [], toolUseId);
     return content !== null ? { found: true, content } : { found: false, reason: 'not_found' };
   } catch (err) {
-    process.stderr.write(`[dialog-lookup] current.json parse failed: ${err}\n`);
+    process.stderr.write(`[dialog-lookup] current.json parse failed: ${err}\n`); // silent: fallback log, non-critical
     return { found: false, reason: 'parse_failed' };
   }
 }
@@ -132,7 +132,7 @@ function lookupInArchive(
   try {
     entries = fs.listSync(archiveDir);
   } catch (err) {
-    process.stderr.write(`[dialog-lookup] archive list failed: ${err}\n`);
+    process.stderr.write(`[dialog-lookup] archive list failed: ${err}\n`); // silent: fallback log, non-critical
     return { found: false, inaccessible: true };
   }
 

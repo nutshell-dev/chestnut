@@ -142,7 +142,7 @@ export async function archiveAndEmit(
   try {
     progress = await ctx.getProgress(contractId);
   } catch {
-    // best-effort: notify with available yaml context only
+    // silent: best-effort notify, getProgress I/O failure is non-critical here
   }
 
   const subtasksSummary = progress

@@ -398,7 +398,7 @@ export async function waitForTaskResult(
         try {
           return motionFs.readSync(logPath);
         } catch (e) {
-          if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
+          if (isFileNotFound(e)) {
             // TOCTOU: log was deleted between existsSync and readSync
             // fall through to .txt
           } else {
@@ -410,7 +410,7 @@ export async function waitForTaskResult(
       try {
         return motionFs.readSync(donePath);
       } catch (e) {
-        if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
+        if (isFileNotFound(e)) {
           // TOCTOU: done file vanished — re-enter poll loop
         } else {
           throw e; // real I/O error

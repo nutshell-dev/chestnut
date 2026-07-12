@@ -206,13 +206,13 @@ export async function releaseLock(ctx: LockContext, lockPath: string, ownerToken
     const validation = LockMetadataReleaseSchema.safeParse(rawParsed);
     if (!validation.success || validation.data.pid !== process.pid || validation.data.ownerToken !== ownerToken) {
       // Token/pid mismatch after rename — something is wrong. Restore the lock.
-      await ctx.fs.move(releasedPath, lockPath).catch(() => {});
+      await ctx.fs.move(releasedPath, lockPath).catch(() => { /* silent: best-effort cleanup */ });
       return;
     }
   } catch {
     // Can't read or parse the renamed file → ownership unverifiable. Restore the
     // lock rather than deleting data we cannot confirm belongs to us.
-    await ctx.fs.move(releasedPath, lockPath).catch(() => {});
+    await ctx.fs.move(releasedPath, lockPath).catch(() => { /* silent: best-effort cleanup */ });
     return;
   }
 

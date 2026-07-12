@@ -410,7 +410,7 @@ export class AsyncTaskSystem {
       } catch (e) {
         // Watcher start failed — clean up so the next call can retry
         if (this.pendingWatcherHandle) {
-          await this.pendingWatcherHandle.close().catch(() => {});
+          await this.pendingWatcherHandle.close().catch(() => { /* silent: best-effort shutdown cleanup */ });
           this.pendingWatcherHandle = undefined;
         }
         throw e;
@@ -1400,7 +1400,7 @@ export class AsyncTaskSystem {
           notified = true;
           await this.fs.writeAtomic(
             `${TASKS_QUEUES_RESULTS_DIR}/${fullId}/result.txt.notified`, ''
-          ).catch(() => {});
+          ).catch(() => { /* silent: best-effort cleanup */ });
         } catch (e) {
           emitMoveFailed(this.auditWriter, {
             fullTaskId: fullId,
