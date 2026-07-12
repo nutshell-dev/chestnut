@@ -215,12 +215,13 @@ describe('discovery schema check', () => {
       'utf-8',
     );
 
-    // Contract C: valid, started_at newest
+    // Contract C: schema invalid (subtasks=null) — phase 957: 多 valid active 会 fail-closed，
+    // 因此本测试只保留一个 valid contract，专注验证「跳过 corrupt 后返回唯一 valid」。
     const dirC = path.join(activeDir, 'contract-c');
     await fs.mkdir(dirC, { recursive: true });
     await fs.writeFile(
       path.join(dirC, 'progress.json'),
-      JSON.stringify({ schema_version: 1, contract_id: 'contract-c', status: 'running', subtasks: {}, started_at: '2024-06-01T00:00:00Z' }),
+      JSON.stringify({ schema_version: 1, status: 'running', subtasks: null }),
       'utf-8',
     );
 
@@ -231,22 +232,24 @@ describe('discovery schema check', () => {
     };
 
     // loadActiveContract 内部会调用 loadContract，我们需要 mock
-    ctx.loadContract.mockResolvedValue({ id: 'contract-c', status: 'running' });
+    ctx.loadContract.mockResolvedValue({ id: 'contract-b', status: 'running' });
 
     const result = await loadActiveContract(ctx, 'contract/active');
     expect(result).not.toBeNull();
-    expect(result!.id).toBe('contract-c');
+    expect(result!.id).toBe('contract-b');
 
-    // contract-a 被 schema_invalid 跳过
-    const schemaInvalidCall = mockAudit.write.mock.calls.find(
+    // contract-a / contract-c 被 schema_invalid 跳过
+    const schemaInvalidCalls = mockAudit.write.mock.calls.filter(
       (c: any[]) => c[0] === 'contract_progress_schema_invalid'
     );
-    expect(schemaInvalidCall).toBeDefined();
-    expect(schemaInvalidCall!).toEqual(expect.arrayContaining([
-      'contract_progress_schema_invalid',
-      expect.stringContaining('context=ContractSystem.loadActive'),
-      expect.stringContaining('contractId=contract-a'),
-      expect.stringContaining('path='),
+    expect(schemaInvalidCalls.length).toBeGreaterThanOrEqual(1);
+    expect(schemaInvalidCalls).toEqual(expect.arrayContaining([
+      expect.arrayContaining([
+        'contract_progress_schema_invalid',
+        expect.stringContaining('context=ContractSystem.loadActive'),
+        expect.stringContaining('contractId=contract-a'),
+        expect.stringContaining('path='),
+      ]),
     ]));
   });
 

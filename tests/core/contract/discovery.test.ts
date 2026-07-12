@@ -8,7 +8,8 @@ import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
-import { loadAllActiveContracts } from '../../../src/core/contract/discovery.js';
+import { loadAllActiveContracts, loadActiveContract } from '../../../src/core/contract/discovery.js';
+import { MultipleActiveContractsError } from '../../../src/core/contract/errors.js';
 import { makeAudit, waitForAuditEvent } from '../../helpers/audit.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
 
@@ -85,5 +86,25 @@ describe('Contract discovery (phase 956)', () => {
     expect(all.length).toBe(1);
     expect(all[0].name).toBe('c1');
     expect(events.some((e) => e[0] === CONTRACT_AUDIT_EVENTS.MULTI_ACTIVE_CONTRACTS)).toBe(false);
+  });
+
+  it('throws MultipleActiveContractsError when multiple valid active contracts exist', async () => {
+    const { audit, events, emitter } = makeAudit();
+    const ctx = {
+      fs: nodeFs,
+      audit,
+      loadContract: vi.fn(async (id: string) => ({ id } as any)),
+    };
+
+    await writeContractDir('c1', '2026-07-12T10:00:00.000Z');
+    await writeContractDir('c2', '2026-07-12T11:00:00.000Z');
+
+    await expect(loadActiveContract(ctx, 'contract/active')).rejects.toThrow(MultipleActiveContractsError);
+    await expect(loadActiveContract(ctx, 'contract/active')).rejects.toThrow(/Found 2 active contracts/);
+
+    await waitForAuditEvent(emitter, events, CONTRACT_AUDIT_EVENTS.MULTI_ACTIVE_CONTRACTS);
+    const event = events.find((e) => e[0] === CONTRACT_AUDIT_EVENTS.MULTI_ACTIVE_CONTRACTS);
+    expect(event).toBeDefined();
+    expect(event!.some((col) => typeof col === 'string' && col.startsWith('count=2'))).toBe(true);
   });
 });

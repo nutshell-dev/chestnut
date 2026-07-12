@@ -15,6 +15,7 @@ import {
   emitMultiActiveContracts,
 } from './audit-emit.js';
 import { ContractProgressPersistedSchema } from './schemas.js';
+import { MultipleActiveContractsError } from './errors.js';
 
 export interface DiscoveryContext {
   fs: FileSystem;
@@ -101,22 +102,22 @@ export async function loadActiveContract(
   const valid = await findContractsInDir(ctx, activeDir, 'ContractSystem.loadActive');
   if (valid.length === 0) return null;
   if (valid.length > 1) {
+    const contractIds = valid.map(e => makeContractId(e.name));
     emitMultiActiveContracts(ctx.audit, {
       context: 'ContractSystem.loadActive',
       count: valid.length,
-      contractIds: valid.map(e => makeContractId(e.name)),
+      contractIds,
     });
-  }
-  let latest = valid[0];
-  for (const entry of valid) {
-    if (entry.startedAt > latest.startedAt) {
-      latest = entry;
-    }
+    // phase 957: fail-closed — 多 active 不再静默返回 latest，强制 reconciler 介入。
+    throw new MultipleActiveContractsError(
+      `Found ${valid.length} active contracts: ${contractIds.join(', ')}. Run contract reconciler.`,
+      contractIds,
+    );
   }
   // phase 324 C2: 不再覆盖 status——loadContract 已从 progress 派生（含 cancelled /
   // crashed / archive_pending_recovery 等终态、boot race / mid-archive 残留时不再
   // 谎报 running，下游 auditor / dialog injector / status service 不被毒化。
-  return ctx.loadContract(makeContractId(latest.name));
+  return ctx.loadContract(makeContractId(valid[0].name));
 }
 
 export async function loadAllActiveContracts(

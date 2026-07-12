@@ -62,6 +62,8 @@ import { ContractCreatePolicyViolationError, deriveProgressStatus, stripDerivabl
 import type { LifecyclePersistedStatus } from './types.js';
 import {
   lockContract,
+  acquireLock,
+  releaseLock,
   type LockContext,
 } from './lock.js';
 import { loadActiveContract, loadPausedContract, type DiscoveryContext } from './discovery.js';
@@ -785,217 +787,224 @@ export class ContractSystem {
       }
     }
 
-    if (contractYaml.id !== undefined && contractYaml.id.trim() === '') {
-      throw new ContractValidationError('id', 'empty',
-        'contract id must not be empty (yaml: id: "<not blank>")');
-    }
-    const contractId = makeContractId(contractYaml.id || `${Date.now()}-${newShortUuid()}`);
-
-    // Phase 956: check uniqueness across ALL three directories (active + paused + archive)
-    for (const dir of [this.activeDir, this.pausedDir, this.archiveDir]) {
-      if (await this.fs.exists(`${dir}/${contractId}`)) {
-        throw new ContractValidationError('id', 'already_exists',
-          `contract id "${contractId}" already exists in ${path.basename(dir)}`,
-          { contractId });
-      }
-    }
-
-    if (!contractYaml.subtasks || contractYaml.subtasks.length === 0) {
-      throw new ContractValidationError('subtasks', 'missing',
-        'contract must have at least one subtask (yaml: subtasks: [- id: ..., description: ...])');
-    }
-
-    // phase 366 L4 (review-2026-06-13): schema 已 require script_file / prompt_file
-    // per type、生产 yaml parse 路径已 enforce。本 runtime check 保留作 defense in depth
-    // —— 直接 caller（测试 / 未来 SDK）若绕过 parse 传 raw object 也能在 manager.create
-    // 入口被拒。TS narrow 使分支编译期看是 never，用 as Record 绕回 runtime 真验。
-    for (const a of contractYaml.verification ?? []) {
-      const aRaw = a as unknown as Record<string, unknown>;
-      if (a.type === 'script' && typeof aRaw.script_file !== 'string') {
-        throw new ContractValidationError('verification', 'config_missing_field',
-          `verification config for subtask "${a.subtask_id}" has type='script' but missing 'script_file' (yaml: verification: [- subtask_id: "${a.subtask_id}", type: script, script_file: ./path.sh])`,
-          { subtaskId: a.subtask_id, configType: 'script', missingField: 'script_file' });
-      }
-      if (a.type === 'llm' && typeof aRaw.prompt_file !== 'string') {
-        throw new ContractValidationError('verification', 'config_missing_field',
-          `verification config for subtask "${a.subtask_id}" has type='llm' but missing 'prompt_file' (yaml: verification: [- subtask_id: "${a.subtask_id}", type: llm, prompt_file: ./prompt.md])`,
-          { subtaskId: a.subtask_id, configType: 'llm', missingField: 'prompt_file' });
-      }
-    }
-
-    const seenSubtaskIds = new Set<string>();
-    for (const a of contractYaml.verification ?? []) {
-      if (seenSubtaskIds.has(a.subtask_id)) {
-        throw new ContractValidationError('verification', 'duplicate',
-          `verification config: duplicate subtask_id "${a.subtask_id}" — each subtask can only have one verification entry (remove duplicate row in yaml)`,
-          { subtaskId: a.subtask_id });
-      }
-      seenSubtaskIds.add(a.subtask_id);
-    }
-
-    const existing = await this.loadActive();
-    if (existing && existing.id !== contractId) {
-      emitContractArchiveStarted(
-        this.audit,
-        { old: existing.id, new: contractId },
-      );
-      try {
-        // phase 188 Step A: archive precondition requires terminal status
-        // phase 282 Step A: status derive from subtasks → flip old contract subtasks
-        // to completed before archiving (create replaces old contract)
-        // phase 324 H6: 标 force_accepted + last_failed_feedback + audit 一条
-        // SUBTASK_FORCE_COMPLETED_REPLACED，让下游（evolution / retro）能区分
-        // 被替换的 abandoned subtask 与真实完成的 subtask。
-        const existingId = makeContractId(existing.id);
-        await this.withProgressLock(existingId, async () => {
-          const progress = await this.getProgress(existingId);
-          if (progress && !['completed', 'cancelled', 'crashed', 'archive_pending_recovery'].includes(progress.status)) {
-            for (const [subtaskId, st] of Object.entries(progress.subtasks)) {
-              if (st.status !== 'completed') {
-                st.status = 'completed';
-                st.force_accepted = true;   // phase 324 H6: 区分 abandoned vs 真完成
-                // 不设 last_failed_feedback：本路径无 verification failure；
-                // 替换原因走 SUBTASK_FORCE_COMPLETED_REPLACED audit、是 SoT。
-                if (!st.completed_at) st.completed_at = new Date().toISOString();
-                this.audit.write(
-                  CONTRACT_AUDIT_EVENTS.SUBTASK_FORCE_COMPLETED_REPLACED,
-                  `contractId=${existingId}`,
-                  `subtaskId=${subtaskId}`,
-                  `new_contract_id=${contractId}`,
-                  `reason=replaced_by_new_contract`,
-                );
-              }
-            }
-            await this.saveProgress(existingId, progress);
-          }
-        });
-        await this.moveToArchive(existingId);
-      } catch (err) {
-        emitContractMoveArchiveFailed(
-          this.audit,
-          {
-            old: existing.id,
-            new: contractId,
-            reason: formatErr(err),
-          },
-        );
-        // phase 1038 α-7: throw instead of swallow — state machine invariant「1 active contract per claw」
-        // 不可 create new contract while previous archive failed (导致 multi-active state)
-        throw new ToolError(
-          `Cannot create contract "${contractId}": previous active contract "${existing.id}" archive failed. ` +
-          `Manual intervention required: check archive/ dir + retry create. Original error: ${formatErr(err)}`,
-          { cause: err }
-        );
-      }
-    }
-
-    await this.fs.ensureDir(`${this.activeDir}/${contractId}`);
-
-    const content = yaml.dump({
-      schema_version: contractYaml.schema_version ?? CONTRACT_DEFAULTS.schema_version,
-      id: contractId,
-      title: contractYaml.title,
-      background: contractYaml.background,
-      goal: contractYaml.goal,
-      expectations: contractYaml.expectations,
-      subtasks: contractYaml.subtasks,
-      verification: contractYaml.verification ?? [],
-      verification_attempts: contractYaml.verification_attempts,
-      audit_interval: contractYaml.audit_interval,
-      auth_level: contractYaml.auth_level ?? CONTRACT_DEFAULTS.auth_level,
-    });
-    await this.fs.writeAtomic(`${this.activeDir}/${contractId}/contract.yaml`, content);
-
-    const progress: ProgressData = {
-      schema_version: PROGRESS_CURRENT_SCHEMA_VERSION,
-      contract_id: contractId,
-      status: 'running',
-      subtasks: Object.fromEntries(
-        contractYaml.subtasks.map((st: { id: string }) => [st.id, { status: 'todo' as SubtaskStatus }])
-      ),
-      started_at: new Date().toISOString(),
-      checkpoint: null,
-    };
+    // Phase 957: claw-level create lock — 串并「校验 → 查重 → 读 active → 归档旧 → 建新」全路径。
+    const clawLockPath = '.contract-create.lock';
+    const createLockOwnerToken = await acquireLock(this._lockCtx(), clawLockPath);
     try {
-      // phase 282 Step B: persist without derive fields (contract_id/status)
-      const persisted = { ...progress };
-      delete (persisted as Record<string, unknown>).contract_id;
-      delete (persisted as Record<string, unknown>).status;
-      await this.fs.writeAtomic(
-        `${this.activeDir}/${contractId}/progress.json`,
-        JSON.stringify(persisted, null, 2)
-      );
-    } catch (err) {
-      await this.fs.removeDir(`${this.activeDir}/${contractId}`).catch((deleteErr) => {
-        if ([TypeError, ReferenceError, SyntaxError, RangeError].some(T => deleteErr instanceof T)) {
-          emitContractUnexpectedAsyncThrow(
+      if (contractYaml.id !== undefined && contractYaml.id.trim() === '') {
+        throw new ContractValidationError('id', 'empty',
+          'contract id must not be empty (yaml: id: "<not blank>")');
+      }
+      const contractId = makeContractId(contractYaml.id || `${Date.now()}-${newShortUuid()}`);
+
+      // Phase 956: check uniqueness across ALL three directories (active + paused + archive)
+      for (const dir of [this.activeDir, this.pausedDir, this.archiveDir]) {
+        if (await this.fs.exists(`${dir}/${contractId}`)) {
+          throw new ContractValidationError('id', 'already_exists',
+            `contract id "${contractId}" already exists in ${path.basename(dir)}`,
+            { contractId });
+        }
+      }
+
+      if (!contractYaml.subtasks || contractYaml.subtasks.length === 0) {
+        throw new ContractValidationError('subtasks', 'missing',
+          'contract must have at least one subtask (yaml: subtasks: [- id: ..., description: ...])');
+      }
+
+      // phase 366 L4 (review-2026-06-13): schema 已 require script_file / prompt_file
+      // per type、生产 yaml parse 路径已 enforce。本 runtime check 保留作 defense in depth
+      // —— 直接 caller（测试 / 未来 SDK）若绕过 parse 传 raw object 也能在 manager.create
+      // 入口被拒。TS narrow 使分支编译期看是 never，用 as Record 绕回 runtime 真验。
+      for (const a of contractYaml.verification ?? []) {
+        const aRaw = a as unknown as Record<string, unknown>;
+        if (a.type === 'script' && typeof aRaw.script_file !== 'string') {
+          throw new ContractValidationError('verification', 'config_missing_field',
+            `verification config for subtask "${a.subtask_id}" has type='script' but missing 'script_file' (yaml: verification: [- subtask_id: "${a.subtask_id}", type: script, script_file: ./path.sh])`,
+            { subtaskId: a.subtask_id, configType: 'script', missingField: 'script_file' });
+        }
+        if (a.type === 'llm' && typeof aRaw.prompt_file !== 'string') {
+          throw new ContractValidationError('verification', 'config_missing_field',
+            `verification config for subtask "${a.subtask_id}" has type='llm' but missing 'prompt_file' (yaml: verification: [- subtask_id: "${a.subtask_id}", type: llm, prompt_file: ./prompt.md])`,
+            { subtaskId: a.subtask_id, configType: 'llm', missingField: 'prompt_file' });
+        }
+      }
+
+      const seenSubtaskIds = new Set<string>();
+      for (const a of contractYaml.verification ?? []) {
+        if (seenSubtaskIds.has(a.subtask_id)) {
+          throw new ContractValidationError('verification', 'duplicate',
+            `verification config: duplicate subtask_id "${a.subtask_id}" — each subtask can only have one verification entry (remove duplicate row in yaml)`,
+            { subtaskId: a.subtask_id });
+        }
+        seenSubtaskIds.add(a.subtask_id);
+      }
+
+      const existing = await this.loadActive();
+      if (existing && existing.id !== contractId) {
+        emitContractArchiveStarted(
+          this.audit,
+          { old: existing.id, new: contractId },
+        );
+        try {
+          // phase 188 Step A: archive precondition requires terminal status
+          // phase 282 Step A: status derive from subtasks → flip old contract subtasks
+          // to completed before archiving (create replaces old contract)
+          // phase 324 H6: 标 force_accepted + last_failed_feedback + audit 一条
+          // SUBTASK_FORCE_COMPLETED_REPLACED，让下游（evolution / retro）能区分
+          // 被替换的 abandoned subtask 与真实完成的 subtask。
+          const existingId = makeContractId(existing.id);
+          await this.withProgressLock(existingId, async () => {
+            const progress = await this.getProgress(existingId);
+            if (progress && !['completed', 'cancelled', 'crashed', 'archive_pending_recovery'].includes(progress.status)) {
+              for (const [subtaskId, st] of Object.entries(progress.subtasks)) {
+                if (st.status !== 'completed') {
+                  st.status = 'completed';
+                  st.force_accepted = true;   // phase 324 H6: 区分 abandoned vs 真完成
+                  // 不设 last_failed_feedback：本路径无 verification failure；
+                  // 替换原因走 SUBTASK_FORCE_COMPLETED_REPLACED audit、是 SoT。
+                  if (!st.completed_at) st.completed_at = new Date().toISOString();
+                  this.audit.write(
+                    CONTRACT_AUDIT_EVENTS.SUBTASK_FORCE_COMPLETED_REPLACED,
+                    `contractId=${existingId}`,
+                    `subtaskId=${subtaskId}`,
+                    `new_contract_id=${contractId}`,
+                    `reason=replaced_by_new_contract`,
+                  );
+                }
+              }
+              await this.saveProgress(existingId, progress);
+            }
+          });
+          await this.moveToArchive(existingId);
+        } catch (err) {
+          emitContractMoveArchiveFailed(
             this.audit,
             {
-              context: 'ContractSystem.rollbackCleanup',
-              contractId,
-              errorType: deleteErr instanceof Error ? deleteErr.constructor.name : typeof deleteErr,
-              error: formatErr(deleteErr),
-              stack: deleteErr instanceof Error ? deleteErr.stack ?? '' : '',
+              old: existing.id,
+              new: contractId,
+              reason: formatErr(err),
             },
           );
+          // phase 1038 α-7: throw instead of swallow — state machine invariant「1 active contract per claw」
+          // 不可 create new contract while previous archive failed (导致 multi-active state)
+          throw new ToolError(
+            `Cannot create contract "${contractId}": previous active contract "${existing.id}" archive failed. ` +
+            `Manual intervention required: check archive/ dir + retry create. Original error: ${formatErr(err)}`,
+            { cause: err }
+          );
         }
-        emitContractRollbackFailed(
-          this.audit,
-          {
-            contractId,
-            error: formatErr(deleteErr),
-          },
-        );
+      }
+
+      await this.fs.ensureDir(`${this.activeDir}/${contractId}`);
+
+      const content = yaml.dump({
+        schema_version: contractYaml.schema_version ?? CONTRACT_DEFAULTS.schema_version,
+        id: contractId,
+        title: contractYaml.title,
+        background: contractYaml.background,
+        goal: contractYaml.goal,
+        expectations: contractYaml.expectations,
+        subtasks: contractYaml.subtasks,
+        verification: contractYaml.verification ?? [],
+        verification_attempts: contractYaml.verification_attempts,
+        audit_interval: contractYaml.audit_interval,
+        auth_level: contractYaml.auth_level ?? CONTRACT_DEFAULTS.auth_level,
       });
-      // verify rollback succeeded
-      if (await this.fs.exists(`${this.activeDir}/${contractId}`)) {
-        // phase 337 M3 (review-2026-06-13): 写 .rollback-incomplete sentinel
-        // 到 dir 内、让 ops + 未来 boot reconcile 一眼可见这是 stale 失败 rollback、
-        // 不是合法 active contract。dir 仍在但已 marked。audit 单独 emit。
-        const sentinelPath = `${this.activeDir}/${contractId}/.rollback-incomplete`;
-        const sentinelBody = JSON.stringify({
-          contract_id: contractId,
-          failed_at: new Date().toISOString(),
-          original_error: formatErr(err),
-          message: 'Contract.create rollback failed — dir is stale; ops should remove manually',
-        }, null, 2);
-        await this.fs.writeAtomic(sentinelPath, sentinelBody).catch((sentinelErr) => {
+      await this.fs.writeAtomic(`${this.activeDir}/${contractId}/contract.yaml`, content);
+
+      const progress: ProgressData = {
+        schema_version: PROGRESS_CURRENT_SCHEMA_VERSION,
+        contract_id: contractId,
+        status: 'running',
+        subtasks: Object.fromEntries(
+          contractYaml.subtasks.map((st: { id: string }) => [st.id, { status: 'todo' as SubtaskStatus }])
+        ),
+        started_at: new Date().toISOString(),
+        checkpoint: null,
+      };
+      try {
+        // phase 282 Step B: persist without derive fields (contract_id/status)
+        const persisted = { ...progress };
+        delete (persisted as Record<string, unknown>).contract_id;
+        delete (persisted as Record<string, unknown>).status;
+        await this.fs.writeAtomic(
+          `${this.activeDir}/${contractId}/progress.json`,
+          JSON.stringify(persisted, null, 2)
+        );
+      } catch (err) {
+        await this.fs.removeDir(`${this.activeDir}/${contractId}`).catch((deleteErr) => {
+          if ([TypeError, ReferenceError, SyntaxError, RangeError].some(T => deleteErr instanceof T)) {
+            emitContractUnexpectedAsyncThrow(
+              this.audit,
+              {
+                context: 'ContractSystem.rollbackCleanup',
+                contractId,
+                errorType: deleteErr instanceof Error ? deleteErr.constructor.name : typeof deleteErr,
+                error: formatErr(deleteErr),
+                stack: deleteErr instanceof Error ? deleteErr.stack ?? '' : '',
+              },
+            );
+          }
           emitContractRollbackFailed(
             this.audit,
             {
               contractId,
-              error: `sentinel write failed: ${formatErr(sentinelErr)}`,
+              error: formatErr(deleteErr),
             },
           );
         });
-        emitContractRollbackIncomplete(
+        // verify rollback succeeded
+        if (await this.fs.exists(`${this.activeDir}/${contractId}`)) {
+          // phase 337 M3 (review-2026-06-13): 写 .rollback-incomplete sentinel
+          // 到 dir 内、让 ops + 未来 boot reconcile 一眼可见这是 stale 失败 rollback、
+          // 不是合法 active contract。dir 仍在但已 marked。audit 单独 emit。
+          const sentinelPath = `${this.activeDir}/${contractId}/.rollback-incomplete`;
+          const sentinelBody = JSON.stringify({
+            contract_id: contractId,
+            failed_at: new Date().toISOString(),
+            original_error: formatErr(err),
+            message: 'Contract.create rollback failed — dir is stale; ops should remove manually',
+          }, null, 2);
+          await this.fs.writeAtomic(sentinelPath, sentinelBody).catch((sentinelErr) => {
+            emitContractRollbackFailed(
+              this.audit,
+              {
+                contractId,
+                error: `sentinel write failed: ${formatErr(sentinelErr)}`,
+              },
+            );
+          });
+          emitContractRollbackIncomplete(
+            this.audit,
+            {
+              contractId,
+              remaining: `${this.activeDir}/${contractId}`,
+            },
+          );
+        }
+        throw err;
+      }
+
+      try {
+        this.onNotify?.('contract_created', { contractId, title: contractYaml.title, subtaskCount: contractYaml.subtasks.length });
+      } catch (err) {
+        emitContractNotifyFailed(
           this.audit,
-          {
-            contractId,
-            remaining: `${this.activeDir}/${contractId}`,
-          },
+          { error: formatErr(err) },
         );
       }
-      throw err;
-    }
-
-    try {
-      this.onNotify?.('contract_created', { contractId, title: contractYaml.title, subtaskCount: contractYaml.subtasks.length });
-    } catch (err) {
-      emitContractNotifyFailed(
+      emitContractCreated(
         this.audit,
-        { error: formatErr(err) },
+        {
+          contractId,
+          subtasks: contractYaml.subtasks.length,
+          title: contractYaml.title,
+        },
       );
+      return contractId;
+    } finally {
+      await releaseLock(this._lockCtx(), clawLockPath, createLockOwnerToken);
     }
-    emitContractCreated(
-      this.audit,
-      {
-        contractId,
-        subtasks: contractYaml.subtasks.length,
-        title: contractYaml.title,
-      },
-    );
-    return contractId;
   }
 
   /**

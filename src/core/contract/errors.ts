@@ -4,6 +4,22 @@
  */
 
 /**
+ * phase 957: 检测到多个 active contract 时 fail-closed。
+ *
+ * 触发：discovery.loadActiveContract 发现 active dir 下存在 >1 个有效 contract。
+ * 行为：emit audit 后抛出，强制 caller 先运行 reconciler 解决冲突，不再静默返回 latest。
+ */
+export class MultipleActiveContractsError extends Error {
+  readonly name = 'MultipleActiveContractsError';
+  readonly contractIds: string[];
+
+  constructor(message: string, contractIds: string[]) {
+    super(message);
+    this.contractIds = contractIds;
+  }
+}
+
+/**
  * phase 67: lockContract TOCTOU race retry budget 用尽 typed Error
  *
  * 触发：高并发场景下、lockContract 自带 retry budget（LOCK_CONTRACT_MAX_RETRY 次）用尽。

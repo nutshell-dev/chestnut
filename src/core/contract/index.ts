@@ -15,7 +15,7 @@ export type { ContractNotifyDeps, ContractNotifyCallback } from './contract-noti
 export { ContractAuditor, type ContractAuditorDeps, type AuditorVerdict, type AuditorDrift, type AuditRequest, type AuditOutcome, parseVerdict } from './contract-auditor.js';
 
 // phase 465: errors barrel re-export
-export { ContractValidationError, LockContentionExhaustedError } from './errors.js';
+export { ContractValidationError, LockContentionExhaustedError, MultipleActiveContractsError } from './errors.js';
 // phase 482: audit-events barrel re-export (CONTRACT_AUDIT_EVENTS for evolution-system; ID/file routing constants for assembly remain deep-imported per allowlist)
 export { CONTRACT_AUDIT_EVENTS } from './audit-events.js';
 // phase 484: verification-types barrel re-export

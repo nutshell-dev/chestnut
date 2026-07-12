@@ -16,6 +16,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { randomUUID } from 'crypto';
 import { ContractSystem } from '../../src/core/contract/manager.js';
+import { ContractValidationError } from '../../src/core/contract/errors.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../src/core/contract/audit-events.js';
 import { createToolRegistry } from '../../src/foundation/tools/index.js';
@@ -226,5 +227,72 @@ describe('ContractSystem — 并发幂等与锁', () => {
       expect.stringContaining('timeout='),
       'reason=stale_and_dead',
     );
+  });
+
+  // =========================================================================
+  // Phase 957: claw-level create lock
+  // =========================================================================
+
+  it('并发 create 同 ID 只有一者成功，另一者报 already_exists', async () => {
+    const yaml = makeContractYaml({
+      id: 'same-id',
+      subtasks: [{ id: 't1', description: 'T1' }],
+      verification: [],
+    });
+
+    const [r1, r2] = await Promise.allSettled([
+      manager.create(yaml),
+      manager.create(yaml),
+    ]);
+
+    const successes = [r1, r2].filter(r => r.status === 'fulfilled').length;
+    const failures = [r1, r2].filter(r => r.status === 'rejected').length;
+
+    expect(successes).toBe(1);
+    expect(failures).toBe(1);
+
+    const rejected = [r1, r2].find(r => r.status === 'rejected') as PromiseRejectedResult;
+    expect(rejected.reason).toBeInstanceOf(ContractValidationError);
+    expect(rejected.reason.kind).toBe('already_exists');
+
+    // active dir 下只有一份
+    const activeDir = path.join(clawDir, 'contract', 'active');
+    const entries = await fs.readdir(activeDir, { withFileTypes: true });
+    const dirs = entries.filter(e => e.isDirectory()).map(e => e.name);
+    expect(dirs).toEqual(['same-id']);
+  });
+
+  it('并发 create 不同 ID 最终只保留一个 active', async () => {
+    const yaml1 = makeContractYaml({
+      id: 'id-1',
+      subtasks: [{ id: 't1', description: 'T1' }],
+      verification: [],
+    });
+    const yaml2 = makeContractYaml({
+      id: 'id-2',
+      subtasks: [{ id: 't1', description: 'T1' }],
+      verification: [],
+    });
+
+    const [r1, r2] = await Promise.allSettled([
+      manager.create(yaml1),
+      manager.create(yaml2),
+    ]);
+
+    // 两者都应成功（后获取锁者会 archive 前者）
+    expect(r1.status).toBe('fulfilled');
+    expect(r2.status).toBe('fulfilled');
+
+    // active dir 下只有一份
+    const activeDir = path.join(clawDir, 'contract', 'active');
+    const entries = await fs.readdir(activeDir, { withFileTypes: true });
+    const dirs = entries.filter(e => e.isDirectory()).map(e => e.name);
+    expect(dirs.length).toBe(1);
+
+    // archive dir 下有一份（被替换的旧 contract）
+    const archiveDir = path.join(clawDir, 'contract', 'archive');
+    const archiveEntries = await fs.readdir(archiveDir, { withFileTypes: true });
+    const archiveDirs = archiveEntries.filter(e => e.isDirectory()).map(e => e.name);
+    expect(archiveDirs.length).toBe(1);
   });
 });
