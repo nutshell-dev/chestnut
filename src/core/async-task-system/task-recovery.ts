@@ -127,7 +127,7 @@ async function _recoverToolTask(
   }
 
   if (task.mode === 'migrated' && task.migratedPid !== undefined) {
-    return _recoverMigratedToolTask(deps, filePath, task);
+    return recoverMigratedToolTask(deps, filePath, task);
   }
 
   // No terminalState: fresh task — re-execute only if idempotent
@@ -230,7 +230,7 @@ async function _recoverToolTask(
   return 0;
 }
 
-async function _recoverMigratedToolTask(
+export async function recoverMigratedToolTask(
   deps: RecoverTasksDeps, filePath: string, task: ToolTask,
 ): Promise<number> {
   const { fs, auditWriter } = deps;
@@ -254,7 +254,7 @@ async function _recoverMigratedToolTask(
   }
 
   if (processAlive) {
-    const deadlineMs = Date.parse(task.createdAt) + ASYNC_EXEC_MIGRATED_HARD_TIMEOUT_MS;
+    const deadlineMs = task.migratedDeadlineMs ?? (Date.parse(task.createdAt) + ASYNC_EXEC_MIGRATED_HARD_TIMEOUT_MS);
     if (Date.now() >= deadlineMs) {
       // Hard timeout exceeded — kill the process, wait for exit, then proceed.
       emitRecoveryFailed(auditWriter, {
@@ -283,6 +283,31 @@ async function _recoverMigratedToolTask(
       if (isAlive(pid)) {
         try { process.kill(pid, 'SIGKILL'); } catch { /* ESRCH */ }
         await new Promise<void>(resolve => setTimeout(resolve, 1000));
+        const stillAlive = isAlive(pid);
+        if (stillAlive) {
+          // Phase 906: verify SIGKILL actually terminated the process.
+          if (task.migratedStartTime !== undefined) {
+            const actualStartTime = getProcessStartTime(pid);
+            if (actualStartTime !== undefined && actualStartTime !== task.migratedStartTime) {
+              // PID reused — original process died, safe to proceed.
+              processAlive = false;
+            } else {
+              emitRecoveryFailed(auditWriter, {
+                taskId: task.id,
+                context: 'migrated_sigkill_ineffective',
+                error: `Process ${pid} still alive after SIGKILL`,
+              });
+              return 0; // keep in running, retry next recovery cycle
+            }
+          } else {
+            emitRecoveryFailed(auditWriter, {
+              taskId: task.id,
+              context: 'migrated_sigkill_unverified',
+              error: `Process ${pid} still alive after SIGKILL, no startTime to verify`,
+            });
+            return 0;
+          }
+        }
       }
       processAlive = false; // fall through to result check
     } else {

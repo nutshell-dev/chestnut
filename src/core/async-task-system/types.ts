@@ -197,6 +197,8 @@ export interface ToolTask {
    * Format matches ProcessStartTime (ps lstart string) for PID reuse defense.
    */
   migratedStartTime?: string;
+  /** Phase 906: absolute deadline (ms) for migrated process hard timeout. */
+  migratedDeadlineMs?: number;
   /** Phase 873/874: persisted terminal intent for recovery routing. */
   terminalState?: 'done' | 'failed';
 }

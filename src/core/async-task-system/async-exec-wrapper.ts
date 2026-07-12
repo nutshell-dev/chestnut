@@ -55,6 +55,7 @@ function buildMigratedToolTask(
   command: string,
   ctx: ExecContext,
   handle: ExecHandle,
+  migratedHardTimeoutMs: number,
 ): ToolTask {
   const pid = handle.child.pid ?? -1;
   return {
@@ -73,6 +74,7 @@ function buildMigratedToolTask(
     mode: 'migrated',
     migratedPid: pid,
     migratedStartTime: pid > 0 ? getProcessStartTime(pid) : undefined,
+    migratedDeadlineMs: Date.now() + migratedHardTimeoutMs,
   };
 }
 
@@ -290,7 +292,7 @@ export function createAsyncExecWrapper(
         shortId = shortIdIndex.deriveShortId(fullId);
       } while (shortIdIndex.has(shortId));
 
-      const task = buildMigratedToolTask(fullId, shortId, command, ctx, handle);
+      const task = buildMigratedToolTask(fullId, shortId, command, ctx, handle, migratedHardTimeoutMs);
 
       try {
         await persistRunningTask(fs, task);

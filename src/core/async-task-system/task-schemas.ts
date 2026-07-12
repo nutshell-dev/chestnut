@@ -103,6 +103,8 @@ export const ToolTaskSchema = z.object({
   mode: z.enum(['fresh', 'migrated']).optional(),
   migratedPid: z.number().optional(),
   migratedStartTime: z.string().optional(),
+  // Phase 906: absolute deadline (ms) for migrated process hard timeout
+  migratedDeadlineMs: z.number().optional(),
   // Phase 874: persisted terminal intent for recovery routing
   terminalState: z.enum(['done', 'failed']).optional(),
 });

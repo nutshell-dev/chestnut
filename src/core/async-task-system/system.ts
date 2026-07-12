@@ -31,11 +31,11 @@ import type { StreamLog } from '../../foundation/stream/index.js';
 import type { DialogStore } from '../../foundation/dialog-store/index.js';
 import type { Tool } from '../../foundation/tools/index.js';
 import { sendFallbackError } from './result-delivery.js';
-import { recoverTasks } from './task-recovery.js';
+import { recoverTasks, recoverMigratedToolTask } from './task-recovery.js';
 import { validateTaskShape, backupCorruptTask } from './task-corrupt-helpers.js';
 import { executeSubAgentTask } from './subagent-executor.js';
 import { executeToolTask } from './tool-executor.js';
-import { createAsyncExecWrapper, type AsyncExecWrapperParams } from './async-exec-wrapper.js';
+import { createAsyncExecWrapper, type AsyncExecWrapperParams, ASYNC_EXEC_MIGRATED_HARD_TIMEOUT_MS } from './async-exec-wrapper.js';
 import { createPendingWatcher, type PendingWatcherHandle } from './pending-watcher.js';
 import { TASK_AUDIT_EVENTS } from './audit-events.js';
 import { STREAM_TASK_EVENTS } from './stream-events.js';
@@ -899,6 +899,45 @@ export class AsyncTaskSystem {
   }
 
   /**
+   * Phase 906: dispatcher runtime convergence for migrated exec tasks.
+   * Scan the running directory each cycle and re-run recovery for any migrated
+   * tool task whose hard deadline has passed. This avoids relying on the next
+   * startup recovery scan to converge.
+   */
+  private async _checkMigratedDeadlines(): Promise<void> {
+    let entries: Awaited<ReturnType<FileSystem['list']>>;
+    try {
+      entries = await this.fs.list(TASKS_QUEUES_RUNNING_DIR, { includeDirs: false });
+    } catch (err) {
+      if (isFileNotFound(err)) return;
+      this.auditWriter?.write(
+        TASK_AUDIT_EVENTS.INVARIANT_VIOLATION,
+        `site=async-task-system/system.ts:_checkMigratedDeadlines`,
+        `context=list_running_failed`,
+        `error=${formatErr(err)}`,
+      );
+      return;
+    }
+
+    for (const entry of entries) {
+      if (!entry.name.endsWith('.json')) continue;
+      const runningPath = entry.path;
+      const task = await this._loadTaskFromFile(runningPath);
+      if (!task) continue;
+      if (task.kind !== 'tool' || task.mode !== 'migrated') continue;
+
+      const deadlineMs = task.migratedDeadlineMs ?? (Date.parse(task.createdAt) + ASYNC_EXEC_MIGRATED_HARD_TIMEOUT_MS);
+      if (!deadlineMs || Date.now() < deadlineMs) continue;
+
+      await recoverMigratedToolTask(
+        { fs: this.fs, auditWriter: this.auditWriter },
+        runningPath,
+        task as ToolTask,
+      );
+    }
+  }
+
+  /**
    * Core dispatch loop: derive pending tasks from fs, then start them until
    * concurrency is saturated. Runs persistently and atomically sleeps when no
    * work is available, avoiding the missed-wakeup race of the previous boolean
@@ -907,6 +946,7 @@ export class AsyncTaskSystem {
   private async _runDispatchLoop(): Promise<void> {
     while (this._dispatchRunning && !this._shuttingDown) {
       try {
+        await this._checkMigratedDeadlines();
         while (this.executingTasks.size < this.maxConcurrent && !this._shuttingDown) {
           const pendingTasks = await this._getPendingTasks();
           const task = pendingTasks.find(t => !this.executingTasks.has(t.id as FullTaskId));
@@ -1351,6 +1391,31 @@ export class AsyncTaskSystem {
         return;
       }
 
+      // Phase 906: notify BEFORE committing terminal state. If notification fails,
+      // stay in pending so the dispatcher/recovery can retry.
+      let notified = false;
+      if (task) {
+        try {
+          await sendFallbackError(this.fs, this.auditWriter, task, 'Task cancelled before execution');
+          notified = true;
+          await this.fs.writeAtomic(
+            `${TASKS_QUEUES_RESULTS_DIR}/${fullId}/result.txt.notified`, ''
+          ).catch(() => {});
+        } catch (e) {
+          emitMoveFailed(this.auditWriter, {
+            fullTaskId: fullId,
+            shortTaskId: shortId,
+            context: 'cancel_notify_failed',
+            error: formatErr(e),
+          });
+        }
+      }
+
+      if (!notified && task) {
+        // Notification failed — keep in pending and retry next cancel/dispatch cycle.
+        return;
+      }
+
       // 文件：pending → failed
       let moveFailed = false;
       let raceLost = false;
@@ -1386,18 +1451,6 @@ export class AsyncTaskSystem {
         }
         // Propagate failure so caller knows the cancel race was lost.
         throw new Error(`Cancel race lost: task ${shortId} already dispatched to running`);
-      }
-
-      // Phase 905: 取消 pending 任务时，tool / subagent 都需要通知 parent，避免 parent 永久等待。
-      if (task) {
-        await sendFallbackError(this.fs, this.auditWriter, task, 'Task cancelled before execution').catch((e) => {
-          emitMoveFailed(this.auditWriter, {
-            fullTaskId: fullId,
-            shortTaskId: shortId,
-            context: 'cancel_sendFallbackError',
-            error: formatErr(e),
-          });
-        });
       }
 
       emitCancelled(this.auditWriter, { fullTaskId: fullId, shortTaskId: shortId, from: 'pending' });
