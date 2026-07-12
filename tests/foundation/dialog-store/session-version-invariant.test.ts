@@ -83,4 +83,47 @@ describe('phase 1019 r124 E fork: DialogStore version invariant', () => {
       ]),
     );
   });
+
+  it('rejects future version without toolsForLLM (does not misidentify as v1)', async () => {
+    const badSession = {
+      version: 999,
+      clawId,
+      createdAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-01-01T00:00:00Z',
+      systemPrompt: '',
+      messages: [],
+      // toolsForLLM intentionally absent — this MUST NOT be treated as v1→v2 migration
+    };
+    await fs.writeFile(path.join(tempDir, filename), JSON.stringify(badSession), 'utf-8');
+
+    const result = await store.load();
+
+    // unknown version takes precedence over v1 migration → cold start
+    expect(result.source).toBe('empty');
+    expect(result.session.createdAt).not.toBe('2026-01-01T00:00:00Z');
+    expect(result.session.version).toBe(2);
+
+    const unknownEvents = audit.events.filter(e => e[0] === DIALOG_AUDIT_EVENTS.VERSION_UNKNOWN);
+    expect(unknownEvents.length).toBeGreaterThanOrEqual(1);
+    expect(unknownEvents[0]).toEqual(
+      expect.arrayContaining([
+        DIALOG_AUDIT_EVENTS.VERSION_UNKNOWN,
+        expect.stringContaining('actual=999'),
+        expect.stringContaining('current=2'),
+      ]),
+    );
+  });
+
+  it('preserves trace_id across save and load', async () => {
+    await store.save({
+      systemPrompt: '',
+      messages: [],
+      toolsForLLM: [],
+      trace_id: 'trace-abc-123',
+    });
+
+    const result = await store.load();
+
+    expect(result.session.trace_id).toBe('trace-abc-123');
+  });
 });
