@@ -161,4 +161,20 @@ describe('InboxReader.findByExtraMeta', () => {
     const fragileReader = new InboxReader(pendingDir, doneDir, failedDir, errFs, audit, inflightDir);
     await expect(fragileReader.findByExtraMeta('hash', 'abc')).rejects.toThrow();
   });
+
+  it('propagates readMeta permission_denied instead of returning null (phase 932)', async () => {
+    await writer.write({
+      id: 'm-perm', type: 'test', from: 'sys', to: 'motion',
+      content: 'x', priority: 'normal', timestamp: new Date().toISOString(),
+    }, { hash: 'perm-hash' });
+
+    const { InboxWriter } = await import('../../../src/foundation/messaging/inbox-writer.js');
+    const originalReadMeta = InboxWriter.readMeta;
+    InboxWriter.readMeta = () => ({ ok: false, error: { kind: 'permission_denied', cause: new Error('EACCES') } } as any);
+    try {
+      await expect(reader.findByExtraMeta('hash', 'perm-hash')).rejects.toThrow(/Dedup scan failed/);
+    } finally {
+      InboxWriter.readMeta = originalReadMeta;
+    }
+  });
 });

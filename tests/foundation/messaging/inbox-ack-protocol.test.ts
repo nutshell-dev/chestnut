@@ -118,7 +118,11 @@ describe('InboxReader ack/nack/reconcile protocol (phase 1285)', () => {
     const dst = path.join(testDir, 'inbox', 'inflight');
     const files = await fs.readdir(src);
     for (const f of files) {
-      await fs.rename(path.join(src, f), path.join(dst, `99999_0_${f}`));
+      const inflightPath = path.join(dst, `99999_0_${f}`);
+      await fs.rename(path.join(src, f), inflightPath);
+      // Phase 932: startTime=0 uses mtime lease; backdate to exceed STALE_THRESHOLD_MS.
+      const oldMtime = new Date(Date.now() - 6 * 60 * 1000);
+      await fs.utimes(inflightPath, oldMtime, oldMtime);
     }
 
     // create new reader → init() should reconcile

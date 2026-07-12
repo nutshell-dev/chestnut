@@ -21,7 +21,6 @@ import { isFileNotFound } from '../fs/index.js';
 import type { InboxMessage, InboxHandle } from '../messaging/types.js';
 import { PRIORITY_VALUES, type Priority } from '../messaging/types.js';
 import { isAlive, getProcessStartTime, makeProcessStartTime } from '../process-exec/index.js';
-import type { ProcessStartTime } from '../process-exec/index.js';
 import { decodeInbox } from './codec-inbox.js';
 import type { AuditLog } from '../audit/index.js';
 import {
@@ -203,11 +202,25 @@ export class InboxReader {
         const pid = parseInt(match[1], 10);
         const startTimeHex = match[2];
         originalName = match[3];
-        const startTime: ProcessStartTime | undefined = startTimeHex === '0'
-          ? undefined
-          : makeProcessStartTime(Buffer.from(startTimeHex, 'hex').toString('utf8'));
-        if (!isAlive(pid, startTime)) {
-          shouldReclaim = true;
+        if (startTimeHex !== '0') {
+          const startTime = makeProcessStartTime(Buffer.from(startTimeHex, 'hex').toString('utf8'));
+          if (!isAlive(pid, startTime)) {
+            shouldReclaim = true;
+          }
+        } else {
+          // No startTime recorded (legacy claim or fallback) — use mtime lease.
+          // If the inflight file is older than STALE_THRESHOLD_MS, assume the claimant is dead.
+          const sourcePath = path.join(this.inflightDir, entry.name);
+          try {
+            const stat = await this.fs.stat(sourcePath);
+            if (Date.now() - stat.mtime.getTime() >= STALE_THRESHOLD_MS) {
+              shouldReclaim = true;
+            }
+          } catch (statErr) {
+            if (!isFileNotFound(statErr)) throw statErr;
+            // File vanished — reclaim is safe (nothing to move, will fail silently below).
+            shouldReclaim = true;
+          }
         }
       }
 
@@ -678,7 +691,12 @@ export class InboxReader {
       }
 
       const result = InboxWriter.readMeta(this.fs, filePath);
-      if (!result.ok) continue;
+      if (!result.ok) {
+        // TOCTOU: file vanished between list and read → skip
+        if (result.error.kind === 'not_found') continue;
+        // Real error: permission, I/O, parse → propagate. Can't give a definitive "no duplicate".
+        throw new Error(`Dedup scan failed reading ${filePath}: ${result.error.kind}`);
+      }
       const meta = result.value;
       if (meta[key] === value) return entry.name;
     }
