@@ -97,8 +97,7 @@ export function createCrossClawReadTool(deps: CrossClawToolDeps): Tool {
         // Only ClawIdResolveError means the claw genuinely doesn't exist.
         // All other errors (EACCES, fsFactory failure, tool execution error)
         // must preserve their actual cause so the agent can reason about the failure.
-        const isNotFound = err instanceof ClawIdResolveError
-          || (err instanceof Error && err.message.includes('not found'));
+        const isNotFound = err instanceof ClawIdResolveError;
         return {
           success: false,
           content: isNotFound
@@ -155,8 +154,7 @@ export function createCrossClawLsTool(deps: CrossClawToolDeps): Tool {
           `clawId=${clawParam}`,
           `reason=${String(err)}`,
         );
-        const isNotFound = err instanceof ClawIdResolveError
-          || (err instanceof Error && err.message.includes('not found'));
+        const isNotFound = err instanceof ClawIdResolveError;
         return {
           success: false,
           content: isNotFound
@@ -279,8 +277,7 @@ export function createCrossClawSearchTool(deps: CrossClawToolDeps): Tool {
           `clawId=${clawParam}`,
           `reason=${String(err)}`,
         );
-        const isNotFound = err instanceof ClawIdResolveError
-          || (err instanceof Error && err.message.includes('not found'));
+        const isNotFound = err instanceof ClawIdResolveError;
         return {
           success: false,
           content: isNotFound

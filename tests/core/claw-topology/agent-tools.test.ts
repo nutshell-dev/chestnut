@@ -164,6 +164,29 @@ describe('createCrossClawReadTool', () => {
     const ctx = makeBaseCtx();
     await expect(tool.execute({ path: 'test.txt', claw: 'claw1' }, ctx)).rejects.toThrow('Execution aborted');
   });
+
+  it('does not map file not found to claw not found', async () => {
+    const failingTopology = {
+      ...mockTopology,
+      resolve: vi.fn(() => {
+        throw new Error('file not found: x.md');
+      }),
+    };
+    const auditSpy = vi.fn();
+    const tool = createCrossClawReadTool({ topology: failingTopology, allowed: true });
+    const ctx = makeBaseCtx({
+      auditWriter: { write: auditSpy, preview: vi.fn(), message: vi.fn(), summary: vi.fn(), __brand: 'AuditLog' } as unknown as AuditLog,
+    });
+    const result = await tool.execute({ path: 'x.md', claw: 'claw1' }, ctx);
+    expect(result.success).toBe(false);
+    expect(result.content).not.toContain('Error: claw "claw1" not found.');
+    expect(result.content).toContain('Error accessing claw');
+    expect(auditSpy).toHaveBeenCalledWith(
+      CLAW_TOPOLOGY_AUDIT_EVENTS.CROSS_CLAW_RESOLVE_FAILED,
+      expect.any(String),
+      expect.any(String),
+    );
+  });
 });
 
 describe('createCrossClawLsTool', () => {
