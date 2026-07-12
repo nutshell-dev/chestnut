@@ -208,18 +208,18 @@ describe('phase 946 contract-observer watermark + async notify', () => {
     // bootstrap = no emit
     expect(notifyClaw).not.toHaveBeenCalled();
 
-    // verify state migrated to v3 + bootstrapDone + lastArchivedAt 更新
+    // verify state migrated to v4 + bootstrapDone + per-claw 水位更新
     const stateContent = writes.get('/test/root/motion/status/contract-observer-state.json');
     expect(stateContent).toBeDefined();
     const newState = JSON.parse(stateContent!) as {
       version: number;
       lastCheckTs: number;
-      lastArchivedAt: number;
+      clawWatermarks: Record<string, number>;
       bootstrapDone: boolean;
     };
-    expect(newState.version).toBe(3);
+    expect(newState.version).toBe(4);
     expect(newState.bootstrapDone).toBe(true);
-    expect(newState.lastArchivedAt).toBe(pastMs);
+    expect(newState.clawWatermarks['worker-a']).toBe(pastMs);
 
     // bootstrap done trace audit
     const bootstrapAudits = events.filter(e => e[0] === 'contract_observer_bootstrap_done');
@@ -260,12 +260,12 @@ describe('phase 946 contract-observer watermark + async notify', () => {
     expect(stateContent).toBeDefined();
     const newState = JSON.parse(stateContent!) as {
       version: number;
-      lastArchivedAt: number;
+      clawWatermarks: Record<string, number>;
       bootstrapDone: boolean;
     };
-    expect(newState.version).toBe(3);
+    expect(newState.version).toBe(4);
     expect(newState.bootstrapDone).toBe(true);
-    expect(newState.lastArchivedAt).toBe(pastMs);
+    expect(newState.clawWatermarks['worker-a']).toBe(pastMs);
   });
 
   it('first-run (state 不存在): bootstrap path、首 tick 不 emit、更新水位', async () => {
@@ -296,11 +296,13 @@ describe('phase 946 contract-observer watermark + async notify', () => {
     const stateContent = writes.get('/test/root/motion/status/contract-observer-state.json');
     expect(stateContent).toBeDefined();
     const newState = JSON.parse(stateContent!) as {
+      version: number;
       bootstrapDone: boolean;
-      lastArchivedAt: number;
+      clawWatermarks: Record<string, number>;
     };
+    expect(newState.version).toBe(4);
     expect(newState.bootstrapDone).toBe(true);
-    expect(newState.lastArchivedAt).toBe(pastMs);
+    expect(newState.clawWatermarks['worker-a']).toBe(pastMs);
   });
 
   it('lastCheckTs 写 tickStart 不是 end-of-scan now', async () => {
