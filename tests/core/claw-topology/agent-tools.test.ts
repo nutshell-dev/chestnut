@@ -292,14 +292,41 @@ describe('createCrossClawSearchTool broadcast', () => {
     expect(spy).toHaveBeenCalledWith({ text: 'foo' }, ctx);
   });
 
-  it('signal aborted → 提前终止 fan-out', async () => {
+  it('broadcast 所有 claw 失败 → 返回 success:false 并含 all X claws failed', async () => {
+    const spy = vi.spyOn(searchTool, 'execute').mockResolvedValue({ success: false, content: 'disk error' });
+    const tool = createCrossClawSearchTool({ topology: mockTopology, allowed: true });
+    const ctx = makeBaseCtx();
+    const result = await tool.execute({ text: 'foo', claw: '*' }, ctx);
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(result.success).toBe(false);
+    expect(result.content).toContain('all 2 claws failed');
+    expect(result.content).toContain('claw1');
+    expect(result.content).toContain('claw2');
+  });
+
+  it('broadcast 部分失败 → 结果 content 含失败 claw 列表', async () => {
+    const spy = vi.spyOn(searchTool, 'execute').mockImplementation(async (_args, passedCtx) => {
+      if (path.basename(passedCtx.clawDir) === 'claw1') {
+        return { success: false, content: 'disk error' };
+      }
+      return { success: true, content: 'found in claw2' };
+    });
+    const tool = createCrossClawSearchTool({ topology: mockTopology, allowed: true });
+    const ctx = makeBaseCtx();
+    const result = await tool.execute({ text: 'foo', claw: '*' }, ctx);
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(result.success).toBe(true);
+    expect(result.content).toContain('[claw2]');
+    expect(result.content).toContain('claws failed: claw1');
+  });
+
+  it('signal aborted → throw ExternalAbortError（abort 显式化）', async () => {
     const abortedSignal = new AbortController();
     abortedSignal.abort();
     const spy = vi.spyOn(searchTool, 'execute').mockResolvedValue({ success: true, content: 'found' });
     const tool = createCrossClawSearchTool({ topology: mockTopology, allowed: true });
     const ctx = makeBaseCtx({ signal: abortedSignal.signal });
-    const result = await tool.execute({ text: 'foo', claw: '*' }, ctx);
-    expect(result.success).toBe(true);
+    await expect(tool.execute({ text: 'foo', claw: '*' }, ctx)).rejects.toThrow('Execution aborted');
     expect(spy).toHaveBeenCalledTimes(0);
   });
 });

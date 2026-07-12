@@ -63,9 +63,9 @@ describe('createClawTopology', () => {
     expect(auditWrites[0][0]).toBe(CLAW_TOPOLOGY_AUDIT_EVENTS.CROSS_CLAW_RESOLVE_FAILED);
   });
 
-  it('read + readJSON 成功路径', async () => {
-    await fs.ensureDir('claws/beta');
-    await fs.writeAtomic('claws/beta/data.json', '{"hello":"world"}');
+  it('read + readJSON 成功路径（限定在 clawspace）', async () => {
+    await fs.ensureDir('claws/beta/clawspace');
+    await fs.writeAtomic('claws/beta/clawspace/data.json', '{"hello":"world"}');
     const topology = createClawTopology({ fs, chestnutRoot: tempDir, audit: makeAudit(), motionClawId: makeClawId('motion'), motionDir: 'motion' });
     const text = await topology.read('beta', 'data.json');
     expect(text).toBe('{"hello":"world"}');
@@ -74,10 +74,25 @@ describe('createClawTopology', () => {
   });
 
   it('read 不存在文件 → throw CrossClawReadError + audit', async () => {
-    await fs.ensureDir('claws/gamma');
+    await fs.ensureDir('claws/gamma/clawspace');
     const topology = createClawTopology({ fs, chestnutRoot: tempDir, audit: makeAudit(), motionClawId: makeClawId('motion'), motionDir: 'motion' });
     await expect(topology.read('gamma', 'missing.txt')).rejects.toThrow(CrossClawReadError);
     expect(auditWrites).toHaveLength(1);
     expect(auditWrites[0][0]).toBe(CLAW_TOPOLOGY_AUDIT_EVENTS.CROSS_CLAW_READ_FAILED);
+  });
+
+  it('read 含目录分隔符的 relPath → throw CrossClawReadError（path traversal not allowed）', async () => {
+    await fs.ensureDir('claws/delta/clawspace');
+    await fs.writeAtomic('claws/delta/clawspace/data.json', '{}');
+    const topology = createClawTopology({ fs, chestnutRoot: tempDir, audit: makeAudit(), motionClawId: makeClawId('motion'), motionDir: 'motion' });
+    await expect(topology.read('delta', '../data.json')).rejects.toThrow(CrossClawReadError);
+    await expect(topology.read('delta', 'sub/data.json')).rejects.toThrow(CrossClawReadError);
+  });
+
+  it('read ".." 或 "." → throw CrossClawReadError（path traversal not allowed）', async () => {
+    await fs.ensureDir('claws/epsilon/clawspace');
+    const topology = createClawTopology({ fs, chestnutRoot: tempDir, audit: makeAudit(), motionClawId: makeClawId('motion'), motionDir: 'motion' });
+    await expect(topology.read('epsilon', '..')).rejects.toThrow(CrossClawReadError);
+    await expect(topology.read('epsilon', '.')).rejects.toThrow(CrossClawReadError);
   });
 });
