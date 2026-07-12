@@ -16,6 +16,18 @@ import { isFileNotFound } from '../fs/index.js';
 const SEQ_FILENAME = '.next-msg-seq';
 const SEQ_PAD_LEN = 10;
 
+const sharedCounters = new Map<string, SequenceCounter>();
+
+export function getSharedSequenceCounter(fs: FileSystem, clawDir: string): SequenceCounter {
+  const key = fs.resolve(clawDir);
+  let counter = sharedCounters.get(key);
+  if (!counter) {
+    counter = new SequenceCounter(fs, clawDir);
+    sharedCounters.set(key, counter);
+  }
+  return counter;
+}
+
 export class SequenceCounter {
   private pending: Promise<unknown> | undefined;
 

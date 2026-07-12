@@ -14,7 +14,6 @@ import type { InboxMessageOptionsBase } from './inbox-writer.js';
 import type { InboxMessage } from './types.js';
 import type { FileSystem } from '../fs/index.js';
 import type { AuditLog } from '../audit/index.js';
-import { newShortUuid } from  '../node-utils/index.js';
 import { emitUnknownDestinationDlq } from './audit-emit.js';
 
 /**
@@ -38,10 +37,8 @@ export function notifyClaw(
   if (dlqDir !== undefined && typeof fs.existsSync === 'function') {
     if (!fs.existsSync(targetClawRoot)) {
       const targetClawId = path.basename(targetClawRoot);
-      const fileName = `${Date.now()}_${newShortUuid()}_${targetClawId}.md`;
       try {
-        fs.ensureDirSync(dlqDir);
-        InboxWriter.__internal_create(fs, makeInboxPath(dlqDir), audit).writeSync({
+        const fileName = InboxWriter.__internal_create(fs, makeInboxPath(dlqDir), audit).writeSync({
           ...message,
           source: message.source ?? 'unknown',
         });

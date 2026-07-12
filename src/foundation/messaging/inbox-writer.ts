@@ -18,7 +18,7 @@ import {
   emitInboxBodyOversize,
 } from './audit-emit.js';
 import { assertMessageShape } from './invariants.js';
-import { SequenceCounter, formatSeq } from './sequence-counter.js';
+import { getSharedSequenceCounter, formatSeq } from './sequence-counter.js';
 type Result<T, E> =
   | { ok: true; value: T }
   | { ok: false; error: E };
@@ -88,7 +88,7 @@ export class InboxWriter {
     private readonly inboxDir: InboxPath,
     private readonly audit: AuditLog,
   ) {
-    this.counter = new SequenceCounter(fs, deriveClawDirFromInboxDir(inboxDir));
+    this.counter = getSharedSequenceCounter(fs, deriveClawDirFromInboxDir(inboxDir));
   }
 
   /** Internal factory — only callable within the Messaging module. */
@@ -133,7 +133,7 @@ export class InboxWriter {
   }
 
   /** sync 写，供 task/system 同步路径使用 */
-  writeSync(opts: InboxMessageOptionsBase): void {
+  writeSync(opts: InboxMessageOptionsBase): string {
     // phase 429 Step A (review medium): inbox body 硬上限、防 disk DoS / runaway bug
     const bodySize = Buffer.byteLength(opts.body, 'utf-8');
     const maxBytes = getInboxBodyMaxBytes();
@@ -161,16 +161,16 @@ export class InboxWriter {
       content: opts.body,
       priority,
       timestamp: now.toISOString(),
+      metadata: opts.metadata,
     };
 
     // phase 273 Step A:
     assertMessageShape(message, this.audit, 'inbox', 'write');
 
-    this.fs.ensureDirSync(this.inboxDir);
     const source = opts.source || 'unknown';
-    const seq = this.counter.nextSync();
-    const filename = `${source}-${timestamp}_${priority}_${formatSeq(seq)}.md`;
+    const filename = `${source}-${timestamp}_${priority}_${formatSeq(this.counter.nextSync())}.md`;
     try {
+      this.fs.ensureDirSync(this.inboxDir);
       const content = encodeInbox(message, opts.extraFields);
       this.fs.writeAtomicSync(path.join(this.inboxDir, filename), content);
     } catch (e) {
@@ -179,6 +179,7 @@ export class InboxWriter {
       throw e;
     }
     emitInboxWritten(this.audit, { file: filename, to: opts.to, contractId: opts.metadata?.contract_id });
+    return filename;
   }
 
   /** 读 frontmatter meta；纯读，静态方法不依赖 audit */
