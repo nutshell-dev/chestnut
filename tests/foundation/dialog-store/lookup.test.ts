@@ -3,6 +3,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import * as path from 'node:path';
 import {
   lookupContentByToolUseId,
   type LookupResult,
@@ -19,6 +20,11 @@ function makeFs(entries: Record<string, string | { size: number; isDirectory?: b
       meta[k] = { size: v.length, isDirectory: false };
     } else {
       meta[k] = { size: v.size, isDirectory: v.isDirectory ?? false };
+    }
+    // phase 918: auto-create parent directories so existsSync('/dialog') works
+    let dir = k;
+    while ((dir = path.dirname(dir)) !== '/' && !(dir in meta)) {
+      meta[dir] = { size: 0, isDirectory: true };
     }
   }
   return {
@@ -188,6 +194,29 @@ describe('lookupContentByToolUseId', () => {
     const result = lookupContentByToolUseId(fs, '/dialog', 't1');
     expect(result.source).toBe('unavailable');
     expect((result as Extract<LookupResult, { source: 'unavailable' }>).reason).toBe('all_failed');
+  });
+
+  it('phase 918: returns not_in_current when current.json does not exist', () => {
+    const fs = makeFs({
+      '/dialog/archive': { size: 0, isDirectory: true },
+    });
+    const result = lookupContentByToolUseId(fs, '/dialog', 't1');
+    expect(result.source).toBe('unavailable');
+    expect((result as Extract<LookupResult, { source: 'unavailable' }>).reason).toBe('not_in_current');
+  });
+
+  it('phase 918: returns not_in_archive when archive directory list fails', () => {
+    const fs = makeFs({
+      '/dialog/current.json': currentJson([]),
+      '/dialog/archive': { size: 0, isDirectory: true },
+    });
+    vi.spyOn(fs, 'listSync').mockImplementation(() => {
+      throw new Error('permission denied');
+    });
+    const result = lookupContentByToolUseId(fs, '/dialog', 't1');
+    expect(result.source).toBe('unavailable');
+    expect((result as Extract<LookupResult, { source: 'unavailable' }>).reason).toBe('not_in_archive');
+    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('archive list failed'));
   });
 
   it('serializes object content via JSON.stringify', () => {

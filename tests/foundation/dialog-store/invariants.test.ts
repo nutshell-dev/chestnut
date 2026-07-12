@@ -117,6 +117,34 @@ describe('dialog shape invariants (phase 227)', () => {
       );
       expect(evts).toHaveLength(2);
     });
+
+    it('phase 918: tool_result 出现在对应 tool_use 之前 → audit tool_result_before_tool_use', () => {
+      const { audit, events } = makeAudit();
+      const messages: Message[] = [
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'r' }] },
+        { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'exec', input: {} }] },
+      ];
+      assertDialogShapeInvariants(messages, audit);
+      expect(events.some(e =>
+        e[0] === DIALOG_AUDIT_EVENTS.DIALOG_INVARIANT_VIOLATED &&
+        e.some(c => String(c).includes('tool_result_before_tool_use')) &&
+        e.some(c => String(c).includes('tool_use_id=t1')) &&
+        e.some(c => String(c).includes('tool_use_idx=1')) &&
+        e.some(c => String(c).includes('tool_result_idx=0'))
+      )).toBe(true);
+    });
+
+    it('phase 918: 配对正常但顺序正确时不 emit tool_result_before_tool_use', () => {
+      const { audit, events } = makeAudit();
+      const messages: Message[] = [
+        { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'exec', input: {} }] },
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'r' }] },
+      ];
+      assertDialogShapeInvariants(messages, audit);
+      expect(events.some(e =>
+        e.some(c => String(c).includes('tool_result_before_tool_use'))
+      )).toBe(false);
+    });
   });
 
   describe('phase 224 fixture 重放', () => {
