@@ -113,11 +113,12 @@ describe('InboxReader ack/nack/reconcile protocol (phase 1285)', () => {
   it('init() reconciles orphaned inflight files back to pending', async () => {
     await writeMsg('msg-1', 'hello');
     // manually move to inflight to simulate crash before ack
+    // Phase 930: inflight filenames carry a claim lease; use a dead PID so it is reclaimed.
     const src = path.join(testDir, 'inbox', 'pending');
     const dst = path.join(testDir, 'inbox', 'inflight');
     const files = await fs.readdir(src);
     for (const f of files) {
-      await fs.rename(path.join(src, f), path.join(dst, f));
+      await fs.rename(path.join(src, f), path.join(dst, `99999_0_${f}`));
     }
 
     // create new reader → init() should reconcile
