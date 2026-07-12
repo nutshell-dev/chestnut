@@ -272,9 +272,14 @@ async function processSession(
       const errCode = (err as NodeJS.ErrnoException).code;
       const isTransient = errCode === 'EACCES' || errCode === 'EIO' || errCode === 'EBUSY' ||
                           errCode === 'EMFILE' || errCode === 'ENFILE' || errCode === 'ENOMEM';
-      if (!isTransient) {
-        plan.state.lastProcessedDeepDreamAt = Math.max(plan.state.lastProcessedDeepDreamAt, sf.tsMs);
+      if (isTransient) {
+        // Transient error (EACCES, EIO, ...) — stop processing.
+        // Don't advance waterline. Next dream cycle will retry from this file.
+        // Continuing would allow a later file to advance the waterline past this one.
+        return compressions; // break out of the session processing loop
       }
+      // Permanent error — advance waterline to skip this file permanently
+      plan.state.lastProcessedDeepDreamAt = Math.max(plan.state.lastProcessedDeepDreamAt, sf.tsMs);
       return compressions;
     }
     const retryCount = (plan.state.currentSessionRetryCount ?? 0) + 1;

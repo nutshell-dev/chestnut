@@ -50,6 +50,13 @@ export async function restoreMessages(
     // Phase 921: clawId consistency — mismatch means this source belongs to a different claw.
     // Legacy sessions without clawId are skipped (backward compatible).
     if (data.clawId && marker.clawId && data.clawId !== marker.clawId) {
+      audit?.write?.(
+        DIALOG_AUDIT_EVENTS.CLAWID_MISMATCH,
+        `source=current`,
+        `expected=${marker.clawId}`,
+        `actual=${data.clawId}`,
+        `toolUseId=${marker.toolUseId}`,
+      );
       // fall through to archive search
     } else {
       const sliced = sliceMessagesAtMarker(data.messages, marker.toolUseId, inclusive);
@@ -95,6 +102,14 @@ export async function restoreMessages(
         // Phase 921: skip archive files that belong to a different claw.
         // Legacy sessions without clawId remain backward compatible.
         if (data.clawId && marker.clawId && data.clawId !== marker.clawId) {
+          audit?.write?.(
+            DIALOG_AUDIT_EVENTS.CLAWID_MISMATCH,
+            `source=archive`,
+            `file=${entry.name}`,
+            `expected=${marker.clawId}`,
+            `actual=${data.clawId}`,
+            `toolUseId=${marker.toolUseId}`,
+          );
           continue;
         }
         const sliced = sliceMessagesAtMarker(data.messages, marker.toolUseId, inclusive);

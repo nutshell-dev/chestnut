@@ -29,6 +29,7 @@ export const DIALOG_AUDIT_EVENTS = {
   TURN_ROLLBACK: 'dialog_turn_rollback',
   FLUSH_CHAIN_ERROR: 'dialog_flush_chain_error',
   DIALOG_INVARIANT_VIOLATED: 'dialog_invariant_violated',
+  CLAWID_MISMATCH: 'dialog_clawid_mismatch',
 } as const;
 
 /**
