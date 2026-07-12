@@ -81,12 +81,19 @@ describe('createClawTopology', () => {
     expect(auditWrites[0][0]).toBe(CLAW_TOPOLOGY_AUDIT_EVENTS.CROSS_CLAW_READ_FAILED);
   });
 
-  it('read 含目录分隔符的 relPath → throw CrossClawReadError（path traversal not allowed）', async () => {
+  it('read 合法子目录 relPath → 成功', async () => {
+    await fs.ensureDir('claws/delta/clawspace/notes');
+    await fs.writeAtomic('claws/delta/clawspace/notes/2026.md', '# notes');
+    const topology = createClawTopology({ fs, chestnutRoot: tempDir, audit: makeAudit(), motionClawId: makeClawId('motion'), motionDir: 'motion' });
+    const text = await topology.read('delta', 'notes/2026.md');
+    expect(text).toBe('# notes');
+  });
+
+  it('read 穿越 clawspace 的 relPath → throw CrossClawReadError', async () => {
     await fs.ensureDir('claws/delta/clawspace');
     await fs.writeAtomic('claws/delta/clawspace/data.json', '{}');
     const topology = createClawTopology({ fs, chestnutRoot: tempDir, audit: makeAudit(), motionClawId: makeClawId('motion'), motionDir: 'motion' });
     await expect(topology.read('delta', '../data.json')).rejects.toThrow(CrossClawReadError);
-    await expect(topology.read('delta', 'sub/data.json')).rejects.toThrow(CrossClawReadError);
   });
 
   it('read ".." 或 "." → throw CrossClawReadError（path traversal not allowed）', async () => {

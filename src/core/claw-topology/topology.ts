@@ -32,16 +32,11 @@ export function createClawTopology(deps: ClawTopologyDeps): ClawTopology {
       if (location.kind !== 'local') {
         throw new CrossClawReadError(clawId, relPath, 'remote location not supported in single-host mode');
       }
-      const safeName = path.basename(relPath);
-      if (safeName !== relPath || safeName === '..' || safeName === '.') {
-        throw new CrossClawReadError(clawId, relPath, 'path traversal not allowed');
-      }
-      const absPath = path.join(location.clawDir, CLAWSPACE_DIR, safeName);
-      // Defensive containment check: verify resolved path stays within clawDir.
-      const resolved = path.resolve(location.clawDir, CLAWSPACE_DIR, safeName);
-      const allowedPrefix = path.resolve(location.clawDir) + path.sep;
-      if (!resolved.startsWith(allowedPrefix)) {
-        throw new CrossClawReadError(clawId, relPath, 'path outside claw directory');
+      // Resolve the full path within clawspace, then check it's contained within clawDir.
+      const absPath = path.resolve(path.join(location.clawDir, CLAWSPACE_DIR, relPath));
+      const clawspaceRoot = path.resolve(path.join(location.clawDir, CLAWSPACE_DIR)) + path.sep;
+      if (!absPath.startsWith(clawspaceRoot)) {
+        throw new CrossClawReadError(clawId, relPath, 'path outside clawspace');
       }
       try {
         return await fs.read(absPath);

@@ -135,6 +135,15 @@ describe('createCrossClawReadTool', () => {
       expect.any(String),
     );
   });
+
+  it('readTool.execute 抛 AbortError → 向上传播（不转成 claw not found）', async () => {
+    const abortErr = new Error('Execution aborted');
+    abortErr.name = 'AbortError';
+    vi.spyOn(readTool, 'execute').mockRejectedValue(abortErr);
+    const tool = createCrossClawReadTool({ topology: mockTopology, allowed: true });
+    const ctx = makeBaseCtx();
+    await expect(tool.execute({ path: 'test.txt', claw: 'claw1' }, ctx)).rejects.toThrow('Execution aborted');
+  });
 });
 
 describe('createCrossClawLsTool', () => {
@@ -328,5 +337,29 @@ describe('createCrossClawSearchTool broadcast', () => {
     const ctx = makeBaseCtx({ signal: abortedSignal.signal });
     await expect(tool.execute({ text: 'foo', claw: '*' }, ctx)).rejects.toThrow('Execution aborted');
     expect(spy).toHaveBeenCalledTimes(0);
+  });
+
+  it('searchTool.execute 在 broadcast 中抛 AbortError → 向上传播（不转成 partial result）', async () => {
+    const abortErr = new Error('Execution aborted');
+    abortErr.name = 'AbortError';
+    vi.spyOn(searchTool, 'execute').mockRejectedValue(abortErr);
+    const tool = createCrossClawSearchTool({ topology: mockTopology, allowed: true });
+    const ctx = makeBaseCtx();
+    await expect(tool.execute({ text: 'foo', claw: '*' }, ctx)).rejects.toThrow('Execution aborted');
+  });
+
+  it('broadcast 所有 claw resolve 失败 → 返回 success:false 并含 failed（非 No matches）', async () => {
+    const failingTopology = {
+      ...mockTopology,
+      resolve: vi.fn(() => {
+        throw new Error('resolve boom');
+      }),
+    };
+    const tool = createCrossClawSearchTool({ topology: failingTopology, allowed: true });
+    const ctx = makeBaseCtx();
+    const result = await tool.execute({ text: 'foo', claw: '*' }, ctx);
+    expect(result.success).toBe(false);
+    expect(result.content).toContain('failed');
+    expect(result.content).not.toContain('No matches');
   });
 });

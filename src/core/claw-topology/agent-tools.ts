@@ -86,6 +86,9 @@ export function createCrossClawReadTool(deps: CrossClawToolDeps): Tool {
         const targetCtx = buildTargetCtx(ctx, location.clawDir);
         return readTool.execute(stripClaw(args), targetCtx);
       } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError' || ctx.signal?.aborted) {
+          throw makeExternalAbortError(ctx.signal?.reason as AbortReason | undefined);
+        }
         ctx.auditWriter?.write(
           CLAW_TOPOLOGY_AUDIT_EVENTS.CROSS_CLAW_RESOLVE_FAILED,
           `clawId=${clawParam}`,
@@ -137,6 +140,9 @@ export function createCrossClawLsTool(deps: CrossClawToolDeps): Tool {
         const targetCtx = buildTargetCtx(ctx, location.clawDir);
         return lsTool.execute(stripClaw(args), targetCtx);
       } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError' || ctx.signal?.aborted) {
+          throw makeExternalAbortError(ctx.signal?.reason as AbortReason | undefined);
+        }
         ctx.auditWriter?.write(
           CLAW_TOPOLOGY_AUDIT_EVENTS.CROSS_CLAW_RESOLVE_FAILED,
           `clawId=${clawParam}`,
@@ -224,11 +230,18 @@ export function createCrossClawSearchTool(deps: CrossClawToolDeps): Tool {
             const result = await searchTool.execute(stripClaw(args), targetCtx);
             results.push({ clawId, result });
           } catch (err) {
+            if (err instanceof Error && err.name === 'AbortError' || ctx.signal?.aborted) {
+              throw makeExternalAbortError(ctx.signal?.reason as AbortReason | undefined);
+            }
             ctx.auditWriter?.write(
               CLAW_TOPOLOGY_AUDIT_EVENTS.BROADCAST_CLAW_SKIPPED,
               `claw=${clawId}`,
               `reason=${String(err)}`,
             );
+            results.push({
+              clawId,
+              result: { success: false, content: `Error: ${String(err)}` },
+            });
           }
         }
         return aggregateBroadcastResults(results, rawText);
@@ -247,6 +260,9 @@ export function createCrossClawSearchTool(deps: CrossClawToolDeps): Tool {
         const targetCtx = buildTargetCtx(ctx, location.clawDir);
         return searchTool.execute(stripClaw(args), targetCtx);
       } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError' || ctx.signal?.aborted) {
+          throw makeExternalAbortError(ctx.signal?.reason as AbortReason | undefined);
+        }
         ctx.auditWriter?.write(
           CLAW_TOPOLOGY_AUDIT_EVENTS.CROSS_CLAW_RESOLVE_FAILED,
           `clawId=${clawParam}`,
