@@ -84,3 +84,37 @@ describe('codec-inbox boundary safety (phase 910)', () => {
     expect(decoded).toBe(body);
   });
 });
+
+describe('codec-inbox strict decode invariant (phase 931)', () => {
+  const base: InboxMessage = {
+    id: 'm-1',
+    type: 'message',
+    from: 'motion',
+    to: 'worker-1',
+    content: 'body content',
+    priority: 'normal',
+    timestamp: '2026-05-17T00:00:00Z',
+  };
+
+  it('throws when from and source are both missing', () => {
+    const encoded = encodeInbox({ ...base, from: '' });
+    const rawWithoutFrom = encoded.replace(/^from:.*$/m, '');
+    expect(() => decodeInbox(rawWithoutFrom)).toThrow(/missing required field: from/i);
+  });
+
+  it('throws when timestamp is missing', () => {
+    const encoded = encodeInbox(base);
+    const rawWithoutTimestamp = encoded.replace(/^timestamp:.*$/m, '');
+    expect(() => decodeInbox(rawWithoutTimestamp)).toThrow(/missing required field: timestamp/i);
+  });
+
+  it('falls back to legacy source field when from is missing', () => {
+    const raw = `---\nid: m-1\ntype: message\nsource: legacy\nto: worker-1\npriority: normal\ntimestamp: 2026-05-17T00:00:00Z\n---\nbody`;
+    const decoded = decodeInbox(raw);
+    expect(decoded.from).toBe('legacy');
+  });
+
+  it('throws when extraFields override reserved from key', () => {
+    expect(() => encodeInbox(base, { from: 'attacker' })).toThrow(/conflicts with reserved frontmatter field/i);
+  });
+});

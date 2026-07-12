@@ -551,7 +551,7 @@ export class InboxReader {
       entries = await this.fs.list(dir, { includeDirs: false });
     } catch (err) {
       if (isFileNotFound(err)) return null;
-      return null;
+      throw err; // EACCES/EIO → propagate — caller must not assume "no duplicate"
     }
 
     for (const entry of entries) {
@@ -562,8 +562,9 @@ export class InboxReader {
         try {
           const s = await this.fs.stat(filePath);
           if (s.mtime.getTime() < mtimeCutoff) continue;
-        } catch {
-          continue;
+        } catch (statErr) {
+          if (isFileNotFound(statErr)) continue; // TOCTOU
+          throw statErr; // real I/O error → propagate
         }
       }
 

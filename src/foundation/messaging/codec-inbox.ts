@@ -3,6 +3,7 @@ import type { InboxMessage } from '../messaging/types.js';
 import { validatePriority, validateType } from './codec-validation.js';
 import { parseFrontmatterFrame } from './frontmatter-frame.js';
 import { assertSafeKey } from './sanitize.js';
+import { InboxDecodeError } from './errors.js';
 
 /**
  * Thin wrapper: frame helper + yamlUnquote post-process.
@@ -87,8 +88,10 @@ export function encodeInbox(
     const reserved = new Set(['id', 'type', 'from', 'to', 'priority', 'timestamp']);
     for (const [k, v] of Object.entries(extraFields)) {
       if (reserved.has(k)) {
-        // silent: field conflict skipped — no audit channel in codec (pure function)
-        continue;
+        throw new InboxDecodeError(
+          `Extra field key "${k}" conflicts with reserved frontmatter field. ` +
+          `Caller must not override standard message fields (id, type, from, to, priority, timestamp).`
+        );
       }
       assertSafeKey(k);
       lines.push(`${k}: ${yamlQuote(v)}`);
@@ -117,7 +120,8 @@ export function encodeInbox(
 /**
  * Decode raw string to InboxMessage.
  * Reads `from` field, falls back to `source` for backward compatibility.
- * Fills missing fields with defaults.
+ * `id` is auto-generated if missing; `from` and `timestamp` are required and
+ * will throw InboxDecodeError when absent.
  */
 export function decodeInbox(raw: string): InboxMessage {
   if (!raw.startsWith('---\n') && !raw.startsWith('---\r\n')) {
@@ -161,14 +165,19 @@ export function decodeInbox(raw: string): InboxMessage {
     extraMeta.__original_type = String(rawType);   // 非 string 输入仍记原值
   }
 
+  // Legacy migration: source → from
+  const from = meta.from ?? meta.source;
+  if (!from) throw new InboxDecodeError('missing required field: from (or source for legacy)');
+  if (!meta.timestamp) throw new InboxDecodeError('missing required field: timestamp');
+
   const result: InboxMessage = {
     id: meta.id ?? newUuid(),
     type,
-    from: meta.from ?? meta.source ?? 'unknown',
+    from,
     to: meta.to ?? '',
     content: body,
     priority,
-    timestamp: meta.timestamp ?? new Date().toISOString(),
+    timestamp: meta.timestamp,
     ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
     ...(Object.keys(extraMeta).length > 0 ? { extraMeta } : {}),
   };
