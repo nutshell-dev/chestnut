@@ -727,7 +727,7 @@ describe('Phase 950 — observer composite cursor + batch watermark + collector 
       writes1,
     );
 
-    vi.spyOn(eventCollector, 'scanArchivedContracts').mockReturnValue({
+    vi.spyOn(eventCollector, 'scanArchivedContracts').mockResolvedValue({
       entries: [{ contractId: 'ok-1', body: 'ok', hasFailure: false, archivedAt: 100, status: 'completed' }],
       incomplete: true,
     });

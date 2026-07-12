@@ -341,7 +341,7 @@ describe('event-collector schema check', () => {
       },
     ]);
 
-    const result = collectContractEvents(fsMock, clawDir, 'test-claw', 0, mockAudit as any);
+    const result = await collectContractEvents(fsMock, clawDir, 'test-claw', 0, mockAudit as any);
     expect(result.events.length).toBe(1);
     expect(result.events[0]).toContain('contract=good');
 
@@ -373,7 +373,7 @@ describe('event-collector schema check', () => {
       },
     } as unknown as FileSystem;
 
-    const result = collectContractEvents(fsMock, clawDir, 'test-claw', 0, mockAudit as any);
+    const result = await collectContractEvents(fsMock, clawDir, 'test-claw', 0, mockAudit as any);
     expect(result.events).toHaveLength(0);
 
     expect(mockAudit.write).toHaveBeenCalledWith(

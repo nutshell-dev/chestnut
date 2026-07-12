@@ -53,7 +53,7 @@ describe('phase 1010 — silent X TODO cluster narrow', () => {
   it('event-collector.ts archive ENOENT silent (first-run)', () => {
     const { audit, events } = makeAudit();
     const fs = makeFsThrow('ENOENT');
-    const result = collectContractEvents(fs, '/tmp/claw', 'claw1', 0, audit);
+    const result = await collectContractEvents(fs, '/tmp/claw', 'claw1', 0, audit);
     expect(result.events).toEqual([]);
     expect(result.problemPairs).toEqual([]);
     expect(events).toHaveLength(0);
@@ -73,7 +73,7 @@ describe('phase 1010 — silent X TODO cluster narrow', () => {
       readSync: () => '',
       existsSync: () => true,
     } as unknown as FileSystem;
-    const result = collectContractEvents(fs, '/tmp/claw', 'claw1', 0, audit);
+    const result = await collectContractEvents(fs, '/tmp/claw', 'claw1', 0, audit);
     expect(result.events).toEqual([]);
     expect(result.problemPairs).toEqual([]);
     expect(events).toHaveLength(1);

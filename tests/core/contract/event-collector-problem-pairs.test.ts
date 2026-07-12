@@ -57,7 +57,7 @@ describe('phase 1487: collectContractEvents result shape', () => {
       },
     }));
     const clawDir = path.join(chestnutRoot, 'claws/worker-1');
-    const result = collectContractEvents(fs, clawDir, 'worker-1', sinceTs, makeAudit());
+    const result = await collectContractEvents(fs, clawDir, 'worker-1', sinceTs, makeAudit());
     expect(result.events.length).toBe(1);
     expect(result.problemPairs).toEqual([]);
     expect(result.events[0]).toContain('[contract_completed] claw=worker-1 contract=1780-abcd');
@@ -77,7 +77,7 @@ describe('phase 1487: collectContractEvents result shape', () => {
       },
     }));
     const clawDir = path.join(chestnutRoot, 'claws/worker-1');
-    const result = collectContractEvents(fs, clawDir, 'worker-1', sinceTs, makeAudit());
+    const result = await collectContractEvents(fs, clawDir, 'worker-1', sinceTs, makeAudit());
     expect(result.events.length).toBe(1);
     expect(result.problemPairs).toEqual(['worker-1:1780-cdef']);
     expect(result.events[0]).toContain('⚠ last_failure: Failed test isolation');
@@ -96,7 +96,7 @@ describe('phase 1487: collectContractEvents result shape', () => {
       },
     }));
     const clawDir = path.join(chestnutRoot, 'claws/worker-1');
-    const result = collectContractEvents(fs, clawDir, 'worker-1', sinceTs, makeAudit());
+    const result = await collectContractEvents(fs, clawDir, 'worker-1', sinceTs, makeAudit());
     expect(result.events[0]).not.toContain('[force-accepted]');
     expect(result.events[0]).toContain('[st-1] src/auth.ts');
   });
@@ -115,7 +115,7 @@ describe('phase 1487: collectContractEvents result shape', () => {
       },
     }));
     const clawDir = path.join(chestnutRoot, 'claws/worker-1');
-    const result = collectContractEvents(fs, clawDir, 'worker-1', sinceTs, makeAudit());
+    const result = await collectContractEvents(fs, clawDir, 'worker-1', sinceTs, makeAudit());
     expect(result.problemPairs).toEqual(['worker-1:1780-ffff']);  // 单 contract / 1 pair (即便多 subtask)
   });
 
@@ -127,7 +127,7 @@ describe('phase 1487: collectContractEvents result shape', () => {
       },
     }));
     const clawDir = path.join(chestnutRoot, 'claws/worker-1');
-    const result = collectContractEvents(fs, clawDir, 'worker-1', sinceTs, makeAudit());
+    const result = await collectContractEvents(fs, clawDir, 'worker-1', sinceTs, makeAudit());
     expect(result.events).toEqual([]);
     expect(result.problemPairs).toEqual([]);
   });

@@ -50,13 +50,13 @@ describe('phase 949: event-collector cursor / schema / active-state fixes', () =
     }));
 
     const clawDir = path.join(chestnutRoot, 'claws/worker-1');
-    const { entries } = scanArchivedContracts(fs, clawDir, 'worker-1', audit);
+    const { entries } = await scanArchivedContracts(fs, clawDir, 'worker-1', audit);
     expect(entries).toHaveLength(1);
     expect(entries[0].status).toBe('cancelled');
     expect(entries[0].archivedAt).toBeGreaterThan(0);
 
     // Observer-style sinceTs filter: previous watermark before archivedAt should NOT drop the event
-    const result = collectContractEvents(fs, clawDir, 'worker-1', entries[0].archivedAt - 1, audit);
+    const result = await collectContractEvents(fs, clawDir, 'worker-1', entries[0].archivedAt - 1, audit);
     expect(result.events).toHaveLength(1);
     expect(result.events[0]).toContain('[contract_cancelled]');
     expect(events).toHaveLength(0);
@@ -81,7 +81,7 @@ describe('phase 949: event-collector cursor / schema / active-state fixes', () =
     }));
 
     const clawDir = path.join(chestnutRoot, 'claws/worker-1');
-    const { entries } = scanArchivedContracts(fs, clawDir, 'worker-1', audit);
+    const { entries } = await scanArchivedContracts(fs, clawDir, 'worker-1', audit);
     expect(entries).toHaveLength(1);
     expect(entries[0].contractId).toBe('1780-good');
 
@@ -102,7 +102,7 @@ describe('phase 949: event-collector cursor / schema / active-state fixes', () =
     }));
 
     const clawDir = path.join(chestnutRoot, 'claws/worker-1');
-    const { entries } = scanArchivedContracts(fs, clawDir, 'worker-1', audit);
+    const { entries } = await scanArchivedContracts(fs, clawDir, 'worker-1', audit);
     expect(entries).toHaveLength(1);
     expect(entries[0].status).toBe('running');
     expect(entries[0].hasFailure).toBe(true);

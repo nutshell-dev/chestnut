@@ -22,7 +22,7 @@ describe('phase 1154 — event-collector FS_NOT_FOUND narrow + α-4 progress_cor
       readSync: () => '',
       existsSync: () => true,
     } as unknown as FileSystem;
-    const result = collectContractEvents(fs, '/tmp/claw', 'claw1', 0, audit);
+    const result = await collectContractEvents(fs, '/tmp/claw', 'claw1', 0, audit);
     expect(result.events).toEqual([]);
     expect(result.problemPairs).toEqual([]);
     expect(events).toHaveLength(0);
@@ -41,7 +41,7 @@ describe('phase 1154 — event-collector FS_NOT_FOUND narrow + α-4 progress_cor
       },
       existsSync: () => true,
     } as unknown as FileSystem;
-    const result = collectContractEvents(fs, '/tmp/claw', 'claw1', 0, audit);
+    const result = await collectContractEvents(fs, '/tmp/claw', 'claw1', 0, audit);
     expect(result.events).toEqual([]);
     expect(result.problemPairs).toEqual([]);
     expect(events).toHaveLength(0);
@@ -62,7 +62,7 @@ describe('phase 1154 — event-collector FS_NOT_FOUND narrow + α-4 progress_cor
       },
       existsSync: () => true,
     } as unknown as FileSystem;
-    const result = collectContractEvents(fs, '/tmp/claw', 'claw1', 0, audit);
+    const result = await collectContractEvents(fs, '/tmp/claw', 'claw1', 0, audit);
     expect(result.events).toEqual([]);
     expect(result.problemPairs).toEqual([]);
     // 仅 archive 1 个 entry → emit 1 次
@@ -79,7 +79,7 @@ describe('phase 1154 — event-collector FS_NOT_FOUND narrow + α-4 progress_cor
       readSync: () => 'not-json-at-all',
       existsSync: () => true,
     } as unknown as FileSystem;
-    const result = collectContractEvents(fs, '/tmp/claw', 'claw1', 0, audit);
+    const result = await collectContractEvents(fs, '/tmp/claw', 'claw1', 0, audit);
     expect(result.events).toEqual([]);
     expect(result.problemPairs).toEqual([]);
     // 仅 archive 1 个 entry → emit 1 次
