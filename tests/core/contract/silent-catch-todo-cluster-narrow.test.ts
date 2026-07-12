@@ -153,7 +153,7 @@ describe('phase 1010 — silent X TODO cluster narrow', () => {
     expect(notifyInbox).not.toHaveBeenCalled();
   });
 
-  it('contract-observer.ts state load EACCES → OBSERVER_STATE_LOAD_FAILED audit + lastCheckTs=0 行为兼容', async () => {
+  it('contract-observer.ts state load EACCES → OBSERVER_STATE_LOAD_FAILED audit + throw (phase 946 fail-closed)', async () => {
     const { audit, events } = makeAudit();
     const fs = {
       listSync: () => [],
@@ -166,21 +166,18 @@ describe('phase 1010 — silent X TODO cluster narrow', () => {
       ensureDirSync: () => {},
       writeAtomicSync: () => {},
     } as unknown as FileSystem;
-    const notifyInbox = vi.fn();
-    await runContractObserver({
+    const notifyInbox = vi.fn().mockResolvedValue(undefined);
+    await expect(runContractObserver({
       clawsDir: '/tmp/test/claws',
       clawTopology: makeMockTopology(fs, '/tmp/test/claws'),
       motionDir: '/tmp/test/motion',
       fs,
       motionAudit: audit,
       notifyMotion: notifyInbox,
-    });
-    // phase 37: state load failed → fall to first-run defaults (bootstrapDone=false)
-    // → 首 tick 后 emit OBSERVER_BOOTSTRAP_DONE trace
-    expect(events).toHaveLength(2);
+    })).rejects.toThrow('Observer state corrupt');
+    expect(events).toHaveLength(1);
     expect(events[0][0]).toBe(CONTRACT_AUDIT_EVENTS.OBSERVER_STATE_LOAD_FAILED);
-    expect(events[0]).toContain('code=EACCES');
-    expect(events[1][0]).toBe(CONTRACT_AUDIT_EVENTS.OBSERVER_BOOTSTRAP_DONE);
+    expect(events[0]).toContain('reason=read_failed:EACCES:EACCES');
     expect(notifyInbox).not.toHaveBeenCalled();
   });
 

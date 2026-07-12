@@ -52,60 +52,66 @@ function makeAuditMock(): { audit: AuditLog; events: Array<[string, ...(string |
   return { audit, events };
 }
 
-describe('contract observer state file shape_mismatch emits OBSERVER_STATE_PARSE_FAILED (phase 1012)', () => {
-  it('lastCheckTs string → audit OBSERVER_STATE_PARSE_FAILED + fallback lastCheckTs=0', async () => {
+describe('contract observer state file corrupt (phase 946)', () => {
+  it('lastCheckTs string → throws and audits OBSERVER_STATE_LOAD_FAILED', async () => {
     const fs = makeFsMockWithState(JSON.stringify({ lastCheckTs: 'abc' }));
     const { audit, events } = makeAuditMock();
 
-    await runContractObserver({
+    await expect(runContractObserver({
       clawsDir: '/tmp/test/claws',
       clawTopology: makeMockTopology(fs, '/tmp/test/claws'),
       motionDir: '/tmp/test/motion',
       fs,
       motionAudit: audit,
-      notifyMotion: vi.fn(),
-    });
+      notifyMotion: vi.fn().mockResolvedValue(undefined),
+    })).rejects.toThrow('Observer state corrupt');
 
-    const parseFailedEvents = events.filter(
-      (e) => e[0] === CONTRACT_AUDIT_EVENTS.OBSERVER_STATE_PARSE_FAILED,
+    const loadFailedEvents = events.filter(
+      (e) => e[0] === CONTRACT_AUDIT_EVENTS.OBSERVER_STATE_LOAD_FAILED,
     );
-    expect(parseFailedEvents.length).toBe(1);
-    expect(parseFailedEvents[0]).toEqual(
+    expect(loadFailedEvents.length).toBe(1);
+    expect(loadFailedEvents[0]).toEqual(
       expect.arrayContaining([
-        CONTRACT_AUDIT_EVENTS.OBSERVER_STATE_PARSE_FAILED,
-        'reason=shape_mismatch',
-        'stateFile=/tmp/test/motion/status/contract-observer-state.json',
+        CONTRACT_AUDIT_EVENTS.OBSERVER_STATE_LOAD_FAILED,
+        'file=/tmp/test/motion/status/contract-observer-state.json',
+        'reason=schema_mismatch:shape_mismatch',
       ]),
     );
   });
 
-  it('empty object → audit OBSERVER_STATE_PARSE_FAILED + fallback lastCheckTs=0', async () => {
+  it('empty object → throws and audits OBSERVER_STATE_LOAD_FAILED', async () => {
     const fs = makeFsMockWithState(JSON.stringify({}));
     const { audit, events } = makeAuditMock();
 
-    await runContractObserver({
+    await expect(runContractObserver({
       clawsDir: '/tmp/test/claws',
       clawTopology: makeMockTopology(fs, '/tmp/test/claws'),
       motionDir: '/tmp/test/motion',
       fs,
       motionAudit: audit,
-      notifyMotion: vi.fn(),
-    });
+      notifyMotion: vi.fn().mockResolvedValue(undefined),
+    })).rejects.toThrow('Observer state corrupt');
 
-    const parseFailedEvents = events.filter(
-      (e) => e[0] === CONTRACT_AUDIT_EVENTS.OBSERVER_STATE_PARSE_FAILED,
+    const loadFailedEvents = events.filter(
+      (e) => e[0] === CONTRACT_AUDIT_EVENTS.OBSERVER_STATE_LOAD_FAILED,
     );
-    expect(parseFailedEvents.length).toBe(1);
-    expect(parseFailedEvents[0]).toEqual(
+    expect(loadFailedEvents.length).toBe(1);
+    expect(loadFailedEvents[0]).toEqual(
       expect.arrayContaining([
-        CONTRACT_AUDIT_EVENTS.OBSERVER_STATE_PARSE_FAILED,
-        'reason=shape_mismatch',
+        CONTRACT_AUDIT_EVENTS.OBSERVER_STATE_LOAD_FAILED,
+        'file=/tmp/test/motion/status/contract-observer-state.json',
+        'reason=schema_mismatch:shape_mismatch',
       ]),
     );
   });
 
-  it('valid number lastCheckTs → no audit + uses value', async () => {
-    const fs = makeFsMockWithState(JSON.stringify({ lastCheckTs: 12345 }));
+  it('valid v3 state → no load audit + proceeds', async () => {
+    const fs = makeFsMockWithState(JSON.stringify({
+      version: 3,
+      lastCheckTs: 12345,
+      lastArchivedAt: 1000,
+      bootstrapDone: true,
+    }));
     const { audit, events } = makeAuditMock();
 
     await runContractObserver({
@@ -114,12 +120,69 @@ describe('contract observer state file shape_mismatch emits OBSERVER_STATE_PARSE
       motionDir: '/tmp/test/motion',
       fs,
       motionAudit: audit,
-      notifyMotion: vi.fn(),
+      notifyMotion: vi.fn().mockResolvedValue(undefined),
     });
 
-    const parseFailedEvents = events.filter(
-      (e) => e[0] === CONTRACT_AUDIT_EVENTS.OBSERVER_STATE_PARSE_FAILED,
+    const loadFailedEvents = events.filter(
+      (e) => e[0] === CONTRACT_AUDIT_EVENTS.OBSERVER_STATE_LOAD_FAILED,
     );
-    expect(parseFailedEvents.length).toBe(0);
+    expect(loadFailedEvents.length).toBe(0);
+  });
+
+  it('read error (non-ENOENT) → throws and audits OBSERVER_STATE_LOAD_FAILED', async () => {
+    const fs = makeFsMockWithState('');
+    vi.spyOn(fs, 'readSync').mockImplementation(() => {
+      const err = new Error('EIO') as NodeJS.ErrnoException;
+      err.code = 'EIO';
+      throw err;
+    });
+    const { audit, events } = makeAuditMock();
+
+    await expect(runContractObserver({
+      clawsDir: '/tmp/test/claws',
+      clawTopology: makeMockTopology(fs, '/tmp/test/claws'),
+      motionDir: '/tmp/test/motion',
+      fs,
+      motionAudit: audit,
+      notifyMotion: vi.fn().mockResolvedValue(undefined),
+    })).rejects.toThrow('Observer state corrupt');
+
+    const loadFailedEvents = events.filter(
+      (e) => e[0] === CONTRACT_AUDIT_EVENTS.OBSERVER_STATE_LOAD_FAILED,
+    );
+    expect(loadFailedEvents.length).toBe(1);
+    expect(loadFailedEvents[0]).toEqual(
+      expect.arrayContaining([
+        CONTRACT_AUDIT_EVENTS.OBSERVER_STATE_LOAD_FAILED,
+        'file=/tmp/test/motion/status/contract-observer-state.json',
+        'reason=read_failed:EIO:EIO',
+      ]),
+    );
+  });
+
+  it('JSON parse failure → throws and audits OBSERVER_STATE_LOAD_FAILED', async () => {
+    const fs = makeFsMockWithState('not valid json');
+    const { audit, events } = makeAuditMock();
+
+    await expect(runContractObserver({
+      clawsDir: '/tmp/test/claws',
+      clawTopology: makeMockTopology(fs, '/tmp/test/claws'),
+      motionDir: '/tmp/test/motion',
+      fs,
+      motionAudit: audit,
+      notifyMotion: vi.fn().mockResolvedValue(undefined),
+    })).rejects.toThrow('Observer state corrupt');
+
+    const loadFailedEvents = events.filter(
+      (e) => e[0] === CONTRACT_AUDIT_EVENTS.OBSERVER_STATE_LOAD_FAILED,
+    );
+    expect(loadFailedEvents.length).toBe(1);
+    expect(loadFailedEvents[0]).toEqual(
+      expect.arrayContaining([
+        CONTRACT_AUDIT_EVENTS.OBSERVER_STATE_LOAD_FAILED,
+        'file=/tmp/test/motion/status/contract-observer-state.json',
+      ]),
+    );
+    expect(loadFailedEvents[0].some(c => String(c).startsWith('reason=json_parse_failed'))).toBe(true);
   });
 });

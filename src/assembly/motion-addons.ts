@@ -191,7 +191,7 @@ export async function createMotionAddons(
           motionDir: path.join(chestnutRoot, 'motion'),  // phase 101
           fs: chestnutFs,
           motionAudit: auditWriter,  // phase 724 α：主 auditWriter 单 instance 复用
-          notifyMotion: (msg) => routeNotifyClaw(chestnutFs, chestnutRoot, MOTION_CLAW_ID, MOTION_CLAW_ID, msg, auditWriter),
+          notifyMotion: (msg) => routeNotifyClawAsync(chestnutFs, chestnutRoot, MOTION_CLAW_ID, MOTION_CLAW_ID, msg, auditWriter),
           // phase 821: 桥接 worker claw 契约完成 → evolutionSystem retro
           onCompletedContract: business.evolutionSystem && business.motionReviewContext
             ? async (_clawId, contractId) => {

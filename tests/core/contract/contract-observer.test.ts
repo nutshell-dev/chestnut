@@ -6,18 +6,24 @@ import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import type { ClawTopology } from '../../../src/core/claw-topology/types.js';
 import * as path from 'path';
 
-function makeFsMock(scenario: 'empty' | 'completed' | 'mixed' | 'recovery'): FileSystem {
+function makeFsMock(
+  scenario: 'empty' | 'completed' | 'mixed' | 'recovery' | 'old_and_new',
+  writes?: Map<string, string>,
+  initialState?: { version: number; lastCheckTs: number; lastArchivedAt: number; bootstrapDone: boolean },
+): FileSystem {
   const now = Date.now();
   const oldTs = now - 86400000;
   const files = new Map<string, string>();
 
-  // phase 37: pre-seed observer state with bootstrapDone=true、避免 bootstrap path 抑制首 tick emit
-  files.set('/tmp/test/motion/status/contract-observer-state.json', JSON.stringify({
-    version: 2,
-    lastCheckTs: 0,
-    notifiedContracts: [],
-    bootstrapDone: true,
-  }));
+  // phase 946: pre-seed observer state with bootstrapDone=true、lastArchivedAt=0 避免 bootstrap path 抑制首 tick emit
+  files.set('/tmp/test/motion/status/contract-observer-state.json', JSON.stringify(
+    initialState ?? {
+      version: 3,
+      lastCheckTs: 0,
+      lastArchivedAt: 0,
+      bootstrapDone: true,
+    }
+  ));
 
   if (scenario === 'completed') {
     files.set('/tmp/test/claws/claw1/contract/archive/contract-a/progress.json', JSON.stringify({ schema_version: 1,
@@ -39,13 +45,13 @@ function makeFsMock(scenario: 'empty' | 'completed' | 'mixed' | 'recovery'): Fil
       contract_id: 'c2',
       status: 'cancelled',
       checkpoint: 'cancelled: user manual',
-      subtasks: {},
+      subtasks: { st1: { completed_at: new Date(now).toISOString() } },
     }));
     files.set('/tmp/test/claws/claw1/contract/archive/c3/progress.json', JSON.stringify({ schema_version: 1,
       contract_id: 'c3',
       status: 'crashed',
       checkpoint: 'crashed: system: maxstepsexceedederror',
-      subtasks: {},
+      subtasks: { st1: { completed_at: new Date(now).toISOString() } },
     }));
   }
 
@@ -53,7 +59,20 @@ function makeFsMock(scenario: 'empty' | 'completed' | 'mixed' | 'recovery'): Fil
     files.set('/tmp/test/claws/claw1/contract/archive/c-recovery/progress.json', JSON.stringify({ schema_version: 1,
       contract_id: 'c-recovery',
       status: 'archive_pending_recovery',
-      subtasks: {},
+      subtasks: { st1: { completed_at: new Date(now).toISOString() } },
+    }));
+  }
+
+  if (scenario === 'old_and_new') {
+    files.set('/tmp/test/claws/claw1/contract/archive/old-contract/progress.json', JSON.stringify({ schema_version: 1,
+      contract_id: 'old-contract',
+      status: 'completed',
+      subtasks: { st1: { completed_at: new Date(oldTs).toISOString() } },
+    }));
+    files.set('/tmp/test/claws/claw1/contract/archive/new-contract/progress.json', JSON.stringify({ schema_version: 1,
+      contract_id: 'new-contract',
+      status: 'completed',
+      subtasks: { st1: { completed_at: new Date(now).toISOString() } },
     }));
   }
 
@@ -79,6 +98,14 @@ function makeFsMock(scenario: 'empty' | 'completed' | 'mixed' | 'recovery'): Fil
     dirs.set('/tmp/test/claws/claw1/contract/archive', [
       { name: 'c-recovery', isDirectory: true, size: 0 },
     ]);
+  } else if (scenario === 'old_and_new') {
+    dirs.set('/tmp/test/claws', [{ name: 'claw1', isDirectory: true, size: 0 }]);
+    dirs.set('/tmp/test/claws/claw1', [{ name: 'contract', isDirectory: true, size: 0 }]);
+    dirs.set('/tmp/test/claws/claw1/contract', [{ name: 'archive', isDirectory: true, size: 0 }]);
+    dirs.set('/tmp/test/claws/claw1/contract/archive', [
+      { name: 'old-contract', isDirectory: true, size: 0 },
+      { name: 'new-contract', isDirectory: true, size: 0 },
+    ]);
   } else {
     dirs.set('/tmp/test/claws', [{ name: 'claw1', isDirectory: true, size: 0 }]);
     dirs.set('/tmp/test/claws/claw1', [{ name: 'contract', isDirectory: true, size: 0 }]);
@@ -94,7 +121,7 @@ function makeFsMock(scenario: 'empty' | 'completed' | 'mixed' | 'recovery'): Fil
       throw new Error('ENOENT');
     },
     ensureDirSync: () => {},
-    writeAtomicSync: () => {},
+    writeAtomicSync: (p: string, content: string) => writes?.set(p, content),
   } as unknown as FileSystem;
 }
 
@@ -128,7 +155,7 @@ function makeOpts(overrides: Partial<{
     motionDir: '/tmp/test/motion',
     fs,
     motionAudit: overrides.motionAudit ?? makeAuditMock(),
-    notifyMotion: overrides.notifyMotion ?? vi.fn(),
+    notifyMotion: overrides.notifyMotion ?? vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -189,5 +216,67 @@ describe('Phase 542 — contract-observer deps 装配方注入', () => {
       'contractId=c-recovery',
       'context=observer_scan',
     );
+  });
+});
+
+describe('Phase 946 — contract-observer 三项根治修复', () => {
+  it('does not re-notify contracts archived before lastArchivedAt', async () => {
+    const notifyMotion = vi.fn().mockResolvedValue(undefined);
+    const fs = makeFsMock('old_and_new', undefined, {
+      version: 3,
+      lastCheckTs: 0,
+      // old-contract archivedAt = Date.now() - 86400000，设 lastArchivedAt 为 oldTs 使其被跳过
+      lastArchivedAt: Date.now() - 86400000,
+      bootstrapDone: true,
+    });
+
+    await runContractObserver({
+      clawsDir: '/tmp/test/claws',
+      clawTopology: makeMockTopology(fs, '/tmp/test/claws'),
+      motionDir: '/tmp/test/motion',
+      fs,
+      motionAudit: makeAuditMock(),
+      notifyMotion,
+    });
+
+    expect(notifyMotion).toHaveBeenCalledTimes(1);
+    expect(notifyMotion).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'contract_events', body: expect.stringContaining('new-contract') }),
+    );
+  });
+
+  it('does not update state when notifyMotion throws', async () => {
+    const writes = new Map<string, string>();
+    const fs = makeFsMock('completed', writes);
+    const notifyMotion = vi.fn().mockRejectedValue(new Error('ENOSPC'));
+
+    await expect(runContractObserver({
+      clawsDir: '/tmp/test/claws',
+      clawTopology: makeMockTopology(fs, '/tmp/test/claws'),
+      motionDir: '/tmp/test/motion',
+      fs,
+      motionAudit: makeAuditMock(),
+      notifyMotion,
+    })).rejects.toThrow('ENOSPC');
+
+    // state file 应未被写入（makeFsMock 只在 writeAtomicSync 时写 writes map）
+    expect(writes.size).toBe(0);
+  });
+
+  it('throws when state file is corrupted', async () => {
+    const fs = makeFsMock('empty');
+    vi.spyOn(fs, 'readSync').mockImplementation(() => {
+      throw new Error('EIO');
+    });
+    const audit = makeAuditMock();
+
+    await expect(runContractObserver({
+      clawsDir: '/tmp/test/claws',
+      clawTopology: makeMockTopology(fs, '/tmp/test/claws'),
+      motionDir: '/tmp/test/motion',
+      fs,
+      motionAudit: audit,
+      notifyMotion: vi.fn().mockResolvedValue(undefined),
+    })).rejects.toThrow('Observer state corrupt');
   });
 });
