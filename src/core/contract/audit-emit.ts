@@ -36,6 +36,31 @@ function assertContractIdNonEmpty(
   return true;
 }
 
+// ─── CONTRACT_MULTI_DIR ───────────────────────────────────────────────────
+export function emitContractMultiDir(
+  audit: AuditLog,
+  opts: { contractId: ContractId; dirs: string[] },
+): void {
+  audit.write(
+    CONTRACT_AUDIT_EVENTS.CONTRACT_MULTI_DIR,
+    `contractId=${opts.contractId}`,
+    `dirs=${opts.dirs.join(',')}`,
+  );
+}
+
+// ─── MULTI_ACTIVE_CONTRACTS ─────────────────────────────────────────────────
+export function emitMultiActiveContracts(
+  audit: AuditLog,
+  opts: { count: number; contractIds: ContractId[]; context: string },
+): void {
+  audit.write(
+    CONTRACT_AUDIT_EVENTS.MULTI_ACTIVE_CONTRACTS,
+    `context=${opts.context}`,
+    `count=${opts.count}`,
+    `contractIds=${opts.contractIds.join(',')}`,
+  );
+}
+
 // ─── LOCK_CLEARED ───────────────────────────────────────────────────────────
 export function emitContractLockCleared(
   audit: AuditLog,

@@ -21,6 +21,7 @@
  */
 
 import * as yaml from 'js-yaml';
+import * as path from 'path';
 import { formatErr } from "../../foundation/node-utils/index.js";
 import { newShortUuid } from '../../foundation/node-utils/index.js';
 
@@ -36,6 +37,7 @@ import {
   emitContractCancelled,
   emitContractCompletedHandlerFailed,
   emitContractArchiveStarted,
+  emitContractMultiDir,
   emitContractMoveArchiveFailed,
   emitContractUnexpectedAsyncThrow,
   emitContractRollbackFailed,
@@ -333,16 +335,20 @@ export class ContractSystem {
   // ============================================================================
 
   private async contractDir(contractId: ContractId): Promise<string> {
-    if (await this.fs.exists(`${this.activeDir}/${contractId}/progress.json`)) {
-      return this.activeDir;
+    const dirs: string[] = [];
+    for (const dir of [this.activeDir, this.pausedDir, this.archiveDir]) {
+      if (await this.fs.exists(`${dir}/${contractId}/progress.json`)) {
+        dirs.push(dir);
+      }
     }
-    if (await this.fs.exists(`${this.pausedDir}/${contractId}/progress.json`)) {
-      return this.pausedDir;
+    if (dirs.length === 0) throw new ToolError(`Contract "${contractId}" not found`);
+    if (dirs.length > 1) {
+      emitContractMultiDir(this.audit, { contractId, dirs });
+      throw new ToolError(
+        `Contract "${contractId}" exists in multiple directories: ${dirs.join(', ')}. Run contract reconciler.`,
+      );
     }
-    if (await this.fs.exists(`${this.archiveDir}/${contractId}/progress.json`)) {
-      return this.archiveDir;
-    }
-    throw new ToolError(`Contract "${contractId}" not found`);
+    return dirs[0];
   }
 
   // ============================================================================
@@ -785,11 +791,13 @@ export class ContractSystem {
     }
     const contractId = makeContractId(contractYaml.id || `${Date.now()}-${newShortUuid()}`);
 
-    // Check uniqueness against archived contracts too
-    if (await this.fs.exists(`${this.archiveDir}/${contractId}`)) {
-      throw new ContractValidationError('id', 'already_exists',
-        `contract id "${contractId}" already exists in archive`,
-        { contractId });
+    // Phase 956: check uniqueness across ALL three directories (active + paused + archive)
+    for (const dir of [this.activeDir, this.pausedDir, this.archiveDir]) {
+      if (await this.fs.exists(`${dir}/${contractId}`)) {
+        throw new ContractValidationError('id', 'already_exists',
+          `contract id "${contractId}" already exists in ${path.basename(dir)}`,
+          { contractId });
+      }
     }
 
     if (!contractYaml.subtasks || contractYaml.subtasks.length === 0) {

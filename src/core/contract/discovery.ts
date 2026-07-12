@@ -12,6 +12,7 @@ import type { Contract } from '../contract/types.js';
 import {
   emitContractProgressSchemaInvalid,
   emitContractProgressCorrupted,
+  emitMultiActiveContracts,
 } from './audit-emit.js';
 import { ContractProgressPersistedSchema } from './schemas.js';
 
@@ -23,16 +24,16 @@ export interface DiscoveryContext {
 
 interface LatestEntry { name: string; startedAt: string; }
 
-async function findLatestContract(
+async function findContractsInDir(
   ctx: DiscoveryContext,
   dir: string,
   auditContext: string,
-): Promise<LatestEntry | null> {
+): Promise<LatestEntry[]> {
   const exists = await ctx.fs.exists(dir);
-  if (!exists) return null;
+  if (!exists) return [];
 
   const entries = await ctx.fs.list(dir, { includeDirs: true });
-  let latest: LatestEntry | null = null;
+  const valid: LatestEntry[] = [];
 
   for (const entry of entries) {
     if (!entry.isDirectory) continue;
@@ -57,9 +58,7 @@ async function findLatestContract(
         continue;
       }
       const startedAt = result.data.started_at ?? '';
-      if (!latest || startedAt > latest.startedAt) {
-        latest = { name: entry.name, startedAt };
-      }
+      valid.push({ name: entry.name, startedAt });
     } catch (error) {
       // phase 1154 r+ derive: 双码 narrow via foundation helper (FileSystem 抽象层抛 FS_NOT_FOUND)
       if (!isFileNotFound(error)) {
@@ -76,6 +75,22 @@ async function findLatestContract(
     }
   }
 
+  return valid;
+}
+
+async function findLatestContract(
+  ctx: DiscoveryContext,
+  dir: string,
+  auditContext: string,
+): Promise<LatestEntry | null> {
+  const valid = await findContractsInDir(ctx, dir, auditContext);
+  if (valid.length === 0) return null;
+  let latest = valid[0];
+  for (const entry of valid) {
+    if (entry.startedAt > latest.startedAt) {
+      latest = entry;
+    }
+  }
   return latest;
 }
 
@@ -83,12 +98,40 @@ export async function loadActiveContract(
   ctx: DiscoveryContext,
   activeDir: string,
 ): Promise<Contract | null> {
-  const latest = await findLatestContract(ctx, activeDir, 'ContractSystem.loadActive');
-  if (!latest) return null;
+  const valid = await findContractsInDir(ctx, activeDir, 'ContractSystem.loadActive');
+  if (valid.length === 0) return null;
+  if (valid.length > 1) {
+    emitMultiActiveContracts(ctx.audit, {
+      context: 'ContractSystem.loadActive',
+      count: valid.length,
+      contractIds: valid.map(e => makeContractId(e.name)),
+    });
+  }
+  let latest = valid[0];
+  for (const entry of valid) {
+    if (entry.startedAt > latest.startedAt) {
+      latest = entry;
+    }
+  }
   // phase 324 C2: 不再覆盖 status——loadContract 已从 progress 派生（含 cancelled /
   // crashed / archive_pending_recovery 等终态、boot race / mid-archive 残留时不再
   // 谎报 running，下游 auditor / dialog injector / status service 不被毒化。
   return ctx.loadContract(makeContractId(latest.name));
+}
+
+export async function loadAllActiveContracts(
+  ctx: DiscoveryContext,
+  activeDir: string,
+): Promise<Array<{ name: string; startedAt: string }>> {
+  const valid = await findContractsInDir(ctx, activeDir, 'ContractSystem.loadAllActiveContracts');
+  if (valid.length > 1) {
+    emitMultiActiveContracts(ctx.audit, {
+      context: 'ContractSystem.loadAllActiveContracts',
+      count: valid.length,
+      contractIds: valid.map(e => makeContractId(e.name)),
+    });
+  }
+  return valid;
 }
 
 export async function loadPausedContract(

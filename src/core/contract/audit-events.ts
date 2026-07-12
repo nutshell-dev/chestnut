@@ -108,6 +108,10 @@ export const CONTRACT_AUDIT_EVENTS = {
   ARCHIVE_RECOVERED: 'contract_archive_recovered',
   // phase 1371 sub-3: verification pipeline mutex race rejection audit trace
   VERIFICATION_PIPELINE_RACE_REJECTED: 'verification_pipeline_race_rejected',
+  // phase 956: contract exists in multiple directories (active/paused/archive)
+  CONTRACT_MULTI_DIR: 'contract_multi_dir',
+  // phase 956: multiple active contracts detected
+  MULTI_ACTIVE_CONTRACTS: 'multi_active_contracts',
   // NEW phase 954: boot reconcile lifecycle move recovery (cancel/crash/pause/resume)
   BOOT_RECONCILE_TERMINAL_MOVED: 'contract_boot_reconcile_terminal_moved',
   BOOT_RECONCILE_TERMINAL_MOVE_FAILED: 'contract_boot_reconcile_terminal_move_failed',
@@ -254,6 +258,8 @@ export const CONTRACT_FILE_ROUTING: Readonly<Record<string, 'audit'>> = {
   contract_legacy_contract_id_field_ignored: 'audit',
   contract_observer_state_invariant_violated: 'audit',
   // phase 954: boot reconcile lifecycle move recovery events
+  contract_multi_dir: 'audit',
+  multi_active_contracts: 'audit',
   contract_boot_reconcile_terminal_moved: 'audit',
   contract_boot_reconcile_terminal_move_failed: 'audit',
   contract_boot_reconcile_paused_moved: 'audit',
