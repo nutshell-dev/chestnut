@@ -4,9 +4,14 @@
  * Tests formatRejectionFeedback (pure) + runScriptVerification path-safety & exec handling.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import * as os from 'os';
+import * as nodeFs from 'fs';
+import * as path from 'path';
 import { makeMockAudit } from '../../helpers/audit.js';
-import { formatRejectionFeedback, runScriptVerification } from '../../../src/core/contract/verification.js';
+import { formatRejectionFeedback, runScriptVerification, runLLMVerification } from '../../../src/core/contract/verification.js';
 import { ProcessExecError } from '../../../src/foundation/process-exec/index.js';
+import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
+import type { FileSystem } from '../../../src/foundation/fs/index.js';
 import type { VerificationContext } from '../../../src/core/contract/verification.js';
 
 const mockExec = vi.fn();
@@ -18,6 +23,7 @@ function makeCtx(overrides: Partial<VerificationContext> = {}): VerificationCont
     audit: makeMockAudit() as unknown as VerificationContext['audit'],
     notifyClaw: vi.fn(),
     exec: mockExec,
+    fs: { realpathSync: vi.fn((p: string) => p) } as unknown as FileSystem,
     ...overrides,
   } as VerificationContext;
 }
@@ -95,5 +101,56 @@ describe('runScriptVerification (phase 990)', () => {
     const result = await runScriptVerification(ctx, 'check.sh', '/tmp/contract');
     expect(result.passed).toBe(false);
     expect(result.feedback).toContain('超时');
+  });
+
+  it('rejects script path that is a symlink outside contract dir', async () => {
+    const contractDir = nodeFs.mkdtempSync(path.join(os.tmpdir(), 'phase963-contract-'));
+    const outsideFile = path.join(os.tmpdir(), `phase963-outside-${Date.now()}.sh`);
+    nodeFs.writeFileSync(outsideFile, '#!/bin/sh\necho evil');
+    const linkPath = path.join(contractDir, 'check.sh');
+    nodeFs.symlinkSync(outsideFile, linkPath);
+    try {
+      const ctx = makeCtx({ fs: new NodeFileSystem({ baseDir: contractDir }) });
+      const result = await runScriptVerification(ctx, 'check.sh', contractDir);
+      expect(result.passed).toBe(false);
+      expect(result.feedback).toContain('安全拒绝');
+    } finally {
+      nodeFs.rmSync(linkPath);
+      nodeFs.rmSync(outsideFile);
+      nodeFs.rmdirSync(contractDir);
+    }
+  });
+
+  it('passes signal to script execution', async () => {
+    const signal = new AbortController().signal;
+    const mockExecWithSignal = vi.fn().mockResolvedValue(undefined);
+    const ctx = makeCtx({ exec: mockExecWithSignal, signal });
+    await runScriptVerification(ctx, 'test.sh', '/tmp/contract');
+    expect(mockExecWithSignal).toHaveBeenCalledWith('sh', [expect.any(String)], expect.objectContaining({ signal }));
+  });
+});
+
+describe('runLLMVerification (phase 963)', () => {
+  it('propagates abort from LLM verification instead of returning passed:false', async () => {
+    const contractDir = nodeFs.mkdtempSync(path.join(os.tmpdir(), 'phase963-llm-'));
+    nodeFs.writeFileSync(path.join(contractDir, 'prompt.md'), '{{evidence}}');
+    const controller = new AbortController();
+    controller.abort();
+    try {
+      const ctx = makeCtx({
+        signal: controller.signal,
+        fs: new NodeFileSystem({ baseDir: contractDir }),
+        clawDir: contractDir,
+        llm: {} as VerificationContext['llm'],
+        toolRegistry: {} as VerificationContext['toolRegistry'],
+        runVerifierWithCancel: vi.fn().mockRejectedValue(new Error('AbortError')),
+      });
+      await expect(
+        runLLMVerification(ctx, 'prompt.md', contractDir, 'c1', 'st1', 'desc', 'evidence', []),
+      ).rejects.toThrow('AbortError');
+    } finally {
+      nodeFs.rmSync(path.join(contractDir, 'prompt.md'));
+      nodeFs.rmdirSync(contractDir);
+    }
   });
 });
