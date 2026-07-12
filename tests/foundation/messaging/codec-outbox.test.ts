@@ -106,7 +106,7 @@ describe('codec-outbox', () => {
     it('round-trips through encodeOutbox preserving base fields', () => {
       const msg: OutboxMessage = {
         id: 'rt-out',
-        type: 'response',
+        type: 'result',
         from: 'claw-b',
         to: 'motion',
         content: 'roundtrip outbox',
@@ -126,7 +126,7 @@ describe('codec-outbox', () => {
     it('passes through metadata fields (excluding reserved + __-prefixed)', () => {
       const msg: OutboxMessage = {
         id: 'meta-out',
-        type: 'contract_update',
+        type: 'report',
         from: 'claw-a',
         to: 'claw-b',
         content: 'body',
@@ -142,7 +142,7 @@ describe('codec-outbox', () => {
       const raw = [
         '---',
         'id: r1',
-        'type: response',
+        'type: question',
         'from: a',
         'to: b',
         'priority: normal',
@@ -164,15 +164,25 @@ describe('codec-outbox', () => {
     it('throws on missing required base fields', () => {
       expect(() => decodeOutbox('---\npriority: normal\n---\nbare')).toThrow(/missing required field: id/i);
       expect(() => decodeOutbox('---\nid: x\npriority: normal\n---\nbare')).toThrow(/missing required field: type/i);
-      expect(() => decodeOutbox('---\nid: x\ntype: response\npriority: normal\n---\nbare')).toThrow(/missing required field: from/i);
-      expect(() => decodeOutbox('---\nid: x\ntype: response\nfrom: a\npriority: normal\n---\nbare')).toThrow(/missing required field: timestamp/i);
+      expect(() => decodeOutbox('---\nid: x\ntype: report\npriority: normal\n---\nbare')).toThrow(/missing required field: from/i);
+      expect(() => decodeOutbox('---\nid: x\ntype: report\nfrom: a\npriority: normal\n---\nbare')).toThrow(/missing required field: timestamp/i);
     });
 
     it('allows empty to as broadcast', () => {
-      const raw = '---\nid: x\ntype: response\nfrom: a\npriority: normal\ntimestamp: 2026-01-01\n---\nbare';
+      const raw = '---\nid: x\ntype: error\nfrom: a\npriority: normal\ntimestamp: 2026-01-01\n---\nbare';
       const decoded = decodeOutbox(raw);
       expect(decoded.to).toBe('');
       expect(decoded.content).toBe('bare');
+    });
+
+    it('throws OutboxDecodeError for invalid type value', () => {
+      expect(() => decodeOutbox('---\nid: x\ntype: response\nfrom: a\npriority: normal\ntimestamp: 2026-01-01T00:00:00Z\n---\nbody'))
+        .toThrow(/invalid outbox type: "response"/);
+    });
+
+    it('throws OutboxDecodeError for invalid timestamp', () => {
+      expect(() => decodeOutbox('---\nid: x\ntype: report\nfrom: a\npriority: normal\ntimestamp: not-a-date\n---\nbody'))
+        .toThrow(/invalid outbox timestamp: "not-a-date"/);
     });
   });
 });
