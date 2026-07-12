@@ -13,6 +13,7 @@ import { ToolTimeoutError } from '../../foundation/tools/errors.js';
 import { formatErr } from '../../foundation/node-utils/index.js';
 import { DEFAULT_LLM_IDLE_TIMEOUT_MS } from '../../foundation/llm-orchestrator/index.js';
 import type { ContractId } from './types.js';
+import type { FileSystem } from '../../foundation/fs/index.js';
 // phase 1490: 不再传 maxSteps、VerifierConfig.maxSteps optional / undefined 透传到 SubAgent boundary fallback。
 // phase 1376: contractAbsDir is clawDir, branded
 import {
@@ -20,14 +21,29 @@ import {
   emitContractVerificationTimeout,
 } from './audit-emit.js';
 
+function checkPathContainment(fs: FileSystem, container: string, relativePath: string): string | null {
+  const resolved = path.resolve(container, relativePath);
+  let realPath: string;
+  try {
+    realPath = fs.realpathSync(resolved);
+  } catch {
+    return null; // file doesn't exist — caller decides
+  }
+  const realContainer = fs.realpathSync(container);
+  if (!realPath.startsWith(realContainer + path.sep)) {
+    return null; // outside container
+  }
+  return resolved;
+}
+
 export async function runScriptVerification(
   ctx: VerificationContext,
   scriptFile: string,
   contractAbsDir: string,
 ): Promise<VerificationResult> {
-  const resolved = path.resolve(contractAbsDir, scriptFile);
-  if (!resolved.startsWith(contractAbsDir + path.sep)) {
-    return { passed: false, feedback: `路径安全拒绝: script_file 必须在契约目录内` };
+  const resolved = checkPathContainment(ctx.fs, contractAbsDir, scriptFile);
+  if (!resolved) {
+    return { passed: false, feedback: '路径安全拒绝: script_file 必须在契约目录内（或为不可解析的 symlink）' };
   }
   emitContractVerificationScriptStarted(
     ctx.audit,
@@ -37,6 +53,7 @@ export async function runScriptVerification(
     await (ctx.exec ?? defaultExec)('sh', [resolved], {
       cwd: ctx.clawDir,
       timeout: CONTRACT_SCRIPT_TIMEOUT_MS,
+      signal: ctx.signal, // Phase 963: propagate cancellation to script execution
     });
     return { passed: true, feedback: 'Script verification passed' };
   } catch (err) {
@@ -63,8 +80,8 @@ export async function runLLMVerification(
   if (!ctx.llm) {
     return { passed: false, feedback: 'LLM 验收未配置（llm 未注入）' };
   }
-  const resolved = path.resolve(contractAbsDir, promptFile);
-  if (!resolved.startsWith(contractAbsDir + path.sep)) {
+  const resolved = checkPathContainment(ctx.fs, contractAbsDir, promptFile);
+  if (!resolved) {
     return { passed: false, feedback: '路径安全拒绝: prompt_file 必须在契约目录内' };
   }
   try {
@@ -105,6 +122,10 @@ export async function runLLMVerification(
     });
     return result;
   } catch (err) {
+    // Phase 963: abort is not a verification failure — don't convert to passed:false.
+    if (ctx.signal?.aborted || (err instanceof Error && err.name === 'AbortError')) {
+      throw err;
+    }
     if (err instanceof ToolTimeoutError) {
       return { passed: false, feedback: '验收子代理超时' };
     }
