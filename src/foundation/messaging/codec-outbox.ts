@@ -1,8 +1,8 @@
-import { newUuid } from  '../node-utils/index.js';
 import type { OutboxMessage, Priority } from '../messaging/types.js';
 import { parseFrontmatter, yamlQuote } from './codec-inbox.js';
 import { validatePriority } from './codec-validation.js';
 import { assertSafeKey } from './sanitize.js';
+import { OutboxDecodeError } from './errors.js';
 
 /**
  * Encode OutboxMessage to YAML frontmatter + body string.
@@ -57,15 +57,20 @@ export function decodeOutbox(raw: string): OutboxMessage {
     }
   }
 
+  if (!meta.id) throw new OutboxDecodeError('missing required field: id');
+  if (!meta.type) throw new OutboxDecodeError('missing required field: type');
+  if (!meta.from) throw new OutboxDecodeError('missing required field: from');
+  if (!meta.timestamp) throw new OutboxDecodeError('missing required field: timestamp');
+
   const priority = validatePriority(meta.priority) as Priority;
 
   const result: OutboxMessage = {
-    id: meta.id ?? newUuid(),
-    type: (meta.type ?? 'response') as OutboxMessage['type'],
-    from: meta.from ?? 'unknown',
+    id: meta.id,
+    type: meta.type as OutboxMessage['type'],
+    from: meta.from,
     to: meta.to ?? '',
     content: body,
-    timestamp: meta.timestamp ?? new Date().toISOString(),
+    timestamp: meta.timestamp,
     priority,
   };
 

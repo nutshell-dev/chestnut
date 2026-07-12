@@ -20,6 +20,14 @@ export class InboxMoveFailed extends Error {
   }
 }
 
+export class OutboxDecodeError extends Error {
+  readonly code = 'OUTBOX_DECODE_ERROR' as const;
+  constructor(public readonly reason: string) {
+    super(`Failed to decode outbox message: ${reason}`);
+    this.name = 'OutboxDecodeError';
+  }
+}
+
 export type InboxMetaError =
   | { kind: 'not_found'; cause: unknown }
   | { kind: 'permission_denied'; cause: unknown }  // ← NEW phase 1013 E.5

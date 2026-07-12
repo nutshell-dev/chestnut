@@ -14,7 +14,7 @@ import * as path from 'path';
 import { formatErr } from '../node-utils/index.js';
 import type { FileSystem } from '../fs/index.js';
 import { isFileNotFound } from '../fs/index.js';
-import { isAlive } from '../process-exec/index.js';
+import { isAlive, getProcessStartTime, makeProcessStartTime } from '../process-exec/index.js';
 import type { AuditLog } from '../audit/index.js';
 import { emitOutboxClaimFailed, emitOutboxListFailed, emitOutboxPeekFailed, emitOutboxProcessingOrphanCleaned } from './audit-emit.js';
 import { decodeOutbox } from './codec-outbox.js';
@@ -81,7 +81,8 @@ export class OutboxReader {
     let revertedCount = 0;
     const pendingSet = new Set(pendingEntries.map(e => e.name));
 
-    const CLAIM_TOKEN_RE = /^cli_(\d+)_[^_]+_(.+\.md)$/;
+    const CLAIM_TOKEN_RE = /^cli_(\d+)_([0-9a-f]+)_[0-9a-z]+_(.+\.md)$/i;
+    const OLD_TOKEN_RE = /^cli_(\d+)_[0-9a-z]+_(.+\.md)$/i;
     const STALE_THRESHOLD_MS = 5 * 60 * 1000;
 
     for (const entry of entries) {
@@ -89,8 +90,9 @@ export class OutboxReader {
 
       let originalName: string;
       let shouldReclaim = false;
-      const match = entry.name.match(CLAIM_TOKEN_RE);
-      if (!match) {
+      const newMatch = entry.name.match(CLAIM_TOKEN_RE);
+      const oldMatch = !newMatch ? entry.name.match(OLD_TOKEN_RE) : null;
+      if (!newMatch && !oldMatch) {
         // Legacy format (pre-Phase 908): no PID, use mtime-based heuristic.
         originalName = entry.name.replace(/^cli_[^_]+_/, '');
         const sourcePath = path.join(processingDir, entry.name);
@@ -109,9 +111,20 @@ export class OutboxReader {
         if (Date.now() - mtime >= STALE_THRESHOLD_MS) {
           shouldReclaim = true;
         }
+      } else if (newMatch) {
+        const pid = parseInt(newMatch[1], 10);
+        const startTimeHex = newMatch[2];
+        originalName = newMatch[3];
+        const startTime = startTimeHex === '0'
+          ? undefined
+          : makeProcessStartTime(Buffer.from(startTimeHex, 'hex').toString('utf8'));
+        if (!isAlive(pid, startTime)) {
+          shouldReclaim = true;
+        }
       } else {
-        const pid = parseInt(match[1], 10);
-        originalName = match[2];
+        // Old token format (pre-Phase 928): PID + shortUuid, no startTime.
+        const pid = parseInt(oldMatch![1], 10);
+        originalName = oldMatch![2];
         if (!isAlive(pid)) {
           shouldReclaim = true;
         }
@@ -246,7 +259,9 @@ export class OutboxReader {
     const fileName = filenames[0]; // oldest first
     const pendingDir = path.join(clawDir, OUTBOX_PENDING_DIR);
     const processingDir = path.join(clawDir, OUTBOX_PROCESSING_DIR);
-    const claimToken = `cli_${process.pid}_${newShortUuid()}`;
+    const startTime = getProcessStartTime(process.pid);
+    const startTimeHex = startTime ? Buffer.from(startTime).toString('hex') : '0';
+    const claimToken = `cli_${process.pid}_${startTimeHex}_${newShortUuid()}`;
     const relPendingPath = path.join(pendingDir, fileName);
     const relClaimedPath = path.join(processingDir, `${claimToken}_${fileName}`);
 
@@ -302,10 +317,26 @@ export class OutboxReader {
    * @param originalFilename original pending filename (for audit trail)
    */
   async markDone(clawDir: string, claimPath: string, originalFilename: string): Promise<void> {
-    const processingFullPath = path.join(clawDir, claimPath);
+    const normalizedClaimPath = path.normalize(claimPath);
+    const processingPrefix = path.join(OUTBOX_PROCESSING_DIR) + path.sep;
+    if (
+      normalizedClaimPath === '..' ||
+      normalizedClaimPath.startsWith('..' + path.sep) ||
+      normalizedClaimPath.startsWith('../') ||
+      !normalizedClaimPath.startsWith(processingPrefix)
+    ) {
+      throw new Error(`Path traversal detected in claimPath: "${claimPath}"`);
+    }
+
+    const safeOriginal = path.basename(originalFilename);
+    if (!safeOriginal.endsWith('.md') || safeOriginal.includes('..')) {
+      throw new Error(`Invalid originalFilename: "${originalFilename}"`);
+    }
+
+    const processingFullPath = path.join(clawDir, normalizedClaimPath);
     const doneDir = path.join(clawDir, OUTBOX_DONE_DIR);
     await this.fs.ensureDir(doneDir);
-    const donePath = path.join(doneDir, `${Date.now()}_${originalFilename}`);
+    const donePath = path.join(doneDir, `${Date.now()}_${safeOriginal}`);
     await this.fs.move(processingFullPath, donePath);
     emitOutboxDelivered(this.audit, {
       file: originalFilename,
