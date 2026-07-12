@@ -19,6 +19,7 @@ import {
 } from './audit-emit.js';
 import { assertMessageShape } from './invariants.js';
 import { getSharedSequenceCounter, formatSeq } from './sequence-counter.js';
+import type { SequenceCounter } from './sequence-counter.js';
 type Result<T, E> =
   | { ok: true; value: T }
   | { ok: false; error: E };
