@@ -136,6 +136,12 @@ export async function routeNotifyClawAsync(
     : path.join(chestnutRoot, CLAWS_DIR, targetClawId);
   const targetInboxDir = path.join(targetClawRoot, INBOX_PENDING_DIR);
 
+  // phase 943: TOCTOU guard — the caller's exist-check may race with deletion/recreation.
+  // Verify the target root actually exists before writing so we do not recreate an orphan claw directory.
+  if (!fs.existsSync(targetClawRoot)) {
+    throw new Error(`Target claw root does not exist: ${targetClawRoot}`);
+  }
+
   // phase 936/937 mirror: containment + suffix checks before write
   const resolvedInbox = fs.resolve(targetInboxDir);
   const resolvedRoot = fs.resolve(targetClawRoot);

@@ -94,17 +94,19 @@ export function createNotifyClawTool(deps: NotifyClawDeps): Tool {
         return { success: false, content: `Failed to notify ${to}: invalid claw id` };
       }
 
-      // phase 241:前置 exist check — target claw 不存在时不调 wrapper、显式失败
-      if (!deps.clawExists(to)) {
-        deps.audit.write(
-          MESSAGING_AUDIT_EVENTS.NOTIFY_CLAW_FAILED,
-          `claw=${to}`,
-          `reason=claw_not_found`,
-        );
-        return { success: false, content: `Failed to notify ${to}: claw "${to}" does not exist` };
-      }
-
+      // phase 943: unified boundary — clawExists throw, notifyClaw throw, and path validation throw
+      // are all handled in the same catch block.
       try {
+        // phase 241:前置 exist check — target claw 不存在时不调 wrapper、显式失败
+        if (!deps.clawExists(to)) {
+          deps.audit.write(
+            MESSAGING_AUDIT_EVENTS.NOTIFY_CLAW_FAILED,
+            `claw=${to}`,
+            `reason=claw_not_found`,
+          );
+          return { success: false, content: `Failed to notify ${to}: claw "${to}" does not exist` };
+        }
+
         await deps.notifyClaw(to, {
           type,
           source: deps.defaultSource,
@@ -125,6 +127,7 @@ export function createNotifyClawTool(deps: NotifyClawDeps): Tool {
       }
 
       // notify succeeded — audit SENT
+      // Phase 943: SENT audit failure must NOT reverse a successful delivery.
       try {
         deps.audit.write(
           MESSAGING_AUDIT_EVENTS.NOTIFY_CLAW_SENT,
@@ -132,17 +135,12 @@ export function createNotifyClawTool(deps: NotifyClawDeps): Tool {
           `type=${type}`,
           `interrupt=${interrupt}`,
         );
-      } catch (error) {
-        const reason = formatErr(error);
-        deps.audit.write(
-          MESSAGING_AUDIT_EVENTS.NOTIFY_CLAW_FAILED,
-          `claw=${to}`,
-          `reason=${reason}`,
+      } catch (auditErr) {
+        // Audit failure does NOT invalidate successful delivery.
+        // Use fallback logging so operators can still discover the audit gap.
+        process.stderr.write(
+          `[notify_claw] SENT audit failed after successful delivery to ${to}: ${formatErr(auditErr)}\n`,
         );
-        return {
-          success: false,
-          content: `Failed to notify ${to}: ${reason}`,
-        };
       }
 
       // hint queries (best-effort, separate try/catch)

@@ -225,9 +225,7 @@ const defaultDeps = {
   });
 
   describe('phase 898: independent error paths', () => {
-    it('audit.write throws on SENT emit → catch path emits FAILED with audit reason + file already written (orphan state)', async () => {
-      // 副发现 4 cross-ref: catch 内 audit 二次抛 silent propagate / 单点 silent X 候选
-      // NOTIFY_CLAW_SENT 抛 → 进 catch → catch 内 audit.write(FAILED) 不 throw（仅 SENT throw mock）→ return success=false
+    it('audit.write throws on SENT emit → delivery remains success + fallback stderr (Phase 943: audit does not reverse delivery)', async () => {
       const failAudit = {
         write: vi.fn((event: string) => {
           if (event === MESSAGING_AUDIT_EVENTS.NOTIFY_CLAW_SENT) {
@@ -238,35 +236,40 @@ const defaultDeps = {
 
       const tool = makeTool(failAudit);
 
+      const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
       let caught: Error | undefined;
+      let result: any;
       try {
-        await tool.execute({ to: targetClaw, body: 'audit will fail on SENT' }, motionCtx);
+        result = await tool.execute({ to: targetClaw, body: 'audit will fail on SENT' }, motionCtx);
       } catch (e) {
         caught = e as Error;
       }
 
-      // SENT path audit throw → 被 catch 抓住 / execute 返回 success=false（不 bubble 至 caller）
+      // Phase 943: SENT audit throw is swallowed; delivery remains committed and success=true.
       expect(caught).toBeUndefined();
+      expect(result.success).toBe(true);
+      expect(result.content).toMatch(/Notified worker-1: message \(interrupt=true\)/);
 
-      // 实然：write 调 3 次（INBOX_WRITTEN + SENT throw + FAILED 补救 emit）
-      expect((failAudit.write as any).mock.calls.length).toBeGreaterThanOrEqual(3);
-
-      // INBOX_WRITTEN 路径首调（InboxWriter.writeSync 内部）
+      // INBOX_WRITTEN + SENT attempts; no FAILED audit emitted for SENT failure.
+      expect((failAudit.write as any).mock.calls.length).toBeGreaterThanOrEqual(2);
       expect((failAudit.write as any).mock.calls[0][0]).toBe(MESSAGING_AUDIT_EVENTS.INBOX_WRITTEN);
-
-      // SENT 路径第二调
       expect((failAudit.write as any).mock.calls[1][0]).toBe(MESSAGING_AUDIT_EVENTS.NOTIFY_CLAW_SENT);
-
-      // FAILED 路径补救 emit（catch 抓 SENT throw 后调）
       const failedCalls = (failAudit.write as any).mock.calls.filter(
         (c: any[]) => c[0] === MESSAGING_AUDIT_EVENTS.NOTIFY_CLAW_FAILED,
       );
-      expect(failedCalls.length).toBe(1);
-      expect(failedCalls[0]).toContainEqual(expect.stringMatching(/reason=.*audit disk full/));
+      expect(failedCalls.length).toBe(0);
 
-      // file 实际写入（writeSync 早于 audit.write SENT、ensureDir + writeAtomicSync 已成功）→ orphan file
+      // Fallback stderr so operators can discover the audit gap.
+      expect(stderrSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[notify_claw] SENT audit failed after successful delivery to worker-1: audit disk full'),
+      );
+
+      // file 实际写入（writeSync 早于 audit.write SENT、ensureDir + writeAtomicSync 已成功）
       const files = await fs.list(path.join('claws', targetClaw, 'inbox', 'pending'));
-      expect(files.length).toBe(1);   // 副发现 4 同根：SENT audit throw → file 已写 + FAILED audit emit / inconsistent state
+      expect(files.length).toBe(1);
+
+      stderrSpy.mockRestore();
     });
   });
 

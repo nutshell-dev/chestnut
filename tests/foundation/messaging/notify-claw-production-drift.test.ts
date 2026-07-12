@@ -31,9 +31,8 @@ describe('notify_claw production drift regression (phase 1021)', () => {
     await cleanupTempDir(tempDir);
   });
 
-  // 反向 1: phase 241 后 clawExists 为 callback、drift 场景由 callback 实现者负责
-  // 本测试验证：clawExists callback throw → execute escape、NOTIFY_CLAW_FAILED 0 emit
-  it('production drift detection: clawExists callback throws → execute escape + audit 0 emit', async () => {
+  // 反向 1: phase 943 后 clawExists throw 被统一边界 catch → 审计 + ToolResult
+  it('production drift detection: clawExists callback throws → unified boundary emits FAILED + returns ToolResult', async () => {
     const workspaceRoot = tempDir;
     const chestnutDir = path.join(workspaceRoot, '.chestnut');
     await new NodeFileSystem({ baseDir: workspaceRoot }).ensureDir('.chestnut/claws/worker-1');
@@ -51,13 +50,15 @@ describe('notify_claw production drift regression (phase 1021)', () => {
       audit: audit.audit,
     });
 
-    await expect(
-      tool.execute({ to: 'worker-1', body: 'hello' }, {} as any)
-    ).rejects.toThrow(/drift detected/);
+    const result = await tool.execute({ to: 'worker-1', body: 'hello' }, {} as any);
 
-    // NOTIFY_CLAW_FAILED audit 0 emit (throw 在 try 之外)
+    // Phase 943: clawExists throw is caught inside the unified boundary and converted to a ToolResult.
+    expect(result.success).toBe(false);
+    expect(result.content).toMatch(/Failed to notify worker-1: drift detected/);
+
     const failedRows = audit.events.filter(r => r[0] === MESSAGING_AUDIT_EVENTS.NOTIFY_CLAW_FAILED);
-    expect(failedRows.length).toBe(0);
+    expect(failedRows.length).toBe(1);
+    expect(failedRows[0]).toContain('reason=drift detected');
     const sentRows = audit.events.filter(r => r[0] === MESSAGING_AUDIT_EVENTS.NOTIFY_CLAW_SENT);
     expect(sentRows.length).toBe(0);
   });
