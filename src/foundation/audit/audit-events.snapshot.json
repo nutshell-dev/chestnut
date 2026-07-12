@@ -794,6 +794,7 @@
       "messaging_message_invariant_violated",
       "messaging_unknown_destination_dlq",
       "notify_claw_failed",
+      "notify_claw_hint_failed",
       "notify_claw_sent",
       "outbox_body_oversize",
       "outbox_claim_failed",

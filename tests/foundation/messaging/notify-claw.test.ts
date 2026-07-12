@@ -5,7 +5,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as path from 'node:path';
 import { createNotifyClawTool, NOTIFY_CLAW_TOOL_NAME } from '../../../src/core/claw-topology/tools/notify-claw.js';
-import { routeNotifyClaw } from '../../../src/core/claw-topology/index.js';
+import { routeNotifyClawAsync } from '../../../src/core/claw-topology/index.js';
 import { formatClawStatusHint } from '../../../src/cli/commands/claw-shared.js';
 import { MESSAGING_AUDIT_EVENTS } from '../../../src/foundation/messaging/audit-events.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
@@ -37,8 +37,8 @@ function makeTool(auditLog: any, overrides: Record<string, unknown> = {}) {
   return createNotifyClawTool({
     ...defaultDeps,
     fs,
-    notifyClaw: (targetClawId: string, message: any) =>
-      routeNotifyClaw(fs, tempDir, 'motion', targetClawId, message, auditLog),
+    notifyClaw: async (targetClawId: string, message: any) =>
+      routeNotifyClawAsync(fs, tempDir, 'motion', targetClawId, message, auditLog),
     audit: auditLog,
     ...overrides,
   });
@@ -49,17 +49,18 @@ const defaultDeps = {
     clawExists: () => true,
     hasActiveContract: () => false,
     defaultSource: 'motion',
+    authorized: true,
   };
 
   describe('schema + identity', () => {
     it('tool name = notify_claw', () => {
-      const tool = createNotifyClawTool({ ...defaultDeps, fs, notifyClaw: (targetClawId, message) => routeNotifyClaw(fs, tempDir, 'motion', targetClawId, message, audit.audit), audit: audit.audit });
+      const tool = createNotifyClawTool({ ...defaultDeps, fs, notifyClaw: async (targetClawId, message) => routeNotifyClawAsync(fs, tempDir, 'motion', targetClawId, message, audit.audit), audit: audit.audit });
       expect(tool.name).toBe('notify_claw');
       expect(tool.name).toBe(NOTIFY_CLAW_TOOL_NAME);
     });
 
     it('schema required = to + body', () => {
-      const tool = createNotifyClawTool({ ...defaultDeps, fs, notifyClaw: (targetClawId, message) => routeNotifyClaw(fs, tempDir, 'motion', targetClawId, message, audit.audit), audit: audit.audit });
+      const tool = createNotifyClawTool({ ...defaultDeps, fs, notifyClaw: async (targetClawId, message) => routeNotifyClawAsync(fs, tempDir, 'motion', targetClawId, message, audit.audit), audit: audit.audit });
       expect(tool.schema.required).toEqual(['to', 'body']);
       expect(tool.schema.properties).toHaveProperty('to');
       expect(tool.schema.properties).toHaveProperty('body');
@@ -68,7 +69,7 @@ const defaultDeps = {
     });
 
     it('readonly=false + idempotent=false（motion-only push write tool）', () => {
-      const tool = createNotifyClawTool({ ...defaultDeps, fs, notifyClaw: (targetClawId, message) => routeNotifyClaw(fs, tempDir, 'motion', targetClawId, message, audit.audit), audit: audit.audit });
+      const tool = createNotifyClawTool({ ...defaultDeps, fs, notifyClaw: async (targetClawId, message) => routeNotifyClawAsync(fs, tempDir, 'motion', targetClawId, message, audit.audit), audit: audit.audit });
       expect(tool.readonly).toBe(false);
       expect(tool.idempotent).toBe(false);
     });
@@ -266,6 +267,62 @@ const defaultDeps = {
       // file 实际写入（writeSync 早于 audit.write SENT、ensureDir + writeAtomicSync 已成功）→ orphan file
       const files = await fs.list(path.join('claws', targetClaw, 'inbox', 'pending'));
       expect(files.length).toBe(1);   // 副发现 4 同根：SENT audit throw → file 已写 + FAILED audit emit / inconsistent state
+    });
+  });
+
+  describe('phase 942: async throwing callback + hint isolation', () => {
+    it('notifyClaw callback rejects → tool reports failure + NOTIFY_CLAW_FAILED audit', async () => {
+      const tool = createNotifyClawTool({
+        ...defaultDeps,
+        fs,
+        notifyClaw: async () => { throw new Error('disk full'); },
+        audit: audit.audit,
+      });
+      const result = await tool.execute({ to: targetClaw, body: 'hello' }, motionCtx);
+
+      expect(result.success).toBe(false);
+      expect(result.content).toMatch(/Failed to notify worker-1: disk full/);
+
+      const failedRows = audit.events.filter(r => r[0] === MESSAGING_AUDIT_EVENTS.NOTIFY_CLAW_FAILED);
+      expect(failedRows.length).toBe(1);
+      expect(failedRows[0]).toContain('reason=disk full');
+      expect(audit.events.filter(r => r[0] === MESSAGING_AUDIT_EVENTS.NOTIFY_CLAW_SENT).length).toBe(0);
+    });
+
+    it('hint query throws after successful notify → tool still succeeds + NOTIFY_CLAW_HINT_FAILED audit', async () => {
+      const tool = createNotifyClawTool({
+        ...defaultDeps,
+        fs,
+        notifyClaw: async (targetClawId, message) =>
+          routeNotifyClawAsync(fs, tempDir, 'motion', targetClawId, message, audit.audit),
+        audit: audit.audit,
+        isClawAlive: () => { throw new Error('hint boom'); },
+      });
+      const result = await tool.execute({ to: targetClaw, body: 'hello' }, motionCtx);
+
+      expect(result.success).toBe(true);
+      expect(result.content).toMatch(/Notified worker-1: message \(interrupt=true\)/);
+
+      const sentRows = audit.events.filter(r => r[0] === MESSAGING_AUDIT_EVENTS.NOTIFY_CLAW_SENT);
+      expect(sentRows.length).toBe(1);
+      const hintFailedRows = audit.events.filter(r => r[0] === MESSAGING_AUDIT_EVENTS.NOTIFY_CLAW_HINT_FAILED);
+      expect(hintFailedRows.length).toBe(1);
+      expect(hintFailedRows[0]).toContain('reason=hint boom');
+    });
+
+    it('omitted authorized defaults to false → tool rejects as motion-only', async () => {
+      const tool = createNotifyClawTool({
+        ...defaultDeps,
+        authorized: undefined,
+        fs,
+        notifyClaw: async (targetClawId, message) =>
+          routeNotifyClawAsync(fs, tempDir, 'motion', targetClawId, message, audit.audit),
+        audit: audit.audit,
+      });
+      const result = await tool.execute({ to: targetClaw, body: 'hello' }, motionCtx);
+
+      expect(result.success).toBe(false);
+      expect(result.content).toBe('notify_claw is motion-only');
     });
   });
 

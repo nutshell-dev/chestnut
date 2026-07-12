@@ -16,7 +16,9 @@ describe('phase 894 NEW.P0.1 — notify_claw profile advertise pipeline', () => 
     const fakeAudit = { write: () => {} } as any;
     registry.register(createNotifyClawTool({
       fs: fakeFs,
+      notifyClaw: async () => undefined,
       defaultSource: 'motion',
+      authorized: true,
       audit: fakeAudit,
       isClawAlive: () => true,
       formatClawStatusHint: () => undefined,
@@ -37,7 +39,9 @@ describe('phase 894 NEW.P0.1 — notify_claw profile advertise pipeline', () => 
     const fakeAudit = { write: () => {} } as any;
     registry.register(createNotifyClawTool({
       fs: fakeFs,
+      notifyClaw: async () => undefined,
       defaultSource: 'motion',
+      authorized: true,
       audit: fakeAudit,
       isClawAlive: () => true,
       formatClawStatusHint: () => undefined,

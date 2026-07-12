@@ -14,7 +14,7 @@ import { createNotifyClawTool } from '../../../src/core/claw-topology/tools/noti
 import { formatClawStatusHint } from '../../../src/cli/commands/claw-shared.js';
 import { MESSAGING_AUDIT_EVENTS } from '../../../src/foundation/messaging/audit-events.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
-import { routeNotifyClaw } from '../../../src/core/claw-topology/index.js';
+import { routeNotifyClawAsync } from '../../../src/core/claw-topology/index.js';
 import { makeAudit } from '../../helpers/audit.js';
 import { createTempDir, cleanupTempDir } from '../../utils/temp.js';
 
@@ -45,8 +45,9 @@ describe('notify_claw production drift regression (phase 1021)', () => {
       clawExists: () => { throw new Error('drift detected'); },
       hasActiveContract: () => false,
       defaultSource: 'motion',
+      authorized: true,
       fs: correctFs,
-      notifyClaw: (targetClawId, message) => routeNotifyClaw(correctFs, chestnutDir, 'motion', targetClawId, message, audit.audit),
+      notifyClaw: async (targetClawId, message) => routeNotifyClawAsync(correctFs, chestnutDir, 'motion', targetClawId, message, audit.audit),
       audit: audit.audit,
     });
 
@@ -75,8 +76,9 @@ describe('notify_claw production drift regression (phase 1021)', () => {
       clawExists: () => true,
       hasActiveContract: () => false,
       defaultSource: 'motion',
+      authorized: true,
       fs: correctFs,
-      notifyClaw: (targetClawId, message) => routeNotifyClaw(correctFs, chestnutDir, 'motion', targetClawId, message, audit.audit),
+      notifyClaw: async (targetClawId, message) => routeNotifyClawAsync(correctFs, chestnutDir, 'motion', targetClawId, message, audit.audit),
       audit: audit.audit,
     });
     const result = await tool.execute({ to: 'worker-1', body: 'hello' }, {} as any);
@@ -100,8 +102,9 @@ describe('notify_claw production drift regression (phase 1021)', () => {
       clawExists: () => false,
       hasActiveContract: () => false,
       defaultSource: 'motion',
+      authorized: true,
       fs: correctFs,
-      notifyClaw: (targetClawId, message) => routeNotifyClaw(correctFs, chestnutDir, 'motion', targetClawId, message, audit.audit),
+      notifyClaw: async (targetClawId, message) => routeNotifyClawAsync(correctFs, chestnutDir, 'motion', targetClawId, message, audit.audit),
       audit: audit.audit,
     });
     const result = await tool.execute({ to: 'worker-1', body: 'hello' }, {} as any);

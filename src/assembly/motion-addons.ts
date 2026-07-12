@@ -6,7 +6,7 @@
  * phase 34 Step D：从 assemble() 抽出步骤 16-17（motion-only addons）。
  */
 
-import { resolveChestnutRoot, routeNotifyClaw, getRelativeClawDir } from '../core/claw-topology/index.js';
+import { resolveChestnutRoot, routeNotifyClaw, routeNotifyClawAsync, getRelativeClawDir } from '../core/claw-topology/index.js';
 import { AUDIT_FILE } from '../foundation/audit/index.js';
 import path from 'path';
 import { formatErr } from '../foundation/node-utils/index.js';
@@ -92,8 +92,8 @@ export async function createMotionAddons(
   const chestnutRoot = resolveChestnutRoot(clawDir, true);  // phase 241: hoist for callbacks
   toolRegistry.register(createNotifyClawTool({
     fs: parentFs,
-    notifyClaw: (targetClawId, message) =>
-      routeNotifyClaw(parentFs, chestnutRoot, MOTION_CLAW_ID, targetClawId, message, auditWriter),
+    notifyClaw: async (targetClawId, message) =>
+      routeNotifyClawAsync(parentFs, chestnutRoot, MOTION_CLAW_ID, targetClawId, message, auditWriter),
     defaultSource: MOTION_CLAW_ID,
     authorized: true,
     audit: auditWriter,

@@ -81,8 +81,9 @@ describe('shadow DI restrictions (phase 807)', () => {
     mainRegistry.register(new SummonTool());
     mainRegistry.register(createNotifyClawTool({
       fs,
-      notifyClaw: vi.fn(),
+      notifyClaw: vi.fn().mockResolvedValue(undefined),
       defaultSource: 'motion',
+      authorized: true,
       audit: audit.audit,
       isClawAlive: () => true,
       formatClawStatusHint: () => undefined,

@@ -2,6 +2,7 @@ export { createClawTopology } from './topology.js';
 export { MOTION_CLAW_ID } from './motion-claw-id.js';
 export {
   routeNotifyClaw,
+  routeNotifyClawAsync,
   CLAWS_DIR,
   enumerateClaws,
   getClawDir,

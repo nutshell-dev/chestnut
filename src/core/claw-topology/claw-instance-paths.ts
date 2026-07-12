@@ -12,6 +12,7 @@ import * as path from 'path';
 import type { FileSystem } from '../../foundation/fs/index.js';
 import { INBOX_PENDING_DIR, resolveDlqDir } from '../../foundation/messaging/index.js';
 import { notifyClaw } from '../../foundation/messaging/notify.js';
+import { InboxWriter, makeInboxPath } from '../../foundation/messaging/inbox-writer.js';
 import type { InboxMessageOptionsBase } from '../../foundation/messaging/inbox-writer.js';
 import type { AuditLog } from '../../foundation/audit/index.js';
 
@@ -114,4 +115,46 @@ export function routeNotifyClaw(
   const targetInboxDir = path.join(targetClawRoot, INBOX_PENDING_DIR);
   const dlqDir = isMotion ? undefined : resolveDlqDir(path.join(chestnutRoot, motionClawId, 'inbox'));
   notifyClaw(fs, targetClawRoot, targetInboxDir, dlqDir, message, audit);
+}
+
+/**
+ * phase 942: async throwing variant for notify_claw tool.
+ * Wraps InboxWriter.writeSync so disk failures propagate to the tool (no silent swallow).
+ * Caller (tool) already validates claw existence; this variant skips DLQ routing.
+ */
+export async function routeNotifyClawAsync(
+  fs: FileSystem,
+  chestnutRoot: string,
+  motionClawId: string,
+  targetClawId: string,
+  message: InboxMessageOptionsBase,
+  audit: AuditLog,
+): Promise<void> {
+  const isMotion = targetClawId === motionClawId;
+  const targetClawRoot = isMotion
+    ? path.join(chestnutRoot, motionClawId)
+    : path.join(chestnutRoot, CLAWS_DIR, targetClawId);
+  const targetInboxDir = path.join(targetClawRoot, INBOX_PENDING_DIR);
+
+  // phase 936/937 mirror: containment + suffix checks before write
+  const resolvedInbox = fs.resolve(targetInboxDir);
+  const resolvedRoot = fs.resolve(targetClawRoot);
+  const rootPrefix = resolvedRoot.endsWith(path.sep) ? resolvedRoot : resolvedRoot + path.sep;
+  const normalizedInbox = path.normalize(resolvedInbox);
+  if (normalizedInbox !== resolvedRoot && !normalizedInbox.startsWith(rootPrefix)) {
+    throw new Error(
+      `notifyClaw: targetInboxDir "${targetInboxDir}" is not within targetClawRoot "${targetClawRoot}"`,
+    );
+  }
+  const expectedSuffix = path.normalize(INBOX_PENDING_DIR);
+  if (
+    !normalizedInbox.endsWith(expectedSuffix) &&
+    normalizedInbox !== resolvedRoot + path.sep + expectedSuffix
+  ) {
+    throw new Error(
+      `notifyClaw: targetInboxDir must be <root>/inbox/pending, got "${targetInboxDir}"`,
+    );
+  }
+
+  InboxWriter.__internal_create(fs, makeInboxPath(targetInboxDir), audit).writeSync(message);
 }

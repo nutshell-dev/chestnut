@@ -22,7 +22,7 @@ export interface NotifyClawDeps {
   /**
    * phase 705: caller-provided delivery callback；L4+ caller 负责解析 chestnut 拓扑路径。
    */
-  notifyClaw: (targetClawId: string, message: InboxMessageOptionsBase) => void;
+  notifyClaw: (targetClawId: string, message: InboxMessageOptionsBase) => Promise<void>;
   /**
    * phase 550: caller-provided source identity for outgoing notifications + 透传 notifyClaw 的源 arg。
    * (e.g. MOTION_CLAW_ID).
@@ -105,31 +105,12 @@ export function createNotifyClawTool(deps: NotifyClawDeps): Tool {
       }
 
       try {
-        deps.notifyClaw(to, {
+        await deps.notifyClaw(to, {
           type,
           source: deps.defaultSource,
           priority,
           body,
         });
-        deps.audit.write(
-          MESSAGING_AUDIT_EVENTS.NOTIFY_CLAW_SENT,
-          `claw=${to}`,
-          `type=${type}`,
-          `interrupt=${interrupt}`,
-        );
-        const isAlive = deps.isClawAlive(to);
-        const statusHint = deps.formatClawStatusHint(to, isAlive);
-        // phase 241: active contract hint — alive but no active contract → remind caller
-        const contractHint = isAlive && !deps.hasActiveContract(to)
-          ? `No active contract for "${to}". Ask claw to reply via send tool in message body.`
-          : undefined;
-        const hints = [statusHint, contractHint].filter(Boolean);
-        const baseContent = `Notified ${to}: ${type} (interrupt=${interrupt})`;
-        const content = hints.length > 0 ? `${baseContent}. ${hints.join('. ')}` : baseContent;
-        return {
-          success: true,
-          content,
-        };
       } catch (error) {
         const reason = formatErr(error);
         deps.audit.write(
@@ -142,8 +123,54 @@ export function createNotifyClawTool(deps: NotifyClawDeps): Tool {
           content: `Failed to notify ${to}: ${reason}`,
         };
       }
+
+      // notify succeeded — audit SENT
+      try {
+        deps.audit.write(
+          MESSAGING_AUDIT_EVENTS.NOTIFY_CLAW_SENT,
+          `claw=${to}`,
+          `type=${type}`,
+          `interrupt=${interrupt}`,
+        );
+      } catch (error) {
+        const reason = formatErr(error);
+        deps.audit.write(
+          MESSAGING_AUDIT_EVENTS.NOTIFY_CLAW_FAILED,
+          `claw=${to}`,
+          `reason=${reason}`,
+        );
+        return {
+          success: false,
+          content: `Failed to notify ${to}: ${reason}`,
+        };
+      }
+
+      // hint queries (best-effort, separate try/catch)
+      const hints: string[] = [];
+      try {
+        const isAlive = deps.isClawAlive(to);
+        const statusHint = deps.formatClawStatusHint(to, isAlive);
+        if (statusHint) hints.push(statusHint);
+        // phase 241: active contract hint — alive but no active contract → remind caller
+        if (isAlive && !deps.hasActiveContract(to)) {
+          hints.push(`No active contract for "${to}". Ask claw to reply via send tool in message body.`);
+        }
+      } catch (hintErr) {
+        deps.audit.write(
+          MESSAGING_AUDIT_EVENTS.NOTIFY_CLAW_HINT_FAILED,
+          `claw=${to}`,
+          `reason=${formatErr(hintErr)}`,
+        );
+      }
+
+      const baseContent = `Notified ${to}: ${type} (interrupt=${interrupt})`;
+      const content = hints.length > 0 ? `${baseContent}. ${hints.join('. ')}` : baseContent;
+      return {
+        success: true,
+        content,
+      };
     },
-    authorized: deps.authorized ?? true,
+    authorized: deps.authorized ?? false,
     restrictedOverrides: { authorized: false },
   };
   return tool;
