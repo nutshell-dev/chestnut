@@ -2,6 +2,7 @@ import { newUuid } from  '../node-utils/index.js';
 import type { OutboxMessage, Priority } from '../messaging/types.js';
 import { parseFrontmatter, yamlQuote } from './codec-inbox.js';
 import { validatePriority } from './codec-validation.js';
+import { assertSafeKey } from './sanitize.js';
 
 /**
  * Encode OutboxMessage to YAML frontmatter + body string.
@@ -23,12 +24,13 @@ export function encodeOutbox(msg: OutboxMessage): string {
     const reserved = new Set(['id', 'type', 'from', 'to', 'priority', 'timestamp']);
     for (const [k, v] of Object.entries(msg.metadata)) {
       if (!reserved.has(k)) {
+        assertSafeKey(k);
         lines.push(`${k}: ${yamlQuote(v)}`);
       }
     }
   }
 
-  lines.push('---', '', msg.content, '');
+  lines.push('---', msg.content);
   return lines.join('\n');
 }
 

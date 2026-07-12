@@ -59,6 +59,9 @@ export function parseFrontmatterFrame(
     meta[key] = value;
   }
 
-  const body = useEofClose ? '' : afterOpen.slice(closeIdx + bodySliceOffset).trim();
+  const rawBody = useEofClose ? '' : afterOpen.slice(closeIdx + bodySliceOffset);
+  // Only remove the single newline that separates the `---` delimiter from body content.
+  // Preserve all user whitespace — leading spaces, trailing newlines, blank lines.
+  const body = rawBody.startsWith('\n') ? rawBody.slice(1) : rawBody;
   return { meta, body };
 }

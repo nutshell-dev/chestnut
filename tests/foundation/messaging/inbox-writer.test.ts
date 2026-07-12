@@ -175,3 +175,37 @@ describe('InboxWriter', () => {
     }
   });
 });
+
+
+describe('InboxWriter boundary safety (phase 910)', () => {
+  let testDir: string;
+  let nfs: NodeFileSystem;
+  let writer: InboxWriter;
+
+  beforeEach(async () => {
+    testDir = path.join(tmpdir(), `inbox-writer-${randomUUID()}`);
+    await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
+    await fs.mkdir(testDir, { recursive: true });
+    nfs = new NodeFileSystem({ baseDir: testDir });
+    const audit = { write() { /* noop */ } };
+    writer = InboxWriter.__internal_create(nfs, makeInboxPath(INBOX_PENDING_DIR), audit);
+  });
+
+  afterEach(async () => {
+    await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
+  });
+
+  it('write rejects path traversal in from field', async () => {
+    const msg: InboxMessage = {
+      id: 'x', type: 'message', from: '../../etc', to: 'claw',
+      content: 'x', priority: 'normal', timestamp: new Date().toISOString(),
+    };
+    await expect(writer.write(msg)).rejects.toThrow(/Invalid message identifier/);
+  });
+
+  it('writeSync rejects path traversal in source field', () => {
+    expect(() =>
+      writer.writeSync({ type: 'ping', source: 'a/b', priority: 'normal', body: 'x' }),
+    ).toThrow(/Invalid message identifier/);
+  });
+});

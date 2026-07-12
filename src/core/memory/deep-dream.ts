@@ -360,7 +360,7 @@ async function persistDreamRun(
   notifyInbox(ctx.clawFs, {
     inboxDir: INBOX_PENDING_DIR,
     type: 'deep_dream',
-    source: 'cron:dream',
+    source: 'cron-dream',
     priority: 'low',
     body: dreamOutput,
     idPrefix: `${Date.now()}_deep_dream`,

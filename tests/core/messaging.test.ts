@@ -29,11 +29,8 @@ from: ${msg.from}
 to: ${msg.to}
 priority: ${msg.priority}
 timestamp: ${msg.timestamp}
-${msg.metadata?.contract_id ? `contract_id: ${msg.metadata.contract_id}` : ''}
----
-
-${msg.content}
-`;
+${msg.metadata?.contract_id ? `contract_id: ${msg.metadata.contract_id}` : ''}---
+${msg.content}`;
 }
 
 describe('Messaging', () => {

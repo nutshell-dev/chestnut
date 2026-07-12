@@ -18,6 +18,7 @@ import {
   emitInboxBodyOversize,
 } from './audit-emit.js';
 import { assertMessageShape } from './invariants.js';
+import { sanitizeMessageIdentifier } from './sanitize.js';
 import { getSharedSequenceCounter, formatSeq } from './sequence-counter.js';
 import type { SequenceCounter } from './sequence-counter.js';
 type Result<T, E> =
@@ -119,7 +120,7 @@ export class InboxWriter {
     await this.fs.ensureDir(this.inboxDir);
     const timestamp = String(Date.now()).padStart(15, '0');
     const priority = msg.priority ?? 'normal';
-    const source = msg.from || 'unknown';
+    const source = sanitizeMessageIdentifier(msg.from || 'unknown', 'from');
     const seq = await this.counter.next();
     const filename = `${source}-${timestamp}_${priority}_${formatSeq(seq)}.md`;
     const filePath = path.join(this.inboxDir, filename);
@@ -168,7 +169,7 @@ export class InboxWriter {
     // phase 273 Step A:
     assertMessageShape(message, this.audit, 'inbox', 'write');
 
-    const source = opts.source || 'unknown';
+    const source = sanitizeMessageIdentifier(opts.source || 'unknown', 'source');
     const filename = `${source}-${timestamp}_${priority}_${formatSeq(this.counter.nextSync())}.md`;
     try {
       this.fs.ensureDirSync(this.inboxDir);

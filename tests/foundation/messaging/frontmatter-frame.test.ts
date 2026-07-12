@@ -57,9 +57,9 @@ describe('parseFrontmatterFrame', () => {
     expect(r.body).toBe('');
   });
 
-  it('trims body whitespace', () => {
+  it('preserves body whitespace except leading delimiter newline', () => {
     const r = parseFrontmatterFrame('---\nname: foo\n---\n\n  hello world  \n\n');
-    expect(r.body).toBe('hello world');
+    expect(r.body).toBe('  hello world  \n\n');
   });
 
   it('trims key/value whitespace', () => {

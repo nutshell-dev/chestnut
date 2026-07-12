@@ -162,7 +162,7 @@ describe('codec-outbox', () => {
     });
 
     it('fills defaults for absent base fields', () => {
-      const raw = '---\npriority: normal\n---\n\nbare\n';
+      const raw = '---\npriority: normal\n---\nbare';
       const decoded = decodeOutbox(raw);
       expect(decoded.id).toBeTruthy();         // randomUUID fallback
       expect(decoded.from).toBe('unknown');
@@ -170,5 +170,22 @@ describe('codec-outbox', () => {
       expect(decoded.content).toBe('bare');
       expect(decoded.type).toBe('response');   // fallback default
     });
+  });
+});
+
+
+describe('codec-outbox boundary safety (phase 910)', () => {
+  it('throws on unsafe metadata key', () => {
+    const msg = {
+      id: 'test-id',
+      type: 'question',
+      from: 'claw-a',
+      to: 'motion',
+      content: 'hello',
+      timestamp: '2026-01-01T00:00:00.000Z',
+      priority: 'normal' as const,
+      metadata: { 'bad\nkey': 'value' },
+    };
+    expect(() => encodeOutbox(msg)).toThrow(/unsafe/i);
   });
 });

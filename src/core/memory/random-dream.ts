@@ -468,7 +468,7 @@ async function sweepLateSettlePending(
 
         opts.notifyMotion({
           type: 'random_dream',
-          source: 'cron:dream',
+          source: 'cron-dream',
           priority: 'low',
           body: dreamOutput,
           idPrefix: `${entry.taskId}_late_settle`,    // dedup key含taskId、idempotent
@@ -635,7 +635,7 @@ export async function runRandomDream(opts: RandomDreamOptions): Promise<void> {
   // phase 92: 通过 caller-bound notifyMotion 投递到 motion inbox
   opts.notifyMotion({
     type: 'random_dream',
-    source: 'cron:dream',
+    source: 'cron-dream',
     priority: 'low',
     body: dreamOutput,
     idPrefix: `${Date.now()}_random_dream`,

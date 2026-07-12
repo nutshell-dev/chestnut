@@ -2,6 +2,7 @@ import { newUuid } from  '../node-utils/index.js';
 import type { InboxMessage } from '../messaging/types.js';
 import { validatePriority, validateType } from './codec-validation.js';
 import { parseFrontmatterFrame } from './frontmatter-frame.js';
+import { assertSafeKey } from './sanitize.js';
 
 /**
  * Thin wrapper: frame helper + yamlUnquote post-process.
@@ -75,6 +76,7 @@ export function encodeInbox(
     const reserved = new Set(['id', 'type', 'from', 'to', 'priority', 'timestamp']);
     for (const [k, v] of Object.entries(msg.metadata)) {
       if (!reserved.has(k) && !k.startsWith('__')) {
+        assertSafeKey(k);
         lines.push(`${k}: ${yamlQuote(v)}`);
       }
     }
@@ -88,6 +90,7 @@ export function encodeInbox(
         // silent: field conflict skipped — no audit channel in codec (pure function)
         continue;
       }
+      assertSafeKey(k);
       lines.push(`${k}: ${yamlQuote(v)}`);
     }
   }
@@ -101,12 +104,13 @@ export function encodeInbox(
     ]);
     for (const [k, v] of Object.entries(msg.extraMeta)) {
       if (!reservedAndExtra.has(k) && !k.startsWith('__')) {
+        assertSafeKey(k);
         lines.push(`${k}: ${yamlQuote(v)}`);
       }
     }
   }
 
-  lines.push('---', '', msg.content, '');
+  lines.push('---', msg.content);
   return lines.join('\n');
 }
 
