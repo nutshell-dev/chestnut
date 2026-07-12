@@ -35,7 +35,7 @@ const LockMetadataSchema = z.object({
 
 const LockMetadataReleaseSchema = z.object({
   pid: z.number().finite(),
-}).strict();
+});
 
 export interface LockContext {
   fs: FileSystem;
@@ -101,10 +101,25 @@ export async function acquireLock(ctx: LockContext, lockPath: string): Promise<v
         } else {
           lastReason = `held by PID ${pid} (${Math.round((Date.now() - time) / 1000)}s)`;
         }
-      } catch {
-        lastReason = 'lock file corrupt or unreadable';
-        if (await unlinkStaleLock(ctx, lockPath, 'corrupt_lock_file')) continue;
-        lastReason = 'unlink failed on corrupt lock file';
+      } catch (err) {
+        if (err instanceof SyntaxError) {
+          // Non-JSON lock file content — treat as corrupt and attempt cleanup
+          // (legacy behavior preserved; we can confirm the file is not a valid
+          // lock and therefore not owned by a live process).
+          lastReason = 'lock file corrupt or unreadable';
+          if (await unlinkStaleLock(ctx, lockPath, 'corrupt_lock_file')) continue;
+          lastReason = 'unlink failed on corrupt lock file';
+        } else {
+          // Unknown errors (I/O, l1IsAlive failure) → fail-closed.
+          // Cannot determine if the holder is dead — don't delete the lock.
+          emitContractLockUnlinkFailed(ctx.audit, {
+            context: 'acquireLock_stale_check',
+            path: lockPath,
+            reason: 'unknown_error_cannot_determine_staleness',
+            error: formatErr(err),
+          });
+          throw err;
+        }
       }
 
       if (i < LOCK_MAX_RETRIES - 1) {
@@ -147,20 +162,23 @@ export async function releaseLock(ctx: LockContext, lockPath: string): Promise<v
     // phase 1102 con-3: verify ownership before deleting to prevent race-condition
     // where a concurrent force-clear removed our lock and replaced it with another
     const raw = await ctx.fs.read(lockPath);
-    // phase 326 Zod SoT (ML#9 优先编译器检查): release verify、subset schema (pid only)
-    // backward compat: JSON.parse throw (old plain-text lock files) → silent skip (treat as unowned, allow delete)
-    let parsedPid: number | undefined;
-    try {
-      const rawParsed: unknown = JSON.parse(raw);
-      const validation = LockMetadataReleaseSchema.safeParse(rawParsed);
-      if (validation.success) {
-        parsedPid = validation.data.pid;
-      }
-    } catch {
-      // silent: backward compat — old-format lock files (plain text / empty) treat as unowned, allow delete
-      parsedPid = undefined;
+    // phase 953: ownership verification — any read/parse/schema error means we
+    // cannot confirm this lock belongs to us, so we must not delete it.
+    const rawParsed: unknown = JSON.parse(raw);
+    const validation = LockMetadataReleaseSchema.safeParse(rawParsed);
+    if (!validation.success) {
+      emitContractLockUnlinkFailed(
+        ctx.audit,
+        {
+          context: 'ContractSystem.releaseLock',
+          path: lockPath,
+          reason: 'ownership_unverifiable',
+          error: validation.error.message,
+        },
+      );
+      return;
     }
-    if (parsedPid !== undefined && parsedPid !== process.pid) {
+    if (validation.data.pid !== process.pid) {
       emitContractLockUnlinkFailed(
         ctx.audit,
         {
@@ -168,25 +186,29 @@ export async function releaseLock(ctx: LockContext, lockPath: string): Promise<v
           path: lockPath,
           reason: 'ownership_mismatch',
           expectedPid: process.pid,
-          actualPid: parsedPid,
+          actualPid: validation.data.pid,
         },
       );
       return;
     }
   } catch (e) {
-    // ENOENT / FS_NOT_FOUND: proceed to delete so the original audit behavior is preserved
-    // (caller may rely on LOCK_UNLINK_FAILED when target lock was never created)
-    if (!isFileNotFound(e)) {
-      // Other read errors: audit and proceed with delete attempt (best-effort)
+    if (isFileNotFound(e)) {
+      // Lock already gone — proceed to delete for cleanup so the original audit
+      // behavior is preserved (caller may rely on LOCK_UNLINK_FAILED when target
+      // lock was never created).
+    } else {
+      // Read/parse/schema error — cannot verify ownership. Do NOT delete the
+      // lock; it may belong to another process.
       emitContractLockUnlinkFailed(
         ctx.audit,
         {
           context: 'ContractSystem.releaseLock',
           path: lockPath,
-          reason: 'read_error',
+          reason: 'ownership_unverifiable',
           error: formatErr(e),
         },
       );
+      return;
     }
   }
 
@@ -247,25 +269,40 @@ export async function lockContract(
     const lockPath = `${dirBefore}/${contractId}/progress.lock`;
     await acquireLock(ctx, lockPath);
 
-    const dirAfter = await contractDirFn(contractId);
-    if (dirAfter === dirBefore) {
-      return {
-        dir: dirBefore,
-        lockPath,
-        release: () => releaseLock(ctx, lockPath),
-      };
+    let ownershipTransferred = false;
+    let dirAfter: string | undefined;
+    try {
+      dirAfter = await contractDirFn(contractId);
+      if (dirAfter === dirBefore) {
+        ownershipTransferred = true;
+        return {
+          dir: dirBefore,
+          lockPath,
+          release: () => releaseLock(ctx, lockPath),
+        };
+      }
+
+      ctx.audit.write(
+        CONTRACT_AUDIT_EVENTS.CONTRACT_DIR_RACE_RETRY,
+        `contractId=${contractId}`,
+        `attempt=${attempt}`,
+        `dirBefore=${dirBefore}`,
+        `dirAfter=${dirAfter}`,
+      );
+    } finally {
+      // Only release if ownership was NOT transferred to the caller. Any
+      // exception (including from contractDirFn) keeps ownershipTransferred
+      // false, so the lock is cleaned up before the error propagates.
+      if (!ownershipTransferred) {
+        await releaseLock(ctx, lockPath);
+      }
     }
 
-    ctx.audit.write(
-      CONTRACT_AUDIT_EVENTS.CONTRACT_DIR_RACE_RETRY,
-      `contractId=${contractId}`,
-      `attempt=${attempt}`,
-      `dirBefore=${dirBefore}`,
-      `dirAfter=${dirAfter}`,
-    );
-    await releaseLock(ctx, lockPath);
-    attempt++;
-    await new Promise(r => setTimeout(r, LOCK_CONTRACT_RETRY_DELAY_MS / 2 + Math.random() * LOCK_CONTRACT_RETRY_DELAY_MS));
+    // Race: directory moved between lookup and lock acquisition — retry.
+    if (dirAfter !== undefined && dirAfter !== dirBefore) {
+      attempt++;
+      await new Promise(r => setTimeout(r, LOCK_CONTRACT_RETRY_DELAY_MS / 2 + Math.random() * LOCK_CONTRACT_RETRY_DELAY_MS));
+    }
   }
 
   ctx.audit.write(

@@ -9,11 +9,12 @@ import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { acquireLock, releaseLock } from '../../../src/core/contract/lock.js';
+import { acquireLock, releaseLock, lockContract } from '../../../src/core/contract/lock.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { CONTRACT_AUDIT_EVENTS } from '../../../src/core/contract/audit-events.js';
 import { DEAD_PID } from '../../helpers/dead-pid.js';
 import { FAKE_LIVE_PID } from '../../helpers/test-pids.js';
+import { makeContractId } from '../../../src/core/contract/types.js';
 
 vi.mock('../../../src/core/contract/constants.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../src/core/contract/constants.js')>();
@@ -27,6 +28,15 @@ vi.mock('../../../src/core/contract/constants.js', async (importOriginal) => {
 let tmpDir: string;
 let nodeFs: NodeFileSystem;
 let mockAudit: { write: ReturnType<typeof vi.fn> };
+
+async function pathExists(p: string): Promise<boolean> {
+  try {
+    await fs.access(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 beforeEach(async () => {
   tmpDir = path.join(
@@ -121,17 +131,78 @@ describe('acquireLock', () => {
       expect.stringMatching(/^raw=/),
     );
   }, 2000);
-});
 
-describe('releaseLock', () => {
-  it('should delete lock file', async () => {
+  it('throws without deleting lock when l1IsAlive fails', async () => {
     const lockPath = 'test/progress.lock';
     const absLockPath = path.join(tmpDir, lockPath);
     await fs.mkdir(path.dirname(absLockPath), { recursive: true });
-    await fs.writeFile(absLockPath, 'lock', 'utf-8');
+
+    // Write a lock held by a fake live PID.
+    await fs.writeFile(absLockPath, JSON.stringify({ pid: FAKE_LIVE_PID, time: Date.now() }), 'utf-8');
+
+    const l1IsAlive = () => {
+      throw new Error('EIO');
+    };
+
+    await expect(
+      acquireLock({ fs: nodeFs, audit: mockAudit as any, l1IsAlive }, lockPath)
+    ).rejects.toThrow('EIO');
+
+    // The lock must remain on disk because we could not determine staleness.
+    const lockExists = await pathExists(absLockPath);
+    expect(lockExists).toBe(true);
+  }, 2000);
+});
+
+describe('releaseLock', () => {
+  it('should delete lock file owned by current process', async () => {
+    const lockPath = 'test/progress.lock';
+    const absLockPath = path.join(tmpDir, lockPath);
+    await fs.mkdir(path.dirname(absLockPath), { recursive: true });
+    await fs.writeFile(absLockPath, JSON.stringify({ pid: process.pid }), 'utf-8');
 
     await releaseLock({ fs: nodeFs, audit: mockAudit as any }, lockPath);
 
     await expect(fs.access(absLockPath)).rejects.toThrow();
+  });
+
+  it('does not delete lock when ownership cannot be verified', async () => {
+    const lockPath = 'test/progress.lock';
+    const absLockPath = path.join(tmpDir, lockPath);
+    await fs.mkdir(path.dirname(absLockPath), { recursive: true });
+
+    // Corrupt / unparseable lock JSON.
+    await fs.writeFile(absLockPath, 'not-json', 'utf-8');
+
+    await releaseLock({ fs: nodeFs, audit: mockAudit as any }, lockPath);
+
+    // Ownership could not be verified — must not delete.
+    const lockExists = await pathExists(absLockPath);
+    expect(lockExists).toBe(true);
+  });
+});
+
+describe('lockContract', () => {
+  it('releases lock when post-acquire verification fails', async () => {
+    const contractId = makeContractId('cid');
+    const lockPath = 'contracts/cid/progress.lock';
+    const absLockPath = path.join(tmpDir, lockPath);
+
+    let callCount = 0;
+    const dirFn = async () => {
+      callCount++;
+      if (callCount > 1) {
+        throw new Error('verification failed');
+      }
+      return 'contracts';
+    };
+
+    await expect(
+      lockContract({ fs: nodeFs, audit: mockAudit as any }, contractId, dirFn)
+    ).rejects.toThrow('verification failed');
+
+    // The lock acquired before the verification error must have been released.
+    const lockExists = await pathExists(absLockPath);
+    expect(lockExists).toBe(false);
   });
 });
