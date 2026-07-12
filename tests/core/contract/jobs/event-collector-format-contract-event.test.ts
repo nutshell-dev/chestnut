@@ -33,7 +33,7 @@ describe('phase 63: formatContractEvent status 分支', () => {
   it('completed → [contract_completed] + status 字段', () => {
     const { audit } = makeAudit();
     const fs = makeFsForStatus('completed');
-    const entries = scanArchivedContracts(fs, '/tmp/claw', 'clawA', audit);
+    const { entries } = scanArchivedContracts(fs, '/tmp/claw', 'clawA', audit);
     expect(entries).toHaveLength(1);
     expect(entries[0].body).toMatch(/^\[contract_completed\]/);
     expect(entries[0].status).toBe('completed');
@@ -42,7 +42,7 @@ describe('phase 63: formatContractEvent status 分支', () => {
   it('cancelled → [contract_cancelled] + reason + status 字段', () => {
     const { audit } = makeAudit();
     const fs = makeFsForStatus('cancelled', 'cancelled: user manual');
-    const entries = scanArchivedContracts(fs, '/tmp/claw', 'clawA', audit);
+    const { entries } = scanArchivedContracts(fs, '/tmp/claw', 'clawA', audit);
     expect(entries).toHaveLength(1);
     expect(entries[0].body).toMatch(/^\[contract_cancelled\]/);
     expect(entries[0].body).toContain('reason: user manual');
@@ -53,7 +53,7 @@ describe('phase 63: formatContractEvent status 分支', () => {
   it('crashed → [contract_crashed] + cause + status 字段', () => {
     const { audit } = makeAudit();
     const fs = makeFsForStatus('crashed', 'crashed: system: maxstepsexceedederror');
-    const entries = scanArchivedContracts(fs, '/tmp/claw', 'clawA', audit);
+    const { entries } = scanArchivedContracts(fs, '/tmp/claw', 'clawA', audit);
     expect(entries).toHaveLength(1);
     expect(entries[0].body).toMatch(/^\[contract_crashed\]/);
     expect(entries[0].body).toContain('cause: system: maxstepsexceedederror');
@@ -64,7 +64,7 @@ describe('phase 63: formatContractEvent status 分支', () => {
   it('archive_pending_recovery → [contract_archive_pending_recovery]', () => {
     const { audit } = makeAudit();
     const fs = makeFsForStatus('archive_pending_recovery');
-    const entries = scanArchivedContracts(fs, '/tmp/claw', 'clawA', audit);
+    const { entries } = scanArchivedContracts(fs, '/tmp/claw', 'clawA', audit);
     expect(entries).toHaveLength(1);
     expect(entries[0].body).toMatch(/^\[contract_archive_pending_recovery\]/);
     expect(entries[0].status).toBe('archive_pending_recovery');
