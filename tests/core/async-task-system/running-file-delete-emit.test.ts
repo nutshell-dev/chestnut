@@ -31,7 +31,6 @@ function makeToolTaskJson(taskId: string): string {
     id: taskId,
     toolName: 'nonexistent_tool',
     args: {},
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     parentClawDir: '/tmp',
     parentClawId: 'parent',
     createdAt: new Date().toISOString(),
@@ -67,7 +66,6 @@ describe('phase 884: tool not found keeps running file', () => {
     const { audit, events } = makeMockAudit();
     auditEvents = events;
 
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     system = new AsyncTaskSystem('/tmp/claw', mockFs, {
       shortIdIndex: new InMemoryShortIdIndex(),
       auditWriter: audit,
@@ -90,7 +88,6 @@ describe('phase 884: tool not found keeps running file', () => {
         id: taskId,
         toolName: 'nonexistent_tool',
         args: {},
-        // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
         parentClawDir: '/tmp',
         parentClawId: 'parent',
         createdAt: new Date().toISOString(),
@@ -142,7 +139,6 @@ describe('phase 884: tool not found keeps running file', () => {
         id: taskId,
         toolName: 'nonexistent_tool',
         args: {},
-        // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
         parentClawDir: '/tmp',
         parentClawId: 'parent',
         createdAt: new Date().toISOString(),

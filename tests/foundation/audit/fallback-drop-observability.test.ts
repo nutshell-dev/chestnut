@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'node:os';
 import * as nodeFs from 'node:fs';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';

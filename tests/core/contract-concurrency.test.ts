@@ -56,7 +56,6 @@ describe('ContractSystem — 并发幂等与锁', () => {
       audit: mockAudit as any,
       toolRegistry: createToolRegistry(),
       fsFactory,
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
   });
@@ -204,7 +203,6 @@ describe('ContractSystem — 并发幂等与锁', () => {
       audit: mockAudit as any,
       toolRegistry: createToolRegistry(),
       fsFactory,
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
 

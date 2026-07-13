@@ -8,7 +8,6 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import * as path from 'path';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
@@ -19,6 +18,7 @@ describe('contractFootprint', () => {
   let nfs: NodeFileSystem;
 
   beforeEach(async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     testDir = path.join(tmpdir(), `contract-footprint-${randomUUID()}`);
     await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     await fs.mkdir(testDir, { recursive: true });

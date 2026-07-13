@@ -27,11 +27,8 @@ vi.mock('../../src/core/claw-topology/claw-instance-paths.js', async (importOrig
   const actual = await importOriginal<typeof import('../../src/core/claw-topology/claw-instance-paths.js')>();
   return {
     ...actual,
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     getClawDir: vi.fn(() => '/tmp/test-claw'),
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     getNamedSubrootDir: vi.fn(() => '/tmp/test-motion'),
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     getClawConfigPath: vi.fn(() => '/tmp/test-claw/config.yaml'),
   };
 });

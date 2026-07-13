@@ -6,12 +6,12 @@
  */
 
 import { describe, it, expect } from 'vitest';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 
 import { exec, ProcessExecError } from '../../../src/foundation/process-exec/index.js';
 
 describe('exec maxBuffer SIGTERM 后 pushChunk early return (phase 948 site A)', () => {
+  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
   const workDir = tmpdir();
   const MAX_BUFFER = 1024 * 1024; // 1MB, mirror internal PROCESS_EXEC_MAX_BUFFER
 

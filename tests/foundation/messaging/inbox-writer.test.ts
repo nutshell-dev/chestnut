@@ -6,7 +6,6 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import * as path from 'path';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { InboxWriter } from '../../../src/foundation/messaging/index.js';
@@ -22,6 +21,7 @@ describe('InboxWriter', () => {
   let writer: InboxWriter;
 
   beforeEach(async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     testDir = path.join(tmpdir(), `inbox-writer-${randomUUID()}`);
     await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     await fs.mkdir(testDir, { recursive: true });
@@ -184,6 +184,7 @@ describe('InboxWriter boundary safety (phase 910)', () => {
   let writer: InboxWriter;
 
   beforeEach(async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     testDir = path.join(tmpdir(), `inbox-writer-${randomUUID()}`);
     await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     await fs.mkdir(testDir, { recursive: true });

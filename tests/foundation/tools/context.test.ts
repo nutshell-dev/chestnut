@@ -10,30 +10,23 @@ describe('ExecContextImpl', () => {
   it('ctor 默认 workspaceDir = clawDir/clawspace', () => {
     const ctx = new ExecContextImpl({
       clawId: 'test',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawDir: '/tmp/test-claw',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       syncDir: '/tmp/test-claw/tasks/sync',
       profile: 'full',
       fs: {} as any,
     });
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     expect(ctx.workspaceDir).toBe('/tmp/test-claw/clawspace');
   });
 
   it('ctor 显式 workspaceDir 覆盖 default', () => {
     const ctx = new ExecContextImpl({
       clawId: 'test',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawDir: '/tmp/test-claw',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       workspaceDir: '/tmp/test-claw/tasks/subagents/abc',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       syncDir: '/tmp/test-claw/tasks/sync',
       profile: 'subagent',
       fs: {} as any,
     });
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     expect(ctx.workspaceDir).toBe('/tmp/test-claw/tasks/subagents/abc');
   });
 
@@ -95,7 +88,6 @@ describe('ExecContextImpl', () => {
       // Plain object fixture without requestStop — mirrors `as unknown as ExecContext` test pattern
       const fixture = {
         clawId: 'test',
-        // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
         clawDir: '/tmp/test',
         stopRequested: false,
         // requestStop intentionally undefined
@@ -112,7 +104,6 @@ describe('ExecContextImpl', () => {
     it('clone.requestStop forwards to parent when fixture defines method', () => {
       const fixture = {
         clawId: 'test',
-        // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
         clawDir: '/tmp/test',
         stopRequested: false,
         requestStop: vi.fn(),

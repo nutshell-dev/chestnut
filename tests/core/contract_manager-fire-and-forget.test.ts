@@ -74,7 +74,6 @@ describe('ContractSystem - fire-and-forget 失败状态机 (phase 468 / feedback
     nodeFs = new NodeFileSystem({ baseDir: clawDir });
     const mockAudit = makeMockAudit();
     manager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
   });
@@ -82,7 +81,6 @@ describe('ContractSystem - fire-and-forget 失败状态机 (phase 468 / feedback
     it('LLM judged failed → cause=llm_rejected + reset todo + retry_count++', async () => {
       const { audit: mockAudit, emitter } = makeAudit();
       const testManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
 
@@ -122,7 +120,6 @@ describe('ContractSystem - fire-and-forget 失败状态机 (phase 468 / feedback
       // phase 425: rejection path 用新 SUBTASK_RESET_TO_TODO audit event 替原 waitFor polling
       const { audit: mockAudit, events, emitter } = makeAudit();
       const testManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
 
@@ -163,7 +160,6 @@ describe('ContractSystem - fire-and-forget 失败状态机 (phase 468 / feedback
       // phase 425: rejection path 用新 SUBTASK_RESET_TO_TODO audit event 替原 waitFor polling
       const { audit: mockAudit, emitter } = makeAudit();
       const testManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
 
@@ -197,7 +193,6 @@ describe('ContractSystem - fire-and-forget 失败状态机 (phase 468 / feedback
     it('onNotify verification_failed payload schema = AcceptanceFailedNotification', async () => {
       const { audit: mockAudit, emitter } = makeAudit();
       const testManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
       const onNotifySpy = vi.fn();
@@ -242,7 +237,6 @@ describe('ContractSystem - fire-and-forget 失败状态机 (phase 468 / feedback
     it('max_attempts 后 subtask force_accepted（status=completed）', async () => {
       const { audit: mockAudit, events, emitter } = makeAudit();
       const testManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
 
@@ -296,7 +290,6 @@ describe('ContractSystem - fire-and-forget 失败状态机 (phase 468 / feedback
       // phase 425: 3 iter 各独立订阅 SUBTASK_RESET_TO_TODO 替原 waitFor polling
       const { audit: mockAudit, emitter } = makeAudit();
       const testManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
 

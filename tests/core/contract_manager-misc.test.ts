@@ -47,7 +47,6 @@ describe('ContractSystem - misc (LLM verification + escalation + phase239 audit)
     nodeFs = new NodeFileSystem({ baseDir: clawDir });
     const mockAudit = makeMockAudit();
     manager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
   });
@@ -57,7 +56,6 @@ describe('ContractSystem - misc (LLM verification + escalation + phase239 audit)
       // phase 425: 用新 SUBTASK_RESET_TO_TODO audit event 替原 waitFor polling
       const { audit: mockAudit, emitter } = makeAudit();
       const testManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
 
@@ -117,7 +115,6 @@ describe('ContractSystem - misc (LLM verification + escalation + phase239 audit)
     it('should set force_accepted after reaching max attempts', async () => {
       const { audit: mockAudit, events, emitter } = makeAudit();
       const testManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
 
@@ -169,7 +166,6 @@ describe('ContractSystem - misc (LLM verification + escalation + phase239 audit)
     it('should not set force_accepted before reaching max attempts', async () => {
       const { audit: mockAudit, emitter } = makeAudit();
       const testManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
 
@@ -219,7 +215,6 @@ describe('ContractSystem - misc (LLM verification + escalation + phase239 audit)
     it('writes CONTRACT_CREATED audit on contract creation', async () => {
       const mockAudit = makeMockAudit();
       const testManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
 
@@ -242,7 +237,6 @@ describe('ContractSystem - misc (LLM verification + escalation + phase239 audit)
     it('writes CONTRACT_VERIFICATION_STARTED audit when async verification begins', async () => {
       const mockAudit = makeMockAudit();
       const testManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
 
@@ -274,7 +268,6 @@ describe('ContractSystem - misc (LLM verification + escalation + phase239 audit)
     it('writes CONTRACT_UPDATED audit on subtask completion', async () => {
       const mockAudit = makeMockAudit();
       const testManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
 

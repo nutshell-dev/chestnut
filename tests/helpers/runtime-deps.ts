@@ -74,7 +74,6 @@ export async function makeRuntimeDeps(input: MakeRuntimeDepsInput): Promise<Runt
     llm,
     toolRegistry: verifierRegistry,
     fsFactory,
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: () => {},});
   const taskSystem = new AsyncTaskSystem(clawDir, systemFs, {

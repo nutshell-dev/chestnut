@@ -9,7 +9,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
@@ -19,6 +18,7 @@ const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 const { outboxCommand } = await import('../../src/cli/commands/claw.js');
 
 function makeTempRoot(): string {
+  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
   const dir = path.join(tmpdir(), `chestnut-outbox-cli-test-${randomUUID()}`);
   fs.mkdirSync(dir, { recursive: true });
   fs.mkdirSync(path.join(dir, '.chestnut'), { recursive: true });

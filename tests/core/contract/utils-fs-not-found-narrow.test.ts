@@ -18,11 +18,9 @@ describe('phase 1154 — getActiveContractTimestamp FS_NOT_FOUND narrow', () => 
   it('silent for FileNotFoundError (FileSystem abstract layer)', () => {
     const { audit, events } = makeAudit();
     const fs = {
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       listSync: () => { throw new FileNotFoundError('/tmp/claw/contract/active'); },
       existsSync: () => true,
     } as unknown as FileSystem;
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const result = getActiveContractTimestamp(fs, '/tmp/claw', audit);
     expect(result).toBeNull();
     expect(events).toHaveLength(0);
@@ -38,7 +36,6 @@ describe('phase 1154 — getActiveContractTimestamp FS_NOT_FOUND narrow', () => 
       },
       existsSync: () => true,
     } as unknown as FileSystem;
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const result = getActiveContractTimestamp(fs, '/tmp/claw', audit);
     expect(result).toBeNull();
     expect(events).toHaveLength(1); // active only
@@ -56,7 +53,6 @@ describe('phase 1154 — getActiveContractTimestamp FS_NOT_FOUND narrow', () => 
       },
       existsSync: () => true,
     } as unknown as FileSystem;
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const result = getActiveContractTimestamp(fs, '/tmp/claw', audit);
     expect(result).toBeNull();
     expect(events).toHaveLength(0);
@@ -72,7 +68,6 @@ describe('phase 1154 — getActiveContractTimestamp FS_NOT_FOUND narrow', () => 
       ],
       existsSync: () => true,
     } as unknown as FileSystem;
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const result = getActiveContractTimestamp(fs, '/tmp/claw', audit);
     expect(result).toBe(ts);
     expect(events).toHaveLength(0);

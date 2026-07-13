@@ -140,7 +140,6 @@ function makeMigratedToolTask(opts: { migratedDeadlineMs?: number; migratedStart
     shortId: VALID_TASK_SHORT_ID,
     toolName: 'exec',
     args: { command: 'sleep 9999' },
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     parentClawDir: '/tmp/claw',
     parentClawId: 'parent-claw',
     createdAt: '2020-01-01T00:00:00Z',
@@ -165,7 +164,6 @@ describe('phase 906: dispatcher runtime convergence for migrated deadlines', () 
     const { audit, events } = makeMockAudit();
     auditEvents = events;
 
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     system = new AsyncTaskSystem('/tmp/claw', fs, {
       shortIdIndex: new InMemoryShortIdIndex(),
       auditWriter: audit,
@@ -250,7 +248,6 @@ describe('phase 906: cancel notification failure keeps task in pending', () => {
     const { audit, events } = makeMockAudit();
     auditEvents = events;
 
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     system = new AsyncTaskSystem('/tmp/claw', fs, {
       shortIdIndex: new InMemoryShortIdIndex(),
       auditWriter: audit,
@@ -281,7 +278,6 @@ describe('phase 906: cancel notification failure keeps task in pending', () => {
       intent: 'test intent',
       timeoutMs: 60000,
       parentClawId: 'parent-claw',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       parentClawDir: '/tmp/claw',
       createdAt: new Date().toISOString(),
     };

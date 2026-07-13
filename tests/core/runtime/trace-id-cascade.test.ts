@@ -11,7 +11,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as path from 'path';
 import { promises as fs } from 'fs';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { Runtime } from '../../../src/core/runtime/index.js';
@@ -36,6 +35,7 @@ describe('Runtime trace-id cascade (phase 1343 α-6)', () => {
   const runtimes: Runtime[] = [];
 
   beforeEach(async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     testTempDir = path.join(tmpdir(), `chestnut-trace-${randomUUID()}`);
     testClawDir = path.join(testTempDir, 'claws', 'trace-claw');
     await fs.mkdir(testClawDir, { recursive: true });

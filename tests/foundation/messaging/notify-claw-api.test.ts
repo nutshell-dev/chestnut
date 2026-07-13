@@ -9,7 +9,6 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import * as path from 'path';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { notifyClaw } from '../../../src/foundation/messaging/notify.js';
@@ -46,6 +45,7 @@ describe('notifyClaw API', () => {
   };
 
   beforeEach(async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     chestnutRoot = path.join(tmpdir(), `notify-claw-api-${randomUUID()}`);
     await fs.rm(chestnutRoot, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     await fs.mkdir(chestnutRoot, { recursive: true });

@@ -4,7 +4,6 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as path from 'path';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { executeSubAgentTask } from '../../src/core/async-task-system/subagent-executor.js';
@@ -64,6 +63,7 @@ function makeDeps() {
       formatForLLM: vi.fn().mockReturnValue([]),
       getForProfile: vi.fn().mockReturnValue([]),
     } as unknown as import('../../src/foundation/tools/index.js').ToolRegistry,
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawDir: path.join(tmpdir(), `subagent-exec-test-${randomUUID()}`),
     postProcessors: new Map(),
     moveTaskToDone: vi.fn().mockResolvedValue(undefined),

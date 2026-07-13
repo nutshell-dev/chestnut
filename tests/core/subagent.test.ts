@@ -24,9 +24,7 @@ function makeMockToolExecutor(): ToolExecutor {
   return {
     getExecContext: () => ({
       clawId: 'test-agent',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawDir: '/tmp/test',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       workspaceDir: path.join('/tmp/test', 'clawspace'),
       profile: 'subagent',
       fs: {},

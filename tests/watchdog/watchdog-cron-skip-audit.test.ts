@@ -10,7 +10,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { maybeCronClawCrash } from '../../src/watchdog/watchdog-cron.js';
@@ -76,6 +75,7 @@ describe('maybeCronClawCrash 三分判定 audit 完整性 (phase 133)', () => {
 
   beforeEach(() => {
     _resetWatchdogContextForTest();
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = path.join(tmpdir(), `wd-skip-${randomUUID()}`);
     const chestnutDir = path.join(tmpDir, '.chestnut');
     clawsDir = path.join(chestnutDir, 'claws');

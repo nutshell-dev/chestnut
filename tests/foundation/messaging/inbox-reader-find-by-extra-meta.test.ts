@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fsAsync from 'fs/promises';
 import * as path from 'path';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { InboxReader, InboxWriter, makeInboxPath } from '../../../src/foundation/messaging/index.js';
@@ -26,6 +25,7 @@ describe('InboxReader.findByExtraMeta', () => {
   let writer: InboxWriter;
 
   beforeEach(async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     root = path.join(tmpdir(), `find-extra-meta-${randomUUID()}`);
     pendingDir = path.join(root, 'inbox/pending');
     doneDir = path.join(root, 'inbox/done');

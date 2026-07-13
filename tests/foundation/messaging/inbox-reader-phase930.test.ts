@@ -5,7 +5,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs/promises';
 import * as path from 'path';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { InboxReader, InboxWriter } from '../../../src/foundation/messaging/index.js';
@@ -27,6 +26,7 @@ describe('InboxReader phase 930', () => {
   let writer: InboxWriter;
 
   beforeEach(async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     testDir = path.join(tmpdir(), `inbox-p930-${randomUUID()}`);
     await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     await fs.mkdir(testDir, { recursive: true });

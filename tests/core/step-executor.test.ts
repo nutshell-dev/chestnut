@@ -117,7 +117,6 @@ function makeMalformedToolInputLLM(toolUseId: string, toolName: string, rawInput
 const tmpDirs: string[] = [];
 
 async function makeRealCtx(opts: { signal?: AbortSignal } = {}): Promise<ExecContext> {
-  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'step-exec-'));
   tmpDirs.push(tmpDir);
   const nodeFs = new NodeFileSystem({ baseDir: tmpDir });

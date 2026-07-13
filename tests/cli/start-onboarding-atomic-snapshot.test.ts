@@ -10,7 +10,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
@@ -21,6 +20,7 @@ const { getInitializationSnapshot, getOnboardingStatus } =
   await import('../../src/cli/commands/start.js');
 
 function makeTempDir(): string {
+  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
   const dir = path.join(tmpdir(), `chestnut-snapshot-test-${randomUUID()}`);
   fs.mkdirSync(dir, { recursive: true });
   return dir;

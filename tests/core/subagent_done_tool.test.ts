@@ -13,7 +13,6 @@ function makeCtx() {
   const requestStopSpy = vi.fn();
   return {
     clawId: 'test-claw',
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawDir: '/tmp/test',
     requestStop: requestStopSpy,
     requestStopSpy,

@@ -5,7 +5,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
@@ -66,6 +65,7 @@ const { loadGlobalConfig } = await import('../../src/assembly/config/config-load
 let tempDir: string;
 
 function setupTempDir() {
+  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
   tempDir = path.join(tmpdir(), `chestnut-init-test-${randomUUID()}`);
   fs.mkdirSync(tempDir, { recursive: true });
   vi.stubEnv('CHESTNUT_ROOT', tempDir);

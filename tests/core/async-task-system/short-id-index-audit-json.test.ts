@@ -46,7 +46,6 @@ function makeSystem(audit: AuditLog): AsyncTaskSystem {
     askMotionToolFactory: () => ({} as any),
     shortIdIndex: makeMockShortIdIndex(),
   };
-  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
   return new AsyncTaskSystem('/tmp', fs, options);
 }
 

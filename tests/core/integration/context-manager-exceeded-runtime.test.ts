@@ -24,9 +24,7 @@ function createCtx() {
     getElapsedMs: () => 0,
     maxSteps: 10,
     clawId: 'test',
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawDir: '/tmp/test',
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     workspaceDir: '/tmp/test/clawspace',
     profile: 'test',
     fs: {} as unknown as Parameters<typeof executeStep>[0]['ctx']['fs'],

@@ -5,7 +5,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fsAsync from 'fs/promises';
 import * as path from 'path';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import {
@@ -23,6 +22,7 @@ describe('phase 5: subscription-store', () => {
   let fs: NodeFileSystem;
 
   beforeEach(async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     root = path.join(tmpdir(), `sub-store-${randomUUID()}`);
     await fsAsync.mkdir(root, { recursive: true });
     fs = new NodeFileSystem({ baseDir: root });

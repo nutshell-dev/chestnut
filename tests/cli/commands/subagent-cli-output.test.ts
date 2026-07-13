@@ -34,7 +34,6 @@ vi.mock('fs', async (importOriginal) => {
 });
 
 vi.mock('../../../src/cli/commands/subagent-helpers.js', () => ({
-  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
   resolveClawDir: vi.fn().mockReturnValue('/tmp/claws/test-claw'),
   scanSubagentResults: vi.fn().mockReturnValue([
     {
@@ -57,7 +56,6 @@ vi.mock('../../../src/cli/commands/_message-renderer.js', () => ({
       num: 1,
       texts: ['hello'],
       thinkings: [],
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       toolUses: [{ type: 'tool_use', id: 'tu1', name: 'Read', input: { file_path: '/tmp/a' } }],
       toolResults: new Map([['tu1', { type: 'tool_result', tool_use_id: 'tu1', content: 'ok', is_error: false }]]),
     },
@@ -76,7 +74,6 @@ describe('subagent-list', () => {
     consoleErrSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.clearAllMocks();
     vi.mocked(fs.existsSync).mockReturnValue(true);
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     vi.mocked(resolveClawDir).mockReturnValue('/tmp/claws/test-claw');
   });
 
@@ -111,7 +108,6 @@ describe('subagent steps --json', () => {
     vi.restoreAllMocks();
     consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     vi.mocked(resolveClawDir).mockReturnValue('/tmp/claws/test-claw');
 
     vi.mocked(loadSessionFromFile).mockReturnValue({ session: { messages: [] }, source: 'current' });
@@ -120,7 +116,6 @@ describe('subagent steps --json', () => {
         num: 1,
         texts: ['hello'],
         thinkings: [],
-        // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
         toolUses: [{ type: 'tool_use', id: 'tu1', name: 'Read', input: { file_path: '/tmp/a' } }],
         toolResults: new Map([['tu1', { type: 'tool_result', tool_use_id: 'tu1', content: 'ok', is_error: false }]]),
       },

@@ -22,7 +22,6 @@ function makeDeps(captured: { lines: string[] }): EventHandlerDeps {
     sink: { emit: (d: any) => { if (d.kind === 'text-line') captured.lines.push(d.text); } },
     showSystemMessages: false,
     showContractEvents: true,
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     agentDir: '/tmp/agent',
     label: 'self-claw',
     audit: { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)} as any,

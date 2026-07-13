@@ -6,7 +6,6 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import * as path from 'path';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { InboxWriter, makeInboxPath, OutboxWriter, makeOutboxPath } from '../../../src/foundation/messaging/index.js';
@@ -211,6 +210,7 @@ describe('messaging write invariant (phase 273 Step A)', () => {
     let calls: string[];
 
     beforeEach(async () => {
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       testDir = path.join(tmpdir(), `invariant-test-${randomUUID()}`);
       await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
       await fs.mkdir(testDir, { recursive: true });
@@ -277,6 +277,7 @@ describe('messaging write invariant (phase 273 Step A)', () => {
     let calls: string[];
 
     beforeEach(async () => {
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       testDir = path.join(tmpdir(), `invariant-sync-test-${randomUUID()}`);
       await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
       await fs.mkdir(testDir, { recursive: true });
@@ -321,6 +322,7 @@ describe('messaging write invariant (phase 273 Step A)', () => {
     let calls: string[];
 
     beforeEach(async () => {
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       testDir = path.join(tmpdir(), `outbox-invariant-test-${randomUUID()}`);
       await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
       await fs.mkdir(testDir, { recursive: true });

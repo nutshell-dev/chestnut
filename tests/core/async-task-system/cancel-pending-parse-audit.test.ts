@@ -41,7 +41,6 @@ describe('phase 1013 E.4: cancel pending parse fail audit', () => {
     const { audit, events } = makeMockAudit();
     auditEvents = events;
 
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     system = new AsyncTaskSystem('/tmp/claw', mockFs, {
       shortIdIndex: new InMemoryShortIdIndex(),
       auditWriter: audit,

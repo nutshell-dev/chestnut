@@ -7,7 +7,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { fileURLToPath } from 'url';
@@ -68,6 +67,7 @@ describe('chat-viewport CRASH audit (phase 816 B1)', () => {
     let tempDir: string;
 
     beforeEach(() => {
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       tempDir = path.join(tmpdir(), `cv-shim-test-${randomUUID()}`);
       fs.mkdirSync(tempDir, { recursive: true });
     });

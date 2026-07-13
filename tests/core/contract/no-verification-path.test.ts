@@ -54,7 +54,6 @@ describe('no verification path', () => {
       audit,
       toolRegistry: createToolRegistry(),
       fsFactory,
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
 
@@ -96,7 +95,6 @@ describe('no verification path', () => {
       audit,
       toolRegistry: createToolRegistry(),
       fsFactory,
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
 
@@ -159,7 +157,6 @@ describe('no verification path', () => {
       audit,
       toolRegistry: createToolRegistry(),
       fsFactory,
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
 

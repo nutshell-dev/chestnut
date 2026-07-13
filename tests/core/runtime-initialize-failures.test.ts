@@ -13,7 +13,6 @@
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import * as path from 'path';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { promises as fs } from 'fs';
@@ -82,6 +81,7 @@ describe('Runtime.initialize() failure audits', () => {
   }
 
   it('sessionManager.save failure audits module=session_manager phase=session_repair_save and rethrows', async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const clawDir = path.join(tmpdir(), `runtime-fail-test-${randomUUID()}`, 'claws', 'test');
     await fs.mkdir(clawDir, { recursive: true });
 
@@ -124,6 +124,7 @@ describe('Runtime.initialize() failure audits', () => {
   });
 
   it('inboxReader.init failure audits module=inbox_reader phase=init and rethrows', async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const clawDir = path.join(tmpdir(), `runtime-fail-test-${randomUUID()}`, 'claws', 'test');
     await fs.mkdir(clawDir, { recursive: true });
 
@@ -153,6 +154,7 @@ describe('Runtime.initialize() failure audits', () => {
   });
 
   it('snapshot.commit session-repair failure writes snapshot_commit_failed and does not throw', async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const clawDir = path.join(tmpdir(), `runtime-fail-test-${randomUUID()}`, 'claws', 'test');
     await fs.mkdir(clawDir, { recursive: true });
 

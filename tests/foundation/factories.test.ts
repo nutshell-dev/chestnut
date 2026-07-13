@@ -2,7 +2,6 @@ import { describe, it, expect, afterEach } from 'vitest';
 // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { mkdtempSync, rmSync } from 'fs';
 import { readdir, readFile } from 'fs/promises';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import path from 'path';
 
@@ -25,6 +24,7 @@ import { AuditWriter } from '../../src/foundation/audit/writer.js';
 let tmpDirs: string[] = [];
 
 function mkEnv() {
+  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
   const dir = mkdtempSync(path.join(tmpdir(), 'factories-'));
   tmpDirs.push(dir);
   const fs = new NodeFileSystem({ baseDir: dir });

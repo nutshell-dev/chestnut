@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fsAsync from 'fs/promises';
 import * as path from 'path';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { InboxReader } from '../../../src/foundation/messaging/index.js';
@@ -29,6 +28,7 @@ describe('InboxReader.peekPendingCount', () => {
   let auditEvents: ReturnType<typeof makeAudit>['events'];
 
   beforeEach(async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     root = path.join(tmpdir(), `peek-count-${randomUUID()}`);
     pendingDir = path.join(root, 'inbox/pending');
     await fsAsync.mkdir(pendingDir, { recursive: true });

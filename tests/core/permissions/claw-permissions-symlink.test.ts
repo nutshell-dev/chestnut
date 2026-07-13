@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'node:os';
 import { createClawPermissionChecker } from '../../../src/core/permissions/claw-permissions.js';
 import { PathNotInClawSpaceError } from '../../../src/core/permissions/errors.js';
@@ -14,6 +13,7 @@ describe('claw-permissions symlink escape (phase 951)', () => {
   let symlinkInsideClaw: string;
 
   beforeAll(() => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     root = fs.mkdtempSync(path.join(tmpdir(), 'claw-perm-test-'));
     clawDir = path.join(root, 'claw-a');
     outsideDir = path.join(root, 'outside');

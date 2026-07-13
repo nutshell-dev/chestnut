@@ -41,7 +41,6 @@ function makeFsMock(
   const files = new Map<string, string>();
 
   // phase 948: pre-seed observer state with bootstrapDone=true、空 per-claw 水位 避免 bootstrap path 抑制首 tick emit
-  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
   files.set('/tmp/test/motion/status/contract-observer-state.json', JSON.stringify(
     initialState ?? {
       version: 5,
@@ -55,7 +54,6 @@ function makeFsMock(
   ));
 
   if (scenario === 'completed') {
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     files.set('/tmp/test/claws/claw1/contract/archive/contract-a/progress.json', JSON.stringify({ schema_version: 1,
       contract_id: 'contract-a',
       status: 'completed',
@@ -66,20 +64,17 @@ function makeFsMock(
   }
 
   if (scenario === 'mixed') {
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     files.set('/tmp/test/claws/claw1/contract/archive/c1/progress.json', JSON.stringify({ schema_version: 1,
       contract_id: 'c1',
       status: 'completed',
       subtasks: { st1: { completed_at: new Date(now).toISOString() } },
     }));
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     files.set('/tmp/test/claws/claw1/contract/archive/c2/progress.json', JSON.stringify({ schema_version: 1,
       contract_id: 'c2',
       status: 'cancelled',
       checkpoint: 'cancelled: user manual',
       subtasks: { st1: { completed_at: new Date(now).toISOString() } },
     }));
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     files.set('/tmp/test/claws/claw1/contract/archive/c3/progress.json', JSON.stringify({ schema_version: 1,
       contract_id: 'c3',
       status: 'crashed',
@@ -89,7 +84,6 @@ function makeFsMock(
   }
 
   if (scenario === 'recovery') {
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     files.set('/tmp/test/claws/claw1/contract/archive/c-recovery/progress.json', JSON.stringify({ schema_version: 1,
       contract_id: 'c-recovery',
       status: 'archive_pending_recovery',
@@ -98,13 +92,11 @@ function makeFsMock(
   }
 
   if (scenario === 'old_and_new') {
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     files.set('/tmp/test/claws/claw1/contract/archive/old-contract/progress.json', JSON.stringify({ schema_version: 1,
       contract_id: 'old-contract',
       status: 'completed',
       subtasks: { st1: { completed_at: new Date(oldTs).toISOString() } },
     }));
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     files.set('/tmp/test/claws/claw1/contract/archive/new-contract/progress.json', JSON.stringify({ schema_version: 1,
       contract_id: 'new-contract',
       status: 'completed',
@@ -114,58 +106,38 @@ function makeFsMock(
 
   const dirs = new Map<string, { name: string; isDirectory: boolean; size: number }[]>();
   if (scenario === 'completed') {
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     dirs.set('/tmp/test/claws', [{ name: 'claw1', isDirectory: true, size: 0 }]);
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     dirs.set('/tmp/test/claws/claw1', [{ name: 'contract', isDirectory: true, size: 0 }]);
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     dirs.set('/tmp/test/claws/claw1/contract', [{ name: 'archive', isDirectory: true, size: 0 }]);
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     dirs.set('/tmp/test/claws/claw1/contract/archive', [{ name: 'contract-a', isDirectory: true, size: 0 }]);
   } else if (scenario === 'mixed') {
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     dirs.set('/tmp/test/claws', [{ name: 'claw1', isDirectory: true, size: 0 }]);
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     dirs.set('/tmp/test/claws/claw1', [{ name: 'contract', isDirectory: true, size: 0 }]);
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     dirs.set('/tmp/test/claws/claw1/contract', [{ name: 'archive', isDirectory: true, size: 0 }]);
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     dirs.set('/tmp/test/claws/claw1/contract/archive', [
       { name: 'c1', isDirectory: true, size: 0 },
       { name: 'c2', isDirectory: true, size: 0 },
       { name: 'c3', isDirectory: true, size: 0 },
     ]);
   } else if (scenario === 'recovery') {
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     dirs.set('/tmp/test/claws', [{ name: 'claw1', isDirectory: true, size: 0 }]);
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     dirs.set('/tmp/test/claws/claw1', [{ name: 'contract', isDirectory: true, size: 0 }]);
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     dirs.set('/tmp/test/claws/claw1/contract', [{ name: 'archive', isDirectory: true, size: 0 }]);
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     dirs.set('/tmp/test/claws/claw1/contract/archive', [
       { name: 'c-recovery', isDirectory: true, size: 0 },
     ]);
   } else if (scenario === 'old_and_new') {
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     dirs.set('/tmp/test/claws', [{ name: 'claw1', isDirectory: true, size: 0 }]);
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     dirs.set('/tmp/test/claws/claw1', [{ name: 'contract', isDirectory: true, size: 0 }]);
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     dirs.set('/tmp/test/claws/claw1/contract', [{ name: 'archive', isDirectory: true, size: 0 }]);
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     dirs.set('/tmp/test/claws/claw1/contract/archive', [
       { name: 'old-contract', isDirectory: true, size: 0 },
       { name: 'new-contract', isDirectory: true, size: 0 },
     ]);
   } else {
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     dirs.set('/tmp/test/claws', [{ name: 'claw1', isDirectory: true, size: 0 }]);
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     dirs.set('/tmp/test/claws/claw1', [{ name: 'contract', isDirectory: true, size: 0 }]);
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     dirs.set('/tmp/test/claws/claw1/contract', [{ name: 'archive', isDirectory: true, size: 0 }]);
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     dirs.set('/tmp/test/claws/claw1/contract/archive', []);
   }
 
@@ -206,11 +178,8 @@ function makeOpts(overrides: Partial<{
 }> = {}) {
   const fs = overrides.fs ?? makeFsMock('empty');
   return {
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawTopology: makeMockTopology(fs, '/tmp/test/claws'),
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     motionDir: '/tmp/test/motion',
     fs,
     motionAudit: overrides.motionAudit ?? makeAuditMock(),
@@ -290,11 +259,8 @@ describe('Phase 946 — contract-observer 三项根治修复', () => {
     });
 
     await runContractObserver({
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawsDir: '/tmp/test/claws',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawTopology: makeMockTopology(fs, '/tmp/test/claws'),
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       motionDir: '/tmp/test/motion',
       fs,
       motionAudit: makeAuditMock(),
@@ -313,11 +279,8 @@ describe('Phase 946 — contract-observer 三项根治修复', () => {
     const notifyMotion = vi.fn().mockRejectedValue(new Error('ENOSPC'));
 
     await expect(runContractObserver({
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawsDir: '/tmp/test/claws',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawTopology: makeMockTopology(fs, '/tmp/test/claws'),
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       motionDir: '/tmp/test/motion',
       fs,
       motionAudit: makeAuditMock(),
@@ -336,11 +299,8 @@ describe('Phase 946 — contract-observer 三项根治修复', () => {
     const audit = makeAuditMock();
 
     await expect(runContractObserver({
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawsDir: '/tmp/test/claws',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawTopology: makeMockTopology(fs, '/tmp/test/claws'),
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       motionDir: '/tmp/test/motion',
       fs,
       motionAudit: audit,
@@ -365,7 +325,6 @@ function makeMultiClawFsMock(
   const files = new Map<string, string>();
   const dirs = new Map<string, { name: string; isDirectory: boolean; size: number }[]>();
 
-  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
   files.set('/tmp/test/motion/status/contract-observer-state.json', JSON.stringify(
     initialState ?? {
       version: 5,
@@ -378,7 +337,6 @@ function makeMultiClawFsMock(
     }
   ));
 
-  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
   dirs.set('/tmp/test/claws', Object.keys(claws).map(name => ({ name, isDirectory: true, size: 0 })));
 
   for (const [clawId, { contracts, scanFails }] of Object.entries(claws)) {
@@ -429,7 +387,6 @@ function makeMultiClawFsMock(
 }
 
 function parseState(writes: Map<string, string>): ContractObserverInitialStateV5 | undefined {
-  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
   const raw = writes.get('/tmp/test/motion/status/contract-observer-state.json');
   if (!raw) return undefined;
   return JSON.parse(raw) as ContractObserverInitialStateV5;
@@ -448,11 +405,8 @@ describe('Phase 948 — contract-observer per-claw watermark + compound cursor +
     const notifyMotion1 = vi.fn().mockResolvedValue(undefined);
 
     await runContractObserver({
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawsDir: '/tmp/test/claws',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawTopology: makeMockTopology(fs1, '/tmp/test/claws'),
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       motionDir: '/tmp/test/motion',
       fs: fs1,
       motionAudit: makeAuditMock(),
@@ -481,11 +435,8 @@ describe('Phase 948 — contract-observer per-claw watermark + compound cursor +
     const notifyMotion2 = vi.fn().mockResolvedValue(undefined);
 
     await runContractObserver({
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawsDir: '/tmp/test/claws',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawTopology: makeMockTopology(fs2, '/tmp/test/claws'),
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       motionDir: '/tmp/test/motion',
       fs: fs2,
       motionAudit: makeAuditMock(),
@@ -517,11 +468,8 @@ describe('Phase 948 — contract-observer per-claw watermark + compound cursor +
     const notifyMotion1 = vi.fn().mockResolvedValue(undefined);
 
     await runContractObserver({
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawsDir: '/tmp/test/claws',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawTopology: makeMockTopology(fs1, '/tmp/test/claws'),
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       motionDir: '/tmp/test/motion',
       fs: fs1,
       motionAudit: makeAuditMock(),
@@ -553,11 +501,8 @@ describe('Phase 948 — contract-observer per-claw watermark + compound cursor +
     const notifyMotion2 = vi.fn().mockResolvedValue(undefined);
 
     await runContractObserver({
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawsDir: '/tmp/test/claws',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawTopology: makeMockTopology(fs2, '/tmp/test/claws'),
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       motionDir: '/tmp/test/motion',
       fs: fs2,
       motionAudit: makeAuditMock(),
@@ -585,11 +530,8 @@ describe('Phase 948 — contract-observer per-claw watermark + compound cursor +
       .mockRejectedValueOnce(new Error('ENOSPC')); // cancelled fails
 
     await runContractObserver({
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawsDir: '/tmp/test/claws',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawTopology: makeMockTopology(fs1, '/tmp/test/claws'),
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       motionDir: '/tmp/test/motion',
       fs: fs1,
       motionAudit: makeAuditMock(),
@@ -622,11 +564,8 @@ describe('Phase 948 — contract-observer per-claw watermark + compound cursor +
     const notifyMotion2 = vi.fn().mockResolvedValue(undefined);
 
     await runContractObserver({
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawsDir: '/tmp/test/claws',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawTopology: makeMockTopology(fs2, '/tmp/test/claws'),
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       motionDir: '/tmp/test/motion',
       fs: fs2,
       motionAudit: makeAuditMock(),
@@ -672,11 +611,8 @@ describe('Phase 950 — observer composite cursor + batch watermark + collector 
     const notifyMotion1 = vi.fn().mockResolvedValue(undefined);
 
     await runContractObserver({
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawsDir: '/tmp/test/claws',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawTopology: makeMockTopology(fs1, '/tmp/test/claws'),
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       motionDir: '/tmp/test/motion',
       fs: fs1,
       motionAudit: makeAuditMock(),
@@ -704,11 +640,8 @@ describe('Phase 950 — observer composite cursor + batch watermark + collector 
     const notifyMotion2 = vi.fn().mockResolvedValue(undefined);
 
     await runContractObserver({
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawsDir: '/tmp/test/claws',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawTopology: makeMockTopology(fs2, '/tmp/test/claws'),
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       motionDir: '/tmp/test/motion',
       fs: fs2,
       motionAudit: makeAuditMock(),
@@ -737,11 +670,8 @@ describe('Phase 950 — observer composite cursor + batch watermark + collector 
     const notifyMotion1 = vi.fn().mockResolvedValue(undefined);
 
     await runContractObserver({
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawsDir: '/tmp/test/claws',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawTopology: makeMockTopology(fs1, '/tmp/test/claws'),
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       motionDir: '/tmp/test/motion',
       fs: fs1,
       motionAudit: makeAuditMock(),
@@ -769,11 +699,8 @@ describe('Phase 950 — observer composite cursor + batch watermark + collector 
     const notifyMotion2 = vi.fn().mockResolvedValue(undefined);
 
     await runContractObserver({
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawsDir: '/tmp/test/claws',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawTopology: makeMockTopology(fs2, '/tmp/test/claws'),
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       motionDir: '/tmp/test/motion',
       fs: fs2,
       motionAudit: makeAuditMock(),
@@ -809,11 +736,8 @@ describe('Phase 950 — observer composite cursor + batch watermark + collector 
     const audit = makeAuditMock();
 
     await runContractObserver({
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawsDir: '/tmp/test/claws',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawTopology: makeMockTopology(fs1, '/tmp/test/claws'),
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       motionDir: '/tmp/test/motion',
       fs: fs1,
       motionAudit: audit,
@@ -852,11 +776,8 @@ describe('Phase 950 — observer composite cursor + batch watermark + collector 
     const notifyMotion = vi.fn().mockResolvedValue(undefined);
 
     await runContractObserver({
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawsDir: '/tmp/test/claws',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawTopology: makeMockTopology(fs, '/tmp/test/claws'),
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       motionDir: '/tmp/test/motion',
       fs,
       motionAudit: makeAuditMock(),

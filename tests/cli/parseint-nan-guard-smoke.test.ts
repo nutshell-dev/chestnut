@@ -15,7 +15,6 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { spawn } from 'child_process';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 
@@ -68,6 +67,7 @@ function runCli(args: string[], env: Record<string, string> = {}): Promise<{ std
         console.error('[phase1145-β] STDERR (full):\n' + stderr);
         // phase 1311 α-2: persist diagnostic to OS tmpdir (mirror phase 1307 α-2 模板)
         const dumpPath = path.join(
+          // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
           tmpdir(),
           `phase1311-cli-smoke-fail-${process.pid}-${Date.now()}.json`,
         );
@@ -94,6 +94,7 @@ function runCli(args: string[], env: Record<string, string> = {}): Promise<{ std
 }
 
 function makeTempRoot(): string {
+  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
   const dir = path.join(tmpdir(), `phase915-smoke-${randomUUID()}`);
   fs.mkdirSync(path.join(dir, '.chestnut', 'claws', 'test-claw', 'outbox', 'pending'), { recursive: true });
   fs.writeFileSync(

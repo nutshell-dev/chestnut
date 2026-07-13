@@ -10,7 +10,6 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { testClawDaemonDir, testMotionDaemonDir } from '../helpers/daemon-dir.js';
 import * as fs from 'fs/promises';
 import * as path from 'path';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 
@@ -44,6 +43,7 @@ let tempDir: string;
 let nodeFs: NodeFileSystem;
 
 beforeEach(async () => {
+  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
   tempDir = path.join(tmpdir(), `pm-spawn-p19-${randomUUID()}`);
   await fs.mkdir(tempDir, { recursive: true });
   nodeFs = new NodeFileSystem({ baseDir: tempDir });

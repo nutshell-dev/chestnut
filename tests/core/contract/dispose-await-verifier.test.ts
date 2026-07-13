@@ -64,7 +64,6 @@ describe('ContractSystem.close() async await verifier termination', () => {
       llm: mockLlm,
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
     mockRunContractVerifier.mockReset();
@@ -135,7 +134,6 @@ describe('ContractSystem.close() async await verifier termination', () => {
       audit: makeMockAudit() as any,
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
 

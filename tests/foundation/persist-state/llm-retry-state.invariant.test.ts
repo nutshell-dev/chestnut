@@ -11,7 +11,6 @@ import { EVENTLOOP_AUDIT_EVENTS } from '../../../src/core/event-loop/audit-event
 const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
 function makeTempAgentDir() {
-  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
   const tmpDir = fsNative.mkdtempSync(path.join(os.tmpdir(), 'llm-retry-inv-'));
   fsNative.mkdirSync(path.join(tmpDir, 'inbox', 'pending'), { recursive: true });
   return tmpDir;

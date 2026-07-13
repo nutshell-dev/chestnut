@@ -11,7 +11,6 @@ import { TASKS_QUEUES_PENDING_DIR } from '../../../src/core/async-task-system/di
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import type { InboxWriter } from '../../../src/foundation/messaging/index.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import * as path from 'node:path';
@@ -22,6 +21,7 @@ function makeAudit(): { audit: AuditLog } {
 }
 
 function setupBaseDir(): string {
+  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
   const baseDir = path.join(tmpdir(), `test-overflow-dedup-${randomUUID().slice(0, 8)}`);
   fs.mkdirSync(baseDir, { recursive: true });
   for (const sub of ['pending', 'done', 'failed', 'running', 'results']) {

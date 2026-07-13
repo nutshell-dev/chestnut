@@ -5,7 +5,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as path from 'path';
 import { promises as fs } from 'fs';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { Runtime } from '../../../src/core/runtime/index.js';
@@ -57,6 +56,7 @@ describe('Runtime catch → markCrashed (phase 63)', () => {
   const runtimes: Runtime[] = [];
 
   beforeEach(async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     testTempDir = path.join(tmpdir(), `chestnut-mark-crashed-${randomUUID()}`);
     testClawDir = path.join(testTempDir, 'claws', 'edge-claw');
     await fs.mkdir(testClawDir, { recursive: true });

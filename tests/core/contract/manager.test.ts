@@ -48,7 +48,6 @@ function setupManager() {
     audit,
     toolRegistry: createToolRegistry(),
     fsFactory,
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),
   });
@@ -210,7 +209,6 @@ describe('ContractSystem manager (phase 956)', () => {
       audit: audit as unknown as Parameters<typeof ContractSystem>[0]['audit'],
       toolRegistry: createToolRegistry(),
       fsFactory,
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawsDir: '/tmp/test/claws',
       notifyClaw: vi.fn(),
     });

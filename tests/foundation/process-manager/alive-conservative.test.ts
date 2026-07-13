@@ -8,7 +8,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import * as path from 'path';
 import * as fs from 'fs';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 
@@ -19,6 +18,7 @@ import { makeDaemonDir, type ProcessManagerContext } from '../../../src/foundati
 let lastTempDir: string;
 
 function makeTempDir(): string {
+  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
   const dir = path.join(tmpdir(), `alive-conservative-${randomUUID()}`);
   fs.mkdirSync(dir, { recursive: true });
   lastTempDir = dir;

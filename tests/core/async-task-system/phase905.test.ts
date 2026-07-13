@@ -68,7 +68,6 @@ describe('phase 905: shutdown close fault tolerance', () => {
     const { audit, events } = makeMockAudit();
     auditEvents = events;
 
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     system = new AsyncTaskSystem('/tmp/claw', mockFs, {
       shortIdIndex: new InMemoryShortIdIndex(),
       auditWriter: audit,
@@ -118,7 +117,6 @@ describe('phase 905: shutdown drain keeps unsettled tasks', () => {
     const { audit, events } = makeMockAudit();
     auditEvents = events;
 
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     system = new AsyncTaskSystem('/tmp/claw', mockFs, {
       shortIdIndex: new InMemoryShortIdIndex(),
       auditWriter: audit,
@@ -163,7 +161,6 @@ describe('phase 905: cancel pending subagent notifies parent', () => {
     const { audit, events } = makeMockAudit();
     auditEvents = events;
 
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     system = new AsyncTaskSystem('/tmp/claw', mockFs, {
       shortIdIndex: new InMemoryShortIdIndex(),
       auditWriter: audit,
@@ -193,7 +190,6 @@ describe('phase 905: cancel pending subagent notifies parent', () => {
       intent: 'test intent',
       timeoutMs: 60000,
       parentClawId: 'parent-claw',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       parentClawDir: '/tmp/claw',
       createdAt: new Date().toISOString(),
     };

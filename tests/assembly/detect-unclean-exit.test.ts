@@ -39,7 +39,6 @@ describe('detectUncleanExit catch audit', () => {
     });
 
     const mockFs = { existsSync: mockExistsSync, statSync: mockStatSync };
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     detectUncleanExit('/tmp/audit', audit as any, mockFs as any);
 
     expect(audit.write).toHaveBeenCalledWith(
@@ -60,7 +59,6 @@ describe('detectUncleanExit catch audit', () => {
     });
 
     const mockFs = { existsSync: mockExistsSync, statSync: mockStatSync };
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     detectUncleanExit('/tmp/audit', audit as any, mockFs as any);
 
     expect(audit.write).not.toHaveBeenCalled();

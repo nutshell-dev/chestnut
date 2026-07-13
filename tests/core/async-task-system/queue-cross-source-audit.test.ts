@@ -136,7 +136,6 @@ describe('async-task queue cross-source audit (phase 284)', () => {
         exists: vi.fn().mockResolvedValue(false),
       } as unknown as FileSystem;
 
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       const system = new AsyncTaskSystem('/tmp/claw', mockFs, {
       shortIdIndex: new InMemoryShortIdIndex(),
       auditWriter: audit,

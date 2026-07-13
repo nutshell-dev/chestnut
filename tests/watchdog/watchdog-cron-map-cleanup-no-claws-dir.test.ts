@@ -10,7 +10,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { maybeCronClawInactivity, maybeCronClawCrash } from '../../src/watchdog/watchdog-cron.js';
@@ -87,6 +86,7 @@ describe('watchdog-cron Map cleanup no-claws-dir (phase 138 audit.P1.wd-1)', () 
 
   beforeEach(() => {
     _resetWatchdogContextForTest();
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = path.join(tmpdir(), `wd-cleanup-${randomUUID()}`);
     const chestnutDir = path.join(tmpDir, '.chestnut');
     clawsDir = path.join(chestnutDir, 'claws');

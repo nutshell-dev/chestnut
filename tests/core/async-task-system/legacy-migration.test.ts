@@ -35,7 +35,6 @@ function legacyToolTask(id: string): Record<string, unknown> {
     id,
     toolName: 'exec',
     args: { command: 'echo hello' },
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     parentClawDir: '/tmp',
     parentClawId: 'parent',
     createdAt: new Date().toISOString(),
@@ -51,7 +50,6 @@ function malformedTask(): Record<string, unknown> {
     kind: 'tool',
     toolName: 'exec',
     args: { command: 'echo hello' },
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     parentClawDir: '/tmp',
     parentClawId: 'parent',
     createdAt: new Date().toISOString(),
@@ -79,7 +77,6 @@ describe('Phase 868 legacy task file migration', () => {
   let clawDir: string;
 
   beforeEach(() => {
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'phase868-migration-'));
     clawDir = path.join(tmpDir, 'claw');
     fs.mkdirSync(path.join(clawDir, TASKS_QUEUES_PENDING_DIR), { recursive: true });

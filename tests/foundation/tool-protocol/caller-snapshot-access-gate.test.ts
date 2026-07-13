@@ -17,7 +17,6 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as path from 'path';
 import { promises as fs } from 'fs';
 import * as fsSync from 'node:fs';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 
@@ -48,6 +47,7 @@ function makeTool(opts: {
 }
 
 async function setup(opts: { withProvider: boolean; snapshotData?: CallerSnapshot }) {
+  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
   const tempDir = path.join(tmpdir(), `chestnut-test-1406-${randomUUID()}`);
   lastTempDir = tempDir;
   await fs.mkdir(tempDir, { recursive: true });
@@ -171,6 +171,7 @@ describe('phase 1406 caller-snapshot access gate', () => {
 
   it('lazy: undeclared tool not calling snapshot() incurs 0 audit emit + 0 provider invocations', async () => {
     let providerInvocations = 0;
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const tempDir = path.join(tmpdir(), `chestnut-test-1406-${randomUUID()}`);
     lastTempDir = tempDir;
     await fs.mkdir(tempDir, { recursive: true });

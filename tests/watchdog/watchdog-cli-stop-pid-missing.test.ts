@@ -37,7 +37,6 @@ vi.mock('../../src/core/claw-topology/index.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/core/claw-topology/index.js')>();
   return {
     ...actual,
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     getWorkspaceRoot: vi.fn(() => '/tmp/test'),
   };
 });

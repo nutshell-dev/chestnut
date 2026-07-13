@@ -20,7 +20,6 @@ import type {
 import { ExecContextImpl, cloneExecContext } from '../../../src/foundation/tools/context.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import * as path from 'path';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { promises as fs } from 'fs';
@@ -41,6 +40,7 @@ describe('phase 1459 ExecContext ISP α-1 decomposition', () => {
   });
 
   async function makeCtx(): Promise<ExecContextImpl> {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const tempDir = path.join(tmpdir(), `ec-isp-${randomUUID()}`);
     lastTempDir = tempDir;
     await fs.mkdir(tempDir, { recursive: true });
@@ -91,7 +91,6 @@ describe('phase 1459 ExecContext ISP α-1 decomposition', () => {
   it('(6) tool execute can declare narrow sub-interface dependency', async () => {
     const ctx = await makeCtx();
     function auditOnlyTool(ctx: ClawIdentity & ExecutionAudit): string {
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       ctx.readFileState.set('/tmp/x', { hash: 'h', timestamp: 0, isFullRead: true });
       return ctx.clawId;
     }

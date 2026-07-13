@@ -21,7 +21,6 @@ describe('phase 1273: permissionChecker injected into main runtime ExecContext',
   let clawDir: string;
 
   beforeAll(() => {
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cf-phase1273-'));
     clawDir = path.join(tmpDir, 'test-claw');
     fs.mkdirSync(clawDir, { recursive: true });

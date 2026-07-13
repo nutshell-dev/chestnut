@@ -12,7 +12,6 @@ describe('summarizeLastExit', () => {
   let testFs: FileSystem;
 
   beforeEach(() => {
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'last-exit-test-'));
     auditPath = path.join(tmpDir, 'audit.tsv');
     testFs = new NodeFileSystem({ baseDir: tmpDir });
@@ -138,7 +137,6 @@ describe('readLastExitEvent', () => {
   // 基础 reader 行为已被 summarizeLastExit 间接覆盖；
   // 这里补一个直接测试，验证返回结构
   it('returns parsed event structure', () => {
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'last-exit-test-'));
     const auditPath = path.join(tmpDir, 'audit.tsv');
     fs.writeFileSync(auditPath, '2026-04-16T10:00:00.000Z\tdaemon_stop\treason=sigterm\textra=col\n');

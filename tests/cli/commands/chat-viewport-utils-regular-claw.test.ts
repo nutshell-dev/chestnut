@@ -10,7 +10,6 @@ describe('phase 1388 Bug A: writeUserChat 普通 claw 不嵌套 claws/claws/', (
   let originalEnv: string | undefined;
 
   beforeEach(() => {
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'phase1388-bug-a-'));
     originalEnv = process.env.CHESTNUT_ROOT;
     process.env.CHESTNUT_ROOT = tempDir;

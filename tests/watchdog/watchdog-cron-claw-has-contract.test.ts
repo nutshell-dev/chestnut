@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { clawHasContract } from '../../src/watchdog/watchdog-utils.js';
@@ -14,6 +13,7 @@ describe('clawHasContract silent X (phase 994 A.2)', () => {
   const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
   beforeEach(() => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     testDir = path.join(tmpdir(), `wdutils-${randomUUID()}`);
     fs.mkdirSync(testDir, { recursive: true });
   });

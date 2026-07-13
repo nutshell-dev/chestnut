@@ -5,7 +5,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { gatherClawSnapshot, type ClawSnapshot } from '../../src/watchdog/watchdog-utils.js';
@@ -17,6 +16,7 @@ describe('gatherClawSnapshot forensic context (phase 1207 gap B)', () => {
   const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
   beforeEach(() => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     testDir = path.join(tmpdir(), `wd-snap-${randomUUID()}`);
     clawDir = path.join(testDir, 'claw-test');
     fs.mkdirSync(clawDir, { recursive: true });

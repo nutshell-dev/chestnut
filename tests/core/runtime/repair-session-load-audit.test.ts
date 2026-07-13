@@ -9,7 +9,6 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as path from 'path';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { promises as fs } from 'fs';
@@ -75,6 +74,7 @@ describe('Runtime — repairSessionIfNeeded load failure observability (R72-P1-2
   }
 
   it('triggers SESSION_REPAIR_FAILED audit context=load_skipped when sessionManager.load throws', async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const clawDir = path.join(tmpdir(), `runtime-repair-load-test-${randomUUID()}`, 'claws', 'test');
     await fs.mkdir(clawDir, { recursive: true });
 

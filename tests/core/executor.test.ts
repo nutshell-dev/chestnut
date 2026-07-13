@@ -7,7 +7,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as path from 'path';
 import { promises as fs } from 'fs';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 

@@ -5,7 +5,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fsAsync from 'fs/promises';
 import * as path from 'path';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import {
@@ -21,6 +20,7 @@ describe('phase 949: event-collector cursor / schema / active-state fixes', () =
   let fs: NodeFileSystem;
 
   beforeEach(async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     chestnutRoot = path.join(tmpdir(), `event-collector-phase949-${randomUUID()}`);
     await fsAsync.mkdir(chestnutRoot, { recursive: true });
     fs = new NodeFileSystem({ baseDir: chestnutRoot });

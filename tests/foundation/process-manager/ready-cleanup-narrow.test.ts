@@ -54,7 +54,6 @@ describe('phase 1215: ready.ts:98 fire-and-forget delete isFileNotFound narrow',
   it('reverse 1: delete throws FileNotFoundError → 0 audit emit READY_STALE_CLEANUP_FAILED', async () => {
     const { audit, events } = makeAudit();
     const mockFs = makeMockFs({
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       delete: vi.fn().mockRejectedValue(new FileNotFoundError('/tmp/test-claw/ready')),
     });
     const ctx: ProcessManagerContext = {

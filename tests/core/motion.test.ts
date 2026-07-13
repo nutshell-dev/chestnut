@@ -35,7 +35,6 @@ const mockLLMConfig: LLMOrchestratorConfig = {
 async function createTempDir(): Promise<string> {
   // clawDir 必须是 workspace/claws/{name} 结构
   // runtime.ts:125 做 path.resolve(clawDir, '..', '..') 推算 workspaceDir
-  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
   const base = await fs.mkdtemp(path.join(os.tmpdir(), 'motion-test-'));
   const clawDir = path.join(base, 'claws', 'motion-test');
   await fs.mkdir(clawDir, { recursive: true });

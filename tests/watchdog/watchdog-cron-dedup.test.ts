@@ -5,7 +5,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { maybeCronClawCrash } from '../../src/watchdog/watchdog-cron.js';
@@ -70,6 +69,7 @@ describe('watchdog claw_crashed dedup (phase 1207 gap A)', () => {
 
   beforeEach(() => {
     _resetWatchdogContextForTest();
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = path.join(tmpdir(), `wd-dedup-${randomUUID()}`);
     const chestnutDir = path.join(tmpDir, '.chestnut');
     clawsDir = path.join(chestnutDir, 'claws');

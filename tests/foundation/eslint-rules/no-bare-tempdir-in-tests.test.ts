@@ -8,27 +8,23 @@ const ruleTester = new RuleTester({
   },
 });
 
-describe('eslint custom rule: no-bare-tempdir-in-tests (phase 991)', () => {
+describe('eslint custom rule: no-bare-tempdir-in-tests (phase 995)', () => {
   ruleTester.run('no-bare-tempdir-in-tests', noBareTempdirInTests, {
     valid: [
       // createTempDir / createTrackedTempDir from temp.ts are OK
       { code: "import { createTempDir } from '../utils/temp.js';", filename: 'tests/core/example.test.ts' },
+      // importing tmpdir is OK; calling it is not
+      { code: "import { tmpdir } from 'node:os';", filename: 'tests/core/example.test.ts' },
       // other os imports are OK
       { code: "import { hostname } from 'node:os';", filename: 'tests/core/example.test.ts' },
       // other fs imports are OK
       { code: "import { readFile } from 'node:fs';", filename: 'tests/core/example.test.ts' },
+      // mock / rendered strings are OK
+      { code: "const x = '/tmp/chestnut-test/claws/test';", filename: 'tests/core/example.test.ts' },
+      // mkdtemp with os.tmpdir() prefix is OK
+      { code: "import * as fs from 'node:fs'; import * as os from 'node:os'; fs.mkdtempSync(require('node:path').join(os.tmpdir(), 'prefix-'));", filename: 'tests/core/example.test.ts' },
     ],
     invalid: [
-      {
-        code: "import { tmpdir } from 'node:os';",
-        filename: 'tests/core/example.test.ts',
-        errors: [{ messageId: 'noBareTempdir' }],
-      },
-      {
-        code: "import { tmpdir } from 'os';",
-        filename: 'tests/core/example.test.ts',
-        errors: [{ messageId: 'noBareTempdir' }],
-      },
       {
         code: "import { mkdtemp } from 'node:fs';",
         filename: 'tests/core/example.test.ts',
@@ -43,6 +39,26 @@ describe('eslint custom rule: no-bare-tempdir-in-tests (phase 991)', () => {
         code: 'import * as os from "node:os"; const t = os.tmpdir();',
         filename: 'tests/core/example.test.ts',
         errors: [{ messageId: 'noBareOsTmpdir' }],
+      },
+      {
+        code: "import { tmpdir } from 'node:os'; const t = tmpdir();",
+        filename: 'tests/core/example.test.ts',
+        errors: [{ messageId: 'noBareTempdir' }],
+      },
+      {
+        code: "import { mkdtemp } from 'node:fs'; const d = mkdtemp('prefix-');",
+        filename: 'tests/core/example.test.ts',
+        errors: [{ messageId: 'noBareMkdtemp' }, { messageId: 'noBareMkdtemp' }],
+      },
+      {
+        code: "import * as fs from 'node:fs'; const d = fs.mkdtempSync('/tmp/test-');",
+        filename: 'tests/core/example.test.ts',
+        errors: [{ messageId: 'noHardcodedTmp' }],
+      },
+      {
+        code: "import * as fsNative from 'fs'; const d = fsNative.mkdtemp('/tmp/test-');",
+        filename: 'tests/core/example.test.ts',
+        errors: [{ messageId: 'noHardcodedTmp' }],
       },
     ],
   });

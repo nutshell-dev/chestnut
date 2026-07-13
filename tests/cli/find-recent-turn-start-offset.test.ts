@@ -18,7 +18,6 @@ describe('findRecentTurnStartOffset', () => {
   let tmpDir: string;
 
   beforeEach(() => {
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = fsNative.mkdtempSync(path.join(os.tmpdir(), 'find-turn-start-'));
   });
 

@@ -43,7 +43,6 @@ describe('notifyContractCreated audit observability', () => {
       subtasks: [{ id: 't1', description: 'd1' }],
     } as any;
 
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     notifyContractCreated({ fsFactory }, '/tmp/claw', 'claw-1', 'test-contract-001', contract, '/tmp/chestnut');
 
     expect(audit.write).toHaveBeenCalledWith(
@@ -56,7 +55,6 @@ describe('notifyContractCreated audit observability', () => {
   });
 
   it('appends contract_created event to stream.jsonl via PerResourceStreamWriter (phase 1120)', () => {
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'contract-notify-'));
     const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
     try {
@@ -106,7 +104,6 @@ describe('notifyContractCreated audit observability', () => {
       title: 'T', goal: 'G', subtasks: [],
     };
 
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     expect(() => notifyContractCreated({ fsFactory }, '/tmp/claw', 'claw-A', 'c-002', contract, '/tmp/chestnut')).not.toThrow();
 
     const streamFailedCalls = audit.write.mock.calls.filter(c => c[0] === 'stream_append_failed');

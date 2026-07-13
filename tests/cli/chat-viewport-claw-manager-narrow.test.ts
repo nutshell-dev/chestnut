@@ -60,7 +60,6 @@ describe('chat-viewport-claw-manager dual-code narrow (phase 1215)', () => {
     const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
     const mockFs = makeMockFs({
       listSync: vi.fn().mockImplementation(() => {
-        // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
         throw new FileNotFoundError('/tmp/claws');
       }),
     });
@@ -70,9 +69,7 @@ describe('chat-viewport-claw-manager dual-code narrow (phase 1215)', () => {
       pm: { readPid: vi.fn().mockResolvedValue(null) },
       audit: audit as unknown as AuditLog,
       isMotion: true,
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawsDir: '/tmp/claws',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawTopology: makeMockTopology('/tmp/claws'),
       clawTrackMap: new Map(),
       updateClawPanel: vi.fn(),
@@ -98,9 +95,7 @@ describe('chat-viewport-claw-manager dual-code narrow (phase 1215)', () => {
       pm: { readPid: vi.fn().mockResolvedValue(null) },
       audit: audit as unknown as AuditLog,
       isMotion: true,
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawsDir: '/tmp/claws',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawTopology: makeMockTopology('/tmp/claws'),
       clawTrackMap: new Map(),
       updateClawPanel: vi.fn(),
@@ -127,7 +122,6 @@ describe('chat-viewport-claw-manager dual-code narrow (phase 1215)', () => {
       pm: { readPid: vi.fn().mockResolvedValue(null) },
       audit: audit as unknown as AuditLog,
       isMotion: true,
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawsDir: '/tmp/claws',
       clawTopology: topologyThrowEacces,
       clawTrackMap: new Map(),

@@ -9,7 +9,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'path';
 import { promises as fs } from 'fs';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { TestRuntime } from '../helpers/test-runtime.js';
@@ -85,6 +84,7 @@ describe('runtime stopRequested reset (phase 900)', () => {
 
   beforeEach(async () => {
     vi.restoreAllMocks();
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tempDir = path.join(tmpdir(), `claw-test-${randomUUID()}`);
     await fs.mkdir(tempDir, { recursive: true });
     clawDir = path.join(tempDir, 'claws', 'test-claw');

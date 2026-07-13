@@ -7,7 +7,6 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { InboxReader, InboxListFailed, InboxMoveFailed } from '../../src/foundation/messaging/index.js';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
@@ -21,6 +20,7 @@ describe('InboxReader', () => {
   let nfs: NodeFileSystem;
 
   beforeEach(async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     testDir = path.join(tmpdir(), `chestnut-inbox-${randomUUID()}`);
     await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     await fs.mkdir(testDir, { recursive: true });

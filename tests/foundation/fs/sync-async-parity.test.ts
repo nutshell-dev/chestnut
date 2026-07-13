@@ -12,7 +12,6 @@ describe('fs/types.ts: sync/async parity', () => {
   });
 
   it('NodeFileSystem implements removeDirSync correctly', () => {
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const tmpDir = fs.mkdtempSync(path.join(fs.realpathSync('/tmp'), 'fs-parity-test-'));
     const nodeFs = new NodeFileSystem({ baseDir: tmpDir });
 
@@ -26,7 +25,6 @@ describe('fs/types.ts: sync/async parity', () => {
   });
 
   it('NodeFileSystem implements realpathSync correctly', () => {
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const tmpDir = fs.mkdtempSync(path.join(fs.realpathSync('/tmp'), 'fs-parity-test-'));
     const nodeFs = new NodeFileSystem({ baseDir: tmpDir });
 
@@ -40,7 +38,6 @@ describe('fs/types.ts: sync/async parity', () => {
   });
 
   it('NodeFileSystem implements isDirectorySync correctly', () => {
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const tmpDir = fs.mkdtempSync(path.join(fs.realpathSync('/tmp'), 'fs-parity-test-'));
     const nodeFs = new NodeFileSystem({ baseDir: tmpDir });
 

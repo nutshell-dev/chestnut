@@ -6,7 +6,6 @@ import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 
 describe('phase 1395: resolveAndCheck dot-relpath ENOENT false-positive fix', () => {
   let tempDir: string;
-  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
   beforeEach(() => { tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'phase1395-')); });
   afterEach(() => { fs.rmSync(tempDir, { recursive: true, force: true }); });
 

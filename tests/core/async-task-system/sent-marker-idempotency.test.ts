@@ -100,7 +100,6 @@ describe('SENT_MARKER idempotency (phase 789 / P0.19 + P0.20)', () => {
       parentClawId: 'parent',
       toolName: 'test_tool',
       args: {},
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       parentClawDir: '/tmp/claw',
       createdAt: new Date().toISOString(),
       isIdempotent: true,

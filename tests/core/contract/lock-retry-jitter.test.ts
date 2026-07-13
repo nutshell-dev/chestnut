@@ -64,7 +64,6 @@ describe('phase 1325 lock retry jitter + audit emit', () => {
     };
 
     await expect(
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       acquireLock({ fs: mockFs as any, audit: mockAudit as any, l1IsAlive: vi.fn(() => true) }, '/tmp/test.lock')
     ).rejects.toThrow(/Failed to acquire lock after/);
 

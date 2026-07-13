@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { _resetShutdownGuard, runWatchdogLoop } from '../../src/watchdog/watchdog.js';
@@ -52,6 +51,7 @@ describe('watchdog handler idempotent install (phase 1034 / audit-2026-05-17 NEW
   let tmpDir: string;
 
   beforeEach(() => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = path.join(tmpdir(), `wd-idem-${randomUUID()}`);
     const chestnutDir = path.join(tmpDir, '.chestnut');
     fs.mkdirSync(path.join(chestnutDir, 'motion', 'logs'), { recursive: true });

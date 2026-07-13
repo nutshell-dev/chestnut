@@ -38,7 +38,6 @@ describe('contract_id derive (phase 282 Step B)', () => {
       audit: mockAudit as any,
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawsDir: '/tmp/test/claws',
       notifyClaw: vi.fn(),
     });
@@ -65,7 +64,6 @@ describe('contract_id derive (phase 282 Step B)', () => {
       audit: mockAudit as any,
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawsDir: '/tmp/test/claws',
       notifyClaw: vi.fn(),
     });
@@ -107,7 +105,6 @@ describe('contract_id derive (phase 282 Step B)', () => {
       audit: mockAudit as any,
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawsDir: '/tmp/test/claws',
       notifyClaw: vi.fn(),
     });

@@ -43,11 +43,8 @@ describe('phase 890: callback safeCallback wrap', () => {
 
       const ctx = {
         clawId: 'test',
-        // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
         clawDir: '/tmp',
-        // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
         workspaceDir: '/tmp',
-        // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
         syncDir: '/tmp',
         callerType: 'main' as const,
         fs: {},

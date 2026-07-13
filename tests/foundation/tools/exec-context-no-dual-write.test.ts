@@ -13,7 +13,6 @@ import { createShadowTool } from '../../../src/core/shadow-system/tools/shadow.j
 import { ExecContextImpl } from '../../../src/foundation/tools/context.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
 import * as path from 'path';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { promises as fs } from 'fs';
@@ -26,6 +25,7 @@ describe('phase 1174 ExecContext 7-site dual-write eviction', () => {
   //   summon_no_dialog_context audit. The legacy reverse case (no callback
   //   injected) is supplanted by: getCallerSnapshot provider returns messages=[].
   it('shadow path with empty caller snapshot messages emits summon_no_dialog_context audit', async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const tempDir = path.join(tmpdir(), `ec-ndw-${randomUUID()}`);
     await fs.mkdir(tempDir, { recursive: true });
     const mockFs = new NodeFileSystem({ baseDir: tempDir });
@@ -71,6 +71,7 @@ describe('phase 1174 ExecContext 7-site dual-write eviction', () => {
 
   // reverse 3: boundary path — getTurnSnapshot factory does not read ctx fields
   it('shadow getTurnSnapshot returns values from factory injection, not ctx fields', async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const tempDir = path.join(tmpdir(), `ec-ndw-${randomUUID()}`);
     await fs.mkdir(tempDir, { recursive: true });
     const mockFs = new NodeFileSystem({ baseDir: tempDir });

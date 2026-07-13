@@ -6,7 +6,6 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as path from 'path';
 import { promises as fs } from 'fs';
 import { routeNotifyClaw as notifyClawFn } from '../../src/core/claw-topology/index.js';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { EventEmitter, once } from 'events';
@@ -285,7 +284,6 @@ describe('ContractSystem Acceptance Flow', () => {
       toolRegistry: createToolRegistry(),
       fsFactory,
       runSubagent: mockRunSubagent,
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawsDir: '/tmp/test/claws',
       notifyClaw: (targetClawId, message) => notifyClawFn(nodeFs, path.resolve(clawDir, '..', '..'), 'motion', targetClawId, message, mockAudit as any),
     });
@@ -512,7 +510,6 @@ describe('ContractSystem Acceptance Flow', () => {
         toolRegistry: createToolRegistry(),
         fsFactory,
         runSubagent: mockRunSubagent,
-        // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
         clawsDir: '/tmp/test/claws',
         notifyClaw: (targetClawId, message) => notifyClawFn(nodeFs, path.resolve(clawDir, '..', '..'), 'motion', targetClawId, message, mockAudit as any),
       });

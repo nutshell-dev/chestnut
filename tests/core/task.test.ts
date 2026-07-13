@@ -6,7 +6,6 @@ import { describe, expect, vi } from 'vitest';
 import { test } from '../helpers/task-test-fixture.js';
 import * as path from 'path';
 import { promises as fs } from 'fs';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 

@@ -22,7 +22,6 @@ describe('createWatcher persistent option', () => {
   });
 
   it('defaults to persistent: true', () => {
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     createWatcher('/tmp/x', () => {});
     expect(vi.mocked(chokidar.watch)).toHaveBeenCalledWith(
       expect.any(String),
@@ -31,7 +30,6 @@ describe('createWatcher persistent option', () => {
   });
 
   it('passes persistent: false through to chokidar', () => {
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     createWatcher('/tmp/x', () => {}, { persistent: false });
     expect(vi.mocked(chokidar.watch)).toHaveBeenCalledWith(
       expect.any(String),

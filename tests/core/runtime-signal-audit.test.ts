@@ -6,7 +6,6 @@ import type { RuntimeTestInternals } from '../helpers/runtime-test-internals.js'
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as path from 'path';
 import { promises as fs } from 'fs';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { Runtime } from '../../src/core/runtime/index.js';
@@ -68,6 +67,7 @@ describe('Runtime SignalAudit', () => {
     const signalRuntimes: Runtime[] = [];
 
     beforeEach(async () => {
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       tempDir2 = path.join(tmpdir(), `chestnut-signal-test-${randomUUID()}`);
       clawDir2 = path.join(tempDir2, 'claws', 'sig-claw');
       await fs.mkdir(clawDir2, { recursive: true });
@@ -154,6 +154,7 @@ describe('Runtime SignalAudit', () => {
     const piRuntimes: Runtime[] = [];
 
     beforeEach(async () => {
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       piTempDir = path.join(tmpdir(), `chestnut-pi-test-${randomUUID()}`);
       piClawDir = path.join(piTempDir, 'claws', 'pi-claw');
       await fs.mkdir(piClawDir, { recursive: true });

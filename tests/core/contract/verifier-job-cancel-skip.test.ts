@@ -17,7 +17,6 @@ function makeConfig(overrides: Partial<VerifierConfig> = {}): VerifierConfig {
   return {
     agentId: 'verifier-test-contract-1',
     clawId: 'claw-test',
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawDir: '/tmp/claw',
     contractId: 'test-contract-1',
     fs: {

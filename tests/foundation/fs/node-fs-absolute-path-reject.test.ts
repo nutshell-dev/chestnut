@@ -23,7 +23,6 @@ describe('NodeFileSystem — absolute path reject (P0.1 phase 611)', () => {
   });
 
   it('throws PathGuardError for write with absolute path', async () => {
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     await expect(fs.writeAtomic('/tmp/escape', 'data')).rejects.toThrow(PathGuardError);
   });
 

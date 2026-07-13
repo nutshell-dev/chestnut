@@ -82,7 +82,6 @@ describe('derive from fs (phase 284 Step A)', () => {
     const { audit, events } = makeMockAudit();
     auditEvents = events;
 
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     system = new AsyncTaskSystem('/tmp/claw', mockFs, {
       shortIdIndex: new InMemoryShortIdIndex(),
       auditWriter: audit,

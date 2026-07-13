@@ -10,7 +10,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'path';
 import { promises as fs } from 'fs';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { SummonTool } from '../../../src/core/summon-system/tools/summon.js';
@@ -22,6 +21,7 @@ import type { LLMOrchestrator } from '../../../src/foundation/llm-orchestrator/i
 import { createMockTaskSystem } from '../../helpers/task-system.js';
 
 async function createTempDir(): Promise<string> {
+  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
   const d = path.join(tmpdir(), `summon-dispatched-audit-${randomUUID()}`);
   await fs.mkdir(d, { recursive: true });
   return d;

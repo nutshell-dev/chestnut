@@ -81,13 +81,11 @@ describe('claw-status (phase 1472 Step C)', () => {
 
   beforeEach(async () => {
     consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'claw-status-test-'));
     clawDir = path.join(tmpRoot, '.chestnut', 'claws', 'foo');
     fs.mkdirSync(clawDir, { recursive: true });
 
     vi.mocked(loadGlobalConfig).mockReturnValue({} as any);
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     vi.mocked(getClawConfigPath).mockImplementation((name: string) => path.join('/tmp/chestnut/claws', name, 'config.yaml'));
     vi.mocked(clawExists).mockImplementation((_: any, configPath: string) => configPath.includes('/claws/foo/'));
     vi.mocked(getClawDir).mockImplementation(() => clawDir);

@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { mkdtempSync, readFileSync, existsSync, rmSync } from 'node:fs';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
@@ -45,6 +44,7 @@ describe(
     let exitListeners: Array<() => void>;
 
     beforeEach(() => {
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       tmpDir = mkdtempSync(join(tmpdir(), 'phase176-mfcw-'));
       _resetFallbackForTest();
       exitListeners = [];
@@ -106,6 +106,7 @@ describe(
 
       expect(dumpedPath).toMatch(
         new RegExp(
+          // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
           `^${escapeRegex(tmpdir())}/chestnut-audit-fallback-\\d+-\\d+\\.tsv$`,
         ),
       );

@@ -8,11 +8,9 @@ import * as path from 'path';
 
 function makeFsMockWithState(stateContent: string): FileSystem {
   const files = new Map<string, string>();
-  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
   files.set('/tmp/test/motion/status/contract-observer-state.json', stateContent);
 
   const dirs = new Map<string, { name: string; isDirectory: boolean; size: number }[]>();
-  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
   dirs.set('/tmp/test/claws', []);
 
   return {
@@ -60,11 +58,8 @@ describe('contract observer state file corrupt (phase 946)', () => {
     const { audit, events } = makeAuditMock();
 
     await expect(runContractObserver({
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawsDir: '/tmp/test/claws',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawTopology: makeMockTopology(fs, '/tmp/test/claws'),
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       motionDir: '/tmp/test/motion',
       fs,
       motionAudit: audit,
@@ -89,11 +84,8 @@ describe('contract observer state file corrupt (phase 946)', () => {
     const { audit, events } = makeAuditMock();
 
     await expect(runContractObserver({
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawsDir: '/tmp/test/claws',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawTopology: makeMockTopology(fs, '/tmp/test/claws'),
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       motionDir: '/tmp/test/motion',
       fs,
       motionAudit: audit,
@@ -123,11 +115,8 @@ describe('contract observer state file corrupt (phase 946)', () => {
     const { audit, events } = makeAuditMock();
 
     await runContractObserver({
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawsDir: '/tmp/test/claws',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawTopology: makeMockTopology(fs, '/tmp/test/claws'),
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       motionDir: '/tmp/test/motion',
       fs,
       motionAudit: audit,
@@ -150,11 +139,8 @@ describe('contract observer state file corrupt (phase 946)', () => {
     const { audit, events } = makeAuditMock();
 
     await expect(runContractObserver({
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawsDir: '/tmp/test/claws',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawTopology: makeMockTopology(fs, '/tmp/test/claws'),
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       motionDir: '/tmp/test/motion',
       fs,
       motionAudit: audit,
@@ -179,11 +165,8 @@ describe('contract observer state file corrupt (phase 946)', () => {
     const { audit, events } = makeAuditMock();
 
     await expect(runContractObserver({
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawsDir: '/tmp/test/claws',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawTopology: makeMockTopology(fs, '/tmp/test/claws'),
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       motionDir: '/tmp/test/motion',
       fs,
       motionAudit: audit,

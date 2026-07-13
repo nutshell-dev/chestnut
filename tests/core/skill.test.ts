@@ -4,7 +4,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as path from 'path';
 import { promises as fs } from 'fs';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { createSkillTool } from '../../src/foundation/skill-system/tools/skill.js';
@@ -12,6 +11,7 @@ import { ExecContextImpl } from '../../src/foundation/tools/context.js';
 import { NodeFileSystem } from '../../src/foundation/fs/index.js';
 
 async function createTempDir(): Promise<string> {
+  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
   const d = path.join(tmpdir(), `skill-test-${randomUUID()}`);
   await fs.mkdir(d, { recursive: true });
   return d;

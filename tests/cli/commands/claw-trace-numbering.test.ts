@@ -82,7 +82,6 @@ describe('claw-trace numbering coherence (phase 1484)', () => {
     logSpy = vi.spyOn(console, 'log').mockImplementation((msg: unknown) => {
       logs.push(String(msg));
     });
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'claw-trace-test-'));
     clawDir = path.join(tmpRoot, '.chestnut', 'claws', 'alice');
     fs.mkdirSync(clawDir, { recursive: true });

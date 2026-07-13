@@ -11,7 +11,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
@@ -21,6 +20,7 @@ const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 const { healthCommand } = await import('../../src/cli/commands/claw.js');
 
 function makeTempRootWithClawConfig(): { root: string; clawName: string } {
+  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
   const root = path.join(tmpdir(), `chestnut-health-test-${randomUUID()}`);
   fs.mkdirSync(path.join(root, '.chestnut'), { recursive: true });
   fs.writeFileSync(

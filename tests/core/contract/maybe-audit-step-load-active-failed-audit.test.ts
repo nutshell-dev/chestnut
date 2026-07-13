@@ -48,7 +48,6 @@ describe('maybeAuditStep loadActive silent catch audit emit (phase 160)', () => 
       audit: { write: auditWrite, __brand: 'AuditLog' , preview: (s: string) => s, message: (s: string) => s, summary: (s: string) => s} as any,
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawsDir: '/tmp/test/claws',
       notifyClaw: vi.fn(),
     });

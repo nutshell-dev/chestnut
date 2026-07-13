@@ -33,7 +33,6 @@ describe('regime switch archive hard fail (phase 1373 sub-2)', () => {
   function makeRuntime(): Runtime {
     return new Runtime({
       clawId: 'test-claw',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawDir: '/tmp/test',
       llmConfig: {} as any,
       idleTimeoutMs: 0,

@@ -8,7 +8,6 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'path';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { promises as fs } from 'fs';
@@ -87,6 +86,7 @@ describe('runtime stopRequested per-turn reset (phase 786 / P0.14)', () => {
 
   beforeEach(async () => {
     vi.restoreAllMocks();
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tempDir = path.join(tmpdir(), `claw-test-${randomUUID()}`);
     await fs.mkdir(tempDir, { recursive: true });
     clawDir = path.join(tempDir, 'claws', 'test-claw');

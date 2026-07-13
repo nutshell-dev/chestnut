@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { mkdtempSync, readFileSync, existsSync, rmSync, readdirSync } from 'node:fs';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
@@ -17,6 +16,7 @@ describe('DispatchingAuditWriter (phase 159)', () => {
   let tmpDir: string;
 
   beforeEach(() => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = mkdtempSync(join(tmpdir(), 'phase159-dw-'));
     _resetFallbackForTest();
   });

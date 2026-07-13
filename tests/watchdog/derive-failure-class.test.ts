@@ -5,7 +5,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fsAsync from 'fs/promises';
 import * as path from 'path';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import {
@@ -69,6 +68,7 @@ describe('phase 1482: clawHasActiveContract vs clawHasContract', () => {
   const fsFactory = (baseDir: string) => new NodeFileSystem({ baseDir });
 
   beforeEach(async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     root = path.join(tmpdir(), `wd-paused-skip-${randomUUID()}`);
     await fsAsync.mkdir(root, { recursive: true });
     fs = new NodeFileSystem({ baseDir: root });

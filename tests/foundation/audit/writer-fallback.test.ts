@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'node:os';
 import * as nodeOs from 'node:os';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
@@ -62,6 +61,7 @@ describe('AuditWriter fallback buffer (phase 586 / α)', () => {
     // 触发 exit → dump 到 OS temp dir
     exitListeners[0]!();
     expect(nodeFs.writeFileSync).toHaveBeenCalledWith(
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       expect.stringMatching(new RegExp(`^${escapeRegex(tmpdir())}/chestnut-audit-fallback-\\d+-\\d+\\.tsv$`)),
       expect.stringContaining('test_event'),
     );

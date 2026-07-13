@@ -102,7 +102,6 @@ describe('PersistentShortIdIndex', () => {
   let fsFactory: (baseDir: string) => NodeFileSystem;
 
   beforeEach(() => {
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'short-id-index-'));
     fs.mkdirSync(path.join(tmpDir, 'tasks', 'queues'), { recursive: true });
     fsFactory = (baseDir: string) => new NodeFileSystem({ baseDir });

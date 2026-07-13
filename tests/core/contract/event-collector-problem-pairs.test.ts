@@ -5,7 +5,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fsAsync from 'fs/promises';
 import * as path from 'path';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { collectContractEvents } from '../../../src/core/contract/jobs/event-collector.js';
@@ -32,6 +31,7 @@ describe('phase 1487: collectContractEvents result shape', () => {
   const sinceTs = new Date('2026-01-01').getTime();
 
   beforeEach(async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     chestnutRoot = path.join(tmpdir(), `event-collector-${randomUUID()}`);
     await fsAsync.mkdir(chestnutRoot, { recursive: true });
     fs = new NodeFileSystem({ baseDir: chestnutRoot });

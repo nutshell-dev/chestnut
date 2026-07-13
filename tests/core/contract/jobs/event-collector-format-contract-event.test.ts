@@ -9,7 +9,6 @@ import { makeAudit } from '../../../helpers/audit.js';
 
 function makeFsForStatus(status: string, checkpoint?: string): FileSystem {
   const files = new Map<string, string>();
-  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
   files.set('/tmp/claw/contract/archive/c1/progress.json', JSON.stringify({ schema_version: 1,
     contract_id: 'c1',
     status,
@@ -18,7 +17,6 @@ function makeFsForStatus(status: string, checkpoint?: string): FileSystem {
   }));
 
   const dirs = new Map<string, { name: string; isDirectory: boolean; size: number }[]>();
-  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
   dirs.set('/tmp/claw/contract/archive', [{ name: 'c1', isDirectory: true, size: 0 }]);
 
   return {
@@ -35,7 +33,6 @@ describe('phase 63: formatContractEvent status 分支', () => {
   it('completed → [contract_completed] + status 字段', async () => {
     const { audit } = makeAudit();
     const fs = makeFsForStatus('completed');
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const { entries } = await scanArchivedContracts(fs, '/tmp/claw', 'clawA', audit);
     expect(entries).toHaveLength(1);
     expect(entries[0].body).toMatch(/^\[contract_completed\]/);
@@ -45,7 +42,6 @@ describe('phase 63: formatContractEvent status 分支', () => {
   it('cancelled → [contract_cancelled] + reason + status 字段', async () => {
     const { audit } = makeAudit();
     const fs = makeFsForStatus('cancelled', 'cancelled: user manual');
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const { entries } = await scanArchivedContracts(fs, '/tmp/claw', 'clawA', audit);
     expect(entries).toHaveLength(1);
     expect(entries[0].body).toMatch(/^\[contract_cancelled\]/);
@@ -57,7 +53,6 @@ describe('phase 63: formatContractEvent status 分支', () => {
   it('crashed → [contract_crashed] + cause + status 字段', async () => {
     const { audit } = makeAudit();
     const fs = makeFsForStatus('crashed', 'crashed: system: maxstepsexceedederror');
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const { entries } = await scanArchivedContracts(fs, '/tmp/claw', 'clawA', audit);
     expect(entries).toHaveLength(1);
     expect(entries[0].body).toMatch(/^\[contract_crashed\]/);
@@ -69,7 +64,6 @@ describe('phase 63: formatContractEvent status 分支', () => {
   it('archive_pending_recovery → [contract_archive_pending_recovery]', async () => {
     const { audit } = makeAudit();
     const fs = makeFsForStatus('archive_pending_recovery');
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const { entries } = await scanArchivedContracts(fs, '/tmp/claw', 'clawA', audit);
     expect(entries).toHaveLength(1);
     expect(entries[0].body).toMatch(/^\[contract_archive_pending_recovery\]/);
@@ -79,7 +73,6 @@ describe('phase 63: formatContractEvent status 分支', () => {
   it('archive_corrupted → [contract_archive_corrupted] + failure marker', async () => {
     const { audit } = makeAudit();
     const fs = makeFsForStatus('archive_corrupted');
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const { entries } = await scanArchivedContracts(fs, '/tmp/claw', 'clawA', audit);
     expect(entries).toHaveLength(1);
     expect(entries[0].body).toMatch(/^\[contract_archive_corrupted\]/);

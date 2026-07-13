@@ -52,7 +52,6 @@ describe('phase 878: cancel pending move non-ENOENT failure', () => {
       delete: vi.fn().mockResolvedValue(undefined),
     } as unknown as FileSystem;
 
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     system = new AsyncTaskSystem('/tmp/claw', mockFs, {
       shortIdIndex: new InMemoryShortIdIndex(),
       auditWriter: audit,

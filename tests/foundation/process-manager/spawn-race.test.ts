@@ -10,7 +10,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { testClawDaemonDir, testMotionDaemonDir } from '../../helpers/daemon-dir.js';
 import * as path from 'path';
 import * as fs from 'fs/promises';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 
@@ -36,6 +35,7 @@ describe('spawn EEXIST race audit 归类（phase 591 / A.spawn-eexist-race-miscl
   beforeEach(async () => {
     vi.restoreAllMocks();
 
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tempDir = path.join(tmpdir(), `spawn-race-${randomUUID()}`);
     await fs.mkdir(tempDir, { recursive: true });
     nodeFs = new NodeFileSystem({ baseDir: tempDir });

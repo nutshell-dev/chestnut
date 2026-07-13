@@ -48,7 +48,6 @@ function makeManager(mockAudit: ReturnType<typeof makeMockAudit>) {
     audit: mockAudit as any,
     toolRegistry: createToolRegistry(),
     fsFactory,
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),
   });

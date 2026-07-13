@@ -48,7 +48,6 @@ describe('ReAct Loop Parallel Execution', () => {
     
     mockCtx = {
       clawId: 'test-claw',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawDir: '/tmp/test',
       callerType: 'claw',
       fs: {} as any,

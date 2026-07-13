@@ -11,7 +11,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fsNode from 'fs';
 import * as path from 'path';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { listSubscriptions } from '../../src/watchdog/subscription-store.js';
@@ -81,6 +80,7 @@ describe('watchdog A.8 final audit emit (phase 155)', () => {
 
   beforeEach(() => {
     _resetWatchdogContextForTest();
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = path.join(tmpdir(), `wd155-${randomUUID()}`);
     chestnutDir = path.join(tmpDir, '.chestnut');
     clawsDir = path.join(chestnutDir, 'claws');

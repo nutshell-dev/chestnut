@@ -70,7 +70,6 @@ describe('phase 881: cancel error propagation', () => {
     const { audit, events } = makeMockAudit();
     auditEvents = events;
 
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     system = new AsyncTaskSystem('/tmp/claw', makeMockFsForCancelMoveError('EACCES'), {
       shortIdIndex: new InMemoryShortIdIndex(),
       auditWriter: audit,
@@ -95,7 +94,6 @@ describe('phase 881: cancel error propagation', () => {
     const { audit, events } = makeMockAudit();
     auditEvents = events;
 
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     system = new AsyncTaskSystem('/tmp/claw', makeMockFsForCancelMoveError('ENOENT'), {
       shortIdIndex: new InMemoryShortIdIndex(),
       auditWriter: audit,
@@ -138,7 +136,6 @@ describe('phase 881: schedule index write audit', () => {
       }),
     } as unknown as FileSystem;
 
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const system = new AsyncTaskSystem('/tmp/claw', mockFs, {
       shortIdIndex,
       auditWriter: audit,
@@ -153,7 +150,6 @@ describe('phase 881: schedule index write audit', () => {
 
     const shortId = await system.schedule('subagent', {
       parentClawId: 'claw-1',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       parentClawDir: '/tmp/claw',
       goal: 'test goal',
       maxSteps: 10,
@@ -187,7 +183,6 @@ describe('phase 881: non-idempotent tool recovery notifies parent', () => {
       shortId: '550e8401',
       toolName: 'read',
       args: {},
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       parentClawDir: '/tmp',
       parentClawId: 'parent-claw',
       createdAt: new Date().toISOString(),

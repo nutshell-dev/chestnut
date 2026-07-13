@@ -38,11 +38,8 @@ describe('phase 8 — audit-size-monitor viewport stream', () => {
     const streamLog = { write: vi.fn() };
     await runAuditSizeMonitor({
       fs, audit,
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       chestnutRoot: '/tmp/test',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       primaryAuditPath: '/tmp/test/motion/audit.tsv',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       secondaryAuditPath: '/tmp/test/audit.tsv',
       streamLog,
     });
@@ -56,11 +53,8 @@ describe('phase 8 — audit-size-monitor viewport stream', () => {
     const streamLog = { write: vi.fn() };
     await runAuditSizeMonitor({
       fs, audit,
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       chestnutRoot: '/tmp/test',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       primaryAuditPath: '/tmp/test/motion/audit.tsv',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       secondaryAuditPath: '/tmp/test/audit.tsv',
       streamLog,
     });
@@ -82,11 +76,8 @@ describe('phase 8 — audit-size-monitor viewport stream', () => {
     const streamLog = { write: vi.fn() };
     await runAuditSizeMonitor({
       fs, audit,
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       chestnutRoot: '/tmp/test',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       primaryAuditPath: '/tmp/test/motion/audit.tsv',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       secondaryAuditPath: '/tmp/test/audit.tsv',
       streamLog,
     });
@@ -100,15 +91,11 @@ describe('phase 8 — audit-size-monitor viewport stream', () => {
 
   it('file not found → 0 emit CHECK_FAILED', async () => {
     const { audit, events } = makeAudit();
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const fs = makeFsThrow(new FileNotFoundError('/tmp/test/motion/audit.tsv'));
     await runAuditSizeMonitor({
       fs, audit,
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       chestnutRoot: '/tmp/test',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       primaryAuditPath: '/tmp/test/motion/audit.tsv',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       secondaryAuditPath: '/tmp/test/audit.tsv',
     });
     expect(events).toHaveLength(0);
@@ -120,11 +107,8 @@ describe('phase 8 — audit-size-monitor viewport stream', () => {
     const fsWarn = makeFsWithSize(600 * 1024 * 1024);
     await runAuditSizeMonitor({
       fs: fsWarn, audit,
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       chestnutRoot: '/tmp/test',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       primaryAuditPath: '/tmp/test/motion/audit.tsv',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       secondaryAuditPath: '/tmp/test/audit.tsv',
       streamLog,
     });
@@ -133,11 +117,8 @@ describe('phase 8 — audit-size-monitor viewport stream', () => {
     // 同 level 二次跑 → 0 新 write
     await runAuditSizeMonitor({
       fs: fsWarn, audit,
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       chestnutRoot: '/tmp/test',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       primaryAuditPath: '/tmp/test/motion/audit.tsv',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       secondaryAuditPath: '/tmp/test/audit.tsv',
       streamLog,
     });
@@ -147,11 +128,8 @@ describe('phase 8 — audit-size-monitor viewport stream', () => {
     const fsCritical = makeFsWithSize(1200 * 1024 * 1024);
     await runAuditSizeMonitor({
       fs: fsCritical, audit,
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       chestnutRoot: '/tmp/test',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       primaryAuditPath: '/tmp/test/motion/audit.tsv',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       secondaryAuditPath: '/tmp/test/audit.tsv',
       streamLog,
     });

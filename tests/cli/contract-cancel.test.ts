@@ -38,7 +38,6 @@ async function seedActiveContract(): Promise<string> {
     audit: makeMockAudit(),
     toolRegistry: createToolRegistry(),
     fsFactory,
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
   return manager.create(makeContractYaml());
@@ -46,7 +45,6 @@ async function seedActiveContract(): Promise<string> {
 
 beforeEach(async () => {
   prevRoot = process.env.CHESTNUT_ROOT;
-  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
   workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'phase1471-cancel-'));
   process.env.CHESTNUT_ROOT = workspaceRoot;
   clawDir = path.join(workspaceRoot, '.chestnut', 'claws', CLAW_ID);

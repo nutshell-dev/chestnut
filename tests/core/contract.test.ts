@@ -6,7 +6,6 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { EventEmitter } from 'events';
 import * as path from 'path';
 import { promises as fs } from 'fs';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { ContractSystem } from '../../src/core/contract/manager.js';
@@ -125,7 +124,6 @@ describe('Contract System', () => {
         audit: mockAudit as any,
         toolRegistry: createToolRegistry(),
         fsFactory,
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
       const active = await manager.loadActive();
@@ -143,7 +141,6 @@ describe('Contract System', () => {
         audit: mockAudit as any,
         toolRegistry: createToolRegistry(),
         fsFactory,
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
       const active = await manager.loadActive();
@@ -161,7 +158,6 @@ describe('Contract System', () => {
         audit: mockAudit as any,
         toolRegistry: createToolRegistry(),
         fsFactory,
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
       const active = await manager.loadActive();
@@ -179,7 +175,6 @@ describe('Contract System', () => {
         audit: mockAudit as any,
         toolRegistry: createToolRegistry(),
         fsFactory,
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
       const progress = await manager.getProgress('contract-001');
@@ -221,7 +216,6 @@ auth_level: auto
         audit: mockAudit as any,
         toolRegistry: createToolRegistry(),
         fsFactory,
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
       const result = await manager.completeSubtask({
@@ -272,7 +266,6 @@ auth_level: auto
         audit: mockAudit as any,
         toolRegistry: createToolRegistry(),
         fsFactory,
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
       const result = await manager.completeSubtask({
@@ -321,7 +314,6 @@ auth_level: auto
         audit: mockAudit as any,
         toolRegistry: createToolRegistry(),
         fsFactory,
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
       const result = await manager.completeSubtask({
@@ -370,7 +362,6 @@ auth_level: auto
         audit: mockAudit as any,
         toolRegistry: createToolRegistry(),
         fsFactory,
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
       expect(await manager.isComplete('contract-005')).toBe(false);
@@ -402,7 +393,6 @@ auth_level: auto
         audit: mockAudit as any,
         toolRegistry: createToolRegistry(),
         fsFactory,
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
       await manager.pause('contract-006', 'Checkpoint note');
@@ -428,7 +418,6 @@ auth_level: auto
         audit: mockAudit as any,
         toolRegistry: createToolRegistry(),
         fsFactory,
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
       const resumed = await manager.resume('contract-007');
@@ -448,7 +437,6 @@ auth_level: auto
         audit: mockAudit as any,
         toolRegistry: createToolRegistry(),
         fsFactory,
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
 

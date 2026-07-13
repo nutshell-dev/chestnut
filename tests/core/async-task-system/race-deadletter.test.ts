@@ -69,7 +69,6 @@ describe('phase 556: race + dead-letter cluster fix', () => {
         summary: (s: string) => s,
       };
 
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       system = new AsyncTaskSystem('/tmp/claw', mockFs, {
         shortIdIndex: new InMemoryShortIdIndex(),
         auditWriter: audit,
@@ -298,7 +297,6 @@ describe('phase 556: race + dead-letter cluster fix', () => {
         summary: (s: string) => s,
       };
 
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       system = new AsyncTaskSystem('/tmp/claw', mockFs, {
         shortIdIndex: new InMemoryShortIdIndex(),
         auditWriter: audit,

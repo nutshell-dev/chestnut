@@ -53,7 +53,6 @@ function makeBaseToolTask(id: TaskId): ToolTask {
     id,
     toolName: 'exec',
     args: { command: 'sleep 0.5' },
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     parentClawDir: '/tmp/test-claw',
     parentClawId: 'test-claw',
     createdAt: new Date().toISOString(),

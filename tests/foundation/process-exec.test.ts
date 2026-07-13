@@ -9,7 +9,6 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import * as path from 'path';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import * as fs from 'fs';
 import { spawn } from 'child_process';
@@ -32,6 +31,7 @@ const SUBPROC_HANG_MS = 60_000;
 const SUBPROC_SHORT_SLEEP_MS = 100;
 
 describe('ProcessExec exec', () => {
+  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
   const workDir = tmpdir();
 
   // ── basic execution ─────────────────────────────────────────────────────

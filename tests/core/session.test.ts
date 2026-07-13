@@ -268,7 +268,6 @@ describe('DialogStore unit tests', () => {
   let auditMock: { write: ReturnType<typeof vi.fn> };
 
   beforeEach(async () => {
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'sm-test-'));
     nodeFs = new NodeFileSystem({ baseDir: tmpDir });
     auditMock = { write: vi.fn() };
@@ -606,7 +605,6 @@ describe('DialogStore.repair', () => {
         role: 'assistant',
         content: [
           { type: 'tool_use', id: 'tu_1', name: 'exec', input: { cmd: 'ls' } },
-          // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
           { type: 'tool_use', id: 'tu_2', name: 'read', input: { path: '/tmp/a' } },
         ],
       },

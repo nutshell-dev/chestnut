@@ -42,6 +42,7 @@ export function createTrackedTempDirSync(prefix = 'chestnut-test-'): string {
   // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
   const parent = os.tmpdir();
   try { mkdirSync(parent, { recursive: true }); } catch { /* parent may already exist */ }
+  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
   const dir = mkdtempSync(path.join(parent, prefix));
   trackedDirs.add(dir);
   return dir;

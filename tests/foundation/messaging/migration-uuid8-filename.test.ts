@@ -6,7 +6,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs/promises';
 import * as path from 'path';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { InboxReader, InboxWriter, makeInboxPath, OutboxWriter, makeOutboxPath } from '../../../src/foundation/messaging/index.js';
@@ -20,6 +19,7 @@ describe('migration: legacy uuid8 filenames remain readable (phase 286)', () => 
   const audit = { write: () => {} };
 
   beforeEach(async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     testDir = path.join(tmpdir(), `uuid8-migration-${randomUUID()}`);
     await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
     await fs.mkdir(testDir, { recursive: true });

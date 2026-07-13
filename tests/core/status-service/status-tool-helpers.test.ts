@@ -27,7 +27,6 @@ function makeMockCtx(fs: Partial<FileSystem>, auditWrite?: ReturnType<typeof vi.
   const auditWriter = auditWrite ? ({ write: auditWrite } as unknown as never) : undefined;
   return new ExecContextImpl({
     clawId: 'test-claw',
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawDir: '/tmp/test-claw',
     profile: 'full',
     fs: fs as FileSystem,

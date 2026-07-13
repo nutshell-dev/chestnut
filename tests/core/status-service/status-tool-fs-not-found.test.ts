@@ -20,7 +20,6 @@ describe('status-tool FS_NOT_FOUND handling (phase 883 B1)', () => {
 
     const ctx = new ExecContextImpl({
       clawId: 'test-claw',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawDir: '/tmp/test-claw',
       profile: 'full',
       fs: mockFs,
@@ -54,7 +53,6 @@ describe('status-tool FS_NOT_FOUND handling (phase 883 B1)', () => {
 
     const ctx = new ExecContextImpl({
       clawId: 'test-claw',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawDir: '/tmp/test-claw',
       profile: 'full',
       fs: mockFs,

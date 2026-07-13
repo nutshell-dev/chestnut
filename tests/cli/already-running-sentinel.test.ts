@@ -34,7 +34,6 @@ describe('already-running sentinel (phase 981 E-α3 / phase 1421 DI)', () => {
   let logSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'chestnut-ar-test-'));
     originalRoot = process.env.CHESTNUT_ROOT;
     process.env.CHESTNUT_ROOT = tmpDir;

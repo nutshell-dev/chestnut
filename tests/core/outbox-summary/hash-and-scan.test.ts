@@ -7,7 +7,6 @@ import { makeChestnutRoot } from '../../../src/core/claw-topology/claw-instance-
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fsAsync from 'fs/promises';
 import * as path from 'path';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { computeHash } from '../../../src/core/claw-topology/jobs/outbox-summary/hash.js';
@@ -60,6 +59,7 @@ describe('phase 1476: scanOutboxes (real fs)', () => {
   let topology: ClawTopology;
 
   beforeEach(async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     root = path.join(tmpdir(), `outbox-summary-scan-${randomUUID()}`);
     await fsAsync.mkdir(path.join(root, 'claws'), { recursive: true });
     fs = new NodeFileSystem({ baseDir: root });

@@ -73,11 +73,8 @@ describe('claw-health', () => {
     consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     vi.mocked(loadGlobalConfig).mockReturnValue({} as any);
     vi.mocked(clawExists).mockReturnValue(true);
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     vi.mocked(getClawDir).mockImplementation((name: string) => path.join('/tmp/chestnut/claws', name));
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     vi.mocked(getGlobalConfigPath).mockReturnValue('/tmp/chestnut/config.yaml');
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     vi.mocked(getClawConfigPath).mockImplementation((name: string) => path.join('/tmp/chestnut/claws', name, 'config.yaml'));
     vi.mocked(fs.existsSync).mockImplementation((p: fs.PathLike) => {
       const sp = String(p);

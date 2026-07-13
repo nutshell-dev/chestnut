@@ -29,7 +29,6 @@ describe('runtime.stop flush barrier (phase 1024 G.3)', () => {
     const { audit } = makeAudit();
     const runtime = new Runtime({
       clawId: 'test-claw',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawDir: '/tmp/test',
       llmConfig: {} as any,
       idleTimeoutMs: 0,

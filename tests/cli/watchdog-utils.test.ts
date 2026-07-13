@@ -4,7 +4,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
@@ -24,6 +23,7 @@ let testDir: string;
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
   testDir = path.join(tmpdir(), `wdutils-${randomUUID()}`);
   fs.mkdirSync(testDir, { recursive: true });
 });

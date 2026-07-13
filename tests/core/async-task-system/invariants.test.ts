@@ -52,7 +52,6 @@ const validToolTask = {
   shortId: '550e8402',
   toolName: 'read',
   args: {},
-  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
   parentClawDir: '/tmp',
   parentClawId: 'claw-1',
   createdAt: '2026-05-18T00:00:00Z',
@@ -199,7 +198,6 @@ describe('async-task save invariant (phase 239 Step A)', () => {
         exists: vi.fn().mockResolvedValue(false),
       } as unknown as FileSystem;
 
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       const system = new AsyncTaskSystem('/tmp/claw', mockFs, {
       shortIdIndex: new InMemoryShortIdIndex(),
       auditWriter: audit,
@@ -242,7 +240,6 @@ describe('async-task save invariant (phase 239 Step A)', () => {
         exists: vi.fn().mockResolvedValue(false),
       } as unknown as FileSystem;
 
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       const system = new AsyncTaskSystem('/tmp/claw', mockFs, {
       shortIdIndex: new InMemoryShortIdIndex(),
       auditWriter: audit,

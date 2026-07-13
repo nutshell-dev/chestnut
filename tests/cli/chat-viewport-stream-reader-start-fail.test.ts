@@ -60,7 +60,6 @@ describe('phase 1217 (r131 C fork) B.2 — stream reader start fail no register'
       showSystemMessages: false,
       showContractEvents: false,
       fsFactory,
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       agentDir: '/tmp/agent',
       label: 'test',
       audit: { write: auditWrite , preview: (s: string) => s, message: (s: string) => s, summary: (s: string) => s} as any,

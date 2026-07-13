@@ -44,7 +44,6 @@ function makeAcceptanceCtx(
   const storedProgress: Record<string, ProgressData> = {};
 
   const ctx: VerificationContext = {
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawDir: '/tmp/claw',
     clawId: 'claw-test',
     audit,

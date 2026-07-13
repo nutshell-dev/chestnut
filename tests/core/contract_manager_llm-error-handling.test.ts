@@ -77,7 +77,6 @@ describe('ContractSystem — background verification error handling', () => {
       llm: mockLLM,
       toolRegistry: createToolRegistry(),
       fsFactory,
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
 
@@ -142,7 +141,6 @@ describe('ContractSystem — background verification error handling', () => {
       llm: mockLLM,
       toolRegistry: createToolRegistry(),
       fsFactory,
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
 

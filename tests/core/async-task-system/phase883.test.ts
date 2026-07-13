@@ -63,7 +63,6 @@ describe('phase 883: schedule index save failure emits TASK_SCHEDULED with index
       }),
     } as unknown as FileSystem;
 
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     system = new AsyncTaskSystem('/tmp/claw', mockFs, {
       shortIdIndex,
       auditWriter: audit,
@@ -78,7 +77,6 @@ describe('phase 883: schedule index save failure emits TASK_SCHEDULED with index
 
     const shortId = await system.schedule('subagent', {
       parentClawId: 'claw-1',
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       parentClawDir: '/tmp/claw',
       goal: 'test goal',
       maxSteps: 10,
@@ -131,7 +129,6 @@ describe('phase 883: schedule add collision throws', () => {
       }),
     } as unknown as FileSystem;
 
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     system = new AsyncTaskSystem('/tmp/claw', mockFs, {
       shortIdIndex,
       auditWriter: audit,
@@ -142,7 +139,6 @@ describe('phase 883: schedule add collision throws', () => {
     await expect(
       system.schedule('subagent', {
         parentClawId: 'claw-1',
-        // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
         parentClawDir: '/tmp/claw',
         goal: 'test goal',
         maxSteps: 10,
@@ -163,7 +159,6 @@ describe('phase 883: non-idempotent tool recovery notified marker', () => {
       shortId: '550e8403',
       toolName: 'read',
       args: {},
-      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       parentClawDir: '/tmp',
       parentClawId: 'parent-claw',
       createdAt: new Date().toISOString(),

@@ -25,7 +25,6 @@ describe('sendTool', () => {
   let sendTool: ReturnType<typeof createSendTool>;
 
   beforeEach(() => {
-    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     writeMock = vi.fn().mockResolvedValue('/tmp/test-claw/outbox/pending/msg.md');
     ctx = createMockCtx();
     sendTool = createSendTool({ write: writeMock } as unknown as OutboxWriter, 'motion');

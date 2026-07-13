@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fsAsync from 'fs/promises';
 import * as path from 'path';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { OutboxReader } from '../../../src/foundation/messaging/index.js';
@@ -23,6 +22,7 @@ describe('OutboxReader.listClawOutboxPending', () => {
   let auditEvents: ReturnType<typeof makeAudit>['events'];
 
   beforeEach(async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     root = path.join(tmpdir(), `outbox-reader-${randomUUID()}`);
     clawDir = path.join(root, 'claws/clawA');
     await fsAsync.mkdir(clawDir, { recursive: true });

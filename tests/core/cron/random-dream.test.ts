@@ -13,7 +13,6 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as path from 'path';
 import * as fsSync from 'fs';
 import { promises as fs } from 'fs';
-// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { runRandomDream, type RandomDreamOptions } from '../../../src/core/memory/random-dream.js';
