@@ -416,4 +416,37 @@ describe('lookupContentByToolUseId', () => {
       expect.stringContaining('EACCES'),
     );
   });
+
+  it('Phase 1001: accumulates both current and archive error details on dual I/O failure', () => {
+    const fs = makeFs({
+      '/dialog/current.json': currentJson([]),
+      '/dialog/archive': { size: 0, isDirectory: true },
+    });
+    const audit = { write: vi.fn() } as unknown as AuditLog;
+    vi.spyOn(fs, 'readSync').mockImplementation((p: string) => {
+      if (p === '/dialog/current.json') {
+        const err = new Error('EIO: i/o error') as any;
+        err.code = 'EIO';
+        throw err;
+      }
+      return (makeFs({}).readSync as any)(p);
+    });
+    vi.spyOn(fs, 'listSync').mockImplementation((p: string) => {
+      if (p === '/dialog/archive') {
+        const err = new Error('EACCES: permission denied') as any;
+        err.code = 'EACCES';
+        throw err;
+      }
+      return (makeFs({}).listSync as any)(p);
+    });
+    const result = lookupContentByToolUseId(fs, '/dialog', 't1', undefined, audit);
+    expect(result.source).toBe('unavailable');
+    expect((result as Extract<LookupResult, { source: 'unavailable' }>).reason).toBe('io_error');
+    const detail = (result as Extract<LookupResult, { source: 'unavailable'; reason: 'io_error' }>).detail;
+    expect(detail).toHaveLength(2);
+    expect(detail[0]).toContain('current');
+    expect(detail[0]).toContain('EIO');
+    expect(detail[1]).toContain('archive');
+    expect(detail[1]).toContain('EACCES');
+  });
 });

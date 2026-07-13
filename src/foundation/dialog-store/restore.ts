@@ -178,7 +178,7 @@ export async function restoreMessages(
           messages: sliced,
           systemPrompt: data.systemPrompt,
           toolsForLLM: data.toolsForLLM,
-          meta: { foundIn: 'archive', foundFile: entry.name, degradationNotes: currentDegradationNotes.length > 0 ? (currentDegradationNotes as unknown as [string, ...string[]]) : undefined },
+          meta: { foundIn: 'archive', foundFile: entry.name, degradationNotes: currentDegradationNotes.length > 0 ? assertNonEmpty(currentDegradationNotes) : undefined },
         };
       }
     } catch (err) {
@@ -193,6 +193,11 @@ export async function restoreMessages(
 
   // 3. 找不到
   throw new MarkerNotFoundError(marker.clawId, marker.toolUseId);
+}
+
+function assertNonEmpty(arr: string[]): [string, ...string[]] {
+  if (arr.length === 0) throw new Error('Diagnostic array must not be empty');
+  return arr as [string, ...string[]];
 }
 
 /** Slice messages at marker（helper for restoreMessages）*/

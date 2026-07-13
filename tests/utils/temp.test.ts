@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import {
   createTrackedTempDir,
@@ -71,5 +71,12 @@ describe('temp.ts tracked temp dir API', () => {
     fs.rmSync(dir, { recursive: true, force: true });
     await cleanupTempDir(dir);
     expect(getTrackedDirs().has(dir)).toBe(false);
+  });
+
+  it('throws on EINVAL and does not untrack', async () => {
+    const dir = await createTrackedTempDir('tracked-einval-');
+    vi.spyOn(fs.promises, 'rm').mockRejectedValueOnce(Object.assign(new Error('EINVAL'), { code: 'EINVAL' }));
+    await expect(cleanupTempDir(dir)).rejects.toThrow('Failed to clean up');
+    expect(getTrackedDirs().has(dir)).toBe(true);
   });
 });

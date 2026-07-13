@@ -29,6 +29,7 @@ const mockWritePendingSubAgentTask = vi.fn();
 function makeMockTaskSystem(): AsyncTaskSystem {
   return {
     schedule: mockWritePendingSubAgentTask,
+    shutdown: vi.fn().mockResolvedValue(true),
   } as unknown as AsyncTaskSystem;
 }
 
@@ -38,9 +39,11 @@ const mockAudit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: 
 
 function makeOpts(chestnutRoot: string, motionDir: string): RandomDreamOptions {
   const fs = new NodeFileSystem({ baseDir: chestnutRoot });
+  const taskSystem = makeMockTaskSystem();
+  lastTaskSystem = taskSystem;
   return {
     motionDir: motionDir as any,
-    taskSystem: makeMockTaskSystem(),
+    taskSystem,
     fs,
     motionFs: new NodeFileSystem({ baseDir: motionDir }),
     audit: mockAudit as any,
@@ -73,6 +76,8 @@ async function writeTaskCompletion(motionDir: string, taskId: string, logContent
 
 // ─── 测试 ─────────────────────────────────────────────────────
 
+let lastTaskSystem: AsyncTaskSystem | undefined;
+
 describe('random-dream late-settle (phase 170)', () => {
   let chestnutRoot: string;
   let motionDir: string;
@@ -87,6 +92,8 @@ describe('random-dream late-settle (phase 170)', () => {
   });
 
   afterEach(async () => {
+    await lastTaskSystem?.shutdown(200);
+    lastTaskSystem = undefined;
     await Promise.all([cleanupTempDir(chestnutRoot), cleanupTempDir(motionDir)]);
     vi.clearAllMocks();
   });

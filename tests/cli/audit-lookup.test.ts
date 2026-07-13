@@ -119,6 +119,38 @@ describe('audit lookup', () => {
     expect(process.exitCode).toBeUndefined();
   });
 
+  it('Phase 1001: archive with corrupted current.json displays degradation note', async () => {
+    const clawDir = path.join(tempDir, 'claws', 'test-claw');
+    fsNative.mkdirSync(path.join(clawDir, 'dialog', 'archive'), { recursive: true });
+    fsNative.writeFileSync(path.join(clawDir, 'audit.tsv'), '');
+    fsNative.writeFileSync(path.join(clawDir, 'dialog', 'current.json'), 'not-valid-json');
+    const session = {
+      version: 2,
+      clawId: 'test-claw',
+      createdAt: '2024-01-01T00:00:00Z',
+      updatedAt: '2024-01-01T00:00:01Z',
+      systemPrompt: 'test',
+      trace_id: 't1',
+      messages: [
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'call_00_xxx', content: 'archived content here' }] },
+      ],
+      toolsForLLM: [],
+    };
+    fsNative.writeFileSync(
+      path.join(clawDir, 'dialog', 'archive', '20240101000000_abc.json'),
+      JSON.stringify(session),
+    );
+
+    vi.mocked(getClawDir).mockReturnValue(clawDir);
+
+    await auditLookupCommand({ fsFactory }, 'call_00_xxx', { claw: 'test-claw', file: 'audit' });
+
+    const output = stdoutSpy.mock.calls.map(c => c[0] as string).join('');
+    expect(output).toContain('Source: archived dialog session');
+    expect(output).toContain('Degradation: current.json: parse_failed');
+    expect(process.exitCode).toBeUndefined();
+  });
+
   it('archive + content-hash match → exit 0 + Hash verified: yes', async () => {
     const clawDir = path.join(tempDir, 'claws', 'test-claw');
     fsNative.mkdirSync(path.join(clawDir, 'dialog', 'archive'), { recursive: true });

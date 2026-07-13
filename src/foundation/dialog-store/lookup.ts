@@ -125,7 +125,7 @@ export function lookupContentByToolUseId(
     if (archiveResult && !archiveResult.found && archiveResult.ioErrorDetail) {
       details.push(`archive: ${archiveResult.ioErrorDetail}`);
     }
-    return { source: 'unavailable', reason: 'io_error', detail: details as [string, ...string[]] };
+    return { source: 'unavailable', reason: 'io_error', detail: assertNonEmpty(details) };
   }
   // phase 918: archive 目录读失败单独报告 not_in_archive
   if (archiveResult.inaccessible) {
@@ -309,6 +309,11 @@ function buildDegradationNotes(currentResult: CurrentLookupResult | undefined): 
     return [`current.json: ${currentResult.reason}${currentResult.errorDetail ? ` (${currentResult.errorDetail})` : ''}`];
   }
   return undefined;
+}
+
+function assertNonEmpty(arr: string[]): [string, ...string[]] {
+  if (arr.length === 0) throw new Error('Diagnostic array must not be empty');
+  return arr as [string, ...string[]];
 }
 
 function computeSha8(content: string): string {
