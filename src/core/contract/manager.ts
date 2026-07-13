@@ -201,7 +201,8 @@ export class ContractSystem {
     try {
       emitContractVerifierUnregistered(this.audit, { contractId });
     } catch {
-      /* silent: tracking is correct, audit gap is acceptable */
+      // silent: tracking is correct but leave a trace for audit subsystem diagnosis
+      process.stderr.write(`[contract] unregister verifier audit failed for ${contractId}\n`);
     }
   }
 
@@ -627,7 +628,8 @@ export class ContractSystem {
                     `subtask=${stId}`,
                   );
                 } catch {
-                  /* best-effort audit */
+                  // best-effort audit: leave stderr trace for diagnosis
+                  process.stderr.write(`[contract] boot reconcile in_progress reset audit failed for ${entry.name}/${stId}\n`);
                 }
               }
             }
