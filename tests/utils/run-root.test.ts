@@ -21,6 +21,7 @@ describe('run-root utils', () => {
     const hostTmp = getHostTmpDir();
     expect(hostTmp).toBeDefined();
     // 在 TMPDIR 被重定向的测试 invocation 中，getHostTmpDir 应不同于当前 os.tmpdir()
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     expect(hostTmp).not.toBe(os.tmpdir());
   });
 

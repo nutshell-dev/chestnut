@@ -12,6 +12,7 @@ describe('clean-stop atomic tmp+rename (phase 1136 / F.2b)', () => {
   let cleanStopFile: string;
 
   beforeEach(() => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     baseDir = path.join(os.tmpdir(), `clean-stop-atomic-test-${randomUUID()}`);
     fs.mkdirSync(baseDir, { recursive: true });
     cleanStopFile = path.join(baseDir, 'clean-stop');

@@ -15,8 +15,11 @@ const noopFs = Object.freeze({} as unknown as FileSystem);
 export function makeExecContext(overrides: Partial<ExecContext> = {}): ExecContext {
   const defaults: ExecContext = {
     clawId: 'test-claw',
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawDir: '/tmp/test-claw',
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     workspaceDir: '/tmp/test-claw/clawspace',
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     syncDir: '/tmp/test-claw/.sync',
     callerType: 'claw',
     fs: noopFs,

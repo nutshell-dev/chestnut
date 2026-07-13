@@ -9,6 +9,7 @@ import { loadContractYaml } from '../../../src/core/contract/persistence.js';
 
 describe('phase 311: contract.yaml schema_version invariant (Zod literal(1))', () => {
   it('rejects contract.yaml with schema_version > 1', async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const tmpDir = path.join(os.tmpdir(), `.test-contract-version-${process.pid}-${Math.random().toString(36).slice(2, 10)}`);
     const clawDir = path.join(tmpDir, 'claws', 'test-claw');
     await fs.mkdir(clawDir, { recursive: true });
@@ -48,6 +49,7 @@ describe('phase 311: contract.yaml schema_version invariant (Zod literal(1))', (
   });
 
   it('rejects contract.yaml with missing schema_version', async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const tmpDir = path.join(os.tmpdir(), `.test-contract-missing-version-${process.pid}-${Math.random().toString(36).slice(2, 10)}`);
     const clawDir = path.join(tmpDir, 'claws', 'test-claw');
     await fs.mkdir(clawDir, { recursive: true });

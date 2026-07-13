@@ -55,6 +55,7 @@ describe('startDaemonLoop - EventLoop delegation', () => {
     const { stop } = startDaemonLoop({
       fsFactory,
       eventLoop,
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       agentDir: '/tmp/daemon-delegation-test',
       clawId: 'daemon-delegation-test',
       label: '[delegation-test]',
@@ -98,6 +99,7 @@ describe('waitForInbox', () => {
     } as unknown as FileSystem;
     const mockAudit = { write: vi.fn(), preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s) } as unknown as AuditLog;
 
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const promise = waitForInbox(mockFs, mockAudit, '/tmp/inbox', 60_000);
 
     await Promise.resolve();
@@ -122,6 +124,7 @@ describe('waitForInbox', () => {
     } as unknown as FileSystem;
     const mockAudit = { write: vi.fn(), preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s) } as unknown as AuditLog;
 
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const promise = waitForInbox(mockFs, mockAudit, '/tmp/inbox', 1_000);
 
     vi.advanceTimersByTime(1_001);
@@ -139,6 +142,7 @@ describe('waitForInbox', () => {
     } as unknown as FileSystem;
     const mockAudit = { write: vi.fn(), preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s) } as unknown as AuditLog;
 
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const promise = waitForInbox(mockFs, mockAudit, '/tmp/inbox', 60_000);
 
     await expect(promise).resolves.toBeUndefined();
@@ -165,6 +169,7 @@ describe('waitForInbox', () => {
     } as unknown as FileSystem;
     const mockAudit = { write: vi.fn(), preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s) } as unknown as AuditLog;
 
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const promise = waitForInbox(mockFs, mockAudit, '/tmp/inbox', 1_000);
     await Promise.resolve();
 

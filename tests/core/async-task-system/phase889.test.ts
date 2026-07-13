@@ -43,6 +43,7 @@ function makeMigratedToolTask() {
     shortId: VALID_TASK_SHORT_ID,
     toolName: 'read',
     args: {},
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     parentClawDir: '/tmp',
     parentClawId: 'parent',
     createdAt: new Date().toISOString(),

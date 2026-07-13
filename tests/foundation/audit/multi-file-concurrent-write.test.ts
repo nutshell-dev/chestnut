@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { mkdtempSync, readFileSync, existsSync, rmSync } from 'node:fs';
+// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';

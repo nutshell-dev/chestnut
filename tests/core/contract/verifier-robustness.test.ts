@@ -37,6 +37,7 @@ function makeConfig(overrides: Partial<VerifierConfig> = {}): VerifierConfig {
   return {
     agentId: 'verifier-test',
     clawId: 'claw-test',
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawDir: '/tmp/claw',
     fs: {
       read: vi.fn(),
@@ -100,6 +101,7 @@ describe('phase 1133 C fork — contract verifier robustness', () => {
         ensureDirSync: vi.fn(),
       },
       audit: audit as any,
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawDir: '/tmp/claw',
       clawId: 'test-claw',
       notifyClaw: vi.fn(),

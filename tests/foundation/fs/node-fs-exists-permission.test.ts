@@ -5,6 +5,7 @@ import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { PathGuardError } from '../../../src/foundation/fs/types.js';
 
 describe('NodeFileSystem — exists PathGuardError signal (P1.5 phase 611)', () => {
+  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
   const fs = new NodeFileSystem({ baseDir: os.tmpdir() });
 
   it('throws PathGuardError when probing absolute path', async () => {

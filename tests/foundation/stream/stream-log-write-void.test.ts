@@ -34,10 +34,12 @@ describe('StreamLog.write void signature (phase 1152 G.1)', () => {
   it('happy path: PerResourceStreamWriter.write does not throw + audit 0 emit', () => {
     const fs = makeMockFs();
     const audit = makeAudit();
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const writer = new PerResourceStreamWriter(fs, '/tmp/test/stream.jsonl', audit as any);
 
     expect(() => writer.write({ ts: 1, type: 'test_event' })).not.toThrow();
     expect(audit.events.length).toBe(0);
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     expect(fs.appendSync).toHaveBeenCalledWith('/tmp/test/stream.jsonl', expect.any(String));
   });
 
@@ -47,6 +49,7 @@ describe('StreamLog.write void signature (phase 1152 G.1)', () => {
       throw new Error('disk full');
     });
     const audit = makeAudit();
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const writer = new PerResourceStreamWriter(fs, '/tmp/agents/agent-42/stream.jsonl', audit as any);
 
     expect(() => writer.write({ ts: 1, type: 'turn_start' })).not.toThrow();
@@ -65,6 +68,7 @@ describe('StreamLog.write void signature (phase 1152 G.1)', () => {
     const writer = new StreamWriter(fs, audit as any);
     // open() is required before write()
     (fs.existsSync as any).mockReturnValue(false);
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     (fs as any).options = { baseDir: '/tmp' };
     writer.open();
 

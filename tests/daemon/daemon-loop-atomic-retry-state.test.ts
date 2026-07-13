@@ -25,6 +25,7 @@ describe('saveLlmRetryState atomic tmp+rename + fsync (phase 1024 G.1 + phase 12
   let llmRetryStateFile: string;
 
   beforeEach(() => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     agentDir = path.join(os.tmpdir(), `daemon-atomic-test-${randomUUID()}`);
     fsNative.mkdirSync(agentDir, { recursive: true });
     llmRetryStateFile = path.join(agentDir, STATUS_SUBDIR, 'llm-retry-state.json');

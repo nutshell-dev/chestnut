@@ -11,6 +11,7 @@ import { makeContractId } from '../../../src/core/contract/types.js';
 
 function makeCtx(overrides: Partial<VerificationContext> = {}): VerificationContext {
   return {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawDir: '/tmp/claw',
     clawId: 'claw-test',
     audit: {

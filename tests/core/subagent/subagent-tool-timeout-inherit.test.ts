@@ -18,7 +18,9 @@ vi.mock('../../../src/foundation/tools/executor.js', () => ({
   ToolExecutor: vi.fn().mockImplementation(() => ({
     getExecContext: vi.fn().mockReturnValue({
       clawId: 'test-agent',
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawDir: '/tmp/test',
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       workspaceDir: path.join('/tmp/test', 'clawspace'),
       profile: 'subagent',
       fs: {},
@@ -59,13 +61,16 @@ function makeRunSubagentOpts(overrides: { toolTimeoutMs?: number } = {}) {
 
   return {
     agentId: 'test-agent',
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawDir: '/tmp/test',
     fs: mockFs as any,
     llm: {} as any,
     registry: mockRegistry as any,
     prompt: 'test',
     systemPrompt: 'system',
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     resultDir: '/tmp/test/result',
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     syncDir: '/tmp/test/tasks/sync',
     maxSteps: 5,
     ...overrides,

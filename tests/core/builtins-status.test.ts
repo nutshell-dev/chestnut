@@ -70,6 +70,7 @@ describe('Builtin Tools - status tool', () => {
         audit: mockAudit as any,
         toolRegistry: createToolRegistry(),
         fsFactory,
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
       const statusTool = createStatusTool(manager);
@@ -89,6 +90,7 @@ describe('Builtin Tools - status tool', () => {
         audit: mockAudit as any,
         toolRegistry: createToolRegistry(),
         fsFactory,
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
       await manager.create(makeContractYaml({
@@ -121,6 +123,7 @@ describe('Builtin Tools - status tool', () => {
         audit: mockAudit as any,
         toolRegistry: createToolRegistry(),
         fsFactory,
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
       const contractId = await manager.create(makeContractYaml({
@@ -206,6 +209,7 @@ describe('Builtin Tools - status tool', () => {
         audit: mockAudit as any,
         toolRegistry: createToolRegistry(),
         fsFactory,
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
       const contractId = await manager.create({

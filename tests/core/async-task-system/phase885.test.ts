@@ -71,6 +71,7 @@ describe('phase 885: marker write/read failure handling', () => {
       shortId: '550e8403',
       toolName: 'read',
       args: {},
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       parentClawDir: '/tmp',
       parentClawId: 'parent-claw',
       createdAt: new Date().toISOString(),
@@ -135,6 +136,7 @@ describe('phase 885: marker write/read failure handling', () => {
       shortId: '550e8403',
       toolName: 'read',
       args: {},
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       parentClawDir: '/tmp',
       parentClawId: 'parent-claw',
       createdAt: new Date().toISOString(),
@@ -228,6 +230,7 @@ describe('phase 885: schedule add collision compensation', () => {
       }),
     } as unknown as FileSystem;
 
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     system = new AsyncTaskSystem('/tmp/claw', mockFs, {
       shortIdIndex,
       auditWriter: audit,
@@ -239,6 +242,7 @@ describe('phase 885: schedule add collision compensation', () => {
     await expect(
       system.schedule('subagent', {
         parentClawId: 'claw-1',
+        // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
         parentClawDir: '/tmp/claw',
         goal: 'test goal',
         maxSteps: 10,
@@ -271,6 +275,7 @@ describe('phase 885: startDispatch concurrency and cleanup', () => {
     const { audit, events } = makeMockAudit();
     auditEvents = events;
 
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     system = new AsyncTaskSystem('/tmp/claw', mockFs, {
       shortIdIndex: new InMemoryShortIdIndex(),
       auditWriter: audit,

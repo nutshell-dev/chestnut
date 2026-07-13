@@ -22,7 +22,6 @@ import { MEMORY_AUDIT_EVENTS } from '../../../src/core/memory/audit-events.js';
 import type { FileSystem } from '../../../src/foundation/fs/types.js';
 
 function makeMockFsForWrite(writeImpl?: (file: string, content: string) => void): FileSystem {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return { writeAtomicSync: vi.fn(writeImpl ?? (() => {})) } as any;
 }
 

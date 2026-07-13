@@ -6,6 +6,7 @@ import { makeChestnutRoot } from '../../../src/core/claw-topology/claw-instance-
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fsAsync from 'fs/promises';
 import * as path from 'path';
+// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { scanOutboxes, truncatePreview } from '../../../src/core/claw-topology/jobs/outbox-summary/scan.js';

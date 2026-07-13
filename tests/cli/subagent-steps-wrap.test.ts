@@ -19,6 +19,7 @@ describe('subagent-steps wrap', () => {
 
   beforeEach(() => {
     vi.restoreAllMocks();
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'chestnut-test-'));
     originalRoot = process.env.CHESTNUT_ROOT;
     process.env.CHESTNUT_ROOT = tmpDir;

@@ -22,7 +22,6 @@ import * as path from 'node:path';
 describe('depcruise options baseline invariant (phase 615)', () => {
   it('tsConfig.fileName + doNotFollow.path + exclude.path match baseline', () => {
     const cfgPath = path.resolve(__dirname, '../../../.config/dependency-cruiser.cjs');
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const cfg = require(cfgPath) as {
       options?: {
         tsConfig?: { fileName?: string };

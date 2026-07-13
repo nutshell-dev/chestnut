@@ -29,6 +29,7 @@ let nodeFs: NodeFileSystem;
 
 beforeEach(async () => {
   tmpDir = path.join(
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     os.tmpdir(),
     `.test-no-verification-${process.pid}-${Math.random().toString(36).slice(2, 10)}`,
   );
@@ -53,6 +54,7 @@ describe('no verification path', () => {
       audit,
       toolRegistry: createToolRegistry(),
       fsFactory,
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
 
@@ -94,6 +96,7 @@ describe('no verification path', () => {
       audit,
       toolRegistry: createToolRegistry(),
       fsFactory,
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
 
@@ -156,6 +159,7 @@ describe('no verification path', () => {
       audit,
       toolRegistry: createToolRegistry(),
       fsFactory,
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
 

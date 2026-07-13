@@ -28,6 +28,7 @@ function makeConfig(overrides: Partial<RetroConfig> = {}): RetroConfig {
     contractYaml: 'yaml: true',
     motionFs: {} as unknown as FileSystem,
     motionAudit: { write: vi.fn() } as unknown as AuditLog,
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     motionBaseDir: '/tmp/motion',
     baseMessages: [{ role: 'user', content: 'hi' }],
     audit: { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)} as unknown as AuditLog,

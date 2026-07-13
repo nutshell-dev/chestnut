@@ -12,7 +12,9 @@ describe('ToolContext assembly resolution', () => {
   it('ExecContextImpl constructor does NOT accept callerLabel', () => {
     const ctx = new ExecContextImpl({
       clawId: 'test-claw',
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawDir: '/tmp/test',
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       syncDir: '/tmp/test/sync',
       profile: 'subagent',
       fs: {} as import('../../src/foundation/fs/types.js').FileSystem,

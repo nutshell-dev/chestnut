@@ -52,6 +52,7 @@ describe('contractEventsCommand', () => {
 
   beforeEach(async () => {
     vi.restoreAllMocks();
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawDir = await fsAsync.mkdtemp(path.join(os.tmpdir(), 'contract-events-test-'));
     (globalThis as any).__TEST_CLAW_DIR__ = clawDir;
     logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});

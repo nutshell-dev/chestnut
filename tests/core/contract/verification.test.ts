@@ -20,6 +20,7 @@ const mockExec = vi.fn();
 
 function makeCtx(overrides: Partial<VerificationContext> = {}): VerificationContext {
   return {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawDir: '/tmp/claw',
     clawId: 'claw-test',
     audit: makeMockAudit() as unknown as VerificationContext['audit'],
@@ -84,6 +85,7 @@ describe('runScriptVerification (phase 990)', () => {
 
   it('rejects path escape attempt', async () => {
     const ctx = makeCtx();
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const result = await runScriptVerification(ctx, '../escape.sh', '/tmp/contract');
     expect(result.passed).toBe(false);
     expect(result.feedback).toContain('路径安全拒绝');
@@ -92,6 +94,7 @@ describe('runScriptVerification (phase 990)', () => {
   it('returns passed when script exits 0', async () => {
     mockExec.mockResolvedValue(undefined);
     const ctx = makeCtx();
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const result = await runScriptVerification(ctx, 'check.sh', '/tmp/contract');
     expect(result.passed).toBe(true);
     expect(result.feedback).toContain('passed');
@@ -101,6 +104,7 @@ describe('runScriptVerification (phase 990)', () => {
     const err = new ProcessExecError({ message: 'sh failed', output: 'first bad line\nsecond line', exitCode: 1 });
     mockExec.mockRejectedValue(err);
     const ctx = makeCtx();
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const result = await runScriptVerification(ctx, 'check.sh', '/tmp/contract');
     expect(result.passed).toBe(false);
     expect(result.feedback).toContain('first bad line');
@@ -110,13 +114,16 @@ describe('runScriptVerification (phase 990)', () => {
     const err = new ProcessExecError({ message: 'timeout', output: 'took too long', exitCode: null, killed: true });
     mockExec.mockRejectedValue(err);
     const ctx = makeCtx();
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const result = await runScriptVerification(ctx, 'check.sh', '/tmp/contract');
     expect(result.passed).toBe(false);
     expect(result.feedback).toContain('超时');
   });
 
   it('rejects script path that is a symlink outside contract dir', async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const contractDir = nodeFs.mkdtempSync(path.join(os.tmpdir(), 'phase963-contract-'));
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const outsideFile = path.join(os.tmpdir(), `phase963-outside-${Date.now()}.sh`);
     nodeFs.writeFileSync(outsideFile, '#!/bin/sh\necho evil');
     const linkPath = path.join(contractDir, 'check.sh');
@@ -137,6 +144,7 @@ describe('runScriptVerification (phase 990)', () => {
     const signal = new AbortController().signal;
     const mockExecWithSignal = vi.fn().mockResolvedValue(undefined);
     const ctx = makeCtx({ exec: mockExecWithSignal, signal });
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     await runScriptVerification(ctx, 'test.sh', '/tmp/contract');
     expect(mockExecWithSignal).toHaveBeenCalledWith('sh', [expect.any(String)], expect.objectContaining({ signal }));
   });
@@ -144,6 +152,7 @@ describe('runScriptVerification (phase 990)', () => {
 
 describe('runLLMVerification (phase 963)', () => {
   it('propagates abort from LLM verification instead of returning passed:false', async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const contractDir = nodeFs.mkdtempSync(path.join(os.tmpdir(), 'phase963-llm-'));
     nodeFs.writeFileSync(path.join(contractDir, 'prompt.md'), '{{evidence}}');
     const controller = new AbortController();

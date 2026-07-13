@@ -26,6 +26,7 @@ async function setupEvolutionSystem(overrides?: {
   stateFileContent?: string;
   lastProcessedAt?: number;
 }) {
+  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
   const tmpBase = path.join(os.tmpdir(), `phase253-${randomUUID()}`);
   const motionDir = path.join(tmpBase, 'motion');
   await fs.mkdir(path.join(motionDir, 'clawspace', 'pending-retrospective', 'by-contract'), { recursive: true });

@@ -6,6 +6,7 @@ import { saveGlobalConfig, loadGlobalConfig } from '../../../src/assembly/config
 
 describe('assembly/config-load: no race tmp naming', () => {
   it('concurrent saveGlobalConfig does not produce .tmp.<ms> orphan files', async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const tmpDir = fs.mkdtempSync(path.join(fs.realpathSync('/tmp'), 'crud-race-test-'));
     const configPath = path.join(tmpDir, 'config.yaml');
 
@@ -35,6 +36,7 @@ describe('assembly/config-load: no race tmp naming', () => {
   });
 
   it('NodeFileSystem.writeAtomicSync uses randomUUID tmp naming', () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const tmpDir = fs.mkdtempSync(path.join(fs.realpathSync('/tmp'), 'crud-naming-test-'));
     const nodeFs = new NodeFileSystem({ baseDir: tmpDir });
     nodeFs.writeAtomicSync('test.txt', 'hello');

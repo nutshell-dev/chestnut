@@ -26,6 +26,7 @@ describe('ToolExecutor: ctx prototype preservation across spread', () => {
   let registry: ToolRegistryImpl;
 
   beforeEach(async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'phase332-'));
     fs = new NodeFileSystem({ baseDir: tmpDir });
     registry = new ToolRegistryImpl();

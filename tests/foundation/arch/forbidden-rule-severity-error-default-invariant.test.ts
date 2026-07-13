@@ -21,7 +21,6 @@ import * as path from 'node:path';
 describe('depcruise forbidden rule severity=error default invariant (phase 633)', () => {
   it('every rule severity === "error" except WARN_WHITELIST', () => {
     const cfgPath = path.resolve(__dirname, '../../../.config/dependency-cruiser.cjs');
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const cfg = require(cfgPath) as {
       forbidden: Array<{ name: string; severity: string }>;
     };

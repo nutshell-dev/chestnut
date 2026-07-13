@@ -29,6 +29,7 @@ describe('ContractSystem - audit lifecycle + moveToArchive (phase 1347 split)', 
 
   beforeEach(async () => {
     testDir = path.join(
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       os.tmpdir(),
       `.test-contract-archive-audit-${process.pid}-${Math.random().toString(36).slice(2, 10)}`,
     );
@@ -41,6 +42,7 @@ describe('ContractSystem - audit lifecycle + moveToArchive (phase 1347 split)', 
     nodeFs = new NodeFileSystem({ baseDir: clawDir });
     const mockAudit = makeMockAudit();
     manager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
   });
@@ -55,6 +57,7 @@ describe('ContractSystem - audit lifecycle + moveToArchive (phase 1347 split)', 
         audit: mockAudit,
         toolRegistry: createToolRegistry(),
         fsFactory,
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
 
@@ -94,6 +97,7 @@ describe('ContractSystem - audit lifecycle + moveToArchive (phase 1347 split)', 
         audit: mockAudit,
         toolRegistry: createToolRegistry(),
         fsFactory,
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
 
@@ -119,6 +123,7 @@ describe('ContractSystem - audit lifecycle + moveToArchive (phase 1347 split)', 
         audit: mockAudit,
         toolRegistry: createToolRegistry(),
         fsFactory,
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
 
@@ -149,6 +154,7 @@ describe('ContractSystem - audit lifecycle + moveToArchive (phase 1347 split)', 
         audit: mockAudit,
         toolRegistry: createToolRegistry(),
         fsFactory,
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
       testManager.setOnNotify(onNotifySpy);
@@ -183,6 +189,7 @@ describe('ContractSystem - audit lifecycle + moveToArchive (phase 1347 split)', 
     it('should NOT write audit when moveToArchive fails', async () => {
       const mockAudit = makeMockAudit();
       const testManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
 
@@ -219,6 +226,7 @@ describe('ContractSystem - audit lifecycle + moveToArchive (phase 1347 split)', 
     it('should write audit when moveToArchive succeeds', async () => {
       const mockAudit = makeMockAudit();
       const testManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
 

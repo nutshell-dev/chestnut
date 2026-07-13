@@ -34,7 +34,9 @@ interface MinOpts {
 function build(opts: MinOpts): TestRuntime {
   return new TestRuntime({
     clawId: 'test-claw',
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawDir: '/tmp/test-claw',
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/claws',
     idleTimeoutMs: 0,
     llmConfig: {

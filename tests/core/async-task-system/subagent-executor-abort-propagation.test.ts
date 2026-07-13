@@ -50,6 +50,7 @@ describe('subagent-executor abort propagation (phase 1373 sub-5)', () => {
         get: vi.fn().mockReturnValue(undefined),
         getForProfile: vi.fn().mockReturnValue([]),
       } as any,
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawDir: '/tmp/test',
       postProcessors: new Map(),
       moveTaskToDone: vi.fn().mockResolvedValue(undefined),
@@ -99,6 +100,7 @@ describe('subagent-executor abort propagation (phase 1373 sub-5)', () => {
         get: vi.fn().mockReturnValue(undefined),
         getForProfile: vi.fn().mockReturnValue([]),
       } as any,
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawDir: '/tmp/test',
       postProcessors: new Map(),
       moveTaskToDone: vi.fn().mockResolvedValue(undefined),

@@ -9,6 +9,7 @@ describe('NodeFileSystem — absolute path reject (P0.1 phase 611)', () => {
   // baseDir 用唯一子目录、保所有平台 /tmp/escape /etc/passwd /nonexistent/sensitive 都在 baseDir 外
   // 修前 baseDir = os.tmpdir() / Linux CI 上 = '/tmp' / 致 /tmp/escape 误在 baseDir 内
   // (phase 739 step B fix)
+  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
   const baseDir = path.join(os.tmpdir(), `nodefs-abs-reject-${randomUUID()}`);
   const fs = new NodeFileSystem({ baseDir });
 
@@ -22,6 +23,7 @@ describe('NodeFileSystem — absolute path reject (P0.1 phase 611)', () => {
   });
 
   it('throws PathGuardError for write with absolute path', async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     await expect(fs.writeAtomic('/tmp/escape', 'data')).rejects.toThrow(PathGuardError);
   });
 

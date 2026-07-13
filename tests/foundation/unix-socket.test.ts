@@ -50,6 +50,7 @@ describe('UnixDomainSocketTransport', () => {
   });
 
   it('cleans socketPath even when server.close() fails', async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const socketPath = '/tmp/test-phase971.sock';
     const mockServer = createMockServer({ closeError: new Error('EIO') });
     (createServer as ReturnType<typeof vi.fn>).mockReturnValueOnce(mockServer);
@@ -63,6 +64,7 @@ describe('UnixDomainSocketTransport', () => {
   });
 
   it('does not set socketPath when listen fails', async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const socketPath = '/tmp/test-phase971.sock';
     const mockServer = createMockServer({ error: { code: 'EACCES' } });
     (createServer as ReturnType<typeof vi.fn>).mockReturnValueOnce(mockServer);

@@ -16,6 +16,7 @@ import {
   WriteOperationForbiddenError,
 } from '../../../src/core/permissions/errors.js';
 
+// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 const CLAW_DIR = '/tmp/test-claw';
 
 describe('createClawPermissionChecker', () => {

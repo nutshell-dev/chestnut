@@ -13,6 +13,7 @@ describe('CLAW_SUBDIRS — 名实一致（per-claw 内子目录列表 / 不含 C
   let tmpClawDir: string;
 
   beforeEach(() => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpClawDir = path.join(os.tmpdir(), `claw-${randomUUID()}`);
     fs.mkdirSync(tmpClawDir, { recursive: true });
   });

@@ -60,7 +60,9 @@ function driveStream(clawId: string, streamJsonl: string): ClawTrack {
     pm: { readPid: vi.fn().mockResolvedValue(null) },
     audit: { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)} as unknown as AuditLog,
     isMotion: true,
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/claws',
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawTopology: makeMockTopology('/tmp/claws'),
     clawTrackMap,
     updateClawPanel: vi.fn(),

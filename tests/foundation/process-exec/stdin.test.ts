@@ -13,6 +13,7 @@ import * as fs from 'fs';
 describe('exec stdin', () => {
   it('should pipe stdin to child process', async () => {
     const result = await exec('sh', ['-c', 'cat'], {
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       cwd: os.tmpdir(),
       stdin: 'hello world',
     });
@@ -22,6 +23,7 @@ describe('exec stdin', () => {
 
   it('should handle empty stdin', async () => {
     const result = await exec('sh', ['-c', 'cat'], {
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       cwd: os.tmpdir(),
       stdin: '',
     });
@@ -32,6 +34,7 @@ describe('exec stdin', () => {
   it('should handle multiline stdin', async () => {
     const content = 'line1\nline2\nline3';
     const result = await exec('sh', ['-c', 'cat'], {
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       cwd: os.tmpdir(),
       stdin: content,
     });
@@ -41,6 +44,7 @@ describe('exec stdin', () => {
 
   it('should not interfere when stdin is undefined', async () => {
     const result = await exec('sh', ['-c', 'echo ok'], {
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       cwd: os.tmpdir(),
     });
     expect(result.exitCode).toBe(0);
@@ -48,10 +52,12 @@ describe('exec stdin', () => {
   });
 
   it('should write content to file via cat redirect', async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const tmpFile = path.join(os.tmpdir(), `phase1321-test-${Date.now()}.txt`);
     const content = '---\nmarkdown: frontmatter\n---\n\n# Title\n';
     try {
       const result = await exec('sh', ['-c', `cat > "${tmpFile}"`], {
+        // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
         cwd: os.tmpdir(),
         stdin: content,
       });

@@ -17,6 +17,7 @@ describe('processSession waterline behavior (phase 921)', () => {
   function makeCtx(): __test_DreamRunContext {
     return {
       clawId: 'test-claw',
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawDir: '/tmp/claw',
       clawFs: {} as any,
       motionFs: undefined,

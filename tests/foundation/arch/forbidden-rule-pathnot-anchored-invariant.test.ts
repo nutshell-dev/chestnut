@@ -19,7 +19,6 @@ import * as path from 'node:path';
 describe('depcruise forbidden rule pathNot anchored invariant (phase 653)', () => {
   it('every from.pathNot string starts with ^ OR ends with $', () => {
     const cfgPath = path.resolve(__dirname, '../../../.config/dependency-cruiser.cjs');
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const cfg = require(cfgPath) as {
       forbidden: Array<{
         name: string;

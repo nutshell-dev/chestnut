@@ -49,6 +49,7 @@ describe('phase 1405 Fix 1: writeForceAcceptInbox', () => {
   let originalEnv: string | undefined;
 
   beforeEach(() => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'phase1405-fa-inbox-'));
     originalEnv = process.env.CHESTNUT_ROOT;
     process.env.CHESTNUT_ROOT = tempDir;

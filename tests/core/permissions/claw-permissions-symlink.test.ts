@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'node:os';
 import { createClawPermissionChecker } from '../../../src/core/permissions/claw-permissions.js';
 import { PathNotInClawSpaceError } from '../../../src/core/permissions/errors.js';

@@ -41,6 +41,7 @@ let stdoutSpy: ReturnType<typeof vi.spyOn>;
 let stderrSpy: ReturnType<typeof vi.spyOn>;
 
 function buildFixture() {
+  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
   const tmpDir = fsNative.mkdtempSync('/tmp/phase152-cross-cli-');
   const clawDir = path.join(tmpDir, 'claws', 'test-claw');
   fsNative.mkdirSync(clawDir, { recursive: true });

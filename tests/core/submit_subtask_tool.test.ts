@@ -35,6 +35,7 @@ describe('submitSubtaskTool', () => {
 
   beforeEach(async () => {
     testDir = path.join(
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       os.tmpdir(),
       `.test-submit-subtask-${process.pid}-${Math.random().toString(36).slice(2, 10)}`,
     );
@@ -50,6 +51,7 @@ describe('submitSubtaskTool', () => {
       audit: mockAudit as any,
       toolRegistry: createToolRegistry(),
       fsFactory,
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
     submitSubtaskTool = createSubmitSubtaskTool(manager);

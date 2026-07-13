@@ -21,6 +21,7 @@ import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import type { ProcessManagerContext } from '../../../src/foundation/process-manager/types.js';
 import * as path from 'path';
 import * as fs from 'fs/promises';
+// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 

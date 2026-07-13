@@ -1,6 +1,8 @@
 import { describe, it, expect, afterEach } from 'vitest';
+// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { mkdtempSync, rmSync } from 'fs';
 import { readdir, readFile } from 'fs/promises';
+// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import path from 'path';
 

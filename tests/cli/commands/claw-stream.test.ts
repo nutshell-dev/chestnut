@@ -91,7 +91,9 @@ describe('streamCommand', () => {
     vi.mocked(loadGlobalConfig).mockReturnValue({} as any);
     vi.mocked(clawExists).mockReturnValue(true);
     vi.mocked(getRelativeClawDir).mockImplementation((name: string) => path.join('claws', name));
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     vi.mocked(getGlobalConfigPath).mockReturnValue('/tmp/chestnut/config.yaml');
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     vi.mocked(getClawConfigPath).mockImplementation((name: string) => path.join('/tmp/chestnut/claws', name, 'config.yaml'));
   });
 

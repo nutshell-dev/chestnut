@@ -23,6 +23,7 @@ describe('retroChain stall timeout (phase 450 review)', () => {
 
   beforeEach(async () => {
     testDir = path.join(
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       os.tmpdir(),
       `.test-retro-chain-stall-${process.pid}-${Math.random().toString(36).slice(2, 10)}`,
     );

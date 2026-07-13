@@ -127,6 +127,7 @@ describe('phase 882: schedule index save failure returns shortId', () => {
       }),
     } as unknown as FileSystem;
 
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     system = new AsyncTaskSystem('/tmp/claw', mockFs, {
       shortIdIndex,
       auditWriter: audit,
@@ -141,6 +142,7 @@ describe('phase 882: schedule index save failure returns shortId', () => {
 
     const shortId = await system.schedule('subagent', {
       parentClawId: 'claw-1',
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       parentClawDir: '/tmp/claw',
       goal: 'test goal',
       maxSteps: 10,
@@ -179,6 +181,7 @@ describe('phase 882: non-idempotent tool recovery keeps running on notify failur
       shortId: '550e8402',
       toolName: 'read',
       args: {},
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       parentClawDir: '/tmp',
       parentClawId: 'parent-claw',
       createdAt: new Date().toISOString(),

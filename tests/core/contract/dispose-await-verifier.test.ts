@@ -43,6 +43,7 @@ describe('ContractSystem.close() async await verifier termination', () => {
 
   beforeEach(async () => {
     testDir = path.join(
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       os.tmpdir(),
       `.test-contract-dispose-async-${process.pid}-${Math.random().toString(36).slice(2, 10)}`,
     );
@@ -63,6 +64,7 @@ describe('ContractSystem.close() async await verifier termination', () => {
       llm: mockLlm,
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
     mockRunContractVerifier.mockReset();
@@ -133,6 +135,7 @@ describe('ContractSystem.close() async await verifier termination', () => {
       audit: makeMockAudit() as any,
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
 

@@ -53,6 +53,7 @@ describe('phase 1010 — silent X TODO cluster narrow', () => {
   it('event-collector.ts archive ENOENT silent (first-run)', async () => {
     const { audit, events } = makeAudit();
     const fs = makeFsThrow('ENOENT');
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const result = await collectContractEvents(fs, '/tmp/claw', 'claw1', 0, audit);
     expect(result.events).toEqual([]);
     expect(result.problemPairs).toEqual([]);
@@ -73,6 +74,7 @@ describe('phase 1010 — silent X TODO cluster narrow', () => {
       readSync: () => '',
       existsSync: () => true,
     } as unknown as FileSystem;
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const result = await collectContractEvents(fs, '/tmp/claw', 'claw1', 0, audit);
     expect(result.events).toEqual([]);
     expect(result.problemPairs).toEqual([]);
@@ -89,6 +91,7 @@ describe('phase 1010 — silent X TODO cluster narrow', () => {
       ...makeFsThrow('ENOENT'),
       existsSync: () => true,
     };
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const result = getActiveContractTimestamp(fs, '/tmp/claw', audit);
     expect(result).toBeNull();
     expect(events).toHaveLength(0);
@@ -104,6 +107,7 @@ describe('phase 1010 — silent X TODO cluster narrow', () => {
       },
       existsSync: () => true,
     } as unknown as FileSystem;
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const result = getActiveContractTimestamp(fs, '/tmp/claw', audit);
     expect(result).toBeNull();
     // getActiveContractTimestamp 仅扫描 active 目录，触发 1 次 audit
@@ -117,6 +121,7 @@ describe('phase 1010 — silent X TODO cluster narrow', () => {
       ...makeFsThrow('EACCES'),
       existsSync: () => true,
     };
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const result = getActiveContractTimestamp(fs, '/tmp/claw');
     expect(result).toBeNull();
     // 无 audit param、不抛、不 audit、行为兼容
@@ -141,8 +146,11 @@ describe('phase 1010 — silent X TODO cluster narrow', () => {
     } as unknown as FileSystem;
     const notifyInbox = vi.fn();
     await runContractObserver({
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawsDir: '/tmp/test/claws',
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawTopology: makeMockTopology(fs, '/tmp/test/claws'),
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       motionDir: '/tmp/test/motion',
       fs,
       motionAudit: audit,
@@ -168,8 +176,11 @@ describe('phase 1010 — silent X TODO cluster narrow', () => {
     } as unknown as FileSystem;
     const notifyInbox = vi.fn().mockResolvedValue(undefined);
     await expect(runContractObserver({
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawsDir: '/tmp/test/claws',
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawTopology: makeMockTopology(fs, '/tmp/test/claws'),
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       motionDir: '/tmp/test/motion',
       fs,
       motionAudit: audit,

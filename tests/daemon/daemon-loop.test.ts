@@ -39,6 +39,7 @@ describe('daemon-loop dedicated unit (phase 1157 / r127 H fork)', () => {
   const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
   beforeEach(() => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     agentDir = path.join(os.tmpdir(), `daemon-loop-test-${randomUUID()}`);
     fsNative.mkdirSync(agentDir, { recursive: true });
     inboxPendingDir = path.join(agentDir, 'inbox', 'pending');

@@ -42,6 +42,7 @@ describe('phase 878: schedule writeAtomic failure index consistency', () => {
       writeAtomic: vi.fn().mockRejectedValue(new Error('disk full')),
     } as unknown as FileSystem;
 
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     system = new AsyncTaskSystem('/tmp/claw', mockFs, {
       shortIdIndex,
       auditWriter: makeMockAudit(),
@@ -65,6 +66,7 @@ describe('phase 878: schedule writeAtomic failure index consistency', () => {
     await expect(
       system.schedule('subagent', {
         parentClawId: 'claw-1',
+        // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
         parentClawDir: '/tmp/claw',
         goal: 'test goal',
         maxSteps: 10,

@@ -14,6 +14,7 @@ describe('StreamWriter write-after-close graceful (phase 1203 Issue 2)', () => {
   let mockAudit: { write: (type: string, ...cols: unknown[]) => void };
 
   beforeEach(() => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = path.join(os.tmpdir(), `stream-write-after-close-${randomUUID()}`);
     fsNative.mkdirSync(tmpDir, { recursive: true });
     fs = new NodeFileSystem({ baseDir: tmpDir });

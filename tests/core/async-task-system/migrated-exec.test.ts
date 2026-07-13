@@ -53,6 +53,7 @@ function makeBaseToolTask(id: TaskId): ToolTask {
     id,
     toolName: 'exec',
     args: { command: 'sleep 0.5' },
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     parentClawDir: '/tmp/test-claw',
     parentClawId: 'test-claw',
     createdAt: new Date().toISOString(),
@@ -82,6 +83,7 @@ describe('executeToolTask migrated path', () => {
   let auditEvents: Array<[string, ...(string | number)[]]>;
 
   beforeEach(async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = path.join(os.tmpdir(), `migrated-exec-${randomUUID()}`);
     await fs.mkdir(tmpDir, { recursive: true });
     nodeFs = new NodeFileSystem({ baseDir: tmpDir });
@@ -201,6 +203,7 @@ describe('createAsyncExecWrapper', () => {
   let system: AsyncTaskSystem;
 
   beforeEach(async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = path.join(os.tmpdir(), `async-exec-wrapper-${randomUUID()}`);
     await fs.mkdir(tmpDir, { recursive: true });
     nodeFs = new NodeFileSystem({ baseDir: tmpDir });
@@ -451,6 +454,7 @@ describe('timeoutMs dual-mode (Phase 776)', () => {
   let audit: AuditLog;
 
   beforeEach(async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = path.join(os.tmpdir(), `timeout-dual-mode-${randomUUID()}`);
     await fs.mkdir(tmpDir, { recursive: true });
     nodeFs = new NodeFileSystem({ baseDir: tmpDir });
@@ -540,6 +544,7 @@ describe('subagent exec registry (Phase 773)', () => {
   let nodeFs: NodeFileSystem;
 
   beforeEach(async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = path.join(os.tmpdir(), `subagent-exec-${randomUUID()}`);
     await fs.mkdir(tmpDir, { recursive: true });
     nodeFs = new NodeFileSystem({ baseDir: tmpDir });
@@ -592,6 +597,7 @@ describe('migrated process hard timeout (Phase 777)', () => {
   let system: AsyncTaskSystem;
 
   beforeEach(async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = path.join(os.tmpdir(), `migrated-hard-timeout-${randomUUID()}`);
     await fs.mkdir(tmpDir, { recursive: true });
     nodeFs = new NodeFileSystem({ baseDir: tmpDir });
@@ -708,6 +714,7 @@ describe('Phase 833: migrated exec stream events', () => {
     streamEvents = [];
     const events = streamEvents;
     const streamLog = { write: (entry: Record<string, unknown>) => { events.push(entry); } };
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = path.join(os.tmpdir(), `migrated-exec-stream-${randomUUID()}`);
     await fs.mkdir(tmpDir, { recursive: true });
     nodeFs = new NodeFileSystem({ baseDir: tmpDir });

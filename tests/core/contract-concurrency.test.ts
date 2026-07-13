@@ -43,6 +43,7 @@ describe('ContractSystem — 并发幂等与锁', () => {
   let nodeFs: NodeFileSystem;
 
   beforeEach(async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     testDir = path.join(os.tmpdir(), `chestnut-concurrency-${randomUUID()}`);
     clawDir = path.join(testDir, 'claws', 'test-claw');
     await fs.mkdir(clawDir, { recursive: true });
@@ -55,6 +56,7 @@ describe('ContractSystem — 并发幂等与锁', () => {
       audit: mockAudit as any,
       toolRegistry: createToolRegistry(),
       fsFactory,
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
   });
@@ -202,6 +204,7 @@ describe('ContractSystem — 并发幂等与锁', () => {
       audit: mockAudit as any,
       toolRegistry: createToolRegistry(),
       fsFactory,
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
 

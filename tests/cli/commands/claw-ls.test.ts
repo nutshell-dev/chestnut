@@ -55,6 +55,7 @@ describe('claw-ls (phase 1480)', () => {
   let writeSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpRoot = path.join(os.tmpdir(), `phase1480-ls-${randomUUID()}`);
     // Layout under <tmp>/.chestnut/claws/test-claw/ (mirrors getClawDir()):
     //   .../clawspace/a.md

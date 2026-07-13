@@ -27,6 +27,7 @@ let nodeFs: NodeFileSystem;
 
 beforeEach(async () => {
   tmpDir = path.join(
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     os.tmpdir(),
     `.test-phase959-${process.pid}-${Math.random().toString(36).slice(2, 10)}`,
   );
@@ -49,6 +50,7 @@ function makeManager(mockAudit: ReturnType<typeof makeMockAudit>) {
     audit: mockAudit as any,
     toolRegistry: createToolRegistry(),
     fsFactory,
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),
   });

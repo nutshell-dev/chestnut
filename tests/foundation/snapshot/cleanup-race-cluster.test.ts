@@ -21,6 +21,7 @@ describe.skipIf(!gitAvailable)('Snapshot cleanup race/safety cluster (phase 998)
   let tmpDir: string;
 
   beforeEach(async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'snap-race-test-'));
   });
 
@@ -104,6 +105,7 @@ describe.skipIf(!gitAvailable)('Snapshot cleanup race/safety cluster (phase 998)
   it('H.3: rejects symlink cleanupDir pointing outside this.dir and audits traversal', async () => {
     const baseFs = new NodeFileSystem({ baseDir: tmpDir });
     const fs = Object.create(baseFs);
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const outsideDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'snap-outside-'));
     const symlinkDir = path.join(tmpDir, 'symlink-cleanup');
     await fsp.symlink(outsideDir, symlinkDir, 'dir');

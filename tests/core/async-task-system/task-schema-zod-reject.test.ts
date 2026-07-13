@@ -25,6 +25,7 @@ describe('phase 1019 r124 E fork: TaskMeta zod strict schema', () => {
       shortId: '550e8401',
       toolName: 'read',
       args: {},
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       parentClawDir: '/tmp',
       parentClawId: 'claw-1',
       createdAt: '2026-05-18T00:00:00Z',

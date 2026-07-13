@@ -27,6 +27,8 @@ export default {
         'Use createTempDir / createTrackedTempDir from tests/utils/temp.ts instead of mkdtemp/mkdtempSync',
       noBareOsTmpdir:
         'Use createTempDir / createTrackedTempDir from tests/utils/temp.ts instead of os.tmpdir()',
+      noHardcodedTmp:
+        'Use createTempDir / createTrackedTempDir from tests/utils/temp.ts instead of hardcoded /tmp path',
     },
   },
 
@@ -60,6 +62,52 @@ export default {
           node.callee.property.name === 'tmpdir'
         ) {
           context.report({ node, messageId: 'noBareOsTmpdir' });
+          return;
+        }
+
+        // Block: fs.mkdtemp('/tmp/...') or fs.mkdtempSync('/tmp/...')
+        if (
+          node.callee.type === 'MemberExpression' &&
+          node.callee.object?.type === 'Identifier' &&
+          (node.callee.object.name === 'fs' || node.callee.object.name === 'fsNative') &&
+          node.callee.property?.type === 'Identifier' &&
+          (node.callee.property.name === 'mkdtemp' || node.callee.property.name === 'mkdtempSync')
+        ) {
+          const firstArg = node.arguments[0];
+          if (
+            firstArg &&
+            firstArg.type === 'Literal' &&
+            typeof firstArg.value === 'string' &&
+            firstArg.value.startsWith('/tmp')
+          ) {
+            context.report({ node: firstArg, messageId: 'noHardcodedTmp' });
+          }
+        }
+      },
+
+      Literal(node) {
+        // 避免与 CallExpression 中对 fs.mkdtemp*('/tmp...') 的报告重复
+        const parent = node.parent;
+        if (
+          parent?.type === 'CallExpression' &&
+          parent.arguments[0] === node &&
+          parent.callee.type === 'MemberExpression' &&
+          parent.callee.object?.type === 'Identifier' &&
+          (parent.callee.object.name === 'fs' || parent.callee.object.name === 'fsNative') &&
+          parent.callee.property?.type === 'Identifier' &&
+          (parent.callee.property.name === 'mkdtemp' || parent.callee.property.name === 'mkdtempSync')
+        ) {
+          return;
+        }
+
+        if (
+          typeof node.value === 'string' &&
+          /^\/tmp\b/.test(node.value) &&
+          // 排除 temp.ts / run-root.ts 等封装层中的字面量
+          !context.filename.includes('tests/utils/temp.ts') &&
+          !context.filename.includes('tests/utils/run-root.ts')
+        ) {
+          context.report({ node, messageId: 'noHardcodedTmp' });
         }
       },
     };

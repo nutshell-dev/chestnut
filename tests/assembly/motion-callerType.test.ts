@@ -15,6 +15,7 @@ describe('motion callerType assemble fix (phase 1160 P0-1 / phase 807 DI)', () =
   let audit: ReturnType<typeof makeAudit>;
 
   beforeEach(() => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tempDir = path.join(os.tmpdir(), `motion-callerType-${randomUUID()}`);
     chestnutDir = path.join(tempDir, '.chestnut');
     fsNative.mkdirSync(chestnutDir, { recursive: true });

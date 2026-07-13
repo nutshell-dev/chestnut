@@ -19,7 +19,6 @@ import * as path from 'node:path';
 describe('depcruise config top-level keys invariant (phase 659)', () => {
   it('top-level keys === {forbidden, options}', () => {
     const cfgPath = path.resolve(__dirname, '../../../.config/dependency-cruiser.cjs');
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const cfg = require(cfgPath) as Record<string, unknown>;
     const keys = new Set(Object.keys(cfg));
     expect([...keys].sort()).toEqual(['forbidden', 'options']);

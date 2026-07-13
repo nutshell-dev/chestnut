@@ -40,6 +40,7 @@ describe('phase 1152 G.5: cancelContract saveProgress before abort order', () =>
       audit: captureAudit as any,
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
   });

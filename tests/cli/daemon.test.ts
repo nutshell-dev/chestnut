@@ -13,6 +13,7 @@ describe('ProcessManager.acquireLock — fix 004: TOCTOU race protection', () =>
   let pm: TestProcessManager;
 
   beforeEach(() => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = path.join(os.tmpdir(), `daemon-fix4-${randomUUID()}`);
     fsNative.mkdirSync(tmpDir, { recursive: true });
     const fs = new NodeFileSystem({ baseDir: tmpDir });

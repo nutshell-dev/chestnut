@@ -43,6 +43,7 @@ describe('audit-query 0 result hint std-2 (phase 216 Step D)', () => {
   beforeEach(() => {
     originalExitCode = process.exitCode;
     process.exitCode = undefined;
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = fsSync.mkdtempSync(path.join(os.tmpdir(), 'audit-query-hint-'));
     shared.baseDir = tmpDir;
     fsSync.mkdirSync(path.join(tmpDir, 'claws', 'test-claw', '.chestnut'), { recursive: true });
@@ -163,6 +164,7 @@ describe('audit-query `--no-hint` commander wire (phase 219 Step A)', () => {
   beforeEach(() => {
     originalExitCode = process.exitCode;
     process.exitCode = undefined;
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = fsSync.mkdtempSync(path.join(os.tmpdir(), 'audit-query-hint-wire-'));
     shared.baseDir = tmpDir;
     fsSync.mkdirSync(path.join(tmpDir, 'claws', 'test-claw', '.chestnut'), { recursive: true });

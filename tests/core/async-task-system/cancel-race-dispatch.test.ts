@@ -61,6 +61,7 @@ describe('phase 1011 D.3: cancel race lost to dispatch', () => {
       message: (s: string) => s,
       summary: (s: string) => s,
     };
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     system = new AsyncTaskSystem('/tmp/claw', mockFs, {
       shortIdIndex: new InMemoryShortIdIndex(),
       auditWriter: audit,

@@ -39,6 +39,7 @@ describe('Snapshot commit throttle', () => {
 
   it('反向 1: rapid commits within 30s — second skipped', async () => {
     const fs = makeMockFs();
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const snapshot = new Snapshot('/tmp/agent', fs, mockAudit, [], undefined, mockExec);
 
     vi.clearAllMocks();
@@ -60,6 +61,7 @@ describe('Snapshot commit throttle', () => {
 
   it('反向 2: commit after 30s+ gap proceeds', async () => {
     const fs = makeMockFs();
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const snapshot = new Snapshot('/tmp/agent2', fs, mockAudit, [], undefined, mockExec);
 
     vi.clearAllMocks();

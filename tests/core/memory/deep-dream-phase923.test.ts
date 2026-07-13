@@ -21,6 +21,7 @@ describe('deep-dream phase 923 invariants', () => {
   function makeCtx(overrides?: Partial<__test_DreamRunContext>): __test_DreamRunContext {
     return {
       clawId: 'test-claw',
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawDir: '/tmp/claw',
       clawFs: {} as unknown as FileSystem,
       motionFs: undefined,

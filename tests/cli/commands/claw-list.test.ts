@@ -83,6 +83,7 @@ describe('claw-list', () => {
     consoleErrSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     vi.mocked(loadGlobalConfig).mockReturnValue({} as any);
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     vi.mocked(getGlobalConfigPath).mockReturnValue('/tmp/chestnut/config.yaml');
 
     vi.mocked(createProcessManagerForCLI).mockReturnValue({

@@ -142,6 +142,7 @@ vi.mock('../../src/core/evolution-system/index.js', () => ({
   createEvolutionSystem: vi.fn(() => ({
     runRetroForContract: vi.fn(async (_contractId: string, ctx: any) => {
       // Simulate the real path where factory is called (evolution-system/system.ts:232)
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       ctx.clawContractManagerFactory('/tmp/test-claw', 'test-claw', {} as any);
       return { status: 'ok' };
     }),
@@ -247,6 +248,7 @@ describe('assemble evolution clawContractManagerFactory toolRegistry (phase 951)
   const baseConfig = {
     identity: 'motion' as const,
     clawId: 'motion',
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawDir: '/tmp/motion',
     globalConfig: buildTestGlobalConfig({
       cron: { enabled: true, tick_interval_ms: 1000 },

@@ -72,6 +72,7 @@ describe('watchdog notify dedup persist (phase 1269 sub-3)', () => {
 
   beforeEach(() => {
     _resetWatchdogContextForTest();
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = path.join(os.tmpdir(), `wd-dedup-persist-${randomUUID()}`);
     chestnutDir = path.join(tmpDir, '.chestnut');
     clawsDir = path.join(chestnutDir, 'claws');

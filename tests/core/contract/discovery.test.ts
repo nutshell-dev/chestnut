@@ -20,6 +20,7 @@ let nodeFs: NodeFileSystem;
 
 beforeEach(async () => {
   tmpDir = path.join(
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     os.tmpdir(),
     `.test-contract-discovery-${process.pid}-${Math.random().toString(36).slice(2, 10)}`,
   );

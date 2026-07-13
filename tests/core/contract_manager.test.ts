@@ -43,6 +43,7 @@ describe('ContractSystem', () => {
 
   beforeEach(async () => {
     testDir = path.join(
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       os.tmpdir(),
       `.test-contract-manager-${process.pid}-${Math.random().toString(36).slice(2, 10)}`,
     );
@@ -55,6 +56,7 @@ describe('ContractSystem', () => {
     nodeFs = new NodeFileSystem({ baseDir: clawDir });
     const mockAudit = makeMockAudit();
     manager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
   });
@@ -344,6 +346,7 @@ describe('ContractSystem', () => {
       audit: makeMockAudit(),
       toolRegistry: createToolRegistry(),
       fsFactory,
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
     testManager.setOnNotify(onNotifySpy);
@@ -400,6 +403,7 @@ describe('ContractSystem', () => {
 
   describe('runScriptVerification', () => {
     it('runScriptVerification passes for script without shebang', async () => {
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'contract-shebang-'));
       const testClawDir = path.join(tempDir, 'claws', 'test-claw');
       await fs.mkdir(testClawDir, { recursive: true });
@@ -417,6 +421,7 @@ describe('ContractSystem', () => {
         audit: mockAudit,
         toolRegistry: createToolRegistry(),
         fsFactory,
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
       // @ts-expect-error - runScriptVerification is private

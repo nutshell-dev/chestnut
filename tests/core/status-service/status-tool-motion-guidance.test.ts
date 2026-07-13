@@ -25,6 +25,7 @@ function mkCtx(clawId: string) {
   } as unknown as NodeFileSystem;
   return new ExecContextImpl({
     clawId,
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawDir: '/tmp/test-claw',
     profile: 'full',
     fs: mockFs,

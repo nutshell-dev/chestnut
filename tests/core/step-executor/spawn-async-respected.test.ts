@@ -19,6 +19,7 @@ describe('phase 1050: spawn async parameter respected', () => {
 
     const ctx = {
       clawId: 'test',
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawDir: '/tmp',
       profile: 'full',
       fs: {},
@@ -49,6 +50,7 @@ describe('phase 1050: spawn async parameter respected', () => {
 
     const ctx = {
       clawId: 'test',
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawDir: '/tmp',
       profile: 'full',
       fs: {},
@@ -79,6 +81,7 @@ describe('phase 1050: spawn async parameter respected', () => {
 
     const ctx = {
       clawId: 'test',
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawDir: '/tmp',
       profile: 'full',
       fs: {},

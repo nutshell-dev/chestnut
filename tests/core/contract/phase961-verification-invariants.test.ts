@@ -20,6 +20,7 @@ let nodeFs: NodeFileSystem;
 
 beforeEach(async () => {
   tmpDir = path.join(
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     os.tmpdir(),
     `.test-phase961-${process.pid}-${Math.random().toString(36).slice(2, 10)}`,
   );
@@ -42,6 +43,7 @@ function makeManager(audit: any) {
     audit,
     toolRegistry: createToolRegistry(),
     fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),
   });
@@ -54,6 +56,7 @@ describe('Phase 961 verification invariants', () => {
     const emitContractCompletedSpy = vi.fn().mockResolvedValue(undefined);
 
     const ctx = {
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawDir: '/tmp/claw',
       clawId: 'claw-test',
       audit: mockAudit as unknown as VerificationContext['audit'],

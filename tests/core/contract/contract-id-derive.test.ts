@@ -17,6 +17,7 @@ describe('contract_id derive (phase 282 Step B)', () => {
   let clawDir: string;
 
   beforeEach(async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = path.join(os.tmpdir(), `.test-phase282-b-${process.pid}-${Math.random().toString(36).slice(2, 10)}`);
     clawDir = path.join(tmpDir, 'claws', 'test-claw');
     await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
@@ -37,6 +38,7 @@ describe('contract_id derive (phase 282 Step B)', () => {
       audit: mockAudit as any,
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawsDir: '/tmp/test/claws',
       notifyClaw: vi.fn(),
     });
@@ -63,6 +65,7 @@ describe('contract_id derive (phase 282 Step B)', () => {
       audit: mockAudit as any,
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawsDir: '/tmp/test/claws',
       notifyClaw: vi.fn(),
     });
@@ -104,6 +107,7 @@ describe('contract_id derive (phase 282 Step B)', () => {
       audit: mockAudit as any,
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawsDir: '/tmp/test/claws',
       notifyClaw: vi.fn(),
     });

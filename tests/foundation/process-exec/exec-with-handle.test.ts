@@ -12,6 +12,7 @@ import * as os from 'os';
 describe('execWithHandle', () => {
   it('should resolve with output for successful command', async () => {
     const handle = execWithHandle('sh', ['-c', 'echo hello'], {
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       cwd: os.tmpdir(),
     });
     const result = await handle.promise;
@@ -21,6 +22,7 @@ describe('execWithHandle', () => {
 
   it('should expose child process immediately after call', async () => {
     const handle = execWithHandle('sh', ['-c', 'sleep 10'], {
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       cwd: os.tmpdir(),
     });
     expect(handle.child).toBeDefined();
@@ -31,6 +33,7 @@ describe('execWithHandle', () => {
 
   it('should reject ProcessExecError for non-zero exit', async () => {
     const handle = execWithHandle('sh', ['-c', 'exit 7'], {
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       cwd: os.tmpdir(),
     });
     await expect(handle.promise).rejects.toBeInstanceOf(ProcessExecError);
@@ -41,6 +44,7 @@ describe('execWithHandle', () => {
 
   it('should reject ProcessExecError on timeout', async () => {
     const handle = execWithHandle('sh', ['-c', 'sleep 10'], {
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       cwd: os.tmpdir(),
       timeout: 10,
       __testMinTimeoutMs: 1,
@@ -54,6 +58,7 @@ describe('execWithHandle', () => {
 
   it('should support stdin pipe', async () => {
     const handle = execWithHandle('sh', ['-c', 'cat'], {
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       cwd: os.tmpdir(),
       stdin: 'piped content',
     });
@@ -64,6 +69,7 @@ describe('execWithHandle', () => {
 
   it('should allow caller to kill child before completion', async () => {
     const handle = execWithHandle('sh', ['-c', 'sleep 10'], {
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       cwd: os.tmpdir(),
     });
     expect(handle.child.pid).toBeGreaterThan(0);
@@ -73,6 +79,7 @@ describe('execWithHandle', () => {
 
   it('should work with __testMinTimeoutMs for fast tests', async () => {
     const handle = execWithHandle('sh', ['-c', 'sleep 10'], {
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       cwd: os.tmpdir(),
       timeout: 5,
       __testMinTimeoutMs: 1,

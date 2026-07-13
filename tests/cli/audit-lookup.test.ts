@@ -39,6 +39,7 @@ describe('audit lookup', () => {
   beforeEach(() => {
     stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tempDir = fsNative.mkdtempSync('/tmp/chestnut-test-');
     fsNative.mkdirSync(path.join(tempDir, 'claws', 'test-claw'), { recursive: true });
   });

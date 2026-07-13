@@ -6,6 +6,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as path from 'path';
 import { promises as fs } from 'fs';
 import * as fsNative from 'fs';  // phase 257: hoist; 7 it() bodies previously did `await import('fs')` per invocation.
+// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 
@@ -941,7 +942,9 @@ describe('Builtin Tools', () => {
     });
 
     it('execTool args.cwd 优先于 ctx.clawDir', async () => {
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       const result = await execTool.execute({ command: 'pwd', cwd: '/tmp' }, ctx);
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       expect(result.content).toContain('/tmp');
     });
 

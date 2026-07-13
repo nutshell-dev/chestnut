@@ -18,7 +18,6 @@ import * as path from 'node:path';
 describe('depcruise forbidden rule to/orphan invariant (phase 599)', () => {
   it('every forbidden rule has to.path, to.dependencyTypes, to.circular, or from.orphan', () => {
     const cfgPath = path.resolve(__dirname, '../../../.config/dependency-cruiser.cjs');
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const cfg = require(cfgPath) as {
       forbidden: Array<{
         name: string;

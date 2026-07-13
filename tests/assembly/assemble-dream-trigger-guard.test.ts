@@ -208,6 +208,7 @@ describe('Assembly — dream-trigger handler memorySystem guard (F-r72-asm-P0-2)
   const baseConfig = {
     identity: 'motion' as const,
     clawId: 'motion',
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawDir: '/tmp/motion',
     globalConfig: buildTestGlobalConfig({
       cron: {

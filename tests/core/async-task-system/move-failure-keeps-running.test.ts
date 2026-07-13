@@ -50,6 +50,7 @@ describe('phase 871: move failure keeps running file', () => {
     const { audit, events } = makeMockAudit();
     auditEvents = events;
 
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     system = new AsyncTaskSystem('/tmp/claw', mockFs, {
       shortIdIndex: new InMemoryShortIdIndex(),
       auditWriter: audit,

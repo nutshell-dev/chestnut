@@ -37,6 +37,7 @@ describe('audit CLI motion-aware adaptation (phase 167)', () => {
   beforeEach(() => {
     stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tempDir = fsNative.mkdtempSync('/tmp/chestnut-test-');
     originalChestnutRoot = process.env.CHESTNUT_ROOT;
     process.env.CHESTNUT_ROOT = tempDir;

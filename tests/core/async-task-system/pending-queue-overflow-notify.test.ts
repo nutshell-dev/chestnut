@@ -8,6 +8,7 @@ import { TASK_AUDIT_EVENTS } from '../../../src/core/async-task-system/audit-eve
 import type { AuditLog } from '../../../src/foundation/audit/index.js';
 import type { InboxWriter } from '../../../src/foundation/messaging/index.js';
 import { NodeFileSystem } from '../../../src/foundation/fs/index.js';
+// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import * as path from 'node:path';

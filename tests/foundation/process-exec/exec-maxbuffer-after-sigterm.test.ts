@@ -6,6 +6,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
+// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 
 import { exec, ProcessExecError } from '../../../src/foundation/process-exec/index.js';

@@ -46,6 +46,7 @@ describe('runtime.stop shutdown timeout (phase 1332 N4)', () => {
 
     const runtime = new Runtime({
       clawId: 'test-claw',
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawDir: '/tmp/test',
       llmConfig: {} as any,
       idleTimeoutMs: 0,

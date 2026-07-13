@@ -47,6 +47,7 @@ describe('ContractSystem - lock retry (phase 1351 split)', () => {
 
   beforeEach(async () => {
     testDir = path.join(
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       os.tmpdir(),
       `.test-contract-locks-${process.pid}-${Math.random().toString(36).slice(2, 10)}`,
     );
@@ -59,6 +60,7 @@ describe('ContractSystem - lock retry (phase 1351 split)', () => {
     nodeFs = new NodeFileSystem({ baseDir: clawDir });
     const mockAudit = makeMockAudit();
     manager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
   });
@@ -112,6 +114,7 @@ describe('ContractSystem - lock retry (phase 1351 split)', () => {
       audit: mockAudit,
       toolRegistry: createToolRegistry(),
       fsFactory,
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
 
@@ -168,6 +171,7 @@ describe('ContractSystem - lock retry (phase 1351 split)', () => {
       audit: mockAudit,
       toolRegistry: createToolRegistry(),
       fsFactory,
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
 

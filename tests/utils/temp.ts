@@ -11,6 +11,7 @@
  */
 
 import { promises as fs } from 'node:fs';
+// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { rmSync, mkdtempSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';

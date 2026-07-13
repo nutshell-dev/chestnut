@@ -42,6 +42,7 @@ describe('phase 859 r111 H fork: cancel path promise reject audit (Sa.2)', () =>
     const { audit, events } = makeMockAudit();
     auditEvents = events;
 
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     system = new AsyncTaskSystem('/tmp/claw', mockFs, {
       shortIdIndex: new InMemoryShortIdIndex(),
       auditWriter: audit,

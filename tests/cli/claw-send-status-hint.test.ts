@@ -63,6 +63,7 @@ describe('cli claw send status hint (phase 232)', () => {
   let consoleLogSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpRoot = path.join(os.tmpdir(), `phase232-claws-${randomUUID()}`);
     // phase 232: chestnutRoot = path.dirname(getGlobalConfigPath()) = <tmpRoot>/.chestnut
     const chestnutRoot = path.join(tmpRoot, '.chestnut');

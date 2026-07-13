@@ -18,10 +18,12 @@ describe('phase 1154 — event-collector FS_NOT_FOUND narrow + α-4 progress_cor
   it('archive listSync FileNotFoundError → 0 emit', async () => {
     const { audit, events } = makeAudit();
     const fs = {
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       listSync: () => { throw new FileNotFoundError('/tmp/claw/contract/archive'); },
       readSync: () => '',
       existsSync: () => true,
     } as unknown as FileSystem;
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const result = await collectContractEvents(fs, '/tmp/claw', 'claw1', 0, audit);
     expect(result.events).toEqual([]);
     expect(result.problemPairs).toEqual([]);
@@ -37,10 +39,12 @@ describe('phase 1154 — event-collector FS_NOT_FOUND narrow + α-4 progress_cor
       ],
       readSync: () => {
         readCalls++;
+        // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
         throw new FileNotFoundError('/tmp/claw/contract/archive/1234567890-contract1/progress.json');
       },
       existsSync: () => true,
     } as unknown as FileSystem;
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const result = await collectContractEvents(fs, '/tmp/claw', 'claw1', 0, audit);
     expect(result.events).toEqual([]);
     expect(result.problemPairs).toEqual([]);
@@ -62,6 +66,7 @@ describe('phase 1154 — event-collector FS_NOT_FOUND narrow + α-4 progress_cor
       },
       existsSync: () => true,
     } as unknown as FileSystem;
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const result = await collectContractEvents(fs, '/tmp/claw', 'claw1', 0, audit);
     expect(result.events).toEqual([]);
     expect(result.problemPairs).toEqual([]);
@@ -79,6 +84,7 @@ describe('phase 1154 — event-collector FS_NOT_FOUND narrow + α-4 progress_cor
       readSync: () => 'not-json-at-all',
       existsSync: () => true,
     } as unknown as FileSystem;
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const result = await collectContractEvents(fs, '/tmp/claw', 'claw1', 0, audit);
     expect(result.events).toEqual([]);
     expect(result.problemPairs).toEqual([]);

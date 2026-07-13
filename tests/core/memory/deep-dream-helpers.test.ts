@@ -88,7 +88,6 @@ describe('deep-dream pure helpers (phase 1467)', () => {
       const res = {
         content: [{ type: 'text', text: 'reply' }] as ContentBlock[],
       };
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       expect(__test_responseText(res as any)).toBe('reply');
     });
 
@@ -96,7 +95,6 @@ describe('deep-dream pure helpers (phase 1467)', () => {
       const res = {
         content: [{ type: 'tool_use', id: 'id1', name: 'tool', input: {} }] as ContentBlock[],
       };
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       expect(__test_responseText(res as any)).toBe('');
     });
   });
@@ -148,7 +146,6 @@ describe('deep-dream pure helpers (phase 1467)', () => {
 
   describe('loadDreamState', () => {
     function makeMockFs(readImpl: (file: string) => string): FileSystem {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return { readSync: vi.fn(readImpl) } as any;
     }
 
@@ -209,7 +206,6 @@ describe('deep-dream pure helpers (phase 1467)', () => {
 
   describe('saveDreamState', () => {
     function makeMockFsForWrite(writeImpl?: (file: string, content: string) => void): FileSystem {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return { writeAtomicSync: vi.fn(writeImpl ?? (() => {})) } as any;
     }
 

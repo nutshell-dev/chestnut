@@ -32,6 +32,7 @@ describe('phase 1217 (r131 C fork) B.1 — ContractSystem.close() true disposabl
 
   beforeEach(async () => {
     testDir = path.join(
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       os.tmpdir(),
       `.test-contract-system-close-${process.pid}-${Math.random().toString(36).slice(2, 10)}`,
     );
@@ -55,6 +56,7 @@ describe('phase 1217 (r131 C fork) B.1 — ContractSystem.close() true disposabl
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
       runContractVerifier: mockRunContractVerifier,
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
     mockRunContractVerifier.mockReset();
@@ -171,6 +173,7 @@ describe('phase 1217 (r131 C fork) B.1 — ContractSystem.close() true disposabl
       toolRegistry: createToolRegistry(),
       fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
       runContractVerifier: mockRunContractVerifier,
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
 

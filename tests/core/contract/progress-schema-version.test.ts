@@ -20,6 +20,7 @@ let nodeFs: NodeFileSystem;
 
 beforeEach(async () => {
   tmpDir = path.join(
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     os.tmpdir(),
     `.test-progress-schema-${process.pid}-${Math.random().toString(36).slice(2, 10)}`,
   );
@@ -43,6 +44,7 @@ describe('progress.json schema_version invariant — phase 1134', () => {
       audit: mockAudit as any,
       toolRegistry: createToolRegistry(),
       fsFactory,
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
 
@@ -88,6 +90,7 @@ describe('progress.json schema_version invariant — phase 1134', () => {
       audit: mockAudit as any,
       toolRegistry: createToolRegistry(),
       fsFactory,
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
 

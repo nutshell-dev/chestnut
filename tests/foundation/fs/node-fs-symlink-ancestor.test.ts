@@ -14,6 +14,7 @@ import { NodeFileSystem } from '../../../src/foundation/fs/node-fs.js';
 import { PathGuardError } from '../../../src/foundation/fs/types.js';
 
 async function makeTmpDirs(prefix: string): Promise<{ baseDir: string; outsideDir?: string; cleanup: () => Promise<void> }> {
+  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
   const tmpBase = await fsp.mkdtemp(path.join(os.tmpdir(), prefix));
   const baseDir = path.join(tmpBase, 'safe');
   await fsp.mkdir(baseDir, { recursive: true });
@@ -64,7 +65,9 @@ describe('NodeFileSystem symlink ancestor containment', () => {
   });
 
   it('rejects write when baseDir ancestor is a symlink to outside', async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const tmpBase = await fsp.mkdtemp(path.join(os.tmpdir(), 'nodefs-base-ancestor-'));
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const outsideDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'nodefs-outside-'));
     try {
       const linkPath = path.join(tmpBase, 'link');
@@ -82,6 +85,7 @@ describe('NodeFileSystem symlink ancestor containment', () => {
   });
 
   it('rejects write when baseDir ancestor symlink targets a sibling directory', async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const tmpBase = await fsp.mkdtemp(path.join(os.tmpdir(), 'nodefs-sibling-'));
     try {
       const outsideDir = path.join(tmpBase, 'outside');
@@ -103,7 +107,9 @@ describe('NodeFileSystem symlink ancestor containment', () => {
   });
 
   it('rejects write when baseDir exists and is a symlink to outside', async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const tmpBase = await fsp.mkdtemp(path.join(os.tmpdir(), 'nodefs-existing-outside-'));
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const outsideDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'nodefs-outside-existing-'));
     try {
       const linkPath = path.join(tmpBase, 'link');
@@ -124,6 +130,7 @@ describe('NodeFileSystem symlink ancestor containment', () => {
   });
 
   it('rejects write when baseDir exists via sibling symlink', async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const tmpBase = await fsp.mkdtemp(path.join(os.tmpdir(), 'nodefs-existing-sibling-'));
     try {
       const outsideDir = path.join(tmpBase, 'outside');

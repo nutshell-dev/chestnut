@@ -27,6 +27,7 @@ function makeMockCtx(fs: Partial<FileSystem>, auditWrite?: ReturnType<typeof vi.
   const auditWriter = auditWrite ? ({ write: auditWrite } as unknown as never) : undefined;
   return new ExecContextImpl({
     clawId: 'test-claw',
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawDir: '/tmp/test-claw',
     profile: 'full',
     fs: fs as FileSystem,
@@ -64,7 +65,6 @@ describe('status-tool integration (audit emission paths — phase 1468 F9 cov pr
 
   it('pending EACCES → STATUS_AUDIT_EVENTS.TASK_PENDING_ERROR emitted with error msg', async () => {
     const auditWrite = vi.fn();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const eacces: any = new Error('EACCES: permission denied');
     eacces.code = 'EACCES';
     const fs: Partial<FileSystem> = {
@@ -86,7 +86,6 @@ describe('status-tool integration (audit emission paths — phase 1468 F9 cov pr
 
   it('running EIO → STATUS_AUDIT_EVENTS.TASK_RUNNING_ERROR emitted with error msg', async () => {
     const auditWrite = vi.fn();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const ioerr: any = new Error('EIO: I/O error');
     ioerr.code = 'EIO';
     const fs: Partial<FileSystem> = {
@@ -110,7 +109,6 @@ describe('status-tool integration (audit emission paths — phase 1468 F9 cov pr
 
   it('pending ENOENT (NodeJS code) silent → no TASK_PENDING_ERROR audit', async () => {
     const auditWrite = vi.fn();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const enoent: any = new Error('ENOENT');
     enoent.code = 'ENOENT';
     const fs: Partial<FileSystem> = {

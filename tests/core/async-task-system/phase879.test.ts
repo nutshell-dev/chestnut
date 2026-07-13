@@ -69,6 +69,7 @@ function makeToolTask(overrides: Partial<ToolTask> = {}): ToolTask {
     shortId: '550e8400',
     toolName: 'read',
     args: {},
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     parentClawDir: '/tmp',
     parentClawId: 'parent',
     createdAt: new Date().toISOString(),

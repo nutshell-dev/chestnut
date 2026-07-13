@@ -40,6 +40,7 @@ async function makeCtx(clawDir: string, persist: boolean): Promise<E2eCtx> {
   const audit = makeAudit();
   const nfs = new NodeFileSystem({ baseDir: clawDir });
   const ctx = new ExecContextImpl({
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     clawId: 'test-claw',
     clawDir,

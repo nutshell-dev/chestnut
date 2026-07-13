@@ -24,6 +24,7 @@ describe('listArchiveContracts progress.json audit (phase 164)', () => {
 
   beforeEach(async () => {
     testDir = path.join(
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       os.tmpdir(),
       `.test-list-archive-audit-${process.pid}-${Math.random().toString(36).slice(2, 10)}`,
     );

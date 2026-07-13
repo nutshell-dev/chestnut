@@ -48,6 +48,7 @@ describe('PerResourceStreamWriter path forensics lock (phase 1189 β-4)', () => 
     const audit = makeAudit();
     const writer = new PerResourceStreamWriter(
       fs,
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       '/tmp/agents/agent-xyz/stream.jsonl',  // mirror subagent/run.ts:86 pattern
       audit as any,
     );
@@ -66,6 +67,7 @@ describe('PerResourceStreamWriter path forensics lock (phase 1189 β-4)', () => 
     const audit = makeAudit();
     const writer = new PerResourceStreamWriter(
       fs,
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       '/tmp/tasks/task-abc/stream.jsonl',  // mirror subagent-executor.ts:101 pattern
       audit as any,
     );

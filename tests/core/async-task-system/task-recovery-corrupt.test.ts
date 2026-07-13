@@ -47,6 +47,7 @@ function makeValidTask(kind: 'subagent' | 'tool' = 'subagent') {
     ...base,
     toolName: 'read',
     args: {},
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     parentClawDir: '/tmp',
     isIdempotent: true,
     maxRetries: 2,
@@ -287,6 +288,7 @@ describe('task-recovery corrupt-backup 三件套', () => {
         summary: (s: string) => s,
       };
 
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       system = new AsyncTaskSystem('/tmp/claw', mockFs, {
       shortIdIndex: new InMemoryShortIdIndex(),
       auditWriter: audit,

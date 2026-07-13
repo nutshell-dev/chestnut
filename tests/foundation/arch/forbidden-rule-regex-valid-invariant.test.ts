@@ -22,7 +22,6 @@ import * as path from 'node:path';
 describe('depcruise forbidden rule regex validity invariant (phase 638)', () => {
   it('every from.path/pathNot + to.path/pathNot string compiles as RegExp', () => {
     const cfgPath = path.resolve(__dirname, '../../../.config/dependency-cruiser.cjs');
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const cfg = require(cfgPath) as {
       forbidden: Array<{
         name: string;

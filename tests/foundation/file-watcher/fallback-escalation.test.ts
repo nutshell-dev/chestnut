@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createWatcher } from '../../../src/foundation/file-watcher/index.js';
 import path from 'node:path';
+// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 
@@ -22,6 +23,7 @@ describe('fallback poller escalation (macOS only)', () => {
   let testFile: string;
 
   beforeEach(() => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'fallback-test-'));
     testFile = path.join(tmpDir, 'test.txt');
     writeFileSync(testFile, '');

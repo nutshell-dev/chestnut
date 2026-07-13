@@ -21,6 +21,7 @@ let mockFs: NodeFileSystem;
 const mockAudit: AuditLog = { write: () => {} , preview: (s: string) => s, message: (s: string) => s, summary: (s: string) => s};
 
 beforeEach(() => {
+  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
   tmpDir = path.join(os.tmpdir(), `inbox-writer-test-${randomUUID()}`);
   fs.mkdirSync(tmpDir, { recursive: true });
   mockFs = new NodeFileSystem({ baseDir: '/' });

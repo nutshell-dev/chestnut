@@ -64,6 +64,7 @@ describe('runDeepDream — clawFsFactory 注入路径（caller DIP enforce）', 
   });
 
   it('多 claw 迭代各自调 factory（per-claw dynamic）', async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const chestnutDir = path.join(os.tmpdir(), `phase609-dd-${randomUUID()}`);
     const clawsDir = path.join(chestnutDir, 'claws');
 
@@ -86,6 +87,7 @@ describe('runDeepDream — clawFsFactory 注入路径（caller DIP enforce）', 
   });
 
   it('clawIds 空时 factory 0 call', async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const chestnutDir = path.join(os.tmpdir(), `phase609-dd-empty-${randomUUID()}`);
     await fs.mkdir(path.join(chestnutDir, 'claws'), { recursive: true });
 
@@ -99,6 +101,7 @@ describe('runDeepDream — clawFsFactory 注入路径（caller DIP enforce）', 
   });
 
   it('factory 抛错时单 claw 失败不阻断其他 claw（既有契约保持）', async () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const chestnutDir = path.join(os.tmpdir(), `phase609-dd-fail-${randomUUID()}`);
     const clawsDir = path.join(chestnutDir, 'claws');
 

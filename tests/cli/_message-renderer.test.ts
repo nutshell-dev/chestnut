@@ -41,6 +41,7 @@ describe('_message-renderer', () => {
           {
             role: 'assistant',
             content: [
+              // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
               { type: 'tool_use', id: 'tu1', name: 'Read', input: { file_path: '/tmp/a' } },
             ],
           },
@@ -165,6 +166,7 @@ describe('_message-renderer', () => {
           {
             role: 'assistant',
             content: [
+              // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
               { type: 'tool_use', id: 'tu1', name: 'Read', input: { file_path: '/tmp/a' } },
             ],
           },
@@ -348,6 +350,7 @@ describe('_message-renderer', () => {
   describe('loadSessionFromFile', () => {
     let tmpDir: string;
     beforeEach(() => {
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'chestnut-test-'));
     });
     afterEach(() => {

@@ -37,6 +37,7 @@ function makeMockAudit() {
 function makeSnapshot(partial: Partial<ArtifactSnapshot> = {}): ArtifactSnapshot {
   return {
     agentId: 'test-agent',
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     resultDir: '/tmp/results/test-agent',
     textEndCount: 0,
     ...partial,

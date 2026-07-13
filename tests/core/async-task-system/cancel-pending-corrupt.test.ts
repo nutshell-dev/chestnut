@@ -57,6 +57,7 @@ describe('cancel pending task with corrupt JSON triggers backupCorruptTask audit
       }),
     } as unknown as FileSystem;
 
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const system = new AsyncTaskSystem('/tmp/claw', mockFs, {
       shortIdIndex: new InMemoryShortIdIndex(),
       auditWriter: audit,
@@ -128,6 +129,7 @@ describe('cancel pending task with corrupt JSON triggers backupCorruptTask audit
       }),
     } as unknown as FileSystem;
 
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const system = new AsyncTaskSystem('/tmp/claw', mockFs, {
       shortIdIndex: new InMemoryShortIdIndex(),
       auditWriter: audit,

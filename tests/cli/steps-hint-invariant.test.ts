@@ -83,6 +83,7 @@ describe('clawStepsCommand hint wire', () => {
 
   beforeEach(() => {
     vi.restoreAllMocks();
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'chestnut-test-'));
     originalRoot = process.env.CHESTNUT_ROOT;
     process.env.CHESTNUT_ROOT = tmpDir;
@@ -155,6 +156,7 @@ describe('motionStepsCommand hint wire', () => {
 
   beforeEach(() => {
     vi.restoreAllMocks();
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'chestnut-test-'));
     originalRoot = process.env.CHESTNUT_ROOT;
     process.env.CHESTNUT_ROOT = tmpDir;
@@ -209,6 +211,7 @@ describe('subagentStepsCommand hint wire', () => {
 
   beforeEach(() => {
     vi.restoreAllMocks();
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'chestnut-test-'));
     originalRoot = process.env.CHESTNUT_ROOT;
     process.env.CHESTNUT_ROOT = tmpDir;
@@ -279,6 +282,7 @@ describe('clawTraceCommand hint wire', () => {
 
   beforeEach(() => {
     vi.restoreAllMocks();
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'chestnut-test-'));
     originalRoot = process.env.CHESTNUT_ROOT;
     process.env.CHESTNUT_ROOT = tmpDir;

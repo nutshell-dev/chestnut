@@ -13,6 +13,7 @@ describe('AuditWriter', () => {
 
   beforeEach(() => {
     vi.restoreAllMocks();
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'audit-test-'));
     nodeFs = new NodeFileSystem({ baseDir: tmpDir });
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});

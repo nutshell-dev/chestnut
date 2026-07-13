@@ -29,6 +29,7 @@ describe('ContractSystem - monitor + verification validation (phase 1348 split)'
 
   beforeEach(async () => {
     testDir = path.join(
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       os.tmpdir(),
       `.test-contract-monitor-${process.pid}-${Math.random().toString(36).slice(2, 10)}`,
     );
@@ -41,6 +42,7 @@ describe('ContractSystem - monitor + verification validation (phase 1348 split)'
     nodeFs = new NodeFileSystem({ baseDir: clawDir });
     const mockAudit = makeMockAudit();
     manager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
   });
@@ -49,6 +51,7 @@ describe('ContractSystem - monitor + verification validation (phase 1348 split)'
     it('should log error to monitor when loadActive finds corrupted progress.json', async () => {
       const mockAudit = makeMockAudit();
       const monitorManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
 
@@ -71,6 +74,7 @@ describe('ContractSystem - monitor + verification validation (phase 1348 split)'
     it('should log error to monitor when loadPaused finds corrupted progress.json', async () => {
       const mockAudit = makeMockAudit();
       const monitorManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
 
@@ -92,6 +96,7 @@ describe('ContractSystem - monitor + verification validation (phase 1348 split)'
     it('should log warn to monitor when unknown subtaskId is used in completeSubtask', async () => {
       const mockAudit = makeMockAudit();
       const monitorManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
 
@@ -128,6 +133,7 @@ describe('ContractSystem - monitor + verification validation (phase 1348 split)'
 
       const mockAudit = makeMockAudit();
       const failManager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: mockAudit, toolRegistry: createToolRegistry(), fsFactory,
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
       await expect(failManager.create(makeContractYaml({

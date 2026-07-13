@@ -46,6 +46,7 @@ describe('EventLoop.run', () => {
   const fsFactory = (dir: string) => new NodeFileSystem({ baseDir: dir });
 
   beforeEach(() => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     agentDir = path.join(os.tmpdir(), `event-loop-test-${randomUUID()}`);
     require('fs').mkdirSync(agentDir, { recursive: true });
     inboxPendingDir = path.join(agentDir, 'inbox', 'pending');

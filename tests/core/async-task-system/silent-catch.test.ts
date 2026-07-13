@@ -173,6 +173,7 @@ describe('phase 541: silent catch fixes', () => {
           shortId: '22222222',
           toolName: 'read',
           args: {},
+          // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
           parentClawDir: '/tmp',
           parentClawId: 'parent',
           createdAt: new Date().toISOString(),
@@ -226,6 +227,7 @@ describe('phase 541: silent catch fixes', () => {
         summary: (s: string) => s,
       };
 
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       system = new AsyncTaskSystem('/tmp/claw', mockFs, {
         shortIdIndex: new InMemoryShortIdIndex(),
         auditWriter: audit,

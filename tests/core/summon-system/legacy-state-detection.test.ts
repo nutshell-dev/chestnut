@@ -23,6 +23,7 @@ function makeFakeAudit(): AuditLog & { entries: string[][] } {
 let lastDir: string;
 
 async function createTempFs() {
+  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
   const dir = path.join(os.tmpdir(), `summon-legacy-test-${randomUUID()}`);
   lastDir = dir;
   const fs = new NodeFileSystem({ baseDir: dir });

@@ -50,6 +50,7 @@ describe('watchdog-state schema_version invariant — phase 1134 + 311 strict-en
 
   beforeEach(() => {
     _resetWatchdogContextForTest();
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = path.join(os.tmpdir(), `wd-schema-${randomUUID()}`);
     chestnutDir = path.join(tmpDir, '.chestnut');
     fs.mkdirSync(chestnutDir, { recursive: true });

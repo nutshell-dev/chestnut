@@ -45,6 +45,7 @@ describe('contract-motion-full-chain (phase 1168 α-5)', () => {
     vi.restoreAllMocks();
     mockRunContractVerifier.mockReset();
 
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     testDir = path.join(os.tmpdir(), `.test-contract-motion-${process.pid}-${Math.random().toString(36).slice(2, 10)}`);
     clawDir = path.join(testDir, 'claws', 'test-claw');
     await fs.rm(testDir, { recursive: true, force: true }).catch(() => { /* silent: cleanup */ });
@@ -61,6 +62,7 @@ describe('contract-motion-full-chain (phase 1168 α-5)', () => {
     auditHelper = createAuditEmitterHelper(baseAudit as never);
     const mockLlm = { id: 'mock-llm' } as any;
     manager = new ContractSystem({ clawDir, clawId: 'test-claw', fs: nodeFs, audit: auditHelper.audit as any, llm: mockLlm, toolRegistry: createToolRegistry(), fsFactory,
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
   });

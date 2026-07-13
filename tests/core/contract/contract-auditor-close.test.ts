@@ -75,6 +75,7 @@ describe('ContractAuditor.close (phase 517 B3)', () => {
       fs: makeFsMock(),
       inbox: makeInboxMock(),
       llm,
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       inboxPendingDir: '/tmp/inbox-pending-test',
     });
 
@@ -109,6 +110,7 @@ describe('ContractAuditor.close (phase 517 B3)', () => {
       fs: makeFsMock(),
       inbox: makeInboxMock(),
       llm,
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       inboxPendingDir: '/tmp/inbox-pending-test',
     });
 
@@ -125,6 +127,7 @@ describe('ContractAuditor.close (phase 517 B3)', () => {
       fs: makeFsMock(),
       inbox: makeInboxMock(),
       llm: { call: vi.fn(), stream: vi.fn(), close: vi.fn(), reloadConfig: vi.fn() } as unknown as LLMOrchestrator,
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       inboxPendingDir: '/tmp/inbox-pending-test',
     });
 

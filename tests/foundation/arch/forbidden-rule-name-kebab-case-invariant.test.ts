@@ -16,7 +16,6 @@ import * as path from 'node:path';
 describe('depcruise forbidden rule name kebab-case invariant (phase 649)', () => {
   it('every rule.name matches /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/', () => {
     const cfgPath = path.resolve(__dirname, '../../../.config/dependency-cruiser.cjs');
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const cfg = require(cfgPath) as { forbidden: Array<{ name: string }> };
     const kebab = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
     const offenders = cfg.forbidden

@@ -8,6 +8,7 @@ import { testClawDaemonDir, testMotionDaemonDir } from '../helpers/daemon-dir.js
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import * as path from 'path';
+// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 

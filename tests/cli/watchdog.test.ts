@@ -121,6 +121,7 @@ describe('maybeCronClawInactivity — fix 4: per-claw error isolation', () => {
 
   beforeEach(() => {
     _resetWatchdogContextForTest();
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = path.join(os.tmpdir(), `wdfix4-${randomUUID()}`);
     const chestnutDir = path.join(tmpDir, '.chestnut');
     clawsDir = path.join(chestnutDir, 'claws');
@@ -193,6 +194,7 @@ describe('logWithAudit — A1 clearance', () => {
 
   beforeEach(() => {
     _resetWatchdogContextForTest();
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = path.join(os.tmpdir(), `wd-audit-${randomUUID()}`);
     const chestnutDir = path.join(tmpDir, '.chestnut');
     fs.mkdirSync(path.join(chestnutDir, 'motion'), { recursive: true });
@@ -264,6 +266,7 @@ describe('shutdownWatchdog — fix 005: save state on signal', () => {
   beforeEach(() => {
     _resetWatchdogContextForTest();
     _resetShutdownGuard();
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = path.join(os.tmpdir(), `wd-fix5-${randomUUID()}`);
     const chestnutDir = path.join(tmpDir, '.chestnut');
     fs.mkdirSync(path.join(chestnutDir, 'motion'), { recursive: true });
@@ -351,6 +354,7 @@ describe('getWatchdogPid', () => {
 
   beforeEach(() => {
     _resetWatchdogContextForTest();
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = path.join(os.tmpdir(), `wd-pid-${randomUUID()}`);
     const chestnutDir = path.join(tmpDir, '.chestnut');
     fs.mkdirSync(chestnutDir, { recursive: true });
@@ -379,6 +383,7 @@ describe('isWatchdogAlive', () => {
 
   beforeEach(() => {
     _resetWatchdogContextForTest();
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = path.join(os.tmpdir(), `wd-alive-${randomUUID()}`);
     const chestnutDir = path.join(tmpDir, '.chestnut');
     fs.mkdirSync(chestnutDir, { recursive: true });
@@ -437,6 +442,7 @@ describe('startCommand', () => {
 
   beforeEach(() => {
     _resetWatchdogContextForTest();
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = path.join(os.tmpdir(), `wd-start-${randomUUID()}`);
     const chestnutDir = path.join(tmpDir, '.chestnut');
     fs.mkdirSync(chestnutDir, { recursive: true });
@@ -490,6 +496,7 @@ describe('stopCommand', () => {
 
   beforeEach(() => {
     _resetWatchdogContextForTest();
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = path.join(os.tmpdir(), `wd-stop-${randomUUID()}`);
     const chestnutDir = path.join(tmpDir, '.chestnut');
     fs.mkdirSync(chestnutDir, { recursive: true });
@@ -554,6 +561,7 @@ describe('runWatchdogLoop', () => {
 
   beforeEach(() => {
     _resetWatchdogContextForTest();
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = path.join(os.tmpdir(), `wd-loop-${randomUUID()}`);
     chestnutDir = path.join(tmpDir, '.chestnut');
     fs.mkdirSync(path.join(chestnutDir, 'motion', 'logs'), { recursive: true });
@@ -664,6 +672,7 @@ describe('maybeCronClawCrash — crash audit', () => {
 
   beforeEach(() => {
     _resetWatchdogContextForTest();
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = path.join(os.tmpdir(), `wdcrash-${randomUUID()}`);
     const chestnutDir = path.join(tmpDir, '.chestnut');
     clawsDir = path.join(chestnutDir, 'claws');
@@ -759,6 +768,7 @@ describe('loadWatchdogState / saveWatchdogState — A2+A3+A4', () => {
 
   beforeEach(() => {
     _resetWatchdogContextForTest();
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = path.join(os.tmpdir(), `wd-state-${randomUUID()}`);
     chestnutDir = path.join(tmpDir, '.chestnut');
     fs.mkdirSync(chestnutDir, { recursive: true });

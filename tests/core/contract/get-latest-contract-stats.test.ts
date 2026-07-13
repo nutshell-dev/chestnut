@@ -16,6 +16,7 @@ describe('getLatestContractStats', () => {
 
   beforeEach(async () => {
     testDir = path.join(
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       os.tmpdir(),
       `.test-latest-stats-${process.pid}-${Math.random().toString(36).slice(2, 10)}`,
     );

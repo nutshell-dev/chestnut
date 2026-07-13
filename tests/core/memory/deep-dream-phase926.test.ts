@@ -13,7 +13,6 @@ import type { FileSystem } from '../../../src/foundation/fs/types.js';
 const clawId = 'test-claw';
 
 function makeMockFs(readImpl: (file: string) => string): FileSystem {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return { readSync: vi.fn(readImpl) } as any;
 }
 

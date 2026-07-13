@@ -11,6 +11,7 @@ describe('subagent-helpers SubagentKind', () => {
   let tmpDir: string;
 
   beforeEach(() => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'subagent-helpers-test-'));
   });
   afterEach(() => {

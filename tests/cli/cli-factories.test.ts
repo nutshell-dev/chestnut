@@ -1,6 +1,8 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import path from 'path';
+// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { mkdtempSync, readFileSync, rmSync } from 'fs';
+// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { NodeFileSystem } from '../../src/foundation/fs/node-fs.js';
 import { AuditWriter, createSystemAudit, AUDIT_FILE } from '../../src/foundation/audit/index.js';
@@ -99,6 +101,7 @@ describe('createDirContext', () => {
   });
 
   it('失败契约：dir 不存在时 audit.write 不抛错（AuditWriter 内部捕获并输出 console.error）', () => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const nonExist = '/tmp/definitely-not-here-' + Date.now();
     const { audit } = createDirContext({ fsFactory }, nonExist);
     // AuditWriter.write 内部 try/catch 吞掉错误，改为断言不抛

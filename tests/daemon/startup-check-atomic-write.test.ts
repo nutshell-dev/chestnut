@@ -25,6 +25,7 @@ describe('startup_check_ts atomic tmp+rename + fsync (phase 1136 / F.2a + phase 
   let startupCheckTsFile: string;
 
   beforeEach(() => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     agentDir = path.join(os.tmpdir(), `startup-check-atomic-test-${randomUUID()}`);
     fsNative.mkdirSync(agentDir, { recursive: true });
     startupCheckTsFile = path.join(agentDir, STATUS_SUBDIR, 'startup_check_ts');

@@ -12,6 +12,7 @@ describe('writeUserChat - phase 142 attachment fallback', () => {
   let fsFactory: (baseDir: string) => import('../../../src/foundation/fs/types.js').FileSystem;
 
   beforeEach(() => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'phase142-'));
     originalEnv = process.env.CHESTNUT_ROOT;
     process.env.CHESTNUT_ROOT = tempDir;

@@ -43,6 +43,7 @@ export async function writeSessionWithIncompleteToolUse(clawDir: string, clawId:
       {
         role: 'assistant',
         content: [
+          // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
           { type: 'tool_use', id: 'tool-1', name: 'readFile', input: { path: '/tmp/test' } },
         ],
       },

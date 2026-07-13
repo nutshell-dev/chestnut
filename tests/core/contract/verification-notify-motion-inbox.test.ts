@@ -46,6 +46,7 @@ describe('phase 1388 Bug B: verification-notify Motion 端写正确 motion/inbox
   let originalEnv: string | undefined;
 
   beforeEach(() => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'phase1388-bug-b-'));
     originalEnv = process.env.CHESTNUT_ROOT;
     process.env.CHESTNUT_ROOT = tempDir;

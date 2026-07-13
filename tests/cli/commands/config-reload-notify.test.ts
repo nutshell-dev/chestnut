@@ -36,6 +36,7 @@ describe('phase 320 Step D: notifyRunningDaemons', () => {
   let originalRoot: string | undefined;
 
   beforeEach(() => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'chestnut-reload-test-'));
     originalRoot = process.env.CHESTNUT_ROOT;
     process.env.CHESTNUT_ROOT = tmpDir;

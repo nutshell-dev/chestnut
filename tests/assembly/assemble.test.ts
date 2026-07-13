@@ -256,6 +256,7 @@ describe('assemble', () => {
   const baseConfig = {
     identity: 'motion' as const,
     clawId: 'motion',
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawDir: '/tmp/motion',
     globalConfig: buildTestGlobalConfig({
       cron: { enabled: true, tick_interval_ms: 1000 },
@@ -581,6 +582,7 @@ describe('assemble', () => {
     let configWithTmp: typeof baseConfig;
 
     beforeEach(() => {
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'assemble-unclean-'));
       configWithTmp = { ...baseConfig, clawDir: tmpDir };
     });

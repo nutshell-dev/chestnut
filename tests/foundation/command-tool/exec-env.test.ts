@@ -22,6 +22,7 @@ describe('exec tool env injection', () => {
   });
 
   async function makeCtx(subagentTaskId?: string) {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     const dir = path.join(os.tmpdir(), `exec-env-test-${randomUUID()}`);
     lastDir = dir;
     const fs = new NodeFileSystem({ baseDir: dir });

@@ -11,6 +11,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fsNode from 'fs';
 import * as path from 'path';
+// eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { listSubscriptions } from '../../src/watchdog/subscription-store.js';
@@ -20,7 +21,6 @@ import { WATCHDOG_AUDIT_EVENTS } from '../../src/watchdog/audit-events.js';
 import { makeMockAudit } from '../helpers/audit.js';
 
 declare global {
-  // eslint-disable-next-line no-var
   var FileSystem: unknown;
 }
 

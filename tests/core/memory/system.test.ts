@@ -15,14 +15,17 @@ import { runRandomDream as runRandomDreamMock } from '../../../src/core/memory/r
 describe('MemorySystem', () => {
   const mockTopology = {
     enumerate: vi.fn(() => []),
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     resolve: vi.fn(() => ({ kind: 'local', clawDir: '/tmp/chestnut/claws/test' })),
     read: vi.fn(async () => ''),
     readJSON: vi.fn(async () => ({} as any)),
   } as unknown as ClawTopology;
 
   const mockOpts = {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/chestnut/claws',
     clawTopology: mockTopology,
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     motionDir: '/tmp/motion',
     fs: {} as any,
     motionFs: {} as any,
@@ -85,6 +88,7 @@ describe('MemorySystem', () => {
       await sys.runRandomDream();
       expect(runRandomDreamMock).toHaveBeenCalledOnce();
       expect(runRandomDreamMock).toHaveBeenCalledWith(expect.objectContaining({
+        // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
         motionDir: '/tmp/motion',
         taskSystem: mockOpts.taskSystem,
         fs: mockOpts.fs,

@@ -10,6 +10,7 @@ import type { FileSystem } from '../../../src/foundation/fs/index.js';
 
 function makeCtx(overrides: Partial<VerificationContext> = {}): VerificationContext {
   return {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawDir: '/tmp/claw',
     clawId: 'claw-test',
     audit: makeMockAudit() as unknown as VerificationContext['audit'],

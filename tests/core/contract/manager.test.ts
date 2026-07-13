@@ -24,6 +24,7 @@ let nodeFs: NodeFileSystem;
 
 beforeEach(async () => {
   tmpDir = path.join(
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     os.tmpdir(),
     `.test-contract-manager-${process.pid}-${Math.random().toString(36).slice(2, 10)}`,
   );
@@ -47,6 +48,7 @@ function setupManager() {
     audit,
     toolRegistry: createToolRegistry(),
     fsFactory,
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),
   });
@@ -208,6 +210,7 @@ describe('ContractSystem manager (phase 956)', () => {
       audit: audit as unknown as Parameters<typeof ContractSystem>[0]['audit'],
       toolRegistry: createToolRegistry(),
       fsFactory,
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       clawsDir: '/tmp/test/claws',
       notifyClaw: vi.fn(),
     });

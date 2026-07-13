@@ -40,6 +40,7 @@ async function pathExists(p: string): Promise<boolean> {
 
 beforeEach(async () => {
   tmpDir = path.join(
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     os.tmpdir(),
     `.test-lock-${process.pid}-${Math.random().toString(36).slice(2, 10)}`,
   );

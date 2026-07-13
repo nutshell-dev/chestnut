@@ -24,6 +24,7 @@ describe('file-tool Zod strict reject cwd (phase 305 cluster G #9 A 类)', () =>
 
     it(`${name}: LLM input 含 cwd → execute returns validation failure (Zod strict runtime)`, async () => {
       const mockCtx = {} as any;
+      // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
       const result = await tool.execute({ ...validArgs, cwd: '/tmp/illegal' }, mockCtx);
       expect(result.success).toBe(false);
       expect(result.content).toMatch(/validation failed|unrecognized key/i);

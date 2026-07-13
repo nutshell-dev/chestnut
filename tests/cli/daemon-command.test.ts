@@ -88,10 +88,12 @@ vi.mock('../../src/core/claw-topology/claw-instance-paths.js', async (importOrig
   const actual = await importOriginal<typeof import('../../src/core/claw-topology/claw-instance-paths.js')>();
   return {
     ...actual,
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     getChestnutRoot: vi.fn(() => '/tmp/test-root'),
     getClawDir: vi.fn((name: string) => `/tmp/test-root/claws/${name}`),
     getNamedSubrootDir: vi.fn((name: string) => `/tmp/test-root/${name}`),
     getClawConfigPath: vi.fn((name: string) => `/tmp/test-root/claws/${name}/config.yaml`),
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     resolveAgentDir: vi.fn((id: string) => id === 'motion' ? '/tmp/test-root/motion' : `/tmp/test-root/claws/${id}`),
   };
 });

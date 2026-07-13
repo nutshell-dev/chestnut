@@ -19,6 +19,7 @@ const { mockSchedule } = vi.hoisted(() => ({
 // Helpers
 // ============================================================================
 async function setupFixtures() {
+  // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
   const tmpBase = path.join(os.tmpdir(), `phase619-${randomUUID()}`);
   const motionDir = path.join(tmpBase, 'motion');
   const clawsBaseDir = path.join(tmpBase, 'claws');
@@ -61,6 +62,7 @@ describe('EvolutionSystem — clawContractManagerFactory injection (phase 619 ca
         audit: { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)} as any,
         toolRegistry: createToolRegistry(),
         fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
     });
@@ -106,6 +108,7 @@ describe('EvolutionSystem — clawContractManagerFactory injection (phase 619 ca
         audit: { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)} as any,
         toolRegistry: createToolRegistry(),
         fsFactory: (dir: string) => new NodeFileSystem({ baseDir: dir }),
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     clawsDir: '/tmp/test/claws',
     notifyClaw: vi.fn(),});
     });

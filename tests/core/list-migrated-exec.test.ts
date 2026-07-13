@@ -13,6 +13,7 @@ describe('listMigratedExecTasks', () => {
   let resultsDir: string;
 
   beforeEach(() => {
+    // eslint-disable-next-line chestnut-custom/no-bare-tempdir-in-tests
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'chestnut-test-'));
     clawDir = path.join(tmpDir, 'claws', 'test-claw');
     runningDir = path.join(clawDir, TASKS_QUEUES_RUNNING_DIR);
