@@ -24,7 +24,8 @@ export interface SessionData {
 
 export interface LoadResult {
   session: SessionData;
-  source: 'current' | 'archive' | 'empty';
+  source: 'current' | 'archive' | 'empty' | 'io_error';
+  error?: string;  // non-empty when source === 'io_error'
 }
 
 /** phase 466: marker 模式 for subagent context restoration */

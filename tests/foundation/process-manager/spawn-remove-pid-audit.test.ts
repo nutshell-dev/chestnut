@@ -100,7 +100,7 @@ describe('spawn — removePid silent → audit (P1.1)', () => {
         'pid_remove_failed',
         expect.stringContaining(''),
         expect.stringContaining('context=spawn_retry_overwrite'),
-        expect.stringContaining('reason=EACCES'),
+        expect.stringContaining('reason=[EACCES]'),
       ]),
     );
   });

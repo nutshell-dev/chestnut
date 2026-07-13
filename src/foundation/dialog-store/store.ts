@@ -80,39 +80,44 @@ export class DialogStore {
    */
   async load(): Promise<LoadResult> {
     if (this.corruptedPoisoned) {
-      const archived = await this.loadLatestArchive();
-      if (archived) {
-        // phase 597: 加 to forensic col、明示 recover 目标（与 CORRUPTED 'file=current.json' 对齐）
-        this.audit.write(DIALOG_AUDIT_EVENTS.RECOVERED, `from=${archived.name}`, `to=current.json`);
-        this.createdAt = archived.session.createdAt;
-        this.prevMessagesLength = archived.session.messages.length;
-        return { session: archived.session, source: 'archive' };
+      if (await this.fs.exists(this.currentPath)) {
+        // Phase 984: a fresh save (or transient I/O recovery) made current.json available again.
+        // Reset poison and retry the normal load path instead of skipping straight to archive.
+        this.corruptedPoisoned = false;
+      } else {
+        const archived = await this.loadLatestArchive();
+        if (archived) {
+          // phase 597: 加 to forensic col、明示 recover 目标（与 CORRUPTED 'file=current.json' 对齐）
+          this.audit.write(DIALOG_AUDIT_EVENTS.RECOVERED, `from=${archived.name}`, `to=current.json`);
+          this.createdAt = archived.session.createdAt;
+          this.prevMessagesLength = archived.session.messages.length;
+          return { session: archived.session, source: 'archive' };
+        }
+        return this.coldStart();
       }
-      return this.coldStart();
     }
 
     // Try current.json first
     try {
       const content = await this.fs.read(this.currentPath);
-      const parsed = JSON.parse(content) as Partial<SessionData>;
-      const detected = detectAndMigrateVersion(parsed, CURRENT_DIALOG_FILE, this.audit);
-      if (detected === null) {
-        this.audit.write(DIALOG_AUDIT_EVENTS.CORRUPTED, 'file=current.json', `reason=version_unknown`);
-        throw new DialogStoreError('session version unknown');
-      }
-      const data = this.validateSession(detected);
-      // Cache createdAt for subsequent saves
-      this.createdAt = data.createdAt;
-      this.prevMessagesLength = data.messages.length;
-      return { session: data, source: 'current' };
-    } catch (err) {
-      if (isFileNotFound(err)) {
-        // Cold start: missing file is expected
-      } else {
-        this.audit.write(DIALOG_AUDIT_EVENTS.CORRUPTED, 'file=current.json', `reason=${formatErr(err)}`);
-        // Rename corrupted file so subsequent loads don't retry parsing it
+      try {
+        const parsed = JSON.parse(content) as Partial<SessionData>;
+        const detected = detectAndMigrateVersion(parsed, CURRENT_DIALOG_FILE, this.audit);
+        if (detected === null) {
+          this.audit.write(DIALOG_AUDIT_EVENTS.CORRUPTED, 'file=current.json', `reason=version_unknown`);
+          throw new DialogStoreError('session version unknown');
+        }
+        const data = this.validateSession(detected);
+        // Cache createdAt for subsequent saves
+        this.createdAt = data.createdAt;
+        this.prevMessagesLength = data.messages.length;
+        return { session: data, source: 'current' };
+      } catch (parseErr) {
+        // Data corruption: isolate the bad file and recover from archive.
+        this.audit.write(DIALOG_AUDIT_EVENTS.CORRUPTED, 'file=current.json', `reason=${formatErr(parseErr)}`);
         try {
-          await this.fs.move(this.currentPath, this.currentPath + '.corrupted');
+          const ts = Date.now();
+          await this.fs.move(this.currentPath, `${this.currentPath}.corrupted.${ts}_${newShortUuid()}`);
         } catch (renameErr) {
           this.audit.write(
             DIALOG_AUDIT_EVENTS.CORRUPTED_ISOLATE_FAILED,
@@ -122,8 +127,23 @@ export class DialogStore {
         }
         this.corruptedPoisoned = true;
       }
+    } catch (err) {
+      if (isFileNotFound(err)) {
+        // Cold start: missing file is expected; fall through to archive recovery.
+      } else {
+        // I/O error (e.g. EIO/EACCES): propagate without isolating the file.
+        this.audit.write(
+          DIALOG_AUDIT_EVENTS.LOAD_FAILED,
+          `file=current.json`,
+          `code=${(err as NodeJS.ErrnoException).code ?? 'unknown'}`,
+          `reason=${formatErr(err)}`,
+        );
+        return { session: this.makeEmptySession(), source: 'io_error', error: formatErr(err) };
+      }
+    }
 
-      // Recovery from archive
+    // Recovery from archive (current missing or corrupted)
+    try {
       const archived = await this.loadLatestArchive();
       if (archived) {
         // phase 597: 加 to forensic col、明示 recover 目标（与 CORRUPTED 'file=current.json' 对齐）
@@ -132,9 +152,17 @@ export class DialogStore {
         this.prevMessagesLength = archived.session.messages.length;
         return { session: archived.session, source: 'archive' };
       }
-
-      return this.coldStart();
+    } catch (err) {
+      this.audit.write(
+        DIALOG_AUDIT_EVENTS.LOAD_FAILED,
+        `file=archive`,
+        `code=${(err as NodeJS.ErrnoException).code ?? 'unknown'}`,
+        `reason=${formatErr(err)}`,
+      );
+      return { session: this.makeEmptySession(), source: 'io_error', error: formatErr(err) };
     }
+
+    return this.coldStart();
   }
 
   /**
@@ -551,8 +579,9 @@ export class DialogStore {
     if (!filePath.startsWith(this.archiveDir + path.sep)) {
       throw new DialogStoreError(`Path traversal detected: "${filename}"`);
     }
+    // I/O errors from read() propagate unchanged; they are not data corruption.
+    const content = await this.fs.read(filePath);
     try {
-      const content = await this.fs.read(filePath);
       const parsed = JSON.parse(content) as Partial<SessionData>;
       const detected = detectAndMigrateVersion(parsed, filename, this.audit);
       if (detected === null) {
@@ -562,9 +591,9 @@ export class DialogStore {
       return this.validateSession(detected);
     } catch (err) {
       if (isFileNotFound(err)) {
-        throw err; // 文件不存在，直接抛出让 caller 处理
+        throw err; // should not happen since read() succeeded, but keep defensive
       }
-      // 其他错误（parse / version / validation）——尝试隔离到 corrupted
+      // Data corruption (parse / version / validation): isolate and re-throw.
       try {
         await this.fs.ensureDir(path.join(this.archiveDir, CORRUPTED_SUBDIR));
         await this.fs.move(filePath, path.join(this.archiveDir, CORRUPTED_SUBDIR, safeName));
@@ -592,55 +621,82 @@ export class DialogStore {
    * Load latest archive (cold start recovery)
    */
   private async loadLatestArchive(): Promise<{ session: SessionData; name: string } | null> {
+    let entries;
     try {
-      const entries = await this.fs.list(this.archiveDir);
-      const files = entries
-        .filter((e) => e.isFile && e.name.endsWith('.json') && !isNaN(this.parseArchiveTimestamp(e.name)))
-        .sort((a, b) => this.parseArchiveTimestamp(b.name) - this.parseArchiveTimestamp(a.name)); // newest first
-
-      for (const entry of files) {
-        try {
-          const content = await this.fs.read(path.join(this.archiveDir, entry.name));
-          const parsed = JSON.parse(content) as Partial<SessionData>;
-          const detected = detectAndMigrateVersion(parsed, entry.name, this.audit);
-          if (detected === null) {
-            this.audit.write(DIALOG_AUDIT_EVENTS.ARCHIVE_PARSE_FAILED, `file=${entry.name}`, `reason=version_unknown`);
-            continue;
-          }
-          const session = this.validateSession(detected);
-          return { session, name: entry.name };
-        } catch (err) {
-          this.audit.write(
-            DIALOG_AUDIT_EVENTS.CORRUPTED,
-            `file=${entry.name}`,
-            `reason=${formatErr(err)}`,
-          );
-          // Continue to next archive
-        }
-      }
-
-      if (files.length === 0) {
-        this.audit.write(DIALOG_AUDIT_EVENTS.ARCHIVE_EMPTY);
-      } else {
-        this.audit.write(DIALOG_AUDIT_EVENTS.ARCHIVE_ALL_CORRUPTED, `scanned=${files.length}`);
-      }
-      return null;
+      entries = await this.fs.list(this.archiveDir);
     } catch (err) {
+      if (isFileNotFound(err)) {
+        // Archive directory does not exist yet — equivalent to empty archive.
+        this.audit.write(DIALOG_AUDIT_EVENTS.ARCHIVE_EMPTY);
+        return null;
+      }
+      // I/O error listing the archive directory must propagate, not be treated as "no archives".
       this.audit.write(
         DIALOG_AUDIT_EVENTS.ARCHIVE_READ_FAILED,
         `dir=${this.archiveDir}`,
         `reason=${formatErr(err)}`,
       );
-      return null;
+      throw err;
     }
+
+    const files = entries
+      .filter((e) => e.isFile && e.name.endsWith('.json') && !isNaN(this.parseArchiveTimestamp(e.name)))
+      .sort((a, b) => this.parseArchiveTimestamp(b.name) - this.parseArchiveTimestamp(a.name)); // newest first
+
+    for (const entry of files) {
+      const filePath = path.join(this.archiveDir, entry.name);
+      let content: string;
+      try {
+        content = await this.fs.read(filePath);
+      } catch (err) {
+        if (isFileNotFound(err)) {
+          // TOCTOU: archive vanished between list and read.
+          continue;
+        }
+        // I/O error reading an archive file propagates.
+        throw err;
+      }
+
+      try {
+        const parsed = JSON.parse(content) as Partial<SessionData>;
+        const detected = detectAndMigrateVersion(parsed, entry.name, this.audit);
+        if (detected === null) {
+          this.audit.write(DIALOG_AUDIT_EVENTS.ARCHIVE_PARSE_FAILED, `file=${entry.name}`, `reason=version_unknown`);
+          continue;
+        }
+        const session = this.validateSession(detected);
+        return { session, name: entry.name };
+      } catch (err) {
+        // Data corruption in this archive: isolate and try the next older archive.
+        try {
+          await this.fs.ensureDir(path.join(this.archiveDir, CORRUPTED_SUBDIR));
+          await this.fs.move(filePath, path.join(this.archiveDir, CORRUPTED_SUBDIR, entry.name));
+          this.audit.write(DIALOG_AUDIT_EVENTS.CORRUPTED, `file=${entry.name}`, `isolated=corrupted/${entry.name}`);
+        } catch (moveErr) {
+          this.audit.write(
+            DIALOG_AUDIT_EVENTS.CORRUPTED_ISOLATE_FAILED,
+            `path=${filePath}`,
+            `reason=${formatErr(moveErr)}`,
+          );
+        }
+        continue;
+      }
+    }
+
+    if (files.length === 0) {
+      this.audit.write(DIALOG_AUDIT_EVENTS.ARCHIVE_EMPTY);
+    } else {
+      this.audit.write(DIALOG_AUDIT_EVENTS.ARCHIVE_ALL_CORRUPTED, `scanned=${files.length}`);
+    }
+    return null;
   }
 
   /**
    * Cold start: empty session
    */
-  private coldStart(): LoadResult {
+  private makeEmptySession(): SessionData {
     const now = new Date().toISOString();
-    const emptySession: SessionData = {
+    return {
       version: 2,
       ...(this.clawId !== undefined && { clawId: this.clawId }),
       createdAt: now,
@@ -649,6 +705,10 @@ export class DialogStore {
       messages: [],
       toolsForLLM: [],
     };
+  }
+
+  private coldStart(): LoadResult {
+    const emptySession = this.makeEmptySession();
     this.createdAt = emptySession.createdAt;
     this.prevMessagesLength = 0;
     this.audit.write(DIALOG_AUDIT_EVENTS.COLD_START);

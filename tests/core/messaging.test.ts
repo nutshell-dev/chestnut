@@ -262,7 +262,7 @@ describe('Messaging', () => {
         expect(listFailEvent).toEqual(
           expect.arrayContaining(['inbox_list_failed', 'op=peek', 'error_code=EACCES']),
         );
-        expect(listFailEvent!.some((col: string) => col.startsWith('reason=Permission denied'))).toBe(true);
+        expect(listFailEvent!.some((col: string) => col.startsWith('reason=[EACCES] Permission denied'))).toBe(true);
       });
     });
   });

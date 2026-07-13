@@ -16,6 +16,11 @@ describe('phase 13 formatErr behavior contract', () => {
       expect(formatErr(new Error('boom'))).toBe('boom');
     });
 
+    it('Error 带 .code: 前缀 [code] (phase 984)', () => {
+      const err = Object.assign(new Error('permission denied'), { code: 'EACCES' });
+      expect(formatErr(err)).toBe('[EACCES] permission denied');
+    });
+
     it('空 message Error: 退化到 err.name', () => {
       const e = new Error('');
       expect(formatErr(e)).toBe('Error');

@@ -153,7 +153,7 @@ describe('phase 1080: verifier-job cancel skip', () => {
     expect(failedRow).toBeDefined();
     expect(failedRow).toContain('agentId=verifier-test-contract-1');
     expect(failedRow).toContain('kind=io_error');
-    expect(failedRow).toContain('reason=EACCES: permission denied');
+    expect(failedRow).toContain('reason=[EACCES] EACCES: permission denied');
   });
 
   it('runs verifier when contractId is not provided (backward compat)', async () => {

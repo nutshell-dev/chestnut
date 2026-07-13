@@ -18,11 +18,13 @@ function inspectOneLine(v: unknown): string {
 function formatErrWithDepth(err: unknown, depth: number): string {
   if (depth > CAUSE_DEPTH_LIMIT) return '[depth-limit]';
   if (err instanceof Error) {
+    const code = (err as NodeJS.ErrnoException).code;
     const head = err.message || err.name || 'Error';
+    const prefix = code ? `[${code}] ${head}` : head;
     if (err.cause !== undefined) {
-      return `${head} -> caused by: ${formatErrWithDepth(err.cause, depth + 1)}`;
+      return `${prefix} -> caused by: ${formatErrWithDepth(err.cause, depth + 1)}`;
     }
-    return head;
+    return prefix;
   }
   if (err === null || err === undefined) return String(err);
   const t = typeof err;

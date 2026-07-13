@@ -417,7 +417,7 @@ describe('DialogStore unit tests', () => {
     expect(audit.write).toHaveBeenCalledWith(
       DIALOG_AUDIT_EVENTS.CORRUPTED,
       'file=3000_corrupted.json',
-      expect.stringContaining('reason='),
+      expect.stringContaining('isolated=corrupted/3000_corrupted.json'),
     );
     // phase 597: RECOVERED 加 to=current.json forensic col
     expect(audit.write).toHaveBeenCalledWith(
@@ -455,19 +455,17 @@ describe('DialogStore unit tests', () => {
   });
 
   it('load: writes session_archive_read_failed when archive list throws', async () => {
-    const failingFs = {
-      ...nodeFs,
-      list: vi.fn(() => Promise.reject(new Error('permission denied'))),
-    } as unknown as NodeFileSystem;
     const audit = { write: vi.fn() , preview: vi.fn((s: string) => s), message: vi.fn((s: string) => s), summary: vi.fn((s: string) => s)};
-    const smFail = new DialogStore(failingFs, 'dialog', audit, 'current.json', 'test-claw');
+    const listSpy = vi.spyOn(nodeFs, 'list').mockRejectedValue(new Error('permission denied'));
+    const smFail = new DialogStore(nodeFs, 'dialog', audit, 'current.json', 'test-claw');
     const result = await smFail.load();
-    expect(result.source).toBe('empty');
+    expect(result.source).toBe('io_error');
     expect(audit.write).toHaveBeenCalledWith(
       DIALOG_AUDIT_EVENTS.ARCHIVE_READ_FAILED,
       expect.stringContaining('dir='),
       expect.stringContaining('reason=permission denied'),
     );
+    listSpy.mockRestore();
   });
 
   it('load: writes session_corrupted_isolate_failed when rename after corruption fails', async () => {

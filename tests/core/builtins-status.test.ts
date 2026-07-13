@@ -301,7 +301,7 @@ describe('Builtin Tools - status tool', () => {
 
       expect(auditWriter.write).toHaveBeenCalledWith(
         'status_task_pending_error',
-        'error=permission denied',
+        'error=[EACCES] permission denied',
       );
 
       listSpy.mockRestore();
@@ -331,7 +331,7 @@ describe('Builtin Tools - status tool', () => {
 
       expect(auditWriter.write).toHaveBeenCalledWith(
         'status_task_running_error',
-        'error=disk error',
+        'error=[EIO] disk error',
       );
 
       listSpy.mockRestore();

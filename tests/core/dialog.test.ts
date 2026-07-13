@@ -164,7 +164,11 @@ describe('Dialog', () => {
 
         // SF-02: corrupted current.json should be renamed
         expect(await nodeFs.exists('dialog/current.json')).toBe(false);
-        expect(await nodeFs.exists('dialog/current.json.corrupted')).toBe(true);
+        const corruptedExists = await nodeFs.exists('dialog/current.json.corrupted');
+        expect(corruptedExists).toBe(false);
+        // Phase 984: corrupted files are isolated with a timestamp + short UUID suffix.
+        const dirEntries = await nodeFs.list('dialog');
+        expect(dirEntries.some(e => /current\.json\.corrupted\.\d+_[a-z0-9]+/.test(e.name))).toBe(true);
       });
 
       it('should return empty session when nothing exists', async () => {

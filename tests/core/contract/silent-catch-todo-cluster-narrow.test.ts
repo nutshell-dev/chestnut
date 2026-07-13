@@ -177,7 +177,7 @@ describe('phase 1010 — silent X TODO cluster narrow', () => {
     })).rejects.toThrow('Observer state corrupt');
     expect(events).toHaveLength(1);
     expect(events[0][0]).toBe(CONTRACT_AUDIT_EVENTS.OBSERVER_STATE_LOAD_FAILED);
-    expect(events[0]).toContain('reason=read_failed:EACCES:EACCES');
+    expect(events[0]).toContain('reason=read_failed:EACCES:[EACCES] EACCES');
     expect(notifyInbox).not.toHaveBeenCalled();
   });
 

@@ -78,7 +78,7 @@ describe('status-tool integration (audit emission paths — phase 1468 F9 cov pr
     const tool = createStatusTool(cs);
     const result = await tool.execute({}, ctx);
     expect(result.success).toBe(true);
-    expect(result.content).toContain('pending error: EACCES');
+    expect(result.content).toContain('pending error: [EACCES]');
     const pendingCall = auditWrite.mock.calls.find(c => c[0] === STATUS_AUDIT_EVENTS.TASK_PENDING_ERROR);
     expect(pendingCall).toBeDefined();
     expect(pendingCall!.some((s: unknown) => typeof s === 'string' && s.includes('EACCES'))).toBe(true);
@@ -100,7 +100,7 @@ describe('status-tool integration (audit emission paths — phase 1468 F9 cov pr
     const tool = createStatusTool(cs);
     const result = await tool.execute({}, ctx);
     expect(result.success).toBe(true);
-    expect(result.content).toContain('running error: EIO');
+    expect(result.content).toContain('running error: [EIO]');
     const runningCall = auditWrite.mock.calls.find(c => c[0] === STATUS_AUDIT_EVENTS.TASK_RUNNING_ERROR);
     expect(runningCall).toBeDefined();
     expect(runningCall!.some((s: unknown) => typeof s === 'string' && s.includes('EIO'))).toBe(true);

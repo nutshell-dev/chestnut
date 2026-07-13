@@ -40,37 +40,38 @@ export async function restoreMessages(
   // 1. Scan current.json
   try {
     const content = await fs.read(currentPath);
-    const parsed = JSON.parse(content) as Partial<SessionData>;
-    const detected = detectAndMigrateVersion(parsed, CURRENT_DIALOG_FILE, audit);
-    if (detected === null) {
-      // version unknown — treat as corrupted and fall through to archive
-      throw new DialogStoreError('session version unknown');
-    }
-    const data = validateSessionData(detected, audit);
-    // Phase 921: clawId consistency — mismatch means this source belongs to a different claw.
-    // Legacy sessions without clawId are skipped (backward compatible).
-    if (data.clawId && marker.clawId && data.clawId !== marker.clawId) {
-      audit?.write?.(
-        DIALOG_AUDIT_EVENTS.CLAWID_MISMATCH,
-        `source=current`,
-        `expected=${marker.clawId}`,
-        `actual=${data.clawId}`,
-        `toolUseId=${marker.toolUseId}`,
-      );
-      // fall through to archive search
-    } else {
-      const sliced = sliceMessagesAtMarker(data.messages, marker.toolUseId, inclusive);
-      if (sliced !== null) {
-        return {
-          messages: sliced,
-          systemPrompt: data.systemPrompt,
-          toolsForLLM: data.toolsForLLM,
-          meta: { foundIn: 'current' },
-        };
+    try {
+      const parsed = JSON.parse(content) as Partial<SessionData>;
+      const detected = detectAndMigrateVersion(parsed, CURRENT_DIALOG_FILE, audit);
+      if (detected === null) {
+        // version unknown — treat as corrupted and fall through to archive
+        throw new DialogStoreError('session version unknown');
       }
-    }
-  } catch (err) {
-    if (!isFileNotFound(err)) {
+      const data = validateSessionData(detected, audit);
+      // Phase 921: clawId consistency — mismatch means this source belongs to a different claw.
+      // Legacy sessions without clawId are skipped (backward compatible).
+      if (data.clawId && marker.clawId && data.clawId !== marker.clawId) {
+        audit?.write?.(
+          DIALOG_AUDIT_EVENTS.CLAWID_MISMATCH,
+          `source=current`,
+          `expected=${marker.clawId}`,
+          `actual=${data.clawId}`,
+          `toolUseId=${marker.toolUseId}`,
+        );
+        // fall through to archive search
+      } else {
+        const sliced = sliceMessagesAtMarker(data.messages, marker.toolUseId, inclusive);
+        if (sliced !== null) {
+          return {
+            messages: sliced,
+            systemPrompt: data.systemPrompt,
+            toolsForLLM: data.toolsForLLM,
+            meta: { foundIn: 'current' },
+          };
+        }
+      }
+    } catch (err) {
+      if (isFileNotFound(err)) throw err;
       audit?.write?.(
         DIALOG_AUDIT_EVENTS.CORRUPTED,
         'file=current.json',
@@ -78,7 +79,9 @@ export async function restoreMessages(
         `reason=${formatErr(err)}`,
       );
     }
-    // current 不存在或损坏 / 走 archive
+  } catch (err) {
+    if (!isFileNotFound(err)) throw err;
+    // ENOENT: current.json does not exist; fall through to archive search.
   }
 
   // 2. Scan archive/*.json (按时间倒序 / 找首个含 toolUseId 的)

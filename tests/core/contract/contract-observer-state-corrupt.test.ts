@@ -155,7 +155,7 @@ describe('contract observer state file corrupt (phase 946)', () => {
       expect.arrayContaining([
         CONTRACT_AUDIT_EVENTS.OBSERVER_STATE_LOAD_FAILED,
         'file=/tmp/test/motion/status/contract-observer-state.json',
-        'reason=read_failed:EIO:EIO',
+        'reason=read_failed:EIO:[EIO] EIO',
       ]),
     );
   });
