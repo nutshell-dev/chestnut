@@ -27,6 +27,8 @@ describe('eslint custom rule: no-bare-tempdir-in-tests (phase 998)', () => {
       { code: "import * as nodeOs from 'node:os'; import * as fs from 'node:fs'; fs.mkdtempSync(require('node:path').join(nodeOs.tmpdir(), 'prefix-'));", filename: 'tests/core/example.test.ts' },
       // fsp.mkdtemp with os.tmpdir() prefix is OK
       { code: "import * as fsp from 'fs/promises'; import * as os from 'node:os'; await fsp.mkdtemp(require('node:path').join(os.tmpdir(), 'prefix-'));", filename: 'tests/core/example.test.ts' },
+      // scope shadowing: parameter `os` is not the imported module
+      { code: "import * as os from 'node:os'; function f(os) { os.tmpdir(); }", filename: 'tests/core/example.test.ts' },
     ],
     invalid: [
       {
@@ -91,6 +93,16 @@ describe('eslint custom rule: no-bare-tempdir-in-tests (phase 998)', () => {
       },
       {
         code: "import { realpathSync } from 'node:fs'; const d = realpathSync('/tmp');",
+        filename: 'tests/core/example.test.ts',
+        errors: [{ messageId: 'noHardcodedTmp' }],
+      },
+      {
+        code: "import * as fs from 'node:fs'; import * as path from 'node:path'; const d = fs.mkdtempSync(path.join('/tmp', 'test-'));",
+        filename: 'tests/core/example.test.ts',
+        errors: [{ messageId: 'noHardcodedTmp' }],
+      },
+      {
+        code: "import * as fs from 'node:fs'; import * as path from 'node:path'; const d = fs.mkdtemp(path.resolve('/tmp', 'test-'));",
         filename: 'tests/core/example.test.ts',
         errors: [{ messageId: 'noHardcodedTmp' }],
       },
